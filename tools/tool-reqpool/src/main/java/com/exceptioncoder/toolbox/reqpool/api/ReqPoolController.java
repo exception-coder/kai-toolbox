@@ -1,7 +1,5 @@
 package com.exceptioncoder.toolbox.reqpool.api;
 
-import com.exceptioncoder.toolbox.common.requirement.RequirementType;
-import com.exceptioncoder.toolbox.common.requirement.RequirementTypeSource;
 import com.exceptioncoder.toolbox.reqpool.api.dto.AssignReqRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.CreateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.LinkPrdRequest;
@@ -10,8 +8,10 @@ import com.exceptioncoder.toolbox.reqpool.api.dto.ReqItemViewAssembler;
 import com.exceptioncoder.toolbox.reqpool.api.dto.UpdateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqItemRepository;
+import com.exceptioncoder.toolbox.reqpool.repository.ReqPoolIntegrationRepository;
 import com.exceptioncoder.toolbox.reqpool.service.ReqAnalysisService;
 import com.exceptioncoder.toolbox.reqpool.service.ReqDevelopmentAccessPolicy;
+import com.exceptioncoder.toolbox.reqpool.service.ReqPoolPrdSyncService;
 import com.exceptioncoder.toolbox.reqpool.service.ReqRequirementTypeService;
 import com.exceptioncoder.toolbox.common.auth.config.AuthProperties;
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
@@ -29,16 +29,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
@@ -62,20 +59,25 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class ReqPoolController {
 
     private final ReqItemRepository repo;
-    private final JdbcTemplate jdbc;
+    private final ReqPoolIntegrationRepository integrationRepository;
+    private final ReqPoolPrdSyncService prdSyncService;
     private final ReqAnalysisService analysis;
     private final ReqDevelopmentAccessPolicy developmentAccess;
     private final ReqRequirementTypeService requirementTypeService;
     private final ReqItemViewAssembler viewAssembler;
     private final AuthProperties authProperties;
 
-    public ReqPoolController(ReqItemRepository repo, JdbcTemplate jdbc, ReqAnalysisService analysis,
+    public ReqPoolController(ReqItemRepository repo,
+                             ReqPoolIntegrationRepository integrationRepository,
+                             ReqPoolPrdSyncService prdSyncService,
+                             ReqAnalysisService analysis,
                              ReqDevelopmentAccessPolicy developmentAccess,
                              ReqRequirementTypeService requirementTypeService,
                              ReqItemViewAssembler viewAssembler,
                              AuthProperties authProperties) {
         this.repo = repo;
-        this.jdbc = jdbc;
+        this.integrationRepository = integrationRepository;
+        this.prdSyncService = prdSyncService;
         this.analysis = analysis;
         this.developmentAccess = developmentAccess;
         this.requirementTypeService = requirementTypeService;
@@ -115,7 +117,10 @@ public class ReqPoolController {
                 .updatedAt(now)
                 .build();
         if (hasPrd) {
-            requirementTypeService.applyPrdSessionType(item, findConfirmedPrdType(req.prdSessionId()));
+            requirementTypeService.applyPrdSessionType(
+                    item,
+                    integrationRepository.findConfirmedPrdType(req.prdSessionId())
+            );
         } else {
             requirementTypeService.resolveIndependentItem(item);
         }
@@ -146,10 +151,7 @@ public class ReqPoolController {
         if (!allowed) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "仅管理员或该需求负责人可以发起开发");
         }
-        String devSessionId = jdbc.query(
-                "SELECT dev_session_id FROM prd_session WHERE id = ?",
-                rs -> rs.next() ? rs.getString(1) : null,
-                prdSessionId);
+        String devSessionId = integrationRepository.findDevSessionId(prdSessionId);
         return Map.of(
                 "allowed", true,
                 "itemId", item.getId(),
@@ -183,7 +185,7 @@ public class ReqPoolController {
             } else {
                 requirementTypeService.applyPrdSessionType(
                         existing,
-                        findConfirmedPrdType(existing.getPrdSessionId())
+                        integrationRepository.findConfirmedPrdType(existing.getPrdSessionId())
                 );
             }
         }
@@ -201,13 +203,11 @@ public class ReqPoolController {
             existing.setAssignee(null);
             existing.setAssigneeUserId(null);
         } else {
-            List<Map<String, Object>> users = jdbc.queryForList(
-                    "SELECT id, username, real_name FROM auth_user WHERE id = ? AND enabled = 1",
-                    req.userId());
-            if (users.isEmpty()) {
-                throw new ResponseStatusException(NOT_FOUND, "指派账号不存在或已停用: " + req.userId());
-            }
-            Map<String, Object> user = users.getFirst();
+            Map<String, Object> user = integrationRepository.findEnabledUser(req.userId())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            NOT_FOUND,
+                            "指派账号不存在或已停用: " + req.userId()
+                    ));
             String username = String.valueOf(user.get("username"));
             String realName = user.get("real_name") != null ? String.valueOf(user.get("real_name")).trim() : "";
             existing.setAssignee(realName.isBlank() ? username : realName);
@@ -230,11 +230,7 @@ public class ReqPoolController {
         if (existing == null) return false;
         String prdSessionId = existing.getPrdSessionId();
         if (prdSessionId != null && !prdSessionId.isBlank()) {
-            jdbc.update("""
-                    INSERT INTO req_pool_prd_exclusion (prd_session_id, excluded_at)
-                    VALUES (?, ?)
-                    ON CONFLICT(prd_session_id) DO UPDATE SET excluded_at = excluded.excluded_at
-                    """, prdSessionId, System.currentTimeMillis());
+            integrationRepository.excludePrdSession(prdSessionId, System.currentTimeMillis());
         }
         repo.delete(id);
         return true;
@@ -260,7 +256,10 @@ public class ReqPoolController {
         repo.linkPrd(id, req.prdSessionId());
         ReqItem linked = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
-        requirementTypeService.applyPrdSessionType(linked, findConfirmedPrdType(req.prdSessionId()));
+        requirementTypeService.applyPrdSessionType(
+                linked,
+                integrationRepository.findConfirmedPrdType(req.prdSessionId())
+        );
         repo.update(linked);
         return toView(linked);
     }
@@ -344,7 +343,7 @@ public class ReqPoolController {
     @PostMapping("/portfolio-analyze")
     public ResponseEntity<Map<String, Object>> portfolioAnalyze() {
         // 只分析活跃需求（排除已取消）
-        List<ReqItem> items = rootRequirements(repo.findAll(null, null, null)).stream()
+        List<ReqItem> items = prdSyncService.rootRequirements(repo.findAll(null, null, null)).stream()
                 .filter(i -> !"CANCELLED".equals(i.getStatus()))
                 .toList();
 
@@ -362,7 +361,7 @@ public class ReqPoolController {
      */
     @PostMapping("/batch-analyze")
     public ResponseEntity<Map<String, Object>> batchAnalyze() {
-        List<ReqItem> items = rootRequirements(repo.findAll(null, null, null)).stream()
+        List<ReqItem> items = prdSyncService.rootRequirements(repo.findAll(null, null, null)).stream()
                 .filter(i -> i.getAiInsight() == null || i.getAiInsight().isBlank())
                 .toList();
 
@@ -394,127 +393,12 @@ public class ReqPoolController {
      */
     @PostMapping("/sync-from-prd")
     public ResponseEntity<Map<String, Object>> syncFromPrd() {
-        List<Map<String, Object>> sessions = jdbc.queryForList(
-                "SELECT id, title, raw_input, project, module, status, " +
-                "CASE WHEN status = 'DRAFT' THEN NULL ELSE req_type END AS req_type FROM prd_session " +
-                "WHERE status IN ('DRAFT', 'DONE', 'CLARIFYING') " +
-                "AND NOT EXISTS (SELECT 1 FROM req_pool_prd_exclusion " +
-                "WHERE req_pool_prd_exclusion.prd_session_id = prd_session.id)"
-        );
-
-        long now = System.currentTimeMillis();
-        int created = 0, updated = 0;
-
-        // 需求池是 PRD 的镜像视图之一：只清理“明确绑定过 PRD、但源记录已删除”的孤立镜像。
-        // prd_session_id 为空的独立登记/演示需求不受影响。
-        int deleted = jdbc.update("""
-                DELETE FROM req_pool_item
-                WHERE prd_session_id IS NOT NULL
-                  AND NOT EXISTS (
-                    SELECT 1 FROM prd_session
-                    WHERE prd_session.id = req_pool_item.prd_session_id
-                  )
-                """);
-        jdbc.update("""
-                DELETE FROM req_pool_prd_exclusion
-                WHERE NOT EXISTS (
-                  SELECT 1 FROM prd_session
-                  WHERE prd_session.id = req_pool_prd_exclusion.prd_session_id
-                )
-                """);
-
-        for (Map<String, Object> s : sessions) {
-            String prdId = String.valueOf(s.get("id"));
-            String prdStatus = String.valueOf(s.get("status"));
-            String title = s.get("title") != null ? String.valueOf(s.get("title")) : "未命名需求";
-            String description = s.get("raw_input") != null ? String.valueOf(s.get("raw_input")) : null;
-            String project = s.get("project") != null ? String.valueOf(s.get("project")) : null;
-            String module = s.get("module") != null ? String.valueOf(s.get("module")) : null;
-            String prdReqType = s.get("req_type") != null ? String.valueOf(s.get("req_type")) : null;
-            // prd_session 状态映射到 req_pool_item 状态
-            String reqStatus = switch (prdStatus) {
-                case "DONE" -> "PRD_READY";
-                case "CLARIFYING" -> "CLARIFYING";
-                default -> "DRAFT";
-            };
-
-            // 查询是否已有对应条目
-            List<Map<String, Object>> existing = jdbc.queryForList(
-                    "SELECT id, title, description, project, module, status, " +
-                            "req_type, req_type_source, req_type_confidence " +
-                            "FROM req_pool_item WHERE prd_session_id = ? " +
-                            "ORDER BY CASE WHEN assignee_user_id IS NOT NULL OR assignee IS NOT NULL THEN 0 ELSE 1 END, " +
-                            "CASE WHEN deadline IS NOT NULL AND deadline <> '' THEN 0 ELSE 1 END, created_at ASC", prdId);
-
-            if (existing.isEmpty()) {
-                // 新建
-                ReqItem item = ReqItem.builder()
-                        .id(UUID.randomUUID().toString())
-                        .title(title)
-                        .description(description)
-                        .project(project)
-                        .module(module)
-                        .priority("MEDIUM")
-                        .status(reqStatus)
-                        .prdSessionId(prdId)
-                        .createdAt(now)
-                        .updatedAt(now)
-                        .build();
-                requirementTypeService.applyPrdSessionType(item, prdReqType);
-                repo.insert(item);
-                created++;
-            } else {
-                // PRD 草稿是事实源：标题、描述、项目、模块和阶段发生变化时统一回写需求池。
-                // 历史版本可能为同一 PRD 建出多条镜像：保留负责人/承诺信息更完整的一条，其余直接去重。
-                Map<String, Object> current = existing.getFirst();
-                String existingId = String.valueOf(current.get("id"));
-                for (int index = 1; index < existing.size(); index++) {
-                    repo.delete(String.valueOf(existing.get(index).get("id")));
-                    deleted++;
-                }
-                boolean changed = !Objects.equals(title, current.get("title"))
-                        || !Objects.equals(description, current.get("description"))
-                        || !Objects.equals(project, current.get("project"))
-                        || !Objects.equals(module, current.get("module"))
-                        || !Objects.equals(reqStatus, current.get("status"))
-                        || !Objects.equals(normalizedPrdType(prdReqType), current.get("req_type"))
-                        || !Objects.equals(normalizedPrdTypeSource(prdReqType), current.get("req_type_source"));
-                if (changed) {
-                    jdbc.update("UPDATE req_pool_item SET title = ?, description = ?, project = ?, " +
-                                    "module = ?, status = ?, req_type = ?, req_type_source = ?, " +
-                                    "req_type_confidence = ?, updated_at = ? WHERE id = ?",
-                            title, description, project, module, reqStatus,
-                            normalizedPrdType(prdReqType), normalizedPrdTypeSource(prdReqType),
-                            RequirementType.fromCode(prdReqType).isClassified() ? 1 : 0, now, existingId);
-                    updated++;
-                }
-            }
-        }
-
-        return ResponseEntity.ok(Map.of("created", created, "updated", updated, "deleted", deleted));
+        return ResponseEntity.ok(prdSyncService.synchronize());
     }
 
-    /**
-     * 修订版与拆分子需求仍保留独立交付证据，但组合分析只能按根需求参与一次，
-     * 否则同一条业务需求的 v2/v3 会被重复计权并挤占优先级名次。
-     */
-    private List<ReqItem> rootRequirements(List<ReqItem> items) {
-        Set<String> childSessionIds = jdbc.queryForList(
-                        "SELECT id FROM prd_session WHERE parent_id IS NOT NULL AND parent_id <> ''",
-                        String.class)
-                .stream()
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-        return items.stream()
-                .filter(item -> item.getPrdSessionId() == null
-                        || !childSessionIds.contains(item.getPrdSessionId()))
-                .toList();
-    }
 
     private List<ReqItem> currentPortfolioItems() {
-        return rootRequirements(repo.findAll(null, null, null)).stream()
-                .filter(item -> !"CANCELLED".equals(item.getStatus()))
-                .toList();
+        return prdSyncService.currentPortfolioItems();
     }
 
     private ReqItemView toView(ReqItem item) {
@@ -538,24 +422,4 @@ public class ReqPoolController {
                 .build();
     }
 
-    private String findConfirmedPrdType(String prdSessionId) {
-        if (prdSessionId == null || prdSessionId.isBlank()) {
-            return null;
-        }
-        return jdbc.query(
-                "SELECT CASE WHEN status = 'DRAFT' THEN NULL ELSE req_type END FROM prd_session WHERE id = ?",
-                resultSet -> resultSet.next() ? resultSet.getString(1) : null,
-                prdSessionId
-        );
-    }
-
-    private String normalizedPrdType(String prdReqType) {
-        return RequirementType.fromCode(prdReqType).name();
-    }
-
-    private String normalizedPrdTypeSource(String prdReqType) {
-        return RequirementType.fromCode(prdReqType).isClassified()
-                ? RequirementTypeSource.PRD_SESSION.name()
-                : RequirementTypeSource.UNKNOWN.name();
-    }
 }

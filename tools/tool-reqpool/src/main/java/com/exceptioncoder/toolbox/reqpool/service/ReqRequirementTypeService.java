@@ -7,20 +7,35 @@ import com.exceptioncoder.toolbox.common.requirement.RequirementTypeSource;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** 为需求池条目解析并赋予后端权威需求类型。 */
 @Slf4j
 @Service
 public class ReqRequirementTypeService {
 
-    private final ObjectProvider<RequirementTypeResolutionPort> resolutionPorts;
+    private static final long DEFAULT_TIMEOUT_SECONDS = 30;
 
+    private final ObjectProvider<RequirementTypeResolutionPort> resolutionPorts;
+    private final long timeoutSeconds;
+
+    @Autowired
     public ReqRequirementTypeService(ObjectProvider<RequirementTypeResolutionPort> resolutionPorts) {
+        this(resolutionPorts, DEFAULT_TIMEOUT_SECONDS);
+    }
+
+    ReqRequirementTypeService(
+            ObjectProvider<RequirementTypeResolutionPort> resolutionPorts,
+            long timeoutSeconds
+    ) {
         this.resolutionPorts = resolutionPorts;
+        this.timeoutSeconds = Math.max(1, timeoutSeconds);
     }
 
     /**
@@ -54,11 +69,16 @@ public class ReqRequirementTypeService {
             RequirementTypeResolutionPort port,
             ReqItem item
     ) {
+        FutureTask<RequirementTypeResolution> task = new FutureTask<>(() ->
+                port.resolveRequirementType(item.getTitle(), item.getDescription(), null, null));
         try {
-            FutureTask<RequirementTypeResolution> task = new FutureTask<>(() ->
-                    port.resolveRequirementType(item.getTitle(), item.getDescription(), null, null));
             Thread.ofVirtual().name("reqpool-type-resolution").start(task);
-            return task.get();
+            return task.get(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (TimeoutException exception) {
+            task.cancel(true);
+            log.warn("[reqpool] 需求类型解析超时 itemId={} timeoutSeconds={}",
+                    item.getId(), timeoutSeconds);
+            return RequirementTypeResolution.unknown();
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             log.warn("[reqpool] 需求类型解析被中断 itemId={}", item.getId());

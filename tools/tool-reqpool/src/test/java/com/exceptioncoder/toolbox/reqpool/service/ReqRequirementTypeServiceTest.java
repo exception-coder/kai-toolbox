@@ -50,6 +50,30 @@ class ReqRequirementTypeServiceTest {
     }
 
     @Test
+    void fallsBackToUnknownWhenResolutionTimesOut() {
+        RequirementTypeResolutionPort port = (title, description, project, module) -> {
+            try {
+                Thread.sleep(2_000);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+            return new RequirementTypeResolution(
+                    RequirementType.NEW_MODULE,
+                    RequirementTypeSource.AI,
+                    0.9
+            );
+        };
+        ReqRequirementTypeService service = serviceWithTimeout(1, port);
+        ReqItem item = ReqItem.builder().id("req-timeout").title("慢响应需求").build();
+
+        service.resolveIndependentItem(item);
+
+        assertThat(item.getReqType()).isEqualTo("UNKNOWN");
+        assertThat(item.getReqTypeSource()).isEqualTo("UNKNOWN");
+        assertThat(item.getReqTypeConfidence()).isZero();
+    }
+
+    @Test
     void acceptsOnlyConfirmedPrdSessionTypes() {
         ReqRequirementTypeService service = serviceWith();
         ReqItem confirmed = ReqItem.builder().build();
@@ -68,9 +92,17 @@ class ReqRequirementTypeServiceTest {
 
     @SafeVarargs
     private static ReqRequirementTypeService serviceWith(RequirementTypeResolutionPort... ports) {
+        return serviceWithTimeout(30, ports);
+    }
+
+    @SafeVarargs
+    private static ReqRequirementTypeService serviceWithTimeout(
+            long timeoutSeconds,
+            RequirementTypeResolutionPort... ports
+    ) {
         @SuppressWarnings("unchecked")
         ObjectProvider<RequirementTypeResolutionPort> provider = mock(ObjectProvider.class);
         when(provider.orderedStream()).thenAnswer(invocation -> Stream.of(ports));
-        return new ReqRequirementTypeService(provider);
+        return new ReqRequirementTypeService(provider, timeoutSeconds);
     }
 }

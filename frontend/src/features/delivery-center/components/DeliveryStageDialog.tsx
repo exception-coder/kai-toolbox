@@ -2,22 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
-  CheckCircle2,
-  Download,
-  FileText,
-  Image as ImageIcon,
   Loader2,
-  Paperclip,
-  Sparkles,
   X,
 } from 'lucide-react'
-import { Markdown } from '@/features/ai-chat/components/Markdown'
-import {
-  parsePrdAttachment,
-  uploadPrdImage,
-  type PrdAttachmentParseResult,
-  type PrdImageAttachmentResult,
-} from '@/lib/prdAttachments'
+import { MarkdownContent } from '@/components/markdown/MarkdownContent'
 import {
   generateDevDocQuestions,
   getContent,
@@ -29,11 +17,17 @@ import {
   startClarifyFromDraft,
   startGenerate,
   startGenerateDevDoc,
-} from '@/features/prd-clarify/api'
-import type { QaPair } from '@/features/prd-clarify/api'
-import type { PrdSessionView, QuestionItem } from '@/features/prd-clarify/types'
-import { documentProfileLabels } from '@/features/prd-clarify/documentProfile'
+  documentProfileLabels,
+  type PrdSessionView,
+  type QaPair,
+  type QuestionItem,
+} from '@/features/prd-clarify/public-api'
 import type { DeliveryRequirement, DeliveryStageKey } from '../types'
+import { DraftView, EmptyDocument, GeneratedNotice, QuestionCards, ReadOnlyHistory, StageSummary } from './stages/DeliveryStageViews'
+import { GenerationSupplementDialog } from './GenerationSupplementDialog'
+import { eventMessage, extractSourceFiles, messageOf, parseTddQuestions } from '../lib/stageDialogUtils'
+
+export { GenerationSupplementDialog } from './GenerationSupplementDialog'
 
 interface Props {
   requirement: DeliveryRequirement
@@ -446,7 +440,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
           )}
           {stage === 'prd' && (
             content
-              ? <Markdown text={content} className="text-[13px]" />
+              ? <MarkdownContent content={content} className="text-[13px]" />
               : <EmptyDocument label={`${labels.specification}尚未生成，请先完成${labels.specificationClarify}。`} />
           )}
           {stage === 'tddClarify' && session && (
@@ -475,7 +469,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
           )}
           {stage === 'tdd' && (
             content
-              ? <Markdown text={content} className="text-[13px]" />
+              ? <MarkdownContent content={content} className="text-[13px]" />
               : <EmptyDocument label={`${labels.plan}尚未生成，请先完成${labels.planClarify}。`} />
           )}
           {(stage === 'code' || stage === 'test' || stage === 'runtime') && (
@@ -499,400 +493,4 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
       )}
     </div>
   )
-}
-
-export function GenerationSupplementDialog({
-  kind,
-  onClose,
-  onConfirm,
-}: {
-  kind: 'PRD' | 'TDD'
-  onClose: () => void
-  onConfirm: (extraInstructions: string) => void
-}) {
-  const [notes, setNotes] = useState('')
-  const [attachments, setAttachments] = useState<PrdAttachmentParseResult[]>([])
-  const [images, setImages] = useState<PrdImageAttachmentResult[]>([])
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !uploading) onClose()
-    }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [onClose, uploading])
-
-  const handleFiles = async (files: FileList | null) => {
-    if (!files?.length) return
-    setUploading(true)
-    setError('')
-    try {
-      const selected = Array.from(files)
-      const imageFiles = selected.filter(file => file.type.startsWith('image/'))
-      const documentFiles = selected.filter(file => !file.type.startsWith('image/'))
-      const [parsedDocuments, uploadedImages] = await Promise.all([
-        Promise.all(documentFiles.map(parsePrdAttachment)),
-        Promise.all(imageFiles.map(uploadPrdImage)),
-      ])
-      setAttachments(current => [...current, ...parsedDocuments])
-      setImages(current => [...current, ...uploadedImages])
-    } catch (cause) {
-      setError(messageOf(cause, '附件上传失败'))
-    } finally {
-      setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  const confirm = () => {
-    const sections = [notes.trim()]
-    if (attachments.length > 0) {
-      sections.push(attachments.map(attachment =>
-        `[📎 附件：${attachment.fileName}](${attachment.url})\n---\n【附件：${attachment.fileName}】\n${attachment.text}${attachment.truncated ? '\n（内容已截断）' : ''}\n---`
-      ).join('\n\n'))
-    }
-    if (images.length > 0) {
-      sections.push(images.map((item, index) =>
-        `![补充截图${index + 1}](${item.url})`
-      ).join('\n'))
-    }
-    onConfirm(sections.filter(Boolean).join('\n\n'))
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-0 backdrop-blur-sm sm:p-4"
-      onMouseDown={onClose}
-    >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="tdd-generation-confirm-title"
-        className="flex h-full w-full max-w-lg flex-col overflow-hidden border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl sm:h-auto sm:max-h-[85vh]"
-        onMouseDown={event => event.stopPropagation()}
-      >
-        <header className="flex items-start justify-between gap-3 border-b border-[var(--color-border)] px-4 py-4 sm:px-5">
-          <div>
-            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]">Before generation</p>
-            <h3 id="tdd-generation-confirm-title" className="mt-1 text-base font-semibold">{kind} 生成前补充</h3>
-            <p className="mt-1 text-xs leading-5 text-[var(--color-muted-foreground)]">澄清答案已经保留。可补充额外信息、参考文档或界面截图，不填写也可以直接生成。</p>
-          </div>
-          <button type="button" onClick={onClose} className="p-1 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]" aria-label="关闭">
-            <X className="h-4 w-4" />
-          </button>
-        </header>
-
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
-          <div>
-            <label htmlFor="tdd-extra-instructions" className="text-xs font-medium">额外说明（可选）</label>
-            <textarea
-              id="tdd-extra-instructions"
-              value={notes}
-              onChange={event => setNotes(event.target.value)}
-              rows={5}
-              autoFocus
-              placeholder={kind === 'PRD'
-                ? '例如：补充目标用户、业务边界、验收口径或不在本期范围内的事项……'
-                : '例如：必须兼容旧接口；本次只调整报价模块；数据库变更需要支持灰度发布……'}
-              className="mt-2 w-full resize-y rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-3 text-sm leading-6 outline-none focus:border-[var(--color-primary)]"
-            />
-          </div>
-
-          <div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".md,.txt,.pdf,.docx,.doc,image/jpeg,image/png,image/gif,image/webp"
-              multiple
-              className="hidden"
-              onChange={event => void handleFiles(event.target.files)}
-            />
-            <button
-              type="button"
-              disabled={uploading}
-              onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-lg border border-dashed border-[var(--color-border)] px-3 py-2 text-xs font-medium hover:border-[var(--color-primary)] disabled:opacity-50"
-            >
-              {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
-              {uploading ? '正在上传并解析…' : '添加附件或截图'}
-            </button>
-            <p className="mt-1.5 text-[10px] text-[var(--color-muted-foreground)]">支持 PDF、Word、Markdown、文本和常用图片，可多选。</p>
-          </div>
-
-          {(attachments.length > 0 || images.length > 0) && (
-            <div className="space-y-2">
-              {attachments.map((attachment, index) => (
-                <div key={`${attachment.fileId}-${index}`} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/25 px-3 py-2">
-                  <FileText className="h-4 w-4 shrink-0 text-[var(--color-primary)]" />
-                  <span className="min-w-0 flex-1 truncate text-xs">{attachment.fileName}</span>
-                  <button type="button" onClick={() => setAttachments(current => current.filter((_, itemIndex) => itemIndex !== index))} className="p-1 text-[var(--color-muted-foreground)] hover:text-rose-500" aria-label={`移除 ${attachment.fileName}`}>
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-              {images.map((item, index) => (
-                <div key={item.id} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/25 px-3 py-2">
-                  <ImageIcon className="h-4 w-4 shrink-0 text-[var(--color-primary)]" />
-                  <span className="min-w-0 flex-1 truncate text-xs">{item.name || `补充截图 ${index + 1}`}</span>
-                  <button type="button" onClick={() => setImages(current => current.filter(image => image.id !== item.id))} className="p-1 text-[var(--color-muted-foreground)] hover:text-rose-500" aria-label={`移除 ${item.name}`}>
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {error && <p className="text-xs text-rose-500">{error}</p>}
-        </div>
-
-        <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3 sm:px-5">
-          <button type="button" onClick={onClose} disabled={uploading} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs disabled:opacity-50">返回修改答案</button>
-          <button type="button" onClick={confirm} disabled={uploading} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-4 py-2 text-xs font-medium text-white disabled:opacity-50">
-            <Sparkles className="h-3.5 w-3.5" />确认并生成 {kind}
-          </button>
-        </footer>
-      </section>
-    </div>
-  )
-}
-
-function DraftView({ session, sourceFiles }: { session: PrdSessionView; sourceFiles: SourceFile[] }) {
-  return (
-    <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
-      <aside className="space-y-3">
-        <h3 className="text-xs font-semibold">原始需求源文件</h3>
-        {sourceFiles.length > 0 ? sourceFiles.map(file => (
-          <a
-            key={`${file.url}-${file.name}`}
-            href={file.url}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 border border-[var(--color-border)] p-3 text-xs hover:border-[var(--color-primary)]"
-          >
-            <FileText className="h-4 w-4 text-[var(--color-primary)]" />
-            <span className="min-w-0 flex-1 truncate">{file.name}</span>
-            <Download className="h-3.5 w-3.5" />
-          </a>
-        )) : (
-          <p className="text-xs text-[var(--color-muted-foreground)]">本需求通过文本或粘贴图片录入，没有独立源文件。</p>
-        )}
-        <BusinessFields session={session} />
-      </aside>
-      <section className="min-w-0 border-l border-[var(--color-border)] pl-5">
-        <h3 className="mb-3 text-xs font-semibold">转换后的原始需求 Markdown</h3>
-        <Markdown text={session.rawInput || '暂无原始需求内容'} className="text-[13px]" />
-      </section>
-    </div>
-  )
-}
-
-function BusinessFields({ session }: { session: PrdSessionView }) {
-  const fields = [
-    ['需求类型', session.businessFields.businessRequirementType],
-    ['需求软件', session.businessFields.requirementSoftware],
-    ['发起部门', session.businessFields.initiatingDepartment],
-    ['提出人', session.businessFields.requester],
-    ['提出日期', session.businessFields.requestedAt],
-  ].filter(([, value]) => value)
-  if (fields.length === 0) return null
-  return (
-    <dl className="space-y-2 border-t border-[var(--color-border)] pt-3 text-[10px]">
-      {fields.map(([label, value]) => (
-        <div key={label}>
-          <dt className="text-[var(--color-muted-foreground)]">{label}</dt>
-          <dd className="mt-0.5 text-[var(--color-foreground)]">{value}</dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
-function QuestionCards({
-  perspective,
-  questions,
-  answers,
-  onChange,
-  disabled,
-  onSubmit,
-  submitLabel,
-}: {
-  perspective: string
-  questions: QuestionItem[]
-  answers: string[]
-  onChange: (index: number, value: string) => void
-  disabled: boolean
-  onSubmit: () => void
-  submitLabel: string
-}) {
-  if (questions.length === 0) {
-    return <EmptyDocument label="正在等待 AI 输出澄清问题…" />
-  }
-  const completed = answers.filter(answer => answer.trim()).length
-  return (
-    <div>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <p className="text-xs text-[var(--color-muted-foreground)]">{perspective}</p>
-        <span className="shrink-0 text-[10px] text-[var(--color-primary)]">{completed}/{questions.length}</span>
-      </div>
-      <div className="space-y-3">
-        {questions.map((item, index) => (
-          <section key={item.id} className="border border-[var(--color-border)] p-4">
-            <div className="flex items-start gap-2">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)]/10 text-[10px] font-semibold text-[var(--color-primary)]">
-                {index + 1}
-              </span>
-              <p className="text-sm font-medium leading-relaxed">{item.question}</p>
-            </div>
-            <textarea
-              value={answers[index] ?? ''}
-              onChange={event => onChange(index, event.target.value)}
-              rows={3}
-              disabled={disabled}
-              placeholder="请填写明确答案；所有问题完成后才会生成文档。"
-              className="mt-3 w-full resize-y border border-[var(--color-border)] bg-[var(--color-background)] p-3 text-sm outline-none focus:border-[var(--color-primary)] disabled:opacity-60"
-            />
-          </section>
-        ))}
-      </div>
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={disabled || completed !== questions.length}
-        className="mt-4 inline-flex items-center gap-1.5 bg-[var(--color-primary)] px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
-      >
-        <Sparkles className="h-3.5 w-3.5" />{submitLabel}
-      </button>
-    </div>
-  )
-}
-
-function ReadOnlyHistory({ history }: { history: QaPair[] }) {
-  if (history.length === 0) return null
-  return (
-    <div className="space-y-3">
-      {history.map((item, index) => (
-        <section key={`${item.question}-${index}`} className="border border-[var(--color-border)] p-4">
-          <p className="text-sm font-medium">{index + 1}. {item.question}</p>
-          <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-[var(--color-muted-foreground)]">{item.answer}</p>
-        </section>
-      ))}
-    </div>
-  )
-}
-
-function GeneratedNotice({ kind, content }: { kind: 'PRD' | 'TDD'; content: string }) {
-  return (
-    <div>
-      <div className="mb-4 flex items-center gap-2 border border-[var(--color-success)]/30 bg-[var(--color-success)]/5 p-3 text-xs text-[var(--color-success)]">
-        <CheckCircle2 className="h-4 w-4" />澄清已完成，{kind} 已生成。
-      </div>
-      <Markdown text={content} className="text-[13px]" />
-    </div>
-  )
-}
-
-function StageSummary({
-  requirement,
-  stage,
-}: {
-  requirement: DeliveryRequirement
-  stage: 'code' | 'test' | 'runtime'
-}) {
-  const view = requirement.stages[stage]
-  return (
-    <div className="space-y-4">
-      <div className="border border-[var(--color-border)] p-5">
-        <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted-foreground)]">当前状态</div>
-        <div className="mt-2 text-xl font-semibold">{view.score == null ? '尚未评估' : `${view.score}%`}</div>
-        <p className="mt-2 text-xs leading-relaxed text-[var(--color-muted-foreground)]">{view.note}</p>
-      </div>
-      {stage === 'code' && requirement.progressItems.completed.length + requirement.progressItems.partial.length + requirement.progressItems.missing.length + (requirement.progressItems.excluded?.length ?? 0) > 0 && (
-        <div className="space-y-2">
-          {[...requirement.progressItems.missing, ...requirement.progressItems.partial, ...requirement.progressItems.completed, ...(requirement.progressItems.excluded ?? [])].map((item, index) => (
-            <div key={`${item.title}-${index}`} className="border border-[var(--color-border)] p-3">
-              <div className="flex items-start justify-between gap-3">
-                <p className="text-xs font-medium">{item.title}</p>
-                {requirement.progressItems.excluded?.includes(item) && <span className="shrink-0 text-[9px] font-medium text-sky-600">观察项 · 0 分</span>}
-              </div>
-              <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">{item.actual || item.missing || item.implemented}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function EmptyDocument({ label }: { label: string }) {
-  return (
-    <div className="py-20 text-center">
-      <FileText className="mx-auto h-6 w-6 text-[var(--color-muted-foreground)]" />
-      <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">{label}</p>
-    </div>
-  )
-}
-
-interface SourceFile {
-  name: string
-  url: string
-}
-
-function extractSourceFiles(rawInput: string, attachmentField: string): SourceFile[] {
-  const files: SourceFile[] = []
-  const markdownLink = /\[([^\]]+)]\((\/api\/prd-clarify\/attachments\/file\/[^)\s]+)\)/g
-  for (const source of [rawInput, attachmentField]) {
-    let match: RegExpExecArray | null
-    while ((match = markdownLink.exec(source)) !== null) {
-      files.push({ name: match[1].replace(/^📎\s*/, ''), url: match[2] })
-    }
-  }
-  return files.filter((file, index) => files.findIndex(item => item.url === file.url) === index)
-}
-
-function parseTddQuestions(raw: string): string[] {
-  const trimmed = raw.trim()
-  if (!trimmed || trimmed.includes('[CLARIFICATION_COMPLETE]')) return []
-  const withoutFence = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
-  const start = withoutFence.indexOf('[')
-  const end = withoutFence.lastIndexOf(']')
-  if (start < 0 || end < start) throw new Error('AI 未返回有效的问题列表，请重新生成')
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(withoutFence.slice(start, end + 1))
-  } catch {
-    throw new Error('AI 返回的问题 JSON 无法解析，请重新生成')
-  }
-  if (!Array.isArray(parsed)) throw new Error('AI 返回的问题格式不正确，请重新生成')
-  const questions = parsed
-    .map(item => {
-      if (typeof item === 'string') return item.trim()
-      if (typeof item === 'object' && item && 'question' in item) {
-        const question = (item as { question?: unknown }).question
-        return typeof question === 'string' ? question.trim() : ''
-      }
-      return ''
-    })
-    .filter((question): question is string => !!question)
-    .filter((question, index, all) => all.indexOf(question) === index)
-    .slice(0, 5)
-
-  if (parsed.length > 0 && questions.length === 0) {
-    throw new Error('AI 返回的问题内容为空，请重新生成')
-  }
-  return questions
-}
-
-function eventMessage(data: unknown, fallback: string) {
-  if (typeof data === 'object' && data && 'message' in data) {
-    const message = (data as { message?: unknown }).message
-    if (typeof message === 'string' && message.trim()) return message
-  }
-  return fallback
-}
-
-function messageOf(cause: unknown, fallback: string) {
-  return cause instanceof Error && cause.message ? cause.message : fallback
 }

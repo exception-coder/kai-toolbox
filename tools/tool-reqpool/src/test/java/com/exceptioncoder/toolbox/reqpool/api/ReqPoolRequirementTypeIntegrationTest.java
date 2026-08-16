@@ -10,10 +10,12 @@ import com.exceptioncoder.toolbox.reqpool.api.dto.ReqItemViewAssembler;
 import com.exceptioncoder.toolbox.reqpool.api.dto.UpdateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqInsightRepository;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqItemRepository;
+import com.exceptioncoder.toolbox.reqpool.repository.ReqPoolIntegrationRepository;
 import com.exceptioncoder.toolbox.reqpool.service.ReqAnalysisService;
 import com.exceptioncoder.toolbox.reqpool.service.ReqDevelopmentAccessPolicy;
 import com.exceptioncoder.toolbox.reqpool.service.ReqInsightFingerprint;
 import com.exceptioncoder.toolbox.reqpool.service.ReqRequirementTypeService;
+import com.exceptioncoder.toolbox.reqpool.service.ReqPoolPrdSyncService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -62,13 +64,21 @@ class ReqPoolRequirementTypeIntegrationTest {
         when(provider.orderedStream()).thenAnswer(invocation -> Stream.of(port));
 
         ReqItemRepository repository = new ReqItemRepository(jdbc);
+        ReqPoolIntegrationRepository integrationRepository = new ReqPoolIntegrationRepository(jdbc);
+        ReqRequirementTypeService requirementTypeService = new ReqRequirementTypeService(provider);
+        ReqPoolPrdSyncService syncService = new ReqPoolPrdSyncService(
+                repository,
+                integrationRepository,
+                requirementTypeService
+        );
         ReqInsightFingerprint insightFingerprint = new ReqInsightFingerprint();
         controller = new ReqPoolController(
                 repository,
-                jdbc,
+                integrationRepository,
+                syncService,
                 mock(ReqAnalysisService.class),
                 mock(ReqDevelopmentAccessPolicy.class),
-                new ReqRequirementTypeService(provider),
+                requirementTypeService,
                 new ReqItemViewAssembler(new ReqInsightRepository(jdbc), insightFingerprint),
                 mock(AuthProperties.class)
         );
