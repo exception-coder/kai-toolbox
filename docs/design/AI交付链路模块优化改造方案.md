@@ -184,6 +184,7 @@ export const handoff = {
    - 第一段已完成：`StepBar`、`DocOutline`、`EstimationBadge` 已原样迁入 `components/`，补 3 项组件表征测试；页面从 5838 行降至 5683 行。
    - 第二段已完成：`RawInputCard` 已迁入 `components/`，业务字段投影下沉到 `lib/sessionPresentation.ts`，Markdown 统一复用平台 `MarkdownContent` 安全渲染；新增字段过滤、宽字段、消毒与关闭交互测试，页面进一步降至 5571 行。
    - 第三段已完成：PRD/TDD 澄清记录、开发文档/进度版本记录与版本预览共 6 个只读弹层迁入 `components/dialogs/`；抽取共享问答列表、抽屉骨架和版本预览骨架，补当前版本选择、空答案、失败状态、版本回调与 Markdown 消毒测试，页面降至 5056 行。
+   - 第四段已完成：`EstimationDetailSheet`、`EstimateEffortDialog`、`EvaluateProgressDialog` 迁入 `components/dialogs/EstimationDialogs.tsx`，并补输入裁剪、加载禁用、过期详情、SSE 完成/错误及卸载取消测试；页面降至 4775 行。
 2. hooks 抽取（小心，后做，小步）：
    - `usePrdClarifySession`：会话状态（`session`/`step`/流式 `streamText`/`abortRef`）与 `askQuestion`/`submitAnswer`/`saveQaHistory` 回调。
    - `useDevDocState`：开发文档流式/草稿/版本/估算状态（`EditingPanel` 内约 200 行状态）。
