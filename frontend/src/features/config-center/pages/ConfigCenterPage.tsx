@@ -262,11 +262,17 @@ function ConfigValueEditor({
 
   return (
     <input
+      type={isSensitiveConfigKey(entryKey) ? 'password' : 'text'}
+      autoComplete={isSensitiveConfigKey(entryKey) ? 'new-password' : undefined}
       className="w-full rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
       value={value}
       onChange={event => onChange(event.target.value)}
     />
   )
+}
+
+function isSensitiveConfigKey(key: string) {
+  return /(^|[.-])(secret|password|token|api-key)([.-]|$)/i.test(key)
 }
 
 function ListValueEditor({ values, onChange }: { values: string[]; onChange: (values: string[]) => void }) {
