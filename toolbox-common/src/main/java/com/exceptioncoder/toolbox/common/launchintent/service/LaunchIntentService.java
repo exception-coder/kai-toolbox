@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.common.launchintent.service;
 import com.exceptioncoder.toolbox.common.launchintent.domain.LaunchIntent;
 import com.exceptioncoder.toolbox.common.launchintent.domain.LaunchIntentState;
 import com.exceptioncoder.toolbox.common.launchintent.repository.LaunchIntentRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -27,6 +28,7 @@ public class LaunchIntentService {
     private final LaunchIntentRepository repository;
     private final Clock clock;
 
+    @Autowired
     public LaunchIntentService(LaunchIntentRepository repository) {
         this(repository, Clock.systemUTC());
     }

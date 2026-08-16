@@ -77,6 +77,13 @@ if (-not $SupervisorWorker) {
                 -NoNewWindow -PassThru
             $worker.WaitForExit()
             if ($worker.ExitCode -eq $AutoUpdateRelaunchExitCode) {
+                $stopScript = Join-Path $PSScriptRoot 'stop-supervised.ps1'
+                if (-not (Test-Path -LiteralPath $stopScript)) {
+                    throw "重启前清理脚本不存在：$stopScript"
+                }
+                Write-Host '[supervisor-bootstrap] 重启前停止旧服务并清理残留端口...'
+                & $stopScript -KeepStudio
+                if (-not $?) { throw '重启前停止旧服务失败' }
                 Write-Host '[supervisor-bootstrap] 云端更新已落地，加载最新 supervisor...'
                 continue
             }
@@ -173,7 +180,7 @@ if (-not $script:supervisorMutexAcquired) {
     return
 }
 $supervisorStateRoot = Join-Path (
-    if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [System.IO.Path]::GetTempPath() }
+    $(if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [System.IO.Path]::GetTempPath() })
 ) 'kai-toolbox'
 $script:supervisorPidFile = Join-Path $supervisorStateRoot "supervisor-$repoHash.pid"
 try {
@@ -396,8 +403,13 @@ $SystemRestartToken = $env:TOOLBOX_SYSTEM_RESTART_TOKEN
 # 256-bit token for this worker and expose it only through the inherited process
 # environment; never print it or persist it in status files.
 $internalControlTokenBytes = [byte[]]::new(32)
-[System.Security.Cryptography.RandomNumberGenerator]::Fill($internalControlTokenBytes)
-$script:InternalControlToken = [Convert]::ToHexString($internalControlTokenBytes).ToLowerInvariant()
+$internalControlTokenGenerator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+try {
+    $internalControlTokenGenerator.GetBytes($internalControlTokenBytes)
+} finally {
+    $internalControlTokenGenerator.Dispose()
+}
+$script:InternalControlToken = ([System.BitConverter]::ToString($internalControlTokenBytes)).Replace('-', '').ToLowerInvariant()
 $env:KAI_SUPERVISOR_CONTROL_TOKEN = $script:InternalControlToken
 $env:KAI_SUPERVISOR_PROTOCOL_VERSION = '1'
 
@@ -438,7 +450,7 @@ $script:autoUpdateFetchFailures = 0
 $script:autoUpdateLastLogKey = $null
 $script:autoUpdateRelaunchRequested = $false
 $script:autoUpdateLogFile = Join-Path (
-    if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [System.IO.Path]::GetTempPath() }
+    $(if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [System.IO.Path]::GetTempPath() })
 ) 'kai-toolbox\logs\auto-update.log'
 $script:GitCmd = if ($script:AutoUpdateEnabled) {
     $gitCommand = Get-Command git -ErrorAction SilentlyContinue

@@ -46,7 +46,7 @@ try {
 }
 $repoHash = ([System.BitConverter]::ToString($repoHashBytes)).Replace('-', '').Substring(0, 16)
 $supervisorStateRoot = Join-Path (
-    if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [System.IO.Path]::GetTempPath() }
+    $(if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [System.IO.Path]::GetTempPath() })
 ) 'kai-toolbox'
 $supervisorPidFile = Join-Path $supervisorStateRoot "supervisor-$repoHash.pid"
 $supervisorScriptPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'run-supervised.ps1'))
@@ -89,6 +89,18 @@ function Stop-LocalObservability {
     }
 }
 
+function Resolve-HttpSysListenerProcessId([int]$port) {
+    $serviceState = (& netsh http show servicestate view=requestq verbose=yes 2>$null) -join "`n"
+    if ([string]::IsNullOrWhiteSpace($serviceState)) { return $null }
+    $requestQueues = [regex]::Split($serviceState, '(?m)(?=^Request queue name:)')
+    $urlPattern = "(?i)HTTP://\S+:$port(?:[:/])"
+    foreach ($requestQueue in $requestQueues) {
+        if ($requestQueue -notmatch $urlPattern) { continue }
+        if ($requestQueue -match '(?m)^\s*ID:\s*(\d+),') { return [int]$Matches[1] }
+    }
+    return $null
+}
+
 # 与 run-supervised.ps1 完全一致的端口清理逻辑：Get-NetTCPConnection 优先，不可用回落 netstat。
 function Stop-PortHolders([int]$port, [string]$label) {
     $pids = @()
@@ -99,6 +111,15 @@ function Stop-PortHolders([int]$port, [string]$label) {
         foreach ($l in (netstat -ano | Select-String ":$port\s.*LISTENING")) {
             $tok = ($l.ToString().Trim() -split '\s+')[-1]
             if ($tok -match '^\d+$') { $pids += [int]$tok }
+        }
+    }
+    if ($pids -contains 4) {
+        $httpSysProcessId = Resolve-HttpSysListenerProcessId $port
+        $pids = @($pids | Where-Object { $_ -ne 4 })
+        if ($httpSysProcessId) {
+            $pids += $httpSysProcessId
+        } else {
+            Write-Host "[stop] WARN: :$port 由 HTTP.sys 监听，但无法解析真实进程；拒绝结束系统 PID=4"
         }
     }
     $pids = $pids | Where-Object { $_ -and $_ -ne 0 } | Select-Object -Unique
