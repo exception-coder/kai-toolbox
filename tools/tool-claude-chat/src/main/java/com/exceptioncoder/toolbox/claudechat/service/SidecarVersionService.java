@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.SidecarVersionView;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
@@ -17,12 +18,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 /**
@@ -34,25 +37,35 @@ import java.util.stream.Stream;
 public class SidecarVersionService {
 
     private static final String CLAUDE_PACKAGE = "@anthropic-ai/claude-agent-sdk";
-    private static final List<EngineDefinition> ENGINES = List.of(
+    private static final List<EngineDefinition> NPM_ENGINES = List.of(
             new EngineDefinition("claude", "Claude Code", CLAUDE_PACKAGE, true),
             new EngineDefinition("codex", "Codex", "@openai/codex-sdk", false),
             new EngineDefinition("opencode", "OpenCode", "@opencode-ai/sdk", false)
     );
+    private static final String ANTIGRAVITY_COMMAND = "agy";
     private static final String REGISTRY_BASE = "https://registry.npmjs.org/";
     private static final Duration NETWORK_TIMEOUT = Duration.ofSeconds(6);
     private static final long CLI_VERSION_TIMEOUT_MS = 8_000;
+    private static final long EXTERNAL_CLI_VERSION_TIMEOUT_MS = 15_000;
 
     private final SidecarProcessRegistry registry;
     private final ObjectMapper mapper;
+    private final Function<String, String> externalCliVersionReader;
 
     /** 捆绑 CLI 版本的缓存：跑一次子进程才拿得到，而它只随已装 SDK 版本变化。 */
     private volatile String cachedCliFor;
     private volatile String cachedCliVersion;
 
+    @Autowired
     public SidecarVersionService(SidecarProcessRegistry registry, ObjectMapper mapper) {
+        this(registry, mapper, SidecarVersionService::readExternalCliVersion);
+    }
+
+    SidecarVersionService(SidecarProcessRegistry registry, ObjectMapper mapper,
+                          Function<String, String> externalCliVersionReader) {
         this.registry = registry;
         this.mapper = mapper;
+        this.externalCliVersionReader = externalCliVersionReader;
     }
 
     /**
@@ -74,9 +87,11 @@ public class SidecarVersionService {
             return SidecarVersionView.error("读取 sidecar package.json 失败：" + e.getMessage());
         }
         Map<String, String> latestVersions = checkLatest ? fetchLatestVersions() : Map.of();
-        List<SidecarEngineVersionView> engines = ENGINES.stream()
-                .map(definition -> readEngine(definition, dependencies, dir, latestVersions))
-                .toList();
+        List<SidecarEngineVersionView> engines = new ArrayList<>(4);
+        engines.add(readEngine(NPM_ENGINES.get(0), dependencies, dir, latestVersions));
+        engines.add(readEngine(NPM_ENGINES.get(1), dependencies, dir, latestVersions));
+        engines.add(readAntigravity());
+        engines.add(readEngine(NPM_ENGINES.get(2), dependencies, dir, latestVersions));
         SidecarEngineVersionView claude = engines.get(0);
         boolean outdated = engines.stream().anyMatch(SidecarEngineVersionView::outdated);
         return new SidecarVersionView(
@@ -86,7 +101,7 @@ public class SidecarVersionService {
 
     /** 升级命令：更新内置 npm 引擎运行包并重新构建，装完必须重启 sidecar 才生效。 */
     public String upgradeCommand() {
-        String packages = ENGINES.stream()
+        String packages = NPM_ENGINES.stream()
                 .map(engine -> engine.packageName() + "@latest")
                 .reduce((left, right) -> left + " " + right)
                 .orElse("");
@@ -107,6 +122,17 @@ public class SidecarVersionService {
         return new SidecarEngineVersionView(
                 definition.id(), definition.name(), definition.packageName(), declared, installed,
                 cliVersion, latest, outdated, error);
+    }
+
+    /** Antigravity 是外部运行时，只检测本机 CLI，不伪装成可由 npm 升级的 sidecar 依赖。 */
+    private SidecarEngineVersionView readAntigravity() {
+        String configuredCommand = blankToNull(System.getenv("ANTIGRAVITY_CLI_PATH"));
+        String command = configuredCommand == null ? ANTIGRAVITY_COMMAND : configuredCommand;
+        String version = externalCliVersionReader.apply(command);
+        String error = version == null ? "未找到 Antigravity CLI，请安装并确保 agy 在 PATH 中" : null;
+        return new SidecarEngineVersionView(
+                "antigravity", "Antigravity", "agy CLI", null, version,
+                null, null, false, error);
     }
 
     /** 从 node_modules 读取运行时真正生效的包版本。 */
@@ -188,8 +214,8 @@ public class SidecarVersionService {
     /** 并行查询 npm 包的最新版本，单个失败时保留其他结果。 */
     private Map<String, String> fetchLatestVersions() {
         try (HttpClient client = HttpClient.newBuilder().connectTimeout(NETWORK_TIMEOUT).build()) {
-            Map<String, CompletableFuture<String>> requests = new LinkedHashMap<>(ENGINES.size());
-            for (EngineDefinition engine : ENGINES) {
+            Map<String, CompletableFuture<String>> requests = new LinkedHashMap<>(NPM_ENGINES.size());
+            for (EngineDefinition engine : NPM_ENGINES) {
                 HttpRequest request = HttpRequest.newBuilder(
                                 URI.create(REGISTRY_BASE + engine.packageName() + "/latest"))
                         .timeout(NETWORK_TIMEOUT)
@@ -206,7 +232,7 @@ public class SidecarVersionService {
                 requests.put(engine.packageName(), version);
             }
             CompletableFuture.allOf(requests.values().toArray(CompletableFuture[]::new)).join();
-            Map<String, String> versions = new LinkedHashMap<>(ENGINES.size());
+            Map<String, String> versions = new LinkedHashMap<>(NPM_ENGINES.size());
             requests.forEach((packageName, future) -> {
                 String version = future.join();
                 if (version != null) {
@@ -261,6 +287,26 @@ public class SidecarVersionService {
 
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s;
+    }
+
+    private static String readExternalCliVersion(String command) {
+        Process process = null;
+        try {
+            process = new ProcessBuilder(command, "--version").redirectErrorStream(true).start();
+            if (!process.waitFor(EXTERNAL_CLI_VERSION_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                process.destroyForcibly();
+                return null;
+            }
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            return output.lines().map(String::trim).filter(line -> !line.isBlank()).findFirst().orElse(null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            if (process != null) process.destroyForcibly();
+            return null;
+        } catch (Exception e) {
+            log.debug("[claude-chat] 读取外部 CLI 版本失败 command={}", command, e);
+            return null;
+        }
     }
 
     /**

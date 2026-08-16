@@ -375,7 +375,7 @@ export interface PluginStatus {
   codex: EnginePluginStatus
 }
 
-/** 团队套件（插件 / MCP）在 Claude Code 端的状态。插件带版本；MCP 用知识库 git 状态表达版本/新鲜度。 */
+/** 团队插件与 MCP 的本地安装状态及按需读取的远端版本快照。 */
 export interface SuiteStatus {
   name: string
   kind: 'plugin' | 'mcp'
@@ -392,6 +392,16 @@ export interface SuiteStatus {
   repoDate: string | null
   /** MCP 知识库落后远端的提交数：0=已最新；null=未知/无上游/未 fetch。 */
   behind: number | null
+  /** 插件远端 manifest 版本；MCP 为 null。 */
+  remoteVersion: string | null
+  /** 所选 Git 源的远端短 commit。 */
+  remoteRepoCommit: string | null
+  /** 所选 Git 源的远端提交日期 YYYY-MM-DD。 */
+  remoteRepoDate: string | null
+  /** 是否已经发起本次远端检测。 */
+  remoteChecked: boolean
+  /** 单个团队依赖的远端检测失败原因。 */
+  remoteError: string | null
 }
 
 export interface TeamDependencyEnvironment {
@@ -478,7 +488,7 @@ export interface SkillSyncResult {
 
 /** sidecar 中单个对话引擎运行包的版本状态。 */
 export interface SidecarEngineVersion {
-  id: 'claude' | 'codex' | 'opencode'
+  id: 'claude' | 'codex' | 'antigravity' | 'opencode'
   name: string
   packageName: string
   declared: string | null
@@ -489,7 +499,7 @@ export interface SidecarEngineVersion {
   error: string | null
 }
 
-/** sidecar 四种对话引擎运行包的版本状态，顶层字段兼容旧 Claude 响应。 */
+/** 对话引擎运行时依赖的版本状态，顶层字段兼容旧 Claude 响应。 */
 export interface SidecarVersion {
   /** package.json 里声明的范围 */
   declared: string | null

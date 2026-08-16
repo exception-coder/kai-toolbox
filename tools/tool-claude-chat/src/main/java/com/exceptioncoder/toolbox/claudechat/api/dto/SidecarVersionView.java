@@ -12,7 +12,7 @@ import java.util.List;
  * @param outdated       installed 落后于 latest；未检查或无法比较时 false
  * @param upgradeCommand 升级命令原文，供前端一键复制
  * @param error          自检失败原因；成功为 null
- * @param engines        四种对话引擎的独立版本状态
+ * @param engines        对话引擎运行时依赖的独立版本状态
  */
 public record SidecarVersionView(
         String declared,

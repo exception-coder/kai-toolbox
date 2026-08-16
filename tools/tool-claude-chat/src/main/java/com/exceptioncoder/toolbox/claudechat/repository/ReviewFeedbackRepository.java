@@ -49,6 +49,13 @@ public class ReviewFeedbackRepository {
                 ROW, sourceSessionId);
     }
 
+    public boolean existsBySourceMessageIdPrefix(String reviewSpaceId, String sourceMessageIdPrefix) {
+        Boolean exists = jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM claude_chat_review_feedback "
+                        + "WHERE review_space_id = ? AND source_message_id LIKE ?)",
+                Boolean.class, reviewSpaceId, sourceMessageIdPrefix + "%");
+        return Boolean.TRUE.equals(exists);
+    }
+
     public boolean updateStatus(String id, String status, long handledAt) {
         return jdbc.update("UPDATE claude_chat_review_feedback SET status = ?, handled_at = ? "
                         + "WHERE id = ? AND status = 'PENDING'",

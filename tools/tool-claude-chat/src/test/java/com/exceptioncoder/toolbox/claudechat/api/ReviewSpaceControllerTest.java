@@ -4,6 +4,8 @@ import com.exceptioncoder.toolbox.claudechat.domain.ReviewSpace;
 import com.exceptioncoder.toolbox.claudechat.service.ReviewSpaceService;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** 公开评审投影必须携带创建边界，前端据此排除完整分叉中的旧开发回复。 */
@@ -17,11 +19,13 @@ class ReviewSpaceControllerTest {
         ReviewSpaceController.PublicReviewView view =
                 ReviewSpaceController.PublicReviewView.from(space, "来源开发会话",
                         new ReviewSpaceService.ReviewRuntimeConfig("codex", "DEFAULT", null, null,
-                                "default", "review-only", "account-b"));
+                                "default", "review-only", "account-b"), List.of("message-1"), true);
 
         assertThat(view.reviewSessionId()).isEqualTo("review-1");
         assertThat(view.createdAt()).isEqualTo(1_234L);
         assertThat(view.expiresAt()).isEqualTo(9_000L);
         assertThat(view.runtimeConfig().codexAuthAlias()).isEqualTo("account-b");
+        assertThat(view.coveredSourceMessageIds()).containsExactly("message-1");
+        assertThat(view.hasSubmittedSummary()).isTrue();
     }
 }

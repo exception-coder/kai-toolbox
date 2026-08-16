@@ -58,6 +58,15 @@ class ReviewFeedbackRepositoryTest {
         assertThat(repository.updateStatus("feedback-1", "DISMISSED", 300L)).isFalse();
     }
 
+    @Test
+    void detectsSubmittedSummaryByStableSourcePrefix() {
+        repository.insertOrFind(new ReviewFeedback("feedback-1", "space-1", "source-1", "review-1",
+                "summary", "final-summary-v1:assistant-content-v1:abc", "PENDING", 100L, null));
+
+        assertThat(repository.existsBySourceMessageIdPrefix("space-1", "final-summary-v1:")).isTrue();
+        assertThat(repository.existsBySourceMessageIdPrefix("space-2", "final-summary-v1:")).isFalse();
+    }
+
     private static ReviewFeedback feedback(String id, String content) {
         return new ReviewFeedback(id, "space-1", "source-1", "review-1", content,
                 "message-1", "PENDING", 100L, null);

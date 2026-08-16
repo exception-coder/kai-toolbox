@@ -24,6 +24,7 @@ import type {
   TeamDependencyEnvironment,
   TeamRepositoryStatus,
 } from '../types'
+import { suiteRemoteLabel, suiteRemoteState } from '../lib/suiteVersionStatus'
 
 const GIT_SOURCE_KEY = 'kai-toolbox:team-dependencies:git-source'
 
@@ -66,6 +67,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
   const [suites, setSuites] = useState<SuiteStatus[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(false)
+  const [suiteCheckError, setSuiteCheckError] = useState<string | null>(null)
   const [updating, setUpdating] = useState(false)
   const [lines, setLines] = useState<string[]>([])
   const [sdk, setSdk] = useState<SidecarVersion | null>(null)
@@ -86,7 +88,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
     setLoading(true)
     try {
       const [suiteResult, repositoryResult, businessResult] = await Promise.allSettled([
-        listSuites(sessionId),
+        listSuites(sessionId, false, gitSource),
         listTeamRepositories(gitSource),
         listBusinessSystemWorkspaces(),
       ])
@@ -126,11 +128,18 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
     } catch { /* 剪贴板不可用则忽略，命令本身可见可手抄 */ }
   }
 
-  /** 对 MCP 知识库 git fetch 后再读，使「落后远端」准确（较慢）。 */
+  /** 从所选 Git 源读取插件 manifest 与 MCP 提交，不修改本地工作树。 */
   const checkRemote = async () => {
     if (checking) return
     setChecking(true)
-    try { setSuites(await listSuites(sessionId, true)) } catch { /* 静默 */ } finally { setChecking(false) }
+    setSuiteCheckError(null)
+    try {
+      setSuites(await listSuites(sessionId, true, gitSource))
+    } catch (error) {
+      setSuiteCheckError(error instanceof Error ? error.message : '远端版本检查失败')
+    } finally {
+      setChecking(false)
+    }
   }
 
   useEffect(() => {
@@ -142,8 +151,10 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
 
   useEffect(() => {
     window.localStorage.setItem(GIT_SOURCE_KEY, gitSource)
+    setSuiteCheckError(null)
+    void listSuites(sessionId, false, gitSource).then(setSuites).catch(() => undefined)
     void listTeamRepositories(gitSource).then(setRepositories).catch(() => undefined)
-  }, [gitSource])
+  }, [gitSource, sessionId])
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
@@ -403,7 +414,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
 
       <div className="mb-2 rounded-md border px-2 py-1.5 text-xs">
         <div className="flex items-center gap-2">
-          <span className="font-medium">对话引擎 SDK（sidecar）</span>
+          <span className="font-medium">对话引擎运行时（Sidecar / CLI）</span>
           {sdk && sidecarEngines(sdk).some(engine => engine.outdated) && (
             <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-900 dark:text-amber-200">
               可升级
@@ -452,7 +463,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
             {sidecarEngines(sdk).some(engine => engine.outdated) && sdk.upgradeCommand && (
               <>
                 <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
-                  升级命令会同步更新四种引擎运行包并重新构建，执行后需重启 sidecar。
+                  升级命令会更新三个 Sidecar 内置运行包并重新构建；Antigravity 使用外部 agy CLI，不由此命令升级。
                 </p>
                 <button type="button" onClick={() => void copyUpgrade()}
                   className="mt-1 flex w-full items-center gap-1.5 rounded-md bg-[var(--color-muted)] px-2 py-1 text-left text-[10px] hover:bg-[var(--color-accent)]">
@@ -471,10 +482,11 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
       ) : (
         <ul className="grid grid-cols-1 gap-1.5 md:grid-cols-2 xl:grid-cols-3">
           {suites.map(p => {
-            const claudeOld = p.kind === 'plugin' && p.claudeInstalled && p.available && p.claudeInstalled !== p.available
-            const codexOld = p.kind === 'plugin' && p.codexInstalled && p.available && p.codexInstalled !== p.available
+            const remoteState = suiteRemoteState(p)
+            const remoteLabel = suiteRemoteLabel(p)
             return (
-              <li key={`${p.kind}:${p.name}`} className="flex min-w-0 flex-col gap-1 rounded-md border px-2 py-1.5 text-xs">
+              <li key={`${p.kind}:${p.name}`} title={p.remoteError ?? undefined}
+                className="flex min-w-0 flex-col gap-1 rounded-md border px-2 py-1.5 text-xs">
                 <div className="flex min-w-0 items-center gap-1.5">
                 <span className={`size-2 shrink-0 rounded-full ${p.kind === 'plugin'
                   ? p.claudeInstalled && p.codexInstalled ? 'bg-emerald-500' : 'bg-red-500'
@@ -487,29 +499,34 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
                 <span className="min-w-0 flex-1 truncate font-medium" title={p.name}>{p.name}</span>
                 </div>
                 {p.kind === 'plugin' ? (
-                  <span className="flex min-w-0 flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-[var(--color-muted-foreground)]">
-                    <span>
+                  <div className="flex min-w-0 flex-col gap-0.5 text-[10px] text-[var(--color-muted-foreground)]">
+                    <span className="flex min-w-0 flex-wrap gap-x-2 gap-y-0.5">
+                      <span>
                       Claude <span className={p.claudeInstalled ? 'text-[var(--color-foreground)]' : 'text-[var(--color-destructive)]'}>{p.claudeInstalled ?? '未装'}</span>
-                      {claudeOld && <span className="ml-1 rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">可更新</span>}
-                    </span>
-                    <span>
+                      </span>
+                      <span>
                       Codex <span className={p.codexInstalled ? 'text-[var(--color-foreground)]' : 'text-[var(--color-destructive)]'}>{p.codexInstalled ?? '未装'}</span>
-                      {codexOld && <span className="ml-1 rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">可更新</span>}
+                      </span>
                     </span>
-                    {p.available && <span className="text-[10px] opacity-70">最新 {p.available}</span>}
-                  </span>
+                    <span className="flex min-w-0 items-center gap-1.5 border-t border-[var(--color-border)]/60 pt-0.5">
+                      <span className="truncate">远端 {p.remoteVersion ?? '—'}{p.remoteRepoCommit && ` · ${p.remoteRepoCommit}`}</span>
+                      <span className={remoteState === 'current' ? 'text-emerald-600 dark:text-emerald-400'
+                        : remoteState === 'outdated' ? 'text-amber-600 dark:text-amber-400'
+                          : remoteState === 'error' ? 'text-[var(--color-destructive)]' : ''}>{remoteLabel}</span>
+                    </span>
+                  </div>
                 ) : !p.present ? (
                   <span className="shrink-0 text-[var(--color-muted-foreground)]">未配置</span>
                 ) : (
-                  <span className="min-w-0 truncate text-[10px] text-[var(--color-muted-foreground)]">
-                    {p.repoDate
-                      ? <>知识库 <span className="text-[var(--color-foreground)]">{p.repoDate}</span>{p.repoCommit && <> · {p.repoCommit}</>}</>
-                      : '已配置'}
-                    {p.behind == null ? null
-                      : p.behind === 0
-                        ? <span className="ml-1 text-emerald-600 dark:text-emerald-400">已最新</span>
-                        : <span className="ml-1 rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">落后 {p.behind}</span>}
-                  </span>
+                  <div className="flex min-w-0 flex-col gap-0.5 text-[10px] text-[var(--color-muted-foreground)]">
+                    <span className="truncate">本地 {p.repoDate ?? '已配置'}{p.repoCommit && ` · ${p.repoCommit}`}</span>
+                    <span className="flex min-w-0 items-center gap-1.5 border-t border-[var(--color-border)]/60 pt-0.5">
+                      <span className="truncate">远端 {p.remoteRepoDate ?? '—'}{p.remoteRepoCommit && ` · ${p.remoteRepoCommit}`}</span>
+                      <span className={remoteState === 'current' ? 'text-emerald-600 dark:text-emerald-400'
+                        : remoteState === 'outdated' ? 'text-amber-600 dark:text-amber-400'
+                          : remoteState === 'error' ? 'text-[var(--color-destructive)]' : ''}>{remoteLabel}</span>
+                    </span>
+                  </div>
                 )}
               </li>
             )
@@ -519,8 +536,9 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
 
       <button type="button" onClick={checkRemote} disabled={checking}
         className="mt-2 w-full rounded-md border py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:opacity-50">
-        {checking ? '检查中…（git fetch 知识库）' : '检查 MCP 知识库是否最新（对比远端）'}
+        {checking ? `正在检查 ${gitSource === 'gitee' ? 'Gitee' : 'GitHub'} 远端版本…` : '检查插件与知识库远端版本'}
       </button>
+      {suiteCheckError && <p className="mt-1 text-[10px] text-[var(--color-destructive)]">{suiteCheckError}</p>}
 
       <Button size="sm" className="mt-3 w-full" onClick={startInstall} disabled={updating || environment?.ready === false}>
         <Download className="size-4" /> {updating ? '执行中…' : environment?.ready === false ? '请先安装缺失环境' : '拉取依赖并安装（Claude Code + Codex）'}

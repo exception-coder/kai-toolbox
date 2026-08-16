@@ -66,6 +66,7 @@ public class PluginUpdateService {
     private final ObjectMapper mapper;
     private final SidecarProcessRegistry sidecarRegistry;
     private final GitLogService gitLogService;
+    private final TeamDependencyVersionService dependencyVersionService;
 
     private static final List<String> DEPENDENCY_REPOS = List.of(
             "cross-project-topology", "project-coding-profiles", "project-domain-knowledge",
@@ -96,7 +97,8 @@ public class PluginUpdateService {
                                ClaudeChatSessionRepository sessionRepository,
                                SseEmitterRegistry sse, ObjectMapper mapper,
                                SidecarProcessRegistry sidecarRegistry,
-                               GitLogService gitLogService) {
+                               GitLogService gitLogService,
+                               TeamDependencyVersionService dependencyVersionService) {
         this.props = props;
         this.chatProps = chatProps;
         this.sessionRepository = sessionRepository;
@@ -104,6 +106,7 @@ public class PluginUpdateService {
         this.mapper = mapper;
         this.sidecarRegistry = sidecarRegistry;
         this.gitLogService = gitLogService;
+        this.dependencyVersionService = dependencyVersionService;
     }
 
     // ===== 版本检测 =====
@@ -416,10 +419,11 @@ public class PluginUpdateService {
     /**
      * 枚举 Claude Code 端**全部已安装插件**及其版本（当前会话实际加载的就是这些）。
      * 纯读 {@code ~/.claude/plugins/installed_plugins.json}（已装）+ 各市场
-     * {@code marketplaces/<mk>/.claude-plugin/marketplace.json}（可用），不联网、不跑命令。
-     * 文件缺失或解析失败时返回空列表（不抛错）。按插件名升序。
+     * 默认只读取本地安装状态；fetch=true 时从所选 Git 源读取固定团队仓库的远端版本。
+     * 单个仓库检查失败只记录在对应套件，不中断其余套件返回。
      */
-    public List<SuiteStatusView> readSuites(String sessionId, boolean fetch) {
+    public List<SuiteStatusView> readSuites(String sessionId, boolean fetch, String requestedSource) {
+        String source = normalizeSource(requestedSource);
         Path home = Path.of(System.getProperty("user.home"));
         Map<String, String[]> installedPlugins = readInstalledPluginMap(home); // name -> [marketplace, version]
         Path codexHome = resolveCodexHome(sessionId);
@@ -433,31 +437,41 @@ public class PluginUpdateService {
             String codexVer = codexInstalled.get(name);
             String available = readMarketplaceVersion(home, marketplace, name);
             boolean present = claudeVer != null || codexVer != null;
+            Path repository = dependencyWorkspace().resolve(name).toAbsolutePath().normalize();
+            TeamDependencyVersionService.RemoteVersionSnapshot remote = dependencyVersionService.readPlugin(
+                    repository, name, name, repoUrl(name, source), source, fetch);
             out.add(new SuiteStatusView(name, "plugin", marketplace, claudeVer, codexVer, available, present,
-                    null, null, null));
+                    null, null, remote.behind(), remote.version(), remote.commit(), remote.commitDate(),
+                    remote.checked(), remote.error()));
         }
         for (String name : props.getWatchedMcps()) {
             boolean configured = mcpRepos.containsKey(name);
             Path repo = mcpRepos.get(name);
             String commit = null;
             String date = null;
-            Integer behind = null;
+            String repositoryName = mcpRepositoryName(name);
+            TeamDependencyVersionService.RemoteVersionSnapshot remote = TeamDependencyVersionService
+                    .RemoteVersionSnapshot.notChecked();
             if (repo != null && Files.isDirectory(repo)) {
-                if (fetch) {
-                    gitOutput(repo, 25_000, "fetch", "--quiet"); // best-effort：刷新上游，使 behind 反映远端实情
-                }
                 commit = nullIfBlank(gitOutput(repo, 5_000, "rev-parse", "--short", "HEAD"));
                 date = nullIfBlank(gitOutput(repo, 5_000, "log", "-1", "--format=%cs"));
-                String b = gitOutput(repo, 5_000, "rev-list", "--count", "HEAD..@{u}");
-                try {
-                    if (!b.isBlank()) behind = Integer.parseInt(b.trim());
-                } catch (NumberFormatException ignore) {
-                    // 无上游 / 解析失败 → behind 保持 null（未知）
-                }
+                remote = dependencyVersionService.readMcp(repo, repositoryName,
+                        repoUrl(repositoryName, source), source, fetch);
+            } else if (fetch) {
+                remote = TeamDependencyVersionService.RemoteVersionSnapshot.error("知识库仓库未配置或不存在");
             }
-            out.add(new SuiteStatusView(name, "mcp", null, null, null, null, configured, commit, date, behind));
+            out.add(new SuiteStatusView(name, "mcp", null, null, null, null, configured, commit, date,
+                    remote.behind(), null, remote.commit(), remote.commitDate(), remote.checked(), remote.error()));
         }
         return out;
+    }
+
+    private static String mcpRepositoryName(String mcpName) {
+        return switch (mcpName) {
+            case "cross-topology" -> "cross-project-topology";
+            case "domain-knowledge" -> "project-domain-knowledge";
+            default -> throw new IllegalArgumentException("未知团队 MCP：" + mcpName);
+        };
     }
 
     /** 跑一次 `codex plugin list`，解析出已安装插件 name -> 版本（"not installed" 跳过）。 */

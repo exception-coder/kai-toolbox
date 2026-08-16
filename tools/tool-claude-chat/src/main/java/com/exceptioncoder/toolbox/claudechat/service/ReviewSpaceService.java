@@ -7,6 +7,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.ReviewSpaceRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.ReviewFeedbackRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.ReviewSummaryCoverageRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +19,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,21 +29,28 @@ public class ReviewSpaceService {
     public static final String REVIEW_GROUP = "评审会话";
     public static final String SAFE_SNAPSHOT = "SAFE_SNAPSHOT";
     public static final String FULL_FORK = "FULL_FORK";
+    private static final int MAX_COVERED_SOURCE_IDS = 5_000;
+    private static final int MAX_SOURCE_ID_LENGTH = 200;
+    private static final String ASSISTANT_SOURCE_ID_PREFIX = "assistant-content-v1:";
+    private static final String FINAL_SUMMARY_SOURCE_ID_PREFIX = "final-summary-v1:";
 
     private final ReviewSpaceRepository reviews;
     private final ClaudeChatSessionRepository sessions;
     private final ReviewThreadForkGateway forkGateway;
     private final ReviewFeedbackRepository feedback;
+    private final ReviewSummaryCoverageRepository summaryCoverage;
     private final SecureRandom random = new SecureRandom();
 
     public ReviewSpaceService(ReviewSpaceRepository reviews,
                               ClaudeChatSessionRepository sessions,
                               ReviewThreadForkGateway forkGateway,
-                              ReviewFeedbackRepository feedback) {
+                              ReviewFeedbackRepository feedback,
+                              ReviewSummaryCoverageRepository summaryCoverage) {
         this.reviews = reviews;
         this.sessions = sessions;
         this.forkGateway = forkGateway;
         this.feedback = feedback;
+        this.summaryCoverage = summaryCoverage;
     }
 
     @Transactional
@@ -126,18 +135,31 @@ public class ReviewSpaceService {
                 source.getTitle(), links, feedback.findPendingBySourceSessionId(sourceSessionId));
     }
 
-    /** 公开评审页将结论登记为来源开发会话的待处理意见，不触发 Agent。 */
-    public ReviewFeedback submitFeedback(String token, String content, String sourceMessageId) {
+    /** 公开评审页登记待处理意见；汇总反馈同时原子推进已覆盖消息边界。 */
+    @Transactional
+    public ReviewFeedback submitFeedback(String token, String content, String sourceMessageId,
+                                         List<String> coveredSourceMessageIds) {
         ReviewSpace space = resolve(token).orElseThrow(() -> new IllegalArgumentException("评审链接已失效"));
         String normalized = content == null ? "" : content.trim();
         if (normalized.isBlank() || normalized.length() > 20_000) {
             throw new IllegalArgumentException("评审结论不能为空且不能超过 20000 字");
         }
+        List<String> covered = normalizeCoveredSourceIds(coveredSourceMessageIds);
         long now = System.currentTimeMillis();
-        return feedback.insertOrFind(new ReviewFeedback(UUID.randomUUID().toString(), space.id(),
+        ReviewFeedback saved = feedback.insertOrFind(new ReviewFeedback(UUID.randomUUID().toString(), space.id(),
                 space.sourceSessionId(), space.reviewSessionId(), normalized,
                 sourceMessageId == null || sourceMessageId.isBlank() ? UUID.randomUUID().toString() : sourceMessageId,
                 "PENDING", now, null));
+        summaryCoverage.insertAll(space.id(), saved.id(), covered, now);
+        return saved;
+    }
+
+    public List<String> coveredSourceMessageIds(ReviewSpace space) {
+        return summaryCoverage.findSourceMessageIds(space.id());
+    }
+
+    public boolean hasSubmittedSummary(ReviewSpace space) {
+        return feedback.existsBySourceMessageIdPrefix(space.id(), FINAL_SUMMARY_SOURCE_ID_PREFIX);
     }
 
     public boolean handleFeedback(String id, String status) {
@@ -171,6 +193,24 @@ public class ReviewSpaceService {
     private String normalizedCodexHome(String requested, String source) {
         String value = source == null || source.isBlank() ? requested : source;
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private List<String> normalizeCoveredSourceIds(List<String> sourceMessageIds) {
+        if (sourceMessageIds == null || sourceMessageIds.isEmpty()) {
+            return List.of();
+        }
+        if (sourceMessageIds.size() > MAX_COVERED_SOURCE_IDS) {
+            throw new IllegalArgumentException("单次汇总覆盖的评审结论过多");
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String sourceMessageId : sourceMessageIds) {
+            String value = sourceMessageId == null ? "" : sourceMessageId.trim();
+            if (!value.startsWith(ASSISTANT_SOURCE_ID_PREFIX) || value.length() > MAX_SOURCE_ID_LENGTH) {
+                throw new IllegalArgumentException("汇总覆盖消息标识不合法");
+            }
+            normalized.add(value);
+        }
+        return List.copyOf(normalized);
     }
 
     private String codexAuthAlias(String codexHome) {

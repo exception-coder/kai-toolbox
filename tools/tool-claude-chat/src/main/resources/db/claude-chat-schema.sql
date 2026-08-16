@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     title           TEXT,
     -- SDK 侧 session_id，用于 query({ resume }) 续跑历史会话
     sdk_session_id  TEXT,
-    -- 会话引擎：claude / codex / gemini（既有库由迁移 bean 补列，旧行默认 claude）
+    -- 会话引擎：claude / codex / antigravity / opencode（旧 gemini 行由应用启动迁移）
     engine          TEXT DEFAULT 'claude',
     -- 本会话先后用过的引擎有序列（逗号分隔，如 'claude,codex'）；切 agent 时追加，用于列表标记
     engines         TEXT,
@@ -76,6 +76,20 @@ CREATE TABLE IF NOT EXISTS claude_chat_review_feedback (
 
 CREATE INDEX IF NOT EXISTS idx_claude_chat_review_feedback_source
     ON claude_chat_review_feedback(source_session_id, status, created_at DESC);
+
+-- 成功提交评审汇总后持久化已覆盖的 AI 消息指纹，供后续增量汇总跨浏览器恢复边界。
+CREATE TABLE IF NOT EXISTS claude_chat_review_summary_coverage (
+    id                  TEXT PRIMARY KEY,
+    review_space_id     TEXT NOT NULL,
+    source_message_id   TEXT NOT NULL,
+    summary_feedback_id TEXT NOT NULL,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    UNIQUE (review_space_id, source_message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_review_summary_coverage_space
+    ON claude_chat_review_summary_coverage(review_space_id, created_at);
 
 -- Vibe Coding 会话关联快捷入口中的测试站点；只保存逻辑 ID，站点名称、地址和图标仍由快捷入口统一维护。
 CREATE TABLE IF NOT EXISTS claude_chat_session_site (

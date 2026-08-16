@@ -45,13 +45,14 @@ public class PluginUpdateController {
 
     /**
      * 列团队套件状态（3 插件 + 2 MCP）：插件带版本，MCP 带知识库 git 状态。
-     * fetch=true 时先对 MCP 知识库仓 git fetch，使「落后远端」数准确（较慢，按需调用）。
+     * fetch=true 时按所选 Git 源读取插件 manifest 与 MCP 远端提交（较慢，按需调用）。
      */
     @GetMapping("/suites")
     public List<SuiteStatusView> suites(
             @RequestParam(required = false) String sessionId,
-            @RequestParam(defaultValue = "false") boolean fetch) {
-        return service.readSuites(sessionId, fetch);
+            @RequestParam(defaultValue = "false") boolean fetch,
+            @RequestParam(defaultValue = "gitee") String source) {
+        return service.readSuites(sessionId, fetch, source);
     }
 
     /** 检查 Git、Node.js/npm、Claude Code、Codex，并返回当前系统的官方安装指引。 */

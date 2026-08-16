@@ -15,9 +15,16 @@ package com.exceptioncoder.toolbox.claudechat.api.dto;
  * @param present        是否就绪（插件=任一端已安装；MCP=已在 ~/.claude.json 配置）
  * @param repoCommit     MCP 知识库本地短 commit（非 MCP / 非 git 仓为 null）
  * @param repoDate       MCP 知识库本地提交日期 YYYY-MM-DD（同上）
- * @param behind         MCP 知识库落后远端的提交数（0=已最新；null=未知/无上游/未 fetch）
+ * @param behind         本地仓库落后本次远端快照的提交数（0=已最新；null=未知/未检查）
+ * @param remoteVersion  插件远端 manifest 版本（MCP 为 null）
+ * @param remoteRepoCommit 远端短 commit
+ * @param remoteRepoDate 远端提交日期 YYYY-MM-DD
+ * @param remoteChecked  是否完成本次所选 Git 源的远端检查
+ * @param remoteError    单仓远端检测失败原因
  */
 public record SuiteStatusView(String name, String kind, String marketplace,
                               String claudeInstalled, String codexInstalled, String available, boolean present,
-                              String repoCommit, String repoDate, Integer behind) {
+                              String repoCommit, String repoDate, Integer behind,
+                              String remoteVersion, String remoteRepoCommit, String remoteRepoDate,
+                              boolean remoteChecked, String remoteError) {
 }

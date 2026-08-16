@@ -76,7 +76,8 @@ public class ReviewSpaceController {
     public ResponseEntity<PublicReviewView> publicView(@PathVariable String token) {
         return service.resolve(token)
                 .map(space -> ResponseEntity.ok(PublicReviewView.from(space, service.sourceTitle(space),
-                        service.runtimeConfig(space))))
+                        service.runtimeConfig(space), service.coveredSourceMessageIds(space),
+                        service.hasSubmittedSummary(space))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -88,7 +89,7 @@ public class ReviewSpaceController {
         }
         try {
             return ResponseEntity.ok(ReviewFeedbackView.from(service.submitFeedback(
-                    token, request.content(), request.sourceMessageId())));
+                    token, request.content(), request.sourceMessageId(), request.coveredSourceMessageIds())));
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().build();
         }
@@ -146,15 +147,19 @@ public class ReviewSpaceController {
     }
     public record PublicReviewView(String reviewSessionId, String title, String sourceTitle, String mode,
                                    String contextSnapshot, long expiresAt, long createdAt,
-                                   ReviewSpaceService.ReviewRuntimeConfig runtimeConfig) {
+                                   ReviewSpaceService.ReviewRuntimeConfig runtimeConfig,
+                                   List<String> coveredSourceMessageIds, boolean hasSubmittedSummary) {
         static PublicReviewView from(ReviewSpace s, String sourceTitle,
-                                     ReviewSpaceService.ReviewRuntimeConfig runtimeConfig) {
+                                     ReviewSpaceService.ReviewRuntimeConfig runtimeConfig,
+                                     List<String> coveredSourceMessageIds, boolean hasSubmittedSummary) {
             return new PublicReviewView(s.reviewSessionId(), s.title(), sourceTitle,
-                    s.mode(), s.contextSnapshot(), s.expiresAt(), s.createdAt(), runtimeConfig);
+                    s.mode(), s.contextSnapshot(), s.expiresAt(), s.createdAt(), runtimeConfig,
+                    coveredSourceMessageIds, hasSubmittedSummary);
         }
     }
 
-    public record SubmitFeedbackRequest(String content, String sourceMessageId) {}
+    public record SubmitFeedbackRequest(String content, String sourceMessageId,
+                                        List<String> coveredSourceMessageIds) {}
     public record HandleFeedbackRequest(String status) {}
     public record ReviewFeedbackView(String id, String status, long createdAt) {
         static ReviewFeedbackView from(com.exceptioncoder.toolbox.claudechat.domain.ReviewFeedback feedback) {

@@ -129,11 +129,12 @@ export function getPluginStatus() {
   return http<PluginStatus>('/claude-chat/plugins/status')
 }
 
-/** 列团队套件状态（3 插件 + 2 MCP，当前会话所用）。fetch=true 时先 git fetch MCP 知识库，使「落后远端」准确（较慢）。 */
-export function listSuites(sessionId?: string, fetch = false) {
+/** 列团队套件状态；fetch=true 时从所选 Git 源刷新插件与 MCP 的远端版本。 */
+export function listSuites(sessionId?: string, fetch = false, source: 'gitee' | 'github' = 'gitee') {
   const params = new URLSearchParams()
   if (sessionId) params.set('sessionId', sessionId)
   if (fetch) params.set('fetch', 'true')
+  params.set('source', source)
   const query = params.toString()
   return http<SuiteStatus[]>(`/claude-chat/plugins/suites${query ? `?${query}` : ''}`)
 }
@@ -491,7 +492,7 @@ export function createReviewShare(sessionId: string, input: {
 export function getPublicReview(token: string) {
   return fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}`).then(async response => {
     if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效、过期或被撤销' : '读取评审会话失败')
-    return response.json() as Promise<{ reviewSessionId: string; title: string; sourceTitle: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number; createdAt: number; runtimeConfig: { engine: 'codex'; modelPolicy: 'DEFAULT'; defaultModel: string | null; defaultReasoningEffort: string | null; speed: 'default'; executionPolicy: 'review-only'; codexAuthAlias: string } }>
+    return response.json() as Promise<{ reviewSessionId: string; title: string; sourceTitle: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number; createdAt: number; coveredSourceMessageIds?: string[]; hasSubmittedSummary?: boolean; runtimeConfig: { engine: 'codex'; modelPolicy: 'DEFAULT'; defaultModel: string | null; defaultReasoningEffort: string | null; speed: 'default'; executionPolicy: 'review-only'; codexAuthAlias: string } }>
   })
 }
 
@@ -508,11 +509,12 @@ export function handleReviewFeedback(id: string, status: 'CONSUMED' | 'DISMISSED
   })
 }
 
-export async function submitPublicReviewFeedback(token: string, content: string, sourceMessageId?: string) {
+export async function submitPublicReviewFeedback(token: string, content: string, sourceMessageId?: string,
+                                                 coveredSourceMessageIds?: string[]) {
   const response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, sourceMessageId }),
+    body: JSON.stringify({ content, sourceMessageId, coveredSourceMessageIds }),
   })
   if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效' : '提交评审结论失败')
   return response.json() as Promise<{ id: string; status: string; createdAt: number }>

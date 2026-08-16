@@ -20,13 +20,7 @@ const HISTORY_PAGE_SIZE = 100
 const MAX_HISTORY_PAGES = 200
 const SUBMITTED_STORAGE_PREFIX = 'kai-toolbox:review-submitted:'
 const FINAL_SUMMARY_SOURCE_PREFIX = 'final-summary-v1:'
-const FINAL_REVIEW_SUMMARY_PROMPT = `请基于本次评审会话从评审开始以来的全部业务问题、测试问题、截图分析和你的回答，整理一份可直接交给开发人员执行的最终评审结论。
-
-要求：
-1. 按“必须修复的问题 / 测试与验收场景 / 风险与待确认项”组织；
-2. 合并重复问题，保留具体复现步骤、预期结果和影响范围；
-3. 如果信息冲突或尚未确认，请明确标注，不要猜测；
-4. 只输出最终交接结论，不要描述整理过程。`
+const MAX_INCREMENTAL_SUMMARY_PROMPT_CHARS = 120_000
 
 type SummaryPhase = 'idle' | 'preparing' | 'generating' | 'submitting'
 
@@ -85,6 +79,24 @@ function mergeConclusions(...groups: ReviewConclusion[][]): ReviewConclusion[] {
   return [...merged.values()].sort((left, right) => left.ts - right.ts)
 }
 
+function incrementalSummaryPrompt(conclusions: ReviewConclusion[], hasPreviousSummary: boolean): string {
+  const scope = conclusions.map((conclusion, index) =>
+    `### 新增结论 ${index + 1}\n${conclusion.text}`).join('\n\n')
+  return `请只基于下方“本批新增评审结论”整理一份可直接交给开发人员执行的${hasPreviousSummary ? '补充' : '最终'}评审结论。
+
+范围约束：
+1. 之前轮次的问题、回答和已提交的最终结论均不属于本批范围，不得重新汇总；
+2. 只处理下面明确列出的新增结论，不要从会话旧历史补充内容；
+3. 按“必须修复的问题 / 测试与验收场景 / 风险与待确认项”组织；
+4. 合并本批内部重复问题，保留具体复现步骤、预期结果和影响范围；
+5. 信息冲突或尚未确认时明确标注，不要猜测；
+6. 只输出交接结论，不要描述整理过程。
+
+## 本批新增评审结论
+
+${scope}`
+}
+
 /** 从最近一页向前回溯，碰到评审空间创建时间即停止，避免把 FULL_FORK 的开发历史当作评审结论。 */
 async function loadAllReviewConclusions(token: string, reviewCreatedAt: number, includeUndated: boolean): Promise<ReviewConclusion[]> {
   const collected: ReviewConclusion[][] = []
@@ -141,7 +153,10 @@ export function ReviewPage() {
   useEffect(() => {
     if (!review || attachedRef.current === review.reviewSessionId) return
     attachedRef.current = review.reviewSessionId
-    setSubmittedSourceIds(readSubmitted(review.reviewSessionId))
+    const restored = readSubmitted(review.reviewSessionId)
+    ;(review.coveredSourceMessageIds ?? []).forEach(id => restored.add(id))
+    setSubmittedSourceIds(restored)
+    writeSubmitted(review.reviewSessionId, restored)
     chat.switchTo(review.reviewSessionId)
   }, [review, chat.switchTo])
   useEffect(() => {
@@ -165,8 +180,10 @@ export function ReviewPage() {
   const waitingForReviewAnswers = chat.running || chat.queued.length > 0
   const finalizingSummary = summaryPhase !== 'idle'
   const latestUnsubmittedConclusion = [...knownConclusions].reverse().find(item => !submittedSourceIds.has(item.sourceMessageId))
+  const hasPreviousSummary = review?.hasSubmittedSummary === true
+    || [...submittedSourceIds].some(id => id.startsWith(FINAL_SUMMARY_SOURCE_PREFIX))
   const finalSummaryCurrent = unsubmittedCount === 0
-    && [...submittedSourceIds].some(id => id.startsWith(FINAL_SUMMARY_SOURCE_PREFIX))
+    && hasPreviousSummary
 
   const send = () => {
     if (uploading > 0 || finalizingSummary || (!text.trim() && attachments.length === 0)) return
@@ -211,17 +228,24 @@ export function ReviewPage() {
         conclusionsFromItems(chat.items, review.createdAt, review.mode === 'SAFE_SNAPSHOT'),
       )
       setHistoryConclusions(all)
-      if (all.length === 0) {
-        setError('当前还没有可汇总的 AI 评审结论。')
+      const pending = all.filter(item => !submittedSourceIds.has(item.sourceMessageId))
+      if (pending.length === 0) {
+        setError(all.length === 0 ? '当前还没有可汇总的 AI 评审结论。' : '当前没有上次汇总后新增的 AI 评审结论。')
+        setSummaryPhase('idle')
+        return
+      }
+      const prompt = incrementalSummaryPrompt(pending, hasPreviousSummary)
+      if (prompt.length > MAX_INCREMENTAL_SUMMARY_PROMPT_CHARS) {
+        setError('本批新增评审内容过长，请先提交部分严重问题或拆分评审批次。')
         setSummaryPhase('idle')
         return
       }
       setSummaryRequest({
-        coveredSourceIds: all.map(item => item.sourceMessageId),
+        coveredSourceIds: pending.map(item => item.sourceMessageId),
         existingItemIds: chat.items.map(item => item.id),
       })
       setSummaryPhase('generating')
-      chat.send(FINAL_REVIEW_SUMMARY_PROMPT, undefined, '汇总全部评审问题并提交')
+      chat.send(prompt, undefined, `${hasPreviousSummary ? '汇总新增' : '汇总全部'}评审问题并提交`)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setSummaryPhase('idle')
@@ -279,7 +303,12 @@ export function ReviewPage() {
     const textToSubmit = conclusion.text.trim()
     const rawSourceId = conclusionSourceId(textToSubmit)
     const finalSourceId = `${FINAL_SUMMARY_SOURCE_PREFIX}${rawSourceId}`
-    void submitPublicReviewFeedback(token, textToSubmit, finalSourceId)
+    const coverageToPersist = [...new Set([
+      ...[...submittedSourceIds].filter(id => id.startsWith('assistant-content-v1:')),
+      ...summaryRequest.coveredSourceIds,
+      rawSourceId,
+    ])]
+    void submitPublicReviewFeedback(token, textToSubmit, finalSourceId, coverageToPersist)
       .then(() => {
         setSubmittedSourceIds(previous => {
           const next = new Set(previous)
@@ -296,7 +325,7 @@ export function ReviewPage() {
         setSummaryRequest(null)
         setSummaryPhase('idle')
       })
-  }, [chat.items, review, summaryRequest, token])
+  }, [chat.items, review, submittedSourceIds, summaryRequest, token])
 
   if (error && !review) return <CenteredError message={error} />
   if (!review) return <div className="flex h-dvh items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" />加载评审会话…</div>
@@ -359,6 +388,8 @@ export function ReviewPage() {
                   ? summaryPhase === 'submitting' ? 'AI 已完成汇总，正在提交单份最终结论…' : 'AI 正在整理整轮评审，完成后会自动提交单份最终结论；此期间暂不接收新问题，避免遗漏。'
                   : waitingForReviewAnswers
                   ? `${chat.running ? 'AI 正在回答' : 'AI 等待继续处理'}${chat.queued.length > 0 ? `，另有 ${chat.queued.length} 条问题已排队` : ''}；全部回答完成后可一次提交所有结论。`
+                  : unsubmittedCount > 0 && hasPreviousSummary
+                  ? `上次汇总后新增 ${unsubmittedCount} 条评审结论；AI 将只整理本批新增内容并生成补充交接结论。`
                   : `已识别 ${knownConclusions.length} 条评审结论；AI 可先合并去重并生成一份最终交接结论，再提交到“${review.sourceTitle}”。`}
               </span>
               <div className="flex shrink-0 items-center gap-2">
@@ -370,7 +401,7 @@ export function ReviewPage() {
                 )}
                 <Button size="sm" variant="outline" onClick={() => void startFinalSummary()} disabled={finalizingSummary || submittingLatest || waitingForReviewAnswers || finalSummaryCurrent} className="gap-1.5">
                   {finalSummaryCurrent ? <CheckCircle2 className="size-4" /> : finalizingSummary ? <Loader2 className="size-4 animate-spin" /> : <GitPullRequestArrow className="size-4" />}
-                  {finalSummaryCurrent ? '最终结论已提交' : finalizingSummary ? 'AI 汇总中…' : `AI 汇总并提交${unsubmittedCount > 0 ? `（${unsubmittedCount}）` : ''}`}
+                  {finalSummaryCurrent ? '最终结论已提交' : finalizingSummary ? 'AI 汇总中…' : `${hasPreviousSummary ? 'AI 汇总新增并提交' : 'AI 汇总并提交'}${unsubmittedCount > 0 ? `（${unsubmittedCount}）` : ''}`}
                 </Button>
               </div>
             </div>
