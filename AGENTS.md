@@ -80,6 +80,7 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 - **Tools are sandboxed by schema, not by package boundary.** Each tool owns its own SQLite tables; tools don't query each other's tables. Cross-tool needs go through `/api/tools` (future) or shared common services.
 - **Frontend menu must keep working with the backend down.** Don't move feature metadata to the server; keep `FeatureManifest` as the source of truth.
 - **Lucide icons by component reference**, not string name, in `FeatureManifest.icon`. The backend `ToolDescriptor.icon()` returns kebab-case strings, but that path is currently unused by the UI.
+- **Frontend UI Art Direction**: 遵循 `quiet-luxury-ui` 技能规范（*Quiet Luxury Enterprise UI*：Swiss editorial layout + Apple HIG hierarchy + Linear-level restraint + Vercel-level precision）。严禁 AI 套路（全盘套卡片、Card套Card、巨大圆角/阴影、48px+巨型状态图标、机械死板居中、蓝紫渐变/无意义毛玻璃）。状态页以工作流恢复（Context → State → Explanation → Recovery Action）为主，严禁 Dead End。详见 `.agents/skills/quiet-luxury-ui/SKILL.md`。
 
 ## Reference docs
 

@@ -80,6 +80,7 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 - **Frontend menu must keep working with the backend down.** Don't move feature metadata to the server; keep `FeatureManifest` as the source of truth.
 - **Lucide icons by component reference**, not string name, in `FeatureManifest.icon`. The backend `ToolDescriptor.icon()` returns kebab-case strings, but that path is currently unused by the UI.
 - **弹框/确认/提示一律用公共组件，禁用浏览器原生 `alert` / `confirm` / `prompt`。** 确认类走 `@/components/ui/confirm-dialog` 的 `useConfirm`（`ConfirmProvider` 已在 `main.tsx` 全局挂载），输入类走 `prompt-dialog`。原生对话框样式不统一、阻塞主线程、无法主题化/移动端适配，禁止使用。
+- **Frontend UI Art Direction**: 遵循 `quiet-luxury-ui` 技能规范（*Quiet Luxury Enterprise UI*：Swiss editorial layout + Apple HIG hierarchy + Linear-level restraint + Vercel-level precision）。严禁 AI 套路（全盘套卡片、Card套Card、巨大圆角/阴影、48px+巨型状态图标、机械死板居中、蓝紫渐变/无意义毛玻璃）。状态页以工作流恢复（Context → State → Explanation → Recovery Action）为主，严禁 Dead End。详见 `.claude/skills/quiet-luxury-ui.md` 或 `.agents/skills/quiet-luxury-ui/SKILL.md`。
 
 ## 提交节奏（用户约定，2026-06-09）
 
