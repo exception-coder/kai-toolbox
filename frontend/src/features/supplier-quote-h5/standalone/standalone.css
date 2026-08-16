@@ -1,0 +1,7 @@
+@import "../../../index.css";
+
+@source "../";
+@source "../../../components/ui/button.tsx";
+@source "../../../components/ui/card.tsx";
+@source "../../../components/ui/confirm-dialog.tsx";
+@source "../../../components/ui/status-badge.tsx";

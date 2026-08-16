@@ -1,0 +1,53 @@
+.supplier-quote-h5 {
+  --sq-canvas: #f8fafc;
+  --sq-surface: #ffffff;
+  --sq-surface-subtle: #f8fafc;
+  --sq-text: #0f172a;
+  --sq-muted: #64748b;
+  --sq-subtle: #94a3b8;
+  --sq-border: #e2e8f0;
+  --sq-border-subtle: #f1f5f9;
+  --sq-primary: #0f172a;
+  --sq-primary-hover: #1e293b;
+  --sq-accent: #0f172a;
+  --sq-accent-soft: #f1f5f9;
+  --sq-success: #059669;
+  --sq-success-soft: #ecfdf5;
+  --sq-danger: #dc2626;
+  --sq-danger-soft: #fef2f2;
+  --sq-warning: #d97706;
+  --sq-warning-soft: #fffbeb;
+  background-color: var(--sq-canvas);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+.supplier-quote-h5 > header {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}
+
+.supplier-quote-h5 input,
+.supplier-quote-h5 textarea,
+.supplier-quote-h5 button {
+  touch-action: manipulation;
+}
+
+.supplier-quote-h5 input:focus-visible,
+.supplier-quote-h5 textarea:focus-visible,
+.supplier-quote-h5 button:focus-visible {
+  outline: none;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .supplier-quote-h5 *,
+  .supplier-quote-h5 *::before,
+  .supplier-quote-h5 *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

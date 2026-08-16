@@ -57,6 +57,8 @@
         <module>tools/tool-webppt</module>
         <module>tools/tool-fore-consult</module>
         <module>tools/tool-eval</module>
+        <module>supplier-quote/supplier-quote-spring-boot-starter</module>
+        <module>tools/tool-supplier-quote</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -294,6 +296,16 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-eval</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.regentech_fashion</groupId>
+                <artifactId>supplier-quote-spring-boot-starter</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-supplier-quote</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
