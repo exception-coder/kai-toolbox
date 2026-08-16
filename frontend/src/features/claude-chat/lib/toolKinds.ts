@@ -30,7 +30,7 @@ const KIND_LABEL: Record<ToolKind, string> = {
   bash: '命令', read: '读取', edit: '编辑', agent: '子代理', skill: '技能', mcp: 'MCP', web: '联网', todo: '待办', other: '工具',
 }
 
-/** 按工具名归类（兼容 Claude / Codex / Gemini 常见工具名）。 */
+/** 按工具名归类（兼容各 Coding Agent 常见工具名）。 */
 export function classifyTool(toolName: string): ToolMeta {
   const n = (toolName || '').toLowerCase()
   let kind: ToolKind = 'other'

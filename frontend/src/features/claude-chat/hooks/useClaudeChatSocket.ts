@@ -186,7 +186,7 @@ export interface UseClaudeChatSocket {
   /** 主动刷新技能、子代理与 MCP 能力清单。 */
   refreshCapabilities: () => void
   setCodexOptions: (reasoningEffort: CodexReasoningEffort, speed: CodexSpeed) => void
-  /** 会话内切 agent（引擎），同一会话内换 claude/codex/gemini；上下文靠切后另发 seed 带过去 */
+  /** 会话内切 agent（引擎）；上下文靠切后另发 seed 带过去。 */
   switchEngine: (engine: Engine) => void
   /** 会话内切服务商（官方 ↔ 第三方网关），同一会话与 sdkSessionId 不变，保留上下文；空入参＝切回官方 */
   switchProvider: (provider?: { apiBaseUrl?: string; authToken?: string }) => void
@@ -471,17 +471,17 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         if (msg.engine) setCurrentEngine(msg.engine)
         setCurrentProviderKind(msg.providerKind ?? 'official')
         setCurrentProviderBaseUrl(msg.providerBaseUrl ?? null)
-        // Codex/Gemini 会话无 Claude 模型/slash 清单：进入时清掉上一个 Claude 会话残留的选项，避免误显示。
-        // Claude 会话不清（其 supportedModels 在 sidecar 端缓存，清了 resume 不会再下发）。
-        if (msg.engine === 'codex' || msg.engine === 'gemini') {
-          if (msg.engine === 'gemini') setModels([])
+        // 非 Claude CLI 会话无 Claude 模型/slash 清单：进入时清掉上一个 Claude 会话残留的选项，避免误显示。
+        // 模型清单在切换/open 时已经清空；ready 不能再清一次。Antigravity 的 models 探测是异步的，
+        // 事件可能先于 ready 到达，若在这里清空就会稳定退回“默认模型”。
+        if (msg.engine === 'codex' || msg.engine === 'antigravity') {
           setSlashCommands([])
           // 新后端由 ready 返回会话持久化模型；旧后端没有该字段时保留当前值，
           // 等随后 models 事件校正，避免每轮 ready 再次清成“默认”。
           if (msg.selectedModel !== undefined) setCurrentModel(msg.selectedModel)
           setSkills([])
           setAgents([])
-          if (msg.engine === 'gemini') setMcpServers([])
+          if (msg.engine === 'antigravity') setMcpServers([])
         }
         // RUNNING 必须同时携带服务端当前活动轮次，避免迟到的状态快照把已结束会话重新点亮。
         if (msg.status === 'RUNNING' && msg.activeTurnId) {
@@ -1166,8 +1166,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     setSessionId(null)
     if (m) setModeState(m)
     setCurrentEngine(engine ?? 'claude') // 乐观：新建即按所选引擎，Ready 回来再确认
-    // Codex/Gemini 无可查询模型清单：新建即清掉残留的 Claude 模型/命令，避免空窗期误显示
-    if (engine === 'codex' || engine === 'gemini') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
+    // 非 Claude CLI 无可查询模型清单：新建即清掉残留的 Claude 模型/命令，避免空窗期误显示
+    if (engine === 'codex' || engine === 'antigravity') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
     const apiBaseUrl = provider?.apiBaseUrl
     const authToken = provider?.authToken
     setCurrentProviderKind(apiBaseUrl ? 'thirdParty' : 'official')
@@ -1493,12 +1493,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sendRaw])
 
   // 主动同步模型清单：让 sidecar 重新询问 claude 二进制（Claude Code 自更新后可拿到最新，如新增 Sonnet 5）。
-  // 最新清单经 models 事件回来时清「同步中」；兜底 15s 超时自动解除，避免拉取失败时按钮一直转。
+  // 最新清单经 models 事件回来时清「同步中」；Antigravity 冷启动需要恢复 keyring 并访问模型服务，
+  // 使用与 sidecar 相同的 60s 预算，避免 CLI 仍在工作时前端先误报结束。
   const refreshModels = useCallback(() => {
     setModelsRefreshing(true)
     sendRaw({ type: 'refreshModels' })
-    window.setTimeout(() => setModelsRefreshing(false), 15_000)
-  }, [sendRaw])
+    window.setTimeout(() => setModelsRefreshing(false), currentEngine === 'antigravity' ? 65_000 : 15_000)
+  }, [sendRaw, currentEngine])
 
   // 能力刷新不触发模型调用：Codex 重新计算平台注入的 MCP；Claude 重发最近一次 SDK init 快照。
   const refreshCapabilities = useCallback(() => {

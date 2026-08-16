@@ -6,6 +6,7 @@ import {
   type DeepSeekHarnessAdapterDependencies,
 } from './deepSeekHarnessAdapter.js'
 import type { EngineCapability, EngineDescriptor, EngineId, EngineProbeResult } from './engineContract.js'
+import { probeAntigravityRuntime } from '../antigravityRuntime.js'
 
 const DEFAULT_CACHE_TTL_MS = 30_000
 
@@ -22,6 +23,7 @@ export interface EngineCatalogOptions {
   deepSeekConfig?: DeepSeekHarnessAdapterConfig
   deepSeekDependencies?: DeepSeekHarnessAdapterDependencies
   cacheTtlMs?: number
+  antigravityProbe?: () => Promise<EngineProbeResult>
 }
 
 /** Owns runtime readiness discovery; UI and session admission consume this single catalog. */
@@ -52,16 +54,18 @@ export class EngineCatalog {
   }
 
   selectableNow(engine: EngineId): boolean {
-    if (engine !== 'deepseekHarness') return true
+    if (engine !== 'deepseekHarness' && engine !== 'antigravity') return true
     return this.cached?.entries.some(entry => entry.id === engine && entry.selectable) === true
   }
 
   private async refresh(): Promise<readonly EngineCatalogEntry[]> {
-    const stable = builtinEngineRegistry.descriptors().map(engine => this.entry(engine, {
-      status: 'ready',
-      engine: engine.id,
-      detail: 'Built-in adapter is available',
-    }))
+    const antigravityProbe = await (this.options.antigravityProbe ?? probeAntigravityRuntime)()
+    const stable = builtinEngineRegistry.descriptors().map(engine => this.entry(engine,
+      engine.id === 'antigravity' ? antigravityProbe : {
+        status: 'ready',
+        engine: engine.id,
+        detail: 'Built-in adapter is available',
+      }))
     const deepSeek = await createReadyDeepSeekHarnessAdapter(
       this.deepSeekConfig,
       this.options.deepSeekDependencies,

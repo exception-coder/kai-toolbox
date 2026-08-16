@@ -36,4 +36,15 @@ class LaunchIntentControllerTest {
                 .isInstanceOf(ResponseStatusException.class);
         verifyNoInteractions(service);
     }
+
+    @Test
+    void shouldRejectRetiredGeminiEngine() throws Exception {
+        var request = new LaunchIntentController.CreateLaunchIntentRequest(
+                1, "CHAT_OPEN_AND_SEND",
+                objectMapper.readTree("{\"cwd\":\"D:/repo\",\"seed\":\"执行\",\"engine\":\"gemini\"}"));
+
+        assertThatThrownBy(() -> controller.create(request))
+                .isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(service);
+    }
 }

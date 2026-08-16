@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 /**
- * sidecar 四种对话引擎运行包的版本自检服务。
+ * sidecar 内置 npm 对话引擎运行包的版本自检服务；Antigravity 使用外部 agy 运行时。
  * 本地版本确定性读取，只有用户显式检查时才并行访问 npm registry。
  */
 @Slf4j
@@ -37,7 +37,6 @@ public class SidecarVersionService {
     private static final List<EngineDefinition> ENGINES = List.of(
             new EngineDefinition("claude", "Claude Code", CLAUDE_PACKAGE, true),
             new EngineDefinition("codex", "Codex", "@openai/codex-sdk", false),
-            new EngineDefinition("gemini", "Gemini", "@google/gemini-cli", false),
             new EngineDefinition("opencode", "OpenCode", "@opencode-ai/sdk", false)
     );
     private static final String REGISTRY_BASE = "https://registry.npmjs.org/";
@@ -85,7 +84,7 @@ public class SidecarVersionService {
                 upgradeCommand(), null, engines);
     }
 
-    /** 升级命令：更新四种引擎运行包并重新构建，装完必须重启 sidecar 才生效。 */
+    /** 升级命令：更新内置 npm 引擎运行包并重新构建，装完必须重启 sidecar 才生效。 */
     public String upgradeCommand() {
         String packages = ENGINES.stream()
                 .map(engine -> engine.packageName() + "@latest")
@@ -186,7 +185,7 @@ public class SidecarVersionService {
         }
     }
 
-    /** 并行查询四个 npm 包的最新版本，单个失败时保留其他结果。 */
+    /** 并行查询 npm 包的最新版本，单个失败时保留其他结果。 */
     private Map<String, String> fetchLatestVersions() {
         try (HttpClient client = HttpClient.newBuilder().connectTimeout(NETWORK_TIMEOUT).build()) {
             Map<String, CompletableFuture<String>> requests = new LinkedHashMap<>(ENGINES.size());

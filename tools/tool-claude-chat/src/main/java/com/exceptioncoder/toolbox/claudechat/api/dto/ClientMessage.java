@@ -98,7 +98,7 @@ public sealed interface ClientMessage
     record SetCodexOptions(String reasoningEffort, String speed) implements ClientMessage {}
 
     /**
-     * 会话内切 agent（引擎）：claude / codex / gemini。同一会话 id 不变；
+     * 会话内切 agent（引擎）：claude / codex / antigravity / opencode。同一会话 id 不变；
      * sidecar 置新引擎并清 sdkSessionId（新引擎起新 SDK 会话）。
      * 历史开场由前端切换后另发一条 send 带过去（复用发送链路、UI 自然显示）。
      */
@@ -107,7 +107,7 @@ public sealed interface ClientMessage
     /**
      * 会话内切服务商（官方 ↔ 第三方 Anthropic 兼容网关，或两网关互切）：同一会话 id 与 sdkSessionId 不变，
      * 沿用原生会话续跑（保留上下文）。apiBaseUrl 空＝切回官方登录；非空＝该网关，authToken 为其 key。
-     * 仅 claude/codex/gemini 引擎可用网关；下一轮 query 生效。
+     * 仅 claude/codex 引擎可用网关；下一轮 query 生效。
      */
     record SwitchProvider(String apiBaseUrl, String authToken) implements ClientMessage {}
 

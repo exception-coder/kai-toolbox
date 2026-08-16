@@ -540,8 +540,8 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
                 ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)]'
                 : s.engine === 'codex'
                   ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
-                  : s.engine === 'gemini'
-                    ? 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-200'
+                  : s.engine === 'antigravity'
+                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200'
                     : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]',
           )}
         >

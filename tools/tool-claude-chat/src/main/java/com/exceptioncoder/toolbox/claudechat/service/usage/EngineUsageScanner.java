@@ -8,7 +8,7 @@ import java.util.List;
  */
 public interface EngineUsageScanner {
 
-    /** 引擎标识：claude / codex / gemini。 */
+    /** 引擎标识。 */
     String engine();
 
     /** 扫描 mtime ≥ sinceMs 的本地日志。 */
@@ -21,7 +21,7 @@ public interface EngineUsageScanner {
         }
     }
 
-    /** 一轮（或一条 token 事件）的用量。hasTokens=false 时仅计会话/轮次（如 Gemini）。 */
+    /** 一轮（或一条 token 事件）的用量。hasTokens=false 时仅计会话/轮次。 */
     record TurnRecord(long ts, long input, long output, long cacheRead, long cacheCreate,
                       String sessionId, boolean hasTokens) {
     }

@@ -26,9 +26,9 @@ public class EngineCatalogService {
                 .orElseGet(() -> new EngineCatalogView(1, List.of(), "Sidecar 引擎目录不可用"));
     }
 
-    /** 以 Sidecar 探活结果裁决实验引擎准入；稳定引擎不增加同步查询开销。 */
+    /** 以 Sidecar 探活结果裁决外部运行时引擎准入；内嵌引擎不增加同步查询开销。 */
     public boolean selectable(String engine) {
-        if (!"deepseekHarness".equals(engine)) {
+        if (!"deepseekHarness".equals(engine) && !"antigravity".equals(engine)) {
             return true;
         }
         return list(false).engines().stream()

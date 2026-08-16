@@ -55,12 +55,6 @@
   --skin-c3: #a3e635;
 }
 
-.cc-skin-gemini {
-  --skin-c1: #4285f4;
-  --skin-c2: #a855f7;
-  --skin-c3: #22d3ee;
-}
-
 .cc-skin-opencode {
   --skin-c1: #e879f9;
   --skin-c2: #818cf8;
@@ -77,6 +71,12 @@
 .theme-black .cc-skin {
   --skin-alpha: 0.2;
   --skin-base: var(--color-background);
+}
+
+.cc-skin-antigravity {
+  --skin-c1: #7c3aed;
+  --skin-c2: #4285f4;
+  --skin-c3: #ec4899;
 }
 
 /* 阅读型材质保留引擎辨识色，但主动降低极光存在感，避免纸页与墨水正文被背景抢焦点。 */

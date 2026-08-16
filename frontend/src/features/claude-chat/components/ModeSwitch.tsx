@@ -129,16 +129,18 @@ function ModeConfirmation({
   onCancel: () => void
   onConfirm: () => void
 }) {
+  const engineName = engine === 'codex' ? 'Codex' : engine === 'antigravity' ? 'Antigravity' : 'Claude'
+  const fullAccessLabel = engine === 'codex' || engine === 'antigravity' ? '完全访问权限' : '全自动'
   return (
     <>
       <div className="mb-2 flex items-center gap-2">
         <ShieldAlert className="size-5 text-red-600" />
         <h3 className="text-base font-semibold">
-          开启「{engine === 'codex' ? '完全访问权限' : '全自动'}」模式？
+          开启「{fullAccessLabel}」模式？
         </h3>
       </div>
       <p className="text-sm leading-relaxed text-[var(--color-muted-foreground)]">
-        开启后 {engine === 'codex' ? 'Codex' : 'Claude'} 的所有工具调用都<strong className="text-[var(--color-foreground)]">不再询问</strong>，
+        开启后 {engineName} 的所有工具调用都<strong className="text-[var(--color-foreground)]">不再询问</strong>，
         可能直接改文件 / 执行命令。请确认你信任当前任务再开启。
       </p>
       <div className="mt-4 flex gap-3">
@@ -150,7 +152,7 @@ function ModeConfirmation({
           className="flex-1 bg-red-600 text-white shadow-md hover:bg-red-700"
           onClick={onConfirm}
         >
-          {engine === 'codex' ? '开启完全访问权限' : '开启全自动'}
+          开启{fullAccessLabel}
         </Button>
       </div>
     </>

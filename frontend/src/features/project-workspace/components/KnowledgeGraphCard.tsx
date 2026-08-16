@@ -263,7 +263,7 @@ export function KnowledgeGraphCard({
           <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/20 p-3">
             <div className="mb-2 text-xs font-medium text-[var(--color-foreground)]">初始化 / 更新执行引擎（必选）</div>
             <div className="flex flex-wrap gap-2">
-              {(['claude', 'codex', 'gemini', 'opencode'] as Engine[]).map(engine => (
+              {(['claude', 'codex', 'antigravity', 'opencode'] as Engine[]).map(engine => (
                 <Button
                   key={engine}
                   type="button"

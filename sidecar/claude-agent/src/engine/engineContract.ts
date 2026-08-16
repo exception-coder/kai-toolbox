@@ -1,4 +1,4 @@
-export const BUILTIN_ENGINE_IDS = ['claude', 'codex', 'gemini', 'opencode'] as const
+export const BUILTIN_ENGINE_IDS = ['claude', 'codex', 'antigravity', 'opencode'] as const
 
 export type BuiltinEngineId = typeof BUILTIN_ENGINE_IDS[number]
 export type EngineId = BuiltinEngineId | 'deepseekHarness'

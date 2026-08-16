@@ -596,7 +596,7 @@ export function ChatPage() {
     try { sessionStorage.removeItem('kai-toolbox:claude-chat:knowledge-graph-bootstrap-launch') } catch { /* ignore */ }
     try {
       const { cwd, seed, engine } = JSON.parse(raw) as { cwd?: string; seed?: string; engine?: Engine }
-      if (seed && engine && (['claude', 'codex', 'gemini', 'opencode'] as Engine[]).includes(engine)) {
+      if (seed && engine && (['claude', 'codex', 'antigravity', 'opencode'] as Engine[]).includes(engine)) {
         chat.open((cwd ?? '').trim(), undefined, undefined, engine)
         chat.send(seed)
       }
@@ -792,7 +792,7 @@ export function ChatPage() {
 
   // 选中第三方网关时，从其 /v1/models 拉可选模型目录（后端代理）。失败/空回退手填，不阻断新建。
   useEffect(() => {
-    if (panel !== 'new' || (newEngine !== 'claude' && newEngine !== 'codex' && newEngine !== 'gemini') || newProviderId === '') {
+    if (panel !== 'new' || (newEngine !== 'claude' && newEngine !== 'codex') || newProviderId === '') {
       setProviderModels([])
       return
     }
@@ -966,9 +966,8 @@ export function ChatPage() {
   const sessionConfigCompactSummary = compactSessionModelLabel(sessionConfigSummary)
 
   const startNew = () => {
-    // 服务商仅 Claude 引擎生效：选了档案则走第三方网关 + 手填模型，否则官方默认
-    // 第三方网关对 Claude / Codex / Gemini 生效（各走各的协议端点）
-    const usesGateway = newEngine === 'claude' || newEngine === 'codex' || newEngine === 'gemini'
+    // 第三方网关仅对 Claude / Codex 生效（各走各的协议端点）。
+    const usesGateway = newEngine === 'claude' || newEngine === 'codex'
     const profile = usesGateway ? providers.find(p => p.id === newProviderId) : undefined
     const provider = profile
       ? { apiBaseUrl: profile.baseUrl, authToken: profile.key }
@@ -1627,8 +1626,8 @@ export function ChatPage() {
             {newEngine === 'codex' && (
               <span className="text-xs text-[var(--color-muted-foreground)]">（Codex 靠沙箱，不弹权限框）</span>
             )}
-            {newEngine === 'gemini' && (
-              <span className="text-xs text-[var(--color-muted-foreground)]">（Gemini CLI headless，需本机已登录 gemini 或配置 GEMINI_API_KEY）</span>
+            {newEngine === 'antigravity' && (
+              <span className="text-xs text-[var(--color-muted-foreground)]">（使用本机 agy 登录；需支持 stream-json 的新版 Antigravity CLI）</span>
             )}
             {newEngine === 'opencode' && (
               <span className="text-xs text-[var(--color-muted-foreground)]">（多 provider agent，跑第三方模型推荐；需本机装 opencode 并配置 provider：opencode auth login）</span>
@@ -1687,8 +1686,8 @@ export function ChatPage() {
               />
             </div>
           )}
-          {/* 服务商：Claude / Codex / Gemini 引擎。官方默认 / 第三方网关档案（按会话生效，不动官方） */}
-          {(newEngine === 'claude' || newEngine === 'codex' || newEngine === 'gemini') && (
+          {/* 服务商：Claude / Codex 引擎。官方默认 / 第三方网关档案（按会话生效，不动官方） */}
+          {(newEngine === 'claude' || newEngine === 'codex') && (
             <div className="mt-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-[var(--color-muted-foreground)]">服务商</span>
@@ -1772,9 +1771,7 @@ export function ChatPage() {
                 <p className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
                   {newEngine === 'codex'
                     ? '将使用第三方网关（OpenAI 兼容），不是本机 ~/.codex 官方登录。网关 baseURL 只填 host 即可，Codex 会自动补 /v1。'
-                    : newEngine === 'gemini'
-                      ? '将使用第三方网关（须 Google/Gemini 协议兼容），注入 GOOGLE_GEMINI_BASE_URL + GEMINI_API_KEY，不走本机官方登录。'
-                      : '将使用第三方网关，不是 Claude Code 官方登录。'}
+                    : '将使用第三方网关，不是 Claude Code 官方登录。'}
                 </p>
               )}
             </div>
@@ -2337,7 +2334,7 @@ export function ChatPage() {
                   ? <span className="text-sm text-emerald-700 dark:text-emerald-300">仅计划评审</span>
                   : <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} disabled={planLocked} inlineConfirmation />}
               </div>
-              {chat.currentEngine === 'codex' && !reviewOnlySession && (
+              {(chat.currentEngine === 'codex' || chat.currentEngine === 'antigravity') && !reviewOnlySession && (
                 <div className="flex flex-col items-stretch gap-2">
                   <span className="shrink-0 text-sm font-medium">模型参数</span>
                   <CodexSessionOptions
@@ -2349,12 +2346,16 @@ export function ChatPage() {
                     showCodexHome={Boolean(currentSession && currentSession.providerKind !== 'thirdParty')}
                     disabled={planLocked}
                     optionsDisabled={planLocked}
+                    engineLabel={chat.currentEngine === 'antigravity' ? 'Antigravity' : 'Codex'}
+                    showSpeed={chat.currentEngine === 'codex'}
+                    modelsRefreshing={chat.modelsRefreshing}
                     onModelChange={chat.setModel}
                     onOptionsChange={chat.setCodexOptions}
+                    onRefreshModels={chat.refreshModels}
                   />
                 </div>
               )}
-              {!reviewOnlySession && (chat.currentEngine === 'claude' || chat.currentEngine === 'codex' || chat.currentEngine === 'gemini') && (
+              {!reviewOnlySession && (chat.currentEngine === 'claude' || chat.currentEngine === 'codex') && (
                 <>
                   <div className="flex flex-col items-stretch gap-2">
                     <span className="text-sm font-medium">服务商</span>
@@ -2542,4 +2543,3 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
     </button>
   )
 }
-

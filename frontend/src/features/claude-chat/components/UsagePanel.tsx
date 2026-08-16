@@ -4,7 +4,7 @@ import { Coins, Database, Loader2, X } from 'lucide-react'
 import { fetchUsage, type EngineUsage, type SessionUsage, type UsageWindow } from '../api'
 import { abbr } from '../lib/metrics'
 
-const ENGINE_LABEL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini' }
+const ENGINE_LABEL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity' }
 const WINDOWS: { key: 'today' | 'd7' | 'd30'; label: string }[] = [
   { key: 'today', label: '今日' },
   { key: 'd7', label: '近 7 天' },
@@ -62,7 +62,7 @@ export function UsagePanel({ onClose, session }: { onClose: () => void; session?
             <div className="flex flex-col gap-3">
               {data.map(e => <EngineCard key={e.engine} u={e} win={win} />)}
               <p className="px-1 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
-                Token 来自本机各 CLI 会话日志（只读），为实际消耗，缓存命中部分计费约 1/10。官方额度：Claude 调 /usage 端点、Codex 取本地 rollout；Gemini 本地无 token。
+                Token 来自本机各 CLI 会话日志（只读），为实际消耗，缓存命中部分计费约 1/10。官方额度：Claude 调 /usage 端点，Codex 取本地 rollout。
               </p>
             </div>
           )}

@@ -5,7 +5,7 @@ import type { EngineCatalogView } from '../types'
 describe('selectableEngineIds', () => {
   it('falls back to stable engines when the sidecar catalog is unavailable', () => {
     expect(selectableEngineIds({ protocolVersion: 1, engines: [], error: 'offline' }))
-      .toEqual(['claude', 'codex', 'gemini', 'opencode'])
+      .toEqual(['claude', 'codex', 'opencode'])
   })
 
   it('only exposes DeepSeek Harness after a ready handshake', () => {
@@ -25,5 +25,21 @@ describe('selectableEngineIds', () => {
     expect(selectableEngineIds(catalog)).toEqual(['claude', 'deepseekHarness'])
     catalog.engines[1].probe.status = 'incompatible'
     expect(selectableEngineIds(catalog)).toEqual(['claude'])
+  })
+
+  it('exposes Antigravity only when the sidecar probe marks it selectable', () => {
+    const catalog: EngineCatalogView = {
+      protocolVersion: 1,
+      engines: [
+        {
+          id: 'antigravity', displayName: 'Antigravity', capabilities: [], availability: 'stable', selectable: false,
+          probe: { status: 'incompatible', runtimeVersion: '1.1.1' },
+        },
+      ],
+    }
+    expect(selectableEngineIds(catalog)).toEqual(['claude', 'codex', 'opencode'])
+    catalog.engines[0].selectable = true
+    catalog.engines[0].probe.status = 'ready'
+    expect(selectableEngineIds(catalog)).toEqual(['antigravity'])
   })
 })

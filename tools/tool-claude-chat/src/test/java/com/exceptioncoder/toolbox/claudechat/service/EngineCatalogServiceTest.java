@@ -57,4 +57,18 @@ class EngineCatalogServiceTest {
         assertThat(result.engines()).isEmpty();
         assertThat(result.error()).isEqualTo("Sidecar 引擎目录不可用");
     }
+
+    @Test
+    void requiresSidecarReadinessForAntigravityAdmission() throws Exception {
+        SidecarClient sidecar = mock(SidecarClient.class);
+        when(sidecar.queryEngineCatalog(anyBoolean(), anyLong())).thenReturn(Optional.of(mapper.readTree("""
+                {"protocolVersion":1,"engines":[{
+                  "id":"antigravity","displayName":"Antigravity","capabilities":["resume"],
+                  "availability":"stable","selectable":false,
+                  "probe":{"status":"incompatible","runtimeVersion":"1.1.1"}
+                }]}
+                """)));
+
+        assertThat(new EngineCatalogService(sidecar).selectable("antigravity")).isFalse();
+    }
 }

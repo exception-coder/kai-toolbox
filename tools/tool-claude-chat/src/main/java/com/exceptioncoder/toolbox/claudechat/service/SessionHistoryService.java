@@ -49,10 +49,12 @@ public class SessionHistoryService {
 
     private final ObjectMapper mapper;
     private final SessionAliasRepository aliasRepo;
+    private final AntigravityHistoryReader antigravityHistory;
 
     public SessionHistoryService(ObjectMapper mapper, SessionAliasRepository aliasRepo) {
         this.mapper = mapper;
         this.aliasRepo = aliasRepo;
+        this.antigravityHistory = AntigravityHistoryReader.forCurrentUser(mapper);
     }
 
     /** 留空 cwd 时跨所有项目目录列出的最近会话上限（控制解析量） */
@@ -67,23 +69,20 @@ public class SessionHistoryService {
      */
     public List<HistorySessionView> list(String cwd) {
         Path root = Path.of(System.getProperty("user.home"), ".claude", "projects");
-        if (!Files.isDirectory(root)) {
-            return List.of();
-        }
         boolean all = (cwd == null || cwd.isBlank());
         String target = all ? null : encode(cwd.trim());
         int limit = all ? ALL_LIMIT : DIR_LIMIT;
 
         // 1) 选目录：全部 or 匹配目标
         List<Path> dirs = new ArrayList<>();
-        try (Stream<Path> s = Files.list(root)) {
+        try (Stream<Path> s = Files.isDirectory(root) ? Files.list(root) : Stream.empty()) {
             s.filter(Files::isDirectory)
              .filter(d -> !"_trash".equals(d.getFileName().toString()))
              .filter(d -> all || matchesProject(d.getFileName().toString(), target))
              .forEach(dirs::add);
         } catch (IOException e) {
             log.warn("[claude-chat] 扫描历史会话失败：{}", e.getMessage());
-            return List.of();
+            log.warn("[claude-chat] Claude 历史扫描失败，继续读取其他引擎：{}", e.getMessage());
         }
 
         // 2) 汇总所有 *.jsonl + mtime（不解析，仅取文件时间，廉价）
@@ -119,7 +118,13 @@ public class SessionHistoryService {
                 log.debug("[claude-chat] 读取 {} 失败：{}", fm.path(), e.getMessage());
             }
         }
-        return new ArrayList<>(bySid.values());
+        for (HistorySessionView item : antigravityHistory.list(cwd, aliases, limit)) {
+            bySid.putIfAbsent(item.sdkSessionId(), item);
+        }
+        return bySid.values().stream()
+                .sorted(Comparator.comparingLong(HistorySessionView::lastModified).reversed())
+                .limit(limit)
+                .toList();
     }
 
     private record FileMeta(Path path, long mtime) {}
@@ -219,11 +224,14 @@ public class SessionHistoryService {
                 all = parseAll(jsonl);
             } else {
                 Path rollout = findCodexRollout(sdkSessionId, codexHome);
-                if (rollout == null) {
-                    // 有 sid 却两处都找不到文件 = 记录已丢失（区别于新会话本就没 sid）
+                if (rollout != null) {
+                    all = parseCodexRollout(rollout);
+                } else if (antigravityHistory.exists(sdkSessionId)) {
+                    all = antigravityHistory.readMessages(sdkSessionId);
+                } else {
+                    // 有 sid 却三处都找不到文件 = 记录已丢失（区别于新会话本就没 sid）
                     return hasSid ? MessagePage.missing() : MessagePage.empty();
                 }
-                all = parseCodexRollout(rollout);
             }
         } catch (IOException e) {
             log.debug("[claude-chat] 解析历史消息失败 {}：{}", sdkSessionId, e.getMessage());
@@ -295,7 +303,8 @@ public class SessionHistoryService {
             return true;
         }
         return findTranscript(cwd, sdkSessionId) != null
-                || findCodexRollout(sdkSessionId, codexHome) != null;
+                || findCodexRollout(sdkSessionId, codexHome) != null
+                || antigravityHistory.exists(sdkSessionId);
     }
 
     /**
@@ -333,6 +342,7 @@ public class SessionHistoryService {
             return Set.of();
         }
         pending.removeAll(scanClaudeSessionIds());
+        pending.removeAll(antigravityHistory.scanConversationIds());
         if (!pending.isEmpty()) {
             Map<String, Set<String>> idsByHome = new LinkedHashMap<>();
             for (String sid : pending) {

@@ -57,8 +57,8 @@ public class UsageService {
 
     private EngineUsageView build(EngineUsageScanner s, long todayStart, long d7Start, long d30Start) {
         String engine = s.engine();
-        boolean hasTokens = !"gemini".equals(engine);
-        String note = hasTokens ? null : "本地无 token 记录，仅统计会话 / 消息数";
+        boolean hasTokens = true;
+        String note = null;
         ScanResult r;
         try {
             r = s.scan(d30Start);

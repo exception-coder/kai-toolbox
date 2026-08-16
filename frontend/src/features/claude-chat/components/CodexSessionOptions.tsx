@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Check, ChevronDown, ChevronLeft, ChevronRight, FolderKey, Gauge, SlidersHorizontal, Zap } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, FolderKey, Gauge, RefreshCw, SlidersHorizontal, Zap } from 'lucide-react'
 import type { CodexReasoningEffort, CodexSpeed, ModelInfo } from '../types'
 
 interface Props {
@@ -15,9 +15,13 @@ interface Props {
   advancedOptions?: CodexAdvancedOption[]
   disabled?: boolean
   optionsDisabled?: boolean
+  engineLabel?: string
+  showSpeed?: boolean
+  modelsRefreshing?: boolean
   onModelChange: (model: string) => void
   onOptionsChange: (effort: CodexReasoningEffort, speed: CodexSpeed) => void
   onCodexHomeChange?: (codexHome: string) => void
+  onRefreshModels?: () => void
 }
 
 export interface CodexAdvancedOption {
@@ -80,9 +84,13 @@ export function CodexSessionOptions({
   advancedOptions = [],
   disabled,
   optionsDisabled,
+  engineLabel = 'Codex',
+  showSpeed = true,
+  modelsRefreshing = false,
   onModelChange,
   onOptionsChange,
   onCodexHomeChange,
+  onRefreshModels,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<string | null>(null)
@@ -146,13 +154,13 @@ export function CodexSessionOptions({
         type="button"
         disabled={disabled}
         onClick={() => { setOpen(value => !value); setActiveSection(null) }}
-        aria-label="配置 Codex 模型、推理强度和速度"
-        title="Codex 模型配置，下轮生效"
+        aria-label={`配置 ${engineLabel} 模型、推理强度${showSpeed ? '和速度' : ''}`}
+        title={`${engineLabel} 模型配置，下轮生效`}
         className="flex h-8 w-auto max-w-full min-w-0 items-center gap-1.5 rounded-md border bg-[var(--color-background)] px-2.5 text-xs disabled:opacity-50 sm:max-w-80"
       >
         <SlidersHorizontal className="size-3.5 shrink-0 text-[var(--color-primary)]" />
         <span className="truncate font-medium">{modelLabel}</span>
-        <span className="shrink-0 text-[var(--color-muted-foreground)]">· {effortValueLabel} · {speedLabel}</span>
+        <span className="shrink-0 text-[var(--color-muted-foreground)]">· {effortValueLabel}{showSpeed ? ` · ${speedLabel}` : ''}</span>
         <ChevronDown className={`ml-1 size-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
@@ -162,10 +170,10 @@ export function CodexSessionOptions({
           <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border bg-[var(--color-background)] p-2 shadow-xl">
             {activeSection === null ? (
               <>
-                <div className="px-2 pb-1.5 pt-1 text-xs font-medium text-[var(--color-muted-foreground)]">Codex 配置 · 下轮生效</div>
+                <div className="px-2 pb-1.5 pt-1 text-xs font-medium text-[var(--color-muted-foreground)]">{engineLabel} 配置 · 下轮生效</div>
                 <ConfigRow label="模型" value={modelLabel} disabled={optionsDisabled} onClick={() => setActiveSection('model')} />
                 <ConfigRow label="推理强度" value={effortValueLabel} icon={<Gauge className="size-4" />} disabled={optionsDisabled} onClick={() => setActiveSection('effort')} />
-                <ConfigRow label="速度" value={speedLabel} icon={<Zap className="size-4" />} disabled={optionsDisabled} onClick={() => setActiveSection('speed')} />
+                {showSpeed && <ConfigRow label="速度" value={speedLabel} icon={<Zap className="size-4" />} disabled={optionsDisabled} onClick={() => setActiveSection('speed')} />}
                 {(showCodexHome || advancedOptions.length > 0) && (
                   <>
                     <div className="my-1 border-t" />
@@ -224,11 +232,27 @@ export function CodexSessionOptions({
                 <div className="max-h-72 overflow-y-auto">
                   {activeSection === 'model' && (
                     <>
+                      {onRefreshModels && (
+                        <button
+                          type="button"
+                          disabled={modelsRefreshing}
+                          onClick={onRefreshModels}
+                          className="mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:opacity-50"
+                        >
+                          <RefreshCw className={`size-3.5 ${modelsRefreshing ? 'animate-spin' : ''}`} />
+                          {modelsRefreshing ? '正在同步模型…' : '重新同步模型'}
+                        </button>
+                      )}
                       <OptionRow
                         label={defaultModel ? `默认模型 · ${defaultModel.displayName}` : '默认模型'}
                         selected={!model}
                         onClick={() => pickModel('')}
                       />
+                      {models.length === 0 && !modelsRefreshing && (
+                        <div className="px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
+                          尚未取得模型目录，可点击上方重新同步。
+                        </div>
+                      )}
                       {models.map(item => (
                         <OptionRow key={item.value} label={item.displayName || item.value} selected={item.value === model} onClick={() => pickModel(item.value)} />
                       ))}

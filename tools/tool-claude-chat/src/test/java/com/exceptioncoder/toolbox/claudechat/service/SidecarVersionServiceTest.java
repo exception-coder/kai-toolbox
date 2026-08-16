@@ -14,13 +14,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/** 验证 sidecar 四种对话引擎运行包的本地版本聚合。 */
+/** 验证 sidecar 内置 npm 对话引擎运行包的本地版本聚合。 */
 class SidecarVersionServiceTest {
 
     private static final List<String> PACKAGES = List.of(
             "@anthropic-ai/claude-agent-sdk",
             "@openai/codex-sdk",
-            "@google/gemini-cli",
             "@opencode-ai/sdk"
     );
 
@@ -39,9 +38,9 @@ class SidecarVersionServiceTest {
 
         assertThat(result.error()).isNull();
         assertThat(result.engines()).extracting(SidecarEngineVersionView::id)
-                .containsExactly("claude", "codex", "gemini", "opencode");
+                .containsExactly("claude", "codex", "opencode");
         assertThat(result.engines()).extracting(SidecarEngineVersionView::installed)
-                .containsExactly("1.0.0", "1.0.1", "1.0.2", "1.0.3");
+                .containsExactly("1.0.0", "1.0.1", "1.0.2");
         assertThat(result.installed()).isEqualTo("1.0.0");
     }
 
@@ -51,7 +50,6 @@ class SidecarVersionServiceTest {
         writeManifest();
         writeInstalledPackage(PACKAGES.get(0), "1.0.0");
         writeInstalledPackage(PACKAGES.get(2), "1.0.2");
-        writeInstalledPackage(PACKAGES.get(3), "1.0.3");
 
         SidecarVersionView result = service().read(false);
 
@@ -70,15 +68,14 @@ class SidecarVersionServiceTest {
         return new SidecarVersionService(registry, new ObjectMapper());
     }
 
-    /** 写入四引擎依赖声明。 */
+    /** 写入内置 npm 引擎依赖声明。 */
     private void writeManifest() throws Exception {
         String dependencies = """
                 {
                   "dependencies": {
                     "@anthropic-ai/claude-agent-sdk": "^1.0.0",
                     "@openai/codex-sdk": "^1.0.1",
-                    "@google/gemini-cli": "^1.0.2",
-                    "@opencode-ai/sdk": "^1.0.3"
+                    "@opencode-ai/sdk": "^1.0.2"
                   }
                 }
                 """;

@@ -332,7 +332,7 @@ export type SendAttachment = Attachment & { mime?: string; url?: string }
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
 /** 会话引擎。DeepSeek Harness 仅在 Sidecar 运行时握手通过后由引擎目录开放。 */
-export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode' | 'deepseekHarness'
+export type Engine = 'claude' | 'codex' | 'antigravity' | 'opencode' | 'deepseekHarness'
 export type CodexReasoningEffort = string
 export type CodexSpeed = 'default' | 'fast'
 
@@ -478,7 +478,7 @@ export interface SkillSyncResult {
 
 /** sidecar 中单个对话引擎运行包的版本状态。 */
 export interface SidecarEngineVersion {
-  id: 'claude' | 'codex' | 'gemini' | 'opencode'
+  id: 'claude' | 'codex' | 'opencode'
   name: string
   packageName: string
   declared: string | null

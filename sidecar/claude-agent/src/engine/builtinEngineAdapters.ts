@@ -37,8 +37,8 @@ const descriptors = [
   descriptor('codex', 'Codex', [
     'resume', 'interrupt', 'runtimeState', 'subagents', 'attachments', 'modelCatalog',
   ]),
-  descriptor('gemini', 'Gemini CLI', [
-    'resume', 'interrupt',
+  descriptor('antigravity', 'Antigravity', [
+    'resume', 'interrupt', 'attachments', 'modelCatalog',
   ]),
   descriptor('opencode', 'OpenCode', [
     'resume', 'interrupt', 'modelCatalog',

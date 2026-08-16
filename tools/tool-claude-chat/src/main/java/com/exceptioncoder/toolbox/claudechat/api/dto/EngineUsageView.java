@@ -2,7 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.api.dto;
 
 /**
  * 单引擎本地用量视图。available=false 表示该引擎本地日志缺失/不可用；
- * hasTokens=false（如 Gemini）表示本地无 token 记录，仅会话/轮次计数。
+ * hasTokens=false 表示该扫描器只能提供会话/轮次计数。
  */
 public record EngineUsageView(
         String engine,

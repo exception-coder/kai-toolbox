@@ -19,7 +19,8 @@ import {
 import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, runEphemeralCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
 import { createClaudeConsultSourceServer, resolveConsultTargetSystems } from './codexSecurity.js'
 import { findDefaultCodexModel, forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAppServer.js'
-import { runGeminiTurn } from './geminiEngine.js'
+import { runAntigravityTurn } from './antigravityEngine.js'
+import { listAntigravityModels } from './antigravityRuntime.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
@@ -346,7 +347,7 @@ class Session {
         [...request.additionalDirectories],
       ),
       codex: request => this.runCodexTurn(request.text, request.developerInstructions),
-      gemini: request => this.runGeminiTurn(
+      antigravity: request => this.runAntigravityTurn(
         request.text,
         request.developerInstructions,
         [...request.additionalDirectories],
@@ -822,31 +823,6 @@ class Session {
     }
   }
 
-  /** 跑一轮 Gemini：委托 geminiEngine（headless stream-json），AbortController 支持中断。 */
-  private async runGeminiTurn(text: string, developerInstructions?: string,
-                              additionalDirectories: string[] = []): Promise<void> {
-    const ac = new AbortController()
-    this.abort = ac
-    try {
-      await runGeminiTurn({
-        text,
-        developerInstructions,
-        additionalDirectories,
-        cwd: this.cwd,
-        model: this.model,
-        permissionMode: this.permissionMode,
-        sdkSessionId: this.sdkSessionId,
-        apiBaseUrl: this.apiBaseUrl,
-        authToken: this.authToken,
-        signal: ac.signal,
-        emit: (e) => this.emitTurn(e),
-        setSdkSessionId: (id) => { this.sdkSessionId = id },
-      })
-    } finally {
-      this.abort = undefined
-    }
-  }
-
   /** 跑一轮 OpenCode：委托 opencodeEngine（多 provider agent），AbortController 支持中断。 */
   private async runOpencodeTurn(text: string, developerInstructions?: string): Promise<void> {
     const ac = new AbortController()
@@ -895,6 +871,15 @@ class Session {
    * Claude 则重发最近一次 SDK init 快照，下一轮 SDK init 会继续更新该快照。
    */
   refreshCapabilities(): void {
+    if (this.engine === 'antigravity') {
+      this.emitTurn({
+        type: 'init', sdkSessionId: this.sdkSessionId ?? null, slashCommands: [], skills: [], agents: [], mcpServers: [], outputStyle: null,
+      })
+      void listAntigravityModels()
+        .then(models => this.emitTurn({ type: 'models', models, current: this.model ?? null }))
+        .catch(error => console.warn(`[sidecar] Antigravity 模型目录暂不可用，保留当前选择：${error instanceof Error ? error.message : String(error)}`))
+      return
+    }
     if (this.engine === 'deepseekHarness') {
       this.emitTurn({
         type: 'init', sdkSessionId: null, slashCommands: [], skills: [], agents: [], mcpServers: [], outputStyle: null,
@@ -925,6 +910,30 @@ class Session {
       return
     }
     this.emitTurn({ type: 'init', sdkSessionId: this.sdkSessionId ?? null, ...this.capabilities })
+  }
+
+  /** Run one Antigravity turn with explicit conversation-id resume. */
+  private async runAntigravityTurn(text: string, developerInstructions?: string,
+                                   additionalDirectories: string[] = []): Promise<void> {
+    const ac = new AbortController()
+    this.abort = ac
+    try {
+      await runAntigravityTurn({
+        text,
+        developerInstructions,
+        additionalDirectories,
+        cwd: this.cwd,
+        model: this.model,
+        reasoningEffort: this.codexReasoningEffort,
+        permissionMode: this.permissionMode,
+        sdkSessionId: this.sdkSessionId,
+        signal: ac.signal,
+        emit: event => this.emitTurn(event),
+        setSdkSessionId: id => { this.sdkSessionId = id },
+      })
+    } finally {
+      this.abort = undefined
+    }
   }
 
   /** 当前 provider 的子进程环境：第三方走网关 env，否则官方 env（剔除网关变量）。供模型刷新按会话 provider 询问。 */
@@ -1235,6 +1244,19 @@ export class SessionManager {
         this.emit(sessionId, { type: 'models', models: [], current: null })
         return
       }
+      if (s?.engine === 'antigravity') {
+        try {
+          const models = await listAntigravityModels()
+          this.emit(sessionId, { type: 'models', models, current: s.model ?? null })
+        } catch (error) {
+          this.emit(sessionId, {
+            type: 'warning',
+            code: 'ANTIGRAVITY_MODEL_CATALOG_FALLBACK',
+            message: `Antigravity 模型目录暂不可用，已保留当前模型：${error instanceof Error ? error.message : String(error)}`,
+          })
+        }
+        return
+      }
       if (s && s.engine === 'claude') {
         const key = providerKey(s.apiBaseUrl)
         const models = await refreshClaudeModels(key, s.providerEnv())
@@ -1355,6 +1377,10 @@ export class SessionManager {
       this.emit(id, { type: 'models', models: loadCodexModels(s.codexHome), current: s.model ?? null })
       if (s.toolPolicy === 'review-only') void this.ensureReviewDefaults(id, s)
       else void this.refreshCodexModels(id, s, false)
+    } else if (s.engine === 'antigravity') {
+      void listAntigravityModels()
+        .then(models => this.emit(id, { type: 'models', models, current: s.model ?? null }))
+        .catch(error => console.warn(`[sidecar] Antigravity 模型目录暂不可用 session=${id}，保留当前选择：${error instanceof Error ? error.message : String(error)}`))
     }
   }
 
@@ -1418,7 +1444,7 @@ export class SessionManager {
       this.emit(id, { type: 'error', code: 'SESSION_NOT_FOUND', message: '会话不存在' })
       return
     }
-    // fire-and-forget，但必须收敛异常：runTurn 的非 Claude 引擎分支（codex/gemini/opencode）没有内层 catch，
+    // fire-and-forget，但必须收敛异常：runTurn 的非 Claude 引擎分支没有内层 catch，
     // 一旦 reject 会变成 unhandledRejection 拖垮整个 sidecar。这里兜成该会话的 error+result，解除前端「思考中」。
     const restricted = s.toolPolicy === 'consult-readonly' || s.toolPolicy === 'review-only'
     const hiddenInstructions = restricted
@@ -1628,11 +1654,12 @@ export class SessionManager {
 
   private acceptEngine(id: string, engine: unknown): boolean {
     if (!isEngineId(engine)) return true
-    if (engine !== 'deepseekHarness' || this.engineCatalog?.selectableNow(engine) === true) return true
+    if ((engine !== 'deepseekHarness' && engine !== 'antigravity')
+        || this.engineCatalog?.selectableNow(engine) === true) return true
     this.emit(id, {
       type: 'error',
       code: 'ENGINE_UNAVAILABLE',
-      message: 'DeepSeek Harness 尚未通过当前 Sidecar 的 Runtime 握手，不能创建或切换会话',
+      message: `${engine === 'antigravity' ? 'Antigravity CLI' : 'DeepSeek Harness'} 尚未通过当前 Sidecar 的 Runtime 握手，不能创建或切换会话`,
     })
     return false
   }
@@ -1660,6 +1687,7 @@ export class SessionManager {
     },
   ): Promise<void> {
     const cwd = options?.cwd || process.env.USERPROFILE || process.env.HOME || process.cwd()
+    if (!this.acceptEngine(id, engine)) return
     if (engine === 'codex') {
       const controller = new AbortController()
       this.oneShotControllers.set(id, controller)
@@ -1690,6 +1718,7 @@ export class SessionManager {
       return
     }
     const s = new Session(id, cwd, (e) => this.emit(id, e))
+    if (isEngineId(engine)) s.engine = engine
     s.forgeSqlRegistration = false
     if (model) s.model = model
     s.apiBaseUrl = options?.apiBaseUrl

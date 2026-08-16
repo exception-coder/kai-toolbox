@@ -21,6 +21,11 @@ describe('parseLaunchIntent', () => {
     }).payload.type).toBe('CHAT_OPEN_AND_SEND')
     expect(parseLaunchIntent({ ...base, type: 'CHAT_OPEN_PANEL', payload: { panel: 'clone' } }).payload.type)
       .toBe('CHAT_OPEN_PANEL')
+    expect(parseLaunchIntent({
+      ...base,
+      type: 'CHAT_OPEN_AND_SEND',
+      payload: { cwd: 'x', seed: 'migrate', engine: 'antigravity' },
+    }).payload).toMatchObject({ engine: 'antigravity' })
   })
 
   it('rejects unknown versions and malformed payloads', () => {
@@ -28,5 +33,10 @@ describe('parseLaunchIntent', () => {
       .toThrow('协议版本')
     expect(() => parseLaunchIntent({ ...base, type: 'CHAT_OPEN_AND_SEND', payload: { cwd: '', seed: '' } }))
       .toThrow()
+    expect(() => parseLaunchIntent({
+      ...base,
+      type: 'CHAT_OPEN_AND_SEND',
+      payload: { cwd: 'x', seed: 'go', engine: 'gemini' },
+    })).toThrow('未知启动引擎')
   })
 })

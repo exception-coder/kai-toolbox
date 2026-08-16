@@ -21,6 +21,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -144,6 +146,22 @@ public class ClaudeChatService {
         sidecar.setListener(this::onSidecarEvent);
     }
 
+    /** 启动即收口旧引擎元数据，避免用户必须逐个打开会话后列表才从 Gemini 变为 Antigravity。 */
+    @EventListener(ApplicationReadyEvent.class)
+    void migrateLegacyGeminiSessionsAtStartup() {
+        for (ClaudeChatSession db : repo.findAll()) {
+            if (!"gemini".equals(db.getEngine())) continue;
+            SessionCtx ctx = new SessionCtx(db.getId(), db.getCwd());
+            ctx.engine = "antigravity";
+            ctx.sdkSessionId = db.getSdkSessionId();
+            ctx.apiBaseUrl = db.getApiBaseUrl();
+            ctx.authToken = db.getAuthToken();
+            ctx.currentModel = db.getSelectedModel();
+            loadEngineSessions(ctx, db.getEngineSessions());
+            migrateLegacyOfficialGemini(ctx, db);
+        }
+    }
+
     /**
      * 随 Spring 上下文停机：让后台重连循环立刻退出。
      *
@@ -177,9 +195,8 @@ public class ClaudeChatService {
             sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
             return;
         }
-        // 第三方网关对 Claude / Codex / Gemini 引擎生效（Claude→Anthropic 兼容、Codex→OpenAI 兼容、
-        // Gemini→Google 兼容，各走各的协议端点）；opencode 自管 provider，忽略网关参数。
-        boolean gatewayCapable = "claude".equals(engine) || "codex".equals(engine) || "gemini".equals(engine);
+        // 第三方网关仅对 Claude / Codex 生效；Antigravity 和 OpenCode 使用各自运行时配置。
+        boolean gatewayCapable = "claude".equals(engine) || "codex".equals(engine);
         // 业务咨询不接受浏览器指定的第三方网关，避免把源码/业务数据送往任意外部地址。
         String apiBaseUrl = !consultReadonly && gatewayCapable ? blankToNull(open.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(open.authToken());
@@ -245,7 +262,6 @@ public class ClaudeChatService {
             // 后端重启过 → 内存会话已清空；若 DB 仍有该会话，自动从持久化记录 resume 恢复，免去用户手动重开
             ClaudeChatSession db = repo.findById(attach.sessionId()).orElse(null);
             if (db != null && ensureSidecar(ws)) {
-                boolean engineSelectable = engineCatalog.selectable(normalizeEngine(db.getEngine()));
                 // computeIfAbsent 原子去重：并发 attach 同一会话时 lambda 只跑一次，
                 // 只有真正新建 ctx 的那条线程才 resume（否则两条都 resume → sidecar 重复续跑）
                 boolean[] created = {false};
@@ -263,11 +279,13 @@ public class ClaudeChatService {
                     loadEngineSessions(c, db.getEngineSessions());
                     return c;
                 });
+                if (created[0]) migrateLegacyOfficialGemini(restored, db);
+                boolean engineSelectable = engineCatalog.selectable(restored.engine);
                 if (!canBind(ws, restored.executionPolicy)) return;
                 bindViewer(ws, restored);
                 if (created[0] && engineSelectable) {
                     repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
-                    sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), restored.engine,
+                    sidecar.resumeSession(db.getId(), restored.sdkSessionId, db.getCwd(), restored.engine,
                             restored.apiBaseUrl, restored.authToken, restored.codexHome,
                             restored.mode, restored.autoApprove, restored.currentModel,
                             restored.codexReasoningEffort, restored.codexSpeed, restored.executionPolicy,
@@ -318,13 +336,14 @@ public class ClaudeChatService {
         enforceReadonlyDefaults(ctx);
         restoreModelOptions(ctx, db);
         loadEngineSessions(ctx, db.getEngineSessions());
+        migrateLegacyOfficialGemini(ctx, db);
         bindViewer(ws, ctx);
         boolean engineSelectable = engineCatalog.selectable(ctx.engine);
         // 只更新 lastSeenAt，保留会话真实状态：若该会话仍有在跑的一轮（ctx 内存中为 RUNNING），
         // 切回/刷新恢复时不能把 DB 状态抹成 IDLE，否则会话列表与前端 running 判定都会误判为「空闲」。
         repo.touch(db.getId(), ctx.status, System.currentTimeMillis());
         if (engineSelectable) {
-            sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl,
+            sidecar.resumeSession(db.getId(), ctx.sdkSessionId, db.getCwd(), ctx.engine, ctx.apiBaseUrl,
                     ctx.authToken, ctx.codexHome, ctx.mode, ctx.autoApprove, ctx.currentModel,
                     ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy, ctx.consultEvidenceSystems);
         }
@@ -486,10 +505,11 @@ public class ClaudeChatService {
             if (ctx.engineSessions.isEmpty()) {
                 loadEngineSessions(ctx, db.getEngineSessions());
             }
+            migrateLegacyOfficialGemini(ctx, db);
         }
         String sdkSessionId = blankToNull(ctx.engineSessions.get(ctx.engine));
         if (sdkSessionId == null) sdkSessionId = blankToNull(ctx.sdkSessionId);
-        if (sdkSessionId == null && !isDurableByForgeSessionId(ctx.engine)) {
+        if (sdkSessionId == null && !canResumeWithoutNativeSessionId(ctx.engine)) {
             sendToBrowser(ctx, seq -> new ServerMessage.Error(
                     seq, "SESSION_NOT_RESUMABLE", "当前 agent 还没有可 resume 的原生会话"));
             return;
@@ -813,8 +833,8 @@ public class ClaudeChatService {
             sendError(ws, 0, "READONLY_POLICY", "业务咨询会话不允许切换到第三方网关");
             return;
         }
-        // 仅 claude/codex/gemini 走第三方网关；opencode 自管 provider，拒绝切换避免无效状态
-        boolean gatewayCapable = "claude".equals(ctx.engine) || "codex".equals(ctx.engine) || "gemini".equals(ctx.engine);
+        // 仅 claude/codex 走第三方网关；其他引擎使用各自运行时配置。
+        boolean gatewayCapable = "claude".equals(ctx.engine) || "codex".equals(ctx.engine);
         String apiBaseUrl = gatewayCapable ? blankToNull(msg.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(msg.authToken());
         if (!gatewayCapable && blankToNull(msg.apiBaseUrl()) != null) {
@@ -954,8 +974,47 @@ public class ClaudeChatService {
     }
 
     private static String normalizeEngine(String e) {
-        return "codex".equals(e) || "gemini".equals(e) || "opencode".equals(e)
+        if ("gemini".equals(e)) return "antigravity";
+        return "codex".equals(e) || "antigravity".equals(e) || "opencode".equals(e)
                 || "deepseekHarness".equals(e) ? e : "claude";
+    }
+
+    /**
+     * 旧 Gemini CLI 已由 Antigravity 完全接替。所有旧通道均迁移；原生句柄只作为只读历史证据保留，
+     * 不会再进入可执行引擎或被误当成 Antigravity conversation ID。
+     */
+    private void migrateLegacyOfficialGemini(SessionCtx ctx, ClaudeChatSession db) {
+        if (!"gemini".equals(db.getEngine())) return;
+        LegacyGeminiSessionMigration.Plan plan = LegacyGeminiSessionMigration.plan(
+                db.getEngine(), ctx.sdkSessionId, ctx.engineSessions);
+        if (!plan.required()) return;
+
+        ctx.engineSessions.clear();
+        ctx.engineSessions.putAll(plan.engineSessions());
+        ctx.engine = "antigravity";
+        ctx.sdkSessionId = plan.targetSessionId();
+        ctx.currentModel = null;
+        ctx.apiBaseUrl = null;
+        ctx.authToken = null;
+        String engines = migrateEngineHistory(db.getEngines());
+        repo.switchEngine(ctx.sessionId, ctx.engine, engines, ctx.sdkSessionId,
+                writeEngineSessions(ctx.engineSessions));
+        repo.updateProvider(ctx.sessionId, null, null);
+        repo.updateSelectedModel(ctx.sessionId, null);
+        log.info("[claude-chat] Gemini 旧会话 {} 已迁移到 Antigravity（resume={}）",
+                ctx.sessionId, ctx.sdkSessionId != null);
+    }
+
+    private static String migrateEngineHistory(String existing) {
+        java.util.LinkedHashSet<String> engines = new java.util.LinkedHashSet<>();
+        if (existing != null) {
+            for (String item : existing.split(",")) {
+                String engine = item.trim();
+                if (!engine.isBlank()) engines.add("gemini".equals(engine) ? "antigravity" : engine);
+            }
+        }
+        engines.add("antigravity");
+        return String.join(",", engines);
     }
 
     private static String normalizeCodexReasoningEffort(String effort) {
@@ -1505,7 +1564,7 @@ public class ClaudeChatService {
     private void resumeAllSessions() {
         int n = 0;
         for (SessionCtx ctx : sessions.values()) {
-            if ((ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) && !isDurableByForgeSessionId(ctx.engine)) continue;
+            if ((ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) && !canResumeWithoutNativeSessionId(ctx.engine)) continue;
             if (!engineCatalog.selectable(ctx.engine)) {
                 ctx.status = SessionStatus.IDLE;
                 repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
@@ -1540,7 +1599,7 @@ public class ClaudeChatService {
                     seq, "SIDECAR_DOWN", "sidecar 重连失败：" + e.getMessage()));
             return false;
         }
-        if ((ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) || isDurableByForgeSessionId(ctx.engine)) {
+        if ((ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) || canResumeWithoutNativeSessionId(ctx.engine)) {
             if (!engineCatalog.selectable(ctx.engine)) {
                 sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
                         "DeepSeek Harness 当前未通过 Runtime 握手，无法恢复会话"));
@@ -1556,9 +1615,9 @@ public class ClaudeChatService {
         return true;
     }
 
-    /** DeepSeek Harness 以 Forge sessionId 作为 durable session key，不依赖 Claude/Codex 原生句柄。 */
-    private static boolean isDurableByForgeSessionId(String engine) {
-        return "deepseekHarness".equals(engine);
+    /** 这些引擎即使尚无原生句柄，也能在恢复后从下一轮创建新的运行时会话。 */
+    private static boolean canResumeWithoutNativeSessionId(String engine) {
+        return "deepseekHarness".equals(engine) || "antigravity".equals(engine);
     }
 
     /** 空白串归一为 null，避免把空网关地址当成有效配置。 */

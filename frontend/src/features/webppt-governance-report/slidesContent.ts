@@ -470,7 +470,7 @@ const caseStudySlide: CaseStudySlide = {
     title: 'Forge 统一管理项目、会话与引擎执行句柄',
     points: [
       '从项目模块入口创建会话，平台自动绑定对应工作目录（cwd）',
-      '统一适配 Claude Code / Codex / Gemini / OpenCode 四种执行引擎',
+      '统一适配 Claude Code / Codex / Antigravity / OpenCode 四种执行引擎',
       '用户在 Forge 界面下达任务，平台负责路由、启动、停止与输出回传',
       '每个引擎保留独立的可续跑执行句柄，切换引擎不会互相覆盖',
     ],

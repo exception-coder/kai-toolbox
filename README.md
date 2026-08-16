@@ -16,7 +16,7 @@ Forge 是一个运行在本机的 AI Coding 工作台。它把项目目录、业
 - Node.js 20+ 与 npm
 - Git
 
-Claude、Codex、Gemini、OpenCode 按实际使用情况完成各自的本机安装或账号授权。Forge 不替代模型厂商的登录流程，只复用本机已有凭据或会话中配置的第三方网关。
+Claude、Codex、Antigravity、OpenCode 按实际使用情况完成各自的本机安装或账号授权。Forge 不替代模型厂商的登录流程，只复用本机已有凭据或会话中配置的第三方网关。
 
 ### 获取项目
 
@@ -156,7 +156,7 @@ NPM_CMD=D:\Program Files\nodejs\npm.cmd
 
 - **Claude**：使用本机 Claude/Anthropic 已有授权或会话中配置的第三方服务商档案。
 - **Codex**：默认读取 `%USERPROFILE%\.codex`；自定义 `CODEX_HOME` 时，应先在对应目录完成 `codex login`。
-- **Gemini**：使用本机 Gemini CLI 的登录与配置。
+- **Antigravity**：个人 Google Agent 场景使用本机 `agy` 登录与配置；Forge 会检测结构化输出能力，旧版 CLI 会提示升级。
 - **OpenCode**：Provider、鉴权和默认模型由 OpenCode 自身配置管理。
 
 建议先在各 Agent 的原生客户端确认可以正常发起一次请求，再进入 Forge 创建会话。这样可以把登录问题和 Forge 会话问题分开排查。
@@ -199,7 +199,7 @@ http://localhost:5173/tools/claude-chat
 
 | 能力域 | 功能点 | 说明 |
 |---|---|---|
-| 多 Agent 编排 | 四种编码引擎 | 同一工作台接入 Claude、Codex、Gemini 和 OpenCode，可按任务特点选择合适的 Agent。 |
+| 多 Agent 编排 | 四种编码引擎 | 同一工作台接入 Claude、Codex、Antigravity 和 OpenCode，可按任务特点选择合适的 Agent。 |
 | 多 Agent 编排 | 会话内切换与续接 | 保留各引擎的原生会话标识；切换 Agent 时同步增量上下文，可在同一业务会话中分工协作。 |
 | 模型控制 | Codex 运行参数 | 当前会话可切换 Codex 模型、推理强度和标准/快速模式，配置从下一轮消息开始生效并自动保存。 |
 | 模型控制 | Provider 档案 | 支持官方授权和第三方服务商档案，可维护网关、模型列表并快速切换。 |
@@ -227,7 +227,7 @@ http://localhost:5173/tools/claude-chat
 点击顶部或会话栏中的 **新建会话**，依次完成：
 
 1. 选择工作区和项目，或手工输入工作目录。
-2. 选择 Agent 引擎：Claude、Codex、Gemini 或 OpenCode。
+2. 选择 Agent 引擎：Claude、Codex、Antigravity 或 OpenCode。
 3. 根据引擎选择官方授权、第三方服务商档案和模型。
 4. 确认后创建会话，在底部输入需求并发送。
 
@@ -248,13 +248,13 @@ http://localhost:5173/tools/claude-chat
 
 ### 3. 切换 Agent 与模型
 
-会话顶部显示当前 Agent。会话空闲时可以在 Claude、Codex、Gemini、OpenCode 之间切换；Forge 会保存每个引擎对应的原生会话标识，并把目标引擎尚未看到的增量上下文同步过去，便于在同一业务会话中分工协作。
+会话顶部显示当前 Agent。会话空闲时可以在 Claude、Codex、Antigravity、OpenCode 之间切换；Forge 会保存每个引擎对应的原生会话标识，并把目标引擎尚未看到的增量上下文同步过去，便于在同一业务会话中分工协作。
 
 常见用法：
 
 - Claude 负责需求理解、代码梳理和长上下文分析。
 - Codex 负责实现、代码审查、命令执行和验证。
-- Gemini 作为补充分析或第二视角。
+- Antigravity 使用 Google 账号和其模型目录，作为补充分析或第二视角。
 - OpenCode 复用团队已有 Provider 与模型配置。
 
 切换到 Codex 后，输入区会出现 Codex 配置入口，可在当前会话中修改：
