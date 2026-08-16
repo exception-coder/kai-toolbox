@@ -2,7 +2,7 @@ import { AlertTriangle, Check, CircleDashed, CircleDot, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DeliveryFinding, DeliveryRequirement, DeliveryStageKey, StageStatus } from '../types'
 import { requirementProgress } from '../viewModel'
-import { documentProfileLabels } from '@/features/prd-clarify/documentProfile'
+import { documentProfileLabels } from '@/features/prd-clarify/public-api'
 
 interface Props {
   requirement: DeliveryRequirement

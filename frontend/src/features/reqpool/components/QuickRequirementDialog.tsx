@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { SystemModuleSelector } from '@/components/prd/SystemModuleSelector'
-import { saveDraft } from '@/features/prd-clarify/api'
+import { saveDraft } from '@/features/prd-clarify/public-api'
 import {
   parsePrdAttachment,
   uploadPrdImage,

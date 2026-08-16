@@ -65,21 +65,20 @@ import { ensureNotifyPermission } from '../browserNotify'
 import { PrdLinkPanel } from '../components/PrdLinkPanel'
 import { PendingSqlPanel } from '../components/PendingSqlPanel'
 import { PrdAttachPanel } from '../components/PrdAttachPanel'
-import { getSessionByDevSession, linkDevSession } from '@/features/prd-clarify/api'
-import type { PrdSessionView } from '@/features/prd-clarify/types'
+import { getSessionByDevSession, linkDevSession, type PrdSessionView } from '@/features/prd-clarify/public-api'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from '../components/SessionPlanLockNotice'
 import { SessionSitesDialog } from '../components/SessionSitesDialog'
 import { SessionProjectDirectoriesDialog } from '../components/SessionProjectDirectoriesDialog'
 import { Combobox } from '@/components/ui/combobox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { getDevPreference } from '@/features/_devkit/devPreferenceApi'
 import {
   acknowledgeLaunchIntent,
   failLaunchIntent,
   loadLaunchIntent,
 } from '@/shell/launch-intent/api'
 import {
+  getDevPreference,
   loadLocalIgnoredProjectPaths,
   normalizeWorkspaceProjectPath,
   PROJECT_WORKSPACE_PREFERENCE_ID,
@@ -88,6 +87,7 @@ import {
 import { resolveSiteIcon } from '@/lib/siteIcons'
 import { listQuickSiteSummaries, recordQuickSiteSummaryOpened } from '@/lib/quickSites'
 import { getSessionSiteConfiguration } from '../api'
+import { planChatLaunch } from '../lib/chatLaunchIntent'
 import { openQuickSite } from '@/lib/openQuickSite'
 import { useUnifiedTitleBarSlot } from '@/shell/UnifiedTitleBar'
 import { useMobileNavigation } from '@/shell/MobileNavigationContext'
@@ -466,16 +466,6 @@ export function ChatPage() {
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')
   // 输入框草稿按会话绑定 + 本地持久化：切到任意会话只显示该会话自己的草稿，互不串扰、刷新保留。
   // 用共享 store（模块级），与悬浮窗/分屏读同一份 → 主页打字后弹悬浮窗草稿不丢、即时同步。
-  // 聚合联动提示预填:从项目工作台「一键聚合」跳来时读一次 sessionStorage 草稿；先存到 ref，待当前会话就绪再落到其草稿。
-  const seedRef = useRef<string | null>(null)
-  const seedReadRef = useRef(false)
-  if (!seedReadRef.current) {
-    seedReadRef.current = true
-    try {
-      const seed = sessionStorage.getItem('kai-toolbox:claude-chat:aggregation-draft')
-      if (seed) { sessionStorage.removeItem('kai-toolbox:claude-chat:aggregation-draft'); seedRef.current = seed }
-    } catch { /* 忽略隐私模式异常 */ }
-  }
   const draftKey = chat?.sessionId ?? PENDING_DRAFT_KEY
   const [draft, setDraft] = useDraft(draftKey)
   const launchIntentId = useMemo(
@@ -497,35 +487,35 @@ export function ChatPage() {
     setLaunchIntentError(null)
     void loadLaunchIntent(launchIntentId)
       .then(async intent => {
-        const payload = intent.payload
-        if (payload.type === 'CHAT_OPEN_DRAFT') {
+        const command = planChatLaunch(intent.payload, chat.sessionId)
+        if (command.kind === 'OPEN_DRAFT') {
           pendingDraftIntentRef.current = {
             intentId: intent.id,
-            previousSessionId: chat.sessionId,
-            seed: payload.seed,
+            previousSessionId: command.previousSessionId,
+            seed: command.seed,
           }
-          chat.open(payload.cwd.trim())
+          chat.open(command.cwd)
           return
         }
-        if (payload.type === 'CHAT_OPEN_PANEL') {
-          setPanel(payload.panel)
+        if (command.kind === 'OPEN_PANEL') {
+          setPanel(command.panel)
         } else {
-          if (payload.prdSessionId) {
+          if (command.prdSessionId) {
             pendingAutoPrdLinkRef.current = {
-              prdSessionId: payload.prdSessionId,
-              previousDevSessionId: chat.sessionId,
+              prdSessionId: command.prdSessionId,
+              previousDevSessionId: command.previousSessionId,
             }
           }
           chat.open(
-            payload.cwd.trim(),
+            command.cwd,
             undefined,
             undefined,
-            payload.engine,
-            payload.engine === 'codex'
-              ? { codexHome: payload.codexHome?.trim() || undefined }
+            command.engine,
+            command.engine === 'codex'
+              ? { codexHome: command.codexHome }
               : undefined,
           )
-          chat.send(payload.seed)
+          chat.send(command.seed)
         }
         await acknowledgeLaunchIntent(intent.id)
       })
@@ -545,184 +535,6 @@ export function ChatPage() {
       setLaunchIntentError(error instanceof Error ? error.message : String(error))
     })
   }, [chat?.sessionId, setDraft])
-  // 聚合 seed：当前会话就绪且其草稿为空时，把一次性 seed 落到该会话草稿。
-  useEffect(() => {
-    if (seedRef.current && chat?.sessionId && !draft) {
-      const s = seedRef.current
-      seedRef.current = null
-      setDraft(s)
-    }
-  }, [chat?.sessionId, draft, setDraft])
-
-  // 模块编码范围 seed：项目工作台「新建会话」打开某模块时写入本模块的 codePath/webPath 约束，
-  // 会话就绪且草稿为空时预填进输入框（不自动发送——它是范围前言，用户在后面接着写需求）。一次性。
-  useEffect(() => {
-    if (!chat?.sessionId) return
-    let raw: string | null = null
-    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:module-open-context') } catch { return }
-    if (!raw) return
-    try { sessionStorage.removeItem('kai-toolbox:claude-chat:module-open-context') } catch { /* ignore */ }
-    if (!draft) setDraft(raw)
-  }, [chat?.sessionId, draft, setDraft])
-
-  // ERP 需求开发前门 handoff：「ERP 需求开发」模块把 {cwd, seed} 写 sessionStorage 后跳来，
-  // 这里一次性消费——在 ERP 工作区开一个 Claude 会话并投喂触发语拉起 yoooni-erp-auto-dev skill。
-  const erpLaunchedRef = useRef(false)
-  useEffect(() => {
-    if (erpLaunchedRef.current || !chat) return
-    let raw: string | null = null
-    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:erp-dev-launch') } catch { /* ignore */ }
-    if (!raw) return
-    erpLaunchedRef.current = true
-    try { sessionStorage.removeItem('kai-toolbox:claude-chat:erp-dev-launch') } catch { /* ignore */ }
-    try {
-      const { cwd, seed } = JSON.parse(raw) as { cwd?: string; seed?: string }
-      if (seed) {
-        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
-        chat.send(seed)
-      }
-    } catch { /* 解析失败忽略 */ }
-  }, [chat])
-
-  // 知识图谱管理 handoff：「知识图谱管理」模块把 {cwd, seed} 写 sessionStorage 后跳来，
-  // 在 project-domain-knowledge/cross-project-topology 仓库目录开一个会话并投喂触发语拉起 domain-knowledge-bootstrap skill。
-  const kgBootstrapLaunchedRef = useRef(false)
-  useEffect(() => {
-    if (kgBootstrapLaunchedRef.current || !chat) return
-    let raw: string | null = null
-    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:knowledge-graph-bootstrap-launch') } catch { /* ignore */ }
-    if (!raw) return
-    kgBootstrapLaunchedRef.current = true
-    try { sessionStorage.removeItem('kai-toolbox:claude-chat:knowledge-graph-bootstrap-launch') } catch { /* ignore */ }
-    try {
-      const { cwd, seed, engine } = JSON.parse(raw) as { cwd?: string; seed?: string; engine?: Engine }
-      if (seed && engine && (['claude', 'codex', 'antigravity', 'opencode'] as Engine[]).includes(engine)) {
-        chat.open((cwd ?? '').trim(), undefined, undefined, engine)
-        chat.send(seed)
-      }
-    } catch { /* 解析失败忽略 */ }
-  }, [chat])
-
-  // Graphify 生成 handoff：项目工作台知识图谱卡片把 {cwd, seed} 写 sessionStorage 后跳来，
-  // 在目标项目自己的目录开一个会话并投喂 "/graphify" 或 "/graphify --update"，拉起 graphify skill
-  // 跑代码结构图生成流程（AST 解析 + 语义抽取子 Agent + 社区检测打标，产物写入该项目的 graphify-out/）。
-  const graphifyGenerateLaunchedRef = useRef(false)
-  useEffect(() => {
-    if (graphifyGenerateLaunchedRef.current || !chat) return
-    let raw: string | null = null
-    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:graphify-generate-launch') } catch { /* ignore */ }
-    if (!raw) return
-    graphifyGenerateLaunchedRef.current = true
-    try { sessionStorage.removeItem('kai-toolbox:claude-chat:graphify-generate-launch') } catch { /* ignore */ }
-    try {
-      const { cwd, seed } = JSON.parse(raw) as { cwd?: string; seed?: string }
-      if (seed) {
-        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
-        chat.send(seed)
-      }
-    } catch { /* 解析失败忽略 */ }
-  }, [chat])
-
-  // 「按菜单识别模块」handoff：项目工作台「Agent 识菜单」把 {cwd, seed} 写 sessionStorage 后跳来，
-  // 开一个 Claude 会话（cwd=目标项目，便于读其前端菜单/路由）并投喂提示——agent 读菜单→产模块清单→
-  // 经 domain-knowledge 的 add-modules 落 modules.json（先预览、owner 确认后再 --apply）。一次性。
-  const menuSyncLaunchedRef = useRef(false)
-  useEffect(() => {
-    if (menuSyncLaunchedRef.current || !chat) return
-    let raw: string | null = null
-    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:module-sync-launch') } catch { /* ignore */ }
-    if (!raw) return
-    menuSyncLaunchedRef.current = true
-    try { sessionStorage.removeItem('kai-toolbox:claude-chat:module-sync-launch') } catch { /* ignore */ }
-    try {
-      const { cwd, seed } = JSON.parse(raw) as { cwd?: string; seed?: string }
-      if (seed) {
-        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
-        chat.send(seed)
-      }
-    } catch { /* 解析失败忽略 */ }
-  }, [chat])
-
-  // PRD 开发 handoff：prd-clarify「开始开发」把 cwd/seed/引擎/Codex Auth 目录写 sessionStorage 后跳来，
-  // 在指定工作目录开一个会话，自动发送 PRD 内容 + feature-dev 引导消息，并回写 devSessionId 到 PRD 记录。一次性。
-  const prdDevLaunchedRef = useRef(false)
-  useEffect(() => {
-    if (prdDevLaunchedRef.current || !chat) return
-    let raw: string | null = null
-    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:prd-dev-launch') } catch { /* ignore */ }
-    if (!raw) return
-    prdDevLaunchedRef.current = true
-    try { sessionStorage.removeItem('kai-toolbox:claude-chat:prd-dev-launch') } catch { /* ignore */ }
-    try {
-      const { cwd, seed, prdSessionId, engine, codexHome } = JSON.parse(raw) as {
-        cwd?: string
-        seed?: string
-        prdSessionId?: string
-        engine?: 'claude' | 'codex'
-        codexHome?: string
-      }
-      if (seed) {
-        const selectedEngine = engine === 'codex' ? 'codex' : 'claude'
-        if (prdSessionId) {
-          pendingAutoPrdLinkRef.current = {
-            prdSessionId,
-            previousDevSessionId: chat.sessionId,
-          }
-        }
-        chat.open(
-          (cwd ?? '').trim(),
-          undefined,
-          undefined,
-          selectedEngine,
-          selectedEngine === 'codex' ? { codexHome: codexHome?.trim() || undefined } : undefined,
-        )
-        chat.send(seed)
-      }
-    } catch { /* 解析失败忽略 */ }
-  }, [chat])
-
-  // PRD 澄清 handoff：prd-clarify「开始需求澄清」把 {cwd, seed, prdSessionId} 写 sessionStorage 后跳来，
-  // 在项目工作区开一个会话，运行 feature-dev Phase 3 澄清流程，Claude 完成后直接写 PRD 文件。
-  // PRD 文件写入后，prd-clarify 通过 check-prd-file 接口检测并更新状态。一次性。
-  const prdClarifyLaunchedRef = useRef(false)
-  useEffect(() => {
-    if (prdClarifyLaunchedRef.current || !chat) return
-    let raw: string | null = null
-    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:prd-clarify-launch') } catch { /* ignore */ }
-    if (!raw) return
-    prdClarifyLaunchedRef.current = true
-    try { sessionStorage.removeItem('kai-toolbox:claude-chat:prd-clarify-launch') } catch { /* ignore */ }
-    try {
-      const { cwd, seed, prdSessionId, engine } = JSON.parse(raw) as {
-        cwd?: string
-        seed?: string
-        prdSessionId?: string
-        engine?: 'claude' | 'codex'
-      }
-      if (seed) {
-        if (prdSessionId) {
-          pendingAutoPrdLinkRef.current = {
-            prdSessionId,
-            previousDevSessionId: chat.sessionId,
-          }
-        }
-        chat.open((cwd ?? '').trim(), undefined, undefined, engine === 'codex' ? 'codex' : 'claude')
-        chat.send(seed)
-      }
-    } catch { /* 解析失败忽略 */ }
-  }, [chat])
-
-  // 面板 handoff：别的模块（如「ERP 需求开发」空工作区引导）跳来时指定直接打开某个面板（如 clone）。一次性。
-  useEffect(() => {
-    let raw: string | null = null
-    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:open-panel') } catch { /* ignore */ }
-    if (!raw) return
-    try { sessionStorage.removeItem('kai-toolbox:claude-chat:open-panel') } catch { /* ignore */ }
-    if (raw === 'clone' || raw === 'taskspace' || raw === 'new' || raw === 'filetree' || raw === 'onboard'
-        || raw === 'caps' || raw === 'providers' || raw === 'plugins' || raw === 'settings' || raw === 'sessions') {
-      setPanel(raw)
-    }
-  }, [])
   const [newCwd, setNewCwd] = useState('')
   const [wsIdx, setWsIdx] = useState(0) // 当前选中的工作区（root）下标，两级目录选择用
   const [newEngine, setNewEngine] = useState<Engine>('claude')
@@ -1623,14 +1435,27 @@ export function ChatPage() {
                 {engineName(eng)}
               </button>
             ))}
+            {engineCatalogQuery.data?.engines
+              .filter(entry => entry.id === 'antigravity' && !entry.selectable)
+              .map(entry => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  disabled
+                  title={entry.probe.detail ?? 'Antigravity CLI 当前不可用'}
+                  className="rounded-full border px-3 py-1 text-xs text-[var(--color-muted-foreground)] opacity-50"
+                >
+                  Antigravity（需升级）
+                </button>
+              ))}
             {newEngine === 'codex' && (
               <span className="text-xs text-[var(--color-muted-foreground)]">（Codex 靠沙箱，不弹权限框）</span>
             )}
-            {newEngine === 'antigravity' && (
-              <span className="text-xs text-[var(--color-muted-foreground)]">（使用本机 agy 登录；需支持 stream-json 的新版 Antigravity CLI）</span>
-            )}
             {newEngine === 'opencode' && (
               <span className="text-xs text-[var(--color-muted-foreground)]">（多 provider agent，跑第三方模型推荐；需本机装 opencode 并配置 provider：opencode auth login）</span>
+            )}
+            {newEngine === 'antigravity' && (
+              <span className="text-xs text-[var(--color-muted-foreground)]">（使用本机 agy 登录；需支持 stream-json 的新版 Antigravity CLI）</span>
             )}
             {newEngine === 'deepseekHarness' && (
               <span className="text-xs text-[var(--color-muted-foreground)]">（实验能力 · 已通过 Sidecar 与 Harness 运行时握手）</span>

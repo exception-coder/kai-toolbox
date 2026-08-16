@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Code2, Loader2, LockKeyhole, Send, Sparkles, X } from 'lucide-react'
-import { EngineIcon } from '@/features/claude-chat/components/EngineIcon'
-import type { Engine } from '@/features/claude-chat/types'
+import { EngineIcon, type Engine } from '@/features/claude-chat/public-api'
 
 type ReqpoolEngine = Extract<Engine, 'codex' | 'claude'>
 

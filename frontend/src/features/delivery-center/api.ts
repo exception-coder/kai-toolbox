@@ -1,7 +1,7 @@
 import { http } from '@/lib/api'
 import type { DeliveryOverview, DeliveryRequirement, StageView } from './types'
 import type { DeliveryVerificationRun } from './types'
-import type { DocumentProfile, PrdBusinessFields } from '@/features/prd-clarify/types'
+import type { DocumentProfile, PrdBusinessFields } from '@/features/prd-clarify/public-api'
 
 export interface DeliveryFilters {
   project?: string

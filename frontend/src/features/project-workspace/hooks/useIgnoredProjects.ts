@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { getDevPreference, saveDevPreference } from '@/features/_devkit/devPreferenceApi'
 import {
+  getDevPreference,
   IGNORED_PROJECTS_STORAGE_KEY as STORAGE_KEY,
   PROJECT_WORKSPACE_PREFERENCE_ID as PREFERENCE_ID,
+  saveDevPreference,
   type ProjectWorkspaceVisibilityPreference,
 } from '@/features/_devkit/public-api'
 /** 忽略状态筛选偏好持久化 key（记住上次选择）。 */

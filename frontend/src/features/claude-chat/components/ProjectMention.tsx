@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent, type RefObject } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AtSign, FileText, Folder, Loader2 } from 'lucide-react'
-import { listSessions as listPrdSessions } from '@/features/prd-clarify/api'
-import type { PrdSessionView } from '@/features/prd-clarify/types'
+import { listSessions as listPrdSessions, type PrdSessionView } from '@/features/prd-clarify/public-api'
 import { cn } from '@/lib/utils'
-import { getDevPreference } from '@/features/_devkit/devPreferenceApi'
 import {
+  getDevPreference,
   loadLocalIgnoredProjectPaths,
   normalizeWorkspaceProjectPath,
   PROJECT_WORKSPACE_PREFERENCE_ID,

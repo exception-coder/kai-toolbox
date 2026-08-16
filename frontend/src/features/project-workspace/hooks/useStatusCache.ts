@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { refreshStatusCache, statusCache } from '@/features/knowledge-graph/api'
-import type { GraphifyGraphState, ProjectStatusSnapshot, RegistrationState } from '@/features/knowledge-graph/types'
+import {
+  refreshStatusCache,
+  statusCache,
+  type GraphifyGraphState,
+  type ProjectStatusSnapshot,
+  type RegistrationState,
+} from '@/features/knowledge-graph/public-api'
 
 export type GraphifyFilter = 'ALL' | 'UNCHECKED' | GraphifyGraphState
 export type BusinessFilter = 'ALL' | 'UNCHECKED' | RegistrationState

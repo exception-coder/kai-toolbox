@@ -4,7 +4,7 @@ import { Check, Clock3, Link2, Loader2, LockKeyhole, Pencil, Star, Tags, Trash2,
 import { cn } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionFavorite, setSessionGroupApi } from '../api'
 import { engineDisplayName } from './chatStatus'
-import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
+import { getSessionsByDevSessions } from '@/features/prd-clarify/public-api'
 import { SessionActivityBar } from './SessionActivityBar'
 import { EngineIcon } from './EngineIcon'
 import { SessionGroupPicker } from './SessionList'

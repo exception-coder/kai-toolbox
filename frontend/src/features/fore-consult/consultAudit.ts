@@ -1,4 +1,4 @@
-import type { ChatItem } from '@/features/claude-chat/types'
+import type { ChatItem } from '@/features/claude-chat/public-api'
 
 export type AuditState = 'running' | 'pass' | 'idle' | 'warn'
 

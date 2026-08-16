@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { Hammer } from 'lucide-react'
-import { listWorkspaces } from '@/features/claude-chat/api'
-import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
-import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
-import { useVisibleWorkspaceProjects } from '@/features/_devkit/public-api'
+import { listWorkspaces } from '@/features/claude-chat/public-api'
+import {
+  DevServiceSection,
+  useDevWorkbenchPreference,
+  useVisibleWorkspaceProjects,
+} from '@/features/_devkit/public-api'
 
 const CWD_KEY = 'kai-toolbox:kai-dev:cwd'
 const MODULE_KEY = 'kai-toolbox:kai-dev:module'

@@ -8,7 +8,7 @@ import {
   type PrdImageAttachmentResult,
 } from '@/lib/prdAttachments'
 import { splitCatalogValues } from '@/lib/systemCatalog'
-import type { DocumentProfile, PrdBusinessFields } from '@/features/prd-clarify/types'
+import type { DocumentProfile, PrdBusinessFields } from '@/features/prd-clarify/public-api'
 import { createPrdDraft, suggestPrdTitle } from '../api'
 
 interface PrdDraftDialogProps {

@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileText, Loader2, RefreshCw, Rocket, Unlink, Wrench, X } from 'lucide-react'
-import { loadCodexHomePreference, saveCodexHomePreference } from '@/features/claude-chat/lib/codexHomePref'
-import { getDevelopmentAccess } from '@/features/reqpool/api'
+import { loadCodexHomePreference, saveCodexHomePreference } from '@/features/claude-chat/public-api'
+import { getDevelopmentAccess } from '@/features/reqpool/public-api'
 import { unlinkDevSession } from '@/features/prd-clarify/api'
 import { createLaunchIntent, failLaunchIntent } from '@/shell/launch-intent/api'
 

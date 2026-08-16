@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Segmented } from '@/components/ui/segmented'
-import { listHosts } from '@/features/hosts/api'
+import { listHosts } from '@/features/hosts/public-api'
 import { listApps } from '../api'
 import { AppListPanel } from '../components/AppListPanel'
 import { ContainerTable } from '../components/ContainerTable'

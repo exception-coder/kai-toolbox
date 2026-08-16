@@ -74,14 +74,14 @@
 - PRD 编辑面板由 636 行收敛至 323 行；内容区、弹层和工具栏均已独立，开发文档流式状态与估算进度分别归入 `useDevDocState`、`useDevDocEstimation`。
 - ReqPool 页面由约 3000 行收敛至 424 行；动作状态归入 `useReqpoolActions` 与 `useReqpoolItemCommands`，PRD/TDD 的 SSE、轮询、缓存更新和通知归入 `useReqpoolDocumentWorkflow`，页面头部、页面模型和交付分区均已独立。
 - 项目工作台页面由约 1700 行收敛至 491 行；会话启动、跨项目聚合、模块同步与知识库就绪检查归入 focused hooks，页面头部、项目选择侧栏和模块区均由独立组件承载。
-- 新增 PRD、Delivery、Claude Chat、知识图谱和文档查看器公开能力出口，跨 feature 私有引用基线由 98 项降至 80 项。
+- 新增 PRD、Delivery、Claude Chat、知识图谱、开发偏好、Markdown 草稿持久化、Ops、Hosts、ReqPool、视频播放、TreeSize、Welfare Sign 和文档查看器公开能力出口，跨 feature 私有引用基线由 98 项降至 0；所有前端 feature 的私有跨模块引用已清零。
 - 需求类型解析增加 30 秒超时和明确的 `UNKNOWN` 回退，避免外部 Agent 阻塞请求线程。
 - Claude Chat 已只消费带版本、可确认和可重试的持久化 LaunchIntent；旧 `sessionStorage` 跳转键及生产端已全部移除。
 
 ## 8. 验证结果
 
 - 前端类型检查和架构守卫通过，未新增私有跨 feature 引用。
-- 前端 25 个测试文件、87 项测试全部通过；模块同步覆盖预览、选择、成功提交与失败保留状态。
+- 前端 27 个测试文件、93 项测试全部通过；模块同步覆盖预览、选择、成功提交与失败保留状态。
 - 前端生产构建、类型检查和架构守卫通过。
 - 本地业务路由已做浏览器检查，但当前未登录，页面返回“无权访问”；交互和响应式视觉验收仍需在有效登录态补跑。
 - PRD 后端及依赖 126 项测试全部通过。

@@ -1,5 +1,4 @@
-import { getContent, getDevDocContent } from '@/features/prd-clarify/api'
-import type { PrdSessionView } from '@/features/prd-clarify/types'
+import { getContent, getDevDocContent, type PrdSessionView } from '@/features/prd-clarify/public-api'
 import { uploadAttachment } from '../api'
 import type { DraftAttachment } from './attachmentDraftPref'
 

@@ -34,10 +34,12 @@ import { useDraftAttachments } from '../lib/attachmentDraftPref'
 import { getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, resolveModule, transcribe, uploadAttachment } from '../api'
 import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
-import type { PrdSessionView } from '@/features/prd-clarify/types'
+import type { PrdSessionView } from '@/features/prd-clarify/public-api'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from './SessionPlanLockNotice'
 import { isVibeCodingSession } from '../lib/sessionScope'
+import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
+import type { LaunchIntentPayload } from '@/shell/launch-intent/types'
 
 const MAX_ATTACHMENTS = 10
 const MIN_MARGIN = 8
@@ -258,13 +260,12 @@ export function FloatingChatWindow() {
     chat.setMode(MODE_ORDER[(i + 1) % MODE_ORDER.length])
   }
 
-  // 跳全屏并打开指定面板：小窗放不下这些面板（工作目录树/服务商/插件…），
-  // 借用 ChatPage 已有的 open-panel 一次性交接，切到全屏页时自动展开。
-  const openPanelFullscreen = (panel: string) => {
-    try { sessionStorage.setItem('kai-toolbox:claude-chat:open-panel', panel) } catch { /* ignore */ }
+  type ChatPanel = Extract<LaunchIntentPayload, { type: 'CHAT_OPEN_PANEL' }>['panel']
+  const openPanelFullscreen = (panel: ChatPanel) => {
     setShowMore(false)
     setMinimized(false)
-    navigate(CHAT_ROUTE)
+    void navigateWithLaunchIntent(navigate, CHAT_ROUTE, { type: 'CHAT_OPEN_PANEL', panel })
+      .catch(error => console.error('[claude-chat] 打开全屏面板失败', error))
   }
   // 「更多选项」菜单项（分组）。local 项在本窗内直接执行/弹层（无「跳全屏」提示）；其余跳全屏打开对应面板。
   type MoreItem = { icon: React.ReactNode; label: string; hint?: string; onClick: () => void; local?: boolean }

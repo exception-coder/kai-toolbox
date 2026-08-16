@@ -4,10 +4,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ClipboardList, Database, DownloadCloud, Eye, EyeOff, Handshake, Loader2, ServerCog } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { listWorkspaces } from '@/features/claude-chat/api'
-import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
-import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
-import { useVisibleWorkspaceProjects } from '@/features/_devkit/public-api'
+import { listWorkspaces } from '@/features/claude-chat/public-api'
+import {
+  DevServiceSection,
+  useDevWorkbenchPreference,
+  useVisibleWorkspaceProjects,
+} from '@/features/_devkit/public-api'
 import {
   getSrmDbConfig, saveSrmDbConfig, testSrmDb,
   getSrmAppConfig, saveSrmAppConfig, testSrmApp,

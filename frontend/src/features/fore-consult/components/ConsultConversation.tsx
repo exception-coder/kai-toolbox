@@ -3,9 +3,11 @@ import {
   type ClipboardEvent as ReactClipboardEvent, type ReactNode,
 } from 'react'
 import { Archive, Bug, CheckCircle2, CircleDashed, Copy, Database, GitBranch, Loader2, MessagesSquare, Paperclip, Quote, Send, ShieldAlert, Square, ThumbsDown, ThumbsUp, X } from 'lucide-react'
-import { Markdown } from '@/features/claude-chat/components/Markdown'
-import type { UseClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
-import type { ChatItem } from '@/features/claude-chat/types'
+import {
+  Markdown,
+  type ChatItem,
+  type UseClaudeChatSocket,
+} from '@/features/claude-chat/public-api'
 import { classifyConsultQuestion, dispatchConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
 import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type ConsultTurnAudit } from '../consultAudit'
 import { stripConsultRecognition } from '../consultRecognition'

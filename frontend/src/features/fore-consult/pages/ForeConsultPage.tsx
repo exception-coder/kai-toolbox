@@ -13,10 +13,18 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { usePrompt } from '@/components/ui/prompt-dialog'
 import { useAuth } from '@/lib/auth'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
-import { CodexSessionOptions } from '@/features/claude-chat/components/CodexSessionOptions'
-import { useClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
-import { fetchCodexModels, listSessions as listDevSessions, renameSession, setSessionGroupApi } from '@/features/claude-chat/api'
-import type { ChatItem, CodexReasoningEffort, CodexSpeed, Engine } from '@/features/claude-chat/types'
+import {
+  CodexSessionOptions,
+  fetchCodexModels,
+  listSessions as listDevSessions,
+  renameSession,
+  setSessionGroupApi,
+  useClaudeChatSocket,
+  type ChatItem,
+  type CodexReasoningEffort,
+  type CodexSpeed,
+  type Engine,
+} from '@/features/claude-chat/public-api'
 import { ConsultConversation } from '../components/ConsultConversation'
 import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'

@@ -3,10 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Database, Eye, EyeOff, Loader2, Warehouse } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { listWorkspaces } from '@/features/claude-chat/api'
-import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
-import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
-import { useVisibleWorkspaceProjects } from '@/features/_devkit/public-api'
+import { listWorkspaces } from '@/features/claude-chat/public-api'
+import {
+  DevServiceSection,
+  useDevWorkbenchPreference,
+  useVisibleWorkspaceProjects,
+} from '@/features/_devkit/public-api'
 import { getScmDbConfig, saveScmDbConfig, testScmDb } from '../api'
 
 /** 记住上次选择的工作区目录，避免每次进来都要重选。 */

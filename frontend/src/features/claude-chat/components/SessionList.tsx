@@ -7,7 +7,7 @@ import { deleteSession, listSessions, renameSession, renameSessionProject, setSe
 import { ApiError } from '@/lib/api'
 import { engineDisplayName, providerHost } from './chatStatus'
 import type { ClaudeChatSessionView, Engine } from '../types'
-import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
+import { getSessionsByDevSessions } from '@/features/prd-clarify/public-api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Combobox } from '@/components/ui/combobox'
 import { SessionActivityBar } from './SessionActivityBar'

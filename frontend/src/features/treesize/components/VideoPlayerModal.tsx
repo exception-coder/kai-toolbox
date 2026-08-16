@@ -1,7 +1,7 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { VideoPlayer } from '@/features/video-playback/VideoPlayer'
+import { VideoPlayer } from '@/features/video-playback/public-api'
 
 interface VideoPlayerModalProps {
   scanId: string

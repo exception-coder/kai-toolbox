@@ -6,19 +6,25 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useConfirm } from '@/components/ui/confirm-dialog'
-import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
-import { EngineIcon } from '@/features/claude-chat/components/EngineIcon'
-import { engineName } from '@/features/claude-chat/components/chatStatus'
-import type { Engine } from '@/features/claude-chat/types'
-import { crossTopologyStatus, domainKnowledgeStatus, graphifyStatus, repoPaths } from '@/features/knowledge-graph/api'
 import {
+  CHAT_ROUTE,
+  EngineIcon,
+  engineName,
+  type Engine,
+} from '@/features/claude-chat/public-api'
+import {
+  crossTopologyStatus,
+  domainKnowledgeStatus,
   DomainKnowledgeCard,
   GRAPHIFY_LABEL,
   GRAPHIFY_TONE,
+  graphifyStatus,
   REGISTRATION_LABEL,
   REGISTRATION_TONE,
-} from '@/features/knowledge-graph/components/DomainKnowledgeCard'
-import type { ProjectStatusSnapshot, RegistrationState } from '@/features/knowledge-graph/types'
+  repoPaths,
+  type ProjectStatusSnapshot,
+  type RegistrationState,
+} from '@/features/knowledge-graph/public-api'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 
 /**

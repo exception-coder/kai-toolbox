@@ -3,10 +3,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ExternalLink, FlaskConical, RotateCcw, ShieldCheck, Smartphone, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
-import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
-import { normalizeWorkspaceProjectPath, useVisibleWorkspaceProjects } from '@/features/_devkit/public-api'
-import { listWorkspaces } from '@/features/claude-chat/api'
+import {
+  DevServiceSection,
+  normalizeWorkspaceProjectPath,
+  useDevWorkbenchPreference,
+  useVisibleWorkspaceProjects,
+} from '@/features/_devkit/public-api'
+import { listWorkspaces } from '@/features/claude-chat/public-api'
 import {
   applyMiniProgramEnvironment,
   getMiniProgramEnvironment,

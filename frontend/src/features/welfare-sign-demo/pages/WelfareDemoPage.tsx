@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { http } from '@/lib/api'
-import { ChatRuntimeProvider, useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
-import { FloatingChatWindow } from '@/features/claude-chat/components/FloatingChatWindow'
-import { WelfareSignPage, type BlockStyleMap } from '@/features/welfare-sign/pages/WelfareSignPage'
-import type { WelfareConfig, WelfareTheme } from '@/features/welfare-sign/types'
+import {
+  ChatRuntimeProvider,
+  FloatingChatWindow,
+  useChatRuntime,
+} from '@/features/claude-chat/public-api/welfare-demo'
+import {
+  WelfareSignPage,
+  type BlockStyleMap,
+  type WelfareConfig,
+  type WelfareTheme,
+} from '@/features/welfare-sign/public-api'
 
 /** 拉不到副本配置时的兜底端午皮肤，保证页面不空白。 */
 const FALLBACK_CONFIG: WelfareConfig = {

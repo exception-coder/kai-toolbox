@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { FileText, Loader2, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Combobox } from '@/components/ui/combobox'
-import { listSessions } from '@/features/prd-clarify/api'
-import type { PrdSessionView } from '@/features/prd-clarify/types'
+import { listSessions, type PrdSessionView } from '@/features/prd-clarify/public-api'
 import { createPrdDocumentFile } from '../lib/prdReference'
 
 interface Props {

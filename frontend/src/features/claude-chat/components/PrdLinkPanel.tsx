@@ -19,8 +19,8 @@ import {
   type DocChangeDecision,
   type DocChangeCauseType,
   type PrdDocChangeCandidate,
-} from '@/features/prd-clarify/api'
-import type { PrdSessionView } from '@/features/prd-clarify/types'
+  type PrdSessionView,
+} from '@/features/prd-clarify/public-api'
 
 /** 剪贴板写入 + 降级（非安全上下文/旧浏览器用隐藏 textarea + execCommand）。 */
 async function copyTextToClipboard(text: string): Promise<void> {

@@ -1,4 +1,4 @@
-import type { PrdSessionView } from '@/features/prd-clarify/types'
+import type { PrdSessionView } from '@/features/prd-clarify/public-api'
 import type { ReqItemView, RequirementType, RequirementTypeSource } from './types'
 
 export interface FactQualityCriterion {

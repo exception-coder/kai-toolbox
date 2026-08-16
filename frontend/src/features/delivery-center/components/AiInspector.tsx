@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { DeliveryFinding, DeliveryRequirement, DeliveryStageKey, ProgressItem, StageStatus } from '../types'
 import { startDeliveryVerification } from '../api'
-import { documentProfileLabels } from '@/features/prd-clarify/documentProfile'
+import { documentProfileLabels } from '@/features/prd-clarify/public-api'
 
 interface Props {
   requirement: DeliveryRequirement | null

@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useRef, useState, type ComponentType } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Loader2, Network, X } from 'lucide-react'
-import { graphifyGraph } from '@/features/knowledge-graph/api'
+import { graphifyGraph } from '@/features/knowledge-graph/public-api'
 
 // 懒加载 3D 力导图（连带 three.js）——只在打开模态框时才拉这坨大 chunk，不进初始包。
 const ForceGraph3D = lazy(() => import('react-force-graph-3d')) as unknown as ComponentType<Record<string, unknown>>

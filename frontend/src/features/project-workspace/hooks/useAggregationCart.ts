@@ -69,5 +69,3 @@ export function useAggregationCart() {
 
   return { items, has, toggle, remove, clear }
 }
-
-/** 聚合提示在 sessionStorage 的约定 key：会话页 mount 时读一次并清除，预填进输入框。 */

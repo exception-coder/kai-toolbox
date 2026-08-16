@@ -4,8 +4,7 @@ import { Database, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Segmented } from '@/components/ui/segmented'
-import { HistoryPanel } from '@/features/ops/components/HistoryPanel'
-import { SqlConsole } from '@/features/ops/components/SqlConsole'
+import { HistoryPanel, SqlConsole } from '@/features/ops/public-api'
 import { useDbConsole } from '../hooks/useDbConsole'
 
 export function DbConsolePage() {

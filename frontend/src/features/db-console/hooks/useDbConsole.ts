@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { listDatasources } from '@/features/ops/api'
+import { listDatasources } from '@/features/ops/public-api'
 
 const SELECTED_DATASOURCE_KEY = 'kai-toolbox.db-console.datasource-id'
 

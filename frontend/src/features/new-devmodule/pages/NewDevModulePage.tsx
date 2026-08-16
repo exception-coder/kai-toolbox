@@ -4,10 +4,13 @@ import { useQuery } from '@tanstack/react-query'
 import { CheckCircle2, Loader2, PackagePlus, RefreshCw, Rocket, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { listWorkspaces, syncYoooniErpAutoDev } from '@/features/claude-chat/api'
-import type { SkillSyncResult } from '@/features/claude-chat/types'
+import {
+  CHAT_ROUTE,
+  listWorkspaces,
+  syncYoooniErpAutoDev,
+  type SkillSyncResult,
+} from '@/features/claude-chat/public-api'
 import { resolveVisibleWorkspaceProjectPath, useVisibleWorkspaceProjects } from '@/features/_devkit/public-api'
-import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 const K = (s: string) => `kai-toolbox:new-devmodule:${s}`
 

@@ -1,4 +1,4 @@
-import { streamUrl } from '@/features/treesize/api'
+import { streamUrl } from '@/features/treesize/public-api'
 import type { VideoLibraryItem } from '../types'
 
 /**
