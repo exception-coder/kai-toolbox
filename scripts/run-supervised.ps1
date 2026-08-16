@@ -61,8 +61,20 @@ $AutoUpdateRelaunchExitCode = 75
 # dedicated code after fast-forward; the bootstrap then loads the updated script without returning an
 # interactive prompt or accumulating dormant parent generations.
 if (-not $SupervisorWorker) {
+    $bootstrapLogDirectory = Join-Path (
+        $(if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [System.IO.Path]::GetTempPath() })
+    ) 'kai-toolbox\logs'
+    [System.IO.Directory]::CreateDirectory($bootstrapLogDirectory) | Out-Null
+    $bootstrapLogPath = Join-Path $bootstrapLogDirectory ("supervisor-{0}.log" -f (Get-Date -Format 'yyyy-MM-dd'))
+    $bootstrapLogWriter = [System.IO.StreamWriter]::new(
+        $bootstrapLogPath, $true, [System.Text.UTF8Encoding]::new($false))
+    $bootstrapLogWriter.AutoFlush = $true
+    function Write-BootstrapMessage([string]$message) {
+        Write-Host $message
+        $bootstrapLogWriter.WriteLine($message)
+    }
     $workerArgs = @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $PSCommandPath + '"'),
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath,
         '-SupervisorWorker', '-Mode', $Mode, '-Observability', $Observability
     )
     if ($HotReload) { $workerArgs += '-HotReload' }
@@ -71,27 +83,31 @@ if (-not $SupervisorWorker) {
         $workerArgs += @('-AutoUpdateIntervalSeconds', "$AutoUpdateIntervalSeconds")
     }
     try {
+        Write-BootstrapMessage "[supervisor-bootstrap] 完整运行日志：$bootstrapLogPath"
         while ($true) {
-            $worker = Start-Process -FilePath ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) `
-                -ArgumentList $workerArgs -WorkingDirectory (Split-Path -Parent $PSScriptRoot) `
-                -NoNewWindow -PassThru
-            $worker.WaitForExit()
-            if ($worker.ExitCode -eq $AutoUpdateRelaunchExitCode) {
+            & ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) @workerArgs 2>&1 |
+                ForEach-Object { Write-BootstrapMessage "$_" }
+            $workerExitCode = $LASTEXITCODE
+            Write-BootstrapMessage "[supervisor-bootstrap] worker 已退出，code=$workerExitCode"
+            if ($workerExitCode -eq $AutoUpdateRelaunchExitCode) {
                 $stopScript = Join-Path $PSScriptRoot 'stop-supervised.ps1'
                 if (-not (Test-Path -LiteralPath $stopScript)) {
                     throw "重启前清理脚本不存在：$stopScript"
                 }
-                Write-Host '[supervisor-bootstrap] 重启前停止旧服务并清理残留端口...'
-                & $stopScript -KeepStudio
+                Write-BootstrapMessage '[supervisor-bootstrap] 重启前停止旧服务并清理残留端口...'
+                & $stopScript -KeepStudio 2>&1 | ForEach-Object { Write-BootstrapMessage "$_" }
                 if (-not $?) { throw '重启前停止旧服务失败' }
-                Write-Host '[supervisor-bootstrap] 云端更新已落地，加载最新 supervisor...'
+                Write-BootstrapMessage '[supervisor-bootstrap] 清场完成，加载最新 supervisor...'
                 continue
             }
-            exit $worker.ExitCode
+            Write-BootstrapMessage "[supervisor-bootstrap] supervisor 已停止；请查看上方输出或日志文件排查原因"
+            exit $workerExitCode
         }
     } catch {
-        Write-Host "[supervisor-bootstrap] worker 启动失败：$($_.Exception.Message)"
+        Write-BootstrapMessage "[supervisor-bootstrap] worker 启动失败：$($_.Exception.Message)"
         exit 1
+    } finally {
+        $bootstrapLogWriter.Dispose()
     }
 }
 
