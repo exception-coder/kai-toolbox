@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -25,7 +26,9 @@ public class PrdEngineNullableMigration {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
 
-    public PrdEngineNullableMigration(JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
+    public PrdEngineNullableMigration(
+            JdbcTemplate jdbc,
+            @Qualifier("transactionManager") PlatformTransactionManager transactionManager) {
         this.jdbc = jdbc;
         this.transaction = new TransactionTemplate(transactionManager);
     }
