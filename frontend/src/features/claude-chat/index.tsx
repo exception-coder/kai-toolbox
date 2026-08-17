@@ -1,7 +1,7 @@
-import { lazy } from 'react'
 import { BotMessageSquare } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })))
+import { ChatPage } from './pages/ChatPage'
+
 const manifest: FeatureManifest = {
   id: 'claude-chat',
   name: 'Vibe Coding',

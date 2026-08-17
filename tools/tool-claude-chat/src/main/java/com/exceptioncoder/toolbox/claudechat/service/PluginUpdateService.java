@@ -1019,6 +1019,8 @@ public class PluginUpdateService {
                 taskId, "claude", claude, null, results);
         Map<String, JsonNode> codexMarketplaces = readMarketplaceRegistrationsSafely(
                 taskId, "codex", codex, codexHome, results);
+        Map<String, String[]> claudeInstalledPlugins = readInstalledPluginMap(
+                Path.of(System.getProperty("user.home")));
         for (String plugin : props.getWatchedPlugins()) {
             if (Boolean.FALSE.equals(synchronizedRepositories.get(plugin))) {
                 publishSkippedStep(taskId, "plugin", "install:" + plugin, "团队仓库同步失败");
@@ -1035,7 +1037,7 @@ public class PluginUpdateService {
             }
             if (claudeMarketplaces != null) {
                 installClaudePlugin(taskId, claude, plugin, marketplaceDirectory,
-                        claudeMarketplaces.get(plugin), results);
+                        claudeMarketplaces.get(plugin), claudeInstalledPlugins.containsKey(plugin), results);
             }
             if (codexMarketplaces != null) {
                 installCodexPlugin(taskId, codex, codexHome, plugin, marketplaceDirectory,
@@ -1060,7 +1062,7 @@ public class PluginUpdateService {
 
     private void installClaudePlugin(
             String taskId, List<String> claude, String plugin, Path marketplaceDirectory,
-            JsonNode currentMarketplace, List<Map<String, Object>> results) {
+            JsonNode currentMarketplace, boolean installed, List<Map<String, Object>> results) {
         boolean ready = ensureLocalMarketplace(taskId, "claude", plugin, marketplaceDirectory,
                 currentMarketplace,
                 concat(claude, "marketplace", "remove", plugin, "--scope", "user"),
@@ -1070,8 +1072,15 @@ public class PluginUpdateService {
             results.add(skippedStep("claude", "plugin-install:" + plugin, "marketplace 未就绪"));
             return;
         }
-        results.add(runStep(taskId, "claude", "plugin-install:" + plugin,
-                concat(claude, "install", plugin + "@" + plugin, "--scope", "user")));
+        String action = installed ? "update" : "install";
+        results.add(runStep(taskId, "claude", "plugin-" + action + ":" + plugin,
+                claudePluginCommand(claude, plugin, installed)));
+    }
+
+    /** 已安装插件必须走 update；install 会以 already installed 成功退出但不会刷新版本。 */
+    static List<String> claudePluginCommand(List<String> claude, String plugin, boolean installed) {
+        return concat(claude, installed ? "update" : "install",
+                plugin + "@" + plugin, "--scope", "user");
     }
 
     private void installCodexPlugin(

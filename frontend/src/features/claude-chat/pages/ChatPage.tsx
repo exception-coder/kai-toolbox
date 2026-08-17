@@ -1059,42 +1059,63 @@ export function ChatPage() {
             <span>{pendingSql.status === 'PENDING' ? 'SQL 待执行' : pendingSql.status === 'EXECUTED' ? 'SQL 已执行' : 'SQL 已取消'}</span>
           </button>
         )}
-        {linkedSites.length > 0 && (
+        {viewMode === 'single' && chat.sessionId && (
           <Popover>
             <PopoverTrigger asChild>
-              <button type="button" title={`查看 ${linkedSites.length} 个关联站点`}
-                className="hidden shrink-0 items-center gap-1 rounded-full border border-sky-500/50 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300 2xl:flex">
+              <button
+                type="button"
+                aria-label={linkedSites.length > 0 ? `查看 ${linkedSites.length} 个关联站点` : '关联测试站点'}
+                title={linkedSites.length > 0
+                  ? `关联站点：${linkedSites.map(site => site.title).join('、')}`
+                  : '当前会话还没有关联站点，点击添加'}
+                className={cn(
+                  'flex h-7 shrink-0 items-center gap-1 rounded-full border px-2 text-[10px] transition-colors hover:bg-[var(--color-accent)]',
+                  linkedSites.length > 0
+                    ? 'border-sky-500/50 bg-sky-500/10 text-sky-700 dark:text-sky-300'
+                    : 'border-[var(--color-border)] text-[var(--color-muted-foreground)]',
+                )}
+              >
                 <Link2 className="size-3" />
-                <span className="max-sm:hidden">关联站点</span>
+                <span className="hidden xl:inline">站点</span>
                 <span>{linkedSites.length}</span>
                 <ChevronDown className="size-3 opacity-60" />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-80 p-1" align="end">
-              <div className="max-h-72 overflow-y-auto">
-                {linkedSites.map(site => {
-                  const SiteIcon = resolveSiteIcon(site.icon)
-                  return (
-                    <div key={site.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[var(--color-muted)]">
-                      <button type="button" onClick={() => openLinkedSite(site)} title={`按默认方式打开：${site.title}`}
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                        <SiteIcon className="size-4 shrink-0 text-sky-600 dark:text-sky-300" />
-                        <span className="min-w-0">
-                          <span className="block truncate text-xs font-medium">{site.title}</span>
-                          <span className="block truncate text-[10px] text-[var(--color-muted-foreground)]">
-                            {site.sourceType === 'CUSTOM' ? '临时站点' : site.groupName} · {site.siteUrl}
+            <PopoverContent className="w-[min(20rem,calc(100vw-1rem))] p-1" align="end">
+              {linkedSites.length > 0 ? (
+                <div className="max-h-72 overflow-y-auto">
+                  {linkedSites.map(site => {
+                    const SiteIcon = resolveSiteIcon(site.icon)
+                    return (
+                      <div key={site.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[var(--color-muted)]">
+                        <button type="button" onClick={() => openLinkedSite(site)} title={`按默认方式打开：${site.title}`}
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                          <SiteIcon className="size-4 shrink-0 text-sky-600 dark:text-sky-300" />
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs font-medium">{site.title}</span>
+                            <span className="block truncate text-[10px] text-[var(--color-muted-foreground)]">
+                              {site.sourceType === 'CUSTOM' ? '临时站点' : site.groupName} · {site.siteUrl}
+                            </span>
                           </span>
-                        </span>
-                      </button>
-                      <SiteLinkCopyButton url={site.siteUrl} title={site.title} />
-                      <SiteOpenModeMenu compact allowControlled={site.sourceType === 'QUICK'} onSelect={choice => openLinkedSite(site, choice)} />
-                    </div>
-                  )
-                })}
-              </div>
+                        </button>
+                        <SiteLinkCopyButton url={site.siteUrl} title={site.title} />
+                        <SiteOpenModeMenu compact allowControlled={site.sourceType === 'QUICK'} onSelect={choice => openLinkedSite(site, choice)} />
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="px-3 py-4 text-center">
+                  <LayoutGrid className="mx-auto size-5 text-[var(--color-muted-foreground)]" />
+                  <p className="mt-2 text-xs font-medium">尚未关联测试站点</p>
+                  <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
+                    可选择快捷入口，或添加当前会话专属地址。
+                  </p>
+                </div>
+              )}
               <button type="button" onClick={() => setShowSessionSites(true)}
                 className="mt-1 flex w-full items-center justify-center gap-1 rounded-md border-t px-2 py-1.5 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]">
-                <Settings className="size-3.5" />管理关联站点
+                <Settings className="size-3.5" />{linkedSites.length > 0 ? '管理关联站点' : '添加关联站点'}
               </button>
             </PopoverContent>
           </Popover>

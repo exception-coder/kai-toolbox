@@ -93,6 +93,18 @@ class PluginUpdateServiceTest {
         assertFalse(PluginUpdateService.mcpRegistrationExists(-1));
     }
 
+    @Test
+    void shouldUpdateInstalledClaudePluginInsteadOfSilentlySkippingIt() {
+        List<String> base = List.of("claude", "plugin");
+
+        assertEquals(List.of("claude", "plugin", "update", "team-standards@team-standards",
+                        "--scope", "user"),
+                PluginUpdateService.claudePluginCommand(base, "team-standards", true));
+        assertEquals(List.of("claude", "plugin", "install", "team-standards@team-standards",
+                        "--scope", "user"),
+                PluginUpdateService.claudePluginCommand(base, "team-standards", false));
+    }
+
     private static String jsonPath(Path path) {
         return path.toString().replace("\\", "\\\\");
     }
