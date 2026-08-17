@@ -1,0 +1,14 @@
+regentech:
+  wyoooni:
+    enterprise:
+      enabled: true
+  supplier-quote:
+    erp-account:
+      maximum-pool-size: ${WYOOONI_ACCOUNT_ORACLE_MAXIMUM_POOL_SIZE:3}
+      minimum-idle: ${WYOOONI_ACCOUNT_ORACLE_MINIMUM_IDLE:1}
+      connection-timeout: ${WYOOONI_ACCOUNT_ORACLE_CONNECTION_TIMEOUT:10s}
+      validation-timeout: ${WYOOONI_ACCOUNT_ORACLE_VALIDATION_TIMEOUT:5s}
+      idle-timeout: ${WYOOONI_ACCOUNT_ORACLE_IDLE_TIMEOUT:5m}
+      max-lifetime: ${WYOOONI_ACCOUNT_ORACLE_MAX_LIFETIME:30m}
+      keepalive-time: ${WYOOONI_ACCOUNT_ORACLE_KEEPALIVE_TIME:2m}
+      initialization-fail-timeout: ${WYOOONI_ACCOUNT_ORACLE_INITIALIZATION_FAIL_TIMEOUT:1s}

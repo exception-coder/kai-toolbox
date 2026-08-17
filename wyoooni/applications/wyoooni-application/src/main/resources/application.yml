@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: wyoooni-application
+  profiles:
+    default: dev
+  config:
+    import:
+      - classpath:config/common/wyoooni-core.yml
+      - classpath:config/common/persistence.yml
+      - classpath:config/common/enterprise-integration.yml
+      - classpath:config/common/supplier-quote.yml

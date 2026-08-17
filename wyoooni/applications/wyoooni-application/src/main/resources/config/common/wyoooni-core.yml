@@ -1,0 +1,11 @@
+spring:
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  forward-headers-strategy: framework
+
+regentech:
+  wyoooni:
+    brand-name: ${WYOOONI_BRAND_NAME:织联协同}

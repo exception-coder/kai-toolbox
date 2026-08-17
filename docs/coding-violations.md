@@ -22,3 +22,11 @@
 | 15 | 路径约束 | 将已停用的 `D:\Users\zhang\myWork\yoooni-daily-plugin` 误当团队插件源码并额外写入 | 团队插件源码统一读取 `C:\Users\zhang\.kai-toolbox\team-tools`；禁止再维护 D 盘旧开发仓副本 | PluginUpdateService.java、yoooni-erp-auto-dev/SKILL.md | 2026-08-05 | 1 |
 | 16 | 内容准确性 | 自动登记待执行 SQL 时只保存裸 SQL，缺少与系统业务变更关联的清晰注释 | 登记标题必须体现业务功能，每个 SQL 逻辑块前用注释说明关联功能、具体变更和执行目的 | pendingSqlPolicy.ts、forgePendingSql.ts | 2026-08-06 | 1 |
 | 17 | 架构约束 | 将 taskspace 聚合工作区根当成单仓库物理源码根，忽略其下多个 junction/symlink 成员仓库 | 会话应保存工作区根并显式解析成员源码根集合；路径校验、Graphify 路由和结果相对路径必须基于该集合，不能用单一物理根判断所有成员 | readonlyMcp.ts、codexSecurity.ts、codexEngine.ts、TaskspaceService.java | 2026-08-12 | 1 |
+| 18 | 架构约束 | 将企业账号模型、应用端口、持久化/HTTP 实现和 Spring 装配全部平铺在企业适配层根包，职责与依赖方向不可辨识 | 企业公共能力按 domain、application、infrastructure、config 分层；业务模块依赖应用端口，不直接依赖 JPA/HTTP 实现类 | wyoooni-enterprise-adapter | 2026-08-16 | 1 |
+| 19 | 编码规范 | 新增配置属性类时手写重复 getter/setter，未沿用项目既有 Lombok 约定 | Properties 显式声明 Lombok 依赖并使用 `@Getter/@Setter`；避免对含密钥配置使用会生成 `toString` 的 `@Data`，MapStruct只用于对象映射 | supplier-quote、wyoooni 配置类 | 2026-08-16 | 1 |
+| 20 | 文档结构 | 将Agent入口与工程规范混写，随后又把小型项目规范过度拆成多个细碎文件 | AGENTS.md与CLAUDE.md只作为入口；共享规范以engineering为唯一事实源，稳定收敛为架构、编码、测试三类，优先补充现有文档 | wyoooni/AGENTS.md、wyoooni/CLAUDE.md、wyoooni/docs/engineering | 2026-08-16 | 2 |
+| 21 | 需求范围 | 已有供应商报价页可以承载市场报价流程时，额外创建 MarketQuotePage，造成两个同类报价页面并存 | 同一报价工作流优先重构既有 SupplierQuotationPage；仅在流程、权限和导航边界确实独立时新增页面 | SupplierQuotationPage.tsx、MarketQuotePage.tsx | 2026-08-16 | 1 |
+| 22 | 架构约束 | 按 ERP Oracle、SRM MySQL 和本地业务库的数据源类型拆出多个 Maven Adapter，导致同一报价业务实现分散且模块价值不清 | Maven 模块按业务能力拆分；同一供应商报价模块内部用明确的数据源、Repository 和事务管理器隔离本地、ERP、SRM 数据访问 | supplier-quote-mysql-adapter、supplier-quote-forge-adapter、supplier-quote-spring-boot-starter | 2026-08-16 | 1 |
+| 23 | 架构约束 | 报价业务已由 Starter 完整承载后仍保留 Forge Host 中间模块，并把本地存储和演示用例错误归为宿主接线 | 宿主直接依赖业务 Starter；属于报价模块的持久化与用例实现归入 Starter，只有存在真实宿主差异时才新增适配模块 | supplier-quote-forge-host、toolbox-starter | 2026-08-16 | 1 |
+| 24 | 业务状态 | 将 SRM 打回和拒绝后重新下发任务拆成 `RETURNED`、`REQUOTE` 两个 H5 状态，并使用“需修改/需重新报价”等漂移文案 | H5 统一为五态；`auditResult=3` 或 `haveTask=1` 均展示“待重报”，已拒绝仅表示 SRM 审核结果且只读 | MarketQuoteBusinessStatus.java、SupplierQuotationPage.tsx、MarketQuoteCard.tsx | 2026-08-16 | 1 |
+| 25 | 产品文案 | 在本地测试环境的账号关联页额外展示“本地开发模式”和固定验证账号，暴露实现概念并形成冗余视觉层级 | 本地统一视为测试环境；页面只呈现真实业务账号关联表单，测试凭据由测试人员掌握而不在 H5 明文展示 | BusinessAccountBindingPage.tsx | 2026-08-16 | 1 |

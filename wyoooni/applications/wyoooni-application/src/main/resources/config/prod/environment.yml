@@ -1,0 +1,45 @@
+spring:
+  datasource:
+    url: ${WYOOONI_BUSINESS_DB_URL}
+    username: ${WYOOONI_BUSINESS_DB_USERNAME}
+    password: ${WYOOONI_BUSINESS_DB_PASSWORD}
+    driver-class-name: ${WYOOONI_BUSINESS_DB_DRIVER:oracle.jdbc.OracleDriver}
+    hikari:
+      pool-name: wyoooni-business-oracle
+      maximum-pool-size: ${WYOOONI_BUSINESS_DB_MAXIMUM_POOL_SIZE:20}
+      minimum-idle: ${WYOOONI_BUSINESS_DB_MINIMUM_IDLE:5}
+      connection-timeout: ${WYOOONI_BUSINESS_DB_CONNECTION_TIMEOUT_MS:10000}
+      validation-timeout: ${WYOOONI_BUSINESS_DB_VALIDATION_TIMEOUT_MS:5000}
+      idle-timeout: ${WYOOONI_BUSINESS_DB_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${WYOOONI_BUSINESS_DB_MAX_LIFETIME_MS:1800000}
+      keepalive-time: ${WYOOONI_BUSINESS_DB_KEEPALIVE_TIME_MS:120000}
+      initialization-fail-timeout: ${WYOOONI_BUSINESS_DB_INITIALIZATION_FAIL_TIMEOUT_MS:1000}
+  sql:
+    init:
+      mode: never
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.OracleDialect
+
+server:
+  port: ${WYOOONI_SERVER_PORT:18090}
+
+regentech:
+  wyoooni:
+    enterprise:
+      base-url: ${WYOOONI_ENTERPRISE_BASE_URL}
+      service-token: ${WYOOONI_ENTERPRISE_SERVICE_TOKEN}
+  supplier-quote:
+    erp-account:
+      enabled: ${WYOOONI_ACCOUNT_ORACLE_ENABLED:true}
+      url: ${WYOOONI_ACCOUNT_ORACLE_URL}
+      username: ${WYOOONI_ACCOUNT_ORACLE_USERNAME}
+      password: ${WYOOONI_ACCOUNT_ORACLE_PASSWORD}
+    wechat:
+      mode: official
+      app-id: ${SUPPLIER_QUOTE_WECHAT_APP_ID}
+      app-secret: ${SUPPLIER_QUOTE_WECHAT_APP_SECRET}
+      callback-url: ${SUPPLIER_QUOTE_WECHAT_CALLBACK_URL}
+      secure-cookie: true
+      local-development-enabled: false

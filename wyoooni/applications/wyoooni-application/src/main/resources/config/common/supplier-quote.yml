@@ -1,0 +1,22 @@
+regentech:
+  supplier-quote:
+    wyoooni:
+      enabled: true
+      quotation-path: ${SUPPLIER_QUOTE_BUSINESS_PATH:/api/supplier-quote-adapter/quotations}
+    market-quote:
+      provider: ${SUPPLIER_QUOTE_MARKET_PROVIDER:srm-http}
+      base-url: ${SUPPLIER_QUOTE_SRM_BASE_URL:}
+      secret-key: ${SUPPLIER_QUOTE_SRM_SECRET_KEY:}
+      connect-timeout-millis: ${SUPPLIER_QUOTE_SRM_CONNECT_TIMEOUT_MS:5000}
+      request-timeout-millis: ${SUPPLIER_QUOTE_SRM_REQUEST_TIMEOUT_MS:10000}
+      mysql:
+        url: ${SUPPLIER_QUOTE_MARKET_MYSQL_URL:}
+        username: ${SUPPLIER_QUOTE_MARKET_MYSQL_USERNAME:}
+        password: ${SUPPLIER_QUOTE_MARKET_MYSQL_PASSWORD:}
+        maximum-pool-size: ${SUPPLIER_QUOTE_MARKET_MYSQL_MAXIMUM_POOL_SIZE:10}
+        minimum-idle: ${SUPPLIER_QUOTE_MARKET_MYSQL_MINIMUM_IDLE:2}
+        connection-timeout: ${SUPPLIER_QUOTE_MARKET_MYSQL_CONNECTION_TIMEOUT:10s}
+        validation-timeout: ${SUPPLIER_QUOTE_MARKET_MYSQL_VALIDATION_TIMEOUT:5s}
+        idle-timeout: ${SUPPLIER_QUOTE_MARKET_MYSQL_IDLE_TIMEOUT:10m}
+        max-lifetime: ${SUPPLIER_QUOTE_MARKET_MYSQL_MAX_LIFETIME:30m}
+        keepalive-time: ${SUPPLIER_QUOTE_MARKET_MYSQL_KEEPALIVE_TIME:2m}

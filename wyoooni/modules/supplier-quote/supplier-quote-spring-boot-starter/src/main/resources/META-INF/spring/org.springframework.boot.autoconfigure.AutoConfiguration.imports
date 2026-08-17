@@ -1,0 +1,4 @@
+com.regentech_fashion.supplierquote.infrastructure.erp.ErpAccountOracleConfiguration
+com.regentech_fashion.supplierquote.infrastructure.local.LocalSupplierQuoteAutoConfiguration
+com.regentech_fashion.supplierquote.config.SupplierQuoteAutoConfiguration
+com.regentech_fashion.supplierquote.infrastructure.srm.config.MarketQuoteMysqlAutoConfiguration

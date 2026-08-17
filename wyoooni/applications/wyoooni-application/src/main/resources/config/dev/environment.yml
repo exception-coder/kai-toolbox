@@ -1,0 +1,38 @@
+spring:
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:db/sqlite/wyoooni-schema.sql
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.community.dialect.SQLiteDialect
+
+server:
+  port: ${WYOOONI_SERVER_PORT:18090}
+
+regentech:
+  wyoooni:
+    local-data:
+      file: ${WYOOONI_SQLITE_FILE:wyoooni.db}
+      maximum-pool-size: ${WYOOONI_SQLITE_MAXIMUM_POOL_SIZE:4}
+      minimum-idle: ${WYOOONI_SQLITE_MINIMUM_IDLE:1}
+      connection-timeout: ${WYOOONI_SQLITE_CONNECTION_TIMEOUT:10s}
+      validation-timeout: ${WYOOONI_SQLITE_VALIDATION_TIMEOUT:5s}
+    enterprise:
+      base-url: ${WYOOONI_ENTERPRISE_BASE_URL:http://127.0.0.1:18091}
+      service-token: ${WYOOONI_ENTERPRISE_SERVICE_TOKEN:}
+  supplier-quote:
+    erp-account:
+      enabled: ${WYOOONI_ACCOUNT_ORACLE_ENABLED:false}
+      url: ${WYOOONI_ACCOUNT_ORACLE_URL:jdbc:oracle:thin:@47.106.94.45:1521:orcl}
+      username: ${WYOOONI_ACCOUNT_ORACLE_USERNAME:}
+      password: ${WYOOONI_ACCOUNT_ORACLE_PASSWORD:}
+    wechat:
+      mode: ${SUPPLIER_QUOTE_WECHAT_MODE:mock}
+      app-id: ${SUPPLIER_QUOTE_WECHAT_APP_ID:dev-app-id}
+      app-secret: ${SUPPLIER_QUOTE_WECHAT_APP_SECRET:}
+      callback-url: ${SUPPLIER_QUOTE_WECHAT_CALLBACK_URL:https://kai-tool.exception-coder.com/api/supplier-quote/public/wechat/oauth/callback}
+      mock-openid: ${SUPPLIER_QUOTE_WECHAT_MOCK_OPENID:wyoooni-demo-openid}
+      secure-cookie: ${SUPPLIER_QUOTE_WECHAT_SECURE_COOKIE:true}
+      local-development-enabled: ${SUPPLIER_QUOTE_LOCAL_DEVELOPMENT_ENABLED:true}

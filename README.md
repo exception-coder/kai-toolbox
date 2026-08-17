@@ -132,14 +132,16 @@ Windows `-Ports 18080,5173` / macOS `--ports 18080,5173` 只适合 supervisor �
 
 ### 本机工具路径
 
-启动脚本会自动探测工具路径。需要显式配置时，将示例文件复制为本机配置：
+启动脚本会自动探测工具路径。需要显式配置时，创建受 Git 忽略的分类目录并复制所需模板：
 
 ```powershell
-Copy-Item scripts\run-tools.conf.example scripts\run-tools.conf
+New-Item -ItemType Directory -Force scripts\run-tools.d
+Copy-Item scripts\run-tools.example.d\*.example scripts\run-tools.d\
 ```
 
 ```bash
-cp scripts/run-tools.conf.example scripts/run-tools.conf
+mkdir -p scripts/run-tools.d
+cp scripts/run-tools.example.d/*.example scripts/run-tools.d/
 ```
 
 按实际环境填写：
@@ -150,7 +152,9 @@ JAVA_CMD=D:\Java\jdk-21\bin\java.exe
 NPM_CMD=D:\Program Files\nodejs\npm.cmd
 ```
 
-`scripts/run-tools.conf` 已被 Git 忽略，可用于保存本机路径和密钥，不要把真实凭据写入仓库中的示例文件或源码。
+建议去掉复制后文件名末尾的 `.example`，按运行工具、存储、安全、AI 服务、外部集成和供应商报价分别填写。
+`scripts/run-tools.d/` 整个目录已被 Git 忽略。旧版 `run-tools.conf` 可执行
+`scripts/migrate-run-tools-config.ps1` 自动迁移；不要把真实凭据写入示例文件或源码。
 
 ### Agent 授权
 
