@@ -1,5 +1,6 @@
 {
-  "mode": "mock",
-  "apiBaseUrl": "",
+  "mode": "http",
+  "apiBaseUrl": "/api/supplier-quote",
+  "marketQuoteApiBaseUrl": "/api/supplier-quote",
   "brandName": "织联协同 · H5验证环境"
 }
