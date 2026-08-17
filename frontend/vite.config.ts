@@ -47,6 +47,10 @@ export default defineConfig({
       'Cache-Control': 'no-store',
     },
     proxy: {
+      '/MP_verify_eQMZqv1CWST9uWxh.txt': {
+        target: 'http://localhost:18080',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://localhost:18080',
         changeOrigin: true,
