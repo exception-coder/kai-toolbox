@@ -1,0 +1,32 @@
+toolbox:
+  # 「AI 对话」模块：经 4sapi（OpenAI 兼容中转）直连多模型的 API 流式聊天。
+  # 与 Vibe coding（claude-chat，agent 模式）不同——本模块直接调 /v1/chat/completions，无 agent。
+  # 标 @Refreshable，参数可在配置中心在线改、不重启。模型清单实时取自网关 /v1/models。
+  # 凭据(base-url/api-key)已上移到中心 toolbox.llm.gateway（配置中心「LLM 网关」块），本模块不再单独存。
+  ai-chat:
+    temperature: 0.7
+    timeout-seconds: 60
+    max-history-messages: 40
+    models-cache-ttl-seconds: 300
+    # 命令执行工具(runCommand):默认关闭,高风险能力须显式开启。
+    # 开启后仍受多层护栏约束:不经 shell 分词执行、前缀白名单、元字符/路径逃逸拦截、
+    # 工作目录沙箱、超时与输出截断。白名单即「预先批准」,只放行其中的命令前缀。
+    shell:
+      enabled: ${TOOLBOX_AI_CHAT_SHELL_ENABLED:false}
+      # workdir: ${user.home}/.kai-toolbox/ai-chat-workspace
+      # timeout-seconds: 30
+      # max-output-chars: 4000
+      # allow:   # 不配则用代码内置的只读安全白名单(git status/log/diff、ls、cat 等)
+      #   - git status
+      #   - ls
+    # 模型 id 命中其一即判为多模态（小写子串匹配）
+    multimodal-patterns:
+      - gpt-4o
+      - gpt-4.1
+      - o1
+      - o3
+      - claude
+      - gemini
+      - vision
+      - qwen-vl
+      - glm-4v

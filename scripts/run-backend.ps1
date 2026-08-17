@@ -12,43 +12,14 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $repo
 
-# --- 解析 mvn：同目录 run-tools.conf(MVN_CMD) → 环境变量/PATH/回退 → 交互式，命中即写回 conf ---
-# 与 run-supervised.ps1 共用同一份 run-tools.conf，配一次两个脚本都受益。
-$ToolsConfFile = Join-Path $PSScriptRoot 'run-tools.conf'
+# --- 分类读取本机配置；探测出的工具路径统一写入 10-runtime.conf。 ---
+. (Join-Path $PSScriptRoot 'run-tools-config.ps1')
+Import-ToolboxLocalConfig
 
-function Read-ConfValue([string]$key) {
-  if (-not (Test-Path $ToolsConfFile)) { return $null }
-  foreach ($line in [System.IO.File]::ReadAllLines($ToolsConfFile)) {
-    $t = $line.Trim()
-    if ($t -eq '' -or $t.StartsWith('#')) { continue }
-    $i = $t.IndexOf('=')
-    if ($i -lt 1) { continue }
-    if ($t.Substring(0, $i).Trim() -eq $key) { return $t.Substring($i + 1).Trim() }
-  }
-  return $null
-}
-
+function Read-ConfValue([string]$key) { return Get-ToolboxLocalConfigValue $key }
 function Write-ConfValue([string]$key, [string]$value) {
-  $out = New-Object System.Collections.Generic.List[string]
-  $found = $false
-  if (Test-Path $ToolsConfFile) {
-    foreach ($line in [System.IO.File]::ReadAllLines($ToolsConfFile)) {
-      $t = $line.Trim()
-      if ($t -and -not $t.StartsWith('#')) {
-        $i = $t.IndexOf('=')
-        if ($i -ge 1 -and $t.Substring(0, $i).Trim() -eq $key) { $out.Add("$key=$value"); $found = $true; continue }
-      }
-      $out.Add($line)
-    }
-  } else {
-    $out.Add('# kai-toolbox 本机工具路径配置（脚本自动维护，可手改）')
-    $out.Add('# 形如 KEY=路径；缺失或失效时脚本会交互式询问并写回这里。')
-    $out.Add('# 机器相关，建议不要提交到仓库。')
-    $out.Add('')
-  }
-  if (-not $found) { $out.Add("$key=$value") }
-  [System.IO.File]::WriteAllText($ToolsConfFile, ($out -join "`r`n") + "`r`n", [System.Text.UTF8Encoding]::new($false))
-  Write-Host "[run-backend] 已写回 run-tools.conf：$key=$value"
+  Set-ToolboxRuntimeConfigValue $key $value
+  Write-Host "[run-backend] 已写回 run-tools.d/10-runtime.conf：$key=$value"
 }
 
 # 把路径规整成真正的可执行文件：已是文件→原样；是目录→在 <dir> 和 <dir>\bin 下找

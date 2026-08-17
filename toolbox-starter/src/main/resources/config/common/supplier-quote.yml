@@ -1,0 +1,51 @@
+regentech:
+  supplier-quote:
+    local-storage:
+      enabled: true
+    wechat:
+      # mock: Forge 本地验证；official: 微信公众号 snsapi_base。
+      mode: ${SUPPLIER_QUOTE_WECHAT_MODE:mock}
+      app-id: ${SUPPLIER_QUOTE_WECHAT_APP_ID:dev-app-id}
+      app-secret: ${SUPPLIER_QUOTE_WECHAT_APP_SECRET:}
+      # 正式公众号后台的网页授权域名配置为 kai-tool.exception-coder.com；不同环境仍可用环境变量覆盖。
+      callback-url: ${SUPPLIER_QUOTE_WECHAT_CALLBACK_URL:https://kai-tool.exception-coder.com/api/supplier-quote/public/wechat/oauth/callback}
+      mock-openid: ${SUPPLIER_QUOTE_WECHAT_MOCK_OPENID:forge-demo-openid}
+      secure-cookie: ${SUPPLIER_QUOTE_WECHAT_SECURE_COOKIE:true}
+      # 仍会校验请求Host，仅允许 localhost、127.0.0.1、192.168.* 创建开发会话。
+      local-development-enabled: ${SUPPLIER_QUOTE_LOCAL_DEVELOPMENT_ENABLED:true}
+    account:
+      # Oracle 未启用时默认不提供演示账号；显式设为 mock 才启用 supplier-demo / 123456。
+      mode: ${SUPPLIER_QUOTE_ACCOUNT_MODE:${SUPPLIER_QUOTE_SCM_MODE:disabled}}
+      verify-url: ${SUPPLIER_QUOTE_ACCOUNT_VERIFY_URL:${SUPPLIER_QUOTE_SCM_VERIFY_URL:}}
+    market-quote:
+      # srm-http 保留为回滚通道；mysql 由移动端模块直连闭环。
+      provider: ${SUPPLIER_QUOTE_MARKET_PROVIDER:srm-http}
+      base-url: ${SUPPLIER_QUOTE_SRM_BASE_URL:}
+      secret-key: ${SUPPLIER_QUOTE_SRM_SECRET_KEY:}
+      connect-timeout-millis: ${SUPPLIER_QUOTE_SRM_CONNECT_TIMEOUT_MS:5000}
+      request-timeout-millis: ${SUPPLIER_QUOTE_SRM_REQUEST_TIMEOUT_MS:10000}
+      mysql:
+        url: ${SUPPLIER_QUOTE_MARKET_MYSQL_URL:}
+        username: ${SUPPLIER_QUOTE_MARKET_MYSQL_USERNAME:}
+        password: ${SUPPLIER_QUOTE_MARKET_MYSQL_PASSWORD:}
+        maximum-pool-size: ${SUPPLIER_QUOTE_MARKET_MYSQL_MAXIMUM_POOL_SIZE:10}
+        minimum-idle: ${SUPPLIER_QUOTE_MARKET_MYSQL_MINIMUM_IDLE:2}
+        connection-timeout: ${SUPPLIER_QUOTE_MARKET_MYSQL_CONNECTION_TIMEOUT:10s}
+        validation-timeout: ${SUPPLIER_QUOTE_MARKET_MYSQL_VALIDATION_TIMEOUT:5s}
+        idle-timeout: ${SUPPLIER_QUOTE_MARKET_MYSQL_IDLE_TIMEOUT:10m}
+        max-lifetime: ${SUPPLIER_QUOTE_MARKET_MYSQL_MAX_LIFETIME:30m}
+        keepalive-time: ${SUPPLIER_QUOTE_MARKET_MYSQL_KEEPALIVE_TIME:2m}
+    erp-account:
+      # 只用于直连 ERP Oracle 校验 SCM 供应商账号；H5 业务数据仍使用 Forge 本地 SQLite。
+      enabled: ${SUPPLIER_QUOTE_ORACLE_ENABLED:false}
+      url: ${SUPPLIER_QUOTE_ORACLE_URL:jdbc:oracle:thin:@47.106.94.45:1521:orcl}
+      username: ${SUPPLIER_QUOTE_ORACLE_USERNAME:}
+      password: ${SUPPLIER_QUOTE_ORACLE_PASSWORD:}
+      maximum-pool-size: ${SUPPLIER_QUOTE_ORACLE_MAXIMUM_POOL_SIZE:5}
+      minimum-idle: ${SUPPLIER_QUOTE_ORACLE_MINIMUM_IDLE:0}
+      connection-timeout: ${SUPPLIER_QUOTE_ORACLE_CONNECTION_TIMEOUT:10s}
+      validation-timeout: ${SUPPLIER_QUOTE_ORACLE_VALIDATION_TIMEOUT:5s}
+      idle-timeout: ${SUPPLIER_QUOTE_ORACLE_IDLE_TIMEOUT:5m}
+      max-lifetime: ${SUPPLIER_QUOTE_ORACLE_MAX_LIFETIME:30m}
+      keepalive-time: ${SUPPLIER_QUOTE_ORACLE_KEEPALIVE_TIME:2m}
+      initialization-fail-timeout: ${SUPPLIER_QUOTE_ORACLE_INITIALIZATION_FAIL_TIMEOUT:-1ms}

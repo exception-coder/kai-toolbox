@@ -1,0 +1,39 @@
+toolbox:
+
+  downloader:
+    # 默认保存目录。留空走 ${user.home}/Downloads/kai-toolbox
+    default-save-path: ${user.home}/Downloads/kai-toolbox
+    # 分片字节数。32 MiB 是 8 路并发下 256 MB 文件的甜点；过小切片多调度开销，过大并发收益降低
+    segment-size: 33554432
+    # 单任务最大并发分片数。8 对国内 CDN 偏激进（容易触发服务端关 TLS / 限并发），改 4 更稳。
+    # 真的需要拉满带宽时按需调到 8 ~ 16；服务端不喜欢的话会回退到单 segment（segment retry exhaust）。
+    max-parallel-per-task: 4
+    max-parallel-global: 16
+    # 链路探测整体超时；过短会让弱代理被误判
+    probe-timeout-ms: 8000
+    # race 拉取字节数，256 KiB 通常足够区分代理 vs 直连的吞吐差距
+    probe-bytes: 262144
+    # 分片重试次数（不含首次）。6 次足以扛过 CDN 偶发 20-60 秒小风暴；
+    # 退避序列 1s/2s/4s/8s/16s/30s 加 ±50% jitter，总最长约 1 分钟
+    segment-retry-max: 6
+    segment-retry-backoff-base-ms: 1000
+    segment-retry-backoff-max-ms: 30000
+    sse-flush-interval-ms: 500
+    connect-timeout-ms: 10000
+    request-timeout-ms: 0       # 0 = 不限制单次请求总耗时（依赖 worker 协作中断 + 重试机制）
+    # 读空闲超时：worker 在此时间内读不到一个字节就认为 stalled，主动关流让 read 抛异常 → 触发重试
+    # 治「速率 = 0 但状态还是下载中」的卡死 bug
+    read-idle-timeout-ms: 30000
+    # 显式代理 URL。留空时按 HTTPS_PROXY / HTTP_PROXY / TOOLBOX_HTTP_PROXY 环境变量探测；
+    # 与 media-parser / browser-request 的代理约定保持一致。
+    proxy: ${TOOLBOX_HTTP_PROXY:}
+
+    # CDN 节点 DNS 散打（仅 OkHttp 引擎生效；走代理时自动退化为普通模式）
+    # 原理：DNS 解析域名通常返回多个 CDN 边缘节点 IP，让每个分片 socket 绑不同 IP，
+    #      绕过服务端「同 IP 单 socket 限速」。
+    # 代价：强制走 HTTP/1.1（H2 单连接设计与散打互斥）、禁用 ConnectionPool（每片新建 TCP+TLS 握手）。
+    # 跨境 CDN 场景效果显著；同地区 CDN 提升有限。
+    dns-spread:
+      enabled: true
+      cache-ttl-ms: 300000         # DNS 缓存 5 分钟
+      ipv4-only: true              # IPv6 在国内 CDN 不稳定，默认只用 v4

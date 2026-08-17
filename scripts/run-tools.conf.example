@@ -1,4 +1,6 @@
-# kai-toolbox 本机工具路径配置（示例）
+# 兼容旧版的单文件示例。
+# 新配置请优先使用 run-tools.example.d，并把本机文件放入受 Git 忽略的 run-tools.d 目录。
+# 已有 run-tools.conf 可执行 migrate-run-tools-config.ps1 自动分类迁移。
 #
 # 用法：可直接复制为同目录 run-tools.conf 并按本机实际路径填写；
 #       也可以什么都不做——首次运行 run-supervised.ps1 / run-supervised-macos.sh /

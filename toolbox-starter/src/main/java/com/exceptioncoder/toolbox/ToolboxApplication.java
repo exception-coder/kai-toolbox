@@ -3,9 +3,14 @@ package com.exceptioncoder.toolbox;
 import com.exceptioncoder.toolbox.system.RestartHandoff;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration;
+import org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
-@SpringBootApplication(scanBasePackages = "com.exceptioncoder.toolbox")
+@SpringBootApplication(scanBasePackages = "com.exceptioncoder.toolbox", exclude = {
+        HibernateJpaAutoConfiguration.class,
+        JpaRepositoriesAutoConfiguration.class
+})
 @ConfigurationPropertiesScan(basePackages = "com.exceptioncoder.toolbox")
 public class ToolboxApplication {
 

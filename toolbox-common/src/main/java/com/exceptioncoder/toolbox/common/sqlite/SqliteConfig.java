@@ -6,7 +6,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.sqlite.SQLiteConfig;
 import org.sqlite.SQLiteDataSource;
 
@@ -39,6 +42,7 @@ public class SqliteConfig {
     }
 
     @Bean
+    @Primary
     public DataSource dataSource() {
         SQLiteConfig cfg = new SQLiteConfig();
         cfg.setJournalMode(SQLiteConfig.JournalMode.valueOf(props.getJournalMode()));
@@ -55,5 +59,12 @@ public class SqliteConfig {
     @Bean
     public JdbcTemplate jdbcTemplate(DataSource ds) {
         return new JdbcTemplate(ds);
+    }
+
+    /** 创建宿主 SQLite 的默认事务管理器。 */
+    @Bean(name = "transactionManager")
+    @Primary
+    public PlatformTransactionManager transactionManager(DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
     }
 }

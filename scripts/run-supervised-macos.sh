@@ -466,9 +466,12 @@ unset KAI_SUPERVISOR_BOOTSTRAP_PID KAI_SUPERVISOR_BOOTSTRAP_NONCE KAI_SUPERVISOR
 export KAI_SUPERVISED=1
 cd "$REPO_ROOT"
 
-TOOLS_CONF="$SCRIPT_DIR/run-tools.conf"
-if [[ -f "$TOOLS_CONF" ]] && ! chmod 600 "$TOOLS_CONF" 2>/dev/null; then
-  echo "[supervisor] WARN: unable to restrict run-tools.conf permissions to owner-only" >&2
+TOOLS_CONF_DIR="$SCRIPT_DIR/run-tools.d"
+TOOLS_CONF="$TOOLS_CONF_DIR/10-runtime.conf"
+LEGACY_TOOLS_CONF="$SCRIPT_DIR/run-tools.conf"
+if [[ -d "$TOOLS_CONF_DIR" ]]; then
+  chmod 700 "$TOOLS_CONF_DIR" 2>/dev/null || true
+  find "$TOOLS_CONF_DIR" -type f -name '*.conf' -exec chmod 600 {} \; 2>/dev/null || true
 fi
 
 trim_text() {
@@ -479,24 +482,30 @@ trim_text() {
 }
 
 load_tools_conf() {
-  [[ -f "$TOOLS_CONF" ]] || return 0
-  local line key value
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    line="$(trim_text "$line")"
-    [[ -z "$line" || "${line:0:1}" == "#" || "$line" != *=* ]] && continue
-    key="$(trim_text "${line%%=*}")"
-    value="$(trim_text "${line#*=}")"
-    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-    if ! printenv "$key" >/dev/null 2>&1; then
-      export "$key=$value"
-    fi
-  done < "$TOOLS_CONF"
+  local file line key value
+  local files=()
+  if [[ -d "$TOOLS_CONF_DIR" ]]; then
+    while IFS= read -r file; do files+=("$file"); done < <(find "$TOOLS_CONF_DIR" -type f -name '*.conf' | sort)
+  fi
+  [[ -f "$LEGACY_TOOLS_CONF" ]] && files+=("$LEGACY_TOOLS_CONF")
+  for file in "${files[@]}"; do
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      line="$(trim_text "$line")"
+      [[ -z "$line" || "${line:0:1}" == "#" || "$line" != *=* ]] && continue
+      key="$(trim_text "${line%%=*}")"
+      value="$(trim_text "${line#*=}")"
+      [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+      if ! printenv "$key" >/dev/null 2>&1; then export "$key=$value"; fi
+    done < "$file"
+  done
 }
 
 conf_set() {
   local key="$1"
   local value="$2"
   local tmp
+  mkdir -p "$TOOLS_CONF_DIR"
+  chmod 700 "$TOOLS_CONF_DIR" 2>/dev/null || true
   if [[ ! -f "$TOOLS_CONF" ]]; then
     {
       echo '# kai-toolbox local tool configuration (not committed)'
@@ -571,7 +580,7 @@ resolve_tool() {
   [[ "$optional" == "optional" ]] && return 0
 
   if [[ ! -t 0 ]]; then
-    echo "[supervisor] $display not found in non-interactive mode; configure $key in scripts/run-tools.conf" >&2
+    echo "[supervisor] $display not found in non-interactive mode; configure $key in scripts/run-tools.d/10-runtime.conf" >&2
     return 1
   fi
   while true; do

@@ -1,0 +1,4 @@
+# 生产环境只声明相对公共配置有差异的属性；生产启动必须显式激活 prod。
+logging:
+  level:
+    com.exceptioncoder.toolbox: INFO

@@ -1,0 +1,176 @@
+toolbox:
+  ffmpeg:
+    # 默认走 PATH。本机非 PATH 安装时用环境变量覆盖：
+    #   TOOLBOX_FFMPEG_BINARY=D:\devapps\ffmpeg\bin\ffmpeg.exe
+    #   TOOLBOX_FFPROBE_BINARY=D:\devapps\ffmpeg\bin\ffprobe.exe
+    binary: ${TOOLBOX_FFMPEG_BINARY:D:\devapps\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe}
+    ffprobe-binary: ${TOOLBOX_FFPROBE_BINARY:D:\devapps\ffmpeg-8.1.1-full_build\bin\ffprobe.exe}
+    probe-timeout-ms: 5000
+    # 硬件加速（仅 HLS 重编码路径有效；视频编码已是 h264 时直接 copy 不走这里）。
+    # 留空 = 纯 CPU 软编。可选：qsv（Intel Quick Sync）、nvenc / cuda（NVIDIA）、amf（AMD)、
+    # videotoolbox（macOS）、auto（让 ffmpeg 自动选）。配错会导致 ffmpeg 启动失败，看启动日志。
+    # 本机：RTX 4060 Ti → cuda（解码 + NVENC 编码全 GPU 零拷贝）。
+    hwaccel: "cuda"
+  deeplx:
+    # 翻译提供商: ollama（本地模型，推荐）或 deeplx（本地 DeepL 代理）
+    provider: ollama
+    # Ollama: 基础 URL（不含路径）
+    url: "http://localhost:11434"
+    ollama-model: translategemma:4b   # 翻译专用模型；如需通用模型可换 qwen2.5:3b / qwen2.5:7b
+    # DeepLX: 切换为 deeplx 时把 url 改为 http://localhost:1188/translate
+    token: ""
+    target-lang: ZH            # 目标语言：ZH = 简体中文
+    max-concurrent: 2          # Ollama GPU 并发 2 即可，避免显存打满
+    timeout-seconds: 30        # 小模型首 token 约 1-2s，30s 足够一条字幕
+  whisper:
+    # 字幕生成后端选择：
+    # - cli (默认)        调本地 whisper-cli.exe 子进程。反幻觉四件套（-nc + 三阈值）已通过 yml 注入。
+    # - asr-service       调本地 faster-whisper Python HTTP 服务（fallback）
+    #                     需先启动 python-services/faster-whisper/start.bat
+    mode: cli
+    # ASR 服务地址，仅当 mode=asr-service 时使用
+    service-url: ${TOOLBOX_WHISPER_ASR_URL:http://127.0.0.1:9500}
+
+    # whisper.cpp 二进制路径。CUDA 构建版会自动用 NVIDIA GPU；无 GPU 装 CPU 版亦可。
+    # 下载：https://github.com/ggml-org/whisper.cpp/releases (Windows 选 cuBLAS 版本)
+    binary: "D:\\devapps\\whisper-cublas-12.4.0-bin-x64\\Release\\whisper-cli.exe"
+    # ggml/gguf 模型文件路径。强烈推荐 large-v3-turbo（1.5GB，medium 大小但准确度近 large-v3）：
+    #   https://huggingface.co/ggerganov/whisper.cpp/blob/main/ggml-large-v3-turbo.bin
+    # 下完后用环境变量切换，无需改本文件：
+    #   TOOLBOX_WHISPER_MODEL=D:\devapps\ggml-large-v3-turbo.bin
+    model-path: ${TOOLBOX_WHISPER_MODEL:D:\devapps\ggml-medium.bin}
+    # model-name 仅用作字幕任务的元数据标签，便于事后追溯用了哪个模型。
+    model-name: ${TOOLBOX_WHISPER_MODEL_NAME:medium}
+    # 字幕落盘目录。空字符串时由 SubtitleService 兜底 ${toolbox.data-dir}/subtitles。
+    output-dir: ${toolbox.data-dir}/subtitles
+    threads: 0                  # 0 = 让 whisper.cpp 自己挑
+    disable-gpu: false          # CUDA 构建默认走 GPU；调试时可强制改 CPU
+    # 以下两个 opt-in 开关默认关闭。实测部分 whisper.cpp 构建（即使是 v1.8+）传 -fa 或 -su
+    # 后会让 transcribe 跑完不写 VTT，原因未明（也许是参数解析路径上的 bug）。建议两个都
+    # 保持 false 先把字幕跑通，确认字幕正常后再逐个改 true 验证你这版 whisper.cpp 是否兼容。
+    flash-attention: false      # -fa Flash Attention（CUDA 加速 30-50%，opt-in 验证后开）
+    split-on-word: false        # -su 按词切 chunk 防吞字（opt-in 验证后开）
+    max-concurrent-jobs: 1      # GPU 一次跑一条最快
+    timeout-seconds: 0          # 0 = 不超时，长片不被砍
+    # 默认 initial prompt：每次转写前喂给 whisper 当作上下文（最长 224 token，约 150 字）。
+    # 适合放专有名词、人名、品牌名 — 模型会更愿意输出这些 token，减少吞字。
+    # 留空即不传。前端的「专有名词」输入框会覆盖此默认值。
+    default-initial-prompt: ""
+    # Silero VAD ggml 模型路径，启用后 whisper 自动跳过静音段，长视频提速 + 减少幻觉。
+    # 下载：https://huggingface.co/ggml-org/whisper-vad/tree/main （选 ggml-silero-v5.1.2.bin）
+    # 留空 = 不启用 VAD。
+    vad-model-path: ${TOOLBOX_WHISPER_VAD_MODEL:}
+    # 反幻觉三件套：视频中后段非语音（哭声 / 喘息 / 配乐）容易让 whisper 复读 "(泣き声)"
+    # 这类 non-speech 标签直到结尾。把这三个收紧后,模型在低置信段更倾向判静音或重新
+    # decode,显著减少幻觉。三个值映射到 whisper-cli 的同名 flag:
+    #   --no-speech-thold / --logprob-thold / --entropy-thold (最后一个实为压缩比阈值)。
+    # 若发现真实台词被砍掉,把 no-speech 改回 0.6 / logprob 改回 -0.7 折中。
+    no-speech-threshold: 0.75
+    logprob-threshold: -0.5
+    entropy-threshold: 2.0
+    # 关闭跨段 prompt 拼接 (whisper-cli -nc / faster-whisper condition_on_previous_text=False)。
+    # 默认 true:长视频中段一次幻觉不会沿 prompt 链传染到结尾,代价是跨段一致性略降,
+    # 人名/术语建议靠 default-initial-prompt 喂。Python 端 server.py 已硬编码此行为。
+    no-context: true
+    # whisper-cli 各 build 间漂移的 flag 字面值集中维护。所有字段默认对齐 v1.7+ cuBLAS build,
+    # 跑你这个 build 跑不通时按需 override。改这里不需要重新编译 Java,改完重启 Spring Boot 即可。
+    #
+    # 历史踩坑(已经在默认值里处理掉的):
+    # - v1.5- 是 -nc(--no-context),v1.7+ 删了只剩 --max-context N(N=0 等价)
+    # - --no-speech-thold 在很老的 build 是 --no-speech-threshold
+    # - -fa 默认值在 cuBLAS build 间反复改,本工程显式 opt-in 走 flash-attention: true 才传
+    cli:
+      # 结构化 flag(几乎不会变,但留着便于异类 build 适配)
+      model-flag: "-m"
+      file-flag: "-f"
+      language-flag: "-l"
+      output-vtt-flag: "-ovtt"
+      output-prefix-flag: "-of"
+      # 打印 progress = X% 的 flag;删了 Java 端 stderr 正则就解析不到进度,前端 0% 卡住
+      print-progress-flag: "-pp"
+      suppress-prints-flag: "-np"
+      prompt-flag: "--prompt"
+      threads-flag: "-t"
+      no-gpu-flag: "--no-gpu"
+      flash-attn-flag: "-fa"
+      split-on-word-flag: "-su"
+      vad-flag: "--vad"
+      vad-model-flag: "--vad-model"
+      # 反幻觉三件套的 flag 名(值在上面 no-speech-threshold / logprob-threshold / entropy-threshold)
+      no-speech-thold-flag: "--no-speech-thold"
+      logprob-thold-flag: "--logprob-thold"
+      entropy-thold-flag: "--entropy-thold"
+      # no-context 实现:老版用 -nc(开关,value 留空);新版用 -mc 0(必须带 value="0")
+      # 升 v1.5- 时:把 max-context-flag 改 "-nc",max-context-value-for-no-context 改 ""
+      max-context-flag: "-mc"
+      max-context-value-for-no-context: "0"
+      # 兜底逃生口:任意额外 args,WhisperRunner 在所有上面 flag 后原样追加,适合临时验证
+      # 实验性 flag(例如 -bs 5 / --temperature 0.0 / --suppress-nst)而不用改 Java。
+      # 每个 token 单独一行,不能在一行内塞多个用空格分隔。
+      extra-args: []
+        # - "-bs"
+        # - "5"
+        # - "--temperature"
+        # - "0.0"
+  thumbnail:
+    cache-dir: ${toolbox.data-dir}/cache/thumbs
+    # 同时跑的 ffmpeg 数量，每个吃 1-2 核。默认 2：留 CPU 给 HLS 播放，避免你点视频的瞬间
+    # 缩略图占满核导致播放卡顿。8 核以上机器可以提到 4。
+    max-parallel: 2
+    timeout-ms: 15000
+    # JPEG 质量：1（无损）到 31（最差），4 在 480×270 上视觉无损约 30-50KB。
+    jpeg-quality: 4
+  video:
+    # 视频合并（多选 → 拼成一个 mp4）配置
+    merge:
+      # 合并输出目录，留空 = ${user.home}/.kai-toolbox/merged
+      output-dir: ""
+      # 重编码统一目标分辨率（仅 reencode 路径生效，copy 路径不缩放）
+      target-resolution: "1280x720"
+      target-fps: 30
+      # 单次最多合并的输入数
+      max-inputs: 200
+      # ffmpeg 合并进程硬超时（秒）
+      timeout-s: 1800
+    extensions:
+      - mp4
+      - m4v
+      - mov
+      - webm
+      - ogv
+      - mkv
+      - avi
+      - flv
+      - wmv
+      - rmvb
+      - 3gp
+      - ts
+      # mts 故意不在默认列表：和 TypeScript ESM (.mts / .d.mts) 撞扩展，开发者磁盘上几乎全是噪音。
+      # 真有 AVCHD 录像 (.mts) 的用户请按需手动加回。
+      - m2ts
+      - vob
+      - asf
+      - divx
+      - mpeg
+      - mpg
+      - m2v
+      - amc
+
+  media-parser:
+    # 默认走 PATH。本机非 PATH 安装时用环境变量覆盖：
+    #   TOOLBOX_YT_DLP_BINARY=D:\devapps\yt-dlp.exe
+    #   TOOLBOX_FFMPEG_BINARY=D:\devapps\ffmpeg\bin\ffmpeg.exe
+    yt-dlp-binary: ${TOOLBOX_YT_DLP_BINARY:D:\devapps\yt-dlp.exe}
+    ffmpeg-binary: ${TOOLBOX_FFMPEG_BINARY:D:\devapps\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe}
+    read-timeout-seconds: 60       # 元数据解析超时
+    download-timeout-seconds: 300  # 文件下载超时（5 分钟，大视频用）
+    # 统一代理：留空走直连；填了会同时应用到 Jsoup / HttpClient / yt-dlp --proxy。
+    # 启动后看 HttpProxyDiagnosticsReporter 的日志确认实际生效情况。
+    # 用 TOOLBOX_HTTP_PROXY=http://127.0.0.1:7897 覆盖。
+    proxy: ${TOOLBOX_HTTP_PROXY:}
+    # Playwright Chromium 降级：抖音/小红书等 yt-dlp 失败时启用。
+    # 首次启动会下载 ~150MB Chromium 到 ~/.cache/ms-playwright/，最好让 IDE 启动时也走代理。
+    playwright:
+      enabled: true         # 抖音/小红书走 Playwright 降级时打开
+      headless: true        # 调试时改 false 能看到浏览器实际渲染
+      page-timeout-ms: 30000

@@ -1,0 +1,48 @@
+toolbox:
+
+  magnet:
+    # 磁力 / BT 下载工具：本地 aria2c 子进程 + 公共种子缓存解析。
+    enabled: true
+    # aria2c 二进制路径。默认走 PATH；本机非 PATH 安装时用环境变量覆盖：
+    #   TOOLBOX_ARIA2_BINARY=D:\devapps\aria2-1.37.0-win-64bit-build1\aria2c.exe
+    binary: ${TOOLBOX_ARIA2_BINARY:aria2c}
+    # 默认保存目录。留空走 ${user.home}/Downloads/kai-toolbox-magnet
+    default-save-path: ${user.home}/Downloads/kai-toolbox-magnet
+
+    # RPC：本机 loopback only
+    rpc-port: 6800
+    rpc-secret: ""           # 留空 → 启动时自动生成随机 32 字符
+    startup-timeout-ms: 10000
+    stop-grace-ms: 3000
+
+    # BT / DHT 行为
+    enable-dht: true
+    enable-lpd: true
+    bt-metadata-only: false
+    bt-save-metadata: true
+    seed-time-seconds: 0     # 完成即停，不做种
+    bt-listen-port: 51413    # 路由器端口转发用同一端口提速
+
+    # 并发 / 限速
+    max-concurrent-downloads: 5
+    max-connections-per-server: 16
+    max-upload-limit-bps: 0  # 0 = 不限速
+
+    # 代理：影响 HTTP/HTTPS 下载 + HTTP tracker
+    # UDP tracker / DHT / peer wire 不受影响（aria2 协议设计上 UDP 不走代理）
+    proxy: ${TOOLBOX_HTTP_PROXY:}
+
+    # session 文件，重启 toolbox 时 aria2 自动恢复未完成任务
+    session-file: ${toolbox.data-dir}/aria2/session.txt
+
+    # ---------- 关键：提交磁力前从自托管 metadata-fetcher 拉 .torrent,跳过 DHT metadata 阶段 ----------
+    # 部署见 tools/tool-magnet/docs/metadata-fetcher/README.md
+    # 2024+ 公共缓存站(itorrents/torrage/btcache)全部凉了,只能自己挂一个机房上的小服务
+    resolver:
+      enabled: true
+      mirrors:
+        - "${TOOLBOX_MAGNET_METADATA_URL:http://170.106.186.65:9000/metadata/{HASH_UPPER}}"
+      per-mirror-timeout-ms: 65000   # 给 metadata-fetcher 60s 拉 DHT + 5s 余量
+      total-timeout-ms: 70000
+      max-bytes: 8388608             # 8 MiB,正常 .torrent 几十 KB 到 1 MB
+      use-global-proxy: false        # 自托管在你自己 VPS 上,国内直连,不走代理

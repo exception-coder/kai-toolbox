@@ -1,0 +1,32 @@
+toolbox:
+
+  claude-chat:
+    # 一次性 Agent 任务超时：开发文档生成要先查代码/业务知识图谱再组织长文档，复杂需求
+    # 实测经常超过 5 分钟。调大到 20 分钟；需求分诊/工时评估/进度评估等短任务也受益
+    # （无副作用，超时只是 future.get 等待上限，正常几秒就返回的调用不会因为调大这个值而变慢）。
+    agent-one-shot-timeout-ms: 1200000  # 20 分钟
+    # DeepSeek Harness 仍处于 Developer Preview：默认关闭。开启后也只有 Sidecar 使用锁定 SDK
+    # 与下方 Runtime 完成身份握手，前端才会出现 DeepSeek Harness 选项。
+    deepseek-harness:
+      enabled: false
+      command: ""           # 官方 dsh-jsonrpc-agent / Runtime 可执行命令；不通过 Shell 拼接
+      args: []               # argv 数组，例如 ["path/to/runtime-entry.js", "path/to/cordis.yml"]
+      provider: deepseek-official
+      model: deepseek-v4-flash
+      max-tokens: 49152
+      handshake-timeout-ms: 15000
+      turn-timeout-ms: 1800000
+    # 新建 Claude 会话时「工作目录下拉」的扫描配置。仅扫各 root 的一级子目录。
+    # roots 为空 = 下拉为空，仍可手填 cwd。
+    workspace:
+      roots: []
+        # - "D:\\Users\\zhang\\IdeaProjects"
+      cache-ttl-seconds: 5
+      hidden-prefixes:
+        - "."
+        - "_"
+    # 团队依赖面板托管的业务系统源码。root 为空时使用 ~/.kai-toolbox/business-systems，
+    # 并自动纳入 Vibe Coding 与业务咨询的工作区列表。
+    business-workspace:
+      root: ""
+      command-timeout-ms: 600000

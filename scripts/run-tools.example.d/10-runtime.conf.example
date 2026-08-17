@@ -1,0 +1,7 @@
+# 复制到 ../run-tools.d/10-runtime.conf 后填写；实际目录受 Git 忽略。
+MVN_CMD=
+JAVA_CMD=
+NPM_CMD=
+PYTHON_CMD=
+GIT_CMD=
+ARIA2_BIN=

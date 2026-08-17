@@ -1,0 +1,37 @@
+toolbox:
+
+  graphify:
+    # PRD 澄清助手调用 graphify CLI 查询代码知识图谱（不经 MCP，见 GraphifyQueryService）。
+    # 关闭后 PRD 澄清/开发文档生成跳过图谱查询，不影响主流程。
+    enabled: true
+    # graphify 可执行文件。默认走 PATH（pip/uv 安装后即在 PATH），本机非 PATH 安装时改绝对路径。
+    binary: ${TOOLBOX_GRAPHIFY_BINARY:graphify}
+    timeout-seconds: 30
+    # 传给 `graphify query --budget` 的 token 预算，控制注入 prompt 的图谱上下文体量。
+    query-budget: 1500
+
+  knowledge-graph:
+    node-executable: node
+
+  prd-clarify:
+    delivery-verification:
+      # 前端只提交 commandId；argv 仅由此服务端白名单提供，工作目录固定为已解析项目根。
+      commands:
+        - id: maven-test
+          label: Maven 测试
+          argv: ["mvn", "test"]
+          timeout-seconds: 1800
+        - id: npm-test
+          label: NPM 测试
+          argv: ["npm", "test"]
+          timeout-seconds: 1200
+
+  projects:
+    # 「项目管理」面板扫描的根目录，仅扫描一级子目录。
+    # 修改后无需重启即可在 application.yml 中调整；缓存 TTL 内的请求仍读旧值。
+    root: D:\Users\zhang\myWork
+    cache-ttl-seconds: 5
+    # 一级目录名以这些前缀开头时跳过（默认隐藏目录 + 归档目录）
+    hidden-prefixes:
+      - "."
+      - "_"

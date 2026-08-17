@@ -1,0 +1,57 @@
+toolbox:
+
+  auth:
+    # 通用 JWT 鉴权能力库总开关。开启后登录/刷新等接口生效；但只有命中 protected-patterns
+    # 的路径才硬鉴权，其余请求仍透明放行（best-effort 认证）。视频库/磁盘管理走 @RequireRole 硬鉴权。
+    enabled: true
+    # HS256 对称密钥，>= 32 字节。本地默认值仅为开箱可启动，生产/公网务必用环境变量覆盖：
+    #   TOOLBOX_AUTH_SECRET=随机长字符串(>=32)
+    secret: ${TOOLBOX_AUTH_SECRET:kai-toolbox-local-default-secret-change-me-32B}
+    # access / refresh 有效期，支持 30m / 7d / 12h 等写法
+    access-ttl: 30m
+    refresh-ttl: 7d
+    # 需要「登录级硬鉴权」(不达标 401) 的 Ant 路径。默认空 = 不硬拦任何请求。
+    # 注意：视频库/磁盘管理改用 @RequireRole 注解(VIDEO_LIBRARY/DISK_ADMIN/ADMIN)，不放这里。
+    protected-patterns: []
+    # 配置驱动的 ADMIN-only 硬鉴权路径：命中的路径未登录 401、非 ADMIN 403(由 AdminOnlyInterceptor 强制)。
+    # 这批模块仅管理员可访问。磁盘空间分析(/api/treesize)用 @RequireRole 注解，不在此。
+    admin-only-patterns:
+      - "/api/config/**"          # 配置中心
+      - "/api/flatten/**"         # 目录扁平化
+      - "/api/vscode-tunnel/**"   # VS Code Tunnel
+      - "/api/browser-request/**" # 站点录制编排
+      - "/api/ffmpeg-lab/**"      # FFmpeg 转码试验台
+      - "/api/video-condense/**"  # 视频智能变速
+      - "/api/hosts/**"           # 主机管理
+      - "/api/docker/**"          # Docker 治理
+      - "/api/webterm/**"         # Web 终端 REST（WS 终端由 AdminHandshakeInterceptor 握手鉴权）
+      - "/api/ai-secretary/**"    # AI 秘书（私人笔记/账号等数据，仅管理员可见）
+    # 始终放行的路径（即使命中 protected-patterns）。登录/刷新接口必须放行。
+    whitelist:
+      - "/api/auth/login"
+      - "/api/auth/refresh"
+      # 视频分享落地页（匿名播放单个视频）。授权不靠"路径没被拦"，而是靠 video_share 里
+      # 单视频、可撤销、7 天过期的随机 token + PathAccessGuard 沙箱复核（见 VideoShareController）。
+      # 显式列在这里是为了以后有人收紧 protected-patterns 时不会把分享链接一起打死。
+      - "/api/share/**"
+      # Vibe Coding 评审分享：高熵、可撤销、限时 token 只绑定一个 review-only 会话。
+      - "/api/claude-chat/reviews/public/**"
+      - "/api/supplier-quote/public/**"
+    # 首启动若 auth_user 表为空且配置了用户名，则建一个 ADMIN 账户。
+    # 密码留空时随机生成并打印到启动日志（仅打印一次）。
+    bootstrap-admin-username: ${TOOLBOX_AUTH_ADMIN_USER:admin}
+    bootstrap-admin-password: ${TOOLBOX_AUTH_ADMIN_PASSWORD:}
+
+  mail:
+    enabled: false          # 设为 true 启动内嵌 SMTP 服务器
+    port: 1025              # Linux 25 端口需要 root；建议用 1025 + iptables 转发
+    hostname: localhost     # SMTP EHLO 响应 hostname
+    sender-whitelist:       # 发件人白名单，空列表接受所有来源
+      # - "@amazon.com"
+      # - "@ebay.com"
+    recipient-domain-whitelist:   # 收件人域白名单，空 = 全收；公网暴露 25 端口建议必配
+      - "chivepockets.com"
+      - "exception-coder.com"
+    max-connections: 20           # 最大并发 SMTP 连接
+    max-recipients: 50            # 单封最大收件人数
+    max-message-size-bytes: 10485760   # 单封最大字节（含附件 base64），10MB

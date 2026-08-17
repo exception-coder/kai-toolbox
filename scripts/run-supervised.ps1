@@ -111,20 +111,9 @@ if (-not $SupervisorWorker) {
     }
 }
 
-# 从同目录 run-tools.conf（KEY=value，不提交到仓库）读取本机机密/配置，注入为进程环境变量。
-# 已存在的同名环境变量优先，不被覆盖；可对照 run-tools.conf.example 创建本机文件。
-$ToolsConfFile = Join-Path $PSScriptRoot 'run-tools.conf'
-if (Test-Path -LiteralPath $ToolsConfFile) {
-    foreach ($line in [System.IO.File]::ReadAllLines($ToolsConfFile)) {
-        $t = $line.Trim()
-        if ($t -eq '' -or $t.StartsWith('#')) { continue }
-        $i = $t.IndexOf('=')
-        if ($i -lt 1) { continue }
-        $k = $t.Substring(0, $i).Trim()
-        $v = $t.Substring($i + 1).Trim()
-        if (-not [Environment]::GetEnvironmentVariable($k, 'Process')) { Set-Item -Path "env:$k" -Value $v }
-    }
-}
+# 分类读取 scripts/run-tools.d/*.conf；旧 run-tools.conf 仅作为迁移前兼容入口。
+. (Join-Path $PSScriptRoot 'run-tools-config.ps1')
+Import-ToolboxLocalConfig
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $RepoRoot
@@ -580,6 +569,9 @@ function Start-Backend {
     # SQLite DB 文件位置。留空走默认 ${toolbox.data-dir}/toolbox.db；
     # C 盘吃紧时在 run-tools.conf 配 TOOLBOX_SQLITE_FILE 把 DB 单独放大盘（如 D:\kai-toolbox\toolbox.db）。
     if ($env:TOOLBOX_SQLITE_FILE) { $javaOptions += "-Dtoolbox.sqlite.file=$env:TOOLBOX_SQLITE_FILE" }
+    if (ConvertTo-ConfigBoolean $env:SUPPLIER_QUOTE_ORACLE_ENABLED $false) {
+        $javaOptions += '-Dregentech.supplier-quote.erp-account.enabled=true'
+    }
     # DevTools 热重启在 application.yml 里默认关（改完由人发 POST /restart）；-HotReload 时才用
     # 系统属性顶回来——系统属性优先级高于 application.yml，一个开关同时管住监听与重启两端。
     if ($HotReload) { $javaOptions += '-Dspring.devtools.restart.enabled=true' }

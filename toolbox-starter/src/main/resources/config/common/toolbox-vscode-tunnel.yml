@@ -1,0 +1,15 @@
+toolbox:
+
+  vscode-tunnel:
+    # 设为 false 后 /api/vscode-tunnel/start 与 /events 返回 503
+    enabled: true
+    # code CLI 可执行文件路径。默认走 PATH；本机非 PATH 安装时写绝对路径
+    code-path: code
+    # 隧道名（决定 https://vscode.dev/tunnel/<name>），留空 = 当前主机名
+    tunnel-name: ""
+    # 透传 code tunnel 的 --accept-server-license-terms（同意微软许可），关掉后 CLI 会卡在交互提示
+    accept-license: true
+    # 调用 stop() 时 SIGTERM 之后给 code 进程的优雅退出时间，超时 SIGKILL
+    stop-grace-ms: 5000
+    # ERROR 状态下保留多少字节 stdout 尾段作为 lastError 上报前端
+    error-tail-bytes: 1024
