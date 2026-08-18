@@ -9,6 +9,12 @@ import {
 } from "./IdentityHandshake";
 import { StatePanel } from "./StatePanel";
 import { isLocalDevelopmentHost } from "../runtime/localDevelopment";
+import {
+  completeWechatOAuthRedirect,
+  hasPendingWechatOAuthRedirect,
+  markWechatOAuthRedirect,
+  recordWechatAuthDebug,
+} from "../runtime/wechatAuthDebug";
 
 interface WechatSessionBoundaryProps {
   gateway: SupplierQuoteGateway;
@@ -34,6 +40,7 @@ export function WechatSessionBoundary(props: WechatSessionBoundaryProps) {
 
   useEffect(() => {
     const controller = new AbortController();
+    recordWechatAuthDebug("info", "请求微信会话状态", returnTo);
     const verifyingTimer = globalThis.setTimeout(() => {
       setState((current) =>
         current.error || current.ready
@@ -57,6 +64,7 @@ export function WechatSessionBoundary(props: WechatSessionBoundaryProps) {
         globalThis.clearTimeout(verifyingTimer);
         if (!session.authenticated) {
           if (localDevelopment) {
+            recordWechatAuthDebug("warning", "本地测试环境跳过微信授权", window.location.hostname);
             navigate(
               `${props.buildPath("/bind-account")}?returnTo=${encodeURIComponent(returnTo)}`,
               { replace: true },
@@ -64,16 +72,26 @@ export function WechatSessionBoundary(props: WechatSessionBoundaryProps) {
             return;
           }
           if (!session.authorizeUrl) throw new Error("授权入口缺失");
+          markWechatOAuthRedirect();
+          recordWechatAuthDebug("info", "准备跳转微信静默授权", "scope=snsapi_base");
           window.location.assign(session.authorizeUrl);
           return;
         }
+        if (hasPendingWechatOAuthRedirect()) {
+          completeWechatOAuthRedirect();
+          recordWechatAuthDebug("success", "微信静默授权已完成", "授权会话验证成功");
+        } else {
+          recordWechatAuthDebug("success", "检测到已有微信会话", "本次访问未重新发起 OAuth");
+        }
         if (!session.bound) {
+          recordWechatAuthDebug("warning", "微信身份尚未关联业务账号");
           navigate(
             `${props.buildPath("/bind-account")}?returnTo=${encodeURIComponent(returnTo)}`,
             { replace: true },
           );
           return;
         }
+        recordWechatAuthDebug("success", "微信身份与业务账号均已确认", session.binding?.sourceSystem);
         setState({ ready: false, error: null, phase: "READY" });
         const reducedMotion = window.matchMedia?.(
           "(prefers-reduced-motion: reduce)",
@@ -87,6 +105,8 @@ export function WechatSessionBoundary(props: WechatSessionBoundaryProps) {
         globalThis.clearTimeout(watchdog);
         globalThis.clearTimeout(verifyingTimer);
         const normalized = asGatewayError(error);
+        if (normalized.errorCode !== "REQUEST_ABORTED")
+          recordWechatAuthDebug("error", "微信会话检查失败", normalized.message);
         if (normalized.errorCode !== "REQUEST_ABORTED")
           setState({
             ready: false,

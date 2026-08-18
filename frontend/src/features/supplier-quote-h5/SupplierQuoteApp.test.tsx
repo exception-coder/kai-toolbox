@@ -45,6 +45,10 @@ const pendingGateway: SupplierQuoteGateway = {
   submitMarketQuotes: vi.fn(),
   revokeMarketQuote: vi.fn(),
   getYarnQualityStandards: vi.fn(),
+  getSubscriptionGrants: vi.fn(async () => ({ items: [], availableCount: 0 })),
+  getSubscriptionUsers: vi.fn(async () => ({ items: [], availableCount: 0, totalCount: 0 })),
+  sendSubscription: vi.fn(),
+  sendSubscriptionToUser: vi.fn(),
 };
 
 afterEach(cleanup);
@@ -71,6 +75,9 @@ describe("SupplierQuoteApp routes", () => {
     expect(screen.getByText("获取本轮询价")).toBeInTheDocument();
     expect(screen.getByText("准备报价页面")).toBeInTheDocument();
     expect(screen.queryByText(/公众号静默授权/)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "授权诊断" }),
+    ).toBeInTheDocument();
   });
 
   it("opens account binding directly on a local host when WeChat is unauthenticated", async () => {

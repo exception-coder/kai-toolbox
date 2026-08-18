@@ -15,6 +15,9 @@ import {
   type SupplierQuoteGateway,
   type VerificationCodeReceipt,
   type VerificationCodeRequest,
+  type SubscriptionGrantList,
+  type SubscriptionUserList,
+  type SendSubscriptionResult,
 } from "./contract";
 
 interface HttpGatewayConfig {
@@ -123,6 +126,22 @@ export function createHttpSupplierQuoteGateway(
         marketBaseUrl,
         `/admin/h5/market-price-quotes/products/${encodeURIComponent(productId)}/quality-standards`,
         { signal },
+      ),
+    getSubscriptionGrants: (signal) =>
+      request<SubscriptionGrantList>(baseUrl, "/admin/subscriptions", { signal }),
+    getSubscriptionUsers: (signal) =>
+      request<SubscriptionUserList>(baseUrl, "/admin/subscriptions/users", { signal }),
+    sendSubscription: (grantId, input) =>
+      request<SendSubscriptionResult>(
+        baseUrl,
+        `/admin/subscriptions/${grantId}/send`,
+        { method: "POST", body: JSON.stringify(input) },
+      ),
+    sendSubscriptionToUser: (userKey, input) =>
+      request<SendSubscriptionResult>(
+        baseUrl,
+        `/admin/subscriptions/users/${userKey}/send`,
+        { method: "POST", body: JSON.stringify(input) },
       ),
   };
 }

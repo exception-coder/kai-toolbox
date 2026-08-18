@@ -47,3 +47,30 @@ CREATE TABLE IF NOT EXISTS supplier_quote_submission (
     submitted_at INTEGER NOT NULL,
     PRIMARY KEY (quote_ticket, scm_user_id)
 );
+
+CREATE TABLE IF NOT EXISTS supplier_quote_wechat_subscription (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    wechat_subject_hash TEXT NOT NULL,
+    openid TEXT NOT NULL,
+    template_id TEXT NOT NULL,
+    scene INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'AVAILABLE',
+    created_at INTEGER NOT NULL,
+    claimed_at INTEGER,
+    sent_at INTEGER,
+    result_code TEXT,
+    result_message TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_supplier_quote_subscription_status
+    ON supplier_quote_wechat_subscription(status, created_at);
+
+CREATE TABLE IF NOT EXISTS supplier_quote_wechat_subscription_attempt (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscription_id INTEGER NOT NULL,
+    successful INTEGER NOT NULL,
+    result_code TEXT,
+    result_message TEXT,
+    attempted_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_supplier_quote_subscription_attempt_grant
+    ON supplier_quote_wechat_subscription_attempt(subscription_id, attempted_at);

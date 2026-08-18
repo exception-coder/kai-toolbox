@@ -7,6 +7,12 @@ import { FieldShell, H5Input } from "../components/FormField";
 import { H5Frame } from "../components/H5Frame";
 import { StatePanel } from "../components/StatePanel";
 import { isLocalDevelopmentHost } from "../runtime/localDevelopment";
+import {
+  completeWechatOAuthRedirect,
+  hasPendingWechatOAuthRedirect,
+  markWechatOAuthRedirect,
+  recordWechatAuthDebug,
+} from "../runtime/wechatAuthDebug";
 
 interface BusinessAccountBindingPageProps {
   gateway: SupplierQuoteGateway;
@@ -31,27 +37,40 @@ export function BusinessAccountBindingPage(
 
   useEffect(() => {
     const controller = new AbortController();
+    recordWechatAuthDebug("info", "账号关联页检查微信会话", returnTo);
     props.gateway
       .getWechatSession(returnTo, controller.signal)
       .then((session) => {
         if (!session.authenticated) {
           if (localDevelopment) {
+            recordWechatAuthDebug("warning", "本地测试环境允许直接关联账号");
             setChecking(false);
             return;
           }
           if (!session.authorizeUrl) throw new Error("授权入口缺失");
+          markWechatOAuthRedirect();
+          recordWechatAuthDebug("info", "准备跳转微信静默授权", "scope=snsapi_base");
           window.location.assign(session.authorizeUrl);
           return;
         }
+        if (hasPendingWechatOAuthRedirect()) {
+          completeWechatOAuthRedirect();
+          recordWechatAuthDebug("success", "微信静默授权已完成", "授权会话验证成功");
+        } else {
+          recordWechatAuthDebug("success", "检测到已有微信会话", "本次访问未重新发起 OAuth");
+        }
         if (session.bound) {
+          recordWechatAuthDebug("success", "业务账号已绑定，进入报价页", session.binding?.sourceSystem);
           navigate(returnTo, { replace: true });
           return;
         }
+        recordWechatAuthDebug("warning", "微信身份尚未关联业务账号");
         setChecking(false);
       })
       .catch((fetchError) => {
         const normalized = asGatewayError(fetchError);
         if (normalized.errorCode !== "REQUEST_ABORTED") {
+          recordWechatAuthDebug("error", "微信会话检查失败", normalized.message);
           setError(normalized.message);
           setChecking(false);
         }
@@ -74,10 +93,13 @@ export function BusinessAccountBindingPage(
         returnTo,
       });
       setForm((current) => ({ ...current, password: "" }));
+      recordWechatAuthDebug("success", "业务账号关联成功", result.binding.sourceSystem);
       navigate(result.returnTo, { replace: true });
     } catch (submitError) {
       setForm((current) => ({ ...current, password: "" }));
-      setError(asGatewayError(submitError).message);
+      const normalized = asGatewayError(submitError);
+      recordWechatAuthDebug("error", "业务账号关联失败", normalized.message);
+      setError(normalized.message);
     } finally {
       setSubmitting(false);
     }

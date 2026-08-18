@@ -18,6 +18,12 @@ public class SupplierQuoteProperties {
         private String appId = "dev-app-id";
         private String appSecret = "";
         private String callbackUrl = "";
+        private String subscriptionCallbackUrl = "";
+        private String subscriptionTemplateId = "";
+        private String publicBaseUrl = "";
+        private int subscriptionScene = 1000;
+        private String subscriptionTitle = "供应商报价通知";
+        private String subscriptionContent = "您有新的市场报价任务，请点击进入报价。";
         private String mockOpenid = "forge-demo-openid";
         private boolean secureCookie;
         private boolean localDevelopmentEnabled;

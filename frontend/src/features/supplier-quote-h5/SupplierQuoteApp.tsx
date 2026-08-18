@@ -3,9 +3,11 @@ import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { H5Frame } from "./components/H5Frame";
 import { StatePanel } from "./components/StatePanel";
 import { WechatSessionBoundary } from "./components/WechatSessionBoundary";
+import { WechatAuthDebugPanel } from "./components/WechatAuthDebugPanel";
 import { InvitationRegistrationPage } from "./pages/InvitationRegistrationPage";
 import { BusinessAccountBindingPage } from "./pages/BusinessAccountBindingPage";
 import { SupplierQuotationPage } from "./pages/SupplierQuotationPage";
+import { SubscriptionNotificationAdminPage } from "./pages/SubscriptionNotificationAdminPage";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import type { SupplierQuoteGateway } from "./api/contract";
 import "./supplier-quote.css";
@@ -31,6 +33,7 @@ export function SupplierQuoteApp({
         brandName={brandName}
         demo={demo}
       />
+      <WechatAuthDebugPanel />
     </ConfirmProvider>
   );
 }
@@ -49,6 +52,7 @@ function SupplierQuoteRoutes({
   );
   return (
     <Routes>
+      <Route path="notifications" element={<SubscriptionNotificationAdminPage gateway={gateway} />} />
       <Route
         path="register/:inviteTicket"
         element={

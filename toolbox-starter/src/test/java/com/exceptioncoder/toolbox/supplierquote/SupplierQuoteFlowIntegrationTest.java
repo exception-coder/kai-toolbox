@@ -76,6 +76,14 @@ class SupplierQuoteFlowIntegrationTest {
     }
 
     @Test
+    void servesWebsiteDomainVerificationFileFromSiteRoot() throws Exception {
+        mvc.perform(get("/a620fcc6f64f87886cc922b0e5dd8a21.txt"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_PLAIN))
+                .andExpect(content().string("e86038e544798c0ac500c935cf6cfe546163c76a"));
+    }
+
+    @Test
     void completesWechatBindingAndQuotationFlow() throws Exception {
         org.junit.jupiter.api.Assertions.assertEquals(
                 "https://kai-tool.exception-coder.com/api/supplier-quote/public/wechat/oauth/callback",
@@ -167,6 +175,69 @@ class SupplierQuoteFlowIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.returnTo").value(returnTo));
+    }
+
+    @Test
+    void usesForwardedPublicHostInsteadOfProxyTargetForLocalDevelopmentDecision() throws Exception {
+        mvc.perform(get("/api/supplier-quote/public/wechat/session")
+                        .with(request -> {
+                            request.setServerName("localhost");
+                            request.addHeader("X-Forwarded-Host", "kai-tool.exception-coder.com");
+                            return request;
+                        }))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(false))
+                .andExpect(jsonPath("$.authorizeUrl").isNotEmpty())
+                .andExpect(header().doesNotExist("Set-Cookie"));
+    }
+
+    @Test
+    void acceptsForwardedLocalHostWithPortForLocalDevelopment() throws Exception {
+        mvc.perform(get("/api/supplier-quote/public/wechat/session")
+                        .with(request -> {
+                            request.setServerName("localhost");
+                            request.addHeader("X-Forwarded-Host", "127.0.0.1:5173");
+                            return request;
+                        }))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(true))
+                .andExpect(header().exists("Set-Cookie"));
+    }
+
+    @Test
+    void ignoresExistingLocalDevelopmentSessionOnPublicHost() throws Exception {
+        Cookie localCookie = localSessionCookie("127.0.0.1");
+
+        mvc.perform(get("/api/supplier-quote/public/wechat/session")
+                        .cookie(localCookie)
+                        .with(request -> {
+                            request.setServerName("localhost");
+                            request.addHeader("X-Forwarded-Host", "kai-tool.exception-coder.com");
+                            return request;
+                        }))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(false))
+                .andExpect(jsonPath("$.authorizeUrl").isNotEmpty());
+    }
+
+    @Test
+    void marksCompletedOauthSessionAsOfficialForPublicHost() throws Exception {
+        String returnTo = "/showcase/supplier-quote/q/demo-quote";
+        String setCookie = mvc.perform(get("/api/supplier-quote/public/wechat/oauth/authorize")
+                        .param("returnTo", returnTo))
+                .andExpect(status().isFound())
+                .andReturn().getResponse().getHeader("Set-Cookie");
+        Cookie oauthCookie = new Cookie("SQ_SESSION", cookieValue(setCookie));
+
+        mvc.perform(get("/api/supplier-quote/public/wechat/session")
+                        .cookie(oauthCookie)
+                        .with(request -> {
+                            request.setServerName("localhost");
+                            request.addHeader("X-Forwarded-Host", "kai-tool.exception-coder.com");
+                            return request;
+                        }))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(true));
     }
 
     @Test

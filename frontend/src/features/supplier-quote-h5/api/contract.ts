@@ -196,6 +196,62 @@ export interface YarnQualityStandards {
   foreignFiberCount: string;
 }
 
+export type SubscriptionGrantStatus = "AVAILABLE" | "SENDING" | "SENT" | "FAILED";
+
+export interface SubscriptionGrant {
+  id: number;
+  status: SubscriptionGrantStatus;
+  accountLabel: string;
+  supplierName: string | null;
+  createdAt: number;
+  sentAt: number | null;
+  resultCode: string | null;
+  resultMessage: string | null;
+  attemptCount: number;
+  bound: boolean;
+}
+
+export interface SubscriptionGrantList {
+  items: SubscriptionGrant[];
+  availableCount: number;
+}
+
+export interface SubscriptionUser {
+  userKey: number;
+  accountLabel: string;
+  supplierName: string | null;
+  availableCount: number;
+  totalCount: number;
+  latestCreatedAt: number;
+  latestResultCode: string | null;
+  latestResultMessage: string | null;
+  bound: boolean;
+}
+
+export interface SubscriptionUserList {
+  items: SubscriptionUser[];
+  availableCount: number;
+  totalCount: number;
+}
+
+export interface SendSubscriptionInput {
+  quoteTicket: string;
+  title: string;
+  content: string;
+}
+
+export interface SendSubscriptionUserInput {
+  title: string;
+  content: string;
+}
+
+export interface SendSubscriptionResult {
+  grantId: number;
+  status: "SENT" | "FAILED";
+  resultCode: string;
+  resultMessage: string;
+}
+
 export interface SupplierQuoteGateway {
   getWechatSession(
     returnTo: string,
@@ -241,6 +297,16 @@ export interface SupplierQuoteGateway {
     productId: string,
     signal?: AbortSignal,
   ): Promise<YarnQualityStandards>;
+  getSubscriptionGrants(signal?: AbortSignal): Promise<SubscriptionGrantList>;
+  getSubscriptionUsers(signal?: AbortSignal): Promise<SubscriptionUserList>;
+  sendSubscription(
+    grantId: number,
+    input: SendSubscriptionInput,
+  ): Promise<SendSubscriptionResult>;
+  sendSubscriptionToUser(
+    userKey: number,
+    input: SendSubscriptionUserInput,
+  ): Promise<SendSubscriptionResult>;
 }
 
 export class GatewayError extends Error {

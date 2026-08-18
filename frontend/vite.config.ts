@@ -51,10 +51,24 @@ export default defineConfig({
         target: 'http://localhost:18080',
         changeOrigin: true,
       },
+      '/a620fcc6f64f87886cc922b0e5dd8a21.txt': {
+        target: 'http://localhost:18080',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://localhost:18080',
         changeOrigin: true,
         ws: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyRequest, request) => {
+            const originalHost = request.headers.host
+            if (originalHost) {
+              proxyRequest.setHeader('X-Forwarded-Host', originalHost)
+            } else {
+              proxyRequest.removeHeader('X-Forwarded-Host')
+            }
+          })
+        },
       },
       // 守护进程 HTTP 控制口（run-supervised.ps1 的 HttpListener）：一键重启走这里，
       // 与后端(18080)独立——后端宕机时本代理仍可达,故能拉起。/supervisor/restart → :18081/restart

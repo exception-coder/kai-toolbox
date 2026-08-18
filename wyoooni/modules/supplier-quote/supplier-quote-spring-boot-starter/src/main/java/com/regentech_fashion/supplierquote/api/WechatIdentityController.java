@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
+import java.util.Locale;
 
 @RestController
 @RequestMapping("/api/supplier-quote/public/wechat")
@@ -30,13 +31,19 @@ public class WechatIdentityController {
             @RequestParam(required = false) String returnTo,
             HttpServletRequest request,
             HttpServletResponse response) {
+        String hostname = resolveOriginalHostname(request);
         WechatSessionView session = identityService.session(sessionToken, returnTo);
-        if (session.authenticated()) {
+        if (session.authenticated()
+                && (identityService.isLocalDevelopmentHost(hostname)
+                || identityService.isOfficialWechatSession(sessionToken))) {
             return ResponseEntity.ok(session);
         }
-        return identityService.beginLocalDevelopmentSession(request.getServerName(), returnTo)
+        WechatSessionView publicSession = session.authenticated()
+                ? identityService.session(null, returnTo)
+                : session;
+        return identityService.beginLocalDevelopmentSession(hostname, returnTo)
                 .map(completed -> completeLocalDevelopmentSession(completed, returnTo, response))
-                .orElseGet(() -> ResponseEntity.ok(session));
+                .orElseGet(() -> ResponseEntity.ok(publicSession));
     }
 
     @GetMapping("/oauth/authorize")
@@ -53,6 +60,24 @@ public class WechatIdentityController {
     public ResponseEntity<Void> callback(@RequestParam String state, @RequestParam String code,
                                          HttpServletResponse response) {
         var completed = identityService.completeOfficial(state, code);
+        writeSessionCookie(response, completed.rawSessionToken());
+        return redirect(completed.returnTo());
+    }
+
+    @GetMapping("/subscription/authorize")
+    public ResponseEntity<Void> subscriptionAuthorize(@RequestParam(required = false) String returnTo) {
+        return redirect(identityService.beginSubscription(returnTo).redirectUrl());
+    }
+
+    @GetMapping("/subscription/callback")
+    public ResponseEntity<Void> subscriptionCallback(
+            @RequestParam String openid,
+            @RequestParam(name = "template_id") String templateId,
+            @RequestParam String action,
+            @RequestParam int scene,
+            @RequestParam String reserved,
+            HttpServletResponse response) {
+        var completed = identityService.completeSubscription(reserved, openid, templateId, action, scene);
         writeSessionCookie(response, completed.rawSessionToken());
         return redirect(completed.returnTo());
     }
@@ -78,5 +103,22 @@ public class WechatIdentityController {
 
     private static ResponseEntity<Void> redirect(String location) {
         return ResponseEntity.status(302).location(URI.create(location)).build();
+    }
+
+    private static String resolveOriginalHostname(HttpServletRequest request) {
+        String forwardedHost = request.getHeader("X-Forwarded-Host");
+        String host = forwardedHost == null || forwardedHost.isBlank()
+                ? request.getServerName()
+                : forwardedHost.split(",", 2)[0].trim();
+        String normalizedHost = host.toLowerCase(Locale.ROOT);
+        if (normalizedHost.startsWith("[")) {
+            int closingBracket = normalizedHost.indexOf(']');
+            return closingBracket > 0 ? normalizedHost.substring(1, closingBracket) : normalizedHost;
+        }
+        int firstColon = normalizedHost.indexOf(':');
+        int lastColon = normalizedHost.lastIndexOf(':');
+        return firstColon > 0 && firstColon == lastColon
+                ? normalizedHost.substring(0, firstColon)
+                : normalizedHost;
     }
 }

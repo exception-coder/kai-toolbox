@@ -11,6 +11,7 @@ import {
   type SubmissionReceipt,
   type SupplierQuoteGateway,
   type VerificationCodeReceipt,
+  type SubscriptionGrant,
 } from "./contract";
 
 const MOCK_DELAY_MS = 320;
@@ -19,6 +20,20 @@ export function createMockSupplierQuoteGateway(): SupplierQuoteGateway {
   const drafts = new Map<string, QuotationDraftInput>();
   const submissions = new Map<string, SubmissionReceipt>();
   let marketItems = marketQuoteFixtures();
+  let subscriptions: SubscriptionGrant[] = [
+    {
+      id: 1,
+      status: "AVAILABLE" as const,
+      accountLabel: "王经理",
+      supplierName: "广州睿程服饰有限公司",
+      createdAt: Date.now() - 12 * 60_000,
+      sentAt: null,
+      resultCode: null,
+      resultMessage: null,
+      attemptCount: 0,
+      bound: true,
+    },
+  ];
 
   return {
     async getWechatSession() {
@@ -36,6 +51,50 @@ export function createMockSupplierQuoteGateway(): SupplierQuoteGateway {
           sourceSystem: "DEMO",
         },
       };
+    },
+    async getSubscriptionGrants() {
+      await delay();
+      return {
+        items: structuredClone(subscriptions),
+        availableCount: subscriptions.filter((item) => item.status === "AVAILABLE").length,
+      };
+    },
+    async getSubscriptionUsers() {
+      await delay();
+      const availableCount = subscriptions.filter((item) => item.status === "AVAILABLE" || item.status === "FAILED").length;
+      return {
+        items: [{
+          userKey: subscriptions[0]?.id ?? 1,
+          accountLabel: subscriptions[0]?.accountLabel ?? "王经理",
+          supplierName: subscriptions[0]?.supplierName ?? "广州睿程服饰有限公司",
+          availableCount,
+          totalCount: subscriptions.length,
+          latestCreatedAt: subscriptions[0]?.createdAt ?? Date.now(),
+          latestResultCode: subscriptions[0]?.resultCode ?? null,
+          latestResultMessage: subscriptions[0]?.resultMessage ?? null,
+          bound: true,
+        }],
+        availableCount,
+        totalCount: subscriptions.length,
+      };
+    },
+    async sendSubscription(grantId) {
+      await delay();
+      subscriptions = subscriptions.map((item) =>
+        item.id === grantId
+          ? { ...item, status: "SENT" as const, sentAt: Date.now(), resultCode: "0", resultMessage: "ok", attemptCount: item.attemptCount + 1 }
+          : item,
+      );
+      return { grantId, status: "SENT", resultCode: "0", resultMessage: "ok" };
+    },
+    async sendSubscriptionToUser() {
+      await delay();
+      const grant = subscriptions.find((item) => item.status === "AVAILABLE" || item.status === "FAILED");
+      if (!grant) throw new GatewayError(409, "SUBSCRIPTION_GRANT_EXHAUSTED", "当前没有剩余可推送次数");
+      subscriptions = subscriptions.map((item) => item.id === grant.id
+        ? { ...item, status: "SENT" as const, sentAt: Date.now(), resultCode: "0", resultMessage: "ok", attemptCount: item.attemptCount + 1 }
+        : item);
+      return { grantId: grant.id, status: "SENT" as const, resultCode: "0", resultMessage: "ok" };
     },
     async bindBusinessAccount(request) {
       await delay();

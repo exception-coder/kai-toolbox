@@ -17,7 +17,7 @@ const manifest: FeatureManifest = {
   order: 91,
   layout: "showcase",
   hideDock: true,
-  entry: "/showcase/supplier-quote/market-quotes",
+  entry: "/showcase/supplier-quote/notifications",
   routes: [
     {
       path: "/showcase/supplier-quote/*",
