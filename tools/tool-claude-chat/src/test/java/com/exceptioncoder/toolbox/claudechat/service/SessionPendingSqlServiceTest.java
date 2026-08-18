@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSql;
+import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSqlTarget;
 import com.exceptioncoder.toolbox.claudechat.domain.SqlDdlEvidence;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.SessionPendingSqlRepository;
@@ -59,7 +60,11 @@ class SessionPendingSqlServiceTest {
         assertThat(saved.title()).isEqualTo("新标题");
         assertThat(saved.targetEnvironment()).isEqualTo("生产库");
         assertThat(saved.changeType()).isEqualTo(SessionPendingSql.TYPE_DML);
-        assertThat(saved.sqlText()).isEqualTo("UPDATE sample SET value = 1;");
+        assertThat(saved.sqlText()).contains("-- 目标库 / 环境：生产库", "UPDATE sample SET value = 1;");
+        assertThat(saved.targets()).singleElement().satisfies(target -> {
+            assertThat(target.targetEnvironment()).isEqualTo("生产库");
+            assertThat(target.sqlText()).isEqualTo("UPDATE sample SET value = 1;");
+        });
         assertThat(saved.status()).isEqualTo(SessionPendingSql.STATUS_PENDING);
         assertThat(saved.createdAt()).isEqualTo(100L);
         assertThat(saved.executedAt()).isNull();
@@ -159,5 +164,26 @@ class SessionPendingSqlServiceTest {
         assertThat(result.ddlEvidenceStatus()).isEqualTo(SqlDdlEvidence.STATUS_DDL_MISSING);
         assertThat(result.ddlMissingTables()).containsExactly("QUOTE");
         assertThat(result.status()).isEqualTo(SessionPendingSql.STATUS_PENDING);
+    }
+
+    @Test
+    void forgeToolStoresMultipleTargetsAndBuildsOneSummary() {
+        when(repository.findBySessionId("session-1")).thenReturn(null);
+        List<SessionPendingSqlTarget> targets = List.of(
+                new SessionPendingSqlTarget(null, "datasource:erp", "erp", "ERP 测试库", "DDL",
+                        "ALTER TABLE quote ADD retry_count INT;", "PENDING", 0, 0, 0, null),
+                new SessionPendingSqlTarget(null, "datasource:srm", "srm", "SRM 测试库", "DML",
+                        "UPDATE quote SET status = 'READY';", "PENDING", 1, 0, 0, null));
+
+        SessionPendingSql result = service.registerFromTool(
+                "session-1", "报价跨库修复", "replace", "evidence-1", targets);
+
+        assertThat(result.targets()).hasSize(2);
+        assertThat(result.targetEnvironment()).isEqualTo("2 个目标库");
+        assertThat(result.changeType()).isEqualTo(SessionPendingSql.TYPE_MIXED);
+        assertThat(result.sqlText())
+                .contains("-- 目标库 / 环境：ERP 测试库", "ALTER TABLE quote")
+                .contains("-- 目标库 / 环境：SRM 测试库", "UPDATE quote");
+        verify(repository).upsert(result);
     }
 }

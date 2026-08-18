@@ -22,12 +22,23 @@ public record SessionPendingSql(
         String ddlEvidenceId,
         List<String> ddlVerifiedTables,
         List<String> ddlMissingTables,
-        Long ddlCheckedAt) {
+        Long ddlCheckedAt,
+        List<SessionPendingSqlTarget> targets) {
+
+    public SessionPendingSql(String sessionId, String title, String targetEnvironment, String changeType,
+                             String sqlText, String status, long createdAt, long updatedAt, Long executedAt,
+                             String ddlEvidenceStatus, String ddlProject, String ddlBaselinePath,
+                             String ddlEvidenceId, List<String> ddlVerifiedTables,
+                             List<String> ddlMissingTables, Long ddlCheckedAt) {
+        this(sessionId, title, targetEnvironment, changeType, sqlText, status, createdAt, updatedAt, executedAt,
+                ddlEvidenceStatus, ddlProject, ddlBaselinePath, ddlEvidenceId, ddlVerifiedTables,
+                ddlMissingTables, ddlCheckedAt, List.of());
+    }
 
     public SessionPendingSql(String sessionId, String title, String targetEnvironment, String changeType,
                              String sqlText, String status, long createdAt, long updatedAt, Long executedAt) {
         this(sessionId, title, targetEnvironment, changeType, sqlText, status, createdAt, updatedAt, executedAt,
-                SqlDdlEvidence.STATUS_NOT_CHECKED, null, null, null, List.of(), List.of(), null);
+                SqlDdlEvidence.STATUS_NOT_CHECKED, null, null, null, List.of(), List.of(), null, List.of());
     }
 
     public static final String TYPE_DDL = "DDL";

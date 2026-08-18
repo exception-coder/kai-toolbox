@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSql;
+import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSqlTarget;
 import com.exceptioncoder.toolbox.claudechat.domain.SqlDdlEvidence;
 import com.exceptioncoder.toolbox.claudechat.service.SessionPendingSqlService;
 import com.exceptioncoder.toolbox.claudechat.service.SqlDdlEvidenceService;
@@ -40,13 +41,17 @@ public class SessionPendingSqlController {
     @PutMapping
     public SessionPendingSql save(@PathVariable String sessionId, @RequestBody SaveRequest request) {
         return service.save(sessionId, request.title(), request.targetEnvironment(),
-                request.changeType(), request.sqlText());
+                request.changeType(), request.sqlText(), toTargets(request.targets()));
     }
 
     /** Forge Agent Tool 回灌入口：只登记、去重和合并，绝不连接或执行目标数据库。 */
     @RequestMapping(path = "/auto-register", method = {RequestMethod.PUT, RequestMethod.POST})
     public SessionPendingSql autoRegister(@PathVariable String sessionId,
                                           @RequestBody AutoRegisterRequest request) {
+        if (request.targets() != null && !request.targets().isEmpty()) {
+            return service.registerFromTool(sessionId, request.title(), request.mode(), request.ddlEvidenceId(),
+                    toTargets(request.targets()));
+        }
         return service.registerFromTool(sessionId, request.title(), request.targetEnvironment(),
                 request.changeType(), request.sqlText(), request.mode(), request.ddlEvidenceId());
     }
@@ -72,14 +77,32 @@ public class SessionPendingSqlController {
         return ResponseEntity.noContent().build();
     }
 
-    public record SaveRequest(String title, String targetEnvironment, String changeType, String sqlText) {
+    private static java.util.List<SessionPendingSqlTarget> toTargets(java.util.List<TargetRequest> targets) {
+        if (targets == null) return java.util.List.of();
+        return java.util.stream.IntStream.range(0, targets.size())
+                .mapToObj(index -> {
+                    TargetRequest target = targets.get(index);
+                    return new SessionPendingSqlTarget(
+                            null, target.targetKey(), target.datasourceId(), target.targetEnvironment(),
+                            target.changeType(), target.sqlText(), SessionPendingSql.STATUS_PENDING,
+                            index, 0, 0, null);
+                }).toList();
+    }
+
+    public record SaveRequest(String title, String targetEnvironment, String changeType, String sqlText,
+                              java.util.List<TargetRequest> targets) {
+    }
+
+    public record TargetRequest(String targetKey, String datasourceId, String targetEnvironment,
+                                String changeType, String sqlText) {
     }
 
     public record StatusRequest(String status) {
     }
 
     public record AutoRegisterRequest(String title, String targetEnvironment, String changeType,
-                                      String sqlText, String mode, String ddlEvidenceId) {
+                                      String sqlText, String mode, String ddlEvidenceId,
+                                      java.util.List<TargetRequest> targets) {
     }
 
     public record PrepareContextRequest(String purpose, java.util.List<String> tables, String project) {

@@ -8,8 +8,9 @@ import type {
   GitRepoRef,
   GitStatusResponse,
 } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SessionPendingSqlTarget, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
+import { buildPendingSqlTargetOptions, type PendingSqlTargetOption } from './lib/pendingSqlTargets'
 
 /** 查询会话关联的 SQL 登记；未登记返回 null。 */
 export async function getSessionPendingSql(sessionId: string): Promise<SessionPendingSql | null> {
@@ -25,6 +26,7 @@ export function saveSessionPendingSql(sessionId: string, input: {
   targetEnvironment?: string
   changeType: PendingSqlChangeType
   sqlText: string
+  targets?: Array<Pick<SessionPendingSqlTarget, 'targetKey' | 'datasourceId' | 'targetEnvironment' | 'changeType' | 'sqlText'>>
 }): Promise<SessionPendingSql> {
   return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql`, {
     method: 'PUT',
@@ -216,6 +218,19 @@ export function testServerPush(config: NotifyConfig) {
 
 export function listSessions() {
   return http<ClaudeChatSessionView[]>('/claude-chat/sessions')
+}
+
+export type { PendingSqlTargetOption } from './lib/pendingSqlTargets'
+
+/** 复用系统与中间件中的脱敏 SQL 数据源，绝不读取连接密码。 */
+export async function listPendingSqlTargetOptions(): Promise<PendingSqlTargetOption[]> {
+  type SystemView = { id: string; name: string }
+  type DatasourceView = { id: string; systemId: string; env: string; type: string; category: string; name: string; dbName: string | null }
+  const [systems, datasources] = await Promise.all([
+    http<SystemView[]>('/ops/systems'),
+    http<DatasourceView[]>('/ops/datasources'),
+  ])
+  return buildPendingSqlTargetOptions(systems, datasources)
 }
 
 /** Sidecar 权威引擎目录；refresh=true 会跳过短缓存并重新执行实验引擎握手。 */

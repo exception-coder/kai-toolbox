@@ -1,17 +1,20 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import {
   AlertTriangle, Check, CheckCircle2, ChevronDown, Clipboard, Database, Loader2,
-  Maximize2, Minimize2, Save, Trash2, X,
+  Maximize2, Minimize2, Plus, Save, Trash2, X,
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import {
   deleteSessionPendingSql,
   getSessionPendingSql,
+  listPendingSqlTargetOptions,
   saveSessionPendingSql,
   updateSessionPendingSqlStatus,
+  type PendingSqlTargetOption,
 } from '../api'
-import type { DdlEvidenceStatus, PendingSqlChangeType, PendingSqlStatus, SessionPendingSql } from '../types'
+import type { DdlEvidenceStatus, PendingSqlChangeType, PendingSqlStatus, SessionPendingSql, SessionPendingSqlTarget } from '../types'
+import { aggregatePendingSqlChangeType, buildPendingSqlSummary } from '../lib/pendingSqlTargets'
 
 const PendingSqlReviewWorkspace = lazy(() => import('./PendingSqlReviewWorkspace').then(module => ({
   default: module.PendingSqlReviewWorkspace,
@@ -73,9 +76,10 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
   const confirm = useConfirm()
   const [registration, setRegistration] = useState<SessionPendingSql | null | undefined>(undefined)
   const [title, setTitle] = useState('')
-  const [targetEnvironment, setTargetEnvironment] = useState('')
-  const [changeType, setChangeType] = useState<PendingSqlChangeType>('MIXED')
-  const [sqlText, setSqlText] = useState('')
+  const [targets, setTargets] = useState<SessionPendingSqlTarget[]>([])
+  const [activeTargetKey, setActiveTargetKey] = useState<string>('')
+  const [targetOptions, setTargetOptions] = useState<PendingSqlTargetOption[]>([])
+  const [targetToAdd, setTargetToAdd] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -85,14 +89,15 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
     let alive = true
     setRegistration(undefined)
     setError(null)
+    void listPendingSqlTargetOptions().then(setTargetOptions).catch(() => setTargetOptions([]))
     getSessionPendingSql(sessionId)
       .then(value => {
         if (!alive) return
         setRegistration(value)
         setTitle(value?.title ?? '')
-        setTargetEnvironment(value?.targetEnvironment ?? '')
-        setChangeType(value?.changeType ?? 'MIXED')
-        setSqlText(value?.sqlText ?? '')
+        const loadedTargets = value?.targets ?? []
+        setTargets(loadedTargets)
+        setActiveTargetKey(loadedTargets[0]?.targetKey ?? '')
       })
       .catch(reason => {
         if (alive) setError(reason instanceof Error ? reason.message : String(reason))
@@ -111,18 +116,35 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
   }, [isFullscreen, onClose])
 
   const handleSave = async () => {
-    if (!sqlText.trim()) {
-      setError('请填写 SQL 内容')
+    if (targets.length === 0) {
+      setError('请先选择至少一个目标库 / 环境')
+      return
+    }
+    const emptyTarget = targets.find(target => !target.sqlText.trim())
+    if (emptyTarget) {
+      setError(`请填写 ${emptyTarget.targetEnvironment} 的 SQL 内容`)
       return
     }
     setBusy(true)
     setError(null)
     try {
       const saved = await saveSessionPendingSql(sessionId, {
-        title: title.trim(), targetEnvironment: targetEnvironment.trim(), changeType, sqlText,
+        title: title.trim(),
+        targetEnvironment: targets.length === 1 ? targets[0].targetEnvironment : `${targets.length} 个目标库`,
+        changeType: aggregatePendingSqlChangeType(targets),
+        sqlText: buildPendingSqlSummary(targets),
+        targets: targets.map(target => ({
+          targetKey: target.targetKey,
+          datasourceId: target.datasourceId,
+          targetEnvironment: target.targetEnvironment,
+          changeType: target.changeType,
+          sqlText: target.sqlText,
+        })),
       })
       setRegistration(saved)
-      setSqlText(saved.sqlText)
+      setTargets(saved.targets)
+      setActiveTargetKey(current => saved.targets.some(target => target.targetKey === current)
+        ? current : (saved.targets[0]?.targetKey ?? ''))
       onChanged?.(saved)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -146,6 +168,7 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
   }
 
   const handleCopyAll = async () => {
+    const sqlText = buildPendingSqlSummary(targets)
     if (!sqlText) return
     try {
       await navigator.clipboard.writeText(sqlText)
@@ -170,15 +193,54 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
       await deleteSessionPendingSql(sessionId)
       setRegistration(null)
       setTitle('')
-      setTargetEnvironment('')
-      setChangeType('MIXED')
-      setSqlText('')
+      setTargets([])
+      setActiveTargetKey('')
       onChanged?.(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setBusy(false)
     }
+  }
+
+  const summaryActive = activeTargetKey === '__summary__'
+  const activeTarget = summaryActive ? undefined : (targets.find(target => target.targetKey === activeTargetKey) ?? targets[0])
+  const availableOptions = targetOptions.filter(option => !targets.some(target => target.targetKey === option.targetKey))
+
+  const handleAddTarget = () => {
+    const option = targetOptions.find(item => item.targetKey === targetToAdd)
+    if (!option) return
+    const now = Date.now()
+    const target: SessionPendingSqlTarget = {
+      targetId: `draft-${option.datasourceId}`,
+      targetKey: option.targetKey,
+      datasourceId: option.datasourceId,
+      targetEnvironment: option.targetEnvironment,
+      changeType: 'MIXED',
+      sqlText: '',
+      status: 'PENDING',
+      sortOrder: targets.length,
+      createdAt: now,
+      updatedAt: now,
+      executedAt: null,
+    }
+    setTargets(current => [...current, target])
+    setActiveTargetKey(target.targetKey)
+    setTargetToAdd('')
+  }
+
+  const updateActiveTarget = (patch: Partial<Pick<SessionPendingSqlTarget, 'changeType' | 'sqlText'>>) => {
+    if (!activeTarget) return
+    setTargets(current => current.map(target => target.targetKey === activeTarget.targetKey
+      ? { ...target, ...patch, status: 'PENDING', executedAt: null }
+      : target))
+  }
+
+  const removeActiveTarget = () => {
+    if (!activeTarget) return
+    const next = targets.filter(target => target.targetKey !== activeTarget.targetKey)
+    setTargets(next)
+    setActiveTargetKey(next[0]?.targetKey ?? '')
   }
 
   return (
@@ -219,33 +281,80 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
             ) : (
               <>
                 {registration && <DdlEvidenceSummary registration={registration} />}
-                <div className="grid shrink-0 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.42fr)_180px]">
-                  <label className="space-y-1 text-xs font-medium sm:col-span-2 lg:col-span-1">
+                <div className="grid shrink-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.7fr)]">
+                  <label className="space-y-1 text-xs font-medium">
                     <span>登记标题</span>
                     <input value={title} onChange={event => setTitle(event.target.value)} placeholder="例如：新增报价有效期字段" className="h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]" />
                   </label>
-                  <label className="space-y-1 text-xs font-medium">
-                    <span>目标库 / 环境</span>
-                    <input value={targetEnvironment} onChange={event => setTargetEnvironment(event.target.value)} placeholder="例如：SRM 测试库" className="h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]" />
-                  </label>
-                  <label className="space-y-1 text-xs font-medium">
-                    <span>变更类型</span>
-                    <select value={changeType} onChange={event => setChangeType(event.target.value as PendingSqlChangeType)} className="h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]">
-                      <option value="DDL">DDL · 表结构</option>
-                      <option value="DML">DML · 数据变更</option>
-                      <option value="MIXED">混合 SQL</option>
-                    </select>
-                  </label>
+                  <div className="space-y-1 text-xs font-medium">
+                    <span>添加目标库 / 环境</span>
+                    <div className="flex gap-2">
+                      <select value={targetToAdd} onChange={event => setTargetToAdd(event.target.value)} className="h-9 min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]">
+                        <option value="">{availableOptions.length ? '从系统与中间件选择…' : '没有更多已登记 SQL 数据源'}</option>
+                        {availableOptions.map(option => <option key={option.targetKey} value={option.targetKey}>{option.targetEnvironment}</option>)}
+                      </select>
+                      <button type="button" onClick={handleAddTarget} disabled={!targetToAdd} className="inline-flex h-9 items-center gap-1 rounded-md border px-3 text-xs disabled:opacity-50">
+                        <Plus className="size-3.5" />添加
+                      </button>
+                    </div>
+                  </div>
                 </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-1 border-b pb-2">
+                  {targets.map(target => (
+                    <button key={target.targetKey} type="button" onClick={() => setActiveTargetKey(target.targetKey)}
+                      className={cn('max-w-64 truncate rounded-md px-3 py-1.5 text-xs', activeTarget?.targetKey === target.targetKey ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]')}>
+                      {target.targetEnvironment}
+                    </button>
+                  ))}
+                  {targets.length > 0 && (
+                    <button type="button" onClick={() => setActiveTargetKey('__summary__')}
+                      className={cn('rounded-md px-3 py-1.5 text-xs', summaryActive ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]')}>
+                      汇总 · {targets.length} 库
+                    </button>
+                  )}
+                </div>
+                {activeTarget && (
+                  <div className="flex shrink-0 items-end gap-3">
+                    <label className="w-44 space-y-1 text-xs font-medium">
+                      <span>当前库变更类型</span>
+                      <select value={activeTarget.changeType} onChange={event => updateActiveTarget({ changeType: event.target.value as PendingSqlChangeType })} className="h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]">
+                        <option value="DDL">DDL · 表结构</option>
+                        <option value="DML">DML · 数据变更</option>
+                        <option value="MIXED">混合 SQL</option>
+                      </select>
+                    </label>
+                    <span className="min-w-0 flex-1 truncate pb-2 text-xs text-[var(--color-muted-foreground)]" title={activeTarget.targetEnvironment}>{activeTarget.targetEnvironment}</span>
+                    <button type="button" onClick={removeActiveTarget} className="mb-0.5 inline-flex h-9 items-center gap-1 rounded-md px-3 text-xs text-[var(--color-destructive)] hover:bg-[var(--color-destructive)]/10">
+                      <Trash2 className="size-3.5" />移除当前库
+                    </button>
+                  </div>
+                )}
+                {summaryActive && targets.length > 0 && (
+                  <div className="shrink-0 rounded-md border bg-[var(--color-muted)]/40 px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
+                    汇总 SQL 由 {targets.length} 个目标库脚本自动生成并保存，避免与分库明细产生双写差异。
+                  </div>
+                )}
+                {targets.length === 0 && (
+                  <div className="flex min-h-52 flex-col items-center justify-center gap-2 rounded-xl border border-dashed text-center text-sm text-[var(--color-muted-foreground)]">
+                    <Database className="size-6 opacity-50" />
+                    <span>先从上方下拉选择目标库 / 环境</span>
+                    <span className="text-xs">选项来自“系统与中间件”中已登记的 MySQL / Oracle 数据源</span>
+                  </div>
+                )}
                 {registration && (
                   <p className="-mt-1 shrink-0 text-[11px] text-[var(--color-muted-foreground)]">
                     登记时间 {formatTimestamp(registration.createdAt)} · 最后更新 {formatTimestamp(registration.updatedAt)}
                   </p>
                 )}
 
-                <Suspense fallback={<SqlWorkspaceLoading />}>
-                  <PendingSqlReviewWorkspace sqlText={sqlText} onSqlTextChange={setSqlText} onError={setError} expanded={isFullscreen} />
-                </Suspense>
+                {activeTarget && (
+                  <Suspense fallback={<SqlWorkspaceLoading />}>
+                    <PendingSqlReviewWorkspace sqlText={activeTarget.sqlText} onSqlTextChange={value => updateActiveTarget({ sqlText: value })} onError={setError} expanded={isFullscreen} />
+                  </Suspense>
+                )}
+                {summaryActive && targets.length > 0 && (
+                  <pre className="min-h-[420px] flex-1 overflow-auto whitespace-pre-wrap rounded-xl border bg-[#20242d] p-4 font-mono text-xs leading-6 text-slate-200">{buildPendingSqlSummary(targets)}</pre>
+                )}
                 {error && <p className="shrink-0 text-xs text-[var(--color-destructive)]">{error}</p>}
               </>
             )}
@@ -260,11 +369,11 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
               </button>
             )}
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              <button type="button" onClick={handleCopyAll} disabled={!sqlText} className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs disabled:opacity-50">
+              <button type="button" onClick={handleCopyAll} disabled={targets.length === 0} className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs disabled:opacity-50">
                 {copied ? <Check className="size-3.5" /> : <Clipboard className="size-3.5" />}{copied ? '已复制全部' : '复制全部 SQL'}
               </button>
               {registration && <StatusActions registration={registration} busy={busy} onStatus={handleStatus} />}
-              <button type="button" onClick={handleSave} disabled={busy || !sqlText.trim()} className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-4 py-2 text-xs font-medium text-[var(--color-primary-foreground)] disabled:opacity-50">
+              <button type="button" onClick={handleSave} disabled={busy || targets.length === 0 || targets.some(target => !target.sqlText.trim())} className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-4 py-2 text-xs font-medium text-[var(--color-primary-foreground)] disabled:opacity-50">
                 {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}{registration ? '保存修改' : '保存登记'}
               </button>
             </div>

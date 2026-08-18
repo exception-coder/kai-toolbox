@@ -1,11 +1,13 @@
 package com.exceptioncoder.toolbox.claudechat.repository;
 
 import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSql;
+import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSqlTarget;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -32,10 +34,25 @@ public class SessionPendingSqlRepository {
     public SessionPendingSql findBySessionId(String sessionId) {
         List<SessionPendingSql> rows = jdbc.query(
                 "SELECT * FROM claude_chat_pending_sql WHERE session_id = ?", this::mapRow, sessionId);
-        return rows.isEmpty() ? null : rows.get(0);
+        if (rows.isEmpty()) return null;
+        SessionPendingSql row = rows.get(0);
+        List<SessionPendingSqlTarget> targets = findTargets(sessionId);
+        if (targets.isEmpty() && row.sqlText() != null && !row.sqlText().isBlank()) {
+            targets = List.of(new SessionPendingSqlTarget(
+                    "legacy-" + sessionId, "legacy", null,
+                    row.targetEnvironment() == null ? "未指定目标" : row.targetEnvironment(),
+                    row.changeType(), row.sqlText(), row.status(), 0,
+                    row.createdAt(), row.updatedAt(), row.executedAt()));
+        }
+        return new SessionPendingSql(
+                row.sessionId(), row.title(), row.targetEnvironment(), row.changeType(), row.sqlText(), row.status(),
+                row.createdAt(), row.updatedAt(), row.executedAt(), row.ddlEvidenceStatus(), row.ddlProject(),
+                row.ddlBaselinePath(), row.ddlEvidenceId(), row.ddlVerifiedTables(), row.ddlMissingTables(),
+                row.ddlCheckedAt(), targets);
     }
 
     /** 保存会话唯一登记，冲突时保留首次创建时间并覆盖其余字段。 */
+    @Transactional
     public void upsert(SessionPendingSql pendingSql) {
         jdbc.update("""
                 INSERT INTO claude_chat_pending_sql
@@ -65,6 +82,17 @@ public class SessionPendingSqlRepository {
                 pendingSql.ddlEvidenceStatus(), pendingSql.ddlProject(), pendingSql.ddlBaselinePath(),
                 pendingSql.ddlEvidenceId(), writeList(pendingSql.ddlVerifiedTables()),
                 writeList(pendingSql.ddlMissingTables()), pendingSql.ddlCheckedAt());
+        jdbc.update("DELETE FROM claude_chat_pending_sql_target WHERE session_id = ?", pendingSql.sessionId());
+        for (SessionPendingSqlTarget target : pendingSql.targets()) {
+            jdbc.update("""
+                    INSERT INTO claude_chat_pending_sql_target
+                        (target_id, session_id, target_key, datasource_id, target_environment, change_type,
+                         sql_text, status, sort_order, created_at, updated_at, executed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, target.targetId(), pendingSql.sessionId(), target.targetKey(), target.datasourceId(),
+                    target.targetEnvironment(), target.changeType(), target.sqlText(), target.status(),
+                    target.sortOrder(), target.createdAt(), target.updatedAt(), target.executedAt());
+        }
     }
 
     /** 更新人工处理状态。 */
@@ -74,11 +102,28 @@ public class SessionPendingSqlRepository {
                    SET status = ?, updated_at = ?, executed_at = ?
                  WHERE session_id = ?
                 """, status, updatedAt, executedAt, sessionId);
+        jdbc.update("""
+                UPDATE claude_chat_pending_sql_target
+                   SET status = ?, updated_at = ?, executed_at = ?
+                 WHERE session_id = ?
+                """, status, updatedAt, executedAt, sessionId);
     }
 
     /** 解除会话和 SQL 登记的关联。 */
     public void deleteBySessionId(String sessionId) {
+        jdbc.update("DELETE FROM claude_chat_pending_sql_target WHERE session_id = ?", sessionId);
         jdbc.update("DELETE FROM claude_chat_pending_sql WHERE session_id = ?", sessionId);
+    }
+
+    private List<SessionPendingSqlTarget> findTargets(String sessionId) {
+        return jdbc.query("""
+                SELECT * FROM claude_chat_pending_sql_target
+                 WHERE session_id = ? ORDER BY sort_order, target_id
+                """, (rs, rowNum) -> new SessionPendingSqlTarget(
+                rs.getString("target_id"), rs.getString("target_key"), rs.getString("datasource_id"),
+                rs.getString("target_environment"), rs.getString("change_type"), rs.getString("sql_text"),
+                rs.getString("status"), rs.getInt("sort_order"), rs.getLong("created_at"),
+                rs.getLong("updated_at"), nullableLong(rs, "executed_at")), sessionId);
     }
 
     private List<String> readList(String json) {

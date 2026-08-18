@@ -43,6 +43,7 @@ export const FORGE_PENDING_SQL_TOOL_DESCRIPTION = [
   '把需要脱离应用正常运行、由开发、运维或 DBA 人工审核执行的数据库变更脚本登记到 Forge“待执行 SQL”台账。',
   '迁移、建表改表、初始化、回填、一次性数据修复和运维 DDL/DML 必须登记；工具只登记、绝不执行数据库。',
   '标题必须关联具体业务功能；每个 SQL 逻辑块前必须用“-- 功能：...；变更：...；目的：...”写明业务说明。',
+  '涉及多个目标库时使用 targets 按库分别提供 SQL；Forge 会保留各库明细并自动生成一份汇总，不要把不同数据库脚本混成单一目标。',
   '不要登记 Repository/JDBC/MyBatis/ORM 运行时 SQL、测试夹具、SELECT/WITH 诊断查询或任何凭据。',
   '建议传入 prepare_sql_context 返回的 evidenceId；未传入或证据非 VERIFIED 也允许登记，登记端会重新解析 SQL 表名、独立核验并保存实际风险状态。',
 ].join(' ')

@@ -182,6 +182,26 @@ CREATE TABLE IF NOT EXISTS claude_chat_pending_sql (
     ddl_checked_at      INTEGER
 );
 
+-- 待执行 SQL 的分库明细。主表 sql_text 保留按 sort_order 生成的完整汇总，明细是编辑事实源。
+CREATE TABLE IF NOT EXISTS claude_chat_pending_sql_target (
+    target_id           TEXT PRIMARY KEY,
+    session_id          TEXT NOT NULL,
+    target_key          TEXT NOT NULL,
+    datasource_id       TEXT,
+    target_environment  TEXT NOT NULL,
+    change_type         TEXT NOT NULL DEFAULT 'MIXED',
+    sql_text            TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'PENDING',
+    sort_order          INTEGER NOT NULL DEFAULT 0,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    executed_at         INTEGER,
+    UNIQUE (session_id, target_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_sql_target_session
+    ON claude_chat_pending_sql_target(session_id, sort_order);
+
 -- 本机历史会话（transcript jsonl）的自定义别名，叠加显示，不改文件。
 CREATE TABLE IF NOT EXISTS claude_chat_session_alias (
     sdk_session_id  TEXT PRIMARY KEY,

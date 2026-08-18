@@ -7,6 +7,14 @@ import {
 } from './pendingSqlPolicy.js'
 import { fetchMcpHttpText, type McpRequestExtra } from './mcpHttp.js'
 
+const pendingSqlTargetSchema = z.object({
+  targetKey: z.string().optional().describe('稳定目标标识；已知 Forge 数据源时可传 datasource:<id>'),
+  datasourceId: z.string().optional().describe('“系统与中间件”中的数据源 ID；未知可不传'),
+  targetEnvironment: z.string().describe('目标库或环境，例如“ERP 测试库 · Oracle”'),
+  changeType: z.enum(['DDL', 'DML', 'MIXED']).default('MIXED'),
+  sqlText: z.string().describe('该目标库独立执行的完整 DDL/DML'),
+})
+
 export { FORGE_PENDING_SQL_STEER } from './pendingSqlPolicy.js'
 
 /** Forge 本地台账 MCP：只把 SQL 回灌到当前会话的待执行登记，不连接任何目标数据库。 */
@@ -53,9 +61,11 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
         FORGE_PENDING_SQL_TOOL_DESCRIPTION,
         {
           title: z.string().optional().describe('业务化标题，例如“SRM 纱线报价推送补充重试记录表”；首次登记或 replace 时必须提供'),
-          targetEnvironment: z.string().optional().describe('目标库或环境，例如“SRM 测试库”；不确定可留空'),
+          targetEnvironment: z.string().optional().describe('单库兼容字段；多库任务优先使用 targets'),
           changeType: z.enum(['DDL', 'DML', 'MIXED']).default('MIXED'),
-          sqlText: z.string().describe('完整、可交付人工执行的 DDL/DML；每个逻辑块前须有“-- 功能：...；变更：...；目的：...”注释'),
+          sqlText: z.string().optional().describe('单库兼容字段；多库任务优先使用 targets'),
+          targets: z.array(pendingSqlTargetSchema).min(1).max(16).optional()
+            .describe('涉及多个库时按目标库分别登记；Forge 会额外生成一份只读汇总 SQL'),
           mode: z.enum(['append', 'replace']).default('append')
             .describe('分批补充用 append；重写整份登记用 replace'),
           ddlEvidenceId: z.string().optional().describe('prepare_sql_context 返回的 evidenceId；未传或非 VERIFIED 仍可登记为待复核 SQL'),
@@ -64,7 +74,14 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
           title?: string
           targetEnvironment?: string
           changeType?: 'DDL' | 'DML' | 'MIXED'
-          sqlText: string
+          sqlText?: string
+          targets?: Array<{
+            targetKey?: string
+            datasourceId?: string
+            targetEnvironment: string
+            changeType?: 'DDL' | 'DML' | 'MIXED'
+            sqlText: string
+          }>
           mode?: 'append' | 'replace'
           ddlEvidenceId?: string
         }, rawExtra: unknown) => {
@@ -79,6 +96,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
                   targetEnvironment: args.targetEnvironment,
                   changeType: args.changeType ?? 'MIXED',
                   sqlText: args.sqlText,
+                  targets: args.targets,
                   mode: args.mode ?? 'append',
                   ddlEvidenceId: args.ddlEvidenceId,
                 }),
