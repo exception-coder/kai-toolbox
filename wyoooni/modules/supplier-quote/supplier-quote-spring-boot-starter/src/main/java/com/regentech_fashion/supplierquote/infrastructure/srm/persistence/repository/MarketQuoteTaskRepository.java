@@ -14,7 +14,7 @@ public class MarketQuoteTaskRepository {
     /** 查询当前供应商的待报价轮次 ID。 */
     public List<Long> findPendingCycleIds(Long supplierId) {
         List<?> rows = entityManager.createNativeQuery("""
-                        SELECT business_id
+                        SELECT DISTINCT business_id
                         FROM srm_product_update_tasks
                         WHERE sup_id = :supplierId AND type = :type AND deleted = 0
                         """)
@@ -24,12 +24,33 @@ public class MarketQuoteTaskRepository {
         return rows.stream().map(row -> ((Number) row).longValue()).toList();
     }
 
-    /** 统计当前供应商待报价数量。 */
-    public long countPending(Long supplierId) {
+    /** 按 H5 五态口径统计待报价与待重报轮次。 */
+    public long countQuotableCycles(Long supplierId) {
         Number count = (Number) entityManager.createNativeQuery("""
                         SELECT COUNT(*)
-                        FROM srm_product_update_tasks
-                        WHERE sup_id = :supplierId AND type = :type AND deleted = 0
+                        FROM srm_sup_update_product_cycle cycle
+                        LEFT JOIN srm_sup_update_product_price price
+                          ON price.id = cycle.price_id AND price.deleted = 0
+                        WHERE cycle.sup_id = :supplierId AND cycle.deleted = 0
+                          AND (
+                            cycle.price_id IS NULL
+                            OR cycle.price_status IS NULL
+                            OR cycle.price_status = -1
+                            OR (
+                              cycle.price_status = 2
+                              AND (
+                                price.audit_result = 3
+                                OR EXISTS (
+                                  SELECT 1
+                                  FROM srm_product_update_tasks task
+                                  WHERE task.business_id = cycle.id
+                                    AND task.sup_id = :supplierId
+                                    AND task.type = :type
+                                    AND task.deleted = 0
+                                )
+                              )
+                            )
+                          )
                         """)
                 .setParameter("supplierId", supplierId)
                 .setParameter("type", MARKET_QUOTE_TASK_TYPE)

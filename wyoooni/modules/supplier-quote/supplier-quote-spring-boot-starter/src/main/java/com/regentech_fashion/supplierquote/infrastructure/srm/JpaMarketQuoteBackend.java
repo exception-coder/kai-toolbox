@@ -77,7 +77,7 @@ public class JpaMarketQuoteBackend implements MarketQuoteBackend {
         List<MarketQuoteItem> items = page.getContent().stream()
                 .map(cycle -> toItem(cycle, currentPrices.get(cycle.getPriceId()), pendingIds.contains(cycle.getId())))
                 .toList();
-        return new MarketQuotePage(items, page.getTotalElements(), tasks.countPending(supplierId),
+        return new MarketQuotePage(items, page.getTotalElements(), tasks.countQuotableCycles(supplierId),
                 query.pageNo(), query.pageSize());
     }
 

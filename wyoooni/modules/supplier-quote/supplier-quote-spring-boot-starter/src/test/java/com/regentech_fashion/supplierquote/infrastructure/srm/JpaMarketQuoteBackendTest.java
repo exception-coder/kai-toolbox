@@ -1,6 +1,7 @@
 package com.regentech_fashion.supplierquote.infrastructure.srm;
 
 import com.regentech_fashion.supplierquote.api.dto.MarketQuoteDtos.MarketQuotePriceInput;
+import com.regentech_fashion.supplierquote.api.dto.MarketQuoteDtos.MarketQuoteQuery;
 import com.regentech_fashion.supplierquote.api.dto.SupplierQuoteDtos.BindingView;
 import com.regentech_fashion.supplierquote.infrastructure.srm.persistence.entity.MarketQuoteCycleEntity;
 import com.regentech_fashion.supplierquote.infrastructure.srm.persistence.entity.MarketQuotePriceEntity;
@@ -10,6 +11,8 @@ import com.regentech_fashion.supplierquote.infrastructure.srm.persistence.reposi
 import com.regentech_fashion.supplierquote.infrastructure.srm.persistence.repository.YarnQualityStandardRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -74,6 +77,20 @@ class JpaMarketQuoteBackendTest {
         verify(prices).save(current);
         verify(tasks).reopen(82031L, 8658L, "scm-user");
         verify(cycles).save(cycle);
+    }
+
+    @Test
+    void pageUsesBusinessStatusAggregateInsteadOfRawActiveTaskRows() {
+        when(tasks.findPendingCycleIds(8658L)).thenReturn(List.of(82031L, 82031L));
+        when(tasks.countQuotableCycles(8658L)).thenReturn(0L);
+        when(cycles.findAll(any(Specification.class), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var page = backend.findPage(binding(), new MarketQuoteQuery(1, 50, "ALL", "", ""));
+
+        assertThat(page.pendingCount()).isZero();
+        verify(tasks).countQuotableCycles(8658L);
+        verify(cycles).findAll(any(Specification.class), any(org.springframework.data.domain.Pageable.class));
     }
 
     private static BindingView binding() {

@@ -39,7 +39,7 @@ export function SupplierQuotationPage({
   const [tab, setTab] = useState<QuoteViewTab>("PENDING");
   const [items, setItems] = useState<MarketQuoteItem[]>([]);
   const [totalCount, setTotalCount] = useState(0);
-  const [pendingCount, setPendingCount] = useState(0);
+  const [quoteTaskCount, setQuoteTaskCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
@@ -66,7 +66,7 @@ export function SupplierQuotationPage({
         const counts = countByView(sortedItems);
         setItems(sortedItems);
         setTotalCount(page.total);
-        setPendingCount(page.pendingCount);
+        setQuoteTaskCount(page.pendingCount);
         setTab((current) => counts[current] > 0 ? current : recommendedView(counts));
         setLoading(false);
       })
@@ -93,11 +93,10 @@ export function SupplierQuotationPage({
   const selectedInputs = [...selectedIds].map(
     (id) => drafts[id] ?? emptyDraft(id),
   );
-  const completedCount = Math.max(0, totalCount - pendingCount);
   const progress = totalCount
-    ? Math.round((completedCount / totalCount) * 100)
+    ? Math.round((quoteTaskCount / totalCount) * 100)
     : 0;
-  const allComplete = totalCount > 0 && pendingCount === 0;
+  const allComplete = totalCount > 0 && quoteTaskCount === 0;
 
   const updateDraft = (
     id: string,
@@ -199,23 +198,23 @@ export function SupplierQuotationPage({
           <div>
             <p className="text-xs font-medium text-slate-500">本轮报价</p>
             <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
-              {completedCount}<span className="text-base font-normal text-slate-400"> / {totalCount}</span>
+              {quoteTaskCount}<span className="text-base font-normal text-slate-400"> / {totalCount}</span>
             </p>
           </div>
           <div className="flex items-center gap-3">
             <span className={allComplete ? "text-xs font-medium text-emerald-700" : "text-xs font-medium text-slate-600"}>
-              {allComplete ? "已完成" : `待报价 ${pendingCount}`}
+              {allComplete ? "无需报价" : `待报价 ${quoteTaskCount}`}
             </span>
             <button aria-label="刷新报价" className="inline-flex size-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-50 hover:text-slate-900" onClick={load}>
               <RefreshCw className="size-3.5" />
             </button>
           </div>
         </div>
-        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-100" aria-label={`已完成 ${progress}%`}>
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-slate-100" aria-label={`本轮需报价 ${progress}%`}>
           <div className="h-full rounded-full bg-slate-900 transition-[width] duration-200" style={{ width: `${progress}%` }} />
         </div>
         <p className="mt-3 text-xs leading-5 text-slate-500">
-          {allComplete ? "全部报价已完成，可查看本轮报价明细。" : `还剩 ${pendingCount} 项待报价，历史价格仅供参考。`}
+          {allComplete ? "当前没有需要填写的报价，可查看本轮报价明细。" : `本轮共 ${quoteTaskCount} 项需要报价，历史价格仅供参考。`}
         </p>
       </section>
 
