@@ -527,12 +527,22 @@ export function ForeConsultPage() {
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
   const [activeQuestionTitle, setActiveQuestionTitle] = useState('')
   const [initialSessionStateResolved, setInitialSessionStateResolved] = useState(false)
+  const activeDevSessionBindingRef = useRef<{ consultId: string; devSessionId: string } | null>(null)
+  const activeConsultIdRef = useRef<string | null>(null)
+  const [activeBindingVersion, setActiveBindingVersion] = useState(0)
+  const pendingDevSessionLinkRef = useRef<{ consultId: string; questionTitle: string } | null>(null)
+  activeConsultIdRef.current = activeConsultId
+  const setActiveDevSessionBinding = useCallback((binding: { consultId: string; devSessionId: string } | null) => {
+    activeDevSessionBindingRef.current = binding
+    setActiveBindingVersion((version) => version + 1)
+  }, [])
 
   const pendingRef = useRef<{
     cwd: string
     seed: string
     displayText: string
     consultId: string
+    questionTitle: string
     attachments: ConsultAtt[]
     engine: Extract<Engine, 'claude' | 'codex'>
     model: string | null
@@ -764,6 +774,8 @@ export function ForeConsultPage() {
     const p = pendingRef.current
     if (!p) return
     pendingRef.current = null
+    setActiveDevSessionBinding(null)
+    pendingDevSessionLinkRef.current = { consultId: p.consultId, questionTitle: p.questionTitle }
     // 前端用 plan 表达只读意图；真正的安全边界由 consult WS 入口在服务端强制为 consult-readonly。
     chat.open(
       p.cwd,
@@ -786,39 +798,43 @@ export function ForeConsultPage() {
     setPanelOpen(false)
     setConversationOpen(true)
     // 会话 id 异步产生，关联 + 分组交给下方 effect 监听 chat.sessionId 处理（比 setTimeout 读 null 可靠）。
-  }, [chat])
+  }, [chat, setActiveDevSessionBinding])
 
-  // 会话 id 就绪后：关联回本模块，并把该会话自动归入「业务咨询」分组（分组不存在时命名即创建）。
-  const groupedRef = useRef<string | null>(null)
-  const titledRef = useRef<string | null>(null)
+  // 仅将新建请求对应的咨询与其 ready 会话关联；恢复/切换不重写已有关联。
   const repairedHistoryTitlesRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     const sid = chat?.sessionId
-    if (!sid || !activeConsultId) return
-    if (groupedRef.current !== sid) {
-      groupedRef.current = sid
-      linkDevSession(activeConsultId, sid).catch(() => {})
-      setSessionGroupApi(sid, CONSULT_GROUP).catch(() => {})
-    }
-    const title = activeQuestionTitle.trim()
-    const titleKey = `${sid}:${title}`
-    if (title && titledRef.current !== titleKey) {
-      titledRef.current = titleKey
-      renameSession(sid, title).catch((error) => {
-        titledRef.current = null
-        console.error('[fore-consult] 同步底层会话标题失败', error)
+    const pendingLink = pendingDevSessionLinkRef.current
+    if (!sid || !pendingLink) return
+    pendingDevSessionLinkRef.current = null
+    void linkDevSession(pendingLink.consultId, sid)
+      .then(() => {
+        if (activeConsultIdRef.current === pendingLink.consultId) {
+          setActiveDevSessionBinding({ consultId: pendingLink.consultId, devSessionId: sid })
+        }
+        return Promise.all([
+          setSessionGroupApi(sid, CONSULT_GROUP),
+          pendingLink.questionTitle.trim() ? renameSession(sid, pendingLink.questionTitle.trim()) : Promise.resolve(),
+        ])
       })
-    }
-  }, [chat?.sessionId, activeConsultId, activeQuestionTitle])
+      .catch((error) => {
+        console.error('[fore-consult] 关联底层会话失败', error)
+      })
+  }, [chat?.sessionId, setActiveDevSessionBinding])
 
   useEffect(() => {
     if (!historyOpen || !history?.length) return
+    const devSessionOwners = new Map<string, number>()
+    for (const session of history) {
+      const sid = session.devSessionId?.trim()
+      if (sid) devSessionOwners.set(sid, (devSessionOwners.get(sid) ?? 0) + 1)
+    }
     let cancelled = false
     const repairHistoryTitles = async () => {
       for (const session of history) {
         const title = session.questionTitle?.trim()
         const sid = session.devSessionId?.trim()
-        if (!title || !sid) continue
+        if (!title || !sid || devSessionOwners.get(sid) !== 1) continue
         const repairKey = `${sid}:${title}`
         if (repairedHistoryTitlesRef.current.has(repairKey)) continue
         try {
@@ -839,11 +855,17 @@ export function ForeConsultPage() {
   useEffect(() => {
     const items = chat?.items
     if (!activeConsultId || !chat || chat.running || !items || items.length === 0) return
+    const binding = activeDevSessionBindingRef.current
+    if (!binding || binding.consultId !== activeConsultId || binding.devSessionId !== chat.sessionId) return
     if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current)
     const id = activeConsultId
+    const devSessionId = chat.sessionId
     const snapshot = items
     syncTimerRef.current = window.setTimeout(() => {
+      const currentBinding = activeDevSessionBindingRef.current
+      if (!currentBinding || currentBinding.consultId !== id || currentBinding.devSessionId !== devSessionId) return
       syncConsultTurns(id, {
+        devSessionId,
         rawReferenceJson: JSON.stringify(snapshot),
         parseStatus: 'NONE',
         turns: extractTurns(snapshot, attMetaRef.current),
@@ -854,7 +876,7 @@ export function ForeConsultPage() {
     return () => {
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current)
     }
-  }, [activeConsultId, chat, qc])
+  }, [activeBindingVersion, activeConsultId, chat, qc])
   useEffect(() => {
     if (chat && pendingRef.current) deliver()
   }, [chat, deliver])
@@ -897,6 +919,7 @@ export function ForeConsultPage() {
         seed,
         displayText: ask.trim() || '（见附件）',
         consultId: created.sessionId,
+        questionTitle: created.questionTitle || displayName(created.systemName),
         attachments,
         engine: 'codex',
         model: created.model,
@@ -918,6 +941,7 @@ export function ForeConsultPage() {
       if (!activeConsultId) return null
       const items = chat?.items ?? []
       return archiveConsult(activeConsultId, {
+        devSessionId: chat?.sessionId ?? null,
         rawReferenceJson: JSON.stringify(items),
         parseStatus: 'NONE',
         turns: extractTurns(items, attMetaRef.current),
@@ -930,6 +954,7 @@ export function ForeConsultPage() {
       setArchiveError(null)
       setActiveConsultId(null)
       setActiveQuestionTitle('')
+      setActiveDevSessionBinding(null)
       setConversationOpen(false)
       qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
     },
@@ -1083,6 +1108,9 @@ export function ForeConsultPage() {
     setRole(s.role === 'BIZ' ? 'BIZ' : 'IT')
     setActiveConsultId(s.sessionId)
     setActiveQuestionTitle(s.questionTitle || displayName(s.systemName))
+    setActiveDevSessionBinding(s.devSessionId
+      ? { consultId: s.sessionId, devSessionId: s.devSessionId }
+      : null)
     setHistoryOpen(false)
     setViewSession(null)
     if (s.devSessionId && s.devSessionId !== chat.sessionId) {
@@ -1091,7 +1119,7 @@ export function ForeConsultPage() {
       chat.switchTo(s.devSessionId, runtime?.status === 'RUNNING' && runtime.live)
     }
     setConversationOpen(true)
-  }, [chat.sessionId, chat.switchTo, devSessionsQuery.data, displayName])
+  }, [chat.sessionId, chat.switchTo, devSessionsQuery.data, displayName, setActiveDevSessionBinding])
 
   // 冷启动必须等待两份服务端状态都返回；随后自动恢复最近一条待归档咨询。
   useEffect(() => {
@@ -1194,6 +1222,7 @@ export function ForeConsultPage() {
     if (activeConsultId === s.sessionId) {
       setActiveConsultId(null)
       setActiveQuestionTitle('')
+      setActiveDevSessionBinding(null)
     }
     qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
   }
@@ -1229,6 +1258,7 @@ export function ForeConsultPage() {
       seed: created.promptSnapshot || legacySeed,
       displayText: question.trim() || '（见附件）',
       consultId: created.sessionId,
+      questionTitle: created.questionTitle || displayName(created.systemName),
       attachments: newAttachments,
       engine: created.engine,
       model: created.model,

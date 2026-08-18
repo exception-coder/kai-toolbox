@@ -17,6 +17,7 @@ import com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultOrche
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -31,6 +32,7 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 /**
@@ -133,10 +135,25 @@ public class ConsultService {
         return s;
     }
 
-    /** 回写关联的 claude-chat 会话 id。 */
-    public ConsultSession linkDevSession(String sessionId, String devSessionId) {
+    /** 幂等绑定 claude-chat 会话；咨询与底层会话均不允许改绑或复用。 */
+    public synchronized ConsultSession linkDevSession(String sessionId, String devSessionId) {
         ConsultSession s = requireAccessibleSession(sessionId);
-        sessionRepo.updateDevSessionId(sessionId, devSessionId);
+        if (sessionRepo.existsOtherByDevSessionId(sessionId, devSessionId)) {
+            throw new ResponseStatusException(CONFLICT, "底层会话已关联其他咨询");
+        }
+        if (devSessionId.equals(s.getDevSessionId())) {
+            return s;
+        }
+        if (s.getDevSessionId() != null && !s.getDevSessionId().isBlank()) {
+            throw new ResponseStatusException(CONFLICT, "咨询会话已关联其他底层会话");
+        }
+        try {
+            if (sessionRepo.bindDevSessionIdIfAbsent(sessionId, devSessionId) != 1) {
+                throw new ResponseStatusException(CONFLICT, "咨询会话关联已变更，请刷新后重试");
+            }
+        } catch (DataIntegrityViolationException error) {
+            throw new ResponseStatusException(CONFLICT, "底层会话已关联其他咨询", error);
+        }
         s.setDevSessionId(devSessionId);
         return s;
     }
@@ -147,6 +164,7 @@ public class ConsultService {
      */
     public ConsultSession archive(String sessionId, ArchiveRequest req) {
         ConsultSession s = requireAccessibleSession(sessionId);
+        requireMatchingDevSession(s, req.devSessionId());
         long now = System.currentTimeMillis();
         try {
             writeTurns(s, req.turns(), now);
@@ -171,6 +189,7 @@ public class ConsultService {
      */
     public ConsultSession syncTurns(String sessionId, ArchiveRequest req) {
         ConsultSession s = requireAccessibleSession(sessionId);
+        requireMatchingDevSession(s, req.devSessionId());
         try {
             writeTurns(s, req.turns(), System.currentTimeMillis());
             sessionRepo.updateSyncedRaw(sessionId, req.rawReferenceJson());
@@ -178,6 +197,14 @@ public class ConsultService {
             log.warn("[fore-consult] 会话 {} 增量同步失败（忽略）: {}", sessionId, e.getMessage());
         }
         return sessionRepo.findById(sessionId).orElse(s);
+    }
+
+    private static void requireMatchingDevSession(ConsultSession session, String requestDevSessionId) {
+        String expected = blankToNull(session.getDevSessionId());
+        String actual = blankToNull(requestDevSessionId);
+        if (actual != null && !actual.equals(expected)) {
+            throw new ResponseStatusException(CONFLICT, "对话内容不属于当前咨询会话");
+        }
     }
 
     /** 整表替换写入本次会话的轮次（归档与增量同步共用）。 */

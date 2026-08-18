@@ -109,6 +109,14 @@ public class ConsultSessionRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    /** 检查底层会话是否已被另一条咨询占用。 */
+    public boolean existsOtherByDevSessionId(String sessionId, String devSessionId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM consult_session WHERE dev_session_id = ? AND session_id <> ?",
+                Integer.class, devSessionId, sessionId);
+        return count != null && count > 0;
+    }
+
     /** 最近 N 条会话，按创建时间倒序。 */
     public List<ConsultSession> findRecent(int limit) {
         return jdbc.query(
@@ -142,9 +150,10 @@ public class ConsultSessionRepository {
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
-    /** 关联 claude-chat 会话 id（拉起悬浮会话后回写）。 */
-    public void updateDevSessionId(String sessionId, String devSessionId) {
-        jdbc.update("UPDATE consult_session SET dev_session_id = ? WHERE session_id = ?",
+    /** 仅在尚未关联时绑定 claude-chat 会话，避免异步回调覆盖旧归属。 */
+    public int bindDevSessionIdIfAbsent(String sessionId, String devSessionId) {
+        return jdbc.update("UPDATE consult_session SET dev_session_id = ? "
+                        + "WHERE session_id = ? AND (dev_session_id IS NULL OR TRIM(dev_session_id) = '')",
                 devSessionId, sessionId);
     }
 

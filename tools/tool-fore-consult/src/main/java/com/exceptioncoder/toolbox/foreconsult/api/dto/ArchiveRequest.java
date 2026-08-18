@@ -5,11 +5,13 @@ import java.util.List;
 /**
  * 结束咨询并归档的请求体（一次性提交本次会话全部轮次）。
  *
+ * @param devSessionId    产生本次问答的底层 Agent 会话 ID，用于防止跨会话串写
  * @param rawReferenceJson 引擎回吐的引用清单原始 JSON，或前端序列化的原始对话（容错留档，可为 null）
  * @param parseStatus      引用清单解析状态：NONE | OK | FAILED（可选，null 时服务层按 NONE 兜底）
  * @param turns            本次会话的问答轮次（可为空列表）
  */
 public record ArchiveRequest(
+        String devSessionId,
         String rawReferenceJson,
         String parseStatus,
         List<TurnItem> turns

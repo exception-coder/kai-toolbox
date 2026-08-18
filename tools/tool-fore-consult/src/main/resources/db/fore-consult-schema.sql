@@ -131,6 +131,9 @@ CREATE INDEX IF NOT EXISTS idx_consult_session_created ON consult_session(create
 CREATE INDEX IF NOT EXISTS idx_consult_session_user    ON consult_session(user_id);
 CREATE INDEX IF NOT EXISTS idx_consult_turn_session    ON consult_turn(session_id, turn_index);
 CREATE INDEX IF NOT EXISTS idx_consult_session_dev     ON consult_session(dev_session_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_consult_session_dev
+    ON consult_session(dev_session_id)
+    WHERE dev_session_id IS NOT NULL AND TRIM(dev_session_id) <> '';
 
 -- 业务系统展示偏好：对工作台接口传来的项目做「别名 + 过滤 + 排序」的呈现层覆盖。
 -- 只存被定制过的系统；无记录的系统默认可见、用原名。系统字典仍来自 claude-chat workspaces，本表不复制字典。

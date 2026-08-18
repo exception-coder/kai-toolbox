@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.foreconsult.service;
 
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
 import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
+import com.exceptioncoder.toolbox.foreconsult.api.dto.ArchiveRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultSession;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultFeedbackRepository;
@@ -11,6 +12,7 @@ import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -125,6 +127,91 @@ class ConsultServiceAccessTest {
 
         assertThat(updated.getQuestionTitle()).isEqualTo("260405-新标题");
         verify(sessionRepo).updateQuestionTitle("own", "260405-新标题");
+    }
+
+    @Test
+    void bindsDevSessionOnlyOnce() {
+        authenticate(7L, "yuy", "USER");
+        ConsultSession existing = session("own", "7");
+        when(sessionRepo.findById("own")).thenReturn(Optional.of(existing));
+        when(sessionRepo.existsOtherByDevSessionId("own", "dev-1")).thenReturn(false);
+        when(sessionRepo.bindDevSessionIdIfAbsent("own", "dev-1")).thenReturn(1);
+
+        ConsultSession updated = service.linkDevSession("own", "dev-1");
+
+        assertThat(updated.getDevSessionId()).isEqualTo("dev-1");
+        verify(sessionRepo).bindDevSessionIdIfAbsent("own", "dev-1");
+    }
+
+    @Test
+    void repeatedSameDevSessionBindingIsIdempotent() {
+        authenticate(7L, "yuy", "USER");
+        ConsultSession existing = session("own", "7");
+        existing.setDevSessionId("dev-1");
+        when(sessionRepo.findById("own")).thenReturn(Optional.of(existing));
+        when(sessionRepo.existsOtherByDevSessionId("own", "dev-1")).thenReturn(false);
+
+        assertThat(service.linkDevSession("own", "dev-1")).isSameAs(existing);
+        verify(sessionRepo, never()).bindDevSessionIdIfAbsent("own", "dev-1");
+    }
+
+    @Test
+    void rejectsChangingExistingDevSessionBinding() {
+        authenticate(7L, "yuy", "USER");
+        ConsultSession existing = session("own", "7");
+        existing.setDevSessionId("dev-1");
+        when(sessionRepo.findById("own")).thenReturn(Optional.of(existing));
+        when(sessionRepo.existsOtherByDevSessionId("own", "dev-2")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.linkDevSession("own", "dev-2"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode().value())
+                        .isEqualTo(409));
+        verify(sessionRepo, never()).bindDevSessionIdIfAbsent("own", "dev-2");
+    }
+
+    @Test
+    void rejectsDevSessionAlreadyOwnedByAnotherConsult() {
+        authenticate(7L, "yuy", "USER");
+        ConsultSession existing = session("own", "7");
+        when(sessionRepo.findById("own")).thenReturn(Optional.of(existing));
+        when(sessionRepo.existsOtherByDevSessionId("own", "dev-1")).thenReturn(true);
+
+        assertThatThrownBy(() -> service.linkDevSession("own", "dev-1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode().value())
+                        .isEqualTo(409));
+        verify(sessionRepo, never()).bindDevSessionIdIfAbsent("own", "dev-1");
+    }
+
+    @Test
+    void mapsConcurrentDuplicateBindingToConflict() {
+        authenticate(7L, "yuy", "USER");
+        ConsultSession existing = session("own", "7");
+        when(sessionRepo.findById("own")).thenReturn(Optional.of(existing));
+        when(sessionRepo.existsOtherByDevSessionId("own", "dev-1")).thenReturn(false);
+        when(sessionRepo.bindDevSessionIdIfAbsent("own", "dev-1"))
+                .thenThrow(new DuplicateKeyException("duplicate"));
+
+        assertThatThrownBy(() -> service.linkDevSession("own", "dev-1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode().value())
+                        .isEqualTo(409));
+    }
+
+    @Test
+    void rejectsTurnsFromAnotherDevSession() {
+        authenticate(7L, "yuy", "USER");
+        ConsultSession existing = session("own", "7");
+        existing.setDevSessionId("dev-1");
+        when(sessionRepo.findById("own")).thenReturn(Optional.of(existing));
+        ArchiveRequest request = new ArchiveRequest("dev-2", null, null, List.of());
+
+        assertThatThrownBy(() -> service.syncTurns("own", request))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode().value())
+                        .isEqualTo(409));
+        verify(turnRepo, never()).deleteBySession("own");
     }
 
     private static void authenticate(long userId, String username, String role) {

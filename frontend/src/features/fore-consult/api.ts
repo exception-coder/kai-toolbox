@@ -157,6 +157,7 @@ export interface ArchiveTurnItem {
 }
 
 export interface ArchiveRequest {
+  devSessionId?: string | null
   rawReferenceJson?: string | null
   parseStatus?: string | null
   turns: ArchiveTurnItem[]
