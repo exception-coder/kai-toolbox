@@ -1,0 +1,241 @@
+import { describe, expect, it, vi } from 'vitest'
+import { AssistantWebSocketTransport } from './AssistantWebSocketTransport'
+import type { AssistantContextSnapshot, AssistantWidgetState } from './types'
+
+class FakeWebSocket extends EventTarget {
+  readyState: number = WebSocket.CONNECTING
+  readonly sent: string[] = []
+
+  open(): void {
+    this.readyState = WebSocket.OPEN
+    this.dispatchEvent(new Event('open'))
+  }
+
+  receive(value: unknown): void {
+    this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) }))
+  }
+
+  send(value: string): void {
+    this.sent.push(value)
+  }
+
+  close(): void {
+    this.readyState = WebSocket.CLOSED
+    this.dispatchEvent(new CloseEvent('close'))
+  }
+}
+
+const snapshot: AssistantContextSnapshot = {
+  protocolVersion: '1.0',
+  application: { appId: 'ERP' },
+  contributions: {},
+  unavailableProviders: [],
+  capturedAt: 1,
+}
+
+describe('AssistantWebSocketTransport', () => {
+  it('returns to the login state instead of opening a websocket without a required token', () => {
+    const factory = vi.fn()
+    const states: AssistantWidgetState[] = []
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(), authenticationRequired: true,
+      getAccessToken: () => { throw new Error('Forge 登录已失效，请重新登录') },
+      webSocketFactory: factory,
+    })
+    transport.start(state => states.push(state))
+
+    transport.submit({ mode: 'QUESTION', text: '认证测试', snapshot })
+
+    expect(factory).not.toHaveBeenCalled()
+    expect(states.at(-1)).toMatchObject({
+      state: '认证失败', authenticationRequired: true, message: 'Forge 登录已失效，请重新登录',
+    })
+    transport.destroy()
+  })
+
+  it('resolves an access token only for the websocket handshake URL', () => {
+    const socket = new FakeWebSocket()
+    let requestedUrl = ''
+    const storage = memoryStorage()
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws?tenant=erp', storage,
+      getAccessToken: () => 'short lived/token',
+      webSocketFactory: url => {
+        requestedUrl = url
+        return socket as unknown as WebSocket
+      },
+    })
+    transport.start(() => undefined)
+    transport.submit({ mode: 'QUESTION', text: '认证测试', snapshot })
+
+    const url = new URL(requestedUrl)
+    expect(url.searchParams.get('tenant')).toBe('erp')
+    expect(url.searchParams.get('access_token')).toBe('short lived/token')
+    expect(storage.getItem('kai-assistant:ws:ERP:anonymous')).not.toContain('short lived/token')
+    transport.destroy()
+  })
+
+  it('opens a session, streams an answer and reaches the completed state', () => {
+    const sockets: FakeWebSocket[] = []
+    const states: AssistantWidgetState[] = []
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      webSocketFactory: () => {
+        const socket = new FakeWebSocket()
+        sockets.push(socket)
+        return socket as unknown as WebSocket
+      },
+    })
+    transport.start(state => states.push(state))
+    transport.submit({ mode: 'QUESTION', text: '为什么无法审核？', snapshot })
+
+    sockets[0].open()
+    expect(sent(sockets[0], 0)).toMatchObject({ type: 'open', engine: 'codex' })
+    sockets[0].receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+    expect(sentByType(sockets[0], 'assistantContextSave')).toMatchObject({
+      sessionId: 'session-1', protocolVersion: '1.0',
+    })
+    expect(sentByType(sockets[0], 'send')).toMatchObject({
+      type: 'send', text: '为什么无法审核？', assistant: { mode: 'QUESTION' },
+    })
+    sockets[0].receive({ type: 'assistantDelta', seq: 2, text: '## 原因\n\n状态不允许。' })
+    sockets[0].receive({ type: 'result', seq: 3, stopReason: 'end_turn' })
+
+    expect(states.at(-1)?.state).toBe('已完成')
+    expect(states.at(-1)?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: '为什么无法审核？' }),
+      expect.objectContaining({ role: 'assistant', content: '## 原因\n\n状态不允许。', streaming: false }),
+    ]))
+    transport.destroy()
+  })
+
+  it('interrupts the active websocket turn and exposes only protocol metadata in debug logs', () => {
+    const socket = new FakeWebSocket()
+    const states: AssistantWidgetState[] = []
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      getAccessToken: () => 'sensitive-access-token',
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    transport.start(state => states.push(state))
+    transport.submit({ mode: 'QUESTION', text: '敏感问题正文', snapshot })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+
+    transport.interrupt()
+
+    expect(sentByType(socket, 'interrupt')).toEqual({ type: 'interrupt' })
+    expect(states.at(-1)?.state).toBe('正在中止')
+    socket.receive({ type: 'result', seq: 2, stopReason: 'interrupted' })
+    expect(states.at(-1)?.state).toBe('已中止')
+    const debugText = JSON.stringify(states.map(state => state.debugEntry).filter(Boolean))
+    expect(debugText).not.toContain('敏感问题正文')
+    expect(debugText).not.toContain('sensitive-access-token')
+    expect(debugText).toContain('发送 WebSocket 消息')
+    transport.destroy()
+  })
+
+  it('persists a second message through the websocket queue while a turn is running', () => {
+    const socket = new FakeWebSocket()
+    const states: AssistantWidgetState[] = []
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: 'wss://assistant.example/ws', storage: memoryStorage(),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    transport.start(state => states.push(state))
+    transport.submit({ mode: 'QUESTION', text: '第一条', snapshot })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+    transport.submit({ mode: 'DIAGNOSE', text: '第二条', snapshot })
+
+    expect(socket.sent.map(value => JSON.parse(value))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'queue', text: '第二条' }),
+    ]))
+    const queued = sentByType(socket, 'queue')
+    socket.receive({ type: 'queueAccepted', seq: 2, messageId: queued.id, queueSize: 1 })
+    expect(states.at(-1)?.queueSize).toBe(1)
+    expect(states.at(-1)?.state).toBe('回复中')
+    transport.destroy()
+  })
+
+  it('creates and confirms a draft through the same websocket', () => {
+    const socket = new FakeWebSocket()
+    const states: AssistantWidgetState[] = []
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    transport.start(state => states.push(state))
+    transport.submit({ mode: 'BUG', text: '订单审核失败', snapshot })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+
+    transport.saveDraft({ kind: 'BUG', title: '订单审核失败', description: '接口返回 500', snapshot })
+    expect(sentByType(socket, 'assistantDraftCreate')).toMatchObject({
+      sessionId: 'session-1', kind: 'BUG', title: '订单审核失败',
+    })
+    socket.receive({
+      type: 'assistantCommandResult', seq: 0, requestId: 'request-1', action: 'draftCreate',
+      success: true, data: { draftId: 'draft-1', status: 'DRAFT' },
+    })
+    transport.confirmDraft('draft-1', 7)
+
+    expect(sentByType(socket, 'assistantDraftConfirm')).toMatchObject({
+      draftId: 'draft-1', engineerUserId: 7,
+    })
+    socket.receive({
+      type: 'assistantCommandResult', seq: 0, requestId: 'request-2', action: 'draftConfirm',
+      success: true, data: { draftId: 'draft-1', requirementId: 'REQ-1', alreadySaved: false },
+    })
+    expect(states.at(-1)?.state).toBe('已保存')
+    transport.destroy()
+  })
+
+  it('attaches with the persisted watermark after reconnecting', () => {
+    vi.useFakeTimers()
+    const sockets: FakeWebSocket[] = []
+    const storage = memoryStorage()
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage,
+      webSocketFactory: () => {
+        const socket = new FakeWebSocket()
+        sockets.push(socket)
+        return socket as unknown as WebSocket
+      },
+    })
+    transport.start(() => undefined)
+    transport.submit({ mode: 'QUESTION', text: '恢复测试', snapshot })
+    sockets[0].open()
+    sockets[0].receive({ type: 'ready', seq: 8, sessionId: 'session-8', status: 'RUNNING', epoch: 'e1' })
+    sockets[0].close()
+    vi.advanceTimersByTime(500)
+    sockets[1].open()
+
+    expect(sent(sockets[1], 0)).toEqual({ type: 'attach', sessionId: 'session-8', lastEventSeq: 8 })
+    transport.destroy()
+    vi.useRealTimers()
+  })
+})
+
+function sent(socket: FakeWebSocket, index: number): Record<string, unknown> {
+  return JSON.parse(socket.sent[index]) as Record<string, unknown>
+}
+
+function sentByType(socket: FakeWebSocket, type: string): Record<string, unknown> {
+  const message = socket.sent.map(value => JSON.parse(value) as Record<string, unknown>)
+    .find(value => value.type === type)
+  if (!message) throw new Error(`No message with type ${type}`)
+  return message
+}
+
+function memoryStorage(): Storage {
+  const values = new Map<string, string>()
+  return {
+    get length() { return values.size },
+    clear: () => values.clear(),
+    getItem: key => values.get(key) ?? null,
+    key: index => [...values.keys()][index] ?? null,
+    removeItem: key => { values.delete(key) },
+    setItem: (key, value) => { values.set(key, value) },
+  }
+}

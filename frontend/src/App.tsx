@@ -11,6 +11,7 @@ import { FloatingChatWindow } from '@/features/claude-chat/components/FloatingCh
 import { GlobalPendingQuestionModal } from '@/features/claude-chat/components/GlobalPendingQuestionModal'
 import { VoiceModeView } from '@/features/claude-chat/components/voice/VoiceModeView'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { AssistantBridge } from '@/assistant-sdk/AssistantBridge'
 
 // 按布局把 feature 分两支：'showcase' 走全屏展示外壳（脱离 AppShell、公开免鉴权），
 // 其余默认 'tool' 走 AppShell（Sidebar + TopBar）。Suspense 各自在对应外壳里。
@@ -57,6 +58,7 @@ export default function App() {
     <ErrorBoundary label="floating-chat" compact><FloatingChatWindow /></ErrorBoundary>
     <ErrorBoundary label="voice-mode" compact><VoiceModeView /></ErrorBoundary>
     <ErrorBoundary label="pending-question" compact><GlobalPendingQuestionModal /></ErrorBoundary>
+    <ErrorBoundary label="assistant-bridge" compact><AssistantBridge /></ErrorBoundary>
     <SessionExpiredGate />
     </ChatRuntimeProvider>
   )

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
-import type { Attachment, BackgroundTaskInfo, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
+import type { AssistantEnvelope, Attachment, BackgroundTaskInfo, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
 import { clearQueuedMessages, deleteQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
@@ -206,7 +206,8 @@ export interface UseClaudeChatSocket {
    * text 是会持久化的真实用户消息；displayText 仅用于普通展示别名。
    * 平台调度协议必须走 developerInstructions，不能再借 displayText 隐藏后混入用户历史。
    */
-  send: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string) => void
+  send: (text: string, attachments?: SendAttachment[], displayText?: string,
+    developerInstructions?: string, assistant?: AssistantEnvelope) => void
   /** 待发送队列：running 时入队的消息，本轮结束后按序自动发出 */
   queued: QueuedMessage[]
   /** 上一轮未正常完成时的暂停原因；队列保留但不会自动发出。 */
@@ -232,10 +233,17 @@ export interface UseClaudeChatSocket {
 
 export type ClaudeChatChannel = 'admin' | 'consult' | 'prd-dev' | 'review'
 
-export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeChatChannel; prdSessionId?: string | null; reviewToken?: string | null }): UseClaudeChatSocket {
+export function useClaudeChatSocket(opts?: {
+  demo?: boolean
+  channel?: ClaudeChatChannel
+  prdSessionId?: string | null
+  reviewToken?: string | null
+  autoConnect?: boolean
+}): UseClaudeChatSocket {
   // demo（受约束免登录演示）：连 /api/claude-chat/demo/ws，不带 token、不自动 attach 重连。
   const demo = opts?.demo ?? false
   const channel = opts?.channel ?? 'admin'
+  const autoConnect = opts?.autoConnect ?? true
   const reviewToken = opts?.reviewToken?.trim() || null
   const publicWithoutLogin = demo || channel === 'review'
   const prdSessionId = opts?.prdSessionId?.trim() || null
@@ -882,6 +890,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     text: string
     attachments?: Attachment[]
     developerInstructions?: string
+    assistant?: AssistantEnvelope
   }[]>([])
 
   const flushPendingSends = useCallback(() => {
@@ -894,6 +903,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         text: m.text,
         attachments: m.attachments,
         developerInstructions: m.developerInstructions,
+        assistant: m.assistant,
       })
     }
   }, [sendRaw])
@@ -1070,7 +1080,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   // 否则 handoff 会把 open/send 发给上一条仍处于 OPEN 的 ADMIN socket，形成已创建但未绑定 PRD 的孤儿会话。
   useLayoutEffect(() => {
     manualCloseRef.current = false
-    connect()
+    if (autoConnect) connect()
     return () => {
       manualCloseRef.current = true
       if (reconnectTimerRef.current != null) {
@@ -1080,7 +1090,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       wsRef.current?.close()
       wsRef.current = null
     }
-  }, [connect])
+  }, [autoConnect, connect])
 
   /**
    * 网络恢复即刻重连，不等退避到点。
@@ -1266,7 +1276,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sendRaw, connect])
 
   const send = useCallback((text: string, attachments?: SendAttachment[], displayText?: string,
-                            developerInstructions?: string) => {
+                            developerInstructions?: string, assistant?: AssistantEnvelope) => {
     const t = text.trim()
     const hasAtt = !!attachments && attachments.length > 0
     if (!t && !hasAtt) return
@@ -1286,9 +1296,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     setRunning(true)
     setInterrupting(false)
     const hiddenInstructions = developerInstructions?.trim() || undefined
-    if (sendRaw({ type: 'send', text: t, attachments: atts, developerInstructions: hiddenInstructions })) return
+    if (sendRaw({ type: 'send', text: t, attachments: atts,
+      developerInstructions: hiddenInstructions, assistant })) return
     // WS 未连上：排队并触发重连（带 attach 意图），onopen 时先 attach 再补发，避免消息丢失/卡“思考中”
-    pendingSendsRef.current.push({ text: t, attachments: atts, developerInstructions: hiddenInstructions })
+    pendingSendsRef.current.push({ text: t, attachments: atts,
+      developerInstructions: hiddenInstructions, assistant })
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.CONNECTING) {
       if (sessionIdRef.current) {
