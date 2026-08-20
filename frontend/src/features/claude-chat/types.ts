@@ -543,6 +543,12 @@ export interface ModelInfo {
 }
 
 // ── 客户端 → 服务端 ───────────────────────────────────────────────
+export interface AssistantMessageEnvelope {
+  protocolVersion: string
+  mode: string
+  contextSnapshot: Record<string, unknown>
+}
+
 export type ClientMessage =
   | {
       type: 'open'
@@ -562,7 +568,14 @@ export type ClientMessage =
   | { type: 'duplicateSession'; sourceSessionId: string; codexHome?: string }
   | { type: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { type: 'resumeCurrent'; sessionId?: string }
-  | { type: 'send'; text: string; attachments?: Attachment[]; developerInstructions?: string; messageId: string }
+  | {
+      type: 'send'
+      text: string
+      attachments?: Attachment[]
+      developerInstructions?: string
+      assistant?: AssistantMessageEnvelope
+      messageId: string
+    }
   | {
       type: 'decision'
       reqId: string
