@@ -29,6 +29,7 @@ toolbox:
     # 始终放行的路径（即使命中 protected-patterns）。登录/刷新接口必须放行。
     whitelist:
       - "/api/auth/login"
+      - "/api/auth/external-login"
       - "/api/auth/refresh"
       # 视频分享落地页（匿名播放单个视频）。授权不靠"路径没被拦"，而是靠 video_share 里
       # 单视频、可撤销、7 天过期的随机 token + PathAccessGuard 沙箱复核（见 VideoShareController）。
@@ -37,6 +38,11 @@ toolbox:
       # Vibe Coding 评审分享：高熵、可撤销、限时 token 只绑定一个 review-only 会话。
       - "/api/claude-chat/reviews/public/**"
       - "/api/supplier-quote/public/**"
+    # 外部宿主临时复用 Forge 账号登录。默认关闭；开启时仍必须配置完整 Origin 白名单。
+    external-login:
+      enabled: ${TOOLBOX_AUTH_EXTERNAL_LOGIN_ENABLED:false}
+      # 环境变量支持逗号分隔，例如：https://erp-test.example.com,http://localhost:8081
+      allowed-origins: ${TOOLBOX_AUTH_EXTERNAL_LOGIN_ALLOWED_ORIGINS:}
     # 首启动若 auth_user 表为空且配置了用户名，则建一个 ADMIN 账户。
     # 密码留空时随机生成并打印到启动日志（仅打印一次）。
     bootstrap-admin-username: ${TOOLBOX_AUTH_ADMIN_USER:admin}

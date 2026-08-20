@@ -7,6 +7,8 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /**
  * Vibe Coding 的 WebSocket 传输配置，前缀 {@code toolbox.claude-chat.ws}。
  *
@@ -24,4 +26,7 @@ public class ClaudeChatWsProperties {
             + "大文件 Write 的确认请求/大工具结果超过此值会被 1009 断连、确认丢失。"
             + "⚠ 改后需重启后端生效（WS 缓冲在启动时建立，非热生效）。")
     private int maxMessageBytes = 8 * 1024 * 1024;
+
+    @ConfigDesc("业务咨询/嵌入式助手 WS 允许的 Origin pattern。生产环境应配置宿主域名白名单；默认 * 保持本地开发兼容。")
+    private List<String> consultAllowedOriginPatterns = List.of("*");
 }

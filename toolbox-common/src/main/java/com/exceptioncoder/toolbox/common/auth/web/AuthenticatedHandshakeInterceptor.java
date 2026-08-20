@@ -26,6 +26,8 @@ import java.util.Map;
 @ConditionalOnProperty(prefix = "toolbox.auth", name = "enabled", havingValue = "true")
 public class AuthenticatedHandshakeInterceptor implements HandshakeInterceptor {
 
+    public static final String AUTH_PRINCIPAL_ATTRIBUTE = "toolbox.auth.principal";
+
     private static final Logger log = LoggerFactory.getLogger(AuthenticatedHandshakeInterceptor.class);
 
     private final JwtService jwtService;
@@ -44,6 +46,9 @@ public class AuthenticatedHandshakeInterceptor implements HandshakeInterceptor {
             try {
                 JwtPayload payload = jwtService.parse(token);
                 if (payload.type() == TokenType.ACCESS) {
+                    attributes.put(AUTH_PRINCIPAL_ATTRIBUTE, new AuthPrincipal(
+                            payload.userId(), payload.username(), payload.roles(), payload.permissionCodes(),
+                            payload.jti(), payload.expiresAt()));
                     return true;
                 }
             } catch (RuntimeException e) {

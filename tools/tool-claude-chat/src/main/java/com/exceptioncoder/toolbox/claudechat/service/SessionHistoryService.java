@@ -492,7 +492,7 @@ public class SessionHistoryService {
                             // 真实用户消息 = 新一轮：先把上一轮 token 落成 result 项
                             flushTurn(out, acc);
                             acc.reset(ts);
-                            out.add(ChatMessageView.user("h" + out.size(), t, ts));
+                            out.add(ChatMessageView.user("h" + out.size(), t, ts, currentTurnId));
                         }
                     }
                     case "agent_message" -> {

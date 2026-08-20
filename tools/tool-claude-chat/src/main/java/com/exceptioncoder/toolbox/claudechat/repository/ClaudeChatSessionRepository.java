@@ -6,6 +6,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,6 +22,7 @@ public class ClaudeChatSessionRepository {
 
     private static final RowMapper<ClaudeChatSession> ROW = (rs, i) -> ClaudeChatSession.builder()
             .id(rs.getString("id"))
+            .userId(nullableLong(rs, "user_id"))
             .cwd(rs.getString("cwd"))
             .title(rs.getString("title"))
             .sdkSessionId(rs.getString("sdk_session_id"))
@@ -42,6 +45,11 @@ public class ClaudeChatSessionRepository {
             .lastSeenAt(rs.getLong("last_seen_at"))
             .build();
 
+    private static Long nullableLong(ResultSet resultSet, String column) throws SQLException {
+        long value = resultSet.getLong(column);
+        return resultSet.wasNull() ? null : value;
+    }
+
     public List<ClaudeChatSession> findAll() {
         return jdbc.query(
                 "SELECT * FROM claude_chat_session ORDER BY last_seen_at DESC",
@@ -51,6 +59,13 @@ public class ClaudeChatSessionRepository {
     public Optional<ClaudeChatSession> findById(String id) {
         return jdbc.query("SELECT * FROM claude_chat_session WHERE id = ?", ROW, id)
                 .stream().findFirst();
+    }
+
+    /** 查询项目分组下的会话，用于项目级操作前统一校验所有权。 */
+    public List<ClaudeChatSession> findByGroupName(String groupName) {
+        return jdbc.query(
+                "SELECT * FROM claude_chat_session WHERE group_name = ? ORDER BY last_seen_at DESC",
+                ROW, groupName);
     }
 
     public Optional<ClaudeChatSession> findBySdkSessionId(String sdkSessionId) {
@@ -64,12 +79,12 @@ public class ClaudeChatSessionRepository {
         String engine = s.getEngine() == null ? "claude" : s.getEngine();
         jdbc.update("""
                 INSERT INTO claude_chat_session
-                  (id, cwd, title, sdk_session_id, engine, engines, api_base_url, auth_token, codex_home,
+                  (id, user_id, cwd, title, sdk_session_id, engine, engines, api_base_url, auth_token, codex_home,
                    selected_model, codex_reasoning_effort, codex_speed, execution_policy, consult_evidence_systems,
                    status, started_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
+                s.getId(), s.getUserId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
                 engine, s.getEngines() == null ? engine : s.getEngines(),
                 s.getApiBaseUrl(), s.getAuthToken(), s.getCodexHome(),
                 s.getSelectedModel(), s.getCodexReasoningEffort(), s.getCodexSpeed(),

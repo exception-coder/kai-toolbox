@@ -25,6 +25,10 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>toolbox-llm</artifactId>
         </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+        </dependency>
         <!-- 浏览器侧 WS 端点 + Java→Node sidecar 的 WS 客户端都来自这个 starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

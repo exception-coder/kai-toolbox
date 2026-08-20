@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.common.auth.config;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
@@ -10,7 +11,8 @@ import java.util.List;
 /**
  * 鉴权能力库配置，前缀 {@code toolbox.auth}。enabled 缺省 false，整套能力默认不加载。
  */
-@Data
+@Getter
+@Setter
 @ConfigurationProperties(prefix = "toolbox.auth")
 public class AuthProperties {
 
@@ -30,7 +32,11 @@ public class AuthProperties {
     private List<String> protectedPatterns = new ArrayList<>();
 
     /** 始终放行的路径（优先级高于 protectedPatterns）。 */
-    private List<String> whitelist = new ArrayList<>(List.of("/api/auth/login", "/api/auth/refresh"));
+    private List<String> whitelist = new ArrayList<>(List.of(
+            "/api/auth/login", "/api/auth/external-login", "/api/auth/refresh"));
+
+    /** 外部宿主使用 Forge 账号登录的受控 CORS 配置。 */
+    private ExternalLogin externalLogin = new ExternalLogin();
 
     /**
      * 配置驱动的 ADMIN-only 硬鉴权路径（Ant 风格）。命中的路径未登录返回 401、非 ADMIN 返回 403
@@ -43,4 +49,18 @@ public class AuthProperties {
 
     /** 种子管理员密码。为空时随机生成并打印到启动日志。 */
     private String bootstrapAdminPassword;
+
+    /**
+     * 外部登录仅开放现有登录接口，不扩大刷新、用户管理等认证 API 的跨域范围。
+     */
+    @Getter
+    @Setter
+    public static class ExternalLogin {
+
+        /** 外部登录 CORS 开关，默认关闭。 */
+        private boolean enabled = false;
+
+        /** 允许调用 Forge 登录接口的完整 Origin 白名单。 */
+        private List<String> allowedOrigins = new ArrayList<>();
+    }
 }

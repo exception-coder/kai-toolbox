@@ -57,7 +57,7 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
         }
         // 业务咨询复用会话引擎，但面向普通登录用户；使用独立入口，避免放宽 Vibe Coding 的 ADMIN 门禁。
         var consultRegistration = registry.addHandler(handler, "/api/claude-chat/consult/ws")
-                .setAllowedOriginPatterns("*");
+                .setAllowedOriginPatterns(wsProps.getConsultAllowedOriginPatterns().toArray(String[]::new));
         AuthenticatedHandshakeInterceptor consultInterceptor = authenticatedHandshake.getIfAvailable();
         if (consultInterceptor != null) {
             consultRegistration.addInterceptors(consultInterceptor);

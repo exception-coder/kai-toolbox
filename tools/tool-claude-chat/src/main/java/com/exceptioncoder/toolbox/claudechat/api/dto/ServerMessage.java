@@ -22,7 +22,8 @@ public sealed interface ServerMessage
                 ServerMessage.EngineEvent,
                 ServerMessage.InterruptState,
                 ServerMessage.Error, ServerMessage.BackgroundTasks,
-                ServerMessage.PendingSessions, ServerMessage.QueueDispatched {
+                ServerMessage.PendingSessions, ServerMessage.QueueAccepted, ServerMessage.QueueDispatched,
+                ServerMessage.AssistantCommandResult, ServerMessage.ReviewIntent {
 
     long seq();
 
@@ -66,6 +67,12 @@ public sealed interface ServerMessage
     /** 关联刚发出的用户消息与其 SDK transcript UUID，供异常清理回退定位。 */
     @JsonTypeName("userMessage")
     record UserMessage(long seq, String uuid) implements ServerMessage {}
+
+    /** Forge 结构化评审意图；同一轮会先发前置结果，回复完成后再发校验结果。 */
+    @JsonTypeName("reviewIntent")
+    record ReviewIntent(long seq, String messageId, String turnId, String intent, String classificationStatus,
+                        double confidence, String reason, List<String> signals,
+                        String extractedTitle, String extractedContent) implements ServerMessage {}
 
     /** 当前回答对应的原生分叉锚点：Claude message UUID / Codex turn ID。 */
     @JsonTypeName("forkAnchor")
@@ -162,6 +169,17 @@ public sealed interface ServerMessage
     @JsonTypeName("queueDispatched")
     record QueueDispatched(long seq, String messageId, String text, String displayText,
                            List<QueuedAttachment> attachments, long createdAt) implements ServerMessage {}
+
+    /** 待发送消息已经由服务端持久化。 */
+    @JsonTypeName("queueAccepted")
+    record QueueAccepted(long seq, String messageId, int queueSize) implements ServerMessage {}
+
+    /**
+     * 嵌入式助手控制命令结果。该消息为连接级响应，seq 固定为 0，不参与会话事件回放。
+     */
+    @JsonTypeName("assistantCommandResult")
+    record AssistantCommandResult(long seq, String requestId, String action, boolean success,
+                                  Object data, String errorCode, String message) implements ServerMessage {}
 
     /**
      * 已自动发送消息的附件引用。

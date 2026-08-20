@@ -24,10 +24,21 @@ public record ChatMessageView(
         Map<String, Object> usage,   // result：本轮 token 用量（input/output/cache），可空
         Long latencyMs,              // result：本轮耗时（ms），可空
         Long ttftMs,                 // result：用户消息到首个模型动作的耗时（ms），可空
-        Long elapsedMs               // tool：本次调用耗时（ms），可空
+        Long elapsedMs,              // tool：本次调用耗时（ms），可空
+        String turnId,               // user：平台稳定轮次 ID
+        ReviewIntentView reviewIntent
 ) {
+    public record ReviewIntentView(String intent, String classificationStatus, double confidence,
+                                   String reason, java.util.List<String> signals,
+                                   String extractedTitle, String extractedContent) {}
+
     public static ChatMessageView user(String id, String text, Long ts) {
-        return new ChatMessageView(id, "user", text, null, null, null, null, null, null, ts, null, null, null, null);
+        return user(id, text, ts, null);
+    }
+
+    public static ChatMessageView user(String id, String text, Long ts, String turnId) {
+        return new ChatMessageView(id, "user", text, null, null, null, null, null, null, ts, null, null, null, null,
+                turnId, null);
     }
 
     public static ChatMessageView assistant(String id, String text, Long ts) {
@@ -35,7 +46,8 @@ public record ChatMessageView(
     }
 
     public static ChatMessageView assistant(String id, String text, String forkAnchor, Long ts) {
-        return new ChatMessageView(id, "assistant", text, forkAnchor, null, null, null, null, null, ts, null, null, null, null);
+        return new ChatMessageView(id, "assistant", text, forkAnchor, null, null, null, null, null, ts, null, null, null, null,
+                null, null);
     }
 
     public static ChatMessageView tool(String id, String toolName, Object input, String output, Boolean isError, Long ts) {
@@ -45,7 +57,7 @@ public record ChatMessageView(
     public static ChatMessageView tool(String id, String toolName, Object input, String output, Boolean isError,
                                        Long ts, Long elapsedMs) {
         return new ChatMessageView(id, "tool", null, null, toolName, input, output, isError, null, ts, null, null, null,
-                elapsedMs);
+                elapsedMs, null, null);
     }
 
     public static ChatMessageView result(String id, String stopReason, Long ts, Map<String, Object> usage, Long latencyMs) {
@@ -55,6 +67,11 @@ public record ChatMessageView(
     public static ChatMessageView result(String id, String stopReason, Long ts, Map<String, Object> usage,
                                          Long latencyMs, Long ttftMs) {
         return new ChatMessageView(id, "result", null, null, null, null, null, null, stopReason, ts, usage,
-                latencyMs, ttftMs, null);
+                latencyMs, ttftMs, null, null, null);
+    }
+
+    public ChatMessageView withReviewIntent(ReviewIntentView value) {
+        return new ChatMessageView(id, kind, text, forkAnchor, toolName, input, output, isError, stopReason, ts, usage,
+                latencyMs, ttftMs, elapsedMs, turnId, value);
     }
 }

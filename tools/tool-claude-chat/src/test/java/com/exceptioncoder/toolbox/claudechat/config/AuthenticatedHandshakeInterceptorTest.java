@@ -12,6 +12,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.socket.WebSocketHandler;
 
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,9 +33,12 @@ class AuthenticatedHandshakeInterceptorTest {
                 System.currentTimeMillis() + 60_000));
 
         Exchange exchange = exchange("user-token");
+        Map<String, Object> attributes = new HashMap<>();
 
         assertThat(interceptor.beforeHandshake(
-                exchange.request(), exchange.response(), handler, Map.of())).isTrue();
+                exchange.request(), exchange.response(), handler, attributes)).isTrue();
+        assertThat(attributes.get(AuthenticatedHandshakeInterceptor.AUTH_PRINCIPAL_ATTRIBUTE))
+                .hasFieldOrPropertyWithValue("userId", 7L);
     }
 
     @Test

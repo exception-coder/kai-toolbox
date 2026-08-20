@@ -60,6 +60,15 @@ public class TokenService {
     }
 
     /**
+     * 为受控外部宿主签发短期 ACCESS Token，不创建 Refresh Token 或持久化刷新会话。
+     */
+    public AccessTokenGrant issueAccessFor(AuthUser user) {
+        AuthAuthorities authorities = authoritiesResolver.resolve(user.getId(), user.getRoles());
+        String access = jwtService.issueAccessToken(user, authorities.roles(), authorities.permissionCodes());
+        return new AccessTokenGrant(access, props.getAccessTtl().toSeconds());
+    }
+
+    /**
      * 刷新：校验 refresh 有效且未轮换/吊销，吊销旧值后签发新双 token（一次性 + 轮换防重放）。
      */
     @Transactional

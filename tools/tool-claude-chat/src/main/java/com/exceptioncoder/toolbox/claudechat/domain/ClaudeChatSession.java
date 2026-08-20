@@ -8,6 +8,8 @@ import lombok.Data;
 @Builder
 public class ClaudeChatSession {
     private String id;
+    /** 会话创建者的认证用户 ID；存量会话为空时按兼容策略处理。 */
+    private Long userId;
     private String cwd;
     private String title;
     /** SDK 侧 session_id，resume 续跑用 */
