@@ -8,6 +8,10 @@ export { QueuedList } from './components/QueuedList'
 export { engineName } from './components/chatStatus'
 export {
   getPublicReview,
+  listPublicReviewRequirements,
+  synchronizePublicReviewRequirements,
+  updatePublicReviewRequirement,
+  deletePublicReviewRequirement,
   fetchCodexModels,
   loadPublicReviewMessages,
   renameSession,
@@ -18,6 +22,7 @@ export {
 export { useClaudeChatSocket } from './hooks/useClaudeChatSocket'
 export type { UseClaudeChatSocket } from './hooks/useClaudeChatSocket'
 export type { UploadedAttachment } from './api'
+export type { PublicReviewRequirement, ReviewRequirementDraft } from './api'
 export type { ChatItem } from './types'
 export {
   applyModuleSync,

@@ -19,7 +19,8 @@ class ReviewSpaceControllerTest {
         ReviewSpaceController.PublicReviewView view =
                 ReviewSpaceController.PublicReviewView.from(space, "来源开发会话",
                         new ReviewSpaceService.ReviewRuntimeConfig("codex", "DEFAULT", null, null,
-                                "default", "review-only", "account-b"), List.of("message-1"), true);
+                                "default", "review-only", "account-b"), List.of("message-1"), true,
+                        "final-summary-v1:assistant-content-v1:list");
 
         assertThat(view.reviewSessionId()).isEqualTo("review-1");
         assertThat(view.createdAt()).isEqualTo(1_234L);
@@ -27,5 +28,7 @@ class ReviewSpaceControllerTest {
         assertThat(view.runtimeConfig().codexAuthAlias()).isEqualTo("account-b");
         assertThat(view.coveredSourceMessageIds()).containsExactly("message-1");
         assertThat(view.hasSubmittedSummary()).isTrue();
+        assertThat(view.latestSubmittedSummarySourceId())
+                .isEqualTo("final-summary-v1:assistant-content-v1:list");
     }
 }

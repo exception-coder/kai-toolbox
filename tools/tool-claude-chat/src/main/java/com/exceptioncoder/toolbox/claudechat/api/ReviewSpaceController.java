@@ -4,6 +4,8 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.AttachmentView;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewSpace;
 import com.exceptioncoder.toolbox.claudechat.service.AttachmentStorageService;
 import com.exceptioncoder.toolbox.claudechat.service.LocalNetworkAddressService;
+import com.exceptioncoder.toolbox.claudechat.service.ReviewDeletionService;
+import com.exceptioncoder.toolbox.claudechat.service.ReviewRequirementService;
 import com.exceptioncoder.toolbox.claudechat.service.ReviewSpaceService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
@@ -26,15 +28,21 @@ import java.util.Map;
 @RequestMapping("/api/claude-chat")
 public class ReviewSpaceController {
     private final ReviewSpaceService service;
+    private final ReviewDeletionService deletionService;
+    private final ReviewRequirementService requirementService;
     private final AttachmentStorageService attachments;
     private final SessionHistoryService history;
     private final ClaudeChatSessionRepository sessions;
     private final LocalNetworkAddressService localNetworkAddress;
 
-    public ReviewSpaceController(ReviewSpaceService service, AttachmentStorageService attachments,
+    public ReviewSpaceController(ReviewSpaceService service, ReviewDeletionService deletionService,
+                                 ReviewRequirementService requirementService,
+                                 AttachmentStorageService attachments,
                                  SessionHistoryService history, ClaudeChatSessionRepository sessions,
                                  LocalNetworkAddressService localNetworkAddress) {
         this.service = service;
+        this.deletionService = deletionService;
+        this.requirementService = requirementService;
         this.attachments = attachments;
         this.history = history;
         this.sessions = sessions;
@@ -88,12 +96,18 @@ public class ReviewSpaceController {
         return service.revoke(id) ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 
+    @DeleteMapping("/reviews/{id}/record")
+    public ResponseEntity<Void> deleteRecord(@PathVariable String id) {
+        deletionService.delete(id);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/reviews/public/{token}")
     public ResponseEntity<PublicReviewView> publicView(@PathVariable String token) {
         return service.resolve(token)
                 .map(space -> ResponseEntity.ok(PublicReviewView.from(space, service.sourceTitle(space),
                         service.runtimeConfig(space), service.coveredSourceMessageIds(space),
-                        service.hasSubmittedSummary(space))))
+                        service.hasSubmittedSummary(space), service.latestSubmittedSummarySourceId(space))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -109,6 +123,38 @@ public class ReviewSpaceController {
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().build();
         }
+    }
+
+    @GetMapping("/reviews/public/{token}/requirements")
+    public List<ReviewRequirementView> requirements(@PathVariable String token) {
+        return requirementService.list(token).stream().map(ReviewRequirementView::from).toList();
+    }
+
+    @PutMapping("/reviews/public/{token}/requirements/sync")
+    public List<ReviewRequirementView> synchronizeRequirements(
+            @PathVariable String token, @RequestBody SyncRequirementsRequest request) {
+        List<ReviewRequirementService.DraftCommand> commands = request.items() == null ? null
+                : request.items().stream()
+                .map(item -> new ReviewRequirementService.DraftCommand(
+                        item.sourceMessageId(), item.title(), item.content()))
+                .toList();
+        return requirementService.synchronize(token, commands).stream()
+                .map(ReviewRequirementView::from).toList();
+    }
+
+    @PutMapping("/reviews/public/{token}/requirements/{id}")
+    public ReviewRequirementView updateRequirement(
+            @PathVariable String token, @PathVariable String id,
+            @RequestBody UpdateRequirementRequest request) {
+        return ReviewRequirementView.from(requirementService.update(token, id,
+                new ReviewRequirementService.UpdateCommand(
+                        request.title(), request.content(), request.expectedRevision())));
+    }
+
+    @DeleteMapping("/reviews/public/{token}/requirements/{id}")
+    public ResponseEntity<Void> deleteRequirement(@PathVariable String token, @PathVariable String id) {
+        requirementService.delete(token, id);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/reviews/public/{token}/attachments")
@@ -174,18 +220,32 @@ public class ReviewSpaceController {
     public record PublicReviewView(String reviewSessionId, String title, String sourceTitle, String mode,
                                    String contextSnapshot, long expiresAt, long createdAt,
                                    ReviewSpaceService.ReviewRuntimeConfig runtimeConfig,
-                                   List<String> coveredSourceMessageIds, boolean hasSubmittedSummary) {
+                                   List<String> coveredSourceMessageIds, boolean hasSubmittedSummary,
+                                   String latestSubmittedSummarySourceId) {
         static PublicReviewView from(ReviewSpace s, String sourceTitle,
                                      ReviewSpaceService.ReviewRuntimeConfig runtimeConfig,
-                                     List<String> coveredSourceMessageIds, boolean hasSubmittedSummary) {
+                                     List<String> coveredSourceMessageIds, boolean hasSubmittedSummary,
+                                     String latestSubmittedSummarySourceId) {
             return new PublicReviewView(s.reviewSessionId(), s.title(), sourceTitle,
                     s.mode(), s.contextSnapshot(), s.expiresAt(), s.createdAt(), runtimeConfig,
-                    coveredSourceMessageIds, hasSubmittedSummary);
+                    coveredSourceMessageIds, hasSubmittedSummary, latestSubmittedSummarySourceId);
         }
     }
 
     public record SubmitFeedbackRequest(String content, String sourceMessageId,
                                         List<String> coveredSourceMessageIds) {}
+    public record RequirementDraftRequest(String sourceMessageId, String title, String content) {}
+    public record SyncRequirementsRequest(List<RequirementDraftRequest> items) {}
+    public record UpdateRequirementRequest(String title, String content, long expectedRevision) {}
+    public record ReviewRequirementView(String id, String sourceMessageId, String title, String content,
+                                        long revision, long createdAt, long updatedAt) {
+        static ReviewRequirementView from(
+                com.exceptioncoder.toolbox.claudechat.domain.ReviewRequirement requirement) {
+            return new ReviewRequirementView(requirement.id(), requirement.sourceMessageId(),
+                    requirement.title(), requirement.content(), requirement.revision(),
+                    requirement.createdAt(), requirement.updatedAt());
+        }
+    }
     public record HandleFeedbackRequest(String status) {}
     public record ReviewFeedbackView(String id, String status, long createdAt) {
         static ReviewFeedbackView from(com.exceptioncoder.toolbox.claudechat.domain.ReviewFeedback feedback) {

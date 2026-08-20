@@ -1,0 +1,69 @@
+import { describe, expect, it } from 'vitest'
+import type { ChatItem } from '@/features/claude-chat/public-api'
+import {
+  INTERNAL_SUMMARY_PREFIX,
+  parseReviewIntent,
+  projectReviewTurns,
+  requirementsFromTurns,
+} from './reviewMessageIntent'
+
+function completedTurn(user: string, assistant: string): ChatItem[] {
+  return [
+    { kind: 'user', id: 'u1', text: user, ts: 10 },
+    { kind: 'assistant', id: 'a1', text: assistant, ts: 11 },
+    { kind: 'result', id: 'r1', stopReason: 'end_turn', ts: 12 },
+  ]
+}
+
+describe('评审消息分类', () => {
+  it('问候属于沟通咨询且不进入需求汇总', () => {
+    const turns = projectReviewTurns(completedTurn('你好', '你好，请问想评审什么？\n<!-- forge-review-intent:CONSULTATION -->'), 0, true)
+    expect(turns[0].intent).toBe('CONSULTATION')
+    expect(requirementsFromTurns(turns, 0)).toHaveLength(0)
+  })
+
+  it('需求反馈保留用户原文和 AI 业务分析并隐藏协议标记', () => {
+    const turns = projectReviewTurns(completedTurn('审批要支持驳回', '已识别审批例外场景。\n<!-- forge-review-intent:REQUIREMENT -->'), 0, true)
+    const requirements = requirementsFromTurns(turns, 0)
+    expect(turns[0].intent).toBe('REQUIREMENT')
+    expect(turns[0].assistantText).toBe('已识别审批例外场景。')
+    expect(requirements[0].text).toContain('审批要支持驳回')
+    expect(requirements[0].text).not.toContain('forge-review-intent')
+    expect(requirements[0].title).toBe('审批要支持驳回')
+  })
+
+  it('缺失或非法标记安全降级为未分类', () => {
+    expect(parseReviewIntent('普通回答').intent).toBe('UNCLASSIFIED')
+    expect(parseReviewIntent('回答\n<!-- forge-review-intent:MAYBE -->').intent).toBe('UNCLASSIFIED')
+    const turns = projectReviewTurns(completedTurn('一个问题', '普通回答'), 0, true)
+    expect(turns[0].intent).toBe('UNCLASSIFIED')
+    expect(requirementsFromTurns(turns, 0)).toHaveLength(0)
+  })
+
+  it('从结构化业务回复提取清单标题并避免正文重复标题', () => {
+    const turns = projectReviewTurns(completedTurn('审批流程需要支持驳回', `### 需求标题：审批驳回
+
+## 需求说明
+审批人可以驳回申请。
+
+## 待确认项
+驳回后是否允许重新提交。
+
+## 验收场景
+申请人可以看到驳回原因。
+<!-- forge-review-intent:REQUIREMENT -->`), 0, true)
+    const requirement = requirementsFromTurns(turns, 0)[0]
+    expect(requirement.title).toBe('审批驳回')
+    expect(requirement.content).toContain('## 需求说明')
+    expect(requirement.content).not.toContain('需求标题')
+  })
+
+  it('未完成回复显示判断中，内部汇总轮次不参与分类', () => {
+    const items: ChatItem[] = [
+      { kind: 'user', id: 'pending', text: '继续补充', ts: 10 },
+      { kind: 'assistant', id: 'streaming', text: '正在分析', ts: 11 },
+    ]
+    expect(projectReviewTurns(items, 0, true)[0].intent).toBe('PENDING')
+    expect(projectReviewTurns(completedTurn(`${INTERNAL_SUMMARY_PREFIX}\n汇总`, '汇总结果'), 0, true)).toHaveLength(0)
+  })
+})

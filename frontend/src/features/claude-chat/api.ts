@@ -11,6 +11,7 @@ import type {
 import type { ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SessionPendingSqlTarget, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 import { buildPendingSqlTargetOptions, type PendingSqlTargetOption } from './lib/pendingSqlTargets'
+import { SESSION_HISTORY_PAGE_TIMEOUT_MS } from './lib/sessionHistoryRequest'
 
 /** 查询会话关联的 SQL 登记；未登记返回 null。 */
 export async function getSessionPendingSql(sessionId: string): Promise<SessionPendingSql | null> {
@@ -491,6 +492,22 @@ export interface ReviewRelationContext {
   lanIpv4: string
 }
 
+export interface PublicReviewRequirement {
+  id: string
+  sourceMessageId: string
+  title: string
+  content: string
+  revision: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ReviewRequirementDraft {
+  sourceMessageId: string
+  title: string
+  content: string
+}
+
 export function createReviewShare(sessionId: string, input: {
   mode: ReviewShareMode
   title?: string
@@ -512,10 +529,16 @@ export function reissueReviewShare(reviewId: string, expiresInDays = 7) {
   )
 }
 
+export function deleteReviewShare(reviewId: string) {
+  return http<void>(`/claude-chat/reviews/${encodeURIComponent(reviewId)}/record`, {
+    method: 'DELETE',
+  })
+}
+
 export function getPublicReview(token: string) {
   return fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}`).then(async response => {
     if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效、过期或被撤销' : '读取评审会话失败')
-    return response.json() as Promise<{ reviewSessionId: string; title: string; sourceTitle: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number; createdAt: number; coveredSourceMessageIds?: string[]; hasSubmittedSummary?: boolean; runtimeConfig: { engine: 'codex'; modelPolicy: 'DEFAULT'; defaultModel: string | null; defaultReasoningEffort: string | null; speed: 'default'; executionPolicy: 'review-only'; codexAuthAlias: string } }>
+    return response.json() as Promise<{ reviewSessionId: string; title: string; sourceTitle: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number; createdAt: number; coveredSourceMessageIds?: string[]; hasSubmittedSummary?: boolean; latestSubmittedSummarySourceId?: string | null; runtimeConfig: { engine: 'codex'; modelPolicy: 'DEFAULT'; defaultModel: string | null; defaultReasoningEffort: string | null; speed: 'default'; executionPolicy: 'review-only'; codexAuthAlias: string } }>
   })
 }
 
@@ -541,6 +564,37 @@ export async function submitPublicReviewFeedback(token: string, content: string,
   })
   if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效' : '提交评审结论失败')
   return response.json() as Promise<{ id: string; status: string; createdAt: number }>
+}
+
+export function listPublicReviewRequirements(token: string) {
+  return http<PublicReviewRequirement[]>(
+    `/claude-chat/reviews/public/${encodeURIComponent(token)}/requirements`,
+  )
+}
+
+export function synchronizePublicReviewRequirements(token: string, items: ReviewRequirementDraft[]) {
+  return http<PublicReviewRequirement[]>(
+    `/claude-chat/reviews/public/${encodeURIComponent(token)}/requirements/sync`,
+    { method: 'PUT', body: JSON.stringify({ items }) },
+  )
+}
+
+export function updatePublicReviewRequirement(token: string, id: string, input: {
+  title: string
+  content: string
+  expectedRevision: number
+}) {
+  return http<PublicReviewRequirement>(
+    `/claude-chat/reviews/public/${encodeURIComponent(token)}/requirements/${encodeURIComponent(id)}`,
+    { method: 'PUT', body: JSON.stringify(input) },
+  )
+}
+
+export function deletePublicReviewRequirement(token: string, id: string) {
+  return http<void>(
+    `/claude-chat/reviews/public/${encodeURIComponent(token)}/requirements/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  )
 }
 
 export async function uploadReviewAttachment(token: string, file: File): Promise<UploadedAttachment> {
@@ -839,6 +893,7 @@ export async function loadMessages(
   qs.set('limit', String(limit))
   const page = await http<{ items: RawHistoryMessage[]; nextBefore: number | null }>(
     `/claude-chat/history/${encodeURIComponent(sdkSessionId)}/messages?${qs.toString()}`,
+    { signal: AbortSignal.timeout(SESSION_HISTORY_PAGE_TIMEOUT_MS) },
   )
   return { items: page.items.map(toChatItem), nextBefore: page.nextBefore }
 }
@@ -846,7 +901,9 @@ export async function loadMessages(
 export async function loadPublicReviewMessages(token: string, before?: number | null, limit = 30) {
   const qs = new URLSearchParams({ limit: String(limit) })
   if (before != null) qs.set('before', String(before))
-  const response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/messages?${qs}`)
+  const response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/messages?${qs}`, {
+    signal: AbortSignal.timeout(SESSION_HISTORY_PAGE_TIMEOUT_MS),
+  })
   if (!response.ok) throw new Error('读取评审历史失败')
   const page = await response.json() as { items: RawHistoryMessage[]; nextBefore: number | null }
   const items = page.items.map(toChatItem).map(item => {

@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 /** 评审反馈的本地持久化仓储。 */
 @Repository
@@ -54,6 +55,16 @@ public class ReviewFeedbackRepository {
                         + "WHERE review_space_id = ? AND source_message_id LIKE ?)",
                 Boolean.class, reviewSpaceId, sourceMessageIdPrefix + "%");
         return Boolean.TRUE.equals(exists);
+    }
+
+    public Optional<String> findLatestSourceMessageIdByPrefix(String reviewSpaceId, String sourceMessageIdPrefix) {
+        return jdbc.queryForList("""
+                SELECT source_message_id
+                  FROM claude_chat_review_feedback
+                 WHERE review_space_id = ? AND source_message_id LIKE ?
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 1
+                """, String.class, reviewSpaceId, sourceMessageIdPrefix + "%").stream().findFirst();
     }
 
     public boolean updateStatus(String id, String status, long handledAt) {

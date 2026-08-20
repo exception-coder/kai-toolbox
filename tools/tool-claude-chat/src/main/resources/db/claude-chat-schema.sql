@@ -92,6 +92,24 @@ CREATE TABLE IF NOT EXISTS claude_chat_review_summary_coverage (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_review_summary_coverage_space
     ON claude_chat_review_summary_coverage(review_space_id, created_at);
 
+-- 功能：计划评审需求清单；变更：保存 AI 草稿与评审员修订版本；目的：以可编辑清单作为开发交接唯一来源。
+CREATE TABLE IF NOT EXISTS claude_chat_review_requirement (
+    id                  TEXT PRIMARY KEY,
+    review_space_id     TEXT NOT NULL,
+    source_message_id   TEXT NOT NULL,
+    title               TEXT NOT NULL,
+    content             TEXT NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'ACTIVE',
+    revision            INTEGER NOT NULL DEFAULT 1,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    UNIQUE (review_space_id, source_message_id)
+);
+
+-- 功能：计划评审需求清单；变更：按评审空间与创建时间建立查询索引；目的：稳定展示当前需求顺序。
+CREATE INDEX IF NOT EXISTS idx_claude_chat_review_requirement_space
+    ON claude_chat_review_requirement(review_space_id, created_at);
+
 -- Vibe Coding 会话关联快捷入口中的测试站点；只保存逻辑 ID，站点名称、地址和图标仍由快捷入口统一维护。
 CREATE TABLE IF NOT EXISTS claude_chat_session_site (
     id          TEXT PRIMARY KEY,
@@ -153,6 +171,7 @@ CREATE INDEX IF NOT EXISTS idx_claude_chat_session_project_directory
 -- 会话规划过期锁定；id 即逻辑会话 ID，删除会话时由应用层同步清理。
 CREATE TABLE IF NOT EXISTS claude_chat_session_plan_state (
     id              TEXT PRIMARY KEY,
+    user_id         INTEGER,
     plan_expired    INTEGER NOT NULL DEFAULT 0,
     expired_at      INTEGER,
     unlocked_at     INTEGER,

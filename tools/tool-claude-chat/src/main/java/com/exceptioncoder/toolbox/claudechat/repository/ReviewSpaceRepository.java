@@ -74,4 +74,11 @@ public class ReviewSpaceRepository {
                 WHERE id = ? AND token_hash = ?
                 """, tokenCiphertext, now, id, expectedTokenHash) > 0;
     }
+
+    /** 永久删除评审聚合内的数据；调用方负责提供事务边界。 */
+    public void deleteAggregate(String id) {
+        jdbc.update("DELETE FROM claude_chat_review_summary_coverage WHERE review_space_id = ?", id);
+        jdbc.update("DELETE FROM claude_chat_review_feedback WHERE review_space_id = ?", id);
+        jdbc.update("DELETE FROM claude_chat_review_space WHERE id = ?", id);
+    }
 }
