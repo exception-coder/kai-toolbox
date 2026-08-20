@@ -17,6 +17,7 @@
     "h5:dev": "vite --config vite.standalone.config.ts",
     "h5:build": "node scripts/build-standalone-page.mjs --id supplier-quote-h5",
     "h5:preview": "vite preview --config vite.standalone.config.ts",
+    "assistant:build": "vite build --config vite.assistant.config.ts && tsc -p tsconfig.assistant.json",
     "java8gu:sync": "node scripts/build-java8gu-index.mjs",
     "webppt-report:quant": "node scripts/generate-webppt-quant-data.mjs"
   },

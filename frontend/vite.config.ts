@@ -1,10 +1,27 @@
-import { defineConfig } from 'vite'
+import { createLogger, defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import mkcert from 'vite-plugin-mkcert'
 import path from 'node:path'
 
+const logger = createLogger()
+const logError = logger.error.bind(logger)
+let lastBackendStartingNoticeAt = 0
+
+logger.error = (message, options) => {
+  if (message.includes('proxy error') && message.includes('ECONNREFUSED')) {
+    const now = Date.now()
+    if (now - lastBackendStartingNoticeAt >= 15_000) {
+      logger.warn('[proxy] 后端 :18080 仍在启动，API 会在服务就绪后自动恢复')
+      lastBackendStartingNoticeAt = now
+    }
+    return
+  }
+  logError(message, options)
+}
+
 export default defineConfig({
+  customLogger: logger,
   // 启用 HTTPS：浏览器把 getUserMedia / SpeechRecognition 等列为 secure-context only，
   // 手机走 LAN IP 明文 HTTP 时调用会被直接拒掉，必须是 HTTPS 或 localhost。
   // vite-plugin-mkcert 首次启动会下载 mkcert 二进制 + 弹一次 UAC 把本机根 CA 装进系统信任链，
@@ -45,6 +62,11 @@ export default defineConfig({
     // 生产构建仍由带 hash 的静态资源文件名控制缓存，不受此配置影响。
     headers: {
       'Cache-Control': 'no-store',
+    },
+    // 独立页面和助手 SDK 会在开发服务器运行期间重建。它们是输出目录，
+    // 不应触发主应用刷新，更不应被重新送入 CSS 分析流程。
+    watch: {
+      ignored: ['**/dist/**', '**/dist-assistant/**', '**/dist-pages/**'],
     },
     proxy: {
       '/MP_verify_eQMZqv1CWST9uWxh.txt': {

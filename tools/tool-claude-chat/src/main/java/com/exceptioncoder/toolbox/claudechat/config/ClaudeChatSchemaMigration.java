@@ -84,6 +84,7 @@ public class ClaudeChatSchemaMigration {
         }
         addColumn("subgroup_name", "TEXT");
         addColumn("favorite", "INTEGER NOT NULL DEFAULT 0");
+        addColumn("user_id", "INTEGER");
         addPendingSqlColumn("ddl_evidence_status", "TEXT NOT NULL DEFAULT 'NOT_CHECKED'");
         addPendingSqlColumn("ddl_project", "TEXT");
         addPendingSqlColumn("ddl_baseline_path", "TEXT");

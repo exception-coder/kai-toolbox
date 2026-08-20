@@ -14,12 +14,13 @@ import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionPlanStateService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionProjectService;
-import com.exceptioncoder.toolbox.claudechat.service.SessionProjectDirectoryService;
-import com.exceptioncoder.toolbox.claudechat.service.SessionSiteService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionDeletionService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionRuntimeStateService;
 import com.exceptioncoder.toolbox.claudechat.service.EngineCatalogService;
+import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -45,33 +46,35 @@ public class ClaudeChatSessionController {
     private final SessionHistoryService historyService;
     private final SessionPlanStateService planStateService;
     private final SessionProjectService sessionProjectService;
-    private final SessionSiteService sessionSiteService;
-    private final SessionProjectDirectoryService sessionProjectDirectoryService;
+    private final SessionDeletionService sessionDeletionService;
     private final SessionRuntimeStateService runtimeStateService;
     private final EngineCatalogService engineCatalogService;
+    private final ClaudeChatSessionAccessPolicy sessionAccessPolicy;
 
     public ClaudeChatSessionController(ClaudeChatSessionRepository repo, ClaudeChatService service,
                                        SessionHistoryService historyService,
                                        SessionPlanStateService planStateService,
                                        SessionProjectService sessionProjectService,
-                                       SessionSiteService sessionSiteService,
-                                       SessionProjectDirectoryService sessionProjectDirectoryService,
+                                       SessionDeletionService sessionDeletionService,
                                        SessionRuntimeStateService runtimeStateService,
-                                       EngineCatalogService engineCatalogService) {
+                                       EngineCatalogService engineCatalogService,
+                                       ClaudeChatSessionAccessPolicy sessionAccessPolicy) {
         this.repo = repo;
         this.service = service;
         this.historyService = historyService;
         this.planStateService = planStateService;
         this.sessionProjectService = sessionProjectService;
-        this.sessionSiteService = sessionSiteService;
-        this.sessionProjectDirectoryService = sessionProjectDirectoryService;
+        this.sessionDeletionService = sessionDeletionService;
         this.runtimeStateService = runtimeStateService;
         this.engineCatalogService = engineCatalogService;
+        this.sessionAccessPolicy = sessionAccessPolicy;
     }
 
     @GetMapping
     public List<ClaudeChatSessionView> list() {
-        List<ClaudeChatSession> all = repo.findAll();
+        List<ClaudeChatSession> all = repo.findAll().stream()
+                .filter(session -> sessionAccessPolicy.canAccessCurrentUser(session.getId()))
+                .toList();
         // 一次目录扫描批量判定 transcript 存在性，避免逐会话遍历目录树
         Set<String> missing = historyService.findMissingTranscriptsByLocation(
                 all.stream()
@@ -101,16 +104,15 @@ public class ClaudeChatSessionController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {
-        service.dropSession(id);
-        sessionSiteService.clear(id);
-        sessionProjectDirectoryService.clear(id);
-        repo.deleteById(id);
+        if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        sessionDeletionService.delete(id);
         return ResponseEntity.noContent().build();
     }
 
     /** 重命名工具会话（改 SQLite title）。 */
     @PutMapping("/{id}/title")
     public ResponseEntity<Void> rename(@PathVariable String id, @RequestBody Map<String, String> body) {
+        if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         String title = body.get("title");
         if (title == null || title.isBlank()) {
             return ResponseEntity.badRequest().build();
@@ -122,6 +124,7 @@ public class ClaudeChatSessionController {
     /** 设置/清除会话分组（改 SQLite group_name；空/缺省=移出分组）。后端持久化，跨端可见。 */
     @PutMapping("/{id}/group")
     public ResponseEntity<Void> setGroup(@PathVariable String id, @RequestBody Map<String, String> body) {
+        if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         String group = body.get("group");
         String g = group == null || group.isBlank() ? null : group.trim();
         String subgroup = body.get("subgroup");
@@ -133,6 +136,7 @@ public class ClaudeChatSessionController {
     /** 返回指定会话的全链路实时状态，不在查询过程中修改会话。 */
     @GetMapping("/{id}/runtime-state")
     public ResponseEntity<SessionRuntimeStateView> runtimeState(@PathVariable String id) {
+        if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return runtimeStateService.inspect(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
@@ -146,7 +150,11 @@ public class ClaudeChatSessionController {
 
     /** 将项目及其全部会话原子重命名，保留需求子分组。 */
     @PutMapping("/projects/name")
+    @Transactional
     public ResponseEntity<Void> renameProject(@RequestBody RenameSessionProjectRequest request) {
+        if (!sessionAccessPolicy.canAccessProjectCurrentUser(request.oldName())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         return switch (sessionProjectService.rename(request.oldName(), request.newName())) {
             case RENAMED, UNCHANGED -> ResponseEntity.noContent().build();
             case INVALID_NAME -> ResponseEntity.badRequest().build();
@@ -158,6 +166,7 @@ public class ClaudeChatSessionController {
     /** 将会话标记为重点收藏。 */
     @PutMapping("/{id}/favorite")
     public ResponseEntity<Void> favorite(@PathVariable String id) {
+        if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return repo.updateFavorite(id, true)
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
@@ -166,6 +175,7 @@ public class ClaudeChatSessionController {
     /** 取消会话重点收藏。 */
     @DeleteMapping("/{id}/favorite")
     public ResponseEntity<Void> unfavorite(@PathVariable String id) {
+        if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return repo.updateFavorite(id, false)
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
@@ -179,6 +189,7 @@ public class ClaudeChatSessionController {
      */
     @PutMapping("/{id}/plan-expired")
     public ResponseEntity<Void> expirePlan(@PathVariable String id) {
+        if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         SessionPlanStateService.ExpireResult result = planStateService.expire(id, service.isLive(id));
         return switch (result) {
             case SUCCESS -> ResponseEntity.noContent().build();
@@ -195,6 +206,7 @@ public class ClaudeChatSessionController {
      */
     @DeleteMapping("/{id}/plan-expired")
     public ResponseEntity<Void> unlockPlan(@PathVariable String id) {
+        if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return planStateService.unlock(id)
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
@@ -208,6 +220,7 @@ public class ClaudeChatSessionController {
      */
     @GetMapping("/{id}/pending")
     public ResponseEntity<ServerMessage> pending(@PathVariable String id) {
+        if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return service.pendingRequestOf(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
@@ -224,6 +237,9 @@ public class ClaudeChatSessionController {
     @PostMapping("/{id}/pending/decision")
     public ResponseEntity<Map<String, Boolean>> decidePending(@PathVariable String id,
                                                                 @RequestBody PendingDecisionRequest body) {
+        if (!sessionAccessPolicy.canAccessCurrentUser(id)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("ok", false));
+        }
         ClientMessage.Decision decision = new ClientMessage.Decision(
                 body.reqId(), body.behavior(), body.updatedInput(), body.answers());
         boolean ok = service.decisionForSession(id, decision);

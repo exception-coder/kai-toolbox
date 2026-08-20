@@ -8,6 +8,7 @@ import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.ReviewHandshakeInterceptor;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.QueuedChatMessage;
+import com.exceptioncoder.toolbox.claudechat.domain.ReviewIntentAssessment;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
@@ -66,10 +67,13 @@ public class ClaudeChatService {
     private final WelfareDemoSandboxProvisioner welfareDemo;
     private final SessionPlanStateService planStateService;
     private final ReviewSpaceService reviewSpaces;
+    private final ReviewIntentService reviewIntents;
     private final SessionProjectDirectoryService sessionProjectDirectories;
     private final QueuedChatMessageService queuedMessages;
+    private final AssistantEnvelopePromptBuilder assistantEnvelopePromptBuilder;
     private final SessionRuntimeStateService runtimeStates;
     private final EngineCatalogService engineCatalog;
+    private final ClaudeChatSessionAccessPolicy sessionAccessPolicy;
     private final ObjectMapper mapper;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
@@ -84,6 +88,8 @@ public class ClaudeChatService {
     private final Map<String, AgentSpan> activeTurnSpans = new ConcurrentHashMap<>();
     /** sessionId -> metadata captured at dispatch; completion must use the same stable turn identity. */
     private final Map<String, AgentRunMetadata> activeTurnMetadata = new ConcurrentHashMap<>();
+    /** 仅为评审轮次累计可见回复，供回复完成后的结构校验；不作为历史事实源。 */
+    private final Map<String, StringBuilder> activeReviewReplies = new ConcurrentHashMap<>();
     /** 后台 sidecar 重连任务的去重锁，避免多次断开叠起多个重连循环 */
     private final AtomicBoolean recovering = new AtomicBoolean(false);
     /** 一轮重连结束后的冷却时长：同一次断开的后续事件落在窗口内即被丢弃 */
@@ -111,10 +117,13 @@ public class ClaudeChatService {
                              WelfareDemoSandboxProvisioner welfareDemo,
                              SessionPlanStateService planStateService,
                              ReviewSpaceService reviewSpaces,
+                             ReviewIntentService reviewIntents,
                              SessionProjectDirectoryService sessionProjectDirectories,
                              QueuedChatMessageService queuedMessages,
+                             AssistantEnvelopePromptBuilder assistantEnvelopePromptBuilder,
                              SessionRuntimeStateService runtimeStates,
                              EngineCatalogService engineCatalog,
+                             ClaudeChatSessionAccessPolicy sessionAccessPolicy,
                              ObjectMapper mapper,
                              AgentTelemetry telemetry,
                              List<AgentRunMetadataProvider> metadataProviders,
@@ -131,10 +140,13 @@ public class ClaudeChatService {
         this.welfareDemo = welfareDemo;
         this.planStateService = planStateService;
         this.reviewSpaces = reviewSpaces;
+        this.reviewIntents = reviewIntents;
         this.sessionProjectDirectories = sessionProjectDirectories;
         this.queuedMessages = queuedMessages;
+        this.assistantEnvelopePromptBuilder = assistantEnvelopePromptBuilder;
         this.runtimeStates = runtimeStates;
         this.engineCatalog = engineCatalog;
+        this.sessionAccessPolicy = sessionAccessPolicy;
         this.mapper = mapper;
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
@@ -206,7 +218,8 @@ public class ClaudeChatService {
         List<String> consultEvidenceSystems = consultReadonly
                 ? normalizeConsultEvidenceSystems(open.consultEvidenceSystems()) : List.of();
         repo.insert(ClaudeChatSession.builder()
-                .id(sessionId).cwd(cwd).title(null).sdkSessionId(null).engine(engine)
+                .id(sessionId).userId(sessionAccessPolicy.ownerId(ws)).cwd(cwd).title(null)
+                .sdkSessionId(null).engine(engine)
                 .apiBaseUrl(apiBaseUrl).authToken(authToken).codexHome(codexHome)
                 .selectedModel(blankToNull(open.model())).codexReasoningEffort(codexReasoningEffort).codexSpeed(codexSpeed)
                 .executionPolicy(executionPolicy)
@@ -281,7 +294,7 @@ public class ClaudeChatService {
                 });
                 if (created[0]) migrateLegacyOfficialGemini(restored, db);
                 boolean engineSelectable = engineCatalog.selectable(restored.engine);
-                if (!canBind(ws, restored.executionPolicy)) return;
+                if (!canBind(ws, restored.executionPolicy, db.getId())) return;
                 bindViewer(ws, restored);
                 if (created[0] && engineSelectable) {
                     repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
@@ -304,7 +317,7 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
             return;
         }
-        if (!canBind(ws, ctx.executionPolicy)) return;
+        if (!canBind(ws, ctx.executionPolicy, attach.sessionId())) return;
         bindViewer(ws, ctx);
         warnIfReplayGap(ctx, ws, attach.lastEventSeq());
         replayBuffer(ctx, ws, attach.lastEventSeq());
@@ -325,7 +338,7 @@ public class ClaudeChatService {
             return;
         }
         String executionPolicy = executionPolicyOf(db);
-        if (!canBind(ws, executionPolicy)) return;
+        if (!canBind(ws, executionPolicy, db.getId())) return;
         SessionCtx ctx = sessions.computeIfAbsent(db.getId(), id -> new SessionCtx(id, db.getCwd()));
         ctx.sdkSessionId = db.getSdkSessionId();
         ctx.engine = normalizeEngine(db.getEngine());
@@ -376,7 +389,7 @@ public class ClaudeChatService {
             return;
         }
         String executionPolicy = executionPolicyOf(source);
-        if (!canBind(ws, executionPolicy)) return;
+        if (!canBind(ws, executionPolicy, source.getId())) return;
 
         String sessionId = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
@@ -393,7 +406,8 @@ public class ClaudeChatService {
         String speed = normalizeCodexSpeed(source.getCodexSpeed());
         List<String> consultEvidenceSystems = parseConsultEvidenceSystems(source.getConsultEvidenceSystems());
         repo.insert(ClaudeChatSession.builder()
-                .id(sessionId).cwd(source.getCwd()).title(title).sdkSessionId(null).engine(engine)
+                .id(sessionId).userId(sessionAccessPolicy.ownerId(ws)).cwd(source.getCwd()).title(title)
+                .sdkSessionId(null).engine(engine)
                 .apiBaseUrl(source.getApiBaseUrl()).authToken(source.getAuthToken()).codexHome(codexHome)
                 .selectedModel(source.getSelectedModel()).codexReasoningEffort(reasoningEffort).codexSpeed(speed)
                 .executionPolicy(executionPolicy)
@@ -441,7 +455,8 @@ public class ClaudeChatService {
                 ? System.getProperty("user.home") : msg.cwd().trim();
 
         repo.insert(ClaudeChatSession.builder()
-                .id(id).cwd(cwd).title(null).sdkSessionId(msg.sdkSessionId()).engine("claude")
+                .id(id).userId(sessionAccessPolicy.ownerId(ws)).cwd(cwd).title(null)
+                .sdkSessionId(msg.sdkSessionId()).engine("claude")
                 .executionPolicy(SessionExecutionPolicy.STANDARD)
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
 
@@ -480,7 +495,7 @@ public class ClaudeChatService {
                 }
             }
             if (ctx != null) {
-                if (!canBind(ws, ctx.executionPolicy)) return;
+                if (!canBind(ws, ctx.executionPolicy, sessionId)) return;
                 bindViewer(ws, ctx);
             }
         }
@@ -488,7 +503,7 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (!canBind(ws, ctx.executionPolicy)) return;
+        if (!canBind(ws, ctx.executionPolicy, ctx.sessionId)) return;
         if (!ensureSidecar(ws)) return;
         if (!engineCatalog.selectable(ctx.engine)) {
             sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
@@ -568,6 +583,26 @@ public class ClaudeChatService {
         }
     }
 
+    /** 将当前连接的消息幂等保存到既有持久队列，并返回服务端确认。 */
+    public void queueUserMessage(WebSocketSession ws, ClientMessage.Queue msg) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        try {
+            queuedMessages.save(ctx.sessionId, msg.id(), msg.text(), msg.displayText(),
+                    msg.developerInstructions(), msg.attachments() == null ? List.of() : msg.attachments().stream()
+                            .map(attachment -> new QueuedChatMessage.Attachment(
+                                    attachment.name(), attachment.path(), attachment.mime()))
+                            .toList(), msg.createdAt());
+            int queueSize = queuedMessages.list(ctx.sessionId).size();
+            sendToBrowser(ctx, seq -> new ServerMessage.QueueAccepted(seq, msg.id(), queueSize));
+        } catch (IllegalArgumentException exception) {
+            sendError(ws, 0, "INVALID_QUEUE_MESSAGE", exception.getMessage());
+        }
+    }
+
     /**
      * 在完成会话门禁后尝试启动一轮；调用方须持有当前会话锁。
      * 登记 RUNNING 与更新 drain 获取使用同一临界区，关闭 idle 检查后的新任务竞态。
@@ -580,13 +615,20 @@ public class ClaudeChatService {
     private void startTurnAdmitted(SessionCtx ctx, ClientMessage.Send msg) {
         ctx.queueReleaseReady = false;
         String turnId = turnLifecycle.begin(ctx.sessionId);
+        ReviewIntentAssessment reviewIntent = SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)
+                ? reviewIntents.classifyBeforeReply(ctx.sessionId, turnId, msg.messageId(), msg.text()).orElse(null)
+                : null;
+        if (reviewIntent != null) {
+            activeReviewReplies.put(ctx.sessionId, new StringBuilder());
+            sendReviewIntent(ctx, reviewIntent);
+        }
         ctx.status = SessionStatus.RUNNING;
         repo.touch(ctx.sessionId, SessionStatus.RUNNING, System.currentTimeMillis());
         observeRuntimeState(ctx);
         String developerInstructions = SessionExecutionPolicy.CONSULT_READONLY.equals(ctx.executionPolicy)
-                ? blankToNull(msg.developerInstructions())
+                ? assistantEnvelopePromptBuilder.merge(msg.developerInstructions(), msg.assistant())
                 : SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)
-                    ? reviewSpaces.developerInstructions(ctx.sessionId)
+                    ? reviewSpaces.developerInstructions(ctx.sessionId, reviewIntent)
                     : null;
         SessionProjectDirectoryService.SessionProjectContext projectContext =
                 sessionProjectDirectories.buildContext(ctx.sessionId, ctx.cwd, ctx.executionPolicy);
@@ -605,6 +647,7 @@ public class ClaudeChatService {
                     projectContext == null ? List.of() : projectContext.paths(),
                     turnId, span.traceContext(), metadata);
         } catch (RuntimeException e) {
+            activeReviewReplies.remove(ctx.sessionId);
             turnLifecycle.complete(ctx.sessionId, turnId);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
@@ -1157,8 +1200,12 @@ public class ClaudeChatService {
                 ctx.outputStyle = node.hasNonNull("outputStyle") ? node.get("outputStyle").asText() : null;
                 sendToBrowser(ctx, seq -> ready(ctx, seq));
             }
-            case "assistantDelta" -> sendToBrowser(ctx,
-                    seq -> new ServerMessage.AssistantDelta(seq, node.path("text").asText("")));
+            case "assistantDelta" -> {
+                String delta = node.path("text").asText("");
+                StringBuilder reviewReply = activeReviewReplies.get(ctx.sessionId);
+                if (reviewReply != null) reviewReply.append(delta);
+                sendToBrowser(ctx, seq -> new ServerMessage.AssistantDelta(seq, delta));
+            }
             case "toolUse" -> sendToBrowser(ctx, seq -> new ServerMessage.ToolUse(
                     seq, node.path("toolCallId").asText(null),
                     node.path("toolName").asText(""), asObject(node.get("input"))));
@@ -1285,6 +1332,11 @@ public class ClaudeChatService {
                         ctx.sessionId, turnId, ctx.status);
                 return;
             }
+            StringBuilder reply = activeReviewReplies.remove(ctx.sessionId);
+            if (reply != null) {
+                reviewIntents.validateAfterReply(ctx.sessionId, turnId, reply.toString())
+                        .ifPresent(value -> sendReviewIntent(ctx, value));
+            }
             runtimeStates.observeSidecarTerminal(ctx.sessionId, ctx.backgroundTasks.size());
             completeTurn(ctx, asMap(node.get("usage")), node.path("stopReason").asText("end_turn"),
                     node.path("traceId").asText(null), queueReleaseAllowed(node));
@@ -1347,6 +1399,12 @@ public class ClaudeChatService {
         }
     }
 
+    private void sendReviewIntent(SessionCtx ctx, ReviewIntentAssessment value) {
+        sendToBrowser(ctx, seq -> new ServerMessage.ReviewIntent(
+                seq, value.clientMessageId(), value.turnId(), value.finalIntent(), value.classificationStatus(),
+                value.confidence(), value.reason(), value.signals(), value.extractedTitle(), value.extractedContent()));
+    }
+
     /** 调用方同时持有会话锁与 admission gate。 */
     private void dispatchNextQueuedMessageAdmitted(SessionCtx ctx) {
         Optional<QueuedChatMessage> next = queuedMessages.takeFirst(ctx.sessionId);
@@ -1357,7 +1415,7 @@ public class ClaudeChatService {
         QueuedChatMessage message = next.get();
         ClientMessage.Send send = new ClientMessage.Send(message.text(), message.attachments().stream()
                 .map(attachment -> new ClientMessage.Send.Attachment(attachment.name(), attachment.path()))
-                .toList(), message.developerInstructions());
+                .toList(), message.developerInstructions(), null, message.id());
         try {
             if (!ensureSessionResumable(ctx)) {
                 queuedMessages.restore(message);
@@ -1483,7 +1541,7 @@ public class ClaudeChatService {
         ClaudeChatSession source = repo.findById(ctx.sessionId).orElse(null);
         String sourceTitle = source == null ? null : blankToNull(source.getTitle());
         repo.insert(ClaudeChatSession.builder()
-                .id(newId).cwd(cwd)
+                .id(newId).userId(source == null ? null : source.getUserId()).cwd(cwd)
                 .title(sourceTitle == null ? null : sourceTitle + "（分支）")
                 .sdkSessionId(newSdk).engine(forkEngine).engines(forkEngine)
                 .apiBaseUrl(ctx.apiBaseUrl).authToken(ctx.authToken).codexHome(ctx.codexHome)
@@ -1703,7 +1761,7 @@ public class ClaudeChatService {
     }
 
     /** 咨询与开发通道双向隔离，任何入口都不能凭会话 ID 交叉接管另一执行域。 */
-    private boolean canBind(WebSocketSession ws, String targetPolicy) {
+    private boolean canBind(WebSocketSession ws, String targetPolicy, String targetSessionId) {
         String channelPolicy = SessionExecutionPolicy.forWebSocket(ws.getUri());
         if (!SessionExecutionPolicy.canBind(channelPolicy, targetPolicy)) {
             String message = SessionExecutionPolicy.isConsultReadonly(channelPolicy)
@@ -1712,6 +1770,10 @@ public class ClaudeChatService {
                         ? "评审分享通道只能访问评审会话"
                         : "Vibe Coding 通道不能访问受限会话";
             sendError(ws, 0, "SESSION_FORBIDDEN", message);
+            return false;
+        }
+        if (!sessionAccessPolicy.canAccess(ws, targetSessionId)) {
+            sendError(ws, 0, "SESSION_FORBIDDEN", "当前用户不能访问该会话");
             return false;
         }
         return true;

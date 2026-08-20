@@ -34,6 +34,7 @@ data/
 ### Frontend ###
 frontend/node_modules/
 frontend/dist/
+frontend/dist-assistant/
 frontend/dist-pages/
 frontend/dist-ssr/
 frontend/.vite/
@@ -71,3 +72,8 @@ spring-shell.log
 /tmp/
 __pycache__/
 *.py[cod]
+
+### Sidecar isolated build outputs ###
+/sidecar/claude-agent/.test-dist/
+/sidecar/claude-agent/.dist-stage-*/
+/sidecar/claude-agent/.dist-backup-*/

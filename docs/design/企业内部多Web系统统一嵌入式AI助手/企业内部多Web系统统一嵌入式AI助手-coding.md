@@ -1,0 +1,112 @@
+# 企业内部多 Web 系统统一嵌入式 AI 助手编码摘要
+
+> 对应设计：`企业内部多Web系统统一嵌入式AI助手-current.md`。
+
+## 1. 核心规则
+
+- Assistant 会话复用 Claude Chat，不创建第二套 Session、事件回放或消息队列。
+- 多连接都可提交；不可立即发送时持久化到既有队列，不返回丢弃语义。
+- 服务端认证用户拥有会话；普通用户仅访问本人会话，ADMIN 可访问任意用户会话；客户端上下文中的用户标识不参与授权。
+- ADMIN 跨用户放行只作用于会话所有权，不能绕过咨询、评审分享和 Vibe Coding 的执行域绑定规则。
+- 显式意图优先，只有 `AUTO` 模式调用分类器。
+- Bug、建议草稿确认前不写 ReqPool；确认后原子幂等创建 `PENDING_EXECUTION` 记录。
+- Collector 最多保存 100 条，诊断默认上传最近 20 条；Authorization、Cookie、请求体和配置敏感字段默认剔除。
+- Bridge 始终从权威 `ChatItem[]` 投影完整用户/助手消息与会话终态；不得以回答文本去重条件拦截 `running=false`。
+- Widget 的助手消息使用 `marked + DOMPurify` 安全渲染 Markdown；消息区独立滚动，Composer 固定在 Drawer 底部。
+- Widget 点击发送后必须先在本地消息流追加用户消息，再异步采集上下文；准备、连接、回复、消息处理、后台处理和待确认状态统一禁止再次提交。
+- 回合活动状态显示在消息流内，不占用头部上下文条；忙碌期间允许编辑并保留下一条草稿，但发送按钮和键盘提交必须同时锁定。
+- 公开 SDK 通过 `AssistantWebSocketTransport` 直接消费统一 WS 协议；不得依赖 React、Router 或 Claude Chat Hook。
+- 独立产物同时构建 ESM 与 IIFE；kai-toolbox 内部 Bridge 保留为兼容入口，迁移期间不得复制领域规则。
+- 初始隐藏、快捷键和显示密钥属于 Widget 本地交互；不得替代 WS Token、会话所有权或服务端权限校验。
+- 拖动逻辑集中在独立位置控制器，入口与对话框共用边界约束和持久化规则；Widget 不复制坐标算法。
+- 外部登录必须由宿主显式配置；HTTP CORS 同时受启用开关和精确 Origin 白名单约束，缺省关闭。
+- 外部登录只复用 Forge ACCESS Token；密码仅用于单次登录请求，ACCESS Token 只保存在 SDK 实例内存，不接收、不保存 REFRESH Token。
+- 中止动作复用既有 WS `interrupt` 协议；本地准备阶段通过 `AbortSignal` 结束 Provider 收集，Transport 运行阶段只中止当前回合。
+- 调试面板只消费结构化脱敏元数据，最多 200 条且不持久化；禁止把 WS URL 查询串、消息正文、上下文值或认证响应写入日志。
+
+## 2. 接口入口
+
+| 接口 | 实现落点 |
+|---|---|
+| `WS /api/claude-chat/consult/ws` | `ClaudeChatWebSocketHandler`、`ClaudeChatService` |
+| `POST /api/assistant/intents/route` | `AssistantIntentController#route` |
+| `POST /api/assistant/sessions/{id}/context` | `AssistantSessionController#save` |
+| `GET /api/assistant/sessions/{id}/context` | `AssistantSessionController#latest` |
+| `POST /api/assistant/drafts` | `AssistantDraftController#create` |
+| `POST /api/assistant/drafts/{id}/confirm` | `AssistantDraftController#confirm` |
+| `GET /api/assistant/drafts/{id}` | `AssistantDraftController#get` |
+| `POST /api/auth/external-login` | `ExternalLoginController#login`；复用账号认证，仅签发 ACCESS Token；仅外部登录开关启用且 Origin 命中白名单时允许跨域 |
+
+## 3. 涉及类清单
+
+| 全路径或文件 | 操作 | 职责 |
+|---|---|---|
+| `com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession` | 修改 | 增加服务端认证用户归属 |
+| `com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository` | 修改 | 持久化、查询会话所有者 |
+| `com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy` | 新建 | 统一校验会话访问权 |
+| `com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService` | 修改 | Open、Attach、Switch、Send 接入所有权校验 |
+| `com.exceptioncoder.toolbox.assistant.domain.*` | 新建 | 上下文、意图、草稿及确认结果模型 |
+| `com.exceptioncoder.toolbox.assistant.service.*` | 新建 | 草稿与 ReqPool 登记用例编排 |
+| `com.exceptioncoder.toolbox.assistant.api.*` | 新建 | kai-toolbox 内部兼容 HTTP 协议适配 |
+| `com.exceptioncoder.toolbox.common.assistant.AssistantCapabilityPort` | 新建 | 统一 WS 到 Assistant 业务能力的稳定跨模块端口 |
+| `com.exceptioncoder.toolbox.claudechat.service.AssistantWebSocketCommandHandler` | 新建 | 上下文、草稿、确认、用户列表的 WS 协议适配 |
+| `frontend/src/assistant-sdk/*` | 新建 | 幂等 SDK、Provider、Collector、Sanitizer 和传输 |
+| `frontend/src/assistant-sdk/widget.ts` | 新建 | Shadow DOM Drawer、上下文清单、对话和草稿确认 |
+| `frontend/src/assistant-sdk/widgetInteractionState.ts` | 新建 | 将传输状态统一投影为消息流活动提示和发送门禁 |
+| `frontend/src/assistant-sdk/widgetPosition.ts` | 新建 | 跨端胶囊与桌面端对话框拖动、边界约束与位置持久化 |
+| `frontend/src/assistant-sdk/AssistantBridge.tsx` | 新建 | SDK 与既有咨询 WebSocket、队列、草稿接口接线 |
+| `frontend/src/assistant-sdk/AssistantWebSocketTransport.ts` | 新建 | 独立 SDK 的连接、重连、水位、消息和排队状态 |
+| `frontend/src/assistant-sdk/assistantDebugLog.ts` | 新建 | 调试日志容量、脱敏元数据与时间格式化 |
+| `com.exceptioncoder.toolbox.common.auth.config.AuthProperties` | 修改 | 增加外部登录 CORS 开关与 Origin 白名单 |
+| `com.exceptioncoder.toolbox.common.auth.config.ExternalLoginCorsConfiguration` | 新建 | 只为 Forge 登录路径注册受控 CORS 规则 |
+| `frontend/src/assistant-sdk/externalLogin.ts` | 新建 | Forge 登录请求、响应校验和实例内存 Token 生命周期 |
+| `frontend/src/assistant-sdk/widget.ts` | 修改 | 无 Token 时展示登录、提交中、失败和恢复状态 |
+| `frontend/vite.assistant.config.ts` | 新建 | 输出 ESM 与 IIFE 独立产物 |
+| `ClientMessage.Queue`、`ServerMessage.QueueAccepted` | 修改 | 同一 WS 上持久化待发送消息并确认接收 |
+
+## 4. 关键方法
+
+```text
+ClaudeChatSessionAccessPolicy#canAccessCurrentUser(String sessionId): boolean — ADMIN 访问任意会话，普通用户拒绝访问他人会话
+AssistantDraftService#create(CreateDraftCommand command): AssistantDraft — 创建可编辑草稿
+AssistantDraftService#confirm(String draftId, String idempotencyKey, Long engineerUserId): AssistantRegistration — 原子登记 ReqPool
+AssistantContextService#save(String sessionId, String protocolVersion, Object snapshot): AssistantContextSnapshot — 保存不可变版本化快照
+sanitizeEvidence(value, options) — 上传前剔除敏感字段、Bearer 凭据和 URL 敏感查询参数
+projectConversationMessages(items, running) — 将既有咨询消息投影为 Widget 用户/助手消息
+resolveConversationState(input) — 按错误、连接、待确认、运行、排队和完成优先级解析展示状态
+deriveWidgetInteractionState(state, queueSize) — 统一解析消息流活动状态、色调和提交门禁
+AssistantWebSocketTransport#submit(submission) — 根据连接和运行态直接发送或持久化排队
+AssistantWebSocketTransport#interrupt() — 清理未发送本地请求或复用 WS interrupt 中止当前回合
+AssistantPositionController — 统一处理拖动、键盘移动、窗口缩放约束和本地位置恢复
+ClaudeChatService#queueUserMessage(ws, message) — 校验当前会话并幂等保存待发送消息
+ExternalLoginClient#login(username, password) — 调用受控 Forge 登录接口并只保留 ACCESS Token
+```
+
+## 5. 数据结构
+
+- `claude_chat_session.user_id`：可空兼容旧会话；新咨询会话必须写当前认证用户 ID。
+- `assistant_draft`：草稿、意图、上下文快照、状态和创建者。
+- `assistant_registration`：草稿到 ReqPool 的登记映射，`idempotency_key` 唯一。
+- `req_pool_item.status` 新增允许值 `PENDING_EXECUTION`，不改变存量状态。
+
+## 6. 并发与事务
+
+- 确认登记在同一 SQLite 事务内完成幂等占位、ReqPool 创建和映射落库。
+- 相同草稿即使使用不同 `idempotencyKey`，也由草稿唯一约束保证最多创建一条 ReqPool 记录。
+- 队列释放继续由 `ClaudeChatService` 的现有会话锁、运行状态和 `queueReleaseSafe` 门禁控制。
+- 多标签页不设置单写连接租约。
+- 全局 Assistant Bridge 使用 `autoConnect: false`，首次提交才建立咨询 WebSocket。
+- Assistant Bridge 按用户持久化 `sessionId`，多标签页复用同一会话的运行状态和服务端待发送队列。
+- 独立 Transport 按 `appId + userId` 保存会话、水位和展示消息；重连退避有上限，销毁后停止重连。
+
+## 7. 异常与验证
+
+- 未认证返回 `401`；普通用户访问他人会话返回 `403`；ADMIN 不受会话所有者限制；资源不存在返回 `404`。
+- 会话未稳定或正在运行时，消息持久化入队并返回排队状态。
+- 覆盖成功、重复确认、并发确认、普通用户越权、ADMIN 跨用户访问、敏感字段、队列恢复和 Provider 超时测试。
+- 覆盖回复终态、完整消息投影、Markdown 清洗渲染、固定 Composer 和窄屏 Drawer 的回归与视觉验证。
+- 覆盖发送即时投影、慢 Provider 准备态、回复期提交锁定、终态解锁和失败后草稿恢复。
+- 覆盖 WS 首连、恢复、流式增量、终态、运行中排队、队列确认、断线重连和独立产物构建。
+- 覆盖初始隐藏、默认快捷键、密钥错误/成功、主动打开、拖动边界、位置恢复、移动端胶囊拖动和窄屏对话框固定。
+- 覆盖外部登录缺省关闭、Origin 允许/拒绝、登录成功、凭据错误、网络失败、Token 不持久化和登录后首次咨询。
+- 覆盖准备阶段中止、运行阶段 interrupt、终态解锁、调试日志容量上限以及日志不含 Token/消息正文。

@@ -172,6 +172,10 @@
         </dependency>
         <dependency>
             <groupId>com.exceptioncoder</groupId>
+            <artifactId>tool-assistant</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
             <artifactId>tool-eval</artifactId>
         </dependency>
         <dependency>

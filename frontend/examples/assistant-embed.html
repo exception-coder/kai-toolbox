@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KAI Assistant IIFE 接入示例</title>
+  </head>
+  <body>
+    <button type="button" id="diagnose-order">诊断当前订单</button>
+    <script src="/assets/kai-assistant.iife.js"></script>
+    <script>
+      const assistant = KaiAssistant.initialize({
+        appId: 'ERP',
+        appName: 'ERP',
+        wsUrl: '/assistant-ws',
+        getAccessToken: () => window.getAssistantAccessToken(),
+        visibility: {
+          initiallyHidden: true,
+          activationKey: 'erp-assistant',
+        },
+        draggable: true,
+        user: {
+          id: String(window.currentUser.id),
+          displayName: window.currentUser.name,
+        },
+        page: {
+          url: window.location.pathname,
+          title: document.title,
+        },
+      })
+
+      document.getElementById('diagnose-order').addEventListener('click', () => {
+        const order = window.currentOrder
+        assistant.updateContext({
+          businessObject: {
+            type: 'SALES_ORDER',
+            id: String(order.id),
+            attributes: { orderCode: order.code, status: order.status },
+          },
+        })
+        assistant.open('DIAGNOSE')
+      })
+    </script>
+  </body>
+</html>

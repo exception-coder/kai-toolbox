@@ -164,12 +164,12 @@ class ReviewSpaceServiceTest {
 
         assertThat(instructions)
                 .contains("面向业务人员", "当前现状", "需求建议", "待确认项", "验收场景")
-                .contains("REQUIREMENT（需求反馈）", "CONSULTATION（沟通咨询）",
-                        "<!-- forge-review-intent:REQUIREMENT -->",
-                        "<!-- forge-review-intent:CONSULTATION -->",
-                        "同时包含咨询与明确变更诉求时也属于需求反馈",
-                        "### 需求标题：简短标题", "需求说明", "待确认项", "验收场景")
+                .contains("Forge 已在回答前完成结构化意图判定",
+                        "【本轮意图】", "UNKNOWN", "### 需求标题：简短标题",
+                        "需求说明", "待确认项", "验收场景")
+                .contains("旧的 <!-- forge-review-intent:... --> 标记仅作历史兼容")
                 .contains("不得在回复中输出源码文件、类名、接口、数据库表或字段、SQL")
+                .doesNotContain("REQUIREMENT（需求反馈）", "CONSULTATION（沟通咨询）")
                 .doesNotContain("帮助业务、测试和开发人员");
     }
 

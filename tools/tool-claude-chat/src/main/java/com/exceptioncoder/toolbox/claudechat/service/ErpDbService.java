@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
 @Service
 public class ErpDbService {
 
-    private static final int MAX_ROWS = 200;
+    private static final int MAX_ROWS = 50;
     private static final int TIMEOUT_SEC = 15;
     /** 兜底拦截的写/DDL/过程关键字（词边界匹配；只读账号是主闸，这里是第二道）。 */
     private static final Pattern DANGER = Pattern.compile(

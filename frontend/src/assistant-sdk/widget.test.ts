@@ -1,0 +1,327 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { currentAssistant, initializeAssistant } from './assistantSdk'
+import type { AssistantTransport, AssistantWidgetState } from './types'
+import { createAssistantDebugEntry } from './assistantDebugLog'
+
+afterEach(() => {
+  currentAssistant()?.destroy()
+  vi.unstubAllGlobals()
+})
+
+describe('assistant widget', () => {
+  it('logs in with an existing Forge account before revealing consultation controls', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      accessToken: 'forge-access', refreshToken: 'ignored', expiresIn: 1800,
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetcher)
+    initializeAssistant({
+      appId: 'ERP', wsUrl: 'wss://forge.example.com/api/claude-chat/consult/ws',
+      externalLogin: { loginUrl: 'https://forge.example.com/api/auth/external-login' },
+    }).open('QUESTION')
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    const authentication = shadow.querySelector<HTMLElement>('[data-authentication]')!
+    const content = shadow.querySelector<HTMLElement>('[data-authenticated-content]')!
+    const username = shadow.querySelector<HTMLInputElement>('[data-login-username]')!
+    const password = shadow.querySelector<HTMLInputElement>('[data-login-password]')!
+
+    expect(authentication.hidden).toBe(false)
+    expect(content.hidden).toBe(true)
+    username.value = 'forge-user'
+    password.value = 'secret'
+    shadow.querySelector<HTMLFormElement>('[data-login-form]')!
+      .dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
+
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(authentication.hidden).toBe(true))
+    expect(content.hidden).toBe(false)
+    expect(password.value).toBe('')
+    expect(shadow.querySelector('[data-state-label]')?.textContent).toBe('已就绪')
+  })
+
+  it('keeps the username, clears the password and allows retry after a Forge login failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 401 })))
+    initializeAssistant({
+      appId: 'ERP', wsUrl: 'wss://forge.example.com/api/claude-chat/consult/ws',
+      externalLogin: { loginUrl: 'https://forge.example.com/api/auth/external-login' },
+    }).open('QUESTION')
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    const username = shadow.querySelector<HTMLInputElement>('[data-login-username]')!
+    const password = shadow.querySelector<HTMLInputElement>('[data-login-password]')!
+    username.value = 'forge-user'
+    password.value = 'wrong'
+
+    shadow.querySelector<HTMLFormElement>('[data-login-form]')!
+      .dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
+
+    await vi.waitFor(() => expect(shadow.querySelector<HTMLElement>('[data-login-error]')!.hidden).toBe(false))
+    expect(shadow.querySelector('[data-login-error]')?.textContent).toContain('账号或密码不正确')
+    expect(username.value).toBe('forge-user')
+    expect(password.value).toBe('')
+    expect(shadow.querySelector<HTMLButtonElement>('[data-login-submit]')!.disabled).toBe(false)
+  })
+
+  it('uses a shadow root and exposes recoverable capability choices', () => {
+    const sdk = initializeAssistant({ appId: 'ERP' })
+    sdk.open('BUG')
+
+    const widget = document.querySelector('kai-assistant-widget')
+    const panel = widget?.shadowRoot?.querySelector<HTMLElement>('[data-panel]')
+    expect(widget?.shadowRoot).not.toBeNull()
+    expect(panel?.hidden).toBe(false)
+    expect(widget?.shadowRoot?.querySelector('[data-launcher] .capsule-icon')).not.toBeNull()
+    expect(widget?.shadowRoot?.querySelector('[data-launcher]')?.getAttribute('aria-label')).toBe('打开 AI 助手')
+    expect(widget?.shadowRoot?.textContent).toContain('连接未稳定时消息会进入待发送列表')
+    expect(widget?.shadowRoot?.querySelectorAll('[data-mode]')).toHaveLength(4)
+  })
+
+  it('emits mode and text only after an explicit send action', () => {
+    const sdk = initializeAssistant({ appId: 'ERP' })
+    sdk.open('BUG')
+    const widget = document.querySelector('kai-assistant-widget')!
+    const submitted: unknown[] = []
+    widget.addEventListener('assistant-submit', event => submitted.push((event as CustomEvent).detail))
+
+    const input = widget.shadowRoot!.querySelector<HTMLTextAreaElement>('[data-message]')!
+    input.value = '订单审核返回 500'
+    input.dispatchEvent(new Event('input'))
+    widget.shadowRoot!.querySelector<HTMLButtonElement>('[data-submit]')!.click()
+
+    expect(submitted).toEqual([{ mode: 'BUG', text: '订单审核返回 500' }])
+    expect(input.value).toBe('')
+  })
+
+  it('reports a missing websocket configuration instead of staying in preparation', () => {
+    const sdk = initializeAssistant({ appId: 'ERP' })
+    sdk.open('QUESTION')
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    const input = shadow.querySelector<HTMLTextAreaElement>('[data-message]')!
+    input.value = '测试缺失配置'
+    input.dispatchEvent(new Event('input'))
+    shadow.querySelector<HTMLButtonElement>('[data-submit]')!.click()
+
+    expect(shadow.querySelector('[data-state-label]')?.textContent).toBe('配置缺失')
+    expect(shadow.querySelector('[data-notice]')?.textContent).toContain('wsUrl')
+    shadow.querySelector<HTMLButtonElement>('[data-debug-toggle]')!.click()
+    expect(shadow.querySelector('[data-debug-list]')?.textContent).toContain('缺少 WebSocket Transport')
+  })
+
+  it('shows the submitted message and preparation state immediately, then locks sending until completion', async () => {
+    let finishProvider: (() => void) | undefined
+    const providerResult = new Promise<{ key: string; value: string }>(resolve => {
+      finishProvider = () => resolve({ key: 'order', value: 'SO-1' })
+    })
+    const submit = vi.fn()
+    const transport: AssistantTransport = {
+      start: () => undefined,
+      submit,
+      destroy: () => undefined,
+    }
+    initializeAssistant({
+      appId: 'ERP',
+      transport,
+      providers: [{ id: 'slow-order', collect: () => providerResult }],
+    }).open('QUESTION')
+    const root = document.getElementById('kai-assistant-widget-root')!
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    const input = shadow.querySelector<HTMLTextAreaElement>('[data-message]')!
+    const sendButton = shadow.querySelector<HTMLButtonElement>('[data-submit]')!
+    const conversation = shadow.querySelector<HTMLElement>('[data-conversation]')!
+
+    input.value = '为什么订单不能审核？'
+    input.dispatchEvent(new Event('input'))
+    sendButton.click()
+
+    expect(conversation.textContent).toContain('为什么订单不能审核？')
+    expect(conversation.textContent).toContain('正在准备当前页面上下文')
+    expect(shadow.querySelector('[data-context-strip]')?.textContent).not.toContain('正在准备')
+    expect(sendButton.disabled).toBe(true)
+    expect(submit).not.toHaveBeenCalled()
+
+    input.value = '生成期间不能再发送'
+    input.dispatchEvent(new Event('input'))
+    expect(sendButton.disabled).toBe(true)
+
+    finishProvider?.()
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce())
+    root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
+      detail: {
+        state: '回复中',
+        messages: [{ id: 'u-1', role: 'user', content: '为什么订单不能审核？' }],
+      },
+    }))
+    expect(conversation.textContent).toContain('AI 正在生成回复')
+    expect(sendButton.disabled).toBe(true)
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }))
+    sendButton.click()
+    expect(submit).toHaveBeenCalledOnce()
+
+    root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
+      detail: {
+        state: '已完成',
+        messages: [
+          { id: 'u-1', role: 'user', content: '为什么订单不能审核？' },
+          { id: 'a-1', role: 'assistant', content: '请检查审核状态。' },
+        ],
+      },
+    }))
+    expect(sendButton.disabled).toBe(false)
+  })
+
+  it('interrupts context preparation and shows in-memory request debug logs', async () => {
+    const submit = vi.fn()
+    const interrupt = vi.fn()
+    const transport: AssistantTransport = {
+      start: () => undefined,
+      submit,
+      interrupt,
+      destroy: () => undefined,
+    }
+    initializeAssistant({
+      appId: 'ERP', transport,
+      providers: [{ id: 'blocked', collect: () => new Promise(() => undefined) }],
+    }).open('QUESTION')
+    const root = document.getElementById('kai-assistant-widget-root')!
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    const input = shadow.querySelector<HTMLTextAreaElement>('[data-message]')!
+    input.value = '检查卡住的请求'
+    input.dispatchEvent(new Event('input'))
+    shadow.querySelector<HTMLButtonElement>('[data-submit]')!.click()
+
+    const interruptButton = shadow.querySelector<HTMLButtonElement>('[data-interrupt]')!
+    expect(interruptButton.hidden).toBe(false)
+    interruptButton.click()
+
+    await vi.waitFor(() => expect(shadow.querySelector('[data-state-label]')?.textContent).toBe('已中止'))
+    expect(submit).not.toHaveBeenCalled()
+    expect(interrupt).not.toHaveBeenCalled()
+    root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
+      detail: { debugEntry: createAssistantDebugEntry('connection', 'WebSocket 连接成功', { attempt: 1 }) },
+    }))
+    const debugToggle = shadow.querySelector<HTMLButtonElement>('[data-debug-toggle]')!
+    debugToggle.click()
+    expect(debugToggle.getAttribute('aria-expanded')).toBe('true')
+    expect(shadow.querySelector('[data-debug-list]')?.textContent).toContain('开始采集页面上下文')
+    expect(shadow.querySelector('[data-debug-list]')?.textContent).toContain('WebSocket 连接成功')
+    expect(shadow.querySelector('[data-debug-list]')?.textContent).not.toContain('检查卡住的请求')
+  })
+
+  it('renders the complete conversation and sanitized markdown in the message feed', () => {
+    initializeAssistant({ appId: 'ERP' }).open('QUESTION')
+    const root = document.getElementById('kai-assistant-widget-root')!
+    const widget = document.querySelector('kai-assistant-widget')!
+    root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
+      detail: {
+        state: '回复中',
+        messages: [
+          { id: 'u-1', role: 'user', content: '给我分析一下' },
+          {
+            id: 'a-1', role: 'assistant', streaming: true,
+            content: '## 分析结果\n\n这里是 **完整内容**。<script>window.alert("x")</script>',
+          },
+        ],
+      },
+    }))
+
+    const conversation = widget.shadowRoot!.querySelector<HTMLElement>('[data-conversation]')!
+    expect(conversation.textContent).toContain('给我分析一下')
+    expect(conversation.querySelector('h2')?.textContent).toBe('分析结果')
+    expect(conversation.querySelector('strong')?.textContent).toBe('完整内容')
+    expect(conversation.querySelector('script')).toBeNull()
+    expect(conversation.textContent).toContain('正在生成')
+
+    root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
+      detail: {
+        state: '已完成',
+        messages: [
+          { id: 'u-1', role: 'user', content: '给我分析一下' },
+          { id: 'a-1', role: 'assistant', content: '## 分析结果\n\n这里是 **完整内容**。' },
+        ],
+      },
+    }))
+    expect(widget.shadowRoot!.querySelector('[data-state-label]')?.textContent).toBe('已完成')
+    expect(conversation.textContent).not.toContain('正在生成')
+
+    root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
+      detail: { users: [{ userId: 7, displayName: '开发甲' }] },
+    }))
+    expect(widget.shadowRoot!.querySelector('[data-state-label]')?.textContent).toBe('已完成')
+    expect(widget.shadowRoot!.querySelector('[data-engineer]')?.textContent).toContain('开发甲')
+  })
+
+  it('keeps the assistant hidden until the default shortcut and display key succeed', () => {
+    initializeAssistant({
+      appId: 'ERP',
+      visibility: { initiallyHidden: true, activationKey: 'erp-ai' },
+    })
+    const root = document.getElementById('kai-assistant-widget-root')!
+    const widget = document.querySelector('kai-assistant-widget')!
+    const shadow = widget.shadowRoot!
+    const launcher = shadow.querySelector<HTMLButtonElement>('[data-launcher]')!
+    const panel = shadow.querySelector<HTMLElement>('[data-panel]')!
+    const unlock = shadow.querySelector<HTMLElement>('[data-unlock]')!
+    const input = shadow.querySelector<HTMLInputElement>('[data-unlock-input]')!
+
+    expect(launcher.hidden).toBe(true)
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'a', ctrlKey: true, shiftKey: true, bubbles: true,
+    }))
+    expect(unlock.hidden).toBe(true)
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'k', ctrlKey: true, altKey: true, shiftKey: true, bubbles: true,
+    }))
+    expect(unlock.hidden).toBe(true)
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: ')', code: 'Digit0', ctrlKey: true, altKey: true, shiftKey: true, bubbles: true,
+    }))
+    expect(unlock.hidden).toBe(false)
+
+    input.value = 'wrong'
+    shadow.querySelector<HTMLButtonElement>('[data-unlock-submit]')!.click()
+    expect(shadow.querySelector<HTMLElement>('[data-unlock-error]')!.hidden).toBe(false)
+    expect(panel.hidden).toBe(true)
+
+    input.value = 'erp-ai'
+    shadow.querySelector<HTMLButtonElement>('[data-unlock-submit]')!.click()
+    expect(launcher.hidden).toBe(false)
+    expect(panel.hidden).toBe(false)
+
+    shadow.querySelector<HTMLButtonElement>('[data-hide-assistant]')!.click()
+    expect(launcher.hidden).toBe(true)
+    expect(panel.hidden).toBe(true)
+    expect(root.dataset.open).toBe('false')
+  })
+
+  it('allows a trusted host action to open an initially hidden assistant directly', () => {
+    const sdk = initializeAssistant({
+      appId: 'ERP',
+      visibility: { initiallyHidden: true, activationKey: 'erp-ai' },
+    })
+    sdk.open('DIAGNOSE')
+
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    expect(shadow.querySelector<HTMLButtonElement>('[data-launcher]')!.hidden).toBe(false)
+    expect(shadow.querySelector<HTMLElement>('[data-panel]')!.hidden).toBe(false)
+    expect(shadow.querySelector<HTMLElement>('[data-unlock]')!.hidden).toBe(true)
+  })
+
+  it('handles the shortcut before a host page stops keydown propagation', () => {
+    initializeAssistant({
+      appId: 'ERP',
+      visibility: { initiallyHidden: true, activationKey: 'erp-ai' },
+    })
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    const blocker = document.createElement('div')
+    const target = document.createElement('button')
+    blocker.append(target)
+    blocker.addEventListener('keydown', event => event.stopPropagation())
+    document.body.append(blocker)
+
+    target.dispatchEvent(new KeyboardEvent('keydown', {
+      key: ')', code: 'Digit0', metaKey: true, altKey: true, shiftKey: true, bubbles: true,
+    }))
+
+    expect(shadow.querySelector<HTMLElement>('[data-unlock]')!.hidden).toBe(false)
+    blocker.remove()
+  })
+})

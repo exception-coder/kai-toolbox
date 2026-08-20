@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./dist-assistant/types",
+    "rootDir": "./src"
+  },
+  "files": ["./src/assistant-sdk/standalone.ts"],
+  "include": []
+}

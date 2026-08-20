@@ -110,6 +110,29 @@ CREATE TABLE IF NOT EXISTS claude_chat_review_requirement (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_review_requirement_space
     ON claude_chat_review_requirement(review_space_id, created_at);
 
+-- 功能：计划评审用户消息判定；变更：按稳定轮次保存前置意图、最终意图及需求提取结果；目的：摆脱回复尾部标记并支持刷新后恢复。
+CREATE TABLE IF NOT EXISTS claude_chat_review_turn_intent (
+    review_space_id       TEXT NOT NULL,
+    review_session_id     TEXT NOT NULL,
+    turn_id               TEXT NOT NULL,
+    client_message_id     TEXT NOT NULL,
+    pre_intent            TEXT NOT NULL,
+    final_intent          TEXT NOT NULL,
+    classification_status TEXT NOT NULL,
+    confidence            REAL NOT NULL DEFAULT 0,
+    reason                TEXT,
+    signals_json          TEXT NOT NULL DEFAULT '[]',
+    extracted_title       TEXT,
+    extracted_content     TEXT,
+    created_at            INTEGER NOT NULL,
+    updated_at            INTEGER NOT NULL,
+    PRIMARY KEY (review_session_id, turn_id)
+);
+
+-- 功能：计划评审用户消息判定；变更：按评审空间和创建顺序建立索引；目的：快速恢复公开评审历史的结构化分类。
+CREATE INDEX IF NOT EXISTS idx_claude_chat_review_turn_intent_space
+    ON claude_chat_review_turn_intent(review_space_id, created_at);
+
 -- Vibe Coding 会话关联快捷入口中的测试站点；只保存逻辑 ID，站点名称、地址和图标仍由快捷入口统一维护。
 CREATE TABLE IF NOT EXISTS claude_chat_session_site (
     id          TEXT PRIMARY KEY,

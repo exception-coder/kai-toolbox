@@ -19,7 +19,7 @@ import java.util.Map;
 /**
  * WebSocket 握手阶段的 ADMIN 鉴权拦截器。MVC 的 HandlerInterceptor 管不到 WS 握手，
  * 故对需要管理员的 WS（如 Web 终端）在握手时校验：从 {@code access_token} 查询参数取 JWT，
- * 必须是有效 ACCESS token 且含 ADMIN 角色，否则拒绝握手（403）。
+ * 必须是有效 ACCESS token 且含 ADMIN 角色，否则拒绝握手（403）；成功后将认证主体写入连接属性。
  *
  * <p>仅在 {@code toolbox.auth.enabled=true} 时存在；关闭鉴权时本 bean 不加载，WS 不拦。</p>
  */
@@ -46,6 +46,9 @@ public class AdminHandshakeInterceptor implements HandshakeInterceptor {
             try {
                 JwtPayload payload = jwtService.parse(token);
                 if (payload.type() == TokenType.ACCESS && payload.roles() != null && payload.roles().contains(ADMIN)) {
+                    attributes.put(AuthenticatedHandshakeInterceptor.AUTH_PRINCIPAL_ATTRIBUTE, new AuthPrincipal(
+                            payload.userId(), payload.username(), payload.roles(), payload.permissionCodes(),
+                            payload.jti(), payload.expiresAt()));
                     return true;
                 }
             } catch (RuntimeException e) {

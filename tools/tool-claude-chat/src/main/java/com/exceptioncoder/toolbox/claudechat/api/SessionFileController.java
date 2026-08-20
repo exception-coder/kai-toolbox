@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.FileContentView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.FileEntryView;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.claudechat.service.SessionLocalPathAccessService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,9 +36,9 @@ import java.util.stream.Stream;
  * 会话工作目录的只读文件浏览：懒加载列目录、预览文本文件、在系统资源管理器里定位文件。
  * 供前端「工作目录」文件树面板（类 Codex 展开工作目录快速找文件）使用。
  *
- * <p>安全：路径不收任意绝对路径，只认 sessionId（服务端取 cwd）+ 相对 path；相对 path 经
- * {@code normalize()} 后校验仍在 cwd 内（{@code startsWith(cwd)}）杜绝 {@code ../} 穿越。
- * 采用逻辑路径校验（不 toRealPath），以便正常进入 taskspace 聚合目录下指向真实仓库的 junction/symlink 子目录。</p>
+ * <p>安全：文件树接口只认 sessionId（服务端取 cwd）+ 相对 path；消息中的绝对文件链接额外允许
+ * 会话附加项目和项目工作台已登记项目。所有路径采用逻辑路径校验（不 toRealPath），以便正常进入
+ * taskspace 聚合目录下指向真实仓库的 junction/symlink 子目录。</p>
  */
 @Slf4j
 @RestController
@@ -59,9 +60,12 @@ public class SessionFileController {
             "msi", "scr", "lnk");
 
     private final ClaudeChatSessionRepository repo;
+    private final SessionLocalPathAccessService localPathAccessService;
 
-    public SessionFileController(ClaudeChatSessionRepository repo) {
+    public SessionFileController(ClaudeChatSessionRepository repo,
+                                 SessionLocalPathAccessService localPathAccessService) {
         this.repo = repo;
+        this.localPathAccessService = localPathAccessService;
     }
 
     /** 列某目录（相对 cwd，空=cwd 根）的一级内容：目录在前、文件在后，各按名排序。 */
@@ -163,7 +167,7 @@ public class SessionFileController {
     @PostMapping("/open-local-path")
     public void openLocalPath(@PathVariable String id, @RequestBody RevealRequest req) {
         Path cwd = sessionCwd(id);
-        Path target = resolveWithin(cwd, normalizeLinkedPath(req.path()));
+        Path target = localPathAccessService.resolve(id, cwd, normalizeLinkedPath(req.path()));
         if (!Files.exists(target)) {
             throw new IllegalArgumentException("路径不存在");
         }

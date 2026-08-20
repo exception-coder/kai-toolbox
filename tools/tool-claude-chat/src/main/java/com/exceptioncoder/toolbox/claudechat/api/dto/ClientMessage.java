@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 /** 浏览器 → Java 的 WS 消息。契约见设计文档的 api-current.md §2.1。 */
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type", visible = true)
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
 @JsonSubTypes({
         @JsonSubTypes.Type(value = ClientMessage.Open.class,          name = "open"),
         @JsonSubTypes.Type(value = ClientMessage.Attach.class,        name = "attach"),
@@ -16,6 +16,12 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.ResumeHistory.class, name = "resumeHistory"),
         @JsonSubTypes.Type(value = ClientMessage.ResumeCurrent.class, name = "resumeCurrent"),
         @JsonSubTypes.Type(value = ClientMessage.Send.class,          name = "send"),
+        @JsonSubTypes.Type(value = ClientMessage.Queue.class,         name = "queue"),
+        @JsonSubTypes.Type(value = ClientMessage.AssistantIntentRoute.class, name = "assistantIntentRoute"),
+        @JsonSubTypes.Type(value = ClientMessage.AssistantContextSave.class, name = "assistantContextSave"),
+        @JsonSubTypes.Type(value = ClientMessage.AssistantDraftCreate.class, name = "assistantDraftCreate"),
+        @JsonSubTypes.Type(value = ClientMessage.AssistantDraftConfirm.class, name = "assistantDraftConfirm"),
+        @JsonSubTypes.Type(value = ClientMessage.AssistantUsersList.class, name = "assistantUsersList"),
         @JsonSubTypes.Type(value = ClientMessage.Decision.class,      name = "decision"),
         @JsonSubTypes.Type(value = ClientMessage.Interrupt.class,     name = "interrupt"),
         @JsonSubTypes.Type(value = ClientMessage.SetMode.class,       name = "setMode"),
@@ -31,6 +37,10 @@ import java.util.Map;
 public sealed interface ClientMessage
         permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession, ClientMessage.DuplicateSession,
                 ClientMessage.ResumeHistory, ClientMessage.ResumeCurrent, ClientMessage.Send, ClientMessage.Decision,
+                ClientMessage.Queue,
+                ClientMessage.AssistantIntentRoute, ClientMessage.AssistantContextSave,
+                ClientMessage.AssistantDraftCreate, ClientMessage.AssistantDraftConfirm,
+                ClientMessage.AssistantUsersList,
                 ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetAutoApprove,
                 ClientMessage.SetModel, ClientMessage.RefreshModels, ClientMessage.RefreshCapabilities,
                 ClientMessage.SetCodexOptions,
@@ -59,10 +69,42 @@ public sealed interface ClientMessage
     record ResumeCurrent(String sessionId) implements ClientMessage {}
 
     /** 下发一条用户消息。attachments 可空（旧客户端不带时按纯文本处理）。 */
-    record Send(String text, List<Attachment> attachments, String developerInstructions) implements ClientMessage {
+    record Send(String text, List<Attachment> attachments, String developerInstructions,
+                AssistantEnvelope assistant, String messageId) implements ClientMessage {
         /** 附件引用：name 展示用，path 为服务端绝对路径，供 Claude 用 Read 读取。 */
         public record Attachment(String name, String path) {}
     }
+
+    /** 当前回合不可写时，将消息幂等保存到服务端待发送队列。 */
+    record Queue(String id, String text, String displayText, String developerInstructions,
+                 List<Attachment> attachments, Long createdAt) implements ClientMessage {
+        /** 待发送附件引用。 */
+        public record Attachment(String name, String path, String mime) {}
+    }
+
+    /**
+     * 嵌入式助手的版本化请求元数据。未知上下文字段保留在 Map 中，旧客户端不传时为 null。
+     */
+    record AssistantEnvelope(String protocolVersion, String mode, Map<String, Object> contextSnapshot) {}
+
+    /** 嵌入式助手意图识别命令；requestId 用于关联连接级响应。 */
+    record AssistantIntentRoute(String requestId, String mode, String text) implements ClientMessage {}
+
+    /** 保存当前会话的一份不可变、已脱敏上下文快照。 */
+    record AssistantContextSave(String requestId, String sessionId, String protocolVersion,
+                                Map<String, Object> contextSnapshot) implements ClientMessage {}
+
+    /** 创建 Bug 或建议草稿，不直接登记正式需求。 */
+    record AssistantDraftCreate(String requestId, String sessionId, String kind, String title,
+                                String description, Map<String, Object> contextSnapshot,
+                                Map<String, Object> evidence) implements ClientMessage {}
+
+    /** 用户确认后以幂等键登记草稿。 */
+    record AssistantDraftConfirm(String requestId, String draftId, String idempotencyKey,
+                                 Long engineerUserId) implements ClientMessage {}
+
+    /** 查询当前来源系统可选择的启用用户。 */
+    record AssistantUsersList(String requestId) implements ClientMessage {}
 
     /**
      * 回灌权限 / 提问决策。

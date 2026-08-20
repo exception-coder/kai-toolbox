@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.config;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
+import com.exceptioncoder.toolbox.claudechat.service.AssistantWebSocketCommandHandler;
 import com.exceptioncoder.toolbox.claudechat.service.SessionExecutionPolicy;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,13 +28,16 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
 
     private final ClaudeChatProperties props;
     private final ClaudeChatService service;
+    private final AssistantWebSocketCommandHandler assistantCommands;
     private final ObjectMapper mapper;
 
     public ClaudeChatWebSocketHandler(ClaudeChatProperties props,
                                       ClaudeChatService service,
+                                      AssistantWebSocketCommandHandler assistantCommands,
                                       ObjectMapper mapper) {
         this.props = props;
         this.service = service;
+        this.assistantCommands = assistantCommands;
         this.mapper = mapper;
     }
 
@@ -77,6 +81,12 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
             case ClientMessage.ResumeHistory rh -> service.resumeHistory(ws, rh);
             case ClientMessage.ResumeCurrent rc -> service.resumeCurrent(ws, rc);
             case ClientMessage.Send send -> service.sendUserMessage(ws, send);
+            case ClientMessage.Queue queue -> service.queueUserMessage(ws, queue);
+            case ClientMessage.AssistantIntentRoute command -> assistantCommands.handle(ws, command);
+            case ClientMessage.AssistantContextSave command -> assistantCommands.handle(ws, command);
+            case ClientMessage.AssistantDraftCreate command -> assistantCommands.handle(ws, command);
+            case ClientMessage.AssistantDraftConfirm command -> assistantCommands.handle(ws, command);
+            case ClientMessage.AssistantUsersList command -> assistantCommands.handle(ws, command);
             case ClientMessage.Decision d -> service.decision(ws, d);
             case ClientMessage.Interrupt ignored -> service.interrupt(ws);
             case ClientMessage.SetMode sm -> service.setMode(ws, sm);

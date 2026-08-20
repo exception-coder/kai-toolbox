@@ -13,6 +13,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -26,6 +27,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 @EnableConfigurationProperties(AuthProperties.class)
 @ConditionalOnProperty(prefix = "toolbox.auth", name = "enabled", havingValue = "true")
+@Import(ExternalLoginCorsConfiguration.class)
 public class AuthAutoConfiguration implements WebMvcConfigurer {
 
     private final AuthUserService userService;
