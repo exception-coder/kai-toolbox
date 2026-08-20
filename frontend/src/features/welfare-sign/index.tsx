@@ -11,6 +11,7 @@ const manifest: FeatureManifest = {
   group: '企业',
   description: '国央企节假日福利线上签名、白名单校验、记录查询与导出',
   order: 64,
+  hidden: true,
   routes: [
     { path: '/tools/welfare-sign', element: <WelfareSignPage /> },
     { path: '/tools/welfare-sign/fullscreen', element: <WelfareSignPage fullscreen /> },

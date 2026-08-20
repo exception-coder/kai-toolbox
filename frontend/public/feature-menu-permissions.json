@@ -374,13 +374,6 @@
       "sort": 62
     },
     {
-      "featureId": "welfare-sign",
-      "code": "menu:welfare-sign",
-      "name": "福利签收",
-      "module": "企业",
-      "sort": 64
-    },
-    {
       "featureId": "java8gu",
       "code": "menu:java8gu",
       "name": "Java八股文",

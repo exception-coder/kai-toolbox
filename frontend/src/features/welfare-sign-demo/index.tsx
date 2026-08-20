@@ -15,6 +15,7 @@ const manifest: FeatureManifest = {
   order: 90,
   layout: 'showcase',
   hideDock: true,
+  hidden: true,
   routes: [{ path: '/showcase/welfare-sign-demo', element: <WelfareDemoPage /> }],
 }
 
