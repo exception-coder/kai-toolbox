@@ -51,7 +51,7 @@ export function projectReviewTurns(
     const assistantRaw = assistantItems.map(item => item.text).filter(Boolean).join('\n\n')
     const parsed = parseReviewIntent(assistantRaw)
     const structuredIntent = userItem.reviewIntent?.intent === 'UNKNOWN'
-      ? 'UNCLASSIFIED'
+      ? userItem.reviewIntent.classificationStatus === 'MISSING' ? 'PENDING' : 'UNCLASSIFIED'
       : userItem.reviewIntent?.intent
     const resolvedIntent = structuredIntent ?? parsed.intent
     const intent = resolvedIntent === 'UNCLASSIFIED' && !completed ? 'PENDING' : resolvedIntent

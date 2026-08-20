@@ -69,6 +69,25 @@ describe('评审消息分类', () => {
     expect(requirementsFromTurns(turns, 0)[0].title).toBe('隐藏工具调用')
   })
 
+  it('区分业务语义待确认与分类协议失败', () => {
+    const semanticUnknown = completedTurn('这个再看看', '需要确认具体对象。')
+    const protocolMissing = completedTurn('附件里有个问题', '我先看看。')
+    for (const [items, status] of [[semanticUnknown, 'CONFIRMED'], [protocolMissing, 'MISSING']] as const) {
+      const user = items[0]
+      if (user.kind === 'user') user.reviewIntent = {
+        intent: 'UNKNOWN', classificationStatus: status, confidence: status === 'CONFIRMED' ? 0.88 : 0,
+        reason: status === 'CONFIRMED' ? '业务指代不明' : '分类服务暂不可用', signals: [],
+      }
+    }
+
+    const semanticTurns = projectReviewTurns(semanticUnknown, 0, true)
+    const missingTurns = projectReviewTurns(protocolMissing, 0, true)
+    expect(semanticTurns[0].intent).toBe('UNCLASSIFIED')
+    expect(requirementsFromTurns(semanticTurns, 0)).toHaveLength(1)
+    expect(missingTurns[0].intent).toBe('PENDING')
+    expect(requirementsFromTurns(missingTurns, 0)).toHaveLength(0)
+  })
+
   it('从结构化业务回复提取清单标题并避免正文重复标题', () => {
     const turns = projectReviewTurns(completedTurn('审批流程需要支持驳回', `### 需求标题：审批驳回
 
