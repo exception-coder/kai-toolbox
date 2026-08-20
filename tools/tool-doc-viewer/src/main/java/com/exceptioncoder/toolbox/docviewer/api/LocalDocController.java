@@ -58,10 +58,19 @@ public class LocalDocController {
     // 给 markdown 中的 <img src="./xxx.png"> 这类相对资源走的字节直读
     @GetMapping("/sources/{id}/raw")
     public ResponseEntity<byte[]> raw(@PathVariable String id, @RequestParam String path) {
-        LocalDocService.RawBytes b = service.readRawBytes(id, path);
+        return rawResponse(service.readRawBytes(id, path));
+    }
+
+    @GetMapping("/sources/{id}/preview/{*path}")
+    public ResponseEntity<byte[]> previewResource(@PathVariable String id, @PathVariable String path) {
+        String relativePath = path.startsWith("/") ? path.substring(1) : path;
+        return rawResponse(service.readRawBytes(id, relativePath));
+    }
+
+    private ResponseEntity<byte[]> rawResponse(LocalDocService.RawBytes bytes) {
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_TYPE, b.contentType())
+                .header(HttpHeaders.CONTENT_TYPE, bytes.contentType())
                 .header(HttpHeaders.CACHE_CONTROL, "no-cache")
-                .body(b.data());
+                .body(bytes.data());
     }
 }

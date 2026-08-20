@@ -8,11 +8,13 @@ import com.exceptioncoder.toolbox.docviewer.api.dto.TreeNodeDTO;
 import com.exceptioncoder.toolbox.docviewer.exception.DocViewerErrorCode;
 import com.exceptioncoder.toolbox.docviewer.exception.DocViewerException;
 import com.exceptioncoder.toolbox.docviewer.repository.LocalDocRepository;
+import com.exceptioncoder.toolbox.docviewer.repository.DocReviewNoteRepository;
 import com.exceptioncoder.toolbox.docviewer.repository.entity.LocalDocSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -37,7 +39,7 @@ import java.util.Set;
  * 安全模型：
  * - 用户只能注册「根目录」，所有读写都必须落在 {@code rootReal} 之下；
  * - 任意外部传入的相对路径都会被 {@link #resolveSafe} 规范化并校验，越界一律拒绝；
- * - 编辑能力仅开放给文本（markdown/txt 等）扩展名，二进制只暴露元信息不允许写。
+ * - 编辑能力仅开放给文本（markdown/html/txt 等）扩展名，二进制只暴露元信息不允许写。
  */
 @Service
 public class LocalDocService {
@@ -54,10 +56,12 @@ public class LocalDocService {
             ".gradle", ".mvn", "__pycache__", ".next", ".turbo", ".cache", "venv", ".venv");
 
     private final LocalDocRepository repo;
+    private final DocReviewNoteRepository noteRepository;
     private final SecureRandom rnd = new SecureRandom();
 
-    public LocalDocService(LocalDocRepository repo) {
+    public LocalDocService(LocalDocRepository repo, DocReviewNoteRepository noteRepository) {
         this.repo = repo;
+        this.noteRepository = noteRepository;
     }
 
     // === 源管理 ===
@@ -108,8 +112,10 @@ public class LocalDocService {
         return repo.listAll().stream().map(LocalSourceDTO::of).toList();
     }
 
+    @Transactional
     public void deleteSource(String id) {
         requireSource(id);
+        noteRepository.deleteBySourceId(id);
         repo.delete(id);
     }
 
@@ -213,12 +219,39 @@ public class LocalDocService {
 
     private String guessContentType(String name) {
         String lower = name.toLowerCase();
+        if (lower.endsWith(".html") || lower.endsWith(".htm")) {
+            return "text/html; charset=utf-8";
+        }
+        if (lower.endsWith(".css")) {
+            return "text/css; charset=utf-8";
+        }
+        if (lower.endsWith(".js") || lower.endsWith(".mjs")) {
+            return "text/javascript; charset=utf-8";
+        }
+        if (lower.endsWith(".json") || lower.endsWith(".map")) {
+            return "application/json; charset=utf-8";
+        }
+        if (lower.endsWith(".xml")) {
+            return "application/xml; charset=utf-8";
+        }
         if (lower.endsWith(".png")) return "image/png";
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
         if (lower.endsWith(".gif")) return "image/gif";
         if (lower.endsWith(".webp")) return "image/webp";
         if (lower.endsWith(".svg")) return "image/svg+xml";
         if (lower.endsWith(".ico")) return "image/x-icon";
+        if (lower.endsWith(".woff")) {
+            return "font/woff";
+        }
+        if (lower.endsWith(".woff2")) {
+            return "font/woff2";
+        }
+        if (lower.endsWith(".ttf")) {
+            return "font/ttf";
+        }
+        if (lower.endsWith(".otf")) {
+            return "font/otf";
+        }
         if (lower.endsWith(".pdf")) return "application/pdf";
         if (isTextLike(name)) return "text/plain; charset=utf-8";
         return "application/octet-stream";
@@ -234,7 +267,7 @@ public class LocalDocService {
 
         if (!isTextLike(target.getFileName().toString())) {
             throw new DocViewerException(DocViewerErrorCode.LOCAL_PATH_OUTSIDE_ROOT,
-                    "只允许编辑文本类文件（.md/.markdown/.mdx/.txt 等）");
+                    "只允许编辑文本类文件（.md/.markdown/.mdx/.html/.htm/.txt 等）");
         }
 
         try {
@@ -404,6 +437,7 @@ public class LocalDocService {
     private boolean isTextLike(String name) {
         String lower = name.toLowerCase();
         return lower.endsWith(".md") || lower.endsWith(".markdown") || lower.endsWith(".mdx")
+                || lower.endsWith(".html") || lower.endsWith(".htm")
                 || lower.endsWith(".txt") || lower.endsWith(".rst") || lower.endsWith(".adoc");
     }
 

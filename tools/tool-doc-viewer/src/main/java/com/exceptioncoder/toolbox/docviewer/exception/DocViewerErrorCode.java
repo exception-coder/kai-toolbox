@@ -17,7 +17,9 @@ public enum DocViewerErrorCode {
     LOCAL_PATH_OUTSIDE_ROOT(HttpStatus.FORBIDDEN),
     LOCAL_FILE_TOO_LARGE(HttpStatus.BAD_REQUEST),
     LOCAL_IO_ERROR(HttpStatus.INTERNAL_SERVER_ERROR),
-    LOCAL_FILE_NOT_FOUND(HttpStatus.NOT_FOUND);
+    LOCAL_FILE_NOT_FOUND(HttpStatus.NOT_FOUND),
+    INVALID_REVIEW_NOTE(HttpStatus.BAD_REQUEST),
+    REVIEW_NOTE_NOT_FOUND(HttpStatus.NOT_FOUND);
 
     private final HttpStatus status;
 

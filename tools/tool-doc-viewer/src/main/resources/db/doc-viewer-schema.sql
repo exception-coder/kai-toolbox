@@ -50,3 +50,21 @@ CREATE TABLE IF NOT EXISTS local_doc_source (
 
 CREATE UNIQUE INDEX IF NOT EXISTS uk_local_doc_source_root
     ON local_doc_source(root_path);
+
+-- Markdown 审阅备注：独立于正文，按本地文件与标题快照挂载
+CREATE TABLE IF NOT EXISTS doc_review_note (
+    id             TEXT PRIMARY KEY,
+    source_id      TEXT NOT NULL,
+    file_path      TEXT NOT NULL,
+    heading_id     TEXT NOT NULL,
+    heading_text   TEXT NOT NULL,
+    heading_level  INTEGER NOT NULL,
+    category       TEXT NOT NULL,
+    content        TEXT NOT NULL,
+    status         TEXT NOT NULL,
+    created_at     INTEGER NOT NULL,
+    updated_at     INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_doc_review_note_file
+    ON doc_review_note(source_id, file_path, status, updated_at);
