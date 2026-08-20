@@ -34,7 +34,7 @@ public class ClaudeChatSessionAccessPolicy {
         return principal == null ? null : principal.userId();
     }
 
-    /** WebSocket 连接能否访问目标会话。 */
+    /** WebSocket 连接能否访问目标会话；ADMIN 可访问任意会话，普通用户仅访问本人会话。 */
     public boolean canAccess(WebSocketSession socket, String sessionId) {
         return repository.findById(sessionId).map(session -> canAccess(session, principal(socket))).orElse(false);
     }
@@ -61,8 +61,11 @@ public class ClaudeChatSessionAccessPolicy {
     }
 
     private boolean canAccess(ClaudeChatSession session, AuthPrincipal principal) {
+        if (principal != null && principal.hasAnyRole(ADMIN_ROLE)) {
+            return true;
+        }
         if (session.getUserId() == null) {
-            return principal == null || (principal != null && principal.hasAnyRole(ADMIN_ROLE));
+            return principal == null;
         }
         return principal != null && session.getUserId().equals(principal.userId());
     }

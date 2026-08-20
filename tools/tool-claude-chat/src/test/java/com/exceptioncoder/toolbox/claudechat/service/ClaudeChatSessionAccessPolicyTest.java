@@ -54,6 +54,23 @@ class ClaudeChatSessionAccessPolicyTest {
     }
 
     @Test
+    void allowsAdminToAccessAnotherUsersSessionOverWebSocket() {
+        when(repository.findById("foreign"))
+                .thenReturn(Optional.of(ClaudeChatSession.builder().id("foreign").userId(7L).build()));
+
+        assertThat(policy.canAccess(socketFor(2L, List.of("ADMIN")), "foreign")).isTrue();
+    }
+
+    @Test
+    void allowsAdminToAccessAnotherUsersSessionOverHttp() {
+        AuthContext.set(new AuthPrincipal(2L, "admin", List.of("ADMIN"), List.of(), "jti", 1L));
+        when(repository.findById("foreign"))
+                .thenReturn(Optional.of(ClaudeChatSession.builder().id("foreign").userId(7L).build()));
+
+        assertThat(policy.canAccessCurrentUser("foreign")).isTrue();
+    }
+
+    @Test
     void rejectsProjectOperationWhenProjectContainsAnotherUsersSession() {
         AuthContext.set(new AuthPrincipal(7L, "owner", List.of("USER"), List.of(), "jti", 1L));
         when(repository.findByGroupName("ERP")).thenReturn(List.of(
@@ -61,6 +78,15 @@ class ClaudeChatSessionAccessPolicyTest {
                 ClaudeChatSession.builder().id("foreign").userId(8L).build()));
 
         assertThat(policy.canAccessProjectCurrentUser("ERP")).isFalse();
+    }
+
+    @Test
+    void allowsAdminToOperateProjectContainingAnotherUsersSession() {
+        AuthContext.set(new AuthPrincipal(2L, "admin", List.of("ADMIN"), List.of(), "jti", 1L));
+        when(repository.findByGroupName("ERP")).thenReturn(List.of(
+                ClaudeChatSession.builder().id("foreign").userId(8L).build()));
+
+        assertThat(policy.canAccessProjectCurrentUser("ERP")).isTrue();
     }
 
     private WebSocketSession socketFor(long userId) {
