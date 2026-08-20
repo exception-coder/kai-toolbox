@@ -172,10 +172,6 @@
         </dependency>
         <dependency>
             <groupId>com.exceptioncoder</groupId>
-            <artifactId>tool-webppt</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.exceptioncoder</groupId>
             <artifactId>tool-eval</artifactId>
         </dependency>
         <dependency>

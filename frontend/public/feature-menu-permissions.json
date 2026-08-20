@@ -386,13 +386,6 @@
       "name": "Java八股文",
       "module": "参考",
       "sort": 65
-    },
-    {
-      "featureId": "webppt",
-      "code": "menu:webppt",
-      "name": "WebPPT 风格中心",
-      "module": "内容",
-      "sort": 70
     }
   ]
 }
