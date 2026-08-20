@@ -14,6 +14,8 @@ import type { RequiredMcpTool } from './codexSecurity.js'
 
 const require = createRequire(import.meta.url)
 const REQUEST_TIMEOUT_MS = 20_000
+// Windows 上 taskkill /T 需要等待命令子树和 stdio 句柄逐级关闭；3 秒会把正常清理误报成失败。
+const PROCESS_CLOSE_TIMEOUT_MS = 10_000
 // 切换网络后旧连接的 TCP/TLS 失效检测和上游退避可能持续数十秒。
 // 这里只兜底真正“长期无任何活动”的轮次，不能抢在 Codex 自身重试完成前误杀。
 const RECONNECT_IDLE_TIMEOUT_MS = 5 * 60_000
@@ -89,6 +91,11 @@ type AppServerTurnOptions = {
   signal: AbortSignal
   emit: (event: Record<string, unknown>) => void
   setThreadId: (threadId: string) => void
+  canUseTool?: (
+    toolName: string,
+    input: Record<string, unknown>,
+    options: { signal?: AbortSignal },
+  ) => Promise<Record<string, unknown>>
   mcpServers?: Array<{ name: string; status: string }>
   requiredMcpTools?: RequiredMcpTool[]
   /** review-only 必须在 turn/start 前确认没有任何运行时 MCP Tool，发现旁路即失败关闭。 */
@@ -153,6 +160,97 @@ export function isCodexAppServerRecoverySignal(method: string): boolean {
     || method.startsWith('turn/')
     || method.startsWith('item/')
     || method.startsWith('hook/')
+}
+
+type JsonRpcMessageKind = 'response' | 'notification' | 'serverRequest' | 'invalid'
+
+type ServerRequestResolution = {
+  result?: Record<string, unknown>
+  error?: { code: number; message: string }
+}
+
+export function classifyCodexAppServerMessage(message: Record<string, unknown>): JsonRpcMessageKind {
+  const hasId = typeof message.id === 'number' || typeof message.id === 'string'
+  const hasMethod = typeof message.method === 'string' && message.method.trim().length > 0
+  if (hasId && hasMethod) return 'serverRequest'
+  if (hasId && ('result' in message || 'error' in message)) return 'response'
+  if (!hasId && hasMethod) return 'notification'
+  return 'invalid'
+}
+
+export async function resolveCodexAppServerRequest(
+  method: string,
+  params: Record<string, unknown>,
+  canUseTool: AppServerTurnOptions['canUseTool'],
+  signal?: AbortSignal,
+): Promise<ServerRequestResolution> {
+  if (!canUseTool) return unsupportedServerRequest(method)
+  try {
+    switch (method) {
+      case 'item/commandExecution/requestApproval': {
+        const input = { command: params.command, cwd: params.cwd, reason: params.reason }
+        const decision = await canUseTool('Bash', input, { signal })
+        return { result: { decision: decision.behavior === 'allow' ? 'accept' : 'decline' } }
+      }
+      case 'item/fileChange/requestApproval': {
+        const decision = await canUseTool('Edit', { grantRoot: params.grantRoot, reason: params.reason }, { signal })
+        return { result: { decision: decision.behavior === 'allow' ? 'accept' : 'decline' } }
+      }
+      case 'execCommandApproval': {
+        const decision = await canUseTool('Bash', { command: params.command, cwd: params.cwd, reason: params.reason }, { signal })
+        return { result: { decision: decision.behavior === 'allow' ? 'approved' : { denied: { rejection: decision.message ?? '用户已拒绝' } } } }
+      }
+      case 'applyPatchApproval': {
+        const decision = await canUseTool('Edit', { fileChanges: params.fileChanges, grantRoot: params.grantRoot }, { signal })
+        return { result: { decision: decision.behavior === 'allow' ? 'approved' : { denied: { rejection: decision.message ?? '用户已拒绝' } } } }
+      }
+      case 'item/tool/requestUserInput': {
+        const decision = await canUseTool('AskUserQuestion', { questions: params.questions }, { signal })
+        if (decision.behavior !== 'allow') return { result: { answers: {} } }
+        return { result: { answers: normalizeUserInputAnswers(asRecord(decision.updatedInput)?.answers) } }
+      }
+      case 'item/permissions/requestApproval': {
+        const decision = await canUseTool('request_permissions', {
+          permissions: params.permissions,
+          cwd: params.cwd,
+          reason: params.reason,
+        }, { signal })
+        const requested = asRecord(params.permissions) ?? {}
+        return {
+          result: {
+            permissions: decision.behavior === 'allow'
+              ? Object.fromEntries(Object.entries(requested).filter(([, value]) => value != null))
+              : {},
+            scope: 'turn',
+          },
+        }
+      }
+      default:
+        return unsupportedServerRequest(method)
+    }
+  } catch (error) {
+    return {
+      error: {
+        code: -32_000,
+        message: `App Server 请求 ${method} 处理失败：${error instanceof Error ? error.message : String(error)}`,
+      },
+    }
+  }
+}
+
+function unsupportedServerRequest(method: string): ServerRequestResolution {
+  return { error: { code: -32_601, message: `Kai Toolbox 不支持 App Server 反向请求：${method}` } }
+}
+
+function normalizeUserInputAnswers(value: unknown): Record<string, { answers: string[] }> {
+  const answers = asRecord(value) ?? {}
+  return Object.fromEntries(Object.entries(answers).map(([key, raw]) => {
+    const nested = asRecord(raw)?.answers
+    const values = Array.isArray(nested)
+      ? nested
+      : Array.isArray(raw) ? raw : [nested ?? raw]
+    return [key, { answers: values.filter(item => item != null).map(String) }]
+  }))
 }
 
 /**
@@ -224,7 +322,35 @@ function codexCliEntrypoint(): string {
 
 function stop(child: ChildProcessWithoutNullStreams): void {
   if (!child.stdin.destroyed) child.stdin.end()
-  if (!child.killed) child.kill()
+  if (child.killed || child.exitCode != null) return
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      killer.once('error', () => {
+        if (!child.killed && child.exitCode == null) child.kill()
+      })
+      killer.unref()
+      return
+    } catch {
+      // Fall through to Node's direct-child termination when taskkill cannot start.
+    }
+  }
+  child.kill()
+}
+
+function waitForProcessClose(child: ChildProcessWithoutNullStreams): Promise<boolean> {
+  if (child.exitCode != null) return Promise.resolve(true)
+  return new Promise(resolveClose => {
+    const timer = setTimeout(() => resolveClose(false), PROCESS_CLOSE_TIMEOUT_MS)
+    timer.unref?.()
+    child.once('close', () => {
+      clearTimeout(timer)
+      resolveClose(true)
+    })
+  })
 }
 
 function isReasoningEffort(value: unknown): value is string {
@@ -253,6 +379,14 @@ export function normalizeCodexModel(item: AppServerModel): CodexModelInfo | null
 /** 只接受 App Server 显式标记的默认模型；目录顺序不具备默认语义。 */
 export function findDefaultCodexModel(models: readonly CodexModelInfo[]): CodexModelInfo | undefined {
   return models.find(model => model.isDefault === true)
+}
+
+export function gateCodexResultOnProcessClose(
+  result: Record<string, unknown>,
+  processClosed: boolean,
+): Record<string, unknown> {
+  if (processClosed) return result
+  return { ...result, stopReason: 'incomplete', queueReleaseSafe: false }
 }
 
 function callAppServer(
@@ -426,6 +560,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   let finalizingRecheck: NodeJS.Timeout | undefined
   let abortCompletion: ((error: Error) => void) | undefined
   let reconnectActivityId: string | undefined
+  let terminalEvent: Record<string, unknown> | undefined
   const commandActivities = new Map<string, CommandActivityState>()
   const commandActivityEmittedAt = new Map<string, number>()
   const mcpActivities = new Map<string, McpActivityState>()
@@ -505,6 +640,13 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
 
   const completion = new Promise<void>((resolveCompletion, rejectCompletion) => {
     const finishError = (error: Error) => {
+      closeOpenCodexAppServerActivities(
+        emitActivity,
+        commandActivities,
+        mcpActivities,
+        error.message,
+      )
+      commandActivityEmittedAt.clear()
       failPending(error)
       cleanup()
       rejectCompletion(new CodexAppServerTurnError(error.message, !turnAccepted && !emittedActivity))
@@ -541,12 +683,21 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       const stopReason = status !== 'completed'
         ? status
         : completionAssessment.queueReleaseSafe ? 'end_turn' : 'incomplete'
-      options.emit({
+      closeOpenCodexAppServerActivities(
+        emitActivity,
+        commandActivities,
+        mcpActivities,
+        status === 'completed'
+          ? 'Codex 回合已结束，但工具没有返回独立终态'
+          : `Codex 回合以 ${status} 状态结束`,
+      )
+      commandActivityEmittedAt.clear()
+      terminalEvent = {
         type: 'result',
         usage: normalizeUsage(lastUsage),
         stopReason,
         queueReleaseSafe: completionAssessment.queueReleaseSafe,
-      })
+      }
       cleanup()
       resolveCompletion()
     }
@@ -587,16 +738,30 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       } catch {
         return
       }
-      if (typeof message.id === 'number') {
-        const requestState = pending.get(message.id)
-        if (!requestState) return
-        pending.delete(message.id)
+      const messageKind = classifyCodexAppServerMessage(message)
+      if (messageKind === 'response') {
+        const responseId = typeof message.id === 'number' ? message.id : undefined
+        const requestState = responseId == null ? undefined : pending.get(responseId)
+        if (!requestState || responseId == null) return
+        pending.delete(responseId)
         clearTimeout(requestState.timer)
         const error = asRecord(message.error)
         if (error) requestState.reject(new Error(asString(error.message) || 'Codex App Server 请求失败'))
         else requestState.resolve(asRecord(message.result) ?? {})
         return
       }
+      if (messageKind === 'serverRequest') {
+        const requestId = message.id as number | string
+        const requestMethod = asString(message.method)
+        const requestParams = asRecord(message.params) ?? {}
+        void resolveCodexAppServerRequest(requestMethod, requestParams, options.canUseTool, options.signal)
+          .then(resolution => send({ id: requestId, ...resolution }))
+          .catch(error => abortCompletion?.(
+            new Error(`Codex App Server 反向请求回包失败：${error instanceof Error ? error.message : String(error)}`),
+          ))
+        return
+      }
+      if (messageKind !== 'notification') return
       const method = asString(message.method)
       const params = asRecord(message.params) ?? {}
       if (!method) return
@@ -609,6 +774,20 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
         finishReconnectActivity('completed')
       }
       switch (method) {
+        case 'mcpServer/startupStatus/updated': {
+          const statusRecord = asRecord(params.status)
+          const serverName = asString(params.serverName) || asString(params.name) || asString(statusRecord?.name)
+          const status = asString(statusRecord?.status) || asString(statusRecord?.state) || asString(params.status)
+          if (/failed|error|unavailable/i.test(status)) {
+            const detail = notificationMessage(statusRecord ?? params)
+            options.emit({
+              type: 'warning',
+              code: 'CODEX_MCP_STARTUP_FAILED',
+              message: `${serverName || 'MCP'} 初始化未完成${detail ? `：${detail}` : ''}`,
+            })
+          }
+          break
+        }
         case 'item/agentMessage/delta': {
           finishReconnectActivity('completed')
           const text = asString(params.delta)
@@ -773,8 +952,8 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     if (!threadId) throw new Error('Codex App Server 未返回 thread id')
     options.setThreadId(threadId)
     let runtimeMcpServers = options.mcpServers ?? []
-    if (options.requiredMcpTools || options.forbidMcpTools) {
-      let runtimeStatuses: McpRuntimeStatus[]
+    if ((options.mcpServers?.length ?? 0) > 0 || options.requiredMcpTools || options.forbidMcpTools) {
+      let runtimeStatuses: McpRuntimeStatus[] = []
       try {
         const statusResult = await request('mcpServerStatus/list', {
           threadId,
@@ -783,10 +962,11 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
         })
         runtimeStatuses = parseMcpRuntimeStatuses(statusResult)
       } catch (error) {
-        throw new CodexAppServerTurnError(
-          `业务咨询只读工具状态校验失败：${error instanceof Error ? error.message : String(error)}`,
-          false,
-        )
+        const message = error instanceof Error ? error.message : String(error)
+        if (options.requiredMcpTools || options.forbidMcpTools) {
+          throw new CodexAppServerTurnError(`受控 MCP 工具状态校验失败：${message}`, false)
+        }
+        options.emit({ type: 'warning', code: 'CODEX_MCP_STATUS_UNAVAILABLE', message: `MCP 状态查询失败：${message}` })
       }
       if (options.requiredMcpTools) validateRequiredMcpTools(runtimeStatuses, options.requiredMcpTools)
       if (options.forbidMcpTools) {
@@ -800,6 +980,18 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
         name: status.name,
         status: status.tools.size > 0 ? 'connected' : 'unavailable',
       }))
+      const configuredNames = new Set((options.mcpServers ?? []).map(server => server.name))
+      const unavailable = [...configuredNames].filter(name => {
+        const status = runtimeStatuses.find(item => item.name === name)
+        return !status || status.tools.size === 0
+      })
+      if (unavailable.length > 0 && !options.requiredMcpTools && !options.forbidMcpTools) {
+        options.emit({
+          type: 'warning',
+          code: 'CODEX_MCP_DEGRADED',
+          message: `以下扩展能力暂不可用，会话仍可继续：${unavailable.join('、')}`,
+        })
+      }
     }
     options.emit({ type: 'init', sdkSessionId: threadId, mcpServers: runtimeMcpServers })
     // 请求一旦发出，服务端就可能已经开始调用工具；从这里起禁止 SDK 自动重放，避免双执行。
@@ -814,9 +1006,27 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     })
     turnId = asString(asRecord(turnResult.turn)?.id)
     await completion
+    const processClosed = await waitForProcessClose(child)
+    if (!processClosed) {
+      options.emit({
+        type: 'warning',
+        code: 'CODEX_APP_SERVER_CLEANUP_TIMEOUT',
+        message: `Codex App Server 轮次已结束，但进程树在 ${PROCESS_CLOSE_TIMEOUT_MS}ms 内未确认退出；待发送队列保持暂停。`,
+      })
+    }
+    if (!terminalEvent) {
+      throw new CodexAppServerTurnError('Codex App Server 未生成轮次终态', false)
+    }
+    options.emit(gateCodexResultOnProcessClose(terminalEvent, processClosed))
   } catch (error) {
     cleanup()
     failPending(error instanceof Error ? error : new Error(String(error)))
+    if (!await waitForProcessClose(child)) {
+      throw new CodexAppServerTurnError(
+        `Codex App Server 进程树清理超时，已阻止自动重试以避免重复执行：${error instanceof Error ? error.message : String(error)}`,
+        false,
+      )
+    }
     if (error instanceof CodexAppServerTurnError) throw error
     throw new CodexAppServerTurnError(error instanceof Error ? error.message : String(error), !turnAccepted && !emittedActivity)
   }
@@ -940,6 +1150,34 @@ function emitCommandActivity(
     outcome: result?.outcome,
     severity: result?.severity,
   })
+}
+
+export function closeOpenCodexAppServerActivities(
+  emit: (event: Record<string, unknown>) => void,
+  commandActivities: Map<string, CommandActivityState>,
+  mcpActivities: Map<string, McpActivityState>,
+  reason: string,
+): void {
+  for (const [itemId, state] of commandActivities) {
+    const output = tail([state.output, reason].filter(Boolean).join('\n'), MAX_COMMAND_OUTPUT_CHARS)
+    emit({ type: 'toolResult', toolCallId: itemId, toolName: 'shell', output, isError: true })
+    emitCommandActivity(emit, itemId, 'failed', { ...state, output })
+    commandActivities.delete(itemId)
+  }
+  for (const [itemId, state] of mcpActivities) {
+    emit({ type: 'toolResult', toolCallId: itemId, toolName: state.toolName, toolKind: 'mcp', output: reason, isError: true })
+    emitToolActivity(emit, {
+      toolCallId: itemId,
+      toolName: state.toolName,
+      status: 'failed',
+      detail: reason,
+      elapsedMs: elapsedSince(state.startedAt),
+      outputTail: reason,
+      outcome: 'processFailure',
+      severity: 'warning',
+    })
+    mcpActivities.delete(itemId)
+  }
 }
 
 function tail(value: string, limit: number): string {

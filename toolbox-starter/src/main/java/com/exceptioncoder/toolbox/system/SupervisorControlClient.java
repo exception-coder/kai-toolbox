@@ -91,6 +91,10 @@ public class SupervisorControlClient {
                         "supervisor 控制协议不兼容（期望 "
                                 + restartProperties.getSupervisorProtocolVersion() + "，实际 " + actualProtocol + "）");
             }
+            if (!status.path("bootstrapAttached").asBoolean(false)) {
+                return RestartOutcome.rejected(Failure.SUPERVISOR_INCOMPATIBLE,
+                        "supervisor 缺少稳定 bootstrap 接管，拒绝让当前 JVM 退出");
+            }
             if (!status.path("capabilities").path("fullReload").asBoolean(false)) {
                 return RestartOutcome.rejected(Failure.SUPERVISOR_INCOMPATIBLE,
                         "supervisor 不支持 fullReload，拒绝让当前 JVM 退出");

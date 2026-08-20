@@ -4,7 +4,10 @@ import test from 'node:test'
 import {
   CROSS_TOPOLOGY_READONLY_TOOLS,
   DOMAIN_KNOWLEDGE_READONLY_TOOLS,
+  knowledgeMcpRecoveryPrompt,
+  readonlyKnowledgeMcpCall,
   resolveKnowledgeMcpPaths,
+  retryReadonlyKnowledgeMcp,
 } from './knowledgeMcp.js'
 
 test('uses the installed team-tools repositories instead of a legacy workspace fallback', () => {
@@ -61,4 +64,60 @@ test('exposes the two Core Spec tools only on the domain knowledge server', () =
     'get_knowledge',
     'get_related',
   ])
+})
+
+test('recognizes only allowlisted read-only knowledge calls for isolated recovery', () => {
+  assert.deepEqual(
+    readonlyKnowledgeMcpCall('domain-knowledge/get_module_core_spec', {
+      project: 'kai-toolbox', module: 'reqpool', query: '状态迁移',
+    }),
+    {
+      server: 'domain-knowledge',
+      tool: 'get_module_core_spec',
+      arguments: { project: 'kai-toolbox', module: 'reqpool', query: '状态迁移' },
+    },
+  )
+  assert.equal(readonlyKnowledgeMcpCall('domain-knowledge/reload_knowledge', {}), undefined)
+  assert.equal(readonlyKnowledgeMcpCall('forge/register_pending_sql', { sql: 'UPDATE t SET a=1' }), undefined)
+  assert.equal(readonlyKnowledgeMcpCall('domain-knowledge/get_module_core_spec'), undefined)
+})
+
+test('isolated recovery uses the original call once and builds a continuation prompt', async () => {
+  const call = readonlyKnowledgeMcpCall('mcp__domain_knowledge__get_module_core_spec', {
+    project: 'kai-toolbox', module: 'reqpool', query: '状态迁移',
+  })
+  assert.ok(call)
+  let calls = 0
+  const result = await retryReadonlyKnowledgeMcp(call, {
+    async call(actual, timeoutMs, signal) {
+      calls += 1
+      assert.deepEqual(actual, call)
+      assert.equal(timeoutMs, 8_000)
+      assert.equal(signal, undefined)
+      return { found: false, reason: { code: 'CORE_SPEC_NOT_FOUND' } }
+    },
+  })
+
+  assert.equal(calls, 1)
+  const prompt = knowledgeMcpRecoveryPrompt(call, result)
+  assert.match(prompt, /隔离进程中重新执行成功/)
+  assert.match(prompt, /CORE_SPEC_NOT_FOUND/)
+  assert.match(prompt, /不要再次调用上述工具/)
+})
+
+test('isolated recovery propagates the caller cancellation signal', async () => {
+  const call = readonlyKnowledgeMcpCall('cross-topology/get_related', {
+    project: 'kai-toolbox', symbol: 'ClaudeChatService',
+  })
+  assert.ok(call)
+  const controller = new AbortController()
+
+  await retryReadonlyKnowledgeMcp(call, {
+    async call(actual, timeoutMs, signal) {
+      assert.deepEqual(actual, call)
+      assert.equal(timeoutMs, 8_000)
+      assert.equal(signal, controller.signal)
+      return { nodes: [] }
+    },
+  }, undefined, controller.signal)
 })

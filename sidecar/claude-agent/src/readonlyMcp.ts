@@ -1,9 +1,14 @@
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { existsSync, realpathSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path'
 import { createInterface } from 'node:readline'
 import { TextDecoder } from 'node:util'
 import { validateReadonlySql } from './readonlyPolicy.js'
+import {
+  DEFAULT_GRAPH_JSON_FALLBACK_MAX_BYTES,
+  GraphifyQueryCoordinator,
+  isGraphJsonSafeForFallback,
+} from './sourceContextGraph.js'
 
 type JsonRpcRequest = {
   jsonrpc?: string
@@ -135,6 +140,22 @@ const SOURCE_FILE_NAMES = new Set(['dockerfile', 'makefile', 'pom.xml'])
 const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024
 const MAX_SCANNED_FILES = 12_000
 const MAX_OUTPUT_CHARS = 180_000
+const GRAPHIFY_TOTAL_BUDGET_MS = clampInteger(
+  Number(process.env.CONSULT_GRAPHIFY_TOTAL_BUDGET_MS || process.env.CONSULT_GRAPHIFY_TIMEOUT_MS),
+  52_000,
+  10_000,
+  55_000,
+)
+const GRAPHIFY_RUNTIME_URL = process.env.CONSULT_GRAPHIFY_RUNTIME_URL?.trim() || ''
+const GRAPHIFY_RUNTIME_TOKEN = process.env.CONSULT_GRAPHIFY_RUNTIME_TOKEN?.trim() || ''
+const GRAPH_JSON_FALLBACK_MAX_BYTES = clampInteger(
+  Number(process.env.CONSULT_GRAPH_JSON_FALLBACK_MAX_BYTES),
+  DEFAULT_GRAPH_JSON_FALLBACK_MAX_BYTES,
+  1 * 1024 * 1024,
+  128 * 1024 * 1024,
+)
+const graphifyQueries = new GraphifyQueryCoordinator()
+let routeMapPathsPromise: Promise<string[]> | null = null
 
 function readonlyAnnotations(): Record<string, boolean> {
   return {
@@ -386,7 +407,12 @@ function graphDirectories(moduleName: string): string[] {
 }
 
 function queryGraphJson(graphRoot: string, question: string, maxNodes = 24): string {
-  const graph = JSON.parse(decodeSourceFile(resolve(graphRoot, 'graphify-out', 'graph.json'))) as {
+  const graphPath = resolve(graphRoot, 'graphify-out', 'graph.json')
+  const graphSize = statSync(graphPath).size
+  if (!isGraphJsonSafeForFallback(graphSize, GRAPH_JSON_FALLBACK_MAX_BYTES)) {
+    return `Graphify 在本次总预算内未返回；graph.json 为 ${Math.ceil(graphSize / 1024 / 1024)} MB，已跳过不安全的整文件回退。请先使用上方 URL 候选精确读取源码，稍后可带类名或方法名再次查询图谱。`
+  }
+  const graph = JSON.parse(decodeSourceFile(graphPath)) as {
     nodes?: Array<Record<string, unknown>>
     links?: Array<Record<string, unknown>>
   }
@@ -409,21 +435,102 @@ function queryGraphJson(graphRoot: string, question: string, maxNodes = 24): str
   }, null, 2)
 }
 
-function queryGraphify(question: string, moduleName: string, budget: number): string {
+function runFile(file: string, args: string[], options: {
+  cwd: string
+  timeout: number
+  maxBuffer: number
+}): Promise<string> {
+  return new Promise((resolvePromise, reject) => {
+    execFile(file, args, {
+      ...options,
+      encoding: 'utf8',
+      windowsHide: true,
+    }, (error, stdout) => {
+      if (error) reject(error)
+      else resolvePromise(stdout.trim())
+    })
+  })
+}
+
+async function queryGraphify(question: string, moduleName: string, budget: number): Promise<string> {
   const graphRoot = graphDirectories(moduleName)[0]
   if (!graphRoot) return '当前项目未找到 graphify-out/graph.json。'
-  try {
-    return execFileSync(process.env.GRAPHIFY_BINARY?.trim() || 'graphify',
-      ['query', question, '--budget', String(budget)], {
-        cwd: graphRoot,
-        encoding: 'utf8',
-        timeout: 30_000,
-        maxBuffer: 2 * 1024 * 1024,
-        windowsHide: true,
-      }).trim()
-  } catch {
-    return queryGraphJson(graphRoot, question)
+  const key = `${graphRoot}\n${budget}\n${question}`
+  return graphifyQueries.resolve(key, async () => {
+    const deadline = Date.now() + GRAPHIFY_TOTAL_BUDGET_MS
+    if (GRAPHIFY_RUNTIME_URL && GRAPHIFY_RUNTIME_TOKEN) {
+      try {
+        const persistent = await queryPersistentGraphify(graphRoot, question, budget, remainingMs(deadline))
+        if (persistent.kind === 'ready') return persistent.text
+        if (persistent.kind === 'pending') {
+          return `Graphify 代码图谱正在由 Sidecar 常驻运行时预热（阶段：${persistent.phase}）。后台任务仍在继续，本次不会再启动第二个冷进程；请先使用上方 URL 候选精确读取源码，约 ${Math.ceil(persistent.retryAfterMs / 1000)} 秒后带已发现的类名或方法名再次查询。`
+        }
+        process.stderr.write(`[consult-readonly] Graphify 常驻后端不可用，评估有界 CLI 回退：${persistent.message}\n`)
+      } catch (error) {
+        process.stderr.write(`[consult-readonly] Graphify 常驻接口异常，评估有界 CLI 回退：${error instanceof Error ? error.message : String(error)}\n`)
+      }
+    }
+    const cliBudget = remainingMs(deadline) - 1_500
+    if (cliBudget < 3_000) return queryGraphJson(graphRoot, question)
+    try {
+      return await runFile(process.env.GRAPHIFY_BINARY?.trim() || 'graphify',
+        ['query', question, '--budget', String(budget)], {
+          cwd: graphRoot,
+          timeout: cliBudget,
+          maxBuffer: 2 * 1024 * 1024,
+        })
+    } catch {
+      return queryGraphJson(graphRoot, question)
+    }
+  }, () => 'Graphify 正在处理另一项图谱查询；本次已快速降级，避免 MCP 排队超时。请先使用上方 URL 候选精确读取源码，稍后带已发现的类名或方法名再次查询。')
+}
+
+type PersistentGraphifyOutcome =
+  | { kind: 'ready'; text: string }
+  | { kind: 'pending'; phase: string; retryAfterMs: number }
+  | { kind: 'unavailable'; message: string }
+
+async function queryPersistentGraphify(
+  graphRoot: string,
+  question: string,
+  budget: number,
+  timeoutMs: number,
+): Promise<PersistentGraphifyOutcome> {
+  const response = await fetch(GRAPHIFY_RUNTIME_URL, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${GRAPHIFY_RUNTIME_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ projectPath: graphRoot, question, tokenBudget: budget, mode: 'bfs' }),
+    signal: AbortSignal.timeout(Math.max(1_000, timeoutMs)),
+  })
+  const payload = await response.json() as {
+    ok?: boolean
+    code?: unknown
+    text?: unknown
+    message?: unknown
+    phase?: unknown
+    retryAfterMs?: unknown
   }
+  if (response.status === 202 && (payload.code === 'GRAPHIFY_WARMING' || payload.code === 'GRAPHIFY_BUSY')) {
+    return {
+      kind: 'pending',
+      phase: typeof payload.phase === 'string' ? payload.phase : 'warming',
+      retryAfterMs: typeof payload.retryAfterMs === 'number' ? payload.retryAfterMs : 5_000,
+    }
+  }
+  if (response.ok && payload.ok === true && typeof payload.text === 'string' && payload.text.trim()) {
+    return { kind: 'ready', text: payload.text.trim() }
+  }
+  return {
+    kind: 'unavailable',
+    message: typeof payload.message === 'string' ? payload.message : `HTTP ${response.status}`,
+  }
+}
+
+function remainingMs(deadline: number): number {
+  return Math.max(0, deadline - Date.now())
 }
 
 function extractActionUrl(question: string, explicitUrl: string): string {
@@ -437,11 +544,50 @@ function extractActionUrl(question: string, explicitUrl: string): string {
   }
 }
 
-function locateUrl(route: string): string[] {
+function splitOutputLines(output: string, maxResults: number): string[] {
+  return output.split(/\r?\n/).map(line => line.trim()).filter(Boolean).slice(0, maxResults)
+}
+
+async function findRouteMaps(): Promise<string[]> {
+  if (!SOURCE_ROOT) return []
+  if (!routeMapPathsPromise) {
+    routeMapPathsPromise = runFile('rg', [
+      '--files', SOURCE_ROOT,
+      '--glob', 'url-route-map.md',
+      '--glob', '!graphify-out/**',
+      '--glob', '!node_modules/**',
+      '--glob', '!target/**',
+    ], { cwd: SOURCE_ROOT, timeout: 5_000, maxBuffer: 256 * 1024 })
+      .then(output => splitOutputLines(output, 8))
+      .catch(() => [])
+  }
+  return routeMapPathsPromise
+}
+
+async function searchRouteWithRipgrep(routeName: string, targets: string[], maxResults: number): Promise<string[]> {
+  if (!SOURCE_ROOT || !targets.length) return []
+  try {
+    const output = await runFile('rg', [
+      '-n', '-F', '--no-heading', '--color', 'never',
+      '--max-count', String(maxResults),
+      '--max-filesize', '2M',
+      '--glob', '!graphify-out/**',
+      '--glob', '!node_modules/**',
+      '--glob', '!target/**',
+      routeName,
+      ...targets,
+    ], { cwd: SOURCE_ROOT, timeout: 8_000, maxBuffer: 512 * 1024 })
+    return splitOutputLines(output, maxResults)
+  } catch {
+    return []
+  }
+}
+
+async function locateUrl(route: string): Promise<string[]> {
   if (!SOURCE_ROOT || !route) return []
   const routeName = basename(route)
-  const routeMaps = findFilesByName(SOURCE_ROOT, 'url-route-map.md', 8)
-  const mapHits = routeMaps.flatMap(path => findTextMatches(path, routeName, false, 20).results)
+  const routeMaps = await findRouteMaps()
+  const mapHits = await searchRouteWithRipgrep(routeName, routeMaps, 20)
   if (mapHits.length) return mapHits
   const preferredRoots = [
     'WebRoot', 'web', 'frontend/src', 'src/main', 'src',
@@ -449,24 +595,21 @@ function locateUrl(route: string): string[] {
     .filter(path => existsSync(path) && statSync(path).isDirectory())
     // src/main 已覆盖时不再重复扫描其父级 src。
     .filter((path, index, paths) => !paths.some((other, otherIndex) => otherIndex < index && other.startsWith(path + sep)))
-  const hits: string[] = []
-  for (const root of preferredRoots) {
-    hits.push(...findTextMatches(root, routeName, false, 30 - hits.length).results)
-    if (hits.length >= 30) break
-  }
-  return hits
+  return searchRouteWithRipgrep(routeName, preferredRoots, 30)
 }
 
-function buildSourceContext(args: Record<string, unknown>): Record<string, unknown> {
+async function buildSourceContext(args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const question = typeof args.question === 'string' ? args.question.trim() : ''
   if (!question) throw new Error('source_context.question 不能为空')
   const explicitUrl = typeof args.url === 'string' ? args.url : ''
   const moduleName = typeof args.module === 'string' ? args.module : ''
   const route = extractActionUrl(question, explicitUrl)
-  const routeHits = locateUrl(route)
   const graphQuestion = [route ? `页面路由 ${route}` : '', question, moduleName ? `模块 ${moduleName}` : '']
     .filter(Boolean).join('\n')
-  const graph = queryGraphify(graphQuestion, moduleName, clampInteger(args.graphBudget, 1200, 200, 2000))
+  const [routeHits, graph] = await Promise.all([
+    locateUrl(route),
+    queryGraphify(graphQuestion, moduleName, clampInteger(args.graphBudget, 1200, 200, 2000)),
+  ])
   return textResult([
     '【URL 定位】',
     route || '问题中未识别到 action URL。',

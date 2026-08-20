@@ -115,3 +115,20 @@ test('exposes only the selected system database tool through the code-mode host'
     else process.env.TOOLBOX_API_BASE = previousApiBase
   }
 })
+
+test('consultation only requires Forge when SQL registration is enabled', () => {
+  const previousApiBase = process.env.TOOLBOX_API_BASE
+  process.env.TOOLBOX_API_BASE = 'http://127.0.0.1:18080'
+  try {
+    const disabled = consultReadonlyCodexConfig(undefined, 'session-1', 'D:\\work\\srm-system')
+    const enabled = consultReadonlyCodexConfig(undefined, 'session-1', 'D:\\work\\srm-system', [], true)
+    assert.equal((disabled.mcp_servers as Record<string, unknown>).forge, undefined)
+    assert.equal(
+      ((enabled.mcp_servers as Record<string, Record<string, unknown>>).forge).required,
+      true,
+    )
+  } finally {
+    if (previousApiBase == null) delete process.env.TOOLBOX_API_BASE
+    else process.env.TOOLBOX_API_BASE = previousApiBase
+  }
+})

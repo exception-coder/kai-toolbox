@@ -5,8 +5,9 @@
   "type": "module",
   "description": "kai-toolbox 移动端 Claude 客户端的 sidecar：跑 Claude Agent SDK，经 WebSocket 与 Java 后端交互",
   "scripts": {
-    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
-    "test": "npm run build && node --test dist/**/*.test.js",
+    "build": "node scripts/build-sidecar.mjs",
+    "app-server:schema:check": "node scripts/check-codex-app-server-schema.mjs",
+    "test": "npm run app-server:schema:check && node scripts/run-tests.mjs",
     "start": "node dist/server.js",
     "dev": "node --experimental-strip-types src/server.ts"
   },

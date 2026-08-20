@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,22 +33,33 @@ import {
 import { activityOutputTail, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
 import { appendWindowsExecutionInstructions } from './windowsExecution.js'
+import { isMcpToolTimeoutAbort } from './mcpToolWatchdog.js'
+import { isToolExecutionTimeoutAbort } from './toolExecutionWatchdog.js'
+import { standardToolboxMcpRequirements } from './codexMcpPolicy.js'
+import {
+  isRetryableMcpInitializationFailure,
+  isRetryableThreadWriterConflict,
+  runCodexAppServerWithStartupRetry,
+} from './codexAppServerRetry.js'
 
 export type CodexSpeed = 'default' | 'fast'
 export type CodexReasoningEffort = string
 type CodexTransport = 'appServer' | 'sdkFallback' | 'thirdPartySdk'
-
-export const CODEX_TOOLBOX_MCP_SERVERS = ['forge', 'erp_db', 'erp_app', 'srm_db', 'srm_app', 'scm_db'] as const
+const THREAD_WRITER_RETRY_DELAY_MS = 1_500
 
 /** Codex 没有 Claude 的 system/init 能力清单，供 sidecar 主动上报运行时注入的 MCP。 */
-export function codexMcpCapabilities(toolPolicy: string, sessionId?: string): Array<{ name: string; status: string }> {
+export function codexMcpCapabilities(toolPolicy: string, sessionId?: string,
+                                     forgeSqlRegistration = false): Array<{ name: string; status: string }> {
   if (toolPolicy === 'disabled' || toolPolicy === REVIEW_ONLY_POLICY) return []
   if (toolPolicy === CONSULT_READONLY_POLICY) return [
     { name: 'consult-readonly', status: 'configured' },
-    ...(process.env.TOOLBOX_API_BASE && sessionId ? [{ name: 'forge', status: 'configured' }] : []),
+    ...(process.env.TOOLBOX_API_BASE && sessionId && forgeSqlRegistration
+      ? [{ name: 'forge', status: 'configured' }]
+      : []),
   ]
   if (!process.env.TOOLBOX_API_BASE) return []
-  return CODEX_TOOLBOX_MCP_SERVERS.map(name => ({ name, status: 'configured' }))
+  return standardToolboxMcpRequirements(sessionId, forgeSqlRegistration)
+    .map(({ name }) => ({ name, status: 'configured' }))
 }
 
 export interface CodexImageInput {
@@ -73,6 +84,8 @@ export interface CodexTurnCtx {
   developerInstructions?: string
   /** 后端在咨询创建时固化的可读证据系统；不允许模型自行扩展。 */
   consultEvidenceSystems?: string[]
+  /** 是否为当前持久会话注入 Forge 待执行 SQL 登记能力。 */
+  forgeSqlRegistration?: boolean
   /** 已有 thread id（resume 续跑）；无则新建线程。 */
   sdkSessionId?: string
   /** 第三方 OpenAI 兼容网关 baseURL；置则本轮走该网关（Codex 原生 OpenAI 协议，接网关更顺）。空=本机 ~/.codex 登录。 */
@@ -86,6 +99,11 @@ export interface CodexTurnCtx {
   signal: AbortSignal
   emit: (e: Record<string, unknown>) => void
   setSdkSessionId: (id: string) => void
+  canUseTool?: (
+    toolName: string,
+    input: Record<string, unknown>,
+    options: { signal?: AbortSignal },
+  ) => Promise<Record<string, unknown>>
 }
 
 // 官方实例：复用本机 ~/.codex 认证；SDK 内部用 @openai/codex 自带二进制，无需 codex 在 PATH。
@@ -121,15 +139,16 @@ function codexEnv(codexHome: string): Record<string, string> {
   return env
 }
 
-function standardToolboxMcpConfig(sessionId?: string): NonNullable<CodexOptions['config']> {
+function standardToolboxMcpConfig(sessionId?: string,
+                                  forgeSqlRegistration = false): NonNullable<CodexOptions['config']> {
   const apiBase = process.env.TOOLBOX_API_BASE?.trim()
   if (!apiBase) return {}
   const here = dirname(fileURLToPath(import.meta.url))
   const compiledBridge = join(here, 'toolboxMcpBridge.js')
   const sourceBridge = join(here, 'toolboxMcpBridge.ts')
   const bridge = existsSync(compiledBridge) ? compiledBridge : sourceBridge
-  const enabledServers = CODEX_TOOLBOX_MCP_SERVERS.filter(name => name !== 'forge' || !!sessionId)
-  const mcpServers = Object.fromEntries(enabledServers.map(name => [name, {
+  const requirements = standardToolboxMcpRequirements(sessionId, forgeSqlRegistration)
+  const mcpServers = Object.fromEntries(requirements.map(({ name, required }) => [name, {
     command: process.execPath,
     args: bridge === sourceBridge ? ['--experimental-strip-types', bridge, name] : [bridge, name],
     env: {
@@ -137,22 +156,42 @@ function standardToolboxMcpConfig(sessionId?: string): NonNullable<CodexOptions[
       ...(name === 'forge' && sessionId ? { TOOLBOX_SESSION_ID: sessionId } : {}),
     },
     enabled: true,
-    required: true,
+    required,
     // 查询库自动放行；应用探测可能写测试数据，沿用 Codex 的写操作审批。
     default_tools_approval_mode: name.endsWith('_db') || name === 'forge' ? 'auto' : 'writes',
   }]))
   return { mcp_servers: mcpServers }
 }
 
+function toolboxMcpRuntimeDiagnostics(): string {
+  const directory = dirname(fileURLToPath(import.meta.url))
+  const bridge = join(directory, existsSync(join(directory, 'toolboxMcpBridge.js'))
+    ? 'toolboxMcpBridge.js'
+    : 'toolboxMcpBridge.ts')
+  const manifestPath = join(directory, 'build-manifest.json')
+  let buildId = 'legacy'
+  if (existsSync(manifestPath)) {
+    try {
+      buildId = String(JSON.parse(readFileSync(manifestPath, 'utf8')).buildId || 'unknown')
+    } catch {
+      buildId = 'invalid-manifest'
+    }
+  }
+  return `bridge=${bridge} exists=${existsSync(bridge)} build=${buildId}`
+}
+
 function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string,
                           sessionId?: string,
+                          forgeSqlRegistration = false,
                           turnDeveloperInstructions?: string,
                           sourceRoot?: string,
                           consultEvidenceSystems: readonly string[] = []): NonNullable<CodexOptions['config']> {
   const baseDeveloperInstructions = [
     toolPolicy === CONSULT_READONLY_POLICY ? CONSULT_READONLY_PROMPT : undefined,
     toolPolicy === REVIEW_ONLY_POLICY ? REVIEW_ONLY_PROMPT : undefined,
-    toolPolicy !== 'disabled' && toolPolicy !== REVIEW_ONLY_POLICY && sessionId ? FORGE_PENDING_SQL_STEER : undefined,
+    toolPolicy !== 'disabled' && toolPolicy !== REVIEW_ONLY_POLICY && sessionId && forgeSqlRegistration
+      ? FORGE_PENDING_SQL_STEER
+      : undefined,
   ].filter(Boolean).join('\n\n') || undefined
   const developerInstructions = appendWindowsExecutionInstructions([
     baseDeveloperInstructions,
@@ -162,12 +201,12 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
     ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),
     ...(toolPolicy === CONSULT_READONLY_POLICY
-      ? consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot, consultEvidenceSystems)
+      ? consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot, consultEvidenceSystems, forgeSqlRegistration)
       : toolPolicy === REVIEW_ONLY_POLICY
         ? reviewOnlyCodexConfig(codexHome)
       : toolPolicy === 'disabled'
         ? {}
-        : standardToolboxMcpConfig(sessionId)),
+        : standardToolboxMcpConfig(sessionId, forgeSqlRegistration)),
   }
 }
 
@@ -178,20 +217,22 @@ function pickCodex(
   codexHome?: string,
   toolPolicy = 'default',
   sessionId?: string,
+  forgeSqlRegistration = false,
   developerInstructions?: string,
   sourceRoot?: string,
   consultEvidenceSystems: readonly string[] = [],
 ): Codex {
   if (!apiBaseUrl || !apiBaseUrl.trim()) {
     const home = normalizeCodexHome(codexHome)
-    const config = buildCodexConfig(speed, toolPolicy, home, sessionId, developerInstructions, sourceRoot, consultEvidenceSystems)
+    const config = buildCodexConfig(speed, toolPolicy, home, sessionId, forgeSqlRegistration,
+      developerInstructions, sourceRoot, consultEvidenceSystems)
     if (developerInstructions) {
       return new Codex({
         ...(home ? { env: codexEnv(home) } : {}),
         ...(Object.keys(config).length ? { config } : {}),
       })
     }
-    const key = `${speed} ${home ?? '<default>'} ${toolPolicy} ${sessionId ?? '<one-shot>'} ${sourceRoot ?? '<no-source>'} ${[...consultEvidenceSystems].sort().join(',')}`
+    const key = `${speed} ${home ?? '<default>'} ${toolPolicy} ${sessionId ?? '<one-shot>'} ${forgeSqlRegistration} ${sourceRoot ?? '<no-source>'} ${[...consultEvidenceSystems].sort().join(',')}`
     let client = codexClients.get(key)
     if (!client) {
       client = new Codex({
@@ -208,6 +249,7 @@ function pickCodex(
     toolPolicy,
     normalizeCodexHome(codexHome),
     sessionId,
+    forgeSqlRegistration,
     developerInstructions,
     sourceRoot,
     consultEvidenceSystems,
@@ -220,6 +262,7 @@ function pickCodex(
     })
   }
   const key = baseUrl + ' ' + (authToken ?? '') + ' ' + speed + ' ' + toolPolicy + ' ' + (sessionId ?? '<one-shot>')
+    + ' ' + forgeSqlRegistration
     + ' ' + [...consultEvidenceSystems].sort().join(',')
   let c = gatewayClients.get(key)
   if (!c) {
@@ -288,7 +331,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   try {
     const prepared = prepareCodexInput(ctx.text, ctx.images)
     tempImageDir = prepared.tempDir
-    await runCodexAppServerTurn({
+    const appServerOptions: Parameters<typeof runCodexAppServerTurn>[0] = {
       threadId: ctx.sdkSessionId,
       cwd: safeCwd,
       model: ctx.model || undefined,
@@ -300,6 +343,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         ctx.toolPolicy ?? 'default',
         home,
         ctx.sessionId,
+        ctx.forgeSqlRegistration,
         ctx.developerInstructions,
         consultSourceRoot,
         ctx.consultEvidenceSystems,
@@ -309,22 +353,53 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       signal: ctx.signal,
       emit: ctx.emit,
       setThreadId: ctx.setSdkSessionId,
-      mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId),
+      canUseTool: ctx.canUseTool,
+      mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId, ctx.forgeSqlRegistration),
       requiredMcpTools: consultReadonly
         ? consultReadonlyRequiredMcpTools(consultSourceRoot, ctx.consultEvidenceSystems)
         : undefined,
       forbidMcpTools: reviewOnly,
-    })
+    }
+    await runCodexAppServerWithStartupRetry(
+      () => runCodexAppServerTurn(appServerOptions),
+      async error => {
+        if (isRetryableThreadWriterConflict(error)) {
+          ctx.emit({
+            type: 'warning',
+            code: 'CODEX_THREAD_WRITER_RETRY',
+            message: 'Codex 上一轮正在释放原生 thread 写锁，等待收口后重试（1/1）。',
+          })
+          await new Promise(resolveDelay => setTimeout(resolveDelay, THREAD_WRITER_RETRY_DELAY_MS))
+          return
+        }
+        ctx.emit({
+          type: 'warning',
+          code: 'CODEX_MCP_INIT_RETRY',
+          message: `Codex App Server 的 MCP 初始化连接已关闭，正在使用全新进程重试（1/1）。${toolboxMcpRuntimeDiagnostics()}`,
+        })
+      },
+    )
   } catch (error) {
     if (ctx.signal.aborted) {
+      if (isMcpToolTimeoutAbort(ctx.signal.reason) || isToolExecutionTimeoutAbort(ctx.signal.reason)) return
       ctx.emit({ type: 'result', usage: {}, stopReason: 'interrupted' })
       return
     }
+    if (isRetryableThreadWriterConflict(error)) {
+      ctx.emit({
+        type: 'error',
+        code: 'CODEX_THREAD_WRITER_BUSY',
+        message: 'Codex 原生 thread 仍被上一轮占用，本次未回退 SDK，也未放行下一条待发送消息。请稍后重试当前消息。',
+      })
+      ctx.emit({ type: 'result', usage: {}, stopReason: 'error', queueReleaseSafe: false })
+      return
+    }
     if (error instanceof CodexAppServerTurnError && error.retrySafe) {
+      const diagnostic = isRetryableMcpInitializationFailure(error) ? `；${toolboxMcpRuntimeDiagnostics()}` : ''
       ctx.emit({
         type: 'warning',
         code: 'CODEX_APP_SERVER_FALLBACK',
-        message: `Codex App Server 启动失败，已自动回退 SDK：${error.message}`,
+        message: `Codex App Server 启动失败，已自动回退 SDK：${error.message}${diagnostic}`,
       })
       await runCodexSdkTurn(ctx, 'sdkFallback')
       return
@@ -427,6 +502,7 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
       home,
       ctx.toolPolicy,
       ctx.sessionId,
+      ctx.forgeSqlRegistration,
       ctx.developerInstructions,
       consultSourceRoot,
       ctx.consultEvidenceSystems,
@@ -444,7 +520,7 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
             ctx.emit({
               type: 'init',
               sdkSessionId: ev.thread_id,
-              mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId),
+              mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId, ctx.forgeSqlRegistration),
             })
           }
           break
@@ -485,6 +561,7 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
     }
   } catch (e: unknown) {
     if (ctx.signal.aborted) {
+      if (isMcpToolTimeoutAbort(ctx.signal.reason) || isToolExecutionTimeoutAbort(ctx.signal.reason)) return
       ctx.emit({ type: 'result', usage: {}, stopReason: 'interrupted' })
       return
     }

@@ -36,7 +36,15 @@ param(
     [int]$AutoUpdateIntervalSeconds = 120,
     # Internal worker flag. The stable bootstrap process owns the terminal and reloads this file after update.
     [Parameter(DontShow)]
-    [switch]$SupervisorWorker
+    [switch]$SupervisorWorker,
+    # Internal bootstrap handoff identity. A worker may stop the full stack only while the
+    # stable bootstrap that launched it is still its live parent.
+    [Parameter(DontShow)]
+    [int]$BootstrapProcessId = 0,
+    [Parameter(DontShow)]
+    [string]$BootstrapInstanceToken = '',
+    [Parameter(DontShow)]
+    [string]$BootstrapLogPath = ''
 )
 
 $ErrorActionPreference = 'Continue'
@@ -66,16 +74,34 @@ if (-not $SupervisorWorker) {
     ) 'kai-toolbox\logs'
     [System.IO.Directory]::CreateDirectory($bootstrapLogDirectory) | Out-Null
     $bootstrapLogPath = Join-Path $bootstrapLogDirectory ("supervisor-{0}.log" -f (Get-Date -Format 'yyyy-MM-dd'))
-    $bootstrapLogWriter = [System.IO.StreamWriter]::new(
-        $bootstrapLogPath, $true, [System.Text.UTF8Encoding]::new($false))
-    $bootstrapLogWriter.AutoFlush = $true
+    $bootstrapLogWriter = $null
+    try {
+        $bootstrapLogShare = [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
+        $bootstrapLogStream = [System.IO.FileStream]::new(
+            $bootstrapLogPath,
+            [System.IO.FileMode]::Append,
+            [System.IO.FileAccess]::Write,
+            $bootstrapLogShare)
+        $bootstrapLogWriter = [System.IO.StreamWriter]::new(
+            $bootstrapLogStream, [System.Text.UTF8Encoding]::new($false))
+        $bootstrapLogWriter.AutoFlush = $true
+    } catch {
+        Write-Host "[supervisor-bootstrap] WARN: 无法打开运行日志，仍继续输出到控制台：$($_.Exception.Message)"
+    }
+    $bootstrapInstanceToken = [Guid]::NewGuid().ToString('N')
+    $previousBootstrapToken = $env:KAI_SUPERVISOR_BOOTSTRAP_TOKEN
+    $env:KAI_SUPERVISOR_BOOTSTRAP_TOKEN = $bootstrapInstanceToken
     function Write-BootstrapMessage([string]$message) {
         Write-Host $message
-        $bootstrapLogWriter.WriteLine($message)
+        if ($bootstrapLogWriter) { $bootstrapLogWriter.WriteLine($message) }
     }
     $workerArgs = @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath,
-        '-SupervisorWorker', '-Mode', $Mode, '-Observability', $Observability
+        '-SupervisorWorker',
+        '-BootstrapProcessId', "$PID",
+        '-BootstrapInstanceToken', $bootstrapInstanceToken,
+        '-BootstrapLogPath', $bootstrapLogPath,
+        '-Mode', $Mode, '-Observability', $Observability
     )
     if ($HotReload) { $workerArgs += '-HotReload' }
     if ($AutoUpdate) { $workerArgs += '-AutoUpdate' }
@@ -107,7 +133,12 @@ if (-not $SupervisorWorker) {
         Write-BootstrapMessage "[supervisor-bootstrap] worker 启动失败：$($_.Exception.Message)"
         exit 1
     } finally {
-        $bootstrapLogWriter.Dispose()
+        if ($null -eq $previousBootstrapToken) {
+            Remove-Item Env:KAI_SUPERVISOR_BOOTSTRAP_TOKEN -ErrorAction SilentlyContinue
+        } else {
+            $env:KAI_SUPERVISOR_BOOTSTRAP_TOKEN = $previousBootstrapToken
+        }
+        if ($bootstrapLogWriter) { $bootstrapLogWriter.Dispose() }
     }
 }
 
@@ -117,6 +148,42 @@ Import-ToolboxLocalConfig
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $RepoRoot
+
+$script:BootstrapProcessId = $BootstrapProcessId
+$script:BootstrapInstanceToken = $BootstrapInstanceToken
+$script:BootstrapLogPath = $BootstrapLogPath
+$script:BootstrapEnvironmentToken = $env:KAI_SUPERVISOR_BOOTSTRAP_TOKEN
+Remove-Item Env:KAI_SUPERVISOR_BOOTSTRAP_TOKEN -ErrorAction SilentlyContinue
+
+function Test-SupervisorBootstrapAttached {
+    if ($script:BootstrapProcessId -le 0 -or
+        [string]::IsNullOrWhiteSpace($script:BootstrapInstanceToken) -or
+        [string]::IsNullOrWhiteSpace($script:BootstrapEnvironmentToken) -or
+        $script:BootstrapInstanceToken -cne $script:BootstrapEnvironmentToken) {
+        return $false
+    }
+    try {
+        $bootstrapProcess = Get-Process -Id $script:BootstrapProcessId -ErrorAction Stop
+        if ($bootstrapProcess.HasExited) { return $false }
+        $currentProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $PID" -ErrorAction Stop
+        return $null -ne $currentProcess -and
+            [int]$currentProcess.ParentProcessId -eq $script:BootstrapProcessId
+    } catch {
+        return $false
+    }
+}
+
+function Test-PortListening([int]$port) {
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $connect = $client.ConnectAsync('127.0.0.1', $port)
+        return $connect.Wait(250) -and $client.Connected
+    } catch {
+        return $false
+    } finally {
+        $client.Dispose()
+    }
+}
 
 function ConvertTo-ConfigBoolean([string]$value, [bool]$defaultValue) {
     if ([string]::IsNullOrWhiteSpace($value)) { return $defaultValue }
@@ -1219,8 +1286,9 @@ function Test-AutoUpdateCandidateSupervisor([string]$remoteRef) {
         return [pscustomobject]@{ Safe = $false; Message = '候选 supervisor 存在 PowerShell 语法错误'; Error = $detail }
     }
     $parameterNames = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
-    $requiredParameters = @('SupervisorWorker', 'Mode', 'Observability', 'HotReload',
-        'AutoUpdate', 'AutoUpdateIntervalSeconds')
+    $requiredParameters = @('SupervisorWorker', 'BootstrapProcessId', 'BootstrapInstanceToken',
+        'BootstrapLogPath', 'Mode', 'Observability', 'HotReload', 'AutoUpdate',
+        'AutoUpdateIntervalSeconds')
     $missingParameters = @($requiredParameters | Where-Object { $_ -notin $parameterNames })
     if ($missingParameters.Count -gt 0) {
         return [pscustomobject]@{ Safe = $false; Message = '候选 supervisor 不再接受自动更新自重载参数'; Error = "missing=$($missingParameters -join ',')" }
@@ -1304,6 +1372,11 @@ function Complete-AutoUpdateFetch($fetchResult) {
     if (-not $runtime.Safe) {
         Set-NextAutoUpdateCheck ([Math]::Min(60, $AutoUpdateIntervalSeconds))
         Set-AutoUpdateState 'waiting-for-idle' $runtime.Message $runtime.Error
+        return $false
+    }
+    if (-not (Test-SupervisorBootstrapAttached)) {
+        Set-NextAutoUpdateCheck $AutoUpdateIntervalSeconds
+        Set-AutoUpdateState 'bootstrap-unavailable' '稳定 bootstrap 未接管，自动更新不会停止当前服务'
         return $false
     }
 
@@ -1392,11 +1465,14 @@ function Update-AutoUpdateSafely {
 function Write-Json($res, [int]$code, $obj) {
     $res.StatusCode = $code
     $res.ContentType = 'application/json; charset=utf-8'
+    $res.KeepAlive = $false
     $res.Headers.Add('Access-Control-Allow-Origin', '*')
     $res.Headers.Add('Access-Control-Allow-Headers', 'X-Restart-Token, Content-Type')
     $res.Headers.Add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     $bytes = [System.Text.Encoding]::UTF8.GetBytes(($obj | ConvertTo-Json -Compress))
+    $res.ContentLength64 = $bytes.Length
     $res.OutputStream.Write($bytes, 0, $bytes.Length)
+    $res.OutputStream.Flush()
     $res.Close()
 }
 
@@ -1416,11 +1492,22 @@ function Handle-Request($ctx) {
 
     if ($path -eq '/status' -and $method -eq 'GET') {
         $up = ($null -ne $script:backend) -and (-not $script:backend.HasExited)
+        $frontendUp = ($null -ne $script:frontend) -and (-not $script:frontend.HasExited)
+        $backendReady = Test-PortListening $BackendPort
+        $frontendReady = Test-PortListening $FrontendPort
+        $bootstrapAttached = Test-SupervisorBootstrapAttached
         Write-Json $res 200 @{
             protocolVersion = 1
             repoRoot = $RepoRoot
-            capabilities = @{ fullReload = $true }
+            capabilities = @{ fullReload = $bootstrapAttached }
+            bootstrapAttached = $bootstrapAttached
+            bootstrapPid = if ($script:BootstrapProcessId -gt 0) { $script:BootstrapProcessId } else { $null }
+            bootstrapLogPath = if ([string]::IsNullOrWhiteSpace($script:BootstrapLogPath)) { $null } else { $script:BootstrapLogPath }
             backendUp = $up
+            backendReady = $backendReady
+            frontendUp = $frontendUp
+            frontendReady = $frontendReady
+            servicesReady = $backendReady -and $frontendReady
             pid       = if ($script:backend) { $script:backend.Id } else { $null }
             lastStart = if ($script:lastStart) { $script:lastStart.ToString('s') } else { $null }
             autoUpdate = @{
@@ -1447,6 +1534,15 @@ function Handle-Request($ctx) {
         if ([string]::IsNullOrWhiteSpace($token)) { $token = $req.QueryString['token'] }
         if (-not (Test-FullReloadToken $token)) {
             Write-Json $res 403 @{ error = 'token mismatch' }
+            return
+        }
+        if (-not (Test-SupervisorBootstrapAttached)) {
+            Write-Json $res 409 @{
+                error = 'bootstrap_unavailable'
+                message = 'stable bootstrap is not attached; current services remain running'
+                bootstrapLogPath = if ([string]::IsNullOrWhiteSpace($script:BootstrapLogPath)) { $null } else { $script:BootstrapLogPath }
+            }
+            Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') $path rejected: stable bootstrap is not attached; services remain running"
             return
         }
         $script:autoUpdateRelaunchRequested = $true

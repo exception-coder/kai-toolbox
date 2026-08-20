@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 /**
  * 业务知识图谱 MCP 服务器配置工厂。
@@ -24,6 +26,19 @@ export interface KnowledgeMcpPaths {
   domainKnowledge: string
   crossTopology: string
 }
+
+export interface ReadonlyKnowledgeMcpCall {
+  server: 'domain-knowledge' | 'cross-topology'
+  tool: string
+  arguments: Record<string, unknown>
+}
+
+export interface KnowledgeMcpCallRuntime {
+  call: (call: ReadonlyKnowledgeMcpCall, timeoutMs: number, signal?: AbortSignal) => Promise<unknown>
+}
+
+const DEFAULT_RECOVERY_TIMEOUT_MS = 8_000
+const MAX_RECOVERY_RESULT_CHARS = 16_000
 
 const BASE_READONLY_KNOWLEDGE_TOOLS = [
   'list_projects',
@@ -139,6 +154,97 @@ export function createCodexDomainKnowledgeServer(): Record<string, unknown> | nu
 export function createCodexCrossTopologyServer(): Record<string, unknown> | null {
   const paths = resolveKnowledgeMcpPaths()
   return codexServer(paths.engine, paths.crossTopology, CROSS_TOPOLOGY_READONLY_TOOLS)
+}
+
+export function readonlyKnowledgeMcpCall(
+  toolName: string,
+  toolInput?: Record<string, unknown>,
+): ReadonlyKnowledgeMcpCall | undefined {
+  if (!toolInput) return undefined
+  const normalized = normalizeKnowledgeToolName(toolName)
+  if (!normalized) return undefined
+  const allowed: readonly string[] = normalized.server === 'domain-knowledge'
+    ? DOMAIN_KNOWLEDGE_READONLY_TOOLS
+    : CROSS_TOPOLOGY_READONLY_TOOLS
+  if (!allowed.includes(normalized.tool)) return undefined
+  return { ...normalized, arguments: toolInput }
+}
+
+export async function retryReadonlyKnowledgeMcp(
+  call: ReadonlyKnowledgeMcpCall,
+  runtime: KnowledgeMcpCallRuntime = DEFAULT_KNOWLEDGE_MCP_RUNTIME,
+  timeoutMs = DEFAULT_RECOVERY_TIMEOUT_MS,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return runtime.call(call, timeoutMs, signal)
+}
+
+export function knowledgeMcpRecoveryPrompt(call: ReadonlyKnowledgeMcpCall, result: unknown): string {
+  const output = stringifyRecoveryResult(result)
+  return [
+    '系统恢复提示：上一轮只读知识 MCP 通道超时，Forge 已在隔离进程中重新执行成功。',
+    `工具：${call.server}/${call.tool}`,
+    '以下内容是该工具的真实返回结果：',
+    output,
+    '请从中断点继续原任务。不要重复已经完成的操作，也不要再次调用上述工具；如结果表示无资产，请按无资产正常降级处理。',
+  ].join('\n\n')
+}
+
+function normalizeKnowledgeToolName(toolName: string): Pick<ReadonlyKnowledgeMcpCall, 'server' | 'tool'> | undefined {
+  const slash = toolName.match(/^(domain-knowledge|cross-topology)\/(.+)$/)
+  if (slash) return { server: slash[1] as ReadonlyKnowledgeMcpCall['server'], tool: slash[2] }
+  const codex = toolName.match(/^mcp__(domain[-_]knowledge|cross[-_]topology)__(.+)$/)
+  if (!codex) return undefined
+  return {
+    server: codex[1].replace('_', '-') as ReadonlyKnowledgeMcpCall['server'],
+    tool: codex[2],
+  }
+}
+
+function stringifyRecoveryResult(result: unknown): string {
+  const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+  return text.length <= MAX_RECOVERY_RESULT_CHARS
+    ? text
+    : `${text.slice(0, MAX_RECOVERY_RESULT_CHARS)}\n…(结果已截断)`
+}
+
+const DEFAULT_KNOWLEDGE_MCP_RUNTIME: KnowledgeMcpCallRuntime = {
+  async call(call, timeoutMs, signal) {
+    const paths = resolveKnowledgeMcpPaths()
+    const knowledgeDir = call.server === 'domain-knowledge' ? paths.domainKnowledge : paths.crossTopology
+    if (!existsSync(paths.engine) || !existsSync(knowledgeDir)) {
+      throw new Error(`${call.server} MCP 安装目录不完整`)
+    }
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [paths.engine],
+      env: { ...process.env, DOMAIN_KB_DIR: knowledgeDir } as Record<string, string>,
+      stderr: 'pipe',
+    })
+    const client = new Client({ name: 'kai-toolbox-mcp-recovery', version: '0.1.0' }, { capabilities: {} })
+    let timer: NodeJS.Timeout | undefined
+    let rejectCancellation: ((reason?: unknown) => void) | undefined
+    const cancellation = new Promise<never>((_, reject) => { rejectCancellation = reject })
+    const onAbort = () => rejectCancellation?.(signal?.reason ?? new Error('MCP 隔离重试已取消'))
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+    try {
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${call.server}/${call.tool} 隔离重试超时（${timeoutMs}ms）`)), timeoutMs)
+        timer.unref?.()
+      })
+      await Promise.race([client.connect(transport), deadline, cancellation])
+      return await Promise.race([
+        client.callTool({ name: call.tool, arguments: call.arguments }),
+        deadline,
+        cancellation,
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      await transport.close().catch(() => undefined)
+    }
+  },
 }
 
 // PRD 一次性任务由 Java GraphifyQueryService 预查询图谱；业务咨询由 consult-readonly

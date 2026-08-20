@@ -1,6 +1,7 @@
 export interface McpToolWatchdogEntry {
   toolCallId: string
   toolName: string
+  toolInput?: Record<string, unknown>
   startedAt: number
   lastActivityAt: number
   timeoutMs: number
@@ -52,7 +53,7 @@ export class McpToolWatchdog {
     const toolCallId = stringValue(event.toolCallId)
 
     if (type === 'toolUse' && toolCallId && isMcpToolEvent(event)) {
-      this.start(toolCallId, stringValue(event.toolName) || 'MCP')
+      this.start(toolCallId, stringValue(event.toolName) || 'MCP', recordValue(event.input))
       return
     }
     if (type === 'toolActivity' && toolCallId && event.status === 'inProgress') {
@@ -71,12 +72,13 @@ export class McpToolWatchdog {
     this.active.clear()
   }
 
-  private start(toolCallId: string, toolName: string): void {
+  private start(toolCallId: string, toolName: string, toolInput?: Record<string, unknown>): void {
     this.finish(toolCallId)
     const now = Date.now()
     const entry = {
       toolCallId,
       toolName,
+      toolInput,
       startedAt: now,
       lastActivityAt: now,
       timeoutMs: this.timeoutMs,
@@ -146,6 +148,7 @@ export class McpToolWatchdog {
     return {
       toolCallId: tool.toolCallId,
       toolName: tool.toolName,
+      toolInput: tool.toolInput,
       startedAt: tool.startedAt,
       lastActivityAt: tool.lastActivityAt,
       timeoutMs: tool.timeoutMs,
@@ -191,4 +194,21 @@ function configuredNumber(value: string | undefined): number | undefined {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+export class McpToolTimeoutAbort extends Error {
+  constructor(readonly entry: McpToolWatchdogEntry) {
+    super(`MCP tool timed out: ${entry.toolName}`)
+    this.name = 'McpToolTimeoutAbort'
+  }
+}
+
+export function isMcpToolTimeoutAbort(reason: unknown): reason is McpToolTimeoutAbort {
+  return reason instanceof McpToolTimeoutAbort
 }

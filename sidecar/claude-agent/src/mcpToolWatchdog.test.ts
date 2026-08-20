@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { McpToolWatchdog, isMcpToolEvent } from './mcpToolWatchdog.js'
+import { McpToolTimeoutAbort, McpToolWatchdog, isMcpToolEvent, isMcpToolTimeoutAbort } from './mcpToolWatchdog.js'
 
-test('MCP tool without result reaches idle timeout with its last reported phase', async () => {
-  const timeout = new Promise<{ id: string; reason?: string; detail?: string }>(resolve => {
+test('MCP tool without result reaches idle timeout with its last reported phase and input', async () => {
+  const timeout = new Promise<{ id: string; reason?: string; detail?: string; input?: Record<string, unknown> }>(resolve => {
     const watchdog = new McpToolWatchdog({
       timeoutMs: 25,
       maxDurationMs: 100,
@@ -13,9 +13,13 @@ test('MCP tool without result reaches idle timeout with its last reported phase'
         id: entry.toolCallId,
         reason: entry.timeoutReason,
         detail: entry.lastDetail,
+        input: entry.toolInput,
       }),
     })
-    watchdog.observe({ type: 'toolUse', toolCallId: 'mcp-1', toolName: 'domain/search', toolKind: 'mcp' })
+    watchdog.observe({
+      type: 'toolUse', toolCallId: 'mcp-1', toolName: 'domain/search', toolKind: 'mcp',
+      input: { project: 'kai-toolbox', query: '状态迁移' },
+    })
     setTimeout(() => watchdog.observe({
       type: 'toolActivity', toolCallId: 'mcp-1', toolName: 'domain/search', status: 'inProgress',
       title: 'MCP 工具执行中', detail: '步骤 2/4 · 后端处理中',
@@ -26,6 +30,7 @@ test('MCP tool without result reaches idle timeout with its last reported phase'
     id: 'mcp-1',
     reason: 'idle',
     detail: '步骤 2/4 · 后端处理中',
+    input: { project: 'kai-toolbox', query: '状态迁移' },
   })
 })
 
@@ -72,4 +77,18 @@ test('ordinary shell work is never tracked as MCP', () => {
   assert.equal(isMcpToolEvent({ type: 'toolUse', toolName: 'mcp__domain__search' }), true)
   assert.equal(isMcpToolEvent({ type: 'toolUse', toolName: 'domain_knowledge__search' }), true)
   assert.equal(isMcpToolEvent({ type: 'toolUse', toolName: 'domain/search', toolKind: 'mcp' }), true)
+})
+
+test('system MCP timeout abort remains distinguishable from a user interrupt', () => {
+  const reason = new McpToolTimeoutAbort({
+    toolCallId: 'mcp-timeout',
+    toolName: 'domain-knowledge/get_module_core_spec',
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+    timeoutMs: 60_000,
+    maxDurationMs: 300_000,
+  })
+
+  assert.equal(isMcpToolTimeoutAbort(reason), true)
+  assert.equal(isMcpToolTimeoutAbort(new Error('user interrupted')), false)
 })

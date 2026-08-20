@@ -15,6 +15,10 @@ import {
   DOMAIN_KNOWLEDGE_READONLY_TOOLS,
   createCrossTopologyServer,
   createDomainKnowledgeServer,
+  knowledgeMcpRecoveryPrompt,
+  readonlyKnowledgeMcpCall,
+  retryReadonlyKnowledgeMcp,
+  type ReadonlyKnowledgeMcpCall,
 } from './knowledgeMcp.js'
 import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, runEphemeralCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
 import { createClaudeConsultSourceServer, resolveConsultTargetSystems } from './codexSecurity.js'
@@ -28,11 +32,20 @@ import { appendWindowsExecutionInstructions, windowsExecutionInstructions } from
 import { TurnLifecycle, type InterruptSnapshot } from './turnLifecycle.js'
 import {
   McpToolWatchdog,
+  McpToolTimeoutAbort,
   configuredMcpToolHeartbeatMs,
   configuredMcpToolMaxDurationMs,
   configuredMcpToolTimeoutMs,
   type McpToolWatchdogEntry,
 } from './mcpToolWatchdog.js'
+import {
+  ToolExecutionTimeoutAbort,
+  ToolExecutionWatchdog,
+  configuredToolExecutionHeartbeatMs,
+  configuredToolExecutionIdleTimeoutMs,
+  configuredToolExecutionMaxDurationMs,
+  type ToolExecutionWatchdogEntry,
+} from './toolExecutionWatchdog.js'
 import { createBuiltinEngineRegistry } from './engine/builtinEngineAdapters.js'
 import { isEngineId, publicAgentEvent, type EngineId, type EngineImageInput } from './engine/engineContract.js'
 import type { EngineAdapterRegistry } from './engine/engineRegistry.js'
@@ -300,6 +313,9 @@ class Session {
   private readonly turnLifecycle = new TurnLifecycle()
   private readonly engineRegistry: EngineAdapterRegistry
   private readonly mcpToolWatchdog: McpToolWatchdog
+  private readonly toolExecutionWatchdog: ToolExecutionWatchdog
+  private pendingMcpRecovery?: { entry: McpToolWatchdogEntry; call: ReadonlyKnowledgeMcpCall }
+  private mcpRecoveryAttempted = false
   private turnActivityStartedAt = 0
   private turnActivityPhase = 'starting'
   private turnActivityTitle = '正在启动代码引擎'
@@ -365,6 +381,13 @@ class Session {
       onHeartbeat: entry => this.emitMcpToolHeartbeat(entry),
       onTimeout: entry => this.handleMcpToolTimeout(entry),
     })
+    this.toolExecutionWatchdog = new ToolExecutionWatchdog({
+      idleTimeoutMs: configuredToolExecutionIdleTimeoutMs(),
+      heartbeatMs: configuredToolExecutionHeartbeatMs(),
+      maxDurationMs: configuredToolExecutionMaxDurationMs(),
+      onHeartbeat: entry => this.emitToolExecutionHeartbeat(entry),
+      onTimeout: entry => this.handleToolExecutionTimeout(entry),
+    })
   }
 
   private emitTurn(event: Record<string, unknown>): void {
@@ -372,6 +395,7 @@ class Session {
     // result 只是引擎流终态；整轮还要经过 finally 清理，不能在这里提前显示“已结束”。
     if (type !== 'result') this.updateTurnActivity(event)
     this.mcpToolWatchdog.observe(event)
+    if (this.engine === 'codex') this.toolExecutionWatchdog.observe(event)
     const wasTerminal = this.turnLifecycle.terminal()
     const decorated = this.turnLifecycle.decorate(event)
     if (type === 'result' && !wasTerminal && this.turnLifecycle.terminal()) {
@@ -458,12 +482,93 @@ class Session {
     })
   }
 
+  private emitToolExecutionHeartbeat(entry: ToolExecutionWatchdogEntry): void {
+    emitToolActivity(event => this.emitTurn({ ...event, watchdogGenerated: true }), {
+      toolCallId: entry.toolCallId,
+      toolName: entry.toolName,
+      status: 'inProgress',
+      title: '工具仍在执行',
+      detail: [entry.lastDetail || entry.lastTitle,
+        `无活动上限 ${Math.round(entry.idleTimeoutMs / 1_000)} 秒`,
+        `总时长上限 ${Math.round(entry.maxDurationMs / 1_000)} 秒`].filter(Boolean).join(' · '),
+      elapsedMs: Date.now() - entry.startedAt,
+      outcome: 'waiting',
+      severity: 'info',
+    })
+  }
+
+  private handleToolExecutionTimeout(entry: ToolExecutionWatchdogEntry): void {
+    const elapsedMs = Date.now() - entry.startedAt
+    const hardLimit = entry.timeoutReason === 'maxDuration'
+    const limitMs = hardLimit ? entry.maxDurationMs : entry.idleTimeoutMs
+    const message = `工具 ${entry.toolName}${hardLimit ? '执行总时长' : '与本轮均无有效进度'}超过 ${Math.round(limitMs / 1_000)} 秒，已终止当前轮次`
+    console.warn(`[sidecar] tool execution timeout session=${this.id} tool=${entry.toolName} call=${entry.toolCallId} reason=${entry.timeoutReason ?? 'idle'} elapsedMs=${elapsedMs}`)
+    this.emitTurn({
+      type: 'toolResult',
+      toolCallId: entry.toolCallId,
+      toolName: entry.toolName,
+      output: message,
+      isError: true,
+      watchdogGenerated: true,
+    })
+    emitToolActivity(event => this.emitTurn({ ...event, watchdogGenerated: true }), {
+      toolCallId: entry.toolCallId,
+      toolName: entry.toolName,
+      status: 'failed',
+      title: '工具执行超时',
+      detail: message,
+      elapsedMs,
+      outcome: 'timeout',
+      severity: 'error',
+    })
+    this.emitTurn({ type: 'error', code: 'TOOL_EXECUTION_TIMEOUT', message })
+    this.abort?.abort(new ToolExecutionTimeoutAbort(entry))
+
+    const fallback = setTimeout(() => {
+      if (!this.turnLifecycle.terminal()) {
+        this.emitTurn({ type: 'result', usage: {}, stopReason: 'error' })
+      }
+    }, 2_000)
+    fallback.unref?.()
+  }
+
   private handleMcpToolTimeout(entry: McpToolWatchdogEntry): void {
+    const recoveryCall = this.engine === 'codex' && !this.mcpRecoveryAttempted
+      ? readonlyKnowledgeMcpCall(entry.toolName, entry.toolInput)
+      : undefined
+    if (recoveryCall) {
+      this.pendingMcpRecovery = { entry, call: recoveryCall }
+      const elapsedMs = Date.now() - entry.startedAt
+      console.warn(`[sidecar] read-only MCP channel timeout; isolating call session=${this.id} tool=${entry.toolName} call=${entry.toolCallId}`)
+      emitToolActivity(event => this.emitTurn({ ...event, watchdogGenerated: true }), {
+        toolCallId: entry.toolCallId,
+        toolName: entry.toolName,
+        status: 'inProgress',
+        title: 'MCP 通道超时，正在隔离恢复',
+        detail: '当前 App Server 正在终止；Forge 将通过新进程重试这次只读查询。',
+        elapsedMs,
+        outcome: 'retrying',
+        severity: 'warning',
+      })
+      this.emitTurn({
+        type: 'warning',
+        code: 'MCP_TOOL_RECOVERING',
+        message: `只读 MCP 工具 ${entry.toolName} 响应超时，正在隔离重试；不会重放整轮开发操作。`,
+      })
+      this.abort?.abort(new McpToolTimeoutAbort(entry))
+      return
+    }
+    this.failMcpToolTimeout(entry)
+  }
+
+  private failMcpToolTimeout(entry: McpToolWatchdogEntry, recoveryError?: string): void {
     const elapsedMs = Date.now() - entry.startedAt
     const hardLimit = entry.timeoutReason === 'maxDuration'
     const limitSeconds = Math.round((hardLimit ? entry.maxDurationMs : entry.timeoutMs) / 1_000)
     const phase = entry.lastDetail || entry.lastTitle
-    const message = `MCP 工具 ${entry.toolName}${hardLimit ? '执行总时长' : '无有效进度'}超过 ${limitSeconds} 秒，已取消当前任务${phase ? `；最后阶段：${phase}` : ''}`
+    const message = recoveryError
+      ? `MCP 工具 ${entry.toolName} 隔离重试失败，已结束当前任务：${recoveryError}`
+      : `MCP 工具 ${entry.toolName}${hardLimit ? '执行总时长' : '无有效进度'}超过 ${limitSeconds} 秒，已取消当前任务${phase ? `；最后阶段：${phase}` : ''}`
     console.warn(`[sidecar] MCP tool timeout session=${this.id} engine=${this.engine} tool=${entry.toolName} call=${entry.toolCallId} reason=${entry.timeoutReason ?? 'idle'} elapsedMs=${elapsedMs} lastPhase=${phase ?? '-'}`)
     this.emitTurn({
       type: 'toolResult',
@@ -484,7 +589,7 @@ class Session {
       severity: 'error',
     })
     this.emitTurn({ type: 'error', code: 'MCP_TOOL_TIMEOUT', message })
-    this.abort?.abort()
+    this.abort?.abort(this.engine === 'codex' ? new McpToolTimeoutAbort(entry) : undefined)
 
     const fallback = setTimeout(() => {
       if (!this.turnLifecycle.terminal()) {
@@ -492,6 +597,12 @@ class Session {
       }
     }, 2_000)
     fallback.unref?.()
+  }
+
+  private consumePendingMcpRecovery(): { entry: McpToolWatchdogEntry; call: ReadonlyKnowledgeMcpCall } | undefined {
+    const recovery = this.pendingMcpRecovery
+    this.pendingMcpRecovery = undefined
+    return recovery
   }
 
   /**
@@ -516,9 +627,57 @@ class Session {
       return
     }
     this.mcpToolWatchdog.clear()
+    this.toolExecutionWatchdog.clear()
+    this.pendingMcpRecovery = undefined
+    this.mcpRecoveryAttempted = false
     this.startTurnActivity()
     try {
-      await this.executeTurn(text, systemPrompt, images, developerInstructions, additionalDirectories)
+      let nextText = text
+      let nextImages = images
+      while (true) {
+        await this.executeTurn(nextText, systemPrompt, nextImages, developerInstructions, additionalDirectories)
+        const recovery = this.consumePendingMcpRecovery()
+        if (!recovery) break
+
+        this.mcpRecoveryAttempted = true
+        this.mcpToolWatchdog.clear()
+        const recoveryAbort = new AbortController()
+        this.abort = recoveryAbort
+        try {
+          this.setTurnActivityPhase('tool-recovery', '正在恢复 MCP 只读查询', recovery.entry.toolName)
+          const result = await retryReadonlyKnowledgeMcp(recovery.call, undefined, undefined, recoveryAbort.signal)
+          const output = typeof result === 'string' ? result : JSON.stringify(result) ?? String(result)
+          this.emitTurn({
+            type: 'toolResult',
+            toolCallId: recovery.entry.toolCallId,
+            toolName: recovery.entry.toolName,
+            output,
+            isError: false,
+            watchdogGenerated: true,
+          })
+          emitToolActivity(event => this.emitTurn({ ...event, watchdogGenerated: true }), {
+            toolCallId: recovery.entry.toolCallId,
+            toolName: recovery.entry.toolName,
+            status: 'completed',
+            title: 'MCP 只读查询已恢复',
+            detail: '已在隔离进程中取得结果，Codex 正从中断点继续。',
+            outputTail: activityOutputTail(result),
+            outcome: 'recovered',
+            severity: 'success',
+          })
+          nextText = knowledgeMcpRecoveryPrompt(recovery.call, result)
+          nextImages = undefined
+        } catch (error) {
+          if (recoveryAbort.signal.aborted) break
+          this.failMcpToolTimeout(
+            recovery.entry,
+            error instanceof Error ? error.message : String(error),
+          )
+          break
+        } finally {
+          if (this.abort === recoveryAbort) this.abort = undefined
+        }
+      }
     } catch (error) {
       console.error(`[sidecar] turn failed session=${this.id} turn=${turn.turnId}:`, error)
       this.emitTurn({
@@ -528,6 +687,7 @@ class Session {
       })
     } finally {
       this.mcpToolWatchdog.clear()
+      this.toolExecutionWatchdog.clear()
       if (!this.turnLifecycle.terminal()) {
         this.emitTurn({
           type: 'result',
@@ -808,6 +968,7 @@ class Session {
         speed: this.codexSpeed,
         permissionMode: this.permissionMode,
         toolPolicy: this.toolPolicy,
+        forgeSqlRegistration: this.forgeSqlRegistration,
         developerInstructions,
         consultEvidenceSystems: this.consultEvidenceSystems,
         sdkSessionId: this.sdkSessionId,
@@ -817,6 +978,7 @@ class Session {
         signal: ac.signal,
         emit: (e) => this.emitTurn(e),
         setSdkSessionId: (id) => { this.sdkSessionId = id },
+        canUseTool: this.perms.canUseTool,
       })
     } finally {
       this.abort = undefined
@@ -904,7 +1066,7 @@ class Session {
         slashCommands: [],
         skills: [],
         agents: [],
-        mcpServers: codexMcpCapabilities(this.toolPolicy, this.id),
+        mcpServers: codexMcpCapabilities(this.toolPolicy, this.id, this.forgeSqlRegistration),
         outputStyle: null,
       })
       return
@@ -1326,7 +1488,7 @@ export class SessionManager {
     this.emit(id, {
       type: 'init',
       sdkSessionId: null,
-      ...(s.engine === 'codex' ? { mcpServers: codexMcpCapabilities(s.toolPolicy, s.id) } : {}),
+      ...(s.engine === 'codex' ? { mcpServers: codexMcpCapabilities(s.toolPolicy, s.id, s.forgeSqlRegistration) } : {}),
     })
     this.emitCachedModels(id, s)
     if (s.engine === 'opencode') s.refreshCapabilities()
@@ -1361,7 +1523,8 @@ export class SessionManager {
     this.setCodexOptions(id, codexReasoningEffort ?? '', codexSpeed ?? 'default')
     this.applyCodexOptions(id, s)
     if (s.engine === 'codex') {
-      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null, mcpServers: codexMcpCapabilities(s.toolPolicy, s.id) })
+      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null,
+        mcpServers: codexMcpCapabilities(s.toolPolicy, s.id, s.forgeSqlRegistration) })
     }
     this.emitCachedModels(id, s)
     if (s.engine === 'opencode') s.refreshCapabilities()
@@ -1592,7 +1755,8 @@ export class SessionManager {
     s.authToken = nextBaseUrl ? authToken : undefined
     s.resetModelsFetched() // 换引擎/provider：下一轮重新取模型清单
     if (s.engine === 'codex') {
-      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null, mcpServers: codexMcpCapabilities(s.toolPolicy, s.id) })
+      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null,
+        mcpServers: codexMcpCapabilities(s.toolPolicy, s.id, s.forgeSqlRegistration) })
     }
     this.emitCachedModels(id, s)
     if (s.engine === 'opencode') s.refreshCapabilities()

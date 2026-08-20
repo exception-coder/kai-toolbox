@@ -11,6 +11,7 @@ import {
   PENDING_SQL_DOCUMENTATION_RULE,
   PENDING_SQL_MANUAL_SCOPE,
 } from './pendingSqlPolicy.js'
+import { graphifyRuntimeChildEnv } from './graphifyRuntime.js'
 
 export const CONSULT_READONLY_POLICY = 'consult-readonly'
 export const REVIEW_ONLY_POLICY = 'review-only'
@@ -123,8 +124,11 @@ function readonlyMcpScript(): { command: string; args: string[] } | null {
 }
 
 function readonlyProcessEnv(): Record<string, string> {
-  const names = ['PATH', 'Path', 'PATHEXT', 'SystemRoot', 'WINDIR', 'GRAPHIFY_BINARY']
-  return Object.fromEntries(names.flatMap(name => process.env[name] ? [[name, process.env[name]!]] : []))
+  const names = ['PATH', 'Path', 'PATHEXT', 'SystemRoot', 'WINDIR', 'GRAPHIFY_BINARY', 'GRAPHIFY_PYTHON', 'CONSULT_GRAPHIFY_TIMEOUT_MS']
+  return {
+    ...Object.fromEntries(names.flatMap(name => process.env[name] ? [[name, process.env[name]!]] : [])),
+    ...graphifyRuntimeChildEnv(),
+  }
 }
 
 function erpStandbySchemaPath(): string | undefined {
@@ -201,6 +205,7 @@ function createForgePendingSqlServer(sessionId?: string): Record<string, unknown
     args: script === ts ? ['--experimental-strip-types', script, 'forge'] : [script, 'forge'],
     env: { TOOLBOX_API_BASE: apiBase, TOOLBOX_SESSION_ID: sessionId },
     enabled: true,
+    required: true,
     enabled_tools: ['prepare_sql_context', 'register_pending_sql'],
     default_tools_approval_mode: 'approve',
   }
@@ -212,14 +217,15 @@ function createForgePendingSqlServer(sessionId?: string): Record<string, unknown
  */
 export function consultReadonlyCodexConfig(codexHome?: string, sessionId?: string,
                                            sourceRoot?: string,
-                                           evidenceSystems: readonly string[] = []): Record<string, unknown> {
+                                           evidenceSystems: readonly string[] = [],
+                                           forgeSqlRegistration = false): Record<string, unknown> {
   const mcpServers: Record<string, unknown> = {}
   for (const name of configuredMcpServerNames(codexHome)) {
     mcpServers[name] = { enabled: false }
   }
 
   const readonly = createConsultReadonlyServer(sourceRoot, evidenceSystems)
-  const forge = createForgePendingSqlServer(sessionId)
+  const forge = forgeSqlRegistration ? createForgePendingSqlServer(sessionId) : null
   const domain = createCodexDomainKnowledgeServer()
   const cross = createCodexCrossTopologyServer()
   if (readonly) mcpServers['consult-readonly'] = readonly

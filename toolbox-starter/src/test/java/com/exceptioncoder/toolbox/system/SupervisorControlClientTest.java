@@ -35,6 +35,7 @@ class SupervisorControlClientTest {
         String statusJson = mapper.createObjectNode()
                 .put("protocolVersion", 1)
                 .put("repoRoot", repo.toString())
+                .put("bootstrapAttached", true)
                 .set("capabilities", mapper.createObjectNode().put("fullReload", true))
                 .toString();
         HttpClient http = mock(HttpClient.class);
@@ -76,6 +77,7 @@ class SupervisorControlClientTest {
         String statusJson = mapper.createObjectNode()
                 .put("protocolVersion", 1)
                 .put("repoRoot", other.toString())
+                .put("bootstrapAttached", true)
                 .set("capabilities", mapper.createObjectNode().put("fullReload", true))
                 .toString();
         HttpClient http = mock(HttpClient.class);
@@ -111,6 +113,37 @@ class SupervisorControlClientTest {
         assertFalse(outcome.accepted());
         assertEquals(RestartCoordinator.Failure.SUPERVISOR_TOKEN_UNAVAILABLE, outcome.failure());
         verify(http, never()).send(any(), any());
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void missingBootstrapHandoffRejectsWithoutPostingReload() throws Exception {
+        Path repo = Files.createDirectory(tempDir.resolve("repo")).toRealPath();
+        ObjectMapper mapper = new ObjectMapper();
+        String statusJson = mapper.createObjectNode()
+                .put("protocolVersion", 1)
+                .put("repoRoot", repo.toString())
+                .put("bootstrapAttached", false)
+                .set("capabilities", mapper.createObjectNode().put("fullReload", true))
+                .toString();
+        HttpClient http = mock(HttpClient.class);
+        HttpResponse<String> status = mock(HttpResponse.class);
+        when(status.statusCode()).thenReturn(200);
+        when(status.body()).thenReturn(statusJson);
+        when(http.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(status);
+        RestartRuntime runtime = mock(RestartRuntime.class);
+        when(runtime.environment("KAI_SUPERVISOR_CONTROL_TOKEN")).thenReturn("token");
+        SupervisorControlClient client = new SupervisorControlClient(
+                new SystemProperties(), new RestartProperties(), runtime, mapper, http);
+
+        var outcome = client.requestFullReload(repo);
+
+        assertFalse(outcome.accepted());
+        assertEquals(RestartCoordinator.Failure.SUPERVISOR_INCOMPATIBLE, outcome.failure());
+        assertTrue(outcome.message().contains("bootstrap"));
+        ArgumentCaptor<HttpRequest> request = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(http).send(request.capture(), any(HttpResponse.BodyHandler.class));
+        assertEquals("/status", request.getValue().uri().getPath());
     }
 
     @Test

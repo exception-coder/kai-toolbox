@@ -1,11 +1,17 @@
 import { WebSocketServer, type WebSocket } from 'ws'
 import fs from 'node:fs'
+import { createServer } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { SessionManager } from './sessionManager.js'
 import { AgentTracing } from './telemetry/agentTracing.js'
 import { initializeTelemetry, shutdownTelemetry } from './telemetry/telemetry.js'
 import { EngineCatalog } from './engine/engineCatalog.js'
+import {
+  createGraphifyRuntimeRequestHandler,
+  GraphifyRuntime,
+  GRAPHIFY_RUNTIME_TOKEN,
+} from './graphifyRuntime.js'
 
 const port = Number(process.env.CLAUDE_CHAT_SIDECAR_PORT) || 18890
 initializeTelemetry()
@@ -33,8 +39,10 @@ const clearPidFile = (): void => {
 }
 process.on('exit', clearPidFile)
 
-// 仅绑 127.0.0.1：sidecar 不对外暴露，只有本机 Java 后端能连。
-const wss = new WebSocketServer({ host: '127.0.0.1', port })
+// 仅绑 127.0.0.1：WebSocket 与内部 Graphify API 共用一个监听端口，不额外暴露服务。
+const graphifyRuntime = new GraphifyRuntime()
+const httpServer = createServer(createGraphifyRuntimeRequestHandler(graphifyRuntime, GRAPHIFY_RUNTIME_TOKEN))
+const wss = new WebSocketServer({ server: httpServer })
 
 // 事件广播给所有存活的 Java 连接。同一时刻可能不止一条：后端热重启后旧 context 的客户端
 // 还没断、或误起了第二个后端。若只发「最近一条」，事件就可能发给一个已经不服务浏览器的那端，
@@ -66,7 +74,7 @@ void engineCatalog.list(true).then(entries => {
 let listening = false
 
 // 端口占用：已有 sidecar 在跑，本冗余实例干净退出（0），让后端连到既有监听者。
-wss.on('error', (err: NodeJS.ErrnoException) => {
+httpServer.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`[sidecar] 端口 ${port} 已被占用（已有 sidecar 在运行），本实例退出`)
     process.exit(0)
@@ -267,12 +275,17 @@ wss.on('listening', () => {
   console.log(`[sidecar] listening on 127.0.0.1:${port}`)
 })
 
+httpServer.listen(port, '127.0.0.1')
+
 let stopping = false
 const gracefulStop = (signal: string): void => {
   if (stopping) return
   stopping = true
   agentTracing.finishAll(signal)
-  void shutdownTelemetry().finally(() => process.exit(0))
+  void Promise.allSettled([
+    graphifyRuntime.close(signal),
+    shutdownTelemetry(),
+  ]).finally(() => process.exit(0))
 }
 process.once('SIGTERM', () => gracefulStop('SIGTERM'))
 process.once('SIGINT', () => gracefulStop('SIGINT'))

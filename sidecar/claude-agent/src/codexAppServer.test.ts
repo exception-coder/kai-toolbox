@@ -1,13 +1,112 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  closeOpenCodexAppServerActivities,
+  classifyCodexAppServerMessage,
   classifyCodexAppServerError,
   codexReconnectDeadlineMs,
   findDefaultCodexModel,
+  gateCodexResultOnProcessClose,
   isCodexAppServerRecoverySignal,
   isCurrentCodexTurnNotification,
   normalizeCodexModel,
+  resolveCodexAppServerRequest,
 } from './codexAppServer.js'
+
+test('only releases the queue after the App Server process writer has closed', () => {
+  const completed = { type: 'result', stopReason: 'end_turn', queueReleaseSafe: true }
+  assert.deepEqual(gateCodexResultOnProcessClose(completed, true), completed)
+  assert.deepEqual(gateCodexResultOnProcessClose(completed, false), {
+    type: 'result', stopReason: 'incomplete', queueReleaseSafe: false,
+  })
+})
+
+test('distinguishes responses, notifications, and bidirectional server requests', () => {
+  assert.equal(classifyCodexAppServerMessage({ id: 1, result: {} }), 'response')
+  assert.equal(classifyCodexAppServerMessage({ method: 'turn/completed', params: {} }), 'notification')
+  assert.equal(classifyCodexAppServerMessage({ id: 'approval-1', method: 'item/commandExecution/requestApproval', params: {} }), 'serverRequest')
+  assert.equal(classifyCodexAppServerMessage({ id: 1 }), 'invalid')
+})
+
+test('maps App Server command approval through the shared permission boundary', async () => {
+  const calls: Array<{ toolName: string; input: Record<string, unknown> }> = []
+  const resolution = await resolveCodexAppServerRequest(
+    'item/commandExecution/requestApproval',
+    { command: 'npm test', cwd: 'D:\\workspace', reason: 'run tests' },
+    async (toolName, input) => {
+      calls.push({ toolName, input })
+      return { behavior: 'allow', updatedInput: input }
+    },
+  )
+
+  assert.deepEqual(resolution, { result: { decision: 'accept' } })
+  assert.equal(calls[0]?.toolName, 'Bash')
+  assert.equal(calls[0]?.input.command, 'npm test')
+})
+
+test('fails unsupported App Server requests closed instead of dropping them', async () => {
+  const resolution = await resolveCodexAppServerRequest(
+    'item/tool/call',
+    { tool: 'unregistered' },
+    async () => ({ behavior: 'allow' }),
+  )
+
+  assert.equal(resolution.error?.code, -32601)
+  assert.match(resolution.error?.message ?? '', /item\/tool\/call/)
+})
+
+test('maps request user input answers to the App Server response schema', async () => {
+  const resolution = await resolveCodexAppServerRequest(
+    'item/tool/requestUserInput',
+    { questions: [{ id: 'choice', question: '继续吗' }] },
+    async () => ({ behavior: 'allow', updatedInput: { answers: { choice: '继续' } } }),
+  )
+
+  assert.deepEqual(resolution, { result: { answers: { choice: { answers: ['继续'] } } } })
+})
+
+test('closes unfinished command and MCP activities before the turn terminal event', () => {
+  const events: Record<string, unknown>[] = []
+  const commands = new Map([['command-1', {
+    command: 'mvn package',
+    cwd: 'D:\\workspace',
+    output: 'building module 40',
+    startedAt: Date.now() - 5_000,
+  }]])
+  const mcpTools = new Map([['mcp-1', {
+    toolName: 'graphify/query',
+    startedAt: Date.now() - 2_000,
+  }]])
+
+  closeOpenCodexAppServerActivities(event => events.push(event), commands, mcpTools, 'App Server exited')
+
+  assert.equal(commands.size, 0)
+  assert.equal(mcpTools.size, 0)
+  assert.deepEqual(events.map(event => [event.type, event.toolCallId, event.status]), [
+    ['toolResult', 'command-1', undefined],
+    ['toolActivity', 'command-1', 'failed'],
+    ['toolResult', 'mcp-1', undefined],
+    ['toolActivity', 'mcp-1', 'failed'],
+  ])
+  assert.match(String(events[0]?.output), /building module 40/)
+  assert.match(String(events[0]?.output), /App Server exited/)
+})
+
+test('closing unfinished App Server activities is idempotent', () => {
+  const events: Record<string, unknown>[] = []
+  const commands = new Map([['command-1', {
+    command: 'npm run build',
+    cwd: 'D:\\workspace',
+    output: '',
+    startedAt: Date.now(),
+  }]])
+  const mcpTools = new Map<string, { toolName: string; startedAt: number }>()
+
+  closeOpenCodexAppServerActivities(event => events.push(event), commands, mcpTools, 'Turn ended')
+  closeOpenCodexAppServerActivities(event => events.push(event), commands, mcpTools, 'Turn ended')
+
+  assert.equal(events.length, 2)
+})
 
 test('preserves the App Server default-model marker and all supported efforts', () => {
   const model = normalizeCodexModel({
