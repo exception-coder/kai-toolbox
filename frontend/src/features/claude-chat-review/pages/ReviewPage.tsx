@@ -318,10 +318,11 @@ export function ReviewPage() {
           getUserMessageBadge={item => {
             if (item.text.startsWith(INTERNAL_SUMMARY_PREFIX)) return null
             const intent = userIntentById.get(item.id)
-            if (intent === 'REQUIREMENT') return { label: '需求反馈', tone: 'primary', title: '此消息提出了业务需求，将纳入汇总' }
-            if (intent === 'CONSULTATION') return { label: '沟通咨询', tone: 'muted', title: '此消息属于普通沟通，不纳入需求汇总' }
+            const inferred = item.reviewIntent?.classificationStatus === 'INFERRED'
+            if (intent === 'REQUIREMENT') return { label: inferred ? '需求反馈 · AI推断' : '需求反馈', tone: 'primary', title: '此消息提出了业务需求，将纳入汇总' }
+            if (intent === 'CONSULTATION') return { label: inferred ? '沟通咨询 · AI推断' : '沟通咨询', tone: 'muted', title: '此消息属于普通沟通，不纳入需求汇总' }
             if (intent === 'PENDING') return { label: '判断中', tone: 'muted', title: 'AI 回复完成后判定是否属于需求' }
-            return { label: '未分类', tone: 'warning', title: '历史回复没有有效分类标记，不自动纳入汇总' }
+            return { label: '待确认需求', tone: 'warning', title: '这条消息的业务诉求仍有歧义，已先加入需求清单，请核对后修改或删除' }
           }}
           onLoadEarlier={() => chat.loadHistory(false)}
           loadingEarlier={chat.historyLoading}

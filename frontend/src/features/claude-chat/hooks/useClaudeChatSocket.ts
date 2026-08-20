@@ -596,6 +596,23 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           return prev
         })
         break
+      case 'reviewIntent':
+        setItems(prev => prev.map(item => item.kind === 'user' && item.id === msg.messageId
+          ? {
+              ...item,
+              turnId: msg.turnId,
+              reviewIntent: {
+                intent: msg.intent,
+                classificationStatus: msg.classificationStatus,
+                confidence: msg.confidence,
+                reason: msg.reason,
+                signals: msg.signals,
+                extractedTitle: msg.extractedTitle,
+                extractedContent: msg.extractedContent,
+              },
+            }
+          : item))
+        break
       case 'forkAnchor':
         // 挂到本轮最后一条回答：Claude 是 message UUID，Codex 是 turn ID。
         setItems(prev => {
@@ -879,6 +896,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
 
   // 断线期间发出的用户消息排这里，重连 attach 后自动补发，避免静默丢失 + “思考中”卡死
   const pendingSendsRef = useRef<{
+    messageId: string
     text: string
     attachments?: Attachment[]
     developerInstructions?: string
@@ -894,6 +912,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         text: m.text,
         attachments: m.attachments,
         developerInstructions: m.developerInstructions,
+        messageId: m.messageId,
       })
     }
   }, [sendRaw])
@@ -1279,16 +1298,17 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     const disp = hasAtt ? attachments!.map(a => ({ name: a.name, mime: a.mime, url: a.url })) : undefined
     // displayText 只影响本地这条气泡的展示；真正发给 agent 的仍是完整的 t（下面 sendRaw 不变）
     const dt = displayText?.trim()
-    setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t, displayText: dt && dt !== t ? dt : undefined, ts: Date.now(), attachments: disp && disp.length ? disp : undefined }])
+    const messageId = nextId()
+    setItems(prev => [...prev, { kind: 'user', id: messageId, text: t, displayText: dt && dt !== t ? dt : undefined, ts: Date.now(), attachments: disp && disp.length ? disp : undefined }])
     turnStartRef.current = Date.now()
     ttftRef.current = null
     setTurnTokens(0) // 新一轮：清零实时 token 计数
     setRunning(true)
     setInterrupting(false)
     const hiddenInstructions = developerInstructions?.trim() || undefined
-    if (sendRaw({ type: 'send', text: t, attachments: atts, developerInstructions: hiddenInstructions })) return
+    if (sendRaw({ type: 'send', text: t, attachments: atts, developerInstructions: hiddenInstructions, messageId })) return
     // WS 未连上：排队并触发重连（带 attach 意图），onopen 时先 attach 再补发，避免消息丢失/卡“思考中”
-    pendingSendsRef.current.push({ text: t, attachments: atts, developerInstructions: hiddenInstructions })
+    pendingSendsRef.current.push({ messageId, text: t, attachments: atts, developerInstructions: hiddenInstructions })
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.CONNECTING) {
       if (sessionIdRef.current) {

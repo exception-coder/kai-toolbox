@@ -6,10 +6,12 @@ import com.exceptioncoder.toolbox.claudechat.service.AttachmentStorageService;
 import com.exceptioncoder.toolbox.claudechat.service.LocalNetworkAddressService;
 import com.exceptioncoder.toolbox.claudechat.service.ReviewDeletionService;
 import com.exceptioncoder.toolbox.claudechat.service.ReviewRequirementService;
+import com.exceptioncoder.toolbox.claudechat.service.ReviewIntentService;
 import com.exceptioncoder.toolbox.claudechat.service.ReviewSpaceService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.api.dto.MessagePage;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
@@ -30,6 +32,7 @@ public class ReviewSpaceController {
     private final ReviewSpaceService service;
     private final ReviewDeletionService deletionService;
     private final ReviewRequirementService requirementService;
+    private final ReviewIntentService intentService;
     private final AttachmentStorageService attachments;
     private final SessionHistoryService history;
     private final ClaudeChatSessionRepository sessions;
@@ -37,12 +40,14 @@ public class ReviewSpaceController {
 
     public ReviewSpaceController(ReviewSpaceService service, ReviewDeletionService deletionService,
                                  ReviewRequirementService requirementService,
+                                 ReviewIntentService intentService,
                                  AttachmentStorageService attachments,
                                  SessionHistoryService history, ClaudeChatSessionRepository sessions,
                                  LocalNetworkAddressService localNetworkAddress) {
         this.service = service;
         this.deletionService = deletionService;
         this.requirementService = requirementService;
+        this.intentService = intentService;
         this.attachments = attachments;
         this.history = history;
         this.sessions = sessions;
@@ -171,9 +176,22 @@ public class ReviewSpaceController {
                                                  @RequestParam(defaultValue = "30") int limit) {
         ReviewSpace space = service.resolve(token).orElse(null);
         if (space == null) return ResponseEntity.notFound().build();
+        Map<String, ChatMessageView.ReviewIntentView> intents = intentService.list(space.id()).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        com.exceptioncoder.toolbox.claudechat.domain.ReviewIntentAssessment::turnId,
+                        value -> new ChatMessageView.ReviewIntentView(
+                                value.finalIntent(), value.classificationStatus(), value.confidence(), value.reason(),
+                                value.signals(), value.extractedTitle(), value.extractedContent()),
+                        (left, right) -> right));
         return sessions.findById(space.reviewSessionId())
-                .map(session -> ResponseEntity.ok(history.readReviewMessages(session.getCwd(), session.getSdkSessionId(),
-                        session.getCodexHome(), before, limit)))
+                .map(session -> {
+                    MessagePage page = history.readReviewMessages(session.getCwd(), session.getSdkSessionId(),
+                            session.getCodexHome(), before, limit);
+                    List<ChatMessageView> items = page.items().stream()
+                            .map(item -> item.turnId() == null ? item : item.withReviewIntent(intents.get(item.turnId())))
+                            .toList();
+                    return ResponseEntity.ok(new MessagePage(items, page.nextBefore(), page.transcriptMissing()));
+                })
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 

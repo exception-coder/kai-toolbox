@@ -32,12 +32,41 @@ describe('评审消息分类', () => {
     expect(requirements[0].title).toBe('审批要支持驳回')
   })
 
-  it('缺失或非法标记安全降级为未分类', () => {
+  it('缺失或非法标记安全降级为待确认需求，避免业务诉求丢失', () => {
     expect(parseReviewIntent('普通回答').intent).toBe('UNCLASSIFIED')
     expect(parseReviewIntent('回答\n<!-- forge-review-intent:MAYBE -->').intent).toBe('UNCLASSIFIED')
     const turns = projectReviewTurns(completedTurn('一个问题', '普通回答'), 0, true)
     expect(turns[0].intent).toBe('UNCLASSIFIED')
-    expect(requirementsFromTurns(turns, 0)).toHaveLength(0)
+    expect(requirementsFromTurns(turns, 0)[0].content).toContain('待确认需求')
+  })
+
+  it('优先采用 Forge 结构化分类，不依赖回复末尾 marker', () => {
+    const items = completedTurn('计划评审不要显示工具调用', `### 需求标题：隐藏工具调用
+
+### 需求说明
+业务评审页面只展示业务对话。
+
+### 待确认项
+无。
+
+### 验收场景
+评审员看不到技术执行轨迹。`)
+    const user = items[0]
+    if (user.kind === 'user') {
+      user.reviewIntent = {
+        intent: 'REQUIREMENT',
+        classificationStatus: 'CONFIRMED',
+        confidence: 0.98,
+        reason: '用户明确要求页面展示发生变化',
+        signals: ['不要显示'],
+        extractedTitle: '隐藏工具调用',
+        extractedContent: items[1].kind === 'assistant' ? items[1].text : null,
+      }
+    }
+
+    const turns = projectReviewTurns(items, 0, true)
+    expect(turns[0].intent).toBe('REQUIREMENT')
+    expect(requirementsFromTurns(turns, 0)[0].title).toBe('隐藏工具调用')
   })
 
   it('从结构化业务回复提取清单标题并避免正文重复标题', () => {

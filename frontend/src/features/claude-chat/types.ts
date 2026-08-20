@@ -562,7 +562,7 @@ export type ClientMessage =
   | { type: 'duplicateSession'; sourceSessionId: string; codexHome?: string }
   | { type: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { type: 'resumeCurrent'; sessionId?: string }
-  | { type: 'send'; text: string; attachments?: Attachment[]; developerInstructions?: string }
+  | { type: 'send'; text: string; attachments?: Attachment[]; developerInstructions?: string; messageId: string }
   | {
       type: 'decision'
       reqId: string
@@ -615,6 +615,7 @@ export type ServerMessage =
   | { type: 'decisionResolved'; seq: number; reqId: string }
   | { type: 'models'; seq: number; models: ModelInfo[]; current: string | null }
   | { type: 'userMessage'; seq: number; uuid: string }
+  | { type: 'reviewIntent'; seq: number; messageId: string; turnId: string; intent: ReviewIntentType; classificationStatus: ReviewClassificationStatus; confidence: number; reason: string; signals: string[]; extractedTitle?: string | null; extractedContent?: string | null }
   | { type: 'forkAnchor'; seq: number; anchor: string }
   | { type: 'forked'; seq: number; sessionId: string }
   | { type: 'replayGap'; seq: number; missingFrom: number; missingTo: number }
@@ -661,13 +662,26 @@ export type ChatItem =
   // displayText：可选的展示层覆盖——text 是实际发给 agent 的完整内容（含门控提示词等样板），
   // displayText 是用户真正想说的那句话；渲染只显示 displayText ?? text，text 仍原样发送/参与分叉续跑。
   // 目前只有实时会话里由 send() 发起时才可能带；历史回放（loadMessages）尚未持久化该覆盖，刷新/切回后会看到完整 text。
-  | { kind: 'user'; id: string; text: string; displayText?: string; sdkUuid?: string; ts?: number; attachments?: MsgAttachment[] }
+  | { kind: 'user'; id: string; text: string; displayText?: string; sdkUuid?: string; ts?: number; attachments?: MsgAttachment[]; turnId?: string; reviewIntent?: ReviewIntentMetadata }
   | { kind: 'assistant'; id: string; text: string; forkAnchor?: string; ts?: number }
   | { kind: 'tool'; id: string; toolCallId?: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number; elapsedMs?: number }
   | { kind: 'result'; id: string; stopReason: string; traceId?: string | null; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
   | { kind: 'warning'; id: string; code: string; message: string; ts?: number }
   | { kind: 'activity'; id: string; activityType: string; status: string; title: string; detail?: string | null; outcome?: string | null; severity?: string | null; data?: unknown; ts?: number }
   | { kind: 'error'; id: string; code: string; message: string; ts?: number }
+
+export type ReviewIntentType = 'REQUIREMENT' | 'CONSULTATION' | 'UNKNOWN'
+export type ReviewClassificationStatus = 'CONFIRMED' | 'INFERRED' | 'MISSING' | 'CONFLICTED'
+
+export interface ReviewIntentMetadata {
+  intent: ReviewIntentType
+  classificationStatus: ReviewClassificationStatus
+  confidence: number
+  reason: string
+  signals: string[]
+  extractedTitle?: string | null
+  extractedContent?: string | null
+}
 
 // ── 待决策（权限 / 提问），驱动弹窗 ───────────────────────────────
 export type PendingRequest =
