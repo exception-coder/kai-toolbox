@@ -189,7 +189,7 @@ export function DevDocUpdateDialog({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".md,.txt,.pdf,.docx,.doc"
+                  accept=".md,.txt,.pdf,.docx,.doc,.xlsx,.xls"
                   multiple
                   className="hidden"
                   onChange={(e) => handleFileUpload(e.target.files)}

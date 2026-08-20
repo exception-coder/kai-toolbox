@@ -10,6 +10,7 @@ import {
 } from '../../api'
 import type { QuestionItem } from '../../types'
 import type { ClarifyEngine } from '../dialogs/StartClarifyDialog'
+import { ClarificationAnswerComposer, ClarificationAnswerView } from './ClarificationAnswerComposer'
 
 export function ChattingPanel({
   sessionId,
@@ -36,6 +37,7 @@ export function ChattingPanel({
   const [currentQ, setCurrentQ] = useState('')                  // 当前问题（流式积累）
   const [currentA, setCurrentA] = useState('')                  // 用户正在输入的答案
   const [isStreaming, setIsStreaming] = useState(true)          // Claude 正在输出问题
+  const [answerUploading, setAnswerUploading] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)  // 逐题自动保存失败提示
   const abortRef = useRef<(() => void) | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
@@ -94,6 +96,7 @@ export function ChattingPanel({
   }
 
   const handleSubmitAnswer = () => {
+    if (answerUploading) return
     const answer = currentA.trim()
     if (!answer) return
 
@@ -200,7 +203,7 @@ export function ChattingPanel({
             {/* 用户气泡 */}
             <div className="flex items-start gap-3 justify-end">
               <div className="flex-1 rounded-2xl rounded-tr-sm bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/20 px-4 py-2.5 text-sm leading-relaxed max-w-2xl text-right ml-8">
-                {qa.answer}
+                <ClarificationAnswerView value={qa.answer} />
               </div>
               <div className="w-7 h-7 rounded-full bg-[var(--color-muted)] flex items-center justify-center flex-shrink-0">
                 <User className="w-4 h-4 text-[var(--color-muted-foreground)]" />
@@ -231,17 +234,17 @@ export function ChattingPanel({
       {!isDone && !isStreaming && currentQ && (
         <div className="border-t border-[var(--color-border)] bg-[var(--color-card)] p-4">
           <div className="flex gap-2 items-end max-w-3xl mx-auto">
-            <textarea
-              ref={inputRef}
+            <ClarificationAnswerComposer
+              textareaRef={inputRef}
               value={currentA}
-              onChange={e => setCurrentA(e.target.value)}
+              onChange={setCurrentA}
               onKeyDown={handleKeyDown}
               rows={3}
               placeholder="输入你的回答… (Ctrl+Enter 提交)"
-              className="flex-1 px-3 py-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-none focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
+              onUploadingChange={setAnswerUploading}
             />
             <button
-              disabled={!currentA.trim()}
+              disabled={!currentA.trim() || answerUploading}
               onClick={handleSubmitAnswer}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-40 self-end"
             >
@@ -294,6 +297,7 @@ export function BatchClarifyPanel({
   const [generating, setGenerating] = useState(initialQuestions.length === 0)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [uploadingAnswers, setUploadingAnswers] = useState<Set<number>>(() => new Set())
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ── 一次性回答：整段写/粘贴 → 交给模型拆分归位到各题（省掉逐题复制粘贴的体力活）。
@@ -438,7 +442,7 @@ export function BatchClarifyPanel({
   }
 
   const handleSubmit = async () => {
-    if (!allAnswered || submitting) return
+    if (!allAnswered || submitting || uploadingAnswers.size > 0) return
     setSubmitting(true)
     const hist = questions.map((q, i) => ({ question: q.question, answer: answers[i] ?? '' }))
     try {
@@ -585,13 +589,19 @@ export function BatchClarifyPanel({
                 </div>
                 <p className="text-sm leading-relaxed">{q.question}</p>
               </div>
-              <textarea
+              <ClarificationAnswerComposer
                 value={answers[i] ?? ''}
-                onChange={(e) => setAnswers((prev) => prev.map((a, j) => (j === i ? e.target.value : a)))}
+                onChange={(value) => setAnswers((prev) => prev.map((answer, j) => (j === i ? value : answer)))}
                 onBlur={flushSaveNow}
                 rows={2}
                 placeholder="输入你的回答…"
-                className="w-full px-4 py-2.5 text-sm resize-none focus:outline-none bg-[var(--color-input)]"
+                embedded
+                onUploadingChange={(uploading) => setUploadingAnswers((current) => {
+                  const next = new Set(current)
+                  if (uploading) next.add(i)
+                  else next.delete(i)
+                  return next
+                })}
               />
             </div>
           ))}
@@ -604,7 +614,7 @@ export function BatchClarifyPanel({
             {allAnswered ? '全部题目已填完，可以提交生成 PRD 了' : `还有 ${questions.length - answeredCount} 题未填`}
           </p>
           <button
-            disabled={!allAnswered || submitting}
+            disabled={!allAnswered || submitting || uploadingAnswers.size > 0}
             onClick={handleSubmit}
             className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-40"
           >

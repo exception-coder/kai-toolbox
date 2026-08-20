@@ -13,6 +13,7 @@ import {
 import type { DocumentProfile, PrdClarifyMode, PrdReqType } from '../../types'
 import { buildFinalRawInput } from '../../lib/inputDocument'
 import { StartClarifyDialog, type ClarifyEngine } from '../dialogs/StartClarifyDialog'
+import { ImageLightbox } from '../ImageLightbox'
 
 const QUICK_TEMPLATES = [
   {
@@ -147,6 +148,7 @@ export function InputPanel({
   const [pastedImages, setPastedImages] = useState<{ id: string; name: string; url: string; token: string }[]>([])
   const [uploadingImage, setUploadingImage] = useState(false)
   const [imageUploadError, setImageUploadError] = useState<string | null>(null)
+  const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null)
   /** 图片序号计数器，用 ref 而非 state.length 避免连续快速粘贴时读到未更新的旧值。 */
   const imageCounterRef = useRef(0)
 
@@ -410,7 +412,7 @@ export function InputPanel({
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadingFile}
               className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-[var(--color-border)] hover:border-[var(--color-ring)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors"
-              title="上传 Markdown / PDF / Word 文件，提取文字作为需求描述"
+              title="上传 Markdown / PDF / Word / Excel 文件，提取文字作为需求描述"
             >
               {uploadingFile ? <Loader2 className="w-3 h-3 animate-spin" /> : <Paperclip className="w-3 h-3" />}
               {uploadingFile ? '解析中…' : '上传附件'}
@@ -418,7 +420,7 @@ export function InputPanel({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".md,.txt,.pdf,.docx,.doc"
+              accept=".md,.txt,.pdf,.docx,.doc,.xlsx,.xls"
               multiple
               className="hidden"
               onChange={(e) => handleFileUpload(e.target.files)}
@@ -448,12 +450,19 @@ export function InputPanel({
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {pastedImages.map((img) => (
                 <div key={img.id} className="relative group flex-shrink-0">
-                  <img
-                    src={img.url}
-                    alt={img.name}
-                    title={img.name}
-                    className="w-14 h-14 object-cover rounded-lg border border-[var(--color-border)]"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setPreviewImage({ src: img.url, alt: img.name })}
+                    className="block cursor-zoom-in rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+                    title={`预览 ${img.name}`}
+                    aria-label={`预览图片 ${img.name}`}
+                  >
+                    <img
+                      src={img.url}
+                      alt={img.name}
+                      className="w-14 h-14 object-cover rounded-lg border border-[var(--color-border)]"
+                    />
+                  </button>
                   <button
                     type="button"
                     onClick={() => removePastedImage(img)}
@@ -474,6 +483,14 @@ export function InputPanel({
                 {uploadingImage ? '上传中…' : `已粘贴 ${pastedImages.length} 张图片`}
               </span>
             </div>
+          )}
+
+          {previewImage && (
+            <ImageLightbox
+              src={previewImage.src}
+              alt={previewImage.alt}
+              onClose={() => setPreviewImage(null)}
+            />
           )}
 
           {/* 已上传附件列表 */}

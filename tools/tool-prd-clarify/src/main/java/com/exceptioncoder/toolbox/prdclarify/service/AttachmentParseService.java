@@ -6,15 +6,22 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.FormulaEvaluator;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 /**
- * 需求附件文本提取服务：支持 Markdown / PDF / Word (.docx)。
+ * 需求附件文本提取服务：支持 Markdown / PDF / Word / Excel。
  *
  * <p>提取的文本会被截断到 {@link #MAX_CHARS} 个字符，避免超出 LLM context 限制。
  */
@@ -30,13 +37,15 @@ public class AttachmentParseService {
             "text/markdown", "text/plain",
             "application/pdf",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/msword"
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-excel"
     );
 
     /**
      * 解析上传的附件，提取其中的文本内容。
      *
-     * @param file 上传的文件（MD / PDF / DOCX）
+     * @param file 上传的文件（MD / PDF / Word / Excel）
      * @return 提取结果
      * @throws IOException 文件读取或解析失败
      */
@@ -51,6 +60,8 @@ public class AttachmentParseService {
                 case "application/pdf" -> parsePdf(is);
                 case "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                      "application/msword" -> parseDocx(is);
+                case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     "application/vnd.ms-excel" -> parseExcel(is);
                 default -> parseText(is);  // Markdown / 纯文本
             };
         }
@@ -67,7 +78,8 @@ public class AttachmentParseService {
     public boolean isSupported(MultipartFile file) {
         String ext = getExtension(file.getOriginalFilename());
         return "md".equals(ext) || "txt".equals(ext) || "pdf".equals(ext)
-                || "docx".equals(ext) || "doc".equals(ext);
+                || "docx".equals(ext) || "doc".equals(ext)
+                || "xlsx".equals(ext) || "xls".equals(ext);
     }
 
     // ───── 各格式解析 ─────
@@ -92,6 +104,45 @@ public class AttachmentParseService {
         return new String(is.readAllBytes(), StandardCharsets.UTF_8).strip();
     }
 
+    private String parseExcel(InputStream inputStream) throws IOException {
+        try (Workbook workbook = WorkbookFactory.create(inputStream)) {
+            DataFormatter formatter = new DataFormatter(Locale.ROOT);
+            FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
+            StringBuilder text = new StringBuilder();
+            for (Sheet sheet : workbook) {
+                if (!text.isEmpty()) {
+                    text.append("\n\n");
+                }
+                text.append("## 工作表：").append(sheet.getSheetName()).append('\n');
+                appendSheetRows(text, sheet, formatter, evaluator);
+            }
+            return text.toString().strip();
+        }
+    }
+
+    private void appendSheetRows(StringBuilder text, Sheet sheet, DataFormatter formatter,
+                                 FormulaEvaluator evaluator) {
+        for (Row row : sheet) {
+            int lastCellIndex = row.getLastCellNum();
+            if (lastCellIndex < 0) {
+                continue;
+            }
+            for (int cellIndex = 0; cellIndex < lastCellIndex; cellIndex++) {
+                if (cellIndex > 0) {
+                    text.append('\t');
+                }
+                try {
+                    text.append(formatter.formatCellValue(row.getCell(cellIndex), evaluator));
+                } catch (RuntimeException exception) {
+                    text.append(formatter.formatCellValue(row.getCell(cellIndex)));
+                    log.debug("[prd-clarify] Excel 公式取显示值失败 sheet={} row={} cell={}",
+                            sheet.getSheetName(), row.getRowNum(), cellIndex, exception);
+                }
+            }
+            text.append('\n');
+        }
+    }
+
     // ───── 工具方法 ─────
 
     private String detectContentType(MultipartFile file) {
@@ -100,6 +151,8 @@ public class AttachmentParseService {
             case "pdf" -> "application/pdf";
             case "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
             case "doc" -> "application/msword";
+            case "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            case "xls" -> "application/vnd.ms-excel";
             default -> "text/plain";  // md / txt
         };
     }

@@ -138,7 +138,7 @@ public class PrdClarifyController {
      * {@link FileAttachmentStorageService}），返回下载链接，前端把
      * {@code [📎 附件：filename](url)} 一并插进 rawInput，避免像之前那样解析完文本原文件就
      * 丢了、用户回看 PRD 时找不到当初提需求的 Word/PDF 原件。
-     * 支持格式：.md / .txt / .pdf / .docx / .doc，单文件解析上限 20000 字符、落盘上限 30MB。
+     * 支持格式：.md / .txt / .pdf / .docx / .doc / .xlsx / .xls，单文件解析上限 20000 字符、落盘上限 30MB。
      */
     @PostMapping(value = "/attachments/parse", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<AttachmentParseView> parseAttachment(
@@ -148,7 +148,7 @@ public class PrdClarifyController {
         }
         if (!attachmentParser.isSupported(file)) {
             throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
-                    "不支持的文件格式，请上传 .md / .pdf / .docx 文件");
+                    "不支持的文件格式，请上传 .md / .txt / .pdf / .docx / .doc / .xlsx / .xls 文件");
         }
         try {
             AttachmentParseService.ParseResult parsed = attachmentParser.parse(file);
