@@ -24,10 +24,31 @@ interface Props {
   onClose: () => void
 }
 
+interface WorkspaceProps {
+  sessionId: string
+  onChanged: (sites: SessionLinkedSite[]) => void
+}
+
 const MAX_SESSION_SITE_COUNT = 20
 
 /** 管理会话关联的快捷站点和仅属于当前会话的临时站点。 */
 export function SessionSitesDialog({ sessionId, onChanged, onClose }: Props) {
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-3" onMouseDown={onClose}>
+      <SessionSitesManager sessionId={sessionId} onChanged={onChanged} onClose={onClose} />
+    </div>
+  )
+}
+
+/** 会话页签内的站点工作区；复用弹层的读取、编辑、打开与保存链路。 */
+export function SessionSitesWorkspace({ sessionId, onChanged }: WorkspaceProps) {
+  return <SessionSitesManager sessionId={sessionId} onChanged={onChanged} embedded />
+}
+
+function SessionSitesManager({ sessionId, onChanged, onClose, embedded = false }: WorkspaceProps & {
+  onClose?: () => void
+  embedded?: boolean
+}) {
   const [sites, setSites] = useState<QuickSiteSummary[]>([])
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [customSites, setCustomSites] = useState<SessionCustomSite[]>([])
@@ -126,7 +147,7 @@ export function SessionSitesDialog({ sessionId, onChanged, onClose }: Props) {
         ...linkedQuickSites,
         ...normalizedCustomSites.map(customSiteToLinkedSite),
       ])
-      onClose()
+      onClose?.()
     } catch (caught) {
       setError(errorMessage(caught))
     } finally {
@@ -156,9 +177,12 @@ export function SessionSitesDialog({ sessionId, onChanged, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-3" onMouseDown={onClose}>
       <section
-        className="flex max-h-[86vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border bg-[var(--color-card)] shadow-2xl"
+        role="region"
+        aria-label="会话测试站点"
+        className={embedded
+          ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--color-background)]'
+          : 'flex max-h-[86vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border bg-[var(--color-card)] shadow-2xl'}
         onMouseDown={event => event.stopPropagation()}
       >
         <header className="flex items-start justify-between border-b px-4 py-3">
@@ -166,7 +190,11 @@ export function SessionSitesDialog({ sessionId, onChanged, onClose }: Props) {
             <h2 className="text-sm font-semibold">会话测试站点</h2>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">可关联快捷入口，也可添加只属于当前会话的标题和具体地址。</p>
           </div>
-          <Button variant="ghost" size="icon" className="size-8" onClick={onClose}><X className="size-4" /></Button>
+          {onClose && (
+            <Button variant="ghost" size="icon" className="size-8" onClick={onClose} aria-label="关闭站点管理">
+              <X className="size-4" />
+            </Button>
+          )}
         </header>
 
         <div className="border-b p-3">
@@ -279,12 +307,11 @@ export function SessionSitesDialog({ sessionId, onChanged, onClose }: Props) {
         <footer className="flex items-center justify-between border-t px-4 py-3">
           <span className="text-xs text-[var(--color-muted-foreground)]">已关联 {totalCount} / {MAX_SESSION_SITE_COUNT} 个站点</span>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={onClose}>取消</Button>
+            {onClose && <Button variant="outline" size="sm" onClick={onClose}>取消</Button>}
             <Button size="sm" disabled={saving || loading} onClick={() => void save()}>{saving && <Loader2 className="animate-spin" />}保存关联</Button>
           </div>
         </footer>
       </section>
-    </div>
   )
 }
 

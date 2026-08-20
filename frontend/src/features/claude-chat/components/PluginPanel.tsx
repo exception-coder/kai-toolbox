@@ -43,6 +43,13 @@ function businessRepositoryDot(repository: BusinessRepositoryStatus) {
   return 'bg-red-500'
 }
 
+/** 根据本地依赖仓库是否已完成首次克隆，给主操作一个可预判的动作名称。 */
+export function dependencySyncLabel(repositories: TeamRepositoryStatus[] | null): string {
+  if (repositories == null) return '一键拉取 / 更新'
+  const missingCount = repositories.filter(repository => !repository.cloned).length
+  return missingCount > 0 ? `一键拉取（缺 ${missingCount}）` : '一键更新全部'
+}
+
 /** 兼容新旧 sidecar 版本响应，统一生成引擎卡片数据。 */
 function sidecarEngines(sdk: SidecarVersion): SidecarEngineVersion[] {
   if (sdk.engines?.length) return sdk.engines
@@ -541,7 +548,11 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
       {suiteCheckError && <p className="mt-1 text-[10px] text-[var(--color-destructive)]">{suiteCheckError}</p>}
 
       <Button size="sm" className="mt-3 w-full" onClick={startInstall} disabled={updating || environment?.ready === false}>
-        <Download className="size-4" /> {updating ? '执行中…' : environment?.ready === false ? '请先安装缺失环境' : '拉取依赖并安装（Claude Code + Codex）'}
+        <Download className="size-4" /> {updating
+          ? '执行中…'
+          : environment?.ready === false
+            ? '请先安装缺失环境'
+            : `${dependencySyncLabel(repositories)}并安装（Claude Code + Codex）`}
       </Button>
       <Button size="sm" variant="outline" className="mt-2 w-full" onClick={startUpdate} disabled={updating}>
         <Download className="size-4" /> {updating ? '更新中…' : '一键更新团队插件（Claude + Codex）'}

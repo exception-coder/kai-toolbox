@@ -205,6 +205,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           onLoadEarlier={handleLoadEarlier}
           loadingEarlier={chat.historyLoading}
           exhausted={chat.historyExhausted}
+          loadEarlierError={chat.historyError}
           onFork={chat.forkSession}
           engineLabel={engineLabel}
           onCleanRetry={chat.cleanRetry}

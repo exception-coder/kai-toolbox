@@ -6,6 +6,17 @@ import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
 import { playNotifySound } from '../sound'
 import { normalizePermissionModeForEngine } from '../components/permissionModes'
+import {
+  isCurrentSessionHistoryRequest,
+  isSessionHistoryPageExhausted,
+  sessionHistoryLoadErrorMessage,
+} from '../lib/sessionHistoryRequest'
+import {
+  finalizeRunningActivities,
+  reduceTurnRunningState,
+  type TurnRunningSignal,
+  type TurnRunningState,
+} from '../lib/turnRunningState'
 
 // 按 sessionId 持久化权限模式，使刷新/放大缩小/重连后该会话仍保持上次选择，而非回退 default。
 const VALID_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
@@ -227,6 +238,8 @@ export interface UseClaudeChatSocket {
   historyLoading: boolean
   /** 是否已无更早历史 */
   historyExhausted: boolean
+  /** 最近一次历史分页失败；原位展示并允许重试。 */
+  historyError: string | null
   /** 加载历史消息：reset=true 进会话取最近一页；否则上拉取更早一页 prepend */
   loadHistory: (reset: boolean) => void
 }
@@ -248,6 +261,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   // 全局跨会话待答（连接级快照，非本会话）：任意界面据此标红点并可一键跳去作答。
   const [pendingSessions, setPendingSessions] = useState<PendingSessionRef[]>([])
   const [running, setRunning] = useState(false)
+  const turnRunningStateRef = useRef<TurnRunningState>({ running: false, terminal: false })
   const [interrupting, setInterrupting] = useState(false)
   const [queued, setQueued] = useState<QueuedMessage[]>([])
   const [queueReleaseVersion, setQueueReleaseVersion] = useState(0)
@@ -321,11 +335,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const historyBeforeRef = useRef<number | null>(null)
   const historyExhaustedRef = useRef(false)
   const historyLoadingRef = useRef(false)
+  const historyRequestIdRef = useRef(0)
   const loadHistoryRef = useRef<(reset: boolean) => void>(() => {})
   // applyEvent('forked') 需要切会话，但 switchTo 在其后定义 → 用 ref 解依赖环
   const switchToRef = useRef<(sid: string) => void>(() => {})
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyExhausted, setHistoryExhausted] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
 
   const sendRaw = useCallback((msg: ClientMessage) => {
     const ws = wsRef.current
@@ -338,6 +354,25 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     pushDebug('conn', 'send-skipped', `未连接，未发送 type=${msg.type}`)
     return false
   }, [])
+
+  /**
+   * 所有“会话正在运行”证据统一经过终态门闩。result/error 到达后，迟到的流式、工具或
+   * 子 Agent 事件只能补全已有内容，不能把同一轮重新点亮；只有明确的新轮信号才能解锁。
+   */
+  const applyTurnRunningSignal = (signal: TurnRunningSignal, terminalReason?: string): boolean => {
+    const next = reduceTurnRunningState(turnRunningStateRef.current, signal)
+    turnRunningStateRef.current = next
+    setRunning(next.running)
+    if (signal === 'terminal') {
+      setItems(previous => finalizeRunningActivities(previous, terminalReason ?? '本轮已结束'))
+    }
+    return next.running
+  }
+
+  const resetTurnRunningState = () => {
+    turnRunningStateRef.current = { running: false, terminal: false }
+    setRunning(false)
+  }
 
   const applyEvent = useCallback((msg: ServerMessage) => {
     // 诊断开关：F12 里 localStorage.setItem('cc-debug','1') 后，打印每条到达的 WS 事件，
@@ -381,7 +416,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           setDuplicatingSessionId(null)
           setItems([])
           setPending(null)
-          setRunning(false)
+          resetTurnRunningState()
           setInterrupting(false)
           setTurnTokens(0)
           setSyncWarning(null)
@@ -487,9 +522,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
         // RUNNING 必须同时携带服务端当前活动轮次，避免迟到的状态快照把已结束会话重新点亮。
         if (msg.status === 'RUNNING' && msg.activeTurnId) {
-          setRunning(true)
+          applyTurnRunningSignal('serverRunning')
         } else if (msg.status && msg.status !== 'RUNNING') {
-          setRunning(false)
+          applyTurnRunningSignal('terminal', '服务端确认本轮已结束')
           setInterrupting(false)
         }
         if (msg.sdkSessionId) sdkSessionIdRef.current = msg.sdkSessionId
@@ -514,7 +549,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         // 实打实收到流式内容 = 该会话确凿无疑正在跑，不管此刻 running 之前是什么值都直接点亮——
         // 比 switchTo 的 hintRunning 更可靠：hint 是切会话那一刻的乐观猜测（可能因缓存过期猜错），
         // 这里是"正在发生的事实"，用来自愈任何猜错的场景（包括从没猜过、hint 传了 false 的老路径）。
-        setRunning(true)
+        if (!applyTurnRunningSignal('runtimeEvidence')) break
         if (turnStartRef.current != null && ttftRef.current == null) {
           ttftRef.current = Date.now() - turnStartRef.current
         }
@@ -528,7 +563,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         })
         break
       case 'toolUse':
-        setRunning(true) // 同上：工具调用同样是“正在跑”的确凿证据
+        if (!applyTurnRunningSignal('runtimeEvidence')) break
         setItems(prev => {
           const toolCallId = msg.toolCallId || undefined
           const id = toolCallId ? `tool-${toolCallId}` : nextId()
@@ -664,7 +699,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setItems(prev => [...prev, { kind: 'warning', id: nextId(), code: msg.code, message: msg.message, ts: Date.now() }])
         break
       case 'toolActivity': {
-        if (isRunningActivity(msg.status)) setRunning(true)
+        if (isRunningActivity(msg.status) && !applyTurnRunningSignal('runtimeEvidence')) break
         const id = `tool-activity-${msg.toolCallId || msg.seq}`
         setItems(prev => {
           let base = prev
@@ -705,7 +740,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       }
       case 'turnActivity': {
-        if (isRunningActivity(msg.status)) setRunning(true)
+        if (isRunningActivity(msg.status) && !applyTurnRunningSignal('runtimeEvidence')) break
         setItems(prev => {
           const id = 'turn-activity-current'
           const next = {
@@ -727,7 +762,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       }
       case 'codexActivity': {
-        setRunning(true)
+        if (isRunningActivity(msg.status) && !applyTurnRunningSignal('runtimeEvidence')) break
         const id = `codex-activity-${msg.activityType}-${msg.itemId || msg.seq}`
         setItems(prev => {
           const next = { kind: 'activity' as const, id, activityType: msg.activityType, status: msg.status,
@@ -744,7 +779,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         // assistant/tool 事件仍由兼容事件渲染，避免迁移期重复展示；这里消费新增的统一状态语义。
         if (msg.eventType === 'subagents.snapshot') {
           const summary = engineSubagentSummary(msg.payload)
-          if (summary.running > 0) setRunning(true)
+          if (summary.running > 0 && !applyTurnRunningSignal('runtimeEvidence')) break
           setItems(prev => {
             const id = `engine-subagents-${msg.turnId}`
             const next = {
@@ -776,7 +811,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       }
       case 'result': {
-        setRunning(false)
+        applyTurnRunningSignal('terminal', '本轮已返回最终结果')
         setInterrupting(false)
         setPending(null)
         const completedSuccessfully = isSuccessfulTurnCompletion(msg.stopReason)
@@ -817,7 +852,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         turnStartRef.current = Date.now()
         ttftRef.current = null
         setTurnTokens(0)
-        setRunning(true)
+        applyTurnRunningSignal('turnStarted')
         setInterrupting(false)
         break
       }
@@ -827,7 +862,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       case 'error':
         if (msg.terminal !== false) {
-          setRunning(false)
+          applyTurnRunningSignal('terminal', '本轮因终态错误结束')
           setInterrupting(false)
           queueReleaseSessionRef.current = null
           setQueuePausedReason('上一轮发生终态错误，待发送消息已暂停；请确认后手动继续。')
@@ -1156,7 +1191,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     queueReleaseSessionRef.current = null
     serverQueueDispatchRef.current = false
     setQueuePausedReason(null)
-    setRunning(false)
+    resetTurnRunningState()
     setInterrupting(false)
     setTurnTokens(0)
     setErrorMessage(null)
@@ -1168,6 +1203,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     lastSeqRef.current = 0
     sdkSessionIdRef.current = null
     historyBeforeRef.current = null
+    historyRequestIdRef.current += 1
+    historyLoadingRef.current = false
+    setHistoryLoading(false)
+    setHistoryError(null)
     historyExhaustedRef.current = false
     setHistoryExhausted(false)
     setCurrentProviderKind('official')
@@ -1236,7 +1275,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     setSessionId(sid)
     // 刷新/切回时若已知该会话仍在回答（会话列表 status=RUNNING），乐观置位 running，
     // 让输入区立刻显示「中断」而非「发送」；随后 Ready 的 status 会校正（本轮已结束则回落发送）。
-    if (hintRunning) setRunning(true)
+    if (hintRunning) applyTurnRunningSignal('serverRunning')
     intentRef.current = { kind: 'switch', sessionId: sid }
     if (!sendRaw({ type: 'switchSession', sessionId: sid })) connect()
   }, [channel, sendRaw, connect])
@@ -1276,7 +1315,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     const sid = sessionIdRef.current
     if (!sid) return
     setPending(null)
-    setRunning(false)
+    resetTurnRunningState()
     setErrorMessage(null)
     setItems(prev => {
       const last = prev[prev.length - 1]
@@ -1307,7 +1346,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     turnStartRef.current = Date.now()
     ttftRef.current = null
     setTurnTokens(0) // 新一轮：清零实时 token 计数
-    setRunning(true)
+    applyTurnRunningSignal('localStart')
     setInterrupting(false)
     const hiddenInstructions = developerInstructions?.trim() || undefined
     if (sendRaw({ type: 'send', text: t, attachments: atts, developerInstructions: hiddenInstructions, assistant, messageId })) return
@@ -1603,6 +1642,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (!reset && historyExhaustedRef.current) return
     historyLoadingRef.current = true
     setHistoryLoading(true)
+    setHistoryError(null)
+    const token = {
+      requestId: ++historyRequestIdRef.current,
+      sessionId: sessionIdRef.current,
+    }
     try {
       const before = reset ? null : historyBeforeRef.current
       const { items: hist, nextBefore } = channel === 'review' && reviewToken
@@ -1612,16 +1656,21 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       // 进会话(switchTo/resumeHistory)会先 resetForNewSession 清空，故此刻 prev 只剩「加载期间本地新增的实时项」
       // ——典型是刚进会话就发出的首条用户气泡（乐观插入）/已开始的流式回复。若 reset 时直接 setItems(hist)，
       // 历史(空会话为 [])加载完成会把这条刚发的消息覆盖掉 → 「新建会话首条消息不显示」。prepend 则两者都保留。
+      if (!isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) return
       setItems(prev => [...hist, ...prev])
       historyBeforeRef.current = nextBefore
-      const done = nextBefore == null || nextBefore <= 0
+      const done = isSessionHistoryPageExhausted(hist.length, before, nextBefore)
       historyExhaustedRef.current = done
       setHistoryExhausted(done)
-    } catch {
-      // 历史加载失败静默，不阻塞会话
+    } catch (caught) {
+      if (isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) {
+        setHistoryError(sessionHistoryLoadErrorMessage(caught))
+      }
     } finally {
-      historyLoadingRef.current = false
-      setHistoryLoading(false)
+      if (isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) {
+        historyLoadingRef.current = false
+        setHistoryLoading(false)
+      }
     }
   }, [channel, reviewToken])
 
@@ -1674,7 +1723,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }
 
 function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {

@@ -22,6 +22,8 @@ interface Props {
   loadingEarlier?: boolean
   /** 已无更早历史 */
   exhausted?: boolean
+  /** 最近一次历史分页错误；展示为原位重试入口。 */
+  loadEarlierError?: string | null
   /** 从某条 AI 回答处分叉新会话（Claude message UUID / Codex turn ID） */
   onFork?: (forkAnchor: string) => void
   /** 引擎展示名（Claude / Codex），用于「正在思考」文案 */
@@ -75,6 +77,8 @@ function followOutput(isAtBottom: boolean): 'auto' | false {
 interface ListContext {
   loadingEarlier: boolean
   exhausted: boolean
+  loadEarlierError: string | null
+  onLoadEarlier?: () => void
   itemCount: number
   running: boolean
   engineLabel: string
@@ -86,14 +90,24 @@ interface ListContext {
 function ListHeader({ context }: { context?: ListContext }) {
   if (!context) return null
   return (
-    <>
-      {context.loadingEarlier && (
-        <div className="py-2 text-center text-xs text-[var(--color-muted-foreground)]">加载更早…</div>
+    <div className="flex min-h-9 items-center justify-center py-1.5 text-xs text-[var(--color-muted-foreground)]">
+      {!context.exhausted && context.onLoadEarlier && (
+        <button
+          type="button"
+          disabled={context.loadingEarlier}
+          onClick={context.onLoadEarlier}
+          className={cn(
+            'rounded-md px-2.5 py-1 transition-colors hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] disabled:cursor-wait disabled:opacity-60',
+            context.loadEarlierError && 'text-[var(--color-destructive)] hover:text-[var(--color-destructive)]',
+          )}
+        >
+          {context.loadingEarlier ? '加载更早…' : context.loadEarlierError ?? '加载更早'}
+        </button>
       )}
       {context.exhausted && context.itemCount > 0 && (
-        <div className="py-2 text-center text-xs text-[var(--color-muted-foreground)]">— 没有更早了 —</div>
+        <span>— 没有更早了 —</span>
       )}
-    </>
+    </div>
   )
 }
 
@@ -127,7 +141,7 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
 export const MessageList = memo(forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge },
+  { items, running, onLoadEarlier, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
@@ -260,6 +274,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   const listContext: ListContext = {
     loadingEarlier: !!loadingEarlier,
     exhausted: !!exhausted,
+    loadEarlierError: loadEarlierError ?? null,
+    onLoadEarlier,
     itemCount: visibleItems.length,
     running: running && showRunningFooter,
     engineLabel,

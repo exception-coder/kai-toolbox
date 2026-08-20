@@ -13,9 +13,6 @@ const WINDOWS: { key: 'today' | 'd7' | 'd30'; label: string }[] = [
 
 /** 引擎本地用量弹层：本会话用量拆分 + 三引擎卡片 + 窗口切换；Codex 额外显示官方额度。 */
 export function UsagePanel({ onClose, session }: { onClose: () => void; session?: SessionUsage | null }) {
-  const { data, isLoading, error } = useQuery({ queryKey: ['claude-chat-usage'], queryFn: fetchUsage, staleTime: 30_000 })
-  const [win, setWin] = useState<'today' | 'd7' | 'd30'>('today')
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -24,51 +21,75 @@ export function UsagePanel({ onClose, session }: { onClose: () => void; session?
 
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/40 p-4 pt-[8vh]" onClick={onClose}>
-      <div
-        className="flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
-        <header className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-4 py-2.5">
-          <Coins className="size-4 text-[var(--color-primary)]" />
-          <span className="text-sm font-semibold">本地用量</span>
-          <div className="ml-auto flex items-center gap-1 rounded-lg bg-[var(--color-background)] p-0.5">
-            {WINDOWS.map(w => (
-              <button
-                key={w.key}
-                type="button"
-                onClick={() => setWin(w.key)}
-                className={`rounded-md px-2 py-1 text-xs ${win === w.key
-                  ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
-                  : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'}`}
-              >
-                {w.label}
-              </button>
-            ))}
-          </div>
+      <UsageContent session={session} onClose={onClose} />
+    </div>
+  )
+}
+
+/** 会话页签内的用量工作区；与弹层共用同一数据和展示实现。 */
+export function UsageWorkspace({ session }: { session?: SessionUsage | null }) {
+  return <UsageContent session={session} embedded />
+}
+
+function UsageContent({ session, embedded = false, onClose }: {
+  session?: SessionUsage | null
+  embedded?: boolean
+  onClose?: () => void
+}) {
+  const { data, isLoading, error } = useQuery({ queryKey: ['claude-chat-usage'], queryFn: fetchUsage, staleTime: 30_000 })
+  const [win, setWin] = useState<'today' | 'd7' | 'd30'>('today')
+
+  return (
+    <section
+      role={embedded ? 'region' : 'dialog'}
+      aria-label={embedded ? '会话用量' : '本地用量'}
+      className={embedded
+        ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--color-background)]'
+        : 'flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl'}
+      onClick={event => event.stopPropagation()}
+    >
+      <header className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)]/55 px-4 py-2.5">
+        <Coins className="size-4 text-[var(--color-primary)]" />
+        <span className="text-sm font-semibold">本地用量</span>
+        <div className="ml-auto flex items-center gap-1 rounded-lg bg-[var(--color-background)] p-0.5">
+          {WINDOWS.map(w => (
+            <button
+              key={w.key}
+              type="button"
+              onClick={() => setWin(w.key)}
+              className={`rounded-md px-2 py-1 text-xs ${win === w.key
+                ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'}`}
+            >
+              {w.label}
+            </button>
+          ))}
+        </div>
+        {onClose && (
           <button type="button" onClick={onClose} aria-label="关闭" className="ml-1 rounded p-1 hover:bg-[var(--color-background)]">
             <X className="size-4" />
           </button>
-        </header>
+        )}
+      </header>
 
-        <div className="flex-1 overflow-y-auto p-3">
-          {session && session.turns > 0 && <SessionUsageCard s={session} />}
-          {isLoading && (
-            <div className="flex items-center justify-center gap-2 py-10 text-sm text-[var(--color-muted-foreground)]">
-              <Loader2 className="size-4 animate-spin" /> 扫描本地会话日志…
-            </div>
-          )}
-          {error && <div className="py-8 text-center text-sm text-[var(--color-destructive)]">加载失败</div>}
-          {data && (
-            <div className="flex flex-col gap-3">
-              {data.map(e => <EngineCard key={e.engine} u={e} win={win} />)}
-              <p className="px-1 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
-                Token 来自本机各 CLI 会话日志（只读），为实际消耗，缓存命中部分计费约 1/10。官方额度：Claude 调 /usage 端点，Codex 取本地 rollout。
-              </p>
-            </div>
-          )}
-        </div>
+      <div className="flex-1 overflow-y-auto p-3">
+        {session && session.turns > 0 && <SessionUsageCard s={session} />}
+        {isLoading && (
+          <div className="flex items-center justify-center gap-2 py-10 text-sm text-[var(--color-muted-foreground)]">
+            <Loader2 className="size-4 animate-spin" /> 扫描本地会话日志…
+          </div>
+        )}
+        {error && <div className="py-8 text-center text-sm text-[var(--color-destructive)]">加载失败</div>}
+        {data && (
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+            {data.map(engine => <EngineCard key={engine.engine} u={engine} win={win} />)}
+            <p className="px-1 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
+              Token 来自本机各 CLI 会话日志（只读），为实际消耗，缓存命中部分计费约 1/10。官方额度：Claude 调 /usage 端点，Codex 取本地 rollout。
+            </p>
+          </div>
+        )}
       </div>
-    </div>
+    </section>
   )
 }
 

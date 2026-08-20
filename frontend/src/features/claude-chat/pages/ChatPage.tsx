@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -13,7 +13,7 @@ import { MessageNavPanel } from '../components/MessageNavPanel'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
 import { EngineIcon } from '../components/EngineIcon'
 import { CodexTransportBadge } from '../components/CodexTransportBadge'
-import { UsagePanel } from '../components/UsagePanel'
+import { UsagePanel, UsageWorkspace } from '../components/UsagePanel'
 import { PermissionDialog } from '../components/PermissionDialog'
 import { QuestionDialog } from '../components/QuestionDialog'
 import { SessionList } from '../components/SessionList'
@@ -68,7 +68,7 @@ import { PrdAttachPanel } from '../components/PrdAttachPanel'
 import { getSessionByDevSession, linkDevSession, type PrdSessionView } from '@/features/prd-clarify/public-api'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from '../components/SessionPlanLockNotice'
-import { SessionSitesDialog } from '../components/SessionSitesDialog'
+import { SessionSitesDialog, SessionSitesWorkspace } from '../components/SessionSitesDialog'
 import { SessionProjectDirectoriesDialog } from '../components/SessionProjectDirectoriesDialog'
 import { Combobox } from '@/components/ui/combobox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -102,11 +102,12 @@ import { isVibeCodingSession } from '../lib/sessionScope'
 import { SessionWorkStatus } from '../components/SessionWorkStatus'
 import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
 import { ReviewShareDialog } from '../components/ReviewShareDialog'
-import { ReviewRelationBar } from '../components/ReviewRelationBar'
+import { ReviewWorkspace } from '../components/ReviewWorkspace'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
 import { selectableEngineIds } from '../lib/engineCatalog'
 import { MobileSessionStatus } from '../components/MobileSessionStatus'
 import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
+import { SessionToolsMenu } from '../components/SessionToolsMenu'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -367,7 +368,7 @@ export function ChatPage() {
     return () => { alive = false; window.clearInterval(timer) }
   }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
-  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory'>('conversation')
+  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'sites' | 'usage' | 'review'>('conversation')
   const messageListRef = useRef<MessageListHandle>(null)
   // 「我的提问」面板点中一条待滚到的目标：可能还没加载进 chat.items（分页更早历史里）。
   const [pendingScroll, setPendingScroll] = useState<Extract<ChatItem, { kind: 'user' }> | null>(null)
@@ -719,7 +720,6 @@ export function ChatPage() {
       setReviewFeedbackBusy(false)
     }
   }
-  const applyReviewFeedback = (feedback: ReviewFeedbackView) => applyReviewFeedbacks([feedback])
   const dismissReviewFeedback = async (id: string) => {
     if (reviewFeedbackBusy) return
     setReviewFeedbackBusy(true)
@@ -1113,7 +1113,7 @@ export function ChatPage() {
                   </p>
                 </div>
               )}
-              <button type="button" onClick={() => setShowSessionSites(true)}
+              <button type="button" onClick={() => setSessionView('sites')}
                 className="mt-1 flex w-full items-center justify-center gap-1 rounded-md border-t px-2 py-1.5 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]">
                 <Settings className="size-3.5" />{linkedSites.length > 0 ? '管理关联站点' : '添加关联站点'}
               </button>
@@ -1148,7 +1148,7 @@ export function ChatPage() {
             {gestureErr ? '手势×' : gestureStatus === 'loading' ? '手势…' : '手势'}
           </button>
         )}
-        <SessionTotalBadge className="hidden border-0 bg-transparent shadow-none lg:inline-flex" items={chat.items} serverTotal={sessionUsage} onClick={() => setShowUsage(true)} />
+        <SessionTotalBadge className="hidden border-0 bg-transparent shadow-none lg:inline-flex" items={chat.items} serverTotal={sessionUsage} onClick={() => setSessionView('usage')} />
         <div className="cc-session-header-actions flex shrink-0 items-center max-sm:gap-0">
           {/* 宽屏直接显示用量徽章；窄桌面仍可从「更多 → 会话」进入。 */}
           {/* 常用：带文字标签，一眼可辨 */}
@@ -1169,19 +1169,7 @@ export function ChatPage() {
             <Package className="size-4" /> <span className="hidden sm:inline">团队依赖</span>
           </Button>
           {/* 其余功能收进「更多」菜单，每项带中文标签，避免一排没标识的图标 */}
-          <div className="relative">
-            <Button variant="ghost" size="icon" className="max-md:size-11" onClick={() => setHeaderMenu(o => !o)} aria-label={mockMode ? '更多功能，MOCK 模式已开启' : '更多功能'} title={mockMode ? '更多功能 · MOCK 模式' : '更多功能'}>
-              <MoreHorizontal className="size-5" />
-            </Button>
-            {headerMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setHeaderMenu(false)} />
-                <div className="absolute right-0 top-full z-50 mt-1 max-h-[75vh] w-56 overflow-y-auto rounded-xl border bg-[var(--color-popover)] py-1 text-[var(--color-popover-foreground)] shadow-xl">
-                  {mockMode && (
-                    <div className="mx-2 mb-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300 md:hidden">
-                      MOCK 模式已开启
-                    </div>
-                  )}
+          <SessionToolsMenu open={headerMenu} mockMode={mockMode} onOpenChange={setHeaderMenu}>
                   <div className="border-b pb-1 md:hidden">
                     <HeaderMenuItem icon={<Plus className="size-4" />} label="新建会话" onClick={() => { setHeaderMenu(false); setPanel('new') }} />
                     <HeaderMenuItem icon={<List className="size-4" />} label="会话列表" onClick={() => { setHeaderMenu(false); setPanel('sessions') }} />
@@ -1220,7 +1208,7 @@ export function ChatPage() {
                       <HeaderMenuItem nested icon={<FileText className="size-4" />} label="重命名会话" hint="编辑当前会话标题" onClick={() => { setHeaderMenu(false); startEditTitle() }} />
                     )}
                     {chat.sessionId && (
-                      <HeaderMenuItem nested icon={<Gauge className="size-4" />} label="会话用量" hint="查看本会话累计 Token 与费用明细" onClick={() => { setHeaderMenu(false); setShowUsage(true) }} />
+                      <HeaderMenuItem nested icon={<Gauge className="size-4" />} label="会话用量" hint="查看本会话累计 Token 与费用明细" onClick={() => { setHeaderMenu(false); setSessionView('usage') }} />
                     )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<RefreshCw className="size-4" />} label="重载会话" hint="重连原生会话，加载最新插件/技能/命令" onClick={() => { setHeaderMenu(false); chat.resumeCurrent() }} />
@@ -1245,7 +1233,7 @@ export function ChatPage() {
                       <HeaderMenuItem nested icon={<Database className="size-4" />} label={pendingSql ? '管理待执行 SQL' : '登记待执行 SQL'} hint={pendingSql ? `${pendingSql.title || '未命名登记'} · ${pendingSql.status === 'PENDING' ? '待执行' : pendingSql.status === 'EXECUTED' ? '已执行' : '已取消'}` : '关联本次开发涉及的 DDL / DML，仅登记不执行'} onClick={() => { setHeaderMenu(false); setShowPendingSql(true) }} />
                     )}
                     {chat.sessionId && (
-                      <HeaderMenuItem nested icon={linkedSites[0] ? (() => { const Icon = resolveSiteIcon(linkedSites[0].icon); return <Icon className="size-4" /> })() : <LayoutGrid className="size-4" />} label={linkedSites.length > 0 ? '管理测试站点' : '关联测试站点'} hint={linkedSites.length > 0 ? `已关联 ${linkedSites.length} 个测试站点` : '选择快捷入口或添加当前会话的临时地址'} onClick={() => { setHeaderMenu(false); setShowSessionSites(true) }} />
+                      <HeaderMenuItem nested icon={linkedSites[0] ? (() => { const Icon = resolveSiteIcon(linkedSites[0].icon); return <Icon className="size-4" /> })() : <LayoutGrid className="size-4" />} label={linkedSites.length > 0 ? '管理测试站点' : '关联测试站点'} hint={linkedSites.length > 0 ? `已关联 ${linkedSites.length} 个测试站点` : '选择快捷入口或添加当前会话的临时地址'} onClick={() => { setHeaderMenu(false); setSessionView('sites') }} />
                     )}
                   </MenuSection>
                   <MenuSection icon={<FolderTree className="size-4" />} label="工作区 · 项目" open={menuGroup === 'workspace'} onToggle={() => toggle('workspace')}>
@@ -1274,10 +1262,7 @@ export function ChatPage() {
                     <HeaderMenuItem nested icon={<RotateCw className="size-4" />} label="重启服务" hint="经守护进程重启后端" onClick={() => { setHeaderMenu(false); openRestart() }} />
                   </MenuSection>
                   </>) })()}
-                </div>
-              </>
-            )}
-          </div>
+          </SessionToolsMenu>
         </div>
         </div>
       </header>
@@ -1299,54 +1284,6 @@ export function ChatPage() {
           >
             重试
           </Button>
-        </div>
-      )}
-
-      {viewMode === 'single' && reviewRelations && reviewRelations.reviews.length > 0 && (
-        <ReviewRelationBar
-          relation={reviewRelations}
-          onOpenSession={chat.switchTo}
-          onChanged={() => refetchReviewRelations()}
-        />
-      )}
-
-      {viewMode === 'single' && reviewRelations?.role === 'SOURCE'
-        && reviewRelations.pendingFeedback.length > 0 && (
-        <div className="space-y-2 border-b border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-amber-900 dark:text-amber-100">
-            <span className="font-medium">共 {reviewRelations.pendingFeedback.length} 条待处理评审意见</span>
-            <span className="text-amber-700/80 dark:text-amber-300/80">可逐条处理，也可合并成一份开发草稿后统一发送。</span>
-            {reviewRelations.pendingFeedback.length > 1 && (
-              <Button
-                size="sm"
-                className="ml-auto h-7 gap-1.5 px-2 text-xs"
-                disabled={reviewFeedbackBusy}
-                onClick={() => void applyReviewFeedbacks(reviewRelations.pendingFeedback)}
-              >
-                {reviewFeedbackBusy ? <Loader2 className="size-3.5 animate-spin" /> : <ListChecks className="size-3.5" />}
-                合并全部生成开发草稿
-              </Button>
-            )}
-          </div>
-          {reviewFeedbackError && <p className="text-xs text-red-600 dark:text-red-400">{reviewFeedbackError}</p>}
-          {reviewRelations.pendingFeedback.map(feedback => (
-            <div key={feedback.id} className="flex items-start gap-3 rounded-lg border border-amber-200 bg-white/80 p-2 text-xs dark:border-amber-800 dark:bg-slate-950/70">
-              <MessageSquare className="mt-0.5 size-4 shrink-0 text-amber-600" />
-              <div className="min-w-0 flex-1">
-                <div className="font-medium text-amber-900 dark:text-amber-100">
-                  待处理评审意见
-                  {reviewRelations.reviews.find(review => review.reviewSessionId === feedback.reviewSessionId)?.reviewTitle
-                    ? ` · 来自 ${reviewRelations.reviews.find(review => review.reviewSessionId === feedback.reviewSessionId)?.reviewTitle}`
-                    : ''}
-                </div>
-                <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[var(--color-muted-foreground)]">{feedback.content}</p>
-              </div>
-              <div className="flex shrink-0 gap-1">
-                <Button size="sm" className="h-7 px-2 text-xs" disabled={reviewFeedbackBusy} onClick={() => void applyReviewFeedback(feedback)}>生成开发草稿</Button>
-                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={reviewFeedbackBusy} onClick={() => void dismissReviewFeedback(feedback.id)}>忽略</Button>
-              </div>
-            </div>
-          ))}
         </div>
       )}
 
@@ -1884,7 +1821,7 @@ export function ChatPage() {
           {/* 右侧：消息流 + 输入 */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {chat.sessionId ? (
-              <nav className="workspace-contextbar cc-chat-contextbar flex items-end gap-5 px-3" aria-label="会话视图">
+              <nav className="workspace-contextbar cc-chat-contextbar scrollbar-autohide flex items-end gap-5 overflow-x-auto px-3" aria-label="会话视图">
                 <button
                   type="button"
                   aria-current={sessionView === 'conversation' ? 'page' : undefined}
@@ -1913,6 +1850,50 @@ export function ChatPage() {
                   <Route className="size-3.5" />
                   轨迹
                 </button>
+                <button
+                  type="button"
+                  aria-current={sessionView === 'sites' ? 'page' : undefined}
+                  onClick={() => setSessionView('sites')}
+                  className={cn(
+                    'relative inline-flex h-full items-center gap-1.5 px-1 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full',
+                    sessionView === 'sites'
+                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
+                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
+                  )}
+                >
+                  <LayoutGrid className="size-3.5" />
+                  站点{linkedSites.length > 0 ? ` ${linkedSites.length}` : ''}
+                </button>
+                <button
+                  type="button"
+                  aria-current={sessionView === 'usage' ? 'page' : undefined}
+                  onClick={() => setSessionView('usage')}
+                  className={cn(
+                    'relative inline-flex h-full items-center gap-1.5 px-1 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full',
+                    sessionView === 'usage'
+                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
+                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
+                  )}
+                >
+                  <Gauge className="size-3.5" />
+                  用量
+                </button>
+                {reviewRelations && (reviewRelations.reviews.length > 0 || reviewRelations.pendingFeedback.length > 0) && (
+                  <button
+                    type="button"
+                    aria-current={sessionView === 'review' ? 'page' : undefined}
+                    onClick={() => setSessionView('review')}
+                    className={cn(
+                      'relative inline-flex h-full items-center gap-1.5 px-1 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full',
+                      sessionView === 'review'
+                        ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
+                        : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
+                    )}
+                  >
+                    <Share2 className="size-3.5" />
+                    评审{reviewRelations.pendingFeedback.length > 0 ? ` ${reviewRelations.pendingFeedback.length}` : ''}
+                  </button>
+                )}
               </nav>
             ) : (
               <div className="workspace-contextbar cc-chat-contextbar" aria-hidden="true" />
@@ -1934,6 +1915,24 @@ export function ChatPage() {
                     loadingEarlier={chat.historyLoading}
                     exhausted={chat.historyExhausted}
                   />
+                ) : sessionView === 'sites' ? (
+                  <SessionSitesWorkspace
+                    key={`sites-${chat.sessionId}`}
+                    sessionId={chat.sessionId}
+                    onChanged={setLinkedSites}
+                  />
+                ) : sessionView === 'usage' ? (
+                  <UsageWorkspace session={sessionUsage} />
+                ) : sessionView === 'review' && reviewRelations ? (
+                  <ReviewWorkspace
+                    relation={reviewRelations}
+                    feedbackBusy={reviewFeedbackBusy}
+                    feedbackError={reviewFeedbackError}
+                    onOpenSession={chat.switchTo}
+                    onChanged={() => refetchReviewRelations()}
+                    onApplyFeedbacks={applyReviewFeedbacks}
+                    onDismissFeedback={dismissReviewFeedback}
+                  />
                 ) : (
                   <MessageList
                     ref={messageListRef}
@@ -1943,6 +1942,7 @@ export function ChatPage() {
                     onLoadEarlier={handleLoadEarlier}
                     loadingEarlier={chat.historyLoading}
                     exhausted={chat.historyExhausted}
+                    loadEarlierError={chat.historyError}
                     onFork={chat.forkSession}
                     engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
                     onCleanRetry={chat.cleanRetry}
