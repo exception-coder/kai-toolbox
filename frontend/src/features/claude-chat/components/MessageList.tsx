@@ -42,6 +42,14 @@ interface Props {
   /** 特定场景覆盖 AI 头像；加载失败自动回退引擎图标。 */
   assistantAvatarUrl?: string
   assistantAvatarAlt?: string
+  /** 公开评审页为业务人员消息补充轻量分类标记。 */
+  getUserMessageBadge?: (item: Extract<ChatItem, { kind: 'user' }>) => UserMessageBadge | null
+}
+
+interface UserMessageBadge {
+  label: string
+  tone: 'primary' | 'muted' | 'warning'
+  title?: string
 }
 
 /** 供外部（如「我的提问」导航面板）滚到指定消息并短暂高亮，方便一眼找到目标气泡。 */
@@ -119,7 +127,7 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
 export const MessageList = memo(forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, assistantAvatarUrl, assistantAvatarAlt },
+  { items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
@@ -241,11 +249,12 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
       <Row item={item} onFork={onFork} engineLabel={engineLabel} onNewSession={onNewSession}
         sessionId={sessionKey}
         assistantAvatarUrl={assistantAvatarUrl} assistantAvatarAlt={assistantAvatarAlt}
+        userMessageBadge={item.kind === 'user' ? getUserMessageBadge?.(item) : undefined}
         onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
         onOpenImage={(src, alt) => setViewer({ src, alt })}
         turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
     </div>
-  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt])
+  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {
@@ -447,7 +456,7 @@ function TurnStatus({ item, turnText }: { item: Extract<ChatItem, { kind: 'resul
   )
 }
 
-function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string }) {
+function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -459,6 +468,14 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
       return (
         <div className="flex min-w-0 max-w-full flex-col items-end">
           <MsgHeader ts={item.ts} align="end" />
+          {userMessageBadge && (
+            <span title={userMessageBadge.title} className={cn(
+              'mb-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium',
+              userMessageBadge.tone === 'primary' && 'bg-[var(--color-primary)]/10 text-[var(--color-primary)]',
+              userMessageBadge.tone === 'muted' && 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]',
+              userMessageBadge.tone === 'warning' && 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
+            )}>{userMessageBadge.label}</span>
+          )}
           {item.attachments && item.attachments.length > 0 && (
             <div className="mb-1 flex max-w-[85%] flex-col items-end gap-1.5">
               {/* 图片：有预览 URL，按两列网格展示 */}

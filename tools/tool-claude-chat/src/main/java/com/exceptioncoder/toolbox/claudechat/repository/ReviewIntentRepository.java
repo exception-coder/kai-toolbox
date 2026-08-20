@@ -63,6 +63,10 @@ public class ReviewIntentRepository {
                 """, (rs, rowNum) -> map(rs), reviewSpaceId);
     }
 
+    public void deleteByReviewSpaceId(String reviewSpaceId) {
+        jdbc.update("DELETE FROM claude_chat_review_turn_intent WHERE review_space_id = ?", reviewSpaceId);
+    }
+
     private ReviewIntentAssessment map(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new ReviewIntentAssessment(
                 rs.getString("review_space_id"), rs.getString("review_session_id"), rs.getString("turn_id"),

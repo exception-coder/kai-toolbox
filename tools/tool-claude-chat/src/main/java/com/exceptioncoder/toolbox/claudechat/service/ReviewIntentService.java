@@ -21,7 +21,9 @@ import java.util.regex.Pattern;
 @Service
 public class ReviewIntentService {
     private static final Pattern EXPLICIT_CHANGE = Pattern.compile(
-            "(?:不要|不需要|需要|希望|请|必须|改成|调整|修改|优化|新增|增加|补充|删除|移除|取消|修复|禁止|可以(?:不|改|增加|删除|取消))");
+            "(?:不要|不需要|希望|必须|改成|调整|修改|优化|新增|增加|补充|删除|移除|取消|修复|禁止"
+                    + "|(?:需要|要|请)(?:新增|增加|调整|修改|优化|删除|移除|取消|修复|支持|展示|隐藏|改)"
+                    + "|可以(?:不|改|增加|删除|取消))");
     private static final Pattern TITLE = Pattern.compile("(?m)^#{1,4}\\s*需求标题[：:]\\s*(.+)$");
     private static final Pattern REQUIREMENT_STRUCTURE = Pattern.compile(
             "(?s)(?:^|\\n)#{1,4}\\s*需求标题[：:].*(?:^|\\n)#{1,4}\\s*需求说明.*(?:^|\\n)#{1,4}\\s*验收场景",
@@ -115,7 +117,7 @@ public class ReviewIntentService {
                     .get(CLASSIFIER_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             String intent = normalizeIntent(proposal == null ? null : proposal.intent());
             double confidence = proposal == null ? 0 : Math.max(0, Math.min(1, proposal.confidence()));
-            String status = "UNKNOWN".equals(intent) ? "MISSING" : confidence >= 0.75 ? "CONFIRMED" : "INFERRED";
+            String status = confidence >= 0.75 ? "CONFIRMED" : "INFERRED";
             return new Decision(intent, confidence,
                     proposal == null || proposal.reason() == null ? "模型未给出判定理由" : proposal.reason().trim(),
                     proposal == null ? List.of() : proposal.signals(), status);
