@@ -54,9 +54,9 @@ export function DocViewerHome() {
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-3 py-4 sm:gap-8 sm:px-6 sm:py-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold tracking-tight sm:text-xl">Markdown 文档浏览器</h1>
+          <h1 className="text-lg font-semibold tracking-tight sm:text-xl">文档浏览器</h1>
           <p className="text-xs text-[var(--color-muted-foreground)] sm:text-sm">
-            浏览 GitHub 仓库的 markdown，或挂载本机目录并直接在浏览器里编辑
+            浏览 GitHub 仓库中的 Markdown，或挂载本机目录预览和编辑 Markdown、HTML 等文档
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

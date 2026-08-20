@@ -136,7 +136,7 @@ export function DocViewerPage() {
     )
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       {/* === Header === */}
       <header className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] px-3 py-2 text-sm sm:px-4">
         {/* 移动端：目录抽屉触发器 */}
@@ -245,14 +245,14 @@ export function DocViewerPage() {
       </header>
 
       {/* === 主体三栏（响应式） === */}
-      <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-[260px_1fr] xl:grid-cols-[260px_1fr_240px]">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-hidden md:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)_240px]">
         {/* 桌面：常驻左树（md 及以上） */}
         <aside className="hidden overflow-y-auto border-r border-[var(--color-border)] p-2 md:block">
           {fileTree}
         </aside>
 
         {/* 渲染主区 */}
-        <main className="overflow-y-auto px-3 py-4 sm:px-6">
+        <main className="min-w-0 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-6">
           {!currentFilePath && treeQ.data && <EmptyState />}
           {fileQ.isLoading && (
             <div className="flex items-center gap-2 text-sm text-[var(--color-muted-foreground)]">

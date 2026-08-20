@@ -6,10 +6,10 @@ const DocViewerPage = lazy(() => import('./pages/DocViewerPage').then((m) => ({ 
 const LocalEditorPage = lazy(() => import('./pages/LocalEditorPage').then((m) => ({ default: m.LocalEditorPage })))
 const manifest: FeatureManifest = {
   id: 'doc-viewer',
-  name: 'Markdown 文档浏览器',
+  name: '文档浏览器',
   icon: BookOpen,
   group: '参考',
-  description: '浏览 GitHub 仓库或本地目录中的 markdown 文档，并支持就地编辑',
+  description: '浏览 GitHub 仓库或本地目录中的 Markdown、HTML 等文档，并支持就地编辑',
   order: 60,
   entry: '/tools/doc-viewer',
   routes: [

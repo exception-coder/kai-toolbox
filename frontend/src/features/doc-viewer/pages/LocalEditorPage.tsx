@@ -9,7 +9,10 @@ import {
   Eye,
   FileText,
   FolderTree,
+  List,
   Loader2,
+  PanelRightClose,
+  PanelRightOpen,
   RefreshCw,
   Save,
 } from 'lucide-react'
@@ -21,8 +24,10 @@ import { formatBytes, formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { getLocalFile, getLocalTree, saveLocalFile } from '../api'
 import { FileTree } from '../components/FileTree'
+import { HtmlPreview } from '../components/HtmlPreview'
 import { MarkdownEditor } from '../components/MarkdownEditor'
 import { MarkdownPreview } from '../components/MarkdownPreview'
+import { MarkdownReviewPanel } from '../components/MarkdownReviewPanel'
 import type { RewriteContext } from '../lib/rewriteRelativeLinks'
 import type { TreeNodeDTO } from '../types'
 
@@ -38,7 +43,10 @@ export function LocalEditorPage() {
 
   const [viewMode, setViewMode] = useState<ViewMode>('split')
   const [mobileTreeOpen, setMobileTreeOpen] = useState(false)
+  const [mobileTocOpen, setMobileTocOpen] = useState(false)
+  const [desktopReviewPanelOpen, setDesktopReviewPanelOpen] = useState(true)
   const [draft, setDraft] = useState<string>('')
+  const previewRootRef = useRef<HTMLDivElement | null>(null)
   // 保存时用来做乐观锁的 mtime；每次 load/save 同步刷新
   const baseMtimeRef = useRef<number>(0)
   // 加载完文件后用 originalContent 判 dirty；setDraft 不触发 useEffect 链
@@ -87,6 +95,8 @@ export function LocalEditorPage() {
 
   useEffect(() => {
     setMobileTreeOpen(false)
+    setMobileTocOpen(false)
+    setDesktopReviewPanelOpen(!isHtmlFile(currentFilePath))
   }, [currentFilePath])
 
   const saveM = useMutation({
@@ -107,6 +117,7 @@ export function LocalEditorPage() {
   })
 
   const dirty = fileQ.data?.kind === 'BLOB' && draft !== originalContent
+  const htmlFile = isHtmlFile(currentFilePath)
 
   const navigateToFile = useCallback(
     (path: string) => {
@@ -177,9 +188,19 @@ export function LocalEditorPage() {
       {treeQ.error instanceof ApiError ? treeQ.error.message : String(treeQ.error)}
     </div>
   ) : null
+  const reviewPanelAvailable = fileQ.data?.kind === 'BLOB' && !htmlFile && viewMode !== 'source'
+  const desktopReviewPanelVisible = reviewPanelAvailable && desktopReviewPanelOpen
+  const reviewPanel = reviewPanelAvailable && currentFilePath ? (
+    <MarkdownReviewPanel
+      rootRef={previewRootRef}
+      contentKey={currentFilePath}
+      sourceId={sourceId}
+      filePath={currentFilePath}
+    />
+  ) : null
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       {/* === Header === */}
       <header className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] px-3 py-2 text-sm sm:px-4">
         <Button
@@ -236,7 +257,7 @@ export function LocalEditorPage() {
         <div className="flex shrink-0 items-center gap-1">
           {fileQ.data && fileQ.data.kind === 'BLOB' && (
             <>
-              <div className="hidden items-center gap-0.5 rounded-md border border-[var(--color-border)] p-0.5 sm:flex">
+              <div className="flex items-center gap-0.5 rounded-md border border-[var(--color-border)] p-0.5">
                 <ViewModeButton
                   active={viewMode === 'source'}
                   onClick={() => setViewMode('source')}
@@ -291,6 +312,33 @@ export function LocalEditorPage() {
             <RefreshCw className="h-3.5 w-3.5" />
             <span className="hidden sm:ml-1 sm:inline">刷新</span>
           </Button>
+          {reviewPanelAvailable && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="xl:hidden"
+                onClick={() => setMobileTocOpen(true)}
+                title="打开大纲与备注"
+              >
+                <List className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden xl:inline-flex"
+                onClick={() => setDesktopReviewPanelOpen(open => !open)}
+                title={desktopReviewPanelOpen ? '折叠大纲与备注' : '展开大纲与备注'}
+                aria-pressed={desktopReviewPanelOpen}
+              >
+                {desktopReviewPanelOpen ? (
+                  <PanelRightClose className="h-4 w-4" />
+                ) : (
+                  <PanelRightOpen className="h-4 w-4" />
+                )}
+              </Button>
+            </>
+          )}
         </div>
       </header>
 
@@ -302,12 +350,17 @@ export function LocalEditorPage() {
       )}
 
       {/* === 主体 === */}
-      <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-[240px_1fr]">
+      <div
+        className={cn(
+          'grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-hidden md:grid-cols-[240px_minmax(0,1fr)]',
+          desktopReviewPanelVisible && 'xl:grid-cols-[240px_minmax(0,1fr)_300px]',
+        )}
+      >
         <aside className="hidden overflow-y-auto border-r border-[var(--color-border)] p-2 md:block">
           {fileTree}
         </aside>
 
-        <main className="flex min-w-0 flex-1 overflow-hidden">
+        <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {!currentFilePath && treeQ.data && <EmptyState />}
           {fileQ.isLoading && (
             <div className="flex items-center gap-2 p-6 text-sm text-[var(--color-muted-foreground)]">
@@ -329,30 +382,50 @@ export function LocalEditorPage() {
             />
           )}
           {fileQ.data && fileQ.data.kind === 'BLOB' && rewriteCtx && (
-            <div className="flex h-full w-full min-w-0">
+            <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
               {(viewMode === 'source' || viewMode === 'split') && (
                 <div
                   className={cn(
-                    'h-full overflow-hidden border-r border-[var(--color-border)]',
-                    viewMode === 'split' ? 'w-1/2' : 'w-full',
+                    'h-full min-w-0 overflow-hidden border-r border-[var(--color-border)]',
+                    viewMode === 'split' ? 'hidden w-full sm:block sm:w-1/2' : 'w-full',
                   )}
                 >
-                  <MarkdownEditor value={draft} onChange={setDraft} onSave={handleSave} />
+                  <MarkdownEditor
+                    value={draft}
+                    onChange={setDraft}
+                    onSave={handleSave}
+                    language={htmlFile ? 'html' : 'markdown'}
+                  />
                 </div>
               )}
               {(viewMode === 'preview' || viewMode === 'split') && (
                 <div
+                  ref={previewRootRef}
                   className={cn(
-                    'h-full overflow-hidden',
-                    viewMode === 'split' ? 'w-1/2' : 'w-full',
+                    'h-full min-w-0 overflow-hidden',
+                    viewMode === 'split' ? 'w-full sm:w-1/2' : 'w-full',
                   )}
                 >
-                  <MarkdownPreview content={draft} rewriteContext={rewriteCtx} />
+                  {htmlFile ? (
+                    <HtmlPreview
+                      sourceId={sourceId}
+                      filePath={currentFilePath as string}
+                      revision={fileQ.data.lastModified}
+                      dirty={dirty}
+                    />
+                  ) : (
+                    <MarkdownPreview content={draft} rewriteContext={rewriteCtx} />
+                  )}
                 </div>
               )}
             </div>
           )}
         </main>
+        {desktopReviewPanelVisible && (
+          <aside className="hidden overflow-y-auto border-l border-[var(--color-border)] p-4 xl:block">
+            {reviewPanel}
+          </aside>
+        )}
       </div>
 
       {/* 移动端：目录抽屉 */}
@@ -360,6 +433,12 @@ export function LocalEditorPage() {
         <SheetContent side="left" className="w-72 max-w-[85vw] overflow-y-auto p-2">
           <SheetTitle className="px-2 py-2 text-sm font-semibold">目录</SheetTitle>
           {fileTree}
+        </SheetContent>
+      </Sheet>
+      <Sheet open={mobileTocOpen} onOpenChange={setMobileTocOpen}>
+        <SheetContent side="right" className="w-80 max-w-[90vw] overflow-y-auto p-4">
+          <SheetTitle className="mb-3 text-sm font-semibold">大纲与备注</SheetTitle>
+          {reviewPanel}
         </SheetContent>
       </Sheet>
     </div>
@@ -397,11 +476,15 @@ function findIndexUnder(nodes: TreeNodeDTO[], dirPath: string): string | null {
   return null
 }
 
+function isHtmlFile(path: string | null): boolean {
+  return path != null && /\.html?$/i.test(path)
+}
+
 function EmptyState() {
   return (
     <div className="m-auto rounded-lg border border-dashed border-[var(--color-border)] p-6 text-center text-sm text-[var(--color-muted-foreground)] sm:p-10">
       <FileText className="mx-auto mb-3 h-8 w-8" />
-      在左侧选择一个 markdown 文件开始编辑
+      在左侧选择一个 Markdown 或 HTML 文件开始编辑
       <div className="mt-2 text-xs md:hidden">点击左上角图标打开目录</div>
     </div>
   )

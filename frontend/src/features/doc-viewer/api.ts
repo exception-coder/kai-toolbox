@@ -1,16 +1,19 @@
 import { http } from '@/lib/api'
 import type {
   CreateLocalSourceRequest,
+  CreateReviewNoteRequest,
   CreateSourceRequest,
   FileDTO,
   LocalFileDTO,
   LocalSourceDTO,
   LocalTreeResponseDTO,
   RefreshOutcomeDTO,
+  ReviewNoteDTO,
   SaveLocalFileRequest,
   SaveLocalFileResponse,
   SourceDTO,
   TreeResponseDTO,
+  UpdateReviewNoteRequest,
 } from './types'
 
 export function listSources() {
@@ -74,4 +77,36 @@ export function saveLocalFile(id: string, payload: SaveLocalFileRequest) {
     method: 'PUT',
     body: JSON.stringify(payload),
   })
+}
+
+export function listReviewNotes(sourceId: string, filePath: string) {
+  const query = new URLSearchParams({ path: filePath }).toString()
+  return http<ReviewNoteDTO[]>(
+    `/doc-viewer/local/sources/${encodeURIComponent(sourceId)}/review-notes?${query}`,
+  )
+}
+
+export function createReviewNote(sourceId: string, payload: CreateReviewNoteRequest) {
+  return http<ReviewNoteDTO>(
+    `/doc-viewer/local/sources/${encodeURIComponent(sourceId)}/review-notes`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  )
+}
+
+export function updateReviewNote(
+  sourceId: string,
+  noteId: string,
+  payload: UpdateReviewNoteRequest,
+) {
+  return http<ReviewNoteDTO>(
+    `/doc-viewer/local/sources/${encodeURIComponent(sourceId)}/review-notes/${encodeURIComponent(noteId)}`,
+    { method: 'PUT', body: JSON.stringify(payload) },
+  )
+}
+
+export function deleteReviewNote(sourceId: string, noteId: string) {
+  return http<void>(
+    `/doc-viewer/local/sources/${encodeURIComponent(sourceId)}/review-notes/${encodeURIComponent(noteId)}`,
+    { method: 'DELETE' },
+  )
 }

@@ -86,7 +86,7 @@ export function AppShell() {
     <MobileNavigationProvider onOpen={openMobileNavigation}>
     <UnifiedTitleBarSlotContext.Provider value={featureIntegratedTitleBar ? unifiedTitleBarSlot : null}>
     <div
-      className="app-shell-canvas flex w-screen overflow-hidden text-[var(--color-foreground)]"
+      className="app-shell-canvas flex w-full overflow-hidden text-[var(--color-foreground)]"
       style={{ height: 'var(--app-vh, 100vh)' }}
     >
       {windowControlsOverlayVisible && (

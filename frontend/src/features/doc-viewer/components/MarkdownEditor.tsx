@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
+import { html } from '@codemirror/lang-html'
 import type { Extension } from '@codemirror/state'
 import { useIsDarkTheme } from '@/lib/useIsDarkTheme'
 
@@ -11,6 +12,7 @@ interface MarkdownEditorProps {
   // Ctrl/Cmd+S 保存快捷键
   onSave?: () => void
   readOnly?: boolean
+  language?: 'markdown' | 'html'
 }
 
 const cmTheme = EditorView.theme({
@@ -20,14 +22,20 @@ const cmTheme = EditorView.theme({
   '.cm-content': { padding: '12px 4px' },
 })
 
-export function MarkdownEditor({ value, onChange, onSave, readOnly = false }: MarkdownEditorProps) {
+export function MarkdownEditor({
+  value,
+  onChange,
+  onSave,
+  readOnly = false,
+  language = 'markdown',
+}: MarkdownEditorProps) {
   const dark = useIsDarkTheme()
 
   const extensions = useMemo<Extension[]>(() => {
     const exts: Extension[] = [
       cmTheme,
       EditorView.lineWrapping,
-      markdown(),
+      language === 'html' ? html() : markdown(),
     ]
     if (onSave) {
       exts.push(
@@ -44,7 +52,7 @@ export function MarkdownEditor({ value, onChange, onSave, readOnly = false }: Ma
       )
     }
     return exts
-  }, [onSave])
+  }, [language, onSave])
 
   return (
     <CodeMirror

@@ -1,5 +1,5 @@
 /**
- * mermaid 懒加载 + 把渲染产物中的 <pre><code class="language-mermaid"> 替换为 SVG。
+ * Mermaid 懒加载 + 把 Markdown 中的 Mermaid 占位节点渲染为 SVG。
  * 依赖在使用此函数的页面才下载，避免污染首屏体积。
  */
 let initPromise: Promise<typeof import('mermaid').default> | null = null
@@ -18,23 +18,22 @@ async function getMermaid() {
   return initPromise
 }
 
-let nodeId = 0
-
 export async function replaceMermaidBlocks(root: HTMLElement) {
   const blocks = Array.from(
     root.querySelectorAll<HTMLElement>('.doc-viewer-mermaid-pending'),
   )
   if (blocks.length === 0) return
-  const mermaid = await getMermaid()
   for (const block of blocks) {
     const code = block.textContent ?? ''
-    const id = `mermaid-svg-${++nodeId}`
     try {
-      const { svg } = await mermaid.render(id, code)
-      const wrapper = document.createElement('div')
-      wrapper.className = 'doc-viewer-mermaid'
-      wrapper.innerHTML = svg
-      block.replaceWith(wrapper)
+      const mermaid = await getMermaid()
+      await mermaid.parse(code)
+      block.className = 'mermaid'
+      block.textContent = code
+      await mermaid.run({ nodes: [block], suppressErrors: true })
+      if (!block.querySelector('svg')) throw new Error('未生成图表')
+      block.className = 'doc-viewer-mermaid'
+      block.removeAttribute('data-processed')
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       const err = document.createElement('pre')

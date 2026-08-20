@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { renderMarkdownToHtml } from '../lib/renderMarkdown'
 import { replaceMermaidBlocks } from '../lib/mermaidRenderer'
 import { shouldShowSkeleton } from '../lib/sizeStrategy'
 import type { RewriteContext } from '../lib/rewriteRelativeLinks'
 import { MermaidLightbox } from '@/components/markdown/MermaidLightbox'
+import { RenderedMarkdownRoot } from './RenderedMarkdownRoot'
 import '../styles/markdown.css'
 
 interface MarkdownViewProps {
@@ -20,7 +21,6 @@ export function MarkdownView({ content, size, rewriteContext, contentKey, rootRe
   const [html, setHtml] = useState<string>('')
   const [rendering, setRendering] = useState(false)
   const [lightboxSvg, setLightboxSvg] = useState<string | null>(null)
-  const localRef = useRef<HTMLDivElement | null>(null)
   const showSkeleton = shouldShowSkeleton(size)
 
   useEffect(() => {
@@ -43,7 +43,7 @@ export function MarkdownView({ content, size, rewriteContext, contentKey, rootRe
 
   useEffect(() => {
     if (!html) return
-    const root = rootRef.current ?? localRef.current
+    const root = rootRef.current
     if (!root) return
     let cancelled = false
     void replaceMermaidBlocks(root).catch(e => {
@@ -54,7 +54,7 @@ export function MarkdownView({ content, size, rewriteContext, contentKey, rootRe
 
   // 委托：点击 mermaid 图打开 Lightbox
   useEffect(() => {
-    const root = rootRef.current ?? localRef.current
+    const root = rootRef.current
     if (!root) return
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null
@@ -86,13 +86,10 @@ export function MarkdownView({ content, size, rewriteContext, contentKey, rootRe
 
   return (
     <>
-      <div
-        ref={node => {
-          localRef.current = node
-          rootRef.current = node
-        }}
+      <RenderedMarkdownRoot
+        rootRef={rootRef}
+        html={html}
         className="doc-viewer-md"
-        dangerouslySetInnerHTML={{ __html: html }}
       />
       {lightboxSvg && (
         <MermaidLightbox svgHtml={lightboxSvg} onClose={() => setLightboxSvg(null)} />

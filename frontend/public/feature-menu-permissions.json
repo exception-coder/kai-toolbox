@@ -355,7 +355,7 @@
     {
       "featureId": "doc-viewer",
       "code": "menu:doc-viewer",
-      "name": "Markdown 文档浏览器",
+      "name": "文档浏览器",
       "module": "参考",
       "sort": 60
     },

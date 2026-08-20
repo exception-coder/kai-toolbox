@@ -3,6 +3,7 @@ import { renderMarkdownToHtml } from '../lib/renderMarkdown'
 import { replaceMermaidBlocks } from '../lib/mermaidRenderer'
 import type { RewriteContext } from '../lib/rewriteRelativeLinks'
 import { MermaidLightbox } from '@/components/markdown/MermaidLightbox'
+import { RenderedMarkdownRoot } from './RenderedMarkdownRoot'
 import '../styles/markdown.css'
 
 interface MarkdownPreviewProps {
@@ -59,10 +60,10 @@ export function MarkdownPreview({ content, rewriteContext, debounceMs = 150 }: M
 
   return (
     <>
-      <div
-        ref={rootRef}
-        className="doc-viewer-md h-full overflow-y-auto px-4 py-4 sm:px-6"
-        dangerouslySetInnerHTML={{ __html: html }}
+      <RenderedMarkdownRoot
+        rootRef={rootRef}
+        html={html}
+        className="doc-viewer-md h-full min-w-0 overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-6"
       />
       {lightboxSvg && (
         <MermaidLightbox svgHtml={lightboxSvg} onClose={() => setLightboxSvg(null)} />

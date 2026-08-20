@@ -104,3 +104,35 @@ export interface SaveLocalFileResponse {
   size: number
   lastModified: number
 }
+
+export type ReviewNoteCategory = 'CLARIFICATION' | 'DISPUTE' | 'FOLLOW_UP'
+export type ReviewNoteStatus = 'OPEN' | 'RESOLVED'
+
+export interface ReviewNoteDTO {
+  id: string
+  sourceId: string
+  filePath: string
+  headingId: string
+  headingText: string
+  headingLevel: number
+  category: ReviewNoteCategory
+  content: string
+  status: ReviewNoteStatus
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CreateReviewNoteRequest {
+  filePath: string
+  headingId: string
+  headingText: string
+  headingLevel: number
+  category: ReviewNoteCategory
+  content: string
+}
+
+export interface UpdateReviewNoteRequest {
+  category: ReviewNoteCategory
+  content: string
+  status: ReviewNoteStatus
+}
