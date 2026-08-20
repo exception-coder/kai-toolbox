@@ -37,9 +37,9 @@
 
 ## 3. 自动化证据
 
-- 前端 `npm run typecheck`：通过，56 个菜单权限一致，架构边界 0 违规。
+- 前端 `npm run typecheck`：通过，54 个菜单权限一致，架构边界 0 违规。
 - Assistant SDK/Widget 测试：54 个通过；包含初始化幂等、上下文局部更新、Provider 超时、100/20 缓冲、Markdown、安全渲染、WS 水位恢复、持久队列、外部登录、草稿确认、Token 建连、隐藏状态、跨端位置恢复、发送即时投影、准备/执行中止和脱敏调试日志。
-- `toolbox-common` 测试：11 个通过；其中外部登录 5 个，覆盖 Origin 白名单、普通登录不开放 CORS、专用接口不返回 Refresh Token。
+- `toolbox-common` 测试：13 个通过；其中外部登录 5 个、管理员 WebSocket 主体透传 2 个，覆盖 Origin 白名单、普通登录不开放 CORS、专用接口不返回 Refresh Token 及 ADMIN 角色校验。
 - 本轮统一 WS Java 定向测试：12 个通过；覆盖协议序列化、握手身份传递、意图路由和草稿幂等登记。
 - Sidecar 测试：101 个用例通过。
 - Maven 43 模块 `compile`：通过。
