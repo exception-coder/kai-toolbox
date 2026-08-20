@@ -10,6 +10,7 @@ import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionReposit
 import com.exceptioncoder.toolbox.claudechat.api.dto.MessagePage;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.core.io.PathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.web.bind.annotation.*;
@@ -55,9 +56,24 @@ public class ReviewSpaceController {
         return service.list(sessionId).stream().map(ReviewView::from).toList();
     }
 
+    @PostMapping("/reviews/{id}/reissue")
+    public ResponseEntity<?> reissue(@PathVariable String id, @RequestBody ReissueReviewRequest request) {
+        try {
+            var reissued = service.reissue(id, request.expiresInDays());
+            return ResponseEntity.ok(Map.of("review", ReviewView.from(reissued.space()),
+                    "token", reissued.token(), "sharePath", "/review/" + reissued.token(),
+                    "lanIpv4", localNetworkAddress.preferredIpv4().orElse("")));
+        } catch (IllegalArgumentException error) {
+            return ResponseEntity.notFound().build();
+        } catch (IllegalStateException error) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", error.getMessage()));
+        }
+    }
+
     @GetMapping("/sessions/{sessionId}/review-relations")
-    public ReviewSpaceService.RelationContext relations(@PathVariable String sessionId) {
-        return service.relationContext(sessionId);
+    public ReviewRelationView relations(@PathVariable String sessionId) {
+        return ReviewRelationView.from(service.relationContext(sessionId),
+                localNetworkAddress.preferredIpv4().orElse(""));
     }
 
     @PatchMapping("/review-feedback/{id}")
@@ -138,11 +154,21 @@ public class ReviewSpaceController {
 
     public record CreateReviewRequest(String mode, String title, String contextSnapshot,
                                       long expiresInDays, String lastTurnId, String codexHome) {}
+    public record ReissueReviewRequest(long expiresInDays) {}
     public record ReviewView(String id, String sourceSessionId, String reviewSessionId, String mode,
                              String status, String title, long expiresAt, long createdAt) {
         static ReviewView from(ReviewSpace s) {
             return new ReviewView(s.id(), s.sourceSessionId(), s.reviewSessionId(), s.mode(),
                     s.status(), s.title(), s.expiresAt(), s.createdAt());
+        }
+    }
+    public record ReviewRelationView(String role, String sourceSessionId, String sourceTitle,
+                                     List<ReviewSpaceService.ReviewLink> reviews,
+                                     List<com.exceptioncoder.toolbox.claudechat.domain.ReviewFeedback> pendingFeedback,
+                                     String lanIpv4) {
+        static ReviewRelationView from(ReviewSpaceService.RelationContext relation, String lanIpv4) {
+            return new ReviewRelationView(relation.role(), relation.sourceSessionId(), relation.sourceTitle(),
+                    relation.reviews(), relation.pendingFeedback(), lanIpv4);
         }
     }
     public record PublicReviewView(String reviewSessionId, String title, String sourceTitle, String mode,

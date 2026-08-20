@@ -117,3 +117,15 @@
 | `created_at`、`updated_at` | 洞察短事务创建 | 最新历史选择、API 生成时间展示 |
 
 修改字段时必须同步 DDL、`ReqInsight`、Repository 显式列映射、视图装配器、API 类型和临时 SQLite 事务测试。
+
+## claude_chat_review_space 分享令牌字段
+
+定义：`tools/tool-claude-chat/src/main/resources/db/claude-chat-schema.sql:46`
+
+| 字段 | 主要写入点 | 主要读取或决策点 |
+|---|---|---|
+| `token_hash` | 创建、换新链接；公开旧链接访问时作为条件 | 公开链接访问校验、补存密文的并发保护 |
+| `token_ciphertext` | 创建、换新链接；旧链接成功访问后补存或修复 | 内部评审关联投影恢复原 `sharePath`；公开接口不得返回 |
+| `expires_at/status` | 创建、换新、撤销 | 原链接有效/过期/撤销展示和公开访问判定 |
+
+修改令牌字段时必须同步 DDL、启动迁移、`ReviewSpace`、Repository 显式列映射、AES-GCM 服务、关联 API 与前端历史列表测试。

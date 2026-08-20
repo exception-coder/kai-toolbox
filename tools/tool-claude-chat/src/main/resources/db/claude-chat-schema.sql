@@ -42,13 +42,14 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_session_seen
     ON claude_chat_session(last_seen_at DESC);
 
--- 开发会话派生的受限评审空间。分享令牌仅保存 SHA-256，不保存明文。
+-- 开发会话派生的受限评审空间。摘要用于公开访问校验，密文仅供内部恢复原链接。
 CREATE TABLE IF NOT EXISTS claude_chat_review_space (
     id                  TEXT PRIMARY KEY,
     source_session_id   TEXT NOT NULL,
     review_session_id   TEXT NOT NULL UNIQUE,
     mode                TEXT NOT NULL,
     token_hash          TEXT NOT NULL UNIQUE,
+    token_ciphertext    TEXT,
     status              TEXT NOT NULL DEFAULT 'ACTIVE',
     title               TEXT NOT NULL,
     context_snapshot    TEXT,

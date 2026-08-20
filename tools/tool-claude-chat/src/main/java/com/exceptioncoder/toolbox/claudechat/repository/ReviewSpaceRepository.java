@@ -12,7 +12,7 @@ import java.util.Optional;
 public class ReviewSpaceRepository {
     private static final RowMapper<ReviewSpace> ROW = (rs, i) -> new ReviewSpace(
             rs.getString("id"), rs.getString("source_session_id"), rs.getString("review_session_id"),
-            rs.getString("mode"), rs.getString("token_hash"), rs.getString("status"),
+            rs.getString("mode"), rs.getString("token_hash"), rs.getString("token_ciphertext"), rs.getString("status"),
             rs.getString("title"), rs.getString("context_snapshot"), rs.getLong("expires_at"),
             rs.getLong("created_at"), rs.getLong("updated_at"));
 
@@ -25,11 +25,11 @@ public class ReviewSpaceRepository {
     public void insert(ReviewSpace space) {
         jdbc.update("""
                 INSERT INTO claude_chat_review_space
-                  (id, source_session_id, review_session_id, mode, token_hash, status, title,
+                  (id, source_session_id, review_session_id, mode, token_hash, token_ciphertext, status, title,
                    context_snapshot, expires_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, space.id(), space.sourceSessionId(), space.reviewSessionId(), space.mode(),
-                space.tokenHash(), space.status(), space.title(), space.contextSnapshot(), space.expiresAt(),
+                space.tokenHash(), space.tokenCiphertext(), space.status(), space.title(), space.contextSnapshot(), space.expiresAt(),
                 space.createdAt(), space.updatedAt());
     }
 
@@ -55,5 +55,23 @@ public class ReviewSpaceRepository {
     public boolean revoke(String id, long now) {
         return jdbc.update("UPDATE claude_chat_review_space SET status = 'REVOKED', updated_at = ? WHERE id = ? AND status = 'ACTIVE'",
                 now, id) > 0;
+    }
+
+    public boolean reissueToken(String id, String expectedTokenHash, String tokenHash,
+                                String tokenCiphertext, long expiresAt, long now) {
+        return jdbc.update("""
+                UPDATE claude_chat_review_space
+                SET token_hash = ?, token_ciphertext = ?, expires_at = ?, updated_at = ?
+                WHERE id = ? AND token_hash = ? AND status = 'ACTIVE'
+                """, tokenHash, tokenCiphertext, expiresAt, now, id, expectedTokenHash) > 0;
+    }
+
+    /** 仅当公开令牌仍匹配时补写或修复密文，避免与令牌轮换发生竞态。 */
+    public boolean storeTokenCiphertext(String id, String expectedTokenHash, String tokenCiphertext, long now) {
+        return jdbc.update("""
+                UPDATE claude_chat_review_space
+                SET token_ciphertext = ?, updated_at = ?
+                WHERE id = ? AND token_hash = ?
+                """, tokenCiphertext, now, id, expectedTokenHash) > 0;
     }
 }

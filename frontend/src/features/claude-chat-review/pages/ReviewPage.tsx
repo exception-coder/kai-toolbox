@@ -82,15 +82,16 @@ function mergeConclusions(...groups: ReviewConclusion[][]): ReviewConclusion[] {
 function incrementalSummaryPrompt(conclusions: ReviewConclusion[], hasPreviousSummary: boolean): string {
   const scope = conclusions.map((conclusion, index) =>
     `### 新增结论 ${index + 1}\n${conclusion.text}`).join('\n\n')
-  return `请只基于下方“本批新增评审结论”整理一份可直接交给开发人员执行的${hasPreviousSummary ? '补充' : '最终'}评审结论。
+  return `请只基于下方“本批新增评审结论”，整理一份面向业务确认与后续交接的${hasPreviousSummary ? '补充' : '最终'}评审结论。
 
 范围约束：
 1. 之前轮次的问题、回答和已提交的最终结论均不属于本批范围，不得重新汇总；
 2. 只处理下面明确列出的新增结论，不要从会话旧历史补充内容；
-3. 按“必须修复的问题 / 测试与验收场景 / 风险与待确认项”组织；
-4. 合并本批内部重复问题，保留具体复现步骤、预期结果和影响范围；
-5. 信息冲突或尚未确认时明确标注，不要猜测；
-6. 只输出交接结论，不要描述整理过程。
+3. 按“现状与业务问题 / 需求建议 / 待确认项 / 业务验收场景”组织；
+4. 合并本批内部重复问题，保留业务场景、涉及角色、期望结果、例外情况和影响范围；
+5. 信息冲突或尚未确认时明确标注，并给出便于业务人员选择或补充的建议，不要猜测；
+6. 使用业务语言，不得出现源码文件、类名、接口、数据库表或字段、SQL、代码片段、技术架构和开发实施步骤；
+7. 只输出业务交接结论，不要描述整理过程。
 
 ## 本批新增评审结论
 
@@ -133,7 +134,7 @@ export function ReviewPage() {
   const chat = useClaudeChatSocket({ channel: 'review', reviewToken: token })
   const [review, setReview] = useState<Awaited<ReturnType<typeof getPublicReview>> | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [snapshotOpen, setSnapshotOpen] = useState(true)
+  const [snapshotOpen, setSnapshotOpen] = useState(false)
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<ReviewAttachment[]>([])
   const [uploading, setUploading] = useState(0)
@@ -147,7 +148,7 @@ export function ReviewPage() {
   const summarySubmissionInFlightRef = useRef(false)
 
   useEffect(() => {
-    setSnapshotOpen(true)
+    setSnapshotOpen(false)
     void getPublicReview(token).then(setReview).catch(e => setError(e instanceof Error ? e.message : String(e)))
   }, [token])
   useEffect(() => {
@@ -382,8 +383,16 @@ export function ReviewPage() {
       <footer className="border-t bg-white p-3 dark:bg-slate-900">
         <div className="mx-auto max-w-5xl">
           {knownConclusions.length > 0 && (
-            <div className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
-              <span className="min-w-0 flex-1">
+            <div className="mb-2 flex flex-col gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <span className="sm:hidden">
+                {finalizingSummary
+                  ? summaryPhase === 'submitting' ? '正在提交汇总结论…' : 'AI 正在汇总评审结论…'
+                  : waitingForReviewAnswers
+                  ? `${chat.running ? 'AI 正在回答' : '等待继续处理'}${chat.queued.length > 0 ? ` · ${chat.queued.length} 条待处理` : ''}`
+                  : finalSummaryCurrent ? '最终结论已提交'
+                  : `${unsubmittedCount > 0 && hasPreviousSummary ? '新增' : '已识别'} ${unsubmittedCount > 0 ? unsubmittedCount : knownConclusions.length} 条评审结论`}
+              </span>
+              <span className="hidden min-w-0 flex-1 sm:inline">
                 {finalizingSummary
                   ? summaryPhase === 'submitting' ? 'AI 已完成汇总，正在提交单份最终结论…' : 'AI 正在整理整轮评审，完成后会自动提交单份最终结论；此期间暂不接收新问题，避免遗漏。'
                   : waitingForReviewAnswers
@@ -392,14 +401,14 @@ export function ReviewPage() {
                   ? `上次汇总后新增 ${unsubmittedCount} 条评审结论；AI 将只整理本批新增内容并生成补充交接结论。`
                   : `已识别 ${knownConclusions.length} 条评审结论；AI 可先合并去重并生成一份最终交接结论，再提交到“${review.sourceTitle}”。`}
               </span>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
                 {latestUnsubmittedConclusion && !finalizingSummary && (
-                  <Button size="sm" variant="ghost" onClick={() => void submitLatestConclusion()} disabled={submittingLatest || waitingForReviewAnswers} title="严重问题快速交接，不等待最终汇总" className="gap-1.5">
+                  <Button size="sm" variant="ghost" onClick={() => void submitLatestConclusion()} disabled={submittingLatest || waitingForReviewAnswers} title="严重问题快速交接，不等待最终汇总" className="min-w-0 flex-1 gap-1.5 px-2 sm:flex-none sm:px-3">
                     {submittingLatest ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
                     提交最新一条
                   </Button>
                 )}
-                <Button size="sm" variant="outline" onClick={() => void startFinalSummary()} disabled={finalizingSummary || submittingLatest || waitingForReviewAnswers || finalSummaryCurrent} className="gap-1.5">
+                <Button size="sm" variant="outline" onClick={() => void startFinalSummary()} disabled={finalizingSummary || submittingLatest || waitingForReviewAnswers || finalSummaryCurrent} className="min-w-0 flex-1 gap-1.5 px-2 sm:flex-none sm:px-3">
                   {finalSummaryCurrent ? <CheckCircle2 className="size-4" /> : finalizingSummary ? <Loader2 className="size-4 animate-spin" /> : <GitPullRequestArrow className="size-4" />}
                   {finalSummaryCurrent ? '最终结论已提交' : finalizingSummary ? 'AI 汇总中…' : `${hasPreviousSummary ? 'AI 汇总新增并提交' : 'AI 汇总并提交'}${unsubmittedCount > 0 ? `（${unsubmittedCount}）` : ''}`}
                 </Button>

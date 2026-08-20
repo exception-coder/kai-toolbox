@@ -486,8 +486,9 @@ export interface ReviewRelationContext {
   role: 'SOURCE' | 'REVIEW'
   sourceSessionId: string
   sourceTitle: string | null
-  reviews: Array<ReviewShareView & { sourceTitle: string; reviewTitle: string }>
+  reviews: Array<ReviewShareView & { sourceTitle: string; reviewTitle: string; sharePath: string | null }>
   pendingFeedback: ReviewFeedbackView[]
+  lanIpv4: string
 }
 
 export function createReviewShare(sessionId: string, input: {
@@ -501,6 +502,13 @@ export function createReviewShare(sessionId: string, input: {
   return http<{ review: ReviewShareView; token: string; sharePath: string; lanIpv4: string }>(
     `/claude-chat/sessions/${encodeURIComponent(sessionId)}/reviews`,
     { method: 'POST', body: JSON.stringify(input) },
+  )
+}
+
+export function reissueReviewShare(reviewId: string, expiresInDays = 7) {
+  return http<{ review: ReviewShareView; token: string; sharePath: string; lanIpv4: string }>(
+    `/claude-chat/reviews/${encodeURIComponent(reviewId)}/reissue`,
+    { method: 'POST', body: JSON.stringify({ expiresInDays }) },
   )
 }
 

@@ -15,7 +15,10 @@ import {
 
 test('review prompt explicitly forbids implementation side effects', () => {
   assert.match(REVIEW_ONLY_PROMPT, /禁止修改文件、执行命令、提交代码、写数据库/)
-  assert.match(REVIEW_ONLY_PROMPT, /回到原开发会话执行/)
+  assert.match(REVIEW_ONLY_PROMPT, /回到原开发会话实施/)
+  assert.match(REVIEW_ONLY_PROMPT, /面向业务人员/)
+  assert.match(REVIEW_ONLY_PROMPT, /不得输出源码文件、类名、接口、数据库表或字段、SQL/)
+  assert.match(REVIEW_ONLY_PROMPT, /业务问题、需求建议、待确认项和验收场景/)
 })
 
 test('review config closes apps, plugins, code mode and every configured MCP', () => {

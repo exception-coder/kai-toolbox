@@ -14,7 +14,7 @@ class ReviewSpaceControllerTest {
     @Test
     void publicViewIncludesReviewCreationBoundary() {
         ReviewSpace space = new ReviewSpace("space-1", "source-1", "review-1", "FULL_FORK",
-                "hash", "ACTIVE", "计划评审", "snapshot", 9_000L, 1_234L, 1_234L);
+                "hash", null, "ACTIVE", "计划评审", "snapshot", 9_000L, 1_234L, 1_234L);
 
         ReviewSpaceController.PublicReviewView view =
                 ReviewSpaceController.PublicReviewView.from(space, "来源开发会话",

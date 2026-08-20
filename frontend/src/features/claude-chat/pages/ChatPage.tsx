@@ -102,6 +102,7 @@ import { isVibeCodingSession } from '../lib/sessionScope'
 import { SessionWorkStatus } from '../components/SessionWorkStatus'
 import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
 import { ReviewShareDialog } from '../components/ReviewShareDialog'
+import { ReviewRelationBar } from '../components/ReviewRelationBar'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
 import { selectableEngineIds } from '../lib/engineCatalog'
 import { MobileSessionStatus } from '../components/MobileSessionStatus'
@@ -679,7 +680,6 @@ export function ChatPage() {
   const currentTitle = currentSession
     ? (currentSession.title?.trim() || headerCwdName(currentSession.cwd))
     : undefined
-  const reviewLink = reviewRelations?.reviews[0]
   const [reviewFeedbackBusy, setReviewFeedbackBusy] = useState(false)
   const [reviewFeedbackError, setReviewFeedbackError] = useState<string | null>(null)
   const applyReviewFeedbacks = async (feedbacks: ReviewFeedbackView[]) => {
@@ -1222,24 +1222,6 @@ export function ChatPage() {
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<Gauge className="size-4" />} label="会话用量" hint="查看本会话累计 Token 与费用明细" onClick={() => { setHeaderMenu(false); setShowUsage(true) }} />
                     )}
-                    {reviewLink && (
-                      <div className="md:hidden">
-                        <HeaderMenuItem
-                          nested
-                          icon={<Link2 className="size-4" />}
-                          label={reviewRelations?.role === 'REVIEW' ? '返回来源会话' : '打开评审会话'}
-                          hint={reviewRelations?.role === 'REVIEW'
-                            ? reviewLink.sourceTitle
-                            : `${reviewLink.reviewTitle}${reviewRelations.reviews.length > 1 ? `（共 ${reviewRelations.reviews.length} 个）` : ''}`}
-                          onClick={() => {
-                            setHeaderMenu(false)
-                            chat.switchTo(reviewRelations?.role === 'REVIEW'
-                              ? reviewLink.sourceSessionId
-                              : reviewLink.reviewSessionId)
-                          }}
-                        />
-                      </div>
-                    )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<RefreshCw className="size-4" />} label="重载会话" hint="重连原生会话，加载最新插件/技能/命令" onClick={() => { setHeaderMenu(false); chat.resumeCurrent() }} />
                     )}
@@ -1320,29 +1302,12 @@ export function ChatPage() {
         </div>
       )}
 
-      {viewMode === 'single' && reviewLink && (
-        <div className="hidden border-b border-indigo-200 bg-indigo-50/90 px-3 py-2 text-xs text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 md:block">
-          <div className="flex flex-wrap items-center gap-2">
-            <Link2 className="size-4 shrink-0" />
-            <span className="font-medium">
-              {reviewRelations?.role === 'REVIEW'
-                ? `来源开发会话：${reviewLink.sourceTitle}`
-                : `已关联计划评审：${reviewLink.reviewTitle}${reviewRelations.reviews.length > 1 ? `（共 ${reviewRelations.reviews.length} 个）` : ''}`}
-            </span>
-            <span className="text-indigo-700/80 dark:text-indigo-300/80">
-              {reviewLink.mode === 'FULL_FORK' ? '完整上下文分叉' : '安全快照'}
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              className="ml-auto h-7 gap-1 border-indigo-300 bg-white/70 px-2 text-xs dark:border-indigo-700 dark:bg-indigo-950"
-              onClick={() => chat.switchTo(reviewRelations?.role === 'REVIEW'
-                ? reviewLink.sourceSessionId : reviewLink.reviewSessionId)}
-            >
-              {reviewRelations?.role === 'REVIEW' ? '返回来源会话' : '打开评审会话'}
-            </Button>
-          </div>
-        </div>
+      {viewMode === 'single' && reviewRelations && reviewRelations.reviews.length > 0 && (
+        <ReviewRelationBar
+          relation={reviewRelations}
+          onOpenSession={chat.switchTo}
+          onChanged={() => refetchReviewRelations()}
+        />
       )}
 
       {viewMode === 'single' && reviewRelations?.role === 'SOURCE'
@@ -1792,7 +1757,10 @@ export function ChatPage() {
           codexHome={currentSession?.codexHome || newCodexHome}
           officialProvider={currentSession?.providerKind !== 'thirdParty'}
           items={chat.items}
-          onClose={() => setShowReviewShare(false)}
+          onClose={() => {
+            setShowReviewShare(false)
+            void refetchReviewRelations()
+          }}
         />
       )}
 

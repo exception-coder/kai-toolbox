@@ -6,6 +6,7 @@ public record ReviewSpace(
         String reviewSessionId,
         String mode,
         String tokenHash,
+        String tokenCiphertext,
         String status,
         String title,
         String contextSnapshot,

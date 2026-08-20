@@ -91,6 +91,7 @@ public class ClaudeChatSchemaMigration {
         addPendingSqlColumn("ddl_verified_tables", "TEXT");
         addPendingSqlColumn("ddl_missing_tables", "TEXT");
         addPendingSqlColumn("ddl_checked_at", "INTEGER");
+        addReviewSpaceColumn("token_ciphertext", "TEXT");
         // 兼容修复前已经创建的业务咨询会话：它们已有固定分组，但尚未持久化执行策略。
         try {
             jdbc.update("""
@@ -121,6 +122,16 @@ public class ClaudeChatSchemaMigration {
             log.info("[claude-chat] 迁移：claude_chat_pending_sql 已补 {} 列", column);
         } catch (Exception e) {
             log.debug("[claude-chat] pending sql {} 列迁移跳过：{}", column, e.getMessage());
+        }
+    }
+
+    /** 为存量评审空间幂等补充可恢复令牌密文列。 */
+    private void addReviewSpaceColumn(String column, String definition) {
+        try {
+            jdbc.execute("ALTER TABLE claude_chat_review_space ADD COLUMN " + column + " " + definition);
+            log.info("[claude-chat] 迁移：claude_chat_review_space 已补 {} 列", column);
+        } catch (Exception e) {
+            log.debug("[claude-chat] review space {} 列迁移跳过：{}", column, e.getMessage());
         }
     }
 }

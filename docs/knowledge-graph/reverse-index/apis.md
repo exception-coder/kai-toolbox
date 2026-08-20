@@ -49,3 +49,15 @@
 | `POST /api/prd-clarify/delivery-overview/{sessionId}/verification-runs` | 插入 RUNNING 并异步执行白名单命令 | `AiInspector` | 请求只能提交 `commandId`；并发运行返回 409 |
 
 契约变更时必须同步 `DeliveryOverviewView`、前端 `types.ts/api.ts`、白名单配置、评分测试与运行生命周期测试。
+
+## Vibe Coding 计划评审关联
+
+定义：`tools/tool-claude-chat/src/main/java/com/exceptioncoder/toolbox/claudechat/api/ReviewSpaceController.java:73`
+
+| API | 写入/读取 | 前端调用者 | 决策影响 |
+|---|---|---|---|
+| `GET /api/claude-chat/sessions/{sessionId}/review-relations` | 读取全部关联评审并恢复原 `sharePath` | `ReviewRelationBar` | 展示原始局域网地址；密文缺失或无效时只显示不可恢复说明 |
+| `POST /api/claude-chat/reviews/{id}/reissue` | 原子轮换摘要、密文与有效期 | `ReviewRelationBar` | 仅作为换新/替代操作，成功后旧链接立即失效 |
+| `GET /api/claude-chat/reviews/public/{token}` | 以摘要校验公开访问，并为旧记录补存密文 | 公开评审页 | 补存必须以当前摘要为条件，避免覆盖并发换新的 token |
+
+契约变更时必须同步 `ReviewRelationContext`、令牌密文边界、历史链接交互和原链接/旧数据兼容测试。
