@@ -150,7 +150,7 @@ public class ConsultController {
     @PostMapping("/sessions/{id}/turns")
     public ConsultSessionView syncTurns(@PathVariable String id, @RequestBody ArchiveRequest req) {
         var session = service.syncTurns(id, req);
-        bugExtractionService.extractSessionAsync(id, session.getModel());
+        bugExtractionService.extractCompletedTurnsAsync(id, session.getModel());
         return ConsultSessionView.from(session, turnViewsOf(id), feedbackViewsOf(id));
     }
 

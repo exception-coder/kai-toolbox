@@ -41,6 +41,7 @@ public class TurnBugExtractionService {
     private final BugService bugService;
     private final Set<String> runningSessions = ConcurrentHashMap.newKeySet();
     private final Set<String> pendingSessions = ConcurrentHashMap.newKeySet();
+    private final Set<String> pendingFullSessionExtractions = ConcurrentHashMap.newKeySet();
 
     public TurnBugExtractionService(ConsultTurnRepository turnRepo,
                                     ConsultTurnExtractionRepository extractionRepo,
@@ -64,7 +65,7 @@ public class TurnBugExtractionService {
         CompletableFuture<Summary> future = new CompletableFuture<>();
         Thread.ofVirtual().name("fore-consult-extract-" + sessionId).start(() -> {
             try {
-                future.complete(doExtractSession(sessionId, model, force));
+                future.complete(doExtractSession(sessionId, model, force, true));
             } catch (Throwable t) {
                 future.completeExceptionally(t);
             }
@@ -83,8 +84,20 @@ public class TurnBugExtractionService {
         }
     }
 
-    /** 回答落库后的非阻塞抽取；同一会话同一时刻只运行一个任务。 */
+    /** 归档后的非阻塞抽取，包含会话最后一轮。 */
     public void extractSessionAsync(String sessionId, String model) {
+        requestSessionExtraction(sessionId, model, true);
+    }
+
+    /** 进行中同步后的非阻塞抽取，最后一轮留到下一次提问或归档后处理。 */
+    public void extractCompletedTurnsAsync(String sessionId, String model) {
+        requestSessionExtraction(sessionId, model, false);
+    }
+
+    private void requestSessionExtraction(String sessionId, String model, boolean includeLatestTurn) {
+        if (includeLatestTurn) {
+            pendingFullSessionExtractions.add(sessionId);
+        }
         if (!runningSessions.add(sessionId)) {
             pendingSessions.add(sessionId);
             return;
@@ -93,26 +106,40 @@ public class TurnBugExtractionService {
             try {
                 do {
                     pendingSessions.remove(sessionId);
-                    Summary summary = doExtractSession(sessionId, model, false);
-                    log.info("[fore-consult] 会话 {} 自动 BUG 抽取完成: extracted={}, registered={}, skipped={}, failed={}",
-                            sessionId, summary.extracted(), summary.registered(), summary.skipped(), summary.failed());
+                    boolean includeLatest = pendingFullSessionExtractions.remove(sessionId);
+                    Summary summary = doExtractSession(sessionId, model, false, includeLatest);
+                    logSummary(summary);
                 } while (pendingSessions.remove(sessionId));
             } catch (Exception e) {
                 log.warn("[fore-consult] 会话 {} 自动 BUG 抽取失败: {}", sessionId, e.getMessage(), e);
             } finally {
                 runningSessions.remove(sessionId);
                 if (pendingSessions.remove(sessionId)) {
-                    extractSessionAsync(sessionId, model);
+                    boolean includeLatest = pendingFullSessionExtractions.remove(sessionId);
+                    requestSessionExtraction(sessionId, model, includeLatest);
                 }
             }
         });
     }
 
-    private Summary doExtractSession(String sessionId, String model, boolean force) {
-        List<ConsultTurn> turns = turnRepo.findBySession(sessionId);
-        int skipped = 0, extracted = 0, registered = 0, failed = 0;
+    private void logSummary(Summary summary) {
+        if (summary.extracted() > 0 || summary.failed() > 0) {
+            log.info("[fore-consult] 会话 {} 自动 BUG 抽取完成: extracted={}, registered={}, skipped={}, failed={}",
+                    summary.sessionId(), summary.extracted(), summary.registered(), summary.skipped(), summary.failed());
+            return;
+        }
+        log.debug("[fore-consult] 会话 {} 自动 BUG 抽取无新增内容: skipped={}",
+                summary.sessionId(), summary.skipped());
+    }
 
-        for (ConsultTurn turn : turns) {
+    private Summary doExtractSession(String sessionId, String model, boolean force, boolean includeLatestTurn) {
+        List<ConsultTurn> turns = turnRepo.findBySession(sessionId);
+        int eligibleTurnCount = includeLatestTurn ? turns.size() : Math.max(0, turns.size() - 1);
+        int skipped = turns.size() - eligibleTurnCount;
+        int extracted = 0, registered = 0, failed = 0;
+
+        for (int index = 0; index < eligibleTurnCount; index++) {
+            ConsultTurn turn = turns.get(index);
             String answer = turn.getAnswer();
             if (answer == null || answer.isBlank()) {
                 // 还没答完的轮次没什么可判的，跳过且不记台账——下次答案到位了自然会抽

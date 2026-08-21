@@ -852,15 +852,17 @@ export function ForeConsultPage() {
 
   // 进行中增量落库：每当活跃咨询的对话有新内容且空闲（非回答中）时，防抖把当前轮次同步进库，
   // 让局域网其它电脑也能从库里查看进行中的对话（不必等「结束并归档」）。
+  const syncItems = chat?.items
+  const syncRunning = chat?.running
+  const syncSessionId = chat?.sessionId
   useEffect(() => {
-    const items = chat?.items
-    if (!activeConsultId || !chat || chat.running || !items || items.length === 0) return
+    if (!activeConsultId || syncRunning || !syncItems || syncItems.length === 0 || !syncSessionId) return
     const binding = activeDevSessionBindingRef.current
-    if (!binding || binding.consultId !== activeConsultId || binding.devSessionId !== chat.sessionId) return
+    if (!binding || binding.consultId !== activeConsultId || binding.devSessionId !== syncSessionId) return
     if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current)
     const id = activeConsultId
-    const devSessionId = chat.sessionId
-    const snapshot = items
+    const devSessionId = syncSessionId
+    const snapshot = syncItems
     syncTimerRef.current = window.setTimeout(() => {
       const currentBinding = activeDevSessionBindingRef.current
       if (!currentBinding || currentBinding.consultId !== id || currentBinding.devSessionId !== devSessionId) return
@@ -876,7 +878,7 @@ export function ForeConsultPage() {
     return () => {
       if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current)
     }
-  }, [activeBindingVersion, activeConsultId, chat, qc])
+  }, [activeBindingVersion, activeConsultId, qc, syncItems, syncRunning, syncSessionId])
   useEffect(() => {
     if (chat && pendingRef.current) deliver()
   }, [chat, deliver])
