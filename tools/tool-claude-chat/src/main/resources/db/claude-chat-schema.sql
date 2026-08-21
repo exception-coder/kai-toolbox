@@ -110,6 +110,24 @@ CREATE TABLE IF NOT EXISTS claude_chat_review_requirement (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_review_requirement_space
     ON claude_chat_review_requirement(review_space_id, created_at);
 
+-- 功能：计划评审需求编译；变更：保存用户原始诉求、AI 分析与归并动作；目的：让多轮对话作为来源证据关联到当前有效需求。
+CREATE TABLE IF NOT EXISTS claude_chat_review_requirement_source (
+    id                  TEXT PRIMARY KEY,
+    review_space_id     TEXT NOT NULL,
+    requirement_id      TEXT,
+    source_message_id   TEXT NOT NULL,
+    source_text         TEXT NOT NULL,
+    analysis_text       TEXT NOT NULL,
+    operation           TEXT NOT NULL,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    UNIQUE (review_space_id, source_message_id)
+);
+
+-- 功能：计划评审需求编译；变更：按需求和来源时间建立查询索引；目的：稳定展示一个需求的形成依据。
+CREATE INDEX IF NOT EXISTS idx_claude_chat_review_requirement_source_requirement
+    ON claude_chat_review_requirement_source(review_space_id, requirement_id, created_at);
+
 -- 功能：计划评审用户消息判定；变更：按稳定轮次保存前置意图、最终意图及需求提取结果；目的：摆脱回复尾部标记并支持刷新后恢复。
 CREATE TABLE IF NOT EXISTS claude_chat_review_turn_intent (
     review_space_id       TEXT NOT NULL,

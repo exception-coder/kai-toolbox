@@ -14,6 +14,13 @@ const item = {
   revision: 1,
   createdAt: 1,
   updatedAt: 1,
+  sources: [{
+    sourceMessageId: 'assistant-content-v1:test',
+    sourceText: '审批需要支持驳回',
+    analysisText: 'AI 已整理审批驳回的业务规则。',
+    operation: 'CREATE' as const,
+    createdAt: 1,
+  }],
 }
 
 describe('评审需求清单', () => {
@@ -41,5 +48,16 @@ describe('评审需求清单', () => {
     expect(onDelete).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '确认删除需求：支持审批驳回' }))
     expect(onDelete).toHaveBeenCalledWith(item)
+  })
+
+  it('正式清单默认只展示归纳结果并可展开来源证据', () => {
+    render(<ReviewRequirementList open onOpenChange={vi.fn()} items={[item]} loading={false}
+      syncing={false} error={null} busyIds={new Set()} onReload={vi.fn()}
+      onSave={vi.fn()} onDelete={vi.fn()} />)
+
+    expect(screen.queryByText('审批需要支持驳回')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /需求来源 1 条/ }))
+    expect(screen.getByText('审批需要支持驳回')).toBeInTheDocument()
+    expect(screen.getByText('查看关联 AI 分析')).toBeInTheDocument()
   })
 })

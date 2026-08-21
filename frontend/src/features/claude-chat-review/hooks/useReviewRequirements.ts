@@ -40,7 +40,7 @@ export function useReviewRequirements(token: string, detectedDrafts: ReviewRequi
 
   useEffect(() => {
     if (loading || !token) return
-    const existing = new Set(items.map(item => item.sourceMessageId))
+    const existing = new Set(items.flatMap(item => item.sources?.map(source => source.sourceMessageId) ?? []))
     const missing = detectedDrafts.filter(draft =>
       !existing.has(draft.sourceMessageId) && !attemptedSources.current.has(draft.sourceMessageId))
     if (missing.length === 0) return
@@ -81,6 +81,7 @@ export function useReviewRequirements(token: string, detectedDrafts: ReviewRequi
     try {
       await deletePublicReviewRequirement(token, item.id)
       attemptedSources.current.add(item.sourceMessageId)
+      item.sources?.forEach(source => attemptedSources.current.add(source.sourceMessageId))
       setItems(previous => previous.filter(value => value.id !== item.id))
       return true
     } catch (cause) {

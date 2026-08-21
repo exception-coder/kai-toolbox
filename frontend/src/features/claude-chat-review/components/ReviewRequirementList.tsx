@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, Check, ClipboardList, Loader2, Pencil, RefreshCw, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, ClipboardList, Loader2, MessageSquareText, Pencil, RefreshCw, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { Markdown, type PublicReviewRequirement } from '@/features/claude-chat/public-api'
@@ -21,6 +21,7 @@ export function ReviewRequirementList({ open, onOpenChange, items, loading, sync
   busyIds, onReload, onSave, onDelete }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [expandedSourceIds, setExpandedSourceIds] = useState<Set<string>>(new Set())
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
 
@@ -28,6 +29,7 @@ export function ReviewRequirementList({ open, onOpenChange, items, loading, sync
     if (!open) {
       setEditingId(null)
       setDeleteConfirmId(null)
+      setExpandedSourceIds(new Set())
     }
   }, [open])
 
@@ -52,7 +54,7 @@ export function ReviewRequirementList({ open, onOpenChange, items, loading, sync
             <SheetTitle>当前评审需求清单</SheetTitle>
           </div>
           <SheetDescription className="mt-1">
-            AI 自动整理需求初稿；以你保存的内容为准，最终只推送这份清单。
+            这里只保留 AI 归并后的当前有效需求；用户原话可在需求来源中追溯。
           </SheetDescription>
         </div>
 
@@ -74,13 +76,15 @@ export function ReviewRequirementList({ open, onOpenChange, items, loading, sync
           ) : items.length === 0 ? (
             <div className="py-16 text-center">
               <p className="font-medium">还没有识别到业务需求</p>
-              <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">继续在评审对话中提出需求，AI 回复完成后会自动加入这里。</p>
+              <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">继续提出需求，AI 会结合上下文新建、合并或修订当前清单。</p>
             </div>
           ) : (
             <ol className="divide-y divide-[var(--color-border)]">
               {items.map((item, index) => {
                 const busy = busyIds.has(item.id)
                 const editing = editingId === item.id
+                const sources = item.sources ?? []
+                const sourcesExpanded = expandedSourceIds.has(item.id)
                 return (
                   <li key={item.id} className="py-4 first:pt-1">
                     <div className="mb-2 flex items-start gap-3">
@@ -122,7 +126,46 @@ export function ReviewRequirementList({ open, onOpenChange, items, loading, sync
                             </Button>
                           </div>
                         </>
-                      ) : <Markdown text={item.content} className="text-sm leading-6" />}
+                      ) : (
+                        <>
+                          <Markdown text={item.content} className="text-sm leading-6" />
+                          {sources.length > 0 && (
+                            <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+                              <button type="button"
+                                className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+                                aria-expanded={sourcesExpanded}
+                                onClick={() => setExpandedSourceIds(previous => {
+                                  const next = new Set(previous)
+                                  if (next.has(item.id)) next.delete(item.id)
+                                  else next.add(item.id)
+                                  return next
+                                })}>
+                                <MessageSquareText className="size-3.5" />
+                                需求来源 {sources.length} 条
+                                <ChevronDown className={`size-3.5 transition-transform ${sourcesExpanded ? 'rotate-180' : ''}`} />
+                              </button>
+                              {sourcesExpanded && (
+                                <ol className="mt-3 space-y-3 border-l border-[var(--color-border)] pl-3">
+                                  {sources.map((source, sourceIndex) => (
+                                    <li key={source.sourceMessageId} className="text-sm leading-6">
+                                      <p className="text-xs text-[var(--color-muted-foreground)]">业务人员 · 来源 {sourceIndex + 1}</p>
+                                      <p className="mt-1 whitespace-pre-wrap">{source.sourceText || '该来源仅保留了历史标识。'}</p>
+                                      {source.analysisText && (
+                                        <details className="mt-1.5 text-[var(--color-muted-foreground)]">
+                                          <summary className="cursor-pointer text-xs font-medium">查看关联 AI 分析</summary>
+                                          <div className="mt-2 border-l border-[var(--color-border)] pl-3">
+                                            <Markdown text={source.analysisText} className="text-xs leading-5" />
+                                          </div>
+                                        </details>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ol>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                   </li>
                 )
@@ -132,8 +175,8 @@ export function ReviewRequirementList({ open, onOpenChange, items, loading, sync
         </div>
 
         <div className="flex items-center justify-between border-t px-5 py-3 text-xs text-[var(--color-muted-foreground)]">
-          <span>{items.length} 条当前需求</span>
-          {syncing && <span className="inline-flex items-center gap-1"><Loader2 className="size-3 animate-spin" />正在加入新需求</span>}
+          <span>{items.length} 项当前有效需求</span>
+          {syncing && <span className="inline-flex items-center gap-1"><Loader2 className="size-3 animate-spin" />正在归并新诉求</span>}
         </div>
       </SheetContent>
     </Sheet>

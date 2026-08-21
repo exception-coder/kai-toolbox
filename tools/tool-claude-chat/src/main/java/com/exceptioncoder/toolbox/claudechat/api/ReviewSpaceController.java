@@ -153,7 +153,8 @@ public class ReviewSpaceController {
         List<ReviewRequirementService.DraftCommand> commands = request.items() == null ? null
                 : request.items().stream()
                 .map(item -> new ReviewRequirementService.DraftCommand(
-                        item.sourceMessageId(), item.title(), item.content()))
+                        item.sourceMessageId(), item.title(), item.content(),
+                        item.sourceText(), item.analysisText()))
                 .toList();
         return requirementService.synchronize(token, commands).stream()
                 .map(ReviewRequirementView::from).toList();
@@ -255,16 +256,27 @@ public class ReviewSpaceController {
 
     public record SubmitFeedbackRequest(String content, String sourceMessageId,
                                         List<String> coveredSourceMessageIds) {}
-    public record RequirementDraftRequest(String sourceMessageId, String title, String content) {}
+    public record RequirementDraftRequest(String sourceMessageId, String title, String content,
+                                          String sourceText, String analysisText) {}
     public record SyncRequirementsRequest(List<RequirementDraftRequest> items) {}
     public record UpdateRequirementRequest(String title, String content, long expectedRevision) {}
     public record ReviewRequirementView(String id, String sourceMessageId, String title, String content,
-                                        long revision, long createdAt, long updatedAt) {
+                                        long revision, long createdAt, long updatedAt,
+                                        List<ReviewRequirementSourceView> sources) {
         static ReviewRequirementView from(
                 com.exceptioncoder.toolbox.claudechat.domain.ReviewRequirement requirement) {
             return new ReviewRequirementView(requirement.id(), requirement.sourceMessageId(),
                     requirement.title(), requirement.content(), requirement.revision(),
-                    requirement.createdAt(), requirement.updatedAt());
+                    requirement.createdAt(), requirement.updatedAt(), requirement.sources().stream()
+                    .map(ReviewRequirementSourceView::from).toList());
+        }
+    }
+    public record ReviewRequirementSourceView(String sourceMessageId, String sourceText,
+                                              String analysisText, String operation, long createdAt) {
+        static ReviewRequirementSourceView from(
+                com.exceptioncoder.toolbox.claudechat.domain.ReviewRequirement.Source source) {
+            return new ReviewRequirementSourceView(source.sourceMessageId(), source.sourceText(),
+                    source.analysisText(), source.operation(), source.createdAt());
         }
     }
     public record HandleFeedbackRequest(String status) {}

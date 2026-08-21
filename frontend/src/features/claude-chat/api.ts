@@ -500,12 +500,21 @@ export interface PublicReviewRequirement {
   revision: number
   createdAt: number
   updatedAt: number
+  sources: Array<{
+    sourceMessageId: string
+    sourceText: string
+    analysisText: string
+    operation: 'CREATE' | 'MERGE' | 'UPDATE' | 'REMOVE' | 'IGNORE'
+    createdAt: number
+  }>
 }
 
 export interface ReviewRequirementDraft {
   sourceMessageId: string
   title: string
   content: string
+  sourceText: string
+  analysisText: string
 }
 
 export interface PublicReviewEnvironmentCheck {

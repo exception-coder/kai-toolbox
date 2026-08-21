@@ -150,6 +150,8 @@ export function ReviewPage() {
     sourceMessageId: item.sourceMessageId,
     title: item.title,
     content: item.content,
+    sourceText: item.sourceText,
+    analysisText: item.analysisText,
   })), [detectedRequirements])
   const requirementList = useReviewRequirements(token, requirementDrafts)
   const userIntentById = useMemo(() => new Map(liveTurns.map(turn => [turn.userItem.id, turn.intent])), [liveTurns])
@@ -311,12 +313,12 @@ export function ReviewPage() {
             if (item.text.startsWith(INTERNAL_SUMMARY_PREFIX)) return null
             const intent = userIntentById.get(item.id)
             const inferred = item.reviewIntent?.classificationStatus === 'INFERRED'
-            if (intent === 'REQUIREMENT') return { label: inferred ? '需求反馈 · AI推断' : '需求反馈', tone: 'primary', title: '此消息提出了业务需求，将纳入汇总' }
+            if (intent === 'REQUIREMENT') return { label: inferred ? '需求反馈 · AI推断' : '需求反馈', tone: 'primary', title: '此消息会作为来源，由 AI 归并到当前有效需求' }
             if (intent === 'CONSULTATION') return { label: inferred ? '沟通咨询 · AI推断' : '沟通咨询', tone: 'muted', title: '此消息属于普通沟通，不纳入需求汇总' }
             if (intent === 'PENDING') return item.reviewIntent?.classificationStatus === 'MISSING'
               ? { label: '正在整理', tone: 'muted', title: '本条暂未完成自动归类，不会作为待确认事项打扰评审人员' }
               : { label: '判断中', tone: 'muted', title: 'AI 回复完成后判定是否属于需求' }
-            return { label: '待确认需求', tone: 'warning', title: '这条消息的业务诉求仍有歧义，已先加入需求清单，请核对后修改或删除' }
+            return { label: '待确认需求', tone: 'warning', title: '这条消息的业务诉求仍有歧义，将作为候选交给 AI 归并，请核对最终清单' }
           }}
           onLoadEarlier={() => chat.loadHistory(false)}
           loadingEarlier={chat.historyLoading}
@@ -333,7 +335,7 @@ export function ReviewPage() {
                   : waitingForReviewAnswers
                   ? `${chat.running ? 'AI 正在回答' : '等待继续处理'}${chat.queued.length > 0 ? ` · ${chat.queued.length} 条待处理` : ''}`
                   : finalSummaryCurrent ? '最终结论已提交'
-                  : `${listNeedsSubmission && hasPreviousSummary ? '清单待更新' : `需求 ${requirementList.items.length} 条`} · 沟通 ${consultationCount} 条`}
+                  : `${listNeedsSubmission && hasPreviousSummary ? '清单待更新' : `需求 ${requirementList.items.length} 项`} · 沟通 ${consultationCount} 条`}
               </span>
               <span className="hidden min-w-0 flex-1 sm:inline">
                 {finalizingSummary
@@ -341,8 +343,8 @@ export function ReviewPage() {
                   : waitingForReviewAnswers
                   ? `${chat.running ? 'AI 正在回答并判断消息性质' : 'AI 等待继续处理'}${chat.queued.length > 0 ? `，另有 ${chat.queued.length} 条消息已排队` : ''}；回答完成后只汇总其中的业务需求。`
                   : listNeedsSubmission && hasPreviousSummary
-                  ? `当前清单有${unsubmittedCount > 0 ? ` ${unsubmittedCount} 条新增或修改需求` : '删除变更'}待交接；提交时会发送完整清单快照。`
-                  : `当前清单 ${requirementList.items.length} 条业务需求、${consultationCount} 条沟通咨询${unclassifiedCount > 0 ? `、${unclassifiedCount} 条未分类` : ''}${pendingIntentCount > 0 ? `、${pendingIntentCount} 条判断中` : ''}；仅清单内容会提交到“${review.sourceTitle}”。`}
+                  ? `当前清单有${unsubmittedCount > 0 ? ` ${unsubmittedCount} 项新增或修改需求` : '删除变更'}待交接；提交时会发送完整清单快照。`
+                  : `当前清单 ${requirementList.items.length} 项有效需求、${consultationCount} 条沟通咨询${unclassifiedCount > 0 ? `、${unclassifiedCount} 条待确认来源` : ''}${pendingIntentCount > 0 ? `、${pendingIntentCount} 条判断中` : ''}；仅清单内容会提交到“${review.sourceTitle}”。`}
               </span>
               <div className="grid min-w-0 w-full shrink-0 grid-cols-2 items-center gap-2 sm:flex sm:w-auto">
                 <Button size="sm" variant="ghost" onClick={() => setRequirementListOpen(true)} className="w-full min-w-0 flex-1 gap-1.5 overflow-hidden px-2 sm:w-auto sm:flex-none sm:px-3">

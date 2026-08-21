@@ -15,6 +15,8 @@ export interface ReviewRequirement {
   title: string
   content: string
   text: string
+  sourceText: string
+  analysisText: string
   ts: number
 }
 
@@ -111,7 +113,15 @@ export function requirementsFromTurns(turns: ReviewTurn[], reviewCreatedAt: numb
     const ts = turn.userItem.ts ?? turn.assistantItems[0]?.ts ?? reviewCreatedAt
     const existing = requirements.get(sourceMessageId)
     if (!existing || ts < existing.ts) {
-      requirements.set(sourceMessageId, { sourceMessageId, title, content, text: material, ts })
+      requirements.set(sourceMessageId, {
+        sourceMessageId,
+        title,
+        content,
+        text: material,
+        sourceText: userText || '业务人员提交了附件',
+        analysisText: content,
+        ts,
+      })
     }
   }
   return [...requirements.values()].sort((left, right) => left.ts - right.ts)
