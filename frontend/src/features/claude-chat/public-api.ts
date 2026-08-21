@@ -33,6 +33,7 @@ export {
   fetchProjectModules,
   fetchWorkspaceGitFileDiff,
   fetchWorkspaceGitStatus,
+  getSessionRuntimeState,
   getSelfRepo,
   listSessions,
   listWorkspaces,
@@ -49,6 +50,7 @@ export type {
   ModuleSyncPreview,
   ProjectModule,
   ProjectModules,
+  SessionRuntimeState,
   SkillSyncResult,
   WorkspaceDir,
 } from './types'

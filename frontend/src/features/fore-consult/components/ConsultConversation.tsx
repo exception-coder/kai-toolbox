@@ -10,6 +10,7 @@ import {
 } from '@/features/claude-chat/public-api'
 import { classifyConsultQuestion, dispatchConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
 import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type ConsultTurnAudit } from '../consultAudit'
+import { useConsultConversationRuntimeState } from '../consultConversationState'
 import { stripConsultRecognition } from '../consultRecognition'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
@@ -31,6 +32,7 @@ function stripBug(text: string): string {
   return text.replace(BUG_RE, '').trim()
 }
 import { ImageLightbox } from './ImageLightbox'
+import { ConsultConversationRuntimeStatus } from './ConsultConversationRuntimeStatus'
 
 type Att = { name: string; path: string; mime?: string | null; url?: string }
 type Rating = 'GOOD' | 'BAD'
@@ -155,16 +157,44 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
   const busy = running || dispatching
   const pending = chat?.pending
   const sessionReady = chat.state === 'ready'
-  const inputLocked = !sessionReady || busy
-  const sessionSendableRef = useRef(false)
-  sessionSendableRef.current = sessionReady && !busy
-  // 立即反馈：只要最后一条是用户消息（已发出、还没等到回复），就显示"思考/接入中"，
-  // 不必等 chat.running 变 true（引擎连接/开会话有延迟，否则会白等一段时间没反馈）。
   const lastItem = items[items.length - 1]
+  const runtime = useConsultConversationRuntimeState({
+    sessionId: chat.sessionId,
+    items,
+    localRunning: running,
+    dispatching,
+  })
+  const conversationState = runtime.state
+  const inputLocked = !sessionReady
+    || conversationState.phase === 'dispatching'
+    || conversationState.phase === 'running'
+    || conversationState.phase === 'checking'
+    || conversationState.phase === 'runtimeUnavailable'
+  const sessionSendableRef = useRef(false)
+  const runtimeTerminalRef = useRef(false)
+  sessionSendableRef.current = sessionReady && !inputLocked
+  runtimeTerminalRef.current = runtime.runtimeState?.effectiveStatus === 'IDLE'
+    || runtime.runtimeState?.effectiveStatus === 'INTERRUPTED'
   const firstItemId = items[0]?.id ?? ''
   const lastItemId = lastItem?.id ?? ''
-  const waiting = busy || lastItem?.kind === 'user'
   const turnAudits = useMemo(() => buildConsultTurnAudits(items, running), [items, running])
+
+  const restoreLastQuestion = () => {
+    let lastUser: Extract<ChatItem, { kind: 'user' }> | undefined
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      if (items[index].kind === 'user') {
+        lastUser = items[index] as Extract<ChatItem, { kind: 'user' }>
+        break
+      }
+    }
+    if (!lastUser || lastUser.kind !== 'user') return
+    setText(lastUser.displayText ?? lastUser.text)
+    window.setTimeout(() => textRef.current?.focus(), 0)
+  }
+
+  const reconnectSession = () => {
+    if (chat.sessionId) chat.switchTo(chat.sessionId, false)
+  }
 
   useEffect(() => {
     setHistoryPagingEnabled(chat.historyLoading)
@@ -310,7 +340,8 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
     developerInstructions?: string,
     preparedDispatch = false,
   ): boolean => {
-    if (!sessionSendableRef.current && !(preparedDispatch && sessionReady && !running)) return false
+    if (!sessionSendableRef.current
+      && !(preparedDispatch && sessionReady && (!running || runtimeTerminalRef.current))) return false
     isNearBottomRef.current = true
     chat.send(message, attachments, undefined, developerInstructions)
     setText('')
@@ -483,14 +514,14 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
               )
             })
           })()}
-          {waiting && (
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span className="fc-thinking-dot">●</span>
-              <span className="fc-thinking-dot" style={{ animationDelay: '0.2s' }}>●</span>
-              <span className="fc-thinking-dot" style={{ animationDelay: '0.4s' }}>●</span>
-              <span className="ml-1">{dispatching ? '正在准备调度…' : running ? 'AI 思考中…' : '正在接入 Forge…'}</span>
-            </div>
-          )}
+          <ConsultConversationRuntimeStatus
+            phase={conversationState.phase}
+            sessionReady={sessionReady}
+            runtimeFetching={runtime.runtimeFetching}
+            onRestoreQuestion={restoreLastQuestion}
+            onReconnect={reconnectSession}
+            onRefetchRuntime={() => void runtime.refetchRuntime()}
+          />
         </div>
 
         {/* 组合器 */}
@@ -527,7 +558,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
                 void send()
               }}
               placeholder={sessionReady
-                ? busy ? '当前问题仍在处理中，完成后可继续追问' : '继续追问…（Shift+Enter 发送 / Enter 换行，可粘贴或上传附件）'
+                ? inputLocked ? '当前问题仍在处理中，完成后可继续追问' : '继续追问…（Shift+Enter 发送 / Enter 换行，可粘贴或上传附件）'
                 : '正在恢复会话状态…'}
               className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:cursor-wait disabled:opacity-60"
             />
@@ -543,7 +574,9 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
                 <Paperclip className="size-3.5" /> 附件
               </button>
               <div className="flex items-center gap-2">
-                {busy && sessionReady && (
+                {sessionReady
+                  && (conversationState.phase === 'dispatching' || conversationState.phase === 'running')
+                  && (
                   <button
                     type="button"
                     onClick={interruptGeneration}
@@ -560,7 +593,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
                   className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Send className="size-4" />
-                  {!sessionReady ? '恢复中' : busy ? '处理中' : '发送'}
+                  {!sessionReady ? '恢复中' : inputLocked ? '处理中' : '发送'}
                 </button>
               </div>
             </div>
