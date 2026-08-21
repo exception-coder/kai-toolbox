@@ -185,6 +185,7 @@ wss.on('connection', (ws) => {
             ? msg.additionalDirectories.filter((value): value is string => typeof value === 'string')
             : [],
           msg.turnId as string | undefined,
+          msg.images as import('./sessionManager.js').OneShotImage[] | undefined,
         )
         break
       case 'decision':

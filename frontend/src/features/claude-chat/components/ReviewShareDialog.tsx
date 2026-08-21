@@ -1,13 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Check, Copy, Loader2, Share2, ShieldCheck, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { createReviewShare, type ReviewShareMode } from '../api'
+import { buildReviewContextSnapshot, initialReviewSpecification } from '../lib/reviewShareContext'
 import type { ChatItem, Engine } from '../types'
 
 interface Props {
   open: boolean
   sessionId: string
   sessionTitle?: string | null
+  systemName: string
+  moduleName: string
   engine: Engine
   sdkSessionId?: string | null
   codexHome?: string | null
@@ -16,18 +19,20 @@ interface Props {
   onClose: () => void
 }
 
-export function ReviewShareDialog({ open, sessionId, sessionTitle, engine, sdkSessionId, codexHome, officialProvider = true, items, onClose }: Props) {
+export function ReviewShareDialog({ open, sessionId, sessionTitle, systemName: defaultSystemName,
+  moduleName: defaultModuleName, engine, sdkSessionId, codexHome, officialProvider = true, items, onClose }: Props) {
   const [mode, setMode] = useState<ReviewShareMode>('SAFE_SNAPSHOT')
   const [days, setDays] = useState(7)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [systemName, setSystemName] = useState(defaultSystemName)
+  const [moduleName, setModuleName] = useState(defaultModuleName)
+  const [initialSpecification, setInitialSpecification] = useState(() =>
+    initialReviewSpecification(items, sessionTitle || '请补充当前需求目标、范围和验收口径'))
   const fullForkAvailable = engine === 'codex' && officialProvider && Boolean(sdkSessionId)
-  const snapshot = useMemo(() => {
-    const relevant = items.filter(item => item.kind === 'user' || item.kind === 'assistant').slice(-24)
-    return relevant.map(item => `${item.kind === 'user' ? '用户' : 'AI'}：${item.text ?? ''}`).join('\n\n').slice(-24_000)
-  }, [items])
+  const baselineReady = Boolean(systemName.trim() && moduleName.trim() && initialSpecification.trim())
   if (!open) return null
 
   const create = async () => {
@@ -37,8 +42,8 @@ export function ReviewShareDialog({ open, sessionId, sessionTitle, engine, sdkSe
       const lastTurnId = anchorItem?.kind === 'assistant' ? anchorItem.forkAnchor : undefined
       const result = await createReviewShare(sessionId, {
         mode,
-        title: `${sessionTitle || '开发需求'} · 计划评审`,
-        contextSnapshot: snapshot,
+        title: `${systemName.trim()} · ${moduleName.trim()} · 计划评审`,
+        contextSnapshot: buildReviewContextSnapshot({ systemName, moduleName, initialSpecification, items }),
         expiresInDays: days,
         lastTurnId,
         codexHome: codexHome?.trim() || undefined,
@@ -58,7 +63,7 @@ export function ReviewShareDialog({ open, sessionId, sessionTitle, engine, sdkSe
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4" onMouseDown={e => e.target === e.currentTarget && onClose()}>
-      <div className="w-full max-w-xl rounded-2xl border bg-[var(--color-card)] p-5 shadow-2xl">
+      <div className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-2xl border bg-[var(--color-card)] p-5 shadow-2xl">
         <div className="flex items-start gap-3">
           <div className="rounded-xl bg-violet-500/10 p-2 text-violet-600"><Share2 className="size-5" /></div>
           <div className="min-w-0 flex-1">
@@ -68,7 +73,32 @@ export function ReviewShareDialog({ open, sessionId, sessionTitle, engine, sdkSe
           <button onClick={onClose} className="rounded p-1 hover:bg-[var(--color-muted)]"><X className="size-4" /></button>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <section className="mt-5 border-y py-4">
+          <div className="mb-3">
+            <h3 className="text-sm font-medium">评审对象与业务基线</h3>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">这些内容会随链接固化，AI 将据此核对后续业务意见；创建前可直接修正。</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1.5 text-xs font-medium">
+              系统
+              <input value={systemName} onChange={event => setSystemName(event.target.value)} maxLength={80} placeholder="例如：ERP"
+                className="h-9 rounded-md border bg-[var(--color-background)] px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" />
+            </label>
+            <label className="grid gap-1.5 text-xs font-medium">
+              模块
+              <input value={moduleName} onChange={event => setModuleName(event.target.value)} maxLength={120} placeholder="例如：计划评审"
+                className="h-9 rounded-md border bg-[var(--color-background)] px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" />
+            </label>
+          </div>
+          <label className="mt-3 grid gap-1.5 text-xs font-medium">
+            当前需求初始规格
+            <textarea value={initialSpecification} onChange={event => setInitialSpecification(event.target.value)} maxLength={6000} rows={5}
+              placeholder="说明当前需求目标、适用范围、关键规则、例外和验收口径"
+              className="min-h-28 resize-y rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm font-normal leading-5 outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" />
+          </label>
+        </section>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <ModeCard active={mode === 'SAFE_SNAPSHOT'} title="安全快照" badge="推荐"
             text="提取最近的需求与方案上下文，新建独立评审线程；不携带开发工具和完整历史。"
             onClick={() => setMode('SAFE_SNAPSHOT')} />
@@ -96,7 +126,7 @@ export function ReviewShareDialog({ open, sessionId, sessionTitle, engine, sdkSe
         )}
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>关闭</Button>
-          {!shareUrl && <Button onClick={() => void create()} disabled={busy || (mode === 'FULL_FORK' && !fullForkAvailable)}>{busy && <Loader2 className="size-4 animate-spin" />}创建评审链接</Button>}
+          {!shareUrl && <Button onClick={() => void create()} disabled={busy || !baselineReady || (mode === 'FULL_FORK' && !fullForkAvailable)}>{busy && <Loader2 className="size-4 animate-spin" />}创建评审链接</Button>}
         </div>
       </div>
     </div>

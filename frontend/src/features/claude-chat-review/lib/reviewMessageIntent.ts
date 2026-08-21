@@ -78,9 +78,10 @@ export function projectReviewTurns(
   return turns
 }
 
-/** 实时 ID 与刷新后的历史 ID 不稳定，使用需求原文和 AI 分析的内容指纹做幂等覆盖。 */
-export function reviewRequirementSourceId(text: string): string {
-  const normalized = text.trim()
+/** 优先使用持久化消息来源生成稳定指纹；旧历史缺少来源时才回退到内容指纹。 */
+export function reviewRequirementSourceId(text: string, stableMessageId?: string): string {
+  const normalizedStableId = stableMessageId?.trim()
+  const normalized = normalizedStableId ? `message:${normalizedStableId}` : text.trim()
   let first = 0x811c9dc5
   let second = 0x9e3779b9
   for (let index = 0; index < normalized.length; index += 1) {
@@ -106,7 +107,7 @@ export function requirementsFromTurns(turns: ReviewTurn[], reviewCreatedAt: numb
       ? `${PENDING_REQUIREMENT_NOTICE}\n\n${analyzedContent}`
       : analyzedContent
     const material = `业务人员提出：\n${userText || '（业务人员提交了附件）'}\n\nAI 业务分析：\n${content}`.trim()
-    const sourceMessageId = reviewRequirementSourceId(material)
+    const sourceMessageId = reviewRequirementSourceId(material, turn.userItem.reviewIntent?.sourceMessageId)
     const ts = turn.userItem.ts ?? turn.assistantItems[0]?.ts ?? reviewCreatedAt
     const existing = requirements.get(sourceMessageId)
     if (!existing || ts < existing.ts) {

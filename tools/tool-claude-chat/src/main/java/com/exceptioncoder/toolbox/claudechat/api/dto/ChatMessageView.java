@@ -30,7 +30,8 @@ public record ChatMessageView(
 ) {
     public record ReviewIntentView(String intent, String classificationStatus, double confidence,
                                    String reason, java.util.List<String> signals,
-                                   String extractedTitle, String extractedContent) {}
+                                   String extractedTitle, String extractedContent,
+                                   String sourceMessageId) {}
 
     public static ChatMessageView user(String id, String text, Long ts) {
         return user(id, text, ts, null);

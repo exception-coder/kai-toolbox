@@ -41,6 +41,7 @@ class ReviewSpaceServiceTest {
                 mock(ReviewFeedbackRepository.class), mock(ReviewSummaryCoverageRepository.class), cipher());
         ClaudeChatSession source = ClaudeChatSession.builder()
                 .id("source").cwd(tempDir.toString()).title("需求")
+                .groupName("ERP").subgroupName("计划评审")
                 .engine("claude").selectedModel("source-model").codexReasoningEffort("ultra")
                 .codexSpeed("fast").apiBaseUrl("https://gateway.example").authToken("secret")
                 .status(SessionStatus.IDLE).build();
@@ -69,6 +70,10 @@ class ReviewSpaceServiceTest {
         ArgumentCaptor<ReviewSpace> stored = ArgumentCaptor.forClass(ReviewSpace.class);
         verify(reviews).insert(stored.capture());
         assertThat(stored.getValue().tokenCiphertext()).startsWith("v1.");
+        assertThat(stored.getValue().contextSnapshot())
+                .contains("## 评审对象\n系统：ERP\n模块：计划评审")
+                .contains("## 当前需求初始规格\n需求")
+                .contains("## 近期需求与方案上下文\n需求快照");
     }
 
     @Test

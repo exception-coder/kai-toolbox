@@ -508,6 +508,17 @@ export interface ReviewRequirementDraft {
   content: string
 }
 
+export interface PublicReviewEnvironmentCheck {
+  status: 'READY' | 'DEGRADED'
+  checkedAt: number
+  checks: Array<{
+    key: string
+    label: string
+    status: 'PASS' | 'WARN' | 'FAIL'
+    message: string
+  }>
+}
+
 export function createReviewShare(sessionId: string, input: {
   mode: ReviewShareMode
   title?: string
@@ -538,7 +549,7 @@ export function deleteReviewShare(reviewId: string) {
 export function getPublicReview(token: string) {
   return fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}`).then(async response => {
     if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效、过期或被撤销' : '读取评审会话失败')
-    return response.json() as Promise<{ reviewSessionId: string; title: string; sourceTitle: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number; createdAt: number; coveredSourceMessageIds?: string[]; hasSubmittedSummary?: boolean; latestSubmittedSummarySourceId?: string | null; runtimeConfig: { engine: 'codex'; modelPolicy: 'DEFAULT'; defaultModel: string | null; defaultReasoningEffort: string | null; speed: 'default'; executionPolicy: 'review-only'; codexAuthAlias: string } }>
+    return response.json() as Promise<{ reviewSessionId: string; title: string; sourceTitle: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number; createdAt: number; coveredSourceMessageIds?: string[]; hasSubmittedSummary?: boolean; latestSubmittedSummarySourceId?: string | null }>
   })
 }
 
@@ -564,6 +575,14 @@ export async function submitPublicReviewFeedback(token: string, content: string,
   })
   if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效' : '提交评审结论失败')
   return response.json() as Promise<{ id: string; status: string; createdAt: number }>
+}
+
+export async function checkPublicReviewEnvironment(token: string): Promise<PublicReviewEnvironmentCheck> {
+  const response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/environment-check`)
+  if (!response.ok) {
+    throw new Error(response.status === 404 ? '评审链接已失效' : '环境检测暂时不可用')
+  }
+  return response.json()
 }
 
 export function listPublicReviewRequirements(token: string) {
@@ -925,8 +944,8 @@ const IMAGE_EXTS = /\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i
 
 /**
  * 从用户消息文本中提取附件信息。
- * 后端 ClaudeChatService.appendAttachmentHints() 会在消息末尾追加：
- *   \n\n[附件] 用户上传了以下文件，需要时请用 Read 工具查看：
+ * 后端 ClaudeChatService.appendAttachmentHints() 会在消息末尾追加受控附件头：
+ *   \n\n[附件] 用户上传了以下文件……
  *   \n- {name} → {path}
  *
  * 返回：去掉附件段的纯文本 + 附件列表（图片带后端 serve URL，文件只带 name/mime）。
@@ -935,12 +954,14 @@ function parseAttachmentsFromText(raw: string): {
   displayText: string
   attachments: Array<{ name: string; mime?: string; url?: string }>
 } {
-  const MARKER = '\n\n[附件] 用户上传了以下文件，需要时请用 Read 工具查看：'
-  const idx = raw.indexOf(MARKER)
+  const MARKER_PREFIX = '\n\n[附件] 用户上传了以下文件'
+  const idx = raw.indexOf(MARKER_PREFIX)
   if (idx === -1) return { displayText: raw, attachments: [] }
 
   const displayText = raw.slice(0, idx).trim()
-  const attSection = raw.slice(idx + MARKER.length)
+  const headerEnd = raw.indexOf('\n', idx + MARKER_PREFIX.length)
+  if (headerEnd === -1) return { displayText, attachments: [] }
+  const attSection = raw.slice(headerEnd + 1)
   const attachments: Array<{ name: string; mime?: string; url?: string }> = []
 
   for (const line of attSection.split('\n')) {

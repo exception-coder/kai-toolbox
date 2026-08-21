@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import type { ChatItem } from '../types'
 import {
   isCurrentSessionHistoryRequest,
   isSessionHistoryPageExhausted,
+  mergeResetHistoryItems,
   sessionHistoryLoadErrorMessage,
 } from './sessionHistoryRequest'
 
@@ -28,6 +30,32 @@ describe('isCurrentSessionHistoryRequest', () => {
       4,
       'session-b',
     )).toBe(false)
+  })
+})
+
+describe('mergeResetHistoryItems', () => {
+  it('用带分类的新历史替换内存中的旧历史副本', () => {
+    const previous: ChatItem[] = [{ kind: 'user', id: 'h1', text: '隐藏工具调用', ts: 10 }]
+    const history: ChatItem[] = [{
+      kind: 'user', id: 'h1', text: '隐藏工具调用', ts: 10,
+      reviewIntent: {
+        sourceMessageId: 'message-1', intent: 'REQUIREMENT', classificationStatus: 'CONFIRMED',
+        confidence: 0.98, reason: '明确变更', signals: ['隐藏'],
+      },
+    }]
+
+    const merged = mergeResetHistoryItems(history, previous)
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].kind === 'user' && merged[0].reviewIntent?.intent).toBe('REQUIREMENT')
+  })
+
+  it('保留历史请求期间新发送的乐观消息', () => {
+    const history: ChatItem[] = [{ kind: 'result', id: 'h8', stopReason: 'end_turn', ts: 20 }]
+    const optimistic: ChatItem[] = [{ kind: 'user', id: 'i9', text: '新消息', ts: 21 }]
+
+    expect(mergeResetHistoryItems([...history], [...optimistic])).toEqual([...history, ...optimistic])
+    expect(mergeResetHistoryItems([], [...optimistic])).toEqual(optimistic)
   })
 })
 

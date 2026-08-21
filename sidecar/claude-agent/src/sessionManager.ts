@@ -85,8 +85,7 @@ type CapabilitySnapshot = {
 
 /**
  * oneShot 场景下随文本一起发给多模态引擎的图片（base64）。Claude 使用 image content block，
- * Codex 会先写入临时文件再作为 local_image 输入。目前只有 oneShot 会传（PRD 澄清工具粘贴图片场景）；
- * 交互式 runTurn 仍走 ClaudeChatService.appendAttachmentHints() 的本地附件路径提示。
+ * Codex 会先写入临时文件再作为 local_image 输入；交互式评审和 oneShot 共用该结构化图片协议。
  * mediaType 只允许 image/jpeg|png|gif|webp，其余类型由 Java 侧过滤掉。
  */
 export interface OneShotImage {
@@ -362,7 +361,11 @@ class Session {
         request.developerInstructions,
         [...request.additionalDirectories],
       ),
-      codex: request => this.runCodexTurn(request.text, request.developerInstructions),
+      codex: request => this.runCodexTurn(
+        request.text,
+        request.developerInstructions,
+        request.images as OneShotImage[] | undefined,
+      ),
       antigravity: request => this.runAntigravityTurn(
         request.text,
         request.developerInstructions,
@@ -955,7 +958,7 @@ class Session {
   }
 
   /** 跑一轮 Codex：委托 codexEngine 翻译事件流，AbortController 支持中断。 */
-  private async runCodexTurn(text: string, developerInstructions?: string): Promise<void> {
+  private async runCodexTurn(text: string, developerInstructions?: string, images?: OneShotImage[]): Promise<void> {
     const ac = new AbortController()
     this.abort = ac
     try {
@@ -970,6 +973,7 @@ class Session {
         toolPolicy: this.toolPolicy,
         forgeSqlRegistration: this.forgeSqlRegistration,
         developerInstructions,
+        images,
         consultEvidenceSystems: this.consultEvidenceSystems,
         sdkSessionId: this.sdkSessionId,
         apiBaseUrl: this.apiBaseUrl,
@@ -1601,7 +1605,7 @@ export class SessionManager {
   }
 
   user(id: string, text: string, developerInstructions?: string, sessionContext?: string,
-       additionalDirectories: string[] = [], turnId?: string): void {
+       additionalDirectories: string[] = [], turnId?: string, images?: OneShotImage[]): void {
     const s = this.sessions.get(id)
     if (!s) {
       this.emit(id, { type: 'error', code: 'SESSION_NOT_FOUND', message: '会话不存在' })
@@ -1615,7 +1619,7 @@ export class SessionManager {
       : sessionContext?.trim() || undefined
     const safeAdditionalDirectories = restricted ? [] : additionalDirectories
     const prepare = s.toolPolicy === 'review-only' ? this.ensureReviewDefaults(id, s) : Promise.resolve()
-    prepare.then(() => s.runTurn(text, undefined, undefined, hiddenInstructions, turnId, safeAdditionalDirectories)).catch((e) => {
+    prepare.then(() => s.runTurn(text, undefined, images, hiddenInstructions, turnId, safeAdditionalDirectories)).catch((e) => {
       console.error('[sidecar] runTurn 异常（已兜住）session=' + id + ':', e)
       this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e), turnId })
       this.emit(id, { type: 'result', usage: {}, stopReason: 'error', turnId })

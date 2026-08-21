@@ -1689,6 +1689,8 @@ export function ChatPage() {
           open
           sessionId={chat.sessionId}
           sessionTitle={currentTitle}
+          systemName={currentSession?.group || headerCwdName(currentSession?.cwd || '') || '当前系统'}
+          moduleName={currentSession?.subgroup || currentTitle || '当前需求'}
           engine={chat.currentEngine}
           sdkSessionId={currentSession?.sdkSessionId}
           codexHome={currentSession?.codexHome || newCodexHome}

@@ -38,3 +38,19 @@ export function isSessionHistoryPageExhausted(
     || itemCount === 0
     || (previousBefore != null && nextBefore === previousBefore)
 }
+
+/** 重载最近一页时替换旧历史，仅保留请求期间新产生的实时消息。 */
+export function mergeResetHistoryItems(history: ChatItem[], existing: ChatItem[]): ChatItem[] {
+  if (history.length === 0) return existing
+  const historyIds = new Set(history.map(item => item.id))
+  const newestHistoryTimestamp = history.reduce<number | null>((latest, item) => {
+    if (item.ts == null) return latest
+    return latest == null ? item.ts : Math.max(latest, item.ts)
+  }, null)
+  const liveItems = existing.filter(item => {
+    if (historyIds.has(item.id) || item.id.startsWith('h')) return false
+    return newestHistoryTimestamp == null || item.ts == null || item.ts > newestHistoryTimestamp
+  })
+  return [...history, ...liveItems]
+}
+import type { ChatItem } from '../types'

@@ -5,8 +5,10 @@ import com.exceptioncoder.toolbox.claudechat.domain.ReviewSpace;
 import com.exceptioncoder.toolbox.claudechat.service.AttachmentStorageService;
 import com.exceptioncoder.toolbox.claudechat.service.LocalNetworkAddressService;
 import com.exceptioncoder.toolbox.claudechat.service.ReviewDeletionService;
+import com.exceptioncoder.toolbox.claudechat.service.ReviewEnvironmentService;
 import com.exceptioncoder.toolbox.claudechat.service.ReviewRequirementService;
 import com.exceptioncoder.toolbox.claudechat.service.ReviewIntentService;
+import com.exceptioncoder.toolbox.claudechat.service.ReviewPublicMessageProjector;
 import com.exceptioncoder.toolbox.claudechat.service.ReviewSpaceService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
@@ -32,6 +34,7 @@ public class ReviewSpaceController {
     private final ReviewSpaceService service;
     private final ReviewDeletionService deletionService;
     private final ReviewRequirementService requirementService;
+    private final ReviewEnvironmentService environmentService;
     private final ReviewIntentService intentService;
     private final AttachmentStorageService attachments;
     private final SessionHistoryService history;
@@ -41,6 +44,7 @@ public class ReviewSpaceController {
     public ReviewSpaceController(ReviewSpaceService service, ReviewDeletionService deletionService,
                                  ReviewRequirementService requirementService,
                                  ReviewIntentService intentService,
+                                 ReviewEnvironmentService environmentService,
                                  AttachmentStorageService attachments,
                                  SessionHistoryService history, ClaudeChatSessionRepository sessions,
                                  LocalNetworkAddressService localNetworkAddress) {
@@ -48,6 +52,7 @@ public class ReviewSpaceController {
         this.deletionService = deletionService;
         this.requirementService = requirementService;
         this.intentService = intentService;
+        this.environmentService = environmentService;
         this.attachments = attachments;
         this.history = history;
         this.sessions = sessions;
@@ -111,8 +116,15 @@ public class ReviewSpaceController {
     public ResponseEntity<PublicReviewView> publicView(@PathVariable String token) {
         return service.resolve(token)
                 .map(space -> ResponseEntity.ok(PublicReviewView.from(space, service.sourceTitle(space),
-                        service.runtimeConfig(space), service.coveredSourceMessageIds(space),
-                        service.hasSubmittedSummary(space), service.latestSubmittedSummarySourceId(space))))
+                        service.coveredSourceMessageIds(space), service.hasSubmittedSummary(space),
+                        service.latestSubmittedSummarySourceId(space))))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/reviews/public/{token}/environment-check")
+    public ResponseEntity<ReviewEnvironmentService.Assessment> environmentCheck(@PathVariable String token) {
+        return service.resolve(token)
+                .map(space -> ResponseEntity.ok(environmentService.assess(space.reviewSessionId())))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -176,20 +188,13 @@ public class ReviewSpaceController {
                                                  @RequestParam(defaultValue = "30") int limit) {
         ReviewSpace space = service.resolve(token).orElse(null);
         if (space == null) return ResponseEntity.notFound().build();
-        Map<String, ChatMessageView.ReviewIntentView> intents = intentService.list(space.id()).stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        com.exceptioncoder.toolbox.claudechat.domain.ReviewIntentAssessment::turnId,
-                        value -> new ChatMessageView.ReviewIntentView(
-                                value.finalIntent(), value.classificationStatus(), value.confidence(), value.reason(),
-                                value.signals(), value.extractedTitle(), value.extractedContent()),
-                        (left, right) -> right));
+        var intents = intentService.list(space.id());
         return sessions.findById(space.reviewSessionId())
                 .map(session -> {
                     MessagePage page = history.readReviewMessages(session.getCwd(), session.getSdkSessionId(),
                             session.getCodexHome(), before, limit);
-                    List<ChatMessageView> items = page.items().stream()
-                            .map(item -> item.turnId() == null ? item : item.withReviewIntent(intents.get(item.turnId())))
-                            .toList();
+                    List<ChatMessageView> items = ReviewPublicMessageProjector.projectHistory(
+                            ReviewIntentHistoryMapper.attach(page.items(), intents));
                     return ResponseEntity.ok(new MessagePage(items, page.nextBefore(), page.transcriptMissing()));
                 })
                 .orElseGet(() -> ResponseEntity.notFound().build());
@@ -237,16 +242,14 @@ public class ReviewSpaceController {
     }
     public record PublicReviewView(String reviewSessionId, String title, String sourceTitle, String mode,
                                    String contextSnapshot, long expiresAt, long createdAt,
-                                   ReviewSpaceService.ReviewRuntimeConfig runtimeConfig,
                                    List<String> coveredSourceMessageIds, boolean hasSubmittedSummary,
                                    String latestSubmittedSummarySourceId) {
         static PublicReviewView from(ReviewSpace s, String sourceTitle,
-                                     ReviewSpaceService.ReviewRuntimeConfig runtimeConfig,
                                      List<String> coveredSourceMessageIds, boolean hasSubmittedSummary,
                                      String latestSubmittedSummarySourceId) {
             return new PublicReviewView(s.reviewSessionId(), s.title(), sourceTitle,
-                    s.mode(), s.contextSnapshot(), s.expiresAt(), s.createdAt(), runtimeConfig,
-                    coveredSourceMessageIds, hasSubmittedSummary, latestSubmittedSummarySourceId);
+                    s.mode(), s.contextSnapshot(), s.expiresAt(), s.createdAt(), coveredSourceMessageIds,
+                    hasSubmittedSummary, latestSubmittedSummarySourceId);
         }
     }
 

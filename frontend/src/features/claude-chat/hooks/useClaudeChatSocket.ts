@@ -9,6 +9,7 @@ import { normalizePermissionModeForEngine } from '../components/permissionModes'
 import {
   isCurrentSessionHistoryRequest,
   isSessionHistoryPageExhausted,
+  mergeResetHistoryItems,
   sessionHistoryLoadErrorMessage,
 } from '../lib/sessionHistoryRequest'
 import {
@@ -529,7 +530,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
         if (msg.sdkSessionId) sdkSessionIdRef.current = msg.sdkSessionId
         // 仅 switch / resume 进会话时拉一次历史；新建会话(open，sdkSessionId 为空)不拉
-        if (shouldLoadHistoryRef.current && msg.sdkSessionId) {
+        if (shouldLoadHistoryRef.current && (msg.sdkSessionId || channel === 'review')) {
           shouldLoadHistoryRef.current = false
           loadHistoryRef.current(true)
         }
@@ -639,6 +640,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
               ...item,
               turnId: msg.turnId,
               reviewIntent: {
+                sourceMessageId: msg.messageId,
                 intent: msg.intent,
                 classificationStatus: msg.classificationStatus,
                 confidence: msg.confidence,
@@ -1335,8 +1337,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     // 任意新轮一旦开始就撤销旧轮凭证；下一条队列消息必须等待本轮自己的成功终态。
     queueReleaseSessionRef.current = null
     setQueuePausedReason(null)
-    // WS 只发 name/path；url/mime 仅留本端气泡显示
-    const atts = hasAtt ? attachments!.map(a => ({ name: a.name, path: a.path })) : undefined
+    // 服务端用 mime 选择结构化图片输入；url 仍只留本端气泡显示。
+    const atts = hasAtt ? attachments!.map(a => ({ name: a.name, path: a.path, mime: a.mime })) : undefined
     // 全部附件都进气泡显示（图片带 url 缩略图，非图片文件显示文件卡片）
     const disp = hasAtt ? attachments!.map(a => ({ name: a.name, mime: a.mime, url: a.url })) : undefined
     // displayText 只影响本地这条气泡的展示；真正发给 agent 的仍是完整的 t（下面 sendRaw 不变）
@@ -1657,7 +1659,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       // ——典型是刚进会话就发出的首条用户气泡（乐观插入）/已开始的流式回复。若 reset 时直接 setItems(hist)，
       // 历史(空会话为 [])加载完成会把这条刚发的消息覆盖掉 → 「新建会话首条消息不显示」。prepend 则两者都保留。
       if (!isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) return
-      setItems(prev => [...hist, ...prev])
+      setItems(prev => reset ? mergeResetHistoryItems(hist, prev) : [...hist, ...prev])
       historyBeforeRef.current = nextBefore
       const done = isSessionHistoryPageExhausted(hist.length, before, nextBefore)
       historyExhaustedRef.current = done

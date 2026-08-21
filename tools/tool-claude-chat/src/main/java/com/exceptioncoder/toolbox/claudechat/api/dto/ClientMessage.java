@@ -71,8 +71,8 @@ public sealed interface ClientMessage
     /** 下发一条用户消息。attachments 可空（旧客户端不带时按纯文本处理）。 */
     record Send(String text, List<Attachment> attachments, String developerInstructions,
                 AssistantEnvelope assistant, String messageId) implements ClientMessage {
-        /** 附件引用：name 展示用，path 为服务端绝对路径，供 Claude 用 Read 读取。 */
-        public record Attachment(String name, String path) {}
+        /** 附件引用：path 只供服务端在会话附件目录内受控取数，不直接暴露给评审 Agent。 */
+        public record Attachment(String name, String path, String mime) {}
     }
 
     /** 当前回合不可写时，将消息幂等保存到服务端待发送队列。 */

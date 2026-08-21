@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.api.dto.AttachmentView;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -12,7 +13,11 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
@@ -30,6 +35,9 @@ public class AttachmentStorageService {
     /** 危险可执行扩展名黑名单，拒绝上传。 */
     private static final Set<String> BLOCKED_EXT = Set.of(
             "exe", "bat", "cmd", "com", "scr", "msi", "sh", "ps1", "jar", "dll");
+    private static final Set<String> IMAGE_MIME_TYPES = Set.of(
+            "image/png", "image/jpeg", "image/gif", "image/webp");
+    private static final long MAX_TOTAL_IMAGE_INPUT_BYTES = 25L * 1024 * 1024;
 
     private final ClaudeChatProperties props;
     private final ClaudeChatSessionRepository repo;
@@ -67,6 +75,99 @@ public class AttachmentStorageService {
         return new AttachmentView(
                 "att_" + UUID.randomUUID().toString().substring(0, 8),
                 name, mime, file.getSize(), target.toAbsolutePath().toString());
+    }
+
+    /**
+     * 将当前会话附件目录中的受支持图片转换为模型图片输入。
+     * 路径归属校验在读取字节前完成，浏览器不能借附件字段读取工作区任意文件。
+     */
+    public List<ImageInput> loadImages(String sessionId, List<ImageReference> references) {
+        if (references == null || references.isEmpty()) return List.of();
+        String cwd = repo.findById(sessionId)
+                .map(session -> session.getCwd())
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在，无法读取附件"));
+        Path allowedRoot = Path.of(cwd, ATTACH_DIR, sessionId).toAbsolutePath().normalize();
+        List<ImageInput> images = new ArrayList<>();
+        long totalBytes = 0;
+        for (ImageReference reference : references) {
+            Path file = safeAttachmentFile(allowedRoot, reference.path());
+            String mime = imageMime(file, reference.mime());
+            if (mime == null) continue;
+            try {
+                long size = Files.size(file);
+                if (size <= 0 || size > props.getMaxAttachmentBytes()) {
+                    throw new IllegalArgumentException("图片附件大小不符合要求：" + reference.name());
+                }
+                totalBytes += size;
+                if (totalBytes > MAX_TOTAL_IMAGE_INPUT_BYTES) {
+                    throw new IllegalArgumentException("本条消息的图片总大小超过 25MB，请分批发送");
+                }
+                images.add(new ImageInput(Base64.getEncoder().encodeToString(Files.readAllBytes(file)), mime));
+            } catch (IOException exception) {
+                throw new IllegalArgumentException("图片附件暂时无法读取：" + reference.name(), exception);
+            }
+        }
+        return List.copyOf(images);
+    }
+
+    /** 公开环境检测只读检查，不创建目录或测试文件。 */
+    public Capability capability(String sessionId) {
+        return repo.findById(sessionId).map(session -> {
+            try {
+                Path cwd = Path.of(session.getCwd()).toAbsolutePath().normalize();
+                boolean available = Files.isDirectory(cwd) && Files.isReadable(cwd) && Files.isWritable(cwd);
+                return new Capability(available, available
+                        ? "附件可以安全上传和读取"
+                        : "附件目录当前不可用，请联系链接创建者检查评审空间");
+            } catch (RuntimeException exception) {
+                return new Capability(false, "附件目录当前不可用，请联系链接创建者检查评审空间");
+            }
+        }).orElseGet(() -> new Capability(false, "评审会话不存在，请联系链接创建者重新生成链接"));
+    }
+
+    private static Path safeAttachmentFile(Path allowedRoot, String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) throw new IllegalArgumentException("附件路径为空");
+        try {
+            Path file = Path.of(rawPath).toAbsolutePath().normalize();
+            if (!file.startsWith(allowedRoot) || !Files.isRegularFile(file)) {
+                throw new IllegalArgumentException("附件不属于当前评审会话");
+            }
+            return file;
+        } catch (RuntimeException exception) {
+            if (exception instanceof IllegalArgumentException illegalArgumentException) {
+                throw illegalArgumentException;
+            }
+            throw new IllegalArgumentException("附件路径无效", exception);
+        }
+    }
+
+    private static String imageMime(Path file, String declaredMime) {
+        String detected = null;
+        try {
+            detected = Files.probeContentType(file);
+        } catch (IOException ignored) {
+            // Windows 对部分扩展名无法探测，继续使用上传时记录的媒体类型。
+        }
+        String mime = normalizeMime(detected);
+        if (mime == null) mime = normalizeMime(declaredMime);
+        if (mime == null) mime = mimeFromExtension(file);
+        return IMAGE_MIME_TYPES.contains(mime) ? mime : null;
+    }
+
+    private static String normalizeMime(String mime) {
+        if (mime == null || mime.isBlank()) return null;
+        int separator = mime.indexOf(';');
+        return (separator >= 0 ? mime.substring(0, separator) : mime).trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String mimeFromExtension(Path file) {
+        return switch (ext(file.getFileName().toString())) {
+            case "png" -> "image/png";
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "gif" -> "image/gif";
+            case "webp" -> "image/webp";
+            default -> null;
+        };
     }
 
     /** 删除某会话的附件目录（会话删除时调用）。cwd 由调用方提供，避免会话记录已删时查不到。 */
@@ -109,4 +210,8 @@ public class AttachmentStorageService {
         int dot = name.lastIndexOf('.');
         return dot >= 0 ? name.substring(dot + 1).toLowerCase() : "";
     }
+
+    public record ImageReference(String name, String path, String mime) {}
+
+    public record Capability(boolean available, String message) {}
 }

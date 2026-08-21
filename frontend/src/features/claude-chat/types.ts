@@ -687,6 +687,7 @@ export type ReviewIntentType = 'REQUIREMENT' | 'CONSULTATION' | 'UNKNOWN'
 export type ReviewClassificationStatus = 'CONFIRMED' | 'INFERRED' | 'MISSING' | 'CONFLICTED'
 
 export interface ReviewIntentMetadata {
+  sourceMessageId?: string
   intent: ReviewIntentType
   classificationStatus: ReviewClassificationStatus
   confidence: number

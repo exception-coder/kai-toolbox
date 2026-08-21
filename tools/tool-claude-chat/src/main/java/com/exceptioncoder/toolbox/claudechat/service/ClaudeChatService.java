@@ -89,7 +89,7 @@ public class ClaudeChatService {
     /** sessionId -> metadata captured at dispatch; completion must use the same stable turn identity. */
     private final Map<String, AgentRunMetadata> activeTurnMetadata = new ConcurrentHashMap<>();
     /** 仅为评审轮次累计可见回复，供回复完成后的结构校验；不作为历史事实源。 */
-    private final Map<String, StringBuilder> activeReviewReplies = new ConcurrentHashMap<>();
+    private final Map<String, ActiveReviewReply> activeReviewReplies = new ConcurrentHashMap<>();
     /** 后台 sidecar 重连任务的去重锁，避免多次断开叠起多个重连循环 */
     private final AtomicBoolean recovering = new AtomicBoolean(false);
     /** 一轮重连结束后的冷却时长：同一次断开的后续事件落在窗口内即被丢弃 */
@@ -619,7 +619,7 @@ public class ClaudeChatService {
                 ? reviewIntents.classifyBeforeReply(ctx.sessionId, turnId, msg.messageId(), msg.text()).orElse(null)
                 : null;
         if (reviewIntent != null) {
-            activeReviewReplies.put(ctx.sessionId, new StringBuilder());
+            activeReviewReplies.put(ctx.sessionId, new ActiveReviewReply(msg.text(), new StringBuilder()));
             sendReviewIntent(ctx, reviewIntent);
         }
         ctx.status = SessionStatus.RUNNING;
@@ -641,11 +641,20 @@ public class ClaudeChatService {
             previous.fail("overlapping turn replaced", null);
         }
         try {
-            sidecar.userMessage(ctx.sessionId, appendAttachmentHints(msg.text(), msg.attachments()),
+            List<AttachmentStorageService.ImageReference> imageReferences = msg.attachments() == null
+                    ? List.of()
+                    : msg.attachments().stream()
+                            .map(attachment -> new AttachmentStorageService.ImageReference(
+                                    attachment.name(), attachment.path(), attachment.mime()))
+                            .toList();
+            var images = attachments.loadImages(ctx.sessionId, imageReferences);
+            sidecar.userMessage(ctx.sessionId,
+                    appendAttachmentHints(msg.text(), msg.attachments(),
+                            SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)),
                     developerInstructions,
                     projectContext == null ? null : projectContext.instructions(),
                     projectContext == null ? List.of() : projectContext.paths(),
-                    turnId, span.traceContext(), metadata);
+                    turnId, span.traceContext(), metadata, images);
         } catch (RuntimeException e) {
             activeReviewReplies.remove(ctx.sessionId);
             turnLifecycle.complete(ctx.sessionId, turnId);
@@ -658,13 +667,16 @@ public class ClaudeChatService {
         }
     }
 
-    /** 把附件路径以结构化提示拼到用户文本末尾，让 Claude 自行 Read；无附件则原样返回。 */
-    private String appendAttachmentHints(String text, List<ClientMessage.Send.Attachment> atts) {
+    /** 图片走结构化输入；路径标记只用于历史恢复，公开投影会剥离该段。 */
+    private String appendAttachmentHints(String text, List<ClientMessage.Send.Attachment> atts,
+                                         boolean reviewOnly) {
         if (atts == null || atts.isEmpty()) {
             return text;
         }
         StringBuilder sb = new StringBuilder(text == null ? "" : text);
-        sb.append("\n\n[附件] 用户上传了以下文件，需要时请用 Read 工具查看：");
+        sb.append(reviewOnly
+                ? "\n\n[附件] 用户上传了以下文件。图片内容已直接提供给你，无需也不得使用文件工具；非图片附件不得声称已经读取："
+                : "\n\n[附件] 用户上传了以下文件。图片内容已直接提供；非图片附件需要时可用 Read 工具查看：");
         for (ClientMessage.Send.Attachment a : atts) {
             sb.append("\n- ").append(a.name()).append(" → ").append(a.path());
         }
@@ -1202,8 +1214,8 @@ public class ClaudeChatService {
             }
             case "assistantDelta" -> {
                 String delta = node.path("text").asText("");
-                StringBuilder reviewReply = activeReviewReplies.get(ctx.sessionId);
-                if (reviewReply != null) reviewReply.append(delta);
+                ActiveReviewReply reviewReply = activeReviewReplies.get(ctx.sessionId);
+                if (reviewReply != null) reviewReply.text().append(delta);
                 sendToBrowser(ctx, seq -> new ServerMessage.AssistantDelta(seq, delta));
             }
             case "toolUse" -> sendToBrowser(ctx, seq -> new ServerMessage.ToolUse(
@@ -1332,9 +1344,9 @@ public class ClaudeChatService {
                         ctx.sessionId, turnId, ctx.status);
                 return;
             }
-            StringBuilder reply = activeReviewReplies.remove(ctx.sessionId);
+            ActiveReviewReply reply = activeReviewReplies.remove(ctx.sessionId);
             if (reply != null) {
-                reviewIntents.validateAfterReply(ctx.sessionId, turnId, reply.toString())
+                reviewIntents.validateAfterReply(ctx.sessionId, turnId, reply.userText(), reply.text().toString())
                         .ifPresent(value -> sendReviewIntent(ctx, value));
             }
             runtimeStates.observeSidecarTerminal(ctx.sessionId, ctx.backgroundTasks.size());
@@ -1414,7 +1426,8 @@ public class ClaudeChatService {
         }
         QueuedChatMessage message = next.get();
         ClientMessage.Send send = new ClientMessage.Send(message.text(), message.attachments().stream()
-                .map(attachment -> new ClientMessage.Send.Attachment(attachment.name(), attachment.path()))
+                .map(attachment -> new ClientMessage.Send.Attachment(
+                        attachment.name(), attachment.path(), attachment.mime()))
                 .toList(), message.developerInstructions(), null, message.id());
         try {
             if (!ensureSessionResumable(ctx)) {
@@ -2022,9 +2035,13 @@ public class ClaudeChatService {
     /** 把一条消息发给指定连接（广播逐个调用 / 回放定向发给新连接）。 */
     private void writeTo(WebSocketSession ws, ServerMessage msg) {
         if (ws == null || !ws.isOpen()) return;
+        ServerMessage visibleMessage = SessionExecutionPolicy.isReviewOnly(
+                SessionExecutionPolicy.forWebSocket(ws.getUri()))
+                ? ReviewPublicMessageProjector.projectRealtime(msg) : msg;
+        if (visibleMessage == null) return;
         try {
             synchronized (ws) {
-                ws.sendMessage(new TextMessage(mapper.writeValueAsString(msg)));
+                ws.sendMessage(new TextMessage(mapper.writeValueAsString(visibleMessage)));
             }
         } catch (IOException e) {
             log.debug("[claude-chat] 写浏览器失败：{}", e.getMessage());
@@ -2127,6 +2144,9 @@ public class ClaudeChatService {
     @FunctionalInterface
     private interface SeqMessageFactory {
         ServerMessage build(long seq);
+    }
+
+    private record ActiveReviewReply(String userText, StringBuilder text) {
     }
 
     /** 单会话运行时状态。 */

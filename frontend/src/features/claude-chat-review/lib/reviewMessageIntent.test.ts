@@ -55,6 +55,7 @@ describe('评审消息分类', () => {
     if (user.kind === 'user') {
       user.reviewIntent = {
         intent: 'REQUIREMENT',
+        sourceMessageId: 'client-message-1',
         classificationStatus: 'CONFIRMED',
         confidence: 0.98,
         reason: '用户明确要求页面展示发生变化',
@@ -67,6 +68,23 @@ describe('评审消息分类', () => {
     const turns = projectReviewTurns(items, 0, true)
     expect(turns[0].intent).toBe('REQUIREMENT')
     expect(requirementsFromTurns(turns, 0)[0].title).toBe('隐藏工具调用')
+  })
+
+  it('同一用户轮次的 AI 回复变化不产生重复需求', () => {
+    const first = completedTurn('隐藏工具调用', '初版业务分析')
+    const second = completedTurn('隐藏工具调用', '补充后的业务分析')
+    for (const items of [first, second]) {
+      const user = items[0]
+      if (user.kind === 'user') user.reviewIntent = {
+        sourceMessageId: 'client-message-stable',
+        intent: 'REQUIREMENT', classificationStatus: 'CONFIRMED', confidence: 0.98,
+        reason: '明确要求页面变化', signals: ['隐藏'],
+      }
+    }
+
+    const firstId = requirementsFromTurns(projectReviewTurns(first, 0, true), 0)[0].sourceMessageId
+    const secondId = requirementsFromTurns(projectReviewTurns(second, 0, true), 0)[0].sourceMessageId
+    expect(firstId).toBe(secondId)
   })
 
   it('区分业务语义待确认与分类协议失败', () => {

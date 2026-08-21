@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.ai.ReviewIntentClassifier;
+import com.exceptioncoder.toolbox.claudechat.ai.ReviewRequirementExtractor;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewIntentAssessment;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewSpace;
 import com.exceptioncoder.toolbox.claudechat.repository.ReviewIntentRepository;
@@ -24,20 +25,23 @@ public class ReviewIntentService {
             "(?:不要|不需要|希望|必须|改成|调整|修改|优化|新增|增加|补充|删除|移除|取消|修复|禁止"
                     + "|(?:需要|要|请)(?:新增|增加|调整|修改|优化|删除|移除|取消|修复|支持|展示|隐藏|改)"
                     + "|可以(?:不|改|增加|删除|取消))");
-    private static final Pattern TITLE = Pattern.compile("(?m)^#{1,4}\\s*需求标题[：:]\\s*(.+)$");
     private static final Pattern REQUIREMENT_STRUCTURE = Pattern.compile(
             "(?s)(?:^|\\n)#{1,4}\\s*需求标题[：:].*(?:^|\\n)#{1,4}\\s*需求说明.*(?:^|\\n)#{1,4}\\s*验收场景",
             Pattern.MULTILINE);
     private static final Pattern MARKER = Pattern.compile("<!--\\s*forge-review-intent:(REQUIREMENT|CONSULTATION)\\s*-->");
-    private static final long CLASSIFIER_TIMEOUT_SECONDS = 8;
+    private static final long MODEL_TIMEOUT_SECONDS = 8;
+    private static final int MAX_EXTRACTED_TITLE_LENGTH = 120;
 
     private final ReviewIntentClassifier classifier;
+    private final ReviewRequirementExtractor requirementExtractor;
     private final ReviewIntentRepository repository;
     private final ReviewSpaceService reviewSpaces;
 
-    public ReviewIntentService(ReviewIntentClassifier classifier, ReviewIntentRepository repository,
+    public ReviewIntentService(ReviewIntentClassifier classifier, ReviewRequirementExtractor requirementExtractor,
+                               ReviewIntentRepository repository,
                                ReviewSpaceService reviewSpaces) {
         this.classifier = classifier;
+        this.requirementExtractor = requirementExtractor;
         this.repository = repository;
         this.reviewSpaces = reviewSpaces;
     }
@@ -58,7 +62,7 @@ public class ReviewIntentService {
     }
 
     public Optional<ReviewIntentAssessment> validateAfterReply(String reviewSessionId, String turnId,
-                                                                String assistantText) {
+                                                                String userText, String assistantText) {
         Optional<ReviewIntentAssessment> stored = repository.findByTurn(reviewSessionId, turnId);
         if (stored.isEmpty()) return Optional.empty();
         ReviewIntentAssessment before = stored.get();
@@ -86,8 +90,12 @@ public class ReviewIntentService {
             signals.add("旧兼容标记与前置判定冲突");
         }
 
-        String title = structured ? extractTitle(response) : null;
-        String content = structured ? MARKER.matcher(response).replaceAll("").trim() : null;
+        RequirementDraft draft = "REQUIREMENT".equals(finalIntent)
+                ? extractRequirementDraft(userText, response)
+                : null;
+        String title = draft == null ? null : draft.title();
+        String content = draft == null ? null : draft.content();
+        if (draft != null) signals.add("独立需求整理器已生成业务草稿");
         ReviewIntentAssessment updated = new ReviewIntentAssessment(
                 before.reviewSpaceId(), before.reviewSessionId(), before.turnId(), before.clientMessageId(),
                 before.preIntent(), finalIntent, status, confidence, before.reason(), signals,
@@ -114,7 +122,7 @@ public class ReviewIntentService {
         try {
             ReviewIntentClassifier.Proposal proposal = CompletableFuture
                     .supplyAsync(() -> classifier.classify(text))
-                    .get(CLASSIFIER_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    .get(MODEL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             String intent = normalizeIntent(proposal == null ? null : proposal.intent());
             double confidence = proposal == null ? 0 : Math.max(0, Math.min(1, proposal.confidence()));
             String status = confidence >= 0.75 ? "CONFIRMED" : "INFERRED";
@@ -138,9 +146,55 @@ public class ReviewIntentService {
         return matcher.find() ? matcher.group(1) : null;
     }
 
-    private static String extractTitle(String response) {
-        Matcher matcher = TITLE.matcher(response);
-        return matcher.find() ? matcher.group(1).trim() : null;
+    private RequirementDraft extractRequirementDraft(String userText, String assistantText) {
+        String normalizedUserText = userText == null ? "" : userText.trim();
+        try {
+            String context = "业务人员原始诉求：\n" + normalizedUserText
+                    + "\n\nAI 评审回复：\n" + assistantText;
+            ReviewRequirementExtractor.Proposal proposal = CompletableFuture
+                    .supplyAsync(() -> requirementExtractor.extract(context))
+                    .get(MODEL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (proposal != null && hasText(proposal.title()) && hasText(proposal.description())) {
+                String title = proposal.title().trim();
+                if (title.length() > MAX_EXTRACTED_TITLE_LENGTH) {
+                    title = title.substring(0, MAX_EXTRACTED_TITLE_LENGTH);
+                }
+                return new RequirementDraft(title, formatRequirementContent(
+                        proposal.description(), proposal.pendingItems(), proposal.acceptanceScenarios()));
+            }
+        } catch (Exception error) {
+            log.warn("[review-intent] 需求草稿整理失败，使用业务诉求兜底：{}", error.getMessage());
+        }
+        String fallbackTitle = normalizedUserText.lines().findFirst().orElse("待确认需求").trim();
+        if (fallbackTitle.isBlank()) fallbackTitle = "待确认需求";
+        if (fallbackTitle.length() > MAX_EXTRACTED_TITLE_LENGTH) {
+            fallbackTitle = fallbackTitle.substring(0, MAX_EXTRACTED_TITLE_LENGTH);
+        }
+        String description = normalizedUserText.isBlank()
+                ? "业务人员通过附件提出调整诉求，请结合原消息确认具体范围。"
+                : normalizedUserText;
+        return new RequirementDraft(fallbackTitle, formatRequirementContent(
+                description, List.of(), List.of("调整后的业务结果符合上述需求说明。")));
+    }
+
+    private static String formatRequirementContent(String description, List<String> pendingItems,
+                                                   List<String> acceptanceScenarios) {
+        return "## 需求说明\n\n" + description.trim()
+                + "\n\n## 待确认项\n\n" + formatItems(pendingItems, "无")
+                + "\n\n## 验收场景\n\n" + formatItems(acceptanceScenarios, "以需求说明中的目标结果为准。");
+    }
+
+    private static String formatItems(List<String> items, String fallback) {
+        List<String> normalized = items == null ? List.of() : items.stream()
+                .filter(ReviewIntentService::hasText)
+                .map(String::trim)
+                .toList();
+        return normalized.isEmpty() ? fallback : normalized.stream().map(item -> "- " + item)
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private static String normalizedMessageId(String value, String turnId) {
@@ -151,5 +205,8 @@ public class ReviewIntentService {
         private Decision {
             signals = signals == null ? List.of() : signals.stream().filter(item -> item != null && !item.isBlank()).toList();
         }
+    }
+
+    private record RequirementDraft(String title, String content) {
     }
 }

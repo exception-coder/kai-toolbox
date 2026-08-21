@@ -1,7 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewSpace;
-import com.exceptioncoder.toolbox.claudechat.service.ReviewSpaceService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -12,23 +12,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ReviewSpaceControllerTest {
 
     @Test
-    void publicViewIncludesReviewCreationBoundary() {
+    void publicViewIncludesReviewCreationBoundaryWithoutRuntimeConfiguration() throws Exception {
         ReviewSpace space = new ReviewSpace("space-1", "source-1", "review-1", "FULL_FORK",
                 "hash", null, "ACTIVE", "计划评审", "snapshot", 9_000L, 1_234L, 1_234L);
 
         ReviewSpaceController.PublicReviewView view =
                 ReviewSpaceController.PublicReviewView.from(space, "来源开发会话",
-                        new ReviewSpaceService.ReviewRuntimeConfig("codex", "DEFAULT", null, null,
-                                "default", "review-only", "account-b"), List.of("message-1"), true,
-                        "final-summary-v1:assistant-content-v1:list");
+                        List.of("message-1"), true, "final-summary-v1:assistant-content-v1:list");
 
         assertThat(view.reviewSessionId()).isEqualTo("review-1");
         assertThat(view.createdAt()).isEqualTo(1_234L);
         assertThat(view.expiresAt()).isEqualTo(9_000L);
-        assertThat(view.runtimeConfig().codexAuthAlias()).isEqualTo("account-b");
         assertThat(view.coveredSourceMessageIds()).containsExactly("message-1");
         assertThat(view.hasSubmittedSummary()).isTrue();
         assertThat(view.latestSubmittedSummarySourceId())
                 .isEqualTo("final-summary-v1:assistant-content-v1:list");
+        String json = new ObjectMapper().writeValueAsString(view);
+        assertThat(json).doesNotContain("runtimeConfig", "defaultModel", "executionPolicy", "codexAuthAlias");
     }
 }

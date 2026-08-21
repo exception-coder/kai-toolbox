@@ -16,8 +16,10 @@ import {
 } from '@/features/claude-chat/public-api'
 import sheepAvatar from '../assets/wyoooni-ai-sheep-avatar.png'
 import { ReviewRequirementList } from '../components/ReviewRequirementList'
+import { ReviewEnvironmentCheck } from '../components/ReviewEnvironmentCheck'
 import { useReviewRequirements } from '../hooks/useReviewRequirements'
 import { requirementListText, requirementSubmissionId, requirementText } from '../lib/reviewRequirementSubmission'
+import { isPublicReviewDisplayItem } from '../lib/publicReviewMessageVisibility'
 import {
   INTERNAL_SUMMARY_PREFIX,
   projectReviewTurns,
@@ -103,6 +105,7 @@ export function ReviewPage() {
   const [submittingLatest, setSubmittingLatest] = useState(false)
   const [submittingList, setSubmittingList] = useState(false)
   const [requirementListOpen, setRequirementListOpen] = useState(false)
+  const [environmentCheckOpen, setEnvironmentCheckOpen] = useState(false)
   const [historyRequirements, setHistoryRequirements] = useState<ReviewRequirement[]>([])
   const [submittedSourceIds, setSubmittedSourceIds] = useState<Set<string>>(new Set())
   const [latestSubmittedListSourceId, setLatestSubmittedListSourceId] = useState<string | null>(null)
@@ -153,7 +156,7 @@ export function ReviewPage() {
   const consultationCount = liveTurns.filter(turn => turn.intent === 'CONSULTATION').length
   const unclassifiedCount = liveTurns.filter(turn => turn.intent === 'UNCLASSIFIED').length
   const pendingIntentCount = liveTurns.filter(turn => turn.intent === 'PENDING').length
-  const displayItems = useMemo(() => chat.items.map(item => {
+  const displayItems = useMemo(() => chat.items.filter(isPublicReviewDisplayItem).map(item => {
     if (item.kind === 'assistant') return { ...item, text: stripReviewIntentMarker(item.text) }
     if (item.kind === 'user' && item.text.startsWith(INTERNAL_SUMMARY_PREFIX)) {
       return { ...item, displayText: item.displayText ?? '汇总已识别的业务需求并提交' }
@@ -261,12 +264,6 @@ export function ReviewPage() {
   if (!review) return <div className="flex h-dvh items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" />加载评审会话…</div>
 
   const visibleError = error ?? chat.errorMessage ?? chat.syncWarning
-  const defaultModel = chat.models.find(model => model.isDefault)
-  const transport = chat.providerDiag[0]?.transport
-  const transportLabel = transport === 'sdkFallback' ? '官方 · SDK（已回退）'
-    : transport === 'thirdPartySdk' ? '第三方 · SDK' : '官方 · App Server'
-  const runningActivity = [...chat.items].reverse().find(item => item.kind === 'activity'
-    && ['inProgress', 'in_progress', 'running', 'pending', 'started'].includes(item.status))
   const activeTurnHasAttachments = (() => {
     for (let index = chat.items.length - 1; index >= 0; index -= 1) {
       const item = chat.items[index]
@@ -275,26 +272,20 @@ export function ReviewPage() {
     }
     return false
   })()
-  const runningTitle = runningActivity?.kind === 'activity' ? runningActivity.title
-    : chat.state !== 'ready' ? 'Codex 正在重连'
-      : activeTurnHasAttachments && chat.running ? '正在分析图片或附件'
-        : chat.running ? '正在读取评审上下文并生成回复' : null
+  const runningTitle = chat.state !== 'ready' ? 'AI 正在重新连接'
+    : activeTurnHasAttachments && chat.running ? 'AI 正在查看附件并整理回复'
+      : chat.running ? 'AI 正在整理回复' : null
   return (
     <div className="flex h-dvh flex-col bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-50">
       <header className="border-b bg-white/90 px-4 py-3 backdrop-blur dark:bg-slate-900/90">
         <div className="mx-auto flex max-w-5xl items-center gap-3">
           <ReviewAvatar className="size-10 rounded-full border border-white/70 object-cover shadow-sm" />
-          <div className="min-w-0 flex-1"><h1 className="truncate font-semibold">{review.title}</h1><p className="text-xs text-slate-500">关联开发会话：{review.sourceTitle} · {review.mode === 'FULL_FORK' ? '完整上下文' : '安全快照'} · 仅评审</p></div>
-          <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300">Review only</span>
+          <div className="min-w-0 flex-1"><h1 className="truncate font-semibold">{review.title}</h1><p className="text-xs text-slate-500">关联计划：{review.sourceTitle} · 只读评审，不会修改代码</p></div>
+          <Button size="sm" variant="ghost" onClick={() => setEnvironmentCheckOpen(true)} className="shrink-0 gap-1.5 px-2 text-xs sm:px-3" title="检查附件与图片识别是否正常">
+            <ShieldCheck className="size-4" /><span className="hidden sm:inline">检测环境</span><span className="sm:hidden">检测</span>
+          </Button>
         </div>
       </header>
-      <section className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2 border-b px-4 py-2 text-xs">
-        <span className="rounded-full bg-indigo-500/10 px-2 py-1 text-indigo-700 dark:text-indigo-300">Codex · {defaultModel ? `默认 ${defaultModel.displayName}` : '默认模型同步中'} · 标准速度</span>
-        <span className="rounded-full bg-slate-500/10 px-2 py-1">{transportLabel}</span>
-        <span className="rounded-full bg-slate-500/10 px-2 py-1">Auth：{review.runtimeConfig.codexAuthAlias}</span>
-        <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-700 dark:text-emerald-300">review-only</span>
-        {defaultModel?.defaultReasoningEffort && <span className="text-slate-500">默认推理：{defaultModel.defaultReasoningEffort}</span>}
-      </section>
       {runningTitle && <div className="mx-auto flex w-full max-w-5xl items-center gap-2 border-b border-indigo-200 bg-indigo-50/70 px-4 py-2 text-xs text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200"><ReviewAvatar className="size-7 rounded-full object-cover" /><Loader2 className="size-3.5 animate-spin" /><span>{runningTitle}</span></div>}
       {review.contextSnapshot && (
         <details open={snapshotOpen} onToggle={event => setSnapshotOpen(event.currentTarget.open)} className="mx-auto w-full max-w-5xl border-b px-4 py-2 text-xs">
@@ -315,6 +306,7 @@ export function ReviewPage() {
           connState={chat.state}
           assistantAvatarUrl={sheepAvatar}
           assistantAvatarAlt="AI 评审"
+          showRunningFooter={false}
           getUserMessageBadge={item => {
             if (item.text.startsWith(INTERNAL_SUMMARY_PREFIX)) return null
             const intent = userIntentById.get(item.id)
@@ -352,19 +344,19 @@ export function ReviewPage() {
                   ? `当前清单有${unsubmittedCount > 0 ? ` ${unsubmittedCount} 条新增或修改需求` : '删除变更'}待交接；提交时会发送完整清单快照。`
                   : `当前清单 ${requirementList.items.length} 条业务需求、${consultationCount} 条沟通咨询${unclassifiedCount > 0 ? `、${unclassifiedCount} 条未分类` : ''}${pendingIntentCount > 0 ? `、${pendingIntentCount} 条判断中` : ''}；仅清单内容会提交到“${review.sourceTitle}”。`}
               </span>
-              <div className="grid w-full shrink-0 grid-cols-2 items-center gap-2 sm:flex sm:w-auto">
-                <Button size="sm" variant="ghost" onClick={() => setRequirementListOpen(true)} className="min-w-0 flex-1 gap-1.5 px-2 sm:flex-none sm:px-3">
-                  <ClipboardList className="size-4" />需求清单（{requirementList.items.length}）
+              <div className="grid min-w-0 w-full shrink-0 grid-cols-2 items-center gap-2 sm:flex sm:w-auto">
+                <Button size="sm" variant="ghost" onClick={() => setRequirementListOpen(true)} className="w-full min-w-0 flex-1 gap-1.5 overflow-hidden px-2 sm:w-auto sm:flex-none sm:px-3">
+                  <ClipboardList className="size-4 shrink-0" /><span className="truncate">需求清单（{requirementList.items.length}）</span>
                 </Button>
                 {latestUnsubmittedConclusion && !finalizingSummary && (
-                  <Button size="sm" variant="ghost" onClick={() => void submitLatestConclusion()} disabled={submittingLatest || waitingForReviewAnswers} title="严重问题快速交接，不等待最终汇总" className="min-w-0 flex-1 gap-1.5 px-2 sm:flex-none sm:px-3">
+                  <Button size="sm" variant="ghost" onClick={() => void submitLatestConclusion()} disabled={submittingLatest || waitingForReviewAnswers} title="严重问题快速交接，不等待最终汇总" className="w-full min-w-0 flex-1 gap-1.5 overflow-hidden px-2 sm:w-auto sm:flex-none sm:px-3">
                     {submittingLatest ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
                     提交最新一条
                   </Button>
                 )}
-                <Button size="sm" variant="outline" onClick={() => void submitRequirementList()} disabled={finalizingSummary || submittingLatest || waitingForReviewAnswers || finalSummaryCurrent || !listNeedsSubmission || requirementList.loading || requirementList.syncing} className={`${latestUnsubmittedConclusion ? 'col-span-2' : ''} min-w-0 flex-1 gap-1.5 px-2 sm:flex-none sm:px-3`}>
+                <Button size="sm" variant="outline" onClick={() => void submitRequirementList()} disabled={finalizingSummary || submittingLatest || waitingForReviewAnswers || finalSummaryCurrent || !listNeedsSubmission || requirementList.loading || requirementList.syncing} className={`${latestUnsubmittedConclusion ? 'col-span-2' : ''} w-full min-w-0 flex-1 gap-1.5 overflow-hidden px-2 sm:w-auto sm:flex-none sm:px-3`}>
                   {finalSummaryCurrent ? <CheckCircle2 className="size-4" /> : finalizingSummary ? <Loader2 className="size-4 animate-spin" /> : <GitPullRequestArrow className="size-4" />}
-                  <span className="sm:hidden">{finalSummaryCurrent ? '已提交' : finalizingSummary ? '提交中…' : !listNeedsSubmission ? '暂无需求' : `${hasPreviousSummary ? '提交更新' : '提交清单'}${unsubmittedCount > 0 ? `（${unsubmittedCount}）` : ''}`}</span>
+                  <span className="truncate sm:hidden">{finalSummaryCurrent ? '已提交' : finalizingSummary ? '提交中…' : !listNeedsSubmission ? '暂无需求' : `${hasPreviousSummary ? '提交更新' : '提交清单'}${unsubmittedCount > 0 ? `（${unsubmittedCount}）` : ''}`}</span>
                   <span className="hidden sm:inline">{finalSummaryCurrent ? '需求清单已提交' : finalizingSummary ? '提交中…' : !listNeedsSubmission ? '暂无需求可提交' : `${hasPreviousSummary ? '提交清单更新' : '提交需求清单'}${unsubmittedCount > 0 ? `（${unsubmittedCount}）` : ''}`}</span>
                 </Button>
               </div>
@@ -409,6 +401,12 @@ export function ReviewPage() {
         onReload={() => void requirementList.reload()}
         onSave={requirementList.save}
         onDelete={requirementList.remove}
+      />
+      <ReviewEnvironmentCheck
+        open={environmentCheckOpen}
+        onOpenChange={setEnvironmentCheckOpen}
+        token={token}
+        connectionState={chat.state}
       />
     </div>
   )
