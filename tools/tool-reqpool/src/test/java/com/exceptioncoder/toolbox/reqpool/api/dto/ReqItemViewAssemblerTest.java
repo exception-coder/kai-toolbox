@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.reqpool.domain.ReqInsight;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqInsightType;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqInsightRepository;
+import com.exceptioncoder.toolbox.reqpool.repository.ReqPlanningAssessmentRepository;
 import com.exceptioncoder.toolbox.reqpool.service.ReqInsightFingerprint;
 import org.junit.jupiter.api.Test;
 
@@ -18,7 +19,9 @@ class ReqItemViewAssemblerTest {
 
     private final ReqInsightRepository repository = mock(ReqInsightRepository.class);
     private final ReqInsightFingerprint fingerprint = new ReqInsightFingerprint();
-    private final ReqItemViewAssembler assembler = new ReqItemViewAssembler(repository, fingerprint);
+    private final ReqPlanningAssessmentRepository planningRepository = mock(ReqPlanningAssessmentRepository.class);
+    private final ReqItemViewAssembler assembler = new ReqItemViewAssembler(
+            repository, fingerprint, planningRepository);
 
     @Test
     void marksInsightStaleWhenSourceFactsChange() {
@@ -26,6 +29,7 @@ class ReqItemViewAssemblerTest {
         ReqItem oldItem = item("req-1", "旧标题");
         when(repository.findLatestByItemIds(List.of("req-1"))).thenReturn(Map.of(
                 "req-1", insight(oldItem, ReqInsightType.ITEM, null)));
+        when(planningRepository.findLatestByItemIds(List.of("req-1"))).thenReturn(Map.of());
 
         ReqItemView view = assembler.from(item, List.of(item));
 
@@ -41,6 +45,7 @@ class ReqItemViewAssemblerTest {
                 first, ReqInsightType.PORTFOLIO, fingerprint.portfolioSetHash(List.of(first)));
         when(repository.findLatestByItemIds(List.of("req-1"))).thenReturn(Map.of(
                 "req-1", latest));
+        when(planningRepository.findLatestByItemIds(List.of("req-1"))).thenReturn(Map.of());
 
         ReqItemView view = assembler.from(first, List.of(first, second));
 

@@ -10,12 +10,15 @@ import com.exceptioncoder.toolbox.reqpool.api.dto.ReqItemViewAssembler;
 import com.exceptioncoder.toolbox.reqpool.api.dto.UpdateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqInsightRepository;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqItemRepository;
+import com.exceptioncoder.toolbox.reqpool.repository.ReqPlanningAssessmentRepository;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqPoolIntegrationRepository;
 import com.exceptioncoder.toolbox.reqpool.service.ReqAnalysisService;
 import com.exceptioncoder.toolbox.reqpool.service.ReqDevelopmentAccessPolicy;
 import com.exceptioncoder.toolbox.reqpool.service.ReqInsightFingerprint;
 import com.exceptioncoder.toolbox.reqpool.service.ReqRequirementTypeService;
 import com.exceptioncoder.toolbox.reqpool.service.ReqPoolPrdSyncService;
+import com.exceptioncoder.toolbox.reqpool.service.ReqPlanningAssessmentService;
+import com.exceptioncoder.toolbox.reqpool.service.ReqPlanningAssessmentTaskService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -79,7 +82,11 @@ class ReqPoolRequirementTypeIntegrationTest {
                 mock(ReqAnalysisService.class),
                 mock(ReqDevelopmentAccessPolicy.class),
                 requirementTypeService,
-                new ReqItemViewAssembler(new ReqInsightRepository(jdbc), insightFingerprint),
+                new ReqItemViewAssembler(
+                        new ReqInsightRepository(jdbc), insightFingerprint,
+                        new ReqPlanningAssessmentRepository(jdbc)),
+                mock(ReqPlanningAssessmentService.class),
+                mock(ReqPlanningAssessmentTaskService.class),
                 mock(AuthProperties.class)
         );
     }
@@ -156,6 +163,16 @@ class ReqPoolRequirementTypeIntegrationTest {
                     prompt_version TEXT NOT NULL, source_hash TEXT NOT NULL, portfolio_set_hash TEXT,
                     payload_json TEXT NOT NULL, engine TEXT NOT NULL, model TEXT,
                     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+                )
+                """);
+        jdbc.execute("""
+                CREATE TABLE req_pool_planning_assessment (
+                    id TEXT PRIMARY KEY, item_id TEXT NOT NULL, prd_session_id TEXT NOT NULL,
+                    input_hash TEXT NOT NULL, input_snapshot TEXT NOT NULL, evidence_trace_json TEXT,
+                    criteria_version TEXT NOT NULL,
+                    prompt_version TEXT NOT NULL, status TEXT NOT NULL, raw_output_json TEXT, payload_json TEXT,
+                    engine TEXT NOT NULL, model TEXT, error_message TEXT, started_at INTEGER NOT NULL,
+                    completed_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
                 )
                 """);
         jdbc.execute("""

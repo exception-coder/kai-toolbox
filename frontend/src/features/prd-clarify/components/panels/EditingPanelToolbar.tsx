@@ -127,7 +127,7 @@ export function EditingPanelToolbar({
             <ToolbarButton icon={<RefreshCw className="h-3 w-3" />} label="重新生成" onClick={() => actions.generateDevDoc('regenerate')} />
             <ToolbarButton icon={<GitBranch className="h-3 w-3" />} label="更新版本" onClick={() => actions.generateDevDoc('update')} />
             <ToolbarButton icon={<Info className="h-3 w-3" />} label="生成记录" onClick={actions.showDevDocHistory} />
-            <ToolbarButton icon={<BotMessageSquare className="h-3 w-3" />} label="本版澄清" onClick={actions.showDevDocClarification} />
+            <ToolbarButton icon={<BotMessageSquare className="h-3 w-3" />} label="生成依据" onClick={actions.showDevDocClarification} />
             {progress.estimation ? (
               <>
                 <EstimationBadge estimation={progress.estimation} onClick={actions.showEstimationDetail} />
@@ -142,7 +142,7 @@ export function EditingPanelToolbar({
 
       <div className="ml-auto flex items-center gap-2">
         <button disabled={returningToClarify} onClick={actions.returnToClarify} className="flex items-center gap-1.5 rounded-lg border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/8 px-3 py-1.5 text-xs font-medium text-[var(--color-primary)] hover:bg-[var(--color-primary)]/15 disabled:opacity-50">
-          {returningToClarify ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BotMessageSquare className="h-3.5 w-3.5" />} 返回需求澄清
+          {returningToClarify ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BotMessageSquare className="h-3.5 w-3.5" />} 调整初始化规格
         </button>
         <button onClick={actions.startDevelopment} className="flex items-center gap-1.5 rounded-lg border border-green-500/30 bg-green-600/20 px-3 py-1.5 text-xs font-medium text-green-400 hover:bg-green-600/30">
           <Rocket className="h-3.5 w-3.5" /> 开始开发

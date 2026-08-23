@@ -18,14 +18,13 @@ import java.util.Optional;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -57,19 +56,19 @@ class PrdDevDocumentServiceTest {
                 PrdArtifactService.ArtifactMetadata.empty());
         verify(fixture.repo).updateDevDocQaDraft(eq("session"), anyString());
         verify(fixture.repo).updateDevDocHistory(eq("session"), anyString());
-        verify(fixture.repo).updateDevDocWorkStatus("session", "DONE", null);
+        verify(fixture.repo).updateDevDocWorkSnapshot(
+                eq("session"), eq("DONE"), eq(null), eq("执行计划已生成"), eq(null), anyLong());
     }
 
     @Test
-    void generateRejectsIncompleteClarificationBeforeChangingState() {
+    void generateDoesNotRequireLegacyClarificationGate() {
         Fixture fixture = fixture(session(null, null));
 
-        assertThatThrownBy(() -> fixture.service.generate(
-                "session", null, false, List.of(), false, false, mock(SseEmitter.class)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("请先完成 TDD 技术澄清，再生成开发文档");
+        fixture.service.generate(
+                "session", null, false, List.of(), false, true, mock(SseEmitter.class));
 
-        verify(fixture.repo, never()).updateDevDocWorkStatus(anyString(), anyString(), any());
+        verify(fixture.repo).updateDevDocWorkSnapshot(
+                eq("session"), eq("GENERATING"), eq(null), anyString(), eq(""), anyLong());
     }
 
     @Test
@@ -152,7 +151,8 @@ class PrdDevDocumentServiceTest {
         when(imageInputResolver.resolve(anyString())).thenReturn(List.of());
         return new Fixture(repo, fileStore, artifactService, runner,
                 new PrdDevDocumentService(repo, fileStore, artifactService, new ObjectMapper(),
-                        graphifyQuery, runner, imageInputResolver));
+                        graphifyQuery, runner, imageInputResolver,
+                        new PrdDevDocWorkProgressService(repo)));
     }
 
     private static PrdSession session(String devDocPath, String devDocHistory) {
@@ -163,7 +163,6 @@ class PrdDevDocumentServiceTest {
                 .module("PRD")
                 .model("gpt-5")
                 .engine("codex")
-                .documentProfile("CLASSIC")
                 .devDocPath(devDocPath)
                 .devDocHistory(devDocHistory)
                 .devDocGeneratedAt(400L)

@@ -80,7 +80,6 @@ export interface DeliveryRequirement {
   project: string
   module: string
   status: string
-  documentProfile: 'CLASSIC' | 'SPEC_DRIVEN'
   updatedAt: number
   links: {
     prd: string

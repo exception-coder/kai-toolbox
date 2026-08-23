@@ -62,7 +62,7 @@ public class PrdDocumentService {
             }
             PrdDocumentGenerationService.PrdGenerationRequest request =
                     new PrdDocumentGenerationService.PrdGenerationRequest(
-                            session, currentPrd, extraInstructions, update,
+                            session, currentPrd, readInitialSpec(session), extraInstructions, update,
                             normalizeEngine(session.getEngine()));
             String prdContent = documentGenerationService.generatePrd(request, delta -> {
                 if (continueOnDisconnect) {
@@ -110,6 +110,18 @@ public class PrdDocumentService {
         repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
         return fileStore.read(sessionId);
+    }
+
+    private String readInitialSpec(PrdSession session) {
+        if (session.getInitialSpecPath() == null || session.getInitialSpecPath().isBlank()) {
+            return "";
+        }
+        try {
+            return Files.readString(Path.of(session.getInitialSpecPath()));
+        } catch (IOException error) {
+            log.warn("[prd-clarify] 核心规格生成前读取初始化规格失败 sessionId={}", session.getId(), error);
+            return "";
+        }
     }
 
     /** 覆盖 PRD 前保留递增版本；备份失败只记录日志，不阻断本次写入。 */

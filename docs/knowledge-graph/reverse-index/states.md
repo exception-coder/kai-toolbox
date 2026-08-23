@@ -81,3 +81,30 @@
 | `UNKNOWN` | 适配器失败、存量空值、PRD 草稿镜像 | UI 待判定与保守评分 | 尚无可靠分类，不得猜测 |
 
 同时维护 `RequirementTypeSource`：`EXPLICIT`、`AI`、`PRD_SESSION`、`UNKNOWN`。新增或修改枚举时必须同步解析白名单、PRD 默认轮数、需求池 DDL/API、前端联合类型与评分测试。
+
+## ReqPlanningAssessmentStatus
+
+定义：`tools/tool-reqpool/src/main/java/com/exceptioncoder/toolbox/reqpool/service/ReqPlanningAssessmentService.java`
+
+| 状态 | 写入点 | 读取或决策点 | 含义 |
+|---|---|---|---|
+| `RUNNING` | `ReqPlanningAssessmentService#prepare` | 部分唯一索引、异步执行、前端轮询 | 运行已登记，模型输出尚未通过服务端契约 |
+| `COMPLETED` | Repository 条件完成更新 | 需求中枢规划展示、幂等复用 | 原始输出已保存，归一化工时可消费 |
+| `FAILED` | Repository 条件失败更新 | 失败说明与重试入口 | 模型调用或契约校验失败，不阻断核心规格 |
+
+状态只允许 `RUNNING -> COMPLETED/FAILED`；终结 SQL 必须保留 `WHERE status='RUNNING'`，新增状态时同步部分唯一索引、轮询、重试和统计口径。
+
+## PrdDiscoveryRunStatus / Stage
+
+定义：`tools/tool-prd-clarify/src/main/java/com/exceptioncoder/toolbox/prdclarify/service/PrdDiscoveryTaskService.java`
+
+| 状态或阶段 | 写入点 | 读取或决策点 | 含义 |
+|---|---|---|---|
+| `RUNNING` | 后台运行登记 | 部分唯一索引、启动恢复、前端轮询 | 任务已持久化且尚未终结 |
+| `COMPLETED` | 规格发布后条件更新 | 前端读取 `INITIAL_SPEC` | 完成性准则已通过且产物已发布 |
+| `FAILED` | 三轮失败或不可恢复异常 | 前端错误说明和重试 | 当前运行终结，不阻止登记新运行 |
+| `QUEUED/COLLECTING_EVIDENCE` | 登记、证据准备 | 进度展示 | 尚未调用 Vibe Coding |
+| `VIBE_EXECUTING/VALIDATING` | 每轮执行和服务端校验 | 尝试次数、缺口展示 | 最多三轮的生成与裁决阶段 |
+| `PUBLISHING` | 校验通过后 | 产物写入故障定位 | 正文已合格，正在发布初始化规格 |
+
+运行状态只允许 `RUNNING -> COMPLETED/FAILED`；终结 SQL 使用 `WHERE status='RUNNING'`。修改阶段或上限时同步 DDL、任务服务、运行 View、前端轮询和恢复测试。

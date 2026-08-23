@@ -60,3 +60,36 @@ CREATE TABLE IF NOT EXISTS req_pool_prd_exclusion (
     prd_session_id TEXT PRIMARY KEY,
     excluded_at    INTEGER NOT NULL
 );
+
+-- 初始化规格规划评估账本。保存输入快照、准则版本、模型原始结构化输出和代码归一化结果，
+-- 用于后续与交付复评及实际工时做稳定偏差评测。
+CREATE TABLE IF NOT EXISTS req_pool_planning_assessment (
+    id                 TEXT    PRIMARY KEY,
+    item_id            TEXT    NOT NULL,
+    prd_session_id     TEXT    NOT NULL,
+    input_hash         TEXT    NOT NULL,
+    input_snapshot     TEXT    NOT NULL,
+    evidence_trace_json TEXT,
+    criteria_version   TEXT    NOT NULL,
+    prompt_version     TEXT    NOT NULL,
+    status             TEXT    NOT NULL,
+    raw_output_json    TEXT,
+    payload_json       TEXT,
+    engine             TEXT    NOT NULL,
+    model              TEXT,
+    error_message      TEXT,
+    started_at         INTEGER NOT NULL,
+    completed_at       INTEGER,
+    created_at         INTEGER NOT NULL,
+    updated_at         INTEGER NOT NULL
+);
+
+ALTER TABLE req_pool_planning_assessment ADD COLUMN evidence_trace_json TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_req_planning_item_created
+    ON req_pool_planning_assessment(item_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_req_planning_session_created
+    ON req_pool_planning_assessment(prd_session_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_req_planning_active_input
+    ON req_pool_planning_assessment(prd_session_id, input_hash, criteria_version)
+    WHERE status IN ('RUNNING', 'COMPLETED');

@@ -102,7 +102,7 @@ export function EstimateEffortDialog({
         </div>
         <div className="p-5 space-y-3">
           <p className="text-xs text-[var(--color-muted-foreground)] leading-relaxed">
-            将基于当前 PRD + 开发文档内容，结合代码知识图谱（依赖广度/既有复杂度）和业务知识图谱（相关业务规则）给出工时区间估算，仅供参考。
+            将基于当前核心规格和执行计划，结合代码知识图谱（依赖广度/既有复杂度）与业务知识图谱（相关业务规则）给出工时区间估算，仅供参考。
           </p>
           <div>
             <label htmlFor="estimate-extra-context" className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">
@@ -184,7 +184,7 @@ export function EvaluateProgressDialog({
         </div>
         {step === 'confirm' && (
           <div className="p-5 space-y-3">
-            <p className="text-xs text-[var(--color-muted-foreground)] leading-relaxed">将基于当前 PRD + 开发文档，结合代码知识图谱核对代码库里实际能查到的实现，生成固定大纲的进度报告。每次评估按版本追加保存，不会覆盖之前的评估记录。</p>
+            <p className="text-xs text-[var(--color-muted-foreground)] leading-relaxed">将基于当前核心规格和执行计划，结合代码知识图谱核对代码库里实际能查到的实现，生成固定大纲的进度报告。每次评估按版本追加保存，不会覆盖之前的评估记录。</p>
             <div>
               <label htmlFor="progress-extra-context" className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">补充核对重点（可选）</label>
               <textarea id="progress-extra-context" value={extraContext} onChange={(event) => setExtraContext(event.target.value)} rows={3} placeholder="如：重点核对库存流水是否已写入、重点核对重复扫码幂等控制" className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-y focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]" />
@@ -198,7 +198,7 @@ export function EvaluateProgressDialog({
         )}
         {step === 'generating' && (
           <div className="flex-1 overflow-y-auto p-5">
-            <div className="flex items-center gap-2 mb-3 text-sm text-[var(--color-muted-foreground)]"><Loader2 className="w-4 h-4 animate-spin" /><span>Claude 正在核对 PRD / 开发文档 / 代码知识图谱…</span></div>
+            <div className="flex items-center gap-2 mb-3 text-sm text-[var(--color-muted-foreground)]"><Loader2 className="w-4 h-4 animate-spin" /><span>Claude 正在核对核心规格 / 执行计划 / 代码知识图谱…</span></div>
             <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--color-foreground)]">{streamText || <span className="italic text-[var(--color-muted-foreground)]">等待 Claude 响应…</span>}</div>
             <div ref={endRef} />
           </div>

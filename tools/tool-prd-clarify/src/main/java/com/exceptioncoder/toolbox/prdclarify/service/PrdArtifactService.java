@@ -97,6 +97,7 @@ public class PrdArtifactService {
         String canonicalPath = fileStore.canonicalPathFor(sessionId, type).toString();
         long generatedAt = System.currentTimeMillis();
         switch (type) {
+            case INITIAL_SPEC -> sessionRepository.updateInitialSpecReady(sessionId, canonicalPath);
             case PRD -> sessionRepository.updateDone(sessionId, canonicalPath);
             case DEV_DOC -> {
                 sessionRepository.updateDevDocPath(sessionId, canonicalPath);

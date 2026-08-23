@@ -5,7 +5,6 @@ import com.exceptioncoder.toolbox.llm.spi.LocalProjectResolver;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryClaimLedgerService;
 import com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryEvidenceVerifier;
-import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifact;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdPromptDefinition;
@@ -230,23 +229,18 @@ public class PrdProgressEvaluationService {
             LocalProjectResolver.ProjectLocation projectLocation) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("需求标题：").append(session.getTitle()).append("\n");
-        prompt.append("文档模式：").append(DocumentProfile.normalize(session.getDocumentProfile())).append("\n");
         appendProject(prompt, session);
         if (session.getRawInput() != null && !session.getRawInput().isBlank()) {
             prompt.append("\n【原始需求输入】（包含 URL 时必须传给 source_context）\n")
                     .append(session.getRawInput()).append("\n");
         }
-        boolean specDriven = isSpecDriven(session);
-        prompt.append("\n【").append(specDriven ? "核心规格" : "PRD").append("内容】\n")
+        prompt.append("\n【核心规格内容】\n")
                 .append(prdContent == null ? "" : prdContent).append("\n");
-        prompt.append("\n【").append(specDriven ? "执行计划" : "最新 TDD / 开发文档")
-                .append("内容】（技术方案基准，逐项核对是否已落地）\n")
+        prompt.append("\n【执行计划内容】（技术方案基准，逐项核对是否已落地）\n")
                 .append(devDocContent).append("\n");
-        if (specDriven) {
-            prompt.append("\n【规格驱动评估要求】\n按 REQ/RULE/SCN/AC 与 PLAN ID 建立追踪关系，")
-                    .append("每个完成、部分完成或缺失结论必须引用源码或测试证据；")
-                    .append("无法映射稳定 ID 的实现列为规格漂移，不得直接计为完成。\n");
-        }
+        prompt.append("\n【规格驱动评估要求】\n按 REQ/RULE/SCN/AC 与 PLAN ID 建立追踪关系，")
+                .append("每个完成、部分完成或缺失结论必须引用源码或测试证据；")
+                .append("无法映射稳定 ID 的实现列为规格漂移，不得直接计为完成。\n");
         appendEffortBaseline(prompt, effortBaselineJson);
         if (extraContext != null && !extraContext.isBlank()) {
             prompt.append("\n【补充上下文】\n").append(extraContext.trim()).append("\n");
@@ -361,10 +355,6 @@ public class PrdProgressEvaluationService {
     private static boolean isRevision(PrdSession session) {
         String rawInput = session.getRawInput();
         return rawInput != null && (rawInput.startsWith("【后台自动修订") || rawInput.startsWith("【修订版 PRD"));
-    }
-
-    private static boolean isSpecDriven(PrdSession session) {
-        return DocumentProfile.SPEC_DRIVEN.name().equals(DocumentProfile.normalize(session.getDocumentProfile()));
     }
 
     private String readDevDocContent(PrdSession session) throws IOException {

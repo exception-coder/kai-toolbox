@@ -2,8 +2,9 @@ package com.exceptioncoder.toolbox.prdclarify.repository;
 
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
-import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,11 +39,13 @@ public class PrdSessionRepository {
             .prdQuestionsGeneratedAt(rs.getObject("prd_questions_generated_at") == null ? null : rs.getLong("prd_questions_generated_at"))
             .prdGeneratedAt(rs.getObject("prd_generated_at") == null ? null : rs.getLong("prd_generated_at"))
             .status(rs.getString("status"))
+            .initialSpecPath(rs.getString("initial_spec_path"))
+            .sourceReqItemId(rs.getString("source_req_item_id"))
+            .creationKey(rs.getString("creation_key"))
             .role(rs.getString("role"))
             .reqType(rs.getString("req_type"))
             .maxQuestions(rs.getInt("max_questions"))
             .clarifyMode(rs.getString("clarify_mode"))
-            .documentProfile(DocumentProfile.normalize(rs.getString("document_profile")))
             .mdPath(rs.getString("md_path"))
             .devDocPath(rs.getString("dev_doc_path"))
             .devSessionId(rs.getString("dev_session_id"))
@@ -52,6 +55,10 @@ public class PrdSessionRepository {
             .devDocQaDraft(rs.getString("dev_doc_qa_draft"))
             .devDocWorkStatus(rs.getString("dev_doc_work_status"))
             .devDocWorkError(rs.getString("dev_doc_work_error"))
+            .devDocWorkProgress(rs.getString("dev_doc_work_progress"))
+            .devDocWorkContent(rs.getString("dev_doc_work_content"))
+            .devDocWorkUpdatedAt(rs.getObject("dev_doc_work_updated_at") == null
+                    ? null : rs.getLong("dev_doc_work_updated_at"))
             .devDocEstimation(rs.getString("dev_doc_estimation"))
             .progressPath(rs.getString("progress_path"))
             .progressGeneratedAt(rs.getObject("progress_generated_at") == null ? null : rs.getLong("progress_generated_at"))
@@ -75,17 +82,38 @@ public class PrdSessionRepository {
         jdbc.update(
                 "INSERT INTO prd_session (id, title, project, module, raw_input, requirement_detail, business_background, " +
                 "business_requirement_type, requirement_software, initiating_department, requester, requested_at, " +
-                "source_attachments, follow_up_records, questions, status, role, req_type, max_questions, clarify_mode, document_profile, " +
-                "md_path, model, engine, error_msg, created_by_user_id, parent_id, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "source_attachments, follow_up_records, questions, status, role, req_type, max_questions, clarify_mode, " +
+                "md_path, model, engine, error_msg, created_by_user_id, parent_id, source_req_item_id, creation_key, " +
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " +
+                "?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
                 s.getRawInput(), s.getRequirementDetail(), s.getBusinessBackground(),
                 s.getBusinessRequirementType(), s.getRequirementSoftware(), s.getInitiatingDepartment(),
                 s.getRequester(), s.getRequestedAt(), s.getAttachments(), s.getFollowUpRecords(),
                 s.getQuestions(), s.getStatus(), s.getRole(),
-                s.getReqType(), s.getMaxQuestions(), s.getClarifyMode(), DocumentProfile.normalize(s.getDocumentProfile()),
+                s.getReqType(), s.getMaxQuestions(), s.getClarifyMode(),
                 s.getMdPath(), s.getModel(), s.getEngine(), s.getErrorMsg(), s.getCreatedByUserId(),
-                s.getParentId(), s.getCreatedAt(), s.getUpdatedAt());
+                s.getParentId(), s.getSourceReqItemId(), s.getCreationKey(), s.getCreatedAt(), s.getUpdatedAt());
+    }
+
+    /** 由 creation_key 唯一索引裁决并发；冲突请求读取首次插入的会话。 */
+    public PrdSession insertIdempotent(PrdSession session) {
+        if (session.getCreationKey() == null) {
+            insert(session);
+            return session;
+        }
+        try {
+            insert(session);
+            return session;
+        } catch (DuplicateKeyException error) {
+            return findByCreationKey(session.getCreationKey()).orElseThrow(() -> error);
+        }
+    }
+
+    public Optional<PrdSession> findByCreationKey(String creationKey) {
+        List<PrdSession> rows = jdbc.query(
+                "SELECT * FROM prd_session WHERE creation_key = ? LIMIT 1", ROW, creationKey);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
     }
 
     public Optional<PrdSession> findById(String id) {
@@ -183,6 +211,13 @@ public class PrdSessionRepository {
                 mdPath, now, now, id);
     }
 
+    /** 记录初始化规格兼容路径，并进入用户审阅阶段。 */
+    public void updateInitialSpecReady(String id, String initialSpecPath) {
+        jdbc.update("UPDATE prd_session SET initial_spec_path = ?, status = 'SPEC_REVIEW', "
+                        + "error_msg = NULL, updated_at = ? WHERE id = ?",
+                initialSpecPath, System.currentTimeMillis(), id);
+    }
+
     /**
      * 更新开发文档路径（开发文档生成完成时调用）。
      *
@@ -239,6 +274,24 @@ public class PrdSessionRepository {
     public void updateDevDocWorkStatus(String id, String status, String error) {
         jdbc.update("UPDATE prd_session SET dev_doc_work_status = ?, dev_doc_work_error = ? WHERE id = ?",
                 status, error, id);
+    }
+
+    /**
+     * 保存执行计划后台任务快照，不修改核心规格的 {@code updated_at} 新旧语义。
+     */
+    public void updateDevDocWorkSnapshot(String id, String status, String error, String progress,
+                                         String content, long workUpdatedAt) {
+        jdbc.update("UPDATE prd_session SET dev_doc_work_status = ?, dev_doc_work_error = ?, "
+                        + "dev_doc_work_progress = ?, dev_doc_work_content = ?, dev_doc_work_updated_at = ? WHERE id = ?",
+                status, error, progress, content, workUpdatedAt, id);
+    }
+
+    /** 将进程重启前遗留的运行态收敛为可重试失败态，保留已生成的临时正文。 */
+    public int failInterruptedDevDocWork(String error, long workUpdatedAt) {
+        return jdbc.update("UPDATE prd_session SET dev_doc_work_status = 'ERROR', dev_doc_work_error = ?, "
+                        + "dev_doc_work_progress = '执行计划生成已中断', dev_doc_work_updated_at = ? "
+                        + "WHERE dev_doc_work_status = 'GENERATING'",
+                error, workUpdatedAt);
     }
 
     public void updateDevDocQuestionsGeneratedAt(String id, Long generatedAt) {
@@ -337,16 +390,16 @@ public class PrdSessionRepository {
      * 不存在"内容变了但不该影响过期判断"的顾虑，touch updated_at 只是如实反映"草稿最后编辑时间"。</p>
      */
     public void updateDraftFields(String id, String title, String rawInput, String project, String module,
-                                  PrdBusinessFields fields, String documentProfile) {
+                                  PrdBusinessFields fields) {
         PrdBusinessFields value = fields == null ? PrdBusinessFields.empty() : fields;
         jdbc.update("UPDATE prd_session SET title = ?, raw_input = ?, project = ?, module = ?, " +
                         "requirement_detail = ?, business_background = ?, business_requirement_type = ?, " +
                         "requirement_software = ?, initiating_department = ?, requester = ?, requested_at = ?, " +
-                        "source_attachments = ?, follow_up_records = ?, document_profile = ?, updated_at = ? WHERE id = ?",
+                        "source_attachments = ?, follow_up_records = ?, updated_at = ? WHERE id = ?",
                 title, rawInput, project, module,
                 value.requirementDetail(), value.businessBackground(), value.businessRequirementType(),
                 value.requirementSoftware(), value.initiatingDepartment(), value.requester(), value.requestedAt(),
-                value.attachments(), value.followUpRecords(), DocumentProfile.normalize(documentProfile),
+                value.attachments(), value.followUpRecords(),
                 System.currentTimeMillis(), id);
     }
 
@@ -358,17 +411,17 @@ public class PrdSessionRepository {
      */
     public void startClarifyFromDraft(String id, String title, String rawInput, String project, String module,
                                        String model, String engine, String role, String reqType, int maxQuestions,
-                                       String clarifyMode, PrdBusinessFields fields, String documentProfile) {
+                                       String clarifyMode, PrdBusinessFields fields) {
         PrdBusinessFields value = fields == null ? PrdBusinessFields.empty() : fields;
         jdbc.update("UPDATE prd_session SET title = ?, raw_input = ?, project = ?, module = ?, model = ?, engine = ?, " +
                         "role = ?, req_type = ?, max_questions = ?, clarify_mode = ?, requirement_detail = ?, " +
                         "business_background = ?, business_requirement_type = ?, requirement_software = ?, " +
                         "initiating_department = ?, requester = ?, requested_at = ?, source_attachments = ?, " +
-                        "follow_up_records = ?, document_profile = ?, status = 'CLARIFYING', updated_at = ? WHERE id = ?",
+                        "follow_up_records = ?, status = 'DISCOVERING', updated_at = ? WHERE id = ?",
                 title, rawInput, project, module, model, engine, role, reqType, maxQuestions, clarifyMode,
                 value.requirementDetail(), value.businessBackground(), value.businessRequirementType(),
                 value.requirementSoftware(), value.initiatingDepartment(), value.requester(), value.requestedAt(),
-                value.attachments(), value.followUpRecords(), DocumentProfile.normalize(documentProfile),
+                value.attachments(), value.followUpRecords(),
                 System.currentTimeMillis(), id);
     }
 
@@ -383,7 +436,11 @@ public class PrdSessionRepository {
                 errorMsg, System.currentTimeMillis(), id);
     }
 
+    @Transactional
     public void delete(String id) {
+        jdbc.update("DELETE FROM prd_artifact WHERE session_id = ?", id);
+        jdbc.update("DELETE FROM prd_ai_run WHERE session_id = ?", id);
+        jdbc.update("UPDATE prd_session SET parent_id = NULL WHERE parent_id = ?", id);
         jdbc.update("DELETE FROM prd_session WHERE id = ?", id);
     }
 

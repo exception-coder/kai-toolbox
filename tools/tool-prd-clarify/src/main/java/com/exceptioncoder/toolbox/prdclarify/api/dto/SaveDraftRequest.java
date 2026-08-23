@@ -18,7 +18,6 @@ public record SaveDraftRequest(
         String rawInput,
         String project,
         String module,
-        PrdBusinessFields businessFields,
-        String documentProfile
+        PrdBusinessFields businessFields
 ) {
 }

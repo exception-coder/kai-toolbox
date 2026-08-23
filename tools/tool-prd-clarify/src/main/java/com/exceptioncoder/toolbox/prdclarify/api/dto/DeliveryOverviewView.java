@@ -54,7 +54,6 @@ public record DeliveryOverviewView(
             String project,
             String module,
             String status,
-            String documentProfile,
             long updatedAt,
             RequirementLinksView links,
             StageSetView stages,

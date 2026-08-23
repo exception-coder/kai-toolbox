@@ -61,6 +61,7 @@ function TreeRow({ node, expanded, toggle, currentPath, onSelect }: TreeRowProps
       <>
         <button
           type="button"
+          title={node.name}
           onClick={() => toggle(node.path)}
           style={{ paddingLeft: indentPx + 4 }}
           className={
@@ -100,6 +101,7 @@ function TreeRow({ node, expanded, toggle, currentPath, onSelect }: TreeRowProps
   return (
     <button
       type="button"
+      title={node.name}
       onClick={() => onSelect(node.path)}
       style={{ paddingLeft: indentPx + 4 + 12 }}
       className={

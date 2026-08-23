@@ -35,6 +35,7 @@ public record CreateSessionRequest(
         String clarifyMode,
         PrdBusinessFields businessFields,
         String parentId,
-        String documentProfile
+        String sourceReqItemId,
+        @Size(max = 100) String creationKey
 ) {
 }

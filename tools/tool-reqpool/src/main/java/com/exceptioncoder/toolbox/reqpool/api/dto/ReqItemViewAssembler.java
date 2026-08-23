@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.reqpool.domain.ReqInsightStatus;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqInsightType;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqInsightRepository;
+import com.exceptioncoder.toolbox.reqpool.repository.ReqPlanningAssessmentRepository;
 import com.exceptioncoder.toolbox.reqpool.service.ReqInsightFingerprint;
 import org.springframework.stereotype.Component;
 
@@ -17,23 +18,29 @@ public class ReqItemViewAssembler {
 
     private final ReqInsightRepository insightRepository;
     private final ReqInsightFingerprint fingerprint;
+    private final ReqPlanningAssessmentRepository planningAssessmentRepository;
 
     public ReqItemViewAssembler(
             ReqInsightRepository insightRepository,
-            ReqInsightFingerprint fingerprint
+            ReqInsightFingerprint fingerprint,
+            ReqPlanningAssessmentRepository planningAssessmentRepository
     ) {
         this.insightRepository = insightRepository;
         this.fingerprint = fingerprint;
+        this.planningAssessmentRepository = planningAssessmentRepository;
     }
 
     public List<ReqItemView> fromAll(List<ReqItem> items, List<ReqItem> currentPortfolioItems) {
         Map<String, ReqInsight> latestByItemId = insightRepository.findLatestByItemIds(
                 items.stream().map(ReqItem::getId).toList());
         String currentPortfolioHash = fingerprint.portfolioSetHash(currentPortfolioItems);
+        Map<String, com.exceptioncoder.toolbox.reqpool.domain.ReqPlanningAssessment> planningByItemId =
+                planningAssessmentRepository.findLatestByItemIds(items.stream().map(ReqItem::getId).toList());
         return items.stream()
                 .map(item -> ReqItemView.from(
                         item,
-                        statusOf(item, latestByItemId.get(item.getId()), currentPortfolioHash)))
+                        statusOf(item, latestByItemId.get(item.getId()), currentPortfolioHash),
+                        ReqPlanningAssessmentView.from(planningByItemId.get(item.getId()))))
                 .toList();
     }
 

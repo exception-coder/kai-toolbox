@@ -19,25 +19,25 @@ export function ReviseDialog({
   const [engine, setEngine] = useState<ClarifyEngine>(original.engine === 'codex' ? 'codex' : 'claude')
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl overflow-hidden">
+      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-xl">
         {/* 头部 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
-            <GitBranch className="w-4 h-4 text-amber-500" />
-            <span className="font-semibold text-sm">生成修订版</span>
+            <GitBranch className="w-4 h-4 text-[var(--color-primary)]" />
+            <span className="font-semibold text-sm">重新探索修订版</span>
           </div>
           <button onClick={onClose}><X className="w-4 h-4 text-[var(--color-muted-foreground)]" /></button>
         </div>
         {/* 原版信息 */}
-        <div className="px-5 py-3 bg-amber-500/5 border-b border-[var(--color-border)]">
+        <div className="border-b border-[var(--color-border)] bg-[var(--color-muted)]/20 px-5 py-3">
           <div className="flex items-center gap-2 text-xs text-[var(--color-muted-foreground)]">
             <FileText className="w-3.5 h-3.5" />
             <span>基于：</span>
             <span className="font-medium text-[var(--color-foreground)] truncate">{original.title}</span>
           </div>
           <p className="text-[11px] text-[var(--color-muted-foreground)] mt-1.5 leading-relaxed">
-            将基于原 PRD 内容，重新进行 AI 渐进澄清，生成新版本。
-            原版内容会作为上下文提供给所选引擎，告知这是修订而非全新需求。
+            将基于原核心规格重新探索并生成初始化规格，确认后形成新版本。
+            需要需求方判定的事项会写入规格，不会进入逐题问答。
           </p>
         </div>
         {/* 修订说明 */}
@@ -53,7 +53,7 @@ export function ReviseDialog({
 · 增加了多收货地址功能
 · 调整了审批流程：去掉二级审批
 · 修正了某业务规则"
-            className="w-full px-3 py-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-none focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+            className="w-full resize-none rounded-lg border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
           />
           <div className="mt-4">
             <label className="block text-sm font-medium mb-2">执行引擎</label>
@@ -65,7 +65,7 @@ export function ReviseDialog({
                   onClick={() => setEngine(value)}
                   className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                     engine === value
-                      ? 'border-amber-500/50 bg-amber-500/10 text-amber-500'
+                      ? 'border-[var(--color-primary)]/50 bg-[var(--color-primary)]/8 text-[var(--color-primary)]'
                       : 'border-[var(--color-border)] text-[var(--color-foreground)] hover:bg-[var(--color-muted)]/30'
                   }`}
                 >
@@ -86,10 +86,10 @@ export function ReviseDialog({
           </button>
           <button
             onClick={() => onConfirm(changeDesc, engine)}
-            className="flex items-center gap-2 px-5 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-400"
+            className="flex items-center gap-2 rounded-lg bg-[var(--color-primary)] px-5 py-2 text-sm font-medium text-[var(--color-primary-foreground)] hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
           >
             <GitBranch className="w-3.5 h-3.5" />
-            开始修订澄清
+            开始重新探索
           </button>
         </div>
       </div>
@@ -294,7 +294,7 @@ export function ChangeGroupDialog({
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
             <FolderOpen className="w-4 h-4 text-blue-500" />
-            <span className="font-semibold text-sm">修改 PRD 分组</span>
+            <span className="font-semibold text-sm">修改规格分组</span>
           </div>
           <button type="button" onClick={onClose}>
             <X className="w-4 h-4 text-[var(--color-muted-foreground)]" />
@@ -303,7 +303,7 @@ export function ChangeGroupDialog({
 
         <div className="px-5 py-4 space-y-3">
           <div className="text-xs text-[var(--color-muted-foreground)]">
-            <span>当前 PRD：</span>
+            <span>当前规格：</span>
             <span className="font-medium text-[var(--color-foreground)]">{session.title}</span>
           </div>
           <div>

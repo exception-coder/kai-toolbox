@@ -52,10 +52,9 @@ class PrdDocRevisionServiceTest {
         assertThat(revision)
                 .extracting(PrdSession::getProject, PrdSession::getModule, PrdSession::getStatus,
                         PrdSession::getRole, PrdSession::getReqType, PrdSession::getClarifyMode,
-                        PrdSession::getDocumentProfile, PrdSession::getCreatedByUserId,
-                        PrdSession::getParentId)
+                        PrdSession::getCreatedByUserId, PrdSession::getParentId)
                 .containsExactly("kai-toolbox", "PRD", "DONE", "PRODUCT", "NEW_MODULE",
-                        "progressive", "CLASSIC", 42L, "parent");
+                        "progressive", 42L, "parent");
         assertThat(revision.getCreatedAt()).isEqualTo(revision.getUpdatedAt());
         verify(fixture.artifactService).write(revision.getId(), PrdArtifactType.PRD, "latest-prd",
                 PrdArtifactService.ArtifactMetadata.empty());
@@ -172,7 +171,6 @@ class PrdDocRevisionServiceTest {
                 .clarifyMode("progressive")
                 .model("gpt-5")
                 .engine("codex")
-                .documentProfile("CLASSIC")
                 .createdByUserId(42L)
                 .devDocEstimation("{\"hoursMin\":2}")
                 .build();

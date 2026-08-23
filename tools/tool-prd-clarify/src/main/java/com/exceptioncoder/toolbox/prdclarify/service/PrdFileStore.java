@@ -17,6 +17,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.Comparator;
 import java.util.stream.Stream;
 
 /**
@@ -120,9 +121,23 @@ public class PrdFileStore {
         return Files.readString(path, StandardCharsets.UTF_8);
     }
 
-    /** 删除文件；不存在时静默忽略。 */
+    /** 删除会话的兼容主文件和不可变产物目录；不存在时静默忽略。 */
     public void delete(String sessionId) throws IOException {
-        Files.deleteIfExists(pathFor(sessionId));
+        for (PrdArtifactType type : PrdArtifactType.values()) {
+            Files.deleteIfExists(canonicalPathFor(sessionId, type));
+        }
+        Path artifactBase = resolveRelative(".artifacts");
+        Path sessionArtifacts = resolveRelative(".artifacts/" + sessionId);
+        if (!sessionArtifacts.startsWith(artifactBase) || sessionArtifacts.equals(artifactBase)) {
+            throw new IOException("拒绝删除越界的规格产物目录");
+        }
+        if (Files.isDirectory(sessionArtifacts)) {
+            try (Stream<Path> paths = Files.walk(sessionArtifacts)) {
+                for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                    Files.deleteIfExists(path);
+                }
+            }
+        }
     }
 
     private StoredFile inspectRequired(String relativePath) throws IOException {

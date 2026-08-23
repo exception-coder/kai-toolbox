@@ -5,6 +5,9 @@ import java.util.Locale;
 /** PRD 会话可生成的持久化产物类型。 */
 public enum PrdArtifactType {
 
+    /** 探索阶段生成、供用户审阅的初始化规格。 */
+    INITIAL_SPEC("-initial-spec"),
+
     /** 产品需求文档。 */
     PRD(""),
 

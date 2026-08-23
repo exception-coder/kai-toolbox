@@ -4,6 +4,7 @@ import type {
   CreateSessionRequest,
   DevDocVersionSummary,
   PrdSessionView,
+  PrdDiscoveryRunView,
   ProgressVersionSummary,
   SaveContentRequest,
   SaveDraftRequest,
@@ -43,14 +44,14 @@ export const updateDraft = (id: string, req: SaveDraftRequest) =>
     body: JSON.stringify(req),
   })
 
-/** 草稿转正式：原地把 DRAFT 会话切到 CLARIFYING（不新建记录）。 */
+/** 草稿转正式：保留后端兼容状态，由前端立即发起规格探索（不新建记录）。 */
 export const startClarifyFromDraft = (id: string, req: CreateSessionRequest) =>
   http<PrdSessionView>(`${BASE}/sessions/${id}/start-from-draft`, {
     method: 'POST',
     body: JSON.stringify(req),
   })
 
-/** 已进入生成/编辑阶段后回退到需求澄清；保留现有 PRD 文件和已保存问答。 */
+/** 已进入生成/编辑阶段后回到初始化规格；无初始化规格时重新发起后台探索。 */
 export const returnToClarify = (id: string) =>
   http<PrdSessionView>(`${BASE}/sessions/${id}/return-to-clarify`, { method: 'POST' })
 
@@ -88,6 +89,32 @@ export const updateSessionProject = (id: string, project: string) =>
     method: 'PUT',
     body: JSON.stringify({ project }),
   })
+
+/** 登记后台探索，立即返回可轮询的运行。 */
+export const startDiscovery = (id: string) =>
+  http<PrdDiscoveryRunView>(`${BASE}/sessions/${id}/discover`, { method: 'POST' })
+
+/** 查询最近一次后台探索进度。 */
+export const getDiscoveryRun = (id: string) =>
+  http<PrdDiscoveryRunView>(`${BASE}/sessions/${id}/discovery-run`)
+
+/** 读取当前初始化规格。 */
+export const getInitialSpecContent = async (id: string): Promise<string> => {
+  const res = await authFetch(`${BASE}/sessions/${id}/initial-spec`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.text()
+}
+
+/** 保存用户审阅后的初始化规格。 */
+export const saveInitialSpecContent = (id: string, content: string) =>
+  http<void>(`${BASE}/sessions/${id}/initial-spec`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  })
+
+/** 确认初始化规格，进入核心规格生成。 */
+export const confirmInitialSpec = (id: string) =>
+  http<PrdSessionView>(`${BASE}/sessions/${id}/initial-spec/confirm`, { method: 'POST' })
 
 /** 提交用户对澄清问题的答案。 */
 export const submitAnswers = (id: string, req: SubmitAnswersRequest) =>
@@ -157,8 +184,8 @@ export const startGenerate = (
  * extraInstructions：用户在确认弹框里补充的自定义提示词/更新说明（可选）。
  * updateExisting：true = 基于当前已有开发文档做增量更新（覆盖前自动备份旧版本），
  *                 false/undefined = 从 PRD 从零生成/覆盖（原有行为）。
- * qaHistory：本次 TDD 生成/更新前的技术澄清问答，跟 PRD 业务澄清记录分开存。
- * clarificationCompleted：必须为 true；即使 AI 判断无需追问，也表示已走完 TDD 澄清关卡。
+ * qaHistory：仅用于兼容历史 TDD 技术问答；新流程传空数组。
+ * clarificationCompleted：兼容门禁字段，新流程提交生成时直接传 true。
  */
 export const startGenerateDevDoc = (
   id: string,
@@ -561,7 +588,7 @@ export const askNextDevDocQuestion = (
     handlers,
   )
 
-/** TDD 生成/更新前一次性生成全部技术澄清问题。 */
+/** 历史兼容：生成 TDD 技术问题；新流程不得调用。 */
 export const generateDevDocQuestions = (
   sessionId: string,
   updateNotes: string,

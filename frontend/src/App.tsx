@@ -1,4 +1,4 @@
-import { Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from '@/shell/AppShell'
 import { ShowcaseLayout } from '@/shell/ShowcaseLayout'
@@ -7,11 +7,12 @@ import { features } from '@/shell/featureRegistry'
 import { RouteGuard } from '@/components/auth/RouteGuard'
 import { SessionExpiredGate } from '@/components/auth/SessionExpiredGate'
 import { ChatRuntimeProvider } from '@/features/claude-chat/runtime/ChatRuntimeContext'
-import { FloatingChatWindow } from '@/features/claude-chat/components/FloatingChatWindow'
-import { GlobalPendingQuestionModal } from '@/features/claude-chat/components/GlobalPendingQuestionModal'
-import { VoiceModeView } from '@/features/claude-chat/components/voice/VoiceModeView'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { AssistantBridge } from '@/assistant-sdk/AssistantBridge'
+
+const FloatingChatWindow = lazy(() => import('@/features/claude-chat/components/FloatingChatWindow').then(m => ({ default: m.FloatingChatWindow })))
+const GlobalPendingQuestionModal = lazy(() => import('@/features/claude-chat/components/GlobalPendingQuestionModal').then(m => ({ default: m.GlobalPendingQuestionModal })))
+const VoiceModeView = lazy(() => import('@/features/claude-chat/components/voice/VoiceModeView').then(m => ({ default: m.VoiceModeView })))
+const AssistantBridge = lazy(() => import('@/assistant-sdk/AssistantBridge').then(m => ({ default: m.AssistantBridge })))
 
 // 按布局把 feature 分两支：'showcase' 走全屏展示外壳（脱离 AppShell、公开免鉴权），
 // 其余默认 'tool' 走 AppShell（Sidebar + TopBar）。Suspense 各自在对应外壳里。
@@ -55,10 +56,12 @@ export default function App() {
       </Route>
     </Routes>
     {/* 悬浮窗/语音层/跨会话答题弹窗各自兜底：它们跨模块常驻，若自身崩溃也不能拖垮整个应用 */}
-    <ErrorBoundary label="floating-chat" compact><FloatingChatWindow /></ErrorBoundary>
-    <ErrorBoundary label="voice-mode" compact><VoiceModeView /></ErrorBoundary>
-    <ErrorBoundary label="pending-question" compact><GlobalPendingQuestionModal /></ErrorBoundary>
-    <ErrorBoundary label="assistant-bridge" compact><AssistantBridge /></ErrorBoundary>
+    <Suspense fallback={null}>
+      <ErrorBoundary label="floating-chat" compact><FloatingChatWindow /></ErrorBoundary>
+      <ErrorBoundary label="voice-mode" compact><VoiceModeView /></ErrorBoundary>
+      <ErrorBoundary label="pending-question" compact><GlobalPendingQuestionModal /></ErrorBoundary>
+      <ErrorBoundary label="assistant-bridge" compact><AssistantBridge /></ErrorBoundary>
+    </Suspense>
     <SessionExpiredGate />
     </ChatRuntimeProvider>
   )

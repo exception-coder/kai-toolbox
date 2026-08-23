@@ -23,8 +23,9 @@ class DomainKnowledgeQueryServiceTest {
         Path dist = Files.createDirectories(repo.resolve("dist"));
         Files.writeString(repo.resolve("package.json"), "{\"type\":\"module\"}");
         Files.writeString(dist.resolve("knowledge.js"), """
-                export const search = ({ project, query }) => [{
-                  id: 'rule-1', type: 'flow', title: query, project, module: 'checkout'
+                export const search = ({ project, module, query }) => [{
+                  id: 'rule-' + (module || 'all'), type: 'flow', title: query, project,
+                  module: module || 'project-wide'
                 }];
                 export const get = () => ({ content: 'Knowledge body' });
                 """);
@@ -36,11 +37,37 @@ class DomainKnowledgeQueryServiceTest {
         DomainKnowledgeQueryService service =
                 new DomainKnowledgeQueryService(props, environment, new ObjectMapper());
 
-        String result = service.query("demo-project", "payment flow");
+        String result = service.query("demo-project", "checkout", "payment flow");
 
         assertThat(result)
                 .contains("### [flow] payment flow (demo-project/checkout)")
                 .contains("Knowledge body");
+    }
+
+    @Test
+    void shouldFallBackToProjectKnowledgeWhenModuleHasNoHit(@TempDir Path tempDir) throws Exception {
+        Assumptions.assumeTrue(nodeIsAvailable(), "Node.js is required for this integration test");
+
+        Path repo = Files.createDirectories(tempDir.resolve("domain-knowledge"));
+        Path dist = Files.createDirectories(repo.resolve("dist"));
+        Files.writeString(repo.resolve("package.json"), "{\"type\":\"module\"}");
+        Files.writeString(dist.resolve("knowledge.js"), """
+                export const search = ({ project, module, query }) => module ? [] : [{
+                  id: 'project-rule', type: 'rule', title: query, project, module: null
+                }];
+                export const get = () => ({ content: 'Project fallback' });
+                """);
+
+        DomainKnowledgeQueryProperties props = new DomainKnowledgeQueryProperties();
+        props.setTimeoutSeconds(10);
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("toolbox.knowledge-graph.domain-knowledge-repo-path", repo.toString());
+        DomainKnowledgeQueryService service =
+                new DomainKnowledgeQueryService(props, environment, new ObjectMapper());
+
+        String result = service.query("demo-project", "unknown-module", "payment flow");
+
+        assertThat(result).contains("Project fallback");
     }
 
     private static boolean nodeIsAvailable() {

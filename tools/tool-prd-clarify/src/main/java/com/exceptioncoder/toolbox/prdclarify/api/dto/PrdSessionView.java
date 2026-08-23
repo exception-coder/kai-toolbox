@@ -2,7 +2,6 @@ package com.exceptioncoder.toolbox.prdclarify.api.dto;
 
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
-import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.service.EstimationEvidenceFingerprint;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,7 +18,7 @@ import java.util.List;
  * @param title     需求标题
  * @param project   关联项目名
  * @param module    关联模块名
- * @param status    状态：DRAFT | CLARIFYING | GENERATING | DONE | ERROR
+ * @param status    状态：DRAFT | DISCOVERING | SPEC_REVIEW | CLARIFYING | GENERATING | DONE | ERROR
  * @param questions 澄清问题列表（含用户答案），未生成时为空列表
  * @param mdPath    PRD 文件路径（仅 DONE 状态下有值）
  * @param errorMsg  错误信息（仅 ERROR 状态下有值）
@@ -32,8 +31,6 @@ public record PrdSessionView(
         String project,
         String module,
         String status,
-        String documentProfile,
-        boolean documentProfileLocked,
         String engine,
         String role,
         /** 需求类型：BUG_FIX | MODULE_ADJUST | NEW_MODULE，决定澄清问题重点和生成文档结构。 */
@@ -51,6 +48,8 @@ public record PrdSessionView(
         Long prdQuestionsGeneratedAt,
         /** 最近一次 PRD 文档生成完成时间（毫秒）。 */
         Long prdGeneratedAt,
+        /** 初始化规格兼容主文件路径。 */
+        String initialSpecPath,
         String mdPath,
         /** 开发文档路径（非 null 表示已生成开发文档）。 */
         String devDocPath,
@@ -70,6 +69,12 @@ public record PrdSessionView(
         /** TDD 点按作业状态：BUILDING_QUESTIONS | AWAITING_ANSWERS | GENERATING | ERROR | DONE。 */
         String devDocWorkStatus,
         String devDocWorkError,
+        /** 执行计划后台生成的当前阶段提示。 */
+        String devDocWorkProgress,
+        /** 尚未落为正式产物的 Markdown 增量快照。 */
+        String devDocWorkContent,
+        /** 最近一次执行计划进度落库时间（毫秒）。 */
+        Long devDocWorkUpdatedAt,
         /** AI 工时评估结果，尚未评估过时为 null。见 {@link DevDocEstimationView} 各字段说明。 */
         DevDocEstimationView devDocEstimation,
         /** 进度评估文档路径（非 null 表示评估过至少一次）。 */
@@ -153,8 +158,7 @@ public record PrdSessionView(
     public static PrdSessionView from(PrdSession s, String createdByUsername) {
         return new PrdSessionView(
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
-                s.getStatus(), DocumentProfile.normalize(s.getDocumentProfile()),
-                s.getMdPath() != null && !s.getMdPath().isBlank(),
+                s.getStatus(),
                 s.getEngine() == null ? null
                         : ("codex".equalsIgnoreCase(s.getEngine()) ? "codex" : "claude"),
                 s.getRole() != null ? s.getRole() : "PRODUCT",
@@ -167,11 +171,12 @@ public record PrdSessionView(
                         s.getRequirementSoftware(), s.getInitiatingDepartment(), s.getRequester(),
                         s.getRequestedAt(), s.getAttachments(), s.getFollowUpRecords()),
                 parseQuestions(s.getQuestions()), s.getPrdQuestionsGeneratedAt(), s.getPrdGeneratedAt(),
-                s.getMdPath(), s.getDevDocPath(), s.getDevSessionId(), s.getDevDocGeneratedAt(),
+                s.getInitialSpecPath(), s.getMdPath(), s.getDevDocPath(), s.getDevSessionId(), s.getDevDocGeneratedAt(),
                 s.getDevDocQuestionsGeneratedAt(),
                 parseDevDocHistory(s.getDevDocHistory()),
                 parseDevDocQaDraft(s.getDevDocQaDraft()),
                 s.getDevDocWorkStatus(), s.getDevDocWorkError(),
+                s.getDevDocWorkProgress(), s.getDevDocWorkContent(), s.getDevDocWorkUpdatedAt(),
                 parseDevDocEstimation(s.getDevDocEstimation(), s),
                 s.getProgressPath(), s.getProgressGeneratedAt(),
                 s.getCreatedByUserId(), createdByUsername, s.getParentId(),

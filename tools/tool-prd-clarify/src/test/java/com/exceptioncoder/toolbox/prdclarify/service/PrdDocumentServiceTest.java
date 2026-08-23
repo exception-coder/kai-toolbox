@@ -161,7 +161,6 @@ class PrdDocumentServiceTest {
                 .rawInput("实现订单能力")
                 .model("gpt-5")
                 .engine("codex")
-                .documentProfile("CLASSIC")
                 .build();
     }
 

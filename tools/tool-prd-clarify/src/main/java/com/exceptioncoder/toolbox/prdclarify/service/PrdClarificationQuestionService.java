@@ -48,6 +48,7 @@ public class PrdClarificationQuestionService {
             - 目的：问题能引用已有业务状态名/枚举值
 
             提问规则（严格执行）：
+            - 初始化规格存在时，只问其中高影响 OPEN 条目、证据冲突或缺失验收口径
             - 只问如果不明确就无法确定产品目标、业务范围、业务规则或验收口径的问题
             - 可问：业务目标、用户与场景、功能边界、业务流程、业务规则与例外、验收标准
             - 禁止询问：数据库/字段/API/类/方法、框架选型、代码结构、部署方案等实现细节
@@ -242,6 +243,11 @@ public class PrdClarificationQuestionService {
 
     private static void appendKnowledgeContext(StringBuilder prompt, KnowledgeContext knowledge) {
         KnowledgeContext safeKnowledge = knowledge == null ? KnowledgeContext.EMPTY : knowledge;
+        if (!safeKnowledge.initialSpec().isBlank()) {
+            prompt.append("\n【待审阅的初始化规格】\n");
+            prompt.append(safeKnowledge.initialSpec()).append("\n");
+            prompt.append("问题必须优先来自其中的 OPEN 条目；已有证据支持的条目不要重复询问。\n");
+        }
         if (!safeKnowledge.graphContext().isBlank()) {
             prompt.append("\n【代码知识图谱查询结果】（系统已直接调用 graphify CLI 查询，非 MCP，内容为真实代码事实）\n");
             prompt.append(safeKnowledge.graphContext()).append("\n");
@@ -304,12 +310,17 @@ public class PrdClarificationQuestionService {
     }
 
     /** 已由门面查询完成的代码与业务知识上下文。 */
-    public record KnowledgeContext(String graphContext, String domainContext) {
-        private static final KnowledgeContext EMPTY = new KnowledgeContext("", "");
+    public record KnowledgeContext(String graphContext, String domainContext, String initialSpec) {
+        private static final KnowledgeContext EMPTY = new KnowledgeContext("", "", "");
+
+        public KnowledgeContext(String graphContext, String domainContext) {
+            this(graphContext, domainContext, "");
+        }
 
         public KnowledgeContext {
             graphContext = graphContext == null ? "" : graphContext;
             domainContext = domainContext == null ? "" : domainContext;
+            initialSpec = initialSpec == null ? "" : initialSpec;
         }
     }
 }

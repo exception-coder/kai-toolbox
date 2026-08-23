@@ -11,7 +11,6 @@ import { MarkdownContent } from '@/components/markdown/MarkdownContent'
 import {
   adoptSplit,
   askNextDevDocQuestion,
-  askNextQuestion,
   autoRegisterToReqPool,
   createSession,
   deleteSession,
@@ -27,10 +26,7 @@ import {
   saveContent,
   saveDevDocContent,
   saveDraft,
-  saveQaHistory,
-  returnToClarify,
   splitRequirement,
-  startClarify,
   startClarifyFromDraft,
   startGenerate,
   startGenerateDevDoc,
@@ -38,10 +34,9 @@ import {
   updateSessionProject,
   updateSessionTitle,
   uploadImageAttachment,
-  type QaPair,
   type AttachmentParseResult,
 } from '../api'
-import type { CreateSessionRequest, DevDocEstimation, DocumentProfile, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, QuestionItem, SplitItem } from '../types'
+import type { CreateSessionRequest, DevDocEstimation, PrdClarifyMode, PrdReqType, PrdSessionView, SplitItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 import { DocOutline } from '../components/DocOutline'
@@ -53,16 +48,14 @@ import { StartDevDialog } from '../components/dialogs/StartDevDialog'
 import { StepBar } from '../components/StepBar'
 import { RawInputCard } from '../components/RawInputCard'
 import { HistoryPanel } from '../components/HistoryPanel'
-import { GeneratingPanel, RevisionPreparingPanel } from '../components/panels/GenerationPanels'
-import { BatchClarifyPanel, ChattingPanel } from '../components/panels/ClarificationPanels'
+import { GeneratingPanel } from '../components/panels/GenerationPanels'
 import { InputPanel } from '../components/panels/InputPanel'
 import { EditingPanel } from '../components/panels/EditingPanel'
+import { DiscoveryPanel, RevisionPreparingPanel } from '../components/panels/DiscoveryPanel'
+import { InitialSpecReviewPanel } from '../components/panels/InitialSpecReviewPanel'
 import { REQ_TYPE_CONFIG } from '../lib/requirementTypePresentation'
 import { usePrdClarifySession } from '../hooks/usePrdClarifySession'
-import {
-  ClarifyHistorySheet,
-  DevDocClarifyHistorySheet,
-} from '../components/dialogs/ClarificationHistorySheets'
+import { DevDocClarifyHistorySheet } from '../components/dialogs/ClarificationHistorySheets'
 import {
   DevDocHistorySheet,
   DevDocVersionViewDialog,
@@ -78,25 +71,28 @@ import {
 // ───── 生成修订版 Dialog ─────
 
 
-// ───── 快捷示例模板（围绕需求管理池模块展开） ─────
 export function PrdClarifyPage() {
   const {
     autoStartPending,
     changeGroupMut,
-    clarifyQuestions,
     deleteMut,
     errorMsg,
+    discoveryFailed,
+    discoveryRun,
+    discoveryStarting,
     generationFailed,
     handleAutoStartConfirm,
     handleBackToInput,
-    handleChattingDone,
     handleReset,
     handleRetryGenerate,
     handleReturnToClarify,
     handleReviseConfirm,
     handleSelectHistory,
     handleStart,
-    handleStartVibe,
+    handleInitialSpecConfirm,
+    handleInitialSpecSave,
+    handleRetryDiscovery,
+    initialSpecContent,
     mobileHistoryOpen,
     navigate,
     prdContent,
@@ -115,10 +111,8 @@ export function PrdClarifyPage() {
     setRevisingSession,
     setSearchParams,
     setSessionId,
-    setShowClarifyHistory,
     setSplittingSessionId,
     setStep,
-    showClarifyHistory,
     splittingSessionId,
     step,
     streamText,
@@ -130,36 +124,28 @@ export function PrdClarifyPage() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-[var(--color-background)]">
-      {/* 步骤条：可返回第 1 步重新填写；在第 3 步可查看第 2 步澄清记录 */}
+      {/* 探索式规格流程：需求探索 → 初始化规格 → 核心规格 */}
       <StepBar
         step={step}
         onClickStep={(idx) => {
           if (idx === 0) handleBackToInput()
-          if (idx === 1) setShowClarifyHistory(true)  // 点击第 2 步 → 打开澄清记录抽屉
+          if (idx === 1 && initialSpecContent) setStep('SPEC_REVIEW')
         }}
         leading={
           // 移动端 PRD 库抽屉触发器：只在侧边栏本该显示的步骤（非编辑/对话）才有意义
-          step !== 'EDITING' && step !== 'CHATTING' ? (
+          step !== 'EDITING' ? (
             <button
               type="button"
               onClick={() => setMobileHistoryOpen(true)}
               className="mr-1 flex flex-shrink-0 items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] md:hidden"
-              title="打开 PRD 库"
+              title="打开规格库"
             >
               <Layers className="w-3 h-3" />
-              PRD 库
+              规格库
             </button>
           ) : null
         }
       />
-
-      {/* 澄清记录抽屉 */}
-      {showClarifyHistory && (
-        <ClarifyHistorySheet
-          questions={clarifyQuestions}
-          onClose={() => setShowClarifyHistory(false)}
-        />
-      )}
 
       {/* 来自需求管理池的上下文条 */}
       {reqContextTitle && step !== 'INPUT' && (
@@ -176,14 +162,14 @@ export function PrdClarifyPage() {
       )}
 
       {/* 错误提示 */}
-      {errorMsg && (
+      {errorMsg && !(step === 'DISCOVERING' && discoveryFailed) && (
         <div className="flex items-center gap-2 px-6 py-2 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-sm border-b border-red-200 dark:border-red-900">
           <span>{errorMsg}</span>
           <button onClick={() => setErrorMsg(null)} className="ml-auto text-xs underline">关闭</button>
         </div>
       )}
 
-      {/* 需求池自动入口：启动澄清前确认引擎 */}
+      {/* 需求池自动入口：启动规格探索前确认引擎 */}
       {autoStartPending && (
         <StartClarifyDialog
           showEngineToggle
@@ -216,14 +202,14 @@ export function PrdClarifyPage() {
       {/* relative：移动端 PRD 库抽屉以内容区（而非整个视口）为定位参照，不会盖住工作台 TopBar */}
       <div className="relative flex-1 flex overflow-hidden">
         {/* 历史侧边栏（非编辑器、非对话模式下显示）；移动端为抽屉，md 及以上为常驻列 */}
-        {step !== 'EDITING' && step !== 'CHATTING' && (
+        {step !== 'EDITING' && (
           <HistoryPanel
             sessions={sessions}
             activeId={sessionId}
             mobileOpen={mobileHistoryOpen}
             onMobileClose={() => setMobileHistoryOpen(false)}
             onSelect={(s) => { setMobileHistoryOpen(false); handleSelectHistory(s) }}
-            onDelete={(id) => deleteMut.mutate(id)}
+            onDelete={(id) => deleteMut.mutateAsync(id)}
             onRevise={(s) => setRevisingSession(s)}
             onRename={(id, title) => renameMut.mutate({ id, title })}
             onChangeGroup={(id, project) => changeGroupMut.mutate({ id, project })}
@@ -237,51 +223,42 @@ export function PrdClarifyPage() {
             // 返回第 1 步时回填当前会话；非草稿再次提交会创建新会话，不覆盖旧记录。
             key={sessionId ?? 'new'}
             onStart={handleStart}
-            onStartVibe={handleStartVibe}
             initialTitle={session?.title ?? urlTitle}
             initialRawInput={session?.rawInput ?? urlRawInput}
             initialProject={session?.project ?? urlProject}
             initialModule={session?.module ?? urlModule}
-            initialDocumentProfile={session?.documentProfile ?? 'CLASSIC'}
             draftId={session?.status === 'DRAFT' ? sessionId : null}
             onDraftSaved={(id) => {
               setSessionId(id)
               qc.invalidateQueries({ queryKey: ['prd-sessions'] })
             }}
-            onSplit={(id) => setSplittingSessionId(id)}
           />
         )}
 
         {/* 修订会话尚在创建时先给出即时反馈，避免用户误以为点击未生效 */}
-        {step === 'CHATTING' && revisionPreparing && (
+        {step === 'DISCOVERING' && revisionPreparing && (
           <RevisionPreparingPanel
             engine={revisionPreparing.engine}
             stage={revisionPreparing.stage}
           />
         )}
 
-        {/* 多轮渐进澄清对话（ChattingPanel 自管理 askNextQuestion 循环）—— 渐进模式，
-            未选批量或 session 还没读到（新建会话必是渐进兜底）时走这条 */}
-        {step === 'CHATTING' && !revisionPreparing && sessionId && session?.clarifyMode !== 'batch' && (
-          <ChattingPanel
-            sessionId={sessionId}
-            engine={session?.engine === 'codex' ? 'codex' : 'claude'}
-            maxRounds={session?.maxQuestions && session.maxQuestions > 0 ? session.maxQuestions : 5}
-            initialHistory={(session?.questions ?? [])
-              .filter((q) => q.answer && q.answer.trim())
-              .map((q) => ({ question: q.question, answer: q.answer }))}
-            onDone={handleChattingDone}
-            onError={(msg) => { setErrorMsg(msg); setStep('INPUT') }}
+        {step === 'DISCOVERING' && !revisionPreparing && (
+          <DiscoveryPanel
+            run={discoveryRun}
+            starting={discoveryStarting}
+            failed={discoveryFailed}
+            error={errorMsg}
+            onRetry={handleRetryDiscovery}
+            onBack={handleBackToInput}
           />
         )}
 
-        {/* 批量澄清面板：一次性生成 maxQuestions 道题，用户一起填完再提交 —— 批量模式 */}
-        {step === 'CHATTING' && sessionId && session?.clarifyMode === 'batch' && (
-          <BatchClarifyPanel
-            sessionId={sessionId}
-            initialQuestions={session?.questions ?? []}
-            onDone={handleChattingDone}
-            onError={(msg) => { setErrorMsg(msg); setStep('INPUT') }}
+        {step === 'SPEC_REVIEW' && (
+          <InitialSpecReviewPanel
+            content={initialSpecContent}
+            onSave={handleInitialSpecSave}
+            onConfirm={handleInitialSpecConfirm}
           />
         )}
 
@@ -297,7 +274,7 @@ export function PrdClarifyPage() {
         {step === 'EDITING' && sessionId && (
           <EditingPanel
             sessionId={sessionId}
-            sessionTitle={sessionTitle || session?.title || 'PRD 文档'}
+            sessionTitle={sessionTitle || session?.title || '核心规格'}
             projectName={session?.project ?? urlProject ?? null}
             initialContent={prdContent}
             mdPath={session?.mdPath}
@@ -311,7 +288,10 @@ export function PrdClarifyPage() {
             currentEngine={session?.engine === 'codex' ? 'codex' : 'claude'}
             initialProgressPath={session?.progressPath ?? null}
             initialProgressGeneratedAt={session?.progressGeneratedAt ?? null}
-            documentProfile={session?.documentProfile ?? 'CLASSIC'}
+            initialDevDocWorkStatus={session?.devDocWorkStatus ?? null}
+            initialDevDocWorkError={session?.devDocWorkError ?? null}
+            initialDevDocWorkProgress={session?.devDocWorkProgress ?? null}
+            initialDevDocWorkContent={session?.devDocWorkContent ?? null}
             onReturnToClarify={handleReturnToClarify}
             onReset={handleReset}
           />

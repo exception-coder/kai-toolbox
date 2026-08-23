@@ -42,6 +42,7 @@ public class PrdDevDocumentService {
     private final ObjectMapper mapper;
     private final GraphifyQueryService graphifyQuery;
     private final PrdDocumentGenerationService documentGenerationService;
+    private final PrdDevDocWorkProgressService workProgressService;
 
     public PrdDevDocumentService(PrdSessionRepository repo,
                                  PrdFileStore fileStore,
@@ -49,7 +50,8 @@ public class PrdDevDocumentService {
                                  ObjectMapper mapper,
                                  GraphifyQueryService graphifyQuery,
                                  AgentOneShotRunner agentRunner,
-                                 PrdImageInputResolver imageInputResolver) {
+                                 PrdImageInputResolver imageInputResolver,
+                                 PrdDevDocWorkProgressService workProgressService) {
         this.repo = repo;
         this.fileStore = fileStore;
         this.artifactService = artifactService;
@@ -57,6 +59,7 @@ public class PrdDevDocumentService {
         this.graphifyQuery = graphifyQuery;
         this.documentGenerationService =
                 new PrdDocumentGenerationService(agentRunner, mapper, imageInputResolver);
+        this.workProgressService = workProgressService;
     }
 
     /** 生成或更新开发文档，并在后台完成版本备份、落盘和历史登记。 */
@@ -65,33 +68,32 @@ public class PrdDevDocumentService {
                          Boolean background, SseEmitter emitter) {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        if (!Boolean.TRUE.equals(clarificationCompleted)) {
-            throw new IllegalStateException("请先完成 TDD 技术澄清，再生成开发文档");
-        }
         boolean update = Boolean.TRUE.equals(updateExisting);
         boolean continueOnDisconnect = Boolean.TRUE.equals(background);
         List<QaPairRequest> effectiveQaHistory = qaHistory == null ? List.of() : qaHistory;
         repo.updateDevDocQaDraft(sessionId, buildQuestionsJson(effectiveQaHistory));
-        repo.updateDevDocWorkStatus(sessionId, "GENERATING", null);
+        PrdDevDocWorkProgressService.Tracker workProgress = workProgressService.begin(sessionId);
         boolean hadExistingDoc = session.getDevDocPath() != null && !session.getDevDocPath().isBlank();
         String mode = update ? "update" : (hadExistingDoc ? "regenerate" : "generate");
 
         Thread.ofVirtual().name("prd-dev-doc-").start(() -> runGeneration(
                 sessionId, session, extraInstructions, update, continueOnDisconnect,
-                effectiveQaHistory, mode, emitter));
+                effectiveQaHistory, mode, emitter, workProgress));
     }
 
     private void runGeneration(String sessionId, PrdSession session, String extraInstructions,
                                boolean update, boolean continueOnDisconnect,
-                               List<QaPairRequest> qaHistory, String mode, SseEmitter emitter) {
+                               List<QaPairRequest> qaHistory, String mode, SseEmitter emitter,
+                               PrdDevDocWorkProgressService.Tracker workProgress) {
         AtomicBoolean clientConnected = new AtomicBoolean(true);
         try {
-            sendProgress(emitter, "正在准备 PRD、技术澄清与知识图谱上下文",
+            sendProgress(emitter, "正在准备核心规格与代码知识图谱上下文",
                     continueOnDisconnect, clientConnected);
             String prdContent = fileStore.read(sessionId);
             if (prdContent == null || prdContent.isBlank()) {
-                repo.updateDevDocWorkStatus(sessionId, "ERROR", "PRD 内容为空，请先生成 PRD");
-                sendError(emitter, new IllegalStateException("PRD 内容为空，请先生成 PRD"));
+                IllegalStateException error = new IllegalStateException("PRD 内容为空，请先生成 PRD");
+                workProgress.fail(error);
+                sendError(emitter, error);
                 return;
             }
 
@@ -100,9 +102,11 @@ public class PrdDevDocumentService {
                 log.info("[prd-clarify] 更新模式但当前无开发文档，退回从零生成 sessionId={}", sessionId);
             }
 
-            sendProgress(emitter, "codex".equalsIgnoreCase(session.getEngine())
-                            ? "Codex 正在生成开发文档，首段内容可能需要稍候"
-                            : "Claude 正在生成开发文档",
+            String generationProgress = "codex".equalsIgnoreCase(session.getEngine())
+                    ? "Codex 正在生成执行计划，首段内容可能需要稍候"
+                    : "Claude 正在生成执行计划";
+            workProgress.phase(generationProgress);
+            sendProgress(emitter, generationProgress,
                     continueOnDisconnect, clientConnected);
             String graphContext = queryGraphContext(
                     session.getProject(), session.getModule(), session.getTitle()).orElse("");
@@ -111,6 +115,7 @@ public class PrdDevDocumentService {
                             session, prdContent, currentDevDoc, extraInstructions, qaHistory,
                             graphContext, update, normalizeEngine(session.getEngine()));
             String devDocContent = documentGenerationService.generateDevDoc(request, delta -> {
+                workProgress.append(delta);
                 if (continueOnDisconnect) {
                     sendChunkBestEffort(emitter, delta, clientConnected);
                 } else {
@@ -118,7 +123,8 @@ public class PrdDevDocumentService {
                 }
             });
 
-            sendProgress(emitter, "内容生成完成，正在保存开发文档",
+            workProgress.phase("内容生成完成，正在保存执行计划");
+            sendProgress(emitter, "内容生成完成，正在保存执行计划",
                     continueOnDisconnect, clientConnected);
             Path devDocPath = fileStore.canonicalPathFor(sessionId, PrdArtifactType.DEV_DOC);
             backupIfExists(devDocPath);
@@ -127,7 +133,7 @@ public class PrdDevDocumentService {
             recordHistory(sessionId, session.getDevDocHistory(), mode,
                     extraInstructions, qaHistory, true);
             repo.updateDevDocQaDraft(sessionId, null);
-            repo.updateDevDocWorkStatus(sessionId, "DONE", null);
+            workProgress.complete();
             log.info("[prd-clarify] 开发文档已保存 path={} mode={}", devDocPath, mode);
 
             if (continueOnDisconnect) {
@@ -137,7 +143,7 @@ public class PrdDevDocumentService {
             }
         } catch (Exception e) {
             log.warn("[prd-clarify] 开发文档生成失败 sessionId={}", sessionId, e);
-            repo.updateDevDocWorkStatus(sessionId, "ERROR", e.getMessage());
+            workProgress.fail(e);
             if (!continueOnDisconnect || clientConnected.get()) {
                 sendError(emitter, e);
             }

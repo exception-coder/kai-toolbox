@@ -92,6 +92,12 @@ public class GraphifyQueryService {
         }
     }
 
+    /** 返回本次项目/模块会路由到的图谱目录，供评估证据轨迹展示。 */
+    public String traceTarget(String project, String module) {
+        Path target = resolveGraphDir(project, module);
+        return target == null ? null : target.resolve("graphify-out/graph.json").toString();
+    }
+
     /**
      * 解析图谱所在目录：
      * <ol>

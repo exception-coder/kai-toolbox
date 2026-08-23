@@ -1,5 +1,5 @@
 import { http } from '@/lib/api'
-import type { AssignableUser, CreateReqRequest, ReqItemView, ReqStatus, ReqPriority, UpdateReqRequest } from './types'
+import type { AssignableUser, CreateReqRequest, PlanningAssessmentView, ReqItemView, ReqStatus, ReqPriority, UpdateReqRequest } from './types'
 
 const BASE = '/reqpool'
 
@@ -77,6 +77,10 @@ export const syncFromPrd = () =>
 /** 对单条需求生成 AI 价值洞察，并持久化历史与最新兼容投影。 */
 export const analyzeItem = (id: string) =>
   http<ReqItemView>(`${BASE}/items/${id}/analyze`, { method: 'POST' })
+
+/** 基于已保存的初始化规格快照重试规划评估。 */
+export const retryPlanningAssessment = (id: string) =>
+  http<PlanningAssessmentView>(`${BASE}/items/${id}/planning-assessment/retry`, { method: 'POST' })
 
 /**
  * Portfolio 全局分析：把所有活跃需求一起发给 Claude，横向对比后给出相对优先级排序。

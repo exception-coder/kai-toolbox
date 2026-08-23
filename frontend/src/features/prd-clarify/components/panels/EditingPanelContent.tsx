@@ -150,10 +150,11 @@ function DevelopmentDocumentEditor({
       <div className="flex flex-1 flex-col overflow-hidden">
         <div className="flex items-center gap-2 border-b border-purple-500/20 bg-purple-500/10 px-4 py-2 text-xs text-purple-500">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          <span>{progress || '正在生成开发文档…'}</span>
+          <span className="min-w-0 flex-1 truncate">{progress || '正在生成执行计划…'}</span>
+          <span className="ml-auto hidden flex-shrink-0 text-[10px] opacity-70 sm:inline">后台执行 · 可安全离开本页</span>
         </div>
         <div className="flex-1 overflow-hidden">
-          <MarkdownContent content={content || '正在准备生成上下文，请稍候…'} />
+          <MarkdownContent content={content || '正在准备核心规格、知识图谱与代码上下文，请稍候…'} />
         </div>
       </div>
     )
@@ -180,11 +181,11 @@ function DevelopmentDocumentEditor({
     <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 text-[var(--color-muted-foreground)]">
       <Wrench className="h-10 w-10 opacity-15" />
       <div className="text-center">
-        <p className="mb-1 font-medium">还没有开发文档</p>
-        <p className="text-sm opacity-70">Claude 会先查知识图谱，再生成精准的技术方案</p>
+        <p className="mb-1 font-medium">还没有执行计划</p>
+        <p className="text-sm opacity-70">AI 会先核对核心规格、知识图谱与代码事实，再生成可执行方案</p>
       </div>
       <button onClick={onGenerate} className="flex items-center gap-2 rounded-xl border border-purple-500/20 bg-purple-600/15 px-5 py-2.5 text-sm font-medium text-purple-400 hover:bg-purple-600/25">
-        <Wrench className="h-4 w-4" /> 生成开发文档
+        <Wrench className="h-4 w-4" /> 生成执行计划
       </button>
     </div>
   )

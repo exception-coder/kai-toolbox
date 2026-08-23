@@ -1,6 +1,4 @@
 import {
-  ArrowRight,
-  Bot,
   ChevronDown,
   Database,
   LayoutList,
@@ -70,17 +68,6 @@ export function ReqPoolPageHeader({
       </div>
     </header>
 
-    <section className="px-5 pt-5 lg:px-8">
-      <div className="relative overflow-hidden rounded-2xl border border-violet-200 bg-[var(--color-card)] shadow-sm dark:border-violet-900">
-        <div className="absolute inset-y-0 left-0 w-1 bg-violet-600" />
-        <div className="flex flex-col gap-3 p-3 pl-5 md:flex-row md:items-center">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"><Bot className="h-4 w-4" /></span>
-          <button type="button" onClick={() => onOpenVibe()} className="min-w-0 flex-1 text-left"><span className="flex items-center gap-2 text-xs font-semibold">直接让 AI 调整需求中枢<span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">Codex 默认</span></span><span className="mt-0.5 block truncate text-sm text-[var(--color-muted-foreground)]">描述你想怎么改当前页面，打开简化版 Vibe Coding 对话框…</span></button>
-          <div className="flex flex-wrap gap-1.5">{['突出超期需求', '优化领导视图', '调整表格字段'].map(command => <button key={command} type="button" onClick={() => onOpenVibe(command)} className="rounded-full bg-[var(--color-muted)] px-2.5 py-1.5 text-[10px] text-[var(--color-muted-foreground)] hover:text-violet-600">{command}</button>)}</div>
-          <button type="button" onClick={() => onOpenVibe()} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-violet-600 text-white" aria-label="打开需求中枢 Vibe Coding"><ArrowRight className="h-3.5 w-3.5" /></button>
-        </div>
-      </div>
-    </section>
   </>
 }
 

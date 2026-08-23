@@ -89,7 +89,6 @@ export function EditingPanelDialogs({
 
       {generation.mode && (
         <DevDocUpdateDialog
-          sessionId={sessionId}
           mode={generationMode}
           initialEngine={currentEngine}
           onClose={generation.onClose}

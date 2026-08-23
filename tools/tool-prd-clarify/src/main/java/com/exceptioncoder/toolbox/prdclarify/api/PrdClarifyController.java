@@ -39,6 +39,8 @@ import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdArtifactService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdClarifyService;
+import com.exceptioncoder.toolbox.prdclarify.service.PrdDiscoveryTaskService;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdDiscoveryRunView;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdRequirementSplitService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdDocChangeAnalysisService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdDocChangeApplyService;
@@ -81,6 +83,9 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code GET    /sessions/{id}}             — 获取会话详情</li>
  *   <li>{@code PUT    /sessions/{id}/title}       — 重命名会话标题</li>
  *   <li>{@code DELETE /sessions/{id}}             — 删除会话 + 文件</li>
+ *   <li>{@code POST   /sessions/{id}/discover}    — 登记后台探索运行并立即返回</li>
+ *   <li>{@code GET    /sessions/{id}/discovery-run} — 查询最近后台探索进度</li>
+ *   <li>{@code GET    /sessions/{id}/initial-spec} — 读取初始化规格</li>
  *   <li>{@code POST   /sessions/{id}/clarify}     — SSE：生成澄清问题</li>
  *   <li>{@code POST   /sessions/{id}/answers}     — 提交用户答案</li>
  *   <li>{@code POST   /sessions/{id}/generate}    — SSE：生成/更新 PRD 文档（updateExisting=true 走增量更新）</li>
@@ -110,6 +115,7 @@ public class PrdClarifyController {
     private final FileAttachmentStorageService fileAttachmentStorage;
     private final PrdDocChangeAnalysisService changeAnalysisService;
     private final PrdDocChangeApplyService changeApplyService;
+    private final PrdDiscoveryTaskService discoveryTasks;
     /** Optional：toolbox.auth.enabled=false 时这个 bean 不存在，历史列表退化为不展示创建人用户名。 */
     private final Optional<AuthUserRepository> authUserRepo;
 
@@ -120,6 +126,7 @@ public class PrdClarifyController {
                                 FileAttachmentStorageService fileAttachmentStorage,
                                 PrdDocChangeAnalysisService changeAnalysisService,
                                 PrdDocChangeApplyService changeApplyService,
+                                PrdDiscoveryTaskService discoveryTasks,
                                 Optional<AuthUserRepository> authUserRepo) {
         this.service = service;
         this.artifactService = artifactService;
@@ -129,6 +136,7 @@ public class PrdClarifyController {
         this.fileAttachmentStorage = fileAttachmentStorage;
         this.changeAnalysisService = changeAnalysisService;
         this.changeApplyService = changeApplyService;
+        this.discoveryTasks = discoveryTasks;
         this.authUserRepo = authUserRepo;
     }
 
@@ -200,7 +208,7 @@ public class PrdClarifyController {
         PrdSession session = service.createSession(
                 req.title(), req.rawInput(), req.project(), req.module(), req.model(), req.engine(), req.role(),
                 req.reqType(), req.maxQuestions(), createdByUserId, req.clarifyMode(), req.businessFields(),
-                req.parentId(), req.documentProfile());
+                req.parentId(), req.sourceReqItemId(), req.creationKey());
         return PrdSessionView.from(session);
     }
 
@@ -221,8 +229,7 @@ public class PrdClarifyController {
     public PrdSessionView saveDraft(@Valid @RequestBody SaveDraftRequest req) {
         Long createdByUserId = AuthContext.current().map(AuthPrincipal::userId).orElse(null);
         PrdSession session = service.saveDraft(
-                req.title(), req.rawInput(), req.project(), req.module(), createdByUserId, req.businessFields(),
-                req.documentProfile());
+                req.title(), req.rawInput(), req.project(), req.module(), createdByUserId, req.businessFields());
         return PrdSessionView.from(session);
     }
 
@@ -231,8 +238,7 @@ public class PrdClarifyController {
     public PrdSessionView updateDraft(@PathVariable String id, @Valid @RequestBody SaveDraftRequest req) {
         try {
             PrdSession session = service.updateDraft(
-                    id, req.title(), req.rawInput(), req.project(), req.module(), req.businessFields(),
-                    req.documentProfile());
+                    id, req.title(), req.rawInput(), req.project(), req.module(), req.businessFields());
             return PrdSessionView.from(session);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(NOT_FOUND, e.getMessage());
@@ -242,7 +248,7 @@ public class PrdClarifyController {
     }
 
     /**
-     * 草稿转正式：原地把 DRAFT 会话切到 CLARIFYING（不新建记录），请求体跟「创建会话」同构
+     * 草稿转正式：原地把 DRAFT 会话切到 DISCOVERING（不新建记录），请求体跟「创建会话」同构
      * （标题/描述/项目/模块可能在恢复草稿后又被编辑过，一并带上最终值；role/reqType/maxQuestions/
      * clarifyMode 来自「开始澄清」确认弹框的选择）。
      */
@@ -251,7 +257,7 @@ public class PrdClarifyController {
         try {
             PrdSession session = service.startClarifyFromDraft(id, req.title(), req.rawInput(), req.project(),
                     req.module(), req.model(), req.engine(), req.role(), req.reqType(), req.maxQuestions(),
-                    req.clarifyMode(), req.businessFields(), req.documentProfile());
+                    req.clarifyMode(), req.businessFields());
             return PrdSessionView.from(session);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(NOT_FOUND, e.getMessage());
@@ -375,6 +381,64 @@ public class PrdClarifyController {
     public ResponseEntity<Void> delete(@PathVariable String id) throws IOException {
         service.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /** 登记后台探索并立即返回；浏览器只轮询运行状态，不承载任务生命线。 */
+    @PostMapping("/sessions/{id}/discover")
+    public ResponseEntity<PrdDiscoveryRunView> discover(@PathVariable String id) {
+        try {
+            return ResponseEntity.accepted().body(PrdDiscoveryRunView.from(discoveryTasks.schedule(id)));
+        } catch (IllegalArgumentException error) {
+            throw new ResponseStatusException(NOT_FOUND, error.getMessage());
+        } catch (IllegalStateException error) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, error.getMessage());
+        }
+    }
+
+    /** 查询最近一次后台探索进度；刷新页面后可继续追踪同一运行。 */
+    @GetMapping("/sessions/{id}/discovery-run")
+    public ResponseEntity<PrdDiscoveryRunView> discoveryRun(@PathVariable String id) {
+        try {
+            return discoveryTasks.latest(id)
+                    .map(PrdDiscoveryRunView::from)
+                    .map(ResponseEntity::ok)
+                    .orElseGet(() -> ResponseEntity.notFound().build());
+        } catch (IllegalArgumentException error) {
+            throw new ResponseStatusException(NOT_FOUND, error.getMessage());
+        }
+    }
+
+    /** 读取当前初始化规格 Markdown。 */
+    @GetMapping(value = "/sessions/{id}/initial-spec", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> readInitialSpec(@PathVariable String id) throws IOException {
+        String content = service.readInitialSpec(id);
+        if (content.isBlank()) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(content);
+    }
+
+    /** 保存用户审阅后的初始化规格，并登记新产物版本。 */
+    @PutMapping("/sessions/{id}/initial-spec")
+    public ResponseEntity<Void> saveInitialSpec(@PathVariable String id,
+                                                @Valid @RequestBody SaveContentRequest request)
+            throws IOException {
+        try {
+            service.saveInitialSpec(id, request.content());
+            return ResponseEntity.noContent().build();
+        } catch (IllegalStateException error) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, error.getMessage());
+        }
+    }
+
+    /** 确认初始化规格并进入开放问题澄清。 */
+    @PostMapping("/sessions/{id}/initial-spec/confirm")
+    public PrdSessionView confirmInitialSpec(@PathVariable String id) {
+        try {
+            return PrdSessionView.from(service.confirmInitialSpec(id));
+        } catch (IllegalStateException error) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, error.getMessage());
+        }
     }
 
     /**

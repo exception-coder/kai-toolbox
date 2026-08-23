@@ -39,6 +39,12 @@ public class PrdSession {
     /** 最近一次 PRD 文档生成完成时间（毫秒）。 */
     private Long prdGeneratedAt;
     private String status;
+    /** 探索阶段初始化规格的兼容主文件路径。 */
+    private String initialSpecPath;
+    /** 从需求中枢进入规格探索时的来源需求 ID，用于规划结果幂等回写。 */
+    private String sourceReqItemId;
+    /** 一次创建操作的客户端幂等键，不进入对外会话视图。 */
+    private String creationKey;
     private String mdPath;
     /** 开发文档路径（由 PRD 转换生成，存于 ~/.kai-toolbox/prd/{id}-dev.md）。 */
     private String devDocPath;
@@ -66,8 +72,6 @@ public class PrdSession {
      * 哪种澄清面板，不会中途切换模式。
      */
     private String clarifyMode;
-    /** Document contract: CLASSIC (PRD/TDD) or SPEC_DRIVEN (core spec/execution plan). */
-    private String documentProfile;
     /**
      * 开发文档生成历史，JSON 字符串数组，格式
      * {@code [{version,mode,extraInstructions,generatedAt}]}，可为 null（尚未生成过）。
@@ -79,6 +83,12 @@ public class PrdSession {
     /** TDD 点按作业状态，独立于 PRD status。 */
     private String devDocWorkStatus;
     private String devDocWorkError;
+    /** 执行计划后台生成的当前阶段提示。 */
+    private String devDocWorkProgress;
+    /** 尚未落为正式产物的 Markdown 增量快照，供页面刷新后恢复。 */
+    private String devDocWorkContent;
+    /** 最近一次执行计划进度快照落库时间（毫秒）。 */
+    private Long devDocWorkUpdatedAt;
     /**
      * AI 工时评估结果，JSON 字符串，格式
      * {@code {hoursMin,hoursMax,confidence,reasoning,breakdown:[{item,hours}],estimatedAt}}，

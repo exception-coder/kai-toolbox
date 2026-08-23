@@ -8,10 +8,10 @@ const PrdClarifyPage = lazy(() =>
 
 const manifest: FeatureManifest = {
   id: 'prd-clarify',
-  name: 'PRD 澄清助手',
+  name: '规格探索',
   icon: FileText,
   group: 'AI',
-  description: '多轮澄清需求，用 Claude 自动生成结构化 PRD 文档',
+  description: '探索需求，结合系统知识生成初始化规格并沉淀为核心规格',
   order: 55,
   routes: [{ path: '/tools/prd-clarify', element: <PrdClarifyPage /> }],
 }

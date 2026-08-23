@@ -89,7 +89,7 @@ import {
   startClarifyFromDraft,
   startGenerateDevDoc,
   startGenerate as runPrdGenerate,
-  documentProfileLabels,
+  documentLabels,
   type AgentEngine,
   type PrdSessionView,
   type QaPair,
@@ -339,7 +339,7 @@ export function CodeStageNode({ item, requirement, prdSession }: {
   const [error, setError] = useState('')
   const [loadingDevelopment, setLoadingDevelopment] = useState(false)
   const [developmentDocs, setDevelopmentDocs] = useState<{ prd: string; tdd?: string } | null>(null)
-  const labels = documentProfileLabels(prdSession?.documentProfile ?? requirement?.documentProfile)
+  const labels = documentLabels
   const code = requirement?.stages.code
   const selectedCodeScore = requirement ? resolveCodeScore(requirement, includeTests) : null
   const effort = projectEffort(requirement?.effortProgress, selectedCodeScore)

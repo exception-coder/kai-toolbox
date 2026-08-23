@@ -107,7 +107,6 @@ class PrdRequirementSplitServiceTest {
         assertThat(created).allSatisfy(child -> {
             assertThat(child.getMaxQuestions()).isEqualTo(
                     PrdRequirementTypeResolver.defaultMaxQuestions(PrdRequirementTypeResolver.NEW_MODULE));
-            assertThat(child.getDocumentProfile()).isEqualTo("CLASSIC");
             assertThat(child.getCreatedAt()).isEqualTo(child.getUpdatedAt());
         });
         verify(repo).insert(created.get(0));
@@ -170,7 +169,6 @@ class PrdRequirementSplitServiceTest {
                 .module("module-a")
                 .model("gpt-5")
                 .engine("codex")
-                .documentProfile("CLASSIC")
                 .build();
     }
 }

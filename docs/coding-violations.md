@@ -30,3 +30,4 @@
 | 23 | 架构约束 | 报价业务已由 Starter 完整承载后仍保留 Forge Host 中间模块，并把本地存储和演示用例错误归为宿主接线 | 宿主直接依赖业务 Starter；属于报价模块的持久化与用例实现归入 Starter，只有存在真实宿主差异时才新增适配模块 | supplier-quote-forge-host、toolbox-starter | 2026-08-16 | 1 |
 | 24 | 业务状态 | 将 SRM 打回和拒绝后重新下发任务拆成 `RETURNED`、`REQUOTE` 两个 H5 状态，并使用“需修改/需重新报价”等漂移文案 | H5 统一为五态；`auditResult=3` 或 `haveTask=1` 均展示“待重报”，已拒绝仅表示 SRM 审核结果且只读 | MarketQuoteBusinessStatus.java、SupplierQuotationPage.tsx、MarketQuoteCard.tsx | 2026-08-16 | 1 |
 | 25 | 产品文案 | 在本地测试环境的账号关联页额外展示“本地开发模式”和固定验证账号，暴露实现概念并形成冗余视觉层级 | 本地统一视为测试环境；页面只呈现真实业务账号关联表单，测试凭据由测试人员掌握而不在 H5 明文展示 | BusinessAccountBindingPage.tsx | 2026-08-16 | 1 |
+| 26 | 回归覆盖 | 修复业务咨询无回答终态时只验证状态展示，未覆盖带附件消息在发送前被安全校验拒绝的完整链路 | 修改咨询发送状态机时必须同时验证纯文本、合法附件、附件拒绝、WebSocket 反馈和回合生命周期收口 | ConsultConversation.tsx、ClaudeChatService.java、AttachmentStorageService.java | 2026-08-21 | 1 |

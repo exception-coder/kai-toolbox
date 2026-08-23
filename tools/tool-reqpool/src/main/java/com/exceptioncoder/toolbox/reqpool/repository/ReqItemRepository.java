@@ -156,7 +156,19 @@ public class ReqItemRepository {
                 """, prdSessionId, System.currentTimeMillis(), id);
     }
 
+    /** 初始化规格确认时提前绑定规格会话，但不把需求误标为核心规格就绪。 */
+    public void bindPlanningSpec(String id, String prdSessionId) {
+        jdbc.update("""
+                UPDATE req_pool_item
+                SET prd_session_id=?,
+                    status=CASE WHEN status IN ('PRD_READY','IN_DEV','DONE') THEN status ELSE 'CLARIFYING' END,
+                    updated_at=?
+                WHERE id=?
+                """, prdSessionId, System.currentTimeMillis(), id);
+    }
+
     public void delete(String id) {
+        jdbc.update("DELETE FROM req_pool_planning_assessment WHERE item_id=?", id);
         jdbc.update("DELETE FROM req_pool_insight WHERE item_id=?", id);
         jdbc.update("DELETE FROM req_pool_item WHERE id=?", id);
     }

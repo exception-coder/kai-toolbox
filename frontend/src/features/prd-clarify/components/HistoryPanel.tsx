@@ -1,5 +1,5 @@
 import { useState, type MouseEvent } from 'react'
-import { ChevronRight, FileText, FolderOpen, GitBranch, Info, Layers, Loader2, Pencil, Search, Trash2, Wrench, X } from 'lucide-react'
+import { ChevronRight, FileText, FolderOpen, GitBranch, Info, Layers, Loader2, PanelLeftClose, PanelLeftOpen, Pencil, Search, Trash2, Wrench, X } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { usePrompt } from '@/components/ui/prompt-dialog'
 import type { DevDocEstimation, PrdSessionView } from '../types'
@@ -23,7 +23,7 @@ export function HistoryPanel({
   sessions: PrdSessionView[]
   activeId: string | null
   onSelect: (s: PrdSessionView) => void
-  onDelete: (id: string) => void
+  onDelete: (id: string) => Promise<void>
   onRevise: (s: PrdSessionView) => void
   onRename: (id: string, title: string) => void
   onChangeGroup: (id: string, project: string) => void
@@ -38,11 +38,23 @@ export function HistoryPanel({
   const [previewSession, setPreviewSession] = useState<PrdSessionView | null>(null)
   const [viewingEstimation, setViewingEstimation] = useState<DevDocEstimation | null>(null)
   const [changingGroupSession, setChangingGroupSession] = useState<PrdSessionView | null>(null)
+  const [desktopCollapsed, setDesktopCollapsed] = useState(true)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const handleDelete = async (e: MouseEvent, id: string) => {
     e.stopPropagation()
     const ok = await confirm({ title: '删除确认', description: '删除后不可恢复，包括本地 .md 文件。', variant: 'destructive' })
-    if (ok) onDelete(id)
+    if (!ok) return
+    setDeleteError(null)
+    setDeletingId(id)
+    try {
+      await onDelete(id)
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : '删除失败，请重试')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   const handleRename = async (e: MouseEvent, s: PrdSessionView) => {
@@ -182,29 +194,40 @@ export function HistoryPanel({
        */}
       <div
         className={`absolute inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-hidden border-r border-[var(--color-border)] bg-[var(--color-card)] transition-transform duration-200
-          md:static md:z-auto md:w-64 md:max-w-none md:flex-shrink-0 md:translate-x-0 md:bg-transparent md:transition-none
+          md:static md:z-auto md:max-w-none md:flex-shrink-0 md:translate-x-0 md:bg-transparent
+          ${desktopCollapsed ? 'md:w-12' : 'md:w-64'}
           ${mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`}
       >
-        <div className="flex items-center justify-between px-3 py-2.5 text-sm font-semibold border-b border-[var(--color-border)]">
-          PRD 库
+        <div className={`flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2.5 text-sm font-semibold ${desktopCollapsed ? 'md:justify-center md:px-0' : ''}`}>
+          <span className={desktopCollapsed ? 'md:hidden' : ''}>规格库</span>
+          <button
+            type="button"
+            onClick={() => setDesktopCollapsed(value => !value)}
+            className="hidden rounded-md p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]/60 hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] md:inline-flex"
+            title={desktopCollapsed ? '展开规格库' : '收起规格库'}
+            aria-label={desktopCollapsed ? '展开规格库' : '收起规格库'}
+          >
+            {desktopCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </button>
           <button
             type="button"
             onClick={onMobileClose}
             className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] md:hidden"
-            title="收起 PRD 库"
+            title="收起规格库"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
+        <div className={`min-h-0 flex-1 flex-col ${desktopCollapsed ? 'flex md:hidden' : 'flex'}`}>
         {/* 搜索 + 筛选栏：标题搜索 + 系统（关联项目）/ 用户下拉，任一没有可选项时不展示对应下拉 */}
-        <div className="px-2.5 py-2 space-y-1.5 border-b border-[var(--color-border)]">
+        <div className="space-y-1.5 border-b border-[var(--color-border)] px-2.5 py-2">
           <div className="relative">
             <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索 PRD…"
+              placeholder="搜索规格…"
               className="w-full pl-6 pr-2 py-1 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-[11px] text-[var(--color-foreground)]"
             />
           </div>
@@ -247,6 +270,12 @@ export function HistoryPanel({
           )}
         </div>
 
+        {deleteError && (
+          <div role="alert" className="border-b border-red-500/15 px-3 py-2 text-[11px] text-red-600">
+            删除失败：{deleteError}。请重试。
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto">
           {sessions.length === 0 && (
             <div className="p-3 text-xs text-[var(--color-muted-foreground)]">暂无记录</div>
@@ -284,6 +313,7 @@ export function HistoryPanel({
                     onRenameClick={handleRename}
                     onChangeGroupClick={handleChangeGroup}
                     onDeleteClick={handleDelete}
+                    deletingId={deletingId}
                     onPreview={setPreviewSession}
                     onViewEstimation={setViewingEstimation}
                   />
@@ -291,6 +321,7 @@ export function HistoryPanel({
               </div>
             )
           })}
+        </div>
         </div>
       </div>
     </>
@@ -300,14 +331,18 @@ export function HistoryPanel({
 /** 状态徽标文案 + 配色（提到组件外，HistoryItem 递归渲染时复用同一份，不用每层重建）。 */
 const HISTORY_STATUS_LABEL: Record<string, string> = {
   DRAFT: '草稿',
-  CLARIFYING: '澄清中',
+  DISCOVERING: '探索中',
+  SPEC_REVIEW: '待审阅',
+  CLARIFYING: '待重新探索',
   GENERATING: '生成中',
   DONE: 'DONE',
   ERROR: '出错',
 }
 const HISTORY_STATUS_BADGE: Record<string, string> = {
   DRAFT: 'text-[var(--color-muted-foreground)] border-[var(--color-border)]',
-  CLARIFYING: 'text-yellow-500 border-yellow-500/30',
+  DISCOVERING: 'text-blue-500 border-blue-500/30',
+  SPEC_REVIEW: 'text-amber-500 border-amber-500/30',
+  CLARIFYING: 'text-amber-500 border-amber-500/30',
   GENERATING: 'text-blue-500 border-blue-500/30',
   DONE: 'text-green-500 border-green-500/30',
   ERROR: 'text-red-500 border-red-500/30',
@@ -336,6 +371,7 @@ function HistoryItem({
   onRenameClick,
   onChangeGroupClick,
   onDeleteClick,
+  deletingId,
   onPreview,
   onViewEstimation,
 }: {
@@ -351,6 +387,7 @@ function HistoryItem({
   onRenameClick: (e: MouseEvent, s: PrdSessionView) => void
   onChangeGroupClick: (e: MouseEvent, s: PrdSessionView) => void
   onDeleteClick: (e: MouseEvent, id: string) => void
+  deletingId: string | null
   onPreview: (s: PrdSessionView) => void
   onViewEstimation: (est: DevDocEstimation | null) => void
 }) {
@@ -415,25 +452,22 @@ function HistoryItem({
                 </span>
               )
             })()}
-            <span className={`text-[9px] px-1 rounded border leading-tight ${s.documentProfile === 'SPEC_DRIVEN' ? 'bg-violet-500/15 text-violet-500 border-violet-500/20' : 'bg-slate-500/10 text-[var(--color-muted-foreground)] border-[var(--color-border)]'}`}>
-              {s.documentProfile === 'SPEC_DRIVEN' ? '规格驱动' : '经典文档'}
-            </span>
           </div>
 
           {/* 指标行：子 PRD 完成度 / 开发文档版本(过期高亮) / AI 工时区间，一眼看全貌 */}
           {hasMetrics && (
             <div className="flex items-center gap-2.5 mt-1 text-[10px] text-[var(--color-muted-foreground)] flex-wrap">
-              {hasChildren && <span>{doneChildren}/{children.length} 子 PRD</span>}
+              {hasChildren && <span>{doneChildren}/{children.length} 子规格</span>}
               {s.devDocPath && (
                 <span className={`flex items-center gap-0.5 ${devDocStale ? 'text-amber-500' : ''}`}
-                  title={devDocStale ? `${s.documentProfile === 'SPEC_DRIVEN' ? '执行计划' : '开发文档'}已过期，点进去后可重新生成` : `已生成${s.documentProfile === 'SPEC_DRIVEN' ? '执行计划' : '开发文档'}，点这一行进去查看`}>
+                  title={devDocStale ? '执行计划已过期，点进去后可重新生成' : '已生成执行计划，点这一行进去查看'}>
                   <Wrench className="w-2.5 h-2.5" />
-                  {devDocStale ? `⚠ ${s.documentProfile === 'SPEC_DRIVEN' ? '执行计划' : '开发文档'}` : (s.documentProfile === 'SPEC_DRIVEN' ? '执行计划' : '开发文档')}{devDocVersionCount > 0 ? ` · v${devDocVersionCount}` : ''}
+                  {devDocStale ? '⚠ 执行计划' : '执行计划'}{devDocVersionCount > 0 ? ` · v${devDocVersionCount}` : ''}
                 </span>
               )}
               {s.devDocWorkStatus === 'GENERATING' && (
                 <span className="flex items-center gap-0.5 text-blue-500">
-                  <Loader2 className="w-2.5 h-2.5 animate-spin" />开发文档后台生成中
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />执行计划后台生成中
                 </span>
               )}
               {s.devDocWorkStatus === 'ERROR' && (
@@ -442,7 +476,7 @@ function HistoryItem({
                 </span>
               )}
               {s.status === 'ERROR' && s.errorMsg && (
-                <span className="max-w-full truncate text-red-500" title={s.errorMsg}>⚠ PRD 失败：{s.errorMsg}</span>
+                <span className="max-w-full truncate text-red-500" title={s.errorMsg}>⚠ 规格生成失败：{s.errorMsg}</span>
               )}
               {s.devDocEstimation && (
                 <button
@@ -456,8 +490,17 @@ function HistoryItem({
             </div>
           )}
         </div>
-        {/* 操作按钮区（hover 显示） */}
-        <div className="hidden group-hover:flex items-center gap-1 flex-shrink-0">
+        <button
+          type="button"
+          disabled={deletingId === s.id}
+          onClick={(e) => onDeleteClick(e, s.id)}
+          className="mt-0.5 inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-[var(--color-muted-foreground)] transition-colors hover:bg-red-500/8 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] disabled:opacity-50 md:hidden"
+          aria-label={`删除规格 ${s.title}`}
+        >
+          {deletingId === s.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+        </button>
+        {/* 桌面端操作按钮区（hover 显示）；触屏端删除入口在上方常驻。 */}
+        <div className="hidden items-center gap-1 flex-shrink-0 md:group-hover:flex">
           {/* 生成修订版（DONE 状态才显示） */}
           {s.status === 'DONE' && (
             <button
@@ -489,7 +532,7 @@ function HistoryItem({
             <button
               onClick={(e) => onChangeGroupClick(e, s)}
               className="text-[var(--color-muted-foreground)] hover:text-blue-500"
-              title="修改分组（整棵子 PRD 树会一起移动）"
+              title="修改分组（整棵子规格树会一起移动）"
             >
               <FolderOpen className="w-3 h-3" />
             </button>
@@ -502,10 +545,12 @@ function HistoryItem({
             <Info className="w-3 h-3" />
           </button>
           <button
+            disabled={deletingId === s.id}
             onClick={(e) => onDeleteClick(e, s.id)}
             className="text-[var(--color-muted-foreground)] hover:text-red-500"
+            aria-label={`删除规格 ${s.title}`}
           >
-            <Trash2 className="w-3 h-3" />
+            {deletingId === s.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
           </button>
         </div>
       </div>
@@ -524,6 +569,7 @@ function HistoryItem({
           onRenameClick={onRenameClick}
           onChangeGroupClick={onChangeGroupClick}
           onDeleteClick={onDeleteClick}
+          deletingId={deletingId}
           onPreview={onPreview}
           onViewEstimation={onViewEstimation}
         />

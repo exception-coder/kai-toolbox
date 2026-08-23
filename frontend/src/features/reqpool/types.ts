@@ -2,6 +2,82 @@ export type ReqPriority = 'HIGH' | 'MEDIUM' | 'LOW'
 export type ReqStatus = 'DRAFT' | 'CLARIFYING' | 'PRD_READY' | 'IN_DEV' | 'DONE' | 'CANCELLED'
 export type RequirementType = 'BUG_FIX' | 'MODULE_ADJUST' | 'NEW_MODULE' | 'UNKNOWN'
 export type RequirementTypeSource = 'EXPLICIT' | 'AI' | 'PRD_SESSION' | 'UNKNOWN'
+export type PlanningAssessmentStatus = 'RUNNING' | 'COMPLETED' | 'FAILED'
+export type PlanningConfidence = 'HIGH' | 'MEDIUM' | 'LOW'
+
+export interface PlanningWorkPackage {
+  type: 'DISCOVERY_DESIGN' | 'BACKEND' | 'FRONTEND' | 'DATA' | 'INTEGRATION' | 'TEST_VERIFICATION'
+  hoursMin: number
+  hoursMax: number
+  reason: string
+}
+
+export interface PlanningCapability {
+  id: string
+  domain: string
+  name: string
+  businessOutcome: string
+  scope: string
+  specRefs: string[]
+  evidenceRefs: string[]
+  dependencies: string[]
+  risks: string[]
+  confidence: PlanningConfidence
+  bufferRate: number
+  baseHoursMin: number
+  baseHoursMax: number
+  hoursMin: number
+  hoursMax: number
+  workPackages: PlanningWorkPackage[]
+}
+
+export interface PlanningAssessmentPayload {
+  criteriaVersion: string
+  effectiveHoursPerPersonDay: number
+  summary: string
+  confidence: PlanningConfidence
+  assumptions: string[]
+  hoursMin: number
+  hoursMax: number
+  personDaysMin: number
+  personDaysMax: number
+  capabilities: PlanningCapability[]
+}
+
+export interface PlanningAssessmentView {
+  id: string
+  status: PlanningAssessmentStatus
+  criteriaVersion: string
+  promptVersion: string
+  inputHash: string
+  evidenceTraceJson: string | null
+  payloadJson: string | null
+  engine: string
+  model: string | null
+  errorMessage: string | null
+  startedAt: number
+  completedAt: number | null
+}
+
+export type PlanningEvidenceStatus = 'HIT' | 'SOURCE_MISSING' | 'NO_HIT_OR_ERROR' | 'NOT_APPLICABLE' | 'NOT_INVOKED'
+
+export interface PlanningEvidenceSourceTrace {
+  source: 'DOMAIN_KNOWLEDGE' | 'GRAPHIFY' | 'DDL' | 'ROUTE_MAP'
+  attempted: boolean
+  status: PlanningEvidenceStatus
+  target: string
+  resultChars: number
+  excerpt: string
+}
+
+export interface PlanningEvidenceTrace {
+  version: string
+  project: string
+  module: string
+  query: string
+  capturedAt: number
+  sources: PlanningEvidenceSourceTrace[]
+}
 
 export interface ReqItemView {
   id: string
@@ -26,6 +102,7 @@ export interface ReqItemView {
   aiInsightGeneratedAt: number | null
   aiInsightStale: boolean
   aiInsightStaleReason: 'SOURCE_CHANGED' | 'PORTFOLIO_CHANGED' | 'LEGACY_UNVERIFIED' | null
+  planningAssessment: PlanningAssessmentView | null
   createdAt: number
   updatedAt: number
 }

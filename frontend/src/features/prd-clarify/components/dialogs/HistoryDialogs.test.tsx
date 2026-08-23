@@ -30,8 +30,8 @@ beforeEach(() => {
   vi.mocked(getDevDocVersionContent).mockResolvedValue('')
 })
 
-describe('PRD 历史与版本弹层', () => {
-  it('展示 PRD 澄清记录、未填写答案并支持关闭', () => {
+describe('规格历史与版本弹层', () => {
+  it('展示需求澄清记录、未填写答案并支持关闭', () => {
     const onClose = vi.fn()
     render(
       <ClarifyHistorySheet
@@ -40,7 +40,7 @@ describe('PRD 历史与版本弹层', () => {
       />,
     )
 
-    expect(screen.getByRole('dialog', { name: 'PRD 澄清问答记录' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '需求澄清问答记录' })).toBeInTheDocument()
     expect(screen.getByText('目标用户是谁？')).toBeInTheDocument()
     expect(screen.getByText('（未填写）')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '关闭' }))

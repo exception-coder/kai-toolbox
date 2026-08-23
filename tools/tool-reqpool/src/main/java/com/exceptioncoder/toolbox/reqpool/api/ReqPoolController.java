@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.reqpool.api.dto.CreateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.LinkPrdRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.ReqItemView;
 import com.exceptioncoder.toolbox.reqpool.api.dto.ReqItemViewAssembler;
+import com.exceptioncoder.toolbox.reqpool.api.dto.ReqPlanningAssessmentView;
 import com.exceptioncoder.toolbox.reqpool.api.dto.UpdateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqItemRepository;
@@ -13,6 +14,8 @@ import com.exceptioncoder.toolbox.reqpool.service.ReqAnalysisService;
 import com.exceptioncoder.toolbox.reqpool.service.ReqDevelopmentAccessPolicy;
 import com.exceptioncoder.toolbox.reqpool.service.ReqPoolPrdSyncService;
 import com.exceptioncoder.toolbox.reqpool.service.ReqRequirementTypeService;
+import com.exceptioncoder.toolbox.reqpool.service.ReqPlanningAssessmentService;
+import com.exceptioncoder.toolbox.reqpool.service.ReqPlanningAssessmentTaskService;
 import com.exceptioncoder.toolbox.common.auth.config.AuthProperties;
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
 import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
@@ -65,6 +68,8 @@ public class ReqPoolController {
     private final ReqDevelopmentAccessPolicy developmentAccess;
     private final ReqRequirementTypeService requirementTypeService;
     private final ReqItemViewAssembler viewAssembler;
+    private final ReqPlanningAssessmentService planningAssessmentService;
+    private final ReqPlanningAssessmentTaskService planningAssessmentTaskService;
     private final AuthProperties authProperties;
 
     public ReqPoolController(ReqItemRepository repo,
@@ -74,6 +79,8 @@ public class ReqPoolController {
                              ReqDevelopmentAccessPolicy developmentAccess,
                              ReqRequirementTypeService requirementTypeService,
                              ReqItemViewAssembler viewAssembler,
+                             ReqPlanningAssessmentService planningAssessmentService,
+                             ReqPlanningAssessmentTaskService planningAssessmentTaskService,
                              AuthProperties authProperties) {
         this.repo = repo;
         this.integrationRepository = integrationRepository;
@@ -82,6 +89,8 @@ public class ReqPoolController {
         this.developmentAccess = developmentAccess;
         this.requirementTypeService = requirementTypeService;
         this.viewAssembler = viewAssembler;
+        this.planningAssessmentService = planningAssessmentService;
+        this.planningAssessmentTaskService = planningAssessmentTaskService;
         this.authProperties = authProperties;
     }
 
@@ -101,6 +110,19 @@ public class ReqPoolController {
                 ? req.priority() : "MEDIUM";
         // 若携带 prdSessionId，直接设为 PRD_READY（来自 PRD澄清助手自动注册场景）
         boolean hasPrd = req.prdSessionId() != null && !req.prdSessionId().isBlank();
+        if (hasPrd) {
+            java.util.Optional<ReqItem> existing = repo.findByPrdSessionId(req.prdSessionId());
+            if (existing.isPresent()) {
+                ReqItem item = existing.get();
+                item.setPrdSessionId(req.prdSessionId());
+                item.setStatus("PRD_READY");
+                item.setUpdatedAt(now);
+                requirementTypeService.applyPrdSessionType(
+                        item, integrationRepository.findConfirmedPrdType(req.prdSessionId()));
+                repo.update(item);
+                return ResponseEntity.ok(toView(item));
+            }
+        }
         ReqItem item = ReqItem.builder()
                 .id(UUID.randomUUID().toString())
                 .title(req.title())
@@ -333,6 +355,21 @@ public class ReqPoolController {
         ReqItem updated = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
         return toView(updated);
+    }
+
+    /** 查询需求最近一次初始化规格规划评估。 */
+    @GetMapping("/items/{id}/planning-assessment")
+    public ResponseEntity<ReqPlanningAssessmentView> planningAssessment(@PathVariable String id) {
+        return planningAssessmentService.latest(id)
+                .map(ReqPlanningAssessmentView::from)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /** 基于已保存的初始化规格快照重试规划评估。 */
+    @PostMapping("/items/{id}/planning-assessment/retry")
+    public ReqPlanningAssessmentView retryPlanningAssessment(@PathVariable String id) {
+        return ReqPlanningAssessmentView.from(planningAssessmentTaskService.retry(id));
     }
 
     /**

@@ -4,6 +4,7 @@ import { FileText, Loader2, Rocket, Wrench, X } from 'lucide-react'
 import { loadCodexHomePreference, saveCodexHomePreference } from '@/features/claude-chat/public-api'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 import type { ClarifyEngine } from './StartClarifyDialog'
+import { OPEN_SPEC_PRE_CODING_GATE } from '../../lib/openSpecHandoff'
 
 export function StartDevDialog({
   title,
@@ -41,12 +42,16 @@ export function StartDevDialog({
 ## feature-dev 已完成阶段状态
 - ✅ Phase 1 (Discovery) — 已完成：需求标题《${title}》
 - ✅ Phase 2 (Codebase Exploration) — 已完成：见技术方案文档
-- ✅ Phase 3 (Clarifying Q&A) — 已完成：经 AI 渐进澄清
+- ✅ Phase 3 (Initial Specification Review) — 已完成：初始化规格已确认
 - ✅ Phase 4 (Architecture Design) — 已完成：见下方技术方案文档
 
 ## 技术方案文档（Phase 4 产出）
 
 ${devDocContent}
+
+---
+
+${OPEN_SPEC_PRE_CODING_GATE}
 
 ---
 
@@ -65,15 +70,19 @@ PRD_SESSION_ID: ${sessionId}`
     return `请执行 /feature-dev:feature-dev，以下阶段已完成：
 
 ## feature-dev 已完成阶段状态
-- ✅ Phase 1 (Discovery) — 已完成：见 PRD 文档
-- ✅ Phase 3 (Clarifying Q&A) — 已完成：经 AI 渐进澄清
+- ✅ Phase 1 (Discovery) — 已完成：见核心规格
+- ✅ Phase 3 (Initial Specification Review) — 已完成：初始化规格已确认
 - ⬜ Phase 2 (Codebase Exploration) — 待执行
 - ⬜ Phase 4 (Architecture Design) — 待执行
 - ⬜ Phase 5 (Implementation) — 待执行
 
-## PRD 文档（Phase 1+3 产出）
+## 核心规格（Phase 1+3 产出）
 
 ${content}
+
+---
+
+${OPEN_SPEC_PRE_CODING_GATE}
 
 ---
 
@@ -195,7 +204,7 @@ PRD_SESSION_ID: ${sessionId}`
           ) : (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500">
               <FileText className="w-3.5 h-3.5 flex-shrink-0" />
-              <span>携带 <strong className="mx-1">PRD</strong>，{agentName} 将先分析技术方案再实现。建议先生成「开发文档」后再开始开发。</span>
+              <span>携带 <strong className="mx-1">核心规格</strong>，{agentName} 将先分析技术方案再实现。建议先生成「执行计划」后再开始开发。</span>
             </div>
           )}
 
@@ -208,11 +217,11 @@ PRD_SESSION_ID: ${sessionId}`
             </div>
             <div className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">2</span>
-              <span>自动发送{hasDevDoc ? <><strong className="text-purple-400 mx-1">开发方案文档</strong>，{agentName} 直接按清单实现</> : <><strong className="text-[var(--color-foreground)] mx-1">PRD + feature-dev 引导</strong>（代码探索→技术方案→实现）</>}</span>
+              <span>自动发送{hasDevDoc ? <><strong className="text-purple-400 mx-1">执行计划</strong>，{agentName} 直接按清单实现</> : <><strong className="text-[var(--color-foreground)] mx-1">核心规格 + feature-dev 引导</strong>（代码探索→技术方案→实现）</>}</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">3</span>
-              <span>开发完成后，技术方案文档自动<strong className="text-[var(--color-foreground)]">关联回此 PRD</strong></span>
+              <span>开发完成后，执行计划自动<strong className="text-[var(--color-foreground)]">关联回此规格</strong></span>
             </div>
           </div>
           {!projectName && (

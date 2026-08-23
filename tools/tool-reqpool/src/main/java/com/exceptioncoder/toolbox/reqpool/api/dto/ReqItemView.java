@@ -31,16 +31,25 @@ public record ReqItemView(
         Long aiInsightGeneratedAt,
         boolean aiInsightStale,
         String aiInsightStaleReason,
+        ReqPlanningAssessmentView planningAssessment,
         long createdAt,
         long updatedAt
 ) {
     public static ReqItemView from(ReqItem item) {
         return from(item, item.getAiInsight() == null || item.getAiInsight().isBlank()
                 ? ReqInsightStatus.absent()
-                : ReqInsightStatus.legacy());
+                : ReqInsightStatus.legacy(), null);
     }
 
     public static ReqItemView from(ReqItem item, ReqInsightStatus insightStatus) {
+        return from(item, insightStatus, null);
+    }
+
+    public static ReqItemView from(
+            ReqItem item,
+            ReqInsightStatus insightStatus,
+            ReqPlanningAssessmentView planningAssessment
+    ) {
         return new ReqItemView(
                 item.getId(), item.getTitle(), item.getDescription(),
                 item.getProject(), item.getModule(),
@@ -53,6 +62,7 @@ public record ReqItemView(
                 insightStatus.analysisType() == null ? null : insightStatus.analysisType().name(),
                 insightStatus.promptVersion(), insightStatus.generatedAt(), insightStatus.stale(),
                 insightStatus.staleReason(),
+                planningAssessment,
                 item.getCreatedAt(), item.getUpdatedAt());
     }
 

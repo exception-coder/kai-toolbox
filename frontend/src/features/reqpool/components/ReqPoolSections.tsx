@@ -89,7 +89,7 @@ import {
   startClarifyFromDraft,
   startGenerateDevDoc,
   startGenerate as runPrdGenerate,
-  documentProfileLabels,
+  documentLabels,
   type AgentEngine,
   type PrdSessionView,
   type QaPair,
@@ -97,6 +97,7 @@ import {
 } from '@/features/prd-clarify/public-api'
 import { MarkdownContent } from '@/components/markdown/MarkdownContent'
 import { useAuth } from '@/lib/auth'
+import { PlanningAssessmentSection } from './PlanningAssessmentSection'
 
 type ViewMode = 'table' | 'leader'
 type Decision = 'NOW' | 'CLARIFY' | 'PLAN' | 'PARK'
@@ -323,9 +324,8 @@ export function DecisionBadge({ decision }: { decision: Decision }) {
 
 const FACT_QUALITY_TONE: Record<FactQualityResult['level'], { badge: string; bar: string }> = {
   READY: { badge: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300', bar: 'bg-emerald-500' },
-  REVIEW: { badge: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300', bar: 'bg-sky-500' },
-  CLARIFY: { badge: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300', bar: 'bg-amber-500' },
-  BLOCKED: { badge: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300', bar: 'bg-rose-500' },
+  ASSUMPTIONS: { badge: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300', bar: 'bg-sky-500' },
+  DECISION: { badge: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300', bar: 'bg-amber-500' },
 }
 
 function FactQualityDetails({ quality }: { quality: FactQualityResult }) {
@@ -333,18 +333,20 @@ function FactQualityDetails({ quality }: { quality: FactQualityResult }) {
   return (
     <div>
       <div className="flex items-end justify-between gap-3">
-        <div><div className="text-[10px] text-[var(--color-muted-foreground)]">需求事实质量</div><div className="mt-0.5 flex items-baseline gap-1"><span className="text-2xl font-semibold tabular-nums">{quality.score}</span><span className="text-[10px] text-[var(--color-muted-foreground)]">/ 100 · {quality.grade}级</span></div></div>
-        <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${tone.badge}`}>{quality.levelLabel}</span>
+        <div><div className="text-[10px] text-[var(--color-muted-foreground)]">规格成熟度</div><div className="mt-0.5 flex items-baseline gap-1"><span className="text-2xl font-semibold tabular-nums">{quality.score}</span><span className="text-[10px] text-[var(--color-muted-foreground)]">/ 100 · {quality.grade}级</span></div><div className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">{quality.maturityLabel}</div></div>
+        <span className={`rounded-lg border px-2.5 py-1 text-[10px] font-semibold ${tone.badge}`}>{quality.levelLabel}</span>
       </div>
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--color-muted)]"><div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${quality.score}%` }} /></div>
+      <p className="mt-3 text-[10px] leading-5 text-[var(--color-foreground)]/80">{quality.readinessSummary}</p>
       <div className="mt-3 flex flex-wrap gap-1.5 text-[9px]"><span className="rounded bg-[var(--color-muted)] px-2 py-1">{quality.reqTypeLabel} · {quality.reqTypeSourceLabel}</span><span className="max-w-full truncate rounded bg-[var(--color-muted)] px-2 py-1" title={quality.locationLabel}>{quality.locationLabel}</span></div>
       <div className="mt-4 space-y-2">
         {quality.criteria.map(item => {
           const deducted = item.weight - item.earned
-          return <div key={item.key} className="rounded-lg border border-[var(--color-border)] px-3 py-2.5"><div className="flex items-center justify-between gap-3"><span className="text-[10px] font-semibold">{item.label}</span><span className={`text-[10px] font-semibold tabular-nums ${deducted > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{item.earned}/{item.weight}{deducted > 0 ? ` · 扣${deducted}` : ''}</span></div><p className="mt-1 text-[9px] leading-4 text-[var(--color-muted-foreground)]">{item.reason}</p></div>
+          return <div key={item.key} className="border-t border-[var(--color-border)] py-2.5"><div className="flex items-center justify-between gap-3"><span className="text-[10px] font-semibold">{item.label}</span><span className={`text-[10px] font-semibold tabular-nums ${deducted > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{item.earned}/{item.weight}</span></div><p className="mt-1 text-[9px] leading-4 text-[var(--color-muted-foreground)]">{item.reason}</p></div>
         })}
       </div>
-      <p className="mt-3 text-[9px] leading-4 text-[var(--color-muted-foreground)]">统一口径：定位 25 · 问题与目标 25 · 场景影响 15 · 验收 15 · 边界 10 · 证据 10。分数仅评价事实是否足以交给开发，不评价业务价值。</p>
+      {quality.riskFlags.length > 0 && <div className="mt-3 border-l-2 border-amber-300 pl-3"><div className="text-[10px] font-semibold">实施中继续核查</div><p className="mt-1 text-[9px] leading-4 text-[var(--color-muted-foreground)]">{quality.riskFlags.join('；')}</p></div>}
+      <p className="mt-3 text-[9px] leading-4 text-[var(--color-muted-foreground)]">准入口径：关键意图、存量定位、可观察验收和高影响决策独立判定。成熟度用于改进规格，不再以单一分数阻断开发；补充证据仅占 5 分。</p>
     </div>
   )
 }
@@ -354,7 +356,7 @@ export function FactQualityBadge({ item, session }: { item: ReqItemView; session
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" onClick={event => event.stopPropagation()} className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-semibold tabular-nums ${tone.badge}`} title="查看需求事实质量评分与扣分原因"><Gauge className="h-2.5 w-2.5" />事实 {quality.score}</button>
+        <button type="button" onClick={event => event.stopPropagation()} className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-semibold tabular-nums ${tone.badge}`} title="查看开发准入与规格成熟度"><Gauge className="h-2.5 w-2.5" />{quality.levelLabel} · {quality.score}</button>
       </PopoverTrigger>
       <PopoverContent align="start" sideOffset={6} className="w-[min(92vw,380px)] p-4" onClick={event => event.stopPropagation()}>
         <FactQualityDetails quality={quality} />
@@ -554,18 +556,19 @@ export function RequirementDrawer({ item, requirement, prdSession, analyzing, pr
   const insight = parseInsight(item.aiInsight)
   const decision = decisionOf(item)
   const factQuality = evaluateRequirementFacts(item, prdSession)
-  const labels = documentProfileLabels(prdSession?.documentProfile ?? requirement?.documentProfile)
+  const labels = documentLabels
   const staleLabel = insightStaleLabel(item)
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px]" onMouseDown={event => event.target === event.currentTarget && onClose()}>
       <aside className="h-full w-full max-w-[520px] overflow-y-auto border-l border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-card)]/95 px-5 py-4 backdrop-blur"><span className="text-xs font-medium text-[var(--color-muted-foreground)]">需求详情 · {item.id.slice(0, 8).toUpperCase()}</span><button onClick={onClose} className="rounded-lg p-1.5 hover:bg-[var(--color-muted)]"><X className="h-4 w-4" /></button></div>
         <div className="space-y-6 p-6">
-          <div><div className="flex items-center gap-2"><DecisionBadge decision={decision} /><span className={`rounded-full px-2.5 py-1 text-[10px] font-medium ${STATUS_META[item.status].cls}`}>{STATUS_META[item.status].label}</span></div><h2 className="mt-4 text-xl font-semibold leading-8">{item.title}</h2><p className="mt-2 whitespace-pre-line text-sm leading-6 text-[var(--color-muted-foreground)]">{item.description || '尚未补充需求描述。'}</p></div>
+          <div><div className="flex items-center gap-2"><DecisionBadge decision={decision} /><span className={`rounded-full px-2.5 py-1 text-[10px] font-medium ${STATUS_META[item.status].cls}`}>{STATUS_META[item.status].label}</span></div><h2 className="mt-4 text-xl font-semibold leading-8">{item.title}</h2><RequirementDescription content={item.description} /></div>
           <div className="grid grid-cols-2 gap-3">
             {[[Building2, '系统 / 模块', `${item.project || '待归属'} / ${item.module || '待归类'}`], [UserRound, '唯一负责人', item.assignee || '待指派'], [CalendarDays, '承诺时间', dateLabel(item.deadline)], [Radio, '数据来源', item.prdSessionId ? `${labels.specification}自动同步` : '统一登记']].map(([Icon, label, value]) => { const CellIcon = Icon as typeof Building2; return <div key={String(label)} className="rounded-xl bg-[var(--color-muted)]/60 p-3"><CellIcon className="h-3.5 w-3.5 text-[var(--color-muted-foreground)]" /><div className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">{String(label)}</div><div className="mt-0.5 text-xs font-medium">{String(value)}</div></div> })}
           </div>
           <div className="rounded-xl border border-[var(--color-border)] p-4"><FactQualityDetails quality={factQuality} /></div>
+          <PlanningAssessmentSection item={item} />
           <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 dark:border-violet-900 dark:bg-violet-950/20"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs font-semibold text-violet-700 dark:text-violet-300"><Sparkles className="h-4 w-4" />AI 判定依据</div><button onClick={onAnalyze} disabled={analyzing} className="text-[10px] text-violet-600 disabled:opacity-50">{analyzing ? '分析中…' : '重新分析'}</button></div>{staleLabel && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">{staleLabel}</div>}<p className="mt-3 text-sm leading-6">{insight?.reason || '尚未生成跨需求价值分析。AI 将统一考虑战略匹配、用户影响、收益、成本与风险。'}</p>{item.aiInsightGeneratedAt && <p className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">生成于 {new Date(item.aiInsightGeneratedAt).toLocaleString()} · {item.aiInsightType === 'PORTFOLIO' ? '组合排序' : '单条分析'}{item.aiInsightPromptVersion ? ` · ${item.aiInsightPromptVersion}` : ''}</p>}{insight?.impacts && <div className="mt-3 flex flex-wrap gap-1.5">{insight.impacts.map(value => <span key={value} className="rounded-full bg-white px-2 py-1 text-[10px] text-violet-700 shadow-sm dark:bg-black/20 dark:text-violet-300">{value}</span>)}</div>}</div>
           <div><div className="mb-3 flex items-center justify-between text-xs font-semibold"><span>交付证据链</span><span className="text-[10px] font-normal text-[var(--color-muted-foreground)]">点击节点直接操作</span></div><div className="rounded-xl border border-[var(--color-border)] p-4"><DeliveryTrack item={item} requirement={requirement} prdSession={prdSession} prdRunning={prdRunning} tddBuilding={tddBuilding} tddGenerating={tddGenerating} tddFailed={tddFailed} onStartPrd={onStartPrd} onAnswerPrd={onAnswerPrd} onPreviewPrd={onPreviewPrd} onStartTdd={onStartTdd} onAnswerTdd={onAnswerTdd} onPreviewTdd={onPreviewTdd} /></div></div>
           <div className="flex flex-wrap gap-2">
@@ -577,6 +580,16 @@ export function RequirementDrawer({ item, requirement, prdSession, analyzing, pr
         </div>
       </aside>
     </div>
+  )
+}
+
+/** 需求描述可能是手工文本，也可能是规格探索同步的 Markdown，统一按安全 Markdown 阅读。 */
+export function RequirementDescription({ content }: { content: string | null }) {
+  return (
+    <MarkdownContent
+      content={content?.trim() || '尚未补充需求描述。'}
+      className="mt-2 !h-auto !overflow-visible !p-0 text-sm text-[var(--color-muted-foreground)]"
+    />
   )
 }
 export function MobileRequirementCard({
@@ -623,7 +636,7 @@ export function MobileRequirementCard({
       <div className="flex items-start gap-3">
         <input type="checkbox" checked={selected} onChange={onToggle} className="mt-1 h-4 w-4 shrink-0 rounded border-[var(--color-border)] accent-violet-600" aria-label={`选择需求：${item.title}`} />
         <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-          <div className="flex flex-wrap items-center gap-2"><DecisionBadge decision={decisionOf(item)} /><span className={`rounded-full px-2 py-1 text-[9px] font-medium ${STATUS_META[item.status].cls}`}>{STATUS_META[item.status].label}</span><span className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-semibold ${FACT_QUALITY_TONE[factQuality.level].badge}`}><Gauge className="h-2.5 w-2.5" />事实 {factQuality.score}</span></div>
+          <div className="flex flex-wrap items-center gap-2"><DecisionBadge decision={decisionOf(item)} /><span className={`rounded-full px-2 py-1 text-[9px] font-medium ${STATUS_META[item.status].cls}`}>{STATUS_META[item.status].label}</span><span className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-semibold ${FACT_QUALITY_TONE[factQuality.level].badge}`}><Gauge className="h-2.5 w-2.5" />{factQuality.levelLabel} · {factQuality.score}</span></div>
           <h3 className="mt-3 text-sm font-semibold leading-6">{item.title}</h3>
           <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">{item.project || '待归属'} · {item.module || '待归类'}</p>
           <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--color-foreground)]/80">{insight?.reason || excerpt(item.description)}</p>

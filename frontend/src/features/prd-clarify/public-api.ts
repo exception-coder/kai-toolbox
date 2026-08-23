@@ -35,10 +35,10 @@ export type {
 } from './api'
 export type {
   AgentEngine,
-  DocumentProfile,
   PrdBusinessFields,
   PrdSessionView,
   QuestionItem,
 } from './types'
-export { documentProfileLabels } from './documentProfile'
+export { documentLabels } from './documentLabels'
 export { StartDevelopmentDialog } from './components/StartDevelopmentDialog'
+export { buildOpenSpecLinkSyncPrompt } from './lib/openSpecHandoff'

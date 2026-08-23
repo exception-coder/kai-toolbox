@@ -6,7 +6,6 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
-import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import org.springframework.beans.factory.annotation.Value;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -15,6 +14,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -58,6 +58,7 @@ public class PrdClarifyService {
     private final PrdDevDocumentClarificationService devDocumentClarificationService;
     private final PrdImageInputResolver imageInputResolver;
     private final PrdSessionLifecycleService sessionLifecycleService;
+    private final PrdDiscoveryService discoveryService;
 
     /**
      * 多轮澄清（最多 5 轮）会话内的图谱查询结果缓存：question（session 标题）在各轮间不变，
@@ -65,6 +66,7 @@ public class PrdClarifyService {
      * 「查过但无结果」与「尚未查过」。会话删除时同步清理，避免内存无界增长。
      */
     private final Map<String, Optional<String>> graphifyAskCache = new ConcurrentHashMap<>();
+    @Autowired
     public PrdClarifyService(AgentOneShotRunner agentRunner,
                              PrdSessionRepository repo,
                              ObjectMapper mapper,
@@ -78,7 +80,8 @@ public class PrdClarifyService {
                              PrdDevDocumentService devDocumentService,
                              PrdDevDocumentClarificationService devDocumentClarificationService,
                              PrdDocumentService documentService,
-                             PrdSessionLifecycleService sessionLifecycleService) {
+                             PrdSessionLifecycleService sessionLifecycleService,
+                             PrdDiscoveryService discoveryService) {
         this.agentRunner = agentRunner;
         this.repo = repo;
         this.mapper = mapper;
@@ -97,13 +100,36 @@ public class PrdClarifyService {
         this.devDocumentService = devDocumentService;
         this.devDocumentClarificationService = devDocumentClarificationService;
         this.sessionLifecycleService = sessionLifecycleService;
+        this.discoveryService = discoveryService;
+    }
+
+    /** 保留旧调用方的构造契约；探索能力仅由 Spring 注入的完整构造器提供。 */
+    @Deprecated
+    public PrdClarifyService(AgentOneShotRunner agentRunner,
+                             PrdSessionRepository repo,
+                             ObjectMapper mapper,
+                             GraphifyQueryService graphifyQuery,
+                             DomainKnowledgeQueryService domainKnowledgeQuery,
+                             PrdImageInputResolver imageInputResolver,
+                             PrdEffortEstimationService effortEstimationService,
+                             PrdRequirementSplitService requirementSplitService,
+                             PrdProgressEvaluationService progressEvaluationService,
+                             PrdDocRevisionService docRevisionService,
+                             PrdDevDocumentService devDocumentService,
+                             PrdDevDocumentClarificationService devDocumentClarificationService,
+                             PrdDocumentService documentService,
+                             PrdSessionLifecycleService sessionLifecycleService) {
+        this(agentRunner, repo, mapper, graphifyQuery, domainKnowledgeQuery, imageInputResolver,
+                effortEstimationService, requirementSplitService, progressEvaluationService,
+                docRevisionService, devDocumentService, devDocumentClarificationService,
+                documentService, sessionLifecycleService, null);
     }
 
     /** 创建会话并持久化，返回新建的会话对象。 */
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String role) {
         return createSession(title, rawInput, project, module, model, "claude", role,
-                null, null, null, null, PrdBusinessFields.empty(), null, DocumentProfile.CLASSIC.name());
+                null, null, null, null, PrdBusinessFields.empty(), null, null);
     }
 
     /**
@@ -123,10 +149,20 @@ public class PrdClarifyService {
                                     String project, String module, String model, String engine, String role,
                                     String reqType, Integer maxQuestions, Long createdByUserId,
                                     String clarifyMode, PrdBusinessFields businessFields, String parentId,
-                                    String documentProfile) {
+                                    String sourceReqItemId) {
+        return createSession(title, rawInput, project, module, model, engine, role, reqType, maxQuestions,
+                createdByUserId, clarifyMode, businessFields, parentId, sourceReqItemId, null);
+    }
+
+    /** 创建会话；非空 creationKey 使重复提交返回同一条会话。 */
+    public PrdSession createSession(String title, String rawInput,
+                                    String project, String module, String model, String engine, String role,
+                                    String reqType, Integer maxQuestions, Long createdByUserId,
+                                    String clarifyMode, PrdBusinessFields businessFields, String parentId,
+                                    String sourceReqItemId, String creationKey) {
         return sessionLifecycleService.create(
                 title, rawInput, project, module, model, engine, role, reqType, maxQuestions,
-                createdByUserId, clarifyMode, businessFields, parentId, documentProfile);
+                createdByUserId, clarifyMode, businessFields, parentId, sourceReqItemId, creationKey);
     }
 
     /**
@@ -138,16 +174,16 @@ public class PrdClarifyService {
      *                 （raw_input 列 NOT NULL，不能真塞 null）
      */
     public PrdSession saveDraft(String title, String rawInput, String project, String module, Long createdByUserId,
-                                PrdBusinessFields businessFields, String documentProfile) {
+                                PrdBusinessFields businessFields) {
         return sessionLifecycleService.saveDraft(
-                title, rawInput, project, module, createdByUserId, businessFields, documentProfile);
+                title, rawInput, project, module, createdByUserId, businessFields);
     }
 
     /** 再次保存草稿（覆盖字段，状态保持 DRAFT）。会话必须仍处于 DRAFT 状态，否则说明前端页面状态过期。 */
     public PrdSession updateDraft(String sessionId, String title, String rawInput, String project, String module,
-                                  PrdBusinessFields businessFields, String documentProfile) {
+                                  PrdBusinessFields businessFields) {
         return sessionLifecycleService.updateDraft(
-                sessionId, title, rawInput, project, module, businessFields, documentProfile);
+                sessionId, title, rawInput, project, module, businessFields);
     }
 
     /**
@@ -158,10 +194,10 @@ public class PrdClarifyService {
     public PrdSession startClarifyFromDraft(String sessionId, String title, String rawInput,
                                              String project, String module, String model, String engine, String role,
                                              String reqType, Integer maxQuestions, String clarifyMode,
-                                             PrdBusinessFields businessFields, String documentProfile) {
+                                             PrdBusinessFields businessFields) {
         return sessionLifecycleService.startClarifyFromDraft(
                 sessionId, title, rawInput, project, module, model, engine, role, reqType,
-                maxQuestions, clarifyMode, businessFields, documentProfile);
+                maxQuestions, clarifyMode, businessFields);
     }
 
     /** AI 标题建议，完整标题由代码按固定格式拼接。 */
@@ -226,6 +262,21 @@ public class PrdClarifyService {
                 session, rawAnswer, normalizeEngine(session.getEngine()));
         return new AnswerDistribution(
                 result.answers(), result.matchedCount(), result.unmatchedNumbers(), result.leftover());
+    }
+
+    /** 读取初始化规格。 */
+    public String readInitialSpec(String sessionId) throws IOException {
+        return discoveryService.read(sessionId);
+    }
+
+    /** 保存用户审阅后的初始化规格。 */
+    public void saveInitialSpec(String sessionId, String content) throws IOException {
+        discoveryService.save(sessionId, content);
+    }
+
+    /** 确认初始化规格并进入核心规格生成。 */
+    public PrdSession confirmInitialSpec(String sessionId) {
+        return discoveryService.confirm(sessionId);
     }
 
     /**
@@ -345,14 +396,14 @@ public class PrdClarifyService {
         return repo.findById(sessionId).orElseThrow();
     }
 
-    /**
-     * 已进入生成/编辑阶段后回到需求澄清。保留现有 PRD 文件和问答历史，只恢复生命周期状态；
-     * 这样误跳过澄清的会话无需删除重建，完成补充澄清后可在同一会话重新生成。
-     */
+    /** 已进入生成或编辑阶段后回到初始化规格审阅；旧会话降级到历史澄清流程。 */
     public PrdSession returnToClarify(String sessionId) {
-        repo.findById(sessionId)
+        PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        repo.updateStatus(sessionId, "CLARIFYING");
+        String targetStatus = session.getInitialSpecPath() == null || session.getInitialSpecPath().isBlank()
+                ? "CLARIFYING"
+                : "SPEC_REVIEW";
+        repo.updateStatus(sessionId, targetStatus);
         return repo.findById(sessionId).orElseThrow();
     }
 
@@ -410,9 +461,8 @@ public class PrdClarifyService {
      * @param extraInstructions 用户在弹框里补充的开发约束/更新说明（可选，null/空则不追加）。
      * @param updateExisting    true = 基于当前已有开发文档做增量更新；
      *                          false/null = 从 PRD 从零生成/覆盖（原有行为）
-     * @param qaHistory         本次 TDD 生成/更新前的技术澄清问答，结构化持久化进生成记录，
-     *                          与 PRD 业务澄清（session.questions）分开。
-     * @param clarificationCompleted 是否已经走完 TDD 澄清关卡；即使 AI 判断无需提问也必须为 true
+     * @param qaHistory         旧版本遗留的技术澄清问答，仅用于历史兼容；新流程传空列表。
+     * @param clarificationCompleted 旧版本门禁字段，仅为请求兼容而保留，新流程不再据此拦截。
      */
     public void generateDevDoc(String sessionId, String extraInstructions, Boolean updateExisting,
                                 List<QaPairRequest> qaHistory, Boolean clarificationCompleted,
@@ -574,8 +624,14 @@ public class PrdClarifyService {
         Optional<String> graphContext = graphifyAskCache.computeIfAbsent(session.getId(),
                 id -> queryGraphContext(session.getProject(), session.getModule(), session.getTitle()));
         Optional<String> domainContext = queryDomainContext(session.getProject(), session.getTitle());
+        String initialSpec = "";
+        try {
+            initialSpec = discoveryService.read(session.getId());
+        } catch (IOException error) {
+            log.warn("[prd-clarify] 初始化规格读取失败 sessionId={}", session.getId(), error);
+        }
         return new PrdClarificationQuestionService.KnowledgeContext(
-                graphContext.orElse(""), domainContext.orElse(""));
+                graphContext.orElse(""), domainContext.orElse(""), initialSpec);
     }
 
     /** 把 graphify CLI 查询结果（若有）拼进 prompt，作为「代码知识图谱查询结果」区块。 */

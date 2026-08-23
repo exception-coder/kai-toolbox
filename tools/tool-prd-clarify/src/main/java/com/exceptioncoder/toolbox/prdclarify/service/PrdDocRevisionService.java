@@ -1,6 +1,5 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
-import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
@@ -107,7 +106,6 @@ public class PrdDocRevisionService {
                 .clarifyMode(parent.getClarifyMode())
                 .model(parent.getModel())
                 .engine(parent.getEngine())
-                .documentProfile(DocumentProfile.normalize(parent.getDocumentProfile()))
                 .createdByUserId(parent.getCreatedByUserId())
                 .parentId(parentId)
                 .createdAt(now)

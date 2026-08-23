@@ -77,7 +77,6 @@ import {
   getDevDocContent,
   estimateDevDocEffort,
   evaluateProgress as runCodeProgressAnalysis,
-  generateDevDocQuestions,
   getSession as getPrdSession,
   listDevDocVersions,
   listSessions as listPrdSessions,
@@ -96,6 +95,7 @@ import { useReqpoolActions } from '../hooks/useReqpoolActions'
 import { useReqpoolDocumentWorkflow } from '../hooks/useReqpoolDocumentWorkflow'
 import { useReqpoolItemCommands } from '../hooks/useReqpoolItemCommands'
 import { ReqPoolPageHeader, type ReqPoolViewMode } from '../components/ReqPoolPageHeader'
+import { parsePlanningAssessmentPayload } from '../components/PlanningAssessmentSection'
 import {
   STATUS_META,
   branchSome,
@@ -163,7 +163,6 @@ export function ReqPoolPage() {
     generatingPrdIds,
     setGeneratingPrdIds,
     buildingTddQuestionIds,
-    setBuildingTddQuestionIds,
     generatingTddIds,
     setGeneratingTddIds,
     failedTddIds,
@@ -186,7 +185,12 @@ export function ReqPoolPage() {
   const pendingVibeRef = useRef<{ cwd: string; seed: string; displayText: string; engine: ReqpoolVibeEngine } | null>(null)
   const selectAllRef = useRef<HTMLInputElement>(null)
 
-  const itemsQuery = useQuery({ queryKey: ['reqpool'], queryFn: () => listItems() })
+  const itemsQuery = useQuery({
+    queryKey: ['reqpool'],
+    queryFn: () => listItems(),
+    refetchInterval: query => (query.state.data as ReqItemView[] | undefined)
+      ?.some(item => item.planningAssessment?.status === 'RUNNING') ? 2_500 : false,
+  })
   const overviewQuery = useQuery({ queryKey: ['delivery-overview', 'reqpool'], queryFn: () => getDeliveryOverview(), retry: false })
   const prdSessionsQuery = useQuery({ queryKey: ['prd-sessions', 'reqpool'], queryFn: listPrdSessions, retry: false, refetchInterval: 3_000 })
   const usersQuery = useQuery({ queryKey: ['auth', 'assignable-users'], queryFn: listAssignableUsers, retry: false })
@@ -216,7 +220,7 @@ export function ReqPoolPage() {
   const {
     startPrdClarification,
     submitPrdAnswers,
-    startTddQuestions,
+    startTddWork,
     startTddGeneration,
   } = useReqpoolDocumentWorkflow({ queryClient, sessionsById: prdSessionById, actions: reqpoolActions })
   const sortedItems = useMemo(() => [...items].sort((a, b) => {
@@ -283,6 +287,12 @@ export function ReqPoolPage() {
   }, [itemsQuery.data])
 
   useEffect(() => {
+    if (!selected) return
+    const current = items.find(item => item.id === selected.id)
+    if (current && current !== selected) setSelected(current)
+  }, [items, selected])
+
+  useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = someVisibleSelected
   }, [someVisibleSelected])
 
@@ -324,7 +334,7 @@ export function ReqPoolPage() {
     onStartPrd: (item, engine) => startPrdClarification(item, engine),
     onAnswerPrd: item => { void openPrdQuestions(item) },
     onPreviewPrd: item => setPreviewPrd(item),
-    onStartTdd: (item, engine) => { if (item.prdSessionId) startTddQuestions(item.prdSessionId, engine) },
+    onStartTdd: (item, engine) => { if (item.prdSessionId) startTddWork(item.prdSessionId, engine) },
     onAnswerTdd: (_item, requirement) => setTddWork(requirement),
     onPreviewTdd: item => setPreviewTdd(item),
   }
@@ -387,7 +397,7 @@ export function ReqPoolPage() {
                   {filteredItems.map(item => {
                     const requirement = deliveryFor(item, overview)
                     const session = item.prdSessionId ? prdSessionById.get(item.prdSessionId) : undefined
-                    return <div key={item.id}><MobileRequirementCard item={item} requirement={requirement} prdSession={session} selected={selectedIds.has(item.id)} prdRunning={!!item.prdSessionId && (clarifyingPrdIds.has(item.prdSessionId) || generatingPrdIds.has(item.prdSessionId))} tddBuilding={!!item.prdSessionId && buildingTddQuestionIds.has(item.prdSessionId)} tddGenerating={!!item.prdSessionId && generatingTddIds.has(item.prdSessionId)} tddFailed={!!item.prdSessionId && failedTddIds.has(item.prdSessionId)} onToggle={() => toggleSelected(item.id)} onOpen={() => setSelected(item)} onDelete={() => void remove(item)} onStartPrd={engine => startPrdClarification(item, engine)} onAnswerPrd={() => void openPrdQuestions(item)} onPreviewPrd={() => setPreviewPrd(item)} onStartTdd={engine => item.prdSessionId && startTddQuestions(item.prdSessionId, engine)} onAnswerTdd={() => requirement && setTddWork(requirement)} onPreviewTdd={() => setPreviewTdd(item)} />{(hierarchy.childrenByItemId.get(item.id)?.length ?? 0) > 0 && <div className="px-4 pb-4"><RequirementLineage parent={item} childrenByItemId={hierarchy.childrenByItemId} sessionsById={prdSessionById} overview={overview} actions={lineageActions} runState={lineageRunState} /></div>}</div>
+                    return <div key={item.id}><MobileRequirementCard item={item} requirement={requirement} prdSession={session} selected={selectedIds.has(item.id)} prdRunning={!!item.prdSessionId && (clarifyingPrdIds.has(item.prdSessionId) || generatingPrdIds.has(item.prdSessionId))} tddBuilding={!!item.prdSessionId && buildingTddQuestionIds.has(item.prdSessionId)} tddGenerating={!!item.prdSessionId && generatingTddIds.has(item.prdSessionId)} tddFailed={!!item.prdSessionId && failedTddIds.has(item.prdSessionId)} onToggle={() => toggleSelected(item.id)} onOpen={() => setSelected(item)} onDelete={() => void remove(item)} onStartPrd={engine => startPrdClarification(item, engine)} onAnswerPrd={() => void openPrdQuestions(item)} onPreviewPrd={() => setPreviewPrd(item)} onStartTdd={engine => item.prdSessionId && startTddWork(item.prdSessionId, engine)} onAnswerTdd={() => requirement && setTddWork(requirement)} onPreviewTdd={() => setPreviewTdd(item)} />{(hierarchy.childrenByItemId.get(item.id)?.length ?? 0) > 0 && <div className="px-4 pb-4"><RequirementLineage parent={item} childrenByItemId={hierarchy.childrenByItemId} sessionsById={prdSessionById} overview={overview} actions={lineageActions} runState={lineageRunState} /></div>}</div>
                   })}
                 </div>
                 <table className="hidden w-full min-w-[1080px] border-collapse text-left md:table">
@@ -403,21 +413,22 @@ export function ReqPoolPage() {
                   </tr></thead>
                   <tbody className="divide-y divide-[var(--color-border)]">{filteredItems.map(item => {
                     const insight = effectiveInsight(item)
+                    const planning = parsePlanningAssessmentPayload(item.planningAssessment?.payloadJson)
                     const requirement = deliveryFor(item, overview)
                     const session = item.prdSessionId ? prdSessionById.get(item.prdSessionId) : undefined
                     const missingOwner = !item.assignee
                     const factQuality = evaluateRequirementFacts(item, session)
-                    const factRisk = factQuality.score < 75 && factQuality.deductions.length > 0
-                      ? `事实质量 ${factQuality.score} 分：${factQuality.deductions[0].reason}`
-                      : null
+                    const factRisk = factQuality.level === 'DECISION'
+                      ? factQuality.blockers[0] || '存在需要需求方判定的关键事项'
+                      : factQuality.riskFlags[0] || null
                     const risk = requirement?.staleReasons[0] || factRisk || (missingOwner ? '尚未明确唯一负责人' : item.status === 'DRAFT' ? '需补齐验收口径' : '暂无新增风险')
                     return <Fragment key={item.id}><tr onClick={() => setSelected(item)} className={`group cursor-pointer align-top transition-colors hover:bg-violet-50/35 dark:hover:bg-violet-950/10 ${selectedIds.has(item.id) ? 'bg-violet-50/65 dark:bg-violet-950/20' : ''} ${density === 'compact' ? '[&>td]:py-2.5' : '[&>td]:py-4'}`}>
                       <td className="px-3"><input type="checkbox" checked={selectedIds.has(item.id)} onClick={event => event.stopPropagation()} onChange={() => toggleSelected(item.id)} className="h-3.5 w-3.5 cursor-pointer rounded border-[var(--color-border)] accent-violet-600" aria-label={`选择需求：${item.title}`} /></td>
                       {enabled('decision') && <td className="px-4"><DecisionBadge decision={decisionOf(item)} /></td>}
                       {enabled('requirement') && <td className="px-4"><div className="flex items-start gap-2.5"><span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300"><FileText className="h-3.5 w-3.5" /></span><div className="min-w-0"><div className="line-clamp-2 text-xs font-semibold leading-5">{item.title}</div><div className="mt-1.5 flex flex-wrap items-center gap-1.5"><span className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${STATUS_META[item.status].cls}`}>{STATUS_META[item.status].label}</span><FactQualityBadge item={item} session={session} /><span className="max-w-[140px] truncate text-[10px] text-[var(--color-muted-foreground)]">{item.project || '待归属'} · {item.module || '待归类'}</span></div></div></div></td>}
-                      {enabled('value') && <td className="px-4"><p className="line-clamp-2 text-xs leading-5 text-[var(--color-foreground)]/85">{insight?.reason || excerpt(item.description)}</p><div className="mt-1.5 flex items-center gap-2 text-[10px] text-[var(--color-muted-foreground)]"><TrendingUp className="h-3 w-3 text-violet-500" />ROI {insight?.roi === 'HIGH' ? '高' : insight?.roi === 'LOW' ? '低' : '待验证'}{insight?.estimatedHours ? ` · ${insight.estimatedHours}h` : ''}</div></td>}
+                      {enabled('value') && <td className="px-4"><p className="line-clamp-2 text-xs leading-5 text-[var(--color-foreground)]/85">{insight?.reason || excerpt(item.description)}</p><div className="mt-1.5 flex items-center gap-2 text-[10px] text-[var(--color-muted-foreground)]"><TrendingUp className="h-3 w-3 text-violet-500" />ROI {insight?.roi === 'HIGH' ? '高' : insight?.roi === 'LOW' ? '低' : '待验证'}{planning ? ` · 规划 ${planning.hoursMin}–${planning.hoursMax}h` : insight?.estimatedHours ? ` · 粗估 ${insight.estimatedHours}h` : ''}</div></td>}
                       {enabled('owner') && <td className="px-4"><AssigneeCell item={item} users={usersQuery.data ?? []} loading={usersQuery.isLoading} unavailable={usersQuery.isError} saving={assigningId === item.id} onAssign={userId => handleAssign(item.id, userId)} /><DeadlineEditor item={item} prdSession={session} saving={deadlineSavingId === item.id} onSave={deadline => handleDeadline(item.id, deadline)} /></td>}
-                      {enabled('delivery') && <td className="px-4"><DeliveryTrack item={item} requirement={requirement} prdSession={item.prdSessionId ? prdSessionById.get(item.prdSessionId) : undefined} prdRunning={!!item.prdSessionId && (clarifyingPrdIds.has(item.prdSessionId) || generatingPrdIds.has(item.prdSessionId))} tddBuilding={!!item.prdSessionId && buildingTddQuestionIds.has(item.prdSessionId)} tddGenerating={!!item.prdSessionId && generatingTddIds.has(item.prdSessionId)} tddFailed={!!item.prdSessionId && failedTddIds.has(item.prdSessionId)} onStartPrd={engine => startPrdClarification(item, engine)} onAnswerPrd={() => void openPrdQuestions(item)} onPreviewPrd={() => setPreviewPrd(item)} onStartTdd={engine => item.prdSessionId && startTddQuestions(item.prdSessionId, engine)} onAnswerTdd={() => requirement && setTddWork(requirement)} onPreviewTdd={() => setPreviewTdd(item)} /></td>}
+                      {enabled('delivery') && <td className="px-4"><DeliveryTrack item={item} requirement={requirement} prdSession={item.prdSessionId ? prdSessionById.get(item.prdSessionId) : undefined} prdRunning={!!item.prdSessionId && (clarifyingPrdIds.has(item.prdSessionId) || generatingPrdIds.has(item.prdSessionId))} tddBuilding={!!item.prdSessionId && buildingTddQuestionIds.has(item.prdSessionId)} tddGenerating={!!item.prdSessionId && generatingTddIds.has(item.prdSessionId)} tddFailed={!!item.prdSessionId && failedTddIds.has(item.prdSessionId)} onStartPrd={engine => startPrdClarification(item, engine)} onAnswerPrd={() => void openPrdQuestions(item)} onPreviewPrd={() => setPreviewPrd(item)} onStartTdd={engine => item.prdSessionId && startTddWork(item.prdSessionId, engine)} onAnswerTdd={() => requirement && setTddWork(requirement)} onPreviewTdd={() => setPreviewTdd(item)} /></td>}
                       {enabled('risk') && <td className="px-4"><div className={`flex items-start gap-1.5 text-[11px] leading-5 ${risk.includes('暂无') ? 'text-[var(--color-muted-foreground)]' : 'text-amber-700 dark:text-amber-300'}`}>{risk.includes('暂无') ? <CircleCheck className="mt-1 h-3 w-3 shrink-0 text-emerald-500" /> : <AlertTriangle className="mt-1 h-3 w-3 shrink-0" />}<span className="line-clamp-2">{risk}</span></div><div className="mt-1.5 flex items-center gap-1 text-[10px] text-[var(--color-muted-foreground)]"><Clock3 className="h-3 w-3" />{relativeTime(item.updatedAt)}自动更新</div></td>}
                       <td className="px-2"><div className="flex items-center justify-end gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"><button onClick={event => { event.stopPropagation(); void remove(item) }} className="rounded-lg p-2 text-[var(--color-muted-foreground)] hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-950/30" title="删除当前需求" aria-label={`删除需求：${item.title}`}><Trash2 className="h-3.5 w-3.5" /></button><button onClick={event => { event.stopPropagation(); setSelected(item) }} className="rounded-lg p-2 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]" title="查看需求详情" aria-label={`查看需求：${item.title}`}><ChevronRight className="h-4 w-4" /></button></div></td>
                     </tr>{(hierarchy.childrenByItemId.get(item.id)?.length ?? 0) > 0 && <tr className="bg-[var(--color-muted)]/10"><td colSpan={columns + 2} className="px-4 pb-3 pt-0"><div className="ml-10"><RequirementLineage parent={item} childrenByItemId={hierarchy.childrenByItemId} sessionsById={prdSessionById} overview={overview} actions={lineageActions} runState={lineageRunState} /></div></td></tr>}</Fragment>
@@ -433,7 +444,7 @@ export function ReqPoolPage() {
       )}
 
       {studioOpen && <AiStudio fields={fields} density={density} onFieldsChange={setFields} onDensityChange={setDensity} onClose={() => setStudioOpen(false)} />}
-      {selected && <RequirementDrawer item={selected} requirement={deliveryFor(selected, overview)} prdSession={selected.prdSessionId ? prdSessionById.get(selected.prdSessionId) : undefined} analyzing={analyzingId === selected.id} prdRunning={!!selected.prdSessionId && (clarifyingPrdIds.has(selected.prdSessionId) || generatingPrdIds.has(selected.prdSessionId))} tddBuilding={!!selected.prdSessionId && buildingTddQuestionIds.has(selected.prdSessionId)} tddGenerating={!!selected.prdSessionId && generatingTddIds.has(selected.prdSessionId)} tddFailed={!!selected.prdSessionId && failedTddIds.has(selected.prdSessionId)} onClose={() => setSelected(null)} onAnalyze={() => analyze(selected)} onClarify={() => clarify(selected)} onStartPrd={engine => startPrdClarification(selected, engine)} onAnswerPrd={() => void openPrdQuestions(selected)} onPreviewPrd={() => setPreviewPrd(selected)} onStartTdd={engine => { const id = selected.prdSessionId; if (id) { setSelected(null); startTddQuestions(id, engine) } }} onAnswerTdd={() => { const requirement = deliveryFor(selected, overview); if (requirement) { setSelected(null); setTddWork(requirement) } }} onPreviewTdd={() => { setSelected(null); setPreviewTdd(selected) }} onViewPrd={() => selected.prdSessionId && navigate(`/tools/prd-clarify?viewSession=${selected.prdSessionId}`)} onDelete={() => remove(selected)} />}
+      {selected && <RequirementDrawer item={selected} requirement={deliveryFor(selected, overview)} prdSession={selected.prdSessionId ? prdSessionById.get(selected.prdSessionId) : undefined} analyzing={analyzingId === selected.id} prdRunning={!!selected.prdSessionId && (clarifyingPrdIds.has(selected.prdSessionId) || generatingPrdIds.has(selected.prdSessionId))} tddBuilding={!!selected.prdSessionId && buildingTddQuestionIds.has(selected.prdSessionId)} tddGenerating={!!selected.prdSessionId && generatingTddIds.has(selected.prdSessionId)} tddFailed={!!selected.prdSessionId && failedTddIds.has(selected.prdSessionId)} onClose={() => setSelected(null)} onAnalyze={() => analyze(selected)} onClarify={() => clarify(selected)} onStartPrd={engine => startPrdClarification(selected, engine)} onAnswerPrd={() => void openPrdQuestions(selected)} onPreviewPrd={() => setPreviewPrd(selected)} onStartTdd={engine => { const id = selected.prdSessionId; if (id) { setSelected(null); startTddWork(id, engine) } }} onAnswerTdd={() => { const requirement = deliveryFor(selected, overview); if (requirement) { setSelected(null); setTddWork(requirement) } }} onPreviewTdd={() => { setSelected(null); setPreviewTdd(selected) }} onViewPrd={() => selected.prdSessionId && navigate(`/tools/prd-clarify?viewSession=${selected.prdSessionId}`)} onDelete={() => remove(selected)} />}
       {quickEntryOpen && <QuickRequirementDialog onClose={() => setQuickEntryOpen(false)} onSaved={handleQuickSaved} />}
       {vibeOpen && <ReqpoolVibeDialog initialPrompt={vibeInitialPrompt} repoAvailable={selfRepoQuery.data?.exists === true} activating={!chat && pendingVibeRef.current != null} onClose={() => setVibeOpen(false)} onSubmit={startVibe} />}
       {questionPrd && <PrdQuestionsModal item={questionPrd.item} session={questionPrd.session} onClose={() => setQuestionPrd(null)} onSubmit={(history, extraInstructions) => submitPrdAnswers(questionPrd.item, questionPrd.session, history, extraInstructions)} />}

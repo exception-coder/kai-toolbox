@@ -2,7 +2,6 @@ import type { QueryClient } from '@tanstack/react-query'
 import type { Dispatch, SetStateAction } from 'react'
 import type { DeliveryOverview } from '@/features/delivery-center/public-api'
 import {
-  generateDevDocQuestions,
   getSession as getPrdSession,
   saveQaHistory,
   startClarify as runPrdClarify,
@@ -17,8 +16,6 @@ import { syncFromPrd } from '../api'
 import type { ReqItemView } from '../types'
 import type { ReqpoolActions } from './useReqpoolActions'
 
-const QUESTION_POLL_INTERVAL_MS = 1_500
-const QUESTION_TIMEOUT_MS = 3 * 60_000
 const GENERATION_POLL_INTERVAL_MS = 2_000
 const GENERATION_TIMEOUT_MS = 5 * 60_000
 
@@ -36,7 +33,6 @@ export function useReqpoolDocumentWorkflow({
     showNotice,
     setClarifyingPrdIds,
     setGeneratingPrdIds,
-    setBuildingTddQuestionIds,
     setGeneratingTddIds,
     setFailedTddIds,
     setQuestionPrd,
@@ -131,50 +127,8 @@ export function useReqpoolDocumentWorkflow({
     }, extraInstructions, false, session.engine ?? 'codex')
   }
 
-  function startTddQuestions(sessionId: string, engine: AgentEngine): void {
-    setBuildingTddQuestionIds(current => new Set(current).add(sessionId))
-    removeFromSet(setFailedTddIds, sessionId)
-
-    let finished = false
-    let monitoring = false
-    const complete = (session: PrdSessionView) => {
-      if (finished) return
-      finished = true
-      removeFromSet(setBuildingTddQuestionIds, sessionId)
-      queryClient.setQueryData(['prd-session', sessionId], session)
-      queryClient.setQueryData<PrdSessionView[]>(['prd-sessions', 'reqpool'], current => current?.map(value => value.id === sessionId ? session : value))
-      if (session.devDocWorkStatus === 'ERROR') {
-        setFailedTddIds(current => new Set(current).add(sessionId))
-        showNotice(session.devDocWorkError || '技术问题生成失败，点击红色 TDD 节点重试')
-      } else if (session.devDocQaDraft.length === 0) {
-        startTddGeneration(sessionId, [], engine)
-      } else {
-        showNotice(`已生成 ${session.devDocQaDraft.length} 个技术问题，点击橙色 TDD 节点集中回答`)
-      }
-    }
-
-    const monitor = () => {
-      if (finished || monitoring) return
-      monitoring = true
-      const deadline = Date.now() + QUESTION_TIMEOUT_MS
-      const poll = () => {
-        if (finished) return
-        void getPrdSession(sessionId).then(session => {
-          if (session.devDocWorkStatus !== 'BUILDING_QUESTIONS') complete(session)
-          else if (Date.now() >= deadline) complete({ ...session, devDocWorkStatus: 'ERROR', devDocWorkError: '技术问题生成超时' })
-          else window.setTimeout(poll, QUESTION_POLL_INTERVAL_MS)
-        }).catch(() => window.setTimeout(poll, QUESTION_POLL_INTERVAL_MS))
-      }
-      poll()
-    }
-
-    generateDevDocQuestions(sessionId, '', 'initial', {
-      onEvent(name) {
-        if (name === 'done' || name === 'error') void getPrdSession(sessionId).then(complete)
-      },
-      onError() { monitor() },
-      onClose() { if (!finished) monitor() },
-    }, engine, true)
+  function startTddWork(sessionId: string, engine: AgentEngine): void {
+    startTddGeneration(sessionId, [], engine)
   }
 
   function startTddGeneration(
@@ -236,7 +190,7 @@ export function useReqpoolDocumentWorkflow({
     }, engine, true)
   }
 
-  return { startPrdClarification, submitPrdAnswers, startTddQuestions, startTddGeneration }
+  return { startPrdClarification, submitPrdAnswers, startTddWork, startTddGeneration }
 }
 
 function removeFromSet(

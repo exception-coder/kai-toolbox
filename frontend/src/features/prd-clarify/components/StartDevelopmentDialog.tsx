@@ -5,6 +5,7 @@ import { loadCodexHomePreference, saveCodexHomePreference } from '@/features/cla
 import { getDevelopmentAccess } from '@/features/reqpool/public-api'
 import { unlinkDevSession } from '@/features/prd-clarify/api'
 import { createLaunchIntent, failLaunchIntent } from '@/shell/launch-intent/api'
+import { OPEN_SPEC_PRE_CODING_GATE } from '../lib/openSpecHandoff'
 
 type DevelopmentEngine = 'claude' | 'codex'
 
@@ -27,12 +28,16 @@ function buildDevelopmentSeed(props: Pick<StartDevelopmentDialogProps, 'title' |
 ## feature-dev 已完成阶段状态
 - ✅ Phase 1 (Discovery) — 已完成：需求标题《${title}》
 - ✅ Phase 2 (Codebase Exploration) — 已完成：见技术方案文档
-- ✅ Phase 3 (Clarifying Q&A) — 已完成：经 AI 渐进澄清
+- ✅ Phase 3 (Initial Specification Review) — 已完成：初始化规格已确认
 - ✅ Phase 4 (Architecture Design) — 已完成：见下方技术方案文档
 
 ## 技术方案文档（Phase 4 产出）
 
 ${devDocContent}
+
+---
+
+${OPEN_SPEC_PRE_CODING_GATE}
 
 ---
 
@@ -49,15 +54,19 @@ PRD_SESSION_ID: ${sessionId}`
   return `请执行 /feature-dev:feature-dev，以下阶段已完成：
 
 ## feature-dev 已完成阶段状态
-- ✅ Phase 1 (Discovery) — 已完成：见 PRD 文档
-- ✅ Phase 3 (Clarifying Q&A) — 已完成：经 AI 渐进澄清
+- ✅ Phase 1 (Discovery) — 已完成：见核心规格
+- ✅ Phase 3 (Initial Specification Review) — 已完成：初始化规格已确认
 - ⬜ Phase 2 (Codebase Exploration) — 待执行
 - ⬜ Phase 4 (Architecture Design) — 待执行
 - ⬜ Phase 5 (Implementation) — 待执行
 
-## PRD 文档（Phase 1+3 产出）
+## 核心规格（Phase 1+3 产出）
 
 ${content}
+
+---
+
+${OPEN_SPEC_PRE_CODING_GATE}
 
 ---
 
@@ -157,10 +166,10 @@ export function StartDevelopmentDialog({
         <div className="space-y-4 px-5 py-4">
           {existingDevSessionId && !replaceExisting ? (
             <div className="space-y-3">
-              <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-300">该 PRD 已绑定开发会话，将直接回到原会话继续开发。</div>
+              <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-300">该规格已绑定开发会话，将直接回到原会话继续开发。</div>
               <div className="rounded-lg border border-[var(--color-border)] p-3">
                 <div className="text-xs font-medium">需要重新开始开发会话？</div>
-                <p className="mt-1 text-xs leading-5 text-[var(--color-muted-foreground)]">可以解除当前绑定，选择Code引擎后新建会话；原会话及聊天记录仍保留，但不再关联此PRD/TDD。</p>
+                <p className="mt-1 text-xs leading-5 text-[var(--color-muted-foreground)]">可以解除当前绑定，选择 Code 引擎后新建会话；原会话及聊天记录仍保留，但不再关联此规格和执行计划。</p>
                 <button type="button" disabled={launching} onClick={() => { setReplaceExisting(true); setError('') }} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-600 hover:bg-amber-500/15 dark:text-amber-300"><RefreshCw className="h-4 w-4" />重新绑定并开启新会话</button>
               </div>
             </div>
@@ -169,8 +178,8 @@ export function StartDevelopmentDialog({
               {existingDevSessionId && <div className="flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3 text-xs leading-5 text-amber-700 dark:text-amber-300"><Unlink className="mt-0.5 h-4 w-4 shrink-0" /><span>启动时会先解除原开发会话的绑定，再创建并绑定新会话。原会话内容不会删除。</span></div>}
               <div><label className="mb-2 block text-sm font-medium">开发引擎</label><div className="grid grid-cols-2 gap-2">{([['codex', 'Codex'], ['claude', 'Claude Code']] as const).map(([value, label]) => <button key={value} type="button" onClick={() => setEngine(value)} className={`rounded-lg border px-3 py-2 text-sm font-medium ${engine === value ? 'border-green-500/50 bg-green-500/10 text-green-600' : 'border-[var(--color-border)]'}`}>{label}</button>)}</div></div>
               {engine === 'codex' && <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/20 p-3"><label htmlFor="requirement-dev-codex-home" className="mb-1.5 block text-xs font-medium">Codex Auth 目录</label><input id="requirement-dev-codex-home" value={codexHome} onChange={event => setCodexHome(event.target.value)} placeholder="%USERPROFILE%\.codex-account-yx" className="h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-2.5 text-sm outline-none" /></div>}
-              <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${hasDevDoc ? 'border-purple-500/20 bg-purple-500/10 text-purple-500' : 'border-amber-500/20 bg-amber-500/10 text-amber-600'}`}>{hasDevDoc ? <Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0" />}<span>{hasDevDoc ? '将同时绑定 PRD 与 TDD，直接从实现阶段开始。' : '当前没有 TDD，将携带 PRD 从代码探索与技术方案阶段开始。'}</span></div>
-              <ol className="space-y-2 text-xs leading-5 text-[var(--color-muted-foreground)]"><li>1. 自动匹配项目工作目录</li><li>2. 新建会话并发送 feature-dev 开发指令</li><li>3. 会话 ID 自动回写并绑定当前 PRD / TDD</li></ol>
+              <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${hasDevDoc ? 'border-purple-500/20 bg-purple-500/10 text-purple-500' : 'border-amber-500/20 bg-amber-500/10 text-amber-600'}`}>{hasDevDoc ? <Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0" />}<span>{hasDevDoc ? '将同时绑定核心规格与执行计划，直接从实现阶段开始。' : '当前没有执行计划，将携带核心规格从代码探索与技术方案阶段开始。'}</span></div>
+              <ol className="space-y-2 text-xs leading-5 text-[var(--color-muted-foreground)]"><li>1. 自动匹配项目工作目录</li><li>2. 新建会话并发送 feature-dev 开发指令</li><li>3. 会话 ID 自动回写并绑定当前规格与执行计划</li></ol>
             </>
           )}
           {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{error}</p>}

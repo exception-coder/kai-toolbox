@@ -7,7 +7,6 @@ import com.exceptioncoder.toolbox.prdclarify.domain.DeliveryClaim;
 import com.exceptioncoder.toolbox.prdclarify.domain.DeliveryClaimStatus;
 import com.exceptioncoder.toolbox.prdclarify.domain.DeliveryEvidenceStatus;
 import com.exceptioncoder.toolbox.prdclarify.domain.DeliveryVerificationStatus;
-import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactState;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
@@ -208,7 +207,6 @@ public class DeliveryOverviewService {
                 blankAsUnassigned(session.getProject()),
                 blankAsUnassigned(session.getModule()),
                 session.getStatus(),
-                DocumentProfile.normalize(session.getDocumentProfile()),
                 session.getUpdatedAt(),
                 links(session),
                 stages(session, prdComplete, tddPresent, tddStale, claims.ledgerPresent(), assessmentStale,

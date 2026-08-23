@@ -60,7 +60,7 @@ export function ClarifyHistorySheet({
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
             <BotMessageSquare className="w-4 h-4 text-[var(--color-primary)]" />
-            <span id="prd-clarify-history-title" className="font-semibold text-sm">PRD 澄清问答记录</span>
+            <span id="prd-clarify-history-title" className="font-semibold text-sm">需求澄清问答记录</span>
             <span className="text-xs text-[var(--color-muted-foreground)]">（共 {questions.length} 题）</span>
           </div>
           <SheetCloseButton onClose={onClose} />
@@ -73,7 +73,7 @@ export function ClarifyHistorySheet({
           )}
         </div>
         <div className="px-5 py-3 border-t border-[var(--color-border)] text-xs text-[var(--color-muted-foreground)]">
-          此记录已纳入 PRD 生成，关闭后可继续编辑文档。开发文档「更新版本」有自己独立的
+          此记录已纳入核心规格生成，关闭后可继续编辑文档。执行计划「更新版本」有自己独立的
           澄清记录，切到开发文档 Tab 后点「本版澄清」单独查看
         </div>
       </div>
@@ -142,7 +142,7 @@ export function DevDocClarifyHistorySheet({
           )}
         </div>
         <div className="px-5 py-3 border-t border-[var(--color-border)] text-xs text-[var(--color-muted-foreground)]">
-          这是当前显示版本（v{version?.version ?? '?'}）自己的澄清记录，跟 PRD 澄清问答记录是
+          这是当前显示版本（v{version?.version ?? '?'}）自己的澄清记录，跟需求澄清问答记录是
           两份独立数据。其它历史版本各自的澄清记录，在「生成记录」里按版本查看
         </div>
       </div>

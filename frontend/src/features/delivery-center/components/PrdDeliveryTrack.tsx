@@ -2,7 +2,7 @@ import { AlertTriangle, Check, CircleDashed, CircleDot, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DeliveryFinding, DeliveryRequirement, DeliveryStageKey, StageStatus } from '../types'
 import { requirementProgress } from '../viewModel'
-import { documentProfileLabels } from '@/features/prd-clarify/public-api'
+import { documentLabels } from '@/features/prd-clarify/public-api'
 
 interface Props {
   requirement: DeliveryRequirement
@@ -14,7 +14,7 @@ interface Props {
 
 export function PrdDeliveryTrack({ requirement, findings, selected, onSelect, onStageSelect }: Props) {
   const progress = requirementProgress(requirement)
-  const labels = documentProfileLabels(requirement.documentProfile)
+  const labels = documentLabels
   const stages = [
     ['prdDraft', labels.specificationDraft, requirement.stages.prdDraft.status, requirement.stages.prdDraft.score],
     ['prdClarify', labels.specificationClarify, requirement.stages.prdClarify.status, requirement.stages.prdClarify.score],

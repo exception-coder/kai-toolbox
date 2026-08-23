@@ -11,6 +11,8 @@ import {
   FolderTree,
   List,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
@@ -43,6 +45,7 @@ export function LocalEditorPage() {
 
   const [viewMode, setViewMode] = useState<ViewMode>('split')
   const [mobileTreeOpen, setMobileTreeOpen] = useState(false)
+  const [desktopTreeOpen, setDesktopTreeOpen] = useState(true)
   const [mobileTocOpen, setMobileTocOpen] = useState(false)
   const [desktopReviewPanelOpen, setDesktopReviewPanelOpen] = useState(true)
   const [draft, setDraft] = useState<string>('')
@@ -212,6 +215,21 @@ export function LocalEditorPage() {
         >
           <FolderTree className="h-4 w-4" />
         </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden md:inline-flex"
+          onClick={() => setDesktopTreeOpen(open => !open)}
+          title={desktopTreeOpen ? '折叠目录' : '展开目录'}
+          aria-label={desktopTreeOpen ? '折叠目录' : '展开目录'}
+          aria-pressed={desktopTreeOpen}
+        >
+          {desktopTreeOpen ? (
+            <PanelLeftClose className="h-4 w-4" />
+          ) : (
+            <PanelLeftOpen className="h-4 w-4" />
+          )}
+        </Button>
 
         <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
           <Link
@@ -352,13 +370,21 @@ export function LocalEditorPage() {
       {/* === 主体 === */}
       <div
         className={cn(
-          'grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-hidden md:grid-cols-[240px_minmax(0,1fr)]',
-          desktopReviewPanelVisible && 'xl:grid-cols-[240px_minmax(0,1fr)_300px]',
+          'grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-hidden',
+          desktopTreeOpen
+            ? 'md:grid-cols-[240px_minmax(0,1fr)]'
+            : 'md:grid-cols-[minmax(0,1fr)]',
+          desktopReviewPanelVisible &&
+            (desktopTreeOpen
+              ? 'xl:grid-cols-[240px_minmax(0,1fr)_300px]'
+              : 'xl:grid-cols-[minmax(0,1fr)_300px]'),
         )}
       >
-        <aside className="hidden overflow-y-auto border-r border-[var(--color-border)] p-2 md:block">
-          {fileTree}
-        </aside>
+        {desktopTreeOpen && (
+          <aside className="hidden overflow-y-auto border-r border-[var(--color-border)] p-2 md:block">
+            {fileTree}
+          </aside>
+        )}
 
         <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {!currentFilePath && treeQ.data && <EmptyState />}

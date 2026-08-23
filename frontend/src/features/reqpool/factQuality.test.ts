@@ -29,6 +29,7 @@ function requirement(overrides: Partial<ReqItemView> = {}): ReqItemView {
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
+    planningAssessment: overrides.planningAssessment ?? null,
   }
 }
 
@@ -55,7 +56,7 @@ describe('evaluateRequirementFacts', () => {
     const location = result.criteria.find((item) => item.key === 'location')
 
     expect(result.reqType).toBe('NEW_MODULE')
-    expect(location?.earned).toBe(20)
+    expect(location?.earned).toBe(16)
     expect(result.locationLabel).toBe('待归属 / 模块待创建')
   })
 
@@ -70,11 +71,11 @@ describe('evaluateRequirementFacts', () => {
     const location = result.criteria.find((item) => item.key === 'location')
 
     expect(result.reqType).toBe('MODULE_ADJUST')
-    expect(location?.earned).toBe(22)
+    expect(location?.earned).toBe(18)
     expect(result.locationLabel).toBe('URL 反查系统 / URL 已定位')
   })
 
-  it('keeps complete facts ready and sparse facts blocked', () => {
+  it('separates development readiness from specification maturity', () => {
     const complete = evaluateRequirementFacts(requirement({
       title: '修复订单审批状态不刷新',
       reqType: 'BUG_FIX',
@@ -95,8 +96,38 @@ describe('evaluateRequirementFacts', () => {
 
     expect(complete.level).toBe('READY')
     expect(complete.grade).toBe('A')
-    expect(sparse.level).toBe('BLOCKED')
+    expect(sparse.level).toBe('DECISION')
     expect(sparse.grade).toBe('D')
     expect(sparse.deductions.length).toBeGreaterThan(0)
+  })
+
+  it('allows a new capability to initialize with explicit assumptions despite a modest score', () => {
+    const result = evaluateRequirementFacts(requirement({
+      title: '新品进度管理',
+      project: 'kai-toolbox',
+      description: '需要新增新品进度管理能力，能够登记新品并显示当前推进状态。',
+      reqType: 'NEW_MODULE',
+      reqTypeSource: 'EXPLICIT',
+    }))
+
+    expect(result.score).toBeLessThan(80)
+    expect(result.level).toBe('ASSUMPTIONS')
+    expect(result.levelLabel).toBe('可初始化开发')
+    expect(result.blockers).toEqual([])
+    expect(result.riskFlags).toContain('核心使用场景待补充')
+  })
+
+  it('requires reproduction evidence for a bug as a risk instead of a universal score gate', () => {
+    const result = evaluateRequirementFacts(requirement({
+      title: '修复订单状态不刷新',
+      project: 'ERP',
+      module: '订单',
+      description: '当前审批后状态不刷新，期望审批成功后能够显示已审批。',
+      reqType: 'BUG_FIX',
+      reqTypeSource: 'EXPLICIT',
+    }))
+
+    expect(result.level).toBe('ASSUMPTIONS')
+    expect(result.riskFlags).toContain('BUG 缺少复现材料，实施前需完成复现')
   })
 })

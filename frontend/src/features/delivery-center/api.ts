@@ -1,7 +1,7 @@
 import { http } from '@/lib/api'
 import type { DeliveryOverview, DeliveryRequirement, StageView } from './types'
 import type { DeliveryVerificationRun } from './types'
-import type { DocumentProfile, PrdBusinessFields } from '@/features/prd-clarify/public-api'
+import type { PrdBusinessFields } from '@/features/prd-clarify/public-api'
 
 export interface DeliveryFilters {
   project?: string
@@ -19,7 +19,6 @@ export interface CreatePrdDraftRequest {
   rawInput: string
   project: string
   module: string
-  documentProfile: DocumentProfile
   businessFields?: PrdBusinessFields
 }
 
@@ -100,7 +99,6 @@ function normalizeRequirementStages(requirement: DeliveryRequirement): DeliveryR
 
   return {
     ...requirement,
-    documentProfile: requirement.documentProfile ?? 'CLASSIC',
     overallProgress: requirement.overallProgress ?? 0,
     overallProgressVariants: requirement.overallProgressVariants ?? {
       includingTests: requirement.overallProgress ?? 0,

@@ -12,8 +12,12 @@ export interface FactQualityCriterion {
 export interface FactQualityResult {
   score: number
   grade: 'A' | 'B' | 'C' | 'D'
-  level: 'READY' | 'REVIEW' | 'CLARIFY' | 'BLOCKED'
+  level: 'READY' | 'ASSUMPTIONS' | 'DECISION'
   levelLabel: string
+  maturityLabel: string
+  readinessSummary: string
+  blockers: string[]
+  riskFlags: string[]
   reqType: RequirementType
   reqTypeLabel: string
   reqTypeSource: RequirementTypeSource
@@ -59,8 +63,8 @@ function criterion(
 }
 
 /**
- * 需求事实质量评分：采用固定规则，保证同一份事实始终得到同一分数和可追溯扣分。
- * 评分关注“开发是否拿到了足以定位、理解和验收的事实”，不把 PRD/TDD 是否已生成当成事实质量。
+ * 将“能否初始化开发”与“规格成熟度”分开评估。
+ * 门禁只阻断会改变实现方向的关键缺口；分数用于描述规格成熟度，不作为单一准入线。
  */
 export function evaluateRequirementFacts(item: ReqItemView, session?: PrdSessionView): FactQualityResult {
   const reqType = session?.reqType ?? item.reqType
@@ -140,12 +144,12 @@ export function evaluateRequirementFacts(item: ReqItemView, session?: PrdSession
   const evidenceEarned = Math.min(10, (hasUrl ? 5 : 0) + (hasAttachment ? 5 : 0))
 
   const criteria = [
-    criterion('location', '系统与模块定位', 25, locationEarned, locationNotes.join('；')),
-    criterion('problem', '问题与目标陈述', 25, statementEarned, statementNotes.join('；')),
-    criterion('scenario', '使用场景与业务影响', 15, scenarioEarned, hasScenario && hasImpact ? '使用者/场景与影响均已说明' : !hasScenario && !hasImpact ? '缺少使用者/场景和业务影响' : hasScenario ? '已有使用场景，缺少业务影响' : '已有影响描述，缺少使用者或触发场景'),
-    criterion('acceptance', '可验证验收口径', 15, acceptanceEarned, acceptanceEarned >= 12 ? '验收条件较完整且可验证' : acceptanceEarned > 0 ? '已有部分结果描述，但缺少完整验收条件或量化标准' : '未提供可验证的验收标准'),
-    criterion('boundary', '范围、约束与依赖', 10, boundaryEarned, boundaryEarned >= 8 ? '边界及数据/接口约束较明确' : boundaryEarned > 0 ? '仅说明了部分边界或技术约束' : '未说明范围边界、兼容性、权限或依赖'),
-    criterion('evidence', '定位与佐证材料', 10, evidenceEarned, evidenceEarned === 10 ? '同时提供了 URL 与截图/日志/复现材料' : hasUrl ? '已提供 URL，缺少截图、日志或复现材料' : hasAttachment ? '已有附件/复现材料，缺少页面 URL' : '未提供 URL、截图、日志、示例或复现材料'),
+    criterion('location', '目标系统与实现边界', 20, Math.round(locationEarned * 0.8), locationNotes.join('；')),
+    criterion('problem', '意图与预期结果', 20, Math.round(statementEarned * 0.8), statementNotes.join('；')),
+    criterion('scenario', '核心场景与业务规则', 20, Math.min(20, (hasScenario ? 12 : 0) + (hasImpact ? 8 : 0)), hasScenario && hasImpact ? '核心场景与业务影响均已说明' : !hasScenario && !hasImpact ? '尚未明确核心场景；业务影响可在排序阶段补充' : hasScenario ? '已有核心场景；业务影响可在排序阶段补充' : '已有业务影响，仍需补充主要使用者或触发场景'),
+    criterion('acceptance', '可验证验收示例', 20, Math.min(20, Math.round(acceptanceEarned * 4 / 3)), acceptanceEarned >= 12 ? '验收条件较完整且可验证' : acceptanceEarned > 0 ? '已有可观察结果，可在实施中补齐边界示例' : '缺少可观察的成功结果，无法验证实现是否正确'),
+    criterion('boundary', '关键约束、依赖与风险', 15, Math.min(15, Math.round(boundaryEarned * 1.5)), boundaryEarned >= 8 ? '关键边界及数据/接口约束较明确' : boundaryEarned > 0 ? '已说明部分关键约束，其余可作为显式假设继续探索' : '未发现明确边界；将作为实施假设与风险项持续核查'),
+    criterion('evidence', '代码定位与补充证据', 5, Math.min(5, Math.round(evidenceEarned / 2)), evidenceEarned === 10 ? '同时提供了 URL 与截图/日志/复现材料' : hasUrl ? '已有 URL；其他材料属于可信度增强项' : hasAttachment ? '已有附件或复现材料；URL 可由代码路由继续反查' : '未提供附件证据；新能力不因此阻断，存量问题需在实施前补足定位'),
   ]
   const score = criteria.reduce((sum, item) => sum + item.earned, 0)
   const deductions = criteria
@@ -153,12 +157,32 @@ export function evaluateRequirementFacts(item: ReqItemView, session?: PrdSession
     .map(item => ({ label: item.label, points: item.weight - item.earned, reason: item.reason }))
     .sort((a, b) => b.points - a.points)
 
-  const grade = score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : 'D'
-  const level = score >= 90 ? 'READY' : score >= 75 ? 'REVIEW' : score >= 60 ? 'CLARIFY' : 'BLOCKED'
-  const levelLabel = level === 'READY' ? '事实充分' : level === 'REVIEW' ? '可评审' : level === 'CLARIFY' ? '需补充' : '不建议准入'
+  const grade = score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : 'D'
+  const maturityLabel = score >= 80 ? '规格充分' : score >= 60 ? '可开发，仍可增强' : score >= 40 ? '可初始化，需持续收敛' : '关键事实不足'
+  const blockers: string[] = []
+  if (statementEarned < 10 || !hasExpected) blockers.push('缺少明确意图或预期结果')
+  if (existingChange && !module && !hasUrl) blockers.push('存量变更无法定位到模块或页面')
+  if (acceptanceEarned === 0) blockers.push('缺少可观察的核心验收结果')
+  const hasOpenCriticalDecision = containsAny(text, [/待(?:需求方)?(?:确认|确定|判定).{0,30}(?:接口|字段|数据|权限|状态|业务规则)/])
+  if (hasOpenCriticalDecision) blockers.push('关键数据、权限、接口或业务规则仍待需求方判定')
+
+  const riskFlags: string[] = []
+  if (!hasScenario) riskFlags.push('核心使用场景待补充')
+  if (!hasBoundary) riskFlags.push('范围与约束将按当前探索结果作为显式假设')
+  if (reqType === 'BUG_FIX' && !hasAttachment) riskFlags.push('BUG 缺少复现材料，实施前需完成复现')
+  if (reqType === 'MODULE_ADJUST' && !hasUrl && !module) riskFlags.push('存量模块缺少代码或页面定位证据')
+  if (hasDataOrInterface && !hasBoundary) riskFlags.push('数据或接口变更缺少兼容性约束')
+
+  const level = blockers.length > 0 ? 'DECISION' : riskFlags.length > 0 || score < 80 ? 'ASSUMPTIONS' : 'READY'
+  const levelLabel = level === 'READY' ? '可以直接实施' : level === 'ASSUMPTIONS' ? '可初始化开发' : '需要关键判定'
+  const readinessSummary = level === 'READY'
+    ? '核心意图、范围与验收事实已经足以直接进入实施。'
+    : level === 'ASSUMPTIONS'
+      ? '允许生成执行计划并初始化开发；未决细节将记录为假设和风险，不通过补充式问答阻断。'
+      : `暂缓完整实施：${blockers.join('；')}。`
   const missingLocation = reqType === 'NEW_MODULE' ? '模块待创建'
     : reqType === 'UNKNOWN' ? '类型待判定，缺少模块或 URL' : '缺少模块或 URL'
   const locationLabel = module ? `${system || '未登记系统'} / ${module}` : hasUrl ? `${system || 'URL 反查系统'} / URL 已定位` : `${system || '待归属'} / ${missingLocation}`
 
-  return { score, grade, level, levelLabel, reqType, reqTypeLabel, reqTypeSource, reqTypeSourceLabel, locationLabel, criteria, deductions }
+  return { score, grade, level, levelLabel, maturityLabel, readinessSummary, blockers, riskFlags, reqType, reqTypeLabel, reqTypeSource, reqTypeSourceLabel, locationLabel, criteria, deductions }
 }

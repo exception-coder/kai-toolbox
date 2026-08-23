@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, CircleAlert, MessageSquarePlus, Pencil, RotateCcw, Trash2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -32,6 +32,14 @@ export function MarkdownReviewPanel(props: MarkdownReviewPanelProps) {
   const [heading, setHeading] = useState<TocEntry | null>(null)
   const [category, setCategory] = useState<ReviewNoteCategory>('CLARIFICATION')
   const [content, setContent] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }, [content, heading])
 
   const notesQuery = useQuery({
     queryKey,
@@ -136,13 +144,14 @@ export function MarkdownReviewPanel(props: MarkdownReviewPanelProps) {
             {Object.entries(CATEGORY_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
           <textarea
+            ref={textareaRef}
             value={content}
             onChange={event => setContent(event.target.value)}
             maxLength={4000}
             rows={4}
             autoFocus
             placeholder="记录待补全的信息、异议或后续动作…"
-            className="w-full resize-y rounded-md border border-[var(--color-border)] bg-[var(--color-background)] p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-ring)]"
+            className="max-h-[50vh] min-h-24 w-full resize-none overflow-y-auto rounded-md border border-[var(--color-border)] bg-[var(--color-background)] p-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-ring)]"
           />
           <div className="mt-2 flex items-center justify-between">
             <span className="text-[10px] text-[var(--color-muted-foreground)]">{content.length}/4000</span>

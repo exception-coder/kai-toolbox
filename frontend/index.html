@@ -12,9 +12,20 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Forge" />
     <title>Forge</title>
+    <style>
+      #boot-shell{min-height:100dvh;display:grid;grid-template-columns:64px 1fr;background:#f7f8fa;color:#18181b;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC",sans-serif}
+      .boot-rail{display:grid;place-items:start center;padding-top:20px;border-right:1px solid rgba(0,0,0,.07);background:#f2f3f5}
+      .boot-mark{font-size:13px;font-weight:650;letter-spacing:.08em}
+      .boot-main header{height:48px;border-bottom:1px solid rgba(0,0,0,.07)}
+      .boot-state{display:grid;gap:8px;padding:48px 40px}
+      .boot-state strong{font-size:15px;font-weight:600;letter-spacing:-.01em}
+      .boot-state span{font-size:13px;color:#71717a}
+      @media(max-width:640px){#boot-shell{grid-template-columns:1fr;grid-template-rows:48px 1fr}.boot-rail{place-items:center start;padding:0 20px;border-right:0;border-bottom:1px solid rgba(0,0,0,.07)}.boot-main header{display:none}.boot-state{padding:32px 24px}}
+      @media(prefers-color-scheme:dark){#boot-shell{background:#15171a;color:#f4f4f5}.boot-rail{background:#111316}.boot-rail,.boot-main header{border-color:rgba(255,255,255,.08)}.boot-state span{color:#a1a1aa}}
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="boot-shell" role="status" aria-live="polite"><aside class="boot-rail"><span class="boot-mark">FORGE</span></aside><main class="boot-main"><header></header><section class="boot-state"><strong>正在准备工作台</strong><span>加载本地开发资源…</span></section></main></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

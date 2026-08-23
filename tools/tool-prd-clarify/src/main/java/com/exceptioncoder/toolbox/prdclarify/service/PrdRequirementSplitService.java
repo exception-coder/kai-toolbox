@@ -1,7 +1,6 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
-import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -99,7 +98,6 @@ public class PrdRequirementSplitService {
                     .maxQuestions(PrdRequirementTypeResolver.defaultMaxQuestions(
                             PrdRequirementTypeResolver.NEW_MODULE))
                     .clarifyMode("progressive")
-                    .documentProfile(DocumentProfile.normalize(parent.getDocumentProfile()))
                     .status("DRAFT")
                     .parentId(parentId)
                     .createdByUserId(createdByUserId)

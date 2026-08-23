@@ -1,5 +1,5 @@
 -- PRD 澄清会话表（产品需求澄清工具）
--- status: DRAFT（草稿，仅存了标题/关联项目模块/需求描述，尚未发起澄清）|
+-- status: DRAFT（草稿）| DISCOVERING（探索中）| SPEC_REVIEW（初始化规格审阅）|
 --         CLARIFYING（等待答题）| GENERATING（生成中）| DONE（完成）| ERROR（出错）
 -- 草稿态不需要新增列——role/req_type/max_questions/clarify_mode 沿用列默认值占位，
 -- 真正点「开始澄清」把草稿转正式时才会被重新赋值（见 PrdClarifyService#startClarifyFromDraft）。
@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS prd_session (
     questions   TEXT,                           -- JSON: [{id,question,answer}]，澄清阶段产出
     status      TEXT    NOT NULL DEFAULT 'CLARIFYING',
     role        TEXT    NOT NULL DEFAULT 'PRODUCT', -- 提需求方角色，决定澄清问题的深度
-    document_profile TEXT NOT NULL DEFAULT 'CLASSIC', -- CLASSIC | SPEC_DRIVEN
     md_path     TEXT,                           -- ~/.kai-toolbox/prd/{id}.md 绝对路径
     model       TEXT,                           -- 使用的模型（null 走 sidecar 默认模型）
     engine      TEXT,                           -- 草稿为空；开始澄清后写入 claude | codex
@@ -23,9 +22,16 @@ CREATE TABLE IF NOT EXISTS prd_session (
     updated_at  INTEGER NOT NULL
 );
 
+-- 一次“开始探索”操作的客户端幂等键。存量记录保持 NULL，不参与唯一约束。
+ALTER TABLE prd_session ADD COLUMN creation_key TEXT;
+
 -- 存量数据库兼容：为已有表补充 role 列（SchemaInitializer 会忽略"duplicate column"错误）
 ALTER TABLE prd_session ADD COLUMN role TEXT NOT NULL DEFAULT 'PRODUCT';
 ALTER TABLE prd_session ADD COLUMN engine TEXT;
+-- 探索阶段生成的初始化规格兼容主文件路径。
+ALTER TABLE prd_session ADD COLUMN initial_spec_path TEXT;
+-- 从需求中枢进入规格探索时保存来源需求 ID，供初始化规格规划结果幂等回写。
+ALTER TABLE prd_session ADD COLUMN source_req_item_id TEXT;
 
 -- 存量数据库兼容：补充开发文档路径列
 ALTER TABLE prd_session ADD COLUMN dev_doc_path TEXT;
@@ -54,6 +60,11 @@ ALTER TABLE prd_session ADD COLUMN dev_doc_qa_draft TEXT;
 -- TDD 点按作业状态：BUILDING_QUESTIONS | AWAITING_ANSWERS | GENERATING | ERROR | DONE。
 ALTER TABLE prd_session ADD COLUMN dev_doc_work_status TEXT;
 ALTER TABLE prd_session ADD COLUMN dev_doc_work_error TEXT;
+-- 执行计划后台生成快照：浏览器刷新或重新进入页面后可恢复当前阶段与已生成 Markdown。
+-- 临时正文只用于运行态展示，正式产物仍以 dev_doc_path 指向的版本化文件为准。
+ALTER TABLE prd_session ADD COLUMN dev_doc_work_progress TEXT;
+ALTER TABLE prd_session ADD COLUMN dev_doc_work_content TEXT;
+ALTER TABLE prd_session ADD COLUMN dev_doc_work_updated_at INTEGER;
 
 -- 需求中枢节点时间线：分别记录 PRD/TDD 澄清问题真正生成完成的时间。
 -- created_at 是需求登记时间；PRD 输出时间复用 DONE 时的 updated_at；TDD 输出时间复用
@@ -77,7 +88,6 @@ ALTER TABLE prd_session ADD COLUMN created_by_user_id INTEGER;
 -- max_questions 道题，用户一次性填完）。「开始澄清前确认」弹框里选，恢复未完成会话
 -- （status=CLARIFYING）时前端据此决定渲染哪种澄清面板，不会中途变来变去。
 ALTER TABLE prd_session ADD COLUMN clarify_mode TEXT NOT NULL DEFAULT 'progressive';
-ALTER TABLE prd_session ADD COLUMN document_profile TEXT NOT NULL DEFAULT 'CLASSIC';
 
 -- 进度评估文档：结构对齐开发文档——独立落盘 + 按版本追加（不是覆盖），每次评估都基于当时
 -- 最新的 PRD + 开发文档核对代码库实际实现进度，追加一份新版本，可回看历次评估。
@@ -113,6 +123,8 @@ CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DES
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);
 CREATE INDEX IF NOT EXISTS idx_prd_session_created_by ON prd_session(created_by_user_id);
 CREATE INDEX IF NOT EXISTS idx_prd_session_parent ON prd_session(parent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_prd_session_creation_key
+    ON prd_session(creation_key) WHERE creation_key IS NOT NULL;
 
 -- PRD 产物账本：每次 PRD、开发文档或进度报告写入都保留一个不可变版本。
 -- state: WRITING | READY | MISSING | CORRUPT；relative_path 始终相对 ~/.kai-toolbox/prd/。
@@ -165,6 +177,38 @@ CREATE INDEX IF NOT EXISTS idx_prd_ai_run_candidate
     ON prd_ai_run(candidate_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_ai_run_artifact
     ON prd_ai_run(artifact_id, created_at DESC);
+
+-- 初始化规格后台探索运行：浏览器只追踪进度，Vibe Coding Agent 的执行不依赖 SSE 生命周期。
+-- status: RUNNING | COMPLETED | FAILED；stage 是面向 UI 的当前阶段。
+CREATE TABLE IF NOT EXISTS prd_discovery_run (
+    id                  TEXT PRIMARY KEY,
+    session_id          TEXT NOT NULL,
+    status              TEXT NOT NULL,
+    stage               TEXT NOT NULL,
+    progress            INTEGER NOT NULL DEFAULT 0,
+    attempt             INTEGER NOT NULL DEFAULT 0,
+    max_attempts        INTEGER NOT NULL DEFAULT 3,
+    criteria_version    TEXT NOT NULL,
+    prompt_version      TEXT NOT NULL,
+    input_hash          TEXT NOT NULL,
+    engine              TEXT,
+    model               TEXT,
+    vibe_session_id     TEXT,
+    trace_id            TEXT,
+    last_output         TEXT,
+    validation_json     TEXT,
+    last_error          TEXT,
+    started_at          INTEGER NOT NULL,
+    completed_at        INTEGER,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES prd_session(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_prd_discovery_session_created
+    ON prd_discovery_run(session_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_prd_discovery_active_session
+    ON prd_discovery_run(session_id) WHERE status = 'RUNNING';
 
 -- Delivery 权威声明账本：模型只提出坐标，状态与文件摘要由服务端核验后固化。
 CREATE TABLE IF NOT EXISTS delivery_claim (

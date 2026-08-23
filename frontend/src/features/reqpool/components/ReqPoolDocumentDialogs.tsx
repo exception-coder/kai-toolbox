@@ -89,7 +89,7 @@ import {
   startClarifyFromDraft,
   startGenerateDevDoc,
   startGenerate as runPrdGenerate,
-  documentProfileLabels,
+  documentLabels,
   type AgentEngine,
   type PrdSessionView,
   type QaPair,
@@ -351,7 +351,7 @@ export function PrdQuestionsModal({ item, session, onClose, onSubmit }: {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2"><span className="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-semibold text-amber-700 dark:bg-amber-950/35 dark:text-amber-300">待回答</span><span className="text-[10px] text-[var(--color-muted-foreground)]">{answeredCount} / {session.questions.length} 已填写</span></div>
               <h2 className="mt-1 truncate text-sm font-semibold">{item.title}</h2>
-              <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">逐项补齐业务事实，提交后将在后台继续生成 PRD。</p>
+              <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">逐项补齐业务事实，提交后将在后台继续生成核心规格。</p>
             </div>
             <button type="button" disabled={submitting} onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] disabled:opacity-40" aria-label="关闭澄清问题"><X className="h-4 w-4" /></button>
           </div>
@@ -375,7 +375,7 @@ export function PrdQuestionsModal({ item, session, onClose, onSubmit }: {
         <footer className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-card)] px-5 py-4">
           {error && <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-[10px] text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{error}</p>}
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[10px] text-[var(--color-muted-foreground)]">{allAnswered ? '全部问题已填写，可以提交并生成 PRD。' : `还有 ${session.questions.length - answeredCount} 个问题未回答。`}</p>
+            <p className="text-[10px] text-[var(--color-muted-foreground)]">{allAnswered ? '全部问题已填写，可以提交并生成核心规格。' : `还有 ${session.questions.length - answeredCount} 个问题未回答。`}</p>
             <button type="button" disabled={!allAnswered || submitting} onClick={submit} className="flex shrink-0 items-center gap-2 rounded-lg bg-violet-600 px-4 py-2.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">{submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}{submitting ? '正在提交…' : '下一步：补充并生成'}</button>
           </div>
         </footer>
@@ -472,7 +472,7 @@ export function MarkdownDocumentModal({ item, kind, onClose, onOpenFull }: {
             <h2 className="mt-1 truncate text-sm font-semibold">{item.title}</h2>
           </div>
           <button type="button" onClick={() => setOutlineOpen(value => !value)} className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[10px] font-medium transition-colors ${outlineOpen ? 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-300' : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]'}`} aria-expanded={outlineOpen}><ListTree className="h-3.5 w-3.5" />{outlineOpen ? '收起大纲' : '展示大纲'}</button>
-          {onOpenFull && <button type="button" onClick={onOpenFull} className="hidden items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-2 text-[10px] font-medium hover:bg-[var(--color-muted)] sm:flex"><ArrowUpRight className="h-3.5 w-3.5" />在 PRD 工作台打开</button>}
+          {onOpenFull && <button type="button" onClick={onOpenFull} className="hidden items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-2 text-[10px] font-medium hover:bg-[var(--color-muted)] sm:flex"><ArrowUpRight className="h-3.5 w-3.5" />在规格探索中打开</button>}
           <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]" aria-label={`关闭 ${kind} 预览`}><X className="h-4 w-4" /></button>
         </header>
         <div className="min-h-0 flex-1 bg-[var(--color-background)]/35">

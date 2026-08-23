@@ -1,12 +1,12 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
-import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -15,7 +15,7 @@ import java.util.UUID;
 @Service
 public class PrdSessionLifecycleService {
 
-    private static final String STATUS_CLARIFYING = "CLARIFYING";
+    private static final String STATUS_DISCOVERING = "DISCOVERING";
     private static final String STATUS_DRAFT = "DRAFT";
     private static final String ROLE_BUSINESS = "BUSINESS";
     private static final String ROLE_PRODUCT = "PRODUCT";
@@ -36,7 +36,7 @@ public class PrdSessionLifecycleService {
         this.requirementTypeResolver = requirementTypeResolver;
     }
 
-    /** 创建正式会话并进入澄清状态。 */
+    /** 创建正式会话并进入证据探索状态。 */
     public PrdSession create(
             String title,
             String rawInput,
@@ -51,8 +51,37 @@ public class PrdSessionLifecycleService {
             String clarifyMode,
             PrdBusinessFields businessFields,
             String parentId,
-            String documentProfile
+            String sourceReqItemId
     ) {
+        return create(title, rawInput, project, module, model, engine, role, reqType, maxQuestions,
+                createdByUserId, clarifyMode, businessFields, parentId, sourceReqItemId, null);
+    }
+
+    /** 创建正式会话；同一非空 creationKey 的并发或重试请求收敛到既有记录。 */
+    public PrdSession create(
+            String title,
+            String rawInput,
+            String project,
+            String module,
+            String model,
+            String engine,
+            String role,
+            String reqType,
+            Integer maxQuestions,
+            Long createdByUserId,
+            String clarifyMode,
+            PrdBusinessFields businessFields,
+            String parentId,
+            String sourceReqItemId,
+            String creationKey
+    ) {
+        String effectiveCreationKey = normalizeOptional(creationKey);
+        if (effectiveCreationKey != null) {
+            Optional<PrdSession> existing = repository.findByCreationKey(effectiveCreationKey);
+            if (existing.isPresent()) {
+                return existing.get();
+            }
+        }
         long now = System.currentTimeMillis();
         PrdBusinessFields fields = normalizeBusinessFields(businessFields);
         String effectiveEngine = normalizeEngine(engine);
@@ -69,15 +98,15 @@ public class PrdSessionLifecycleService {
                 .reqType(classification.reqType())
                 .maxQuestions(classification.maxQuestions())
                 .clarifyMode(normalizeClarifyMode(clarifyMode))
-                .documentProfile(DocumentProfile.normalize(documentProfile))
-                .status(STATUS_CLARIFYING)
+                .status(STATUS_DISCOVERING)
                 .createdByUserId(createdByUserId)
                 .parentId(effectiveParentId)
+                .sourceReqItemId(normalizeOptional(sourceReqItemId))
+                .creationKey(effectiveCreationKey)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
-        repository.insert(session);
-        return session;
+        return repository.insertIdempotent(session);
     }
 
     /** 保存尚未进入澄清流程的会话草稿。 */
@@ -87,8 +116,7 @@ public class PrdSessionLifecycleService {
             String project,
             String module,
             Long createdByUserId,
-            PrdBusinessFields businessFields,
-            String documentProfile
+            PrdBusinessFields businessFields
     ) {
         long now = System.currentTimeMillis();
         PrdSession session = baseSession(
@@ -98,7 +126,6 @@ public class PrdSessionLifecycleService {
                 .reqType(PrdRequirementTypeResolver.NEW_MODULE)
                 .maxQuestions(PrdRequirementTypeResolver.defaultMaxQuestions(PrdRequirementTypeResolver.NEW_MODULE))
                 .clarifyMode(CLARIFY_MODE_PROGRESSIVE)
-                .documentProfile(DocumentProfile.normalize(documentProfile))
                 .status(STATUS_DRAFT)
                 .createdByUserId(createdByUserId)
                 .createdAt(now)
@@ -115,26 +142,21 @@ public class PrdSessionLifecycleService {
             String rawInput,
             String project,
             String module,
-            PrdBusinessFields businessFields,
-            String documentProfile
+            PrdBusinessFields businessFields
     ) {
         PrdSession existing = requireSession(sessionId);
         requireDraft(existing, "不是草稿，无法这样保存");
-        String effectiveDocumentProfile = documentProfile == null
-                ? existing.getDocumentProfile()
-                : documentProfile;
         repository.updateDraftFields(
                 sessionId,
                 title,
                 rawInput == null ? "" : rawInput,
                 project,
                 module,
-                businessFields,
-                effectiveDocumentProfile);
+                businessFields);
         return requireSession(sessionId);
     }
 
-    /** 将已有草稿原地转换为正式澄清会话。 */
+    /** 将已有草稿原地转换为正式探索会话。 */
     public PrdSession startClarifyFromDraft(
             String sessionId,
             String title,
@@ -147,17 +169,13 @@ public class PrdSessionLifecycleService {
             String reqType,
             Integer maxQuestions,
             String clarifyMode,
-            PrdBusinessFields businessFields,
-            String documentProfile
+            PrdBusinessFields businessFields
     ) {
         PrdSession existing = requireSession(sessionId);
         requireDraft(existing, "不是草稿，不能重复发起澄清");
         String effectiveEngine = normalizeEngine(engine);
         PrdRequirementTypeResolver.Resolution classification = requirementTypeResolver.resolve(
                 title, rawInput, model, effectiveEngine, reqType, maxQuestions);
-        String effectiveDocumentProfile = documentProfile == null
-                ? existing.getDocumentProfile()
-                : documentProfile;
         repository.startClarifyFromDraft(
                 sessionId,
                 title,
@@ -170,8 +188,7 @@ public class PrdSessionLifecycleService {
                 classification.reqType(),
                 classification.maxQuestions(),
                 normalizeClarifyMode(clarifyMode),
-                businessFields,
-                effectiveDocumentProfile);
+                businessFields);
         return requireSession(sessionId);
     }
 
@@ -231,6 +248,10 @@ public class PrdSessionLifecycleService {
 
     private static String normalizeClarifyMode(String clarifyMode) {
         return CLARIFY_MODE_BATCH.equals(clarifyMode) ? CLARIFY_MODE_BATCH : CLARIFY_MODE_PROGRESSIVE;
+    }
+
+    private static String normalizeOptional(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private static String normalizeParentId(String parentId) {

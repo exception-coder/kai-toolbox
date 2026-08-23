@@ -313,7 +313,7 @@
     {
       "featureId": "prd-clarify",
       "code": "menu:prd-clarify",
-      "name": "PRD 澄清助手",
+      "name": "规格探索",
       "module": "AI",
       "sort": 55
     },

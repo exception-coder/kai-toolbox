@@ -1,9 +1,16 @@
 /** PRD 澄清工具的 TypeScript 类型定义 */
 
 /** DRAFT：草稿，仅存了标题/关联项目模块/需求描述，尚未发起澄清（"待生成 PRD"）。 */
-export type PrdSessionStatus = 'DRAFT' | 'CLARIFYING' | 'GENERATING' | 'DONE' | 'ERROR'
+export type PrdSessionStatus =
+  | 'DRAFT'
+  | 'DISCOVERING'
+  | 'SPEC_REVIEW'
+  | 'CLARIFYING'
+  | 'GENERATING'
+  | 'DONE'
+  | 'ERROR'
 
-/** 提需求方角色，决定 Claude 澄清问题的深度和语言风格 */
+/** 提需求方角色，决定 AI 探索与澄清的深度和语言风格。 */
 export type PrdRole = 'PRODUCT' | 'BUSINESS'
 
 /**
@@ -22,7 +29,6 @@ export type PrdReqType = 'BUG_FIX' | 'MODULE_ADJUST' | 'NEW_MODULE'
  */
 export type PrdClarifyMode = 'progressive' | 'batch'
 export type AgentEngine = 'claude' | 'codex'
-export type DocumentProfile = 'CLASSIC' | 'SPEC_DRIVEN'
 
 export interface QuestionItem {
   id: number
@@ -61,8 +67,7 @@ export interface DevDocHistoryEntry {
  * 不依赖 devDocHistory JSON——mode 为 null 表示该版本早于「生成记录」功能上线，
  * 磁盘上有备份文件但没有对应记录，仍可查看内容，只是没有补充说明可看。
  *
- * qaHistory 是这一版 TDD 专属的技术澄清问答记录，跟 PRD 首次业务澄清记录
- * （PrdSessionView.questions）是两份完全独立的数据，不会共用/混显。
+ * qaHistory 是历史 TDD 版本的技术问答记录；新流程直接生成执行计划时为空数组。
  */
 export interface DevDocVersionSummary {
   version: number
@@ -127,8 +132,6 @@ export interface PrdSessionView {
   project: string | null
   module: string | null
   status: PrdSessionStatus
-  documentProfile: DocumentProfile
-  documentProfileLocked: boolean
   /** 草稿阶段尚未选择执行引擎；真正开始澄清时才写入。 */
   engine: AgentEngine | null
   role: PrdRole
@@ -147,6 +150,7 @@ export interface PrdSessionView {
   prdQuestionsGeneratedAt: number | null
   /** 最近一次 PRD 文档生成完成时间戳（毫秒） */
   prdGeneratedAt: number | null
+  initialSpecPath: string | null
   mdPath: string | null
   /** 开发文档路径（非 null 表示已生成开发文档） */
   devDocPath: string | null
@@ -154,15 +158,21 @@ export interface PrdSessionView {
   devSessionId: string | null
   /** 开发文档最后生成时间戳（毫秒）。null 或 < updatedAt 表示开发文档已过期 */
   devDocGeneratedAt: number | null
-  /** 最近一次 TDD 澄清问题生成完成时间戳（毫秒） */
+  /** 历史兼容：最近一次 TDD 技术问题生成完成时间戳（毫秒） */
   devDocQuestionsGeneratedAt: number | null
   /** 开发文档生成历史（按发生顺序），每次生成/重新生成/更新都有一条记录 */
   devDocHistory: DevDocHistoryEntry[]
-  /** 已提交但尚未成功生成 TDD 的技术澄清答案；失败重试时恢复到表单 */
+  /** 历史兼容：尚未成功生成 TDD 的技术问答；新流程不再恢复回答表单 */
   devDocQaDraft: Array<{ question: string; answer: string }>
   /** TDD 点按作业的持久状态，刷新页面后仍可恢复节点颜色。 */
   devDocWorkStatus: 'BUILDING_QUESTIONS' | 'AWAITING_ANSWERS' | 'GENERATING' | 'ERROR' | 'DONE' | null
   devDocWorkError: string | null
+  /** 执行计划后台生成的当前阶段提示。 */
+  devDocWorkProgress: string | null
+  /** 尚未落为正式产物的 Markdown 增量快照。 */
+  devDocWorkContent: string | null
+  /** 最近一次执行计划进度快照落库时间戳（毫秒）。 */
+  devDocWorkUpdatedAt: number | null
   /** AI 工时评估结果，尚未评估过时为 null */
   devDocEstimation: DevDocEstimation | null
   /** 进度评估文档路径（非 null 表示评估过至少一次） */
@@ -208,7 +218,29 @@ export interface CreateSessionRequest {
   businessFields?: PrdBusinessFields
   /** 修订版/拆分子需求的来源会话；普通新建会话不传。 */
   parentId?: string
-  documentProfile?: DocumentProfile
+  /** 从需求中枢进入探索时携带，用于确认初始化规格后复用原根需求。 */
+  sourceReqItemId?: string
+  /** 一次创建操作的幂等键；重复点击与网络重试必须复用。 */
+  creationKey?: string
+}
+
+export interface PrdDiscoveryRunView {
+  id: string
+  sessionId: string
+  status: 'RUNNING' | 'COMPLETED' | 'FAILED'
+  stage: 'QUEUED' | 'COLLECTING_EVIDENCE' | 'VIBE_EXECUTING' | 'VALIDATING' | 'PUBLISHING' | 'COMPLETED' | 'FAILED'
+  progress: number
+  attempt: number
+  maxAttempts: number
+  criteriaVersion: string
+  promptVersion: string
+  vibeSessionId: string | null
+  traceId: string | null
+  validationJson: string | null
+  lastError: string | null
+  startedAt: number
+  completedAt: number | null
+  updatedAt: number
 }
 
 /** 保存/更新草稿：只含标题/需求描述/关联项目模块，草稿阶段还不用决定角色/需求类型/澄清深度/模式。 */
@@ -218,7 +250,6 @@ export interface SaveDraftRequest {
   project?: string
   module?: string
   businessFields?: PrdBusinessFields
-  documentProfile?: DocumentProfile
 }
 
 /**
@@ -249,6 +280,7 @@ export interface SaveContentRequest {
 /** 前端页面内部的步骤状态机 */
 export type PrdStep =
   | 'INPUT'        // 填写需求表单
-  | 'CHATTING'     // 多轮对话澄清（Claude 提问 + 用户回答，交替进行）
+  | 'DISCOVERING'  // 查询证据并生成初始化规格
+  | 'SPEC_REVIEW'  // 用户审阅初始化规格
   | 'GENERATING'   // Claude 正在生成 PRD（SSE 流式）
   | 'EDITING'      // PRD 生成完毕，进入编辑器

@@ -4,7 +4,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
   saveContent,
 } from '../../api'
-import type { DevDocEstimation, DocumentProfile } from '../../types'
+import type { DevDocEstimation } from '../../types'
 import type { ClarifyEngine } from '../dialogs/StartClarifyDialog'
 import { useDevDocEstimation } from '../../hooks/useDevDocEstimation'
 import { useDevDocState } from '../../hooks/useDevDocState'
@@ -25,7 +25,10 @@ export function EditingPanel({
   currentEngine,
   initialProgressPath,
   initialProgressGeneratedAt,
-  documentProfile,
+  initialDevDocWorkStatus,
+  initialDevDocWorkError,
+  initialDevDocWorkProgress,
+  initialDevDocWorkContent,
   onReturnToClarify,
   onReset,
 }: {
@@ -49,14 +52,17 @@ export function EditingPanel({
   initialProgressPath?: string | null
   /** 同上，进度评估最后生成时间戳 */
   initialProgressGeneratedAt?: number | null
-  documentProfile: DocumentProfile
+  /** 服务端执行计划任务状态与快照，供刷新后恢复后台生成。 */
+  initialDevDocWorkStatus?: 'BUILDING_QUESTIONS' | 'AWAITING_ANSWERS' | 'GENERATING' | 'ERROR' | 'DONE' | null
+  initialDevDocWorkError?: string | null
+  initialDevDocWorkProgress?: string | null
+  initialDevDocWorkContent?: string | null
   /** PRD 已生成但业务澄清不充分时，保留现有文档并回到原会话继续澄清。 */
   onReturnToClarify: () => Promise<void>
   onReset: () => void
 }) {
-  const isSpecDriven = documentProfile === 'SPEC_DRIVEN'
-  const specificationLabel = isSpecDriven ? '核心规格' : 'PRD'
-  const planLabel = isSpecDriven ? '执行计划' : '开发文档'
+  const specificationLabel = '核心规格'
+  const planLabel = '执行计划'
   const [content, setContent] = useState(initialContent)
   const [isDirty, setIsDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -69,7 +75,9 @@ export function EditingPanel({
 
   // ── 顶层面板模式：prd（仅 PRD）| dev（仅开发文档）| side（并排） ──
   // hasDevDoc=true 时默认进入 dev 模式，让用户直接看到开发文档全屏
-  const [panelMode, setPanelMode] = useState<EditingPanelMode>(hasDevDoc ? 'dev' : 'prd')
+  const [panelMode, setPanelMode] = useState<EditingPanelMode>(
+    hasDevDoc || initialDevDocWorkStatus === 'GENERATING' || initialDevDocWorkStatus === 'ERROR' ? 'dev' : 'prd',
+  )
   /** 开发文档内部视图模式（仅 dev Tab 有效） */
   const [devViewMode, setDevViewMode] = useState<EditingViewMode>('split')
 
@@ -113,6 +121,10 @@ export function EditingPanel({
     sessionId,
     hasDevDoc: Boolean(hasDevDoc),
     active: panelMode !== 'prd',
+    workStatus: initialDevDocWorkStatus,
+    workError: initialDevDocWorkError,
+    workProgress: initialDevDocWorkProgress,
+    workContent: initialDevDocWorkContent,
   })
   const {
     content: devDocContent,
@@ -166,11 +178,11 @@ export function EditingPanel({
 
   const handleReturnToClarify = async () => {
     const ok = await confirm({
-      title: '返回需求澄清？',
+      title: '返回初始化规格？',
       description: isDirty
-        ? '当前 PRD 有未保存的修改，返回后这些修改会丢失。已保存的 PRD 文件会保留，完成澄清后可重新生成。'
-        : '当前 PRD 文件会保留。系统将回到 AI 需求澄清，已有问答会继续保留，完成后可重新生成 PRD。',
-      confirmText: '返回澄清',
+        ? '当前核心规格有未保存的修改，返回后这些修改会丢失。已保存文件会保留，调整初始化规格后可重新生成。'
+        : '当前核心规格文件会保留。你可以调整初始化规格中的目标、规则和待确定项，再重新生成。',
+      confirmText: '返回初始化规格',
     })
     if (!ok) return
     setReturningToClarify(true)
@@ -178,7 +190,7 @@ export function EditingPanel({
     try {
       await onReturnToClarify()
     } catch (cause) {
-      setReturnToClarifyError(cause instanceof Error ? cause.message : '无法返回需求澄清，请重试')
+      setReturnToClarifyError(cause instanceof Error ? cause.message : '无法返回初始化规格，请重试')
       setReturningToClarify(false)
     }
   }
@@ -278,7 +290,7 @@ export function EditingPanel({
 
       {returnToClarifyError && (
         <div className="flex items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
-          <span className="flex-1">返回需求澄清失败：{returnToClarifyError}</span>
+          <span className="flex-1">返回初始化规格失败：{returnToClarifyError}</span>
           <button onClick={() => setReturnToClarifyError(null)}><X className="w-3 h-3" /></button>
         </div>
       )}
@@ -286,7 +298,7 @@ export function EditingPanel({
       {/* 开发文档上次生成失败提示：常驻展示直到下一次生成开始，避免用户以为"生成过的文档不见了" */}
       {devDocError && panelMode !== 'prd' && (
         <div className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-xs border-b border-red-200 dark:border-red-900">
-          <span className="flex-1">开发文档上次生成失败：{devDocError}</span>
+          <span className="flex-1">执行计划上次生成失败：{devDocError}</span>
           <button
             onClick={() => setGenDevDocMode(devDocContent || hasDevDoc ? 'regenerate' : 'generate')}
             className="underline hover:no-underline flex-shrink-0"

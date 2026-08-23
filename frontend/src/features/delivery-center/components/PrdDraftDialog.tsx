@@ -8,7 +8,7 @@ import {
   type PrdImageAttachmentResult,
 } from '@/lib/prdAttachments'
 import { splitCatalogValues } from '@/lib/systemCatalog'
-import type { DocumentProfile, PrdBusinessFields } from '@/features/prd-clarify/public-api'
+import type { PrdBusinessFields } from '@/features/prd-clarify/public-api'
 import { createPrdDraft, suggestPrdTitle } from '../api'
 
 interface PrdDraftDialogProps {
@@ -32,7 +32,6 @@ export function PrdDraftDialog({
   const [systems, setSystems] = useState(() => splitCatalogValues(initialProject))
   const [primarySystem, setPrimarySystem] = useState(() => splitCatalogValues(initialProject)[0] ?? '')
   const [modules, setModules] = useState<string[]>([])
-  const [documentProfile, setDocumentProfile] = useState<DocumentProfile>('CLASSIC')
   const [shortTitle, setShortTitle] = useState(() => initialShortTitle.slice(0, 40))
   const [description, setDescription] = useState(
     initialBusinessFields.requirementDetail ?? initialDescription,
@@ -140,7 +139,6 @@ export function PrdDraftDialog({
         rawInput,
         project: systems.join(', '),
         module: modules.join(', '),
-        documentProfile,
         businessFields: {
           requirementDetail: description.trim(),
           businessBackground: businessBackground.trim(),
@@ -186,25 +184,6 @@ export function PrdDraftDialog({
         </header>
 
         <div className="space-y-5 p-5">
-          <Field label="文档模式" required>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {([
-                ['CLASSIC', '经典文档', 'PRD → TDD'],
-                ['SPEC_DRIVEN', '规格驱动', '核心规格 → 执行计划'],
-              ] as const).map(([value, title, description]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setDocumentProfile(value)}
-                  className={`border px-3 py-2.5 text-left transition-colors ${documentProfile === value ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/8' : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]/40'}`}
-                >
-                  <span className="block text-xs font-semibold">{title}</span>
-                  <span className="mt-1 block text-[10px] text-[var(--color-muted-foreground)]">{description}</span>
-                </button>
-              ))}
-            </div>
-          </Field>
-
           <SystemModuleSelector
             systems={systems}
             modules={modules}

@@ -12,6 +12,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -50,6 +52,15 @@ public class DomainKnowledgeQueryService {
      *         {@code null}，调用方应静默跳过（不阻断工时评估主流程，最多是少一份参考依据）。
      */
     public String query(String project, String question) {
+        return query(project, null, question);
+    }
+
+    /**
+     * 查询项目下的模块业务知识；模块无命中时自动降级为项目级检索。
+     *
+     * @return 命中知识点的标题和正文；证据源不可用或无命中时返回 {@code null}
+     */
+    public String query(String project, String module, String question) {
         if (!props.isEnabled() || question == null || question.isBlank()) {
             return null;
         }
@@ -63,7 +74,7 @@ public class DomainKnowledgeQueryService {
             return null;
         }
         try {
-            String script = buildScript(distEntry, project, question);
+            String script = buildScript(distEntry, project, module, question);
             // Passing generated source through "node -e" is unsafe on Windows: the
             // command-line conversion can strip JSON quotes around file:// URLs.
             // Stdin preserves the ESM source byte-for-byte on every platform.
@@ -97,20 +108,40 @@ public class DomainKnowledgeQueryService {
         }
     }
 
+    /** 返回业务知识查询引擎入口，未配置或未构建时返回 null。 */
+    public String traceTarget() {
+        String repoPath = Binder.get(environment).bind(REPO_PATH_KEY, Bindable.of(String.class)).orElse(null);
+        if (repoPath == null || repoPath.isBlank()) {
+            return null;
+        }
+        Path entry = Path.of(repoPath, "dist", "knowledge.js");
+        return Files.isRegularFile(entry) ? entry.toString() : null;
+    }
+
     /**
      * 生成一次性 Node ESM 脚本：静态 import {@code dist/knowledge.js} 的 {@code search}/{@code get}，
      * 检索命中后取正文前 600 字，避免把整篇知识点全量塞进 prompt。project/question 都以 JSON 字符串
      * 字面量形式直接拼进脚本源码（用 Jackson 转义，避免注入/换行破坏脚本语法）。
      */
-    private String buildScript(Path distEntry, String project, String question) throws com.fasterxml.jackson.core.JsonProcessingException {
+    private String buildScript(Path distEntry, String project, String module, String question)
+            throws com.fasterxml.jackson.core.JsonProcessingException {
         String urlLiteral = mapper.writeValueAsString(distEntry.toUri().toString());
         String questionLiteral = mapper.writeValueAsString(question);
+        String modulesLiteral = mapper.writeValueAsString(normalizeModules(module));
         String projectClause = (project == null || project.isBlank())
                 ? ""
                 : "project: " + mapper.writeValueAsString(project) + ", ";
         return "import { search, get } from " + urlLiteral + ";\n" +
-                "const results = search({ " + projectClause + "query: " + questionLiteral +
-                ", limit: " + props.getResultLimit() + " });\n" +
+                "const modules = " + modulesLiteral + ";\n" +
+                "const merged = new Map();\n" +
+                "const add = items => items.forEach(item => merged.set(item.id, item));\n" +
+                "for (const module of modules) {\n" +
+                "  add(search({ " + projectClause + "module, query: " + questionLiteral +
+                ", limit: " + props.getResultLimit() + " }));\n" +
+                "}\n" +
+                "if (!merged.size) add(search({ " + projectClause + "query: " + questionLiteral +
+                ", limit: " + props.getResultLimit() + " }));\n" +
+                "const results = [...merged.values()].slice(0, " + props.getResultLimit() + ");\n" +
                 "const lines = [];\n" +
                 "for (const r of results) {\n" +
                 "  const full = get(r.id);\n" +
@@ -118,6 +149,18 @@ public class DomainKnowledgeQueryService {
                 "  lines.push(`### [${r.type}] ${r.title} (${r.project}${r.module ? '/' + r.module : ''})\\n${body}`);\n" +
                 "}\n" +
                 "process.stdout.write(lines.length ? lines.join('\\n\\n') : '');\n";
+    }
+
+    private static List<String> normalizeModules(String module) {
+        if (module == null || module.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(module.split("[,，、]"))
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .limit(10)
+                .toList();
     }
 
     private static String trim(String s) {

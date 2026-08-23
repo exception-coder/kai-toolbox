@@ -89,7 +89,7 @@ import {
   startClarifyFromDraft,
   startGenerateDevDoc,
   startGenerate as runPrdGenerate,
-  documentProfileLabels,
+  documentLabels,
   type AgentEngine,
   type PrdSessionView,
   type QaPair,
@@ -318,12 +318,12 @@ function prdNodeState(item: ReqItemView, requirement?: DeliveryRequirement, sess
 }
 
 const PRD_NODE_META: Record<Exclude<PrdNodeState, 'empty'>, { label: string; hint: string }> = {
-  draft: { label: 'PRD 草稿', hint: '点击开始异步澄清' },
+  draft: { label: '规格草稿', hint: '点击开始需求探索' },
   building: { label: '澄清问题构建中', hint: 'AI 正在生成问题' },
   awaiting: { label: '待回答澄清问题', hint: '点击填写问题卡片' },
-  generating: { label: 'PRD 生成中', hint: '已提交回答，正在输出文档' },
-  done: { label: 'PRD 已输出', hint: '点击预览 Markdown' },
-  error: { label: 'PRD 执行失败', hint: '点击查看失败原因' },
+  generating: { label: '核心规格生成中', hint: '正在输出规格文档' },
+  done: { label: '核心规格已输出', hint: '点击预览 Markdown' },
+  error: { label: '规格执行失败', hint: '点击查看失败原因' },
 }
 
 function PrdStageDot({ state, running }: { state: PrdNodeState; running: boolean }) {
@@ -354,8 +354,7 @@ function PrdStageDot({ state, running }: { state: PrdNodeState; running: boolean
 type TddNodeState = 'locked' | 'ready' | 'building' | 'awaiting' | 'generating' | 'stale' | 'done' | 'error'
 
 function tddNodeState(requirement: DeliveryRequirement | undefined, session: PrdSessionView | undefined, building: boolean, generating: boolean, failed: boolean): TddNodeState {
-  if (building || session?.devDocWorkStatus === 'BUILDING_QUESTIONS') return 'building'
-  if (session?.devDocWorkStatus === 'AWAITING_ANSWERS') return 'awaiting'
+  if (building) return 'building'
   if (generating) return 'generating'
   if (session?.devDocWorkStatus === 'GENERATING') return 'generating'
   if (failed || session?.devDocWorkStatus === 'ERROR') return 'error'
@@ -371,14 +370,14 @@ function tddNodeState(requirement: DeliveryRequirement | undefined, session: Prd
 }
 
 const TDD_NODE_META: Record<TddNodeState, { label: string; hint: string }> = {
-  locked: { label: 'TDD 尚不可用', hint: '完成 PRD 后可开始技术作业' },
-  ready: { label: 'TDD 待作业', hint: '点击开始技术澄清' },
-  building: { label: '技术问题构建中', hint: 'AI 正在后台批量生成问题' },
-  awaiting: { label: '待回答技术问题', hint: '点击填写批量问题卡片' },
-  generating: { label: 'TDD 生成中', hint: '答案已提交，正在后台输出文档' },
-  stale: { label: 'TDD 需更新', hint: '上游已变化，点击重新作业' },
-  done: { label: 'TDD 已输出', hint: '点击预览 Markdown' },
-  error: { label: 'TDD 执行失败', hint: '点击重新进入技术作业' },
+  locked: { label: '执行计划尚不可用', hint: '完成核心规格后可开始技术作业' },
+  ready: { label: '执行计划待生成', hint: '点击启动后台生成' },
+  building: { label: '执行计划生成中', hint: 'AI 正在后台准备并输出文档' },
+  awaiting: { label: '执行计划待生成', hint: '旧技术问答不再阻断，可直接重新生成' },
+  generating: { label: '执行计划生成中', hint: 'AI 正在后台输出文档' },
+  stale: { label: '执行计划需更新', hint: '上游已变化，点击重新作业' },
+  done: { label: '执行计划已输出', hint: '点击预览 Markdown' },
+  error: { label: '执行计划执行失败', hint: '点击重新进入技术作业' },
 }
 
 function TddStageDot({ state }: { state: TddNodeState }) {
@@ -547,8 +546,8 @@ export function DocumentStatusLegend() {
     { state: 'draft', description: '尚未启动 AI 澄清，可点击选择引擎并开始。' },
     { state: 'building', description: 'AI 正在后台构建澄清问题，暂时无需操作。' },
     { state: 'awaiting', description: '澄清问题已经返回，点击节点填写问题卡片。' },
-    { state: 'generating', description: '回答已经提交，AI 正在生成 PRD Markdown。' },
-    { state: 'done', description: 'PRD 已输出，点击节点直接预览文档。' },
+    { state: 'generating', description: '需求上下文已经确认，AI 正在生成核心规格。' },
+    { state: 'done', description: '核心规格已输出，点击节点直接预览文档。' },
     { state: 'error', description: '澄清或文档生成失败，点击节点查看原因。' },
   ]
 
@@ -568,22 +567,22 @@ export function DocumentStatusLegend() {
       </PopoverAnchor>
       <PopoverContent className="w-80 p-0" align="end">
         <div className="border-b border-[var(--color-border)] px-4 py-3">
-          <div className="text-xs font-semibold">需求规格 / 执行方案节点颜色说明</div>
+          <div className="text-xs font-semibold">核心规格 / 执行计划节点颜色说明</div>
           <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">颜色表示当前需要等待、处理还是查看结果；节点均可直接点按。</p>
         </div>
         <div className="max-h-[65vh] space-y-0.5 overflow-y-auto p-2">
-          <div className="px-2 pb-1 pt-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">需求规格</div>
+          <div className="px-2 pb-1 pt-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">核心规格</div>
           {states.map(({ state, description }) => (
             <div key={state} className="flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-[var(--color-muted)]/60">
               <span className="mt-0.5 shrink-0"><PrdStageDot state={state} running={false} /></span>
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold">{PRD_NODE_META[state].label.replace('PRD ', '')}</div>
+                <div className="text-[11px] font-semibold">{PRD_NODE_META[state].label}</div>
                 <p className="mt-0.5 text-[10px] leading-4 text-[var(--color-muted-foreground)]">{description}</p>
               </div>
             </div>
           ))}
           <div className="mx-2 my-2 border-t border-[var(--color-border)]" />
-          <div className="px-2 pb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">执行方案</div>
+          <div className="px-2 pb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">执行计划</div>
           {(['locked', 'ready', 'building', 'awaiting', 'generating', 'stale', 'done', 'error'] as TddNodeState[]).map(state => (
             <div key={state} className="flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-[var(--color-muted)]/60">
               <span className="mt-0.5 shrink-0"><TddStageDot state={state} /></span>
@@ -606,7 +605,7 @@ function DocumentLifecycleTimeline({
   kind: 'PRD' | 'TDD'
   session?: PrdSessionView
 }) {
-  const labels = documentProfileLabels(session?.documentProfile)
+  const labels = documentLabels
   const legacyPrdOutput = !session?.prdGeneratedAt && session?.mdPath && session.status === 'DONE'
     ? session.updatedAt
     : null
@@ -627,12 +626,12 @@ function DocumentLifecycleTimeline({
       ]
     : [
         {
-          label: '技术澄清问题生成完成',
-          time: session?.devDocQuestionsGeneratedAt,
-          pending: session?.devDocWorkStatus === 'BUILDING_QUESTIONS' ? '生成中' : '尚未生成',
+          label: '执行计划生成启动',
+          time: session?.devDocQuestionsGeneratedAt ?? session?.devDocGeneratedAt,
+          pending: session?.devDocWorkStatus === 'GENERATING' ? '执行中' : '尚未启动',
         },
         {
-          label: `完成澄清并输出${labels.plan}`,
+          label: `完成并输出${labels.plan}`,
           time: session?.devDocGeneratedAt,
           pending: session?.devDocWorkStatus === 'GENERATING' ? '生成中' : '尚未输出',
         },
@@ -794,7 +793,7 @@ function PrdStageNode({
   }
 
   const session = sessionQuery.data ?? prdSession
-  const labels = documentProfileLabels(session?.documentProfile)
+  const labels = documentLabels
   const meta = {
     ...PRD_NODE_META[state === 'empty' ? 'draft' : state],
     label: state === 'draft'
@@ -913,7 +912,7 @@ function PrdStageNode({
             </div>
           ) : (
             <div className="space-y-3 p-4">
-              <p className="rounded-lg bg-rose-50 px-3 py-2 text-[10px] leading-4 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{session?.errorMsg || 'PRD 执行失败，请稍后重试。'}</p>
+              <p className="rounded-lg bg-rose-50 px-3 py-2 text-[10px] leading-4 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{session?.errorMsg || '规格执行失败，请稍后重试。'}</p>
               {questionsReady && <button type="button" onClick={onAnswer} className="w-full rounded-lg border border-amber-300 px-3 py-2.5 text-xs font-medium text-amber-700 hover:bg-amber-50">返回问题卡片</button>}
             </div>
           )}
@@ -938,7 +937,7 @@ function TddStageNode({
   generating,
   failed,
   onStart,
-  onAnswer,
+  onAnswer: _onAnswer,
   onPreview,
 }: {
   requirement?: DeliveryRequirement
@@ -954,7 +953,7 @@ function TddStageNode({
   const [engine, setEngine] = useState<AgentEngine>('codex')
   const [showClarification, setShowClarification] = useState(false)
   const state = tddNodeState(requirement, session, building, generating, failed)
-  const labels = documentProfileLabels(session?.documentProfile ?? requirement?.documentProfile)
+  const labels = documentLabels
   const baseMeta = TDD_NODE_META[state]
   const meta = {
     ...baseMeta,
@@ -976,10 +975,6 @@ function TddStageNode({
 
   const openNode = (event: React.MouseEvent) => {
     event.stopPropagation()
-    if (state === 'awaiting') {
-      onAnswer()
-      return
-    }
     setOpen(true)
   }
 
@@ -1018,13 +1013,13 @@ function TddStageNode({
             {state === 'locked' ? (
               <p className="rounded-lg bg-[var(--color-muted)] px-3 py-2.5 text-[11px] leading-5 text-[var(--color-muted-foreground)]">请先完成{labels.specificationClarify}并输出文档。{labels.specification}完成后，这里会自动变为紫色的“待作业”状态。</p>
             ) : state === 'building' ? (
-              <div className="flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2.5 text-[11px] text-violet-700 dark:bg-violet-950/30 dark:text-violet-300"><Loader2 className="h-3.5 w-3.5 animate-spin" />AI 正在后台批量构建技术问题，完成后节点会变为橙色。</div>
+              <div className="flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2.5 text-[11px] text-violet-700 dark:bg-violet-950/30 dark:text-violet-300"><Loader2 className="h-3.5 w-3.5 animate-spin" />AI 正在后台准备执行计划，完成后节点会变为绿色。</div>
             ) : state === 'generating' ? (
-              <div className="flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-2.5 text-[11px] text-sky-700 dark:bg-sky-950/30 dark:text-sky-300"><Loader2 className="h-3.5 w-3.5 animate-spin" />答案已提交，{labels.plan}正在后台生成。完成后节点会自动变为绿色。</div>
+              <div className="flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-2.5 text-[11px] text-sky-700 dark:bg-sky-950/30 dark:text-sky-300"><Loader2 className="h-3.5 w-3.5 animate-spin" />{labels.plan}正在后台生成。完成后节点会自动变为绿色。</div>
             ) : state === 'awaiting' ? (
               <>
-                <p className="text-[11px] leading-5 text-[var(--color-muted-foreground)]">技术澄清问题已返回，完成回答后可补充约束与附件并生成{labels.plan}。</p>
-                <button type="button" onClick={() => { setOpen(false); onAnswer() }} className="w-full rounded-lg bg-amber-500 px-3 py-2.5 text-xs font-medium text-white hover:bg-amber-600">填写技术澄清答案</button>
+                <p className="text-[11px] leading-5 text-[var(--color-muted-foreground)]">这是旧流程留下的待回答状态。现在无需逐题回答，可直接重新生成{labels.plan}。</p>
+                <button type="button" onClick={start} className="w-full rounded-lg bg-purple-600 px-3 py-2.5 text-xs font-medium text-white hover:bg-purple-700">后台生成{labels.plan}</button>
               </>
             ) : state === 'done' ? (
               <button type="button" onClick={() => { setOpen(false); onPreview() }} className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-xs font-medium text-white hover:bg-emerald-700">预览{labels.planDocument}</button>
@@ -1032,16 +1027,13 @@ function TddStageNode({
               <>
                 <p className="text-[11px] leading-5 text-[var(--color-muted-foreground)]">
                   {state === 'stale'
-                    ? `${labels.specification}或代码上下文已发生变化，建议重新进行技术澄清并更新${labels.plan}。`
+                    ? `${labels.specification}或代码上下文已发生变化，建议重新生成${labels.plan}。`
                     : state === 'error'
                       ? `上次${labels.plan}作业未完成，可重新进入弹窗继续发起。`
-                      : `AI 将结合${labels.specification}、代码与知识图谱，只询问编码前必须确认的技术决策。`}
+                      : `AI 将结合${labels.specification}、代码与知识图谱直接生成文档，未决技术事项会写入${labels.plan}。`}
                 </p>
                 {state === 'stale' && (
                   <button type="button" onClick={() => { setOpen(false); onPreview() }} className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2.5 text-xs font-medium hover:bg-[var(--color-muted)]">查看现有{labels.plan}</button>
-                )}
-                {state === 'error' && (session?.devDocQaDraft.length ?? 0) > 0 && (
-                  <button type="button" onClick={() => { setOpen(false); onAnswer() }} className="w-full rounded-lg border border-amber-300 px-3 py-2.5 text-xs font-medium text-amber-700 hover:bg-amber-50">恢复已保存的澄清答案</button>
                 )}
                 <div>
                   <div className="mb-1.5 text-[10px] font-medium text-[var(--color-muted-foreground)]">执行引擎</div>
@@ -1054,7 +1046,7 @@ function TddStageNode({
                   </div>
                 </div>
                 <button type="button" onClick={start} className="flex w-full items-center justify-center gap-2 rounded-lg bg-purple-600 px-3 py-2.5 text-xs font-medium text-white hover:bg-purple-700">
-                  <Play className="h-3.5 w-3.5" />{state === 'ready' ? '后台生成技术问题' : '重新生成技术问题'}
+                  <Play className="h-3.5 w-3.5" />{state === 'ready' ? `后台生成${labels.plan}` : `重新生成${labels.plan}`}
                 </button>
               </>
             )}
@@ -1062,7 +1054,7 @@ function TddStageNode({
           {!!session && (!!session.devDocQuestionsGeneratedAt || session.devDocQaDraft.length > 0 || session.devDocHistory.length > 0) && (
             <div className="border-t border-[var(--color-border)] p-3">
               <button type="button" onClick={() => { setOpen(false); setShowClarification(true) }} className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2.5 text-xs font-medium hover:bg-[var(--color-muted)]">
-                <ListTree className="h-3.5 w-3.5" />查看{labels.planClarify}记录
+                <ListTree className="h-3.5 w-3.5" />查看历史生成依据
               </button>
             </div>
           )}
@@ -1103,7 +1095,7 @@ export function DeliveryTrack({
 }) {
   const progress = requirement ? requirementProgress(requirement) : null
   const stages = [
-    { key: 'prd' as const, label: 'PRD' },
+    { key: 'prd' as const, label: '核心规格' },
     { key: 'tdd' as const, label: 'TDD' },
     { key: 'code' as const, label: '代码' },
   ]

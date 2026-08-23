@@ -1,7 +1,6 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
-import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
@@ -15,6 +14,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -31,19 +31,20 @@ class PrdSessionLifecycleServiceTest {
 
         PrdSession result = fixture.service.create(
                 "标题", "描述", "ERP", "库存", "gpt-5", "CoDeX", "business",
-                "BUG_FIX", 2, 42L, "batch", null, " parent ", DocumentProfile.CLASSIC.name());
+                "BUG_FIX", 2, 42L, "batch", null, " parent ", "source-item");
 
         ArgumentCaptor<PrdSession> inserted = ArgumentCaptor.forClass(PrdSession.class);
-        verify(fixture.repository).insert(inserted.capture());
+        verify(fixture.repository).insertIdempotent(inserted.capture());
         assertThat(result).isSameAs(inserted.getValue());
         assertThat(result.getId()).isNotBlank();
-        assertThat(result.getStatus()).isEqualTo("CLARIFYING");
+        assertThat(result.getStatus()).isEqualTo("DISCOVERING");
         assertThat(result.getEngine()).isEqualTo("codex");
         assertThat(result.getRole()).isEqualTo("BUSINESS");
         assertThat(result.getClarifyMode()).isEqualTo("batch");
         assertThat(result.getParentId()).isEqualTo("parent");
         assertThat(result.getReqType()).isEqualTo("BUG_FIX");
         assertThat(result.getMaxQuestions()).isEqualTo(2);
+        assertThat(result.getSourceReqItemId()).isEqualTo("source-item");
     }
 
     @Test
@@ -67,11 +68,26 @@ class PrdSessionLifecycleServiceTest {
     }
 
     @Test
+    void returnsExistingSessionForRepeatedCreationKeyWithoutResolvingAgain() {
+        Fixture fixture = fixture();
+        PrdSession existing = session("existing", "DISCOVERING");
+        when(fixture.repository.findByCreationKey("operation-1")).thenReturn(Optional.of(existing));
+
+        PrdSession result = fixture.service.create(
+                "标题", "描述", "ERP", "库存", "gpt-5", "claude", "PRODUCT",
+                null, null, 42L, null, null, null, null, " operation-1 ");
+
+        assertThat(result).isSameAs(existing);
+        verify(fixture.resolver, never()).resolve(any(), any(), any(), any(), any(), any());
+        verify(fixture.repository, never()).insertIdempotent(any());
+    }
+
+    @Test
     void savesDraftWithStableDefaults() {
         Fixture fixture = fixture();
 
         PrdSession result = fixture.service.saveDraft(
-                "草稿", null, "ERP", "采购", 7L, null, null);
+                "草稿", null, "ERP", "采购", 7L, null);
 
         verify(fixture.repository).insert(result);
         assertThat(result.getRawInput()).isEmpty();
@@ -80,25 +96,22 @@ class PrdSessionLifecycleServiceTest {
         assertThat(result.getReqType()).isEqualTo(PrdRequirementTypeResolver.NEW_MODULE);
         assertThat(result.getMaxQuestions()).isEqualTo(8);
         assertThat(result.getClarifyMode()).isEqualTo("progressive");
-        assertThat(result.getDocumentProfile()).isEqualTo(DocumentProfile.CLASSIC.name());
     }
 
     @Test
-    void updatesDraftAndPreservesExistingDocumentProfile() {
+    void updatesDraftFields() {
         Fixture fixture = fixture();
         PrdSession existing = session("draft", "DRAFT");
-        existing.setDocumentProfile(DocumentProfile.SPEC_DRIVEN.name());
         PrdSession updated = session("draft", "DRAFT");
         when(fixture.repository.findById("draft"))
                 .thenReturn(Optional.of(existing), Optional.of(updated));
 
         PrdSession result = fixture.service.updateDraft(
-                "draft", "新标题", null, "ERP", "库存", PrdBusinessFields.empty(), null);
+                "draft", "新标题", null, "ERP", "库存", PrdBusinessFields.empty());
 
         assertThat(result).isSameAs(updated);
         verify(fixture.repository).updateDraftFields(
-                "draft", "新标题", "", "ERP", "库存",
-                PrdBusinessFields.empty(), DocumentProfile.SPEC_DRIVEN.name());
+                "draft", "新标题", "", "ERP", "库存", PrdBusinessFields.empty());
     }
 
     @Test
@@ -107,7 +120,7 @@ class PrdSessionLifecycleServiceTest {
         when(fixture.repository.findById("done")).thenReturn(Optional.of(session("done", "DONE")));
 
         assertThatThrownBy(() -> fixture.service.updateDraft(
-                "done", "标题", "描述", "ERP", "库存", null, null))
+                "done", "标题", "描述", "ERP", "库存", null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("当前状态 DONE 不是草稿，无法这样保存");
     }
@@ -116,8 +129,7 @@ class PrdSessionLifecycleServiceTest {
     void startsClarificationFromExistingDraft() {
         Fixture fixture = fixture();
         PrdSession existing = session("draft", "DRAFT");
-        existing.setDocumentProfile(DocumentProfile.SPEC_DRIVEN.name());
-        PrdSession updated = session("draft", "CLARIFYING");
+        PrdSession updated = session("draft", "DISCOVERING");
         when(fixture.repository.findById("draft"))
                 .thenReturn(Optional.of(existing), Optional.of(updated));
         when(fixture.resolver.resolve("标题", "描述", "gpt-5", "claude", null, null))
@@ -125,12 +137,12 @@ class PrdSessionLifecycleServiceTest {
 
         PrdSession result = fixture.service.startClarifyFromDraft(
                 "draft", "标题", "描述", "ERP", "库存", "gpt-5", null, "other",
-                null, null, "invalid", PrdBusinessFields.empty(), null);
+                null, null, "invalid", PrdBusinessFields.empty());
 
         assertThat(result).isSameAs(updated);
         verify(fixture.repository).startClarifyFromDraft(
                 "draft", "标题", "描述", "ERP", "库存", "gpt-5", "claude", "PRODUCT",
-                "MODULE_ADJUST", 4, "progressive", PrdBusinessFields.empty(), DocumentProfile.SPEC_DRIVEN.name());
+                "MODULE_ADJUST", 4, "progressive", PrdBusinessFields.empty());
     }
 
     @Test
@@ -149,17 +161,17 @@ class PrdSessionLifecycleServiceTest {
         PrdSessionLifecycleService lifecycle = mock(PrdSessionLifecycleService.class);
         PrdSession expected = session("session", "DRAFT");
         when(lifecycle.saveDraft(
-                "标题", "描述", "ERP", "库存", 42L, PrdBusinessFields.empty(), null))
+                "标题", "描述", "ERP", "库存", 42L, PrdBusinessFields.empty()))
                 .thenReturn(expected);
         PrdClarifyService facade = facade(lifecycle);
 
         assertThat(facade.saveDraft(
-                "标题", "描述", "ERP", "库存", 42L, PrdBusinessFields.empty(), null))
+                "标题", "描述", "ERP", "库存", 42L, PrdBusinessFields.empty()))
                 .isSameAs(expected);
         facade.delete("session");
 
         verify(lifecycle).saveDraft(
-                "标题", "描述", "ERP", "库存", 42L, PrdBusinessFields.empty(), null);
+                "标题", "描述", "ERP", "库存", 42L, PrdBusinessFields.empty());
         verify(lifecycle).delete("session");
     }
 
@@ -167,6 +179,7 @@ class PrdSessionLifecycleServiceTest {
         PrdSessionRepository repository = mock(PrdSessionRepository.class);
         PrdFileStore fileStore = mock(PrdFileStore.class);
         PrdRequirementTypeResolver resolver = mock(PrdRequirementTypeResolver.class);
+        when(repository.insertIdempotent(any())).thenAnswer(invocation -> invocation.getArgument(0));
         return new Fixture(
                 repository,
                 fileStore,

@@ -1,12 +1,18 @@
 import { useRef } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { DevDocEstimation } from '../types'
 import { getBusinessFieldEntries } from '../lib/sessionPresentation'
 import { DocOutline } from './DocOutline'
 import { EstimationBadge } from './EstimationBadge'
 import { RawInputCard } from './RawInputCard'
 import { StepBar } from './StepBar'
+import { StartClarifyDialog } from './dialogs/StartClarifyDialog'
+import { DevDocUpdateDialog } from './dialogs/DevDocUpdateDialog'
+import { DiscoveryPanel, RevisionPreparingPanel } from './panels/DiscoveryPanel'
+import { GeneratingPanel } from './panels/GenerationPanels'
+import { InputPanel } from './panels/InputPanel'
 
 afterEach(cleanup)
 
@@ -65,12 +71,132 @@ describe('PRD 叶子展示组件', () => {
     const onClickStep = vi.fn()
     render(<StepBar step="EDITING" onClickStep={onClickStep} />)
 
-    fireEvent.click(screen.getByTitle('返回填写需求'))
-    fireEvent.click(screen.getByTitle('查看AI 渐进澄清'))
+    fireEvent.click(screen.getByTitle('返回需求输入'))
+    fireEvent.click(screen.getByTitle('查看探索'))
 
     expect(onClickStep).toHaveBeenNthCalledWith(1, 0)
     expect(onClickStep).toHaveBeenNthCalledWith(2, 1)
+    expect(screen.queryByText('缺口澄清')).not.toBeInTheDocument()
     expect(screen.getAllByRole('button')[2]).toBeDisabled()
+  })
+
+  it('开始探索不再要求选择回复式澄清深度和方式', () => {
+    const onConfirm = vi.fn()
+    render(
+      <StartClarifyDialog
+        showEngineToggle
+        onConfirm={onConfirm}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByText('澄清深度（已按类型预填，可调整）')).not.toBeInTheDocument()
+    expect(screen.queryByText('渐进式')).not.toBeInTheDocument()
+    expect(screen.queryByText('批量')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '开始探索' }))
+    expect(onConfirm).toHaveBeenCalledWith('NEW_MODULE', undefined, 'progressive', 'claude')
+  })
+
+  it('开始探索首次点击后立即锁定，连续点击只提交一次', () => {
+    const onStart = vi.fn()
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <InputPanel onStart={onStart} />
+      </QueryClientProvider>,
+    )
+
+    fireEvent.change(screen.getByLabelText('描述想探索的问题或想法'), { target: { value: '验证规格探索幂等' } })
+    const start = screen.getByRole('button', { name: '开始探索' })
+    fireEvent.click(start)
+    fireEvent.click(start)
+
+    expect(onStart).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: '正在创建探索…' })).toBeDisabled()
+  })
+
+  it('探索失败只提供后台重试和修改想法，不恢复回复式澄清', () => {
+    const onRetry = vi.fn()
+    const onBack = vi.fn()
+    render(
+      <DiscoveryPanel
+        run={{
+          id: 'run-1',
+          sessionId: 'session-1',
+          status: 'FAILED',
+          stage: 'FAILED',
+          progress: 100,
+          attempt: 3,
+          maxAttempts: 3,
+          criteriaVersion: 'initial-spec-quality-v1',
+          promptVersion: 'initial-spec-discovery-v2',
+          vibeSessionId: 'vibe-session-1',
+          traceId: 'trace-1',
+          validationJson: JSON.stringify({ gaps: ['缺少验收场景'] }),
+          lastError: '三次执行仍未通过检查',
+          startedAt: 1,
+          completedAt: 2,
+          updatedAt: 2,
+        }}
+        starting={false}
+        failed
+        error="三次执行仍未通过检查"
+        onRetry={onRetry}
+        onBack={onBack}
+      />,
+    )
+
+    expect(screen.getByText('本次探索未形成初始化规格')).toBeInTheDocument()
+    expect(screen.getByText(/需要需求方判定的内容会写入初始化规格/)).toBeInTheDocument()
+    expect(screen.queryByText(/AI 渐进澄清/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/生成精准澄清问题/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重新后台探索' }))
+    fireEvent.click(screen.getByRole('button', { name: '返回想法修改' }))
+    expect(onRetry).toHaveBeenCalledOnce()
+    expect(onBack).toHaveBeenCalledOnce()
+  })
+
+  it('修订准备态直接说明生成初始化规格而非逐题提问', () => {
+    render(<RevisionPreparingPanel engine="codex" stage="creating" />)
+
+    expect(screen.getByText('正在准备重新探索')).toBeInTheDocument()
+    expect(screen.getByText('后台探索并生成新的初始化规格')).toBeInTheDocument()
+    expect(screen.getByText(/不会逐题追问/)).toBeInTheDocument()
+    expect(screen.queryByText(/首个澄清问题/)).not.toBeInTheDocument()
+  })
+
+  it('核心规格生成中实时渲染 Markdown 而不是显示原始标记', () => {
+    const { container } = render(
+      <GeneratingPanel
+        streamText={'## 范围与边界\n\n- `REQ-001`：支持批量处理'}
+        failed={false}
+        onRetry={vi.fn()}
+        engine="codex"
+      />,
+    )
+
+    expect(screen.getByRole('heading', { level: 2, name: '范围与边界' })).toBeInTheDocument()
+    expect(container.querySelector('li code')).toHaveTextContent('REQ-001')
+    expect(container).not.toHaveTextContent('## 范围与边界')
+  })
+
+  it('规格到执行计划直接后台生成，不进入 TDD 逐题澄清', () => {
+    const onConfirm = vi.fn()
+    render(
+      <DevDocUpdateDialog
+        mode="initial"
+        initialEngine="codex"
+        onConfirm={onConfirm}
+        onClose={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('生成执行计划')).toBeInTheDocument()
+    expect(screen.getByText(/写入文档的“待确认技术事项”/)).toBeInTheDocument()
+    expect(screen.queryByText(/TDD 技术澄清/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/0 \/ 5 题/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '后台生成执行计划' }))
+    expect(onConfirm).toHaveBeenCalledWith('', [], 'codex')
   })
 
   it('EstimationBadge 区分完成、运行、失败和过期状态', () => {

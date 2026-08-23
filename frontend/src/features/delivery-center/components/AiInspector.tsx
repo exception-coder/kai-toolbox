@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { DeliveryFinding, DeliveryRequirement, DeliveryStageKey, ProgressItem, StageStatus } from '../types'
 import { startDeliveryVerification } from '../api'
-import { documentProfileLabels } from '@/features/prd-clarify/public-api'
+import { documentLabels } from '@/features/prd-clarify/public-api'
 
 interface Props {
   requirement: DeliveryRequirement | null
@@ -24,7 +24,7 @@ export function AiInspector({ requirement, findings, onStageSelect }: Props) {
     )
   }
 
-  const labels = documentProfileLabels(requirement.documentProfile)
+  const labels = documentLabels
   const stages = [
     ['prdDraft', labels.specificationDraft, requirement.stages.prdDraft.status, requirement.stages.prdDraft.score],
     ['prdClarify', labels.specificationClarify, requirement.stages.prdClarify.status, requirement.stages.prdClarify.score],

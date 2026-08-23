@@ -118,6 +118,46 @@
 
 修改字段时必须同步 DDL、`ReqInsight`、Repository 显式列映射、视图装配器、API 类型和临时 SQLite 事务测试。
 
+## prd_session 来源需求字段
+
+定义：`tools/tool-prd-clarify/src/main/resources/db/prd-schema.sql`
+
+| 字段 | 主要写入点 | 主要读取或决策点 |
+|---|---|---|
+| `source_req_item_id` | 从需求中枢启动探索时由 `CreateSessionRequest` 写入 | `PrdDiscoveryService#confirm` 组装规划请求；需求中枢优先复用原根需求 |
+
+修改字段时必须同步 `PrdSession`、创建 DTO、Repository 显式列映射、前端会话创建请求与生命周期测试。
+
+## req_pool_planning_assessment
+
+定义：`tools/tool-reqpool/src/main/resources/db/reqpool-schema.sql`
+
+| 字段组 | 主要写入点 | 主要读取或决策点 |
+|---|---|---|
+| `item_id/prd_session_id` | `ReqPlanningAssessmentService#prepare` | 需求详情装配、按规格会话幂等查找 |
+| `input_hash/input_snapshot` | 确认初始化规格时冻结 | 相同输入复用、重试、后续离线评测 |
+| `criteria_version/prompt_version` | 固定准则与 Prompt 常量 | 不同评测版本对比、活动运行唯一索引 |
+| `raw_output/payload_json` | Agent 原始返回、服务端归一化结果 | 模型质量回放与业务展示严格分离 |
+| `status/last_error` | 登记 `RUNNING`，条件终结为 `COMPLETED/FAILED` | 轮询、失败诊断和重试入口 |
+| `engine/model/started_at/completed_at` | 运行上下文与生命周期 | 执行环境、耗时和成功率评测 |
+
+修改字段时必须同步领域对象、Repository 显式列映射、部分唯一索引、归一化器、API/TypeScript 类型和删除级联逻辑。
+
+## prd_discovery_run
+
+定义：`tools/tool-prd-clarify/src/main/resources/db/prd-schema.sql`
+
+| 字段组 | 主要写入点 | 主要读取或决策点 |
+|---|---|---|
+| `session_id/status/stage/progress` | `PrdDiscoveryTaskService` 登记和推进 | 单会话活动唯一索引、前端轮询和恢复 |
+| `attempt/max_attempts` | 每轮 Vibe Coding 执行前更新 | ReAct 上限、进度与用户说明 |
+| `criteria_version/prompt_version/input_hash` | 登记时冻结 | 质量准则审计、输入复现与后续评测 |
+| `vibe_session_id/trace_id` | `AgentOneShotRunner.ObservedResult` | 执行关联、遥测排障和界面追踪 |
+| `last_output/validation_json/last_error` | 每轮输出与校验后更新 | 下一轮修复上下文、失败诊断；正文不通过运行 API 暴露 |
+| `started_at/completed_at/created_at/updated_at` | 运行生命周期 | 耗时、恢复和历史顺序 |
+
+修改字段时必须同步 `PrdDiscoveryRun`、Repository 显式列映射、部分唯一索引、运行 View、前端类型和后台任务测试。
+
 ## claude_chat_review_space 分享令牌字段
 
 定义：`tools/tool-claude-chat/src/main/resources/db/claude-chat-schema.sql:46`
@@ -129,3 +169,39 @@
 | `expires_at/status` | 创建、换新、撤销 | 原链接有效/过期/撤销展示和公开访问判定 |
 
 修改令牌字段时必须同步 DDL、启动迁移、`ReviewSpace`、Repository 显式列映射、AES-GCM 服务、关联 API 与前端历史列表测试。
+
+## assistant_module_context_cache
+
+定义：`tools/tool-assistant/src/main/resources/db/assistant-schema.sql`
+
+| 字段 | 主要写入点 | 主要读取或决策点 |
+|---|---|---|
+| `id` | `AssistantModuleContextService#save` 生成 UUID | Repository 主键与审计 |
+| `creator_user_id` | 当前 `AuthContext` | 用户隔离查询与唯一键 |
+| `app_id/module_key` | SDK 稳定模块身份 | 缓存定位与唯一键；`routeName` 优先于去参数化 URL |
+| `route` | SDK 当前页面 URL | 诊断信息，不参与唯一定位 |
+| `source_revision` | 宿主可选发布/结构版本 | 非空请求版本变化时强制未命中 |
+| `summary_text` | 正常完成回答的确定性有界压缩 | 以 `historical-clue` 注入后续上下文，最长 6000 字符 |
+| `expires_at` | 保存时间加 7 天 | 过期摘要不得命中 |
+| `create_time/update_time` | 首次创建或原子刷新 | 返回更新时间与稳定覆盖审计 |
+
+修改字段时必须同步 DDL、`AssistantModuleContext`、Repository 显式列映射、服务校验、WS 契约、SDK 注入逻辑和 SQLite 测试。
+
+## `video_scan_root` 表
+
+定义位置：`tools/tool-treesize/src/main/resources/db/treesize-schema.sql`
+
+| 字段 | 读点 | 写点 | 同步报文是否包含 | 备注 |
+|---|---|---|---|---|
+| `id` / `path` | `VideoScanRootRepository.findAll`、`PathAccessGuard.resolve` | `VideoScanRootRepository.insert` | 否 | 自主扫描、播放和删除的路径授权边界 |
+| `status` | `VideoProcessingController.scanRoots` | `VideoScanRootRepository.markRunning/markDone/markFailed` | 否 | `IDLE/RUNNING/DONE/FAILED` |
+| `last_scan_at` / `video_count` / `total_size` | 视频库根目录 API | `VideoScanRootRepository.markDone` | 否 | 最近一次完整扫描统计 |
+
+## `treesize_video.source_scan_id` 独立扫描语义
+
+定义位置：`tools/tool-treesize/src/main/resources/db/treesize-schema.sql`
+
+| 字段 | 读点 | 写点 | 同步报文是否包含 | 备注 |
+|---|---|---|---|---|
+| `source_scan_id` | `VideoTableRepository.findLibraryVideos`、播放器 `scanId` | `VideoTableRepository.upsertScannedBatch` / 旧 `VideoSyncService` | 是，映射为 `VideoLibraryItem.scanId` | 新记录保存 `video_scan_root.id`，历史记录保存 `treesize_scan.id` |
+| `last_synced_at` | `VideoTableRepository.deleteMissingFromRoot` | `VideoTableRepository.upsertScannedBatch` | 否 | 独立扫描水位；失败或取消时不执行缺失清理 |
