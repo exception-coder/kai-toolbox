@@ -11,6 +11,7 @@ export {
   getPublicReview,
   checkPublicReviewEnvironment,
   listPublicReviewRequirements,
+  rebuildPublicReviewRequirements,
   synchronizePublicReviewRequirements,
   updatePublicReviewRequirement,
   deletePublicReviewRequirement,

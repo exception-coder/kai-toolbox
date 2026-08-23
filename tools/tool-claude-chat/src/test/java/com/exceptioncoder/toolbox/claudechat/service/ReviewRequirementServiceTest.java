@@ -67,6 +67,46 @@ class ReviewRequirementServiceTest {
     }
 
     @Test
+    void rebuildValidatesHistoryBeforeReplacingDerivedRequirements() {
+        ReviewSpaceService spaces = mock(ReviewSpaceService.class);
+        ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
+        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
+        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
+        when(spaces.resolve("token")).thenReturn(Optional.of(reviewSpace()));
+
+        assertThatThrownBy(() -> service.rebuild("token", List.of(
+                new ReviewRequirementService.DraftCommand("invalid", "标题", "说明"))))
+                .isInstanceOf(ResponseStatusException.class);
+
+        verify(repository, never()).deleteByReviewSpaceId("space-1");
+    }
+
+    @Test
+    void rebuildClearsDerivedRequirementsAndCompilesCurrentHistory() {
+        ReviewSpaceService spaces = mock(ReviewSpaceService.class);
+        ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
+        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
+        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
+        ReviewRequirement rebuilt = new ReviewRequirement("item-1", "space-1",
+                "assistant-content-v1:test", "最新标题", "最新说明", 1, 10, 10);
+        when(spaces.resolve("token")).thenReturn(Optional.of(reviewSpace()));
+        when(repository.findByReviewSpaceId("space-1")).thenReturn(List.of(), List.of(rebuilt));
+        when(repository.insertRequirement(org.mockito.ArgumentMatchers.eq("space-1"),
+                org.mockito.ArgumentMatchers.any(ReviewRequirementRepository.Draft.class), anyLong()))
+                .thenReturn("item-1");
+
+        List<ReviewRequirement> result = service.rebuild("token", List.of(
+                new ReviewRequirementService.DraftCommand(
+                        "assistant-content-v1:test", "最新标题", "最新说明")));
+
+        assertThat(result).containsExactly(rebuilt);
+        verify(repository).deleteByReviewSpaceId("space-1");
+        verify(repository).insertSource(org.mockito.ArgumentMatchers.eq("space-1"),
+                org.mockito.ArgumentMatchers.eq("item-1"),
+                org.mockito.ArgumentMatchers.any(ReviewRequirementRepository.Source.class), anyLong());
+    }
+
+    @Test
     void reportsConflictInsteadOfOverwritingNewerRevision() {
         ReviewSpaceService spaces = mock(ReviewSpaceService.class);
         ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);

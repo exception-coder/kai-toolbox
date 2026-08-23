@@ -397,9 +397,11 @@ export function ReviewPage() {
         items={requirementList.items}
         loading={requirementList.loading}
         syncing={requirementList.syncing}
+        rebuilding={requirementList.rebuilding}
         error={requirementList.error}
         busyIds={requirementList.busyIds}
         onReload={() => void requirementList.reload()}
+        onRebuild={requirementList.rebuild}
         onSave={requirementList.save}
         onDelete={requirementList.remove}
       />

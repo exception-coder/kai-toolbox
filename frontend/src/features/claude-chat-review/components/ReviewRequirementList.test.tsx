@@ -1,5 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import { ReviewRequirementList } from './ReviewRequirementList'
 
 vi.mock('@/features/claude-chat/public-api', () => ({
@@ -23,12 +25,28 @@ const item = {
   }],
 }
 
+function renderList(props: Partial<ComponentProps<typeof ReviewRequirementList>> = {}) {
+  const defaults: ComponentProps<typeof ReviewRequirementList> = {
+    open: true,
+    onOpenChange: vi.fn(),
+    items: [item],
+    loading: false,
+    syncing: false,
+    rebuilding: false,
+    error: null,
+    busyIds: new Set(),
+    onReload: vi.fn(),
+    onRebuild: vi.fn().mockResolvedValue(true),
+    onSave: vi.fn().mockResolvedValue(true),
+    onDelete: vi.fn().mockResolvedValue(true),
+  }
+  return render(<ConfirmProvider><ReviewRequirementList {...defaults} {...props} /></ConfirmProvider>)
+}
+
 describe('评审需求清单', () => {
   it('允许评审员修改 AI 整理的标题和说明', async () => {
     const onSave = vi.fn().mockResolvedValue(true)
-    render(<ReviewRequirementList open onOpenChange={vi.fn()} items={[item]} loading={false}
-      syncing={false} error={null} busyIds={new Set()} onReload={vi.fn()}
-      onSave={onSave} onDelete={vi.fn()} />)
+    renderList({ onSave })
 
     fireEvent.click(screen.getByRole('button', { name: '修改需求：支持审批驳回' }))
     fireEvent.change(screen.getByRole('textbox', { name: '需求标题' }), { target: { value: '支持审批驳回并重新提交' } })
@@ -40,9 +58,7 @@ describe('评审需求清单', () => {
 
   it('删除使用二次确认且不影响原聊天', () => {
     const onDelete = vi.fn().mockResolvedValue(true)
-    render(<ReviewRequirementList open onOpenChange={vi.fn()} items={[item]} loading={false}
-      syncing={false} error={null} busyIds={new Set()} onReload={vi.fn()}
-      onSave={vi.fn()} onDelete={onDelete} />)
+    renderList({ onDelete })
 
     fireEvent.click(screen.getByRole('button', { name: '删除需求：支持审批驳回' }))
     expect(onDelete).not.toHaveBeenCalled()
@@ -51,13 +67,22 @@ describe('评审需求清单', () => {
   })
 
   it('正式清单默认只展示归纳结果并可展开来源证据', () => {
-    render(<ReviewRequirementList open onOpenChange={vi.fn()} items={[item]} loading={false}
-      syncing={false} error={null} busyIds={new Set()} onReload={vi.fn()}
-      onSave={vi.fn()} onDelete={vi.fn()} />)
+    renderList()
 
     expect(screen.queryByText('审批需要支持驳回')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /需求来源 1 条/ }))
     expect(screen.getByText('审批需要支持驳回')).toBeInTheDocument()
     expect(screen.getByText('查看关联 AI 分析')).toBeInTheDocument()
+  })
+
+  it('重新审核前明确提示会覆盖当前清单和人工修改', async () => {
+    const onRebuild = vi.fn().mockResolvedValue(true)
+    renderList({ onRebuild })
+
+    fireEvent.click(screen.getAllByRole('button', { name: '重新审核' }).at(-1)!)
+    expect(screen.getByText('人工修改也会被覆盖。', { exact: false })).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: '重新审核' }).at(-1)!)
+
+    await waitFor(() => expect(onRebuild).toHaveBeenCalledTimes(1))
   })
 })

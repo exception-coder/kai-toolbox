@@ -45,13 +45,18 @@ public class ReviewRequirementService {
     @Transactional
     public List<ReviewRequirement> synchronize(String token, List<DraftCommand> commands) {
         ReviewSpace space = resolve(token);
-        if (commands == null || commands.size() > MAX_SYNC_ITEMS) {
-            throw badRequest("单次同步需求数量不合法");
-        }
-        List<ReviewRequirementRepository.Draft> drafts = commands.stream().map(this::validatedDraft).toList();
-        for (int index = 0; index < drafts.size(); index++) {
-            compileCandidate(space.id(), drafts.get(index), commands.get(index));
-        }
+        List<ReviewRequirementRepository.Draft> drafts = validatedDrafts(commands);
+        compileCandidates(space.id(), drafts, commands);
+        return repository.findByReviewSpaceId(space.id());
+    }
+
+    /** 清空可再生需求投影，并基于当前评审历史按最新规则重新编译。 */
+    @Transactional
+    public List<ReviewRequirement> rebuild(String token, List<DraftCommand> commands) {
+        ReviewSpace space = resolve(token);
+        List<ReviewRequirementRepository.Draft> drafts = validatedDrafts(commands);
+        repository.deleteByReviewSpaceId(space.id());
+        compileCandidates(space.id(), drafts, commands);
         return repository.findByReviewSpaceId(space.id());
     }
 
@@ -82,6 +87,21 @@ public class ReviewRequirementService {
     private ReviewSpace resolve(String token) {
         return reviewSpaceService.resolve(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "评审链接已失效"));
+    }
+
+    private List<ReviewRequirementRepository.Draft> validatedDrafts(List<DraftCommand> commands) {
+        if (commands == null || commands.size() > MAX_SYNC_ITEMS) {
+            throw badRequest("单次同步需求数量不合法");
+        }
+        return commands.stream().map(this::validatedDraft).toList();
+    }
+
+    private void compileCandidates(String reviewSpaceId,
+                                   List<ReviewRequirementRepository.Draft> drafts,
+                                   List<DraftCommand> commands) {
+        for (int index = 0; index < drafts.size(); index++) {
+            compileCandidate(reviewSpaceId, drafts.get(index), commands.get(index));
+        }
     }
 
     private ReviewRequirementRepository.Draft validatedDraft(DraftCommand command) {

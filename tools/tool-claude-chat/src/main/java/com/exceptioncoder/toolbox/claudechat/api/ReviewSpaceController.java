@@ -150,13 +150,14 @@ public class ReviewSpaceController {
     @PutMapping("/reviews/public/{token}/requirements/sync")
     public List<ReviewRequirementView> synchronizeRequirements(
             @PathVariable String token, @RequestBody SyncRequirementsRequest request) {
-        List<ReviewRequirementService.DraftCommand> commands = request.items() == null ? null
-                : request.items().stream()
-                .map(item -> new ReviewRequirementService.DraftCommand(
-                        item.sourceMessageId(), item.title(), item.content(),
-                        item.sourceText(), item.analysisText()))
-                .toList();
-        return requirementService.synchronize(token, commands).stream()
+        return requirementService.synchronize(token, requirementCommands(request)).stream()
+                .map(ReviewRequirementView::from).toList();
+    }
+
+    @PutMapping("/reviews/public/{token}/requirements/rebuild")
+    public List<ReviewRequirementView> rebuildRequirements(
+            @PathVariable String token, @RequestBody SyncRequirementsRequest request) {
+        return requirementService.rebuild(token, requirementCommands(request)).stream()
                 .map(ReviewRequirementView::from).toList();
     }
 
@@ -260,6 +261,14 @@ public class ReviewSpaceController {
                                           String sourceText, String analysisText) {}
     public record SyncRequirementsRequest(List<RequirementDraftRequest> items) {}
     public record UpdateRequirementRequest(String title, String content, long expectedRevision) {}
+
+    private List<ReviewRequirementService.DraftCommand> requirementCommands(SyncRequirementsRequest request) {
+        return request == null || request.items() == null ? null : request.items().stream()
+                .map(item -> new ReviewRequirementService.DraftCommand(
+                        item.sourceMessageId(), item.title(), item.content(),
+                        item.sourceText(), item.analysisText()))
+                .toList();
+    }
     public record ReviewRequirementView(String id, String sourceMessageId, String title, String content,
                                         long revision, long createdAt, long updatedAt,
                                         List<ReviewRequirementSourceView> sources) {

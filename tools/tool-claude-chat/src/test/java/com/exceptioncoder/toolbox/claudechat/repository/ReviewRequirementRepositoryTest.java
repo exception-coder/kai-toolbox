@@ -80,4 +80,28 @@ class ReviewRequirementRepositoryTest {
         assertThat(changed).isFalse();
         assertThat(repository.findByReviewSpaceId("space-1").getFirst().title()).isEqualTo("人工标题");
     }
+
+    @Test
+    void duplicateRequirementInsertReturnsExistingIdWithoutOverwriting() {
+        String firstId = repository.insertRequirement("space-1",
+                new ReviewRequirementRepository.Draft(
+                        "assistant-content-v1:first", "首版标题", "首版说明"), 10);
+
+        String duplicateId = repository.insertRequirement("space-1",
+                new ReviewRequirementRepository.Draft(
+                        "assistant-content-v1:first", "重复标题", "重复说明"), 20);
+
+        assertThat(duplicateId).isEqualTo(firstId);
+        assertThat(repository.findByReviewSpaceId("space-1").getFirst().title()).isEqualTo("首版标题");
+    }
+
+    @Test
+    void removedLegacyRequirementStillMarksSourceAsProcessed() {
+        String requirementId = repository.insertRequirement("space-1",
+                new ReviewRequirementRepository.Draft(
+                        "assistant-content-v1:first", "待删除", "说明"), 10);
+        repository.remove("space-1", requirementId, 20);
+
+        assertThat(repository.hasProcessedSource("space-1", "assistant-content-v1:first")).isTrue();
+    }
 }

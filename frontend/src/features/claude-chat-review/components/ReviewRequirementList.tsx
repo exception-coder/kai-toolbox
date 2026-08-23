@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, Check, ChevronDown, ClipboardList, Loader2, MessageSquareText, Pencil, RefreshCw, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { Markdown, type PublicReviewRequirement } from '@/features/claude-chat/public-api'
 
@@ -10,15 +11,18 @@ interface Props {
   items: PublicReviewRequirement[]
   loading: boolean
   syncing: boolean
+  rebuilding: boolean
   error: string | null
   busyIds: Set<string>
   onReload: () => void
+  onRebuild: () => Promise<boolean>
   onSave: (item: PublicReviewRequirement, title: string, content: string) => Promise<boolean>
   onDelete: (item: PublicReviewRequirement) => Promise<boolean>
 }
 
 export function ReviewRequirementList({ open, onOpenChange, items, loading, syncing, error,
-  busyIds, onReload, onSave, onDelete }: Props) {
+  rebuilding, busyIds, onReload, onRebuild, onSave, onDelete }: Props) {
+  const confirm = useConfirm()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [expandedSourceIds, setExpandedSourceIds] = useState<Set<string>>(new Set())
@@ -45,13 +49,36 @@ export function ReviewRequirementList({ open, onOpenChange, items, loading, sync
     if (await onSave(item, title.trim(), content.trim())) setEditingId(null)
   }
 
+  const rebuild = async () => {
+    const accepted = await confirm({
+      title: '重新审核全部历史？',
+      description: '系统会保留原始聊天记录，但清空当前需求清单及来源分析，再按最新规则重新生成。人工修改也会被覆盖。',
+      confirmText: '重新审核',
+      cancelText: '取消',
+      variant: 'destructive',
+    })
+    if (!accepted) return
+    if (await onRebuild()) {
+      setEditingId(null)
+      setDeleteConfirmId(null)
+      setExpandedSourceIds(new Set())
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-full max-w-none flex-col p-0 sm:w-[34rem] sm:max-w-[90vw]">
         <div className="border-b px-5 py-4 pr-12">
-          <div className="flex items-center gap-2">
-            <ClipboardList className="size-5 text-[var(--color-primary)]" />
-            <SheetTitle>当前评审需求清单</SheetTitle>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <ClipboardList className="size-5 text-[var(--color-primary)]" />
+              <SheetTitle>当前评审需求清单</SheetTitle>
+            </div>
+            <Button size="sm" variant="ghost" className="shrink-0 gap-1.5" onClick={() => void rebuild()}
+              disabled={loading || syncing || rebuilding || busyIds.size > 0}>
+              {rebuilding ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+              {rebuilding ? '审核中' : '重新审核'}
+            </Button>
           </div>
           <SheetDescription className="mt-1">
             这里只保留 AI 归并后的当前有效需求；用户原话可在需求来源中追溯。
@@ -69,9 +96,9 @@ export function ReviewRequirementList({ open, onOpenChange, items, loading, sync
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5">
-          {loading ? (
+          {loading || rebuilding ? (
             <div className="flex h-40 items-center justify-center gap-2 text-sm text-[var(--color-muted-foreground)]">
-              <Loader2 className="size-4 animate-spin" />正在读取需求清单…
+              <Loader2 className="size-4 animate-spin" />{rebuilding ? '正在按最新规则重新审核历史…' : '正在读取需求清单…'}
             </div>
           ) : items.length === 0 ? (
             <div className="py-16 text-center">

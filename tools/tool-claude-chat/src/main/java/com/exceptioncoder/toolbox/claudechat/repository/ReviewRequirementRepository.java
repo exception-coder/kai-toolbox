@@ -38,12 +38,16 @@ public class ReviewRequirementRepository {
     }
 
     public boolean hasProcessedSource(String reviewSpaceId, String sourceMessageId) {
-        Integer count = jdbc.queryForObject("""
-                SELECT COUNT(*)
-                  FROM claude_chat_review_requirement_source
-                 WHERE review_space_id = ? AND source_message_id = ?
-                """, Integer.class, reviewSpaceId, sourceMessageId);
-        return count != null && count > 0;
+        Integer processed = jdbc.queryForObject("""
+                SELECT CASE WHEN
+                    EXISTS(SELECT 1 FROM claude_chat_review_requirement_source
+                            WHERE review_space_id = ? AND source_message_id = ?)
+                    OR EXISTS(SELECT 1 FROM claude_chat_review_requirement
+                              WHERE review_space_id = ? AND source_message_id = ?)
+                    THEN 1 ELSE 0 END
+                """, Integer.class, reviewSpaceId, sourceMessageId,
+                reviewSpaceId, sourceMessageId);
+        return processed != null && processed > 0;
     }
 
     public ReviewRequirement findActiveBySourceMessageId(String reviewSpaceId, String sourceMessageId) {
@@ -55,13 +59,22 @@ public class ReviewRequirementRepository {
 
     public String insertRequirement(String reviewSpaceId, Draft draft, long now) {
         String id = UUID.randomUUID().toString();
-        jdbc.update("""
+        int inserted = jdbc.update("""
                 INSERT INTO claude_chat_review_requirement
                   (id, review_space_id, source_message_id, title, content,
                    status, revision, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 'ACTIVE', 1, ?, ?)
+                ON CONFLICT(review_space_id, source_message_id) DO NOTHING
                 """, id, reviewSpaceId, draft.sourceMessageId(), draft.title(), draft.content(), now, now);
-        return id;
+        if (inserted > 0) {
+            return id;
+        }
+        return jdbc.query("""
+                SELECT id
+                  FROM claude_chat_review_requirement
+                 WHERE review_space_id = ? AND source_message_id = ? AND status = 'ACTIVE'
+                """, (rs, rowNum) -> rs.getString("id"), reviewSpaceId, draft.sourceMessageId())
+                .stream().findFirst().orElse(null);
     }
 
     /** AI 只维护尚未被评审员人工保存的第一版需求。 */

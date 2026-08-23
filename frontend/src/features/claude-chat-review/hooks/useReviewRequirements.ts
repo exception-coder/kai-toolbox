@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   deletePublicReviewRequirement,
   listPublicReviewRequirements,
+  rebuildPublicReviewRequirements,
   synchronizePublicReviewRequirements,
   updatePublicReviewRequirement,
   type PublicReviewRequirement,
@@ -12,6 +13,7 @@ export function useReviewRequirements(token: string, detectedDrafts: ReviewRequi
   const [items, setItems] = useState<PublicReviewRequirement[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [rebuilding, setRebuilding] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
   const attemptedSources = useRef(new Set<string>())
@@ -39,7 +41,7 @@ export function useReviewRequirements(token: string, detectedDrafts: ReviewRequi
   )
 
   useEffect(() => {
-    if (loading || !token) return
+    if (loading || rebuilding || !token) return
     const existing = new Set(items.flatMap(item => item.sources?.map(source => source.sourceMessageId) ?? []))
     const missing = detectedDrafts.filter(draft =>
       !existing.has(draft.sourceMessageId) && !attemptedSources.current.has(draft.sourceMessageId))
@@ -50,7 +52,23 @@ export function useReviewRequirements(token: string, detectedDrafts: ReviewRequi
       .then(setItems)
       .catch(cause => setError(cause instanceof Error ? cause.message : '同步新需求失败'))
       .finally(() => setSyncing(false))
-  }, [detectedDrafts, draftKey, items, loading, token])
+  }, [detectedDrafts, draftKey, items, loading, rebuilding, token])
+
+  const rebuild = useCallback(async () => {
+    setRebuilding(true)
+    setError(null)
+    try {
+      const rebuilt = await rebuildPublicReviewRequirements(token, detectedDrafts)
+      attemptedSources.current = new Set(detectedDrafts.map(item => item.sourceMessageId))
+      setItems(rebuilt)
+      return true
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '重新审核历史失败')
+      return false
+    } finally {
+      setRebuilding(false)
+    }
+  }, [detectedDrafts, token])
 
   const save = useCallback(async (item: PublicReviewRequirement, title: string, content: string) => {
     setBusyIds(previous => new Set(previous).add(item.id))
@@ -96,5 +114,5 @@ export function useReviewRequirements(token: string, detectedDrafts: ReviewRequi
     }
   }, [token])
 
-  return { items, loading, syncing, error, busyIds, reload, save, remove }
+  return { items, loading, syncing, rebuilding, error, busyIds, reload, rebuild, save, remove }
 }

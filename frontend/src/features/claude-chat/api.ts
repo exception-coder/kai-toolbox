@@ -622,6 +622,13 @@ export function synchronizePublicReviewRequirements(token: string, items: Review
   )
 }
 
+export function rebuildPublicReviewRequirements(token: string, items: ReviewRequirementDraft[]) {
+  return http<PublicReviewRequirement[]>(
+    `/claude-chat/reviews/public/${encodeURIComponent(token)}/requirements/rebuild`,
+    { method: 'PUT', body: JSON.stringify({ items }) },
+  )
+}
+
 export function updatePublicReviewRequirement(token: string, id: string, input: {
   title: string
   content: string
