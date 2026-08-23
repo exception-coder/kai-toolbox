@@ -23,6 +23,7 @@ import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
+import java.util.Map;
 
 /** 市场报价 MySQL JPA 适配器的条件装配。 */
 @AutoConfiguration(before = SupplierQuoteAutoConfiguration.class)
@@ -33,6 +34,16 @@ import javax.sql.DataSource;
         entityManagerFactoryRef = "marketQuoteEntityManagerFactory",
         transactionManagerRef = "marketQuoteTransactionManager")
 public class MarketQuoteMysqlAutoConfiguration {
+
+    private static final long SKIP_INITIAL_CONNECTION_ATTEMPT = -1L;
+    private static final Map<String, Object> OFFLINE_STARTUP_JPA_PROPERTIES = Map.of(
+            "hibernate.hbm2ddl.auto", "none",
+            "hibernate.show_sql", "false",
+            "hibernate.jdbc.time_zone", "Asia/Shanghai",
+            "hibernate.boot.allow_jdbc_metadata_access", "false",
+            "jakarta.persistence.database-product-name", "MySQL",
+            "jakarta.persistence.database-major-version", "8",
+            "jakarta.persistence.database-minor-version", "0");
 
     /** 创建不污染宿主主数据源的 MySQL 连接池。 */
     @Bean(name = "marketQuoteDataSource", destroyMethod = "close")
@@ -51,6 +62,7 @@ public class MarketQuoteMysqlAutoConfiguration {
         config.setIdleTimeout(properties.getIdleTimeout().toMillis());
         config.setMaxLifetime(properties.getMaxLifetime().toMillis());
         config.setKeepaliveTime(properties.getKeepaliveTime().toMillis());
+        config.setInitializationFailTimeout(SKIP_INITIAL_CONNECTION_ATTEMPT);
         return new HikariDataSource(config);
     }
 
@@ -66,10 +78,7 @@ public class MarketQuoteMysqlAutoConfiguration {
         factory.setPackagesToScan(MarketQuoteCycleEntity.class.getPackageName());
         factory.setPersistenceUnitName("marketQuoteMysql");
         factory.setJpaVendorAdapter(vendorAdapter);
-        factory.setJpaPropertyMap(java.util.Map.of(
-                "hibernate.hbm2ddl.auto", "validate",
-                "hibernate.show_sql", "false",
-                "hibernate.jdbc.time_zone", "Asia/Shanghai"));
+        factory.setJpaPropertyMap(OFFLINE_STARTUP_JPA_PROPERTIES);
         return factory;
     }
 
