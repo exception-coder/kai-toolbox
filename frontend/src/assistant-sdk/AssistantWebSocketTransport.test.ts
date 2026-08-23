@@ -109,6 +109,149 @@ describe('AssistantWebSocketTransport', () => {
     transport.destroy()
   })
 
+  it('injects a cached module exploration summary before the first turn', () => {
+    const socket = new FakeWebSocket()
+    const moduleSnapshot: AssistantContextSnapshot = {
+      ...snapshot, application: { appId: 'ERP', sourceRevision: 'v1' },
+      page: { url: 'https://erp.example/orders/42', routeName: 'order-detail' },
+    }
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    transport.start(() => undefined)
+    transport.submit({ mode: 'QUESTION', text: '为什么无法审核？', snapshot: moduleSnapshot })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+
+    const resolve = sentByType(socket, 'assistantModuleContextResolve')
+    expect(socket.sent.map(value => JSON.parse(value))).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'send' }),
+    ]))
+    socket.receive({
+      type: 'assistantCommandResult', seq: 0, requestId: resolve.requestId,
+      action: 'moduleContextResolve', success: true,
+      data: { found: true, summary: '订单审核依赖状态机', sourceRevision: 'v1', updatedAt: 10, expiresAt: 20 },
+    })
+
+    const sendMessage = sentByType(socket, 'send')
+    expect(sendMessage).toMatchObject({
+      assistant: { contextSnapshot: { contributions: {
+        assistantModuleExploration: { summary: '订单审核依赖状态机', trust: 'historical-clue' },
+      } } },
+    })
+    transport.destroy()
+  })
+
+  it('writes a bounded module summary after a cache miss completes', () => {
+    const socket = new FakeWebSocket()
+    const moduleSnapshot: AssistantContextSnapshot = {
+      ...snapshot,
+      page: { url: 'https://erp.example/orders/42', routeName: 'order-detail' },
+    }
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    transport.start(() => undefined)
+    transport.submit({ mode: 'QUESTION', text: '探索这个模块', snapshot: moduleSnapshot })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+    const resolve = sentByType(socket, 'assistantModuleContextResolve')
+    socket.receive({
+      type: 'assistantCommandResult', seq: 0, requestId: resolve.requestId,
+      action: 'moduleContextResolve', success: true, data: { found: false },
+    })
+    socket.receive({ type: 'assistantDelta', seq: 2, text: '模块探索结论' })
+    socket.receive({ type: 'result', seq: 3, stopReason: 'end_turn' })
+
+    expect(sentByType(socket, 'assistantModuleContextSave')).toMatchObject({
+      appId: 'ERP', moduleKey: 'order-detail', summary: '模块探索结论',
+    })
+    transport.destroy()
+  })
+
+  it('falls back to the live turn when the module lookup times out', async () => {
+    vi.useFakeTimers()
+    const socket = new FakeWebSocket()
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    try {
+      transport.start(() => undefined)
+      transport.submit({ mode: 'QUESTION', text: '超时也要继续', snapshot: moduleSnapshot() })
+      socket.open()
+      socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+
+      expect(socket.sent.map(value => JSON.parse(value))).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'send' }),
+      ]))
+      await vi.advanceTimersByTimeAsync(2_001)
+
+      expect(sentByType(socket, 'send')).toMatchObject({ text: '超时也要继续' })
+    } finally {
+      transport.destroy()
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not cache a partial answer when the turn is interrupted', () => {
+    const socket = new FakeWebSocket()
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    transport.start(() => undefined)
+    transport.submit({ mode: 'QUESTION', text: '探索后中断', snapshot: moduleSnapshot() })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+    const resolve = sentByType(socket, 'assistantModuleContextResolve')
+    socket.receive({
+      type: 'assistantCommandResult', seq: 0, requestId: resolve.requestId,
+      action: 'moduleContextResolve', success: true, data: { found: false },
+    })
+    socket.receive({ type: 'assistantDelta', seq: 2, text: '未完成结论' })
+
+    transport.interrupt()
+    socket.receive({ type: 'result', seq: 3, stopReason: 'interrupted' })
+
+    expect(socket.sent.map(value => JSON.parse(value))).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'assistantModuleContextSave' }),
+    ]))
+    transport.destroy()
+  })
+
+  it('retries an in-flight module lookup after reconnecting', async () => {
+    vi.useFakeTimers()
+    const sockets: FakeWebSocket[] = []
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      webSocketFactory: () => {
+        const socket = new FakeWebSocket()
+        sockets.push(socket)
+        return socket as unknown as WebSocket
+      },
+    })
+    try {
+      transport.start(() => undefined)
+      transport.submit({ mode: 'QUESTION', text: '重连后继续', snapshot: moduleSnapshot() })
+      sockets[0].open()
+      sockets[0].receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+      expect(sentByType(sockets[0], 'assistantModuleContextResolve')).toBeDefined()
+
+      sockets[0].close()
+      await vi.advanceTimersByTimeAsync(500)
+      sockets[1].open()
+      sockets[1].receive({ type: 'ready', seq: 2, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+
+      expect(sentByType(sockets[1], 'assistantModuleContextResolve')).toBeDefined()
+    } finally {
+      transport.destroy()
+      vi.useRealTimers()
+    }
+  })
+
   it('interrupts the active websocket turn and exposes only protocol metadata in debug logs', () => {
     const socket = new FakeWebSocket()
     const states: AssistantWidgetState[] = []
@@ -237,5 +380,12 @@ function memoryStorage(): Storage {
     key: index => [...values.keys()][index] ?? null,
     removeItem: key => { values.delete(key) },
     setItem: (key, value) => { values.set(key, value) },
+  }
+}
+
+function moduleSnapshot(): AssistantContextSnapshot {
+  return {
+    ...snapshot,
+    page: { url: 'https://erp.example/orders/42', routeName: 'order-detail' },
   }
 }

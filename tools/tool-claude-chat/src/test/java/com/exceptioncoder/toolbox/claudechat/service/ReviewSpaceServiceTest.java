@@ -168,10 +168,17 @@ class ReviewSpaceServiceTest {
         String instructions = service.developerInstructions("review-1");
 
         assertThat(instructions)
-                .contains("面向业务人员", "当前现状", "需求建议", "待确认项", "验收场景")
+                .contains("面向业务人员", "需求建议", "理解校对", "待确认项", "验收场景")
                 .contains("Forge 已在回答前完成结构化意图判定",
                         "【本轮意图】", "UNKNOWN", "### 需求标题：简短标题",
                         "需求说明", "待确认项", "验收场景")
+                .contains("结论先行", "只回答本轮问题", "一轮最多追问一个", "### 结论",
+                        "理解校对”最多三点", "各小节不得重复同一事实")
+                .contains("禁止寒暄、确认式套话、自我说明、重复结论和泛泛建议")
+                .contains("不机械罗列所有分析维度")
+                .contains("能从这些上下文得到的答案直接采用", "不要求业务人员重复确认")
+                .contains("明确的功能目标或期望结果", "缺少技术实现细节不是追问或拒绝的理由")
+                .contains("不得仅因现状不支持而否定需求", "不得声称功能已经实现")
                 .contains("旧的 <!-- forge-review-intent:... --> 标记仅作历史兼容")
                 .contains("稳定索引 ID", "基于本轮评审补充", "DEGRADED", "不得伪造或改写 ID")
                 .contains("不得在回复中输出源码文件、类名、接口、数据库表或字段、SQL")

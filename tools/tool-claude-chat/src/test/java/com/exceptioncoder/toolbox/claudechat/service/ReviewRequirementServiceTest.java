@@ -1,6 +1,6 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
-import com.exceptioncoder.toolbox.claudechat.ai.ReviewRequirementExtractor;
+import com.exceptioncoder.toolbox.claudechat.ai.ReviewRequirementCompiler;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewRequirement;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewSpace;
 import com.exceptioncoder.toolbox.claudechat.repository.ReviewRequirementRepository;
@@ -26,8 +26,8 @@ class ReviewRequirementServiceTest {
     void synchronizesOnlyValidatedDraftsIntoResolvedReview() {
         ReviewSpaceService spaces = mock(ReviewSpaceService.class);
         ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementExtractor extractor = mock(ReviewRequirementExtractor.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, extractor);
+        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
+        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
         ReviewSpace space = reviewSpace();
         ReviewRequirement saved = new ReviewRequirement("item-1", "space-1",
                 "assistant-content-v1:test", "支持驳回", "业务说明", 1, 10, 10);
@@ -53,8 +53,8 @@ class ReviewRequirementServiceTest {
     void rejectsInvalidModelDraftBeforePersistence() {
         ReviewSpaceService spaces = mock(ReviewSpaceService.class);
         ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementExtractor extractor = mock(ReviewRequirementExtractor.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, extractor);
+        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
+        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
         when(spaces.resolve("token")).thenReturn(Optional.of(reviewSpace()));
 
         assertThatThrownBy(() -> service.synchronize("token", List.of(
@@ -70,8 +70,8 @@ class ReviewRequirementServiceTest {
     void reportsConflictInsteadOfOverwritingNewerRevision() {
         ReviewSpaceService spaces = mock(ReviewSpaceService.class);
         ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementExtractor extractor = mock(ReviewRequirementExtractor.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, extractor);
+        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
+        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
         when(spaces.resolve("token")).thenReturn(Optional.of(reviewSpace()));
         when(repository.update(org.mockito.ArgumentMatchers.eq("space-1"),
                 org.mockito.ArgumentMatchers.eq("item-1"),
@@ -89,8 +89,8 @@ class ReviewRequirementServiceTest {
     void mergesLegacyDuplicateIntoExistingRequirementAndKeepsSourceEvidence() {
         ReviewSpaceService spaces = mock(ReviewSpaceService.class);
         ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementExtractor extractor = mock(ReviewRequirementExtractor.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, extractor);
+        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
+        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
         ReviewRequirement target = new ReviewRequirement("target", "space-1",
                 "assistant-content-v1:original", "压缩移动端头部", "原说明", 1, 1, 1);
         ReviewRequirement legacy = new ReviewRequirement("legacy", "space-1",
@@ -100,9 +100,9 @@ class ReviewRequirementServiceTest {
                 .thenReturn(legacy);
         when(repository.findByReviewSpaceId("space-1"))
                 .thenReturn(List.of(target, legacy), List.of(target));
-        when(extractor.compile(org.mockito.ArgumentMatchers.anyString())).thenReturn(
-                new ReviewRequirementExtractor.Compilation(
-                        ReviewRequirementExtractor.Operation.MERGE, "target",
+        when(compiler.compile(org.mockito.ArgumentMatchers.anyString())).thenReturn(
+                new ReviewRequirementCompiler.Compilation(
+                        ReviewRequirementCompiler.Operation.MERGE, "target",
                         "压缩移动端头部区域", "合并后的完整业务说明", "属于同一空间优化"));
 
         List<ReviewRequirement> result = service.synchronize("token", List.of(
@@ -128,16 +128,16 @@ class ReviewRequirementServiceTest {
     void ignoresClarificationWithoutCreatingFormalRequirement() {
         ReviewSpaceService spaces = mock(ReviewSpaceService.class);
         ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementExtractor extractor = mock(ReviewRequirementExtractor.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, extractor);
+        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
+        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
         ReviewRequirement existing = new ReviewRequirement("target", "space-1",
                 "assistant-content-v1:original", "现有需求", "说明", 1, 1, 1);
         when(spaces.resolve("token")).thenReturn(Optional.of(reviewSpace()));
         when(repository.findByReviewSpaceId("space-1"))
                 .thenReturn(List.of(existing), List.of(existing));
-        when(extractor.compile(org.mockito.ArgumentMatchers.anyString())).thenReturn(
-                new ReviewRequirementExtractor.Compilation(
-                        ReviewRequirementExtractor.Operation.IGNORE, null, null, null, "普通确认"));
+        when(compiler.compile(org.mockito.ArgumentMatchers.anyString())).thenReturn(
+                new ReviewRequirementCompiler.Compilation(
+                        ReviewRequirementCompiler.Operation.IGNORE, null, null, null, "普通确认"));
 
         service.synchronize("token", List.of(new ReviewRequirementService.DraftCommand(
                 "assistant-content-v1:thanks", "好的", "普通确认", "好的", "已确认")));

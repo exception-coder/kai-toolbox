@@ -20,6 +20,7 @@ import {
   type DocChangeCauseType,
   type PrdDocChangeCandidate,
   type PrdSessionView,
+  buildOpenSpecLinkSyncPrompt,
 } from '@/features/prd-clarify/public-api'
 
 /** 剪贴板写入 + 降级（非安全上下文/旧浏览器用隐藏 textarea + execCommand）。 */
@@ -47,13 +48,15 @@ interface Props {
   onClose: () => void
   /** 绑定状态变化时通知外层——顶栏那个 PRD 标识要跟着刷新，不用外层自己再查一遍。 */
   onLinkedChange?: (linked: PrdSessionView | null) => void
+  /** 绑定成功后将 OpenSpec 同步门禁发送或排队到当前开发会话。 */
+  onSpecSyncRequested?: (prompt: string) => void
 }
 
 const DECISION_LABELS: Record<DocChangeDecision, string> = {
   NONE: '无需更新',
-  PRD_ONLY: '只更新 PRD',
+  PRD_ONLY: '只更新核心规格',
   TDD_ONLY: '只更新 TDD',
-  BOTH: 'PRD + TDD',
+  BOTH: '核心规格 + 执行计划',
   UNCERTAIN: '需要确认',
 }
 
@@ -152,7 +155,13 @@ const EMPTY_ALIGNMENT: PrdDocChangeCandidate['alignmentConclusion'] = {
  * 「生成修订版」同一套 prompt（原地覆盖同一份文件，不新建会话），开发文档走已有的增量更新，
  * 旧版本都自动备份进历史。
  */
-export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLinkedChange }: Props) {
+export function PrdLinkPanel({
+  sessionId,
+  suggestedPrdSessionId,
+  onClose,
+  onLinkedChange,
+  onSpecSyncRequested,
+}: Props) {
   const navigate = useNavigate()
   const confirm = useConfirm()
   // undefined=加载中，null=确认未绑定，PrdSessionView=已绑定
@@ -186,6 +195,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
       const value = await getSessionByDevSession(sessionId)
       setLinked(value)
       onLinkedChange?.(value)
+      if (value) onSpecSyncRequested?.(buildOpenSpecLinkSyncPrompt(value))
     } catch (cause) {
       setLinkErr(cause instanceof Error ? cause.message : '补充关联失败')
     } finally {
@@ -205,13 +215,14 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
 
   const doLink = async () => {
     const target = candidates.find(s => s.id === pickValue || s.title === pickValue)
-    if (!target) { setLinkErr('请从下拉列表里选一个已有的 PRD，不支持手填新建'); return }
+    if (!target) { setLinkErr('请从下拉列表里选择一份已有规格，不支持手填新建'); return }
     setLinking(true)
     setLinkErr(null)
     try {
       await linkDevSession(target.id, sessionId)
       setPicking(false)
       setPickValue('')
+      onSpecSyncRequested?.(buildOpenSpecLinkSyncPrompt(target))
       refresh()
     } catch (e) {
       setLinkErr(e instanceof Error ? e.message : String(e))
@@ -225,7 +236,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
     if (!linked) return
     const ok = await confirm({
       title: '取消关联',
-      description: `确认取消与「${linked.title || '（未命名）'}」的关联？取消后聊天窗口不再显示 PRD 标识，PRD/开发文档本身不受影响，可以随时重新关联。`,
+      description: `确认取消与「${linked.title || '（未命名）'}」的关联？取消后聊天窗口不再显示规格标识，核心规格和执行计划本身不受影响，可以随时重新关联。`,
       confirmText: '取消关联',
       variant: 'destructive',
     })
@@ -248,7 +259,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
   const doCopyPaths = async () => {
     if (!linked) return
     const text = [
-      `PRD：${linked.mdPath || '（尚未生成）'}`,
+      `核心规格：${linked.mdPath || '（尚未生成）'}`,
       `开发文档（TDD）：${linked.devDocPath || '（尚未生成）'}`,
     ].join('\n')
     await copyTextToClipboard(text)
@@ -393,7 +404,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
       >
         <div className="flex items-center gap-2 border-b px-4 py-3">
           <Link2 className="size-4 text-[var(--color-muted-foreground)]" />
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">关联 PRD</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">关联规格</span>
           <button type="button" onClick={onClose} className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]" aria-label="关闭">
             <X className="size-3.5" />
           </button>
@@ -427,12 +438,12 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                     onClick={() => openPrd(linked.id)}
                     className="flex items-center gap-1 text-xs text-[var(--color-primary)] hover:underline"
                   >
-                    <ExternalLink className="size-3" />在 PRD 澄清助手里打开
+                    <ExternalLink className="size-3" />在规格探索中打开
                   </button>
                   <button
                     type="button"
                     onClick={() => void doCopyPaths()}
-                    title="复制 PRD + 开发文档(TDD) 的文件路径，方便贴进对话或终端引用"
+                    title="复制核心规格和执行计划的文件路径，方便贴进对话或终端引用"
                     className="flex items-center gap-1 text-xs text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:underline"
                   >
                     {pathCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
@@ -447,7 +458,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                   <p className="text-xs font-medium">文档变更分析</p>
                 </div>
                 <p className="mb-2 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
-                  系统会读取最新正式 PRD/TDD、真实代码、工具证据、用户确认及上次差异账本，复用当前会话引擎汇总增量差异。
+                  系统会读取最新核心规格、执行计划、真实代码、工具证据、用户确认及上次差异账本，复用当前会话引擎汇总增量差异。
                   分析只生成变更集，不代表正式文档已经更新。
                 </p>
 
@@ -519,7 +530,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                           <span>代码事实：{alignment.codeFactCorrections} 项</span>
                           <span>业务确认：{alignment.confirmedBusinessDecisions} 项</span>
                           <span>排除范围：{alignment.outOfScope} 项</span>
-                          <span>已落档 PRD：{alignment.prdFiled} 项</span>
+                          <span>已落档核心规格：{alignment.prdFiled} 项</span>
                           <span>已落档 TDD：{alignment.tddFiled} 项</span>
                           <span>未解决：{alignment.unresolved} 项</span>
                           {alignment.finalDocumentVersion && <span className="col-span-2">最终文档：{alignment.finalDocumentVersion}</span>}
@@ -582,7 +593,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                       <details className="rounded-md border px-2 py-1.5 text-[11px]">
                         <summary className="cursor-pointer font-medium">拟修改章节</summary>
                         {candidate.prdPatchPlan.length > 0 && (
-                          <p className="mt-1.5 text-[var(--color-muted-foreground)]">PRD：{candidate.prdPatchPlan.join('；')}</p>
+                          <p className="mt-1.5 text-[var(--color-muted-foreground)]">核心规格：{candidate.prdPatchPlan.join('；')}</p>
                         )}
                         {candidate.tddPatchPlan.length > 0 && (
                           <p className="mt-1 text-[var(--color-muted-foreground)]">TDD：{candidate.tddPatchPlan.join('；')}</p>
@@ -681,16 +692,16 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                           {candidate.decision !== 'NONE' && diffLedger.length === 0
                             ? '请先生成差异账本'
                             : candidate.status === 'APPLYING'
-                            ? `后台更新中 · ${candidate.applyStage === 'PRD' ? 'PRD' : 'TDD'}`
+                            ? `后台更新中 · ${candidate.applyStage === 'PRD' ? '核心规格' : '执行计划'}`
                             : candidate.status === 'PARTIAL' && candidate.applyStage === 'TDD'
                               ? '后台继续更新 TDD'
                               : candidate.decision === 'NONE'
                                 ? '标记无需更新'
                                 : candidate.decision === 'PRD_ONLY'
-                                  ? '确认差异并后台写回 PRD'
+                                  ? '确认差异并后台写回核心规格'
                                   : candidate.decision === 'TDD_ONLY'
                                     ? '确认差异并后台写回 TDD'
-                                    : '确认差异并后台写回 PRD + TDD'}
+                                    : '确认差异并后台写回核心规格 + 执行计划'}
                         </button>
                       </div>
                     )}
@@ -719,7 +730,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                     )}
                     {candidate.status === 'PARTIAL' && candidate.lastError && (
                       <p className="text-xs text-[var(--color-destructive)]">
-                        上次在 {candidate.applyStage === 'PRD' ? 'PRD' : 'TDD'} 阶段失败：{candidate.lastError}
+                        上次在 {candidate.applyStage === 'PRD' ? '核心规格' : '执行计划'}阶段失败：{candidate.lastError}
                       </p>
                     )}
 
@@ -749,7 +760,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
 
                 {changeHistory.length > 0 && (
                   <details className="rounded-md border px-2.5 py-2 text-[11px]">
-                    <summary className="cursor-pointer font-medium">PRD/TDD 变更历史（{changeHistory.length}）</summary>
+                    <summary className="cursor-pointer font-medium">规格与执行计划变更历史（{changeHistory.length}）</summary>
                     <div className="mt-2 space-y-2">
                       {changeHistory.map(item => (
                         <div key={item.id} className="rounded-md bg-[var(--color-muted)]/35 p-2">
@@ -777,7 +788,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                           </p>
                           {(item.prdAppliedAt || item.tddAppliedAt) && (
                             <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">
-                              {item.prdAppliedAt ? `PRD 完成：${formatChangeTime(item.prdAppliedAt)}` : ''}
+                              {item.prdAppliedAt ? `核心规格完成：${formatChangeTime(item.prdAppliedAt)}` : ''}
                               {item.prdAppliedAt && item.tddAppliedAt ? ' · ' : ''}
                               {item.tddAppliedAt ? `TDD 完成：${formatChangeTime(item.tddAppliedAt)}` : ''}
                             </p>
@@ -789,7 +800,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                               onClick={() => openPrd(item.revisionSessionId!)}
                               className="mt-1 inline-flex items-center gap-1 text-[var(--color-primary)] hover:underline"
                             >
-                              <ExternalLink className="size-3" />查看关联 PRD 修订版
+                              <ExternalLink className="size-3" />查看关联规格修订版
                             </button>
                           )}
                         </div>
@@ -809,7 +820,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                     onClick={() => setPicking(true)}
                     className="text-xs text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:underline"
                   >
-                    更换关联的 PRD
+                    更换关联规格
                   </button>
                   <button
                     type="button"
@@ -833,7 +844,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
 
           {linked === null && !picking && (
             <div className="py-4 text-center">
-              <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">当前会话还没有关联 PRD</p>
+              <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">当前会话还没有关联规格</p>
               <div className="flex flex-wrap justify-center gap-2">
                 {suggestedPrdSessionId && (
                   <button
@@ -843,7 +854,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                     className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)] hover:opacity-90 disabled:opacity-60"
                   >
                     {linking ? <Loader2 className="size-3 animate-spin" /> : <Link2 className="size-3" />}
-                    关联当前需求的 PRD / TDD
+                    关联当前需求的核心规格 / 执行计划
                   </button>
                 )}
                 <button
@@ -851,7 +862,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                   onClick={() => setPicking(true)}
                   className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--color-muted)]"
                 >
-                  搜索其他 PRD
+                  搜索其他规格
                 </button>
               </div>
               {linkErr && <p className="mt-2 text-xs text-[var(--color-destructive)]">关联失败：{linkErr}</p>}
@@ -866,13 +877,13 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
   function renderPicker() {
     return (
       <div className="rounded-lg border px-3 py-2.5">
-        <p className="mb-1.5 text-xs font-medium text-[var(--color-muted-foreground)]">选择要关联的 PRD</p>
+        <p className="mb-1.5 text-xs font-medium text-[var(--color-muted-foreground)]">选择要关联的规格</p>
         <Combobox
           value={pickValue}
           onChange={setPickValue}
           options={options}
-          placeholder="搜索 PRD 标题…"
-          emptyText="没有匹配的 PRD"
+          placeholder="搜索规格标题…"
+          emptyText="没有匹配的规格"
           className="mb-2"
         />
         <div className="flex gap-1.5">

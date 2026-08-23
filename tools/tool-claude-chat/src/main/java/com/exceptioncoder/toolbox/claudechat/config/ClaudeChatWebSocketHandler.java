@@ -73,6 +73,20 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        try {
+            dispatchMessage(ws, msg);
+        } catch (IllegalArgumentException exception) {
+            String code = msg instanceof ClientMessage.Send ? "MESSAGE_REJECTED" : "COMMAND_REJECTED";
+            log.warn("[claude-chat] 客户端命令被拒绝 type={} reason={}",
+                    msg.getClass().getSimpleName(), exception.getMessage());
+            sendError(ws, code, exception.getMessage(), msg instanceof ClientMessage.Send);
+        } catch (RuntimeException exception) {
+            log.error("[claude-chat] 客户端命令执行失败 type={}", msg.getClass().getSimpleName(), exception);
+            sendError(ws, "COMMAND_FAILED", "当前操作执行失败，请重试", msg instanceof ClientMessage.Send);
+        }
+    }
+
+    private void dispatchMessage(WebSocketSession ws, ClientMessage msg) {
         switch (msg) {
             case ClientMessage.Open open -> service.openSession(ws, open);
             case ClientMessage.Attach attach -> service.attach(ws, attach);
@@ -84,6 +98,8 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
             case ClientMessage.Queue queue -> service.queueUserMessage(ws, queue);
             case ClientMessage.AssistantIntentRoute command -> assistantCommands.handle(ws, command);
             case ClientMessage.AssistantContextSave command -> assistantCommands.handle(ws, command);
+            case ClientMessage.AssistantModuleContextResolve command -> assistantCommands.handle(ws, command);
+            case ClientMessage.AssistantModuleContextSave command -> assistantCommands.handle(ws, command);
             case ClientMessage.AssistantDraftCreate command -> assistantCommands.handle(ws, command);
             case ClientMessage.AssistantDraftConfirm command -> assistantCommands.handle(ws, command);
             case ClientMessage.AssistantUsersList command -> assistantCommands.handle(ws, command);
@@ -114,9 +130,14 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
 
     /** 回一条错误事件，但保持连接（用于单条脏消息，不牵连整个会话）。 */
     private void sendError(WebSocketSession ws, String code, String msg) {
+        sendError(ws, code, msg, true);
+    }
+
+    private void sendError(WebSocketSession ws, String code, String msg, boolean terminal) {
         try {
             if (ws.isOpen()) {
-                ws.sendMessage(new TextMessage(mapper.writeValueAsString(new ServerMessage.Error(0, code, msg))));
+                ws.sendMessage(new TextMessage(
+                        mapper.writeValueAsString(new ServerMessage.Error(0, code, msg, terminal))));
             }
         } catch (IOException ignore) {
         }

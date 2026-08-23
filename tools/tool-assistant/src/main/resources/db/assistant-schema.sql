@@ -50,3 +50,25 @@ CREATE TABLE IF NOT EXISTS assistant_context_snapshot (
 -- 功能：嵌入式 AI 助手上下文；变更：创建会话时间索引；目的：高效读取指定会话最新快照
 CREATE INDEX IF NOT EXISTS idx_assistant_context_session
     ON assistant_context_snapshot(session_id, create_time DESC);
+
+-- 功能：嵌入式 AI 助手模块探索复用；变更：创建用户隔离的模块摘要缓存；目的：避免首次探索结果在后续会话重复采集和分析
+CREATE TABLE IF NOT EXISTS assistant_module_context_cache (
+    id                    TEXT PRIMARY KEY,
+    creator_user_id       INTEGER NOT NULL,
+    app_id                TEXT NOT NULL,
+    module_key            TEXT NOT NULL,
+    route                 TEXT NOT NULL DEFAULT '',
+    source_revision       TEXT NOT NULL DEFAULT '',
+    summary_text          TEXT NOT NULL,
+    expires_at            INTEGER NOT NULL,
+    create_time           INTEGER NOT NULL,
+    update_time           INTEGER NOT NULL
+);
+
+-- 功能：嵌入式 AI 助手模块探索复用；变更：约束每个用户应用模块只有一份当前摘要；目的：并发回写时原子覆盖而不产生重复缓存
+CREATE UNIQUE INDEX IF NOT EXISTS uk_assistant_module_context_owner
+    ON assistant_module_context_cache(creator_user_id, app_id, module_key);
+
+-- 功能：嵌入式 AI 助手模块探索复用；变更：创建过期时间索引；目的：支持后续低成本清理过期摘要
+CREATE INDEX IF NOT EXISTS idx_assistant_module_context_expiry
+    ON assistant_module_context_cache(expires_at);

@@ -15,9 +15,9 @@ export async function createPrdDocumentFile(
   kind: PrdDocumentKind,
 ): Promise<File> {
   const hasDocument = kind === 'prd' ? session.mdPath : session.devDocPath
-  if (!hasDocument) throw new Error(kind === 'prd' ? 'PRD 文档尚未生成' : '开发文档尚未生成')
+  if (!hasDocument) throw new Error(kind === 'prd' ? '核心规格尚未生成' : '执行计划尚未生成')
   const content = kind === 'prd' ? await getContent(session.id) : await getDevDocContent(session.id)
-  if (!content.trim()) throw new Error(kind === 'prd' ? 'PRD 文档内容为空' : '开发文档内容为空')
+  if (!content.trim()) throw new Error(kind === 'prd' ? '核心规格内容为空' : '执行计划内容为空')
   const suffix = kind === 'prd' ? 'PRD' : '开发文档'
   const safeTitle = (session.title || session.id).replace(/[\\/:*?"<>|]/g, '_')
   return new File([content], `${safeTitle}-${suffix}.md`, { type: 'text/markdown' })

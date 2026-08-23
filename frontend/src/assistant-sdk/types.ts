@@ -66,6 +66,8 @@ export interface AssistantWidgetMountOptions {
 export interface AssistantInitOptions {
   appId: string
   appName?: string
+  /** 宿主发布版本或上下文结构版本；变化时使旧模块探索摘要失效。 */
+  sourceRevision?: string
   /** 统一 Assistant WebSocket 地址；配置后 SDK 不再需要宿主 React Bridge。 */
   wsUrl?: string
   /** 获取短期 Assistant ACCESS token；仅在建立 WS 时调用，不写入本地存储。 */
@@ -91,7 +93,7 @@ export interface AssistantInitOptions {
 
 export interface AssistantContextSnapshot {
   protocolVersion: typeof ASSISTANT_PROTOCOL_VERSION
-  application: { appId: string; name?: string }
+  application: { appId: string; name?: string; sourceRevision?: string }
   user?: AssistantUserContext
   page?: AssistantPageContext
   businessObject?: AssistantBusinessObjectContext

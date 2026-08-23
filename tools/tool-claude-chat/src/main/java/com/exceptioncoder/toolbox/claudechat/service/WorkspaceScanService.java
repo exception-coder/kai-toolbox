@@ -84,7 +84,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
 
     /** 团队初始化完成后，知识库应位于约定目录；本服务只检查，不再重复拉取。 */
     public KnowledgeEnsureResult ensureKnowledgeBase() {
-        String kbDir = effectiveKnowledgeDir();
+        String kbDir = knowledgeDirectory();
         if (knowledgeDirExists(kbDir)) {
             return new KnowledgeEnsureResult("ok", kbDir, "", "", "知识库已就绪");
         }
@@ -255,7 +255,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
             "out", "bin", "obj", "venv", ".venv", "__pycache__", ".next", ".turbo", "coverage", "vendor");
 
     /** 团队依赖初始化生成的固定知识库目录。 */
-    private String effectiveKnowledgeDir() {
+    public String knowledgeDirectory() {
         return Path.of(System.getProperty("user.home"), ".kai-toolbox", "team-tools",
                 "project-domain-knowledge", "knowledge").toString();
     }
@@ -267,7 +267,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
 
     /** 扫描某项目下的模块。path 必须在配置根之内（防路径穿越/任意盘符扫描）。 */
     public ProjectModulesResponse scanModules(String projectPath) {
-        String kbDir = effectiveKnowledgeDir();
+        String kbDir = knowledgeDirectory();
         boolean kbExists = knowledgeDirExists(kbDir);
         if (projectPath == null || projectPath.isBlank()) {
             return new ProjectModulesResponse("", "", false, "unknown", "未知", false, kbDir, kbExists, List.of());
@@ -377,7 +377,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
 
     /** 知识库 modules.json 清单文件路径。 */
     private Path knowledgeModulesManifest(String projectName) {
-        String kbDir = effectiveKnowledgeDir();
+        String kbDir = knowledgeDirectory();
         return Path.of(kbDir).resolve(projectName).resolve("impl").resolve(KB_MODULES_FILE);
     }
 
@@ -395,7 +395,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
      * 与 modules.json 现清单比对，返回「新增候选 / 已消失」两类差异。只读，不写盘。
      */
     public ModuleSyncPreview previewModuleSync(String projectPath) {
-        String kbDir = effectiveKnowledgeDir();
+        String kbDir = knowledgeDirectory();
         boolean kbExists = knowledgeDirExists(kbDir);
         if (projectPath == null || projectPath.isBlank()) {
             return new ModuleSyncPreview("", "", false, false, kbDir, kbExists, 0, List.of(), List.of());
@@ -720,7 +720,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
      * 「知识库已声明该项目」，即便为空也不再自动识别。codePath 越界（借 ../ 逃出项目根）的条目被跳过。</p>
      */
     private List<ModuleView> readKnowledgeModules(Path root, String projectName) {
-        String kbDir = effectiveKnowledgeDir();
+        String kbDir = knowledgeDirectory();
         Path manifest = Path.of(kbDir).resolve(projectName).resolve("impl").resolve(KB_MODULES_FILE);
         if (!Files.isRegularFile(manifest)) return null;
         try {

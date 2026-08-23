@@ -22,6 +22,7 @@ KAI Assistant SDK 用于把统一 AI 助手嵌入 ERP、SCM、SRM、JSP 旧系�
 - 自动采集页面、业务对象、Provider、JS 错误和异常网络等必要上下文。
 - 发送即时显示、准备上下文状态、Markdown 回复和生成期发送门禁。
 - WebSocket 断线恢复、消息水位去重和运行中待发送队列。
+- 按认证用户复用模块首次探索摘要；版本变化、过期或读取失败时自动回到实时探索。
 - Bug、建议草稿确认与幂等需求登记。
 - Shadow DOM 样式隔离，不复制宿主 React、Vue 或 JSP 组件。
 - 彩虹胶囊入口，支持跨端拖动、位置恢复、隐藏和快捷键唤醒。
@@ -66,6 +67,7 @@ import { initializeAssistant } from '@kai/assistant-sdk'
 const assistant = initializeAssistant({
   appId: 'ERP',
   appName: 'ERP',
+  sourceRevision: 'erp-2026.08',
   wsUrl: '/assistant-ws',
   getAccessToken: () => getAssistantAccessToken(),
   user: {
@@ -90,6 +92,8 @@ const assistant = initializeAssistant({
 ```
 
 `initializeAssistant` 是幂等单例初始化。同一页面重复调用会返回已有实例；页面或微前端彻底卸载时调用 `assistant.destroy()`。
+
+`page.routeName` 是模块缓存的首选稳定键；未提供时 SDK 会从 URL 去除查询参数和动态数字/UUID 路径段。`sourceRevision` 建议使用宿主发布版本或上下文结构版本，变化后旧摘要立即失效。摘要按 Forge 认证用户隔离、默认保留 7 天，只作为历史线索，本轮页面与 Provider 上下文仍会实时采集。
 
 ---
 
@@ -317,6 +321,7 @@ toolbox:
 |---|---|---|
 | `appId` | 必填 | 宿主系统稳定标识，也是本地存储分区的一部分 |
 | `appName` | 空 | 展示和上下文中的系统名称 |
+| `sourceRevision` | 空 | 宿主发布或上下文结构版本；变化时使旧模块探索摘要失效 |
 | `wsUrl` | 空 | 统一 Assistant WebSocket 地址；不配置则不会建立独立通信链路 |
 | `getAccessToken` | 空 | 建连时动态获取短期 Token |
 | `externalLogin.loginUrl` | 空 | 使用现有 Forge 账号登录；仅在未配置 `getAccessToken` 时生效 |

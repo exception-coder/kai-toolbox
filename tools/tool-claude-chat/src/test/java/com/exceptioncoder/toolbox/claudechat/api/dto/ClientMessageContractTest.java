@@ -55,4 +55,29 @@ class ClientMessageContractTest {
         assertThat(message.assistant().mode()).isEqualTo("DIAGNOSE");
         assertThat(message.assistant().contextSnapshot()).containsKey("futureField");
     }
+
+    @Test
+    void decodesModuleContextResolveCommand() throws Exception {
+        ClientMessage.AssistantModuleContextResolve message =
+                (ClientMessage.AssistantModuleContextResolve) objectMapper.readValue("""
+                {"type":"assistantModuleContextResolve","requestId":"r1","appId":"ERP",
+                 "moduleKey":"order-detail","route":"/orders/42","sourceRevision":"v1"}
+                """, ClientMessage.class);
+
+        assertThat(message.moduleKey()).isEqualTo("order-detail");
+        assertThat(message.sourceRevision()).isEqualTo("v1");
+    }
+
+    @Test
+    void decodesModuleContextSaveCommand() throws Exception {
+        ClientMessage.AssistantModuleContextSave message =
+                (ClientMessage.AssistantModuleContextSave) objectMapper.readValue("""
+                {"type":"assistantModuleContextSave","requestId":"r2","appId":"ERP",
+                 "moduleKey":"order-detail","route":"/orders/42","sourceRevision":"v1",
+                 "summary":"审核依赖状态机"}
+                """, ClientMessage.class);
+
+        assertThat(message.moduleKey()).isEqualTo("order-detail");
+        assertThat(message.summary()).isEqualTo("审核依赖状态机");
+    }
 }

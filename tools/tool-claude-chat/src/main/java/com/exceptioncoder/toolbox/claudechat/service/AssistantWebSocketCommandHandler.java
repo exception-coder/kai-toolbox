@@ -41,6 +41,16 @@ public class AssistantWebSocketCommandHandler {
                 requireText(command.protocolVersion(), "protocolVersion", 20), command.contextSnapshot()));
     }
 
+    public void handle(WebSocketSession ws, ClientMessage.AssistantModuleContextResolve command) {
+        execute(ws, command.requestId(), "moduleContextResolve", () -> capability().resolveModuleContext(
+                command.appId(), command.moduleKey(), command.route(), command.sourceRevision()));
+    }
+
+    public void handle(WebSocketSession ws, ClientMessage.AssistantModuleContextSave command) {
+        execute(ws, command.requestId(), "moduleContextSave", () -> capability().saveModuleContext(
+                command.appId(), command.moduleKey(), command.route(), command.sourceRevision(), command.summary()));
+    }
+
     public void handle(WebSocketSession ws, ClientMessage.AssistantDraftCreate command) {
         execute(ws, command.requestId(), "draftCreate", () -> capability().createDraft(
                 requireText(command.sessionId(), "sessionId", 100), command.kind(),

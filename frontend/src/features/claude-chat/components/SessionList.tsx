@@ -312,12 +312,12 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
         <select
           value={filterPrd}
           onChange={e => setFilterPrd(e.target.value as typeof filterPrd)}
-          aria-label="按是否关联 PRD 筛选"
+          aria-label="按是否关联规格筛选"
           className="h-7 max-w-28 rounded-md border bg-[var(--color-background)] px-1.5 text-xs"
         >
           <option value="all">全部会话</option>
-          <option value="linked">已关联 PRD</option>
-          <option value="unlinked">未关联 PRD</option>
+          <option value="linked">已关联规格</option>
+          <option value="unlinked">未关联规格</option>
         </select>
         {filterActive && (
           <button
@@ -621,7 +621,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
               </span>
               {linkedPrd && (
                 <span
-                  title={`已关联 PRD：${linkedPrd.title || '（未命名）'}`}
+                  title={`已关联规格：${linkedPrd.title || '（未命名）'}`}
                   className="shrink-0 text-[var(--color-primary)] opacity-70"
                 >
                   <Link2 className="size-3" />

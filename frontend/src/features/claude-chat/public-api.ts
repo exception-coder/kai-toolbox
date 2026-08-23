@@ -19,6 +19,7 @@ export {
   renameSession,
   setSessionGroupApi,
   submitPublicReviewFeedback,
+  uploadAttachment,
   uploadReviewAttachment,
 } from './api'
 export { useClaudeChatSocket } from './hooks/useClaudeChatSocket'
@@ -36,9 +37,11 @@ export {
   fetchWorkspaceGitStatus,
   getSessionRuntimeState,
   getSelfRepo,
+  listProjectDependencies,
   listSessions,
   listWorkspaces,
   previewModuleSync,
+  replaceProjectDependencies,
   saveProjectAlias,
   syncYoooniErpAutoDev,
 } from './api'
@@ -49,6 +52,7 @@ export type {
   CodexSpeed,
   Engine,
   ModuleSyncPreview,
+  ProjectDependency,
   ProjectModule,
   ProjectModules,
   SessionRuntimeState,

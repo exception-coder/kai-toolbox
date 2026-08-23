@@ -203,7 +203,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
                     )}
                     {linkedPrd && (
                       <span
-                        title={`已关联 PRD：${linkedPrd.title || '（未命名）'}`}
+                        title={`已关联规格：${linkedPrd.title || '（未命名）'}`}
                         className="shrink-0 text-[var(--color-primary)] opacity-70"
                       >
                         <Link2 className="size-3" />

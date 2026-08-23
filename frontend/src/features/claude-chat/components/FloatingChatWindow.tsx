@@ -160,7 +160,7 @@ export function FloatingChatWindow() {
     if (!chat?.sessionId) throw new Error('请先创建或打开会话')
     const required = countPrdReferenceDocuments(prdSession)
     const available = MAX_ATTACHMENTS - attachments.length - uploading
-    if (required > available) throw new Error(`引用该 PRD 需要 ${required} 个附件名额，当前仅剩 ${Math.max(available, 0)} 个`)
+    if (required > available) throw new Error(`引用该规格需要 ${required} 个附件名额，当前仅剩 ${Math.max(available, 0)} 个`)
     setUploading(count => count + required)
     try {
       const added = await uploadPrdReference(chat.sessionId, prdSession)

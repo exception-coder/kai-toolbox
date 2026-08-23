@@ -16,6 +16,7 @@ import com.exceptioncoder.toolbox.llm.observability.AgentRunCompletionListener;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadataProvider;
 import com.exceptioncoder.toolbox.llm.observability.AgentSpan;
 import com.exceptioncoder.toolbox.llm.observability.AgentTelemetry;
+import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -613,6 +614,7 @@ public class ClaudeChatService {
 
     /** 调用方同时持有会话锁与 admission gate。 */
     private void startTurnAdmitted(SessionCtx ctx, ClientMessage.Send msg) {
+        var images = loadMessageImages(ctx.sessionId, msg.attachments());
         ctx.queueReleaseReady = false;
         String turnId = turnLifecycle.begin(ctx.sessionId);
         ReviewIntentAssessment reviewIntent = SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)
@@ -641,13 +643,6 @@ public class ClaudeChatService {
             previous.fail("overlapping turn replaced", null);
         }
         try {
-            List<AttachmentStorageService.ImageReference> imageReferences = msg.attachments() == null
-                    ? List.of()
-                    : msg.attachments().stream()
-                            .map(attachment -> new AttachmentStorageService.ImageReference(
-                                    attachment.name(), attachment.path(), attachment.mime()))
-                            .toList();
-            var images = attachments.loadImages(ctx.sessionId, imageReferences);
             sidecar.userMessage(ctx.sessionId,
                     appendAttachmentHints(msg.text(), msg.attachments(),
                             SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)),
@@ -663,8 +658,21 @@ public class ClaudeChatService {
             activeTurnSpans.remove(ctx.sessionId, span);
             activeTurnMetadata.remove(ctx.sessionId, metadata);
             span.fail("sidecar send failed", e);
+            notifyCompleted(ctx.sessionId, metadata, span.traceId());
             throw e;
         }
+    }
+
+    /** 在正式创建回合前完成附件归属与读取校验，拒绝消息时不留下孤儿回合。 */
+    private List<ImageInput> loadMessageImages(
+            String sessionId, List<ClientMessage.Send.Attachment> messageAttachments) {
+        List<AttachmentStorageService.ImageReference> imageReferences = messageAttachments == null
+                ? List.of()
+                : messageAttachments.stream()
+                        .map(attachment -> new AttachmentStorageService.ImageReference(
+                                attachment.name(), attachment.path(), attachment.mime()))
+                        .toList();
+        return attachments.loadImages(sessionId, imageReferences);
     }
 
     /** 图片走结构化输入；路径标记只用于历史恢复，公开投影会剥离该段。 */

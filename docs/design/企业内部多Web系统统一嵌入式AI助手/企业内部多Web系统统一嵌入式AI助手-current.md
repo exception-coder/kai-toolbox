@@ -8,21 +8,27 @@
 - 复用 Claude Chat 的业务咨询 WebSocket、sidecar 多引擎、事件水位、重连恢复和待发送队列。
 - 复用 Fore Consult 的系统链路、证据路由、只读查询和咨询归档能力。
 - 以 ReqPool 作为 AI 需求中枢，确认登记后的初始状态为 `PENDING_EXECUTION`。
+- 缓存同一用户对页面模块的首次探索摘要，新会话优先复用，动态页面状态仍按请求实时采集。
 - V0.1 不修改 ERP、SCM、SRM 宿主仓库，但交付 ESM 与 IIFE 产物和最小接入契约。
 
 ## 2. 已确认架构决策
 
 ```mermaid
 flowchart LR
-    HOST["宿主页面"] --> SDK["Assistant SDK"]
-    SDK --> WIDGET["隔离 Widget"]
-    SDK --> TRANSPORT["框架无关 WebSocket Transport"]
-    TRANSPORT --> CONSULT["统一 Assistant WebSocket"]
-    CONSULT --> QUEUE["持久化待发送队列"]
-    CONSULT --> SIDECAR["Node sidecar 多引擎"]
-    SIDECAR --> EVIDENCE["Fore Consult 证据链路"]
-    CONSULT --> CAPABILITY["Assistant 能力端口"]
-    CAPABILITY --> REQ["ReqPool 确认登记"]
+    subgraph Host["业务宿主"]
+        HOST["宿主页面"] --> SDK["Assistant SDK"]
+        SDK --> WIDGET["隔离 Widget"]
+        SDK --> TRANSPORT["框架无关 WebSocket Transport"]
+    end
+    subgraph Platform["Assistant 平台"]
+        TRANSPORT --> CONSULT["统一 Assistant WebSocket"]
+        CONSULT --> QUEUE["持久化待发送队列"]
+        CONSULT --> SIDECAR["Node sidecar 多引擎"]
+        SIDECAR --> EVIDENCE["Fore Consult 证据链路"]
+        CONSULT --> CAPABILITY["Assistant 能力端口"]
+        CAPABILITY --> CACHE["模块探索摘要缓存"]
+        CAPABILITY --> REQ["ReqPool 确认登记"]
+    end
 ```
 
 - 多标签页均可提交。会话处于运行、回复、待确认或恢复未稳定状态时，消息进入既有持久化队列；仅在服务端确认安全释放后按 FIFO 发送。
@@ -43,6 +49,10 @@ flowchart LR
 - 准备上下文、连接和回复执行期间展示“中止”动作：准备阶段中止本地 Provider 采集，已进入会话后复用既有 WebSocket `interrupt` 链路；中止不得销毁会话或丢弃服务端待发送列表。
 - Widget 提供默认收起的调试面板，按时间展示上下文准备、WS 连接、协议发送/接收、中止和错误元数据；日志最多保留 200 条且仅存在当前页面内存，禁止记录密码、Token、Cookie、业务正文和完整上下文。
 - 第三方未配置 `wsUrl` 或自定义 Transport 时，首次提交必须立即返回可恢复的配置错误并写入调试日志，不得停留在“正在准备上下文”。
+- 模块缓存键由 SDK 从 `page.routeName` 或规范化页面 URL 确定；服务端再按认证用户、`appId` 和 `moduleKey` 隔离，客户端 `user.id` 不参与缓存授权。
+- 缓存摘要只作为历史分析线索，不替代本轮 Provider 快照、源码证据或运行数据；命中摘要时必须显式标记生成时间和证据版本。
+- 首期只缓存同一认证用户的首次模块分析摘要，避免具体单据、角色和错误现场跨用户泄露；跨用户共享必须经过后续审核发布能力。
+- 摘要最长 6000 字符，默认有效期 7 天；宿主提供 `sourceRevision` 时，版本不一致立即视为未命中。
 
 ## 3. PLAN-001 代码事实
 
@@ -56,6 +66,7 @@ flowchart LR
 | 需求中枢 | `tool-reqpool` | 新增 Assistant 登记端口 |
 | 用户认证 | `toolbox-common` 的 `AuthContext`、握手拦截器 | 扩展为所有权策略 |
 | 会话归属 | `claude_chat_session.user_id` | 新增并兼容旧会话；HTTP、WebSocket、队列和项目批量操作统一执行“ADMIN 全部可见、普通用户仅本人”策略 |
+| 模块探索缓存 | `tool-assistant` 的 `assistant_module_context_cache` | 按认证用户、应用和模块覆盖保存限长摘要；不复用请求快照表 |
 
 ## 4. 发布边界
 
@@ -75,6 +86,7 @@ import { initializeAssistant } from '@kai/assistant-sdk'
 const assistant = initializeAssistant({
   appId: 'ERP',
   appName: 'ERP',
+  sourceRevision: 'erp-2026.08',
   wsUrl: '/assistant-ws',
   getAccessToken: () => getAssistantAccessToken(),
   visibility: {
@@ -83,7 +95,7 @@ const assistant = initializeAssistant({
   },
   draggable: true,
   user: { id: String(currentUser.id), displayName: currentUser.name },
-  page: { url: location.pathname, title: document.title },
+  page: { url: location.pathname, routeName: 'sales-order-detail', title: document.title },
 })
 ```
 
@@ -98,13 +110,69 @@ V0.1 建议把宿主的 `/assistant-ws` 同源反向代理到 `/api/claude-chat/
 ```ts
 const assistant = initializeAssistant({
   appId: 'ERP',
+  sourceRevision: 'erp-2026.08',
   wsUrl: 'wss://forge.company.internal/api/claude-chat/consult/ws',
   externalLogin: {
     loginUrl: 'https://forge.company.internal/api/auth/external-login',
   },
   user: { id: String(currentUser.id), displayName: currentUser.name },
-  page: { url: location.pathname, title: document.title },
+  page: { url: location.pathname, routeName: 'sales-order-detail', title: document.title },
 })
 ```
 
 外部登录与 `getAccessToken` 二选一；同时提供时以宿主 `getAccessToken` 为准，不展示 Forge 登录表单。跨域白名单必须填写完整 Origin，不允许通过业务上下文中的 `appId`、`user.id` 或请求头自行声明可信来源。
+
+## 6. 模块探索摘要复用
+
+模块身份优先使用宿主提供的 `page.routeName`；缺失时，SDK 对 `page.url` 去除查询参数、片段和尾部数字/UUID 业务主键后生成稳定 `moduleKey`。无法得到稳定键时跳过缓存，不因缓存失败阻塞咨询。
+
+缓存内容由首次未命中回合的最终助手回答压缩得到，不保存工具原始输出、完整对话或页面快照。压缩采用确定性限长：保留最终回答的有效文本，超过 6000 字符时保留开头与结尾，中间用省略标记替代。模型输出和客户端上报均视为不可信输入，服务端重新校验字段长度与归属后才写入。
+
+### 6.1 缓存命中
+
+```mermaid
+sequenceDiagram
+    box rgb(235, 242, 250) 业务宿主
+        participant SDK as Assistant SDK
+        participant WS as WebSocket Transport
+    end
+    box rgb(238, 247, 240) Assistant 平台
+        participant CMD as Assistant Command Handler
+        participant CACHE as Module Context Service
+        participant AGENT as Consult Agent
+    end
+    SDK->>WS: 提交实时页面快照
+    WS->>CMD: resolve module context
+    CMD->>CACHE: 按用户和模块查询
+    CACHE-->>CMD: 返回有效摘要
+    CMD-->>WS: moduleContextResolve 成功
+    WS->>AGENT: 当前问题加实时快照和历史摘要
+    AGENT-->>WS: 本轮回答
+```
+
+### 6.2 首次探索与写回
+
+```mermaid
+sequenceDiagram
+    box rgb(235, 242, 250) 业务宿主
+        participant SDK as Assistant SDK
+        participant WS as WebSocket Transport
+    end
+    box rgb(238, 247, 240) Assistant 平台
+        participant CMD as Assistant Command Handler
+        participant CACHE as Module Context Service
+        participant AGENT as Consult Agent
+    end
+    SDK->>WS: 提交实时页面快照
+    WS->>CMD: resolve module context
+    CMD->>CACHE: 查询模块摘要
+    CACHE-->>CMD: 未命中或已过期
+    CMD-->>WS: moduleContextResolve 未命中
+    WS->>AGENT: 当前问题和实时快照
+    AGENT-->>WS: 探索后的最终回答
+    WS->>CMD: save module context
+    CMD->>CACHE: 校验并覆盖保存限长摘要
+    CACHE-->>CMD: 返回缓存版本
+```
+
+缓存查询失败、响应超时或写回失败均降级为原有咨询链路，并通过调试面板记录不含正文的错误元数据。队列消息不等待缓存查询；同一会话已有上下文时继续复用会话历史，避免缓存准备改变既有 FIFO 行为。

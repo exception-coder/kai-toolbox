@@ -23,6 +23,8 @@
 - 外部登录只复用 Forge ACCESS Token；密码仅用于单次登录请求，ACCESS Token 只保存在 SDK 实例内存，不接收、不保存 REFRESH Token。
 - 中止动作复用既有 WS `interrupt` 协议；本地准备阶段通过 `AbortSignal` 结束 Provider 收集，Transport 运行阶段只中止当前回合。
 - 调试面板只消费结构化脱敏元数据，最多 200 条且不持久化；禁止把 WS URL 查询串、消息正文、上下文值或认证响应写入日志。
+- 模块探索缓存只保存同一认证用户的限长最终分析摘要；动态页面快照、具体业务对象和工具原始输出不得进入可复用摘要。
+- 模块摘要命中只作为历史线索注入；`sourceRevision` 不一致、超过 7 天或字段校验失败时必须降级为未命中。
 
 ## 2. 接口入口
 
@@ -36,6 +38,8 @@
 | `POST /api/assistant/drafts/{id}/confirm` | `AssistantDraftController#confirm` |
 | `GET /api/assistant/drafts/{id}` | `AssistantDraftController#get` |
 | `POST /api/auth/external-login` | `ExternalLoginController#login`；复用账号认证，仅签发 ACCESS Token；仅外部登录开关启用且 Origin 命中白名单时允许跨域 |
+| `WS assistantModuleContextResolve` | `AssistantWebSocketCommandHandler` → `AssistantCapabilityPort#resolveModuleContext` |
+| `WS assistantModuleContextSave` | `AssistantWebSocketCommandHandler` → `AssistantCapabilityPort#saveModuleContext` |
 
 ## 3. 涉及类清单
 
@@ -61,8 +65,13 @@
 | `com.exceptioncoder.toolbox.common.auth.config.ExternalLoginCorsConfiguration` | 新建 | 只为 Forge 登录路径注册受控 CORS 规则 |
 | `frontend/src/assistant-sdk/externalLogin.ts` | 新建 | Forge 登录请求、响应校验和实例内存 Token 生命周期 |
 | `frontend/src/assistant-sdk/widget.ts` | 修改 | 无 Token 时展示登录、提交中、失败和恢复状态 |
+| `com.exceptioncoder.toolbox.assistant.domain.AssistantModuleContext` | 新建 | 模块缓存键、摘要、证据版本与有效期模型 |
+| `com.exceptioncoder.toolbox.assistant.repository.AssistantModuleContextRepository` | 新建 | 按用户、应用和模块查询及覆盖写入 SQLite |
+| `com.exceptioncoder.toolbox.assistant.service.AssistantModuleContextService` | 新建 | 输入校验、版本/TTL 判定和缓存写入用例 |
+| `frontend/src/assistant-sdk/moduleContext.ts` | 新建 | 规范化模块键、注入历史摘要和压缩最终回答 |
 | `frontend/vite.assistant.config.ts` | 新建 | 输出 ESM 与 IIFE 独立产物 |
 | `ClientMessage.Queue`、`ServerMessage.QueueAccepted` | 修改 | 同一 WS 上持久化待发送消息并确认接收 |
+| `ClientMessage.AssistantModuleContextResolve/Save` | 新建 | 统一 WS 上查询和写回模块探索摘要 |
 
 ## 4. 关键方法
 
@@ -80,6 +89,10 @@ AssistantWebSocketTransport#interrupt() — 清理未发送本地请求或复用
 AssistantPositionController — 统一处理拖动、键盘移动、窗口缩放约束和本地位置恢复
 ClaudeChatService#queueUserMessage(ws, message) — 校验当前会话并幂等保存待发送消息
 ExternalLoginClient#login(username, password) — 调用受控 Forge 登录接口并只保留 ACCESS Token
+AssistantModuleContextService#resolve(command) — 按认证用户、应用、模块、版本和有效期查询摘要
+AssistantModuleContextService#save(command) — 校验客户端摘要并按模块覆盖保存
+resolveModuleIdentity(snapshot) — 从 routeName 或规范化 URL 构造稳定模块身份
+compressModuleAnalysis(content) — 确定性压缩最终回答，不调用额外模型
 ```
 
 ## 5. 数据结构
@@ -87,6 +100,7 @@ ExternalLoginClient#login(username, password) — 调用受控 Forge 登录接�
 - `claude_chat_session.user_id`：可空兼容旧会话；新咨询会话必须写当前认证用户 ID。
 - `assistant_draft`：草稿、意图、上下文快照、状态和创建者。
 - `assistant_registration`：草稿到 ReqPool 的登记映射，`idempotency_key` 唯一。
+- `assistant_module_context_cache`：同一认证用户、应用和模块唯一；保存摘要、页面路由、源码版本和过期时间。
 - `req_pool_item.status` 新增允许值 `PENDING_EXECUTION`，不改变存量状态。
 
 ## 6. 并发与事务
@@ -98,6 +112,8 @@ ExternalLoginClient#login(username, password) — 调用受控 Forge 登录接�
 - 全局 Assistant Bridge 使用 `autoConnect: false`，首次提交才建立咨询 WebSocket。
 - Assistant Bridge 按用户持久化 `sessionId`，多标签页复用同一会话的运行状态和服务端待发送队列。
 - 独立 Transport 按 `appId + userId` 保存会话、水位和展示消息；重连退避有上限，销毁后停止重连。
+- 模块缓存使用 `(creator_user_id, app_id, module_key)` 唯一约束并执行覆盖写入；不跨用户合并，不引入分布式锁。
+- 首条直接发送在模块查询返回前暂缓；查询失败按未命中继续。运行中排队消息不等待模块缓存，保持既有 FIFO 契约。
 
 ## 7. 异常与验证
 
@@ -110,3 +126,4 @@ ExternalLoginClient#login(username, password) — 调用受控 Forge 登录接�
 - 覆盖初始隐藏、默认快捷键、密钥错误/成功、主动打开、拖动边界、位置恢复、移动端胶囊拖动和窄屏对话框固定。
 - 覆盖外部登录缺省关闭、Origin 允许/拒绝、登录成功、凭据错误、网络失败、Token 不持久化和登录后首次咨询。
 - 覆盖准备阶段中止、运行阶段 interrupt、终态解锁、调试日志容量上限以及日志不含 Token/消息正文。
+- 覆盖 routeName/URL 模块键、命中注入、未命中写回、版本失效、TTL 失效、用户隔离、摘要限长和缓存失败降级。

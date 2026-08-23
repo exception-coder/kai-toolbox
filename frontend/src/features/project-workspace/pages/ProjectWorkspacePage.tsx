@@ -21,8 +21,10 @@ import {
   fetchWorkspaceGitFileDiff,
   fetchWorkspaceGitStatus,
   listSessions,
+  listProjectDependencies,
   listWorkspaces,
   previewModuleSync,
+  replaceProjectDependencies,
   saveProjectAlias,
   useChatRuntime,
   type ClaudeChatSessionView,
@@ -40,6 +42,7 @@ import {
   type ProjectStatusSnapshot,
 } from '@/features/knowledge-graph/public-api'
 import { GraphifyGraphModal } from '../components/GraphifyGraphModal'
+import { ProjectDependenciesDialog } from '../components/ProjectDependenciesDialog'
 import { WorkspacePageHeader } from '../components/WorkspacePageHeader'
 import { WorkspaceProjectSidebar } from '../components/WorkspaceProjectSidebar'
 import { useAggregationCart, type AggregationItem } from '../hooks/useAggregationCart'
@@ -98,6 +101,7 @@ export function ProjectWorkspacePage() {
   const [aliasEditingPath, setAliasEditingPath] = useState('')
   const [aliasDraft, setAliasDraft] = useState('')
   const [gitChangesProject, setGitChangesProject] = useState<WorkspaceDir | null>(null)
+  const [projectDependenciesOpen, setProjectDependenciesOpen] = useState(false)
 
   const workspacesQ = useQuery({
     queryKey: ['claude-chat-workspaces'],
@@ -112,6 +116,12 @@ export function ProjectWorkspacePage() {
   const modulesQ = useQuery({
     queryKey: ['project-workspace-modules', selectedPath],
     queryFn: () => fetchProjectModules(selectedPath),
+    enabled: selectedPath.length > 0,
+    staleTime: 5000,
+  })
+  const projectDependenciesQ = useQuery({
+    queryKey: ['project-dependencies', selectedPath],
+    queryFn: () => listProjectDependencies(selectedPath),
     enabled: selectedPath.length > 0,
     staleTime: 5000,
   })
@@ -148,6 +158,13 @@ export function ProjectWorkspacePage() {
     onSuccess: async () => {
       setAliasEditingPath('')
       await queryClient.invalidateQueries({ queryKey: ['claude-chat-workspaces'] })
+    },
+  })
+  const projectDependenciesMutation = useMutation({
+    mutationFn: (paths: string[]) => replaceProjectDependencies(selectedPath, paths),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['project-dependencies', selectedPath] })
+      setProjectDependenciesOpen(false)
     },
   })
   const sessionByCwd = useMemo(() => {
@@ -236,6 +253,8 @@ export function ProjectWorkspacePage() {
         modulesLoading={modulesQ.isLoading || (modulesQ.isFetching && !modulesQ.data)}
         modules={modulesQ.data}
         refreshing={workspacesQ.isFetching || modulesQ.isFetching || sessionsQ.isFetching}
+        projectDependencyCount={projectDependenciesQ.data?.length ?? 0}
+        projectDependenciesLoading={projectDependenciesQ.isLoading}
         dependencies={{
           rootsOk,
           knowledgeBaseOk: kbOk,
@@ -248,6 +267,11 @@ export function ProjectWorkspacePage() {
           void workspacesQ.refetch()
           void modulesQ.refetch()
           void sessionsQ.refetch()
+          void projectDependenciesQ.refetch()
+        }}
+        onOpenProjectDependencies={() => {
+          projectDependenciesMutation.reset()
+          setProjectDependenciesOpen(true)
         }}
         onOpenWorkspaceConfig={() => navigate(`/tools/config-center?block=${WORKSPACE_CFG_ID}`)}
       />
@@ -494,6 +518,20 @@ export function ProjectWorkspacePage() {
         projectName={selectedProject?.name ?? ''}
         onClose={() => setGraphOpen(false)}
       />
+      {projectDependenciesOpen && selectedProject && (
+        <ProjectDependenciesDialog
+          primaryProject={selectedProject}
+          projects={projects}
+          dependencies={projectDependenciesQ.data ?? []}
+          loading={projectDependenciesQ.isLoading}
+          saving={projectDependenciesMutation.isPending}
+          loadError={projectDependenciesQ.isError ? errorMessage(projectDependenciesQ.error) : null}
+          saveError={projectDependenciesMutation.isError ? errorMessage(projectDependenciesMutation.error) : null}
+          onRetry={() => { void projectDependenciesQ.refetch() }}
+          onSave={paths => projectDependenciesMutation.mutate(paths)}
+          onClose={() => !projectDependenciesMutation.isPending && setProjectDependenciesOpen(false)}
+        />
+      )}
       {gitChangesProject && (
         <GitStatusPanel
           title={getSystemWorkspaceDisplayName(gitChangesProject)}

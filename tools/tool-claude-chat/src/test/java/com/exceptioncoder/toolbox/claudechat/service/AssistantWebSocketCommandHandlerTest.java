@@ -56,6 +56,54 @@ class AssistantWebSocketCommandHandlerTest {
         assertThat(AuthContext.current()).isEmpty();
     }
 
+    @Test
+    void resolvesModuleContextThroughTheAuthenticatedCapability() throws Exception {
+        AssistantCapabilityPort capability = mock(AssistantCapabilityPort.class);
+        when(capability.resolveModuleContext("ERP", "order-detail", "/orders/42", "v1"))
+                .thenReturn(new AssistantCapabilityPort.ModuleContextResult(
+                        true, "审核依赖状态机", "v1", 10L, 20L));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<AssistantCapabilityPort> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(capability);
+        AssistantWebSocketCommandHandler handler = new AssistantWebSocketCommandHandler(provider, mapper);
+        WebSocketSession ws = authenticatedSocket(7L);
+
+        handler.handle(ws, new ClientMessage.AssistantModuleContextResolve(
+                "request-2", "ERP", "order-detail", "/orders/42", "v1"));
+
+        verify(capability).resolveModuleContext("ERP", "order-detail", "/orders/42", "v1");
+        org.mockito.ArgumentCaptor<TextMessage> response = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
+        verify(ws).sendMessage(response.capture());
+        JsonNode json = mapper.readTree(response.getValue().getPayload());
+        assertThat(json.path("data").path("found").asBoolean()).isTrue();
+        assertThat(json.path("data").path("summary").asText()).isEqualTo("审核依赖状态机");
+    }
+
+    @Test
+    void savesModuleContextThroughTheAuthenticatedCapability() throws Exception {
+        AssistantCapabilityPort capability = mock(AssistantCapabilityPort.class);
+        when(capability.saveModuleContext(
+                "ERP", "order-detail", "/orders/42", "v1", "审核依赖状态机"))
+                .thenReturn(new AssistantCapabilityPort.ModuleContextSaveResult(
+                        "order-detail", 10L, 20L));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<AssistantCapabilityPort> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(capability);
+        AssistantWebSocketCommandHandler handler = new AssistantWebSocketCommandHandler(provider, mapper);
+        WebSocketSession ws = authenticatedSocket(7L);
+
+        handler.handle(ws, new ClientMessage.AssistantModuleContextSave(
+                "request-3", "ERP", "order-detail", "/orders/42", "v1", "审核依赖状态机"));
+
+        verify(capability).saveModuleContext(
+                "ERP", "order-detail", "/orders/42", "v1", "审核依赖状态机");
+        org.mockito.ArgumentCaptor<TextMessage> response = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
+        verify(ws).sendMessage(response.capture());
+        JsonNode json = mapper.readTree(response.getValue().getPayload());
+        assertThat(json.path("data").path("moduleKey").asText()).isEqualTo("order-detail");
+        assertThat(json.path("success").asBoolean()).isTrue();
+    }
+
     private WebSocketSession authenticatedSocket(long userId) {
         WebSocketSession ws = mock(WebSocketSession.class);
         AuthPrincipal principal = new AuthPrincipal(userId, "user", List.of("USER"), List.of(), "jti", 1L);

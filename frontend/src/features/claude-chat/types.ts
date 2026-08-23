@@ -147,6 +147,14 @@ export interface WorkspaceList {
   scannedAt: string
 }
 
+/** 主项目长期引用的依赖项目；projectKey 用于路由集中式业务知识。 */
+export interface ProjectDependency {
+  projectPath: string
+  projectKey: string
+  sourceAvailable: boolean
+  knowledgeAvailable: boolean
+}
+
 /** 「自维护机器人」锁定的 kai-toolbox 自身仓库路径；exists=false 时前端隐藏机器人入口。 */
 export interface SelfRepo {
   path: string

@@ -1,6 +1,6 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
-import com.exceptioncoder.toolbox.claudechat.ai.ReviewRequirementExtractor;
+import com.exceptioncoder.toolbox.claudechat.ai.ReviewRequirementCompiler;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewRequirement;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewSpace;
 import com.exceptioncoder.toolbox.claudechat.repository.ReviewRequirementRepository;
@@ -28,14 +28,14 @@ public class ReviewRequirementService {
 
     private final ReviewSpaceService reviewSpaceService;
     private final ReviewRequirementRepository repository;
-    private final ReviewRequirementExtractor extractor;
+    private final ReviewRequirementCompiler compiler;
 
     public ReviewRequirementService(ReviewSpaceService reviewSpaceService,
                                     ReviewRequirementRepository repository,
-                                    ReviewRequirementExtractor extractor) {
+                                    ReviewRequirementCompiler compiler) {
         this.reviewSpaceService = reviewSpaceService;
         this.repository = repository;
-        this.extractor = extractor;
+        this.compiler = compiler;
     }
 
     public List<ReviewRequirement> list(String token) {
@@ -120,7 +120,7 @@ public class ReviewRequirementService {
     private Decision proposeDecision(ReviewRequirementRepository.Draft draft, DraftCommand command,
                                      List<ReviewRequirement> current) {
         try {
-            ReviewRequirementExtractor.Compilation proposed = extractor.compile(
+            ReviewRequirementCompiler.Compilation proposed = compiler.compile(
                     compilerContext(draft, command, current));
             return validatedDecision(proposed, draft, current);
         } catch (RuntimeException error) {
@@ -129,7 +129,7 @@ public class ReviewRequirementService {
         }
     }
 
-    private Decision validatedDecision(ReviewRequirementExtractor.Compilation proposed,
+    private Decision validatedDecision(ReviewRequirementCompiler.Compilation proposed,
                                        ReviewRequirementRepository.Draft fallback,
                                        List<ReviewRequirement> current) {
         if (proposed == null || proposed.operation() == null) {
@@ -283,10 +283,10 @@ public class ReviewRequirementService {
     public record UpdateCommand(String title, String content, long expectedRevision) {
     }
 
-    private record Decision(ReviewRequirementExtractor.Operation operation,
+    private record Decision(ReviewRequirementCompiler.Operation operation,
                             ReviewRequirement target, String title, String content) {
         private static Decision create(ReviewRequirementRepository.Draft draft) {
-            return new Decision(ReviewRequirementExtractor.Operation.CREATE,
+            return new Decision(ReviewRequirementCompiler.Operation.CREATE,
                     null, draft.title(), draft.content());
         }
     }

@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, FolderTree, Info, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Check, FolderGit2, FolderTree, Info, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { ProjectModules } from '@/features/claude-chat/public-api'
 import { cn } from '@/lib/utils'
@@ -32,6 +32,8 @@ interface WorkspacePageHeaderProps {
   modulesLoading: boolean
   modules?: ProjectModules
   refreshing: boolean
+  projectDependencyCount: number
+  projectDependenciesLoading: boolean
   dependencies: {
     rootsOk: boolean
     knowledgeBaseOk: boolean
@@ -41,6 +43,7 @@ interface WorkspacePageHeaderProps {
     crossProjectLabel: string
   }
   onRefresh: () => void
+  onOpenProjectDependencies: () => void
   onOpenWorkspaceConfig: () => void
 }
 
@@ -49,8 +52,11 @@ export function WorkspacePageHeader({
   modulesLoading,
   modules,
   refreshing,
+  projectDependencyCount,
+  projectDependenciesLoading,
   dependencies,
   onRefresh,
+  onOpenProjectDependencies,
   onOpenWorkspaceConfig,
 }: WorkspacePageHeaderProps) {
   return (
@@ -68,6 +74,10 @@ export function WorkspacePageHeader({
         </div>
         <div className="flex items-center gap-3">
           {selectedProjectPath ? <ProjectTypeBadge loading={modulesLoading} data={modules} /> : null}
+          <Button type="button" variant="outline" onClick={onOpenProjectDependencies} disabled={!selectedProjectPath || projectDependenciesLoading}>
+            {projectDependenciesLoading ? <RefreshCw className="animate-spin" /> : <FolderGit2 />}
+            依赖项目{projectDependencyCount > 0 ? ` · ${projectDependencyCount}` : ''}
+          </Button>
           <Button type="button" variant="outline" onClick={onRefresh} disabled={refreshing}>
             <RefreshCw className={cn(refreshing && 'animate-spin')} />
             刷新

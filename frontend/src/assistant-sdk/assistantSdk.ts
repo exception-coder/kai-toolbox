@@ -53,7 +53,7 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
     const collected = await collectProviderContext([...providers.values()], options.providerTimeoutMs, signal)
     return sanitizeEvidence({
       protocolVersion: ASSISTANT_PROTOCOL_VERSION,
-      application: { appId: options.appId, name: options.appName },
+      application: { appId: options.appId, name: options.appName, sourceRevision: options.sourceRevision },
       ...currentContext,
       ...collected,
       capturedAt: Date.now(),

@@ -62,7 +62,14 @@ public interface AgentOneShotRunner {
 
     /** Executes one task and returns the observable facts emitted by the runtime. */
     default ObservedResult runObserved(ExecutionRequest request) {
-        return new ObservedResult(runOnce(request), null, null, null);
+        return new ObservedResult(runOnce(request), null, null, null, null);
+    }
+
+    /** 带图片运行并返回运行时可观测身份；默认实现兼容仅支持文本的执行器。 */
+    default ObservedResult runObserved(ExecutionRequest request, List<ImageInput> images) {
+        return new ObservedResult(
+                runOnce(request.systemPrompt(), request.userPrompt(), request.model(), request.engine(), images),
+                null, null, null, null);
     }
 
     /**
@@ -117,6 +124,12 @@ public interface AgentOneShotRunner {
     ) {
     }
 
-    record ObservedResult(String text, String traceId, JsonNode evidence, JsonNode trajectory) {
+    record ObservedResult(
+            String text,
+            String traceId,
+            JsonNode evidence,
+            JsonNode trajectory,
+            String executionSessionId
+    ) {
     }
 }

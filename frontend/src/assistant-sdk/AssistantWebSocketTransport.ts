@@ -1,15 +1,23 @@
 import { buildAssistantDeveloperInstructions } from './prompt'
 import type {
   AssistantConversationMessage,
+  AssistantContextSnapshot,
   AssistantDraftSubmission,
   AssistantSubmission,
   AssistantTransport,
   AssistantWidgetState,
 } from './types'
 import { createAssistantDebugEntry } from './assistantDebugLog'
+import {
+  compressModuleContextSummary,
+  MODULE_CONTEXT_CONTRIBUTION_KEY,
+  resolveModuleIdentity,
+  type AssistantModuleIdentity,
+} from './moduleContext'
 
 const MAX_RECONNECT_DELAY_MS = 30_000
 const BASE_RECONNECT_DELAY_MS = 500
+const MODULE_CONTEXT_RESOLVE_TIMEOUT_MS = 2_000
 
 export interface AssistantWebSocketTransportOptions {
   appId: string
@@ -60,6 +68,15 @@ type IncomingMessage = {
   success?: boolean
   data?: unknown
   errorCode?: string
+  requestId?: string
+}
+
+interface ModuleContextState {
+  status: 'loading' | 'hit' | 'miss'
+  summary?: string
+  sourceRevision?: string
+  updatedAt?: number
+  expiresAt?: number
 }
 
 /** 框架无关的 Assistant WS 客户端，负责会话、水位、重连和持久排队。 */
@@ -85,6 +102,10 @@ export class AssistantWebSocketTransport implements AssistantTransport {
   private pendingCommands: Array<() => void> = []
   private connecting = false
   private connectionVersion = 0
+  private moduleContexts = new Map<string, ModuleContextState>()
+  private moduleContextRequests = new Map<string, AssistantModuleIdentity>()
+  private moduleContextRequestTimers = new Map<string, number>()
+  private activeModuleExploration?: AssistantModuleIdentity
 
   constructor(options: AssistantWebSocketTransportOptions) {
     this.options = options
@@ -231,6 +252,7 @@ export class AssistantWebSocketTransport implements AssistantTransport {
   private onClose(socket: WebSocket): void {
     if (socket !== this.socket) return
     this.socket = undefined
+    this.resetLoadingModuleContexts()
     if (this.destroyed) return
     this.debug('connection', 'WebSocket 连接关闭，准备重连')
     this.emit('正在重连')
@@ -283,6 +305,8 @@ export class AssistantWebSocketTransport implements AssistantTransport {
         break
       case 'result':
         this.running = false
+        if (message.stopReason === 'interrupted') this.activeModuleExploration = undefined
+        else this.saveActiveModuleExploration()
         if (message.stopReason === 'interrupted') this.backgroundTaskCount = 0
         this.emit(message.stopReason === 'interrupted'
           ? '已中止'
@@ -312,7 +336,10 @@ export class AssistantWebSocketTransport implements AssistantTransport {
           this.flushPendingAsQueue()
           break
         }
-        if (message.terminal !== false) this.running = false
+        if (message.terminal !== false) {
+          this.running = false
+          this.activeModuleExploration = undefined
+        }
         this.emit('助手暂不可用', message.message ?? message.code ?? '未知错误')
         break
       case 'replayGap':
@@ -327,6 +354,8 @@ export class AssistantWebSocketTransport implements AssistantTransport {
       this.flushPendingAsQueue()
       return
     }
+    const candidate = this.pending[0]
+    if (!candidate || !this.prepareModuleContext(candidate)) return
     const first = this.pending.shift()
     if (!first) return
     this.sendSubmission(first)
@@ -348,6 +377,10 @@ export class AssistantWebSocketTransport implements AssistantTransport {
 
   private sendSubmission(item: PendingSubmission): void {
     const { submission } = item
+    const identity = resolveModuleIdentity(submission.snapshot)
+    if (identity && this.moduleContexts.get(moduleContextMapKey(identity))?.status === 'miss') {
+      this.activeModuleExploration = identity
+    }
     this.sendContextSave(item)
     this.send({
       type: 'send', text: submission.text,
@@ -387,10 +420,25 @@ export class AssistantWebSocketTransport implements AssistantTransport {
   private applyAssistantCommandResult(message: IncomingMessage): void {
     const action = message.action
     if (!message.success) {
+      if (action === 'moduleContextResolve') {
+        this.completeModuleContextMiss(message.requestId)
+        this.debug('context', '模块探索摘要读取失败，已降级为实时探索', { errorCode: message.errorCode })
+        this.flushPending()
+        return
+      }
+      if (action === 'moduleContextSave') {
+        this.debug('context', '模块探索摘要保存失败，本次会话仍可继续', { errorCode: message.errorCode })
+        return
+      }
       this.emit(`${commandLabel(action)}失败`, message.message ?? message.errorCode ?? '命令执行失败')
       return
     }
     const data = message.data
+    if (action === 'moduleContextResolve') {
+      this.completeModuleContextResolve(message.requestId, data)
+      this.flushPending()
+      return
+    }
     if (action === 'draftCreate' && isRecord(data) && typeof data.draftId === 'string') {
       this.draftId = data.draftId
       this.emit('等待确认', '草稿已保存，确认后才会登记正式需求')
@@ -407,6 +455,88 @@ export class AssistantWebSocketTransport implements AssistantTransport {
         displayName: typeof item.displayName === 'string' ? item.displayName : undefined,
       })).filter(item => Number.isFinite(item.userId))
       this.listener({ users })
+    }
+  }
+
+  private prepareModuleContext(item: PendingSubmission): boolean {
+    const identity = resolveModuleIdentity(item.submission.snapshot)
+    if (!identity) return true
+    const key = moduleContextMapKey(identity)
+    const state = this.moduleContexts.get(key)
+    if (state?.status === 'loading') return false
+    if (state?.status === 'hit' && state.summary) {
+      item.submission.snapshot = withModuleContext(item.submission.snapshot, state)
+      return true
+    }
+    if (state?.status === 'miss') return true
+    const requestId = createId()
+    this.moduleContexts.set(key, { status: 'loading' })
+    this.moduleContextRequests.set(requestId, identity)
+    const timer = window.setTimeout(() => {
+      this.completeModuleContextMiss(requestId)
+      this.debug('context', '模块探索摘要读取超时，已降级为实时探索', { moduleKey: identity.moduleKey })
+      this.flushPending()
+    }, MODULE_CONTEXT_RESOLVE_TIMEOUT_MS)
+    this.moduleContextRequestTimers.set(requestId, timer)
+    this.send({ type: 'assistantModuleContextResolve', requestId, ...identity })
+    this.debug('context', '正在读取模块探索摘要', { moduleKey: identity.moduleKey })
+    return false
+  }
+
+  private completeModuleContextResolve(requestId: string | undefined, data: unknown): void {
+    const identity = requestId ? this.moduleContextRequests.get(requestId) : undefined
+    if (!identity) return
+    this.clearModuleContextTimer(requestId!)
+    this.moduleContextRequests.delete(requestId!)
+    const key = moduleContextMapKey(identity)
+    if (isRecord(data) && data.found === true && typeof data.summary === 'string' && data.summary.trim()) {
+      this.moduleContexts.set(key, {
+        status: 'hit', summary: data.summary,
+        sourceRevision: typeof data.sourceRevision === 'string' ? data.sourceRevision : undefined,
+        updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : undefined,
+        expiresAt: typeof data.expiresAt === 'number' ? data.expiresAt : undefined,
+      })
+      this.debug('context', '已复用模块探索摘要', { moduleKey: identity.moduleKey })
+      return
+    }
+    this.moduleContexts.set(key, { status: 'miss' })
+    this.debug('context', '模块探索摘要未命中，将在本轮完成后回写', { moduleKey: identity.moduleKey })
+  }
+
+  private completeModuleContextMiss(requestId: string | undefined): void {
+    const identity = requestId ? this.moduleContextRequests.get(requestId) : undefined
+    if (!identity) return
+    this.clearModuleContextTimer(requestId!)
+    this.moduleContextRequests.delete(requestId!)
+    this.moduleContexts.set(moduleContextMapKey(identity), { status: 'miss' })
+  }
+
+  private saveActiveModuleExploration(): void {
+    const identity = this.activeModuleExploration
+    this.activeModuleExploration = undefined
+    if (!identity) return
+    const answer = [...this.messages].reverse().find(message => message.role === 'assistant')?.content ?? ''
+    const summary = compressModuleContextSummary(answer)
+    if (!summary) return
+    this.send({ type: 'assistantModuleContextSave', requestId: createId(), ...identity, summary })
+    this.moduleContexts.set(moduleContextMapKey(identity), { status: 'hit', summary })
+    this.debug('context', '模块探索摘要已压缩并回写', {
+      moduleKey: identity.moduleKey, summaryLength: summary.length,
+    })
+  }
+
+  private clearModuleContextTimer(requestId: string): void {
+    const timer = this.moduleContextRequestTimers.get(requestId)
+    if (timer !== undefined) window.clearTimeout(timer)
+    this.moduleContextRequestTimers.delete(requestId)
+  }
+
+  private resetLoadingModuleContexts(): void {
+    this.moduleContextRequestTimers.forEach(timer => window.clearTimeout(timer))
+    this.moduleContextRequestTimers.clear()
+    this.moduleContextRequests.clear()
+    for (const [key, state] of this.moduleContexts) {
+      if (state.status === 'loading') this.moduleContexts.delete(key)
     }
   }
 
@@ -551,6 +681,31 @@ function commandLabel(action?: string): string {
     case 'usersList': return '工程师列表加载'
     case 'contextSave': return '上下文保存'
     case 'intentRoute': return '意图识别'
+    case 'moduleContextResolve': return '模块摘要读取'
+    case 'moduleContextSave': return '模块摘要保存'
     default: return '助手命令'
+  }
+}
+
+function moduleContextMapKey(identity: AssistantModuleIdentity): string {
+  return `${identity.appId}\u0000${identity.moduleKey}\u0000${identity.sourceRevision}`
+}
+
+function withModuleContext(
+  snapshot: AssistantContextSnapshot,
+  state: ModuleContextState,
+): AssistantContextSnapshot {
+  return {
+    ...snapshot,
+    contributions: {
+      ...snapshot.contributions,
+      [MODULE_CONTEXT_CONTRIBUTION_KEY]: {
+        summary: state.summary,
+        sourceRevision: state.sourceRevision,
+        updatedAt: state.updatedAt,
+        expiresAt: state.expiresAt,
+        trust: 'historical-clue',
+      },
+    },
   }
 }

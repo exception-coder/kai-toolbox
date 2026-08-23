@@ -19,6 +19,8 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.Queue.class,         name = "queue"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantIntentRoute.class, name = "assistantIntentRoute"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantContextSave.class, name = "assistantContextSave"),
+        @JsonSubTypes.Type(value = ClientMessage.AssistantModuleContextResolve.class, name = "assistantModuleContextResolve"),
+        @JsonSubTypes.Type(value = ClientMessage.AssistantModuleContextSave.class, name = "assistantModuleContextSave"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantDraftCreate.class, name = "assistantDraftCreate"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantDraftConfirm.class, name = "assistantDraftConfirm"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantUsersList.class, name = "assistantUsersList"),
@@ -39,6 +41,7 @@ public sealed interface ClientMessage
                 ClientMessage.ResumeHistory, ClientMessage.ResumeCurrent, ClientMessage.Send, ClientMessage.Decision,
                 ClientMessage.Queue,
                 ClientMessage.AssistantIntentRoute, ClientMessage.AssistantContextSave,
+                ClientMessage.AssistantModuleContextResolve, ClientMessage.AssistantModuleContextSave,
                 ClientMessage.AssistantDraftCreate, ClientMessage.AssistantDraftConfirm,
                 ClientMessage.AssistantUsersList,
                 ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetAutoApprove,
@@ -93,6 +96,31 @@ public sealed interface ClientMessage
     /** 保存当前会话的一份不可变、已脱敏上下文快照。 */
     record AssistantContextSave(String requestId, String sessionId, String protocolVersion,
                                 Map<String, Object> contextSnapshot) implements ClientMessage {}
+
+    /**
+     * 读取当前用户在来源系统模块上的有效探索摘要。
+     *
+     * @param requestId 连接级命令关联标识
+     * @param appId 来源应用标识
+     * @param moduleKey 稳定模块标识
+     * @param route 当前页面路由
+     * @param sourceRevision 宿主发布或上下文结构版本
+     */
+    record AssistantModuleContextResolve(String requestId, String appId, String moduleKey,
+                                         String route, String sourceRevision) implements ClientMessage {}
+
+    /**
+     * 回写一次探索完成后的有界模块摘要。
+     *
+     * @param requestId 连接级命令关联标识
+     * @param appId 来源应用标识
+     * @param moduleKey 稳定模块标识
+     * @param route 当前页面路由
+     * @param sourceRevision 宿主发布或上下文结构版本
+     * @param summary 已确定性压缩的探索摘要
+     */
+    record AssistantModuleContextSave(String requestId, String appId, String moduleKey,
+                                      String route, String sourceRevision, String summary) implements ClientMessage {}
 
     /** 创建 Bug 或建议草稿，不直接登记正式需求。 */
     record AssistantDraftCreate(String requestId, String sessionId, String kind, String title,

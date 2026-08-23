@@ -1,7 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.config;
 
 import com.exceptioncoder.toolbox.claudechat.ai.ReviewIntentClassifier;
-import com.exceptioncoder.toolbox.claudechat.ai.ReviewRequirementExtractor;
+import com.exceptioncoder.toolbox.claudechat.ai.ReviewRequirementCompiler;
 import com.exceptioncoder.toolbox.llm.routing.ChatModelRouter;
 import dev.langchain4j.service.AiServices;
 import org.springframework.context.annotation.Bean;
@@ -19,8 +19,8 @@ public class ReviewIntentLlmConfig {
     }
 
     @Bean
-    public ReviewRequirementExtractor reviewRequirementExtractor(ChatModelRouter router) {
-        return AiServices.builder(ReviewRequirementExtractor.class)
+    public ReviewRequirementCompiler reviewRequirementCompiler(ChatModelRouter router) {
+        return AiServices.builder(ReviewRequirementCompiler.class)
                 .chatModel(router.forTier("capture"))
                 .build();
     }

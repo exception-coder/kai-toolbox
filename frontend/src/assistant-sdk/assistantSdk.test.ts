@@ -27,6 +27,12 @@ describe('initializeAssistant', () => {
     expect((await sdk.snapshot()).page?.url).toBe('/orders/1')
   })
 
+  it('captures the host source revision for module cache invalidation', async () => {
+    const sdk = initializeAssistant({ appId: 'ERP', sourceRevision: 'erp-2026.08' })
+
+    expect((await sdk.snapshot()).application.sourceRevision).toBe('erp-2026.08')
+  })
+
   it('updates only explicitly provided context fields', async () => {
     const sdk = initializeAssistant({
       appId: 'ERP',

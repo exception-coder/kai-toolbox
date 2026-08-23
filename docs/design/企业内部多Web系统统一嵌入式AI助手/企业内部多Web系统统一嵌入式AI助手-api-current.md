@@ -8,9 +8,12 @@
 - [创建草稿](#4-创建草稿)
 - [确认登记](#5-确认登记)
 - [统一 WebSocket 协议](#6-统一-websocket-协议)
-- [工程师候选](#7-工程师候选)
-- [错误语义](#8-错误语义)
-- [Widget 可见性与位置](#9-widget-可见性与位置)
+- [Forge 外部登录](#7-forge-外部登录)
+- [工程师候选](#8-工程师候选)
+- [错误语义](#9-错误语义)
+- [Widget 可见性与位置](#10-widget-可见性与位置)
+- [中止与调试日志](#11-中止与调试日志)
+- [模块探索摘要](#12-模块探索摘要)
 
 ## 1. 接口清单
 
@@ -261,3 +264,38 @@ Widget 状态可携带单条增量 `debugEntry`：
 ```
 
 `category` 仅允许 `context`、`connection`、`send`、`receive`、`control`、`error`。调试日志最多保留 200 条，只存在 Widget 当前页面内存；发送与接收日志只能记录协议类型、水位、重连次数等安全元数据，禁止记录 WS 查询参数、Token、密码、Cookie、消息正文和上下文值。
+
+## 12. 模块探索摘要
+
+模块缓存协议复用统一 WebSocket，不新增宿主 HTTP 接口。客户端在首条直接发送前查询：
+
+```json
+{
+  "type": "assistantModuleContextResolve",
+  "requestId": "uuid",
+  "appId": "ERP",
+  "moduleKey": "sales-order-detail",
+  "route": "/sales/order/1001",
+  "sourceRevision": "optional-revision"
+}
+```
+
+命中时 `assistantCommandResult.action` 为 `moduleContextResolve`，`data` 包含 `found=true`、`summary`、`sourceRevision`、`updatedAt` 和 `expiresAt`；未命中返回 `found=false`，不作为错误。
+
+首次未命中回合完成后，SDK 写回限长摘要：
+
+```json
+{
+  "type": "assistantModuleContextSave",
+  "requestId": "uuid",
+  "appId": "ERP",
+  "moduleKey": "sales-order-detail",
+  "route": "/sales/order/1001",
+  "sourceRevision": "optional-revision",
+  "summary": "首次探索后的关键分析摘要"
+}
+```
+
+服务端以握手认证用户作为缓存所有者，不接受客户端用户 ID。`appId` 最长 64 字符，`moduleKey` 最长 240 字符，`route` 最长 1000 字符，`sourceRevision` 最长 160 字符，`summary` 最长 6000 字符。相同用户、应用和模块再次保存时覆盖旧摘要并刷新 7 天有效期。
+
+命中摘要注入 `contextSnapshot.contributions.assistantModuleExploration`，其内容属于历史线索而非当前事实。查询、写回或解析失败时，SDK 继续原咨询流程并只记录脱敏调试元数据。

@@ -8,7 +8,7 @@ import type {
   GitRepoRef,
   GitStatusResponse,
 } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SessionPendingSqlTarget, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ProjectDependency, ServerMessage, SessionPendingSql, SessionPendingSqlTarget, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 import { buildPendingSqlTargetOptions, type PendingSqlTargetOption } from './lib/pendingSqlTargets'
 import { SESSION_HISTORY_PAGE_TIMEOUT_MS } from './lib/sessionHistoryRequest'
@@ -266,6 +266,21 @@ export function listWorkspaces(): Promise<WorkspaceList> {
 /** 保存或清除项目展示别名。 */
 export function saveProjectAlias(projectPath: string, alias: string) {
   return saveSystemProjectAlias(projectPath, alias)
+}
+
+/** 查询主项目长期依赖及其源码、集中式业务知识可用状态。 */
+export function listProjectDependencies(primaryPath: string) {
+  const params = new URLSearchParams({ primaryPath })
+  return http<ProjectDependency[]>(`/claude-chat/project-dependencies?${params.toString()}`)
+}
+
+/** 完整替换主项目长期依赖。 */
+export function replaceProjectDependencies(primaryPath: string, paths: string[]): Promise<void> {
+  const params = new URLSearchParams({ primaryPath })
+  return http(`/claude-chat/project-dependencies?${params.toString()}`, {
+    method: 'PUT',
+    body: JSON.stringify({ paths }),
+  })
 }
 
 /** 「自维护机器人」锁定的 kai-toolbox 自身仓库路径；exists=false 时前端隐藏机器人入口。 */
@@ -876,6 +891,37 @@ export function saveQueuedMessage(sessionId: string, message: Omit<PersistedQueu
       createdAt: message.createdAt,
       attachments: message.attachments?.map(({ name, mime, path }) => ({ name, mime, path })),
     }),
+  })
+}
+
+export type OpenSpecProjectState = 'READY' | 'NOT_INITIALIZED' | 'TOOL_UNAVAILABLE' | 'ERROR'
+
+export interface OpenSpecProjectRequest {
+  path: string
+  sessionId?: string
+  tool: 'claude' | 'codex'
+}
+
+export interface OpenSpecProjectStatus {
+  state: OpenSpecProjectState
+  path: string
+  message: string
+  detail: string
+}
+
+/** 只读检测目标项目是否已解析到 OpenSpec root。 */
+export function getOpenSpecProjectStatus(request: OpenSpecProjectRequest) {
+  return http<OpenSpecProjectStatus>('/claude-chat/openspec/status', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
+/** 用户确认后初始化目标项目；后端会再次校验目录边界并复核 root。 */
+export function initializeOpenSpecProject(request: OpenSpecProjectRequest) {
+  return http<OpenSpecProjectStatus>('/claude-chat/openspec/initialize', {
+    method: 'POST',
+    body: JSON.stringify(request),
   })
 }
 

@@ -99,8 +99,8 @@ function flattenPrds(sessions: PrdSessionView[]): PrdReference[] {
     .map(session => ({
       kind: 'prd' as const,
       key: `prd:${session.id}`,
-      name: session.title || '（未命名 PRD）',
-      detail: [session.project, session.module].filter(Boolean).join(' / ') || 'PRD 澄清助手',
+      name: session.title || '（未命名规格）',
+      detail: [session.project, session.module].filter(Boolean).join(' / ') || '规格探索',
       session,
     }))
     .sort((left, right) => right.session.updatedAt - left.session.updatedAt)
@@ -154,13 +154,13 @@ export function ProjectMentionMenu({
       {loading && references.length === 0 && (
         <div className="flex items-center gap-2 px-3 py-4 text-sm text-[var(--color-muted-foreground)]">
           <Loader2 className="size-4 animate-spin" />
-          正在加载项目和 PRD…
+          正在加载项目和规格…
         </div>
       )}
       {warning && <div className="px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400">{warning}</div>}
       {actionError && <div className="px-3 py-1.5 text-xs text-[var(--color-destructive)]">{actionError}</div>}
       {!loading && references.length === 0 && (
-        <div className="px-3 py-4 text-sm text-[var(--color-muted-foreground)]">暂无匹配的项目或 PRD</div>
+        <div className="px-3 py-4 text-sm text-[var(--color-muted-foreground)]">暂无匹配的项目或规格</div>
       )}
       {references.map((reference, index) => {
         const isPrd = reference.kind === 'prd'
@@ -195,7 +195,7 @@ export function ProjectMentionMenu({
                     ? 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300'
                     : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
                 )}>
-                  {isPrd ? 'PRD' : '项目'}
+                  {isPrd ? '规格' : '项目'}
                 </span>
               </span>
               <span className="block truncate text-xs text-[var(--color-muted-foreground)]">{detail}</span>
@@ -247,7 +247,7 @@ function useReferenceCatalog(open: boolean, query: string) {
   }, [allReferences, query])
   const failedSources: string[] = []
   if (workspaceQuery.isError) failedSources.push('项目')
-  if (prdQuery.isError) failedSources.push('PRD')
+  if (prdQuery.isError) failedSources.push('规格库')
   return {
     references,
     loading: workspaceQuery.isLoading || prdQuery.isLoading || preferenceQuery.isLoading,
@@ -443,8 +443,8 @@ export function ProjectMentionButton({
     <button
       type="button"
       disabled={disabled}
-      aria-label="引用项目或 PRD"
-      title="引用项目或 PRD"
+      aria-label="引用项目或规格"
+      title="引用项目或规格"
       onMouseDown={event => {
         event.preventDefault()
         onToggle()

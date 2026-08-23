@@ -18,15 +18,18 @@ public class AssistantCapabilityAdapter implements AssistantCapabilityPort {
 
     private final AssistantIntentRouter intentRouter;
     private final AssistantContextService contextService;
+    private final AssistantModuleContextService moduleContextService;
     private final AssistantDraftService draftService;
     private final ObjectProvider<AuthUserRepository> userRepositoryProvider;
 
     public AssistantCapabilityAdapter(AssistantIntentRouter intentRouter,
                                       AssistantContextService contextService,
+                                      AssistantModuleContextService moduleContextService,
                                       AssistantDraftService draftService,
                                       ObjectProvider<AuthUserRepository> userRepositoryProvider) {
         this.intentRouter = intentRouter;
         this.contextService = contextService;
+        this.moduleContextService = moduleContextService;
         this.draftService = draftService;
         this.userRepositoryProvider = userRepositoryProvider;
     }
@@ -41,6 +44,23 @@ public class AssistantCapabilityAdapter implements AssistantCapabilityPort {
     public SnapshotResult saveContext(String sessionId, String protocolVersion, Object snapshot) {
         AssistantContextSnapshot result = contextService.save(sessionId, protocolVersion, snapshot);
         return new SnapshotResult(result.id(), result.createTime());
+    }
+
+    @Override
+    public ModuleContextResult resolveModuleContext(String appId, String moduleKey,
+                                                    String route, String sourceRevision) {
+        AssistantModuleContextService.ResolveResult result = moduleContextService.resolve(
+                appId, moduleKey, route, sourceRevision);
+        return new ModuleContextResult(result.found(), result.summary(), result.sourceRevision(),
+                result.updatedAt(), result.expiresAt());
+    }
+
+    @Override
+    public ModuleContextSaveResult saveModuleContext(String appId, String moduleKey, String route,
+                                                     String sourceRevision, String summary) {
+        AssistantModuleContextService.SaveResult result = moduleContextService.save(
+                appId, moduleKey, route, sourceRevision, summary);
+        return new ModuleContextSaveResult(result.moduleKey(), result.updatedAt(), result.expiresAt());
     }
 
     @Override

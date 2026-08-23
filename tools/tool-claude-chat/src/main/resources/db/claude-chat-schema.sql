@@ -209,6 +209,20 @@ CREATE TABLE IF NOT EXISTS claude_chat_session_project_directory (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_session_project_directory
     ON claude_chat_session_project_directory(session_id, sort_order);
 
+-- 主项目长期引用的依赖项目；知识正文仍由 team-tools 集中知识库按目录名管理。
+CREATE TABLE IF NOT EXISTS claude_chat_project_dependency (
+    id                       TEXT PRIMARY KEY,
+    primary_project_path     TEXT NOT NULL,
+    dependency_project_path  TEXT NOT NULL,
+    sort_order               INTEGER NOT NULL DEFAULT 0,
+    create_time              INTEGER NOT NULL,
+    update_time              INTEGER NOT NULL,
+    UNIQUE(primary_project_path, dependency_project_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_project_dependency_primary
+    ON claude_chat_project_dependency(primary_project_path, sort_order);
+
 -- 会话规划过期锁定；id 即逻辑会话 ID，删除会话时由应用层同步清理。
 CREATE TABLE IF NOT EXISTS claude_chat_session_plan_state (
     id              TEXT PRIMARY KEY,

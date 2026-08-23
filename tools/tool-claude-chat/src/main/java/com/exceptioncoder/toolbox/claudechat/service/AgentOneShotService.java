@@ -66,6 +66,11 @@ public class AgentOneShotService implements AgentOneShotRunner {
         return executeObserved(request, null, null);
     }
 
+    @Override
+    public ObservedResult runObserved(ExecutionRequest request, List<ImageInput> images) {
+        return executeObserved(request, null, images);
+    }
+
     /** 按调用方提供的会话配置流式执行独立任务。 */
     @Override
     public String stream(ExecutionRequest request, Consumer<String> onDelta) {
@@ -206,7 +211,7 @@ public class AgentOneShotService implements AgentOneShotRunner {
             }
             case "result" -> call.future.complete(new ObservedResult(
                     call.text.toString(), node.path("traceId").asText(null),
-                    node.get("evidence"), node.get("trajectory")));
+                    node.get("evidence"), node.get("trajectory"), requestId));
             case "error" -> {
                 String message = node.path("message").asText("Claude Agent 执行失败");
                 call.future.completeExceptionally(new RuntimeException("高质量引擎失败：" + message));

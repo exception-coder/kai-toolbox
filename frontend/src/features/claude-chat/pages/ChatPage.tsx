@@ -55,7 +55,7 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
@@ -108,8 +108,18 @@ import { selectableEngineIds } from '../lib/engineCatalog'
 import { MobileSessionStatus } from '../components/MobileSessionStatus'
 import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
 import { SessionToolsMenu } from '../components/SessionToolsMenu'
+import { OpenSpecInitializationDialog } from '../components/OpenSpecInitializationDialog'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
+
+interface PendingOpenSpecInitialization {
+  request: OpenSpecProjectRequest
+  phase: 'checking' | 'confirming' | 'initializing' | 'error'
+  message: string
+  detail: string
+  resume: () => void | Promise<void>
+  cancel?: () => void | Promise<void>
+}
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
@@ -233,6 +243,7 @@ export function ChatPage() {
   const [showExport, setShowExport] = useState(false)
   const [showReviewShare, setShowReviewShare] = useState(false)
   const [showPrdLink, setShowPrdLink] = useState(false)
+  const [pendingOpenSpecInitialization, setPendingOpenSpecInitialization] = useState<PendingOpenSpecInitialization | null>(null)
   const [showPendingSql, setShowPendingSql] = useState(false)
   const [showSessionSites, setShowSessionSites] = useState(false)
   const [showSessionProjects, setShowSessionProjects] = useState(false)
@@ -483,6 +494,91 @@ export function ChatPage() {
   const [launchIntentError, setLaunchIntentError] = useState<string | null>(null)
   const [launchIntentRetry, setLaunchIntentRetry] = useState(0)
 
+  async function ensureOpenSpecReady(
+    request: OpenSpecProjectRequest,
+    resume: PendingOpenSpecInitialization['resume'],
+    cancel?: PendingOpenSpecInitialization['cancel'],
+  ): Promise<boolean> {
+    if (!request.path.trim()) {
+      await resume()
+      return true
+    }
+    let status
+    try {
+      status = await getOpenSpecProjectStatus(request)
+    } catch (error) {
+      setPendingOpenSpecInitialization({
+        request,
+        phase: 'error',
+        message: error instanceof Error ? error.message : 'OpenSpec 状态检测失败',
+        detail: '',
+        resume,
+        cancel,
+      })
+      return false
+    }
+    if (status.state === 'READY') {
+      setPendingOpenSpecInitialization(null)
+      await resume()
+      return true
+    }
+    setPendingOpenSpecInitialization({
+      request: { ...request, path: status.path || request.path },
+      phase: status.state === 'NOT_INITIALIZED' ? 'confirming' : 'error',
+      message: status.message,
+      detail: status.detail,
+      resume,
+      cancel,
+    })
+    return false
+  }
+
+  async function initializePendingOpenSpec(): Promise<void> {
+    const pendingInitialization = pendingOpenSpecInitialization
+    if (!pendingInitialization || pendingInitialization.phase === 'initializing') return
+    setPendingOpenSpecInitialization({ ...pendingInitialization, phase: 'initializing', message: '' })
+    try {
+      const status = await initializeOpenSpecProject(pendingInitialization.request)
+      if (status.state !== 'READY') {
+        setPendingOpenSpecInitialization({
+          ...pendingInitialization,
+          request: { ...pendingInitialization.request, path: status.path || pendingInitialization.request.path },
+          phase: 'error',
+          message: status.message,
+          detail: status.detail,
+        })
+        return
+      }
+      setPendingOpenSpecInitialization(null)
+      await pendingInitialization.resume()
+    } catch (error) {
+      setPendingOpenSpecInitialization({
+        ...pendingInitialization,
+        phase: 'error',
+        message: error instanceof Error ? error.message : 'OpenSpec 初始化失败',
+        detail: '',
+      })
+    }
+  }
+
+  function retryPendingOpenSpecCheck(): void {
+    const pendingInitialization = pendingOpenSpecInitialization
+    if (!pendingInitialization) return
+    setPendingOpenSpecInitialization({ ...pendingInitialization, phase: 'checking', message: '', detail: '' })
+    void ensureOpenSpecReady(
+      pendingInitialization.request,
+      pendingInitialization.resume,
+      pendingInitialization.cancel,
+    )
+  }
+
+  function cancelPendingOpenSpec(): void {
+    const pendingInitialization = pendingOpenSpecInitialization
+    if (!pendingInitialization || pendingInitialization.phase === 'initializing') return
+    setPendingOpenSpecInitialization(null)
+    void pendingInitialization.cancel?.()
+  }
+
   useEffect(() => {
     if (!chat || !launchIntentId || handledLaunchIntentRef.current === launchIntentId) return
     handledLaunchIntentRef.current = launchIntentId
@@ -501,25 +597,40 @@ export function ChatPage() {
         }
         if (command.kind === 'OPEN_PANEL') {
           setPanel(command.panel)
+          await acknowledgeLaunchIntent(intent.id)
         } else {
-          if (command.prdSessionId) {
-            pendingAutoPrdLinkRef.current = {
-              prdSessionId: command.prdSessionId,
-              previousDevSessionId: command.previousSessionId,
+          const launch = async () => {
+            if (command.prdSessionId) {
+              pendingAutoPrdLinkRef.current = {
+                prdSessionId: command.prdSessionId,
+                previousDevSessionId: command.previousSessionId,
+              }
             }
+            chat.open(
+              command.cwd,
+              undefined,
+              undefined,
+              command.engine,
+              command.engine === 'codex'
+                ? { codexHome: command.codexHome }
+                : undefined,
+            )
+            chat.send(command.seed)
+            await acknowledgeLaunchIntent(intent.id)
           }
-          chat.open(
-            command.cwd,
-            undefined,
-            undefined,
-            command.engine,
-            command.engine === 'codex'
-              ? { codexHome: command.codexHome }
-              : undefined,
-          )
-          chat.send(command.seed)
+          if (command.prdSessionId) {
+            await ensureOpenSpecReady({
+              path: command.cwd,
+              tool: command.engine === 'codex' ? 'codex' : 'claude',
+            }, launch, async () => {
+              const message = '已取消 OpenSpec 初始化，开发会话未启动'
+              setLaunchIntentError(message)
+              await failLaunchIntent(intent.id, message)
+            })
+          } else {
+            await launch()
+          }
         }
-        await acknowledgeLaunchIntent(intent.id)
       })
       .catch(async error => {
         const message = error instanceof Error ? error.message : String(error)
@@ -565,7 +676,7 @@ export function ChatPage() {
     if (!chat?.sessionId) throw new Error('请先创建或打开会话')
     const required = countPrdReferenceDocuments(prdSession)
     const available = MAX_ATTACHMENTS - attachments.length - uploading
-    if (required > available) throw new Error(`引用该 PRD 需要 ${required} 个附件名额，当前仅剩 ${Math.max(available, 0)} 个`)
+    if (required > available) throw new Error(`引用该规格需要 ${required} 个附件名额，当前仅剩 ${Math.max(available, 0)} 个`)
     setUploading(count => count + required)
     try {
       const added = await uploadPrdReference(chat.sessionId, prdSession)
@@ -1039,11 +1150,11 @@ export function ChatPage() {
           <button
             type="button"
             onClick={() => setShowPrdLink(true)}
-            title={`已关联 PRD：${linkedPrd.title || '（未命名）'}（点击查看/管理）`}
+            title={`已关联规格：${linkedPrd.title || '（未命名）'}（点击查看/管理）`}
             className="hidden shrink-0 items-center gap-1 rounded-full border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] 2xl:flex"
           >
             <FileText className="size-3" />
-            <span className="max-w-24 truncate">{linkedPrd.title || 'PRD'}</span>
+            <span className="max-w-24 truncate">{linkedPrd.title || '规格'}</span>
           </button>
         )}
         {pendingSql && (
@@ -1227,7 +1338,7 @@ export function ChatPage() {
                       <HeaderMenuItem nested icon={<Share2 className="size-4" />} label="分享计划评审" hint="生成独立评审消息流，业务/测试可发送文字和附件，但不能执行编码" onClick={() => { setHeaderMenu(false); setShowReviewShare(true) }} />
                     )}
                     {chat.sessionId && (
-                      <HeaderMenuItem nested icon={<Link2 className="size-4" />} label={linkedPrd ? '管理 PRD 关联' : '关联 PRD'} hint={linkedPrd ? `已关联：${linkedPrd.title || '（未命名）'}` : '搜索绑定一个 PRD，绑定后可一键同步更新开发文档'} onClick={() => { setHeaderMenu(false); setShowPrdLink(true) }} />
+                      <HeaderMenuItem nested icon={<Link2 className="size-4" />} label={linkedPrd ? '管理规格关联' : '关联规格'} hint={linkedPrd ? `已关联：${linkedPrd.title || '（未命名）'}` : '搜索绑定一份规格，绑定后可同步更新核心规格与执行计划'} onClick={() => { setHeaderMenu(false); setShowPrdLink(true) }} />
                     )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<Database className="size-4" />} label={pendingSql ? '管理待执行 SQL' : '登记待执行 SQL'} hint={pendingSql ? `${pendingSql.title || '未命名登记'} · ${pendingSql.status === 'PENDING' ? '待执行' : pendingSql.status === 'EXECUTED' ? '已执行' : '已取消'}` : '关联本次开发涉及的 DDL / DML，仅登记不执行'} onClick={() => { setHeaderMenu(false); setShowPendingSql(true) }} />
@@ -1681,7 +1792,30 @@ export function ChatPage() {
           sessionId={chat.sessionId}
           suggestedPrdSessionId={scopedPrdSessionId}
           onLinkedChange={setLinkedPrd}
+          onSpecSyncRequested={(prompt) => {
+            const sendOpenSpecSync = () => {
+              if (chat.running) chat.enqueue(prompt, undefined, '同步关联规格到 OpenSpec')
+              else chat.send(prompt, undefined, '同步关联规格到 OpenSpec')
+            }
+            void ensureOpenSpecReady({
+              path: currentSession?.cwd || '',
+              sessionId: chat.sessionId || undefined,
+              tool: chat.currentEngine === 'codex' ? 'codex' : 'claude',
+            }, sendOpenSpecSync)
+          }}
           onClose={() => setShowPrdLink(false)}
+        />
+      )}
+      {pendingOpenSpecInitialization && (
+        <OpenSpecInitializationDialog
+          path={pendingOpenSpecInitialization.request.path}
+          tool={pendingOpenSpecInitialization.request.tool}
+          phase={pendingOpenSpecInitialization.phase}
+          message={pendingOpenSpecInitialization.message}
+          detail={pendingOpenSpecInitialization.detail}
+          onConfirm={() => void initializePendingOpenSpec()}
+          onRetry={retryPendingOpenSpecCheck}
+          onClose={cancelPendingOpenSpec}
         />
       )}
       {showReviewShare && chat.sessionId && (
@@ -2060,7 +2194,7 @@ export function ChatPage() {
                 disabled={planLocked}
                 onClick={() => { setMoreOpen(o => !o); setCmdMenuOpen(false) }}
                 aria-label="更多功能"
-                title="更多功能（附件 / 指令 / PRD 文档）"
+                title="更多功能（附件 / 指令 / 规格文档）"
               >
                 <Plus className={`size-5 transition-transform${moreOpen ? ' rotate-45' : ''}`} />
               </Button>
@@ -2104,7 +2238,7 @@ export function ChatPage() {
                         className={`flex flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)]${planLocked || attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
                       >
                         <FileText className="size-5 text-[var(--color-primary)]" />
-                        PRD 文档
+                        规格文档
                       </button>
                     </div>
                   </div>

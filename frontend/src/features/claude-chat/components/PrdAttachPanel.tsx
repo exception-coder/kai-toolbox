@@ -60,7 +60,7 @@ export function PrdAttachPanel({ onPick, onClose }: Props) {
       >
         <div className="flex items-center gap-2 border-b px-4 py-3">
           <Search className="size-4 text-[var(--color-muted-foreground)]" />
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">附加 PRD / 开发文档</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">附加核心规格 / 执行计划</span>
           <button type="button" onClick={onClose} className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]" aria-label="关闭">
             <X className="size-3.5" />
           </button>
@@ -72,17 +72,17 @@ export function PrdAttachPanel({ onPick, onClose }: Props) {
               <Loader2 className="size-4 animate-spin" />加载中…
             </div>
           )}
-          {loadErr && <p className="text-xs text-[var(--color-destructive)]">加载 PRD 列表失败：{loadErr}</p>}
+          {loadErr && <p className="text-xs text-[var(--color-destructive)]">加载规格列表失败：{loadErr}</p>}
 
           {!loading && !loadErr && (
             <>
-              <p className="mb-1.5 text-xs font-medium text-[var(--color-muted-foreground)]">搜索 PRD 澄清助手里的需求</p>
+              <p className="mb-1.5 text-xs font-medium text-[var(--color-muted-foreground)]">搜索规格库里的需求</p>
               <Combobox
                 value={pickValue}
                 onChange={setPickValue}
                 options={options}
-                placeholder="搜索 PRD 标题…"
-                emptyText="没有匹配的 PRD"
+                placeholder="搜索规格标题…"
+                emptyText="没有匹配的规格"
                 className="mb-3"
               />
 
@@ -102,14 +102,14 @@ export function PrdAttachPanel({ onPick, onClose }: Props) {
                       type="button"
                       onClick={() => void attach('prd')}
                       disabled={!target.mdPath || fetching !== null}
-                      title={!target.mdPath ? 'PRD 文档尚未生成' : undefined}
+                      title={!target.mdPath ? '核心规格尚未生成' : undefined}
                       className={cn(
                         'flex flex-1 items-center justify-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)] hover:opacity-90',
                         (!target.mdPath || fetching !== null) && 'pointer-events-none opacity-50',
                       )}
                     >
                       {fetching === 'prd' ? <Loader2 className="size-3.5 animate-spin" /> : <FileText className="size-3.5" />}
-                      附加 PRD 文档
+                      附加核心规格
                     </button>
                     <button
                       type="button"
