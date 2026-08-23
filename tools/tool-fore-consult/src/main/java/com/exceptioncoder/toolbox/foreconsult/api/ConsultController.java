@@ -3,7 +3,6 @@ package com.exceptioncoder.toolbox.foreconsult.api;
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ArchiveRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ClassifyQuestionRequest;
-import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultAttachmentView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultSessionView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultDispatchView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultTurnView;
@@ -14,7 +13,6 @@ import com.exceptioncoder.toolbox.foreconsult.api.dto.LinkDevSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.QuestionClassificationView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.RenameQuestionTitleRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
-import com.exceptioncoder.toolbox.foreconsult.service.ConsultAttachmentService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultDispatchService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultQuestionClassifier;
@@ -30,11 +28,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -57,19 +52,17 @@ import java.util.Map;
 public class ConsultController {
 
     private final ConsultService service;
-    private final ConsultAttachmentService attachmentService;
     private final TurnBugExtractionService bugExtractionService;
     private final ConsultQuestionClassifier questionClassifier;
     private final ConsultDispatchService dispatchService;
     private final CodexHomeDiscoveryService codexHomeDiscoveryService;
 
-    public ConsultController(ConsultService service, ConsultAttachmentService attachmentService,
+    public ConsultController(ConsultService service,
                              TurnBugExtractionService bugExtractionService,
                              ConsultQuestionClassifier questionClassifier,
                              ConsultDispatchService dispatchService,
                              CodexHomeDiscoveryService codexHomeDiscoveryService) {
         this.service = service;
-        this.attachmentService = attachmentService;
         this.bugExtractionService = bugExtractionService;
         this.questionClassifier = questionClassifier;
         this.dispatchService = dispatchService;
@@ -80,13 +73,6 @@ public class ConsultController {
     @GetMapping("/codex-homes")
     public List<String> listCodexHomes() {
         return codexHomeDiscoveryService.list();
-    }
-
-    /** 上传咨询附件（图片/Excel/Word/Markdown/PDF 等）。落盘到系统 cwd 或用户目录，返回绝对路径。 */
-    @PostMapping("/attachments")
-    public ConsultAttachmentView uploadAttachment(@RequestParam(value = "cwd", required = false) String cwd,
-                                                  @RequestPart("file") MultipartFile file) throws IOException {
-        return attachmentService.store(cwd, file);
     }
 
     /** 启动咨询会话。 */

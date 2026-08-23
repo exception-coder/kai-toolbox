@@ -5,11 +5,13 @@ import {
 import { Archive, Bug, CheckCircle2, CircleDashed, Copy, Database, GitBranch, Loader2, MessagesSquare, Paperclip, Quote, Send, ShieldAlert, Square, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import {
   Markdown,
+  uploadAttachment,
   type ChatItem,
   type UseClaudeChatSocket,
 } from '@/features/claude-chat/public-api'
-import { classifyConsultQuestion, dispatchConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
+import { classifyConsultQuestion, dispatchConsultQuestion, registerBug, submitFeedback } from '../api'
 import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type ConsultTurnAudit } from '../consultAudit'
+import type { ConsultDraftAttachment } from '../consultAttachmentDispatch'
 import { useConsultConversationRuntimeState } from '../consultConversationState'
 import { stripConsultRecognition } from '../consultRecognition'
 
@@ -34,7 +36,7 @@ function stripBug(text: string): string {
 import { ImageLightbox } from './ImageLightbox'
 import { ConsultConversationRuntimeStatus } from './ConsultConversationRuntimeStatus'
 
-type Att = { name: string; path: string; mime?: string | null; url?: string }
+type Att = ConsultDraftAttachment
 type Rating = 'GOOD' | 'BAD'
 
 const BAD_CATEGORIES = ['答非所问', '信息有误', '不够具体', '入口/步骤不对', '其他']
@@ -47,13 +49,15 @@ interface Props {
   questionTitle?: string | null
   systemLabel: string
   roleLabel: string
-  cwd: string
   onUploaded?: (name: string, path: string, mime?: string | null) => void
   onBugRegistered?: () => void
   onClose: () => void
   onArchive: () => void
   onStartNew: (title: string, question: string, attachments: Att[]) => Promise<void>
   archiving: boolean
+  startupPending?: boolean
+  startupError?: string | null
+  onRetryStartup?: () => void
 }
 
 /**
@@ -61,11 +65,15 @@ interface Props {
  * 复用 claude-chat 协议的业务咨询专用 WS（chat.open/send/items）驱动，结果在本面板同步渲染。
  * 会话从 consult 专用通道打开；服务端强制 consult-readonly，只允许读取与白名单 MCP。
  */
-export function ConsultConversation({ chat, consultId, questionTitle, systemLabel, roleLabel, cwd, onUploaded, onBugRegistered, onClose, onArchive, onStartNew, archiving }: Props) {
+export function ConsultConversation({
+  chat, consultId, questionTitle, systemLabel, roleLabel, onUploaded, onBugRegistered, onClose,
+  onArchive, onStartNew, archiving, startupPending = false, startupError, onRetryStartup,
+}: Props) {
   const [text, setText] = useState('')
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [atts, setAtts] = useState<Att[]>([])
   const [uploading, setUploading] = useState(0)
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [ratings, setRatings] = useState<Map<number, Rating>>(new Map())
   const [badDialog, setBadDialog] = useState<number | null>(null) // 打开不满意弹框的 turnIndex
   const [lightbox, setLightbox] = useState<string | null>(null) // 图片灯箱 src
@@ -301,16 +309,30 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
   const MAX_ATT = 10
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
+    const sessionId = chat.sessionId
+    if (!sessionId) {
+      setAttachmentError('会话尚未就绪，请稍后再上传附件')
+      return
+    }
+    setAttachmentError(null)
     const room = MAX_ATT - atts.length - uploading
     for (const f of Array.from(files).slice(0, Math.max(0, room))) {
       setUploading((n) => n + 1)
       try {
-        const up = await uploadConsultAttachment(f, cwd || undefined)
+        const up = await uploadAttachment(sessionId, f)
         onUploaded?.(up.name, up.path, up.mime)
         const url = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
-        setAtts((prev) => [...prev, { name: up.name, path: up.path, mime: up.mime, url }])
+        setAtts((prev) => [...prev, {
+          name: up.name,
+          path: up.path,
+          mime: up.mime,
+          url,
+          file: f,
+          uploadedSessionId: sessionId,
+        }])
       } catch (e) {
         console.error('[fore-consult] 附件上传失败', e)
+        setAttachmentError(e instanceof Error ? e.message : '附件上传失败，请重试')
       } finally {
         setUploading((n) => n - 1)
       }
@@ -514,14 +536,32 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
               )
             })
           })()}
-          <ConsultConversationRuntimeStatus
-            phase={conversationState.phase}
-            sessionReady={sessionReady}
-            runtimeFetching={runtime.runtimeFetching}
-            onRestoreQuestion={restoreLastQuestion}
-            onReconnect={reconnectSession}
-            onRefetchRuntime={() => void runtime.refetchRuntime()}
-          />
+          {startupError ? (
+            <div className="flex items-start justify-between gap-3 border-l-2 border-red-300 pl-3 text-xs text-slate-600">
+              <div>
+                <p className="font-medium text-slate-800">首问发送失败</p>
+                <p className="mt-1 leading-5 text-slate-500">{startupError}</p>
+              </div>
+              {onRetryStartup && (
+                <button type="button" onClick={onRetryStartup} className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50">
+                  重试发送
+                </button>
+              )}
+            </div>
+          ) : startupPending ? (
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <Loader2 className="size-3.5 animate-spin" /> 正在上传附件并发送首问…
+            </div>
+          ) : (
+            <ConsultConversationRuntimeStatus
+              phase={conversationState.phase}
+              sessionReady={sessionReady}
+              runtimeFetching={runtime.runtimeFetching}
+              onRestoreQuestion={restoreLastQuestion}
+              onReconnect={reconnectSession}
+              onRefetchRuntime={() => void runtime.refetchRuntime()}
+            />
+          )}
         </div>
 
         {/* 组合器 */}
@@ -544,6 +584,9 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
                   </div>
                 )}
               </div>
+            )}
+            {attachmentError && (
+              <p className="px-2 pb-1 text-xs text-red-600">{attachmentError}</p>
             )}
             <textarea
               ref={textRef}

@@ -397,28 +397,3 @@ export function updateBugStatus(bugId: string, status: string) {
 export function deleteBug(bugId: string) {
   return http<void>(`/fore-consult/bugs/${bugId}`, { method: 'DELETE' })
 }
-
-// ── 咨询附件上传（图片/Excel/Word/Markdown/PDF），落盘返回绝对路径供引擎 Read ──────────
-
-export interface ConsultAttachment {
-  name: string
-  path: string
-  mime?: string | null
-  size?: number
-}
-
-export async function uploadConsultAttachment(file: File, cwd?: string): Promise<ConsultAttachment> {
-  const fd = new FormData()
-  fd.append('file', file)
-  const q = cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''
-  const res = await authFetch(`/fore-consult/attachments${q}`, { method: 'POST', body: fd })
-  if (!res.ok) {
-    let msg = `上传失败（${res.status}）`
-    try {
-      const j = (await res.json()) as { message?: string }
-      if (j?.message) msg = j.message
-    } catch { /* ignore */ }
-    throw new Error(msg)
-  }
-  return res.json()
-}

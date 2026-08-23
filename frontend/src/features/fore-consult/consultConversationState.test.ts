@@ -82,6 +82,17 @@ describe('consult conversation state', () => {
     }).phase).toBe('idle')
   })
 
+  it('消息被明确拒绝时展示具体错误而不是通用无回答终态', () => {
+    const rejection: ChatItem = {
+      kind: 'error',
+      id: 'error-1',
+      code: 'MESSAGE_REJECTED',
+      message: '附件不属于当前会话',
+    }
+    expect(hasUnansweredUserTurn([user(), rejection])).toBe(false)
+    expect(derive({ items: [user(), rejection] }).phase).toBe('idle')
+  })
+
   it('Runtime 不可用时结束动画并进入可恢复状态', () => {
     const state = derive({
       runtimeState: undefined,

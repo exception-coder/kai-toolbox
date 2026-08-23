@@ -25,6 +25,8 @@ const UNRELIABLE_RUNTIME_CONSISTENCIES = new Set<SessionRuntimeState['consistenc
   'STALE',
 ])
 
+const SEND_REJECTION_CODES = new Set(['MESSAGE_REJECTED'])
+
 export const RUNTIME_TERMINAL_STARTUP_GRACE_MS = 30_000
 
 export type ConsultConversationPhase =
@@ -68,9 +70,9 @@ export function hasUnansweredUserTurn(items: ChatItem[]): boolean {
     }
   }
   if (lastUserIndex < 0) return false
-  return !items.slice(lastUserIndex + 1).some(
-    item => item.kind === 'assistant' && item.text.trim().length > 0,
-  )
+  return !items.slice(lastUserIndex + 1).some(item =>
+    (item.kind === 'assistant' && item.text.trim().length > 0)
+    || (item.kind === 'error' && SEND_REJECTION_CODES.has(item.code)))
 }
 
 function latestUserTurn(items: ChatItem[]): Extract<ChatItem, { kind: 'user' }> | undefined {

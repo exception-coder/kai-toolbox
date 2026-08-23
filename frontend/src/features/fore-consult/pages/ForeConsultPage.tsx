@@ -46,7 +46,6 @@ import {
   saveSystemPrefs,
   startConsult,
   syncConsultTurns,
-  uploadConsultAttachment,
   type ArchiveTurnItem,
   type ConsultAttRef,
   type ConsultOrchestrationVersion,
@@ -55,8 +54,12 @@ import {
   type TopoLink,
 } from '../api'
 import { parseConsultRecognition } from '../consultRecognition'
+import {
+  prepareConsultAttachments,
+  type ConsultDraftAttachment,
+} from '../consultAttachmentDispatch'
 
-type ConsultAtt = { name: string; path: string; mime?: string | null; url?: string }
+type ConsultAtt = ConsultDraftAttachment
 import '../styles/space.css'
 
 /**
@@ -496,7 +499,8 @@ export function ForeConsultPage() {
   const [modulesExpanded, setModulesExpanded] = useState(false)
   const [modulePickerOpen, setModulePickerOpen] = useState(false)
   const [attachments, setAttachments] = useState<ConsultAtt[]>([])
-  const [uploading, setUploading] = useState(0)
+  const [pendingDispatching, setPendingDispatching] = useState(false)
+  const [pendingDispatchError, setPendingDispatchError] = useState<string | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [conversationOpen, setConversationOpen] = useState(false)
   const [viewSession, setViewSession] = useState<{ id: string; title: string } | null>(null)
@@ -550,6 +554,8 @@ export function ForeConsultPage() {
     codexSpeed: CodexSpeed
     codexHome: string | null
     evidenceSystems: string[]
+    opened: boolean
+    dispatching: boolean
   } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 1600, height: 900 })
@@ -772,8 +778,9 @@ export function ForeConsultPage() {
 
   const deliver = useCallback(() => {
     const p = pendingRef.current
-    if (!p) return
-    pendingRef.current = null
+    if (!p || p.opened) return
+    p.opened = true
+    setPendingDispatchError(null)
     setActiveDevSessionBinding(null)
     pendingDevSessionLinkRef.current = { consultId: p.consultId, questionTitle: p.questionTitle }
     // 前端用 plan 表达只读意图；真正的安全边界由 consult WS 入口在服务端强制为 consult-readonly。
@@ -789,16 +796,46 @@ export function ForeConsultPage() {
         consultEvidenceSystems: p.evidenceSystems,
       },
     )
-    const atts = p.attachments.length
-      ? p.attachments.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
-      : undefined
-    chat.send(p.displayText, atts, undefined, p.seed)
-    setAttachments([])
     setModulePickerOpen(false)
     setPanelOpen(false)
     setConversationOpen(true)
     // 会话 id 异步产生，关联 + 分组交给下方 effect 监听 chat.sessionId 处理（比 setTimeout 读 null 可靠）。
   }, [chat, setActiveDevSessionBinding])
+
+  const dispatchPendingConsultMessage = useCallback(async () => {
+    const pending = pendingRef.current
+    const sessionId = chat.sessionId
+    if (!pending || !pending.opened || pending.dispatching || !sessionId) return
+    pending.dispatching = true
+    setPendingDispatching(true)
+    setPendingDispatchError(null)
+    try {
+      const uploadedAttachments = await prepareConsultAttachments(sessionId, pending.attachments)
+      for (const attachment of uploadedAttachments) {
+        attMetaRef.current.set(attachment.name, { path: attachment.path, mime: attachment.mime })
+      }
+      if (pendingRef.current !== pending) return
+      pendingRef.current = null
+      chat.send(
+        pending.displayText,
+        uploadedAttachments.length ? uploadedAttachments : undefined,
+        undefined,
+        pending.seed,
+      )
+      setAttachments([])
+    } catch (error) {
+      if (pendingRef.current === pending) {
+        pending.dispatching = false
+        setPendingDispatchError(error instanceof Error ? error.message : '附件上传失败，请重试')
+      }
+    } finally {
+      setPendingDispatching(false)
+    }
+  }, [chat.send, chat.sessionId])
+
+  useEffect(() => {
+    void dispatchPendingConsultMessage()
+  }, [dispatchPendingConsultMessage])
 
   // 仅将新建请求对应的咨询与其 ready 会话关联；恢复/切换不重写已有关联。
   const repairedHistoryTitlesRef = useRef<Set<string>>(new Set())
@@ -929,6 +966,8 @@ export function ForeConsultPage() {
         codexSpeed: created.codexSpeed || 'default',
         codexHome: created.codexHome,
         evidenceSystems: created.evidenceSystems,
+        opened: false,
+        dispatching: false,
       }
       deliver()
       setQuestionTitle('')
@@ -1177,24 +1216,21 @@ export function ForeConsultPage() {
     setModuleTags((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]))
   }
 
-  // 附件：图片（含粘贴）/ Excel / Word / Markdown / PDF —— 上传落盘，路径随 seed 投喂给引擎自行 Read。
+  // 首问附件先保留在浏览器；Agent 会话 ready 后再上传到该会话专属目录。
   const MAX_ATT = 10
-  const handleFiles = async (files: FileList | null) => {
+  const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return
-    const room = MAX_ATT - attachments.length - uploading
+    const room = MAX_ATT - attachments.length
     const take = Array.from(files).slice(0, Math.max(0, room))
     for (const f of take) {
-      setUploading((n) => n + 1)
-      try {
-        const att = await uploadConsultAttachment(f, systemPath || undefined)
-        attMetaRef.current.set(att.name, { path: att.path, mime: att.mime })
-        const url = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
-        setAttachments((prev) => [...prev, { name: att.name, path: att.path, mime: att.mime, url }])
-      } catch (e) {
-        console.error('[fore-consult] 附件上传失败', e)
-      } finally {
-        setUploading((n) => n - 1)
-      }
+      const url = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
+      setAttachments((prev) => [...prev, {
+        name: f.name || 'file',
+        path: `draft:${crypto.randomUUID()}`,
+        mime: f.type || null,
+        url,
+        file: f,
+      }])
     }
     if (fileRef.current) fileRef.current.value = ''
   }
@@ -1268,6 +1304,8 @@ export function ForeConsultPage() {
       codexSpeed: created.codexSpeed || 'default',
       codexHome: created.codexHome,
       evidenceSystems: created.evidenceSystems,
+      opened: false,
+      dispatching: false,
     }
     deliver()
     await qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
@@ -1299,7 +1337,7 @@ export function ForeConsultPage() {
 
   const canStart =
     !!system.trim() && !!questionTitle.trim() && (!!ask.trim() || attachments.length > 0)
-    && !!consultCodexHome.trim() && uploading === 0 && !startMutation.isPending
+    && !!consultCodexHome.trim() && !startMutation.isPending
     && initialSessionStateResolved
   const retryInitialSessionState = () => {
     void Promise.all([historyQuery.refetch(), devSessionsQuery.refetch()])
@@ -1849,7 +1887,7 @@ export function ForeConsultPage() {
                 className="h-9 min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
               />
             </div>
-            {(attachments.length > 0 || uploading > 0) && (
+            {attachments.length > 0 && (
               <div className="mb-1 flex max-h-16 flex-wrap gap-1.5 overflow-y-auto px-1">
                 {attachments.map((a) => (
                   <div key={a.path} className="fc-attach-thumb relative flex items-center gap-1.5 rounded-lg py-1 pl-1 pr-6 text-[11px] text-slate-600">
@@ -1871,11 +1909,6 @@ export function ForeConsultPage() {
                     </button>
                   </div>
                 ))}
-                {uploading > 0 && (
-                  <div className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] text-slate-400">
-                    <Loader2 className="size-3 animate-spin" /> 上传中…
-                  </div>
-                )}
               </div>
             )}
             <textarea
@@ -1926,7 +1959,7 @@ export function ForeConsultPage() {
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  disabled={!initialSessionStateResolved || attachments.length + uploading >= MAX_ATT}
+                  disabled={!initialSessionStateResolved || attachments.length >= MAX_ATT}
                   className="flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-slate-500 transition-colors hover:bg-white/65 hover:text-slate-900 disabled:opacity-35"
                   title="上传图片、Excel、Word、Markdown 或 PDF；也可直接粘贴图片"
                 >
@@ -1961,13 +1994,15 @@ export function ForeConsultPage() {
           questionTitle={activeQuestionTitle}
           systemLabel={displayName(system)}
           roleLabel={ROLE_META[role].label}
-          cwd={systemPath || system.trim()}
           onUploaded={(name, path, mime) => attMetaRef.current.set(name, { path, mime })}
           onBugRegistered={() => qc.invalidateQueries({ queryKey: ['fore-consult-bugs'] })}
           onClose={() => setConversationOpen(false)}
           onArchive={triggerArchive}
           onStartNew={startDetectedNewConsult}
           archiving={archiveMutation.isPending}
+          startupPending={pendingDispatching}
+          startupError={pendingDispatchError}
+          onRetryStartup={() => void dispatchPendingConsultMessage()}
         />
       )}
 
