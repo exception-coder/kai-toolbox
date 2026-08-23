@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.treesize.domain.DeleteOutcome;
 import com.exceptioncoder.toolbox.treesize.domain.FailedDelete;
 import com.exceptioncoder.toolbox.treesize.domain.VideoFile;
 import com.exceptioncoder.toolbox.treesize.repository.NodeRepository;
+import com.exceptioncoder.toolbox.treesize.repository.VideoTableRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -37,10 +38,13 @@ public class FileDeleteService {
 
     private final NodeRepository nodes;
     private final FailedDeleteRegistry failedDeletes;
+    private final VideoTableRepository videos;
 
-    public FileDeleteService(NodeRepository nodes, FailedDeleteRegistry failedDeletes) {
+    public FileDeleteService(NodeRepository nodes, FailedDeleteRegistry failedDeletes,
+                             VideoTableRepository videos) {
         this.nodes = nodes;
         this.failedDeletes = failedDeletes;
+        this.videos = videos;
     }
 
     /** Backoff between attempts (ms). Length determines retry count = backoff.length + 1. */
@@ -132,6 +136,7 @@ public class FileDeleteService {
      */
     public void purgeMissingRecord(String scanId, String requestedPath) {
         nodes.deleteByScanAndPath(scanId, requestedPath);
+        videos.deleteByPath(requestedPath);
         failedDeletes.remove(requestedPath);
         nodes.invalidateVideoLibraryCache();
         log.info("delete: file already gone on disk, purged db record scanId={} path={}", scanId, requestedPath);
@@ -139,6 +144,7 @@ public class FileDeleteService {
 
     private void onDeleted(String scanId, String absPath) {
         nodes.deleteByScanAndPath(scanId, absPath);
+        videos.deleteByPath(absPath);
         failedDeletes.remove(absPath);
         nodes.invalidateVideoLibraryCache();
     }

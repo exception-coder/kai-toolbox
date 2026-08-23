@@ -11,6 +11,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.Locale;
+import com.exceptioncoder.toolbox.treesize.domain.VideoFile;
+import com.exceptioncoder.toolbox.treesize.repository.NodeRepository.VideoSearchResult;
 
 /**
  * treesize_video 表的所有 JDBC 读写。各子模块（语言识别 / 九宫格 / 年龄 / 时长 / 名称归类 /
@@ -40,6 +44,66 @@ public class VideoTableRepository {
 
     public VideoTableRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    /** 自主目录扫描的轻量输入。 */
+    public record ScannedVideo(String path, String name, String parentPath, String extension, long size) {}
+
+    /** 批量写基础事实；文件大小变化时清空所有可能过期的衍生结果。 */
+    public void upsertScannedBatch(String rootId, List<ScannedVideo> videos, long seenAt) {
+        jdbc.batchUpdate("""
+                INSERT INTO treesize_video(path,name,parent_path,ext,size,source_scan_id,first_synced_at,last_synced_at)
+                VALUES(?,?,?,?,?,?,?,?)
+                ON CONFLICT(path) DO UPDATE SET
+                  name=excluded.name,parent_path=excluded.parent_path,ext=excluded.ext,
+                  source_scan_id=excluded.source_scan_id,last_synced_at=excluded.last_synced_at,
+                  duration_s=CASE WHEN treesize_video.size<>excluded.size THEN NULL ELSE duration_s END,
+                  duration_bucket=CASE WHEN treesize_video.size<>excluded.size THEN NULL ELSE duration_bucket END,
+                  width=CASE WHEN treesize_video.size<>excluded.size THEN NULL ELSE width END,
+                  height=CASE WHEN treesize_video.size<>excluded.size THEN NULL ELSE height END,
+                  video_codec=CASE WHEN treesize_video.size<>excluded.size THEN NULL ELSE video_codec END,
+                  audio_codec=CASE WHEN treesize_video.size<>excluded.size THEN NULL ELSE audio_codec END,
+                  thumbnail_grid_path=CASE WHEN treesize_video.size<>excluded.size THEN NULL ELSE thumbnail_grid_path END,
+                  thumbnail_grid_generated_at=CASE WHEN treesize_video.size<>excluded.size THEN NULL ELSE thumbnail_grid_generated_at END,
+                  size=excluded.size
+                """, videos, videos.size(), (ps, video) -> {
+            ps.setString(1, video.path()); ps.setString(2, video.name());
+            ps.setString(3, video.parentPath()); ps.setString(4, video.extension());
+            ps.setLong(5, video.size()); ps.setString(6, rootId);
+            ps.setLong(7, seenAt); ps.setLong(8, seenAt);
+        });
+    }
+
+    public void deleteMissingFromRoot(String rootId, long scanStartedAt) {
+        jdbc.update("DELETE FROM treesize_video WHERE source_scan_id=? AND last_synced_at<?", rootId, scanStartedAt);
+    }
+
+    public void deleteByPath(String path) {
+        jdbc.update("DELETE FROM treesize_video WHERE path=?", path);
+    }
+
+    /** 以视频事实表直接支撑清单；历史 TreeSize 导入记录通过 COALESCE 保持可见。 */
+    public VideoSearchResult findLibraryVideos(String sortBy, String order, long min, long max,
+                                                String query, boolean favoritesOnly, String language,
+                                                String dir, int offset, int limit) {
+        StringBuilder where = new StringBuilder(" WHERE v.size>=? AND v.size<?");
+        List<Object> args = new ArrayList<>(); args.add(min); args.add(max);
+        if (query != null && !query.isBlank()) { where.append(" AND v.name LIKE ? ESCAPE '\\'"); args.add("%" + query.trim().replace("%", "\\%").replace("_", "\\_") + "%"); }
+        if (favoritesOnly) where.append(" AND f.path IS NOT NULL");
+        if (language != null && !language.isBlank()) { where.append(" AND v.language=?"); args.add(language.trim()); }
+        if (dir != null && !dir.isBlank()) { where.append(" AND (v.parent_path=? OR v.parent_path LIKE ?)"); args.add(dir); args.add(dir + "%"); }
+        Long total = jdbc.queryForObject("SELECT COUNT(*) FROM treesize_video v LEFT JOIN treesize_video_favorite f ON f.path=v.path" + where, Long.class, args.toArray());
+        String column = "size".equals(sortBy) ? "v.size" : "duration".equals(sortBy) ? "v.duration_s" : "v.name COLLATE NOCASE";
+        String direction = "desc".equalsIgnoreCase(order) ? " DESC" : " ASC";
+        String sql = "SELECT v.source_scan_id,COALESCE(r.path,s.root_path,v.parent_path) root_path,v.path,v.name,v.size,(f.path IS NOT NULL) favorited "
+                + "FROM treesize_video v LEFT JOIN video_scan_root r ON r.id=v.source_scan_id "
+                + "LEFT JOIN treesize_scan s ON s.id=v.source_scan_id LEFT JOIN treesize_video_favorite f ON f.path=v.path"
+                + where + " ORDER BY " + column + direction + ",v.path ASC LIMIT ? OFFSET ?";
+        args.add(limit); args.add(offset);
+        List<VideoFile> items = jdbc.query(sql, (rs, row) -> new VideoFile(rs.getString("source_scan_id"),
+                rs.getString("root_path"), rs.getString("path"), rs.getString("name"), rs.getLong("size"),
+                rs.getInt("favorited") == 1), args.toArray());
+        return new VideoSearchResult(items, total == null ? 0 : total);
     }
 
     // ==================================================================================

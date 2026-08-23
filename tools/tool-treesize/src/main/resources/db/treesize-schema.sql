@@ -169,6 +169,22 @@ CREATE INDEX IF NOT EXISTS idx_video_duration_pending ON treesize_video(size DES
 CREATE INDEX IF NOT EXISTS idx_video_series_null      ON treesize_video(size DESC) WHERE series_signature IS NULL;
 CREATE INDEX IF NOT EXISTS idx_video_person_age_null  ON treesize_video(size DESC) WHERE thumbnail_grid_path IS NOT NULL AND person_main_age_group IS NULL;
 
+-- 视频库自主扫描根目录。source_scan_id 对自主扫描记录保存本表 id；历史导入仍保存 treesize_scan.id。
+CREATE TABLE IF NOT EXISTS video_scan_root (
+    id          TEXT PRIMARY KEY,
+    path        TEXT NOT NULL UNIQUE,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    last_scan_at INTEGER,
+    video_count INTEGER NOT NULL DEFAULT 0,
+    total_size  INTEGER NOT NULL DEFAULT 0,
+    status      TEXT NOT NULL DEFAULT 'IDLE',
+    error_msg   TEXT,
+    create_time INTEGER NOT NULL,
+    update_time INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_source_scan ON treesize_video(source_scan_id, last_synced_at);
+
 -- 视频处理任务跟踪表：语言识别 / 九宫格 / 时长分类 / 名称归类 / 人物年龄 / 视觉嵌入 / 聚类
 -- 所有任务统一通过 VideoProcessingJobService + ProcessingJobRepository 调度。
 -- 同一种 type 同一时间只允许一个 RUNNING（应用层保证）。

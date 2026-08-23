@@ -17,11 +17,14 @@ import com.exceptioncoder.toolbox.treesize.service.VideoProcessingJobService;
 import com.exceptioncoder.toolbox.treesize.service.VideoMergeService;
 import com.exceptioncoder.toolbox.treesize.service.VideoSyncService;
 import com.exceptioncoder.toolbox.treesize.service.VideoThumbnailGridService;
+import com.exceptioncoder.toolbox.treesize.service.VideoDirectoryScanService;
+import com.exceptioncoder.toolbox.treesize.domain.VideoScanRoot;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -66,6 +69,7 @@ public class VideoProcessingController {
     private final VideoProcessingJobService jobService;
     private final VideoTableRepository videoRepo;
     private final WhisperProperties whisperProps;
+    private final VideoDirectoryScanService directoryScanService;
 
     public VideoProcessingController(VideoSyncService syncService,
                                       VideoDurationProbeService durationService,
@@ -75,7 +79,8 @@ public class VideoProcessingController {
                                       VideoMergeService mergeService,
                                       VideoProcessingJobService jobService,
                                       VideoTableRepository videoRepo,
-                                      WhisperProperties whisperProps) {
+                                      WhisperProperties whisperProps,
+                                      VideoDirectoryScanService directoryScanService) {
         this.syncService = syncService;
         this.durationService = durationService;
         this.nameGroupingService = nameGroupingService;
@@ -85,6 +90,40 @@ public class VideoProcessingController {
         this.jobService = jobService;
         this.videoRepo = videoRepo;
         this.whisperProps = whisperProps;
+        this.directoryScanService = directoryScanService;
+    }
+
+    @GetMapping("/scan-roots")
+    public List<VideoScanRoot> scanRoots() {
+        return directoryScanService.listRoots();
+    }
+
+    @PostMapping("/scan-roots")
+    public VideoScanRoot addScanRoot(@RequestBody Map<String, String> request) throws IOException {
+        return directoryScanService.addRoot(request.getOrDefault("path", ""));
+    }
+
+    @DeleteMapping("/scan-roots/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeScanRoot(@PathVariable String id) {
+        directoryScanService.removeRoot(id);
+    }
+
+    @PostMapping("/directory-scan/start")
+    public Map<String, Object> startDirectoryScan() {
+        boolean started = directoryScanService.start();
+        return Map.of("started", started, "running", true);
+    }
+
+    @PostMapping("/directory-scan/stop")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void stopDirectoryScan() {
+        directoryScanService.stop();
+    }
+
+    @GetMapping("/directory-scan/status")
+    public Map<String, Boolean> directoryScanStatus() {
+        return Map.of("running", directoryScanService.isRunning());
     }
 
     // ==============================================================================

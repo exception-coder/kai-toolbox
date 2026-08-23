@@ -32,6 +32,7 @@ import com.exceptioncoder.toolbox.treesize.domain.VideoSizeBucket;
 import com.exceptioncoder.toolbox.treesize.repository.NodeRepository;
 import com.exceptioncoder.toolbox.treesize.repository.ScanRepository;
 import com.exceptioncoder.toolbox.treesize.repository.SubtitleJobRepository;
+import com.exceptioncoder.toolbox.treesize.repository.VideoTableRepository;
 import com.exceptioncoder.toolbox.treesize.service.ActivePlaybackTracker;
 import com.exceptioncoder.toolbox.treesize.service.FileDeleteService;
 import com.exceptioncoder.toolbox.treesize.service.HlsService;
@@ -92,6 +93,7 @@ public class TreeSizeController {
     private final TaskAssembler taskAssembler;
     private final DeepLXTranslator translator;
     private final VideoShareService videoShares;
+    private final VideoTableRepository videoTable;
 
     public TreeSizeController(ScanService scanService,
                               ScanRepository scans,
@@ -115,7 +117,8 @@ public class TreeSizeController {
                               TaskBroadcaster taskBroadcaster,
                               TaskAssembler taskAssembler,
                               DeepLXTranslator translator,
-                              VideoShareService videoShares) {
+                              VideoShareService videoShares,
+                              VideoTableRepository videoTable) {
         this.scanService = scanService;
         this.scans = scans;
         this.nodes = nodes;
@@ -139,6 +142,7 @@ public class TreeSizeController {
         this.taskAssembler = taskAssembler;
         this.translator = translator;
         this.videoShares = videoShares;
+        this.videoTable = videoTable;
     }
 
     // ---------- existing endpoints (unchanged) ---------------------------
@@ -367,10 +371,9 @@ public class TreeSizeController {
         // Side-effect: kick the background thumbnail warmer the first time the library is
         // viewed in this JVM lifetime. Subsequent paginated calls are no-ops.
         thumbnailWarmer.kickOff();
-        var result = nodes.findVideos(libraryExtensions, sortBy, order,
+        var result = videoTable.findLibraryVideos(sortBy, order,
                 bucket.minBytesInclusive(), bucket.maxBytesExclusive(),
-                q, favoritesOnly, language, excludeDirs, dir,
-                safeOffset, safeLimit);
+                q, favoritesOnly, language, dir, safeOffset, safeLimit);
         return new VideoLibraryPageView(
                 result.items().stream().map(VideoLibraryItemView::from).toList(),
                 result.total(),

@@ -1,9 +1,9 @@
-import { useState } from 'react'
-import { Clock, Grid3X3, Languages, Loader2, RefreshCw, Tags } from 'lucide-react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { Clock, FolderPlus, Grid3X3, Languages, Loader2, RefreshCw, Tags } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
-import { durationProbeApi, getProcessingOverview, getWhisperCapability, languageDetectApi, nameGroupingApi, syncVideoLibrary, thumbnailGridApi } from '../api'
+import { addVideoScanRoot, durationProbeApi, getProcessingOverview, getVideoDirectoryScanStatus, getVideoScanRoots, getWhisperCapability, languageDetectApi, nameGroupingApi, startVideoDirectoryScan, thumbnailGridApi } from '../api'
 import { ProcessingJobButton } from './ProcessingJobButton'
 
 /**
@@ -19,7 +19,7 @@ import { ProcessingJobButton } from './ProcessingJobButton'
  */
 export function VideoProcessingToolbar() {
   const confirm = useConfirm()
-  const [, setBumpKey] = useState(0)
+  const queryClient = useQueryClient()
 
   // 各任务"已完成/总数"累计进度。挂载拉一次；任务结束 / 同步后重拉。
   const overviewQuery = useQuery({
@@ -29,55 +29,33 @@ export function VideoProcessingToolbar() {
   const ov = overviewQuery.data
   const refreshOverview = () => { void overviewQuery.refetch() }
 
+  const rootsQuery = useQuery({ queryKey: ['video-scan-roots'], queryFn: getVideoScanRoots })
+  const scanStatusQuery = useQuery({
+    queryKey: ['video-directory-scan-status'], queryFn: getVideoDirectoryScanStatus,
+    refetchInterval: query => query.state.data?.running ? 1_000 : false,
+  })
+
+  const addRootMutation = useMutation({
+    mutationFn: addVideoScanRoot,
+    onSuccess: () => rootsQuery.refetch(),
+  })
+  const directoryScanMutation = useMutation({
+    mutationFn: startVideoDirectoryScan,
+    onSuccess: () => scanStatusQuery.refetch(),
+  })
+
+  useEffect(() => {
+    if (!scanStatusQuery.data?.running) return
+    void queryClient.invalidateQueries({ queryKey: ['video-library'] })
+    void queryClient.invalidateQueries({ queryKey: ['video-scan-roots'] })
+  }, [scanStatusQuery.data?.running, scanStatusQuery.dataUpdatedAt, queryClient])
+
   // whisper 后端能力：mode 由启动参数定，进程生命周期内不变，拉一次即可。
   // 「识别语言」在 asr-service 模式下后端会直接 503，靠它把按钮提前禁掉。
   const whisperQuery = useQuery({
     queryKey: ['whisper-capability'],
     queryFn: getWhisperCapability,
     staleTime: Infinity,
-  })
-
-  const syncMutation = useMutation({
-    mutationFn: syncVideoLibrary,
-    onSuccess: async (r) => {
-      await confirm({
-        title: '同步完成',
-        description: (
-          <div className="space-y-1 text-sm">
-            <div>扫描视频 <strong className="tabular-nums">{r.scannedFromNode}</strong> 个</div>
-            <div>
-              新增{' '}
-              <strong className="tabular-nums text-emerald-600 dark:text-emerald-400">
-                {r.insertedNew}
-              </strong>{' '}
-              条 · 已存在跳过 <span className="tabular-nums">{r.skippedExisting}</span>
-            </div>
-            {r.skippedTooSmall > 0 && (
-              <div className="text-xs text-[var(--color-muted-foreground)]">
-                （另过滤掉 {r.skippedTooSmall} 个 &lt; 30KB 的噪音文件）
-              </div>
-            )}
-            <div className="text-xs text-[var(--color-muted-foreground)]">
-              耗时 {r.elapsedMs} ms
-            </div>
-          </div>
-        ),
-        confirmText: '知道了',
-        cancelText: '关闭',
-      })
-      // 同步后视频表多了新行，触发 ProcessingJobButton 重拉 status 把 total 刷新
-      setBumpKey(k => k + 1)
-      refreshOverview()
-    },
-    onError: async (e) => {
-      const msg = e instanceof ApiError ? e.message : String(e)
-      await confirm({
-        title: '同步失败',
-        description: msg,
-        confirmText: '知道了',
-        cancelText: '关闭',
-      })
-    },
   })
 
   const handleStartError = async (message: string) => {
@@ -96,15 +74,26 @@ export function VideoProcessingToolbar() {
       </span>
       <button
         type="button"
-        onClick={() => syncMutation.mutate()}
-        disabled={syncMutation.isPending}
-        title="把已扫描的视频汇总到视频表（已存在不动）"
+        onClick={() => {
+          const path = window.prompt('输入要扫描的视频目录绝对路径')?.trim()
+          if (path) addRootMutation.mutate(path)
+        }}
+        disabled={addRootMutation.isPending}
+        title="登记一个独立视频扫描目录"
         className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-50"
       >
-        {syncMutation.isPending
-          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          : <RefreshCw className="h-3.5 w-3.5" />}
-        同步视频库
+        <FolderPlus className="h-3.5 w-3.5" />
+        添加目录
+      </button>
+      <button
+        type="button"
+        onClick={() => directoryScanMutation.mutate()}
+        disabled={directoryScanMutation.isPending || scanStatusQuery.data?.running || !rootsQuery.data?.length}
+        title="只扫描已登记目录中的视频文件，不依赖磁盘空间扫描"
+        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-50"
+      >
+        {scanStatusQuery.data?.running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        {scanStatusQuery.data?.running ? '扫描中' : `扫描目录${rootsQuery.data?.length ? ` (${rootsQuery.data.length})` : ''}`}
       </button>
       <ProcessingJobButton
         label="探测时长"

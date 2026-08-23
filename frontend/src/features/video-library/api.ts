@@ -236,6 +236,35 @@ export function syncVideoLibrary() {
   return http<VideoSyncResult>('/treesize/videos/sync', { method: 'POST' })
 }
 
+export interface VideoScanRoot {
+  id: string
+  path: string
+  enabled: boolean
+  lastScanAt: number | null
+  videoCount: number
+  totalSize: number
+  status: 'IDLE' | 'RUNNING' | 'DONE' | 'FAILED'
+  errorMessage: string | null
+}
+
+export function getVideoScanRoots() {
+  return http<VideoScanRoot[]>('/treesize/videos/scan-roots')
+}
+
+export function addVideoScanRoot(path: string) {
+  return http<VideoScanRoot>('/treesize/videos/scan-roots', {
+    method: 'POST', body: JSON.stringify({ path }),
+  })
+}
+
+export function startVideoDirectoryScan() {
+  return http<{ started: boolean; running: boolean }>('/treesize/videos/directory-scan/start', { method: 'POST' })
+}
+
+export function getVideoDirectoryScanStatus() {
+  return http<{ running: boolean }>('/treesize/videos/directory-scan/status')
+}
+
 /** 视频合并结果。POST /videos/merge 同步返回。 */
 export interface VideoMergeResult {
   outputPath: string
