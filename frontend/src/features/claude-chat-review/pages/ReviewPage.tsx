@@ -6,6 +6,7 @@ import {
   MessageList,
   AttachmentChips,
   QueuedList,
+  ReviewContextOverview,
   getPublicReview,
   loadPublicReviewMessages,
   submitPublicReviewFeedback,
@@ -290,12 +291,10 @@ export function ReviewPage() {
       </header>
       {runningTitle && <div className="mx-auto flex w-full max-w-5xl items-center gap-2 border-b border-indigo-200 bg-indigo-50/70 px-4 py-2 text-xs text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200"><ReviewAvatar className="size-7 rounded-full object-cover" /><Loader2 className="size-3.5 animate-spin" /><span>{runningTitle}</span></div>}
       {review.contextSnapshot && (
-        <details open={snapshotOpen} onToggle={event => setSnapshotOpen(event.currentTarget.open)} className="mx-auto w-full max-w-5xl border-b px-4 py-2 text-xs">
-          <summary className="cursor-pointer text-slate-500">评审依据：分享时保存的需求/计划快照</summary>
-          <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/60 p-3 text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100">
-            <p className="mb-2 text-[11px] text-indigo-700 dark:text-indigo-300">这是创建评审链接时固定保存的开发上下文，仅供评审参考；下方消息区只显示评审人员后续提出的问题和 AI 评审回复。</p>
-            <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-white/70 p-3 text-slate-800 dark:bg-slate-950/70 dark:text-slate-100">{review.contextSnapshot}</pre>
-          </div>
+        <details open={snapshotOpen} onToggle={event => setSnapshotOpen(event.currentTarget.open)} className="mx-auto w-full max-w-5xl border-b px-4 py-3 text-xs">
+          <summary className="cursor-pointer font-medium text-slate-600 dark:text-slate-300">评审依据 · 分享时确认的项目模块与规格基线</summary>
+          <p className="mt-2 text-xs leading-5 text-slate-500">这是创建链接时固定保存的业务上下文。AI 回答会以其中的核心索引为依据；存在证据缺口时会明确提示。</p>
+          <ReviewContextOverview snapshot={review.contextSnapshot} publicView className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-800" />
         </details>
       )}
       {visibleError && <div className="mx-auto mt-2 flex w-full max-w-5xl gap-2 px-4 text-sm text-red-600"><AlertTriangle className="size-4 shrink-0" />{visibleError}</div>}

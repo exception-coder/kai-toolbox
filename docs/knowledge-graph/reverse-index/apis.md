@@ -61,3 +61,13 @@
 | `GET /api/claude-chat/reviews/public/{token}` | 以摘要校验公开访问，并为旧记录补存密文 | 公开评审页 | 补存必须以当前摘要为条件，避免覆盖并发换新的 token |
 
 契约变更时必须同步 `ReviewRelationContext`、令牌密文边界、历史链接交互和原链接/旧数据兼容测试。
+
+## Vibe Coding 项目模块目录
+
+定义：`tools/tool-claude-chat/src/main/java/com/exceptioncoder/toolbox/claudechat/api/WorkspaceController.java:70`
+
+| API | 写入/读取 | 前端调用者 | 决策影响 |
+|---|---|---|---|
+| `GET /api/claude-chat/workspaces/modules?path=...` | 读取 `modules.json`，缺失时降级为目录扫描 | 项目工作台、会话模块选择、`ReviewShareDialog` | `ModuleView.key` 是分享评审的稳定模块索引；`fromKnowledge=false` 时只能标记为降级基线，且分享前必须人工确认 |
+
+接口契约变更时必须同步 `ProjectModulesResponse.ModuleView`、前端 `ProjectModule`、工作区扫描测试和计划评审上下文快照。

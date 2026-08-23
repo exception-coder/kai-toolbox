@@ -1689,6 +1689,7 @@ export function ChatPage() {
           open
           sessionId={chat.sessionId}
           sessionTitle={currentTitle}
+          cwd={currentSession?.cwd || ''}
           systemName={currentSession?.group || headerCwdName(currentSession?.cwd || '') || '当前系统'}
           moduleName={currentSession?.subgroup || currentTitle || '当前需求'}
           engine={chat.currentEngine}
@@ -1696,6 +1697,7 @@ export function ChatPage() {
           codexHome={currentSession?.codexHome || newCodexHome}
           officialProvider={currentSession?.providerKind !== 'thirdParty'}
           items={chat.items}
+          linkedPrd={linkedPrd}
           onClose={() => {
             setShowReviewShare(false)
             void refetchReviewRelations()

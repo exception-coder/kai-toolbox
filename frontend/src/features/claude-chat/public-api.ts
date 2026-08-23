@@ -5,6 +5,7 @@ export { EngineIcon } from './components/EngineIcon'
 export { Markdown } from './components/Markdown'
 export { MessageList } from './components/MessageList'
 export { QueuedList } from './components/QueuedList'
+export { ReviewContextOverview } from './components/ReviewContextOverview'
 export { engineName } from './components/chatStatus'
 export {
   getPublicReview,

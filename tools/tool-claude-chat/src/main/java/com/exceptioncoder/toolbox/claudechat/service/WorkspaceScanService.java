@@ -767,7 +767,8 @@ public class WorkspaceScanService implements LocalProjectResolver {
         }
         String relStr = root.relativize(cwd).toString().replace('\\', '/');
         String moduleName = (m.name() == null || m.name().isBlank()) ? cwd.getFileName().toString() : m.name();
-        return new ModuleView(moduleName, relStr, cwd.toString(), "knowledge",
+        String moduleKey = m.key() == null || m.key().isBlank() ? relStr : m.key().trim();
+        return new ModuleView(moduleKey, moduleName, relStr, cwd.toString(), "knowledge",
                 m.summary() == null ? "" : m.summary(), List.copyOf(children),
                 codeAbs == null ? "" : codeAbs.toString(), webAbs == null ? "" : webAbs.toString(),
                 webPaths.stream().map(Path::toString).toList());
@@ -818,7 +819,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
         if (type != null) {
             Path rel = projectRoot.relativize(dir);
             String relStr = rel.toString().isEmpty() ? "." : rel.toString().replace('\\', '/');
-            out.add(new ModuleView(dir.getFileName().toString(), relStr, dir.toString(), type, "", List.of(),
+            out.add(new ModuleView(relStr, dir.getFileName().toString(), relStr, dir.toString(), type, "", List.of(),
                     dir.toString(), "", List.of()));
         }
         if (depth >= MODULE_MAX_DEPTH) return;

@@ -161,6 +161,8 @@ export interface CloneResult {
 
 /** 项目内识别出的一个可工作模块。children 为知识库声明的嵌套子模块。 */
 export interface ProjectModule {
+  /** modules.json 稳定模块 key；自动识别时为相对项目路径。 */
+  key?: string
   name: string
   relPath: string
   absPath: string

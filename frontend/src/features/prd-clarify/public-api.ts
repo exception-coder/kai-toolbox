@@ -4,6 +4,7 @@ export {
   estimateDevDocEffort,
   evaluateProgress,
   getContent,
+  getInitialSpecContent,
   getDevDocContent,
   getDocChangeHistory,
   getLatestDocChangeCandidate,

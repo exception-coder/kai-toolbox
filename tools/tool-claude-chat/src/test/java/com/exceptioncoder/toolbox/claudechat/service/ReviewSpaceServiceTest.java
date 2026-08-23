@@ -173,6 +173,7 @@ class ReviewSpaceServiceTest {
                         "【本轮意图】", "UNKNOWN", "### 需求标题：简短标题",
                         "需求说明", "待确认项", "验收场景")
                 .contains("旧的 <!-- forge-review-intent:... --> 标记仅作历史兼容")
+                .contains("稳定索引 ID", "基于本轮评审补充", "DEGRADED", "不得伪造或改写 ID")
                 .contains("不得在回复中输出源码文件、类名、接口、数据库表或字段、SQL")
                 .doesNotContain("REQUIREMENT（需求反馈）", "CONSULTATION（沟通咨询）")
                 .doesNotContain("帮助业务、测试和开发人员");

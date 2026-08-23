@@ -21,6 +21,7 @@ public record ProjectModulesResponse(String project, String projectPath, boolean
                                      List<ModuleView> modules) {
 
     /**
+     * @param key      modules.json 稳定模块 key；自动扫描时使用相对路径作为降级 key
      * @param name     模块目录名或业务中文名
      * @param relPath  相对项目根的路径（项目根自身为 "."）；用斜杠分隔
      * @param absPath  模块绝对路径，作为 claude-chat 会话的 cwd
@@ -32,7 +33,7 @@ public record ProjectModulesResponse(String project, String projectPath, boolean
      * @param webPath  前端代码目录绝对路径（知识库模块来自 modules.json）；无则空串。供新建会话时把编码范围带进提示词
      * @param webPaths 前端代码目录绝对路径集合；兼容 modules.json 的 webPath 与 webPaths
      */
-    public record ModuleView(String name, String relPath, String absPath, String type,
+    public record ModuleView(String key, String name, String relPath, String absPath, String type,
                              String summary, List<ModuleView> children, String codePath, String webPath,
                              List<String> webPaths) {
     }
