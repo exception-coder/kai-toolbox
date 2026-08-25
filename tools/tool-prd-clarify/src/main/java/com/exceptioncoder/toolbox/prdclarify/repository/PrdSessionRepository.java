@@ -63,6 +63,15 @@ public class PrdSessionRepository {
             .progressPath(rs.getString("progress_path"))
             .progressGeneratedAt(rs.getObject("progress_generated_at") == null ? null : rs.getLong("progress_generated_at"))
             .progressHistory(rs.getString("progress_history"))
+            .progressWorkStatus(rs.getString("progress_work_status"))
+            .progressWorkStage(rs.getString("progress_work_stage"))
+            .progressWorkError(rs.getString("progress_work_error"))
+            .progressWorkStartedAt(rs.getObject("progress_work_started_at") == null
+                    ? null : rs.getLong("progress_work_started_at"))
+            .progressWorkCompletedAt(rs.getObject("progress_work_completed_at") == null
+                    ? null : rs.getLong("progress_work_completed_at"))
+            .progressWorkUpdatedAt(rs.getObject("progress_work_updated_at") == null
+                    ? null : rs.getLong("progress_work_updated_at"))
             .parentId(rs.getString("parent_id"))
             .createdByUserId(rs.getObject("created_by_user_id") == null ? null : rs.getLong("created_by_user_id"))
             .model(rs.getString("model"))
@@ -381,6 +390,24 @@ public class PrdSessionRepository {
      */
     public void updateProgressHistory(String id, String progressHistoryJson) {
         jdbc.update("UPDATE prd_session SET progress_history = ? WHERE id = ?", progressHistoryJson, id);
+    }
+
+    /** 保存本地代码分析后台任务快照，不改变规格内容的新旧判断。 */
+    public void updateProgressWorkSnapshot(String id, String status, String stage, String error,
+                                           Long startedAt, Long completedAt, long updatedAt) {
+        jdbc.update("UPDATE prd_session SET progress_work_status = ?, progress_work_stage = ?, "
+                        + "progress_work_error = ?, progress_work_started_at = ?, "
+                        + "progress_work_completed_at = ?, progress_work_updated_at = ? WHERE id = ?",
+                status, stage, error, startedAt, completedAt, updatedAt, id);
+    }
+
+    /** 应用重启后无法续跑进程内任务，将遗留运行态收敛为可重试失败态。 */
+    public int failInterruptedProgressWork(String error, long updatedAt) {
+        return jdbc.update("UPDATE prd_session SET progress_work_status = 'ERROR', "
+                        + "progress_work_stage = '本地代码分析已中断', progress_work_error = ?, "
+                        + "progress_work_completed_at = ?, progress_work_updated_at = ? "
+                        + "WHERE progress_work_status = 'RUNNING'",
+                error, updatedAt, updatedAt);
     }
 
     /**

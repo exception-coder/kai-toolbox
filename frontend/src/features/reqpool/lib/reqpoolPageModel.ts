@@ -24,12 +24,10 @@ export interface ReqpoolAiInsight {
 }
 
 const DEFAULT_FIELDS: ReqpoolDisplayField[] = [
-  { id: 'decision', label: '统一判定', description: 'AI 按统一规则给出的投入建议', enabled: true, ai: true },
-  { id: 'requirement', label: '需求事实', description: '标题、系统模块、URL 定位与事实质量', enabled: true },
-  { id: 'value', label: '业务价值', description: '目标、影响与预期收益', enabled: true, ai: true },
-  { id: 'owner', label: '责任与时间', description: '唯一负责人和承诺时间', enabled: true },
-  { id: 'delivery', label: '交付证据', description: '需求规格、执行方案、代码自动回填', enabled: true, ai: true },
-  { id: 'risk', label: '风险与下一步', description: '阻塞、缺口与明确动作', enabled: true, ai: true },
+  { id: 'requirement', label: '需求', description: '标题、结论摘要与必要元信息', enabled: true, ai: true },
+  { id: 'owner', label: '负责人', description: '唯一负责人和承诺时间', enabled: true },
+  { id: 'delivery', label: '交付进度', description: '规格、计划、代码与交付状态', enabled: true, ai: true },
+  { id: 'risk', label: '风险', description: '当前最优先处理的一项风险', enabled: true, ai: true },
 ]
 
 const VIEW_PREFERENCE_KEY = 'kai-reqpool-view-preference-v1'
@@ -157,4 +155,23 @@ export function branchSome(
 export function deliveryFor(item: ReqItemView, overview?: DeliveryOverview): DeliveryRequirement | undefined {
   if (!item.prdSessionId || !overview) return undefined
   return overview.requirements.find(requirement => requirement.id === item.prdSessionId)
+}
+
+/** 列表仅在证据长期未刷新时显示更新时间，正常更新节奏不占用扫描空间。 */
+export function staleUpdateLabel(value: number, thresholdDays = 7): string | null {
+  const days = Math.max(0, Math.floor((Date.now() - value) / 86_400_000))
+  return days >= thresholdDays ? `${days} 天未更新` : null
+}
+
+/** 规格会话只在确有后台工作时轮询，静态历史由事件失效或用户操作刷新。 */
+export function prdSessionPollingInterval(sessions: PrdSessionView[] | undefined): number | false {
+  const hasRunningWork = sessions?.some(session =>
+    session.status === 'DISCOVERING'
+    || session.status === 'CLARIFYING'
+    || session.status === 'GENERATING'
+    || session.devDocWorkStatus === 'BUILDING_QUESTIONS'
+    || session.devDocWorkStatus === 'GENERATING'
+    || session.devDocEstimation?.workStatus === 'RUNNING'
+    || session.progressWorkStatus === 'RUNNING') ?? false
+  return hasRunningWork ? 3_000 : false
 }

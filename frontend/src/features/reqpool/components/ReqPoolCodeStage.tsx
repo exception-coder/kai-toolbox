@@ -74,7 +74,6 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { QuickRequirementDialog } from '../components/QuickRequirementDialog'
 import { ReqpoolVibeDialog } from '../components/ReqpoolVibeDialog'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { getSelfRepo, useChatRuntime } from '@/features/claude-chat/public-api'
 import {
   getContent as getPrdContent,
   getDevDocContent,
@@ -326,15 +325,16 @@ function resolveCodeScore(requirement: DeliveryRequirement, includeTests: boolea
   return Math.round(((scoredCompleted + scoredPartial * 0.5) / scoredTotal) * 100)
 }
 
-export function CodeStageNode({ item, requirement, prdSession }: {
+export function CodeStageNode({ item, requirement, prdSession, compact = false }: {
   item: ReqItemView
   requirement?: DeliveryRequirement
   prdSession?: PrdSessionView
+  compact?: boolean
 }) {
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
-  const [running, setRunning] = useState(false)
+  const running = prdSession?.progressWorkStatus === 'RUNNING'
   const [includeTests, setIncludeTests] = useState(true)
   const [error, setError] = useState('')
   const [loadingDevelopment, setLoadingDevelopment] = useState(false)
@@ -367,33 +367,26 @@ export function CodeStageNode({ item, requirement, prdSession }: {
     }
   }
 
-  const analyze = () => {
+  const analyze = async () => {
     if (!requirement || running || !canAnalyze) return
-    setRunning(true)
     setError('')
-    let finished = false
-    const finish = (message?: string) => {
-      if (finished) return
-      finished = true
-      setRunning(false)
-      if (message) setError(message)
-      void queryClient.invalidateQueries({ queryKey: ['delivery-overview'] })
+    try {
+      await runCodeProgressAnalysis(requirement.id)
       void queryClient.invalidateQueries({ queryKey: ['prd-sessions', 'reqpool'] })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '本地代码分析任务启动失败')
     }
-    runCodeProgressAnalysis(requirement.id, undefined, {
-      onEvent(name, data) {
-        if (name === 'done') finish()
-        if (name === 'error') {
-          const message = typeof data === 'object' && data && 'message' in data && typeof data.message === 'string'
-            ? data.message
-            : '本地代码进度分析失败'
-          finish(message)
-        }
-      },
-      onError(cause) { finish(cause instanceof Error ? cause.message : '本地代码分析连接失败') },
-      onClose() { if (!finished) finish('分析连接已关闭，请稍后重试') },
-    })
   }
+
+  const previousWorkStatus = useRef(prdSession?.progressWorkStatus)
+  useEffect(() => {
+    const previous = previousWorkStatus.current
+    const current = prdSession?.progressWorkStatus
+    previousWorkStatus.current = current
+    if (previous !== 'RUNNING' || current === 'RUNNING') return
+    void queryClient.invalidateQueries({ queryKey: ['delivery-overview'] })
+    if (current === 'ERROR') setError(prdSession?.progressWorkError || '本地代码分析失败，可重新发起')
+  }, [prdSession?.progressWorkError, prdSession?.progressWorkStatus, queryClient])
 
   const state = stageState(requirement, 'code')
   return (
@@ -402,10 +395,10 @@ export function CodeStageNode({ item, requirement, prdSession }: {
         {code?.score == null ? (
           <span className="grid h-5 w-5 place-items-center rounded-full border border-dashed border-violet-500 bg-violet-50 dark:bg-violet-950/30"><Search className="h-2.5 w-2.5" /></span>
         ) : <StageDot state={state} />}
-        <span className={`whitespace-nowrap text-[10px] font-medium ${code?.status === 'STALE' ? 'text-amber-600' : code?.score != null ? 'text-emerald-600' : 'text-violet-600'}`}>{code?.score == null ? '分析代码' : '代码'}</span>
+        <span className={`whitespace-nowrap text-[10px] font-medium ${code?.status === 'STALE' ? 'text-amber-600' : code?.score != null ? 'text-emerald-600' : 'text-violet-600'}`}>{compact ? '代码' : code?.score == null ? '分析代码' : '代码'}</span>
       </button>
       {open && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-0 backdrop-blur-[2px] sm:p-4" onMouseDown={event => event.target === event.currentTarget && !running && setOpen(false)}>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-0 backdrop-blur-[2px] sm:p-4" onMouseDown={event => event.target === event.currentTarget && setOpen(false)}>
           <section role="dialog" aria-modal="true" aria-label="本地代码实现分析" className="flex h-full w-full max-w-3xl flex-col overflow-hidden border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl sm:h-[min(88vh,860px)] sm:rounded-2xl" onClick={event => event.stopPropagation()}>
             <header className="shrink-0 border-b border-[var(--color-border)] px-4 py-3 sm:px-5 sm:py-4">
               <div className="flex items-start gap-3">
@@ -417,7 +410,7 @@ export function CodeStageNode({ item, requirement, prdSession }: {
                   </div>
                   <p className="mt-1 text-[10px] leading-4 text-[var(--color-muted-foreground)]">综合当前{labels.specification}、最新{labels.plan}与本地代码证据核对真实实现，并关联原 AI 总工时估算剩余工作量。</p>
                 </div>
-                <button type="button" disabled={running} onClick={() => setOpen(false)} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] disabled:opacity-40" aria-label="关闭代码实现分析"><X className="h-4 w-4" /></button>
+                <button type="button" onClick={() => setOpen(false)} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]" aria-label="关闭代码实现分析"><X className="h-4 w-4" /></button>
               </div>
             </header>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[var(--color-background)]/25 p-4 sm:p-5">
@@ -484,9 +477,18 @@ export function CodeStageNode({ item, requirement, prdSession }: {
               </div>
             </div>
             {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-[10px] leading-4 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{error}</p>}
+            {running && (
+              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2.5 text-[10px] leading-4">
+                <div className="flex items-center gap-2 font-medium"><Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-primary)]" />后台正在分析本地代码</div>
+                <div className="mt-1 text-[var(--color-muted-foreground)]">{prdSession?.progressWorkStage || '正在恢复任务进度'}。可关闭弹窗或刷新页面，任务不会中断。</div>
+              </div>
+            )}
+            {!running && prdSession?.progressWorkStatus === 'ERROR' && !error && (
+              <p className="rounded-lg bg-rose-50 px-3 py-2 text-[10px] leading-4 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{prdSession.progressWorkError || '上次分析失败，可重新发起'}</p>
+            )}
             <button type="button" disabled={!canAnalyze || running} onClick={analyze} className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900">
               {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-              {running ? '正在检查本地代码…' : code?.updatedAt ? '重新分析本地代码' : '开始分析本地代码'}
+              {running ? '后台分析中，可关闭弹窗' : code?.updatedAt ? '重新分析本地代码' : '开始分析本地代码'}
             </button>
             {!canAnalyze && <p className="text-center text-[9px] text-[var(--color-muted-foreground)]">请先完成{labels.planDocument}</p>}
             <div className="border-t border-[var(--color-border)] pt-3">

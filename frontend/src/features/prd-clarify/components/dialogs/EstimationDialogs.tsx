@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ClipboardCheck, Clock, Copy, Loader2, X } from 'lucide-react'
 import { MarkdownContent } from '@/components/markdown/MarkdownContent'
-import { evaluateProgress } from '../../api'
+import { evaluateProgress, getProgressContent, getSession } from '../../api'
 import type { DevDocEstimation } from '../../types'
 import {
   ESTIMATION_CONFIDENCE_COLOR,
@@ -135,46 +135,83 @@ export function EvaluateProgressDialog({
 }) {
   const [step, setStep] = useState<'confirm' | 'generating' | 'done'>('confirm')
   const [extraContext, setExtraContext] = useState('')
-  const [streamText, setStreamText] = useState('')
+  const [reportContent, setReportContent] = useState('')
+  const [stage, setStage] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const abortRef = useRef<(() => void) | null>(null)
-  const endRef = useRef<HTMLDivElement>(null)
+  const generatedRef = useRef(false)
+
+  const loadCompletedReport = useCallback(async () => {
+    const content = await getProgressContent(sessionId)
+    setReportContent(content)
+    setStep('done')
+    if (!generatedRef.current) {
+      generatedRef.current = true
+      onGenerated()
+    }
+  }, [onGenerated, sessionId])
+
+  const applyWorkState = useCallback(async (session: Awaited<ReturnType<typeof getSession>>, recovering = false) => {
+    if (session.progressWorkStatus === 'RUNNING') {
+      setStage(session.progressWorkStage || '正在恢复后台分析进度')
+      setStep('generating')
+      return
+    }
+    if (session.progressWorkStatus === 'ERROR') {
+      setError(session.progressWorkError || '本地代码分析失败，可重新发起')
+      setStep('confirm')
+      return
+    }
+    if (!recovering && session.progressWorkStatus === 'COMPLETED') {
+      await loadCompletedReport()
+    }
+  }, [loadCompletedReport])
 
   useEffect(() => {
-    if (step === 'generating') endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [streamText, step])
-  useEffect(() => () => abortRef.current?.(), [])
+    let cancelled = false
+    void getSession(sessionId).then(session => {
+      if (!cancelled) void applyWorkState(session, true)
+    }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [applyWorkState, sessionId])
 
-  const handleStart = () => {
-    setStep('generating')
+  useEffect(() => {
+    if (step !== 'generating') return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async () => {
+      try {
+        const session = await getSession(sessionId)
+        if (cancelled) return
+        await applyWorkState(session)
+        if (session.progressWorkStatus === 'RUNNING') timer = setTimeout(poll, 2_000)
+      } catch (cause) {
+        if (!cancelled) timer = setTimeout(poll, 3_000)
+      }
+    }
+    timer = setTimeout(poll, 1_000)
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [applyWorkState, sessionId, step])
+
+  const handleStart = async () => {
     setError(null)
-    setStreamText('')
-    const accumulated = { current: '' }
-    abortRef.current = evaluateProgress(sessionId, extraContext.trim() || undefined, {
-      onEvent(name, data) {
-        if (name === 'chunk') {
-          accumulated.current += (data as { content: string }).content ?? ''
-          setStreamText(accumulated.current)
-        }
-        if (name === 'done') {
-          setStep('done')
-          onGenerated()
-        }
-        if (name === 'error') {
-          setError((data as { message: string }).message ?? '评估失败，请重试')
-          setStep('confirm')
-        }
-      },
-      onError() {
-        setError('SSE 连接失败，请重试')
-        setStep('confirm')
-      },
-    })
+    generatedRef.current = false
+    setStage('正在提交后台分析任务')
+    setStep('generating')
+    try {
+      const session = await evaluateProgress(sessionId, extraContext.trim() || undefined)
+      await applyWorkState(session)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '后台分析任务启动失败，请重试')
+      setStep('confirm')
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div role="dialog" aria-modal="true" aria-labelledby="evaluate-progress-title" className={`w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl flex flex-col ${step === 'confirm' ? 'max-w-lg' : 'max-w-3xl h-[85vh]'}`}>
+      <div role="dialog" aria-modal="true" aria-labelledby="evaluate-progress-title" className={`w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl flex flex-col ${step === 'done' ? 'max-w-3xl h-[85vh]' : 'max-w-lg'}`}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] flex-shrink-0">
           <div className="flex items-center gap-2">
             <ClipboardCheck className="w-4 h-4 text-blue-400" />
@@ -198,16 +235,15 @@ export function EvaluateProgressDialog({
         )}
         {step === 'generating' && (
           <div className="flex-1 overflow-y-auto p-5">
-            <div className="flex items-center gap-2 mb-3 text-sm text-[var(--color-muted-foreground)]"><Loader2 className="w-4 h-4 animate-spin" /><span>Claude 正在核对核心规格 / 执行计划 / 代码知识图谱…</span></div>
-            <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--color-foreground)]">{streamText || <span className="italic text-[var(--color-muted-foreground)]">等待 Claude 响应…</span>}</div>
-            <div ref={endRef} />
+            <div className="flex items-center gap-2 text-sm text-[var(--color-foreground)]"><Loader2 className="w-4 h-4 animate-spin text-[var(--color-primary)]" /><span>{stage || '后台正在核查本地代码'}</span></div>
+            <p className="mt-3 text-xs leading-5 text-[var(--color-muted-foreground)]">任务由服务端持续执行。现在可以关闭弹窗、刷新页面或离开当前模块，重新进入后会自动恢复进度。</p>
           </div>
         )}
         {step === 'done' && (
           <>
-            <div className="flex-1 overflow-hidden"><MarkdownContent content={streamText} /></div>
+            <div className="flex-1 overflow-hidden"><MarkdownContent content={reportContent} /></div>
             <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--color-border)] flex-shrink-0">
-              <button type="button" onClick={() => navigator.clipboard.writeText(streamText)} className="flex items-center gap-1 px-3 py-1.5 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]"><Copy className="w-3 h-3" /> 复制</button>
+              <button type="button" onClick={() => navigator.clipboard.writeText(reportContent)} className="flex items-center gap-1 px-3 py-1.5 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]"><Copy className="w-3 h-3" /> 复制</button>
               <button type="button" onClick={onClose} className="px-4 py-1.5 rounded-md text-sm bg-[var(--color-primary)] text-white hover:opacity-90">完成</button>
             </div>
           </>

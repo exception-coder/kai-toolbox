@@ -32,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -84,8 +85,26 @@ public class PrdProgressEvaluationService {
         PrdSession requestedSession = findSession(sessionId);
         PrdSession sourceSession = resolveLatestRevisionSource(requestedSession);
 
-        Thread.ofVirtual().name("prd-progress-").start(() -> runEvaluation(
-                sessionId, extraContext, emitter, requestedSession, sourceSession));
+        Thread.ofVirtual().name("prd-progress-").start(() -> {
+            try {
+                runEvaluation(sessionId, extraContext, requestedSession, sourceSession,
+                        ignored -> { }, chunk -> sendChunk(emitter, chunk));
+                sendDone(emitter);
+            } catch (Exception exception) {
+                log.warn("[prd-clarify] 进度评估失败 sessionId={}", sessionId, exception);
+                sendError(emitter, exception);
+            }
+        });
+    }
+
+    /**
+     * 同步执行进度评估核心，供持久化后台任务编排调用；执行生命周期不再依赖 SSE 连接。
+     */
+    public String evaluateSynchronously(String sessionId, String extraContext, Consumer<String> stageConsumer) {
+        PrdSession requestedSession = findSession(sessionId);
+        PrdSession sourceSession = resolveLatestRevisionSource(requestedSession);
+        return runEvaluation(sessionId, extraContext, requestedSession, sourceSession,
+                stageConsumer == null ? ignored -> { } : stageConsumer, ignored -> { });
     }
 
     /** 读取当前进度评估文档内容。 */
@@ -149,22 +168,24 @@ public class PrdProgressEvaluationService {
         return result;
     }
 
-    private void runEvaluation(
+    private String runEvaluation(
             String sessionId,
             String extraContext,
-            SseEmitter emitter,
             PrdSession requestedSession,
-            PrdSession sourceSession) {
+            PrdSession sourceSession,
+            Consumer<String> stageConsumer,
+            Consumer<String> chunkConsumer) {
         PrdAiRunService.RunHandle aiRun = null;
         boolean aiRunFinished = false;
         String progressContent = null;
         try {
+            stageConsumer.accept("正在读取核心规格与执行计划");
             String prdContent = fileStore.read(sourceSession.getId());
             String devDocContent = readDevDocContent(sourceSession);
             if (devDocContent.isBlank()) {
-                sendError(emitter, new IllegalStateException("请先生成开发文档后再评估进度"));
-                return;
+                throw new IllegalStateException("请先生成开发文档后再评估进度");
             }
+            stageConsumer.accept("正在定位项目并准备本地代码证据");
             LocalProjectResolver.ProjectLocation projectLocation = resolveLocalProject(sourceSession.getProject())
                     .orElseThrow(() -> new IllegalStateException(
                             "未匹配到项目“" + sourceSession.getProject() + "”的本地工作目录，无法核查代码进度"));
@@ -178,6 +199,7 @@ public class PrdProgressEvaluationService {
             aiRun = aiRunService.begin(prompt, userPrompt,
                     new PrdAiRunService.RunContext(sourceSession.getId(), engine, sourceSession.getModel()));
             StringBuilder streamedContent = new StringBuilder();
+            stageConsumer.accept("正在查询代码图谱并核查源码与测试");
             AgentOneShotRunner.ExecutionRequest request = new AgentOneShotRunner.ExecutionRequest(
                     systemPrompt(prompt),
                     userPrompt,
@@ -189,10 +211,11 @@ public class PrdProgressEvaluationService {
                     AgentOneShotRunner.TOOL_POLICY_CONSULT_READONLY);
             String returnedContent = agentRunner.stream(request, delta -> {
                 streamedContent.append(delta);
-                sendChunk(emitter, delta);
+                chunkConsumer.accept(delta);
             });
 
             progressContent = streamedContent.isEmpty() ? returnedContent : streamedContent.toString();
+            stageConsumer.accept("正在校验代码证据并生成进度报告");
             validateEvidenceStatus(progressContent);
             DeliveryEvidenceVerifier.VerifiedLedger claimLedger = deliveryClaimLedgerService.prepare(
                     progressContent, projectLocation.path());
@@ -212,11 +235,13 @@ public class PrdProgressEvaluationService {
             recordHistory(sessionId, requestedSession.getProgressHistory(), extraContext);
             log.info("[prd-clarify] 进度评估已保存 path={} sourceSessionId={}",
                     progressPath, sourceSession.getId());
-            sendDone(emitter);
+            return progressContent;
         } catch (Exception exception) {
             failAiRun(aiRun, aiRunFinished, progressContent, exception);
-            log.warn("[prd-clarify] 进度评估失败 sessionId={}", sessionId, exception);
-            sendError(emitter, exception);
+            if (exception instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new IllegalStateException(exception.getMessage(), exception);
         }
     }
 

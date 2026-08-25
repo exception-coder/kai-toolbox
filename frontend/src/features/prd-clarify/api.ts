@@ -259,16 +259,12 @@ export const estimateDevDocEffort = (id: string, extraContext?: string, engine?:
 // 平台的 PRD/开发文档是业务/技术事实来源，进度评估报告是基于它们 + 代码知识图谱核对出的
 // 派生产物，按版本追加落盘（不覆盖），用法完全对齐"开发文档"那一组接口。
 
-/**
- * SSE 流式：基于当前 PRD + 开发文档核对代码库实际实现进度，生成大纲固定的 Markdown 报告。
- * extraContext：确认弹框里补充的核对重点（如"重点核对库存流水是否已实现"），可不传。
- */
-export const evaluateProgress = (
-  id: string,
-  extraContext: string | undefined,
-  handlers: SseHandlers,
-) =>
-  subscribeSsePost(`${BASE}/sessions/${id}/progress/evaluate`, { extraContext }, handlers)
+/** 登记本地代码分析后台任务并立即返回；通过 getSession 轮询 progressWorkStatus。 */
+export const evaluateProgress = (id: string, extraContext?: string) =>
+  http<PrdSessionView>(`${BASE}/sessions/${id}/progress/evaluate`, {
+    method: 'POST',
+    body: JSON.stringify({ extraContext }),
+  })
 
 /** 读取当前进度评估文档内容（与 getContent 同格式）。 */
 export const getProgressContent = async (id: string): Promise<string> => {

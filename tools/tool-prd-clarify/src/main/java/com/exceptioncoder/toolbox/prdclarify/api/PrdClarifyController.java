@@ -42,6 +42,7 @@ import com.exceptioncoder.toolbox.prdclarify.service.PrdClarifyService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdDiscoveryTaskService;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdDiscoveryRunView;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdRequirementSplitService;
+import com.exceptioncoder.toolbox.prdclarify.service.PrdProgressEvaluationTaskService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdDocChangeAnalysisService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdDocChangeApplyService;
 import com.exceptioncoder.toolbox.common.auth.domain.AuthUser;
@@ -99,7 +100,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code POST   /attachments/image}         — 粘贴图片落盘</li>
  *   <li>{@code GET    /attachments/image/{id}}    — 取回图片</li>
  *   <li>{@code GET    /attachments/file/{id}}     — 下载原始需求附件（Word/PDF/Markdown 原文件）</li>
- *   <li>{@code POST   /sessions/{id}/progress/evaluate} — SSE：AI 进度评估</li>
+ *   <li>{@code POST   /sessions/{id}/progress/evaluate} — 登记后台 AI 进度评估</li>
  *   <li>{@code GET    /sessions/{id}/progress/versions} — 进度评估版本列表</li>
  * </ul>
  */
@@ -116,6 +117,7 @@ public class PrdClarifyController {
     private final PrdDocChangeAnalysisService changeAnalysisService;
     private final PrdDocChangeApplyService changeApplyService;
     private final PrdDiscoveryTaskService discoveryTasks;
+    private final PrdProgressEvaluationTaskService progressEvaluationTasks;
     /** Optional：toolbox.auth.enabled=false 时这个 bean 不存在，历史列表退化为不展示创建人用户名。 */
     private final Optional<AuthUserRepository> authUserRepo;
 
@@ -127,6 +129,7 @@ public class PrdClarifyController {
                                 PrdDocChangeAnalysisService changeAnalysisService,
                                 PrdDocChangeApplyService changeApplyService,
                                 PrdDiscoveryTaskService discoveryTasks,
+                                PrdProgressEvaluationTaskService progressEvaluationTasks,
                                 Optional<AuthUserRepository> authUserRepo) {
         this.service = service;
         this.artifactService = artifactService;
@@ -137,6 +140,7 @@ public class PrdClarifyController {
         this.changeAnalysisService = changeAnalysisService;
         this.changeApplyService = changeApplyService;
         this.discoveryTasks = discoveryTasks;
+        this.progressEvaluationTasks = progressEvaluationTasks;
         this.authUserRepo = authUserRepo;
     }
 
@@ -801,17 +805,12 @@ public class PrdClarifyController {
 
     // ─── 进度评估 ───────────────────────────────────────
 
-    /**
-     * SSE 流式：基于当前 PRD + 开发文档核对代码库实际实现进度，生成大纲固定的 Markdown
-     * 进度评估报告。事件：chunk / done / error（与 PRD/开发文档生成接口一致）。按版本追加
-     * 落盘（覆盖前自动备份旧版本为 {id}-progress-v{n}.md），不会丢历史评估快照。
-     */
-    @PostMapping(value = "/sessions/{id}/progress/evaluate", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter evaluateProgress(@PathVariable String id,
-                                        @RequestBody(required = false) EvaluateProgressRequest req) {
-        SseEmitter emitter = new SseEmitter(0L);
-        service.evaluateProgress(id, req == null ? null : req.extraContext(), emitter);
-        return emitter;
+    /** 登记本地代码分析后台任务并立即返回最新会话；重复请求复用当前运行任务。 */
+    @PostMapping("/sessions/{id}/progress/evaluate")
+    public PrdSessionView evaluateProgress(@PathVariable String id,
+                                           @RequestBody(required = false) EvaluateProgressRequest req) {
+        return PrdSessionView.from(progressEvaluationTasks.start(
+                id, req == null ? null : req.extraContext()));
     }
 
     /** 读取当前进度评估文档内容（JSON 字符串格式，与 /content 保持一致）。 */

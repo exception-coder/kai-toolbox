@@ -100,6 +100,15 @@ ALTER TABLE prd_session ADD COLUMN progress_generated_at INTEGER;
 -- updated_at"的理由）。
 ALTER TABLE prd_session ADD COLUMN progress_history TEXT;
 
+-- 本地代码分析后台任务快照：任务生命周期独立于浏览器连接，刷新或重新进入后可恢复。
+-- 正式报告仍由 progress_path / progress_history 管理；这里仅保存运行状态和可读进度。
+ALTER TABLE prd_session ADD COLUMN progress_work_status TEXT NOT NULL DEFAULT 'IDLE';
+ALTER TABLE prd_session ADD COLUMN progress_work_stage TEXT;
+ALTER TABLE prd_session ADD COLUMN progress_work_error TEXT;
+ALTER TABLE prd_session ADD COLUMN progress_work_started_at INTEGER;
+ALTER TABLE prd_session ADD COLUMN progress_work_completed_at INTEGER;
+ALTER TABLE prd_session ADD COLUMN progress_work_updated_at INTEGER;
+
 -- 需求拆分：一个较大的需求可以先让 Claude 判断能否拆成多个可独立澄清/开发的子需求
 -- （见 PrdClarifyService#splitRequirement/adoptSplit），用户确认采纳后，每个子需求各自
 -- 落一条 DRAFT 草稿记录，parent_id 指回原会话——原会话本身不受影响，原始需求描述原样保留，
@@ -195,6 +204,7 @@ CREATE TABLE IF NOT EXISTS prd_discovery_run (
     model               TEXT,
     vibe_session_id     TEXT,
     trace_id            TEXT,
+    evidence_trace_json TEXT,
     last_output         TEXT,
     validation_json     TEXT,
     last_error          TEXT,

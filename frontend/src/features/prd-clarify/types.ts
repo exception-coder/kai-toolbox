@@ -179,6 +179,13 @@ export interface PrdSessionView {
   progressPath: string | null
   /** 最后一次进度评估时间戳（毫秒），是否"已过期"由前端跟 devDocGeneratedAt/updatedAt 比较判断 */
   progressGeneratedAt: number | null
+  /** 本地代码分析后台任务状态，可跨页面刷新恢复。 */
+  progressWorkStatus: 'IDLE' | 'RUNNING' | 'COMPLETED' | 'ERROR' | null
+  progressWorkStage: string | null
+  progressWorkError: string | null
+  progressWorkStartedAt: number | null
+  progressWorkCompletedAt: number | null
+  progressWorkUpdatedAt: number | null
   /** 创建者 auth_user.id；未登录/鉴权关闭时创建、或早于该功能上线的存量数据可能为 null */
   createdByUserId: number | null
   /** 创建者用户名，仅历史列表接口会解析（批量查一次），其它单会话接口一律为 null */

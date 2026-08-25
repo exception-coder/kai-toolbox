@@ -117,6 +117,13 @@ public class PrdSession {
      * 用法完全对齐 devDocHistory。
      */
     private String progressHistory;
+    /** 本地代码分析后台任务状态：IDLE | RUNNING | COMPLETED | ERROR。 */
+    private String progressWorkStatus;
+    private String progressWorkStage;
+    private String progressWorkError;
+    private Long progressWorkStartedAt;
+    private Long progressWorkCompletedAt;
+    private Long progressWorkUpdatedAt;
     /**
      * 父会话 ID（{@code prd_session.id}），非 null 表示这条记录是通过「需求拆分」从某个
      * 父需求下面拆出来的子需求（见

@@ -84,6 +84,13 @@ public record PrdSessionView(
          * 比较判断（对齐 isDevDocStale 的算法，未在后端预计算）。
          */
         Long progressGeneratedAt,
+        /** 本地代码分析后台任务状态：IDLE | RUNNING | COMPLETED | ERROR。 */
+        String progressWorkStatus,
+        String progressWorkStage,
+        String progressWorkError,
+        Long progressWorkStartedAt,
+        Long progressWorkCompletedAt,
+        Long progressWorkUpdatedAt,
         /** 创建者 auth_user.id；未登录/鉴权关闭时创建、或早于该功能上线的存量数据可能为 null。 */
         Long createdByUserId,
         /**
@@ -179,6 +186,8 @@ public record PrdSessionView(
                 s.getDevDocWorkProgress(), s.getDevDocWorkContent(), s.getDevDocWorkUpdatedAt(),
                 parseDevDocEstimation(s.getDevDocEstimation(), s),
                 s.getProgressPath(), s.getProgressGeneratedAt(),
+                s.getProgressWorkStatus(), s.getProgressWorkStage(), s.getProgressWorkError(),
+                s.getProgressWorkStartedAt(), s.getProgressWorkCompletedAt(), s.getProgressWorkUpdatedAt(),
                 s.getCreatedByUserId(), createdByUsername, s.getParentId(),
                 s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
     }
