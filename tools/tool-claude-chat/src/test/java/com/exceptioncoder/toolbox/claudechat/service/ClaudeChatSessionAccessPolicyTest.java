@@ -15,6 +15,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** 会话访问策略测试。 */
@@ -43,6 +45,37 @@ class ClaudeChatSessionAccessPolicyTest {
                 .thenReturn(Optional.of(ClaudeChatSession.builder().id("legacy").build()));
 
         assertThat(policy.canAccess(socketFor(8L), "legacy")).isFalse();
+    }
+
+    @Test
+    void claimsLegacyOwnerlessSessionForAuthenticatedWrite() {
+        AuthContext.set(new AuthPrincipal(8L, "owner", List.of("USER"), List.of(), "jti", 1L));
+        when(repository.findById("legacy"))
+                .thenReturn(Optional.of(ClaudeChatSession.builder().id("legacy").build()));
+        when(repository.claimOwnerIfUnassigned("legacy", 8L)).thenReturn(true);
+
+        assertThat(policy.canAccessOrClaimCurrentUser("legacy")).isTrue();
+        verify(repository).claimOwnerIfUnassigned("legacy", 8L);
+    }
+
+    @Test
+    void doesNotClaimLegacySessionForUnauthenticatedLocalAccess() {
+        when(repository.findById("legacy"))
+                .thenReturn(Optional.of(ClaudeChatSession.builder().id("legacy").build()));
+
+        assertThat(policy.canAccessOrClaimCurrentUser("legacy")).isTrue();
+        verify(repository, never()).claimOwnerIfUnassigned("legacy", 8L);
+    }
+
+    @Test
+    void rejectsClaimWhenAnotherUserWinsTheRace() {
+        AuthContext.set(new AuthPrincipal(8L, "owner", List.of("USER"), List.of(), "jti", 1L));
+        ClaudeChatSession ownerless = ClaudeChatSession.builder().id("legacy").build();
+        ClaudeChatSession claimed = ClaudeChatSession.builder().id("legacy").userId(9L).build();
+        when(repository.findById("legacy")).thenReturn(Optional.of(ownerless), Optional.of(claimed));
+        when(repository.claimOwnerIfUnassigned("legacy", 8L)).thenReturn(false);
+
+        assertThat(policy.canAccessOrClaimCurrentUser("legacy")).isFalse();
     }
 
     @Test

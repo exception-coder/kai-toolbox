@@ -46,6 +46,29 @@ public class ClaudeChatSessionAccessPolicy {
                 .orElse(false);
     }
 
+    /**
+     * 明确写操作可由首个认证用户原子认领无归属历史会话；普通读取仍保持原访问边界。
+     */
+    public boolean canAccessOrClaimCurrentUser(String sessionId) {
+        AuthPrincipal principal = AuthContext.current().orElse(null);
+        ClaudeChatSession session = repository.findById(sessionId).orElse(null);
+        if (session == null) {
+            return false;
+        }
+        if (canAccess(session, principal)) {
+            return true;
+        }
+        if (principal == null || session.getUserId() != null) {
+            return false;
+        }
+        if (repository.claimOwnerIfUnassigned(sessionId, principal.userId())) {
+            return true;
+        }
+        return repository.findById(sessionId)
+                .map(current -> canAccess(current, principal))
+                .orElse(false);
+    }
+
     /** 当前用户能否批量操作项目下全部会话，避免项目级更新越过会话所有权边界。 */
     public boolean canAccessProjectCurrentUser(String groupName) {
         String normalizedGroupName = groupName == null ? null : groupName.trim();

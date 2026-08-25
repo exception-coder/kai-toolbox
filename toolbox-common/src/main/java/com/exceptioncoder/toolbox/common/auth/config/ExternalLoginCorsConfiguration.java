@@ -14,13 +14,15 @@ import java.net.URI;
 import java.util.List;
 
 /**
- * 为 Forge 外部账号登录注册最小范围的 CORS 过滤器。
+ * 为 Forge 外部账号登录和 Assistant 图片上传注册最小范围的 CORS 过滤器。
  */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = "toolbox.auth.external-login", name = "enabled", havingValue = "true")
 public class ExternalLoginCorsConfiguration {
 
     private static final String LOGIN_PATH = "/api/auth/external-login";
+    private static final String ATTACHMENT_UPLOAD_PATH = "/api/claude-chat/sessions/*/attachments";
+    private static final String ATTACHMENT_FILTER_PATH = "/api/claude-chat/*";
 
     /**
      * 创建只覆盖登录路径的 CORS 过滤器，拒绝通配符和非标准 Origin。
@@ -31,22 +33,29 @@ public class ExternalLoginCorsConfiguration {
     @Bean
     public FilterRegistrationBean<CorsFilter> externalLoginCorsFilter(AuthProperties properties) {
         List<String> allowedOrigins = normalizeOrigins(properties.getExternalLogin().getAllowedOrigins());
-        CorsConfiguration cors = new CorsConfiguration();
-        cors.setAllowedOrigins(allowedOrigins);
-        cors.setAllowedMethods(List.of("POST", "OPTIONS"));
-        cors.setAllowedHeaders(List.of("Content-Type"));
-        cors.setAllowCredentials(false);
-        cors.setMaxAge(600L);
+        CorsConfiguration loginCors = cors(allowedOrigins, List.of("Content-Type"));
+        CorsConfiguration attachmentCors = cors(allowedOrigins, List.of("Authorization", "Content-Type"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration(LOGIN_PATH, cors);
+        source.registerCorsConfiguration(LOGIN_PATH, loginCors);
+        source.registerCorsConfiguration(ATTACHMENT_UPLOAD_PATH, attachmentCors);
 
         FilterRegistrationBean<CorsFilter> registration = new FilterRegistrationBean<>(new CorsFilter(source));
         registration.setName("authExternalLoginCorsFilter");
-        registration.addUrlPatterns(LOGIN_PATH);
+        registration.addUrlPatterns(LOGIN_PATH, ATTACHMENT_FILTER_PATH);
         registration.setDispatcherTypes(DispatcherType.REQUEST);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
         return registration;
+    }
+
+    private CorsConfiguration cors(List<String> allowedOrigins, List<String> allowedHeaders) {
+        CorsConfiguration cors = new CorsConfiguration();
+        cors.setAllowedOrigins(allowedOrigins);
+        cors.setAllowedMethods(List.of("POST", "OPTIONS"));
+        cors.setAllowedHeaders(allowedHeaders);
+        cors.setAllowCredentials(false);
+        cors.setMaxAge(600L);
+        return cors;
     }
 
     private List<String> normalizeOrigins(List<String> configuredOrigins) {

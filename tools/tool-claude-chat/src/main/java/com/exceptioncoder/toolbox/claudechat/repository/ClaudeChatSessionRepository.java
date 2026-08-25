@@ -92,6 +92,13 @@ public class ClaudeChatSessionRepository {
                 s.getStatus().name(), s.getStartedAt(), s.getLastSeenAt());
     }
 
+    /** 原子绑定仍未归属的历史会话；已被其他用户认领时不覆盖。 */
+    public boolean claimOwnerIfUnassigned(String id, long userId) {
+        return jdbc.update(
+                "UPDATE claude_chat_session SET user_id = ? WHERE id = ? AND user_id IS NULL",
+                userId, id) == 1;
+    }
+
     /**
      * 切 agent：更新当前引擎 + 追加引擎有序列 + 设当前 sdk_session_id（切回为目标引擎旧句柄、首次为 null）
      * + 持久化各引擎句柄映射 JSON。

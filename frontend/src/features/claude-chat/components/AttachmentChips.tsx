@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FileText, Image as ImageIcon, Loader2, X } from 'lucide-react'
+import { AlertCircle, FileText, Image as ImageIcon, Loader2, X } from 'lucide-react'
 import type { UploadedAttachment } from '../api'
 import { ImageLightbox } from './ImageLightbox'
 
@@ -9,14 +9,18 @@ type Item = UploadedAttachment & { previewUrl?: string; url?: string }
 export function AttachmentChips({
   items,
   uploading,
+  error,
+  onDismissError,
   onRemove,
 }: {
   items: Item[]
   uploading?: number
+  error?: string | null
+  onDismissError?: () => void
   onRemove: (id: string) => void
 }) {
   const [preview, setPreview] = useState<string | null>(null)
-  if (!items.length && !uploading) return null
+  if (!items.length && !uploading && !error) return null
   return (
     <>
       <div className="flex flex-wrap gap-2 px-3 pt-2">
@@ -59,6 +63,26 @@ export function AttachmentChips({
         {!!uploading && (
           <span className="flex items-center gap-1 rounded-full border px-2 py-1 text-xs text-[var(--color-muted-foreground)]">
             <Loader2 className="size-3.5 animate-spin" /> 上传中 {uploading}…
+          </span>
+        )}
+        {error && (
+          <span
+            role="alert"
+            className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/5 px-2 py-1 text-xs text-red-700 dark:text-red-300"
+          >
+            <AlertCircle className="size-3.5 shrink-0" />
+            <span className="truncate">{error}</span>
+            <span className="shrink-0 text-red-600/70 dark:text-red-300/70">请重新粘贴或选择文件</span>
+            {onDismissError && (
+              <button
+                type="button"
+                onClick={onDismissError}
+                aria-label="关闭附件上传错误"
+                className="ml-0.5 shrink-0 rounded p-0.5 hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/40"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
           </span>
         )}
       </div>

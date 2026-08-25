@@ -2,12 +2,16 @@ package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.AttachmentView;
 import com.exceptioncoder.toolbox.claudechat.service.AttachmentStorageService;
+import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
+import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import org.springframework.core.io.PathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -24,14 +28,21 @@ public class AttachmentController {
     private static final String ATTACH_DIR_MARKER = ".kai-chat-attachments";
 
     private final AttachmentStorageService storage;
+    private final ClaudeChatSessionAccessPolicy sessionAccessPolicy;
 
-    public AttachmentController(AttachmentStorageService storage) {
+    public AttachmentController(AttachmentStorageService storage,
+                                ClaudeChatSessionAccessPolicy sessionAccessPolicy) {
         this.storage = storage;
+        this.sessionAccessPolicy = sessionAccessPolicy;
     }
 
+    @RequireAuth
     @PostMapping("/api/claude-chat/sessions/{sessionId}/attachments")
     public AttachmentView upload(@PathVariable String sessionId,
                                  @RequestPart("file") MultipartFile file) throws IOException {
+        if (!sessionAccessPolicy.canAccessOrClaimCurrentUser(sessionId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前用户不能访问该会话");
+        }
         return storage.store(sessionId, file);
     }
 

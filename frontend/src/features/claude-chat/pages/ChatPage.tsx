@@ -728,6 +728,8 @@ export function ChatPage() {
     setProviderModelsError(null)
     setNewModelPlatform('all') // 换网关重置平台筛选
     fetchProviderModels(p.baseUrl, p.key)
+  const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null)
+  useEffect(() => { setAttachmentUploadError(null) }, [chat?.sessionId])
       .then(r => {
         if (cancelled) return
         setProviderModels(r.models ?? [])
@@ -973,6 +975,7 @@ export function ChatPage() {
   }
 
   // 会话内切 agent（方案B + 增量交接）：同一会话不分裂。
+    setAttachmentUploadError(null)
   // sidecar 会 resume 目标引擎的原生会话（早期上下文不丢）；前端只把"它离开期间的增量"喂过去，
   // 首次切到某引擎才发全量——避免切回时全量重复同步。
   const pickEngine = (eng: Engine) => {
@@ -980,6 +983,7 @@ export function ChatPage() {
     if (eng === chat.currentEngine || chat.running || !chat.sessionId) return
     const from = chat.currentEngine
     engineWatermark.current[from] = chat.items.length // 记录离开引擎看到的位置
+      setAttachmentUploadError(e instanceof Error ? e.message : '附件上传失败')
     const start = engineWatermark.current[eng] ?? 0   // 目标引擎上次看到的位置（首次为 0=全量）
     const body = chat.items
       .slice(start)
@@ -2272,6 +2276,8 @@ export function ChatPage() {
             <VoiceInputButton
               className="max-md:size-8"
               disabled={planLocked}
+            error={attachmentUploadError}
+            onDismissError={() => setAttachmentUploadError(null)}
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
             </div>

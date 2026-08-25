@@ -47,6 +47,32 @@ class ExternalLoginCorsConfigurationTest {
     }
 
     @Test
+    void allowsConfiguredOriginAndAuthorizationHeaderForAttachmentUpload() throws Exception {
+        MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN));
+
+        mvc.perform(options("/api/claude-chat/sessions/session-1/attachments")
+                        .header("Origin", ALLOWED_ORIGIN)
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN))
+                .andExpect(header().string("Access-Control-Allow-Headers", "Authorization, Content-Type"));
+    }
+
+    @Test
+    void allowsLocalForgeHttpsOriginForAttachmentUpload() throws Exception {
+        String localForgeOrigin = "https://localhost:5173";
+        MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN, localForgeOrigin));
+
+        mvc.perform(options("/api/claude-chat/sessions/session-1/attachments")
+                        .header("Origin", localForgeOrigin)
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", localForgeOrigin));
+    }
+
+    @Test
     void doesNotOpenTheRegularLoginEndpoint() throws Exception {
         MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN));
 
@@ -90,6 +116,10 @@ class ExternalLoginCorsConfigurationTest {
 
         @PostMapping("/api/auth/login")
         void regularLogin() {
+        }
+
+        @PostMapping("/api/claude-chat/sessions/{sessionId}/attachments")
+        void upload() {
         }
     }
 }
