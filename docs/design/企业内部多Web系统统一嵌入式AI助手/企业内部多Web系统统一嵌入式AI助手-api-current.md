@@ -14,12 +14,14 @@
 - [Widget 可见性与位置](#10-widget-可见性与位置)
 - [中止与调试日志](#11-中止与调试日志)
 - [模块探索摘要](#12-模块探索摘要)
+- [会话反馈增量识别](#13-会话反馈增量识别)
 
 ## 1. 接口清单
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | WebSocket | `/api/claude-chat/consult/ws` | 统一创建、恢复、发送、排队和 Assistant 命令通道 |
+| POST | `/api/claude-chat/sessions/{sessionId}/attachments` | 外部宿主粘贴图片上传；需要 ACCESS Token 和会话访问权 |
 | POST | `/api/assistant/intents/route` | 内部兼容接口：显式模式直达或 AUTO 意图分类 |
 | POST | `/api/assistant/sessions/{id}/context` | 内部兼容接口：保存请求时上下文快照 |
 | GET | `/api/assistant/sessions/{id}/context` | 查询会话上下文快照 |
@@ -28,7 +30,7 @@
 | POST | `/api/assistant/drafts/{id}/confirm` | 内部兼容接口：幂等登记到 ReqPool |
 | GET | `/api/auth/users/options` | 内部兼容接口：查询启用的工程师候选 |
 
-外部宿主 SDK 只使用第一行统一 WebSocket；其余 HTTP 接口保留给 kai-toolbox 内部页面和兼容调用，不属于宿主接入必需契约。
+外部宿主 SDK 以统一 WebSocket 为主；仅在消息包含本地图片时额外调用第二行附件上传接口。其余 HTTP 接口保留给 kai-toolbox 内部页面和兼容调用，不属于宿主接入必需契约。
 
 ## 2. 上下文快照
 
@@ -117,6 +119,7 @@ Headers：`Idempotency-Key` 必填，值为客户端持久化的草稿级 UUID�
   "type": "send",
   "sessionId": "session-id",
   "text": "为什么无法审核？",
+  "attachments": [{"name":"clipboard-20260824-1.png","path":"D:/workspace/.kai-chat-attachments/session-id/xxx.png","mime":"image/png"}],
   "assistant": {
     "protocolVersion": "1.0",
     "mode": "AUTO",
@@ -124,6 +127,8 @@ Headers：`Idempotency-Key` 必填，值为客户端持久化的草稿级 UUID�
   }
 }
 ```
+
+图片上传使用 `multipart/form-data` 的 `file` 字段，支持 `image/png`、`image/jpeg`、`image/gif`、`image/webp`。SDK 前置限制为最多 5 张、单张 10MB、合计 25MB；服务端限制仍是最终权威。跨域请求必须携带 `Authorization: Bearer <accessToken>`，Origin 必须命中外部登录白名单。响应中的绝对 `path` 只允许作为同会话后续 WS 消息的附件引用，客户端不得持久化或向其他会话复用。
 
 运行中、回复中、待确认或恢复未稳定时，客户端通过同一 WS 保存消息；服务端安全释放后按 FIFO 自动发送。
 
@@ -133,6 +138,7 @@ Headers：`Idempotency-Key` 必填，值为客户端持久化的草稿级 UUID�
   "id": "client-message-uuid",
   "text": "继续检查订单审核日志",
   "displayText": "继续检查订单审核日志",
+  "attachments": [{"name":"screen.png","path":"D:/workspace/.kai-chat-attachments/session-id/xxx.png","mime":"image/png"}],
   "developerInstructions": "已脱敏的助手指令",
   "createdAt": 1787040000000
 }
@@ -168,7 +174,7 @@ Headers：`Idempotency-Key` 必填，值为客户端持久化的草稿级 UUID�
 
 独立 SDK 必须持久化 `sessionId`、最后确认 `seq` 和已展示消息。重连发送 `attach(sessionId,lastEventSeq)`；服务端按水位补拉，客户端按 `seq` 去重。
 
-V0.1 认证由 WS 握手的 Assistant ACCESS token 完成。SDK 在每次建连时调用 `getAccessToken`，或读取显式配置的外部登录实例内存 Token，将结果作为 `access_token` 查询参数发送但不写入本地存储；推荐宿主通过同源反向代理接入并避免代理访问日志记录完整查询串。协议中的 `application.user` 仅为上下文，不得作为授权凭证。生产环境必须将 `consultAllowedOriginPatterns` 配为明确宿主域名，不得保留 `*`。
+V0.1 认证由 WS 握手的 Assistant ACCESS token 完成。SDK 在每次建连时调用 `getAccessToken`，或读取显式配置的外部登录当前标签页短期 Token，将结果作为 `access_token` 查询参数发送；推荐宿主通过同源反向代理接入并避免代理访问日志记录完整查询串。协议中的 `application.user` 仅为上下文，不得作为授权凭证。生产环境必须将 `consultAllowedOriginPatterns` 配为明确宿主域名，不得保留 `*`。
 
 ## 7. Forge 外部登录
 
@@ -184,7 +190,7 @@ Origin: https://erp-test.company.internal
 {"username":"forge-user","password":"user-input"}
 ```
 
-SDK 只读取响应中的 `accessToken`、`expiresIn` 和 `user`；忽略且不保存 `refreshToken`。登录成功后立即建立咨询 WebSocket。登录失败保留用户名、清空密码并允许重试；页面刷新、SDK `destroy()` 或显式清除认证后需要重新登录。
+SDK 只读取响应中的 `accessToken` 与 `expiresIn`；忽略且不保存 `refreshToken`。登录成功后立即建立咨询 WebSocket，并把 Access Token 与绝对过期时间保存到当前标签页 `sessionStorage`。登录失败保留用户名、清空密码并允许重试；页面刷新或 SPA 重新挂载时恢复有效授权，关闭标签页、到期、服务端拒绝或显式清除认证后需要重新登录。
 
 服务端配置：
 
@@ -299,3 +305,23 @@ Widget 状态可携带单条增量 `debugEntry`：
 服务端以握手认证用户作为缓存所有者，不接受客户端用户 ID。`appId` 最长 64 字符，`moduleKey` 最长 240 字符，`route` 最长 1000 字符，`sourceRevision` 最长 160 字符，`summary` 最长 6000 字符。相同用户、应用和模块再次保存时覆盖旧摘要并刷新 7 天有效期。
 
 命中摘要注入 `contextSnapshot.contributions.assistantModuleExploration`，其内容属于历史线索而非当前事实。查询、写回或解析失败时，SDK 继续原咨询流程并只记录脱敏调试元数据。
+
+## 13. 会话反馈增量识别
+
+正常回复终态后，SDK 发送不含历史正文的触发命令：
+
+```json
+{
+  "type": "assistantConversationAnalyze",
+  "requestId": "uuid",
+  "sessionId": "session-id"
+}
+```
+
+服务端读取当前认证用户在该会话的分析水位，再从 transcript 读取水位之后的新增消息。响应 `assistantCommandResult.action` 为 `conversationAnalysis`，`data` 包含 `fromWatermark`、`toWatermark`、`advanced`、`summary` 和 `detections`。每项 detection 包含 `intent`、`feedbackCategory`、`requirementType`、`confidence`、`reason` 和来源消息水位；只返回新增用户消息的识别结果。
+
+`feedbackCategory` 仅允许 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 或 `NONE`。前三者分别映射 `requirementType=BUG_FIX`、`NEW_MODULE`、`MODULE_ADJUST`，并以 `sourceSystem + sessionId + sourceWatermark` 幂等写入公网 MySQL 候选表；`NONE` 不写候选表。旧客户端仍可只读取 `intent`，需求和优化在 Widget 中继续投影为兼容模式 `SUGGESTION`。
+
+Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` 适配器优先使用显式 `datasource-id`，否则按 `system-code=yoooni-one + environment + 可选 datasource-name` 选择唯一 MySQL 数据源，再从 `OpsDataSourcePool` 借用 Druid 连接直接 upsert。未登记、匹配不唯一或数据源不是 MySQL 时明确失败；不存在 Yoooni One 项目 HTTP 接口或服务密钥。
+
+当没有增量时返回 `advanced=false` 且不调用分类模型。分类、候选 MySQL 写入、摘要或水位持久化失败时返回失败结果并保持旧水位；客户端可在下一次正常终态重试。客户端不得上传自报水位或完整会话正文，避免跨标签页覆盖和重复分析。

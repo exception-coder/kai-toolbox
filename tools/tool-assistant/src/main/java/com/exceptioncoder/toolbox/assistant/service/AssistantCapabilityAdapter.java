@@ -17,17 +17,20 @@ import java.util.List;
 public class AssistantCapabilityAdapter implements AssistantCapabilityPort {
 
     private final AssistantIntentRouter intentRouter;
+    private final AssistantConversationAnalysisService conversationAnalysisService;
     private final AssistantContextService contextService;
     private final AssistantModuleContextService moduleContextService;
     private final AssistantDraftService draftService;
     private final ObjectProvider<AuthUserRepository> userRepositoryProvider;
 
     public AssistantCapabilityAdapter(AssistantIntentRouter intentRouter,
+                                      AssistantConversationAnalysisService conversationAnalysisService,
                                       AssistantContextService contextService,
                                       AssistantModuleContextService moduleContextService,
                                       AssistantDraftService draftService,
                                       ObjectProvider<AuthUserRepository> userRepositoryProvider) {
         this.intentRouter = intentRouter;
+        this.conversationAnalysisService = conversationAnalysisService;
         this.contextService = contextService;
         this.moduleContextService = moduleContextService;
         this.draftService = draftService;
@@ -38,6 +41,19 @@ public class AssistantCapabilityAdapter implements AssistantCapabilityPort {
     public IntentResult routeIntent(String mode, String text) {
         AssistantIntentResult result = intentRouter.route(mode, text);
         return new IntentResult(result.intent().name(), result.confidence(), result.reason());
+    }
+
+    @Override
+    public ConversationAnalysisCursor conversationAnalysisCursor(String sessionId) {
+        return conversationAnalysisService.cursor(sessionId);
+    }
+
+    @Override
+    public ConversationAnalysisResult analyzeConversation(String sessionId, long fromWatermark, long toWatermark,
+                                                          boolean caughtUp, List<ConversationMessage> messages) {
+        return conversationAnalysisService.analyze(
+                new AssistantConversationAnalysisService.AnalyzeConversationCommand(
+                        sessionId, fromWatermark, toWatermark, caughtUp, messages));
     }
 
     @Override

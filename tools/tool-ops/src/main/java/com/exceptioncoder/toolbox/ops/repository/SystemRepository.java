@@ -36,6 +36,12 @@ public class SystemRepository {
         return jdbc.query("SELECT * FROM ops_system WHERE id = ?", ROW, id).stream().findFirst();
     }
 
+    public Optional<OpsSystem> findByCode(String code) {
+        return jdbc.query("SELECT * FROM ops_system WHERE lower(code) = lower(?)", ROW, code)
+                .stream()
+                .findFirst();
+    }
+
     public void insert(OpsSystem s) {
         jdbc.update("""
                 INSERT INTO ops_system

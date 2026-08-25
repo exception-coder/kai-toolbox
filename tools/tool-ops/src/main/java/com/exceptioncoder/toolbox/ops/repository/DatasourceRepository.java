@@ -50,6 +50,17 @@ public class DatasourceRepository {
         return jdbc.query("SELECT * FROM ops_datasource WHERE id = ?", ROW, id).stream().findFirst();
     }
 
+    public List<OpsDatasource> findMysqlBySystemAndEnvironment(String systemId, String environment) {
+        return jdbc.query("""
+                SELECT *
+                  FROM ops_datasource
+                 WHERE system_id = ?
+                   AND type = 'MYSQL'
+                   AND upper(env) = upper(?)
+                 ORDER BY sort_order ASC, name ASC
+                """, ROW, systemId, environment);
+    }
+
     public void insert(OpsDatasource d) {
         jdbc.update("""
                 INSERT INTO ops_datasource

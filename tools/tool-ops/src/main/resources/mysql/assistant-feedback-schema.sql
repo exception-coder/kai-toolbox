@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS assistant_feedback_candidate (
+    id                    CHAR(36) PRIMARY KEY,
+    source_system         VARCHAR(64) NOT NULL,
+    session_id            VARCHAR(128) NOT NULL,
+    source_watermark      BIGINT NOT NULL,
+    creator_user_id       BIGINT NOT NULL,
+    feedback_category     VARCHAR(32) NOT NULL,
+    requirement_type      VARCHAR(32) NOT NULL,
+    feedback_content      TEXT NOT NULL,
+    confidence            DECIMAL(5, 4) NOT NULL,
+    classification_reason VARCHAR(255) NOT NULL DEFAULT '',
+    page_url              VARCHAR(1000) NOT NULL DEFAULT '',
+    page_title            VARCHAR(255) NOT NULL DEFAULT '',
+    candidate_status      VARCHAR(32) NOT NULL DEFAULT 'DETECTED',
+    detected_at           BIGINT NOT NULL,
+    create_time           BIGINT NOT NULL,
+    update_time           BIGINT NOT NULL,
+    UNIQUE KEY uk_assistant_feedback_source (source_system, session_id, source_watermark),
+    KEY idx_assistant_feedback_category (feedback_category, candidate_status, detected_at),
+    KEY idx_assistant_feedback_creator (creator_user_id, detected_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

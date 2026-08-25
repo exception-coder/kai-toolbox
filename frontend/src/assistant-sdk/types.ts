@@ -155,7 +155,11 @@ export interface AssistantWidgetState {
   users?: AssistantWidgetUser[]
   messages?: AssistantConversationMessage[]
   authenticationRequired?: boolean
+  submissionAccepted?: boolean
+  failedSubmission?: AssistantSubmission
   debugEntry?: AssistantDebugEntry
+  detectedIntent?: 'BUG' | 'SUGGESTION'
+  detectionConfidence?: number
 }
 
 export interface AssistantTransport {

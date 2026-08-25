@@ -1,6 +1,5 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
-import com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
@@ -9,7 +8,6 @@ import com.exceptioncoder.toolbox.common.git.GitRangeDiffResponse;
 import com.exceptioncoder.toolbox.common.git.GitStatusEntry;
 import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
 import com.exceptioncoder.toolbox.llm.spi.DevelopmentChangeContextProvider;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
@@ -18,13 +16,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -35,20 +30,19 @@ public class ClaudeChatDevelopmentContextProvider implements DevelopmentChangeCo
 
     private static final int MAX_PARENT_DEPTH = 10;
     private static final int MAX_CONVERSATION_ENTRIES = 500;
-    private static final int MAX_ENTRY_CHARS = 4_000;
     private static final int MAX_REPOSITORY_DIFF_CHARS = 80_000;
 
     private final ClaudeChatSessionRepository sessionRepository;
-    private final SessionHistoryService historyService;
+    private final ClaudeChatConversationDeltaReader conversationDeltaReader;
     private final GitLogService gitLogService;
     private final ObjectMapper mapper;
 
     public ClaudeChatDevelopmentContextProvider(ClaudeChatSessionRepository sessionRepository,
-                                                SessionHistoryService historyService,
+                                                ClaudeChatConversationDeltaReader conversationDeltaReader,
                                                 GitLogService gitLogService,
                                                 ObjectMapper mapper) {
         this.sessionRepository = sessionRepository;
-        this.historyService = historyService;
+        this.conversationDeltaReader = conversationDeltaReader;
         this.gitLogService = gitLogService;
         this.mapper = mapper;
     }
@@ -84,73 +78,12 @@ public class ClaudeChatDevelopmentContextProvider implements DevelopmentChangeCo
     }
 
     private List<ConversationEntry> readConversation(ClaudeChatSession session, List<String> warnings) {
-        Set<String> sessionIds = new LinkedHashSet<>();
-        String engineSessions = session.getEngineSessions();
-        if (engineSessions != null && !engineSessions.isBlank()) {
-            try {
-                Map<String, String> parsed = mapper.readValue(engineSessions, new TypeReference<LinkedHashMap<String, String>>() {
-                });
-                parsed.values().stream().filter(value -> value != null && !value.isBlank()).forEach(sessionIds::add);
-            } catch (Exception e) {
-                warnings.add("引擎会话映射无法解析，已回退当前会话段");
-            }
-        }
-        if (session.getSdkSessionId() != null && !session.getSdkSessionId().isBlank()) {
-            sessionIds.add(session.getSdkSessionId());
-        }
-
-        List<TimedConversationEntry> collected = new ArrayList<>();
-        long fallbackOffset = 0;
-        for (String sdkSessionId : sessionIds) {
-            var page = historyService.readMessages(
-                    session.getCwd(), sdkSessionId, session.getCodexHome(), null, Integer.MAX_VALUE);
-            if (page.transcriptMissing()) {
-                warnings.add("会话段 " + sdkSessionId + " 的 transcript 已丢失");
-                continue;
-            }
-            for (ChatMessageView item : page.items()) {
-                String role = item.kind();
-                String content = switch (role) {
-                    case "user", "assistant" -> item.text();
-                    case "tool" -> formatTool(item);
-                    default -> null;
-                };
-                if (content == null || content.isBlank()) {
-                    continue;
-                }
-                long timestamp = item.ts() != null ? item.ts() : session.getStartedAt() + fallbackOffset++;
-                collected.add(new TimedConversationEntry(timestamp, collected.size(), role,
-                        truncate(content, MAX_ENTRY_CHARS)));
-            }
-        }
-        collected.sort(Comparator.comparingLong(TimedConversationEntry::timestamp)
-                .thenComparingLong(TimedConversationEntry::stableOrder));
-        List<ConversationEntry> entries = new ArrayList<>(collected.size());
-        long previousTimestamp = Long.MIN_VALUE;
-        int tie = 0;
-        for (TimedConversationEntry item : collected) {
-            tie = item.timestamp() == previousTimestamp ? tie + 1 : 0;
-            previousTimestamp = item.timestamp();
-            entries.add(new ConversationEntry(item.timestamp() * 1_000 + tie, item.role(), item.content()));
-        }
-        return entries;
-    }
-
-    private record TimedConversationEntry(long timestamp, long stableOrder, String role, String content) {
-    }
-
-    private String formatTool(ChatMessageView item) {
-        StringBuilder text = new StringBuilder("工具 ").append(item.toolName());
-        if (item.input() != null) {
-            text.append("\n输入：").append(safeJson(item.input()));
-        }
-        if (item.output() != null && !item.output().isBlank()) {
-            text.append("\n结果：").append(item.output());
-        }
-        if (Boolean.TRUE.equals(item.isError())) {
-            text.append("\n状态：失败");
-        }
-        return text.toString();
+        ClaudeChatConversationDeltaReader.ConversationRead read =
+                conversationDeltaReader.readAllWithWarnings(session);
+        warnings.addAll(read.warnings());
+        return read.messages().stream()
+                .map(entry -> new ConversationEntry(entry.sequence(), entry.role(), entry.content()))
+                .toList();
     }
 
     private List<GitRepositoryChange> readGitChanges(Path cwd, Map<String, String> baselineHeads,
@@ -267,14 +200,6 @@ public class ClaudeChatDevelopmentContextProvider implements DevelopmentChangeCo
         }
     }
 
-    private String safeJson(Object value) {
-        try {
-            return mapper.writeValueAsString(value);
-        } catch (Exception e) {
-            return String.valueOf(value);
-        }
-    }
-
     private String hash(List<ConversationEntry> conversation, List<GitRepositoryChange> repositories) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -314,7 +239,4 @@ public class ClaudeChatDevelopmentContextProvider implements DevelopmentChangeCo
         target.append(value, 0, Math.min(room, value.length())).append('\n');
     }
 
-    private static String truncate(String value, int maxChars) {
-        return value.length() <= maxChars ? value : value.substring(0, maxChars) + "\n…（已截断）";
-    }
 }

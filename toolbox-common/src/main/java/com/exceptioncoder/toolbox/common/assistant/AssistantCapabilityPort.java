@@ -11,6 +11,27 @@ public interface AssistantCapabilityPort {
 
     IntentResult routeIntent(String mode, String text);
 
+    /**
+     * 读取当前用户会话最近一次成功分析的水位。
+     *
+     * @param sessionId 会话标识
+     * @return 持久化分析水位
+     */
+    ConversationAnalysisCursor conversationAnalysisCursor(String sessionId);
+
+    /**
+     * 分析服务端从权威水位后读取的会话增量。
+     *
+     * @param sessionId 会话标识
+     * @param fromWatermark 本批次起始水位
+     * @param toWatermark 本批次末端水位
+     * @param caughtUp 本批次是否已经追平 transcript
+     * @param messages 本批次会话事实
+     * @return 识别结果、滚动摘要和新水位
+     */
+    ConversationAnalysisResult analyzeConversation(String sessionId, long fromWatermark, long toWatermark,
+                                                    boolean caughtUp, List<ConversationMessage> messages);
+
     SnapshotResult saveContext(String sessionId, String protocolVersion, Object snapshot);
 
     /**
@@ -45,6 +66,25 @@ public interface AssistantCapabilityPort {
     List<UserOption> listAssignableUsers();
 
     record IntentResult(String intent, double confidence, String reason) {
+    }
+
+    /** 会话分析游标。 */
+    record ConversationAnalysisCursor(long watermark) {
+    }
+
+    /** 服务端读取的一条会话事实。 */
+    record ConversationMessage(long sequence, String role, String content) {
+    }
+
+    /** 一条新增用户消息的受控意图和反馈分类结果。 */
+    record ConversationDetection(long sourceWatermark, String intent, String feedbackCategory,
+                                 String requirementType, double confidence, String reason) {
+    }
+
+    /** 会话增量分析结果。 */
+    record ConversationAnalysisResult(long fromWatermark, long toWatermark, boolean advanced,
+                                      boolean caughtUp, boolean stale, String summary,
+                                      List<ConversationDetection> detections) {
     }
 
     record SnapshotResult(String snapshotId, long capturedAt) {

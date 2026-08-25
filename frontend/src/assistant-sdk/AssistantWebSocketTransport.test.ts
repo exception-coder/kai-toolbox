@@ -334,6 +334,36 @@ describe('AssistantWebSocketTransport', () => {
     transport.destroy()
   })
 
+  it('analyzes the completed conversation and exposes detected feedback', () => {
+    const socket = new FakeWebSocket()
+    const states: AssistantWidgetState[] = []
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    transport.start(state => states.push(state))
+    transport.submit({ mode: 'AUTO', text: '导出按钮点击后报错', snapshot })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+
+    socket.receive({ type: 'result', seq: 2, stopReason: 'end_turn' })
+
+    expect(sentByType(socket, 'assistantConversationAnalyze')).toMatchObject({ sessionId: 'session-1' })
+    socket.receive({
+      type: 'assistantCommandResult', seq: 0, requestId: 'analysis-1', action: 'conversationAnalysis',
+      success: true,
+      data: {
+        fromWatermark: 0, toWatermark: 20, advanced: true, caughtUp: true,
+        detections: [{ sourceWatermark: 10, intent: 'BUG', confidence: 0.93, reason: '已有功能报错' }],
+      },
+    })
+
+    expect(states.at(-1)).toMatchObject({
+      state: '已识别反馈', detectedIntent: 'BUG', detectionConfidence: 0.93,
+    })
+    transport.destroy()
+  })
+
   it('attaches with the persisted watermark after reconnecting', () => {
     vi.useFakeTimers()
     const sockets: FakeWebSocket[] = []

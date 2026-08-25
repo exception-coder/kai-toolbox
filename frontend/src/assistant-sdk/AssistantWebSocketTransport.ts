@@ -98,6 +98,7 @@ export class AssistantWebSocketTransport implements AssistantTransport {
   private reconnectTimer?: number
   private destroyed = false
   private draftId?: string
+  private conversationAnalysisInFlight = false
   private idempotencyKeys: Record<string, string> = {}
   private pendingCommands: Array<() => void> = []
   private connecting = false
@@ -252,6 +253,7 @@ export class AssistantWebSocketTransport implements AssistantTransport {
   private onClose(socket: WebSocket): void {
     if (socket !== this.socket) return
     this.socket = undefined
+    this.conversationAnalysisInFlight = false
     this.resetLoadingModuleContexts()
     if (this.destroyed) return
     this.debug('connection', 'WebSocket 连接关闭，准备重连')
@@ -293,10 +295,11 @@ export class AssistantWebSocketTransport implements AssistantTransport {
       case 'ready':
         this.sessionId = message.sessionId
         this.running = message.status?.toUpperCase() === 'RUNNING'
-        this.emit(this.running ? '回复中' : '已就绪')
         this.resendAwaitingQueueAck()
         this.flushPendingCommands()
         this.flushPending()
+        if (!this.running && this.messages.length > 0) this.requestConversationAnalysis()
+        this.emit(this.running ? '回复中' : '已就绪')
         break
       case 'assistantDelta':
         this.running = true
@@ -308,6 +311,7 @@ export class AssistantWebSocketTransport implements AssistantTransport {
         if (message.stopReason === 'interrupted') this.activeModuleExploration = undefined
         else this.saveActiveModuleExploration()
         if (message.stopReason === 'interrupted') this.backgroundTaskCount = 0
+        if (message.stopReason !== 'interrupted') this.requestConversationAnalysis()
         this.emit(message.stopReason === 'interrupted'
           ? '已中止'
           : this.backgroundTaskCount > 0 ? '后台处理中' : '已完成')
@@ -430,10 +434,22 @@ export class AssistantWebSocketTransport implements AssistantTransport {
         this.debug('context', '模块探索摘要保存失败，本次会话仍可继续', { errorCode: message.errorCode })
         return
       }
+      if (action === 'conversationAnalysis') {
+        this.conversationAnalysisInFlight = false
+        this.debug('error', '会话反馈增量识别失败，保留原水位等待下次重试', {
+          errorCode: message.errorCode,
+        })
+        return
+      }
       this.emit(`${commandLabel(action)}失败`, message.message ?? message.errorCode ?? '命令执行失败')
       return
     }
     const data = message.data
+    if (action === 'conversationAnalysis') {
+      this.conversationAnalysisInFlight = false
+      this.applyConversationAnalysis(data)
+      return
+    }
     if (action === 'moduleContextResolve') {
       this.completeModuleContextResolve(message.requestId, data)
       this.flushPending()
@@ -456,6 +472,33 @@ export class AssistantWebSocketTransport implements AssistantTransport {
       })).filter(item => Number.isFinite(item.userId))
       this.listener({ users })
     }
+  }
+
+  private requestConversationAnalysis(): void {
+    if (!this.sessionId || this.conversationAnalysisInFlight) return
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return
+    this.conversationAnalysisInFlight = true
+    this.send({
+      type: 'assistantConversationAnalyze', requestId: createId(), sessionId: this.sessionId,
+    })
+  }
+
+  private applyConversationAnalysis(data: unknown): void {
+    if (!isRecord(data)) return
+    const detections = Array.isArray(data.detections) ? data.detections.filter(isRecord) : []
+    const feedback = [...detections].reverse().find(item => item.intent === 'BUG' || item.intent === 'SUGGESTION')
+    if (feedback) {
+      const intent = feedback.intent as 'BUG' | 'SUGGESTION'
+      const confidence = typeof feedback.confidence === 'number' ? feedback.confidence : undefined
+      this.emit(
+        '已识别反馈',
+        intent === 'BUG' ? '已识别为 Bug 反馈，可编辑后保存草稿' : '已识别为需求反馈，可编辑后保存草稿',
+        false,
+        intent,
+        confidence,
+      )
+    }
+    if (data.caughtUp === false || data.stale === true) this.requestConversationAnalysis()
   }
 
   private prepareModuleContext(item: PendingSubmission): boolean {
@@ -592,7 +635,8 @@ export class AssistantWebSocketTransport implements AssistantTransport {
     this.emit('认证失败', error instanceof Error ? error.message : String(error), true)
   }
 
-  private emit(state: string, message?: string, authenticationRequired = false): void {
+  private emit(state: string, message?: string, authenticationRequired = false,
+               detectedIntent?: 'BUG' | 'SUGGESTION', detectionConfidence?: number): void {
     if (!this.running) {
       this.messages.forEach(item => {
         if (item.role === 'assistant') item.streaming = false
@@ -602,6 +646,8 @@ export class AssistantWebSocketTransport implements AssistantTransport {
       state, message, queueSize: this.queueSize, draftId: this.draftId,
       messages: this.messages.map(item => ({ ...item })),
       authenticationRequired,
+      detectedIntent,
+      detectionConfidence,
     })
   }
 
@@ -681,6 +727,7 @@ function commandLabel(action?: string): string {
     case 'usersList': return '工程师列表加载'
     case 'contextSave': return '上下文保存'
     case 'intentRoute': return '意图识别'
+    case 'conversationAnalysis': return '会话反馈识别'
     case 'moduleContextResolve': return '模块摘要读取'
     case 'moduleContextSave': return '模块摘要保存'
     default: return '助手命令'

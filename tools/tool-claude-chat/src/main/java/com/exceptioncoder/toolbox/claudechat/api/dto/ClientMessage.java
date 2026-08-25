@@ -18,6 +18,7 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.Send.class,          name = "send"),
         @JsonSubTypes.Type(value = ClientMessage.Queue.class,         name = "queue"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantIntentRoute.class, name = "assistantIntentRoute"),
+        @JsonSubTypes.Type(value = ClientMessage.AssistantConversationAnalyze.class, name = "assistantConversationAnalyze"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantContextSave.class, name = "assistantContextSave"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantModuleContextResolve.class, name = "assistantModuleContextResolve"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantModuleContextSave.class, name = "assistantModuleContextSave"),
@@ -40,7 +41,8 @@ public sealed interface ClientMessage
         permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession, ClientMessage.DuplicateSession,
                 ClientMessage.ResumeHistory, ClientMessage.ResumeCurrent, ClientMessage.Send, ClientMessage.Decision,
                 ClientMessage.Queue,
-                ClientMessage.AssistantIntentRoute, ClientMessage.AssistantContextSave,
+                ClientMessage.AssistantIntentRoute, ClientMessage.AssistantConversationAnalyze,
+                ClientMessage.AssistantContextSave,
                 ClientMessage.AssistantModuleContextResolve, ClientMessage.AssistantModuleContextSave,
                 ClientMessage.AssistantDraftCreate, ClientMessage.AssistantDraftConfirm,
                 ClientMessage.AssistantUsersList,
@@ -92,6 +94,9 @@ public sealed interface ClientMessage
 
     /** 嵌入式助手意图识别命令；requestId 用于关联连接级响应。 */
     record AssistantIntentRoute(String requestId, String mode, String text) implements ClientMessage {}
+
+    /** 触发服务端从持久化水位之后分析当前会话反馈。 */
+    record AssistantConversationAnalyze(String requestId, String sessionId) implements ClientMessage {}
 
     /** 保存当前会话的一份不可变、已脱敏上下文快照。 */
     record AssistantContextSave(String requestId, String sessionId, String protocolVersion,

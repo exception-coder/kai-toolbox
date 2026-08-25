@@ -41,13 +41,16 @@ flowchart LR
 - 宿主只负责加载 SDK、提供上下文、更新上下文和配置 WebSocket 地址；咨询、诊断、队列和会话逻辑不得复制到宿主。
 - `AssistantBridge` 仅作为 kai-toolbox 兼容适配器；公开 SDK 不得引用 React、Router、认证 Hook 或 feature 私有实现。
 - 浏览器建立连接时通过 `getAccessToken` 动态取得短期 Assistant ACCESS token；同源代理也可在宿主后端完成身份映射。Token 不进入 SDK 本地存储，上下文 `user.id` 永远不参与授权。
-- 为内部试用提供显式开启的 Forge 外部登录模式：宿主配置登录地址后，Widget 在缺少 Token 时展示 Forge 账号登录；登录接口只对白名单 Origin 开放，SDK 仅在当前实例内存中保存 ACCESS Token，不保存密码或 REFRESH Token。
+- 为内部试用提供显式开启的 Forge 外部登录模式：宿主配置登录地址后，Widget 在缺少 Token 时展示 Forge 账号登录；登录接口只对白名单 Origin 开放，SDK 将 ACCESS Token 与绝对过期时间限制在当前标签页 `sessionStorage`，不保存密码或 REFRESH Token。
 - 外部登录模式复用 Forge 账号和既有 ACCESS Token，不等同于跨域共享 Forge 页面的 `localStorage` 登录态；生产接入仍优先使用宿主后端换取短期、限域的 Assistant Token。
 - Widget 可配置初始隐藏；默认以 `Ctrl/⌘ + Alt/Option + Shift + 0` 唤起本地密钥输入，验证后显示助手。采用无功能语义的数字四键组合，以避开常见截图、菜单、浏览器和编辑器快捷键；显示密钥只控制前端可见性，不承担身份认证或权限校验。
 - 彩虹胶囊入口在桌面端和移动端均允许拖动，位置按 `appId + userId` 本地保存并始终约束在可视区域；对话框仅桌面端允许拖动，窄屏保持固定全屏布局。
 - 用户发送后消息立即进入对话框，上下文采集和回复生成状态跟随当前回合显示在消息流中；准备、连接、回复、消息处理、后台处理和待确认期间禁止再次发送，终态或失败后恢复发送。
 - 准备上下文、连接和回复执行期间展示“中止”动作：准备阶段中止本地 Provider 采集，已进入会话后复用既有 WebSocket `interrupt` 链路；中止不得销毁会话或丢弃服务端待发送列表。
 - Widget 提供默认收起的调试面板，按时间展示上下文准备、WS 连接、协议发送/接收、中止和错误元数据；日志最多保留 200 条且仅存在当前页面内存，禁止记录密码、Token、Cookie、业务正文和完整上下文。
+- Composer 支持从剪贴板一次粘贴最多 5 张 PNG、JPEG、GIF 或 WebP 图片，单张不超过 10MB、单次总量不超过 25MB；图片只在当前页面内存暂存并允许发送前预览、移除，不以 Base64、Blob 或对象 URL 写入本地存储和调试日志。
+- 图片随消息提交时，Transport 必须先建立归属当前用户的会话，再携带同一短期 ACCESS Token 通过受控 AJAX 上传；上传成功后 WS 只发送服务端返回的 `name/path/mime` 引用。任何一张上传失败都不得静默降级为纯文本发送，必须移除本地乐观消息并恢复文本与图片草稿供用户重试。
+- 附件上传 CORS 复用外部登录的精确 Origin 白名单，只开放上传路径的 `POST/OPTIONS` 和 `Authorization/Content-Type` 请求头；服务端同时执行登录校验、会话归属校验、文件类型、大小和路径沙箱校验。
 - 第三方未配置 `wsUrl` 或自定义 Transport 时，首次提交必须立即返回可恢复的配置错误并写入调试日志，不得停留在“正在准备上下文”。
 - 模块缓存键由 SDK 从 `page.routeName` 或规范化页面 URL 确定；服务端再按认证用户、`appId` 和 `moduleKey` 隔离，客户端 `user.id` 不参与缓存授权。
 - 缓存摘要只作为历史分析线索，不替代本轮 Provider 快照、源码证据或运行数据；命中摘要时必须显式标记生成时间和证据版本。
@@ -105,7 +108,7 @@ JSP 或原生页面加载 `kai-assistant.iife.js` 后调用 `KaiAssistant.initia
 
 V0.1 建议把宿主的 `/assistant-ws` 同源反向代理到 `/api/claude-chat/consult/ws`，代理必须支持 WebSocket Upgrade。`getAccessToken` 返回宿主后端交换得到的短期 Assistant Token；服务端生产配置必须将 `consultAllowedOriginPatterns` 收紧为宿主域名白名单。SDK 的 `user.id` 仅用于上下文和本地存储分区。
 
-内部快速验证可显式配置 `externalLogin`，由 SDK 调用 Forge 专用 `/api/auth/external-login`。该接口复用现有账号认证和权限解析，但仅签发 ACCESS Token，不生成或返回 REFRESH Token。后端通过 `toolbox.auth.external-login.enabled` 和 `allowed-origins` 双重门禁开放该路径的 CORS；未配置白名单时保持跨域登录关闭。外部登录成功后 SDK 立即建立咨询 WebSocket，页面刷新或实例销毁后内存 Token 失效。
+内部快速验证可显式配置 `externalLogin`，由 SDK 调用 Forge 专用 `/api/auth/external-login`。该接口复用现有账号认证和权限解析，但仅签发 ACCESS Token，不生成或返回 REFRESH Token。后端通过 `toolbox.auth.external-login.enabled` 和 `allowed-origins` 双重门禁开放该路径的 CORS；未配置白名单时保持跨域登录关闭。外部登录成功后 SDK 立即建立咨询 WebSocket；页面刷新或 SPA 重新挂载时恢复当前标签页内尚未过期的 Token，关闭标签页、到期或鉴权失败后清理并重新登录。
 
 ```ts
 const assistant = initializeAssistant({
@@ -176,3 +179,64 @@ sequenceDiagram
 ```
 
 缓存查询失败、响应超时或写回失败均降级为原有咨询链路，并通过调试面板记录不含正文的错误元数据。队列消息不等待缓存查询；同一会话已有上下文时继续复用会话历史，避免缓存准备改变既有 FIFO 行为。
+
+## 7. 会话反馈增量识别
+
+彩虹胶囊在每个正常回复终态后触发一次会话反馈分析。分析对象不是客户端重新拼装的全量聊天，而是服务端从该会话已持久化分析水位线之后读取的新增 `user` 消息；助手回复和工具输出只作为会话事实保留，不作为用户反馈来源。
+
+- 对话意图继续兼容 `BUG`、`SUGGESTION`、`QUESTION`、`DIAGNOSE`、`UNKNOWN`；需要持久化的反馈另以封闭枚举 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 分类，分别映射需求类型 `BUG_FIX`、`NEW_MODULE`、`MODULE_ADJUST`。
+- 每个会话、每个认证用户只保存一条当前分析状态：已分析水位、滚动反馈摘要和更新时间。
+- 分类器只接收上次滚动摘要与本次增量用户消息，不重新发送水位线之前的原始会话。
+- Bug、需求和优化识别结果先写入公网 MySQL 的 `assistant_feedback_candidate` 候选表，状态固定为 `DETECTED`；模型不得直接创建正式 ReqPool 记录。
+- 持久化代码全部位于 Forge：`tool-ops` 按系统编码 `yoooni-one` 和环境解析已登记 MySQL 数据源，直接复用 `OpsDataSourcePool` 的 Druid 池写公网 MySQL；不调用 Yoooni One 项目接口。
+- 只有分类、候选幂等落库、摘要处理全部成功后才推进 SQLite 水位；读取失败、分类器异常或公网 MySQL 落库失败均保持原水位，下一次终态从旧水位重试。
+- 候选唯一键为 `source_system + session_id + source_watermark`。公网写入成功但本地水位提交失败时，重试使用 upsert，不生成重复反馈。
+- 公网候选只保存单条用户反馈、分类、置信度、应用和页面定位等限长字段；不得保存 Token、Cookie、密码、完整上下文快照、助手回复或工具输出。
+- 同一终态重复触发时，如果没有新增消息，返回 `advanced=false`，不得再次调用分类模型。
+- 自动识别只建议切换胶囊类型并开放草稿动作；用户确认后才按既有幂等链路登记 ReqPool，且可纠正类型和编辑草稿。
+
+```mermaid
+sequenceDiagram
+    box rgb(235, 242, 250) 业务宿主
+        participant SDK as Assistant SDK
+        participant WS as WebSocket Transport
+    end
+    box rgb(238, 247, 240) 会话服务
+        participant CMD as Assistant Command Handler
+        participant HISTORY as Conversation Delta Reader
+    end
+    box rgb(250, 244, 232) Assistant 能力
+        participant STATE as Analysis State Service
+        participant MODEL as Intent Router
+    end
+    box rgb(246, 238, 250) Forge Ops
+        participant STORE as Feedback Store Adapter
+        participant REG as Ops Datasource Registry
+        participant POOL as Ops Druid Pool
+        participant MYSQL as Public MySQL
+    end
+    SDK->>WS: 收到正常回复终态
+    WS->>CMD: analyze conversation
+    CMD->>STATE: 读取持久化水位
+    CMD->>HISTORY: 读取水位之后的会话增量
+    alt 没有新增用户消息
+        HISTORY-->>CMD: 空增量
+        CMD-->>WS: advanced false
+    else 存在新增用户消息
+        HISTORY-->>CMD: 增量消息和末端水位
+        CMD->>STATE: 提交期望水位和增量
+        STATE->>MODEL: 历史摘要加新增用户消息
+        MODEL-->>STATE: 意图和反馈分类
+        STATE->>STORE: 通过稳定端口提交候选
+        STORE->>REG: 解析 yoooni-one MySQL 数据源
+        REG-->>STORE: 数据源配置
+        STORE->>POOL: 借用写连接
+        POOL->>MYSQL: upsert source watermark
+        MYSQL-->>STORE: 保存成功
+        STORE-->>STATE: 已持久化
+        STATE->>STATE: 保存摘要并推进水位
+        STATE-->>CMD: 识别结果和新水位
+        CMD-->>WS: conversationAnalysis
+        WS-->>SDK: 提示 Bug 需求或优化反馈
+    end
+```

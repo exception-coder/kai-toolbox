@@ -41,7 +41,8 @@ class AssistantWebSocketCommandHandlerTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<AssistantCapabilityPort> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(capability);
-        AssistantWebSocketCommandHandler handler = new AssistantWebSocketCommandHandler(provider, mapper);
+        AssistantWebSocketCommandHandler handler = new AssistantWebSocketCommandHandler(
+                provider, mock(ClaudeChatConversationDeltaReader.class), mapper);
         WebSocketSession ws = authenticatedSocket(7L);
 
         handler.handle(ws, new ClientMessage.AssistantIntentRoute(
@@ -65,7 +66,8 @@ class AssistantWebSocketCommandHandlerTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<AssistantCapabilityPort> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(capability);
-        AssistantWebSocketCommandHandler handler = new AssistantWebSocketCommandHandler(provider, mapper);
+        AssistantWebSocketCommandHandler handler = new AssistantWebSocketCommandHandler(
+                provider, mock(ClaudeChatConversationDeltaReader.class), mapper);
         WebSocketSession ws = authenticatedSocket(7L);
 
         handler.handle(ws, new ClientMessage.AssistantModuleContextResolve(
@@ -89,7 +91,8 @@ class AssistantWebSocketCommandHandlerTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<AssistantCapabilityPort> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(capability);
-        AssistantWebSocketCommandHandler handler = new AssistantWebSocketCommandHandler(provider, mapper);
+        AssistantWebSocketCommandHandler handler = new AssistantWebSocketCommandHandler(
+                provider, mock(ClaudeChatConversationDeltaReader.class), mapper);
         WebSocketSession ws = authenticatedSocket(7L);
 
         handler.handle(ws, new ClientMessage.AssistantModuleContextSave(
@@ -102,6 +105,36 @@ class AssistantWebSocketCommandHandlerTest {
         JsonNode json = mapper.readTree(response.getValue().getPayload());
         assertThat(json.path("data").path("moduleKey").asText()).isEqualTo("order-detail");
         assertThat(json.path("success").asBoolean()).isTrue();
+    }
+
+    @Test
+    void analyzesOnlyTheConversationDeltaAfterThePersistedWatermark() throws Exception {
+        AssistantCapabilityPort capability = mock(AssistantCapabilityPort.class);
+        when(capability.conversationAnalysisCursor("session-1"))
+                .thenReturn(new AssistantCapabilityPort.ConversationAnalysisCursor(20L));
+        List<AssistantCapabilityPort.ConversationMessage> messages = List.of(
+                new AssistantCapabilityPort.ConversationMessage(30L, "user", "导出失败"));
+        when(capability.analyzeConversation("session-1", 20L, 30L, true, messages))
+                .thenReturn(new AssistantCapabilityPort.ConversationAnalysisResult(
+                        20L, 30L, true, true, false, "summary", List.of()));
+        ClaudeChatConversationDeltaReader reader = mock(ClaudeChatConversationDeltaReader.class);
+        when(reader.read("session-1", 20L)).thenReturn(
+                new ClaudeChatConversationDeltaReader.ConversationDelta(20L, 30L, messages, true));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<AssistantCapabilityPort> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(capability);
+        AssistantWebSocketCommandHandler handler = new AssistantWebSocketCommandHandler(provider, reader, mapper);
+        WebSocketSession ws = authenticatedSocket(7L);
+
+        handler.handle(ws, new ClientMessage.AssistantConversationAnalyze("request-4", "session-1"));
+
+        verify(reader).read("session-1", 20L);
+        verify(capability).analyzeConversation("session-1", 20L, 30L, true, messages);
+        org.mockito.ArgumentCaptor<TextMessage> response = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
+        verify(ws).sendMessage(response.capture());
+        JsonNode json = mapper.readTree(response.getValue().getPayload());
+        assertThat(json.path("action").asText()).isEqualTo("conversationAnalysis");
+        assertThat(json.path("data").path("toWatermark").asLong()).isEqualTo(30L);
     }
 
     private WebSocketSession authenticatedSocket(long userId) {

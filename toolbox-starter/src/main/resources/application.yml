@@ -44,6 +44,14 @@ server:
   compression:
     enabled: true
 
+toolbox:
+  assistant:
+    feedback-store:
+      datasource-id: ${YOOONI_ONE_ASSISTANT_DATASOURCE_ID:}
+      system-code: ${YOOONI_ONE_ASSISTANT_SYSTEM_CODE:yoooni-one}
+      environment: ${YOOONI_ONE_ASSISTANT_ENVIRONMENT:PROD}
+      datasource-name: ${YOOONI_ONE_ASSISTANT_DATASOURCE_NAME:}
+
 logging:
   level:
     root: INFO

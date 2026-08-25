@@ -22,17 +22,25 @@ import java.util.function.Supplier;
 public class AssistantWebSocketCommandHandler {
 
     private final ObjectProvider<AssistantCapabilityPort> capabilityProvider;
+    private final ClaudeChatConversationDeltaReader conversationDeltaReader;
     private final ObjectMapper mapper;
 
     public AssistantWebSocketCommandHandler(ObjectProvider<AssistantCapabilityPort> capabilityProvider,
+                                            ClaudeChatConversationDeltaReader conversationDeltaReader,
                                             ObjectMapper mapper) {
         this.capabilityProvider = capabilityProvider;
+        this.conversationDeltaReader = conversationDeltaReader;
         this.mapper = mapper;
     }
 
     public void handle(WebSocketSession ws, ClientMessage.AssistantIntentRoute command) {
         execute(ws, command.requestId(), "intentRoute", () -> capability().routeIntent(
                 command.mode(), requireText(command.text(), "text", 4_000)));
+    }
+
+    public void handle(WebSocketSession ws, ClientMessage.AssistantConversationAnalyze command) {
+        execute(ws, command.requestId(), "conversationAnalysis", () -> analyzeConversation(
+                requireText(command.sessionId(), "sessionId", 100)));
     }
 
     public void handle(WebSocketSession ws, ClientMessage.AssistantContextSave command) {
@@ -117,6 +125,15 @@ public class AssistantWebSocketCommandHandler {
                     "Assistant 能力未启用");
         }
         return capability;
+    }
+
+    private AssistantCapabilityPort.ConversationAnalysisResult analyzeConversation(String sessionId) {
+        AssistantCapabilityPort capability = capability();
+        long watermark = capability.conversationAnalysisCursor(sessionId).watermark();
+        ClaudeChatConversationDeltaReader.ConversationDelta delta =
+                conversationDeltaReader.read(sessionId, watermark);
+        return capability.analyzeConversation(sessionId, delta.fromWatermark(), delta.toWatermark(),
+                delta.caughtUp(), delta.messages());
     }
 
     private AuthPrincipal authenticatedPrincipal(WebSocketSession ws) {
