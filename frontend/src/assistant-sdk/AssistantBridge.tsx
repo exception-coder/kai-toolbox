@@ -19,12 +19,6 @@ interface DraftView {
   id: string
 }
 
-interface AssignableUserView {
-  userId: number
-  username: string
-  realName?: string | null
-}
-
 interface RegistrationView {
   requirementId: string
   alreadySaved: boolean
@@ -70,13 +64,6 @@ export function AssistantBridge() {
       }],
     })
     sdkRef.current = sdk
-    void http<AssignableUserView[]>('/auth/users/options')
-      .then(users => emitState({ users: users.map(user => ({
-        userId: user.userId,
-        username: user.username,
-        displayName: user.realName || user.username,
-      })) }))
-      .catch(() => { /* 未登录时保留“不指定工程师”，不影响宿主页面。 */ })
     return () => {
       collector.stop()
       sdk.destroy()

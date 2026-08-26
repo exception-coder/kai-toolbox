@@ -57,7 +57,6 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
       : undefined,
   })
   let opened = false
-  let usersRequested = false
   let activePreparation: AbortController | undefined
 
   const captureSnapshot = async (signal?: AbortSignal) => {
@@ -113,7 +112,6 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
       root.removeEventListener('assistant-submit', submit)
       root.removeEventListener('assistant-save-draft', saveDraft)
       root.removeEventListener('assistant-confirm-draft', confirmDraft)
-      root.removeEventListener('assistant-mode-change', modeChange)
       root.removeEventListener('assistant-interrupt', interrupt)
       root.removeEventListener('assistant-hidden', hidden)
       activePreparation?.abort('assistant-destroyed')
@@ -188,13 +186,6 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
     }
     transport.confirmDraft(detail.draftId, detail.engineerUserId)
   }
-  const modeChange = (event: Event) => {
-    const mode = (event as CustomEvent<{ mode: AssistantMode }>).detail.mode
-    if (!usersRequested && (mode === 'BUG' || mode === 'SUGGESTION') && transport?.listUsers) {
-      usersRequested = true
-      transport.listUsers()
-    }
-  }
   const interrupt = () => sdk.interrupt()
   const hidden = () => {
     opened = false
@@ -204,7 +195,6 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
   root.addEventListener('assistant-submit', submit)
   root.addEventListener('assistant-save-draft', saveDraft)
   root.addEventListener('assistant-confirm-draft', confirmDraft)
-  root.addEventListener('assistant-mode-change', modeChange)
   root.addEventListener('assistant-interrupt', interrupt)
   transport?.start(emitTransportState)
   return sdk

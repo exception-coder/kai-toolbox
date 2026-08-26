@@ -116,13 +116,16 @@ describe('assistant widget', () => {
     expect(widget?.shadowRoot?.textContent).toContain('连接未稳定时消息会进入待发送列表')
     expect(widget?.shadowRoot?.querySelectorAll('[data-mode]')).toHaveLength(0)
     expect(widget?.shadowRoot?.querySelector('[data-mode-label]')?.textContent).toBe('报告问题')
+    expect(widget?.shadowRoot?.querySelector('[data-engineer]')).toBeNull()
+    expect(widget?.shadowRoot?.querySelector('[data-save-draft]')).toBeNull()
+    expect(widget?.shadowRoot?.querySelector('[data-confirm-draft]')).toBeNull()
   })
 
   it('reviews and corrects auto-classified feedback under three fixed tags', async () => {
     const candidate = {
       id: 'candidate-1', sessionId: 'session-1', category: 'BUG' as const,
       requirementType: 'BUG_FIX', sourceContent: '点导出按钮没有反应',
-      content: '导出按钮无响应', confidence: .96,
+      aiOptimizedContent: '导出按钮无响应', content: '导出按钮无响应', confidence: .96,
       reason: '已有功能失败', pageUrl: '/orders', pageTitle: '订单', detectedAt: 1000,
       updateTime: 1000, revisionNo: 0, attachments: [],
     }
@@ -146,7 +149,13 @@ describe('assistant widget', () => {
     initializeAssistant({ appId: 'ERP', transport }).open()
     const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
 
-    shadow.querySelector<HTMLButtonElement>('[data-feedback-open]')!.click()
+    await vi.waitFor(() => expect(shadow.querySelector<HTMLElement>('[data-feedback-summary]')?.hidden)
+      .toBe(false))
+    expect(shadow.querySelector('[data-feedback-summary]')?.textContent).toContain('Bug 1')
+    expect(shadow.querySelector('[data-feedback-summary]')?.textContent).toContain('优化建议 2')
+    expect(shadow.querySelector('[data-feedback-summary]')?.textContent).toContain('需求 3')
+
+    shadow.querySelector<HTMLButtonElement>('[data-feedback-summary-category="BUG"]')!.click()
     await vi.waitFor(() => expect(shadow.querySelector('[data-feedback-archive-body]')?.textContent)
       .toContain('订单咨询'))
     expect(shadow.querySelector('[data-feedback-archive-body]')?.textContent).toContain('Bug 1')
@@ -174,21 +183,21 @@ describe('assistant widget', () => {
     ))
   })
 
-  it('switches an automatic conversation to the detected feedback type', () => {
+  it('keeps automatic classifications silent in the conversation view', () => {
     initializeAssistant({ appId: 'ERP' }).open('AUTO')
     const root = document.getElementById('kai-assistant-widget-root')!
     const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
 
     root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
       detail: {
-        state: '已识别反馈', detectedIntent: 'SUGGESTION', detectionConfidence: 0.9,
-        message: '已识别为需求反馈，可编辑后保存草稿',
+        detectedIntent: 'SUGGESTION', detectionConfidence: 0.9,
       },
     }))
 
-    expect(shadow.querySelector('[data-mode-label]')?.textContent).toBe('提出建议')
+    expect(shadow.querySelector('[data-mode-label]')?.textContent).toBe('自动识别')
     expect(shadow.querySelector('[data-mode]')).toBeNull()
-    expect(shadow.querySelector<HTMLElement>('[data-draft-actions]')!.hidden).toBe(false)
+    expect(shadow.querySelector('[data-draft-actions]')).toBeNull()
+    expect(shadow.querySelector('[data-notice]')?.textContent).toBe('')
   })
 
   it('keeps the automatic mode and context strip visible when conversation content grows', () => {
@@ -422,11 +431,7 @@ describe('assistant widget', () => {
     expect(widget.shadowRoot!.querySelector('[data-state-label]')?.textContent).toBe('已完成')
     expect(conversation.textContent).not.toContain('正在生成')
 
-    root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
-      detail: { users: [{ userId: 7, displayName: '开发甲' }] },
-    }))
     expect(widget.shadowRoot!.querySelector('[data-state-label]')?.textContent).toBe('已完成')
-    expect(widget.shadowRoot!.querySelector('[data-engineer]')?.textContent).toContain('开发甲')
   })
 
   it('keeps long conversations in a bounded DOM window', async () => {

@@ -255,14 +255,14 @@ sequenceDiagram
 - 分类器只接收上次滚动摘要与本次增量用户消息，不重新发送水位线之前的原始会话。
 - 三类反馈由独立描述生成器输出受控 JSON 草稿，服务端按 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 的固定章节确定性渲染 Markdown；模型不得直接决定章节结构。
 - 描述模型输出解析或校验失败时最多重试一次；仍失败则使用保留用户事实且明确标记“待补充”的确定性模板，不丢失该条反馈。
-- 公网候选以 `source_content` 永久保存限长用户原话，以 `feedback_content` 保存 AI 首次规范稿或用户最新修订；首次规范稿作为 `source=AI` 的修订基线，不得被后续编辑覆盖。
+- 公网候选主表以 `source_content` 永久保存限长用户原话，以 `ai_optimized_content` 保存不可覆盖的 AI 首次规范稿，以可空的 `user_rewritten_content` 保存用户基于 AI 稿的最新改写；有效正文按“用户改写优先、否则 AI 稿”读取，修订表继续保存 AI 基线和每次用户改写的不可变审计历史。
 - Bug、需求和优化识别结果先写入公网 MySQL 的 `assistant_feedback_candidate` 候选表，状态固定为 `DETECTED`；模型不得直接创建正式 ReqPool 记录。
 - 持久化代码全部位于 Forge：`tool-ops` 按系统编码 `yoooni-one` 和环境解析已登记 MySQL 数据源，直接复用 `OpsDataSourcePool` 的 Druid 池写公网 MySQL；不调用 Yoooni One 项目接口。
 - 只有分类、候选幂等落库、摘要处理全部成功后才推进 SQLite 水位；读取失败、分类器异常或公网 MySQL 落库失败均保持原水位，下一次终态从旧水位重试。
 - 候选唯一键为 `source_system + session_id + source_watermark`。公网写入成功但本地水位提交失败时，重试使用 upsert，不生成重复反馈。
 - 公网候选只保存单条用户反馈、分类、置信度、应用和页面定位等限长字段；不得保存 Token、Cookie、密码、完整上下文快照、助手回复或工具输出。
 - 同一终态重复触发时，如果没有新增消息，返回 `advanced=false`，不得再次调用分类模型。
-- 自动识别只建议切换胶囊类型并开放草稿动作；用户确认后才按既有幂等链路登记 ReqPool，且可纠正类型和编辑草稿。
+- 自动识别结果静默写入三类候选库，不在对话区弹提示、切换模式或开放“指定工程师 / 保存草稿 / 确认登记”动作；用户仅在“记录”归档中回顾并纠正候选。自动识别不得创建 `assistant_draft` 或 ReqPool 正式记录，既有草稿协议仅保留给兼容调用。
 
 ```mermaid
 sequenceDiagram
@@ -350,4 +350,102 @@ sequenceDiagram
     SDK->>HISTORY: load earlier when top reached
     HISTORY-->>SDK: earlier page and nextBefore
     SDK->>SDK: prepend and preserve scroll anchor
+```
+
+## 10. 中心化 Loader 发布与宿主升级
+
+彩虹胶囊运行时代码由 Forge 统一发布，宿主不再复制或打包 SDK 实现。宿主只保留一层薄接入代码：加载固定 Loader、选择发布渠道、在 Loader 返回 SDK 后调用既有 `initializeAssistant`。Loader 与 SDK 业务协议分离，Loader 不读取用户、页面或 Token，也不建立 WebSocket。
+
+```mermaid
+flowchart LR
+    subgraph ForgeBuild["Forge 构建发布域"]
+        Source["Assistant SDK 源码"] --> Build["测试与双格式构建"]
+        Build --> Release["不可变版本产物"]
+        Release --> Channel["stable 或 canary 渠道清单"]
+        Loader["固定 Loader"] --> Channel
+    end
+    subgraph HostRuntime["业务宿主运行域"]
+        Host["宿主薄接入"] --> Loader
+        Loader --> Runtime["当前渠道 SDK"]
+        Host --> Runtime
+    end
+    subgraph AssistantPlatform["Assistant 服务域"]
+        Runtime --> WebSocket["统一 Assistant WebSocket"]
+        Runtime --> HttpApi["登录、附件与归档接口"]
+    end
+```
+
+- 每次发布以 IIFE 内容 SHA-256 前缀生成不可变 `releaseId`，同一内容重复发布必须得到同一路径。
+- `channels/stable.json` 与 `channels/canary.json` 是可回拨的轻量指针；版本产物使用一年 `immutable` 缓存，Loader 和渠道清单使用 `no-cache`。
+- 渠道清单同时保存 IIFE、ESM 路径与 SHA-384 SRI。Loader 仅加载 IIFE，并对跨域脚本启用 `crossorigin=anonymous` 与 `integrity`。
+- 静态 SDK 资源允许任意 Origin 执行只读 `GET/HEAD/OPTIONS`；这不放宽登录、WebSocket、附件或归档接口的精确 Origin 白名单。
+- Loader 加载、渠道读取、契约校验或脚本执行失败时返回明确异常，不创建半初始化助手，不影响宿主业务页面。
+- `stable` 是默认渠道；`canary` 只供测试宿主显式选择。回滚只修改渠道清单指向已保留版本，不覆盖不可变产物。
+- Yoooni One 首批改为运行时 Loader 接入；原 vendor 目录暂时保留但不再进入依赖图，确认稳定后再单独清理。
+
+### 10.1 正常加载
+
+```mermaid
+sequenceDiagram
+    box rgb(235, 242, 250) 业务宿主
+        participant HOST as 宿主接入
+        participant LOADER as KAI Loader
+    end
+    box rgb(238, 247, 240) Forge 静态发布
+        participant CHANNEL as 渠道清单
+        participant RELEASE as 版本化 SDK
+    end
+    HOST->>LOADER: load stable
+    LOADER->>CHANNEL: GET channels stable
+    CHANNEL-->>LOADER: releaseId 路径和 SRI
+    LOADER->>RELEASE: 注入带 integrity 的 IIFE
+    RELEASE-->>LOADER: 注册 window KaiAssistant
+    LOADER-->>HOST: 返回 SDK 与版本
+    HOST->>HOST: initializeAssistant
+```
+
+### 10.2 加载失败与重试
+
+```mermaid
+sequenceDiagram
+    box rgb(235, 242, 250) 业务宿主
+        participant HOST as 宿主接入
+        participant LOADER as KAI Loader
+    end
+    box rgb(238, 247, 240) Forge 静态发布
+        participant CHANNEL as 渠道清单
+        participant RELEASE as 版本化 SDK
+    end
+    HOST->>LOADER: load stable
+    LOADER->>CHANNEL: 读取渠道清单
+    alt 清单或契约失败
+        CHANNEL-->>LOADER: HTTP 或无效 JSON
+        LOADER-->>HOST: 可观察错误
+    else SDK 下载或校验失败
+        CHANNEL-->>LOADER: 有效清单
+        LOADER->>RELEASE: 注入版本脚本
+        RELEASE-->>LOADER: 下载或 SRI 失败
+        LOADER-->>HOST: 清除失败缓存并返回错误
+    end
+    HOST->>HOST: 保留业务页面并允许下次挂载重试
+```
+
+### 10.3 编码落点
+
+```text
+frontend/
+├── src/assistant-loader/
+│   ├── loader.ts                         [新增] 渠道解析、manifest 校验、SRI 脚本加载与全局入口
+│   └── loader.test.ts                    [新增] 成功、失败、并发复用和重试契约
+├── scripts/publish-assistant-release.mjs [新增] 生成内容寻址版本与渠道清单
+├── vite.assistant-loader.config.ts       [新增] 构建固定 IIFE Loader
+└── package.json                          [修改] 主构建自动产出 SDK 发布目录
+
+toolbox-starter/src/main/java/com/exceptioncoder/toolbox/web/
+└── SpaFallbackConfig.java                [修改] SDK 版本缓存、渠道缓存和静态跨域规则
+
+yoooni-one/frontend/src/app/
+├── assistantSdkLoader.ts                 [新增] 宿主侧一次性加载与最小运行时类型契约
+├── assistantSdkLoader.test.ts            [新增] Loader 注入、失败和并发复用测试
+└── AssistantIntegration.tsx              [修改] 从运行时 Loader 获取 SDK，不再动态 import vendor 包
 ```

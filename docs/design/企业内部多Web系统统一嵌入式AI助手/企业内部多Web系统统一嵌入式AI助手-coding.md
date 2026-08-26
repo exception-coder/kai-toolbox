@@ -9,7 +9,7 @@
 - 服务端认证用户拥有会话；普通用户仅访问本人会话，ADMIN 可访问任意用户会话；客户端上下文中的用户标识不参与授权。
 - ADMIN 跨用户放行只作用于会话所有权，不能绕过咨询、评审分享和 Vibe Coding 的执行域绑定规则。
 - 显式意图优先，只有 `AUTO` 模式调用分类器。
-- Bug、建议草稿确认前不写 ReqPool；确认后原子幂等创建 `PENDING_EXECUTION` 记录。
+- 自动增量识别只静默写三类候选，不投影识别成功提示、模式切换、工程师选择或草稿动作，也不创建 ReqPool；既有草稿确认协议仅作为兼容能力保留。
 - Collector 最多保存 100 条，诊断默认上传最近 20 条；Authorization、Cookie、请求体和配置敏感字段默认剔除。
 - Bridge 始终从权威 `ChatItem[]` 投影完整用户/助手消息与会话终态；不得以回答文本去重条件拦截 `running=false`。
 - Widget 的助手消息使用 `marked + DOMPurify` 安全渲染 Markdown；消息区独立滚动，Composer 固定在 Drawer 底部。
@@ -32,7 +32,7 @@
 - 反馈描述生成必须使用受控 JSON 字段和服务端固定模板；LLM 输出按分类校验、限长和归一化后再渲染，禁止把模型自由 Markdown 直接落库。
 - 历史摘要和用户原话按不可信输入处理，提示词明确忽略其中的任务改写、提示词泄露和工具执行指令；前端展示规范稿时仍执行 Markdown 消毒。
 - 结构化描述最多执行两次模型尝试；两次均失败时由代码生成带“待补充”占位的合法模板并记录堆栈，禁止丢弃用户原话或写入不受控模型文本。
-- `source_content` 保存用户原话且只读，`feedback_content` 保存 AI 规范稿或用户最新修订；AI 原稿和每次用户修订继续进入不可变 revision 历史。
+- `source_content` 保存用户原话且只读，`ai_optimized_content` 保存不可覆盖的 AI 首次规范稿，`user_rewritten_content` 只保存用户基于 AI 稿的最新改写且允许为空；有效正文取 `COALESCE(user_rewritten_content, ai_optimized_content)`，AI 原稿和每次用户修订继续进入不可变 revision 历史。
 - 分析状态以认证用户和会话隔离；公网候选幂等落库成功后才允许提交本地摘要和水位。
 - 公网 MySQL 通过 `AssistantFeedbackStorePort` 隔离；`tool-assistant` 不依赖 Ops 具体类，由 `tool-ops` 适配器从已登记的 `yoooni-one` MySQL 数据源解析凭据并复用 `OpsDataSourcePool` Druid 池直接写库。
 - 公网候选禁止保存完整上下文、助手回复、工具输出和认证凭据；只保存限长用户反馈及应用、页面定位元数据。
@@ -44,6 +44,11 @@
 - 首次用户修正必须先在同一 MySQL 事务保存 AI 基线版，再保存用户修订版和当前值；任何历史版本不得原地更新。
 - 咨询图片必须落 Forge 受控磁盘目录，SQLite 保存逻辑附件与 turnId 关联；公网 MySQL 仅保存候选与逻辑附件 ID 关联，所有层均禁止对外返回绝对磁盘路径。
 - 归档图片读取每次校验用户、会话、候选、附件四级关联和规范化路径；前端 Blob object URL 只存活于当前预览并在离开时释放。
+- Loader 只负责版本发现与脚本加载，不接收 Assistant 初始化参数，不读取 Token，也不复制 SDK 业务逻辑。
+- SDK 版本目录由 IIFE 内容 SHA-256 派生且不可覆盖；渠道清单可更新、可回拨，并对每个产物记录 SHA-384 SRI。
+- Loader 与渠道清单使用 `no-cache`，版本化产物使用一年 `public, immutable`；静态资源跨域不放宽任何业务 API 的 Origin 策略。
+- 同一页面、同一 Loader URL 与渠道的并发加载必须复用 Promise；失败后删除缓存，下一次调用允许重试。
+- 宿主加载失败只记录不含用户数据的错误并保持页面可用；不得因 SDK 发布故障阻塞宿主路由或业务请求。
 
 ## 2. 接口入口
 
@@ -65,6 +70,9 @@
 | `PATCH /api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}` | `AssistantFeedbackArchiveController#updateCandidate` → `AssistantFeedbackArchiveService#updateCandidate` |
 | `GET /api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}/revisions` | `AssistantFeedbackArchiveController#revisions` → `AssistantFeedbackArchiveService#listRevisions` |
 | `GET /api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}/attachments/{attachmentId}` | `AssistantFeedbackArchiveController#attachment` → `AssistantFeedbackArchiveService#loadAttachment` |
+| `GET /assistant-sdk/loader.js` | Forge 静态资源处理器；固定 Loader，`no-cache` |
+| `GET /assistant-sdk/channels/{channel}.json` | Forge 静态资源处理器；渠道清单，`no-cache` |
+| `GET /assistant-sdk/releases/{releaseId}/{artifact}` | Forge 静态资源处理器；内容寻址产物，一年 immutable |
 
 ## 3. 涉及类清单
 
@@ -80,7 +88,7 @@
 | `com.exceptioncoder.toolbox.common.assistant.AssistantCapabilityPort` | 新建 | 统一 WS 到 Assistant 业务能力的稳定跨模块端口 |
 | `com.exceptioncoder.toolbox.claudechat.service.AssistantWebSocketCommandHandler` | 新建 | 上下文、草稿、确认、用户列表的 WS 协议适配 |
 | `frontend/src/assistant-sdk/*` | 新建 | 幂等 SDK、Provider、Collector、Sanitizer 和传输 |
-| `frontend/src/assistant-sdk/widget.ts` | 新建 | Shadow DOM Drawer、上下文清单、对话和草稿确认 |
+| `frontend/src/assistant-sdk/widget.ts` | 新建 | Shadow DOM Drawer、上下文清单、对话和静默反馈归档入口 |
 | `frontend/src/assistant-sdk/widgetInteractionState.ts` | 新建 | 将传输状态统一投影为消息流活动提示和发送门禁 |
 | `frontend/src/assistant-sdk/widgetPosition.ts` | 新建 | 跨端胶囊与桌面端对话框拖动、边界约束与位置持久化 |
 | `frontend/src/assistant-sdk/AssistantBridge.tsx` | 新建 | SDK 与既有咨询 WebSocket、队列、草稿接口接线 |
@@ -117,6 +125,12 @@
 | `frontend/vite.assistant.config.ts` | 新建 | 输出 ESM 与 IIFE 独立产物 |
 | `ClientMessage.Queue`、`ServerMessage.QueueAccepted` | 修改 | 同一 WS 上持久化待发送消息并确认接收 |
 | `ClientMessage.AssistantModuleContextResolve/Save` | 新建 | 统一 WS 上查询和写回模块探索摘要 |
+| `frontend/src/assistant-loader/loader.ts` | 新建 | 校验渠道清单并以 SRI 加载 IIFE SDK，全局公开 `KaiAssistantLoader.load` |
+| `frontend/scripts/publish-assistant-release.mjs` | 新建 | 计算内容地址、生成 manifest 与渠道指针并复制发布产物 |
+| `frontend/vite.assistant-loader.config.ts` | 新建 | 将 Loader 构建为无外部依赖 IIFE |
+| `com.exceptioncoder.toolbox.web.SpaFallbackConfig` | 修改 | 区分 SDK 版本产物与渠道入口缓存，并允许静态资源跨域读取 |
+| `yoooni-one/frontend/src/app/assistantSdkLoader.ts` | 新建 | Yoooni One 运行时加载适配和最小类型边界 |
+| `yoooni-one/frontend/src/app/AssistantIntegration.tsx` | 修改 | 使用 Loader 初始化并继续维护页面上下文生命周期 |
 
 ## 4. 关键方法
 
@@ -156,6 +170,9 @@ AssistantPageIdentity#resolve(appId, pageUrl) — 生成系统和规范化页面
 ClaudeChatSessionRepository#findAssistantConversation(userId, appId, pageKey) — 查询当前用户页面固定会话
 AssistantConversationHistoryService#messages(sessionId, before, limit) — 校验归属后按逻辑会话读取 transcript 页
 AssistantConversationViewport — 渐进加载并只挂载消息可视窗口
+loadAssistantSdk(options): Promise<LoadedAssistantSdk> — 读取渠道清单、校验契约并只加载一次指定 SDK
+publishAssistantRelease(options): ReleaseManifest — 以内容 hash 生成不可变目录、SRI 与渠道清单
+loadKaiAssistantRuntime(loaderUrl, channel): Promise<AssistantRuntime> — Yoooni One 注入中心 Loader 并返回运行时 SDK
 ```
 
 ## 5. 数据结构
@@ -169,7 +186,7 @@ AssistantConversationViewport — 渐进加载并只挂载消息可视窗口
 - `assistant_module_context_cache`：同一认证用户、应用和模块唯一；保存摘要、页面路由、源码版本和过期时间。
 - `assistant_conversation_analysis`：同一认证用户、会话唯一；保存最后成功水位、滚动反馈摘要和更新时间。
 - 公网 MySQL `assistant_feedback_candidate`：按来源系统、会话和消息水位唯一，保存 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 候选及其 ReqPool 类型映射；初始状态为 `DETECTED`。
-- `assistant_feedback_candidate` 补充 `(creator_user_id, session_id, feedback_category, detected_at, id)` 索引；不新增可编辑字段，编辑时只更新 `feedback_category`、`requirement_type`、`feedback_content`和 `update_time`。
+- `assistant_feedback_candidate` 补充 `(creator_user_id, session_id, feedback_category, detected_at, id)` 索引；正文明确拆为只读的 `source_content`、只读的 `ai_optimized_content` 和可空可编辑的 `user_rewritten_content`，编辑时只更新 `feedback_category`、`requirement_type`、`user_rewritten_content` 和 `update_time`。
 - 公网 MySQL `assistant_feedback_candidate_revision`：按 `(candidate_id, revision_no)` 唯一，保存 `AI` 原稿和每次 `USER` 修订的类型、派生需求类型、正文、编辑人和时间。
 - 公网 MySQL `assistant_feedback_candidate_attachment`：按 `(candidate_id, attachment_id)` 唯一，只保存逻辑 ID、文件名、MIME、大小和时间，不保存磁盘绝对路径或二进制。
 - SQLite `claude_chat_attachment`：保存附件归属、安全元数据和受控目录内的相对存储键。
@@ -208,10 +225,13 @@ AssistantConversationViewport — 渐进加载并只挂载消息可视窗口
 - 覆盖外部登录缺省关闭、Origin 允许/拒绝、登录成功、凭据错误、网络失败、标签页刷新恢复、过期清理和登录后立即重连。
 - 覆盖准备阶段中止、运行阶段 interrupt、终态解锁、调试日志容量上限以及日志不含 Token/消息正文。
 - 覆盖 routeName/URL 模块键、命中注入、未命中写回、版本失效、TTL 失效、用户隔离、摘要限长和缓存失败降级。
-- 覆盖首次分析、无增量短路、从上次水位续扫、失败不推进、多标签页旧水位冲突和自动识别结果投影。
+- 覆盖首次分析、无增量短路、从上次水位续扫、失败不推进、多标签页旧水位冲突，以及自动识别成功不产生提示、模式切换或草稿控件。
 - 覆盖 Bug、需求、优化三分类映射、非反馈不落库、候选唯一键重试、MySQL 失败不推进水位、数据源缺失和表缺失的可观察失败。
 - 覆盖归档用户隔离、会话游标分页、三标签零值、候选分类分页、正文/类型修改、派生需求类型、越权、乐观冲突、MySQL 故障和外部 Origin 拒绝。
 - 前端在桌面端和约 `375px` 移动端验证记录返回、三标签溢出、分页、编辑保存、冲突保留草稿、空态重试及焦点恢复。
 - 覆盖图片落盘、元数据与 turnId 关联、候选关联、授权读取、路径穿越拒绝、文件缺失恢复态、Blob URL 释放，以及首次 AI 基线留档、多次用户修订和并发冲突回滚。
 - 覆盖不同用户、不同 appId、不同规范化 URL 的会话隔离，同键刷新/多标签复用，参数顺序归一化和敏感查询参数过滤。
 - 覆盖最近页首载、上拉分页、并发请求去重、历史失败重试、transcript 缺失、向前追加不跳动、贴底跟随和长会话 DOM 节点上限。
+- 覆盖 Loader 渠道清单成功、HTTP 失败、JSON 契约失败、SRI 脚本失败、并发复用、失败后重试和已存在 SDK 快速返回。
+- 覆盖发布脚本内容地址稳定性、SRI 正确性、渠道选择、路径约束和重复构建幂等。
+- 覆盖 Yoooni One 初始化一次、路由上下文更新、卸载销毁、Loader 失败不影响页面，以及构建产物不再包含 vendor SDK 实现。

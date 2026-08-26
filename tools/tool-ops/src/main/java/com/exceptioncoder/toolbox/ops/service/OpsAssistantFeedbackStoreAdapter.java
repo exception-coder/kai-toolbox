@@ -8,13 +8,11 @@ import com.exceptioncoder.toolbox.ops.domain.OpsSystem;
 import com.exceptioncoder.toolbox.ops.repository.DatasourceRepository;
 import com.exceptioncoder.toolbox.ops.repository.SystemRepository;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,10 +20,11 @@ import java.util.concurrent.ConcurrentHashMap;
 /** 复用系统中间件台已登记的 MySQL 连接池读写 Assistant 反馈归档。 */
 @Component
 public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStorePort {
-    private static final String SCHEMA_RESOURCE = "mysql/assistant-feedback-schema.sql";
     private static final String COLUMNS = """
             id, session_id, source_watermark, feedback_category, requirement_type,
-            source_content, feedback_content, confidence, classification_reason, page_url, page_title,
+            source_content, ai_optimized_content, user_rewritten_content,
+            COALESCE(user_rewritten_content, ai_optimized_content) AS current_content,
+            confidence, classification_reason, page_url, page_title,
             candidate_status, detected_at, update_time,
             (SELECT COALESCE(MAX(r.revision_no), 0)
                FROM assistant_feedback_candidate_revision r
@@ -34,11 +33,11 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
     private static final String UPSERT = """
             INSERT INTO assistant_feedback_candidate
               (id, source_system, session_id, source_watermark, creator_user_id, feedback_category,
-               requirement_type, source_content, feedback_content, confidence, classification_reason, page_url,
+               requirement_type, source_content, ai_optimized_content, confidence, classification_reason, page_url,
                page_title, candidate_status, detected_at, create_time, update_time)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DETECTED', ?, ?, ?)
             ON DUPLICATE KEY UPDATE feedback_category=VALUES(feedback_category),
-              requirement_type=VALUES(requirement_type), feedback_content=VALUES(feedback_content),
+              requirement_type=VALUES(requirement_type),
               confidence=VALUES(confidence), classification_reason=VALUES(classification_reason),
               page_url=VALUES(page_url), page_title=VALUES(page_title), update_time=VALUES(update_time)
             """;
@@ -58,6 +57,7 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
     private final String environment;
     private final String datasourceName;
     private final Set<String> initialized = ConcurrentHashMap.newKeySet();
+    private final AssistantFeedbackSchemaMigrator schemaMigrator = new AssistantFeedbackSchemaMigrator();
 
     public OpsAssistantFeedbackStoreAdapter(SystemRepository systems, DatasourceRepository datasources,
             OpsDataSourcePool pool,
@@ -205,7 +205,7 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
             int revisionNo = nextRevision(sql, current.id());
             try (PreparedStatement statement = sql.prepareStatement("""
                     UPDATE assistant_feedback_candidate SET feedback_category=?, requirement_type=?,
-                      feedback_content=?, update_time=?
+                      user_rewritten_content=?, update_time=?
                     WHERE id=? AND creator_user_id=? AND session_id=? AND update_time=?
                     """)) {
                 statement.setString(1, command.category().name());
@@ -257,7 +257,7 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
         statement.setString(index++, candidate.category().name());
         statement.setString(index++, candidate.requirementType().name());
         statement.setString(index++, candidate.sourceContent());
-        statement.setString(index++, candidate.content());
+        statement.setString(index++, candidate.aiOptimizedContent());
         statement.setBigDecimal(index++, BigDecimal.valueOf(candidate.confidence()));
         statement.setString(index++, text(candidate.reason()));
         statement.setString(index++, text(context.pageUrl()));
@@ -308,7 +308,7 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
             statement.setString(1, row.id());
             statement.setString(2, row.category().name());
             statement.setString(3, row.requirementType().name());
-            statement.setString(4, row.content());
+            statement.setString(4, row.aiOptimizedContent());
             statement.setLong(5, row.detectedAt());
             statement.executeUpdate();
         }
@@ -378,7 +378,8 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
         return new Row(result.getString("id"), result.getString("session_id"),
                 result.getLong("source_watermark"), FeedbackCategory.valueOf(result.getString("feedback_category")),
                 RequirementType.valueOf(result.getString("requirement_type")),
-                result.getString("source_content"), result.getString("feedback_content"),
+                result.getString("source_content"), result.getString("ai_optimized_content"),
+                result.getString("user_rewritten_content"), result.getString("current_content"),
                 result.getDouble("confidence"), result.getString("classification_reason"),
                 result.getString("page_url"), result.getString("page_title"),
                 result.getString("candidate_status"), result.getLong("detected_at"),
@@ -436,38 +437,8 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
         if (initialized.contains(id)) return;
         synchronized (initialized) {
             if (initialized.contains(id)) return;
-            String ddl = new ClassPathResource(SCHEMA_RESOURCE).getContentAsString(StandardCharsets.UTF_8);
-            try (Statement statement = sql.createStatement()) {
-                for (String part : ddl.split(";")) if (!part.isBlank()) statement.execute(part.trim());
-            }
-            ensureSourceContentColumn(sql);
+            schemaMigrator.migrate(sql);
             initialized.add(id);
-        }
-    }
-
-    private void ensureSourceContentColumn(Connection sql) throws SQLException {
-        try (Statement statement = sql.createStatement()) {
-            if (!hasColumn(sql, "assistant_feedback_candidate", "source_content")) {
-                statement.execute("ALTER TABLE assistant_feedback_candidate "
-                        + "ADD COLUMN source_content TEXT NULL AFTER requirement_type");
-            }
-            statement.execute("UPDATE assistant_feedback_candidate "
-                    + "SET source_content=feedback_content WHERE source_content IS NULL");
-            statement.execute("ALTER TABLE assistant_feedback_candidate "
-                    + "MODIFY COLUMN source_content TEXT NOT NULL");
-        }
-    }
-
-    private boolean hasColumn(Connection sql, String table, String column) throws SQLException {
-        DatabaseMetaData metadata = sql.getMetaData();
-        try (ResultSet result = metadata.getColumns(sql.getCatalog(), null, table, column)) {
-            if (result.next()) {
-                return true;
-            }
-        }
-        try (ResultSet result = metadata.getColumns(sql.getCatalog(), null,
-                table.toUpperCase(Locale.ROOT), column.toUpperCase(Locale.ROOT))) {
-            return result.next();
         }
     }
 
@@ -497,12 +468,13 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
     @FunctionalInterface private interface SqlSupplier<T> { T get() throws SQLException; }
 
     private record Row(String id, String sessionId, long watermark, FeedbackCategory category,
-            RequirementType requirementType, String sourceContent, String content, double confidence, String reason,
+            RequirementType requirementType, String sourceContent, String aiOptimizedContent,
+            String userRewrittenContent, String content, double confidence, String reason,
             String pageUrl, String pageTitle, String status, long detectedAt, long updateTime,
             int revisionNo) {
         FeedbackCandidateView view(FeedbackRevision original, List<FeedbackAttachment> attachments, int revision) {
             return new FeedbackCandidateView(id, sessionId, watermark, category, requirementType,
-                    sourceContent, content,
+                    sourceContent, aiOptimizedContent, userRewrittenContent, content,
                     confidence, reason, pageUrl, pageTitle, status, detectedAt, updateTime,
                     revision, original, attachments);
         }

@@ -7,6 +7,7 @@ import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatAttachmentRepo
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -45,6 +46,7 @@ public class AttachmentStorageService {
     private final ClaudeChatSessionRepository repo;
     private final ClaudeChatAttachmentRepository attachmentRepository;
 
+    @Autowired
     public AttachmentStorageService(ClaudeChatProperties props, ClaudeChatSessionRepository repo,
                                     ClaudeChatAttachmentRepository attachmentRepository) {
         this.props = props;

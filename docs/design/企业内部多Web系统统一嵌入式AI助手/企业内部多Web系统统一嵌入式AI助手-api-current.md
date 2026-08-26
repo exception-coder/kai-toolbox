@@ -16,6 +16,8 @@
 - [模块探索摘要](#12-模块探索摘要)
 - [会话反馈增量识别](#13-会话反馈增量识别)
 - [会话归档反馈回顾](#14-会话归档反馈回顾)
+- [页面会话绑定与渐进历史](#15-页面会话绑定与渐进历史)
+- [中心化 SDK Loader](#16-中心化-sdk-loader)
 
 ## 1. 接口清单
 
@@ -35,6 +37,9 @@
 | PATCH | `/api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}` | 乐观锁修改候选分类与正文 |
 | GET | `/api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}/revisions` | 分页查看 AI 原稿与历次用户修订 |
 | GET | `/api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}/attachments/{attachmentId}` | 从 Forge 磁盘受控加载归档图片 |
+| GET | `/assistant-sdk/loader.js` | 固定 Loader 入口；跨域公开，只包含版本加载逻辑 |
+| GET | `/assistant-sdk/channels/{channel}.json` | `stable` 或 `canary` 渠道清单 |
+| GET | `/assistant-sdk/releases/{releaseId}/{artifact}` | 不可变 SDK 版本产物 |
 
 外部宿主 SDK 以统一 WebSocket 为主；仅在消息包含本地图片时额外调用第二行附件上传接口。其余 HTTP 接口保留给 kai-toolbox 内部页面和兼容调用，不属于宿主接入必需契约。
 
@@ -505,3 +510,66 @@ Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` �
 | `401` | ACCESS Token 缺失或过期 |
 | `403` | 会话不属于当前用户或不是业务咨询会话 |
 | `404` | 逻辑会话不存在 |
+
+## 16. 中心化 SDK Loader
+
+### 16.1 Loader 全局契约
+
+宿主加载 `GET /assistant-sdk/loader.js` 后获得 `window.KaiAssistantLoader`：
+
+```ts
+interface KaiAssistantLoader {
+  load(options?: {
+    channel?: 'stable' | 'canary'
+    baseUrl?: string
+  }): Promise<{
+    sdk: typeof window.KaiAssistant
+    version: string
+    channel: string
+  }>
+}
+```
+
+`channel` 缺省为 `stable`。`baseUrl` 缺省从当前 Loader 脚本 URL 推导；宿主不应覆盖到非可信域名。相同 `baseUrl + channel` 的并发调用返回同一加载任务，失败后允许下一次调用重试。
+
+### 16.2 渠道清单
+
+`GET /assistant-sdk/channels/{channel}.json`
+
+```json
+{
+  "schemaVersion": 1,
+  "channel": "stable",
+  "version": "sha256-2c26b46b68ff",
+  "releasedAt": "2026-08-26T03:40:00.000Z",
+  "artifacts": {
+    "iife": {
+      "path": "releases/sha256-2c26b46b68ff/kai-assistant.iife.js",
+      "integrity": "sha384-base64-value"
+    },
+    "esm": {
+      "path": "releases/sha256-2c26b46b68ff/kai-assistant.es.js",
+      "integrity": "sha384-base64-value"
+    }
+  }
+}
+```
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `schemaVersion` | integer | 当前固定为 `1` |
+| `channel` | string | `stable` 或 `canary`，必须与请求一致 |
+| `version` | string | `sha256-` 加 12 位小写十六进制 |
+| `releasedAt` | ISO-8601 string | 发布脚本生成，仅用于诊断 |
+| `artifacts.*.path` | string | 必须位于同一 `assistant-sdk/` 基址下，不允许绝对 URL 或 `..` |
+| `artifacts.*.integrity` | string | `sha384-` SRI |
+
+### 16.3 缓存与跨域
+
+| 路径 | Cache-Control | CORS |
+|---|---|---|
+| `/assistant-sdk/loader.js` | `no-cache` | `Access-Control-Allow-Origin: *` |
+| `/assistant-sdk/channels/**` | `no-cache` | `Access-Control-Allow-Origin: *` |
+| `/assistant-sdk/releases/**` | `public, max-age=31536000, immutable` | `Access-Control-Allow-Origin: *` |
+
+跨域仅允许读取公开静态代码，不携带 Cookie 或 Authorization。业务 API 和 WebSocket 仍执行原精确 Origin 白名单。

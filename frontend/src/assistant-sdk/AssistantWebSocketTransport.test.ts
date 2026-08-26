@@ -481,7 +481,7 @@ describe('AssistantWebSocketTransport', () => {
     transport.destroy()
   })
 
-  it('analyzes the completed conversation and exposes detected feedback', () => {
+  it('analyzes the completed conversation without surfacing classification controls', () => {
     const socket = new FakeWebSocket()
     const states: AssistantWidgetState[] = []
     const transport = new AssistantWebSocketTransport({
@@ -496,6 +496,8 @@ describe('AssistantWebSocketTransport', () => {
     socket.receive({ type: 'result', seq: 2, stopReason: 'end_turn' })
 
     expect(sentByType(socket, 'assistantConversationAnalyze')).toMatchObject({ sessionId: 'session-1' })
+    const visibleStateCount = states.filter(state =>
+      state.state || state.message || state.detectedIntent || state.detectionConfidence).length
     socket.receive({
       type: 'assistantCommandResult', seq: 0, requestId: 'analysis-1', action: 'conversationAnalysis',
       success: true,
@@ -505,9 +507,9 @@ describe('AssistantWebSocketTransport', () => {
       },
     })
 
-    expect(states.at(-1)).toMatchObject({
-      state: '已识别反馈', detectedIntent: 'BUG', detectionConfidence: 0.93,
-    })
+    expect(states.filter(state =>
+      state.state || state.message || state.detectedIntent || state.detectionConfidence)).toHaveLength(visibleStateCount)
+    expect(states.some(state => state.detectedIntent || state.state === '已识别反馈')).toBe(false)
     transport.destroy()
   })
 

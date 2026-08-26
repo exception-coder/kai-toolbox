@@ -80,26 +80,28 @@ public interface AssistantFeedbackStorePort {
      * @param category 反馈分类
      * @param requirementType 对应需求池类型
      * @param sourceContent 限长后的用户反馈原话
-     * @param content AI 规范稿或当前用户修订正文
+     * @param aiOptimizedContent AI 首次生成的规范稿
      * @param confidence 分类置信度
      * @param reason 分类依据
      * @param detectedAt 识别时间
      */
     record FeedbackCandidate(String id, long sourceWatermark, FeedbackCategory category,
-                             RequirementType requirementType, String sourceContent, String content,
+                             RequirementType requirementType, String sourceContent, String aiOptimizedContent,
                              double confidence,
                              String reason, long detectedAt, List<FeedbackAttachment> attachments) {
         public FeedbackCandidate(String id, long sourceWatermark, FeedbackCategory category,
-                                 RequirementType requirementType, String content, double confidence,
+                                 RequirementType requirementType, String aiOptimizedContent, double confidence,
                                  String reason, long detectedAt) {
-            this(id, sourceWatermark, category, requirementType, content, content, confidence, reason,
+            this(id, sourceWatermark, category, requirementType, aiOptimizedContent, aiOptimizedContent,
+                    confidence, reason,
                     detectedAt, List.of());
         }
 
         public FeedbackCandidate(String id, long sourceWatermark, FeedbackCategory category,
-                                 RequirementType requirementType, String content, double confidence,
+                                 RequirementType requirementType, String aiOptimizedContent, double confidence,
                                  String reason, long detectedAt, List<FeedbackAttachment> attachments) {
-            this(id, sourceWatermark, category, requirementType, content, content, confidence, reason,
+            this(id, sourceWatermark, category, requirementType, aiOptimizedContent, aiOptimizedContent,
+                    confidence, reason,
                     detectedAt, attachments);
         }
 
@@ -129,7 +131,8 @@ public interface AssistantFeedbackStorePort {
 
     record FeedbackCandidateView(String id, String sessionId, long sourceWatermark,
                                  FeedbackCategory category, RequirementType requirementType,
-                                 String sourceContent, String content, double confidence, String reason,
+                                 String sourceContent, String aiOptimizedContent, String userRewrittenContent,
+                                 String content, double confidence, String reason,
                                  String pageUrl, String pageTitle, String status,
                                  long detectedAt, long updateTime, int revisionNo,
                                  FeedbackRevision aiOriginal, List<FeedbackAttachment> attachments) {

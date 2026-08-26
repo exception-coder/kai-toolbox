@@ -92,6 +92,9 @@ export interface AssistantFeedbackCandidate {
   sessionId: string
   category: AssistantFeedbackCategory
   requirementType: string
+  sourceContent?: string
+  aiOptimizedContent: string
+  userRewrittenContent?: string
   content: string
   confidence: number
   reason: string
@@ -100,7 +103,6 @@ export interface AssistantFeedbackCandidate {
   detectedAt: number
   updateTime: number
   revisionNo: number
-  sourceContent?: string
   aiOriginal?: AssistantFeedbackRevision
   attachments: AssistantFeedbackAttachment[]
 }

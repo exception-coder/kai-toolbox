@@ -20,6 +20,7 @@ import { AssistantPositionController } from './widgetPosition'
 import { deriveWidgetInteractionState } from './widgetInteractionState'
 import { MAX_ASSISTANT_DEBUG_ENTRIES } from './assistantDebugLog'
 import { AssistantConversationViewport } from './AssistantConversationViewport'
+import { summarizeFeedbackCounts } from './feedbackSummary'
 
 const ELEMENT_NAME = 'kai-assistant-widget'
 const DEFAULT_SHORTCUT: Required<AssistantShortcut> = {
@@ -66,9 +67,6 @@ class AssistantWidgetElement extends HTMLElement {
   private readonly conversation: HTMLElement
   private readonly emptyState: HTMLElement
   private readonly notice: HTMLElement
-  private readonly draftActions: HTMLElement
-  private readonly confirmButton: HTMLButtonElement
-  private readonly engineerSelect: HTMLSelectElement
   private readonly unlockLayer: HTMLElement
   private readonly unlockInput: HTMLInputElement
   private readonly unlockError: HTMLElement
@@ -83,12 +81,11 @@ class AssistantWidgetElement extends HTMLElement {
   private readonly debugPanel: HTMLElement
   private readonly debugList: HTMLElement
   private readonly feedbackButton: HTMLButtonElement
+  private readonly feedbackSummary: HTMLElement
   private readonly chatContent: HTMLElement
   private readonly feedbackArchiveView: HTMLElement
   private readonly feedbackArchiveBody: HTMLElement
-  private draftId: string | null = null
   private mode: AssistantMode = 'AUTO'
-  private lastSubmittedText = ''
   private attachments: AssistantImageAttachment[] = []
   private submittedAttachments: AssistantImageAttachment[] = []
   private readonly attachmentPreviewUrls = new Map<string, string>()
@@ -136,9 +133,6 @@ class AssistantWidgetElement extends HTMLElement {
     this.conversation = required(shadow, '[data-conversation]')
     this.emptyState = required(shadow, '[data-empty-state]')
     this.notice = required(shadow, '[data-notice]')
-    this.draftActions = required(shadow, '[data-draft-actions]')
-    this.confirmButton = required(shadow, '[data-confirm-draft]')
-    this.engineerSelect = required(shadow, '[data-engineer]')
     this.unlockLayer = required(shadow, '[data-unlock]')
     this.unlockInput = required(shadow, '[data-unlock-input]')
     this.unlockError = required(shadow, '[data-unlock-error]')
@@ -153,6 +147,7 @@ class AssistantWidgetElement extends HTMLElement {
     this.debugPanel = required(shadow, '[data-debug-panel]')
     this.debugList = required(shadow, '[data-debug-list]')
     this.feedbackButton = required(shadow, '[data-feedback-open]')
+    this.feedbackSummary = required(shadow, '[data-feedback-summary]')
     this.chatContent = required(shadow, '[data-chat-content]')
     this.feedbackArchiveView = required(shadow, '[data-feedback-archive]')
     this.feedbackArchiveBody = required(shadow, '[data-feedback-archive-body]')
@@ -182,6 +177,10 @@ class AssistantWidgetElement extends HTMLElement {
     this.interruptButton.addEventListener('click', () => this.interrupt())
     this.debugToggle.addEventListener('click', () => this.toggleDebugPanel())
     this.feedbackButton.addEventListener('click', () => void this.openFeedbackArchive())
+    this.feedbackSummary.addEventListener('click', event => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-feedback-summary-category]')
+      if (button) void this.openFeedbackArchive()
+    })
     required(shadow, '[data-feedback-close]').addEventListener('click', () => this.closeFeedbackArchive())
     required(shadow, '[data-debug-clear]').addEventListener('click', () => this.clearDebugLog())
     this.messageInput.addEventListener('keydown', event => {
@@ -201,8 +200,6 @@ class AssistantWidgetElement extends HTMLElement {
     this.attachmentPreview.addEventListener('keydown', event => {
       if (event.key === 'Escape') this.closeAttachmentPreview()
     })
-    required(shadow, '[data-save-draft]').addEventListener('click', () => this.saveDraft())
-    this.confirmButton.addEventListener('click', () => this.confirmDraft())
     this.syncSubmitAvailability()
   }
 
@@ -212,7 +209,9 @@ class AssistantWidgetElement extends HTMLElement {
     this.feedbackArchive = options.feedbackArchive
     this.conversationHistory = options.conversationHistory
     this.feedbackButton.hidden = !this.feedbackArchive
+    this.feedbackSummary.hidden = true
     this.syncAuthenticationView()
+    if (this.feedbackArchive && this.authenticated) void this.refreshFeedbackSummary()
     this.activationKey = options.visibility?.activationKey ?? ''
     const shortcut = options.visibility?.shortcut
     this.shortcut = {
@@ -313,15 +312,10 @@ class AssistantWidgetElement extends HTMLElement {
   private selectMode(mode: AssistantMode): void {
     this.mode = mode
     this.modeLabel.textContent = modeLabels[mode]
-    this.draftActions.hidden = mode !== 'BUG' && mode !== 'SUGGESTION'
-    this.dispatchEvent(new CustomEvent('assistant-mode-change', { detail: { mode }, bubbles: true }))
   }
 
   setState(detail: AssistantWidgetState): void {
     if (detail.debugEntry) this.appendDebugEntry(detail.debugEntry)
-    if (detail.detectedIntent && (this.mode === 'AUTO' || this.mode === 'QUESTION')) {
-      this.selectMode(detail.detectedIntent)
-    }
     const authenticationFailure = Boolean(detail.authenticationRequired && this.authentication)
     if (authenticationFailure) {
       this.authenticated = false
@@ -349,22 +343,13 @@ class AssistantWidgetElement extends HTMLElement {
       this.interruptButton.disabled = detail.state === '正在中止'
       this.syncSubmitAvailability()
       this.syncConversationVisibility()
+      if (detail.state === '已完成') void this.refreshFeedbackSummary()
     }
     if (detail.message && !authenticationFailure) {
       this.notice.textContent = detail.message
       this.notice.hidden = false
     } else if (authenticationFailure || detail.messages) {
       this.notice.hidden = true
-    }
-    if (detail.draftId) {
-      this.draftId = detail.draftId
-      this.confirmButton.hidden = false
-    }
-    if (detail.users) {
-      this.engineerSelect.replaceChildren(new Option('暂不指定工程师', ''))
-      detail.users.forEach(user => this.engineerSelect.add(new Option(
-        user.displayName || user.username || `用户 ${user.userId}`, String(user.userId),
-      )))
     }
   }
 
@@ -373,7 +358,6 @@ class AssistantWidgetElement extends HTMLElement {
     const text = this.messageInput.value.trim()
     if (!text && this.attachments.length === 0) return
     const attachments = [...this.attachments]
-    this.lastSubmittedText = text
     this.conversationMessages = [...this.conversationMessages, {
       id: `local-user-${Date.now()}`,
       role: 'user',
@@ -567,12 +551,37 @@ class AssistantWidgetElement extends HTMLElement {
     try {
       const page = await this.feedbackArchive.listSessions()
       this.feedbackSessions = page.items
+      this.renderFeedbackSummary(page.items)
       this.activeFeedbackSession = undefined
       this.activeFeedbackCategory = undefined
       this.renderFeedbackSessions()
     } catch (error) {
       this.renderFeedbackError(error)
     }
+  }
+
+  private async refreshFeedbackSummary(): Promise<void> {
+    if (!this.feedbackArchive || !this.authenticated) {
+      this.feedbackSummary.hidden = true
+      return
+    }
+    try {
+      const page = await this.feedbackArchive.listSessions()
+      this.feedbackSessions = page.items
+      this.renderFeedbackSummary(page.items)
+    } catch {
+      this.feedbackSummary.hidden = true
+    }
+  }
+
+  private renderFeedbackSummary(sessions: AssistantFeedbackSession[]): void {
+    const counts = summarizeFeedbackCounts(sessions)
+    for (const category of feedbackCategories) {
+      const button = this.feedbackSummary.querySelector<HTMLButtonElement>(
+        `[data-feedback-summary-category="${category.code}"]`)
+      if (button) button.textContent = `${category.label} ${counts[category.countKey]}`
+    }
+    this.feedbackSummary.hidden = false
   }
 
   private closeFeedbackArchive(): void {
@@ -746,6 +755,7 @@ class AssistantWidgetElement extends HTMLElement {
       if (session && category !== candidate.category) {
         session.counts[feedbackCountKey(candidate.category)] -= 1
         session.counts[feedbackCountKey(category)] += 1
+        this.renderFeedbackSummary(this.feedbackSessions)
       }
     } catch (error) {
       button.disabled = false
@@ -845,6 +855,7 @@ class AssistantWidgetElement extends HTMLElement {
       this.loginPassword.value = ''
       this.loginError.hidden = true
       this.syncAuthenticationView()
+      void this.refreshFeedbackSummary()
       this.setState({ state: '已就绪' })
       this.messageInput.focus()
     } catch (error) {
@@ -863,26 +874,7 @@ class AssistantWidgetElement extends HTMLElement {
     const authenticationRequired = Boolean(this.authentication) && !this.authenticated
     this.authenticationPanel.hidden = !authenticationRequired
     this.authenticatedContent.hidden = authenticationRequired
-  }
-
-  private saveDraft(): void {
-    const description = this.messageInput.value.trim() || this.lastSubmittedText
-    if (!description) return
-    const title = description.length > 40 ? `${description.slice(0, 40)}…` : description
-    this.dispatchEvent(new CustomEvent('assistant-save-draft', {
-      detail: { kind: this.mode, title, description }, bubbles: true,
-    }))
-  }
-
-  private confirmDraft(): void {
-    if (!this.draftId) return
-    this.dispatchEvent(new CustomEvent('assistant-confirm-draft', {
-      detail: {
-        draftId: this.draftId,
-        engineerUserId: this.engineerSelect.value ? Number(this.engineerSelect.value) : undefined,
-      },
-      bubbles: true,
-    }))
+    if (authenticationRequired) this.feedbackSummary.hidden = true
   }
 
   private renderConversation(messages: AssistantConversationMessage[]): void {
@@ -1066,7 +1058,7 @@ const template = `
     .capsule-icon { position: relative; display: block; width: 60px; height: 32px; overflow: hidden; border: 1px solid rgb(24 24 27 / 18%); border-radius: 999px; background: linear-gradient(105deg, #f43f5e 0%, #fb923c 21%, #fde047 40%, #34d399 59%, #38bdf8 78%, #8b5cf6 100%); box-shadow: inset 0 1px 1px rgb(255 255 255 / 58%), inset 0 -1px 2px rgb(24 24 27 / 16%); }
     .capsule-icon::before { position: absolute; top: 3px; left: -52%; width: 42%; height: 26px; border-radius: 999px; background: linear-gradient(90deg, transparent, rgb(255 255 255 / 82%), transparent); content: ""; opacity: 0; transform: skewX(-18deg); }
     .capsule-icon::after { position: absolute; top: -4px; left: 50%; width: 2px; height: 40px; background: rgb(255 255 255 / 78%); box-shadow: 1px 0 rgb(24 24 27 / 10%); content: ""; transform: rotate(12deg); transform-origin: center; }
-    .launcher:focus-visible, .action:focus-visible, .close:focus-visible, .submit:focus-visible, .panel-header:focus-visible, .image-add:focus-visible, .attachment-preview-trigger:focus-visible, .attachment-preview-close:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
+    .launcher:focus-visible, .action:focus-visible, .close:focus-visible, .submit:focus-visible, .panel-header:focus-visible, .image-add:focus-visible, .attachment-preview-trigger:focus-visible, .attachment-preview-close:focus-visible, .feedback-summary-tag:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
     .panel { position: fixed; top: 16px; right: 16px; z-index: 2147483001; width: min(560px, calc(100vw - 32px)); height: min(760px, calc(100vh - 32px)); background: #f7f7f8; border: 1px solid #dedee3; border-radius: 10px; box-shadow: 0 20px 48px rgb(0 0 0 / 12%); overflow: hidden; }
     .shell { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; min-height: 0; }
     .assistant-content, .chat-content { display: flex; min-width: 0; min-height: 0; height: 100%; flex-direction: column; overflow: hidden; }
@@ -1096,9 +1088,14 @@ const template = `
     .login-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
     .action { flex: 0 0 auto; min-height: 34px; padding: 0 10px; border: 1px solid #d4d4d8; border-radius: 7px; background: #fff; color: #52525b; cursor: pointer; }
     .action:hover { border-color: #a1a1aa; color: #18181b; }
-    .context-strip { display: flex; min-height: 48px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 22px; border-bottom: 1px solid #e4e4e7; background: #fafafa; }
+    .context-strip { display: grid; min-height: 48px; flex: 0 0 auto; gap: 6px; padding: 9px 22px; border-bottom: 1px solid #e4e4e7; background: #fafafa; }
+    .context-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .context { margin: 0; color: #71717a; font-size: 12px; }
     .mode { margin: 0; color: #18181b; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .feedback-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; color: #71717a; font-size: 11px; }
+    .feedback-summary-label { margin-right: 2px; }
+    .feedback-summary-tag { min-height: 24px; border: 0; border-bottom: 1px solid transparent; background: transparent; padding: 0 2px; color: #3f3f46; cursor: pointer; font-size: 11px; }
+    .feedback-summary-tag:hover { border-bottom-color: #a1a1aa; color: #18181b; }
     .debug-panel { max-height: 190px; overflow: hidden; border-bottom: 1px solid #dedee3; background: #18181b; color: #d4d4d8; }
     .debug-header { display: flex; align-items: center; justify-content: space-between; padding: 7px 12px 6px; color: #a1a1aa; font-size: 11px; }
     .debug-clear { border: 0; background: transparent; color: #a1a1aa; cursor: pointer; font-size: 11px; }
@@ -1209,7 +1206,8 @@ const template = `
       .panel { inset: 0 !important; width: auto; height: auto; border: 0; border-radius: 0; }
       .panel-header { min-height: 64px; padding: 12px 8px 12px 16px; cursor: default; touch-action: auto; }
       .close { min-width: 40px; padding: 0 6px; }
-      .context-strip { align-items: flex-start; flex-direction: column; gap: 3px; padding: 8px 16px; }
+      .context-strip { gap: 6px; padding: 8px 16px; }
+      .context-line { align-items: flex-start; flex-direction: column; gap: 3px; }
       .mode { white-space: normal; }
       .composer { padding-inline: 16px; }
       .composer-label { gap: 12px; }
@@ -1264,8 +1262,13 @@ const template = `
       <div class="assistant-content" data-authenticated-content>
       <div class="chat-content" data-chat-content>
       <section class="context-strip" data-context-strip aria-label="当前上下文与模式">
-        <p class="context">当前页面 · 发送时采集脱敏上下文</p>
-        <p class="mode" data-mode-label>自动识别</p>
+        <div class="context-line"><p class="context">当前页面 · 发送时采集脱敏上下文</p><p class="mode" data-mode-label>自动识别</p></div>
+        <div class="feedback-summary" data-feedback-summary aria-label="自动识别归档统计" hidden>
+          <span class="feedback-summary-label">识别归档</span>
+          <button class="feedback-summary-tag" type="button" data-feedback-summary-category="BUG">Bug 0</button>
+          <button class="feedback-summary-tag" type="button" data-feedback-summary-category="OPTIMIZATION">优化建议 0</button>
+          <button class="feedback-summary-tag" type="button" data-feedback-summary-category="REQUIREMENT">需求 0</button>
+        </div>
       </section>
       <section class="debug-panel" id="assistant-debug-panel" data-debug-panel aria-label="请求调试日志" hidden>
         <div class="debug-header"><span>请求调试日志 · 仅当前页面内存</span><button class="debug-clear" type="button" data-debug-clear>清空</button></div>
@@ -1289,11 +1292,6 @@ const template = `
         <div class="composer-actions">
           <button class="interrupt" type="button" data-interrupt hidden>中止</button>
           <button class="submit" type="button" data-submit>发送</button>
-        </div>
-        <div class="composer-actions" data-draft-actions hidden>
-          <select data-engineer aria-label="选择工程师"><option value="">暂不指定工程师</option></select>
-          <button class="action" type="button" data-save-draft>保存为草稿</button>
-          <button class="submit" type="button" data-confirm-draft hidden>确认登记</button>
         </div>
       </section>
       <p class="notice" data-notice role="status" hidden></p>

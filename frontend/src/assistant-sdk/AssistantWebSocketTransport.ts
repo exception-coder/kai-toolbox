@@ -750,19 +750,6 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
 
   private applyConversationAnalysis(data: unknown): void {
     if (!isRecord(data)) return
-    const detections = Array.isArray(data.detections) ? data.detections.filter(isRecord) : []
-    const feedback = [...detections].reverse().find(item => item.intent === 'BUG' || item.intent === 'SUGGESTION')
-    if (feedback) {
-      const intent = feedback.intent as 'BUG' | 'SUGGESTION'
-      const confidence = typeof feedback.confidence === 'number' ? feedback.confidence : undefined
-      this.emit(
-        '已识别反馈',
-        intent === 'BUG' ? '已识别为 Bug 反馈，可编辑后保存草稿' : '已识别为需求反馈，可编辑后保存草稿',
-        false,
-        intent,
-        confidence,
-      )
-    }
     if (data.caughtUp === false || data.stale === true) this.requestConversationAnalysis()
   }
 
