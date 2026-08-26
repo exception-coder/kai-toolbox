@@ -24,9 +24,10 @@ public class AssistantFeedbackArchiveController {
 
     @GetMapping
     public AssistantFeedbackArchiveService.SessionPage sessions(
+            @RequestParam(required = false) String sessionId,
             @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit) {
-        return service.listSessions(cursor, limit);
+        return service.listSessions(sessionId, cursor, limit);
     }
 
     @GetMapping("/{sessionId}/candidates")

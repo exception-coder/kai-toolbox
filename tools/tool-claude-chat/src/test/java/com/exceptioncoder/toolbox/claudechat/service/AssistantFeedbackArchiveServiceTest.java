@@ -38,11 +38,30 @@ class AssistantFeedbackArchiveServiceTest {
         when(feedbackStore.summarizeCandidates(7L, List.of("session-1")))
                 .thenReturn(Map.of("session-1", new FeedbackCounts(2, 3, 4)));
 
-        AssistantFeedbackArchiveService.SessionPage page = service.listSessions(null, null);
+        AssistantFeedbackArchiveService.SessionPage page = service.listSessions(null, null, null);
 
         assertThat(page.items()).singleElement().satisfies(item -> {
             assertThat(item.title()).isEqualTo("新品进度咨询");
             assertThat(item.counts()).isEqualTo(new FeedbackCounts(2, 3, 4));
+        });
+        assertThat(page.nextCursor()).isNull();
+    }
+
+    @Test
+    void scopesArchiveSummaryToRequestedSession() {
+        AuthContext.set(new AuthPrincipal(7L, "tester", List.of(), List.of(), "jti", Long.MAX_VALUE));
+        ClaudeChatSession session = ClaudeChatSession.builder()
+                .id("session-1").userId(7L).groupName("业务咨询")
+                .title("当前页面咨询").lastSeenAt(3_000L).build();
+        when(sessions.findById("session-1")).thenReturn(java.util.Optional.of(session));
+        when(feedbackStore.summarizeCandidates(7L, List.of("session-1")))
+                .thenReturn(Map.of("session-1", new FeedbackCounts(3, 0, 0)));
+
+        AssistantFeedbackArchiveService.SessionPage page = service.listSessions("session-1", null, null);
+
+        assertThat(page.items()).singleElement().satisfies(item -> {
+            assertThat(item.id()).isEqualTo("session-1");
+            assertThat(item.counts()).isEqualTo(new FeedbackCounts(3, 0, 0));
         });
         assertThat(page.nextCursor()).isNull();
     }

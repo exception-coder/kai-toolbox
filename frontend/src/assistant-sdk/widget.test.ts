@@ -181,6 +181,43 @@ describe('assistant widget', () => {
         category: 'OPTIMIZATION', content: '优化导出按钮的响应提示', requirementType: 'MODULE_ADJUST',
       }),
     ))
+    document.getElementById('kai-assistant-widget-root')!.dispatchEvent(
+      new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
+        detail: { state: '正在载入页面会话', messages: [] },
+      }),
+    )
+    expect(shadow.querySelector<HTMLElement>('[data-feedback-summary]')?.hidden).toBe(true)
+    expect(shadow.querySelector<HTMLElement>('[data-feedback-archive]')?.hidden).toBe(true)
+  })
+
+  it('refreshes feedback counts after a newly detected candidate is archived', async () => {
+    const listSessions = vi.fn()
+      .mockResolvedValueOnce({ items: [] })
+      .mockResolvedValue({ items: [{
+        id: 'session-1', title: '新品进度咨询', lastSeenAt: 2000,
+        counts: { bug: 1, optimization: 0, requirement: 0 },
+      }] })
+    const transport: AssistantTransport & AssistantFeedbackArchiveClient = {
+      start: () => undefined,
+      submit: () => undefined,
+      destroy: () => undefined,
+      listSessions,
+      listCandidates: vi.fn(async () => ({ items: [] })),
+      listRevisions: vi.fn(async () => ({ items: [] })),
+      updateCandidate: vi.fn(),
+      loadAttachment: vi.fn(),
+    }
+    initializeAssistant({ appId: 'ERP', transport }).open()
+    const root = document.getElementById('kai-assistant-widget-root')!
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+
+    await vi.waitFor(() => expect(listSessions).toHaveBeenCalledTimes(1))
+    root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
+      detail: { feedbackArchiveChanged: true },
+    }))
+
+    await vi.waitFor(() => expect(listSessions).toHaveBeenCalledTimes(2))
+    expect(shadow.querySelector('[data-feedback-summary]')?.textContent).toContain('Bug 1')
   })
 
   it('keeps automatic classifications silent in the conversation view', () => {
@@ -432,6 +469,45 @@ describe('assistant widget', () => {
     expect(conversation.textContent).not.toContain('正在生成')
 
     expect(widget.shadowRoot!.querySelector('[data-state-label]')?.textContent).toBe('已完成')
+  })
+
+  it('renders clickable image thumbnails and compact file icons inside user messages', async () => {
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn(() => 'blob:history-attachment'),
+      revokeObjectURL: vi.fn(),
+    })
+    const loadConversationAttachment = vi.fn(async () => new Blob(['image'], { type: 'image/png' }))
+    const transport: AssistantTransport = {
+      start: () => undefined,
+      submit: () => undefined,
+      loadEarlier: () => undefined,
+      loadConversationAttachment,
+      destroy: () => undefined,
+    }
+    initializeAssistant({ appId: 'ERP', transport }).open('QUESTION')
+    const root = document.getElementById('kai-assistant-widget-root')!
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
+      detail: {
+        messages: [{
+          id: 'u-attachment', role: 'user', content: '请检查附件',
+          attachments: [
+            { id: 'att-image', name: 'screen.png', mime: 'image/png', size: 5 },
+            { id: 'att-file', name: 'details.pdf', mime: 'application/pdf', size: 8 },
+          ],
+        }],
+      },
+    }))
+
+    await vi.waitFor(() => expect(shadow.querySelector<HTMLImageElement>('.message-image img')?.src)
+      .toBe('blob:history-attachment'))
+    expect(shadow.querySelector('.message-file-icon')).not.toBeNull()
+    expect(shadow.querySelector('.message-file')?.textContent).toContain('details.pdf')
+    shadow.querySelector<HTMLButtonElement>('.message-image')!.click()
+    expect(shadow.querySelector<HTMLElement>('[data-attachment-preview]')!.hidden).toBe(false)
+    expect(shadow.querySelector('[data-attachment-preview-title]')?.textContent).toBe('screen.png')
+    expect(loadConversationAttachment).toHaveBeenCalledWith('att-image')
   })
 
   it('keeps long conversations in a bounded DOM window', async () => {

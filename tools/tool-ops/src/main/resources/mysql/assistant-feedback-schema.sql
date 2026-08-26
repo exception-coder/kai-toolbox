@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS assistant_feedback_candidate (
     KEY idx_assistant_feedback_creator (creator_user_id, detected_at),
     KEY idx_assistant_feedback_session_owner
         (creator_user_id, session_id, feedback_category, detected_at, id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='彩虹胶囊自动识别的 Bug、优化建议和需求反馈候选主表';
 
 CREATE TABLE IF NOT EXISTS assistant_feedback_candidate_revision (
     id                BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -36,7 +37,8 @@ CREATE TABLE IF NOT EXISTS assistant_feedback_candidate_revision (
     create_time       BIGINT NOT NULL,
     UNIQUE KEY uk_assistant_feedback_revision (candidate_id, revision_no),
     KEY idx_assistant_feedback_revision_list (candidate_id, revision_no)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='反馈候选的 AI 原稿及用户历次修订记录';
 
 CREATE TABLE IF NOT EXISTS assistant_feedback_candidate_attachment (
     candidate_id  CHAR(36) NOT NULL,
@@ -47,4 +49,5 @@ CREATE TABLE IF NOT EXISTS assistant_feedback_candidate_attachment (
     create_time   BIGINT NOT NULL,
     PRIMARY KEY (candidate_id, attachment_id),
     KEY idx_assistant_feedback_attachment (attachment_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='反馈候选关联的会话图片与附件元数据';

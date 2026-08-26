@@ -32,11 +32,13 @@
 | GET | `/api/assistant/drafts/{id}` | 查询草稿 |
 | POST | `/api/assistant/drafts/{id}/confirm` | 内部兼容接口：幂等登记到 ReqPool |
 | GET | `/api/auth/users/options` | 内部兼容接口：查询启用的工程师候选 |
-| GET | `/api/assistant/feedback-sessions` | 分页查询本人彩虹胶囊归档及三类反馈数量 |
+| GET | `/api/assistant/feedback-sessions` | 查询本人彩虹胶囊归档及三类反馈数量；外部 Widget 必须携带当前 `sessionId` |
 | GET | `/api/assistant/feedback-sessions/{sessionId}/candidates` | 按分类分页回顾单会话反馈候选 |
 | PATCH | `/api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}` | 乐观锁修改候选分类与正文 |
 | GET | `/api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}/revisions` | 分页查看 AI 原稿与历次用户修订 |
 | GET | `/api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}/attachments/{attachmentId}` | 从 Forge 磁盘受控加载归档图片 |
+| GET | `/api/assistant/conversations/{sessionId}/messages` | 渐进读取当前页面会话的用户、助手消息及附件元数据 |
+| GET | `/api/assistant/conversations/{sessionId}/attachments/{attachmentId}` | 校验页面会话归属后读取消息附件 |
 | GET | `/assistant-sdk/loader.js` | 固定 Loader 入口；跨域公开，只包含版本加载逻辑 |
 | GET | `/assistant-sdk/channels/{channel}.json` | `stable` 或 `canary` 渠道清单 |
 | GET | `/assistant-sdk/releases/{releaseId}/{artifact}` | 不可变 SDK 版本产物 |
@@ -333,7 +335,7 @@ Widget 状态可携带单条增量 `debugEntry`：
 
 `feedbackCategory` 仅允许 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 或 `NONE`。前三者分别映射 `requirementType=BUG_FIX`、`NEW_MODULE`、`MODULE_ADJUST`，并以 `sourceSystem + sessionId + sourceWatermark` 幂等写入公网 MySQL 候选表；`NONE` 不写候选表。旧客户端仍可只读取 `intent`，需求和优化在 Widget 中继续投影为兼容模式 `SUGGESTION`。
 
-对于前三类反馈，Forge 以第二次受控模型调用生成字段草稿，并由服务端固定模板渲染 `feedbackContent`。`sourceContent` 永久保存该水位对应的用户原话，不随用户编辑变化。模型输出解析或字段校验失败时重试一次，仍失败则生成带“待补充”占位的确定性模板；只有分类、存储或确定性渲染真正失败时才保持旧水位。
+对于前三类反馈，Forge 优先从紧随用户消息的 Assistant 回复中提取固定标题 `BUG 反馈草稿`、`需求反馈草稿` 或 `优化建议草稿` 后的正文，直接作为 `aiOptimizedContent`；`sourceContent` 仍永久保存该水位对应的用户原话。回复未提供标准草稿时，才以第二次受控模型调用生成字段草稿并由服务端固定模板渲染。模型输出解析或字段校验失败时重试一次，仍失败则生成带“待补充”占位的确定性模板；只有分类、存储或确定性渲染真正失败时才保持旧水位。归档成功后 SDK 发送内部归档变化状态，Widget 立即重新查询当前会话三类数量。
 
 Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` 适配器优先使用显式 `datasource-id`，否则按 `system-code=yoooni-one + environment + 可选 datasource-name` 选择唯一 MySQL 数据源，再从 `OpsDataSourcePool` 借用 Druid 连接直接 upsert。未登记、匹配不唯一或数据源不是 MySQL 时明确失败；不存在 Yoooni One 项目 HTTP 接口或服务密钥。
 
@@ -345,9 +347,9 @@ Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` �
 
 ### 14.1 分页查询归档会话
 
-`GET /api/assistant/feedback-sessions?limit=20&cursor={opaqueCursor}`
+`GET /api/assistant/feedback-sessions?sessionId={currentSessionId}`
 
-`limit` 可选，取值 `1..50`，缺省 `20`。`cursor` 为服务端返回的不透明游标，客户端不得拆解或改写。
+外部 Widget 必须传当前页面已绑定的逻辑 `sessionId`。服务端先校验该会话属于当前认证用户且为“业务咨询”，再只对该 sessionId 查询三类反馈数量；响应最多一项且 `nextCursor=null`。为兼容 Forge 内部旧调用方，未传 `sessionId` 时仍保留 `limit=1..50`、缺省 `20` 的用户级游标分页，外部 SDK 不得使用该兼容分支。
 
 ```json
 {
@@ -364,7 +366,7 @@ Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` �
 }
 ```
 
-`items` 按 `lastSeenAt` 倒序。`counts` 始终包含三个固定键，无候选时值为 `0`。`nextCursor=null` 表示已到末页。
+指定 `sessionId` 时，`items` 只包含当前会话；`counts` 始终包含三个固定键，无候选时值为 `0`。未指定时 `items` 按 `lastSeenAt` 倒序；`nextCursor=null` 表示已到末页。
 
 ### 14.2 按分类查询会话候选
 
@@ -494,7 +496,15 @@ Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` �
 ```json
 {
   "items": [
-    { "id": "h98", "role": "user", "content": "这条记录为什么逾期？", "timestamp": 1787695200000 },
+    {
+      "id": "h98",
+      "role": "user",
+      "content": "这条记录为什么逾期？",
+      "timestamp": 1787695200000,
+      "attachments": [
+        { "id": "att-1", "name": "现场截图.png", "mime": "image/png", "size": 128430 }
+      ]
+    },
     { "id": "h99", "role": "assistant", "content": "当前证据显示……", "timestamp": 1787695260000 }
   ],
   "nextBefore": 98,
@@ -502,7 +512,9 @@ Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` �
 }
 ```
 
-响应消息只投影 `user` 与 `assistant` 文本；工具调用、内部开发者指令和结果统计不进入彩虹胶囊历史列表。`nextBefore` 为 `0` 或 `null` 时表示没有更早消息。
+响应只投影 `user` 与 `assistant` 消息；用户消息按稳定 `turnId` 批量附带安全附件元数据，绝不返回服务端存储路径。工具调用、内部开发者指令和结果统计不进入彩虹胶囊历史列表。`nextBefore` 为 `0` 或 `null` 时表示没有更早消息。
+
+`GET /api/assistant/conversations/{sessionId}/attachments/{attachmentId}` 使用与历史消息相同的用户、页面会话和执行策略校验。Widget 以 ACCESS Token 拉取 Blob：图片生成可点击缩略图，其他 MIME 类型显示文件图标和文件名。页面 URL 切换后旧会话附件读取结果必须失效。
 
 | HTTP 状态 | 语义 |
 |---|---|
@@ -510,6 +522,14 @@ Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` �
 | `401` | ACCESS Token 缺失或过期 |
 | `403` | 会话不属于当前用户或不是业务咨询会话 |
 | `404` | 逻辑会话不存在 |
+
+### 15.3 第三方页面 URL 生命周期
+
+`AssistantInitOptions.trackPageUrl?: boolean` 缺省为 `true`。启用时 SDK 以浏览器当前 URL 作为页面事实，并观察 `history.pushState`、`history.replaceState`、`popstate` 和 `hashchange`。地址实际变化后自动调用 Transport 页面切换流程；宿主无需为普通 SPA 路由重复调用 `updateContext`。
+
+SDK 仍保留 `assistant.updateContext({ page })` 供宿主同步 `routeName`、标题或非 URL 业务上下文。设置 `trackPageUrl=false` 后，宿主必须在每次路由变化时主动传入新的 `page.url`。自动切换与手工切换都遵循相同契约：旧会话投影立即失效，以新规范化 URL 重连，Ready 后按返回的 `sessionId` 请求近期历史及 `GET /api/assistant/feedback-sessions?sessionId=...`。
+
+URL 规范化继续移除 Hash 和敏感查询参数、排序其余查询参数。因此仅 Hash 改变不会创建新会话；Path 或有效查询参数改变会解析另一个稳定页面会话。
 
 ## 16. 中心化 SDK Loader
 

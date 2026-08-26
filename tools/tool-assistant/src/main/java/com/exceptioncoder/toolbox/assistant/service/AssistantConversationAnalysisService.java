@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.assistant.service;
 
 import com.exceptioncoder.toolbox.assistant.domain.AssistantConversationAnalysis;
+import com.exceptioncoder.toolbox.assistant.domain.AssistantIntent;
+import com.exceptioncoder.toolbox.assistant.domain.AssistantIntentResult;
 import com.exceptioncoder.toolbox.assistant.domain.AssistantMessageClassification;
 import com.exceptioncoder.toolbox.assistant.repository.AssistantConversationAnalysisRepository;
 import com.exceptioncoder.toolbox.common.assistant.AssistantCapabilityPort;
@@ -8,6 +10,7 @@ import com.exceptioncoder.toolbox.common.assistant.AssistantFeedbackStorePort;
 import com.exceptioncoder.toolbox.common.assistant.AssistantFeedbackStorePort.FeedbackCandidate;
 import com.exceptioncoder.toolbox.common.assistant.AssistantFeedbackStorePort.FeedbackCategory;
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
+import com.exceptioncoder.toolbox.common.requirement.RequirementType;
 import com.exceptioncoder.toolbox.common.session.SessionOwnershipPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -16,7 +19,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** 编排会话新增用户消息的反馈识别、摘要维护和水位推进。 */
@@ -33,6 +38,7 @@ public class AssistantConversationAnalysisService {
     private final SessionOwnershipPort sessionOwnership;
     private final AssistantFeedbackCandidateFactory candidateFactory;
     private final AssistantFeedbackDescriptionGenerator descriptionGenerator;
+    private final AssistantFeedbackDraftExtractor draftExtractor;
     private final AssistantFeedbackStorePort feedbackStore;
 
     public AssistantConversationAnalysisService(AssistantConversationAnalysisRepository repository,
@@ -40,12 +46,14 @@ public class AssistantConversationAnalysisService {
                                                 SessionOwnershipPort sessionOwnership,
                                                 AssistantFeedbackCandidateFactory candidateFactory,
                                                 AssistantFeedbackDescriptionGenerator descriptionGenerator,
+                                                AssistantFeedbackDraftExtractor draftExtractor,
                                                 AssistantFeedbackStorePort feedbackStore) {
         this.repository = repository;
         this.intentRouter = intentRouter;
         this.sessionOwnership = sessionOwnership;
         this.candidateFactory = candidateFactory;
         this.descriptionGenerator = descriptionGenerator;
+        this.draftExtractor = draftExtractor;
         this.feedbackStore = feedbackStore;
     }
 
@@ -79,6 +87,8 @@ public class AssistantConversationAnalysisService {
             }
 
             List<AssistantCapabilityPort.ConversationMessage> increment = normalizeMessages(command, currentWatermark);
+            Map<Long, AssistantFeedbackDraftExtractor.ExtractedDraft> responseDrafts =
+                    responseDrafts(increment);
             List<AssistantCapabilityPort.ConversationDetection> detections = new ArrayList<>();
             List<FeedbackCandidate> candidates = new ArrayList<>();
             AssistantFeedbackStorePort.FeedbackContext feedbackContext = null;
@@ -88,8 +98,10 @@ public class AssistantConversationAnalysisService {
                 if (!"user".equalsIgnoreCase(message.role())) {
                     continue;
                 }
-                AssistantMessageClassification routed = intentRouter.classifyFeedbackWithContext(
-                        message.content(), updatedSummary);
+                AssistantFeedbackDraftExtractor.ExtractedDraft responseDraft = responseDrafts.get(message.sequence());
+                AssistantMessageClassification routed = responseDraft == null
+                        ? intentRouter.classifyFeedbackWithContext(message.content(), updatedSummary)
+                        : classification(responseDraft.category());
                 detections.add(new AssistantCapabilityPort.ConversationDetection(
                         message.sequence(), routed.intentResult().intent().name(), routed.feedbackCategory().name(),
                         routed.requirementType().name(), routed.intentResult().confidence(),
@@ -98,8 +110,10 @@ public class AssistantConversationAnalysisService {
                     if (feedbackContext == null) {
                         feedbackContext = candidateFactory.context(userId, command.sessionId());
                     }
-                    String description = descriptionGenerator.generate(
-                            routed.feedbackCategory(), message.content(), updatedSummary, feedbackContext);
+                    String description = responseDraft == null
+                            ? descriptionGenerator.generate(
+                                    routed.feedbackCategory(), message.content(), updatedSummary, feedbackContext)
+                            : responseDraft.content();
                     candidates.add(candidateFactory.candidate(
                             message.sequence(), message.content(), description,
                             routed, now, message.attachments()));
@@ -129,6 +143,39 @@ public class AssistantConversationAnalysisService {
                         && message.sequence() <= command.toWatermark())
                 .sorted(Comparator.comparingLong(AssistantCapabilityPort.ConversationMessage::sequence))
                 .toList();
+    }
+
+    private Map<Long, AssistantFeedbackDraftExtractor.ExtractedDraft> responseDrafts(
+            List<AssistantCapabilityPort.ConversationMessage> messages) {
+        Map<Long, AssistantFeedbackDraftExtractor.ExtractedDraft> drafts = new HashMap<>();
+        AssistantCapabilityPort.ConversationMessage pendingUser = null;
+        for (AssistantCapabilityPort.ConversationMessage message : messages) {
+            if ("user".equalsIgnoreCase(message.role())) {
+                pendingUser = message;
+                continue;
+            }
+            if (pendingUser == null || !"assistant".equalsIgnoreCase(message.role())) {
+                continue;
+            }
+            AssistantCapabilityPort.ConversationMessage source = pendingUser;
+            draftExtractor.extract(message.content())
+                    .ifPresent(draft -> drafts.put(source.sequence(), draft));
+        }
+        return Map.copyOf(drafts);
+    }
+
+    private AssistantMessageClassification classification(FeedbackCategory category) {
+        AssistantIntent intent = category == FeedbackCategory.BUG
+                ? AssistantIntent.BUG : AssistantIntent.SUGGESTION;
+        RequirementType requirementType = switch (category) {
+            case BUG -> RequirementType.BUG_FIX;
+            case REQUIREMENT -> RequirementType.NEW_MODULE;
+            case OPTIMIZATION -> RequirementType.MODULE_ADJUST;
+            case NONE -> RequirementType.UNKNOWN;
+        };
+        return new AssistantMessageClassification(
+                new AssistantIntentResult(intent, 0.99D, "Assistant 回复包含标准反馈草稿"),
+                category, requirementType);
     }
 
     private String appendSummary(String summary, long sequence, String intent, String content) {

@@ -2,11 +2,12 @@
 
 KAI Assistant SDK 用于把统一 AI 助手嵌入 ERP、SCM、SRM、JSP 旧系统或其他 Web 页面。宿主只负责加载 SDK、提供当前用户与业务上下文，并配置到 Forge Assistant Server 的 WebSocket 通道；会话恢复、待发送队列、Markdown 消息、诊断、草稿确认和需求登记由统一链路处理。
 
-当前版本提供框架无关的 Web Component，以及 ESM、IIFE 两种构建产物。SDK 尚未发布到 npm 仓库，需要从本项目构建并复制或安装 `dist-assistant`。
+当前版本提供框架无关的 Web Component，以及 ESM、IIFE 两种构建产物。业务系统默认通过 Forge 托管的稳定 Loader 接入；Loader 会读取渠道清单、校验 SRI，并加载当前 `stable` 或 `canary` 版本，宿主无需反复复制 SDK 文件。
 
 ## 快速导航
 
 - **第一次接入**：[快速初始化](#快速初始化)
+- **灰度与回退**：[Loader 发布与渠道](#loader-发布与渠道)
 - **只在某个 JSP 页面使用**：[JSP 单页接入](#jsp-单页接入)
 - **没有宿主 Token 接口**：[Forge 账号直接登录](#forge-账号直接登录)
 - **页面或订单变化**：[更新业务上下文](#更新业务上下文)
@@ -30,6 +31,28 @@ KAI Assistant SDK 用于把统一 AI 助手嵌入 ERP、SCM、SRM、JSP 旧系�
 
 ---
 
+## Loader 发布与渠道
+
+生产宿主只固定引用稳定 Loader：
+
+```html
+<script src="https://kai-tool.exception-coder.com/assistant-sdk/loader.js"></script>
+```
+
+Loader 每次初始化都会读取 `channels/stable.json`，再加载内容寻址的不可变 SDK 资源。Forge 更新 `stable` 指针后，各宿主下次刷新页面自动使用新版本，不需要重新构建或发布宿主项目。灰度系统可把 `channel` 改为 `canary`；回退时只需把渠道清单重新指向已发布版本。
+
+Forge 发布命令：
+
+```powershell
+Set-Location frontend
+npm run assistant:release          # stable
+npm run assistant:release:canary   # canary
+```
+
+`npm run dev` 和 `npm run build` 均已包含 `assistant:release`，开发服务重启或正式构建都不会漏发 Loader 产物。
+
+---
+
 ## 构建 SDK
 
 在项目根目录执行：
@@ -50,7 +73,7 @@ npm run assistant:build
 | `package.json` | 本地安装或发布到公司 npm 仓库所需的包清单 |
 | `README.md` | 随 SDK 交付的初始化与接入说明 |
 
-当前可将 `dist-assistant` 复制到目标项目，或在现代项目中从本地目录安装：
+`dist-assistant` 主要用于 Loader 发布、离线调试和紧急回退。确有构建期类型依赖时，仍可从本地目录安装：
 
 ```powershell
 npm install D:\work\kai-toolbox\frontend\dist-assistant
@@ -60,12 +83,11 @@ npm install D:\work\kai-toolbox\frontend\dist-assistant
 
 ## 快速初始化
 
-现代前端项目安装构建产物后，只初始化一次：
+现代前端项目加载 Loader 后，只初始化一次：
 
 ```ts
-import { initializeAssistant } from '@kai/assistant-sdk'
-
-const assistant = initializeAssistant({
+const { sdk, version } = await window.KaiAssistantLoader.load({ channel: 'stable' })
+const assistant = sdk.initialize({
   appId: 'ERP',
   appName: 'ERP',
   sourceRevision: 'erp-2026.08',
@@ -90,6 +112,8 @@ const assistant = initializeAssistant({
     },
   },
 })
+
+console.info('KAI Assistant SDK', version)
 ```
 
 `initializeAssistant` 是幂等单例初始化。同一页面重复调用会返回已有实例；页面或微前端彻底卸载时调用 `assistant.destroy()`。
@@ -100,18 +124,13 @@ const assistant = initializeAssistant({
 
 ## JSP 单页接入
 
-如果只希望某个 JSP 页面使用助手，不需要修改公共 Layout。将 IIFE 文件复制到该 Web 应用的静态资源目录，例如：
-
-```text
-WebRoot/static/kai-assistant/kai-assistant.iife.js
-```
-
-然后只在目标 JSP 的 `</body>` 前加载：
+如果只希望某个 JSP 页面使用助手，不需要修改公共 Layout，也不需要复制 IIFE 文件。只在目标 JSP 的 `</body>` 前加载：
 
 ```jsp
-<script src="${pageContext.request.contextPath}/static/kai-assistant/kai-assistant.iife.js"></script>
-<script>
-  const assistant = KaiAssistant.initialize({
+<script src="https://kai-tool.exception-coder.com/assistant-sdk/loader.js"></script>
+<script type="module">
+  const { sdk } = await KaiAssistantLoader.load({ channel: 'stable' })
+  const assistant = sdk.initialize({
     appId: 'ERP',
     appName: 'ERP',
     wsUrl: '${pageContext.request.contextPath}/assistant-ws',
@@ -143,9 +162,10 @@ WebRoot/static/kai-assistant/kai-assistant.iife.js
 内部试用阶段如果宿主没有 `getAssistantAccessToken()`，可以让助手直接使用现有 Forge 账号登录。宿主只配置 Forge 登录和咨询地址：
 
 ```jsp
-<script src="${pageContext.request.contextPath}/static/kai-assistant/kai-assistant.iife.js"></script>
-<script>
-  const assistant = KaiAssistant.initialize({
+<script src="https://kai-tool.exception-coder.com/assistant-sdk/loader.js"></script>
+<script type="module">
+  const { sdk } = await KaiAssistantLoader.load({ channel: 'stable' })
+  const assistant = sdk.initialize({
     appId: 'ERP',
     appName: 'ERP',
     wsUrl: 'wss://forge.company.internal/api/claude-chat/consult/ws',
@@ -208,6 +228,8 @@ assistant.updateContext({
   businessObject: undefined,
 })
 ```
+
+SDK 默认同时观察浏览器 `pushState`、`replaceState`、前进/后退和 Hash 变化。Path 或有效查询参数变化后，会自动清空旧页面投影，以“认证用户 + appId + 规范化 URL”重新解析 `sessionId`，再加载对应会话的近期消息和 Bug、优化建议、需求归档。普通 SPA 路由无需重复调用 `updateContext`；宿主需要完全自行管理路由时可设置 `trackPageUrl: false`。
 
 不要扫描整个 DOM 猜测业务对象，也不要把实时响应式对象直接交给 SDK。
 

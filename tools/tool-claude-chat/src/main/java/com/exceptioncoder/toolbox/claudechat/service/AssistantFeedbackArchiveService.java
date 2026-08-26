@@ -33,7 +33,8 @@ public class AssistantFeedbackArchiveService {
         this.attachments = attachments;
     }
 
-    public SessionPage listSessions(String cursor, Integer requestedLimit) {
+    public SessionPage listSessions(String sessionId, String cursor, Integer requestedLimit) {
+        if (sessionId != null && !sessionId.isBlank()) return currentSession(sessionId.trim());
         long userId = userId();
         SessionCursor before = decodeSessionCursor(cursor);
         int limit = limit(requestedLimit);
@@ -49,6 +50,15 @@ public class AssistantFeedbackArchiveService {
         String next = hasMore && !page.isEmpty()
                 ? encode(page.getLast().getLastSeenAt() + ":" + page.getLast().getId()) : null;
         return new SessionPage(items, next);
+    }
+
+    private SessionPage currentSession(String sessionId) {
+        long userId = userId();
+        ClaudeChatSession session = requireSession(sessionId);
+        FeedbackCounts counts = feedbackStore.summarizeCandidates(userId, List.of(sessionId))
+                .getOrDefault(sessionId, FeedbackCounts.empty());
+        return new SessionPage(List.of(new SessionItem(
+                session.getId(), session.getTitle(), session.getLastSeenAt(), counts)), null);
     }
 
     public CandidateResult listCandidates(String sessionId, String categoryCode,

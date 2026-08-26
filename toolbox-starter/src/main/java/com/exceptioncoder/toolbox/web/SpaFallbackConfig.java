@@ -4,6 +4,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
+import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.resource.PathResourceResolver;
@@ -41,11 +42,23 @@ public class SpaFallbackConfig implements WebMvcConfigurer {
             "classpath:/public/assets/"
     };
 
+    private static final String[] ASSISTANT_SDK_RELEASE_LOCATIONS = {
+            "classpath:/META-INF/resources/assistant-sdk/releases/",
+            "classpath:/resources/assistant-sdk/releases/",
+            "classpath:/static/assistant-sdk/releases/",
+            "classpath:/public/assistant-sdk/releases/"
+    };
+
     /** 前端打包产物会被 frontend-maven-plugin → maven-resources-plugin 拷到这里。 */
     private static final String INDEX_HTML = "/static/index.html";
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        registry.addResourceHandler("/assistant-sdk/releases/**")
+                .addResourceLocations(ASSISTANT_SDK_RELEASE_LOCATIONS)
+                .setCacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePublic().immutable())
+                .resourceChain(true);
+
         // 1) 带内容 hash 的构建产物（Vite 输出到 /assets/，文件名含 hash）→ 永久 immutable 缓存。
         //    内容一变文件名就变，故可安全长缓存：第二次打开直接命中浏览器本地缓存、不再发请求 → 秒开。
         //    缺失的 hash 资源走默认 404（不套 SPA 兜底，避免把 index.html 当 js 返回）。
@@ -63,6 +76,14 @@ public class SpaFallbackConfig implements WebMvcConfigurer {
                 .setCacheControl(CacheControl.noCache())
                 .resourceChain(true)
                 .addResolver(new SpaPathResourceResolver());
+    }
+
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/assistant-sdk/**")
+                .allowedOrigins("*")
+                .allowedMethods("GET", "HEAD", "OPTIONS")
+                .maxAge(TimeUnit.HOURS.toSeconds(1));
     }
 
     private static final class SpaPathResourceResolver extends PathResourceResolver {

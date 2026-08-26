@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { currentAssistant, initializeAssistant } from './assistantSdk'
 import type { AssistantSubmission, AssistantTransport } from './types'
 
-afterEach(() => currentAssistant()?.destroy())
+afterEach(() => {
+  currentAssistant()?.destroy()
+  window.history.replaceState(null, '', '/')
+})
 
 describe('initializeAssistant', () => {
   it('keeps one widget and one lifecycle when initialized repeatedly', () => {
@@ -49,6 +52,49 @@ describe('initializeAssistant', () => {
 
     sdk.updateContext({ businessObject: undefined })
     expect((await sdk.snapshot()).businessObject).toBeUndefined()
+  })
+
+  it('tracks third-party SPA URL changes and clears stale business context', async () => {
+    const updateContext = vi.fn()
+    const transport: AssistantTransport = {
+      start: () => undefined,
+      submit: () => undefined,
+      updateContext,
+      destroy: vi.fn(),
+    }
+    const sdk = initializeAssistant({
+      appId: 'ERP', page: { url: '/orders/1', routeName: 'order-detail' },
+      businessObject: { type: 'ORDER', id: '1' }, transport,
+    })
+
+    window.history.pushState(null, '', '/inventory/list?warehouse=2')
+
+    await vi.waitFor(() => expect(updateContext).toHaveBeenCalledWith({
+      page: expect.objectContaining({ url: window.location.href }),
+      businessObject: undefined,
+    }))
+    expect((await sdk.snapshot()).page?.url).toBe(window.location.href)
+    expect((await sdk.snapshot()).page?.routeName).toBeUndefined()
+    expect((await sdk.snapshot()).businessObject).toBeUndefined()
+  })
+
+  it('allows third-party hosts to manage URL context explicitly', async () => {
+    const updateContext = vi.fn()
+    const transport: AssistantTransport = {
+      start: () => undefined,
+      submit: () => undefined,
+      updateContext,
+      destroy: vi.fn(),
+    }
+    const sdk = initializeAssistant({
+      appId: 'ERP', page: { url: '/orders/1' }, trackPageUrl: false, transport,
+    })
+
+    window.history.pushState(null, '', '/inventory/list')
+    await Promise.resolve()
+
+    expect(updateContext).not.toHaveBeenCalled()
+    expect((await sdk.snapshot()).page?.url).toBe('/orders/1')
   })
 
   it('isolates a timed out provider and keeps the other context', async () => {

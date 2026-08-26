@@ -12,6 +12,7 @@ import { sanitizeEvidence } from './sanitizer'
 import { AssistantWebSocketTransport } from './AssistantWebSocketTransport'
 import { AssistantExternalLoginClient } from './externalLogin'
 import { createAssistantDebugEntry } from './assistantDebugLog'
+import { currentAssistantPageContext, observeAssistantPageNavigation } from './assistantPageNavigation'
 
 const ROOT_ELEMENT_ID = 'kai-assistant-widget-root'
 
@@ -21,6 +22,8 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
   if (singleton) return singleton
 
   let currentContext = pickMutableContext(options)
+  const trackPageUrl = options.trackPageUrl !== false
+  if (trackPageUrl && !currentContext.page) currentContext.page = currentAssistantPageContext()
   const providers = new Map(options.providers?.map(provider => [provider.id, provider]) ?? [])
   const root = ensureRoot()
   const externalLogin = !options.transport && options.wsUrl && !options.getAccessToken && options.externalLogin
@@ -35,7 +38,7 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
     workspace: options.workspace,
     projectKey: options.projectKey ?? options.appId,
     engine: options.engine,
-    page: options.page,
+    page: currentContext.page,
   }) : undefined
   const transport = options.transport ?? webSocketTransport
   const feedbackArchive = webSocketTransport ?? (isFeedbackArchiveClient(transport) ? transport : undefined)
@@ -53,11 +56,17 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
     authentication,
     feedbackArchive,
     conversationHistory: transport?.loadEarlier
-      ? { loadEarlier: () => transport.loadEarlier?.() }
+      ? {
+          loadEarlier: () => transport.loadEarlier?.(),
+          loadAttachment: transport.loadConversationAttachment
+            ? attachmentId => transport.loadConversationAttachment!(attachmentId)
+            : undefined,
+        }
       : undefined,
   })
   let opened = false
   let activePreparation: AbortController | undefined
+  let stopPageNavigation: () => void = () => undefined
 
   const captureSnapshot = async (signal?: AbortSignal) => {
     const collected = await collectProviderContext([...providers.values()], options.providerTimeoutMs, signal)
@@ -115,6 +124,7 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
       root.removeEventListener('assistant-interrupt', interrupt)
       root.removeEventListener('assistant-hidden', hidden)
       activePreparation?.abort('assistant-destroyed')
+      stopPageNavigation()
       transport?.destroy()
       root.remove()
       providers.clear()
@@ -196,6 +206,12 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
   root.addEventListener('assistant-save-draft', saveDraft)
   root.addEventListener('assistant-confirm-draft', confirmDraft)
   root.addEventListener('assistant-interrupt', interrupt)
+  if (trackPageUrl) {
+    stopPageNavigation = observeAssistantPageNavigation(() => sdk.updateContext({
+      page: currentAssistantPageContext(currentContext.page),
+      businessObject: undefined,
+    }))
+  }
   transport?.start(emitTransportState)
   return sdk
 }

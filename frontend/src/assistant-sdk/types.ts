@@ -130,6 +130,7 @@ export interface AssistantWidgetMountOptions {
 
 export interface AssistantConversationHistoryClient {
   loadEarlier: () => void
+  loadAttachment?: (attachmentId: string) => Promise<Blob>
 }
 
 export interface AssistantInitOptions {
@@ -152,6 +153,8 @@ export interface AssistantInitOptions {
   user?: AssistantUserContext
   page?: AssistantPageContext
   businessObject?: AssistantBusinessObjectContext
+  /** 自动观察宿主 URL 并切换页面会话，缺省为 true。 */
+  trackPageUrl?: boolean
   providers?: AssistantContextProvider[]
   providerTimeoutMs?: number
   additionalSensitiveFields?: string[]
@@ -219,6 +222,16 @@ export interface AssistantConversationMessage {
   content: string
   timestamp?: number
   streaming?: boolean
+  attachments?: AssistantConversationAttachment[]
+}
+
+/** 消息内可见的附件元数据；file 只用于刚发送且仍在当前页面内存中的本地预览。 */
+export interface AssistantConversationAttachment {
+  id: string
+  name: string
+  mime: string
+  size?: number
+  file?: File
 }
 
 export interface AssistantDebugEntry {
@@ -252,6 +265,7 @@ export interface AssistantWidgetState {
   historyExhausted?: boolean
   historyError?: string
   transcriptMissing?: boolean
+  feedbackArchiveChanged?: boolean
 }
 
 export interface AssistantTransport {
@@ -262,6 +276,7 @@ export interface AssistantTransport {
   listUsers?: () => void
   updateContext?: (context: Pick<AssistantInitOptions, 'user' | 'page' | 'businessObject'>) => void
   loadEarlier?: () => void
+  loadConversationAttachment?: (attachmentId: string) => Promise<Blob>
   interrupt?: () => void
   destroy: () => void
 }

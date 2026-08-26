@@ -9,6 +9,7 @@ export interface WidgetInteractionState {
 const BUSY_STATES = new Set([
   '正在准备上下文',
   '正在连接',
+  '正在载入页面会话',
   '正在重连',
   '回复中',
   '消息处理中',
@@ -25,6 +26,7 @@ const INTERRUPTIBLE_STATES = new Set([
 const ACTIVITY_LABELS: Record<string, string> = {
   正在准备上下文: '正在准备当前页面上下文…',
   正在连接: '正在连接助手…',
+  正在载入页面会话: '正在连接当前页面会话…',
   正在重连: '连接中断，正在恢复会话…',
   回复中: 'AI 正在生成回复…',
   消息处理中: '消息正在处理…',

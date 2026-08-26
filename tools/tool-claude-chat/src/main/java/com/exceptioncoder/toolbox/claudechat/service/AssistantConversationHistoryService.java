@@ -1,7 +1,9 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView;
+import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatAttachment;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
+import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatAttachmentRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
 import org.springframework.http.HttpStatus;
@@ -9,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 
 /** 当前认证用户的彩虹胶囊会话历史分页用例。 */
 @Service("assistantConversationHistoryService")
@@ -18,11 +21,17 @@ public class AssistantConversationHistoryService {
 
     private final ClaudeChatSessionRepository sessions;
     private final SessionHistoryService history;
+    private final ClaudeChatAttachmentRepository attachmentRepository;
+    private final AttachmentStorageService attachmentStorage;
 
     public AssistantConversationHistoryService(ClaudeChatSessionRepository sessions,
-                                               SessionHistoryService history) {
+                                               SessionHistoryService history,
+                                               ClaudeChatAttachmentRepository attachmentRepository,
+                                               AttachmentStorageService attachmentStorage) {
         this.sessions = sessions;
         this.history = history;
+        this.attachmentRepository = attachmentRepository;
+        this.attachmentStorage = attachmentStorage;
     }
 
     /**
@@ -44,11 +53,23 @@ public class AssistantConversationHistoryService {
         }
         var page = history.readMessages(session.getCwd(), session.getSdkSessionId(),
                 session.getCodexHome(), before, limit);
+        List<String> turnIds = page.items().stream()
+                .map(ChatMessageView::turnId)
+                .filter(turnId -> turnId != null && !turnId.isBlank())
+                .toList();
+        Map<String, List<ClaudeChatAttachment>> attachmentsByTurn =
+                attachmentRepository.findByTurns(sessionId, turnIds);
         List<ConversationMessage> items = page.items().stream()
                 .filter(this::visibleMessage)
-                .map(this::toConversationMessage)
+                .map(message -> toConversationMessage(message, attachmentsByTurn))
                 .toList();
         return new ConversationPage(items, page.nextBefore(), page.transcriptMissing());
+    }
+
+    /** 校验页面会话归属后读取消息附件，文件路径不暴露给浏览器。 */
+    public AttachmentStorageService.ArchivedAttachment loadAttachment(String sessionId, String attachmentId) {
+        requireOwnedAssistantSession(sessionId);
+        return attachmentStorage.loadArchived(sessionId, attachmentId);
     }
 
     private ClaudeChatSession requireOwnedAssistantSession(String sessionId) {
@@ -68,8 +89,16 @@ public class AssistantConversationHistoryService {
         return "user".equals(message.kind()) || "assistant".equals(message.kind());
     }
 
-    private ConversationMessage toConversationMessage(ChatMessageView message) {
-        return new ConversationMessage(message.id(), message.kind(), message.text(), message.ts());
+    private ConversationMessage toConversationMessage(
+            ChatMessageView message,
+            Map<String, List<ClaudeChatAttachment>> attachmentsByTurn) {
+        List<ConversationAttachment> attachments = message.turnId() == null
+                ? List.of()
+                : attachmentsByTurn.getOrDefault(message.turnId(), List.of()).stream()
+                        .map(attachment -> new ConversationAttachment(
+                                attachment.id(), attachment.name(), attachment.mime(), attachment.size()))
+                        .toList();
+        return new ConversationMessage(message.id(), message.kind(), message.text(), message.ts(), attachments);
     }
 
     /** 彩虹胶囊历史消息页。 */
@@ -83,5 +112,9 @@ public class AssistantConversationHistoryService {
             /** 稳定消息 ID。 */ String id,
             /** user 或 assistant。 */ String role,
             /** 消息正文。 */ String content,
-            /** 可空的消息时间戳。 */ Long timestamp) { }
+            /** 可空的消息时间戳。 */ Long timestamp,
+            /** 仅用户消息可能携带的附件元数据。 */ List<ConversationAttachment> attachments) { }
+
+    /** 浏览器可见的安全附件元数据。 */
+    public record ConversationAttachment(String id, String name, String mime, long size) { }
 }

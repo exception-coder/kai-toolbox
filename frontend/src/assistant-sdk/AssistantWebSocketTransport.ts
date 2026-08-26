@@ -80,6 +80,7 @@ type IncomingMessage = {
   queueSize?: number
   displayText?: string
   createdAt?: number
+  attachments?: AssistantUploadedAttachment[]
   tasks?: unknown[]
   action?: string
   success?: boolean
@@ -171,9 +172,19 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     void this.loadHistory(false)
   }
 
+  async loadConversationAttachment(attachmentId: string): Promise<Blob> {
+    if (!this.sessionId) throw new Error('会话尚未建立，无法读取附件')
+    const response = await this.apiFetch(
+      `/api/assistant/conversations/${encodeURIComponent(this.sessionId)}`
+      + `/attachments/${encodeURIComponent(attachmentId)}`)
+    return response.blob()
+  }
+
   async listSessions() {
+    if (!this.sessionId) return { items: [] }
+    const params = new URLSearchParams({ sessionId: this.sessionId })
     return this.apiJson<{ items: import('./types').AssistantFeedbackSession[]; nextCursor?: string }>(
-      '/api/assistant/feedback-sessions')
+      `/api/assistant/feedback-sessions?${params.toString()}`)
   }
 
   async listCandidates(sessionId: string, category: AssistantFeedbackCategory) {
@@ -246,6 +257,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
       role: 'user',
       content: submission.text || imageMessageLabel(submission.attachments?.length ?? 0),
       timestamp: pending.createdAt,
+      attachments: submission.attachments?.map(attachment => ({ ...attachment })),
     })
     this.persist()
     this.debug('send', '请求已进入发送流程', { mode: submission.mode })
@@ -351,11 +363,13 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     const socket = factory(resolveWebSocketUrl(this.options.wsUrl, accessToken))
     this.socket = socket
     socket.addEventListener('open', () => this.onOpen(socket))
-    socket.addEventListener('message', event => this.onMessage(event.data))
+    socket.addEventListener('message', event => {
+      if (socket === this.socket) this.onMessage(event.data)
+    })
     socket.addEventListener('close', () => this.onClose(socket))
     socket.addEventListener('error', () => {
+      if (socket !== this.socket) return
       this.debug('error', 'WebSocket 连接失败')
-      this.emit('助手暂不可用', 'WebSocket 连接失败')
     })
   }
 
@@ -384,7 +398,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     this.resetLoadingModuleContexts()
     if (this.destroyed) return
     this.debug('connection', 'WebSocket 连接关闭，准备重连')
-    this.emit('正在重连')
+    this.emit(this.pageIdentity && !this.sessionId ? '正在载入页面会话' : '正在重连')
     const delay = Math.min(MAX_RECONNECT_DELAY_MS, BASE_RECONNECT_DELAY_MS * 2 ** this.reconnectAttempts)
     this.reconnectAttempts += 1
     this.reconnectTimer = window.setTimeout(() => this.connect(), delay)
@@ -750,6 +764,10 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
 
   private applyConversationAnalysis(data: unknown): void {
     if (!isRecord(data)) return
+    if (Array.isArray(data.detections) && data.detections.some(detection =>
+      isRecord(detection) && detection.feedbackCategory !== 'NONE')) {
+      this.listener({ feedbackArchiveChanged: true })
+    }
     if (data.caughtUp === false || data.stale === true) this.requestConversationAnalysis()
   }
 
@@ -880,6 +898,9 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     if (this.messages.some(item => item.id === id)) return
     this.messages.push({
       id, role: 'user', content: message.displayText ?? message.text ?? '', timestamp: message.createdAt,
+      attachments: message.attachments?.map(attachment => ({
+        id: attachment.id, name: attachment.name, mime: attachment.mime,
+      })),
     })
   }
 

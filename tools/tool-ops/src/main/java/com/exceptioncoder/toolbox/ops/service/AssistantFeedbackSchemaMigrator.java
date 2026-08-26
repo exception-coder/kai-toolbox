@@ -19,6 +19,7 @@ final class AssistantFeedbackSchemaMigrator {
     /** 创建新表并迁移既有候选表。 */
     void migrate(Connection connection) throws SQLException, IOException {
         executeSchema(connection);
+        applyTableComments(connection);
         boolean legacyContentExists = hasColumn(connection, CANDIDATE_TABLE, "feedback_content");
         addContentColumns(connection);
         if (legacyContentExists) {
@@ -27,6 +28,17 @@ final class AssistantFeedbackSchemaMigrator {
         enforceRequiredContent(connection);
         if (legacyContentExists) {
             dropLegacyContent(connection);
+        }
+    }
+
+    private void applyTableComments(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE assistant_feedback_candidate "
+                    + "COMMENT='彩虹胶囊自动识别的 Bug、优化建议和需求反馈候选主表'");
+            statement.execute("ALTER TABLE assistant_feedback_candidate_revision "
+                    + "COMMENT='反馈候选的 AI 原稿及用户历次修订记录'");
+            statement.execute("ALTER TABLE assistant_feedback_candidate_attachment "
+                    + "COMMENT='反馈候选关联的会话图片与附件元数据'");
         }
     }
 

@@ -2,6 +2,10 @@ package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.service.AssistantConversationHistoryService;
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
+import org.springframework.core.io.PathResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -33,5 +37,15 @@ public class AssistantConversationController {
             @RequestParam(required = false) Integer before,
             @RequestParam(required = false) Integer limit) {
         return history.messages(sessionId, before, limit);
+    }
+
+    /** 读取当前用户页面会话中的单个附件，用于消息缩略图或下载。 */
+    @GetMapping("/{sessionId}/attachments/{attachmentId}")
+    public ResponseEntity<Resource> attachment(@PathVariable String sessionId,
+                                               @PathVariable String attachmentId) {
+        var archived = history.loadAttachment(sessionId, attachmentId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(archived.mime()))
+                .body(new PathResource(archived.file()));
     }
 }

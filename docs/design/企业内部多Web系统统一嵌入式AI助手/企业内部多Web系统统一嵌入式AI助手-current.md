@@ -50,6 +50,7 @@ flowchart LR
 - Widget 提供默认收起的调试面板，按时间展示上下文准备、WS 连接、协议发送/接收、中止和错误元数据；日志最多保留 200 条且仅存在当前页面内存，禁止记录密码、Token、Cookie、业务正文和完整上下文。
 - Composer 支持从剪贴板一次粘贴最多 5 张 PNG、JPEG、GIF 或 WebP 图片，单张不超过 10MB、单次总量不超过 25MB；图片只在当前页面内存暂存并允许发送前预览、移除，不以 Base64、Blob 或对象 URL 写入本地存储和调试日志。
 - 图片随消息提交时，Transport 必须先建立归属当前用户的会话，再携带同一短期 ACCESS Token 通过受控 AJAX 上传；上传成功后 WS 只发送服务端返回的 `name/path/mime` 引用。任何一张上传失败都不得静默降级为纯文本发送，必须移除本地乐观消息并恢复文本与图片草稿供用户重试。
+- 用户消息必须保留附件投影：刚发送的图片以当前页面内存中的 File 即时生成缩略图；历史消息按 turnId 批量读取附件元数据并通过会话鉴权接口加载 Blob。图片可点击预览，非图片附件显示紧凑文件图标和名称。
 - 附件上传 CORS 复用外部登录的精确 Origin 白名单，只开放上传路径的 `POST/OPTIONS` 和 `Authorization/Content-Type` 请求头；服务端同时执行登录校验、会话归属校验、文件类型、大小和路径沙箱校验。
 - 第三方未配置 `wsUrl` 或自定义 Transport 时，首次提交必须立即返回可恢复的配置错误并写入调试日志，不得停留在“正在准备上下文”。
 - 模块缓存键由 SDK 从 `page.routeName` 或规范化页面 URL 确定；服务端再按认证用户、`appId` 和 `moduleKey` 隔离，客户端 `user.id` 不参与缓存授权。
@@ -248,19 +249,19 @@ sequenceDiagram
 
 ## 8. 会话反馈增量识别
 
-彩虹胶囊在每个正常回复终态后触发一次会话反馈分析。分析对象不是客户端重新拼装的全量聊天，而是服务端从该会话已持久化分析水位线之后读取的新增 `user` 消息；助手回复和工具输出只作为会话事实保留，不作为用户反馈来源。
+彩虹胶囊在每个正常回复终态后触发一次会话反馈分析。分析对象不是客户端重新拼装的全量聊天，而是服务端从该会话已持久化分析水位线之后读取的会话增量。新增 `user` 消息仍是反馈来源；紧随其后的 Assistant 回复只用于提取带固定分类标题的规范草稿，工具输出不作为反馈来源。
 
 - 对话意图继续兼容 `BUG`、`SUGGESTION`、`QUESTION`、`DIAGNOSE`、`UNKNOWN`；需要持久化的反馈另以封闭枚举 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 分类，分别映射需求类型 `BUG_FIX`、`NEW_MODULE`、`MODULE_ADJUST`。
 - 每个会话、每个认证用户只保存一条当前分析状态：已分析水位、滚动反馈摘要和更新时间。
-- 分类器只接收上次滚动摘要与本次增量用户消息，不重新发送水位线之前的原始会话。
-- 三类反馈由独立描述生成器输出受控 JSON 草稿，服务端按 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 的固定章节确定性渲染 Markdown；模型不得直接决定章节结构。
+- Assistant 回复包含 `BUG 反馈草稿`、`需求反馈草稿` 或 `优化建议草稿` 时，服务端直接提取对应草稿正文并按前置用户消息水位归档，避免重复分类和二次生成造成超时或信息损失。
+- 回复未提供标准草稿时，分类器只接收上次滚动摘要与本次增量用户消息；命中三类反馈后由独立描述生成器输出受控 JSON，服务端按分类固定章节确定性渲染 Markdown。
 - 描述模型输出解析或校验失败时最多重试一次；仍失败则使用保留用户事实且明确标记“待补充”的确定性模板，不丢失该条反馈。
 - 公网候选主表以 `source_content` 永久保存限长用户原话，以 `ai_optimized_content` 保存不可覆盖的 AI 首次规范稿，以可空的 `user_rewritten_content` 保存用户基于 AI 稿的最新改写；有效正文按“用户改写优先、否则 AI 稿”读取，修订表继续保存 AI 基线和每次用户改写的不可变审计历史。
 - Bug、需求和优化识别结果先写入公网 MySQL 的 `assistant_feedback_candidate` 候选表，状态固定为 `DETECTED`；模型不得直接创建正式 ReqPool 记录。
 - 持久化代码全部位于 Forge：`tool-ops` 按系统编码 `yoooni-one` 和环境解析已登记 MySQL 数据源，直接复用 `OpsDataSourcePool` 的 Druid 池写公网 MySQL；不调用 Yoooni One 项目接口。
 - 只有分类、候选幂等落库、摘要处理全部成功后才推进 SQLite 水位；读取失败、分类器异常或公网 MySQL 落库失败均保持原水位，下一次终态从旧水位重试。
 - 候选唯一键为 `source_system + session_id + source_watermark`。公网写入成功但本地水位提交失败时，重试使用 upsert，不生成重复反馈。
-- 公网候选只保存单条用户反馈、分类、置信度、应用和页面定位等限长字段；不得保存 Token、Cookie、密码、完整上下文快照、助手回复或工具输出。
+- 公网候选只保存单条用户反馈、提取出的标准草稿正文、分类、置信度、应用和页面定位等限长字段；不得保存 Token、Cookie、密码、完整上下文快照、完整助手回复或工具输出。
 - 同一终态重复触发时，如果没有新增消息，返回 `advanced=false`，不得再次调用分类模型。
 - 自动识别结果静默写入三类候选库，不在对话区弹提示、切换模式或开放“指定工程师 / 保存草稿 / 确认登记”动作；用户仅在“记录”归档中回顾并纠正候选。自动识别不得创建 `assistant_draft` 或 ReqPool 正式记录，既有草稿协议仅保留给兼容调用。
 
@@ -276,6 +277,7 @@ sequenceDiagram
     end
     box rgb(250, 244, 232) Assistant 能力
         participant STATE as Analysis State Service
+        participant EXTRACT as Draft Extractor
         participant MODEL as Intent Router
         participant DRAFT as Description Generator
     end
@@ -295,11 +297,16 @@ sequenceDiagram
     else 存在新增用户消息
         HISTORY-->>CMD: 增量消息和末端水位
         CMD->>STATE: 提交期望水位和增量
-        STATE->>MODEL: 历史摘要加新增用户消息
-        MODEL-->>STATE: 意图和反馈分类
-        STATE->>DRAFT: 分类加用户原话和页面上下文
-        DRAFT-->>STATE: 受控字段草稿
-        STATE->>STATE: 按分类确定性渲染 Markdown
+        STATE->>EXTRACT: 检查 Assistant 标准反馈草稿
+        alt 命中标准草稿
+            EXTRACT-->>STATE: 分类和规范稿正文
+        else 未命中标准草稿
+            STATE->>MODEL: 历史摘要加新增用户消息
+            MODEL-->>STATE: 意图和反馈分类
+            STATE->>DRAFT: 分类加用户原话和页面上下文
+            DRAFT-->>STATE: 受控字段草稿
+            STATE->>STATE: 按分类确定性渲染 Markdown
+        end
         STATE->>STORE: 通过稳定端口提交候选
         STORE->>REG: 解析 yoooni-one MySQL 数据源
         REG-->>STORE: 数据源配置
@@ -310,7 +317,7 @@ sequenceDiagram
         STATE->>STATE: 保存摘要并推进水位
         STATE-->>CMD: 识别结果和新水位
         CMD-->>WS: conversationAnalysis
-        WS-->>SDK: 提示 Bug 需求或优化反馈
+        WS-->>SDK: 通知归档变化并刷新三类数量
     end
 ```
 
@@ -324,6 +331,10 @@ sequenceDiagram
 - 服务端 Ready 后，SDK 按逻辑 `sessionId` 请求最近 30 条消息；滚动到顶部后继续按 `before` 游标读取更早一页。历史读取执行会话归属和 `consult-readonly` 策略校验。
 - 历史消息列表采用窗口化渲染：只挂载可视区域附近消息和上下占位，不因已加载页数增加而线性扩大 DOM；向前追加历史时保持用户当前阅读位置，贴底时才跟随流式回复。
 - 历史接口失败时保留当前实时消息和输入草稿，提供顶部重试；transcript 缺失时明确说明记录不可恢复，但仍允许在已绑定会话中继续提问。
+- 历史用户消息按稳定 turnId 批量关联 `claude_chat_turn_attachment`；接口只返回附件 ID、名称、MIME 和大小。Widget 仅为窗口化范围内的图片加载 Blob 缩略图，复用请求并在页面切换或销毁时释放对象 URL。
+- 当前页面的反馈统计、记录列表和候选明细统一以 Ready 返回的逻辑 `sessionId` 为查询边界；不得把当前用户其他页面或历史咨询会话混入记录视图。
+- 第三方宿主默认由 SDK 观察浏览器地址变化：`pushState`、`replaceState`、`popstate` 与 `hashchange` 统一触发页面身份重算。规范化 URL 变化后立即清空旧消息和旧归档投影，关闭旧连接，以新 `pageKey` 重新 Open；Ready 返回对应 `sessionId` 后再加载该会话的近期历史和三类归档。匹配新 `sessionId` 期间只展示“正在连接当前页面会话”，旧 Socket 的迟到错误不得覆盖当前页面状态；认证、协议和服务端明确终态错误仍正常展示。宿主可通过 `trackPageUrl=false` 关闭自动观察并自行调用 `updateContext`。
+- 页面正在回复或存在未确认发送时，URL 变化先进入单槽待切换状态，当前回合终止后只应用最后一个页面 URL，避免中途关闭连接丢失回复；切换等待期间不得将新页面消息提交到旧会话。
 
 ```mermaid
 sequenceDiagram
@@ -350,6 +361,14 @@ sequenceDiagram
     SDK->>HISTORY: load earlier when top reached
     HISTORY-->>SDK: earlier page and nextBefore
     SDK->>SDK: prepend and preserve scroll anchor
+    opt host URL changes
+        SDK->>SDK: normalize latest browser URL
+        SDK->>SDK: clear old transcript and archive projection
+        SDK->>WS: reconnect and open with new pageKey
+        WS->>SESSION: resolve authenticated user binding
+        SESSION-->>SDK: ready corresponding sessionId
+        SDK->>HISTORY: load latest messages and feedback archive
+    end
 ```
 
 ## 10. 中心化 Loader 发布与宿主升级

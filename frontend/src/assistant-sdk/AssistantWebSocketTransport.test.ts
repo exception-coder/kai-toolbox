@@ -15,6 +15,10 @@ class FakeWebSocket extends EventTarget {
     this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) }))
   }
 
+  fail(): void {
+    this.dispatchEvent(new Event('error'))
+  }
+
   send(value: string): void {
     this.sent.push(value)
   }
@@ -143,18 +147,116 @@ describe('AssistantWebSocketTransport', () => {
     transport.destroy()
   })
 
+  it('scopes feedback archive requests to the ready session', async () => {
+    const socket = new FakeWebSocket()
+    const fetcher = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify({ items: [] }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    }))
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: 'wss://forge.example.com/api/claude-chat/consult/ws',
+      storage: memoryStorage(), fetcher,
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+
+    expect(await transport.listSessions()).toEqual({ items: [] })
+    expect(fetcher).not.toHaveBeenCalled()
+
+    transport.start(() => undefined)
+    transport.submit({ mode: 'QUESTION', text: '查询当前会话归档', snapshot })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+    await transport.listSessions()
+
+    const requestedUrl = new URL(String(fetcher.mock.calls[0][0]))
+    expect(requestedUrl.pathname).toBe('/api/assistant/feedback-sessions')
+    expect(requestedUrl.searchParams.get('sessionId')).toBe('session-1')
+    transport.destroy()
+  })
+
+  it('rebinds archive scope after a page URL change and ignores the old socket', async () => {
+    const sockets: FakeWebSocket[] = []
+    const states: AssistantWidgetState[] = []
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      const body = url.pathname === '/api/assistant/feedback-sessions'
+        ? { items: [] }
+        : { items: [], nextBefore: null, transcriptMissing: false }
+      return new Response(JSON.stringify(body), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: 'wss://forge.example.com/api/claude-chat/consult/ws',
+      page: { url: 'https://erp.example.com/orders' }, storage: memoryStorage(), fetcher,
+      webSocketFactory: () => {
+        const socket = new FakeWebSocket()
+        sockets.push(socket)
+        return socket as unknown as WebSocket
+      },
+    })
+    transport.start(state => states.push(state))
+    sockets[0].open()
+    sockets[0].receive({ type: 'ready', seq: 1, sessionId: 'orders-session', status: 'IDLE', epoch: 'orders' })
+
+    transport.updateContext({ page: { url: 'https://erp.example.com/inventory' } })
+
+    expect(states.filter(state => state.state).at(-1)?.state).toBe('正在载入页面会话')
+    expect(sockets).toHaveLength(2)
+    sockets[0].fail()
+    expect(states.some(state => state.state === '助手暂不可用')).toBe(false)
+    sockets[0].receive({ type: 'ready', seq: 2, sessionId: 'late-orders-session', status: 'IDLE', epoch: 'orders' })
+    expect(await transport.listSessions()).toEqual({ items: [] })
+
+    sockets[1].open()
+    expect(sentByType(sockets[1], 'open')).toMatchObject({
+      assistantPageKey: 'https://erp.example.com/inventory',
+    })
+    sockets[1].fail()
+    expect(states.filter(state => state.state).at(-1)?.state).toBe('正在载入页面会话')
+    expect(states.filter(state => state.message).at(-1)?.message).not.toBe('WebSocket 连接失败')
+    sockets[1].receive({ type: 'ready', seq: 1, sessionId: 'inventory-session', status: 'IDLE', epoch: 'inventory' })
+    await transport.listSessions()
+
+    const archiveRequest = fetcher.mock.calls.map(call => new URL(String(call[0])))
+      .findLast(url => url.pathname === '/api/assistant/feedback-sessions')
+    expect(archiveRequest?.searchParams.get('sessionId')).toBe('inventory-session')
+    transport.destroy()
+  })
+
+  it('keeps a fixed page in the session connection state when the socket closes before ready', () => {
+    const socket = new FakeWebSocket()
+    const states: AssistantWidgetState[] = []
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: 'wss://forge.example.com/api/claude-chat/consult/ws',
+      page: { url: 'https://erp.example.com/orders' }, storage: memoryStorage(),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+
+    transport.start(state => states.push(state))
+    socket.close()
+
+    expect(states.filter(state => state.state).at(-1)).toMatchObject({
+      state: '正在载入页面会话', message: undefined,
+    })
+    transport.destroy()
+  })
+
   it('resolves a fixed page conversation and progressively loads transcript history', async () => {
     const socket = new FakeWebSocket()
     const states: AssistantWidgetState[] = []
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input))
+      if (url.pathname.endsWith('/attachments/att-1')) {
+        return new Response(new Blob(['image'], { type: 'image/png' }), { status: 200 })
+      }
       const before = url.searchParams.get('before')
       return new Response(JSON.stringify(before ? {
         items: [{ id: 'h1', role: 'user', content: '更早的问题', timestamp: 1 }],
         nextBefore: 0, transcriptMissing: false,
       } : {
         items: [
-          { id: 'h2', role: 'user', content: '近期问题', timestamp: 2 },
+          { id: 'h2', role: 'user', content: '近期问题', timestamp: 2,
+            attachments: [{ id: 'att-1', name: 'screen.png', mime: 'image/png', size: 5 }] },
           { id: 'h3', role: 'assistant', content: '近期回答', timestamp: 3 },
         ],
         nextBefore: 2, transcriptMissing: false,
@@ -176,9 +278,12 @@ describe('AssistantWebSocketTransport', () => {
     socket.receive({ type: 'ready', seq: 1, sessionId: 'fixed-session', status: 'IDLE', epoch: 'e1' })
 
     await vi.waitFor(() => expect(states.at(-1)?.messages).toEqual([
-      expect.objectContaining({ id: 'h2', content: '近期问题' }),
+      expect.objectContaining({ id: 'h2', content: '近期问题', attachments: [
+        expect.objectContaining({ id: 'att-1', name: 'screen.png' }),
+      ] }),
       expect.objectContaining({ id: 'h3', content: '近期回答' }),
     ]))
+    await expect(transport.loadConversationAttachment('att-1')).resolves.toBeInstanceOf(Blob)
     transport.loadEarlier()
     await vi.waitFor(() => expect(states.at(-1)?.messages?.map(message => message.id)).toEqual(['h1', 'h2', 'h3']))
     expect(fetcher).toHaveBeenLastCalledWith(
@@ -510,6 +615,7 @@ describe('AssistantWebSocketTransport', () => {
     expect(states.filter(state =>
       state.state || state.message || state.detectedIntent || state.detectionConfidence)).toHaveLength(visibleStateCount)
     expect(states.some(state => state.detectedIntent || state.state === '已识别反馈')).toBe(false)
+    expect(states.at(-1)?.feedbackArchiveChanged).toBe(true)
     transport.destroy()
   })
 

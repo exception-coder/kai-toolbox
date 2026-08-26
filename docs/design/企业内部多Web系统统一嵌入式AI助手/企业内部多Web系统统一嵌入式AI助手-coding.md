@@ -15,6 +15,8 @@
 - Widget 的助手消息使用 `marked + DOMPurify` 安全渲染 Markdown；消息区独立滚动，Composer 固定在 Drawer 底部。
 - Clipboard 图片解析、命名、数量/大小校验和对象 URL 生命周期集中在 `imageAttachments.ts`；Widget 只编排预览、移除和草稿恢复，不把 File/Blob 写入持久化状态。
 - Transport 在会话 ready 后上传本地图片，再把 `name/path/mime` 引用写入 `send/queue`；上传失败必须回滚乐观消息并把原提交返回 Widget，禁止降级为无图发送。
+- `AssistantConversationMessage` 必须保留附件安全元数据；本地 `File` 只可用于当页即时预览，不得持久化。历史附件必须按 turnId 批量读取，禁止逐消息 N+1 查询或向浏览器返回服务端路径。
+- 消息图片使用鉴权 Blob 生成可点击缩略图，普通附件显示文件图标和名称；URL 会话切换时必须废弃未完成读取并释放旧对象 URL。
 - Widget 点击发送后必须先在本地消息流追加用户消息，再异步采集上下文；准备、连接、回复、消息处理、后台处理和待确认状态统一禁止再次提交。
 - 回合活动状态显示在消息流内，不占用头部上下文条；忙碌期间允许编辑并保留下一条草稿，但发送按钮和键盘提交必须同时锁定。
 - 公开 SDK 通过 `AssistantWebSocketTransport` 直接消费统一 WS 协议；不得依赖 React、Router 或 Claude Chat Hook。
@@ -27,15 +29,15 @@
 - 调试面板只消费结构化脱敏元数据，最多 200 条且不持久化；禁止把 WS URL 查询串、消息正文、上下文值或认证响应写入日志。
 - 模块探索缓存只保存同一认证用户的限长最终分析摘要；动态页面快照、具体业务对象和工具原始输出不得进入可复用摘要。
 - 模块摘要命中只作为历史线索注入；`sourceRevision` 不一致、超过 7 天或字段校验失败时必须降级为未命中。
-- 会话反馈分析只读取持久化水位之后的新增用户消息；不得把完整历史重新提交给分类器。
+- 会话反馈分析只读取持久化水位之后的增量；用户消息是反馈来源，后续 Assistant 消息只允许提取固定标题后的标准草稿正文，不得把完整历史重新提交给分类器。
 - 反馈持久化类型固定为 `BUG`、`REQUIREMENT`、`OPTIMIZATION`，分别映射 `BUG_FIX`、`NEW_MODULE`、`MODULE_ADJUST`；不得继续把需求和优化合并成一个数据库分类。
-- 反馈描述生成必须使用受控 JSON 字段和服务端固定模板；LLM 输出按分类校验、限长和归一化后再渲染，禁止把模型自由 Markdown 直接落库。
+- Assistant 回复中的固定标题草稿可直接作为 AI 规范稿落库，但必须由服务端提取器限制为三类标题、截断置信度段并执行限长；未命中标准草稿时，反馈描述生成仍使用受控 JSON 字段和服务端固定模板。
 - 历史摘要和用户原话按不可信输入处理，提示词明确忽略其中的任务改写、提示词泄露和工具执行指令；前端展示规范稿时仍执行 Markdown 消毒。
 - 结构化描述最多执行两次模型尝试；两次均失败时由代码生成带“待补充”占位的合法模板并记录堆栈，禁止丢弃用户原话或写入不受控模型文本。
 - `source_content` 保存用户原话且只读，`ai_optimized_content` 保存不可覆盖的 AI 首次规范稿，`user_rewritten_content` 只保存用户基于 AI 稿的最新改写且允许为空；有效正文取 `COALESCE(user_rewritten_content, ai_optimized_content)`，AI 原稿和每次用户修订继续进入不可变 revision 历史。
 - 分析状态以认证用户和会话隔离；公网候选幂等落库成功后才允许提交本地摘要和水位。
 - 公网 MySQL 通过 `AssistantFeedbackStorePort` 隔离；`tool-assistant` 不依赖 Ops 具体类，由 `tool-ops` 适配器从已登记的 `yoooni-one` MySQL 数据源解析凭据并复用 `OpsDataSourcePool` Druid 池直接写库。
-- 公网候选禁止保存完整上下文、助手回复、工具输出和认证凭据；只保存限长用户反馈及应用、页面定位元数据。
+- 公网候选禁止保存完整上下文、完整助手回复、工具输出和认证凭据；只保存限长用户反馈、提取出的标准草稿正文及应用、页面定位元数据。
 - 无新增用户消息时直接返回且不调用模型；分析失败时不得推进水位。
 - 归档回顾只列出当前认证用户的“业务咨询”会话；会话列表和候选列表均必须使用游标分页与服务端上限。
 - 归档三标签固定为 `BUG`、`OPTIMIZATION`、`REQUIREMENT`，空分类返回数量 `0`，不再投影为 `SUGGESTION`。
@@ -93,7 +95,10 @@
 | `frontend/src/assistant-sdk/widgetPosition.ts` | 新建 | 跨端胶囊与桌面端对话框拖动、边界约束与位置持久化 |
 | `frontend/src/assistant-sdk/AssistantBridge.tsx` | 新建 | SDK 与既有咨询 WebSocket、队列、草稿接口接线 |
 | `frontend/src/assistant-sdk/AssistantWebSocketTransport.ts` | 新建 | 独立 SDK 的连接、重连、水位、消息和排队状态 |
+| `frontend/src/assistant-sdk/assistantPageNavigation.ts` | 新建 | 观察浏览器 History/Popstate 生命周期并投影当前页面 URL |
 | `frontend/src/assistant-sdk/imageAttachments.ts` | 新建 | 剪贴板图片提取、前置校验、预览 URL 生命周期和上传 DTO |
+| `com.exceptioncoder.toolbox.claudechat.service.AssistantConversationHistoryService` | 修改 | 为页面会话历史批量投影 turn 附件并校验附件读取归属 |
+| `com.exceptioncoder.toolbox.claudechat.api.AssistantConversationController` | 修改 | 提供页面会话消息附件的鉴权 Blob 读取接口 |
 | `frontend/src/assistant-sdk/assistantDebugLog.ts` | 新建 | 调试日志容量、脱敏元数据与时间格式化 |
 | `com.exceptioncoder.toolbox.common.auth.config.AuthProperties` | 修改 | 增加外部登录 CORS 开关与 Origin 白名单 |
 | `com.exceptioncoder.toolbox.common.auth.config.ExternalLoginCorsConfiguration` | 新建 | 只为 Forge 登录路径注册受控 CORS 规则 |
@@ -210,6 +215,9 @@ loadKaiAssistantRuntime(loaderUrl, channel): Promise<AssistantRuntime> — Yooon
 - 公网候选写入采用 MySQL `INSERT ... ON DUPLICATE KEY UPDATE`；外库写成功、本地水位提交失败时可安全重试。
 - 不对 SQLite 与公网 MySQL 建分布式事务；顺序固定为“外库幂等候选写入成功，再提交本地水位”，以唯一键消化重试。
 - 归档标签数量对一页会话 ID 执行一次批量聚合，禁止每会话单独查询。候选编辑使用 `update_time` 乐观条件，不引入跨库事务。
+- 外部 Widget 的归档统计和记录列表必须携带 Transport 当前 `sessionId`；服务端指定会话时先执行归属校验，再复用候选批量聚合并传单 ID，禁止先查全用户会话后在前端过滤。
+- SDK 默认观察 `pushState`、`replaceState`、`popstate` 和 `hashchange`；规范化 URL 变化后必须使旧 session、消息、历史游标和归档投影同时失效，再以新 `pageKey` Open 并以 Ready `sessionId` 重载。新 `sessionId` 未 Ready 前统一投影为页面会话连接态；非当前 Socket 的迟到事件必须忽略，Socket `error` 只记调试日志并由 `close` 驱动恢复，禁止直接投影为用户可见终态失败。浏览器观察逻辑集中在独立 adapter，Widget 和 Transport 不复制 History API 包装。
+- 页面忙碌时只暂存最后一个待切换 URL，当前回合终止后应用；`trackPageUrl=false` 仅用于宿主明确接管路由同步的场景。
 - 候选当前值、AI 基线和用户修订版在同一 MySQL 事务内写入；修订版本号在候选行锁内计算，乐观冲突时整个事务回滚。
 - 附件二进制和 SQLite 元数据不与公网 MySQL 候选关联建分布式事务；候选关联写入可幂等重试，磁盘缺失时返回不可用状态而不伪造内容。
 

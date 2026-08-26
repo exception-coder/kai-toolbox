@@ -8,6 +8,7 @@ import type {
   AssistantFeedbackCategory,
   AssistantFeedbackSession,
   AssistantConversationHistoryClient,
+  AssistantConversationAttachment,
   AssistantImageAttachment,
   AssistantMode,
   AssistantShortcut,
@@ -85,10 +86,13 @@ class AssistantWidgetElement extends HTMLElement {
   private readonly chatContent: HTMLElement
   private readonly feedbackArchiveView: HTMLElement
   private readonly feedbackArchiveBody: HTMLElement
+  private feedbackContextVersion = 0
+  private conversationContextVersion = 0
   private mode: AssistantMode = 'AUTO'
   private attachments: AssistantImageAttachment[] = []
   private submittedAttachments: AssistantImageAttachment[] = []
   private readonly attachmentPreviewUrls = new Map<string, string>()
+  private readonly attachmentPreviewLoads = new Map<string, Promise<string>>()
   private attachmentPreviewTrigger?: HTMLButtonElement
   private conversationMessages: AssistantConversationMessage[] = []
   private interactionBusy = false
@@ -329,9 +333,11 @@ class AssistantWidgetElement extends HTMLElement {
         || detail.transcriptMissing !== undefined) {
       this.renderHistoryStatus(detail)
     }
+    if (detail.feedbackArchiveChanged) void this.refreshFeedbackSummary()
     if (detail.submissionAccepted) this.releaseSubmittedAttachments()
     if (detail.failedSubmission) this.restoreFailedSubmission(detail.failedSubmission)
     if (detail.state) {
+      if (detail.state === '正在载入页面会话') this.resetFeedbackArchiveForPageChange()
       const interaction = deriveWidgetInteractionState(detail.state, detail.queueSize)
       this.interactionBusy = interaction.busy
       this.stateLabel.textContent = interaction.activityLabel
@@ -343,7 +349,9 @@ class AssistantWidgetElement extends HTMLElement {
       this.interruptButton.disabled = detail.state === '正在中止'
       this.syncSubmitAvailability()
       this.syncConversationVisibility()
-      if (detail.state === '已完成') void this.refreshFeedbackSummary()
+      if (detail.state === '已就绪' || detail.state === '已恢复' || detail.state === '已完成') {
+        void this.refreshFeedbackSummary()
+      }
     }
     if (detail.message && !authenticationFailure) {
       this.notice.textContent = detail.message
@@ -363,6 +371,7 @@ class AssistantWidgetElement extends HTMLElement {
       role: 'user',
       content: text || imageMessageLabel(attachments.length),
       timestamp: Date.now(),
+      attachments: attachments.map(attachment => ({ ...attachment })),
     }]
     this.renderConversation(this.conversationMessages)
     this.messageInput.value = ''
@@ -489,7 +498,6 @@ class AssistantWidgetElement extends HTMLElement {
   }
 
   private releaseSubmittedAttachments(): void {
-    this.submittedAttachments.forEach(item => this.releaseAttachmentPreview(item.id))
     this.submittedAttachments = []
   }
 
@@ -502,6 +510,7 @@ class AssistantWidgetElement extends HTMLElement {
   private releaseAllAttachmentPreviews(): void {
     this.attachmentPreviewUrls.forEach(url => URL.revokeObjectURL(url))
     this.attachmentPreviewUrls.clear()
+    this.attachmentPreviewLoads.clear()
   }
 
   private interrupt(): void {
@@ -545,17 +554,20 @@ class AssistantWidgetElement extends HTMLElement {
 
   private async openFeedbackArchive(): Promise<void> {
     if (!this.feedbackArchive) return
+    const contextVersion = this.feedbackContextVersion
     this.chatContent.hidden = true
     this.feedbackArchiveView.hidden = false
     this.feedbackArchiveBody.replaceChildren(statusText('正在加载会话记录…'))
     try {
       const page = await this.feedbackArchive.listSessions()
+      if (contextVersion !== this.feedbackContextVersion) return
       this.feedbackSessions = page.items
       this.renderFeedbackSummary(page.items)
       this.activeFeedbackSession = undefined
       this.activeFeedbackCategory = undefined
       this.renderFeedbackSessions()
     } catch (error) {
+      if (contextVersion !== this.feedbackContextVersion) return
       this.renderFeedbackError(error)
     }
   }
@@ -565,11 +577,14 @@ class AssistantWidgetElement extends HTMLElement {
       this.feedbackSummary.hidden = true
       return
     }
+    const contextVersion = this.feedbackContextVersion
     try {
       const page = await this.feedbackArchive.listSessions()
+      if (contextVersion !== this.feedbackContextVersion) return
       this.feedbackSessions = page.items
       this.renderFeedbackSummary(page.items)
     } catch {
+      if (contextVersion !== this.feedbackContextVersion) return
       this.feedbackSummary.hidden = true
     }
   }
@@ -589,6 +604,16 @@ class AssistantWidgetElement extends HTMLElement {
     this.chatContent.hidden = false
     this.activeFeedbackSession = undefined
     this.activeFeedbackCategory = undefined
+  }
+
+  private resetFeedbackArchiveForPageChange(): void {
+    this.conversationContextVersion += 1
+    this.releaseAllAttachmentPreviews()
+    this.feedbackContextVersion += 1
+    this.feedbackSessions = []
+    this.feedbackSummary.hidden = true
+    this.feedbackArchiveBody.replaceChildren(statusText('正在载入当前页面记录…'))
+    this.closeFeedbackArchive()
   }
 
   private renderFeedbackSessions(): void {
@@ -942,6 +967,7 @@ class AssistantWidgetElement extends HTMLElement {
       body.textContent = message.content
     }
     article.append(meta, body)
+    if (message.attachments?.length) article.append(this.renderMessageAttachments(message.attachments))
     if (message.streaming) {
       const streaming = document.createElement('span')
       streaming.className = 'streaming'
@@ -949,6 +975,104 @@ class AssistantWidgetElement extends HTMLElement {
       article.append(streaming)
     }
     return article
+  }
+
+  private renderMessageAttachments(attachments: AssistantConversationAttachment[]): HTMLElement {
+    const list = document.createElement('div')
+    list.className = 'message-attachments'
+    attachments.forEach(attachment => {
+      list.append(attachment.mime.startsWith('image/')
+        ? this.renderMessageImage(attachment)
+        : this.renderMessageFile(attachment))
+    })
+    return list
+  }
+
+  private renderMessageImage(attachment: AssistantConversationAttachment): HTMLButtonElement {
+    const trigger = document.createElement('button')
+    trigger.className = 'message-image'
+    trigger.type = 'button'
+    trigger.setAttribute('aria-label', `预览图片 ${attachment.name}`)
+    const image = document.createElement('img')
+    image.alt = attachment.name
+    const caption = document.createElement('span')
+    caption.textContent = attachment.name
+    trigger.append(image, caption)
+    void this.resolveMessageAttachmentUrl(attachment).then(url => {
+      image.src = url
+      trigger.addEventListener('click', () => this.openResolvedAttachmentPreview(
+        attachment.name, url, trigger))
+    }).catch(() => {
+      trigger.disabled = true
+      caption.textContent = `${attachment.name} · 无法加载`
+    })
+    return trigger
+  }
+
+  private renderMessageFile(attachment: AssistantConversationAttachment): HTMLButtonElement {
+    const trigger = document.createElement('button')
+    trigger.className = 'message-file'
+    trigger.type = 'button'
+    trigger.title = attachment.name
+    const icon = document.createElement('span')
+    icon.className = 'message-file-icon'
+    icon.setAttribute('aria-hidden', 'true')
+    const name = document.createElement('span')
+    name.textContent = attachment.name
+    trigger.append(icon, name)
+    if (this.conversationHistory?.loadAttachment) {
+      trigger.addEventListener('click', () => void this.downloadMessageAttachment(attachment, trigger))
+    } else {
+      trigger.disabled = true
+    }
+    return trigger
+  }
+
+  private async resolveMessageAttachmentUrl(attachment: AssistantConversationAttachment): Promise<string> {
+    if (attachment.file) return this.previewUrl(attachment as AssistantImageAttachment)
+    const key = `conversation-${attachment.id}`
+    const existing = this.attachmentPreviewUrls.get(key)
+    if (existing) return existing
+    const loading = this.attachmentPreviewLoads.get(key)
+    if (loading) return loading
+    if (!this.conversationHistory?.loadAttachment) throw new Error('附件读取能力不可用')
+    const contextVersion = this.conversationContextVersion
+    const request = this.conversationHistory.loadAttachment(attachment.id).then(blob => {
+      const url = URL.createObjectURL(blob)
+      if (contextVersion !== this.conversationContextVersion) {
+        URL.revokeObjectURL(url)
+        throw new Error('页面会话已切换')
+      }
+      this.attachmentPreviewUrls.set(key, url)
+      return url
+    }).finally(() => this.attachmentPreviewLoads.delete(key))
+    this.attachmentPreviewLoads.set(key, request)
+    return request
+  }
+
+  private openResolvedAttachmentPreview(name: string, url: string, trigger: HTMLButtonElement): void {
+    this.attachmentPreviewTrigger = trigger
+    this.attachmentPreviewTitle.textContent = name
+    this.attachmentPreviewImage.src = url
+    this.attachmentPreviewImage.alt = name
+    this.attachmentPreview.hidden = false
+    queueMicrotask(() => this.attachmentPreviewClose.focus())
+  }
+
+  private async downloadMessageAttachment(
+    attachment: AssistantConversationAttachment,
+    trigger: HTMLButtonElement,
+  ): Promise<void> {
+    trigger.disabled = true
+    try {
+      const url = await this.resolveMessageAttachmentUrl(attachment)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = attachment.name
+      anchor.click()
+    } finally {
+      trigger.disabled = false
+    }
   }
 }
 
@@ -1123,6 +1247,18 @@ const template = `
     .user .message-meta { text-align: right; }
     .message-body { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
     .user .message-body { padding: 10px 13px; border: 1px solid #d4d4d8; border-radius: 12px 12px 3px 12px; background: #fff; white-space: pre-wrap; }
+    .message-attachments { display: grid; grid-template-columns: repeat(2, minmax(0, 112px)); justify-content: end; gap: 8px; margin: 8px 0 0; }
+    .message-image { position: relative; display: block; width: 112px; height: 80px; overflow: hidden; border: 1px solid #d4d4d8; border-radius: 8px; background: #f4f4f5; padding: 0; cursor: zoom-in; }
+    .message-image:hover { border-color: #a1a1aa; }
+    .message-image:focus-visible, .message-file:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
+    .message-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .message-image span { position: absolute; right: 0; bottom: 0; left: 0; overflow: hidden; background: rgb(24 24 27 / 72%); padding: 4px 6px; color: #fff; font-size: 11px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+    .message-file { display: flex; width: 224px; max-width: 100%; min-height: 40px; align-items: center; gap: 8px; border: 1px solid #d4d4d8; border-radius: 8px; background: #fafafa; padding: 8px 10px; color: #3f3f46; cursor: pointer; font: inherit; text-align: left; }
+    .message-file:hover { border-color: #a1a1aa; background: #f4f4f5; }
+    .message-file:disabled { cursor: default; opacity: .65; }
+    .message-file > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .message-file-icon { position: relative; width: 14px; height: 17px; flex: 0 0 auto; border: 1.5px solid currentColor; border-radius: 2px; }
+    .message-file-icon::after { position: absolute; top: -2px; right: -2px; width: 5px; height: 5px; border-bottom: 1.5px solid currentColor; border-left: 1.5px solid currentColor; background: #fafafa; content: ""; }
     .assistant .message-body { width: 100%; padding: 1px 4px; color: #27272a; }
     .assistant .message-body > :first-child { margin-top: 0; }
     .assistant .message-body > :last-child { margin-bottom: 0; }
