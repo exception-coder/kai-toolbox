@@ -147,6 +147,25 @@ describe('AssistantWebSocketTransport', () => {
     transport.destroy()
   })
 
+  it('keeps the concrete turn error visible when a trailing result arrives', () => {
+    const socket = new FakeWebSocket()
+    const states: AssistantWidgetState[] = []
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    transport.start(state => states.push(state))
+    transport.submit({ mode: 'QUESTION', text: '测试失败原因', snapshot })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+    socket.receive({ type: 'sendAccepted', seq: 2, messageId: 'message-1' })
+    socket.receive({ type: 'error', seq: 3, code: 'CODEX_APP_SERVER_TURN_FAILED', message: '原会话已归档' })
+    socket.receive({ type: 'result', seq: 4, stopReason: 'failed' })
+
+    expect(states.at(-1)).toMatchObject({ state: '助手暂不可用', message: '原会话已归档' })
+    transport.destroy()
+  })
+
   it('scopes feedback archive requests to the ready session', async () => {
     const socket = new FakeWebSocket()
     const fetcher = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify({ items: [] }), {
@@ -330,7 +349,40 @@ describe('AssistantWebSocketTransport', () => {
     expect(url).toBe('https://forge.example.com/api/claude-chat/sessions/session-1/attachments')
     expect(request?.headers).toEqual({ Authorization: 'Bearer access-token' })
     expect(states.some(state => state.state === '正在上传图片')).toBe(true)
+    const sentMessage = sentByType(socket, 'send')
+    socket.receive({ type: 'sendAccepted', seq: 2, messageId: sentMessage.messageId })
     expect(states.some(state => state.submissionAccepted)).toBe(true)
+    transport.destroy()
+  })
+
+  it('dispatches the prepared message directly after attachment upload', async () => {
+    const socket = new FakeWebSocket()
+    let finishUpload!: (response: Response) => void
+    const upload = new Promise<Response>(resolve => { finishUpload = resolve })
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      fetcher: vi.fn(() => upload),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    transport.start(() => undefined)
+    transport.submit({
+      mode: 'BUG', text: '上传后必须发送', snapshot,
+      attachments: [{
+        id: 'local-1', name: 'screen.png', mime: 'image/png', size: 3,
+        file: new File([new Uint8Array([1, 2, 3])], 'screen.png', { type: 'image/png' }),
+      }],
+    })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+
+    finishUpload(new Response(JSON.stringify({
+      id: 'att-1', name: 'screen.png', mime: 'image/png', size: 3, path: 'D:/screen.png',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    await vi.waitFor(() => expect(sentByType(socket, 'send')).toMatchObject({
+      text: '上传后必须发送', messageId: expect.any(String),
+      attachments: [{ id: 'att-1', path: 'D:/screen.png' }],
+    }))
     transport.destroy()
   })
 
@@ -359,6 +411,52 @@ describe('AssistantWebSocketTransport', () => {
       expect.objectContaining({ type: 'send' }),
     ]))
     transport.destroy()
+  })
+
+  it('keeps an uploaded message pending when the websocket drops and confirms it after reconnect', async () => {
+    vi.useFakeTimers()
+    const sockets: FakeWebSocket[] = []
+    let finishUpload!: (response: Response) => void
+    const upload = new Promise<Response>(resolve => { finishUpload = resolve })
+    const states: AssistantWidgetState[] = []
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      fetcher: vi.fn(() => upload),
+      webSocketFactory: () => {
+        const socket = new FakeWebSocket()
+        sockets.push(socket)
+        return socket as unknown as WebSocket
+      },
+    })
+    try {
+      const file = new File(['image'], 'screen.png', { type: 'image/png' })
+      transport.start(state => states.push(state))
+      transport.submit({
+        mode: 'BUG', text: '上传期间断线', snapshot,
+        attachments: [{ id: 'local-1', name: file.name, mime: file.type, size: file.size, file }],
+      })
+      sockets[0].open()
+      sockets[0].receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+      sockets[0].close()
+      finishUpload(new Response(JSON.stringify({
+        id: 'att-1', name: file.name, mime: file.type, size: file.size, path: 'D:/screen.png',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      await vi.advanceTimersByTimeAsync(500)
+      sockets[1].open()
+      sockets[1].receive({ type: 'ready', seq: 2, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+
+      const message = sentByType(sockets[1], 'send')
+      expect(message).toMatchObject({ text: '上传期间断线', messageId: expect.any(String) })
+      expect(states.at(-1)).toMatchObject({
+        state: '正在确认消息是否送达',
+        message: expect.stringContaining('等待服务端确认'),
+      })
+      sockets[1].receive({ type: 'sendAccepted', seq: 3, messageId: message.messageId })
+      expect(states.at(-1)).toMatchObject({ state: '回复中', message: '消息已送达，AI 正在处理' })
+    } finally {
+      transport.destroy()
+      vi.useRealTimers()
+    }
   })
 
   it('injects a cached module exploration summary before the first turn', () => {
@@ -516,12 +614,14 @@ describe('AssistantWebSocketTransport', () => {
     transport.submit({ mode: 'QUESTION', text: '敏感问题正文', snapshot })
     socket.open()
     socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+    const sentMessage = sentByType(socket, 'send')
+    socket.receive({ type: 'sendAccepted', seq: 2, messageId: sentMessage.messageId })
 
     transport.interrupt()
 
     expect(sentByType(socket, 'interrupt')).toEqual({ type: 'interrupt' })
     expect(states.at(-1)?.state).toBe('正在中止')
-    socket.receive({ type: 'result', seq: 2, stopReason: 'interrupted' })
+    socket.receive({ type: 'result', seq: 3, stopReason: 'interrupted' })
     expect(states.at(-1)?.state).toBe('已中止')
     const debugText = JSON.stringify(states.map(state => state.debugEntry).filter(Boolean))
     expect(debugText).not.toContain('敏感问题正文')
@@ -541,13 +641,15 @@ describe('AssistantWebSocketTransport', () => {
     transport.submit({ mode: 'QUESTION', text: '第一条', snapshot })
     socket.open()
     socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+    const sentMessage = sentByType(socket, 'send')
+    socket.receive({ type: 'sendAccepted', seq: 2, messageId: sentMessage.messageId })
     transport.submit({ mode: 'DIAGNOSE', text: '第二条', snapshot })
 
     expect(socket.sent.map(value => JSON.parse(value))).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'queue', text: '第二条' }),
     ]))
     const queued = sentByType(socket, 'queue')
-    socket.receive({ type: 'queueAccepted', seq: 2, messageId: queued.id, queueSize: 1 })
+    socket.receive({ type: 'queueAccepted', seq: 3, messageId: queued.id, queueSize: 1 })
     expect(states.at(-1)?.queueSize).toBe(1)
     expect(states.at(-1)?.state).toBe('回复中')
     transport.destroy()

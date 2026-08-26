@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -591,6 +592,14 @@ public class ClaudeChatService {
             return;
         }
         synchronized (ctx) {
+            String messageId = blankToNull(msg.messageId());
+            log.info("[claude-chat] 收到用户消息 session={} messageId={} attachments={} textLength={}",
+                    ctx.sessionId, messageId, msg.attachments() == null ? 0 : msg.attachments().size(),
+                    msg.text() == null ? 0 : msg.text().length());
+            if (messageId != null && ctx.acceptedMessageIds.contains(messageId)) {
+                sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
+                return;
+            }
             if (!planStateService.writable(ctx.sessionId)) {
                 sendError(ws, 0, "PLAN_EXPIRED", "该规划已过期，请先解锁后继续");
                 return;
@@ -619,7 +628,19 @@ public class ClaudeChatService {
             if (!startTurn(ctx, msg)) {
                 sendError(ws, 0, "SYSTEM_UPDATING",
                         "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
+                return;
             }
+            if (messageId != null) {
+                rememberAcceptedMessage(ctx, messageId);
+                sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
+            }
+        }
+    }
+
+    private void rememberAcceptedMessage(SessionCtx ctx, String messageId) {
+        ctx.acceptedMessageIds.add(messageId);
+        while (ctx.acceptedMessageIds.size() > 100) {
+            ctx.acceptedMessageIds.remove(ctx.acceptedMessageIds.iterator().next());
         }
     }
 
@@ -2258,6 +2279,7 @@ public class ClaudeChatService {
         volatile java.util.List<ServerMessage.BackgroundTaskInfo> backgroundTasks = java.util.List.of();
         /** 最近一次成功终态尚未释放队首；消费后立即复位，确保每轮最多自动发送一条。 */
         volatile boolean queueReleaseReady;
+        final Set<String> acceptedMessageIds = new LinkedHashSet<>();
 
         SessionCtx(String sessionId, String cwd) {
             this.sessionId = sessionId;

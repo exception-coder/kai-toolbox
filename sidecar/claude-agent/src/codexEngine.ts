@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,6 +24,7 @@ import {
   reviewOnlyCodexConfig,
 } from './codexSecurity.js'
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
+import { FORGE_AFFECTED_API_STEER } from './affectedApiPolicy.js'
 import {
   CodexAppServerTurnError,
   deleteCodexThread,
@@ -46,6 +47,23 @@ export type CodexSpeed = 'default' | 'fast'
 export type CodexReasoningEffort = string
 type CodexTransport = 'appServer' | 'sdkFallback' | 'thirdPartySdk'
 const THREAD_WRITER_RETRY_DELAY_MS = 1_500
+
+export function isArchivedCodexThread(threadId: string | undefined, codexHome: string | undefined): boolean {
+  if (!threadId) return false
+  const storageHome = codexHome ?? normalizeCodexHome(process.env.CODEX_HOME) ?? join(homedir(), '.codex')
+  const archiveDir = join(storageHome, 'archived_sessions')
+  if (!existsSync(archiveDir)) return false
+  try {
+    return readdirSync(archiveDir).some(name => name.includes(threadId))
+  } catch {
+    return false
+  }
+}
+
+export function isArchivedCodexResumeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /thread\/resume failed: session .+ is archived\b/i.test(message)
+}
 
 /** Codex 没有 Claude 的 system/init 能力清单，供 sidecar 主动上报运行时注入的 MCP。 */
 export function codexMcpCapabilities(toolPolicy: string, sessionId?: string,
@@ -190,7 +208,9 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
     toolPolicy === CONSULT_READONLY_POLICY ? CONSULT_READONLY_PROMPT : undefined,
     toolPolicy === REVIEW_ONLY_POLICY ? REVIEW_ONLY_PROMPT : undefined,
     toolPolicy !== 'disabled' && toolPolicy !== REVIEW_ONLY_POLICY && sessionId && forgeSqlRegistration
-      ? FORGE_PENDING_SQL_STEER
+      ? [FORGE_PENDING_SQL_STEER,
+          toolPolicy !== CONSULT_READONLY_POLICY ? FORGE_AFFECTED_API_STEER : undefined]
+          .filter(Boolean).join('\n\n')
       : undefined,
   ].filter(Boolean).join('\n\n') || undefined
   const developerInstructions = appendWindowsExecutionInstructions([
@@ -311,13 +331,22 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
     return
   }
+  const home = normalizeCodexHome(ctx.codexHome)
+  if (!validateCodexHome(ctx, home)) return
+  const archivedThread = isArchivedCodexThread(ctx.sdkSessionId, home)
+  const turnContext = archivedThread ? { ...ctx, sdkSessionId: undefined } : ctx
+  if (archivedThread) {
+    ctx.emit({
+      type: 'warning',
+      code: 'CODEX_THREAD_ARCHIVED_RECREATED',
+      message: '原 Codex 会话已归档，已自动创建新会话继续处理当前消息。',
+    })
+  }
   if (ctx.apiBaseUrl?.trim()) {
-    await runCodexSdkTurn(ctx, 'thirdPartySdk')
+    await runCodexSdkTurn(turnContext, 'thirdPartySdk')
     return
   }
 
-  const home = normalizeCodexHome(ctx.codexHome)
-  if (!validateCodexHome(ctx, home)) return
   const toolsDisabled = ctx.toolPolicy === 'disabled' || ctx.toolPolicy === REVIEW_ONLY_POLICY
   const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
   const consultSourceRoot = consultReadonly && ctx.cwd.trim() ? resolve(ctx.cwd) : undefined
@@ -332,7 +361,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     const prepared = prepareCodexInput(ctx.text, ctx.images)
     tempImageDir = prepared.tempDir
     const appServerOptions: Parameters<typeof runCodexAppServerTurn>[0] = {
-      threadId: ctx.sdkSessionId,
+      threadId: turnContext.sdkSessionId,
       cwd: safeCwd,
       model: ctx.model || undefined,
       reasoningEffort: ctx.reasoningEffort,
@@ -401,7 +430,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         code: 'CODEX_APP_SERVER_FALLBACK',
         message: `Codex App Server 启动失败，已自动回退 SDK：${error.message}${diagnostic}`,
       })
-      await runCodexSdkTurn(ctx, 'sdkFallback')
+      await runCodexSdkTurn(turnContext, 'sdkFallback')
       return
     }
     ctx.emit({
@@ -563,6 +592,15 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
     if (ctx.signal.aborted) {
       if (isMcpToolTimeoutAbort(ctx.signal.reason) || isToolExecutionTimeoutAbort(ctx.signal.reason)) return
       ctx.emit({ type: 'result', usage: {}, stopReason: 'interrupted' })
+      return
+    }
+    if (ctx.sdkSessionId && isArchivedCodexResumeError(e)) {
+      ctx.emit({
+        type: 'warning',
+        code: 'CODEX_THREAD_ARCHIVED_RECREATED',
+        message: '原 Codex 会话已归档，已自动创建新会话继续处理当前消息。',
+      })
+      await runCodexSdkTurn({ ...ctx, sdkSessionId: undefined }, transport)
       return
     }
     ctx.emit({ type: 'error', code: 'CODEX_QUERY_FAILED', message: e instanceof Error ? e.message : String(e) })

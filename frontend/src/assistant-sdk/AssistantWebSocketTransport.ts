@@ -29,6 +29,7 @@ import {
 const MAX_RECONNECT_DELAY_MS = 30_000
 const BASE_RECONNECT_DELAY_MS = 500
 const MODULE_CONTEXT_RESOLVE_TIMEOUT_MS = 2_000
+const SEND_ACK_TIMEOUT_MS = 12_000
 
 export interface AssistantWebSocketTransportOptions {
   appId: string
@@ -61,6 +62,7 @@ interface PersistedConversation {
   messages?: AssistantConversationMessage[]
   pending?: PendingSubmission[]
   awaitingQueueAck?: PendingSubmission[]
+  awaitingSendAck?: PendingSubmission[]
   draftId?: string
   idempotencyKeys?: Record<string, string>
 }
@@ -115,6 +117,8 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   private messages: AssistantConversationMessage[] = []
   private pending: PendingSubmission[] = []
   private awaitingQueueAck = new Map<string, PendingSubmission>()
+  private awaitingSendAck = new Map<string, PendingSubmission>()
+  private sendAckTimers = new Map<string, number>()
   private running = false
   private backgroundTaskCount = 0
   private queueSize = 0
@@ -141,6 +145,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   private historyError?: string
   private transcriptMissing = false
   private started = false
+  private currentTurnError?: string
 
   constructor(options: AssistantWebSocketTransportOptions) {
     this.options = options
@@ -160,7 +165,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   updateContext(context: Pick<AssistantInitOptions, 'user' | 'page' | 'businessObject'>): void {
     if (!Object.hasOwn(context, 'page')) return
     const page = context.page
-    if (this.running || this.pending.length > 0 || this.awaitingQueueAck.size > 0) {
+    if (this.running || this.pending.length > 0 || this.awaitingQueueAck.size > 0 || this.awaitingSendAck.size > 0) {
       this.queuedPageContext = page
       return
     }
@@ -247,7 +252,8 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   submit(submission: AssistantSubmission): void {
     const submissionIdentity = resolveAssistantPageIdentity(this.options.appId, submission.snapshot.page)
     if (submissionIdentity && submissionIdentity.pageKey !== this.pageIdentity?.pageKey
-        && !this.running && this.pending.length === 0 && this.awaitingQueueAck.size === 0) {
+        && !this.running && this.pending.length === 0 && this.awaitingQueueAck.size === 0
+        && this.awaitingSendAck.size === 0) {
       this.switchPage(submission.snapshot.page)
     }
     const pending = { id: createId(), submission, createdAt: Date.now() }
@@ -323,6 +329,8 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer)
     this.socket?.close(1000, 'assistant destroyed')
     this.socket = undefined
+    this.sendAckTimers.forEach(timer => window.clearTimeout(timer))
+    this.sendAckTimers.clear()
   }
 
   private connect(): void {
@@ -437,6 +445,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
         this.sessionId = message.sessionId
         this.running = message.status?.toUpperCase() === 'RUNNING'
         this.resendAwaitingQueueAck()
+        this.resendAwaitingSendAck()
         this.flushPendingCommands()
         if (this.pageIdentity && this.sessionId && this.historySessionId !== this.sessionId) {
           this.completeReady()
@@ -446,11 +455,18 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
         this.completeReady()
         break
       case 'assistantDelta':
+        this.acceptOldestSentSubmission()
+        this.currentTurnError = undefined
         this.running = true
         this.appendAssistantDelta(message.text ?? '')
         this.emit('回复中')
         break
+      case 'sendAccepted':
+        this.currentTurnError = undefined
+        this.acceptSentSubmission(message.messageId)
+        break
       case 'result':
+        this.acceptOldestSentSubmission()
         this.running = false
         if (message.stopReason === 'interrupted') this.activeModuleExploration = undefined
         else this.saveActiveModuleExploration()
@@ -458,7 +474,12 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
         if (message.stopReason !== 'interrupted') this.requestConversationAnalysis()
         this.emit(message.stopReason === 'interrupted'
           ? '已中止'
-          : this.backgroundTaskCount > 0 ? '后台处理中' : '已完成')
+          : this.currentTurnError
+            ? '助手暂不可用'
+            : message.stopReason === 'error'
+              ? '助手暂不可用'
+              : this.backgroundTaskCount > 0 ? '后台处理中' : '已完成',
+        this.currentTurnError ?? (message.stopReason === 'error' ? 'AI 处理失败，服务端未返回具体原因' : undefined))
         this.flushPending()
         this.applyQueuedPageContext()
         break
@@ -486,10 +507,12 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
           break
         }
         if (message.terminal !== false) {
+          this.failOldestSentSubmission(message.message ?? message.code ?? '服务端拒绝了这条消息')
           this.running = false
           this.activeModuleExploration = undefined
         }
-        this.emit('助手暂不可用', message.message ?? message.code ?? '未知错误')
+        this.currentTurnError = message.message ?? message.code ?? '未知错误'
+        this.emit('助手暂不可用', this.currentTurnError)
         break
       case 'replayGap':
         this.emit('部分消息待同步', '断线时间较长，历史消息可能不完整')
@@ -499,6 +522,10 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
 
   private completeReady(): void {
     this.flushPending()
+    if (this.awaitingSendAck.size > 0) {
+      this.emit('正在确认消息是否送达', '正在等待服务端确认消息已进入 AI 执行队列')
+      return
+    }
     if (!this.running && this.messages.length > 0) this.requestConversationAnalysis()
     this.emit(this.running ? '回复中' : '已就绪')
   }
@@ -535,7 +562,11 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     } finally {
       if (sessionId === this.sessionId) {
         this.historyLoading = false
-        this.emit(this.running ? '回复中' : '已就绪')
+        if (this.awaitingSendAck.size > 0) {
+          this.emit('正在确认消息是否送达', '正在等待服务端确认消息已进入 AI 执行队列')
+        } else {
+          this.emit(this.running ? '回复中' : '已就绪')
+        }
       }
     }
   }
@@ -552,6 +583,9 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     this.messages = []
     this.pending = []
     this.awaitingQueueAck.clear()
+    this.awaitingSendAck.clear()
+    this.sendAckTimers.forEach(timer => window.clearTimeout(timer))
+    this.sendAckTimers.clear()
     this.draftId = undefined
     this.idempotencyKeys = {}
     this.historyBefore = undefined
@@ -570,7 +604,8 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   }
 
   private applyQueuedPageContext(): void {
-    if (!this.queuedPageContext || this.running || this.pending.length > 0 || this.awaitingQueueAck.size > 0) return
+    if (!this.queuedPageContext || this.running || this.pending.length > 0
+        || this.awaitingQueueAck.size > 0 || this.awaitingSendAck.size > 0) return
     const page = this.queuedPageContext
     this.queuedPageContext = undefined
     this.switchPage(page)
@@ -583,6 +618,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
 
   private flushPending(): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.sessionId || this.pending.length === 0) return
+    if (this.awaitingSendAck.size > 0) return
     const candidate = this.pending[0]
     if (!candidate || !this.prepareModuleContext(candidate)) return
     if (candidate.submission.attachments?.length && !candidate.uploadedAttachments) {
@@ -592,16 +628,32 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
       void this.uploadSubmissionAttachments(candidate)
       return
     }
+    this.dispatchPreparedPending(candidate)
+  }
+
+  /** 派发已经完成上下文解析和附件上传的队首消息。 */
+  private dispatchPreparedPending(candidate: PendingSubmission): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.sessionId) {
+      this.emit('消息等待重连', '图片已上传，但消息尚未进入 AI；连接恢复后将自动发送')
+      this.connect()
+      return
+    }
+    if (this.pending[0]?.id !== candidate.id) {
+      this.flushPending()
+      return
+    }
     if (this.running || this.backgroundTaskCount > 0) {
       this.flushPendingAsQueue()
       return
     }
     const first = this.pending.shift()
     if (!first) return
+    this.awaitingSendAck.set(first.id, first)
+    this.persist()
     this.sendSubmission(first)
-    this.running = true
     if (this.pending.length > 0) this.flushPendingAsQueue()
-    this.emit('回复中')
+    this.scheduleSendAckTimeout(first.id)
+    this.emit('正在确认消息是否送达', '附件已上传，正在等待服务端确认消息已进入 AI 执行队列')
   }
 
   private flushPendingAsQueue(): void {
@@ -623,7 +675,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     }
     this.sendContextSave(item)
     this.send({
-      type: 'send', text: submission.text,
+      type: 'send', text: submission.text, messageId: item.id,
       attachments: item.uploadedAttachments,
       developerInstructions: buildAssistantDeveloperInstructions(submission.mode, submission.snapshot),
       assistant: {
@@ -669,8 +721,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
       item.uploadedAttachments = uploaded
       this.uploadingSubmissionId = undefined
       this.persist()
-      this.listener({ submissionAccepted: true })
-      this.flushPending()
+      this.dispatchPreparedPending(item)
     } catch (error) {
       this.uploadingSubmissionId = undefined
       this.pending = this.pending.filter(pending => pending.id !== item.id)
@@ -689,6 +740,72 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
 
   private resendAwaitingQueueAck(): void {
     this.awaitingQueueAck.forEach(item => this.sendQueuedSubmission(item))
+  }
+
+  private resendAwaitingSendAck(): void {
+    if (this.running || this.backgroundTaskCount > 0) return
+    this.awaitingSendAck.forEach(item => {
+      this.sendSubmission(item)
+      this.scheduleSendAckTimeout(item.id)
+    })
+    if (this.awaitingSendAck.size > 0) {
+      this.emit('正在确认消息是否送达', '连接已恢复，正在确认上一条消息是否送达')
+    }
+  }
+
+  private acceptSentSubmission(messageId: string | undefined): void {
+    if (!messageId || !this.awaitingSendAck.has(messageId)) return
+    this.awaitingSendAck.delete(messageId)
+    this.clearSendAckTimer(messageId)
+    this.running = true
+    this.persist()
+    this.listener({ submissionAccepted: true })
+    this.emit('回复中', '消息已送达，AI 正在处理')
+    this.flushPending()
+  }
+
+  private acceptOldestSentSubmission(): void {
+    const messageId = this.awaitingSendAck.keys().next().value as string | undefined
+    if (messageId) this.acceptSentSubmission(messageId)
+  }
+
+  private failOldestSentSubmission(reason: string): void {
+    const entry = this.awaitingSendAck.entries().next().value as [string, PendingSubmission] | undefined
+    if (!entry) return
+    const [messageId, submission] = entry
+    this.awaitingSendAck.delete(messageId)
+    this.clearSendAckTimer(messageId)
+    this.persist()
+    this.listener({ failedSubmission: submission.submission })
+    this.debug('error', '服务端拒绝消息', { reason })
+  }
+
+  private scheduleSendAckTimeout(messageId: string): void {
+    this.clearSendAckTimer(messageId)
+    const timer = window.setTimeout(() => {
+      const submission = this.awaitingSendAck.get(messageId)
+      if (!submission) return
+      const connected = this.socket?.readyState === WebSocket.OPEN
+      if (!connected) {
+        this.emit('消息等待重连', '连接已中断，服务端未确认收到消息。消息尚未进入 AI，重连后将自动重试。')
+        return
+      }
+      this.awaitingSendAck.delete(messageId)
+      this.persist()
+      this.listener({
+        state: '消息未送达',
+        message: '服务端在限定时间内没有确认收到消息。消息没有进入 AI，请重试发送。',
+        messages: this.messages.map(message => ({ ...message })),
+        failedSubmission: submission.submission,
+      })
+    }, SEND_ACK_TIMEOUT_MS)
+    this.sendAckTimers.set(messageId, timer)
+  }
+
+  private clearSendAckTimer(messageId: string): void {
+    const timer = this.sendAckTimers.get(messageId)
+    if (timer !== undefined) window.clearTimeout(timer)
+    this.sendAckTimers.delete(messageId)
   }
 
   private sendContextSave(item: PendingSubmission): void {
@@ -949,6 +1066,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
       this.messages = []
       this.pending = Array.isArray(persisted.pending) ? persisted.pending : []
       this.awaitingQueueAck = new Map((persisted.awaitingQueueAck ?? []).map(item => [item.id, item]))
+      this.awaitingSendAck = new Map((persisted.awaitingSendAck ?? []).map(item => [item.id, item]))
       this.draftId = persisted.draftId
       this.idempotencyKeys = persisted.idempotencyKeys ?? {}
     } catch {
@@ -966,6 +1084,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
         sessionId: this.sessionId, lastSeq: this.lastSeq, epoch: this.epoch,
         pending: this.pending.map(toPersistedPending).filter(isPresent),
         awaitingQueueAck: [...this.awaitingQueueAck.values()].map(toPersistedPending).filter(isPresent),
+        awaitingSendAck: [...this.awaitingSendAck.values()].map(toPersistedPending).filter(isPresent),
         draftId: this.draftId, idempotencyKeys: this.idempotencyKeys,
       } satisfies PersistedConversation))
     } catch {
@@ -980,6 +1099,9 @@ function safeProtocolMetadata(value: Record<string, unknown>): Record<string, st
   if (typeof value.lastEventSeq === 'number') detail.lastEventSeq = value.lastEventSeq
   if (typeof value.protocolVersion === 'string') detail.protocolVersion = value.protocolVersion
   if (typeof value.kind === 'string') detail.kind = value.kind
+  if (typeof value.code === 'string') detail.code = value.code
+  if (typeof value.message === 'string') detail.message = value.message.slice(0, 500)
+  if (typeof value.stopReason === 'string') detail.stopReason = value.stopReason
   return detail
 }
 

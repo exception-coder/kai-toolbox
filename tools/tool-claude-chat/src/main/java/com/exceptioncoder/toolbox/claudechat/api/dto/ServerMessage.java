@@ -23,7 +23,7 @@ public sealed interface ServerMessage
                 ServerMessage.InterruptState,
                 ServerMessage.Error, ServerMessage.BackgroundTasks,
                 ServerMessage.PendingSessions, ServerMessage.QueueAccepted, ServerMessage.QueueDispatched,
-                ServerMessage.AssistantCommandResult, ServerMessage.ReviewIntent {
+                ServerMessage.SendAccepted, ServerMessage.AssistantCommandResult, ServerMessage.ReviewIntent {
 
     long seq();
 
@@ -173,6 +173,10 @@ public sealed interface ServerMessage
     /** 待发送消息已经由服务端持久化。 */
     @JsonTypeName("queueAccepted")
     record QueueAccepted(long seq, String messageId, int queueSize) implements ServerMessage {}
+
+    /** 普通消息已经通过发送门禁并成功交给 Agent 执行层。 */
+    @JsonTypeName("sendAccepted")
+    record SendAccepted(long seq, String messageId) implements ServerMessage {}
 
     /**
      * 嵌入式助手控制命令结果。该消息为连接级响应，seq 固定为 0，不参与会话事件回放。
