@@ -661,9 +661,10 @@ class AssistantWidgetElement extends HTMLElement {
     const time = document.createElement('time')
     time.textContent = new Date(candidate.detectedAt).toLocaleString()
     meta.append(tag, time)
-    const content = document.createElement('p')
+    const content = document.createElement('div')
     content.className = 'feedback-content'
-    content.textContent = candidate.content
+    content.innerHTML = DOMPurify.sanitize(
+      marked.parse(candidate.content, { async: false, breaks: true }) as string).trim()
     const actions = document.createElement('div')
     actions.className = 'feedback-card-actions'
     const edit = document.createElement('button')
@@ -692,6 +693,7 @@ class AssistantWidgetElement extends HTMLElement {
     } else {
       card.append(meta, content, actions)
     }
+    if (candidate.sourceContent) card.append(this.originalSourceFeedback(candidate.sourceContent))
     if (candidate.aiOriginal) card.append(this.originalFeedback(candidate.aiOriginal.content))
     return card
   }
@@ -779,6 +781,17 @@ class AssistantWidgetElement extends HTMLElement {
     details.className = 'feedback-original'
     const summary = document.createElement('summary')
     summary.textContent = '查看 AI 原始识别'
+    const text = document.createElement('div')
+    text.innerHTML = DOMPurify.sanitize(marked.parse(content, { async: false, breaks: true }) as string)
+    details.append(summary, text)
+    return details
+  }
+
+  private originalSourceFeedback(content: string): HTMLElement {
+    const details = document.createElement('details')
+    details.className = 'feedback-original'
+    const summary = document.createElement('summary')
+    summary.textContent = '查看用户原始描述'
     const text = document.createElement('p')
     text.textContent = content
     details.append(summary, text)
@@ -1181,13 +1194,17 @@ const template = `
     .feedback-card { display: grid; gap: 11px; border-bottom: 1px solid #e4e4e7; padding: 18px 0; }
     .feedback-card-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .feedback-tag-static { border: 1px solid #d4d4d8; border-radius: 999px; background: #fff; padding: 4px 9px; font-size: 11px; font-weight: 650; }
-    .feedback-content { margin: 0; color: #27272a; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+    .feedback-content { margin: 0; color: #27272a; font-size: 13px; line-height: 1.7; }
+    .feedback-content h2 { margin: 12px 0 4px; font-size: 13px; font-weight: 650; }
+    .feedback-content h2:first-child { margin-top: 0; }
+    .feedback-content p, .feedback-content ul, .feedback-content ol { margin: 0 0 8px; }
+    .feedback-content ul, .feedback-content ol { padding-left: 20px; }
     .feedback-card-actions, .feedback-files { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
     .feedback-edit { display: grid; gap: 10px; }
     .feedback-edit textarea { min-height: 130px; resize: vertical; }
     .feedback-original, .feedback-revisions { color: #52525b; font-size: 12px; }
     .feedback-original summary, .feedback-revisions summary { cursor: pointer; }
-    .feedback-original p, .feedback-revisions p { margin: 8px 0 0; white-space: pre-wrap; }
+    .feedback-original p, .feedback-original div, .feedback-revisions p { margin: 8px 0 0; white-space: pre-wrap; }
     @media (max-width: 620px) {
       .panel { inset: 0 !important; width: auto; height: auto; border: 0; border-radius: 0; }
       .panel-header { min-height: 64px; padding: 12px 8px 12px 16px; cursor: default; touch-action: auto; }

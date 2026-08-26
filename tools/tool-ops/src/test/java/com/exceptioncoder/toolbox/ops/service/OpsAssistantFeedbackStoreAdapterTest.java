@@ -13,7 +13,9 @@ import com.exceptioncoder.toolbox.ops.repository.SystemRepository;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Optional;
@@ -39,11 +41,18 @@ class OpsAssistantFeedbackStoreAdapterTest {
         Connection connection = mock(Connection.class);
         Statement schemaStatement = mock(Statement.class);
         PreparedStatement preparedStatement = mock(PreparedStatement.class);
+        DatabaseMetaData metadata = mock(DatabaseMetaData.class);
+        ResultSet columns = mock(ResultSet.class);
         when(systems.findByCode("yoooni-one")).thenReturn(Optional.of(system));
         when(datasources.findMysqlBySystemAndEnvironment("system-1", "PROD"))
                 .thenReturn(List.of(datasource));
         when(pool.borrowSql(datasource)).thenReturn(connection);
         when(connection.createStatement()).thenReturn(schemaStatement);
+        when(connection.getMetaData()).thenReturn(metadata);
+        when(connection.getCatalog()).thenReturn("yoooni-one");
+        when(metadata.getColumns(anyString(), org.mockito.ArgumentMatchers.isNull(),
+                anyString(), anyString())).thenReturn(columns);
+        when(columns.next()).thenReturn(false);
         when(connection.prepareStatement(anyString())).thenReturn(preparedStatement);
         when(connection.getAutoCommit()).thenReturn(true);
         OpsAssistantFeedbackStoreAdapter adapter = new OpsAssistantFeedbackStoreAdapter(
@@ -54,6 +63,8 @@ class OpsAssistantFeedbackStoreAdapterTest {
         verify(schemaStatement, atLeastOnce()).execute(anyString());
         verify(preparedStatement).addBatch();
         verify(preparedStatement).executeBatch();
+        verify(preparedStatement).setString(8, "导出失败，点击按钮没有反应");
+        verify(preparedStatement).setString(9, "## 问题概述\n导出按钮无响应");
         verify(connection).commit();
         verify(connection).setAutoCommit(true);
     }
@@ -101,7 +112,8 @@ class OpsAssistantFeedbackStoreAdapterTest {
                 7L, "session-1", "yoooni-one", "/new-product-progress", "新品生产进度");
         FeedbackCandidate candidate = new FeedbackCandidate(
                 "candidate-1", 30L, FeedbackCategory.BUG, RequirementType.BUG_FIX,
-                "导出失败", 0.95D, "已有功能失败", 1_000L);
+                "导出失败，点击按钮没有反应", "## 问题概述\n导出按钮无响应",
+                0.95D, "已有功能失败", 1_000L, List.of());
         return new AssistantFeedbackStorePort.SaveCommand(context, List.of(candidate));
     }
 }

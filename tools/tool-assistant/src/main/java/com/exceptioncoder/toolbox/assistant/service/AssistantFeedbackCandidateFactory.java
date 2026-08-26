@@ -55,11 +55,11 @@ public class AssistantFeedbackCandidateFactory {
     /** 将单条新增用户消息映射为幂等存储候选。 */
     public FeedbackCandidate candidate(long sourceWatermark, String content,
                                        AssistantMessageClassification classification, long detectedAt) {
-        return candidate(sourceWatermark, content, classification, detectedAt, List.of());
+        return candidate(sourceWatermark, content, content, classification, detectedAt, List.of());
     }
 
     /** 将消息及其已落盘附件共同映射为反馈候选。 */
-    public FeedbackCandidate candidate(long sourceWatermark, String content,
+    public FeedbackCandidate candidate(long sourceWatermark, String sourceContent, String description,
                                        AssistantMessageClassification classification, long detectedAt,
                                        List<AssistantCapabilityPort.ConversationAttachment> attachments) {
         return new FeedbackCandidate(
@@ -67,7 +67,8 @@ public class AssistantFeedbackCandidateFactory {
                 sourceWatermark,
                 classification.feedbackCategory(),
                 classification.requirementType(),
-                limit(content, MAX_CONTENT_LENGTH),
+                limit(sourceContent, MAX_CONTENT_LENGTH),
+                limit(description, MAX_CONTENT_LENGTH),
                 classification.intentResult().confidence(),
                 limit(classification.intentResult().reason(), MAX_REASON_LENGTH),
                 detectedAt,

@@ -29,6 +29,10 @@
 - 模块摘要命中只作为历史线索注入；`sourceRevision` 不一致、超过 7 天或字段校验失败时必须降级为未命中。
 - 会话反馈分析只读取持久化水位之后的新增用户消息；不得把完整历史重新提交给分类器。
 - 反馈持久化类型固定为 `BUG`、`REQUIREMENT`、`OPTIMIZATION`，分别映射 `BUG_FIX`、`NEW_MODULE`、`MODULE_ADJUST`；不得继续把需求和优化合并成一个数据库分类。
+- 反馈描述生成必须使用受控 JSON 字段和服务端固定模板；LLM 输出按分类校验、限长和归一化后再渲染，禁止把模型自由 Markdown 直接落库。
+- 历史摘要和用户原话按不可信输入处理，提示词明确忽略其中的任务改写、提示词泄露和工具执行指令；前端展示规范稿时仍执行 Markdown 消毒。
+- 结构化描述最多执行两次模型尝试；两次均失败时由代码生成带“待补充”占位的合法模板并记录堆栈，禁止丢弃用户原话或写入不受控模型文本。
+- `source_content` 保存用户原话且只读，`feedback_content` 保存 AI 规范稿或用户最新修订；AI 原稿和每次用户修订继续进入不可变 revision 历史。
 - 分析状态以认证用户和会话隔离；公网候选幂等落库成功后才允许提交本地摘要和水位。
 - 公网 MySQL 通过 `AssistantFeedbackStorePort` 隔离；`tool-assistant` 不依赖 Ops 具体类，由 `tool-ops` 适配器从已登记的 `yoooni-one` MySQL 数据源解析凭据并复用 `OpsDataSourcePool` Druid 池直接写库。
 - 公网候选禁止保存完整上下文、助手回复、工具输出和认证凭据；只保存限长用户反馈及应用、页面定位元数据。
@@ -93,6 +97,7 @@
 | `frontend/src/assistant-sdk/moduleContext.ts` | 新建 | 规范化模块键、注入历史摘要和压缩最终回答 |
 | `com.exceptioncoder.toolbox.claudechat.service.ClaudeChatConversationDeltaReader` | 新建 | 从 transcript 读取指定水位之后的会话增量，不读取 Git 变化 |
 | `com.exceptioncoder.toolbox.assistant.service.AssistantConversationAnalysisService` | 新建 | 校验水位、识别新增用户反馈、维护滚动摘要并原子推进水位 |
+| `com.exceptioncoder.toolbox.assistant.service.AssistantFeedbackDescriptionGenerator` | 新建 | 将三类反馈生成受控字段草稿并确定性渲染最佳实践 Markdown |
 | `com.exceptioncoder.toolbox.assistant.repository.AssistantConversationAnalysisRepository` | 新建 | 持久化用户会话分析水位和摘要 |
 | `com.exceptioncoder.toolbox.common.assistant.AssistantFeedbackStorePort` | 新建 | Assistant 到外部候选反馈库的稳定跨模块写入端口 |
 | `com.exceptioncoder.toolbox.ops.service.OpsAssistantFeedbackStoreAdapter` | 新建 | 解析 `yoooni-one` MySQL 数据源并复用 Ops Druid 池幂等写公网 MySQL |
@@ -102,7 +107,7 @@
 | `com.exceptioncoder.toolbox.claudechat.service.AssistantFeedbackArchiveService` | 新建 | 编排本人咨询会话、候选摘要、分页与乐观更新 |
 | `com.exceptioncoder.toolbox.claudechat.api.AssistantFeedbackArchiveController` | 新建 | 归档查询和编辑的 HTTP 协议适配 |
 | `com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository` | 修改 | 按用户、业务咨询分组和游标分页查询归档 |
-| `com.exceptioncoder.toolbox.common.assistant.AssistantFeedbackStorePort` | 修改 | 扩展会话摘要、候选分页与条件更新稳定端口 |
+| `com.exceptioncoder.toolbox.common.assistant.AssistantFeedbackStorePort` | 修改 | 扩展用户原话、规范稿、会话摘要、候选分页与条件更新稳定端口 |
 | `com.exceptioncoder.toolbox.ops.service.OpsAssistantFeedbackStoreAdapter` | 修改 | 在 yoooni-one Druid 连接池上实现批量摘要、分页及条件更新 |
 | `frontend/src/assistant-sdk/feedbackArchive.ts` | 新建 | 归档 AJAX 契约、认证头、分页与错误归一化 |
 | `frontend/src/assistant-sdk/widget.ts` | 修改 | 安静的记录入口、三标签、分页、行内编辑及冲突恢复 |

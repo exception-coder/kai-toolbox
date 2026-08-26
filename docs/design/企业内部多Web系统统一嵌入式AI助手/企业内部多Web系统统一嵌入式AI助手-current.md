@@ -253,6 +253,9 @@ sequenceDiagram
 - 对话意图继续兼容 `BUG`、`SUGGESTION`、`QUESTION`、`DIAGNOSE`、`UNKNOWN`；需要持久化的反馈另以封闭枚举 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 分类，分别映射需求类型 `BUG_FIX`、`NEW_MODULE`、`MODULE_ADJUST`。
 - 每个会话、每个认证用户只保存一条当前分析状态：已分析水位、滚动反馈摘要和更新时间。
 - 分类器只接收上次滚动摘要与本次增量用户消息，不重新发送水位线之前的原始会话。
+- 三类反馈由独立描述生成器输出受控 JSON 草稿，服务端按 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 的固定章节确定性渲染 Markdown；模型不得直接决定章节结构。
+- 描述模型输出解析或校验失败时最多重试一次；仍失败则使用保留用户事实且明确标记“待补充”的确定性模板，不丢失该条反馈。
+- 公网候选以 `source_content` 永久保存限长用户原话，以 `feedback_content` 保存 AI 首次规范稿或用户最新修订；首次规范稿作为 `source=AI` 的修订基线，不得被后续编辑覆盖。
 - Bug、需求和优化识别结果先写入公网 MySQL 的 `assistant_feedback_candidate` 候选表，状态固定为 `DETECTED`；模型不得直接创建正式 ReqPool 记录。
 - 持久化代码全部位于 Forge：`tool-ops` 按系统编码 `yoooni-one` 和环境解析已登记 MySQL 数据源，直接复用 `OpsDataSourcePool` 的 Druid 池写公网 MySQL；不调用 Yoooni One 项目接口。
 - 只有分类、候选幂等落库、摘要处理全部成功后才推进 SQLite 水位；读取失败、分类器异常或公网 MySQL 落库失败均保持原水位，下一次终态从旧水位重试。
@@ -274,6 +277,7 @@ sequenceDiagram
     box rgb(250, 244, 232) Assistant 能力
         participant STATE as Analysis State Service
         participant MODEL as Intent Router
+        participant DRAFT as Description Generator
     end
     box rgb(246, 238, 250) Forge Ops
         participant STORE as Feedback Store Adapter
@@ -293,6 +297,9 @@ sequenceDiagram
         CMD->>STATE: 提交期望水位和增量
         STATE->>MODEL: 历史摘要加新增用户消息
         MODEL-->>STATE: 意图和反馈分类
+        STATE->>DRAFT: 分类加用户原话和页面上下文
+        DRAFT-->>STATE: 受控字段草稿
+        STATE->>STATE: 按分类确定性渲染 Markdown
         STATE->>STORE: 通过稳定端口提交候选
         STORE->>REG: 解析 yoooni-one MySQL 数据源
         REG-->>STORE: 数据源配置

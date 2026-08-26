@@ -25,7 +25,7 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
     private static final String SCHEMA_RESOURCE = "mysql/assistant-feedback-schema.sql";
     private static final String COLUMNS = """
             id, session_id, source_watermark, feedback_category, requirement_type,
-            feedback_content, confidence, classification_reason, page_url, page_title,
+            source_content, feedback_content, confidence, classification_reason, page_url, page_title,
             candidate_status, detected_at, update_time,
             (SELECT COALESCE(MAX(r.revision_no), 0)
                FROM assistant_feedback_candidate_revision r
@@ -34,9 +34,9 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
     private static final String UPSERT = """
             INSERT INTO assistant_feedback_candidate
               (id, source_system, session_id, source_watermark, creator_user_id, feedback_category,
-               requirement_type, feedback_content, confidence, classification_reason, page_url,
+               requirement_type, source_content, feedback_content, confidence, classification_reason, page_url,
                page_title, candidate_status, detected_at, create_time, update_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DETECTED', ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DETECTED', ?, ?, ?)
             ON DUPLICATE KEY UPDATE feedback_category=VALUES(feedback_category),
               requirement_type=VALUES(requirement_type), feedback_content=VALUES(feedback_content),
               confidence=VALUES(confidence), classification_reason=VALUES(classification_reason),
@@ -166,7 +166,8 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
             Map<String, List<FeedbackAttachment>> attachments = attachments(sql, ids);
             Map<String, FeedbackRevision> originals = originals(sql, ids);
             return new CandidatePage(rows.stream().map(row -> row.view(
-                    originals.get(row.id()), attachments.getOrDefault(row.id(), List.of()), row.revisionNo())).toList(), hasMore);
+                    originals.get(row.id()), attachments.getOrDefault(row.id(), List.of()), row.revisionNo()))
+                    .toList(), hasMore);
         });
     }
 
@@ -255,6 +256,7 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
         statement.setLong(index++, context.creatorUserId());
         statement.setString(index++, candidate.category().name());
         statement.setString(index++, candidate.requirementType().name());
+        statement.setString(index++, candidate.sourceContent());
         statement.setString(index++, candidate.content());
         statement.setBigDecimal(index++, BigDecimal.valueOf(candidate.confidence()));
         statement.setString(index++, text(candidate.reason()));
@@ -314,7 +316,8 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
 
     private int nextRevision(Connection sql, String candidateId) throws SQLException {
         try (PreparedStatement statement = sql.prepareStatement(
-                "SELECT COALESCE(MAX(revision_no),0)+1 FROM assistant_feedback_candidate_revision WHERE candidate_id=?")) {
+                "SELECT COALESCE(MAX(revision_no),0)+1 FROM assistant_feedback_candidate_revision "
+                        + "WHERE candidate_id=?")) {
             statement.setString(1, candidateId);
             try (ResultSet result = statement.executeQuery()) {
                 result.next();
@@ -374,7 +377,8 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
     private Row row(ResultSet result) throws SQLException {
         return new Row(result.getString("id"), result.getString("session_id"),
                 result.getLong("source_watermark"), FeedbackCategory.valueOf(result.getString("feedback_category")),
-                RequirementType.valueOf(result.getString("requirement_type")), result.getString("feedback_content"),
+                RequirementType.valueOf(result.getString("requirement_type")),
+                result.getString("source_content"), result.getString("feedback_content"),
                 result.getDouble("confidence"), result.getString("classification_reason"),
                 result.getString("page_url"), result.getString("page_title"),
                 result.getString("candidate_status"), result.getLong("detected_at"),
@@ -436,7 +440,34 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
             try (Statement statement = sql.createStatement()) {
                 for (String part : ddl.split(";")) if (!part.isBlank()) statement.execute(part.trim());
             }
+            ensureSourceContentColumn(sql);
             initialized.add(id);
+        }
+    }
+
+    private void ensureSourceContentColumn(Connection sql) throws SQLException {
+        try (Statement statement = sql.createStatement()) {
+            if (!hasColumn(sql, "assistant_feedback_candidate", "source_content")) {
+                statement.execute("ALTER TABLE assistant_feedback_candidate "
+                        + "ADD COLUMN source_content TEXT NULL AFTER requirement_type");
+            }
+            statement.execute("UPDATE assistant_feedback_candidate "
+                    + "SET source_content=feedback_content WHERE source_content IS NULL");
+            statement.execute("ALTER TABLE assistant_feedback_candidate "
+                    + "MODIFY COLUMN source_content TEXT NOT NULL");
+        }
+    }
+
+    private boolean hasColumn(Connection sql, String table, String column) throws SQLException {
+        DatabaseMetaData metadata = sql.getMetaData();
+        try (ResultSet result = metadata.getColumns(sql.getCatalog(), null, table, column)) {
+            if (result.next()) {
+                return true;
+            }
+        }
+        try (ResultSet result = metadata.getColumns(sql.getCatalog(), null,
+                table.toUpperCase(Locale.ROOT), column.toUpperCase(Locale.ROOT))) {
+            return result.next();
         }
     }
 
@@ -466,11 +497,12 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
     @FunctionalInterface private interface SqlSupplier<T> { T get() throws SQLException; }
 
     private record Row(String id, String sessionId, long watermark, FeedbackCategory category,
-            RequirementType requirementType, String content, double confidence, String reason,
+            RequirementType requirementType, String sourceContent, String content, double confidence, String reason,
             String pageUrl, String pageTitle, String status, long detectedAt, long updateTime,
             int revisionNo) {
         FeedbackCandidateView view(FeedbackRevision original, List<FeedbackAttachment> attachments, int revision) {
-            return new FeedbackCandidateView(id, sessionId, watermark, category, requirementType, content,
+            return new FeedbackCandidateView(id, sessionId, watermark, category, requirementType,
+                    sourceContent, content,
                     confidence, reason, pageUrl, pageTitle, status, detectedAt, updateTime,
                     revision, original, attachments);
         }

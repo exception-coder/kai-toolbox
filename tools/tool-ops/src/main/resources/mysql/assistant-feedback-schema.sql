@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS assistant_feedback_candidate (
     creator_user_id       BIGINT NOT NULL,
     feedback_category     VARCHAR(32) NOT NULL,
     requirement_type      VARCHAR(32) NOT NULL,
+    source_content        TEXT NOT NULL,
     feedback_content      TEXT NOT NULL,
     confidence            DECIMAL(5, 4) NOT NULL,
     classification_reason VARCHAR(255) NOT NULL DEFAULT '',

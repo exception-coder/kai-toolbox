@@ -121,7 +121,8 @@ describe('assistant widget', () => {
   it('reviews and corrects auto-classified feedback under three fixed tags', async () => {
     const candidate = {
       id: 'candidate-1', sessionId: 'session-1', category: 'BUG' as const,
-      requirementType: 'BUG_FIX', content: '导出按钮无响应', confidence: .96,
+      requirementType: 'BUG_FIX', sourceContent: '点导出按钮没有反应',
+      content: '导出按钮无响应', confidence: .96,
       reason: '已有功能失败', pageUrl: '/orders', pageTitle: '订单', detectedAt: 1000,
       updateTime: 1000, revisionNo: 0, attachments: [],
     }
@@ -155,8 +156,9 @@ describe('assistant widget', () => {
     const bugTag = [...shadow.querySelectorAll<HTMLButtonElement>('.feedback-tag')]
       .find(button => button.textContent?.startsWith('Bug'))!
     bugTag.click()
-    await vi.waitFor(() => expect(shadow.querySelector('.feedback-content')?.textContent)
+    await vi.waitFor(() => expect(shadow.querySelector('.feedback-content')?.textContent?.trim())
       .toBe('导出按钮无响应'))
+    expect(shadow.querySelector('.feedback-original')?.textContent).toContain('点导出按钮没有反应')
     shadow.querySelector<HTMLButtonElement>('.feedback-card-actions .feedback-link')!.click()
     const select = shadow.querySelector<HTMLSelectElement>('.feedback-edit select')!
     const textarea = shadow.querySelector<HTMLTextAreaElement>('.feedback-edit textarea')!

@@ -100,6 +100,7 @@ export interface AssistantFeedbackCandidate {
   detectedAt: number
   updateTime: number
   revisionNo: number
+  sourceContent?: string
   aiOriginal?: AssistantFeedbackRevision
   attachments: AssistantFeedbackAttachment[]
 }

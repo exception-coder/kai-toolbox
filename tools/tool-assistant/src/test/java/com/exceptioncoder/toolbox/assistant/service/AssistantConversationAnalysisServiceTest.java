@@ -37,10 +37,12 @@ class AssistantConversationAnalysisServiceTest {
     private final AssistantIntentRouter router = mock(AssistantIntentRouter.class);
     private final SessionOwnershipPort ownership = mock(SessionOwnershipPort.class);
     private final AssistantFeedbackCandidateFactory candidateFactory = mock(AssistantFeedbackCandidateFactory.class);
+    private final AssistantFeedbackDescriptionGenerator descriptionGenerator =
+            mock(AssistantFeedbackDescriptionGenerator.class);
     private final AssistantFeedbackStorePort feedbackStore = mock(AssistantFeedbackStorePort.class);
     private final AssistantConversationAnalysisService service =
             new AssistantConversationAnalysisService(
-                    repository, router, ownership, candidateFactory, feedbackStore);
+                    repository, router, ownership, candidateFactory, descriptionGenerator, feedbackStore);
 
     @BeforeEach
     void authenticate() {
@@ -66,7 +68,8 @@ class AssistantConversationAnalysisServiceTest {
                 "希望增加导出功能", 0.91D, "新增能力", 3L);
         when(router.classifyFeedbackWithContext("希望增加导出功能", "- [BUG] #20 旧反馈"))
                 .thenReturn(classification);
-        when(candidateFactory.candidate(anyLong(), any(), any(), anyLong(), any())).thenReturn(candidate);
+        when(descriptionGenerator.generate(any(), any(), any(), any())).thenReturn("## 需求标题\n增加导出功能");
+        when(candidateFactory.candidate(anyLong(), any(), any(), any(), anyLong(), any())).thenReturn(candidate);
         when(candidateFactory.context(7L, "session-1")).thenReturn(
                 new AssistantFeedbackStorePort.FeedbackContext(7L, "session-1", "ERP", "", ""));
 
@@ -141,7 +144,8 @@ class AssistantConversationAnalysisServiceTest {
                 "candidate-1", 30L, FeedbackCategory.BUG, RequirementType.BUG_FIX,
                 "导出失败", 0.95D, "已有功能失败", 3L);
         when(router.classifyFeedbackWithContext("导出失败", "summary")).thenReturn(classification);
-        when(candidateFactory.candidate(anyLong(), any(), any(), anyLong(), any())).thenReturn(candidate);
+        when(descriptionGenerator.generate(any(), any(), any(), any())).thenReturn("## 问题概述\n导出失败");
+        when(candidateFactory.candidate(anyLong(), any(), any(), any(), anyLong(), any())).thenReturn(candidate);
         when(candidateFactory.context(7L, "session-1")).thenReturn(
                 new AssistantFeedbackStorePort.FeedbackContext(7L, "session-1", "ERP", "", ""));
         doThrow(new IllegalStateException("MySQL 不可用"))

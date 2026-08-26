@@ -328,6 +328,8 @@ Widget 状态可携带单条增量 `debugEntry`：
 
 `feedbackCategory` 仅允许 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 或 `NONE`。前三者分别映射 `requirementType=BUG_FIX`、`NEW_MODULE`、`MODULE_ADJUST`，并以 `sourceSystem + sessionId + sourceWatermark` 幂等写入公网 MySQL 候选表；`NONE` 不写候选表。旧客户端仍可只读取 `intent`，需求和优化在 Widget 中继续投影为兼容模式 `SUGGESTION`。
 
+对于前三类反馈，Forge 以第二次受控模型调用生成字段草稿，并由服务端固定模板渲染 `feedbackContent`。`sourceContent` 永久保存该水位对应的用户原话，不随用户编辑变化。模型输出解析或字段校验失败时重试一次，仍失败则生成带“待补充”占位的确定性模板；只有分类、存储或确定性渲染真正失败时才保持旧水位。
+
 Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` 适配器优先使用显式 `datasource-id`，否则按 `system-code=yoooni-one + environment + 可选 datasource-name` 选择唯一 MySQL 数据源，再从 `OpsDataSourcePool` 借用 Druid 连接直接 upsert。未登记、匹配不唯一或数据源不是 MySQL 时明确失败；不存在 Yoooni One 项目 HTTP 接口或服务密钥。
 
 当没有增量时返回 `advanced=false` 且不调用分类模型。分类、候选 MySQL 写入、摘要或水位持久化失败时返回失败结果并保持旧水位；客户端可在下一次正常终态重试。客户端不得上传自报水位或完整会话正文，避免跨标签页覆盖和重复分析。
@@ -374,7 +376,8 @@ Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` �
       "sourceWatermark": 1991,
       "feedbackCategory": "BUG",
       "requirementType": "BUG_FIX",
-      "feedbackContent": "新品进度备注为空时页面加载失败",
+      "sourceContent": "备注打不开，页面直接报错",
+      "feedbackContent": "## 问题概述\n新品进度备注为空时页面加载失败\n\n## 当前表现\n页面进入错误状态。\n\n## 期望结果\n无备注时展示暂无备注。",
       "confidence": 0.94,
       "classificationReason": "已有功能行为不符合预期",
       "pageUrl": "http://host/yoooni-one/new-product-progress",
@@ -402,6 +405,8 @@ Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` �
   "nextCursor": null
 }
 ```
+
+候选响应中的 `sourceContent` 为只读用户原话，`feedbackContent` 为 AI 首次规范稿或用户最新修订。`aiOriginal.feedbackContent` 始终表示首次 AI 规范稿，不等同于用户原话。
 
 ### 14.3 编辑会话候选
 

@@ -32,17 +32,20 @@ public class AssistantConversationAnalysisService {
     private final AssistantIntentRouter intentRouter;
     private final SessionOwnershipPort sessionOwnership;
     private final AssistantFeedbackCandidateFactory candidateFactory;
+    private final AssistantFeedbackDescriptionGenerator descriptionGenerator;
     private final AssistantFeedbackStorePort feedbackStore;
 
     public AssistantConversationAnalysisService(AssistantConversationAnalysisRepository repository,
                                                 AssistantIntentRouter intentRouter,
                                                 SessionOwnershipPort sessionOwnership,
                                                 AssistantFeedbackCandidateFactory candidateFactory,
+                                                AssistantFeedbackDescriptionGenerator descriptionGenerator,
                                                 AssistantFeedbackStorePort feedbackStore) {
         this.repository = repository;
         this.intentRouter = intentRouter;
         this.sessionOwnership = sessionOwnership;
         this.candidateFactory = candidateFactory;
+        this.descriptionGenerator = descriptionGenerator;
         this.feedbackStore = feedbackStore;
     }
 
@@ -78,6 +81,7 @@ public class AssistantConversationAnalysisService {
             List<AssistantCapabilityPort.ConversationMessage> increment = normalizeMessages(command, currentWatermark);
             List<AssistantCapabilityPort.ConversationDetection> detections = new ArrayList<>();
             List<FeedbackCandidate> candidates = new ArrayList<>();
+            AssistantFeedbackStorePort.FeedbackContext feedbackContext = null;
             String updatedSummary = currentSummary;
             long now = System.currentTimeMillis();
             for (AssistantCapabilityPort.ConversationMessage message : increment) {
@@ -91,8 +95,14 @@ public class AssistantConversationAnalysisService {
                         routed.requirementType().name(), routed.intentResult().confidence(),
                         routed.intentResult().reason()));
                 if (routed.feedbackCategory() != FeedbackCategory.NONE) {
+                    if (feedbackContext == null) {
+                        feedbackContext = candidateFactory.context(userId, command.sessionId());
+                    }
+                    String description = descriptionGenerator.generate(
+                            routed.feedbackCategory(), message.content(), updatedSummary, feedbackContext);
                     candidates.add(candidateFactory.candidate(
-                            message.sequence(), message.content(), routed, now, message.attachments()));
+                            message.sequence(), message.content(), description,
+                            routed, now, message.attachments()));
                     updatedSummary = appendSummary(updatedSummary, message.sequence(),
                             routed.feedbackCategory().name(), message.content());
                 }
@@ -100,7 +110,7 @@ public class AssistantConversationAnalysisService {
 
             if (!candidates.isEmpty()) {
                 feedbackStore.saveCandidates(new AssistantFeedbackStorePort.SaveCommand(
-                        candidateFactory.context(userId, command.sessionId()), candidates));
+                        feedbackContext, candidates));
             }
             repository.upsert(new AssistantConversationAnalysis(
                     current == null ? UUID.randomUUID().toString() : current.id(), userId,
