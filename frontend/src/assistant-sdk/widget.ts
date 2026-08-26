@@ -1110,7 +1110,7 @@ const template = `
     .empty { flex: 1 1 auto; align-self: stretch; padding: 40px 36px; text-align: center; }
     .empty h3 { margin: 0 0 8px; font-size: 17px; font-weight: 650; }
     .empty p { max-width: 34em; margin: 0 auto; color: #71717a; }
-    .conversation { min-width: 0; min-height: 0; max-width: 100%; flex: 1 1 auto; overflow: auto; padding: 22px; scroll-behavior: smooth; overscroll-behavior: contain; overflow-anchor: none; }
+    .conversation { min-width: 0; min-height: 0; max-width: 100%; flex: 1 1 auto; overflow: auto; padding: 22px; overscroll-behavior: contain; overflow-anchor: none; }
     .history-status { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 28px; margin: 0 0 12px; color: #71717a; font-size: 12px; }
     .history-status button { border: 0; border-bottom: 1px solid currentColor; background: transparent; color: #3f3f46; cursor: pointer; font: inherit; }
     .history-status button:focus-visible { outline: 2px solid #4f46e5; outline-offset: 3px; }

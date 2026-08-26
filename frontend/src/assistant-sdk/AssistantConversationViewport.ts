@@ -20,6 +20,7 @@ export class AssistantConversationViewport {
   private messages: AssistantConversationMessage[] = []
   private frame?: number
   private lastRange = ''
+  private pendingStickToBottom = false
 
   constructor(options: ViewportOptions) {
     this.options = options
@@ -34,13 +35,15 @@ export class AssistantConversationViewport {
     const previousScrollHeight = this.options.scrollElement.scrollHeight
     const prepended = Boolean(previousFirstId && messages[0]?.id !== previousFirstId
       && messages.some(message => message.id === previousFirstId))
+    this.pendingStickToBottom = stickToBottom
     this.messages = messages.map(message => ({ ...message }))
     this.render(true)
     requestAnimationFrame(() => {
       if (stickToBottom) {
-        this.options.scrollElement.scrollTop = this.options.scrollElement.scrollHeight
+        this.setScrollTopImmediately(this.options.scrollElement.scrollHeight)
       } else if (prepended) {
-        this.options.scrollElement.scrollTop += this.options.scrollElement.scrollHeight - previousScrollHeight
+        this.setScrollTopImmediately(this.options.scrollElement.scrollTop
+          + this.options.scrollElement.scrollHeight - previousScrollHeight)
       }
     })
   }
@@ -111,6 +114,13 @@ export class AssistantConversationViewport {
     if (changed) {
       this.topSpacer.style.height = `${this.heightBetween(0, start)}px`
       this.bottomSpacer.style.height = `${this.heightBetween(end, this.messages.length)}px`
+      if (this.pendingStickToBottom) {
+        requestAnimationFrame(() => {
+          this.setScrollTopImmediately(this.options.scrollElement.scrollHeight)
+        })
+      }
+    } else {
+      this.pendingStickToBottom = false
     }
   }
 
@@ -122,5 +132,12 @@ export class AssistantConversationViewport {
     let height = 0
     for (let index = start; index < end; index += 1) height += this.heightAt(index)
     return height
+  }
+
+  private setScrollTopImmediately(scrollTop: number): void {
+    const previousBehavior = this.options.scrollElement.style.scrollBehavior
+    this.options.scrollElement.style.scrollBehavior = 'auto'
+    this.options.scrollElement.scrollTop = scrollTop
+    this.options.scrollElement.style.scrollBehavior = previousBehavior
   }
 }

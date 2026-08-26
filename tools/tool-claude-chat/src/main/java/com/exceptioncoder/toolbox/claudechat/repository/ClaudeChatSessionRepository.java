@@ -37,9 +37,9 @@ public class ClaudeChatSessionRepository {
             .codexSpeed(rs.getString("codex_speed"))
             .executionPolicy(rs.getString("execution_policy"))
             .consultEvidenceSystems(rs.getString("consult_evidence_systems"))
-            .assistantAppId(rs.getString("assistant_app_id"))
-            .assistantPageKey(rs.getString("assistant_page_key"))
-            .assistantPageUrl(rs.getString("assistant_page_url"))
+            .assistantAppId(nullableString(rs, "assistant_app_id"))
+            .assistantPageKey(nullableString(rs, "assistant_page_key"))
+            .assistantPageUrl(nullableString(rs, "assistant_page_url"))
             .groupName(rs.getString("group_name"))
             .subgroupName(rs.getString("subgroup_name"))
             .favorite(rs.getInt("favorite") == 1)
@@ -51,6 +51,14 @@ public class ClaudeChatSessionRepository {
     private static Long nullableLong(ResultSet resultSet, String column) throws SQLException {
         long value = resultSet.getLong(column);
         return resultSet.wasNull() ? null : value;
+    }
+
+    private static String nullableString(ResultSet resultSet, String column) {
+        try {
+            return resultSet.getString(column);
+        } catch (SQLException ignored) {
+            return null;
+        }
     }
 
     public List<ClaudeChatSession> findAll() {

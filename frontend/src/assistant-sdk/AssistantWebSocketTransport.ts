@@ -425,11 +425,11 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
         this.resendAwaitingQueueAck()
         this.flushPendingCommands()
         if (this.pageIdentity && this.sessionId && this.historySessionId !== this.sessionId) {
-          this.emit('正在载入近期消息')
-          void this.loadHistory(true).finally(() => this.completeReady())
-        } else {
           this.completeReady()
+          void this.loadHistory(true)
+          break
         }
+        this.completeReady()
         break
       case 'assistantDelta':
         this.running = true
@@ -492,6 +492,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   private async loadHistory(reset: boolean): Promise<void> {
     const sessionId = this.sessionId
     if (!sessionId || this.historyLoading) return
+    const requestedBefore = reset ? undefined : this.historyBefore
     this.historyLoading = true
     this.historyError = undefined
     if (reset) {
@@ -508,7 +509,9 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
       if (sessionId !== this.sessionId) return
       this.messages = mergeConversationMessages(page.items, this.messages, reset)
       this.historyBefore = page.nextBefore
-      this.historyExhausted = page.nextBefore == null || page.nextBefore <= 0 || page.items.length === 0
+      this.historyExhausted = page.nextBefore == null
+        || page.nextBefore <= 0
+        || (requestedBefore != null && page.nextBefore === requestedBefore)
       this.transcriptMissing = page.transcriptMissing
       this.historySessionId = sessionId
       this.historyError = undefined
@@ -560,8 +563,8 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   }
 
   private resolveStorageKey(): string {
-    return `kai-assistant:ws:${this.options.appId}:${this.options.userId ?? 'anonymous'}`
-      + `:${assistantPageStorageSuffix(this.pageIdentity)}`
+    const base = `kai-assistant:ws:${this.options.appId}:${this.options.userId ?? 'anonymous'}`
+    return this.pageIdentity ? `${base}:${assistantPageStorageSuffix(this.pageIdentity)}` : base
   }
 
   private flushPending(): void {

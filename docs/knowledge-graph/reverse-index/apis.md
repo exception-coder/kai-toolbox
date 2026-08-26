@@ -106,6 +106,17 @@
 
 契约变更时必须同步 `AssistantCapabilityPort`、`AssistantWebSocketCommandHandler`、SDK 模块键与注入逻辑、API 设计文档和协议测试。
 
+## Assistant 页面会话绑定与历史 API
+
+定义：`tools/tool-claude-chat/src/main/java/com/exceptioncoder/toolbox/claudechat/api/AssistantConversationController.java`
+
+| API / WS 命令 | 写入/读取 | SDK 调用者 | 决策影响 |
+|---|---|---|---|
+| WS `open.assistantAppId/assistantPageKey/assistantPageUrl` | 按认证用户、系统和规范化页面键查找或创建固定会话 | `AssistantWebSocketTransport#connect` | 同一三元组必须稳定返回同一 `sessionId`；并发首次打开由数据库唯一索引收敛 |
+| `GET /api/assistant/conversations/{sessionId}/messages?limit=30&before=...` | 仅会话所有者读取 transcript 的最近窗口或更早窗口 | `AssistantWebSocketTransport#loadHistory` | 首屏优先近期消息；`nextBefore` 驱动渐进加载，不得一次返回完整长会话 |
+
+契约变更时必须同步 `ClientMessage.Open`、绑定服务、历史服务、外部登录 CORS、SDK 页面键归一化、窗口化消息视图与协议测试。
+
 ## 视频库独立扫描 API
 
 定义位置：`tools/tool-treesize/src/main/java/com/exceptioncoder/toolbox/treesize/api/VideoProcessingController.java`

@@ -170,6 +170,19 @@
 
 修改令牌字段时必须同步 DDL、启动迁移、`ReviewSpace`、Repository 显式列映射、AES-GCM 服务、关联 API 与前端历史列表测试。
 
+## claude_chat_session 页面会话绑定字段
+
+定义：`tools/tool-claude-chat/src/main/resources/db/claude-chat-schema.sql`
+
+| 字段 | 主要写入点 | 主要读取或决策点 |
+|---|---|---|
+| `user_id` | 认证用户创建咨询会话 | 页面会话归属校验和唯一绑定第一维 |
+| `assistant_app_id` | SDK `appId` | 区分宿主系统；与用户、页面键组成稳定唯一绑定 |
+| `assistant_page_key` | SDK 对 URL 去 hash、剔除敏感参数并排序后的规范化键 | `AssistantConversationBindingService#resolveOrCreate`；部分唯一索引防止并发重复会话 |
+| `assistant_page_url` | SDK 发送的脱敏规范化 URL | 会话诊断和页面来源展示，不单独作为唯一键 |
+
+修改绑定字段时必须同步 DDL、启动迁移、`ClaudeChatSession`、Repository 显式列映射、WS `open` 契约、SDK 页面身份生成和绑定并发测试。
+
 ## assistant_module_context_cache
 
 定义：`tools/tool-assistant/src/main/resources/db/assistant-schema.sql`

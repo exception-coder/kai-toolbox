@@ -143,6 +143,53 @@ describe('AssistantWebSocketTransport', () => {
     transport.destroy()
   })
 
+  it('resolves a fixed page conversation and progressively loads transcript history', async () => {
+    const socket = new FakeWebSocket()
+    const states: AssistantWidgetState[] = []
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input))
+      const before = url.searchParams.get('before')
+      return new Response(JSON.stringify(before ? {
+        items: [{ id: 'h1', role: 'user', content: '更早的问题', timestamp: 1 }],
+        nextBefore: 0, transcriptMissing: false,
+      } : {
+        items: [
+          { id: 'h2', role: 'user', content: '近期问题', timestamp: 2 },
+          { id: 'h3', role: 'assistant', content: '近期回答', timestamp: 3 },
+        ],
+        nextBefore: 2, transcriptMissing: false,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+    const storage = memoryStorage()
+    const transport = new AssistantWebSocketTransport({
+      appId: 'SCM', userId: '7', wsUrl: 'wss://forge.example.com/api/claude-chat/consult/ws',
+      page: { url: 'https://scm.example.com/progress.action?style=25D332&access_token=secret' },
+      storage, fetcher, webSocketFactory: () => socket as unknown as WebSocket,
+    })
+
+    transport.start(state => states.push(state))
+    socket.open()
+    expect(sentByType(socket, 'open')).toMatchObject({
+      assistantAppId: 'SCM',
+      assistantPageKey: 'https://scm.example.com/progress.action?style=25D332',
+    })
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'fixed-session', status: 'IDLE', epoch: 'e1' })
+
+    await vi.waitFor(() => expect(states.at(-1)?.messages).toEqual([
+      expect.objectContaining({ id: 'h2', content: '近期问题' }),
+      expect.objectContaining({ id: 'h3', content: '近期回答' }),
+    ]))
+    transport.loadEarlier()
+    await vi.waitFor(() => expect(states.at(-1)?.messages?.map(message => message.id)).toEqual(['h1', 'h2', 'h3']))
+    expect(fetcher).toHaveBeenLastCalledWith(
+      expect.stringContaining('before=2'), expect.any(Object),
+    )
+    const persisted = Array.from({ length: storage.length }, (_, index) =>
+      storage.getItem(storage.key(index) ?? '')).join('')
+    expect(persisted).not.toContain('近期回答')
+    transport.destroy()
+  })
+
   it('uploads pasted images after the session is ready and sends only server attachment references', async () => {
     const socket = new FakeWebSocket()
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({

@@ -255,7 +255,7 @@ public class ClaudeChatService {
             return;
         }
         if (!binding.created()) {
-            attach(ws, new ClientMessage.Attach(binding.session().getId(), 0));
+            attach(ws, new ClientMessage.Attach(binding.session().getId(), 0), false);
             return;
         }
         if (consultReadonly) {
@@ -302,6 +302,10 @@ public class ClaudeChatService {
     }
 
     public void attach(WebSocketSession ws, ClientMessage.Attach attach) {
+        attach(ws, attach, true);
+    }
+
+    private void attach(WebSocketSession ws, ClientMessage.Attach attach, boolean replayBufferedEvents) {
         if (!canBindReviewTarget(ws, attach.sessionId())) return;
         SessionCtx ctx = sessions.get(attach.sessionId());
         if (ctx == null) {
@@ -352,14 +356,17 @@ public class ClaudeChatService {
         }
         if (!canBind(ws, ctx.executionPolicy, attach.sessionId())) return;
         bindViewer(ws, ctx);
-        warnIfReplayGap(ctx, ws, attach.lastEventSeq());
-        replayBuffer(ctx, ws, attach.lastEventSeq());
-        redeliverPending(ctx, ws, attach.lastEventSeq());
+        if (replayBufferedEvents) {
+            warnIfReplayGap(ctx, ws, attach.lastEventSeq());
+            replayBuffer(ctx, ws, attach.lastEventSeq());
+            redeliverPending(ctx, ws, attach.lastEventSeq());
+        }
         ensureSessionResumable(ctx); // sidecar 也断了的话借浏览器重连顺带恢复
         // 回推一次会话状态：让重连端按 status 同步 running，纠正「result 已被缓冲淘汰 → 永久卡在正在思考」
         writeTo(ws, ready(ctx));
         pushGatewayModels(ctx); // 网关会话重连：重发网关模型目录
-        log.info("[claude-chat] attach 会话 {} from seq>{}", ctx.sessionId, attach.lastEventSeq());
+        log.info("[claude-chat] attach 会话 {} from seq>{}, replay={}",
+                ctx.sessionId, attach.lastEventSeq(), replayBufferedEvents);
     }
 
     public void switchSession(WebSocketSession ws, ClientMessage.SwitchSession msg) {

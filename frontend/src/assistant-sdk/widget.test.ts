@@ -429,6 +429,28 @@ describe('assistant widget', () => {
     expect(widget.shadowRoot!.querySelector('[data-engineer]')?.textContent).toContain('开发甲')
   })
 
+  it('keeps long conversations in a bounded DOM window', async () => {
+    initializeAssistant({ appId: 'ERP' }).open('QUESTION')
+    const root = document.getElementById('kai-assistant-widget-root')!
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
+      detail: {
+        state: '已完成',
+        messages: Array.from({ length: 300 }, (_, index) => ({
+          id: `message-${index}`,
+          role: index % 2 === 0 ? 'user' : 'assistant',
+          content: `第 ${index + 1} 条消息`,
+        })),
+      },
+    }))
+
+    await vi.waitFor(() => {
+      const mounted = shadow.querySelectorAll('[data-viewport-index]')
+      expect(mounted.length).toBeGreaterThan(0)
+      expect(mounted.length).toBeLessThan(40)
+    })
+  })
+
   it('keeps the assistant hidden until the default shortcut and display key succeed', () => {
     initializeAssistant({
       appId: 'ERP',
