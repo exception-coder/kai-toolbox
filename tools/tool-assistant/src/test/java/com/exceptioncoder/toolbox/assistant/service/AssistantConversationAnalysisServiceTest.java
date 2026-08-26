@@ -66,7 +66,7 @@ class AssistantConversationAnalysisServiceTest {
                 "希望增加导出功能", 0.91D, "新增能力", 3L);
         when(router.classifyFeedbackWithContext("希望增加导出功能", "- [BUG] #20 旧反馈"))
                 .thenReturn(classification);
-        when(candidateFactory.candidate(anyLong(), any(), any(), anyLong())).thenReturn(candidate);
+        when(candidateFactory.candidate(anyLong(), any(), any(), anyLong(), any())).thenReturn(candidate);
         when(candidateFactory.context(7L, "session-1")).thenReturn(
                 new AssistantFeedbackStorePort.FeedbackContext(7L, "session-1", "ERP", "", ""));
 
@@ -141,7 +141,7 @@ class AssistantConversationAnalysisServiceTest {
                 "candidate-1", 30L, FeedbackCategory.BUG, RequirementType.BUG_FIX,
                 "导出失败", 0.95D, "已有功能失败", 3L);
         when(router.classifyFeedbackWithContext("导出失败", "summary")).thenReturn(classification);
-        when(candidateFactory.candidate(anyLong(), any(), any(), anyLong())).thenReturn(candidate);
+        when(candidateFactory.candidate(anyLong(), any(), any(), anyLong(), any())).thenReturn(candidate);
         when(candidateFactory.context(7L, "session-1")).thenReturn(
                 new AssistantFeedbackStorePort.FeedbackContext(7L, "session-1", "ERP", "", ""));
         doThrow(new IllegalStateException("MySQL 不可用"))

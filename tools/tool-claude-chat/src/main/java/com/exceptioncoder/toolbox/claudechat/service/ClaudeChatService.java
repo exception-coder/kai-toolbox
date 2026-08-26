@@ -11,6 +11,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.QueuedChatMessage;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewIntentAssessment;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatAttachmentRepository;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunCompletionListener;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadataProvider;
@@ -62,6 +63,7 @@ public class ClaudeChatService {
     private final SidecarClient sidecar;
     private final NotificationService notifications;
     private final AttachmentStorageService attachments;
+    private final ClaudeChatAttachmentRepository attachmentRepository;
     private final AgentOneShotService agentOneShot;
     private final AgentWorkAdmissionGate admissionGate;
     private final ProviderModelService providerModels;
@@ -75,6 +77,8 @@ public class ClaudeChatService {
     private final SessionRuntimeStateService runtimeStates;
     private final EngineCatalogService engineCatalog;
     private final ClaudeChatSessionAccessPolicy sessionAccessPolicy;
+    private final AssistantConversationBindingService assistantConversationBindings;
+    private final ProjectRouteBindingService projectRouteBindingService;
     private final ObjectMapper mapper;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
@@ -112,6 +116,7 @@ public class ClaudeChatService {
                              SidecarClient sidecar,
                              NotificationService notifications,
                              AttachmentStorageService attachments,
+                             ClaudeChatAttachmentRepository attachmentRepository,
                              AgentOneShotService agentOneShot,
                              AgentWorkAdmissionGate admissionGate,
                              ProviderModelService providerModels,
@@ -125,6 +130,8 @@ public class ClaudeChatService {
                              SessionRuntimeStateService runtimeStates,
                              EngineCatalogService engineCatalog,
                              ClaudeChatSessionAccessPolicy sessionAccessPolicy,
+                             AssistantConversationBindingService assistantConversationBindings,
+                             ProjectRouteBindingService projectRouteBindingService,
                              ObjectMapper mapper,
                              AgentTelemetry telemetry,
                              List<AgentRunMetadataProvider> metadataProviders,
@@ -135,6 +142,7 @@ public class ClaudeChatService {
         this.sidecar = sidecar;
         this.notifications = notifications;
         this.attachments = attachments;
+        this.attachmentRepository = attachmentRepository;
         this.agentOneShot = agentOneShot;
         this.admissionGate = admissionGate;
         this.providerModels = providerModels;
@@ -148,6 +156,8 @@ public class ClaudeChatService {
         this.runtimeStates = runtimeStates;
         this.engineCatalog = engineCatalog;
         this.sessionAccessPolicy = sessionAccessPolicy;
+        this.assistantConversationBindings = assistantConversationBindings;
+        this.projectRouteBindingService = projectRouteBindingService;
         this.mapper = mapper;
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
@@ -196,8 +206,16 @@ public class ClaudeChatService {
         long now = System.currentTimeMillis();
         String executionPolicy = SessionExecutionPolicy.forWebSocket(ws.getUri());
         boolean consultReadonly = SessionExecutionPolicy.isConsultReadonly(executionPolicy);
-        String cwd = open.cwd() == null || open.cwd().isBlank()
-                ? System.getProperty("user.home") : open.cwd().trim();
+        String cwd;
+        try {
+            cwd = consultReadonly && open.projectKey() != null && !open.projectKey().isBlank()
+                    ? projectRouteBindingService.resolve(open.projectKey()).projectPath()
+                    : open.cwd() == null || open.cwd().isBlank()
+                    ? System.getProperty("user.home") : open.cwd().trim();
+        } catch (IllegalArgumentException exception) {
+            sendError(ws, 0, "PROJECT_NOT_BOUND", exception.getMessage());
+            return;
+        }
 
         String engine = normalizeEngine(open.engine());
         if (!engineCatalog.selectable(engine)) {
@@ -218,14 +236,28 @@ public class ClaudeChatService {
         String codexSpeed = normalizeCodexSpeed(open.codexSpeed());
         List<String> consultEvidenceSystems = consultReadonly
                 ? normalizeConsultEvidenceSystems(open.consultEvidenceSystems()) : List.of();
-        repo.insert(ClaudeChatSession.builder()
+        ClaudeChatSession candidate = ClaudeChatSession.builder()
                 .id(sessionId).userId(sessionAccessPolicy.ownerId(ws)).cwd(cwd).title(null)
                 .sdkSessionId(null).engine(engine)
                 .apiBaseUrl(apiBaseUrl).authToken(authToken).codexHome(codexHome)
                 .selectedModel(blankToNull(open.model())).codexReasoningEffort(codexReasoningEffort).codexSpeed(codexSpeed)
                 .executionPolicy(executionPolicy)
                 .consultEvidenceSystems(writeStringList(consultEvidenceSystems))
-                .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
+                .assistantAppId(consultReadonly ? open.assistantAppId() : null)
+                .assistantPageKey(consultReadonly ? open.assistantPageKey() : null)
+                .assistantPageUrl(consultReadonly ? open.assistantPageUrl() : null)
+                .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build();
+        AssistantConversationBindingService.Resolution binding;
+        try {
+            binding = assistantConversationBindings.resolveOrCreate(candidate);
+        } catch (IllegalArgumentException exception) {
+            sendError(ws, 0, "BAD_ASSISTANT_PAGE", exception.getMessage());
+            return;
+        }
+        if (!binding.created()) {
+            attach(ws, new ClientMessage.Attach(binding.session().getId(), 0));
+            return;
+        }
         if (consultReadonly) {
             // 在会话进入列表前由服务端完成归属，避免依赖前端 ready 后的异步补写产生可见性窗口。
             repo.updateGroup(sessionId, SessionExecutionPolicy.CONSULT_GROUP_NAME, null);
@@ -595,7 +627,7 @@ public class ClaudeChatService {
             queuedMessages.save(ctx.sessionId, msg.id(), msg.text(), msg.displayText(),
                     msg.developerInstructions(), msg.attachments() == null ? List.of() : msg.attachments().stream()
                             .map(attachment -> new QueuedChatMessage.Attachment(
-                                    attachment.name(), attachment.path(), attachment.mime()))
+                                    attachment.id(), attachment.name(), attachment.path(), attachment.mime()))
                             .toList(), msg.createdAt());
             int queueSize = queuedMessages.list(ctx.sessionId).size();
             sendToBrowser(ctx, seq -> new ServerMessage.QueueAccepted(seq, msg.id(), queueSize));
@@ -617,6 +649,11 @@ public class ClaudeChatService {
         var images = loadMessageImages(ctx.sessionId, msg.attachments());
         ctx.queueReleaseReady = false;
         String turnId = turnLifecycle.begin(ctx.sessionId);
+        attachmentRepository.bindTurn(ctx.sessionId, turnId,
+                msg.attachments() == null ? List.of() : msg.attachments().stream()
+                        .map(ClientMessage.Send.Attachment::id)
+                        .filter(id -> id != null && !id.isBlank())
+                        .toList());
         ReviewIntentAssessment reviewIntent = SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)
                 ? reviewIntents.classifyBeforeReply(ctx.sessionId, turnId, msg.messageId(), msg.text()).orElse(null)
                 : null;
@@ -670,7 +707,7 @@ public class ClaudeChatService {
                 ? List.of()
                 : messageAttachments.stream()
                         .map(attachment -> new AttachmentStorageService.ImageReference(
-                                attachment.name(), attachment.path(), attachment.mime()))
+                                attachment.id(), attachment.name(), attachment.path(), attachment.mime()))
                         .toList();
         return attachments.loadImages(sessionId, imageReferences);
     }
@@ -1435,7 +1472,7 @@ public class ClaudeChatService {
         QueuedChatMessage message = next.get();
         ClientMessage.Send send = new ClientMessage.Send(message.text(), message.attachments().stream()
                 .map(attachment -> new ClientMessage.Send.Attachment(
-                        attachment.name(), attachment.path(), attachment.mime()))
+                        attachment.id(), attachment.name(), attachment.path(), attachment.mime()))
                 .toList(), message.developerInstructions(), null, message.id());
         try {
             if (!ensureSessionResumable(ctx)) {
@@ -1446,7 +1483,7 @@ public class ClaudeChatService {
             sendToBrowser(ctx, seq -> new ServerMessage.QueueDispatched(seq, message.id(), message.text(),
                     message.displayText(), message.attachments().stream()
                             .map(attachment -> new ServerMessage.QueuedAttachment(
-                                    attachment.name(), attachment.path(), attachment.mime()))
+                                    attachment.id(), attachment.name(), attachment.path(), attachment.mime()))
                             .toList(), message.createdAt()));
             log.info("[claude-chat] 正常终态自动发送队首 session={} message={}", ctx.sessionId, message.id());
         } catch (RuntimeException error) {

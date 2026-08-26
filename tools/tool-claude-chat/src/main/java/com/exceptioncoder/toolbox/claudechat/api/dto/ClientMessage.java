@@ -57,7 +57,15 @@ public sealed interface ClientMessage
      */
     record Open(String cwd, String model, String mode, String engine, String apiBaseUrl, String authToken,
                 String codexHome, String codexReasoningEffort, String codexSpeed,
-                List<String> consultEvidenceSystems) implements ClientMessage {}
+                List<String> consultEvidenceSystems, String projectKey,
+                String assistantAppId, String assistantPageKey, String assistantPageUrl) implements ClientMessage {
+        public Open(String cwd, String model, String mode, String engine, String apiBaseUrl, String authToken,
+                    String codexHome, String codexReasoningEffort, String codexSpeed,
+                    List<String> consultEvidenceSystems, String projectKey) {
+            this(cwd, model, mode, engine, apiBaseUrl, authToken, codexHome, codexReasoningEffort,
+                    codexSpeed, consultEvidenceSystems, projectKey, null, null, null);
+        }
+    }
 
     /** 重连进行中的会话，请求回放 seq > lastEventSeq 的事件 */
     record Attach(String sessionId, long lastEventSeq) implements ClientMessage {}
@@ -77,14 +85,22 @@ public sealed interface ClientMessage
     record Send(String text, List<Attachment> attachments, String developerInstructions,
                 AssistantEnvelope assistant, String messageId) implements ClientMessage {
         /** 附件引用：path 只供服务端在会话附件目录内受控取数，不直接暴露给评审 Agent。 */
-        public record Attachment(String name, String path, String mime) {}
+        public record Attachment(String id, String name, String path, String mime) {
+            public Attachment(String name, String path, String mime) {
+                this(null, name, path, mime);
+            }
+        }
     }
 
     /** 当前回合不可写时，将消息幂等保存到服务端待发送队列。 */
     record Queue(String id, String text, String displayText, String developerInstructions,
                  List<Attachment> attachments, Long createdAt) implements ClientMessage {
         /** 待发送附件引用。 */
-        public record Attachment(String name, String path, String mime) {}
+        public record Attachment(String id, String name, String path, String mime) {
+            public Attachment(String name, String path, String mime) {
+                this(null, name, path, mime);
+            }
+        }
     }
 
     /**

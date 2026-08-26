@@ -37,6 +37,9 @@ public class ClaudeChatSessionRepository {
             .codexSpeed(rs.getString("codex_speed"))
             .executionPolicy(rs.getString("execution_policy"))
             .consultEvidenceSystems(rs.getString("consult_evidence_systems"))
+            .assistantAppId(rs.getString("assistant_app_id"))
+            .assistantPageKey(rs.getString("assistant_page_key"))
+            .assistantPageUrl(rs.getString("assistant_page_url"))
             .groupName(rs.getString("group_name"))
             .subgroupName(rs.getString("subgroup_name"))
             .favorite(rs.getInt("favorite") == 1)
@@ -68,11 +71,39 @@ public class ClaudeChatSessionRepository {
                 ROW, groupName);
     }
 
+    /** 当前用户的业务咨询会话游标页；多取一条用于判断是否还有下一页。 */
+    public List<ClaudeChatSession> findConsultPage(long userId, Long beforeLastSeenAt,
+                                                   String beforeId, int limitPlusOne) {
+        if (beforeLastSeenAt == null || beforeId == null || beforeId.isBlank()) {
+            return jdbc.query("""
+                    SELECT * FROM claude_chat_session
+                    WHERE user_id = ? AND group_name = ?
+                    ORDER BY last_seen_at DESC, id DESC LIMIT ?
+                    """, ROW, userId, "业务咨询", limitPlusOne);
+        }
+        return jdbc.query("""
+                SELECT * FROM claude_chat_session
+                WHERE user_id = ? AND group_name = ?
+                  AND (last_seen_at < ? OR (last_seen_at = ? AND id < ?))
+                ORDER BY last_seen_at DESC, id DESC LIMIT ?
+                """, ROW, userId, "业务咨询", beforeLastSeenAt, beforeLastSeenAt,
+                beforeId, limitPlusOne);
+    }
+
     public Optional<ClaudeChatSession> findBySdkSessionId(String sdkSessionId) {
         return jdbc.query(
                         "SELECT * FROM claude_chat_session WHERE sdk_session_id = ? ORDER BY last_seen_at DESC LIMIT 1",
                         ROW, sdkSessionId)
                 .stream().findFirst();
+    }
+
+    /** 按认证用户、来源系统和页面键查询彩虹胶囊固定会话。 */
+    public Optional<ClaudeChatSession> findAssistantConversation(long userId, String appId, String pageKey) {
+        return jdbc.query("""
+                SELECT * FROM claude_chat_session
+                WHERE user_id = ? AND assistant_app_id = ? AND assistant_page_key = ?
+                ORDER BY last_seen_at DESC LIMIT 1
+                """, ROW, userId, appId, pageKey).stream().findFirst();
     }
 
     public void insert(ClaudeChatSession s) {
@@ -81,14 +112,15 @@ public class ClaudeChatSessionRepository {
                 INSERT INTO claude_chat_session
                   (id, user_id, cwd, title, sdk_session_id, engine, engines, api_base_url, auth_token, codex_home,
                    selected_model, codex_reasoning_effort, codex_speed, execution_policy, consult_evidence_systems,
-                   status, started_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   assistant_app_id, assistant_page_key, assistant_page_url, status, started_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 s.getId(), s.getUserId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
                 engine, s.getEngines() == null ? engine : s.getEngines(),
                 s.getApiBaseUrl(), s.getAuthToken(), s.getCodexHome(),
                 s.getSelectedModel(), s.getCodexReasoningEffort(), s.getCodexSpeed(),
                 s.getExecutionPolicy(), s.getConsultEvidenceSystems(),
+                s.getAssistantAppId(), s.getAssistantPageKey(), s.getAssistantPageUrl(),
                 s.getStatus().name(), s.getStartedAt(), s.getLastSeenAt());
     }
 
@@ -185,9 +217,12 @@ public class ClaudeChatSessionRepository {
     }
 
     public void deleteById(String id) {
+        jdbc.update("DELETE FROM claude_chat_turn_attachment WHERE session_id = ?", id);
+        jdbc.update("DELETE FROM claude_chat_attachment WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_queued_message WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_pending_sql_target WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_pending_sql WHERE session_id = ?", id);
+        jdbc.update("DELETE FROM claude_chat_session_affected_api WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_session_plan_state WHERE id = ?", id);
         jdbc.update("DELETE FROM claude_chat_session WHERE id = ?", id);
     }

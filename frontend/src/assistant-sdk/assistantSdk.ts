@@ -26,25 +26,36 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
   const externalLogin = !options.transport && options.wsUrl && !options.getAccessToken && options.externalLogin
     ? new AssistantExternalLoginClient(options.externalLogin)
     : undefined
-  const authentication = externalLogin ? {
-    authenticated: externalLogin.isAuthenticated(),
-    login: (username: string, password: string) => externalLogin.login(username, password),
-  } : undefined
-  const unmountWidget = (options.mountWidget ?? mountAssistantWidget)(root, {
-    visibility: options.visibility,
-    draggable: options.draggable ?? true,
-    positionStorageKey: `kai-assistant:position:${options.appId}:${options.user?.id ?? 'anonymous'}`,
-    authentication,
-  })
-  const transport = options.transport ?? (options.wsUrl ? new AssistantWebSocketTransport({
+  const webSocketTransport = !options.transport && options.wsUrl ? new AssistantWebSocketTransport({
     appId: options.appId,
     userId: options.user?.id,
     wsUrl: options.wsUrl,
     getAccessToken: options.getAccessToken ?? (() => externalLogin?.requireAccessToken()),
     authenticationRequired: Boolean(externalLogin),
     workspace: options.workspace,
+    projectKey: options.projectKey ?? options.appId,
     engine: options.engine,
-  }) : undefined)
+    page: options.page,
+  }) : undefined
+  const transport = options.transport ?? webSocketTransport
+  const feedbackArchive = webSocketTransport ?? (isFeedbackArchiveClient(transport) ? transport : undefined)
+  const authentication = externalLogin ? {
+    authenticated: externalLogin.isAuthenticated(),
+    login: async (username: string, password: string) => {
+      await externalLogin.login(username, password)
+      webSocketTransport?.resumeAfterAuthentication()
+    },
+  } : undefined
+  const unmountWidget = (options.mountWidget ?? mountAssistantWidget)(root, {
+    visibility: options.visibility,
+    draggable: options.draggable ?? true,
+    positionStorageKey: `kai-assistant:position:${options.appId}:${options.user?.id ?? 'anonymous'}`,
+    authentication,
+    feedbackArchive,
+    conversationHistory: transport?.loadEarlier
+      ? { loadEarlier: () => transport.loadEarlier?.() }
+      : undefined,
+  })
   let opened = false
   let usersRequested = false
   let activePreparation: AbortController | undefined
@@ -74,6 +85,7 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
     },
     updateContext: context => {
       currentContext = { ...currentContext, ...copyContext(context) }
+      transport?.updateContext?.(context)
     },
     registerProvider: provider => {
       providers.set(provider.id, provider)
@@ -106,7 +118,6 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
       root.removeEventListener('assistant-hidden', hidden)
       activePreparation?.abort('assistant-destroyed')
       transport?.destroy()
-      externalLogin?.clear()
       root.remove()
       providers.clear()
       singleton = undefined
@@ -118,7 +129,11 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
     root.dispatchEvent(new CustomEvent('kai-assistant-state', { detail }))
   }
   const submit = (event: Event) => {
-    const detail = (event as CustomEvent<{ mode: AssistantMode; text: string }>).detail
+    const detail = (event as CustomEvent<{
+      mode: AssistantMode
+      text: string
+      attachments?: import('./types').AssistantImageAttachment[]
+    }>).detail
     if (!transport) {
       emitTransportState({
         state: '配置缺失',
@@ -230,4 +245,14 @@ function copyContext(context: Pick<AssistantInitOptions, 'user' | 'page' | 'busi
 
 export function currentAssistant(): AssistantSdk | undefined {
   return singleton
+}
+
+function isFeedbackArchiveClient(value: unknown): value is import('./types').AssistantFeedbackArchiveClient {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<import('./types').AssistantFeedbackArchiveClient>
+  return typeof candidate.listSessions === 'function'
+    && typeof candidate.listCandidates === 'function'
+    && typeof candidate.listRevisions === 'function'
+    && typeof candidate.updateCandidate === 'function'
+    && typeof candidate.loadAttachment === 'function'
 }

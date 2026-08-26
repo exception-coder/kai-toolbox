@@ -85,6 +85,18 @@ public class ClaudeChatSchemaMigration {
         addColumn("subgroup_name", "TEXT");
         addColumn("favorite", "INTEGER NOT NULL DEFAULT 0");
         addColumn("user_id", "INTEGER");
+        addColumn("assistant_app_id", "TEXT");
+        addColumn("assistant_page_key", "TEXT");
+        addColumn("assistant_page_url", "TEXT");
+        try {
+            jdbc.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_claude_chat_assistant_page_binding
+                    ON claude_chat_session(user_id, assistant_app_id, assistant_page_key)
+                    WHERE user_id IS NOT NULL AND assistant_app_id IS NOT NULL AND assistant_page_key IS NOT NULL
+                    """);
+        } catch (Exception e) {
+            log.debug("[claude-chat] assistant 页面会话唯一索引迁移跳过：{}", e.getMessage());
+        }
         addPendingSqlColumn("ddl_evidence_status", "TEXT NOT NULL DEFAULT 'NOT_CHECKED'");
         addPendingSqlColumn("ddl_project", "TEXT");
         addPendingSqlColumn("ddl_baseline_path", "TEXT");
@@ -93,6 +105,18 @@ public class ClaudeChatSchemaMigration {
         addPendingSqlColumn("ddl_missing_tables", "TEXT");
         addPendingSqlColumn("ddl_checked_at", "INTEGER");
         addReviewSpaceColumn("token_ciphertext", "TEXT");
+        addProjectDependencyColumn("dependency_project_key", "TEXT");
+        addProjectDependencyColumn("relation_type", "TEXT NOT NULL DEFAULT 'DEPENDS_ON'");
+        try {
+            jdbc.update("""
+                    UPDATE claude_chat_project_dependency
+                    SET dependency_project_key = substr(dependency_project_path,
+                        max(instr(dependency_project_path, '\\'), instr(dependency_project_path, '/')) + 1)
+                    WHERE dependency_project_key IS NULL OR dependency_project_key = ''
+                    """);
+        } catch (Exception e) {
+            log.debug("[claude-chat] project dependency projectKey 回填跳过：{}", e.getMessage());
+        }
         // 兼容修复前已经创建的业务咨询会话：它们已有固定分组，但尚未持久化执行策略。
         try {
             jdbc.update("""
@@ -133,6 +157,16 @@ public class ClaudeChatSchemaMigration {
             log.info("[claude-chat] 迁移：claude_chat_review_space 已补 {} 列", column);
         } catch (Exception e) {
             log.debug("[claude-chat] review space {} 列迁移跳过：{}", column, e.getMessage());
+        }
+    }
+
+    /** 为存量长期项目依赖幂等补充关系列。 */
+    private void addProjectDependencyColumn(String column, String definition) {
+        try {
+            jdbc.execute("ALTER TABLE claude_chat_project_dependency ADD COLUMN " + column + " " + definition);
+            log.info("[claude-chat] 迁移：claude_chat_project_dependency 已补 {} 列", column);
+        } catch (Exception e) {
+            log.debug("[claude-chat] project dependency {} 列迁移跳过：{}", column, e.getMessage());
         }
     }
 }

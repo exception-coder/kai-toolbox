@@ -3,6 +3,8 @@ package com.exceptioncoder.toolbox.common.assistant;
 import com.exceptioncoder.toolbox.common.requirement.RequirementType;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /** Assistant 反馈候选写入外部共享数据库的稳定端口。 */
 public interface AssistantFeedbackStorePort {
@@ -14,6 +16,24 @@ public interface AssistantFeedbackStorePort {
      * @throws RuntimeException 外部存储不可用或写入失败
      */
     void saveCandidates(SaveCommand command);
+
+    Map<String, FeedbackCounts> summarizeCandidates(long creatorUserId, List<String> sessionIds);
+
+    CandidatePage listCandidates(CandidateQuery query);
+
+    RevisionPage listRevisions(RevisionQuery query);
+
+    FeedbackCandidateView updateCandidate(UpdateCandidateCommand command);
+
+    Optional<FeedbackAttachment> findCandidateAttachment(long creatorUserId, String sessionId,
+                                                         String candidateId, String attachmentId);
+
+    /** 编辑时发现客户端版本已落后，调用方应刷新后再提交。 */
+    final class ConcurrentFeedbackUpdateException extends RuntimeException {
+        public ConcurrentFeedbackUpdateException() {
+            super("反馈记录已被更新，请刷新后重试");
+        }
+    }
 
     /** 可持久化的用户反馈分类。 */
     enum FeedbackCategory {
@@ -66,6 +86,66 @@ public interface AssistantFeedbackStorePort {
      */
     record FeedbackCandidate(String id, long sourceWatermark, FeedbackCategory category,
                              RequirementType requirementType, String content, double confidence,
-                             String reason, long detectedAt) {
+                             String reason, long detectedAt, List<FeedbackAttachment> attachments) {
+        public FeedbackCandidate(String id, long sourceWatermark, FeedbackCategory category,
+                                 RequirementType requirementType, String content, double confidence,
+                                 String reason, long detectedAt) {
+            this(id, sourceWatermark, category, requirementType, content, confidence, reason,
+                    detectedAt, List.of());
+        }
+
+        public FeedbackCandidate {
+            attachments = attachments == null ? List.of() : List.copyOf(attachments);
+        }
+    }
+
+    record FeedbackAttachment(String id, String name, String mime, long size) {
+    }
+
+    record FeedbackCounts(long bug, long optimization, long requirement) {
+        public static FeedbackCounts empty() {
+            return new FeedbackCounts(0, 0, 0);
+        }
+    }
+
+    record CandidateQuery(long creatorUserId, String sessionId, FeedbackCategory category,
+                          Long beforeDetectedAt, String beforeId, int limit) {
+    }
+
+    record CandidatePage(List<FeedbackCandidateView> items, boolean hasMore) {
+        public CandidatePage {
+            items = items == null ? List.of() : List.copyOf(items);
+        }
+    }
+
+    record FeedbackCandidateView(String id, String sessionId, long sourceWatermark,
+                                 FeedbackCategory category, RequirementType requirementType,
+                                 String content, double confidence, String reason,
+                                 String pageUrl, String pageTitle, String status,
+                                 long detectedAt, long updateTime, int revisionNo,
+                                 FeedbackRevision aiOriginal, List<FeedbackAttachment> attachments) {
+        public FeedbackCandidateView {
+            attachments = attachments == null ? List.of() : List.copyOf(attachments);
+        }
+    }
+
+    record RevisionQuery(long creatorUserId, String sessionId, String candidateId,
+                         Integer beforeRevisionNo, int limit) {
+    }
+
+    record RevisionPage(List<FeedbackRevision> items, boolean hasMore) {
+        public RevisionPage {
+            items = items == null ? List.of() : List.copyOf(items);
+        }
+    }
+
+    record FeedbackRevision(int revisionNo, String source, Long editorUserId,
+                            FeedbackCategory category, RequirementType requirementType,
+                            String content, long createdAt) {
+    }
+
+    record UpdateCandidateCommand(long creatorUserId, String sessionId, String candidateId,
+                                  FeedbackCategory category, RequirementType requirementType,
+                                  String content, long expectedUpdateTime, long editedAt) {
     }
 }

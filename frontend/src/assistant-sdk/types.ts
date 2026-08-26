@@ -56,11 +56,77 @@ export interface AssistantWidgetAuthentication {
   login: (username: string, password: string) => Promise<void>
 }
 
+export type AssistantFeedbackCategory = 'BUG' | 'OPTIMIZATION' | 'REQUIREMENT'
+
+export interface AssistantFeedbackCounts {
+  bug: number
+  optimization: number
+  requirement: number
+}
+
+export interface AssistantFeedbackSession {
+  id: string
+  title: string
+  lastSeenAt: number
+  counts: AssistantFeedbackCounts
+}
+
+export interface AssistantFeedbackAttachment {
+  id: string
+  name: string
+  mime: string
+  size: number
+}
+
+export interface AssistantFeedbackRevision {
+  revisionNo: number
+  source: 'AI' | 'USER'
+  category: AssistantFeedbackCategory
+  requirementType: string
+  content: string
+  createdAt: number
+}
+
+export interface AssistantFeedbackCandidate {
+  id: string
+  sessionId: string
+  category: AssistantFeedbackCategory
+  requirementType: string
+  content: string
+  confidence: number
+  reason: string
+  pageUrl: string
+  pageTitle: string
+  detectedAt: number
+  updateTime: number
+  revisionNo: number
+  aiOriginal?: AssistantFeedbackRevision
+  attachments: AssistantFeedbackAttachment[]
+}
+
+export interface AssistantFeedbackArchiveClient {
+  listSessions: () => Promise<{ items: AssistantFeedbackSession[]; nextCursor?: string }>
+  listCandidates: (sessionId: string, category: AssistantFeedbackCategory) =>
+    Promise<{ items: AssistantFeedbackCandidate[]; nextCursor?: string }>
+  listRevisions: (sessionId: string, candidateId: string) =>
+    Promise<{ items: AssistantFeedbackRevision[]; nextCursor?: string }>
+  updateCandidate: (sessionId: string, candidate: AssistantFeedbackCandidate,
+    update: Pick<AssistantFeedbackCandidate, 'category' | 'requirementType' | 'content'>) =>
+    Promise<AssistantFeedbackCandidate>
+  loadAttachment: (sessionId: string, candidateId: string, attachmentId: string) => Promise<Blob>
+}
+
 export interface AssistantWidgetMountOptions {
   visibility?: AssistantVisibilityOptions
   draggable?: boolean
   positionStorageKey?: string
   authentication?: AssistantWidgetAuthentication
+  feedbackArchive?: AssistantFeedbackArchiveClient
+  conversationHistory?: AssistantConversationHistoryClient
+}
+
+export interface AssistantConversationHistoryClient {
+  loadEarlier: () => void
 }
 
 export interface AssistantInitOptions {
@@ -72,10 +138,12 @@ export interface AssistantInitOptions {
   wsUrl?: string
   /** 获取短期 Assistant ACCESS token；仅在建立 WS 时调用，不写入本地存储。 */
   getAccessToken?: () => string | undefined | Promise<string | undefined>
-  /** 内部试用模式：使用 Forge 账号跨域登录，只在 SDK 实例内存中保存 ACCESS token。 */
+  /** 内部试用模式：使用 Forge 账号跨域登录，ACCESS token 仅保存到当前标签页会话。 */
   externalLogin?: AssistantExternalLoginOptions
   /** 服务端咨询会话工作目录；外部宿主通常保持默认值。 */
   workspace?: string
+  /** Forge 受控项目键；外部宿主缺省使用 appId，由服务端解析为源码根。 */
+  projectKey?: string
   /** 默认执行引擎。 */
   engine?: 'codex' | 'claude'
   user?: AssistantUserContext
@@ -116,6 +184,23 @@ export interface AssistantSubmission {
   mode: AssistantMode
   text: string
   snapshot: AssistantContextSnapshot
+  attachments?: AssistantImageAttachment[]
+}
+
+/** 仅存在当前页面内存的待上传图片，禁止持久化或写入日志。 */
+export interface AssistantImageAttachment {
+  id: string
+  name: string
+  mime: string
+  size: number
+  file: File
+}
+
+export interface AssistantUploadedAttachment {
+  id: string
+  name: string
+  path: string
+  mime: string
 }
 
 export interface AssistantDraftSubmission {
@@ -160,6 +245,10 @@ export interface AssistantWidgetState {
   debugEntry?: AssistantDebugEntry
   detectedIntent?: 'BUG' | 'SUGGESTION'
   detectionConfidence?: number
+  historyLoading?: boolean
+  historyExhausted?: boolean
+  historyError?: string
+  transcriptMissing?: boolean
 }
 
 export interface AssistantTransport {
@@ -168,6 +257,8 @@ export interface AssistantTransport {
   saveDraft?: (submission: AssistantDraftSubmission) => void
   confirmDraft?: (draftId: string, engineerUserId?: number) => void
   listUsers?: () => void
+  updateContext?: (context: Pick<AssistantInitOptions, 'user' | 'page' | 'businessObject'>) => void
+  loadEarlier?: () => void
   interrupt?: () => void
   destroy: () => void
 }

@@ -7,16 +7,34 @@ interface ForgeLoginResponse {
   expiresIn: number
 }
 
-/** Forge 外部登录客户端；凭据只参与单次请求，ACCESS token 只保存在实例内存。 */
+interface PersistedExternalLogin {
+  accessToken: string
+  expiresAt: number
+}
+
+type LoginStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+
+const STORAGE_KEY_PREFIX = 'kai-assistant:external-login:'
+
+/** Forge 外部登录客户端；密码只参与单次请求，短期 ACCESS token 限于当前标签页。 */
 export class AssistantExternalLoginClient {
   private readonly options: AssistantExternalLoginOptions
   private readonly fetcher: Fetcher
+  private readonly storage?: LoginStorage
+  private readonly storageKey: string
   private accessToken?: string
   private expiresAt = 0
 
-  constructor(options: AssistantExternalLoginOptions, fetcher: Fetcher = globalThis.fetch.bind(globalThis)) {
+  constructor(
+    options: AssistantExternalLoginOptions,
+    fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+    storage: LoginStorage | undefined = resolveSessionStorage(),
+  ) {
     this.options = options
     this.fetcher = fetcher
+    this.storage = storage
+    this.storageKey = `${STORAGE_KEY_PREFIX}${options.loginUrl}`
+    this.restore()
   }
 
   async login(username: string, password: string): Promise<void> {
@@ -35,6 +53,7 @@ export class AssistantExternalLoginClient {
     const login = parseLoginResponse(body)
     this.accessToken = login.accessToken
     this.expiresAt = Date.now() + login.expiresIn * 1000
+    this.persist()
   }
 
   isAuthenticated(): boolean {
@@ -52,6 +71,48 @@ export class AssistantExternalLoginClient {
   clear(): void {
     this.accessToken = undefined
     this.expiresAt = 0
+    try {
+      this.storage?.removeItem(this.storageKey)
+    } catch {
+      // 浏览器拒绝会话存储时仍保持内存态可用。
+    }
+  }
+
+  private restore(): void {
+    try {
+      const raw = this.storage?.getItem(this.storageKey)
+      if (!raw) return
+      const restored = JSON.parse(raw) as unknown
+      if (!isRecord(restored) || typeof restored.accessToken !== 'string'
+          || typeof restored.expiresAt !== 'number' || restored.expiresAt <= Date.now()) {
+        this.clear()
+        return
+      }
+      this.accessToken = restored.accessToken
+      this.expiresAt = restored.expiresAt
+    } catch {
+      this.clear()
+    }
+  }
+
+  private persist(): void {
+    const persisted: PersistedExternalLogin = {
+      accessToken: this.accessToken as string,
+      expiresAt: this.expiresAt,
+    }
+    try {
+      this.storage?.setItem(this.storageKey, JSON.stringify(persisted))
+    } catch {
+      // sessionStorage 不可用时降级为当前实例内存态。
+    }
+  }
+}
+
+function resolveSessionStorage(): LoginStorage | undefined {
+  try {
+    return globalThis.sessionStorage
+  } catch {
+    return undefined
   }
 }
 

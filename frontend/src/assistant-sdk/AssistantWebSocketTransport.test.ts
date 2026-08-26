@@ -53,6 +53,38 @@ describe('AssistantWebSocketTransport', () => {
     transport.destroy()
   })
 
+  it('reconnects immediately after authentication and keeps the queued message', () => {
+    const sockets: FakeWebSocket[] = []
+    let accessToken: string | undefined
+    let requestedUrl = ''
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(), authenticationRequired: true,
+      getAccessToken: () => {
+        if (!accessToken) throw new Error('Forge 登录已失效，请重新登录')
+        return accessToken
+      },
+      webSocketFactory: url => {
+        requestedUrl = url
+        const socket = new FakeWebSocket()
+        sockets.push(socket)
+        return socket as unknown as WebSocket
+      },
+    })
+    transport.start(() => undefined)
+    transport.submit({ mode: 'QUESTION', text: '登录后继续发送', snapshot })
+
+    expect(sockets).toHaveLength(0)
+    accessToken = 'new-access-token'
+    transport.resumeAfterAuthentication()
+
+    expect(sockets).toHaveLength(1)
+    expect(new URL(requestedUrl).searchParams.get('access_token')).toBe('new-access-token')
+    sockets[0].open()
+    sockets[0].receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+    expect(sentByType(sockets[0], 'send')).toMatchObject({ text: '登录后继续发送' })
+    transport.destroy()
+  })
+
   it('resolves an access token only for the websocket handshake URL', () => {
     const socket = new FakeWebSocket()
     let requestedUrl = ''
@@ -79,7 +111,7 @@ describe('AssistantWebSocketTransport', () => {
     const sockets: FakeWebSocket[] = []
     const states: AssistantWidgetState[] = []
     const transport = new AssistantWebSocketTransport({
-      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      appId: 'ERP', projectKey: 'yoooni-one', wsUrl: '/assistant/ws', storage: memoryStorage(),
       webSocketFactory: () => {
         const socket = new FakeWebSocket()
         sockets.push(socket)
@@ -90,7 +122,9 @@ describe('AssistantWebSocketTransport', () => {
     transport.submit({ mode: 'QUESTION', text: '为什么无法审核？', snapshot })
 
     sockets[0].open()
-    expect(sent(sockets[0], 0)).toMatchObject({ type: 'open', engine: 'codex' })
+    expect(sent(sockets[0], 0)).toMatchObject({
+      type: 'open', engine: 'codex', projectKey: 'yoooni-one',
+    })
     sockets[0].receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
     expect(sentByType(sockets[0], 'assistantContextSave')).toMatchObject({
       sessionId: 'session-1', protocolVersion: '1.0',
@@ -105,6 +139,72 @@ describe('AssistantWebSocketTransport', () => {
     expect(states.at(-1)?.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'user', content: '为什么无法审核？' }),
       expect.objectContaining({ role: 'assistant', content: '## 原因\n\n状态不允许。', streaming: false }),
+    ]))
+    transport.destroy()
+  })
+
+  it('uploads pasted images after the session is ready and sends only server attachment references', async () => {
+    const socket = new FakeWebSocket()
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
+      id: 'att-1', name: 'screen.png', mime: 'image/png', size: 3,
+      path: 'D:/workspace/.kai-chat-attachments/session-1/screen.png',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    const states: AssistantWidgetState[] = []
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: 'wss://forge.example.com/api/claude-chat/consult/ws',
+      storage: memoryStorage(), getAccessToken: () => 'access-token', fetcher,
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    transport.start(state => states.push(state))
+    transport.submit({
+      mode: 'DIAGNOSE', text: '', snapshot,
+      attachments: [{
+        id: 'local-1', name: 'screen.png', mime: 'image/png', size: 3,
+        file: new File([new Uint8Array([1, 2, 3])], 'screen.png', { type: 'image/png' }),
+      }],
+    })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(sentByType(socket, 'send')).toMatchObject({
+      text: '',
+      attachments: [{
+        name: 'screen.png', mime: 'image/png',
+        path: 'D:/workspace/.kai-chat-attachments/session-1/screen.png',
+      }],
+    }))
+    const [url, request] = fetcher.mock.calls[0]
+    expect(url).toBe('https://forge.example.com/api/claude-chat/sessions/session-1/attachments')
+    expect(request?.headers).toEqual({ Authorization: 'Bearer access-token' })
+    expect(states.some(state => state.state === '正在上传图片')).toBe(true)
+    expect(states.some(state => state.submissionAccepted)).toBe(true)
+    transport.destroy()
+  })
+
+  it('restores the original submission when image upload fails', async () => {
+    const socket = new FakeWebSocket()
+    const states: AssistantWidgetState[] = []
+    const file = new File(['image'], 'screen.png', { type: 'image/png' })
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(),
+      fetcher: vi.fn(async () => new Response('{}', { status: 500 })),
+      webSocketFactory: () => socket as unknown as WebSocket,
+    })
+    transport.start(state => states.push(state))
+    transport.submit({
+      mode: 'BUG', text: '请看截图', snapshot,
+      attachments: [{ id: 'local-1', name: 'screen.png', mime: 'image/png', size: file.size, file }],
+    })
+    socket.open()
+    socket.receive({ type: 'ready', seq: 1, sessionId: 'session-1', status: 'IDLE', epoch: 'e1' })
+
+    await vi.waitFor(() => expect(states.at(-1)).toMatchObject({
+      state: '图片上传失败', failedSubmission: { text: '请看截图' },
+    }))
+    expect(states.at(-1)?.failedSubmission?.attachments?.[0].file).toBe(file)
+    expect(socket.sent.map(value => JSON.parse(value))).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'send' }),
     ]))
     transport.destroy()
   })

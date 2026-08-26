@@ -73,6 +73,19 @@ class ExternalLoginCorsConfigurationTest {
     }
 
     @Test
+    void allowsConfiguredOriginToReadAndEditFeedbackArchive() throws Exception {
+        MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN));
+
+        mvc.perform(options("/api/assistant/feedback-sessions/session-1/candidates/candidate-1")
+                        .header("Origin", ALLOWED_ORIGIN)
+                        .header("Access-Control-Request-Method", "PATCH")
+                        .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN))
+                .andExpect(header().string("Access-Control-Allow-Methods", "GET,PATCH,OPTIONS"));
+    }
+
+    @Test
     void doesNotOpenTheRegularLoginEndpoint() throws Exception {
         MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN));
 

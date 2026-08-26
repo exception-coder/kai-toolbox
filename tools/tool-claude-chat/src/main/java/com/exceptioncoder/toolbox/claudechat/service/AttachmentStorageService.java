@@ -2,6 +2,8 @@ package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.AttachmentView;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
+import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatAttachment;
+import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatAttachmentRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput;
 import lombok.extern.slf4j.Slf4j;
@@ -41,10 +43,17 @@ public class AttachmentStorageService {
 
     private final ClaudeChatProperties props;
     private final ClaudeChatSessionRepository repo;
+    private final ClaudeChatAttachmentRepository attachmentRepository;
 
-    public AttachmentStorageService(ClaudeChatProperties props, ClaudeChatSessionRepository repo) {
+    public AttachmentStorageService(ClaudeChatProperties props, ClaudeChatSessionRepository repo,
+                                    ClaudeChatAttachmentRepository attachmentRepository) {
         this.props = props;
         this.repo = repo;
+        this.attachmentRepository = attachmentRepository;
+    }
+
+    AttachmentStorageService(ClaudeChatProperties props, ClaudeChatSessionRepository repo) {
+        this(props, repo, null);
     }
 
     public AttachmentView store(String sessionId, MultipartFile file) throws IOException {
@@ -71,9 +80,16 @@ public class AttachmentStorageService {
 
         String mime = file.getContentType() != null ? file.getContentType()
                 : Files.probeContentType(target);
+        String attachmentId = "att_" + UUID.randomUUID();
+        long createdAt = System.currentTimeMillis();
+        if (attachmentRepository == null) {
+            throw new IllegalStateException("附件元数据仓储未初始化");
+        }
+        attachmentRepository.insert(new ClaudeChatAttachment(
+                attachmentId, sessionId, name, mime, file.getSize(), target.getFileName().toString(), createdAt));
         log.info("[claude-chat] 附件落盘 {} ({} bytes) -> {}", name, file.getSize(), target);
         return new AttachmentView(
-                "att_" + UUID.randomUUID().toString().substring(0, 8),
+                attachmentId,
                 name, mime, file.getSize(), target.toAbsolutePath().toString());
     }
 
@@ -90,7 +106,7 @@ public class AttachmentStorageService {
         List<ImageInput> images = new ArrayList<>();
         long totalBytes = 0;
         for (ImageReference reference : references) {
-            Path file = safeAttachmentFile(allowedRoot, reference.path());
+            Path file = resolveAttachmentFile(sessionId, allowedRoot, reference);
             String mime = imageMime(file, reference.mime());
             if (mime == null) continue;
             try {
@@ -108,6 +124,37 @@ public class AttachmentStorageService {
             }
         }
         return List.copyOf(images);
+    }
+
+    /** 通过逻辑附件 ID 解析归档图片；绝对路径不离开服务端。 */
+    public ArchivedAttachment loadArchived(String sessionId, String attachmentId) {
+        ClaudeChatAttachment attachment = attachmentRepository.find(sessionId, attachmentId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ATTACHMENT_NOT_FOUND"));
+        String cwd = repo.findById(sessionId).map(session -> session.getCwd())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND"));
+        Path root = Path.of(cwd, ATTACH_DIR, sessionId).toAbsolutePath().normalize();
+        Path file = root.resolve(attachment.storagePath()).toAbsolutePath().normalize();
+        if (!file.startsWith(root) || !Files.isRegularFile(file) || !Files.isReadable(file)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "ATTACHMENT_FILE_MISSING");
+        }
+        String mime = imageMime(file, attachment.mime());
+        if (mime == null) {
+            throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "UNSUPPORTED_IMAGE_TYPE");
+        }
+        return new ArchivedAttachment(attachment, file, mime);
+    }
+
+    private Path resolveAttachmentFile(String sessionId, Path allowedRoot, ImageReference reference) {
+        if (reference.id() != null && !reference.id().isBlank()) {
+            ClaudeChatAttachment attachment = attachmentRepository.find(sessionId, reference.id())
+                    .orElseThrow(() -> new IllegalArgumentException("附件不属于当前会话：" + reference.name()));
+            Path file = allowedRoot.resolve(attachment.storagePath()).toAbsolutePath().normalize();
+            if (!file.startsWith(allowedRoot) || !Files.isRegularFile(file)) {
+                throw new IllegalArgumentException("附件文件不可用：" + reference.name());
+            }
+            return file;
+        }
+        return safeAttachmentFile(allowedRoot, reference.path());
     }
 
     /** 公开环境检测只读检查，不创建目录或测试文件。 */
@@ -211,7 +258,14 @@ public class AttachmentStorageService {
         return dot >= 0 ? name.substring(dot + 1).toLowerCase() : "";
     }
 
-    public record ImageReference(String name, String path, String mime) {}
+    public record ImageReference(String id, String name, String path, String mime) {
+        public ImageReference(String name, String path, String mime) {
+            this(null, name, path, mime);
+        }
+    }
+
+    public record ArchivedAttachment(ClaudeChatAttachment metadata, Path file, String mime) {
+    }
 
     public record Capability(boolean available, String message) {}
 }

@@ -36,6 +36,12 @@ public class ClaudeChatSession {
     private String executionPolicy;
     /** 咨询会话允许的证据系统 JSON 数组，仅包含 erp/srm/scm。 */
     private String consultEvidenceSystems;
+    /** 彩虹胶囊来源系统；与认证用户、页面键共同确定固定会话。 */
+    private String assistantAppId;
+    /** 规范化页面 URL 键；仅业务咨询绑定会话填写。 */
+    private String assistantPageKey;
+    /** 最近一次声明的规范化页面 URL，仅用于上下文诊断。 */
+    private String assistantPageUrl;
     /** 会话所属分组名（用户自定义，如 "toolbox"）；空=未分组。后端持久化，跨端可见。 */
     private String groupName;
     /** 二级需求分组；一级 groupName 通常表示系统/项目。 */

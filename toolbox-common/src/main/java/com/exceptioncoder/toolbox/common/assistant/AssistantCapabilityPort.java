@@ -73,7 +73,19 @@ public interface AssistantCapabilityPort {
     }
 
     /** 服务端读取的一条会话事实。 */
-    record ConversationMessage(long sequence, String role, String content) {
+    record ConversationMessage(long sequence, String role, String content,
+                               List<ConversationAttachment> attachments) {
+        public ConversationMessage(long sequence, String role, String content) {
+            this(sequence, role, content, List.of());
+        }
+
+        public ConversationMessage {
+            attachments = attachments == null ? List.of() : List.copyOf(attachments);
+        }
+    }
+
+    /** 已落盘且归属于该用户轮次的附件安全元数据。 */
+    record ConversationAttachment(String id, String name, String mime, long size) {
     }
 
     /** 一条新增用户消息的受控意图和反馈分类结果。 */

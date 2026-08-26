@@ -17,5 +17,32 @@ CREATE TABLE IF NOT EXISTS assistant_feedback_candidate (
     update_time           BIGINT NOT NULL,
     UNIQUE KEY uk_assistant_feedback_source (source_system, session_id, source_watermark),
     KEY idx_assistant_feedback_category (feedback_category, candidate_status, detected_at),
-    KEY idx_assistant_feedback_creator (creator_user_id, detected_at)
+    KEY idx_assistant_feedback_creator (creator_user_id, detected_at),
+    KEY idx_assistant_feedback_session_owner
+        (creator_user_id, session_id, feedback_category, detected_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS assistant_feedback_candidate_revision (
+    id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+    candidate_id      CHAR(36) NOT NULL,
+    revision_no       INT NOT NULL,
+    revision_source   VARCHAR(16) NOT NULL,
+    editor_user_id    BIGINT NULL,
+    feedback_category VARCHAR(32) NOT NULL,
+    requirement_type  VARCHAR(32) NOT NULL,
+    feedback_content  TEXT NOT NULL,
+    create_time       BIGINT NOT NULL,
+    UNIQUE KEY uk_assistant_feedback_revision (candidate_id, revision_no),
+    KEY idx_assistant_feedback_revision_list (candidate_id, revision_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS assistant_feedback_candidate_attachment (
+    candidate_id  CHAR(36) NOT NULL,
+    attachment_id VARCHAR(100) NOT NULL,
+    original_name VARCHAR(255) NOT NULL,
+    mime_type     VARCHAR(100) NOT NULL,
+    size_bytes    BIGINT NOT NULL,
+    create_time   BIGINT NOT NULL,
+    PRIMARY KEY (candidate_id, attachment_id),
+    KEY idx_assistant_feedback_attachment (attachment_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

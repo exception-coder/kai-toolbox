@@ -4,11 +4,14 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.MessagePage;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatAttachmentRepository;
+import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatAttachment;
 import com.exceptioncoder.toolbox.common.assistant.AssistantCapabilityPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -29,13 +32,23 @@ public class ClaudeChatConversationDeltaReader {
     private final ClaudeChatSessionRepository sessionRepository;
     private final SessionHistoryService historyService;
     private final ObjectMapper mapper;
+    private final ClaudeChatAttachmentRepository attachmentRepository;
+
+    @Autowired
+    public ClaudeChatConversationDeltaReader(ClaudeChatSessionRepository sessionRepository,
+                                             SessionHistoryService historyService,
+                                             ObjectMapper mapper,
+                                             ClaudeChatAttachmentRepository attachmentRepository) {
+        this.sessionRepository = sessionRepository;
+        this.historyService = historyService;
+        this.mapper = mapper;
+        this.attachmentRepository = attachmentRepository;
+    }
 
     public ClaudeChatConversationDeltaReader(ClaudeChatSessionRepository sessionRepository,
                                              SessionHistoryService historyService,
                                              ObjectMapper mapper) {
-        this.sessionRepository = sessionRepository;
-        this.historyService = historyService;
-        this.mapper = mapper;
+        this(sessionRepository, historyService, mapper, null);
     }
 
     /** 读取指定水位之后的首个有界批次，保留较老增量以避免跳跃丢失。 */
@@ -80,6 +93,12 @@ public class ClaudeChatConversationDeltaReader {
                 warnings.add("会话段 " + sdkSessionId + " 的 transcript 已丢失");
                 continue;
             }
+            Map<String, List<ClaudeChatAttachment>> attachmentsByTurn = attachmentRepository == null
+                    ? Map.of()
+                    : attachmentRepository.findByTurns(session.getId(), page.items().stream()
+                            .map(ChatMessageView::turnId)
+                            .filter(value -> value != null && !value.isBlank())
+                            .distinct().toList());
             for (ChatMessageView item : page.items()) {
                 String content = content(item);
                 if (content == null || content.isBlank()) {
@@ -87,7 +106,9 @@ public class ClaudeChatConversationDeltaReader {
                 }
                 long timestamp = item.ts() != null ? item.ts() : session.getStartedAt() + fallbackOffset++;
                 collected.add(new TimedConversationEntry(
-                        timestamp, collected.size(), item.kind(), truncate(content, MAX_ENTRY_CHARS)));
+                        timestamp, collected.size(), item.kind(), truncate(content, MAX_ENTRY_CHARS),
+                        toConversationAttachments(item.turnId() == null
+                                ? List.of() : attachmentsByTurn.get(item.turnId()))));
             }
         }
         collected.sort(Comparator.comparingLong(TimedConversationEntry::timestamp)
@@ -147,7 +168,7 @@ public class ClaudeChatConversationDeltaReader {
             tie = item.timestamp() == previousTimestamp ? tie + 1 : 0;
             previousTimestamp = item.timestamp();
             entries.add(new AssistantCapabilityPort.ConversationMessage(
-                    item.timestamp() * 1_000 + tie, item.role(), item.content()));
+                    item.timestamp() * 1_000 + tie, item.role(), item.content(), item.attachments()));
         }
         return entries;
     }
@@ -164,7 +185,15 @@ public class ClaudeChatConversationDeltaReader {
         return value.length() <= maxChars ? value : value.substring(0, maxChars) + "\n…（已截断）";
     }
 
-    private record TimedConversationEntry(long timestamp, long stableOrder, String role, String content) {
+    private List<AssistantCapabilityPort.ConversationAttachment> toConversationAttachments(
+            List<ClaudeChatAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) return List.of();
+        return attachments.stream().map(attachment -> new AssistantCapabilityPort.ConversationAttachment(
+                attachment.id(), attachment.name(), attachment.mime(), attachment.size())).toList();
+    }
+
+    private record TimedConversationEntry(long timestamp, long stableOrder, String role, String content,
+                                          List<AssistantCapabilityPort.ConversationAttachment> attachments) {
     }
 
     /** 一个不会跳过较老消息的有界会话增量批次。 */

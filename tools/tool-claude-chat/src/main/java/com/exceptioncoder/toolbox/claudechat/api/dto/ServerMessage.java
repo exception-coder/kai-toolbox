@@ -188,7 +188,11 @@ public sealed interface ServerMessage
      * @param path 服务端本地绝对路径
      * @param mime 文件媒体类型
      */
-    record QueuedAttachment(String name, String path, String mime) {}
+    record QueuedAttachment(String id, String name, String path, String mime) {
+        public QueuedAttachment(String name, String path, String mime) {
+            this(null, name, path, mime);
+        }
+    }
 
     record BackgroundTaskInfo(String taskId, String taskType, String description) {}
 

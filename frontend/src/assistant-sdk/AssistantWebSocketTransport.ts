@@ -5,6 +5,12 @@ import type {
   AssistantDraftSubmission,
   AssistantSubmission,
   AssistantTransport,
+  AssistantUploadedAttachment,
+  AssistantFeedbackArchiveClient,
+  AssistantFeedbackCandidate,
+  AssistantFeedbackCategory,
+  AssistantInitOptions,
+  AssistantPageContext,
   AssistantWidgetState,
 } from './types'
 import { createAssistantDebugEntry } from './assistantDebugLog'
@@ -14,6 +20,11 @@ import {
   resolveModuleIdentity,
   type AssistantModuleIdentity,
 } from './moduleContext'
+import {
+  assistantPageStorageSuffix,
+  resolveAssistantPageIdentity,
+  type AssistantPageIdentity,
+} from './assistantPageIdentity'
 
 const MAX_RECONNECT_DELAY_MS = 30_000
 const BASE_RECONNECT_DELAY_MS = 500
@@ -26,8 +37,11 @@ export interface AssistantWebSocketTransportOptions {
   getAccessToken?: () => string | undefined | Promise<string | undefined>
   authenticationRequired?: boolean
   workspace?: string
+  projectKey?: string
   engine?: 'codex' | 'claude'
+  page?: AssistantPageContext
   webSocketFactory?: (url: string) => WebSocket
+  fetcher?: typeof fetch
   storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 }
 
@@ -35,13 +49,16 @@ interface PendingSubmission {
   id: string
   submission: AssistantSubmission
   createdAt: number
+  uploadedAttachments?: AssistantUploadedAttachment[]
 }
 
 interface PersistedConversation {
+  projectKey?: string
+  pageKey?: string
   sessionId?: string
   lastSeq: number
   epoch?: string
-  messages: AssistantConversationMessage[]
+  messages?: AssistantConversationMessage[]
   pending?: PendingSubmission[]
   awaitingQueueAck?: PendingSubmission[]
   draftId?: string
@@ -71,6 +88,12 @@ type IncomingMessage = {
   requestId?: string
 }
 
+interface ConversationHistoryPage {
+  items: AssistantConversationMessage[]
+  nextBefore?: number | null
+  transcriptMissing: boolean
+}
+
 interface ModuleContextState {
   status: 'loading' | 'hit' | 'miss'
   summary?: string
@@ -80,9 +103,9 @@ interface ModuleContextState {
 }
 
 /** 框架无关的 Assistant WS 客户端，负责会话、水位、重连和持久排队。 */
-export class AssistantWebSocketTransport implements AssistantTransport {
+export class AssistantWebSocketTransport implements AssistantTransport, AssistantFeedbackArchiveClient {
   private readonly options: AssistantWebSocketTransportOptions
-  private readonly storageKey: string
+  private storageKey: string
   private listener: (state: AssistantWidgetState) => void = () => undefined
   private socket?: WebSocket
   private sessionId?: string
@@ -107,23 +130,123 @@ export class AssistantWebSocketTransport implements AssistantTransport {
   private moduleContextRequests = new Map<string, AssistantModuleIdentity>()
   private moduleContextRequestTimers = new Map<string, number>()
   private activeModuleExploration?: AssistantModuleIdentity
+  private uploadingSubmissionId?: string
+  private pageIdentity?: AssistantPageIdentity
+  private queuedPageContext?: AssistantPageContext
+  private historyBefore?: number | null
+  private historySessionId?: string
+  private historyLoading = false
+  private historyExhausted = false
+  private historyError?: string
+  private transcriptMissing = false
+  private started = false
 
   constructor(options: AssistantWebSocketTransportOptions) {
     this.options = options
-    this.storageKey = `kai-assistant:ws:${options.appId}:${options.userId ?? 'anonymous'}`
+    this.pageIdentity = resolveAssistantPageIdentity(options.appId, options.page)
+    this.storageKey = this.resolveStorageKey()
     this.restore()
   }
 
   start(listener: (state: AssistantWidgetState) => void): void {
+    this.started = true
     this.listener = listener
     this.debug('connection', 'Transport 已初始化')
     this.emit(this.messages.length > 0 ? '已恢复' : '已就绪')
+    if (this.pageIdentity) this.connect()
+  }
+
+  updateContext(context: Pick<AssistantInitOptions, 'user' | 'page' | 'businessObject'>): void {
+    if (!Object.hasOwn(context, 'page')) return
+    const page = context.page
+    if (this.running || this.pending.length > 0 || this.awaitingQueueAck.size > 0) {
+      this.queuedPageContext = page
+      return
+    }
+    this.switchPage(page)
+  }
+
+  loadEarlier(): void {
+    if (!this.sessionId || this.historyLoading || this.historyExhausted) return
+    void this.loadHistory(false)
+  }
+
+  async listSessions() {
+    return this.apiJson<{ items: import('./types').AssistantFeedbackSession[]; nextCursor?: string }>(
+      '/api/assistant/feedback-sessions')
+  }
+
+  async listCandidates(sessionId: string, category: AssistantFeedbackCategory) {
+    return this.apiJson<{ items: AssistantFeedbackCandidate[]; nextCursor?: string }>(
+      `/api/assistant/feedback-sessions/${encodeURIComponent(sessionId)}/candidates?category=${category}`)
+  }
+
+  async listRevisions(sessionId: string, candidateId: string) {
+    return this.apiJson<{ items: import('./types').AssistantFeedbackRevision[]; nextCursor?: string }>(
+      `/api/assistant/feedback-sessions/${encodeURIComponent(sessionId)}/candidates/${encodeURIComponent(candidateId)}/revisions`)
+  }
+
+  async updateCandidate(sessionId: string, candidate: AssistantFeedbackCandidate,
+    update: Pick<AssistantFeedbackCandidate, 'category' | 'requirementType' | 'content'>) {
+    return this.apiJson<AssistantFeedbackCandidate>(
+      `/api/assistant/feedback-sessions/${encodeURIComponent(sessionId)}/candidates/${encodeURIComponent(candidate.id)}`,
+      { method: 'PATCH', body: JSON.stringify({ ...update, expectedUpdateTime: candidate.updateTime }) },
+    )
+  }
+
+  async loadAttachment(sessionId: string, candidateId: string, attachmentId: string): Promise<Blob> {
+    const response = await this.apiFetch(
+      `/api/assistant/feedback-sessions/${encodeURIComponent(sessionId)}/candidates/${encodeURIComponent(candidateId)}`
+      + `/attachments/${encodeURIComponent(attachmentId)}`)
+    return response.blob()
+  }
+
+  private async apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+    return (await this.apiFetch(path, init)).json() as Promise<T>
+  }
+
+  private async apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+    const token = await this.options.getAccessToken?.()
+    if (this.options.authenticationRequired && !token) {
+      throw new AssistantUploadAuthenticationError('Forge 登录已失效，请重新登录')
+    }
+    const headers = new Headers(init.headers)
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    if (init.body) headers.set('Content-Type', 'application/json')
+    const response = await (this.options.fetcher ?? fetch)(resolveAssistantApiUrl(this.options.wsUrl, path), {
+      ...init, headers,
+    })
+    if (!response.ok) throw new Error(await assistantApiError(response))
+    return response
+  }
+
+  resumeAfterAuthentication(): void {
+    if (this.destroyed) return
+    if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = undefined
+    this.reconnectAttempts = 0
+    this.connectionVersion += 1
+    const socket = this.socket
+    this.socket = undefined
+    this.connecting = false
+    socket?.close(1000, 'assistant authentication refreshed')
+    this.connect()
   }
 
   submit(submission: AssistantSubmission): void {
+    const submissionIdentity = resolveAssistantPageIdentity(this.options.appId, submission.snapshot.page)
+    if (submissionIdentity && submissionIdentity.pageKey !== this.pageIdentity?.pageKey
+        && !this.running && this.pending.length === 0 && this.awaitingQueueAck.size === 0) {
+      this.switchPage(submission.snapshot.page)
+    }
     const pending = { id: createId(), submission, createdAt: Date.now() }
     this.pending.push(pending)
-    this.messages.push({ id: `user-${pending.id}`, role: 'user', content: submission.text, timestamp: pending.createdAt })
+    this.messages.push({
+      id: `user-${pending.id}`,
+      role: 'user',
+      content: submission.text || imageMessageLabel(submission.attachments?.length ?? 0),
+      timestamp: pending.createdAt,
+    })
     this.persist()
     this.debug('send', '请求已进入发送流程', { mode: submission.mode })
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
@@ -245,7 +368,11 @@ export class AssistantWebSocketTransport implements AssistantTransport {
     } else {
       this.send({
         type: 'open', cwd: this.options.workspace ?? '.', mode: 'plan',
+        projectKey: this.options.projectKey,
         engine: this.options.engine ?? 'codex', consultEvidenceSystems: [],
+        assistantAppId: this.pageIdentity?.appId,
+        assistantPageKey: this.pageIdentity?.pageKey,
+        assistantPageUrl: this.pageIdentity?.pageUrl,
       })
     }
   }
@@ -297,9 +424,12 @@ export class AssistantWebSocketTransport implements AssistantTransport {
         this.running = message.status?.toUpperCase() === 'RUNNING'
         this.resendAwaitingQueueAck()
         this.flushPendingCommands()
-        this.flushPending()
-        if (!this.running && this.messages.length > 0) this.requestConversationAnalysis()
-        this.emit(this.running ? '回复中' : '已就绪')
+        if (this.pageIdentity && this.sessionId && this.historySessionId !== this.sessionId) {
+          this.emit('正在载入近期消息')
+          void this.loadHistory(true).finally(() => this.completeReady())
+        } else {
+          this.completeReady()
+        }
         break
       case 'assistantDelta':
         this.running = true
@@ -316,6 +446,7 @@ export class AssistantWebSocketTransport implements AssistantTransport {
           ? '已中止'
           : this.backgroundTaskCount > 0 ? '后台处理中' : '已完成')
         this.flushPending()
+        this.applyQueuedPageContext()
         break
       case 'backgroundTasks':
         this.backgroundTaskCount = message.tasks?.length ?? 0
@@ -352,14 +483,102 @@ export class AssistantWebSocketTransport implements AssistantTransport {
     }
   }
 
+  private completeReady(): void {
+    this.flushPending()
+    if (!this.running && this.messages.length > 0) this.requestConversationAnalysis()
+    this.emit(this.running ? '回复中' : '已就绪')
+  }
+
+  private async loadHistory(reset: boolean): Promise<void> {
+    const sessionId = this.sessionId
+    if (!sessionId || this.historyLoading) return
+    this.historyLoading = true
+    this.historyError = undefined
+    if (reset) {
+      this.historyBefore = undefined
+      this.historyExhausted = false
+      this.transcriptMissing = false
+    }
+    this.emit(reset ? '正在载入近期消息' : (this.running ? '回复中' : '正在载入更早消息'))
+    try {
+      const params = new URLSearchParams({ limit: '30' })
+      if (!reset && this.historyBefore != null) params.set('before', String(this.historyBefore))
+      const page = await this.apiJson<ConversationHistoryPage>(
+        `/api/assistant/conversations/${encodeURIComponent(sessionId)}/messages?${params.toString()}`)
+      if (sessionId !== this.sessionId) return
+      this.messages = mergeConversationMessages(page.items, this.messages, reset)
+      this.historyBefore = page.nextBefore
+      this.historyExhausted = page.nextBefore == null || page.nextBefore <= 0 || page.items.length === 0
+      this.transcriptMissing = page.transcriptMissing
+      this.historySessionId = sessionId
+      this.historyError = undefined
+    } catch (error) {
+      if (sessionId !== this.sessionId) return
+      this.historyError = error instanceof Error ? error.message : '历史消息加载失败'
+    } finally {
+      if (sessionId === this.sessionId) {
+        this.historyLoading = false
+        this.emit(this.running ? '回复中' : '已就绪')
+      }
+    }
+  }
+
+  private switchPage(page?: AssistantPageContext): void {
+    const identity = resolveAssistantPageIdentity(this.options.appId, page)
+    if (identity?.pageKey === this.pageIdentity?.pageKey) return
+    this.persist()
+    this.pageIdentity = identity
+    this.storageKey = this.resolveStorageKey()
+    this.sessionId = undefined
+    this.lastSeq = 0
+    this.epoch = undefined
+    this.messages = []
+    this.pending = []
+    this.awaitingQueueAck.clear()
+    this.draftId = undefined
+    this.idempotencyKeys = {}
+    this.historyBefore = undefined
+    this.historySessionId = undefined
+    this.historyExhausted = false
+    this.historyError = undefined
+    this.transcriptMissing = false
+    this.restore()
+    this.connectionVersion += 1
+    const socket = this.socket
+    this.socket = undefined
+    this.connecting = false
+    socket?.close(1000, 'assistant page changed')
+    this.emit('正在载入页面会话')
+    if (this.started && identity) this.connect()
+  }
+
+  private applyQueuedPageContext(): void {
+    if (!this.queuedPageContext || this.running || this.pending.length > 0 || this.awaitingQueueAck.size > 0) return
+    const page = this.queuedPageContext
+    this.queuedPageContext = undefined
+    this.switchPage(page)
+  }
+
+  private resolveStorageKey(): string {
+    return `kai-assistant:ws:${this.options.appId}:${this.options.userId ?? 'anonymous'}`
+      + `:${assistantPageStorageSuffix(this.pageIdentity)}`
+  }
+
   private flushPending(): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.sessionId || this.pending.length === 0) return
+    const candidate = this.pending[0]
+    if (!candidate || !this.prepareModuleContext(candidate)) return
+    if (candidate.submission.attachments?.length && !candidate.uploadedAttachments) {
+      if (this.uploadingSubmissionId === candidate.id) return
+      this.uploadingSubmissionId = candidate.id
+      this.emit('正在上传图片')
+      void this.uploadSubmissionAttachments(candidate)
+      return
+    }
     if (this.running || this.backgroundTaskCount > 0) {
       this.flushPendingAsQueue()
       return
     }
-    const candidate = this.pending[0]
-    if (!candidate || !this.prepareModuleContext(candidate)) return
     const first = this.pending.shift()
     if (!first) return
     this.sendSubmission(first)
@@ -388,6 +607,7 @@ export class AssistantWebSocketTransport implements AssistantTransport {
     this.sendContextSave(item)
     this.send({
       type: 'send', text: submission.text,
+      attachments: item.uploadedAttachments,
       developerInstructions: buildAssistantDeveloperInstructions(submission.mode, submission.snapshot),
       assistant: {
         protocolVersion: submission.snapshot.protocolVersion,
@@ -404,8 +624,50 @@ export class AssistantWebSocketTransport implements AssistantTransport {
     this.sendContextSave(item)
     this.send({
       type: 'queue', id: item.id, text: item.submission.text,
-      displayText: item.submission.text, developerInstructions, createdAt: item.createdAt,
+      displayText: item.submission.text || imageMessageLabel(item.uploadedAttachments?.length ?? 0),
+      developerInstructions, attachments: item.uploadedAttachments, createdAt: item.createdAt,
     })
+  }
+
+  private async uploadSubmissionAttachments(item: PendingSubmission): Promise<void> {
+    try {
+      if (!this.sessionId) throw new Error('会话尚未建立，无法上传图片')
+      const token = await this.options.getAccessToken?.()
+      if (this.options.authenticationRequired && !token) {
+        throw new AssistantUploadAuthenticationError('Forge 登录已失效，请重新登录')
+      }
+      const fetcher = this.options.fetcher ?? fetch
+      const uploaded: AssistantUploadedAttachment[] = []
+      for (const attachment of item.submission.attachments ?? []) {
+        const body = new FormData()
+        body.append('file', attachment.file, attachment.name)
+        const headers = token ? { Authorization: `Bearer ${token}` } : undefined
+        const response = await fetcher(resolveAttachmentUploadUrl(this.options.wsUrl, this.sessionId), {
+          method: 'POST', headers, body,
+        })
+        if (response.status === 401) throw new AssistantUploadAuthenticationError('Forge 登录已失效，请重新登录')
+        if (!response.ok) throw new Error(await attachmentUploadError(response))
+        uploaded.push(parseUploadedAttachment(await response.json()))
+      }
+      item.uploadedAttachments = uploaded
+      this.uploadingSubmissionId = undefined
+      this.persist()
+      this.listener({ submissionAccepted: true })
+      this.flushPending()
+    } catch (error) {
+      this.uploadingSubmissionId = undefined
+      this.pending = this.pending.filter(pending => pending.id !== item.id)
+      this.messages = this.messages.filter(message => message.id !== `user-${item.id}`)
+      this.persist()
+      const authenticationRequired = error instanceof AssistantUploadAuthenticationError
+      this.listener({
+        state: authenticationRequired ? '认证失败' : '图片上传失败',
+        message: error instanceof Error ? error.message : '图片上传失败，请重试',
+        messages: this.messages.map(message => ({ ...message })),
+        failedSubmission: item.submission,
+        authenticationRequired,
+      })
+    }
   }
 
   private resendAwaitingQueueAck(): void {
@@ -645,6 +907,10 @@ export class AssistantWebSocketTransport implements AssistantTransport {
     this.listener({
       state, message, queueSize: this.queueSize, draftId: this.draftId,
       messages: this.messages.map(item => ({ ...item })),
+      historyLoading: this.historyLoading,
+      historyExhausted: this.historyExhausted,
+      historyError: this.historyError,
+      transcriptMissing: this.transcriptMissing,
       authenticationRequired,
       detectedIntent,
       detectionConfidence,
@@ -658,10 +924,18 @@ export class AssistantWebSocketTransport implements AssistantTransport {
       const raw = storage.getItem(this.storageKey)
       if (!raw) return
       const persisted = JSON.parse(raw) as PersistedConversation
-      this.sessionId = persisted.sessionId
-      this.lastSeq = persisted.lastSeq || 0
-      this.epoch = persisted.epoch
-      this.messages = Array.isArray(persisted.messages) ? persisted.messages : []
+      if (this.options.projectKey && persisted.projectKey !== this.options.projectKey) {
+        storage.removeItem(this.storageKey)
+        return
+      }
+      if (this.pageIdentity && persisted.pageKey !== this.pageIdentity.pageKey) {
+        storage.removeItem(this.storageKey)
+        return
+      }
+      this.sessionId = this.pageIdentity ? undefined : persisted.sessionId
+      this.lastSeq = this.pageIdentity ? 0 : persisted.lastSeq || 0
+      this.epoch = this.pageIdentity ? undefined : persisted.epoch
+      this.messages = []
       this.pending = Array.isArray(persisted.pending) ? persisted.pending : []
       this.awaitingQueueAck = new Map((persisted.awaitingQueueAck ?? []).map(item => [item.id, item]))
       this.draftId = persisted.draftId
@@ -676,8 +950,11 @@ export class AssistantWebSocketTransport implements AssistantTransport {
     if (!storage) return
     try {
       storage.setItem(this.storageKey, JSON.stringify({
-        sessionId: this.sessionId, lastSeq: this.lastSeq, epoch: this.epoch, messages: this.messages,
-        pending: this.pending, awaitingQueueAck: [...this.awaitingQueueAck.values()],
+        projectKey: this.options.projectKey,
+        pageKey: this.pageIdentity?.pageKey,
+        sessionId: this.sessionId, lastSeq: this.lastSeq, epoch: this.epoch,
+        pending: this.pending.map(toPersistedPending).filter(isPresent),
+        awaitingQueueAck: [...this.awaitingQueueAck.values()].map(toPersistedPending).filter(isPresent),
         draftId: this.draftId, idempotencyKeys: this.idempotencyKeys,
       } satisfies PersistedConversation))
     } catch {
@@ -701,6 +978,88 @@ function resolveWebSocketUrl(value: string, accessToken?: string): string {
   if (accessToken) url.searchParams.set('access_token', accessToken)
   return url.toString()
 }
+
+function resolveAttachmentUploadUrl(wsUrl: string, sessionId: string): string {
+  const url = new URL(wsUrl, window.location.href)
+  url.protocol = url.protocol === 'wss:' || url.protocol === 'https:' ? 'https:' : 'http:'
+  url.pathname = `/api/claude-chat/sessions/${encodeURIComponent(sessionId)}/attachments`
+  url.search = ''
+  url.hash = ''
+  return url.toString()
+}
+
+function resolveAssistantApiUrl(wsUrl: string, path: string): string {
+  const url = new URL(wsUrl, window.location.href)
+  url.protocol = url.protocol === 'wss:' || url.protocol === 'https:' ? 'https:' : 'http:'
+  url.pathname = path
+  url.search = path.includes('?') ? path.slice(path.indexOf('?')) : ''
+  if (url.search) url.pathname = path.slice(0, path.indexOf('?'))
+  url.hash = ''
+  return url.toString()
+}
+
+async function assistantApiError(response: Response): Promise<string> {
+  if (response.status === 401) return 'Forge 登录已失效，请重新登录'
+  if (response.status === 409) return '该记录已被更新，请刷新后重试'
+  try {
+    const body = await response.json() as { message?: unknown; detail?: unknown }
+    const message = typeof body.message === 'string' ? body.message : body.detail
+    if (typeof message === 'string' && message.trim()) return message
+  } catch { /* 使用稳定状态码提示。 */ }
+  return `Assistant 请求失败（HTTP ${response.status}）`
+}
+
+async function attachmentUploadError(response: Response): Promise<string> {
+  if (response.status === 413) return '图片过大，请压缩后重试'
+  if (response.status === 415) return '图片格式不受支持'
+  if (response.status === 403) return '当前账号不能向该会话上传图片'
+  try {
+    const body = await response.json() as { message?: unknown; detail?: unknown }
+    const message = typeof body.message === 'string' ? body.message : body.detail
+    if (typeof message === 'string' && message.trim()) return message
+  } catch {
+    // 非 JSON 错误响应使用稳定的用户提示。
+  }
+  return `图片上传失败（HTTP ${response.status}）`
+}
+
+function parseUploadedAttachment(value: unknown): AssistantUploadedAttachment {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.name !== 'string'
+      || typeof value.path !== 'string' || typeof value.mime !== 'string') {
+    throw new Error('图片上传响应格式无效')
+  }
+  return { id: value.id, name: value.name, path: value.path, mime: value.mime }
+}
+
+function toPersistedPending(item: PendingSubmission): PendingSubmission | undefined {
+  if (item.submission.attachments?.length && !item.uploadedAttachments) return undefined
+  return {
+    ...item,
+    submission: { ...item.submission, attachments: undefined },
+    uploadedAttachments: item.uploadedAttachments ? [...item.uploadedAttachments] : undefined,
+  }
+}
+
+function isPresent<T>(value: T | undefined): value is T {
+  return value !== undefined
+}
+
+function mergeConversationMessages(
+  history: AssistantConversationMessage[],
+  current: AssistantConversationMessage[],
+  _reset: boolean,
+): AssistantConversationMessage[] {
+  const merged = new Map<string, AssistantConversationMessage>()
+  history.forEach(message => merged.set(message.id, { ...message, streaming: false }))
+  current.forEach(message => merged.set(message.id, { ...message }))
+  return [...merged.values()]
+}
+
+function imageMessageLabel(count: number): string {
+  return count === 1 ? '[图片]' : `[${count} 张图片]`
+}
+
+class AssistantUploadAuthenticationError extends Error {}
 
 function safeLocalStorage(): Storage | undefined {
   try {

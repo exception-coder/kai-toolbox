@@ -3,11 +3,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { AssistantExternalLoginClient } from './externalLogin'
 
 describe('AssistantExternalLoginClient', () => {
-  it('keeps only the access token in memory after a successful Forge login', async () => {
+  it('restores a valid access token within the current tab session', async () => {
+    const storage = createStorage()
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       accessToken: 'forge-access', refreshToken: 'must-not-be-retained', expiresIn: 1800,
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-    const client = new AssistantExternalLoginClient({ loginUrl: 'https://forge.example.com/api/auth/external-login' }, fetcher)
+    const options = { loginUrl: 'https://forge.example.com/api/auth/external-login' }
+    const client = new AssistantExternalLoginClient(options, fetcher, storage)
 
     await client.login('tester', 'secret')
 
@@ -15,8 +17,18 @@ describe('AssistantExternalLoginClient', () => {
       method: 'POST', mode: 'cors', credentials: 'omit', body: JSON.stringify({ username: 'tester', password: 'secret' }),
     }))
     expect(client.requireAccessToken()).toBe('forge-access')
-    client.clear()
-    expect(() => client.requireAccessToken()).toThrow('请重新登录')
+    expect(new AssistantExternalLoginClient(options, fetcher, storage).requireAccessToken()).toBe('forge-access')
+    expect(storage.dump()).not.toContain('must-not-be-retained')
+  })
+
+  it('clears an expired tab session instead of restoring it', () => {
+    const storage = createStorage(JSON.stringify({ accessToken: 'expired', expiresAt: Date.now() - 1 }))
+    const client = new AssistantExternalLoginClient(
+      { loginUrl: 'https://forge.example.com/api/auth/external-login' }, vi.fn(), storage,
+    )
+
+    expect(client.isAuthenticated()).toBe(false)
+    expect(storage.dump()).toBe('')
   })
 
   it('does not retain authentication after invalid credentials', async () => {
@@ -38,3 +50,14 @@ describe('AssistantExternalLoginClient', () => {
     await expect(client.login('tester', 'secret')).rejects.toThrow('缺少有效的 ACCESS Token')
   })
 })
+
+function createStorage(initialValue?: string) {
+  const values = new Map<string, string>()
+  if (initialValue) values.set('kai-assistant:external-login:https://forge.example.com/api/auth/external-login', initialValue)
+  return {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => values.set(key, value),
+    removeItem: (key: string) => values.delete(key),
+    dump: () => [...values.values()].join(''),
+  }
+}

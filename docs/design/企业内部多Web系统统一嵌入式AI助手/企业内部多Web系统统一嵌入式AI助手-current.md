@@ -102,6 +102,72 @@ const assistant = initializeAssistant({
 })
 ```
 
+## 6. 会话归档反馈回顾与编辑
+
+彩虹胶囊在标题栏提供“记录”入口，仅回顾当前认证用户的“业务咨询”会话。会话仍以 Forge SQLite `claude_chat_session` 为唯一归档事实，识别出的反馈仍以公网 MySQL `assistant_feedback_candidate` 为唯一候选事实，不新建第二套会话或反馈表。
+
+- 归档列表按会话最后活跃时间做游标分页，每条记录固定展示 `Bug`、`优化建议`、`需求` 三个标签及数量，数量为零时仍保留标签，使分类语义稳定。
+- 进入会话后按所选标签分页读取候选，不一次性加载无界历史。
+- 用户可修改反馈正文，也可在三个反馈分类之间纠正类型；服务端根据新类型重新派生 `requirement_type`，不接受客户端直接修改派生字段。
+- 用户首次修正前，同一 MySQL 事务先把当前 AI 分类、派生类型和原始描述写为 `AI` 基线版，再写入 `USER` 修订版并更新候选当前值。后续每次修正均追加新版本，不覆盖 AI 原稿或已有用户修订。
+- 编辑仅更新候选，不直接创建 ReqPool 正式记录，不删除来源水位、置信度、识别原因、页面定位和检出时间。界面默认展示当前修订，并可展开查看 AI 原稿和历次修订。
+- 更新请求必须携带已读取的 `updateTime`。公网 MySQL 使用“候选 ID + 会话 ID + 创建人 + 旧更新时间”做条件更新，冲突返回 `409`，界面保留用户输入并提供重新加载。
+- 候选查询使用 `(creator_user_id, session_id, feedback_category, detected_at, id)` 索引；会话页和候选页均有服务端上限，禁止无界查询。
+- 外部宿主通过 AJAX 回顾和编辑，复用短期 ACCESS Token 与精确 Origin 白名单；CORS 只增加归档路径所需的 `GET/PATCH/OPTIONS` 及 `Authorization/Content-Type`。
+- 彩虹胶囊图片上传后立即写入 Forge 受控磁盘目录，SQLite 只保存附件 ID、会话归属、文件名、MIME、大小和相对存储键，禁止保存 Blob 或把绝对路径作为对外契约。
+- 发送回合把附件 ID 与服务端 `turnId` 持久关联；增量分析从用户轮次结构化获取附件，公网 MySQL 只保存候选与逻辑附件 ID 及安全元数据的关联，不保存磁盘绝对路径。
+- 归档图片通过“会话 + 候选 + 附件 ID”的受控下载接口加载，每次读取重新校验认证用户与会话归属并限定图片 MIME。磁盘文件不可用时保留元数据并显示可恢复错误，不返回任意文件路径。
+
+```mermaid
+flowchart TD
+    A["用户打开彩虹胶囊记录"] --> B["分页读取本人业务咨询会话"]
+    B --> C["批量读取各会话三类候选数量"]
+    C --> D["展示 Bug、优化建议、需求标签"]
+    D --> E["选择会话和分类"]
+    E --> F["分页读取候选详情"]
+    F --> F1["按需从 Forge 磁盘加载候选图片"]
+    F1 --> G{"用户是否编辑?"}
+    G -->|"否"| E
+    G -->|"是"| H["校验会话归属、类型、正文和 updateTime"]
+    H --> I{"条件更新是否命中?"}
+    I -->|"是"| I1["首次修正留存 AI 基线，追加用户修订"]
+    I1 --> J["返回新候选并刷新标签数量"]
+    I -->|"否"| K["409 冲突：保留编辑内容并允许重载"]
+    J --> E
+    K --> F
+```
+
+### 6.1 编码落点
+
+```text
+toolbox-common/src/main/java/com/exceptioncoder/toolbox/common/assistant/
+└── AssistantFeedbackStorePort.java                         [修改] 增加归档摘要、候选分页查询和乐观更新稳定端口
+
+tools/tool-claude-chat/src/main/java/com/exceptioncoder/toolbox/claudechat/
+├── api/AssistantFeedbackArchiveController.java             [新增] 会话归档反馈查询与编辑的 HTTP 协议适配
+├── service/AssistantFeedbackArchiveService.java             [新增] 编排会话归属、SQLite 归档与 MySQL 候选
+├── repository/ClaudeChatAttachmentRepository.java           [新增] 持久附件元数据和 turnId 关联
+├── service/AttachmentStorageService.java                    [修改] 咨询附件改为受控目录落盘并按附件 ID 解析
+├── service/ClaudeChatConversationDeltaReader.java           [修改] 把用户轮次附件结构化投影到增量分析
+└── repository/ClaudeChatSessionRepository.java              [修改] 增加业务咨询会话游标分页
+
+tools/tool-claude-chat/src/main/resources/db/
+└── claude-chat-schema.sql                                   [修改] 增加附件元数据与轮次关联表
+
+tools/tool-ops/src/main/
+├── java/com/exceptioncoder/toolbox/ops/service/OpsAssistantFeedbackStoreAdapter.java [修改] 复用 Ops 连接池批量查询、分页及条件更新
+└── resources/mysql/assistant-feedback-schema.sql            [修改] 补充查询索引、AI/用户修订版本和候选附件关联表
+
+toolbox-common/src/main/java/com/exceptioncoder/toolbox/common/auth/config/
+└── ExternalLoginCorsConfiguration.java                      [修改] 仅放行归档接口需要的精确方法和请求头
+
+frontend/src/assistant-sdk/
+├── types.ts                                                 [修改] 增加归档状态与 Transport 用例契约
+├── AssistantWebSocketTransport.ts                           [修改] 复用 WS 域名与 ACCESS Token 调用归档 AJAX
+├── assistantSdk.ts                                          [修改] 绑定记录查询、分类切换和候选保存事件
+└── widget.ts                                                [修改] 增加记录入口、三标签分页、行内编辑与恢复态
+```
+
 JSP 或原生页面加载 `kai-assistant.iife.js` 后调用 `KaiAssistant.initialize(...)`，参数相同。宿主在路由或业务对象变化时调用 `updateContext`，在业务按钮中调用 `open('QUESTION' | 'BUG' | 'SUGGESTION' | 'DIAGNOSE')`；不得复制聊天、排队、重连、草稿或登记逻辑。
 
 `visibility.initiallyHidden` 缺省为 `false`，保持既有接入兼容；`draggable` 缺省为 `true`。隐藏状态下快捷键只打开密钥输入层，输入错误保留在当前页面并可重试，取消后恢复完全隐藏。宿主主动调用 `assistant.open(...)` 视为可信页面动作，可直接显示。
@@ -125,13 +191,13 @@ const assistant = initializeAssistant({
 
 外部登录与 `getAccessToken` 二选一；同时提供时以宿主 `getAccessToken` 为准，不展示 Forge 登录表单。跨域白名单必须填写完整 Origin，不允许通过业务上下文中的 `appId`、`user.id` 或请求头自行声明可信来源。
 
-## 6. 模块探索摘要复用
+## 7. 模块探索摘要复用
 
 模块身份优先使用宿主提供的 `page.routeName`；缺失时，SDK 对 `page.url` 去除查询参数、片段和尾部数字/UUID 业务主键后生成稳定 `moduleKey`。无法得到稳定键时跳过缓存，不因缓存失败阻塞咨询。
 
 缓存内容由首次未命中回合的最终助手回答压缩得到，不保存工具原始输出、完整对话或页面快照。压缩采用确定性限长：保留最终回答的有效文本，超过 6000 字符时保留开头与结尾，中间用省略标记替代。模型输出和客户端上报均视为不可信输入，服务端重新校验字段长度与归属后才写入。
 
-### 6.1 缓存命中
+### 7.1 缓存命中
 
 ```mermaid
 sequenceDiagram
@@ -153,7 +219,7 @@ sequenceDiagram
     AGENT-->>WS: 本轮回答
 ```
 
-### 6.2 首次探索与写回
+### 7.2 首次探索与写回
 
 ```mermaid
 sequenceDiagram
@@ -180,7 +246,7 @@ sequenceDiagram
 
 缓存查询失败、响应超时或写回失败均降级为原有咨询链路，并通过调试面板记录不含正文的错误元数据。队列消息不等待缓存查询；同一会话已有上下文时继续复用会话历史，避免缓存准备改变既有 FIFO 行为。
 
-## 7. 会话反馈增量识别
+## 8. 会话反馈增量识别
 
 彩虹胶囊在每个正常回复终态后触发一次会话反馈分析。分析对象不是客户端重新拼装的全量聊天，而是服务端从该会话已持久化分析水位线之后读取的新增 `user` 消息；助手回复和工具输出只作为会话事实保留，不作为用户反馈来源。
 
@@ -239,4 +305,42 @@ sequenceDiagram
         CMD-->>WS: conversationAnalysis
         WS-->>SDK: 提示 Bug 需求或优化反馈
     end
+```
+
+## 9. 页面会话稳定绑定与历史窗口化
+
+彩虹胶囊的业务咨询会话以“认证用户 + 来源系统 `appId` + 规范化页面 URL”作为稳定绑定键。客户端声明的 `user.id` 只用于本地界面分区，不参与服务端归属判定；服务端始终使用 ACCESS Token 对应的认证用户 ID。
+
+- 页面键从 `page.url` 生成：保留 Origin 与 Path，查询参数按键排序并过滤敏感参数，移除 Hash；同一业务 URL 的参数顺序变化不得创建新会话。
+- `claude_chat_session` 保存 `assistant_app_id`、`assistant_page_key` 和仅用于诊断的 `assistant_page_url`。部分唯一索引保证同一认证用户、系统和页面最多绑定一个业务咨询会话。
+- SDK 不再把整份历史消息作为恢复事实写入 `localStorage`；本地只保留未确认发送、事件水位和草稿幂等信息。首次连接携带页面绑定信息，服务端命中既有会话时直接 Attach，未命中时原子创建并绑定。
+- 服务端 Ready 后，SDK 按逻辑 `sessionId` 请求最近 30 条消息；滚动到顶部后继续按 `before` 游标读取更早一页。历史读取执行会话归属和 `consult-readonly` 策略校验。
+- 历史消息列表采用窗口化渲染：只挂载可视区域附近消息和上下占位，不因已加载页数增加而线性扩大 DOM；向前追加历史时保持用户当前阅读位置，贴底时才跟随流式回复。
+- 历史接口失败时保留当前实时消息和输入草稿，提供顶部重试；transcript 缺失时明确说明记录不可恢复，但仍允许在已绑定会话中继续提问。
+
+```mermaid
+sequenceDiagram
+    participant SDK as Assistant SDK
+    participant WS as Assistant WebSocket
+    participant SESSION as Session Service
+    participant DB as SQLite
+    participant HISTORY as Transcript History
+
+    SDK->>WS: open with appId and pageKey
+    WS->>SESSION: resolve authenticated user binding
+    SESSION->>DB: find user appId pageKey
+    alt 已有绑定
+        DB-->>SESSION: existing sessionId
+        SESSION-->>SDK: ready existing sessionId
+    else 首次访问
+        SESSION->>DB: insert bound consult session
+        DB-->>SESSION: new sessionId
+        SESSION-->>SDK: ready new sessionId
+    end
+    SDK->>HISTORY: GET messages by logical sessionId
+    HISTORY-->>SDK: latest page and nextBefore
+    SDK->>SDK: render viewport window near latest
+    SDK->>HISTORY: load earlier when top reached
+    HISTORY-->>SDK: earlier page and nextBefore
+    SDK->>SDK: prepend and preserve scroll anchor
 ```

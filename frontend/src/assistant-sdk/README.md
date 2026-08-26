@@ -21,6 +21,7 @@ KAI Assistant SDK 用于把统一 AI 助手嵌入 ERP、SCM、SRM、JSP 旧系�
 - 业务咨询、Bug、建议和协助诊断四种显式入口。
 - 自动采集页面、业务对象、Provider、JS 错误和异常网络等必要上下文。
 - 发送即时显示、准备上下文状态、Markdown 回复和生成期发送门禁。
+- 输入框支持 `Ctrl/⌘ + V` 直接粘贴 PNG、JPEG、GIF、WebP 图片，发送前可预览和移除；最多 5 张、单张 10MB、合计 25MB。
 - WebSocket 断线恢复、消息水位去重和运行中待发送队列。
 - 按认证用户复用模块首次探索摘要；版本变化、过期或读取失败时自动回到实时探索。
 - Bug、建议草稿确认与幂等需求登记。
@@ -163,7 +164,7 @@ WebRoot/static/kai-assistant/kai-assistant.iife.js
 </script>
 ```
 
-首次打开助手时显示 Forge 登录表单。登录成功后才显示咨询输入区并建立真实会话。密码只参与单次 HTTPS 请求；专用接口不签发 REFRESH Token，ACCESS Token 只保存在当前实例内存中，刷新页面或调用 `destroy()` 后需要重新登录。
+首次打开助手时显示 Forge 登录表单。登录成功后才显示咨询输入区并建立真实会话。密码只参与单次 HTTPS 请求；专用接口不签发 REFRESH Token，ACCESS Token 与绝对过期时间只保存在当前标签页的 `sessionStorage`，页面刷新或 SPA 重新挂载后可继续使用，关闭标签页、Token 到期或认证失败后需要重新登录。
 
 Forge 后端必须显式开启并配置完整 Origin：
 
@@ -187,7 +188,9 @@ $env:TOOLBOX_AUTH_EXTERNAL_LOGIN_ENABLED='true'
 $env:TOOLBOX_AUTH_EXTERNAL_LOGIN_ALLOWED_ORIGINS='https://erp-test.company.internal'
 ```
 
-`externalLogin` 与 `getAccessToken` 同时配置时，以 `getAccessToken` 为准，不展示 Forge 登录表单。外部登录模式只开放 `/api/auth/external-login`，原登录、刷新、用户管理及其他 Forge API 均保持同源。
+`externalLogin` 与 `getAccessToken` 同时配置时，以 `getAccessToken` 为准，不展示 Forge 登录表单。外部登录模式只为 `/api/auth/external-login`、`/api/claude-chat/sessions/{sessionId}/attachments` 和 `/api/assistant/feedback-sessions/**` 注册精确 Origin CORS；附件上传和反馈归档都必须携带 ACCESS Token 并通过会话归属校验。原登录、刷新、用户管理及其他 Forge API 均保持同源。
+
+登录后的助手标题栏提供“记录”入口。归档页按咨询会话固定展示 `Bug`、`优化建议`、`需求` 三个标签及数量；点击标签可回顾候选、修正分类与描述、查看 AI 原始识别和历次用户修订。发送时上传的图片会以逻辑附件 ID 与服务端轮次关联，归档中通过受控接口重新加载，不向浏览器暴露服务器绝对路径。
 
 ---
 

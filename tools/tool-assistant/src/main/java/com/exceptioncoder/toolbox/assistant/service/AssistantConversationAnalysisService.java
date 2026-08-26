@@ -91,7 +91,8 @@ public class AssistantConversationAnalysisService {
                         routed.requirementType().name(), routed.intentResult().confidence(),
                         routed.intentResult().reason()));
                 if (routed.feedbackCategory() != FeedbackCategory.NONE) {
-                    candidates.add(candidateFactory.candidate(message.sequence(), message.content(), routed, now));
+                    candidates.add(candidateFactory.candidate(
+                            message.sequence(), message.content(), routed, now, message.attachments()));
                     updatedSummary = appendSummary(updatedSummary, message.sequence(),
                             routed.feedbackCategory().name(), message.content());
                 }

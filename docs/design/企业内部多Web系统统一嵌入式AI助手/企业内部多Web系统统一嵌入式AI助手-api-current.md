@@ -15,6 +15,7 @@
 - [中止与调试日志](#11-中止与调试日志)
 - [模块探索摘要](#12-模块探索摘要)
 - [会话反馈增量识别](#13-会话反馈增量识别)
+- [会话归档反馈回顾](#14-会话归档反馈回顾)
 
 ## 1. 接口清单
 
@@ -29,6 +30,11 @@
 | GET | `/api/assistant/drafts/{id}` | 查询草稿 |
 | POST | `/api/assistant/drafts/{id}/confirm` | 内部兼容接口：幂等登记到 ReqPool |
 | GET | `/api/auth/users/options` | 内部兼容接口：查询启用的工程师候选 |
+| GET | `/api/assistant/feedback-sessions` | 分页查询本人彩虹胶囊归档及三类反馈数量 |
+| GET | `/api/assistant/feedback-sessions/{sessionId}/candidates` | 按分类分页回顾单会话反馈候选 |
+| PATCH | `/api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}` | 乐观锁修改候选分类与正文 |
+| GET | `/api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}/revisions` | 分页查看 AI 原稿与历次用户修订 |
+| GET | `/api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}/attachments/{attachmentId}` | 从 Forge 磁盘受控加载归档图片 |
 
 外部宿主 SDK 以统一 WebSocket 为主；仅在消息包含本地图片时额外调用第二行附件上传接口。其余 HTTP 接口保留给 kai-toolbox 内部页面和兼容调用，不属于宿主接入必需契约。
 
@@ -325,3 +331,172 @@ Widget 状态可携带单条增量 `debugEntry`：
 Forge 在推进水位前调用内部 `AssistantFeedbackStorePort`。`tool-ops` 适配器优先使用显式 `datasource-id`，否则按 `system-code=yoooni-one + environment + 可选 datasource-name` 选择唯一 MySQL 数据源，再从 `OpsDataSourcePool` 借用 Druid 连接直接 upsert。未登记、匹配不唯一或数据源不是 MySQL 时明确失败；不存在 Yoooni One 项目 HTTP 接口或服务密钥。
 
 当没有增量时返回 `advanced=false` 且不调用分类模型。分类、候选 MySQL 写入、摘要或水位持久化失败时返回失败结果并保持旧水位；客户端可在下一次正常终态重试。客户端不得上传自报水位或完整会话正文，避免跨标签页覆盖和重复分析。
+
+## 14. 会话归档反馈回顾
+
+三个接口均需要 Forge ACCESS Token，只返回当前认证用户的“业务咨询”会话和候选。外部宿主调用时 Origin 必须命中外部登录白名单。
+
+### 14.1 分页查询归档会话
+
+`GET /api/assistant/feedback-sessions?limit=20&cursor={opaqueCursor}`
+
+`limit` 可选，取值 `1..50`，缺省 `20`。`cursor` 为服务端返回的不透明游标，客户端不得拆解或改写。
+
+```json
+{
+  "items": [
+    {
+      "sessionId": "session-id",
+      "title": "新品进度页面问题",
+      "startedAt": 1787695200000,
+      "lastSeenAt": 1787695260000,
+      "counts": { "BUG": 1, "OPTIMIZATION": 2, "REQUIREMENT": 0 }
+    }
+  ],
+  "nextCursor": "opaque-or-null"
+}
+```
+
+`items` 按 `lastSeenAt` 倒序。`counts` 始终包含三个固定键，无候选时值为 `0`。`nextCursor=null` 表示已到末页。
+
+### 14.2 按分类查询会话候选
+
+`GET /api/assistant/feedback-sessions/{sessionId}/candidates?category=BUG&limit=20&cursor={opaqueCursor}`
+
+`category` 必填且仅允许 `BUG`、`OPTIMIZATION`、`REQUIREMENT`；`limit` 取值 `1..50`，缺省 `20`。服务端先校验会话归属，再以认证用户和会话限定公网 MySQL 查询。
+
+```json
+{
+  "items": [
+    {
+      "id": "candidate-id",
+      "sessionId": "session-id",
+      "sourceWatermark": 1991,
+      "feedbackCategory": "BUG",
+      "requirementType": "BUG_FIX",
+      "feedbackContent": "新品进度备注为空时页面加载失败",
+      "confidence": 0.94,
+      "classificationReason": "已有功能行为不符合预期",
+      "pageUrl": "http://host/yoooni-one/new-product-progress",
+      "pageTitle": "新品生产进度",
+      "candidateStatus": "DETECTED",
+      "detectedAt": 1787695260000,
+      "updateTime": 1787695260000,
+      "revisionNo": 1,
+      "aiOriginal": {
+        "feedbackCategory": "BUG",
+        "requirementType": "BUG_FIX",
+        "feedbackContent": "新品进度页面加载失败"
+      },
+      "attachments": [
+        {
+          "id": "att-id",
+          "name": "error.png",
+          "mime": "image/png",
+          "size": 212000,
+          "available": true
+        }
+      ]
+    }
+  ],
+  "nextCursor": null
+}
+```
+
+### 14.3 编辑会话候选
+
+`PATCH /api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}`
+
+```json
+{
+  "feedbackCategory": "OPTIMIZATION",
+  "feedbackContent": "备注为空时展示“暂无备注”，不应进入整页错误态。",
+  "expectedUpdateTime": 1787695260000
+}
+```
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `feedbackCategory` | string | 是 | `BUG` / `OPTIMIZATION` / `REQUIREMENT` |
+| `feedbackContent` | string | 是 | trim 后 `1..4000` 字符 |
+| `expectedUpdateTime` | long | 是 | 必须等于当前候选 `update_time` |
+
+成功返回更新后的候选对象。服务端根据 `feedbackCategory` 派生 `requirementType`：`BUG→BUG_FIX`、`REQUIREMENT→NEW_MODULE`、`OPTIMIZATION→MODULE_ADJUST`。
+
+首次修正在同一 MySQL 事务内写入 `revisionNo=0, source=AI` 基线和 `revisionNo=1, source=USER` 修订，然后更新候选当前值。后续修正递增版本号；AI 基线和旧修订不可覆盖或删除。
+
+| HTTP 状态 | 语义 |
+|---|---|
+| `400` | 分类、正文或游标参数无效 |
+| `401` | ACCESS Token 缺失或过期 |
+| `403` | 会话不属于当前用户 |
+| `404` | 会话或候选不存在 |
+| `409` | `expectedUpdateTime` 已过期，客户端应保留草稿并让用户重载最新值 |
+| `503` | yoooni-one 公网 MySQL 不可用 |
+
+### 14.4 查看修订记录
+
+`GET /api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}/revisions?limit=20&cursor={opaqueCursor}`
+
+按 `revisionNo` 倒序返回。每项包含 `revisionNo`、`source=AI|USER`、`editorUserId`、`feedbackCategory`、`requirementType`、`feedbackContent`和 `createdAt`。未发生用户修正时，接口以当前候选投影一条未持久化的 `revisionNo=0, source=AI` 视图，不为只读查询产生写入。
+
+### 14.5 加载候选图片
+
+`GET /api/assistant/feedback-sessions/{sessionId}/candidates/{candidateId}/attachments/{attachmentId}`
+
+服务端必须同时验证会话归属、候选关联、附件元数据和规范化磁盘路径边界，仅返回 `image/png`、`image/jpeg`、`image/gif`、`image/webp`。支持 `ETag` 与私有缓存，不在 URL 中携带 Token，外部 SDK 使用带 Bearer Token 的 `fetch` 读取 Blob 后创建短期 object URL。
+
+| HTTP 状态 | 语义 |
+|---|---|
+| `403` | 会话不属于当前用户，或附件不属于该候选 |
+| `404` | 元数据或磁盘文件不存在 |
+| `415` | 归档元数据不是允许的图片类型 |
+
+## 15. 页面会话绑定与渐进历史
+
+### 15.1 WebSocket `open` 扩展
+
+业务咨询连接的 `open` 消息新增三个可选字段，旧客户端不传时保持原新建会话行为。
+
+```json
+{
+  "type": "open",
+  "engine": "codex",
+  "projectKey": "yoooni-one",
+  "assistantAppId": "SCM",
+  "assistantPageKey": "https://scm.example.com/new-product-progress.action?factory=25D332",
+  "assistantPageUrl": "https://scm.example.com/new-product-progress.action?factory=25D332"
+}
+```
+
+服务端仅在 `consult-readonly` 通道接受绑定字段，并以握手认证用户覆盖任何客户端用户声明。同一 `user_id + assistant_app_id + assistant_page_key` 命中时返回既有 `ready.sessionId`，不创建第二个会话。
+
+### 15.2 按逻辑会话读取消息
+
+`GET /api/assistant/conversations/{sessionId}/messages?before={integer}&limit={integer}`
+
+| 字段 | 类型 | 必填 | 约束 |
+|---|---|---|---|
+| `sessionId` | string | 是 | 必须是当前认证用户绑定的业务咨询会话 |
+| `before` | integer | 否 | 为空读取最近一页；非空读取该全局消息索引之前的数据 |
+| `limit` | integer | 否 | `1..50`，缺省 `30` |
+
+```json
+{
+  "items": [
+    { "id": "h98", "role": "user", "content": "这条记录为什么逾期？", "timestamp": 1787695200000 },
+    { "id": "h99", "role": "assistant", "content": "当前证据显示……", "timestamp": 1787695260000 }
+  ],
+  "nextBefore": 98,
+  "transcriptMissing": false
+}
+```
+
+响应消息只投影 `user` 与 `assistant` 文本；工具调用、内部开发者指令和结果统计不进入彩虹胶囊历史列表。`nextBefore` 为 `0` 或 `null` 时表示没有更早消息。
+
+| HTTP 状态 | 语义 |
+|---|---|
+| `400` | 游标或分页大小无效 |
+| `401` | ACCESS Token 缺失或过期 |
+| `403` | 会话不属于当前用户或不是业务咨询会话 |
+| `404` | 逻辑会话不存在 |

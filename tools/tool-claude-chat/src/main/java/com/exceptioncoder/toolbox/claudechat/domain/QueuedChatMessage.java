@@ -12,6 +12,9 @@ public record QueuedChatMessage(
         List<Attachment> attachments,
         long createdAt) {
 
-    public record Attachment(String name, String path, String mime) {
+    public record Attachment(String id, String name, String path, String mime) {
+        public Attachment(String name, String path, String mime) {
+            this(null, name, path, mime);
+        }
     }
 }

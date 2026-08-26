@@ -23,6 +23,9 @@ public class ExternalLoginCorsConfiguration {
     private static final String LOGIN_PATH = "/api/auth/external-login";
     private static final String ATTACHMENT_UPLOAD_PATH = "/api/claude-chat/sessions/*/attachments";
     private static final String ATTACHMENT_FILTER_PATH = "/api/claude-chat/*";
+    private static final String FEEDBACK_ARCHIVE_PATH = "/api/assistant/feedback-sessions/**";
+    private static final String ASSISTANT_CONVERSATION_PATH = "/api/assistant/conversations/**";
+    private static final String FEEDBACK_FILTER_PATH = "/api/assistant/*";
 
     /**
      * 创建只覆盖登录路径的 CORS 过滤器，拒绝通配符和非标准 Origin。
@@ -33,25 +36,32 @@ public class ExternalLoginCorsConfiguration {
     @Bean
     public FilterRegistrationBean<CorsFilter> externalLoginCorsFilter(AuthProperties properties) {
         List<String> allowedOrigins = normalizeOrigins(properties.getExternalLogin().getAllowedOrigins());
-        CorsConfiguration loginCors = cors(allowedOrigins, List.of("Content-Type"));
-        CorsConfiguration attachmentCors = cors(allowedOrigins, List.of("Authorization", "Content-Type"));
+        CorsConfiguration loginCors = cors(
+                allowedOrigins, List.of("Content-Type"), List.of("POST", "OPTIONS"));
+        CorsConfiguration attachmentCors = cors(
+                allowedOrigins, List.of("Authorization", "Content-Type"), List.of("POST", "OPTIONS"));
+        CorsConfiguration feedbackCors = cors(
+                allowedOrigins, List.of("Authorization", "Content-Type"), List.of("GET", "PATCH", "OPTIONS"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration(LOGIN_PATH, loginCors);
         source.registerCorsConfiguration(ATTACHMENT_UPLOAD_PATH, attachmentCors);
+        source.registerCorsConfiguration(FEEDBACK_ARCHIVE_PATH, feedbackCors);
+        source.registerCorsConfiguration(ASSISTANT_CONVERSATION_PATH, feedbackCors);
 
         FilterRegistrationBean<CorsFilter> registration = new FilterRegistrationBean<>(new CorsFilter(source));
         registration.setName("authExternalLoginCorsFilter");
-        registration.addUrlPatterns(LOGIN_PATH, ATTACHMENT_FILTER_PATH);
+        registration.addUrlPatterns(LOGIN_PATH, ATTACHMENT_FILTER_PATH, FEEDBACK_FILTER_PATH);
         registration.setDispatcherTypes(DispatcherType.REQUEST);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
         return registration;
     }
 
-    private CorsConfiguration cors(List<String> allowedOrigins, List<String> allowedHeaders) {
+    private CorsConfiguration cors(List<String> allowedOrigins, List<String> allowedHeaders,
+                                   List<String> allowedMethods) {
         CorsConfiguration cors = new CorsConfiguration();
         cors.setAllowedOrigins(allowedOrigins);
-        cors.setAllowedMethods(List.of("POST", "OPTIONS"));
+        cors.setAllowedMethods(allowedMethods);
         cors.setAllowedHeaders(allowedHeaders);
         cors.setAllowCredentials(false);
         cors.setMaxAge(600L);

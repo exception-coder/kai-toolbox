@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     -- 服务端执行能力边界：standard / consult-readonly。业务咨询入口强制只读，不接受客户端降级。
     execution_policy TEXT DEFAULT 'standard',
     consult_evidence_systems TEXT,
+    -- 彩虹胶囊固定会话绑定：认证用户 + 来源系统 + 规范化页面 URL。
+    assistant_app_id TEXT,
+    assistant_page_key TEXT,
+    assistant_page_url TEXT,
     -- 会话分组名（用户自定义，空=未分组）；原在浏览器 localStorage，改后端持久化后跨端/换浏览器可见
     group_name      TEXT,
     -- 二级需求分组；group_name 表示系统/项目，本字段表示该项目下的具体需求
@@ -195,6 +199,32 @@ CREATE TABLE IF NOT EXISTS claude_chat_queued_message (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_queued_message_session
     ON claude_chat_queued_message(session_id, created_at);
 
+-- 会话附件二进制落磁盘，本表只保存安全元数据和服务端内部存储路径。
+CREATE TABLE IF NOT EXISTS claude_chat_attachment (
+    id            TEXT PRIMARY KEY,
+    session_id    TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    mime          TEXT NOT NULL,
+    size_bytes    INTEGER NOT NULL,
+    storage_path  TEXT NOT NULL,
+    created_at    INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_attachment_session
+    ON claude_chat_attachment(session_id, created_at);
+
+-- 附件与服务端稳定 turnId 关联，供 transcript 回读时恢复结构化附件。
+CREATE TABLE IF NOT EXISTS claude_chat_turn_attachment (
+    session_id    TEXT NOT NULL,
+    turn_id       TEXT NOT NULL,
+    attachment_id TEXT NOT NULL,
+    created_at    INTEGER NOT NULL,
+    PRIMARY KEY (session_id, turn_id, attachment_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_turn_attachment_turn
+    ON claude_chat_turn_attachment(session_id, turn_id, created_at);
+
 -- 开发会话附加项目目录；主项目仍由 claude_chat_session.cwd 表示。
 CREATE TABLE IF NOT EXISTS claude_chat_session_project_directory (
     id            TEXT PRIMARY KEY,
@@ -214,6 +244,8 @@ CREATE TABLE IF NOT EXISTS claude_chat_project_dependency (
     id                       TEXT PRIMARY KEY,
     primary_project_path     TEXT NOT NULL,
     dependency_project_path  TEXT NOT NULL,
+    dependency_project_key   TEXT,
+    relation_type            TEXT NOT NULL DEFAULT 'DEPENDS_ON',
     sort_order               INTEGER NOT NULL DEFAULT 0,
     create_time              INTEGER NOT NULL,
     update_time              INTEGER NOT NULL,
@@ -222,6 +254,21 @@ CREATE TABLE IF NOT EXISTS claude_chat_project_dependency (
 
 CREATE INDEX IF NOT EXISTS idx_claude_chat_project_dependency_primary
     ON claude_chat_project_dependency(primary_project_path, sort_order);
+
+-- 本机 knowledge projectKey 与受控源码根绑定；绝对路径不进入 team-tools 共享仓库。
+CREATE TABLE IF NOT EXISTS claude_chat_project_route_binding (
+    id            TEXT PRIMARY KEY,
+    project_key   TEXT NOT NULL,
+    project_path  TEXT NOT NULL,
+    aliases_json  TEXT NOT NULL DEFAULT '[]',
+    create_time   INTEGER NOT NULL,
+    update_time   INTEGER NOT NULL,
+    UNIQUE(project_key),
+    UNIQUE(project_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_project_route_binding_update
+    ON claude_chat_project_route_binding(update_time);
 
 -- 会话规划过期锁定；id 即逻辑会话 ID，删除会话时由应用层同步清理。
 CREATE TABLE IF NOT EXISTS claude_chat_session_plan_state (
@@ -276,6 +323,29 @@ CREATE TABLE IF NOT EXISTS claude_chat_pending_sql_target (
 
 CREATE INDEX IF NOT EXISTS idx_pending_sql_target_session
     ON claude_chat_pending_sql_target(session_id, sort_order);
+
+-- Coding Agent 登记的会话接口变更事实与验证证据。登记不等于验证，发布就绪由验证状态实时聚合。
+CREATE TABLE IF NOT EXISTS claude_chat_session_affected_api (
+    id                    TEXT PRIMARY KEY,
+    session_id            TEXT NOT NULL,
+    http_method           TEXT NOT NULL,
+    api_path              TEXT NOT NULL,
+    change_type           TEXT NOT NULL DEFAULT 'MODIFIED',
+    source_file           TEXT NOT NULL,
+    handler_name          TEXT,
+    summary               TEXT,
+    verification_status   TEXT NOT NULL DEFAULT 'UNVERIFIED',
+    verification_method   TEXT,
+    verification_command  TEXT,
+    verification_summary  TEXT,
+    created_at            INTEGER NOT NULL,
+    updated_at            INTEGER NOT NULL,
+    verified_at           INTEGER,
+    UNIQUE (session_id, http_method, api_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_affected_api_session
+    ON claude_chat_session_affected_api(session_id, verification_status, updated_at DESC);
 
 -- 本机历史会话（transcript jsonl）的自定义别名，叠加显示，不改文件。
 CREATE TABLE IF NOT EXISTS claude_chat_session_alias (
