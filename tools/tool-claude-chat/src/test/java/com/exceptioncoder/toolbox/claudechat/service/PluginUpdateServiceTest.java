@@ -105,6 +105,16 @@ class PluginUpdateServiceTest {
                 PluginUpdateService.claudePluginCommand(base, "team-standards", false));
     }
 
+    @Test
+    void shouldRecordTheExistingRepositorySourceWithoutRewritingOrigin() {
+        assertEquals("github", PluginUpdateService.gitSource(
+                "git@github.com:wyoooni/team-standards.git", "gitee"));
+        assertEquals("gitee", PluginUpdateService.gitSource(
+                "https://gitee.com/wyoooni/team-standards.git", "github"));
+        assertEquals("gitee", PluginUpdateService.gitSource(
+                "ssh://git.internal/team-standards.git", "gitee"));
+    }
+
     private static String jsonPath(Path path) {
         return path.toString().replace("\\", "\\\\");
     }

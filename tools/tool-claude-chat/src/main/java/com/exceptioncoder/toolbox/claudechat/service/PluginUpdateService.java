@@ -619,37 +619,10 @@ public class PluginUpdateService {
 
     /** 拉取/快进更新全部依赖仓，构建 MCP 引擎，并安装到 Claude Code 与 Codex。 */
     public void startInstall(String taskId, String sessionId, String requestedSource) {
-        Path codexHome = resolveCodexHome(sessionId);
         Thread.ofVirtual().name("plugin-install-" + taskId).start(() -> {
-            List<Map<String, Object>> results = new ArrayList<>();
             try {
                 Thread.sleep(150);
-                String source = normalizeSource(requestedSource);
-                Path workspace = dependencyWorkspace();
-                Files.createDirectories(workspace);
-                sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
-                        "text", "使用 " + source.toUpperCase(Locale.ROOT) + " 源，目录：" + workspace));
-                Map<String, Boolean> synchronizedRepositories = syncDependencyRepositories(
-                        taskId, workspace, source, DEPENDENCY_REPOS, results);
-
-                Path engineRepo = workspace.resolve("project-domain-knowledge");
-                if (Boolean.TRUE.equals(synchronizedRepositories.get("project-domain-knowledge"))) {
-                    Map<String, Object> npmInstall = runStep(taskId, "mcp", "npm-install",
-                            List.of("npm", "install"), null, engineRepo);
-                    results.add(npmInstall);
-                    if (stepSucceeded(npmInstall)) {
-                        results.add(runStep(taskId, "mcp", "npm-build",
-                                List.of("npm", "run", "build"), null, engineRepo));
-                    } else {
-                        publishSkippedStep(taskId, "mcp", "npm-build", "npm install 失败");
-                    }
-                } else {
-                    publishSkippedStep(taskId, "mcp", "npm-install", "知识库仓库同步失败");
-                    publishSkippedStep(taskId, "mcp", "npm-build", "知识库仓库同步失败");
-                }
-
-                installPlugins(taskId, codexHome, workspace, synchronizedRepositories, results);
-                installMcps(taskId, codexHome, workspace, results);
+                List<Map<String, Object>> results = installDependencies(taskId, sessionId, requestedSource);
                 sse.publish(taskId, "message", Map.of("type", "done", "results", results));
             } catch (Exception e) {
                 sse.publish(taskId, "message", Map.of("type", "error", "message", String.valueOf(e.getMessage())));
@@ -657,6 +630,47 @@ public class PluginUpdateService {
                 sse.complete(taskId);
             }
         });
+    }
+
+    /** 同步执行五仓拉取、MCP 构建、双端插件与 MCP 安装，供上层初始化编排复用。 */
+    public List<Map<String, Object>> installDependencies(String taskId, String sessionId, String requestedSource) {
+        Path codexHome = resolveCodexHome(sessionId);
+        String source = normalizeSource(requestedSource);
+        Path workspace = dependencyWorkspace();
+        List<Map<String, Object>> results = new ArrayList<>();
+        try {
+            Files.createDirectories(workspace);
+        } catch (IOException exception) {
+            throw new IllegalStateException("无法创建团队依赖目录：" + workspace, exception);
+        }
+        sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                "text", "使用 " + source.toUpperCase(Locale.ROOT) + " 源，目录：" + workspace));
+        Map<String, Boolean> synchronizedRepositories = syncDependencyRepositories(
+                taskId, workspace, source, DEPENDENCY_REPOS, results);
+        buildKnowledgeEngine(taskId, workspace, synchronizedRepositories, results);
+        installPlugins(taskId, codexHome, workspace, synchronizedRepositories, results);
+        installMcps(taskId, codexHome, workspace, results);
+        return results;
+    }
+
+    private void buildKnowledgeEngine(String taskId, Path workspace,
+                                      Map<String, Boolean> synchronizedRepositories,
+                                      List<Map<String, Object>> results) {
+        Path engineRepo = workspace.resolve("project-domain-knowledge");
+        if (!Boolean.TRUE.equals(synchronizedRepositories.get("project-domain-knowledge"))) {
+            publishSkippedStep(taskId, "mcp", "npm-install", "知识库仓库同步失败");
+            publishSkippedStep(taskId, "mcp", "npm-build", "知识库仓库同步失败");
+            return;
+        }
+        Map<String, Object> npmInstall = runStep(taskId, "mcp", "npm-install",
+                List.of("npm", "install"), null, engineRepo);
+        results.add(npmInstall);
+        if (stepSucceeded(npmInstall)) {
+            results.add(runStep(taskId, "mcp", "npm-build",
+                    List.of("npm", "run", "build"), null, engineRepo));
+        } else {
+            publishSkippedStep(taskId, "mcp", "npm-build", "npm install 失败");
+        }
     }
 
     /** 同步固定团队依赖仓库，并返回每个仓库是否可用于后续安装。 */
@@ -674,16 +688,20 @@ public class PluginUpdateService {
                 }
                 if (Files.isDirectory(directory.resolve(".git"))) {
                     String currentRemote = gitOutput(directory, 5_000, "remote", "get-url", "origin");
+                    CommandResult status = gitCapture(directory, 5_000, "status", "--porcelain");
+                    if (status.exitCode() != 0) {
+                        throw new IllegalStateException("无法检查本地仓库状态: " + directory);
+                    }
+                    if (!status.output().isBlank()) {
+                        throw new IllegalStateException("本地仓库存在未提交修改，已停止拉取并保留现场: " + directory);
+                    }
                     if (!sameGitRemote(currentRemote, url)) {
                         sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
-                                "text", "切换源：移除 " + directory + "（" + currentRemote + " → " + url + "）"));
-                        deleteRepository(workspace, directory);
-                        syncResult = runStep(taskId, "git", "clone:" + repository,
-                                List.of("git", "clone", url, directory.toString()), null, workspace);
-                    } else {
-                        syncResult = runStep(taskId, "git", "pull:" + repository,
-                                List.of("git", "pull", "--ff-only"), null, directory);
+                                "text", "已有仓库沿用 origin：" + currentRemote
+                                        + "；默认源仅用于新克隆，不改写本地配置"));
                     }
+                    syncResult = runStep(taskId, "git", "pull:" + repository,
+                            List.of("git", "pull", "--ff-only"), null, directory);
                 } else if (Files.exists(directory)) {
                     throw new IllegalStateException("目标已存在但不是 Git 仓库: " + directory);
                 } else {
@@ -694,9 +712,12 @@ public class PluginUpdateService {
                 boolean synchronizedRepository = stepSucceeded(syncResult);
                 synchronizedRepositories.put(repository, synchronizedRepository);
                 if (synchronizedRepository) {
-                    recordSuccessfulSync(workspace, repository, source);
+                    String synchronizedSource = Files.isDirectory(directory.resolve(".git"))
+                            ? gitSource(gitOutput(directory, 5_000, "remote", "get-url", "origin"), source)
+                            : source;
+                    recordSuccessfulSync(workspace, repository, synchronizedSource);
                 }
-            } catch (IOException | IllegalStateException exception) {
+            } catch (IllegalStateException exception) {
                 synchronizedRepositories.put(repository, false);
                 results.add(repositoryFailure(taskId, repository, exception.getMessage()));
             }
@@ -972,19 +993,11 @@ public class PluginUpdateService {
                 .replaceAll("(?i)\\.git$", "").toLowerCase(Locale.ROOT);
     }
 
-    /** 只允许删除依赖工作区下、名称在固定白名单中的单个仓库。 */
-    private static void deleteRepository(Path workspace, Path repo) throws IOException {
-        Path safeWorkspace = workspace.toAbsolutePath().normalize();
-        Path safeRepo = repo.toAbsolutePath().normalize();
-        if (!safeWorkspace.equals(safeRepo.getParent()) || !DEPENDENCY_REPOS.contains(safeRepo.getFileName().toString())) {
-            throw new IllegalStateException("拒绝删除非白名单依赖目录：" + safeRepo);
-        }
-        try (var paths = Files.walk(safeRepo)) {
-            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
-                path.toFile().setWritable(true);
-                Files.delete(path);
-            }
-        }
+    static String gitSource(String remote, String fallback) {
+        String normalized = normalizeGitRemote(remote);
+        if (normalized.contains("github.com")) return "github";
+        if (normalized.contains("gitee.com")) return "gitee";
+        return fallback;
     }
 
     private Path dependencyWorkspace() {
@@ -1303,25 +1316,12 @@ public class PluginUpdateService {
         return getExitCode == 0;
     }
 
-    /**
-     * 在虚拟线程按所选 Git 源更新团队仓库，再从本地 marketplace 安装双端插件。
-     * emitter 由调用方(controller)先 create 并返回给 Spring 挂上 HTTP;此处仅启动 worker,
-     * 开头小睡确保 SSE 连接已建立再发首条,避免早发事件丢失。
-     */
+    /** 在虚拟线程同步五仓、重建知识引擎，并从固定本地工作区更新插件和 MCP。 */
     public void startUpdate(String taskId, String sessionId, String requestedSource) {
-        Path codexHome = resolveCodexHome(sessionId);
         Thread.ofVirtual().name("plugin-update-" + taskId).start(() -> {
-            List<Map<String, Object>> results = new ArrayList<>();
             try {
                 Thread.sleep(150); // 等 SSE HTTP 挂上
-                String source = normalizeSource(requestedSource);
-                sse.publish(taskId, "message", Map.of("type", "line", "engine", "plugin",
-                        "text", "统一使用 " + source.toUpperCase(Locale.ROOT) + " 插件源"));
-                Path workspace = dependencyWorkspace();
-                Files.createDirectories(workspace);
-                Map<String, Boolean> synchronizedRepositories = syncDependencyRepositories(
-                        taskId, workspace, source, props.getWatchedPlugins(), results);
-                installPlugins(taskId, codexHome, workspace, synchronizedRepositories, results);
+                List<Map<String, Object>> results = installDependencies(taskId, sessionId, requestedSource);
                 sse.publish(taskId, "message", Map.of("type", "done", "results", results));
             } catch (Exception e) {
                 sse.publish(taskId, "message", Map.of("type", "error", "message", String.valueOf(e.getMessage())));

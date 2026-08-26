@@ -27,3 +27,4 @@
 | PRD 探索式规格流程 | 实施中 | 完整-业务 | [设计](PRD探索式规格流程/PRD探索式规格流程-current.md) · [API](PRD探索式规格流程/PRD探索式规格流程-api-current.md) · [编码摘要](PRD探索式规格流程/PRD探索式规格流程-coding.md) |
 | 企业内部多 Web 系统统一嵌入式 AI 助手 | 已实现（受控试用） | 完整-技术 | [设计](企业内部多Web系统统一嵌入式AI助手/企业内部多Web系统统一嵌入式AI助手-current.md) · [API](企业内部多Web系统统一嵌入式AI助手/企业内部多Web系统统一嵌入式AI助手-api-current.md) · [编码摘要](企业内部多Web系统统一嵌入式AI助手/企业内部多Web系统统一嵌入式AI助手-coding.md) · [验收报告](企业内部多Web系统统一嵌入式AI助手/企业内部多Web系统统一嵌入式AI助手-验收报告.md) |
 | 计划评审需求表达与纠偏 | 实施中 | 完整-业务 | [设计](计划评审需求表达与纠偏/计划评审需求表达与纠偏-current.md) · [编码摘要](计划评审需求表达与纠偏/计划评审需求表达与纠偏-coding.md) |
+| Forge 研发环境看板 | 已实现 | 完整-技术 | [设计](Forge研发环境看板/Forge研发环境看板-current.md) · [API](Forge研发环境看板/Forge研发环境看板-api-current.md) · [编码摘要](Forge研发环境看板/Forge研发环境看板-coding.md) |

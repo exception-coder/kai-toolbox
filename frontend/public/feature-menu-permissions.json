@@ -38,6 +38,13 @@
       "sort": 7
     },
     {
+      "featureId": "forge-environment",
+      "code": "forge:environment:menu",
+      "name": "Forge 环境",
+      "module": "forge-environment",
+      "sort": 7
+    },
+    {
       "featureId": "forge-department",
       "code": "forge:dept:menu",
       "name": "部门管理",
