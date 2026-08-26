@@ -227,6 +227,13 @@
       "sort": 40
     },
     {
+      "featureId": "assistant-integration",
+      "code": "menu:assistant-integration",
+      "name": "嵌入式业务助手",
+      "module": "系统",
+      "sort": 44
+    },
+    {
       "featureId": "qrcode",
       "code": "menu:qrcode",
       "name": "二维码工具",

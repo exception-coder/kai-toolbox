@@ -24,6 +24,7 @@ export function AssistantBridge() {
       assistantRef.current = sdk.initialize({
         appId: 'KAI_TOOLBOX',
         appName: 'Forge',
+        projectKey: 'kai-toolbox',
         sourceRevision: 'loader-stable',
         wsUrl: '/api/claude-chat/consult/ws',
         getAccessToken: async () => {
