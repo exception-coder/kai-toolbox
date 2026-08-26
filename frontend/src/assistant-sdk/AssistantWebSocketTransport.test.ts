@@ -302,6 +302,7 @@ describe('AssistantWebSocketTransport', () => {
       ] }),
       expect.objectContaining({ id: 'h3', content: '近期回答' }),
     ]))
+    expect(sentByType(socket, 'assistantConversationAnalyze')).toMatchObject({ sessionId: 'fixed-session' })
     await expect(transport.loadConversationAttachment('att-1')).resolves.toBeInstanceOf(Blob)
     transport.loadEarlier()
     await vi.waitFor(() => expect(states.at(-1)?.messages?.map(message => message.id)).toEqual(['h1', 'h2', 'h3']))

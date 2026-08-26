@@ -93,7 +93,8 @@
 | `frontend/src/assistant-sdk/widget.ts` | 新建 | Shadow DOM Drawer、上下文清单、对话和静默反馈归档入口 |
 | `frontend/src/assistant-sdk/widgetInteractionState.ts` | 新建 | 将传输状态统一投影为消息流活动提示和发送门禁 |
 | `frontend/src/assistant-sdk/widgetPosition.ts` | 新建 | 跨端胶囊与桌面端对话框拖动、边界约束与位置持久化 |
-| `frontend/src/assistant-sdk/AssistantBridge.tsx` | 新建 | SDK 与既有咨询 WebSocket、队列、草稿接口接线 |
+| `frontend/src/assistant-sdk/AssistantBridge.tsx` | 修改 | Forge Loader 宿主适配，仅注入认证、用户、页面和运行时证据 |
+| `frontend/src/assistant-sdk/assistantLoaderHost.ts` | 新建 | 注入固定 Loader、复用并发加载并读取 stable 运行时 |
 | `frontend/src/assistant-sdk/AssistantWebSocketTransport.ts` | 新建 | 独立 SDK 的连接、重连、水位、消息和排队状态 |
 | `frontend/src/assistant-sdk/assistantPageNavigation.ts` | 新建 | 观察浏览器 History/Popstate 生命周期并投影当前页面 URL |
 | `frontend/src/assistant-sdk/imageAttachments.ts` | 新建 | 剪贴板图片提取、前置校验、预览 URL 生命周期和上传 DTO |

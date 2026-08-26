@@ -39,7 +39,7 @@ flowchart LR
 - 草稿不产生正式需求；确认登记使用草稿级 `idempotencyKey`，重复提交返回首次结果。
 - Assistant 失败不得阻塞宿主业务链路。
 - 宿主只负责加载 SDK、提供上下文、更新上下文和配置 WebSocket 地址；咨询、诊断、队列和会话逻辑不得复制到宿主。
-- `AssistantBridge` 仅作为 kai-toolbox 兼容适配器；公开 SDK 不得引用 React、Router、认证 Hook 或 feature 私有实现。
+- `AssistantBridge` 仅作为 Forge 的 Loader 宿主适配器，负责注入登录 Token、用户、页面与运行时证据；附件、消息、反馈分析和归档协议统一由 stable SDK Transport 承担。公开 SDK 不得引用 React、Router、认证 Hook 或 feature 私有实现。
 - 浏览器建立连接时通过 `getAccessToken` 动态取得短期 Assistant ACCESS token；同源代理也可在宿主后端完成身份映射。Token 不进入 SDK 本地存储，上下文 `user.id` 永远不参与授权。
 - 为内部试用提供显式开启的 Forge 外部登录模式：宿主配置登录地址后，Widget 在缺少 Token 时展示 Forge 账号登录；登录接口只对白名单 Origin 开放，SDK 将 ACCESS Token 与绝对过期时间限制在当前标签页 `sessionStorage`，不保存密码或 REFRESH Token。
 - 外部登录模式复用 Forge 账号和既有 ACCESS Token，不等同于跨域共享 Forge 页面的 `localStorage` 登录态；生产接入仍优先使用宿主后端换取短期、限域的 Assistant Token。
@@ -400,7 +400,7 @@ flowchart LR
 - 静态 SDK 资源允许任意 Origin 执行只读 `GET/HEAD/OPTIONS`；这不放宽登录、WebSocket、附件或归档接口的精确 Origin 白名单。
 - Loader 加载、渠道读取、契约校验或脚本执行失败时返回明确异常，不创建半初始化助手，不影响宿主业务页面。
 - `stable` 是默认渠道；`canary` 只供测试宿主显式选择。回滚只修改渠道清单指向已保留版本，不覆盖不可变产物。
-- Yoooni One 首批改为运行时 Loader 接入；原 vendor 目录暂时保留但不再进入依赖图，确认稳定后再单独清理。
+- Forge 与 Yoooni One 均使用运行时 Loader 接入；宿主不得复制附件、消息水位或反馈分析协议。原 vendor 目录暂时保留但不再进入依赖图，确认稳定后再单独清理。
 
 ### 10.1 正常加载
 

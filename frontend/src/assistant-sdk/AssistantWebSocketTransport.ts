@@ -562,6 +562,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     } finally {
       if (sessionId === this.sessionId) {
         this.historyLoading = false
+        if (!this.running && this.messages.length > 0) this.requestConversationAnalysis()
         if (this.awaitingSendAck.size > 0) {
           this.emit('正在确认消息是否送达', '正在等待服务端确认消息已进入 AI 执行队列')
         } else {
