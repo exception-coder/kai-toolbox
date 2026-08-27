@@ -18,6 +18,9 @@ public class ReqPlanningAssessment {
     private String inputHash;
     private String inputSnapshot;
     private String evidenceTraceJson;
+    private String sourceInsightId;
+    private String sourceInsightHash;
+    private String sourceInsightSnapshot;
     private String criteriaVersion;
     private String promptVersion;
     /** RUNNING | COMPLETED | FAILED。 */

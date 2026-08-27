@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.reqpool.domain.ReqInsight;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqInsightType;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqInsightRepository;
+import com.exceptioncoder.toolbox.reqpool.repository.ReqInsightRunRepository;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqPlanningAssessmentRepository;
 import com.exceptioncoder.toolbox.reqpool.service.ReqInsightFingerprint;
 import org.junit.jupiter.api.Test;
@@ -20,8 +21,9 @@ class ReqItemViewAssemblerTest {
     private final ReqInsightRepository repository = mock(ReqInsightRepository.class);
     private final ReqInsightFingerprint fingerprint = new ReqInsightFingerprint();
     private final ReqPlanningAssessmentRepository planningRepository = mock(ReqPlanningAssessmentRepository.class);
+    private final ReqInsightRunRepository runRepository = mock(ReqInsightRunRepository.class);
     private final ReqItemViewAssembler assembler = new ReqItemViewAssembler(
-            repository, fingerprint, planningRepository);
+            repository, fingerprint, planningRepository, runRepository);
 
     @Test
     void marksInsightStaleWhenSourceFactsChange() {
@@ -30,11 +32,13 @@ class ReqItemViewAssemblerTest {
         when(repository.findLatestByItemIds(List.of("req-1"))).thenReturn(Map.of(
                 "req-1", insight(oldItem, ReqInsightType.ITEM, null)));
         when(planningRepository.findLatestByItemIds(List.of("req-1"))).thenReturn(Map.of());
+        when(runRepository.findLatestByItemIds(List.of("req-1"))).thenReturn(Map.of());
 
         ReqItemView view = assembler.from(item, List.of(item));
 
         assertThat(view.aiInsightStale()).isTrue();
         assertThat(view.aiInsightStaleReason()).isEqualTo("SOURCE_CHANGED");
+        assertThat(view.aiInsightEngine()).isEqualTo("claude");
     }
 
     @Test
@@ -46,6 +50,7 @@ class ReqItemViewAssemblerTest {
         when(repository.findLatestByItemIds(List.of("req-1"))).thenReturn(Map.of(
                 "req-1", latest));
         when(planningRepository.findLatestByItemIds(List.of("req-1"))).thenReturn(Map.of());
+        when(runRepository.findLatestByItemIds(List.of("req-1"))).thenReturn(Map.of());
 
         ReqItemView view = assembler.from(first, List.of(first, second));
 
@@ -56,7 +61,7 @@ class ReqItemViewAssemblerTest {
     private ReqInsight insight(ReqItem item, ReqInsightType type, String portfolioHash) {
         return new ReqInsight(
                 "history", item.getId(), type, "v1", fingerprint.sourceHash(item), portfolioHash,
-                "{}", "claude", null, 10);
+                "{}", null, "claude", null, 10);
     }
 
     private static ReqItem item(String id, String title) {

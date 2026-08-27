@@ -21,14 +21,17 @@ function requirement(overrides: Partial<ReqItemView> = {}): ReqItemView {
     reqTypeSource: 'UNKNOWN',
     reqTypeConfidence: 0,
     aiInsight: null,
+    aiInsightId: null,
     aiInsightType: null,
     aiInsightPromptVersion: null,
+    aiInsightEngine: null,
     aiInsightGeneratedAt: null,
     aiInsightStale: false,
     aiInsightStaleReason: null,
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
+    insightRun: overrides.insightRun ?? null,
     planningAssessment: overrides.planningAssessment ?? null,
   }
 }

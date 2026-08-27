@@ -1,5 +1,5 @@
 import { http } from '@/lib/api'
-import type { AssignableUser, CreateReqRequest, PlanningAssessmentView, ReqItemView, ReqStatus, ReqPriority, UpdateReqRequest } from './types'
+import type { AgentEngine, AssignableUser, CreateReqRequest, PlanningAssessmentView, ReqItemView, ReqStatus, ReqPriority, UpdateReqRequest } from './types'
 
 const BASE = '/reqpool'
 
@@ -74,9 +74,12 @@ export const seedDemo = () =>
 export const syncFromPrd = () =>
   http<{ created: number; updated: number; deleted: number }>(`${BASE}/sync-from-prd`, { method: 'POST' })
 
-/** 对单条需求生成 AI 价值洞察，并持久化历史与最新兼容投影。 */
-export const analyzeItem = (id: string) =>
-  http<ReqItemView>(`${BASE}/items/${id}/analyze`, { method: 'POST' })
+/** 登记单条价值判定后台任务；响应不等待模型执行。 */
+export const analyzeItem = (id: string, engine: AgentEngine) =>
+  http<ReqItemView>(`${BASE}/items/${id}/analyze`, {
+    method: 'POST',
+    body: JSON.stringify({ engine }),
+  })
 
 /** 基于已保存的初始化规格快照重试规划评估。 */
 export const retryPlanningAssessment = (id: string) =>

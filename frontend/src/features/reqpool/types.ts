@@ -4,6 +4,18 @@ export type RequirementType = 'BUG_FIX' | 'MODULE_ADJUST' | 'NEW_MODULE' | 'UNKN
 export type RequirementTypeSource = 'EXPLICIT' | 'AI' | 'PRD_SESSION' | 'UNKNOWN'
 export type PlanningAssessmentStatus = 'RUNNING' | 'COMPLETED' | 'FAILED'
 export type PlanningConfidence = 'HIGH' | 'MEDIUM' | 'LOW'
+export type AgentEngine = 'claude' | 'codex'
+export type InsightRunStatus = 'RUNNING' | 'COMPLETED' | 'FAILED'
+
+export interface InsightRunView {
+  id: string
+  status: InsightRunStatus
+  stage: 'QUEUED' | 'DISCOVERING' | 'ANALYZING' | 'COMPLETED' | 'FAILED'
+  engine: AgentEngine
+  errorMessage: string | null
+  startedAt: number
+  completedAt: number | null
+}
 
 export interface PlanningWorkPackage {
   type: 'DISCOVERY_DESIGN' | 'BACKEND' | 'FRONTEND' | 'DATA' | 'INTEGRATION' | 'TEST_VERIFICATION'
@@ -31,6 +43,18 @@ export interface PlanningCapability {
   workPackages: PlanningWorkPackage[]
 }
 
+export interface PlanningFirstTestRelease {
+  scope: string
+  capabilityIds: string[]
+  acceptanceChecks: string[]
+  deferredScope: string[]
+  confidence: PlanningConfidence
+  hoursMin: number
+  hoursMax: number
+  workingDaysMin: number
+  workingDaysMax: number
+}
+
 export interface PlanningAssessmentPayload {
   criteriaVersion: string
   effectiveHoursPerPersonDay: number
@@ -41,6 +65,7 @@ export interface PlanningAssessmentPayload {
   hoursMax: number
   personDaysMin: number
   personDaysMax: number
+  firstTestRelease?: PlanningFirstTestRelease
   capabilities: PlanningCapability[]
 }
 
@@ -50,6 +75,8 @@ export interface PlanningAssessmentView {
   criteriaVersion: string
   promptVersion: string
   inputHash: string
+  sourceInsightId: string | null
+  sourceInsightHash: string | null
   evidenceTraceJson: string | null
   payloadJson: string | null
   engine: string
@@ -59,23 +86,46 @@ export interface PlanningAssessmentView {
   completedAt: number | null
 }
 
-export type PlanningEvidenceStatus = 'HIT' | 'SOURCE_MISSING' | 'NO_HIT_OR_ERROR' | 'NOT_APPLICABLE' | 'NOT_INVOKED'
+export type PlanningEvidenceStatus =
+  | 'HIT'
+  | 'SOURCE_MISSING'
+  | 'NO_HIT'
+  | 'EXECUTION_ERROR'
+  | 'NO_HIT_OR_ERROR'
+  | 'NOT_APPLICABLE'
+  | 'NOT_INVOKED'
 
 export interface PlanningEvidenceSourceTrace {
-  source: 'DOMAIN_KNOWLEDGE' | 'GRAPHIFY' | 'DDL' | 'ROUTE_MAP'
+  entryId?: string
+  retryOf?: string | null
+  source: 'DOMAIN_KNOWLEDGE' | 'GRAPHIFY' | 'DDL' | 'ROUTE_MAP' | 'SOURCE' | 'CROSS_PROJECT_TOPOLOGY'
+  sourceProject?: string
+  projectPath?: string
+  projectRole?: string
+  relation?: string
   attempted: boolean
   status: PlanningEvidenceStatus
   target: string
   resultChars: number
+  queryReason?: string
   excerpt: string
+  errorSummary?: string | null
+  createdAt?: string
 }
 
 export interface PlanningEvidenceTrace {
   version: string
-  project: string
-  module: string
-  query: string
-  capturedAt: number
+  traceId?: string
+  scopeId?: string
+  project?: string
+  primaryProject?: string
+  module?: string
+  query?: string
+  purpose?: string
+  round?: number
+  maxRounds?: number
+  complete?: boolean
+  capturedAt?: number
   sources: PlanningEvidenceSourceTrace[]
 }
 
@@ -97,11 +147,14 @@ export interface ReqItemView {
   reqTypeConfidence: number
   /** Claude AI 价值洞察分析 JSON（含 priority/stars/recommendation/impacts/roi/estimatedHours） */
   aiInsight: string | null
+  aiInsightId: string | null
   aiInsightType: 'ITEM' | 'PORTFOLIO' | null
   aiInsightPromptVersion: string | null
+  aiInsightEngine: AgentEngine | null
   aiInsightGeneratedAt: number | null
   aiInsightStale: boolean
   aiInsightStaleReason: 'SOURCE_CHANGED' | 'PORTFOLIO_CHANGED' | 'LEGACY_UNVERIFIED' | null
+  insightRun: InsightRunView | null
   planningAssessment: PlanningAssessmentView | null
   createdAt: number
   updatedAt: number

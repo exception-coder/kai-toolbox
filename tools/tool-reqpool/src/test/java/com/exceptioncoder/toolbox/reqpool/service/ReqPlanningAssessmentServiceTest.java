@@ -2,8 +2,12 @@ package com.exceptioncoder.toolbox.reqpool.service;
 
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
+import com.exceptioncoder.toolbox.reqpool.domain.ReqInsight;
+import com.exceptioncoder.toolbox.reqpool.domain.ReqInsightType;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqPlanningAssessment;
+import com.exceptioncoder.toolbox.reqpool.domain.ReqPlanningCommand;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqItemRepository;
+import com.exceptioncoder.toolbox.reqpool.repository.ReqInsightRepository;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqPlanningAssessmentRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -24,6 +28,42 @@ import static org.mockito.Mockito.when;
 class ReqPlanningAssessmentServiceTest {
 
     @Test
+    void freezesLatestInsightIntoTheCompositePlanningInput() {
+        AgentOneShotRunner runner = mock(AgentOneShotRunner.class);
+        ReqItemRepository itemRepository = mock(ReqItemRepository.class);
+        ReqPlanningAssessmentRepository assessmentRepository = mock(ReqPlanningAssessmentRepository.class);
+        ReqInsightRepository insightRepository = mock(ReqInsightRepository.class);
+        ReqRequirementTypeService requirementTypeService = mock(ReqRequirementTypeService.class);
+        ReqPlanningAssessmentService service = new ReqPlanningAssessmentService(
+                runner, itemRepository, assessmentRepository, insightRepository,
+                requirementTypeService, new ReqPlanningAssessmentNormalizer(new ObjectMapper()),
+                new PlanningEvidenceTraceContext(new ObjectMapper()));
+        ReqItem item = ReqItem.builder().id("item-1").title("需求").status("PRD_READY").build();
+        ReqInsight insight = new ReqInsight(
+                "insight-1", "item-1", ReqInsightType.ITEM, "req-item-v1", "source-hash",
+                null, "{\"estimatedHours\":40}", "{\"version\":\"insight-trace\"}", "codex", null, 1L);
+        ReqPlanningCommand command = new ReqPlanningCommand(
+                "prd-1", "item-1", "需求", "原始输入", "kai-toolbox", "需求中枢",
+                "MODULE_ADJUST", null, "codex", "# 初始化规格", null);
+        when(itemRepository.findById("item-1")).thenReturn(Optional.of(item));
+        when(itemRepository.findByPrdSessionId("prd-1")).thenReturn(Optional.empty());
+        when(insightRepository.findLatestByItemId("item-1")).thenReturn(Optional.of(insight));
+        when(assessmentRepository.findReusable(
+                eq("prd-1"), anyString(), anyString())).thenReturn(Optional.empty());
+        when(assessmentRepository.insert(org.mockito.ArgumentMatchers.any())).thenReturn(true);
+
+        ReqPlanningAssessmentService.PreparedAssessment prepared = service.prepare(command);
+
+        ArgumentCaptor<ReqPlanningAssessment> captured = ArgumentCaptor.forClass(ReqPlanningAssessment.class);
+        verify(assessmentRepository).insert(captured.capture());
+        assertThat(prepared.created()).isTrue();
+        assertThat(captured.getValue().getSourceInsightId()).isEqualTo("insight-1");
+        assertThat(captured.getValue().getSourceInsightSnapshot()).contains("estimatedHours");
+        assertThat(captured.getValue().getEvidenceTraceJson()).contains("insight-trace");
+        assertThat(captured.getValue().getInputHash()).hasSize(64);
+    }
+
+    @Test
     void repairsInvalidModelOutputWithinTheSameBackgroundRun() {
         Fixture fixture = fixture();
         when(fixture.runner.runOnce(anyString(), anyString(), isNull(), eq("codex")))
@@ -40,6 +80,10 @@ class ReqPlanningAssessmentServiceTest {
                 .contains("第 1 次输出未通过确定性校验")
                 .contains("第 1 个领域功能的范围说明（scope）缺失")
                 .contains("重新返回完整 JSON 根对象");
+        assertThat(prompts.getAllValues().getFirst())
+                .contains("【价值判定结论快照】")
+                .contains("estimatedHours")
+                .contains("正式工时");
         verify(fixture.assessmentRepository, never())
                 .fail(anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
     }
@@ -64,22 +108,52 @@ class ReqPlanningAssessmentServiceTest {
                 .complete(anyString(), anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong());
     }
 
+    @Test
+    void repairsPlanningClaimsThatContradictRecordedEvidenceHits() {
+        Fixture fixture = fixture();
+        String contradictory = validOutput().replace(
+                "按订单领域独立验收", "业务知识、代码图谱和数据库 DDL 均未命中，无法分析");
+        when(fixture.runner.runOnce(anyString(), anyString(), isNull(), eq("codex")))
+                .thenReturn(contradictory, validOutput());
+        when(fixture.assessmentRepository.complete(
+                eq("assessment-1"), eq(validOutput()), anyString(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(true);
+
+        fixture.service.execute("assessment-1");
+
+        ArgumentCaptor<String> prompts = ArgumentCaptor.forClass(String.class);
+        verify(fixture.runner, times(2)).runOnce(anyString(), prompts.capture(), isNull(), eq("codex"));
+        assertThat(prompts.getAllValues().getFirst())
+                .contains("【证据路由与查询轨迹摘要】")
+                .contains("当前实现 kai-toolbox")
+                .contains("已命中")
+                .doesNotContain("\"version\":\"planning-evidence-trace-v2\"");
+        assertThat(prompts.getAllValues().get(1)).contains("规划结论与证据轨迹矛盾");
+    }
+
     private static Fixture fixture() {
         AgentOneShotRunner runner = mock(AgentOneShotRunner.class);
         ReqItemRepository itemRepository = mock(ReqItemRepository.class);
         ReqPlanningAssessmentRepository assessmentRepository = mock(ReqPlanningAssessmentRepository.class);
+        ReqInsightRepository insightRepository = mock(ReqInsightRepository.class);
         ReqRequirementTypeService requirementTypeService = mock(ReqRequirementTypeService.class);
         ReqPlanningAssessmentService service = new ReqPlanningAssessmentService(
                 runner,
                 itemRepository,
                 assessmentRepository,
+                insightRepository,
                 requirementTypeService,
-                new ReqPlanningAssessmentNormalizer(new ObjectMapper()));
+                new ReqPlanningAssessmentNormalizer(new ObjectMapper()),
+                new PlanningEvidenceTraceContext(new ObjectMapper()));
         ReqPlanningAssessment assessment = ReqPlanningAssessment.builder()
                 .id("assessment-1")
                 .itemId("item-1")
                 .prdSessionId("prd-1")
                 .inputSnapshot("# 初始化规格")
+                .sourceInsightId("insight-1")
+                .sourceInsightHash("insight-hash")
+                .sourceInsightSnapshot("{\"estimatedHours\":40,\"reason\":\"提升交付透明度\"}")
+                .evidenceTraceJson(evidenceTrace())
                 .status("RUNNING")
                 .engine("codex")
                 .build();
@@ -103,6 +177,12 @@ class ReqPlanningAssessmentServiceTest {
                 {
                   "summary":"按订单领域独立验收",
                   "assumptions":[],
+                  "firstTestRelease":{
+                    "scope":"先在测试环境验证审核前取消闭环",
+                    "capabilityIds":["CAP-001"],
+                    "acceptanceChecks":["取消结果可追溯"],
+                    "deferredScope":[]
+                  },
                   "capabilities":[{
                     "id":"CAP-001",
                     "domain":"订单",
@@ -124,6 +204,15 @@ class ReqPlanningAssessmentServiceTest {
                     ]
                   }]
                 }
+                """;
+    }
+
+    private static String evidenceTrace() {
+        return """
+                {"version":"planning-evidence-trace-v2","traceId":"trace-1","primaryProject":"kai-toolbox","sources":[
+                  {"source":"GRAPHIFY","sourceProject":"kai-toolbox","projectRole":"CURRENT_IMPLEMENTATION","status":"HIT","excerpt":"ReqPlanningAssessmentService"},
+                  {"source":"DDL","sourceProject":"kai-toolbox","projectRole":"CURRENT_IMPLEMENTATION","status":"HIT","excerpt":"req_planning_assessment"}
+                ]}
                 """;
     }
 

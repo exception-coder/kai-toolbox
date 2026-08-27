@@ -15,8 +15,8 @@ public class ReqAnalysisService {
         this.insightApplicationService = insightApplicationService;
     }
 
-    public String analyze(ReqItem item) {
-        return insightApplicationService.analyzeItem(item);
+    public String analyze(ReqItem item, String engine) {
+        return insightApplicationService.analyzeItem(item, engine);
     }
 
     public String analyzePortfolio(List<ReqItem> items) {

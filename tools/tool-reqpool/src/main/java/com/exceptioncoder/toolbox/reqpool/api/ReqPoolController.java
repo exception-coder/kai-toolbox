@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.reqpool.api;
 
 import com.exceptioncoder.toolbox.reqpool.api.dto.AssignReqRequest;
+import com.exceptioncoder.toolbox.reqpool.api.dto.AnalyzeReqItemRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.CreateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.LinkPrdRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.ReqItemView;
@@ -11,6 +12,7 @@ import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqItemRepository;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqPoolIntegrationRepository;
 import com.exceptioncoder.toolbox.reqpool.service.ReqAnalysisService;
+import com.exceptioncoder.toolbox.reqpool.service.ReqInsightTaskService;
 import com.exceptioncoder.toolbox.reqpool.service.ReqDevelopmentAccessPolicy;
 import com.exceptioncoder.toolbox.reqpool.service.ReqPoolPrdSyncService;
 import com.exceptioncoder.toolbox.reqpool.service.ReqRequirementTypeService;
@@ -65,6 +67,7 @@ public class ReqPoolController {
     private final ReqPoolIntegrationRepository integrationRepository;
     private final ReqPoolPrdSyncService prdSyncService;
     private final ReqAnalysisService analysis;
+    private final ReqInsightTaskService insightTaskService;
     private final ReqDevelopmentAccessPolicy developmentAccess;
     private final ReqRequirementTypeService requirementTypeService;
     private final ReqItemViewAssembler viewAssembler;
@@ -76,6 +79,7 @@ public class ReqPoolController {
                              ReqPoolIntegrationRepository integrationRepository,
                              ReqPoolPrdSyncService prdSyncService,
                              ReqAnalysisService analysis,
+                             ReqInsightTaskService insightTaskService,
                              ReqDevelopmentAccessPolicy developmentAccess,
                              ReqRequirementTypeService requirementTypeService,
                              ReqItemViewAssembler viewAssembler,
@@ -86,6 +90,7 @@ public class ReqPoolController {
         this.integrationRepository = integrationRepository;
         this.prdSyncService = prdSyncService;
         this.analysis = analysis;
+        this.insightTaskService = insightTaskService;
         this.developmentAccess = developmentAccess;
         this.requirementTypeService = requirementTypeService;
         this.viewAssembler = viewAssembler;
@@ -343,18 +348,24 @@ public class ReqPoolController {
     }
 
     /**
-     * AI 需求洞察分析：调用 Claude 评估需求价值、优先级、影响范围、ROI。
+     * AI 需求洞察分析：按用户选择或最近一次成功引擎评估需求价值、优先级、影响范围、ROI。
      * 分析结果写入不可变洞察历史，并同步 ai_insight 兼容投影。
      * 分析较耗时（10-30s），由前端异步触发，不阻塞页面加载。
      */
     @PostMapping("/items/{id}/analyze")
-    public ReqItemView analyze(@PathVariable String id) {
+    public ResponseEntity<ReqItemView> analyze(
+            @PathVariable String id,
+            @RequestBody(required = false) AnalyzeReqItemRequest request
+    ) {
         ReqItem item = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
-        analysis.analyze(item);
-        ReqItem updated = repo.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
-        return toView(updated);
+        ReqItemView current = toView(item);
+        String requestedEngine = request == null ? null : request.engine();
+        String engine = requestedEngine == null || requestedEngine.isBlank()
+                ? current.aiInsightEngine()
+                : requestedEngine;
+        insightTaskService.schedule(item, engine);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(toView(item));
     }
 
     /** 查询需求最近一次初始化规格规划评估。 */
@@ -405,7 +416,7 @@ public class ReqPoolController {
         Thread.ofVirtual().name("reqpool-batch-analyze").start(() -> {
             for (ReqItem item : items) {
                 try {
-                    analysis.analyze(item);
+                    insightTaskService.schedule(item, null);
                     Thread.sleep(500); // 轻微限速，避免 sidecar 过载
                 } catch (Exception e) {
                     log.warn("[reqpool] 批量分析失败 itemId={}: {}", item.getId(), e.getMessage());

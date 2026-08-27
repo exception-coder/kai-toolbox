@@ -4,7 +4,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { getSession as getPrdSession, type PrdSessionView } from '@/features/prd-clarify/public-api'
 import { analyzeItem, assignItem, deleteItem, deleteItems, startClarify, updateItem } from '../api'
-import type { ReqItemView } from '../types'
+import type { AgentEngine, ReqItemView } from '../types'
 import type { ReqpoolActions } from './useReqpoolActions'
 
 /** 需求条目的分析、分派、日期、选择和删除命令。 */
@@ -42,10 +42,10 @@ export function useReqpoolItemCommands({
     setBulkDeleting,
   } = actions
 
-  const analyze = async (item: ReqItemView): Promise<void> => {
+  const analyze = async (item: ReqItemView, engine: AgentEngine): Promise<void> => {
     setAnalyzingId(item.id)
     try {
-      const updated = await analyzeItem(item.id)
+      const updated = await analyzeItem(item.id, engine)
       setSelected(updated)
       await queryClient.invalidateQueries({ queryKey: ['reqpool'] })
     } finally {

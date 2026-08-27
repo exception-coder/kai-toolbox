@@ -74,7 +74,6 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { QuickRequirementDialog } from '../components/QuickRequirementDialog'
 import { ReqpoolVibeDialog } from '../components/ReqpoolVibeDialog'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { getSelfRepo, useChatRuntime } from '@/features/claude-chat/public-api'
 import {
   getContent as getPrdContent,
   getDevDocContent,
@@ -122,12 +121,10 @@ interface DisplayField {
 }
 
 const DEFAULT_FIELDS: DisplayField[] = [
-  { id: 'decision', label: '统一判定', description: 'AI 按统一规则给出的投入建议', enabled: true, ai: true },
-  { id: 'requirement', label: '需求事实', description: '标题、系统模块、URL 定位与事实质量', enabled: true },
-  { id: 'value', label: '业务价值', description: '目标、影响与预期收益', enabled: true, ai: true },
-  { id: 'owner', label: '责任与时间', description: '唯一负责人和承诺时间', enabled: true },
-  { id: 'delivery', label: '交付证据', description: '需求规格、执行方案、代码自动回填', enabled: true, ai: true },
-  { id: 'risk', label: '风险与下一步', description: '阻塞、缺口与明确动作', enabled: true, ai: true },
+  { id: 'requirement', label: '需求', description: '标题、结论摘要与必要元信息', enabled: true, ai: true },
+  { id: 'owner', label: '负责人', description: '唯一负责人和承诺时间', enabled: true },
+  { id: 'delivery', label: '交付进度', description: '规格、计划、代码与交付状态', enabled: true, ai: true },
+  { id: 'risk', label: '风险', description: '当前最优先处理的一项风险', enabled: true, ai: true },
 ]
 
 const VIEW_PREFERENCE_KEY = 'kai-reqpool-view-preference-v1'
@@ -342,7 +339,7 @@ function PrdStageDot({ state, running }: { state: PrdNodeState; running: boolean
     return <span className="grid h-5 w-5 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white shadow-sm shadow-amber-500/30">!</span>
   }
   if (state === 'generating') {
-    return <span className="relative grid h-5 w-5 place-items-center rounded-full border-2 border-sky-500 bg-sky-50 dark:bg-sky-950"><span className="absolute inset-[-4px] animate-ping rounded-full border border-sky-400/45" /><span className="h-1.5 w-1.5 rounded-full bg-sky-500" /></span>
+    return <span className="relative grid h-5 w-5 place-items-center rounded-full border-2 border-[var(--color-primary)] bg-[var(--color-card)]"><span className="absolute inset-[-4px] animate-ping rounded-full border border-[var(--color-primary)]/40" /><span className="h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" /></span>
   }
   if (state === 'draft') {
     return <span className="grid h-5 w-5 place-items-center rounded-full border-2 border-slate-400 bg-slate-50 dark:bg-slate-900"><span className="h-1.5 w-1.5 rounded-full bg-slate-400" /></span>
@@ -385,7 +382,7 @@ function TddStageDot({ state }: { state: TddNodeState }) {
     return <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500 text-white shadow-sm shadow-emerald-500/30"><Check className="h-3 w-3" /></span>
   }
   if (state === 'ready') {
-    return <span className="grid h-5 w-5 place-items-center rounded-full border-2 border-purple-500 bg-purple-50 dark:bg-purple-950"><span className="h-1.5 w-1.5 rounded-full bg-purple-500" /></span>
+    return <span className="grid h-5 w-5 place-items-center rounded-full border-2 border-[var(--color-muted-foreground)] bg-[var(--color-card)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--color-muted-foreground)]" /></span>
   }
   if (state === 'building') {
     return <span className="relative grid h-5 w-5 place-items-center rounded-full border-2 border-violet-500 bg-violet-50 dark:bg-violet-950"><span className="absolute inset-[-4px] animate-ping rounded-full border border-violet-400/50" /><span className="h-1.5 w-1.5 rounded-full bg-violet-500" /></span>
@@ -394,7 +391,7 @@ function TddStageDot({ state }: { state: TddNodeState }) {
     return <span className="grid h-5 w-5 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white shadow-sm shadow-amber-500/30">!</span>
   }
   if (state === 'generating') {
-    return <span className="relative grid h-5 w-5 place-items-center rounded-full border-2 border-sky-500 bg-sky-50 dark:bg-sky-950"><span className="absolute inset-[-4px] animate-ping rounded-full border border-sky-400/45" /><span className="h-1.5 w-1.5 rounded-full bg-sky-500" /></span>
+    return <span className="relative grid h-5 w-5 place-items-center rounded-full border-2 border-[var(--color-primary)] bg-[var(--color-card)]"><span className="absolute inset-[-4px] animate-ping rounded-full border border-[var(--color-primary)]/40" /><span className="h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" /></span>
   }
   if (state === 'stale') {
     return <span className="grid h-5 w-5 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-white shadow-sm shadow-amber-500/30">!</span>
@@ -445,7 +442,7 @@ export function RequirementLineage({
   runState: RequirementLineageRunState
 }) {
   const children = childrenByItemId.get(parent.id) ?? []
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   if (children.length === 0) return null
   const total = descendantCount(parent.id, childrenByItemId)
 
@@ -555,13 +552,7 @@ export function DocumentStatusLegend() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverAnchor asChild>
         <button type="button" onClick={() => setOpen(value => !value)} className="flex h-9 items-center gap-2 rounded-lg border border-[var(--color-border)] px-2.5 text-[10px] font-medium text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]" aria-label="查看文档节点状态说明">
-          <span className="flex items-center -space-x-0.5" aria-hidden="true">
-            <span className="h-2.5 w-2.5 rounded-full border-2 border-slate-400 bg-slate-50" />
-            <span className="h-2.5 w-2.5 rounded-full bg-violet-500" />
-            <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-            <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-          </span>
+          <FileText className="h-3.5 w-3.5" aria-hidden="true" />
           文档节点状态
         </button>
       </PopoverAnchor>
@@ -754,6 +745,7 @@ function PrdStageNode({
   onStart,
   onAnswer,
   onPreview,
+  compact = false,
 }: {
   item: ReqItemView
   requirement?: DeliveryRequirement
@@ -762,6 +754,7 @@ function PrdStageNode({
   onStart: (engine: AgentEngine) => Promise<void>
   onAnswer: () => void
   onPreview: () => void
+  compact?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [engine, setEngine] = useState<AgentEngine>('codex')
@@ -827,7 +820,7 @@ function PrdStageNode({
     return (
       <div className="flex flex-col items-center gap-1" title={`尚未关联${labels.specification}`}>
         <PrdStageDot state="empty" running={false} />
-        <span className="text-[10px] text-[var(--color-muted-foreground)]">{labels.specification}</span>
+        <span className="text-[10px] text-[var(--color-muted-foreground)]">{compact ? '规格' : labels.specification}</span>
       </div>
     )
   }
@@ -843,7 +836,7 @@ function PrdStageNode({
           aria-label={`${meta.label}，${meta.hint}`}
         >
           <PrdStageDot state={state} running={running} />
-          <span className={`text-[10px] font-medium transition-colors ${state === 'draft' ? 'text-slate-500' : state === 'building' ? 'text-violet-600' : state === 'awaiting' ? 'text-amber-600' : state === 'generating' ? 'text-sky-600' : state === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>{labels.specification}</span>
+          <span className={`text-[10px] font-medium transition-colors ${state === 'draft' ? 'text-slate-500' : state === 'building' ? 'text-violet-600' : state === 'awaiting' ? 'text-amber-600' : state === 'generating' ? 'text-sky-600' : state === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>{compact ? '规格' : labels.specification}</span>
         </button>
       </PopoverAnchor>
       {open && (
@@ -939,6 +932,7 @@ function TddStageNode({
   onStart,
   onAnswer: _onAnswer,
   onPreview,
+  compact = false,
 }: {
   requirement?: DeliveryRequirement
   session?: PrdSessionView
@@ -948,6 +942,7 @@ function TddStageNode({
   onStart: (engine: AgentEngine) => void
   onAnswer: () => void
   onPreview: () => void
+  compact?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [engine, setEngine] = useState<AgentEngine>('codex')
@@ -994,7 +989,7 @@ function TddStageNode({
           aria-label={`${meta.label}：${meta.hint}`}
         >
           <TddStageDot state={state} />
-          <span className={`text-[10px] font-medium transition-colors ${state === 'ready' || state === 'building' ? 'text-purple-600' : state === 'awaiting' || state === 'stale' ? 'text-amber-600' : state === 'generating' ? 'text-sky-600' : state === 'done' ? 'text-emerald-600' : state === 'error' ? 'text-rose-600' : 'text-[var(--color-muted-foreground)]'}`}>{labels.plan}</span>
+          <span className={`text-[10px] font-medium transition-colors ${state === 'ready' || state === 'building' ? 'text-purple-600' : state === 'awaiting' || state === 'stale' ? 'text-amber-600' : state === 'generating' ? 'text-sky-600' : state === 'done' ? 'text-emerald-600' : state === 'error' ? 'text-rose-600' : 'text-[var(--color-muted-foreground)]'}`}>{compact ? '计划' : labels.plan}</span>
         </button>
       </PopoverAnchor>
       {open && (
@@ -1078,6 +1073,7 @@ export function DeliveryTrack({
   onStartTdd = () => {},
   onAnswerTdd = () => {},
   onPreviewTdd = () => {},
+  compact = false,
 }: {
   item: ReqItemView
   requirement?: DeliveryRequirement
@@ -1092,38 +1088,52 @@ export function DeliveryTrack({
   onStartTdd?: (engine: AgentEngine) => void
   onAnswerTdd?: () => void
   onPreviewTdd?: () => void
+  compact?: boolean
 }) {
   const progress = requirement ? requirementProgress(requirement) : null
   const stages = [
     { key: 'prd' as const, label: '核心规格' },
     { key: 'tdd' as const, label: 'TDD' },
     { key: 'code' as const, label: '代码' },
+    { key: 'delivery' as const, label: '交付' },
   ]
+  const deliveryState = requirement?.stages.runtime.status === 'COMPLETE'
+    ? 'done'
+    : requirement && [requirement.stages.test.status, requirement.stages.runtime.status].some(status => status === 'PARTIAL' || status === 'STALE')
+      ? 'active'
+      : 'empty'
   return (
-    <div className="min-w-[176px]">
+    <div className="min-w-[218px]">
       <div className="flex items-center gap-1">
         {stages.map((stage, index) => (
           <div key={stage.key} className="flex items-center gap-1">
             {stage.key === 'prd' ? (
-              <PrdStageNode item={item} requirement={requirement} prdSession={prdSession} running={prdRunning} onStart={onStartPrd} onAnswer={onAnswerPrd} onPreview={onPreviewPrd} />
+              <PrdStageNode compact={compact} item={item} requirement={requirement} prdSession={prdSession} running={prdRunning} onStart={onStartPrd} onAnswer={onAnswerPrd} onPreview={onPreviewPrd} />
             ) : stage.key === 'tdd' ? (
-              <TddStageNode requirement={requirement} session={prdSession} building={tddBuilding} generating={tddGenerating} failed={tddFailed} onStart={onStartTdd} onAnswer={onAnswerTdd} onPreview={onPreviewTdd} />
+              <TddStageNode compact={compact} requirement={requirement} session={prdSession} building={tddBuilding} generating={tddGenerating} failed={tddFailed} onStart={onStartTdd} onAnswer={onAnswerTdd} onPreview={onPreviewTdd} />
+            ) : stage.key === 'code' ? (
+              <CodeStageNode compact={compact} item={item} requirement={requirement} prdSession={prdSession} />
             ) : (
-              <CodeStageNode item={item} requirement={requirement} prdSession={prdSession} />
+              <div className="flex flex-col items-center gap-1" title={deliveryState === 'done' ? '已形成交付证据' : deliveryState === 'active' ? '正在进入交付验证' : '尚未进入交付验证'}>
+                <StageDot state={deliveryState} />
+                <span className={`text-[10px] font-medium ${deliveryState === 'done' ? 'text-emerald-600' : deliveryState === 'active' ? 'text-violet-600' : 'text-[var(--color-muted-foreground)]'}`}>交付</span>
+              </div>
             )}
             {index < stages.length - 1 && <span className="mb-4 h-px w-4 bg-[var(--color-border)]" />}
           </div>
         ))}
         <span className="ml-2 mb-4 text-xs font-semibold tabular-nums text-[var(--color-foreground)]">{progress == null ? '—' : `${progress}%`}</span>
       </div>
-      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[var(--color-muted)]">
-        <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${progress ?? 0}%` }} />
-      </div>
-      <div className="mt-1 text-[8px] leading-3 text-[var(--color-muted-foreground)]">
-        {requirement?.stages.code.updatedAt
-          ? `代码分析 ${formatCompactTime(requirement.stages.code.updatedAt)}${requirement.stages.code.status === 'STALE' ? ' · 已过期' : ''}`
-          : '点击“分析代码”检查本地实现 · 文档进度最高 20%'}
-      </div>
+      {!compact && <>
+        <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[var(--color-muted)]">
+          <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${progress ?? 0}%` }} />
+        </div>
+        <div className="mt-1 text-[8px] leading-3 text-[var(--color-muted-foreground)]">
+          {requirement?.stages.code.updatedAt
+            ? `代码分析 ${formatCompactTime(requirement.stages.code.updatedAt)}${requirement.stages.code.status === 'STALE' ? ' · 已过期' : ''}`
+            : '点击“分析代码”检查本地实现 · 文档进度最高 20%'}
+        </div>
+      </>}
     </div>
   )
 }

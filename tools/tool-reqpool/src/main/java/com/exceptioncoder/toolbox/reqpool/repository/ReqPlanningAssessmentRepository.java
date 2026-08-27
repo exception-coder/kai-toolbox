@@ -16,7 +16,8 @@ import java.util.Optional;
 public class ReqPlanningAssessmentRepository {
 
     private static final String COLUMNS = """
-            id, item_id, prd_session_id, input_hash, input_snapshot, evidence_trace_json, criteria_version,
+            id, item_id, prd_session_id, input_hash, input_snapshot, evidence_trace_json,
+            source_insight_id, source_insight_hash, source_insight_snapshot, criteria_version,
             prompt_version, status, raw_output_json, payload_json, engine, model, error_message,
             started_at, completed_at, created_at, updated_at
             """;
@@ -29,6 +30,9 @@ public class ReqPlanningAssessmentRepository {
                     .inputHash(resultSet.getString("input_hash"))
                     .inputSnapshot(resultSet.getString("input_snapshot"))
                     .evidenceTraceJson(resultSet.getString("evidence_trace_json"))
+                    .sourceInsightId(resultSet.getString("source_insight_id"))
+                    .sourceInsightHash(resultSet.getString("source_insight_hash"))
+                    .sourceInsightSnapshot(resultSet.getString("source_insight_snapshot"))
                     .criteriaVersion(resultSet.getString("criteria_version"))
                     .promptVersion(resultSet.getString("prompt_version"))
                     .status(resultSet.getString("status"))
@@ -54,13 +58,16 @@ public class ReqPlanningAssessmentRepository {
         try {
             jdbc.update("""
                     INSERT INTO req_pool_planning_assessment
-                      (id, item_id, prd_session_id, input_hash, input_snapshot, evidence_trace_json, criteria_version,
+                      (id, item_id, prd_session_id, input_hash, input_snapshot, evidence_trace_json,
+                       source_insight_id, source_insight_hash, source_insight_snapshot, criteria_version,
                        prompt_version, status, raw_output_json, payload_json, engine, model,
                        error_message, started_at, completed_at, created_at, updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     assessment.getId(), assessment.getItemId(), assessment.getPrdSessionId(),
-                    assessment.getInputHash(), assessment.getInputSnapshot(), assessment.getEvidenceTraceJson(), assessment.getCriteriaVersion(),
+                    assessment.getInputHash(), assessment.getInputSnapshot(), assessment.getEvidenceTraceJson(),
+                    assessment.getSourceInsightId(), assessment.getSourceInsightHash(), assessment.getSourceInsightSnapshot(),
+                    assessment.getCriteriaVersion(),
                     assessment.getPromptVersion(), assessment.getStatus(), assessment.getRawOutputJson(),
                     assessment.getPayloadJson(), assessment.getEngine(), assessment.getModel(),
                     assessment.getErrorMessage(), assessment.getStartedAt(), assessment.getCompletedAt(),
@@ -96,6 +103,12 @@ public class ReqPlanningAssessmentRepository {
         return first(jdbc.query("SELECT " + COLUMNS + " FROM req_pool_planning_assessment "
                         + "WHERE item_id=? ORDER BY created_at DESC, id DESC LIMIT 1",
                 ROW, itemId));
+    }
+
+    /** 查询应用重启后需要恢复执行的规划运行。 */
+    public List<ReqPlanningAssessment> findRunning() {
+        return jdbc.query("SELECT " + COLUMNS + " FROM req_pool_planning_assessment "
+                + "WHERE status='RUNNING' ORDER BY created_at", ROW);
     }
 
     /** 批量查询每条需求最近一次规划评估，避免列表装配产生 N+1。 */

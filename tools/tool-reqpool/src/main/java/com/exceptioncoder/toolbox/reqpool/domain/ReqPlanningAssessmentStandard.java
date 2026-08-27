@@ -8,8 +8,8 @@ import java.util.Map;
 /** 规划工时的版本化准则单一事实源。 */
 public final class ReqPlanningAssessmentStandard {
 
-    public static final String CRITERIA_VERSION = "initial-spec-planning-v3";
-    public static final String PROMPT_VERSION = "initial-spec-planning-prompt-v3";
+    public static final String CRITERIA_VERSION = "initial-spec-planning-v4";
+    public static final String PROMPT_VERSION = "initial-spec-planning-prompt-v5";
     public static final int EFFECTIVE_HOURS_PER_PERSON_DAY = 6;
     public static final int MAX_CAPABILITIES = 12;
     public static final int MAX_INITIAL_SPEC_CHARS = 120_000;
@@ -92,6 +92,7 @@ public final class ReqPlanningAssessmentStandard {
                 .append("准则版本：").append(CRITERIA_VERSION).append('\n')
                 .append("拆分口径：按业务领域、业务结果和独立验收边界拆分，不按技术文件拆分。\n")
                 .append("估算口径：按 AI Code Agent 主导实现、人负责审查验收的有效工时估算，不使用传统纯人工工时。\n")
+                .append("首版口径：选择可独立演示、可部署测试环境并可收集反馈的最小业务闭环；只返回范围与能力 ID，不返回自行计算的总量。\n")
                 .append("共享的探索、基础设施、联调和回归成本只能归入一个最主要功能，不得在每个功能重复计算。\n")
                 .append("每个功能必须完整返回以下六类工作包及基础工时区间：\n");
         for (WorkPackageType type : WorkPackageType.values()) {
@@ -103,7 +104,7 @@ public final class ReqPlanningAssessmentStandard {
                 .append(bufferRate(Confidence.HIGH).movePointRight(2)).append("%，MEDIUM=")
                 .append(bufferRate(Confidence.MEDIUM).movePointRight(2)).append("%，LOW=")
                 .append(bufferRate(Confidence.LOW).movePointRight(2)).append("%。\n")
-                .append("模型只建议基础工作包区间，不输出权威总量；总工时和人日由服务端计算。")
+                .append("模型只建议基础工作包区间和首版能力集合，不输出权威总量；完整投入与首版工作日均由服务端计算。")
                 .toString();
     }
 

@@ -48,7 +48,7 @@ class ReqInsightPersistenceServiceTest {
                 CREATE TABLE req_pool_insight (
                     id TEXT PRIMARY KEY, item_id TEXT NOT NULL, analysis_type TEXT NOT NULL,
                     prompt_version TEXT NOT NULL, source_hash TEXT NOT NULL, portfolio_set_hash TEXT,
-                    payload_json TEXT NOT NULL, engine TEXT NOT NULL, model TEXT,
+                    payload_json TEXT NOT NULL, evidence_trace_json TEXT, engine TEXT NOT NULL, model TEXT,
                     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
                 )
                 """);
@@ -84,7 +84,7 @@ class ReqInsightPersistenceServiceTest {
     private static ReqInsight insight(String id, String itemId, long createdAt) {
         return new ReqInsight(
                 id, itemId, ReqInsightType.PORTFOLIO, "req-portfolio-v1", "source",
-                "portfolio", "{\"priority\":\"HIGH\"}", "claude", null, createdAt);
+                "portfolio", "{\"priority\":\"HIGH\"}", null, "claude", null, createdAt);
     }
 
     @Configuration

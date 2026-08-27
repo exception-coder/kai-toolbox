@@ -74,7 +74,6 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { QuickRequirementDialog } from '../components/QuickRequirementDialog'
 import { ReqpoolVibeDialog } from '../components/ReqpoolVibeDialog'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { getSelfRepo, useChatRuntime } from '@/features/claude-chat/public-api'
 import {
   getContent as getPrdContent,
   getDevDocContent,

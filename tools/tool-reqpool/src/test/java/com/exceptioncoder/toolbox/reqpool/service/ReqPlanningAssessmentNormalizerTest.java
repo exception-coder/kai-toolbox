@@ -16,11 +16,15 @@ class ReqPlanningAssessmentNormalizerTest {
     void deterministicallyAddsConfidenceBufferAndPersonDays() throws Exception {
         JsonNode result = mapper.readTree(normalizer.normalize(validOutput("MEDIUM")));
 
-        assertThat(result.path("criteriaVersion").asText()).isEqualTo("initial-spec-planning-v3");
+        assertThat(result.path("criteriaVersion").asText()).isEqualTo("initial-spec-planning-v4");
         assertThat(result.path("hoursMin").asInt()).isEqualTo(15);
         assertThat(result.path("hoursMax").asInt()).isEqualTo(29);
         assertThat(result.path("personDaysMin").decimalValue()).isEqualByComparingTo("2.5");
         assertThat(result.path("personDaysMax").decimalValue()).isEqualByComparingTo("4.8");
+        assertThat(result.path("firstTestRelease").path("hoursMin").asInt()).isEqualTo(15);
+        assertThat(result.path("firstTestRelease").path("hoursMax").asInt()).isEqualTo(29);
+        assertThat(result.path("firstTestRelease").path("workingDaysMax").decimalValue())
+                .isEqualByComparingTo("4.8");
     }
 
     @Test
@@ -61,11 +65,28 @@ class ReqPlanningAssessmentNormalizerTest {
                 .hasMessageContaining("业务功能基础工时上界不能超过 60 小时");
     }
 
+    @Test
+    void rejectsUnknownCapabilityInFirstTestRelease() throws Exception {
+        JsonNode invalid = mapper.readTree(validOutput("HIGH"));
+        ((com.fasterxml.jackson.databind.node.ArrayNode) invalid
+                .path("firstTestRelease").path("capabilityIds")).set(0, mapper.getNodeFactory().textNode("CAP-404"));
+
+        assertThatThrownBy(() -> normalizer.normalize(mapper.writeValueAsString(invalid)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("未知能力 ID: CAP-404");
+    }
+
     private static String validOutput(String confidence) {
         return """
                 {
                   "summary":"按订单领域独立验收",
                   "assumptions":["复用现有权限"],
+                  "firstTestRelease":{
+                    "scope":"先让业务人员在测试环境完成审核前取消闭环",
+                    "capabilityIds":["CAP-001"],
+                    "acceptanceChecks":["订单可取消且结果可追溯"],
+                    "deferredScope":["批量取消"]
+                  },
                   "capabilities":[{
                     "id":"CAP-001",
                     "domain":"订单",

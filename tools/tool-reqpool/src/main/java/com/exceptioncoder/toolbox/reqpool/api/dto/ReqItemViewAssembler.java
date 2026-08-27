@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.reqpool.domain.ReqInsightStatus;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqInsightType;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqInsightRepository;
+import com.exceptioncoder.toolbox.reqpool.repository.ReqInsightRunRepository;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqPlanningAssessmentRepository;
 import com.exceptioncoder.toolbox.reqpool.service.ReqInsightFingerprint;
 import org.springframework.stereotype.Component;
@@ -19,15 +20,18 @@ public class ReqItemViewAssembler {
     private final ReqInsightRepository insightRepository;
     private final ReqInsightFingerprint fingerprint;
     private final ReqPlanningAssessmentRepository planningAssessmentRepository;
+    private final ReqInsightRunRepository insightRunRepository;
 
     public ReqItemViewAssembler(
             ReqInsightRepository insightRepository,
             ReqInsightFingerprint fingerprint,
-            ReqPlanningAssessmentRepository planningAssessmentRepository
+            ReqPlanningAssessmentRepository planningAssessmentRepository,
+            ReqInsightRunRepository insightRunRepository
     ) {
         this.insightRepository = insightRepository;
         this.fingerprint = fingerprint;
         this.planningAssessmentRepository = planningAssessmentRepository;
+        this.insightRunRepository = insightRunRepository;
     }
 
     public List<ReqItemView> fromAll(List<ReqItem> items, List<ReqItem> currentPortfolioItems) {
@@ -36,10 +40,13 @@ public class ReqItemViewAssembler {
         String currentPortfolioHash = fingerprint.portfolioSetHash(currentPortfolioItems);
         Map<String, com.exceptioncoder.toolbox.reqpool.domain.ReqPlanningAssessment> planningByItemId =
                 planningAssessmentRepository.findLatestByItemIds(items.stream().map(ReqItem::getId).toList());
+        Map<String, com.exceptioncoder.toolbox.reqpool.domain.ReqInsightRun> runByItemId =
+                insightRunRepository.findLatestByItemIds(items.stream().map(ReqItem::getId).toList());
         return items.stream()
                 .map(item -> ReqItemView.from(
                         item,
                         statusOf(item, latestByItemId.get(item.getId()), currentPortfolioHash),
+                        ReqInsightRunView.from(runByItemId.get(item.getId())),
                         ReqPlanningAssessmentView.from(planningByItemId.get(item.getId()))))
                 .toList();
     }
@@ -62,11 +69,11 @@ public class ReqItemViewAssembler {
             return stale(insight, "PORTFOLIO_CHANGED");
         }
         return new ReqInsightStatus(
-                insight.analysisType(), insight.promptVersion(), insight.createdAt(), false, null);
+                insight.analysisType(), insight.id(), insight.promptVersion(), insight.engine(), insight.createdAt(), false, null);
     }
 
     private static ReqInsightStatus stale(ReqInsight insight, String reason) {
         return new ReqInsightStatus(
-                insight.analysisType(), insight.promptVersion(), insight.createdAt(), true, reason);
+                insight.analysisType(), insight.id(), insight.promptVersion(), insight.engine(), insight.createdAt(), true, reason);
     }
 }

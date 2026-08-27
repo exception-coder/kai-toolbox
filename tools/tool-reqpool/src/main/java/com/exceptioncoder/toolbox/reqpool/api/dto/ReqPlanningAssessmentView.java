@@ -10,6 +10,8 @@ import com.exceptioncoder.toolbox.reqpool.domain.ReqPlanningAssessment;
  * @param criteriaVersion 评估准则版本
  * @param promptVersion Prompt 版本
  * @param inputHash 初始化规格输入指纹
+ * @param sourceInsightId 本次规划冻结的价值判定 ID
+ * @param sourceInsightHash 本次规划冻结的价值判定指纹
  * @param payloadJson 服务端归一化结果
  * @param engine 执行引擎
  * @param model 模型配置
@@ -23,6 +25,8 @@ public record ReqPlanningAssessmentView(
         String criteriaVersion,
         String promptVersion,
         String inputHash,
+        String sourceInsightId,
+        String sourceInsightHash,
         String evidenceTraceJson,
         String payloadJson,
         String engine,
@@ -38,7 +42,9 @@ public record ReqPlanningAssessmentView(
         }
         return new ReqPlanningAssessmentView(
                 assessment.getId(), assessment.getStatus(), assessment.getCriteriaVersion(),
-                assessment.getPromptVersion(), assessment.getInputHash(), assessment.getEvidenceTraceJson(), assessment.getPayloadJson(),
+                assessment.getPromptVersion(), assessment.getInputHash(),
+                assessment.getSourceInsightId(), assessment.getSourceInsightHash(),
+                assessment.getEvidenceTraceJson(), assessment.getPayloadJson(),
                 assessment.getEngine(), assessment.getModel(), assessment.getErrorMessage(),
                 assessment.getStartedAt(), assessment.getCompletedAt());
     }

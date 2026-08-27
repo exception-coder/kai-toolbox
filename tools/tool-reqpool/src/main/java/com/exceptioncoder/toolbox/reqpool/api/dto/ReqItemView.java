@@ -26,11 +26,14 @@ public record ReqItemView(
         double reqTypeConfidence,
         /** AI 洞察分析 JSON（含 priority/stars/recommendation/impacts/roi/estimatedHours）。 */
         String aiInsight,
+        String aiInsightId,
         String aiInsightType,
         String aiInsightPromptVersion,
+        String aiInsightEngine,
         Long aiInsightGeneratedAt,
         boolean aiInsightStale,
         String aiInsightStaleReason,
+        ReqInsightRunView insightRun,
         ReqPlanningAssessmentView planningAssessment,
         long createdAt,
         long updatedAt
@@ -38,16 +41,17 @@ public record ReqItemView(
     public static ReqItemView from(ReqItem item) {
         return from(item, item.getAiInsight() == null || item.getAiInsight().isBlank()
                 ? ReqInsightStatus.absent()
-                : ReqInsightStatus.legacy(), null);
+                : ReqInsightStatus.legacy(), null, null);
     }
 
     public static ReqItemView from(ReqItem item, ReqInsightStatus insightStatus) {
-        return from(item, insightStatus, null);
+        return from(item, insightStatus, null, null);
     }
 
     public static ReqItemView from(
             ReqItem item,
             ReqInsightStatus insightStatus,
+            ReqInsightRunView insightRun,
             ReqPlanningAssessmentView planningAssessment
     ) {
         return new ReqItemView(
@@ -59,9 +63,11 @@ public record ReqItemView(
                 normalizedType(item.getReqType()), normalizedSource(item),
                 normalizedConfidence(item),
                 item.getAiInsight(),
+                insightStatus.insightId(),
                 insightStatus.analysisType() == null ? null : insightStatus.analysisType().name(),
-                insightStatus.promptVersion(), insightStatus.generatedAt(), insightStatus.stale(),
+                insightStatus.promptVersion(), insightStatus.engine(), insightStatus.generatedAt(), insightStatus.stale(),
                 insightStatus.staleReason(),
+                insightRun,
                 planningAssessment,
                 item.getCreatedAt(), item.getUpdatedAt());
     }

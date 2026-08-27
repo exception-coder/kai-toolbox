@@ -169,6 +169,7 @@ public class ReqItemRepository {
 
     public void delete(String id) {
         jdbc.update("DELETE FROM req_pool_planning_assessment WHERE item_id=?", id);
+        jdbc.update("DELETE FROM req_pool_insight_run WHERE item_id=?", id);
         jdbc.update("DELETE FROM req_pool_insight WHERE item_id=?", id);
         jdbc.update("DELETE FROM req_pool_item WHERE id=?", id);
     }

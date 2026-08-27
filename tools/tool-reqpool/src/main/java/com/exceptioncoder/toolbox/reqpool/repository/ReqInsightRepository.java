@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /** AI 洞察历史与兼容投影的唯一 SQL 容器。 */
 @Repository
@@ -22,6 +23,7 @@ public class ReqInsightRepository {
             resultSet.getString("source_hash"),
             resultSet.getString("portfolio_set_hash"),
             resultSet.getString("payload_json"),
+            resultSet.getString("evidence_trace_json"),
             resultSet.getString("engine"),
             resultSet.getString("model"),
             resultSet.getLong("created_at")
@@ -37,11 +39,11 @@ public class ReqInsightRepository {
         jdbc.update("""
                 INSERT INTO req_pool_insight
                   (id, item_id, analysis_type, prompt_version, source_hash, portfolio_set_hash,
-                   payload_json, engine, model, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   payload_json, evidence_trace_json, engine, model, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 insight.id(), insight.itemId(), insight.analysisType().name(), insight.promptVersion(),
-                insight.sourceHash(), insight.portfolioSetHash(), insight.payloadJson(), insight.engine(),
+                insight.sourceHash(), insight.portfolioSetHash(), insight.payloadJson(), insight.evidenceTraceJson(), insight.engine(),
                 insight.model(), insight.createdAt(), insight.createdAt());
     }
 
@@ -61,7 +63,7 @@ public class ReqInsightRepository {
         String placeholders = String.join(",", itemIds.stream().map(id -> "?").toList());
         String sql = """
                 SELECT id, item_id, analysis_type, prompt_version, source_hash, portfolio_set_hash,
-                       payload_json, engine, model, created_at
+                       payload_json, evidence_trace_json, engine, model, created_at
                 FROM req_pool_insight
                 WHERE item_id IN (%s)
                 ORDER BY created_at DESC, id DESC
@@ -70,5 +72,18 @@ public class ReqInsightRepository {
         jdbc.query(sql, ROW_MAPPER, itemIds.toArray()).forEach(
                 insight -> latest.putIfAbsent(insight.itemId(), insight));
         return latest;
+    }
+
+    /** 查询单条需求最近一次不可变洞察。 */
+    public Optional<ReqInsight> findLatestByItemId(String itemId) {
+        return findLatestByItemIds(java.util.List.of(itemId)).values().stream().findFirst();
+    }
+
+    public Optional<ReqInsight> findById(String id) {
+        return jdbc.query("""
+                SELECT id, item_id, analysis_type, prompt_version, source_hash, portfolio_set_hash,
+                       payload_json, evidence_trace_json, engine, model, created_at
+                FROM req_pool_insight WHERE id=?
+                """, ROW_MAPPER, id).stream().findFirst();
     }
 }

@@ -25,6 +25,7 @@ import {
   Lightbulb,
   ListTree,
   Loader2,
+  Paperclip,
   PanelRightOpen,
   Play,
   Plus,
@@ -74,7 +75,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { QuickRequirementDialog } from '../components/QuickRequirementDialog'
 import { ReqpoolVibeDialog } from '../components/ReqpoolVibeDialog'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { getSelfRepo, useChatRuntime } from '@/features/claude-chat/public-api'
+import { EngineIcon } from '@/features/claude-chat/public-api'
 import {
   getContent as getPrdContent,
   getDevDocContent,
@@ -98,6 +99,7 @@ import {
 import { MarkdownContent } from '@/components/markdown/MarkdownContent'
 import { useAuth } from '@/lib/auth'
 import { PlanningAssessmentSection } from './PlanningAssessmentSection'
+import { analysisErrorMessage } from '../lib/analysisError'
 
 type ViewMode = 'table' | 'leader'
 type Decision = 'NOW' | 'CLARIFY' | 'PLAN' | 'PARK'
@@ -122,12 +124,10 @@ interface DisplayField {
 }
 
 const DEFAULT_FIELDS: DisplayField[] = [
-  { id: 'decision', label: '统一判定', description: 'AI 按统一规则给出的投入建议', enabled: true, ai: true },
-  { id: 'requirement', label: '需求事实', description: '标题、系统模块、URL 定位与事实质量', enabled: true },
-  { id: 'value', label: '业务价值', description: '目标、影响与预期收益', enabled: true, ai: true },
-  { id: 'owner', label: '责任与时间', description: '唯一负责人和承诺时间', enabled: true },
-  { id: 'delivery', label: '交付证据', description: '需求规格、执行方案、代码自动回填', enabled: true, ai: true },
-  { id: 'risk', label: '风险与下一步', description: '阻塞、缺口与明确动作', enabled: true, ai: true },
+  { id: 'requirement', label: '需求', description: '标题、结论摘要与必要元信息', enabled: true, ai: true },
+  { id: 'owner', label: '负责人', description: '唯一负责人和承诺时间', enabled: true },
+  { id: 'delivery', label: '交付进度', description: '规格、计划、代码与交付状态', enabled: true, ai: true },
+  { id: 'risk', label: '风险', description: '当前最优先处理的一项风险', enabled: true, ai: true },
 ]
 
 const VIEW_PREFERENCE_KEY = 'kai-reqpool-view-preference-v1'
@@ -168,19 +168,19 @@ function loadViewPreference(): { fields: DisplayField[]; density: Density } {
 }
 
 const STATUS_META: Record<ReqStatus, { label: string; cls: string }> = {
-  DRAFT: { label: '待受理', cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
-  CLARIFYING: { label: '澄清中', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300' },
-  PRD_READY: { label: '已准入', cls: 'bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300' },
-  IN_DEV: { label: '交付中', cls: 'bg-violet-50 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300' },
-  DONE: { label: '已交付', cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' },
-  CANCELLED: { label: '已归档', cls: 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300' },
+  DRAFT: { label: '待受理', cls: 'text-[var(--color-muted-foreground)]' },
+  CLARIFYING: { label: '澄清中', cls: 'text-amber-700 dark:text-amber-300' },
+  PRD_READY: { label: '已准入', cls: 'text-[var(--color-foreground)]/75' },
+  IN_DEV: { label: '交付中', cls: 'text-[var(--color-foreground)]/75' },
+  DONE: { label: '已交付', cls: 'text-emerald-700 dark:text-emerald-300' },
+  CANCELLED: { label: '已归档', cls: 'text-[var(--color-muted-foreground)]' },
 }
 
 const DECISION_META: Record<Decision, { label: string; hint: string; cls: string; dot: string }> = {
-  NOW: { label: '建议投入', hint: '价值明确 · 当前推进', cls: 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-900', dot: 'bg-emerald-500' },
-  CLARIFY: { label: '补充信息', hint: '判定条件尚不完整', cls: 'text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-950/40 dark:border-amber-900', dot: 'bg-amber-500' },
-  PLAN: { label: '进入排期', hint: '价值成立 · 等待产能', cls: 'text-sky-700 bg-sky-50 border-sky-200 dark:text-sky-300 dark:bg-sky-950/40 dark:border-sky-900', dot: 'bg-sky-500' },
-  PARK: { label: '暂不投入', hint: '收益不足或已关闭', cls: 'text-slate-600 bg-slate-50 border-slate-200 dark:text-slate-300 dark:bg-slate-900 dark:border-slate-700', dot: 'bg-slate-400' },
+  NOW: { label: '建议投入', hint: '价值明确 · 当前推进', cls: 'text-[var(--color-foreground)]', dot: 'bg-[var(--color-primary)]' },
+  CLARIFY: { label: '补充信息', hint: '判定条件尚不完整', cls: 'text-[var(--color-foreground)]', dot: 'bg-amber-500' },
+  PLAN: { label: '进入排期', hint: '价值成立 · 等待产能', cls: 'text-[var(--color-foreground)]', dot: 'bg-[var(--color-muted-foreground)]' },
+  PARK: { label: '暂不投入', hint: '收益不足或已关闭', cls: 'text-[var(--color-muted-foreground)]', dot: 'bg-[var(--color-muted-foreground)]' },
 }
 
 function parseInsight(value: string | null): AiInsight | null {
@@ -315,7 +315,7 @@ export {
 export function DecisionBadge({ decision }: { decision: Decision }) {
   const meta = DECISION_META[decision]
   return (
-    <div className={`inline-flex min-w-[98px] flex-col rounded-lg border px-2.5 py-2 ${meta.cls}`}>
+    <div className={`inline-flex min-w-[98px] flex-col ${meta.cls}`}>
       <span className="flex items-center gap-1.5 text-xs font-semibold"><span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />{meta.label}</span>
       <span className="mt-0.5 text-[10px] opacity-75">{meta.hint}</span>
     </div>
@@ -323,8 +323,8 @@ export function DecisionBadge({ decision }: { decision: Decision }) {
 }
 
 const FACT_QUALITY_TONE: Record<FactQualityResult['level'], { badge: string; bar: string }> = {
-  READY: { badge: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300', bar: 'bg-emerald-500' },
-  ASSUMPTIONS: { badge: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300', bar: 'bg-sky-500' },
+  READY: { badge: 'border-transparent text-emerald-700 dark:text-emerald-300', bar: 'bg-emerald-500' },
+  ASSUMPTIONS: { badge: 'border-transparent text-[var(--color-muted-foreground)]', bar: 'bg-[var(--color-muted-foreground)]' },
   DECISION: { badge: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300', bar: 'bg-amber-500' },
 }
 
@@ -356,7 +356,7 @@ export function FactQualityBadge({ item, session }: { item: ReqItemView; session
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" onClick={event => event.stopPropagation()} className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-semibold tabular-nums ${tone.badge}`} title="查看开发准入与规格成熟度"><Gauge className="h-2.5 w-2.5" />{quality.levelLabel} · {quality.score}</button>
+        <button type="button" onClick={event => event.stopPropagation()} className={`flex items-center gap-1 border px-1 py-0.5 text-[9px] font-medium tabular-nums ${tone.badge}`} title="查看开发准入与规格成熟度"><Gauge className="h-2.5 w-2.5" />规格 {quality.score}</button>
       </PopoverTrigger>
       <PopoverContent align="start" sideOffset={6} className="w-[min(92vw,380px)] p-4" onClick={event => event.stopPropagation()}>
         <FactQualityDetails quality={quality} />
@@ -476,7 +476,7 @@ export function AiStudio({ fields, density, onFieldsChange, onDensityChange, onC
     if (!text) return
     if (text.includes('精简') || text.includes('紧凑')) onDensityChange('compact')
     if (text.includes('展开') || text.includes('舒适')) onDensityChange('comfortable')
-    if (text.includes('隐藏业务') || text.includes('去掉业务')) onFieldsChange(fields.map(field => field.id === 'value' ? { ...field, enabled: false } : field))
+    if (text.includes('只看进展')) onFieldsChange(fields.map(field => ({ ...field, enabled: field.id === 'delivery' || field.id === 'risk' })))
     if (text.includes('风险')) onFieldsChange(fields.map(field => field.id === 'risk' ? { ...field, enabled: true } : field))
     setMessage('已生成当前视图配置，原始数据未改变')
     setPrompt('')
@@ -499,7 +499,7 @@ export function AiStudio({ fields, density, onFieldsChange, onDensityChange, onC
             </div>
             {message && <div className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-600"><CircleCheck className="h-3.5 w-3.5" />{message}</div>}
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {['只看本周风险', '生成领导周报', '精简为 5 列'].map(text => <button key={text} onClick={() => setPrompt(text)} className="rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[10px] text-[var(--color-muted-foreground)] hover:border-violet-300 hover:text-violet-600">{text}</button>)}
+              {['只看本周风险', '生成领导周报', '只看进展与风险'].map(text => <button key={text} onClick={() => setPrompt(text)} className="rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[10px] text-[var(--color-muted-foreground)] hover:border-violet-300 hover:text-violet-600">{text}</button>)}
             </div>
           </div>
 
@@ -542,7 +542,7 @@ export function RequirementDrawer({ item, requirement, prdSession, analyzing, pr
   tddGenerating: boolean
   tddFailed: boolean
   onClose: () => void
-  onAnalyze: () => void
+  onAnalyze: (engine: AgentEngine) => Promise<void>
   onClarify: () => void
   onStartPrd: (engine: AgentEngine) => Promise<void>
   onAnswerPrd: () => void
@@ -553,24 +553,22 @@ export function RequirementDrawer({ item, requirement, prdSession, analyzing, pr
   onViewPrd: () => void
   onDelete: () => void
 }) {
-  const insight = parseInsight(item.aiInsight)
   const decision = decisionOf(item)
   const factQuality = evaluateRequirementFacts(item, prdSession)
   const labels = documentLabels
-  const staleLabel = insightStaleLabel(item)
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px]" onMouseDown={event => event.target === event.currentTarget && onClose()}>
       <aside className="h-full w-full max-w-[520px] overflow-y-auto border-l border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-card)]/95 px-5 py-4 backdrop-blur"><span className="text-xs font-medium text-[var(--color-muted-foreground)]">需求详情 · {item.id.slice(0, 8).toUpperCase()}</span><button onClick={onClose} className="rounded-lg p-1.5 hover:bg-[var(--color-muted)]"><X className="h-4 w-4" /></button></div>
-        <div className="space-y-6 p-6">
-          <div><div className="flex items-center gap-2"><DecisionBadge decision={decision} /><span className={`rounded-full px-2.5 py-1 text-[10px] font-medium ${STATUS_META[item.status].cls}`}>{STATUS_META[item.status].label}</span></div><h2 className="mt-4 text-xl font-semibold leading-8">{item.title}</h2><RequirementDescription content={item.description} /></div>
-          <div className="grid grid-cols-2 gap-3">
-            {[[Building2, '系统 / 模块', `${item.project || '待归属'} / ${item.module || '待归类'}`], [UserRound, '唯一负责人', item.assignee || '待指派'], [CalendarDays, '承诺时间', dateLabel(item.deadline)], [Radio, '数据来源', item.prdSessionId ? `${labels.specification}自动同步` : '统一登记']].map(([Icon, label, value]) => { const CellIcon = Icon as typeof Building2; return <div key={String(label)} className="rounded-xl bg-[var(--color-muted)]/60 p-3"><CellIcon className="h-3.5 w-3.5 text-[var(--color-muted-foreground)]" /><div className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">{String(label)}</div><div className="mt-0.5 text-xs font-medium">{String(value)}</div></div> })}
-          </div>
-          <div className="rounded-xl border border-[var(--color-border)] p-4"><FactQualityDetails quality={factQuality} /></div>
+        <div className="space-y-8 p-6">
+          <div><div className="flex items-center justify-between gap-3"><DecisionBadge decision={decision} /><span className={`text-[10px] font-medium ${STATUS_META[item.status].cls}`}>{STATUS_META[item.status].label}</span></div><h2 className="mt-5 text-xl font-semibold leading-8">{item.title}</h2><RequirementDescription content={item.description} /></div>
+          <dl className="grid grid-cols-2 border-y border-[var(--color-border)]">
+            {[[Building2, '系统 / 模块', `${item.project || '待归属'} / ${item.module || '待归类'}`], [UserRound, '唯一负责人', item.assignee || '待指派'], [CalendarDays, '承诺时间', dateLabel(item.deadline)], [Radio, '数据来源', item.prdSessionId ? `${labels.specification}自动同步` : '统一登记']].map(([Icon, label, value], index) => { const CellIcon = Icon as typeof Building2; return <div key={String(label)} className={`py-3 ${index % 2 === 0 ? 'pr-4' : 'border-l border-[var(--color-border)] pl-4'} ${index > 1 ? 'border-t border-[var(--color-border)]' : ''}`}><dt className="flex items-center gap-1.5 text-[10px] text-[var(--color-muted-foreground)]"><CellIcon className="h-3 w-3" />{String(label)}</dt><dd className="mt-1 text-xs font-medium">{String(value)}</dd></div> })}
+          </dl>
+          <section aria-label="规格成熟度"><FactQualityDetails quality={factQuality} /></section>
           <PlanningAssessmentSection item={item} />
-          <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 dark:border-violet-900 dark:bg-violet-950/20"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs font-semibold text-violet-700 dark:text-violet-300"><Sparkles className="h-4 w-4" />AI 判定依据</div><button onClick={onAnalyze} disabled={analyzing} className="text-[10px] text-violet-600 disabled:opacity-50">{analyzing ? '分析中…' : '重新分析'}</button></div>{staleLabel && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">{staleLabel}</div>}<p className="mt-3 text-sm leading-6">{insight?.reason || '尚未生成跨需求价值分析。AI 将统一考虑战略匹配、用户影响、收益、成本与风险。'}</p>{item.aiInsightGeneratedAt && <p className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">生成于 {new Date(item.aiInsightGeneratedAt).toLocaleString()} · {item.aiInsightType === 'PORTFOLIO' ? '组合排序' : '单条分析'}{item.aiInsightPromptVersion ? ` · ${item.aiInsightPromptVersion}` : ''}</p>}{insight?.impacts && <div className="mt-3 flex flex-wrap gap-1.5">{insight.impacts.map(value => <span key={value} className="rounded-full bg-white px-2 py-1 text-[10px] text-violet-700 shadow-sm dark:bg-black/20 dark:text-violet-300">{value}</span>)}</div>}</div>
-          <div><div className="mb-3 flex items-center justify-between text-xs font-semibold"><span>交付证据链</span><span className="text-[10px] font-normal text-[var(--color-muted-foreground)]">点击节点直接操作</span></div><div className="rounded-xl border border-[var(--color-border)] p-4"><DeliveryTrack item={item} requirement={requirement} prdSession={prdSession} prdRunning={prdRunning} tddBuilding={tddBuilding} tddGenerating={tddGenerating} tddFailed={tddFailed} onStartPrd={onStartPrd} onAnswerPrd={onAnswerPrd} onPreviewPrd={onPreviewPrd} onStartTdd={onStartTdd} onAnswerTdd={onAnswerTdd} onPreviewTdd={onPreviewTdd} /></div></div>
+          <InsightAnalysisPanel item={item} analyzing={analyzing} onAnalyze={onAnalyze} />
+          <div><div className="mb-3 flex items-center justify-between text-xs font-semibold"><span>交付证据链</span><span className="text-[10px] font-normal text-[var(--color-muted-foreground)]">点击节点直接操作</span></div><div className="border-y border-[var(--color-border)] py-4"><DeliveryTrack item={item} requirement={requirement} prdSession={prdSession} prdRunning={prdRunning} tddBuilding={tddBuilding} tddGenerating={tddGenerating} tddFailed={tddFailed} onStartPrd={onStartPrd} onAnswerPrd={onAnswerPrd} onPreviewPrd={onPreviewPrd} onStartTdd={onStartTdd} onAnswerTdd={onAnswerTdd} onPreviewTdd={onPreviewTdd} /></div></div>
           <div className="flex flex-wrap gap-2">
             {!item.prdSessionId && item.status === 'DRAFT' && <button onClick={onClarify} className="flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2.5 text-xs font-medium text-white"><Sparkles className="h-3.5 w-3.5" />进入 AI 澄清</button>}
             {item.prdSessionId && prdSession?.status === 'CLARIFYING' && prdSession.questions.length > 0 && <button onClick={onAnswerPrd} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-xs font-medium text-white"><Sparkles className="h-3.5 w-3.5" />回答澄清问题</button>}
@@ -583,13 +581,101 @@ export function RequirementDrawer({ item, requirement, prdSession, analyzing, pr
   )
 }
 
+function InsightAnalysisPanel({
+  item,
+  analyzing,
+  onAnalyze,
+}: {
+  item: ReqItemView
+  analyzing: boolean
+  onAnalyze: (engine: AgentEngine) => Promise<void>
+}) {
+  const inheritedEngine: AgentEngine = item.aiInsightEngine === 'claude' ? 'claude' : 'codex'
+  const [engine, setEngine] = useState<AgentEngine>(inheritedEngine)
+  const [configuring, setConfiguring] = useState(false)
+  const [error, setError] = useState('')
+  const insight = parseInsight(item.aiInsight)
+  const staleLabel = insightStaleLabel(item)
+  const backgroundRun = item.insightRun
+
+  useEffect(() => {
+    setEngine(inheritedEngine)
+    setError('')
+  }, [inheritedEngine, item.id])
+
+  const run = async () => {
+    setError('')
+    try {
+      await onAnalyze(engine)
+      setConfiguring(false)
+    } catch (cause) {
+      setError(analysisErrorMessage(cause, engine))
+    }
+  }
+
+  return (
+    <section className="border-y border-[var(--color-border)] py-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs font-semibold"><Sparkles className="h-4 w-4 text-[var(--color-primary)]" />AI 判定依据</div>
+        <button type="button" onClick={() => { setConfiguring(current => !current); setError('') }} disabled={analyzing} className="text-[10px] font-medium text-[var(--color-primary)] disabled:opacity-50">{analyzing ? `${engine === 'codex' ? 'Codex' : 'Claude'} 判定中…` : configuring ? '收起' : '更新需求评估'}</button>
+      </div>
+
+      {analyzing && <div className="mt-3 flex items-start gap-2 border-y border-[var(--color-border)] py-3 text-[10px] leading-4 text-[var(--color-muted-foreground)]"><Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-[var(--color-primary)]" /><span>后台正在{backgroundRun?.stage === 'QUEUED' ? '排队' : backgroundRun?.stage === 'DISCOVERING' ? '查询业务知识、Graphify、DDL 与路由' : '生成并校验价值判定'}。可以关闭面板或刷新页面，任务会继续执行并自动恢复进度；完成后将继续更新功能与规划工时。</span></div>}
+
+      {!analyzing && backgroundRun?.status === 'FAILED' && <div role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] leading-4 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"><p className="font-medium">上次后台判定未完成</p><p className="mt-1 break-words">{backgroundRun.errorMessage || '执行异常，可重新选择引擎后恢复。'}</p></div>}
+
+      {configuring && (
+        <div className="mt-3 border-y border-[var(--color-border)] py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-medium">选择执行引擎</p>
+              <p className="mt-0.5 text-[9px] text-[var(--color-muted-foreground)]">{item.aiInsightEngine ? `已继承上次使用的 ${inheritedEngine === 'codex' ? 'Codex' : 'Claude Code'}` : '暂无历史记录，默认使用 Codex'}</p>
+            </div>
+            <div className="flex rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-0.5">
+              {(['codex', 'claude'] as const).map(value => (
+                <button key={value} type="button" disabled={analyzing} onClick={() => { setEngine(value); setError('') }} className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-medium transition-colors ${engine === value ? 'bg-[var(--color-card)] text-[var(--color-foreground)] shadow-sm' : 'text-[var(--color-muted-foreground)]'}`}>
+                  <EngineIcon engine={value} className="h-3 w-3" title={value === 'codex' ? 'Codex' : 'Claude Code'} />
+                  {value === 'codex' ? 'Codex' : 'Claude'}
+                </button>
+              ))}
+            </div>
+          </div>
+          {error && <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[10px] leading-4 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">{error}</p>}
+          <div className="mt-3 flex justify-end">
+            <button type="button" disabled={analyzing} onClick={() => void run()} className="inline-flex min-w-28 items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-[10px] font-medium text-white hover:bg-violet-700 disabled:opacity-50">
+              {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {analyzing ? '正在更新判定' : `使用 ${engine === 'codex' ? 'Codex' : 'Claude'} 更新`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {staleLabel && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">{staleLabel}</div>}
+      <p className="mt-3 text-sm leading-6">{insight?.reason || '尚未生成跨需求价值分析。AI 将统一考虑战略匹配、用户影响、收益、成本与风险。'}</p>
+      {item.aiInsightGeneratedAt && <p className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">生成于 {new Date(item.aiInsightGeneratedAt).toLocaleString()} · {item.aiInsightType === 'PORTFOLIO' ? '组合排序' : '单条分析'}{item.aiInsightEngine ? ` · ${item.aiInsightEngine === 'codex' ? 'Codex' : 'Claude Code'}` : ''}{item.aiInsightPromptVersion ? ` · ${item.aiInsightPromptVersion}` : ''}</p>}
+      {insight?.impacts && <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1">{insight.impacts.map(value => <span key={value} className="text-[10px] text-[var(--color-muted-foreground)]">{value}</span>)}</div>}
+    </section>
+  )
+}
+
 /** 需求描述可能是手工文本，也可能是规格探索同步的 Markdown，统一按安全 Markdown 阅读。 */
 export function RequirementDescription({ content }: { content: string | null }) {
+  const source = content?.trim() || ''
+  const attachmentPattern = /^\[📎\s*附件[：:]\s*([^\]]+)]\(([^)]+)\)\s*$/gm
+  const indexedAttachments = [...source.matchAll(attachmentPattern)]
+  const legacyAttachments = indexedAttachments.length > 0 ? [] : [...source.matchAll(/^【附件[：:]\s*([^】]+)】\s*$/gm)]
+  const attachments = indexedAttachments.length > 0 ? indexedAttachments : legacyAttachments
+  const body = attachments.length > 0 ? source.slice(0, attachments[0].index).replace(/\n?---\s*$/, '').trim() : source
   return (
-    <MarkdownContent
-      content={content?.trim() || '尚未补充需求描述。'}
-      className="mt-2 !h-auto !overflow-visible !p-0 text-sm text-[var(--color-muted-foreground)]"
-    />
+    <div className="mt-2">
+      <MarkdownContent content={body || (attachments.length > 0 ? '需求内容见附件。' : '尚未补充需求描述。')} className="!h-auto !overflow-visible !p-0 text-sm text-[var(--color-muted-foreground)]" />
+      {attachments.length > 0 && <div className="mt-3 border-t border-[var(--color-border)] pt-2" aria-label="需求附件">
+        {attachments.map((attachment, index) => {
+          const href = attachment[2] && /^(?:https?:\/\/|\/api\/)/i.test(attachment[2]) ? attachment[2] : undefined
+          return <div key={`${attachment[1]}-${index}`} className="flex min-w-0 items-center gap-2 py-1.5 text-xs"><Paperclip className="h-3.5 w-3.5 shrink-0 text-[var(--color-muted-foreground)]" /><span className="min-w-0 flex-1 truncate">{attachment[1]}</span>{href ? <a href={href} target="_blank" rel="noopener noreferrer" className="shrink-0 text-[var(--color-primary)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">查看附件</a> : <span className="shrink-0 text-[var(--color-muted-foreground)]">原附件</span>}</div>
+        })}
+      </div>}
+    </div>
   )
 }
 export function MobileRequirementCard({
@@ -631,24 +717,30 @@ export function MobileRequirementCard({
 }) {
   const insight = effectiveInsight(item)
   const factQuality = evaluateRequirementFacts(item, prdSession)
+  const factRisk = factQuality.level === 'DECISION'
+    ? factQuality.blockers[0] || '存在需要需求方判定的关键事项'
+    : factQuality.riskFlags[0] || null
+  const risk = requirement?.staleReasons[0]
+    || factRisk
+    || (!item.assignee ? '尚未明确唯一负责人' : item.status === 'DRAFT' ? '需补齐验收口径' : null)
   return (
-    <article className={`p-4 transition-colors ${selected ? 'bg-violet-50/65 dark:bg-violet-950/20' : ''}`}>
+    <article className={`p-4 transition-colors ${selected ? 'bg-[var(--color-primary)]/[0.055]' : ''}`}>
       <div className="flex items-start gap-3">
         <input type="checkbox" checked={selected} onChange={onToggle} className="mt-1 h-4 w-4 shrink-0 rounded border-[var(--color-border)] accent-violet-600" aria-label={`选择需求：${item.title}`} />
         <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-          <div className="flex flex-wrap items-center gap-2"><DecisionBadge decision={decisionOf(item)} /><span className={`rounded-full px-2 py-1 text-[9px] font-medium ${STATUS_META[item.status].cls}`}>{STATUS_META[item.status].label}</span><span className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-semibold ${FACT_QUALITY_TONE[factQuality.level].badge}`}><Gauge className="h-2.5 w-2.5" />{factQuality.levelLabel} · {factQuality.score}</span></div>
-          <h3 className="mt-3 text-sm font-semibold leading-6">{item.title}</h3>
-          <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">{item.project || '待归属'} · {item.module || '待归类'}</p>
-          <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--color-foreground)]/80">{insight?.reason || excerpt(item.description)}</p>
+          <h3 className="text-sm font-semibold leading-6">{item.title}</h3>
+          <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--color-foreground)]/80">{insight?.reason || excerpt(item.description)}</p>
+          <p className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">{DECISION_META[decisionOf(item)].label} · {item.project || '待归属'} · 规格 {factQuality.score}</p>
+          {risk && <div className="mt-2 flex items-start gap-1.5 text-[10px] leading-4 text-[var(--color-foreground)]/75"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-600" /><span className="line-clamp-1">{risk}</span></div>}
         </button>
         <button type="button" onClick={onDelete} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-rose-50 hover:text-rose-500" aria-label={`删除需求：${item.title}`}><Trash2 className="h-3.5 w-3.5" /></button>
       </div>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[var(--color-muted)]/45 px-3 py-3">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border)] pt-3">
         <div className="min-w-0 text-[10px] text-[var(--color-muted-foreground)]">
           <div className="truncate"><UserRound className="mr-1 inline h-3 w-3" />{item.assignee || '待指派负责人'}</div>
           <div className="mt-1"><CalendarDays className="mr-1 inline h-3 w-3" />{dateLabel(item.deadline)}</div>
         </div>
-        <DeliveryTrack item={item} requirement={requirement} prdSession={prdSession} prdRunning={prdRunning} tddBuilding={tddBuilding} tddGenerating={tddGenerating} tddFailed={tddFailed} onStartPrd={onStartPrd} onAnswerPrd={onAnswerPrd} onPreviewPrd={onPreviewPrd} onStartTdd={onStartTdd} onAnswerTdd={onAnswerTdd} onPreviewTdd={onPreviewTdd} />
+        <DeliveryTrack compact item={item} requirement={requirement} prdSession={prdSession} prdRunning={prdRunning} tddBuilding={tddBuilding} tddGenerating={tddGenerating} tddFailed={tddFailed} onStartPrd={onStartPrd} onAnswerPrd={onAnswerPrd} onPreviewPrd={onPreviewPrd} onStartTdd={onStartTdd} onAnswerTdd={onAnswerTdd} onPreviewTdd={onPreviewTdd} />
       </div>
     </article>
   )
@@ -694,7 +786,7 @@ export function AssigneeCell({
       <PopoverAnchor asChild>
         <div
           className="group/assignee min-w-[120px] rounded-lg p-1 -m-1 outline-none hover:bg-[var(--color-muted)]/70"
-          title="双击 @ 选择指派人"
+          title={boundUser ? `@${boundUser.username} · 双击重新指派` : '双击 @ 选择指派人'}
           onClick={event => event.stopPropagation()}
           onDoubleClick={event => {
             event.stopPropagation()
@@ -702,13 +794,12 @@ export function AssigneeCell({
           }}
         >
           <div className={`flex items-center gap-2 text-xs ${displayName ? '' : 'text-amber-600'}`}>
-            <span className={`grid h-6 w-6 place-items-center rounded-full text-[9px] font-semibold ${displayName ? 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300' : 'bg-amber-50 dark:bg-amber-950/40'}`}>
+            <span className={`grid h-6 w-6 place-items-center rounded-full text-[9px] font-semibold ${displayName ? 'bg-[var(--color-muted)] text-[var(--color-foreground)]' : 'bg-amber-50 dark:bg-amber-950/40'}`}>
               {displayName?.slice(0, 1).toUpperCase() || '?'}
             </span>
             <span className="min-w-0 flex-1 truncate">{displayName || '双击 @ 指派'}</span>
             <AtSign className="h-3 w-3 shrink-0 text-violet-500 opacity-0 transition-opacity group-hover/assignee:opacity-100" />
           </div>
-          {boundUser && <div className="ml-8 mt-0.5 truncate text-[9px] text-[var(--color-muted-foreground)]">@{boundUser.username}</div>}
         </div>
       </PopoverAnchor>
       <PopoverContent align="start" sideOffset={6} className="w-72 p-0" onOpenAutoFocus={event => event.preventDefault()}>

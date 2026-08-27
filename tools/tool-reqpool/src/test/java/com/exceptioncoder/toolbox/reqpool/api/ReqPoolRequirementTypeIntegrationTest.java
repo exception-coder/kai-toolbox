@@ -80,11 +80,13 @@ class ReqPoolRequirementTypeIntegrationTest {
                 integrationRepository,
                 syncService,
                 mock(ReqAnalysisService.class),
+                mock(com.exceptioncoder.toolbox.reqpool.service.ReqInsightTaskService.class),
                 mock(ReqDevelopmentAccessPolicy.class),
                 requirementTypeService,
                 new ReqItemViewAssembler(
                         new ReqInsightRepository(jdbc), insightFingerprint,
-                        new ReqPlanningAssessmentRepository(jdbc)),
+                        new ReqPlanningAssessmentRepository(jdbc),
+                        mock(com.exceptioncoder.toolbox.reqpool.repository.ReqInsightRunRepository.class)),
                 mock(ReqPlanningAssessmentService.class),
                 mock(ReqPlanningAssessmentTaskService.class),
                 mock(AuthProperties.class)
@@ -161,7 +163,7 @@ class ReqPoolRequirementTypeIntegrationTest {
                 CREATE TABLE req_pool_insight (
                     id TEXT PRIMARY KEY, item_id TEXT NOT NULL, analysis_type TEXT NOT NULL,
                     prompt_version TEXT NOT NULL, source_hash TEXT NOT NULL, portfolio_set_hash TEXT,
-                    payload_json TEXT NOT NULL, engine TEXT NOT NULL, model TEXT,
+                    payload_json TEXT NOT NULL, evidence_trace_json TEXT, engine TEXT NOT NULL, model TEXT,
                     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
                 )
                 """);
@@ -169,6 +171,7 @@ class ReqPoolRequirementTypeIntegrationTest {
                 CREATE TABLE req_pool_planning_assessment (
                     id TEXT PRIMARY KEY, item_id TEXT NOT NULL, prd_session_id TEXT NOT NULL,
                     input_hash TEXT NOT NULL, input_snapshot TEXT NOT NULL, evidence_trace_json TEXT,
+                    source_insight_id TEXT, source_insight_hash TEXT, source_insight_snapshot TEXT,
                     criteria_version TEXT NOT NULL,
                     prompt_version TEXT NOT NULL, status TEXT NOT NULL, raw_output_json TEXT, payload_json TEXT,
                     engine TEXT NOT NULL, model TEXT, error_message TEXT, started_at INTEGER NOT NULL,

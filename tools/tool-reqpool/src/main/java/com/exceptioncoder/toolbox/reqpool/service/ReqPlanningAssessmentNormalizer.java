@@ -15,6 +15,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 
 /** 校验模型规划建议，并以固定准则确定性汇总工时。 */
@@ -52,6 +55,8 @@ public class ReqPlanningAssessmentNormalizer {
         normalized.put("summary", requiredText(root, "summary", MAX_TEXT_LENGTH));
         normalized.set("assumptions", stringArray(root.path("assumptions")));
         NormalizedCapabilities capabilities = normalizeCapabilities(sourceCapabilities);
+        normalized.set("firstTestRelease", normalizeFirstTestRelease(
+                root.path("firstTestRelease"), capabilities));
         normalized.put("confidence", capabilities.confidence().name());
         normalized.put("hoursMin", capabilities.hoursMin());
         normalized.put("hoursMax", capabilities.hoursMax());
@@ -89,6 +94,55 @@ public class ReqPlanningAssessmentNormalizer {
                     + " 小时；请合并重复功能并仅计算一次共享成本");
         }
         return new NormalizedCapabilities(items, hoursMin, hoursMax, overallConfidence);
+    }
+
+    private ObjectNode normalizeFirstTestRelease(JsonNode source, NormalizedCapabilities capabilities) {
+        if (!source.isObject()) {
+            throw new IllegalArgumentException("firstTestRelease 必须是对象");
+        }
+        ArrayNode requestedIds = requireArray(source, "capabilityIds");
+        if (requestedIds.isEmpty()) {
+            throw new IllegalArgumentException("firstTestRelease.capabilityIds 至少包含一个能力 ID");
+        }
+
+        Map<String, JsonNode> capabilitiesById = new LinkedHashMap<>();
+        for (JsonNode capability : capabilities.items()) {
+            capabilitiesById.put(capability.path("id").asText(), capability);
+        }
+
+        Set<String> selectedIds = new LinkedHashSet<>();
+        ArrayNode normalizedIds = mapper.createArrayNode();
+        int hoursMin = 0;
+        int hoursMax = 0;
+        Confidence confidence = Confidence.HIGH;
+        for (JsonNode requestedId : requestedIds) {
+            String id = requestedId.asText("").trim();
+            JsonNode capability = capabilitiesById.get(id);
+            if (capability == null) {
+                throw new IllegalArgumentException("firstTestRelease 引用了未知能力 ID: " + id);
+            }
+            if (!selectedIds.add(id)) {
+                throw new IllegalArgumentException("firstTestRelease 能力 ID 重复: " + id);
+            }
+            normalizedIds.add(id);
+            hoursMin += capability.path("hoursMin").asInt();
+            hoursMax += capability.path("hoursMax").asInt();
+            confidence = lowerConfidence(
+                    confidence, Confidence.valueOf(capability.path("confidence").asText()));
+        }
+
+        ObjectNode target = mapper.createObjectNode();
+        target.put("scope", requiredText(source, "scope", MAX_TEXT_LENGTH));
+        target.set("capabilityIds", normalizedIds);
+        target.set("acceptanceChecks", requiredStringArray(
+                source.path("acceptanceChecks"), "firstTestRelease.acceptanceChecks"));
+        target.set("deferredScope", stringArray(source.path("deferredScope")));
+        target.put("confidence", confidence.name());
+        target.put("hoursMin", hoursMin);
+        target.put("hoursMax", hoursMax);
+        target.put("workingDaysMin", ReqPlanningAssessmentStandard.personDays(hoursMin));
+        target.put("workingDaysMax", ReqPlanningAssessmentStandard.personDays(hoursMax));
+        return target;
     }
 
     private ObjectNode normalizeCapability(JsonNode source, Set<String> ids, int position) {
@@ -211,6 +265,14 @@ public class ReqPlanningAssessmentNormalizer {
             }
         }
         return result;
+    }
+
+    private ArrayNode requiredStringArray(JsonNode source, String field) {
+        ArrayNode values = stringArray(source);
+        if (values.isEmpty()) {
+            throw new IllegalArgumentException(field + " 至少包含一项");
+        }
+        return values;
     }
 
     private static String requiredText(JsonNode source, String field, int maximumLength) {

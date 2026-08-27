@@ -54,6 +54,34 @@ CREATE TABLE IF NOT EXISTS req_pool_insight (
 CREATE INDEX IF NOT EXISTS idx_req_pool_insight_item_created
     ON req_pool_insight(item_id, created_at DESC);
 
+ALTER TABLE req_pool_insight ADD COLUMN evidence_trace_json TEXT;
+
+-- 单条价值判定后台运行账本。运行先于模型调用持久化，并冻结需求与项目证据输入。
+CREATE TABLE IF NOT EXISTS req_pool_insight_run (
+    id                  TEXT    PRIMARY KEY,
+    item_id             TEXT    NOT NULL,
+    title_snapshot      TEXT    NOT NULL,
+    description_snapshot TEXT,
+    project_snapshot    TEXT,
+    module_snapshot     TEXT,
+    source_hash         TEXT    NOT NULL,
+    evidence_trace_json TEXT,
+    engine              TEXT    NOT NULL,
+    status              TEXT    NOT NULL,
+    stage               TEXT    NOT NULL,
+    error_message       TEXT,
+    started_at          INTEGER NOT NULL,
+    completed_at        INTEGER,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_req_insight_run_item_created
+    ON req_pool_insight_run(item_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_req_insight_run_active_item
+    ON req_pool_insight_run(item_id)
+    WHERE status='RUNNING';
+
 -- 用户主动从需求中枢删除某条 PRD 镜像后保留排除标记，避免下次自动同步重新导入。
 -- 源 PRD 本身不受影响；源 PRD 删除后同步任务会清理对应标记。
 CREATE TABLE IF NOT EXISTS req_pool_prd_exclusion (
@@ -70,6 +98,9 @@ CREATE TABLE IF NOT EXISTS req_pool_planning_assessment (
     input_hash         TEXT    NOT NULL,
     input_snapshot     TEXT    NOT NULL,
     evidence_trace_json TEXT,
+    source_insight_id  TEXT,
+    source_insight_hash TEXT,
+    source_insight_snapshot TEXT,
     criteria_version   TEXT    NOT NULL,
     prompt_version     TEXT    NOT NULL,
     status             TEXT    NOT NULL,
@@ -85,6 +116,9 @@ CREATE TABLE IF NOT EXISTS req_pool_planning_assessment (
 );
 
 ALTER TABLE req_pool_planning_assessment ADD COLUMN evidence_trace_json TEXT;
+ALTER TABLE req_pool_planning_assessment ADD COLUMN source_insight_id TEXT;
+ALTER TABLE req_pool_planning_assessment ADD COLUMN source_insight_hash TEXT;
+ALTER TABLE req_pool_planning_assessment ADD COLUMN source_insight_snapshot TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_req_planning_item_created
     ON req_pool_planning_assessment(item_id, created_at DESC);

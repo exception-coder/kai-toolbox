@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -37,6 +38,26 @@ class ReqInsightApplicationServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("输入集合外");
         verifyNoInteractions(persistence);
+    }
+
+    @Test
+    void usesSelectedEngineForItemAnalysis() {
+        AgentOneShotRunner runner = mock(AgentOneShotRunner.class);
+        ReqInsightPersistenceService persistence = mock(ReqInsightPersistenceService.class);
+        ReqInsightApplicationService service = new ReqInsightApplicationService(
+                runner,
+                new ReqInsightValidator(new ObjectMapper()),
+                new ReqInsightFingerprint(),
+                persistence
+        );
+        when(runner.runOnce(anyString(), anyString(), nullable(String.class), anyString())).thenReturn("""
+                {"priority":"HIGH","stars":4,"recommendation":"建议推进","reason":"业务价值明确",
+                 "impacts":["需求中枢"],"roi":"HIGH","estimatedHours":12}
+                """);
+
+        service.analyzeItem(item("req-1"), "codex");
+
+        verify(runner).runOnce(anyString(), anyString(), nullable(String.class), org.mockito.ArgumentMatchers.eq("codex"));
     }
 
     private static ReqItem item(String id) {
