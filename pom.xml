@@ -57,6 +57,7 @@
         <module>tools/tool-fore-consult</module>
         <module>tools/tool-assistant</module>
         <module>tools/tool-eval</module>
+        <module>tools/tool-scheduler</module>
         <module>wyoooni/shared/wyoooni-enterprise-adapter</module>
         <module>wyoooni/modules/supplier-quote/supplier-quote-spring-boot-starter</module>
         <module>wyoooni/applications/wyoooni-application</module>
@@ -297,6 +298,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-eval</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-scheduler</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

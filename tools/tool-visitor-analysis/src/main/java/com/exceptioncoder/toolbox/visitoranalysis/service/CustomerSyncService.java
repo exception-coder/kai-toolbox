@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.visitoranalysis.service;
 
+import com.exceptioncoder.toolbox.common.scheduling.ScheduledTaskInfo;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.CustomerSyncRecord;
 import com.exceptioncoder.toolbox.visitoranalysis.client.YoooniCustomerClient;
 import com.exceptioncoder.toolbox.visitoranalysis.config.CustomerSyncProperties;
@@ -41,6 +42,10 @@ public class CustomerSyncService {
         this.props = props;
     }
 
+    @ScheduledTaskInfo(
+            name = "客户资料全量同步",
+            description = "全量拉取 Yoooni 客户资料，并更新本地客户参照库。",
+            owner = "访客分析")
     @Scheduled(cron = "${toolbox.visitor-analysis.customer-sync.full-cron:0 30 2 * * *}")
     public void scheduledFull() {
         if (!props.isEnabled()) return;
@@ -52,6 +57,10 @@ public class CustomerSyncService {
         }
     }
 
+    @ScheduledTaskInfo(
+            name = "客户资料增量同步",
+            description = "按最后更新时间水位增量拉取 Yoooni 客户资料，并更新本地客户参照库。",
+            owner = "访客分析")
     @Scheduled(cron = "${toolbox.visitor-analysis.customer-sync.incr-cron:0 */30 * * * *}")
     public void scheduledIncr() {
         if (!props.isEnabled()) return;

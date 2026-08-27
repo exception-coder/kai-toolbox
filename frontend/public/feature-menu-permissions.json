@@ -73,6 +73,13 @@
       "sort": 18
     },
     {
+      "featureId": "scheduler",
+      "code": "menu:scheduler",
+      "name": "调度中心",
+      "module": "系统",
+      "sort": 19
+    },
+    {
       "featureId": "flatten",
       "code": "menu:flatten",
       "name": "目录扁平化",
@@ -301,6 +308,13 @@
       "code": "menu:kai-dev",
       "name": "Forge",
       "module": "项目开发",
+      "sort": 52
+    },
+    {
+      "featureId": "system-route-inspector",
+      "code": "menu:system-route-inspector",
+      "name": "系统路由检测",
+      "module": "AI",
       "sort": 52
     },
     {

@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.system.update;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatActivityView;
 import com.exceptioncoder.toolbox.claudechat.service.AgentWorkAdmissionGate;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
+import com.exceptioncoder.toolbox.common.scheduling.ScheduledTaskInfo;
 import com.exceptioncoder.toolbox.system.RestartCoordinator;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -108,6 +109,10 @@ public class JavaAutoUpdateService {
                 ? System.currentTimeMillis() + properties.getInitialDelay().toMillis() : null;
     }
 
+    @ScheduledTaskInfo(
+            name = "应用自动更新检查",
+            description = "检查代码仓库是否存在可用更新，并在满足安全条件时准备新版本。",
+            owner = "系统维护")
     @Scheduled(
             initialDelayString = "${toolbox.system.auto-update.initial-delay:PT30S}",
             fixedDelayString = "${toolbox.system.auto-update.interval:PT120S}",

@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.downloader.service;
 
+import com.exceptioncoder.toolbox.common.scheduling.ScheduledTaskInfo;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import com.exceptioncoder.toolbox.downloader.config.DownloaderProperties;
 import com.exceptioncoder.toolbox.downloader.domain.DownloadSegment;
@@ -86,6 +87,10 @@ public class ProgressBus {
         return w == null ? 0 : w.downloaded.get();
     }
 
+    @ScheduledTaskInfo(
+            name = "下载进度实时推送",
+            description = "聚合下载字节变化，计算速度与预计剩余时间，并通过 SSE 推送给前端。",
+            owner = "下载器")
     @Scheduled(fixedDelayString = "${toolbox.downloader.sse-flush-interval-ms:500}",
                initialDelayString = "${toolbox.downloader.sse-flush-interval-ms:500}")
     public void flush() {

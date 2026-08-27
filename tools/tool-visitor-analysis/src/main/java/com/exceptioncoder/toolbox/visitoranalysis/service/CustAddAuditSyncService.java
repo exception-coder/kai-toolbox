@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.visitoranalysis.service;
 
+import com.exceptioncoder.toolbox.common.scheduling.ScheduledTaskInfo;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.CustAddAuditRecord;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.IdentityType;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.VerdictView;
@@ -61,6 +62,10 @@ public class CustAddAuditSyncService {
 
     // —— 定时入口 ——
 
+    @ScheduledTaskInfo(
+            name = "客户新增审核记录同步",
+            description = "从 Yoooni 流程接口增量拉取客户新增审核记录，并幂等登记到本地分析库。",
+            owner = "访客分析")
     @Scheduled(cron = "${toolbox.visitor-analysis.cust-add-audit-sync.pull-cron:0 */10 * * * *}")
     public void scheduledSync() {
         if (!props.isEnabled()) return;
@@ -72,6 +77,10 @@ public class CustAddAuditSyncService {
         }
     }
 
+    @ScheduledTaskInfo(
+            name = "客户新增审核智能判别",
+            description = "分批分析待处理的客户新增审核记录，生成匹配与风险判别结果。",
+            owner = "访客分析")
     @Scheduled(cron = "${toolbox.visitor-analysis.cust-add-audit-sync.analyze-cron:0 */2 * * * *}")
     public void scheduledAnalyze() {
         if (!props.isEnabled()) return;
