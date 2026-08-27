@@ -14,7 +14,6 @@ import { cn } from '@/lib/utils'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import {
   applyModuleSync,
-  CHAT_ROUTE,
   createTaskspace,
   ensureKnowledgeBase,
   fetchProjectModules,
@@ -26,13 +25,14 @@ import {
   previewModuleSync,
   replaceProjectDependencies,
   saveProjectAlias,
-  useChatRuntime,
   type ClaudeChatSessionView,
   type ModuleSyncPreview,
   type ProjectModule,
   type ProjectModules,
+  type ProjectDependencyInput,
   type WorkspaceDir,
 } from '@/features/claude-chat/public-api'
+import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/public-api/runtime'
 import {
   engineStatus,
   GRAPHIFY_LABEL,
@@ -161,7 +161,7 @@ export function ProjectWorkspacePage() {
     },
   })
   const projectDependenciesMutation = useMutation({
-    mutationFn: (paths: string[]) => replaceProjectDependencies(selectedPath, paths),
+    mutationFn: (dependencies: ProjectDependencyInput[]) => replaceProjectDependencies(selectedPath, dependencies),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['project-dependencies', selectedPath] })
       setProjectDependenciesOpen(false)
@@ -528,7 +528,7 @@ export function ProjectWorkspacePage() {
           loadError={projectDependenciesQ.isError ? errorMessage(projectDependenciesQ.error) : null}
           saveError={projectDependenciesMutation.isError ? errorMessage(projectDependenciesMutation.error) : null}
           onRetry={() => { void projectDependenciesQ.refetch() }}
-          onSave={paths => projectDependenciesMutation.mutate(paths)}
+          onSave={dependencies => projectDependenciesMutation.mutate(dependencies)}
           onClose={() => !projectDependenciesMutation.isPending && setProjectDependenciesOpen(false)}
         />
       )}

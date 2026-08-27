@@ -7,11 +7,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
-  CHAT_ROUTE,
   EngineIcon,
   engineName,
   type Engine,
 } from '@/features/claude-chat/public-api'
+import { CHAT_ROUTE } from '@/features/claude-chat/public-api/runtime'
 import {
   crossTopologyStatus,
   domainKnowledgeStatus,

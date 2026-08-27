@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CHAT_ROUTE, createTaskspace, useChatRuntime, type WorkspaceDir } from '@/features/claude-chat/public-api'
+import { createTaskspace, type WorkspaceDir } from '@/features/claude-chat/public-api'
+import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/public-api/runtime'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 import { useAggregationCart } from './useAggregationCart'

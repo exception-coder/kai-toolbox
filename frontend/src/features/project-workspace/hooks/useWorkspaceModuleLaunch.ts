@@ -1,12 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  CHAT_ROUTE,
-  useChatRuntime,
-  type ClaudeChatSessionView,
-  type ProjectModule,
-  type WorkspaceDir,
-} from '@/features/claude-chat/public-api'
+import type { ClaudeChatSessionView, ProjectModule, WorkspaceDir } from '@/features/claude-chat/public-api'
+import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/public-api/runtime'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 import { buildMenuSyncPrompt, buildModuleScopePrompt } from '../lib/workspacePrompts'
 import { errorMessage, normalizePath } from '../lib/workspaceModel'

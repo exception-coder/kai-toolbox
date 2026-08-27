@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Check, Database, FolderGit2, Loader2, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { ProjectDependency, WorkspaceDir } from '@/features/claude-chat/public-api'
+import type {
+  ProjectDependency,
+  ProjectDependencyInput,
+  ProjectDependencyRelation,
+  WorkspaceDir,
+} from '@/features/claude-chat/public-api'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import { cn } from '@/lib/utils'
 
@@ -17,7 +22,7 @@ interface ProjectDependenciesDialogProps {
   loadError?: string | null
   saveError?: string | null
   onRetry: () => void
-  onSave: (paths: string[]) => void
+  onSave: (dependencies: ProjectDependencyInput[]) => void
   onClose: () => void
 }
 
@@ -34,15 +39,15 @@ export function ProjectDependenciesDialog({
   onSave,
   onClose,
 }: ProjectDependenciesDialogProps) {
-  const [selected, setSelected] = useState<string[]>([])
+  const [selected, setSelected] = useState<Record<string, ProjectDependencyRelation>>({})
   const [search, setSearch] = useState('')
   const [selectionError, setSelectionError] = useState<string | null>(null)
 
   useEffect(() => {
     const availablePaths = new Set(projects.map(project => project.path))
-    setSelected(dependencies
-      .map(dependency => dependency.projectPath)
-      .filter(path => availablePaths.has(path)))
+    setSelected(Object.fromEntries(dependencies
+      .filter(dependency => availablePaths.has(dependency.projectPath))
+      .map(dependency => [dependency.projectPath, dependency.relation ?? 'DEPENDS_ON'])))
   }, [dependencies, projects])
 
   useEffect(() => {
@@ -70,13 +75,21 @@ export function ProjectDependenciesDialog({
   function toggle(path: string) {
     setSelectionError(null)
     setSelected(current => {
-      if (current.includes(path)) return current.filter(candidate => candidate !== path)
-      if (current.length >= MAX_DEPENDENCY_COUNT) {
+      if (current[path]) {
+        const next = { ...current }
+        delete next[path]
+        return next
+      }
+      if (Object.keys(current).length >= MAX_DEPENDENCY_COUNT) {
         setSelectionError(`每个项目最多关联 ${MAX_DEPENDENCY_COUNT} 个依赖项目`)
         return current
       }
-      return [...current, path]
+      return { ...current, [path]: 'DEPENDS_ON' }
     })
+  }
+
+  function setRelation(path: string, relation: ProjectDependencyRelation) {
+    setSelected(current => ({ ...current, [path]: relation }))
   }
 
   return (
@@ -95,9 +108,9 @@ export function ProjectDependenciesDialog({
             <FolderGit2 className="size-4" />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 id="project-dependencies-title" className="text-sm font-semibold text-[var(--color-foreground)]">依赖项目</h2>
+            <h2 id="project-dependencies-title" className="text-sm font-semibold text-[var(--color-foreground)]">关联项目与证据范围</h2>
             <p className="mt-1 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
-              依赖会自动进入该项目的开发会话。业务知识按目录名引用旧项目知识库，不会复制到当前项目。
+              关系决定探索从哪些项目查询业务知识、代码图谱、DDL、路由与源码。只保存引用，不复制知识。
             </p>
           </div>
           <Button type="button" variant="ghost" size="icon" className="size-8" onClick={onClose} disabled={saving} aria-label="关闭">
@@ -140,37 +153,49 @@ export function ProjectDependenciesDialog({
               {candidates.length ? (
                 <div className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
                   {candidates.map(project => {
-                    const checked = selected.includes(project.path)
+                    const checked = Boolean(selected[project.path])
                     const state = dependencyByPath.get(project.path)
                     return (
-                      <button
+                      <div
                         key={project.path}
-                        type="button"
-                        onClick={() => toggle(project.path)}
                         className={cn(
                           'flex w-full items-center gap-3 px-1 py-3 text-left transition-colors hover:bg-[var(--color-muted)]/40',
                           checked && 'bg-[var(--color-primary)]/5',
                         )}
                       >
-                        <span className={cn(
+                        <button type="button" onClick={() => toggle(project.path)} className={cn(
                           'grid size-5 shrink-0 place-items-center rounded border',
                           checked
                             ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                             : 'border-[var(--color-border)] bg-[var(--color-background)]',
-                        )}>
+                        )} aria-label={checked ? `移除 ${project.name}` : `关联 ${project.name}`}>
                           {checked && <Check className="size-3.5" />}
-                        </span>
-                        <span className="min-w-0 flex-1">
+                        </button>
+                        <button type="button" onClick={() => toggle(project.path)} className="min-w-0 flex-1 text-left">
                           <span className="block truncate text-sm font-medium text-[var(--color-foreground)]">{getSystemWorkspaceDisplayName(project)}</span>
                           <span className="block truncate font-mono text-[10px] text-[var(--color-muted-foreground)]" title={project.path}>{project.path}</span>
-                        </span>
+                        </button>
                         {checked && (
-                          <span className="hidden shrink-0 items-center gap-3 text-[10px] text-[var(--color-muted-foreground)] sm:flex">
-                            <span className="inline-flex items-center gap-1"><FolderGit2 className="size-3" />源码 {state ? (state.sourceAvailable ? '可用' : '缺失') : '保存后检测'}</span>
-                            <span className="inline-flex items-center gap-1"><Database className="size-3" />知识 {state ? (state.knowledgeAvailable ? '可用' : '未就绪') : '保存后检测'}</span>
-                          </span>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <select
+                              value={selected[project.path]}
+                              onChange={event => setRelation(project.path, event.target.value as ProjectDependencyRelation)}
+                              onClick={event => event.stopPropagation()}
+                              className="h-8 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-2 text-xs text-[var(--color-foreground)] outline-none focus:border-[var(--color-primary)]"
+                              aria-label={`${project.name} 的项目关系`}
+                            >
+                              <option value="REFACTORS">重构自</option>
+                              <option value="MIGRATES_FROM">迁移自</option>
+                              <option value="DEPENDS_ON">依赖</option>
+                              <option value="INTEGRATES_WITH">集成</option>
+                            </select>
+                            <span className="hidden items-center gap-2 text-[10px] text-[var(--color-muted-foreground)] lg:flex">
+                              <span className="inline-flex items-center gap-1"><FolderGit2 className="size-3" />源码 {state ? (state.sourceAvailable ? '可用' : '缺失') : '待检测'}</span>
+                              <span className="inline-flex items-center gap-1"><Database className="size-3" />知识 {state ? (state.knowledgeAvailable ? '可用' : '未就绪') : '待检测'}</span>
+                            </span>
+                          </div>
                         )}
-                      </button>
+                      </div>
                     )
                   })}
                 </div>
@@ -187,11 +212,11 @@ export function ProjectDependenciesDialog({
         </div>
 
         <footer className="flex items-center justify-between border-t border-[var(--color-border)] px-5 py-3">
-          <span className="text-xs text-[var(--color-muted-foreground)]">已选 {selected.length} / {MAX_DEPENDENCY_COUNT}</span>
+          <span className="text-xs text-[var(--color-muted-foreground)]">已选 {Object.keys(selected).length} / {MAX_DEPENDENCY_COUNT}</span>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>取消</Button>
-            <Button type="button" onClick={() => onSave(selected)} disabled={loading || Boolean(loadError) || saving}>
-              {saving && <Loader2 className="size-4 animate-spin" />}保存依赖
+            <Button type="button" onClick={() => onSave(Object.entries(selected).map(([projectPath, relation]) => ({ projectPath, relation })))} disabled={loading || Boolean(loadError) || saving}>
+              {saving && <Loader2 className="size-4 animate-spin" />}保存关联
             </Button>
           </div>
         </footer>
