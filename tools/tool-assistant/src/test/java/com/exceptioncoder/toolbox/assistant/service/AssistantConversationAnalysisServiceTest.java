@@ -73,7 +73,7 @@ class AssistantConversationAnalysisServiceTest {
         when(descriptionGenerator.generate(any(), any(), any(), any())).thenReturn("## 需求标题\n增加导出功能");
         when(candidateFactory.candidate(anyLong(), any(), any(), any(), anyLong(), any())).thenReturn(candidate);
         when(candidateFactory.context(7L, "session-1")).thenReturn(
-                new AssistantFeedbackStorePort.FeedbackContext(7L, "session-1", "ERP", "", ""));
+                new AssistantFeedbackStorePort.FeedbackContext(7L, "张凯", "session-1", "ERP", "", ""));
 
         AssistantCapabilityPort.ConversationAnalysisResult result = service.analyze(command(
                 20L, 30L, new AssistantCapabilityPort.ConversationMessage(10L, "user", "旧消息"),
@@ -149,7 +149,7 @@ class AssistantConversationAnalysisServiceTest {
         when(descriptionGenerator.generate(any(), any(), any(), any())).thenReturn("## 问题概述\n导出失败");
         when(candidateFactory.candidate(anyLong(), any(), any(), any(), anyLong(), any())).thenReturn(candidate);
         when(candidateFactory.context(7L, "session-1")).thenReturn(
-                new AssistantFeedbackStorePort.FeedbackContext(7L, "session-1", "ERP", "", ""));
+                new AssistantFeedbackStorePort.FeedbackContext(7L, "张凯", "session-1", "ERP", "", ""));
         doThrow(new IllegalStateException("MySQL 不可用"))
                 .when(feedbackStore).saveCandidates(any(AssistantFeedbackStorePort.SaveCommand.class));
 
@@ -166,7 +166,7 @@ class AssistantConversationAnalysisServiceTest {
         when(repository.find(7L, "session-1")).thenReturn(java.util.Optional.empty());
         when(candidateFactory.context(7L, "session-1")).thenReturn(
                 new AssistantFeedbackStorePort.FeedbackContext(
-                        7L, "session-1", "yoooni-one", "/new-product-progress", "新品生产进度"));
+                        7L, "张凯", "session-1", "yoooni-one", "/new-product-progress", "新品生产进度"));
         when(candidateFactory.candidate(anyLong(), any(), any(), any(), anyLong(), any()))
                 .thenAnswer(invocation -> new FeedbackCandidate(
                         "candidate-1", invocation.getArgument(0), FeedbackCategory.BUG,

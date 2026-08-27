@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AssistantFeedbackDescriptionGeneratorTest {
 
     private static final FeedbackContext CONTEXT = new FeedbackContext(
-            7L, "session-1", "yoooni-one", "/new-product-progress", "新品生产进度");
+            7L, "张凯", "session-1", "yoooni-one", "/new-product-progress", "新品生产进度");
 
     @Test
     void rendersBugWithFixedSectionsAndPageContext() {

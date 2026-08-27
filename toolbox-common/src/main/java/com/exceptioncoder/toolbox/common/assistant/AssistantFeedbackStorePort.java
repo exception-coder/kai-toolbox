@@ -63,12 +63,13 @@ public interface AssistantFeedbackStorePort {
      * 反馈来源上下文。
      *
      * @param creatorUserId Forge 认证用户标识
+     * @param creatorUserName 登记时的用户姓名快照
      * @param sessionId 来源会话标识
      * @param sourceSystem 来源应用稳定标识
      * @param pageUrl 来源页面 URL
      * @param pageTitle 来源页面标题
      */
-    record FeedbackContext(long creatorUserId, String sessionId, String sourceSystem,
+    record FeedbackContext(long creatorUserId, String creatorUserName, String sessionId, String sourceSystem,
                            String pageUrl, String pageTitle) {
     }
 

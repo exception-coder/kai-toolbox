@@ -63,8 +63,9 @@ class OpsAssistantFeedbackStoreAdapterTest {
         verify(schemaStatement, atLeastOnce()).execute(anyString());
         verify(preparedStatement).addBatch();
         verify(preparedStatement).executeBatch();
-        verify(preparedStatement).setString(8, "导出失败，点击按钮没有反应");
-        verify(preparedStatement).setString(9, "## 问题概述\n导出按钮无响应");
+        verify(preparedStatement).setString(6, "张凯");
+        verify(preparedStatement).setString(9, "导出失败，点击按钮没有反应");
+        verify(preparedStatement).setString(10, "## 问题概述\n导出按钮无响应");
         verify(connection).commit();
         verify(connection).setAutoCommit(true);
     }
@@ -109,7 +110,7 @@ class OpsAssistantFeedbackStoreAdapterTest {
 
     private AssistantFeedbackStorePort.SaveCommand command() {
         FeedbackContext context = new FeedbackContext(
-                7L, "session-1", "yoooni-one", "/new-product-progress", "新品生产进度");
+                7L, "张凯", "session-1", "yoooni-one", "/new-product-progress", "新品生产进度");
         FeedbackCandidate candidate = new FeedbackCandidate(
                 "candidate-1", 30L, FeedbackCategory.BUG, RequirementType.BUG_FIX,
                 "导出失败，点击按钮没有反应", "## 问题概述\n导出按钮无响应",

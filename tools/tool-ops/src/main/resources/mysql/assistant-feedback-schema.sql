@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS assistant_feedback_candidate (
     session_id            VARCHAR(128) NOT NULL,
     source_watermark      BIGINT NOT NULL,
     creator_user_id       BIGINT NOT NULL,
+    creator_user_name     VARCHAR(255) NOT NULL DEFAULT '' COMMENT '登记时的用户姓名快照，真实姓名优先、账号名兜底',
     feedback_category     VARCHAR(32) NOT NULL,
     requirement_type      VARCHAR(32) NOT NULL,
     source_content         TEXT NOT NULL,
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS assistant_feedback_candidate (
     UNIQUE KEY uk_assistant_feedback_source (source_system, session_id, source_watermark),
     KEY idx_assistant_feedback_category (feedback_category, candidate_status, detected_at),
     KEY idx_assistant_feedback_creator (creator_user_id, detected_at),
+    KEY idx_assistant_feedback_creator_name (creator_user_name, detected_at),
     KEY idx_assistant_feedback_session_owner
         (creator_user_id, session_id, feedback_category, detected_at, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci

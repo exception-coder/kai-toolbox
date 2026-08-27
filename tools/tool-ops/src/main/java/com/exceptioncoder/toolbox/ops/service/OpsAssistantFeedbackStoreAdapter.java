@@ -32,12 +32,14 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
             """;
     private static final String UPSERT = """
             INSERT INTO assistant_feedback_candidate
-              (id, source_system, session_id, source_watermark, creator_user_id, feedback_category,
+              (id, source_system, session_id, source_watermark, creator_user_id, creator_user_name,
+               feedback_category,
                requirement_type, source_content, ai_optimized_content, confidence, classification_reason, page_url,
                page_title, candidate_status, detected_at, create_time, update_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DETECTED', ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DETECTED', ?, ?, ?)
             ON DUPLICATE KEY UPDATE feedback_category=VALUES(feedback_category),
               requirement_type=VALUES(requirement_type),
+              creator_user_name=VALUES(creator_user_name),
               confidence=VALUES(confidence), classification_reason=VALUES(classification_reason),
               page_url=VALUES(page_url), page_title=VALUES(page_title), update_time=VALUES(update_time)
             """;
@@ -254,6 +256,7 @@ public class OpsAssistantFeedbackStoreAdapter implements AssistantFeedbackStoreP
         statement.setString(index++, context.sessionId());
         statement.setLong(index++, candidate.sourceWatermark());
         statement.setLong(index++, context.creatorUserId());
+        statement.setString(index++, text(context.creatorUserName()));
         statement.setString(index++, candidate.category().name());
         statement.setString(index++, candidate.requirementType().name());
         statement.setString(index++, candidate.sourceContent());

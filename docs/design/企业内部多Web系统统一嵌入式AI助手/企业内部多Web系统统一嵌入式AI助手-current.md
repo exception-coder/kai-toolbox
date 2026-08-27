@@ -258,6 +258,7 @@ sequenceDiagram
 - 描述模型输出解析或校验失败时最多重试一次；仍失败则使用保留用户事实且明确标记“待补充”的确定性模板，不丢失该条反馈。
 - 公网候选主表以 `source_content` 永久保存限长用户原话，以 `ai_optimized_content` 保存不可覆盖的 AI 首次规范稿，以可空的 `user_rewritten_content` 保存用户基于 AI 稿的最新改写；有效正文按“用户改写优先、否则 AI 稿”读取，修订表继续保存 AI 基线和每次用户改写的不可变审计历史。
 - Bug、需求和优化识别结果先写入公网 MySQL 的 `assistant_feedback_candidate` 候选表，状态固定为 `DETECTED`；模型不得直接创建正式 ReqPool 记录。
+- 候选同时固化 `creator_user_id` 和登记时的 `creator_user_name` 姓名快照；ID 继续承担关联与授权，姓名按“真实姓名优先、账号名兜底”写入并用于展示，避免 Yoooni One 跨库反查且不受后续改名影响。
 - 持久化代码全部位于 Forge：`tool-ops` 按系统编码 `yoooni-one` 和环境解析已登记 MySQL 数据源，直接复用 `OpsDataSourcePool` 的 Druid 池写公网 MySQL；不调用 Yoooni One 项目接口。
 - 只有分类、候选幂等落库、摘要处理全部成功后才推进 SQLite 水位；读取失败、分类器异常或公网 MySQL 落库失败均保持原水位，下一次终态从旧水位重试。
 - 候选唯一键为 `source_system + session_id + source_watermark`。公网写入成功但本地水位提交失败时，重试使用 upsert，不生成重复反馈。

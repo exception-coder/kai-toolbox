@@ -38,6 +38,8 @@ class AssistantFeedbackSchemaMigratorTest {
         verify(statement).execute(contains("ADD COLUMN source_content"));
         verify(statement).execute(contains("ADD COLUMN ai_optimized_content"));
         verify(statement).execute(contains("ADD COLUMN user_rewritten_content"));
+        verify(statement).execute(contains("ADD COLUMN creator_user_name"));
+        verify(statement, atLeastOnce()).execute(contains("idx_assistant_feedback_creator_name"));
         verify(statement, atLeastOnce()).execute(
                 contains("COMMENT='彩虹胶囊自动识别的 Bug、优化建议和需求反馈候选主表'"));
         verify(statement, atLeastOnce()).execute(contains("COMMENT='反馈候选的 AI 原稿及用户历次修订记录'"));

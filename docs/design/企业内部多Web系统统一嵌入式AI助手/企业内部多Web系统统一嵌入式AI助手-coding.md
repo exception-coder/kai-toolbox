@@ -160,7 +160,7 @@ AssistantModuleContextService#save(command) — 校验客户端摘要并按模�
 ClaudeChatConversationDeltaReader#read(String sessionId, long afterSequence): ConversationDelta — 返回水位后的真实会话增量
 AssistantConversationAnalysisService#cursor(String sessionId): AnalysisCursor — 返回当前认证用户的持久化分析水位
 AssistantConversationAnalysisService#analyze(command): ConversationAnalysis — 对增量用户消息分类并在成功后推进水位
-AssistantFeedbackStorePort#saveCandidates(command): void — 批量幂等保存本批次 Bug、需求和优化候选
+AssistantFeedbackStorePort#saveCandidates(command): void — 批量幂等保存本批次 Bug、需求和优化候选，并固化登记人 ID 与姓名快照
 AssistantFeedbackArchiveService#listSessions(cursor, limit): FeedbackSessionPage — 分页读取本人咨询会话并合并三类数量
 AssistantFeedbackArchiveService#listCandidates(sessionId, category, cursor, limit): FeedbackCandidatePage — 校验归属后分页读取单类候选
 AssistantFeedbackArchiveService#updateCandidate(sessionId, candidateId, command): FeedbackCandidateView — 校验并条件更新候选
@@ -191,7 +191,7 @@ loadKaiAssistantRuntime(loaderUrl, channel): Promise<AssistantRuntime> — Yooon
 - `assistant_registration`：草稿到 ReqPool 的登记映射，`idempotency_key` 唯一。
 - `assistant_module_context_cache`：同一认证用户、应用和模块唯一；保存摘要、页面路由、源码版本和过期时间。
 - `assistant_conversation_analysis`：同一认证用户、会话唯一；保存最后成功水位、滚动反馈摘要和更新时间。
-- 公网 MySQL `assistant_feedback_candidate`：按来源系统、会话和消息水位唯一，保存 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 候选及其 ReqPool 类型映射；初始状态为 `DETECTED`。
+- 公网 MySQL `assistant_feedback_candidate`：按来源系统、会话和消息水位唯一，保存 `BUG`、`REQUIREMENT`、`OPTIMIZATION` 候选及其 ReqPool 类型映射；`creator_user_id` 保留身份关联，`creator_user_name` 保存登记时姓名快照并供 Yoooni One 展示和精确筛选；初始状态为 `DETECTED`。
 - `assistant_feedback_candidate` 补充 `(creator_user_id, session_id, feedback_category, detected_at, id)` 索引；正文明确拆为只读的 `source_content`、只读的 `ai_optimized_content` 和可空可编辑的 `user_rewritten_content`，编辑时只更新 `feedback_category`、`requirement_type`、`user_rewritten_content` 和 `update_time`。
 - 公网 MySQL `assistant_feedback_candidate_revision`：按 `(candidate_id, revision_no)` 唯一，保存 `AI` 原稿和每次 `USER` 修订的类型、派生需求类型、正文、编辑人和时间。
 - 公网 MySQL `assistant_feedback_candidate_attachment`：按 `(candidate_id, attachment_id)` 唯一，只保存逻辑 ID、文件名、MIME、大小和时间，不保存磁盘绝对路径或二进制。

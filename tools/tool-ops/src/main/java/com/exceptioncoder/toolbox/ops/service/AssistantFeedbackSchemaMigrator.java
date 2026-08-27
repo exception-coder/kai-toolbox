@@ -21,6 +21,7 @@ final class AssistantFeedbackSchemaMigrator {
         executeSchema(connection);
         applyTableComments(connection);
         boolean legacyContentExists = hasColumn(connection, CANDIDATE_TABLE, "feedback_content");
+        addCreatorNameColumn(connection);
         addContentColumns(connection);
         if (legacyContentExists) {
             backfillLegacyContent(connection);
@@ -28,6 +29,19 @@ final class AssistantFeedbackSchemaMigrator {
         enforceRequiredContent(connection);
         if (legacyContentExists) {
             dropLegacyContent(connection);
+        }
+    }
+
+    private void addCreatorNameColumn(Connection connection) throws SQLException {
+        if (hasColumn(connection, CANDIDATE_TABLE, "creator_user_name")) {
+            return;
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE assistant_feedback_candidate "
+                    + "ADD COLUMN creator_user_name VARCHAR(255) NOT NULL DEFAULT '' "
+                    + "COMMENT '登记时的用户姓名快照，真实姓名优先、账号名兜底' AFTER creator_user_id");
+            statement.execute("CREATE INDEX idx_assistant_feedback_creator_name "
+                    + "ON assistant_feedback_candidate (creator_user_name, detected_at)");
         }
     }
 
