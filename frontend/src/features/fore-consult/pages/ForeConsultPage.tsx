@@ -1404,29 +1404,31 @@ export function ForeConsultPage() {
       }`}
     >
       {/* 顶部标题栏 */}
-      <header className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-6 py-4">
-        <div className="flex items-center gap-2.5">
+      <header className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex flex-col items-stretch gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-6">
+        <div className="flex min-w-0 shrink-0 items-center gap-2.5">
           <Radar className="size-5 text-sky-600" />
           <div>
             <h1 className="text-base font-semibold tracking-wide text-slate-900">业务系统图谱</h1>
-            <p className="text-xs text-slate-500">点击一个业务系统，选定模块后向 AI 发起咨询</p>
+            <p className="truncate text-xs text-slate-500">点击一个业务系统，选定模块后向 AI 发起咨询</p>
           </div>
         </div>
-        <div className="fc-toolbar pointer-events-auto flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => topoMutation.mutate()}
-            disabled={visibleProjects.length < 2 || topoMutation.isPending}
-            className="flex items-center gap-1.5 rounded-full border border-sky-200/80 bg-sky-50/80 px-3 py-1.5 text-xs text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-40"
-            title="调用 cross-topology 图谱分析系统之间的链路关系"
-          >
-            {topoMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Waypoints className="size-3.5" />}
-            {topoMutation.isPending ? '分析中…' : '分析链路'}
-          </button>
+        <div className="fc-toolbar pointer-events-auto flex w-full min-w-0 items-center gap-1.5 overflow-x-auto pb-1 lg:w-auto lg:overflow-visible lg:pb-0">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => topoMutation.mutate()}
+              disabled={visibleProjects.length < 2 || topoMutation.isPending}
+              className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-sky-200/80 bg-sky-50/80 px-3 py-1.5 text-xs text-sky-700 transition-colors hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 disabled:opacity-40 lg:rounded-full"
+              title="调用 cross-topology 图谱分析系统之间的链路关系"
+            >
+              {topoMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Waypoints className="size-3.5" />}
+              {topoMutation.isPending ? '分析中…' : '分析链路'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setEvidenceRoutesOpen(true)}
-            className="flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-emerald-50/70 px-3 py-1.5 text-xs text-emerald-700 transition-colors hover:bg-emerald-100"
+            className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-200/70 bg-emerald-50/70 px-3 py-1.5 text-xs text-emerald-700 transition-colors hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 lg:rounded-full"
             title="查看并确认跨系统数据归属"
           >
             <Radar className="size-3.5" /> 数据归属 {(topoData?.evidenceRoutes?.length ?? 0) || ''}
@@ -1435,26 +1437,28 @@ export function ForeConsultPage() {
             <button
               type="button"
               onClick={() => setShowLinks((s) => !s)}
-              className="flex items-center gap-1.5 rounded-full border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900"
+              className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 lg:rounded-full"
               title={showLinks ? '隐藏连线' : '显示连线'}
             >
               {showLinks ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
               连线 {topoData?.links.length}
             </button>
           )}
-          <button
-            type="button"
-            onClick={openConfig}
-            className="flex items-center gap-1.5 rounded-full border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900"
-            title="管理系统别名与显示范围"
-          >
-            <SlidersHorizontal className="size-3.5" />
-            配置
-          </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={openConfig}
+              className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 lg:rounded-full"
+              title="管理系统别名与显示范围"
+            >
+              <SlidersHorizontal className="size-3.5" />
+              配置
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setHistoryOpen((o) => !o)}
-            className="flex items-center gap-1.5 rounded-full border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900"
+            className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 lg:rounded-full"
           >
             <History className="size-3.5" />
             历史咨询 {(history ?? []).length > 0 && `· ${(history ?? []).length}`}
@@ -1462,7 +1466,7 @@ export function ForeConsultPage() {
           <button
             type="button"
             onClick={() => setBugsOpen((o) => !o)}
-            className="flex items-center gap-1.5 rounded-full border border-amber-200/80 bg-amber-50/75 px-3 py-1.5 text-xs text-amber-700 transition-colors hover:bg-amber-100"
+            className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-200/80 bg-amber-50/75 px-3 py-1.5 text-xs text-amber-700 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 lg:rounded-full"
             title="AI 自动登记的缺陷/数据问题"
           >
             <Bug className="size-3.5" />
@@ -1471,8 +1475,9 @@ export function ForeConsultPage() {
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="flex items-center gap-1.5 rounded-full border border-slate-200/70 bg-white/50 px-2.5 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-slate-200/70 bg-white/50 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 lg:rounded-full"
             title={isFullscreen ? '退出全屏' : '全屏展示'}
+            aria-label={isFullscreen ? '退出全屏' : '全屏展示'}
           >
             {isFullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </button>
@@ -1481,7 +1486,7 @@ export function ForeConsultPage() {
 
       {!initialSessionStateResolved && (
         <div
-          className={`pointer-events-auto absolute left-1/2 top-16 z-[70] flex -translate-x-1/2 items-center gap-2 rounded-full border px-4 py-2 text-xs shadow-lg backdrop-blur-xl ${
+          className={`pointer-events-auto absolute left-4 right-4 top-32 z-[70] flex min-h-11 items-center gap-2 rounded-xl border px-3 py-2 text-xs shadow-lg backdrop-blur-xl lg:left-1/2 lg:right-auto lg:top-16 lg:min-h-0 lg:-translate-x-1/2 lg:rounded-full lg:px-4 ${
             initialSessionStateError
               ? 'border-rose-200 bg-white/90 text-rose-700'
               : 'border-sky-200 bg-white/85 text-sky-700'
@@ -1494,15 +1499,15 @@ export function ForeConsultPage() {
               <button
                 type="button"
                 onClick={retryInitialSessionState}
-                className="rounded-full border border-rose-200 px-2.5 py-1 font-medium hover:bg-rose-50"
+                className="ml-auto min-h-9 shrink-0 rounded-lg border border-rose-200 px-3 py-1 font-medium hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60 lg:min-h-0 lg:rounded-full lg:px-2.5"
               >
                 重试
               </button>
             </>
           ) : (
             <>
-              <Loader2 className="size-3.5 animate-spin" />
-              正在检查是否有进行中的咨询…
+              <Loader2 className="size-3.5 shrink-0 animate-spin" />
+              <span className="leading-5">正在检查是否有进行中的咨询…</span>
             </>
           )}
         </div>
@@ -1527,21 +1532,21 @@ export function ForeConsultPage() {
           否则点这里的「结束并归档」会先被遮罩吃掉变成关闭对话，导致要点两次）。归档入口此时用面板头部的按钮。 */}
       {activeConsultId && !conversationOpen && (
         <div
-          className="absolute left-1/2 top-14 z-50 -translate-x-1/2 p-3"
+          className="absolute left-4 right-4 top-32 z-50 lg:left-1/2 lg:right-auto lg:top-14 lg:-translate-x-1/2 lg:p-3"
           onPointerDown={(event) => event.stopPropagation()}
           onPointerUp={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex items-center gap-3 rounded-full border border-emerald-200/80 bg-white/75 px-4 py-1.5 text-xs text-emerald-700 shadow-[0_16px_38px_-24px_rgba(5,150,105,0.45)] backdrop-blur-xl">
+          <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-emerald-200/80 bg-white/90 px-3 py-2 text-xs text-emerald-700 shadow-[0_16px_38px_-24px_rgba(5,150,105,0.45)] backdrop-blur-xl lg:w-auto lg:flex-nowrap lg:gap-3 lg:rounded-full lg:bg-white/75 lg:px-4 lg:py-1.5">
             <span className="relative flex size-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
               <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
             </span>
-            咨询进行中
+            <span className="mr-auto whitespace-nowrap lg:mr-0">咨询进行中</span>
             <button
               type="button"
               onClick={() => setConversationOpen(true)}
-              className="ml-1 flex items-center gap-1 rounded-full border border-emerald-200 px-2.5 py-1 font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
+              className="flex min-h-10 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border border-emerald-200 px-3 py-1 font-medium text-emerald-700 transition-colors hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 lg:ml-1 lg:min-h-0 lg:rounded-full lg:px-2.5"
             >
               <MessagesSquare className="size-3" /> 查看对话
             </button>
@@ -1553,7 +1558,7 @@ export function ForeConsultPage() {
                 triggerArchive()
               }}
               disabled={archiveMutation.isPending}
-              className="flex min-w-[88px] items-center justify-center gap-1 rounded-full bg-emerald-400/90 px-2.5 py-1 font-medium text-emerald-950 transition-transform hover:scale-105 disabled:cursor-wait disabled:opacity-70"
+              className="flex min-h-10 min-w-[96px] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg bg-emerald-400/90 px-3 py-1 font-medium text-emerald-950 transition-colors hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 disabled:cursor-wait disabled:opacity-70 lg:min-h-0 lg:min-w-[88px] lg:rounded-full lg:px-2.5"
             >
               {archiveMutation.isPending && <Loader2 className="size-3 animate-spin" />}
               {archiveMutation.isPending ? '归档中…' : '结束并归档'}
@@ -1608,13 +1613,14 @@ export function ForeConsultPage() {
         !historyOpen &&
         !viewSession &&
         !activeConsultId && (
-          <div className="pointer-events-none absolute left-1/2 top-[13%] z-20 max-w-[90%] -translate-x-1/2">
-            <div className="fc-hint pointer-events-auto flex items-center gap-2.5 rounded-full border border-white/80 bg-white/68 px-4 py-2 text-sm text-slate-600 backdrop-blur-xl">
+          <div className="pointer-events-none absolute bottom-[calc(env(safe-area-inset-bottom)+5rem)] left-4 right-4 z-20 lg:bottom-auto lg:left-1/2 lg:right-auto lg:top-[13%] lg:max-w-[90%] lg:-translate-x-1/2">
+            <div className="fc-hint pointer-events-auto flex items-start gap-2.5 rounded-xl border border-white/80 bg-white/82 px-3 py-2.5 text-sm text-slate-600 shadow-[0_14px_34px_-26px_rgba(15,23,42,0.38)] backdrop-blur-xl lg:items-center lg:rounded-full lg:bg-white/68 lg:px-4 lg:py-2 lg:shadow-none">
               <MousePointerClick className="fc-hint-icon size-4 shrink-0 text-sky-600" />
-              <span>
+              <span className="min-w-0 flex-1 leading-5">
+                <span className="mb-0.5 block text-[11px] font-medium tracking-wide text-slate-500 lg:hidden">操作指引</span>
                 点击任意<b className="font-semibold text-slate-900">业务系统</b>，选定模块后即可向 AI 发起咨询
               </span>
-              <button type="button" onClick={dismissHint} className="ml-1 shrink-0 rounded-full p-0.5 text-slate-400 hover:bg-slate-100" aria-label="知道了">
+              <button type="button" onClick={dismissHint} className="-mr-1 -mt-1 flex size-9 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 lg:ml-1 lg:size-6 lg:rounded-full" aria-label="知道了">
                 <X className="size-3.5" />
               </button>
             </div>
@@ -1672,9 +1678,11 @@ export function ForeConsultPage() {
         ) : visibleProjects.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-slate-400">
             所有系统都被隐藏了
-            <button type="button" onClick={openConfig} className="rounded-full border border-slate-200 bg-white/65 px-3 py-1.5 text-xs text-slate-700 hover:bg-white">
-              打开配置调整显示范围
-            </button>
+            {isAdmin && (
+              <button type="button" onClick={openConfig} className="rounded-full border border-slate-200 bg-white/65 px-3 py-1.5 text-xs text-slate-700 hover:bg-white">
+                打开配置调整显示范围
+              </button>
+            )}
           </div>
         ) : (
           shownProjects.map((p) => {
@@ -1728,9 +1736,13 @@ export function ForeConsultPage() {
 
       {/* 业务域筛选 chips（底部居中，兼作图例） */}
       {presentCategories.length > 0 && (
-        <div className={`absolute left-1/2 z-20 flex max-w-[86%] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-full border border-white/80 bg-white/55 px-1.5 py-1 shadow-[0_16px_36px_-26px_rgba(15,23,42,0.32)] backdrop-blur-xl transition-[bottom] duration-300 ${
+        <div
+          role="group"
+          aria-label="按业务域筛选系统"
+          className={`fc-category-filter absolute left-4 right-20 z-20 flex snap-x snap-mandatory touch-pan-x flex-nowrap items-center justify-start gap-1 overflow-x-auto overscroll-x-contain rounded-xl border border-white/80 bg-white/70 px-1.5 py-1.5 shadow-[0_16px_36px_-26px_rgba(15,23,42,0.32)] backdrop-blur-xl transition-[bottom] duration-300 lg:left-1/2 lg:right-auto lg:max-w-[86%] lg:-translate-x-1/2 lg:flex-wrap lg:justify-center lg:rounded-full lg:bg-white/55 lg:py-1 ${
           panelOpen ? 'bottom-[172px]' : 'bottom-4'
-        }`}>
+          }`}
+        >
           <FilterChip label="全部" active={categoryFilter === null} onClick={() => setCategoryFilter(null)} />
           {presentCategories.map((c) => (
             <FilterChip
@@ -2143,7 +2155,7 @@ export function ForeConsultPage() {
       )}
 
       {/* 配置抽屉：别名 + 过滤 */}
-      {configOpen && (
+      {isAdmin && configOpen && (
         <div className="fc-backdrop absolute inset-0 z-40 flex justify-end" onClick={() => setConfigOpen(false)}>
           <div className="fc-panel flex h-full w-[min(460px,calc(100vw-2rem))] flex-col rounded-l-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-slate-200/80 p-5">
@@ -2215,14 +2227,15 @@ function FilterChip({ label, active, color, onClick }: { label: string; active: 
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] transition-colors ${
+      aria-pressed={active}
+      className={`flex min-h-10 shrink-0 snap-start items-center gap-2 whitespace-nowrap rounded-lg px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 lg:min-h-0 lg:rounded-full lg:py-1 lg:text-[11px] ${
         active
           ? 'bg-white/90 text-slate-900 shadow-[0_4px_12px_-8px_rgba(15,23,42,0.38)]'
           : 'text-slate-500 hover:bg-white/55 hover:text-slate-900'
       }`}
     >
       {color && (
-        <span className="size-2 rounded-full" style={{ background: color, boxShadow: active ? `0 0 8px ${color}` : 'none' }} />
+        <span className="size-2 shrink-0 rounded-full" style={{ background: color, boxShadow: active ? `0 0 8px ${color}` : 'none' }} />
       )}
       {label}
     </button>

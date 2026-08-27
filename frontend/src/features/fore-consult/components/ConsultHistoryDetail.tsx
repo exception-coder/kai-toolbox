@@ -127,16 +127,16 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
         className="fc-panel flex h-full w-[min(560px,94vw)] flex-col rounded-l-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-indigo-300/12 p-5">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-5">
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-[0.22em] text-sky-300/70">Consult Archive</div>
-            <h2 className="truncate text-base font-semibold text-white">{title}</h2>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-sky-600">Consult Archive</div>
+            <h2 className="truncate text-base font-semibold text-slate-950">{title}</h2>
             {data && (
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-indigo-200/50">
-                <span className="rounded-full border border-indigo-300/20 px-2 py-0.5">{ROLE_LABEL[data.role] ?? data.role}</span>
-                <span className="rounded-full border border-sky-300/20 px-2 py-0.5">发起系统：{data.systemName}</span>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                <span className="rounded-full border border-slate-200 px-2 py-0.5">{ROLE_LABEL[data.role] ?? data.role}</span>
+                <span className="rounded-full border border-sky-200 px-2 py-0.5">发起系统：{data.systemName}</span>
                 {(data.evidenceSystems ?? []).filter((item) => item.toLowerCase() !== data.systemName.toLowerCase()).map((item) => (
-                  <span key={item} className="rounded-full border border-emerald-300/20 px-2 py-0.5 text-emerald-200/80">
+                  <span key={item} className="rounded-full border border-emerald-200 px-2 py-0.5 text-emerald-700">
                     证据系统：{item.toUpperCase()}
                   </span>
                 ))}
@@ -145,18 +145,18 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
               </div>
             )}
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="关闭">
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="关闭">
             <X className="size-4" />
           </button>
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
           {isLoading ? (
-            <div className="flex items-center justify-center gap-2 pt-10 text-sm text-indigo-200/50">
+            <div className="flex items-center justify-center gap-2 pt-10 text-sm text-slate-500">
               <Loader2 className="size-4 animate-spin" /> 加载中…
             </div>
           ) : pairs.length === 0 ? (
-            <p className="px-6 pt-10 text-center text-sm leading-relaxed text-indigo-200/40">
+            <p className="px-6 pt-10 text-center text-sm leading-relaxed text-slate-600">
               {data?.archiveStatus === 'PENDING'
                 ? '该咨询还在进行中，尚未归档。回到星图点「查看对话」可继续，结束并归档后即可在此查看完整问答。'
                 : '本次咨询没有归档的问答内容'}
@@ -168,16 +168,16 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
                   <div className="flex flex-wrap justify-end gap-1.5">
                     {p.attachments.map((a, j) =>
                       isImage(a) ? (
-                        <img key={j} src={fileUrl(a.path)} alt={a.name} title={a.name} onClick={() => setLightbox(fileUrl(a.path))} className="size-20 cursor-zoom-in rounded-lg border border-indigo-300/25 object-cover transition-transform hover:scale-[1.03]" />
+                        <img key={j} src={fileUrl(a.path)} alt={a.name} title={a.name} onClick={() => setLightbox(fileUrl(a.path))} className="size-20 cursor-zoom-in rounded-lg border border-slate-200 object-cover transition-transform hover:scale-[1.03]" />
                       ) : (
-                        <span key={j} className="rounded-lg border border-indigo-300/25 bg-white/5 px-2 py-1 text-[11px] text-indigo-100/80">📄 {a.name}</span>
+                        <span key={j} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">📄 {a.name}</span>
                       ),
                     )}
                   </div>
                 )}
                 {p.question.trim() && (
                   <div className="flex justify-end">
-                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-sky-300/25 bg-sky-400/15 px-3 py-2 text-sm text-sky-50">
+                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-slate-800">
                       {p.question}
                     </div>
                   </div>
@@ -187,7 +187,7 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
                     <button
                       type="button"
                       onClick={() => void navigator.clipboard.writeText(p.traceId!)}
-                      className="inline-flex max-w-[92%] items-center gap-1.5 rounded-lg border border-indigo-300/15 bg-white/[0.03] px-2 py-1 font-mono text-[10px] text-indigo-200/50 hover:border-sky-300/30 hover:text-sky-200"
+                      className="inline-flex max-w-[92%] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 font-mono text-[10px] text-slate-500 hover:border-sky-300 hover:text-sky-700"
                       title="复制本轮 Trace ID，可在 Langfuse 中直接检索"
                     >
                       <Copy className="size-3" /> Trace {p.traceId}
@@ -195,20 +195,20 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
                   </div>
                 )}
                 {p.recognitionStatus && (
-                  <div className="max-w-[92%] rounded-xl border border-violet-300/20 bg-violet-400/[0.07] px-3 py-2.5 text-[11px] text-indigo-100/75">
+                  <div className="max-w-[92%] rounded-xl border border-violet-200 bg-violet-50/60 px-3 py-2.5 text-[11px] text-slate-700">
                     <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                      <span className="font-medium text-violet-200">V4 问题识别</span>
+                      <span className="font-medium text-violet-700">V4 问题识别</span>
                       {p.recognizedSystemName && <span className="rounded-full border border-sky-300/20 px-2 py-0.5">系统：{p.recognizedSystemName}</span>}
                       {p.problemCategory && <span className="rounded-full border border-violet-300/20 px-2 py-0.5">分类：{CATEGORY_LABELS[p.problemCategory] ?? p.problemCategory}</span>}
                       <span className="rounded-full border border-indigo-300/20 px-2 py-0.5">状态：{STATUS_LABELS[p.recognitionStatus] ?? p.recognitionStatus}</span>
                     </div>
-                    {!!p.recognizedModuleNames?.length && <div><span className="text-indigo-200/45">模块：</span>{p.recognizedModuleNames.join('、')}</div>}
-                    {menuPathsOf(p.refMenuPaths).map((path) => <div key={path}><span className="text-indigo-200/45">菜单路径：</span>{path}</div>)}
-                    {!!p.recognitionEvidence?.length && <div className="mt-1"><span className="text-indigo-200/45">识别依据：</span>{p.recognitionEvidence.map((item) => EVIDENCE_LABELS[item] ?? item).join('、')}</div>}
+                    {!!p.recognizedModuleNames?.length && <div><span className="text-slate-500">模块：</span>{p.recognizedModuleNames.join('、')}</div>}
+                    {menuPathsOf(p.refMenuPaths).map((path) => <div key={path}><span className="text-slate-500">菜单路径：</span>{path}</div>)}
+                    {!!p.recognitionEvidence?.length && <div className="mt-1"><span className="text-slate-500">识别依据：</span>{p.recognitionEvidence.map((item) => EVIDENCE_LABELS[item] ?? item).join('、')}</div>}
                   </div>
                 )}
                 {p.answer.trim() && (
-                  <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-indigo-300/15 bg-white/[0.04] px-3.5 py-2.5">
+                  <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-3.5 py-2.5">
                     <div className="fc-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(p.answer) }} />
                   </div>
                 )}
@@ -218,14 +218,14 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
                   return (
                     <div
                       className={`max-w-[92%] rounded-lg border px-3 py-1.5 text-[11px] ${
-                        fb.rating === 'GOOD' ? 'border-emerald-300/25 bg-emerald-400/10 text-emerald-200/90' : 'border-red-300/25 bg-red-400/10 text-red-200/90'
+                        fb.rating === 'GOOD' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'
                       }`}
                     >
                       <div className="font-medium">
                         {fb.rating === 'GOOD' ? '👍 用户反馈：满意' : `👎 用户反馈：不满意${fb.category ? ' · ' + fb.category : ''}`}
                       </div>
-                      {fb.reason && <div className="mt-0.5 text-indigo-100/70">原因：{fb.reason}</div>}
-                      {fb.correctAnswer && <div className="mt-0.5 text-indigo-100/70">正确答案：{fb.correctAnswer}</div>}
+                      {fb.reason && <div className="mt-0.5 text-slate-600">原因：{fb.reason}</div>}
+                      {fb.correctAnswer && <div className="mt-0.5 text-slate-600">正确答案：{fb.correctAnswer}</div>}
                     </div>
                   )
                 })()}
@@ -234,7 +234,7 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
           )}
         </div>
 
-        <div className="border-t border-indigo-300/12 px-5 py-2.5 text-center text-[10px] text-indigo-200/35">
+        <div className="border-t border-slate-200 px-5 py-2.5 text-center text-[10px] text-slate-500">
           只读归档 · {pairs.length} 轮问答
         </div>
       </div>

@@ -215,6 +215,12 @@
   backdrop-filter: blur(22px) saturate(1.08);
 }
 
+.fc-category-filter {
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.fc-category-filter::-webkit-scrollbar { display: none; }
+
 /* ── 面板 / 玻璃 ─────────────────────────────────── */
 .fc-panel {
   animation: fc-panel-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);

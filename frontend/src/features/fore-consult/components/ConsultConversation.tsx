@@ -2,7 +2,7 @@ import {
   memo, useEffect, useLayoutEffect, useMemo, useRef, useState,
   type ClipboardEvent as ReactClipboardEvent, type ReactNode,
 } from 'react'
-import { Archive, Bug, CheckCircle2, CircleDashed, Copy, Database, GitBranch, Loader2, MessagesSquare, Paperclip, Quote, Send, ShieldAlert, Square, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import { Archive, Bug, CheckCircle2, CircleDashed, Database, GitBranch, Loader2, MessagesSquare, Paperclip, Send, ShieldAlert, Square, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import {
   Markdown,
   uploadAttachment,
@@ -14,6 +14,7 @@ import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type Consu
 import type { ConsultDraftAttachment } from '../consultAttachmentDispatch'
 import { useConsultConversationRuntimeState } from '../consultConversationState'
 import { stripConsultRecognition } from '../consultRecognition'
+import { ConsultMessageActions } from './ConsultMessageActions'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
 const BUG_RE = /<<<BUG_REPORT>>>\s*([\s\S]*?)\s*<<<END_BUG_REPORT>>>/
@@ -502,24 +503,12 @@ export function ConsultConversation({
                 <div key={it.id} className="group space-y-1.5">
                   <MessageRow item={it} onImageClick={setLightbox} />
                   {quotable.trim() && (
-                    <div className={`flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 ${it.kind === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <button
-                        type="button"
-                        onClick={() => quoteMessage(quotable)}
-                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-                        title="引用这条消息到输入框追问"
-                      >
-                        <Quote className="size-3" /> 引用
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void copyMessage(it.id, quotable)}
-                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-                        title="复制消息内容"
-                      >
-                        <Copy className="size-3" /> {copiedMessageId === it.id ? '已复制' : '复制'}
-                      </button>
-                    </div>
+                    <ConsultMessageActions
+                      align={it.kind === 'user' ? 'end' : 'start'}
+                      copied={copiedMessageId === it.id}
+                      onQuote={() => quoteMessage(quotable)}
+                      onCopy={() => void copyMessage(it.id, quotable)}
+                    />
                   )}
                   {showRating && (
                     <>
