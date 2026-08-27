@@ -67,7 +67,8 @@ class PrdDiscoveryTaskServiceTest {
                 .engine("codex")
                 .build();
         PrdDiscoveryService.DiscoveryContext context =
-                new PrdDiscoveryService.DiscoveryContext(session, "prompt", null, List.of());
+                new PrdDiscoveryService.DiscoveryContext(session, "prompt", null, List.of(),
+                        "{\"version\":\"planning-evidence-trace-v2\"}");
 
         when(sessions.findById("session-1")).thenReturn(Optional.of(session));
         when(runs.findRunningBySessionId("session-1")).thenReturn(Optional.empty());
@@ -107,7 +108,8 @@ class PrdDiscoveryTaskServiceTest {
         PrdDiscoveryRun run = new PrdDiscoveryRun(
                 "run-1", "session-1", "RUNNING", "VALIDATING", 81, 3, 3,
                 PrdInitialSpecValidator.CRITERIA_VERSION, PrdDiscoveryService.PROMPT_VERSION,
-                "hash", "codex", null, "vibe-3", "trace-3", "不完整规格",
+                "hash", "codex", null, "vibe-3", "trace-3",
+                "{\"version\":\"planning-evidence-trace-v2\"}", "不完整规格",
                 "{\"gaps\":[\"缺少验收场景\"]}", null, now, null, now, now);
 
         when(runs.findRunning()).thenReturn(List.of(run));

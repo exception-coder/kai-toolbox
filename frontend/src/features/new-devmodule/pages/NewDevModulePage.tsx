@@ -5,11 +5,11 @@ import { CheckCircle2, Loader2, PackagePlus, RefreshCw, Rocket, TriangleAlert } 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
-  CHAT_ROUTE,
   listWorkspaces,
   syncYoooniErpAutoDev,
   type SkillSyncResult,
 } from '@/features/claude-chat/public-api'
+import { CHAT_ROUTE } from '@/features/claude-chat/public-api/runtime'
 import { resolveVisibleWorkspaceProjectPath, useVisibleWorkspaceProjects } from '@/features/_devkit/public-api'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 const K = (s: string) => `kai-toolbox:new-devmodule:${s}`

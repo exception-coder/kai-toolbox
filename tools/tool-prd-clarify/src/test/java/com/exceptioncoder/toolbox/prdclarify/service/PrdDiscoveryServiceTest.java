@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.prdclarify.service;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
+import com.exceptioncoder.toolbox.prdclarify.repository.PrdDiscoveryRunRepository;
 import com.exceptioncoder.toolbox.prdclarify.spi.InitialSpecPlanningGateway;
 import org.junit.jupiter.api.Test;
 
@@ -36,12 +37,13 @@ class PrdDiscoveryServiceTest {
                 .thenReturn(Optional.of(reviewSession))
                 .thenReturn(Optional.of(reviewSession))
                 .thenReturn(Optional.of(generatingSession));
+        PrdEvidenceOrchestrationService evidence = mock(PrdEvidenceOrchestrationService.class);
+        when(evidence.discover(reviewSession)).thenReturn(new PrdEvidenceOrchestrationService.DiscoveryResult(
+                "trace-1", "{\"version\":\"planning-evidence-trace-v2\"}", "", true, List.of()));
         PrdDiscoveryService service = new PrdDiscoveryService(
                 repository,
-                mock(GraphifyQueryService.class),
-                mock(DomainKnowledgeQueryService.class),
-                mock(PrdDdlContextService.class),
-                mock(PrdRouteContextService.class),
+                mock(PrdDiscoveryRunRepository.class),
+                evidence,
                 mock(AgentOneShotRunner.class),
                 mock(PrdImageInputResolver.class),
                 mock(PrdArtifactService.class),
@@ -60,10 +62,7 @@ class PrdDiscoveryServiceTest {
     @Test
     void shouldUseModuleKnowledgeAndDdlEvidenceBeforeGeneratingInitialSpec() throws Exception {
         PrdSessionRepository repository = mock(PrdSessionRepository.class);
-        GraphifyQueryService graphify = mock(GraphifyQueryService.class);
-        DomainKnowledgeQueryService domainKnowledge = mock(DomainKnowledgeQueryService.class);
-        PrdDdlContextService ddlContext = mock(PrdDdlContextService.class);
-        PrdRouteContextService routes = mock(PrdRouteContextService.class);
+        PrdEvidenceOrchestrationService evidence = mock(PrdEvidenceOrchestrationService.class);
         PrdArtifactService artifacts = mock(PrdArtifactService.class);
         PrdImageInputResolver imageInputResolver = mock(PrdImageInputResolver.class);
         RecordingRunner runner = new RecordingRunner();
@@ -76,17 +75,14 @@ class PrdDiscoveryServiceTest {
                 .engine("codex")
                 .build();
         when(repository.findById("session-2")).thenReturn(Optional.of(session));
-        when(graphify.query("erp", "订单模块", "订单取消\n支持审核前取消"))
-                .thenReturn("OrderService -> order_header");
-        when(domainKnowledge.query("erp", "订单模块", "订单取消\n支持审核前取消"))
-                .thenReturn("取消规则");
-        when(ddlContext.query("erp", "订单模块", "订单取消\n支持审核前取消",
-                "OrderService -> order_header\n取消规则"))
-                .thenReturn("CREATE TABLE order_header");
-        when(routes.query("erp", "支持审核前取消")).thenReturn("/order/cancel");
+        when(evidence.discover(session)).thenReturn(new PrdEvidenceOrchestrationService.DiscoveryResult(
+                "evidence-trace-1", "{\"version\":\"planning-evidence-trace-v2\"}",
+                "## erp · CURRENT_IMPLEMENTATION · DOMAIN_KNOWLEDGE · HIT\n取消规则\n\n"
+                        + "## erp · CURRENT_IMPLEMENTATION · DDL · HIT\nCREATE TABLE order_header",
+                true, List.of()));
         when(imageInputResolver.resolve("支持审核前取消")).thenReturn(List.of());
         PrdDiscoveryService service = new PrdDiscoveryService(
-                repository, graphify, domainKnowledge, ddlContext, routes, runner,
+                repository, mock(PrdDiscoveryRunRepository.class), evidence, runner,
                 imageInputResolver, artifacts, List.of(),
                 mock(org.springframework.beans.factory.ObjectProvider.class));
 
@@ -102,8 +98,10 @@ class PrdDiscoveryServiceTest {
                 .contains("默认推荐最简单、可验证、可回退的方案")
                 .contains("最多 5 个");
         assertThat(runner.userPrompt)
-                .contains("【业务知识】\n取消规则")
-                .contains("【关键数据库 DDL】\nCREATE TABLE order_header");
+                .contains("planning-evidence-trace-v2")
+                .contains("DOMAIN_KNOWLEDGE · HIT")
+                .contains("DDL · HIT")
+                .contains("CREATE TABLE order_header");
         verify(artifacts).write(
                 "session-2",
                 com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType.INITIAL_SPEC,

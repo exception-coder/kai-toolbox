@@ -2,13 +2,14 @@ package com.exceptioncoder.toolbox.prdclarify.service;
 
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.exceptioncoder.toolbox.llm.spi.LocalProjectResolver;
+import com.exceptioncoder.toolbox.common.projectevidence.ProjectEvidenceQuery;
+import com.exceptioncoder.toolbox.common.projectevidence.ProjectEvidenceQueryPort;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
+import com.exceptioncoder.toolbox.prdclarify.repository.PrdDiscoveryRunRepository;
 import com.exceptioncoder.toolbox.prdclarify.spi.InitialSpecPlanningGateway;
 import com.exceptioncoder.toolbox.prdclarify.spi.InitialSpecPlanningRequest;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.ObjectProvider;
@@ -17,13 +18,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /** 编排 PRD 探索证据并生成可审阅的初始化规格。 */
 @Slf4j
 @Service
-public class PrdDiscoveryService {
+public class PrdDiscoveryService implements ProjectEvidenceQueryPort {
 
     public static final String PROMPT_VERSION = "initial-spec-discovery-v3";
 
@@ -66,32 +66,25 @@ public class PrdDiscoveryService {
             """;
 
     private final PrdSessionRepository repository;
-    private final GraphifyQueryService graphifyQueryService;
-    private final DomainKnowledgeQueryService domainKnowledgeQueryService;
-    private final PrdDdlContextService ddlContextService;
-    private final PrdRouteContextService routeContextService;
+    private final PrdDiscoveryRunRepository discoveryRunRepository;
+    private final PrdEvidenceOrchestrationService evidenceOrchestration;
     private final AgentOneShotRunner agentRunner;
     private final PrdImageInputResolver imageInputResolver;
     private final PrdArtifactService artifactService;
     private final List<InitialSpecPlanningGateway> planningGateways;
     private final ObjectProvider<LocalProjectResolver> localProjectResolver;
-    private final ObjectMapper mapper = new ObjectMapper();
 
     public PrdDiscoveryService(PrdSessionRepository repository,
-                               GraphifyQueryService graphifyQueryService,
-                               DomainKnowledgeQueryService domainKnowledgeQueryService,
-                               PrdDdlContextService ddlContextService,
-                               PrdRouteContextService routeContextService,
+                               PrdDiscoveryRunRepository discoveryRunRepository,
+                               PrdEvidenceOrchestrationService evidenceOrchestration,
                                AgentOneShotRunner agentRunner,
                                PrdImageInputResolver imageInputResolver,
                                PrdArtifactService artifactService,
                                List<InitialSpecPlanningGateway> planningGateways,
                                ObjectProvider<LocalProjectResolver> localProjectResolver) {
         this.repository = repository;
-        this.graphifyQueryService = graphifyQueryService;
-        this.domainKnowledgeQueryService = domainKnowledgeQueryService;
-        this.ddlContextService = ddlContextService;
-        this.routeContextService = routeContextService;
+        this.discoveryRunRepository = discoveryRunRepository;
+        this.evidenceOrchestration = evidenceOrchestration;
         this.agentRunner = agentRunner;
         this.imageInputResolver = imageInputResolver;
         this.artifactService = artifactService;
@@ -103,10 +96,10 @@ public class PrdDiscoveryService {
     public DiscoveryContext prepare(String sessionId) {
         PrdSession session = findSession(sessionId);
         EvidenceContext evidence = collectEvidence(session);
-        String prompt = buildPrompt(session, evidence.graph(), evidence.domain(), evidence.ddl(), evidence.routes());
+        String prompt = buildPrompt(session, evidence.evidenceText(), evidence.traceJson());
         Optional<LocalProjectResolver.ProjectLocation> projectLocation = resolveProject(session.getProject());
         return new DiscoveryContext(session, prompt, projectLocation.map(LocalProjectResolver.ProjectLocation::path)
-                .orElse(null), imageInputResolver.resolve(session.getRawInput()));
+                .orElse(null), imageInputResolver.resolve(session.getRawInput()), evidence.traceJson());
     }
 
     /** 通过 Vibe Coding Agent 执行一次完整规格生成或带缺口的 ReAct 修复。 */
@@ -159,18 +152,15 @@ public class PrdDiscoveryService {
             PrdSession session,
             String prompt,
             String cwd,
-            List<AgentOneShotRunner.ImageInput> images
+            List<AgentOneShotRunner.ImageInput> images,
+            String evidenceTraceJson
     ) {
     }
 
     public record DiscoveryAttempt(String output, String vibeSessionId, String traceId) {
     }
 
-    private record EvidenceContext(String graph, String domain, String ddl, String routes, String traceJson) {
-    }
-
-    private record EvidenceSourceTrace(
-            String source, boolean attempted, String status, String target, int resultChars, String excerpt) {
+    private record EvidenceContext(String evidenceText, String traceJson) {
     }
 
     /** 读取当前初始化规格。 */
@@ -213,11 +203,14 @@ public class PrdDiscoveryService {
     }
 
     private void schedulePlanning(PrdSession session, String initialSpec) {
-        EvidenceContext evidence = collectEvidence(session);
+        String evidenceTrace = discoveryRunRepository.findLatestBySessionId(session.getId())
+                .map(com.exceptioncoder.toolbox.prdclarify.domain.PrdDiscoveryRun::evidenceTraceJson)
+                .filter(value -> value != null && !value.isBlank())
+                .orElseGet(() -> collectEvidence(session).traceJson());
         InitialSpecPlanningRequest request = new InitialSpecPlanningRequest(
                 session.getId(), session.getSourceReqItemId(), session.getTitle(), session.getRawInput(),
                 session.getProject(), session.getModule(), session.getReqType(), session.getModel(),
-                session.getEngine(), initialSpec, evidence.traceJson());
+                session.getEngine(), initialSpec, evidenceTrace);
         for (InitialSpecPlanningGateway gateway : planningGateways) {
             try {
                 gateway.schedule(request);
@@ -228,60 +221,22 @@ public class PrdDiscoveryService {
     }
 
     private EvidenceContext collectEvidence(PrdSession session) {
-        String question = session.getTitle() + "\n" + value(session.getRawInput());
-        String graphTarget = graphifyQueryService.traceTarget(session.getProject(), session.getModule());
-        String graph = value(graphifyQueryService.query(session.getProject(), session.getModule(), question));
-        String domainTarget = domainKnowledgeQueryService.traceTarget();
-        String domain = value(domainKnowledgeQueryService.query(session.getProject(), session.getModule(), question));
-        String ddlTarget = ddlContextService.traceTarget(session.getProject());
-        String ddl = value(ddlContextService.query(
-                session.getProject(), session.getModule(), question, graph + "\n" + domain));
-        boolean hasRouteInput = value(session.getRawInput()).toLowerCase().contains(".action");
-        String routes = value(routeContextService.query(session.getProject(), session.getRawInput()));
-        List<EvidenceSourceTrace> sources = List.of(
-                trace("DOMAIN_KNOWLEDGE", domainTarget, domain),
-                trace("GRAPHIFY", graphTarget, graph),
-                trace("DDL", ddlTarget, ddl),
-                routeTrace(hasRouteInput, routes));
-        Map<String, Object> trace = Map.of(
-                "version", "planning-evidence-trace-v1",
-                "project", value(session.getProject()),
-                "module", value(session.getModule()),
-                "query", question,
-                "capturedAt", System.currentTimeMillis(),
-                "sources", sources);
-        try {
-            return new EvidenceContext(graph, domain, ddl, routes, mapper.writeValueAsString(trace));
-        } catch (JsonProcessingException error) {
-            throw new IllegalStateException("评估证据轨迹序列化失败", error);
-        }
+        PrdEvidenceOrchestrationService.DiscoveryResult result = evidenceOrchestration.discover(session);
+        return new EvidenceContext(result.evidenceText(), result.traceJson());
     }
 
-    private static EvidenceSourceTrace trace(String source, String target, String result) {
-        String status = target == null || target.isBlank() ? "SOURCE_MISSING"
-                : result.isBlank() ? "NO_HIT_OR_ERROR" : "HIT";
-        return new EvidenceSourceTrace(source, true, status, value(target), result.length(), bounded(result, 2_000));
+    @Override
+    public String queryTrace(ProjectEvidenceQuery query) {
+        return evidenceOrchestration.discover(query, "VALUE_ANALYSIS").traceJson();
     }
 
-    private static EvidenceSourceTrace routeTrace(boolean hasRouteInput, String routes) {
-        if (!hasRouteInput) {
-            return new EvidenceSourceTrace("ROUTE_MAP", false, "NOT_APPLICABLE", "", 0,
-                    "需求输入中没有 .action URL");
-        }
-        return new EvidenceSourceTrace("ROUTE_MAP", true,
-                routes.isBlank() ? "NO_HIT_OR_ERROR" : "HIT", "project-coding-profiles/url-route-map.md",
-                routes.length(), bounded(routes, 2_000));
-    }
-
-    private String buildPrompt(PrdSession session, String graph, String domain, String ddl, String routes) {
+    private String buildPrompt(PrdSession session, String evidenceText, String traceJson) {
         return "功能标题：" + session.getTitle() + "\n"
                 + "项目：" + value(session.getProject()) + "\n"
                 + "模块：" + value(session.getModule()) + "\n\n"
                 + "【用户输入】\n" + value(session.getRawInput()) + "\n\n"
-                + "【业务知识】\n" + unavailable(domain) + "\n\n"
-                + "【Graphify 代码图谱】\n" + unavailable(graph) + "\n\n"
-                + "【关键数据库 DDL】\n" + unavailable(ddl) + "\n\n"
-                + "【URL 路由映射】\n" + unavailable(routes) + "\n";
+                + "【跨项目证据账本摘要】\n" + unavailable(evidenceText) + "\n\n"
+                + "【证据轨迹引用】\n" + value(traceJson) + "\n";
     }
 
     private PrdSession findSession(String sessionId) {

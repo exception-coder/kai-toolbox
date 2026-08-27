@@ -25,6 +25,7 @@ import java.util.stream.Stream;
 @Slf4j
 public class PrdDdlContextService {
 
+    private static final String KNOWLEDGE_DIR_KEY = "toolbox.claude-chat.workspace.knowledge-base-dir";
     private static final String REPO_PATH_KEY = "toolbox.knowledge-graph.domain-knowledge-repo-path";
     private static final String DDL_RELATIVE_PATH = "impl/ddl-baseline.md";
     private static final int MAX_SECTIONS = 6;
@@ -92,6 +93,11 @@ public class PrdDdlContextService {
     }
 
     private Path resolveKnowledgeRoot() {
+        String knowledgeDir = Binder.get(environment)
+                .bind(KNOWLEDGE_DIR_KEY, Bindable.of(String.class)).orElse(null);
+        if (knowledgeDir != null && !knowledgeDir.isBlank()) {
+            return Path.of(knowledgeDir).toAbsolutePath().normalize();
+        }
         String repoPath = Binder.get(environment).bind(REPO_PATH_KEY, Bindable.of(String.class)).orElse(null);
         if (repoPath != null && !repoPath.isBlank()) {
             return Path.of(repoPath).resolve("knowledge");

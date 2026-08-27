@@ -39,7 +39,26 @@ export async function navigateWithLaunchIntent(
   payload: LaunchIntentPayload,
 ): Promise<void> {
   const intent = await createLaunchIntent(payload)
-  navigate(`${route}?launchIntent=${encodeURIComponent(intent.id)}`)
+  navigate(buildLaunchIntentRoute(route, intent.id, payload))
+}
+
+/**
+ * 构造启动意图的首次目标路由。
+ *
+ * 规格开发作用域必须随首次导航进入 ChatRuntime；如果等新会话 ready 后再补，
+ * 运行时会从普通通道切换到 PRD 开发通道并丢失刚创建的当前会话投影。
+ */
+export function buildLaunchIntentRoute(
+  route: string,
+  intentId: string,
+  payload: LaunchIntentPayload,
+): string {
+  const search = new URLSearchParams()
+  search.set('launchIntent', intentId)
+  if (payload.type === 'CHAT_OPEN_AND_SEND' && payload.prdSessionId) {
+    search.set('prdSessionId', payload.prdSessionId)
+  }
+  return `${route}?${search.toString()}`
 }
 
 function withoutType(payload: LaunchIntentPayload): Record<string, unknown> {

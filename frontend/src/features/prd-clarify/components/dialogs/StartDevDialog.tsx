@@ -4,7 +4,7 @@ import { FileText, Loader2, Rocket, Wrench, X } from 'lucide-react'
 import { loadCodexHomePreference, saveCodexHomePreference } from '@/features/claude-chat/public-api'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 import type { ClarifyEngine } from './StartClarifyDialog'
-import { OPEN_SPEC_PRE_CODING_GATE } from '../../lib/openSpecHandoff'
+import { buildDevelopmentHandoff } from '../../lib/developmentHandoff'
 
 export function StartDevDialog({
   title,
@@ -30,71 +30,7 @@ export function StartDevDialog({
   const [launchError, setLaunchError] = useState('')
   const agentName = engine === 'codex' ? 'Codex' : 'Claude Code'
 
-  // 优先使用开发文档（有具体技术方案）；无开发文档时用 PRD + feature-dev 引导
   const hasDevDoc = !!(devDocContent && devDocContent.trim())
-
-  /** 构建发给 Vibe Coding 的第一条消息 */
-  const buildSeed = () => {
-    if (hasDevDoc) {
-      // Phase 1-4 全部完成（PRD 澄清 + 代码库探索 + 架构设计），直接从 Phase 5 实施
-      return `请执行 /feature-dev:feature-dev，跳过已完成的阶段，从 Phase 5 开始：
-
-## feature-dev 已完成阶段状态
-- ✅ Phase 1 (Discovery) — 已完成：需求标题《${title}》
-- ✅ Phase 2 (Codebase Exploration) — 已完成：见技术方案文档
-- ✅ Phase 3 (Initial Specification Review) — 已完成：初始化规格已确认
-- ✅ Phase 4 (Architecture Design) — 已完成：见下方技术方案文档
-
-## 技术方案文档（Phase 4 产出）
-
-${devDocContent}
-
----
-
-${OPEN_SPEC_PRE_CODING_GATE}
-
----
-
-## 执行指令
-请从 **Phase 5 (Implementation)** 开始：
-1. 严格按技术方案文档的「实现步骤（有序任务清单）」逐项执行，不跳过顺序
-2. 执行「数据库变更」章节的 DDL/ALTER（幂等）
-3. 实现「API 接口设计」章节的接口
-4. 每完成一个任务项报告进度，有疑问先问再做
-5. 全部任务完成后执行 **Phase 6 (Code Review)**
-
-PRD_SESSION_ID: ${sessionId}`
-    }
-
-    // 无开发文档：Phase 1-3 完成，从 Phase 2 重新探索代码库开始
-    return `请执行 /feature-dev:feature-dev，以下阶段已完成：
-
-## feature-dev 已完成阶段状态
-- ✅ Phase 1 (Discovery) — 已完成：见核心规格
-- ✅ Phase 3 (Initial Specification Review) — 已完成：初始化规格已确认
-- ⬜ Phase 2 (Codebase Exploration) — 待执行
-- ⬜ Phase 4 (Architecture Design) — 待执行
-- ⬜ Phase 5 (Implementation) — 待执行
-
-## 核心规格（Phase 1+3 产出）
-
-${content}
-
----
-
-${OPEN_SPEC_PRE_CODING_GATE}
-
----
-
-## 执行指令
-请从 **Phase 2 (Codebase Exploration)** 开始：
-1. 探索相关现有代码（Controller / Service / Repository / 前端组件）
-2. Phase 4：设计技术方案（DB 变更 / API / 实现步骤清单）
-3. Phase 5：按方案逐步实现，完成后将方案文档保存到 \`docs/design/\`
-4. Phase 6：Code Review
-
-PRD_SESSION_ID: ${sessionId}`
-  }
 
   const handleLaunch = async () => {
     setLaunching(true)
@@ -124,7 +60,7 @@ PRD_SESSION_ID: ${sessionId}`
       await navigateWithLaunchIntent(navigate, '/tools/claude-chat', {
         type: 'CHAT_OPEN_AND_SEND',
         cwd,
-        seed: buildSeed(),
+        seed: buildDevelopmentHandoff({ title, sessionId, content, devDocContent }),
         prdSessionId: sessionId,
         engine,
         codexHome: engine === 'codex' ? (codexHome.trim() || undefined) : undefined,
@@ -217,7 +153,7 @@ PRD_SESSION_ID: ${sessionId}`
             </div>
             <div className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">2</span>
-              <span>自动发送{hasDevDoc ? <><strong className="text-purple-400 mx-1">执行计划</strong>，{agentName} 直接按清单实现</> : <><strong className="text-[var(--color-foreground)] mx-1">核心规格 + feature-dev 引导</strong>（代码探索→技术方案→实现）</>}</span>
+              <span>自动发送{hasDevDoc ? <><strong className="text-purple-400 mx-1">执行计划</strong>，{agentName} 直接按清单实现</> : <><strong className="text-[var(--color-foreground)] mx-1">核心规格 + 开发交接</strong>（代码探索→技术方案→实现）</>}</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">3</span>

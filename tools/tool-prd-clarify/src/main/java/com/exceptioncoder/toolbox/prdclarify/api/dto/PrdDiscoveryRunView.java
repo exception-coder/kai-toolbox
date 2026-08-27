@@ -15,6 +15,7 @@ public record PrdDiscoveryRunView(
         String promptVersion,
         String vibeSessionId,
         String traceId,
+        String evidenceTraceJson,
         String validationJson,
         String lastError,
         long startedAt,
@@ -25,7 +26,7 @@ public record PrdDiscoveryRunView(
         return new PrdDiscoveryRunView(
                 run.id(), run.sessionId(), run.status(), run.stage(), run.progress(), run.attempt(),
                 run.maxAttempts(), run.criteriaVersion(), run.promptVersion(), run.vibeSessionId(),
-                run.traceId(), run.validationJson(), run.lastError(), run.startedAt(),
+                run.traceId(), run.evidenceTraceJson(), run.validationJson(), run.lastError(), run.startedAt(),
                 run.completedAt(), run.updatedAt());
     }
 }

@@ -16,6 +16,7 @@ public record PrdDiscoveryRun(
         String model,
         String vibeSessionId,
         String traceId,
+        String evidenceTraceJson,
         String lastOutput,
         String validationJson,
         String lastError,

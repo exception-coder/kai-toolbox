@@ -14,7 +14,7 @@ public class PrdDiscoveryRunRepository {
     private static final String COLUMNS = """
             id, session_id, status, stage, progress, attempt, max_attempts,
             criteria_version, prompt_version, input_hash, engine, model,
-            vibe_session_id, trace_id, last_output, validation_json, last_error,
+            vibe_session_id, trace_id, evidence_trace_json, last_output, validation_json, last_error,
             started_at, completed_at, created_at, updated_at
             """;
 
@@ -30,13 +30,13 @@ public class PrdDiscoveryRunRepository {
                     INSERT INTO prd_discovery_run (
                       id, session_id, status, stage, progress, attempt, max_attempts,
                       criteria_version, prompt_version, input_hash, engine, model,
-                      vibe_session_id, trace_id, last_output, validation_json, last_error,
+                      vibe_session_id, trace_id, evidence_trace_json, last_output, validation_json, last_error,
                       started_at, completed_at, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     run.id(), run.sessionId(), run.status(), run.stage(), run.progress(), run.attempt(),
                     run.maxAttempts(), run.criteriaVersion(), run.promptVersion(), run.inputHash(),
-                    run.engine(), run.model(), run.vibeSessionId(), run.traceId(), run.lastOutput(),
+                    run.engine(), run.model(), run.vibeSessionId(), run.traceId(), run.evidenceTraceJson(), run.lastOutput(),
                     run.validationJson(), run.lastError(), run.startedAt(), run.completedAt(),
                     run.createdAt(), run.updatedAt());
             return true;
@@ -84,6 +84,13 @@ public class PrdDiscoveryRunRepository {
                 """, vibeSessionId, traceId, output, System.currentTimeMillis(), id);
     }
 
+    public void recordEvidenceTrace(String id, String evidenceTraceJson) {
+        jdbc.update("""
+                UPDATE prd_discovery_run SET evidence_trace_json=?, updated_at=?
+                WHERE id=? AND status='RUNNING'
+                """, evidenceTraceJson, System.currentTimeMillis(), id);
+    }
+
     public void recordValidation(String id, String validationJson) {
         jdbc.update("""
                 UPDATE prd_discovery_run SET validation_json=?, updated_at=?
@@ -116,7 +123,8 @@ public class PrdDiscoveryRunRepository {
                     rs.getInt("max_attempts"), rs.getString("criteria_version"),
                     rs.getString("prompt_version"), rs.getString("input_hash"), rs.getString("engine"),
                     rs.getString("model"), rs.getString("vibe_session_id"), rs.getString("trace_id"),
-                    rs.getString("last_output"), rs.getString("validation_json"), rs.getString("last_error"),
+                    rs.getString("evidence_trace_json"), rs.getString("last_output"),
+                    rs.getString("validation_json"), rs.getString("last_error"),
                     rs.getLong("started_at"), nullableLong(rs, "completed_at"),
                     rs.getLong("created_at"), rs.getLong("updated_at"));
 

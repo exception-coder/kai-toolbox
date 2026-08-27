@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.core.env.Environment;
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -14,7 +15,10 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
 
 /**
@@ -34,13 +38,21 @@ import java.util.stream.Stream;
 public class GraphifyQueryService {
 
     private static final String WORKSPACE_ROOTS_KEY = "toolbox.claude-chat.workspace.roots";
+    private static final int MAX_OUTPUT_BYTES = 1_000_000;
+    private static final int OUTPUT_DRAIN_TIMEOUT_SECONDS = 2;
 
     private final GraphifyProperties props;
     private final Environment environment;
+    private final AsyncTaskExecutor taskExecutor;
 
-    public GraphifyQueryService(GraphifyProperties props, Environment environment) {
+    public GraphifyQueryService(
+            GraphifyProperties props,
+            Environment environment,
+            AsyncTaskExecutor taskExecutor
+    ) {
         this.props = props;
         this.environment = environment;
+        this.taskExecutor = taskExecutor;
     }
 
     /**
@@ -67,21 +79,17 @@ public class GraphifyQueryService {
             pb.directory(graphDir.toFile());
             pb.redirectErrorStream(true);
             Process process = pb.start();
-            String output;
-            try (var is = process.getInputStream()) {
-                output = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            }
-            boolean finished = process.waitFor(props.getTimeoutSeconds(), TimeUnit.SECONDS);
-            if (!finished) {
-                process.destroyForcibly();
+            ProcessOutput result = await(process, props.getTimeoutSeconds(), taskExecutor);
+            if (result.timedOut()) {
                 log.warn("[graphify] 查询超时 project={} dir={}", project, graphDir);
                 return null;
             }
-            if (process.exitValue() != 0) {
-                log.warn("[graphify] 查询退出码非 0 project={} dir={} output={}", project, graphDir, trim(output));
+            if (result.exitCode() != 0) {
+                log.warn("[graphify] 查询退出码非 0 project={} dir={} output={}",
+                        project, graphDir, trim(result.output()));
                 return null;
             }
-            return output.isBlank() ? null : output.trim();
+            return result.output().isBlank() ? null : result.output().trim();
         } catch (IOException e) {
             // graphify 未安装 / 不在 PATH：静默跳过，等同于「该项目暂无图谱」
             log.debug("[graphify] CLI 不可用或执行失败 project={}: {}", project, e.getMessage());
@@ -90,6 +98,68 @@ public class GraphifyQueryService {
             Thread.currentThread().interrupt();
             return null;
         }
+    }
+
+    static ProcessOutput await(
+            Process process,
+            int timeoutSeconds,
+            AsyncTaskExecutor taskExecutor
+    ) throws IOException, InterruptedException {
+        Future<String> output = taskExecutor.submit(() -> readOutput(process));
+        try {
+            boolean finished = process.waitFor(Math.max(1, timeoutSeconds), TimeUnit.SECONDS);
+            if (!finished) {
+                terminateProcessTree(process);
+                output.cancel(true);
+                return new ProcessOutput(-1, "", true);
+            }
+            try {
+                return new ProcessOutput(
+                        process.exitValue(),
+                        output.get(OUTPUT_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS),
+                        false);
+            } catch (ExecutionException error) {
+                throw new IOException("读取 Graphify 输出失败", error.getCause());
+            } catch (TimeoutException error) {
+                output.cancel(true);
+                throw new IOException("Graphify 输出管道未及时关闭", error);
+            }
+        } catch (InterruptedException error) {
+            terminateProcessTree(process);
+            output.cancel(true);
+            throw error;
+        }
+    }
+
+    private static String readOutput(Process process) throws IOException {
+        try (var input = process.getInputStream()) {
+            byte[] bytes = input.readNBytes(MAX_OUTPUT_BYTES + 1);
+            if (bytes.length > MAX_OUTPUT_BYTES) {
+                throw new IOException("Graphify 输出超过上限");
+            }
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+    }
+
+    private static void terminateProcessTree(Process process) {
+        List<ProcessHandle> descendants;
+        try {
+            descendants = process.descendants().toList();
+        } catch (UnsupportedOperationException ignored) {
+            descendants = List.of();
+        }
+        for (int index = descendants.size() - 1; index >= 0; index--) {
+            descendants.get(index).destroyForcibly();
+        }
+        process.destroyForcibly();
+        try {
+            process.waitFor(OUTPUT_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    record ProcessOutput(int exitCode, String output, boolean timedOut) {
     }
 
     /** 返回本次项目/模块会路由到的图谱目录，供评估证据轨迹展示。 */

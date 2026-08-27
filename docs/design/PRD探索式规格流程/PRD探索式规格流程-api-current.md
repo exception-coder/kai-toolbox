@@ -28,6 +28,34 @@
 - 有运行：返回最近一次运行；前端在 `RUNNING` 时轮询，页面关闭不影响后台任务。
 - 阶段：`QUEUED | COLLECTING_EVIDENCE | VIBE_EXECUTING | VALIDATING | PUBLISHING | COMPLETED | FAILED`。
 - 可观测字段：尝试次数、标准版本、Prompt 版本、Vibe Coding 执行会话 ID、trace ID、完成性缺口、错误和时间戳。
+- `evidenceTrace` 使用 `planning-evidence-trace-v2`，包含项目关系、项目角色、实际查询目标、调用状态、查询原因和残余缺口。
+
+### 项目证据范围
+
+`GET /api/claude-chat/project-evidence/scope?project={project}`
+
+- 必须先于任何证据查询调用。
+- 返回平台校验后的 `scopeId`、主项目和关联项目；路径不可由客户端自行覆盖。
+- 关系为 `PRIMARY | REFACTORS | MIGRATES_FROM | DEPENDS_ON | INTEGRATES_WITH`。
+
+### 项目关系配置
+
+`PUT /api/claude-chat/project-dependencies?primaryPath={path}`
+
+```json
+{
+  "dependencies": [
+    {
+      "projectPath": "D:/yoooni/yoooniCodeSpace/yoooni",
+      "projectKey": "yoooni",
+      "relation": "REFACTORS"
+    }
+  ]
+}
+```
+
+- 兼容旧请求 `{ "paths": [...] }`，旧请求按 `DEPENDS_ON` 保存。
+- `projectKey` 为空时由平台从受控工作区项目推导，客户端不能提交工作区外路径。
 
 ---
 
@@ -118,6 +146,21 @@
 - 有运行：返回最近一次与当前确认规格关联的规划评估。
 - `status` 为 `RUNNING | COMPLETED | FAILED`。
 - 完成结果包含 `criteriaVersion`、`promptVersion`、`inputHash`、领域功能拆分、工作包区间、规划总工时、人日、置信度和评估依据。
+- `payloadJson.firstTestRelease` 表示首版上测试环境的最小可验证闭环。客户端必须兼容历史结果无该字段；新版字段结构如下，小时与工作日由服务端从 `capabilityIds` 确定性汇总：
+
+```json
+{
+  "scope": "业务人员可在测试环境完成单笔新品进度查询闭环",
+  "capabilityIds": ["CAP-001"],
+  "acceptanceChecks": ["按款可查看当前里程碑并回查来源"],
+  "deferredScope": ["批量导出", "预测预警"],
+  "confidence": "MEDIUM",
+  "hoursMin": 18,
+  "hoursMax": 30,
+  "workingDaysMin": 3.0,
+  "workingDaysMax": 5.0
+}
+```
 
 ---
 
@@ -128,3 +171,33 @@
 - 使用该需求已绑定规格会话的当前初始化规格重新执行。
 - 相同输入与准则版本已完成时幂等返回已有结果；失败运行允许重新发起并保留历史。
 - 返回最新运行，耗时模型调用在后台执行。
+
+---
+
+## 10. 更新需求价值判定并联动规划
+
+`POST /api/reqpool/items/{id}/analyze`
+
+- 请求显式携带 `engine`；无值时继承最近一次价值判定引擎，无历史时默认 Codex。
+- 响应：`202 application/json`，只完成持久化登记，不等待模型；返回最新需求视图，`insightRun.status` 为 `RUNNING`。
+- 同一需求已有 `RUNNING` 判定时幂等返回原运行，不重复调用模型；判定完成或失败后允许用户再次登记新运行。
+- 后台先进入 `DISCOVERING`，主动刷新业务知识、Graphify、DDL 和路由调用轨迹；能力暂不可用时才复用最近规划的历史轨迹。
+- 前端在 `insightRun.status=RUNNING` 时轮询需求视图；刷新、关闭页面或网络中断不取消任务，应用重启后恢复未完成运行。
+- 后台判定完成并保存洞察后，如需求存在初始化规格规划历史，则登记引用本次判定的新规划运行。
+- 关联规划同样在后台执行，响应中的 `planningAssessment.status` 可为 `RUNNING`。
+- 新规划记录返回 `sourceInsightId`、`sourceInsightHash`，用于说明正式工时复用了哪次价值判定；历史记录允许为空。
+- 价值判定失败时不创建规划运行，并保留上一次价值判定与规划结果。
+
+`ReqItemView.insightRun`：
+
+```json
+{
+  "id": "run-id",
+  "status": "RUNNING",
+  "stage": "DISCOVERING",
+  "engine": "codex",
+  "errorMessage": null,
+  "startedAt": 1787480000000,
+  "completedAt": null
+}
+```

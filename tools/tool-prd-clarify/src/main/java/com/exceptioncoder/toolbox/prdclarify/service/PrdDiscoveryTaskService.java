@@ -68,7 +68,7 @@ public class PrdDiscoveryTaskService {
                 UUID.randomUUID().toString(), sessionId, "RUNNING", "QUEUED", 5, 0, MAX_ATTEMPTS,
                 PrdInitialSpecValidator.CRITERIA_VERSION, PrdDiscoveryService.PROMPT_VERSION,
                 sha256(inputSnapshot(session)), normalizeEngine(session.getEngine()), session.getModel(),
-                null, null, null, null, null, now, null, now, now);
+                null, null, null, null, null, null, now, null, now, now);
         if (!runRepository.insert(run)) {
             return runRepository.findRunningBySessionId(sessionId)
                     .orElseThrow(() -> new IllegalStateException("探索任务并发登记失败"));
@@ -114,6 +114,7 @@ public class PrdDiscoveryTaskService {
         try {
             runRepository.updateAttempt(runId, run.attempt(), "COLLECTING_EVIDENCE", 15, null);
             PrdDiscoveryService.DiscoveryContext context = discoveryService.prepare(run.sessionId());
+            runRepository.recordEvidenceTrace(runId, context.evidenceTraceJson());
             for (int attempt = firstAttempt; attempt <= MAX_ATTEMPTS; attempt++) {
                 int progress = 25 + (attempt - 1) * 22;
                 runRepository.updateAttempt(runId, attempt, "VIBE_EXECUTING", progress,

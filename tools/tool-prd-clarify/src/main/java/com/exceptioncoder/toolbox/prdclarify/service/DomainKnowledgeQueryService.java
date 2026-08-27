@@ -31,7 +31,8 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class DomainKnowledgeQueryService {
 
-    /** 复用 tool-knowledge-graph 模块已有的配置项，不要求用户重复填一遍仓库路径。 */
+    private static final String KNOWLEDGE_DIR_KEY = "toolbox.claude-chat.workspace.knowledge-base-dir";
+    /** 兼容尚未迁移的旧配置。 */
     private static final String REPO_PATH_KEY = "toolbox.knowledge-graph.domain-knowledge-repo-path";
 
     private final DomainKnowledgeQueryProperties props;
@@ -64,11 +65,11 @@ public class DomainKnowledgeQueryService {
         if (!props.isEnabled() || question == null || question.isBlank()) {
             return null;
         }
-        String repoPath = Binder.get(environment).bind(REPO_PATH_KEY, Bindable.of(String.class)).orElse(null);
-        if (repoPath == null || repoPath.isBlank()) {
+        Path repoPath = resolveRepositoryPath();
+        if (repoPath == null) {
             return null;
         }
-        Path distEntry = Path.of(repoPath, "dist", "knowledge.js");
+        Path distEntry = repoPath.resolve("dist").resolve("knowledge.js");
         if (!Files.isRegularFile(distEntry)) {
             log.debug("[domain-knowledge] {} 不存在，跳过业务知识图谱查询", distEntry);
             return null;
@@ -110,12 +111,35 @@ public class DomainKnowledgeQueryService {
 
     /** 返回业务知识查询引擎入口，未配置或未构建时返回 null。 */
     public String traceTarget() {
-        String repoPath = Binder.get(environment).bind(REPO_PATH_KEY, Bindable.of(String.class)).orElse(null);
-        if (repoPath == null || repoPath.isBlank()) {
+        Path repoPath = resolveRepositoryPath();
+        if (repoPath == null) {
             return null;
         }
-        Path entry = Path.of(repoPath, "dist", "knowledge.js");
+        Path entry = repoPath.resolve("dist").resolve("knowledge.js");
         return Files.isRegularFile(entry) ? entry.toString() : null;
+    }
+
+    /** 返回项目知识目录；目录不可用时返回 null。 */
+    public String traceTarget(String project) {
+        Path repository = resolveRepositoryPath();
+        if (repository == null || project == null || project.isBlank()) {
+            return null;
+        }
+        Path target = repository.resolve("knowledge").resolve(project);
+        return Files.isDirectory(target) ? target.toString() : null;
+    }
+
+    private Path resolveRepositoryPath() {
+        String knowledgeDir = Binder.get(environment)
+                .bind(KNOWLEDGE_DIR_KEY, Bindable.of(String.class)).orElse(null);
+        if (knowledgeDir != null && !knowledgeDir.isBlank()) {
+            Path path = Path.of(knowledgeDir).toAbsolutePath().normalize();
+            return path.getParent();
+        }
+        String legacyPath = Binder.get(environment)
+                .bind(REPO_PATH_KEY, Bindable.of(String.class)).orElse(null);
+        return legacyPath == null || legacyPath.isBlank()
+                ? null : Path.of(legacyPath).toAbsolutePath().normalize();
     }
 
     /**

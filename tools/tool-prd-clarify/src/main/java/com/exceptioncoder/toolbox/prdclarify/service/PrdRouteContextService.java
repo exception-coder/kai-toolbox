@@ -44,6 +44,12 @@ public class PrdRouteContextService {
         return String.join("\n", hits);
     }
 
+    /** 返回项目实际匹配的首个路由表。 */
+    public String traceTarget(String project) {
+        List<Path> targets = findRouteMaps(project);
+        return targets.isEmpty() ? null : targets.getFirst().toString();
+    }
+
     private List<String> extractRouteNames(String rawInput) {
         if (rawInput == null || rawInput.isBlank()) {
             return List.of();
