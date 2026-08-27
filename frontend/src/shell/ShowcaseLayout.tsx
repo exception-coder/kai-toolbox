@@ -2,7 +2,7 @@ import { Suspense, useLayoutEffect, useRef, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { GripVertical, LayoutGrid } from 'lucide-react'
 import { featureAtPath } from './featureRegistry'
-import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
+import { useChatRuntime } from '@/features/claude-chat/public-api/runtime'
 import { UnifiedTitleBar } from './UnifiedTitleBar'
 import { useWindowControlsOverlay } from './useWindowControlsOverlay'
 

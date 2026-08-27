@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { withAuthRefreshLock } from './authRefreshCoordinator'
 
 // 与 lib/api.ts 中读取的 key 保持一致（api.ts 为避免循环依赖直接读字符串字面量）
 const TOKEN_KEY = 'toolbox.auth.token'
@@ -7,10 +8,21 @@ const EXPIRES_KEY = 'toolbox.auth.expiresAt'
 const USER_KEY = 'toolbox.auth.user'
 const PERMS_KEY = 'toolbox.auth.perms'
 const SUPERADMIN_KEY = 'toolbox.auth.superAdmin'
+const AUTH_STORAGE_KEYS = new Set([
+  TOKEN_KEY,
+  REFRESH_KEY,
+  EXPIRES_KEY,
+  USER_KEY,
+  PERMS_KEY,
+  SUPERADMIN_KEY,
+])
 
 const API = '/api'
 /** access token 过期前多久就提前刷新（毫秒）。 */
 const REFRESH_MARGIN_MS = 30_000
+const REFRESH_REQUEST_TIMEOUT_MS = 5_000
+// 等待时间要覆盖持锁窗口的请求超时与清理，否则正常的慢刷新尚未结束，跟随窗口就会误拿旧 token 建连。
+const REFRESH_LOCK_WAIT_MS = REFRESH_REQUEST_TIMEOUT_MS + 2_000
 
 export interface AuthUser {
   userId: number
@@ -84,6 +96,13 @@ function notify() {
   listeners.forEach(l => l())
 }
 
+// localStorage 的 storage 事件只在其它同源窗口触发；本窗口写入仍由 storeTokens/logout 主动 notify。
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', event => {
+    if (event.key === null || AUTH_STORAGE_KEYS.has(event.key)) notify()
+  })
+}
+
 function storeTokens(r: LoginResponse) {
   localStorage.setItem(TOKEN_KEY, r.accessToken)
   localStorage.setItem(REFRESH_KEY, r.refreshToken)
@@ -95,7 +114,8 @@ function storeTokens(r: LoginResponse) {
 }
 
 export function getToken(): string | null {
-  return snapshot.token
+  // 建连与请求必须读取共享存储的即时值；storage 事件派发前，内存快照可能仍是上一窗口的旧 token。
+  return localStorage.getItem(TOKEN_KEY)
 }
 
 export function getUser(): AuthUser | null {
@@ -145,33 +165,67 @@ export function logout() {
 let refreshPromise: Promise<void> | null = null
 
 /**
- * 确保 access token 新鲜：临近/已过期且有 refresh token 时，用 refresh 续期（去重并发）。
+ * 确保 access token 新鲜：临近/已过期且有 refresh token 时，用 refresh 续期（跨窗口去重并发）。
  * 软鉴权端点对过期 token 返回的是空响应而非 401，无法靠 401 触发刷新，故这里按 expiresAt 主动续期。
  * 在每次 http() 请求和视频探测前调用。刷新失败则登出。
  */
-export async function ensureFreshToken(force = false): Promise<void> {
-  const token = localStorage.getItem(TOKEN_KEY)
-  const refreshToken = localStorage.getItem(REFRESH_KEY)
-  if (!token || !refreshToken) return
+export async function ensureFreshToken(force = false, rejectedAccessToken?: string | null): Promise<void> {
+  const tokenAtRequest = localStorage.getItem(TOKEN_KEY)
+  const refreshAtRequest = localStorage.getItem(REFRESH_KEY)
+  if (!tokenAtRequest || !refreshAtRequest) return
   const expiresAt = Number(localStorage.getItem(EXPIRES_KEY) || 0)
   // force=true 时跳过 expiresAt 快捷判断，强制续期一次：治「本地以为 token 还新鲜、服务端却已拒」
   // （后端重启换签名密钥、客户端时钟偏移、服务端 TTL 更短）导致的握手死循环。
   if (!force && expiresAt && Date.now() < expiresAt - REFRESH_MARGIN_MS) return
 
   if (!refreshPromise) {
-    refreshPromise = (async () => {
+    const operation = withAuthRefreshLock(async () => {
+      // 等待跨窗口锁期间，另一窗口可能已经轮换过一次性 refresh token。进入临界区后必须重新读取。
+      const currentToken = localStorage.getItem(TOKEN_KEY)
+      const currentRefreshToken = localStorage.getItem(REFRESH_KEY)
+      if (!currentToken || !currentRefreshToken) {
+        notify()
+        return
+      }
+      const currentExpiresAt = Number(localStorage.getItem(EXPIRES_KEY) || 0)
+      const tokenThatWasRejected = rejectedAccessToken ?? tokenAtRequest
+      if (force && currentToken !== tokenThatWasRejected) {
+        notify()
+        return
+      }
+      if (!force && currentExpiresAt && Date.now() < currentExpiresAt - REFRESH_MARGIN_MS) {
+        notify()
+        return
+      }
+
+      const requestController = new AbortController()
+      const requestTimeoutId = window.setTimeout(
+        () => requestController.abort(),
+        REFRESH_REQUEST_TIMEOUT_MS,
+      )
       try {
         const res = await fetch(`${API}/auth/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
+          body: JSON.stringify({ refreshToken: currentRefreshToken }),
+          signal: requestController.signal,
         })
         if (res.ok) {
+          // 用户可能在请求在途期间重新登录；旧刷新响应不得覆盖更新后的账号或凭证。
+          if (localStorage.getItem(REFRESH_KEY) !== currentRefreshToken) {
+            notify()
+            return
+          }
           storeTokens((await res.json()) as LoginResponse)
           return
         }
         // 只有 401 才代表 refresh token 确实失效 → 登出并弹登录框。
         if (res.status === 401) {
+          // 请求在途期间另一窗口可能已经刷新成功。旧 refresh token 的 401 不能覆盖新登录态。
+          if (localStorage.getItem(REFRESH_KEY) !== currentRefreshToken) {
+            notify()
+            return
+          }
           logout()
           emitSessionExpired()
           return
@@ -179,12 +233,24 @@ export async function ensureFreshToken(force = false): Promise<void> {
         // 5xx / 其它（后端瞬时错误、重启中）：不把用户踢下线，保留会话下次再刷；真失效时后续 401 会兜住。
         console.warn(`[auth] token 刷新暂时失败（HTTP ${res.status}），保留会话稍后重试`)
       } catch {
-        // 网络错误（后端未起/连不上）：同样别登出，保留会话稍后重试。
-        console.warn('[auth] token 刷新请求失败（网络/后端不可达），保留会话稍后重试')
+        const reason = requestController.signal.aborted ? '请求超时' : '网络/后端不可达'
+        console.warn(`[auth] token 刷新请求失败（${reason}），保留会话稍后重试`)
       } finally {
-        refreshPromise = null
+        window.clearTimeout(requestTimeoutId)
       }
-    })()
+    }, REFRESH_LOCK_WAIT_MS)
+    refreshPromise = operation
+      .then(result => {
+        if (!result.acquired) {
+          console.warn('[auth] 等待其它窗口刷新超时，跳过本轮刷新并继续连接')
+        }
+      })
+      .catch(() => {
+        console.warn('[auth] token 刷新协调失败，保留会话稍后重试')
+      })
+      .finally(() => {
+        refreshPromise = null
+      })
   }
   await refreshPromise
 }
@@ -207,8 +273,7 @@ export type AuthProbeResult = 'valid' | 'expired' | 'unreachable'
  * 与其从模糊信号猜，不如直接发一个带鉴权的轻量请求让后端裁决：fetch 被 reject 就是网络问题，
  * 拿到 401/403 才是真失效。
  */
-export async function probeAuth(): Promise<AuthProbeResult> {
-  const token = localStorage.getItem(TOKEN_KEY)
+export async function probeAuth(token = localStorage.getItem(TOKEN_KEY)): Promise<AuthProbeResult> {
   if (!token) return 'expired'
   try {
     const res = await fetch(`${API}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
@@ -237,7 +302,7 @@ export function useAuth() {
  * 后端 JwtAuthFilter 会从 access_token 参数兜底取 token。未登录则原样返回。
  */
 export function withAuthToken(url: string): string {
-  const t = snapshot.token
+  const t = getToken()
   if (!t) return url
   return url + (url.includes('?') ? '&' : '?') + 'access_token=' + encodeURIComponent(t)
 }
