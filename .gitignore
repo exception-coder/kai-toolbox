@@ -35,6 +35,9 @@ data/
 frontend/node_modules/
 frontend/dist/
 frontend/dist-assistant/
+frontend/public/assistant-sdk/loader.js
+frontend/public/assistant-sdk/channels/
+frontend/public/assistant-sdk/releases/
 frontend/dist-pages/
 frontend/dist-ssr/
 frontend/.vite/

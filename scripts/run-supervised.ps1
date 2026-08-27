@@ -504,6 +504,7 @@ $env:KAI_SUPERVISED = '1'
 
 $script:backend = $null
 $script:frontend = $null
+$script:frontendHealthNextCheck = [datetime]::MinValue
 $script:lastStart = $null
 $script:hotReloadWatchers = @()
 $script:hotReloadRegistrations = @()
@@ -1077,6 +1078,7 @@ function Start-Frontend {
     $script:frontend = Start-Process -FilePath (Resolve-PowerShellExe) `
         -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $runCommand) `
         -PassThru -NoNewWindow
+    $script:frontendHealthNextCheck = (Get-Date).AddSeconds(30)
 }
 
 function Stop-Frontend {
@@ -1084,6 +1086,22 @@ function Stop-Frontend {
         # npm spawns node/esbuild children, so stop the whole process tree.
         & taskkill /PID $script:frontend.Id /T /F 2>&1 | Out-Null
     }
+}
+
+function Update-FrontendHealth {
+    $now = Get-Date
+    if (-not $script:frontend -or $script:frontend.HasExited -or $now -lt $script:frontendHealthNextCheck) { return }
+    $script:frontendHealthNextCheck = $now.AddSeconds(20)
+    try {
+        $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        $probe = Invoke-WebRequest -UseBasicParsing -SkipCertificateCheck `
+            -Uri "https://127.0.0.1:$FrontendPort/src/main.tsx?supervisor-health=$stamp" -TimeoutSec 5
+        if ($probe.StatusCode -eq 200) { return }
+    } catch { }
+    Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') frontend transform service unhealthy, restart frontend"
+    Stop-Frontend
+    Start-Sleep -Seconds 1
+    Start-Frontend
 }
 
 function Protect-AutoUpdateLogText([string]$value) {
@@ -1639,6 +1657,7 @@ try {
                 Start-Sleep -Seconds 2
                 Start-Frontend
             }
+            Update-FrontendHealth
         }
     } else {
         # No control endpoint: supervise only.
@@ -1655,6 +1674,7 @@ try {
                 Start-Sleep -Seconds 2
                 Start-Frontend
             }
+            Update-FrontendHealth
             Start-Sleep -Seconds 1
         }
     }

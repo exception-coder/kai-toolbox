@@ -8,6 +8,23 @@ const logger = createLogger()
 const logError = logger.error.bind(logger)
 let lastBackendStartingNoticeAt = 0
 
+function assistantSdkCacheHeaders() {
+  return {
+    name: 'assistant-sdk-cache-headers',
+    configureServer(server: { middlewares: { use: (middleware: (request: { url?: string }, response: { setHeader: (name: string, value: string) => void }, next: () => void) => void) => void } }) {
+      server.middlewares.use((request, response, next) => {
+        const pathname = request.url?.split('?', 1)[0]
+        if (pathname === '/assistant-sdk/loader.js' || pathname?.startsWith('/assistant-sdk/channels/')) {
+          response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+        } else if (pathname?.startsWith('/assistant-sdk/releases/')) {
+          response.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+        }
+        next()
+      })
+    },
+  }
+}
+
 logger.error = (message, options) => {
   if (message.includes('proxy error') && message.includes('ECONNREFUSED')) {
     const now = Date.now()
@@ -28,7 +45,7 @@ export default defineConfig({
   // 并自动把本机网卡上的 LAN IP 都签进证书 SAN，无需手动维护 IP 列表。
   // source: 'coding' 走腾讯 Coding 镜像绕开 GitHub API 限流（境内必备）。
   // 手机端要单独安装一次 rootCA.pem 才能零警告，路径 %LOCALAPPDATA%\mkcert\rootCA.pem。
-  plugins: [react(), tailwindcss(), mkcert({ source: 'coding' })],
+  plugins: [assistantSdkCacheHeaders(), react(), tailwindcss(), mkcert({ source: 'coding' })],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -58,6 +75,8 @@ export default defineConfig({
     // Vite 5+ 默认只允许 localhost/127.0.0.1，LAN IP / 主机名访问会被挡成空白页。
     // 本地工具箱给信任内网访问，直接全放开。
     allowedHosts: true,
+    // 当前由公网隧道承载统一助手 SDK，跨域许可继续由各后端接口的精确白名单控制。
+    cors: true,
     // 独立页面和助手 SDK 会在开发服务器运行期间重建。它们是输出目录，
     // 不应触发主应用刷新，更不应被重新送入 CSS 分析流程。
     watch: {
