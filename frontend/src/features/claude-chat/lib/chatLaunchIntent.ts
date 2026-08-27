@@ -39,3 +39,11 @@ export function planChatLaunch(
     previousSessionId: currentSessionId,
   }
 }
+
+/** 新建会话必须拿到不同于来源会话的权威 ID 后，才能投递启动消息。 */
+export function isChatLaunchTargetReady(
+  previousSessionId: string | null,
+  currentSessionId: string | null,
+): currentSessionId is string {
+  return !!currentSessionId && currentSessionId !== previousSessionId
+}

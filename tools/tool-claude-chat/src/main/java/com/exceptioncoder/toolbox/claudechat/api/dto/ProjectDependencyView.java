@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.ProjectDependency;
 public record ProjectDependencyView(
         String projectPath,
         String projectKey,
+        String relation,
         boolean sourceAvailable,
         boolean knowledgeAvailable) {
 
@@ -13,6 +14,7 @@ public record ProjectDependencyView(
         return new ProjectDependencyView(
                 dependency.projectPath(),
                 dependency.projectKey(),
+                dependency.relation(),
                 dependency.sourceAvailable(),
                 dependency.knowledgeAvailable());
     }

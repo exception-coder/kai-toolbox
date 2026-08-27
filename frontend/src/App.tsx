@@ -6,7 +6,7 @@ import { HomePage } from '@/shell/HomePage'
 import { features } from '@/shell/featureRegistry'
 import { RouteGuard } from '@/components/auth/RouteGuard'
 import { SessionExpiredGate } from '@/components/auth/SessionExpiredGate'
-import { ChatRuntimeProvider } from '@/features/claude-chat/runtime/ChatRuntimeContext'
+import { ChatRuntimeProvider } from '@/features/claude-chat/public-api/runtime'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 const FloatingChatWindow = lazy(() => import('@/features/claude-chat/components/FloatingChatWindow').then(m => ({ default: m.FloatingChatWindow })))

@@ -4,6 +4,7 @@ package com.exceptioncoder.toolbox.claudechat.domain;
 public record ProjectDependency(
         String projectPath,
         String projectKey,
+        String relation,
         boolean sourceAvailable,
         boolean knowledgeAvailable) {
 }

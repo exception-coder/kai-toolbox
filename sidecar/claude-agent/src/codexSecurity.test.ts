@@ -8,6 +8,7 @@ import {
   REVIEW_ONLY_PROMPT,
   consultReadonlyCodexConfig,
   consultReadonlyRequiredMcpTools,
+  inspectSystemRoute,
   reviewOnlyCodexConfig,
   resolveConsultTargetSystem,
   resolveConsultTargetSystems,
@@ -73,6 +74,18 @@ test('requires Core Spec tools and the database tool for the selected consultati
     { server: 'domain-knowledge', tool: 'get_module_core_spec' },
     { server: 'domain-knowledge', tool: 'resolve_consult_context' },
   ])
+})
+
+test('inspects the exact runtime route without starting a consultation session', () => {
+  assert.deepEqual(inspectSystemRoute('D:\\work\\scm-system'), {
+    protocolVersion: 1,
+    targetSystems: ['scm'],
+    tools: [
+      { server: 'domain-knowledge', tool: 'get_module_core_spec' },
+      { server: 'domain-knowledge', tool: 'resolve_consult_context' },
+      { server: 'consult-readonly', tool: 'scm_db_query' },
+    ],
+  })
 })
 
 test('prioritizes domain context before reading implementation evidence', () => {

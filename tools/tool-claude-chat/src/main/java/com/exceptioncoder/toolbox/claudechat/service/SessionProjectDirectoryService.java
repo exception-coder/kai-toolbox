@@ -100,6 +100,7 @@ public class SessionProjectDirectoryService {
             projectDependencies.forEach(dependency -> prompt.append("\n- ")
                     .append(dependency.projectPath())
                     .append(" | projectKey=").append(dependency.projectKey())
+                    .append(" | relation=").append(dependency.relation())
                     .append(" | source=").append(dependency.sourceAvailable() ? "available" : "missing")
                     .append(" | knowledge=").append(dependency.knowledgeAvailable() ? "available" : "missing"));
         }

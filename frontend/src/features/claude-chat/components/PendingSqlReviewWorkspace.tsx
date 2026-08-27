@@ -15,6 +15,8 @@ interface Props {
   onSqlTextChange: (value: string) => void
   onError: (message: string) => void
   expanded: boolean
+  /** 页签工作区只负责审阅；登记弹框显式允许编辑完整原文。 */
+  allowEditing?: boolean
 }
 
 const KIND_LABELS: Record<PendingSqlStatementKind, string> = {
@@ -48,7 +50,13 @@ const editorTheme = EditorView.theme({
 })
 
 /** 多语句 SQL 的只读清单与单条详情；编辑模式始终编辑完整原文。 */
-export function PendingSqlReviewWorkspace({ sqlText, onSqlTextChange, onError, expanded }: Props) {
+export function PendingSqlReviewWorkspace({
+  sqlText,
+  onSqlTextChange,
+  onError,
+  expanded,
+  allowEditing = true,
+}: Props) {
   const statements = useMemo(() => parsePendingSqlReview(sqlText), [sqlText])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -175,14 +183,16 @@ export function PendingSqlReviewWorkspace({ sqlText, onSqlTextChange, onError, e
           >
             <WrapText className="size-3.5" />换行
           </button>
-          <button
-            type="button"
-            onClick={() => setEditing(value => !value)}
-            className={cn('inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-[11px]', editing && 'bg-[var(--color-accent)]')}
-          >
-            {editing ? <Code2 className="size-3.5" /> : <TextCursorInput className="size-3.5" />}
-            {editing ? '返回审阅' : '编辑原文'}
-          </button>
+          {allowEditing && (
+            <button
+              type="button"
+              onClick={() => setEditing(value => !value)}
+              className={cn('inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-[11px]', editing && 'bg-[var(--color-accent)]')}
+            >
+              {editing ? <Code2 className="size-3.5" /> : <TextCursorInput className="size-3.5" />}
+              {editing ? '返回审阅' : '编辑原文'}
+            </button>
+          )}
           {!editing && statements.length > 1 && (
             <select
               value={active.id}

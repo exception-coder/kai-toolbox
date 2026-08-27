@@ -44,6 +44,12 @@ const DATABASE_TOOL_BY_TARGET: Readonly<Record<ConsultTargetSystem, string>> = {
 
 export type RequiredMcpTool = { server: string; tool: string }
 
+export type SystemRouteInspection = {
+  protocolVersion: 1
+  targetSystems: ConsultTargetSystem[]
+  tools: RequiredMcpTool[]
+}
+
 /** 业务咨询的源码目录来自平台系统选择，用目录登记名确定数据库能力，禁止交给模型猜测。 */
 export function resolveConsultTargetSystem(sourceRoot?: string): ConsultTargetSystem | undefined {
   const directory = sourceRoot?.trim() ? basename(resolve(sourceRoot)).toLowerCase() : ''
@@ -76,6 +82,18 @@ export function consultReadonlyRequiredMcpTools(
     ...resolveConsultTargetSystems(sourceRoot, evidenceSystems)
       .map(target => ({ server: 'consult-readonly', tool: DATABASE_TOOL_BY_TARGET[target] })),
   ]
+}
+
+/** 使用咨询运行时同一组纯函数生成只读路由诊断，不创建会话也不执行任何 Tool。 */
+export function inspectSystemRoute(
+  sourceRoot?: string,
+  evidenceSystems: readonly string[] = [],
+): SystemRouteInspection {
+  return {
+    protocolVersion: 1,
+    targetSystems: resolveConsultTargetSystems(sourceRoot, evidenceSystems),
+    tools: consultReadonlyRequiredMcpTools(sourceRoot, evidenceSystems),
+  }
 }
 
 export const CONSULT_READONLY_PROMPT = [

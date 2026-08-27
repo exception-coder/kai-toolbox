@@ -50,6 +50,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     private final Map<String, CompletableFuture<String>> pendingReviewForks = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingSessionStateQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingEngineCatalogQueries = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<JsonNode>> pendingProjectRouteQueries = new ConcurrentHashMap<>();
     /** 本实例已随 Spring 上下文停机；不得再建连、不得再上报断开 */
     private volatile boolean shuttingDown;
 
@@ -111,6 +112,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
         shuttingDown = true;
         failPendingSessionStateQueries("sidecar客户端已停机");
         failPendingEngineCatalogQueries("sidecar客户端已停机");
+        failPendingProjectRouteQueries("sidecar客户端已停机");
         WebSocketSession cur = session;
         session = null;
         closeQuietly(cur);
@@ -340,6 +342,30 @@ public class SidecarClient implements ReviewThreadForkGateway {
         }
     }
 
+    /** 使用 Sidecar 实际咨询路由函数核验目标系统和只读 MCP Tool。 */
+    public Optional<JsonNode> inspectSystemRoute(String cwd, List<String> evidenceSystems, long timeoutMs) {
+        String requestId = UUID.randomUUID().toString();
+        CompletableFuture<JsonNode> future = new CompletableFuture<>();
+        pendingProjectRouteQueries.put(requestId, future);
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("type", "inspectSystemRoute");
+        message.put("requestId", requestId);
+        message.put("cwd", nz(cwd));
+        message.put("evidenceSystems", evidenceSystems == null ? List.of() : evidenceSystems);
+        if (!send(message)) {
+            pendingProjectRouteQueries.remove(requestId);
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(future.get(timeoutMs, TimeUnit.MILLISECONDS));
+        } catch (Exception error) {
+            log.warn("[claude-chat] 查询Sidecar项目路由失败 request={}", requestId, error);
+            return Optional.empty();
+        } finally {
+            pendingProjectRouteQueries.remove(requestId);
+        }
+    }
+
     public void setMode(String sessionId, String mode) {
         send(Map.of("type", "setMode", "sessionId", sessionId, "mode", nz(mode)));
     }
@@ -514,6 +540,12 @@ public class SidecarClient implements ReviewThreadForkGateway {
         pendingEngineCatalogQueries.clear();
     }
 
+    private void failPendingProjectRouteQueries(String message) {
+        IllegalStateException error = new IllegalStateException(message);
+        pendingProjectRouteQueries.values().forEach(future -> future.completeExceptionally(error));
+        pendingProjectRouteQueries.clear();
+    }
+
     private class ClientHandler extends TextWebSocketHandler {
         @Override
         protected void handleTextMessage(WebSocketSession ws, TextMessage message) {
@@ -544,6 +576,14 @@ public class SidecarClient implements ReviewThreadForkGateway {
                     }
                     return;
                 }
+                if ("systemRouteInspection".equals(node.path("type").asText())) {
+                    String requestId = node.path("requestId").asText();
+                    CompletableFuture<JsonNode> future = pendingProjectRouteQueries.get(requestId);
+                    if (future != null) {
+                        future.complete(node);
+                    }
+                    return;
+                }
                 String sessionId = node.path("sessionId").asText(null);
                 listener.accept(sessionId, node);
             } catch (Exception e) {
@@ -563,6 +603,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
             }
             failPendingSessionStateQueries("sidecar连接已关闭");
             failPendingEngineCatalogQueries("sidecar连接已关闭");
+            failPendingProjectRouteQueries("sidecar连接已关闭");
             log.warn("[claude-chat] 与 sidecar 的连接已关闭：{}", status);
             session = null;
             // 连接级事件：通知 service 把挂着的会话标记 INTERRUPTED

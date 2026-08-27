@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type Context, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useClaudeChatSocket, type UseClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { useGrabGesture, type GestureStatus } from '../hooks/useGrabGesture'
@@ -102,7 +102,15 @@ interface ChatRuntime {
   setGesturePaused: (v: boolean) => void
 }
 
-const Ctx = createContext<ChatRuntime | null>(null)
+const CHAT_RUNTIME_CONTEXT_KEY = '__kaiToolboxChatRuntimeContext__'
+const runtimeGlobal = globalThis as typeof globalThis & {
+  [CHAT_RUNTIME_CONTEXT_KEY]?: Context<ChatRuntime | null>
+}
+
+// Provider 与消费方可能在开发热更新时经不同 chunk 重新求值。把 Context 固定到页面全局，
+// 避免同一标签页内出现两个身份不同的 Context，导致已包裹 Provider 仍读取到 null。
+const Ctx = runtimeGlobal[CHAT_RUNTIME_CONTEXT_KEY] ?? createContext<ChatRuntime | null>(null)
+runtimeGlobal[CHAT_RUNTIME_CONTEXT_KEY] = Ctx
 
 /** 读取聊天运行时（含共享实例与悬浮窗控制）。须在 ChatRuntimeProvider 内使用。 */
 export function useChatRuntime(): ChatRuntime {

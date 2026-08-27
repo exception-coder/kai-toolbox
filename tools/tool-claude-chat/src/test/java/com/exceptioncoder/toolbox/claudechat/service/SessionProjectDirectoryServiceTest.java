@@ -65,8 +65,8 @@ class SessionProjectDirectoryServiceTest {
         Path legacy = tempDir.resolve("legacy");
         java.nio.file.Files.createDirectories(legacy);
         when(projectDependencies.resolve(primary.toString())).thenReturn(List.of(
-                new ProjectDependency(legacy.toString(), "legacy", true, true),
-                new ProjectDependency(tempDir.resolve("legacy-missing").toString(), "legacy-missing", false, true)));
+                new ProjectDependency(legacy.toString(), "legacy", "REFACTORS", true, true),
+                new ProjectDependency(tempDir.resolve("legacy-missing").toString(), "legacy-missing", "DEPENDS_ON", false, true)));
         SessionProjectDirectoryService service = new SessionProjectDirectoryService(
                 sessions, directories, mock(WorkspaceScanService.class), projectDependencies);
 
@@ -77,7 +77,7 @@ class SessionProjectDirectoryServiceTest {
         assertThat(context.paths()).containsExactly(legacy.toString(), secondary.toString());
         assertThat(context.instructions()).contains(
                 primary.toString(), secondary.toString(), "projectKey=legacy", "projectKey=legacy-missing",
-                "source=missing", "domain-knowledge", "cross-topology", "分别检查各 Git 仓库状态");
+                "relation=REFACTORS", "source=missing", "domain-knowledge", "cross-topology", "分别检查各 Git 仓库状态");
         assertThat(service.buildContext("s1", primary.toString(), SessionExecutionPolicy.REVIEW_ONLY)).isNull();
     }
 

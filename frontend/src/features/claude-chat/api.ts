@@ -8,7 +8,7 @@ import type {
   GitRepoRef,
   GitStatusResponse,
 } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ProjectDependency, ServerMessage, SessionPendingSql, SessionPendingSqlTarget, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { AffectedApiReadiness, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAffectedApi, SessionPendingSql, SessionPendingSqlTarget, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 import { buildPendingSqlTargetOptions, type PendingSqlTargetOption } from './lib/pendingSqlTargets'
 import { SESSION_HISTORY_PAGE_TIMEOUT_MS } from './lib/sessionHistoryRequest'
@@ -49,6 +49,16 @@ export function updateSessionPendingSqlStatus(
 /** 解除会话的 SQL 登记。 */
 export function deleteSessionPendingSql(sessionId: string): Promise<void> {
   return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql`, { method: 'DELETE' })
+}
+
+/** 查询 Agent 为当前会话登记的服务端接口变更。 */
+export function listSessionAffectedApis(sessionId: string): Promise<SessionAffectedApi[]> {
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/affected-apis`)
+}
+
+/** 查询接口验证事实聚合出的发布就绪结论。 */
+export function getSessionAffectedApiReadiness(sessionId: string): Promise<AffectedApiReadiness> {
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/affected-apis/readiness`)
 }
 
 /** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
@@ -275,11 +285,11 @@ export function listProjectDependencies(primaryPath: string) {
 }
 
 /** 完整替换主项目长期依赖。 */
-export function replaceProjectDependencies(primaryPath: string, paths: string[]): Promise<void> {
+export function replaceProjectDependencies(primaryPath: string, dependencies: ProjectDependencyInput[]): Promise<void> {
   const params = new URLSearchParams({ primaryPath })
   return http(`/claude-chat/project-dependencies?${params.toString()}`, {
     method: 'PUT',
-    body: JSON.stringify({ paths }),
+    body: JSON.stringify({ dependencies }),
   })
 }
 

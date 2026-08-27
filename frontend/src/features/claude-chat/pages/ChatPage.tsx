@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Code2, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -55,9 +55,9 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionAffectedApiReadiness, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionAffectedApis, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
-import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
+import type { AffectedApiReadiness, ChatItem, ModelInfo, SessionAffectedApi, SessionPendingSql } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import type { Engine } from '../types'
@@ -87,7 +87,7 @@ import {
 import { resolveSiteIcon } from '@/lib/siteIcons'
 import { listQuickSiteSummaries, recordQuickSiteSummaryOpened } from '@/lib/quickSites'
 import { getSessionSiteConfiguration } from '../api'
-import { planChatLaunch } from '../lib/chatLaunchIntent'
+import { isChatLaunchTargetReady, planChatLaunch } from '../lib/chatLaunchIntent'
 import { openQuickSite } from '@/lib/openQuickSite'
 import { useUnifiedTitleBarSlot } from '@/shell/UnifiedTitleBar'
 import { useMobileNavigation } from '@/shell/MobileNavigationContext'
@@ -109,6 +109,9 @@ import { MobileSessionStatus } from '../components/MobileSessionStatus'
 import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
 import { SessionToolsMenu } from '../components/SessionToolsMenu'
 import { OpenSpecInitializationDialog } from '../components/OpenSpecInitializationDialog'
+import { SessionDocumentsWorkspace } from '../components/SessionDocumentsWorkspace'
+import { SessionDatabaseWorkspace } from '../components/SessionDatabaseWorkspace'
+import { SessionAffectedApisWorkspace } from '../components/SessionAffectedApisWorkspace'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -378,8 +381,42 @@ export function ChatPage() {
     const timer = window.setInterval(() => { void refreshPendingSql() }, 3_000)
     return () => { alive = false; window.clearInterval(timer) }
   }, [chat?.sessionId])
+  const [affectedApis, setAffectedApis] = useState<SessionAffectedApi[]>([])
+  const [affectedApiReadiness, setAffectedApiReadiness] = useState<AffectedApiReadiness | null>(null)
+  useEffect(() => {
+    const sessionId = chat?.sessionId
+    if (!sessionId) {
+      setAffectedApis([])
+      setAffectedApiReadiness(null)
+      return
+    }
+    let alive = true
+    const refreshAffectedApis = () => Promise.all([
+      listSessionAffectedApis(sessionId),
+      getSessionAffectedApiReadiness(sessionId),
+    ]).then(([entries, readiness]) => {
+      if (!alive) return
+      setAffectedApis(entries)
+      setAffectedApiReadiness(readiness)
+    }).catch(() => {
+      if (!alive) return
+      setAffectedApis([])
+      setAffectedApiReadiness(null)
+    })
+    void refreshAffectedApis()
+    const timer = window.setInterval(() => { void refreshAffectedApis() }, 3_000)
+    return () => { alive = false; window.clearInterval(timer) }
+  }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
-  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'sites' | 'usage' | 'review'>('conversation')
+  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'documents' | 'database' | 'interfaces' | 'sites' | 'usage' | 'review'>('conversation')
+  useEffect(() => {
+    setSessionView(current => {
+      if (current === 'documents' && !linkedPrd) return 'conversation'
+      if (current === 'database' && !pendingSql) return 'conversation'
+      if (current === 'interfaces' && affectedApis.length === 0) return 'conversation'
+      return current
+    })
+  }, [chat?.sessionId, linkedPrd, pendingSql, affectedApis.length])
   const messageListRef = useRef<MessageListHandle>(null)
   // 「我的提问」面板点中一条待滚到的目标：可能还没加载进 chat.items（分页更早历史里）。
   const [pendingScroll, setPendingScroll] = useState<Extract<ChatItem, { kind: 'user' }> | null>(null)
@@ -490,6 +527,12 @@ export function ChatPage() {
     intentId: string
     previousSessionId: string | null
     seed: string
+  } | null>(null)
+  const pendingSendIntentRef = useRef<{
+    intentId: string
+    previousSessionId: string | null
+    seed: string
+    prdSessionId?: string
   } | null>(null)
   const [launchIntentError, setLaunchIntentError] = useState<string | null>(null)
   const [launchIntentRetry, setLaunchIntentRetry] = useState(0)
@@ -606,6 +649,12 @@ export function ChatPage() {
                 previousDevSessionId: command.previousSessionId,
               }
             }
+            pendingSendIntentRef.current = {
+              intentId: intent.id,
+              previousSessionId: command.previousSessionId,
+              seed: command.seed,
+              prdSessionId: command.prdSessionId,
+            }
             chat.open(
               command.cwd,
               undefined,
@@ -615,8 +664,6 @@ export function ChatPage() {
                 ? { codexHome: command.codexHome }
                 : undefined,
             )
-            chat.send(command.seed)
-            await acknowledgeLaunchIntent(intent.id)
           }
           if (command.prdSessionId) {
             await ensureOpenSpecReady({
@@ -638,6 +685,23 @@ export function ChatPage() {
         try { await failLaunchIntent(launchIntentId, message) } catch { /* 原错误优先展示 */ }
       })
   }, [chat, launchIntentId, launchIntentRetry])
+
+  useEffect(() => {
+    const pendingIntent = pendingSendIntentRef.current
+    const targetSessionId = chat?.sessionId ?? null
+    if (!pendingIntent || !chat || !isChatLaunchTargetReady(pendingIntent.previousSessionId, targetSessionId)) return
+
+    pendingSendIntentRef.current = null
+    chat.send(pendingIntent.seed)
+
+    const search = new URLSearchParams({ sessionId: targetSessionId })
+    if (pendingIntent.prdSessionId) search.set('prdSessionId', pendingIntent.prdSessionId)
+    navigate(`/tools/claude-chat?${search.toString()}`, { replace: true })
+
+    void acknowledgeLaunchIntent(pendingIntent.intentId).catch(error => {
+      setLaunchIntentError(error instanceof Error ? error.message : String(error))
+    })
+  }, [chat?.sessionId, chat?.send, navigate])
 
   useEffect(() => {
     const pendingIntent = pendingDraftIntentRef.current
@@ -664,6 +728,8 @@ export function ChatPage() {
   // 附件按会话绑定 + 共享 store：与悬浮窗/分屏同一份 → 主界面选了附件再弹悬浮窗不丢、即时同步。
   const [attachments, setAttachments] = useDraftAttachments(chat?.sessionId ?? PENDING_DRAFT_KEY)
   const [uploading, setUploading] = useState(0)
+  const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null)
+  useEffect(() => { setAttachmentUploadError(null) }, [chat?.sessionId])
   const [slashIdx, setSlashIdx] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false)
@@ -728,8 +794,6 @@ export function ChatPage() {
     setProviderModelsError(null)
     setNewModelPlatform('all') // 换网关重置平台筛选
     fetchProviderModels(p.baseUrl, p.key)
-  const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null)
-  useEffect(() => { setAttachmentUploadError(null) }, [chat?.sessionId])
       .then(r => {
         if (cancelled) return
         setProviderModels(r.models ?? [])
@@ -911,6 +975,7 @@ export function ChatPage() {
   // 上传单个文件并落进 attachments 状态——handleFiles（本地选取/粘贴）和 handlePrdAttach
   // （搜索附加 PRD/开发文档，见下方）共用同一条上传路径，行为（含失败提示）保持一致。
   const uploadOneFile = async (sid: string, f: File) => {
+    setAttachmentUploadError(null)
     setUploading(n => n + 1)
     try {
       const att = await uploadAttachment(sid, f)
@@ -918,6 +983,7 @@ export function ChatPage() {
       setAttachments(prev => [...prev, { ...att, previewUrl }])
     } catch (e) {
       console.error('[claude-chat] 附件上传失败', e)
+      setAttachmentUploadError(e instanceof Error ? e.message : '附件上传失败')
     } finally {
       setUploading(n => n - 1)
     }
@@ -975,7 +1041,6 @@ export function ChatPage() {
   }
 
   // 会话内切 agent（方案B + 增量交接）：同一会话不分裂。
-    setAttachmentUploadError(null)
   // sidecar 会 resume 目标引擎的原生会话（早期上下文不丢）；前端只把"它离开期间的增量"喂过去，
   // 首次切到某引擎才发全量——避免切回时全量重复同步。
   const pickEngine = (eng: Engine) => {
@@ -983,7 +1048,6 @@ export function ChatPage() {
     if (eng === chat.currentEngine || chat.running || !chat.sessionId) return
     const from = chat.currentEngine
     engineWatermark.current[from] = chat.items.length // 记录离开引擎看到的位置
-      setAttachmentUploadError(e instanceof Error ? e.message : '附件上传失败')
     const start = engineWatermark.current[eng] ?? 0   // 目标引擎上次看到的位置（首次为 0=全量）
     const body = chat.items
       .slice(start)
@@ -1149,31 +1213,6 @@ export function ChatPage() {
           </>
         )}
         <div className="cc-session-header-tail ml-auto flex min-w-0 flex-1 items-center justify-end gap-1">
-        {/* 关联 PRD 标识：只在确实绑定了才显示，点击打开关联面板（查看/更换/同步更新开发文档）。 */}
-        {linkedPrd && (
-          <button
-            type="button"
-            onClick={() => setShowPrdLink(true)}
-            title={`已关联规格：${linkedPrd.title || '（未命名）'}（点击查看/管理）`}
-            className="hidden shrink-0 items-center gap-1 rounded-full border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] 2xl:flex"
-          >
-            <FileText className="size-3" />
-            <span className="max-w-24 truncate">{linkedPrd.title || '规格'}</span>
-          </button>
-        )}
-        {pendingSql && (
-          <button
-            type="button"
-            onClick={() => setShowPendingSql(true)}
-            title={`待执行 SQL：${pendingSql.title || '未命名登记'}（点击查看/管理）`}
-            className={`hidden shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] 2xl:flex ${pendingSql.status === 'PENDING'
-              ? 'border-amber-500/60 bg-amber-100/80 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
-              : 'border-[var(--color-border)] bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}
-          >
-            <Database className="size-3" />
-            <span>{pendingSql.status === 'PENDING' ? 'SQL 待执行' : pendingSql.status === 'EXECUTED' ? 'SQL 已执行' : 'SQL 已取消'}</span>
-          </button>
-        )}
         {viewMode === 'single' && chat.sessionId && (
           <Popover>
             <PopoverTrigger asChild>
@@ -1963,13 +2002,13 @@ export function ChatPage() {
           {/* 右侧：消息流 + 输入 */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {chat.sessionId ? (
-              <nav className="workspace-contextbar cc-chat-contextbar scrollbar-autohide flex items-end gap-5 overflow-x-auto px-3" aria-label="会话视图">
+              <nav className="workspace-contextbar cc-chat-contextbar scrollbar-autohide flex items-end gap-1 overflow-x-auto px-2 sm:gap-4 sm:px-3" aria-label="会话视图">
                 <button
                   type="button"
                   aria-current={sessionView === 'conversation' ? 'page' : undefined}
                   onClick={() => setSessionView('conversation')}
                   className={cn(
-                    'relative inline-flex h-full items-center gap-1.5 px-1 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full',
+                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
                     sessionView === 'conversation'
                       ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
                       : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
@@ -1983,7 +2022,7 @@ export function ChatPage() {
                   aria-current={sessionView === 'trajectory' ? 'page' : undefined}
                   onClick={() => setSessionView('trajectory')}
                   className={cn(
-                    'relative inline-flex h-full items-center gap-1.5 px-1 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full',
+                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
                     sessionView === 'trajectory'
                       ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
                       : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
@@ -1992,12 +2031,75 @@ export function ChatPage() {
                   <Route className="size-3.5" />
                   轨迹
                 </button>
+                {linkedPrd && (
+                  <button
+                    type="button"
+                    aria-current={sessionView === 'documents' ? 'page' : undefined}
+                    onClick={() => setSessionView('documents')}
+                    className={cn(
+                      'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
+                      sessionView === 'documents'
+                        ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
+                        : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
+                    )}
+                    title={linkedPrd.title || '查看绑定文档'}
+                  >
+                    <FileText className="size-3.5" />
+                    文档
+                  </button>
+                )}
+                {pendingSql && (
+                  <button
+                    type="button"
+                    aria-current={sessionView === 'database' ? 'page' : undefined}
+                    aria-label={pendingSql.status === 'PENDING' ? '数据库，待执行' : '数据库'}
+                    onClick={() => setSessionView('database')}
+                    className={cn(
+                      'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
+                      sessionView === 'database'
+                        ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
+                        : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
+                    )}
+                    title={pendingSql.title || '查看待执行 SQL'}
+                  >
+                    <Database className="size-3.5" />
+                    <span className="sm:hidden">SQL</span>
+                    <span className="hidden sm:inline">数据库</span>
+                    {pendingSql.status === 'PENDING' && (
+                      <span className="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+                    )}
+                  </button>
+                )}
+                {affectedApis.length > 0 && (
+                  <button
+                    type="button"
+                    aria-current={sessionView === 'interfaces' ? 'page' : undefined}
+                    aria-label={`涉及接口，${affectedApis.length} 项${affectedApiReadiness?.failed ? `，${affectedApiReadiness.failed} 项失败` : affectedApiReadiness?.unverified ? `，${affectedApiReadiness.unverified} 项待验证` : ''}`}
+                    onClick={() => setSessionView('interfaces')}
+                    className={cn(
+                      'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
+                      sessionView === 'interfaces'
+                        ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
+                        : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
+                    )}
+                  >
+                    <Code2 className="size-3.5" />
+                    <span className="sm:hidden">接口</span>
+                    <span className="hidden sm:inline">涉及接口</span>
+                    <span className="text-[10px] tabular-nums">{affectedApis.length}</span>
+                    {(affectedApiReadiness?.failed ?? 0) > 0 ? (
+                      <span className="size-1.5 rounded-full bg-red-500" aria-hidden="true" />
+                    ) : (affectedApiReadiness?.unverified ?? 0) > 0 ? (
+                      <span className="size-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                    ) : null}
+                  </button>
+                )}
                 <button
                   type="button"
                   aria-current={sessionView === 'sites' ? 'page' : undefined}
                   onClick={() => setSessionView('sites')}
                   className={cn(
-                    'relative inline-flex h-full items-center gap-1.5 px-1 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full',
+                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
                     sessionView === 'sites'
                       ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
                       : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
@@ -2011,7 +2113,7 @@ export function ChatPage() {
                   aria-current={sessionView === 'usage' ? 'page' : undefined}
                   onClick={() => setSessionView('usage')}
                   className={cn(
-                    'relative inline-flex h-full items-center gap-1.5 px-1 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full',
+                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
                     sessionView === 'usage'
                       ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
                       : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
@@ -2026,7 +2128,7 @@ export function ChatPage() {
                     aria-current={sessionView === 'review' ? 'page' : undefined}
                     onClick={() => setSessionView('review')}
                     className={cn(
-                      'relative inline-flex h-full items-center gap-1.5 px-1 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full',
+                      'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
                       sessionView === 'review'
                         ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
                         : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
@@ -2056,6 +2158,25 @@ export function ChatPage() {
                     onLoadEarlier={handleLoadEarlier}
                     loadingEarlier={chat.historyLoading}
                     exhausted={chat.historyExhausted}
+                  />
+                ) : sessionView === 'documents' && linkedPrd ? (
+                  <SessionDocumentsWorkspace
+                    key={`documents-${chat.sessionId}-${linkedPrd.id}`}
+                    session={linkedPrd}
+                    onManage={() => setShowPrdLink(true)}
+                    onOpenSource={() => navigate(`/tools/prd-clarify?viewSession=${encodeURIComponent(linkedPrd.id)}`)}
+                  />
+                ) : sessionView === 'database' && pendingSql ? (
+                  <SessionDatabaseWorkspace
+                    key={`database-${chat.sessionId}-${pendingSql.updatedAt}`}
+                    registration={pendingSql}
+                    onManage={() => setShowPendingSql(true)}
+                  />
+                ) : sessionView === 'interfaces' && affectedApis.length > 0 ? (
+                  <SessionAffectedApisWorkspace
+                    key={`interfaces-${chat.sessionId}-${affectedApis.map(entry => entry.updatedAt).join('-')}`}
+                    entries={affectedApis}
+                    readiness={affectedApiReadiness}
                   />
                 ) : sessionView === 'sites' ? (
                   <SessionSitesWorkspace
@@ -2155,6 +2276,8 @@ export function ChatPage() {
           <AttachmentChips
             items={attachments}
             uploading={uploading}
+            error={attachmentUploadError}
+            onDismissError={() => setAttachmentUploadError(null)}
             onRemove={id => setAttachments(prev => {
               const t = prev.find(a => a.id === id)
               if (t?.previewUrl) URL.revokeObjectURL(t.previewUrl)
@@ -2276,8 +2399,6 @@ export function ChatPage() {
             <VoiceInputButton
               className="max-md:size-8"
               disabled={planLocked}
-            error={attachmentUploadError}
-            onDismissError={() => setAttachmentUploadError(null)}
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
             </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planChatLaunch } from './chatLaunchIntent'
+import { isChatLaunchTargetReady, planChatLaunch } from './chatLaunchIntent'
 
 describe('planChatLaunch', () => {
   it('defers draft acknowledgement until the new session exists', () => {
@@ -21,5 +21,12 @@ describe('planChatLaunch', () => {
     expect(planChatLaunch({ type: 'CHAT_OPEN_PANEL', panel: 'plugins' }, 'current')).toEqual({
       kind: 'OPEN_PANEL', panel: 'plugins',
     })
+  })
+
+  it('waits for a different authoritative session id before dispatching the seed', () => {
+    expect(isChatLaunchTargetReady('review-session', 'review-session')).toBe(false)
+    expect(isChatLaunchTargetReady('review-session', null)).toBe(false)
+    expect(isChatLaunchTargetReady('review-session', 'development-session')).toBe(true)
+    expect(isChatLaunchTargetReady(null, 'development-session')).toBe(true)
   })
 })

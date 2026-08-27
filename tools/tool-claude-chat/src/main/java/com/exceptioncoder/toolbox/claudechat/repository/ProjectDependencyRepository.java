@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.repository;
 
+import com.exceptioncoder.toolbox.claudechat.domain.ProjectDependencyBinding;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -16,23 +18,29 @@ public class ProjectDependencyRepository {
         this.jdbc = jdbc;
     }
 
-    public List<String> findPaths(String primaryProjectPath) {
-        return jdbc.queryForList("""
-                SELECT dependency_project_path
+    public List<ProjectDependencyBinding> findBindings(String primaryProjectPath) {
+        return jdbc.query("""
+                SELECT dependency_project_path, dependency_project_key, relation_type
                 FROM claude_chat_project_dependency
                 WHERE primary_project_path = ?
                 ORDER BY sort_order, create_time
-                """, String.class, primaryProjectPath);
+                """, (rs, row) -> new ProjectDependencyBinding(
+                rs.getString("dependency_project_path"),
+                rs.getString("dependency_project_key"),
+                rs.getString("relation_type")), primaryProjectPath);
     }
 
-    public void replace(String primaryProjectPath, List<String> dependencyPaths, long now) {
+    public void replace(String primaryProjectPath, List<ProjectDependencyBinding> bindings, long now) {
         jdbc.update("DELETE FROM claude_chat_project_dependency WHERE primary_project_path = ?", primaryProjectPath);
-        for (int index = 0; index < dependencyPaths.size(); index++) {
+        for (int index = 0; index < bindings.size(); index++) {
+            ProjectDependencyBinding binding = bindings.get(index);
             jdbc.update("""
                     INSERT INTO claude_chat_project_dependency
-                        (id, primary_project_path, dependency_project_path, sort_order, create_time, update_time)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """, UUID.randomUUID().toString(), primaryProjectPath, dependencyPaths.get(index), index, now, now);
+                        (id, primary_project_path, dependency_project_path, dependency_project_key,
+                         relation_type, sort_order, create_time, update_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, UUID.randomUUID().toString(), primaryProjectPath, binding.projectPath(),
+                    binding.projectKey(), binding.relation(), index, now, now);
         }
     }
 }

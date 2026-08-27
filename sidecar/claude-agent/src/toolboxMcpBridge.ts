@@ -6,6 +6,7 @@ import {
   FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
 } from './pendingSqlPolicy.js'
 import { fetchMcpHttpText, type McpRequestExtra } from './mcpHttp.js'
+import { FORGE_AFFECTED_API_TOOL_DESCRIPTION } from './affectedApiPolicy.js'
 
 const pendingSqlTargetSchema = z.object({
   targetKey: z.string().optional().describe('稳定目标标识；已知 Forge 数据源时可传 datasource:<id>'),
@@ -100,6 +101,28 @@ if (serverName === 'forge') {
     `/api/claude-chat/sessions/${encodeURIComponent(sessionId!)}/pending-sql/auto-register`,
     { title, targetEnvironment, changeType, sqlText, targets, mode, ddlEvidenceId },
     'PUT', extra, '登记待执行 SQL',
+  ))
+
+  server.registerTool('register_affected_apis', {
+    description: FORGE_AFFECTED_API_TOOL_DESCRIPTION,
+    inputSchema: {
+      apis: z.array(z.object({
+        method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']),
+        path: z.string().describe('以 / 开头的路由模板，不带 host、query 或 fragment'),
+        changeType: z.enum(['ADDED', 'MODIFIED', 'REMOVED']).default('MODIFIED'),
+        sourceFile: z.string().describe('主要 Controller/route/handler 源码的仓库相对路径'),
+        handlerName: z.string().optional(),
+        summary: z.string().optional(),
+        verificationStatus: z.enum(['UNVERIFIED', 'PASSED', 'FAILED', 'NOT_APPLICABLE']).default('UNVERIFIED'),
+        verificationMethod: z.string().optional(),
+        verificationCommand: z.string().optional(),
+        verificationSummary: z.string().optional(),
+      })).min(1).max(50),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  }, ({ apis }, extra) => request(
+    `/api/claude-chat/sessions/${encodeURIComponent(sessionId!)}/affected-apis/auto-register`,
+    { apis }, 'PUT', extra, '登记涉及接口',
   ))
 } else if (serverName === 'erp_db') {
   server.registerTool('query', {

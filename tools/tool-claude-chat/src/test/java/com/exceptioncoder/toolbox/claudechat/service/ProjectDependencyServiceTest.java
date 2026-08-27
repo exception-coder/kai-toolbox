@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceDirView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
 import com.exceptioncoder.toolbox.claudechat.domain.ProjectDependency;
+import com.exceptioncoder.toolbox.claudechat.domain.ProjectDependencyBinding;
 import com.exceptioncoder.toolbox.claudechat.repository.ProjectDependencyRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,7 +37,8 @@ class ProjectDependencyServiceTest {
 
         verify(repository).replace(
                 org.mockito.ArgumentMatchers.eq(primary.toAbsolutePath().normalize().toString()),
-                org.mockito.ArgumentMatchers.eq(List.of(legacy.toAbsolutePath().normalize().toString())),
+                org.mockito.ArgumentMatchers.eq(List.of(new ProjectDependencyBinding(
+                        legacy.toAbsolutePath().normalize().toString(), "legacy", "DEPENDS_ON"))),
                 anyLong());
         assertThatThrownBy(() -> service.replace(primary.toString(), List.of(primary.toString())))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -78,8 +80,10 @@ class ProjectDependencyServiceTest {
         Files.createDirectories(knowledge.resolve("legacy-erp"));
         Files.createDirectories(knowledge.resolve("legacy-scm"));
         ProjectDependencyRepository repository = mock(ProjectDependencyRepository.class);
-        when(repository.findPaths(primary.toAbsolutePath().normalize().toString()))
-                .thenReturn(List.of(legacy.toString(), missing.toString()));
+        when(repository.findBindings(primary.toAbsolutePath().normalize().toString()))
+                .thenReturn(List.of(
+                        new ProjectDependencyBinding(legacy.toString(), "legacy-erp", "REFACTORS"),
+                        new ProjectDependencyBinding(missing.toString(), "legacy-scm", "DEPENDS_ON")));
         WorkspaceScanService workspaces = workspaceService(primary, legacy);
         when(workspaces.knowledgeDirectory()).thenReturn(knowledge.toString());
         ProjectDependencyService service = new ProjectDependencyService(repository, workspaces);
@@ -87,8 +91,8 @@ class ProjectDependencyServiceTest {
         List<ProjectDependency> dependencies = service.resolve(primary.toString());
 
         assertThat(dependencies).containsExactly(
-                new ProjectDependency(legacy.toString(), "legacy-erp", true, true),
-                new ProjectDependency(missing.toString(), "legacy-scm", false, true));
+                new ProjectDependency(legacy.toString(), "legacy-erp", "REFACTORS", true, true),
+                new ProjectDependency(missing.toString(), "legacy-scm", "DEPENDS_ON", false, true));
     }
 
     private WorkspaceScanService workspaceService(Path primary, Path dependency) {

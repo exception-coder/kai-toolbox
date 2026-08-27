@@ -147,10 +147,50 @@ export interface WorkspaceList {
   scannedAt: string
 }
 
-/** 主项目长期引用的依赖项目；projectKey 用于路由集中式业务知识。 */
+export type AffectedApiChangeType = 'ADDED' | 'MODIFIED' | 'REMOVED'
+export type AffectedApiVerificationStatus = 'UNVERIFIED' | 'PASSED' | 'FAILED' | 'NOT_APPLICABLE'
+
+/** Coding Agent 为当前会话登记的服务端接口变更事实与验证证据。 */
+export interface SessionAffectedApi {
+  id: string
+  sessionId: string
+  httpMethod: string
+  apiPath: string
+  changeType: AffectedApiChangeType
+  sourceFile: string
+  handlerName: string | null
+  summary: string | null
+  verificationStatus: AffectedApiVerificationStatus
+  verificationMethod: string | null
+  verificationCommand: string | null
+  verificationSummary: string | null
+  createdAt: number
+  updatedAt: number
+  verifiedAt: number | null
+}
+
+export interface AffectedApiReadiness {
+  total: number
+  passed: number
+  failed: number
+  unverified: number
+  notApplicable: number
+  ready: boolean
+}
+
+export type ProjectDependencyRelation = 'REFACTORS' | 'MIGRATES_FROM' | 'DEPENDS_ON' | 'INTEGRATES_WITH'
+
+export interface ProjectDependencyInput {
+  projectPath: string
+  projectKey?: string | null
+  relation: ProjectDependencyRelation
+}
+
+/** 主项目长期引用的关联项目；projectKey 用于路由集中式业务知识。 */
 export interface ProjectDependency {
   projectPath: string
   projectKey: string
+  relation: ProjectDependencyRelation
   sourceAvailable: boolean
   knowledgeAvailable: boolean
 }

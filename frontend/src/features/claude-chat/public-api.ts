@@ -46,7 +46,6 @@ export {
   saveProjectAlias,
   syncYoooniErpAutoDev,
 } from './api'
-export { CHAT_ROUTE, useChatRuntime } from './runtime/ChatRuntimeContext'
 export type {
   ClaudeChatSessionView,
   CodexReasoningEffort,
@@ -54,6 +53,8 @@ export type {
   Engine,
   ModuleSyncPreview,
   ProjectDependency,
+  ProjectDependencyInput,
+  ProjectDependencyRelation,
   ProjectModule,
   ProjectModules,
   SessionRuntimeState,

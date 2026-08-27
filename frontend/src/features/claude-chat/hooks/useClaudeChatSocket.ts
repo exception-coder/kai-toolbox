@@ -18,6 +18,7 @@ import {
   type TurnRunningSignal,
   type TurnRunningState,
 } from '../lib/turnRunningState'
+import { shouldReconnectSocket } from '../lib/socketReconnectPolicy'
 
 // 按 sessionId 持久化权限模式，使刷新/放大缩小/重连后该会话仍保持上次选择，而非回退 default。
 const VALID_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
@@ -316,14 +317,14 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   // WS 重连退避计数（onopen 清零）+ 建连中守卫（覆盖「await 续期」异步窗口，防并发叠多条 WS）
   const reconnectAttemptsRef = useRef(0)
   const connectingRef = useRef(false)
+  const connectionGenerationRef = useRef(0)
   // 鉴权失效检测：openedRef=本次 socket 是否曾成功 OPEN；authFailRef=连续「未 OPEN 就被关」次数。
   // 注意 authFailRef 到阈值**只是触发一次探针的信号，不是判据**——握手被后端 403 拒绝和网线拔了，
   // 浏览器给的都是 close code 1006（握手的 HTTP 状态不暴露给 JS），单凭它无法区分，只能去问后端。
-  // gaveUpRef=已确认登录失效、停重连（等登录成功后再恢复）；forceRefreshRef=下次连接强制续期一次 token。
+  // gaveUpRef=已确认 access/refresh 均失效、停重连（等登录成功后再恢复）。
   const openedRef = useRef(false)
   const authFailRef = useRef(0)
   const gaveUpRef = useRef(false)
-  const forceRefreshRef = useRef(false)
   /** 探针在途标记：多次 close 只跑一个探针，避免断网时并发刷请求。 */
   const probingRef = useRef(false)
   /** 待触发的退避重连定时器：网络恢复时要能提前取消它，避免与立即重连叠成两条退避链。 */
@@ -970,17 +971,49 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (probingRef.current) return
     probingRef.current = true
     authFailRef.current = 0
-    void probeAuth().then(result => {
-      probingRef.current = false
+    const rejectedToken = getToken()
+    void (async () => {
+      const result = await probeAuth(rejectedToken)
       if (result !== 'expired') {
         pushDebug('conn', 'auth-probe', `握手反复失败，但凭证探针返回 ${result}：判为网络问题，保留登录态继续重连`)
+        return
+      }
+      if (getToken() !== rejectedToken) {
+        pushDebug('conn', 'auth-probe-stale', '鉴权探针返回时凭证已更新，忽略旧探针结果')
+        return
+      }
+
+      // 后端明确拒绝 access token 后只恢复一次。跨窗口锁内会复查 rejectedToken；若别的窗口已刷新则直接复用。
+      await ensureFreshToken(true, rejectedToken)
+      if (!getToken()) {
+        gaveUpRef.current = true
+        setState('error')
+        setErrorMessage('登录已过期或凭证失效，请重新登录后重试。')
+        return
+      }
+
+      const recoveredToken = getToken()
+      if (recoveredToken === rejectedToken) {
+        // 锁等待超时、网络失败或服务端 5xx 都可能让刷新延后；旧 access 仍在时只能继续退避，不能据此清空共享登录态。
+        pushDebug('conn', 'auth-recovery-deferred', '本轮未取得新凭证，保留登录态继续退避重连')
+        return
+      }
+      const recovered = await probeAuth(recoveredToken)
+      if (recovered !== 'expired') {
+        pushDebug('conn', 'auth-recovered', `鉴权恢复结果 ${recovered}：保留登录态继续重连`)
+        return
+      }
+      if (getToken() !== recoveredToken) {
+        pushDebug('conn', 'auth-recovery-stale', '恢复探针返回时凭证已更新，忽略旧探针结果')
         return
       }
       gaveUpRef.current = true
       setState('error')
       setErrorMessage('登录已过期或凭证失效，请重新登录后重试。')
-      logout()             // 后端已明确拒绝，此时清 token 才是对的
-      emitSessionExpired() // 通知全局守卫弹登录框
+      logout()
+      emitSessionExpired()
+    })().finally(() => {
+      probingRef.current = false
     })
   }, [])
 
@@ -1058,14 +1091,21 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           // onclose 拿到的都是 code 1006，浏览器不暴露握手的 HTTP 状态。所以这里不再直接 logout，
           // 而是发一个带鉴权的探针请求让后端裁决，拿到真 401/403 才停重连并弹登录框。
           confirmAuthOrKeepRetrying()
-        } else {
-          forceRefreshRef.current = true // 下次连接前强制续期一次（治后端重启/时钟偏移导致的旧 token 被拒）
         }
       }
-      // 非主动关闭且已有会话：自动重连并 attach 回放（断连不丢消息），按指数退避避免死循环刷屏
+      // 非主动关闭且仍有会话上下文：自动重连并回放 intent，按指数退避避免死循环刷屏。
+      // 首次 open 在 Ready 前还没有 sessionId，必须依赖待执行 intent 重连，否则一次握手失败就永久关闭。
       // demo 会话随 WS 断开即被服务端销毁，重连 attach 已无意义；只置 closed。
-      if (!demo && sessionIdRef.current) {
-        intentRef.current = { kind: 'attach', sessionId: sessionIdRef.current, lastEventSeq: lastSeqRef.current }
+      const reconnectSessionId = sessionIdRef.current
+      const shouldReconnect = shouldReconnectSocket({
+        demo,
+        hasSessionId: reconnectSessionId != null,
+        hasPendingIntent: intentRef.current != null,
+      })
+      if (shouldReconnect) {
+        if (reconnectSessionId) {
+          intentRef.current = { kind: 'attach', sessionId: reconnectSessionId, lastEventSeq: lastSeqRef.current }
+        }
         setState('closed')
         const n = (reconnectAttemptsRef.current += 1)
         const delay = Math.min(30_000, 1000 * 2 ** Math.min(n, 5)) + Math.floor(Math.random() * 500)
@@ -1092,6 +1132,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     // 登录失效只影响需要登录的通道；demo / 公开评审使用各自 capability，不能被本机登录态拦住。
     if (!publicWithoutLogin && gaveUpRef.current) { setState('error'); return }
     connectingRef.current = true
+    const connectionGeneration = connectionGenerationRef.current
     setState('connecting')
     // demo 与公开评审都免登录：前者由沙箱约束，后者由 review_token capability 约束。
     // 这里必须跳过 access token 续期，否则从未登录过的新浏览器打不开本应公开的评审链接。
@@ -1103,12 +1144,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       openSocket()
       return
     }
-    // 重连前先确保 access token 新鲜（过期则用 refresh token 续期）。forceRefresh=true 时强制续期一次，
-    // 治「本地以为 token 还新鲜、服务端却已拒」（后端重启/时钟偏移）的握手死循环。
-    // 治本：避免「拿过期 token 每秒重连被握手拒」的死循环（实测曾刷 4 万条）。
-    const force = forceRefreshRef.current
-    forceRefreshRef.current = false
-    ensureFreshToken(force).finally(() => {
+    // 常规建连只按过期时间刷新；握手失败不能区分鉴权拒绝和网络故障，禁止在这里强制轮换 token。
+    // 服务端明确返回 401/403 后的恢复性刷新由 confirmAuthOrKeepRetrying 单独协调。
+    ensureFreshToken().finally(() => {
+      if (connectionGenerationRef.current !== connectionGeneration) return
       connectingRef.current = false
       if (manualCloseRef.current) return
       const cur = wsRef.current
@@ -1133,6 +1172,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (autoConnect) connect()
     return () => {
       manualCloseRef.current = true
+      connectionGenerationRef.current += 1
+      connectingRef.current = false
       if (reconnectTimerRef.current != null) {
         window.clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null

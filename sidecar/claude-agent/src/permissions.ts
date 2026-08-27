@@ -19,7 +19,7 @@ const DEMO_FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', '
 /** demo 唯一放行的数据工具（in-process MCP，受后端表白名单二次把关）。 */
 const DEMO_DB_TOOL = 'mcp__welfare_db__exec'
 /** 只写 Forge 本地台账、不执行数据库的安全工具；普通开发会话无需弹审批。 */
-const FORGE_SAFE_TOOLS = new Set(['mcp__forge__register_pending_sql'])
+const FORGE_SAFE_TOOLS = new Set(['mcp__forge__register_pending_sql', 'mcp__forge__register_affected_apis'])
 
 /** 业务咨询只读策略：内置工具只开放读能力；MCP 也必须命中明确的只读白名单。 */
 const CONSULT_READ_TOOLS = new Set(['Read'])

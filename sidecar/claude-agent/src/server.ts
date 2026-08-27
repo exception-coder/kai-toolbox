@@ -12,6 +12,7 @@ import {
   GraphifyRuntime,
   GRAPHIFY_RUNTIME_TOKEN,
 } from './graphifyRuntime.js'
+import { inspectSystemRoute } from './codexSecurity.js'
 
 const port = Number(process.env.CLAUDE_CHAT_SIDECAR_PORT) || 18890
 initializeTelemetry()
@@ -230,6 +231,18 @@ wss.on('connection', (ws) => {
           engines: [],
           error: error instanceof Error ? error.message : String(error),
         }))
+        break
+      case 'inspectSystemRoute':
+        emit('system-route-inspection', {
+          type: 'systemRouteInspection',
+          requestId: msg.requestId as string | undefined,
+          ...inspectSystemRoute(
+            msg.cwd as string | undefined,
+            Array.isArray(msg.evidenceSystems)
+              ? msg.evidenceSystems.filter((value): value is string => typeof value === 'string')
+              : [],
+          ),
+        })
         break
       case 'oneShot':
         agentTracing.begin(sessionId, msg.traceContext, msg.telemetry)

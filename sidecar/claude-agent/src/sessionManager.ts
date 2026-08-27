@@ -10,6 +10,7 @@ import { createSrmDbServer } from './srmDb.js'
 import { createSrmAppServer } from './srmApp.js'
 import { createScmDbServer } from './scmDb.js'
 import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
+import { FORGE_AFFECTED_API_STEER } from './affectedApiPolicy.js'
 import {
   CROSS_TOPOLOGY_READONLY_TOOLS,
   DOMAIN_KNOWLEDGE_READONLY_TOOLS,
@@ -807,7 +808,11 @@ class Session {
         const canRead = (system: 'erp' | 'srm' | 'scm'): boolean =>
           this.toolPolicy !== 'consult-readonly' || consultTargets.has(system)
         if (this.forgeSqlRegistration) {
-          mcpServers.forge = createForgePendingSqlServer(this.id, toolboxApiBase)
+          mcpServers.forge = createForgePendingSqlServer(
+            this.id,
+            toolboxApiBase,
+            this.toolPolicy !== 'consult-readonly',
+          )
         }
         if (canRead('erp')) mcpServers.erp_db = createErpDbServer(toolboxApiBase)
         // 业务咨询只读策略只注入数据库查询工具和 Forge SQL 台账；可真实写测试环境的 app 工具仅限普通开发会话。
@@ -861,7 +866,10 @@ class Session {
                       type: 'preset',
                       preset: 'claude_code',
                       append: [windowsExecutionInstructions() ?? '', this.apiBaseUrl ? GATEWAY_STEER : '',
-                        toolboxApiBase && this.forgeSqlRegistration ? FORGE_PENDING_SQL_STEER : '',
+                        toolboxApiBase && this.forgeSqlRegistration
+                          ? [FORGE_PENDING_SQL_STEER,
+                              this.toolPolicy !== 'consult-readonly' ? FORGE_AFFECTED_API_STEER : '']
+                              .filter(Boolean).join('\n\n') : '',
                         developerInstructions ?? '']
                         .filter(Boolean).join('\n\n'),
                     },

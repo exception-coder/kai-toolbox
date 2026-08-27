@@ -32,7 +32,11 @@ public class ProjectDependencyController {
     @PutMapping
     public ResponseEntity<Void> replace(@RequestParam String primaryPath,
                                         @RequestBody(required = false) ProjectDependenciesRequest request) {
-        service.replace(primaryPath, request == null ? List.of() : request.paths());
+        if (request != null && request.dependencies() != null) {
+            service.replaceBindings(primaryPath, request.dependencies());
+        } else {
+            service.replace(primaryPath, request == null ? List.of() : request.paths());
+        }
         return ResponseEntity.noContent().build();
     }
 }

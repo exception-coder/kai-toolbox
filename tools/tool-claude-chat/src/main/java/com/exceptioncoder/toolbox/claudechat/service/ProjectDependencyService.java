@@ -1,8 +1,11 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectDependencyInput;
 import com.exceptioncoder.toolbox.claudechat.domain.ProjectDependency;
+import com.exceptioncoder.toolbox.claudechat.domain.ProjectDependencyBinding;
 import com.exceptioncoder.toolbox.claudechat.repository.ProjectDependencyRepository;
+import com.exceptioncoder.toolbox.common.projectevidence.ProjectEvidenceRelation;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,12 +48,22 @@ public class ProjectDependencyService {
 
     @Transactional
     public void replace(String primaryProjectPath, List<String> requestedPaths) {
+        List<ProjectDependencyInput> inputs = requestedPaths == null ? List.of() : requestedPaths.stream()
+                .map(path -> new ProjectDependencyInput(path, null, ProjectEvidenceRelation.DEPENDS_ON.name()))
+                .toList();
+        replaceBindings(primaryProjectPath, inputs);
+    }
+
+    /** 保存带关系语义的受控项目绑定。 */
+    @Transactional
+    public void replaceBindings(String primaryProjectPath, List<ProjectDependencyInput> requestedBindings) {
         String normalizedPrimary = requireWorkspaceProject(primaryProjectPath, "主项目路径不属于当前工作区");
-        List<String> safeRequests = requestedPaths == null ? List.of() : requestedPaths;
+        List<ProjectDependencyInput> safeRequests = requestedBindings == null ? List.of() : requestedBindings;
         Map<String, String> allowed = workspaceProjects();
         String primaryKey = pathKey(normalizedPrimary);
-        Map<String, String> unique = new LinkedHashMap<>();
-        for (String requestedPath : safeRequests) {
+        Map<String, ProjectDependencyBinding> unique = new LinkedHashMap<>();
+        for (ProjectDependencyInput request : safeRequests) {
+            String requestedPath = request == null ? null : request.projectPath();
             if (requestedPath == null || requestedPath.isBlank()) continue;
             String requestedKey = pathKey(requestedPath);
             if (requestedKey.equals(primaryKey)) {
@@ -60,7 +73,9 @@ public class ProjectDependencyService {
             if (allowedPath == null) {
                 throw new IllegalArgumentException("依赖项目不在项目工作台可用目录中: " + requestedPath);
             }
-            unique.putIfAbsent(requestedKey, allowedPath);
+            String projectKey = normalizedProjectKey(request.projectKey(), allowedPath);
+            String relation = normalizedRelation(request.relation());
+            unique.putIfAbsent(requestedKey, new ProjectDependencyBinding(allowedPath, projectKey, relation));
         }
         if (unique.size() > MAX_DEPENDENCY_COUNT) {
             throw new IllegalArgumentException("每个项目最多关联 " + MAX_DEPENDENCY_COUNT + " 个依赖项目");
@@ -70,24 +85,49 @@ public class ProjectDependencyService {
 
     private List<ProjectDependency> resolveNormalized(String normalizedPrimary) {
         Path knowledgeRoot = Path.of(workspaceScanService.knowledgeDirectory());
-        return repository.findPaths(normalizedPrimary).stream()
-                .map(path -> resolveDependency(path, knowledgeRoot))
+        return repository.findBindings(normalizedPrimary).stream()
+                .map(binding -> resolveDependency(binding, knowledgeRoot))
                 .toList();
     }
 
-    private ProjectDependency resolveDependency(String storedPath, Path knowledgeRoot) {
+    private ProjectDependency resolveDependency(ProjectDependencyBinding binding, Path knowledgeRoot) {
         try {
-            Path source = Path.of(storedPath).toAbsolutePath().normalize();
+            Path source = Path.of(binding.projectPath()).toAbsolutePath().normalize();
             String normalizedPath = source.toString();
-            String projectKey = source.getFileName() == null ? normalizedPath : source.getFileName().toString();
+            String projectKey = normalizedProjectKey(binding.projectKey(), normalizedPath);
             return new ProjectDependency(
                     normalizedPath,
                     projectKey,
+                    normalizedRelation(binding.relation()),
                     Files.isDirectory(source),
                     Files.isDirectory(knowledgeRoot.resolve(projectKey)));
         } catch (InvalidPathException exception) {
-            return new ProjectDependency(storedPath, storedPath, false, false);
+            return new ProjectDependency(binding.projectPath(), binding.projectKey(),
+                    normalizedRelation(binding.relation()), false, false);
         }
+    }
+
+    private static String normalizedProjectKey(String requestedKey, String projectPath) {
+        if (requestedKey != null && !requestedKey.isBlank()) {
+            return requestedKey.trim();
+        }
+        Path path = Path.of(projectPath);
+        return path.getFileName() == null ? path.toString() : path.getFileName().toString();
+    }
+
+    private static String normalizedRelation(String relation) {
+        String value = relation == null || relation.isBlank()
+                ? ProjectEvidenceRelation.DEPENDS_ON.name() : relation.trim().toUpperCase(Locale.ROOT);
+        ProjectEvidenceRelation parsed;
+        try {
+            parsed = ProjectEvidenceRelation.valueOf(value);
+        } catch (IllegalArgumentException error) {
+            throw new IllegalArgumentException("不支持的项目关系: " + relation, error);
+        }
+        if (parsed == ProjectEvidenceRelation.PRIMARY) {
+            throw new IllegalArgumentException("依赖项目关系不能为 PRIMARY");
+        }
+        return parsed.name();
     }
 
     private String requireWorkspaceProject(String projectPath, String message) {
