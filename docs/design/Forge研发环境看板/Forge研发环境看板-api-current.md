@@ -70,7 +70,7 @@
           "version": "1.6.0",
           "summary": "Node.js 版本不满足 20.19+",
           "detail": "当前 Node.js 18.20.0",
-          "installCommand": "npm install --global @fission-ai/openspec@latest",
+          "installCommand": "npm.cmd install --global @fission-ai/openspec@latest",
           "officialUrl": "https://github.com/Fission-AI/OpenSpec/blob/main/docs/installation.md"
         }
       ]

@@ -22,6 +22,7 @@
 - 每次环境快照检测前也刷新 PATH，并将 WindowsApps 应用执行别名放在真实工具目录之后，避免已安装的 Python 与 uv 被误判为缺失。
 - Windows 白名单命令统一先切换到 UTF-8 代码页，确保中文系统错误和校验明细可被 Java 21 正确解码。
 - Windows 的 npm 全局安装命令统一使用 `npm.cmd`，避免 PowerShell 优先命中受执行策略限制的 `npm.ps1`。
+- Windows 刷新 PATH 时必须额外读取 `uv tool dir --bin`，确保用户级 uv 工具无需重启 Forge 即可检测。
 - 单项探测失败不得让整个快照接口失败；诊断输出必须截断且不得包含凭据或环境变量。
 - 公司套件继续复用五个固定仓库、三个插件和两个 MCP 的现有白名单。
 - 三个团队插件必须分别展示 Claude Code 与 Codex 已装版本；单端补装只接受 `claude` 或 `codex`，不得允许前端传入任意引擎或插件名。

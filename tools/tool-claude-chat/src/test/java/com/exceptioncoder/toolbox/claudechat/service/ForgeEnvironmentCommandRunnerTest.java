@@ -32,6 +32,16 @@ class ForgeEnvironmentCommandRunnerTest {
     }
 
     @Test
+    void shouldPutUvToolBinAheadOfInheritedPath() {
+        String merged = ForgeEnvironmentCommandRunner.mergePaths(
+                "C:\\Windows;C:\\Program Files\\nodejs",
+                "C:\\Users\\tester\\.local\\bin");
+
+        assertThat(merged).isEqualTo(
+                "C:\\Users\\tester\\.local\\bin;C:\\Windows;C:\\Program Files\\nodejs");
+    }
+
+    @Test
     @EnabledOnOs(OS.WINDOWS)
     void shouldDecodeWindowsCommandOutputAsUtf8() {
         ForgeEnvironmentCommandRunner runner = new ForgeEnvironmentCommandRunner();

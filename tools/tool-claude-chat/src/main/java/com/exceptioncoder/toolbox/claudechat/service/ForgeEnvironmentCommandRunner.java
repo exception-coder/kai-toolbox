@@ -84,6 +84,11 @@ public class ForgeEnvironmentCommandRunner {
         if (result.succeeded() && !result.output().isBlank()) {
             effectivePath = mergePaths(effectivePath, result.output());
         }
+        CommandResult uvToolBin = run(List.of("uv", "tool", "dir", "--bin"),
+                Duration.ofSeconds(10), null, null);
+        if (uvToolBin.succeeded() && !uvToolBin.output().isBlank()) {
+            effectivePath = mergePaths(effectivePath, uvToolBin.output());
+        }
     }
 
     private void drain(Process process, StringBuilder output, Consumer<String> outputConsumer) {
