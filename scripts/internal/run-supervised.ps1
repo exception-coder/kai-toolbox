@@ -10,13 +10,7 @@
 # The frontend restart button calls this endpoint through the Vite /supervisor proxy.
 # This supervisor owns both backend and frontend; Maven skips its embedded frontend build.
 #
-# Usage:
-#   pwsh -File scripts\run-supervised.ps1                # dev + Aspire（默认）
-#   pwsh -File scripts\run-supervised.ps1 -Mode full     # package + fat jar
-#   pwsh -File scripts\run-supervised.ps1 -HotReload     # dev + 存盘即编译并热重启
-#   pwsh -File scripts\run-supervised.ps1 -AutoUpdate    # 启用 Java 安全跟随 origin/main
-#   pwsh -File scripts\run-supervised.ps1 -Observability langfuse
-#   pwsh -File scripts\run-supervised.ps1 -Observability off
+# Internal implementation. User entry point: scripts\run-supervised.cmd
 # Ctrl+C stops the supervisor loop.
 
 param(
@@ -48,6 +42,7 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+$ScriptsRoot = Split-Path -Parent $PSScriptRoot
 
 function Initialize-Utf8Console {
     try {
@@ -143,10 +138,10 @@ if (-not $SupervisorWorker) {
 }
 
 # 分类读取 scripts/run-tools.d/*.conf；旧 run-tools.conf 仅作为迁移前兼容入口。
-. (Join-Path $PSScriptRoot 'run-tools-config.ps1')
+. (Join-Path $ScriptsRoot 'run-tools-config.ps1')
 Import-ToolboxLocalConfig
 
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+$RepoRoot = Split-Path -Parent $ScriptsRoot
 Set-Location -LiteralPath $RepoRoot
 
 $script:BootstrapProcessId = $BootstrapProcessId
@@ -295,7 +290,7 @@ function Initialize-AspireObservability {
         'LANGFUSE_SECRET_KEY'
     )) { Remove-ProcessEnvironmentVariable $name }
 
-    $startScript = Join-Path $PSScriptRoot 'start-observability-local.ps1'
+    $startScript = Join-Path $ScriptsRoot 'start-observability-local.ps1'
     if (-not (Test-Path -LiteralPath $startScript)) {
         Write-Host '[supervisor] WARN: 未找到 scripts/start-observability-local.ps1，业务系统继续启动'
         return
@@ -309,7 +304,7 @@ function Initialize-AspireObservability {
 }
 
 function Initialize-LangfuseObservability {
-    $langfuseEnvFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'deploy\langfuse\.env'
+    $langfuseEnvFile = Join-Path $RepoRoot 'deploy\langfuse\.env'
     $hasEnvFile = Test-Path -LiteralPath $langfuseEnvFile
     $langfuseBaseUrl = if ($env:LANGFUSE_BASE_URL) { $env:LANGFUSE_BASE_URL } elseif ($hasEnvFile) { Read-DotEnvValue $langfuseEnvFile 'NEXTAUTH_URL' }
     $langfusePublicKey = if ($env:LANGFUSE_PUBLIC_KEY) { $env:LANGFUSE_PUBLIC_KEY } elseif ($hasEnvFile) { Read-DotEnvValue $langfuseEnvFile 'LANGFUSE_INIT_PROJECT_PUBLIC_KEY' }
@@ -1013,7 +1008,7 @@ function Start-AgentScopeStudio {
             if ("$($holder.CommandLine)" -match 'as_studio|agentscope') {
                 Write-Host '[supervisor] AgentScope Studio 已在 :3000，跳过'
             } else {
-                Write-Host "[supervisor] WARN: :3000 被非 Studio 进程占用（PID=$($holder.ProcessId) $($holder.Name)），本次不启动 Studio；要腾端口可跑 stop-supervised.ps1 -Ports 3000"
+                Write-Host "[supervisor] WARN: :3000 被非 Studio 进程占用（PID=$($holder.ProcessId) $($holder.Name)），本次不启动 Studio；要腾端口可跑 scripts\stop-supervised.cmd -Ports 3000"
             }
             return
         }
@@ -1312,7 +1307,7 @@ function Test-AutoUpdateRuntimeIdle {
 }
 
 function Test-AutoUpdateCandidateSupervisor([string]$remoteRef) {
-    $scriptResult = Invoke-GitCapture @('show', "${remoteRef}:scripts/run-supervised.ps1") 10
+    $scriptResult = Invoke-GitCapture @('show', "${remoteRef}:scripts/internal/run-supervised.ps1") 10
     if ($scriptResult.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($scriptResult.Output)) {
         return [pscustomobject]@{ Safe = $false; Message = '候选版本缺少可执行的 supervisor 脚本'; Error = $scriptResult.Error }
     }

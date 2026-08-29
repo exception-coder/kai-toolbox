@@ -10,7 +10,7 @@ Forge 是一个运行在本机的 AI Coding 工作台。它把项目目录、业
 
 ### 环境要求
 
-- Windows 10/11 + PowerShell 7（`pwsh`），或 macOS + Bash/Python 3
+- Windows 10/11 + Windows PowerShell 5.1（系统自带）或 PowerShell 7，或 macOS + Bash/Python 3
 - JDK 21
 - Maven 3.9+
 - Node.js 20+ 与 npm
@@ -32,8 +32,19 @@ cd kai-toolbox
 Windows：
 
 ```powershell
-pwsh -File scripts\run-supervised.ps1
+.\scripts\run-supervised.cmd
 ```
+
+推荐使用仓库提供的 `.cmd` 入口。它会用 Windows 10/11 自带的 `powershell.exe` 启动 supervisor，并只为该子进程设置 `ExecutionPolicy Bypass`；不要求安装 PowerShell 7，也不受当前终端禁止直接执行 `.ps1` 的策略影响。
+
+需要传递启动参数时直接追加即可，例如：
+
+```powershell
+.\scripts\run-supervised.cmd -HotReload
+.\scripts\run-supervised.cmd -Mode full
+```
+
+PowerShell 实现放在 `scripts/internal/`，属于内部文件，不作为用户启动入口。
 
 macOS：
 
@@ -60,13 +71,13 @@ bash scripts/run-supervised-macos.sh
 Windows 需要保存即编译并热重启时，显式执行：
 
 ```powershell
-pwsh -File scripts\run-supervised.ps1 -HotReload
+.\scripts\run-supervised.cmd -HotReload
 ```
 
 Windows 需要先完整打包再运行 fat jar 时：
 
 ```powershell
-pwsh -File scripts\run-supervised.ps1 -Mode full
+.\scripts\run-supervised.cmd -Mode full
 ```
 
 ### 自动同步云端版本
@@ -78,7 +89,7 @@ pwsh -File scripts\run-supervised.ps1 -Mode full
 Windows：
 
 ```powershell
-pwsh -File scripts\run-supervised.ps1 -AutoUpdate
+.\scripts\run-supervised.cmd -AutoUpdate
 ```
 
 macOS：
@@ -103,7 +114,7 @@ bash scripts/run-supervised-macos.sh --auto-update
 Windows：
 
 ```powershell
-pwsh -File scripts\stop-supervised.ps1
+.\scripts\stop-supervised.cmd
 ```
 
 macOS：
@@ -117,7 +128,7 @@ bash scripts/stop-supervised-macos.sh
 Windows：
 
 ```powershell
-pwsh -File scripts\stop-supervised.ps1 -KeepStudio
+.\scripts\stop-supervised.cmd -KeepStudio
 ```
 
 macOS：

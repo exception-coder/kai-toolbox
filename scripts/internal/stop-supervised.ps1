@@ -9,10 +9,10 @@
 # 本脚本按端口把它们一次清干净，供「全停」或「重来前先清场」用。
 #
 # Usage:
-#   pwsh -File scripts\stop-supervised.ps1            # 停全部
-#   pwsh -File scripts\stop-supervised.ps1 -KeepStudio  # 保留 AgentScope Studio(:3000)
-#   pwsh -File scripts\stop-supervised.ps1 -Ports 18080,5173  # supervisor 已退出后，只清指定端口
-#   pwsh -File scripts\stop-supervised.ps1 -IncludeObservability  # 同时停止 Aspire
+#   scripts\stop-supervised.cmd                       # 停全部
+#   scripts\stop-supervised.cmd -KeepStudio           # 保留 AgentScope Studio(:3000)
+#   scripts\stop-supervised.cmd -Ports 18080,5173     # supervisor 已退出后，只清指定端口
+#   scripts\stop-supervised.cmd -IncludeObservability # 同时停止 Aspire
 
 param(
     [int[]]$Ports,
@@ -36,7 +36,8 @@ function Initialize-Utf8Console {
 
 Initialize-Utf8Console
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
+$scriptsRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent $scriptsRoot
 $normalizedRepo = [System.IO.Path]::GetFullPath($repoRoot).TrimEnd('\').ToLowerInvariant()
 $sha256 = [System.Security.Cryptography.SHA256]::Create()
 try {
@@ -81,7 +82,7 @@ function Stop-SupervisorWorker {
 }
 
 function Stop-LocalObservability {
-    $stopScript = Join-Path $PSScriptRoot 'stop-observability-local.ps1'
+    $stopScript = Join-Path $scriptsRoot 'stop-observability-local.ps1'
     if (Test-Path -LiteralPath $stopScript) {
         & $stopScript
     } else {
