@@ -1,5 +1,5 @@
 import { http } from '@/lib/api'
-import type { ForgeEnvironmentSnapshot } from './types'
+import type { BusinessSystemWorkspace, ForgeEnvironmentSnapshot } from './types'
 
 const SOURCE = 'gitee'
 
@@ -22,4 +22,16 @@ export function teamSuiteInstallPath() {
 /** 返回固定工作区、默认 Gitee 源的一键套件更新 SSE 路径。 */
 export function teamSuiteUpdatePath() {
   return `/claude-chat/plugins/update/stream?source=${SOURCE}`
+}
+
+/** 读取固定业务系统源码目录与 Git 状态。 */
+export function getBusinessSystemWorkspaces(fetchRemote = false) {
+  return http<BusinessSystemWorkspace[]>(
+    `/claude-chat/plugins/business-systems?fetch=${String(fetchRemote)}`,
+  )
+}
+
+/** 返回四个业务系统、六个固定仓库的一键拉取 SSE 路径。 */
+export function businessSourceSyncPath() {
+  return '/claude-chat/plugins/business-systems/sync/stream?system=all'
 }

@@ -18,9 +18,14 @@
 - OpenSpec 最低 Node.js 20.19；Graphify 最低 Python 3.10；Forge 本地构建最低 Java 21。
 - Java/Maven 构建链异常显示告警但不阻断已部署 Forge 的公司套件初始化。
 - 安装命令成功后必须重新探测；当前进程仍找不到命令时停止并返回 `restartRequired`。
+- Windows 每个安装步骤成功后重新读取用户与系统 PATH；uv 先于 Python 安装，Python 使用 `uv python install 3.12 --default` 补齐。
+- 每次环境快照检测前也刷新 PATH，并将 WindowsApps 应用执行别名放在真实工具目录之后，避免已安装的 Python 与 uv 被误判为缺失。
+- Windows 白名单命令统一先切换到 UTF-8 代码页，确保中文系统错误和校验明细可被 Java 21 正确解码。
 - 单项探测失败不得让整个快照接口失败；诊断输出必须截断且不得包含凭据或环境变量。
 - 公司套件继续复用五个固定仓库、三个插件和两个 MCP 的现有白名单。
 - 公司套件工作区固定为 `${user.home}/.kai-toolbox/team-tools`；所有安装和更新先同步仓库，再从本地目录执行。
+- 业务源码根默认固定为 `${user.home}/.kai-toolbox/sources`，显式 `business-workspace.root` 可覆盖；固定管理四个系统、六个仓库。
+- Forge 环境页复用 `BusinessWorkspaceService` 的状态与 SSE 同步接口，不复制 Git 编排逻辑。
 - 已存在仓库仅在工作树干净时执行 `git pull --ff-only`；不得删除、强制重置或覆盖用户修改。
 - SSE 事件固定为 `snapshot`、`step`、`restartRequired`、`done`、`error`。
 
@@ -45,6 +50,9 @@
 | `com.exceptioncoder.toolbox.claudechat.api.dto.ForgeEnvironmentView` | 新增 | 环境总览与依赖项封闭契约 |
 | `com.exceptioncoder.toolbox.claudechat.service.ForgeEnvironmentService` | 新增 | 只读探测、版本门禁和套件聚合 |
 | `com.exceptioncoder.toolbox.claudechat.service.ForgeEnvironmentBootstrapService` | 新增 | 初始化步骤拓扑、互斥与恢复编排 |
+| `com.exceptioncoder.toolbox.claudechat.service.BusinessWorkspaceService` | 修改 | 使用统一业务源码根执行安全 clone/fetch/ff-only pull |
+| `frontend/src/features/forge-environment/components/BusinessSourceOperations.tsx` | 新增 | 展示四个系统、六个仓库状态与一键拉取入口 |
+| `frontend/src/features/forge-environment/pages/ForgeEnvironmentPage.tsx` | 修改 | 接入业务源码查询、SSE 进度和刷新 |
 | `com.exceptioncoder.toolbox.claudechat.service.PluginUpdateService` | 修改 | 提取供初始化编排复用的同步安装入口 |
 | `frontend.src.features.forge-environment.pages.ForgeEnvironmentPage` | 新增 | 页面数据和 SSE 生命周期编排 |
 | `frontend.src.features.forge-environment.components.ReadinessSummary` | 新增 | 总结论、阻断说明与主操作 |
@@ -65,7 +73,7 @@ ForgeEnvironmentBootstrapService#start(String taskId, String sessionId, String s
   在虚拟线程中启动单一初始化任务并发布 SSE。
 
 ForgeEnvironmentBootstrapService#bootstrap(String taskId, String sessionId, String source): BootstrapResult
-  按拓扑跳过或执行固定安装步骤，并在 PATH 需刷新时停止。
+  按拓扑跳过或执行固定安装步骤，安装后刷新 PATH 并继续检测后续工具。
 
 PluginUpdateService#installDependencies(String taskId, String sessionId, String source): List<Map<String, Object>>
   同步完成五仓拉取、MCP 构建、双端插件和 MCP 安装，不自行完成 SSE。

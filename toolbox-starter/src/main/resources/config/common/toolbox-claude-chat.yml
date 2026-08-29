@@ -25,8 +25,8 @@ toolbox:
       hidden-prefixes:
         - "."
         - "_"
-    # 团队依赖面板托管的业务系统源码。root 为空时使用 ~/.kai-toolbox/business-systems，
-    # 并自动纳入 Vibe Coding 与业务咨询的工作区列表。
+    # Forge 托管的业务系统源码。root 为空时使用 ~/.kai-toolbox/sources，
+    # 无需额外配置，并自动纳入 Vibe Coding 与业务咨询的工作区列表。
     business-workspace:
       root: ""
       command-timeout-ms: 600000

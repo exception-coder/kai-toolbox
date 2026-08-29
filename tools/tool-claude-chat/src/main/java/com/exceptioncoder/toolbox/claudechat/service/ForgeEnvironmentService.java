@@ -45,6 +45,7 @@ public class ForgeEnvironmentService {
      * @return 分层就绪度快照
      */
     public ForgeEnvironmentView inspect(String sessionId, String requestedSource, boolean fetch) {
+        commandRunner.refreshEnvironmentPath();
         String source = normalizeSource(requestedSource);
         List<DependencyGroupView> groups = List.of(
                 coreGroup(),
@@ -89,7 +90,8 @@ public class ForgeEnvironmentService {
         return switch (toolId) {
             case "git" -> WINDOWS ? winget("Git.Git") : MACOS ? List.of("brew", "install", "git") : List.of();
             case "node" -> WINDOWS ? winget("OpenJS.NodeJS.LTS") : MACOS ? List.of("brew", "install", "node") : List.of();
-            case "python" -> WINDOWS ? winget("Python.Python.3.12") : MACOS ? List.of("brew", "install", "python@3.12") : List.of();
+            case "python" -> WINDOWS ? List.of("uv", "python", "install", "3.12", "--default")
+                    : MACOS ? List.of("brew", "install", "python@3.12") : List.of();
             case "uv" -> WINDOWS ? winget("astral-sh.uv") : MACOS ? List.of("brew", "install", "uv") : List.of();
             case "claude" -> List.of("npm", "install", "--global", "@anthropic-ai/claude-code");
             case "codex" -> List.of("npm", "install", "--global", "@openai/codex");
@@ -225,7 +227,7 @@ public class ForgeEnvironmentService {
     }
 
     private static String pythonInstallCommand() {
-        return WINDOWS ? "winget install --id Python.Python.3.12 -e --source winget" : "brew install python@3.12";
+        return WINDOWS ? "uv python install 3.12 --default" : "brew install python@3.12";
     }
 
     private static String uvInstallCommand() {

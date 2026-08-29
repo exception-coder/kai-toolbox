@@ -19,6 +19,8 @@
 | 2 | GET | `/api/claude-chat/forge-environment/bootstrap/stream` | 执行一键初始化并实时返回步骤 |
 | 3 | GET | `/api/claude-chat/plugins/install/stream` | 同步五个套件仓并从本地一键安装 |
 | 4 | GET | `/api/claude-chat/plugins/update/stream` | 同步五个套件仓并从本地一键更新 |
+| 5 | GET | `/api/claude-chat/plugins/business-systems` | 读取四个业务系统、六个固定仓库状态 |
+| 6 | GET | `/api/claude-chat/plugins/business-systems/sync/stream` | 一键拉取或安全快进业务源码 |
 
 ---
 
@@ -208,3 +210,34 @@ data: {"stepId":"team-suites","message":"公司套件安装失败","detail":"Git
 ### 4.2 请求与事件
 
 Query 参数和 SSE 消息格式与“一键安装公司套件”相同。前端在收到 `done` 或 `error` 后重新读取环境快照。
+
+## 5. 读取业务系统源码状态
+
+### 5.1 基本信息
+
+| 项 | 内容 |
+|---|---|
+| Method | `GET` |
+| Path | `/api/claude-chat/plugins/business-systems` |
+| 用途 | 返回四个业务系统、六个固定仓库的目录、Git 与同步状态 |
+
+### 5.2 请求
+
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| `fetch` | boolean | `false` | 是否刷新远端引用后计算 ahead/behind |
+
+## 6. 一键拉取业务系统源码
+
+### 6.1 基本信息
+
+| 项 | 内容 |
+|---|---|
+| Method | `GET` |
+| Path | `/api/claude-chat/plugins/business-systems/sync/stream` |
+| Produces | `text/event-stream` |
+| 用途 | clone 缺失仓库，并对安全仓库执行 fetch 与快进更新 |
+
+### 6.2 请求与事件
+
+`system` 默认 `all`，也可传 `erp`、`erp-mini-program`、`srm` 或 `scm`。事件沿用 `message`，其中 `line` 表示 Git 输出，`step` 表示单步退出码，`done` 携带逐仓库结果；任一仓库失败不删除或覆盖其他仓库。

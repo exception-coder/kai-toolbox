@@ -16,7 +16,7 @@ import java.nio.file.Path;
 @Setter
 public class BusinessWorkspaceProperties {
 
-    /** 业务源码根目录；空白时使用 ~/.kai-toolbox/business-systems。 */
+    /** 业务源码根目录；空白时使用 ~/.kai-toolbox/sources。 */
     private String root = "";
 
     /** 单个 clone、fetch 或 pull 命令最大执行时间。 */
@@ -24,7 +24,7 @@ public class BusinessWorkspaceProperties {
 
     public Path resolveRoot() {
         if (root == null || root.isBlank()) {
-            return Path.of(System.getProperty("user.home"), ".kai-toolbox", "business-systems")
+            return Path.of(System.getProperty("user.home"), ".kai-toolbox", "sources")
                     .toAbsolutePath().normalize();
         }
         String configured = root.trim();

@@ -43,3 +43,21 @@ export interface RestartRequiredEvent {
   message: string
   completed: string[]
 }
+
+export interface BusinessRepositoryStatus {
+  name: string
+  path: string
+  cloned: boolean
+  status: string
+  message: string
+}
+
+export interface BusinessSystemWorkspace {
+  id: 'erp' | 'erp-mini-program' | 'srm' | 'scm'
+  name: string
+  workspacePath: string
+  ready: boolean
+  status: 'READY' | 'PARTIAL' | 'NOT_CLONED' | 'BLOCKED'
+  message: string
+  members: BusinessRepositoryStatus[]
+}

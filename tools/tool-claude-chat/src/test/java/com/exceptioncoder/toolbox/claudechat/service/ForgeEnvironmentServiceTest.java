@@ -5,6 +5,8 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.SuiteStatusView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.TeamRepositoryStatusView;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -47,6 +49,13 @@ class ForgeEnvironmentServiceTest {
     }
 
     @Test
+    void shouldRefreshProcessPathBeforeInspectingTools() {
+        service.inspect(null, "gitee", false);
+
+        assertThat(commandRunner.pathRefreshed).isTrue();
+    }
+
+    @Test
     void shouldBlockWhenNodeDoesNotMeetOpenSpecMinimum() {
         commandRunner.result("node --version", success("v18.20.0"));
 
@@ -70,6 +79,20 @@ class ForgeEnvironmentServiceTest {
         assertThat(snapshot.blockingCount()).isZero();
         assertThat(item(snapshot, "repo-team-standards").state()).isEqualTo("ATTENTION");
         assertThat(item(snapshot, "repo-team-standards").blocking()).isFalse();
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void shouldProvideAutomaticInstallCommandsForCoreDeveloperToolsOnWindows() {
+        assertThat(service.installCommand("uv"))
+                .containsExactly("winget", "install", "--id", "astral-sh.uv", "-e", "--source", "winget",
+                        "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity");
+        assertThat(service.installCommand("python"))
+                .containsExactly("uv", "python", "install", "3.12", "--default");
+        assertThat(service.installCommand("claude"))
+                .containsExactly("npm", "install", "--global", "@anthropic-ai/claude-code");
+        assertThat(service.installCommand("codex"))
+                .containsExactly("npm", "install", "--global", "@openai/codex");
     }
 
     private void stubReadyTools() {
@@ -122,9 +145,15 @@ class ForgeEnvironmentServiceTest {
 
     private static final class StubCommandRunner extends ForgeEnvironmentCommandRunner {
         private final Map<String, CommandResult> results = new HashMap<>();
+        private boolean pathRefreshed;
 
         private void result(String command, CommandResult result) {
             results.put(command, result);
+        }
+
+        @Override
+        public void refreshEnvironmentPath() {
+            pathRefreshed = true;
         }
 
         @Override

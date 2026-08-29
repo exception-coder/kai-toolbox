@@ -3,11 +3,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { subscribeSse } from '@/lib/api'
 import { BootstrapProgress } from '../components/BootstrapProgress'
+import { BusinessSourceOperations } from '../components/BusinessSourceOperations'
 import { DependencySection } from '../components/DependencySection'
 import { ReadinessSummary } from '../components/ReadinessSummary'
 import { SuiteOperations } from '../components/SuiteOperations'
 import {
   forgeEnvironmentBootstrapPath,
+  businessSourceSyncPath,
+  getBusinessSystemWorkspaces,
   getForgeEnvironment,
   teamSuiteInstallPath,
   teamSuiteUpdatePath,
@@ -15,7 +18,8 @@ import {
 import type { BootstrapStep, ForgeEnvironmentSnapshot, RestartRequiredEvent } from '../types'
 
 const QUERY_KEY = ['forge-environment']
-type Operation = 'initialization' | 'suite-install' | 'suite-update'
+const BUSINESS_QUERY_KEY = ['forge-environment', 'business-sources']
+type Operation = 'initialization' | 'suite-install' | 'suite-update' | 'business-sync'
 
 const PROGRESS_COPY: Record<Operation, { title: string; emptyTitle: string; emptyDescription: string; errorTitle: string }> = {
   initialization: {
@@ -35,6 +39,12 @@ const PROGRESS_COPY: Record<Operation, { title: string; emptyTitle: string; empt
     emptyTitle: '等待更新套件',
     emptyDescription: '更新会安全快进五个固定仓库，再从本地工作区重新构建并更新套件。',
     errorTitle: '套件更新未完成',
+  },
+  'business-sync': {
+    title: '源码拉取进度',
+    emptyTitle: '等待拉取业务源码',
+    emptyDescription: '一键补齐 ERP、ERP 小程序、SRM、SCM 的六个固定仓库，已存在项目会安全跳过或快进更新。',
+    errorTitle: '业务源码拉取未完成',
   },
 }
 
@@ -58,6 +68,10 @@ export function ForgeEnvironmentPage() {
   const [error, setError] = useState<string | null>(null)
   const [restartRequired, setRestartRequired] = useState<RestartRequiredEvent | null>(null)
   const query = useQuery({ queryKey: QUERY_KEY, queryFn: () => getForgeEnvironment(false) })
+  const businessQuery = useQuery({
+    queryKey: BUSINESS_QUERY_KEY,
+    queryFn: () => getBusinessSystemWorkspaces(false),
+  })
 
   useEffect(() => () => closeStreamRef.current?.(), [])
 
@@ -72,6 +86,15 @@ export function ForgeEnvironmentPage() {
       setError(cause instanceof Error ? `重新检测失败：${cause.message}` : '重新检测失败，请确认 Forge 后端可用。')
     } finally {
       setRefreshing(false)
+    }
+  }
+
+  const refreshBusiness = async (fetchRemote = true) => {
+    try {
+      const systems = await getBusinessSystemWorkspaces(fetchRemote)
+      queryClient.setQueryData(BUSINESS_QUERY_KEY, systems)
+    } catch (cause) {
+      setError(cause instanceof Error ? `业务源码检测失败：${cause.message}` : '业务源码检测失败，请确认 Forge 后端可用。')
     }
   }
 
@@ -108,10 +131,14 @@ export function ForgeEnvironmentPage() {
     }, ['snapshot', 'step', 'restartRequired', 'done', 'message'])
   }
 
-  const finishOperation = (preserveError = false) => {
+  const finishOperation = (operation: Operation, preserveError = false) => {
     terminalRef.current = true
     setActiveOperation(null)
-    void refresh(false, preserveError)
+    if (operation === 'business-sync') {
+      void refreshBusiness(false)
+    } else {
+      void refresh(false, preserveError)
+    }
   }
 
   const failOperation = (message: string) => {
@@ -137,7 +164,7 @@ export function ForgeEnvironmentPage() {
         text?: string
         exitCode?: number
         message?: string
-        results?: Array<{ ok?: boolean; repo?: string; step?: string; message?: string; reason?: string }>
+        results?: Array<{ ok?: boolean; repo?: string; repository?: string; step?: string; message?: string; reason?: string }>
       }
       if (message.type === 'line' && message.text) {
         setLogs((current) => [...current.slice(-199), `${message.engine ? `[${message.engine}] ` : ''}${message.text}`])
@@ -151,16 +178,16 @@ export function ForgeEnvironmentPage() {
         })
       } else if (message.type === 'done') {
         const failures = (message.results ?? []).filter((result) => result.ok === false)
-        failures.filter((result) => result.repo).forEach((result) => upsertStep({
-          id: `git:${result.repo}`,
-          name: `同步 ${result.repo}`,
+        failures.filter((result) => result.repo || result.repository).forEach((result) => upsertStep({
+          id: `git:${result.repo ?? result.repository}`,
+          name: `同步 ${result.repo ?? result.repository}`,
           state: 'FAILED',
           message: result.message || result.reason || '仓库同步失败，已保留本地现场。',
         }))
         if (failures.length > 0) {
           setError(`有 ${failures.length} 个步骤未完成。请查看失败项和命令输出，处理后重试。`)
         }
-        finishOperation(failures.length > 0)
+        finishOperation(operation, failures.length > 0)
       } else if (message.type === 'error') {
         failOperation(message.message || PROGRESS_COPY[operation].errorTitle)
       }
@@ -173,7 +200,7 @@ export function ForgeEnvironmentPage() {
       return
     }
     if (eventName === 'done') {
-      finishOperation()
+      finishOperation(operation)
       return
     }
     if (eventName === 'error') {
@@ -227,6 +254,15 @@ export function ForgeEnvironmentPage() {
             running={running}
             onInstall={() => startOperation('suite-install', teamSuiteInstallPath())}
             onUpdate={() => startOperation('suite-update', teamSuiteUpdatePath())}
+          />
+          <BusinessSourceOperations
+            systems={businessQuery.data}
+            checking={businessQuery.isFetching}
+            busy={running}
+            syncing={activeOperation === 'business-sync'}
+            error={businessQuery.isError}
+            onRefresh={() => void refreshBusiness(true)}
+            onSync={() => startOperation('business-sync', businessSourceSyncPath())}
           />
           <BootstrapProgress
             steps={steps}

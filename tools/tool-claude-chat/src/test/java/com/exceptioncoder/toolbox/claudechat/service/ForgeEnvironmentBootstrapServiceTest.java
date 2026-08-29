@@ -14,6 +14,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,7 +66,49 @@ class ForgeEnvironmentBootstrapServiceTest {
                 service.runBootstrap("task-2", null, "gitee");
 
         assertThat(result.restartRequired()).isTrue();
+        verify(commandRunner).refreshEnvironmentPath();
         verify(pluginUpdateService, never()).installDependencies(anyString(), any(), anyString());
+    }
+
+    @Test
+    void shouldContinueAfterRefreshingPathMakesInstalledToolVisible() {
+        DependencyView missingUv = dependency("uv", "MISSING");
+        when(environmentService.inspect(null, "gitee", false)).thenReturn(snapshot(false), snapshot(true));
+        when(environmentService.inspectTool(anyString())).thenAnswer(invocation -> ready(invocation.getArgument(0)));
+        when(environmentService.inspectTool("uv")).thenReturn(missingUv, ready("uv"));
+        when(environmentService.installCommand("uv")).thenReturn(List.of("winget", "install", "astral-sh.uv"));
+        when(commandRunner.run(any(), any(), any(), any()))
+                .thenReturn(new ForgeEnvironmentCommandRunner.CommandResult(0, true, "installed"));
+        when(pluginUpdateService.installDependencies("task-3", null, "gitee"))
+                .thenReturn(List.of(Map.of("ok", true)));
+
+        ForgeEnvironmentBootstrapService.BootstrapResult result =
+                service.runBootstrap("task-3", null, "gitee");
+
+        assertThat(result.ready()).isTrue();
+        assertThat(result.restartRequired()).isFalse();
+        verify(commandRunner).refreshEnvironmentPath();
+        verify(pluginUpdateService).installDependencies("task-3", null, "gitee");
+    }
+
+    @Test
+    void shouldInstallUvBeforePython() {
+        when(environmentService.inspect(null, "gitee", false)).thenReturn(snapshot(false));
+        when(environmentService.inspectTool(anyString())).thenAnswer(invocation -> ready(invocation.getArgument(0)));
+        when(environmentService.inspectTool("uv")).thenReturn(dependency("uv", "MISSING"), ready("uv"));
+        when(environmentService.inspectTool("python"))
+                .thenReturn(dependency("python", "MISSING"), dependency("python", "MISSING"));
+        when(environmentService.installCommand("uv")).thenReturn(List.of("winget", "install", "astral-sh.uv"));
+        when(environmentService.installCommand("python"))
+                .thenReturn(List.of("uv", "python", "install", "3.12", "--default"));
+        when(commandRunner.run(any(), any(), any(), any()))
+                .thenReturn(new ForgeEnvironmentCommandRunner.CommandResult(0, true, "installed"));
+
+        service.runBootstrap("task-4", null, "gitee");
+
+        var order = org.mockito.Mockito.inOrder(environmentService);
+        order.verify(environmentService, times(2)).inspectTool("uv");
+        order.verify(environmentService, times(2)).inspectTool("python");
     }
 
     private static ForgeEnvironmentView snapshot(boolean ready) {

@@ -7,8 +7,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -19,6 +21,7 @@ public class ForgeEnvironmentCommandRunner {
     private static final boolean WINDOWS = System.getProperty("os.name", "")
             .toLowerCase(Locale.ROOT).contains("win");
     private static final int MAX_OUTPUT_LENGTH = 16_000;
+    private volatile String effectivePath = System.getenv("PATH");
 
     /**
      * 执行调用方代码内声明的固定 argv。
@@ -34,6 +37,9 @@ public class ForgeEnvironmentCommandRunner {
         Process process = null;
         try {
             ProcessBuilder builder = new ProcessBuilder(wrap(command)).redirectErrorStream(true);
+            if (effectivePath != null && !effectivePath.isBlank()) {
+                builder.environment().put("PATH", effectivePath);
+            }
             if (workingDirectory != null) {
                 builder.directory(workingDirectory.toFile());
             }
@@ -58,6 +64,25 @@ public class ForgeEnvironmentCommandRunner {
                 process.destroyForcibly();
             }
             return new CommandResult(-1, false, "命令执行被中断");
+        }
+    }
+
+    /** 重新读取 Windows 用户与系统 PATH，使后续安装步骤无需重启 Forge 即可发现新命令。 */
+    public void refreshEnvironmentPath() {
+        if (!WINDOWS) {
+            return;
+        }
+        CommandResult result = run(List.of(
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$machine=[Environment]::GetEnvironmentVariable('Path','Machine');"
+                        + "$user=[Environment]::GetEnvironmentVariable('Path','User');"
+                        + "[Console]::Out.Write($machine+';'+$user)"),
+                Duration.ofSeconds(10), null, null);
+        if (result.succeeded() && !result.output().isBlank()) {
+            effectivePath = mergePaths(effectivePath, result.output());
         }
     }
 
@@ -86,11 +111,15 @@ public class ForgeEnvironmentCommandRunner {
         if (!WINDOWS) {
             return command;
         }
-        List<String> wrapped = new ArrayList<>(command.size() + 4);
+        List<String> wrapped = new ArrayList<>(command.size() + 8);
         wrapped.add("cmd.exe");
         wrapped.add("/d");
         wrapped.add("/s");
         wrapped.add("/c");
+        wrapped.add("chcp");
+        wrapped.add("65001");
+        wrapped.add(">nul");
+        wrapped.add("&&");
         wrapped.addAll(command);
         return wrapped;
     }
@@ -103,6 +132,35 @@ public class ForgeEnvironmentCommandRunner {
 
     private static String compact(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.replaceAll("\\s+", " ").trim();
+    }
+
+    static String mergePaths(String currentPath, String refreshedPath) {
+        Map<String, String> entries = new LinkedHashMap<>();
+        List<String> appExecutionAliases = new ArrayList<>();
+        addPathEntries(entries, appExecutionAliases, refreshedPath);
+        addPathEntries(entries, appExecutionAliases, currentPath);
+        appExecutionAliases.forEach(entry -> entries.putIfAbsent(entry.toLowerCase(Locale.ROOT), entry));
+        return String.join(";", entries.values());
+    }
+
+    private static void addPathEntries(Map<String, String> entries, List<String> appExecutionAliases, String path) {
+        if (path == null || path.isBlank()) {
+            return;
+        }
+        for (String entry : path.split(";")) {
+            String normalized = entry.trim();
+            if (!normalized.isEmpty()) {
+                if (isWindowsAppsPath(normalized)) {
+                    appExecutionAliases.add(normalized);
+                } else {
+                    entries.putIfAbsent(normalized.toLowerCase(Locale.ROOT), normalized);
+                }
+            }
+        }
+    }
+
+    private static boolean isWindowsAppsPath(String path) {
+        return path.replace('/', '\\').toLowerCase(Locale.ROOT).endsWith("\\microsoft\\windowsapps");
     }
 
     /**

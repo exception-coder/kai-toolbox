@@ -94,7 +94,7 @@ flowchart LR
   - 通过 SSE 推送步骤状态并给出重启后继续、重试或手工命令。
 - **上游**：`ForgeEnvironmentController`。
 - **下游**：固定进程执行器、`PluginUpdateService`、`SseEmitterRegistry`。
-- **关键设计点**：同一时间只允许一个初始化任务；已就绪步骤幂等跳过；PATH 变化后显式停止并要求重启 Forge 后续跑。
+- **关键设计点**：同一时间只允许一个初始化任务；已就绪步骤幂等跳过；安装后刷新子进程 PATH，只有复检仍不可见时才要求重启 Forge。
 
 ### 3.3 forge-environment 前端 feature
 
@@ -189,10 +189,10 @@ sequenceDiagram
         participant PAGE as 环境总览页
     end
 
-    BOOT->>BOOT: 复检新工具
-    alt 当前进程已可见
+    BOOT->>BOOT: 刷新用户与系统 PATH 后复检新工具
+    alt 刷新后已可见
         BOOT-->>PAGE: 继续下一步骤
-    else 当前进程不可见
+    else 刷新后仍不可见
         BOOT-->>PAGE: restartRequired 事件
         PAGE-->>PAGE: 保留已完成步骤并展示重启后继续
     end
@@ -225,6 +225,12 @@ sequenceDiagram
     SERVICE-->>PAGE: 步骤结果与完成状态
 ```
 
+### 4.5 业务系统源码一键拉取
+
+Forge 环境页复用固定业务仓库目录与只拉取同步能力，展示 ERP、ERP 小程序、SRM、SCM 四个系统及其六个 Git 仓库。默认源码根目录固定为 `${user.home}/.kai-toolbox/sources`，首次拉取时自动创建，无需配置；显式 `toolbox.claude-chat.business-workspace.root` 仅用于需要放到其他磁盘的覆盖场景。
+
+目录结构固定为 `yoooni`、`frontend`、`srm-system/{srm,srm-admin-front-end}`、`scm-system/{SCM,scm-front-end}`。目标不存在时执行 clone；已存在且干净、远端匹配时仅 fetch 与 `pull --ff-only`；未提交修改、本地领先、分叉、远端不匹配或非 Git 占位目录一律跳过并保留现场。
+
 ---
 
 ## 5. 核心业务规则
@@ -235,12 +241,15 @@ sequenceDiagram
 | 分层阻断 | Git、Node、Python/uv 与 AI CLI 按下游关系决定阻断；Java/Maven 构建链只告警，不阻断已部署应用 |
 | 版本门禁 | OpenSpec 要求 Node.js 20.19+；Graphify 要求 Python 3.10+；Forge 源码构建要求 Java 21 |
 | 幂等补齐 | 已安装工具与已配置套件跳过，不在“初始化”动作中强制升级 |
-| 安装顺序 | 包管理器前置完成后才安装 npm/uv 工具；研发工具就绪后才安装公司套件 |
+| 安装顺序 | Git、Node 就绪后先安装 uv，再由 uv 补齐 Python，随后安装 Claude Code、Codex CLI、Graphify、OpenSpec 和公司套件 |
 | 凭据边界 | 不采集、不展示、不代填 Git、Claude 或 Codex 凭据；鉴权失败提供官方登录动作 |
 | 可恢复状态 | 失败必须携带步骤、简短诊断、可复制命令或重试动作；不得只显示“初始化失败” |
 | 单任务约束 | 同一 Forge 进程只运行一个环境初始化任务，避免多个包管理器并发修改全局目录 |
 | 来源约束 | 公司依赖默认使用 Gitee；固定仓库和目录沿用 `PluginUpdateService` 的白名单 |
 | 统一工作区 | 公司套件源码固定落在 `${user.home}/.kai-toolbox/team-tools`，安装和更新不得从临时目录或远端包地址直接执行 |
+| 业务源码根 | 业务源码默认落在 `${user.home}/.kai-toolbox/sources` 并自动纳入工作区；显式业务根配置优先 |
+| 固定目录 | SRM 与 SCM 以系统父目录聚合前后端仓库；ERP 与 ERP 小程序保持单仓一级目录 |
+| 安全同步 | 仅允许固定 wyoooni Gitee 地址；只 clone、fetch、`pull --ff-only`，不得自动提交、重置、删除或改写 origin |
 | 本地优先链路 | 一键安装和一键更新都必须先同步五个固定 Git 仓库，再从统一工作区完成构建、插件安装或更新和 MCP 安装 |
 | Git 安全 | 已存在仓库仅在工作树干净时执行 `git pull --ff-only`；不删除本地仓、不覆盖未提交修改；已有非默认 origin 可沿用并明确展示，新克隆默认 Gitee |
 
@@ -295,7 +304,7 @@ frontend/src/features/forge-environment/
 
 | 风险 / 待确认点 | 影响 | 处理方式 |
 |---|---|---|
-| 包管理器安装后当前 Java 进程 PATH 未刷新 | 无法在同一任务继续执行新 CLI | 返回 `restartRequired`，保留步骤并提供“重启 Forge 后继续” |
+| 包管理器安装后当前 Java 进程 PATH 未刷新 | 新安装 CLI 在后续步骤中不可见 | 重新读取 Windows 用户与系统 PATH 并复检；仍不可见才返回 `restartRequired` |
 | Git 私有仓鉴权需要交互 | 后台 SSE 无法完成登录 | 不采集凭据；展示对应 origin 的登录/凭据恢复说明后重试 |
 | 本地套件仓存在未提交修改 | 拉取可能覆盖或混入用户工作 | 阻止拉取和安装，保留本地内容并提示用户先提交或暂存 |
 | 全局 npm 或 uv 目录权限不足 | CLI 安装失败 | 保留原始退出码和有界输出，提供可复制官方命令 |

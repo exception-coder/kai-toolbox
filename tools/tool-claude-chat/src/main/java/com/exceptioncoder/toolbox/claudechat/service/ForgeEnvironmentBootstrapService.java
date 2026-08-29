@@ -18,7 +18,7 @@ public class ForgeEnvironmentBootstrapService {
 
     private static final Duration INSTALL_TIMEOUT = Duration.ofMinutes(10);
     private static final List<String> TOOL_ORDER = List.of(
-            "git", "node", "python", "uv", "claude", "codex", "graphify", "openspec");
+            "git", "node", "uv", "python", "claude", "codex", "graphify", "openspec");
 
     private final ForgeEnvironmentService environmentService;
     private final ForgeEnvironmentCommandRunner commandRunner;
@@ -117,6 +117,7 @@ public class ForgeEnvironmentBootstrapService {
             publishStep(taskId, toolId, current.name(), "FAILED", "安装命令执行失败", result.output());
             return ToolOutcome.FAILED;
         }
+        commandRunner.refreshEnvironmentPath();
         DependencyView refreshed = environmentService.inspectTool(toolId);
         if (!"READY".equals(refreshed.state())) {
             publishStep(taskId, toolId, current.name(), "SUCCEEDED", "安装已完成，等待进程刷新 PATH", result.output());
