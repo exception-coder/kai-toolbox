@@ -18,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * 单例 Chromium 实例 + 线程亲和管理。
@@ -29,7 +30,7 @@ import java.util.function.Function;
  * 同时处理：浏览器进程意外死亡时的懒重启、应用关闭时的优雅清理。
  *
  * 启用条件：toolbox.media-parser.playwright.enabled=true
- * 首次启动会下载 ~150MB 浏览器到 ~/.cache/ms-playwright/。
+ * 首次实际调用相关解析能力时才会下载浏览器；初始化失败不会影响应用启动。
  */
 @Slf4j
 @Component
@@ -94,36 +95,45 @@ public class PlaywrightManager {
 
     private final MediaParserProperties props;
     private final ProxyConfig proxyConfig;
+    private final Supplier<Playwright> playwrightFactory;
     /** 所有 Playwright 操作都钉在这一个线程上。Daemon 不阻塞 JVM 退出。 */
     private final ExecutorService worker;
 
     private volatile Playwright playwright;
     private volatile Browser browser;
     private volatile boolean ready = false;
+    private volatile boolean initializationFailed = false;
     private volatile String initError;
     private volatile boolean shuttingDown = false;
 
     public PlaywrightManager(MediaParserProperties props, ProxyConfig proxyConfig) {
+        this(props, proxyConfig, Playwright::create);
+    }
+
+    PlaywrightManager(
+            MediaParserProperties props,
+            ProxyConfig proxyConfig,
+            Supplier<Playwright> playwrightFactory) {
         this.props = props;
         this.proxyConfig = proxyConfig;
+        this.playwrightFactory = playwrightFactory;
         this.worker = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "playwright-worker");
             t.setDaemon(true);
             return t;
         });
-        // 异步初始化：避免 Spring 启动被 Chromium 启动时间阻塞（首次还要下载 ~150MB）
-        worker.submit(this::initBrowser);
     }
 
     /** 在 worker 线程上启动 / 重启 Chromium。 */
     private void initBrowser() {
         ready = false;
+        initializationFailed = false;
         initError = null;
         // 清理旧实例（重启场景）
         closeQuietly();
 
         try {
-            this.playwright = Playwright.create();
+            this.playwright = playwrightFactory.get();
             BrowserType.LaunchOptions opts = new BrowserType.LaunchOptions()
                     .setHeadless(props.getPlaywright().isHeadless())
                     .setArgs(List.of(
@@ -146,8 +156,10 @@ public class PlaywrightManager {
                     props.getPlaywright().isHeadless(),
                     proxyConfig.isEnabled() ? proxyConfig.getRawUrl() : "none");
         } catch (Exception e) {
-            this.initError = e.getMessage();
-            log.error("[Playwright] 启动失败，相关 fallback parser 将不可用: {}", e.getMessage(), e);
+            this.initializationFailed = true;
+            this.initError = summarizeFailure(e);
+            log.warn("[Playwright] 可选浏览器能力初始化失败，本进程不再重试；主应用不受影响: {}", initError);
+            log.debug("[Playwright] 初始化失败详情", e);
         }
     }
 
@@ -178,10 +190,13 @@ public class PlaywrightManager {
     /** 在 worker 线程上执行：检查浏览器存活 → 必要时重启 → 创建 ctx/page → 跑闭包。 */
     private <T> T runOnWorker(Function<Page, T> fn) {
         if (browser == null || !browser.isConnected()) {
-            log.warn("[Playwright] browser disconnected (or never started), relaunching");
+            if (initializationFailed) {
+                throw unavailableException();
+            }
+            log.info("[Playwright] 首次使用可选浏览器能力，开始初始化 Chromium");
             initBrowser();
             if (!ready) {
-                throw new RuntimeException("Playwright 不可用: " + (initError != null ? initError : "未启动"));
+                throw unavailableException();
             }
         }
 
@@ -199,6 +214,19 @@ public class PlaywrightManager {
                 return fn.apply(page);
             }
         }
+    }
+
+    private RuntimeException unavailableException() {
+        return new RuntimeException("Playwright 不可用: " + (initError != null ? initError : "未启动"));
+    }
+
+    private static String summarizeFailure(Exception exception) {
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) {
+            return exception.getClass().getSimpleName();
+        }
+        String firstLine = message.lines().findFirst().orElse(message).trim();
+        return firstLine.length() <= 240 ? firstLine : firstLine.substring(0, 240) + "...";
     }
 
     private void closeQuietly() {

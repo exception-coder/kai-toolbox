@@ -20,7 +20,7 @@ public class MediaParserProperties {
 
     @Data
     public static class Playwright {
-        /** 是否启用。首次启动会下载 ~150MB Chromium 到 ~/.cache/ms-playwright/ */
+        /** 是否启用。首次使用相关解析能力时会下载 ~150MB Chromium 到 ~/.cache/ms-playwright/。 */
         private boolean enabled = false;
         private boolean headless = true;
         /** 单次页面操作的超时（毫秒）。Cloudflare 挑战 + 网络渲染加起来留点余量。 */
