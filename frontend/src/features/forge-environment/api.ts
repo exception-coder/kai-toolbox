@@ -15,8 +15,8 @@ export function forgeEnvironmentBootstrapPath() {
 }
 
 /** 返回固定工作区、默认 Gitee 源的一键套件安装 SSE 路径。 */
-export function teamSuiteInstallPath() {
-  return `/claude-chat/plugins/install/stream?source=${SOURCE}`
+export function teamSuiteInstallPath(target: 'all' | 'claude' | 'codex' = 'all') {
+  return `/claude-chat/plugins/install/stream?source=${SOURCE}&target=${target}`
 }
 
 /** 返回固定工作区、默认 Gitee 源的一键套件更新 SSE 路径。 */

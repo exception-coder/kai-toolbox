@@ -21,8 +21,10 @@
 - Windows 每个安装步骤成功后重新读取用户与系统 PATH；uv 先于 Python 安装，Python 使用 `uv python install 3.12 --default` 补齐。
 - 每次环境快照检测前也刷新 PATH，并将 WindowsApps 应用执行别名放在真实工具目录之后，避免已安装的 Python 与 uv 被误判为缺失。
 - Windows 白名单命令统一先切换到 UTF-8 代码页，确保中文系统错误和校验明细可被 Java 21 正确解码。
+- Windows 的 npm 全局安装命令统一使用 `npm.cmd`，避免 PowerShell 优先命中受执行策略限制的 `npm.ps1`。
 - 单项探测失败不得让整个快照接口失败；诊断输出必须截断且不得包含凭据或环境变量。
 - 公司套件继续复用五个固定仓库、三个插件和两个 MCP 的现有白名单。
+- 三个团队插件必须分别展示 Claude Code 与 Codex 已装版本；单端补装只接受 `claude` 或 `codex`，不得允许前端传入任意引擎或插件名。
 - 公司套件工作区固定为 `${user.home}/.kai-toolbox/team-tools`；所有安装和更新先同步仓库，再从本地目录执行。
 - 业务源码根默认固定为 `${user.home}/.kai-toolbox/sources`，显式 `business-workspace.root` 可覆盖；固定管理四个系统、六个仓库。
 - Forge 环境页复用 `BusinessWorkspaceService` 的状态与 SSE 同步接口，不复制 Git 编排逻辑。

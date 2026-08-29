@@ -13,6 +13,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PluginUpdateServiceTest {
@@ -103,6 +104,15 @@ class PluginUpdateServiceTest {
         assertEquals(List.of("claude", "plugin", "install", "team-standards@team-standards",
                         "--scope", "user"),
                 PluginUpdateService.claudePluginCommand(base, "team-standards", false));
+    }
+
+    @Test
+    void shouldAcceptOnlySupportedPluginInstallTargets() {
+        assertEquals("all", PluginUpdateService.normalizePluginTarget(null));
+        assertEquals("claude", PluginUpdateService.normalizePluginTarget(" CLAUDE "));
+        assertEquals("codex", PluginUpdateService.normalizePluginTarget("codex"));
+        assertThrows(IllegalArgumentException.class,
+                () -> PluginUpdateService.normalizePluginTarget("cursor"));
     }
 
     @Test

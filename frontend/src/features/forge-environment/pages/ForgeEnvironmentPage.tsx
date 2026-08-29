@@ -251,8 +251,10 @@ export function ForgeEnvironmentPage() {
         </div>
         <div className="order-first space-y-4 lg:order-none lg:sticky lg:top-6">
           <SuiteOperations
+            plugins={query.data.groups.find((group) => group.id === 'suites')?.items
+              .filter((item) => item.id.startsWith('suite-') && item.version?.includes('Claude')) ?? []}
             running={running}
-            onInstall={() => startOperation('suite-install', teamSuiteInstallPath())}
+            onInstall={(target) => startOperation('suite-install', teamSuiteInstallPath(target))}
             onUpdate={() => startOperation('suite-update', teamSuiteUpdatePath())}
           />
           <BusinessSourceOperations

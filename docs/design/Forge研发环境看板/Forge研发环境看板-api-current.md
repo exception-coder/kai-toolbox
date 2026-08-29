@@ -190,10 +190,11 @@ data: {"stepId":"team-suites","message":"公司套件安装失败","detail":"Git
 |---|---|---|---|---|
 | `sessionId` | string | 否 | - | 有值时沿用会话的 Codex Home |
 | `source` | string | 否 | `gitee` | 新克隆仓库的默认 Git 源 |
+| `target` | string | 否 | `all` | 插件安装目标：`claude`、`codex` 或 `all`；指定单端时只同步三个插件仓并补装该端 |
 
 ### 3.3 SSE 消息
 
-接口使用默认 `message` 事件，`data.type` 为 `line`、`step`、`done` 或 `error`。`step` 携带步骤名、退出码和摘要；`done` 表示完整同步与本地安装链路结束。
+接口使用默认 `message` 事件，`data.type` 为 `line`、`step`、`done` 或 `error`。`step` 携带步骤名、退出码和摘要；`done` 表示所选安装目标执行结束。`target=all` 保持完整套件链路，包含三个插件与两个 MCP。
 
 ---
 

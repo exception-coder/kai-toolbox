@@ -103,7 +103,7 @@ flowchart LR
   - 展示总览结论、阻断项和最近检测时间。
   - 按“核心前置、研发工具、公司套件、构建链”分区展示状态。
   - 执行一键初始化、实时展示步骤，并在结束后刷新快照。
-  - 独立提供公司套件一键安装与一键更新；两种操作共享进度区和本地优先执行规则。
+  - 独立展示三个团队插件在 Claude Code、Codex 双端的版本，并提供单端补装、全部安装与一键更新；所有操作共享进度区和本地优先执行规则。
 - **上游**：系统菜单与路由。
 - **下游**：Forge 环境 API 与 SSE。
 - **关键设计点**：采用 `Page -> Section -> Content`，以分割线和排版建立层级；失败态保留 Context、Explanation、Recovery Action。
@@ -200,7 +200,7 @@ sequenceDiagram
 
 ### 4.4 公司套件一键安装与更新
 
-> 触发：用户在公司套件操作区点击“一键安装套件”或“一键更新套件”。
+> 触发：用户在公司套件操作区点击“补装 Claude 插件”“补装 Codex 插件”“一键安装全部套件”或“一键更新套件”。
 > 参与方：页面、套件更新服务、固定 Git 仓库、本地构建与安装命令。
 
 ```mermaid
@@ -211,8 +211,8 @@ sequenceDiagram
     participant GIT as 固定套件仓库
     participant LOCAL as 本地构建与安装
 
-    PAGE->>SERVICE: 建立安装或更新 SSE
-    SERVICE->>GIT: 同步五个固定仓库
+    PAGE->>SERVICE: 建立安装或更新 SSE 并指定目标
+    SERVICE->>GIT: 单端补装同步三个插件仓 全部安装同步五仓
     alt 本地仓不存在
         GIT-->>SERVICE: clone 到统一工作区
     else 本地仓存在且工作树干净
@@ -220,8 +220,10 @@ sequenceDiagram
     else 本地仓有未提交修改
         GIT-->>SERVICE: 保留工作树并返回可恢复失败
     end
-    SERVICE->>LOCAL: 从统一工作区构建知识引擎
-    SERVICE->>LOCAL: 从本地目录安装或更新插件与 MCP
+    opt 全部安装或更新
+        SERVICE->>LOCAL: 从统一工作区构建知识引擎
+    end
+    SERVICE->>LOCAL: 从本地目录安装所选端插件或完整套件
     SERVICE-->>PAGE: 步骤结果与完成状态
 ```
 
@@ -307,7 +309,7 @@ frontend/src/features/forge-environment/
 | 包管理器安装后当前 Java 进程 PATH 未刷新 | 新安装 CLI 在后续步骤中不可见 | 重新读取 Windows 用户与系统 PATH 并复检；仍不可见才返回 `restartRequired` |
 | Git 私有仓鉴权需要交互 | 后台 SSE 无法完成登录 | 不采集凭据；展示对应 origin 的登录/凭据恢复说明后重试 |
 | 本地套件仓存在未提交修改 | 拉取可能覆盖或混入用户工作 | 阻止拉取和安装，保留本地内容并提示用户先提交或暂存 |
-| 全局 npm 或 uv 目录权限不足 | CLI 安装失败 | 保留原始退出码和有界输出，提供可复制官方命令 |
+| 全局 npm 或 uv 目录权限不足 | CLI 安装失败 | 保留原始退出码和有界输出，提供可复制官方命令；Windows 的 npm 命令固定使用 `npm.cmd`，绕开 PowerShell 脚本执行策略 |
 | Maven 实际使用 Java 8 | Forge 源码构建可能失败 | 单独检测 `mvn --version` 的 Java 行并标为构建链告警 |
 | 用户只使用 Codex 或只使用 Claude | 另一端缺失导致总览长期不完整 | 核心完整模式默认双端必需；后续可增加显式运行模式，不在首版自动降级 |
 | 现有工作树有大量并行修改 | 容易误改用户变更 | 新 feature 与新增类优先；修改 `PluginUpdateService` 时只做最小可复用提取 |

@@ -90,9 +90,15 @@ class ForgeEnvironmentServiceTest {
         assertThat(service.installCommand("python"))
                 .containsExactly("uv", "python", "install", "3.12", "--default");
         assertThat(service.installCommand("claude"))
-                .containsExactly("npm", "install", "--global", "@anthropic-ai/claude-code");
+                .containsExactly("npm.cmd", "install", "--global", "@anthropic-ai/claude-code");
         assertThat(service.installCommand("codex"))
-                .containsExactly("npm", "install", "--global", "@openai/codex");
+                .containsExactly("npm.cmd", "install", "--global", "@openai/codex");
+        assertThat(service.installCommand("openspec"))
+                .containsExactly("npm.cmd", "install", "--global", "@fission-ai/openspec@latest");
+
+        ForgeEnvironmentView snapshot = service.inspect(null, "gitee", false);
+        assertThat(item(snapshot, "openspec").installCommand())
+                .isEqualTo("npm.cmd install --global @fission-ai/openspec@latest");
     }
 
     private void stubReadyTools() {

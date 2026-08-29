@@ -2,12 +2,14 @@ import { Download, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export function SuiteOperations({
+  plugins,
   running,
   onInstall,
   onUpdate,
 }: {
+  plugins: Array<{ id: string; name: string; version: string | null }>
   running: boolean
-  onInstall: () => void
+  onInstall: (target: 'all' | 'claude' | 'codex') => void
   onUpdate: () => void
 }) {
   return (
@@ -17,9 +19,25 @@ export function SuiteOperations({
       <p className="mt-2 text-xs leading-5 text-[var(--color-muted-foreground)]">
         固定工作区 <code className="font-mono text-[11px]">~/.kai-toolbox/team-tools</code>。先安全拉取 Git 仓库，再从本地构建并安装。
       </p>
+      <div className="mt-4 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
+        {plugins.map((plugin) => (
+          <div key={plugin.id} className="py-2.5">
+            <p className="text-xs font-medium">{plugin.name}</p>
+            <p className="mt-1 font-mono text-[10px] leading-4 text-[var(--color-muted-foreground)]">
+              {plugin.version ?? 'Claude 未装 · Codex 未装'}
+            </p>
+          </div>
+        ))}
+      </div>
       <div className="mt-4 grid gap-2">
-        <Button variant="outline" onClick={onInstall} disabled={running}>
-          <Download /> 一键安装套件
+        <Button variant="outline" onClick={() => onInstall('claude')} disabled={running}>
+          <Download /> 补装 Claude 插件
+        </Button>
+        <Button variant="outline" onClick={() => onInstall('codex')} disabled={running}>
+          <Download /> 补装 Codex 插件
+        </Button>
+        <Button variant="outline" onClick={() => onInstall('all')} disabled={running}>
+          <Download /> 一键安装全部套件
         </Button>
         <Button onClick={onUpdate} disabled={running}>
           <RefreshCw className={running ? 'animate-spin' : undefined} /> 一键更新套件

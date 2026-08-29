@@ -74,13 +74,13 @@ public class ForgeEnvironmentService {
             case "uv" -> probe("uv", "uv", List.of("uv", "--version"), 0, 0, 0, true,
                     uvInstallCommand(), "https://docs.astral.sh/uv/getting-started/installation/");
             case "claude" -> probe("claude", "Claude Code", List.of("claude", "--version"), 0, 0, 0, true,
-                    "npm install --global @anthropic-ai/claude-code", "https://docs.anthropic.com/en/docs/claude-code/getting-started");
+                    npmInstallCommand("@anthropic-ai/claude-code"), "https://docs.anthropic.com/en/docs/claude-code/getting-started");
             case "codex" -> probe("codex", "Codex CLI", List.of("codex", "--version"), 0, 0, 0, true,
-                    "npm install --global @openai/codex", "https://developers.openai.com/codex/cli/");
+                    npmInstallCommand("@openai/codex"), "https://developers.openai.com/codex/cli/");
             case "graphify" -> probe("graphify", "Graphify", List.of("graphify", "--version"), 0, 0, 0, true,
                     "uv tool install graphifyy", "https://github.com/Graphify-Labs/graphify");
             case "openspec" -> probe("openspec", "OpenSpec", List.of("openspec", "--version"), 0, 0, 0, true,
-                    "npm install --global @fission-ai/openspec@latest", "https://github.com/Fission-AI/OpenSpec/blob/main/docs/installation.md");
+                    npmInstallCommand("@fission-ai/openspec@latest"), "https://github.com/Fission-AI/OpenSpec/blob/main/docs/installation.md");
             default -> throw new IllegalArgumentException("未知 Forge 环境工具：" + toolId);
         };
     }
@@ -93,12 +93,20 @@ public class ForgeEnvironmentService {
             case "python" -> WINDOWS ? List.of("uv", "python", "install", "3.12", "--default")
                     : MACOS ? List.of("brew", "install", "python@3.12") : List.of();
             case "uv" -> WINDOWS ? winget("astral-sh.uv") : MACOS ? List.of("brew", "install", "uv") : List.of();
-            case "claude" -> List.of("npm", "install", "--global", "@anthropic-ai/claude-code");
-            case "codex" -> List.of("npm", "install", "--global", "@openai/codex");
+            case "claude" -> npmInstallArguments("@anthropic-ai/claude-code");
+            case "codex" -> npmInstallArguments("@openai/codex");
             case "graphify" -> List.of("uv", "tool", "install", "graphifyy");
-            case "openspec" -> List.of("npm", "install", "--global", "@fission-ai/openspec@latest");
+            case "openspec" -> npmInstallArguments("@fission-ai/openspec@latest");
             default -> throw new IllegalArgumentException("未知 Forge 环境工具：" + toolId);
         };
+    }
+
+    private String npmInstallCommand(String packageName) {
+        return String.join(" ", npmInstallArguments(packageName));
+    }
+
+    private List<String> npmInstallArguments(String packageName) {
+        return List.of(WINDOWS ? "npm.cmd" : "npm", "install", "--global", packageName);
     }
 
     private DependencyGroupView coreGroup() {

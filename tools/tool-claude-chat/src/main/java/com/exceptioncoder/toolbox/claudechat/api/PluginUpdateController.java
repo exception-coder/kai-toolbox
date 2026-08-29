@@ -109,13 +109,14 @@ public class PluginUpdateController {
         return emitter;
     }
 
-    /** 拉取五个团队依赖仓库，并安装到 Claude Code 与 Codex。 */
+    /** 拉取固定团队依赖仓库，并按目标安装到 Claude Code、Codex 或双端。 */
     @GetMapping(value = "/install/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter installStream(@RequestParam(required = false) String sessionId,
-                                    @RequestParam(defaultValue = "gitee") String source) {
+                                    @RequestParam(defaultValue = "gitee") String source,
+                                    @RequestParam(defaultValue = "all") String target) {
         String taskId = UUID.randomUUID().toString();
         SseEmitter emitter = sse.create(taskId);
-        service.startInstall(taskId, sessionId, source);
+        service.startInstall(taskId, sessionId, source, target);
         return emitter;
     }
 }

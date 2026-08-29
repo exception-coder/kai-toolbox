@@ -619,10 +619,18 @@ public class PluginUpdateService {
 
     /** 拉取/快进更新全部依赖仓，构建 MCP 引擎，并安装到 Claude Code 与 Codex。 */
     public void startInstall(String taskId, String sessionId, String requestedSource) {
+        startInstall(taskId, sessionId, requestedSource, "all");
+    }
+
+    /** 按目标引擎安装团队插件；all 保持原有完整套件安装行为。 */
+    public void startInstall(String taskId, String sessionId, String requestedSource, String requestedTarget) {
         Thread.ofVirtual().name("plugin-install-" + taskId).start(() -> {
             try {
+                String target = normalizePluginTarget(requestedTarget);
                 Thread.sleep(150);
-                List<Map<String, Object>> results = installDependencies(taskId, sessionId, requestedSource);
+                List<Map<String, Object>> results = "all".equals(target)
+                        ? installDependencies(taskId, sessionId, requestedSource)
+                        : installTeamPlugins(taskId, sessionId, requestedSource, target);
                 sse.publish(taskId, "message", Map.of("type", "done", "results", results));
             } catch (Exception e) {
                 sse.publish(taskId, "message", Map.of("type", "error", "message", String.valueOf(e.getMessage())));
@@ -648,8 +656,25 @@ public class PluginUpdateService {
         Map<String, Boolean> synchronizedRepositories = syncDependencyRepositories(
                 taskId, workspace, source, DEPENDENCY_REPOS, results);
         buildKnowledgeEngine(taskId, workspace, synchronizedRepositories, results);
-        installPlugins(taskId, codexHome, workspace, synchronizedRepositories, results);
+        installPlugins(taskId, codexHome, workspace, synchronizedRepositories, "all", results);
         installMcps(taskId, codexHome, workspace, results);
+        return results;
+    }
+
+    private List<Map<String, Object>> installTeamPlugins(
+            String taskId, String sessionId, String requestedSource, String target) {
+        Path codexHome = resolveCodexHome(sessionId);
+        String source = normalizeSource(requestedSource);
+        Path workspace = dependencyWorkspace();
+        List<Map<String, Object>> results = new ArrayList<>();
+        try {
+            Files.createDirectories(workspace);
+        } catch (IOException exception) {
+            throw new IllegalStateException("无法创建团队依赖目录：" + workspace, exception);
+        }
+        Map<String, Boolean> synchronizedRepositories = syncDependencyRepositories(
+                taskId, workspace, source, props.getWatchedPlugins(), results);
+        installPlugins(taskId, codexHome, workspace, synchronizedRepositories, target, results);
         return results;
     }
 
@@ -1024,14 +1049,14 @@ public class PluginUpdateService {
 
     private void installPlugins(
             String taskId, Path codexHome, Path workspace, Map<String, Boolean> synchronizedRepositories,
-            List<Map<String, Object>> results) {
+            String target, List<Map<String, Object>> results) {
         List<String> claude = List.of(props.getClaudeBin(), "plugin");
         List<String> codex = new ArrayList<>(codexParts());
         codex.add("plugin");
-        Map<String, JsonNode> claudeMarketplaces = readMarketplaceRegistrationsSafely(
-                taskId, "claude", claude, null, results);
-        Map<String, JsonNode> codexMarketplaces = readMarketplaceRegistrationsSafely(
-                taskId, "codex", codex, codexHome, results);
+        Map<String, JsonNode> claudeMarketplaces = "codex".equals(target) ? null
+                : readMarketplaceRegistrationsSafely(taskId, "claude", claude, null, results);
+        Map<String, JsonNode> codexMarketplaces = "claude".equals(target) ? null
+                : readMarketplaceRegistrationsSafely(taskId, "codex", codex, codexHome, results);
         Map<String, String[]> claudeInstalledPlugins = readInstalledPluginMap(
                 Path.of(System.getProperty("user.home")));
         for (String plugin : props.getWatchedPlugins()) {
@@ -1057,6 +1082,14 @@ public class PluginUpdateService {
                         codexMarketplaces.get(plugin), results);
             }
         }
+    }
+
+    static String normalizePluginTarget(String target) {
+        String normalized = target == null ? "all" : target.trim().toLowerCase(Locale.ROOT);
+        if (!List.of("all", "claude", "codex").contains(normalized)) {
+            throw new IllegalArgumentException("团队插件安装目标只支持 all、claude 或 codex");
+        }
+        return normalized;
     }
 
     private Map<String, JsonNode> readMarketplaceRegistrationsSafely(
