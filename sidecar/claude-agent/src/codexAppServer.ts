@@ -79,6 +79,8 @@ type McpActivityState = {
 }
 
 type AppServerTurnOptions = {
+  /** Forge 会话 id，用于把运行中的追加消息路由到当前 App Server turn。 */
+  sessionId: string
   threadId?: string
   cwd: string
   model?: string
@@ -162,6 +164,23 @@ export function isCodexAppServerRecoverySignal(method: string): boolean {
     || method.startsWith('hook/')
 }
 
+type ActiveCodexTurn = {
+  steer: (input: Array<Record<string, unknown>>) => Promise<void>
+}
+
+const activeCodexTurns = new Map<string, ActiveCodexTurn>()
+
+/** 将新输入追加到当前活跃 Codex turn；false 表示该会话已经没有可 steer 的轮次。 */
+export async function steerCodexAppServerTurn(
+  sessionId: string,
+  input: Array<Record<string, unknown>>,
+): Promise<boolean> {
+  const activeTurn = activeCodexTurns.get(sessionId)
+  if (!activeTurn) return false
+  await activeTurn.steer(input)
+  return true
+}
+
 type JsonRpcMessageKind = 'response' | 'notification' | 'serverRequest' | 'invalid'
 
 type ServerRequestResolution = {
@@ -236,6 +255,11 @@ export async function resolveCodexAppServerRequest(
       },
     }
   }
+}
+
+/** WebSocket 重试耗尽后的 HTTPS 降级仍属于当前轮次，不是持久告警或终态。 */
+export function isCodexTransportFallbackWarning(message: string): boolean {
+  return /^Falling back from WebSockets to HTTPS transport\.\s/i.test(message.trim())
 }
 
 function unsupportedServerRequest(method: string): ServerRequestResolution {
@@ -320,8 +344,12 @@ function codexCliEntrypoint(): string {
   return join(dirname(packageJson), 'bin', 'codex.js')
 }
 
-function stop(child: ChildProcessWithoutNullStreams): void {
+function closeInput(child: ChildProcessWithoutNullStreams): void {
   if (!child.stdin.destroyed) child.stdin.end()
+}
+
+function forceStop(child: ChildProcessWithoutNullStreams): void {
+  closeInput(child)
   if (child.killed || child.exitCode != null) return
   if (process.platform === 'win32' && child.pid) {
     try {
@@ -381,14 +409,6 @@ export function findDefaultCodexModel(models: readonly CodexModelInfo[]): CodexM
   return models.find(model => model.isDefault === true)
 }
 
-export function gateCodexResultOnProcessClose(
-  result: Record<string, unknown>,
-  processClosed: boolean,
-): Record<string, unknown> {
-  if (processClosed) return result
-  return { ...result, stopReason: 'incomplete', queueReleaseSafe: false }
-}
-
 function callAppServer(
   method: string,
   params: Record<string, unknown>,
@@ -413,7 +433,7 @@ function callAppServer(
       settled = true
       clearTimeout(timer)
       lines.close()
-      stop(child)
+      forceStop(child)
       if (error) rejectPromise(error)
       else resolvePromise(result ?? {})
     }
@@ -536,7 +556,7 @@ export async function deleteCodexThread(threadId: string, codexHome?: string): P
 
 /**
  * 通过 App Server 执行一轮并转换客户端级流式事件。
- * 每轮独立进程使 Auth 目录天然隔离；失败是否允许 SDK 重试由 retrySafe 明确表达。
+ * 每轮独立进程使 Auth 目录天然隔离；轮次完成后先关闭 stdin 等待自然退出，异常时才强制清理进程树。
  */
 export async function runCodexAppServerTurn(options: AppServerTurnOptions): Promise<void> {
   const child = spawn(process.execPath, [codexCliEntrypoint(), 'app-server', '--stdio'], {
@@ -566,15 +586,17 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   const mcpActivities = new Map<string, McpActivityState>()
   const completionGate = new CodexTurnCompletionGate()
 
-  const cleanup = () => {
+  const cleanup = (force = false) => {
     if (finished) return
     finished = true
+    activeCodexTurns.delete(options.sessionId)
     options.signal.removeEventListener('abort', onAbort)
     if (abortFallback) clearTimeout(abortFallback)
     if (reconnectDeadline) clearTimeout(reconnectDeadline)
     if (finalizingRecheck) clearTimeout(finalizingRecheck)
     lines.close()
-    stop(child)
+    if (force) forceStop(child)
+    else closeInput(child)
   }
   const failPending = (error: Error) => {
     for (const request of pending.values()) {
@@ -648,7 +670,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       )
       commandActivityEmittedAt.clear()
       failPending(error)
-      cleanup()
+      cleanup(true)
       rejectCompletion(new CodexAppServerTurnError(error.message, !turnAccepted && !emittedActivity))
     }
     abortCompletion = finishError
@@ -877,9 +899,23 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           })
           break
         case 'warning':
-        case 'configWarning':
-          options.emit({ type: 'warning', code: 'CODEX_APP_SERVER_WARNING', message: notificationMessage(params) })
+        case 'configWarning': {
+          const warningMessage = notificationMessage(params)
+          if (method === 'warning' && isCodexTransportFallbackWarning(warningMessage)) {
+            reconnectActivityId ??= `${asString(params.turnId) || turnId || threadId || 'current'}-reconnect`
+            emitActivity({
+              type: 'codexActivity', activityType: 'connection', itemId: reconnectActivityId,
+              status: 'inProgress', title: 'Codex 已切换 HTTPS，当前轮次继续执行', detail: warningMessage,
+            })
+            armReconnectDeadline(
+              RECONNECT_IDLE_TIMEOUT_MS,
+              `Codex 切换 HTTPS 后 ${RECONNECT_IDLE_TIMEOUT_MS / 1_000} 秒仍无任何活动`,
+            )
+            break
+          }
+          options.emit({ type: 'warning', code: 'CODEX_APP_SERVER_WARNING', message: warningMessage })
           break
+        }
         case 'error': {
           const notice = classifyCodexAppServerError(params)
           if (notice.willRetry || notice.retryExhausted) {
@@ -1005,21 +1041,35 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       effort: options.reasoningEffort ?? null,
     })
     turnId = asString(asRecord(turnResult.turn)?.id)
+    if (!turnId) throw new Error('Codex App Server turn/start 未返回 turn id')
+    const activeThreadId = threadId
+    const activeTurnId = turnId
+    activeCodexTurns.set(options.sessionId, {
+      steer: async input => {
+        await request('turn/steer', {
+          threadId: activeThreadId,
+          expectedTurnId: activeTurnId,
+          input,
+        })
+      },
+    })
     await completion
-    const processClosed = await waitForProcessClose(child)
-    if (!processClosed) {
-      options.emit({
-        type: 'warning',
-        code: 'CODEX_APP_SERVER_CLEANUP_TIMEOUT',
-        message: `Codex App Server 轮次已结束，但进程树在 ${PROCESS_CLOSE_TIMEOUT_MS}ms 内未确认退出；待发送队列保持暂停。`,
-      })
-    }
     if (!terminalEvent) {
       throw new CodexAppServerTurnError('Codex App Server 未生成轮次终态', false)
     }
-    options.emit(gateCodexResultOnProcessClose(terminalEvent, processClosed))
+    // turn/completed 是业务终态；子进程退出只属于资源回收，不能反向阻塞下一条消息。
+    options.emit(terminalEvent)
+    void waitForProcessClose(child).then(processClosed => {
+      if (processClosed) return
+      forceStop(child)
+      options.emit({
+        type: 'warning',
+        code: 'CODEX_APP_SERVER_CLEANUP_TIMEOUT',
+        message: `Codex App Server 轮次已完成，但进程树在 ${PROCESS_CLOSE_TIMEOUT_MS}ms 内未自然退出，已执行兜底清理。`,
+      })
+    })
   } catch (error) {
-    cleanup()
+    cleanup(true)
     failPending(error instanceof Error ? error : new Error(String(error)))
     if (!await waitForProcessClose(child)) {
       throw new CodexAppServerTurnError(

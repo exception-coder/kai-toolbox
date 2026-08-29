@@ -1022,9 +1022,13 @@ export function ChatPage() {
     ensureNotifyPermission() // 借发送这个手势兜底申请一次通知权限
 
     const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
-    // 正在回答中 → 入待发送队列，本轮结束后自动按序发；否则立即发
+    // 官方 Codex 支持 turn/steer：运行中纯文本直接补充到当前轮；附件和其它引擎仍进入下一轮队列。
     if (chat.running) {
-      chat.enqueue(draft, atts)
+      if (chat.currentEngine === 'codex' && chat.currentProviderBaseUrl == null && atts.length === 0) {
+        chat.steer(draft)
+      } else {
+        chat.enqueue(draft, atts)
+      }
     } else {
       // 图片把本地 previewUrl 一并带上 → 气泡里显示缩略图（object URL 不在此 revoke，已被消息引用）
       chat.send(draft, atts)
@@ -2500,8 +2504,11 @@ export function ChatPage() {
                     variant="secondary"
                     className="hidden shadow-sm md:inline-flex"
                     onClick={submit}
-                    aria-label="排队发送"
-                    title="加入待发送队列，本轮结束后自动发出"
+                    aria-label={chat.currentEngine === 'codex' && chat.currentProviderBaseUrl == null && attachments.length === 0
+                      ? '补充到当前轮' : '排队发送'}
+                    title={chat.currentEngine === 'codex' && chat.currentProviderBaseUrl == null && attachments.length === 0
+                      ? '补充到 Codex 当前轮，不中断正在进行的工作'
+                      : '加入待发送队列，本轮结束后自动发出'}
                   >
                     <Send className="size-4" />
                   </Button>

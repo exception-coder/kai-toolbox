@@ -46,4 +46,19 @@ class ClaudeChatWebSocketHandlerTest {
         assertThat(payload.path("terminal").asBoolean()).isTrue();
         assertThat(payload.path("message").asText()).contains("附件不属于当前评审会话");
     }
+
+    @Test
+    void routesSteerCommandWithoutStartingAnotherTurn() throws Exception {
+        ClaudeChatService service = mock(ClaudeChatService.class);
+        ClaudeChatWebSocketHandler handler = new ClaudeChatWebSocketHandler(
+                new ClaudeChatProperties(), service, mock(AssistantWebSocketCommandHandler.class), objectMapper);
+        WebSocketSession session = mock(WebSocketSession.class);
+
+        handler.handleMessage(session, new TextMessage("""
+                {"type":"steer","text":"补充检查边界条件","messageId":"message-3"}
+                """));
+
+        verify(service).steerUserMessage(any(), any(ClientMessage.Steer.class));
+        verify(service, never()).sendUserMessage(any(), any(ClientMessage.Send.class));
+    }
 }

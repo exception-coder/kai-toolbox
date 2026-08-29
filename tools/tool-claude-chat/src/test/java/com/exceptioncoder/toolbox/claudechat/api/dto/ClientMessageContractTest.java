@@ -57,6 +57,17 @@ class ClientMessageContractTest {
     }
 
     @Test
+    void decodesCodexSteerCommand() throws Exception {
+        ClientMessage.Steer message = (ClientMessage.Steer) objectMapper.readValue(
+                """
+                {"type":"steer","text":"继续检查测试失败原因","messageId":"message-2"}
+                """, ClientMessage.class);
+
+        assertThat(message.text()).isEqualTo("继续检查测试失败原因");
+        assertThat(message.messageId()).isEqualTo("message-2");
+    }
+
+    @Test
     void decodesModuleContextResolveCommand() throws Exception {
         ClientMessage.AssistantModuleContextResolve message =
                 (ClientMessage.AssistantModuleContextResolve) objectMapper.readValue("""

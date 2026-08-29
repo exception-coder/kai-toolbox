@@ -21,7 +21,7 @@ import {
   retryReadonlyKnowledgeMcp,
   type ReadonlyKnowledgeMcpCall,
 } from './knowledgeMcp.js'
-import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, runEphemeralCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
+import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, runEphemeralCodexTurn, steerCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
 import { createClaudeConsultSourceServer, resolveConsultTargetSystems } from './codexSecurity.js'
 import { findDefaultCodexModel, forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAppServer.js'
 import { runAntigravityTurn } from './antigravityEngine.js'
@@ -1647,6 +1647,31 @@ export class SessionManager {
     const session = this.sessions.get(id)
     if (!session) return { outcome: 'sessionNotFound', active: false, pendingDecision: false }
     return session.interrupt(turnId)
+  }
+
+  /** 追加输入到官方 Codex 当前活跃轮次，不创建新 turn。 */
+  async steer(id: string, text: string): Promise<void> {
+    const session = this.sessions.get(id)
+    if (!session) {
+      this.emit(id, { type: 'warning', code: 'SESSION_NOT_FOUND', message: '追加消息失败：会话不存在' })
+      return
+    }
+    if (session.engine !== 'codex' || session.apiBaseUrl?.trim()) {
+      this.emit(id, { type: 'warning', code: 'STEER_UNSUPPORTED', message: '当前引擎不支持追加到运行中轮次' })
+      return
+    }
+    try {
+      const accepted = await steerCodexTurn(id, text)
+      if (!accepted) {
+        this.emit(id, { type: 'warning', code: 'NO_ACTIVE_CODEX_TURN', message: 'Codex 当前轮已结束，请作为下一条消息发送' })
+      }
+    } catch (error) {
+      this.emit(id, {
+        type: 'warning',
+        code: 'CODEX_STEER_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   turnState(id: string, turnId?: string): InterruptAck {

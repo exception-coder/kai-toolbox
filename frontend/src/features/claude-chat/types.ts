@@ -626,6 +626,7 @@ export type ClientMessage =
       assistant?: AssistantMessageEnvelope
       messageId: string
     }
+  | { type: 'steer'; text: string; messageId: string }
   | {
       type: 'decision'
       reqId: string

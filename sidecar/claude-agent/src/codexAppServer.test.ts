@@ -6,20 +6,12 @@ import {
   classifyCodexAppServerError,
   codexReconnectDeadlineMs,
   findDefaultCodexModel,
-  gateCodexResultOnProcessClose,
   isCodexAppServerRecoverySignal,
+  isCodexTransportFallbackWarning,
   isCurrentCodexTurnNotification,
   normalizeCodexModel,
   resolveCodexAppServerRequest,
 } from './codexAppServer.js'
-
-test('only releases the queue after the App Server process writer has closed', () => {
-  const completed = { type: 'result', stopReason: 'end_turn', queueReleaseSafe: true }
-  assert.deepEqual(gateCodexResultOnProcessClose(completed, true), completed)
-  assert.deepEqual(gateCodexResultOnProcessClose(completed, false), {
-    type: 'result', stopReason: 'incomplete', queueReleaseSafe: false,
-  })
-})
 
 test('distinguishes responses, notifications, and bidirectional server requests', () => {
   assert.equal(classifyCodexAppServerMessage({ id: 1, result: {} }), 'response')
@@ -175,6 +167,14 @@ test('treats the last legacy reconnect notice as exhausted', () => {
 test('keeps ordinary App Server errors terminal', () => {
   const result = classifyCodexAppServerError({ error: { message: 'authentication failed' } })
   assert.equal(result.willRetry, false)
+})
+
+test('recognizes only the Codex WebSocket to HTTPS fallback warning', () => {
+  assert.equal(isCodexTransportFallbackWarning(
+    'Falling back from WebSockets to HTTPS transport. stream disconnected before completion: websocket closed by server before response.completed',
+  ), true)
+  assert.equal(isCodexTransportFallbackWarning('WebSocket connection is slow; HTTPS remains available'), false)
+  assert.equal(isCodexTransportFallbackWarning('configuration warning'), false)
 })
 
 test('accepts all meaningful turn progress as reconnect recovery signals', () => {

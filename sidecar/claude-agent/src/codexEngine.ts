@@ -30,6 +30,7 @@ import {
   deleteCodexThread,
   latestCodexTurnId,
   runCodexAppServerTurn,
+  steerCodexAppServerTurn,
 } from './codexAppServer.js'
 import { activityOutputTail, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
@@ -361,6 +362,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     const prepared = prepareCodexInput(ctx.text, ctx.images)
     tempImageDir = prepared.tempDir
     const appServerOptions: Parameters<typeof runCodexAppServerTurn>[0] = {
+      sessionId: ctx.sessionId ?? `ephemeral:${Date.now()}:${Math.random()}`,
       threadId: turnContext.sdkSessionId,
       cwd: safeCwd,
       model: ctx.model || undefined,
@@ -442,6 +444,11 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   } finally {
     if (tempImageDir) rmSync(tempImageDir, { recursive: true, force: true })
   }
+}
+
+/** 将纯文本追加到官方 Codex App Server 当前活跃轮次。 */
+export function steerCodexTurn(sessionId: string, text: string): Promise<boolean> {
+  return steerCodexAppServerTurn(sessionId, toAppServerInput(text))
 }
 
 export interface EphemeralCodexRuntime {

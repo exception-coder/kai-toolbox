@@ -189,6 +189,9 @@ wss.on('connection', (ws) => {
           msg.images as import('./sessionManager.js').OneShotImage[] | undefined,
         )
         break
+      case 'steer':
+        void manager.steer(sessionId, msg.text as string)
+        break
       case 'decision':
         manager.decide(sessionId, msg.reqId as string, {
           behavior: msg.behavior as string,

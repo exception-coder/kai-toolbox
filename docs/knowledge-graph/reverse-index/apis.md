@@ -85,6 +85,17 @@
 
 契约变更时必须同步 `ReviewRelationContext`、令牌密文边界、历史链接交互和原链接/旧数据兼容测试。
 
+## Vibe Coding Codex 运行中追加消息
+
+定义：`tools/tool-claude-chat/src/main/java/com/exceptioncoder/toolbox/claudechat/api/dto/ClientMessage.java`
+
+| WS 命令 | 写入/读取 | 调用方 | 决策影响 |
+|---|---|---|---|
+| 浏览器 `steer { text, messageId }` | 校验当前会话为 RUNNING、官方 Codex 后转发 | `ChatPage`、`useClaudeChatSocket` | 只追加纯文本到当前 turn；附件与其它引擎继续进入待发送队列 |
+| Sidecar `steer { sessionId, text }` | 调用 App Server `turn/steer`，携带当前 `threadId` 与 `expectedTurnId` | `ClaudeChatService`、`SidecarClient` | 当前 turn 不存在或已切换时必须拒绝，禁止自动创建新轮 |
+
+契约变更时必须同步 `ClientMessage`、`ClaudeChatWebSocketHandler`、`ClaudeChatService`、`SidecarClient`、Sidecar `SessionManager`、前端消息类型与协议测试。
+
 ## Vibe Coding 项目模块目录
 
 定义：`tools/tool-claude-chat/src/main/java/com/exceptioncoder/toolbox/claudechat/api/WorkspaceController.java:70`

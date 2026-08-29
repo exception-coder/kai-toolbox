@@ -16,6 +16,7 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.ResumeHistory.class, name = "resumeHistory"),
         @JsonSubTypes.Type(value = ClientMessage.ResumeCurrent.class, name = "resumeCurrent"),
         @JsonSubTypes.Type(value = ClientMessage.Send.class,          name = "send"),
+        @JsonSubTypes.Type(value = ClientMessage.Steer.class,         name = "steer"),
         @JsonSubTypes.Type(value = ClientMessage.Queue.class,         name = "queue"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantIntentRoute.class, name = "assistantIntentRoute"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantConversationAnalyze.class, name = "assistantConversationAnalyze"),
@@ -39,7 +40,8 @@ import java.util.Map;
 })
 public sealed interface ClientMessage
         permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession, ClientMessage.DuplicateSession,
-                ClientMessage.ResumeHistory, ClientMessage.ResumeCurrent, ClientMessage.Send, ClientMessage.Decision,
+                ClientMessage.ResumeHistory, ClientMessage.ResumeCurrent, ClientMessage.Send, ClientMessage.Steer,
+                ClientMessage.Decision,
                 ClientMessage.Queue,
                 ClientMessage.AssistantIntentRoute, ClientMessage.AssistantConversationAnalyze,
                 ClientMessage.AssistantContextSave,
@@ -91,6 +93,9 @@ public sealed interface ClientMessage
             }
         }
     }
+
+    /** 将纯文本追加到官方 Codex 当前活跃轮次，不创建下一轮。 */
+    record Steer(String text, String messageId) implements ClientMessage {}
 
     /** 当前回合不可写时，将消息幂等保存到服务端待发送队列。 */
     record Queue(String id, String text, String displayText, String developerInstructions,

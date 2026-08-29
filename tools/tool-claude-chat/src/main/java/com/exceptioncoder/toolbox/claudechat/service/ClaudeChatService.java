@@ -637,6 +637,40 @@ public class ClaudeChatService {
         }
     }
 
+    /** 将用户补充内容追加到官方 Codex 当前轮；不改变 RUNNING 生命周期。 */
+    public void steerUserMessage(WebSocketSession ws, ClientMessage.Steer msg) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        synchronized (ctx) {
+            String messageId = blankToNull(msg.messageId());
+            String text = msg.text() == null ? "" : msg.text().trim();
+            if (text.isEmpty()) {
+                sendError(ws, 0, "INVALID_STEER_MESSAGE", "追加内容不能为空");
+                return;
+            }
+            if (ctx.status != SessionStatus.RUNNING || !"codex".equals(ctx.engine)
+                    || blankToNull(ctx.apiBaseUrl) != null) {
+                sendError(ws, 0, "STEER_UNAVAILABLE", "当前会话没有可追加内容的官方 Codex 轮次");
+                return;
+            }
+            if (messageId != null && ctx.acceptedMessageIds.contains(messageId)) {
+                sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
+                return;
+            }
+            if (!sidecar.steer(ctx.sessionId, text)) {
+                sendError(ws, 0, "SIDECAR_DOWN", "追加内容失败：Sidecar 当前不可用");
+                return;
+            }
+            if (messageId != null) {
+                rememberAcceptedMessage(ctx, messageId);
+                sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
+            }
+        }
+    }
+
     private void rememberAcceptedMessage(SessionCtx ctx, String messageId) {
         ctx.acceptedMessageIds.add(messageId);
         while (ctx.acceptedMessageIds.size() > 100) {

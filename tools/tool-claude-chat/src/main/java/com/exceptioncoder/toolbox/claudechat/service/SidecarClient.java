@@ -254,6 +254,15 @@ public class SidecarClient implements ReviewThreadForkGateway {
         send(message);
     }
 
+    /** 将新输入追加到 Sidecar 中正在执行的官方 Codex turn。 */
+    public boolean steer(String sessionId, String text) {
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("type", "steer");
+        message.put("sessionId", sessionId);
+        message.put("text", nz(text));
+        return send(message);
+    }
+
     /** 转发权限/提问决策到 sidecar。返回 false=sidecar 未连/发送失败（决策未送达），调用方据此告知前端别误以为已批准。 */
     public boolean decision(String sessionId, String reqId, String behavior,
                             Object updatedInput, Object answers) {

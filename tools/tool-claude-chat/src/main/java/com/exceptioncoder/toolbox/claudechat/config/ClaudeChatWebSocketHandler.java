@@ -95,6 +95,7 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
             case ClientMessage.ResumeHistory rh -> service.resumeHistory(ws, rh);
             case ClientMessage.ResumeCurrent rc -> service.resumeCurrent(ws, rc);
             case ClientMessage.Send send -> service.sendUserMessage(ws, send);
+            case ClientMessage.Steer steer -> service.steerUserMessage(ws, steer);
             case ClientMessage.Queue queue -> service.queueUserMessage(ws, queue);
             case ClientMessage.AssistantIntentRoute command -> assistantCommands.handle(ws, command);
             case ClientMessage.AssistantConversationAnalyze command -> assistantCommands.handle(ws, command);

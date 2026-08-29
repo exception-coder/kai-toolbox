@@ -221,6 +221,8 @@ export interface UseClaudeChatSocket {
    */
   send: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string,
          assistant?: AssistantMessageEnvelope) => void
+  /** 将纯文本追加到官方 Codex 当前活跃轮次。 */
+  steer: (text: string) => void
   /** 待发送队列：running 时入队的消息，本轮结束后按序自动发出 */
   queued: QueuedMessage[]
   /** 上一轮未正常完成时的暂停原因；队列保留但不会自动发出。 */
@@ -1404,6 +1406,17 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
+  const steer = useCallback((text: string) => {
+    const t = text.trim()
+    if (!t) return
+    const messageId = nextId()
+    if (!sendRaw({ type: 'steer', text: t, messageId })) {
+      setSyncWarning('连接暂不可用，补充内容未发送；请重连后重试')
+      return
+    }
+    setItems(previous => [...previous, { kind: 'user', id: messageId, text: t, ts: Date.now() }])
+  }, [sendRaw])
+
   /**
    * 回灌权限/提问决策。发送失败时**不清 pending**——原先是先乐观 setPending(null) 再发，
    * WS 恰好断开的那一瞬点「允许」，弹窗关了、消息压根没发出去，用户以为已批准，实则一路等到
@@ -1766,7 +1779,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }
 
 function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {
