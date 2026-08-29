@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Building2, FolderPlus, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Permission } from '@/components/auth/Permission'
@@ -81,11 +81,14 @@ export function DepartmentPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4 p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold">部门管理</h2>
+    <div className="mx-auto max-w-5xl space-y-8 px-6 py-8 md:px-8 md:py-12">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">部门管理</h1>
+          <p className="text-sm text-[var(--color-muted-foreground)]">维护组织层级、部门编码与启用状态。</p>
+        </div>
         <Permission code="forge:dept:btn:edit">
-          <Button size="sm" onClick={() => setForm(emptyForm(0))}>
+          <Button onClick={() => setForm(emptyForm(0))}>
             <FolderPlus className="size-4" /> 新增根部门
           </Button>
         </Permission>
@@ -111,7 +114,11 @@ export function DepartmentPage() {
       ) : tree.length === 0 ? (
         <div className="text-sm text-[var(--color-muted-foreground)]">暂无部门。</div>
       ) : (
-        <div className="divide-y rounded-md border">
+        <section aria-label="部门组织结构" className="overflow-hidden rounded-xl border bg-[var(--color-card)]">
+          <div className="flex items-center gap-2 border-b bg-[var(--color-muted)]/40 px-4 py-3 text-xs font-medium text-[var(--color-muted-foreground)]">
+            <Building2 className="size-4" />
+            <span>组织结构</span>
+          </div>
           {tree.map((n) => (
             <DepartmentRow
               key={n.id}
@@ -123,7 +130,7 @@ export function DepartmentPage() {
               onDelete={doDelete}
             />
           ))}
-        </div>
+        </section>
       )}
     </div>
   )
@@ -146,24 +153,37 @@ function DepartmentRow({
 }) {
   return (
     <>
-      <div className="flex items-center gap-2 px-3 py-2 text-sm" style={{ paddingLeft: 12 + depth * 20 }}>
-        <span className="font-medium">{node.name}</span>
-        {node.code && <span className="text-xs text-[var(--color-muted-foreground)]">{node.code}</span>}
-        {node.status === 'DISABLED' && <span className="text-xs text-[var(--color-muted-foreground)]">（停用）</span>}
+      <div
+        className="group relative flex min-h-14 items-center gap-3 border-b px-4 text-sm last:border-b-0 hover:bg-[var(--color-accent)]/60 focus-within:bg-[var(--color-accent)]/60"
+        style={{ paddingLeft: 16 + depth * 28 }}
+      >
+        {depth > 0 && <span aria-hidden className="absolute top-0 bottom-0 w-px bg-[var(--color-border)]" style={{ left: 28 + (depth - 1) * 28 }} />}
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+          <Building2 className="size-3.5" />
+        </span>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium text-[var(--color-foreground)]">{node.name}</span>
+            {depth === 0 && <span className="text-xs text-[var(--color-muted-foreground)]">根部门</span>}
+            {node.status === 'DISABLED' && <span className="rounded-md bg-[var(--color-muted)] px-1.5 py-0.5 text-[11px] text-[var(--color-muted-foreground)]">已停用</span>}
+          </div>
+          {node.code && <div className="mt-0.5 font-mono text-xs text-[var(--color-muted-foreground)]">{node.code}</div>}
+        </div>
         {canEdit && (
-          <div className="ml-auto flex gap-1">
-            <Button size="sm" variant="ghost" title="新增子部门" onClick={() => onAddChild(node.id)}>
+          <div className="ml-auto flex shrink-0 gap-1 opacity-70 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <Button size="icon" variant="ghost" className="size-8" title="新增子部门" aria-label={`为${node.name}新增子部门`} onClick={() => onAddChild(node.id)}>
               <Plus className="size-3.5" />
             </Button>
-            <Button size="sm" variant="ghost" title="编辑" onClick={() => onEdit(node)}>
+            <Button size="icon" variant="ghost" className="size-8" title="编辑部门" aria-label={`编辑${node.name}`} onClick={() => onEdit(node)}>
               <Pencil className="size-3.5" />
             </Button>
             <Permission code="forge:dept:btn:delete">
               <Button
-                size="sm"
+                size="icon"
                 variant="ghost"
-                className="text-[var(--color-destructive)]"
-                title="删除"
+                className="size-8 text-[var(--color-muted-foreground)] hover:text-[var(--color-destructive)]"
+                title="删除部门"
+                aria-label={`删除${node.name}`}
                 onClick={() => onDelete(node)}
               >
                 <Trash2 className="size-3.5" />
