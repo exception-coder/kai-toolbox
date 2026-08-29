@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.mediaparser.config;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.util.TestPropertyValues;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -8,6 +10,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PlaywrightManagerTest {
+
+    @Test
+    void springSelectsProductionConstructorWithoutInitializingBrowser() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            MediaParserProperties properties = new MediaParserProperties();
+            TestPropertyValues.of("toolbox.media-parser.playwright.enabled=true").applyTo(context);
+            context.registerBean(MediaParserProperties.class, () -> properties);
+            context.registerBean(ProxyConfig.class, () -> new ProxyConfig(properties));
+            context.register(PlaywrightManager.class);
+
+            context.refresh();
+
+            assertThat(context.getBean(PlaywrightManager.class)).isNotNull();
+        }
+    }
 
     @Test
     void defersInitializationAndCachesFailure() {

@@ -8,6 +8,7 @@ import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.Proxy;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -106,6 +107,7 @@ public class PlaywrightManager {
     private volatile String initError;
     private volatile boolean shuttingDown = false;
 
+    @Autowired
     public PlaywrightManager(MediaParserProperties props, ProxyConfig proxyConfig) {
         this(props, proxyConfig, Playwright::create);
     }
