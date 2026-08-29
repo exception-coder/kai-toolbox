@@ -437,6 +437,7 @@ if (-not $env:NPM_CONFIG_REGISTRY) { $env:NPM_CONFIG_REGISTRY = 'https://registr
 
 # 前端 Vite dev 端口（须与 frontend/vite.config.ts 一致）。
 $FrontendPort = 5173
+$FrontendHealthFailureThreshold = 3
 
 # whisper 后端模式，来自 run-tools.conf 的 TOOLBOX_WHISPER_MODE，缺省 cli（同 application.yml）。
 #   cli         —— whisper-cli.exe 子进程，需要 binary + model 就位，不占常驻显存
@@ -505,6 +506,7 @@ $env:KAI_SUPERVISED = '1'
 $script:backend = $null
 $script:frontend = $null
 $script:frontendHealthNextCheck = [datetime]::MinValue
+$script:frontendHealthFailureCount = 0
 $script:lastStart = $null
 $script:hotReloadWatchers = @()
 $script:hotReloadRegistrations = @()
@@ -1078,6 +1080,7 @@ function Start-Frontend {
     $script:frontend = Start-Process -FilePath (Resolve-PowerShellExe) `
         -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $runCommand) `
         -PassThru -NoNewWindow
+    $script:frontendHealthFailureCount = 0
     $script:frontendHealthNextCheck = (Get-Date).AddSeconds(30)
 }
 
@@ -1092,13 +1095,31 @@ function Update-FrontendHealth {
     $now = Get-Date
     if (-not $script:frontend -or $script:frontend.HasExited -or $now -lt $script:frontendHealthNextCheck) { return }
     $script:frontendHealthNextCheck = $now.AddSeconds(20)
+    $failureDetail = $null
     try {
         $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-        $probe = Invoke-WebRequest -UseBasicParsing -SkipCertificateCheck `
+        $probe = Invoke-WebRequest -UseBasicParsing `
             -Uri "https://127.0.0.1:$FrontendPort/src/main.tsx?supervisor-health=$stamp" -TimeoutSec 5
-        if ($probe.StatusCode -eq 200) { return }
-    } catch { }
-    Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') frontend transform service unhealthy, restart frontend"
+        if ($probe.StatusCode -eq 200) {
+            $script:frontendHealthFailureCount = 0
+            return
+        }
+        $failureDetail = "HTTP $($probe.StatusCode)"
+    } catch {
+        $failureDetail = ($_.Exception.Message -replace '[\r\n]+', ' ').Trim()
+        if ($failureDetail.Length -gt 240) {
+            $failureDetail = $failureDetail.Substring(0, 240) + '...'
+        }
+    }
+
+    $script:frontendHealthFailureCount++
+    if ($script:frontendHealthFailureCount -lt $FrontendHealthFailureThreshold) {
+        Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') frontend health probe failed ($($script:frontendHealthFailureCount)/$FrontendHealthFailureThreshold), keep frontend running: $failureDetail"
+        return
+    }
+
+    Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') frontend transform service unhealthy after $FrontendHealthFailureThreshold consecutive failures, restart frontend: $failureDetail"
+    $script:frontendHealthFailureCount = 0
     Stop-Frontend
     Start-Sleep -Seconds 1
     Start-Frontend
