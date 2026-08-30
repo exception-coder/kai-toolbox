@@ -372,10 +372,19 @@ function Resolve-Tool([string]$envVal, [string]$onPath, [string[]]$fallbacks) {
     return $null
 }
 
-function Test-Java21([string]$command) {
+function Test-Jdk21([string]$command) {
     try {
         $versionOutput = (& $command -version 2>&1 | Out-String)
-        return $LASTEXITCODE -eq 0 -and $versionOutput -match 'version\s+"21(?:[.\-+]|\")'
+        if ($LASTEXITCODE -ne 0 -or $versionOutput -notmatch 'version\s+"21(?:[.\-+]|\")') {
+            return $false
+        }
+        $javaBin = Split-Path -Parent $command
+        $javac = Join-Path $javaBin 'javac.exe'
+        if (-not (Test-Path -LiteralPath $javac -PathType Leaf)) {
+            return $false
+        }
+        $compilerOutput = (& $javac -version 2>&1 | Out-String)
+        return $LASTEXITCODE -eq 0 -and $compilerOutput -match '^javac\s+21(?:[.\-+]|$)'
     } catch {
         return $false
     }
@@ -419,7 +428,7 @@ $MvnCmd = Resolve-RequiredTool 'MVN_CMD' 'Maven' 'mvn' @(
 # Java：构建(mvn)和运行(java -jar)都必须用 JDK 21，否则 jar 是 17+ 字节码、PATH 上的旧 JDK 跑不了。
 $JavaCmd = Resolve-RequiredTool 'JAVA_CMD' 'Java（JDK 21）' 'java' @(
     $(if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin\java.exe' } else { $null })
-) ${function:Test-Java21} '（必须为 JDK 21）'
+) ${function:Test-Jdk21} '（必须为包含 javac 的 JDK 21，不能使用 JRE）'
 # 据 JavaCmd 反推并覆盖 JAVA_HOME，供 mvn 构建用对 JDK（本机默认 JAVA_HOME 可能是旧 JDK）。
 if ($JavaCmd -match '[\\/]bin[\\/]java(\.exe)?$') {
     $env:JAVA_HOME = Split-Path -Parent (Split-Path -Parent $JavaCmd)
