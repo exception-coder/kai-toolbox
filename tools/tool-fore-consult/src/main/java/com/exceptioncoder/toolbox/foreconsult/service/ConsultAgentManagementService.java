@@ -24,9 +24,12 @@ public class ConsultAgentManagementService {
     private static final int MAX_CAPABILITIES = 30;
 
     private final ConsultAgentManagementRepository repository;
+    private final BusinessConsultSmokeSampleSource smokeSampleSource;
 
-    public ConsultAgentManagementService(ConsultAgentManagementRepository repository) {
+    public ConsultAgentManagementService(ConsultAgentManagementRepository repository,
+                                         BusinessConsultSmokeSampleSource smokeSampleSource) {
         this.repository = repository;
+        this.smokeSampleSource = smokeSampleSource;
     }
 
     public AgentManagementSnapshot getSnapshot() {
@@ -48,6 +51,7 @@ public class ConsultAgentManagementService {
                 BusinessConsultCapabilityCatalog.capabilities(),
                 capabilityIds(production),
                 capabilityIds(candidate),
+                smokeSampleSource.preview(),
                 AgentReleaseGate.evaluate(candidate));
     }
 

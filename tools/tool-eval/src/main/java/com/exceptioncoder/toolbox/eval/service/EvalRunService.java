@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.eval.service;
 
 import com.exceptioncoder.toolbox.eval.adapter.BugExtractionAdapter;
+import com.exceptioncoder.toolbox.eval.adapter.BusinessConsultAdapter;
 import com.exceptioncoder.toolbox.eval.api.dto.StartRunRequest;
 import com.exceptioncoder.toolbox.eval.assertion.AssertionEngine;
 import com.exceptioncoder.toolbox.eval.assertion.AssertionSpec;
@@ -157,24 +158,33 @@ public class EvalRunService {
         attributes.put("eval.dataset", run.getDataset());
         attributes.put("eval.adapter", adapter.id());
         attributes.put("eval.scenario", adapter.scenario());
+        attributes.put("eval.case.title", evalCase.getTitle());
+        attributes.put("gen_ai.agent.name", adapter.id());
+        attributes.put("agent.display_name", agentDisplayName(adapter.id()));
         if (run.getPromptVersion() != null) {
             attributes.put("eval.prompt.version", run.getPromptVersion());
         }
         AgentRunMetadata metadata = new AgentRunMetadata(
                 "tool-eval", run.getId(), null, adapter.id(), run.getModel(), attributes);
-        AgentSpan span = telemetry.start("eval.case", metadata);
+        AgentSpan span = telemetry.start("agent." + adapter.id() + ".eval", metadata);
         EvalResult result;
         try (Scope ignored = span.makeCurrent()) {
             result = runOne(run, adapter, evalCase, promptContent);
         }
         result.setTraceId(span.traceId());
         result.setScoreExportStatus(scoreExportService.initialStatus(result.getTraceId()));
+        span.attribute("eval.verdict", result.getVerdict());
+        span.attribute("eval.score", result.getScore());
         if ("ERROR".equals(result.getVerdict())) {
             span.fail(result.getError(), null);
         } else {
             span.success(result.getVerdict());
         }
         return result;
+    }
+
+    private String agentDisplayName(String adapterId) {
+        return BusinessConsultAdapter.ID.equals(adapterId) ? "业务咨询 Agent" : adapterId;
     }
 
     private EvalResult runOne(EvalRun run, EvalAdapter adapter, EvalCase c, String promptContent) {

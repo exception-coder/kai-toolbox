@@ -9,7 +9,12 @@ import {
 } from '@opentelemetry/api'
 import { inputKeySummary, outputLength, sanitizeAttributes, sanitizeText } from './sanitizer.js'
 import { telemetryEnabled } from './telemetry.js'
-import { evidenceAttributes, summarizeToolEvidence, type ToolEvidenceSummary } from './evidenceSummary.js'
+import {
+  evidenceAttributes,
+  summarizeToolEvidence,
+  toolInvocationFingerprint,
+  type ToolEvidenceSummary,
+} from './evidenceSummary.js'
 
 export interface TraceContextCarrier {
   traceparent?: string
@@ -70,7 +75,13 @@ export class AgentTracing {
     }
     if (safeMetadata.model) attributes['gen_ai.request.model'] = sanitizeText(safeMetadata.model)
 
-    const span = this.tracer.startSpan('agent.invoke', { kind: SpanKind.INTERNAL, attributes }, parent)
+    const agentName = typeof attributes['gen_ai.agent.name'] === 'string'
+      ? attributes['gen_ai.agent.name']
+      : 'generic'
+    const span = this.tracer.startSpan(`agent.${spanSegment(agentName)}.invoke`, {
+      kind: SpanKind.INTERNAL,
+      attributes,
+    }, parent)
     const spanContext = trace.setSpan(parent, span)
     const timer = setTimeout(() => this.finish(sessionId, 'trace timeout', true), AGENT_TRACE_TTL_MS)
     timer.unref?.()
@@ -151,8 +162,7 @@ export class AgentTracing {
     timer.unref?.()
     active.tools.set(callId, { span, timer, toolName, input: event.input })
     active.toolCalls++
-    const preliminary = summarizeToolEvidence(toolName, event.input, undefined)
-    const signature = `${toolName}|${preliminary.queryFingerprint ?? inputKeySummary(event.input)}`
+    const signature = `${toolName}|${toolInvocationFingerprint(event.input)}`
     if (active.toolSignatures.has(signature)) active.repeatedToolCalls++
     active.toolSignatures.add(signature)
   }
@@ -235,4 +245,9 @@ function normalizeMetadata(value: unknown): AgentTelemetryMetadata {
 function parseMcpServer(toolName: string): string | undefined {
   const match = /^mcp__(.+?)__/i.exec(toolName)
   return match?.[1] ? sanitizeText(match[1]) : undefined
+}
+
+function spanSegment(value: string): string {
+  const normalized = sanitizeText(value).trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
+  return normalized || 'generic'
 }

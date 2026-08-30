@@ -45,6 +45,12 @@ class BusinessConsultSmokeSampleSourceTest {
             assertThat(new ObjectMapper().readTree(sample.inputJson()).path("sessionContext")
                     .path("sourcePath").asText()).isEqualTo("D:/work/yoooni");
         });
+        assertThat(source.preview().id()).isEqualTo("business-consult-smoke-v1");
+        assertThat(source.preview().cases()).hasSize(6).allSatisfy(testCase -> {
+            assertThat(testCase.question()).isEqualTo("一个完整的历史业务问题");
+            assertThat(testCase.status()).isEqualTo("READY");
+            assertThat(testCase.coverage()).isNotBlank();
+        });
     }
 
     private static int turnIndex(String sessionId) {

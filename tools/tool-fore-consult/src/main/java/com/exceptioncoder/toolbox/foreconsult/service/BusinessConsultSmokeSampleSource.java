@@ -3,6 +3,8 @@ package com.exceptioncoder.toolbox.foreconsult.service;
 import com.exceptioncoder.toolbox.common.eval.EvalSampleSource;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultSession;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultTurn;
+import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentEvaluationCase;
+import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentEvaluationDataset;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultSessionRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -23,12 +25,12 @@ public class BusinessConsultSmokeSampleSource implements EvalSampleSource {
 
     private static final String DATASET = "business-consult-smoke-v1";
     private static final List<HistoricalTurn> CLASSIC_TURNS = List.of(
-            new HistoricalTurn("16a4b0ab-c041-4ea0-a030-8a7503af9757", 1, "SCM 系统全景梳理"),
-            new HistoricalTurn("565ba95e-12f6-4afc-97a8-c111c0213e77", 1, "SRM 系统全景梳理"),
-            new HistoricalTurn("998705c3-7cac-49a4-b9c0-64e78a3151e9", 1, "打版工作台业务规则"),
-            new HistoricalTurn("cc749cd0-5e7b-4e19-9bb3-b1057403fd0b", 5, "订单看板字段溯源"),
-            new HistoricalTurn("a40d9868-5d3b-44de-863d-87f07913355c", 8, "仓库权限配置"),
-            new HistoricalTurn("9be3b87a-3ce7-4115-993b-2a5975a85b35", 1, "销售单数据权限排查"));
+            new HistoricalTurn("16a4b0ab-c041-4ea0-a030-8a7503af9757", 1, "SCM 系统全景梳理", "系统全景"),
+            new HistoricalTurn("565ba95e-12f6-4afc-97a8-c111c0213e77", 1, "SRM 系统全景梳理", "系统全景"),
+            new HistoricalTurn("998705c3-7cac-49a4-b9c0-64e78a3151e9", 1, "打版工作台业务规则", "业务规则"),
+            new HistoricalTurn("cc749cd0-5e7b-4e19-9bb3-b1057403fd0b", 5, "订单看板字段溯源", "字段溯源"),
+            new HistoricalTurn("a40d9868-5d3b-44de-863d-87f07913355c", 8, "仓库权限配置", "权限配置"),
+            new HistoricalTurn("9be3b87a-3ce7-4115-993b-2a5975a85b35", 1, "销售单数据权限排查", "权限排查"));
 
     private final ConsultSessionRepository sessionRepository;
     private final ConsultTurnRepository turnRepository;
@@ -67,6 +69,25 @@ public class BusinessConsultSmokeSampleSource implements EvalSampleSource {
                     .ifPresent(samples::add);
         }
         return List.copyOf(samples);
+    }
+
+    public AgentEvaluationDataset preview() {
+        List<AgentEvaluationCase> cases = CLASSIC_TURNS.stream()
+                .map(this::toPreview)
+                .toList();
+        return new AgentEvaluationDataset(DATASET, displayName(), "PENDING_HUMAN_BASELINE", cases);
+    }
+
+    private AgentEvaluationCase toPreview(HistoricalTurn classic) {
+        Optional<ConsultTurn> turn = sessionRepository.findById(classic.sessionId())
+                .flatMap(session -> findTurn(session, classic.turnIndex()))
+                .map(SessionTurn::turn);
+        return new AgentEvaluationCase(
+                "consult_smoke:" + classic.sessionId() + "#" + classic.turnIndex(),
+                classic.title(),
+                turn.map(ConsultTurn::getQuestion).orElse("历史问题暂不可用，请检查原会话数据"),
+                classic.coverage(),
+                turn.isPresent() ? "READY" : "SOURCE_MISSING");
     }
 
     private Optional<SessionTurn> findTurn(ConsultSession session, int turnIndex) {
@@ -122,7 +143,7 @@ public class BusinessConsultSmokeSampleSource implements EvalSampleSource {
         }
     }
 
-    private record HistoricalTurn(String sessionId, int turnIndex, String title) {
+    private record HistoricalTurn(String sessionId, int turnIndex, String title, String coverage) {
     }
 
     private record SessionTurn(ConsultSession session, ConsultTurn turn) {

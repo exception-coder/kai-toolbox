@@ -33,6 +33,8 @@ public class ConsultAgentRunMetadataProvider implements AgentRunMetadataProvider
     private AgentRunMetadata toMetadata(ConsultSession session) {
         ConsultTurnTrace turn = turnTraceRepository.reserveNext(session.getSessionId());
         Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("gen_ai.agent.name", "business-consult");
+        attributes.put("agent.display_name", "业务咨询 Agent");
         attributes.put("consult.turn.id", turn.turnId());
         put(attributes, "consult.system.name", session.getSystemName());
         put(attributes, "consult.module.names", session.getModuleNames());

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { evidenceAttributes, summarizeToolEvidence } from './evidenceSummary.js'
+import { evidenceAttributes, summarizeToolEvidence, toolInvocationFingerprint } from './evidenceSummary.js'
 
 test('summarizes database evidence without exposing SQL or parameters', () => {
   const summary = summarizeToolEvidence(
@@ -40,4 +40,14 @@ test('never exports an absolute source path as an evidence id', () => {
   assert.equal(summary.sourceType, 'source_code')
   assert.match(summary.evidenceIds?.[0] ?? '', /^path:sha256:[a-f0-9]{24}$/)
   assert.equal(JSON.stringify(summary).includes('D:\\work'), false)
+})
+
+test('tool invocation fingerprint distinguishes values but ignores object key order', () => {
+  const supplier = toolInvocationFingerprint({ system: 'scm', module: 'supplier' })
+  const quotation = toolInvocationFingerprint({ system: 'scm', module: 'quotation' })
+  const reordered = toolInvocationFingerprint({ module: 'supplier', system: 'scm' })
+
+  assert.notEqual(supplier, quotation)
+  assert.equal(supplier, reordered)
+  assert.match(supplier, /^sha256:[a-f0-9]{24}$/)
 })

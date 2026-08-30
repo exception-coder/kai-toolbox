@@ -19,6 +19,7 @@ public record AgentManagementSnapshot(
         List<AgentCapability> capabilityRegistry,
         List<String> productionCapabilityIds,
         List<String> candidateCapabilityIds,
+        AgentEvaluationDataset evaluationDataset,
         AgentReleaseGate releaseGate
 ) {
 }

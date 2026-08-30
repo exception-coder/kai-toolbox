@@ -66,6 +66,18 @@ public final class AgentSpan implements AutoCloseable {
         }
     }
 
+    public void attribute(String key, double value) {
+        if (span.isRecording() && key != null && !key.isBlank()) {
+            span.setAttribute(AttributeKey.doubleKey(key), value);
+        }
+    }
+
+    public void attribute(String key, String value) {
+        if (span.isRecording() && key != null && !key.isBlank() && value != null && !value.isBlank()) {
+            span.setAttribute(AttributeKey.stringKey(key), value);
+        }
+    }
+
     private void finish(StatusCode status, String message, Throwable error) {
         if (!ended.compareAndSet(false, true)) {
             return;

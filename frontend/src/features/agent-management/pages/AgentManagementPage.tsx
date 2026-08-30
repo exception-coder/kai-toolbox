@@ -481,9 +481,69 @@ function EvaluationEditor({
 }) {
   const gate = snapshot.releaseGate;
   const observabilityUrl = snapshot.observabilityUrl ?? "http://127.0.0.1:6006";
+  const dataset = snapshot.evaluationDataset;
   return (
     <section>
-      <SectionTitle title="评测与发布门禁 · Evaluation & Release Gate" detail={gate.reason} />
+      <SectionTitle
+        title="评测与发布门禁 · Evaluation & Release Gate"
+        detail={gate.reason}
+      />
+      <div className="mt-6 border-y border-slate-200">
+        <div className="flex flex-wrap items-end justify-between gap-3 py-4">
+          <div>
+            <p className="text-sm font-medium text-slate-900">
+              经典历史问题 · Classic Questions
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {dataset
+                ? `${dataset.id} · ${dataset.cases.length} 条真实历史问题`
+                : "题集尚未载入"}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] text-amber-700">
+              待人工基线 · Pending baseline
+            </span>
+            <a
+              href="/tools/eval"
+              className="text-xs font-medium text-slate-700 hover:text-slate-950"
+            >
+              前往回归评测 →
+            </a>
+          </div>
+        </div>
+        {dataset?.cases.map((item, index) => (
+          <div
+            key={item.id}
+            className="grid gap-2 border-t border-slate-200 py-4 sm:grid-cols-[2rem_10rem_1fr_auto] sm:items-start"
+          >
+            <span className="font-mono text-xs text-slate-400">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <div>
+              <p className="text-xs font-medium text-slate-800">{item.title}</p>
+              <p className="mt-1 text-[11px] text-slate-400">{item.coverage}</p>
+            </div>
+            <p
+              className={`text-xs leading-5 ${item.status === "READY" ? "text-slate-600" : "text-amber-700"}`}
+            >
+              {item.question}
+            </p>
+            <span
+              className={`text-[10px] uppercase tracking-wide ${item.status === "READY" ? "text-emerald-700" : "text-amber-700"}`}
+            >
+              {item.status === "READY"
+                ? "已就绪 · Ready"
+                : "来源缺失 · Missing"}
+            </span>
+          </div>
+        ))}
+        {!dataset && (
+          <div className="border-t border-slate-200 py-4 text-xs text-slate-500">
+            重启后端以加载题集快照；也可先进入回归评测检查样本来源。
+          </div>
+        )}
+      </div>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <Field
           label="评测运行编号 · Evaluation run ID"

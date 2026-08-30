@@ -65,6 +65,11 @@ export function summarizeToolEvidence(
   })
 }
 
+/** 对完整工具入参做稳定散列，只用于判定同工具是否以相同参数重复调用。 */
+export function toolInvocationFingerprint(input: unknown): string {
+  return fingerprint(stableSerialize(input))
+}
+
 export function evidenceAttributes(summary: ToolEvidenceSummary): Record<string, string | number | boolean> {
   const attributes: Record<string, string | number | boolean> = {
     'evidence.schema_version': summary.schemaVersion,
@@ -200,6 +205,13 @@ function normalizeQuery(value: string): string {
 
 function fingerprint(value: string): string {
   return `sha256:${createHash('sha256').update(value).digest('hex').slice(0, 24)}`
+}
+
+function stableSerialize(value: unknown): string {
+  if (value == null || typeof value !== 'object') return JSON.stringify(value) ?? String(value)
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`
+  const record = value as Record<string, unknown>
+  return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${stableSerialize(record[key])}`).join(',')}}`
 }
 
 function parseOutput(value: unknown): unknown {
