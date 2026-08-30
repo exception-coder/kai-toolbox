@@ -233,6 +233,12 @@ Forge 环境页复用固定业务仓库目录与只拉取同步能力，展示 E
 
 目录结构固定为 `yoooni`、`frontend`、`srm-system/{srm,srm-admin-front-end}`、`scm-system/{SCM,scm-front-end}`。目标不存在时执行 clone；已存在且干净、远端匹配时仅 fetch 与 `pull --ff-only`；未提交修改、本地领先、分叉、远端不匹配或非 Git 占位目录一律跳过并保留现场。
 
+### 4.6 业务仓库 OpenSpec 双端初始化
+
+业务源码状态按六个 Git 仓库分别检查 OpenSpec 根、Claude Code Skill 与 Codex Skill。完整就绪必须同时存在 `openspec/config.yaml`、`.claude/skills/openspec-*/SKILL.md` 和 `.agents/skills/openspec-*/SKILL.md`；SRM、SCM 的系统父目录只承担聚合，不作为 OpenSpec 根。
+
+用户显式点击“一键初始化 OpenSpec”后，Forge 只对已拉取、远端匹配且工作树干净的缺失仓库执行 `openspec init . --tools claude,codex --no-animation`。未拉取、非 Git、远端不匹配或存在本地修改的仓库跳过并返回逐仓库原因，不使用 `--force`，不清理用户自定义文件。
+
 ---
 
 ## 5. 核心业务规则
@@ -252,6 +258,9 @@ Forge 环境页复用固定业务仓库目录与只拉取同步能力，展示 E
 | 业务源码根 | 业务源码默认落在 `${user.home}/.kai-toolbox/sources` 并自动纳入工作区；显式业务根配置优先 |
 | 固定目录 | SRM 与 SCM 以系统父目录聚合前后端仓库；ERP 与 ERP 小程序保持单仓一级目录 |
 | 安全同步 | 仅允许固定 wyoooni Gitee 地址；只 clone、fetch、`pull --ff-only`，不得自动提交、重置、删除或改写 origin |
+| OpenSpec 仓库边界 | 六个 Git 仓库分别检查和初始化；系统父目录不得生成混合规格根 |
+| OpenSpec 双端就绪 | 同时存在配置根、Claude Skill 与 Codex 共享 Skill 才标记就绪；旧 `.codex/skills` 不作为当前 Codex 就绪证据 |
+| OpenSpec 写入保护 | 仅由用户显式触发，工作树非干净状态一律跳过；禁止传递 `--force` |
 | 本地优先链路 | 一键安装和一键更新都必须先同步五个固定 Git 仓库，再从统一工作区完成构建、插件安装或更新和 MCP 安装 |
 | Git 安全 | 已存在仓库仅在工作树干净时执行 `git pull --ff-only`；不删除本地仓、不覆盖未提交修改；已有非默认 origin 可沿用并明确展示，新克隆默认 Gitee |
 
@@ -308,6 +317,7 @@ frontend/src/features/forge-environment/
 |---|---|---|
 | 包管理器安装后当前 Java 进程 PATH 未刷新 | 新安装 CLI 在后续步骤中不可见 | 重新读取 Windows 用户与系统 PATH 并复检；仍不可见才返回 `restartRequired` |
 | Git 私有仓鉴权需要交互 | 后台 SSE 无法完成登录 | 不采集凭据；展示对应 origin 的登录/凭据恢复说明后重试 |
+| OpenSpec 初始化会写入业务仓库 | 可能与用户在途修改混合 | 独立操作、逐仓执行、脏工作树跳过且不使用 `--force` |
 | 本地套件仓存在未提交修改 | 拉取可能覆盖或混入用户工作 | 阻止拉取和安装，保留本地内容并提示用户先提交或暂存 |
 | 全局 npm 或 uv 目录权限不足 | CLI 安装失败 | 保留原始退出码和有界输出，提供可复制官方命令；Windows 的 npm 命令固定使用 `npm.cmd`，绕开 PowerShell 脚本执行策略 |
 | Maven 实际使用 Java 8 | Forge 源码构建可能失败 | 单独检测 `mvn --version` 的 Java 行并标为构建链告警 |

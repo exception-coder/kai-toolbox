@@ -35,3 +35,8 @@ export function getBusinessSystemWorkspaces(fetchRemote = false) {
 export function businessSourceSyncPath() {
   return '/claude-chat/plugins/business-systems/sync/stream?system=all'
 }
+
+/** 返回六个固定业务仓库的 Claude/Codex OpenSpec 初始化 SSE 路径。 */
+export function businessOpenSpecInitPath() {
+  return '/claude-chat/plugins/business-systems/openspec/init/stream?system=all'
+}

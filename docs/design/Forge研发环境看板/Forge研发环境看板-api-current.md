@@ -21,6 +21,7 @@
 | 4 | GET | `/api/claude-chat/plugins/update/stream` | 同步五个套件仓并从本地一键更新 |
 | 5 | GET | `/api/claude-chat/plugins/business-systems` | 读取四个业务系统、六个固定仓库状态 |
 | 6 | GET | `/api/claude-chat/plugins/business-systems/sync/stream` | 一键拉取或安全快进业务源码 |
+| 7 | GET | `/api/claude-chat/plugins/business-systems/openspec/init/stream` | 对安全的缺失业务仓库初始化 Claude/Codex OpenSpec 能力 |
 
 ---
 
@@ -220,7 +221,7 @@ Query 参数和 SSE 消息格式与“一键安装公司套件”相同。前端
 |---|---|
 | Method | `GET` |
 | Path | `/api/claude-chat/plugins/business-systems` |
-| 用途 | 返回四个业务系统、六个固定仓库的目录、Git 与同步状态 |
+| 用途 | 返回四个业务系统、六个固定仓库的目录、Git、同步与 OpenSpec 双端状态 |
 
 ### 5.2 请求
 
@@ -242,3 +243,18 @@ Query 参数和 SSE 消息格式与“一键安装公司套件”相同。前端
 ### 6.2 请求与事件
 
 `system` 默认 `all`，也可传 `erp`、`erp-mini-program`、`srm` 或 `scm`。事件沿用 `message`，其中 `line` 表示 Git 输出，`step` 表示单步退出码，`done` 携带逐仓库结果；任一仓库失败不删除或覆盖其他仓库。
+
+## 7. 一键初始化业务仓库 OpenSpec
+
+### 7.1 基本信息
+
+| 项 | 内容 |
+|---|---|
+| Method | `GET` |
+| Path | `/api/claude-chat/plugins/business-systems/openspec/init/stream` |
+| Produces | `text/event-stream` |
+| 用途 | 对已拉取且工作树干净的缺失仓库执行 Claude Code/Codex 双端 OpenSpec 初始化 |
+
+### 7.2 请求与事件
+
+`system` 默认 `all`，也可传四个固定系统 ID。命令固定为 `openspec init . --tools claude,codex --no-animation`；不接受任意路径、工具 ID 或额外参数。`done.results` 逐仓返回 `initialized`、`unchanged`、`skipped` 或 `failed`，脏工作树和非固定远端只允许 `skipped`。
