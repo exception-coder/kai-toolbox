@@ -348,7 +348,7 @@ switch ($Observability) {
     'off' { Disable-Observability }
 }
 
-# 工具路径解析：优先 run-tools.conf 注入的 MVN_CMD/JAVA_CMD（上面已读入环境变量），其次 PATH，最后已知回退。
+# 工具路径解析：优先本机配置注入的 MVN_CMD/JAVA_CMD（上面已读入环境变量），其次 PATH，最后已知回退。
 # 接受目录值——自动定位到 bin\mvn.cmd / bin\java.exe（用户填了 Maven/JDK 主目录也能用）。
 function Resolve-ExePath([string]$path, [string]$name) {
     if (-not $path) { return $null }
@@ -415,7 +415,9 @@ function Resolve-RequiredTool(
         }
     }
 
+    Set-ToolboxRuntimeConfigValue $envName $resolvedPath
     [Environment]::SetEnvironmentVariable($envName, $resolvedPath, 'Process')
+    Write-Host "[supervisor] 已保存到 scripts/run-tools.d/10-runtime.conf：$envName=$resolvedPath"
     Write-Host "[supervisor] $displayName=$resolvedPath"
     return $resolvedPath
 }
