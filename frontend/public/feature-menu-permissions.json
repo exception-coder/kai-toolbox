@@ -360,6 +360,13 @@
       "sort": 56
     },
     {
+      "featureId": "agent-management",
+      "code": "menu:agent-management",
+      "name": "Agent 管理",
+      "module": "AI",
+      "sort": 57
+    },
+    {
       "featureId": "eval",
       "code": "menu:eval",
       "name": "回归评测",

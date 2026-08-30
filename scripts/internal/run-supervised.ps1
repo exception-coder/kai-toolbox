@@ -10,14 +10,14 @@
 # The frontend restart button calls this endpoint through the Vite /supervisor proxy.
 # This supervisor owns both backend and frontend; Maven skips its embedded frontend build.
 #
-# Internal implementation. User entry point: scripts\run-supervised.cmd
+# Internal implementation. User entry point: scripts\run-supervised.cmd（默认启用 Phoenix）。
 # Ctrl+C stops the supervisor loop.
 
 param(
     [ValidateSet('dev', 'full')]
     [string]$Mode = 'dev',
-    [ValidateSet('aspire', 'langfuse', 'off')]
-    [string]$Observability = 'aspire',
+    [ValidateSet('phoenix', 'langfuse', 'off')]
+    [string]$Observability = 'phoenix',
     # 存盘即自动重启（源码监听 + DevTools 重启）。默认关：重启时机由人控制，
     # 走 POST /restart。热重启会换掉 Spring 上下文却留下旧上下文的后台线程/长连接
     # （claude-chat sidecar 就踩过：僵尸 bean 继续抢 sidecar，事件投递到没人看的一端），
@@ -276,9 +276,9 @@ function Remove-ProcessEnvironmentVariable([string]$name) {
     Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
 }
 
-function Initialize-AspireObservability {
+function Initialize-PhoenixObservability {
     $env:TOOLBOX_OBSERVABILITY_ENABLED = 'true'
-    $env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:4318'
+    $env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:6006'
     $env:OTEL_SERVICE_NAME = 'kai-toolbox'
     $env:TOOLBOX_DEPLOYMENT_ENVIRONMENT = 'local'
 
@@ -297,10 +297,10 @@ function Initialize-AspireObservability {
     }
     & $startScript
     if ($LASTEXITCODE -ne 0) {
-        Write-Host '[supervisor] WARN: Aspire Dashboard 未就绪，业务系统继续启动'
+        Write-Host '[supervisor] WARN: Phoenix 未就绪，业务系统继续启动'
         return
     }
-    Write-Host '[supervisor] Aspire 观测已配置：OTLP/HTTP http://127.0.0.1:4318，Dashboard http://127.0.0.1:18888'
+    Write-Host '[supervisor] Phoenix 观测已配置：OTLP/HTTP http://127.0.0.1:6006/v1/traces，UI http://127.0.0.1:6006'
 }
 
 function Initialize-LangfuseObservability {
@@ -343,7 +343,7 @@ function Disable-Observability {
 }
 
 switch ($Observability) {
-    'aspire' { Initialize-AspireObservability }
+    'phoenix' { Initialize-PhoenixObservability }
     'langfuse' { Initialize-LangfuseObservability }
     'off' { Disable-Observability }
 }

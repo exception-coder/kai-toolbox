@@ -12,7 +12,7 @@
 #   scripts\stop-supervised.cmd                       # 停全部
 #   scripts\stop-supervised.cmd -KeepStudio           # 保留 AgentScope Studio(:3000)
 #   scripts\stop-supervised.cmd -Ports 18080,5173     # supervisor 已退出后，只清指定端口
-#   scripts\stop-supervised.cmd -IncludeObservability # 同时停止 Aspire
+#   scripts\stop-supervised.cmd -IncludeObservability # 同时停止 Phoenix
 
 param(
     [int[]]$Ports,

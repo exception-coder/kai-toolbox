@@ -216,3 +216,95 @@ CREATE INDEX IF NOT EXISTS idx_consult_evidence_route_context
     ON consult_evidence_route(context_system, status);
 CREATE INDEX IF NOT EXISTS idx_consult_evidence_route_evidence
     ON consult_evidence_route(evidence_system, status);
+
+-- 功能：业务咨询 Agent Registry；变更：新增固定 Agent 定义表；目的：统一展示 Owner、用途、入口与观测地址
+CREATE TABLE IF NOT EXISTS consult_agent_definition (
+    agent_id           TEXT PRIMARY KEY,
+    name               TEXT NOT NULL,
+    owner              TEXT NOT NULL,
+    description        TEXT NOT NULL,
+    endpoint           TEXT NOT NULL,
+    framework          TEXT NOT NULL,
+    observability_url  TEXT,
+    created_at         INTEGER NOT NULL,
+    updated_at         INTEGER NOT NULL
+);
+
+-- 功能：业务咨询 Agent Registry；变更：初始化业务咨询 Agent 定义；目的：提供单 Agent 治理入口
+INSERT OR IGNORE INTO consult_agent_definition (
+    agent_id, name, owner, description, endpoint, framework, observability_url, created_at, updated_at
+) VALUES (
+    'business-consult',
+    '业务咨询 Agent',
+    'Forge AI Platform',
+    '面向内部业务系统的只读证据咨询 Agent',
+    '/api/fore-consult/sessions',
+    'Java + Codex/Claude',
+    NULL,
+    0,
+    0
+);
+
+-- 功能：业务咨询 Agent 动态配置；变更：新增不可变版本快照表；目的：管理 Candidate、Production 与评测门禁事实
+CREATE TABLE IF NOT EXISTS consult_agent_version (
+    agent_id              TEXT    NOT NULL,
+    version               INTEGER NOT NULL,
+    status                TEXT    NOT NULL,
+    model                 TEXT    NOT NULL,
+    temperature           REAL    NOT NULL,
+    prompt_ref            TEXT    NOT NULL,
+    orchestration_version TEXT    NOT NULL,
+    tools_json             TEXT    NOT NULL DEFAULT '[]',
+    mcp_servers_json       TEXT    NOT NULL DEFAULT '[]',
+    skills_json            TEXT    NOT NULL DEFAULT '[]',
+    evaluation_run_id      TEXT,
+    evaluation_score       REAL,
+    evaluation_passed      INTEGER NOT NULL DEFAULT 0,
+    created_at             INTEGER NOT NULL,
+    released_at            INTEGER,
+    PRIMARY KEY (agent_id, version)
+);
+
+-- 功能：业务咨询 Agent 动态配置；变更：限制单一 Production；目的：避免并发发布产生双生产版本
+CREATE UNIQUE INDEX IF NOT EXISTS uk_consult_agent_version_production
+    ON consult_agent_version(agent_id)
+    WHERE status = 'PRODUCTION';
+
+-- 功能：业务咨询 Agent 动态配置；变更：限制单一 Candidate；目的：保持唯一待评测发布对象
+CREATE UNIQUE INDEX IF NOT EXISTS uk_consult_agent_version_candidate
+    ON consult_agent_version(agent_id)
+    WHERE status = 'CANDIDATE';
+
+-- 功能：业务咨询 Agent 版本管理；变更：初始化 v4 生产配置快照；目的：兼容当前默认动态证据编排
+INSERT OR IGNORE INTO consult_agent_version (
+    agent_id, version, status, model, temperature, prompt_ref, orchestration_version,
+    tools_json, mcp_servers_json, skills_json, evaluation_passed, created_at, released_at
+) VALUES (
+    'business-consult',
+    1,
+    'PRODUCTION',
+    'runtime-default',
+    0.1,
+    'fore-consult-v4',
+    'v4',
+    '["source_context","source_read","source_search"]',
+    '["consult-readonly","domain-knowledge"]',
+    '["backend-evidence"]',
+    0,
+    0,
+    0
+);
+
+-- 功能：业务咨询 Agent 发布审计；变更：新增发布与回滚记录表；目的：追溯生产版本切换
+CREATE TABLE IF NOT EXISTS consult_agent_release (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id      TEXT    NOT NULL,
+    action        TEXT    NOT NULL,
+    from_version  INTEGER,
+    to_version    INTEGER NOT NULL,
+    released_at   INTEGER NOT NULL
+);
+
+-- 功能：业务咨询 Agent 发布审计；变更：新增按 Agent 和时间查询索引；目的：稳定读取发布历史
+CREATE INDEX IF NOT EXISTS idx_consult_agent_release_history
+    ON consult_agent_release(agent_id, released_at DESC);
