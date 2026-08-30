@@ -1,4 +1,4 @@
-import { Download, RefreshCw } from 'lucide-react'
+import { Download, RefreshCw, WandSparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { BusinessSystemWorkspace } from '../types'
 
@@ -12,21 +12,29 @@ export function BusinessSourceOperations({
   checking,
   busy,
   syncing,
+  initializingOpenSpec,
   error,
   onRefresh,
   onSync,
+  onInitializeOpenSpec,
 }: {
   systems: BusinessSystemWorkspace[] | undefined
   checking: boolean
   busy: boolean
   syncing: boolean
+  initializingOpenSpec: boolean
   error: boolean
   onRefresh: () => void
   onSync: () => void
+  onInitializeOpenSpec: () => void
 }) {
   const root = systems?.[0]?.workspacePath.replace(/[\\/]?[^\\/]+$/, '')
   const readyRepositories = systems?.flatMap((system) => system.members).filter((repository) => repository.cloned).length ?? 0
   const totalRepositories = systems?.flatMap((system) => system.members).length ?? 6
+  const openSpecReadyRepositories = systems?.flatMap((system) => system.members)
+    .filter((repository) => repository.openSpec?.status === 'READY').length ?? 0
+  const clonedRepositories = systems?.flatMap((system) => system.members)
+    .filter((repository) => repository.cloned).length ?? 0
 
   return (
     <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-5">
@@ -44,7 +52,12 @@ export function BusinessSourceOperations({
           <div key={system.id} className="flex items-center gap-2 py-2 text-xs">
             <span className={`size-2 shrink-0 rounded-full ${statusColor(system)}`} />
             <span className="font-medium">{system.name}</span>
-            <span className="ml-auto text-[11px] text-[var(--color-muted-foreground)]">{system.message}</span>
+            <span className="ml-auto text-right text-[11px] leading-4 text-[var(--color-muted-foreground)]">
+              <span className="block">{system.message}</span>
+              <span className="block">
+                OpenSpec {system.members.filter((repository) => repository.openSpec?.status === 'READY').length}/{system.members.length}
+              </span>
+            </span>
           </div>
         ))}
         {!systems && !error && <p className="py-3 text-xs text-[var(--color-muted-foreground)]">正在读取源码状态…</p>}
@@ -63,8 +76,12 @@ export function BusinessSourceOperations({
           <Download /> {syncing ? '正在拉取' : '一键拉取'}
         </Button>
       </div>
+      <Button className="mt-2 w-full" variant="outline" onClick={onInitializeOpenSpec}
+        disabled={busy || checking || clonedRepositories === 0}>
+        <WandSparkles /> {initializingOpenSpec ? '正在初始化 OpenSpec' : `初始化 OpenSpec · ${openSpecReadyRepositories}/${totalRepositories}`}
+      </Button>
       <p className="mt-3 text-[11px] leading-5 text-[var(--color-muted-foreground)]">
-        已存在仓库只做安全快进；未提交修改、分叉或远端不匹配时会跳过，不覆盖本地现场。
+        源码同步只做安全快进；OpenSpec 仅初始化干净仓库，并分别写入 Claude 与 Codex Skill。
       </p>
     </section>
   )

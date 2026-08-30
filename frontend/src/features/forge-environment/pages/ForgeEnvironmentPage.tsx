@@ -9,6 +9,7 @@ import { ReadinessSummary } from '../components/ReadinessSummary'
 import { SuiteOperations } from '../components/SuiteOperations'
 import {
   forgeEnvironmentBootstrapPath,
+  businessOpenSpecInitPath,
   businessSourceSyncPath,
   getBusinessSystemWorkspaces,
   getForgeEnvironment,
@@ -19,7 +20,7 @@ import type { BootstrapStep, ForgeEnvironmentSnapshot, RestartRequiredEvent } fr
 
 const QUERY_KEY = ['forge-environment']
 const BUSINESS_QUERY_KEY = ['forge-environment', 'business-sources']
-type Operation = 'initialization' | 'suite-install' | 'suite-update' | 'business-sync'
+type Operation = 'initialization' | 'suite-install' | 'suite-update' | 'business-sync' | 'business-openspec'
 
 const PROGRESS_COPY: Record<Operation, { title: string; emptyTitle: string; emptyDescription: string; errorTitle: string }> = {
   initialization: {
@@ -46,12 +47,19 @@ const PROGRESS_COPY: Record<Operation, { title: string; emptyTitle: string; empt
     emptyDescription: '一键补齐 ERP、ERP 小程序、SRM、SCM 的六个固定仓库，已存在项目会安全跳过或快进更新。',
     errorTitle: '业务源码拉取未完成',
   },
+  'business-openspec': {
+    title: 'OpenSpec 初始化进度',
+    emptyTitle: '等待初始化业务仓库',
+    emptyDescription: '逐仓检查配置根、Claude Skill 与 Codex Skill，仅对工作树干净的缺失仓库执行初始化。',
+    errorTitle: 'OpenSpec 初始化未完成',
+  },
 }
 
 function suiteStepName(step: string) {
   const [action, target] = step.split(':', 2)
   if (action === 'clone') return `克隆 ${target}`
   if (action === 'pull') return `更新 ${target}`
+  if (action === 'init') return `初始化 ${target}`
   return step.replaceAll('-', ' ')
 }
 
@@ -134,7 +142,7 @@ export function ForgeEnvironmentPage() {
   const finishOperation = (operation: Operation, preserveError = false) => {
     terminalRef.current = true
     setActiveOperation(null)
-    if (operation === 'business-sync') {
+    if (operation === 'business-sync' || operation === 'business-openspec') {
       void refreshBusiness(false)
     } else {
       void refresh(false, preserveError)
@@ -262,9 +270,11 @@ export function ForgeEnvironmentPage() {
             checking={businessQuery.isFetching}
             busy={running}
             syncing={activeOperation === 'business-sync'}
+            initializingOpenSpec={activeOperation === 'business-openspec'}
             error={businessQuery.isError}
             onRefresh={() => void refreshBusiness(true)}
             onSync={() => startOperation('business-sync', businessSourceSyncPath())}
+            onInitializeOpenSpec={() => startOperation('business-openspec', businessOpenSpecInitPath())}
           />
           <BootstrapProgress
             steps={steps}

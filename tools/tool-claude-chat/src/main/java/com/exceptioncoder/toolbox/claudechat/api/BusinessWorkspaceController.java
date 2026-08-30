@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.BusinessSystemWorkspaceView;
+import com.exceptioncoder.toolbox.claudechat.service.BusinessOpenSpecService;
 import com.exceptioncoder.toolbox.claudechat.service.BusinessWorkspaceService;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import org.springframework.http.MediaType;
@@ -19,10 +20,14 @@ import java.util.UUID;
 public class BusinessWorkspaceController {
 
     private final BusinessWorkspaceService service;
+    private final BusinessOpenSpecService openSpecService;
     private final SseEmitterRegistry sse;
 
-    public BusinessWorkspaceController(BusinessWorkspaceService service, SseEmitterRegistry sse) {
+    public BusinessWorkspaceController(BusinessWorkspaceService service,
+                                       BusinessOpenSpecService openSpecService,
+                                       SseEmitterRegistry sse) {
         this.service = service;
+        this.openSpecService = openSpecService;
         this.sse = sse;
     }
 
@@ -37,6 +42,14 @@ public class BusinessWorkspaceController {
         String taskId = UUID.randomUUID().toString();
         SseEmitter emitter = sse.create(taskId);
         service.startSync(taskId, system);
+        return emitter;
+    }
+
+    @GetMapping(value = "/openspec/init/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter initializeOpenSpec(@RequestParam(defaultValue = "all") String system) {
+        String taskId = UUID.randomUUID().toString();
+        SseEmitter emitter = sse.create(taskId);
+        openSpecService.startInitialization(taskId, system);
         return emitter;
     }
 }

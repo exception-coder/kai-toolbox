@@ -54,6 +54,8 @@
 | `com.exceptioncoder.toolbox.claudechat.service.ForgeEnvironmentService` | 新增 | 只读探测、版本门禁和套件聚合 |
 | `com.exceptioncoder.toolbox.claudechat.service.ForgeEnvironmentBootstrapService` | 新增 | 初始化步骤拓扑、互斥与恢复编排 |
 | `com.exceptioncoder.toolbox.claudechat.service.BusinessWorkspaceService` | 修改 | 使用统一业务源码根执行安全 clone/fetch/ff-only pull |
+| `com.exceptioncoder.toolbox.claudechat.service.BusinessOpenSpecService` | 新增 | 逐仓检查 OpenSpec 双端产物并执行受保护初始化 |
+| `com.exceptioncoder.toolbox.claudechat.api.dto.BusinessOpenSpecStatusView` | 新增 | 表达配置根、Claude Skill、Codex Skill 与汇总状态 |
 | `frontend/src/features/forge-environment/components/BusinessSourceOperations.tsx` | 新增 | 展示四个系统、六个仓库状态与一键拉取入口 |
 | `frontend/src/features/forge-environment/pages/ForgeEnvironmentPage.tsx` | 修改 | 接入业务源码查询、SSE 进度和刷新 |
 | `com.exceptioncoder.toolbox.claudechat.service.PluginUpdateService` | 修改 | 提取供初始化编排复用的同步安装入口 |
@@ -131,7 +133,10 @@ public record DependencyView(
 - 事务范围：无数据库事务。
 - 输出边界：每个 CLI 步骤最多保留末尾 16 KB 输出，页面默认仅展示摘要。
 - 安装边界：Windows 首版优先 WinGet；macOS 仅在 Homebrew 存在时自动安装；其它平台返回手工指引。
-- 不处理的场景：自动登录账号、修改 shell 启动文件、初始化具体业务项目的 OpenSpec root、替用户修复私有仓权限。
+- 不处理的场景：自动登录账号、修改 shell 启动文件、初始化固定业务仓之外的 OpenSpec root、替用户修复私有仓权限。
+- OpenSpec 初始化只接受固定业务仓目录和 `all/erp/erp-mini-program/srm/scm` 白名单，不接收任意路径或命令。
+- Codex 当前就绪目录为 `.agents/skills/openspec-*`；`.codex/skills` 仅作上游迁移兼容，不作为新初始化成功条件。
+- 初始化前必须确认仓库工作树干净且固定远端匹配；命令固定为 `openspec init . --tools claude,codex --no-animation`，禁止 `--force`。
 
 ---
 

@@ -50,6 +50,13 @@ export interface BusinessRepositoryStatus {
   cloned: boolean
   status: string
   message: string
+  openSpec?: {
+    initialized: boolean
+    claudeConfigured: boolean
+    codexConfigured: boolean
+    status: 'READY' | 'PARTIAL' | 'MISSING' | 'NOT_AVAILABLE'
+    message: string
+  }
 }
 
 export interface BusinessSystemWorkspace {

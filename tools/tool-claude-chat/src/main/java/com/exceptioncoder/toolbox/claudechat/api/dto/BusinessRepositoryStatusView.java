@@ -16,5 +16,6 @@ public record BusinessRepositoryStatusView(
         boolean remoteChecked,
         boolean syncable,
         String status,
-        String message) {
+        String message,
+        BusinessOpenSpecStatusView openSpec) {
 }

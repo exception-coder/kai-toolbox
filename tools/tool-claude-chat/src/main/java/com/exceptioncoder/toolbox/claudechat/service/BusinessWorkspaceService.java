@@ -33,13 +33,16 @@ public class BusinessWorkspaceService {
 
     private final BusinessWorkspaceProperties properties;
     private final BusinessWorkspaceCatalog catalog;
+    private final BusinessOpenSpecService openSpecService;
     private final SseEmitterRegistry sse;
 
     public BusinessWorkspaceService(BusinessWorkspaceProperties properties,
                                     BusinessWorkspaceCatalog catalog,
+                                    BusinessOpenSpecService openSpecService,
                                     SseEmitterRegistry sse) {
         this.properties = properties;
         this.catalog = catalog;
+        this.openSpecService = openSpecService;
         this.sse = sse;
     }
 
@@ -253,7 +256,8 @@ public class BusinessWorkspaceService {
             boolean dirty, boolean remoteChecked, boolean syncable, String status, String message) {
         return new BusinessRepositoryStatusView(
                 repository.name(), target.toString(), repository.repositoryUrl(), cloned, sourceMatches,
-                branch, commit, commitDate, behind, ahead, dirty, remoteChecked, syncable, status, message);
+                branch, commit, commitDate, behind, ahead, dirty, remoteChecked, syncable, status, message,
+                openSpecService.inspect(target));
     }
 
     private Path resolveTarget(Path root, RepositoryDefinition repository) {
