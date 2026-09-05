@@ -25,6 +25,7 @@ import type {
   TeamRepositoryStatus,
 } from '../types'
 import { suiteRemoteLabel, suiteRemoteState } from '../lib/suiteVersionStatus'
+import { SdkUpgradeActions } from './SdkUpgradeActions'
 
 const GIT_SOURCE_KEY = 'kai-toolbox:team-dependencies:git-source'
 
@@ -483,7 +484,9 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
         )}
       </div>
 
-      <div className="mb-1.5 text-xs font-medium">插件与 MCP（5）</div>
+      <SdkUpgradeActions onUpdated={() => void loadSdk(true)} />
+
+      <div className="mb-1.5 mt-4 text-xs font-medium">插件与 MCP（5）</div>
       {suites == null ? (
         <div className="text-xs text-[var(--color-muted-foreground)]">加载中…</div>
       ) : (

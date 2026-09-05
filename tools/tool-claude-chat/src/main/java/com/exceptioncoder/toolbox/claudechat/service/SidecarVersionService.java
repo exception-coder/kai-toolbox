@@ -48,6 +48,12 @@ public class SidecarVersionService {
     private static final long CLI_VERSION_TIMEOUT_MS = 8_000;
     private static final long EXTERNAL_CLI_VERSION_TIMEOUT_MS = 15_000;
 
+    /** 返回可由平台升级的固定 npm 包；外部运行时不在此目录内。 */
+    static String upgradePackage(String engineId) {
+        return NPM_ENGINES.stream().filter(engine -> engine.id().equals(engineId))
+                .map(EngineDefinition::packageName).findFirst().orElse(null);
+    }
+
     private final SidecarProcessRegistry registry;
     private final ObjectMapper mapper;
     private final Function<String, String> externalCliVersionReader;

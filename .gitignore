@@ -80,3 +80,4 @@ __pycache__/
 /sidecar/claude-agent/.test-dist/
 /sidecar/claude-agent/.dist-stage-*/
 /sidecar/claude-agent/.dist-backup-*/
+/sidecar/claude-agent/.sdk-upgrades/
