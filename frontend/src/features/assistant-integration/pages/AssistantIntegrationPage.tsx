@@ -23,14 +23,15 @@ const externalHostExample = `toolbox:
 
 const loaderExample = `<script src="https://kai-tool.exception-coder.com/assistant-sdk/loader.js"></script>
 <script type="module">
-  const { sdk } = await KaiAssistantLoader.load({ channel: 'stable' })
+  const { sdk } = await KaiAssistantLoader.load({
+    channel: 'stable',
+    // 可选：不填则使用 Loader 所在域；内网可填 http://10.10.8.20:8080
+    requestBaseUrl: 'https://kai-tool.exception-coder.com'
+  })
   sdk.initialize({
     appId: 'YOUR_SYSTEM',
     projectKey: 'your-project-key',
-    wsUrl: 'wss://kai-tool.exception-coder.com/api/claude-chat/consult/ws',
-    externalLogin: {
-      loginUrl: 'https://kai-tool.exception-coder.com/api/auth/external-login'
-    },
+    externalLogin: {},
     page: { url: location.pathname + location.search, title: document.title }
   })
 </script>`
@@ -171,7 +172,7 @@ export function AssistantIntegrationPage() {
         <div>
           <CodeBlock value={loaderExample} copied={copied === 'loader'} onCopy={() => void copy('loader', loaderExample)} />
           <p className="mt-4 text-xs leading-5 text-[var(--color-muted-foreground)]">
-            HTTPS 页面必须使用 <Code>wss://</Code>；若采用宿主同源反向代理，可把 <Code>wsUrl</Code> 配成宿主路径并由代理转发 WebSocket Upgrade。
+            <Code>requestBaseUrl</Code> 不填时默认使用 Loader 所在域；内网可填完整 IP Origin。HTTPS 宿主不能指向 HTTP 内网地址，否则会被浏览器 Mixed Content 策略拦截。现有 <Code>wsUrl</Code> 仍可显式覆盖。
           </p>
         </div>
       </section>

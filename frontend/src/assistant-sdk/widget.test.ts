@@ -3,22 +3,129 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { currentAssistant, initializeAssistant } from './assistantSdk'
 import type { AssistantFeedbackArchiveClient, AssistantTransport, AssistantWidgetState } from './types'
 import { createAssistantDebugEntry } from './assistantDebugLog'
+import { mountAssistantWidget } from './widget'
+import { writeAssistantRequestBaseUrlPreference } from './requestBaseUrlPreference'
 
 afterEach(() => {
   currentAssistant()?.destroy()
   sessionStorage.clear()
+  localStorage.clear()
   vi.unstubAllGlobals()
 })
 
 describe('assistant widget', () => {
+  it('shows the browser request origin override ahead of the Loader default', () => {
+    writeAssistantRequestBaseUrlPreference('ERP', 'http://10.10.8.20:8080')
+    initializeAssistant({
+      appId: 'ERP', requestBaseUrl: 'https://forge.example.com', externalLogin: {},
+    }).open('QUESTION')
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+
+    shadow.querySelector<HTMLButtonElement>('[data-debug-toggle]')!.click()
+
+    expect(shadow.querySelector<HTMLInputElement>('[data-connection-input]')!.value)
+      .toBe('http://10.10.8.20:8080')
+    expect(shadow.querySelector('[data-connection-default]')?.textContent)
+      .toContain('https://forge.example.com')
+    expect(shadow.querySelector('[data-connection-status]')?.textContent)
+      .toContain('浏览器自定义地址')
+    expect(shadow.querySelector<HTMLInputElement>('[data-login-connection-input]')!.value)
+      .toBe('http://10.10.8.20:8080')
+    expect(shadow.querySelector('[data-login-connection-default]')?.textContent)
+      .toContain('https://forge.example.com')
+  })
+
+  it('lets the user switch to an intranet origin before Forge login', async () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const login = vi.fn(async () => undefined)
+    const apply = vi.fn()
+    const unmount = mountAssistantWidget(root, {
+      authentication: { authenticated: false, login },
+      connectionSettings: {
+        effectiveRequestBaseUrl: 'https://forge.example.com',
+        defaultRequestBaseUrl: 'https://forge.example.com',
+        apply,
+      },
+    })
+    const shadow = root.querySelector('kai-assistant-widget')!.shadowRoot!
+    const address = shadow.querySelector<HTMLInputElement>('[data-login-connection-input]')!
+    address.value = 'https://10.10.8.20:8443/internal/path'
+    shadow.querySelector<HTMLInputElement>('[data-login-username]')!.value = 'forge-user'
+    shadow.querySelector<HTMLInputElement>('[data-login-password]')!.value = 'secret'
+
+    shadow.querySelector<HTMLFormElement>('[data-login-form]')!
+      .dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
+
+    expect(login).not.toHaveBeenCalled()
+    expect(shadow.querySelector('[data-login-connection-error]')?.textContent)
+      .toContain('请先应用并重新连接')
+    shadow.querySelector<HTMLButtonElement>('[data-login-connection-apply]')!.click()
+    expect(apply).toHaveBeenCalledWith('https://10.10.8.20:8443')
+    expect(shadow.querySelector('[data-login-connection-status]')?.textContent)
+      .toContain('正在重新载入')
+    unmount()
+    root.remove()
+  })
+
+  it('lets the user validate and save a browser-level Forge request origin', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const apply = vi.fn()
+    const unmount = mountAssistantWidget(root, {
+      connectionSettings: {
+        effectiveRequestBaseUrl: 'https://forge.example.com',
+        defaultRequestBaseUrl: 'https://forge.example.com',
+        apply,
+      },
+    })
+    const shadow = root.querySelector('kai-assistant-widget')!.shadowRoot!
+    shadow.querySelector<HTMLButtonElement>('[data-debug-toggle]')!.click()
+    const input = shadow.querySelector<HTMLInputElement>('[data-connection-input]')!
+    const form = shadow.querySelector<HTMLFormElement>('[data-connection-form]')!
+
+    expect(input.value).toBe('https://forge.example.com')
+    input.value = 'file:///tmp/forge'
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
+    expect(apply).not.toHaveBeenCalled()
+    expect(shadow.querySelector('[data-connection-error]')?.textContent).toContain('仅支持 HTTP(S)')
+
+    input.value = 'https://10.10.8.20:8443/internal/path'
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }))
+    expect(apply).toHaveBeenCalledWith('https://10.10.8.20:8443')
+    expect(shadow.querySelector('[data-connection-status]')?.textContent).toContain('正在重新载入')
+    unmount()
+    root.remove()
+  })
+
+  it('restores the host request origin from the connection panel', () => {
+    const root = document.createElement('div')
+    document.body.append(root)
+    const apply = vi.fn()
+    const unmount = mountAssistantWidget(root, {
+      connectionSettings: {
+        effectiveRequestBaseUrl: 'http://10.10.8.20:8080',
+        defaultRequestBaseUrl: 'https://forge.example.com',
+        userRequestBaseUrl: 'http://10.10.8.20:8080',
+        apply,
+      },
+    })
+    const shadow = root.querySelector('kai-assistant-widget')!.shadowRoot!
+
+    shadow.querySelector<HTMLButtonElement>('[data-debug-toggle]')!.click()
+    shadow.querySelector<HTMLButtonElement>('[data-connection-reset]')!.click()
+
+    expect(apply).toHaveBeenCalledWith(undefined)
+    unmount()
+    root.remove()
+  })
   it('logs in with an existing Forge account before revealing consultation controls', async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
       accessToken: 'forge-access', refreshToken: 'ignored', expiresIn: 1800,
     }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     vi.stubGlobal('fetch', fetcher)
     initializeAssistant({
-      appId: 'ERP', wsUrl: 'wss://forge.example.com/api/claude-chat/consult/ws',
-      externalLogin: { loginUrl: 'https://forge.example.com/api/auth/external-login' },
+      appId: 'ERP', requestBaseUrl: 'https://forge.example.com', externalLogin: {},
     }).open('QUESTION')
     const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
     const authentication = shadow.querySelector<HTMLElement>('[data-authentication]')!
@@ -28,6 +135,8 @@ describe('assistant widget', () => {
 
     expect(authentication.hidden).toBe(false)
     expect(content.hidden).toBe(true)
+    expect(shadow.querySelector<HTMLInputElement>('[data-login-connection-input]')!.value)
+      .toBe('https://forge.example.com')
     username.value = 'forge-user'
     password.value = 'secret'
     shadow.querySelector<HTMLFormElement>('[data-login-form]')!

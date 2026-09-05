@@ -89,6 +89,57 @@ describe('AssistantWebSocketTransport', () => {
     transport.destroy()
   })
 
+  it('uses the token returned by login directly for the resumed handshake', () => {
+    let requestedUrl = ''
+    const transport = new AssistantWebSocketTransport({
+      appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(), authenticationRequired: true,
+      getAccessToken: () => { throw new Error('indirect token lookup must not run') },
+      webSocketFactory: url => {
+        requestedUrl = url
+        return new FakeWebSocket() as unknown as WebSocket
+      },
+    })
+
+    transport.resumeAfterAuthentication('login-response-token')
+
+    expect(new URL(requestedUrl).searchParams.get('access_token')).toBe('login-response-token')
+    transport.destroy()
+  })
+
+  it('keeps authentication when a socket disconnects before or after opening', () => {
+    vi.useFakeTimers()
+    try {
+      const sockets: FakeWebSocket[] = []
+      const invalidateAuthentication = vi.fn()
+      const transport = new AssistantWebSocketTransport({
+        appId: 'ERP', wsUrl: '/assistant/ws', storage: memoryStorage(), authenticationRequired: true,
+        getAccessToken: () => 'valid-token',
+        onAuthenticationInvalid: invalidateAuthentication,
+        webSocketFactory: () => {
+          const socket = new FakeWebSocket()
+          sockets.push(socket)
+          return socket as unknown as WebSocket
+        },
+      })
+
+      transport.start(() => undefined)
+      transport.submit({ mode: 'QUESTION', text: '验证断线恢复', snapshot })
+      sockets[0].close()
+      vi.advanceTimersByTime(500)
+
+      expect(sockets).toHaveLength(2)
+      expect(invalidateAuthentication).not.toHaveBeenCalled()
+      sockets[1].open()
+      sockets[1].close()
+      vi.advanceTimersByTime(500)
+      expect(sockets).toHaveLength(3)
+      expect(invalidateAuthentication).not.toHaveBeenCalled()
+      transport.destroy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('resolves an access token only for the websocket handshake URL', () => {
     const socket = new FakeWebSocket()
     let requestedUrl = ''

@@ -22,6 +22,7 @@ import { deriveWidgetInteractionState } from './widgetInteractionState'
 import { MAX_ASSISTANT_DEBUG_ENTRIES } from './assistantDebugLog'
 import { AssistantConversationViewport } from './AssistantConversationViewport'
 import { summarizeFeedbackCounts } from './feedbackSummary'
+import { validateAssistantUserRequestBaseUrl } from './requestBaseUrlPreference'
 
 const ELEMENT_NAME = 'kai-assistant-widget'
 const DEFAULT_SHORTCUT: Required<AssistantShortcut> = {
@@ -78,9 +79,21 @@ class AssistantWidgetElement extends HTMLElement {
   private readonly loginPassword: HTMLInputElement
   private readonly loginButton: HTMLButtonElement
   private readonly loginError: HTMLElement
+  private readonly loginConnection: HTMLElement
+  private readonly loginConnectionInput: HTMLInputElement
+  private readonly loginConnectionApply: HTMLButtonElement
+  private readonly loginConnectionDefault: HTMLElement
+  private readonly loginConnectionStatus: HTMLElement
+  private readonly loginConnectionError: HTMLElement
   private readonly debugToggle: HTMLButtonElement
   private readonly debugPanel: HTMLElement
   private readonly debugList: HTMLElement
+  private readonly connectionForm: HTMLFormElement
+  private readonly connectionInput: HTMLInputElement
+  private readonly connectionDefault: HTMLElement
+  private readonly connectionError: HTMLElement
+  private readonly connectionStatus: HTMLElement
+  private readonly connectionReset: HTMLButtonElement
   private readonly feedbackButton: HTMLButtonElement
   private readonly feedbackSummary: HTMLElement
   private readonly chatContent: HTMLElement
@@ -104,6 +117,7 @@ class AssistantWidgetElement extends HTMLElement {
   private authenticated = true
   private authenticating = false
   private debugEntries: AssistantDebugEntry[] = []
+  private connectionSettings?: AssistantWidgetMountOptions['connectionSettings']
   private feedbackArchive?: AssistantFeedbackArchiveClient
   private conversationHistory?: AssistantConversationHistoryClient
   private readonly conversationViewport: AssistantConversationViewport
@@ -147,9 +161,21 @@ class AssistantWidgetElement extends HTMLElement {
     this.loginPassword = required(shadow, '[data-login-password]')
     this.loginButton = required(shadow, '[data-login-submit]')
     this.loginError = required(shadow, '[data-login-error]')
+    this.loginConnection = required(shadow, '[data-login-connection]')
+    this.loginConnectionInput = required(shadow, '[data-login-connection-input]')
+    this.loginConnectionApply = required(shadow, '[data-login-connection-apply]')
+    this.loginConnectionDefault = required(shadow, '[data-login-connection-default]')
+    this.loginConnectionStatus = required(shadow, '[data-login-connection-status]')
+    this.loginConnectionError = required(shadow, '[data-login-connection-error]')
     this.debugToggle = required(shadow, '[data-debug-toggle]')
     this.debugPanel = required(shadow, '[data-debug-panel]')
     this.debugList = required(shadow, '[data-debug-list]')
+    this.connectionForm = required(shadow, '[data-connection-form]')
+    this.connectionInput = required(shadow, '[data-connection-input]')
+    this.connectionDefault = required(shadow, '[data-connection-default]')
+    this.connectionError = required(shadow, '[data-connection-error]')
+    this.connectionStatus = required(shadow, '[data-connection-status]')
+    this.connectionReset = required(shadow, '[data-connection-reset]')
     this.feedbackButton = required(shadow, '[data-feedback-open]')
     this.feedbackSummary = required(shadow, '[data-feedback-summary]')
     this.chatContent = required(shadow, '[data-chat-content]')
@@ -177,9 +203,17 @@ class AssistantWidgetElement extends HTMLElement {
       event.preventDefault()
       void this.submitLogin()
     })
+    this.loginConnectionApply.addEventListener('click', () => {
+      this.applyConnectionSetting(this.loginConnectionInput.value, 'login')
+    })
     this.submitButton.addEventListener('click', () => this.submit())
     this.interruptButton.addEventListener('click', () => this.interrupt())
     this.debugToggle.addEventListener('click', () => this.toggleDebugPanel())
+    this.connectionForm.addEventListener('submit', event => {
+      event.preventDefault()
+      this.applyConnectionSetting(this.connectionInput.value)
+    })
+    this.connectionReset.addEventListener('click', () => this.applyConnectionSetting(undefined))
     this.feedbackButton.addEventListener('click', () => void this.openFeedbackArchive())
     this.feedbackSummary.addEventListener('click', event => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-feedback-summary-category]')
@@ -212,6 +246,8 @@ class AssistantWidgetElement extends HTMLElement {
     this.authenticated = options.authentication?.authenticated ?? true
     this.feedbackArchive = options.feedbackArchive
     this.conversationHistory = options.conversationHistory
+    this.connectionSettings = options.connectionSettings
+    this.syncConnectionSettings()
     this.feedbackButton.hidden = !this.feedbackArchive
     this.feedbackSummary.hidden = true
     this.syncAuthenticationView()
@@ -523,7 +559,55 @@ class AssistantWidgetElement extends HTMLElement {
     const opening = this.debugPanel.hidden
     this.debugPanel.hidden = !opening
     this.debugToggle.setAttribute('aria-expanded', String(opening))
-    if (opening) this.debugList.scrollTop = this.debugList.scrollHeight
+    if (opening) {
+      this.syncConnectionSettings()
+      this.connectionInput.focus()
+    }
+  }
+
+  private syncConnectionSettings(): void {
+    const settings = this.connectionSettings
+    this.debugToggle.textContent = settings ? '连接' : '调试'
+    this.connectionForm.hidden = !settings
+    this.loginConnection.hidden = !settings
+    if (!settings) return
+    const effectiveRequestBaseUrl = settings.userRequestBaseUrl ?? settings.effectiveRequestBaseUrl
+    this.connectionInput.value = effectiveRequestBaseUrl
+    this.loginConnectionInput.value = effectiveRequestBaseUrl
+    this.connectionDefault.textContent = `默认：${settings.defaultRequestBaseUrl}`
+    this.loginConnectionDefault.textContent = `接入方默认：${settings.defaultRequestBaseUrl}`
+    this.connectionReset.disabled = !settings.userRequestBaseUrl
+    this.connectionError.hidden = true
+    this.loginConnectionError.hidden = true
+    this.connectionStatus.textContent = settings.userRequestBaseUrl ? '当前使用浏览器自定义地址' : '当前跟随接入方默认地址'
+    this.loginConnectionStatus.textContent = settings.userRequestBaseUrl
+      ? '当前使用浏览器自定义地址'
+      : '当前跟随接入方默认地址'
+  }
+
+  private applyConnectionSetting(value?: string, source: 'panel' | 'login' = 'panel'): void {
+    const settings = this.connectionSettings
+    if (!settings) return
+    const errorElement = source === 'login' ? this.loginConnectionError : this.connectionError
+    const inputElement = source === 'login' ? this.loginConnectionInput : this.connectionInput
+    errorElement.hidden = true
+    let normalized: string | undefined
+    try {
+      normalized = value?.trim() ? validateAssistantUserRequestBaseUrl(value) : undefined
+      settings.apply(normalized)
+      const status = '地址已保存，正在重新载入并连接…'
+      this.connectionStatus.textContent = status
+      this.loginConnectionStatus.textContent = status
+      this.connectionInput.disabled = true
+      this.loginConnectionInput.disabled = true
+      this.loginConnectionApply.disabled = true
+      this.connectionReset.disabled = true
+      this.connectionForm.querySelector<HTMLButtonElement>('[data-connection-submit]')!.disabled = true
+    } catch (error) {
+      errorElement.textContent = error instanceof Error ? error.message : String(error)
+      errorElement.hidden = false
+      inputElement.focus()
+    }
   }
 
   private clearDebugLog(): void {
@@ -863,6 +947,7 @@ class AssistantWidgetElement extends HTMLElement {
 
   private async submitLogin(): Promise<void> {
     if (!this.authentication || this.authenticating) return
+    if (this.hasPendingLoginConnectionChange()) return
     const username = this.loginUsername.value.trim()
     const password = this.loginPassword.value
     if (!username || !password) {
@@ -892,6 +977,24 @@ class AssistantWidgetElement extends HTMLElement {
       this.authenticating = false
       this.loginButton.disabled = false
       this.loginButton.textContent = '登录并继续'
+    }
+  }
+
+  private hasPendingLoginConnectionChange(): boolean {
+    const settings = this.connectionSettings
+    if (!settings) return false
+    try {
+      const normalized = validateAssistantUserRequestBaseUrl(this.loginConnectionInput.value)
+      if (normalized === settings.effectiveRequestBaseUrl) return false
+      this.loginConnectionError.textContent = '连接地址已修改，请先应用并重新连接，再登录 Forge。'
+      this.loginConnectionError.hidden = false
+      this.loginConnectionApply.focus()
+      return true
+    } catch (error) {
+      this.loginConnectionError.textContent = error instanceof Error ? error.message : String(error)
+      this.loginConnectionError.hidden = false
+      this.loginConnectionInput.focus()
+      return true
     }
   }
 
@@ -1208,6 +1311,13 @@ const template = `
     .login-fields { display: grid; gap: 13px; }
     .login-fields label { display: grid; gap: 6px; color: #3f3f46; font-size: 12px; font-weight: 600; }
     .login-fields input { min-height: 42px; width: 100%; border: 1px solid #cfcfd5; border-radius: 7px; padding: 0 11px; color: #18181b; }
+    .login-connection { margin: 0 0 20px; padding: 0 0 20px; border-bottom: 1px solid #ececf0; }
+    .login-connection label { display: grid; gap: 6px; color: #3f3f46; font-size: 12px; font-weight: 600; }
+    .login-connection input { min-height: 42px; width: 100%; border: 1px solid #cfcfd5; border-radius: 7px; padding: 0 11px; color: #18181b; }
+    .login-connection-meta { margin: 8px 0 0 !important; color: #71717a; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+    .login-connection-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
+    .login-connection-actions button { min-height: 36px; }
+    .login-connection-error { margin: 8px 0 0 !important; color: #b91c1c !important; font-size: 11px; overflow-wrap: anywhere; }
     .login-error { margin: 10px 0 0 !important; overflow-wrap: anywhere; color: #b91c1c !important; }
     .login-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
     .action { flex: 0 0 auto; min-height: 34px; padding: 0 10px; border: 1px solid #d4d4d8; border-radius: 7px; background: #fff; color: #52525b; cursor: pointer; }
@@ -1220,11 +1330,22 @@ const template = `
     .feedback-summary-label { margin-right: 2px; }
     .feedback-summary-tag { min-height: 24px; border: 0; border-bottom: 1px solid transparent; background: transparent; padding: 0 2px; color: #3f3f46; cursor: pointer; font-size: 11px; }
     .feedback-summary-tag:hover { border-bottom-color: #a1a1aa; color: #18181b; }
-    .debug-panel { max-height: 190px; overflow: hidden; border-bottom: 1px solid #dedee3; background: #18181b; color: #d4d4d8; }
-    .debug-header { display: flex; align-items: center; justify-content: space-between; padding: 7px 12px 6px; color: #a1a1aa; font-size: 11px; }
+    .debug-panel { max-height: min(360px, 52vh); overflow: auto; border-bottom: 1px solid #dedee3; background: #fff; }
+    .connection-form { display: grid; gap: 10px; padding: 16px 22px; }
+    .connection-form label { display: grid; gap: 6px; color: #3f3f46; font-size: 12px; font-weight: 650; }
+    .connection-form input { min-height: 40px; width: 100%; border: 1px solid #cfcfd5; border-radius: 7px; padding: 0 10px; color: #18181b; }
+    .connection-copy { display: grid; gap: 3px; }
+    .connection-copy p { margin: 0; overflow-wrap: anywhere; color: #71717a; font-size: 11px; line-height: 1.5; }
+    .connection-error { color: #b91c1c !important; }
+    .connection-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .connection-actions div { display: flex; gap: 8px; }
+    .connection-status { color: #52525b; font-size: 11px; }
+    .connection-log { border-top: 1px solid #e4e4e7; background: #18181b; color: #d4d4d8; }
+    .connection-log summary { min-height: 38px; padding: 11px 22px; color: #d4d4d8; cursor: pointer; font-size: 11px; }
+    .debug-header { display: flex; align-items: center; justify-content: space-between; padding: 7px 22px 6px; color: #a1a1aa; font-size: 11px; }
     .debug-clear { border: 0; background: transparent; color: #a1a1aa; cursor: pointer; font-size: 11px; }
     .debug-clear:hover { color: #fff; }
-    .debug-list { max-height: 154px; margin: 0; overflow: auto; padding: 0 12px 9px; list-style: none; font: 11px/1.55 "SFMono-Regular", Consolas, monospace; }
+    .debug-list { max-height: 154px; margin: 0; overflow: auto; padding: 0 22px 12px; list-style: none; font: 11px/1.55 "SFMono-Regular", Consolas, monospace; }
     .debug-row { display: grid; grid-template-columns: 66px minmax(120px, auto) minmax(0, 1fr); gap: 8px; padding: 3px 0; border-top: 1px solid rgb(255 255 255 / 7%); }
     .debug-row time { color: #71717a; }
     .debug-row code { overflow-wrap: anywhere; color: #a5b4fc; }
@@ -1343,6 +1464,11 @@ const template = `
       .panel-header { min-height: 64px; padding: 12px 8px 12px 16px; cursor: default; touch-action: auto; }
       .close { min-width: 40px; padding: 0 6px; }
       .context-strip { gap: 6px; padding: 8px 16px; }
+      .connection-form { padding: 16px; }
+      .connection-actions { align-items: stretch; flex-direction: column; }
+      .connection-actions div { justify-content: flex-end; }
+      .connection-log summary, .debug-header { padding-inline: 16px; }
+      .debug-list { padding-inline: 16px; }
       .context-line { align-items: flex-start; flex-direction: column; gap: 3px; }
       .mode { white-space: normal; }
       .composer { padding-inline: 16px; }
@@ -1377,7 +1503,7 @@ const template = `
         <div><p class="eyebrow">KAI Assistant</p><h2>业务助手</h2></div>
         <div class="header-actions" data-no-drag>
           <button class="close" type="button" data-feedback-open>记录</button>
-          <button class="close" type="button" data-debug-toggle aria-expanded="false" aria-controls="assistant-debug-panel">调试</button>
+          <button class="close" type="button" data-debug-toggle aria-expanded="false" aria-controls="assistant-debug-panel">连接</button>
           <button class="close" type="button" data-reset-position>复位</button>
           <button class="close" type="button" data-hide-assistant>隐藏</button>
           <button class="close" type="button" data-close aria-label="关闭对话框">关闭</button>
@@ -1387,6 +1513,13 @@ const template = `
         <form class="login-form" data-login-form>
           <h3>登录 Forge 后开始咨询</h3>
           <p>密码只用于本次验证；短期登录状态保留在当前标签页，刷新后可继续使用。</p>
+          <div class="login-connection" data-login-connection hidden>
+            <label>Forge 连接地址<input type="url" inputmode="url" spellcheck="false" data-login-connection-input autocomplete="url" /></label>
+            <p class="login-connection-meta" data-login-connection-default></p>
+            <p class="login-connection-meta" data-login-connection-status>当前跟随接入方默认地址</p>
+            <p class="login-connection-error" data-login-connection-error role="alert" hidden></p>
+            <div class="login-connection-actions"><button class="action" type="button" data-login-connection-apply>应用并重新连接</button></div>
+          </div>
           <div class="login-fields">
             <label>Forge 账号<input type="text" data-login-username autocomplete="username" /></label>
             <label>密码<input type="password" data-login-password autocomplete="current-password" /></label>
@@ -1406,9 +1539,24 @@ const template = `
           <button class="feedback-summary-tag" type="button" data-feedback-summary-category="REQUIREMENT">需求 0</button>
         </div>
       </section>
-      <section class="debug-panel" id="assistant-debug-panel" data-debug-panel aria-label="请求调试日志" hidden>
-        <div class="debug-header"><span>请求调试日志 · 仅当前页面内存</span><button class="debug-clear" type="button" data-debug-clear>清空</button></div>
-        <ol class="debug-list" data-debug-list></ol>
+      <section class="debug-panel" id="assistant-debug-panel" data-debug-panel aria-label="Forge 连接设置" hidden>
+        <form class="connection-form" data-connection-form>
+          <label>Forge 请求域<input type="url" inputmode="url" autocomplete="url" spellcheck="false" data-connection-input placeholder="https://forge.example.com" /></label>
+          <div class="connection-copy">
+            <p data-connection-default></p>
+            <p>仅保存当前浏览器；保存后会重新载入页面并重建登录与 WebSocket 连接。</p>
+            <p class="connection-error" data-connection-error role="alert" hidden></p>
+          </div>
+          <div class="connection-actions">
+            <span class="connection-status" data-connection-status role="status"></span>
+            <div><button class="action" type="button" data-connection-reset>恢复默认</button><button class="submit" type="submit" data-connection-submit>保存并重新连接</button></div>
+          </div>
+        </form>
+        <details class="connection-log">
+          <summary>请求日志</summary>
+          <div class="debug-header"><span>仅当前页面内存</span><button class="debug-clear" type="button" data-debug-clear>清空</button></div>
+          <ol class="debug-list" data-debug-list></ol>
+        </details>
       </section>
       <section class="empty" data-empty-state>
         <h3>从当前业务页面开始对话</h3>

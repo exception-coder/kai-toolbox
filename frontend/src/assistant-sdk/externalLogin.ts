@@ -18,7 +18,7 @@ const STORAGE_KEY_PREFIX = 'kai-assistant:external-login:'
 
 /** Forge 外部登录客户端；密码只参与单次请求，短期 ACCESS token 限于当前标签页。 */
 export class AssistantExternalLoginClient {
-  private readonly options: AssistantExternalLoginOptions
+  private readonly loginUrl: string
   private readonly fetcher: Fetcher
   private readonly storage?: LoginStorage
   private readonly storageKey: string
@@ -30,15 +30,16 @@ export class AssistantExternalLoginClient {
     fetcher: Fetcher = globalThis.fetch.bind(globalThis),
     storage: LoginStorage | undefined = resolveSessionStorage(),
   ) {
-    this.options = options
+    if (!options.loginUrl) throw new Error('Forge 外部登录地址未配置')
+    this.loginUrl = options.loginUrl
     this.fetcher = fetcher
     this.storage = storage
-    this.storageKey = `${STORAGE_KEY_PREFIX}${options.loginUrl}`
+    this.storageKey = `${STORAGE_KEY_PREFIX}${this.loginUrl}`
     this.restore()
   }
 
-  async login(username: string, password: string): Promise<void> {
-    const response = await this.fetcher(this.options.loginUrl, {
+  async login(username: string, password: string): Promise<string> {
+    const response = await this.fetcher(this.loginUrl, {
       method: 'POST',
       mode: 'cors',
       credentials: 'omit',
@@ -54,6 +55,7 @@ export class AssistantExternalLoginClient {
     this.accessToken = login.accessToken
     this.expiresAt = Date.now() + login.expiresIn * 1000
     this.persist()
+    return login.accessToken
   }
 
   isAuthenticated(): boolean {

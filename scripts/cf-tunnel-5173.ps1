@@ -371,7 +371,7 @@ cloudflared 不读 Windows 系统代理,直连被墙/被重置。若你本机靠
   Write-Host "[cf-tunnel] ③ 绑定 DNS: $Hostname -> $TunnelName ..." -ForegroundColor Yellow
   Set-TunnelDnsRoute
 
-  # ④ 生成 config.yml(ingress 路由到本机端口)
+  # ④ 生成 config.yml（API 直达 Spring，页面与 Loader 继续由 Vite 提供）
   Write-Host "[cf-tunnel] ④ 写入配置 $configYml ..." -ForegroundColor Yellow
   $noTls = if ($Scheme -eq 'https') { "      noTLSVerify: true`n" } else { "" }
   $config = @"
@@ -379,6 +379,9 @@ tunnel: $TunnelName
 credentials-file: $credJson
 
 ingress:
+  - hostname: $Hostname
+    path: ^/api/.*
+    service: http://localhost:18080
   - hostname: $Hostname
     service: $target
     originRequest:

@@ -48,7 +48,7 @@ export interface AssistantVisibilityOptions {
 
 export interface AssistantExternalLoginOptions {
   /** Forge 外部登录接口，例如 https://forge.example.com/api/auth/external-login。 */
-  loginUrl: string
+  loginUrl?: string
 }
 
 export interface AssistantWidgetAuthentication {
@@ -126,6 +126,14 @@ export interface AssistantWidgetMountOptions {
   authentication?: AssistantWidgetAuthentication
   feedbackArchive?: AssistantFeedbackArchiveClient
   conversationHistory?: AssistantConversationHistoryClient
+  connectionSettings?: AssistantConnectionSettings
+}
+
+export interface AssistantConnectionSettings {
+  effectiveRequestBaseUrl: string
+  defaultRequestBaseUrl: string
+  userRequestBaseUrl?: string
+  apply: (requestBaseUrl?: string) => void
 }
 
 export interface AssistantConversationHistoryClient {
@@ -138,6 +146,8 @@ export interface AssistantInitOptions {
   appName?: string
   /** 宿主发布版本或上下文结构版本；变化时使旧模块探索摘要失效。 */
   sourceRevision?: string
+  /** Forge HTTP(S) 请求域；Loader 接入时缺省为 Loader 脚本所在 Origin。 */
+  requestBaseUrl?: string
   /** 统一 Assistant WebSocket 地址；配置后 SDK 不再需要宿主 React Bridge。 */
   wsUrl?: string
   /** 获取短期 Assistant ACCESS token；仅在建立 WS 时调用，不写入本地存储。 */

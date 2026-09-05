@@ -1,4 +1,5 @@
 import type { AssistantInitOptions, AssistantSdk } from '../assistant-sdk/types'
+import { normalizeAssistantRequestBaseUrl, requestBaseUrlFromSdkBaseUrl } from '../assistant-sdk/requestBaseUrl'
 
 const DEFAULT_CHANNEL = 'stable'
 const MANIFEST_SCHEMA_VERSION = 1
@@ -20,6 +21,9 @@ export interface LoadedAssistantSdk {
 
 export interface AssistantLoaderOptions {
   channel?: string
+  /** SDK 业务请求域；缺省为 Loader 脚本所在 Origin。 */
+  requestBaseUrl?: string
+  /** SDK 版本清单与产物基址，与业务请求域独立。 */
   baseUrl?: string
 }
 
@@ -67,11 +71,14 @@ export function createAssistantLoader(environment: LoaderEnvironment): Assistant
     load(options = {}) {
       const channel = normalizeChannel(options.channel)
       const baseUrl = normalizeBaseUrl(options.baseUrl ?? environment.defaultBaseUrl)
-      const taskKey = `${baseUrl}\0${channel}`
+      const requestBaseUrl = normalizeAssistantRequestBaseUrl(
+        options.requestBaseUrl ?? requestBaseUrlFromSdkBaseUrl(baseUrl),
+      )
+      const taskKey = `${baseUrl}\0${channel}\0${requestBaseUrl}`
       const existingTask = loadTasks.get(taskKey)
       if (existingTask) return existingTask
 
-      const task = loadRelease(environment, baseUrl, channel).catch((error: unknown) => {
+      const task = loadRelease(environment, baseUrl, channel, requestBaseUrl).catch((error: unknown) => {
         loadTasks.delete(taskKey)
         throw error
       })
@@ -82,15 +89,14 @@ export function createAssistantLoader(environment: LoaderEnvironment): Assistant
 }
 
 async function loadRelease(environment: LoaderEnvironment, baseUrl: string,
-  channel: string): Promise<LoadedAssistantSdk> {
+  channel: string, requestBaseUrl: string): Promise<LoadedAssistantSdk> {
   const existingRuntime = environment.runtime()
   const existingVersion = environment.currentVersion()
-  if (existingRuntime && existingVersion) {
-    return { sdk: existingRuntime, version: existingVersion, channel }
-  }
-
   const manifestUrl = new URL(`channels/${channel}.json`, baseUrl).href
   const manifest = parseManifest(await environment.fetchManifest(manifestUrl), channel)
+  if (existingRuntime && existingVersion === manifest.version) {
+    return { sdk: withDefaultRequestBaseUrl(existingRuntime, requestBaseUrl), version: existingVersion, channel }
+  }
   const artifactUrl = resolveArtifactUrl(baseUrl, manifest.artifacts.iife.path)
   await environment.loadScript(artifactUrl, manifest.artifacts.iife.integrity, manifest.version)
 
@@ -99,7 +105,15 @@ async function loadRelease(environment: LoaderEnvironment, baseUrl: string,
     throw new Error(`KAI Assistant SDK ${manifest.version} did not register a valid runtime`)
   }
   environment.rememberVersion(manifest.version)
-  return { sdk: runtime, version: manifest.version, channel }
+  return { sdk: withDefaultRequestBaseUrl(runtime, requestBaseUrl), version: manifest.version, channel }
+}
+
+function withDefaultRequestBaseUrl(runtime: AssistantRuntime, requestBaseUrl: string): AssistantRuntime {
+  const withDefault = (options: AssistantInitOptions): AssistantInitOptions => ({ requestBaseUrl, ...options })
+  return {
+    initializeAssistant: options => runtime.initializeAssistant(withDefault(options)),
+    initialize: options => runtime.initialize(withDefault(options)),
+  }
 }
 
 function parseManifest(value: unknown, expectedChannel: string): ReleaseManifest {
@@ -220,4 +234,3 @@ function browserEnvironment(): LoaderEnvironment {
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   window.KaiAssistantLoader = createAssistantLoader(browserEnvironment())
 }
-

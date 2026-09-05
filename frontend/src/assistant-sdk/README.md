@@ -1,6 +1,6 @@
 # KAI 统一嵌入式 AI 助手
 
-KAI Assistant SDK 用于把统一 AI 助手嵌入 ERP、SCM、SRM、JSP 旧系统或其他 Web 页面。宿主只负责加载 SDK、提供当前用户与业务上下文，并配置到 Forge Assistant Server 的 WebSocket 通道；会话恢复、待发送队列、Markdown 消息、诊断、草稿确认和需求登记由统一链路处理。
+KAI Assistant SDK 用于把统一 AI 助手嵌入 ERP、SCM、SRM、JSP 旧系统或其他 Web 页面。宿主只负责加载 SDK、提供当前用户与业务上下文；Loader 默认使用自身所在域连接 Forge，也可通过 `requestBaseUrl` 指向内网 IP。会话恢复、待发送队列、Markdown 消息、诊断、草稿确认和需求登记由统一链路处理。
 
 当前版本提供框架无关的 Web Component，以及 ESM、IIFE 两种构建产物。业务系统默认通过 Forge 托管的稳定 Loader 接入；Loader 会读取渠道清单、校验 SRI，并加载当前 `stable` 或 `canary` 版本，宿主无需反复复制 SDK 文件。
 
@@ -91,7 +91,6 @@ const assistant = sdk.initialize({
   appId: 'ERP',
   appName: 'ERP',
   sourceRevision: 'erp-2026.08',
-  wsUrl: '/assistant-ws',
   getAccessToken: () => getAssistantAccessToken(),
   user: {
     id: String(currentUser.id),
@@ -115,6 +114,25 @@ const assistant = sdk.initialize({
 
 console.info('KAI Assistant SDK', version)
 ```
+
+上述零配置方式会从 Loader 地址推导请求域。例如 Loader 来自 `https://forge.company.com/assistant-sdk/loader.js`，登录、附件、归档和 WebSocket 都使用 `https://forge.company.com`。
+
+内网宿主可显式覆盖请求域，SDK 产物仍由原 Loader 域发布：
+
+```ts
+const { sdk } = await KaiAssistantLoader.load({
+  channel: 'stable',
+  requestBaseUrl: 'http://10.10.8.20:8080',
+})
+const assistant = sdk.initialize({
+  appId: 'ERP',
+  externalLogin: {},
+})
+```
+
+`requestBaseUrl` 只接受 HTTP(S) Origin。HTTPS 宿主不能请求 HTTP 内网地址，否则会被浏览器 Mixed Content 策略拦截；此时应给内网 Forge 配置 HTTPS，或由宿主同源反向代理。
+
+用户也可以在彩虹胶囊标题栏点击“连接”，填写内网 Forge 请求域并选择“保存并重新连接”。该选择按 `appId` 保存在当前浏览器，优先于 Loader 和 `initialize` 的请求域；不会保存账号、密码或 Token。选择“恢复默认”后，重新使用接入方配置或 Loader 脚本所在域。
 
 `initializeAssistant` 是幂等单例初始化。同一页面重复调用会返回已有实例；页面或微前端彻底卸载时调用 `assistant.destroy()`。
 
@@ -168,10 +186,8 @@ console.info('KAI Assistant SDK', version)
   const assistant = sdk.initialize({
     appId: 'ERP',
     appName: 'ERP',
-    wsUrl: 'wss://forge.company.internal/api/claude-chat/consult/ws',
-    externalLogin: {
-      loginUrl: 'https://forge.company.internal/api/auth/external-login'
-    },
+    requestBaseUrl: 'https://forge.company.internal',
+    externalLogin: {},
     user: {
       id: String(window.currentUser.id),
       displayName: window.currentUser.name
@@ -209,6 +225,8 @@ $env:TOOLBOX_AUTH_EXTERNAL_LOGIN_ALLOWED_ORIGINS='https://erp-test.company.inter
 ```
 
 `externalLogin` 与 `getAccessToken` 同时配置时，以 `getAccessToken` 为准，不展示 Forge 登录表单。外部登录模式只为 `/api/auth/external-login`、`/api/claude-chat/sessions/{sessionId}/attachments` 和 `/api/assistant/feedback-sessions/**` 注册精确 Origin CORS；附件上传和反馈归档都必须携带 ACCESS Token 并通过会话归属校验。原登录、刷新、用户管理及其他 Forge API 均保持同源。
+
+已有接入可继续显式传入 `wsUrl` 和 `externalLogin.loginUrl`，它们的优先级高于 `requestBaseUrl`，无需立即迁移。
 
 登录后的助手标题栏提供“记录”入口。归档页按咨询会话固定展示 `Bug`、`优化建议`、`需求` 三个标签及数量；点击标签可回顾候选、修正分类与描述、查看 AI 原始识别和历次用户修订。发送时上传的图片会以逻辑附件 ID 与服务端轮次关联，归档中通过受控接口重新加载，不向浏览器暴露服务器绝对路径。
 
@@ -280,7 +298,7 @@ assistant.interrupt()
 
 准备阶段会取消页面 Provider 收集；执行阶段会通过 WebSocket 中止当前 AI 回合。服务端待发送列表不会被批量删除。
 
-标题栏“调试”按钮可展开当前页面的请求日志，包括上下文采集、连接、协议类型、序号、中止和错误阶段。日志最多 200 条且不持久化，不包含密码、Token、Cookie、问题正文或上下文值。
+标题栏“连接”按钮可设置当前浏览器的 Forge 请求域；同一面板的“请求日志”折叠区展示上下文采集、连接、协议类型、序号、中止和错误阶段。日志最多 200 条且不持久化，不包含密码、Token、Cookie、问题正文或上下文值。
 
 ---
 
@@ -347,9 +365,10 @@ toolbox:
 | `appId` | 必填 | 宿主系统稳定标识，也是本地存储分区的一部分 |
 | `appName` | 空 | 展示和上下文中的系统名称 |
 | `sourceRevision` | 空 | 宿主发布或上下文结构版本；变化时使旧模块探索摘要失效 |
-| `wsUrl` | 空 | 统一 Assistant WebSocket 地址；不配置则不会建立独立通信链路 |
+| `requestBaseUrl` | Loader 脚本 Origin | Forge HTTP(S) 请求域；可在 Loader.load 或 initialize 中配置内网 IP |
+| `wsUrl` | 从 `requestBaseUrl` 派生 | 兼容显式 WebSocket 地址，优先级高于派生值 |
 | `getAccessToken` | 空 | 建连时动态获取短期 Token |
-| `externalLogin.loginUrl` | 空 | 使用现有 Forge 账号登录；仅在未配置 `getAccessToken` 时生效 |
+| `externalLogin.loginUrl` | 从 `requestBaseUrl` 派生 | 使用现有 Forge 账号登录；显式值优先，仅在未配置 `getAccessToken` 时生效 |
 | `engine` | `codex` | 默认执行引擎，可选 `codex` 或 `claude` |
 | `providerTimeoutMs` | SDK 默认值 | 单个上下文 Provider 的超时控制 |
 | `additionalSensitiveFields` | 空数组 | 上传前需要额外遮蔽的字段名 |
@@ -368,11 +387,12 @@ toolbox:
 
 **点击发送后一直连接失败**
 
-- 点击标题栏“调试”，确认停在上下文采集、认证、WebSocket 建连还是服务端响应阶段。
+- 点击标题栏“连接”并展开“请求日志”，确认停在上下文采集、认证、WebSocket 建连还是服务端响应阶段。
 - 若请求无需继续等待，点击输入区旁的“中止”。
 - 检查 `/assistant-ws` 是否正确代理到 `/api/claude-chat/consult/ws`。
 - 检查代理是否支持 `Upgrade` 和 `Connection` 请求头。
 - 检查短期 Token、WebSocket Origin 白名单和 HTTPS/WSS 配置。
+- 使用内网 IP 时，确认宿主浏览器能访问 `requestBaseUrl`，且 HTTPS 页面没有指向 HTTP 地址。
 
 **页面上下文不正确**
 

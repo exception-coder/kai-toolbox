@@ -37,6 +37,7 @@ export interface AssistantWebSocketTransportOptions {
   wsUrl: string
   getAccessToken?: () => string | undefined | Promise<string | undefined>
   authenticationRequired?: boolean
+  onAuthenticationInvalid?: () => void
   workspace?: string
   projectKey?: string
   engine?: 'codex' | 'claude'
@@ -236,16 +237,20 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     return response
   }
 
-  resumeAfterAuthentication(): void {
+  resumeAfterAuthentication(accessToken?: string): void {
     if (this.destroyed) return
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer)
     this.reconnectTimer = undefined
     this.reconnectAttempts = 0
-    this.connectionVersion += 1
+    const version = ++this.connectionVersion
     const socket = this.socket
     this.socket = undefined
     this.connecting = false
     socket?.close(1000, 'assistant authentication refreshed')
+    if (accessToken) {
+      this.openSocket(accessToken, version)
+      return
+    }
     this.connect()
   }
 

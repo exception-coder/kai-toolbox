@@ -13,6 +13,11 @@ import { AssistantWebSocketTransport } from './AssistantWebSocketTransport'
 import { AssistantExternalLoginClient } from './externalLogin'
 import { createAssistantDebugEntry } from './assistantDebugLog'
 import { currentAssistantPageContext, observeAssistantPageNavigation } from './assistantPageNavigation'
+import { resolveAssistantConnectionOptions } from './requestBaseUrl'
+import {
+  readAssistantRequestBaseUrlPreference,
+  writeAssistantRequestBaseUrlPreference,
+} from './requestBaseUrlPreference'
 
 const ROOT_ELEMENT_ID = 'kai-assistant-widget-root'
 
@@ -21,20 +26,33 @@ let singleton: AssistantSdk | undefined
 export function initializeAssistant(options: AssistantInitOptions): AssistantSdk {
   if (singleton) return singleton
 
+  const defaultConnection = resolveAssistantConnectionOptions(options)
+  const userRequestBaseUrl = options.transport
+    ? undefined
+    : readAssistantRequestBaseUrlPreference(options.appId)
+  const connection = resolveAssistantConnectionOptions(userRequestBaseUrl
+    ? {
+        ...options,
+        requestBaseUrl: userRequestBaseUrl,
+        wsUrl: undefined,
+        externalLogin: options.externalLogin ? { ...options.externalLogin, loginUrl: undefined } : undefined,
+      }
+    : options)
   let currentContext = pickMutableContext(options)
   const trackPageUrl = options.trackPageUrl !== false
   if (trackPageUrl && !currentContext.page) currentContext.page = currentAssistantPageContext()
   const providers = new Map(options.providers?.map(provider => [provider.id, provider]) ?? [])
   const root = ensureRoot()
-  const externalLogin = !options.transport && options.wsUrl && !options.getAccessToken && options.externalLogin
-    ? new AssistantExternalLoginClient(options.externalLogin)
+  const externalLogin = !options.transport && connection.wsUrl && !options.getAccessToken && connection.externalLogin
+    ? new AssistantExternalLoginClient(connection.externalLogin)
     : undefined
-  const webSocketTransport = !options.transport && options.wsUrl ? new AssistantWebSocketTransport({
+  const webSocketTransport = !options.transport && connection.wsUrl ? new AssistantWebSocketTransport({
     appId: options.appId,
     userId: options.user?.id,
-    wsUrl: options.wsUrl,
+    wsUrl: connection.wsUrl,
     getAccessToken: options.getAccessToken ?? (() => externalLogin?.requireAccessToken()),
     authenticationRequired: Boolean(externalLogin),
+    onAuthenticationInvalid: () => externalLogin?.clear(),
     workspace: options.workspace,
     projectKey: options.projectKey ?? options.appId,
     engine: options.engine,
@@ -45,8 +63,8 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
   const authentication = externalLogin ? {
     authenticated: externalLogin.isAuthenticated(),
     login: async (username: string, password: string) => {
-      await externalLogin.login(username, password)
-      webSocketTransport?.resumeAfterAuthentication()
+      const accessToken = await externalLogin.login(username, password)
+      webSocketTransport?.resumeAfterAuthentication(accessToken)
     },
   } : undefined
   const unmountWidget = (options.mountWidget ?? mountAssistantWidget)(root, {
@@ -61,6 +79,17 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
           loadAttachment: transport.loadConversationAttachment
             ? attachmentId => transport.loadConversationAttachment!(attachmentId)
             : undefined,
+        }
+      : undefined,
+    connectionSettings: !options.transport && defaultConnection.requestBaseUrl && connection.requestBaseUrl
+      ? {
+          effectiveRequestBaseUrl: connection.requestBaseUrl,
+          defaultRequestBaseUrl: defaultConnection.requestBaseUrl,
+          userRequestBaseUrl,
+          apply: requestBaseUrl => {
+            writeAssistantRequestBaseUrlPreference(options.appId, requestBaseUrl)
+            window.location.reload()
+          },
         }
       : undefined,
   })
@@ -145,7 +174,7 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
     if (!transport) {
       emitTransportState({
         state: '配置缺失',
-        message: '未配置 Assistant WebSocket 地址，请检查初始化参数 wsUrl',
+        message: '未配置 Assistant 请求域或 WebSocket 地址，请检查 requestBaseUrl / wsUrl',
         debugEntry: createAssistantDebugEntry('error', '缺少 WebSocket Transport', { appId: options.appId }),
       })
       return

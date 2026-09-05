@@ -11,7 +11,7 @@ describe('AssistantExternalLoginClient', () => {
     const options = { loginUrl: 'https://forge.example.com/api/auth/external-login' }
     const client = new AssistantExternalLoginClient(options, fetcher, storage)
 
-    await client.login('tester', 'secret')
+    await expect(client.login('tester', 'secret')).resolves.toBe('forge-access')
 
     expect(fetcher).toHaveBeenCalledWith('https://forge.example.com/api/auth/external-login', expect.objectContaining({
       method: 'POST', mode: 'cors', credentials: 'omit', body: JSON.stringify({ username: 'tester', password: 'secret' }),
