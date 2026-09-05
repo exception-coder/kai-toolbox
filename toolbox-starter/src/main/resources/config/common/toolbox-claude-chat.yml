@@ -1,6 +1,10 @@
 toolbox:
 
   claude-chat:
+    # 受约束会话 Client：同源默认可用；跨机器入口必须配置完整 HTTPS Origin（逗号分隔）。
+    session-client:
+      enabled: ${FORGE_SESSION_CLIENT_ENABLED:true}
+      allowed-origins: ${FORGE_SESSION_CLIENT_ALLOWED_ORIGINS:}
     # 一次性 Agent 任务超时：开发文档生成要先查代码/业务知识图谱再组织长文档，复杂需求
     # 实测经常超过 5 分钟。调大到 20 分钟；需求分诊/工时评估/进度评估等短任务也受益
     # （无副作用，超时只是 future.get 等待上限，正常几秒就返回的调用不会因为调大这个值而变慢）。

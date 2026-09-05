@@ -37,6 +37,27 @@ public class SidecarProcessRegistry {
     private volatile Process process;
     /** 遗留 sidecar 的清理在本 JVM 内只做一次（见 {@link #ensureStarted()}） */
     private volatile boolean orphanCleaned;
+    private boolean sdkMaintenance;
+
+    /** 维护期间禁止后台重连逻辑拉起运行时。 */
+    public synchronized void beginSdkMaintenance() {
+        sdkMaintenance = true;
+    }
+
+    /** 结束维护后恢复正常启动。 */
+    public synchronized void endSdkMaintenance() {
+        sdkMaintenance = false;
+    }
+
+    /** 仅在上层确认空闲后停止运行时，移动文件前必须确认端口释放。 */
+    public synchronized void stopForSdkUpgrade() throws IOException {
+        stopProcess();
+        killOrphanSidecar();
+        orphanCleaned = true;
+        if (isAlive()) {
+            throw new IOException("Sidecar 尚未停止，未切换 SDK 文件");
+        }
+    }
 
     public SidecarProcessRegistry(ClaudeChatProperties props,
                                   ObjectMapper objectMapper,
@@ -57,6 +78,9 @@ public class SidecarProcessRegistry {
      * <p>遗留孤儿（上一轮后端 @PreDestroy 未跑到、可能是旧构建）只在本 JVM 首次调用时清理一次。
      */
     public synchronized void ensureStarted() throws IOException {
+        if (sdkMaintenance) {
+            throw new IOException("SDK 正在升级，请稍后重试");
+        }
         if (process != null && process.isAlive()) {
             return;
         }
@@ -134,6 +158,9 @@ public class SidecarProcessRegistry {
      * <p>只由重连流程在多次连接失败后调用——正常路径一律沿用既有实例，见 {@link #ensureStarted()}。
      */
     public synchronized void restart() throws IOException {
+        if (sdkMaintenance) {
+            throw new IOException("SDK 正在升级，请稍后重试");
+        }
         stopProcess();
         killOrphanSidecar();
         orphanCleaned = true;

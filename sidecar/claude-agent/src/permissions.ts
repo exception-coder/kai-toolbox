@@ -19,7 +19,11 @@ const DEMO_FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', '
 /** demo 唯一放行的数据工具（in-process MCP，受后端表白名单二次把关）。 */
 const DEMO_DB_TOOL = 'mcp__welfare_db__exec'
 /** 只写 Forge 本地台账、不执行数据库的安全工具；普通开发会话无需弹审批。 */
-const FORGE_SAFE_TOOLS = new Set(['mcp__forge__register_pending_sql', 'mcp__forge__register_affected_apis'])
+const FORGE_SAFE_TOOLS = new Set([
+  'mcp__forge__register_pending_sql',
+  'mcp__forge__register_affected_apis',
+  'mcp__forge__report_session_progress',
+])
 
 /** 业务咨询只读策略：内置工具只开放读能力；MCP 也必须命中明确的只读白名单。 */
 const CONSULT_READ_TOOLS = new Set(['Read'])
@@ -40,6 +44,8 @@ const CONSULT_READONLY_MCP_PREFIXES = [
   'mcp__domain-knowledge__',
   'mcp__cross-topology__',
 ]
+/** 委托开发自动开放的只读工具；其它工具必须由 Forge 会话所有者批准。 */
+const DELEGATED_AUTO_TOOLS = new Set(['Read', 'Glob', 'Grep'])
 
 /**
  * 单会话的权限/提问交互。绑定到 query() 的 canUseTool 回调：
@@ -78,7 +84,10 @@ export class Permissions {
   }
 
   setToolPolicy(policy: string): void {
-    this.toolPolicy = policy === 'consult-readonly' || policy === 'review-only' ? policy : 'default'
+    if (policy === 'default' || policy === 'consult-readonly' || policy === 'review-only'
+      || policy === 'delegated-development' || policy === 'delegated-request-only') {
+      this.toolPolicy = policy
+    }
   }
 
   /** 同步「弹窗自动允许」兜底开关（运行中切换下一次工具调用即生效）。 */
@@ -144,13 +153,20 @@ export class Permissions {
     if (this.toolPolicy === 'review-only' && toolName !== 'AskUserQuestion') {
       return { behavior: 'deny', message: `评审会话禁止调用工具：${toolName}` }
     }
+    if (this.toolPolicy === 'delegated-development' && toolName !== 'AskUserQuestion'
+      && DELEGATED_AUTO_TOOLS.has(toolName)) {
+      return { behavior: 'allow', updatedInput: input }
+    }
+    if (this.toolPolicy === 'delegated-request-only' && toolName !== 'AskUserQuestion') {
+      return { behavior: 'deny', message: `当前授权只允许提交和澄清需求，禁止调用工具：${toolName}` }
+    }
     if (FORGE_SAFE_TOOLS.has(toolName)) {
       return { behavior: 'allow', updatedInput: input }
     }
     // 权限模式自动放行：AskUserQuestion 永远要弹（用户必须作答），其余按当前模式。
     // SDK 一旦提供 canUseTool 就对每个工具调用触发它，permissionMode 不会绕过本回调，
     // 所以放行决策必须在这里做。
-    if (toolName !== 'AskUserQuestion') {
+    if (toolName !== 'AskUserQuestion' && this.toolPolicy !== 'delegated-development') {
       if (this.mode === 'bypassPermissions') {
         return { behavior: 'allow', updatedInput: input }
       }

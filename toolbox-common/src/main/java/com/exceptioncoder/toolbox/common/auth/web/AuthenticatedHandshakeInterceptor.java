@@ -42,6 +42,9 @@ public class AuthenticatedHandshakeInterceptor implements HandshakeInterceptor {
         String token = request instanceof ServletServerHttpRequest servlet
                 ? servlet.getServletRequest().getParameter("access_token")
                 : null;
+        String origin = request.getHeaders().getOrigin();
+        String forwardedFor = request.getHeaders().getFirst("X-Forwarded-For");
+        String cloudflareRay = request.getHeaders().getFirst("CF-Ray");
         if (token != null && !token.isBlank()) {
             try {
                 JwtPayload payload = jwtService.parse(token);
@@ -49,11 +52,19 @@ public class AuthenticatedHandshakeInterceptor implements HandshakeInterceptor {
                     attributes.put(AUTH_PRINCIPAL_ATTRIBUTE, new AuthPrincipal(
                             payload.userId(), payload.username(), payload.roles(), payload.permissionCodes(),
                             payload.jti(), payload.expiresAt()));
+                    log.info("WS 握手鉴权通过 path={} userId={} origin={} forwardedFor={} cfRay={}",
+                            request.getURI().getPath(), payload.userId(), origin, forwardedFor, cloudflareRay);
                     return true;
                 }
+                log.warn("WS 握手拒绝 path={} reason=token_type_{} origin={} forwardedFor={} cfRay={}",
+                        request.getURI().getPath(), payload.type(), origin, forwardedFor, cloudflareRay);
             } catch (RuntimeException e) {
-                log.debug("WS 握手 token 校验失败: {}", e.getMessage());
+                log.warn("WS 握手拒绝 path={} reason=token_invalid exception={} origin={} forwardedFor={} cfRay={}",
+                        request.getURI().getPath(), e.getClass().getSimpleName(), origin, forwardedFor, cloudflareRay);
             }
+        } else {
+            log.warn("WS 握手拒绝 path={} reason=token_missing origin={} forwardedFor={} cfRay={}",
+                    request.getURI().getPath(), origin, forwardedFor, cloudflareRay);
         }
         response.setStatusCode(HttpStatus.FORBIDDEN);
         return false;

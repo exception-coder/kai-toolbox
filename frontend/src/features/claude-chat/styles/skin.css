@@ -181,8 +181,43 @@
 
 /* 会话头部是一块连续的工作台 Chrome，而不是“标题栏 + 一排胶囊 + 独立页签”三块卡片。 */
 .cc-workspace-header {
+  container-type: inline-size;
+  container-name: chat-header;
   border-bottom: 0;
   box-shadow: none;
+}
+
+.cc-session-identity {
+  flex: 1 1 0%;
+}
+
+.cc-session-header-tail {
+  flex: 0 0 auto;
+}
+
+@container chat-header (max-width: 960px) {
+  .cc-session-usage,
+  .cc-session-transport {
+    display: none;
+  }
+}
+
+@container chat-header (max-width: 720px) {
+  .cc-session-header-actions > button span,
+  .cc-session-header-actions > div > button span {
+    display: none;
+  }
+
+  .cc-session-header-actions > button {
+    padding-inline: 0.5rem;
+  }
+}
+
+@container chat-header (max-width: 520px) {
+  .cc-session-state-label,
+  button.cc-session-runtime-item > span {
+    display: none;
+  }
 }
 
 .cc-chat-contextbar {
@@ -207,6 +242,7 @@
 .cc-session-runtime-item {
   position: relative;
   height: 100%;
+  white-space: nowrap;
   border-radius: 0;
 }
 
@@ -231,6 +267,10 @@
 }
 
 @media (max-width: 767px) {
+  .cc-session-runtime-cluster {
+    display: none;
+  }
+
   .cc-workspace-header:not(.cc-workspace-header-integrated) {
     height: 3rem;
   }

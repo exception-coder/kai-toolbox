@@ -3,6 +3,9 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.domain.QueuedChatMessage;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.QueuedChatMessageRepository;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionManualInputEvent;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,11 +18,20 @@ public class QueuedChatMessageService {
 
     private final QueuedChatMessageRepository repository;
     private final ClaudeChatSessionRepository sessionRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
+    @Autowired
     public QueuedChatMessageService(QueuedChatMessageRepository repository,
-                                    ClaudeChatSessionRepository sessionRepository) {
+                                    ClaudeChatSessionRepository sessionRepository,
+                                    ApplicationEventPublisher eventPublisher) {
         this.repository = repository;
         this.sessionRepository = sessionRepository;
+        this.eventPublisher = eventPublisher;
+    }
+
+    QueuedChatMessageService(QueuedChatMessageRepository repository,
+                             ClaudeChatSessionRepository sessionRepository) {
+        this(repository, sessionRepository, event -> { });
     }
 
     public List<QueuedChatMessage> list(String sessionId) {
@@ -42,7 +54,31 @@ public class QueuedChatMessageService {
                 trimOrNull(developerInstructions), normalizedAttachments,
                 createdAt == null || createdAt <= 0 ? System.currentTimeMillis() : createdAt);
         repository.upsert(message);
+        eventPublisher.publishEvent(new SessionManualInputEvent(sessionId, "QUEUE"));
         return message;
+    }
+
+    /** Runtime 自身登记的续跑消息，不触发用户接管；幂等 ID 由监督服务提供。 */
+    public QueuedChatMessage saveInternal(String sessionId, String id, String text,
+                                          String displayText, String developerInstructions,
+                                          Long createdAt) {
+        requireSession(sessionId);
+        QueuedChatMessage message = new QueuedChatMessage(id, sessionId, text, displayText,
+                developerInstructions, List.of(), createdAt == null ? System.currentTimeMillis() : createdAt);
+        repository.upsert(message);
+        return message;
+    }
+
+    /** 清除尚未派发的 Runtime 续跑消息，不影响用户自己的排队内容。 */
+    public void clearInternal(String sessionId) {
+        repository.findBySessionId(sessionId).stream()
+                .filter(message -> message.id().startsWith("autopilot:"))
+                .forEach(message -> repository.delete(sessionId, message.id()));
+    }
+
+    public boolean hasInternal(String sessionId) {
+        return repository.findBySessionId(sessionId).stream()
+                .anyMatch(message -> message.id().startsWith("autopilot:"));
     }
 
     public void delete(String sessionId, String messageId) {

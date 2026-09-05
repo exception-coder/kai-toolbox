@@ -80,7 +80,7 @@ export default defineConfig({
     // 独立页面和助手 SDK 会在开发服务器运行期间重建。它们是输出目录，
     // 不应触发主应用刷新，更不应被重新送入 CSS 分析流程。
     watch: {
-      ignored: ['**/dist/**', '**/dist-assistant/**', '**/dist-pages/**'],
+      ignored: ['**/dist/**', '**/dist-assistant/**', '**/dist-session-client/**', '**/dist-pages/**'],
     },
     proxy: {
       '/MP_verify_eQMZqv1CWST9uWxh.txt': {

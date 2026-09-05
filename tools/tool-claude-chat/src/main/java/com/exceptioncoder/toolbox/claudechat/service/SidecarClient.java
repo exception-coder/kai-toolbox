@@ -53,6 +53,27 @@ public class SidecarClient implements ReviewThreadForkGateway {
     private final Map<String, CompletableFuture<JsonNode>> pendingProjectRouteQueries = new ConcurrentHashMap<>();
     /** 本实例已随 Spring 上下文停机；不得再建连、不得再上报断开 */
     private volatile boolean shuttingDown;
+    private boolean sdkMaintenance;
+
+    /** 与消息发送共用锁，阻止升级期间新工作进入旧运行时。 */
+    public synchronized void beginSdkMaintenance() {
+        if (sdkMaintenance) {
+            throw new IllegalStateException("SDK 正在升级，请稍后重试");
+        }
+        sdkMaintenance = true;
+    }
+
+    /** 维护完成后允许重连和发送。 */
+    public synchronized void endSdkMaintenance() {
+        sdkMaintenance = false;
+    }
+
+    /** 摘除旧连接，避免正常维护被上报为会话异常中断。 */
+    public synchronized void disconnectForSdkUpgrade() {
+        WebSocketSession previous = session;
+        session = null;
+        closeQuietly(previous);
+    }
 
     public SidecarClient(ClaudeChatProperties props, ClaudeChatWsProperties wsProps, ObjectMapper mapper) {
         this.props = props;
@@ -237,6 +258,15 @@ public class SidecarClient implements ReviewThreadForkGateway {
                             String sessionContext, List<String> additionalDirectories, String turnId,
                             TraceContext traceContext, AgentRunMetadata telemetry,
                             List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images) {
+        userMessage(sessionId, text, developerInstructions, sessionContext, additionalDirectories, turnId,
+                traceContext, telemetry, images, null);
+    }
+
+    public void userMessage(String sessionId, String text, String developerInstructions,
+                            String sessionContext, List<String> additionalDirectories, String turnId,
+                            TraceContext traceContext, AgentRunMetadata telemetry,
+                            List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
+                            String turnToolPolicy) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", "user");
         message.put("sessionId", sessionId);
@@ -249,6 +279,9 @@ public class SidecarClient implements ReviewThreadForkGateway {
             message.put("images", images.stream()
                     .map(image -> Map.of("mediaType", image.mimeType(), "data", image.base64Data()))
                     .toList());
+        }
+        if (turnToolPolicy != null && !turnToolPolicy.isBlank()) {
+            message.put("turnToolPolicy", turnToolPolicy);
         }
         putTelemetry(message, traceContext, telemetry);
         send(message);
@@ -522,6 +555,9 @@ public class SidecarClient implements ReviewThreadForkGateway {
 
     /** 发送一条消息到 sidecar。返回是否真正发出（未连接/异常返回 false，供决策类消息据此回告前端）。 */
     private synchronized boolean send(Map<String, ?> payload) {
+        if (sdkMaintenance) {
+            throw new IllegalStateException("SDK 正在升级，请完成后重试当前操作");
+        }
         if (session == null || !session.isOpen()) {
             log.warn("[claude-chat] sidecar 未连接，丢弃消息 type={}", payload.get("type"));
             return false;

@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.config;
 import com.exceptioncoder.toolbox.common.auth.web.AdminHandshakeInterceptor;
 import com.exceptioncoder.toolbox.common.auth.web.AuthenticatedHandshakeInterceptor;
 import com.exceptioncoder.toolbox.common.auth.web.PrdDevelopmentHandshakeInterceptor;
+import com.exceptioncoder.toolbox.claudechat.service.SessionExecutionPolicy;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,6 +23,9 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
     private final ObjectProvider<PrdDevelopmentHandshakeInterceptor> prdDevelopmentHandshake;
     private final ClaudeChatWsProperties wsProps;
     private final ReviewHandshakeInterceptor reviewHandshake;
+    private final ObjectProvider<SessionClientWebSocketHandler> sessionClientHandler;
+    private final ObjectProvider<SessionClientHandshakeInterceptor> sessionClientHandshake;
+    private final SessionClientProperties sessionClientProperties;
 
     public ClaudeChatWebSocketConfig(ClaudeChatWebSocketHandler handler,
                                      DemoWebSocketHandler demoHandler,
@@ -29,7 +33,10 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
                                      ObjectProvider<AuthenticatedHandshakeInterceptor> authenticatedHandshake,
                                      ObjectProvider<PrdDevelopmentHandshakeInterceptor> prdDevelopmentHandshake,
                                      ClaudeChatWsProperties wsProps,
-                                     ReviewHandshakeInterceptor reviewHandshake) {
+                                     ReviewHandshakeInterceptor reviewHandshake,
+                                     ObjectProvider<SessionClientWebSocketHandler> sessionClientHandler,
+                                     ObjectProvider<SessionClientHandshakeInterceptor> sessionClientHandshake,
+                                     SessionClientProperties sessionClientProperties) {
         this.handler = handler;
         this.demoHandler = demoHandler;
         this.adminHandshake = adminHandshake;
@@ -37,6 +44,9 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
         this.prdDevelopmentHandshake = prdDevelopmentHandshake;
         this.wsProps = wsProps;
         this.reviewHandshake = reviewHandshake;
+        this.sessionClientHandler = sessionClientHandler;
+        this.sessionClientHandshake = sessionClientHandshake;
+        this.sessionClientProperties = sessionClientProperties;
     }
 
     @Override
@@ -68,6 +78,13 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
         registry.addHandler(handler, "/api/claude-chat/review/ws")
                 .setAllowedOriginPatterns("*")
                 .addInterceptors(reviewHandshake);
+        SessionClientWebSocketHandler publicHandler = sessionClientHandler.getIfAvailable();
+        SessionClientHandshakeInterceptor publicHandshake = sessionClientHandshake.getIfAvailable();
+        if (publicHandler != null && publicHandshake != null && sessionClientProperties.isEnabled()) {
+            registry.addHandler(publicHandler, SessionExecutionPolicy.SESSION_CLIENT_WS_PATH)
+                    .setAllowedOrigins(sessionClientProperties.getAllowedOrigins().toArray(String[]::new))
+                    .addInterceptors(publicHandshake);
+        }
     }
 
     @Bean

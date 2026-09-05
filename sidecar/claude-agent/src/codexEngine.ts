@@ -29,6 +29,7 @@ import {
   CodexAppServerTurnError,
   deleteCodexThread,
   latestCodexTurnId,
+  isMissingCodexThreadError,
   runCodexAppServerTurn,
   steerCodexAppServerTurn,
 } from './codexAppServer.js'
@@ -48,6 +49,8 @@ export type CodexSpeed = 'default' | 'fast'
 export type CodexReasoningEffort = string
 type CodexTransport = 'appServer' | 'sdkFallback' | 'thirdPartySdk'
 const THREAD_WRITER_RETRY_DELAY_MS = 1_500
+const DELEGATED_DEVELOPMENT_POLICY = 'delegated-development'
+const DELEGATED_REQUEST_ONLY_POLICY = 'delegated-request-only'
 
 export function isArchivedCodexThread(threadId: string | undefined, codexHome: string | undefined): boolean {
   if (!threadId) return false
@@ -66,16 +69,38 @@ export function isArchivedCodexResumeError(error: unknown): boolean {
   return /thread\/resume failed: session .+ is archived\b/i.test(message)
 }
 
-/** Codex 没有 Claude 的 system/init 能力清单，供 sidecar 主动上报运行时注入的 MCP。 */
-export function codexMcpCapabilities(toolPolicy: string, sessionId?: string,
-                                     forgeSqlRegistration = false): Array<{ name: string; status: string }> {
+/** Forge 为当前 Codex 会话构建的 MCP 清单；能力归约用它证明会话级来源。 */
+type CodexMcpCapabilityContext = {
+  codexHome?: string
+  sourceRoot?: string
+  evidenceSystems?: readonly string[]
+}
+
+export function codexMcpCapabilities(
+  toolPolicy: string,
+  sessionId?: string,
+  forgeSqlRegistration = false,
+  context: CodexMcpCapabilityContext = {},
+): Array<{ name: string; status: string }> {
   if (toolPolicy === 'disabled' || toolPolicy === REVIEW_ONLY_POLICY) return []
-  if (toolPolicy === CONSULT_READONLY_POLICY) return [
-    { name: 'consult-readonly', status: 'configured' },
-    ...(process.env.TOOLBOX_API_BASE && sessionId && forgeSqlRegistration
-      ? [{ name: 'forge', status: 'configured' }]
-      : []),
-  ]
+  if (toolPolicy === CONSULT_READONLY_POLICY) {
+    const config = consultReadonlyCodexConfig(
+      context.codexHome,
+      sessionId,
+      context.sourceRoot,
+      context.evidenceSystems,
+      forgeSqlRegistration,
+    )
+    const servers = config.mcp_servers && typeof config.mcp_servers === 'object'
+      ? config.mcp_servers as Record<string, unknown>
+      : {}
+    return Object.entries(servers).flatMap(([name, value]) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+      return (value as Record<string, unknown>).enabled === false
+        ? []
+        : [{ name, status: 'configured' }]
+    })
+  }
   if (!process.env.TOOLBOX_API_BASE) return []
   return standardToolboxMcpRequirements(sessionId, forgeSqlRegistration)
     .map(({ name }) => ({ name, status: 'configured' }))
@@ -117,7 +142,7 @@ export interface CodexTurnCtx {
   images?: CodexImageInput[]
   signal: AbortSignal
   emit: (e: Record<string, unknown>) => void
-  setSdkSessionId: (id: string) => void
+  setSdkSessionId: (id?: string) => void
   canUseTool?: (
     toolName: string,
     input: Record<string, unknown>,
@@ -216,7 +241,9 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
   ].filter(Boolean).join('\n\n') || undefined
   const developerInstructions = appendWindowsExecutionInstructions([
     baseDeveloperInstructions,
-    toolPolicy === CONSULT_READONLY_POLICY || toolPolicy === REVIEW_ONLY_POLICY ? turnDeveloperInstructions?.trim() : undefined,
+    toolPolicy === CONSULT_READONLY_POLICY || toolPolicy === REVIEW_ONLY_POLICY
+      || toolPolicy === DELEGATED_DEVELOPMENT_POLICY || toolPolicy === DELEGATED_REQUEST_ONLY_POLICY
+      ? turnDeveloperInstructions?.trim() : undefined,
   ].filter(Boolean).join('\n\n'))
   return {
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
@@ -349,12 +376,16 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   }
 
   const toolsDisabled = ctx.toolPolicy === 'disabled' || ctx.toolPolicy === REVIEW_ONLY_POLICY
+    || ctx.toolPolicy === DELEGATED_REQUEST_ONLY_POLICY
   const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
+  const delegatedDevelopment = ctx.toolPolicy === DELEGATED_DEVELOPMENT_POLICY
   const consultSourceRoot = consultReadonly && ctx.cwd.trim() ? resolve(ctx.cwd) : undefined
   const { approvalPolicy, sandboxMode } = reviewOnly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
     : toolsDisabled || consultReadonly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: IS_WINDOWS ? 'danger-full-access' as SandboxMode : 'read-only' as SandboxMode }
+    : delegatedDevelopment
+      ? { approvalPolicy: 'on-request' as ApprovalMode, sandboxMode: IS_WINDOWS ? 'danger-full-access' as SandboxMode : 'workspace-write' as SandboxMode }
     : mapMode(ctx.permissionMode)
   let tempImageDir: string | undefined
 
@@ -385,14 +416,19 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       emit: ctx.emit,
       setThreadId: ctx.setSdkSessionId,
       canUseTool: ctx.canUseTool,
-      mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId, ctx.forgeSqlRegistration),
+      mcpServers: codexMcpCapabilities(
+        ctx.toolPolicy ?? 'default',
+        ctx.sessionId,
+        ctx.forgeSqlRegistration,
+        { codexHome: home, sourceRoot: consultSourceRoot, evidenceSystems: ctx.consultEvidenceSystems },
+      ),
       requiredMcpTools: consultReadonly
         ? consultReadonlyRequiredMcpTools(consultSourceRoot, ctx.consultEvidenceSystems)
         : undefined,
       forbidMcpTools: reviewOnly,
     }
-    await runCodexAppServerWithStartupRetry(
-      () => runCodexAppServerTurn(appServerOptions),
+    const runAppServer = (options: Parameters<typeof runCodexAppServerTurn>[0]) => runCodexAppServerWithStartupRetry(
+      () => runCodexAppServerTurn(options),
       async error => {
         if (isRetryableThreadWriterConflict(error)) {
           ctx.emit({
@@ -410,6 +446,19 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         })
       },
     )
+    try {
+      await runAppServer(appServerOptions)
+    } catch (error) {
+      if (!turnContext.sdkSessionId || !isMissingCodexThreadError(error)) throw error
+      ctx.setSdkSessionId(undefined)
+      ctx.emit({ type: 'init', sdkSessionId: null, sdkSessionInvalidated: true })
+      ctx.emit({
+        type: 'warning',
+        code: 'CODEX_THREAD_MISSING_RECREATED',
+        message: '原 Codex 会话引用已失效，已自动创建新会话继续处理当前消息。',
+      })
+      await runAppServer({ ...appServerOptions, threadId: undefined })
+    }
   } catch (error) {
     if (ctx.signal.aborted) {
       if (isMcpToolTimeoutAbort(ctx.signal.reason) || isToolExecutionTimeoutAbort(ctx.signal.reason)) return
@@ -476,6 +525,7 @@ export async function runEphemeralCodexTurn(
     await runtime.runTurn({
       ...ctx,
       setSdkSessionId: threadId => {
+        if (!threadId) return
         threadIds.add(threadId)
         ctx.setSdkSessionId(threadId)
       },
@@ -556,7 +606,12 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
             ctx.emit({
               type: 'init',
               sdkSessionId: ev.thread_id,
-              mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId, ctx.forgeSqlRegistration),
+              mcpServers: codexMcpCapabilities(
+                ctx.toolPolicy ?? 'default',
+                ctx.sessionId,
+                ctx.forgeSqlRegistration,
+                { codexHome: home, sourceRoot: consultSourceRoot, evidenceSystems: ctx.consultEvidenceSystems },
+              ),
             })
           }
           break

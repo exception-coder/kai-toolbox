@@ -6,7 +6,7 @@
   "scripts": {
     "predev": "node scripts/generate-feature-permissions.mjs && npm run assistant:release",
     "dev": "vite",
-    "build": "node scripts/generate-feature-permissions.mjs && npm run assistant:release && npm run architecture:check && tsc -b && vite build",
+    "build": "node scripts/generate-feature-permissions.mjs && npm run assistant:release && npm run session-client:build && npm run architecture:check && tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -22,6 +22,7 @@
     "assistant:release:test": "node --test scripts/publish-assistant-release.test.mjs",
     "assistant:release": "npm run assistant:release:test && npm run assistant:build && npm run assistant:loader:build && node scripts/publish-assistant-release.mjs",
     "assistant:release:canary": "npm run assistant:release:test && npm run assistant:build && npm run assistant:loader:build && node scripts/publish-assistant-release.mjs --channel=canary",
+    "session-client:build": "vite build --config vite.session-client.config.ts && tsc -p tsconfig.session-client.json",
     "java8gu:sync": "node scripts/build-java8gu-index.mjs",
     "webppt-report:quant": "node scripts/generate-webppt-quant-data.mjs"
   },

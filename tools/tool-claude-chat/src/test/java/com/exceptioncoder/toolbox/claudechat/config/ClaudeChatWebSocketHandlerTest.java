@@ -7,8 +7,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
+
+import java.net.URI;
+import java.util.HashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -60,5 +65,25 @@ class ClaudeChatWebSocketHandlerTest {
 
         verify(service).steerUserMessage(any(), any(ClientMessage.Steer.class));
         verify(service, never()).sendUserMessage(any(), any(ClientMessage.Send.class));
+    }
+
+    @Test
+    void recordsConnectionStartAndDisconnectsServiceWhenClosed() throws Exception {
+        ClaudeChatService service = mock(ClaudeChatService.class);
+        ClaudeChatWebSocketHandler handler = new ClaudeChatWebSocketHandler(
+                new ClaudeChatProperties(), service, mock(AssistantWebSocketCommandHandler.class), objectMapper);
+        WebSocketSession session = mock(WebSocketSession.class);
+        HashMap<String, Object> attributes = new HashMap<>();
+        when(session.getAttributes()).thenReturn(attributes);
+        when(session.getUri()).thenReturn(URI.create("wss://forge.example.com/api/claude-chat/consult/ws?access_token=secret"));
+        when(session.getHandshakeHeaders()).thenReturn(new HttpHeaders());
+        when(session.getId()).thenReturn("connection-1");
+        when(session.isOpen()).thenReturn(true);
+
+        handler.afterConnectionEstablished(session);
+        handler.afterConnectionClosed(session, CloseStatus.GOING_AWAY);
+
+        assertThat(attributes).containsKey("claude-chat.connected-at");
+        verify(service).onBrowserDisconnected(session);
     }
 }

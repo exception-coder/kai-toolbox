@@ -23,7 +23,8 @@ public sealed interface ServerMessage
                 ServerMessage.InterruptState,
                 ServerMessage.Error, ServerMessage.BackgroundTasks,
                 ServerMessage.PendingSessions, ServerMessage.QueueAccepted, ServerMessage.QueueDispatched,
-                ServerMessage.SendAccepted, ServerMessage.AssistantCommandResult, ServerMessage.ReviewIntent {
+                ServerMessage.SendAccepted, ServerMessage.AssistantCommandResult, ServerMessage.ReviewIntent,
+                ServerMessage.AutopilotState, ServerMessage.AutopilotDashboardChanged {
 
     long seq();
 
@@ -34,12 +35,38 @@ public sealed interface ServerMessage
     @JsonTypeName("ready")
     record Ready(long seq, String sessionId, String sdkSessionId, List<String> slashCommands, String status,
                  String activeTurnId, String epoch, String engine, String providerKind, String providerBaseUrl,
-                 List<String> skills, List<String> agents, List<McpServer> mcpServers, String outputStyle,
+                 List<String> skills, List<SkillCapability> skillDetails, List<PluginCapability> plugins,
+                 List<String> agents, List<McpServer> mcpServers, String outputStyle,
+                 String capabilitySource, long capabilityRefreshedAt, List<String> capabilityErrors,
                  List<BackgroundTaskInfo> backgroundTasks, String selectedModel,
                  String codexReasoningEffort, String codexSpeed, String queueDispatchMode) implements ServerMessage {}
 
-    /** 会话激活的 MCP 服务（来自 SDK init）。 */
-    record McpServer(String name, String status) {}
+    /** 会话激活的 MCP 服务；verified 只表示来源经过运行时核验，Tool 目录完整性单独标识。 */
+    record McpServer(String name, String status, String runtimeStatus, String authStatus, String pluginId,
+                     String serverTitle, String serverVersion, boolean verified,
+                     boolean toolInventoryComplete, List<McpTool> tools,
+                     List<CapabilityProvenance> provenance) {}
+
+    record McpTool(String name, String title, String description,
+                   List<CapabilityProvenance> provenance) {}
+
+    record SkillCapability(String name, String description, boolean enabled, String scope, String pluginId,
+                           String path, String version, String contentFingerprint, List<String> toolDependencies,
+                           List<CapabilityProvenance> provenance) {
+        public SkillCapability(String name, String description, boolean enabled, String scope, String pluginId,
+                               String path, List<String> toolDependencies,
+                               List<CapabilityProvenance> provenance) {
+            this(name, description, enabled, scope, pluginId, path, null, null, toolDependencies, provenance);
+        }
+    }
+
+    record PluginCapability(String id, String name, String marketplace, boolean installed, boolean enabled,
+                            String localVersion, String remoteVersion, boolean updateAvailable,
+                            List<CapabilityProvenance> provenance) {}
+
+    /** 单项能力的确定性来源证据；允许多条以表达会话配置覆盖 Auth 全局配置。 */
+    record CapabilityProvenance(String origin, String scope, String sourceId,
+                                boolean effective, String evidence) {}
 
     @JsonTypeName("assistantDelta")
     record AssistantDelta(long seq, String text) implements ServerMessage {}
@@ -91,6 +118,14 @@ public sealed interface ServerMessage
 
     @JsonTypeName("result")
     record Result(long seq, Map<String, Object> usage, String stopReason, String traceId) implements ServerMessage {}
+
+    /** 当前会话自动监督的 replace-semantics 完整快照。 */
+    @JsonTypeName("autopilotState")
+    record AutopilotState(long seq, Object state) implements ServerMessage {}
+
+    /** 跨会话监督看板的轻量修订提示；客户端收到后重新读取 REST 投影。 */
+    @JsonTypeName("autopilotDashboardChanged")
+    record AutopilotDashboardChanged(long seq, String sessionId, long revision) implements ServerMessage {}
 
     /**
      * 本轮调用诊断：{@code requestedModel}=前端选的/发出去的模型；{@code responseModel}=API 响应里

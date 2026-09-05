@@ -10,7 +10,12 @@ import {
   codexFinalizingTurnMessage,
   codexIncompleteTurnMessage,
 } from './codexTurnCompletion.js'
-import type { RequiredMcpTool } from './codexSecurity.js'
+import { configuredMcpServerNames, type RequiredMcpTool } from './codexSecurity.js'
+import {
+  buildCodexCapabilitySnapshot,
+  parseMcpCapabilities,
+  type CapabilitySnapshot,
+} from './sessionCapabilities.js'
 
 const require = createRequire(import.meta.url)
 const REQUEST_TIMEOUT_MS = 20_000
@@ -25,6 +30,9 @@ const MAX_MODEL_PAGES = 20
 const MAX_COMMAND_OUTPUT_CHARS = 8_000
 const COMMAND_OUTPUT_EMIT_INTERVAL_MS = 250
 const SUB_AGENT_FINALIZING_RECHECK_MS = 1_500
+const TURN_COMPLETION_RECONCILE_INITIAL_MS = 2_000
+const TURN_COMPLETION_RECONCILE_INTERVAL_MS = 10_000
+const TERMINAL_TURN_STATUSES = new Set(['completed', 'failed', 'interrupted', 'cancelled', 'canceled', 'aborted'])
 
 type JsonRpcResponse = {
   id?: number
@@ -35,10 +43,10 @@ type JsonRpcResponse = {
   }
 }
 
-type JsonRpcResult = {
+type JsonRpcResult = Record<string, unknown> & {
   thread?: {
     id?: string
-    turns?: Array<{ id?: string }>
+    turns?: Array<{ id?: string; status?: string; error?: unknown }>
   }
   data?: AppServerModel[]
   nextCursor?: string | null
@@ -115,6 +123,12 @@ export class CodexAppServerTurnError extends Error {
     super(message)
     this.name = 'CodexAppServerTurnError'
   }
+}
+
+/** A missing native thread is a stale session reference, not an MCP or authentication failure. */
+export function isMissingCodexThreadError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /(?:^|\b)thread not found\s*:/i.test(message)
 }
 
 type McpRuntimeStatus = {
@@ -294,20 +308,40 @@ export function isCurrentCodexTurnNotification(
   return !(currentTurnId && notificationTurnId && notificationTurnId !== currentTurnId)
 }
 
+export type CodexTerminalTurn = {
+  id: string
+  status: string
+  errorMessage?: string
+}
+
+/** Uses thread/read as the authority when a terminal notification is lost in transit. */
+export function findCodexTerminalTurn(result: JsonRpcResult, expectedTurnId: string): CodexTerminalTurn | undefined {
+  const turn = result.thread?.turns?.find(candidate => candidate.id === expectedTurnId)
+  const status = asString(turn?.status).toLowerCase()
+  if (!turn?.id || !TERMINAL_TURN_STATUSES.has(status)) return undefined
+  const errorMessage = asString(asRecord(turn.error)?.message)
+  return { id: turn.id, status, ...(errorMessage ? { errorMessage } : {}) }
+}
+
+export function shouldReconcileCodexTurnAfterItem(
+  phase: 'inProgress' | 'completed',
+  item: Record<string, unknown> | undefined,
+): boolean {
+  return phase === 'completed'
+    && asString(item?.type) === 'agentMessage'
+    && !asString(item?.author).startsWith('/root/')
+}
+
 /** 结构化 willRetry=false 会立即终止；这里只为仍在重试和旧版最终重试提供防永久挂起兜底。 */
 export function codexReconnectDeadlineMs(notice: CodexAppServerErrorNotice): number {
   return notice.retryExhausted ? LEGACY_FINAL_RECONNECT_GRACE_MS : RECONNECT_IDLE_TIMEOUT_MS
 }
 
 function parseMcpRuntimeStatuses(result: JsonRpcResult): McpRuntimeStatus[] {
-  return (result.data ?? []).map(item => {
-    const record = asRecord(item) ?? {}
-    const tools = asRecord(record.tools) ?? {}
-    return {
-      name: asString(record.name),
-      tools: new Set(Object.keys(tools)),
-    }
-  }).filter(status => status.name)
+  return parseMcpCapabilities(result).map(server => ({
+    name: server.name,
+    tools: new Set(server.tools.map(tool => tool.name)),
+  }))
 }
 
 function validateRequiredMcpTools(statuses: McpRuntimeStatus[], required: RequiredMcpTool[]): void {
@@ -496,6 +530,7 @@ function callAppServer(
           title: 'Kai Toolbox',
           version: '0.1.0',
         },
+        capabilities: { experimentalApi: true },
       },
     })
   })
@@ -549,6 +584,65 @@ export async function latestCodexTurnId(threadId: string, codexHome?: string): P
   return turns.at(-1)?.id
 }
 
+type CodexCapabilityInspectionOptions = {
+  threadId?: string
+  cwd: string
+  codexHome?: string
+  configuredMcpServers?: Array<{ name: string; status: string }>
+  forceReload?: boolean
+  onThreadNotFound?: () => void
+}
+
+/**
+ * 使用当前 Auth 目录的 App Server 读取会话能力目录。三个目录相互隔离：某一项失败时仍返回
+ * 其余成功结果，避免插件远端目录异常把已经验证的 MCP Tool 一并抹掉。
+ */
+export async function inspectCodexSessionCapabilities(
+  options: CodexCapabilityInspectionOptions,
+): Promise<CapabilitySnapshot> {
+  const authGlobalMcpServerNames = configuredMcpServerNames(options.codexHome)
+  const tasks = [
+    options.threadId
+      ? callAppServer('mcpServerStatus/list', {
+          threadId: options.threadId,
+          detail: 'toolsAndAuthOnly',
+          limit: 100,
+        }, options.codexHome)
+      : Promise.resolve(undefined),
+    callAppServer('skills/list', {
+      cwds: [options.cwd],
+      forceReload: options.forceReload === true,
+    }, options.codexHome),
+    callAppServer('plugin/list', {
+      cwds: [options.cwd],
+      forceRefetch: options.forceReload === true,
+    }, options.codexHome),
+  ] as const
+  const [mcp, skills, plugins] = await Promise.allSettled(tasks)
+  const errors: string[] = []
+  const resultOf = (label: string, result: PromiseSettledResult<JsonRpcResult | undefined>): unknown => {
+    if (result.status === 'fulfilled') return result.value
+    errors.push(`${label}：${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
+    return undefined
+  }
+  let mcpResult: unknown
+  if (mcp.status === 'rejected' && options.threadId && isMissingCodexThreadError(mcp.reason)) {
+    options.onThreadNotFound?.()
+  } else {
+    mcpResult = resultOf('MCP 运行时目录', mcp)
+  }
+  const skillsResult = resultOf('Skills 目录', skills)
+  const pluginsResult = resultOf('Plugin 目录', plugins)
+  return buildCodexCapabilitySnapshot({
+    ...(mcpResult !== undefined ? { mcpResult } : {}),
+    ...(skillsResult !== undefined ? { skillsResult } : {}),
+    ...(pluginsResult !== undefined ? { pluginsResult } : {}),
+    configuredMcpServers: options.configuredMcpServers,
+    authGlobalMcpServerNames,
+    errors,
+  })
+}
+
 /** Permanently removes an ephemeral Codex thread from the selected authorization directory. */
 export async function deleteCodexThread(threadId: string, codexHome?: string): Promise<void> {
   await callAppServer('thread/delete', { threadId }, codexHome)
@@ -578,6 +672,9 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   let abortFallback: NodeJS.Timeout | undefined
   let reconnectDeadline: NodeJS.Timeout | undefined
   let finalizingRecheck: NodeJS.Timeout | undefined
+  let completionReconcile: NodeJS.Timeout | undefined
+  let completionReconcileInFlight = false
+  let completionReconcileWarningEmitted = false
   let abortCompletion: ((error: Error) => void) | undefined
   let reconnectActivityId: string | undefined
   let terminalEvent: Record<string, unknown> | undefined
@@ -594,6 +691,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     if (abortFallback) clearTimeout(abortFallback)
     if (reconnectDeadline) clearTimeout(reconnectDeadline)
     if (finalizingRecheck) clearTimeout(finalizingRecheck)
+    if (completionReconcile) clearTimeout(completionReconcile)
     lines.close()
     if (force) forceStop(child)
     else closeInput(child)
@@ -724,6 +822,39 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       resolveCompletion()
     }
 
+    const scheduleTurnCompletionReconcile = (delayMs: number) => {
+      if (finished || completionReconcile) return
+      completionReconcile = setTimeout(() => {
+        completionReconcile = undefined
+        if (finished || completionReconcileInFlight || !threadId || !turnId) return
+        completionReconcileInFlight = true
+        void request('thread/read', { threadId, includeTurns: true })
+          .then(result => {
+            if (finished || !turnId) return
+            const terminalTurn = findCodexTerminalTurn(result, turnId)
+            if (terminalTurn) {
+              acceptRootTerminalTurn(terminalTurn.status, terminalTurn.id, terminalTurn.errorMessage)
+              return
+            }
+            scheduleTurnCompletionReconcile(TURN_COMPLETION_RECONCILE_INTERVAL_MS)
+          })
+          .catch(error => {
+            if (finished) return
+            if (!completionReconcileWarningEmitted) {
+              completionReconcileWarningEmitted = true
+              options.emit({
+                type: 'warning',
+                code: 'CODEX_TURN_RECONCILE_FAILED',
+                message: `Codex 最终回复后的原生终态复核失败，将继续自动复核：${error instanceof Error ? error.message : String(error)}`,
+              })
+            }
+            scheduleTurnCompletionReconcile(TURN_COMPLETION_RECONCILE_INTERVAL_MS)
+          })
+          .finally(() => { completionReconcileInFlight = false })
+      }, delayMs)
+      completionReconcile.unref?.()
+    }
+
     const completeFinalizingRecheck = () => {
       const pendingCompletion = pendingRootCompletion
       if (!pendingCompletion || finished) return
@@ -742,6 +873,27 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           : '根线程已有最终回复并已完成，本轮按根线程权威终态收口。',
       })
       finishRootTurn(pendingCompletion.status, pendingCompletion.turnId, true)
+    }
+
+    const acceptRootTerminalTurn = (status: string, completedTurnId?: string, turnErrorMessage?: string) => {
+      if (pendingRootCompletion || finished) return
+      finishReconnectActivity('completed')
+      const completionAssessment = completionGate.assess(status)
+      if (completionAssessment.finalizingRequired) {
+        const activityId = `${completedTurnId || 'current'}-sub-agent-finalizing`
+        pendingRootCompletion = { status, turnId: completedTurnId, activityId }
+        emitActivity({
+          type: 'codexActivity',
+          activityType: 'agent',
+          itemId: activityId,
+          status: 'inProgress',
+          title: 'Codex 正在收口多 Agent 状态',
+          detail: codexFinalizingTurnMessage(completionAssessment),
+        })
+        finalizingRecheck = setTimeout(completeFinalizingRecheck, SUB_AGENT_FINALIZING_RECHECK_MS)
+        return
+      }
+      finishRootTurn(status, completedTurnId, false, turnErrorMessage)
     }
 
     child.stderr.setEncoding('utf8')
@@ -822,6 +974,12 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           const item = asRecord(params.item)
           const phase = method === 'item/completed' ? 'completed' : 'inProgress'
           completionGate.observeItem(phase, item)
+          if (shouldReconcileCodexTurnAfterItem(phase, item)) {
+            scheduleTurnCompletionReconcile(TURN_COMPLETION_RECONCILE_INITIAL_MS)
+          } else if (asString(item?.type) !== 'agentMessage' && completionReconcile) {
+            clearTimeout(completionReconcile)
+            completionReconcile = undefined
+          }
           handleAppServerItem(
             phase,
             item,
@@ -943,27 +1101,10 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           break
         }
         case 'turn/completed': {
-          if (pendingRootCompletion) break
-          finishReconnectActivity('completed')
           const turn = asRecord(params.turn)
           const status = asString(turn?.status) || 'completed'
           const completedTurnId = asString(turn?.id) || turnId
-          const completionAssessment = completionGate.assess(status)
-          if (completionAssessment.finalizingRequired) {
-            const activityId = `${completedTurnId || 'current'}-sub-agent-finalizing`
-            pendingRootCompletion = { status, turnId: completedTurnId, activityId }
-            emitActivity({
-              type: 'codexActivity',
-              activityType: 'agent',
-              itemId: activityId,
-              status: 'inProgress',
-              title: 'Codex 正在收口多 Agent 状态',
-              detail: codexFinalizingTurnMessage(completionAssessment),
-            })
-            finalizingRecheck = setTimeout(completeFinalizingRecheck, SUB_AGENT_FINALIZING_RECHECK_MS)
-            break
-          }
-          finishRootTurn(status, completedTurnId, false, asString(asRecord(turn?.error)?.message))
+          acceptRootTerminalTurn(status, completedTurnId, asString(asRecord(turn?.error)?.message))
           break
         }
       }
@@ -987,23 +1128,33 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     threadId = asString(thread?.id) || threadId
     if (!threadId) throw new Error('Codex App Server 未返回 thread id')
     options.setThreadId(threadId)
-    let runtimeMcpServers = options.mcpServers ?? []
-    if ((options.mcpServers?.length ?? 0) > 0 || options.requiredMcpTools || options.forbidMcpTools) {
-      let runtimeStatuses: McpRuntimeStatus[] = []
-      try {
-        const statusResult = await request('mcpServerStatus/list', {
-          threadId,
-          detail: 'toolsAndAuthOnly',
-          limit: 100,
-        })
-        runtimeStatuses = parseMcpRuntimeStatuses(statusResult)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        if (options.requiredMcpTools || options.forbidMcpTools) {
-          throw new CodexAppServerTurnError(`受控 MCP 工具状态校验失败：${message}`, false)
-        }
-        options.emit({ type: 'warning', code: 'CODEX_MCP_STATUS_UNAVAILABLE', message: `MCP 状态查询失败：${message}` })
+    let runtimeStatuses: McpRuntimeStatus[] = []
+    let mcpRuntimeResult: JsonRpcResult | undefined
+    let mcpRuntimeError: string | undefined
+    let skillsRuntimeResult: JsonRpcResult | undefined
+    let skillsRuntimeError: string | undefined
+    try {
+      mcpRuntimeResult = await request('mcpServerStatus/list', {
+        threadId,
+        detail: 'toolsAndAuthOnly',
+        limit: 100,
+      })
+      runtimeStatuses = parseMcpRuntimeStatuses(mcpRuntimeResult)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      mcpRuntimeError = `MCP 运行时目录：${message}`
+      if (options.requiredMcpTools || options.forbidMcpTools) {
+        throw new CodexAppServerTurnError(`受控 MCP 工具状态校验失败：${message}`, false)
       }
+      options.emit({ type: 'warning', code: 'CODEX_MCP_STATUS_UNAVAILABLE', message: `MCP 状态查询失败：${message}` })
+    }
+    try {
+      skillsRuntimeResult = await request('skills/list', { cwds: [options.cwd], forceReload: false })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      skillsRuntimeError = `Skills 运行时目录：${message}`
+    }
+    if ((options.mcpServers?.length ?? 0) > 0 || options.requiredMcpTools || options.forbidMcpTools) {
       if (options.requiredMcpTools) validateRequiredMcpTools(runtimeStatuses, options.requiredMcpTools)
       if (options.forbidMcpTools) {
         const exposed = runtimeStatuses.filter(status => status.tools.size > 0)
@@ -1012,10 +1163,6 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           throw new CodexAppServerTurnError(`计划评审检测到未关闭的 MCP 能力：${names}`, false)
         }
       }
-      runtimeMcpServers = runtimeStatuses.map(status => ({
-        name: status.name,
-        status: status.tools.size > 0 ? 'connected' : 'unavailable',
-      }))
       const configuredNames = new Set((options.mcpServers ?? []).map(server => server.name))
       const unavailable = [...configuredNames].filter(name => {
         const status = runtimeStatuses.find(item => item.name === name)
@@ -1029,7 +1176,16 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
         })
       }
     }
-    options.emit({ type: 'init', sdkSessionId: threadId, mcpServers: runtimeMcpServers })
+    const capabilitySnapshot = buildCodexCapabilitySnapshot({
+      ...(mcpRuntimeResult ? { mcpResult: mcpRuntimeResult } : {}),
+      ...(skillsRuntimeResult ? { skillsResult: skillsRuntimeResult } : {}),
+      configuredMcpServers: options.mcpServers,
+      authGlobalMcpServerNames: configuredMcpServerNames(options.codexHome),
+      ...((mcpRuntimeError || skillsRuntimeError)
+        ? { errors: [mcpRuntimeError, skillsRuntimeError].filter((value): value is string => Boolean(value)) }
+        : {}),
+    })
+    options.emit({ type: 'init', sdkSessionId: threadId, ...capabilitySnapshot })
     // 请求一旦发出，服务端就可能已经开始调用工具；从这里起禁止 SDK 自动重放，避免双执行。
     turnAccepted = true
     const turnResult = await request('turn/start', {

@@ -8,10 +8,82 @@ import type {
   GitRepoRef,
   GitStatusResponse,
 } from '@/components/git/types'
-import type { AffectedApiReadiness, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAffectedApi, SessionPendingSql, SessionPendingSqlTarget, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { AutopilotChangeOption, AutopilotDashboard, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAutopilotRun, SessionPendingSql, SessionPendingSqlTarget, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 import { buildPendingSqlTargetOptions, type PendingSqlTargetOption } from './lib/pendingSqlTargets'
 import { SESSION_HISTORY_PAGE_TIMEOUT_MS } from './lib/sessionHistoryRequest'
+
+export interface SessionDelegationGrant {
+  id: string
+  sessionId: string
+  subjectUserId: number
+  ownerUserId: number
+  profile: 'DELEGATED_DEVELOPMENT' | 'REQUEST_ONLY'
+  status: 'ACTIVE' | 'PAUSED' | 'REVOKED' | 'EXPIRED'
+  expiresAt: string
+  maxTurns: number
+  usedTurns: number
+  maxInputBytes: number
+  version: number
+}
+
+export interface SessionDelegationView {
+  grant: SessionDelegationGrant
+  connectedClients: number
+}
+
+export interface SessionDelegationAudit {
+  id: string
+  action: string
+  result: string
+  detail?: string
+  createdAt: string
+}
+
+export function listSessionDelegations(sessionId: string) {
+  return http<SessionDelegationView[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/delegations`)
+}
+
+export function createSessionDelegation(sessionId: string, input: {
+  subjectUserId: number
+  profile: SessionDelegationGrant['profile']
+  expiresAt: string
+  maxTurns: number
+  maxInputBytes: number
+}) {
+  return http<{ grant: SessionDelegationGrant; invitationCode: string; invitationExpiresAt: string }>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/delegations`,
+    { method: 'POST', body: JSON.stringify(input) },
+  )
+}
+
+export function transitionSessionDelegation(sessionId: string, grantId: string,
+  action: 'pause' | 'resume', expectedVersion: number) {
+  return http<SessionDelegationGrant>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/delegations/${encodeURIComponent(grantId)}/${action}`,
+    { method: 'POST', body: JSON.stringify({ expectedVersion }) },
+  )
+}
+
+export function revokeSessionDelegation(sessionId: string, grantId: string, expectedVersion: number) {
+  return http<SessionDelegationGrant>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/delegations/${encodeURIComponent(grantId)}`,
+    { method: 'DELETE', body: JSON.stringify({ expectedVersion }) },
+  )
+}
+
+export function reissueSessionInvitation(sessionId: string, grantId: string) {
+  return http<{ invitationCode: string; expiresAt: string }>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/delegations/${encodeURIComponent(grantId)}/invitation`,
+    { method: 'POST' },
+  )
+}
+
+export function listSessionDelegationAudit(sessionId: string, grantId: string) {
+  return http<SessionDelegationAudit[]>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/delegations/${encodeURIComponent(grantId)}/audit?limit=20`,
+  )
+}
 
 /** 查询会话关联的 SQL 登记；未登记返回 null。 */
 export async function getSessionPendingSql(sessionId: string): Promise<SessionPendingSql | null> {
@@ -49,16 +121,6 @@ export function updateSessionPendingSqlStatus(
 /** 解除会话的 SQL 登记。 */
 export function deleteSessionPendingSql(sessionId: string): Promise<void> {
   return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql`, { method: 'DELETE' })
-}
-
-/** 查询 Agent 为当前会话登记的服务端接口变更。 */
-export function listSessionAffectedApis(sessionId: string): Promise<SessionAffectedApi[]> {
-  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/affected-apis`)
-}
-
-/** 查询接口验证事实聚合出的发布就绪结论。 */
-export function getSessionAffectedApiReadiness(sessionId: string): Promise<AffectedApiReadiness> {
-  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/affected-apis/readiness`)
 }
 
 /** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
@@ -252,6 +314,48 @@ export function listEngineCatalog(refresh = false) {
 /** 实时核对浏览器、Java、Sidecar与Agent的全链路会话状态。 */
 export function getSessionRuntimeState(sessionId: string) {
   return http<SessionRuntimeState>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/runtime-state`)
+}
+
+export function listSessionOpenSpecChanges(sessionId: string, projectRoot?: string) {
+  const params = projectRoot ? `?projectRoot=${encodeURIComponent(projectRoot)}` : ''
+  return http<AutopilotChangeOption[]>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/openspec/changes${params}`,
+  )
+}
+
+export async function getSessionAutopilot(sessionId: string): Promise<SessionAutopilotRun | null> {
+  const response = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot`)
+  if (response.status === 204) return null
+  if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`)
+  return response.json() as Promise<SessionAutopilotRun>
+}
+
+export function startSessionAutopilot(sessionId: string, input: {
+  projectRoot: string
+  changeId: string
+  goal: string
+  autoArchive: boolean
+  maxTurns?: number
+  maxNoProgress?: number
+  deadlineMinutes?: number
+}) {
+  return http<SessionAutopilotRun>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+export function controlSessionAutopilot(sessionId: string, action: 'pause' | 'resume' | 'stop', expectedVersion: number) {
+  return http<SessionAutopilotRun>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/actions/${action}`,
+    { method: 'POST', body: JSON.stringify({ expectedVersion }) },
+  )
+}
+
+export function listAutopilotRuns(input: { scope: string; search?: string; cursor?: string; limit?: number }) {
+  const params = new URLSearchParams({ scope: input.scope, search: input.search ?? '', limit: String(input.limit ?? 30) })
+  if (input.cursor) params.set('cursor', input.cursor)
+  return http<AutopilotDashboard>(`/claude-chat/autopilot/runs?${params.toString()}`)
 }
 
 /** Reads the Codex model catalog used by Vibe Coding for a selected authorization directory. */

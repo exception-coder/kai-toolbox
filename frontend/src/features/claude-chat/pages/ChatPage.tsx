@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Code2, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -55,9 +55,9 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionAffectedApiReadiness, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionAffectedApis, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
-import type { AffectedApiReadiness, ChatItem, ModelInfo, SessionAffectedApi, SessionPendingSql } from '../types'
+import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import type { Engine } from '../types'
@@ -71,7 +71,6 @@ import { SessionPlanLockNotice } from '../components/SessionPlanLockNotice'
 import { SessionSitesDialog, SessionSitesWorkspace } from '../components/SessionSitesDialog'
 import { SessionProjectDirectoriesDialog } from '../components/SessionProjectDirectoriesDialog'
 import { Combobox } from '@/components/ui/combobox'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   acknowledgeLaunchIntent,
   failLaunchIntent,
@@ -85,14 +84,12 @@ import {
   type ProjectWorkspaceVisibilityPreference,
 } from '@/features/_devkit/public-api'
 import { resolveSiteIcon } from '@/lib/siteIcons'
-import { listQuickSiteSummaries, recordQuickSiteSummaryOpened } from '@/lib/quickSites'
+import { listQuickSiteSummaries } from '@/lib/quickSites'
 import { getSessionSiteConfiguration } from '../api'
 import { isChatLaunchTargetReady, planChatLaunch } from '../lib/chatLaunchIntent'
-import { openQuickSite } from '@/lib/openQuickSite'
 import { useUnifiedTitleBarSlot } from '@/shell/UnifiedTitleBar'
 import { useMobileNavigation } from '@/shell/MobileNavigationContext'
 import { useMockMode } from '@/shell/useMockMode'
-import { SiteOpenModeMenu, type SiteOpenChoice } from '../components/SiteOpenModeMenu'
 import {
   customSiteToLinkedSite,
   quickSiteToLinkedSite,
@@ -111,7 +108,9 @@ import { SessionToolsMenu } from '../components/SessionToolsMenu'
 import { OpenSpecInitializationDialog } from '../components/OpenSpecInitializationDialog'
 import { SessionDocumentsWorkspace } from '../components/SessionDocumentsWorkspace'
 import { SessionDatabaseWorkspace } from '../components/SessionDatabaseWorkspace'
-import { SessionAffectedApisWorkspace } from '../components/SessionAffectedApisWorkspace'
+import { SessionAutopilotStatus } from '../components/SessionAutopilotStatus'
+import { AutopilotDashboard } from '../components/AutopilotDashboard'
+import { SessionDelegationPanel } from '../components/SessionDelegationPanel'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -299,14 +298,6 @@ export function ChatPage() {
     return () => { active = false }
   }, [chat?.sessionId])
 
-  function openLinkedSite(site: SessionLinkedSite, choice?: SiteOpenChoice) {
-    try {
-      openQuickSite(choice ? { ...site, windowBehavior: choice.windowBehavior } : site, choice?.openMode, !!choice)
-      if (site.sourceType === 'QUICK') void recordQuickSiteSummaryOpened(site.id)
-    } catch {
-      setShowSessionSites(true)
-    }
-  }
   useEffect(() => {
     const sid = chat?.sessionId
     if (!sid) { setLinkedPrd(undefined); return }
@@ -381,42 +372,38 @@ export function ChatPage() {
     const timer = window.setInterval(() => { void refreshPendingSql() }, 3_000)
     return () => { alive = false; window.clearInterval(timer) }
   }, [chat?.sessionId])
-  const [affectedApis, setAffectedApis] = useState<SessionAffectedApi[]>([])
-  const [affectedApiReadiness, setAffectedApiReadiness] = useState<AffectedApiReadiness | null>(null)
-  useEffect(() => {
-    const sessionId = chat?.sessionId
-    if (!sessionId) {
-      setAffectedApis([])
-      setAffectedApiReadiness(null)
-      return
-    }
-    let alive = true
-    const refreshAffectedApis = () => Promise.all([
-      listSessionAffectedApis(sessionId),
-      getSessionAffectedApiReadiness(sessionId),
-    ]).then(([entries, readiness]) => {
-      if (!alive) return
-      setAffectedApis(entries)
-      setAffectedApiReadiness(readiness)
-    }).catch(() => {
-      if (!alive) return
-      setAffectedApis([])
-      setAffectedApiReadiness(null)
-    })
-    void refreshAffectedApis()
-    const timer = window.setInterval(() => { void refreshAffectedApis() }, 3_000)
-    return () => { alive = false; window.clearInterval(timer) }
-  }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
-  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'documents' | 'database' | 'interfaces' | 'sites' | 'usage' | 'review'>('conversation')
+  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'documents' | 'database' | 'sites' | 'usage' | 'review' | 'delegation' | 'supervision'>(() =>
+    new URLSearchParams(location.search).get('view') === 'supervision' ? 'supervision' : 'conversation')
+  const openSupervision = useCallback(() => {
+    setSessionView('supervision')
+    const params = new URLSearchParams(location.search)
+    params.set('view', 'supervision')
+    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true })
+  }, [location.pathname, location.search, navigate])
+  const leaveSupervision = useCallback(() => {
+    setSessionView('conversation')
+    const params = new URLSearchParams(location.search)
+    params.delete('view')
+    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true })
+  }, [location.pathname, location.search, navigate])
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('view') === 'supervision') setSessionView('supervision')
+  }, [location.search])
+  useEffect(() => {
+    if (sessionView === 'supervision') return
+    const params = new URLSearchParams(location.search)
+    if (params.get('view') !== 'supervision') return
+    params.delete('view')
+    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true })
+  }, [location.pathname, location.search, navigate, sessionView])
   useEffect(() => {
     setSessionView(current => {
       if (current === 'documents' && !linkedPrd) return 'conversation'
       if (current === 'database' && !pendingSql) return 'conversation'
-      if (current === 'interfaces' && affectedApis.length === 0) return 'conversation'
       return current
     })
-  }, [chat?.sessionId, linkedPrd, pendingSql, affectedApis.length])
+  }, [chat?.sessionId, linkedPrd, pendingSql])
   const messageListRef = useRef<MessageListHandle>(null)
   // 「我的提问」面板点中一条待滚到的目标：可能还没加载进 chat.items（分页更早历史里）。
   const [pendingScroll, setPendingScroll] = useState<Extract<ChatItem, { kind: 'user' }> | null>(null)
@@ -1202,7 +1189,7 @@ export function ChatPage() {
                 engine={chat.currentEngine}
                 providerKind={chat.currentProviderKind}
                 diag={chat.providerDiag}
-                className="cc-session-runtime-item hidden border-0 bg-transparent shadow-none xl:inline-flex"
+                className="cc-session-transport cc-session-runtime-item hidden border-0 bg-transparent shadow-none xl:inline-flex"
               />
               <span className="cc-session-runtime-item inline-flex items-center gap-1 px-1.5 text-[10px] text-[var(--color-muted-foreground)]" title={stateLabel(chat.state)}>
                 <StatusBadge
@@ -1211,73 +1198,12 @@ export function ChatPage() {
                   aria-label={stateLabel(chat.state)}
                   className="size-4 shrink-0 justify-center rounded-full border-0 px-0 shadow-none"
                 />
-                <span className="hidden lg:inline">{stateLabel(chat.state)}</span>
+                <span className="cc-session-state-label hidden lg:inline">{stateLabel(chat.state)}</span>
               </span>
             </div>
           </>
         )}
-        <div className="cc-session-header-tail ml-auto flex min-w-0 flex-1 items-center justify-end gap-1">
-        {viewMode === 'single' && chat.sessionId && (
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label={linkedSites.length > 0 ? `查看 ${linkedSites.length} 个关联站点` : '关联测试站点'}
-                title={linkedSites.length > 0
-                  ? `关联站点：${linkedSites.map(site => site.title).join('、')}`
-                  : '当前会话还没有关联站点，点击添加'}
-                className={cn(
-                  'flex h-7 shrink-0 items-center gap-1 rounded-full border px-2 text-[10px] transition-colors hover:bg-[var(--color-accent)]',
-                  linkedSites.length > 0
-                    ? 'border-sky-500/50 bg-sky-500/10 text-sky-700 dark:text-sky-300'
-                    : 'border-[var(--color-border)] text-[var(--color-muted-foreground)]',
-                )}
-              >
-                <Link2 className="size-3" />
-                <span className="hidden xl:inline">站点</span>
-                <span>{linkedSites.length}</span>
-                <ChevronDown className="size-3 opacity-60" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[min(20rem,calc(100vw-1rem))] p-1" align="end">
-              {linkedSites.length > 0 ? (
-                <div className="max-h-72 overflow-y-auto">
-                  {linkedSites.map(site => {
-                    const SiteIcon = resolveSiteIcon(site.icon)
-                    return (
-                      <div key={site.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[var(--color-muted)]">
-                        <button type="button" onClick={() => openLinkedSite(site)} title={`按默认方式打开：${site.title}`}
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left">
-                          <SiteIcon className="size-4 shrink-0 text-sky-600 dark:text-sky-300" />
-                          <span className="min-w-0">
-                            <span className="block truncate text-xs font-medium">{site.title}</span>
-                            <span className="block truncate text-[10px] text-[var(--color-muted-foreground)]">
-                              {site.sourceType === 'CUSTOM' ? '临时站点' : site.groupName} · {site.siteUrl}
-                            </span>
-                          </span>
-                        </button>
-                        <SiteLinkCopyButton url={site.siteUrl} title={site.title} />
-                        <SiteOpenModeMenu compact allowControlled={site.sourceType === 'QUICK'} onSelect={choice => openLinkedSite(site, choice)} />
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : (
-                <div className="px-3 py-4 text-center">
-                  <LayoutGrid className="mx-auto size-5 text-[var(--color-muted-foreground)]" />
-                  <p className="mt-2 text-xs font-medium">尚未关联测试站点</p>
-                  <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
-                    可选择快捷入口，或添加当前会话专属地址。
-                  </p>
-                </div>
-              )}
-              <button type="button" onClick={() => setSessionView('sites')}
-                className="mt-1 flex w-full items-center justify-center gap-1 rounded-md border-t px-2 py-1.5 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]">
-                <Settings className="size-3.5" />{linkedSites.length > 0 ? '管理关联站点' : '添加关联站点'}
-              </button>
-            </PopoverContent>
-          </Popover>
-        )}
+        <div className="cc-session-header-tail ml-auto flex shrink-0 items-center justify-end gap-1">
         {linkedProjectPaths.length > 0 && (
           <button type="button" onClick={() => setShowSessionProjects(true)}
             title={`${linkedProjectPaths.length} 个附加项目：${linkedProjectPaths.join('、')}`}
@@ -1306,7 +1232,7 @@ export function ChatPage() {
             {gestureErr ? '手势×' : gestureStatus === 'loading' ? '手势…' : '手势'}
           </button>
         )}
-        <SessionTotalBadge className="hidden border-0 bg-transparent shadow-none lg:inline-flex" items={chat.items} serverTotal={sessionUsage} onClick={() => setSessionView('usage')} />
+        <SessionTotalBadge className="cc-session-usage hidden border-0 bg-transparent shadow-none lg:inline-flex" items={chat.items} serverTotal={sessionUsage} onClick={() => setSessionView('usage')} />
         <div className="cc-session-header-actions flex shrink-0 items-center max-sm:gap-0">
           {/* 宽屏直接显示用量徽章；窄桌面仍可从「更多 → 会话」进入。 */}
           {/* 常用：带文字标签，一眼可辨 */}
@@ -1315,6 +1241,9 @@ export function ChatPage() {
           </Button>
           <Button variant="ghost" size="sm" className="hidden gap-1 px-2 md:inline-flex xl:px-3" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
             <List className="size-4" /> <span className="hidden xl:inline">会话</span>
+          </Button>
+          <Button variant={sessionView === 'supervision' ? 'secondary' : 'ghost'} size="sm" className="hidden gap-1 px-2 md:inline-flex xl:px-3" onClick={openSupervision} aria-label="自动监督会话看板">
+            <ListChecks className="size-4" /> <span className="hidden xl:inline">监督</span>
           </Button>
           <Button
             variant={panel === 'plugins' ? 'secondary' : 'ghost'}
@@ -1331,6 +1260,7 @@ export function ChatPage() {
                   <div className="border-b pb-1 md:hidden">
                     <HeaderMenuItem icon={<Plus className="size-4" />} label="新建会话" onClick={() => { setHeaderMenu(false); setPanel('new') }} />
                     <HeaderMenuItem icon={<List className="size-4" />} label="会话列表" onClick={() => { setHeaderMenu(false); setPanel('sessions') }} />
+                    <HeaderMenuItem icon={<ListChecks className="size-4" />} label="自动监督看板" onClick={() => { setHeaderMenu(false); openSupervision() }} />
                   </div>
                   {/* 分组折叠（手风琴），单开互斥：默认全部收起，点分组才展开，减少一次性铺陈 */}
                   {(() => { const toggle = (g: typeof menuGroup) => setMenuGroup(cur => cur === g ? null : g); return (<>
@@ -1371,7 +1301,15 @@ export function ChatPage() {
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<RefreshCw className="size-4" />} label="重载会话" hint="重连原生会话，加载最新插件/技能/命令" onClick={() => { setHeaderMenu(false); chat.resumeCurrent() }} />
                     )}
-                    <HeaderMenuItem nested icon={<Sparkles className="size-4" />} label="会话能力" hint="激活的技能 / 子代理 / MCP 服务" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'caps' ? 'none' : 'caps') }} />
+                    <HeaderMenuItem nested icon={<Sparkles className="size-4" />} label="会话能力" hint="MCP / Tools / Plugins / Skills" onClick={() => {
+                      setHeaderMenu(false)
+                      if (panel === 'caps') {
+                        setPanel('none')
+                      } else {
+                        chat.refreshCapabilities()
+                        setPanel('caps')
+                      }
+                    }} />
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<ListFilter className="size-4" />} label="我的提问" hint="只看我发的消息·搜索·点击跳到对应位置" onClick={() => { setHeaderMenu(false); setShowMsgNav(true) }} />
                     )}
@@ -1795,11 +1733,16 @@ export function ChatPage() {
       {panel === 'caps' && (
         <SessionCapsPanel
           skills={chat.skills}
+          skillDetails={chat.skillDetails}
+          plugins={chat.plugins}
           agents={chat.agents}
           mcpServers={chat.mcpServers}
           outputStyle={chat.outputStyle}
           slashCount={chat.slashCommands.length}
           engine={chat.currentEngine}
+          capabilitySource={chat.capabilitySource}
+          capabilityRefreshedAt={chat.capabilityRefreshedAt}
+          capabilityErrors={chat.capabilityErrors}
           refreshing={chat.capabilitiesRefreshing}
           onRefresh={chat.refreshCapabilities}
           onClose={() => setPanel('none')}
@@ -2074,30 +2017,6 @@ export function ChatPage() {
                     )}
                   </button>
                 )}
-                {affectedApis.length > 0 && (
-                  <button
-                    type="button"
-                    aria-current={sessionView === 'interfaces' ? 'page' : undefined}
-                    aria-label={`涉及接口，${affectedApis.length} 项${affectedApiReadiness?.failed ? `，${affectedApiReadiness.failed} 项失败` : affectedApiReadiness?.unverified ? `，${affectedApiReadiness.unverified} 项待验证` : ''}`}
-                    onClick={() => setSessionView('interfaces')}
-                    className={cn(
-                      'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
-                      sessionView === 'interfaces'
-                        ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
-                        : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
-                    )}
-                  >
-                    <Code2 className="size-3.5" />
-                    <span className="sm:hidden">接口</span>
-                    <span className="hidden sm:inline">涉及接口</span>
-                    <span className="text-[10px] tabular-nums">{affectedApis.length}</span>
-                    {(affectedApiReadiness?.failed ?? 0) > 0 ? (
-                      <span className="size-1.5 rounded-full bg-red-500" aria-hidden="true" />
-                    ) : (affectedApiReadiness?.unverified ?? 0) > 0 ? (
-                      <span className="size-1.5 rounded-full bg-amber-500" aria-hidden="true" />
-                    ) : null}
-                  </button>
-                )}
                 <button
                   type="button"
                   aria-current={sessionView === 'sites' ? 'page' : undefined}
@@ -2142,9 +2061,30 @@ export function ChatPage() {
                     评审{reviewRelations.pendingFeedback.length > 0 ? ` ${reviewRelations.pendingFeedback.length}` : ''}
                   </button>
                 )}
+                <button
+                  type="button"
+                  aria-current={sessionView === 'delegation' ? 'page' : undefined}
+                  onClick={() => setSessionView('delegation')}
+                  className={cn(
+                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
+                    sessionView === 'delegation'
+                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
+                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
+                  )}
+                >
+                  <Share2 className="size-3.5" />
+                  委托
+                </button>
               </nav>
             ) : (
               <div className="workspace-contextbar cc-chat-contextbar" aria-hidden="true" />
+            )}
+            {chat.sessionId && sessionView !== 'supervision' && (
+              <SessionAutopilotStatus
+                sessionId={chat.sessionId}
+                projectRoot={currentSession?.cwd ?? ''}
+                onOpenDashboard={openSupervision}
+              />
             )}
             {/* 跨会话待确认放在统一 Context Strip 下方，避免提示出现时左右两列的顶线错位。 */}
             <PendingSessionsBanner
@@ -2153,7 +2093,9 @@ export function ChatPage() {
               onGo={sid => chat.switchTo(sid)}
             />
             <main className="cc-skin-view flex min-h-0 min-w-0 flex-1 flex-col">
-              {chat.sessionId ? (
+              {sessionView === 'supervision' ? (
+                <AutopilotDashboard onOpenSession={sessionId => { chat.switchTo(sessionId); leaveSupervision() }} />
+              ) : chat.sessionId ? (
                 sessionView === 'trajectory' ? (
                   <TrajectoryView
                     key={`trajectory-${chat.sessionId}`}
@@ -2176,12 +2118,6 @@ export function ChatPage() {
                     registration={pendingSql}
                     onManage={() => setShowPendingSql(true)}
                   />
-                ) : sessionView === 'interfaces' && affectedApis.length > 0 ? (
-                  <SessionAffectedApisWorkspace
-                    key={`interfaces-${chat.sessionId}-${affectedApis.map(entry => entry.updatedAt).join('-')}`}
-                    entries={affectedApis}
-                    readiness={affectedApiReadiness}
-                  />
                 ) : sessionView === 'sites' ? (
                   <SessionSitesWorkspace
                     key={`sites-${chat.sessionId}`}
@@ -2200,6 +2136,8 @@ export function ChatPage() {
                     onApplyFeedbacks={applyReviewFeedbacks}
                     onDismissFeedback={dismissReviewFeedback}
                   />
+                ) : sessionView === 'delegation' ? (
+                  <SessionDelegationPanel sessionId={chat.sessionId} />
                 ) : (
                   <MessageList
                     ref={messageListRef}
@@ -2242,7 +2180,7 @@ export function ChatPage() {
             )}
 
             {/* 底部输入：移动端单一 Composer Card；桌面保留完整工具区 */}
-            {chat.sessionId && (
+            {chat.sessionId && sessionView !== 'supervision' && (
               <div className="cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
           <div className="hidden md:block">
             <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} />
@@ -2570,33 +2508,6 @@ export function ChatPage() {
         />
       )}
     </div>
-  )
-}
-
-function SiteLinkCopyButton({ url, title }: { url: string; title: string }) {
-  const [copied, setCopied] = useState(false)
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1_500)
-    } catch {
-      setCopied(false)
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={event => { event.stopPropagation(); void copy() }}
-      aria-label={`复制 ${title} 链接`}
-      title={copied ? `已复制：${url}` : `复制链接：${url}`}
-      className={cn('rounded-md p-1.5 transition-colors hover:bg-[var(--color-accent)]',
-        copied ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--color-muted-foreground)]')}
-    >
-      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-    </button>
   )
 }
 

@@ -5,13 +5,27 @@ import {
   classifyCodexAppServerMessage,
   classifyCodexAppServerError,
   codexReconnectDeadlineMs,
+  findCodexTerminalTurn,
   findDefaultCodexModel,
   isCodexAppServerRecoverySignal,
   isCodexTransportFallbackWarning,
   isCurrentCodexTurnNotification,
+  isMissingCodexThreadError,
   normalizeCodexModel,
   resolveCodexAppServerRequest,
+  shouldReconcileCodexTurnAfterItem,
 } from './codexAppServer.js'
+
+test('classifies only a missing Codex thread as a recoverable stale reference', () => {
+  assert.equal(isMissingCodexThreadError(new Error(
+    'thread not found: 01a04de1-c81e-7d30-bd68-606a04cc3e36',
+  )), true)
+  assert.equal(isMissingCodexThreadError(new Error(
+    'Codex thread/resume 失败（-32600）：thread not found: thread-123',
+  )), true)
+  assert.equal(isMissingCodexThreadError(new Error('MCP server not found: erp_db')), false)
+  assert.equal(isMissingCodexThreadError(new Error('authentication failed')), false)
+})
 
 test('distinguishes responses, notifications, and bidirectional server requests', () => {
   assert.equal(classifyCodexAppServerMessage({ id: 1, result: {} }), 'response')
@@ -246,4 +260,50 @@ test('accepts same-thread events before turn/start responds and global events wi
     'root-thread',
     'root-turn',
   ), true)
+})
+
+test('reconciles a completed native turn when turn/completed was not delivered', () => {
+  const terminal = findCodexTerminalTurn({
+    thread: {
+      turns: [
+        { id: 'older-turn', status: 'completed' },
+        { id: 'current-turn', status: 'completed' },
+      ],
+    },
+  }, 'current-turn')
+
+  assert.deepEqual(terminal, { id: 'current-turn', status: 'completed' })
+  assert.equal(findCodexTerminalTurn({
+    thread: { turns: [{ id: 'current-turn', status: 'inProgress' }] },
+  }, 'current-turn'), undefined)
+})
+
+test('preserves a failed native turn error during terminal reconciliation', () => {
+  assert.deepEqual(findCodexTerminalTurn({
+    thread: {
+      turns: [{ id: 'current-turn', status: 'failed', error: { message: 'tool failed' } }],
+    },
+  }, 'current-turn'), {
+    id: 'current-turn',
+    status: 'failed',
+    errorMessage: 'tool failed',
+  })
+})
+
+test('starts terminal reconciliation only after a completed root agent message', () => {
+  assert.equal(shouldReconcileCodexTurnAfterItem('completed', {
+    type: 'agentMessage',
+    author: '/root',
+  }), true)
+  assert.equal(shouldReconcileCodexTurnAfterItem('completed', {
+    type: 'agentMessage',
+    author: '/root/researcher',
+  }), false)
+  assert.equal(shouldReconcileCodexTurnAfterItem('inProgress', {
+    type: 'agentMessage',
+    author: '/root',
+  }), false)
+  assert.equal(shouldReconcileCodexTurnAfterItem('completed', {
+    type: 'commandExecution',
+  }), false)
 })

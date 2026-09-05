@@ -124,6 +124,79 @@ export interface SessionRuntimeState {
   recommendedAction: string
 }
 
+export type AutopilotState = 'ACTIVE' | 'PAUSED' | 'WAITING_USER' | 'FAILED' | 'COMPLETED' | 'STOPPED'
+export type OpenSpecExecutionPhase = 'APPLY' | 'VERIFY' | 'QUALITY_GATE' | 'STRICT_VALIDATE' | 'ARCHIVE' | 'DONE'
+
+export interface AutopilotChangeOption {
+  id: string
+  completedTasks: number
+  totalTasks: number
+  lastModified?: string | null
+}
+
+export interface SessionAutopilotRun {
+  id: string
+  sessionId: string
+  goal: string
+  completionPolicy: 'OPEN_SPEC_STRICT'
+  state: AutopilotState
+  reason?: string | null
+  phase: OpenSpecExecutionPhase
+  projectRoot: string
+  repositoryIdentity?: string | null
+  branchAtStart?: string | null
+  workspaceFingerprint?: string | null
+  changeId: string
+  changeRevision: string
+  currentTaskId?: string | null
+  currentTaskOrdinal?: number | null
+  agentSessionRef?: string | null
+  generation: number
+  version: number
+  turnCount: number
+  maxTurns: number
+  noProgressCount: number
+  maxNoProgress: number
+  autoArchive: boolean
+  layers: {
+    agentSkillProvisioned: boolean
+    agentSkillActivated: boolean
+    skillPath?: string | null
+    skillVersion?: string | null
+    skillFingerprint?: string | null
+    forgeRuntimeActive: boolean
+  }
+  progress: { completedTasks: number; totalTasks: number }
+  latestReport?: {
+    disposition: string
+    summary?: string | null
+    nextAction?: string | null
+    remainingWork: string[]
+    evidence: string[]
+    reportedAt: string
+  } | null
+  artifactPaths: Record<string, string[]>
+  startedAt: string
+  deadlineAt: string
+  updatedAt: string
+}
+
+export interface AutopilotDashboardItem {
+  run: SessionAutopilotRun
+  sessionTitle: string
+  projectName: string
+  engine: string
+  sessionStatus: string
+  lastActivityAt: number
+}
+
+export interface AutopilotDashboard {
+  items: AutopilotDashboardItem[]
+  counts: { active: number; attention: number; paused: number; recent: number }
+  nextCursor?: string | null
+  snapshotAt: string
+}
+
 /** 磁盘上的 Claude Code 历史会话（~/.claude/projects/<编码cwd>/*.jsonl） */
 export interface HistorySessionView {
   sdkSessionId: string
@@ -145,37 +218,6 @@ export interface WorkspaceDir {
 export interface WorkspaceList {
   roots: { root: string; exists: boolean; dirs: WorkspaceDir[] }[]
   scannedAt: string
-}
-
-export type AffectedApiChangeType = 'ADDED' | 'MODIFIED' | 'REMOVED'
-export type AffectedApiVerificationStatus = 'UNVERIFIED' | 'PASSED' | 'FAILED' | 'NOT_APPLICABLE'
-
-/** Coding Agent 为当前会话登记的服务端接口变更事实与验证证据。 */
-export interface SessionAffectedApi {
-  id: string
-  sessionId: string
-  httpMethod: string
-  apiPath: string
-  changeType: AffectedApiChangeType
-  sourceFile: string
-  handlerName: string | null
-  summary: string | null
-  verificationStatus: AffectedApiVerificationStatus
-  verificationMethod: string | null
-  verificationCommand: string | null
-  verificationSummary: string | null
-  createdAt: number
-  updatedAt: number
-  verifiedAt: number | null
-}
-
-export interface AffectedApiReadiness {
-  total: number
-  passed: number
-  failed: number
-  unverified: number
-  notApplicable: number
-  ready: boolean
 }
 
 export type ProjectDependencyRelation = 'REFACTORS' | 'MIGRATES_FROM' | 'DEPENDS_ON' | 'INTEGRATES_WITH'
@@ -599,6 +641,72 @@ export interface AssistantMessageEnvelope {
   contextSnapshot: Record<string, unknown>
 }
 
+export type CapabilitySnapshotSource = 'claude-sdk' | 'codex-app-server' | 'sidecar-config' | 'unknown'
+
+export type CapabilityOrigin =
+  | 'forge-session'
+  | 'engine-auth-global'
+  | 'plugin'
+  | 'project-local'
+  | 'engine-builtin'
+  | 'unknown'
+
+export type CapabilityScope = 'session' | 'project' | 'auth-directory' | 'engine' | 'plugin' | 'unknown'
+
+export interface CapabilityProvenance {
+  origin: CapabilityOrigin
+  scope: CapabilityScope
+  sourceId?: string | null
+  effective: boolean
+  evidence: 'runtime' | 'configuration'
+}
+
+export interface CapabilityTool {
+  name: string
+  title?: string | null
+  description?: string | null
+  provenance?: CapabilityProvenance[]
+}
+
+export interface McpCapability {
+  name: string
+  status: string
+  runtimeStatus?: string | null
+  authStatus?: string | null
+  pluginId?: string | null
+  serverTitle?: string | null
+  serverVersion?: string | null
+  verified?: boolean
+  toolInventoryComplete?: boolean
+  tools?: CapabilityTool[]
+  provenance?: CapabilityProvenance[]
+}
+
+export interface SkillCapability {
+  name: string
+  description: string
+  enabled: boolean
+  scope: string
+  pluginId?: string | null
+  path?: string | null
+  version?: string | null
+  contentFingerprint?: string | null
+  toolDependencies: string[]
+  provenance?: CapabilityProvenance[]
+}
+
+export interface PluginCapability {
+  id: string
+  name: string
+  marketplace?: string | null
+  installed: boolean
+  enabled: boolean
+  localVersion?: string | null
+  remoteVersion?: string | null
+  updateAvailable: boolean
+  provenance?: CapabilityProvenance[]
+}
+
 export type ClientMessage =
   | {
       type: 'open'
@@ -670,7 +778,7 @@ export type AgentEventType =
 
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
-  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; agents?: string[]; mcpServers?: { name: string; status: string }[]; outputStyle?: string | null; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; queueDispatchMode?: 'server' }
+  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; skillDetails?: SkillCapability[]; plugins?: PluginCapability[]; agents?: string[]; mcpServers?: McpCapability[]; outputStyle?: string | null; capabilitySource?: CapabilitySnapshotSource; capabilityRefreshedAt?: number; capabilityErrors?: string[]; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; queueDispatchMode?: 'server' }
   | { type: 'assistantDelta'; seq: number; text: string }
   | { type: 'toolUse'; seq: number; toolCallId?: string | null; toolName: string; input: unknown }
   | { type: 'toolResult'; seq: number; toolCallId?: string | null; toolName: string; output: string; isError: boolean }
@@ -684,6 +792,8 @@ export type ServerMessage =
   | { type: 'forked'; seq: number; sessionId: string }
   | { type: 'replayGap'; seq: number; missingFrom: number; missingTo: number }
   | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string; traceId?: string | null }
+  | { type: 'autopilotState'; seq: number; state: SessionAutopilotRun }
+  | { type: 'autopilotDashboardChanged'; seq: number; sessionId: string; revision: number }
   | { type: 'turnInfo'; seq: number; requestedModel: string | null; responseModel: string | null; viaGateway: boolean; baseUrl: string | null; transport?: CodexTransport | null }
   | { type: 'turnProgress'; seq: number; outputTokens: number }
   | { type: 'warning'; seq: number; code: string; message: string }

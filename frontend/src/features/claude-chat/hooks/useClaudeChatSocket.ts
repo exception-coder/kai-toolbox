@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
-import type { AssistantMessageEnvelope, Attachment, BackgroundTaskInfo, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
+import type { AssistantMessageEnvelope, Attachment, BackgroundTaskInfo, CapabilitySnapshotSource, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, McpCapability, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, PluginCapability, ProviderKind, SendAttachment, ServerMessage, SkillCapability, TurnDiag } from '../types'
 import { clearQueuedMessages, deleteQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
@@ -147,9 +147,14 @@ export interface UseClaudeChatSocket {
   slashCommands: string[]
   /** 当前会话激活的能力（来自 SDK init）：技能 / 子代理 / MCP 服务 / 输出风格 */
   skills: string[]
+  skillDetails: SkillCapability[]
+  plugins: PluginCapability[]
   agents: string[]
-  mcpServers: { name: string; status: string }[]
+  mcpServers: McpCapability[]
   outputStyle: string | null
+  capabilitySource: CapabilitySnapshotSource
+  capabilityRefreshedAt: number | null
+  capabilityErrors: string[]
   /** 正在向 sidecar 重新请求当前会话能力快照。 */
   capabilitiesRefreshing: boolean
   /** 当前会话可用模型清单（来自 SDK supportedModels） */
@@ -280,8 +285,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const autoApproveRef = useRef<boolean>(autoApprove)
   const [slashCommands, setSlashCommands] = useState<string[]>([])
   const [skills, setSkills] = useState<string[]>([])
+  const [skillDetails, setSkillDetails] = useState<SkillCapability[]>([])
+  const [plugins, setPlugins] = useState<PluginCapability[]>([])
   const [agents, setAgents] = useState<string[]>([])
-  const [mcpServers, setMcpServers] = useState<{ name: string; status: string }[]>([])
+  const [mcpServers, setMcpServers] = useState<McpCapability[]>([])
+  const [capabilitySource, setCapabilitySource] = useState<CapabilitySnapshotSource>('unknown')
+  const [capabilityRefreshedAt, setCapabilityRefreshedAt] = useState<number | null>(null)
+  const [capabilityErrors, setCapabilityErrors] = useState<string[]>([])
   const [capabilitiesRefreshing, setCapabilitiesRefreshing] = useState(false)
   // 会话上挂着的后台任务（Agent 工具后台化的子任务）：result 事件只代表"这一轮可见回复结束了"，
   // 不代表后台工作也结束——这份状态单独跟踪，用来在切会话/发送区展示"后台还有任务在跑"。
@@ -502,10 +512,16 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
             sendRaw({ type: 'setCodexOptions', ...options })
           }
         }
-        if (msg.slashCommands) setSlashCommands(msg.slashCommands)
-        if (msg.skills) setSkills(msg.skills)
-        if (msg.agents) setAgents(msg.agents)
-        if (msg.mcpServers) setMcpServers(msg.mcpServers)
+        setSlashCommands(msg.slashCommands ?? [])
+        setSkills(msg.skills ?? [])
+        setSkillDetails(msg.skillDetails ?? [])
+        setPlugins(msg.plugins ?? [])
+        setAgents(msg.agents ?? [])
+        setMcpServers(msg.mcpServers ?? [])
+        setCapabilitySource(msg.capabilitySource ?? 'unknown')
+        setCapabilityRefreshedAt(msg.capabilityRefreshedAt ?? null)
+        setCapabilityErrors(msg.capabilityErrors ?? [])
+        setCapabilitiesRefreshing(false)
         // 后台任务快照：切会话/重连那一刻就能查到当时是否还有后台任务在跑，不用等下一次变化事件。
         setBackgroundTasks(msg.backgroundTasks ?? [])
         setOutputStyle(msg.outputStyle ?? null)
@@ -520,9 +536,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           // 新后端由 ready 返回会话持久化模型；旧后端没有该字段时保留当前值，
           // 等随后 models 事件校正，避免每轮 ready 再次清成“默认”。
           if (msg.selectedModel !== undefined) setCurrentModel(msg.selectedModel)
-          setSkills([])
           setAgents([])
-          if (msg.engine === 'antigravity') setMcpServers([])
+          if (msg.engine === 'antigravity') {
+            setSkills([])
+            setSkillDetails([])
+            setPlugins([])
+            setMcpServers([])
+          }
         }
         // RUNNING 必须同时携带服务端当前活动轮次，避免迟到的状态快照把已结束会话重新点亮。
         if (msg.status === 'RUNNING' && msg.activeTurnId) {
@@ -835,6 +855,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         if (typeof document !== 'undefined' && document.hidden) playNotifySound()
         break
       }
+      case 'autopilotState':
+        window.dispatchEvent(new CustomEvent('claude-chat:autopilot-state', { detail: msg.state }))
+        break
+      case 'autopilotDashboardChanged':
+        window.dispatchEvent(new CustomEvent('claude-chat:autopilot-changed', { detail: msg }))
+        break
       case 'queueDispatched': {
         queueReleaseSessionRef.current = null
         setQueuePausedReason(null)
@@ -1779,7 +1805,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }
 
 function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {

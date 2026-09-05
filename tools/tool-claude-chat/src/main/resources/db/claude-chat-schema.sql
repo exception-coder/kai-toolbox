@@ -425,3 +425,160 @@ CREATE TABLE IF NOT EXISTS srm_dev_config_change (
 
 CREATE INDEX IF NOT EXISTS idx_srm_dev_config_change_task
     ON srm_dev_config_change(task_id, sort_order);
+
+-- 会话自动监督的当前状态；OpenSpec tasks.md 仍是任务完成状态的唯一事实源。
+CREATE TABLE IF NOT EXISTS claude_chat_autopilot_run (
+    id                         TEXT PRIMARY KEY,
+    session_id                 TEXT NOT NULL UNIQUE,
+    goal                       TEXT NOT NULL,
+    completion_policy          TEXT NOT NULL,
+    state                      TEXT NOT NULL,
+    reason                     TEXT,
+    project_root               TEXT NOT NULL,
+    repository_identity        TEXT,
+    branch_at_start            TEXT,
+    workspace_fingerprint      TEXT,
+    change_id                  TEXT NOT NULL,
+    change_revision            TEXT NOT NULL,
+    current_task_id            TEXT,
+    current_task_ordinal       INTEGER,
+    phase                      TEXT NOT NULL,
+    agent_session_ref          TEXT,
+    generation                 INTEGER NOT NULL,
+    version                    INTEGER NOT NULL,
+    turn_count                 INTEGER NOT NULL,
+    max_turns                  INTEGER NOT NULL,
+    no_progress_count          INTEGER NOT NULL,
+    max_no_progress            INTEGER NOT NULL,
+    auto_archive               INTEGER NOT NULL DEFAULT 0,
+    skill_activated            INTEGER NOT NULL DEFAULT 0,
+    skill_path                 TEXT,
+    skill_version              TEXT,
+    skill_fingerprint          TEXT,
+    runtime_supervision        INTEGER NOT NULL DEFAULT 1,
+    completed_tasks            INTEGER NOT NULL DEFAULT 0,
+    total_tasks                INTEGER NOT NULL DEFAULT 0,
+    latest_disposition         TEXT,
+    latest_summary             TEXT,
+    latest_next_action         TEXT,
+    latest_remaining_work_json TEXT,
+    latest_evidence_json       TEXT,
+    latest_report_at           INTEGER,
+    started_at                 INTEGER NOT NULL,
+    deadline_at                INTEGER NOT NULL,
+    updated_at                 INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES claude_chat_session(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_autopilot_state_updated
+    ON claude_chat_autopilot_run(state, updated_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_autopilot_change
+    ON claude_chat_autopilot_run(project_root, change_id, updated_at DESC);
+
+-- settled turn 与自动续跑决策的有界审计证据；唯一键阻止重放同一前驱轮次。
+CREATE TABLE IF NOT EXISTS claude_chat_autopilot_step (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id               TEXT NOT NULL,
+    generation           INTEGER NOT NULL,
+    predecessor_turn_id  TEXT NOT NULL,
+    message_id           TEXT,
+    phase                TEXT NOT NULL,
+    task_id              TEXT,
+    disposition          TEXT NOT NULL,
+    summary              TEXT,
+    evidence_json        TEXT,
+    progress_fingerprint TEXT,
+    created_at           INTEGER NOT NULL,
+    UNIQUE (run_id, generation, predecessor_turn_id),
+    FOREIGN KEY (run_id) REFERENCES claude_chat_autopilot_run(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_autopilot_step_run
+    ON claude_chat_autopilot_step(run_id, created_at DESC);
+
+-- 业务参与者对一个 Vibe Coding 会话的受约束授权。
+CREATE TABLE IF NOT EXISTS claude_chat_session_grant (
+    id               TEXT PRIMARY KEY,
+    session_id       TEXT NOT NULL,
+    subject_user_id  INTEGER NOT NULL,
+    owner_user_id    INTEGER NOT NULL,
+    profile          TEXT NOT NULL,
+    status           TEXT NOT NULL,
+    expires_at       INTEGER NOT NULL,
+    max_turns        INTEGER NOT NULL,
+    used_turns       INTEGER NOT NULL DEFAULT 0,
+    max_input_bytes  INTEGER NOT NULL,
+    version          INTEGER NOT NULL DEFAULT 0,
+    create_time      INTEGER NOT NULL,
+    update_time      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_grant_session
+    ON claude_chat_session_grant(session_id, status, update_time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_session_grant_subject
+    ON claude_chat_session_grant(subject_user_id, status, update_time DESC);
+
+-- 短时单次邀请码；只保存加盐摘要，不保存可使用的原始邀请值。
+CREATE TABLE IF NOT EXISTS claude_chat_session_invitation (
+    id                TEXT PRIMARY KEY,
+    grant_id          TEXT NOT NULL,
+    token_hash        TEXT NOT NULL UNIQUE,
+    expires_at        INTEGER NOT NULL,
+    consumed_at       INTEGER,
+    consumed_by       INTEGER,
+    revoked           INTEGER NOT NULL DEFAULT 0,
+    create_time       INTEGER NOT NULL,
+    update_time       INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_invitation_grant
+    ON claude_chat_session_invitation(grant_id, revoked, expires_at DESC);
+
+-- WebSocket 建连前由 REST 换取的 30 秒单次 ticket。
+CREATE TABLE IF NOT EXISTS claude_chat_session_ticket (
+    id               TEXT PRIMARY KEY,
+    grant_id         TEXT NOT NULL,
+    subject_user_id  INTEGER NOT NULL,
+    token_hash       TEXT NOT NULL UNIQUE,
+    expires_at       INTEGER NOT NULL,
+    consumed_at      INTEGER,
+    create_time      INTEGER NOT NULL,
+    update_time      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_ticket_expiry
+    ON claude_chat_session_ticket(expires_at, consumed_at);
+
+-- 公共 Client 的幂等命令回执；同一 grant 内 command_id 唯一。
+CREATE TABLE IF NOT EXISTS claude_chat_session_command (
+    id               TEXT PRIMARY KEY,
+    grant_id         TEXT NOT NULL,
+    command_id       TEXT NOT NULL,
+    command_type     TEXT NOT NULL,
+    session_version  INTEGER NOT NULL,
+    result_json      TEXT NOT NULL,
+    create_time      INTEGER NOT NULL,
+    update_time      INTEGER NOT NULL,
+    UNIQUE (grant_id, command_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_command_grant
+    ON claude_chat_session_command(grant_id, create_time DESC);
+
+-- 不保存消息正文和凭据的会话委托审计元数据。
+CREATE TABLE IF NOT EXISTS claude_chat_session_grant_audit (
+    id               TEXT PRIMARY KEY,
+    grant_id         TEXT NOT NULL,
+    actor_user_id    INTEGER,
+    action           TEXT NOT NULL,
+    result           TEXT NOT NULL,
+    correlation_id   TEXT,
+    detail           TEXT,
+    create_time      INTEGER NOT NULL,
+    update_time      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_grant_audit
+    ON claude_chat_session_grant_audit(grant_id, create_time DESC, id DESC);

@@ -50,11 +50,13 @@ public class SessionHistoryService {
     private final ObjectMapper mapper;
     private final SessionAliasRepository aliasRepo;
     private final AntigravityHistoryReader antigravityHistory;
+    private final CodexHistoryReader codexHistory;
 
     public SessionHistoryService(ObjectMapper mapper, SessionAliasRepository aliasRepo) {
         this.mapper = mapper;
         this.aliasRepo = aliasRepo;
         this.antigravityHistory = AntigravityHistoryReader.forCurrentUser(mapper);
+        this.codexHistory = new CodexHistoryReader(mapper);
     }
 
     /** 留空 cwd 时跨所有项目目录列出的最近会话上限（控制解析量） */
@@ -225,7 +227,7 @@ public class SessionHistoryService {
             } else {
                 Path rollout = findCodexRollout(sdkSessionId, codexHome);
                 if (rollout != null) {
-                    all = parseCodexRollout(rollout);
+                    return codexHistory.page(rollout, null, before, limit);
                 } else if (antigravityHistory.exists(sdkSessionId)) {
                     all = antigravityHistory.readMessages(sdkSessionId);
                 } else {
@@ -234,8 +236,7 @@ public class SessionHistoryService {
                 }
             }
         } catch (IOException e) {
-            log.debug("[claude-chat] 解析历史消息失败 {}：{}", sdkSessionId, e.getMessage());
-            return MessagePage.empty();
+            throw new java.io.UncheckedIOException("读取历史消息失败: " + sdkSessionId, e);
         }
         return paginate(all, before, limit);
     }
@@ -253,10 +254,9 @@ public class SessionHistoryService {
         Path rollout = findCodexRollout(sdkSessionId, codexHome);
         if (rollout == null) return hasSid ? MessagePage.missing() : MessagePage.empty();
         try {
-            return paginate(parseCodexRollout(rollout, reviewCwd), before, limit);
+            return codexHistory.page(rollout, reviewCwd, before, limit);
         } catch (IOException e) {
-            log.debug("[claude-chat] 解析评审历史失败 {}：{}", sdkSessionId, e.getMessage());
-            return MessagePage.empty();
+            throw new java.io.UncheckedIOException("读取评审历史失败: " + sdkSessionId, e);
         }
     }
 
@@ -448,101 +448,6 @@ public class SessionHistoryService {
     }
 
     /**
-     * 解析 Codex rollout 为有序消息项。事件协议与 Claude transcript 不同：
-     *  - event_msg/user_message  → 真实用户文本（response_item 的 user message 含注入的 AGENTS.md，不取）；
-     *  - event_msg/agent_message → 助手最终文本；
-     *  - response_item/function_call(+function_call_output 按 call_id) → 工具调用与回填；
-     *  - event_msg/token_count   → 本轮 token（last_token_usage 增量），按用户消息边界聚合成 result 项。
-     */
-    private List<ChatMessageView> parseCodexRollout(Path jsonl) throws IOException {
-        return parseCodexRollout(jsonl, null);
-    }
-
-    private List<ChatMessageView> parseCodexRollout(Path jsonl, String requiredTurnCwd) throws IOException {
-        List<ChatMessageView> out = new ArrayList<>();
-        Map<String, Integer> callIdx = new LinkedHashMap<>(); // call_id -> out 下标
-        TurnAcc acc = new TurnAcc();
-        String currentTurnId = null;
-        boolean insideRequestedCwd = requiredTurnCwd == null || requiredTurnCwd.isBlank();
-        try (BufferedReader r = Files.newBufferedReader(jsonl, StandardCharsets.UTF_8)) {
-            String line;
-            while ((line = r.readLine()) != null) {
-                if (line.isBlank()) continue;
-                JsonNode node;
-                try {
-                    node = mapper.readTree(line);
-                } catch (Exception ignore) {
-                    continue; // 非法行跳过
-                }
-                JsonNode payload = node.path("payload");
-                if (!insideRequestedCwd) {
-                    if ("turn_context".equals(node.path("type").asText(""))
-                            && sameCwd(requiredTurnCwd, payload.path("cwd").asText(""))) {
-                        insideRequestedCwd = true;
-                    }
-                    continue;
-                }
-                String pType = payload.path("type").asText("");
-                Long ts = parseTs(node);
-                switch (pType) {
-                    case "task_started" -> currentTurnId = payload.path("turn_id").asText(null);
-                    case "user_message" -> {
-                        String t = normalizeCodexUserMessage(payload.path("message").asText(""));
-                        if (!t.isBlank()) {
-                            // 真实用户消息 = 新一轮：先把上一轮 token 落成 result 项
-                            flushTurn(out, acc);
-                            acc.reset(ts);
-                            out.add(ChatMessageView.user("h" + out.size(), t, ts, currentTurnId));
-                        }
-                    }
-                    case "agent_message" -> {
-                        String t = payload.path("message").asText("");
-                        if (!t.isBlank()) {
-                            acc.observeOutput(ts);
-                            out.add(ChatMessageView.assistant("h" + out.size(), t, currentTurnId, ts));
-                        }
-                    }
-                    case "function_call" -> {
-                        String name = payload.path("name").asText("");
-                        String callId = payload.path("call_id").asText("");
-                        Object input = parseCodexArgs(payload.path("arguments"));
-                        acc.observeOutput(ts);
-                        if (!callId.isBlank()) callIdx.put(callId, out.size());
-                        out.add(ChatMessageView.tool("h" + out.size(), name, input, null, null, ts));
-                    }
-                    case "function_call_output" -> {
-                        String callId = payload.path("call_id").asText("");
-                        String outText = stringifyCodexOutput(payload.path("output"));
-                        Integer idx = callId.isBlank() ? null : callIdx.get(callId);
-                        if (idx != null) {
-                            ChatMessageView prev = out.get(idx);
-                            out.set(idx, ChatMessageView.tool(prev.id(), prev.toolName(), prev.input(), outText, null,
-                                    prev.ts(), elapsedBetween(prev.ts(), ts)));
-                        } else {
-                            out.add(ChatMessageView.tool("h" + out.size(), "", null, outText, null, ts));
-                        }
-                    }
-                    case "token_count" -> acc.accumulateCodex(payload.path("info").path("last_token_usage"), ts);
-                    default -> { /* reasoning / web_search / session_meta / turn_context 等跳过 */ }
-                }
-            }
-        }
-        flushTurn(out, acc); // 末轮
-        return out;
-    }
-
-    private static boolean sameCwd(String expected, String actual) {
-        if (expected == null || actual == null || expected.isBlank() || actual.isBlank()) return false;
-        return normalizeCwd(expected).equalsIgnoreCase(normalizeCwd(actual));
-    }
-
-    private static String normalizeCwd(String value) {
-        String normalized = value.trim().replace('\\', '/');
-        while (normalized.endsWith("/")) normalized = normalized.substring(0, normalized.length() - 1);
-        return normalized;
-    }
-
-    /**
      * Codex 自动压缩后会把内部续接摘要与本轮真实输入合并成一条 user_message。
      * 只有完整命中首尾固定标记才剥离，避免误伤普通用户文本。
      */
@@ -559,27 +464,6 @@ public class SessionHistoryService {
             return message;
         }
         return candidate.substring(end + CODEX_CONTINUATION_END.length()).stripLeading();
-    }
-
-    /** Codex function_call.arguments 是 JSON 字符串：解析成对象供前端结构化展示；解析失败回退原串。 */
-    private Object parseCodexArgs(JsonNode arguments) {
-        if (arguments == null || arguments.isNull()) return null;
-        if (arguments.isTextual()) {
-            String s = arguments.asText();
-            try {
-                return mapper.convertValue(mapper.readTree(s), Object.class);
-            } catch (Exception e) {
-                return s;
-            }
-        }
-        return mapper.convertValue(arguments, Object.class);
-    }
-
-    /** function_call_output.output 可能是字符串或对象，统一压成文本。 */
-    private String stringifyCodexOutput(JsonNode output) {
-        if (output == null || output.isNull()) return "";
-        if (output.isTextual()) return output.asText();
-        return output.toString();
     }
 
     /** 删除历史会话：把 transcript 移到 ~/.claude/projects/_trash/&lt;来源目录&gt;/，可手动恢复；同时清别名。 */
@@ -611,7 +495,7 @@ public class SessionHistoryService {
     private List<ChatMessageView> parseAll(Path jsonl) throws IOException {
         List<ChatMessageView> out = new ArrayList<>();
         Map<String, Integer> toolIdx = new LinkedHashMap<>(); // tool_use_id -> out 下标
-        TurnAcc acc = new TurnAcc();
+        HistoryTurnAccumulator acc = new HistoryTurnAccumulator();
         try (BufferedReader r = Files.newBufferedReader(jsonl, StandardCharsets.UTF_8)) {
             String line;
             while ((line = r.readLine()) != null) {
@@ -699,10 +583,9 @@ public class SessionHistoryService {
             Path rollout = findCodexRollout(sdkSessionId, codexHome);
             if (rollout == null) return SessionUsageView.empty();
             try {
-                return summarizeMessages(parseCodexRollout(rollout));
+                return codexHistory.usage(rollout);
             } catch (IOException e) {
-                log.debug("[claude-chat] 统计 Codex 会话汇总失败 {}: {}", sdkSessionId, e.getMessage());
-                return SessionUsageView.empty();
+                throw new java.io.UncheckedIOException("读取 Codex 会话用量失败: " + sdkSessionId, e);
             }
         }
         try {
@@ -715,34 +598,9 @@ public class SessionHistoryService {
 
     /** 从标准历史消息项汇总整段会话指标，避免 Claude 与 Codex 维护两套统计口径。 */
     private SessionUsageView summarizeMessages(List<ChatMessageView> messages) {
-        long input = 0, output = 0, cacheRead = 0, cacheCreate = 0;
-        long turnDurationMs = 0, toolDurationMs = 0, ttftTotalMs = 0;
-        int turns = 0, steps = 0, ttftSamples = 0;
-        for (ChatMessageView message : messages) {
-            if ("assistant".equals(message.kind()) && message.text() != null && !message.text().isBlank()) {
-                steps++;
-            } else if ("tool".equals(message.kind())) {
-                steps++;
-                if (message.elapsedMs() != null) toolDurationMs += message.elapsedMs();
-            } else if ("result".equals(message.kind()) && message.usage() != null) {
-                JsonNode usage = mapper.valueToTree(message.usage());
-                input += usage.path("input_tokens").asLong(0);
-                output += usage.path("output_tokens").asLong(0);
-                cacheRead += usage.path("cache_read_input_tokens").asLong(0);
-                cacheCreate += usage.path("cache_creation_input_tokens").asLong(0);
-                turns++;
-                if (message.latencyMs() != null) turnDurationMs += message.latencyMs();
-                if (message.ttftMs() != null) {
-                    ttftTotalMs += message.ttftMs();
-                    ttftSamples++;
-                }
-            }
-        }
-        long modelDurationMs = Math.max(0, turnDurationMs - toolDurationMs);
-        Long averageTtftMs = ttftSamples > 0 ? ttftTotalMs / ttftSamples : null;
-        Double outputRate = modelDurationMs > 0 ? output * 1000.0 / modelDurationMs : null;
-        return new SessionUsageView(input, output, cacheRead, cacheCreate, input + output + cacheRead + cacheCreate,
-                turns, steps, modelDurationMs, toolDurationMs, averageTtftMs, ttftSamples, outputRate);
+        HistoryUsageAccumulator usage = new HistoryUsageAccumulator();
+        messages.forEach(usage::add);
+        return usage.snapshot(null);
     }
 
     /**
@@ -775,68 +633,11 @@ public class SessionHistoryService {
     }
 
     /** 把累计的一轮用量落成合成 result 项（token 聚合 + 时间戳推导耗时）；无 assistant 输出则跳过。 */
-    private void flushTurn(List<ChatMessageView> out, TurnAcc acc) {
-        if (!acc.hasOutput) return;
-        Map<String, Object> usage = new LinkedHashMap<>();
-        usage.put("input_tokens", acc.input);
-        usage.put("output_tokens", acc.output);
-        usage.put("cache_read_input_tokens", acc.cacheRead);
-        usage.put("cache_creation_input_tokens", acc.cacheCreate);
-        Long latency = (acc.startTs != null && acc.lastTs != null && acc.lastTs >= acc.startTs)
-                ? acc.lastTs - acc.startTs : null;
-        Long ttft = (acc.startTs != null && acc.firstOutputTs != null && acc.firstOutputTs >= acc.startTs)
-                ? acc.firstOutputTs - acc.startTs : null;
-        out.add(ChatMessageView.result("h" + out.size(), "end_turn", acc.lastTs, usage, latency, ttft));
-        acc.hasOutput = false; // 防重复落
-    }
-
-    /** 单轮 token/时间累加器。 */
-    private static final class TurnAcc {
-        Long startTs;
-        Long firstOutputTs;
-        Long lastTs;
-        long input;
-        long output;
-        long cacheRead;
-        long cacheCreate;
-        boolean hasOutput;
-
-        void reset(Long start) {
-            startTs = start;
-            firstOutputTs = null;
-            lastTs = null;
-            input = output = cacheRead = cacheCreate = 0;
-            hasOutput = false;
-        }
-
-        void accumulate(JsonNode usage, Long ts) {
-            if (usage != null && usage.isObject()) {
-                input += usage.path("input_tokens").asLong(0);
-                output += usage.path("output_tokens").asLong(0);
-                cacheRead += usage.path("cache_read_input_tokens").asLong(0);
-                cacheCreate += usage.path("cache_creation_input_tokens").asLong(0);
-            }
-            observeOutput(ts);
-            hasOutput = true;
-        }
-
-        /** Codex token 字段口径：input_tokens 含缓存，需扣减得非缓存输入；output 含推理 token。 */
-        void accumulateCodex(JsonNode usage, Long ts) {
-            if (usage != null && usage.isObject()) {
-                long inAll = usage.path("input_tokens").asLong(0);
-                long cached = usage.path("cached_input_tokens").asLong(0);
-                input += Math.max(0, inAll - cached);
-                cacheRead += cached;
-                output += usage.path("output_tokens").asLong(0) + usage.path("reasoning_output_tokens").asLong(0);
-            }
-            observeOutput(ts);
-            hasOutput = true;
-        }
-
-        void observeOutput(Long ts) {
-            if (ts == null) return;
-            if (firstOutputTs == null) firstOutputTs = ts;
-            lastTs = ts;
+    private void flushTurn(List<ChatMessageView> out, HistoryTurnAccumulator acc) {
+        ChatMessageView result = acc.result("h" + out.size());
+        if (result != null) {
+            out.add(result);
+            acc.hasOutput = false;
         }
     }
 

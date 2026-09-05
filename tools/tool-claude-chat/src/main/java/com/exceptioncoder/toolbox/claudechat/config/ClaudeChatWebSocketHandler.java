@@ -5,6 +5,8 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
 import com.exceptioncoder.toolbox.claudechat.service.AssistantWebSocketCommandHandler;
 import com.exceptioncoder.toolbox.claudechat.service.SessionExecutionPolicy;
+import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
+import com.exceptioncoder.toolbox.common.auth.web.AuthenticatedHandshakeInterceptor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +27,7 @@ import java.io.IOException;
 public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
 
     private static final int MSG_LIMIT = 256 * 1024;
+    private static final String CONNECTED_AT_ATTRIBUTE = "claude-chat.connected-at";
 
     private final ClaudeChatProperties props;
     private final ClaudeChatService service;
@@ -43,6 +46,14 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession ws) {
+        ws.getAttributes().put(CONNECTED_AT_ATTRIBUTE, System.currentTimeMillis());
+        AuthPrincipal principal = authenticatedPrincipal(ws);
+        log.info("[claude-chat] WebSocket 已连接 connectionId={} path={} userId={} origin={} "
+                        + "forwardedFor={} forwardedProto={} cfRay={}",
+                ws.getId(), requestPath(ws), principal == null ? null : principal.userId(),
+                ws.getHandshakeHeaders().getOrigin(), ws.getHandshakeHeaders().getFirst("X-Forwarded-For"),
+                ws.getHandshakeHeaders().getFirst("X-Forwarded-Proto"),
+                ws.getHandshakeHeaders().getFirst("CF-Ray"));
         if (!props.isEnabled()) {
             sendErrorAndClose(ws, "DISABLED", "Claude 助手已禁用");
             return;
@@ -121,13 +132,43 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession ws, CloseStatus status) {
+        log.info("[claude-chat] WebSocket 已关闭 connectionId={} path={} code={} reason={} durationMs={} open={}",
+                ws.getId(), requestPath(ws), status.getCode(), status.getReason(), connectionDurationMillis(ws), ws.isOpen());
         // WS 断开 ≠ 终结会话：解绑浏览器，任务继续在 sidecar 跑，等下次 attach。
         service.onBrowserDisconnected(ws);
     }
 
     @Override
     public void handleTransportError(WebSocketSession ws, Throwable exception) {
-        log.debug("[claude-chat] transport error：{}", exception.getMessage());
+        Throwable rootCause = rootCause(exception);
+        log.warn("[claude-chat] WebSocket 传输异常 connectionId={} path={} exception={} rootCause={} "
+                        + "message={} durationMs={} open={} cfRay={}",
+                ws.getId(), requestPath(ws), exception.getClass().getName(), rootCause.getClass().getName(),
+                rootCause.getMessage(), connectionDurationMillis(ws), ws.isOpen(),
+                ws.getHandshakeHeaders().getFirst("CF-Ray"));
+        log.debug("[claude-chat] WebSocket 传输异常堆栈 connectionId={}", ws.getId(), exception);
+    }
+
+    private AuthPrincipal authenticatedPrincipal(WebSocketSession ws) {
+        Object principal = ws.getAttributes().get(AuthenticatedHandshakeInterceptor.AUTH_PRINCIPAL_ATTRIBUTE);
+        return principal instanceof AuthPrincipal authPrincipal ? authPrincipal : null;
+    }
+
+    private String requestPath(WebSocketSession ws) {
+        return ws.getUri() == null ? null : ws.getUri().getPath();
+    }
+
+    private long connectionDurationMillis(WebSocketSession ws) {
+        Object connectedAt = ws.getAttributes().get(CONNECTED_AT_ATTRIBUTE);
+        return connectedAt instanceof Long timestamp ? Math.max(0L, System.currentTimeMillis() - timestamp) : -1L;
+    }
+
+    private Throwable rootCause(Throwable exception) {
+        Throwable current = exception;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     /** 回一条错误事件，但保持连接（用于单条脏消息，不牵连整个会话）。 */

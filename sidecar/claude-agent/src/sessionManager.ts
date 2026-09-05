@@ -22,8 +22,25 @@ import {
   type ReadonlyKnowledgeMcpCall,
 } from './knowledgeMcp.js'
 import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, runEphemeralCodexTurn, steerCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
-import { createClaudeConsultSourceServer, resolveConsultTargetSystems } from './codexSecurity.js'
-import { findDefaultCodexModel, forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAppServer.js'
+import {
+  configuredMcpServerNames,
+  createClaudeConsultSourceServer,
+  resolveConsultTargetSystems,
+} from './codexSecurity.js'
+import {
+  findDefaultCodexModel,
+  forkCodexThread,
+  inspectCodexSessionCapabilities,
+  listCodexModels,
+  type CodexModelInfo,
+} from './codexAppServer.js'
+import {
+  configuredCapabilitySnapshot,
+  managedSkillEvidence,
+  type CapabilitySnapshot,
+  type McpCapability,
+  type SkillCapability,
+} from './sessionCapabilities.js'
 import { runAntigravityTurn } from './antigravityEngine.js'
 import { listAntigravityModels } from './antigravityRuntime.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
@@ -74,14 +91,6 @@ export interface SessionRuntimeSnapshot {
   phase?: string
   agentState: 'idle' | 'running' | 'waiting' | 'finalizing' | 'failed' | 'unknown'
   lastHeartbeatAt: number
-}
-
-type CapabilitySnapshot = {
-  slashCommands: string[]
-  skills: string[]
-  agents: string[]
-  mcpServers: Array<{ name: string; status: string }>
-  outputStyle: string | null
 }
 
 /**
@@ -175,6 +184,15 @@ function normalizeConsultEvidenceSystems(values: readonly string[] | undefined):
   return [...new Set((values ?? [])
     .map(value => value.trim().toLowerCase())
     .filter(value => allowed.has(value)))]
+}
+
+function normalizeSessionToolPolicy(value: string | undefined): string {
+  return value === 'consult-readonly' || value === 'review-only'
+    || value === 'delegated-development' || value === 'delegated-request-only' ? value : 'default'
+}
+
+function isDelegatedToolPolicy(value: string | undefined): boolean {
+  return value === 'delegated-development' || value === 'delegated-request-only'
 }
 
 /** 中断时留给「未决审批的 deny 响应」写回 CLI 的时间，之后才关传输层。见 Session.interrupt()。 */
@@ -331,13 +349,20 @@ class Session {
   private curMsgTokens = 0
   /** 本轮是否已见过 SDK 的 result 消息；用于流异常收尾（未发 result）时补发，避免前端永久「思考中」。 */
   private turnHadResult = false
+  /** 当前 Claude 轮次由 Forge 显式注入的 MCP 名称；只用于能力来源证明。 */
+  private claudeSessionMcpNames = new Set<string>()
   /** 最近一次主会话 SDK init 的能力快照；供用户主动刷新面板时无模型调用地重发。 */
   private capabilities: CapabilitySnapshot = {
     slashCommands: [],
     skills: [],
+    skillDetails: [],
+    plugins: [],
     agents: [],
     mcpServers: [],
     outputStyle: null,
+    capabilitySource: 'unknown',
+    capabilityRefreshedAt: Date.now(),
+    capabilityErrors: [],
   }
   /**
    * 该会话当前存活的后台任务快照（Agent 工具后台化的子任务）。SDK 用 REPLACE 语义整体下发
@@ -849,6 +874,7 @@ class Session {
         if (domainKb) (mcpServers as Record<string, unknown>)['domain-knowledge'] = domainKb
         if (crossTopo) (mcpServers as Record<string, unknown>)['cross-topology'] = crossTopo
       }
+      this.claudeSessionMcpNames = new Set(Object.keys(mcpServers))
 
       try {
         const q = query({
@@ -1040,8 +1066,17 @@ class Session {
   /** 切换 provider 后调用：使下一轮 runTurn 重新按新 provider 取一次模型清单。 */
   resetModelsFetched(): void { this.modelsFetched = false }
 
+  /** 当前 Codex 会话由 Forge 构建的 MCP 配置清单，作为来源归约的确定性输入。 */
+  codexCapabilityMcpServers(): Array<{ name: string; status: string }> {
+    return codexMcpCapabilities(this.toolPolicy, this.id, this.forgeSqlRegistration, {
+      codexHome: this.codexHome,
+      sourceRoot: this.cwd,
+      evidenceSystems: this.consultEvidenceSystems,
+    })
+  }
+
   /**
-   * 主动重发会话能力。Codex 的 MCP 是 sidecar 运行时注入，直接按当前配置重新计算；
+   * 主动重发会话能力。Codex 合并 App Server 运行时、Forge 会话配置和 Auth 全局配置；
    * Claude 则重发最近一次 SDK init 快照，下一轮 SDK init 会继续更新该快照。
    */
   refreshCapabilities(): void {
@@ -1072,14 +1107,35 @@ class Session {
           message: 'sidecar 缺少 TOOLBOX_API_BASE，请重启 kai-toolbox 后端以重新拉起 sidecar',
         })
       }
-      this.emitTurn({
-        type: 'init',
-        sdkSessionId: this.sdkSessionId ?? null,
-        slashCommands: [],
-        skills: [],
-        agents: [],
-        mcpServers: codexMcpCapabilities(this.toolPolicy, this.id, this.forgeSqlRegistration),
-        outputStyle: null,
+      const configured = this.codexCapabilityMcpServers()
+      let sdkSessionInvalidated = false
+      void inspectCodexSessionCapabilities({
+        threadId: this.sdkSessionId,
+        cwd: this.cwd,
+        codexHome: this.codexHome,
+        configuredMcpServers: configured,
+        forceReload: true,
+        onThreadNotFound: () => {
+          this.sdkSessionId = undefined
+          sdkSessionInvalidated = true
+        },
+      }).then(snapshot => {
+        this.capabilities = snapshot
+        this.emitTurn({
+          type: 'init',
+          sdkSessionId: this.sdkSessionId ?? null,
+          ...(sdkSessionInvalidated ? { sdkSessionInvalidated: true } : {}),
+          ...snapshot,
+        })
+      }).catch(error => {
+        const message = error instanceof Error ? error.message : String(error)
+        const snapshot = configuredCapabilitySnapshot(
+          configured,
+          [`会话能力刷新失败：${message}`],
+          configuredMcpServerNames(this.codexHome),
+        )
+        this.capabilities = snapshot
+        this.emitTurn({ type: 'init', sdkSessionId: this.sdkSessionId ?? null, ...snapshot })
       })
       return
     }
@@ -1132,13 +1188,49 @@ class Session {
           // 无论是主会话还是子 agent，init 事件的能力清单都只在主会话时透传前端
           if (isMainSession) {
             const slashCommands = Array.isArray(m.slash_commands) ? m.slash_commands : []
-            const skills = Array.isArray(m.skills) ? m.skills : []
+            const skills = Array.isArray(m.skills) ? m.skills.map(String) : []
             const agents = Array.isArray(m.agents) ? m.agents : []
             const mcpServers = Array.isArray(m.mcp_servers)
-              ? (m.mcp_servers as Array<Record<string, unknown>>).map(s => ({ name: String(s.name ?? ''), status: String(s.status ?? '') }))
+              ? (m.mcp_servers as Array<Record<string, unknown>>).map((s): McpCapability => ({
+                  name: String(s.name ?? ''),
+                  status: String(s.status ?? ''),
+                  verified: true,
+                  toolInventoryComplete: false,
+                  tools: [],
+                  provenance: this.claudeSessionMcpNames.has(String(s.name ?? ''))
+                    ? [{ origin: 'forge-session', scope: 'session', sourceId: String(s.name ?? ''), effective: true, evidence: 'runtime' }]
+                    : [{ origin: 'unknown', scope: 'unknown', effective: true, evidence: 'runtime' }],
+                }))
               : []
             const outputStyle = typeof m.output_style === 'string' ? m.output_style : null
-            this.capabilities = { slashCommands, skills, agents, mcpServers, outputStyle }
+            const skillDetails: SkillCapability[] = skills.map(name => {
+              const claudePath = join(this.cwd, '.claude', 'skills', name, 'SKILL.md')
+              const codexPath = join(this.cwd, '.agents', 'skills', name, 'SKILL.md')
+              const path = existsSync(claudePath) ? claudePath : existsSync(codexPath) ? codexPath : undefined
+              return {
+                name,
+                description: '',
+                enabled: true,
+                scope: path ? 'repo' : 'unknown',
+                ...(path ? { path, ...managedSkillEvidence(name, path) } : {}),
+                toolDependencies: [],
+                provenance: path
+                  ? [{ origin: 'project-local', scope: 'project', effective: true, evidence: 'runtime' }]
+                  : [{ origin: 'unknown', scope: 'unknown', effective: true, evidence: 'runtime' }],
+              }
+            })
+            this.capabilities = {
+              slashCommands,
+              skills,
+              skillDetails,
+              plugins: [],
+              agents,
+              mcpServers,
+              outputStyle,
+              capabilitySource: 'claude-sdk',
+              capabilityRefreshedAt: Date.now(),
+              capabilityErrors: [],
+            }
             this.emitTurn({ type: 'init', sdkSessionId: this.sdkSessionId, ...this.capabilities })
           }
         } else if (m.subtype === 'background_tasks_changed') {
@@ -1480,7 +1572,7 @@ export class SessionManager {
     if (codexHome) s.codexHome = codexHome
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove) { s.autoApprove = true; s.perms.setAutoApprove(true) }
-    s.toolPolicy = toolPolicy === 'consult-readonly' || toolPolicy === 'review-only' ? toolPolicy : 'default'
+    s.toolPolicy = normalizeSessionToolPolicy(toolPolicy)
     s.consultEvidenceSystems = normalizeConsultEvidenceSystems(consultEvidenceSystems)
     s.perms.setToolPolicy(s.toolPolicy)
     s.codexReasoningEffort = isCodexReasoningEffort(codexReasoningEffort)
@@ -1500,7 +1592,7 @@ export class SessionManager {
     this.emit(id, {
       type: 'init',
       sdkSessionId: null,
-      ...(s.engine === 'codex' ? { mcpServers: codexMcpCapabilities(s.toolPolicy, s.id, s.forgeSqlRegistration) } : {}),
+      ...(s.engine === 'codex' ? { mcpServers: s.codexCapabilityMcpServers() } : {}),
     })
     this.emitCachedModels(id, s)
     if (s.engine === 'opencode') s.refreshCapabilities()
@@ -1528,7 +1620,7 @@ export class SessionManager {
     s.codexHome = codexHome || undefined
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove != null) { s.autoApprove = autoApprove; s.perms.setAutoApprove(autoApprove) }
-    s.toolPolicy = toolPolicy === 'consult-readonly' || toolPolicy === 'review-only' ? toolPolicy : 'default'
+    s.toolPolicy = normalizeSessionToolPolicy(toolPolicy)
     s.consultEvidenceSystems = normalizeConsultEvidenceSystems(consultEvidenceSystems)
     s.perms.setToolPolicy(s.toolPolicy)
     s.model = model || undefined
@@ -1536,7 +1628,7 @@ export class SessionManager {
     this.applyCodexOptions(id, s)
     if (s.engine === 'codex') {
       this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null,
-        mcpServers: codexMcpCapabilities(s.toolPolicy, s.id, s.forgeSqlRegistration) })
+        mcpServers: s.codexCapabilityMcpServers() })
     }
     this.emitCachedModels(id, s)
     if (s.engine === 'opencode') s.refreshCapabilities()
@@ -1613,7 +1705,8 @@ export class SessionManager {
   }
 
   user(id: string, text: string, developerInstructions?: string, sessionContext?: string,
-       additionalDirectories: string[] = [], turnId?: string, images?: OneShotImage[]): void {
+       additionalDirectories: string[] = [], turnId?: string, images?: OneShotImage[],
+       turnToolPolicy?: string): void {
     const s = this.sessions.get(id)
     if (!s) {
       this.emit(id, { type: 'error', code: 'SESSION_NOT_FOUND', message: '会话不存在' })
@@ -1621,16 +1714,28 @@ export class SessionManager {
     }
     // fire-and-forget，但必须收敛异常：runTurn 的非 Claude 引擎分支没有内层 catch，
     // 一旦 reject 会变成 unhandledRejection 拖垮整个 sidecar。这里兜成该会话的 error+result，解除前端「思考中」。
-    const restricted = s.toolPolicy === 'consult-readonly' || s.toolPolicy === 'review-only'
-    const hiddenInstructions = restricted
-      ? developerInstructions?.trim() || undefined
-      : sessionContext?.trim() || undefined
+    const delegatedOverride = isDelegatedToolPolicy(turnToolPolicy)
+    const previousToolPolicy = s.toolPolicy
+    if (delegatedOverride) {
+      s.toolPolicy = turnToolPolicy!
+      s.perms.setToolPolicy(s.toolPolicy)
+    }
+    const delegated = isDelegatedToolPolicy(s.toolPolicy)
+    const restricted = delegated || s.toolPolicy === 'consult-readonly' || s.toolPolicy === 'review-only'
+    const hiddenInstructions = delegated
+      ? [developerInstructions?.trim(), sessionContext?.trim()].filter(Boolean).join('\n\n') || undefined
+      : restricted ? developerInstructions?.trim() || undefined : sessionContext?.trim() || undefined
     const safeAdditionalDirectories = restricted ? [] : additionalDirectories
     const prepare = s.toolPolicy === 'review-only' ? this.ensureReviewDefaults(id, s) : Promise.resolve()
     prepare.then(() => s.runTurn(text, undefined, images, hiddenInstructions, turnId, safeAdditionalDirectories)).catch((e) => {
       console.error('[sidecar] runTurn 异常（已兜住）session=' + id + ':', e)
       this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e), turnId })
       this.emit(id, { type: 'result', usage: {}, stopReason: 'error', turnId })
+    }).finally(() => {
+      if (delegatedOverride && this.sessions.get(id) === s && s.toolPolicy === turnToolPolicy) {
+        s.toolPolicy = previousToolPolicy
+        s.perms.setToolPolicy(previousToolPolicy)
+      }
     })
   }
 
@@ -1793,7 +1898,7 @@ export class SessionManager {
     s.resetModelsFetched() // 换引擎/provider：下一轮重新取模型清单
     if (s.engine === 'codex') {
       this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null,
-        mcpServers: codexMcpCapabilities(s.toolPolicy, s.id, s.forgeSqlRegistration) })
+        mcpServers: s.codexCapabilityMcpServers() })
     }
     this.emitCachedModels(id, s)
     if (s.engine === 'opencode') s.refreshCapabilities()

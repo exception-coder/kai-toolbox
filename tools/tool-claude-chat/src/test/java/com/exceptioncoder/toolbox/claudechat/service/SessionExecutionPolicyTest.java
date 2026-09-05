@@ -61,4 +61,17 @@ class SessionExecutionPolicyTest {
         assertThat(SessionExecutionPolicy.canBind(
                 SessionExecutionPolicy.STANDARD, SessionExecutionPolicy.REVIEW_ONLY)).isTrue();
     }
+
+    @Test
+    void delegatedClientCanBindOnlyStandardCanonicalSessions() {
+        assertThat(SessionExecutionPolicy.forWebSocket(
+                URI.create("ws://localhost/api/session-client/v1/ws")))
+                .isEqualTo(SessionExecutionPolicy.DELEGATED_DEVELOPMENT);
+        assertThat(SessionExecutionPolicy.canBind(
+                SessionExecutionPolicy.DELEGATED_DEVELOPMENT, SessionExecutionPolicy.STANDARD)).isTrue();
+        assertThat(SessionExecutionPolicy.canBind(
+                SessionExecutionPolicy.DELEGATED_DEVELOPMENT, SessionExecutionPolicy.CONSULT_READONLY)).isFalse();
+        assertThat(SessionExecutionPolicy.canBind(
+                SessionExecutionPolicy.STANDARD, SessionExecutionPolicy.DELEGATED_DEVELOPMENT)).isFalse();
+    }
 }
