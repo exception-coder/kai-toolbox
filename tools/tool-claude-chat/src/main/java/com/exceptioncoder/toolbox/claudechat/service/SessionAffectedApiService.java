@@ -41,7 +41,7 @@ public class SessionAffectedApiService {
     public List<SessionAffectedApi> register(String sessionId, List<Registration> registrations) {
         requireSession(sessionId);
         if (registrations == null || registrations.isEmpty()) {
-            throw new IllegalArgumentException("至少登记一个涉及接口");
+            throw new IllegalArgumentException("至少登记一条 OpenSpec 接口影响证据");
         }
         if (registrations.size() > MAX_BATCH) {
             throw new IllegalArgumentException("单次最多登记 " + MAX_BATCH + " 个接口");

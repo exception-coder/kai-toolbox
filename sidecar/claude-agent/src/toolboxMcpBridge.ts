@@ -7,6 +7,10 @@ import {
 } from './pendingSqlPolicy.js'
 import { fetchMcpHttpText, type McpRequestExtra } from './mcpHttp.js'
 import { FORGE_AFFECTED_API_TOOL_DESCRIPTION } from './affectedApiPolicy.js'
+import {
+  AUTOPILOT_PROGRESS_INPUT_SCHEMA,
+  AUTOPILOT_PROGRESS_TOOL_ANNOTATIONS,
+} from './autopilotProgressContract.js'
 
 const pendingSqlTargetSchema = z.object({
   targetKey: z.string().optional().describe('稳定目标标识；已知 Forge 数据源时可传 datasource:<id>'),
@@ -122,7 +126,20 @@ if (serverName === 'forge') {
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   }, ({ apis }, extra) => request(
     `/api/claude-chat/sessions/${encodeURIComponent(sessionId!)}/affected-apis/auto-register`,
-    { apis }, 'PUT', extra, '登记涉及接口',
+    { apis }, 'PUT', extra, '登记 OpenSpec 接口证据',
+  ))
+
+  server.registerTool('report_session_progress', {
+    description: [
+      '向 Forge Runtime 报告当前自动监督轮次的候选处置。',
+      '此工具不会启动下一轮或宣告整个任务完成；session、run、generation 与活动阶段均由服务端绑定。',
+    ].join(''),
+    inputSchema: AUTOPILOT_PROGRESS_INPUT_SCHEMA,
+    annotations: AUTOPILOT_PROGRESS_TOOL_ANNOTATIONS,
+  }, ({ disposition, summary, nextAction, remainingWork, evidence, reason }, extra) => request(
+    `/api/claude-chat/sessions/${encodeURIComponent(sessionId!)}/autopilot/progress`,
+    { disposition, summary, nextAction, remainingWork, evidence, reason },
+    'POST', extra, '上报会话自动监督进度',
   ))
 } else if (serverName === 'erp_db') {
   server.registerTool('query', {

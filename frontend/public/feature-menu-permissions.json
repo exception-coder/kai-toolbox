@@ -276,6 +276,13 @@
       "sort": 50
     },
     {
+      "featureId": "openspec-board",
+      "code": "menu:openspec-board",
+      "name": "OpenSpec 看板",
+      "module": "AI",
+      "sort": 50
+    },
+    {
       "featureId": "ai-chat",
       "code": "menu:ai-chat",
       "name": "AI 对话",

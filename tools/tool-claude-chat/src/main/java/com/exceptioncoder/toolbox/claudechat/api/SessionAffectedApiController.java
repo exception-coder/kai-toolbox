@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** 当前 Coding 会话涉及接口的登记、查询与发布就绪聚合。 */
+/** 当前 Coding 会话的 OpenSpec 接口影响证据登记、查询与发布就绪聚合。 */
 @RestController
 @RequestMapping("/api/claude-chat/sessions/{sessionId}/affected-apis")
 public class SessionAffectedApiController {
