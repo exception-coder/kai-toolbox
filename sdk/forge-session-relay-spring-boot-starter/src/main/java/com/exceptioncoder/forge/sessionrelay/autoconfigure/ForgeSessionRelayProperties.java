@@ -8,6 +8,7 @@ import java.time.Duration;
 @ConfigurationProperties("forge.session-relay")
 public class ForgeSessionRelayProperties {
     private boolean enabled;
+    private boolean invitationBoundIdentity;
     private String forgeBaseUrl = "http://127.0.0.1:8080";
     private String clientId = "";
     private String clientSecret = "";
@@ -18,6 +19,8 @@ public class ForgeSessionRelayProperties {
     private int maxFrameBytes = 262144;
 
     public boolean isEnabled() { return enabled; }
+    public boolean isInvitationBoundIdentity() { return invitationBoundIdentity; }
+    public void setInvitationBoundIdentity(boolean value) { this.invitationBoundIdentity = value; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
     public String getForgeBaseUrl() { return forgeBaseUrl; }
     public void setForgeBaseUrl(String forgeBaseUrl) { this.forgeBaseUrl = forgeBaseUrl; }

@@ -203,6 +203,22 @@ public class SessionDelegationService {
         return exchange(subjectUserId, "relay:" + relayClientId, rawInvitation, now, true);
     }
 
+    /** 根据受信 Relay 持有的一次性邀请解析授权主体，保留宿主参与者审计关联。 */
+    @Transactional
+    public ExchangedAccess pairForRelay(long participantId, String relayClientId,
+                                        String rawInvitation, Instant now) {
+        if (participantId <= 0 || relayClientId == null || relayClientId.isBlank()
+                || rawInvitation == null || rawInvitation.isBlank() || rawInvitation.length() > 512) {
+            throw invalidInvitation();
+        }
+        SessionInvitation invitation = repository.findInvitationByHash(credentials.hash(rawInvitation))
+                .orElseThrow(SessionDelegationService::invalidInvitation);
+        SessionAccessGrant grant = repository.findGrant(invitation.grantId())
+                .orElseThrow(SessionDelegationService::invalidInvitation);
+        return exchange(grant.subjectUserId(), "relay:" + relayClientId + ":participant:" + participantId,
+                rawInvitation, now, true);
+    }
+
     private ExchangedAccess exchange(long subjectUserId, String correlationId, String rawInvitation,
                                      Instant now, boolean relay) {
         String tokenHash = credentials.hash(rawInvitation);

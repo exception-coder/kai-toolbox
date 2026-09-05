@@ -2,7 +2,6 @@ package com.exceptioncoder.forge.sessionrelay.support;
 
 import com.exceptioncoder.forge.sessionrelay.ForgeRelayBinding;
 import com.exceptioncoder.forge.sessionrelay.autoconfigure.ForgeSessionRelayProperties;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -29,17 +28,20 @@ public final class ForgeRelayUpstreamClient {
     }
 
     public ForgeRelayBinding exchange(long subjectUserId, String invitationCode) {
-        JsonNode response = restClient.post().uri(UPSTREAM_PATH + "/relay/invitations/exchange")
+        boolean invitationBound = properties.isInvitationBoundIdentity();
+        String endpoint = invitationBound ? "/relay/invitations/pair" : "/relay/invitations/exchange";
+        Object request = invitationBound ? new PairRequest(subjectUserId, invitationCode)
+                : new ExchangeRequest(subjectUserId, invitationCode);
+        ExchangeResponse response = restClient.post().uri(UPSTREAM_PATH + endpoint)
                 .header(HttpHeaders.AUTHORIZATION, basicCredentials())
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(new ExchangeRequest(subjectUserId, invitationCode))
-                .retrieve().body(JsonNode.class);
+                .body(request)
+                .retrieve().body(ExchangeResponse.class);
         if (response == null) {
             throw new IllegalStateException("Forge Relay 配对未返回结果");
         }
-        return new ForgeRelayBinding(subjectUserId, response.path("accessToken").asText(),
-                Instant.parse(response.path("expiresAt").asText()), response.path("grantId").asText(),
-                response.path("sessionId").asText());
+        return new ForgeRelayBinding(subjectUserId, response.accessToken(),
+                Instant.parse(response.expiresAt()), response.grantId(), response.sessionId());
     }
 
     public ResponseEntity<byte[]> get(ForgeRelayBinding binding, String relativePath) {
@@ -58,16 +60,16 @@ public final class ForgeRelayUpstreamClient {
     }
 
     public URI createWebSocketUri(ForgeRelayBinding binding) {
-        JsonNode response = restClient.post().uri(UPSTREAM_PATH + "/connections")
-                .header(HttpHeaders.AUTHORIZATION, bearer(binding)).retrieve().body(JsonNode.class);
-        if (response == null || response.path("ticket").asText().isBlank()) {
+        ConnectionResponse response = restClient.post().uri(UPSTREAM_PATH + "/connections")
+                .header(HttpHeaders.AUTHORIZATION, bearer(binding)).retrieve().body(ConnectionResponse.class);
+        if (response == null || response.ticket() == null || response.ticket().isBlank()) {
             throw new IllegalStateException("Forge 未返回连接 ticket");
         }
         String base = trimSlash(properties.getForgeBaseUrl());
         String websocketBase = base.startsWith("https://") ? "wss://" + base.substring(8)
                 : base.startsWith("http://") ? "ws://" + base.substring(7) : base;
         return URI.create(websocketBase + UPSTREAM_PATH + "/ws?ticket="
-                + response.path("ticket").asText() + "&protocolVersion=1.0");
+                + response.ticket() + "&protocolVersion=1.0");
     }
 
     private String basicCredentials() {
@@ -84,4 +86,11 @@ public final class ForgeRelayUpstreamClient {
     }
 
     private record ExchangeRequest(long subjectUserId, String invitationCode) { }
+    private record PairRequest(long participantId, String invitationCode) { }
+
+    /** 使用普通协议数据避免宿主 Jackson 主版本与树模型耦合。 */
+    private record ExchangeResponse(String accessToken, String expiresAt, String grantId, String sessionId) { }
+
+    /** 上游一次性连接凭据。 */
+    private record ConnectionResponse(String ticket) { }
 }

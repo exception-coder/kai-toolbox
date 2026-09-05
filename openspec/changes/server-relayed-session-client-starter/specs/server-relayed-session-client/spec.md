@@ -1,7 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Business-server mediated pairing
-The system SHALL allow an authenticated and configured business server to exchange a one-time invitation on behalf of a business principal mapped to the invitation's Forge subject. The browser MUST NOT be allowed to assert the Forge subject or receive upstream credentials.
+The system SHALL allow authenticated configured business servers to exchange invitations through the existing subject-mapped endpoint or an explicit invitation-bound pairing endpoint. The latter resolves the Forge subject from the invitation Grant and accepts a local participant key solely for Relay audit correlation. Invitation possession through a trusted authenticated host delegates access; expiration, revocation and atomic single consumption MUST still be enforced. Browsers MUST NOT assert Forge subjects or receive upstream credentials.
+
+#### Scenario: Invitation-bound pairing
+- **WHEN** a trusted Relay submits an unused invitation and a positive local participant key
+- **THEN** Forge resolves the Grant subject, validates current access and consumes the invitation once, retaining the Relay and local key in its audit correlation
 
 #### Scenario: Valid server-mediated pairing
 - **WHEN** a trusted Relay authenticates and exchanges an unused invitation for its mapped Forge subject
@@ -31,4 +35,3 @@ Bindings SHALL be isolated by Relay client and mapped principal. Ticket replay, 
 #### Scenario: Upstream grant is revoked
 - **WHEN** Forge rejects or closes a relayed connection because its Grant was revoked
 - **THEN** the Relay closes the corresponding downstream connection and does not reconnect indefinitely
-

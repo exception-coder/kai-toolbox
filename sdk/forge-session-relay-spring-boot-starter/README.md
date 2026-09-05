@@ -42,9 +42,11 @@ forge:
 
 `client-secret` 只能放在两个服务端的 Secret 管理中。跨不可信网络时把 `forge-base-url` 配为 HTTPS/WSS 入口，并叠加网络 ACL 或 mTLS。
 
-## 3. 映射业务身份
+## 3. 解析业务身份
 
-Starter 不提供“信任请求头用户 ID”的默认实现。宿主必须从自己已经校验的登录态映射 Forge 用户：
+Starter 不提供“信任请求头用户 ID”的默认实现。Yoooni One 使用 `forge.session-relay.invitation-bound-identity=true`，解析器返回自动生成且按账号来源隔离的本地正整数绑定键；Forge 从邀请查出授权主体，不需要用户映射。邀请码的安全交付代表授权委派，仍要求宿主登录和 Relay 服务认证，并保留过期、撤销和一次性消费检查。先升级 Forge 服务端再启用该模式，不支持新入口时不会降级。
+
+默认 false 保留原映射模式。以下示例仅用于已有 Forge 用户映射的宿主：
 
 ```java
 @Bean

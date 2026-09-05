@@ -40,4 +40,16 @@ public class SessionClientRelayController {
     /** Relay 配对请求；subject 只能由宿主身份映射器产生。 */
     public record RelayExchangeRequest(long subjectUserId, String invitationCode) {
     }
+
+    /** 受信宿主以本地身份隔离连接，Forge 参与者由邀请授权确定。 */
+    @PostMapping("/invitations/pair")
+    public SessionDelegationService.ExchangedAccess pair(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestBody RelayPairRequest request) {
+        String clientId = authenticator.authenticate(authorization);
+        return delegations.pairForRelay(request.participantId(), clientId, request.invitationCode(), Instant.now());
+    }
+
+    /** 本地 participantId 仅用于受信宿主的审计关联，不是 Forge 用户 ID。 */
+    public record RelayPairRequest(long participantId, String invitationCode) { }
 }

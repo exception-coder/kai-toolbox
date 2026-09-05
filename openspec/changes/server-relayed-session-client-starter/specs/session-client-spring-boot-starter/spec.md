@@ -8,7 +8,7 @@ The Starter SHALL use Spring Boot auto-configuration, a unique `forge.session-re
 - **THEN** no Relay HTTP or WebSocket endpoint is exposed
 
 ### Requirement: Host-owned identity mapping
-The Starter SHALL require the host to implement a narrow participant resolver that maps the host's authenticated request principal to a Forge user ID. It MUST NOT include a permissive header-based default.
+The Starter SHALL require a resolver of the host's authenticated principal. In default mode it resolves a Forge user ID; with invitation-bound-identity enabled it resolves an isolated local positive binding key and uses the invitation pairing endpoint without fallback. It MUST NOT include a permissive header-based default.
 
 #### Scenario: Anonymous request reaches Relay
 - **WHEN** the host cannot resolve an authenticated participant
@@ -27,4 +27,3 @@ The Starter SHALL bound local ticket lifetime, pending frame count, frame bytes,
 #### Scenario: Browser sends while upstream opens
 - **WHEN** public attach/send frames arrive before the upstream WebSocket is ready
 - **THEN** the Relay buffers only the configured bounded number and closes the bridge on overflow
-

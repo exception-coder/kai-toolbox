@@ -125,6 +125,42 @@ class SessionDelegationServiceTest {
                 org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void invitationPairResolvesGrantSubjectAndRejectsReplay() {
+        SessionInvitation invitation = new SessionInvitation("invitation-1", "grant-1", "hash",
+                NOW.plusSeconds(60), null, null, false, NOW, NOW);
+        when(credentials.hash("one-time-code")).thenReturn("hash");
+        when(repository.findInvitationByHash("hash")).thenReturn(Optional.of(invitation));
+        when(repository.findGrant("grant-1")).thenReturn(Optional.of(grant()));
+        when(repository.consumeInvitation("invitation-1", 20L, NOW)).thenReturn(true, false);
+        when(tokenService.issueForRelay(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(NOW)))
+                .thenReturn(new SessionClientTokenService.IssuedToken("relay-token", NOW.plusSeconds(3_600)));
+        assertThat(service.pairForRelay(85, "business-app", "one-time-code", NOW).accessToken())
+                .isEqualTo("relay-token");
+        assertThatThrownBy(() -> service.pairForRelay(86, "business-app", "one-time-code", NOW))
+                .isInstanceOf(SessionGrantException.class);
+        verify(tokenService, org.mockito.Mockito.times(1)).issueForRelay(grant(), NOW);
+    }
+
+    @Test
+    void invitationPairRejectsExpiredInvitationAndRevokedGrant() {
+        when(credentials.hash("code")).thenReturn("hash");
+        when(repository.findInvitationByHash("hash")).thenReturn(Optional.of(new SessionInvitation(
+                "invite", "grant-1", "hash", NOW.minusSeconds(1), null, null, false, NOW, NOW)));
+        when(repository.findGrant("grant-1")).thenReturn(Optional.of(grant()));
+        assertThatThrownBy(() -> service.pairForRelay(85, "business-app", "code", NOW))
+                .isInstanceOf(SessionGrantException.class);
+        when(repository.findInvitationByHash("hash")).thenReturn(Optional.of(new SessionInvitation(
+                "invite", "grant-1", "hash", NOW.plusSeconds(60), null, null, false, NOW, NOW)));
+        when(repository.findGrant("grant-1")).thenReturn(Optional.of(grant().revoke(grant().version(), NOW)));
+        assertThatThrownBy(() -> service.pairForRelay(85, "business-app", "code", NOW))
+                .isInstanceOf(SessionGrantException.class);
+        org.mockito.Mockito.verifyNoInteractions(tokenService);
+        verify(repository, org.mockito.Mockito.never()).consumeInvitation(
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any());
+    }
+
     private SessionGrantException catchGrant(Runnable call) {
         try {
             call.run();
