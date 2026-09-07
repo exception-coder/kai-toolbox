@@ -53,6 +53,7 @@
 - [x] 7.2 Implement recoverable loading, offline, paused, expired, revoked, replay-gap, rate-limit, and server-error states following the project visual standard.
 - [x] 7.3 Add a Vibe Coding delegation panel with participant/profile/expiry/connection/audit display and create, pause, resume, revoke, copy-invitation, and takeover actions.
 - [x] 7.4 Add frontend component and accessibility tests, then verify representative desktop and mobile states in a real browser.
+- [x] 7.5 Resolve delegated participant display names from the Forge user directory, with username and numeric-ID fallbacks, and cover the owner list with a regression test.
 
 ## 8. Integration and release evidence
 

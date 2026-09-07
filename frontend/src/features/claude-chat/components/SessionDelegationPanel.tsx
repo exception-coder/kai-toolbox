@@ -15,6 +15,11 @@ import {
 
 interface UserOption { userId: number; username: string; realName?: string }
 
+function participantDisplayName(userId: number, users: UserOption[]) {
+  const user = users.find(candidate => candidate.userId === userId)
+  return user?.realName?.trim() || user?.username?.trim() || `用户 #${userId}`
+}
+
 export function SessionDelegationPanel({ sessionId }: { sessionId: string }) {
   const [rows, setRows] = useState<SessionDelegationView[]>([])
   const [users, setUsers] = useState<UserOption[]>([])
@@ -137,7 +142,7 @@ export function SessionDelegationPanel({ sessionId }: { sessionId: string }) {
           <div className="py-12 text-center text-sm text-[var(--color-muted-foreground)]">当前会话尚未委托。选择参与者后创建一个短时邀请。</div>
         ) : rows.map(row => (
           <div key={row.grant.id} className="grid grid-cols-[minmax(12rem,1.3fr)_1fr_1fr_8rem_15rem] items-center gap-3 border-b border-[var(--color-border)] px-2 py-3 text-sm">
-            <div><div className="font-medium">用户 #{row.grant.subjectUserId}</div><div className="mt-0.5 font-mono text-[11px] text-[var(--color-muted-foreground)]">{row.grant.id.slice(0, 12)}</div></div>
+            <div><div className="font-medium">{participantDisplayName(row.grant.subjectUserId, users)}</div><div className="mt-0.5 font-mono text-[11px] text-[var(--color-muted-foreground)]">{row.grant.id.slice(0, 12)}</div></div>
             <div><div>{row.grant.profile === 'DELEGATED_DEVELOPMENT' ? '受约束开发' : '仅提需求'}</div><div className="text-xs text-[var(--color-muted-foreground)]">{row.grant.status}</div></div>
             <div><div>{new Date(row.grant.expiresAt).toLocaleString()}</div><div className="text-xs text-[var(--color-muted-foreground)]">{row.grant.usedTurns}/{row.grant.maxTurns} 轮</div></div>
             <div>{row.connectedClients > 0 ? <span className="text-emerald-700">在线 {row.connectedClients}</span> : <span className="text-[var(--color-muted-foreground)]">未连接</span>}</div>
