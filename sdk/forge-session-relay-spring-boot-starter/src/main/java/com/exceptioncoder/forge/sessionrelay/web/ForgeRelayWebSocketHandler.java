@@ -19,6 +19,7 @@ import java.util.Deque;
 
 /** 将同源下游连接桥接到 Forge 公共 WebSocket，不接触管理端协议。 */
 public final class ForgeRelayWebSocketHandler extends TextWebSocketHandler {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(ForgeRelayWebSocketHandler.class);
     private final ForgeRelayUpstreamClient upstream;
     private final ForgeSessionRelayProperties properties;
     private final StandardWebSocketClient webSocketClient;
@@ -33,20 +34,36 @@ public final class ForgeRelayWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession downstream) {
+        downstream.setTextMessageSizeLimit(properties.getMaxFrameBytes());
         ForgeRelayBinding binding = (ForgeRelayBinding) downstream.getAttributes()
                 .get(ForgeRelayHandshakeInterceptor.BINDING_ATTRIBUTE);
         Bridge bridge = new Bridge(downstream, properties.getMaxPendingFrames(), properties.getMaxFrameBytes());
         downstream.getAttributes().put(Bridge.class.getName(), bridge);
         try {
             URI uri = upstream.createWebSocketUri(binding);
-            webSocketClient.execute(new UpstreamHandler(bridge), new WebSocketHttpHeaders(), uri)
+            WebSocketHttpHeaders headers = upstream.webSocketHeaders(binding, uri);
+            webSocketClient.execute(new UpstreamHandler(bridge), headers, uri)
                     .whenComplete((session, error) -> {
-                        if (error != null) bridge.close(CloseStatus.SERVER_ERROR);
+                        if (error != null) {
+                            logConnectionFailure(error);
+                            bridge.close(CloseStatus.SERVER_ERROR);
+                        }
                         else bridge.attachUpstream(session);
                     });
         } catch (RuntimeException error) {
+            logConnectionFailure(error);
             bridge.close(CloseStatus.SERVER_ERROR);
         }
+    }
+
+    private static void logConnectionFailure(Throwable error) {
+        Throwable cause = error;
+        while (cause.getCause() != null && cause.getCause() != cause) cause = cause.getCause();
+        // 仅记录错误类型与 HTTP 状态数字，避免异常正文泄露 ticket URL。
+        var status = java.util.regex.Pattern.compile("\\b[45][0-9]{2}\\b")
+                .matcher(String.valueOf(cause.getMessage()));
+        LOGGER.warn("Forge upstream WebSocket failed: type={}, status={}",
+                cause.getClass().getSimpleName(), status.find() ? status.group() : "unknown");
     }
 
     @Override
@@ -66,7 +83,9 @@ public final class ForgeRelayWebSocketHandler extends TextWebSocketHandler {
     private static final class UpstreamHandler implements WebSocketHandler {
         private final Bridge bridge;
         private UpstreamHandler(Bridge bridge) { this.bridge = bridge; }
-        @Override public void afterConnectionEstablished(WebSocketSession session) { }
+        @Override public void afterConnectionEstablished(WebSocketSession session) {
+            session.setTextMessageSizeLimit(bridge.maxFrameBytes);
+        }
         @Override public void handleMessage(WebSocketSession session, WebSocketMessage<?> message) {
             if (message instanceof TextMessage text) bridge.fromUpstream(text);
         }

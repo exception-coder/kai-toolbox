@@ -1,6 +1,6 @@
 package com.exceptioncoder.toolbox.claudechat.api;
 
-import com.exceptioncoder.toolbox.claudechat.config.SessionClientProperties;
+import org.springframework.mock.env.MockEnvironment;
 import com.exceptioncoder.toolbox.claudechat.domain.delegation.SessionGrantException;
 import com.exceptioncoder.toolbox.claudechat.service.delegation.SessionDelegationService;
 import com.exceptioncoder.toolbox.claudechat.service.delegation.SessionRelayClientAuthenticator;
@@ -12,10 +12,10 @@ import static org.mockito.Mockito.*;
 class SessionClientRelayControllerTest {
     @Test
     void authenticatesBeforeInvitationLookupAndPassesOnlyLocalParticipant() {
-        var properties = new SessionClientProperties();
-        properties.getRelay().setEnabled(true);
-        properties.getRelay().setClientId("client");
-        properties.getRelay().setClientSecret("secret");
+        var properties = new MockEnvironment();
+        properties.setProperty("toolbox.claude-chat.session-client.relay.enabled", "true");
+        properties.setProperty("toolbox.claude-chat.session-client.relay.client-id", "client");
+        properties.setProperty("toolbox.claude-chat.session-client.relay.client-secret", "secret");
         var service = mock(SessionDelegationService.class);
         var controller = new SessionClientRelayController(new SessionRelayClientAuthenticator(properties), service);
         var request = new SessionClientRelayController.RelayPairRequest(85, "invite");

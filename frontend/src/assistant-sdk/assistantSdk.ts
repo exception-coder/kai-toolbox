@@ -27,7 +27,7 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
   if (singleton) return singleton
 
   const defaultConnection = resolveAssistantConnectionOptions(options)
-  const userRequestBaseUrl = options.transport
+  const userRequestBaseUrl = options.transport || options.getWebSocketUrl
     ? undefined
     : readAssistantRequestBaseUrlPreference(options.appId)
   const connection = resolveAssistantConnectionOptions(userRequestBaseUrl
@@ -43,13 +43,16 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
   if (trackPageUrl && !currentContext.page) currentContext.page = currentAssistantPageContext()
   const providers = new Map(options.providers?.map(provider => [provider.id, provider]) ?? [])
   const root = ensureRoot()
-  const externalLogin = !options.transport && connection.wsUrl && !options.getAccessToken && connection.externalLogin
+  const externalLogin = !options.transport && !options.getWebSocketUrl && connection.wsUrl && !options.getAccessToken && connection.externalLogin
     ? new AssistantExternalLoginClient(connection.externalLogin)
     : undefined
   const webSocketTransport = !options.transport && connection.wsUrl ? new AssistantWebSocketTransport({
     appId: options.appId,
     userId: options.user?.id,
     wsUrl: connection.wsUrl,
+    getWebSocketUrl: options.getWebSocketUrl,
+    apiBasePath: options.apiBasePath,
+    fetcher: options.fetcher,
     getAccessToken: options.getAccessToken ?? (() => externalLogin?.requireAccessToken()),
     authenticationRequired: Boolean(externalLogin),
     onAuthenticationInvalid: () => externalLogin?.clear(),
@@ -68,6 +71,8 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
     },
   } : undefined
   const unmountWidget = (options.mountWidget ?? mountAssistantWidget)(root, {
+    onConfigureConnection: options.onConfigureConnection,
+    onReconnect: webSocketTransport ? () => webSocketTransport.resumeAfterAuthentication() : undefined,
     visibility: options.visibility,
     draggable: options.draggable ?? true,
     positionStorageKey: `kai-assistant:position:${options.appId}:${options.user?.id ?? 'anonymous'}`,
@@ -81,7 +86,7 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
             : undefined,
         }
       : undefined,
-    connectionSettings: !options.transport && defaultConnection.requestBaseUrl && connection.requestBaseUrl
+    connectionSettings: !options.transport && !options.getWebSocketUrl && defaultConnection.requestBaseUrl && connection.requestBaseUrl
       ? {
           effectiveRequestBaseUrl: connection.requestBaseUrl,
           defaultRequestBaseUrl: defaultConnection.requestBaseUrl,

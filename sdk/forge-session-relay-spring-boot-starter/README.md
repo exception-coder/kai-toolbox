@@ -85,3 +85,13 @@ await client.send({ text: '继续完成已绑定 OpenSpec 任务' })
 默认 `InMemoryForgeRelayBindingStore` 有界但重启会丢绑定，仅用于开发验证。生产必须提供自己的 `ForgeRelayBindingStore` Bean，以宿主密钥加密 `accessToken` 并实现到期清理。Starter 会自动退让给该 Bean。
 
 业务系统必须继续保护 `/api/forge-session-relay/v1/**`：HTTP 与 WebSocket 握手应进入同一认证链。不要在访问日志中记录请求 Authorization、邀请码、上游 ticket 或完整 WS URL 查询串。
+
+## 彩虹胶囊模式
+
+业务用户已登录宿主时，启用 `forge.session-relay.capsule-mode: true`。仍使用上面的 Maven 依赖、客户端凭据与 `ForgeRelayParticipantResolver`，无需邀请或绑定 Store 数据。Client ID 必须对应 Forge 的项目路由标识。
+
+浏览器引入 `@kai/assistant-sdk`，配置 `getWebSocketUrl`：向宿主 `POST /api/forge-session-relay/v1/connections` 申请票据，再返回同源 `/api/forge-session-relay/v1/ws?ticket=...` 的 WS/WSS URL。配置 `apiBasePath: '/api/forge-session-relay/v1/capsule'` 和宿主的 Cookie/CSRF `fetcher`。有应用前缀时统一加到这些路径前。不要配置 externalLogin，也不要把 Client Secret 放入 JS。
+
+Java SDK 连接 Forge `/api/session-client/v1/relay/capsule/ws`，Forge 自动建立客户端参与者归属、固定项目并强制只读咨询。历史、反馈及附件经 allowlist REST 入口复用现有所有权检查。默认未启用 capsule-mode 的旧消费者维持原协议。
+
+真实联调测试为 `CapsuleLiveIntegrationTest`，默认跳过；仅在显式提供 `FORGE_CAPSULE_LIVE_TEST=true`、`FORGE_CAPSULE_TEST_URL`、`FORGE_CAPSULE_TEST_SECRET` 时运行。它创建测试参与者的只读会话并调用真实模型，不在源代码保存凭据。

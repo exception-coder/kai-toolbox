@@ -8,6 +8,9 @@ import java.time.Duration;
 @ConfigurationProperties("forge.session-relay")
 public class ForgeSessionRelayProperties {
     private boolean enabled;
+    private boolean capsuleMode;
+    public boolean isCapsuleMode() { return capsuleMode; }
+    public void setCapsuleMode(boolean value) { capsuleMode = value; }
     private boolean invitationBoundIdentity;
     private String forgeBaseUrl = "http://127.0.0.1:8080";
     private String clientId = "";

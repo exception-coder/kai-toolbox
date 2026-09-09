@@ -120,6 +120,8 @@ export interface AssistantFeedbackArchiveClient {
 }
 
 export interface AssistantWidgetMountOptions {
+  onConfigureConnection?: () => void
+  onReconnect?: () => void
   visibility?: AssistantVisibilityOptions
   draggable?: boolean
   positionStorageKey?: string
@@ -142,6 +144,12 @@ export interface AssistantConversationHistoryClient {
 }
 
 export interface AssistantInitOptions {
+  /** 打开宿主的服务端集成配置；不覆盖浏览器连接地址。 */
+  onConfigureConnection?: () => void
+  /** 服务端 SDK 模式：宿主签发一次性同源连接地址，密钥不进入浏览器。 */
+  getWebSocketUrl?: () => Promise<string>
+  apiBasePath?: string
+  fetcher?: typeof fetch
   appId: string
   appName?: string
   /** 宿主发布版本或上下文结构版本；变化时使旧模块探索摘要失效。 */

@@ -67,9 +67,7 @@ public class SessionClientHandshakeInterceptor implements HandshakeInterceptor {
             if (!properties.getAllowedOrigins().isEmpty()) {
                 return properties.getAllowedOrigins().stream().anyMatch(origin::equals);
             }
-            String requestHost = request.getHeaders().getHost() == null
-                    ? request.getURI().getAuthority() : request.getHeaders().getHost().toString();
-            return requestHost != null && requestHost.equalsIgnoreCase(originUri.getAuthority());
+            return org.springframework.web.util.WebUtils.isSameOrigin(request);
         } catch (IllegalArgumentException ignored) {
             return false;
         }

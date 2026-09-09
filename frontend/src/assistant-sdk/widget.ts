@@ -23,6 +23,7 @@ import { MAX_ASSISTANT_DEBUG_ENTRIES } from './assistantDebugLog'
 import { AssistantConversationViewport } from './AssistantConversationViewport'
 import { summarizeFeedbackCounts } from './feedbackSummary'
 import { validateAssistantUserRequestBaseUrl } from './requestBaseUrlPreference'
+import { extractRequirement } from './requirementDraft'
 
 const ELEMENT_NAME = 'kai-assistant-widget'
 const DEFAULT_SHORTCUT: Required<AssistantShortcut> = {
@@ -242,6 +243,15 @@ class AssistantWidgetElement extends HTMLElement {
   }
 
   configure(options: AssistantWidgetMountOptions): void {
+    const configureButton = required<HTMLButtonElement>(this.shadowRoot!, '[data-host-configure]')
+    configureButton.hidden = !options.onConfigureConnection
+    configureButton.onclick = options.onConfigureConnection ? () => {
+      this.close()
+      options.onConfigureConnection?.()
+    } : null
+    const reconnectButton = required<HTMLButtonElement>(this.shadowRoot!, '[data-reconnect]')
+    reconnectButton.hidden = !options.onReconnect
+    reconnectButton.onclick = options.onReconnect ?? null
     this.authentication = options.authentication
     this.authenticated = options.authentication?.authenticated ?? true
     this.feedbackArchive = options.feedbackArchive
@@ -1070,6 +1080,16 @@ class AssistantWidgetElement extends HTMLElement {
       body.textContent = message.content
     }
     article.append(meta, body)
+    if (message.role === 'assistant' && !message.streaming) {
+      const draft = extractRequirement(message.content)
+      if (draft) {
+        const actions = document.createElement('div')
+        actions.className = 'feedback-card-actions'
+        actions.append(this.copyHandoffButton('复制一句话表述', draft.summary),
+          this.copyHandoffButton('复制结构化需求', JSON.stringify(draft, null, 2)))
+        article.append(actions)
+      }
+    }
     if (message.attachments?.length) article.append(this.renderMessageAttachments(message.attachments))
     if (message.streaming) {
       const streaming = document.createElement('span')
@@ -1078,6 +1098,21 @@ class AssistantWidgetElement extends HTMLElement {
       article.append(streaming)
     }
     return article
+  }
+
+  private copyHandoffButton(label: string, value: string): HTMLButtonElement {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'feedback-link'
+    button.textContent = label
+    button.addEventListener('click', () => {
+      void Promise.resolve().then(() => navigator.clipboard.writeText(value)).then(() => {
+        button.textContent = '已复制'
+      }).catch(() => {
+        button.textContent = '复制失败，请从正文选择复制'
+      })
+    })
+    return button
   }
 
   private renderMessageAttachments(attachments: AssistantConversationAttachment[]): HTMLElement {
@@ -1291,7 +1326,8 @@ const template = `
     .assistant-content, .chat-content { display: flex; min-width: 0; min-height: 0; height: 100%; flex-direction: column; overflow: hidden; }
     .panel-header { display: flex; align-items: center; justify-content: space-between; min-height: 72px; padding: 16px 14px 16px 22px; border-bottom: 1px solid #e4e4e7; background: #fff; cursor: grab; user-select: none; touch-action: none; }
     .panel-header:active { cursor: grabbing; }
-    .header-actions { display: flex; align-items: center; gap: 2px; }
+    .header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 2px; }
+    .panel-header > div:first-child { flex-shrink: 0; margin-right: 12px; }
     .eyebrow { margin: 0 0 2px; color: #71717a; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
     h2 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -.015em; }
     .close { min-width: 44px; min-height: 36px; border: 0; border-radius: 7px; background: transparent; color: #52525b; cursor: pointer; }
@@ -1502,6 +1538,8 @@ const template = `
       <header class="panel-header" data-panel-header tabindex="0" aria-label="拖动 AI 助手对话框；Alt 加方向键微调">
         <div><p class="eyebrow">KAI Assistant</p><h2>业务助手</h2></div>
         <div class="header-actions" data-no-drag>
+          <button class="close" type="button" data-host-configure hidden>对接配置</button>
+          <button class="close" type="button" data-reconnect hidden>重新连接</button>
           <button class="close" type="button" data-feedback-open>记录</button>
           <button class="close" type="button" data-debug-toggle aria-expanded="false" aria-controls="assistant-debug-panel">连接</button>
           <button class="close" type="button" data-reset-position>复位</button>

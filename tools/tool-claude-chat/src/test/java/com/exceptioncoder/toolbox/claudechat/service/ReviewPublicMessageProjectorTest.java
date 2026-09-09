@@ -46,8 +46,16 @@ class ReviewPublicMessageProjectorTest {
         ServerMessage error = new ServerMessage.Error(4L, "INTERNAL", "C:/secret failed", true);
         ServerMessage.Ready ready = new ServerMessage.Ready(1L, "review-1", "sdk-secret", List.of("/model"),
                 "RUNNING", "turn-1", "epoch-1", "codex", "thirdParty", "https://gateway.example",
-                List.of("skill"), List.of("agent"), List.of(), "style", List.of(), "gpt-secret", "high",
-                "fast", "server");
+                List.of("skill"), List.of(new ServerMessage.SkillCapability(
+                        "skill", "secret", true, "user", "plugin-secret", "C:/secret", List.of("tool"),
+                        List.of(new ServerMessage.CapabilityProvenance(
+                                "plugin", "plugin", "plugin-secret", true, "runtime")))),
+                List.of(new ServerMessage.PluginCapability(
+                        "plugin-secret", "Plugin", "marketplace", true, true, "1.0", "2.0", true,
+                        List.of(new ServerMessage.CapabilityProvenance(
+                                "plugin", "auth-directory", "plugin-secret", true, "runtime")))),
+                List.of("agent"), List.of(), "style", "codex-app-server", 100L, List.of("secret error"),
+                List.of(), "gpt-secret", "high", "fast", "server");
 
         assertThat(ReviewPublicMessageProjector.projectRealtime(tool)).isNull();
         ServerMessage.Result publicResult = (ServerMessage.Result)
@@ -65,5 +73,8 @@ class ReviewPublicMessageProjectorTest {
         assertThat(publicReady.providerBaseUrl()).isNull();
         assertThat(publicReady.selectedModel()).isNull();
         assertThat(publicReady.slashCommands()).isEmpty();
+        assertThat(publicReady.skillDetails()).isEmpty();
+        assertThat(publicReady.plugins()).isEmpty();
+        assertThat(publicReady.capabilityErrors()).isEmpty();
     }
 }

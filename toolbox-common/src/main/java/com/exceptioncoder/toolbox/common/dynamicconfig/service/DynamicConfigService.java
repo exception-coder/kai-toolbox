@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.common.dynamicconfig.api.dto.ConfigBlockSummar
 import com.exceptioncoder.toolbox.common.dynamicconfig.api.dto.ConfigBlockView;
 import com.exceptioncoder.toolbox.common.dynamicconfig.config.DynamicConfigEnvironmentPostProcessor;
 import com.exceptioncoder.toolbox.common.dynamicconfig.registry.RefreshableConfigRegistry;
+import com.exceptioncoder.toolbox.common.dynamicconfig.registry.DynamicConfigValidatable;
 import com.exceptioncoder.toolbox.common.dynamicconfig.registry.RefreshableConfigRegistry.BlockMeta;
 import com.exceptioncoder.toolbox.common.dynamicconfig.repository.DynamicConfigOverrideRepository;
 import org.slf4j.Logger;
@@ -19,7 +20,10 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.PropertySource;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
@@ -46,25 +50,35 @@ public class DynamicConfigService {
     private final ApplicationEventPublisher publisher;
     private final DynamicConfigOverrideRepository repository;
     private final RefreshableConfigRegistry registry;
+    private final TransactionTemplate transactions;
 
     public DynamicConfigService(ConfigurableEnvironment environment,
                                 ApplicationEventPublisher publisher,
                                 DynamicConfigOverrideRepository repository,
-                                RefreshableConfigRegistry registry) {
+                                RefreshableConfigRegistry registry,
+                                PlatformTransactionManager transactionManager) {
         this.environment = environment;
         this.publisher = publisher;
         this.repository = repository;
         this.registry = registry;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     /** 应用就绪后从 SQLite 装载持久覆盖并触发一次 rebind，使重启后覆盖立即生效。 */
     @EventListener(ApplicationReadyEvent.class)
-    public void loadPersistedOverrides() {
+    public synchronized void loadPersistedOverrides() {
         Map<String, String> persisted = repository.findAll();
         if (persisted.isEmpty()) {
             return;
         }
-        persisted.forEach((key, value) -> overrideMap().put(key, toRuntimeValue(value)));
+        Map<String, Object> candidate = new LinkedHashMap<>(overrideMap());
+        persisted.forEach((key, value) -> candidate.put(key, toRuntimeValue(value)));
+        for (BlockMeta block : registry.blocks()) {
+            if (persisted.keySet().stream().anyMatch(key -> belongsTo(block.prefix(), key))) {
+                validateCandidate(block, candidate);
+            }
+        }
+        installOverrides(candidate);
         publisher.publishEvent(new EnvironmentChangeEvent(persisted.keySet()));
         log.info("[dynamic-config] 已装载 {} 条持久配置覆盖", persisted.size());
     }
@@ -153,6 +167,9 @@ public class DynamicConfigService {
             return;
         }
         for (Field field : meta.beanType().getDeclaredFields()) {
+            if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
             if (isStringListField(field)) {
                 continue;
             }
@@ -177,7 +194,8 @@ public class DynamicConfigService {
         }
     }
 
-    public ConfigBlockView applyOverrides(String blockId, Map<String, String> overrides, List<String> replacePrefixes) {
+    public synchronized ConfigBlockView applyOverrides(String blockId, Map<String, String> overrides,
+                                                       List<String> replacePrefixes) {
         BlockMeta meta = requireBlock(blockId);
         List<String> prefixesToReplace = replacePrefixes == null ? List.of() : replacePrefixes;
         overrides.forEach((key, value) -> {
@@ -191,46 +209,35 @@ public class DynamicConfigService {
             }
         });
 
-        Map<String, Object> map = overrideMap();
-        Map<String, Object> backup = new LinkedHashMap<>();
+        Map<String, Object> map = new LinkedHashMap<>(overrideMap());
         Set<String> removedKeys = map.keySet().stream()
                 .filter(key -> prefixesToReplace.stream().anyMatch(prefix -> belongsTo(prefix, key)))
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        removedKeys.forEach(key -> backup.put(key, map.get(key)));
-        overrides.keySet().forEach(k -> backup.put(k, map.get(k)));
-
         removedKeys.forEach(map::remove);
         overrides.forEach((key, value) -> map.put(key, toRuntimeOverrideValue(key, value, prefixesToReplace)));
-        try {
-            // 用 Binder 把整块绑到目标类型，校验新值类型合法；失败回滚不污染。
-            Binder.get(environment).bind(meta.prefix(), Bindable.of(meta.beanType()));
-        } catch (RuntimeException e) {
-            restore(map, backup);
-            throw DynamicConfigException.valueInvalid("配置值无法绑定到 " + meta.prefix() + ": " + rootMessage(e));
-        }
+        validateCandidate(meta, map);
 
         long now = System.currentTimeMillis();
-        repository.deleteByPrefixes(prefixesToReplace);
-        overrides.forEach((k, v) -> repository.upsert(k, toPersistedValue(k, v, prefixesToReplace), now));
         Set<String> changedKeys = new LinkedHashSet<>(removedKeys);
         changedKeys.addAll(prefixesToReplace);
         changedKeys.addAll(overrides.keySet());
-        publisher.publishEvent(new EnvironmentChangeEvent(changedKeys));
+        activate(map, changedKeys, () -> {
+            repository.deleteByPrefixes(prefixesToReplace);
+            overrides.forEach((k, v) -> repository.upsert(k, toPersistedValue(k, v, prefixesToReplace), now));
+        });
         log.info("[dynamic-config] 应用 {} 条覆盖到 {}", overrides.size(), meta.prefix());
         return view(blockId);
     }
 
-    public ConfigBlockView reset(String blockId) {
+    public synchronized ConfigBlockView reset(String blockId) {
         BlockMeta meta = requireBlock(blockId);
-        Map<String, Object> map = overrideMap();
+        Map<String, Object> map = new LinkedHashMap<>(overrideMap());
         Set<String> removed = map.keySet().stream()
                 .filter(k -> belongsTo(meta.prefix(), k))
                 .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
         removed.forEach(map::remove);
-        repository.deleteByPrefix(meta.prefix());
-        if (!removed.isEmpty()) {
-            publisher.publishEvent(new EnvironmentChangeEvent(removed));
-        }
+        validateCandidate(meta, map);
+        activate(map, removed, () -> repository.deleteByPrefix(meta.prefix()));
         log.info("[dynamic-config] 重置 {}，清除 {} 条覆盖", meta.prefix(), removed.size());
         return view(blockId);
     }
@@ -306,21 +313,57 @@ public class DynamicConfigService {
         throw new IllegalStateException("动态配置覆盖 PropertySource 缺失，EnvironmentPostProcessor 未生效");
     }
 
-    private void restore(Map<String, Object> map, Map<String, Object> backup) {
-        backup.forEach((k, v) -> {
-            if (v == null) {
-                map.remove(k);
-            } else {
-                map.put(k, v);
+    /** 在独立属性源中绑定候选，校验失败不会向并发读者暴露半成品。 */
+    private void validateCandidate(BlockMeta meta, Map<String, Object> values) {
+        StandardEnvironment candidate = new StandardEnvironment();
+        List<String> initialSources = new ArrayList<>();
+        candidate.getPropertySources().forEach(source -> initialSources.add(source.getName()));
+        initialSources.forEach(candidate.getPropertySources()::remove);
+        environment.getPropertySources().forEach(source -> {
+            if (!source.getName().equals("configurationProperties")) {
+                candidate.getPropertySources().addLast(
+                        source.getName().equals(DynamicConfigEnvironmentPostProcessor.SOURCE_NAME)
+                                ? new MapPropertySource(source.getName(), values) : source);
             }
         });
+        Object bound;
+        try {
+            bound = Binder.get(candidate).bindOrCreate(meta.prefix(), Bindable.of(meta.beanType()));
+        } catch (RuntimeException error) {
+            throw DynamicConfigException.valueInvalid("配置值无法绑定到 " + meta.prefix() + "，请检查字段类型");
+        }
+        if (bound instanceof DynamicConfigValidatable validatable) {
+            try {
+                validatable.validateConfiguration();
+            } catch (IllegalArgumentException error) {
+                throw DynamicConfigException.valueInvalid(error.getMessage());
+            }
+        }
     }
 
-    private String rootMessage(Throwable e) {
-        Throwable cur = e;
-        while (cur.getCause() != null && cur.getCause() != cur) {
-            cur = cur.getCause();
+    /** 事务内保存并刷新；任何失败恢复旧属性源与消费者。 */
+    private void activate(Map<String, Object> candidate, Set<String> keys, Runnable persist) {
+        Map<String, Object> previous = new LinkedHashMap<>(overrideMap());
+        try {
+            transactions.executeWithoutResult(status -> {
+                persist.run();
+                installOverrides(candidate);
+                publisher.publishEvent(new EnvironmentChangeEvent(keys));
+            });
+        } catch (RuntimeException error) {
+            installOverrides(previous);
+            try {
+                publisher.publishEvent(new EnvironmentChangeEvent(keys));
+            } catch (RuntimeException restoreError) {
+                error.addSuppressed(restoreError);
+            }
+            throw error;
         }
-        return cur.getMessage();
+    }
+
+    private void installOverrides(Map<String, Object> values) {
+        environment.getPropertySources().replace(DynamicConfigEnvironmentPostProcessor.SOURCE_NAME,
+                new MapPropertySource(DynamicConfigEnvironmentPostProcessor.SOURCE_NAME,
+                        java.util.Collections.unmodifiableMap(new LinkedHashMap<>(values))));
     }
 }

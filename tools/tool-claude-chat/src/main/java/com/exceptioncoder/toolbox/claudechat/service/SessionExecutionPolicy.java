@@ -21,6 +21,7 @@ public final class SessionExecutionPolicy {
     }
 
     public static String forWebSocket(URI uri) {
+        if (uri != null && "/api/session-client/v1/relay/capsule/ws".equals(uri.getPath())) return CONSULT_READONLY;
         if (uri != null && CONSULT_WS_PATH.equals(uri.getPath())) return CONSULT_READONLY;
         if (uri != null && REVIEW_WS_PATH.equals(uri.getPath())) return REVIEW_ONLY;
         if (uri != null && SESSION_CLIENT_WS_PATH.equals(uri.getPath())) return DELEGATED_DEVELOPMENT;

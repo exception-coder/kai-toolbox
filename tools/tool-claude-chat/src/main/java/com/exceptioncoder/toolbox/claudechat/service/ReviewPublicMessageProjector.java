@@ -39,8 +39,9 @@ public final class ReviewPublicMessageProjector {
     public static ServerMessage projectRealtime(ServerMessage message) {
         if (message instanceof ServerMessage.Ready ready) {
             return new ServerMessage.Ready(ready.seq(), ready.sessionId(), null, List.of(), ready.status(),
-                    ready.activeTurnId(), ready.epoch(), null, null, null, List.of(), List.of(), List.of(),
-                    null, List.of(), null, null, null, null);
+                    ready.activeTurnId(), ready.epoch(), null, null, null,
+                    List.of(), List.of(), List.of(), List.of(), List.of(), null,
+                    "unknown", 0L, List.of(), List.of(), null, null, null, "server");
         }
         if (message instanceof ServerMessage.AssistantDelta
                 || message instanceof ServerMessage.InterruptState) {

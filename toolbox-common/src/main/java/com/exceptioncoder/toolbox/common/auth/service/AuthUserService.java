@@ -84,6 +84,27 @@ public class AuthUserService {
         return repository.findById(userId).orElseThrow(AuthException::tokenInvalid);
     }
 
+    /** 为已认证业务客户端的用户创建稳定的内部归属；不签发登录凭据。 */
+    public synchronized AuthUser resolveClientIdentity(String clientId, long participantId) {
+        if (clientId == null || clientId.isBlank() || participantId <= 0) {
+            throw new IllegalArgumentException("客户端用户身份无效");
+        }
+        String name;
+        try {
+            byte[] hash = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest((clientId + ":" + participantId).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            name = "capsule-" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(hash);
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 不可用", exception);
+        }
+        AuthUser user = repository.findByUsername(name).orElse(null);
+        if (user == null) {
+            user = create(name, UUID.randomUUID() + UUID.randomUUID().toString(), List.of("USER"), clientId + " / " + participantId);
+        }
+        if (!user.isEnabled()) throw AuthException.userDisabled();
+        return user;
+    }
+
     // ===== 管理后台（ADMIN）：用户列表 / 角色 / 启停 / 重置密码 / 删除 =====
     // 注意：吊销 refresh 由 Controller 层调 TokenService 完成，避免 AuthUserService↔TokenService 循环依赖。
 

@@ -14,6 +14,42 @@ afterEach(() => {
 })
 
 describe('assistant widget', () => {
+  it('exposes host configuration and manual recovery without browser address overrides', () => {
+    const onConfigureConnection = vi.fn()
+    initializeAssistant({ appId: 'host', wsUrl: '/capsule/ws', getWebSocketUrl: async () => '/capsule/ws',
+      onConfigureConnection }).open('AUTO')
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    const configure = shadow.querySelector<HTMLButtonElement>('[data-host-configure]')!
+    expect(configure.hidden).toBe(false)
+    expect(shadow.querySelector<HTMLButtonElement>('[data-reconnect]')!.hidden).toBe(false)
+    expect(shadow.querySelector<HTMLElement>('[data-connection-panel]')?.hidden ?? true).toBe(true)
+    configure.click()
+    expect(onConfigureConnection).toHaveBeenCalledOnce()
+    expect(shadow.querySelector<HTMLElement>('[data-panel]')!.hidden).toBe(true)
+  })
+  it('copies validated handoff fields only after streaming completes', async () => {
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    initializeAssistant({ appId: 'yoooni-one' }).open('AUTO')
+    const root = document.getElementById('kai-assistant-widget-root')!
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    const draft = { title: '逾期筛选', kind: '优化', summary: '在样衣借用列表增加逾期筛选，便于定位待归还样衣。', current: '筛选不便', expected: '可筛选逾期', scope: '借用列表', acceptance: ['仅展示已逾期且未归还记录'], evidence: [], questions: ['确认逾期口径'] }
+    const content = '```requirement-json\n' + JSON.stringify(draft) + '\n```'
+    const render = (streaming: boolean, text = content) => root.dispatchEvent(new CustomEvent<AssistantWidgetState>('kai-assistant-state', {
+      detail: { messages: [{ id: 'draft', role: 'assistant', content: text, streaming }] },
+    }))
+    render(true)
+    expect(shadow.textContent).not.toContain('复制结构化需求')
+    render(false)
+    const buttons = [...shadow.querySelectorAll<HTMLButtonElement>('button')]
+    buttons.find(button => button.textContent === '复制一句话表述')!.click()
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(draft.summary))
+    buttons.find(button => button.textContent === '复制结构化需求')!.click()
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(JSON.stringify(draft, null, 2)))
+    render(false, '```requirement-json\n{"title":"不完整"}\n```')
+    expect(shadow.textContent).not.toContain('复制结构化需求')
+    Reflect.deleteProperty(navigator, 'clipboard')
+  })
   it('shows the browser request origin override ahead of the Loader default', () => {
     writeAssistantRequestBaseUrlPreference('ERP', 'http://10.10.8.20:8080')
     initializeAssistant({

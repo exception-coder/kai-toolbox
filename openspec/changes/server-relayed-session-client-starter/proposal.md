@@ -28,3 +28,5 @@ HTTPS 业务前端无法安全地直接连接开发人员局域网中的 Forge `
 - 无人工执行 SQL；Starter 默认内存绑定仓储仅用于开发，生产宿主必须提供持久化加密实现。
 - 远端浏览器只访问业务域名的 HTTPS/WSS；业务服务到 Forge 可在受控内网使用 WS，生产推荐 TLS/VPN/mTLS。
 
+
+- Publish the complete optional React collaboration workbench with standalone styles and host context/transport contracts.

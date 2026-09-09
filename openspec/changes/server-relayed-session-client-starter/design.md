@@ -60,3 +60,12 @@ HTTPS Browser --business auth--> Business Spring Boot
 - Forge 测试覆盖关闭默认值、Relay 认证、subject 不匹配、邀请重放和敏感错误收敛。
 - Starter 测试覆盖条件装配、宿主身份解析、绑定隔离、ticket 单次消费、上游请求头和 WS 双向关闭/有界缓冲。
 - 执行模块测试、TypeScript SDK 测试/构建、OpenSpec strict validation 和 Forge Quality Gate。
+
+## Reusable React workbench
+
+Forge owns the complete collaboration workbench, published through @kai/session-client/react and @kai/session-client/style.css. The framework-independent root entry remains available. Host identity, session reading, pairing and authenticated client construction enter through a typed adapter; system and module context are props, not hard-coded business data. Styles ship compiled and scoped to the control, React remains external. No protocol, server privilege, persistence or deployment behavior changes. Consumer implementation and acceptance are coordinated with Yoooni One optimize-business-collaboration-workbench; tests for the control live here.
+## Relay upstream Origin contract
+
+Forge public WebSocket handshakes require an Origin even for server clients. The Starter derives that Origin from the configured Forge endpoint authority and HTTP(S) scheme, never from the business browser Origin or ticket query. This preserves the existing Forge validation without adding a user setting. Verify through the Yoooni HTTPS entry after building and installing the Starter.
+
+Default same-origin comparison uses Spring WebUtils rather than InetSocketAddress display text. Explicit allowed origins and the secure-or-loopback restriction remain in force. Upstream connection failures expose only exception type and HTTP status to server logs, never ticket URLs.

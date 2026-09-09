@@ -35,3 +35,10 @@ Bindings SHALL be isolated by Relay client and mapped principal. Ticket replay, 
 #### Scenario: Upstream grant is revoked
 - **WHEN** Forge rejects or closes a relayed connection because its Grant was revoked
 - **THEN** the Relay closes the corresponding downstream connection and does not reconnect indefinitely
+
+### Requirement: Optional reusable React workbench
+The SDK SHALL distribute the full collaboration workbench through an optional React entry, accepting authenticated host adapters and configurable module context, with compiled scoped styles.
+
+#### Scenario: Business system integration
+- **WHEN** another React system imports the workbench and supplies its adapter and context
+- **THEN** it can render conversation and requirement review without host-private code or Tailwind tooling, while the framework-independent root entry remains available

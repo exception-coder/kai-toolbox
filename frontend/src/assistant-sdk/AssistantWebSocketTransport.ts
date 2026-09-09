@@ -28,6 +28,7 @@ import {
 
 const MAX_RECONNECT_DELAY_MS = 30_000
 const BASE_RECONNECT_DELAY_MS = 500
+const MAX_RECONNECT_ATTEMPTS = 5
 const MODULE_CONTEXT_RESOLVE_TIMEOUT_MS = 2_000
 const SEND_ACK_TIMEOUT_MS = 12_000
 
@@ -36,6 +37,8 @@ export interface AssistantWebSocketTransportOptions {
   userId?: string
   wsUrl: string
   getAccessToken?: () => string | undefined | Promise<string | undefined>
+  getWebSocketUrl?: () => Promise<string>
+  apiBasePath?: string
   authenticationRequired?: boolean
   onAuthenticationInvalid?: () => void
   workspace?: string
@@ -124,6 +127,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   private backgroundTaskCount = 0
   private queueSize = 0
   private reconnectAttempts = 0
+  private reconnectPaused = false
   private reconnectTimer?: number
   private destroyed = false
   private draftId?: string
@@ -230,7 +234,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     const headers = new Headers(init.headers)
     if (token) headers.set('Authorization', `Bearer ${token}`)
     if (init.body) headers.set('Content-Type', 'application/json')
-    const response = await (this.options.fetcher ?? fetch)(resolveAssistantApiUrl(this.options.wsUrl, path), {
+    const response = await (this.options.fetcher ?? fetch)(resolveAssistantApiUrl(this.options.wsUrl, (this.options.apiBasePath ?? '') + path), {
       ...init, headers,
     })
     if (!response.ok) throw new Error(await assistantApiError(response))
@@ -242,6 +246,8 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer)
     this.reconnectTimer = undefined
     this.reconnectAttempts = 0
+    this.reconnectPaused = false
+    this.emit('正在重连')
     const version = ++this.connectionVersion
     const socket = this.socket
     this.socket = undefined
@@ -339,10 +345,26 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   }
 
   private connect(): void {
-    if (this.destroyed || this.connecting || this.socket?.readyState === WebSocket.CONNECTING) return
+    if (this.destroyed) return
+    if (this.reconnectPaused) {
+      this.emit('连接失败', '自动重试已停止，请检查对接配置及服务或隧道后点击“重新连接”。')
+      return
+    }
+    if (this.connecting
+        || this.socket?.readyState === WebSocket.CONNECTING || this.socket?.readyState === WebSocket.OPEN) return
     this.connecting = true
     const version = ++this.connectionVersion
     this.debug('connection', '开始建立 WebSocket 连接', { attempt: this.reconnectAttempts + 1 })
+    if (this.options.getWebSocketUrl) {
+      void Promise.resolve().then(() => this.options.getWebSocketUrl!()).then(url => {
+        if (version === this.connectionVersion) this.openSocket(undefined, version, url)
+      }).catch(error => {
+        if (version !== this.connectionVersion || this.destroyed) return
+        this.connecting = false
+        this.scheduleReconnect(error instanceof Error ? error.message : '胶囊连接暂不可用')
+      })
+      return
+    }
     let token: string | undefined | Promise<string | undefined>
     try {
       token = this.options.getAccessToken?.()
@@ -364,7 +386,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     this.openSocket(token, version)
   }
 
-  private openSocket(accessToken: string | undefined, version: number): void {
+  private openSocket(accessToken: string | undefined, version: number, connectionUrl?: string): void {
     if (version !== this.connectionVersion) return
     this.connecting = false
     if (this.destroyed) return
@@ -373,13 +395,13 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
       return
     }
     const factory = this.options.webSocketFactory ?? (url => new WebSocket(url))
-    const socket = factory(resolveWebSocketUrl(this.options.wsUrl, accessToken))
+    const socket = factory(connectionUrl ?? resolveWebSocketUrl(this.options.wsUrl, accessToken))
     this.socket = socket
     socket.addEventListener('open', () => this.onOpen(socket))
     socket.addEventListener('message', event => {
       if (socket === this.socket) this.onMessage(event.data)
     })
-    socket.addEventListener('close', () => this.onClose(socket))
+    socket.addEventListener('close', event => this.onClose(socket, event.code))
     socket.addEventListener('error', () => {
       if (socket !== this.socket) return
       this.debug('error', 'WebSocket 连接失败')
@@ -388,8 +410,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
 
   private onOpen(socket: WebSocket): void {
     if (socket !== this.socket) return
-    this.reconnectAttempts = 0
-    this.debug('connection', 'WebSocket 连接成功', { restoringSession: Boolean(this.sessionId) })
+    this.debug('connection', 'WebSocket 握手成功，等待会话就绪', { restoringSession: Boolean(this.sessionId) })
     if (this.sessionId) {
       this.send({ type: 'attach', sessionId: this.sessionId, lastEventSeq: this.lastSeq })
     } else {
@@ -404,17 +425,33 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
     }
   }
 
-  private onClose(socket: WebSocket): void {
+  private onClose(socket: WebSocket, code: number): void {
     if (socket !== this.socket) return
     this.socket = undefined
     this.conversationAnalysisInFlight = false
     this.resetLoadingModuleContexts()
     if (this.destroyed) return
-    this.debug('connection', 'WebSocket 连接关闭，准备重连')
-    this.emit(this.pageIdentity && !this.sessionId ? '正在载入页面会话' : '正在重连')
+    this.debug('connection', 'WebSocket 连接关闭', { code })
+    this.scheduleReconnect(this.options.getWebSocketUrl
+      ? '服务端会话连接失败，请检查平台集成配置及 Forge 服务或隧道。'
+      : '会话连接失败，请检查连接地址及服务状态。')
+  }
+
+  private scheduleReconnect(message: string): void {
+    if (this.destroyed) return
+    if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer)
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.reconnectPaused = true
+      this.emit('连接失败', `${message} 自动重试已停止，可点击“重新连接”。`)
+      return
+    }
     const delay = Math.min(MAX_RECONNECT_DELAY_MS, BASE_RECONNECT_DELAY_MS * 2 ** this.reconnectAttempts)
     this.reconnectAttempts += 1
-    this.reconnectTimer = window.setTimeout(() => this.connect(), delay)
+    this.emit('正在重连', `${message} ${delay / 1000} 秒后重试（${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}）。`)
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = undefined
+      this.connect()
+    }, delay)
   }
 
   private onMessage(raw: unknown): void {
@@ -526,6 +563,8 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   }
 
   private completeReady(): void {
+    this.reconnectAttempts = 0
+    this.reconnectPaused = false
     this.flushPending()
     if (this.awaitingSendAck.size > 0) {
       this.emit('正在确认消息是否送达', '正在等待服务端确认消息已进入 AI 执行队列')
@@ -717,7 +756,8 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
         const body = new FormData()
         body.append('file', attachment.file, attachment.name)
         const headers = token ? { Authorization: `Bearer ${token}` } : undefined
-        const response = await fetcher(resolveAttachmentUploadUrl(this.options.wsUrl, this.sessionId), {
+        const response = await fetcher(resolveAssistantApiUrl(this.options.wsUrl,
+          (this.options.apiBasePath ?? '') + `/api/claude-chat/sessions/${encodeURIComponent(this.sessionId)}/attachments`), {
           method: 'POST', headers, body,
         })
         if (response.status === 401) throw new AssistantUploadAuthenticationError('Forge 登录已失效，请重新登录')
@@ -1113,17 +1153,8 @@ function safeProtocolMetadata(value: Record<string, unknown>): Record<string, st
 
 function resolveWebSocketUrl(value: string, accessToken?: string): string {
   const url = new URL(value, window.location.href)
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  url.protocol = url.protocol === 'https:' || url.protocol === 'wss:' ? 'wss:' : 'ws:'
   if (accessToken) url.searchParams.set('access_token', accessToken)
-  return url.toString()
-}
-
-function resolveAttachmentUploadUrl(wsUrl: string, sessionId: string): string {
-  const url = new URL(wsUrl, window.location.href)
-  url.protocol = url.protocol === 'wss:' || url.protocol === 'https:' ? 'https:' : 'http:'
-  url.pathname = `/api/claude-chat/sessions/${encodeURIComponent(sessionId)}/attachments`
-  url.search = ''
-  url.hash = ''
   return url.toString()
 }
 

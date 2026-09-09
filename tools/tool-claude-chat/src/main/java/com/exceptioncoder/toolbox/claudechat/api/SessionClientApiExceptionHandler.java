@@ -3,6 +3,8 @@ package com.exceptioncoder.toolbox.claudechat.api;
 import com.exceptioncoder.toolbox.claudechat.domain.delegation.SessionClientErrorCode;
 import com.exceptioncoder.toolbox.claudechat.domain.delegation.SessionGrantException;
 import org.springframework.http.HttpStatus;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -12,6 +14,7 @@ import java.time.Instant;
 /** 将会话委托领域拒绝映射为稳定且不泄漏资源存在性的公共错误。 */
 @RestControllerAdvice(assignableTypes = {SessionDelegationController.class, SessionClientController.class,
         SessionClientRelayController.class})
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class SessionClientApiExceptionHandler {
 
     /**

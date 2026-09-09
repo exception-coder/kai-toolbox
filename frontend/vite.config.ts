@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import mkcert from 'vite-plugin-mkcert'
 import path from 'node:path'
+import type { ClientRequest, IncomingMessage } from 'node:http'
+import type { TLSSocket } from 'node:tls'
 
 const logger = createLogger()
 const logError = logger.error.bind(logger)
@@ -96,14 +98,17 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
         configure: (proxy) => {
-          proxy.on('proxyReq', (proxyRequest, request) => {
+          const forwardOrigin = (proxyRequest: ClientRequest, request: IncomingMessage) => {
             const originalHost = request.headers.host
             if (originalHost) {
               proxyRequest.setHeader('X-Forwarded-Host', originalHost)
             } else {
               proxyRequest.removeHeader('X-Forwarded-Host')
             }
-          })
+            proxyRequest.setHeader('X-Forwarded-Proto', (request.socket as TLSSocket).encrypted ? 'https' : 'http')
+          }
+          proxy.on('proxyReq', forwardOrigin)
+          proxy.on('proxyReqWs', forwardOrigin)
         },
       },
       // 守护进程 HTTP 控制口（run-supervised.ps1 的 HttpListener）：一键重启走这里，

@@ -40,3 +40,16 @@
 `mvn -q -pl tools/tool-claude-chat -am test -Dtest=SessionDelegationServiceTest,SessionClientRelayControllerTest,SessionRelayClientAuthenticatorTest -Dsurefire.failIfNoSpecifiedTests=false` exit 0，10 测试通过；涵盖新入口认证、本地键不同于 Forge subject、重放、过期及撤销，旧 subject 不匹配仍拒绝。Starter install 及 8 测试通过。Yoooni One Boot 4.1 消费测试验证新 endpoint/body 与本地 binding ID；旧协议消费测试仍通过。
 
 `scripts/forge-quality.ps1 verify -Project . -Format json` exit 0、status PASSED；executedCheckers 为空，实际只执行 API-RUNTIME-001（现运行服务 `/api/tools` HTTP 200），不证明新接口已经部署或真实配对成功。两端 strict validation 通过。本轮不改 DDL，不归档，不覆盖其他工作区修改。
+
+- 2026-09-05 联调：28080 隧道可达，已发布凭据认证通过；无效诊断邀请被通用 Advice 误转 500。专用 Advice 增加优先级，SessionClientApiExceptionHandlerTest 两项测试通过。真实最新邀请已过期，未消费；真实配对和运行进程加载仍待验证。
+
+- 后续真实配对进入成功路径，Nginx 因重复 Transfer-Encoding 拒绝响应为 502。SDK get/upload 改为仅保留 Content-Type 并设置 no-store，过滤上游传输和身份头；新增两条回归，SDK install 通过。测试环境更新及真实恢复仍待验证。
+
+- 2026-09-06：新增宿主 get/session 回归复现 Spring 7 HttpHeaders 不再实现 MultiValueMap 导致 IncompatibleClassChangeError。SDK 改用 ResponseEntity builder；SDK install 与宿主三项兼容测试通过，后端脚本发布中。
+
+## 6. Reusable collaboration workbench
+
+- [x] 6.3 Supply the target Forge Origin in server-side WebSocket handshakes and verify live HTTPS relay recovery.
+
+- [x] 6.1 Publish optional React workbench, types and scoped CSS without coupling protocol-only consumers to React.
+- [x] 6.2 Migrate UI/model regressions and verify standalone package consumer and Yoooni integration.

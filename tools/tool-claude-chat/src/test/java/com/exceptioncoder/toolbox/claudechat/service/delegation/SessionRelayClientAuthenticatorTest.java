@@ -1,6 +1,6 @@
 package com.exceptioncoder.toolbox.claudechat.service.delegation;
 
-import com.exceptioncoder.toolbox.claudechat.config.SessionClientProperties;
+import org.springframework.mock.env.MockEnvironment;
 import com.exceptioncoder.toolbox.claudechat.domain.delegation.SessionGrantException;
 import org.junit.jupiter.api.Test;
 
@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SessionRelayClientAuthenticatorTest {
     @Test
     void acceptsConfiguredBasicCredential() {
-        SessionClientProperties properties = properties(true);
+        MockEnvironment properties = properties(true);
         SessionRelayClientAuthenticator authenticator = new SessionRelayClientAuthenticator(properties);
 
         assertThat(authenticator.authenticate(basic("business-app", "secret-value")))
@@ -33,11 +33,11 @@ class SessionRelayClientAuthenticatorTest {
                 .isInstanceOf(SessionGrantException.class);
     }
 
-    private static SessionClientProperties properties(boolean enabled) {
-        SessionClientProperties properties = new SessionClientProperties();
-        properties.getRelay().setEnabled(enabled);
-        properties.getRelay().setClientId("business-app");
-        properties.getRelay().setClientSecret("secret-value");
+    private static MockEnvironment properties(boolean enabled) {
+        MockEnvironment properties = new MockEnvironment();
+        properties.setProperty("toolbox.claude-chat.session-client.relay.enabled", String.valueOf(enabled));
+        properties.setProperty("toolbox.claude-chat.session-client.relay.client-id", "business-app");
+        properties.setProperty("toolbox.claude-chat.session-client.relay.client-secret", "secret-value");
         return properties;
     }
 

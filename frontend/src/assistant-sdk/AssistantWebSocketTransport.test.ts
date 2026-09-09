@@ -38,6 +38,87 @@ const snapshot: AssistantContextSnapshot = {
 }
 
 describe('AssistantWebSocketTransport', () => {
+  it('bounds reconnects across successful handshakes until protocol readiness and allows manual recovery', () => {
+    vi.useFakeTimers()
+    const sockets: FakeWebSocket[] = []
+    const states: AssistantWidgetState[] = []
+    const transport = new AssistantWebSocketTransport({ appId: 'retry-test', wsUrl: '/capsule/ws', storage: memoryStorage(),
+      webSocketFactory: () => { const socket = new FakeWebSocket(); sockets.push(socket); return socket as unknown as WebSocket } })
+    try {
+      transport.start(state => states.push(state))
+      transport.submit({ mode: 'QUESTION', text: '保留待发送内容', snapshot })
+      for (let attempt = 0; attempt <= 5; attempt++) {
+        sockets[attempt].open()
+        sockets[attempt].close()
+        if (attempt < 5) {
+          vi.advanceTimersByTime(500 * 2 ** attempt - 1)
+          expect(sockets).toHaveLength(attempt + 1)
+          vi.advanceTimersByTime(1)
+        }
+      }
+      vi.advanceTimersByTime(60_000)
+      expect(sockets).toHaveLength(6)
+      expect(states.at(-1)).toMatchObject({ state: '连接失败', message: expect.stringContaining('自动重试已停止') })
+      transport.updateContext({ page: { url: '/configuration' } })
+      expect(states.at(-1)).toMatchObject({ state: '连接失败' })
+      expect(sockets).toHaveLength(6)
+      transport.updateContext({ page: undefined })
+      transport.resumeAfterAuthentication()
+      expect(sockets).toHaveLength(7)
+      sockets[6].open()
+      sockets[6].receive({ type: 'ready', sessionId: 'recovered', status: 'IDLE' })
+      expect(sockets[6].sent.join()).toContain('保留待发送内容')
+      sockets[6].close()
+      vi.advanceTimersByTime(500)
+      expect(sockets).toHaveLength(8)
+    } finally { transport.destroy(); vi.useRealTimers() }
+  })
+
+  it('also bounds failures requesting host tickets', async () => {
+    vi.useFakeTimers()
+    const states: AssistantWidgetState[] = []
+    const getWebSocketUrl = vi.fn().mockRejectedValue(new Error('宿主票据不可用'))
+    const transport = new AssistantWebSocketTransport({ appId: 'ticket-retry', wsUrl: '/capsule/ws',
+      getWebSocketUrl, storage: memoryStorage() })
+    try {
+      transport.start(state => states.push(state))
+      transport.submit({ mode: 'QUESTION', text: '测试', snapshot })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(getWebSocketUrl).toHaveBeenCalledTimes(6)
+      expect(states.at(-1)).toMatchObject({ state: '连接失败', message: expect.stringContaining('自动重试已停止') })
+    } finally { transport.destroy(); vi.useRealTimers() }
+  })
+  it('preserves secure websocket URLs', () => {
+    const urls: string[] = []
+    const transport = new AssistantWebSocketTransport({ appId: 'one', wsUrl: 'wss://example.test/capsule/ws',
+      webSocketFactory: url => { urls.push(url); return new FakeWebSocket() as unknown as WebSocket }, storage: memoryStorage() })
+    transport.submit({ mode: 'QUESTION', text: '测试', snapshot })
+    expect(new URL(urls[0]).protocol).toBe('wss:')
+    transport.destroy()
+  })
+
+  it('ignores a host ticket completed after destruction', async () => {
+    let complete!: (url: string) => void
+    const getWebSocketUrl = vi.fn(() => new Promise<string>(resolve => { complete = resolve }))
+    const factory = vi.fn(() => new FakeWebSocket() as unknown as WebSocket)
+    const transport = new AssistantWebSocketTransport({ appId: 'one', wsUrl: '/capsule/ws', getWebSocketUrl,
+      webSocketFactory: factory, storage: memoryStorage() })
+    transport.submit({ mode: 'QUESTION', text: '测试', snapshot })
+    await vi.waitFor(() => expect(getWebSocketUrl).toHaveBeenCalledTimes(1))
+    transport.destroy()
+    complete('wss://host.test/capsule/ws?ticket=one-use')
+    await Promise.resolve()
+    expect(factory).not.toHaveBeenCalled()
+  })
+
+  it('opens the exact host-issued URL without Forge credentials', async () => {
+    const factory = vi.fn((_url: string) => new FakeWebSocket() as unknown as WebSocket)
+    const transport = new AssistantWebSocketTransport({ appId: 'one', wsUrl: '/capsule/ws',
+      getWebSocketUrl: async () => 'wss://host.test/capsule/ws?ticket=one-use', webSocketFactory: factory, storage: memoryStorage() })
+    transport.submit({ mode: 'QUESTION', text: '测试', snapshot })
+    await vi.waitFor(() => expect(factory).toHaveBeenCalledWith('wss://host.test/capsule/ws?ticket=one-use'))
+    transport.destroy()
+  })
   it('returns to the login state instead of opening a websocket without a required token', () => {
     const factory = vi.fn()
     const states: AssistantWidgetState[] = []
@@ -131,7 +212,7 @@ describe('AssistantWebSocketTransport', () => {
       expect(invalidateAuthentication).not.toHaveBeenCalled()
       sockets[1].open()
       sockets[1].close()
-      vi.advanceTimersByTime(500)
+      vi.advanceTimersByTime(1000)
       expect(sockets).toHaveLength(3)
       expect(invalidateAuthentication).not.toHaveBeenCalled()
       transport.destroy()
@@ -306,7 +387,7 @@ describe('AssistantWebSocketTransport', () => {
     socket.close()
 
     expect(states.filter(state => state.state).at(-1)).toMatchObject({
-      state: '正在载入页面会话', message: undefined,
+      state: '正在重连', message: expect.stringContaining('重试（1/5）'),
     })
     transport.destroy()
   })

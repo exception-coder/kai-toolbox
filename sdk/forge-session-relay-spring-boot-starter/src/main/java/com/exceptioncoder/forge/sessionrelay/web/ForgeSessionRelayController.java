@@ -69,7 +69,41 @@ public class ForgeSessionRelayController {
 
     @PostMapping("/connections")
     public LocalConnectionTicketStore.IssuedTicket connection(HttpServletRequest request) {
+        if (upstream.isCapsuleMode()) {
+            return tickets.issue(new ForgeRelayBinding(subject(request), "", java.time.Instant.now().plusSeconds(3600), "", ""));
+        }
         return tickets.issue(binding(request));
+    }
+
+    public ResponseEntity<byte[]> capsuleApi(String path, byte[] body, HttpServletRequest request) {
+        return upstream.capsuleApi(subject(request), path, request.getMethod(), body, request.getContentType());
+    }
+
+    /** 自动装配的同源胶囊历史及草稿接口。 */
+    @RequestMapping(value = "/capsule/api/**", method = {
+            org.springframework.web.bind.annotation.RequestMethod.GET,
+            org.springframework.web.bind.annotation.RequestMethod.PATCH})
+    public ResponseEntity<byte[]> capsuleRequest(@RequestBody(required = false) byte[] body,
+            HttpServletRequest request) {
+        return capsuleApi(capsulePath(request), body, request);
+    }
+
+    /** 附件沿用宿主身份，经服务端上传到所属会话。 */
+    @PostMapping(value = "/capsule/api/claude-chat/sessions/{sessionId}/attachments",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<byte[]> capsuleAttachment(@RequestPart("file") MultipartFile file,
+            HttpServletRequest request) throws IOException {
+        return capsuleUpload(capsulePath(request), file, request);
+    }
+
+    private String capsulePath(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        String path = uri.substring(uri.indexOf("/capsule/api/") + "/capsule".length());
+        return request.getQueryString() == null ? path : path + "?" + request.getQueryString();
+    }
+
+    public ResponseEntity<byte[]> capsuleUpload(String path, MultipartFile file, HttpServletRequest request) throws IOException {
+        return upstream.capsuleUpload(subject(request), path, file);
     }
 
     private ForgeRelayBinding binding(HttpServletRequest request) {

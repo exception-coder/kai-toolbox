@@ -21,6 +21,7 @@ public final class ForgeRelayUpstreamClient {
     private static final String UPSTREAM_PATH = "/api/session-client/v1";
     private final ForgeSessionRelayProperties properties;
     private final RestClient restClient;
+    private static final String CAPSULE_PATH = "/api/session-client/v1/relay/capsule";
 
     public ForgeRelayUpstreamClient(ForgeSessionRelayProperties properties, RestClient.Builder builder) {
         this.properties = properties;
@@ -45,8 +46,8 @@ public final class ForgeRelayUpstreamClient {
     }
 
     public ResponseEntity<byte[]> get(ForgeRelayBinding binding, String relativePath) {
-        return restClient.get().uri(UPSTREAM_PATH + relativePath)
-                .header(HttpHeaders.AUTHORIZATION, bearer(binding)).retrieve().toEntity(byte[].class);
+        return downstreamResponse(restClient.get().uri(UPSTREAM_PATH + relativePath)
+                .header(HttpHeaders.AUTHORIZATION, bearer(binding)).retrieve().toEntity(byte[].class));
     }
 
     public ResponseEntity<byte[]> upload(ForgeRelayBinding binding, MultipartFile file) throws IOException {
@@ -54,12 +55,28 @@ public final class ForgeRelayUpstreamClient {
         body.add("file", new ByteArrayResource(file.getBytes()) {
             @Override public String getFilename() { return file.getOriginalFilename(); }
         });
-        return restClient.post().uri(UPSTREAM_PATH + "/attachments")
+        return downstreamResponse(restClient.post().uri(UPSTREAM_PATH + "/attachments")
                 .header(HttpHeaders.AUTHORIZATION, bearer(binding))
-                .contentType(MediaType.MULTIPART_FORM_DATA).body(body).retrieve().toEntity(byte[].class);
+                .contentType(MediaType.MULTIPART_FORM_DATA).body(body).retrieve().toEntity(byte[].class));
+    }
+
+    /** 宿主重新编码响应，传输分帧、连接与身份响应头不得跨跳透传。 */
+    private static ResponseEntity<byte[]> downstreamResponse(ResponseEntity<byte[]> response) {
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(response.getStatusCode())
+                .header(HttpHeaders.CACHE_CONTROL, "no-store");
+        MediaType contentType = response.getHeaders().getContentType();
+        if (contentType != null) {
+            builder.contentType(contentType);
+        }
+        return builder.body(response.getBody());
     }
 
     public URI createWebSocketUri(ForgeRelayBinding binding) {
+        if (properties.isCapsuleMode()) {
+            String base = trimSlash(properties.getForgeBaseUrl());
+            return URI.create((base.startsWith("https://") ? "wss://" + base.substring(8)
+                    : "ws://" + base.substring(7)) + CAPSULE_PATH + "/ws");
+        }
         ConnectionResponse response = restClient.post().uri(UPSTREAM_PATH + "/connections")
                 .header(HttpHeaders.AUTHORIZATION, bearer(binding)).retrieve().body(ConnectionResponse.class);
         if (response == null || response.ticket() == null || response.ticket().isBlank()) {
@@ -75,6 +92,50 @@ public final class ForgeRelayUpstreamClient {
     private String basicCredentials() {
         String raw = properties.getClientId() + ":" + properties.getClientSecret();
         return "Basic " + Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public boolean isCapsuleMode() { return properties.isCapsuleMode(); }
+
+    public org.springframework.web.socket.WebSocketHttpHeaders webSocketHeaders(ForgeRelayBinding binding, URI uri) {
+        var headers = new org.springframework.web.socket.WebSocketHttpHeaders();
+        headers.setOrigin(("wss".equals(uri.getScheme()) ? "https://" : "http://") + uri.getRawAuthority());
+        if (properties.isCapsuleMode()) {
+            headers.set(HttpHeaders.AUTHORIZATION, basicCredentials());
+            headers.set("X-Forge-Participant-Id", String.valueOf(binding.subjectUserId()));
+        }
+        return headers;
+    }
+
+    public ResponseEntity<byte[]> capsuleApi(long participant, String path, String method, byte[] body, String contentType) {
+        requireCapsulePath(path);
+        var request = restClient.method(org.springframework.http.HttpMethod.valueOf(method)).uri(CAPSULE_PATH + path)
+                .header(HttpHeaders.AUTHORIZATION, basicCredentials())
+                .header("X-Forge-Participant-Id", String.valueOf(participant));
+        if (body != null && body.length > 0) {
+            request.contentType(contentType == null ? MediaType.APPLICATION_JSON : MediaType.parseMediaType(contentType)).body(body);
+        }
+        return downstreamResponse(request.retrieve().toEntity(byte[].class));
+    }
+
+    public ResponseEntity<byte[]> capsuleUpload(long participant, String path, MultipartFile file) throws IOException {
+        requireCapsulePath(path);
+        var body = new LinkedMultiValueMap<String, Object>();
+        body.add("file", new ByteArrayResource(file.getBytes()) {
+            @Override public String getFilename() { return file.getOriginalFilename(); }
+        });
+        return downstreamResponse(restClient.post().uri(CAPSULE_PATH + path)
+                .header(HttpHeaders.AUTHORIZATION, basicCredentials())
+                .header("X-Forge-Participant-Id", String.valueOf(participant))
+                .contentType(MediaType.MULTIPART_FORM_DATA).body(body).retrieve().toEntity(byte[].class));
+    }
+
+    private void requireCapsulePath(String path) {
+        String route = path == null ? "" : path.split("\\?", 2)[0];
+        if (!properties.isCapsuleMode() || path == null || path.contains("#")
+                || !route.matches("/api/assistant/(?:feedback-sessions|conversations)(?:/[A-Za-z0-9_-]+)*"
+                    + "|/api/claude-chat/sessions/[A-Za-z0-9_-]+/attachments")) {
+            throw new IllegalArgumentException("不支持的胶囊请求路径");
+        }
     }
 
     private static String bearer(ForgeRelayBinding binding) {
