@@ -51,7 +51,7 @@ function setup(existingStorage = new Map<string, string>(), respond?: (url: stri
 describe('session client SDK', () => {
   it('supports a same-origin Relay path without sending a Forge authorization header', async () => {
     FakeWebSocket.instances = []
-    const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(
+    const fetcher = vi.fn(async (url: string, _init?: RequestInit) => new Response(JSON.stringify(
       url.endsWith('/connections') ? { ticket: 'relay-ticket' } : session,
     ), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     const client = createSessionClient({

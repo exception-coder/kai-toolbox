@@ -2183,7 +2183,7 @@ export function ChatPage() {
             {chat.sessionId && sessionView !== 'supervision' && (
               <div className="cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
           <div className="hidden md:block">
-            <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} />
+            <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
             <SessionWorkStatus
               items={chat.items}
               running={chat.running}

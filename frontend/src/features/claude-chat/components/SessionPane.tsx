@@ -214,7 +214,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
         />
       </div>
 
-      <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} />
+      <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
 
       {/* 第三方网关调用诊断（可展开，紧凑）：仅第三方会话显示 */}
       <ProviderDiagPanel

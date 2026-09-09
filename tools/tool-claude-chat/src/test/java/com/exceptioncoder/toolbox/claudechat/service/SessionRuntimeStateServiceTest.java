@@ -64,6 +64,63 @@ class SessionRuntimeStateServiceTest {
         assertThat(state.canSend()).isFalse();
     }
 
+    @Test
+    void shouldRequireRecoveryBeforeSendingFromInterruptedState() {
+        SessionRuntimeStateView state = assess(SessionStatus.INTERRUPTED, SessionStatus.INTERRUPTED, null,
+                sidecar(false, null));
+        assertThat(state.consistency()).isEqualTo("RECOVERABLE_INTERRUPTED");
+        assertThat(state.canSend()).isFalse();
+        assertThat(state.recommendedAction()).contains("恢复");
+    }
+
+    @Test
+    void shouldNeverRecoverUnsafeInterruptedSnapshots() {
+        var unsafe = java.util.List.of(
+                sidecar(true, "old-turn"),
+                new SessionRuntimeStateService.SidecarObservation(true, false, true, 0, null, null, "idle", NOW),
+                new SessionRuntimeStateService.SidecarObservation(true, false, false, 1, null, null, "idle", NOW),
+                new SessionRuntimeStateService.SidecarObservation(false, false, false, 0, null, null, "idle", NOW),
+                new SessionRuntimeStateService.SidecarObservation(true, false, false, 0, null, null, "idle", -1));
+        for (var snapshot : unsafe) {
+            SessionRuntimeStateView state = assess(SessionStatus.INTERRUPTED, SessionStatus.INTERRUPTED,
+                    null, snapshot);
+            assertThat(state.consistency()).isNotEqualTo("RECOVERABLE_INTERRUPTED");
+            assertThat(state.canSend()).isFalse();
+        }
+        assertThat(assess(SessionStatus.INTERRUPTED, SessionStatus.INTERRUPTED, null, null).canSend()).isFalse();
+    }
+
+    @Test
+    void shouldRejectRecoveryWhenPersistenceDrifts() {
+        assertThat(assess(SessionStatus.INTERRUPTED, SessionStatus.IDLE, null, sidecar(false, null))
+                .consistency()).isEqualTo("PERSISTENCE_DRIFT");
+    }
+
+    @Test
+    void shouldRequireExplicitReloadWhenSidecarSessionIsMissing() {
+        var missing = new SessionRuntimeStateService.SidecarObservation(
+                false, false, false, 0, null, null, "unknown", NOW);
+        var state = assess(SessionStatus.INTERRUPTED, SessionStatus.INTERRUPTED, null, missing);
+        assertThat(state.consistency()).isEqualTo("RESTORABLE_SESSION_MISSING");
+        assertThat(state.canSend()).isFalse();
+    }
+
+    @Test
+    void shouldBlockRecoveryWhileBackendStillHasPendingWork() {
+        var stored = ClaudeChatSession.builder().id("session-1").cwd("D:/workspace")
+                .status(SessionStatus.INTERRUPTED).build();
+        for (var backend : java.util.List.of(
+                new SessionRuntimeStateService.BackendObservation(SessionStatus.INTERRUPTED,
+                        null, true, 0, 1, NOW),
+                new SessionRuntimeStateService.BackendObservation(SessionStatus.INTERRUPTED,
+                        null, false, 1, 1, NOW))) {
+            var state = SessionRuntimeStateService.assess(stored, backend, true, sidecar(false, null), NOW);
+            assertThat(state.consistency()).isNotEqualTo("RECOVERABLE_INTERRUPTED");
+            assertThat(state.canSend()).isFalse();
+            assertThat(state.recommendedAction()).contains("清理");
+        }
+    }
+
     private static SessionRuntimeStateView assess(SessionStatus persisted, SessionStatus backendStatus,
                                                   String backendTurnId,
                                                   SessionRuntimeStateService.SidecarObservation sidecar) {

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
 import { getSessionRuntimeState } from '../api'
@@ -5,10 +6,12 @@ import { getSessionRuntimeState } from '../api'
 interface Props {
   sessionId: string | null
   running: boolean
+  onRecover: () => void
 }
 
 /** 展示独立全链路状态判定结果；正常时保持紧凑，异常时给出校正建议。 */
-export function SessionRuntimeHealth({ sessionId, running }: Props) {
+export function SessionRuntimeHealth({ sessionId, running, onRecover }: Props) {
+  const [recovering, setRecovering] = useState(false)
   const query = useQuery({
     queryKey: ['claude-chat-runtime-state', sessionId],
     queryFn: () => getSessionRuntimeState(sessionId!),
@@ -16,6 +19,19 @@ export function SessionRuntimeHealth({ sessionId, running }: Props) {
     refetchInterval: running ? 5_000 : 15_000,
     retry: 1,
   })
+
+  const recheck = () => { void query.refetch() }
+  const recover = async () => {
+    if (recovering) return
+    setRecovering(true)
+    try {
+      // 后端会重新核对状态；页面查询结果不作为恢复授权。
+      onRecover()
+      await query.refetch()
+    } finally {
+      setRecovering(false)
+    }
+  }
 
   if (!sessionId) return null
   if (query.isPending) {
@@ -29,12 +45,14 @@ export function SessionRuntimeHealth({ sessionId, running }: Props) {
     return (
       <div className="flex items-center gap-1.5 border-b border-amber-200 bg-amber-50/80 px-3 py-1 text-[10px] text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
         <AlertTriangle className="size-3" />全链路状态暂不可用，发送前会由后端再次核对
+        <button type="button" className="ml-auto shrink-0 underline underline-offset-2" onClick={recheck}
+          disabled={query.isFetching}>重新检查</button>
       </div>
     )
   }
 
   const state = query.data
-  const healthy = state.consistency === 'CONSISTENT'
+  const healthy = state.consistency === 'CONSISTENT' && state.effectiveStatus !== 'INTERRUPTED'
   return (
     <div
       className={healthy
@@ -45,7 +63,14 @@ export function SessionRuntimeHealth({ sessionId, running }: Props) {
       {healthy ? <CheckCircle2 className="size-3 text-emerald-500" /> : <AlertTriangle className="size-3" />}
       <span className="font-medium">全链路 · {statusLabel(state.effectiveStatus)}</span>
       {!healthy && <span className="min-w-0 truncate">· {state.reason}</span>}
-      <span className="ml-auto shrink-0">{healthy ? '状态一致' : state.consistency}</span>
+      <span className="ml-auto flex shrink-0 items-center gap-2">
+        {!healthy && <button type="button" className="underline underline-offset-2" onClick={recheck}
+          disabled={query.isFetching}>重新检查</button>}
+        {(state.effectiveStatus === 'INTERRUPTED' || state.consistency === 'RESTORABLE_SESSION_MISSING') && <button type="button"
+          className="underline underline-offset-2 disabled:opacity-50" onClick={() => void recover()}
+          disabled={recovering || running}>{recovering ? '正在恢复…' : '恢复会话'}</button>}
+        {healthy && '状态一致'}
+      </span>
     </div>
   )
 }

@@ -1385,8 +1385,6 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const resumeCurrent = useCallback(() => {
     const sid = sessionIdRef.current
     if (!sid) return
-    setPending(null)
-    resetTurnRunningState()
     setErrorMessage(null)
     setItems(prev => {
       const last = prev[prev.length - 1]

@@ -547,6 +547,7 @@ public class ClaudeChatService {
                 ClaudeChatSession db = repo.findById(sessionId).orElse(null);
                 if (db != null) {
                     SessionCtx restored = new SessionCtx(db.getId(), db.getCwd());
+                    restored.status = db.getStatus();
                     restored.sdkSessionId = db.getSdkSessionId();
                     restored.engine = normalizeEngine(db.getEngine());
                     restored.apiBaseUrl = db.getApiBaseUrl();
@@ -556,8 +557,8 @@ public class ClaudeChatService {
                     enforceReadonlyDefaults(restored);
                     restoreModelOptions(restored, db);
                     loadEngineSessions(restored, db.getEngineSessions());
-                    sessions.put(restored.sessionId, restored);
-                    ctx = restored;
+                    SessionCtx existing = sessions.putIfAbsent(restored.sessionId, restored);
+                    ctx = existing == null ? restored : existing;
                 }
             }
             if (ctx != null) {
@@ -569,6 +570,19 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        synchronized (ctx) {
+            observeRuntimeState(ctx);
+            SessionRuntimeStateService.SendDecision decision = runtimeStates.canReload(ctx.sessionId);
+            if (!decision.allowed()) {
+                sendError(ws, 0, "SESSION_STATE_UNCONFIRMED", "暂不能重载会话：" + decision.reason(), false);
+                return;
+            }
+            reloadIdleSession(ws, ctx);
+        }
+    }
+
+    /** 在会话锁内重载已确认没有活动任务的原生上下文。 */
+    private void reloadIdleSession(WebSocketSession ws, SessionCtx ctx) {
         if (!canBind(ws, ctx.executionPolicy, ctx.sessionId)) return;
         if (!ensureSidecar(ws)) return;
         if (!engineCatalog.selectable(ctx.engine)) {
@@ -597,15 +611,17 @@ public class ClaudeChatService {
         }
 
         ctx.sdkSessionId = sdkSessionId;
-        ctx.status = SessionStatus.IDLE;
-        ctx.pendingRequest = null;
         if (sdkSessionId != null) repo.updateSdkSessionId(ctx.sessionId, sdkSessionId);
-        repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         sidecar.resumeSession(ctx.sessionId, sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
                 ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
                 ctx.consultEvidenceSystems);
-        final SessionCtx readyCtx = ctx; // ctx 在本方法上方被重新赋值（attach 恢复），lambda 捕获需 effectively final
-        sendToBrowser(ctx, seq -> ready(readyCtx, seq));
+        SessionRuntimeStateService.SendDecision confirmed = runtimeStates.canReload(ctx.sessionId);
+        if (!confirmed.allowed() || "RESTORABLE_SESSION_MISSING".equals(confirmed.code())) {
+            sendError(ws, 0, "SESSION_STATE_UNCONFIRMED", "重载尚未确认完成：" + confirmed.reason(), false);
+            return;
+        }
+        restoreIdleState(ctx);
+        sendToBrowser(ctx, seq -> ready(ctx, seq));
         pushGatewayModels(ctx);
         log.info("[claude-chat] resumeCurrent session={} engine={} sdk={}", ctx.sessionId, ctx.engine, sdkSessionId);
     }
@@ -656,6 +672,10 @@ public class ClaudeChatService {
                 return;
             }
             observeRuntimeState(ctx);
+            if (ctx.status == SessionStatus.INTERRUPTED
+                    && "RECOVERABLE_INTERRUPTED".equals(runtimeStates.canReload(ctx.sessionId).code())) {
+                restoreIdleState(ctx);
+            }
             SessionRuntimeStateService.SendDecision decision = runtimeStates.canStartTurn(ctx.sessionId);
             if (!decision.allowed()) {
                 sendError(ws, 0, "SESSION_STATE_UNCONFIRMED",
@@ -673,6 +693,15 @@ public class ClaudeChatService {
                 sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
             }
         }
+    }
+
+    /** 调用方须持有会话锁并先取得无活动任务的实时确认。 */
+    private void restoreIdleState(SessionCtx ctx) {
+        repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
+        turnLifecycle.clear(ctx.sessionId);
+        ctx.pendingRequest = null;
+        ctx.status = SessionStatus.IDLE;
+        observeRuntimeState(ctx);
     }
 
     /** 将用户补充内容追加到官方 Codex 当前轮；不改变 RUNNING 生命周期。 */
@@ -2306,8 +2335,13 @@ public class ClaudeChatService {
     }
 
     private void sendError(WebSocketSession ws, long seq, String code, String message) {
+        sendError(ws, seq, code, message, true);
+    }
+
+    /** 请求被拒绝不代表当前活动轮次已经结束。 */
+    private void sendError(WebSocketSession ws, long seq, String code, String message, boolean terminal) {
         try {
-            String json = mapper.writeValueAsString(new ServerMessage.Error(seq, code, message));
+            String json = mapper.writeValueAsString(new ServerMessage.Error(seq, code, message, terminal));
             if (ws.isOpen()) ws.sendMessage(new TextMessage(json));
         } catch (IOException ignore) {
         }

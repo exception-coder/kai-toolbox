@@ -102,7 +102,7 @@ export interface ClaudeChatSessionView {
 export interface SessionRuntimeState {
   sessionId: string
   effectiveStatus: 'IDLE' | 'RUNNING' | 'AWAITING_DECISION' | 'FINALIZING' | 'BACKGROUND_RUNNING' | 'RECONNECTING' | 'INTERRUPTED' | 'UNKNOWN'
-  consistency: 'CONSISTENT' | 'GHOST_RUNNING' | 'BACKEND_STATE_LOST' | 'TURN_MISMATCH' | 'SIDECAR_UNREACHABLE' | 'SIDECAR_SESSION_MISSING' | 'JAVA_CONTEXT_MISSING' | 'PERSISTENCE_DRIFT' | 'STALE'
+  consistency: 'CONSISTENT' | 'GHOST_RUNNING' | 'BACKEND_STATE_LOST' | 'TURN_MISMATCH' | 'SIDECAR_UNREACHABLE' | 'SIDECAR_SESSION_MISSING' | 'JAVA_CONTEXT_MISSING' | 'PERSISTENCE_DRIFT' | 'STALE' | 'RECOVERABLE_INTERRUPTED' | 'RESTORABLE_SESSION_MISSING'
   persistedStatus: SessionStatus
   backendStatus: SessionStatus | null
   browserConnected: boolean
