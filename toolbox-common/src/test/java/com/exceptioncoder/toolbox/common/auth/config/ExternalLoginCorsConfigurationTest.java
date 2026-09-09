@@ -73,6 +73,68 @@ class ExternalLoginCorsConfigurationTest {
     }
 
     @Test
+    void allowsLanForgeOriginForwardedByLoopbackDevelopmentProxy() throws Exception {
+        String lanForgeOrigin = "https://192.168.3.60:5173";
+        MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN));
+
+        mvc.perform(options("/api/claude-chat/sessions/session-1/attachments")
+                        .with(request -> {
+                            request.setRemoteAddr("127.0.0.1");
+                            return request;
+                        })
+                        .header("Origin", lanForgeOrigin)
+                        .header("X-Forwarded-Proto", "https")
+                        .header("X-Forwarded-Host", "192.168.3.60:5173")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", lanForgeOrigin));
+    }
+
+    @Test
+    void rejectsForwardedAttachmentOriginFromNonLoopbackClient() throws Exception {
+        MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN));
+
+        mvc.perform(options("/api/claude-chat/sessions/session-1/attachments")
+                        .with(request -> {
+                            request.setRemoteAddr("192.168.3.21");
+                            return request;
+                        })
+                        .header("Origin", "https://192.168.3.60:5173")
+                        .header("X-Forwarded-Proto", "https")
+                        .header("X-Forwarded-Host", "192.168.3.60:5173")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+    }
+
+    @Test
+    void rejectsAttachmentOriginThatDiffersFromForwardedHost() throws Exception {
+        MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN));
+
+        mvc.perform(options("/api/claude-chat/sessions/session-1/attachments")
+                        .header("Origin", "https://malicious.example.com")
+                        .header("X-Forwarded-Proto", "https")
+                        .header("X-Forwarded-Host", "192.168.3.60:5173")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+    }
+
+    @Test
+    void keepsExternalLoginOnExplicitOriginWhitelist() throws Exception {
+        MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN));
+
+        mvc.perform(options("/api/auth/external-login")
+                        .header("Origin", "https://192.168.3.60:5173")
+                        .header("X-Forwarded-Proto", "https")
+                        .header("X-Forwarded-Host", "192.168.3.60:5173")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+    }
+
+    @Test
     void allowsConfiguredOriginToReadAndEditFeedbackArchive() throws Exception {
         MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN));
 

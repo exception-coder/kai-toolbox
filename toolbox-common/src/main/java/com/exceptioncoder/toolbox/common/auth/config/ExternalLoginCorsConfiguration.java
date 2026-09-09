@@ -7,10 +7,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
 import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
+import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -43,11 +47,28 @@ public class ExternalLoginCorsConfiguration {
         CorsConfiguration feedbackCors = cors(
                 allowedOrigins, List.of("Authorization", "Content-Type"), List.of("GET", "PATCH", "OPTIONS"));
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration(LOGIN_PATH, loginCors);
-        source.registerCorsConfiguration(ATTACHMENT_UPLOAD_PATH, attachmentCors);
-        source.registerCorsConfiguration(FEEDBACK_ARCHIVE_PATH, feedbackCors);
-        source.registerCorsConfiguration(ASSISTANT_CONVERSATION_PATH, feedbackCors);
+        UrlBasedCorsConfigurationSource routeSource = new UrlBasedCorsConfigurationSource();
+        routeSource.registerCorsConfiguration(LOGIN_PATH, loginCors);
+        routeSource.registerCorsConfiguration(ATTACHMENT_UPLOAD_PATH, attachmentCors);
+        routeSource.registerCorsConfiguration(FEEDBACK_ARCHIVE_PATH, feedbackCors);
+        routeSource.registerCorsConfiguration(ASSISTANT_CONVERSATION_PATH, feedbackCors);
+        CorsConfigurationSource source = request -> {
+            CorsConfiguration routeCors = routeSource.getCorsConfiguration(request);
+            if (routeCors == null || !request.getRequestURI().matches(
+                    "^/api/claude-chat/sessions/[^/]+/attachments$")) {
+                return routeCors;
+            }
+            String proxyOrigin = trustedProxyOrigin(request.getRemoteAddr(), request.getHeader("Origin"),
+                    request.getHeader("X-Forwarded-Proto"), request.getHeader("X-Forwarded-Host"));
+            if (proxyOrigin == null) {
+                return routeCors;
+            }
+            CorsConfiguration requestCors = new CorsConfiguration(routeCors);
+            List<String> requestOrigins = new ArrayList<>(routeCors.getAllowedOrigins());
+            requestOrigins.add(proxyOrigin);
+            requestCors.setAllowedOrigins(requestOrigins);
+            return requestCors;
+        };
 
         FilterRegistrationBean<CorsFilter> registration = new FilterRegistrationBean<>(new CorsFilter(source));
         registration.setName("authExternalLoginCorsFilter");
@@ -55,6 +76,30 @@ public class ExternalLoginCorsConfiguration {
         registration.setDispatcherTypes(DispatcherType.REQUEST);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
         return registration;
+    }
+
+    private String trustedProxyOrigin(String remoteAddress, String origin, String forwardedProto,
+                                      String forwardedHost) {
+        if (!isLoopback(remoteAddress) || origin == null || forwardedProto == null || forwardedHost == null
+                || forwardedProto.contains(",") || forwardedHost.contains(",")) {
+            return null;
+        }
+        String forwardedOrigin = forwardedProto.trim() + "://" + forwardedHost.trim();
+        try {
+            String validatedOrigin = validateOrigin(origin.trim());
+            String validatedForwardedOrigin = validateOrigin(forwardedOrigin);
+            return validatedOrigin.equalsIgnoreCase(validatedForwardedOrigin) ? validatedOrigin : null;
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    private boolean isLoopback(String remoteAddress) {
+        try {
+            return remoteAddress != null && InetAddress.getByName(remoteAddress).isLoopbackAddress();
+        } catch (UnknownHostException exception) {
+            return false;
+        }
     }
 
     private CorsConfiguration cors(List<String> allowedOrigins, List<String> allowedHeaders,
