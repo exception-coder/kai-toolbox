@@ -10,11 +10,16 @@
 #
 # Usage:
 #   scripts\stop-supervised.cmd                       # 停全部
+#   scripts\stop-supervised.cmd frontend              # 只停前端
+#   scripts\stop-supervised.cmd backend               # 只停后端及其辅助服务
 #   scripts\stop-supervised.cmd -KeepStudio           # 保留 AgentScope Studio(:3000)
 #   scripts\stop-supervised.cmd -Ports 18080,5173     # supervisor 已退出后，只清指定端口
 #   scripts\stop-supervised.cmd -IncludeObservability # 同时停止 Phoenix
 
 param(
+    [Parameter(Position = 0)]
+    [ValidateSet('all', 'frontend', 'backend')]
+    [string]$ServiceScope = 'all',
     [int[]]$Ports,
     [switch]$KeepStudio,
     [switch]$IncludeObservability
@@ -38,6 +43,7 @@ Initialize-Utf8Console
 
 $scriptsRoot = Split-Path -Parent $PSScriptRoot
 $repoRoot = Split-Path -Parent $scriptsRoot
+. (Join-Path $PSScriptRoot 'supervised-service-state.ps1')
 $normalizedRepo = [System.IO.Path]::GetFullPath($repoRoot).TrimEnd('\').ToLowerInvariant()
 $sha256 = [System.Security.Cryptography.SHA256]::Create()
 try {
@@ -52,41 +58,47 @@ $supervisorStateRoot = Join-Path (
 $supervisorPidFile = Join-Path $supervisorStateRoot "supervisor-$repoHash.pid"
 $supervisorScriptPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'run-supervised.ps1'))
 
-function Stop-SupervisorWorker {
-    if (-not (Test-Path -LiteralPath $supervisorPidFile)) { return }
+function Get-SupervisorWorker {
+    if (-not (Test-Path -LiteralPath $supervisorPidFile)) { return $null }
     $recorded = ''
     try { $recorded = [System.IO.File]::ReadAllText($supervisorPidFile).Trim() } catch { }
     $workerPid = 0
     if (-not [int]::TryParse($recorded, [ref]$workerPid) -or $workerPid -le 0) {
-        Write-Host '[stop] supervisor PID 文件无效，移除陈旧记录'
         Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
-        return
+        return $null
     }
     try {
         $worker = Get-CimInstance Win32_Process -Filter "ProcessId=$workerPid" -ErrorAction Stop
         $commandLine = "$($worker.CommandLine)"
         if ($commandLine.IndexOf($supervisorScriptPath, [System.StringComparison]::OrdinalIgnoreCase) -lt 0 -or
             $commandLine -notmatch '(?i)-SupervisorWorker') {
-            Write-Host "[stop] PID=$workerPid 不是当前仓库的 supervisor worker，拒绝终止并移除陈旧记录"
             Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
-            return
+            return $null
         }
-        # 这里只停 worker 本体；随后按端口精确回收子服务，才能继续遵守 -KeepStudio。
-        Write-Host "[stop] 停止 supervisor worker PID=$workerPid"
-        & taskkill /PID $workerPid /F 2>&1 | Out-Null
+        return $worker
     } catch {
-        Write-Host "[stop] supervisor worker PID=$workerPid 已不存在，清理陈旧记录"
+        Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
+        return $null
+    }
+}
+
+function Stop-SupervisorWorker {
+    $worker = Get-SupervisorWorker
+    if (-not $worker) { return }
+    try {
+        Write-Host '[stop] 停止后台守护进程...'
+        & taskkill /PID $worker.ProcessId /F 2>&1 | Out-Null
     } finally {
         Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
     }
 }
 
 function Stop-LocalObservability {
-    $stopScript = Join-Path $scriptsRoot 'stop-observability-local.ps1'
+    $stopScript = Join-Path $PSScriptRoot 'stop-observability-local.ps1'
     if (Test-Path -LiteralPath $stopScript) {
         & $stopScript
     } else {
-        Write-Host '[stop] WARN: 未找到 scripts/stop-observability-local.ps1'
+        Write-Host '[stop] WARN: 未找到内部 Phoenix 停止脚本'
     }
 }
 
@@ -124,13 +136,32 @@ function Stop-PortHolders([int]$port, [string]$label) {
         }
     }
     $pids = $pids | Where-Object { $_ -and $_ -ne 0 } | Select-Object -Unique
-    if (-not $pids) {
-        Write-Host "[stop] :$port ($label) 未在监听，跳过"
-        return
-    }
+    if (-not $pids) { return }
     foreach ($procId in $pids) {
-        Write-Host "[stop] 停止 :$port ($label) PID=$procId"
+        Write-Host "[stop] 强制清理未退出的 $label (:$port)..."
         & taskkill /PID $procId /T /F 2>&1 | Out-Null
+    }
+}
+
+function Test-PortListening([int]$port) {
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $connect = $client.ConnectAsync('127.0.0.1', $port)
+        return $connect.Wait(250) -and $client.Connected
+    } catch {
+        return $false
+    } finally {
+        $client.Dispose()
+    }
+}
+
+function Wait-BackendShutdown {
+    param([int]$TimeoutSeconds = 12)
+    if (-not (Get-SupervisorWorker) -or -not (Test-PortListening 18080)) { return }
+    Write-Host '[stop] 等待后端完成当前请求并正常退出...'
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline -and (Test-PortListening 18080)) {
+        Start-Sleep -Milliseconds 250
     }
 }
 
@@ -138,6 +169,7 @@ function Stop-PortHolders([int]$port, [string]$label) {
 # 18081(supervisor 控制端点)放最后停——它就是 supervisor 进程本体，停掉即结束守护循环。
 $services = @(
     @{ Port = 18890; Label = 'claude-agent sidecar' },
+    @{ Port = 18092; Label = 'browser sidecar' },
     @{ Port = 18080; Label = 'backend' },
     @{ Port = 5173;  Label = 'frontend (vite dev)' },
     @{ Port = 9500;  Label = 'faster-whisper sidecar' },
@@ -159,14 +191,33 @@ if ($Ports) {
     return
 }
 
-Write-Host '[stop] 停止 kai-toolbox 全部本地服务...'
-Stop-SupervisorWorker
-foreach ($svc in $services) {
+$null = Set-SupervisedServiceState `
+    -RepositoryRoot $repoRoot `
+    -Scope $ServiceScope `
+    -Enabled $false `
+    -MissingStateDefault $true
+
+$scopeLabel = switch ($ServiceScope) {
+    'frontend' { '前端' }
+    'backend' { '后端' }
+    default { '全部服务' }
+}
+Write-Host "[stop] 停止 kai-toolbox $scopeLabel..."
+
+if ($ServiceScope -in @('all', 'backend')) { Wait-BackendShutdown }
+if ($ServiceScope -eq 'all') { Stop-SupervisorWorker }
+
+$selectedServices = switch ($ServiceScope) {
+    'frontend' { @($services | Where-Object { $_.Port -eq 5173 }) }
+    'backend' { @($services | Where-Object { $_.Port -notin @(5173, 18081) }) }
+    default { @($services) }
+}
+foreach ($svc in $selectedServices) {
     if ($KeepStudio -and $svc.Port -eq 3000) {
         Write-Host '[stop] -KeepStudio：保留 AgentScope Studio(:3000)'
         continue
     }
     Stop-PortHolders $svc.Port $svc.Label
 }
-if ($IncludeObservability) { Stop-LocalObservability }
+if ($ServiceScope -in @('all', 'backend') -or $IncludeObservability) { Stop-LocalObservability }
 Write-Host '[stop] 完成。'

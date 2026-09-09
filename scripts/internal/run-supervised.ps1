@@ -14,6 +14,9 @@
 # Ctrl+C stops the supervisor loop.
 
 param(
+    [Parameter(Position = 0)]
+    [ValidateSet('all', 'frontend', 'backend')]
+    [string]$ServiceScope = 'all',
     [ValidateSet('dev', 'full')]
     [string]$Mode = 'dev',
     [ValidateSet('phoenix', 'langfuse', 'off')]
@@ -59,6 +62,7 @@ function Initialize-Utf8Console {
 Initialize-Utf8Console
 
 $AutoUpdateRelaunchExitCode = 75
+$ServiceScopeUpdatedExitCode = 76
 
 # Keep one stable process attached to the caller's terminal. The worker owns services and exits with a
 # dedicated code after fast-forward; the bootstrap then loads the updated script without returning an
@@ -96,6 +100,7 @@ if (-not $SupervisorWorker) {
         '-BootstrapProcessId', "$PID",
         '-BootstrapInstanceToken', $bootstrapInstanceToken,
         '-BootstrapLogPath', $bootstrapLogPath,
+        '-ServiceScope', $ServiceScope,
         '-Mode', $Mode, '-Observability', $Observability
     )
     if ($HotReload) { $workerArgs += '-HotReload' }
@@ -110,6 +115,10 @@ if (-not $SupervisorWorker) {
                 ForEach-Object { Write-BootstrapMessage "$_" }
             $workerExitCode = $LASTEXITCODE
             Write-BootstrapMessage "[supervisor-bootstrap] worker 已退出，code=$workerExitCode"
+            if ($workerExitCode -eq $ServiceScopeUpdatedExitCode) {
+                Write-BootstrapMessage '[supervisor-bootstrap] 已由现有 supervisor 接管服务范围更新'
+                exit 0
+            }
             if ($workerExitCode -eq $AutoUpdateRelaunchExitCode) {
                 $stopScript = Join-Path $PSScriptRoot 'stop-supervised.ps1'
                 if (-not (Test-Path -LiteralPath $stopScript)) {
@@ -143,6 +152,15 @@ Import-ToolboxLocalConfig
 
 $RepoRoot = Split-Path -Parent $ScriptsRoot
 Set-Location -LiteralPath $RepoRoot
+
+. (Join-Path $PSScriptRoot 'supervised-service-state.ps1')
+$requestedServiceState = Set-SupervisedServiceState `
+    -RepositoryRoot $RepoRoot `
+    -Scope $ServiceScope `
+    -Enabled $true `
+    -MissingStateDefault $false
+$script:manageFrontend = [bool]$requestedServiceState.frontendEnabled
+$script:manageBackend = [bool]$requestedServiceState.backendEnabled
 
 $script:BootstrapProcessId = $BootstrapProcessId
 $script:BootstrapInstanceToken = $BootstrapInstanceToken
@@ -242,9 +260,9 @@ try {
     $script:supervisorMutexAcquired = $true
 }
 if (-not $script:supervisorMutexAcquired) {
-    Write-Host "[supervisor] 此仓库已有 supervisor 在运行，跳过重复实例：$RepoRoot"
+    Write-Host "[supervisor] 已通知现有 supervisor 更新服务范围：$ServiceScope"
     $script:supervisorMutex.Dispose()
-    return
+    exit $ServiceScopeUpdatedExitCode
 }
 $supervisorStateRoot = Join-Path (
     $(if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [System.IO.Path]::GetTempPath() })
@@ -290,9 +308,9 @@ function Initialize-PhoenixObservability {
         'LANGFUSE_SECRET_KEY'
     )) { Remove-ProcessEnvironmentVariable $name }
 
-    $startScript = Join-Path $ScriptsRoot 'start-observability-local.ps1'
+    $startScript = Join-Path $PSScriptRoot 'start-observability-local.ps1'
     if (-not (Test-Path -LiteralPath $startScript)) {
-        Write-Host '[supervisor] WARN: 未找到 scripts/start-observability-local.ps1，业务系统继续启动'
+        Write-Host '[supervisor] WARN: 未找到内部 Phoenix 启动脚本，业务系统继续启动'
         return
     }
     & $startScript
@@ -342,10 +360,8 @@ function Disable-Observability {
     Write-Host '[supervisor] OpenTelemetry 观测已关闭'
 }
 
-switch ($Observability) {
-    'phoenix' { Initialize-PhoenixObservability }
-    'langfuse' { Initialize-LangfuseObservability }
-    'off' { Disable-Observability }
+if (-not $script:manageBackend) {
+    Disable-Observability
 }
 
 # 工具路径解析：优先本机配置注入的 MVN_CMD/JAVA_CMD（上面已读入环境变量），其次 PATH，最后已知回退。
@@ -422,19 +438,23 @@ function Resolve-RequiredTool(
     return $resolvedPath
 }
 
-$MvnCmd = Resolve-RequiredTool 'MVN_CMD' 'Maven' 'mvn' @(
-    'D:\devApps\apache-maven-3.9.16-bin\apache-maven-3.9.16\bin\mvn.cmd',
-    'C:\Program Files\apache-maven\bin\mvn.cmd'
-)
+$script:MvnCmd = $null
+$script:JavaCmd = $null
+if ($script:manageBackend) {
+    $script:MvnCmd = Resolve-RequiredTool 'MVN_CMD' 'Maven' 'mvn' @(
+        'D:\devApps\apache-maven-3.9.16-bin\apache-maven-3.9.16\bin\mvn.cmd',
+        'C:\Program Files\apache-maven\bin\mvn.cmd'
+    )
 
-# Java：构建(mvn)和运行(java -jar)都必须用 JDK 21，否则 jar 是 17+ 字节码、PATH 上的旧 JDK 跑不了。
-$JavaCmd = Resolve-RequiredTool 'JAVA_CMD' 'Java（JDK 21）' 'java' @(
-    $(if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin\java.exe' } else { $null })
-) ${function:Test-Jdk21} '（必须为包含 javac 的 JDK 21，不能使用 JRE）'
-# 据 JavaCmd 反推并覆盖 JAVA_HOME，供 mvn 构建用对 JDK（本机默认 JAVA_HOME 可能是旧 JDK）。
-if ($JavaCmd -match '[\\/]bin[\\/]java(\.exe)?$') {
-    $env:JAVA_HOME = Split-Path -Parent (Split-Path -Parent $JavaCmd)
-    Write-Host "[supervisor] JAVA_HOME=$env:JAVA_HOME"
+    # Java：构建(mvn)和运行(java -jar)都必须用 JDK 21，否则 jar 是 17+ 字节码、PATH 上的旧 JDK 跑不了。
+    $script:JavaCmd = Resolve-RequiredTool 'JAVA_CMD' 'Java（JDK 21）' 'java' @(
+        $(if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin\java.exe' } else { $null })
+    ) ${function:Test-Jdk21} '（必须为包含 javac 的 JDK 21，不能使用 JRE）'
+    # 据 JavaCmd 反推并覆盖 JAVA_HOME，供 mvn 构建用对 JDK（本机默认 JAVA_HOME 可能是旧 JDK）。
+    if ($script:JavaCmd -match '[\\/]bin[\\/]java(\.exe)?$') {
+        $env:JAVA_HOME = Split-Path -Parent (Split-Path -Parent $script:JavaCmd)
+        Write-Host "[supervisor] JAVA_HOME=$env:JAVA_HOME"
+    }
 }
 # Playwright/patchright 浏览器内核下载走国内镜像（官方 CDN 境内常被掐 TLS）。
 if (-not $env:PLAYWRIGHT_DOWNLOAD_HOST) { $env:PLAYWRIGHT_DOWNLOAD_HOST = 'https://cdn.npmmirror.com/binaries/playwright' }
@@ -1095,6 +1115,79 @@ function Stop-Frontend {
         # npm spawns node/esbuild children, so stop the whole process tree.
         & taskkill /PID $script:frontend.Id /T /F 2>&1 | Out-Null
     }
+    $script:frontend = $null
+}
+
+function Initialize-BackendTooling {
+    if ($script:MvnCmd -and $script:JavaCmd) { return }
+
+    $script:MvnCmd = Resolve-RequiredTool 'MVN_CMD' 'Maven' 'mvn' @(
+        'D:\devApps\apache-maven-3.9.16-bin\apache-maven-3.9.16\bin\mvn.cmd',
+        'C:\Program Files\apache-maven\bin\mvn.cmd'
+    )
+    $script:JavaCmd = Resolve-RequiredTool 'JAVA_CMD' 'Java（JDK 21）' 'java' @(
+        $(if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin\java.exe' } else { $null })
+    ) ${function:Test-Jdk21} '（必须为包含 javac 的 JDK 21，不能使用 JRE）'
+    if ($script:JavaCmd -match '[\\/]bin[\\/]java(\.exe)?$') {
+        $env:JAVA_HOME = Split-Path -Parent (Split-Path -Parent $script:JavaCmd)
+        Write-Host "[supervisor] JAVA_HOME=$env:JAVA_HOME"
+    }
+}
+
+function Start-BackendScope {
+    Initialize-BackendTooling
+    switch ($Observability) {
+        'phoenix' { Initialize-PhoenixObservability }
+        'langfuse' { Initialize-LangfuseObservability }
+        'off' { Disable-Observability }
+    }
+    Initialize-NodeDeps
+    Start-Backend
+    Start-HotReloadWatcher
+    Start-WechatSidecar
+    Start-VisitorAnalysisSidecar
+    Start-FasterWhisperSidecar
+    Start-AgentScopeStudio
+}
+
+function Stop-BackendScope {
+    Stop-HotReloadWatcher
+    Stop-Backend
+    $script:backend = $null
+    foreach ($port in @($SidecarPort, $BrowserServicePort, 9600, 9700, $AsrPort, 3000)) {
+        Stop-PortHolders $port
+    }
+    $stopObservabilityScript = Join-Path $PSScriptRoot 'stop-observability-local.ps1'
+    if ($Observability -eq 'phoenix' -and (Test-Path -LiteralPath $stopObservabilityScript)) {
+        & $stopObservabilityScript
+    }
+}
+
+function Sync-SupervisedServiceState {
+    $desiredState = Get-SupervisedServiceState -RepositoryRoot $RepoRoot -MissingStateDefault $true
+    $wantBackend = [bool]$desiredState.backendEnabled
+    $wantFrontend = [bool]$desiredState.frontendEnabled
+
+    if ($wantBackend -and -not $script:manageBackend) {
+        $script:manageBackend = $true
+        Write-Host '[supervisor] 启用后端服务...'
+        Start-BackendScope
+    } elseif (-not $wantBackend -and $script:manageBackend) {
+        $script:manageBackend = $false
+        Write-Host '[supervisor] 停止后端服务...'
+        Stop-BackendScope
+    }
+
+    if ($wantFrontend -and -not $script:manageFrontend) {
+        $script:manageFrontend = $true
+        Write-Host '[supervisor] 启用前端服务...'
+        Start-Frontend
+    } elseif (-not $wantFrontend -and $script:manageFrontend) {
+        $script:manageFrontend = $false
+        Write-Host '[supervisor] 停止前端服务...'
+        Stop-Frontend
+        Stop-PortHolders $FrontendPort
+    }
 }
 
 function Update-FrontendHealth {
@@ -1550,9 +1643,13 @@ function Handle-Request($ctx) {
             bootstrapLogPath = if ([string]::IsNullOrWhiteSpace($script:BootstrapLogPath)) { $null } else { $script:BootstrapLogPath }
             backendUp = $up
             backendReady = $backendReady
+            backendEnabled = $script:manageBackend
             frontendUp = $frontendUp
             frontendReady = $frontendReady
-            servicesReady = $backendReady -and $frontendReady
+            frontendEnabled = $script:manageFrontend
+            servicesReady = ($script:manageBackend -or $script:manageFrontend) -and
+                ((-not $script:manageBackend) -or $backendReady) -and
+                ((-not $script:manageFrontend) -or $frontendReady)
             pid       = if ($script:backend) { $script:backend.Id } else { $null }
             lastStart = if ($script:lastStart) { $script:lastStart.ToString('s') } else { $null }
             autoUpdate = @{
@@ -1597,6 +1694,7 @@ function Handle-Request($ctx) {
     }
 
     if ($path -eq '/restart' -and $method -eq 'POST') {
+        if (-not $script:manageBackend) { Write-Json $res 409 @{ error = 'backend is disabled' }; return }
         if ([string]::IsNullOrWhiteSpace($RestartToken)) { Write-Json $res 503 @{ error = 'RestartToken is not configured' }; return }
         $token = $req.Headers['X-Restart-Token']
         if ([string]::IsNullOrWhiteSpace($token)) { $token = $req.QueryString['token'] }
@@ -1640,7 +1738,7 @@ try {
     $listener = $null
 }
 if ($listener) { Write-Host "[supervisor] HTTP control $HttpPrefix  (POST /restart|/reload|/full-reload, GET /status)" }
-Write-Host "[supervisor] repo=$RepoRoot  mode=$Mode  observability=$Observability  mvn=$MvnCmd  java=$JavaCmd"
+Write-Host "[supervisor] repo=$RepoRoot  services=$ServiceScope  mode=$Mode  observability=$Observability  mvn=$MvnCmd  java=$JavaCmd"
 Write-Host "[supervisor] whisper mode=$WhisperMode（改用 run-tools.conf 的 TOOLBOX_WHISPER_MODE）"
 if ($script:JavaAutoUpdateEnabled) {
     Write-Host "[auto-update] Java 调度已启用：source=$($script:AutoUpdateRemote)/$($script:AutoUpdateBranch), check=${AutoUpdateIntervalSeconds}s, stable=$($script:AutoUpdateStableSeconds)s, requireIdle=$($script:AutoUpdateRequireIdle)"
@@ -1648,21 +1746,8 @@ if ($script:JavaAutoUpdateEnabled) {
     Write-Host '[auto-update] Java 调度已显式关闭（TOOLBOX_AUTO_UPDATE_ENABLED=false）'
 }
 
-# 起服务前先把两个 node sidecar 的依赖/构建补齐（幂等，已就绪则秒过）。
-Initialize-NodeDeps
-
-# 一键：后端 + 前端一起拉起，各自守护；退出（Ctrl+C）时一并收尾。
-Start-Backend
-Start-Frontend
-Start-HotReloadWatcher
-# 微信监控 sidecar：尽力起一次，失败/缺依赖只 WARN，不进守护循环，不连累上面两个。
-Start-WechatSidecar
-# 访客分析 AgentScope sidecar：同样尽力起一次（端口 9600），失败只 WARN。
-Start-VisitorAnalysisSidecar
-# faster-whisper ASR sidecar：仅 asr-service 模式需要（端口 9500），cli 模式自动跳过。
-Start-FasterWhisperSidecar
-# AgentScope Studio：移动端监控入口（端口 3000），失败不影响 toolbox 主流程。
-Start-AgentScopeStudio
+if ($script:manageBackend) { Start-BackendScope }
+if ($script:manageFrontend) { Start-Frontend }
 
 try {
     if ($listener) {
@@ -1673,35 +1758,37 @@ try {
                 $ctxTask = $listener.GetContextAsync()
             }
             if ($script:autoUpdateRelaunchRequested) { break }
-            Update-HotReload
-            if (-not $script:backend -or $script:backend.HasExited) {
+            Sync-SupervisedServiceState
+            if ($script:manageBackend) { Update-HotReload }
+            if ($script:manageBackend -and (-not $script:backend -or $script:backend.HasExited)) {
                 Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
                 Start-Sleep -Seconds 2
                 Start-Backend
             }
-            if (-not $script:frontend -or $script:frontend.HasExited) {
+            if ($script:manageFrontend -and (-not $script:frontend -or $script:frontend.HasExited)) {
                 Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') frontend exited, restart after 2s"
                 Start-Sleep -Seconds 2
                 Start-Frontend
             }
-            Update-FrontendHealth
+            if ($script:manageFrontend) { Update-FrontendHealth }
         }
     } else {
         # No control endpoint: supervise only.
         while ($true) {
             if ($script:autoUpdateRelaunchRequested) { break }
-            Update-HotReload
-            if (-not $script:backend -or $script:backend.HasExited) {
+            Sync-SupervisedServiceState
+            if ($script:manageBackend) { Update-HotReload }
+            if ($script:manageBackend -and (-not $script:backend -or $script:backend.HasExited)) {
                 Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
                 Start-Sleep -Seconds 2
                 Start-Backend
             }
-            if (-not $script:frontend -or $script:frontend.HasExited) {
+            if ($script:manageFrontend -and (-not $script:frontend -or $script:frontend.HasExited)) {
                 Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') frontend exited, restart after 2s"
                 Start-Sleep -Seconds 2
                 Start-Frontend
             }
-            Update-FrontendHealth
+            if ($script:manageFrontend) { Update-FrontendHealth }
             Start-Sleep -Seconds 1
         }
     }

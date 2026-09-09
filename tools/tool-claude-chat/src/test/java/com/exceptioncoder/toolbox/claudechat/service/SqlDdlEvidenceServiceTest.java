@@ -57,6 +57,89 @@ class SqlDdlEvidenceServiceTest {
     }
 
     @Test
+    void resolvesInheritedDdlSourceFromProjectContext() throws Exception {
+        Path knowledgeRoot = tempDir.resolve("knowledge");
+        Path sourceBaseline = knowledgeRoot.resolve("legacy-project/impl/ddl-baseline.md");
+        Files.createDirectories(sourceBaseline.getParent());
+        Files.writeString(sourceBaseline, "CREATE TABLE ERP_PRODUCT (ID NUMBER);\n");
+        Path currentProject = knowledgeRoot.resolve("new-project/impl");
+        Files.createDirectories(currentProject);
+        Files.writeString(currentProject.resolve("project-context.json"), """
+                {
+                  "schemaVersion": 1,
+                  "project": "new-project",
+                  "knowledgeSources": [
+                    { "project": "legacy-project", "role": "business" }
+                  ],
+                  "ddlSource": {
+                    "project": "legacy-project",
+                    "guideId": "legacy-ddl-guide",
+                    "path": "legacy-project/impl/ddl-baseline.md"
+                  }
+                }
+                """);
+        Path cwd = tempDir.resolve("workspace/new-project/module-a");
+        Files.createDirectories(cwd);
+
+        SqlDdlEvidenceService service = serviceFor(cwd, knowledgeRoot);
+        SqlDdlEvidence result = service.prepare(
+                "session-1", "核验继承 DDL", List.of("erp_product"), null);
+
+        assertThat(result.status()).isEqualTo(SqlDdlEvidence.STATUS_VERIFIED);
+        assertThat(result.project()).isEqualTo("new-project");
+        assertThat(result.baselinePath()).isEqualTo(sourceBaseline.toAbsolutePath().normalize().toString());
+        assertThat(result.verifiedTables()).containsExactly("ERP_PRODUCT");
+    }
+
+    @Test
+    void usesExplicitProjectWhenCwdDoesNotContainAProjectName() throws Exception {
+        Path knowledgeRoot = tempDir.resolve("knowledge");
+        Path baseline = knowledgeRoot.resolve("sample-project/impl/ddl-baseline.md");
+        Files.createDirectories(baseline.getParent());
+        Files.writeString(baseline, "CREATE TABLE ORDER_HEADER (ID BIGINT);\n");
+        Path cwd = tempDir.resolve("detached-workspace");
+        Files.createDirectories(cwd);
+
+        SqlDdlEvidenceService service = serviceFor(cwd, knowledgeRoot);
+        SqlDdlEvidence result = service.prepare(
+                "session-1", "显式选择项目", List.of("order_header"), "sample-project");
+
+        assertThat(result.status()).isEqualTo(SqlDdlEvidence.STATUS_VERIFIED);
+        assertThat(result.project()).isEqualTo("sample-project");
+    }
+
+    @Test
+    void rejectsInheritedDdlPathOutsideKnowledgeRoot() throws Exception {
+        Path knowledgeRoot = tempDir.resolve("knowledge");
+        Path currentProject = knowledgeRoot.resolve("new-project/impl");
+        Files.createDirectories(currentProject);
+        Files.writeString(currentProject.resolve("project-context.json"), """
+                {
+                  "schemaVersion": 1,
+                  "project": "new-project",
+                  "knowledgeSources": [
+                    { "project": "legacy-project", "role": "business" }
+                  ],
+                  "ddlSource": {
+                    "project": "legacy-project",
+                    "guideId": "legacy-ddl-guide",
+                    "path": "../../outside/ddl-baseline.md"
+                  }
+                }
+                """);
+        Files.createDirectories(knowledgeRoot.resolve("legacy-project"));
+        Path cwd = tempDir.resolve("workspace/new-project");
+        Files.createDirectories(cwd);
+
+        SqlDdlEvidenceService service = serviceFor(cwd, knowledgeRoot);
+        SqlDdlEvidence result = service.prepare(
+                "session-1", "阻止越界路径", List.of("order_header"), null);
+
+        assertThat(result.status()).isEqualTo(SqlDdlEvidence.STATUS_DDL_MISSING);
+        assertThat(result.warning()).contains("超出知识库根目录");
+    }
+
+    @Test
     void reportsPartialEvidenceAndRevalidatesSqlTablesAtRegistration() throws Exception {
         Path knowledgeRoot = tempDir.resolve("knowledge");
         Path baseline = knowledgeRoot.resolve("sample-project/impl/ddl-baseline.md");

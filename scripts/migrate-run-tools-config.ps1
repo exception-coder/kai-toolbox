@@ -1,4 +1,4 @@
-param()
+﻿param()
 
 $legacyFile = Join-Path $PSScriptRoot 'run-tools.conf'
 $targetDirectory = Join-Path $PSScriptRoot 'run-tools.d'

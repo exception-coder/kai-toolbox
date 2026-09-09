@@ -1,4 +1,4 @@
-# 停止由 start-observability-local.ps1 管理的 Phoenix 容器。
+﻿# 停止由 start-observability-local.ps1 管理的 Phoenix 容器。
 # 只停止、不删除容器、镜像和 SQLite 命名卷。
 
 param()

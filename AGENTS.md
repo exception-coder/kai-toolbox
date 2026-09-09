@@ -18,6 +18,19 @@ java -jar toolbox-starter/target/kai-toolbox.jar          # run the packaged jar
 mvn -pl tools/tool-treesize -am test                      # build/test a single tool module
 ```
 
+  Engine-neutral Forge Quality Gate:
+
+  When the `forge_verify` MCP tool is available, use it as the single agent-facing entry point with `phase: all`.
+  Fall back to the CLI commands below when MCP is unavailable.
+
+```powershell
+./scripts/forge-quality.ps1 detect -Project . -Format json
+./scripts/forge-quality.ps1 verify -Phase static -Project . -Format json
+./scripts/forge-quality.ps1 verify -Project . -Format json
+```
+
+Codex and Claude Code must use the JSON `status` plus process exit code as the quality decision. Full verification runs Static first and only runs Runtime after Static passes. A checker/verifier absent from `executedCheckers`/`executedVerifiers` was not run and must not be reported as passed.
+
 Frontend (run from `frontend/`):
 
 ```powershell

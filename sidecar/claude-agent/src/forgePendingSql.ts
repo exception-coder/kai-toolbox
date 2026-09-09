@@ -149,23 +149,63 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string, 
                 body: JSON.stringify({ apis: args.apis }),
               },
               rawExtra as McpRequestExtra,
-              '登记涉及接口',
+              '登记 OpenSpec 接口证据',
             )
             return {
               content: [{ type: 'text' as const, text: response.ok
-                ? `已登记到当前会话的涉及接口台账。\n${text}`
+                ? `已登记为当前会话绑定 OpenSpec change 的接口影响证据。\n${text}`
                 : text }],
               ...(response.ok ? {} : { isError: true }),
             }
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             return {
-              content: [{ type: 'text' as const, text: `Forge 涉及接口登记失败：${message}` }],
+              content: [{ type: 'text' as const, text: `Forge OpenSpec 接口证据登记失败：${message}` }],
               isError: true,
             }
           }
         },
       )] : []),
+      tool(
+        'report_session_progress',
+        '向 Forge Runtime 报告当前自动监督轮次的候选处置；运行身份由服务端会话绑定，工具本身不会启动下一轮或宣告整个目标完成。',
+        {
+          disposition: z.enum(['CONTINUE', 'COMPLETE', 'WAITING_USER', 'BLOCKED', 'FAILED']),
+          summary: z.string().max(2000),
+          nextAction: z.string().max(2000).optional(),
+          remainingWork: z.array(z.string().max(500)).max(20).default([]),
+          evidence: z.array(z.string().max(500)).max(20).default([]),
+          reason: z.string().max(2000).optional(),
+        },
+        async (args: {
+          disposition: 'CONTINUE' | 'COMPLETE' | 'WAITING_USER' | 'BLOCKED' | 'FAILED'
+          summary: string
+          nextAction?: string
+          remainingWork?: string[]
+          evidence?: string[]
+          reason?: string
+        }, rawExtra: unknown) => {
+          try {
+            const { response, text } = await fetchMcpHttpText(
+              `${apiBase}/api/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/progress`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(args),
+              },
+              rawExtra as McpRequestExtra,
+              '上报会话自动监督进度',
+            )
+            return { content: [{ type: 'text' as const, text }], ...(response.ok ? {} : { isError: true }) }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            return {
+              content: [{ type: 'text' as const, text: `Forge 自动监督进度上报失败：${message}` }],
+              isError: true,
+            }
+          }
+        },
+      ),
     ],
   })
 }

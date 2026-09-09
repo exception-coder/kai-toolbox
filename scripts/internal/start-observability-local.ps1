@@ -1,4 +1,4 @@
-# 启动或复用本机 Phoenix，供 kai-toolbox 通过标准 OTLP/HTTP 上报 Trace。
+﻿# 启动或复用本机 Phoenix，供 kai-toolbox 通过标准 OTLP/HTTP 上报 Trace。
 # Phoenix 只绑定 127.0.0.1，并使用命名卷持久化内置 SQLite。
 
 param(

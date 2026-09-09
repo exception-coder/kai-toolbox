@@ -3,6 +3,8 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SqlDdlEvidence;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -46,16 +48,23 @@ public class SqlDdlEvidenceService {
 
     private final ClaudeChatSessionRepository sessionRepository;
     private final Path knowledgeRoot;
+    private final ObjectMapper objectMapper;
     private final Map<String, CachedEvidence> evidenceCache = new ConcurrentHashMap<>();
 
     @Autowired
     public SqlDdlEvidenceService(ClaudeChatSessionRepository sessionRepository) {
-        this(sessionRepository, defaultKnowledgeRoot());
+        this(sessionRepository, defaultKnowledgeRoot(), new ObjectMapper());
     }
 
     SqlDdlEvidenceService(ClaudeChatSessionRepository sessionRepository, Path knowledgeRoot) {
+        this(sessionRepository, knowledgeRoot, new ObjectMapper());
+    }
+
+    SqlDdlEvidenceService(ClaudeChatSessionRepository sessionRepository, Path knowledgeRoot,
+                          ObjectMapper objectMapper) {
         this.sessionRepository = sessionRepository;
-        this.knowledgeRoot = knowledgeRoot;
+        this.knowledgeRoot = knowledgeRoot.toAbsolutePath().normalize();
+        this.objectMapper = objectMapper;
     }
 
     public SqlDdlEvidence prepare(String sessionId, String purpose, List<String> tables, String requestedProject) {
@@ -68,7 +77,7 @@ public class SqlDdlEvidenceService {
                     null, resolution.status(), null, null, requestedTables, List.of(), requestedTables,
                     resolution.candidates(), Map.of(), resolution.warning(), now), null);
         }
-        Path baseline = knowledgeRoot.resolve(resolution.project()).resolve("impl").resolve("ddl-baseline.md");
+        Path baseline = resolution.baselinePath();
         if (!Files.isRegularFile(baseline)) {
             return cache(sessionId, new SqlDdlEvidence(
                     null, SqlDdlEvidence.STATUS_DDL_MISSING, resolution.project(), baseline.toString(),
@@ -168,10 +177,16 @@ public class SqlDdlEvidenceService {
             return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, List.of(), "会话工作目录无效。");
         }
 
+        String explicitProject = requestedProject == null ? null : projects.get(requestedProject.trim().toLowerCase(Locale.ROOT));
+        if (explicitProject != null) {
+            return resolveBaseline(explicitProject, List.of(explicitProject));
+        }
+
         for (Path current = cwd; current != null; current = current.getParent()) {
             String name = current.getFileName() == null ? "" : current.getFileName().toString().toLowerCase(Locale.ROOT);
             if (projects.containsKey(name)) {
-                return ProjectResolution.resolved(projects.get(name), List.of(projects.get(name)));
+                String project = projects.get(name);
+                return resolveBaseline(project, List.of(project));
             }
         }
 
@@ -187,13 +202,7 @@ public class SqlDdlEvidenceService {
             }
         }
         List<String> sorted = candidates.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
-        if (requestedProject != null && !requestedProject.isBlank()) {
-            String match = sorted.stream()
-                    .filter(candidate -> candidate.equalsIgnoreCase(requestedProject.trim()))
-                    .findFirst().orElse(null);
-            if (match != null) return ProjectResolution.resolved(match, sorted);
-        }
-        if (sorted.size() == 1) return ProjectResolution.resolved(sorted.get(0), sorted);
+        if (sorted.size() == 1) return resolveBaseline(sorted.get(0), sorted);
         if (sorted.size() > 1) {
             return ProjectResolution.failed(SqlDdlEvidence.STATUS_PROJECT_AMBIGUOUS, sorted,
                     "当前聚合工作区对应多个 DDL 项目，请从候选项目中明确选择。");
@@ -208,7 +217,8 @@ public class SqlDdlEvidenceService {
         Map<String, String> projects = new LinkedHashMap<>();
         try (Stream<Path> entries = Files.list(root)) {
             entries.filter(Files::isDirectory)
-                    .filter(path -> Files.isRegularFile(path.resolve("impl").resolve("ddl-baseline.md")))
+                    .filter(path -> Files.isRegularFile(path.resolve("impl").resolve("ddl-baseline.md"))
+                            || Files.isRegularFile(path.resolve("impl").resolve("project-context.json")))
                     .sorted(Comparator.comparing(path -> path.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
                     .forEach(path -> projects.put(
                             path.getFileName().toString().toLowerCase(Locale.ROOT), path.getFileName().toString()));
@@ -216,6 +226,100 @@ public class SqlDdlEvidenceService {
             return Map.of();
         }
         return projects;
+    }
+
+    private ProjectResolution resolveBaseline(String project, List<String> candidates) {
+        Path projectDirectory = knowledgeRoot.resolve(project).normalize();
+        Path contextPath = projectDirectory.resolve("impl").resolve("project-context.json");
+        Path baseline = projectDirectory.resolve("impl").resolve("ddl-baseline.md");
+        if (Files.isRegularFile(contextPath)) {
+            try {
+                JsonNode context = objectMapper.readTree(contextPath.toFile());
+                validateProjectContext(project, context);
+                JsonNode ddlSource = context.path("ddlSource");
+                String configuredPath = ddlSource.path("path").asText("").trim();
+                String sourceProject = ddlSource.path("project").asText("").trim();
+                if (!configuredPath.isEmpty()) {
+                    baseline = knowledgeRoot.resolve(configuredPath).normalize();
+                    if (!baseline.startsWith(knowledgeRoot)) {
+                        return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates,
+                                "项目知识上下文中的 DDL 路径超出知识库根目录。");
+                    }
+                    Set<String> effectiveProjects = new LinkedHashSet<>();
+                    collectEffectiveProjects(project, effectiveProjects, new LinkedHashSet<>());
+                    if (!effectiveProjects.contains(sourceProject)) {
+                        return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates,
+                                "DDL 来源项目不是当前项目的有效知识来源：" + sourceProject);
+                    }
+                    Path sourceDirectory = knowledgeRoot.resolve(sourceProject).normalize();
+                    if (!baseline.startsWith(sourceDirectory)) {
+                        return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates,
+                                "DDL 来源路径不属于配置的来源项目：" + sourceProject);
+                    }
+                }
+            } catch (IOException e) {
+                return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates,
+                        "项目知识上下文读取失败：" + e.getMessage());
+            } catch (IllegalArgumentException e) {
+                return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates, e.getMessage());
+            }
+        }
+        if (!baseline.startsWith(knowledgeRoot)) {
+            return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates,
+                    "项目知识上下文中的 DDL 路径超出知识库根目录。");
+        }
+        return ProjectResolution.resolved(project, baseline, candidates);
+    }
+
+    private void validateProjectContext(String project, JsonNode context) {
+        if (!context.isObject()) {
+            throw new IllegalArgumentException("项目知识上下文根节点必须是对象。");
+        }
+        if (context.path("schemaVersion").asInt(-1) != 1) {
+            throw new IllegalArgumentException("项目知识上下文 schemaVersion 必须为 1。");
+        }
+        if (!project.equals(context.path("project").asText())) {
+            throw new IllegalArgumentException("项目知识上下文 project 必须为 " + project + "。");
+        }
+        JsonNode ddlSource = context.path("ddlSource");
+        if (!ddlSource.isMissingNode() && !ddlSource.isNull()) {
+            if (!ddlSource.isObject()) {
+                throw new IllegalArgumentException("项目知识上下文 ddlSource 必须是对象。");
+            }
+            for (String field : List.of("project", "guideId", "path")) {
+                if (ddlSource.path(field).asText("").trim().isEmpty()) {
+                    throw new IllegalArgumentException("项目知识上下文 ddlSource." + field + " 不能为空。");
+                }
+            }
+        }
+        JsonNode sources = context.path("knowledgeSources");
+        if (!sources.isMissingNode() && !sources.isArray()) {
+            throw new IllegalArgumentException("项目知识上下文 knowledgeSources 必须是数组。");
+        }
+    }
+
+    private void collectEffectiveProjects(String project, Set<String> effectiveProjects, Set<String> stack)
+            throws IOException {
+        if (!stack.add(project)) {
+            throw new IllegalArgumentException("项目知识上下文存在循环继承：" + String.join(" -> ", stack) + " -> " + project);
+        }
+        if (!effectiveProjects.add(project)) {
+            stack.remove(project);
+            return;
+        }
+        Path contextPath = knowledgeRoot.resolve(project).resolve("impl").resolve("project-context.json");
+        if (Files.isRegularFile(contextPath)) {
+            JsonNode context = objectMapper.readTree(contextPath.toFile());
+            validateProjectContext(project, context);
+            for (JsonNode source : context.path("knowledgeSources")) {
+                String sourceProject = source.path("project").asText("").trim();
+                if (sourceProject.isEmpty() || !Files.isDirectory(knowledgeRoot.resolve(sourceProject))) {
+                    throw new IllegalArgumentException("项目知识来源不存在：" + sourceProject);
+                }
+                collectEffectiveProjects(sourceProject, effectiveProjects, stack);
+            }
+        }
+        stack.remove(project);
     }
 
     private Map<String, String> extractFragments(String content, List<String> tables) {
@@ -315,13 +419,14 @@ public class SqlDdlEvidenceService {
                                   long expiresAt) {
     }
 
-    private record ProjectResolution(String project, String status, List<String> candidates, String warning) {
-        static ProjectResolution resolved(String project, List<String> candidates) {
-            return new ProjectResolution(project, null, candidates, null);
+    private record ProjectResolution(String project, Path baselinePath, String status,
+                                     List<String> candidates, String warning) {
+        static ProjectResolution resolved(String project, Path baselinePath, List<String> candidates) {
+            return new ProjectResolution(project, baselinePath, null, candidates, null);
         }
 
         static ProjectResolution failed(String status, List<String> candidates, String warning) {
-            return new ProjectResolution(null, status, candidates, warning);
+            return new ProjectResolution(null, null, status, candidates, warning);
         }
     }
 }

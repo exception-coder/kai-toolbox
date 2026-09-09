@@ -35,6 +35,13 @@ Windows：
 .\scripts\run-supervised.cmd
 ```
 
+无参数时启动前端、后端及后端辅助服务。也可以只启动一侧：
+
+```powershell
+.\scripts\run-supervised.cmd frontend
+.\scripts\run-supervised.cmd backend
+```
+
 推荐使用仓库提供的 `.cmd` 入口。它会用 Windows 10/11 自带的 `powershell.exe` 启动 supervisor，并只为该子进程设置 `ExecutionPolicy Bypass`；不要求安装 PowerShell 7，也不受当前终端禁止直接执行 `.ps1` 的策略影响。
 
 需要传递启动参数时直接追加即可，例如：
@@ -117,6 +124,13 @@ Windows：
 .\scripts\stop-supervised.cmd
 ```
 
+无参数时停止全部服务。也可以只停止一侧，另一侧会继续运行且不会被 supervisor 重新拉起：
+
+```powershell
+.\scripts\stop-supervised.cmd frontend
+.\scripts\stop-supervised.cmd backend
+```
+
 macOS：
 
 ```bash
@@ -137,7 +151,7 @@ macOS：
 bash scripts/stop-supervised-macos.sh --keep-studio
 ```
 
-Windows `-Ports 18080,5173` / macOS `--ports 18080,5173` 只适合 supervisor 已经退出后的定点清理；若 watchdog 仍在运行，被停止的前后端会按设计重新拉起。
+Windows `-Ports 18080,5173` / macOS `--ports 18080,5173` 是仅供排障的定点清理参数。日常启停统一使用上面的 `all`（或无参数）、`frontend`、`backend`。
 
 ## 首次配置
 
@@ -229,6 +243,7 @@ http://localhost:5173/tools/claude-chat
 | 会话管理 | 最近会话与恢复 | 按最近活动快速找回任务，恢复对应工作目录、Agent、模型和历史上下文。 |
 | 会话管理 | 搜索、别名与两级分组 | 可按别名搜索，并使用“系统/项目 → 需求 → 会话”结构归档大量开发任务。 |
 | 会话管理 | 多会话分屏 | 同时打开多个 Agent 会话，对照实现、复核结果或并行推进不同任务。 |
+| 会话协作 | 受约束会话委托 | 为指定 Forge 用户签发短时单次邀请；参与者通过 `/session-client` 或独立 SDK 连接同一会话，风险操作仍由所有者批准。 |
 | 沉浸交互 | 全屏与悬浮会话框 | 全屏模式隐藏工作台导航；悬浮会话框可在浏览其他模块时保持沟通上下文。 |
 | 沉浸交互 | 语音与手势 | 支持语音输入、语音模式和手势交互，适合演示、移动操作和连续沟通。 |
 | 个性化体验 | 炫彩皮肤 | 根据当前 Agent 呈现不同氛围，同时保持会话内容与操作行为一致。 |
