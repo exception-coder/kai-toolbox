@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { PrdSessionView } from '@/features/prd-clarify/public-api'
 import type { ReqItemView } from '../types'
-import { buildReqpoolVibeSeed, buildRequirementHierarchy, decisionOf, effectiveInsight, excerpt, prdSessionPollingInterval, relativeTime, staleUpdateLabel } from './reqpoolPageModel'
+import { buildReqpoolVibeSeed, buildRequirementHierarchy, decisionOf, effectiveInsight, excerpt, groupRequirementsByStatus, prdSessionPollingInterval, relativeTime, REQUIREMENT_BOARD_STAGES, staleUpdateLabel } from './reqpoolPageModel'
 
 function item(id: string, prdSessionId: string | null, status: ReqItemView['status'] = 'DRAFT'): ReqItemView {
   return { id, prdSessionId, status, title: id, createdAt: 1, updatedAt: 1 } as ReqItemView
@@ -50,6 +50,17 @@ describe('reqpool page model', () => {
       devDocWorkStatus: 'DONE',
       devDocEstimation: null,
     } as PrdSessionView])).toBe(false)
+  })
+
+  it('groups every requirement into the ordered lifecycle board', () => {
+    const draft = item('draft', null, 'DRAFT')
+    const done = item('done', null, 'DONE')
+    const grouped = groupRequirementsByStatus([done, draft])
+
+    expect(REQUIREMENT_BOARD_STAGES).toEqual(['DRAFT', 'CLARIFYING', 'PRD_READY', 'IN_DEV', 'DONE', 'CANCELLED'])
+    expect(grouped.get('DRAFT')).toEqual([draft])
+    expect(grouped.get('DONE')).toEqual([done])
+    expect(grouped.get('IN_DEV')).toEqual([])
   })
 
   it('polls while specification or execution-plan work is running', () => {

@@ -157,6 +157,21 @@ export function deliveryFor(item: ReqItemView, overview?: DeliveryOverview): Del
   return overview.requirements.find(requirement => requirement.id === item.prdSessionId)
 }
 
+export const REQUIREMENT_BOARD_STAGES: ReqStatus[] = [
+  'DRAFT',
+  'CLARIFYING',
+  'PRD_READY',
+  'IN_DEV',
+  'DONE',
+  'CANCELLED',
+]
+
+export function groupRequirementsByStatus(items: ReqItemView[]): Map<ReqStatus, ReqItemView[]> {
+  const grouped = new Map(REQUIREMENT_BOARD_STAGES.map(stage => [stage, [] as ReqItemView[]]))
+  for (const item of items) grouped.get(item.status)?.push(item)
+  return grouped
+}
+
 /** 列表仅在证据长期未刷新时显示更新时间，正常更新节奏不占用扫描空间。 */
 export function staleUpdateLabel(value: number, thresholdDays = 7): string | null {
   const days = Math.max(0, Math.floor((Date.now() - value) / 86_400_000))

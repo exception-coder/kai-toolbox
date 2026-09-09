@@ -1,7 +1,7 @@
 import {
   ChevronDown,
   Database,
-  LayoutList,
+  Columns3,
   Plus,
   Presentation,
   RefreshCw,
@@ -62,7 +62,7 @@ export function ReqPoolPageHeader({
         </div>
       </div>
       <div className="flex items-center gap-1 overflow-x-auto px-5 lg:px-8">
-        <ViewTab active={view === 'table'} icon={<LayoutList className="h-3.5 w-3.5" />} label="统一工作台" onClick={() => onViewChange('table')} />
+        <ViewTab active={view === 'table'} icon={<Columns3 className="h-3.5 w-3.5" />} label="流程看板" onClick={() => onViewChange('table')} />
         <ViewTab active={view === 'leader'} icon={<Presentation className="h-3.5 w-3.5" />} label="领导视图" onClick={() => onViewChange('leader')} />
         <div className="ml-auto hidden items-center gap-2 pb-2 text-[10px] text-[var(--color-muted-foreground)] sm:flex"><Database className="h-3 w-3" />需求规格 · 执行方案 · Git · 文档已连接</div>
       </div>

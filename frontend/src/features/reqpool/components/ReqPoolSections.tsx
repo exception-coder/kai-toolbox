@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -696,6 +696,11 @@ export function MobileRequirementCard({
   onStartTdd,
   onAnswerTdd,
   onPreviewTdd,
+  showOwner = true,
+  showDelivery = true,
+  showRisk = true,
+  ownerControl,
+  deadlineControl,
 }: {
   item: ReqItemView
   requirement?: DeliveryRequirement
@@ -714,6 +719,11 @@ export function MobileRequirementCard({
   onStartTdd: (engine: AgentEngine) => void
   onAnswerTdd: () => void
   onPreviewTdd: () => void
+  showOwner?: boolean
+  showDelivery?: boolean
+  showRisk?: boolean
+  ownerControl?: ReactNode
+  deadlineControl?: ReactNode
 }) {
   const insight = effectiveInsight(item)
   const factQuality = evaluateRequirementFacts(item, prdSession)
@@ -724,24 +734,22 @@ export function MobileRequirementCard({
     || factRisk
     || (!item.assignee ? '尚未明确唯一负责人' : item.status === 'DRAFT' ? '需补齐验收口径' : null)
   return (
-    <article className={`p-4 transition-colors ${selected ? 'bg-[var(--color-primary)]/[0.055]' : ''}`}>
-      <div className="flex items-start gap-3">
-        <input type="checkbox" checked={selected} onChange={onToggle} className="mt-1 h-4 w-4 shrink-0 rounded border-[var(--color-border)] accent-violet-600" aria-label={`选择需求：${item.title}`} />
-        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-          <h3 className="text-sm font-semibold leading-6">{item.title}</h3>
-          <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--color-foreground)]/80">{insight?.reason || excerpt(item.description)}</p>
-          <p className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">{DECISION_META[decisionOf(item)].label} · {item.project || '待归属'} · 规格 {factQuality.score}</p>
-          {risk && <div className="mt-2 flex items-start gap-1.5 text-[10px] leading-4 text-[var(--color-foreground)]/75"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-600" /><span className="line-clamp-1">{risk}</span></div>}
+    <article className={`group/note border bg-[var(--color-card)] transition-[border-color,box-shadow,background-color] duration-150 focus-within:border-[var(--color-primary)] hover:border-[var(--color-foreground)]/20 hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)] ${selected ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/[0.035]' : 'border-[var(--color-border)]'}`}>
+      <div className="flex items-start gap-2.5 p-3">
+        <input type="checkbox" checked={selected} onChange={onToggle} onClick={event => event.stopPropagation()} className="mt-1 h-3.5 w-3.5 shrink-0 rounded border-[var(--color-border)] accent-violet-600" aria-label={`选择需求：${item.title}`} />
+        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] focus-visible:ring-offset-2">
+          <div className="flex items-center gap-2 text-[9px] font-medium uppercase tracking-[0.08em] text-[var(--color-muted-foreground)]"><span>{DECISION_META[decisionOf(item)].label}</span><span aria-hidden="true">·</span><span>规格 {factQuality.score}</span></div>
+          <h3 className="mt-2 text-[13px] font-semibold leading-5 tracking-[-0.01em]">{item.title}</h3>
+          <p className="mt-1.5 line-clamp-2 text-[11px] leading-[1.55] text-[var(--color-foreground)]/72">{insight?.reason || excerpt(item.description)}</p>
+          <div className="mt-2.5 flex min-w-0 items-center gap-1.5 text-[10px] text-[var(--color-muted-foreground)]"><Building2 className="h-3 w-3 shrink-0" /><span className="truncate">{item.project || '待归属'}{item.module ? ` / ${item.module}` : ''}</span></div>
+          {showRisk && risk && <div className="mt-2 flex items-start gap-1.5 border-l-2 border-amber-400 pl-2 text-[10px] leading-4 text-[var(--color-foreground)]/75"><span className="line-clamp-2">{risk}</span></div>}
         </button>
-        <button type="button" onClick={onDelete} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-rose-50 hover:text-rose-500" aria-label={`删除需求：${item.title}`}><Trash2 className="h-3.5 w-3.5" /></button>
+        <button type="button" onClick={onDelete} className="grid h-7 w-7 shrink-0 place-items-center text-[var(--color-muted-foreground)] opacity-0 transition-opacity hover:bg-rose-50 hover:text-rose-500 focus-visible:opacity-100 group-hover/note:opacity-100 dark:hover:bg-rose-950/30" aria-label={`删除需求：${item.title}`}><Trash2 className="h-3.5 w-3.5" /></button>
       </div>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border)] pt-3">
-        <div className="min-w-0 text-[10px] text-[var(--color-muted-foreground)]">
-          <div className="truncate"><UserRound className="mr-1 inline h-3 w-3" />{item.assignee || '待指派负责人'}</div>
-          <div className="mt-1"><CalendarDays className="mr-1 inline h-3 w-3" />{dateLabel(item.deadline)}</div>
-        </div>
-        <DeliveryTrack compact item={item} requirement={requirement} prdSession={prdSession} prdRunning={prdRunning} tddBuilding={tddBuilding} tddGenerating={tddGenerating} tddFailed={tddFailed} onStartPrd={onStartPrd} onAnswerPrd={onAnswerPrd} onPreviewPrd={onPreviewPrd} onStartTdd={onStartTdd} onAnswerTdd={onAnswerTdd} onPreviewTdd={onPreviewTdd} />
-      </div>
+      {(showOwner || showDelivery) && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border)] px-3 py-2.5">
+        {showOwner && <div className="min-w-[112px] flex-1 space-y-1 text-[9px] leading-4 text-[var(--color-muted-foreground)]">{ownerControl ?? <div className="truncate"><UserRound className="mr-1 inline h-3 w-3" />{item.assignee || '待指派负责人'}</div>}{deadlineControl ?? <div><CalendarDays className="mr-1 inline h-3 w-3" />{dateLabel(item.deadline)}</div>}</div>}
+        {showDelivery && <DeliveryTrack compact item={item} requirement={requirement} prdSession={prdSession} prdRunning={prdRunning} tddBuilding={tddBuilding} tddGenerating={tddGenerating} tddFailed={tddFailed} onStartPrd={onStartPrd} onAnswerPrd={onAnswerPrd} onPreviewPrd={onPreviewPrd} onStartTdd={onStartTdd} onAnswerTdd={onAnswerTdd} onPreviewTdd={onPreviewTdd} />}
+      </div>}
     </article>
   )
 }
