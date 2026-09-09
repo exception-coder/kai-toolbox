@@ -114,11 +114,3 @@ tasks:
   deps:down:
     desc: Stop Compose dependencies and retain their data volumes
     cmds: ['docker compose -f {{.COMPOSE_FILE}} down']
-
-  legacy:start:
-    desc: Compatibility alias for start
-    cmds: ['node forge.mjs start {{.CLI_ARGS}}']
-
-  legacy:stop:
-    desc: Compatibility alias for stop
-    cmds: ['node forge.mjs stop']

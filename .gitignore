@@ -33,6 +33,8 @@ data/
 
 ### Frontend ###
 frontend/node_modules/
+scripts/runtime/node_modules/
+node-services/agentscope-studio/node_modules/
 frontend/dist/
 frontend/dist-assistant/
 frontend/dist-session-client/

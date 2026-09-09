@@ -73,8 +73,8 @@ $env:JAVA_HOME = Resolve-Java21Home
 Invoke-QualityStep -Name 'PowerShell 5.1 and 7 compatibility' -WorkingDirectory $repositoryRoot -Command {
     & "$repositoryRoot/scripts/tests/test-powershell-compatibility.ps1"
 }
-Invoke-QualityStep -Name 'supervisor service scope state' -WorkingDirectory $repositoryRoot -Command {
-    & "$repositoryRoot/scripts/tests/test-supervised-service-state.ps1"
+Invoke-QualityStep -Name 'portable runtime tests' -WorkingDirectory $repositoryRoot -Command {
+    & node --test 'scripts/runtime/test/*.test.mjs'
 }
 Invoke-QualityStep -Name 'frontend tests' -WorkingDirectory "$repositoryRoot/frontend" -Command {
     & $npmCommand run test

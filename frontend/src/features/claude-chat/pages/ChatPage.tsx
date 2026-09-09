@@ -235,7 +235,7 @@ export function ChatPage() {
   // 一键重启后端：依次试两条通道，任一成功即可（带超时，绝不无限等待——之前 fetch 无超时，
   // 通道不可达时一直卡在“正在请求重启…”）。
   //   1) POST /api/system/restart —— 后端自重启端点。走 /api 通道(dev 经 Vite 代理、生产直连后端都可达)，
-  //      进程优雅退出后由守护脚本(run-supervised.ps1)检测到 HasExited 重新拉起。token=toolbox.system.restart-token。
+  //      进程优雅退出后由 Forge Runtime 的 PM2 守护重新拉起。token=toolbox.system.restart-token。
   //   2) POST /supervisor/restart —— 守护进程独立控制口(:18081)，仅 dev 经 Vite /supervisor 代理可达；
   //      生产无此代理、或 :18081 HttpListener 因 urlacl 未起时不可达。token=TOOLBOX_SUPERVISOR_RESTART_TOKEN。
   // 两端 token 可能不同；用同一输入框值分别试，任一匹配并触发即算成功。重启后 WS 断、前端自动重连续上。

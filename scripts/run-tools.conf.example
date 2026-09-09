@@ -1,14 +1,10 @@
 # 兼容旧版的单文件示例。
-# 新配置请优先使用 run-tools.example.d，并把本机文件放入受 Git 忽略的 run-tools.d 目录。
-# 已有 run-tools.conf 可执行 migrate-run-tools-config.ps1 自动分类迁移。
-#
-# 用法：可直接复制为同目录 run-tools.conf 并按本机实际路径填写；
-#       也可以什么都不做——首次运行 run-supervised.ps1 / run-supervised-macos.sh /
-#       run-backend.ps1 时，脚本会自动探测（PATH/常见安装位置），探测不到则交互式询问，
-#       你填入后自动写回 run-tools.conf，下次免问。
-#
-# 格式：KEY=路径（# 注释、空行忽略；值里可含空格与反斜杠，无需引号）。
-# 三个脚本共用同一份 run-tools.conf，配一次都生效。run-tools.conf 本身已被 .gitignore 忽略。
+# 新配置可参考 run-tools.example.d，放入受 Git 忽略的 run-tools.d 目录。
+# 已有 run-tools.conf 继续读取，无需迁移。
+# 复制为同目录 run-tools.conf，按本机路径填写；留空从 PATH 查找。
+# 使用 node forge.mjs doctor 检查环境，再执行 node forge.mjs start。
+# 格式：KEY=路径；值可含空格和反斜杠，无需引号。
+# 本机配置受 Git 忽略，请勿提交凭据。
 
 # Maven：Windows 填 mvn.cmd，macOS 填 mvn。例：
 #   MVN_CMD=D:\devapps\apache-maven-3.9.9\bin\mvn.cmd

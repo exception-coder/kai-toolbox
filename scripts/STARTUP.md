@@ -92,7 +92,7 @@ Phoenix Compose 沿用 `task deps:check / deps:up / deps:status / deps:logs / de
 2. 保留现有配置，执行 `node forge.mjs doctor`。
 3. 执行 `node forge.mjs start`，用 status 和 logs 确认就绪。
 
-旧 `.cmd`、macOS `.sh`、内部启停 `.ps1` 和 run-backend.ps1 仅为薄转发，不再维护另一套守护逻辑。旧 frontend/backend、Mode、HotReload 参数兼容；按端口强杀、KeepStudio 等旧清理参数已取消。需要单独保留服务应单独管理，不让多个运行器争夺同一端口。
+旧平台启停快捷脚本、配置迁移脚本和 Phoenix 启停脚本已删除，请更新终端快捷方式为 `node forge.mjs`；Phoenix 使用 `task deps:up / deps:down`。现有本机配置和数据继续保留。旧 frontend/backend、Mode、HotReload 参数兼容；按端口强杀、KeepStudio 等旧清理参数已取消。需要单独保留服务应单独管理，不让多个运行器争夺同一端口。
 
 Node/PM2 自身依赖升级时先 stop，再在 `scripts/runtime` 执行 `npm ci`，最后 start。业务源码 full-reload 不替换正在运行的 PM2 守护引擎。
 

@@ -103,6 +103,17 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 - Registry tasks use the existing requirement registration port. Their system/profile bindings are separate from task lifecycle; Agent handoff is available at `/api/project-registry/{id}/tasks/{taskId}/context`.
 - `AI_READY` describes available engineering context, not passing builds, verified DDL or runtime correctness. Missing, partial and stale evidence must remain explicit. Preserve the previous profile when initialization fails.
 
+## AI 开发完成与自动提交
+
+本项目采用 AI 辅助开发工作流；本节是 Codex、Claude Code 和其他仓库 Agent 的统一收尾约束。
+
+- 每完成一个可独立验收的功能、修复或重构，更新相关 OpenSpec 任务与必要文档，执行适用测试及项目质量门禁，通过后立即自动 `git commit`，不积累到下一轮。用户已授权此行为，无需再次询问；用户明确要求不提交时除外。
+- 开始工作时记录 Git 状态；提交前核对 diff 与暂存区，只提交本任务完成的改动。用 `git add <具体路径>`，禁止 `git add -A` / `git add .`。同一文件混有其他任务改动时按块暂存；不能可靠拆分时说明阻碍，不擅自提交、还原或 stash 他人改动。
+- 验证失败、实现未完成、存在冲突或提交失败时，不伪称完成，不跳过检查或 hooks；修复后再提交，不能修复则明确报告原因与未提交范围。运行日志、依赖缓存、凭据和临时产物不得进入提交。
+- 提交信息使用 `type(scope): 中文标题`，正文包含 `【改动】`、`【原因】`、`【结果】`，Author 读取真实 Git 配置，禁止 AI 署名。已安装 `git-commit-standards` 时使用其消息生成器；本项目用户授权优先于 Skill 默认的再次确认步骤。
+- 默认自动 commit，不自动 push；只有用户明确要求推送时执行 push。本节替代旧的默认 commit + push 约定。
+- 收尾回复必须说明验证结果及 commit 短哈希；若没有提交，明确原因。没有实际执行成功的 commit，不能声称已提交。
+
 ## Reference docs
 
 - `README.md` — short user-facing overview

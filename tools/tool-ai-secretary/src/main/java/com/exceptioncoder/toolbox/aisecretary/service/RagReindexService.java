@@ -47,7 +47,7 @@ public class RagReindexService {
         Map<String, Object> m = new LinkedHashMap<>();
         if (!ragStatusService.isEnabled()) {
             m.put("enabled", false);
-            m.put("hint", "RAG 未启用：启动需带 -Dtoolbox.ai-secretary.rag.enabled=true（走 run-supervised.ps1）");
+            m.put("hint", "RAG 未启用：请启用 toolbox.ai-secretary.rag.enabled 并重启后端");
             return m;
         }
         m.put("enabled", true);

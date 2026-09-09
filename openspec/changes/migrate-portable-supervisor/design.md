@@ -13,7 +13,7 @@
 3. 仅管理私有 PM2 实例中的命名进程；端口冲突报错，不接管未知进程。控制器启动失败不杀已有应用。停止控制器后删除受管应用，避免自动重新拉起。
 4. 独立 runner 负责构建后执行。Maven 使用 Java classworlds 入口，npm 使用 Node npm-cli.js，避免 Windows cmd 转义。依赖锁变化才 npm ci；Python 安装只在 prepare 或 requirements 变化时执行。保留 .venv 和配置文件。
 5. Java 更新调度不重复实现。后端通过环境接收内部 token；重启 controller 时刷新环境。Agent Sidecar 继续由 Java 关闭；PM2 兜底回收其进程树。
-6. 旧快捷入口只调用 forge.mjs，旧内部实现退役。Task start/stop/status/restart 与 CLI 共用实现。可选观测依赖单独 Compose，不成为源码启动前置。
+6. 按用户要求删除已被替代的旧快捷入口、配置迁移脚本和 Phoenix 脚本，更新活动调用方与说明。Task start/stop/status/restart 与 CLI 共用实现，删除 legacy 别名。保留仍在使用的质量门禁和专项工具；保留用户本机配置与数据。可选观测依赖单独 Compose，不成为源码启动前置。
 7. PM2 7 Windows 固定命名管道通过只加载于 PM2 的隔离适配器覆盖；关闭 pidusage 的可选 WMI/PowerShell 资源统计，不伪造对外 CPU/内存指标。Windows killDaemon 回调可能不返回，stop 在删除所有受管进程并断开 RPC 后终止私有 daemon；不读取或影响全局 PM2。适配器固定依赖版本并有真实双实例测试。
 8. backend IPC 优雅退出先请求 Java，10 秒后回收自己所属的进程树，早于 PM2 15 秒 wrapper 超时；避免只结束 Maven 包装器而留下 JVM。
 

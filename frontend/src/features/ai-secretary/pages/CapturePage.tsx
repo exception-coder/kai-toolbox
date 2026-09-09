@@ -252,7 +252,7 @@ export function CapturePage() {
       const r = await reindexRag()
       setRag(r)
       if (!r.enabled) {
-        setBanner({ kind: 'warn', text: 'RAG 未启用：后端需带 rag.enabled=true 启动（run-supervised.ps1）' })
+        setBanner({ kind: 'warn', text: 'RAG 未启用：请启用 toolbox.ai-secretary.rag.enabled 并重启后端' })
       } else if (r.error) {
         setBanner({ kind: 'err', text: `重建出错：${r.error}` })
       } else {

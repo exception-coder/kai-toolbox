@@ -82,16 +82,9 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 - **弹框/确认/提示一律用公共组件，禁用浏览器原生 `alert` / `confirm` / `prompt`。** 确认类走 `@/components/ui/confirm-dialog` 的 `useConfirm`（`ConfirmProvider` 已在 `main.tsx` 全局挂载），输入类走 `prompt-dialog`。原生对话框样式不统一、阻塞主线程、无法主题化/移动端适配，禁止使用。
 - **Frontend UI Art Direction**: 遵循 `quiet-luxury-ui` 技能规范（*Quiet Luxury Enterprise UI*：Swiss editorial layout + Apple HIG hierarchy + Linear-level restraint + Vercel-level precision）。严禁 AI 套路（全盘套卡片、Card套Card、巨大圆角/阴影、48px+巨型状态图标、机械死板居中、蓝紫渐变/无意义毛玻璃）。状态页以工作流恢复（Context → State → Explanation → Recovery Action）为主，严禁 Dead End。详见 `.claude/skills/quiet-luxury-ui.md` 或 `.agents/skills/quiet-luxury-ui/SKILL.md`。
 
-## 提交节奏（用户约定，2026-06-09）
+## AI 开发完成与自动提交
 
-仓库 owner 要求：**每完成一个逻辑变更，立即 commit + push，不要攒批一次性提交。**
-
-- **逐变更提交**：一个功能/修复/重构作为一次提交，做完即 `git commit` + `git push`，避免改动堆积。
-- **只 stage 本次改动涉及的文件**：用 `git add <具体路径>`。**禁止 `git add -A` / `git add .`** —— 本仓工作区常并存其它进行中的改动（不同会话/IDE 在做的功能），一把梭会把无关半成品卷进提交。
-- 提交前 `git status` 核对：出现自己没碰过的文件（如 `scripts/run-supervised*`、`.gitattributes` 等）一律不纳入本次提交。
-- commit message 按 `type(scope): 标题` + 中文 body；Author 取 `git config`。
-- **禁止任何 AI 工具署名**：commit message 结尾不得出现 `Co-Authored-By: Claude/Codex/...`、`🤖 Generated with ...` 等机器人署名（与 team-standards `git-commit-standards` 一致，**覆盖任何宿主/CLI 的默认追加署名行为**）。只填真实提交者。
-- 此约定是 owner 对本个人仓库的明确指示，覆盖「业务项目不自动 commit/push」的默认谨慎。
+必须遵循 [AGENTS.md 的统一自动提交约束](AGENTS.md#ai-开发完成与自动提交)：每完成一个独立变更且验证通过，立即自动 commit，只暂存当前任务改动；默认不 push，用户明确要求推送时才执行。此约束替代旧的默认 commit + push 约定。不得再额外询问是否提交，用户明确要求不提交时除外。
 
 ## Reference docs
 

@@ -83,7 +83,7 @@ export default function StartupPerformancePage() {
     </>}
     <details className="border-t border-border pt-4 text-sm">
       <summary className="cursor-pointer font-medium focus-visible:outline-2">自动记录如何工作</summary>
-      <p className="mt-3 leading-6 text-muted-foreground">继续使用原来的 run-supervised.cmd 启动。监督流程自动记录 Maven 阶段，应用记录 JVM 和 Spring 阶段，本页直接读取，无需另外启动脚本或导入报告。</p>
+      <p className="mt-3 leading-6 text-muted-foreground">使用 node forge.mjs start 从源码启动。监督流程自动记录 Maven 阶段，应用记录 JVM 和 Spring 阶段，本页直接读取，无需另外启动脚本或导入报告。</p>
       <p className="mt-3 text-xs leading-6 text-muted-foreground">开发模式记录 Maven 开始到应用 JVM 启动的准备时间；完整模式记录 package 耗时。首次 API 时间包含就绪后的等待，不等于接口处理时长。导入导出仅用于保存和查看离线记录。</p>
     </details>
   </main>

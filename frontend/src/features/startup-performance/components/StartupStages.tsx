@@ -41,7 +41,7 @@ export function StartupStages({ snapshot, report }: {
         ? preparation
           ? '由监督启动流程自动记录，包含 Maven 准备、编译和 JVM 创建。此值属于本次 JVM 初始启动，不代表热编译耗时。'
           : '由监督启动流程自动记录 Maven package 耗时，未包含后续应用运行。'
-        : '本次启动未携带构建计时。使用更新后的 run-supervised.cmd 正常启动，即可自动记录，无需额外测量脚本。'}
+        : '本次启动未携带构建计时。使用 node forge.mjs start 启动，即可自动记录，无需额外测量脚本。'}
     </p>}
     {snapshot?.milestones.firstApiSuccess.source && <p className="mt-3 break-all font-mono text-xs text-muted-foreground">{snapshot.milestones.firstApiSuccess.source}</p>}
   </section>

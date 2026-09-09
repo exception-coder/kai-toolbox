@@ -41,9 +41,9 @@ Enabled auxiliary services SHALL have isolated logs and bounded failure retries.
 ### Requirement: Migration compatibility
 Forge SHALL read existing local configuration and preserve startup performance metadata without invoking legacy runtime scripts.
 
-#### Scenario: Old shortcut
-- **WHEN** a developer invokes the legacy start shortcut
-- **THEN** it delegates to the same Node CLI rather than a separate supervisor
+#### Scenario: Retired shortcuts
+- **WHEN** a developer follows current startup instructions
+- **THEN** the instructions SHALL use node forge.mjs or equivalent Task commands, and obsolete platform launchers and configuration migration scripts SHALL be removed while existing local configuration remains readable
 
 #### Scenario: Stop with no managed services
 - **WHEN** no service belongs to the new supervisor but a relevant port remains occupied

@@ -67,8 +67,7 @@ VideoLanguageDetectionService 调 `/detect` 判语言，都不再 fork whisper-c
 用 supervisor 启动时不要直接改 yml，在 `scripts/run-tools.conf` 里配
 `TOOLBOX_WHISPER_MODE=asr-service` —— 脚本据此决定是否自动拉起本服务，
 两处必须一致（曾经模式钉在 asr-service 却没人启动本服务，字幕/语言识别双双失效）。
-Windows 走 `run-supervised.ps1`（缺省 cli），macOS 走 `run-supervised-macos.sh`
-（缺省 asr-service，因为 cli 模式那个 whisper-cli.exe 路径在 mac 上不存在）。
+各平台统一使用 `node forge.mjs start`，通过 `TOOLBOX_WHISPER_MODE=asr-service` 启用本服务。
 
 可以随时改回 `cli` 退回到 whisper.cpp CLI 模式作 fallback。
 

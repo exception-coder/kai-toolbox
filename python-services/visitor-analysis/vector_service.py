@@ -11,7 +11,7 @@
   QDRANT_URL       = http://localhost:6333   Qdrant REST 完整地址（显式覆盖，最高优先）
                      云端示例: https://xyz.us-east4.gcp.cloud.qdrant.io:6333
   TOOLBOX_QDRANT_HOST   = 主机/IP            复用 scripts/run-tools.conf 里与 Java/AI 秘书共用的
-                     那份配置（run-supervised.ps1 注入为进程环境变量，子进程 sidecar 自动继承）。
+                     那份配置（Forge Runtime 注入为进程环境变量，子进程 sidecar 自动继承）。
                      只是主机名/IP，本服务按 REST 端口拼成 http://{host}:{port}。
   TOOLBOX_QDRANT_HTTP_PORT = 6333            上面 host 拼 URL 用的 REST 端口（Java 侧走 gRPC 6334，
                      本服务走 REST 6333；远端两端口都需放通）。

@@ -12,6 +12,10 @@
 
 ## 3. Evidence and acceptance boundaries
 
+- [x] 3.1 Remove obsolete platform launchers and migration helpers; update active references and verify runtime regressions.
+
+- Cleanup evidence: 13 obsolete scripts removed; active source references cleared, Task legacy aliases removed. Runtime 7/7, Task contracts 3/3, frontend typecheck and remaining 19 PowerShell scripts parsing under 5.1/7 pass. Forge verify exit 0/PASSED: 9 existing API scenarios; no static checkers executed. No running application was restarted.
+
 - Startup UX follow-up: 7 Node test groups pass, including HTTP readiness before success, optional failure, timeout, real initial and repeated start. Live existing frontend HTTPS and backend HTTP probes passed; WeChat was reported separately as not ready. No running service was restarted for this UX change.
 
 - Follow-up: stop/status detect unmanaged listeners instead of reporting success for an empty PM2 list. After the user's stop attempt, the verified legacy supervisor tree was stopped; ports 18080/5173/18081/9600/3000 were released. No new stack was automatically started.
