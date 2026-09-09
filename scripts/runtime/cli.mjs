@@ -119,6 +119,7 @@ async function stop(paths, settings, manager, context) {
 export async function main(root, args) {
   const [command = 'help', ...rest] = args;
   if (['help', '--help', '-h'].includes(command)) {
+    console.log('Isolated backend measurement:\nnode forge.mjs measure-startup [--port 18090] [--timeout-seconds 120] [--skip-build] [--application-jar PATH] [--output-root PATH] [--target-path /api/tools]\n');
     console.log('Forge source runtime (Node 22+, Java 21, Maven)\n\nnode forge.mjs start [--scope all|backend|frontend] [--mode dev|full]\nnode forge.mjs stop\nnode forge.mjs status\nnode forge.mjs restart\nnode forge.mjs logs [service]\nnode forge.mjs doctor\nnode forge.mjs prepare\n\nDocker is optional and is not used to run Forge.');
     return;
   }

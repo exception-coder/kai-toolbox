@@ -9,13 +9,19 @@ const root = dirname(fileURLToPath(import.meta.url));
 try {
   if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Forge requires Node.js 22 or later');
   const command = process.argv[2] || 'help';
-  if (!['help', '--help', '-h'].includes(command) && !existsSync(join(root, 'scripts/runtime/node_modules/pm2/package.json'))) {
-    console.log('Installing locked Forge runtime dependencies...');
-    const env = readConfig(root);
-    await run(npmCommand(env), ['ci', '--no-audit', '--no-fund'], { cwd: join(root, 'scripts/runtime'), env });
+  if (command === 'measure-startup') {
+    const { measureStartup, measurementOptions } = await import('./scripts/runtime/measure-startup.mjs');
+    const result = await measureStartup(root, measurementOptions(process.argv.slice(3)), readConfig(root));
+    process.exitCode = result.exitCode;
+  } else {
+    if (!['help', '--help', '-h'].includes(command) && !existsSync(join(root, 'scripts/runtime/node_modules/pm2/package.json'))) {
+      console.log('Installing locked Forge runtime dependencies...');
+      const env = readConfig(root);
+      await run(npmCommand(env), ['ci', '--no-audit', '--no-fund'], { cwd: join(root, 'scripts/runtime'), env });
+    }
+    const { main } = await import('./scripts/runtime/cli.mjs');
+    await main(root, process.argv.slice(2));
   }
-  const { main } = await import('./scripts/runtime/cli.mjs');
-  await main(root, process.argv.slice(2));
 } catch (error) {
   console.error(`[forge] ${error.message}`);
   process.exitCode = 1;

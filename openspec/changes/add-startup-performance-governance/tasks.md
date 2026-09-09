@@ -16,3 +16,9 @@
 - [x] 3.1 Wrap existing backend command execution and attach full/dev launch timing without changing daily entry.
 - [x] 3.2 Read validated build metadata in startup snapshots and show it automatically in the page.
 - [x] 3.3 Verify wrapper failure behavior, metadata attribution, handoff filtering, frontend and script compatibility; update usage and work log.
+
+## 4. Portable isolated measurement
+
+- [x] 4.1 Add Node CLI measurement options, isolated lifecycle and compatible JSON evidence.
+- [x] 4.2 Forward the PowerShell entry and update usage.
+- [x] 4.3 Verify owned-process cleanup, failure/timeout/correlation, CLI compatibility and quality gate; commit scoped changes.

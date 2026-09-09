@@ -88,3 +88,17 @@ The measurement command SHALL retain Maven build duration and exit code separate
 
 - **WHEN** a new measured process reaches ready and an optional configured GET succeeds
 - **THEN** the report retains both runtime milestones and the external HTTP observation with their separate meanings
+### Requirement: Portable isolated measurement command
+The system SHALL provide `node forge.mjs measure-startup` with port, timeout, skip-build, application-jar, output-root and optional safe target-path parameters. It SHALL preserve schemaVersion 1 reports and isolate the temporary backend from the supervised instance.
+
+#### Scenario: Successful isolated measurement
+- **WHEN** an isolated backend becomes ready
+- **THEN** the command saves correlated runtime and build evidence, optionally measures the selected GET, and stops its owned child
+
+#### Scenario: Failure or interruption
+- **WHEN** the port is occupied, build fails, runtime exits, times out, or the command is interrupted
+- **THEN** failure evidence is saved and only owned children are cleaned up without stopping existing services
+
+#### Scenario: Legacy caller
+- **WHEN** a caller uses the PowerShell measurement entry
+- **THEN** its parameters are forwarded to the Node implementation

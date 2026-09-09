@@ -35,6 +35,20 @@ node forge.mjs stop
 
 前台断点调试仍可使用 `task prepare` 后 `task dev`，或分终端 `task dev:backend / task dev:frontend`。这些前台调试任务关闭自动更新，不受后台守护管理。发布制品沿用 `task build / task run`；full 模式仍是本地源码构建，不是 Docker。
 
+## 独立启动测量
+
+日常 `node forge.mjs start` 已自动采集后端启动阶段。需要保存一次隔离实验时使用同一个 CLI：
+
+```shell
+node forge.mjs measure-startup
+node forge.mjs measure-startup --port 18090 --skip-build
+node forge.mjs measure-startup --timeout-seconds 180 --target-path /api/tools
+```
+
+该命令默认先执行 Maven package，然后在独立端口和数据目录运行临时后端，保存 report.json、runtime.json 及日志；成功、失败、超时或 Ctrl+C 后清理自有进程。它不启动 PM2，也不停止日常服务。默认就绪超时 120 秒，可设为 5–600 秒；该超时不包含 Maven 构建。目标 GET 不跟随重定向，不接受查询字符串，只应选择无副作用的接口；需要身份验证的接口可能返回失败。
+
+`--skip-build` 使用已有 JAR 并明确标记构建未测量；`--application-jar PATH` 指定 JAR，`--output-root PATH` 指定报告父目录，默认 `outputs/startup-performance/<运行标识>/`。页面可导入 report.json。临时运行关闭与旧测量工具相同的可选集成，不代表完整辅助服务启动基线。旧 `scripts/measure-startup.ps1` 仅转发参数至此命令，不再包含测量实现。
+
 ## 地址与配置
 
 工作台通常为 `https://localhost:5173`，API 为 `http://localhost:18080`，控制器只监听 `http://127.0.0.1:18081`。保留 Vite 项目自身的 TLS 配置。
