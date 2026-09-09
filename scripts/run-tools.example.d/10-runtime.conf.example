@@ -5,3 +5,12 @@ NPM_CMD=
 PYTHON_CMD=
 GIT_CMD=
 ARIA2_BIN=
+
+# Unified Node supervisor (optional overrides)
+FORGE_SCOPE=all
+FORGE_MODE=dev
+FORGE_VISITOR_ANALYSIS_ENABLED=true
+# Leave empty for platform default: enabled only on Windows
+FORGE_WECHAT_ENABLED=
+FORGE_STUDIO_ENABLED=false
+FORGE_OBSERVABILITY=external

@@ -1,4 +1,3 @@
 @echo off
-setlocal
-call "%~dp0internal\invoke-powershell.cmd" -NoProfile -ExecutionPolicy Bypass -File "%~dp0internal\stop-supervised.ps1" %*
+node "%~dp0..\forge.mjs" stop %*
 exit /b %ERRORLEVEL%

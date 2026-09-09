@@ -6,6 +6,25 @@ vars:
   COMPOSE_FILE: deploy/local-dependencies/compose.yml
 
 tasks:
+  start:
+    desc: Start the cross-platform source supervisor (page restart and auto-update enabled)
+    cmds: ['node forge.mjs start {{.CLI_ARGS}}']
+
+  stop:
+    desc: Stop Forge-owned services and retain data
+    cmds: ['node forge.mjs stop']
+
+  status:
+    desc: Show source service state
+    cmds: ['node forge.mjs status']
+
+  restart:
+    desc: Reload the source supervisor and its services
+    cmds: ['node forge.mjs restart']
+
+  logs:
+    desc: Show recent service logs
+    cmds: ['node forge.mjs logs {{.CLI_ARGS}}']
   default:
     desc: Show available Forge commands
     cmds: [task --list]
@@ -97,21 +116,9 @@ tasks:
     cmds: ['docker compose -f {{.COMPOSE_FILE}} down']
 
   legacy:start:
-    desc: Run existing Windows/macOS supervisor for page restart and update compatibility
-    cmds:
-      - cmd: cmd.exe /d /c scripts\run-supervised.cmd
-        platforms: [windows]
-      - cmd: bash scripts/run-supervised-macos.sh
-        platforms: [darwin]
-      - cmd: 'echo "Legacy supervisor is not supported on Linux; use task dev or task run."; exit 1'
-        platforms: [linux]
+    desc: Compatibility alias for start
+    cmds: ['node forge.mjs start {{.CLI_ARGS}}']
 
   legacy:stop:
-    desc: Stop only through the existing Windows/macOS supervisor contract
-    cmds:
-      - cmd: cmd.exe /d /c scripts\stop-supervised.cmd
-        platforms: [windows]
-      - cmd: bash scripts/stop-supervised-macos.sh
-        platforms: [darwin]
-      - cmd: 'echo "Native foreground tasks are stopped with Ctrl+C."; exit 1'
-        platforms: [linux]
+    desc: Compatibility alias for stop
+    cmds: ['node forge.mjs stop']

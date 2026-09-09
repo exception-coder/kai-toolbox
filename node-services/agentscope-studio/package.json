@@ -1,0 +1,5 @@
+{
+  "name": "forge-agentscope-studio",
+  "private": true,
+  "dependencies": { "@agentscope/studio": "1.0.9" }
+}

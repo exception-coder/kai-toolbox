@@ -70,14 +70,19 @@ public class RestartRuntime {
     }
 
     public List<String> safeJvmInputArguments() {
+        return safeJvmInputArguments(ManagementFactory.getRuntimeMXBean().getInputArguments());
+    }
+
+    static List<String> safeJvmInputArguments(List<String> arguments) {
         List<String> result = new ArrayList<>();
-        for (String argument : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+        for (String argument : arguments) {
             String lower = argument.toLowerCase(Locale.ROOT);
             // IDE/debug/coverage agents often bind a unique port or hold files open. A restarted JVM
             // must not inherit them; normal -D/-X/-XX/module options remain intact.
             if (lower.startsWith("-agentlib:") || lower.startsWith("-agentpath:")
                     || lower.startsWith("-javaagent:") || lower.startsWith("-xrunjdwp")
-                    || lower.equals("-xdebug") || lower.startsWith("-duser.dir=")) {
+                    || lower.equals("-xdebug") || lower.startsWith("-duser.dir=")
+                    || lower.startsWith("-dtoolbox.performance.")) {
                 continue;
             }
             result.add(argument);
@@ -85,13 +90,7 @@ public class RestartRuntime {
         return List.copyOf(result);
     }
 
-    /**
-     * 启动一个与当前终端/IDE 生命周期解耦的 replacement JVM。
-     *
-     * <p>Windows 通过独立的 PowerShell {@code Start-Process} helper 创建隐藏进程；macOS/Linux
-     * 通过 {@code nohup + background} 让 shell 立即退出并由系统接管子进程。JVM 参数放入
-     * Java launcher 的 arg-file，避免 shell 拼接和路径转义问题。
-     */
+    /** 通过 Java 原生进程 API 启动 replacement，参数文件避免 shell 与平台转义。 */
     public SpawnedReplacement launchDetached(List<String> command, Path workingDirectory, Path logFile)
             throws IOException {
         if (command == null || command.size() < 2) {
@@ -100,68 +99,36 @@ public class RestartRuntime {
         Path directory = workingDirectory.toRealPath();
         Path log = logFile.toAbsolutePath().normalize();
         Path artifacts = log.getParent();
-        if (artifacts == null) throw new IOException("replacement log has no parent directory");
+        if (artifacts == null) {
+            throw new IOException("replacement log has no parent directory");
+        }
         Files.createDirectories(artifacts);
         restrictOwnerDirectory(artifacts);
-        Path launcherLog = log.resolveSibling(log.getFileName() + ".launcher.log");
-        Path stderrLog = log.resolveSibling(log.getFileName() + ".stderr.log");
         ensurePrivateLog(log);
-        ensurePrivateLog(launcherLog);
-        ensurePrivateLog(stderrLog);
-
         String id = UUID.randomUUID().toString().replace("-", "");
         Path argFile = artifacts.resolve("replacement-" + id + ".args");
         Path pidFile = artifacts.resolve("replacement-" + id + ".pid");
         Files.writeString(argFile, encodeJavaArgFile(command.subList(1, command.size())));
         restrictOwnerFile(argFile);
-
-        boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
-        Path helperScript = null;
-        Process helper;
+        Process replacement = null;
         try {
-            if (windows) {
-                helperScript = artifacts.resolve("replacement-" + id + ".ps1");
-                Files.writeString(helperScript, windowsLauncherScript());
-                restrictOwnerFile(helperScript);
-                String windowsRoot = System.getenv("WINDIR");
-                Path bundledPowerShell = windowsRoot == null ? null
-                        : Path.of(windowsRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-                String powershell = bundledPowerShell != null && Files.isRegularFile(bundledPowerShell)
-                        ? bundledPowerShell.toString() : "powershell.exe";
-                helper = new ProcessBuilder(powershell, "-NoLogo", "-NoProfile", "-NonInteractive",
-                        "-ExecutionPolicy", "Bypass", "-File", helperScript.toString(),
-                        command.getFirst(), argFile.toString(), directory.toString(), log.toString(),
-                        pidFile.toString())
-                        .directory(directory.toFile())
-                        .redirectErrorStream(true)
-                        .redirectOutput(ProcessBuilder.Redirect.appendTo(launcherLog.toFile()))
-                        .start();
-            } else {
-                Path shell = Path.of("/bin/sh");
-                Path nohup = Path.of("/usr/bin/nohup");
-                if (!Files.isExecutable(shell) || !Files.isExecutable(nohup)) {
-                    throw new IOException("detached launcher requires /bin/sh and /usr/bin/nohup");
-                }
-                String script = "umask 077\n"
-                        + "cd \"$1\" || exit 71\n"
-                        + "\"$2\" \"$3\" \"@$4\" </dev/null >>\"$5\" 2>&1 &\n"
-                        + "child=$!\n"
-                        + "printf '%s\\n' \"$child\" >\"$6\"\n";
-                helper = new ProcessBuilder(shell.toString(), "-c", script, "kai-restart",
-                        directory.toString(), nohup.toString(), command.getFirst(), argFile.toString(),
-                        log.toString(), pidFile.toString())
-                        .directory(directory.toFile())
-                        .redirectErrorStream(true)
-                        .redirectOutput(ProcessBuilder.Redirect.appendTo(launcherLog.toFile()))
-                        .start();
+            replacement = new ProcessBuilder(command.getFirst(), "@" + argFile)
+                    .directory(directory.toFile())
+                    .redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(log.toFile()))
+                    .start();
+            replacement.getOutputStream().close();
+            Files.writeString(pidFile, Long.toString(replacement.pid()));
+            restrictOwnerFile(pidFile);
+            return new SpawnedReplacement(replacement, pidFile, argFile, null);
+        } catch (IOException | RuntimeException error) {
+            if (replacement != null) {
+                destroyProcessTree(replacement);
             }
-        } catch (IOException | RuntimeException e) {
             deleteQuietly(argFile);
             deleteQuietly(pidFile);
-            deleteQuietly(helperScript);
-            throw e;
+            throw error;
         }
-        return new SpawnedReplacement(helper, pidFile, argFile, helperScript);
     }
 
     public Optional<ProcessHandle> processHandle(long pid) {
@@ -286,17 +253,6 @@ public class RestartRuntime {
                     .append('"').append(System.lineSeparator());
         }
         return encoded.toString();
-    }
-
-    private static String windowsLauncherScript() {
-        return "param([string]$Java,[string]$ArgFile,[string]$Cwd,[string]$Log,[string]$PidFile)\r\n"
-                + "$ErrorActionPreference = 'Stop'\r\n"
-                + "$javaArg = '\"@' + $ArgFile.Replace('\"', '\\\"') + '\"'\r\n"
-                + "$p = Start-Process -FilePath $Java -ArgumentList $javaArg -WorkingDirectory $Cwd "
-                + "-RedirectStandardOutput $Log -RedirectStandardError ($Log + '.stderr.log') "
-                + "-WindowStyle Hidden -PassThru\r\n"
-                + "[IO.File]::WriteAllText($PidFile, $p.Id.ToString(), "
-                + "[Text.UTF8Encoding]::new($false))\r\n";
     }
 
     private static void deleteQuietly(Path path) {

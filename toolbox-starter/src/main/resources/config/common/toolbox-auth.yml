@@ -16,6 +16,7 @@ toolbox:
     # 配置驱动的 ADMIN-only 硬鉴权路径：命中的路径未登录 401、非 ADMIN 403(由 AdminOnlyInterceptor 强制)。
     # 这批模块仅管理员可访问。磁盘空间分析(/api/treesize)用 @RequireRole 注解，不在此。
     admin-only-patterns:
+      - "/api/performance/**"     # 启动性能治理
       - "/api/config/**"          # 配置中心
       - "/api/flatten/**"         # 目录扁平化
       - "/api/vscode-tunnel/**"   # VS Code Tunnel

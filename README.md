@@ -10,10 +10,10 @@ Forge 是一个运行在本机的 AI Coding 工作台。它把项目目录、业
 
 ### 环境要求
 
-- 标准开发入口：Windows、macOS 或受维护的 Linux + Task v3；原监督器入口另需 Windows PowerShell 或 macOS Bash/Python 3
+- Windows、macOS 或受维护的 Linux；统一 Node 入口，Task 可选
 - JDK 21
 - Maven 3.9+
-- Node.js 20+ 与 npm
+- Node.js 22+ 与 npm；启用 Python 辅助服务时需要 Python 3.10+
 - Git
 
 Claude、Codex、Antigravity、OpenCode 按实际使用情况完成各自的本机安装或账号授权。Forge 不替代模型厂商的登录流程，只复用本机已有凭据或会话中配置的第三方网关。
@@ -25,135 +25,20 @@ git clone https://github.com/exception-coder/kai-toolbox.git
 cd kai-toolbox
 ```
 
-### 一键启动
+### 一键源码启动
 
-跨平台标准入口现已提供 [Taskfile](Taskfile.yml)：安装 Task v3 后运行 `task doctor`、`task prepare`、`task dev`。可选观测依赖由 Compose 管理。完整命令、配置差异和平台验收边界见 [启动指南](scripts/STARTUP.md)。该入口使用前台进程，不提供旧监督器的 18081 控制服务；需要页面重启和自动更新交接时，继续使用下面的兼容入口。
+Windows、macOS、Ubuntu、CentOS Stream 使用同一个入口：
 
-在项目根目录执行：
-
-Windows：
-
-```powershell
-.\scripts\run-supervised.cmd
+```shell
+node forge.mjs start
+node forge.mjs status
+node forge.mjs restart
+node forge.mjs stop
 ```
 
-无参数时启动前端、后端及后端辅助服务。也可以只启动一侧：
+自动安装所需依赖、编译 Java 与 Agent Sidecar，并用 PM2 守护源码后端、Vite 和启用的辅助服务。关闭终端后继续运行，页面重启和 Java 源码自动更新交接均保留。无需安装 PowerShell 7、Task 或 Docker；Docker 仅用于可选外部依赖。
 
-```powershell
-.\scripts\run-supervised.cmd frontend
-.\scripts\run-supervised.cmd backend
-```
-
-推荐使用仓库提供的 `.cmd` 入口。它会用 Windows 10/11 自带的 `powershell.exe` 启动 supervisor，并只为该子进程设置 `ExecutionPolicy Bypass`；不要求安装 PowerShell 7，也不受当前终端禁止直接执行 `.ps1` 的策略影响。
-
-需要传递启动参数时直接追加即可，例如：
-
-```powershell
-.\scripts\run-supervised.cmd -HotReload
-.\scripts\run-supervised.cmd -Mode full
-```
-
-PowerShell 实现放在 `scripts/internal/`，属于内部文件，不作为用户启动入口。
-
-macOS：
-
-```bash
-bash scripts/run-supervised-macos.sh
-```
-
-首次启动时，脚本会：
-
-1. 检查 Maven、JDK 21 和 npm。
-2. 找不到工具时提示输入可执行文件或安装目录。
-3. 安装或更新前端依赖。
-4. 安装并构建 Vibe Coding 使用的 Claude Agent sidecar。
-5. 启动 Spring Boot 后端和 Vite 前端，并持续守护进程。
-
-启动完成后访问：
-
-- 工作台：`http://localhost:5173`
-- 后端 API：`http://localhost:18080`
-- Supervisor 控制端点：`http://127.0.0.1:18081`
-
-保持启动脚本所在终端运行。默认不开启源码热重启，修改后端代码后可使用页面中的重启入口，或重新启动脚本。
-
-Windows 需要保存即编译并热重启时，显式执行：
-
-```powershell
-.\scripts\run-supervised.cmd -HotReload
-```
-
-Windows 需要先完整打包再运行 fat jar 时：
-
-```powershell
-.\scripts\run-supervised.cmd -Mode full
-```
-
-### 自动同步云端版本
-
-源码自动更新现在由 Java 内置调度，默认跟随当前仓库的 `origin/main`；不论从 IDE、Maven、fat jar 还是 supervisor 启动，都会执行同一套安全检查。supervisor 只负责更新落地后的全栈重载，不再重复轮询 Git。
-
-下面两个兼容启动参数仍然有效，会把自动更新配置传给 Java：
-
-Windows：
-
-```powershell
-.\scripts\run-supervised.cmd -AutoUpdate
-```
-
-macOS：
-
-```bash
-bash scripts/run-supervised-macos.sh --auto-update
-```
-
-当前仓库近 24 小时约 15 次提交、更新批次中位间隔约 21 分钟，因此默认每 120 秒检查一次；检测到新提交后，还会等待远端 HEAD 连续稳定 120 秒，把短时间连续 push 合并成一次重启。要关闭可设置环境变量 `TOOLBOX_AUTO_UPDATE_ENABLED=false`；经 supervisor 启动时也可写入本机 `scripts\run-tools.conf`，其他参数见 `run-tools.conf.example`。
-
-直接从 IDE、Maven 或 `java -jar` 启动时，Java 会在独立 worktree 完整构建候选 fat jar，再启动脱离原终端的 replacement JVM 接管；如果 fat jar 已被复制到 Git 仓库之外，需要用 `TOOLBOX_AUTO_UPDATE_REPOSITORY` 指向本机 checkout，否则只上报 `unavailable`，不会修改文件或退出进程。直接接管能在旧进程退出前验证候选 JVM 与握手协议，但真实端口、现有数据库和全部 Spring Bean 的最终启动仍发生在接管后；这类运行期失败会写入 `~/.kai-toolbox/restart-handoff` 日志，不承诺自动回滚数据库。
-
-自动更新遵循以下保护规则：
-
-- 仅接受当前跟踪分支的 fast-forward；工作树 dirty、本地 ahead/diverged 时延期，不会自动 stash、reset 或 clean。
-- 会话回合、权限/提问、后台 Agent 或一次性分析仍在运行时延期；无法确认空闲也不会强制重启。
-- Git fetch 有超时和指数退避；实际更新状态从 `GET /api/system/auto-update/status` 或 Spring 应用日志查看。supervisor 的 `GET http://127.0.0.1:18081/status` 只报告 `delegated-to-java` 和全栈重载接管能力。
-- 同一仓库只允许一个 supervisor 实例，避免重复进程互相抢占端口。
-
-### 停止服务
-
-Windows：
-
-```powershell
-.\scripts\stop-supervised.cmd
-```
-
-无参数时停止全部服务。也可以只停止一侧，另一侧会继续运行且不会被 supervisor 重新拉起：
-
-```powershell
-.\scripts\stop-supervised.cmd frontend
-.\scripts\stop-supervised.cmd backend
-```
-
-macOS：
-
-```bash
-bash scripts/stop-supervised-macos.sh
-```
-
-全停但保留 AgentScope Studio：
-
-Windows：
-
-```powershell
-.\scripts\stop-supervised.cmd -KeepStudio
-```
-
-macOS：
-
-```bash
-bash scripts/stop-supervised-macos.sh --keep-studio
-```
-
-Windows `-Ports 18080,5173` / macOS `--ports 18080,5173` 是仅供排障的定点清理参数。日常启停统一使用上面的 `all`（或无参数）、`frontend`、`backend`。
+已有 Task 可使用 `task start / status / restart / stop`。环境检查用 `node forge.mjs doctor`，只启动前端用 `node forge.mjs start --scope frontend`。更多配置、独立调试、日志和旧监督器切换步骤见 [启动指南](scripts/STARTUP.md)。旧入口仅转发新 CLI；迁移时先退出旧监督器，避免端口冲突。
 
 ## 首次配置
 
@@ -180,8 +65,7 @@ NPM_CMD=D:\Program Files\nodejs\npm.cmd
 ```
 
 建议去掉复制后文件名末尾的 `.example`，按运行工具、存储、安全、AI 服务、外部集成和供应商报价分别填写。
-`scripts/run-tools.d/` 整个目录已被 Git 忽略。旧版 `run-tools.conf` 可执行
-`scripts/migrate-run-tools-config.ps1` 自动迁移；不要把真实凭据写入示例文件或源码。
+`scripts/run-tools.d/` 整个目录已被 Git 忽略。旧版 `run-tools.conf` 继续读取，无需迁移；不要把真实凭据写入示例文件或源码。
 
 ### Agent 授权
 
