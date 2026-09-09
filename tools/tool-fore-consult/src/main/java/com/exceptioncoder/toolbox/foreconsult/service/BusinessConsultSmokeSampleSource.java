@@ -60,6 +60,21 @@ public class BusinessConsultSmokeSampleSource implements EvalSampleSource {
     }
 
     @Override
+    public String targetDataset() {
+        return "business-consult-answer-quality-v1";
+    }
+
+    @Override
+    public String sampleUnit() {
+        return "TURN";
+    }
+
+    @Override
+    public String labelStrength() {
+        return "BASELINE_PENDING";
+    }
+
+    @Override
     public List<Sample> collect() {
         List<Sample> samples = new ArrayList<>();
         for (HistoricalTurn classic : CLASSIC_TURNS) {
@@ -115,6 +130,10 @@ public class BusinessConsultSmokeSampleSource implements EvalSampleSource {
         context.put("engine", session.getEngine() == null ? "codex" : session.getEngine());
         context.put("reasoningEffort", "low");
         context.put("speed", "default");
+        ObjectNode lineage = input.putObject("lineage");
+        lineage.put("sessionId", classic.sessionId());
+        lineage.put("turnIndex", classic.turnIndex());
+        lineage.put("sampleUnit", "TURN");
 
         ObjectNode expected = mapper.createObjectNode();
         expected.put("minEvidenceCount", 1);
@@ -125,6 +144,7 @@ public class BusinessConsultSmokeSampleSource implements EvalSampleSource {
         tags.add("historical");
         tags.add("smoke-test");
         tags.add("pending-human-baseline");
+        tags.add("unit:turn");
         return new Sample(
                 "consult_smoke:" + classic.sessionId() + "#" + classic.turnIndex(),
                 classic.title(), input.toString(), expected.toString(), null, tags.toString());

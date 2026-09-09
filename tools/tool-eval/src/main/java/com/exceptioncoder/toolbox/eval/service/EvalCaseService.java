@@ -41,11 +41,25 @@ public class EvalCaseService {
     public List<SourceStat> listSources() {
         return sources.values().stream().map(s -> {
             List<EvalSampleSource.Sample> all = s.collect();
-            long pending = all.stream()
-                    .filter(x -> x.sourceRef() != null && !x.sourceRef().isBlank())
-                    .filter(x -> !repo.existsBySourceRef(x.sourceRef()))
-                    .count();
-            return new SourceStat(s.id(), s.displayName(), s.scenario(), all.size(), (int) pending);
+            Map<String, String> assignments = repo.findDatasetsBySourceRefs(all.stream()
+                    .map(EvalSampleSource.Sample::sourceRef)
+                    .filter(ref -> ref != null && !ref.isBlank())
+                    .toList());
+            int pending = 0;
+            int misassigned = 0;
+            for (EvalSampleSource.Sample sample : all) {
+                if (sample.sourceRef() == null || sample.sourceRef().isBlank()) {
+                    continue;
+                }
+                String assignedDataset = assignments.get(sample.sourceRef());
+                if (assignedDataset == null) {
+                    pending++;
+                } else if (!s.targetDataset().equals(assignedDataset)) {
+                    misassigned++;
+                }
+            }
+            return new SourceStat(s.id(), s.displayName(), s.scenario(), s.targetDataset(),
+                    s.sampleUnit(), s.labelStrength(), all.size(), pending, misassigned);
         }).toList();
     }
 
@@ -61,9 +75,13 @@ public class EvalCaseService {
             throw new ResponseStatusException(BAD_REQUEST,
                     "未知样本来源: " + sourceId + "，可用: " + sources.keySet());
         }
-        String ds = dataset == null || dataset.isBlank() ? sourceId : dataset.trim();
+        String ds = source.targetDataset();
+        if (dataset != null && !dataset.isBlank() && !ds.equals(dataset.trim())) {
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "样本来源 " + sourceId + " 固定归入数据集 " + ds + "，不能改为 " + dataset.trim());
+        }
         List<EvalSampleSource.Sample> samples = source.collect();
-        int created = 0, updated = 0;
+        int created = 0, updated = 0, moved = 0, skipped = 0;
         for (EvalSampleSource.Sample s : samples) {
             if (s.sourceRef() == null || s.sourceRef().isBlank()) {
                 throw new ResponseStatusException(BAD_REQUEST,
@@ -71,11 +89,23 @@ public class EvalCaseService {
             }
             Optional<EvalCase> existing = repo.findBySourceRef(s.sourceRef());
             if (existing.isPresent()) {
+                EvalCase c = existing.get();
+                boolean wasMoved = false;
+                if (!ds.equals(c.getDataset())) {
+                    c.setDataset(ds);
+                    c.setScenario(source.scenario());
+                    c.setUpdatedAt(System.currentTimeMillis());
+                    repo.update(c);
+                    moved++;
+                    wasMoved = true;
+                }
                 if (!refresh) {
+                    if (!wasMoved) {
+                        skipped++;
+                    }
                     continue;
                 }
                 // 保留原用例 id：eval_result 与退化对比都按 case_id 关联，换 id 会让历史报告对不上号
-                EvalCase c = existing.get();
                 c.setTitle(s.title());
                 c.setInputJson(s.inputJson());
                 c.setExpectedJson(s.expectedJson());
@@ -92,15 +122,16 @@ public class EvalCaseService {
         }
         log.info("[eval] 从 {} 纳入 {} 条、重生成 {} 条（共 {} 条样本）",
                 sourceId, created, updated, samples.size());
-        return new HarvestResult(sourceId, ds, samples.size(), created, updated,
-                samples.size() - created - updated);
+        return new HarvestResult(sourceId, ds, samples.size(), created, updated, moved,
+                skipped);
     }
 
     /**
      * @param total   来源当前样本总数
      * @param pending 尚未纳入黄金集的条数
      */
-    public record SourceStat(String id, String displayName, String scenario, int total, int pending) {
+    public record SourceStat(String id, String displayName, String scenario, String targetDataset,
+                             String sampleUnit, String labelStrength, int total, int pending, int misassigned) {
     }
 
     /**
@@ -109,7 +140,7 @@ public class EvalCaseService {
      * @param skipped 已存在且未重新生成的条数
      */
     public record HarvestResult(String source, String dataset, int received, int created,
-                                int updated, int skipped) {
+                                int updated, int moved, int skipped) {
     }
 
     public EvalCase create(SaveCaseRequest req) {

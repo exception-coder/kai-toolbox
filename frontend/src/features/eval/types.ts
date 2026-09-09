@@ -1,167 +1,174 @@
 /** 与 tool-eval 后端 domain / DTO 对齐。字段名保持 camelCase（后端 Jackson 默认输出）。 */
 
-export type Scenario = 'EXTRACTION' | 'RAG_QA' | 'GENERATION' | 'AGENT_TRACE'
-export type RunStatus = 'RUNNING' | 'SUCCESS' | 'FAILED'
-export type Verdict = 'PASS' | 'FAIL' | 'ERROR'
-export type ScoreExportStatus = 'SKIPPED' | 'PENDING' | 'SUCCESS' | 'FAILED'
+export type Scenario = "EXTRACTION" | "RAG_QA" | "GENERATION" | "AGENT_TRACE";
+export type RunStatus = "RUNNING" | "SUCCESS" | "FAILED";
+export type Verdict = "PASS" | "FAIL" | "ERROR";
+export type ScoreExportStatus = "SKIPPED" | "PENDING" | "SUCCESS" | "FAILED";
 
 export interface EvalCase {
-  id: string
-  scenario: string
-  dataset: string
-  title: string
-  inputJson: string
-  expectedJson: string
-  assertJson?: string | null
-  tags?: string | null
-  sourceRef?: string | null
-  enabled: boolean
-  createdAt: number
-  updatedAt: number
+  id: string;
+  scenario: string;
+  dataset: string;
+  title: string;
+  inputJson: string;
+  expectedJson: string;
+  assertJson?: string | null;
+  tags?: string | null;
+  sourceRef?: string | null;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface DatasetStat {
-  scenario: string
-  dataset: string
-  total: number
-  enabledCount: number
+  scenario: string;
+  dataset: string;
+  total: number;
+  enabledCount: number;
 }
 
 export interface EvalRun {
-  id: string
-  scenario: string
-  dataset: string
-  adapter: string
-  model?: string | null
-  promptKey?: string | null
-  promptVersion?: number | null
-  status: RunStatus
-  total: number
-  passed: number
-  failed: number
-  errored: number
-  note?: string | null
-  error?: string | null
-  startedAt: number
-  finishedAt?: number | null
+  id: string;
+  scenario: string;
+  dataset: string;
+  adapter: string;
+  model?: string | null;
+  promptKey?: string | null;
+  promptVersion?: number | null;
+  status: RunStatus;
+  total: number;
+  passed: number;
+  failed: number;
+  errored: number;
+  note?: string | null;
+  error?: string | null;
+  startedAt: number;
+  finishedAt?: number | null;
 }
 
 /** 单条断言明细，来自 eval_result.assertions_json */
 export interface AssertionOutcome {
-  type: string
-  path: string
-  passed: boolean
-  weight: number
-  expected?: string | null
-  actual?: string | null
-  message?: string | null
+  type: string;
+  path: string;
+  passed: boolean;
+  weight: number;
+  expected?: string | null;
+  actual?: string | null;
+  message?: string | null;
 }
 
 export interface EvalResult {
-  id: string
-  runId: string
-  caseId: string
-  caseTitle?: string | null
-  verdict: Verdict
-  score: number
-  outputJson?: string | null
-  rawOutput?: string | null
-  assertionsJson?: string | null
-  error?: string | null
-  latencyMs: number
-  traceId?: string | null
-  scoreExportStatus: ScoreExportStatus
-  scoreExportError?: string | null
-  scoreExportedAt?: number | null
-  createdAt: number
+  id: string;
+  runId: string;
+  caseId: string;
+  caseTitle?: string | null;
+  verdict: Verdict;
+  score: number;
+  outputJson?: string | null;
+  rawOutput?: string | null;
+  assertionsJson?: string | null;
+  error?: string | null;
+  latencyMs: number;
+  traceId?: string | null;
+  scoreExportStatus: ScoreExportStatus;
+  scoreExportError?: string | null;
+  scoreExportedAt?: number | null;
+  createdAt: number;
 }
 
 export interface AdapterInfo {
-  id: string
-  scenario: string
-  promptKey: string
+  id: string;
+  scenario: string;
+  promptKey: string;
 }
 
 export interface DiffItem {
-  caseId: string
-  caseTitle?: string | null
-  baseVerdict?: string | null
-  targetVerdict?: string | null
-  baseScore?: number | null
-  targetScore?: number | null
-  targetError?: string | null
-  targetAssertions?: string | null
+  caseId: string;
+  caseTitle?: string | null;
+  baseVerdict?: string | null;
+  targetVerdict?: string | null;
+  baseScore?: number | null;
+  targetScore?: number | null;
+  targetError?: string | null;
+  targetAssertions?: string | null;
 }
 
 export interface DiffReport {
-  base: EvalRun
-  target: EvalRun
-  regressed: DiffItem[]
-  fixed: DiffItem[]
-  stillFailing: DiffItem[]
-  unchangedPass: number
+  base: EvalRun;
+  target: EvalRun;
+  regressed: DiffItem[];
+  fixed: DiffItem[];
+  stillFailing: DiffItem[];
+  unchangedPass: number;
 }
 
 /** 场景 ② 专用：isBug 判定的混淆矩阵 */
 export interface ExtractionSummary {
-  runId: string
-  truePositive: number
-  falsePositive: number
-  falseNegative: number
-  trueNegative: number
-  skipped: number
-  precision: number
-  recall: number
-  f1: number
+  runId: string;
+  truePositive: number;
+  falsePositive: number;
+  falseNegative: number;
+  trueNegative: number;
+  skipped: number;
+  precision: number;
+  recall: number;
+  f1: number;
 }
 
 /** 可纳入黄金集的样本来源（各工具暴露自己已被人工裁决过的历史记录）。 */
 export interface SampleSource {
-  id: string
-  displayName: string
-  scenario: string
+  id: string;
+  displayName: string;
+  scenario: string;
+  targetDataset: string;
+  sampleUnit: "TURN" | "SESSION" | "RECORD";
+  labelStrength: "HUMAN_STRONG" | "WEAK" | "BASELINE_PENDING" | "UNSPECIFIED";
   /** 来源当前样本总数 */
-  total: number
+  total: number;
   /** 尚未纳入黄金集的条数 */
-  pending: number
+  pending: number;
+  /** 已纳入其他旧数据集、等待归并到目标数据集的条数 */
+  misassigned: number;
 }
 
 export interface HarvestResult {
-  source: string
-  dataset: string
-  received: number
-  created: number
+  source: string;
+  dataset: string;
+  received: number;
+  created: number;
   /** 重新生成的已有用例条数（仅 refresh 时非零） */
-  updated: number
-  skipped: number
+  updated: number;
+  /** 仅调整数据集归属、不覆盖用例内容的条数 */
+  moved: number;
+  skipped: number;
 }
 
 export interface StartRunRequest {
-  adapter: string
-  dataset: string
-  model?: string
-  promptVersion?: number
-  note?: string
+  adapter: string;
+  dataset: string;
+  model?: string;
+  promptVersion?: number;
+  note?: string;
 }
 
 export interface SaveCaseRequest {
-  scenario: string
-  dataset: string
-  title: string
-  inputJson: string
-  expectedJson: string
-  assertJson?: string
-  tags?: string
-  sourceRef?: string
-  enabled?: boolean
+  scenario: string;
+  dataset: string;
+  title: string;
+  inputJson: string;
+  expectedJson: string;
+  assertJson?: string;
+  tags?: string;
+  sourceRef?: string;
+  enabled?: boolean;
 }
 
 export interface EvalPrompt {
-  id: string
-  promptKey: string
-  version: number
-  content: string
-  note?: string | null
-  active: boolean
-  createdAt: number
+  id: string;
+  promptKey: string;
+  version: number;
+  content: string;
+  note?: string | null;
+  active: boolean;
+  createdAt: number;
 }

@@ -60,6 +60,21 @@ public class ConsultTurnSampleSource implements EvalSampleSource {
     }
 
     @Override
+    public String targetDataset() {
+        return "bug-extraction-v1";
+    }
+
+    @Override
+    public String sampleUnit() {
+        return "TURN";
+    }
+
+    @Override
+    public String labelStrength() {
+        return "WEAK";
+    }
+
+    @Override
     public List<Sample> collect() {
         List<Sample> samples = new ArrayList<>();
         for (ConsultTurn t : turnRepo.findAllAnswered(MAX)) {
@@ -76,18 +91,23 @@ public class ConsultTurnSampleSource implements EvalSampleSource {
             samples.add(new Sample(
                     "consult_turn:" + t.getSessionId() + "#" + t.getTurnIndex(),
                     truncate("[未报缺陷] " + question.strip().replaceAll("\\s+", " "), 200),
-                    input(question, answer),
+                    input(t, question, answer),
                     expectedNotBug(),
                     assertNotBug(),
-                    tags("harvested", "NOT_REPORTED", "weak-label")));
+                    tags("harvested", "NOT_REPORTED", "weak-label", "label:weak", "unit:turn")));
         }
         return samples;
     }
 
-    private String input(String question, String answer) {
+    private String input(ConsultTurn turn, String question, String answer) {
         ObjectNode n = mapper.createObjectNode();
         n.put("question", question);
         n.put("answer", answer);
+        ObjectNode lineage = n.putObject("lineage");
+        lineage.put("sessionId", turn.getSessionId());
+        lineage.put("turnIndex", turn.getTurnIndex());
+        lineage.put("sampleUnit", "TURN");
+        lineage.put("labelSource", "NOT_REPORTED");
         return n.toString();
     }
 

@@ -3,10 +3,13 @@ package com.exceptioncoder.toolbox.eval.repository;
 import com.exceptioncoder.toolbox.eval.domain.EvalCase;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Repository;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 @Repository
@@ -106,6 +109,24 @@ public class EvalCaseRepository {
     public Optional<EvalCase> findBySourceRef(String sourceRef) {
         List<EvalCase> rows = jdbc.query("SELECT * FROM eval_case WHERE source_ref=? LIMIT 1", ROW, sourceRef);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    /** 批量读取来源当前归属，避免来源列表按样本逐条查询 SQLite。 */
+    public Map<String, String> findDatasetsBySourceRefs(List<String> sourceRefs) {
+        Map<String, String> result = new LinkedHashMap<>();
+        List<String> refs = sourceRefs == null ? List.of() : sourceRefs.stream()
+                .filter(ref -> ref != null && !ref.isBlank())
+                .distinct()
+                .toList();
+        for (int start = 0; start < refs.size(); start += 400) {
+            List<String> batch = refs.subList(start, Math.min(start + 400, refs.size()));
+            String placeholders = String.join(",", java.util.Collections.nCopies(batch.size(), "?"));
+            jdbc.query("SELECT source_ref, dataset FROM eval_case WHERE source_ref IN (" + placeholders + ")",
+                    (RowCallbackHandler) rs -> result.put(
+                            rs.getString("source_ref"), rs.getString("dataset")),
+                    batch.toArray());
+        }
+        return Map.copyOf(result);
     }
 
     public int delete(String id) {

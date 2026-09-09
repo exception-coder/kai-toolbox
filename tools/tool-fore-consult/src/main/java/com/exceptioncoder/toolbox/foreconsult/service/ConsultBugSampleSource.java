@@ -52,6 +52,21 @@ public class ConsultBugSampleSource implements EvalSampleSource {
     }
 
     @Override
+    public String targetDataset() {
+        return "bug-extraction-v1";
+    }
+
+    @Override
+    public String sampleUnit() {
+        return "TURN";
+    }
+
+    @Override
+    public String labelStrength() {
+        return "HUMAN_STRONG";
+    }
+
+    @Override
     public List<Sample> collect() {
         List<Sample> samples = new ArrayList<>();
         for (ConsultBug b : bugRepo.findRecentByStatus(ADJUDICATED, MAX)) {
@@ -65,21 +80,25 @@ public class ConsultBugSampleSource implements EvalSampleSource {
             samples.add(new Sample(
                     "consult_bug:" + b.getBugId(),
                     truncate("[" + b.getStatus() + "] " + safe(b.getTitle()), 200),
-                    input(question, answer),
+                    input(b, question, answer),
                     confirmed ? expectedBug(b) : expectedNotBug(),
                     confirmed ? assertBug(b) : assertNotBug(),
-                    tags(b.getStatus(), "human-label")));
+                    tags(b.getStatus(), "human-label", "label:strong", "unit:turn")));
         }
         log.debug("[fore-consult] 已裁决缺陷样本 {} 条", samples.size());
         return samples;
     }
 
-    private String input(String question, String answer) {
+    private String input(ConsultBug bug, String question, String answer) {
         ObjectNode n = mapper.createObjectNode();
         n.put("question", question);
         // 注意用 consult_bug.answer（前端已剥离机器可读块）而非 consult_turn.answer——
         // 后者仍嵌着 AI 自己输出的 BUG 块，拿它当输入等于把答案抄给被测模型，评测会虚高到没意义
         n.put("answer", answer);
+        ObjectNode lineage = n.putObject("lineage");
+        lineage.put("sessionId", bug.getConsultSessionId());
+        lineage.put("sampleUnit", "TURN");
+        lineage.put("labelSource", bug.getStatus());
         return n.toString();
     }
 

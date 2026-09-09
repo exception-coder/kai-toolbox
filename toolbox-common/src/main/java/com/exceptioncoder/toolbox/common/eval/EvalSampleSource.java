@@ -28,6 +28,21 @@ public interface EvalSampleSource {
     /** 样本对应的任务形态，与 eval_case.scenario 对齐，如 EXTRACTION。 */
     String scenario();
 
+    /** 推荐纳入的稳定数据集；来源是采集通道，不能直接充当数据集。 */
+    default String targetDataset() {
+        return id();
+    }
+
+    /** 评测样本的业务触发单位，如 TURN。 */
+    default String sampleUnit() {
+        return "RECORD";
+    }
+
+    /** 标签可信度，如 HUMAN_STRONG、WEAK、BASELINE_PENDING。 */
+    default String labelStrength() {
+        return "UNSPECIFIED";
+    }
+
     /**
      * 收集当前可纳入的全部样本。
      *
