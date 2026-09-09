@@ -5,7 +5,7 @@ toolbox:
   data-dir: ${user.home}/.kai-toolbox
   log-dir: ${toolbox.data-dir}/logs
   sqlite:
-    file: ${toolbox.data-dir}/toolbox.db
+    file: ${TOOLBOX_SQLITE_FILE:${toolbox.data-dir}/toolbox.db}
     # 单写者锁等待时长。大表 DELETE（数十万行级）+ 后台扫描 batchInsert 并发时，
     # 5s 容易触发 SQLITE_BUSY；30s 给 SQLite 足够退让时间，配合应用层串行化与
     # ScanRepository.deleteById 的事务合并使用。

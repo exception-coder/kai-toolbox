@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox;
 
 import com.exceptioncoder.toolbox.system.RestartHandoff;
+import com.exceptioncoder.toolbox.performance.infrastructure.StartupPerformanceBootstrap;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration;
@@ -15,6 +16,7 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 public class ToolboxApplication {
 
     public static void main(String[] args) {
+        var performance = new StartupPerformanceBootstrap();
         String[] applicationArgs;
         try {
             // replacement JVM 会在这里（Spring/端口/sidecar 尚未初始化）完成接管等待握手，
@@ -22,6 +24,7 @@ public class ToolboxApplication {
             // 并等待旧 JVM 退出，避免两个实例争抢同一批本机资源。
             applicationArgs = RestartHandoff.awaitParentAndStrip(args);
         } catch (Exception e) {
+            performance.failedBeforeSpring();
             System.err.println("[restart-handoff] replacement JVM handoff failed: " + e.getMessage());
             return;
         }
@@ -35,6 +38,7 @@ public class ToolboxApplication {
         // 必须在这里设而不是写 spring.main.headless —— SpringApplication.run() 里
         // configureHeadlessProperty() 早于 prepareEnvironment()，yml 里的值绑定不及时，不生效。
         app.setHeadless(false);
+        performance.configure(app);
         app.run(applicationArgs);
     }
 }

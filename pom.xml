@@ -27,6 +27,7 @@
         <module>forge-quality/forge-quality-cli</module>
         <module>forge-quality/forge-quality-mcp</module>
         <module>toolbox-common</module>
+        <module>toolbox-performance</module>
         <module>toolbox-llm</module>
         <module>tools/tool-treesize</module>
         <module>tools/tool-flatten</module>
