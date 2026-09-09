@@ -20,6 +20,11 @@
 
 ## 4. Evidence
 
+- [x] 4.1 Consolidate local discovery, registration, directory settings and module workspace in the registry.
+- [x] 4.2 Verify selection, configuration updates, compatibility routes and production build; deliver this consolidation independently.
+
+- Consolidation (2026-09-09): 16 frontend tests passed across six files; production build including TypeScript and feature boundaries passed. Forge gate returned exit 0/PASSED, with no static checkers and nine existing API scenarios. No server contract or SQL changes. Previous browser denial remains respected; no browser acceptance claimed. Legacy project actions and configuration storage remain reused through public APIs.
+
 - Backend: 14 tests passed (9 real SQLite/Spring transaction integration cases, 5 filesystem/Graphify discovery cases).
 - Frontend: 17 related tests passed, typecheck and feature-boundary checks passed; final production build passed including metadata labels.
 - Isolated HTTP checks: registration, metadata update, task registration/context; duplicate directory and concurrent init 409; missing system 404; invalid mode and sync-before-init 400. Evidence: `.codex-work/registry-api-evidence.json`.

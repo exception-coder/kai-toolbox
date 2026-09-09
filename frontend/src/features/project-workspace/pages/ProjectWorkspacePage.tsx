@@ -84,7 +84,7 @@ function fmtCheckedAt(iso?: string | null): string {
 
 
 /** 项目工作台：从配置工作区选项目，按确定性模块扫描结果进入对应 Vibe Coding 会话。 */
-export function ProjectWorkspacePage() {
+export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirectorySettings?: () => void } = {}) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { activate } = useChatRuntime()
@@ -273,7 +273,7 @@ export function ProjectWorkspacePage() {
           projectDependenciesMutation.reset()
           setProjectDependenciesOpen(true)
         }}
-        onOpenWorkspaceConfig={() => navigate(`/tools/config-center?block=${WORKSPACE_CFG_ID}`)}
+        onOpenWorkspaceConfig={onOpenDirectorySettings ?? (() => navigate('/tools/project-workspace?section=directories'))}
       />
 
       {launchError && <StateLine tone="danger" text={`启动交接失败：${launchError}`} />}
@@ -311,7 +311,7 @@ export function ProjectWorkspacePage() {
           ignored={ignored}
           onKeywordChange={setProjectKeyword}
           onIgnoredOpenChange={setIgnoredProjectsOpen}
-          onOpenWorkspaceConfig={() => navigate(`/tools/config-center?block=${WORKSPACE_CFG_ID}`)}
+          onOpenWorkspaceConfig={onOpenDirectorySettings ?? (() => navigate('/tools/project-workspace?section=directories'))}
           onShowChanges={setGitChangesProject}
           onEditAlias={(project) => {
             setAliasEditingPath(project.path)

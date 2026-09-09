@@ -97,7 +97,7 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 
 ## Project Registry and System Init
 
-- `/tools/project-workspace` is the central Project Registry; `/tools/project-workspace/modules` retains module and cross-project workspace tools.
+- `/tools/project-workspace` is the central Project Registry, including local project discovery, directory settings and module workspaces. Legacy `/tools/projects` and `/tools/project-workspace/modules` redirect to its `section=local` and `section=modules` views. Reuse existing configuration storage through public APIs; do not add parallel project configuration.
 - `tools/tool-projects/.../projects/registry/` owns registered system identities, initialization runs and versioned System Profiles. Graphify remains the code graph authority; OpenSpec remains the behavior authority.
 - Register a system through `/api/project-registry`, run `POST /api/project-registry/{id}/init` with `mode: FULL`, then read `/api/project-registry/{id}` for actual readiness, five asset groups, source fingerprint and gaps. Manual `SYNC` refreshes evidence; it does not claim incremental graph rebuilding.
 - Registry tasks use the existing requirement registration port. Their system/profile bindings are separate from task lifecycle; Agent handoff is available at `/api/project-registry/{id}/tasks/{taskId}/context`.

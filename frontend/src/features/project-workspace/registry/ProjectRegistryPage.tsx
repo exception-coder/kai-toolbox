@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowUpRight, Plus, RefreshCw, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,11 +8,20 @@ import { listRegistry } from './api'
 import { ReadinessLabel, RegistryError } from './RegistryStates'
 import { ProjectRegistrationForm } from './ProjectRegistrationForm'
 import type { Readiness } from './types'
+import { LocalProjectDiscovery, type DiscoveredProject } from './LocalProjectDiscovery'
+import { ProjectDirectorySettings } from './ProjectDirectorySettings'
+
+const ModuleWorkspace = lazy(() => import('../pages/ProjectWorkspacePage').then(module => ({ default: module.ProjectWorkspacePage })))
+const sections = [['systems', '已登记系统'], ['local', '本地项目'], ['directories', '目录设置'], ['modules', '模块工作区']] as const
 
 export function ProjectRegistryPage() {
   const navigate = useNavigate()
   const cache = useQueryClient()
   const [registering, setRegistering] = useState(false)
+  const [selection, setSelection] = useState<DiscoveredProject | null>(null)
+  const [params, setParams] = useSearchParams()
+  const section = sections.some(([id]) => id === params.get('section')) ? params.get('section') : 'systems'
+  const showSection = (value: string) => setParams({ section: value })
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'ALL' | 'READY' | 'ACTION'>('ALL')
   const projects = useQuery({ queryKey: ['project-registry'], queryFn: listRegistry, refetchInterval: 10000 })
@@ -29,11 +38,16 @@ export function ProjectRegistryPage() {
         <p className="mt-2 text-sm text-[var(--color-muted-foreground)]">接入系统、建立 AI 上下文，让每个任务从理解项目开始。</p>
       </div>
       <div className="flex items-center gap-2"><Button variant="ghost" size="sm" onClick={() => void projects.refetch()} disabled={projects.isFetching} aria-label="刷新项目库"><RefreshCw className="size-4" /></Button>
-        <Button onClick={() => setRegistering(value => !value)}><Plus className="size-4" />登记项目</Button></div>
+        <Button onClick={() => { setSelection(null); setRegistering(value => !value) }}><Plus className="size-4" />登记项目</Button></div>
     </header>
-    {registering && <section className="border-y border-[var(--color-border)] py-6"><h2 className="mb-6 text-base font-semibold">接入一个系统</h2>
-      <ProjectRegistrationForm onCancel={() => setRegistering(false)} onSaved={project => { void cache.invalidateQueries({ queryKey: ['project-registry'] }); navigate(`/tools/project-workspace/${project.id}`) }} />
+    <nav aria-label="项目库区域" className="flex gap-1 overflow-x-auto border-b border-[var(--color-border)] pb-3">{sections.map(([id, label]) => <Button key={id} size="sm" className="shrink-0" variant={section === id ? 'secondary' : 'ghost'} aria-current={section === id ? 'page' : undefined} onClick={() => showSection(id)}>{label}</Button>)}</nav>
+    {registering && <section className="border-y border-[var(--color-border)] py-6"><div className="mb-6 flex flex-wrap items-center gap-4"><h2 className="text-base font-semibold">接入一个系统</h2><Button variant="ghost" size="sm" onClick={() => { setRegistering(false); showSection('local') }}>从本地项目选择</Button></div>
+      <ProjectRegistrationForm key={selection?.path ?? 'manual'} initial={selection ? { name: selection.name, localPath: selection.path } : undefined} onCancel={() => setRegistering(false)} onSaved={project => { void cache.invalidateQueries({ queryKey: ['project-registry'] }); navigate(`/tools/project-workspace/${project.id}`) }} />
     </section>}
+    {section === 'local' && <LocalProjectDiscovery registered={all} onSelect={project => { setSelection(project); setRegistering(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }} onOpen={id => navigate(`/tools/project-workspace/${id}`)} onSettings={() => showSection('directories')} />}
+    {section === 'directories' && <ProjectDirectorySettings />}
+    {section === 'modules' && <Suspense fallback={<p role="status">正在读取模块工作区…</p>}><ModuleWorkspace onOpenDirectorySettings={() => showSection('directories')} /></Suspense>}
+    {section === 'systems' && <>
     <section className="flex flex-wrap gap-x-12 gap-y-4 border-b border-[var(--color-border)] pb-6" aria-label="项目概况">
       <Metric value={all.length} label="已登记系统" /><Metric value={ready} label="AI Ready" /><Metric value={all.length - ready} label="需要关注" />
     </section>
@@ -55,8 +69,8 @@ export function ProjectRegistryPage() {
         <ReadinessLabel state={project.state as Readiness} />
         <div className="text-xs text-[var(--color-muted-foreground)]"><p>{project.profileVersion ? `System Profile v${project.profileVersion}` : '尚未建立画像'}</p><p className="mt-2">{new Date(project.updatedAt).toLocaleString()}</p></div>
       </Link>)}</div>}
-    <footer className="flex flex-wrap gap-4 text-xs text-[var(--color-muted-foreground)]"><span>登记 → 初始化 → 系统画像 → 任务 → 验证 → 同步</span>
-      <Link className="underline underline-offset-4" to="/tools/project-workspace/modules">模块与跨项目工作区</Link></footer>
+    </>}
+    <footer className="text-xs text-[var(--color-muted-foreground)]">登记 → 初始化 → 系统画像 → 任务 → 验证 → 同步</footer>
   </main>
 }
 

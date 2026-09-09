@@ -1,7 +1,6 @@
-import { lazy } from 'react'
+import { Navigate } from 'react-router-dom'
 import { FolderGit2 } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-const ProjectsPage = lazy(() => import('./pages/ProjectsPage').then((m) => ({ default: m.ProjectsPage })))
 const manifest: FeatureManifest = {
   id: 'projects',
   name: '项目管理',
@@ -9,7 +8,8 @@ const manifest: FeatureManifest = {
   group: '系统',
   description: '扫描本地项目目录，一键跳转 Web 终端启动 claude',
   order: 5,
-  routes: [{ path: '/tools/projects', element: <ProjectsPage /> }],
+  chrome: true,
+  routes: [{ path: '/tools/projects', element: <Navigate to="/tools/project-workspace?section=local" replace /> }],
 }
 
 export default manifest

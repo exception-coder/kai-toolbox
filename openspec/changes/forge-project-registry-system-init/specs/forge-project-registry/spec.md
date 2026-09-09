@@ -17,3 +17,18 @@ The workspace SHALL show registered systems and recovery actions and provide det
 #### Scenario: Empty or unavailable registry
 - **WHEN** no projects are registered or loading fails
 - **THEN** the workspace offers registration or retry respectively without fabricated project metrics
+
+### Requirement: Central project management
+The project registry SHALL provide local project discovery, directory configuration and module workspace access within the registry, reusing existing configuration storage and project actions.
+
+#### Scenario: Discover and register locally
+- **WHEN** a user searches discovered directories and selects an unregistered project
+- **THEN** the registry fills its registration form without navigating to another tool and identifies already registered paths
+
+#### Scenario: Configure directories
+- **WHEN** a user changes scan directories in the registry
+- **THEN** the corresponding existing configuration is saved, discovery is refreshed and failures remain recoverable in place
+
+#### Scenario: Legacy management link
+- **WHEN** a user opens the old project management or module workspace URL
+- **THEN** the corresponding registry section opens and its existing capabilities remain accessible

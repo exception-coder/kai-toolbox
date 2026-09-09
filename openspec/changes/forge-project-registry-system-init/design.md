@@ -34,6 +34,10 @@ Add idempotent startup tables, deploy backend then frontend. Existing workspace 
 
 Test canonical path uniqueness, metadata update, concurrent claim, restart recovery, version preservation on failure, malformed graph, fingerprint drift, bounded scans, task transaction and profile context. Run targeted Java tests, frontend tests/typecheck/build and Forge quality gate; inspect desktop/mobile registration and failure flows in browser. Register affected HTTP APIs with actual evidence status.
 
+## Consolidated project management
+
+The registry owns the user-facing entry for registered systems, searchable local discovery, directory settings and module workspaces. Existing workspace and legacy project scan configuration remain their compatibility storage; edit both through the registry using the existing dynamic configuration public API, without new tables or server contracts. Merge discovered directories by normalized path, retain existing project actions, and populate registration from selection. Old project-management and module URLs redirect to registry sections. Configuration writes are independent and report their own errors; never imply an atomic multi-block save. Preserve manual absolute-path registration when discovery fails. Validate discovery selection, duplicate paths, configuration list replacement and legacy routes with frontend tests and the existing quality gate.
+
 ## Open Questions
 
 No unresolved first-phase business decisions. Provider-driven semantic domain generation and change listeners are explicitly deferred.
