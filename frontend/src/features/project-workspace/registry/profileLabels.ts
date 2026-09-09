@@ -8,7 +8,7 @@ export const assetLabels: Record<ProfileAsset['kind'], string> = {
 export const stageDescriptions: Record<string, { label: string; check: string; output: string; purpose: string }> = {
   repository: { label: '代码仓库扫描', check: '工程文件、技术栈、构建配置及 Git 提交和分支。', output: '记录工程结构与源码指纹。', purpose: '确定 AI 工作范围，识别后续代码变化。' },
   environment: { label: '环境配置检查', check: '项目环境配置和 Forge 宿主运行环境。', output: '收集环境信息；当前不会自动安装依赖、启动项目或检查运行实例。', purpose: '为后续准备开发环境提供依据，暴露尚未核验的部分。' },
-  graphify: { label: '代码图谱检查与构建', check: 'Graphify 图谱是否可用、是否覆盖当前源码。', output: '完整初始化时，图谱缺失或过期会在工具与资源允许时尝试构建；同步画像仅检查。', purpose: '帮助 AI 查找代码、调用关系和影响范围。' },
+  graphify: { label: '代码图谱检查与构建', check: 'Graphify 图谱、清单与当前源码的新增、修改、删除情况。', output: '增量同步时由 Graphify 更新变更及直接关联文件，复用其他结构；完整初始化按需构建基线。显示实际更新范围，语义与社区不自动重算。', purpose: '帮助 AI 查找最新代码、调用关系和影响范围，减少重复提取。' },
   semantic: { label: '业务语义分析', check: '已有 OpenSpec 业务规格和领域知识来源。', output: '登记现有业务语义入口；自动归纳业务域属于后续阶段。', purpose: '让 AI 按业务规则理解需求，而不只依赖代码名称。' },
   mapping: { label: '页面、接口与数据库关联', check: '现有图谱与规格中可用于定位页面、接口和数据结构的入口。', output: '当前保留关联线索，尚不自动生成完整映射；接口和真实表结构需另行核验。', purpose: '为从业务问题追踪到代码和数据提供依据。' },
   verification: { label: '验证入口发现', check: '构建、测试命令以及已有验证规则。', output: '记录可用验证入口和缺口；发现命令不代表已经执行或通过。', purpose: '指导代码修改后如何验证结果。' },
@@ -22,5 +22,5 @@ export function assetTitle(asset: ProfileAsset): string {
 /** 旧画像与运行记录保留原始证据，展示时补充恢复动作的准确含义。 */
 export function explainProfileMessage(message: string): string {
   return message.replace('图谱缺少完整的新鲜度证据，请执行 Full Init',
-    '已发现图谱，但尚无法确认它覆盖当前源码，可能已过期或缺少校验记录。请更新图谱后同步画像，或执行“重新完整初始化”尝试重新提取；当前不保证增量更新。')
+    '已发现图谱，但尚无法确认它覆盖当前源码。已有有效图谱清单时点击“增量同步”更新变更及关联文件；基线缺失或损坏时执行“重新完整初始化”。')
 }

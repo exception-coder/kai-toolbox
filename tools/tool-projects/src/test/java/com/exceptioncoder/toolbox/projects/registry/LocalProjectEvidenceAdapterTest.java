@@ -58,7 +58,7 @@ class LocalProjectEvidenceAdapterTest {
         Files.writeString(root.resolve("package.json"), "{\"scripts\":{\"test\":\"some-command\"}}");
         Files.writeString(root.resolve("AGENTS.md"), "Read engineering rules.");
         var commands = mock(RegistryCommandRunner.class);
-        var evidence = new LocalProjectEvidenceAdapter(scanner, commands, new ObjectMapper());
+        var evidence = new LocalProjectEvidenceAdapter(scanner, commands, new ObjectMapper(), mock(GraphifyIncrementalUpdater.class));
         var assets = evidence.assets(root.toString(), scanner.scan(root));
         var verification = assets.stream().filter(asset -> asset.kind().equals("VERIFICATION")).findFirst().orElseThrow();
         assertThat(verification.facts()).containsEntry(".:test", "npm --prefix \".\" run test");
@@ -72,13 +72,14 @@ class LocalProjectEvidenceAdapterTest {
         var evidence = adapter();
         assertThat(evidence.assets(root.toString(), scanner.scan(root)).stream()
                 .filter(asset -> asset.kind().equals("EXECUTION")).findFirst().orElseThrow().status()).isEqualTo("MISSING");
-        assertThat(evidence.buildGraph(root.toString())).isNotBlank();
+        assertThatThrownBy(() -> evidence.buildGraph(root.toString())).hasMessageContaining("Graphify 更新失败");
         assertThatThrownBy(() -> evidence.canonicalPath("relative/path")).hasMessageContaining("绝对路径");
     }
 
     private LocalProjectEvidenceAdapter adapter() {
         var commands = mock(RegistryCommandRunner.class);
         when(commands.run(any(), anyList(), any())).thenReturn(new RegistryCommandRunner.Result(-1, "unavailable"));
-        return new LocalProjectEvidenceAdapter(scanner, commands, new ObjectMapper());
+        return new LocalProjectEvidenceAdapter(scanner, commands, new ObjectMapper(),
+                new GraphifyIncrementalUpdater(scanner, commands, new ObjectMapper(), "python"));
     }
 }

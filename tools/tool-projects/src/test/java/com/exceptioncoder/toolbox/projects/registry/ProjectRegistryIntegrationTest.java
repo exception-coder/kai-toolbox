@@ -165,6 +165,42 @@ class ProjectRegistryIntegrationTest {
         return new RegistryProject.Metadata(name, path, "git", "", "main", "", "", "team");
     }
 
+    @Test
+    void syncInvokesNativeUpdateAndPersistsItsEvidence() {
+        RegistryProject project = projects.register(metadata("Forge", "D:/repo"));
+        SystemInitRun first = run(project);
+        store.claim(first);
+        initialization.execute(project, first);
+        RegistryProject current = projects.require(project.id());
+        SystemInitRun template = run(current);
+        SystemInitRun sync = new SystemInitRun(template.id(), current.id(), "SYNC", "RUNNING", template.stages(), "", template.startedAt(), template.updatedAt());
+        when(evidence.syncGraph("D:/repo")).thenReturn("结构图增量更新完成；新增/修改 1，复用 2 个文件");
+        store.claim(sync);
+        initialization.execute(current, sync);
+        verify(evidence).syncGraph("D:/repo");
+        verify(evidence, never()).buildGraph(anyString());
+        assertThat(store.profile(current.id(), 2)).isPresent();
+        assertThat(store.runs(current.id()).getFirst().stages().get(2).message()).contains("增量更新完成");
+    }
+
+    @Test
+    void failedIncrementalUpdateKeepsPreviousProfileAndDoesNotFallBackToFull() {
+        RegistryProject project = projects.register(metadata("Forge", "D:/repo"));
+        SystemInitRun first = run(project);
+        store.claim(first);
+        initialization.execute(project, first);
+        RegistryProject current = projects.require(project.id());
+        SystemInitRun template = run(current);
+        SystemInitRun sync = new SystemInitRun(template.id(), current.id(), "SYNC", "RUNNING", template.stages(), "", template.startedAt(), template.updatedAt());
+        when(evidence.syncGraph("D:/repo")).thenThrow(new IllegalStateException("基线无效，原图谱保留"));
+        store.claim(sync);
+        initialization.execute(current, sync);
+        assertThat(store.profile(current.id(), 1)).isPresent();
+        assertThat(store.profile(current.id(), 2)).isEmpty();
+        assertThat(projects.require(current.id()).state()).isEqualTo("FAILED");
+        verify(evidence, never()).buildGraph(anyString());
+    }
+
     private SystemInitRun run(RegistryProject project) {
         var stages = List.of("repository", "environment", "graphify", "semantic", "mapping", "verification", "profile")
                 .stream().map(name -> new SystemInitRun.Stage(name, name, "PENDING", "")).toList();

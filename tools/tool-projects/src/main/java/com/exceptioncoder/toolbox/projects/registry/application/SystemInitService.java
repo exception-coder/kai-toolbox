@@ -96,13 +96,19 @@ public class SystemInitService {
         progress.begin(2);
         var graph = evidence.graph(project.metadata().localPath());
         String gap = "";
-        if ("FULL".equals(mode) && (!graph.usable() || !graph.fresh())) {
+        if ("SYNC".equals(mode)) {
+            gap = evidence.syncGraph(project.metadata().localPath());
+            graph = evidence.graph(project.metadata().localPath());
+            if (!graph.usable() || !graph.fresh()) {
+                throw new IllegalStateException("增量图谱未获得有效覆盖证据，请检查 Graphify 结果");
+            }
+        } else if (!graph.usable() || !graph.fresh()) {
             gap = evidence.buildGraph(project.metadata().localPath());
             graph = evidence.graph(project.metadata().localPath());
         }
         progress.finish(2, graph.usable() && graph.fresh() ? "COMPLETED" : "PARTIAL",
                 gap.isBlank() ? graph.message() : gap);
-        return gap;
+        return graph.usable() && graph.fresh() ? "" : gap;
     }
 
     private List<String> collectGaps(List<SystemProfile.Asset> assets, ProjectEvidencePort.RepositorySnapshot snapshot,

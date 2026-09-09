@@ -16,15 +16,17 @@ import java.util.*;
 @Component
 public class LocalProjectEvidenceAdapter implements ProjectEvidencePort {
     private static final long GRAPH_SIZE_LIMIT = 128L * 1024 * 1024;
-    private static final long MIN_GRAPH_FREE_MEMORY = 2L * 1024 * 1024 * 1024;
     private final RegistrySourceScanner scanner;
     private final RegistryCommandRunner commands;
     private final ObjectMapper json;
+    private final GraphifyIncrementalUpdater updater;
 
-    public LocalProjectEvidenceAdapter(RegistrySourceScanner scanner, RegistryCommandRunner commands, ObjectMapper json) {
+    public LocalProjectEvidenceAdapter(RegistrySourceScanner scanner, RegistryCommandRunner commands, ObjectMapper json,
+                                       GraphifyIncrementalUpdater updater) {
         this.scanner = scanner;
         this.commands = commands;
         this.json = json;
+        this.updater = updater;
     }
 
     @Override
@@ -125,37 +127,12 @@ public class LocalProjectEvidenceAdapter implements ProjectEvidencePort {
 
     @Override
     public String buildGraph(String root) {
-        Path path = Path.of(root);
-        var operatingSystem = java.lang.management.ManagementFactory.getOperatingSystemMXBean();
-        if (operatingSystem instanceof com.sun.management.OperatingSystemMXBean memory
-                && memory.getFreeMemorySize() < MIN_GRAPH_FREE_MEMORY) {
-            return "可用物理内存不足 2 GiB，暂不启动 Graphify 提取；请释放资源后重新 Full Init";
-        }
-        var help = commands.run(path, List.of("graphify", "--help"), Duration.ofSeconds(15));
-        if (help.exitCode() != 0 || !help.output().contains("extract")) {
-            return "已安装环境不支持 Graphify extract；请安装或配置 Graphify 后重试";
-        }
-        RepositorySnapshot before = scanner.scan(path);
-        var result = commands.run(path, List.of("graphify", "extract", root, "--code-only", "--no-cluster",
-                "--max-workers", "1"), Duration.ofMinutes(10));
-        if (result.exitCode() != 0) {
-            return "Graphify 提取未完成（退出码 " + result.exitCode() + "），请在项目目录检查 graphify extract";
-        }
-        RepositorySnapshot after = scanner.scan(path);
-        if (!before.complete() || !after.complete() || !before.fingerprint().equals(after.fingerprint())) {
-            return "图谱生成期间源码发生变化或扫描不完整，请同步后重试";
-        }
-        try {
-            Path output = path.resolve("graphify-out");
-            if (!Files.isRegularFile(output.resolve("graph.json"))) {
-                return "Graphify 命令未产出 graph.json，请检查安装版本";
-            }
-            Files.writeString(output.resolve(".forge-source-fingerprint"), after.fingerprint() + ":"
-                    + Files.getLastModifiedTime(output.resolve("graph.json")).toMillis());
-            return "";
-        } catch (IOException exception) {
-            throw new IllegalStateException("保存图谱来源指纹失败", exception);
-        }
+        return updater.update(Path.of(root), false);
+    }
+
+    @Override
+    public String syncGraph(String root) {
+        return updater.update(Path.of(root), true);
     }
 
     @Override

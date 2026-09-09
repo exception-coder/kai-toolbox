@@ -13,6 +13,8 @@ public interface ProjectEvidencePort {
     GraphEvidence graph(String root);
     /** @param root 项目根 @return 已安装 Graphify 的执行结果或明确缺口。 */
     String buildGraph(String root);
+    /** @param root 项目根 @return 原生结构图增量更新摘要；失败抛异常且保留基线。 */
+    String syncGraph(String root);
     /** @param root 项目根 @param snapshot 已发现文件 @return 五类画像资产。 */
     List<SystemProfile.Asset> assets(String root, RepositorySnapshot snapshot);
 

@@ -19,7 +19,7 @@ export function ProfileOverview({ profile }: { profile: SystemProfile }) {
   return <section className="space-y-6"><div><h2 className="text-base font-semibold">系统画像（System Profile） <span className="ml-2 font-normal text-[var(--color-muted-foreground)]">v{profile.version}</span></h2>
     <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">生成于 {new Date(profile.generatedAt).toLocaleString()} · 五类权威资产入口</p></div>
     <div className="divide-y divide-[var(--color-border)]">{profile.assets.map(asset => <div key={asset.kind} className="flex flex-wrap justify-between gap-3 py-4"><span className="text-sm font-medium">{assetTitle(asset)}</span><span className="text-xs text-[var(--color-muted-foreground)]">{asset.status === 'READY' ? '已发现证据' : asset.status === 'PARTIAL' ? '部分证据' : '待补齐'} · {asset.sources.length} 个来源</span></div>)}</div>
-    {profile.gaps.length > 0 && <div className="border-l-2 border-[var(--color-border)] pl-4"><h3 className="text-sm font-medium">下一步需要补齐</h3><ul className="mt-3 space-y-2 text-sm text-[var(--color-muted-foreground)]">{profile.gaps.map(gap => <li key={gap}>{explainProfileMessage(gap)}</li>)}</ul><p className="mt-4 text-xs text-[var(--color-muted-foreground)]">“同步画像”只重新检查现有证据，不更新图谱。已有图谱仍需确认与当前源码一致；“重新完整初始化”会在必要时尝试图谱提取，不等同于增量更新。</p></div>}
+    {profile.gaps.length > 0 && <div className="border-l-2 border-[var(--color-border)] pl-4"><h3 className="text-sm font-medium">下一步需要补齐</h3><ul className="mt-3 space-y-2 text-sm text-[var(--color-muted-foreground)]">{profile.gaps.map(gap => <li key={gap}>{explainProfileMessage(gap)}</li>)}</ul><p className="mt-4 text-xs text-[var(--color-muted-foreground)]">已有有效图谱与清单时点击“增量同步”，更新结构图并重新检查证据；基线缺失或损坏时执行完整初始化。业务语义、社区划分及运行验证仍需独立处理。</p></div>}
   </section>
 }
 
