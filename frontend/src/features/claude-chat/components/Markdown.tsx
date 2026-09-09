@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { marked } from 'marked'
+import { parseChatMarkdown } from '../../../session-client-sdk/chatMarkdown'
 import DOMPurify from 'dompurify'
 import mermaid from 'mermaid'
 import { Download, Maximize2 } from 'lucide-react'
@@ -129,7 +129,7 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
   const html = useMemo(() => {
     if (!text.trim()) return null
     try {
-      const raw = marked.parse(text, { async: false, gfm: true, breaks: true }) as string
+      const raw = parseChatMarkdown(text)
       const rawDoc = new DOMParser().parseFromString(raw, 'text/html')
       rawDoc.querySelectorAll<HTMLAnchorElement>('a').forEach(anchor => {
         const localPath = localPathFromHref(anchor.getAttribute('href'))

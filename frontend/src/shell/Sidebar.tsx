@@ -66,7 +66,8 @@ export function Sidebar({
         ) : (
           <>
             <NavLink
-              to="/"
+              to="/explore"
+              aria-label={`${brand.appName} 产品介绍`}
               className={cn(
                 'flex min-w-0 flex-1 self-stretch items-center gap-2 px-4 hover:bg-[var(--color-sidebar-accent)]',
                 collapsed && 'justify-center px-1',

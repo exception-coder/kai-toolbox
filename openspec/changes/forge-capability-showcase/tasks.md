@@ -27,6 +27,8 @@
 
 ## 5. Manual Evidence
 
+- [x] 5.8 Route the shell Forge brand to `/explore` and label it for collapsed-sidebar accessibility. Real browser click from `/` reached `/explore`; scoped whitespace check passed.
+
 - [x] 5.7 Inventory session capabilities from ChatPage, SessionCapsPanel, sessionManager, codexMcpPolicy, forgePendingSql and toolboxMcpBridge; add visual map, four tool contracts, optional integrations, seven workspace groups and qualified Codex comparison.
 - Catalog verification: desktop/mobile, disclosure interaction and blocked APIs passed without page errors. Typecheck blocked by existing sessionClient.test.ts:66 TS2352/TS2493; feature catalog and boundaries passed. Forge CLI exit 0/PASSED with no executed static checkers and only API-RUNTIME-001. No live database, MCP or Agent runtime acceptance claimed.
 

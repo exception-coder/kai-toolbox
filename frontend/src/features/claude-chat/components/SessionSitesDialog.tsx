@@ -17,6 +17,7 @@ import {
 } from '../lib/sessionSites'
 import { openQuickSite } from '@/lib/openQuickSite'
 import { SiteOpenModeMenu, type SiteOpenChoice } from './SiteOpenModeMenu'
+import { SiteLinkCopyButton } from './SiteLinkCopyButton'
 
 interface Props {
   sessionId: string
@@ -241,7 +242,7 @@ function SessionSitesManager({ sessionId, onChanged, onClose, embedded = false }
                   <div className="space-y-2">
                     {filteredCustomSites.map(site => {
                       return (
-                        <article key={site.id} className="grid items-center gap-2 rounded-lg border p-2 sm:grid-cols-[auto_minmax(0,0.8fr)_minmax(0,1.5fr)_auto_auto]">
+                        <article key={site.id} className="grid items-center gap-2 rounded-lg border p-2 sm:grid-cols-[auto_minmax(0,0.8fr)_minmax(0,1.5fr)_auto]">
                           <button
                             type="button"
                             className="grid size-9 shrink-0 place-items-center rounded-md bg-sky-500/10 text-sky-600 hover:bg-sky-500/20"
@@ -252,10 +253,13 @@ function SessionSitesManager({ sessionId, onChanged, onClose, embedded = false }
                           </button>
                           <Input value={site.title} onChange={event => updateCustomSite(site.id, { title: event.target.value })} aria-label="临时站点标题" className="h-8 text-xs" />
                           <Input value={site.siteUrl} onChange={event => updateCustomSite(site.id, { siteUrl: event.target.value })} aria-label="临时站点地址" className="h-8 text-xs" />
-                          <SiteOpenModeMenu allowControlled={false} onSelect={choice => openCustomSite(site, choice)} />
-                          <Button variant="ghost" size="icon" className="size-8 text-[var(--color-muted-foreground)] hover:text-[var(--color-destructive)]" onClick={() => setCustomSites(current => current.filter(candidate => candidate.id !== site.id))} title="删除临时站点">
-                            <Trash2 className="size-4" />
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <SiteLinkCopyButton url={site.siteUrl} title={site.title || '临时站点'} />
+                            <SiteOpenModeMenu allowControlled={false} onSelect={choice => openCustomSite(site, choice)} />
+                            <Button variant="ghost" size="icon" className="size-8 text-[var(--color-muted-foreground)] hover:text-[var(--color-destructive)]" onClick={() => setCustomSites(current => current.filter(candidate => candidate.id !== site.id))} title="删除临时站点">
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
                         </article>
                       )
                     })}
@@ -288,6 +292,7 @@ function SessionSitesManager({ sessionId, onChanged, onClose, embedded = false }
                             <span className="block truncate text-[10px] text-[var(--color-muted-foreground)]">{site.groupName} · {site.siteUrl}</span>
                           </button>
                           <input type="checkbox" checked={selected} onChange={() => toggle(site.id)} aria-label={`关联 ${site.title}`} />
+                          <SiteLinkCopyButton url={site.siteUrl} title={site.title} />
                           <SiteOpenModeMenu onSelect={choice => open(linkedSite, choice)} />
                         </article>
                       )
