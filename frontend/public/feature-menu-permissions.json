@@ -227,6 +227,13 @@
       "sort": 36
     },
     {
+      "featureId": "startup-performance",
+      "code": "menu:startup-performance",
+      "name": "启动性能治理",
+      "module": "运维",
+      "sort": 36
+    },
+    {
       "featureId": "crypto",
       "code": "menu:crypto",
       "name": "加解密工具",
@@ -306,7 +313,7 @@
     {
       "featureId": "project-workspace",
       "code": "menu:project-workspace",
-      "name": "项目工作台",
+      "name": "项目库",
       "module": "AI",
       "sort": 51
     },

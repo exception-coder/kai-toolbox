@@ -4,6 +4,7 @@
 
 | 分类 | 说明 | 入口 |
 |---|---|---|
+| 启动运行 | 跨平台源码守护、配置、重启与迁移 | [STARTUP.md](../scripts/STARTUP.md) |
 | AI 编程 | Agent 上下文分层、检索路由与事实边界 | [ai-coding-architecture.md](ai-coding-architecture.md) |
 | 架构 | 平台架构、模块边界与运行机制 | [architecture/](architecture/) |
 | 设计 | 需求、重构与实施设计 | [design/](design/INDEX.md) |
