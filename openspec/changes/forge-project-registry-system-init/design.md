@@ -40,6 +40,8 @@ The registry owns the user-facing entry for registered systems, searchable local
 
 ## Open Questions
 
+Existing graph artifacts are distinct from proven current-source coverage. Present the legacy freshness warning with this distinction and explain that full initialization invokes extraction without guaranteeing incremental work; manual sync only rechecks evidence. Apply wording at display time to existing profile gaps, asset evidence and run messages without rewriting historical records.
+
 Registry presentation uses Chinese primary labels with English equivalents for the five assets and seven pipeline stages, keyed by stable kind/stage IDs so existing profiles need no migration. Overview includes a plain-language guide to checks, initialization outputs and purpose; it distinguishes full initialization from manual evidence synchronization and discovery from actual build/API/database verification.
 
 No unresolved first-phase business decisions. Provider-driven semantic domain generation and change listeners are explicitly deferred.

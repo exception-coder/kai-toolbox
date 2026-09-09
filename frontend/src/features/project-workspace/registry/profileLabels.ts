@@ -18,3 +18,9 @@ export const stageDescriptions: Record<string, { label: string; check: string; o
 export function assetTitle(asset: ProfileAsset): string {
   return `${assetLabels[asset.kind]}（${asset.title}）`
 }
+
+/** 旧画像与运行记录保留原始证据，展示时补充恢复动作的准确含义。 */
+export function explainProfileMessage(message: string): string {
+  return message.replace('图谱缺少完整的新鲜度证据，请执行 Full Init',
+    '已发现图谱，但尚无法确认它覆盖当前源码，可能已过期或缺少校验记录。请更新图谱后同步画像，或执行“重新完整初始化”尝试重新提取；当前不保证增量更新。')
+}

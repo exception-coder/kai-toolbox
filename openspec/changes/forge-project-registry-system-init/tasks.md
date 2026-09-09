@@ -23,6 +23,7 @@
 - [x] 4.1 Consolidate local discovery, registration, directory settings and module workspace in the registry.
 - [x] 4.2 Verify selection, configuration updates, compatibility routes and production build; deliver this consolidation independently.
 - [x] 4.3 Add Chinese meanings for profile assets and pipeline stages, with an overview guide explaining checks, outputs, purpose and current capability boundaries.
+- [x] 4.4 Clarify that existing graph artifacts may lack current-source coverage; explain extraction versus incremental graph updates, including historical profile messages. Copy-only follow-up: typecheck and feature boundaries passed; Forge exit 0/PASSED with zero static checkers and nine existing API scenarios. No rebuild or browser inspection performed for this wording-only follow-up.
 
 - Chinese presentation (2026-09-09): frontend typecheck, production build and feature boundaries passed. Copy-only change; no additional tests or backend/SQL changes. Forge gate exit 0/PASSED, no static checkers and nine existing API scenarios executed. Browser rendering was not inspected.
 
