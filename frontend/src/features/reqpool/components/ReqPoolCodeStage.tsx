@@ -18,7 +18,6 @@ import {
   Database,
   FileText,
   Filter,
-  Gauge,
   GitBranch,
   GripVertical,
   LayoutList,
@@ -96,7 +95,8 @@ import {
 } from '@/features/prd-clarify/public-api'
 import { MarkdownContent } from '@/components/markdown/MarkdownContent'
 import { useAuth } from '@/lib/auth'
-import { formatCompactTime, formatLifecycleTime, StageDot } from './ReqPoolStagePrimitives'
+import { CodeAnalysisDialog } from './CodeAnalysisDialog'
+import { formatCompactTime, StageDot } from './ReqPoolStagePrimitives'
 
 type ViewMode = 'table' | 'leader'
 type Decision = 'NOW' | 'CLARIFY' | 'PLAN' | 'PARK'
@@ -338,6 +338,8 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
   const [includeTests, setIncludeTests] = useState(true)
   const [openSpecChange, setOpenSpecChange] = useState('')
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
   const [loadingDevelopment, setLoadingDevelopment] = useState(false)
   const [developmentDocs, setDevelopmentDocs] = useState<{ prd: string; tdd?: string } | null>(null)
   const labels = documentLabels
@@ -369,15 +371,20 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
   }
 
   const analyze = async () => {
-    if (!requirement || running || !canAnalyze) return
+    if (!requirement || running || submittingRef.current || !canAnalyze) return
+    submittingRef.current = true
+    setSubmitting(true)
     setError('')
     try {
       await runCodeProgressAnalysis(requirement.id, openSpecChange.trim()
         ? `OpenSpec change: ${openSpecChange.trim()}`
         : undefined)
-      void queryClient.invalidateQueries({ queryKey: ['prd-sessions', 'reqpool'] })
+      await queryClient.invalidateQueries({ queryKey: ['prd-sessions', 'reqpool'] })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '本地代码分析任务启动失败')
+    } finally {
+      submittingRef.current = false
+      setSubmitting(false)
     }
   }
 
@@ -400,117 +407,20 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
         ) : <StageDot state={state} />}
         <span className={`whitespace-nowrap text-[10px] font-medium ${code?.status === 'STALE' ? 'text-amber-600' : code?.score != null ? 'text-emerald-600' : 'text-violet-600'}`}>{compact ? '代码' : code?.score == null ? '分析代码' : '代码'}</span>
       </button>
-      {open && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-0 backdrop-blur-[2px] sm:p-4" onMouseDown={event => event.target === event.currentTarget && setOpen(false)}>
-          <section role="dialog" aria-modal="true" aria-label="本地代码实现分析" className="flex h-full w-full max-w-3xl flex-col overflow-hidden border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl sm:h-[min(88vh,860px)] sm:rounded-2xl" onClick={event => event.stopPropagation()}>
-            <header className="shrink-0 border-b border-[var(--color-border)] px-4 py-3 sm:px-5 sm:py-4">
-              <div className="flex items-start gap-3">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-violet-50 text-violet-600 dark:bg-violet-950/35"><Gauge className="h-4 w-4" /></span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-sm font-semibold">本地代码实现分析</div>
-                    <span className="text-lg font-semibold tabular-nums">{selectedCodeScore == null ? '未分析' : `${selectedCodeScore}%`}</span>
-                  </div>
-                  <p className="mt-1 text-[10px] leading-4 text-[var(--color-muted-foreground)]">综合当前{labels.specification}、最新{labels.plan}与本地代码证据核对真实实现，并关联原 AI 总工时估算剩余工作量。</p>
-                </div>
-                <button type="button" onClick={() => setOpen(false)} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]" aria-label="关闭代码实现分析"><X className="h-4 w-4" /></button>
-              </div>
-            </header>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[var(--color-background)]/25 p-4 sm:p-5">
-            <div className="rounded-lg bg-[var(--color-muted)]/55 px-3 py-2.5">
-              <div className="text-[9px] text-[var(--color-muted-foreground)]">最近分析时间</div>
-              <div className="mt-1 text-[11px] font-medium tabular-nums">{code?.updatedAt ? formatLifecycleTime(code.updatedAt) : '尚未分析'}</div>
-              {code?.status === 'STALE' && <div className="mt-1 text-[10px] text-amber-600">{labels.specification}/{labels.plan}已更新，本次结果已过期</div>}
-            </div>
-            {requirement && selectedCodeScore != null && (
-              <CodeAssessmentDetails requirement={requirement} includeTests={includeTests} />
-            )}
-            {effort && (
-              <div className="overflow-hidden rounded-xl border border-violet-200 bg-violet-50/45 dark:border-violet-900 dark:bg-violet-950/20">
-                <div className="border-b border-violet-200/70 px-3 py-2.5 dark:border-violet-900/70">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300"><Gauge className="h-3.5 w-3.5" />当前进度 vs 原预估</span>
-                    <span className="text-[9px] text-[var(--color-muted-foreground)]">{effort.hoursPerWorkday}h / AI工作日</span>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <div className="rounded-lg bg-white/80 px-2.5 py-2 dark:bg-black/15">
-                      <div className="text-[8px] text-[var(--color-muted-foreground)]">当前交付进度</div>
-                      <div className="mt-0.5 text-base font-semibold tabular-nums">{deliveryProgress ?? effort.deliveryProgress}%</div>
-                    </div>
-                    <div className="rounded-lg bg-white/80 px-2.5 py-2 dark:bg-black/15">
-                      <div className="text-[8px] text-[var(--color-muted-foreground)]">代码实现进度</div>
-                      <div className="mt-0.5 text-base font-semibold tabular-nums">{effort.codeProgress == null ? '待分析' : `${effort.codeProgress}%`}</div>
-                    </div>
-                  </div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-violet-100 dark:bg-violet-950">
-                    <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${effort.codeProgress ?? 0}%` }} />
-                  </div>
-                </div>
-                <div className="space-y-2 px-3 py-2.5 text-[9px]">
-                  <div className="flex items-center justify-between gap-3"><span className="text-[var(--color-muted-foreground)]">原评估总工时</span><span className="font-medium tabular-nums">{formatEffortRange(effort.baselineHoursMin, effort.baselineHoursMax)}h · {formatEffortRange(effort.baselineWorkdaysMin, effort.baselineWorkdaysMax)}工作日</span></div>
-                  {effort.remainingHoursMin != null && effort.remainingHoursMax != null && effort.remainingWorkdaysMin != null && effort.remainingWorkdaysMax != null ? (
-                    <>
-                      <div className="flex items-center justify-between gap-3"><span className="text-[var(--color-muted-foreground)]">按进度折算已完成</span><span className="tabular-nums">{formatEffortRange(effort.completedHoursMin, effort.completedHoursMax)}h</span></div>
-                      <div className="rounded-lg bg-violet-600 px-2.5 py-2 text-white">
-                        <div className="flex items-end justify-between gap-3"><span>预计剩余</span><span className="text-sm font-semibold tabular-nums">{formatEffortRange(effort.remainingWorkdaysMin, effort.remainingWorkdaysMax)} 工作日</span></div>
-                        <div className="mt-0.5 text-right text-[8px] text-white/75">约 {formatEffortRange(effort.remainingHoursMin, effort.remainingHoursMax)} 小时</div>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-violet-300 px-2.5 py-2 text-center text-violet-700 dark:border-violet-800 dark:text-violet-300">执行本地代码分析后生成剩余工时与工作日</div>
-                  )}
-                  {effort.baselineStale && <div className="rounded-lg bg-amber-50 px-2.5 py-2 leading-4 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">原工时基线已过期：{effort.baselineStaleReasons.join('；')}。建议先在“责任与时间”重新评估。</div>}
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-violet-200/70 pt-2 text-[8px] text-[var(--color-muted-foreground)] dark:border-violet-900/70">
-                    <span>工时基线：{formatCompactTime(effort.estimatedAt)}</span>
-                    <span>代码分析：{effort.analyzedAt ? formatCompactTime(effort.analyzedAt) : '尚未分析'}</span>
-                  </div>
-                  <div className="leading-4 text-[var(--color-muted-foreground)]">剩余量按代码实现进度扣减；{labels.specification}/{labels.plan}只计入交付进度，不虚减编码工作量。</div>
-                </div>
-              </div>
-            )}
-            <p className="text-[10px] leading-4 text-[var(--color-muted-foreground)]">{code?.note || `完成${labels.specification}与${labels.plan}后即可核查本地实现。没有真实代码证据的功能不会计为完成。`}</p>
-            <label className="block border-t border-[var(--color-border)] pt-3">
-              <span className="text-[9px] font-semibold text-[var(--color-card-foreground)]">OpenSpec change</span>
-              <span className="ml-2 text-[8px] text-[var(--color-muted-foreground)]">填写后以 tasks.md 为权威计划；留空则明确降级为源码核查</span>
-              <input value={openSpecChange} disabled={running} onChange={event => setOpenSpecChange(event.target.value)} placeholder="例如 optimize-payment-flow" className="mt-2 h-9 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 font-mono text-[10px] outline-none focus:border-violet-400" />
-            </label>
-            <div className="flex items-center justify-between gap-3 border-t border-[var(--color-border)] pt-3">
-              <div>
-                <div className="text-[9px] font-semibold text-[var(--color-card-foreground)]">测试计分口径</div>
-                <div className="mt-0.5 text-[8px] text-[var(--color-muted-foreground)]">基于同一次扫描即时切换，不会重新分析</div>
-              </div>
-              <div className="flex shrink-0 rounded-md bg-[var(--color-muted)] p-0.5 text-[9px]">
-                <button type="button" disabled={running} onClick={() => setIncludeTests(true)} className={`rounded px-2 py-1 ${includeTests ? 'bg-[var(--color-card)] font-medium shadow-sm' : 'text-[var(--color-muted-foreground)]'}`}>纳入</button>
-                <button type="button" disabled={running} onClick={() => setIncludeTests(false)} className={`rounded px-2 py-1 ${!includeTests ? 'bg-[var(--color-card)] font-medium shadow-sm' : 'text-[var(--color-muted-foreground)]'}`}>不纳入</button>
-              </div>
-            </div>
-            {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-[10px] leading-4 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{error}</p>}
-            {running && (
-              <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2.5 text-[10px] leading-4">
-                <div className="flex items-center gap-2 font-medium"><Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-primary)]" />后台正在分析本地代码</div>
-                <div className="mt-1 text-[var(--color-muted-foreground)]">{prdSession?.progressWorkStage || '正在恢复任务进度'}。可关闭弹窗或刷新页面，任务不会中断。</div>
-              </div>
-            )}
-            {!running && prdSession?.progressWorkStatus === 'ERROR' && !error && (
-              <p className="rounded-lg bg-rose-50 px-3 py-2 text-[10px] leading-4 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{prdSession.progressWorkError || '上次分析失败，可重新发起'}</p>
-            )}
-            <button type="button" disabled={!canAnalyze || running} onClick={analyze} className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900">
-              {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
-              {running ? '后台分析中，可关闭弹窗' : code?.updatedAt ? '重新分析本地代码' : '开始分析本地代码'}
-            </button>
-            {!canAnalyze && <p className="text-center text-[9px] text-[var(--color-muted-foreground)]">请先完成{labels.planDocument}</p>}
-            <div className="border-t border-[var(--color-border)] pt-3">
-              <button type="button" disabled={!canDevelop || loadingDevelopment} onClick={() => void openDevelopment()} className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-3 py-2.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">
-                {loadingDevelopment ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
-                {prdSession?.devSessionId ? '继续 Vibe Coding 开发' : '发起 Vibe Coding 开发'}
-              </button>
-              {!user && <p className="mt-2 text-center text-[9px] text-amber-600">登录后可校验开发权限</p>}
-              {user && !canDevelop && <p className="mt-2 text-center text-[9px] text-[var(--color-muted-foreground)]">仅管理员或当前需求负责人可操作</p>}
-            </div>
-            </div>
-          </section>
-        </div>
-      )}
+      {open && <CodeAnalysisDialog
+        title={item.title} score={selectedCodeScore} updatedAt={code?.updatedAt}
+        stale={code?.status === 'STALE'} note={code?.note || `结合${labels.specification}与${labels.plan}核对本地实现；缺少代码证据的功能不会计为完成。`}
+        effort={effort} deliveryProgress={deliveryProgress} includeTests={includeTests}
+        onIncludeTests={setIncludeTests} change={openSpecChange} onChange={setOpenSpecChange}
+        busy={running || submitting} stage={prdSession?.progressWorkStage}
+        error={error || (prdSession?.progressWorkStatus === 'ERROR' ? prdSession.progressWorkError || '上次分析失败，请重试。' : '')}
+        canAnalyze={canAnalyze} canDevelop={canDevelop} developing={loadingDevelopment}
+        hasDevSession={!!prdSession?.devSessionId}
+        permissionHint={!user ? '登录后可开始开发。' : !canDevelop ? '仅管理员或当前需求负责人可开始开发。' : ''}
+        onAnalyze={() => void analyze()} onDevelop={() => void openDevelopment()} onClose={() => setOpen(false)}
+      >
+        {requirement && selectedCodeScore != null && <CodeAssessmentDetails requirement={requirement} includeTests={includeTests} />}
+      </CodeAnalysisDialog>}
       {developmentDocs && prdSession && (
         <StartDevelopmentDialog
           title={item.title}
@@ -558,44 +468,44 @@ function CodeAssessmentDetails({ requirement, includeTests }: {
   const conclusion = assessmentConclusion(coverage, score, excluded.length)
 
   return (
-    <section className="border-l-2 border-violet-500 pl-3">
+    <section className="space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-[10px] font-semibold text-[var(--color-card-foreground)]">评估结论</div>
-        <span className={`text-[9px] font-semibold ${totalDeduction > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+        <div className="text-sm font-semibold text-[var(--color-card-foreground)]">评估结论</div>
+        <span className={`text-xs font-semibold ${totalDeduction > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
           {totalDeduction > 0 ? `共扣 ${totalDeduction} 分` : '无扣分'}
         </span>
       </div>
-      <p className="mt-1.5 text-[10px] leading-4 text-[var(--color-muted-foreground)]">{conclusion}</p>
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[9px] tabular-nums">
+      <p className="mt-1.5 text-sm leading-5 text-[var(--color-muted-foreground)]">{conclusion}</p>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums">
         <span className="text-emerald-600">✓ 已完成 {coverage.completed}</span>
         <span className="text-amber-600">◐ 部分完成 {coverage.partial}</span>
         <span className="text-rose-600">× 未完成 {coverage.missing}</span>
         {excluded.length > 0 && <span className="text-sky-600">○ 不计分 {excluded.length}</span>}
       </div>
-      <div className="mt-1 text-[8px] text-[var(--color-muted-foreground)]">
+      <div className="mt-1 text-xs text-[var(--color-muted-foreground)]">
         全部测试：{includeTests ? '纳入实现度' : '不纳入实现度'} · 同一份代码扫描结果
       </div>
 
       {deductions.length > 0 && (
         <div className="mt-3 border-t border-[var(--color-border)] pt-2.5">
-          <div className="text-[9px] font-semibold text-[var(--color-card-foreground)]">扣分项明细</div>
+          <div className="text-xs font-semibold text-[var(--color-card-foreground)]">扣分项明细</div>
           <div className="mt-1 divide-y divide-[var(--color-border)]">
             {deductions.map(({ item, kind, points }, index) => (
               <div key={`${kind}-${item.title}-${index}`} className="py-2 first:pt-1.5">
-                <div className="flex items-start justify-between gap-3 text-[9px]">
+                <div className="flex items-start justify-between gap-3 text-xs">
                   <span className="min-w-0 font-medium text-[var(--color-card-foreground)]">{kind} · {item.title}</span>
                   <span className="shrink-0 font-semibold tabular-nums text-rose-600">-{formatDeduction(points)} 分</span>
                 </div>
-                <p className="mt-1 text-[9px] leading-4 text-[var(--color-muted-foreground)]">
+                <p className="mt-1 text-xs leading-5 text-[var(--color-muted-foreground)]">
                   {deductionReason(item, kind)}
                 </p>
                 {item.evidence.length > 0 && (
-                  <p className="mt-0.5 break-words text-[8px] leading-3 text-violet-600 dark:text-violet-300">证据：{item.evidence.join('；')}</p>
+                  <p className="mt-0.5 break-words text-xs leading-3 text-violet-600 dark:text-violet-300">证据：{item.evidence.join('；')}</p>
                 )}
               </div>
             ))}
           </div>
-          <p className="mt-1.5 text-[8px] leading-3 text-[var(--color-muted-foreground)]">
+          <p className="mt-1.5 text-xs leading-3 text-[var(--color-muted-foreground)]">
             评分口径：每个未完成功能点扣完整权重，部分完成功能点扣一半权重；单项分值按功能点总数折算，最终得分取整。
           </p>
         </div>
@@ -603,16 +513,16 @@ function CodeAssessmentDetails({ requirement, includeTests }: {
 
       {excluded.length > 0 && (
         <div className="mt-3 border-t border-[var(--color-border)] pt-2.5">
-          <div className="text-[9px] font-semibold text-sky-700 dark:text-sky-300">观察项（不计分）</div>
+          <div className="text-xs font-semibold text-sky-700 dark:text-sky-300">观察项（不计分）</div>
           <div className="mt-1 divide-y divide-[var(--color-border)]">
             {excluded.map((item, index) => (
               <div key={`${item.title}-${index}`} className="py-2 first:pt-1.5">
-                <div className="flex items-start justify-between gap-3 text-[9px]">
+                <div className="flex items-start justify-between gap-3 text-xs">
                   <span className="font-medium text-[var(--color-card-foreground)]">{item.title}</span>
                   <span className="shrink-0 font-semibold text-sky-600">0 分</span>
                 </div>
-                <p className="mt-1 text-[9px] leading-4 text-[var(--color-muted-foreground)]">{item.actual || item.missing || item.implemented || '已核查，本次不纳入计分'}</p>
-                {item.evidence.length > 0 && <p className="mt-0.5 break-words text-[8px] leading-3 text-violet-600 dark:text-violet-300">证据：{item.evidence.join('；')}</p>}
+                <p className="mt-1 text-xs leading-5 text-[var(--color-muted-foreground)]">{item.actual || item.missing || item.implemented || '已核查，本次不纳入计分'}</p>
+                {item.evidence.length > 0 && <p className="mt-0.5 break-words text-xs leading-3 text-violet-600 dark:text-violet-300">证据：{item.evidence.join('；')}</p>}
               </div>
             ))}
           </div>
@@ -621,12 +531,12 @@ function CodeAssessmentDetails({ requirement, includeTests }: {
 
       {alignmentFindings.length > 0 && (
         <div className="mt-3 border-t border-[var(--color-border)] pt-2.5">
-          <div className="flex items-center gap-1.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
             <AlertTriangle className="h-3 w-3" />需求规格 / 执行方案与代码差异 {alignmentFindings.length} 项
           </div>
           <div className="mt-1.5 space-y-2">
             {alignmentFindings.map((finding, index) => (
-              <div key={`${finding.requirement}-${index}`} className="text-[9px] leading-4">
+              <div key={`${finding.requirement}-${index}`} className="text-xs leading-5">
                 <div className="font-medium text-[var(--color-card-foreground)]">{finding.requirement} · {finding.status}</div>
                 <div className="text-[var(--color-muted-foreground)]">要求：{finding.expected || '未说明'}</div>
                 <div className="text-[var(--color-muted-foreground)]">代码：{finding.actual || '未发现'}</div>
@@ -685,10 +595,4 @@ function deductionReason(item: DeliveryRequirement['progressItems']['missing'][n
 
 function formatDeduction(points: number) {
   return Number.isInteger(points) ? String(points) : points.toFixed(1)
-}
-
-function formatEffortRange(min: number | null, max: number | null) {
-  if (min == null || max == null) return '—'
-  const format = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 1 })
-  return min === max ? format(min) : `${format(min)}–${format(max)}`
 }
