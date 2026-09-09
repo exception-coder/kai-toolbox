@@ -13,10 +13,12 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import {
-  createBusinessConsultCandidate,
-  getBusinessConsultAgent,
-  releaseBusinessConsultCandidate,
-  rollbackBusinessConsultVersion,
+  createAgentCandidate,
+  getAgent,
+  listAgents,
+  releaseAgentCandidate,
+  rollbackAgentVersion,
+  type AgentDefinition,
   type AgentCapability,
   type AgentManagementSnapshot,
   type AgentVersion,
@@ -25,32 +27,34 @@ import {
   type OrchestrationVersion,
 } from "../api";
 
-const QUERY_KEY = ["agent-management", "business-consult"];
 type DetailTab = "overview" | "capabilities" | "evaluation" | "versions";
 
 /** 公司 Agent Registry 与能力治理工作台。 */
 export function AgentManagementPage() {
   const queryClient = useQueryClient();
+  const registryQuery = useQuery({ queryKey: ["agent-management", "registry"], queryFn: listAgents });
+  const [agentId, setAgentId] = useState("business-consult");
+  const queryKey = ["agent-management", agentId];
   const query = useQuery({
-    queryKey: QUERY_KEY,
-    queryFn: getBusinessConsultAgent,
+    queryKey,
+    queryFn: () => getAgent(agentId),
   });
   const [draft, setDraft] = useState<CreateAgentVersionRequest | null>(null);
   const [tab, setTab] = useState<DetailTab>("overview");
   const refresh = (snapshot: AgentManagementSnapshot) => {
-    queryClient.setQueryData(QUERY_KEY, snapshot);
+    queryClient.setQueryData(queryKey, snapshot);
     setDraft(null);
   };
   const save = useMutation({
-    mutationFn: createBusinessConsultCandidate,
+    mutationFn: (request: CreateAgentVersionRequest) => createAgentCandidate(agentId, request),
     onSuccess: refresh,
   });
   const release = useMutation({
-    mutationFn: releaseBusinessConsultCandidate,
+    mutationFn: (version: number) => releaseAgentCandidate(agentId, version),
     onSuccess: refresh,
   });
   const rollback = useMutation({
-    mutationFn: rollbackBusinessConsultVersion,
+    mutationFn: (version: number) => rollbackAgentVersion(agentId, version),
     onSuccess: refresh,
   });
   const error = query.error ?? save.error ?? release.error ?? rollback.error;
@@ -74,7 +78,10 @@ export function AgentManagementPage() {
       </header>
       <div className="grid min-h-[calc(100%-101px)] lg:grid-cols-[270px_minmax(0,1fr)]">
         <RegistryPanel
+          agents={registryQuery.data ?? []}
+          selectedAgentId={agentId}
           snapshot={query.data ?? null}
+          onSelect={(id) => { setAgentId(id); setDraft(null); setTab("overview"); }}
           onCapabilities={() => setTab("capabilities")}
         />
         <section className="min-w-0 px-6 py-7 lg:px-10">
@@ -109,10 +116,16 @@ export function AgentManagementPage() {
 }
 
 function RegistryPanel({
+  agents,
+  selectedAgentId,
   snapshot,
+  onSelect,
   onCapabilities,
 }: {
+  agents: AgentDefinition[];
+  selectedAgentId: string;
   snapshot: AgentManagementSnapshot | null;
+  onSelect: (agentId: string) => void;
   onCapabilities: () => void;
 }) {
   const registry = snapshot?.capabilityRegistry ?? [];
@@ -123,20 +136,17 @@ function RegistryPanel({
   return (
     <aside className="border-b border-slate-200 bg-white px-4 py-5 lg:border-b-0 lg:border-r">
       <div className="px-2 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-400">
-        Agent 注册表 · Registry · 1
+        Agent 注册表 · Registry · {agents.length}
       </div>
-      <div className="mt-3 flex items-start gap-3 rounded-lg bg-slate-100 px-3 py-3">
-        <span className="mt-0.5 flex size-8 items-center justify-center rounded-md border border-slate-200 bg-white">
-          <Bot className="size-4" />
-        </span>
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-medium">
-            {snapshot?.name ?? "业务咨询 Agent"}
-          </span>
-          <span className="mt-1 block text-xs text-slate-500">
-            业务咨询 · 已登记
-          </span>
-        </span>
+      <div className="mt-3 space-y-1">
+        {agents.map(agent => (
+          <button key={agent.id} type="button" onClick={() => onSelect(agent.id)}
+            className={`flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left ${selectedAgentId === agent.id ? "bg-slate-100" : "hover:bg-slate-50"}`}>
+            <span className="mt-0.5 flex size-8 items-center justify-center rounded-md border border-slate-200 bg-white"><Bot className="size-4" /></span>
+            <span className="min-w-0"><span className="block truncate text-sm font-medium">{agent.name}</span><span className="mt-1 block text-xs text-slate-500">{agent.id === "requirement-progress" ? "工程分析" : "业务咨询"} · 已登记</span></span>
+          </button>
+        ))}
+        {agents.length === 0 && <p className="px-3 py-4 text-xs text-slate-400">暂无已登记 Agent</p>}
       </div>
       <button
         type="button"

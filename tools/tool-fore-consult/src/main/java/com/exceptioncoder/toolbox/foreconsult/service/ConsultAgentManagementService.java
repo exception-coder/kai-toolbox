@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentManage
 import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentReleaseGate;
 import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentVersion;
 import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.BusinessConsultCapabilityCatalog;
+import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.RequirementProgressCapabilityCatalog;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultAgentManagementRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultAgentManagementRepository.AgentDefinition;
 import org.springframework.stereotype.Service;
@@ -32,9 +33,17 @@ public class ConsultAgentManagementService {
         this.smokeSampleSource = smokeSampleSource;
     }
 
+    public List<AgentDefinition> listAgents() {
+        return repository.findDefinitions();
+    }
+
     public AgentManagementSnapshot getSnapshot() {
-        AgentDefinition definition = repository.findDefinition();
-        List<AgentVersion> versions = repository.findVersions();
+        return getSnapshot(ConsultAgentManagementRepository.BUSINESS_CONSULT_AGENT_ID);
+    }
+
+    public AgentManagementSnapshot getSnapshot(String agentId) {
+        AgentDefinition definition = repository.findDefinition(agentId);
+        List<AgentVersion> versions = repository.findVersions(agentId);
         AgentVersion production = findByStatus(versions, "PRODUCTION");
         AgentVersion candidate = findByStatus(versions, "CANDIDATE");
         return new AgentManagementSnapshot(
@@ -48,24 +57,36 @@ public class ConsultAgentManagementService {
                 production,
                 candidate,
                 versions,
-                BusinessConsultCapabilityCatalog.capabilities(),
+                capabilities(agentId),
                 capabilityIds(production),
                 capabilityIds(candidate),
-                smokeSampleSource.preview(),
+                "requirement-progress".equals(agentId)
+                        ? RequirementProgressCapabilityCatalog.evaluationDataset()
+                        : smokeSampleSource.preview(),
                 AgentReleaseGate.evaluate(candidate));
     }
 
     @Transactional
     public AgentManagementSnapshot createCandidate(CreateAgentVersionCommand rawCommand) {
-        repository.replaceCandidate(normalize(rawCommand), System.currentTimeMillis());
-        return getSnapshot();
+        return createCandidate(ConsultAgentManagementRepository.BUSINESS_CONSULT_AGENT_ID, rawCommand);
+    }
+
+    @Transactional
+    public AgentManagementSnapshot createCandidate(String agentId, CreateAgentVersionCommand rawCommand) {
+        repository.replaceCandidate(agentId, normalize(rawCommand), System.currentTimeMillis());
+        return getSnapshot(agentId);
     }
 
     @Transactional
     public AgentManagementSnapshot release(long version) {
-        AgentVersion target = requireVersion(version);
+        return release(ConsultAgentManagementRepository.BUSINESS_CONSULT_AGENT_ID, version);
+    }
+
+    @Transactional
+    public AgentManagementSnapshot release(String agentId, long version) {
+        AgentVersion target = requireVersion(agentId, version);
         if ("PRODUCTION".equals(target.status())) {
-            return getSnapshot();
+            return getSnapshot(agentId);
         }
         if (!"CANDIDATE".equals(target.status())) {
             throw new IllegalArgumentException("只有 Candidate 版本可以发布");
@@ -74,21 +95,26 @@ public class ConsultAgentManagementService {
         if (!gate.releasable()) {
             throw new IllegalArgumentException(gate.reason());
         }
-        repository.promote(version, "RELEASE", System.currentTimeMillis());
-        return getSnapshot();
+        repository.promote(agentId, version, "RELEASE", System.currentTimeMillis());
+        return getSnapshot(agentId);
     }
 
     @Transactional
     public AgentManagementSnapshot rollback(long version) {
-        AgentVersion target = requireVersion(version);
+        return rollback(ConsultAgentManagementRepository.BUSINESS_CONSULT_AGENT_ID, version);
+    }
+
+    @Transactional
+    public AgentManagementSnapshot rollback(String agentId, long version) {
+        AgentVersion target = requireVersion(agentId, version);
         if ("PRODUCTION".equals(target.status())) {
-            return getSnapshot();
+            return getSnapshot(agentId);
         }
         if (!"HISTORICAL".equals(target.status()) || target.releasedAt() == null) {
             throw new IllegalArgumentException("只能回滚到曾发布过的历史 Production 版本");
         }
-        repository.promote(version, "ROLLBACK", System.currentTimeMillis());
-        return getSnapshot();
+        repository.promote(agentId, version, "ROLLBACK", System.currentTimeMillis());
+        return getSnapshot(agentId);
     }
 
     private CreateAgentVersionCommand normalize(CreateAgentVersionCommand command) {
@@ -121,9 +147,15 @@ public class ConsultAgentManagementService {
                 command.evaluationPassed());
     }
 
-    private AgentVersion requireVersion(long version) {
-        return repository.findVersion(version)
+    private AgentVersion requireVersion(String agentId, long version) {
+        return repository.findVersion(agentId, version)
                 .orElseThrow(() -> new IllegalArgumentException("Agent 版本不存在: v" + version));
+    }
+
+    private List<com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentCapability> capabilities(String agentId) {
+        return "requirement-progress".equals(agentId)
+                ? RequirementProgressCapabilityCatalog.capabilities()
+                : BusinessConsultCapabilityCatalog.capabilities();
     }
 
     private AgentVersion findByStatus(List<AgentVersion> versions, String status) {

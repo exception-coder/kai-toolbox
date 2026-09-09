@@ -245,6 +245,21 @@ INSERT OR IGNORE INTO consult_agent_definition (
     0
 );
 
+-- 功能：需求进度分析 Agent Registry；变更：登记稳定 Agent 身份与运行入口；目的：支持独立版本和回归治理
+INSERT OR IGNORE INTO consult_agent_definition (
+    agent_id, name, owner, description, endpoint, framework, observability_url, created_at, updated_at
+) VALUES (
+    'requirement-progress',
+    '需求进度分析 Agent',
+    'Forge AI Platform',
+    '以 OpenSpec 任务为计划边界，结合 Graphify、源码、测试和 Git 证据核查真实完成度',
+    '/api/prd/sessions/{id}/progress/evaluate',
+    'Java + AgentOneShotRunner',
+    NULL,
+    0,
+    0
+);
+
 -- 功能：业务咨询 Agent 动态配置；变更：新增不可变版本快照表；目的：管理 Candidate、Production 与评测门禁事实
 CREATE TABLE IF NOT EXISTS consult_agent_version (
     agent_id              TEXT    NOT NULL,
@@ -290,6 +305,26 @@ INSERT OR IGNORE INTO consult_agent_version (
     '["source_context","source_read","source_search"]',
     '["consult-readonly","domain-knowledge"]',
     '["backend-evidence"]',
+    0,
+    0,
+    0
+);
+
+-- 功能：需求进度分析 Agent 版本治理；变更：初始化证据编排 v3 生产快照；目的：建立可回归的默认运行基线
+INSERT OR IGNORE INTO consult_agent_version (
+    agent_id, version, status, model, temperature, prompt_ref, orchestration_version,
+    tools_json, mcp_servers_json, skills_json, evaluation_passed, created_at, released_at
+) VALUES (
+    'requirement-progress',
+    1,
+    'PRODUCTION',
+    'runtime-default',
+    0.0,
+    'prompts/prd/progress-evaluation/v3-system.md',
+    'v3',
+    '["source_context","source_read","source_search"]',
+    '[]',
+    '["graphify","backend-evidence"]',
     0,
     0,
     0

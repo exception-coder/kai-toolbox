@@ -22,7 +22,7 @@ public class PrdPromptCatalog {
             PrdPromptPurpose.DOC_CHANGE_VERIFIER,
             new PromptResource("v1", "prompts/prd/doc-change-verifier/v1-system.md"),
             PrdPromptPurpose.PROGRESS_EVALUATION,
-            new PromptResource("v2-claim-ledger", "prompts/prd/progress-evaluation/v2-system.md")
+            new PromptResource("v3-openspec-agent", "prompts/prd/progress-evaluation/v3-system.md")
     );
 
     private final Map<PrdPromptPurpose, PrdPromptDefinition> definitions;

@@ -20,8 +20,8 @@ class PrdPromptCatalogTest {
         assertThat(analyzer.systemPrompt()).contains("证据分析器", "diffLedger");
         assertThat(verifier.version()).isEqualTo("v1");
         assertThat(verifier.systemPrompt()).contains("复核器", "recommendedDecision");
-        assertThat(progress.version()).isEqualTo("v2-claim-ledger");
-        assertThat(progress.systemPrompt()).contains("source_context", "DELIVERY_CLAIMS_JSON");
+        assertThat(progress.version()).isEqualTo("v3-openspec-agent");
+        assertThat(progress.systemPrompt()).contains("OpenSpec tasks", "source_context", "DELIVERY_CLAIMS_JSON");
         assertThat(analyzer.sha256()).hasSize(64);
         assertThat(catalog.analysisProtocolFingerprint()).hasSize(64);
         assertThat(new PrdPromptCatalog().analysisProtocolFingerprint())

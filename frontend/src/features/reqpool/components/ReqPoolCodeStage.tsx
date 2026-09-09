@@ -336,6 +336,7 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
   const [open, setOpen] = useState(false)
   const running = prdSession?.progressWorkStatus === 'RUNNING'
   const [includeTests, setIncludeTests] = useState(true)
+  const [openSpecChange, setOpenSpecChange] = useState('')
   const [error, setError] = useState('')
   const [loadingDevelopment, setLoadingDevelopment] = useState(false)
   const [developmentDocs, setDevelopmentDocs] = useState<{ prd: string; tdd?: string } | null>(null)
@@ -371,7 +372,9 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
     if (!requirement || running || !canAnalyze) return
     setError('')
     try {
-      await runCodeProgressAnalysis(requirement.id)
+      await runCodeProgressAnalysis(requirement.id, openSpecChange.trim()
+        ? `OpenSpec change: ${openSpecChange.trim()}`
+        : undefined)
       void queryClient.invalidateQueries({ queryKey: ['prd-sessions', 'reqpool'] })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '本地代码分析任务启动失败')
@@ -466,6 +469,11 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
               </div>
             )}
             <p className="text-[10px] leading-4 text-[var(--color-muted-foreground)]">{code?.note || `完成${labels.specification}与${labels.plan}后即可核查本地实现。没有真实代码证据的功能不会计为完成。`}</p>
+            <label className="block border-t border-[var(--color-border)] pt-3">
+              <span className="text-[9px] font-semibold text-[var(--color-card-foreground)]">OpenSpec change</span>
+              <span className="ml-2 text-[8px] text-[var(--color-muted-foreground)]">填写后以 tasks.md 为权威计划；留空则明确降级为源码核查</span>
+              <input value={openSpecChange} disabled={running} onChange={event => setOpenSpecChange(event.target.value)} placeholder="例如 optimize-payment-flow" className="mt-2 h-9 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 font-mono text-[10px] outline-none focus:border-violet-400" />
+            </label>
             <div className="flex items-center justify-between gap-3 border-t border-[var(--color-border)] pt-3">
               <div>
                 <div className="text-[9px] font-semibold text-[var(--color-card-foreground)]">测试计分口径</div>

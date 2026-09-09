@@ -238,7 +238,8 @@ class PrdProgressEvaluationTest {
         when(aiRunService.begin(any(), any(), any())).thenReturn(
                 new PrdAiRunService.RunHandle("progress-run", "input-sha", "v1"));
         return new PrdProgressEvaluationService(
-                runner,
+                new RequirementProgressAnalysisAgent(runner),
+                new OpenSpecProgressContextResolver(),
                 repo,
                 fileStore,
                 artifactService,

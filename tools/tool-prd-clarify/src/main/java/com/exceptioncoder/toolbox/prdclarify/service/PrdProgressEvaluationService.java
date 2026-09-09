@@ -1,6 +1,5 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
-import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.exceptioncoder.toolbox.llm.spi.LocalProjectResolver;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryClaimLedgerService;
@@ -46,7 +45,8 @@ public class PrdProgressEvaluationService {
     private static final String CODE_EVIDENCE_VERIFIED = "<!-- CODE_EVIDENCE_STATUS: VERIFIED -->";
     private static final String CODE_EVIDENCE_INSUFFICIENT = "<!-- CODE_EVIDENCE_STATUS: INSUFFICIENT -->";
 
-    private final AgentOneShotRunner agentRunner;
+    private final RequirementProgressAnalysisAgent progressAgent;
+    private final OpenSpecProgressContextResolver openSpecContextResolver;
     private final PrdSessionRepository repo;
     private final PrdFileStore fileStore;
     private final PrdArtifactService artifactService;
@@ -58,7 +58,8 @@ public class PrdProgressEvaluationService {
     private final ObjectProvider<LocalProjectResolver> localProjectResolver;
 
     public PrdProgressEvaluationService(
-            AgentOneShotRunner agentRunner,
+            RequirementProgressAnalysisAgent progressAgent,
+            OpenSpecProgressContextResolver openSpecContextResolver,
             PrdSessionRepository repo,
             PrdFileStore fileStore,
             PrdArtifactService artifactService,
@@ -68,7 +69,8 @@ public class PrdProgressEvaluationService {
             ObjectMapper mapper,
             DomainKnowledgeQueryService domainKnowledgeQuery,
             ObjectProvider<LocalProjectResolver> localProjectResolver) {
-        this.agentRunner = agentRunner;
+        this.progressAgent = progressAgent;
+        this.openSpecContextResolver = openSpecContextResolver;
         this.repo = repo;
         this.fileStore = fileStore;
         this.artifactService = artifactService;
@@ -192,24 +194,18 @@ public class PrdProgressEvaluationService {
             String effortBaselineJson = requestedSession.getDevDocEstimation() != null
                     ? requestedSession.getDevDocEstimation()
                     : sourceSession.getDevDocEstimation();
-            String userPrompt = buildPrompt(
-                    sourceSession, prdContent, devDocContent, effortBaselineJson, extraContext, projectLocation);
+            OpenSpecProgressContextResolver.Context openSpec = openSpecContextResolver.resolve(
+                    projectLocation.path(), extraContext);
+            String userPrompt = buildPrompt(sourceSession, prdContent, devDocContent, effortBaselineJson,
+                    extraContext, projectLocation, openSpec);
             String engine = normalizeEngine(sourceSession.getEngine());
             PrdPromptDefinition prompt = promptCatalog.get(PrdPromptPurpose.PROGRESS_EVALUATION);
             aiRun = aiRunService.begin(prompt, userPrompt,
                     new PrdAiRunService.RunContext(sourceSession.getId(), engine, sourceSession.getModel()));
             StringBuilder streamedContent = new StringBuilder();
             stageConsumer.accept("正在查询代码图谱并核查源码与测试");
-            AgentOneShotRunner.ExecutionRequest request = new AgentOneShotRunner.ExecutionRequest(
-                    systemPrompt(prompt),
-                    userPrompt,
-                    projectLocation.path(),
-                    sourceSession.getModel(),
-                    engine,
-                    "codex".equals(engine) ? "medium" : null,
-                    null, null, null, null,
-                    AgentOneShotRunner.TOOL_POLICY_CONSULT_READONLY);
-            String returnedContent = agentRunner.stream(request, delta -> {
+            String returnedContent = progressAgent.analyze(new RequirementProgressAnalysisAgent.Request(
+                    systemPrompt(prompt), userPrompt, projectLocation.path(), sourceSession.getModel(), engine), delta -> {
                 streamedContent.append(delta);
                 chunkConsumer.accept(delta);
             });
@@ -251,7 +247,8 @@ public class PrdProgressEvaluationService {
             String devDocContent,
             String effortBaselineJson,
             String extraContext,
-            LocalProjectResolver.ProjectLocation projectLocation) {
+            LocalProjectResolver.ProjectLocation projectLocation,
+            OpenSpecProgressContextResolver.Context openSpec) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("需求标题：").append(session.getTitle()).append("\n");
         appendProject(prompt, session);
@@ -261,8 +258,15 @@ public class PrdProgressEvaluationService {
         }
         prompt.append("\n【核心规格内容】\n")
                 .append(prdContent == null ? "" : prdContent).append("\n");
-        prompt.append("\n【执行计划内容】（技术方案基准，逐项核对是否已落地）\n")
+        prompt.append("\n【执行计划内容】（辅助技术资料，不覆盖 OpenSpec 状态）\n")
                 .append(devDocContent).append("\n");
+        prompt.append("\n【OpenSpec 计划绑定】\n- 模式：")
+                .append(openSpec.authoritative() ? "AUTHORITATIVE" : "DEGRADED_UNBOUND")
+                .append("\n- 说明：").append(openSpec.note()).append("\n");
+        if (openSpec.authoritative()) {
+            prompt.append("- Change：").append(openSpec.changeId()).append("\n【OpenSpec tasks】\n")
+                    .append(openSpec.tasks()).append("\n");
+        }
         prompt.append("\n【规格驱动评估要求】\n按 REQ/RULE/SCN/AC 与 PLAN ID 建立追踪关系，")
                 .append("每个完成、部分完成或缺失结论必须引用源码或测试证据；")
                 .append("无法映射稳定 ID 的实现列为规格漂移，不得直接计为完成。\n");

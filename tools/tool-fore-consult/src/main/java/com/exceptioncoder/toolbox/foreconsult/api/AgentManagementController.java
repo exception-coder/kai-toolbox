@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequireRole("ADMIN")
-@RequestMapping("/api/fore-consult/agents/business-consult")
+@RequestMapping("/api/fore-consult/agents")
 public class AgentManagementController {
 
     private final ConsultAgentManagementService service;
@@ -26,22 +26,28 @@ public class AgentManagementController {
     }
 
     @GetMapping
-    public AgentManagementSnapshot get() {
-        return service.getSnapshot();
+    public java.util.List<com.exceptioncoder.toolbox.foreconsult.repository.ConsultAgentManagementRepository.AgentDefinition> list() {
+        return service.listAgents();
     }
 
-    @PostMapping("/versions")
-    public AgentManagementSnapshot createCandidate(@RequestBody CreateAgentVersionRequest request) {
-        return service.createCandidate(request.toCommand());
+    @GetMapping("/{agentId}")
+    public AgentManagementSnapshot get(@PathVariable String agentId) {
+        return service.getSnapshot(agentId);
     }
 
-    @PostMapping("/versions/{version}/release")
-    public AgentManagementSnapshot release(@PathVariable long version) {
-        return service.release(version);
+    @PostMapping("/{agentId}/versions")
+    public AgentManagementSnapshot createCandidate(@PathVariable String agentId,
+                                                    @RequestBody CreateAgentVersionRequest request) {
+        return service.createCandidate(agentId, request.toCommand());
     }
 
-    @PostMapping("/versions/{version}/rollback")
-    public AgentManagementSnapshot rollback(@PathVariable long version) {
-        return service.rollback(version);
+    @PostMapping("/{agentId}/versions/{version}/release")
+    public AgentManagementSnapshot release(@PathVariable String agentId, @PathVariable long version) {
+        return service.release(agentId, version);
+    }
+
+    @PostMapping("/{agentId}/versions/{version}/rollback")
+    public AgentManagementSnapshot rollback(@PathVariable String agentId, @PathVariable long version) {
+        return service.rollback(agentId, version);
     }
 }

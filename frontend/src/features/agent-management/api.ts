@@ -68,6 +68,16 @@ export interface AgentManagementSnapshot {
   releaseGate: { releasable: boolean; minimumScore: number; reason: string };
 }
 
+export interface AgentDefinition {
+  id: string;
+  name: string;
+  owner: string;
+  description: string;
+  endpoint: string;
+  framework: string;
+  observabilityUrl: string | null;
+}
+
 export interface CreateAgentVersionRequest {
   model: string;
   temperature: number;
@@ -81,30 +91,33 @@ export interface CreateAgentVersionRequest {
   evaluationPassed?: boolean;
 }
 
-const BASE_PATH = "/fore-consult/agents/business-consult";
+const BASE_PATH = "/fore-consult/agents";
 
-export const getBusinessConsultAgent = () =>
-  http<AgentManagementSnapshot>(BASE_PATH);
+export const listAgents = () => http<AgentDefinition[]>(BASE_PATH);
 
-export function createBusinessConsultCandidate(
+export const getAgent = (agentId: string) =>
+  http<AgentManagementSnapshot>(`${BASE_PATH}/${agentId}`);
+
+export function createAgentCandidate(
+  agentId: string,
   request: CreateAgentVersionRequest,
 ) {
-  return http<AgentManagementSnapshot>(`${BASE_PATH}/versions`, {
+  return http<AgentManagementSnapshot>(`${BASE_PATH}/${agentId}/versions`, {
     method: "POST",
     body: JSON.stringify(request),
   });
 }
 
-export function releaseBusinessConsultCandidate(version: number) {
+export function releaseAgentCandidate(agentId: string, version: number) {
   return http<AgentManagementSnapshot>(
-    `${BASE_PATH}/versions/${version}/release`,
+    `${BASE_PATH}/${agentId}/versions/${version}/release`,
     { method: "POST" },
   );
 }
 
-export function rollbackBusinessConsultVersion(version: number) {
+export function rollbackAgentVersion(agentId: string, version: number) {
   return http<AgentManagementSnapshot>(
-    `${BASE_PATH}/versions/${version}/rollback`,
+    `${BASE_PATH}/${agentId}/versions/${version}/rollback`,
     { method: "POST" },
   );
 }
