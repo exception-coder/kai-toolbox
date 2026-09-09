@@ -22,7 +22,7 @@
     "assistant:release:test": "node --test scripts/publish-assistant-release.test.mjs",
     "assistant:release": "npm run assistant:release:test && npm run assistant:build && npm run assistant:loader:build && node scripts/publish-assistant-release.mjs",
     "assistant:release:canary": "npm run assistant:release:test && npm run assistant:build && npm run assistant:loader:build && node scripts/publish-assistant-release.mjs --channel=canary",
-    "session-client:build": "vite build --config vite.session-client.config.ts && tsc -p tsconfig.session-client.json",
+    "session-client:build": "vite build --config vite.session-client.config.ts && tsc -p tsconfig.session-client.json && node scripts/verify-session-client-package.mjs",
     "java8gu:sync": "node scripts/build-java8gu-index.mjs",
     "webppt-report:quant": "node scripts/generate-webppt-quant-data.mjs"
   },
@@ -75,7 +75,8 @@
     "shiki": "^4.1.0",
     "sql-formatter": "^15.8.0",
     "tailwind-merge": "^2.5.5",
-    "xml-formatter": "^3.7.0"
+    "xml-formatter": "^3.7.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

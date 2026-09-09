@@ -20,6 +20,12 @@
     <description>Personal toolkit platform — shell + pluggable tool modules</description>
 
     <modules>
+        <module>forge-quality/forge-quality-core</module>
+        <module>forge-quality/forge-quality-plugin-java</module>
+        <module>forge-quality/forge-quality-runtime</module>
+        <module>forge-quality/forge-quality-application</module>
+        <module>forge-quality/forge-quality-cli</module>
+        <module>forge-quality/forge-quality-mcp</module>
         <module>toolbox-common</module>
         <module>toolbox-llm</module>
         <module>tools/tool-treesize</module>
@@ -31,6 +37,7 @@
         <module>tools/tool-webterm</module>
         <module>tools/tool-projects</module>
         <module>tools/tool-browser-request</module>
+        <module>tools/tool-procurement</module>
         <module>tools/tool-port-process</module>
         <module>tools/tool-vscode-tunnel</module>
         <module>tools/tool-resume</module>
@@ -95,6 +102,31 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-procurement</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>forge-quality-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>forge-quality-plugin-java</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>forge-quality-runtime</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>forge-quality-application</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>

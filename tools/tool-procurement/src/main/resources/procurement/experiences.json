@@ -1,0 +1,315 @@
+{
+  "version": "experience-v1",
+  "rules": [
+    {
+      "id": "EXPLICIT_LABEL_UNIT",
+      "name": "金额单位在标签中",
+      "description": "单位必须来自同一明确金额标签；不从相邻段落或常识补单位。",
+      "source": "真实失败公告格式整理；正反例为固定回归样例",
+      "coverage": "可执行样例",
+      "implementation": "ProcurementFieldReview / ProcurementParsingService / ProcurementValueTypes",
+      "examples": [
+        {
+          "id": "EXPLICIT_LABEL_UNIT-positive",
+          "kind": "正例",
+          "text": "预算金额（元）：1050000",
+          "fact": {
+            "field": "procurement_amount",
+            "value": "1050000",
+            "evidence": "预算金额（元）：1050000",
+            "section": "项目概况"
+          },
+          "expected": "ACCEPT",
+          "expectedValue": "105",
+          "explanation": "应保留并输出：105"
+        },
+        {
+          "id": "EXPLICIT_LABEL_UNIT-negative",
+          "kind": "反例",
+          "text": "预算金额：1050000",
+          "fact": {
+            "field": "procurement_amount",
+            "value": "1050000",
+            "evidence": "预算金额：1050000",
+            "section": "项目概况"
+          },
+          "expected": "REJECT",
+          "expectedValue": "",
+          "explanation": "应拒绝该字段，保留其他合法字段"
+        }
+      ]
+    },
+    {
+      "id": "UNIQUE_EXPLICIT_AMOUNT_SPAN",
+      "name": "金额值包含表格标签",
+      "description": "返回值中只有一个明确数字与单位片段时提取该片段；多个金额不取首值。",
+      "source": "天津新能源检验中心澄清公告复现；反例为构造样例",
+      "coverage": "可执行样例",
+      "implementation": "ProcurementFieldReview / ProcurementParsingService / ProcurementValueTypes",
+      "examples": [
+        {
+          "id": "UNIQUE_EXPLICIT_AMOUNT_SPAN-positive",
+          "kind": "正例",
+          "text": "控制价（最高限价）\t99,775,461元 人民币",
+          "fact": {
+            "field": "procurement_amount",
+            "value": "控制价（最高限价）\t99,775,461元 人民币",
+            "evidence": "控制价（最高限价）\t99,775,461元 人民币",
+            "section": "项目概况"
+          },
+          "expected": "ACCEPT",
+          "expectedValue": "9977.5461",
+          "explanation": "应保留并输出：9977.5461"
+        },
+        {
+          "id": "UNIQUE_EXPLICIT_AMOUNT_SPAN-negative",
+          "kind": "反例",
+          "text": "预算100元，限价90元",
+          "fact": {
+            "field": "procurement_amount",
+            "value": "预算100元，限价90元",
+            "evidence": "预算100元，限价90元",
+            "section": "项目概况"
+          },
+          "expected": "REJECT",
+          "expectedValue": "",
+          "explanation": "应拒绝该字段，保留其他合法字段"
+        }
+      ]
+    },
+    {
+      "id": "UNIQUE_WHITESPACE_EVIDENCE",
+      "name": "证据空白对齐",
+      "description": "只对齐空格、换行等空白差异，必须唯一匹配；不改写文字或拼接不连续段落。",
+      "source": "格式边界构造样例",
+      "coverage": "可执行样例",
+      "implementation": "ProcurementFieldReview / ProcurementParsingService / ProcurementValueTypes",
+      "examples": [
+        {
+          "id": "UNIQUE_WHITESPACE_EVIDENCE-positive",
+          "kind": "正例",
+          "text": "名称：\n甲公司",
+          "fact": {
+            "field": "owner",
+            "value": "甲公司",
+            "evidence": "名称： 甲公司",
+            "section": "项目概况"
+          },
+          "expected": "ACCEPT",
+          "expectedValue": "甲公司",
+          "explanation": "应保留并输出：甲公司"
+        },
+        {
+          "id": "UNIQUE_WHITESPACE_EVIDENCE-negative",
+          "kind": "反例",
+          "text": "名称：\n甲公司\n名称：\n甲公司",
+          "fact": {
+            "field": "owner",
+            "value": "甲公司",
+            "evidence": "名称： 甲公司",
+            "section": "项目概况"
+          },
+          "expected": "REJECT",
+          "expectedValue": "",
+          "explanation": "应拒绝该字段，保留其他合法字段"
+        }
+      ]
+    },
+    {
+      "id": "RAW_EVIDENCE",
+      "name": "原文证据可回查",
+      "description": "证据必须出现在原文中，普通字段值必须出现在证据中；相似或推测文字不接受。",
+      "source": "生产证据校验边界构造样例",
+      "coverage": "可执行样例",
+      "implementation": "ProcurementFieldReview / ProcurementParsingService / ProcurementValueTypes",
+      "examples": [
+        {
+          "id": "RAW_EVIDENCE-positive",
+          "kind": "正例",
+          "text": "建设地点：北京市",
+          "fact": {
+            "field": "city",
+            "value": "北京市",
+            "evidence": "建设地点：北京市",
+            "section": "项目概况"
+          },
+          "expected": "ACCEPT",
+          "expectedValue": "北京市",
+          "explanation": "应保留并输出：北京市"
+        },
+        {
+          "id": "RAW_EVIDENCE-negative",
+          "kind": "反例",
+          "text": "建设地点：天津市",
+          "fact": {
+            "field": "city",
+            "value": "北京市",
+            "evidence": "建设地点：北京市",
+            "section": "项目概况"
+          },
+          "expected": "REJECT",
+          "expectedValue": "",
+          "explanation": "应拒绝该字段，保留其他合法字段"
+        }
+      ]
+    },
+    {
+      "id": "ACTIVE_FIELD_CONTRACT",
+      "name": "仅提取启用业务字段",
+      "description": "模型不得写入系统字段、人工字段或未启用字段；回归使用当前数据结构配置。",
+      "source": "生产字段白名单构造样例",
+      "coverage": "可执行样例",
+      "implementation": "ProcurementFieldReview / ProcurementParsingService / ProcurementValueTypes",
+      "examples": [
+        {
+          "id": "ACTIVE_FIELD_CONTRACT-positive",
+          "kind": "正例",
+          "text": "采购方为甲公司",
+          "fact": {
+            "field": "owner",
+            "value": "甲公司",
+            "evidence": "采购方为甲公司",
+            "section": "项目概况"
+          },
+          "expected": "ACCEPT",
+          "expectedValue": "甲公司",
+          "explanation": "应保留并输出：甲公司"
+        },
+        {
+          "id": "ACTIVE_FIELD_CONTRACT-negative",
+          "kind": "反例",
+          "text": "采购方为甲公司",
+          "fact": {
+            "field": "manual_notes",
+            "value": "甲公司",
+            "evidence": "采购方为甲公司",
+            "section": "项目概况"
+          },
+          "expected": "REJECT",
+          "expectedValue": "",
+          "explanation": "应拒绝该字段，保留其他合法字段"
+        }
+      ]
+    },
+    {
+      "id": "AMOUNT_NORMALIZATION",
+      "name": "金额换算与格式边界",
+      "description": "明确元、万元、亿元统一换算为万元；不接受残缺的数字格式。",
+      "source": "生产金额转换构造样例",
+      "coverage": "可执行样例",
+      "implementation": "ProcurementFieldReview / ProcurementParsingService / ProcurementValueTypes",
+      "examples": [
+        {
+          "id": "AMOUNT_NORMALIZATION-positive",
+          "kind": "正例",
+          "text": "投资1.25亿元",
+          "fact": {
+            "field": "procurement_amount",
+            "value": "1.25亿元",
+            "evidence": "投资1.25亿元",
+            "section": "项目概况"
+          },
+          "expected": "ACCEPT",
+          "expectedValue": "12500",
+          "explanation": "应保留并输出：12500"
+        },
+        {
+          "id": "AMOUNT_NORMALIZATION-negative",
+          "kind": "反例",
+          "text": "金额12,34元",
+          "fact": {
+            "field": "procurement_amount",
+            "value": "12,34元",
+            "evidence": "金额12,34元",
+            "section": "项目概况"
+          },
+          "expected": "REJECT",
+          "expectedValue": "",
+          "explanation": "应拒绝该字段，保留其他合法字段"
+        }
+      ]
+    },
+    {
+      "id": "PROJECT_NUMBER",
+      "name": "编号栏误填项目名称",
+      "description": "项目编号必须包含数字或英文字母；不自行交换项目名称与编号。",
+      "source": "合同公告编号误填问题整理；样例为构造数据",
+      "coverage": "可执行样例",
+      "implementation": "ProcurementFieldReview / ProcurementParsingService / ProcurementValueTypes",
+      "examples": [
+        {
+          "id": "PROJECT_NUMBER-positive",
+          "kind": "正例",
+          "text": "项目编号ABC-123",
+          "fact": {
+            "field": "project_number",
+            "value": "ABC-123",
+            "evidence": "项目编号ABC-123",
+            "section": "项目概况"
+          },
+          "expected": "ACCEPT",
+          "expectedValue": "ABC-123",
+          "explanation": "应保留并输出：ABC-123"
+        },
+        {
+          "id": "PROJECT_NUMBER-negative",
+          "kind": "反例",
+          "text": "项目编号老旧小区改造工程",
+          "fact": {
+            "field": "project_number",
+            "value": "老旧小区改造工程",
+            "evidence": "项目编号老旧小区改造工程",
+            "section": "项目概况"
+          },
+          "expected": "REJECT",
+          "expectedValue": "",
+          "explanation": "应拒绝该字段，保留其他合法字段"
+        }
+      ]
+    },
+    {
+      "id": "FIELD_ISOLATION",
+      "name": "单字段错误不丢整条结果",
+      "description": "合法字段先保存，错误字段单独登记；字段缺失不等于调用失败。",
+      "source": "16条真实失败公告修复",
+      "coverage": "流程单测覆盖",
+      "implementation": "ProcurementFieldRetryTest.validFieldsSurviveAndRetryReceivesOnlyUnresolvedFields",
+      "examples": [
+        {
+          "id": "isolation-positive",
+          "kind": "正例",
+          "text": "城市有原文依据，金额没有单位",
+          "explanation": "保存城市，金额记为校验不通过"
+        },
+        {
+          "id": "isolation-negative",
+          "kind": "反例",
+          "text": "因金额失败而清空城市和采购人",
+          "explanation": "禁止整条丢弃合法字段"
+        }
+      ]
+    },
+    {
+      "id": "TARGETED_RETRY",
+      "name": "携带错误反馈定向重试",
+      "description": "最多两轮模型调用；第二轮只允许未解决字段并附校验原因。调用异常单独记录，停止本轮流程。",
+      "source": "真实缓存重试与自动化测试",
+      "coverage": "流程单测覆盖",
+      "implementation": "ProcurementFieldRetryTest / ProcurementParsingService.extractFields",
+      "examples": [
+        {
+          "id": "retry-positive",
+          "kind": "正例",
+          "text": "第一轮城市成功、金额失败",
+          "explanation": "第二轮不再返回城市，携带金额错误原因"
+        },
+        {
+          "id": "retry-negative",
+          "kind": "反例",
+          "text": "反复按相同提示重跑全部字段",
+          "explanation": "禁止无反馈重复调用和无上限重试"
+        }
+      ]
+    }
+  ]
+}

@@ -206,6 +206,13 @@
       "sort": 35
     },
     {
+      "featureId": "procurement",
+      "code": "menu:procurement",
+      "name": "招采信息采集",
+      "module": "智能体",
+      "sort": 35
+    },
+    {
       "featureId": "wechat",
       "code": "menu:wechat",
       "name": "微信监控",

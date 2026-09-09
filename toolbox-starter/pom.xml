@@ -30,6 +30,10 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>tool-procurement</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>

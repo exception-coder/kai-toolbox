@@ -36,6 +36,14 @@ toolbox:
       timeout-seconds: ${TOOLBOX_LLM_TIMEOUT_SECONDS:60}
       java8gu-model: ${TOOLBOX_LLM_JAVA8GU_MODEL:gpt-4o-mini}
     models:
+      - id: procurement-gateway
+        tier: procurement
+        base-url: ${TOOLBOX_LLM_BASE_URL:${TOOLBOX_AI_CHAT_BASE_URL:https://4sapi.com/v1}}
+        api-key: ${TOOLBOX_LLM_API_KEY:${TOOLBOX_AI_CHAT_API_KEY:}}
+        model: ${TOOLBOX_LLM_PROCUREMENT_MODEL:gpt-4o-mini}
+        weight: 1
+        timeout-seconds: 60
+        cooldown-ms: 15000
       - id: local-qwen
         tier: capture            # 记录态高频，用本地便宜模型
         base-url: http://localhost:11434/v1

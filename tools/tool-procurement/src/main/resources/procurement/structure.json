@@ -1,0 +1,472 @@
+[
+  {
+    "key": "title",
+    "label": "公告标题",
+    "group": "基本信息",
+    "type": "TEXT",
+    "mode": "SYSTEM",
+    "description": "公告登记或采集时保存的标题，不从 Excel 判断结论回填。",
+    "enabled": true,
+    "order": 1
+  },
+  {
+    "key": "province",
+    "label": "省份",
+    "group": "基本信息",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "建设或履约地点所在省份；不得从北京时间、代理地址推断。",
+    "enabled": true,
+    "order": 2
+  },
+  {
+    "key": "city",
+    "label": "城市",
+    "group": "基本信息",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "建设或履约地点所在城市；不得从网站归属、代理地址推断。",
+    "enabled": true,
+    "order": 3
+  },
+  {
+    "key": "project_number",
+    "label": "项目/招标编号",
+    "group": "基本信息",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取项目/招标编号的逐字原文，无明确证据则留空。",
+    "enabled": true,
+    "order": 4
+  },
+  {
+    "key": "notice_stage",
+    "label": "公告阶段",
+    "group": "基本信息",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "本公告所处环节，使用启用的 STG_ 词典代码。变更公告不得误判为原公告环节。",
+    "enabled": true,
+    "order": 5
+  },
+  {
+    "key": "source_url",
+    "label": "来源URL",
+    "group": "基本信息",
+    "type": "TEXT",
+    "mode": "SYSTEM",
+    "description": "当前已登记公告的来源 URL。",
+    "enabled": true,
+    "order": 6
+  },
+  {
+    "key": "source",
+    "label": "来源站点",
+    "group": "基本信息",
+    "type": "TEXT",
+    "mode": "SYSTEM",
+    "description": "当前公告来源站点。",
+    "enabled": true,
+    "order": 7
+  },
+  {
+    "key": "scope_type",
+    "label": "本次招采对象",
+    "group": "采购需求",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "本次实际招采对象，使用启用的 SCP_ 词典代码，不以整个项目背景代替。",
+    "enabled": true,
+    "order": 8
+  },
+  {
+    "key": "notice_content",
+    "label": "采购内容",
+    "group": "采购需求",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取本次采购范围或采购需求的原文内容；只保留具体采购事实，不输出分析过程、判断理由或销售建议。",
+    "enabled": true,
+    "order": 9
+  },
+  {
+    "key": "procurement_amount",
+    "label": "本次招采金额（万元）",
+    "group": "采购需求",
+    "type": "DECIMAL",
+    "mode": "LLM",
+    "description": "本次招采或成交金额，不是项目总投资。返回原文数字及元/万元/亿元单位，代码统一换算为万元。多标段不得擅自相加。",
+    "enabled": true,
+    "order": 10
+  },
+  {
+    "key": "amount_type",
+    "label": "金额类型",
+    "group": "采购需求",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "金额对应的预算、最高限价、中标价等原文类型。",
+    "enabled": true,
+    "order": 11
+  },
+  {
+    "key": "owner",
+    "label": "招标人/采购人",
+    "group": "联系信息",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取招标人/采购人的逐字原文，无明确证据则留空。",
+    "enabled": true,
+    "order": 12
+  },
+  {
+    "key": "owner_contact",
+    "label": "招标人联系人",
+    "group": "联系信息",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取招标人联系人，保留逐字原文依据，无明确内容则留空；联系方式必须与对应机构角色一致。",
+    "enabled": true,
+    "order": 13
+  },
+  {
+    "key": "owner_phone",
+    "label": "招标人电话",
+    "group": "联系信息",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取招标人电话，保留逐字原文依据，无明确内容则留空；联系方式必须与对应机构角色一致。",
+    "enabled": true,
+    "order": 14
+  },
+  {
+    "key": "agent",
+    "label": "招标代理机构",
+    "group": "联系信息",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取招标代理机构的逐字原文，无明确证据则留空。",
+    "enabled": true,
+    "order": 15
+  },
+  {
+    "key": "agent_contact",
+    "label": "代理联系人",
+    "group": "联系信息",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取代理联系人，保留逐字原文依据，无明确内容则留空；联系方式必须与对应机构角色一致。",
+    "enabled": true,
+    "order": 16
+  },
+  {
+    "key": "agent_phone",
+    "label": "代理电话",
+    "group": "联系信息",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取代理电话，保留逐字原文依据，无明确内容则留空；联系方式必须与对应机构角色一致。",
+    "enabled": true,
+    "order": 17
+  },
+  {
+    "key": "winner",
+    "label": "中标单位",
+    "group": "联系信息",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取中标单位的逐字原文，无明确证据则留空。",
+    "enabled": true,
+    "order": 18
+  },
+  {
+    "key": "manual_notes",
+    "label": "人工备注",
+    "group": "备注",
+    "type": "TEXT",
+    "mode": "MANUAL",
+    "description": "用户补充的备注，可留空。",
+    "enabled": true,
+    "order": 19
+  },
+  {
+    "key": "sequence",
+    "label": "序号",
+    "group": "评测数据：样本与标注",
+    "type": "TEXT",
+    "mode": "MANUAL",
+    "description": "用于样本组织或人工复核，不属于公告事实。标注表人工序号，不代表公告身份。",
+    "enabled": false,
+    "order": 101
+  },
+  {
+    "key": "notice_id",
+    "label": "notice_id",
+    "group": "业务数据：备用字段",
+    "type": "TEXT",
+    "mode": "SYSTEM",
+    "description": "系统内稳定公告编号。",
+    "enabled": false,
+    "order": 102
+  },
+  {
+    "key": "related_notice_number",
+    "label": "关联公告编号",
+    "group": "业务数据：备用字段",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取关联公告编号的逐字原文，无明确证据则留空。",
+    "enabled": false,
+    "order": 107
+  },
+  {
+    "key": "original_notice",
+    "label": "原始公告",
+    "group": "业务数据：备用字段",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "本公告明确提及的原公告名称或原公告链接；无引用则留空。",
+    "enabled": false,
+    "order": 108
+  },
+  {
+    "key": "total_investment",
+    "label": "总投资（万元）",
+    "group": "业务数据：备用字段",
+    "type": "DECIMAL",
+    "mode": "LLM",
+    "description": "仅项目明确总投资。返回原文数字及元/万元/亿元单位，代码换算为万元。不得与本次招采金额混用。",
+    "enabled": false,
+    "order": 114
+  },
+  {
+    "key": "amount_summary",
+    "label": "金额摘要",
+    "group": "业务数据：备用字段",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取金额摘要的逐字原文，无明确证据则留空。",
+    "enabled": false,
+    "order": 115
+  },
+  {
+    "key": "winner_contact",
+    "label": "中标单位联系人",
+    "group": "业务数据：备用字段",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取中标单位联系人，保留逐字原文依据，无明确内容则留空；联系方式必须与对应机构角色一致。",
+    "enabled": false,
+    "order": 125
+  },
+  {
+    "key": "winner_phone",
+    "label": "中标单位联系电话",
+    "group": "业务数据：备用字段",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "提取中标单位联系电话，保留逐字原文依据，无明确内容则留空；联系方式必须与对应机构角色一致。",
+    "enabled": false,
+    "order": 126
+  },
+  {
+    "key": "award_date",
+    "label": "中标日期",
+    "group": "业务数据：备用字段",
+    "type": "DATE",
+    "mode": "LLM",
+    "description": "明确的中标或成交日期，不能直接采用网页发布日期。",
+    "enabled": false,
+    "order": 127
+  },
+  {
+    "key": "contact_evidence",
+    "label": "联系信息证据",
+    "group": "解析诊断：依据与命中",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "用于解释或排查解析结果；自动生成的依据不等于人工确认的标准答案。提取联系信息证据，保留逐字原文依据，无明确内容则留空；联系方式必须与对应机构角色一致。",
+    "enabled": false,
+    "order": 128
+  },
+  {
+    "key": "sample_tier",
+    "label": "候选抽样层次",
+    "group": "评测数据：样本与标注",
+    "type": "TEXT",
+    "mode": "MANUAL",
+    "description": "用于样本组织或人工复核，不属于公告事实。人工维护，当前不自动推导销售评级或建议。",
+    "enabled": false,
+    "order": 129
+  },
+  {
+    "key": "sample_reason",
+    "label": "为何被选作标注样本",
+    "group": "评测数据：样本与标注",
+    "type": "TEXT",
+    "mode": "MANUAL",
+    "description": "用于样本组织或人工复核，不属于公告事实。人工维护，当前不自动推导销售评级或建议。",
+    "enabled": false,
+    "order": 130
+  },
+  {
+    "key": "recommendation_reason",
+    "label": "系统推荐理由",
+    "group": "分析输出：推荐与建议",
+    "type": "TEXT",
+    "mode": "MANUAL",
+    "description": "属于分析结论，不属于公告事实，也不能直接作为评测标准答案。人工维护，当前不自动推导销售评级或建议。",
+    "enabled": false,
+    "order": 131
+  },
+  {
+    "key": "recommendation_level",
+    "label": "系统推荐等级",
+    "group": "分析输出：推荐与建议",
+    "type": "TEXT",
+    "mode": "MANUAL",
+    "description": "属于分析结论，不属于公告事实，也不能直接作为评测标准答案。人工维护，当前不自动推导销售评级或建议。",
+    "enabled": false,
+    "order": 132
+  },
+  {
+    "key": "scene_evidence",
+    "label": "[0724]场景证据",
+    "group": "解析诊断：依据与命中",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "用于解释或排查解析结果；自动生成的依据不等于人工确认的标准答案。提取[0724]场景证据的逐字原文，无明确证据则留空。",
+    "enabled": false,
+    "order": 133
+  },
+  {
+    "key": "engineering_evidence",
+    "label": "[0724]工程证据",
+    "group": "解析诊断：依据与命中",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "用于解释或排查解析结果；自动生成的依据不等于人工确认的标准答案。提取[0724]工程证据的逐字原文，无明确证据则留空。",
+    "enabled": false,
+    "order": 134
+  },
+  {
+    "key": "product_evidence",
+    "label": "[0724]目标产品证据",
+    "group": "解析诊断：依据与命中",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "用于解释或排查解析结果；自动生成的依据不等于人工确认的标准答案。提取[0724]目标产品证据的逐字原文，无明确证据则留空。",
+    "enabled": false,
+    "order": 135
+  },
+  {
+    "key": "attribute_evidence",
+    "label": "[0724]产品属性证据",
+    "group": "解析诊断：依据与命中",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "用于解释或排查解析结果；自动生成的依据不等于人工确认的标准答案。提取[0724]产品属性证据的逐字原文，无明确证据则留空。",
+    "enabled": false,
+    "order": 136
+  },
+  {
+    "key": "specification_evidence",
+    "label": "[0724]规格证据",
+    "group": "解析诊断：依据与命中",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "用于解释或排查解析结果；自动生成的依据不等于人工确认的标准答案。提取[0724]规格证据的逐字原文，无明确证据则留空。",
+    "enabled": false,
+    "order": 137
+  },
+  {
+    "key": "risk_evidence",
+    "label": "[0724]风险证据",
+    "group": "解析诊断：依据与命中",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "用于解释或排查解析结果；自动生成的依据不等于人工确认的标准答案。提取[0724]风险证据的逐字原文，无明确证据则留空。",
+    "enabled": false,
+    "order": 138
+  },
+  {
+    "key": "pending_confirmation",
+    "label": "[0724]待人工确认",
+    "group": "评测数据：样本与标注",
+    "type": "TEXT",
+    "mode": "MANUAL",
+    "description": "用于样本组织或人工复核，不属于公告事实。人工维护，当前不自动推导销售评级或建议。",
+    "enabled": false,
+    "order": 139
+  },
+  {
+    "key": "positive_keywords",
+    "label": "[系统]正向关键词",
+    "group": "解析诊断：依据与命中",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "用于解释或排查解析结果；自动生成的依据不等于人工确认的标准答案。只引用符合启用关键词的章节、共现和排除条件的原文词语。字面命中不等于有效命中。",
+    "enabled": false,
+    "order": 140
+  },
+  {
+    "key": "negative_keywords",
+    "label": "[系统]反向关键词",
+    "group": "解析诊断：依据与命中",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "用于解释或排查解析结果；自动生成的依据不等于人工确认的标准答案。只引用满足启用反向规则且未触发例外的原文词语。",
+    "enabled": false,
+    "order": 141
+  },
+  {
+    "key": "high_value_clues",
+    "label": "[系统]高价值线索",
+    "group": "分析输出：推荐与建议",
+    "type": "TEXT",
+    "mode": "MANUAL",
+    "description": "属于分析结论，不属于公告事实，也不能直接作为评测标准答案。人工维护，当前不自动推导销售评级或建议。",
+    "enabled": false,
+    "order": 142
+  },
+  {
+    "key": "invalid_keyword_context",
+    "label": "正向词无效上下文/关键词失效原因",
+    "group": "解析诊断：依据与命中",
+    "type": "TEXT",
+    "mode": "LLM",
+    "description": "用于解释或排查解析结果；自动生成的依据不等于人工确认的标准答案。逐字引用使关键词失效的上下文，不编写无原文支撑的结论。",
+    "enabled": false,
+    "order": 143
+  },
+  {
+    "key": "cooccurrence_review",
+    "label": "需人工确认共现",
+    "group": "评测数据：样本与标注",
+    "type": "TEXT",
+    "mode": "MANUAL",
+    "description": "用于样本组织或人工复核，不属于公告事实。人工维护，当前不自动推导销售评级或建议。",
+    "enabled": false,
+    "order": 144
+  },
+  {
+    "key": "confirmation_status",
+    "label": "确认状态",
+    "group": "评测数据：样本与标注",
+    "type": "TEXT",
+    "mode": "MANUAL",
+    "description": "用于样本组织或人工复核，不属于公告事实。人工维护，当前不自动推导销售评级或建议。",
+    "enabled": false,
+    "order": 145
+  },
+  {
+    "key": "sales_action",
+    "label": "建议销售需要做的",
+    "group": "分析输出：推荐与建议",
+    "type": "TEXT",
+    "mode": "MANUAL",
+    "description": "属于分析结论，不属于公告事实，也不能直接作为评测标准答案。人工维护，当前不自动推导销售评级或建议。",
+    "enabled": false,
+    "order": 147
+  }
+]
