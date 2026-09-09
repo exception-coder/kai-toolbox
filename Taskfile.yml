@@ -1,0 +1,117 @@
+version: '3'
+
+vars:
+  NPM: '{{if eq OS "windows"}}npm.cmd{{else}}npm{{end}}'
+  MVN: '{{if eq OS "windows"}}mvn.cmd{{else}}mvn{{end}}'
+  COMPOSE_FILE: deploy/local-dependencies/compose.yml
+
+tasks:
+  default:
+    desc: Show available Forge commands
+    cmds: [task --list]
+
+  doctor:
+    desc: Check Java, Node, npm, Maven and Git on PATH (no installation)
+    cmds:
+      - java -version
+      - node --version
+      - '{{.NPM}} --version'
+      - '{{.MVN}} --version'
+      - git --version
+
+  prepare:
+    desc: Install locked JS dependencies, build Sidecar and install backend modules
+    cmds:
+      - task: doctor
+      - task: sidecar:prepare
+      - task: frontend:prepare
+      - '{{.MVN}} -B -pl toolbox-starter -am install -Dskip.frontend=true -DskipTests'
+
+  sidecar:prepare:
+    desc: Install and build the Agent Sidecar (Java owns its runtime)
+    dir: sidecar/claude-agent
+    cmds:
+      - '{{.NPM}} ci'
+      - '{{.NPM}} run build'
+
+  frontend:prepare:
+    internal: true
+    dir: frontend
+    cmds: ['{{.NPM}} ci']
+
+  dev:
+    desc: Run backend and frontend in foreground after task prepare; Ctrl+C to stop
+    deps: [dev:backend, dev:frontend]
+
+  dev:backend:
+    desc: Run native backend without the legacy supervisor or source auto-update
+    preconditions:
+      - sh: test -f sidecar/claude-agent/dist/server.js
+        msg: Run task prepare first; Agent Sidecar build is missing.
+    cmds:
+      - 'KAI_SUPERVISED=0 TOOLBOX_AUTO_UPDATE_ENABLED=false {{.MVN}} -B -pl toolbox-starter spring-boot:run -Dskip.frontend=true'
+
+  dev:frontend:
+    desc: Run Vite in foreground; backend is expected on port 18080
+    dir: frontend
+    preconditions:
+      - sh: test -d node_modules
+        msg: Run task prepare first; frontend dependencies are missing.
+    cmds: ['{{.NPM}} run dev -- --strictPort']
+
+  build:
+    desc: Build Sidecar and packaged application with Maven embedded frontend
+    cmds:
+      - task: sidecar:prepare
+      - '{{.MVN}} -B -pl toolbox-starter -am package'
+
+  run:
+    desc: Run the built JAR in foreground (not a service installation)
+    preconditions:
+      - sh: test -f toolbox-starter/target/kai-toolbox.jar
+        msg: Run task build first; packaged JAR is missing.
+      - sh: test -f sidecar/claude-agent/dist/server.js
+        msg: Run task sidecar:prepare first; Agent Sidecar build is missing.
+    cmds: ['KAI_SUPERVISED=0 TOOLBOX_AUTO_UPDATE_ENABLED=false java -jar toolbox-starter/target/kai-toolbox.jar']
+
+  deps:check:
+    desc: Validate optional Phoenix configuration (requires FORGE_PHOENIX_IMAGE)
+    cmds: ['docker compose -f {{.COMPOSE_FILE}} config --quiet']
+
+  deps:up:
+    desc: Start only the optional Compose Phoenix service
+    cmds:
+      - task: deps:check
+      - 'docker compose -f {{.COMPOSE_FILE}} up -d'
+
+  deps:status:
+    desc: Show Compose dependency status
+    cmds: ['docker compose -f {{.COMPOSE_FILE}} ps']
+
+  deps:logs:
+    desc: Follow Compose dependency logs
+    cmds: ['docker compose -f {{.COMPOSE_FILE}} logs -f --tail 100']
+
+  deps:down:
+    desc: Stop Compose dependencies and retain their data volumes
+    cmds: ['docker compose -f {{.COMPOSE_FILE}} down']
+
+  legacy:start:
+    desc: Run existing Windows/macOS supervisor for page restart and update compatibility
+    cmds:
+      - cmd: cmd.exe /d /c scripts\run-supervised.cmd
+        platforms: [windows]
+      - cmd: bash scripts/run-supervised-macos.sh
+        platforms: [darwin]
+      - cmd: 'echo "Legacy supervisor is not supported on Linux; use task dev or task run."; exit 1'
+        platforms: [linux]
+
+  legacy:stop:
+    desc: Stop only through the existing Windows/macOS supervisor contract
+    cmds:
+      - cmd: cmd.exe /d /c scripts\stop-supervised.cmd
+        platforms: [windows]
+      - cmd: bash scripts/stop-supervised-macos.sh
+        platforms: [darwin]
+      - cmd: 'echo "Native foreground tasks are stopped with Ctrl+C."; exit 1'
+        platforms: [linux]

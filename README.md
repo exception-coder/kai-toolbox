@@ -10,7 +10,7 @@ Forge 是一个运行在本机的 AI Coding 工作台。它把项目目录、业
 
 ### 环境要求
 
-- Windows 10/11 + Windows PowerShell 5.1（系统自带）或 PowerShell 7，或 macOS + Bash/Python 3
+- 标准开发入口：Windows、macOS 或受维护的 Linux + Task v3；原监督器入口另需 Windows PowerShell 或 macOS Bash/Python 3
 - JDK 21
 - Maven 3.9+
 - Node.js 20+ 与 npm
@@ -26,6 +26,8 @@ cd kai-toolbox
 ```
 
 ### 一键启动
+
+跨平台标准入口现已提供 [Taskfile](Taskfile.yml)：安装 Task v3 后运行 `task doctor`、`task prepare`、`task dev`。可选观测依赖由 Compose 管理。完整命令、配置差异和平台验收边界见 [启动指南](scripts/STARTUP.md)。该入口使用前台进程，不提供旧监督器的 18081 控制服务；需要页面重启和自动更新交接时，继续使用下面的兼容入口。
 
 在项目根目录执行：
 

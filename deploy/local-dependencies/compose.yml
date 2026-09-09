@@ -1,0 +1,15 @@
+name: forge-local-dependencies
+services:
+  phoenix:
+    image: ${FORGE_PHOENIX_IMAGE:?Set FORGE_PHOENIX_IMAGE to a tested version tag or digest}
+    ports:
+      - '127.0.0.1:${FORGE_PHOENIX_PORT:-16006}:6006'
+    environment:
+      PHOENIX_WORKING_DIR: /data
+    volumes:
+      - phoenix-data:/data
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  phoenix-data:
