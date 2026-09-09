@@ -9,6 +9,7 @@ import { ProjectRegistrationForm } from './ProjectRegistrationForm'
 import { AssetPanel, InitializationProgress, ProfileOverview } from './SystemProfilePanels'
 import { SystemTasksPanel } from './SystemTasksPanel'
 import { GraphifyGraphModal } from '../components/GraphifyGraphModal'
+import { SystemInitializationGuide } from './SystemInitializationGuide'
 
 const tabs = ['概览', '代码智能', '业务域', '任务', '验证', '环境', '设置'] as const
 type Tab = typeof tabs[number]
@@ -41,7 +42,7 @@ export function RegistryProjectDetailPage() {
         <p className="mt-3 break-all text-xs text-[var(--color-muted-foreground)]">{project.metadata.localPath}</p>
         <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">{project.metadata.owner || '未设置负责团队'} · {project.profileVersion ? `Profile v${project.profileVersion}` : '尚未初始化'}</p></div>
         <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => init.mutate('SYNC')} disabled={running || !project.profileVersion}><RefreshCw className="size-3" />同步画像</Button>
-          <Button size="sm" onClick={() => init.mutate('FULL')} disabled={running}><Play className="size-3" />{running ? '初始化中…' : project.profileVersion ? '重新 Full Init' : 'Full Init'}</Button></div>
+          <Button size="sm" onClick={() => init.mutate('FULL')} disabled={running}><Play className="size-3" />{running ? '初始化中…' : project.profileVersion ? '重新完整初始化' : '完整初始化'}</Button></div>
       </header>
       <RegistryError error={init.error} />
       <nav className="flex gap-1 overflow-x-auto border-b border-[var(--color-border)] pb-3" aria-label="项目详情区域">{tabs.map(item => <Button key={item} className="shrink-0" variant={tab === item ? 'secondary' : 'ghost'} size="sm" aria-current={tab === item ? 'page' : undefined} onClick={() => setTab(item)}>{item}</Button>)}</nav>
@@ -56,6 +57,7 @@ export function RegistryProjectDetailPage() {
       {tab === '环境' && <div className="space-y-8"><AssetPanel asset={asset('PROJECT')} /><div className="flex flex-wrap gap-4">
         {([['开发环境', project.metadata.devUrl], ['测试环境', project.metadata.testUrl]] as const).filter(([, url]) => /^https?:\/\//.test(url)).map(([label, url]) => <a key={label} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm underline underline-offset-4">{label}<ExternalLink className="size-3" /></a>)}</div></div>}
       {tab === '设置' && <section className="space-y-6"><h2 className="font-semibold">系统基础信息</h2>{saved && <p role="status" className="text-sm">设置已保存，请同步画像以反映最新配置。</p>}{running ? <p className="text-sm">初始化期间暂不可修改设置，请等待运行完成。</p> : <ProjectRegistrationForm key={project.updatedAt} project={project} onSaved={() => { setSaved(true); void refresh() }} />}</section>}
+      {tab === '概览' && <SystemInitializationGuide />}
       <GraphifyGraphModal open={graphOpen} projectPath={project.metadata.localPath} projectName={project.metadata.name} onClose={() => setGraphOpen(false)} />
     </>}
   </main>

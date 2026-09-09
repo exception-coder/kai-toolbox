@@ -40,4 +40,6 @@ The registry owns the user-facing entry for registered systems, searchable local
 
 ## Open Questions
 
+Registry presentation uses Chinese primary labels with English equivalents for the five assets and seven pipeline stages, keyed by stable kind/stage IDs so existing profiles need no migration. Overview includes a plain-language guide to checks, initialization outputs and purpose; it distinguishes full initialization from manual evidence synchronization and discovery from actual build/API/database verification.
+
 No unresolved first-phase business decisions. Provider-driven semantic domain generation and change listeners are explicitly deferred.

@@ -22,6 +22,9 @@
 
 - [x] 4.1 Consolidate local discovery, registration, directory settings and module workspace in the registry.
 - [x] 4.2 Verify selection, configuration updates, compatibility routes and production build; deliver this consolidation independently.
+- [x] 4.3 Add Chinese meanings for profile assets and pipeline stages, with an overview guide explaining checks, outputs, purpose and current capability boundaries.
+
+- Chinese presentation (2026-09-09): frontend typecheck, production build and feature boundaries passed. Copy-only change; no additional tests or backend/SQL changes. Forge gate exit 0/PASSED, no static checkers and nine existing API scenarios executed. Browser rendering was not inspected.
 
 - Consolidation (2026-09-09): 16 frontend tests passed across six files; production build including TypeScript and feature boundaries passed. Forge gate returned exit 0/PASSED, with no static checkers and nine existing API scenarios. No server contract or SQL changes. Previous browser denial remains respected; no browser acceptance claimed. Legacy project actions and configuration storage remain reused through public APIs.
 
