@@ -91,3 +91,38 @@ Without `getAccessToken`, requests use the business application's cookie. The bu
 credentials and maps its authenticated principal to a Forge user; the browser never submits `subjectUserId`, a
 target session, or a Forge LAN address. See `sdk/forge-session-relay-spring-boot-starter/README.md` for server
 configuration and the required participant-resolver and binding-store contracts.
+
+## React collaboration workbench
+
+Forge maintains the full conversation, requirement editor and connection lifecycle. React 19 hosts import the optional entry and its compiled CSS; no Tailwind setup or source copying is required. The protocol-only root entry does not import React.
+
+```tsx
+import { CollaborationWorkbench, type CollaborationAdapter } from '@kai/session-client/react'
+import '@kai/session-client/style.css'
+
+// Implement these with the host's authenticated HTTP client and createSessionClient.
+// Keep the adapter stable (module constant or useMemo).
+const adapter: CollaborationAdapter = {
+  readSession: readAuthenticatedRelaySession,
+  pair: pairAuthenticatedRelayInvitation,
+  createClient: createAuthenticatedRelayClient,
+}
+
+export function Collaboration({ identity }: { identity: string }) {
+  return <div style={{ height: '80vh', minHeight: 0 }}>
+    <CollaborationWorkbench
+      identity={identity}
+      adapter={adapter}
+      context={{ systemName: '采购平台', moduleName: '询价管理' }}
+    />
+  </div>
+}
+```
+
+`readSession()` returns the public bound session. `pair(invitation)` posts the one-time invitation to the host Relay. `createClient(identity, session, reset)` returns a new SessionClient configured with host authentication and identity/session-scoped storage; clear the old binding's pending commands when reset is true. Identity is a local lifecycle/storage key, never trusted server authorization. Unmount and identity changes destroy the client and clear local drafts. Do not put Client Secret or Forge credentials in these props.
+
+The host still owns its entry button, dialog and authentication. The panel fills its parent's height; width below 1024px uses conversation/draft tabs. Optional CSS variables such as `--forge-primary`, `--forge-surface` and `--forge-foreground` theme the control. All selector rules are scoped to `.forge-collaboration-workbench`; no global preflight is installed.
+
+For local symlink/file dependencies, configure Vite `resolve.dedupe: ['react', 'react-dom']` in development and tests to use the host's React instance. Distribute the complete `dist-session-client` directory, including shared chunks and declarations. The build produces an installable package; it does not publish to a registry.
+
+Requirement confirmation marks a local draft only. Copy the description or export JSON before closing. Server permissions remain authoritative; this UI does not create an indexing service, persistent requirement queue or automatic development job.

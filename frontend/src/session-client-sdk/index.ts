@@ -9,3 +9,5 @@ export type {
   SessionClientEvent,
   SessionClientOptions,
 } from './types'
+
+export { renderChatMarkdown } from './chatMarkdown'

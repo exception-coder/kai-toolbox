@@ -7,6 +7,6 @@
     "outDir": "./dist-session-client/types",
     "rootDir": "./src"
   },
-  "files": ["./src/session-client-sdk/index.ts"],
+  "files": ["./src/session-client-sdk/index.ts", "./src/session-client-sdk/react/index.ts"],
   "include": []
 }

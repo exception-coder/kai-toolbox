@@ -1,0 +1,31 @@
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css" source(none);
+@source "./";
+
+.forge-collaboration-workbench {
+  --color-surface: var(--forge-surface, #fff);
+  --color-surface-subtle: var(--forge-surface-subtle, #f5f6f8);
+  --color-foreground: var(--forge-foreground, #18202b);
+  --color-secondary: var(--forge-secondary, #566172);
+  --color-muted: var(--forge-muted, #737d8b);
+  --color-border: var(--forge-border, #e3e6eb);
+  --color-border-strong: var(--forge-border-strong, #cbd0d8);
+  --color-primary: var(--forge-primary, #2855de);
+  --color-primary-hover: var(--forge-primary-hover, #2048bd);
+  --color-primary-foreground: var(--forge-primary-foreground, #fff);
+  --color-focus: var(--forge-focus, #b7c6f0);
+  --color-danger: var(--forge-danger, #be3030);
+  --radius-control: 6px;
+  --control-height: 36px;
+  --control-height-sm: 30px;
+  height: 100%; min-height: 0; width: 100%;
+  color: var(--color-foreground); background: var(--color-surface);
+  font: 14px/1.5 system-ui, sans-serif;
+}
+.forge-collaboration-workbench *, .forge-collaboration-workbench *::before, .forge-collaboration-workbench *::after {
+  box-sizing: border-box; border-width: 0; border-style: solid;
+}
+.forge-collaboration-workbench :is(p, h1, h2, h3, ol, ul, fieldset) { margin: 0; padding: 0; }
+.forge-collaboration-workbench :is(button, input, textarea) { font: inherit; }
+.forge-collaboration-workbench button { cursor: pointer; }
+.forge-collaboration-workbench button:disabled { cursor: default; }
