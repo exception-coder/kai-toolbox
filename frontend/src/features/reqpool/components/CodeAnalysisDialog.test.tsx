@@ -9,7 +9,7 @@ function props(overrides: Partial<ComponentProps<typeof CodeAnalysisDialog>> = {
   return {
     title: '样衣删除后刷新统计', score: 60, stale: false, note: '仍有统计刷新逻辑未实现。',
     effort: undefined, deliveryProgress: 70, includeTests: true, onIncludeTests: vi.fn(),
-    change: '', onChange: vi.fn(), busy: false, canAnalyze: true, canDevelop: true,
+    busy: false, canAnalyze: true, canDevelop: true,
     developing: false, hasDevSession: false, permissionHint: '', onAnalyze: vi.fn(),
     onDevelop: vi.fn(), onClose: vi.fn(), children: <p>具体函数和调用证据</p>, ...overrides,
   }

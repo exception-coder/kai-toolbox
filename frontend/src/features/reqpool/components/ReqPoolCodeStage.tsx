@@ -78,6 +78,7 @@ import {
   getDevDocContent,
   estimateDevDocEffort,
   evaluateProgress as runCodeProgressAnalysis,
+  getProgressOpenSpec,
   generateDevDocQuestions,
   getSession as getPrdSession,
   listDevDocVersions,
@@ -96,6 +97,7 @@ import {
 import { MarkdownContent } from '@/components/markdown/MarkdownContent'
 import { useAuth } from '@/lib/auth'
 import { CodeAnalysisDialog } from './CodeAnalysisDialog'
+import { AnalysisOpenSpecSelector } from './AnalysisOpenSpecSelector'
 import { formatCompactTime, StageDot } from './ReqPoolStagePrimitives'
 
 type ViewMode = 'table' | 'leader'
@@ -336,7 +338,25 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
   const [open, setOpen] = useState(false)
   const running = prdSession?.progressWorkStatus === 'RUNNING'
   const [includeTests, setIncludeTests] = useState(true)
-  const [openSpecChange, setOpenSpecChange] = useState('')
+  const [openSpecChoice, setOpenSpecChoice] = useState<string | null>(null)
+  const openSpec = useQuery({
+    queryKey: ['progress-openspec', requirement?.id, prdSession?.project],
+    queryFn: () => getProgressOpenSpec(requirement!.id),
+    enabled: open && !!requirement,
+    retry: false,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  })
+  const openSpecChange = openSpecChoice ?? openSpec.data?.selectedChange ?? ''
+  const planReady = !openSpec.isFetching && !openSpec.isError && !!openSpec.data
+    && openSpec.data.state !== 'ERROR'
+    && (openSpecChange ? openSpec.data.changeIds.includes(openSpecChange) : openSpec.data.changeIds.length === 0)
+  useEffect(() => { setOpenSpecChoice(null) }, [requirement?.id, prdSession?.project])
+  useEffect(() => {
+    if (openSpecChoice === null && openSpec.data && openSpec.data.state !== 'ERROR') {
+      setOpenSpecChoice(openSpec.data.selectedChange ?? '')
+    }
+  }, [openSpecChoice, openSpec.data])
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
@@ -371,7 +391,7 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
   }
 
   const analyze = async () => {
-    if (!requirement || running || submittingRef.current || !canAnalyze) return
+    if (!requirement || running || submittingRef.current || !canAnalyze || !planReady) return
     submittingRef.current = true
     setSubmitting(true)
     setError('')
@@ -411,10 +431,14 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
         title={item.title} score={selectedCodeScore} updatedAt={code?.updatedAt}
         stale={code?.status === 'STALE'} note={code?.note || `结合${labels.specification}与${labels.plan}核对本地实现；缺少代码证据的功能不会计为完成。`}
         effort={effort} deliveryProgress={deliveryProgress} includeTests={includeTests}
-        onIncludeTests={setIncludeTests} change={openSpecChange} onChange={setOpenSpecChange}
+        onIncludeTests={setIncludeTests}
+        planSelector={<AnalysisOpenSpecSelector discovery={openSpec.data} loading={openSpec.isFetching}
+          error={openSpec.isError} selected={openSpecChange} disabled={running || submitting}
+          onSelect={setOpenSpecChoice} onRefresh={() => { void openSpec.refetch() }} />}
         busy={running || submitting} stage={prdSession?.progressWorkStage}
         error={error || (prdSession?.progressWorkStatus === 'ERROR' ? prdSession.progressWorkError || '上次分析失败，请重试。' : '')}
-        canAnalyze={canAnalyze} canDevelop={canDevelop} developing={loadingDevelopment}
+        canAnalyze={canAnalyze && planReady} canDevelop={canDevelop} developing={loadingDevelopment}
+        analysisHint={!canAnalyze ? '请先完成执行计划，再核查代码。' : '请先完成项目计划读取，并选择对应变更。'}
         hasDevSession={!!prdSession?.devSessionId}
         permissionHint={!user ? '登录后可开始开发。' : !canDevelop ? '仅管理员或当前需求负责人可开始开发。' : ''}
         onAnalyze={() => void analyze()} onDevelop={() => void openDevelopment()} onClose={() => setOpen(false)}

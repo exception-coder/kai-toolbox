@@ -60,7 +60,10 @@ class PrdProgressEvaluationTest {
                 .thenReturn(tempDir.resolve("progress-progress.md"));
         when(resolverProvider.getIfAvailable()).thenReturn(resolver);
         when(resolver.resolve("yoooni")).thenReturn(Optional.of(
-                new LocalProjectResolver.ProjectLocation("yoooni", "D:\\projects\\yoooni")));
+                new LocalProjectResolver.ProjectLocation("yoooni", tempDir.toString())));
+        Path tasks = tempDir.resolve("openspec/changes/add-remark/tasks.md");
+        Files.createDirectories(tasks.getParent());
+        Files.writeString(tasks, "- [ ] 1.1 save delay remark");
         when(domainKnowledge.query(any(), any())).thenReturn(null);
         when(runner.stream(any(AgentOneShotRunner.ExecutionRequest.class), any())).thenAnswer(invocation -> {
             capturedRequest.set(invocation.getArgument(0));
@@ -95,7 +98,8 @@ class PrdProgressEvaluationTest {
         assertThat(progressSaved.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
         AgentOneShotRunner.ExecutionRequest request = capturedRequest.get();
         assertThat(request).isNotNull();
-        assertThat(request.cwd()).isEqualTo("D:\\projects\\yoooni");
+        assertThat(request.cwd()).isEqualTo(tempDir.toString());
+        assertThat(request.userPrompt()).contains("add-remark", "save delay remark");
         assertThat(request.toolPolicy()).isEqualTo(AgentOneShotRunner.TOOL_POLICY_CONSULT_READONLY);
         assertThat(request.userPrompt()).contains("newMdevelop_developWorkbenches.action", "source_context");
         assertThat(request.userPrompt()).contains("【测试核查】", "单元、接口、安全、集成");
@@ -206,6 +210,31 @@ class PrdProgressEvaluationTest {
         verify(progressService).readContent("progress");
         verify(progressService).readVersionContent("progress", 2);
         verify(progressService).listVersions("progress");
+    }
+
+    @Test
+    void discoversPlansFromTheSameLatestRevisionProjectUsedForEvaluation() throws Exception {
+        PrdSessionRepository repo = mock(PrdSessionRepository.class);
+        PrdSession original = PrdSession.builder().id("root").project("old-project").build();
+        PrdSession revision = PrdSession.builder().id("revision").project("current-project").build();
+        when(repo.findById("root")).thenReturn(Optional.of(original));
+        when(repo.findLatestRevision("root")).thenReturn(Optional.of(revision));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<LocalProjectResolver> provider = mock(ObjectProvider.class);
+        LocalProjectResolver resolver = mock(LocalProjectResolver.class);
+        when(provider.getIfAvailable()).thenReturn(resolver);
+        when(resolver.resolve("current-project")).thenReturn(Optional.of(
+                new LocalProjectResolver.ProjectLocation("current-project", tempDir.toString())));
+        Path tasks = tempDir.resolve("openspec/changes/revision-plan/tasks.md");
+        Files.createDirectories(tasks.getParent());
+        Files.writeString(tasks, "- [ ] current implementation");
+
+        var discovery = service(mock(AgentOneShotRunner.class), repo, mock(PrdFileStore.class),
+                mock(PrdArtifactService.class), mock(DomainKnowledgeQueryService.class), provider)
+                .discoverOpenSpec("root");
+
+        assertThat(discovery.selectedChange()).isEqualTo("revision-plan");
+        verify(resolver, never()).resolve("old-project");
     }
 
     private PrdSession session(Path devDoc) {

@@ -16,12 +16,12 @@ interface Props {
   deliveryProgress: number | null
   includeTests: boolean
   onIncludeTests: (value: boolean) => void
-  change: string
-  onChange: (value: string) => void
+  planSelector?: ReactNode
   busy: boolean
   stage?: string | null
   error?: string | null
   canAnalyze: boolean
+  analysisHint?: string
   canDevelop: boolean
   developing: boolean
   hasDevSession: boolean
@@ -68,6 +68,7 @@ export function CodeAnalysisDialog(props: Props) {
           <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">{props.updatedAt ? `最近分析 ${formatCompactTime(props.updatedAt)}` : '核对规格、执行计划与本地代码，不修改项目源码。'}</p>
           {props.stale && <p role="status" className="mt-3 text-sm text-amber-700 dark:text-amber-400">规格或计划已更新，当前结果已过期，请重新分析。</p>}
           {effort?.baselineStale && <p className="mt-3 text-sm text-amber-700 dark:text-amber-400">工时基线已过期：{effort.baselineStaleReasons.join('；')}。请在“责任与时间”重新评估。</p>}
+          {props.planSelector}
           <div className="mt-6 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
             {props.children && <details><summary className="cursor-pointer py-4 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-ring)]">实现明细与代码证据</summary><div className="pb-5">{props.children}</div></details>}
             {effort && <details><summary className="cursor-pointer py-4 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-ring)]">工时估算依据</summary>
@@ -80,10 +81,6 @@ export function CodeAnalysisDialog(props: Props) {
             </details>}
             <details><summary className="cursor-pointer py-4 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-ring)]">分析设置<span className="ml-2 text-xs font-normal text-[var(--color-muted-foreground)]">可选</span></summary>
               <div className="space-y-5 pb-5">
-                <label className="block text-sm">关联 OpenSpec 变更
-                  <input value={props.change} disabled={busy} onChange={event => props.onChange(event.target.value)} placeholder="例如 optimize-payment-flow" className="mt-2 h-10 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-ring)] disabled:opacity-50" />
-                  <span className="mt-2 block text-xs leading-5 text-[var(--color-muted-foreground)]">填写后以该变更的任务清单为计划依据；留空仅核查源码。</span>
-                </label>
                 <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={props.includeTests} disabled={busy} onChange={event => props.onIncludeTests(event.target.checked)} className="size-4 accent-[var(--color-primary)]" />测试项计入实现进度</label>
                 <p className="text-xs text-[var(--color-muted-foreground)]">切换计分口径只重新计算当前结果，不会重新扫描。</p>
               </div>
@@ -93,7 +90,7 @@ export function CodeAnalysisDialog(props: Props) {
           {props.error && <p role="alert" className="mt-5 break-words text-sm text-red-600 dark:text-red-400">{props.error}</p>}
         </div>
         <footer className="shrink-0 space-y-3 border-t border-[var(--color-border)] p-4 sm:px-6">
-          {(!props.canAnalyze || props.permissionHint) && <p className="text-xs text-[var(--color-muted-foreground)]">{!props.canAnalyze ? '请先完成执行计划，再核查代码。' : props.permissionHint}</p>}
+          {(!props.canAnalyze || props.permissionHint) && <p className="text-xs text-[var(--color-muted-foreground)]">{!props.canAnalyze ? props.analysisHint || '请先完成执行计划，再核查代码。' : props.permissionHint}</p>}
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" disabled={!props.canDevelop || props.developing || busy} onClick={props.onDevelop}>{props.developing && <Loader2 className="size-4 animate-spin" />}{props.hasDevSession ? '继续开发' : '开始开发'}</Button>
             <Button disabled={busy || !props.canAnalyze} onClick={props.onAnalyze}>{busy && <Loader2 className="size-4 animate-spin" />}{busy ? '分析中…' : props.updatedAt ? '重新分析' : '开始分析'}</Button>

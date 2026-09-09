@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.prdclarify.api;
 
+import com.exceptioncoder.toolbox.prdclarify.service.OpenSpecProgressContextResolver;
+
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AdoptSplitRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextDevDocQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
@@ -804,6 +806,12 @@ public class PrdClarifyController {
     }
 
     // ─── 进度评估 ───────────────────────────────────────
+
+    /** 自动发现需求所属项目中的活动 OpenSpec 任务计划。 */
+    @GetMapping("/sessions/{id}/progress/openspec")
+    public OpenSpecProgressContextResolver.Discovery discoverProgressOpenSpec(@PathVariable String id) {
+        return service.discoverProgressOpenSpec(id);
+    }
 
     /** 登记本地代码分析后台任务并立即返回最新会话；重复请求复用当前运行任务。 */
     @PostMapping("/sessions/{id}/progress/evaluate")

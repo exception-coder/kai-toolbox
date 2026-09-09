@@ -82,6 +82,15 @@ public class PrdProgressEvaluationService {
         this.localProjectResolver = localProjectResolver;
     }
 
+    /** 发现本次评估实际使用的修订来源项目中的 OpenSpec 计划。 */
+    public OpenSpecProgressContextResolver.Discovery discoverOpenSpec(String sessionId) {
+        PrdSession source = resolveLatestRevisionSource(findSession(sessionId));
+        return resolveLocalProject(source.getProject())
+                .map(location -> openSpecContextResolver.discover(location.path()))
+                .orElseGet(() -> new OpenSpecProgressContextResolver.Discovery("ERROR", List.of(), null,
+                        "未匹配到需求项目的本地目录，请先在项目库配置项目关联"));
+    }
+
     /** 生成进度评估报告；调用立即返回，实际工作在虚拟线程中完成。 */
     public void evaluate(String sessionId, String extraContext, SseEmitter emitter) {
         PrdSession requestedSession = findSession(sessionId);

@@ -559,6 +559,11 @@ public class PrdClarifyService {
         progressEvaluationService.evaluate(sessionId, extraContext, emitter);
     }
 
+    /** 读取需求项目中的活动 OpenSpec 计划。 */
+    public OpenSpecProgressContextResolver.Discovery discoverProgressOpenSpec(String sessionId) {
+        return progressEvaluationService.discoverOpenSpec(sessionId);
+    }
+
     /** 读取当前进度评估文档内容。 */
     public String readProgressContent(String sessionId) throws java.io.IOException {
         return progressEvaluationService.readContent(sessionId);

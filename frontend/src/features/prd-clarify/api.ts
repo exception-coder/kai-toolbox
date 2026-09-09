@@ -259,7 +259,18 @@ export const estimateDevDocEffort = (id: string, extraContext?: string, engine?:
 // 平台的 PRD/开发文档是业务/技术事实来源，进度评估报告是基于它们 + 代码知识图谱核对出的
 // 派生产物，按版本追加落盘（不覆盖），用法完全对齐"开发文档"那一组接口。
 
-/** 登记本地代码分析后台任务并立即返回；通过 getSession 轮询 progressWorkStatus。 */
+/** 当前需求实际关联项目中的 OpenSpec 任务计划。 */
+export interface ProgressOpenSpecDiscovery {
+  state: 'READY' | 'EMPTY' | 'ERROR'
+  changeIds: string[]
+  selectedChange: string | null
+  message: string
+}
+
+export const getProgressOpenSpec = (id: string) =>
+  http<ProgressOpenSpecDiscovery>(`${BASE}/sessions/${encodeURIComponent(id)}/progress/openspec`)
+
+/** 登记后台分析任务；通过 getSession 轮询 progressWorkStatus。 */
 export const evaluateProgress = (id: string, extraContext?: string) =>
   http<PrdSessionView>(`${BASE}/sessions/${id}/progress/evaluate`, {
     method: 'POST',

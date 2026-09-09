@@ -3,6 +3,7 @@ export {
   generateDevDocQuestions,
   estimateDevDocEffort,
   evaluateProgress,
+  getProgressOpenSpec,
   getContent,
   getInitialSpecContent,
   getDevDocContent,
@@ -28,6 +29,7 @@ export {
 } from './api'
 
 export type {
+  ProgressOpenSpecDiscovery,
   DocChangeCauseType,
   DocChangeDecision,
   PrdDocChangeCandidate,
