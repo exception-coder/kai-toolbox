@@ -368,6 +368,8 @@ export function ReqPoolPage() {
               allSelected={allVisibleSelected}
               selectAllRef={selectAllRef}
               onToggleAll={toggleVisible}
+              getRequirement={item => deliveryFor(item, overview)}
+              getSession={item => item.prdSessionId ? prdSessionById.get(item.prdSessionId) : undefined}
               renderNote={item => {
                 const requirement = deliveryFor(item, overview)
                 const session = item.prdSessionId ? prdSessionById.get(item.prdSessionId) : undefined

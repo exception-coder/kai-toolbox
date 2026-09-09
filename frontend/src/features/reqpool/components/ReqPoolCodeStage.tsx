@@ -371,6 +371,7 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
   const isAdmin = !!user?.roles?.includes('ADMIN')
   const isAssignee = !!user && item.assigneeUserId === user.userId
   const canDevelop = !!prdSession && (isAdmin || isAssignee)
+  const busy = running || submitting
 
   const openDevelopment = async () => {
     if (!prdSession || !canDevelop || loadingDevelopment) return
@@ -396,9 +397,13 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
     setSubmitting(true)
     setError('')
     try {
-      await runCodeProgressAnalysis(requirement.id, openSpecChange.trim()
+      const started = await runCodeProgressAnalysis(requirement.id, openSpecChange.trim()
         ? `OpenSpec change: ${openSpecChange.trim()}`
         : undefined)
+      queryClient.setQueryData(['prd-session', started.id], started)
+      queryClient.setQueryData<PrdSessionView[]>(['prd-sessions', 'reqpool'], current =>
+        current?.map(session => session.id === started.id ? started : session),
+      )
       await queryClient.invalidateQueries({ queryKey: ['prd-sessions', 'reqpool'] })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '本地代码分析任务启动失败')
@@ -421,11 +426,13 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
   const state = stageState(requirement, 'code')
   return (
     <>
-      <button type="button" onClick={event => { event.stopPropagation(); setOpen(true) }} className={`flex flex-col items-center gap-1 rounded-md outline-none ${code?.score == null ? 'text-violet-600' : ''}`} title="查看或重新分析本地代码进度">
-        {code?.score == null ? (
+      <button type="button" onClick={event => { event.stopPropagation(); setOpen(true) }} className={`flex flex-col items-center gap-1 rounded-md outline-none ${busy || code?.score == null ? 'text-violet-600' : ''}`} title={busy ? '代码分析执行中' : '查看或重新分析本地代码进度'} aria-label={busy ? '代码分析执行中' : '查看或重新分析本地代码进度'}>
+        {busy ? (
+          <span className="grid h-5 w-5 place-items-center rounded-full border border-violet-400 bg-violet-50 dark:bg-violet-950/30"><Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" /></span>
+        ) : code?.score == null ? (
           <span className="grid h-5 w-5 place-items-center rounded-full border border-dashed border-violet-500 bg-violet-50 dark:bg-violet-950/30"><Search className="h-2.5 w-2.5" /></span>
         ) : <StageDot state={state} />}
-        <span className={`whitespace-nowrap text-[10px] font-medium ${code?.status === 'STALE' ? 'text-amber-600' : code?.score != null ? 'text-emerald-600' : 'text-violet-600'}`}>{compact ? '代码' : code?.score == null ? '分析代码' : '代码'}</span>
+        <span className={`whitespace-nowrap text-[10px] font-medium ${busy ? 'text-violet-600' : code?.status === 'STALE' ? 'text-amber-600' : code?.score != null ? 'text-emerald-600' : 'text-violet-600'}`}>{busy ? '执行中' : compact ? '代码' : code?.score == null ? '分析代码' : '代码'}</span>
       </button>
       {open && <CodeAnalysisDialog
         title={item.title} score={selectedCodeScore} updatedAt={code?.updatedAt}
@@ -433,9 +440,9 @@ export function CodeStageNode({ item, requirement, prdSession, compact = false }
         effort={effort} deliveryProgress={deliveryProgress} includeTests={includeTests}
         onIncludeTests={setIncludeTests}
         planSelector={<AnalysisOpenSpecSelector discovery={openSpec.data} loading={openSpec.isFetching}
-          error={openSpec.isError} selected={openSpecChange} disabled={running || submitting}
+          error={openSpec.isError} selected={openSpecChange} disabled={busy}
           onSelect={setOpenSpecChoice} onRefresh={() => { void openSpec.refetch() }} />}
-        busy={running || submitting} stage={prdSession?.progressWorkStage}
+        busy={busy} stage={prdSession?.progressWorkStage}
         error={error || (prdSession?.progressWorkStatus === 'ERROR' ? prdSession.progressWorkError || '上次分析失败，请重试。' : '')}
         canAnalyze={canAnalyze && planReady} canDevelop={canDevelop} developing={loadingDevelopment}
         analysisHint={!canAnalyze ? '请先完成执行计划，再核查代码。' : '请先完成项目计划读取，并选择对应变更。'}

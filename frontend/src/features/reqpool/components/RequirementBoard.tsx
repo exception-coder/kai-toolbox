@@ -1,24 +1,16 @@
 import type { ReactNode, RefObject } from 'react'
-import { Activity, ArrowRight, CircleDot, Sparkles } from 'lucide-react'
+import { Activity, ArrowRight, CircleCheck, CircleDot, Loader2, Sparkles } from 'lucide-react'
+import type { DeliveryRequirement } from '@/features/delivery-center/public-api'
+import type { PrdSessionView } from '@/features/prd-clarify/public-api'
 import type { ReqItemView } from '../types'
 import {
   decisionOf,
   effectiveInsight,
-  groupRequirementsByStatus,
   relativeTime,
-  REQUIREMENT_BOARD_STAGES,
-  STATUS_META,
   type ReqpoolDensity,
 } from '../lib/reqpoolPageModel'
-
-const STAGE_ACCENT = {
-  DRAFT: 'bg-slate-400',
-  CLARIFYING: 'bg-amber-500',
-  PRD_READY: 'bg-sky-500',
-  IN_DEV: 'bg-violet-500',
-  DONE: 'bg-emerald-500',
-  CANCELLED: 'bg-rose-400',
-} as const
+import { requirementAgentRuns } from '../lib/requirementAgentRuns'
+import { REQUIREMENT_LIFECYCLES, REQUIREMENT_LIFECYCLE_META, requirementLifecycle } from '../lib/requirementLifecycle'
 
 const MISSION_CONTROL_LIMIT = 5
 
@@ -59,6 +51,8 @@ export function RequirementBoard({
   onToggleAll,
   renderNote,
   renderLineage,
+  getRequirement,
+  getSession,
 }: {
   items: ReqItemView[]
   density: ReqpoolDensity
@@ -67,14 +61,22 @@ export function RequirementBoard({
   onToggleAll: () => void
   renderNote: (item: ReqItemView) => ReactNode
   renderLineage: (item: ReqItemView) => ReactNode
+  getRequirement?: (item: ReqItemView) => DeliveryRequirement | undefined
+  getSession?: (item: ReqItemView) => PrdSessionView | undefined
 }) {
-  const grouped = groupRequirementsByStatus(items)
+  const lifecycleOf = (item: ReqItemView) => requirementLifecycle(item, getRequirement?.(item), getSession?.(item))
+  const grouped = new Map(REQUIREMENT_LIFECYCLES.map(stage => [stage, [] as ReqItemView[]]))
+  for (const item of items) grouped.get(lifecycleOf(item))?.push(item)
   const focus = selectMissionFocus(items)
 
   if (items.length <= MISSION_CONTROL_LIMIT && focus) {
     const recent = items.filter(item => item.id !== focus.id).sort((a, b) => b.updatedAt - a.updatedAt)
     const narrative = activityNarrative(focus)
     const insight = effectiveInsight(focus)
+    const lifecycle = lifecycleOf(focus)
+    const agentRuns = requirementAgentRuns(getSession?.(focus))
+    const activeRun = agentRuns.find(run => run.active)
+    const completedRuns = agentRuns.filter(run => run.status === 'SUCCEEDED')
     return (
       <section aria-label="AI 任务指挥台">
         <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3 text-[10px] text-[var(--color-muted-foreground)]">
@@ -83,24 +85,26 @@ export function RequirementBoard({
         </div>
         <div className="grid gap-0 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
           <div className="border-b border-[var(--color-border)] p-4 sm:p-6 lg:border-b-0 lg:border-r">
-            <div className="mb-4 flex items-center justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-600">Current focus</p><h2 className="mt-1 text-base font-semibold">当前焦点</h2></div><span className="text-[10px] text-[var(--color-muted-foreground)]">{STATUS_META[focus.status].label} · {relativeTime(focus.updatedAt)}更新</span></div>
+            <div className="mb-4 flex items-center justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-600">Current focus</p><h2 className="mt-1 text-base font-semibold">当前焦点</h2></div><span className="text-[10px] text-[var(--color-muted-foreground)]">{REQUIREMENT_LIFECYCLE_META[lifecycle].label} · {relativeTime(focus.updatedAt)}更新</span></div>
             {renderNote(focus)}
             {renderLineage(focus)}
           </div>
           <aside className="p-4 sm:p-6" aria-label="AI 当前活动">
-            <div className="flex items-center gap-2"><Activity className="h-4 w-4 text-violet-600" /><h2 className="text-sm font-semibold">AI 正在处理</h2></div>
-            <p className="mt-4 text-sm leading-6">{narrative.current}</p>
+            <div className="flex items-center gap-2"><Activity className="h-4 w-4 text-violet-600" /><h2 className="text-sm font-semibold">AI 执行动态</h2>{activeRun && <span className="ml-auto text-[9px] font-medium uppercase tracking-wider text-violet-600">Live</span>}</div>
+            <p className="mt-4 flex items-start gap-2 text-sm leading-6">{activeRun && <Loader2 className="mt-1 h-3.5 w-3.5 shrink-0 animate-spin text-violet-600 motion-reduce:animate-none" />}{activeRun?.stage || narrative.current}</p>
+            {activeRun?.engine && <p className="mt-1 pl-5 text-[10px] text-[var(--color-muted-foreground)]">{activeRun.engine === 'codex' ? 'Codex' : 'Claude Code'} · 后台执行中</p>}
             {insight?.recommendation && <p className="mt-2 text-xs leading-5 text-[var(--color-muted-foreground)]">{insight.recommendation}</p>}
             <div className="mt-6 border-l border-[var(--color-border)] pl-4"><p className="text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">Next action</p><p className="mt-2 flex items-start gap-2 text-xs leading-5"><ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-600" />{narrative.next}</p></div>
             <div className="mt-6 space-y-3 border-t border-[var(--color-border)] pt-4 text-[10px] text-[var(--color-muted-foreground)]">
-              <div className="flex items-center gap-2"><CircleDot className="h-3 w-3" />需求已登记并进入 {STATUS_META[focus.status].label}</div>
-              <div className="flex items-center gap-2"><span className="relative flex h-3 w-3 items-center justify-center"><span className="motion-safe:animate-ping absolute h-2 w-2 rounded-full bg-violet-400 opacity-40" /><span className="relative h-1.5 w-1.5 rounded-full bg-violet-600" /></span>{narrative.current}</div>
+              <div className="flex items-center gap-2"><CircleDot className="h-3 w-3" />需求已登记 · 当前{REQUIREMENT_LIFECYCLE_META[lifecycle].label}</div>
+              {completedRuns.map(run => <div key={run.agentId} className="flex items-center gap-2"><CircleCheck className="h-3 w-3 text-emerald-500" />{run.stage}</div>)}
+              <div className="flex items-center gap-2"><span className="relative flex h-3 w-3 items-center justify-center"><span className="motion-safe:animate-ping absolute h-2 w-2 rounded-full bg-violet-400 opacity-40" /><span className="relative h-1.5 w-1.5 rounded-full bg-violet-600" /></span>{activeRun?.stage || narrative.current}</div>
             </div>
           </aside>
         </div>
         <div className="border-t border-[var(--color-border)] px-4 py-4 sm:px-6">
           <div className="flex min-w-max items-center gap-5 overflow-x-auto pb-1" aria-label="生命周期阶段">
-            {REQUIREMENT_BOARD_STAGES.map(stage => <div key={stage} className="flex items-center gap-2 text-[10px]"><span className={`h-1.5 w-1.5 rounded-full ${STAGE_ACCENT[stage]}`} /><span className={stage === focus.status ? 'font-semibold text-[var(--color-foreground)]' : 'text-[var(--color-muted-foreground)]'}>{STATUS_META[stage].label}</span><span className="tabular-nums text-[var(--color-muted-foreground)]">{grouped.get(stage)?.length ?? 0}</span></div>)}
+            {REQUIREMENT_LIFECYCLES.map(stage => <div key={stage} className="flex items-center gap-2 text-[10px]"><span className={`h-1.5 w-1.5 rounded-full ${REQUIREMENT_LIFECYCLE_META[stage].accent}`} /><span className={stage === lifecycle ? 'font-semibold text-[var(--color-foreground)]' : 'text-[var(--color-muted-foreground)]'}>{REQUIREMENT_LIFECYCLE_META[stage].label}</span><span className="tabular-nums text-[var(--color-muted-foreground)]">{grouped.get(stage)?.length ?? 0}</span></div>)}
           </div>
         </div>
         {recent.length > 0 && <div className="border-t border-[var(--color-border)] px-4 py-5 sm:px-6"><div className="mb-3 flex items-center gap-2"><Sparkles className="h-3.5 w-3.5 text-[var(--color-muted-foreground)]" /><h2 className="text-xs font-semibold">最近任务</h2></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{recent.map(item => <div key={item.id}>{renderNote(item)}{renderLineage(item)}</div>)}</div></div>}
@@ -126,13 +130,13 @@ export function RequirementBoard({
       </div>
       <div className="overflow-x-auto bg-[var(--color-muted)]/20 p-3 [scrollbar-width:thin]">
         <div className="grid min-w-max grid-flow-col auto-cols-[minmax(286px,1fr)] gap-3 xl:min-w-[1420px] xl:grid-flow-row xl:grid-cols-6">
-          {REQUIREMENT_BOARD_STAGES.map(stage => {
+          {REQUIREMENT_LIFECYCLES.map(stage => {
             const stageItems = grouped.get(stage) ?? []
             return (
               <section key={stage} aria-labelledby={`req-stage-${stage}`} className="min-w-0 border-t border-[var(--color-border)] bg-[var(--color-background)]/55">
                 <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-background)]/95 px-3 py-3 backdrop-blur-sm">
-                  <span className={`h-1.5 w-1.5 rounded-full ${STAGE_ACCENT[stage]}`} />
-                  <h2 id={`req-stage-${stage}`} className="text-[11px] font-semibold tracking-wide">{STATUS_META[stage].label}</h2>
+                  <span className={`h-1.5 w-1.5 rounded-full ${REQUIREMENT_LIFECYCLE_META[stage].accent}`} />
+                  <h2 id={`req-stage-${stage}`} className="text-[11px] font-semibold tracking-wide">{REQUIREMENT_LIFECYCLE_META[stage].label}</h2>
                   <span className="ml-auto min-w-5 text-right text-[10px] tabular-nums text-[var(--color-muted-foreground)]">{stageItems.length}</span>
                 </header>
                 <div className={density === 'compact' ? 'space-y-2 p-2' : 'space-y-3 p-2.5'}>

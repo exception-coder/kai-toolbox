@@ -25,7 +25,7 @@ describe('RequirementBoard', () => {
     expect(screen.getByRole('region', { name: 'AI 任务指挥台' })).toBeInTheDocument()
     expect(screen.queryByText('当前阶段暂无需求')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '当前焦点' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'AI 正在处理' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'AI 执行动态' })).toBeInTheDocument()
     expect(screen.getByText('待澄清需求')).toBeInTheDocument()
     expect(screen.getByText('交付完成需求')).toBeInTheDocument()
   })
@@ -38,7 +38,7 @@ describe('RequirementBoard', () => {
       onToggleAll={vi.fn()} renderNote={requirement => <div>{requirement.title}</div>} renderLineage={() => null} />)
 
     expect(screen.getByRole('region', { name: '需求生命周期看板' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '交付中' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '执行中' })).toBeInTheDocument()
   })
 
   it('selects active delivery work as focus before completed work', () => {

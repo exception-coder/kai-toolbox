@@ -59,9 +59,9 @@ export function CodeAnalysisDialog(props: Props) {
         </header>
         <div className="min-h-0 overflow-y-auto px-5 py-6 sm:px-6">
           <div className="grid grid-cols-2 gap-6">
-            <div><p className="text-xs text-[var(--color-muted-foreground)]">代码实现进度</p><p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{score == null ? <span className="text-xl">尚未分析</span> : <>{score}<span className="ml-1 text-base font-normal">%</span></>}</p>
-              <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">{props.includeTests ? '包含测试项' : '不含测试项'}</p></div>
-            <div><p className="text-xs text-[var(--color-muted-foreground)]">预计剩余工作量</p><p className="mt-2 text-xl font-semibold tabular-nums">{remaining ? <>{range(effort!.remainingWorkdaysMin, effort!.remainingWorkdaysMax)}<span className="ml-1 text-xs font-normal">工作日</span></> : '待评估'}</p>
+            <div><p className="text-xs text-[var(--color-muted-foreground)]">代码实现进度</p><p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">{busy ? <span className="inline-flex items-center gap-2 text-xl text-violet-600"><Loader2 className="size-5 animate-spin motion-reduce:animate-none" />执行中</span> : score == null ? <span className="text-xl">尚未分析</span> : <>{score}<span className="ml-1 text-base font-normal">%</span></>}</p>
+              <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">{busy ? props.stage || '正在分析本地代码' : props.includeTests ? '包含测试项' : '不含测试项'}</p></div>
+            <div><p className="text-xs text-[var(--color-muted-foreground)]">预计剩余工作量</p><p className="mt-2 text-xl font-semibold tabular-nums">{busy ? '计算中' : remaining ? <>{range(effort!.remainingWorkdaysMin, effort!.remainingWorkdaysMax)}<span className="ml-1 text-xs font-normal">工作日</span></> : '待评估'}</p>
               <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">{remaining ? `约 ${range(effort!.remainingHoursMin, effort!.remainingHoursMax)} 小时 · 按原工时折算` : effort ? '分析后按代码进度折算' : '在“责任与时间”评估工时'}</p></div>
           </div>
           <p className="mt-5 text-sm leading-6">{props.note}</p>

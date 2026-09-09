@@ -65,3 +65,29 @@ The board SHALL NOT expose drag-and-drop status changes until a validated status
 #### Scenario: User interacts with a note
 - **WHEN** the user clicks, taps, or keyboards into a requirement note
 - **THEN** the system opens or selects the requirement and does not silently move it to another lifecycle stage
+
+### Requirement: User lifecycle is distinct from engineering evidence
+The workspace SHALL present Draft, Ready, Executing, Review, and Done as the primary user lifecycle, while specification, plan, and code remain a secondary interactive evidence layer. Archived requirements SHALL remain available as historical records outside the active lifecycle.
+
+#### Scenario: Specification and plan are complete
+- **WHEN** the specification and executable plan exist but code execution has not started
+- **THEN** the requirement is shown as Ready and the completed specification and plan remain visible as evidence
+
+#### Scenario: Progress Agent is running
+- **WHEN** the progress Agent has an active background run
+- **THEN** the requirement is shown as Executing, the lifecycle node visibly indicates activity, and the evidence layer prevents duplicate analysis
+
+#### Scenario: AI analysis reaches review threshold
+- **WHEN** the progress Agent completes and verified code coverage is at least 90 percent
+- **THEN** the requirement is shown as Review until a user explicitly confirms completion
+
+#### Scenario: User confirms completion
+- **WHEN** the persisted requirement state becomes DONE
+- **THEN** the lifecycle is shown as Done regardless of the previous AI estimate
+
+### Requirement: Agent activity uses shared run facts
+The focus sidebar SHALL derive its current stage, engine, completed operations, and next action from the same persisted Agent run projection used by requirement details.
+
+#### Scenario: Background run is active
+- **WHEN** either requirement Agent reports an active run
+- **THEN** the sidebar identifies the run as live and displays its actual stage and engine without fabricating file counts or elapsed time

@@ -28,3 +28,9 @@
 - [x] 5.3 Add a unified specification/progress node-run projection and duplicate-run affordances in the requirement hub
 - [x] 5.4 Add backend and frontend regression coverage for the two-Agent contract and node states
 - [x] 5.5 Run strict OpenSpec validation, focused tests, builds and Forge quality gate
+
+## 6. Running-state consistency repair
+
+- [x] 6.1 Project the progress Agent start response into the shared session cache immediately
+- [x] 6.2 Render the code node and analysis summary as running while the asynchronous task is active
+- [x] 6.3 Add frontend regression coverage for the running analysis summary

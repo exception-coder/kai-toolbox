@@ -29,9 +29,13 @@ describe('CodeAnalysisDialog', () => {
   })
 
   it('keeps running work closable while disabling submissions', () => {
-    const input = props({ busy: true, stage: '正在核对实现证据' })
+    const input = props({ busy: true, stage: '正在核对实现证据', score: null })
     render(<CodeAnalysisDialog {...input} />)
     expect(screen.getByRole('status')).toHaveTextContent('正在核对实现证据')
+    expect(screen.getByText('执行中')).toBeInTheDocument()
+    expect(screen.getByText('计算中')).toBeInTheDocument()
+    expect(screen.queryByText('尚未分析')).not.toBeInTheDocument()
+    expect(screen.queryByText('待评估')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '分析中…' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: '关闭代码实现分析' }))
     expect(input.onClose).toHaveBeenCalledOnce()

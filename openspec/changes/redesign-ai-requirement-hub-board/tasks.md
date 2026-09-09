@@ -27,3 +27,10 @@
 - [x] 5.1 Reflow requirement metadata, Agent status and actions for narrow viewports
 - [x] 5.2 Add responsive and accessibility regression coverage
 - [x] 5.3 Run frontend checks, strict OpenSpec validation and Forge quality gate
+
+## 6. AI-native lifecycle presentation
+
+- [x] 6.1 Separate the user lifecycle from specification, plan and code evidence nodes
+- [x] 6.2 Project draft, ready, executing, review and completed states deterministically
+- [x] 6.3 Reframe the focus sidebar as truthful Agent execution activity
+- [x] 6.4 Verify lifecycle projection, type safety and production build; retain browser visual acceptance in 3.2 and 4.4

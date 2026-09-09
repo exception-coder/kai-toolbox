@@ -1091,38 +1091,36 @@ export function DeliveryTrack({
   compact?: boolean
 }) {
   const progress = requirement ? requirementProgress(requirement) : null
-  const stages = [
-    { key: 'prd' as const, label: '核心规格' },
-    { key: 'tdd' as const, label: 'TDD' },
-    { key: 'code' as const, label: '代码' },
-    { key: 'delivery' as const, label: '交付' },
-  ]
-  const deliveryState = requirement?.stages.runtime.status === 'COMPLETE'
-    ? 'done'
-    : requirement && [requirement.stages.test.status, requirement.stages.runtime.status].some(status => status === 'PARTIAL' || status === 'STALE')
-      ? 'active'
-      : 'empty'
+  const lifecycle = requirementLifecycle(item, requirement, prdSession)
+  const lifecycleSteps = ['DRAFT', 'READY', 'EXECUTING', 'REVIEW', 'DONE'] as const
+  const lifecycleIndex = lifecycle === 'ARCHIVED' ? -1 : lifecycleSteps.indexOf(lifecycle)
+  const codeScore = requirement?.stages.code.score
   return (
-    <div className="min-w-[218px]">
-      <div className="flex items-center gap-1">
-        {stages.map((stage, index) => (
-          <div key={stage.key} className="flex items-center gap-1">
-            {stage.key === 'prd' ? (
-              <PrdStageNode compact={compact} item={item} requirement={requirement} prdSession={prdSession} running={prdRunning} onStart={onStartPrd} onAnswer={onAnswerPrd} onPreview={onPreviewPrd} />
-            ) : stage.key === 'tdd' ? (
-              <TddStageNode compact={compact} requirement={requirement} session={prdSession} building={tddBuilding} generating={tddGenerating} failed={tddFailed} onStart={onStartTdd} onAnswer={onAnswerTdd} onPreview={onPreviewTdd} />
-            ) : stage.key === 'code' ? (
-              <CodeStageNode compact={compact} item={item} requirement={requirement} prdSession={prdSession} />
-            ) : (
-              <div className="flex flex-col items-center gap-1" title={deliveryState === 'done' ? '已形成交付证据' : deliveryState === 'active' ? '正在进入交付验证' : '尚未进入交付验证'}>
-                <StageDot state={deliveryState} />
-                <span className={`text-[10px] font-medium ${deliveryState === 'done' ? 'text-emerald-600' : deliveryState === 'active' ? 'text-violet-600' : 'text-[var(--color-muted-foreground)]'}`}>交付</span>
-              </div>
-            )}
-            {index < stages.length - 1 && <span className="mb-4 h-px w-4 bg-[var(--color-border)]" />}
+    <div className="min-w-[248px]">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="text-[10px] font-semibold">{REQUIREMENT_LIFECYCLE_META[lifecycle].label}</span>
+        {codeScore != null && <span className="text-[9px] tabular-nums text-[var(--color-muted-foreground)]">代码分析约 {codeScore}%</span>}
+      </div>
+      {lifecycle !== 'ARCHIVED' && <div className="flex items-start" aria-label={`需求生命周期：${REQUIREMENT_LIFECYCLE_META[lifecycle].label}`}>
+        {lifecycleSteps.map((step, index) => {
+          const reached = index <= lifecycleIndex
+          const current = index === lifecycleIndex
+          return <div key={step} className="flex min-w-0 flex-1 items-start last:flex-none">
+            <div className="flex flex-col items-center gap-1">
+              <span className={`grid h-4 w-4 place-items-center rounded-full border text-[8px] ${current ? 'border-violet-500 bg-violet-50 text-violet-600 dark:bg-violet-950/30' : reached ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-[var(--color-border)] text-[var(--color-muted-foreground)]'}`}>{current && lifecycle === 'EXECUTING' ? <Loader2 className="h-2.5 w-2.5 animate-spin motion-reduce:animate-none" /> : reached ? <Check className="h-2.5 w-2.5" /> : index + 1}</span>
+              {!compact && <span className={`whitespace-nowrap text-[8px] ${current ? 'font-semibold text-violet-600' : 'text-[var(--color-muted-foreground)]'}`}>{REQUIREMENT_LIFECYCLE_META[step].label.replace('已', '')}</span>}
+            </div>
+            {index < lifecycleSteps.length - 1 && <span className={`mt-2 h-px flex-1 ${index < lifecycleIndex ? 'bg-emerald-400' : 'bg-[var(--color-border)]'}`} />}
           </div>
-        ))}
-        <span className="ml-2 mb-4 text-xs font-semibold tabular-nums text-[var(--color-foreground)]">{progress == null ? '—' : `${progress}%`}</span>
+        })}
+      </div>}
+      <div className={`${compact ? 'mt-2' : 'mt-3'} flex items-center gap-2 border-t border-[var(--color-border)] pt-2`}>
+        <span className="mr-1 text-[8px] text-[var(--color-muted-foreground)]">证据</span>
+        <PrdStageNode compact item={item} requirement={requirement} prdSession={prdSession} running={prdRunning} onStart={onStartPrd} onAnswer={onAnswerPrd} onPreview={onPreviewPrd} />
+        <span className="mb-4 h-px w-3 bg-[var(--color-border)]" />
+        <TddStageNode compact requirement={requirement} session={prdSession} building={tddBuilding} generating={tddGenerating} failed={tddFailed} onStart={onStartTdd} onAnswer={onAnswerTdd} onPreview={onPreviewTdd} />
+        <span className="mb-4 h-px w-3 bg-[var(--color-border)]" />
+        <CodeStageNode compact item={item} requirement={requirement} prdSession={prdSession} />
       </div>
       {!compact && <>
         <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[var(--color-muted)]">
@@ -1131,7 +1129,7 @@ export function DeliveryTrack({
         <div className="mt-1 text-[8px] leading-3 text-[var(--color-muted-foreground)]">
           {requirement?.stages.code.updatedAt
             ? `代码分析 ${formatCompactTime(requirement.stages.code.updatedAt)}${requirement.stages.code.status === 'STALE' ? ' · 已过期' : ''}`
-            : '点击“分析代码”检查本地实现 · 文档进度最高 20%'}
+            : `规格与计划是执行证据${progress == null ? '' : ` · 当前综合证据 ${progress}%`}`}
         </div>
       </>}
     </div>
@@ -1140,6 +1138,7 @@ export function DeliveryTrack({
 
 /** 兼容未返回显式标记的旧评估报告，并统一测试项识别口径。 */
 import { CodeStageNode } from './ReqPoolCodeStage'
+import { REQUIREMENT_LIFECYCLE_META, requirementLifecycle } from '../lib/requirementLifecycle'
 
 export { MarkdownDocumentModal, PrdQuestionsModal } from './ReqPoolDocumentDialogs'
 
