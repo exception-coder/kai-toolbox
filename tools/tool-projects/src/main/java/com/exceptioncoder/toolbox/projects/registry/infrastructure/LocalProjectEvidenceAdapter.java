@@ -20,13 +20,18 @@ public class LocalProjectEvidenceAdapter implements ProjectEvidencePort {
     private final RegistryCommandRunner commands;
     private final ObjectMapper json;
     private final GraphifyIncrementalUpdater updater;
+    private final DomainSnapshotStore domains;
+    private final DomainGraphContext domainGraphs;
 
     public LocalProjectEvidenceAdapter(RegistrySourceScanner scanner, RegistryCommandRunner commands, ObjectMapper json,
-                                       GraphifyIncrementalUpdater updater) {
+                                       GraphifyIncrementalUpdater updater, DomainSnapshotStore domains,
+                                       DomainGraphContext domainGraphs) {
         this.scanner = scanner;
         this.commands = commands;
         this.json = json;
         this.updater = updater;
+        this.domains = domains;
+        this.domainGraphs = domainGraphs;
     }
 
     @Override
@@ -144,7 +149,7 @@ public class LocalProjectEvidenceAdapter implements ProjectEvidencePort {
         List<String> rules = files.stream().filter(file -> file.equals("AGENTS.md") || file.equals("CLAUDE.md")
                 || file.startsWith("docs/engineering/") || file.equals("openspec/config.yaml")).toList();
         List<String> semantics = files.stream().filter(file -> file.startsWith("openspec/specs/")
-                || file.startsWith("docs/domain/") || file.startsWith(".forge/domains/")).toList();
+                || file.startsWith("docs/domain/")).toList();
         Map<String, String> projectFacts = new LinkedHashMap<>(snapshot.facts());
         projectFacts.put("stack", stack(manifests));
         projectFacts.put("environment", "仅发现工程配置，未运行构建或探测运行实例");
@@ -154,19 +159,39 @@ public class LocalProjectEvidenceAdapter implements ProjectEvidencePort {
         boolean verificationReady = verification.keySet().stream().anyMatch(key -> !key.endsWith(":gap"));
         boolean rulesReady = rules.stream().anyMatch(file -> (file.equals("AGENTS.md") || file.equals("CLAUDE.md"))
                 && nonempty(Path.of(root, file)));
-        boolean semanticReady = semantics.stream().anyMatch(file -> nonempty(Path.of(root, file)));
+        SystemProfile.Asset semanticAsset = semanticAsset(root, snapshot.fingerprint(), semantics);
         return List.of(
                 new SystemProfile.Asset("PROJECT", "Project Profile", snapshot.complete() ? "READY" : "PARTIAL",
                         manifests, Map.copyOf(projectFacts)),
                 new SystemProfile.Asset("CODE", "Code Intelligence", graph.fresh() && graph.usable() ? "READY" : "PARTIAL",
                         graph.usable() ? List.of("graphify-out/graph.json") : List.of(),
                         Map.of("nodes", String.valueOf(graph.nodes()), "evidence", graph.message())),
-                new SystemProfile.Asset("SEMANTIC", "Semantic Registry", semanticReady ? "READY" : "MISSING",
-                        semantics, Map.of("evidence", "引用既有业务规格；业务域自动归纳与关系确认待第二阶段")),
+                semanticAsset,
                 new SystemProfile.Asset("EXECUTION", "Execution Profile", rulesReady ? "READY" : "MISSING",
                         rules, Map.of("strategy", "遵循项目规则，按需读取 OpenSpec 与 Graphify，不覆盖已有规则")),
                 new SystemProfile.Asset("VERIFICATION", "Verification Profile", verificationReady ? "READY" : "MISSING",
                         manifests, Map.copyOf(verification)));
+    }
+
+    private SystemProfile.Asset semanticAsset(String root, String fingerprint, List<String> supplemental) {
+        List<String> sources = new ArrayList<>(supplemental);
+        try {
+            var snapshot = domains.snapshot(root);
+            if (snapshot == null || snapshot.domains().isEmpty()) {
+                return new SystemProfile.Asset("SEMANTIC", "Semantic Registry", "MISSING", sources,
+                        Map.of("evidence", "尚无代码领域快照，请在业务域页选择 Codex 或 Claude Code 探索；OpenSpec 仅为补充规格"));
+            }
+            sources.addFirst(".forge/domains/snapshot.json");
+            boolean fresh = fingerprint.equals(snapshot.sourceFingerprint())
+                    && snapshot.graphFingerprint().equals(domainGraphs.load(root).fingerprint());
+            return new SystemProfile.Asset("SEMANTIC", "Semantic Registry", fresh ? "READY" : "PARTIAL", sources,
+                    Map.of("domains", String.valueOf(snapshot.domains().size()), "version", String.valueOf(snapshot.version()),
+                            "evidence", fresh ? "已引用代码探索领域草稿；源码引用已核对，业务含义仍为推断，覆盖范围见领域页"
+                                    : "领域快照对应的源码或图谱已变化，请在业务域页重新探索"));
+        } catch (RuntimeException exception) {
+            return new SystemProfile.Asset("SEMANTIC", "Semantic Registry", "PARTIAL", sources,
+                    Map.of("evidence", "领域快照或图谱无法读取，请在业务域页检查后重新探索"));
+        }
     }
 
     private boolean nonempty(Path path) {

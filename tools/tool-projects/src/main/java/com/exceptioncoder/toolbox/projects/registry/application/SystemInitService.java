@@ -68,7 +68,10 @@ public class SystemInitService {
             String graphGap = collectGraph(project, initial.mode(), progress);
             progress.begin(3);
             var assets = evidence.assets(project.metadata().localPath(), snapshot);
-            progress.finish(3, "PARTIAL", "引用既有业务规格；自动领域归纳待第二阶段");
+            var semantic = assets.stream().filter(asset -> "SEMANTIC".equals(asset.kind())).findFirst()
+                    .orElse(new SystemProfile.Asset("SEMANTIC", "Semantic Registry", "MISSING", List.of(), java.util.Map.of()));
+            progress.finish(3, "READY".equals(semantic.status()) ? "COMPLETED" : "PARTIAL",
+                    semantic.facts().getOrDefault("evidence", "请在业务域页从代码探索领域"));
             progress.begin(4);
             progress.finish(4, "PARTIAL", "保留 Graphify 与规格入口；API / DDL 运行证据需独立核验");
             progress.begin(5);

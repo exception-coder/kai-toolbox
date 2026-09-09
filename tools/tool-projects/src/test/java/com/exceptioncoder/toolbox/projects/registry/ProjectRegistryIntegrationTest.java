@@ -234,7 +234,7 @@ class ProjectRegistryIntegrationTest {
         }
         @Bean SystemTaskService tasks(ProjectRegistryService projects, ProjectRegistryStore store,
                                       RequirementRegistrationPort requirements) {
-            return new SystemTaskService(projects, store, requirements);
+            return new SystemTaskService(projects, store, requirements, new com.exceptioncoder.toolbox.projects.registry.infrastructure.DomainSnapshotStore(new com.fasterxml.jackson.databind.ObjectMapper()));
         }
     }
 }

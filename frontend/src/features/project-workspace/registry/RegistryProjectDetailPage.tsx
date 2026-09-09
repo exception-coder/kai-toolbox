@@ -8,6 +8,7 @@ import { ReadinessLabel, RegistryError } from './RegistryStates'
 import { ProjectRegistrationForm } from './ProjectRegistrationForm'
 import { AssetPanel, InitializationProgress, ProfileOverview } from './SystemProfilePanels'
 import { SystemTasksPanel } from './SystemTasksPanel'
+import { SystemDomainsPanel } from './SystemDomainsPanel'
 import { GraphifyGraphModal } from '../components/GraphifyGraphModal'
 import { SystemInitializationGuide } from './SystemInitializationGuide'
 
@@ -51,7 +52,7 @@ export function RegistryProjectDetailPage() {
         {detail.profile && <AssetPanel asset={asset('EXECUTION')} />}
       </div><div>{detail.runs[0] ? <InitializationProgress run={detail.runs[0]} /> : <p className="text-sm text-[var(--color-muted-foreground)]">初始化进度将在这里显示，刷新页面不会丢失运行记录。</p>}</div></div>}
       {tab === '代码智能' && <div className="space-y-6"><AssetPanel asset={asset('CODE')} />{asset('CODE')?.sources.length ? <Button variant="outline" onClick={() => setGraphOpen(true)}>打开 Graphify 图谱</Button> : null}</div>}
-      {tab === '业务域' && <AssetPanel asset={asset('SEMANTIC')} />}
+      {tab === '业务域' && <SystemDomainsPanel projectId={projectId} />}
       {tab === '任务' && <SystemTasksPanel detail={detail} />}
       {tab === '验证' && <AssetPanel asset={asset('VERIFICATION')} />}
       {tab === '环境' && <div className="space-y-8"><AssetPanel asset={asset('PROJECT')} /><div className="flex flex-wrap gap-4">

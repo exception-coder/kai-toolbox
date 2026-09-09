@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowUpRight, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/public-api/runtime'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 import { createSystemTask, getTaskContext } from './api'
+import { getDomains } from './domainApi'
 import { RegistryError } from './RegistryStates'
 import type { ProjectDetail, SystemTask } from './types'
 
@@ -14,6 +15,7 @@ export function SystemTasksPanel({ detail }: { detail: ProjectDetail }) {
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState({ title: '', description: '', domainId: '', context: '' })
   const cache = useQueryClient()
+  const domains = useQuery({ queryKey: ['project-domains', detail.project.id], queryFn: () => getDomains(detail.project.id), enabled: adding, refetchOnWindowFocus: false })
   const navigate = useNavigate()
   const { activate } = useChatRuntime()
   const create = useMutation({ mutationFn: () => createSystemTask(detail.project.id, draft), onSuccess: async () => {
@@ -32,7 +34,11 @@ export function SystemTasksPanel({ detail }: { detail: ProjectDetail }) {
     {adding && <form className="max-w-3xl space-y-4 border-y border-[var(--color-border)] py-6" onSubmit={event => { event.preventDefault(); create.mutate() }}>
       <label className="block space-y-2 text-sm"><span>任务标题 *</span><Input required maxLength={200} value={draft.title} onChange={event => setDraft(old => ({ ...old, title: event.target.value }))} /></label>
       <label className="block space-y-2 text-sm"><span>描述 *</span><textarea required rows={4} maxLength={20000} className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-background)] p-3" value={draft.description} onChange={event => setDraft(old => ({ ...old, description: event.target.value }))} /></label>
-      <label className="block space-y-2 text-sm"><span>业务域（可选）</span><Input maxLength={120} value={draft.domainId} onChange={event => setDraft(old => ({ ...old, domainId: event.target.value }))} placeholder="尚不确定可留空，后续由 Agent 定位" /></label>
+      <label className="block space-y-2 text-sm"><span>业务域（可选）</span><select className="h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3" value={draft.domainId} onChange={event => setDraft(old => ({ ...old, domainId: event.target.value }))}>
+        <option value="">由 Agent 定位业务域</option>{domains.data?.snapshot?.domains.map(domain => <option key={domain.id} value={domain.id}>{domain.name} · 代码推断</option>)}
+      </select></label>
+      {domains.data?.stale && <p className="text-xs text-[var(--color-muted-foreground)]">领域草稿需要重新探索，Agent 使用前将核对源码。</p>}
+      <RegistryError error={domains.error} retry={() => void domains.refetch()} />
       <label className="block space-y-2 text-sm"><span>补充上下文（可选）</span><Input maxLength={10000} value={draft.context} onChange={event => setDraft(old => ({ ...old, context: event.target.value }))} /></label>
       {!detail.profile && <p className="text-xs text-[var(--color-muted-foreground)]">该系统尚未初始化。任务会保存，开发前需先补齐系统画像。</p>}
       <RegistryError error={create.error} /><div className="flex gap-2"><Button type="submit" disabled={create.isPending}>{create.isPending ? '正在创建…' : '创建任务'}</Button><Button type="button" variant="ghost" onClick={() => setAdding(false)} disabled={create.isPending}>取消</Button></div>

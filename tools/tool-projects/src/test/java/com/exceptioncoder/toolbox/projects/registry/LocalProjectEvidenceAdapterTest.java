@@ -58,7 +58,7 @@ class LocalProjectEvidenceAdapterTest {
         Files.writeString(root.resolve("package.json"), "{\"scripts\":{\"test\":\"some-command\"}}");
         Files.writeString(root.resolve("AGENTS.md"), "Read engineering rules.");
         var commands = mock(RegistryCommandRunner.class);
-        var evidence = new LocalProjectEvidenceAdapter(scanner, commands, new ObjectMapper(), mock(GraphifyIncrementalUpdater.class));
+        var evidence = new LocalProjectEvidenceAdapter(scanner, commands, new ObjectMapper(), mock(GraphifyIncrementalUpdater.class), new DomainSnapshotStore(new ObjectMapper()), new DomainGraphContext(new ObjectMapper()));
         var assets = evidence.assets(root.toString(), scanner.scan(root));
         var verification = assets.stream().filter(asset -> asset.kind().equals("VERIFICATION")).findFirst().orElseThrow();
         assertThat(verification.facts()).containsEntry(".:test", "npm --prefix \".\" run test");
@@ -80,6 +80,37 @@ class LocalProjectEvidenceAdapterTest {
         var commands = mock(RegistryCommandRunner.class);
         when(commands.run(any(), anyList(), any())).thenReturn(new RegistryCommandRunner.Result(-1, "unavailable"));
         return new LocalProjectEvidenceAdapter(scanner, commands, new ObjectMapper(),
-                new GraphifyIncrementalUpdater(scanner, commands, new ObjectMapper(), "python"));
+                new GraphifyIncrementalUpdater(scanner, commands, new ObjectMapper(), "python"), new DomainSnapshotStore(new ObjectMapper()), new DomainGraphContext(new ObjectMapper()));
+    }
+
+    @Test
+    void openSpecPresenceIsSupplementalAndNeverMeansDomainsWereDiscovered() throws Exception {
+        Files.createDirectories(root.resolve("openspec/specs/sample"));
+        Files.writeString(root.resolve("openspec/specs/sample/spec.md"), "# 样衣规范");
+        var asset = adapter().assets(root.toString(), scanner.scan(root)).stream()
+                .filter(item -> "SEMANTIC".equals(item.kind())).findFirst().orElseThrow();
+        assertThat(asset.status()).isEqualTo("MISSING");
+        assertThat(asset.sources()).contains("openspec/specs/sample/spec.md");
+        assertThat(asset.facts().get("evidence")).contains("Codex", "补充规格");
+    }
+
+    @Test
+    void semanticAssetUsesSnapshotAndMarksSourceDrift() throws Exception {
+        Files.writeString(root.resolve("Sample.java"), "class Sample {}");
+        Files.createDirectories(root.resolve("graphify-out"));
+        Files.writeString(root.resolve("graphify-out/graph.json"), "{\"nodes\":[{\"id\":\"sample\",\"source_file\":\"Sample.java\"}]}");
+        var snapshotStore = new DomainSnapshotStore(new ObjectMapper());
+        var draft = new com.exceptioncoder.toolbox.projects.registry.domain.DomainKnowledge.Draft("sample", "样衣", "BUSINESS", "管理样衣", "LOW",
+                java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of(), java.util.List.of());
+        snapshotStore.saveSnapshot(root.toString(), new com.exceptioncoder.toolbox.projects.registry.domain.DomainKnowledge.Snapshot(1, 1,
+                scanner.scan(root).fingerprint(), new DomainGraphContext(new ObjectMapper()).load(root.toString()).fingerprint(),
+                "codex", "", java.util.List.of(draft), java.util.List.of("未覆盖其他模块")));
+        var fresh = adapter().assets(root.toString(), scanner.scan(root)).stream().filter(item -> "SEMANTIC".equals(item.kind())).findFirst().orElseThrow();
+        assertThat(fresh.status()).isEqualTo("READY");
+        assertThat(fresh.sources()).contains(".forge/domains/snapshot.json");
+        Files.writeString(root.resolve("Sample.java"), "class Sample { int changed; }");
+        var stale = adapter().assets(root.toString(), scanner.scan(root)).stream().filter(item -> "SEMANTIC".equals(item.kind())).findFirst().orElseThrow();
+        assertThat(stale.status()).isEqualTo("PARTIAL");
+        assertThat(stale.facts().get("evidence")).contains("重新探索");
     }
 }
