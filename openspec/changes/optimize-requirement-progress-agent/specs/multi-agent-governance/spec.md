@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Multiple agents are registered and selectable
-Agent 管理 SHALL 展示所有已登记 Agent，并允许管理员按稳定 Agent 标识选择详情。
+Agent 管理 SHALL 展示所有已登记 Agent，并允许管理员按稳定 Agent 标识选择详情；需求工程域只登记需求规格分析和需求进度分析两个 Agent。
 
 #### Scenario: Registry contains multiple agents
-- **WHEN** 业务咨询 Agent 和需求进度分析 Agent 均已登记
-- **THEN** 注册表显示两个独立条目且选择后加载各自详情
+- **WHEN** 业务咨询 Agent、需求规格分析 Agent 和需求进度分析 Agent 均已登记
+- **THEN** 注册表显示三个独立条目且选择后加载各自详情
 
 ### Requirement: Version operations are scoped by agent
 候选保存、发布和回滚操作 MUST 显式限定 Agent 标识，不得影响其他 Agent 的版本状态。

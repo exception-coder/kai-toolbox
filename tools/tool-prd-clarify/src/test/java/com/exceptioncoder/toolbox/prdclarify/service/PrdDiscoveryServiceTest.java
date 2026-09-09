@@ -44,7 +44,7 @@ class PrdDiscoveryServiceTest {
                 repository,
                 mock(PrdDiscoveryRunRepository.class),
                 evidence,
-                mock(AgentOneShotRunner.class),
+                mock(RequirementSpecificationAgent.class),
                 mock(PrdImageInputResolver.class),
                 mock(PrdArtifactService.class),
                 List.of(planningGateway),
@@ -82,7 +82,8 @@ class PrdDiscoveryServiceTest {
                 true, List.of()));
         when(imageInputResolver.resolve("支持审核前取消")).thenReturn(List.of());
         PrdDiscoveryService service = new PrdDiscoveryService(
-                repository, mock(PrdDiscoveryRunRepository.class), evidence, runner,
+                repository, mock(PrdDiscoveryRunRepository.class), evidence,
+                new RequirementSpecificationAgent(runner),
                 imageInputResolver, artifacts, List.of(),
                 mock(org.springframework.beans.factory.ObjectProvider.class));
 

@@ -99,6 +99,7 @@ import {
 import { MarkdownContent } from '@/components/markdown/MarkdownContent'
 import { useAuth } from '@/lib/auth'
 import { PlanningAssessmentSection } from './PlanningAssessmentSection'
+import { RequirementAgentRuns } from './RequirementAgentRuns'
 import { analysisErrorMessage } from '../lib/analysisError'
 
 type ViewMode = 'table' | 'leader'
@@ -566,6 +567,7 @@ export function RequirementDrawer({ item, requirement, prdSession, analyzing, pr
             {[[Building2, '系统 / 模块', `${item.project || '待归属'} / ${item.module || '待归类'}`], [UserRound, '唯一负责人', item.assignee || '待指派'], [CalendarDays, '承诺时间', dateLabel(item.deadline)], [Radio, '数据来源', item.prdSessionId ? `${labels.specification}自动同步` : '统一登记']].map(([Icon, label, value], index) => { const CellIcon = Icon as typeof Building2; return <div key={String(label)} className={`py-3 ${index % 2 === 0 ? 'pr-4' : 'border-l border-[var(--color-border)] pl-4'} ${index > 1 ? 'border-t border-[var(--color-border)]' : ''}`}><dt className="flex items-center gap-1.5 text-[10px] text-[var(--color-muted-foreground)]"><CellIcon className="h-3 w-3" />{String(label)}</dt><dd className="mt-1 text-xs font-medium">{String(value)}</dd></div> })}
           </dl>
           <section aria-label="规格成熟度"><FactQualityDetails quality={factQuality} /></section>
+          <RequirementAgentRuns session={prdSession} />
           <PlanningAssessmentSection item={item} />
           <InsightAnalysisPanel item={item} analyzing={analyzing} onAnalyze={onAnalyze} />
           <div><div className="mb-3 flex items-center justify-between text-xs font-semibold"><span>交付证据链</span><span className="text-[10px] font-normal text-[var(--color-muted-foreground)]">点击节点直接操作</span></div><div className="border-y border-[var(--color-border)] py-4"><DeliveryTrack item={item} requirement={requirement} prdSession={prdSession} prdRunning={prdRunning} tddBuilding={tddBuilding} tddGenerating={tddGenerating} tddFailed={tddFailed} onStartPrd={onStartPrd} onAnswerPrd={onAnswerPrd} onPreviewPrd={onPreviewPrd} onStartTdd={onStartTdd} onAnswerTdd={onAnswerTdd} onPreviewTdd={onPreviewTdd} /></div></div>

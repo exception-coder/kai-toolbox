@@ -1,10 +1,9 @@
 package com.exceptioncoder.toolbox.foreconsult.service;
 
 import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentManagementSnapshot;
+import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentGovernanceCatalog;
 import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentReleaseGate;
 import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentVersion;
-import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.BusinessConsultCapabilityCatalog;
-import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.RequirementProgressCapabilityCatalog;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultAgentManagementRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultAgentManagementRepository.AgentDefinition;
 import org.springframework.stereotype.Service;
@@ -57,12 +56,10 @@ public class ConsultAgentManagementService {
                 production,
                 candidate,
                 versions,
-                capabilities(agentId),
+                AgentGovernanceCatalog.capabilities(agentId),
                 capabilityIds(production),
                 capabilityIds(candidate),
-                "requirement-progress".equals(agentId)
-                        ? RequirementProgressCapabilityCatalog.evaluationDataset()
-                        : smokeSampleSource.preview(),
+                AgentGovernanceCatalog.evaluationDataset(agentId, smokeSampleSource.preview()),
                 AgentReleaseGate.evaluate(candidate));
     }
 
@@ -150,12 +147,6 @@ public class ConsultAgentManagementService {
     private AgentVersion requireVersion(String agentId, long version) {
         return repository.findVersion(agentId, version)
                 .orElseThrow(() -> new IllegalArgumentException("Agent 版本不存在: v" + version));
-    }
-
-    private List<com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentCapability> capabilities(String agentId) {
-        return "requirement-progress".equals(agentId)
-                ? RequirementProgressCapabilityCatalog.capabilities()
-                : BusinessConsultCapabilityCatalog.capabilities();
     }
 
     private AgentVersion findByStatus(List<AgentVersion> versions, String status) {

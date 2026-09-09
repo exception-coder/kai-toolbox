@@ -24,8 +24,9 @@ public class PrdDevDocWorkProgressService {
     public Tracker begin(String sessionId) {
         long now = System.currentTimeMillis();
         String initialProgress = "正在准备核心规格与代码知识图谱上下文";
-        repository.updateDevDocWorkSnapshot(
-                sessionId, "GENERATING", null, initialProgress, "", now);
+        if (!repository.tryBeginDevDocWork(sessionId, initialProgress, now)) {
+            throw new IllegalStateException("执行计划正在后台生成，请勿重复发起");
+        }
         return new Tracker(sessionId, initialProgress, now);
     }
 

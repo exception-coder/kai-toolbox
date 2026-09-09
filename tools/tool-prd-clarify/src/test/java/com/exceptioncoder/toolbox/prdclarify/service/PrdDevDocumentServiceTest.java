@@ -67,8 +67,7 @@ class PrdDevDocumentServiceTest {
         fixture.service.generate(
                 "session", null, false, List.of(), false, true, mock(SseEmitter.class));
 
-        verify(fixture.repo).updateDevDocWorkSnapshot(
-                eq("session"), eq("GENERATING"), eq(null), anyString(), eq(""), anyLong());
+        verify(fixture.repo).tryBeginDevDocWork(eq("session"), anyString(), anyLong());
     }
 
     @Test
@@ -148,6 +147,8 @@ class PrdDevDocumentServiceTest {
         AgentOneShotRunner runner = mock(AgentOneShotRunner.class);
         PrdImageInputResolver imageInputResolver = mock(PrdImageInputResolver.class);
         when(repo.findById("session")).thenReturn(Optional.of(session));
+        when(repo.tryBeginDevDocWork(anyString(), anyString(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(true);
         when(imageInputResolver.resolve(anyString())).thenReturn(List.of());
         return new Fixture(repo, fileStore, artifactService, runner,
                 new PrdDevDocumentService(repo, fileStore, artifactService, new ObjectMapper(),

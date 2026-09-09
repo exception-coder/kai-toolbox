@@ -19,4 +19,12 @@
 
 - [x] 4.1 Add backend contract and orchestration tests
 - [x] 4.2 Run OpenSpec strict validation, focused Maven tests, frontend typecheck/build, and Forge quality gate
-- [ ] 4.3 Register affected APIs and commit only this change
+- [x] 4.3 Confirm no new HTTP contract requires registration and commit only this change
+
+## 5. Two-agent requirement workflow
+
+- [x] 5.1 Register the requirement specification Agent with capabilities, version and regression dataset
+- [x] 5.2 Replace hard-coded Agent catalog selection with an explicit registry
+- [x] 5.3 Add a unified specification/progress node-run projection and duplicate-run affordances in the requirement hub
+- [x] 5.4 Add backend and frontend regression coverage for the two-Agent contract and node states
+- [x] 5.5 Run strict OpenSpec validation, focused tests, builds and Forge quality gate

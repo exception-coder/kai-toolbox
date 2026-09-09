@@ -295,6 +295,15 @@ public class PrdSessionRepository {
                 status, error, progress, content, workUpdatedAt, id);
     }
 
+    /** 原子登记执行计划生成，已有活动运行时返回 false。 */
+    public boolean tryBeginDevDocWork(String id, String progress, long workUpdatedAt) {
+        return jdbc.update("UPDATE prd_session SET dev_doc_work_status = 'GENERATING', "
+                        + "dev_doc_work_error = NULL, dev_doc_work_progress = ?, dev_doc_work_content = '', "
+                        + "dev_doc_work_updated_at = ? WHERE id = ? "
+                        + "AND COALESCE(dev_doc_work_status, '') <> 'GENERATING'",
+                progress, workUpdatedAt, id) == 1;
+    }
+
     /** 将进程重启前遗留的运行态收敛为可重试失败态，保留已生成的临时正文。 */
     public int failInterruptedDevDocWork(String error, long workUpdatedAt) {
         return jdbc.update("UPDATE prd_session SET dev_doc_work_status = 'ERROR', dev_doc_work_error = ?, "

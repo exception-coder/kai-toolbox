@@ -143,7 +143,7 @@ function RegistryPanel({
           <button key={agent.id} type="button" onClick={() => onSelect(agent.id)}
             className={`flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left ${selectedAgentId === agent.id ? "bg-slate-100" : "hover:bg-slate-50"}`}>
             <span className="mt-0.5 flex size-8 items-center justify-center rounded-md border border-slate-200 bg-white"><Bot className="size-4" /></span>
-            <span className="min-w-0"><span className="block truncate text-sm font-medium">{agent.name}</span><span className="mt-1 block text-xs text-slate-500">{agent.id === "requirement-progress" ? "工程分析" : "业务咨询"} · 已登记</span></span>
+            <span className="min-w-0"><span className="block truncate text-sm font-medium">{agent.name}</span><span className="mt-1 block text-xs text-slate-500">{agent.id === "requirement-specification" ? "规格分析" : agent.id === "requirement-progress" ? "进度分析" : "业务咨询"} · 已登记</span></span>
           </button>
         ))}
         {agents.length === 0 && <p className="px-3 py-4 text-xs text-slate-400">暂无已登记 Agent</p>}
@@ -159,7 +159,7 @@ function RegistryPanel({
         </span>
         <span className="mt-3 flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-slate-50">
           <Boxes className="size-4 text-slate-500" />
-          <span className="flex-1 text-sm">业务咨询能力</span>
+          <span className="flex-1 text-sm">当前 Agent 能力</span>
           <ChevronRight className="size-4 text-slate-400" />
         </span>
         <span className="mt-2 block px-3 text-xs leading-5 text-slate-400">

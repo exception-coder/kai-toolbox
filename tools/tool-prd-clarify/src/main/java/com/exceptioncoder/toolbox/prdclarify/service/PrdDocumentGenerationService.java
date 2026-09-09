@@ -77,13 +77,18 @@ public class PrdDocumentGenerationService {
             “待确认技术事项”，不得停下来向用户提问。
             """;
 
-    private final AgentOneShotRunner agentRunner;
+    private final RequirementSpecificationAgent specificationAgent;
     private final ObjectMapper mapper;
     private final PrdImageInputResolver imageInputResolver;
 
     public PrdDocumentGenerationService(AgentOneShotRunner agentRunner, ObjectMapper mapper,
                                         PrdImageInputResolver imageInputResolver) {
-        this.agentRunner = agentRunner;
+        this(new RequirementSpecificationAgent(agentRunner), mapper, imageInputResolver);
+    }
+
+    PrdDocumentGenerationService(RequirementSpecificationAgent specificationAgent, ObjectMapper mapper,
+                                 PrdImageInputResolver imageInputResolver) {
+        this.specificationAgent = specificationAgent;
         this.mapper = mapper;
         this.imageInputResolver = imageInputResolver;
     }
@@ -129,8 +134,9 @@ public class PrdDocumentGenerationService {
             }
         };
         String imageSource = value(session.getRawInput()) + "\n" + value(extraInstructions);
-        agentRunner.stream(systemPrompt, userPrompt, session.getModel(), engine, forwardingDelta,
-                imageInputResolver.resolve(imageSource));
+        specificationAgent.generate(new RequirementSpecificationAgent.Request(
+                systemPrompt, userPrompt, session.getModel(), engine, imageInputResolver.resolve(imageSource)),
+                forwardingDelta);
         return full.toString();
     }
 

@@ -3,16 +3,20 @@ package com.exceptioncoder.toolbox.prdclarify.service;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import org.junit.jupiter.api.Test;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class PrdDevDocWorkProgressServiceTest {
 
     @Test
     void persistsRecoverableMarkdownSnapshotBeforeTaskCompletes() {
         PrdSessionRepository repository = mock(PrdSessionRepository.class);
+        when(repository.tryBeginDevDocWork(anyString(), anyString(), anyLong())).thenReturn(true);
         PrdDevDocWorkProgressService.Tracker tracker =
                 new PrdDevDocWorkProgressService(repository).begin("session");
         String snapshot = "x".repeat(PrdDevDocWorkProgressService.SNAPSHOT_CHARACTER_INTERVAL);
@@ -28,6 +32,7 @@ class PrdDevDocWorkProgressServiceTest {
     @Test
     void keepsPartialSnapshotOnFailureAndClearsItAfterSuccess() {
         PrdSessionRepository repository = mock(PrdSessionRepository.class);
+        when(repository.tryBeginDevDocWork(anyString(), anyString(), anyLong())).thenReturn(true);
         PrdDevDocWorkProgressService service = new PrdDevDocWorkProgressService(repository);
         PrdDevDocWorkProgressService.Tracker failed = service.begin("failed");
         failed.append("partial markdown");
@@ -40,5 +45,17 @@ class PrdDevDocWorkProgressServiceTest {
                 eq("partial markdown"), anyLong());
         verify(repository).updateDevDocWorkSnapshot(
                 eq("done"), eq("DONE"), eq(null), eq("执行计划已生成"), eq(null), anyLong());
+    }
+
+    @Test
+    void rejectsDuplicatePlanGenerationWhileAnExistingRunIsActive() {
+        PrdSessionRepository repository = mock(PrdSessionRepository.class);
+        when(repository.tryBeginDevDocWork(anyString(), anyString(), anyLong())).thenReturn(false);
+
+        PrdDevDocWorkProgressService service = new PrdDevDocWorkProgressService(repository);
+
+        assertThatThrownBy(() -> service.begin("prd-1"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("请勿重复发起");
     }
 }

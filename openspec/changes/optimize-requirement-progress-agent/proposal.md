@@ -9,6 +9,8 @@
 - 编排 URL/项目映射、Graphify 导航、源码与测试读取、Git/质量证据，禁止仅凭 Prompt 自报完成。
 - 将需求进度分析 Agent 登记到 Agent 管理模块，支持与业务咨询 Agent 一致的版本、能力、评测和发布治理。
 - 将 Agent 管理从单一硬编码条目升级为多 Agent 注册表。
+- 登记需求规格分析 Agent，统一承接草稿证据探索、核心规格生成与 OpenSpec 产物同步；执行计划作为该编排的确定性阶段，不再登记第三个计划 Agent。
+- 聚合规格与进度两个 Agent 的异步节点运行状态，向需求中枢提供引擎、阶段、进度、失败恢复和防重复执行提示。
 
 ## Capabilities
 
@@ -16,6 +18,7 @@
 
 - `requirement-progress-agent`: 定义 OpenSpec 驱动、证据可验证的需求进度分析 Agent 行为。
 - `multi-agent-governance`: 定义多个业务 Agent 的注册、选择、版本与评测治理行为。
+- `requirement-specification-agent`: 定义从需求草稿到 OpenSpec 规格与计划产物的可恢复编排行为。
 
 ### Modified Capabilities
 

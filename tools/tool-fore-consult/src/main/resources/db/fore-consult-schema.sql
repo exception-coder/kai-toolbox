@@ -245,6 +245,21 @@ INSERT OR IGNORE INTO consult_agent_definition (
     0
 );
 
+-- 功能：需求规格分析 Agent Registry；变更：登记规格与 OpenSpec 编排身份；目的：与进度 Agent 形成需求工程双 Agent
+INSERT OR IGNORE INTO consult_agent_definition (
+    agent_id, name, owner, description, endpoint, framework, observability_url, created_at, updated_at
+) VALUES (
+    'requirement-specification',
+    '需求规格分析 Agent',
+    'Forge AI Platform',
+    '结合 Codex 或 Claude Code、Graphify、路由、源码与 OpenSpec 生成可追踪规格和计划',
+    '/api/prd/sessions/{id}/discovery',
+    'Java + AgentOneShotRunner + OpenSpec',
+    NULL,
+    0,
+    0
+);
+
 -- 功能：需求进度分析 Agent Registry；变更：登记稳定 Agent 身份与运行入口；目的：支持独立版本和回归治理
 INSERT OR IGNORE INTO consult_agent_definition (
     agent_id, name, owner, description, endpoint, framework, observability_url, created_at, updated_at
@@ -305,6 +320,26 @@ INSERT OR IGNORE INTO consult_agent_version (
     '["source_context","source_read","source_search"]',
     '["consult-readonly","domain-knowledge"]',
     '["backend-evidence"]',
+    0,
+    0,
+    0
+);
+
+-- 功能：需求规格分析 Agent 版本治理；变更：初始化规格证据编排 v3 生产快照；目的：建立可回归的规格生成基线
+INSERT OR IGNORE INTO consult_agent_version (
+    agent_id, version, status, model, temperature, prompt_ref, orchestration_version,
+    tools_json, mcp_servers_json, skills_json, evaluation_passed, created_at, released_at
+) VALUES (
+    'requirement-specification',
+    1,
+    'PRODUCTION',
+    'runtime-default',
+    0.0,
+    'initial-spec-discovery-v3',
+    'v3',
+    '["source_context"]',
+    '[]',
+    '["graphify","backend-evidence","openspec"]',
     0,
     0,
     0

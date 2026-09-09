@@ -68,7 +68,7 @@ public class PrdDiscoveryService implements ProjectEvidenceQueryPort {
     private final PrdSessionRepository repository;
     private final PrdDiscoveryRunRepository discoveryRunRepository;
     private final PrdEvidenceOrchestrationService evidenceOrchestration;
-    private final AgentOneShotRunner agentRunner;
+    private final RequirementSpecificationAgent specificationAgent;
     private final PrdImageInputResolver imageInputResolver;
     private final PrdArtifactService artifactService;
     private final List<InitialSpecPlanningGateway> planningGateways;
@@ -77,7 +77,7 @@ public class PrdDiscoveryService implements ProjectEvidenceQueryPort {
     public PrdDiscoveryService(PrdSessionRepository repository,
                                PrdDiscoveryRunRepository discoveryRunRepository,
                                PrdEvidenceOrchestrationService evidenceOrchestration,
-                               AgentOneShotRunner agentRunner,
+                               RequirementSpecificationAgent specificationAgent,
                                PrdImageInputResolver imageInputResolver,
                                PrdArtifactService artifactService,
                                List<InitialSpecPlanningGateway> planningGateways,
@@ -85,7 +85,7 @@ public class PrdDiscoveryService implements ProjectEvidenceQueryPort {
         this.repository = repository;
         this.discoveryRunRepository = discoveryRunRepository;
         this.evidenceOrchestration = evidenceOrchestration;
-        this.agentRunner = agentRunner;
+        this.specificationAgent = specificationAgent;
         this.imageInputResolver = imageInputResolver;
         this.artifactService = artifactService;
         this.planningGateways = List.copyOf(planningGateways);
@@ -123,7 +123,7 @@ public class PrdDiscoveryService implements ProjectEvidenceQueryPort {
                 context.cwd() == null
                         ? AgentOneShotRunner.TOOL_POLICY_DISABLED
                         : AgentOneShotRunner.TOOL_POLICY_CONSULT_READONLY);
-        AgentOneShotRunner.ObservedResult observed = agentRunner.runObserved(request, context.images());
+        AgentOneShotRunner.ObservedResult observed = specificationAgent.discover(request, context.images());
         return new DiscoveryAttempt(observed.text(), observed.executionSessionId(), observed.traceId());
     }
 
