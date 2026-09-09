@@ -21,3 +21,9 @@
 - [x] 4.2 Compress portfolio statistics and rename workspace navigation around execution and global views
 - [x] 4.3 Add truthful AI activity and next-action narrative from existing workflow state
 - [ ] 4.4 Verify desktop, mobile, primary interaction, and filtered-empty behavior in a real browser
+
+## 5. Mobile requirement detail recovery
+
+- [x] 5.1 Reflow requirement metadata, Agent status and actions for narrow viewports
+- [x] 5.2 Add responsive and accessibility regression coverage
+- [x] 5.3 Run frontend checks, strict OpenSpec validation and Forge quality gate

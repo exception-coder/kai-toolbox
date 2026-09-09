@@ -51,6 +51,10 @@ The board SHALL remain usable at desktop and mobile widths and MUST distinguish 
 - **WHEN** the viewport cannot display all lifecycle columns
 - **THEN** the columns remain readable through horizontal navigation without compressing note content below its usable width
 
+#### Scenario: Requirement detail on a narrow viewport
+- **WHEN** the user opens requirement detail on a mobile-width viewport
+- **THEN** metadata and Agent state reflow to a single reading column, long text wraps without horizontal overflow, and primary actions remain full-width touch targets
+
 #### Scenario: Filter has no matches
 - **WHEN** active filters produce no matching requirements
 - **THEN** the workspace explains that filters caused the empty result and provides a clear-filter action
