@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Check, ChevronDown, ChevronLeft, ChevronRight, FolderKey, Gauge, RefreshCw, SlidersHorizontal, Zap } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, FolderKey, Gauge, RefreshCw, SlidersHorizontal, Zap } from 'lucide-react'
 import type { CodexReasoningEffort, CodexSpeed, ModelInfo } from '../types'
 
 interface Props {
@@ -97,12 +97,14 @@ export function CodexSessionOptions({
   const [showAdvanced, setShowAdvanced] = useState(false)
   const selectedModel = models.find(item => item.value === model)
   const defaultModel = models.find(item => item.isDefault)
+  const modelAuthMismatch = Boolean(model && models.length > 0 && !selectedModel)
   const effectiveModel = selectedModel ?? (!model ? defaultModel : undefined)
   const supportedEfforts = effectiveModel?.reasoningEfforts?.length ? effectiveModel.reasoningEfforts : DEFAULT_EFFORTS
   const visibleEfforts = supportedEfforts.map(value => ({ value, label: effortLabel(value) }))
   const fastSupported = !effectiveModel || effectiveModel.fastSupported !== false
   const authHomeLabel = codexHome?.trim() || '默认目录（%USERPROFILE%\\.codex）'
   const modelLabel = selectedModel?.displayName || model || (defaultModel ? `默认 · ${defaultModel.displayName}` : '默认模型')
+  const modelDisplayLabel = modelAuthMismatch ? `${modelLabel} · 当前 Auth 不可用` : modelLabel
   const effortValueLabel = EFFORT_LABELS[reasoningEffort] ?? reasoningEffort
   const speedLabel = SPEEDS.find(item => item.value === speed)?.label ?? speed
   const activeAdvancedOption = advancedOptions.find(item => item.id === activeSection)
@@ -159,7 +161,7 @@ export function CodexSessionOptions({
         className="flex h-8 w-auto max-w-full min-w-0 items-center gap-1.5 rounded-md border bg-[var(--color-background)] px-2.5 text-xs disabled:opacity-50 sm:max-w-80"
       >
         <SlidersHorizontal className="size-3.5 shrink-0 text-[var(--color-primary)]" />
-        <span className="truncate font-medium">{modelLabel}</span>
+        <span className="truncate font-medium">{modelDisplayLabel}</span>
         <span className="shrink-0 text-[var(--color-muted-foreground)]">· {effortValueLabel}{showSpeed ? ` · ${speedLabel}` : ''}</span>
         <ChevronDown className={`ml-1 size-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -171,7 +173,7 @@ export function CodexSessionOptions({
             {activeSection === null ? (
               <>
                 <div className="px-2 pb-1.5 pt-1 text-xs font-medium text-[var(--color-muted-foreground)]">{engineLabel} 配置 · 下轮生效</div>
-                <ConfigRow label="模型" value={modelLabel} disabled={optionsDisabled} onClick={() => setActiveSection('model')} />
+                <ConfigRow label="模型" value={modelDisplayLabel} disabled={optionsDisabled} onClick={() => setActiveSection('model')} />
                 <ConfigRow label="推理强度" value={effortValueLabel} icon={<Gauge className="size-4" />} disabled={optionsDisabled} onClick={() => setActiveSection('effort')} />
                 {showSpeed && <ConfigRow label="速度" value={speedLabel} icon={<Zap className="size-4" />} disabled={optionsDisabled} onClick={() => setActiveSection('speed')} />}
                 {(showCodexHome || advancedOptions.length > 0) && (
@@ -242,6 +244,28 @@ export function CodexSessionOptions({
                           <RefreshCw className={`size-3.5 ${modelsRefreshing ? 'animate-spin' : ''}`} />
                           {modelsRefreshing ? '正在同步模型…' : '重新同步模型'}
                         </button>
+                      )}
+                      {modelAuthMismatch && (
+                        <div role="status" className="mx-1 mb-2 border-l-2 border-amber-500 px-3 py-2 text-xs">
+                          <div className="flex items-start gap-2 font-medium text-amber-800 dark:text-amber-200">
+                            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                            <span>{modelLabel} 不在当前 Auth 的可用目录中</span>
+                          </div>
+                          <p className="mt-1 break-all text-[var(--color-muted-foreground)]">
+                            模型目录来自 {authHomeLabel}。刷新不会自动替换已选模型。
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <button
+                              type="button"
+                              disabled={optionsDisabled}
+                              onClick={() => pickModel('')}
+                              className="font-medium text-[var(--color-primary)] hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              使用当前 Auth 默认模型
+                            </button>
+                            <span className="text-[var(--color-muted-foreground)]">需要其他 Auth 时，请复制会话并选择目录。</span>
+                          </div>
+                        </div>
                       )}
                       <OptionRow
                         label={defaultModel ? `默认模型 · ${defaultModel.displayName}` : '默认模型'}
