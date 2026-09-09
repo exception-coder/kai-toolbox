@@ -44,16 +44,39 @@ export function resolveProject(path: string) {
   })
 }
 
-export function graphifyStatus(path: string) {
-  return http<GraphifyProjectStatus>(`/knowledge-graph/graphify/status?path=${encodeURIComponent(path)}`)
+export function graphifyStatus(path: string, signal?: AbortSignal) {
+  return statusRequest<GraphifyProjectStatus>(`/knowledge-graph/graphify/status?path=${encodeURIComponent(path)}`, signal)
 }
 
-export function domainKnowledgeStatus(path: string) {
-  return http<DomainKnowledgeStatus>(`/knowledge-graph/domain-knowledge/status?path=${encodeURIComponent(path)}`)
+export function domainKnowledgeStatus(path: string, signal?: AbortSignal) {
+  return statusRequest<DomainKnowledgeStatus>(`/knowledge-graph/domain-knowledge/status?path=${encodeURIComponent(path)}`, signal)
 }
 
-export function crossTopologyStatus(path: string) {
-  return http<DomainKnowledgeStatus>(`/knowledge-graph/cross-topology/status?path=${encodeURIComponent(path)}`)
+export function crossTopologyStatus(path: string, signal?: AbortSignal) {
+  return statusRequest<DomainKnowledgeStatus>(`/knowledge-graph/cross-topology/status?path=${encodeURIComponent(path)}`, signal)
+}
+
+/** 状态检测允许取消，并在等待过久时恢复操作入口。 */
+async function statusRequest<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const controller = new AbortController()
+  let rejectPending: (error: Error) => void = () => {}
+  const interrupted = new Promise<never>((_resolve, reject) => { rejectPending = reject })
+  const abort = () => {
+    rejectPending(new DOMException('检测已取消', 'AbortError'))
+    controller.abort()
+  }
+  if (signal?.aborted) abort()
+  signal?.addEventListener('abort', abort, { once: true })
+  const timer = setTimeout(() => {
+    rejectPending(new Error('状态检测超过 15 秒，请稍后重试；可以继续操作其他区域。'))
+    controller.abort()
+  }, 15_000)
+  try {
+    return await Promise.race([interrupted, http<T>(path, { signal: controller.signal })])
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', abort)
+  }
 }
 
 /** 读取已缓存的跨项目状态快照（不触发检测，供项目工作台筛选栏加载即用）。 */

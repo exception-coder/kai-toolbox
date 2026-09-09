@@ -479,6 +479,7 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirect
             {selectedProject && !syncOpen && (
               <div className="mb-3">
                 <KnowledgeGraphCard
+                  key={selectedProject.path}
                   projectPath={selectedProject.path}
                   projectName={selectedProject.name}
                   snapshot={kg.snapshotOf(selectedProject.path)}

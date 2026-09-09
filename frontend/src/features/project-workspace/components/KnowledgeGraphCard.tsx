@@ -99,8 +99,8 @@ function aggregateRegistrationState(
 
 /**
  * 项目工作台内嵌的知识图谱卡片：默认折叠只显示两个状态徽标（读批量检测缓存，不发请求）；
- * 展开后对当前选中项目发起三项实时检测（Graphify/domain-knowledge/cross-topology），
- * 与原独立页面内容一致，只是 path/projectKey 直接取选中项目，无需手填。
+ * 展开只读已有状态；Graphify 按需检测，两类业务知识在各自展开时检测。
+ * 收起时取消客户端请求，避免页面操作隐式重复扫描项目。
  */
 export function KnowledgeGraphCard({
   projectPath,
@@ -115,6 +115,7 @@ export function KnowledgeGraphCard({
   const confirm = useConfirm()
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [domainExpanded, setDomainExpanded] = useState(false)
   const [crossTopologyExpanded, setCrossTopologyExpanded] = useState(false)
   const [bootstrapEngine, setBootstrapEngine] = useState<Engine | null>(null)
@@ -122,29 +123,54 @@ export function KnowledgeGraphCard({
   const [launchError, setLaunchError] = useState<string | null>(null)
 
   useEffect(() => {
+    setExpanded(false)
+    setChecking(false)
     setDomainExpanded(false)
     setCrossTopologyExpanded(false)
     setSelectedGaps({})
   }, [projectPath])
 
-  const { data: repos } = useQuery({ queryKey: ['kg-repo-paths'], queryFn: repoPaths, staleTime: 60_000, enabled: expanded })
   const graphifyQuery = useQuery({
     queryKey: ['kg-graphify-status', projectPath],
-    queryFn: () => graphifyStatus(projectPath),
-    enabled: expanded,
+    queryFn: ({ signal }) => graphifyStatus(projectPath, signal),
+    enabled: expanded && checking,
+    staleTime: 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
   })
   const domainKnowledgeQuery = useQuery({
     queryKey: ['kg-domain-knowledge-status', projectPath],
-    queryFn: () => domainKnowledgeStatus(projectPath),
+    queryFn: ({ signal }) => domainKnowledgeStatus(projectPath, signal),
     enabled: expanded && domainExpanded,
     staleTime: 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
   })
   const crossTopologyQuery = useQuery({
     queryKey: ['kg-cross-topology-status', projectPath],
-    queryFn: () => crossTopologyStatus(projectPath),
+    queryFn: ({ signal }) => crossTopologyStatus(projectPath, signal),
     enabled: expanded && crossTopologyExpanded,
     staleTime: 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
   })
+
+  const toggleExpanded = () => {
+    if (expanded) {
+      setChecking(false)
+      setDomainExpanded(false)
+      setCrossTopologyExpanded(false)
+      for (const key of ['kg-graphify-status', 'kg-domain-knowledge-status', 'kg-cross-topology-status']) {
+        void queryClient.cancelQueries({ queryKey: [key, projectPath], exact: true })
+      }
+    }
+    setExpanded(value => !value)
+  }
+  const currentGraphify = graphifyQuery.data
+  const graphifyState = currentGraphify?.state ?? snapshot?.graphifyState
+  const visibleSnapshot = currentGraphify ? { projectPath, graphifyState: currentGraphify.state,
+    businessGraphState: snapshot?.businessGraphState ?? null, businessGraphError: snapshot?.businessGraphError ?? null,
+    checkedAt: currentGraphify.checkedAt } : snapshot
 
   useEffect(() => {
     const graphify = graphifyQuery.data
@@ -183,7 +209,14 @@ export function KnowledgeGraphCard({
       })
       return
     }
-    const cwd = repoKey === 'domain-knowledge' ? repos?.domainKnowledgeRepoPath : repos?.crossTopologyRepoPath
+    let repos: Awaited<ReturnType<typeof repoPaths>>
+    try {
+      repos = await queryClient.fetchQuery({ queryKey: ['kg-repo-paths'], queryFn: repoPaths, staleTime: 60_000 })
+    } catch (error) {
+      setLaunchError(error instanceof Error ? error.message : '无法读取团队仓库目录，请重试')
+      return
+    }
+    const cwd = repoKey === 'domain-knowledge' ? repos.domainKnowledgeRepoPath : repos.crossTopologyRepoPath
     if (!cwd) {
       await confirm({
         title: '团队依赖尚未初始化',
@@ -251,13 +284,14 @@ export function KnowledgeGraphCard({
         <button
           type="button"
           className="flex min-w-0 items-center gap-2 text-left"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={toggleExpanded}
+          aria-expanded={expanded}
         >
           {expanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
           <Network className="h-4 w-4 shrink-0 text-[var(--color-primary)]" />
           <CardTitle className="text-base">知识图谱</CardTitle>
         </button>
-        <CollapsedBadges snapshot={snapshot} />
+        <CollapsedBadges snapshot={visibleSnapshot} />
       </CardHeader>
       {expanded && (
         <CardContent className="flex flex-col gap-4 border-t pt-4">
@@ -290,14 +324,17 @@ export function KnowledgeGraphCard({
                 <CardTitle>Graphify（代码结构图）</CardTitle>
                 <CardDescription>产物在项目自己目录 graphify-out/ 下</CardDescription>
               </div>
-              {graphifyQuery.data && (
-                <StatusBadge tone={GRAPHIFY_TONE[graphifyQuery.data.state]}>
-                  {GRAPHIFY_LABEL[graphifyQuery.data.state]}
+              {graphifyState && (
+                <StatusBadge tone={GRAPHIFY_TONE[graphifyState]}>
+                  {GRAPHIFY_LABEL[graphifyState]}
                 </StatusBadge>
               )}
             </CardHeader>
             <CardContent className="flex flex-col gap-3 text-sm text-[var(--color-muted-foreground)]">
-              {graphifyQuery.isLoading && '检测中…'}
+              <p className="text-xs">{currentGraphify ? `检测于 ${new Date(currentGraphify.checkedAt).toLocaleString()}` : snapshot ? `历史检测于 ${new Date(snapshot.checkedAt).toLocaleString()}，尚未实时检查` : '尚未检测。展开不会自动扫描项目。'}</p>
+              <Button size="sm" variant="outline" disabled={graphifyQuery.isFetching} onClick={() => { setChecking(true); void graphifyQuery.refetch() }}>
+                <RefreshCw className={graphifyQuery.isFetching ? 'size-4 animate-spin' : 'size-4'} />{graphifyQuery.isFetching ? '正在检测，可收起取消' : '检查最新状态'}
+              </Button>
               {graphifyQuery.isError && <span className="text-[var(--color-destructive)]">{(graphifyQuery.error as Error).message}</span>}
               {graphifyQuery.data && (
                 <>
