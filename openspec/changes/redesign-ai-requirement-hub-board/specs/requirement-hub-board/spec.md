@@ -1,15 +1,26 @@
 ## ADDED Requirements
 
 ### Requirement: Requirements are organized by lifecycle stage
-The system SHALL present the AI requirement hub workspace as ordered lifecycle-stage columns, and each visible root requirement MUST appear in exactly one column matching its current status.
+The system SHALL adapt the AI requirement hub presentation to workload density while preserving ordered lifecycle stages, and each visible root requirement MUST appear exactly once in the active presentation.
 
 #### Scenario: Mixed requirement statuses
-- **WHEN** the workspace contains requirements in multiple statuses
+- **WHEN** more than five visible root requirements require broad comparison
 - **THEN** the board shows ordered stage columns with each requirement under its matching stage and an accurate count per column
 
-#### Scenario: Empty stage
-- **WHEN** a stage has no matching requirements
-- **THEN** its column remains visible with a quiet empty message that preserves the lifecycle context
+#### Scenario: Sparse workload
+- **WHEN** one to five visible root requirements are available
+- **THEN** the workspace shows one deterministic current focus, an AI activity narrative, lifecycle counts, and the remaining recent tasks without rendering empty stage columns
+
+### Requirement: Current focus explains active work
+The workspace SHALL explain what the focused requirement is, where it sits in the delivery path, what the AI or workflow is currently doing, and the next useful action using only existing observable state.
+
+#### Scenario: Focused requirement has active background work
+- **WHEN** its PRD, plan, or code analysis status is running
+- **THEN** the focus area identifies that active operation without inventing additional events
+
+#### Scenario: Focused requirement is blocked or incomplete
+- **WHEN** no background operation is running and a known requirement or delivery gap exists
+- **THEN** the focus area explains the gap and names the next recoverable action
 
 ### Requirement: Requirement notes preserve decision context
 Each requirement note SHALL expose the title, current decision signal, project or module context, delivery evidence summary, owner or deadline context, and the highest-priority risk when those fields are enabled.

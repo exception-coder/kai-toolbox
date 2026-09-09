@@ -1,7 +1,11 @@
 import type { ReactNode, RefObject } from 'react'
+import { Activity, ArrowRight, CircleDot, Sparkles } from 'lucide-react'
 import type { ReqItemView } from '../types'
 import {
+  decisionOf,
+  effectiveInsight,
   groupRequirementsByStatus,
+  relativeTime,
   REQUIREMENT_BOARD_STAGES,
   STATUS_META,
   type ReqpoolDensity,
@@ -15,6 +19,37 @@ const STAGE_ACCENT = {
   DONE: 'bg-emerald-500',
   CANCELLED: 'bg-rose-400',
 } as const
+
+const MISSION_CONTROL_LIMIT = 5
+
+function focusScore(item: ReqItemView): number {
+  const running = item.insightRun?.status === 'RUNNING' ? 100 : 0
+  const stage = item.status === 'IN_DEV' ? 80 : item.status === 'CLARIFYING' ? 65 : item.status === 'PRD_READY' ? 50 : 0
+  const decision = decisionOf(item) === 'NOW' ? 35 : decisionOf(item) === 'CLARIFY' ? 25 : 0
+  const risk = item.priority === 'HIGH' || item.aiInsightStale ? 20 : 0
+  return running + stage + decision + risk
+}
+
+export function selectMissionFocus(items: ReqItemView[]): ReqItemView | null {
+  return [...items].sort((left, right) => focusScore(right) - focusScore(left) || right.updatedAt - left.updatedAt)[0] ?? null
+}
+
+function activityNarrative(item: ReqItemView): { current: string; next: string } {
+  if (item.insightRun?.status === 'RUNNING') {
+    const current = item.insightRun.stage === 'DISCOVERING'
+      ? '正在查询业务知识、Graphify 与项目路由'
+      : item.insightRun.stage === 'QUEUED' ? '已进入 AI 分析队列' : '正在生成并校验需求判定'
+    return { current, next: '分析完成后更新优先级与规划证据' }
+  }
+  if (item.aiInsightStale) return { current: '需求事实已变化，历史 AI 判定需要刷新', next: '重新分析需求并确认最新证据' }
+  if (!item.assignee) return { current: '需求已进入流程，等待明确唯一负责人', next: '指派负责人并确认承诺时间' }
+  if (item.status === 'DRAFT') return { current: '正在等待需求事实与验收口径补齐', next: '完成澄清后进入规格生成' }
+  if (item.status === 'CLARIFYING') return { current: 'AI 正在收敛业务规则与边界', next: '回答待确认问题并生成规格' }
+  if (item.status === 'PRD_READY') return { current: '规格已就绪，等待形成可执行计划', next: '生成执行方案并确认开发入口' }
+  if (item.status === 'IN_DEV') return { current: '需求正在交付，持续核对代码与计划证据', next: '完成代码验证并收敛交付结论' }
+  if (item.status === 'DONE') return { current: '交付证据已收敛', next: '复核结果或进入归档' }
+  return { current: '任务已退出当前执行流', next: '需要时打开详情查看历史证据' }
+}
 
 export function RequirementBoard({
   items,
@@ -34,6 +69,44 @@ export function RequirementBoard({
   renderLineage: (item: ReqItemView) => ReactNode
 }) {
   const grouped = groupRequirementsByStatus(items)
+  const focus = selectMissionFocus(items)
+
+  if (items.length <= MISSION_CONTROL_LIMIT && focus) {
+    const recent = items.filter(item => item.id !== focus.id).sort((a, b) => b.updatedAt - a.updatedAt)
+    const narrative = activityNarrative(focus)
+    const insight = effectiveInsight(focus)
+    return (
+      <section aria-label="AI 任务指挥台">
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3 text-[10px] text-[var(--color-muted-foreground)]">
+          <label className="flex cursor-pointer items-center gap-2"><input ref={selectAllRef} type="checkbox" checked={allSelected} onChange={onToggleAll} className="h-3.5 w-3.5 accent-violet-600" />选择当前结果</label>
+          <span>少量任务模式 · 聚焦最需要推进的一项</span>
+        </div>
+        <div className="grid gap-0 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
+          <div className="border-b border-[var(--color-border)] p-4 sm:p-6 lg:border-b-0 lg:border-r">
+            <div className="mb-4 flex items-center justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-600">Current focus</p><h2 className="mt-1 text-base font-semibold">当前焦点</h2></div><span className="text-[10px] text-[var(--color-muted-foreground)]">{STATUS_META[focus.status].label} · {relativeTime(focus.updatedAt)}更新</span></div>
+            {renderNote(focus)}
+            {renderLineage(focus)}
+          </div>
+          <aside className="p-4 sm:p-6" aria-label="AI 当前活动">
+            <div className="flex items-center gap-2"><Activity className="h-4 w-4 text-violet-600" /><h2 className="text-sm font-semibold">AI 正在处理</h2></div>
+            <p className="mt-4 text-sm leading-6">{narrative.current}</p>
+            {insight?.recommendation && <p className="mt-2 text-xs leading-5 text-[var(--color-muted-foreground)]">{insight.recommendation}</p>}
+            <div className="mt-6 border-l border-[var(--color-border)] pl-4"><p className="text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">Next action</p><p className="mt-2 flex items-start gap-2 text-xs leading-5"><ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-600" />{narrative.next}</p></div>
+            <div className="mt-6 space-y-3 border-t border-[var(--color-border)] pt-4 text-[10px] text-[var(--color-muted-foreground)]">
+              <div className="flex items-center gap-2"><CircleDot className="h-3 w-3" />需求已登记并进入 {STATUS_META[focus.status].label}</div>
+              <div className="flex items-center gap-2"><span className="relative flex h-3 w-3 items-center justify-center"><span className="motion-safe:animate-ping absolute h-2 w-2 rounded-full bg-violet-400 opacity-40" /><span className="relative h-1.5 w-1.5 rounded-full bg-violet-600" /></span>{narrative.current}</div>
+            </div>
+          </aside>
+        </div>
+        <div className="border-t border-[var(--color-border)] px-4 py-4 sm:px-6">
+          <div className="flex min-w-max items-center gap-5 overflow-x-auto pb-1" aria-label="生命周期阶段">
+            {REQUIREMENT_BOARD_STAGES.map(stage => <div key={stage} className="flex items-center gap-2 text-[10px]"><span className={`h-1.5 w-1.5 rounded-full ${STAGE_ACCENT[stage]}`} /><span className={stage === focus.status ? 'font-semibold text-[var(--color-foreground)]' : 'text-[var(--color-muted-foreground)]'}>{STATUS_META[stage].label}</span><span className="tabular-nums text-[var(--color-muted-foreground)]">{grouped.get(stage)?.length ?? 0}</span></div>)}
+          </div>
+        </div>
+        {recent.length > 0 && <div className="border-t border-[var(--color-border)] px-4 py-5 sm:px-6"><div className="mb-3 flex items-center gap-2"><Sparkles className="h-3.5 w-3.5 text-[var(--color-muted-foreground)]" /><h2 className="text-xs font-semibold">最近任务</h2></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{recent.map(item => <div key={item.id}>{renderNote(item)}{renderLineage(item)}</div>)}</div></div>}
+      </section>
+    )
+  }
 
   return (
     <section aria-label="需求生命周期看板">

@@ -41,8 +41,8 @@ export function ReqPoolPageHeader({
         <div className="flex items-center gap-3">
           <div className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--color-primary)] text-[var(--color-primary-foreground)]"><Sparkles className="h-4 w-4" /></div>
           <div>
-            <div className="flex items-center gap-2"><h1 className="text-lg font-semibold tracking-tight">AI 需求中枢</h1><span className="flex items-center gap-1.5 text-[10px] text-[var(--color-muted-foreground)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--color-muted-foreground)]" />实时同步</span></div>
-            <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">一套标准收口需求，一条证据链还原真实进度</p>
+            <div className="flex items-center gap-2"><h1 className="text-lg font-semibold tracking-tight">AI 需求中枢</h1><span className="flex items-center gap-1.5 text-[10px] text-[var(--color-muted-foreground)]"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />证据已连接</span></div>
+            <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">看清今天最重要的任务，以及 AI 正在推进的下一步</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -62,8 +62,8 @@ export function ReqPoolPageHeader({
         </div>
       </div>
       <div className="flex items-center gap-1 overflow-x-auto px-5 lg:px-8">
-        <ViewTab active={view === 'table'} icon={<Columns3 className="h-3.5 w-3.5" />} label="流程看板" onClick={() => onViewChange('table')} />
-        <ViewTab active={view === 'leader'} icon={<Presentation className="h-3.5 w-3.5" />} label="领导视图" onClick={() => onViewChange('leader')} />
+        <ViewTab active={view === 'table'} icon={<Columns3 className="h-3.5 w-3.5" />} label="执行视图" onClick={() => onViewChange('table')} />
+        <ViewTab active={view === 'leader'} icon={<Presentation className="h-3.5 w-3.5" />} label="全局视图" onClick={() => onViewChange('leader')} />
         <div className="ml-auto hidden items-center gap-2 pb-2 text-[10px] text-[var(--color-muted-foreground)] sm:flex"><Database className="h-3 w-3" />需求规格 · 执行方案 · Git · 文档已连接</div>
       </div>
     </header>

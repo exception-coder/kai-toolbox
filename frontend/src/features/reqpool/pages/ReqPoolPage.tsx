@@ -332,13 +332,14 @@ export function ReqPoolPage() {
 
       {view === 'leader' ? <LeaderBrief items={rootItems} overview={overview} /> : (
         <main className="px-5 pb-10 pt-4 lg:px-8">
-          <section className="mb-4 grid grid-cols-2 border-y border-[var(--color-border)] bg-[var(--color-card)] sm:grid-cols-4" aria-label="需求组合概览">
+          <section className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-[var(--color-border)] py-3 text-[11px]" aria-label="今日需求概览">
+            <span className="font-semibold">今天</span>
             {[
-              ['建议投入', counts.now, 'AI 统一判定'],
-              ['待补充', counts.clarify, '缺少关键信息'],
-              ['正在交付', counts.delivery, '规格与执行同步'],
-              ['高风险', counts.risk, '需要负责人介入'],
-            ].map(([label, value, hint], index) => <div key={String(label)} className={`px-4 py-4 ${index > 0 ? 'border-l border-[var(--color-border)]' : ''} ${index === 2 ? 'max-sm:border-l-0 max-sm:border-t' : ''} ${index === 3 ? 'max-sm:border-t' : ''}`}><div className="text-[10px] font-medium text-[var(--color-muted-foreground)]">{String(label)}</div><div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">{String(value)}</div><div className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">{String(hint)}</div></div>)}
+              ['建议投入', counts.now, 'bg-emerald-500'],
+              ['正在交付', counts.delivery, 'bg-violet-500'],
+              ['需要关注', counts.risk, 'bg-rose-500'],
+              ['待补充', counts.clarify, 'bg-amber-500'],
+            ].map(([label, value, dot]) => <span key={String(label)} className="flex items-center gap-2 text-[var(--color-muted-foreground)]"><span className={`h-1.5 w-1.5 rounded-full ${dot}`} /><strong className="font-semibold tabular-nums text-[var(--color-foreground)]">{String(value)}</strong>{String(label)}</span>)}
           </section>
 
           <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)]">
