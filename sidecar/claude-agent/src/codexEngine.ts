@@ -25,6 +25,7 @@ import {
 } from './codexSecurity.js'
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import { FORGE_AFFECTED_API_STEER } from './affectedApiPolicy.js'
+import { CODEX_COMPUTER_USE_RECOVERY_STEER } from './codexComputerUsePolicy.js'
 import {
   CodexAppServerTurnError,
   deleteCodexThread,
@@ -224,13 +225,12 @@ function toolboxMcpRuntimeDiagnostics(): string {
   return `bridge=${bridge} exists=${existsSync(bridge)} build=${buildId}`
 }
 
-function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string,
-                          sessionId?: string,
-                          forgeSqlRegistration = false,
-                          turnDeveloperInstructions?: string,
-                          sourceRoot?: string,
-                          consultEvidenceSystems: readonly string[] = []): NonNullable<CodexOptions['config']> {
+export function buildCodexDeveloperInstructions(toolPolicy: string, sessionId?: string,
+                                                forgeSqlRegistration = false,
+                                                turnDeveloperInstructions?: string): string | undefined {
   const baseDeveloperInstructions = [
+    toolPolicy !== 'disabled' && toolPolicy !== REVIEW_ONLY_POLICY && toolPolicy !== CONSULT_READONLY_POLICY
+      ? CODEX_COMPUTER_USE_RECOVERY_STEER : undefined,
     toolPolicy === CONSULT_READONLY_POLICY ? CONSULT_READONLY_PROMPT : undefined,
     toolPolicy === REVIEW_ONLY_POLICY ? REVIEW_ONLY_PROMPT : undefined,
     toolPolicy !== 'disabled' && toolPolicy !== REVIEW_ONLY_POLICY && sessionId && forgeSqlRegistration
@@ -245,6 +245,18 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
       || toolPolicy === DELEGATED_DEVELOPMENT_POLICY || toolPolicy === DELEGATED_REQUEST_ONLY_POLICY
       ? turnDeveloperInstructions?.trim() : undefined,
   ].filter(Boolean).join('\n\n'))
+  return developerInstructions || undefined
+}
+
+function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string,
+                          sessionId?: string,
+                          forgeSqlRegistration = false,
+                          turnDeveloperInstructions?: string,
+                          sourceRoot?: string,
+                          consultEvidenceSystems: readonly string[] = []): NonNullable<CodexOptions['config']> {
+  const developerInstructions = buildCodexDeveloperInstructions(
+    toolPolicy, sessionId, forgeSqlRegistration, turnDeveloperInstructions,
+  )
   return {
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
     ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),

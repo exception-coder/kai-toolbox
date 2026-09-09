@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
+import { computerUseFailureTitle } from './codexComputerUsePolicy.js'
 import { classifyCommandResult } from './commandExecution.js'
 import {
   CodexTurnCompletionGate,
@@ -1288,7 +1289,9 @@ function handleAppServerItem(
         emit({ type: 'toolResult', toolCallId: itemId, toolName: label, toolKind: 'mcp', output, isError: failed })
         emitToolActivity(emit, {
           toolCallId: itemId, toolName: label, status: failed ? 'failed' : 'completed',
+          title: failed ? computerUseFailureTitle(label, output) : undefined,
           elapsedMs: elapsedSince(mcpActivities.get(itemId)?.startedAt), outputTail: activityOutputTail(output),
+          outcome: failed ? 'failure' : 'success',
         })
         mcpActivities.delete(itemId)
       }
