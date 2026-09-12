@@ -79,4 +79,29 @@ describe('central project management', () => {
     expect(screen.getByLabelText('工作区目录')).toHaveValue('D:/new')
   })
 
+  it('restores the implicit managed directory without requiring a path', async () => {
+    provider(<ProjectDirectorySettings />)
+    fireEvent.change(await screen.findByLabelText('托管业务源码目录'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存托管业务源码目录' }))
+    await waitFor(() => expect(updateConfigBlock).toHaveBeenCalledWith('toolbox.claude-chat.business-workspace',
+      { 'toolbox.claude-chat.business-workspace.root': '' }, []))
+  })
+
+  it('still rejects an empty required project directory', async () => {
+    provider(<ProjectDirectorySettings />)
+    fireEvent.change(await screen.findByLabelText('默认项目目录'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存默认项目目录' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('请填写一个完整的本地目录')
+    expect(updateConfigBlock).not.toHaveBeenCalled()
+  })
+
+  it('keeps explicit missing roots visible with a directory settings action', async () => {
+    vi.mocked(listWorkspaces).mockResolvedValue({ scannedAt: '', roots: [{ root: 'D:/missing', exists: false, dirs: [] }] })
+    const settings = vi.fn()
+    provider(<LocalProjectDiscovery registered={[]} onSelect={vi.fn()} onOpen={vi.fn()} onSettings={settings} />)
+    expect(await screen.findByText(/目录不可用：D:\/missing/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '管理目录' }))
+    expect(settings).toHaveBeenCalled()
+  })
+
 })

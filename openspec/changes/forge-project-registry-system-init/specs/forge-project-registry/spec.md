@@ -32,3 +32,14 @@ The project registry SHALL provide local project discovery, directory configurat
 #### Scenario: Legacy management link
 - **WHEN** a user opens the old project management or module workspace URL
 - **THEN** the corresponding registry section opens and its existing capabilities remain accessible
+
+### Requirement: Optional managed directory discovery
+The registry SHALL omit a missing implicit managed source root from discovery while retaining explicitly configured missing roots and preserving path authorization. Directory settings SHALL expose the managed source configuration and allow restoring its default.
+
+#### Scenario: Unused default location
+- **WHEN** the managed root is unset and its default path does not exist
+- **THEN** discovery omits that optional root without creating it or revoking its authorization
+
+#### Scenario: Explicit missing location
+- **WHEN** a missing root is explicitly configured as a workspace or managed source root
+- **THEN** discovery retains its unavailable status and project directory settings provide the corresponding configuration field

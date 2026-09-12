@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.claudechat.config.WorkspaceProperties;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.InvalidPathException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -24,6 +25,15 @@ public class WorkspaceRootResolver {
     }
 
     public List<Path> roots() {
+        return resolveRoots(true);
+    }
+
+    /** 扫描不报告尚未使用的默认托管目录；授权仍包含该目录以支持首次创建。 */
+    public List<Path> scanRoots() {
+        return resolveRoots(false);
+    }
+
+    private List<Path> resolveRoots(boolean includeUnusedDefault) {
         Set<Path> roots = new LinkedHashSet<>();
         for (String configured : workspaceProperties.getRoots()) {
             if (configured == null || configured.isBlank()) {
@@ -35,7 +45,12 @@ public class WorkspaceRootResolver {
                 // 保持工作区列表可用，非法动态配置由扫描结果忽略。
             }
         }
-        roots.add(businessWorkspaceProperties.resolveRoot());
+        Path managed = businessWorkspaceProperties.resolveRoot();
+        String configuredManaged = businessWorkspaceProperties.getRoot();
+        if (includeUnusedDefault || (configuredManaged != null && !configuredManaged.isBlank())
+                || !Files.notExists(managed)) {
+            roots.add(managed);
+        }
         return List.copyOf(roots);
     }
 

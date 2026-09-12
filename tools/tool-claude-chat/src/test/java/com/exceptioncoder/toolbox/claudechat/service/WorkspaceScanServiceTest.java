@@ -14,11 +14,28 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.*;
 
 class WorkspaceScanServiceTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void scanOmitsUnusedDefaultButReportsExplicitMissingWorkspace() {
+        Path managed = tempDir.resolve("unused-sources");
+        Path missing = tempDir.resolve("configured-projects");
+        var properties = new WorkspaceProperties();
+        properties.setRoots(List.of(missing.toString()));
+        var business = mock(BusinessWorkspaceProperties.class);
+        when(business.resolveRoot()).thenReturn(managed);
+        when(business.getRoot()).thenReturn("");
+        var resolver = new WorkspaceRootResolver(properties, business);
+        var response = new WorkspaceScanService(properties, resolver, new ObjectMapper()).scan();
+        assertThat(response.roots()).hasSize(1);
+        assertThat(response.roots().getFirst().root()).isEqualTo(missing.toString());
+        assertThat(response.roots().getFirst().exists()).isFalse();
+    }
 
     @Test
     void automaticallyDiscoversManagedBusinessWorkspaces() throws Exception {

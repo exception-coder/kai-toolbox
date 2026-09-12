@@ -45,3 +45,7 @@ Existing graph artifacts are distinct from proven current-source coverage. Prese
 Registry presentation uses Chinese primary labels with English equivalents for the five assets and seven pipeline stages, keyed by stable kind/stage IDs so existing profiles need no migration. Overview includes a plain-language guide to checks, initialization outputs and purpose; it distinguishes full initialization from manual evidence synchronization and discovery from actual build/API/database verification.
 
 No unresolved first-phase business decisions. Provider-driven semantic domain generation and change listeners are explicitly deferred.
+
+## Optional managed source discovery
+
+Discovery omits an absent implicit business-workspace default root. Explicit workspace roots and explicit managed roots remain visible when missing, and an existing default root is discovered. Authorization continues to use all roots, including the implicit default, to preserve clone/create behavior. Do not create directories or alter user configuration to silence warnings. Registry directory settings expose the existing business-workspace.root through its public configuration API; blank means the default managed location.

@@ -199,7 +199,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
         }
 
         List<RootView> roots = new ArrayList<>();
-        for (Path root : rootResolver.roots()) {
+        for (Path root : rootResolver.scanRoots()) {
             roots.add(scanRoot(root.toString()));
         }
         WorkspaceListResponse result = new WorkspaceListResponse(List.copyOf(roots), OffsetDateTime.now());

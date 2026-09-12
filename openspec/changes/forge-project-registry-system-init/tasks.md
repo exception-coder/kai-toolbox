@@ -37,3 +37,8 @@
 - Final refresh uses manual SYNC after excluding runtime attachments and generated bundles. Its published status is recorded in `.codex-work/registry-forge-init-result.json`; graph freshness remains a real external evidence gap, not an invented successful extraction.
 - No human-executed SQL script was produced: additive schema is owned by normal application startup. Forge DDL baseline returned PARTIAL for the four new tables; native SQLite tests passed but this does not update the knowledge baseline.
 - Change remains active until browser acceptance and API ledger permission are resolved. Domain generation and automatic incremental graph synchronization remain phase two.
+
+- [x] 4.5 Suppress missing implicit managed roots only during discovery, expose managed directory settings, and verify explicit-root warnings and unchanged authorization.
+
+- Optional managed roots: 8 Java tests and 9 frontend tests passed. Authorization roots are unchanged; only an absent implicit default is excluded from discovery. Existing managed configuration is editable in the registry. GET /api/claude-chat/workspaces impact registered successfully with unit-test evidence. Forge exit 0/PASSED, zero static checkers, nine existing API runtime scenarios; no new live endpoint or browser acceptance claimed.
+- Frontend production build (including TypeScript and feature boundaries) passed with exit 0. Existing chunk-size warnings remain. No backend restart was performed.
