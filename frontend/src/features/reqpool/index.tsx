@@ -1,6 +1,7 @@
 import { lazy } from 'react'
-import { TableProperties } from 'lucide-react'
+import { Radar } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
+import { LegacyDeliveryRedirect } from '@/features/delivery-center/public-api'
 
 const ReqPoolPage = lazy(() =>
   import('./pages/ReqPoolPage').then((m) => ({ default: m.ReqPoolPage }))
@@ -8,12 +9,15 @@ const ReqPoolPage = lazy(() =>
 
 const manifest: FeatureManifest = {
   id: 'reqpool',
-  name: 'AI 需求中枢',
-  icon: TableProperties,
+  name: 'AI 交付中心',
+  icon: Radar,
   group: 'AI',
-  description: '统一登记、统一判定，基于需求规格、执行方案与代码证据自动同步真实进度',
-  order: 53,
-  routes: [{ path: '/tools/reqpool', element: <ReqPoolPage /> }],
+  description: '从需求登记到交付验收，统一查看项目、执行轨道与真实证据',
+  order: 49,
+  routes: [
+    { path: '/tools/reqpool', element: <ReqPoolPage /> },
+    { path: '/tools/delivery-center', element: <LegacyDeliveryRedirect /> },
+  ],
 }
 
 export default manifest

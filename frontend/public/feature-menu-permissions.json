@@ -262,8 +262,8 @@
       "sort": 45
     },
     {
-      "featureId": "delivery-center",
-      "code": "menu:delivery-center",
+      "featureId": "reqpool",
+      "code": "menu:reqpool",
       "name": "AI 交付中心",
       "module": "AI",
       "sort": 49
@@ -337,13 +337,6 @@
       "name": "系统路由检测",
       "module": "AI",
       "sort": 52
-    },
-    {
-      "featureId": "reqpool",
-      "code": "menu:reqpool",
-      "name": "AI 需求中枢",
-      "module": "AI",
-      "sort": 53
     },
     {
       "featureId": "srm-dev",

@@ -1,5 +1,6 @@
 import { ArrowUpRight, BrainCircuit, Check, Clock3, CircleDashed, Loader2, ShieldCheck, TriangleAlert, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import type { ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { DeliveryFinding, DeliveryRequirement, DeliveryStageKey, ProgressItem, StageStatus } from '../types'
 import { startDeliveryVerification } from '../api'
@@ -9,9 +10,10 @@ interface Props {
   requirement: DeliveryRequirement | null
   findings: DeliveryFinding[]
   onStageSelect: (stage: DeliveryStageKey) => void
+  management?: ReactNode
 }
 
-export function AiInspector({ requirement, findings, onStageSelect }: Props) {
+export function AiInspector({ requirement, findings, onStageSelect, management }: Props) {
   const navigate = useNavigate()
   if (!requirement) {
     return (
@@ -59,10 +61,10 @@ export function AiInspector({ requirement, findings, onStageSelect }: Props) {
         <div className="mt-3 flex items-center gap-1 text-[9px] text-[var(--color-muted-foreground)]">
           <Clock3 className="h-2.5 w-2.5" />更新于 {formatTime(requirement.updatedAt)} · 可信度 {requirement.confidence}%
         </div>
-        <div className="mt-4 flex items-center">
-          {stages.map(([key, label, status, score], index) => (
-            <div key={key} className="flex min-w-0 flex-1 items-center">
-              {index > 0 && <span className="h-px flex-1 bg-[var(--color-border)]" />}
+        {management && <div className="mt-4 border-t border-[var(--color-border)] pt-4">{management}</div>}
+        <div className="mt-4 grid grid-cols-4 gap-x-2 gap-y-3">
+          {stages.map(([key, label, status, score]) => (
+            <div key={key} className="flex min-w-0 justify-center">
               <InspectorStage label={label} status={status} score={score} onClick={() => onStageSelect(key)} />
             </div>
           ))}

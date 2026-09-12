@@ -28,7 +28,7 @@ export const capabilities: Capability[] = [
     scenarios: ['使用业务系统时，需要解释当前页面或操作', '发现问题，想保留现场上下文再沟通', '为自己的业务系统接入统一助手'],
     steps: ['业务现场', '描述问题', '带上下文交流', '继续跟进'],
     destination: '/tools/assistant-integration', action: '了解如何接入',
-    entryHint: '打开嵌入式业务助手，查看接入方式。接入后，在业务页面使用彩虹胶囊；需要整理开发需求时，可继续使用 AI 需求中枢。',
+    entryHint: '打开嵌入式业务助手，查看接入方式。接入后，在业务页面使用彩虹胶囊；需要整理开发需求时，可继续使用 AI 交付中心。',
   },
   {
     id: 'delegation', name: '委托', category: '自动化', icon: Orbit, featured: true,
@@ -60,10 +60,10 @@ export const capabilities: Capability[] = [
   {
     id: 'requirements', name: '需求探索', category: '理解与探索', icon: BookOpen,
     promise: '把模糊的想法，整理成可以推进的需求。',
-    description: '在 AI 需求中枢统一登记想法，梳理价值与范围，并结合规格和执行证据跟进进度。',
+    description: '在 AI 交付中心统一登记想法，梳理价值与范围，并结合规格和执行证据跟进进度。',
     scenarios: ['想法还不完整，需要澄清边界', '需要统一跟进多条开发需求'],
     steps: ['登记想法', '分析价值', '明确方案', '跟进进度'],
-    destination: '/tools/reqpool', action: '打开需求中枢', entryHint: '进入 AI 需求中枢，登记或选择一条需求开始探索。',
+    destination: '/tools/reqpool', action: '打开交付中心', entryHint: '进入 AI 交付中心，登记或选择一条需求开始探索。',
   },
   {
     id: 'evaluation', name: '回归评测', category: '质量', icon: FlaskConical,

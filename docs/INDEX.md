@@ -12,3 +12,4 @@
 | 后端知识图谱 | 表关系、状态流转、SQL 能力与反向索引 | [knowledge-graph/](knowledge-graph/00_index.md) |
 | 编码违规 | 已知编码违规与约束记录 | [coding-violations.md](coding-violations.md) |
 | Agent 教学 | 现有 Agent 管理中的配置、试运行与回归 | [TEACHING.md](../tools/tool-fore-consult/TEACHING.md) |
+| AI 交付中心 | 统一需求入口、项目轨道与交付证据 | [reqpool/README.md](../frontend/src/features/reqpool/README.md) |

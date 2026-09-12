@@ -42,6 +42,6 @@ describe('Forge capability showcase', () => {
     fireEvent.click(screen.getAllByRole('button', { name: '了解彩虹胶囊' })[0])
     const drawer = screen.getByRole('dialog', { name: '彩虹胶囊' })
     expect(within(drawer).getByRole('link', { name: '了解如何接入' }).getAttribute('href')).toBe('/tools/assistant-integration')
-    expect(within(drawer).getByText(/AI 需求中枢/)).toBeTruthy()
+    expect(within(drawer).getByText(/AI 交付中心/)).toBeTruthy()
   })
 })

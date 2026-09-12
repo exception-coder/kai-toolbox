@@ -1,0 +1,12 @@
+@reference "../../../index.css";
+
+.delivery-map {
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--color-muted-foreground) 20%, transparent) 0.7px, transparent 0.7px);
+  background-size: 18px 18px;
+}
+.delivery-action {
+  @apply inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-xs font-medium hover:bg-muted disabled:opacity-50;
+}
+.unified-delivery :is(button, input, select):focus-visible {
+  @apply outline-2 outline-offset-2 outline-ring;
+}

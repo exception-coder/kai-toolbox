@@ -13,6 +13,7 @@ const manifest: FeatureManifest = {
   group: 'AI',
   description: '基于需求规格、执行方案与代码证据自动校准真实交付状态',
   order: 49,
+  hidden: true,
   routes: [{ path: '/tools/delivery-center', element: <DeliveryCenterPage /> }],
 }
 
