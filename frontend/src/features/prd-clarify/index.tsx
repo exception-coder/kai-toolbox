@@ -8,11 +8,12 @@ const PrdClarifyPage = lazy(() =>
 
 const manifest: FeatureManifest = {
   id: 'prd-clarify',
-  name: '规格探索',
+  name: '规格工作台',
   icon: FileText,
   group: 'AI',
-  description: '探索需求，结合系统知识生成初始化规格并沉淀为核心规格',
+  description: 'AI 交付中心的深度规格工作区，用于兼容历史会话与直接链接',
   order: 55,
+  chrome: true,
   routes: [{ path: '/tools/prd-clarify', element: <PrdClarifyPage /> }],
 }
 

@@ -20,7 +20,7 @@ interface PrdDraftDialogProps {
   onCreated: (sessionId: string) => void
 }
 
-/** AI 交付中心的 PRD 起草入口，创建后把生命周期交回 PRD 澄清模块。 */
+/** AI 交付中心的标准登记入口；创建后由中心原地打开规格澄清节点。 */
 export function PrdDraftDialog({
   initialProject,
   initialShortTitle = '',

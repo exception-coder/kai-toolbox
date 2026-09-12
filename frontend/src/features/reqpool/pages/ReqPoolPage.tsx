@@ -117,7 +117,6 @@ export function ReqPoolPage() {
     toggleSelected,
     toggleVisible,
     removeSelected,
-    quickSaved: handleQuickSaved,
     assign: handleAssign,
     saveDeadline: handleDeadline,
   } = useReqpoolItemCommands({
@@ -180,6 +179,33 @@ export function ReqPoolPage() {
     if (chat) deliverVibe(); else activate()
   }
 
+  const openCreatedRequirement = async (sessionId: string, needsSync: boolean) => {
+    setRegistration(null)
+    try {
+      if (needsSync) await syncMutation.mutateAsync()
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['reqpool'] }),
+        queryClient.invalidateQueries({ queryKey: ['prd-sessions'] }),
+        queryClient.invalidateQueries({ queryKey: ['delivery-overview'] }),
+      ])
+      const latest = await queryClient.fetchQuery({
+        queryKey: ['delivery-overview', 'reqpool'],
+        queryFn: () => getDeliveryOverview(),
+      })
+      const created = latest.requirements.find(requirement => requirement.id === sessionId)
+      if (created) setInspection({ requirement: created, stage: 'prdClarify' })
+      else setEntryNotice('需求已登记，交付证据正在同步，可稍后从草稿轨道继续')
+    } catch {
+      setEntryNotice('需求已登记，但交付视图刷新失败，请点击“刷新证据”恢复')
+    }
+  }
+
+  const handleQuickSaved = async (title: string, sessionId: string) => {
+    setQuickEntryOpen(false)
+    setEntryNotice(`“${title}”已登记，正在打开规格澄清`)
+    await openCreatedRequirement(sessionId, false)
+  }
+
   return (
     <div className="unified-delivery mx-auto min-h-full max-w-[1800px] bg-background p-4 text-foreground md:p-6">
       <UnifiedDeliveryHeader refreshing={itemsQuery.isFetching || overviewQuery.isFetching} onRefresh={() => {
@@ -210,10 +236,10 @@ export function ReqPoolPage() {
           <div><p className="mb-2 text-[10px] text-muted-foreground">负责人</p><AssigneeCell item={item} users={usersQuery.data ?? []} loading={usersQuery.isLoading} unavailable={usersQuery.isError} saving={assigningId === item.id} onAssign={userId => handleAssign(item.id, userId)} /></div>
           <div><p className="mb-2 text-[10px] text-muted-foreground">计划期限</p><DeadlineEditor item={item} prdSession={item.prdSessionId ? prdSessionById.get(item.prdSessionId) : undefined} saving={deadlineSavingId === item.id} onSave={deadline => handleDeadline(item.id, deadline)} /></div>
         </>} />
-      {registration && <DeliveryRegistrationDialog mode={registration} onClose={() => setRegistration(null)} />}
+      {registration && <DeliveryRegistrationDialog mode={registration} onClose={() => setRegistration(null)} onCreated={sessionId => { void openCreatedRequirement(sessionId, true) }} />}
       {inspection && <DeliveryStageDialog requirement={inspection.requirement} stage={inspection.stage} onStartTddGeneration={startTddGeneration} onClose={() => { setInspection(null); void queryClient.invalidateQueries({ queryKey: ['delivery-overview'] }); void queryClient.invalidateQueries({ queryKey: ['prd-sessions'] }) }} />}
       {selected && <RequirementDrawer item={selected} requirement={deliveryFor(selected, overview)} prdSession={selected.prdSessionId ? prdSessionById.get(selected.prdSessionId) : undefined} analyzing={analyzingId === selected.id || selected.insightRun?.status === 'RUNNING'} prdRunning={!!selected.prdSessionId && (clarifyingPrdIds.has(selected.prdSessionId) || generatingPrdIds.has(selected.prdSessionId))} tddBuilding={!!selected.prdSessionId && buildingTddQuestionIds.has(selected.prdSessionId)} tddGenerating={!!selected.prdSessionId && generatingTddIds.has(selected.prdSessionId)} tddFailed={!!selected.prdSessionId && failedTddIds.has(selected.prdSessionId)} onClose={() => setSelected(null)} onAnalyze={engine => analyze(selected, engine)} onClarify={() => clarify(selected)} onStartPrd={engine => startPrdClarification(selected, engine)} onAnswerPrd={() => void openPrdQuestions(selected)} onPreviewPrd={() => setPreviewPrd(selected)} onStartTdd={engine => { const id = selected.prdSessionId; if (id) { setSelected(null); startTddWork(id, engine) } }} onAnswerTdd={() => { const requirement = deliveryFor(selected, overview); if (requirement) { setSelected(null); setTddWork(requirement) } }} onPreviewTdd={() => { setSelected(null); setPreviewTdd(selected) }} onViewPrd={() => selected.prdSessionId && navigate(`/tools/prd-clarify?viewSession=${selected.prdSessionId}`)} onDelete={() => remove(selected)} />}
-      {quickEntryOpen && <QuickRequirementDialog onClose={() => setQuickEntryOpen(false)} onSaved={handleQuickSaved} />}
+      {quickEntryOpen && <QuickRequirementDialog onClose={() => setQuickEntryOpen(false)} onSaved={(title, sessionId) => { void handleQuickSaved(title, sessionId) }} />}
       {vibeOpen && <ReqpoolVibeDialog initialPrompt={vibeInitialPrompt} repoAvailable={selfRepoQuery.data?.exists === true} activating={!chat && pendingVibeRef.current != null} onClose={() => setVibeOpen(false)} onSubmit={startVibe} />}
       {questionPrd && <PrdQuestionsModal item={questionPrd.item} session={questionPrd.session} onClose={() => setQuestionPrd(null)} onSubmit={(history, extraInstructions) => submitPrdAnswers(questionPrd.item, questionPrd.session, history, extraInstructions)} />}
       {previewPrd && <MarkdownDocumentModal item={previewPrd} kind="PRD" onClose={() => setPreviewPrd(null)} onOpenFull={() => { const id = previewPrd.prdSessionId; setPreviewPrd(null); if (id) navigate(`/tools/prd-clarify?viewSession=${encodeURIComponent(id)}`) }} />}

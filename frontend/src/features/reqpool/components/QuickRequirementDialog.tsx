@@ -23,7 +23,7 @@ import { syncFromPrd } from '../api'
 
 interface QuickRequirementDialogProps {
   onClose: () => void
-  onSaved: (title: string) => void
+  onSaved: (title: string, sessionId: string) => void
 }
 
 type BusyState = 'file' | 'image' | 'save' | null
@@ -104,7 +104,7 @@ export function QuickRequirementDialog({ onClose, onSaved }: QuickRequirementDia
     setError('')
     try {
       const rawInput = buildRawInput(description, attachments)
-      await saveDraft({
+      const session = await saveDraft({
         title: title.trim(),
         rawInput,
         project: systems.join(', '),
@@ -115,7 +115,7 @@ export function QuickRequirementDialog({ onClose, onSaved }: QuickRequirementDia
         },
       })
       await syncFromPrd()
-      onSaved(title.trim())
+      onSaved(title.trim(), session.id)
     } catch (cause) {
       setError(messageOf(cause, '草稿保存失败'))
       setBusy(null)

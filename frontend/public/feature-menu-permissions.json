@@ -355,7 +355,7 @@
     {
       "featureId": "prd-clarify",
       "code": "menu:prd-clarify",
-      "name": "规格探索",
+      "name": "规格工作台",
       "module": "AI",
       "sort": 55
     },

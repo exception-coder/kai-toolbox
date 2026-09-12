@@ -1,11 +1,23 @@
 ## ADDED Requirements
 
 ### Requirement: One delivery entry
-The system SHALL expose one menu using the delivery center visual language and preserve the old delivery URL through a parameter-preserving redirect.
+The system SHALL expose one AI Delivery Center product menu, treat specification exploration as an in-context stage capability, and preserve legacy delivery and specification URLs for compatible deep links.
 
 #### Scenario: Legacy bookmark
 - **WHEN** a user opens the legacy delivery URL with query parameters
 - **THEN** the user reaches the unified center with those parameters and the existing reqpool permission guard
+
+#### Scenario: Product navigation
+- **WHEN** a user browses the primary feature menu or home entry collection
+- **THEN** AI Delivery Center is the single requirement-to-delivery product entry and Specification Workspace is not shown as a separate product menu
+
+#### Scenario: Register and continue
+- **WHEN** a user completes quick, standard, or Feishu-backed registration
+- **THEN** the user remains in AI Delivery Center and the created requirement specification clarification opens in context after evidence refresh
+
+#### Scenario: Historical specification deep link
+- **WHEN** a saved link targets an existing specification session
+- **THEN** the compatibility specification workspace remains routable without restoring a separate product menu
 
 ### Requirement: Complete requirement projection
 The system SHALL show registered requirements with or without PRD evidence and unregistered PRD sessions without duplicating an explicitly linked PRD.
