@@ -19,6 +19,16 @@ The system SHALL recover an interrupted session only after fresh runtime evidenc
 - **WHEN** reload and send arrive concurrently for one session
 - **THEN** their state changes are serialized and reload cannot replace a newly active turn
 
+#### Scenario: Native writer cleanup after interruption
+
+- **WHEN** an interrupted Codex turn has produced a logical terminal event but its managed App Server process still holds the native thread writer
+- **THEN** the system keeps the session non-sendable until the managed process exits and runtime state confirms the writer is released
+
+#### Scenario: Interrupt reconciliation deadline
+
+- **WHEN** the backend reconciliation deadline expires while Sidecar still reports the interrupted turn as active
+- **THEN** the backend keeps the turn active and requests fresh runtime state instead of manufacturing a completed terminal state
+
 ### Requirement: Recovery guidance
 
 The interface SHALL provide an explicit reload action for interrupted sessions and a recheck action when runtime state is unavailable or inconsistent.

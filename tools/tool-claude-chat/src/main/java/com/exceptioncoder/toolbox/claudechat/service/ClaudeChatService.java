@@ -1331,7 +1331,7 @@ public class ClaudeChatService {
                         ctx.sessionId,
                         turnId,
                         () -> queryInterruptedTurn(ctx, turnId),
-                        () -> forceCloseInterruptedTurn(ctx, turnId, "interrupt timeout"));
+                        () -> queryInterruptedTurn(ctx, turnId));
             }
             log.info("[claude-chat] 中断请求已发送到 sidecar session={} engine={} status={}",
                     ctx.sessionId, ctx.engine, ctx.status);
@@ -1757,14 +1757,16 @@ public class ClaudeChatService {
                 ctx.sessionId,
                 activeTurnId,
                 () -> queryInterruptedTurn(ctx, activeTurnId),
-                () -> forceCloseInterruptedTurn(ctx, activeTurnId, "mismatched turn timeout"));
+                () -> queryInterruptedTurn(ctx, activeTurnId));
         sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "correcting", true, false));
     }
 
     private void queryInterruptedTurn(SessionCtx ctx, String turnId) {
         if (!turnLifecycle.isInterrupting(ctx.sessionId, turnId)) return;
         if (!sidecar.queryTurnState(ctx.sessionId, turnId)) {
-            forceCloseInterruptedTurn(ctx, turnId, "turn state query undelivered");
+            log.warn("[claude-chat] 中断状态查询未送达，保留运行态等待真实终态 session={} engine={} turn={}",
+                    ctx.sessionId, ctx.engine, turnId);
+            sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "correcting", true, false));
         }
     }
 

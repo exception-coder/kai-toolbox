@@ -17,20 +17,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class TurnLifecycleCoordinator implements AutoCloseable {
 
     private static final Duration DEFAULT_QUERY_DELAY = Duration.ofSeconds(3);
-    private static final Duration DEFAULT_FORCE_CLOSE_DELAY = Duration.ofSeconds(5);
+    private static final Duration DEFAULT_FINAL_QUERY_DELAY = Duration.ofSeconds(5);
 
     private final ConcurrentHashMap<String, TurnState> turns = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler;
     private final Duration queryDelay;
-    private final Duration forceCloseDelay;
+    private final Duration finalQueryDelay;
 
     TurnLifecycleCoordinator() {
-        this(DEFAULT_QUERY_DELAY, DEFAULT_FORCE_CLOSE_DELAY);
+        this(DEFAULT_QUERY_DELAY, DEFAULT_FINAL_QUERY_DELAY);
     }
 
-    TurnLifecycleCoordinator(Duration queryDelay, Duration forceCloseDelay) {
+    TurnLifecycleCoordinator(Duration queryDelay, Duration finalQueryDelay) {
         this.queryDelay = queryDelay;
-        this.forceCloseDelay = forceCloseDelay;
+        this.finalQueryDelay = finalQueryDelay;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 Thread.ofPlatform().daemon().name("claude-chat-turn-reconcile").factory());
     }
@@ -50,16 +50,16 @@ final class TurnLifecycleCoordinator implements AutoCloseable {
         return state == null ? Optional.empty() : Optional.of(state.turnId);
     }
 
-    boolean requestInterrupt(String sessionId, String turnId, Runnable queryAction, Runnable forceCloseAction) {
+    boolean requestInterrupt(String sessionId, String turnId, Runnable queryAction, Runnable finalQueryAction) {
         TurnState state = turns.get(sessionId);
         if (state == null || !state.turnId.equals(turnId)) return false;
         if (!state.interrupting.compareAndSet(false, true)) return false;
         state.queryTask = scheduler.schedule(
                 () -> runIfCurrent(sessionId, state, queryAction),
                 queryDelay.toMillis(), TimeUnit.MILLISECONDS);
-        state.forceCloseTask = scheduler.schedule(
-                () -> runIfCurrent(sessionId, state, forceCloseAction),
-                forceCloseDelay.toMillis(), TimeUnit.MILLISECONDS);
+        state.finalQueryTask = scheduler.schedule(
+                () -> runIfCurrent(sessionId, state, finalQueryAction),
+                finalQueryDelay.toMillis(), TimeUnit.MILLISECONDS);
         return true;
     }
 
@@ -106,7 +106,7 @@ final class TurnLifecycleCoordinator implements AutoCloseable {
         private final String turnId;
         private final AtomicBoolean interrupting = new AtomicBoolean(false);
         private volatile ScheduledFuture<?> queryTask;
-        private volatile ScheduledFuture<?> forceCloseTask;
+        private volatile ScheduledFuture<?> finalQueryTask;
 
         private TurnState(String turnId) {
             this.turnId = turnId;
@@ -114,7 +114,7 @@ final class TurnLifecycleCoordinator implements AutoCloseable {
 
         private void cancelTimers() {
             if (queryTask != null) queryTask.cancel(false);
-            if (forceCloseTask != null) forceCloseTask.cancel(false);
+            if (finalQueryTask != null) finalQueryTask.cancel(false);
         }
     }
 }

@@ -594,6 +594,19 @@ type CodexCapabilityInspectionOptions = {
   onThreadNotFound?: () => void
 }
 
+/** 只有受管进程真正退出后，原生 thread writer 才可视为已释放。 */
+export async function waitForManagedProcessRelease(
+  closeGracefully: () => void,
+  waitForClose: () => Promise<boolean>,
+  forceClose: () => void,
+): Promise<'natural' | 'forced'> {
+  closeGracefully()
+  if (await waitForClose()) return 'natural'
+  forceClose()
+  if (await waitForClose()) return 'forced'
+  throw new Error('Codex App Server 进程树强制清理后仍未退出')
+}
+
 /**
  * 使用当前 Auth 目录的 App Server 读取会话能力目录。三个目录相互隔离：某一项失败时仍返回
  * 其余成功结果，避免插件远端目录异常把已经验证的 MCP Tool 一并抹掉。
@@ -1214,17 +1227,20 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     if (!terminalEvent) {
       throw new CodexAppServerTurnError('Codex App Server 未生成轮次终态', false)
     }
-    // turn/completed 是业务终态；子进程退出只属于资源回收，不能反向阻塞下一条消息。
-    options.emit(terminalEvent)
-    void waitForProcessClose(child).then(processClosed => {
-      if (processClosed) return
-      forceStop(child)
+    // 同一原生 thread 只允许一个 writer。业务终态不能早于受管进程退出对外释放队列。
+    const release = await waitForManagedProcessRelease(
+      () => closeInput(child),
+      () => waitForProcessClose(child),
+      () => forceStop(child),
+    )
+    if (release === 'forced') {
       options.emit({
         type: 'warning',
         code: 'CODEX_APP_SERVER_CLEANUP_TIMEOUT',
         message: `Codex App Server 轮次已完成，但进程树在 ${PROCESS_CLOSE_TIMEOUT_MS}ms 内未自然退出，已执行兜底清理。`,
       })
-    })
+    }
+    options.emit(terminalEvent)
   } catch (error) {
     cleanup(true)
     failPending(error instanceof Error ? error : new Error(String(error)))

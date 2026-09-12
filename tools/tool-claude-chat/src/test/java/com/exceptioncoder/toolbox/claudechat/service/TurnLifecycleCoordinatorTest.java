@@ -25,17 +25,18 @@ class TurnLifecycleCoordinatorTest {
     }
 
     @Test
-    void interruptSchedulesQueryAndForceCloseUntilTurnCompletes() throws Exception {
+    void interruptSchedulesTwoRuntimeQueriesWithoutManufacturingCompletion() throws Exception {
         try (TurnLifecycleCoordinator coordinator = new TurnLifecycleCoordinator(
                 Duration.ofMillis(10), Duration.ofMillis(30))) {
             String turnId = coordinator.begin("session-1");
             CountDownLatch query = new CountDownLatch(1);
-            CountDownLatch forceClose = new CountDownLatch(1);
+            CountDownLatch finalQuery = new CountDownLatch(1);
 
-            assertTrue(coordinator.requestInterrupt("session-1", turnId, query::countDown, forceClose::countDown));
-            assertFalse(coordinator.requestInterrupt("session-1", turnId, query::countDown, forceClose::countDown));
+            assertTrue(coordinator.requestInterrupt("session-1", turnId, query::countDown, finalQuery::countDown));
+            assertFalse(coordinator.requestInterrupt("session-1", turnId, query::countDown, finalQuery::countDown));
             assertTrue(query.await(1, TimeUnit.SECONDS));
-            assertTrue(forceClose.await(1, TimeUnit.SECONDS));
+            assertTrue(finalQuery.await(1, TimeUnit.SECONDS));
+            assertTrue(coordinator.currentTurnId("session-1").isPresent());
         }
     }
 
