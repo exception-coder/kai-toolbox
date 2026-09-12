@@ -2,6 +2,15 @@
 
 ## ADDED Requirements
 
+### Requirement: Shared runtime compatibility
+
+The teaching agent SHALL coexist with the existing Spring AI MCP server in the assembled application without replacing its compatible SDK with an unused AgentScope MCP integration.
+
+#### Scenario: Application startup and teaching execution
+
+- **WHEN** the assembled application creates the MCP server and executes a scripted teaching scenario
+- **THEN** server initialization and the local teaching tool loop both succeed on the same runtime classpath
+
 ### Requirement: Existing registry integration
 
 The system SHALL show the teaching agent with six configuration sections inside existing Agent management, without a new menu.

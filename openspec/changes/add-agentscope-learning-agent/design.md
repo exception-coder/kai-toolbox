@@ -1,5 +1,9 @@
 # 教学 Agent 集成设计
 
+## MCP 运行时依赖边界
+
+教学执行器只注册本地 Java 工具，不使用 AgentScope MCP 适配器。两个 AgentScope 直接依赖均排除其传递 MCP SDK，由现有 Spring AI 服务选择兼容的 SDK；独立 forge-quality-mcp 进程的依赖保持独立。在 starter 完整依赖类路径同时验证 MCP 自动配置与教学工具循环，防止模块级测试遗漏依赖仲裁冲突。未来启用 AgentScope MCP 时必须重新验证兼容性或隔离运行时。
+
 ## Context
 
 用户明确要求复用既有 Agent 管理。AgentManagementPage、AgentManagementController 和 ConsultAgentManagementRepository 提供注册表及候选版本，consult_agent_definition / consult_agent_version 是已读 DDL 基线。Graphify 未覆盖这些符号，使用当前 HEAD 定向源码补齐。
