@@ -22,6 +22,10 @@
 
 ## Decisions
 
+### Preserve native session identity during diagnostics
+
+能力探测使用独立 App Server，thread not found 只能证明该进程未找到线程，不能证明持久化历史不存在。目录失败仅进入 capabilityErrors，禁止清空会话 ID。执行中的缺失线程错误同样保留原关联并失败返回，不自动新建替换。恢复已损坏关联须匹配原生元数据、项目目录及该 Forge 会话专属附件引用，备份原记录后条件更新，不修改原生 transcript。验证覆盖缺失线程、传输错误和成功目录；历史分页以真实文件/API 校验。
+
 ### Use App Server catalogs as the Codex authority
 
 Codex 会话使用 `mcpServerStatus/list` 判断本线程 MCP 的运行状态与 Tool 注入事实，使用 `plugin/list` 判断当前 Auth 目录的插件安装和版本状态，使用 `skills/list` 判断当前工作目录实际加载的 Skills。相比文件系统扫描，该方案与本轮实际运行时一致，并能在官方目录变化时自动跟随。

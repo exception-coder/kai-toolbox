@@ -1108,23 +1108,17 @@ class Session {
         })
       }
       const configured = this.codexCapabilityMcpServers()
-      let sdkSessionInvalidated = false
       void inspectCodexSessionCapabilities({
         threadId: this.sdkSessionId,
         cwd: this.cwd,
         codexHome: this.codexHome,
         configuredMcpServers: configured,
         forceReload: true,
-        onThreadNotFound: () => {
-          this.sdkSessionId = undefined
-          sdkSessionInvalidated = true
-        },
       }).then(snapshot => {
         this.capabilities = snapshot
         this.emitTurn({
           type: 'init',
           sdkSessionId: this.sdkSessionId ?? null,
-          ...(sdkSessionInvalidated ? { sdkSessionInvalidated: true } : {}),
           ...snapshot,
         })
       }).catch(error => {

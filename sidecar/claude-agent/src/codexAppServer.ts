@@ -591,7 +591,6 @@ type CodexCapabilityInspectionOptions = {
   codexHome?: string
   configuredMcpServers?: Array<{ name: string; status: string }>
   forceReload?: boolean
-  onThreadNotFound?: () => void
 }
 
 /** 只有受管进程真正退出后，原生 thread writer 才可视为已释放。 */
@@ -613,21 +612,22 @@ export async function waitForManagedProcessRelease(
  */
 export async function inspectCodexSessionCapabilities(
   options: CodexCapabilityInspectionOptions,
+  request: typeof callAppServer = callAppServer,
 ): Promise<CapabilitySnapshot> {
   const authGlobalMcpServerNames = configuredMcpServerNames(options.codexHome)
   const tasks = [
     options.threadId
-      ? callAppServer('mcpServerStatus/list', {
+      ? request('mcpServerStatus/list', {
           threadId: options.threadId,
           detail: 'toolsAndAuthOnly',
           limit: 100,
         }, options.codexHome)
       : Promise.resolve(undefined),
-    callAppServer('skills/list', {
+    request('skills/list', {
       cwds: [options.cwd],
       forceReload: options.forceReload === true,
     }, options.codexHome),
-    callAppServer('plugin/list', {
+    request('plugin/list', {
       cwds: [options.cwd],
       forceRefetch: options.forceReload === true,
     }, options.codexHome),
@@ -639,12 +639,8 @@ export async function inspectCodexSessionCapabilities(
     errors.push(`${label}：${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
     return undefined
   }
-  let mcpResult: unknown
-  if (mcp.status === 'rejected' && options.threadId && isMissingCodexThreadError(mcp.reason)) {
-    options.onThreadNotFound?.()
-  } else {
-    mcpResult = resultOf('MCP 运行时目录', mcp)
-  }
+  // 独立探测进程未加载线程不代表持久化历史不存在；诊断不得修改会话关联。
+  const mcpResult = resultOf('MCP 运行时目录', mcp)
   const skillsResult = resultOf('Skills 目录', skills)
   const pluginsResult = resultOf('Plugin 目录', plugins)
   return buildCodexCapabilitySnapshot({

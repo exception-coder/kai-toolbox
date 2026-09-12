@@ -1,5 +1,19 @@
 ## ADDED Requirements
 
+### Requirement: Preserve native history references
+
+The system SHALL preserve native session identifiers when capability inspection or thread execution fails, and SHALL NOT silently replace the thread with a new one.
+
+#### Scenario: Thread absent from diagnostic process
+
+- **WHEN** an independent capability process reports thread not found
+- **THEN** the error is visible and the existing native session binding remains unchanged
+
+#### Scenario: Resume fails
+
+- **WHEN** execution cannot resume the native thread
+- **THEN** the operation fails without clearing the binding or starting a replacement thread
+
 ### Requirement: Runtime capability snapshot
 
 系统 SHALL 为当前会话提供带来源和刷新时间的能力快照，并区分运行时已验证与仅配置可见的数据。

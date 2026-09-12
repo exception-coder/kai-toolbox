@@ -11,10 +11,29 @@ import {
   isCodexTransportFallbackWarning,
   isCurrentCodexTurnNotification,
   isMissingCodexThreadError,
+  inspectCodexSessionCapabilities,
   normalizeCodexModel,
   resolveCodexAppServerRequest,
   shouldReconcileCodexTurnAfterItem,
 } from './codexAppServer.js'
+
+for (const failure of ['thread not found: persisted-thread', 'transport closed after suspend']) {
+  test(`capability failure preserves native identity and exposes diagnostic: ${failure}`, async () => {
+    const options = Object.freeze({ threadId: 'persisted-thread', cwd: '.', configuredMcpServers: [] })
+    const methods: string[] = []
+    const snapshot = await inspectCodexSessionCapabilities(options, async (method, params) => {
+      methods.push(method)
+      if (method === 'mcpServerStatus/list') {
+        assert.equal(params.threadId, 'persisted-thread')
+        throw new Error(failure)
+      }
+      return { data: [] }
+    })
+    assert.equal(options.threadId, 'persisted-thread')
+    assert.ok(snapshot.capabilityErrors?.some(error => error.includes(failure)))
+    assert.deepEqual(methods, ['mcpServerStatus/list', 'skills/list', 'plugin/list'])
+  })
+}
 
 test('classifies only a missing Codex thread as a recoverable stale reference', () => {
   assert.equal(isMissingCodexThreadError(new Error(

@@ -30,7 +30,6 @@ import {
   CodexAppServerTurnError,
   deleteCodexThread,
   latestCodexTurnId,
-  isMissingCodexThreadError,
   runCodexAppServerTurn,
   steerCodexAppServerTurn,
 } from './codexAppServer.js'
@@ -458,19 +457,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         })
       },
     )
-    try {
-      await runAppServer(appServerOptions)
-    } catch (error) {
-      if (!turnContext.sdkSessionId || !isMissingCodexThreadError(error)) throw error
-      ctx.setSdkSessionId(undefined)
-      ctx.emit({ type: 'init', sdkSessionId: null, sdkSessionInvalidated: true })
-      ctx.emit({
-        type: 'warning',
-        code: 'CODEX_THREAD_MISSING_RECREATED',
-        message: '原 Codex 会话引用已失效，已自动创建新会话继续处理当前消息。',
-      })
-      await runAppServer({ ...appServerOptions, threadId: undefined })
-    }
+    await runAppServer(appServerOptions)
   } catch (error) {
     if (ctx.signal.aborted) {
       if (isMcpToolTimeoutAbort(ctx.signal.reason) || isToolExecutionTimeoutAbort(ctx.signal.reason)) return
