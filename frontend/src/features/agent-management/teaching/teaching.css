@@ -1,0 +1,21 @@
+@reference "../../../index.css";
+
+.teaching-input {
+  @apply mt-2 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm;
+}
+.teaching-button {
+  @apply rounded-md border border-border bg-background px-3 py-2 text-sm hover:bg-muted;
+}
+.teaching-primary {
+  @apply rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:opacity-90;
+}
+.teaching-detail button:focus-visible,
+.teaching-detail input:focus-visible,
+.teaching-detail textarea:focus-visible,
+.teaching-detail select:focus-visible,
+.teaching-detail summary:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 3px;
+}
+.teaching-detail button:disabled { opacity: .5; cursor: not-allowed; }
+.teaching-detail pre { max-width: 100%; }

@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentManage
 import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentGovernanceCatalog;
 import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentReleaseGate;
 import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentVersion;
+import com.exceptioncoder.toolbox.foreconsult.domain.teaching.TeachingConfig;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultAgentManagementRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultAgentManagementRepository.AgentDefinition;
 import org.springframework.stereotype.Service;
@@ -60,7 +61,9 @@ public class ConsultAgentManagementService {
                 capabilityIds(production),
                 capabilityIds(candidate),
                 AgentGovernanceCatalog.evaluationDataset(agentId, smokeSampleSource.preview()),
-                AgentReleaseGate.evaluate(candidate));
+                TeachingConfig.AGENT_ID.equals(agentId)
+                        ? new AgentReleaseGate(false, 95, "教学 Agent 仅用于试运行，不提供生产发布")
+                        : AgentReleaseGate.evaluate(candidate));
     }
 
     @Transactional
@@ -70,6 +73,7 @@ public class ConsultAgentManagementService {
 
     @Transactional
     public AgentManagementSnapshot createCandidate(String agentId, CreateAgentVersionCommand rawCommand) {
+        rejectTeachingMutation(agentId);
         repository.replaceCandidate(agentId, normalize(rawCommand), System.currentTimeMillis());
         return getSnapshot(agentId);
     }
@@ -81,6 +85,7 @@ public class ConsultAgentManagementService {
 
     @Transactional
     public AgentManagementSnapshot release(String agentId, long version) {
+        rejectTeachingMutation(agentId);
         AgentVersion target = requireVersion(agentId, version);
         if ("PRODUCTION".equals(target.status())) {
             return getSnapshot(agentId);
@@ -103,6 +108,7 @@ public class ConsultAgentManagementService {
 
     @Transactional
     public AgentManagementSnapshot rollback(String agentId, long version) {
+        rejectTeachingMutation(agentId);
         AgentVersion target = requireVersion(agentId, version);
         if ("PRODUCTION".equals(target.status())) {
             return getSnapshot(agentId);
@@ -112,6 +118,12 @@ public class ConsultAgentManagementService {
         }
         repository.promote(agentId, version, "ROLLBACK", System.currentTimeMillis());
         return getSnapshot(agentId);
+    }
+
+    private void rejectTeachingMutation(String agentId) {
+        if (TeachingConfig.AGENT_ID.equals(agentId)) {
+            throw new IllegalArgumentException("教学 Agent 请通过教学配置保存版本；不提供生产发布或回滚");
+        }
     }
 
     private CreateAgentVersionCommand normalize(CreateAgentVersionCommand command) {

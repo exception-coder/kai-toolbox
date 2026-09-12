@@ -1,4 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { TeachingAgentDetail } from "../teaching/TeachingAgentDetail";
+import { TEACHING_AGENT_ID } from "../teaching/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -92,7 +94,8 @@ export function AgentManagementPage() {
               onRetry={() => query.refetch()}
             />
           )}
-          {query.data && draft && (
+          {query.data && agentId === TEACHING_AGENT_ID && <TeachingAgentDetail agent={query.data} />}
+          {query.data && draft && agentId !== TEACHING_AGENT_ID && (
             <AgentDetail
               snapshot={query.data}
               draft={draft}
@@ -143,7 +146,7 @@ function RegistryPanel({
           <button key={agent.id} type="button" onClick={() => onSelect(agent.id)}
             className={`flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left ${selectedAgentId === agent.id ? "bg-slate-100" : "hover:bg-slate-50"}`}>
             <span className="mt-0.5 flex size-8 items-center justify-center rounded-md border border-slate-200 bg-white"><Bot className="size-4" /></span>
-            <span className="min-w-0"><span className="block truncate text-sm font-medium">{agent.name}</span><span className="mt-1 block text-xs text-slate-500">{agent.id === "requirement-specification" ? "规格分析" : agent.id === "requirement-progress" ? "进度分析" : "业务咨询"} · 已登记</span></span>
+            <span className="min-w-0"><span className="block truncate text-sm font-medium">{agent.name}</span><span className="mt-1 block text-xs text-slate-500">{agent.id === TEACHING_AGENT_ID ? "订单草稿教学" : agent.id === "requirement-specification" ? "规格分析" : agent.id === "requirement-progress" ? "进度分析" : "业务咨询"} · 已登记</span></span>
           </button>
         ))}
         {agents.length === 0 && <p className="px-3 py-4 text-xs text-slate-400">暂无已登记 Agent</p>}

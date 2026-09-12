@@ -378,3 +378,40 @@ CREATE TABLE IF NOT EXISTS consult_agent_release (
 -- 功能：业务咨询 Agent 发布审计；变更：新增按 Agent 和时间查询索引；目的：稳定读取发布历史
 CREATE INDEX IF NOT EXISTS idx_consult_agent_release_history
     ON consult_agent_release(agent_id, released_at DESC);
+
+-- 教学 Agent 使用既有 Registry 和候选版本，不创建新的菜单或网关配置
+INSERT OR IGNORE INTO consult_agent_definition (
+    agent_id, name, owner, description, endpoint, framework, observability_url, created_at, updated_at
+) VALUES (
+    'order-draft-teaching', '订单草稿教学 Agent', 'Forge AI Platform',
+    '通过订单草稿理解输入输出、解析、模型工具、执行约束、回归评测和运行观测',
+    '/api/fore-consult/agents/order-draft-teaching/teaching/runs', 'AgentScope Java 2.0.3', NULL, 0, 0
+);
+
+INSERT OR IGNORE INTO consult_agent_version (
+    agent_id, version, status, model, temperature, prompt_ref, orchestration_version,
+    tools_json, mcp_servers_json, skills_json, evaluation_passed, created_at
+) VALUES (
+    'order-draft-teaching', 1, 'CANDIDATE', 'qwen-plus', 0.1, 'order-draft/v1', 'v1',
+    '["lookup_sku","propose_draft"]', '[]', '[]', 0, 0
+);
+
+CREATE TABLE IF NOT EXISTS consult_agent_teaching_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    version INTEGER NOT NULL UNIQUE,
+    config_json TEXT NOT NULL,
+    create_time INTEGER NOT NULL,
+    update_time INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS consult_agent_teaching_run (
+    id TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    create_time INTEGER NOT NULL,
+    update_time INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_consult_teaching_run_history
+    ON consult_agent_teaching_run(kind, create_time DESC, id DESC);
