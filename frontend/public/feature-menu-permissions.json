@@ -332,13 +332,6 @@
       "sort": 52
     },
     {
-      "featureId": "system-route-inspector",
-      "code": "menu:system-route-inspector",
-      "name": "系统路由检测",
-      "module": "AI",
-      "sort": 52
-    },
-    {
       "featureId": "srm-dev",
       "code": "menu:srm-dev",
       "name": "SRM",

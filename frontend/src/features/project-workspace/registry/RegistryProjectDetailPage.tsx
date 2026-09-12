@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Play, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getProject, initializeProject } from './api'
@@ -11,13 +11,17 @@ import { SystemTasksPanel } from './SystemTasksPanel'
 import { SystemDomainsPanel } from './SystemDomainsPanel'
 import { GraphifyGraphModal } from '../components/GraphifyGraphModal'
 import { SystemInitializationGuide } from './SystemInitializationGuide'
+import { ProjectContextDiagnostics } from './diagnostics/ProjectContextDiagnostics'
 
 const tabs = ['概览', '代码智能', '业务域', '任务', '验证', '环境', '设置'] as const
 type Tab = typeof tabs[number]
+const tabIds = ['overview', 'code', 'domains', 'tasks', 'verification', 'environment', 'settings']
 
 export function RegistryProjectDetailPage() {
   const { projectId = '' } = useParams()
-  const [tab, setTab] = useState<Tab>('概览')
+  const [params, setParams] = useSearchParams()
+  const tab = tabs[tabIds.indexOf(params.get('tab') ?? 'overview')] ?? '概览'
+  const setTab = (value: Tab) => { const next = new URLSearchParams(params); next.set('tab', tabIds[tabs.indexOf(value)]); setParams(next) }
   const [graphOpen, setGraphOpen] = useState(false)
   const [saved, setSaved] = useState(false)
   const cache = useQueryClient()
@@ -54,7 +58,7 @@ export function RegistryProjectDetailPage() {
       {tab === '代码智能' && <div className="space-y-6"><AssetPanel asset={asset('CODE')} />{asset('CODE')?.sources.length ? <Button variant="outline" onClick={() => setGraphOpen(true)}>打开 Graphify 图谱</Button> : null}</div>}
       {tab === '业务域' && <SystemDomainsPanel projectId={projectId} />}
       {tab === '任务' && <SystemTasksPanel detail={detail} />}
-      {tab === '验证' && <AssetPanel asset={asset('VERIFICATION')} />}
+      {tab === '验证' && <div className="space-y-10"><ProjectContextDiagnostics key={projectId} scope={{ name: project.metadata.name, path: project.metadata.localPath }} /><section className="space-y-4 border-t border-[var(--color-border)] pt-6"><h2 className="text-base font-semibold">项目验证入口</h2><p className="text-sm text-[var(--color-muted-foreground)]">这里列出初始化发现的构建与测试入口，执行结果需要单独核验。</p><AssetPanel asset={asset('VERIFICATION')} /></section></div>}
       {tab === '环境' && <div className="space-y-8"><AssetPanel asset={asset('PROJECT')} /><div className="flex flex-wrap gap-4">
         {([['开发环境', project.metadata.devUrl], ['测试环境', project.metadata.testUrl]] as const).filter(([, url]) => /^https?:\/\//.test(url)).map(([label, url]) => <a key={label} href={url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm underline underline-offset-4">{label}<ExternalLink className="size-3" /></a>)}</div></div>}
       {tab === '设置' && <section className="space-y-6"><h2 className="font-semibold">系统基础信息</h2>{saved && <p role="status" className="text-sm">设置已保存，请同步画像以反映最新配置。</p>}{running ? <p className="text-sm">初始化期间暂不可修改设置，请等待运行完成。</p> : <ProjectRegistrationForm key={project.updatedAt} project={project} onSaved={() => { setSaved(true); void refresh() }} />}</section>}

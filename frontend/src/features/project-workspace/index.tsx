@@ -2,6 +2,7 @@ import { lazy } from 'react'
 import { Navigate } from 'react-router-dom'
 import { FolderTree } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
+import { LegacyRouteRedirect } from './registry/diagnostics/LegacyRouteRedirect'
 const ProjectRegistryPage = lazy(() => import('./registry/ProjectRegistryPage').then(m => ({ default: m.ProjectRegistryPage })))
 const RegistryProjectDetailPage = lazy(() => import('./registry/RegistryProjectDetailPage').then(m => ({ default: m.RegistryProjectDetailPage })))
 const manifest: FeatureManifest = {
@@ -13,6 +14,7 @@ const manifest: FeatureManifest = {
   order: 51,
   routes: [
     { path: '/tools/project-workspace', element: <ProjectRegistryPage /> },
+    { path: '/tools/system-route-inspector', element: <LegacyRouteRedirect /> },
     { path: '/tools/project-workspace/modules', element: <Navigate to="/tools/project-workspace?section=modules" replace /> },
     { path: '/tools/project-workspace/:projectId', element: <RegistryProjectDetailPage /> },
   ],

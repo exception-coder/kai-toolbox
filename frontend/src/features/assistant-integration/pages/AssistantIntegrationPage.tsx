@@ -110,8 +110,8 @@ export function AssistantIntegrationPage() {
             </dl>
           )}
           {!bindingReady && !loading && (
-            <Link to="/tools/system-route-inspector" className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-[var(--color-primary)] hover:underline">
-              前往系统路由检测完成绑定 <ExternalLink className="size-3.5" />
+            <Link to="/tools/project-workspace?section=diagnostics" className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-[var(--color-primary)] hover:underline">
+              前往项目库完成 AI 上下文绑定 <ExternalLink className="size-3.5" />
             </Link>
           )}
         </div>

@@ -1,5 +1,20 @@
 ## ADDED Requirements
 
+### Requirement: Integrated AI context diagnostics
+The registry SHALL expose AI context diagnostics and explain that they verify access from system identity to source, knowledge and runtime tools, separately from initialization and business tests.
+
+#### Scenario: Diagnose the current project
+- **WHEN** a user opens diagnostics from a registered project verification tab
+- **THEN** the source path selects a matching knowledge project when available, and missing bindings remain explicitly recoverable without automatically diagnosing another project
+
+#### Scenario: Retain existing diagnostic capabilities
+- **WHEN** a user runs diagnostics or edits a source binding in the registry
+- **THEN** existing APIs provide checks, recovery guidance, module and URL evidence, related projects and runtime tools without introducing duplicate configuration storage
+
+#### Scenario: Follow a legacy route
+- **WHEN** a user visits /tools/system-route-inspector
+- **THEN** the registry diagnostics section opens with preserved project/module/url context and the independent tool is absent from the sidebar
+
 ### Requirement: Persistent system identity
 Forge SHALL persist project identity, repository metadata, local path, runtime URLs and owner separately from derived code intelligence.
 

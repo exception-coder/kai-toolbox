@@ -20,6 +20,11 @@
 
 ## 4. Evidence
 
+- [x] 4.6 Consolidate AI context diagnostics into registry and project verification, preserve binding and inspection capabilities, and explain their purpose.
+- [ ] 4.7 Verify context matching, legacy redirect, errors, responsive browser flows, frontend build and quality gate for this consolidation. Browser access to https://zhangk:5173 was denied on 2026-09-12; no bypass attempted.
+
+Diagnostics consolidation (2026-09-12): five focused tests passed for source matching, mismatch prevention, recoverable errors, stale-result isolation and legacy query preservation. TypeScript, feature boundaries, frontend production build and OpenSpec strict passed. Forge all returned exit 0/PASSED, with zero static checkers and nine existing API scenarios. Live inspection returned the actual missing-source binding warning for Yoooni. Browser visual acceptance remains unverified.
+
 - [x] 4.1 Consolidate local discovery, registration, directory settings and module workspace in the registry.
 - [x] 4.2 Verify selection, configuration updates, compatibility routes and production build; deliver this consolidation independently.
 - [x] 4.3 Add Chinese meanings for profile assets and pipeline stages, with an overview guide explaining checks, outputs, purpose and current capability boundaries.

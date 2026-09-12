@@ -20,6 +20,12 @@ Deliver registered identities, resumable initialization, five evidence assets an
 
 ## Risks / Trade-offs
 
+### AI 上下文诊断聚合
+
+将 system-route-inspector 的前端 API、类型与交互移入 project-workspace 的 diagnostics 子目录，后端沿用 ProjectRouteContextResolver 与既有检测、绑定 API。项目库增加 diagnostics 区域，详情验证页复用同一诊断面板；优先按源码路径匹配当前知识项目，无匹配时提示用户选择并保存绑定，不把另一个项目的结果展示为当前项目结果。
+
+说明能力目的为“确认 AI 能根据系统名找到正确的源码、知识和工具”。初始化生成资产、上下文诊断检查访问链路、业务验证执行测试三者明确区分。保留检查结果、模块坐标、证据范围、MCP/Forge 工具与源码绑定功能。旧页面跳转时保留 project/module/url 查询参数；移除旧 feature 注册，旧路由由项目库 manifest 接管，避免重复权限码。复用项目库页签与语义 tokens，采用 Conservative 模式，进行桌面和移动端实测。
+
 - DDL 未核验: Forge returned PARTIAL; four proposed tables absent from the baseline. These are new SQLite tables with no existing-data assumptions. Validate schema and repository transactions using real SQLite tests.
 - Graph CLI varies by installation: inspect supported command output and isolate execution with timeout, bounded output and explicit arguments. No user shell snippets.
 - Large repositories: bound scanned files, file sizes and process time. Report incomplete evidence; never claim complete counts from truncated input.
