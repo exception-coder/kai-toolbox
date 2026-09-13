@@ -4,7 +4,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { setTimeout as delay } from 'node:timers/promises';
 
-const names = { backend: '后端', frontend: '前端', 'visitor-analysis': '访客分析', wechat: '微信服务', studio: 'AgentScope Studio', 'faster-whisper': '语音服务' };
+const names = { backend: '后端', frontend: '前端', wechat: '微信服务', studio: 'AgentScope Studio', 'faster-whisper': '语音服务' };
 
 export function startupTimeout(env) {
   const seconds = Number(env.FORGE_START_TIMEOUT_SECONDS || 600);

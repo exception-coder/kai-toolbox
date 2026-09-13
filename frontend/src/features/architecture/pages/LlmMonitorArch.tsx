@@ -36,13 +36,13 @@ const lmStakeholderViews: StakeholderArchitectureViewsProps = {
     bottom: '配额可控 / 故障可追',
   },
   business: {
-    actors: ['AI 秘书', '访客分析', '其他 LLM 工具'],
+    actors: ['AI 秘书', '其他 LLM 工具'],
     platform: 'toolbox-llm 共享网关',
     capabilities: ['token 计量', '调用追踪', '配额限流', 'Studio 镜像'],
     outcomes: ['成本透明', '故障快速定位', '额度可控'],
   },
   layers: [
-    { title: '消费方（各 LLM 工具）', items: ['ai-secretary AiServices', 'visitor-analysis sidecar', '其他工具'] },
+    { title: '消费方（各 LLM 工具）', items: ['ai-secretary AiServices', '其他工具'] },
     { title: '网关装饰器层', items: ['QuotaGuardChatModel', 'RoutingChatModel', 'LlmMonitorListener'] },
     { title: '采集 & 存储层', items: ['LlmMetricsRecorder', 'LlmMetricsRegistry', 'SQLite llm_call_log'] },
     { title: '查询 & 展示层', items: ['LlmMonitorService', '/api/llm/monitor/**', 'llm-monitor 仪表盘'] },
@@ -55,7 +55,7 @@ const lmStakeholderViews: StakeholderArchitectureViewsProps = {
     { level: 'Code', audience: '程序员', items: ['LlmCallEvent', 'LlmCallLogRepository', 'LlmMonitorController', 'MonitorProperties'] },
   ],
   chain: [
-    { layer: '消费方 / LLM 工具', color: 'blue', items: ['ai-secretary Capturer/Recall/Profile', '访客分析 Python sidecar', '其他 LLM 工具'] },
+    { layer: '消费方 / LLM 工具', color: 'blue', items: ['ai-secretary Capturer/Recall/Profile', '其他 LLM 工具'] },
     { layer: 'ChatModelRouter.forTier()', color: 'violet', items: ['按档位取路由模型', 'tier=capture/recall/*'] },
     { layer: '配额闸门（QuotaGuardChatModel）', color: 'orange', items: ['查滚动窗口水位', '软阈值 WARN', '硬限拒绝 + 落 quota_blocked'], note: '超限不进路由，不触发故障转移' },
     { layer: '路由层（RoutingChatModel）', color: 'violet', items: ['权重随机选主成员', '429/失败熔断退避', '故障转移到下一成员'] },
@@ -91,7 +91,7 @@ const lmStakeholderViews: StakeholderArchitectureViewsProps = {
 }
 
 const lmTopoNodes: TopoNode[] = [
-  { id: 'consumer', label: '消费方 AiServices',   sub: 'ai-secretary / visitor-analysis…', type: 'service',  x: 50, y: 8  },
+  { id: 'consumer', label: '消费方 AiServices',   sub: 'ai-secretary 等', type: 'service',  x: 50, y: 8  },
   { id: 'router',   label: 'ChatModelRouter',    sub: 'forTier()',                         type: 'api',      x: 50, y: 22 },
   { id: 'quota',    label: 'QuotaGuardChatModel', sub: '配额闸门',                          type: 'service',  x: 50, y: 38 },
   { id: 'routing',  label: 'RoutingChatModel',   sub: '路由+熔断',                          type: 'service',  x: 50, y: 54 },
@@ -118,7 +118,7 @@ const lmTopoEdges: TopoEdge[] = [
 const lmTechMap: TechArchitectureMapProps = {
   title: 'LLM 网关监控技术架构全景',
   subtitle: '装饰器洋葱在 ChatModelRouter 和池成员之间插入配额与采集，对消费方和 RoutingChatModel 完全透明。',
-  top: ['ai-secretary', 'visitor-analysis', '其他 LLM 工具', 'ChatModelRouter'],
+  top: ['ai-secretary', '其他 LLM 工具', 'ChatModelRouter'],
   clients: ['QuotaGuardChatModel（per tier）', 'RoutingChatModel（per tier）', 'LlmMonitorListener（per 池成员）'],
   left: ['token 计量', '成本核算', '配额告警', '调用追踪', '实时仪表盘'],
   right: ['本地 Ollama', '远端 DeepSeek', 'AgentScope Studio :3000', '其他 OpenAI 兼容'],
@@ -158,7 +158,7 @@ export function LlmMonitorArch() {
         <p className="max-w-3xl text-sm text-[var(--color-muted-foreground)]">
           在共享 LLM 网关（toolbox-llm）以「<b className="text-[var(--color-foreground)]">装饰器洋葱 + 原生监听器</b>」实现零侵入可观测性，
           对标 AgentScope MonitorManager/tracing/quota/Studio 四块能力。
-          所有走 ChatModelRouter 的工具（ai-secretary、访客分析…）自动获得 token/成本计量、
+          所有走 ChatModelRouter 的工具（ai-secretary 等）自动获得 token/成本计量、
           调用链路追踪和配额保护，无需各自改造。
         </p>
       </header>
@@ -236,9 +236,6 @@ export function LlmMonitorArch() {
                     </div>
                   </div>
                 ))}
-              </div>
-              <div className="rounded-lg border border-dashed px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
-                Python sidecar（访客分析）通过 AgentScope SDK 直接上报 Studio，无需经过 Java 侧 OTLP 导出器。
               </div>
             </CardContent>
           </Card>

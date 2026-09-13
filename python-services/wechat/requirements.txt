@@ -2,7 +2,7 @@
 # system ANSI codepage (GBK/cp936); UTF-8 CJK bytes raise UnicodeDecodeError. Put any
 # Chinese explanation in README.md, not here.
 
-# FastAPI + uvicorn HTTP shell (same shape as the visitor-analysis / faster-whisper sidecars).
+# FastAPI + uvicorn HTTP shell (same shape as the faster-whisper sidecar).
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 

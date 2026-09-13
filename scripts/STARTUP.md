@@ -63,7 +63,6 @@ NPM_CMD=
 PYTHON_CMD=
 
 # 辅助服务按需启用
-FORGE_VISITOR_ANALYSIS_ENABLED=true
 FORGE_WECHAT_ENABLED=false
 FORGE_STUDIO_ENABLED=false
 TOOLBOX_WHISPER_MODE=cli
@@ -90,7 +89,6 @@ Java 继续负责 Git 检查、空闲判断、候选构建和更新；控制层�
 
 | 服务 | 开关与行为 |
 | --- | --- |
-| 访客分析 | 默认启用，`FORGE_VISITOR_ANALYSIS_ENABLED=false` 关闭，端口 9600 |
 | faster-whisper | `TOOLBOX_WHISPER_MODE=asr-service` 启用，端口 9500；macOS 默认 CPU/int8，其余平台可配置 WHISPER_DEVICE |
 | 微信 | Windows 默认启用，可显式关闭，端口 9700；依赖已登录的桌面微信，其他平台不能启用 |
 | AgentScope Studio | `FORGE_STUDIO_ENABLED=true` 启用，端口 3000；使用仓库锁定的本地 npm 包，不自动全局安装 |

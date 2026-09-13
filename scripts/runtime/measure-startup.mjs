@@ -45,7 +45,7 @@ function applicationArguments(options, directory, runId, jar) {
     '-jar', jar, `--server.port=${options.port}`, '--server.address=127.0.0.1',
     `--toolbox.data-dir=${data}`, `--toolbox.sqlite.file=${join(data, 'toolbox.db')}`,
     '--toolbox.magnet.enabled=false', '--toolbox.mail.enabled=false', '--toolbox.ai-secretary.rag.enabled=false',
-    '--toolbox.visitor-analysis.rag.enabled=false', '--toolbox.browser-request.sidecar.auto-start=false',
+    '--toolbox.browser-request.sidecar.auto-start=false',
     '--toolbox.auto-update.enabled=false'];
 }
 

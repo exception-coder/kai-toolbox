@@ -3,7 +3,7 @@
 基于 [wxauto](https://github.com/cluic/wxauto) / wxautox 的 Windows UI 自动化 sidecar，
 为 kai-toolbox 的 `tool-wechat` 模块提供「读微信消息 / 监听新消息 / 发文字」能力。
 
-与 `visitor-analysis`、`faster-whisper` 两个 sidecar 同构：Python 起 FastAPI + uvicorn，
+与 `faster-whisper` sidecar 同构：Python 起 FastAPI + uvicorn，
 Java 侧用 JDK HttpClient 调本服务。**落库 / SSE 实时推送 / 历史检索都在 Java 侧，本服务只和微信 GUI 打交道。**
 
 ## 前置条件（重要）

@@ -33,8 +33,7 @@ public class MonitorProperties {
      * 【可选】将 Java 侧 LLM 调用数据镜像到 AgentScope Studio（OTLP HTTP），
      * 例如 {@code http://localhost:3000}。留空则不推送，不影响主监控（llm-monitor 仪表盘）。
      *
-     * <p>使用场景：同时运行了 Python sidecar（访客分析），想在一个地方（Studio）统一看
-     * Java 侧和 Python 侧两个进程的 LLM trace——配上这个 URL 就能把 Java 侧也推过去。
+     * <p>多个 LLM 服务需要在 Studio 统一查看 trace 时，配置此 URL 可接入 Java 侧数据。
      * 不关心 Studio、只用 toolbox 内置 llm-monitor 的话，不用配。
      *
      * <p>Studio 启动：{@code npm install -g @agentscope/studio && as_studio}（默认 :3000）。

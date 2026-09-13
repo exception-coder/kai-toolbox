@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
  * 中心化 LLM 网关凭据（统一 OpenAI 兼容出口）。
  *
  * <p>{@link Refreshable} 纳入配置中心「LLM 网关」块——在线改、不重启生效。全站(AI 对话 / java8gu /
- * 访客分析 / 简历优化等)默认复用这一处凭据，不再各模块各存一份（凭据不再局限于「AI 对话」）。
+ * 简历优化等)默认复用这一处凭据，不再各模块各存一份（凭据不再局限于「AI 对话」）。
  * 空 key 的网关成员通过 {@code LlmCredentialFallback} 也取这里的实时值。api-key 本地明文存（单机单用户）。</p>
  */
 @Component

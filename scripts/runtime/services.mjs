@@ -11,7 +11,6 @@ export function serviceCatalog(env, platform = process.platform) {
   return [
     { name: 'backend', port: servicePort(env.FORGE_BACKEND_PORT, 18080) },
     { name: 'frontend', port: servicePort(env.FORGE_FRONTEND_PORT, 5173) },
-    { name: 'visitor-analysis', port: 9600, python: true, enabled: flag(env.FORGE_VISITOR_ANALYSIS_ENABLED, true) },
     { name: 'faster-whisper', port: 9500, python: true, enabled: whisperMode === 'asr-service' },
     { name: 'wechat', port: 9700, python: true, enabled: wechat },
     { name: 'studio', port: 3000, enabled: flag(env.FORGE_STUDIO_ENABLED, Boolean(env.AS_STUDIO_URL)) },

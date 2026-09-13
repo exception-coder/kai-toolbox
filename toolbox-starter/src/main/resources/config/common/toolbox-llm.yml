@@ -51,15 +51,6 @@ toolbox:
         model: qwen2.5:7b-instruct
         weight: 1
         cooldown-ms: 15000
-      # 访客分析灰区判别（tier=visitor）：走 4sapi 外网模型（OpenAI 兼容中转），复用 ai-chat 的 4sapi key。
-      # 未配 key 时 LangChain4j 调用失败 → GreyZoneService 降级为 UNKNOWN（后端标「待人工确认」），不影响主流程。
-      - id: visitor-4sapi
-        tier: visitor
-        base-url: ${TOOLBOX_LLM_VISITOR_BASE_URL:https://4sapi.com/v1}
-        api-key: ${TOOLBOX_LLM_VISITOR_KEY:${TOOLBOX_AI_CHAT_API_KEY:}}
-        model: ${TOOLBOX_LLM_VISITOR_MODEL:gpt-4o-mini}
-        weight: 1
-        cooldown-ms: 15000
       # Java 八股「知识补全」(tier=java8gu)：把正文加工成图解(mermaid)/面试问答/易错点/深度讲解。
       # 需产出严格 JSON + 可渲染 mermaid，本地小模型质量不稳，故固定走 4sapi，复用同一把 key。
       # 未配 key 时补全调用失败 → Java8guEnrichService 降级为空补全，不影响原文展示。

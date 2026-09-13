@@ -10,7 +10,7 @@ export function serviceEnvironment(root, settings, configured, platform = proces
   env.WHISPER_COMPUTE_TYPE ||= env.WHISPER_DEVICE === 'cpu' ? 'int8' : 'float16';
   const spring = JSON.parse(env.SPRING_APPLICATION_JSON || '{}');
   if (env.TOOLBOX_QDRANT_API_KEY) {
-    for (const feature of ['ai-secretary', 'visitor-analysis']) {
+    for (const feature of ['ai-secretary']) {
       spring[`toolbox.${feature}.rag.enabled`] ??= true;
       spring[`toolbox.${feature}.rag.qdrant-host`] ??= env.TOOLBOX_QDRANT_HOST || '127.0.0.1';
       spring[`toolbox.${feature}.rag.qdrant-port`] ??= Number(env.TOOLBOX_QDRANT_PORT || 6334);

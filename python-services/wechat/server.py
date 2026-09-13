@@ -3,7 +3,7 @@
 为什么是 Python sidecar 而不是写进 Java：
 - 拿微信内容的成熟方案（wxauto 系）是 Python，且依赖 Windows UI Automation，
   只能跑在装了微信、已登录的那台 PC 上。Java 侧用 JDK HttpClient 调本服务即可（与
-  visitor-analysis / faster-whisper 两个 sidecar 同构）。
+  faster-whisper sidecar 同构）。
 - 本服务把"和微信 GUI 打交道"全部收敛在这里；Java 只做持久化、SSE 广播、对前端开 REST。
 
 库与版本（重要）：

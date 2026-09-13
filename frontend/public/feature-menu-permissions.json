@@ -171,13 +171,6 @@
       "sort": 30
     },
     {
-      "featureId": "visitor-analysis",
-      "code": "menu:visitor-analysis",
-      "name": "访客分析",
-      "module": "智能体",
-      "sort": 30
-    },
-    {
       "featureId": "webterm",
       "code": "menu:webterm",
       "name": "Web 终端",

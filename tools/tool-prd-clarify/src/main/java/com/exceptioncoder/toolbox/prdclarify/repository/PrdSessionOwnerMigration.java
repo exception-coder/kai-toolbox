@@ -20,7 +20,7 @@ import java.util.Optional;
  * 中断 {@code SchemaInitializer} 的 {@code @PostConstruct}，导致整个应用启动失败。改为
  * {@code @DependsOn("schemaInitializer")} 的独立组件，保证所有模块的表（含 auth_user 和
  * 补完列后的 prd_session）都已建好之后再跑，用法对齐同类先例
- * {@code tool-visitor-analysis} 的 {@code CustomerRefMigration} / {@code tool-treesize} 的
+ * {@code tool-treesize} 的
  * {@code TreeSizeMigration}。</p>
  *
  * <p>幂等：每次启动都会跑，但只处理 {@code created_by_user_id IS NULL} 的行，回填一次后
