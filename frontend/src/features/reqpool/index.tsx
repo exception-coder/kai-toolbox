@@ -2,6 +2,7 @@ import { lazy } from 'react'
 import { Radar } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 import { LegacyDeliveryRedirect } from '@/features/delivery-center/public-api'
+import { SystemResources } from '@/features/ops/public-api'
 
 const ReqPoolPage = lazy(() =>
   import('./pages/ReqPoolPage').then((m) => ({ default: m.ReqPoolPage }))
@@ -15,6 +16,7 @@ const manifest: FeatureManifest = {
   description: '从需求登记到交付验收，统一查看项目、执行轨道与真实证据',
   order: 49,
   routes: [
+    { path: '/tools/reqpool/resources', element: <SystemResources /> },
     { path: '/tools/reqpool', element: <ReqPoolPage /> },
     { path: '/tools/delivery-center', element: <LegacyDeliveryRedirect /> },
   ],

@@ -26,7 +26,7 @@
     {
       "featureId": "ops",
       "code": "menu:ops",
-      "name": "系统与中间件",
+      "name": "系统资源与测试账号",
       "module": "系统",
       "sort": 6
     },

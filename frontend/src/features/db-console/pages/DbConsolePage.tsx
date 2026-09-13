@@ -64,7 +64,7 @@ export function DbConsolePage() {
             <div className="p-8 text-center text-sm text-[var(--color-destructive)]">数据源加载失败，请稍后重试。</div>
           ) : !selected ? (
             <div className="p-8 text-center text-sm text-[var(--color-muted-foreground)]">
-              尚未登记 MySQL / Oracle 数据源，请先进入「系统与中间件」添加连接。
+              尚未登记 MySQL / Oracle 数据源，请先进入「系统资源与测试账号」添加连接。
             </div>
           ) : panel === 'history' ? (
             <HistoryPanel key={selected.id} datasource={selected} />

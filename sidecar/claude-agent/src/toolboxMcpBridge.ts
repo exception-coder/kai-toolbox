@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
+import { discoverResourceSchema, executeResourceSchema, DISCOVER_RESOURCES_DESCRIPTION, EXECUTE_RESOURCE_DESCRIPTION, discoverSystemResources, executeSystemResource } from './systemResourceTools.js'
 import {
   FORGE_PENDING_SQL_TOOL_DESCRIPTION,
   FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
@@ -14,7 +15,7 @@ import {
 
 const pendingSqlTargetSchema = z.object({
   targetKey: z.string().optional().describe('稳定目标标识；已知 Forge 数据源时可传 datasource:<id>'),
-  datasourceId: z.string().optional().describe('“系统与中间件”中的数据源 ID；未知可不传'),
+  datasourceId: z.string().optional().describe('“系统资源与测试账号”中的数据源 ID；未知可不传'),
   targetEnvironment: z.string().describe('目标库或环境，例如“ERP 测试库 · Oracle”'),
   changeType: z.enum(['DDL', 'DML', 'MIXED']).default('MIXED'),
   sqlText: z.string().describe('该目标库独立执行的完整 DDL/DML'),
@@ -75,6 +76,8 @@ const querySchema = {
 }
 
 if (serverName === 'forge') {
+  server.registerTool('discover_resources', { description: DISCOVER_RESOURCES_DESCRIPTION, inputSchema: discoverResourceSchema, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }, (args, extra) => discoverSystemResources(apiBase, args, extra))
+  server.registerTool('execute_resource', { description: EXECUTE_RESOURCE_DESCRIPTION, inputSchema: executeResourceSchema, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false } }, (args, extra) => executeSystemResource(apiBase, args, extra))
   server.registerTool('prepare_sql_context', {
     description: FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
     inputSchema: {

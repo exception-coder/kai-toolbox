@@ -290,7 +290,7 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
                     <span>添加目标库 / 环境</span>
                     <div className="flex gap-2">
                       <select value={targetToAdd} onChange={event => setTargetToAdd(event.target.value)} className="h-9 min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]">
-                        <option value="">{availableOptions.length ? '从系统与中间件选择…' : '没有更多已登记 SQL 数据源'}</option>
+                        <option value="">{availableOptions.length ? '从系统资源与测试账号选择…' : '没有更多已登记 SQL 数据源'}</option>
                         {availableOptions.map(option => <option key={option.targetKey} value={option.targetKey}>{option.targetEnvironment}</option>)}
                       </select>
                       <button type="button" onClick={handleAddTarget} disabled={!targetToAdd} className="inline-flex h-9 items-center gap-1 rounded-md border px-3 text-xs disabled:opacity-50">
@@ -338,7 +338,7 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
                   <div className="flex min-h-52 flex-col items-center justify-center gap-2 rounded-xl border border-dashed text-center text-sm text-[var(--color-muted-foreground)]">
                     <Database className="size-6 opacity-50" />
                     <span>先从上方下拉选择目标库 / 环境</span>
-                    <span className="text-xs">选项来自“系统与中间件”中已登记的 MySQL / Oracle 数据源</span>
+                    <span className="text-xs">选项来自“系统资源与测试账号”中已登记的 MySQL / Oracle 数据源</span>
                   </div>
                 )}
                 {registration && (

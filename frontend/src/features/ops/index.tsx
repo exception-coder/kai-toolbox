@@ -1,17 +1,16 @@
-import { lazy } from 'react'
+import { LegacyOpsRedirect } from './public-api'
 import { DatabaseZap } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 
-const OpsPage = lazy(() => import('./pages/OpsPage').then((m) => ({ default: m.OpsPage })))
-
 const manifest: FeatureManifest = {
   id: 'ops',
-  name: '系统与中间件',
+  name: '系统资源与测试账号',
   icon: DatabaseZap,
   group: '系统',
-  description: '登记我负责的系统与各环境中间件，一键连上 MySQL / Oracle / Redis 执行查询排查',
+  description: '在 AI 交付中心管理系统资源关系，供 Tool 与 MCP 发现和测试',
+  chrome: true,
   order: 6,
-  routes: [{ path: '/tools/ops', element: <OpsPage /> }],
+  routes: [{ path: '/tools/ops', element: <LegacyOpsRedirect /> }],
 }
 
 export default manifest

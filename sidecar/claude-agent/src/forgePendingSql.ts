@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
+import { discoverResourceSchema, executeResourceSchema, DISCOVER_RESOURCES_DESCRIPTION, EXECUTE_RESOURCE_DESCRIPTION, discoverSystemResources, executeSystemResource } from './systemResourceTools.js'
 import {
   FORGE_PENDING_SQL_STEER,
   FORGE_PENDING_SQL_TOOL_DESCRIPTION,
@@ -10,7 +11,7 @@ import { FORGE_AFFECTED_API_TOOL_DESCRIPTION } from './affectedApiPolicy.js'
 
 const pendingSqlTargetSchema = z.object({
   targetKey: z.string().optional().describe('稳定目标标识；已知 Forge 数据源时可传 datasource:<id>'),
-  datasourceId: z.string().optional().describe('“系统与中间件”中的数据源 ID；未知可不传'),
+  datasourceId: z.string().optional().describe('“系统资源与测试账号”中的数据源 ID；未知可不传'),
   targetEnvironment: z.string().describe('目标库或环境，例如“ERP 测试库 · Oracle”'),
   changeType: z.enum(['DDL', 'DML', 'MIXED']).default('MIXED'),
   sqlText: z.string().describe('该目标库独立执行的完整 DDL/DML'),
@@ -31,12 +32,18 @@ const affectedApiSchema = z.object({
 
 export { FORGE_PENDING_SQL_STEER } from './pendingSqlPolicy.js'
 
-/** Forge 本地台账 MCP：只把 SQL 回灌到当前会话的待执行登记，不连接任何目标数据库。 */
-export function createForgePendingSqlServer(sessionId: string, apiBase: string, includeAffectedApis = true) {
+/** Forge 交付工具；受限咨询模式仅保留既有证据与登记能力。 */
+export function createForgePendingSqlServer(sessionId: string, apiBase: string, includeDeliveryTools = true) {
   return createSdkMcpServer({
     name: 'forge',
     version: '1.0.0',
     tools: [
+      ...(includeDeliveryTools ? [tool('discover_resources', DISCOVER_RESOURCES_DESCRIPTION, discoverResourceSchema,
+        (args, extra) => discoverSystemResources(apiBase, args, extra as McpRequestExtra),
+        { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }),
+      tool('execute_resource', EXECUTE_RESOURCE_DESCRIPTION, executeResourceSchema,
+        (args, extra) => executeSystemResource(apiBase, args, extra as McpRequestExtra),
+        { annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false } })] : []),
       tool(
         'prepare_sql_context',
         FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
@@ -133,7 +140,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string, 
           }
         },
       ),
-      ...(includeAffectedApis ? [tool(
+      ...(includeDeliveryTools ? [tool(
         'register_affected_apis',
         FORGE_AFFECTED_API_TOOL_DESCRIPTION,
         {

@@ -132,6 +132,13 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 - 默认自动 commit，不自动 push；只有用户明确要求推送时执行 push。本节替代旧的默认 commit + push 约定。
 - 收尾回复必须说明验证结果及 commit 短哈希；若没有提交，明确原因。没有实际执行成功的 commit，不能声称已提交。
 
+## System resources and AI discovery
+
+- `/tools/reqpool/resources` is the AI delivery center entry for system resources and test accounts. Legacy `/tools/ops` redirects to its connections view; preserve existing resource IDs, credentials and history.
+- Project Registry owns system identities. `ResourceProvider` and `ProjectSystemDirectory` in `toolbox-common` are stable ports; implementations stay in their owning modules and register as Spring beans. Do not add tool-to-tool dependencies or copy credentials into relation records.
+- `SystemResourceService` in `tool-ops` owns resource bindings and current-state validation. Claude SDK tools and stdio MCP both expose `discover_resources` and `execute_resource` through `/api/ops/resources`. SQL execution is read-only; app calls retain their connector target restrictions. Discovery returns metadata and credential presence only.
+- Add provider capabilities only when implemented. Current providers cover ops data sources and ERP/SRM test application profiles; registration-only middleware and unavailable providers remain explicit. See `openspec/changes/unify-system-resource-discovery/design.md` for extension and compatibility boundaries.
+
 ## Reference docs
 
 - `README.md` — short user-facing overview

@@ -1,5 +1,6 @@
 import { Plus, Radar, RefreshCw, ChevronDown } from 'lucide-react'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 interface Props {
@@ -22,6 +23,7 @@ export function UnifiedDeliveryHeader(props: Props) {
       <h1 className="mt-2 text-xl font-semibold tracking-tight md:text-2xl">AI 交付中心</h1>
       <p className="mt-2 text-xs text-muted-foreground">从需求登记到交付验收，在同一处推进。</p></div>
     <div className="flex flex-wrap items-center gap-3">
+      <Link className="delivery-action" to="/tools/reqpool/resources">系统资源与测试账号</Link>
       <button className="delivery-action" disabled={props.refreshing} onClick={props.onRefresh}><RefreshCw size={13} className={props.refreshing ? 'animate-spin' : ''} />刷新证据</button>
       <Popover open={moreOpen} onOpenChange={setMoreOpen}><PopoverTrigger asChild><button className="delivery-action">更多<ChevronDown size={13} /></button></PopoverTrigger>
         <PopoverContent className="w-48 p-2" align="end"><button className="w-full px-3 py-2 text-left text-xs hover:bg-muted disabled:opacity-50" disabled={props.prioritizing} onClick={props.onPrioritize}>{props.prioritizing ? '正在重算…' : '重算需求优先级'}</button>

@@ -295,7 +295,7 @@ export function listSessions() {
 
 export type { PendingSqlTargetOption } from './lib/pendingSqlTargets'
 
-/** 复用系统与中间件中的脱敏 SQL 数据源，绝不读取连接密码。 */
+/** 复用系统资源与测试账号中的脱敏 SQL 数据源，绝不读取连接密码。 */
 export async function listPendingSqlTargetOptions(): Promise<PendingSqlTargetOption[]> {
   type SystemView = { id: string; name: string }
   type DatasourceView = { id: string; systemId: string; env: string; type: string; category: string; name: string; dbName: string | null }

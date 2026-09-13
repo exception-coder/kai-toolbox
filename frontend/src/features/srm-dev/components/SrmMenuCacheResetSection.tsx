@@ -131,7 +131,7 @@ export function SrmMenuCacheResetSection() {
         <div className="mt-3 rounded-lg border border-dashed p-3 text-xs text-[var(--color-muted-foreground)]">
           尚未登记 SRM 系统与 Redis 数据源。
           <Button asChild variant="link" size="sm" className="h-auto px-1">
-            <Link to="/tools/ops">前往系统与中间件配置</Link>
+            <Link to="/tools/ops">前往系统资源与测试账号配置</Link>
           </Button>
         </div>
       ) : (
@@ -180,7 +180,7 @@ export function SrmMenuCacheResetSection() {
       {hasSystems && !datasourcesQuery.isLoading && redisDatasources.length === 0 && (
         <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
           当前 SRM 系统没有可用的非生产 Redis 数据源，请先在
-          <Link to="/tools/ops" className="mx-1 text-[var(--color-primary)] hover:underline">系统与中间件</Link>
+          <Link to="/tools/ops" className="mx-1 text-[var(--color-primary)] hover:underline">系统资源与测试账号</Link>
           中登记。
         </p>
       )}
