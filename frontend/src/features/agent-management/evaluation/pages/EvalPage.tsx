@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -34,6 +34,9 @@ import type {
 import { Button } from "@/components/ui/button";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useEvaluationSelection } from "../useEvaluationSelection";
+import { EvaluationContext } from "../EvaluationContext";
+import { EvaluationRecovery } from "../EvaluationRecovery";
 
 const RUN_STATUS_TONE: Record<string, StatusTone> = {
   RUNNING: "info",
@@ -113,10 +116,8 @@ export function EvalPage() {
   const qc = useQueryClient();
   const confirm = useConfirm();
 
-  const [dataset, setDataset] = useState<string>("");
-  const [adapter, setAdapter] = useState<string>("");
-  const [selectedRun, setSelectedRun] = useState<string>("");
-  const [baseRun, setBaseRun] = useState<string>("");
+  const { dataset, setDataset, selectedRun, setSelectedRun, baseRun, setBaseRun,
+    requestedAdapter, setAdapter, removeRun } = useEvaluationSelection();
 
   const datasetsQ = useQuery({
     queryKey: ["eval", "datasets"],
@@ -148,13 +149,9 @@ export function EvalPage() {
   const selectedDataset = datasetsQ.data?.find(
     (item) => item.dataset === dataset,
   );
-  useEffect(() => {
-    if (!selectedDataset || !adaptersQ.data) return;
-    const matching = adaptersQ.data.find(
-      (item) => item.scenario === selectedDataset.scenario,
-    );
-    if (matching && adapter !== matching.id) setAdapter(matching.id);
-  }, [adapter, adaptersQ.data, selectedDataset]);
+  const compatibleAdapters = (adaptersQ.data ?? []).filter(item => item.scenario === selectedDataset?.scenario);
+  const adapter = compatibleAdapters.find(item => item.id === requestedAdapter)?.id
+    ?? compatibleAdapters[0]?.id ?? "";
 
   const runsQ = useQuery({
     queryKey: ["eval", "runs", dataset],
@@ -215,13 +212,26 @@ export function EvalPage() {
   const deleteM = useMutation({
     mutationFn: (id: string) => deleteRun(id),
     onSuccess: (_d, id) => {
-      if (selectedRun === id) setSelectedRun("");
-      if (baseRun === id) setBaseRun("");
+      removeRun(id);
       qc.invalidateQueries({ queryKey: ["eval", "runs"] });
     },
   });
 
-  const canStart = !!dataset && !!adapter && !startM.isPending;
+  const canStart = !!selectedDataset?.enabledCount && !!adapter && !startM.isPending
+    && !datasetsQ.isError && !adaptersQ.isError;
+  const loading = datasetsQ.isLoading || adaptersQ.isLoading || sourcesQ.isLoading;
+  const unavailable = !dataset ? "选择数据集开始评测；尚无题集时，可从样本来源纳入。"
+    : !selectedDataset ? `题集「${dataset}」尚未纳入评测中心，请检查样本来源。`
+    : !selectedDataset.enabledCount ? "此题集没有启用的用例，请检查样本来源。"
+    : !adapter ? "此题集尚无匹配的评测执行器，可返回 Agent 详情或选择其他数据集。" : null;
+  const loadError = datasetsQ.error ?? adaptersQ.error ?? sourcesQ.error ?? runsQ.error
+    ?? resultsQ.error ?? diffQ.error ?? summaryQ.error;
+  const retryLoad = () => {
+    void datasetsQ.refetch(); void adaptersQ.refetch(); void sourcesQ.refetch(); void runsQ.refetch();
+    if (selectedRun) void resultsQ.refetch();
+    if (baseRun && selectedRun && baseRun !== selectedRun) void diffQ.refetch();
+    if (selectedRun && currentRun?.scenario === "EXTRACTION" && currentRun.status !== "RUNNING") void summaryQ.refetch();
+  };
 
   const handleDelete = async (run: EvalRun) => {
     const ok = await confirm({
@@ -234,10 +244,11 @@ export function EvalPage() {
   };
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col gap-4 overflow-x-hidden p-4 sm:p-6 lg:h-full">
+    <div className="flex min-w-0 flex-col gap-5 px-6 py-7 lg:px-10">
+      <EvaluationContext />
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold">回归评测</h1>
+          <h2 className="text-lg font-semibold">回归评测</h2>
           <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
             黄金集跑批 → 确定性断言 → 与历史运行对比，只看 pass→fail
             的退化清单。
@@ -253,6 +264,7 @@ export function EvalPage() {
           刷新
         </Button>
       </header>
+      <EvaluationRecovery error={loadError} loading={loading} unavailable={unavailable} onRetry={retryLoad} />
 
       <section className="border-y py-3 text-xs leading-5 text-[var(--color-muted-foreground)]">
         <span className="font-medium text-[var(--color-foreground)]">
@@ -263,7 +275,7 @@ export function EvalPage() {
       </section>
 
       {/* ───── 样本来源：来源负责采集，稳定数据集负责可比评测 ───── */}
-      <section className="rounded-lg border px-4 py-3 sm:p-4">
+      <section id="evaluation-sources" className="border-y py-4">
         <div className="mb-2 sm:flex sm:items-baseline sm:gap-2">
           <h2 className="shrink-0 text-sm font-medium">样本来源</h2>
           <p className="mt-1 text-xs leading-5 text-[var(--color-muted-foreground)] sm:mt-0">
@@ -420,6 +432,7 @@ export function EvalPage() {
             onChange={(e) => setDataset(e.target.value)}
           >
             <option value="">选择数据集…</option>
+            {dataset && !selectedDataset && <option value={dataset}>{dataset}（尚未纳入）</option>}
             {datasetsQ.data?.map((d) => (
               <option key={`${d.scenario}/${d.dataset}`} value={d.dataset}>
                 {d.dataset}（{d.scenario} · 启用 {d.enabledCount}/{d.total}）
@@ -436,7 +449,7 @@ export function EvalPage() {
             onChange={(e) => setAdapter(e.target.value)}
           >
             <option value="">选择被测 Agent…</option>
-            {adaptersQ.data?.map((a) => (
+            {compatibleAdapters.map((a) => (
               <option key={a.id} value={a.id}>
                 {adapterDisplayName(a.id)}（{a.scenario}）
               </option>
@@ -473,11 +486,13 @@ export function EvalPage() {
             {runsQ.data?.map((run) => (
               <div
                 key={run.id}
-                onClick={() => setSelectedRun(run.id)}
-                className={`cursor-pointer border-b px-3 py-2 text-xs transition-colors hover:bg-[var(--color-accent)] ${
+                className={`border-b px-3 py-2 text-xs transition-colors hover:bg-[var(--color-accent)] ${
                   selectedRun === run.id ? "bg-[var(--color-accent)]" : ""
                 }`}
               >
+                <button type="button" aria-label={`查看运行 ${run.id}`} aria-pressed={selectedRun === run.id}
+                  onClick={() => setSelectedRun(run.id)}
+                  className="block w-full text-left focus-visible:outline-2 focus-visible:outline-offset-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate font-medium">{run.dataset}</span>
                   <StatusBadge
@@ -509,6 +524,7 @@ export function EvalPage() {
                   </span>
                   <span>{fmtTime(run.startedAt)}</span>
                 </div>
+                </button>
                 <div className="mt-1 flex gap-2">
                   <button
                     className="text-[10px] underline-offset-2 hover:underline"
@@ -535,9 +551,9 @@ export function EvalPage() {
         </aside>
 
         {/* ───── 详情 ───── */}
-        <main className="flex min-w-0 flex-col gap-4 lg:min-h-0 lg:overflow-auto">
+        <section aria-label="运行结果" className="flex min-w-0 flex-col gap-4 lg:min-h-0 lg:overflow-auto">
           {!selectedRun && (
-            <div className="rounded-lg border p-8 text-center text-sm text-[var(--color-muted-foreground)]">
+            <div className="border-t py-6 text-sm text-[var(--color-muted-foreground)]">
               选择左侧一次运行查看结果，或再选一次「设为基线」做退化对比。
             </div>
           )}
@@ -687,7 +703,7 @@ export function EvalPage() {
               </div>
             </section>
           )}
-        </main>
+        </section>
       </div>
     </div>
   );

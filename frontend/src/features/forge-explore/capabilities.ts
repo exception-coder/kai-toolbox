@@ -71,7 +71,7 @@ export const capabilities: Capability[] = [
     description: '围绕黄金集与断言比较表现，发现从通过到失败的退化，减少凭感觉判断质量。',
     scenarios: ['调整提示词后比较效果', '检查已有用例是否发生退化'],
     steps: ['准备样本', '执行评测', '比较结果', '定位退化'],
-    destination: '/tools/eval', action: '打开回归评测', entryHint: '进入回归评测，使用已配置的样本与断言开展验证。',
+    destination: '/tools/agent-management?section=evaluation', action: '打开评测中心', entryHint: '在 Agent 管理的评测中心，使用已配置的样本与断言开展验证。',
   },
   {
     id: 'agents', name: 'Agent 治理', category: '自动化', icon: Bot,

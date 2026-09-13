@@ -367,13 +367,6 @@
       "sort": 57
     },
     {
-      "featureId": "eval",
-      "code": "menu:eval",
-      "name": "回归评测",
-      "module": "AI",
-      "sort": 57
-    },
-    {
       "featureId": "new-devmodule",
       "code": "menu:new-devmodule",
       "name": "新增模块",
