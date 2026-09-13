@@ -2,6 +2,7 @@ import { AlertCircle, CheckCircle2, FolderKanban } from 'lucide-react'
 import type { OpenSpecProjectSummary } from '../types'
 
 interface ProjectChangeRailProps {
+  scoped?: boolean
   projects: OpenSpecProjectSummary[]
   projectId: string
   changeId: string
@@ -9,12 +10,12 @@ interface ProjectChangeRailProps {
   onChangeSelect: (changeId: string) => void
 }
 
-export function ProjectChangeRail({ projects, projectId, changeId, onProjectSelect, onChangeSelect }: ProjectChangeRailProps) {
+export function ProjectChangeRail({ projects, projectId, changeId, onProjectSelect, onChangeSelect, scoped = false }: ProjectChangeRailProps) {
   const project = projects.find(item => item.id === projectId) ?? null
 
   return (
     <aside className="min-w-0 border-b border-[var(--color-border)] pb-4 xl:border-b-0 xl:border-r xl:pb-0 xl:pr-4">
-      <label className="text-[11px] font-medium text-[var(--color-muted-foreground)]" htmlFor="openspec-project">
+      {!scoped && <><label className="text-[11px] font-medium text-[var(--color-muted-foreground)]" htmlFor="openspec-project">
         项目
       </label>
       <select
@@ -24,7 +25,7 @@ export function ProjectChangeRail({ projects, projectId, changeId, onProjectSele
         className="mt-2 h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
       >
         {projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select>
+      </select></>}
 
       {project && project.state !== 'READY' ? (
         <div className="mt-4 border-l-2 border-[var(--color-warning)] pl-3">

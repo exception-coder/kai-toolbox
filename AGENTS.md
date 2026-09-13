@@ -138,6 +138,9 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 
 ## System resources and AI discovery
 
+- `/tools/reqpool` is the AI application list backed by Project Registry identities. `/tools/reqpool/apps/:systemId` shows that application's OpenSpec tasks; `/tools/reqpool/requirements` retains the existing requirement delivery workflow.
+- Application/OpenSpec association uses an unambiguous full source-directory match from `ProjectSummary.sourcePath`, never display names or inferred child directories. Missing or ambiguous associations remain explicit. The legacy board redirects to `/tools/reqpool/changes`; reuse the existing official CLI-backed board through its public API.
+
 - `/tools/reqpool/resources` is the AI delivery center entry for system resources and test accounts. Legacy `/tools/ops` redirects to its connections view; preserve existing resource IDs, credentials and history.
 - Project Registry owns system identities. `ResourceProvider` and `ProjectSystemDirectory` in `toolbox-common` are stable ports; implementations stay in their owning modules and register as Spring beans. Do not add tool-to-tool dependencies or copy credentials into relation records.
 - `SystemResourceService` in `tool-ops` owns resource bindings and current-state validation. Claude SDK tools and stdio MCP both expose `discover_resources` and `execute_resource` through `/api/ops/resources`. SQL execution is read-only; app calls retain their connector target restrictions. Discovery returns metadata and credential presence only.

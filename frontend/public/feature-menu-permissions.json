@@ -285,7 +285,7 @@
     {
       "featureId": "openspec-board",
       "code": "menu:openspec-board",
-      "name": "OpenSpec 看板",
+      "name": "应用需求与任务",
       "module": "AI",
       "sort": 50
     },

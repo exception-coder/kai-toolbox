@@ -67,6 +67,7 @@ class OpenSpecBoardServiceTest {
                         """));
 
         BoardList boards = service.boards();
+        assertThat(boards.projects().getFirst().sourcePath()).isEqualTo(projectDirectory.toString());
 
         assertThat(boards.projects()).hasSize(1);
         assertThat(boards.projects().getFirst().state()).isEqualTo(ProjectState.READY);

@@ -9,7 +9,7 @@ import { TaskInspector } from '../components/TaskInspector'
 import type { TaskFilter } from '../viewModel'
 import { ChangeProgress } from '../components/ChangeProgress'
 
-export function OpenSpecBoardPage() {
+export function OpenSpecBoardPage({ scopedProjectId, embedded = false }: { scopedProjectId?: string; embedded?: boolean } = {}) {
   const [projectId, setProjectId] = useState('')
   const [changeId, setChangeId] = useState('')
   const [taskId, setTaskId] = useState<string | null>(null)
@@ -22,7 +22,7 @@ export function OpenSpecBoardPage() {
     queryFn: () => getOpenSpecBoards(boardRefresh > 0),
     staleTime: 15_000,
   })
-  const projects = useMemo(() => boardsQuery.data?.projects ?? [], [boardsQuery.data])
+  const projects = useMemo(() => (boardsQuery.data?.projects ?? []).filter(project => !scopedProjectId || project.id === scopedProjectId), [boardsQuery.data, scopedProjectId])
   const activeProject = projects.find(project => project.id === projectId) ?? projects[0] ?? null
   const activeChange = activeProject?.changes.find(change => change.id === changeId) ?? activeProject?.changes[0] ?? null
 
@@ -45,12 +45,12 @@ export function OpenSpecBoardPage() {
   if (boardsQuery.isError) return <PageError message={errorMessage(boardsQuery.error)} onRetry={() => boardsQuery.refetch()} />
 
   return (
-    <div className="min-h-full bg-[var(--color-background)] p-4 text-[var(--color-foreground)] md:p-6">
+    <div className={embedded ? 'min-w-0' : 'min-h-full bg-[var(--color-background)] p-4 text-[var(--color-foreground)] md:p-6'}>
       <div className="mx-auto max-w-[1800px]">
         <header className="flex flex-col gap-3 border-b border-[var(--color-border)] pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]"><Workflow className="size-3.5" />OpenSpec / Delivery Work</div>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight md:text-2xl">研发变更看板</h1>
+            <h1 className="mt-1 text-xl font-semibold tracking-tight md:text-2xl">{embedded ? '需求与任务' : '研发变更看板'}</h1>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">查看每次变更要做什么、已完成什么、还差什么。数据来自 OpenSpec 查询。</p>
           </div>
           <div className="flex items-center gap-3 text-[10px] text-[var(--color-muted-foreground)]">
@@ -67,6 +67,7 @@ export function OpenSpecBoardPage() {
           <main className="grid gap-6 pt-4 xl:grid-cols-[220px_minmax(0,1fr)_280px]">
             <ProjectChangeRail
               projects={projects}
+              scoped={Boolean(scopedProjectId)}
               projectId={activeProject?.id ?? ''}
               changeId={activeChange?.id ?? ''}
               onProjectSelect={id => { setProjectId(id); setChangeId(''); setTaskId(null); setQuery(''); setState('ALL') }}

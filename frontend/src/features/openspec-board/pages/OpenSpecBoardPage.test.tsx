@@ -26,6 +26,14 @@ afterEach(() => {
 })
 
 describe('OpenSpecBoardPage', () => {
+  it('never falls back to another project when the application workspace is missing', async () => {
+    vi.mocked(getOpenSpecBoards).mockResolvedValue(boardList())
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><OpenSpecBoardPage scopedProjectId="missing" embedded /></QueryClientProvider>)
+    expect(await screen.findByText('还没有可展示的工作区项目')).toBeInTheDocument()
+    expect(getOpenSpecChange).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('项目')).not.toBeInTheDocument()
+  })
   it('filters completed and remaining tasks from the progress summary', async () => {
     vi.mocked(getOpenSpecBoards).mockResolvedValue(boardList())
     vi.mocked(getOpenSpecChange).mockResolvedValue({ ...detail, completedTasks: 1, totalTasks: 2,

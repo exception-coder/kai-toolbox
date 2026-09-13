@@ -7,6 +7,9 @@ import { SystemResources } from '@/features/ops/public-api'
 const ReqPoolPage = lazy(() =>
   import('./pages/ReqPoolPage').then((m) => ({ default: m.ReqPoolPage }))
 )
+const DeliveryHome = lazy(() => import('./applications/ApplicationDeliveryPage').then(m => ({ default: m.DeliveryHome })))
+const ApplicationDeliveryPage = lazy(() => import('./applications/ApplicationDeliveryPage').then(m => ({ default: m.ApplicationDeliveryPage })))
+const LegacyWorkspaceTasks = lazy(() => import('./applications/ApplicationDeliveryPage').then(m => ({ default: m.LegacyWorkspaceTasks })))
 
 const manifest: FeatureManifest = {
   id: 'reqpool',
@@ -17,7 +20,10 @@ const manifest: FeatureManifest = {
   order: 49,
   routes: [
     { path: '/tools/reqpool/resources', element: <SystemResources /> },
-    { path: '/tools/reqpool', element: <ReqPoolPage /> },
+    { path: '/tools/reqpool', element: <DeliveryHome /> },
+    { path: '/tools/reqpool/apps/:systemId', element: <ApplicationDeliveryPage /> },
+    { path: '/tools/reqpool/requirements', element: <ReqPoolPage /> },
+    { path: '/tools/reqpool/changes', element: <LegacyWorkspaceTasks /> },
     { path: '/tools/delivery-center', element: <LegacyDeliveryRedirect /> },
   ],
 }

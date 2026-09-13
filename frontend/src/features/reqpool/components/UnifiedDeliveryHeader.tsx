@@ -23,6 +23,7 @@ export function UnifiedDeliveryHeader(props: Props) {
       <h1 className="mt-2 text-xl font-semibold tracking-tight md:text-2xl">AI 交付中心</h1>
       <p className="mt-2 text-xs text-muted-foreground">从需求登记到交付验收，在同一处推进。</p></div>
     <div className="flex flex-wrap items-center gap-3">
+      <Link className="delivery-action" to="/tools/reqpool">AI 应用清单</Link>
       <Link className="delivery-action" to="/tools/reqpool/resources">系统资源与测试账号</Link>
       <button className="delivery-action" disabled={props.refreshing} onClick={props.onRefresh}><RefreshCw size={13} className={props.refreshing ? 'animate-spin' : ''} />刷新证据</button>
       <Popover open={moreOpen} onOpenChange={setMoreOpen}><PopoverTrigger asChild><button className="delivery-action">更多<ChevronDown size={13} /></button></PopoverTrigger>

@@ -17,7 +17,7 @@ public final class OpenSpecBoardView {
     /** 项目及其活动需求摘要。 */
     public record ProjectSummary(String id, String name, ProjectState state, String message,
                                  List<ChangeSummary> changes, Integer completedTasks,
-                                 Integer totalTasks, Instant snapshotAt) {
+                                 Integer totalTasks, Instant snapshotAt, String sourcePath) {
     }
 
     /** OpenSpec change 摘要。 */

@@ -12,6 +12,7 @@ export interface OpenSpecChangeSummary {
 }
 
 export interface OpenSpecProjectSummary {
+  sourcePath?: string
   id: string
   name: string
   state: OpenSpecProjectState

@@ -191,7 +191,7 @@ public class OpenSpecBoardService {
             int completed = changes.stream().mapToInt(ChangeSummary::completedTasks).sum();
             int total = changes.stream().mapToInt(ChangeSummary::totalTasks).sum();
             return new ProjectSummary(project.id(), project.name(), ProjectState.READY, "OpenSpec 已就绪",
-                    changes, completed, total, snapshotAt);
+                    changes, completed, total, snapshotAt, project.path().toString());
         } catch (IllegalArgumentException exception) {
             return unavailableProject(project, ProjectState.ERROR, exception.getMessage(), snapshotAt);
         }
@@ -320,7 +320,7 @@ public class OpenSpecBoardService {
     }
 
     private ProjectSummary unavailableProject(Project project, ProjectState state, String message, Instant snapshotAt) {
-        return new ProjectSummary(project.id(), project.name(), state, message, List.of(), 0, 0, snapshotAt);
+        return new ProjectSummary(project.id(), project.name(), state, message, List.of(), 0, 0, snapshotAt, project.path().toString());
     }
 
     private ChangeState changeState(int completed, int total, List<Task> tasks) {
