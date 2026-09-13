@@ -1,10 +1,13 @@
-import { lazy } from 'react'
+import { Navigate, useLocation } from 'react-router-dom'
 import { Blocks } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 
-const ForgeEnvironmentPage = lazy(() =>
-  import('./pages/ForgeEnvironmentPage').then((module) => ({ default: module.ForgeEnvironmentPage })),
-)
+export function LegacyEnvironmentRedirect() {
+  const location = useLocation()
+  const params = new URLSearchParams(location.search)
+  params.set('section', 'environment')
+  return <Navigate to={`/tools/project-workspace?${params}${location.hash}`} replace />
+}
 
 const manifest: FeatureManifest = {
   id: 'forge-environment',
@@ -14,7 +17,8 @@ const manifest: FeatureManifest = {
   description: '研发环境检测与一键初始化',
   order: 7,
   requiredPermission: 'forge:environment:menu',
-  routes: [{ path: '/tools/forge-environment', element: <ForgeEnvironmentPage /> }],
+  chrome: true,
+  routes: [{ path: '/tools/forge-environment', element: <LegacyEnvironmentRedirect /> }],
 }
 
 export default manifest

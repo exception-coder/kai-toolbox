@@ -64,7 +64,7 @@ function suiteStepName(step: string) {
 }
 
 /** Forge 研发环境总览与一键初始化工作台。 */
-export function ForgeEnvironmentPage() {
+export function ForgeEnvironmentPage({ embedded = false }: { embedded?: boolean }) {
   const queryClient = useQueryClient()
   const closeStreamRef = useRef<null | (() => void)>(null)
   const terminalRef = useRef(false)
@@ -221,26 +221,26 @@ export function ForgeEnvironmentPage() {
   const progressCopy = PROGRESS_COPY[progressKind]
 
   if (query.isPending) {
-    return <main className="mx-auto max-w-6xl p-6 text-sm text-[var(--color-muted-foreground)]">正在检测 Forge 研发环境…</main>
+    return <section role="status" className="py-6 text-sm text-[var(--color-muted-foreground)]">正在检测 Forge 研发环境…</section>
   }
 
   if (query.isError || !query.data) {
     return (
-      <main className="mx-auto max-w-3xl p-6">
+      <section className="max-w-3xl py-6">
         <p className="text-sm font-medium">无法读取 Forge 环境</p>
         <p className="mt-2 text-sm text-[var(--color-muted-foreground)]">{query.error instanceof Error ? query.error.message : '后端暂不可用，请确认 Forge 已启动。'}</p>
         <Button className="mt-4" variant="outline" onClick={() => void query.refetch()}>重新检测</Button>
-      </main>
+      </section>
     )
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-5 py-8 sm:px-8 lg:px-12">
+    <section className={embedded ? 'min-w-0' : 'mx-auto max-w-6xl px-5 py-8 sm:px-8 lg:px-12'}>
       <header className="mb-8">
         <p className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--color-muted-foreground)]">Forge · System Readiness</p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">研发环境</h1>
+        <h2 className="mt-2 text-xl font-semibold tracking-tight">全局工具环境</h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--color-muted-foreground)]">
-          从基础运行时到公司知识套件，一处确认 Forge 是否具备完整研发能力。
+          管理本机共享的运行时、研发工具与公司套件。这里的安装和更新可能影响多个项目；项目自己的环境信息与开发／测试地址，请在项目详情的“环境”中查看。
         </p>
       </header>
 
@@ -290,6 +290,6 @@ export function ForgeEnvironmentPage() {
           />
         </div>
       </div>
-    </main>
+    </section>
   )
 }

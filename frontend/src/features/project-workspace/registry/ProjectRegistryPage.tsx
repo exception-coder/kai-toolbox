@@ -10,10 +10,11 @@ import { ProjectRegistrationForm } from './ProjectRegistrationForm'
 import type { Readiness } from './types'
 import { LocalProjectDiscovery, type DiscoveredProject } from './LocalProjectDiscovery'
 import { ProjectDirectorySettings } from './ProjectDirectorySettings'
+import { ProjectEnvironment } from '@/features/forge-environment/public-api'
 
 const ModuleWorkspace = lazy(() => import('../pages/ProjectWorkspacePage').then(module => ({ default: module.ProjectWorkspacePage })))
 const ContextDiagnostics = lazy(() => import('./diagnostics/ProjectContextDiagnostics').then(module => ({ default: module.ProjectContextDiagnostics })))
-const sections = [['systems', '已登记系统'], ['local', '本地项目'], ['directories', '目录设置'], ['modules', '模块工作区'], ['diagnostics', 'AI 上下文诊断']] as const
+const sections = [['systems', '已登记系统'], ['local', '本地项目'], ['directories', '目录设置'], ['modules', '模块工作区'], ['environment', '环境管理'], ['diagnostics', 'AI 上下文诊断']] as const
 
 export function ProjectRegistryPage() {
   const navigate = useNavigate()
@@ -47,6 +48,7 @@ export function ProjectRegistryPage() {
     </section>}
     {section === 'local' && <LocalProjectDiscovery registered={all} onSelect={project => { setSelection(project); setRegistering(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }} onOpen={id => navigate(`/tools/project-workspace/${id}`)} onSettings={() => showSection('directories')} />}
     {section === 'directories' && <ProjectDirectorySettings />}
+    {section === 'environment' && <ProjectEnvironment />}
     {section === 'diagnostics' && <Suspense fallback={<p role="status">正在加载上下文诊断…</p>}><ContextDiagnostics /></Suspense>}
     {section === 'modules' && <Suspense fallback={<p role="status">正在读取模块工作区…</p>}><ModuleWorkspace onOpenDirectorySettings={() => showSection('directories')} /></Suspense>}
     {section === 'systems' && <>
