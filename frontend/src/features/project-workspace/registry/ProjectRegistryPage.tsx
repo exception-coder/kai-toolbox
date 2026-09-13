@@ -12,9 +12,10 @@ import { LocalProjectDiscovery, type DiscoveredProject } from './LocalProjectDis
 import { ProjectDirectorySettings } from './ProjectDirectorySettings'
 import { ProjectEnvironment } from '@/features/forge-environment/public-api'
 import { projectPathKey } from '../lib/projectScope'
+import { ProjectGitWorkspace } from '../git/ProjectGitWorkspace'
 
 const ContextDiagnostics = lazy(() => import('./diagnostics/ProjectContextDiagnostics').then(module => ({ default: module.ProjectContextDiagnostics })))
-const sections = [['systems', '全部项目'], ['directories', '目录设置'], ['environment', '环境管理'], ['diagnostics', 'AI 上下文诊断']] as const
+const sections = [['systems', '全部项目'], ['git', 'Git 工作区'], ['directories', '目录设置'], ['environment', '环境管理'], ['diagnostics', 'AI 上下文诊断']] as const
 
 export function ProjectRegistryPage() {
   const navigate = useNavigate()
@@ -57,6 +58,7 @@ export function ProjectRegistryPage() {
       <ProjectRegistrationForm key={selection?.path ?? 'manual'} initial={selection ? { name: selection.name, localPath: selection.path } : undefined} onCancel={() => setRegistering(false)} onSaved={project => { void cache.invalidateQueries({ queryKey: ['project-registry'] }); navigate(`/tools/project-workspace/${project.id}`) }} />
     </section>}
     {section === 'directories' && <ProjectDirectorySettings />}
+    {section === 'git' && <><RegistryError error={projects.error} retry={() => void projects.refetch()} />{projects.isLoading ? <p role="status">正在读取项目库…</p> : !projects.isError && <ProjectGitWorkspace projects={all} />}</>}
     {section === 'environment' && <ProjectEnvironment />}
     {section === 'diagnostics' && <Suspense fallback={<p role="status">正在加载上下文诊断…</p>}><ContextDiagnostics /></Suspense>}
     {section === 'systems' && <>
