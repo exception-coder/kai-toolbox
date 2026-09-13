@@ -58,6 +58,9 @@ export const DOMAIN_KNOWLEDGE_CORE_SPEC_TOOLS = [
 export const DOMAIN_KNOWLEDGE_READONLY_TOOLS = [
   ...BASE_READONLY_KNOWLEDGE_TOOLS,
   ...DOMAIN_KNOWLEDGE_CORE_SPEC_TOOLS,
+  'resolve_project_context',
+  'list_spec_candidates',
+  'get_spec_candidate',
 ] as const
 
 export const CROSS_TOPOLOGY_READONLY_TOOLS = [...BASE_READONLY_KNOWLEDGE_TOOLS] as const

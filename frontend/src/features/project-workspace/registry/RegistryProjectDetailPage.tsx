@@ -14,7 +14,7 @@ import { SystemInitializationGuide } from './SystemInitializationGuide'
 import { ProjectContextDiagnostics } from './diagnostics/ProjectContextDiagnostics'
 
 const ProjectAIWorkspace = lazy(() => import('./ProjectAIWorkspace').then(module => ({ default: module.ProjectAIWorkspace })))
-const tabs = ['AI 工作区', '概览', '代码智能', '业务域', '任务', '验证', '环境', '设置'] as const
+const tabs = ['AI 工作区', '概览', '代码智能', '知识探索', '任务', '验证', '环境', '设置'] as const
 type Tab = typeof tabs[number]
 const tabIds = ['workspace', 'overview', 'code', 'domains', 'tasks', 'verification', 'environment', 'settings']
 
@@ -58,7 +58,7 @@ export function RegistryProjectDetailPage() {
         {detail.profile && <AssetPanel asset={asset('EXECUTION')} />}
       </div><div>{detail.runs[0] ? <InitializationProgress run={detail.runs[0]} /> : <p className="text-sm text-[var(--color-muted-foreground)]">初始化进度将在这里显示，刷新页面不会丢失运行记录。</p>}</div></div>}
       {tab === '代码智能' && <div className="space-y-6"><AssetPanel asset={asset('CODE')} />{asset('CODE')?.sources.length ? <Button variant="outline" onClick={() => setGraphOpen(true)}>打开 Graphify 图谱</Button> : null}</div>}
-      {tab === '业务域' && <SystemDomainsPanel projectId={projectId} />}
+      {tab === '知识探索' && <SystemDomainsPanel projectId={projectId} />}
       {tab === '任务' && <SystemTasksPanel detail={detail} />}
       {tab === '验证' && <div className="space-y-10"><ProjectContextDiagnostics key={projectId} scope={{ name: project.metadata.name, path: project.metadata.localPath }} /><section className="space-y-4 border-t border-[var(--color-border)] pt-6"><h2 className="text-base font-semibold">项目验证入口</h2><p className="text-sm text-[var(--color-muted-foreground)]">这里列出初始化发现的构建与测试入口，执行结果需要单独核验。</p><AssetPanel asset={asset('VERIFICATION')} /></section></div>}
       {tab === '环境' && <div className="space-y-8"><section className="space-y-3"><h2 className="font-semibold">项目环境</h2><p className="text-sm leading-6 text-[var(--color-muted-foreground)]">这里展示当前项目扫描得到的工程配置和环境地址。全局工具安装与更新在项目库统一管理；项目画像不代表运行验收通过。</p><Link to="/tools/project-workspace?section=environment" className="inline-flex text-sm underline underline-offset-4">管理全局工具环境</Link></section><AssetPanel asset={asset('PROJECT')} /><div className="flex flex-wrap gap-4">

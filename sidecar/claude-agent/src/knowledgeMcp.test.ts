@@ -43,7 +43,7 @@ test('keeps explicit MCP path overrides for controlled deployments', () => {
   })
 })
 
-test('exposes the two Core Spec tools only on the domain knowledge server', () => {
+test('exposes context and candidate tools only on the domain knowledge server', () => {
   assert.deepEqual(DOMAIN_KNOWLEDGE_READONLY_TOOLS, [
     'list_projects',
     'list_modules',
@@ -54,6 +54,9 @@ test('exposes the two Core Spec tools only on the domain knowledge server', () =
     'get_related',
     'get_module_core_spec',
     'resolve_consult_context',
+    'resolve_project_context',
+    'list_spec_candidates',
+    'get_spec_candidate',
   ])
   assert.deepEqual(CROSS_TOPOLOGY_READONLY_TOOLS, [
     'list_projects',

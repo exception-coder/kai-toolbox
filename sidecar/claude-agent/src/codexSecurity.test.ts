@@ -89,8 +89,8 @@ test('inspects the exact runtime route without starting a consultation session',
 })
 
 test('prioritizes domain context before reading implementation evidence', () => {
-  assert.match(CONSULT_READONLY_PROMPT, /领域语义优先查询 domain-knowledge/)
-  assert.match(CONSULT_READONLY_PROMPT, /domain-knowledge\.resolve_consult_context/)
+  assert.match(CONSULT_READONLY_PROMPT, /领域语义与跨项目关系优先查询 consult-readonly\.knowledge_query/)
+  assert.match(CONSULT_READONLY_PROMPT, /knowledge_query\(source=domain, action=resolve_consult_context\)/)
   assert.doesNotMatch(CONSULT_READONLY_PROMPT, /必须先调用 consult-readonly\.source_context，再调用业务知识工具/)
 })
 
@@ -101,6 +101,7 @@ test('exposes the selected and confirmed authority database tools together', () 
     const config = consultReadonlyCodexConfig(undefined, undefined, 'D:\\work\\srm-system', ['erp'])
     const servers = config.mcp_servers as Record<string, Record<string, unknown>>
     assert.deepEqual(servers['consult-readonly'].enabled_tools, [
+      'knowledge_query',
       'srm_db_query',
       'erp_db_query',
       'erp_standby_schema_search',
@@ -122,7 +123,7 @@ test('exposes only the selected system database tool through the code-mode host'
     const readonly = servers['consult-readonly']
 
     assert.equal(features.code_mode_host, true)
-    assert.deepEqual(readonly.enabled_tools, ['srm_db_query'])
+    assert.deepEqual(readonly.enabled_tools, ['knowledge_query', 'srm_db_query'])
   } finally {
     if (previousApiBase == null) delete process.env.TOOLBOX_API_BASE
     else process.env.TOOLBOX_API_BASE = previousApiBase

@@ -112,30 +112,8 @@ public class DomainExplorationService {
             var graph = graphs.load(root);
             var source = evidence.scan(root);
             if (!Boolean.TRUE.equals(source.complete())) { throw new IllegalArgumentException("源码扫描不完整，请缩小项目边界后探索"); }
-            String prompt = context(run, graph);
-            Result result = null;
-            for (int attempt = 0; attempt < 2; attempt++) {
-                store.saveRun(root, changed(run, "RUNNING", attempt == 0 ? "Agent 正在追踪代码" : "补正源码引用", null));
-                String output;
-                var outputCharacters = new java.util.concurrent.atomic.AtomicInteger();
-                try {
-                    output = runner.stream(new AgentOneShotRunner.ExecutionRequest(PROMPT, prompt, root,
-                            null, run.engine(), "codex".equals(run.engine()) ? "medium" : null, null, null, null, null,
-                            AgentOneShotRunner.TOOL_POLICY_CONSULT_READONLY), delta -> {
-                                if (outputCharacters.addAndGet(delta.length()) > 200000) {
-                                    throw new IllegalStateException("探索输出超过 200000 字符，请缩小范围");
-                                }
-                            });
-                } catch (RuntimeException exception) {
-                    throw new IllegalStateException("Agent 执行失败或超时，请检查引擎连接、模型配置和服务日志后重试", exception);
-                }
-                store.saveRun(root, changed(run, "RUNNING", "核对图谱节点与源码引用", null));
-                try { result = validator.validate(output, root, graph); break; }
-                catch (IllegalArgumentException exception) {
-                    if (attempt == 1) { throw exception; }
-                    prompt = context(run, graph) + "\n上一轮结果未通过校验，请重新读取源码并输出完整 JSON。校验错误：" + exception.getMessage();
-                }
-            }
+            Result result = collect(root, run, runner,
+                    stage -> store.saveRun(root, changed(run, "RUNNING", stage, null)));
             var current = evidence.scan(root);
             if (!Boolean.TRUE.equals(current.complete()) || !source.fingerprint().equals(current.fingerprint())
                     || !graph.fingerprint().equals(graphs.load(root).fingerprint())) {
@@ -157,6 +135,37 @@ public class DomainExplorationService {
             if (error == null || error.length() > 1000) { error = "探索失败，请检查引擎配置、图谱与源码引用后重试"; }
             store.saveRun(root, changed(run, "FAILED", "探索未完成，上一版结果保留", error));
         }
+    }
+
+    /** 单项目取证供领域与拓扑共用；不写入领域快照。 */
+    public Result collect(String root, Run run, AgentOneShotRunner runner,
+                          java.util.function.Consumer<String> stage) {
+        var graph = graphs.load(root);
+        String prompt = context(run, graph);
+        Result result = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            stage.accept(attempt == 0 ? "Agent 正在追踪代码" : "补正源码引用");
+            String output;
+            var outputCharacters = new java.util.concurrent.atomic.AtomicInteger();
+            try {
+                output = runner.stream(new AgentOneShotRunner.ExecutionRequest(PROMPT, prompt, root,
+                        null, run.engine(), "codex".equals(run.engine()) ? "medium" : null, null, null, null, null,
+                        AgentOneShotRunner.TOOL_POLICY_CONSULT_READONLY), delta -> {
+                            if (outputCharacters.addAndGet(delta.length()) > 200000) {
+                                throw new IllegalStateException("探索输出超过 200000 字符，请缩小范围");
+                            }
+                        });
+            } catch (RuntimeException exception) {
+                throw new IllegalStateException("Agent 执行失败或超时，请检查引擎连接、模型配置和服务日志后重试", exception);
+            }
+            stage.accept("核对图谱节点与源码引用");
+            try { result = validator.validate(output, root, graph); break; }
+            catch (IllegalArgumentException exception) {
+                if (attempt == 1) { throw exception; }
+                prompt = context(run, graph) + "\n上一轮结果未通过校验，请重新读取源码并输出完整 JSON。校验错误：" + exception.getMessage();
+            }
+        }
+        return result;
     }
 
     private String context(Run run, DomainGraphContext.Index graph) {

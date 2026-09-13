@@ -913,6 +913,7 @@ class Session {
                   allowedTools: [
                     'Read', 'AskUserQuestion',
                     'mcp__consult-readonly__source_context',
+                    'mcp__consult-readonly__knowledge_query',
                     'mcp__consult-readonly__source_search',
                     'mcp__consult-readonly__source_read',
                     'mcp__consult-readonly__erp_standby_schema_search',

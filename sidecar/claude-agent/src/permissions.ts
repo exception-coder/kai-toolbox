@@ -35,6 +35,7 @@ const CONSULT_READONLY_MCP_TOOLS = new Set([
   'mcp__consult-readonly__srm_db_query',
   'mcp__consult-readonly__scm_db_query',
   'mcp__consult-readonly__source_context',
+  'mcp__consult-readonly__knowledge_query',
   'mcp__consult-readonly__source_search',
   'mcp__consult-readonly__source_read',
   'mcp__consult-readonly__erp_standby_schema_search',

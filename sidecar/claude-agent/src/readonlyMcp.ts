@@ -4,6 +4,7 @@ import { basename, isAbsolute, relative, resolve, sep } from 'node:path'
 import { createInterface } from 'node:readline'
 import { TextDecoder } from 'node:util'
 import { validateReadonlySql } from './readonlyPolicy.js'
+import { knowledgeQueryTool, queryKnowledge } from './knowledgeQuery.js'
 import {
   DEFAULT_GRAPH_JSON_FALLBACK_MAX_BYTES,
   GraphifyQueryCoordinator,
@@ -126,7 +127,7 @@ const standbySchemaTools = ERP_STANDBY_SCHEMA_PATH ? [
   },
 ] : []
 
-const tools = [...(API_BASE ? databaseTools : []), ...sourceTools, ...standbySchemaTools]
+const tools = [knowledgeQueryTool, ...(API_BASE ? databaseTools : []), ...sourceTools, ...standbySchemaTools]
 const SKIPPED_DIRECTORIES = new Set([
   '.git', '.idea', '.vscode', 'node_modules', 'target', 'dist', 'build', 'out', 'coverage', '.next', '.cache',
   'graphify-out',
@@ -683,6 +684,7 @@ function fail(id: JsonRpcRequest['id'], code: number, message: string): void {
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   try {
+    if (name === 'knowledge_query') return textResult(JSON.stringify(await queryKnowledge(args)))
     if (name === 'source_context') return buildSourceContext(args)
     if (name === 'source_search') return searchSource(args)
     if (name === 'source_read') return readSource(args)
