@@ -57,6 +57,7 @@ The workspace SHALL use the current registered project path and SHALL preserve e
 - **WHEN** sessions include the project root, descendants and a similarly prefixed sibling
 - **THEN** only root and descendant sessions are displayed
 - **AND** opening history resumes the selected session ID
+- **AND** each session uses the same display name as chat: its nonblank saved title, otherwise its working directory name
 
 #### Scenario: Uninitialized or undiscovered project
 

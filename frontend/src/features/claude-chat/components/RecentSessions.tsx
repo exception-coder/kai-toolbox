@@ -14,6 +14,7 @@ import type { ClaudeChatSessionView } from '../types'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
 import { isSessionStatusVisible, useVisibleSessionStatuses } from '../lib/sessionStatusFilter'
 import { isVibeCodingSession } from '../lib/sessionScope'
+import { sessionDisplayName } from '../lib/sessionDisplayName'
 
 interface Props {
   currentSessionId: string | null
@@ -94,7 +95,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
   }
 
   const remove = async (session: ClaudeChatSessionView) => {
-    const title = session.title?.trim() || shortCwd(session.cwd)
+    const title = sessionDisplayName(session)
     const ok = await confirm({
       title: '删除会话？',
       description: `会话“${title}”删除后无法恢复。`,
@@ -125,7 +126,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
       ) : <ul className="scrollbar-autohide max-h-[55vh] overflow-y-auto overscroll-contain">
         {recent.map(session => {
           const isActive = session.id === currentSessionId
-          const title = session.title?.trim() || shortCwd(session.cwd)
+          const title = sessionDisplayName(session)
           const engineLabel = engineDisplayName(session.engine ?? 'claude', session.providerKind)
           const isEditing = editingId === session.id
           const linkedPrd = prdLinks[session.id]
@@ -315,11 +316,6 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
     )}
     </>
   )
-}
-
-function shortCwd(cwd: string): string {
-  const normalized = cwd.replace(/[\\/]+$/, '')
-  return normalized.split(/[\\/]/).pop() || cwd
 }
 
 function relativeTime(epochMs: number): string {

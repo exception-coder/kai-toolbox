@@ -7,7 +7,10 @@ import { listSessions } from '@/features/claude-chat/public-api'
 import { isWithinProject } from '../lib/projectScope'
 
 const chat = vi.hoisted(() => ({ open: vi.fn(), switchTo: vi.fn() }))
-vi.mock('@/features/claude-chat/public-api', () => ({ listSessions: vi.fn() }))
+vi.mock('@/features/claude-chat/public-api', async importOriginal => ({
+  ...await importOriginal<typeof import('@/features/claude-chat/public-api')>(),
+  listSessions: vi.fn(),
+}))
 vi.mock('@/features/claude-chat/public-api/runtime', () => ({ CHAT_ROUTE: '/chat', useChatRuntime: () => ({ chat, activate: vi.fn() }) }))
 vi.mock('../pages/ProjectWorkspacePage', () => ({ ProjectWorkspacePage: ({ scope }: { scope: { path: string } }) => <div>{scope.path}</div> }))
 const scope = { name: 'Forge', path: 'D:/work/forge' }
@@ -42,6 +45,21 @@ it('distinguishes case-sensitive Unix paths and empty paths', () => {
   expect(isWithinProject('/work/forge/src', '/work/Forge')).toBe(false)
   expect(isWithinProject('/work/Forge2', '/work/Forge')).toBe(false)
   expect(isWithinProject('', '')).toBe(false)
+})
+
+it('shows the same title or directory name as chat and preserves the selected session identity', async () => {
+  vi.mocked(listSessions).mockResolvedValue([
+    { id: 'named', title: '  样衣进度调整  ', cwd: 'D:/work/forge' },
+    { id: 'windows', title: null, cwd: 'D:\\work\\forge\\采购模块\\' },
+    { id: 'unix', title: '   ', cwd: 'D:/work/forge/移动端/' },
+  ] as Awaited<ReturnType<typeof listSessions>>)
+  mount()
+  expect(await screen.findByText('样衣进度调整')).toBeInTheDocument()
+  expect(screen.getByText('采购模块')).toBeInTheDocument()
+  expect(screen.getByText('移动端')).toBeInTheDocument()
+  expect(screen.queryByText('未命名会话')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /采购模块/ }))
+  await waitFor(() => expect(chat.switchTo).toHaveBeenCalledWith('windows'))
 })
 
 it('keeps the root action available when session discovery fails', async () => {

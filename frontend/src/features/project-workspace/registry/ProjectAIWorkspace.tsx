@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { MessageSquarePlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { listSessions } from '@/features/claude-chat/public-api'
+import { listSessions, sessionDisplayName } from '@/features/claude-chat/public-api'
 import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/public-api/runtime'
 import { ProjectWorkspacePage } from '../pages/ProjectWorkspacePage'
 import { isWithinProject, type ProjectScope } from '../lib/projectScope'
@@ -35,7 +35,7 @@ export function ProjectAIWorkspace({ scope }: { scope: ProjectScope }) {
       <RegistryError error={sessions.error} retry={() => void sessions.refetch()} />
       {sessions.isLoading ? <p role="status" className="text-sm">正在读取项目会话…</p> : related.length ? <>
         <div className="divide-y divide-[var(--color-border)]">{(expanded ? related : related.slice(0, 5)).map(session => <button key={session.id} type="button" disabled={pending !== null} onClick={() => open(session.id)} className="flex w-full flex-wrap items-center justify-between gap-2 py-3 text-left text-sm hover:text-[var(--color-primary)] focus-visible:outline-2 focus-visible:outline-[var(--color-ring)]">
-          <span className="min-w-0 break-words font-medium">{session.title || '未命名会话'}</span><span className="max-w-full break-all text-xs text-[var(--color-muted-foreground)]">{session.cwd}</span>
+          <span className="min-w-0 break-words font-medium">{sessionDisplayName(session)}</span><span className="max-w-full break-all text-xs text-[var(--color-muted-foreground)]">{session.cwd}</span>
         </button>)}</div>
         {related.length > 5 && <Button variant="ghost" size="sm" onClick={() => setExpanded(value => !value)}>{expanded ? '收起会话' : `查看全部 ${related.length} 个会话`}</Button>}
       </> : !sessions.isError && <p className="text-sm text-[var(--color-muted-foreground)]">还没有项目会话，可以直接开始，无需等待初始化。</p>}

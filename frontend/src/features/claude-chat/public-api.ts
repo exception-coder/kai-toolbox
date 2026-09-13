@@ -29,6 +29,7 @@ export type { UploadedAttachment } from './api'
 export type { PublicReviewRequirement, ReviewRequirementDraft } from './api'
 export type { PublicReviewEnvironmentCheck } from './api'
 export type { ChatItem } from './types'
+export { sessionDisplayName } from './lib/sessionDisplayName'
 export {
   applyModuleSync,
   createTaskspace,
