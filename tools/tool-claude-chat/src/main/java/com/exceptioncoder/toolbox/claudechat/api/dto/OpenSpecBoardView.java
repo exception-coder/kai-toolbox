@@ -30,7 +30,16 @@ public final class OpenSpecBoardView {
                                ChangeState state, Integer completedTasks, Integer totalTasks,
                                Map<String, List<String>> artifactPaths, List<Task> tasks,
                                List<AffectedApiEvidence> affectedApis, Instant snapshotAt,
-                               Freshness freshness) {
+                               Freshness freshness, Workflow workflow) {
+    }
+
+    /** 官方指令返回的实施准备状态，与运行验收分开。 */
+    public record Workflow(String state, List<String> missingArtifacts,
+                           List<String> missingPrerequisites, List<Artifact> artifacts) {
+    }
+
+    /** 官方 schema 中的材料状态，允许自定义标识。 */
+    public record Artifact(String id, String status, List<String> missingDeps) {
     }
 
     /** 单个 OpenSpec 任务及其可信状态。 */

@@ -99,11 +99,12 @@ class OpenSpecBoardServiceTest {
         when(cliGateway.run(projectDirectory,
                 List.of("status", "--change", "openspec-task-board", "--json")))
                 .thenReturn(result(0, "{\"planningHome\":{\"root\":\"" + root +
-                        "\"},\"artifactPaths\":{\"proposal\":{\"existingOutputPaths\":[]}}}"));
+                        "\"},\"artifactPaths\":{\"proposal\":{\"existingOutputPaths\":[]}},"
+                        + "\"isComplete\":true,\"artifacts\":[{\"id\":\"custom-review\",\"status\":\"blocked\",\"missingDeps\":[\"design\"]}]}"));
         when(cliGateway.run(projectDirectory,
                 List.of("instructions", "apply", "--change", "openspec-task-board", "--json")))
                 .thenReturn(result(0, """
-                        {"progress":{"total":2,"complete":1},"tasks":[
+                        {"state":"blocked","missingArtifacts":["tasks"],"missingPrerequisites":["design","tasks"],"progress":{"total":2,"complete":1},"tasks":[
                           {"id":"1","description":"1.1 Build adapter","done":true},
                           {"id":"2","description":"1.2 Build board","done":false}
                         ]}
@@ -122,6 +123,10 @@ class OpenSpecBoardServiceTest {
         assertThat(detail.tasks().getFirst().outlineId()).isEqualTo("1.1");
         assertThat(detail.tasks().getFirst().description()).isEqualTo("Build adapter");
         assertThat(detail.affectedApis()).containsExactly(affectedApi);
+        assertThat(detail.workflow().state()).isEqualTo("blocked");
+        assertThat(detail.workflow().missingPrerequisites()).containsExactly("design", "tasks");
+        assertThat(detail.workflow().artifacts().getFirst().id()).isEqualTo("custom-review");
+        assertThat(detail.workflow().artifacts().getFirst().missingDeps()).containsExactly("design");
     }
 
     @Test

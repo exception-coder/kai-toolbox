@@ -1,12 +1,13 @@
 import { FileText } from 'lucide-react'
 import type { OpenSpecChangeDetail, OpenSpecTask } from '../types'
 import { AffectedApiEvidenceSection } from './AffectedApiEvidenceSection'
+import { PlanningStatus } from './PlanningStatus'
 
 export function TaskInspector({ detail, task }: { detail: OpenSpecChangeDetail; task: OpenSpecTask | null }) {
   return (
     <aside className="min-w-0 border-t border-[var(--color-border)] pt-4 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--color-muted-foreground)]">Inspector</p>
-      <h2 className="mt-2 text-sm font-semibold">{task ? `${task.outlineId} · 任务详情` : '需求文件'}</h2>
+      <p className="text-[10px] font-semibold tracking-wide text-[var(--color-muted-foreground)]">详情与依据</p>
+      <h2 className="mt-2 text-sm font-semibold">{task ? `${task.outlineId} · 任务详情` : '变更材料与证据'}</h2>
       {task ? (
         <div className="mt-4">
           <p className="text-sm leading-6">{task.description}</p>
@@ -24,7 +25,9 @@ export function TaskInspector({ detail, task }: { detail: OpenSpecChangeDetail; 
             </a>
           )}
         </div>
-      ) : <p className="mt-3 text-xs leading-5 text-[var(--color-muted-foreground)]">选择任务可查看其执行证据。当前看板只读，完成事实仍由 OpenSpec 管理。</p>}
+      ) : <p className="mt-3 text-xs leading-5 text-[var(--color-muted-foreground)]">选择任务查看完整内容及关联开发会话。任务勾选来自 OpenSpec，实际验收以测试和运行证据为准。</p>}
+
+      <PlanningStatus workflow={detail.workflow} />
 
       <AffectedApiEvidenceSection entries={detail.affectedApis ?? []} />
 

@@ -31,6 +31,12 @@ class SessionAffectedApiRepositoryTest {
     }
 
     @Test
+    void readsUnverifiedEvidenceWithoutInventingVerificationTime() {
+        repository.upsert(api("id-1", "UNVERIFIED", 1));
+        assertThat(repository.findBySessionId("session-1").getFirst().verifiedAt()).isNull();
+    }
+
+    @Test
     void upsertsBySessionMethodAndPath() {
         repository.upsert(api("id-1", "UNVERIFIED", 1));
         repository.upsert(api("id-2", "PASSED", 2));
@@ -40,6 +46,7 @@ class SessionAffectedApiRepositoryTest {
         assertThat(entries.getFirst().id()).isEqualTo("id-1");
         assertThat(entries.getFirst().verificationStatus()).isEqualTo("PASSED");
         assertThat(entries.getFirst().updatedAt()).isEqualTo(2);
+        assertThat(entries.getFirst().verifiedAt()).isEqualTo(2);
     }
 
     private static SessionAffectedApi api(String id, String status, long timestamp) {

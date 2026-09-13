@@ -26,6 +26,18 @@ afterEach(() => {
 })
 
 describe('OpenSpecBoardPage', () => {
+  it('filters completed and remaining tasks from the progress summary', async () => {
+    vi.mocked(getOpenSpecBoards).mockResolvedValue(boardList())
+    vi.mocked(getOpenSpecChange).mockResolvedValue({ ...detail, completedTasks: 1, totalTasks: 2,
+      tasks: [...detail.tasks, { id: '2', outlineId: '2', description: 'Completed implementation', section: '', state: 'DONE', runtime: null }] })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /已完成什么/ }))
+    expect(screen.getByText('Completed implementation')).toBeInTheDocument()
+    expect(screen.queryByText('Resolve blocked task')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /还剩什么/ }))
+    expect(screen.getByText('Resolve blocked task')).toBeInTheDocument()
+    expect(screen.queryByText('Completed implementation')).not.toBeInTheDocument()
+  })
   it('renders project, change, grouped task and stale feedback', async () => {
     vi.mocked(getOpenSpecBoards).mockResolvedValue(boardList())
     vi.mocked(getOpenSpecChange).mockResolvedValue(detail)

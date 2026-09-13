@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.BoardList;
+import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.Artifact;
+import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.Workflow;
 import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.ChangeDetail;
 import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.ChangeState;
 import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.ChangeSummary;
@@ -136,13 +138,32 @@ public class OpenSpecBoardService {
         int total = apply.path("progress").path("total").asInt(tasks.size());
         return new ChangeDetail(project.id(), project.name(), changeId, humanize(changeId),
                 changeState(completed, total, tasks), completed, total, artifactPaths(status), tasks,
-                affectedApiEvidenceService.evidence(project.path(), changeId), Instant.now(), Freshness.FRESH);
+                affectedApiEvidenceService.evidence(project.path(), changeId), Instant.now(), Freshness.FRESH,
+                workflow(status, apply));
     }
 
     private ChangeDetail stale(ChangeDetail detail) {
         return new ChangeDetail(detail.projectId(), detail.projectName(), detail.changeId(), detail.title(),
                 detail.state(), detail.completedTasks(), detail.totalTasks(), detail.artifactPaths(),
-                detail.tasks(), detail.affectedApis(), detail.snapshotAt(), Freshness.STALE);
+                detail.tasks(), detail.affectedApis(), detail.snapshotAt(), Freshness.STALE, detail.workflow());
+    }
+
+    private Workflow workflow(JsonNode status, JsonNode apply) {
+        List<Artifact> artifacts = new ArrayList<>();
+        status.path("artifacts").forEach(node -> artifacts.add(new Artifact(
+                node.path("id").asText(), node.path("status").asText("unknown"),
+                textValues(node.path("missingDeps")))));
+        return new Workflow(apply.path("state").asText("unknown"),
+                textValues(apply.path("missingArtifacts")),
+                textValues(apply.path("missingPrerequisites")), List.copyOf(artifacts));
+    }
+
+    private List<String> textValues(JsonNode values) {
+        List<String> result = new ArrayList<>();
+        if (values.isArray()) {
+            values.forEach(value -> { if (value.isTextual()) result.add(value.asText()); });
+        }
+        return List.copyOf(result);
     }
 
     private ProjectSummary inspectProject(Project project, Instant snapshotAt) {

@@ -74,4 +74,10 @@ export interface OpenSpecChangeDetail {
   affectedApis: OpenSpecAffectedApiEvidence[]
   snapshotAt: string
   freshness: 'FRESH' | 'STALE'
+  workflow?: {
+    state: string
+    missingArtifacts: string[]
+    missingPrerequisites: string[]
+    artifacts: Array<{ id: string; status: string; missingDeps: string[] }>
+  }
 }

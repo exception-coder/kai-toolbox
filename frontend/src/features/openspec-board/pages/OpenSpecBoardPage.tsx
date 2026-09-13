@@ -6,14 +6,15 @@ import { getOpenSpecBoards, getOpenSpecChange } from '../api'
 import { ProjectChangeRail } from '../components/ProjectChangeRail'
 import { TaskBoard } from '../components/TaskBoard'
 import { TaskInspector } from '../components/TaskInspector'
-import type { OpenSpecTaskState } from '../types'
+import type { TaskFilter } from '../viewModel'
+import { ChangeProgress } from '../components/ChangeProgress'
 
 export function OpenSpecBoardPage() {
   const [projectId, setProjectId] = useState('')
   const [changeId, setChangeId] = useState('')
   const [taskId, setTaskId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  const [state, setState] = useState<OpenSpecTaskState | 'ALL'>('ALL')
+  const [state, setState] = useState<TaskFilter>('ALL')
   const [boardRefresh, setBoardRefresh] = useState(0)
   const [detailRefresh, setDetailRefresh] = useState(0)
   const boardsQuery = useQuery({
@@ -49,8 +50,8 @@ export function OpenSpecBoardPage() {
         <header className="flex flex-col gap-3 border-b border-[var(--color-border)] pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]"><Workflow className="size-3.5" />OpenSpec / Delivery Work</div>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight md:text-2xl">研发任务看板</h1>
-            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">项目 → 需求 → 任务，完成事实以 OpenSpec 为准</p>
+            <h1 className="mt-1 text-xl font-semibold tracking-tight md:text-2xl">研发变更看板</h1>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">查看每次变更要做什么、已完成什么、还差什么。数据来自 OpenSpec 查询。</p>
           </div>
           <div className="flex items-center gap-3 text-[10px] text-[var(--color-muted-foreground)]">
             {boardsQuery.data?.snapshotAt && <span>快照 {formatTime(boardsQuery.data.snapshotAt)}</span>}
@@ -63,12 +64,12 @@ export function OpenSpecBoardPage() {
         {projects.length === 0 ? (
           <EmptyProjects onRetry={() => boardsQuery.refetch()} />
         ) : (
-          <main className="grid gap-4 pt-4 xl:grid-cols-[240px_minmax(600px,1fr)_280px]">
+          <main className="grid gap-6 pt-4 xl:grid-cols-[220px_minmax(0,1fr)_280px]">
             <ProjectChangeRail
               projects={projects}
               projectId={activeProject?.id ?? ''}
               changeId={activeChange?.id ?? ''}
-              onProjectSelect={id => { setProjectId(id); setChangeId(''); setTaskId(null); setQuery('') }}
+              onProjectSelect={id => { setProjectId(id); setChangeId(''); setTaskId(null); setQuery(''); setState('ALL') }}
               onChangeSelect={id => { setChangeId(id); setTaskId(null); setQuery(''); setState('ALL') }}
             />
             {!activeChange ? (
@@ -84,6 +85,7 @@ export function OpenSpecBoardPage() {
                     <div><h2 className="text-base font-semibold">{detail.title}</h2><p className="mt-1 font-mono text-[10px] text-[var(--color-muted-foreground)]">{detail.changeId} · {detail.completedTasks}/{detail.totalTasks} 已完成 · {detail.freshness === 'STALE' ? '快照已过期' : `快照 ${formatTime(detail.snapshotAt)}`}</p></div>
                     <Button variant="ghost" size="sm" onClick={() => setDetailRefresh(value => value + 1)} disabled={detailQuery.isFetching}><RefreshCw className={detailQuery.isFetching ? 'animate-spin' : ''} />刷新需求</Button>
                   </div>
+                  <ChangeProgress detail={detail} onFilter={setState} />
                   <TaskBoard tasks={detail.tasks} query={query} state={state} selectedTaskId={taskId} onQueryChange={setQuery} onStateChange={setState} onTaskSelect={setTaskId} />
                 </div>
                 <TaskInspector detail={detail} task={selectedTask} />

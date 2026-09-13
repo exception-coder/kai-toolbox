@@ -8,10 +8,12 @@ export const TASK_COLUMNS: Array<{ state: OpenSpecTaskState; label: string }> = 
   { state: 'DONE', label: '已完成' },
 ]
 
-export function filterTasks(tasks: OpenSpecTask[], query: string, state: OpenSpecTaskState | 'ALL') {
+export type TaskFilter = OpenSpecTaskState | 'ALL' | 'REMAINING'
+
+export function filterTasks(tasks: OpenSpecTask[], query: string, state: TaskFilter) {
   const normalized = query.trim().toLocaleLowerCase()
   return tasks.filter(task => {
-    const matchesState = state === 'ALL' || task.state === state
+    const matchesState = state === 'ALL' || (state === 'REMAINING' ? task.state !== 'DONE' : task.state === state)
     const haystack = `${task.outlineId} ${task.description} ${task.section}`.toLocaleLowerCase()
     return matchesState && (!normalized || haystack.includes(normalized))
   })

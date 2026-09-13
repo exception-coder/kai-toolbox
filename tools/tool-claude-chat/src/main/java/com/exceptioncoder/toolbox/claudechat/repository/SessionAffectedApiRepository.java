@@ -5,6 +5,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 /** 会话接口变更台账的 SQLite 持久化。 */
 @Repository
@@ -34,7 +36,12 @@ public class SessionAffectedApiRepository {
                 rs.getString("verification_status"), rs.getString("verification_method"),
                 rs.getString("verification_command"), rs.getString("verification_summary"),
                 rs.getLong("created_at"), rs.getLong("updated_at"),
-                rs.getObject("verified_at", Long.class)), sessionId);
+                verifiedAt(rs)), sessionId);
+    }
+
+    private static Long verifiedAt(ResultSet result) throws SQLException {
+        long value = result.getLong("verified_at");
+        return result.wasNull() ? null : value;
     }
 
     public void upsert(SessionAffectedApi api) {
