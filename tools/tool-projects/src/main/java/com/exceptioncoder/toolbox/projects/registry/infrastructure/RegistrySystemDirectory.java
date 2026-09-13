@@ -15,6 +15,6 @@ public class RegistrySystemDirectory implements ProjectSystemDirectory {
     @Override
     public List<SystemIdentity> systems() {
         return store.projects().stream().map(project -> new SystemIdentity(
-                project.id(), project.metadata().name())).toList();
+                project.id(), project.metadata().name(), project.metadata().localPath())).toList();
     }
 }

@@ -9,5 +9,9 @@ public interface AgentToolAssemblyProvider {
     Optional<Assembly> resolve(String runtimeSessionId);
 
     /** MCP 及工具均为已登记的逻辑名称，不携带命令、路径或凭据。 */
-    record Assembly(List<String> tools, List<String> mcpServers, String instructions) { }
+    record Assembly(List<String> tools, List<String> mcpServers, String instructions, String runtimeToken) {
+        public Assembly(List<String> tools, List<String> mcpServers, String instructions) {
+            this(tools, mcpServers, instructions, null);
+        }
+    }
 }

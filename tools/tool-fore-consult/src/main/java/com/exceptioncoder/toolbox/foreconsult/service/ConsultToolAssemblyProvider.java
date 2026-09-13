@@ -11,6 +11,8 @@ import java.util.Optional;
 @Component
 public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
     private final com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultWorkflowService workflowService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ConsultResourceAccess resourceAccess;
     private final ConsultSessionRepository sessions;
     private final ConsultWorkflowRepository workflows;
 
@@ -30,7 +32,8 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
                             session.getModuleNames() == null ? java.util.List.of() : java.util.List.of(session.getModuleNames()),
                             session.getRole(), true, session.getEvidenceRouteSnapshot());
                     return new Assembly(snapshot.workflow().tools(), snapshot.workflow().mcpServers(),
-                            workflowService.render(request, snapshot).prompt());
+                            workflowService.render(request, snapshot).prompt(),
+                            resourceAccess == null ? null : resourceAccess.issue(runtimeSessionId));
                 }));
     }
 }

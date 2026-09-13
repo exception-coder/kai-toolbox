@@ -39,7 +39,10 @@ public class ConsultWorkflowService {
         for (var node : enabled) {
             context.addSection(node.name(), "节点 ID：" + node.id() + "\n触发条件：" + node.condition()
                     + "\n执行规则：\n" + node.instructions() + "\n查询约束：\n" + node.queryConstraints()
-                    + "\n输出要求：\n" + node.outputContract() + "\n配置工具：" + String.join("、", node.tools()));
+                    + "\n输出要求：\n" + node.outputContract() + "\n配置工具：" + String.join("、", node.tools())
+                    + (node.resourceBindingIds().isEmpty() ? "" : "\n资源绑定：" + String.join("、", node.resourceBindingIds())
+                    + "\n先调用 consult_resources 发现可用资源，再使用 consult_resource_query 查询；"
+                    + "严格按环境和用途选择，不得回退其他连接。"));
         }
         String version = snapshot.version() == null ? "consult-workflow-default" : "consult-workflow-" + snapshot.version();
         return new ConsultOrchestrationResult(version, context.renderPrompt(version), enabled.stream()

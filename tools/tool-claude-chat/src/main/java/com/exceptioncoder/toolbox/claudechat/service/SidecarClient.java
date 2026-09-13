@@ -288,7 +288,12 @@ public class SidecarClient implements ReviewThreadForkGateway {
         }
         toolAssemblyProviders.stream().map(provider -> provider.resolve(sessionId)).flatMap(Optional::stream)
                 .findFirst().ifPresent(assembly -> {
-                    message.put("consultToolAssembly", assembly);
+                    var trustedAssembly = new java.util.LinkedHashMap<String, Object>();
+                    trustedAssembly.put("tools", assembly.tools());
+                    trustedAssembly.put("mcpServers", assembly.mcpServers());
+                    trustedAssembly.put("runtimeSessionId", sessionId);
+                    trustedAssembly.put("runtimeToken", assembly.runtimeToken());
+                    message.put("consultToolAssembly", trustedAssembly);
                     message.put("developerInstructions", assembly.instructions());
                 });
         putTelemetry(message, traceContext, telemetry);

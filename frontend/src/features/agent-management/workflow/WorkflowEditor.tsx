@@ -1,3 +1,4 @@
+import { NodeResources } from './NodeResources'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
@@ -71,6 +72,7 @@ export function WorkflowEditor({ workflow, registry, onChange }: {
         <RuleField label="执行规则" value={selected.instructions} max={16000} onChange={instructions => update({ ...selected, instructions })} rows={8} />
         <RuleField label="查询约束 · 查什么、怎么查" value={selected.queryConstraints} max={8000} onChange={queryConstraints => update({ ...selected, queryConstraints })} />
         <RuleField label="输出要求" value={selected.outputContract} max={4000} onChange={outputContract => update({ ...selected, outputContract })} />
+        <NodeResources node={selected} onChange={update} />
         <NodeCapabilities node={selected} registry={registry} onChange={update} />
       </div>
     </div>

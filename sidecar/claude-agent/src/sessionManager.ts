@@ -916,6 +916,8 @@ class Session {
                   allowedTools: [
                     'Read', 'AskUserQuestion',
                     'mcp__consult-readonly__source_context',
+                    'mcp__consult-readonly__consult_resources',
+                    'mcp__consult-readonly__consult_resource_query',
                     'mcp__consult-readonly__knowledge_query',
                     'mcp__consult-readonly__source_search',
                     'mcp__consult-readonly__source_read',

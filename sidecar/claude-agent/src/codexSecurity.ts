@@ -197,6 +197,7 @@ export function createClaudeConsultSourceServer(
   const standbySchema = resolveConsultTargetSystems(sourceRoot, evidenceSystems).includes('erp')
     ? erpStandbySchemaPath()
     : undefined
+  const apiBase = process.env.TOOLBOX_API_BASE?.trim()
   if (!readableSourceRoot && !standbySchema) return null
   const script = readonlyMcpScript()
   if (!script) return null
@@ -205,6 +206,8 @@ export function createClaudeConsultSourceServer(
     ...script,
     env: {
       ...readonlyProcessEnv(),
+      CONSULT_DISABLE_LEGACY_DATABASES: 'true',
+      ...(apiBase ? { TOOLBOX_API_BASE: apiBase } : {}),
       ...(readableSourceRoot ? { TOOLBOX_SOURCE_ROOT: readableSourceRoot } : {}),
       ...(standbySchema ? { ERP_STANDBY_SCHEMA_PATH: standbySchema } : {}),
     },

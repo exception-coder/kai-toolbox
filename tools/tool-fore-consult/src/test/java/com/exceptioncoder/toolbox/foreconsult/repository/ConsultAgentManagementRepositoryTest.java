@@ -63,7 +63,7 @@ class ConsultAgentManagementRepositoryTest {
         jdbc.execute("CREATE TABLE consult_session_workflow (session_id TEXT PRIMARY KEY, version INTEGER, workflow_json TEXT)");
         var node = new com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.ConsultWorkflowNode(
                 "database", "数据库补查", true, "缺少数据证据时", "直接查库", "只读", "返回证据",
-                List.of("scm_db_query"), List.of("consult-readonly"));
+                List.of("consult_resources", "consult_resource_query"), List.of("consult-readonly"), List.of("resource-binding-1"));
         var workflow = new com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.ConsultWorkflow(List.of(node));
         var candidate = repository.replaceCandidate(new CreateAgentVersionCommand("runtime-default", 0.1,
                 "fore-consult-v4", "v4", workflow.tools(), workflow.mcpServers(), List.of(), null, null, false,

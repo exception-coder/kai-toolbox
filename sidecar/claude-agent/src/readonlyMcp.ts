@@ -127,7 +127,16 @@ const standbySchemaTools = ERP_STANDBY_SCHEMA_PATH ? [
   },
 ] : []
 
-const tools = [knowledgeQueryTool, ...(API_BASE ? databaseTools : []), ...sourceTools, ...standbySchemaTools]
+const resourceTools = ['consult_resources', 'consult_resource_query'].map(name => ({
+  name,
+  description: name === 'consult_resources' ? '发现本咨询节点已选择且属于当前系统的数据库资源及状态，不返回凭据。'
+    : '使用发现结果中的 bindingId 执行最小范围只读 SQL；不支持应用 CALL，不回退其他连接。',
+  inputSchema: name === 'consult_resources' ? { type: 'object', properties: {}, additionalProperties: false }
+    : { type: 'object', properties: { bindingId: { type: 'string' }, sql: { type: 'string' } },
+      required: ['bindingId', 'sql'], additionalProperties: false },
+  annotations: readonlyAnnotations(),
+}))
+const tools = [...(API_BASE && process.env.TOOLBOX_SESSION_ID ? resourceTools : []), knowledgeQueryTool, ...(API_BASE && process.env.CONSULT_DISABLE_LEGACY_DATABASES !== 'true' ? databaseTools : []), ...sourceTools, ...standbySchemaTools]
 const SKIPPED_DIRECTORIES = new Set([
   '.git', '.idea', '.vscode', 'node_modules', 'target', 'dist', 'build', 'out', 'coverage', '.next', '.cache',
   'graphify-out',
@@ -684,6 +693,23 @@ function fail(id: JsonRpcRequest['id'], code: number, message: string): void {
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   try {
+    if (name === 'consult_resources' || name === 'consult_resource_query') {
+      const session = process.env.TOOLBOX_SESSION_ID
+      if (!session || !API_BASE) return textResult('咨询资源会话上下文未配置', true)
+      const query = name === 'consult_resource_query'
+      const sql = typeof args.sql === 'string' ? args.sql : ''
+      if (query) {
+        const violation = validateReadonlySql(sql)
+        if (violation) return textResult(violation, true)
+      }
+      const response = await fetch(`${API_BASE}/api/fore-consult/resources/sessions/${encodeURIComponent(session)}${query ? '/query' : ''}`, {
+        method: query ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json',
+          'X-Consult-Resource-Token': process.env.CONSULT_RESOURCE_TOKEN ?? '' },
+        ...(query ? { body: JSON.stringify({ bindingId: args.bindingId, sql }) } : {}),
+        signal: AbortSignal.timeout(20_000),
+      })
+      return textResult((await response.text()).slice(0, 200_000), !response.ok)
+    }
     if (name === 'knowledge_query') return textResult(JSON.stringify(await queryKnowledge(args)))
     if (name === 'source_context') return buildSourceContext(args)
     if (name === 'source_search') return searchSource(args)
@@ -694,7 +720,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
     return textResult(error instanceof Error ? error.message : String(error), true)
   }
   const endpoint = DATABASES[name as keyof typeof DATABASES]
-  if (!endpoint) {
+  if (!endpoint || process.env.CONSULT_DISABLE_LEGACY_DATABASES === 'true') {
     return { content: [{ type: 'text', text: `工具不在业务咨询只读白名单中：${name}` }], isError: true }
   }
   const sql = typeof args.sql === 'string' ? args.sql : ''

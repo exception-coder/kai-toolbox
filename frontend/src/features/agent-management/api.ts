@@ -19,6 +19,7 @@ export interface AgentCapability {
 }
 
 export interface ConsultWorkflowNode {
+  resourceBindingIds?: string[];
   id: string; name: string; enabled: boolean; condition: string; instructions: string;
   queryConstraints: string; outputContract: string; tools: string[]; mcpServers: string[];
 }
@@ -130,3 +131,9 @@ export function rollbackAgentVersion(agentId: string, version: number) {
     { method: "POST" },
   );
 }
+
+export interface ConsultResourceEntry {
+  bindingId: string; systemId: string; systemName: string; name: string;
+  environment: string; purpose: string; state: string; configurationUrl: string;
+}
+export const getConsultResources = () => http<ConsultResourceEntry[]>('/fore-consult/resources');

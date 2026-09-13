@@ -6,5 +6,7 @@ import java.util.List;
 public interface ProjectSystemDirectory {
     List<SystemIdentity> systems();
 
-    record SystemIdentity(String id, String name) { }
+    record SystemIdentity(String id, String name, String sourcePath) {
+        public SystemIdentity(String id, String name) { this(id, name, null); }
+    }
 }

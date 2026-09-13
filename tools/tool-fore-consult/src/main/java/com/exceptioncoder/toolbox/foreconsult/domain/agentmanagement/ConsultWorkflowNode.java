@@ -6,9 +6,19 @@ import java.util.List;
 public record ConsultWorkflowNode(
         String id, String name, boolean enabled, String condition,
         String instructions, String queryConstraints, String outputContract,
-        List<String> tools, List<String> mcpServers
+        List<String> tools, List<String> mcpServers, List<String> resourceBindingIds
 ) {
+    public ConsultWorkflowNode(String id, String name, boolean enabled, String condition,
+                               String instructions, String queryConstraints, String outputContract,
+                               List<String> tools, List<String> mcpServers) {
+        this(id, name, enabled, condition, instructions, queryConstraints, outputContract, tools, mcpServers, List.of());
+    }
+
     public ConsultWorkflowNode {
+        resourceBindingIds = resourceBindingIds == null ? List.of() : List.copyOf(resourceBindingIds);
+        if (resourceBindingIds.size() > 100 || resourceBindingIds.stream().anyMatch(value -> !value.matches("[a-zA-Z0-9-]{1,100}"))) {
+            throw new IllegalArgumentException("节点资源绑定 ID 无效");
+        }
         tools = tools == null ? null : List.copyOf(tools);
         mcpServers = mcpServers == null ? null : List.copyOf(mcpServers);
     }
