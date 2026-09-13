@@ -1,17 +1,16 @@
-import { lazy } from 'react'
+import { LegacyDevelopmentRedirect } from '@/features/project-development/public-api'
 import { PackagePlus } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 
-const NewDevModulePage = lazy(() => import('./pages/NewDevModulePage').then((m) => ({ default: m.NewDevModulePage })))
-
 const manifest: FeatureManifest = {
   id: 'new-devmodule',
+  chrome: true,
   name: '新增模块',
   icon: PackagePlus,
   group: '项目开发',
   description: '可视化填新项目参数，一键触发脚手架(yoooni-devmodule-scaffold)在 kai-toolbox 生成一个"XX 需求开发"工作台模块',
   order: 59,
-  routes: [{ path: '/tools/new-devmodule', element: <NewDevModulePage /> }],
+  routes: [{ path: '/tools/new-devmodule', element: <LegacyDevelopmentRedirect system="new" adding /> }],
 }
 
 export default manifest

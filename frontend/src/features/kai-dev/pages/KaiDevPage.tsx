@@ -11,7 +11,7 @@ const CWD_KEY = 'kai-toolbox:kai-dev:cwd'
 const MODULE_KEY = 'kai-toolbox:kai-dev:module'
 const REQ_KEY = 'kai-toolbox:kai-dev:requirement'
 
-export function KaiDevPage() {
+export function KaiDevPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { data: workspaces } = useQuery({ queryKey: ['claude-chat-workspaces'], queryFn: listWorkspaces, staleTime: 5000 })
 
   const { projects: dirs, ready: dirsReady } = useVisibleWorkspaceProjects(workspaces)
@@ -22,10 +22,10 @@ export function KaiDevPage() {
   const { cwd } = devPreference.preference
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-6">
+    <div className={embedded ? "min-w-0" : "mx-auto max-w-2xl p-4 sm:p-6"}>
       <div className="mb-4 flex items-center gap-2">
-        <Hammer className="size-5 text-[var(--color-primary)]" />
-        <h1 className="text-lg font-semibold">Forge 开发</h1>
+        {!embedded && <><Hammer className="size-5 text-[var(--color-primary)]" />
+        <h1 className="text-lg font-semibold">Forge 开发</h1></>}
       </div>
       <DevServiceSection
         serviceId="kai-backend"

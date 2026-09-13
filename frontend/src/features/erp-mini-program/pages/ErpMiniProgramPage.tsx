@@ -24,7 +24,7 @@ const MODULE_KEY = 'kai-toolbox:erp-mini-program:module'
 const REQUIREMENT_KEY = 'kai-toolbox:erp-mini-program:requirement'
 
 /** ERP 小程序需求工作台，负责开发者工具启停与日志查看。 */
-export function ErpMiniProgramPage() {
+export function ErpMiniProgramPage({ embedded = false }: { embedded?: boolean } = {}) {
   const queryClient = useQueryClient()
   const { data: workspaces } = useQuery({
     queryKey: ['claude-chat-workspaces'],
@@ -83,10 +83,10 @@ export function ErpMiniProgramPage() {
   }, [cwd, devPreference, dirs, dirsReady])
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-6">
+    <div className={embedded ? "min-w-0" : "mx-auto max-w-2xl p-4 sm:p-6"}>
       <div className="mb-4 flex items-center gap-2">
-        <Smartphone className="size-5 text-[var(--color-primary)]" />
-        <h1 className="text-lg font-semibold">ERP小程序需求开发</h1>
+        {!embedded && <><Smartphone className="size-5 text-[var(--color-primary)]" />
+        <h1 className="text-lg font-semibold">ERP小程序需求开发</h1></>}
       </div>
 
       <section className="mb-4 rounded-xl border bg-[var(--color-card)] p-4 text-sm">

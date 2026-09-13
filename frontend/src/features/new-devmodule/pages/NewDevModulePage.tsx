@@ -39,7 +39,7 @@ function buildSeed(p: {
     `生成到（kai-toolbox 仓目录）：${p.cwd}`,
     `- 新模块 id：${p.id.trim()}`,
     `- 新模块中文名：${p.name.trim()}`,
-    `- 侧边栏图标(Lucide 组件名)：${p.icon.trim() || '（留空，由你建议一个合适的）'}`,
+    `- 模块图标(Lucide 组件名)：${p.icon.trim() || '（留空，由你建议一个合适的）'}`,
     `- 目标项目服务启动命令：${p.startCmd.trim() || '（未填——请到项目根目录探索启停脚本：常见 start-*.ps1 / stop-*.ps1、package.json 的 scripts、pom.xml；识别后作为生成模块的默认启动/停服命令，并在关卡念给我确认）'}`,
     `- 停服命令：${p.stopCmd.trim() || '（未填——随启动一并探索；探索不到则结束进程树）'}`,
     `- 调试必备配置项：${p.config.trim() || '无'}`,
@@ -48,6 +48,7 @@ function buildSeed(p: {
     '请按脚手架门控走，每步过关卡等我拍板：',
     '① 复述确认以上差异项；',
     '② 读范本(features/erp-dev、features/_devkit、CLAUDE.md)并列出要新增/修改的文件清单让我确认；',
+    '新增模块必须注册为项目开发页签：新增 features/<id>/development.ts，默认导出 DevelopmentWorkbench（参考 features/erp-dev/development.ts），页面通过 public-api 导出；保留 chrome:true 的 manifest 和原 menu:<id> 权限，旧入口用 LegacyDevelopmentRedirect，并将 id 加入 project-development manifest 的 replacesMenus；禁止新增独立侧边栏入口。',
     '③ 复用公共 devkit(DevServiceSection + dev-service 多实例底座)生成模块，配置落 claude_chat_setting KV、路由用 React.lazy；',
     '④ typecheck / 该模块编译自检，出 diff，只改不提交。',
   ].join('\n')
@@ -57,7 +58,7 @@ function buildSeed(p: {
  * 「新增系统需求开发模块」前门：可视化填新项目参数 → 一键触发脚手架 skill(yoooni-devmodule-scaffold)，
  * 在选定的 kai-toolbox 仓目录里拉起 Vibe Coding 会话生成一个「XX 需求开发」工作台模块（门控·只改不提交）。
  */
-export function NewDevModulePage() {
+export function NewDevModulePage({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate()
   const { data: workspaces } = useQuery({ queryKey: ['claude-chat-workspaces'], queryFn: listWorkspaces, staleTime: 5000 })
 
@@ -114,14 +115,14 @@ export function NewDevModulePage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-6">
+    <div className={embedded ? "min-w-0" : "mx-auto max-w-2xl p-4 sm:p-6"}>
       <div className="mb-4 flex items-center gap-2">
         <PackagePlus className="size-5 text-[var(--color-primary)]" />
-        <h1 className="text-lg font-semibold">新增系统需求开发模块</h1>
+        <h2 className="text-base font-semibold">新增系统开发模块</h2>
       </div>
       <p className="mb-5 text-sm text-[var(--color-muted-foreground)]">
         填新项目参数，一键触发脚手架 <code className="rounded bg-[var(--color-muted)] px-1">yoooni-devmodule-scaffold</code>：
-        在选定的 kai-toolbox 仓目录里生成一个「XX 需求开发」工作台模块（选目录 + 模块/需求 + 服务启停 + 前台日志 + 调试配置），
+        在项目开发页面中注册一个「XX 需求开发」工作台模块（选目录 + 模块/需求 + 服务启停 + 前台日志 + 调试配置），
         通用骨架复用公共 devkit，差异按下面填。生成过程走门控、<b>只改不提交</b>。
       </p>
 
@@ -153,7 +154,7 @@ export function NewDevModulePage() {
           </label>
         </div>
 
-        <label className="block text-xs text-[var(--color-muted-foreground)]">侧边栏图标（Lucide 组件名，可留空）
+        <label className="block text-xs text-[var(--color-muted-foreground)]">模块图标（Lucide 组件名，可留空）
           <Input value={icon} onChange={e => setIcon(e.target.value)} placeholder="如 Workflow / Boxes（留空由 agent 建议）" className="mt-1" />
         </label>
 

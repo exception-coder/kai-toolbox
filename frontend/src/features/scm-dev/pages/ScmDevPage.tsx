@@ -17,7 +17,7 @@ const CWD_KEY = 'kai-toolbox:scm-dev:cwd'
 const MODULE_KEY = 'kai-toolbox:scm-dev:module'
 const REQUIREMENT_KEY = 'kai-toolbox:scm-dev:requirement'
 
-export function ScmDevPage() {
+export function ScmDevPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { data: workspaces } = useQuery({ queryKey: ['claude-chat-workspaces'], queryFn: listWorkspaces, staleTime: 5000 })
 
   const { projects: dirs, ready: dirsReady } = useVisibleWorkspaceProjects(workspaces)
@@ -28,10 +28,10 @@ export function ScmDevPage() {
   const { cwd } = devPreference.preference
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-6">
+    <div className={embedded ? "min-w-0" : "mx-auto max-w-2xl p-4 sm:p-6"}>
       <div className="mb-4 flex items-center gap-2">
-        <Warehouse className="size-5 text-[var(--color-primary)]" />
-        <h1 className="text-lg font-semibold">SCM需求开发</h1>
+        {!embedded && <><Warehouse className="size-5 text-[var(--color-primary)]" />
+        <h1 className="text-lg font-semibold">SCM需求开发</h1></>}
       </div>
       <DevServiceSection
         serviceId="scm"

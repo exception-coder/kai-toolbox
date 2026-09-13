@@ -20,7 +20,7 @@ const CWD_KEY = 'kai-toolbox:erp-dev:cwd'
 const MODULE_KEY = 'kai-toolbox:erp-dev:module'
 const REQUIREMENT_KEY = 'kai-toolbox:erp-dev:requirement'
 
-export function ErpDevPage() {
+export function ErpDevPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { data: workspaces } = useQuery({ queryKey: ['claude-chat-workspaces'], queryFn: listWorkspaces, staleTime: 5000 })
 
   const { projects: dirs, ready: dirsReady } = useVisibleWorkspaceProjects(workspaces)
@@ -31,10 +31,10 @@ export function ErpDevPage() {
   const { cwd } = devPreference.preference
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-6">
+    <div className={embedded ? "min-w-0" : "mx-auto max-w-2xl p-4 sm:p-6"}>
       <div className="mb-4 flex items-center gap-2">
-        <Workflow className="size-5 text-[var(--color-primary)]" />
-        <h1 className="text-lg font-semibold">ERP 需求开发</h1>
+        {!embedded && <><Workflow className="size-5 text-[var(--color-primary)]" />
+        <h1 className="text-lg font-semibold">ERP 需求开发</h1></>}
       </div>
       <DevServiceSection
         serviceId="erp"

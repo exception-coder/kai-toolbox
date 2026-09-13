@@ -4,6 +4,7 @@ import { http } from '@/lib/api'
 import { getUser, useAuth } from '@/lib/auth'
 import { features } from './featureRegistry'
 import type { FeatureManifest } from './types'
+import { migrateVisibleMenus } from './menuMigration'
 
 /**
  * 菜单可见性：默认展示「分配给当前用户」的全部模块，用户可在偏好设置的「菜单」分区手动隐藏（软隐藏，路由仍在）。
@@ -33,7 +34,11 @@ function readStored(): string[] | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const arr: unknown = JSON.parse(raw)
-    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : null
+    if (!Array.isArray(arr)) return null
+    const ids = arr.filter((x): x is string => typeof x === 'string')
+    const migrated = migrateVisibleMenus(ids, features)
+    if (JSON.stringify(ids) !== JSON.stringify(migrated)) localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated))
+    return migrated
   } catch {
     return null
   }
@@ -114,7 +119,9 @@ async function hydrateForUser(userId: number) {
   // 竞态保护：await 期间用户可能已切换/登出。
   if (getUser()?.userId !== userId) return
   if (dto && dto.visibleIds) {
-    persist(new Set(dto.visibleIds))
+    const migrated = migrateVisibleMenus(dto.visibleIds, features)
+    persist(new Set(migrated))
+    if (JSON.stringify(dto.visibleIds) !== JSON.stringify(migrated)) pushServer(migrated)
     emit()
   } else {
     const local = readStored()

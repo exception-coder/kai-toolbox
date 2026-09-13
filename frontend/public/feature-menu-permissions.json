@@ -304,6 +304,13 @@
       "sort": 51
     },
     {
+      "featureId": "project-development",
+      "code": "menu:project-development",
+      "name": "项目开发",
+      "module": "项目开发",
+      "sort": 51
+    },
+    {
       "featureId": "project-workspace",
       "code": "menu:project-workspace",
       "name": "项目库",

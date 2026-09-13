@@ -50,6 +50,7 @@ function toContext(ctx: AccessContext | string[]): AccessContext {
 export function hasFeatureAccess(feature: FeatureManifest, ctx: AccessContext | string[]): boolean {
   const c = toContext(ctx)
   if (c.superAdmin) return true
+  if (feature.replacesMenus?.some(id => c.permissionCodes.includes(`menu:${id}`))) return true
   if (feature.controlPermissions && Object.values(feature.controlPermissions.modes).some(code => c.permissionCodes.includes(code))) return true
   if (feature.requiredPermission) {
     return c.roles.includes('ADMIN') || c.permissionCodes.includes(feature.requiredPermission)

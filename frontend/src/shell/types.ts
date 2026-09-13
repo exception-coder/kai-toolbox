@@ -16,6 +16,8 @@ export type FeatureLayout = 'tool' | 'showcase'
 
 export interface FeatureManifest {
   id: string
+  /** 合并入口：迁移菜单可见性并允许原菜单权限进入；页面内仍须按原权限隔离能力。 */
+  replacesMenus?: string[]
   name: string
   icon: ComponentType<LucideProps>
   /** 主入口路由（用于侧边栏链接），如未提供则取 routes[0].path */

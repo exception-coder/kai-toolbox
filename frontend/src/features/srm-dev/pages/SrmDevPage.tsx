@@ -23,7 +23,7 @@ const CWD_KEY = 'kai-toolbox:srm-dev:cwd'
 const MODULE_KEY = 'kai-toolbox:srm-dev:module'
 const REQUIREMENT_KEY = 'kai-toolbox:srm-dev:requirement'
 
-export function SrmDevPage() {
+export function SrmDevPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { data: workspaces } = useQuery({ queryKey: ['claude-chat-workspaces'], queryFn: listWorkspaces, staleTime: 5000 })
 
   const { projects: dirs, ready: dirsReady } = useVisibleWorkspaceProjects(workspaces)
@@ -34,10 +34,10 @@ export function SrmDevPage() {
   const { cwd } = devPreference.preference
 
   return (
-    <div className="mx-auto max-w-2xl p-4 sm:p-6">
+    <div className={embedded ? "min-w-0" : "mx-auto max-w-2xl p-4 sm:p-6"}>
       <div className="mb-4 flex items-center gap-2">
-        <Handshake className="size-5 text-[var(--color-primary)]" />
-        <h1 className="text-lg font-semibold">SRM需求开发</h1>
+        {!embedded && <><Handshake className="size-5 text-[var(--color-primary)]" />
+        <h1 className="text-lg font-semibold">SRM需求开发</h1></>}
         <Link to="/tools/srm-dev/tasks" className="ml-auto">
           <Button variant="outline" size="sm" className="gap-1">
             <ClipboardList className="size-4" />开发任务
