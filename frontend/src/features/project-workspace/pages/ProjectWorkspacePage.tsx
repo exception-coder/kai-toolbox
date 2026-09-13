@@ -53,7 +53,7 @@ import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 import {
   AggregationCart,
   KnowledgeDirSetup,
-  ModuleCard,
+  WorkspaceModuleList,
   ModuleSyncPanel,
   ProjectTypeBadge,
   StateLine,
@@ -509,19 +509,9 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings, scope }: { onOpe
             ) : filteredModules.length === 0 ? (
               <StateLine text={keyword.trim() ? '没有匹配模块' : '未识别到模块'} />
             ) : (
-              <div className="grid gap-3 xl:grid-cols-2">
-                {filteredModules.map((module, i) => (
-                  <ModuleCard
-                    key={`${module.relPath}|${module.name}|${i}`}
-                    module={module}
-                    sessionByCwd={sessionByCwd}
-                    pendingPath={pendingPath}
-                    onOpen={openModule}
-                    isPinned={cart.has}
-                    onPin={pinModule}
-                  />
-                ))}
-              </div>
+              <WorkspaceModuleList key={selectedPath} modules={filteredModules} searchActive={Boolean(keyword.trim())}
+                sessionByCwd={sessionByCwd} pendingPath={pendingPath} onOpen={openModule}
+                isPinned={cart.has} onPin={pinModule} />
             )}
           </CardContent>
         </Card>
