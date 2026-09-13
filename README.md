@@ -16,6 +16,8 @@ Forge 是一个运行在本机的 AI Coding 工作台。它把项目目录、业
 - Node.js 22+ 与 npm；启用 Python 辅助服务时需要 Python 3.10+
 - Git
 
+“项目库 → 环境管理”支持 Java / Go 命令探测切换和耗时对比。Java 默认可用；Go 是可选模块，运行 `node scripts/build-environment-go.mjs` 构建安装，详见 [环境检测 Go 模块](go/environment-probe/README.md)。
+
 Claude、Codex、Antigravity、OpenCode 按实际使用情况完成各自的本机安装或账号授权。Forge 不替代模型厂商的登录流程，只复用本机已有凭据或会话中配置的第三方网关。
 
 ### 获取项目

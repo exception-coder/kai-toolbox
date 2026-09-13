@@ -5,6 +5,8 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.io.File;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -23,6 +25,31 @@ public class ForgeEnvironmentCommandRunner {
     private static final int MAX_OUTPUT_LENGTH = 16_000;
     private volatile String effectivePath = System.getenv("PATH");
 
+    private volatile long pathCheckedAt;
+
+    /** @return 当前检测使用的 PATH */
+    public String environmentPath() {
+        return effectivePath;
+    }
+
+    /** @param force 是否强制刷新 PATH */
+    public synchronized void prepareEnvironmentPath(boolean force) {
+        if (force || System.nanoTime() - pathCheckedAt > TimeUnit.SECONDS.toNanos(60) || pathCheckedAt == 0) {
+            refreshEnvironmentPath();
+            pathCheckedAt = System.nanoTime();
+        }
+    }
+
+    /** 使用不可变 PATH 快照执行探测，避免其他请求更新路径影响本次结果。 */
+    public CommandResult runWithPath(List<String> command, Duration timeout, String path) {
+        return execute(command, timeout, null, null, path, MAX_OUTPUT_LENGTH);
+    }
+
+    /** Go 批量协议输出包含多个有界结果，使用独立的总输出上限。 */
+    public CommandResult runProtocol(List<String> command, Duration timeout, String path) {
+        return execute(command, timeout, null, null, path, 256_000);
+    }
+
     /**
      * 执行调用方代码内声明的固定 argv。
      *
@@ -34,11 +61,16 @@ public class ForgeEnvironmentCommandRunner {
      */
     public CommandResult run(List<String> command, Duration timeout, Path workingDirectory,
                              Consumer<String> outputConsumer) {
+        return execute(command, timeout, workingDirectory, outputConsumer, effectivePath, MAX_OUTPUT_LENGTH);
+    }
+
+    private CommandResult execute(List<String> command, Duration timeout, Path workingDirectory,
+                                  Consumer<String> outputConsumer, String path, int outputLimit) {
         Process process = null;
         try {
-            ProcessBuilder builder = new ProcessBuilder(wrap(command)).redirectErrorStream(true);
-            if (effectivePath != null && !effectivePath.isBlank()) {
-                builder.environment().put("PATH", effectivePath);
+            ProcessBuilder builder = new ProcessBuilder(resolve(command, path)).redirectErrorStream(true);
+            if (path != null && !path.isBlank()) {
+                builder.environment().put("PATH", path);
             }
             if (workingDirectory != null) {
                 builder.directory(workingDirectory.toFile());
@@ -47,21 +79,24 @@ public class ForgeEnvironmentCommandRunner {
             Process started = process;
             StringBuilder output = new StringBuilder();
             Thread reader = Thread.ofVirtual().name("forge-environment-command-output").start(() ->
-                    drain(started, output, outputConsumer));
+                    drain(started, output, outputConsumer, outputLimit));
             boolean completed = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
             if (!completed) {
-                process.destroyForcibly();
+                terminateTree(process);
                 process.waitFor(2, TimeUnit.SECONDS);
             }
             reader.join(2_000L);
-            return new CommandResult(completed ? process.exitValue() : -1, completed,
-                    truncate(output.toString()));
+            synchronized (output) {
+                return new CommandResult(completed ? process.exitValue() : -1, completed,
+                        completed ? output.toString().trim() : "命令检测超时：" + command.getFirst());
+            }
         } catch (IOException exception) {
-            return new CommandResult(-1, false, compact(exception.getMessage(), "命令无法启动"));
+            return new CommandResult(exception instanceof java.nio.file.NoSuchFileException ? 127 : -1,
+                    false, compact(exception.getMessage(), "命令无法启动"));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             if (process != null) {
-                process.destroyForcibly();
+                terminateTree(process);
             }
             return new CommandResult(-1, false, "命令执行被中断");
         }
@@ -91,25 +126,65 @@ public class ForgeEnvironmentCommandRunner {
         }
     }
 
-    private void drain(Process process, StringBuilder output, Consumer<String> outputConsumer) {
+    private static void terminateTree(Process process) {
+        process.descendants().forEach(ProcessHandle::destroyForcibly);
+        process.destroyForcibly();
+    }
+
+    private void drain(Process process, StringBuilder output, Consumer<String> outputConsumer, int limit) {
         try (var reader = process.inputReader(StandardCharsets.UTF_8)) {
-            String line;
-            while ((line = reader.readLine()) != null) {
+            char[] buffer = new char[2048];
+            int count;
+            while ((count = reader.read(buffer)) != -1) {
                 synchronized (output) {
-                    if (output.length() < MAX_OUTPUT_LENGTH) {
-                        if (!output.isEmpty()) {
-                            output.append(System.lineSeparator());
-                        }
-                        output.append(line);
+                    int remaining = limit - output.length();
+                    if (remaining > 0) {
+                        output.append(buffer, 0, Math.min(count, remaining));
                     }
                 }
                 if (outputConsumer != null) {
-                    outputConsumer.accept(line);
+                    outputConsumer.accept(new String(buffer, 0, count));
                 }
             }
-        } catch (IOException ignored) {
-            // 进程被超时终止时读流关闭，结果由 exitCode/timedOut 表达。
+        } catch (IOException exception) {
+            synchronized (output) {
+                if (output.length() == 0) {
+                    output.append("命令输出流关闭");
+                }
+            }
         }
+    }
+
+    private static List<String> resolve(List<String> command, String path) throws IOException {
+        String executable = command.getFirst();
+        Path resolved = Path.of(executable);
+        if (!resolved.isAbsolute()) {
+            resolved = findExecutable(executable, path);
+        }
+        if (resolved == null || !Files.isRegularFile(resolved)) {
+            throw new java.nio.file.NoSuchFileException("未找到命令：" + executable);
+        }
+        var arguments = new ArrayList<>(command);
+        arguments.set(0, resolved.toString());
+        String lower = resolved.toString().toLowerCase(Locale.ROOT);
+        return WINDOWS && (lower.endsWith(".cmd") || lower.endsWith(".bat")) ? wrap(arguments) : arguments;
+    }
+
+    private static Path findExecutable(String name, String path) {
+        var extensions = WINDOWS && !name.contains(".") ? List.of(".com", ".exe", ".bat", ".cmd") : List.of("");
+        for (String directory : (path == null ? "" : path).split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+            String clean = directory.replace("\"", "").trim();
+            if (clean.isEmpty() || !Path.of(clean).isAbsolute()) {
+                continue;
+            }
+            for (String extension : extensions) {
+                Path candidate = Path.of(clean, name + extension);
+                if (Files.isRegularFile(candidate) && (WINDOWS || Files.isExecutable(candidate))) {
+                    return candidate;
+                }
+            }
+        }
+        return null;
     }
 
     private static List<String> wrap(List<String> command) {

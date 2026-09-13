@@ -15,6 +15,9 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.exceptioncoder.toolbox.claudechat.service.environment.EnvironmentProbeEngine;
+import com.exceptioncoder.toolbox.claudechat.service.environment.JavaEnvironmentProbeEngine;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -32,6 +35,39 @@ class ForgeEnvironmentServiceTest {
         stubReadyTools();
         when(pluginUpdateService.readSuites(null, false, "gitee")).thenReturn(readySuites());
         when(pluginUpdateService.readRepositoryStatuses("gitee", false)).thenReturn(readyRepositories());
+    }
+
+    @Test
+    void shouldKeepBothEnginesOnTheSameReadinessRules() {
+        var javaEngine = new JavaEnvironmentProbeEngine(commandRunner);
+        var goEngine = mock(EnvironmentProbeEngine.class);
+        when(goEngine.id()).thenReturn("go");
+        when(goEngine.inspect(commandRunner.environmentPath())).thenReturn(javaEngine.inspect(commandRunner.environmentPath()));
+        var dualService = new ForgeEnvironmentService(commandRunner, pluginUpdateService, List.of(javaEngine, goEngine));
+        var javaResult = dualService.inspect(null, "gitee", false, "java", false);
+        var goResult = dualService.inspect(null, "gitee", false, "go", false);
+        assertThat(goResult.groups()).isEqualTo(javaResult.groups());
+        assertThat(goResult.blockingCount()).isEqualTo(javaResult.blockingCount());
+        assertThat(goResult.measurement().engine()).isEqualTo("go");
+        assertThat(goResult.measurement().commands()).hasSize(11);
+    }
+
+    @Test
+    void shouldDistinguishTimeoutFromMissingAndRejectUnknownEngine() {
+        commandRunner.result("git --version", new ForgeEnvironmentCommandRunner.CommandResult(-1, false, "timeout"));
+        commandRunner.result("uv --version", new ForgeEnvironmentCommandRunner.CommandResult(127, false, "missing"));
+        var snapshot = service.inspect(null, "gitee", false);
+        assertThat(item(snapshot, "git").state()).isEqualTo("ATTENTION");
+        assertThat(item(snapshot, "uv").state()).isEqualTo("MISSING");
+        assertThat(snapshot.ready()).isFalse();
+        assertThatThrownBy(() -> service.inspect(null, "gitee", false, "ruby", false))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void shouldNotTreatAStartedCommandFailureAsMissing() {
+        commandRunner.result("git --version", new ForgeEnvironmentCommandRunner.CommandResult(127, true, "child failed"));
+        assertThat(item(service.inspect(null, "gitee", false), "git").state()).isEqualTo("ATTENTION");
     }
 
     @Test
@@ -155,6 +191,11 @@ class ForgeEnvironmentServiceTest {
 
         private void result(String command, CommandResult result) {
             results.put(command, result);
+        }
+
+        @Override
+        public CommandResult runWithPath(List<String> command, Duration timeout, String path) {
+            return run(command, timeout, null, null);
         }
 
         @Override

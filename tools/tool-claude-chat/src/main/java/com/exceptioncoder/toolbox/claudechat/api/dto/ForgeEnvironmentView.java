@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.api.dto;
 
 import java.util.List;
+import com.exceptioncoder.toolbox.claudechat.service.environment.EnvironmentProbeResult;
 
 /**
  * Forge 研发环境的分层就绪度快照。
@@ -20,7 +21,19 @@ public record ForgeEnvironmentView(
         int totalCount,
         int blockingCount,
         String checkedAt,
-        List<DependencyGroupView> groups) {
+        List<DependencyGroupView> groups,
+        Measurement measurement) {
+
+    /** 兼容初始化流和既有调用方，不伪造缺失计时。 */
+    public ForgeEnvironmentView(String state, boolean ready, int readyCount, int totalCount,
+                                int blockingCount, String checkedAt, List<DependencyGroupView> groups) {
+        this(state, ready, readyCount, totalCount, blockingCount, checkedAt, groups, null);
+    }
+
+    /** @param engine 实际探测引擎 @param totalMs 整体耗时 @param probesMs 探测耗时
+     * @param commands 逐命令执行证据 */
+    public record Measurement(String engine, Long totalMs, Long probesMs, List<EnvironmentProbeResult> commands) {
+    }
 
     /**
      * @param id 稳定分组 ID

@@ -11,6 +11,17 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.exceptioncoder.toolbox.claudechat.service.environment.EnvironmentProbeEngine;
+import com.exceptioncoder.toolbox.claudechat.service.environment.EnvironmentProbeResult;
+import com.exceptioncoder.toolbox.claudechat.service.environment.JavaEnvironmentProbeEngine;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -30,10 +41,19 @@ public class ForgeEnvironmentService {
     private final ForgeEnvironmentCommandRunner commandRunner;
     private final PluginUpdateService pluginUpdateService;
 
+    private final List<EnvironmentProbeEngine> engines;
+
+    @Autowired
     public ForgeEnvironmentService(ForgeEnvironmentCommandRunner commandRunner,
-                                   PluginUpdateService pluginUpdateService) {
+                                   PluginUpdateService pluginUpdateService, List<EnvironmentProbeEngine> engines) {
         this.commandRunner = commandRunner;
         this.pluginUpdateService = pluginUpdateService;
+        this.engines = List.copyOf(engines);
+    }
+
+    public ForgeEnvironmentService(ForgeEnvironmentCommandRunner commandRunner,
+                                   PluginUpdateService pluginUpdateService) {
+        this(commandRunner, pluginUpdateService, List.of(new JavaEnvironmentProbeEngine(commandRunner)));
     }
 
     /**
@@ -45,14 +65,35 @@ public class ForgeEnvironmentService {
      * @return 分层就绪度快照
      */
     public ForgeEnvironmentView inspect(String sessionId, String requestedSource, boolean fetch) {
-        commandRunner.refreshEnvironmentPath();
+        return inspect(sessionId, requestedSource, fetch, "java", false);
+    }
+
+    /** 使用选定引擎执行新探测，显式刷新会重新读取 PATH。 */
+    public ForgeEnvironmentView inspect(String sessionId, String requestedSource, boolean fetch,
+                                        String engineId, boolean refreshPath) {
+        long started = System.nanoTime();
         String source = normalizeSource(requestedSource);
-        List<DependencyGroupView> groups = List.of(
-                coreGroup(),
-                workflowGroup(),
-                suiteGroup(pluginUpdateService.readSuites(sessionId, fetch, source)),
-                repositoryGroup(pluginUpdateService.readRepositoryStatuses(source, fetch)),
-                buildGroup());
+        var engine = engines.stream().filter(candidate -> candidate.id().equals(engineId)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("检测引擎只支持 java 或 go"));
+        commandRunner.prepareEnvironmentPath(refreshPath || fetch);
+        String path = commandRunner.environmentPath();
+        MeasuredProbes measured;
+        List<DependencyGroupView> groups;
+        try (var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(1), Thread.ofVirtual().name("environment-inspection-", 0).factory(),
+                new ThreadPoolExecutor.AbortPolicy())) {
+            var pending = CompletableFuture.supplyAsync(() -> measure(engine, path), executor);
+            var suites = suiteGroup(pluginUpdateService.readSuites(sessionId, fetch, source));
+            var repositories = repositoryGroup(pluginUpdateService.readRepositoryStatuses(source, fetch));
+            measured = pending.join();
+            Map<String, ForgeEnvironmentCommandRunner.CommandResult> results = measured.results().stream()
+                    .collect(Collectors.toMap(EnvironmentProbeResult::id,
+                            item -> new ForgeEnvironmentCommandRunner.CommandResult(
+                                    item.exitCode(), item.completed(), item.output())));
+            Function<List<String>, ForgeEnvironmentCommandRunner.CommandResult> execute = command ->
+                    results.get(command.getFirst());
+            groups = List.of(coreGroup(execute), workflowGroup(execute), suites, repositories, buildGroup(execute));
+        }
         List<DependencyView> items = groups.stream().flatMap(group -> group.items().stream()).toList();
         int readyCount = (int) items.stream().filter(item -> "READY".equals(item.state())).count();
         int blockingCount = (int) items.stream().filter(DependencyView::blocking)
@@ -60,26 +101,43 @@ public class ForgeEnvironmentService {
         boolean ready = blockingCount == 0;
         boolean attention = items.stream().anyMatch(item -> !"READY".equals(item.state()));
         return new ForgeEnvironmentView(ready ? attention ? "ATTENTION" : "READY" : "BLOCKED",
-                ready, readyCount, items.size(), blockingCount, Instant.now().toString(), groups);
+                ready, readyCount, items.size(), blockingCount, Instant.now().toString(), groups,
+                new ForgeEnvironmentView.Measurement(engineId,
+                        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started), measured.durationMs(), measured.results()));
+    }
+
+    private MeasuredProbes measure(EnvironmentProbeEngine engine, String path) {
+        long started = System.nanoTime();
+        var results = engine.inspect(path);
+        return new MeasuredProbes(results, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+    }
+
+    /** @param results 命令结果 @param durationMs 引擎批次耗时 */
+    private record MeasuredProbes(List<EnvironmentProbeResult> results, long durationMs) {
     }
 
     /** 读取单个固定工具，供初始化后复检。 */
     DependencyView inspectTool(String toolId) {
+        return inspectTool(toolId, this::run);
+    }
+
+    private DependencyView inspectTool(String toolId,
+            Function<List<String>, ForgeEnvironmentCommandRunner.CommandResult> execute) {
         return switch (toolId) {
-            case "git" -> probe("git", "Git", List.of("git", "--version"), 2, 0, 0, true,
+            case "git" -> probe(execute, "git", "Git", List.of("git", "--version"), 2, 0, 0, true,
                     gitInstallCommand(), "https://git-scm.com/downloads");
-            case "node" -> probeNode();
-            case "python" -> probe("python", "Python", List.of("python", "--version"), 3, 10, 0, true,
+            case "node" -> probeNode(execute);
+            case "python" -> probe(execute, "python", "Python", List.of("python", "--version"), 3, 10, 0, true,
                     pythonInstallCommand(), "https://www.python.org/downloads/");
-            case "uv" -> probe("uv", "uv", List.of("uv", "--version"), 0, 0, 0, true,
+            case "uv" -> probe(execute, "uv", "uv", List.of("uv", "--version"), 0, 0, 0, true,
                     uvInstallCommand(), "https://docs.astral.sh/uv/getting-started/installation/");
-            case "claude" -> probe("claude", "Claude Code", List.of("claude", "--version"), 0, 0, 0, true,
+            case "claude" -> probe(execute, "claude", "Claude Code", List.of("claude", "--version"), 0, 0, 0, true,
                     npmInstallCommand("@anthropic-ai/claude-code"), "https://docs.anthropic.com/en/docs/claude-code/getting-started");
-            case "codex" -> probe("codex", "Codex CLI", List.of("codex", "--version"), 0, 0, 0, true,
+            case "codex" -> probe(execute, "codex", "Codex CLI", List.of("codex", "--version"), 0, 0, 0, true,
                     npmInstallCommand("@openai/codex"), "https://developers.openai.com/codex/cli/");
-            case "graphify" -> probe("graphify", "Graphify", List.of("graphify", "--version"), 0, 0, 0, true,
+            case "graphify" -> probe(execute, "graphify", "Graphify", List.of("graphify", "--version"), 0, 0, 0, true,
                     "uv tool install graphifyy", "https://github.com/Graphify-Labs/graphify");
-            case "openspec" -> probe("openspec", "OpenSpec", List.of("openspec", "--version"), 0, 0, 0, true,
+            case "openspec" -> probe(execute, "openspec", "OpenSpec", List.of("openspec", "--version"), 0, 0, 0, true,
                     npmInstallCommand("@fission-ai/openspec@latest"), "https://github.com/Fission-AI/OpenSpec/blob/main/docs/installation.md");
             default -> throw new IllegalArgumentException("未知 Forge 环境工具：" + toolId);
         };
@@ -109,15 +167,15 @@ public class ForgeEnvironmentService {
         return List.of(WINDOWS ? "npm.cmd" : "npm", "install", "--global", packageName);
     }
 
-    private DependencyGroupView coreGroup() {
+    private DependencyGroupView coreGroup(Function<List<String>, ForgeEnvironmentCommandRunner.CommandResult> execute) {
         return new DependencyGroupView("core", "核心前置", "仓库、运行时与双端 AI CLI",
-                List.of(inspectTool("git"), inspectTool("node"), inspectTool("python"), inspectTool("uv"),
-                        inspectTool("claude"), inspectTool("codex")));
+                List.of(inspectTool("git", execute), inspectTool("node", execute), inspectTool("python", execute), inspectTool("uv", execute),
+                        inspectTool("claude", execute), inspectTool("codex", execute)));
     }
 
-    private DependencyGroupView workflowGroup() {
+    private DependencyGroupView workflowGroup(Function<List<String>, ForgeEnvironmentCommandRunner.CommandResult> execute) {
         return new DependencyGroupView("workflow", "研发方法工具", "代码图谱与规格驱动工作流",
-                List.of(inspectTool("graphify"), inspectTool("openspec")));
+                List.of(inspectTool("graphify", execute), inspectTool("openspec", execute)));
     }
 
     private DependencyGroupView suiteGroup(List<SuiteStatusView> suites) {
@@ -149,21 +207,21 @@ public class ForgeEnvironmentService {
         return new DependencyGroupView("repositories", "公司依赖仓", "统一位于 ~/.kai-toolbox/team-tools", items);
     }
 
-    private DependencyGroupView buildGroup() {
-        DependencyView java = probe("java", "Java", List.of("java", "--version"), 21, 0, 0, false,
+    private DependencyGroupView buildGroup(Function<List<String>, ForgeEnvironmentCommandRunner.CommandResult> execute) {
+        DependencyView java = probe(execute, "java", "Java", List.of("java", "--version"), 21, 0, 0, false,
                 WINDOWS ? "winget install --id Microsoft.OpenJDK.21 -e --source winget" : "brew install openjdk@21",
                 "https://learn.microsoft.com/en-us/java/openjdk/download");
-        ForgeEnvironmentCommandRunner.CommandResult mavenResult = commandRunner.run(
-                List.of("mvn", "--version"), PROBE_TIMEOUT, null, null);
+        ForgeEnvironmentCommandRunner.CommandResult mavenResult = execute.apply(List.of("mvn", "--version"));
         DependencyView maven = inspectMaven(mavenResult);
         return new DependencyGroupView("build", "本地源码构建", "用于编译和验证 kai-toolbox 源码", List.of(java, maven));
     }
 
-    private DependencyView probeNode() {
-        ForgeEnvironmentCommandRunner.CommandResult node = run(List.of("node", "--version"));
-        ForgeEnvironmentCommandRunner.CommandResult npm = run(List.of("npm", "--version"));
+    private DependencyView probeNode(Function<List<String>, ForgeEnvironmentCommandRunner.CommandResult> execute) {
+        ForgeEnvironmentCommandRunner.CommandResult node = execute.apply(List.of("node", "--version"));
+        ForgeEnvironmentCommandRunner.CommandResult npm = execute.apply(List.of("npm", "--version"));
         if (!node.succeeded() || !npm.succeeded()) {
-            return dependency("node", "Node.js + npm", "MISSING", true, null,
+            return dependency("node", "Node.js + npm",
+                    missing(node) || missing(npm) ? "MISSING" : "ATTENTION", true, null,
                     "Node.js 或 npm 不可用", detail(node, npm), nodeInstallCommand(), "https://nodejs.org/en/download");
         }
         Version parsed = Version.parse(node.output());
@@ -188,18 +246,23 @@ public class ForgeEnvironmentService {
                 "设置 JAVA_HOME 后重新打开终端", "https://maven.apache.org/install.html");
     }
 
-    private DependencyView probe(String id, String name, List<String> command,
+    private DependencyView probe(Function<List<String>, ForgeEnvironmentCommandRunner.CommandResult> execute, String id, String name, List<String> command,
                                  int major, int minor, int patch, boolean blocking,
                                  String installCommand, String officialUrl) {
-        ForgeEnvironmentCommandRunner.CommandResult result = run(command);
+        ForgeEnvironmentCommandRunner.CommandResult result = execute.apply(command);
         if (!result.succeeded()) {
-            return dependency(id, name, "MISSING", blocking, null, "未检测到可执行命令",
+            return dependency(id, name, missing(result) ? "MISSING" : "ATTENTION", blocking, null,
+                    missing(result) ? "未检测到可执行命令" : result.completed() ? "命令执行失败" : "检测超时或中断",
                     result.output(), installCommand, officialUrl);
         }
         boolean compatible = major == 0 || Version.parse(result.output()).atLeast(major, minor, patch);
         return dependency(id, name, compatible ? "READY" : "INCOMPATIBLE", blocking,
                 firstLine(result.output()), compatible ? "已就绪" : "版本低于最低要求",
                 compatible ? null : result.output(), installCommand, officialUrl);
+    }
+
+    private static boolean missing(ForgeEnvironmentCommandRunner.CommandResult result) {
+        return !result.completed() && result.exitCode() == 127;
     }
 
     private ForgeEnvironmentCommandRunner.CommandResult run(List<String> command) {

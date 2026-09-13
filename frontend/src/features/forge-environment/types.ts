@@ -1,3 +1,12 @@
+export type EnvironmentEngine = 'java' | 'go'
+
+export interface EnvironmentMeasurement {
+  engine: EnvironmentEngine
+  totalMs: number
+  probesMs: number
+  commands: { id: string; exitCode: number; completed: boolean; output: string; durationMs: number }[]
+}
+
 export type DependencyState = 'READY' | 'MISSING' | 'INCOMPATIBLE' | 'ATTENTION' | 'CHECKING'
 
 export interface ForgeDependency {
@@ -26,6 +35,7 @@ export interface ForgeEnvironmentSnapshot {
   totalCount: number
   blockingCount: number
   checkedAt: string
+  measurement?: EnvironmentMeasurement
   groups: ForgeDependencyGroup[]
 }
 

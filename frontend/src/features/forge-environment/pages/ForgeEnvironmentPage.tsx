@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { subscribeSse } from '@/lib/api'
+import { ProbeEngineControls } from '../components/ProbeEngineControls'
 import { BootstrapProgress } from '../components/BootstrapProgress'
 import { BusinessSourceOperations } from '../components/BusinessSourceOperations'
 import { DependencySection } from '../components/DependencySection'
@@ -16,7 +17,7 @@ import {
   teamSuiteInstallPath,
   teamSuiteUpdatePath,
 } from '../api'
-import type { BootstrapStep, ForgeEnvironmentSnapshot, RestartRequiredEvent } from '../types'
+import type { BootstrapStep, EnvironmentEngine, ForgeEnvironmentSnapshot, RestartRequiredEvent } from '../types'
 
 const QUERY_KEY = ['forge-environment']
 const BUSINESS_QUERY_KEY = ['forge-environment', 'business-sources']
@@ -65,6 +66,9 @@ function suiteStepName(step: string) {
 
 /** Forge 研发环境总览与一键初始化工作台。 */
 export function ForgeEnvironmentPage({ embedded = false }: { embedded?: boolean }) {
+  const [engine, setEngine] = useState<EnvironmentEngine>('java')
+  const [comparing, setComparing] = useState(false)
+  const pendingQueries = useIsFetching({ queryKey: QUERY_KEY })
   const queryClient = useQueryClient()
   const closeStreamRef = useRef<null | (() => void)>(null)
   const terminalRef = useRef(false)
@@ -75,10 +79,12 @@ export function ForgeEnvironmentPage({ embedded = false }: { embedded?: boolean 
   const [logs, setLogs] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [restartRequired, setRestartRequired] = useState<RestartRequiredEvent | null>(null)
-  const query = useQuery({ queryKey: QUERY_KEY, queryFn: () => getForgeEnvironment(false) })
+  const query = useQuery({ queryKey: [...QUERY_KEY, engine], queryFn: () => getForgeEnvironment(false, engine), enabled: !comparing, staleTime: 60_000, retry: false, refetchOnWindowFocus: false })
   const businessQuery = useQuery({
     queryKey: BUSINESS_QUERY_KEY,
     queryFn: () => getBusinessSystemWorkspaces(false),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   })
 
   useEffect(() => () => closeStreamRef.current?.(), [])
@@ -87,8 +93,8 @@ export function ForgeEnvironmentPage({ embedded = false }: { embedded?: boolean 
     if (refreshing) return
     setRefreshing(true)
     try {
-      const snapshot = await getForgeEnvironment(fetchRemote)
-      queryClient.setQueryData(QUERY_KEY, snapshot)
+      const snapshot = await getForgeEnvironment(fetchRemote, engine, true)
+      queryClient.setQueryData([...QUERY_KEY, engine], snapshot)
       if (!preserveError) setError(null)
     } catch (cause) {
       setError(cause instanceof Error ? `重新检测失败：${cause.message}` : '重新检测失败，请确认 Forge 后端可用。')
@@ -140,6 +146,7 @@ export function ForgeEnvironmentPage({ embedded = false }: { embedded?: boolean 
   }
 
   const finishOperation = (operation: Operation, preserveError = false) => {
+    void queryClient.invalidateQueries({ queryKey: QUERY_KEY, refetchType: 'none' })
     terminalRef.current = true
     setActiveOperation(null)
     if (operation === 'business-sync' || operation === 'business-openspec') {
@@ -157,7 +164,7 @@ export function ForgeEnvironmentPage({ embedded = false }: { embedded?: boolean 
 
   const handleStreamEvent = (eventName: string, data: unknown, operation: Operation) => {
     if (eventName === 'snapshot') {
-      queryClient.setQueryData(QUERY_KEY, data as ForgeEnvironmentSnapshot)
+      queryClient.setQueryData([...QUERY_KEY, 'java'], data as ForgeEnvironmentSnapshot)
       return
     }
     if (eventName === 'step') {
@@ -217,25 +224,27 @@ export function ForgeEnvironmentPage({ embedded = false }: { embedded?: boolean 
     }
   }
 
-  const running = activeOperation !== null
+  const running = activeOperation !== null || comparing
+  const controls = <ProbeEngineControls engine={engine} onChange={setEngine} snapshot={query.data}
+    busy={activeOperation !== null || refreshing} detecting={pendingQueries > 0} comparing={comparing} onComparing={setComparing} />
   const progressCopy = PROGRESS_COPY[progressKind]
 
   if (query.isPending) {
-    return <section role="status" className="py-6 text-sm text-[var(--color-muted-foreground)]">正在检测 Forge 研发环境…</section>
+    return <>{controls}<section role="status" className="py-6 text-sm text-[var(--color-muted-foreground)]">正在检测 Forge 研发环境…可切换检测引擎。</section></>
   }
 
   if (query.isError || !query.data) {
     return (
-      <section className="max-w-3xl py-6">
+      <>{controls}<section className="max-w-3xl py-6">
         <p className="text-sm font-medium">无法读取 Forge 环境</p>
         <p className="mt-2 text-sm text-[var(--color-muted-foreground)]">{query.error instanceof Error ? query.error.message : '后端暂不可用，请确认 Forge 已启动。'}</p>
         <Button className="mt-4" variant="outline" onClick={() => void query.refetch()}>重新检测</Button>
-      </section>
+      </section></>
     )
   }
 
   return (
-    <section className={embedded ? 'min-w-0' : 'mx-auto max-w-6xl px-5 py-8 sm:px-8 lg:px-12'}>
+    <>{controls}<section className={embedded ? 'min-w-0' : 'mx-auto max-w-6xl px-5 py-8 sm:px-8 lg:px-12'}>
       <header className="mb-8">
         <p className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--color-muted-foreground)]">Forge · System Readiness</p>
         <h2 className="mt-2 text-xl font-semibold tracking-tight">全局工具环境</h2>
@@ -279,7 +288,7 @@ export function ForgeEnvironmentPage({ embedded = false }: { embedded?: boolean 
           <BootstrapProgress
             steps={steps}
             logs={logs}
-            running={running}
+            running={activeOperation !== null}
             error={error}
             restartRequired={restartRequired}
             onRetry={() => void refresh(true)}
@@ -290,6 +299,6 @@ export function ForgeEnvironmentPage({ embedded = false }: { embedded?: boolean 
           />
         </div>
       </div>
-    </section>
+    </section></>
   )
 }

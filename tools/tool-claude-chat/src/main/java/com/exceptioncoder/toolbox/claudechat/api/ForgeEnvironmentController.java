@@ -12,6 +12,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 /** Forge 研发环境快照与一键初始化的 HTTP 适配器。 */
 @RestController("claudeChatForgeEnvironmentController")
@@ -35,8 +38,17 @@ public class ForgeEnvironmentController {
     public ForgeEnvironmentView readiness(
             @RequestParam(required = false) String sessionId,
             @RequestParam(defaultValue = "gitee") String source,
-            @RequestParam(defaultValue = "false") boolean fetch) {
-        return environmentService.inspect(sessionId, source, fetch);
+            @RequestParam(defaultValue = "false") boolean fetch,
+            @RequestParam(defaultValue = "java") String engine,
+            @RequestParam(defaultValue = "false") boolean refresh) {
+        try {
+            return environmentService.inspect(sessionId, source, fetch, engine, refresh);
+        } catch (CompletionException exception) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    exception.getCause().getMessage(), exception.getCause());
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage(), exception);
+        }
     }
 
     /** 用户点击后启动固定白名单的一键初始化。 */

@@ -1,11 +1,11 @@
 import { http } from '@/lib/api'
-import type { BusinessSystemWorkspace, ForgeEnvironmentSnapshot } from './types'
+import type { BusinessSystemWorkspace, EnvironmentEngine, ForgeEnvironmentSnapshot } from './types'
 
 const SOURCE = 'gitee'
 
 /** 读取 Forge 环境快照；远端刷新仅在用户显式检测时开启。 */
-export function getForgeEnvironment(fetchRemote = false) {
-  const query = new URLSearchParams({ source: SOURCE, fetch: String(fetchRemote) })
+export function getForgeEnvironment(fetchRemote = false, engine: EnvironmentEngine = 'java', refresh = false) {
+  const query = new URLSearchParams({ source: SOURCE, fetch: String(fetchRemote), engine, refresh: String(refresh) })
   return http<ForgeEnvironmentSnapshot>(`/claude-chat/forge-environment?${query.toString()}`)
 }
 

@@ -12,6 +12,56 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ForgeEnvironmentCommandRunnerTest {
 
     @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void shouldRunBatchFileFromPathWithSpaces(@org.junit.jupiter.api.io.TempDir java.nio.file.Path root) throws Exception {
+        var directory = java.nio.file.Files.createDirectories(root.resolve("path with spaces"));
+        var script = directory.resolve("version.cmd");
+        java.nio.file.Files.writeString(script, "@echo off\r\necho 1.2.3\r\n");
+        var result = new ForgeEnvironmentCommandRunner().runWithPath(List.of(script.toString(), "--version"),
+                Duration.ofSeconds(5), System.getenv("PATH"));
+        assertThat(result.succeeded()).isTrue();
+        assertThat(result.output()).isEqualTo("1.2.3");
+    }
+
+    @Test
+    void shouldReusePathUntilExplicitRefresh() {
+        var refreshes = new java.util.concurrent.atomic.AtomicInteger();
+        var runner = new ForgeEnvironmentCommandRunner() {
+            @Override
+            public void refreshEnvironmentPath() {
+                refreshes.incrementAndGet();
+            }
+        };
+        runner.prepareEnvironmentPath(false);
+        runner.prepareEnvironmentPath(false);
+        assertThat(refreshes.get()).isEqualTo(1);
+        runner.prepareEnvironmentPath(true);
+        assertThat(refreshes.get()).isEqualTo(2);
+    }
+
+    @Test
+    void shouldBoundOutputAndTerminateSlowCommands() {
+        var runner = new ForgeEnvironmentCommandRunner();
+        var output = runner.runWithPath(List.of("node", "-e", "process.stdout.write('x'.repeat(100000))"),
+                Duration.ofSeconds(5), System.getenv("PATH"));
+        assertThat(output.succeeded()).isTrue();
+        assertThat(output.output()).hasSize(16000);
+        long started = System.nanoTime();
+        var timedOut = runner.runWithPath(List.of("node", "-e", "setTimeout(()=>{},30000)"),
+                Duration.ofMillis(100), System.getenv("PATH"));
+        assertThat(timedOut.completed()).isFalse();
+        assertThat(timedOut.exitCode()).isEqualTo(-1);
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(4));
+    }
+
+    @Test
+    void shouldReportMissingExecutable() {
+        var result = new ForgeEnvironmentCommandRunner().runWithPath(
+                List.of("forge-command-that-does-not-exist", "--version"), Duration.ofSeconds(1), System.getenv("PATH"));
+        assertThat(result.exitCode()).isEqualTo(127);
+    }
+
+    @Test
     void shouldMergePathEntriesWithoutCaseInsensitiveDuplicates() {
         String merged = ForgeEnvironmentCommandRunner.mergePaths(
                 "C:\\Windows;C:\\Users\\dev\\AppData\\Roaming\\npm",
