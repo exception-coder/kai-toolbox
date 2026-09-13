@@ -1,0 +1,1 @@
+export { LegacyContentRedirect } from './LegacyContentRedirect'

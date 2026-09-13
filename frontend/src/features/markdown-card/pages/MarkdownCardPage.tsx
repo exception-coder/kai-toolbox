@@ -17,7 +17,7 @@ import type { Mode, PersistedState, SlideRatio, SplitMode, Theme, Watermark } fr
 
 type MobileTab = 'edit' | 'preview'
 
-export function MarkdownCardPage() {
+export function MarkdownCardPage({ embedded = false }: { embedded?: boolean; active?: boolean } = {}) {
   const [state, setState] = useState<PersistedState>(DEFAULT_STATE)
   const [hydrated, setHydrated] = useState(false)
   const [mobileTab, setMobileTab] = useState<MobileTab>('edit')
@@ -77,12 +77,12 @@ export function MarkdownCardPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-3 px-3 py-4 md:gap-4 md:px-4 md:py-6">
+    <div className={embedded ? "flex w-full flex-col gap-4" : "mx-auto flex max-w-7xl flex-col gap-3 px-3 py-4 md:gap-4 md:px-4 md:py-6"}>
 
       {/* 顶部标题栏：移动端紧凑 */}
       <header className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight md:text-xl">Markdown 转卡片</h1>
+          <h1 className={embedded ? "sr-only" : "text-lg font-semibold tracking-tight md:text-xl"}>Markdown 转卡片</h1>
           <p className="hidden text-sm text-[var(--color-muted-foreground)] sm:block">
             三种模式 + 五套主题，纯前端导出 PNG。PC 直接下载，移动端走系统分享面板。
           </p>

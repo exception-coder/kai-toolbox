@@ -16,4 +16,5 @@
 | Agent 与评测 | 集中管理入口、题集上下文与通用评测边界 | [Agent 管理](../frontend/src/features/agent-management/README.md) |
 | 项目库 | 统一 AI 工作区、项目目录、扫描规则与旧入口兼容 | [项目库](../frontend/src/features/project-workspace/README.md) |
 | 项目开发 | 系统页签、服务配置、旧入口与新增模块注册 | [项目开发](../frontend/src/features/project-development/README.md) |
+| 内容工具 | 卡片、图片打码、加解密、二维码与格式化的统一入口 | [内容工具](../frontend/src/features/content-tools/README.md) |
 | AI 交付中心 | 统一需求入口、项目轨道与交付证据 | [reqpool/README.md](../frontend/src/features/reqpool/README.md) |

@@ -11,7 +11,7 @@ import {
 
 type Status = 'idle' | 'scanning' | 'ok' | 'fail'
 
-export function DecodePanel() {
+export function DecodePanel({ active = true }: { active?: boolean } = {}) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [status, setStatus] = useState<Status>('idle')
@@ -54,8 +54,9 @@ export function DecodePanel() {
     }
   }, [])
 
-  // 全局粘贴：随便在哪 Ctrl+V 都能命中
+  // 仅当前工具接收粘贴，避免保留挂载的隐藏页签拦截输入。
   useEffect(() => {
+    if (!active) return
     const onPaste = (e: ClipboardEvent) => {
       const file = pickImageFromClipboard(e)
       if (file) {
@@ -65,7 +66,7 @@ export function DecodePanel() {
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [handleBlob])
+  }, [active, handleBlob])
 
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null

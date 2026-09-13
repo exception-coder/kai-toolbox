@@ -5,6 +5,7 @@ import type { FeatureManifest } from '@/shell/types'
 const ResumePage = lazy(() => import('./pages/ResumePage').then((m) => ({ default: m.ResumePage })))
 const manifest: FeatureManifest = {
   id: 'resume',
+  hidden: true,
   name: '个人简历',
   icon: UserSquare2,
   group: '内容',

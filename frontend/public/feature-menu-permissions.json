@@ -129,13 +129,6 @@
       "sort": 25
     },
     {
-      "featureId": "resume",
-      "code": "menu:resume",
-      "name": "个人简历",
-      "module": "内容",
-      "sort": 25
-    },
-    {
       "featureId": "magnet",
       "code": "menu:magnet",
       "name": "磁力 / BT 下载",
@@ -143,11 +136,11 @@
       "sort": 26
     },
     {
-      "featureId": "workline",
-      "code": "menu:workline",
-      "name": "工作线",
+      "featureId": "content-tools",
+      "code": "menu:content-tools",
+      "name": "内容工具",
       "module": "内容",
-      "sort": 26
+      "sort": 30
     },
     {
       "featureId": "hosts",
