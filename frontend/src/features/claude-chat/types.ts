@@ -708,6 +708,7 @@ export interface PluginCapability {
 }
 
 export type ClientMessage =
+  | { type: 'voiceControl'; sessionId: string; callId: string; action: 'stop' | 'heartbeat' }
   | {
       type: 'open'
       cwd: string
@@ -728,6 +729,7 @@ export type ClientMessage =
   | { type: 'resumeCurrent'; sessionId?: string }
   | {
       type: 'send'
+      voice?: import('./lib/nativeVoice').VoiceOffer
       text: string
       attachments?: Attachment[]
       developerInstructions?: string
@@ -778,6 +780,7 @@ export type AgentEventType =
 
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
+  | import('./lib/nativeVoice').VoiceEvent
   | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; skillDetails?: SkillCapability[]; plugins?: PluginCapability[]; agents?: string[]; mcpServers?: McpCapability[]; outputStyle?: string | null; capabilitySource?: CapabilitySnapshotSource; capabilityRefreshedAt?: number; capabilityErrors?: string[]; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; queueDispatchMode?: 'server' }
   | { type: 'assistantDelta'; seq: number; text: string }
   | { type: 'toolUse'; seq: number; toolCallId?: string | null; toolName: string; input: unknown }

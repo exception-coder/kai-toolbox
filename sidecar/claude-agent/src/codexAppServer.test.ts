@@ -17,6 +17,13 @@ import {
   shouldReconcileCodexTurnAfterItem,
 } from './codexAppServer.js'
 
+test('realtime clock requests return Unix seconds without invoking a code tool', async () => {
+  const before = Math.floor(Date.now() / 1000)
+  const response = await resolveCodexAppServerRequest('currentTime/read', {}, undefined)
+  const now = (response.result as { currentTimeAt: number }).currentTimeAt
+  assert.ok(now >= before && now <= Math.floor(Date.now() / 1000))
+})
+
 for (const failure of ['thread not found: persisted-thread', 'transport closed after suspend']) {
   test(`capability failure preserves native identity and exposes diagnostic: ${failure}`, async () => {
     const options = Object.freeze({ threadId: 'persisted-thread', cwd: '.', configuredMcpServers: [] })

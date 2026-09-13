@@ -21,6 +21,8 @@ import { RecentSessions } from '../components/RecentSessions'
 import { HistoryList } from '../components/HistoryList'
 import { NotifySettings } from '../components/NotifySettings'
 import { VoiceInputButton } from '../components/VoiceInputButton'
+import { NativeVoiceControl } from '../components/NativeVoiceControl'
+import { chatControlMode } from '../lib/controlMode'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { QueuedList } from '../components/QueuedList'
 import { PendingSessionsBanner } from '../components/PendingSessionsBanner'
@@ -2207,6 +2209,10 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             onOpenUsage={() => setShowUsage(true)}
             onOpenTrajectory={() => setSessionView('trajectory')}
           />
+          {chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession && (
+            <NativeVoiceControl sessionId={chat.sessionId} transport={chat.voiceTransport}
+              connected={chat.state === 'ready'} disabled={planLocked} busy={chat.running} />
+          )}
           <QueuedList
             items={chat.queued}
             pausedReason={chat.queuePausedReason

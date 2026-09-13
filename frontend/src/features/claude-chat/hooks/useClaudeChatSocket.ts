@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
 import type { AssistantMessageEnvelope, Attachment, BackgroundTaskInfo, CapabilitySnapshotSource, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, McpCapability, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, PluginCapability, ProviderKind, SendAttachment, ServerMessage, SkillCapability, TurnDiag } from '../types'
+import { useVoiceTransport } from './useVoiceTransport'
+import type { VoiceTransport } from '../lib/nativeVoice'
 import { clearQueuedMessages, deleteQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
@@ -127,6 +129,7 @@ type Intent =
   | { kind: 'attach'; sessionId: string; lastEventSeq: number }
 
 export interface UseClaudeChatSocket {
+  voiceTransport: VoiceTransport
   state: ConnState
   sessionId: string | null
   items: ChatItem[]
@@ -362,7 +365,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (ws && ws.readyState === WebSocket.OPEN) {
       const text = JSON.stringify(msg)
       ws.send(text)
-      pushDebug('send', msg.type, text)
+      if (msg.type !== 'voiceControl' && !(msg.type === 'send' && msg.voice)) pushDebug('send', msg.type, text)
       return true
     }
     pushDebug('conn', 'send-skipped', `未连接，未发送 type=${msg.type}`)
@@ -382,6 +385,14 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     return next.running
   }
+
+  const voiceChannel = useVoiceTransport(sendRaw, () => {
+    queueReleaseSessionRef.current = null
+    setQueuePausedReason(null)
+    turnStartRef.current = Date.now()
+    setTurnTokens(0)
+    applyTurnRunningSignal('localStart')
+  })
 
   const resetTurnRunningState = () => {
     turnRunningStateRef.current = { running: false, terminal: false }
@@ -1090,6 +1101,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         return
       }
       // 调试模式：捕获每条到达的原始报文（node sidecar 事件经后端转发），供「调试模式」弹框查看
+      if (voiceChannel.handle(msg)) return
       pushDebug('recv', msg.type, typeof ev.data === 'string' ? ev.data : String(ev.data), (msg as { seq?: number }).seq)
       applyEvent(msg)
     }
@@ -1803,7 +1815,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }
 
 function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {

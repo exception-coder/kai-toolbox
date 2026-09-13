@@ -9,6 +9,7 @@ const expectedServerRequests = [
   'account/chatgptAuthTokens/refresh',
   'applyPatchApproval',
   'attestation/generate',
+  'currentTime/read',
   'execCommandApproval',
   'item/commandExecution/requestApproval',
   'item/fileChange/requestApproval',
@@ -22,7 +23,7 @@ const schemaDirectory = mkdtempSync(join(tmpdir(), 'kai-codex-schema-'))
 try {
   const packageJson = require.resolve('@openai/codex/package.json')
   const cli = join(dirname(packageJson), 'bin', 'codex.js')
-  const generated = spawnSync(process.execPath, [cli, 'app-server', 'generate-ts', '--out', schemaDirectory], {
+  const generated = spawnSync(process.execPath, [cli, 'app-server', 'generate-ts', '--experimental', '--out', schemaDirectory], {
     encoding: 'utf8',
     windowsHide: true,
   })
@@ -39,6 +40,20 @@ try {
       `Actual: ${actual.join(', ')}`,
       'Update the request router and its tests before upgrading Codex.',
     ].join('\n'))
+  }
+  const realtimeContracts = {
+    'ClientRequest.ts': ['thread/realtime/start', 'thread/realtime/stop', 'thread/realtime/appendText'],
+    'ServerNotification.ts': ['thread/realtime/sdp', 'thread/realtime/transcript/delta', 'thread/realtime/transcript/done', 'thread/realtime/error', 'thread/realtime/closed'],
+    'v2/ThreadRealtimeStartParams.ts': ['outputModality: RealtimeOutputModality', 'version?: RealtimeConversationVersion', 'includeStartupContext?: boolean'],
+    'v2/ThreadRealtimeStartTransport.ts': ['"webrtc"', 'sdp: string'],
+    'v2/ThreadRealtimeAppendTextParams.ts': ['text: string', 'role: ConversationTextRole'],
+    'RealtimeConversationVersion.ts': ['"v3"'],
+  }
+  for (const [file, required] of Object.entries(realtimeContracts)) {
+    const contract = readFileSync(join(schemaDirectory, file), 'utf8')
+    for (const field of required) {
+      if (!contract.includes(field)) throw new Error(`Codex realtime contract changed: ${file} missing ${field}`)
+    }
   }
   console.log(`Codex App Server schema check passed (${actual.length} server request methods).`)
 } finally {

@@ -270,10 +270,20 @@ public class SidecarClient implements ReviewThreadForkGateway {
                             TraceContext traceContext, AgentRunMetadata telemetry,
                             List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
                             String turnToolPolicy) {
+        userMessage(sessionId, text, developerInstructions, sessionContext, additionalDirectories, turnId,
+                traceContext, telemetry, images, turnToolPolicy, null);
+    }
+
+    public void userMessage(String sessionId, String text, String developerInstructions,
+                            String sessionContext, List<String> additionalDirectories, String turnId,
+                            TraceContext traceContext, AgentRunMetadata telemetry,
+                            List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
+                            String turnToolPolicy, String voiceCallId) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", "user");
         message.put("sessionId", sessionId);
         message.put("text", nz(text));
+        if (voiceCallId != null) message.put("voiceCallId", voiceCallId);
         message.put("developerInstructions", nz(developerInstructions));
         message.put("sessionContext", nz(sessionContext));
         message.put("additionalDirectories", additionalDirectories == null ? List.of() : additionalDirectories);
@@ -298,6 +308,17 @@ public class SidecarClient implements ReviewThreadForkGateway {
                 });
         putTelemetry(message, traceContext, telemetry);
         send(message);
+    }
+
+    /** 为下一次正常准入的轮次绑定瞬时语音协商。 */
+    public boolean prepareVoice(String sessionId,
+                               com.exceptioncoder.toolbox.claudechat.api.dto.VoiceOffer offer) {
+        return send(Map.of("type", "voicePrepare", "sessionId", sessionId, "offer", offer));
+    }
+
+    /** 语音停止与续租不改变代码任务的中断状态。 */
+    public boolean controlVoice(String sessionId, String callId, String action) {
+        return send(Map.of("type", "voiceControl", "sessionId", sessionId, "callId", callId, "action", action));
     }
 
     /** 将新输入追加到 Sidecar 中正在执行的官方 Codex turn。 */

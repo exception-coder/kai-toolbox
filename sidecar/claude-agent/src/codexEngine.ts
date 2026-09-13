@@ -27,6 +27,7 @@ import {
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import { FORGE_AFFECTED_API_STEER } from './affectedApiPolicy.js'
 import { CODEX_COMPUTER_USE_RECOVERY_STEER } from './codexComputerUsePolicy.js'
+import { takeCodexVoice } from './codexRealtime.js'
 import {
   CodexAppServerTurnError,
   deleteCodexThread,
@@ -114,6 +115,7 @@ export interface CodexImageInput {
 
 /** 单次 Codex 轮次所需上下文，由 Session 注入；emit 复用与 Claude 相同的统一事件协议。 */
 export interface CodexTurnCtx {
+  voiceCallId?: string
   /** 持久化 Vibe Coding 会话 id；one-shot 不传，避免把后台任务误登记为会话 SQL。 */
   sessionId?: string
   text: string
@@ -369,6 +371,14 @@ function mapMode(mode: string): { approvalPolicy: ApprovalMode; sandboxMode: San
  * App Server 仅在尚未产生可见输出或副作用时允许回退 SDK，避免同一轮重复执行。
  */
 export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
+  const voice = takeCodexVoice(ctx.sessionId, ctx.voiceCallId)
+  voice?.attachEmitter(ctx.emit)
+  if (voice && (ctx.apiBaseUrl?.trim() || (ctx.toolPolicy && ctx.toolPolicy !== 'default'))) {
+    voice.dispose()
+    ctx.emit({ type: 'error', code: 'VOICE_UNSUPPORTED', message: '原生语音仅支持官方 Codex Code 会话' })
+    ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
+    return
+  }
   const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const reviewOnly = ctx.toolPolicy === REVIEW_ONLY_POLICY
   if (reviewOnly && !isReviewWorkspace(safeCwd)) {
@@ -377,7 +387,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     return
   }
   const home = normalizeCodexHome(ctx.codexHome)
-  if (!validateCodexHome(ctx, home)) return
+  if (!validateCodexHome(ctx, home)) { voice?.dispose(); return }
   const archivedThread = isArchivedCodexThread(ctx.sdkSessionId, home)
   const turnContext = archivedThread ? { ...ctx, sdkSessionId: undefined } : ctx
   if (archivedThread) {
@@ -410,6 +420,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     const prepared = prepareCodexInput(ctx.text, ctx.images)
     tempImageDir = prepared.tempDir
     const appServerOptions: Parameters<typeof runCodexAppServerTurn>[0] = {
+      voice,
       sessionId: ctx.sessionId ?? `ephemeral:${Date.now()}:${Math.random()}`,
       threadId: turnContext.sdkSessionId,
       cwd: safeCwd,
@@ -465,7 +476,8 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         })
       },
     )
-    await runAppServer(appServerOptions)
+    if (voice) await runCodexAppServerTurn(appServerOptions)
+    else await runAppServer(appServerOptions)
   } catch (error) {
     if (ctx.signal.aborted) {
       if (isMcpToolTimeoutAbort(ctx.signal.reason) || isToolExecutionTimeoutAbort(ctx.signal.reason)) return
@@ -481,7 +493,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       ctx.emit({ type: 'result', usage: {}, stopReason: 'error', queueReleaseSafe: false })
       return
     }
-    if (error instanceof CodexAppServerTurnError && error.retrySafe) {
+    if (!voice && error instanceof CodexAppServerTurnError && error.retrySafe) {
       const diagnostic = isRetryableMcpInitializationFailure(error) ? `；${toolboxMcpRuntimeDiagnostics()}` : ''
       ctx.emit({
         type: 'warning',
@@ -498,6 +510,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     })
     ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
   } finally {
+    voice?.dispose()
     if (tempImageDir) rmSync(tempImageDir, { recursive: true, force: true })
   }
 }

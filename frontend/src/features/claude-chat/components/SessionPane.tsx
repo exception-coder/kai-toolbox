@@ -18,6 +18,7 @@ import { ModeSwitch } from './ModeSwitch'
 import { ProviderSwitch } from './ProviderSwitch'
 import { AttachmentChips } from './AttachmentChips'
 import { VoiceInputButton } from './VoiceInputButton'
+import { NativeVoiceControl } from './NativeVoiceControl'
 import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from './ProjectMention'
 import { agentStatusMeta, deriveAgentStatus, engineDisplayName, providerHost, type AgentStatus } from './chatStatus'
 import { ProviderDiagPanel } from './ProviderDiagPanel'
@@ -214,6 +215,10 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
         />
       </div>
 
+      {chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && meta?.group !== '评审会话' && (
+        <NativeVoiceControl sessionId={chat.sessionId} transport={chat.voiceTransport}
+          connected={chat.state === 'ready'} disabled={planLocked} busy={chat.running} />
+      )}
       <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
 
       {/* 第三方网关调用诊断（可展开，紧凑）：仅第三方会话显示 */}

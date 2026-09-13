@@ -73,6 +73,7 @@ public class ClaudeChatService {
     private final ClaudeChatSessionRepository repo;
     private final SidecarProcessRegistry processRegistry;
     private final SidecarClient sidecar;
+    private final SessionVoiceService voiceService;
     private final NotificationService notifications;
     private final AttachmentStorageService attachments;
     private final ClaudeChatAttachmentRepository attachmentRepository;
@@ -160,11 +161,13 @@ public class ClaudeChatService {
                              AgentTelemetry telemetry,
                              List<AgentRunMetadataProvider> metadataProviders,
                              List<AgentRunCompletionListener> completionListeners,
-                             ApplicationEventPublisher applicationEvents) {
+                             ApplicationEventPublisher applicationEvents,
+                             SessionVoiceService voiceService) {
         this.props = props;
         this.repo = repo;
         this.processRegistry = processRegistry;
         this.sidecar = sidecar;
+        this.voiceService = voiceService;
         this.notifications = notifications;
         this.attachments = attachments;
         this.attachmentRepository = attachmentRepository;
@@ -683,7 +686,10 @@ public class ClaudeChatService {
                 return;
             }
             applicationEvents.publishEvent(new SessionManualInputEvent(ctx.sessionId, "SEND"));
+            voiceService.bind(ws, ctx.sessionId, new SessionVoiceService.Eligibility(
+                    ctx.engine, turnPolicy == null ? ctx.executionPolicy : turnPolicy, ctx.apiBaseUrl, ctx.demo), msg.voice());
             if (!startTurn(ctx, msg, turnPolicy)) {
+                voiceService.cancel(ctx.sessionId);
                 sendError(ws, 0, "SYSTEM_UPDATING",
                         "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
                 return;
@@ -807,7 +813,12 @@ public class ClaudeChatService {
     }
 
     private boolean startTurn(SessionCtx ctx, ClientMessage.Send msg, String turnPolicy) {
-        return admissionGate.tryAdmit(() -> startTurnAdmitted(ctx, msg, turnPolicy));
+        try {
+            return admissionGate.tryAdmit(() -> startTurnAdmitted(ctx, msg, turnPolicy));
+        } catch (RuntimeException exception) {
+            if (msg.voice() != null) voiceService.cancel(ctx.sessionId);
+            throw exception;
+        }
     }
 
     /** 调用方同时持有会话锁与 admission gate。 */
@@ -853,14 +864,22 @@ public class ClaudeChatService {
             previous.fail("overlapping turn replaced", null);
         }
         try {
-            sidecar.userMessage(ctx.sessionId,
-                    appendAttachmentHints(msg.text(), msg.attachments(),
-                            SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)),
-                    developerInstructions,
-                    projectContext == null ? null : projectContext.instructions(),
-                    projectContext == null ? List.of() : projectContext.paths(),
-                    turnId, span.traceContext(), metadata, images, turnPolicy);
+            if (msg.voice() != null) {
+                sidecar.userMessage(ctx.sessionId, msg.text(), developerInstructions,
+                        projectContext == null ? null : projectContext.instructions(),
+                        projectContext == null ? List.of() : projectContext.paths(),
+                        turnId, span.traceContext(), metadata, images, turnPolicy, msg.voice().callId());
+            } else {
+                sidecar.userMessage(ctx.sessionId,
+                        appendAttachmentHints(msg.text(), msg.attachments(),
+                                SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)),
+                        developerInstructions,
+                        projectContext == null ? null : projectContext.instructions(),
+                        projectContext == null ? List.of() : projectContext.paths(),
+                        turnId, span.traceContext(), metadata, images, turnPolicy);
+            }
         } catch (RuntimeException e) {
+            voiceService.cancel(ctx.sessionId);
             activeReviewReplies.remove(ctx.sessionId);
             turnLifecycle.complete(ctx.sessionId, turnId);
             ctx.status = SessionStatus.IDLE;
@@ -1369,6 +1388,7 @@ public class ClaudeChatService {
 
     /** 浏览器连接断开：仅把该连接从会话观察者集合移除（不杀会话，其它端可继续看，任务在 sidecar 跑）。 */
     public void onBrowserDisconnected(WebSocketSession ws) {
+        voiceService.disconnect(ws);
         String sessionId = wsToSession.remove(ws.getId());
         if (sessionId == null) return;
         SessionCtx ctx = sessions.get(sessionId);
@@ -1392,6 +1412,10 @@ public class ClaudeChatService {
     // ===== sidecar 侧事件（由 SidecarClient 回调） =====
 
     void onSidecarEvent(String sessionId, JsonNode node) {
+        if (sessionId != null && node != null && "voiceEvent".equals(node.path("type").asText())) {
+            voiceService.observe(sessionId, node);
+            return;
+        }
         // 连接级事件：sidecar 崩溃/断开
         if (sessionId == null || node == null) {
             onSidecarDown();
@@ -1412,6 +1436,7 @@ public class ClaudeChatService {
                     turnLifecycle.currentTurnId(sessionId).orElse("none"));
             return;
         }
+        voiceService.observe(sessionId, node);
         switch (type) {
             case "init" -> {
                 // sidecar 的 start 会先回一条 sdkSessionId=null 的 init 让前端尽快可输入，真句柄首轮才回填；
@@ -1839,6 +1864,7 @@ public class ClaudeChatService {
     }
 
     private void onSidecarDown() {
+        voiceService.sidecarDisconnected();
         if (shuttingDown) return;
         finishAllActiveSpans("sidecar disconnected");
         sessions.values().forEach(ctx -> {
@@ -2173,6 +2199,10 @@ public class ClaudeChatService {
         }
     }
 
+    public void controlVoice(WebSocketSession ws, ClientMessage.VoiceControl command) {
+        voiceService.control(ws, command);
+    }
+
     private SessionCtx ctxOf(WebSocketSession ws) {
         String sessionId = wsToSession.get(ws.getId());
         return sessionId == null ? null : sessions.get(sessionId);
@@ -2182,6 +2212,7 @@ public class ClaudeChatService {
     private void bindViewer(WebSocketSession ws, SessionCtx ctx) {
         String prev = wsToSession.get(ws.getId());
         if (prev != null && !prev.equals(ctx.sessionId)) {
+            voiceService.disconnect(ws);
             SessionCtx old = sessions.get(prev);
             if (old != null) old.viewers.remove(ws);
         }

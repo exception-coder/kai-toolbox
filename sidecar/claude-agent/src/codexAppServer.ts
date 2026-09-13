@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { computerUseFailureTitle } from './codexComputerUsePolicy.js'
+import type { CodexRealtimeCall } from './codexRealtime.js'
 import { classifyCommandResult } from './commandExecution.js'
 import {
   CodexTurnCompletionGate,
@@ -88,6 +89,7 @@ type McpActivityState = {
 }
 
 type AppServerTurnOptions = {
+  voice?: CodexRealtimeCall
   /** Forge 会话 id，用于把运行中的追加消息路由到当前 App Server turn。 */
   sessionId: string
   threadId?: string
@@ -218,6 +220,7 @@ export async function resolveCodexAppServerRequest(
   canUseTool: AppServerTurnOptions['canUseTool'],
   signal?: AbortSignal,
 ): Promise<ServerRequestResolution> {
+  if (method === 'currentTime/read') return { result: { currentTimeAt: Math.floor(Date.now() / 1000) } }
   if (!canUseTool) return unsupportedServerRequest(method)
   try {
     switch (method) {
@@ -676,6 +679,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   let emittedActivity = false
   let threadId = options.threadId
   let turnId: string | undefined
+  const completedVoiceTurns = new Set<string>()
   let turnAccepted = false
   let finished = false
   let lastUsage: Record<string, unknown> = {}
@@ -691,11 +695,13 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   const commandActivities = new Map<string, CommandActivityState>()
   const commandActivityEmittedAt = new Map<string, number>()
   const mcpActivities = new Map<string, McpActivityState>()
-  const completionGate = new CodexTurnCompletionGate()
+  let completionGate = new CodexTurnCompletionGate()
+  let finishVoiceIdle: (() => void) | undefined
 
   const cleanup = (force = false) => {
     if (finished) return
     finished = true
+    options.voice?.dispose()
     activeCodexTurns.delete(options.sessionId)
     options.signal.removeEventListener('abort', onAbort)
     if (abortFallback) clearTimeout(abortFallback)
@@ -769,7 +775,14 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   options.signal.addEventListener('abort', onAbort, { once: true })
 
   const completion = new Promise<void>((resolveCompletion, rejectCompletion) => {
+    finishVoiceIdle = () => {
+      terminalEvent ??= { type: 'result', usage: normalizeUsage(lastUsage),
+        stopReason: options.voice?.failure ? 'error' : 'end_turn', queueReleaseSafe: !options.voice?.failure }
+      cleanup()
+      resolveCompletion()
+    }
     const finishError = (error: Error) => {
+      options.voice?.reportFailure(error.message)
       closeOpenCodexAppServerActivities(
         emitActivity,
         commandActivities,
@@ -793,6 +806,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       if (finished) return
       const completionAssessment = completionGate.assess(status, finalizingRecheckComplete)
       if (status === 'failed') {
+        if (options.voice) void options.voice.stop()
         options.emit({
           type: 'error',
           code: 'CODEX_APP_SERVER_TURN_FAILED',
@@ -827,6 +841,11 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
         usage: normalizeUsage(lastUsage),
         stopReason,
         queueReleaseSafe: completionAssessment.queueReleaseSafe,
+      }
+      if (options.voice?.completeNativeTurn()) {
+        if (completedTurnId) completedVoiceTurns.add(completedTurnId)
+        turnId = undefined
+        return
       }
       cleanup()
       resolveCompletion()
@@ -949,6 +968,17 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       const method = asString(message.method)
       const params = asRecord(message.params) ?? {}
       if (!method) return
+      const incomingTurnId = asString(params.turnId) || asString(asRecord(params.turn)?.id)
+      if (options.voice && incomingTurnId && completedVoiceTurns.has(incomingTurnId)) return
+      if (options.voice?.observe(method, params)) return
+      if (options.voice && method === 'turn/started' && params.threadId === threadId && incomingTurnId !== turnId) {
+        turnId = asString(asRecord(params.turn)?.id)
+        completionGate = new CodexTurnCompletionGate()
+        terminalEvent = undefined
+        pendingRootCompletion = undefined
+        if (completionReconcile) clearTimeout(completionReconcile)
+        completionReconcile = undefined
+      }
       // 同一 App Server 会广播子 Agent 自己的 delta/item/error/turn completion。
       // 它们不能冒充根线程输出，更不能触发根线程 cleanup；仅无关联 id 的全局通知兼容放行。
       if (!isCurrentCodexTurnNotification(params, threadId, turnId)) return
@@ -1131,9 +1161,13 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     void init
     send({ method: 'initialized', params: {} })
     initialized = true
+    const threadConfig = { ...options.config, ...(options.voice ? {
+      'features.realtime_conversation': true,
+      suppress_unstable_features_warning: true,
+    } : {}) }
     const threadResult = await request(threadId ? 'thread/resume' : 'thread/start', threadId
-      ? { threadId, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: options.config ?? {} }
-      : { cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: options.config ?? {} })
+      ? { threadId, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig }
+      : { cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig })
     const thread = asRecord(threadResult.thread)
     threadId = asString(thread?.id) || threadId
     if (!threadId) throw new Error('Codex App Server 未返回 thread id')
@@ -1198,27 +1232,32 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     options.emit({ type: 'init', sdkSessionId: threadId, ...capabilitySnapshot })
     // 请求一旦发出，服务端就可能已经开始调用工具；从这里起禁止 SDK 自动重放，避免双执行。
     turnAccepted = true
-    const turnResult = await request('turn/start', {
-      threadId,
-      input: options.input,
-      cwd: options.cwd,
-      approvalPolicy: options.approvalPolicy,
-      model: options.model ?? null,
-      effort: options.reasoningEffort ?? null,
-    })
-    turnId = asString(asRecord(turnResult.turn)?.id)
-    if (!turnId) throw new Error('Codex App Server turn/start 未返回 turn id')
-    const activeThreadId = threadId
-    const activeTurnId = turnId
-    activeCodexTurns.set(options.sessionId, {
-      steer: async input => {
-        await request('turn/steer', {
-          threadId: activeThreadId,
-          expectedTurnId: activeTurnId,
-          input,
-        })
-      },
-    })
+    if (options.voice) {
+      await options.voice.start(threadId, request, () => finishVoiceIdle?.())
+      if (!finished) activeCodexTurns.set(options.sessionId, { steer: input => options.voice!.appendText(input) })
+    } else {
+      const turnResult = await request('turn/start', {
+        threadId,
+        input: options.input,
+        cwd: options.cwd,
+        approvalPolicy: options.approvalPolicy,
+        model: options.model ?? null,
+        effort: options.reasoningEffort ?? null,
+      })
+      turnId = asString(asRecord(turnResult.turn)?.id)
+      if (!turnId) throw new Error('Codex App Server turn/start 未返回 turn id')
+      const activeThreadId = threadId
+      const activeTurnId = turnId
+      activeCodexTurns.set(options.sessionId, {
+        steer: async input => {
+          await request('turn/steer', {
+            threadId: activeThreadId,
+            expectedTurnId: activeTurnId,
+            input,
+          })
+        },
+      })
+    }
     await completion
     if (!terminalEvent) {
       throw new CodexAppServerTurnError('Codex App Server 未生成轮次终态', false)
@@ -1238,6 +1277,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     }
     options.emit(terminalEvent)
   } catch (error) {
+    options.voice?.reportFailure(error instanceof Error ? error.message : String(error))
     cleanup(true)
     failPending(error instanceof Error ? error : new Error(String(error)))
     if (!await waitForProcessClose(child)) {

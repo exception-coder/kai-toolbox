@@ -393,6 +393,7 @@ class Session {
         request.text,
         request.developerInstructions,
         request.images as OneShotImage[] | undefined,
+        request.voiceCallId,
       ),
       antigravity: request => this.runAntigravityTurn(
         request.text,
@@ -449,7 +450,9 @@ class Session {
   private updateTurnActivity(event: Record<string, unknown>): void {
     if (!this.turnActivityTimer || event.type === 'turnActivity') return
     const type = typeof event.type === 'string' ? event.type : ''
-    if (type === 'assistantDelta') {
+    if (type === 'voiceEvent' && (event.event === 'started' || event.event === 'transcript')) {
+      this.setTurnActivityPhase('listening', '语音对话中')
+    } else if (type === 'assistantDelta') {
       this.setTurnActivityPhase('generating', '正在生成回复')
     } else if (type === 'toolUse') {
       const toolName = typeof event.toolName === 'string' ? event.toolName : '工具'
@@ -644,7 +647,7 @@ class Session {
    */
   async runTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
                 developerInstructions?: string, requestedTurnId?: string,
-                additionalDirectories: string[] = []): Promise<void> {
+                additionalDirectories: string[] = [], voiceCallId?: string): Promise<void> {
     const turn = this.turnLifecycle.begin(requestedTurnId)
     if (!turn.accepted) {
       this.emitRaw({
@@ -666,7 +669,7 @@ class Session {
       let nextText = text
       let nextImages = images
       while (true) {
-        await this.executeTurn(nextText, systemPrompt, nextImages, developerInstructions, additionalDirectories)
+        await this.executeTurn(nextText, systemPrompt, nextImages, developerInstructions, additionalDirectories, voiceCallId)
         const recovery = this.consumePendingMcpRecovery()
         if (!recovery) break
 
@@ -734,10 +737,11 @@ class Session {
   }
 
   private executeTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
-                      developerInstructions?: string, additionalDirectories: string[] = []): Promise<void> {
+                      developerInstructions?: string, additionalDirectories: string[] = [], voiceCallId?: string): Promise<void> {
     return this.engineRegistry.runTurn(this.engine, {
       sessionId: this.id,
       turnId: this.turnLifecycle.snapshot().activeTurnId ?? 'unknown',
+      voiceCallId,
       text,
       systemPrompt,
       images: images as EngineImageInput[] | undefined,
@@ -1000,12 +1004,13 @@ class Session {
   }
 
   /** 跑一轮 Codex：委托 codexEngine 翻译事件流，AbortController 支持中断。 */
-  private async runCodexTurn(text: string, developerInstructions?: string, images?: OneShotImage[]): Promise<void> {
+  private async runCodexTurn(text: string, developerInstructions?: string, images?: OneShotImage[], voiceCallId?: string): Promise<void> {
     const ac = new AbortController()
     this.abort = ac
     try {
       await runCodexTurn({
         sessionId: this.id,
+        voiceCallId,
         text,
         cwd: this.cwd,
         model: this.model,
@@ -1709,7 +1714,7 @@ export class SessionManager {
 
   user(id: string, text: string, developerInstructions?: string, sessionContext?: string,
        additionalDirectories: string[] = [], turnId?: string, images?: OneShotImage[],
-       turnToolPolicy?: string, consultToolAssembly?: unknown): void {
+       turnToolPolicy?: string, consultToolAssembly?: unknown, voiceCallId?: string): void {
     const s = this.sessions.get(id)
     if (!s) {
       this.emit(id, { type: 'error', code: 'SESSION_NOT_FOUND', message: '会话不存在' })
@@ -1734,7 +1739,7 @@ export class SessionManager {
       : restricted ? developerInstructions?.trim() || undefined : sessionContext?.trim() || undefined
     const safeAdditionalDirectories = restricted ? [] : additionalDirectories
     const prepare = s.toolPolicy === 'review-only' ? this.ensureReviewDefaults(id, s) : Promise.resolve()
-    prepare.then(() => s.runTurn(text, undefined, images, hiddenInstructions, turnId, safeAdditionalDirectories)).catch((e) => {
+    prepare.then(() => s.runTurn(text, undefined, images, hiddenInstructions, turnId, safeAdditionalDirectories, voiceCallId)).catch((e) => {
       console.error('[sidecar] runTurn 异常（已兜住）session=' + id + ':', e)
       this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e), turnId })
       this.emit(id, { type: 'result', usage: {}, stopReason: 'error', turnId })

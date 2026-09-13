@@ -16,6 +16,7 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.ResumeHistory.class, name = "resumeHistory"),
         @JsonSubTypes.Type(value = ClientMessage.ResumeCurrent.class, name = "resumeCurrent"),
         @JsonSubTypes.Type(value = ClientMessage.Send.class,          name = "send"),
+        @JsonSubTypes.Type(value = ClientMessage.VoiceControl.class,  name = "voiceControl"),
         @JsonSubTypes.Type(value = ClientMessage.Steer.class,         name = "steer"),
         @JsonSubTypes.Type(value = ClientMessage.Queue.class,         name = "queue"),
         @JsonSubTypes.Type(value = ClientMessage.AssistantIntentRoute.class, name = "assistantIntentRoute"),
@@ -41,7 +42,7 @@ import java.util.Map;
 public sealed interface ClientMessage
         permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession, ClientMessage.DuplicateSession,
                 ClientMessage.ResumeHistory, ClientMessage.ResumeCurrent, ClientMessage.Send, ClientMessage.Steer,
-                ClientMessage.Decision,
+                ClientMessage.Decision, ClientMessage.VoiceControl,
                 ClientMessage.Queue,
                 ClientMessage.AssistantIntentRoute, ClientMessage.AssistantConversationAnalyze,
                 ClientMessage.AssistantContextSave,
@@ -83,9 +84,16 @@ public sealed interface ClientMessage
 
     record ResumeCurrent(String sessionId) implements ClientMessage {}
 
+    /** 发起连接对其通话的控制；sessionId 不改变连接的会话归属。 */
+    record VoiceControl(String sessionId, String callId, String action) implements ClientMessage {}
+
     /** 下发一条用户消息。attachments 可空（旧客户端不带时按纯文本处理）。 */
     record Send(String text, List<Attachment> attachments, String developerInstructions,
-                AssistantEnvelope assistant, String messageId) implements ClientMessage {
+                AssistantEnvelope assistant, String messageId, VoiceOffer voice) implements ClientMessage {
+        public Send(String text, List<Attachment> attachments, String developerInstructions,
+                    AssistantEnvelope assistant, String messageId) {
+            this(text, attachments, developerInstructions, assistant, messageId, null);
+        }
         /** 附件引用：path 只供服务端在会话附件目录内受控取数，不直接暴露给评审 Agent。 */
         public record Attachment(String id, String name, String path, String mime) {
             public Attachment(String name, String path, String mime) {

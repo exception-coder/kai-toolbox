@@ -13,6 +13,7 @@ import {
   GRAPHIFY_RUNTIME_TOKEN,
 } from './graphifyRuntime.js'
 import { inspectSystemRoute } from './codexSecurity.js'
+import { prepareCodexVoice, controlCodexVoice, type CodexVoiceOffer } from './codexRealtime.js'
 
 const port = Number(process.env.CLAUDE_CHAT_SIDECAR_PORT) || 18890
 initializeTelemetry()
@@ -113,6 +114,12 @@ wss.on('connection', (ws) => {
     const sessionId = msg.sessionId as string
     try {
     switch (type) {
+      case 'voicePrepare':
+        prepareCodexVoice(sessionId, msg.offer as unknown as CodexVoiceOffer, event => emit(sessionId, event))
+        break
+      case 'voiceControl':
+        void controlCodexVoice(sessionId, String(msg.callId), String(msg.action))
+        break
       case 'start':
         manager.start(sessionId, msg.cwd as string, msg.model as string, msg.mode as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined,
           msg.codexHome as string | undefined, msg.demo as boolean | undefined, msg.demoApiBase as string | undefined, msg.autoApprove as boolean | undefined,
@@ -189,6 +196,7 @@ wss.on('connection', (ws) => {
           msg.images as import('./sessionManager.js').OneShotImage[] | undefined,
           msg.turnToolPolicy as string | undefined,
           msg.consultToolAssembly,
+          msg.voiceCallId as string | undefined,
         )
         break
       case 'steer':

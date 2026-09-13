@@ -42,6 +42,7 @@ export interface EngineTurnRequest {
   sessionId: string
   turnId: string
   text: string
+  voiceCallId?: string
   systemPrompt?: string
   images?: readonly EngineImageInput[]
   developerInstructions?: string
