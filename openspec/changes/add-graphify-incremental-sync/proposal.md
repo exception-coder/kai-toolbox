@@ -9,6 +9,7 @@ Registry SYNC currently rechecks evidence without updating stale code graphs. In
 - Stage graph updates, validate source stability and graph consistency, then publish; retain original graph/profile on failure.
 - Show actual changed/reused/deleted/affected counts and no-change outcomes; distinguish structural freshness from semantic/community reanalysis.
 - Reuse the safe updater for FULL structural builds instead of the existing raw-extract path.
+- Accept ordinary source files larger than 2 MiB using streaming fingerprints, exclude build output, expose scan gaps, and discover compatible trusted Python environments on Windows, Ubuntu and macOS.
 
 ## Capabilities
 

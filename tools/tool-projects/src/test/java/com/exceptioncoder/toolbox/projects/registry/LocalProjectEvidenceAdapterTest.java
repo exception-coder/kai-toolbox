@@ -18,6 +18,25 @@ class LocalProjectEvidenceAdapterTest {
     private final RegistrySourceScanner scanner = new RegistrySourceScanner();
 
     @Test
+    void freshGraphWithUnrepresentedSourcesRemainsPartial() throws Exception {
+        Files.writeString(root.resolve("empty.json"), "{}");
+        Path output = Files.createDirectories(root.resolve("graphify-out"));
+        Path graph = output.resolve("graph.json");
+        Files.writeString(graph, """
+                {"nodes":[{"id":"sample"}],"links":[],"forgeCoverage":{"missingSources":["empty.json"]}}
+                """);
+        Files.writeString(output.resolve(".forge-source-fingerprint"), scanner.scan(root).fingerprint()
+                + ":" + Files.getLastModifiedTime(graph).toMillis());
+        var evidence = adapter();
+        assertThat(evidence.graph(root.toString()).fresh()).isTrue();
+        assertThat(evidence.graph(root.toString()).complete()).isFalse();
+        var code = evidence.assets(root.toString(), scanner.scan(root)).stream()
+                .filter(item -> "CODE".equals(item.kind())).findFirst().orElseThrow();
+        assertThat(code.status()).isEqualTo("PARTIAL");
+        assertThat(code.facts().get("evidence")).contains("1 个文件未产生节点");
+    }
+
+    @Test
     void ignoresDependenciesAndDetectsContentChangesAndDeletion() throws Exception {
         Files.createDirectories(root.resolve("node_modules/dependency"));
         Files.writeString(root.resolve("node_modules/dependency/index.ts"), "dependency");
@@ -72,7 +91,8 @@ class LocalProjectEvidenceAdapterTest {
         var evidence = adapter();
         assertThat(evidence.assets(root.toString(), scanner.scan(root)).stream()
                 .filter(asset -> asset.kind().equals("EXECUTION")).findFirst().orElseThrow().status()).isEqualTo("MISSING");
-        assertThatThrownBy(() -> evidence.buildGraph(root.toString())).hasMessageContaining("Graphify 更新失败");
+        assertThatThrownBy(() -> evidence.buildGraph(root.toString()))
+                .hasMessageContaining("Graphify Python 环境", "graphifyy==0.9.16");
         assertThatThrownBy(() -> evidence.canonicalPath("relative/path")).hasMessageContaining("绝对路径");
     }
 

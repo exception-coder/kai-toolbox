@@ -44,7 +44,7 @@ class DomainExplorationTest {
                 {"nodes":[{"id":"sample","source_file":"SampleService.java","label":"SampleService","community":21}],"links":[]}
                 """);
         when(evidence.scan(anyString())).thenReturn(new ProjectEvidencePort.RepositorySnapshot("source-v1", List.of("SampleService.java"), true, Map.of()));
-        when(evidence.graph(anyString())).thenReturn(new ProjectEvidencePort.GraphEvidence(true, true, 1, "fresh"));
+        when(evidence.graph(anyString())).thenReturn(new ProjectEvidencePort.GraphEvidence(true, true, 1, "fresh", true));
         ObjectProvider<AgentOneShotRunner> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(runner);
         when(projects.require("project")).thenReturn(new RegistryProject("project",

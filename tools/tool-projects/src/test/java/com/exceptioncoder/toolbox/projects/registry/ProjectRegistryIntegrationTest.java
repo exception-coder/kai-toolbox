@@ -49,7 +49,8 @@ class ProjectRegistryIntegrationTest {
         when(evidence.canonicalPath(anyString())).thenAnswer(call -> call.getArgument(0));
         when(evidence.scan(anyString())).thenReturn(new ProjectEvidencePort.RepositorySnapshot(
                 "source-a", List.of("pom.xml"), true, Map.of()));
-        when(evidence.graph(anyString())).thenReturn(new ProjectEvidencePort.GraphEvidence(true, true, 3, "fresh"));
+        when(evidence.graph(anyString())).thenReturn(new ProjectEvidencePort.GraphEvidence(true, true, 3, "fresh", true));
+        when(evidence.buildGraph(anyString())).thenReturn("结构图完整构建完成");
         when(evidence.assets(anyString(), any())).thenReturn(List.of(
                 new SystemProfile.Asset("PROJECT", "Project Profile", "READY", List.of("pom.xml"), Map.of())));
     }
@@ -62,6 +63,23 @@ class ProjectRegistryIntegrationTest {
         assertThatThrownBy(() -> projects.register(metadata("Other", "D:/repo")))
                 .hasMessageContaining("已登记");
         assertThat(store.projects()).hasSize(1);
+    }
+
+    @Test
+    void currentGraphWithCoverageGapsPublishesDegradedInsteadOfFailing() {
+        RegistryProject project = projects.register(metadata("Forge", "D:/repo"));
+        when(evidence.graph(anyString())).thenReturn(new ProjectEvidencePort.GraphEvidence(
+                true, true, 3, "31 个文件未产生结构节点", false));
+        when(evidence.buildGraph(anyString())).thenReturn("结构图构建完成");
+        SystemInitRun run = run(project);
+        store.claim(run);
+        initialization.execute(project, run);
+        assertThat(projects.require(project.id()).state()).isEqualTo("DEGRADED");
+        assertThat(store.runs(project.id()).getFirst().state()).isEqualTo("COMPLETED");
+        verify(evidence).buildGraph("D:/repo");
+        assertThat(store.runs(project.id()).getFirst().stages().get(2).state()).isEqualTo("PARTIAL");
+        assertThat(store.profile(project.id(), 1).orElseThrow().gaps())
+                .anyMatch(gap -> gap.contains("31 个文件"));
     }
 
     @Test
@@ -171,6 +189,8 @@ class ProjectRegistryIntegrationTest {
         SystemInitRun first = run(project);
         store.claim(first);
         initialization.execute(project, first);
+        verify(evidence).buildGraph("D:/repo");
+        clearInvocations(evidence);
         RegistryProject current = projects.require(project.id());
         SystemInitRun template = run(current);
         SystemInitRun sync = new SystemInitRun(template.id(), current.id(), "SYNC", "RUNNING", template.stages(), "", template.startedAt(), template.updatedAt());
@@ -189,6 +209,8 @@ class ProjectRegistryIntegrationTest {
         SystemInitRun first = run(project);
         store.claim(first);
         initialization.execute(project, first);
+        verify(evidence).buildGraph("D:/repo");
+        clearInvocations(evidence);
         RegistryProject current = projects.require(project.id());
         SystemInitRun template = run(current);
         SystemInitRun sync = new SystemInitRun(template.id(), current.id(), "SYNC", "RUNNING", template.stages(), "", template.startedAt(), template.updatedAt());

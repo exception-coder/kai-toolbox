@@ -67,22 +67,29 @@ public class LocalProjectEvidenceAdapter implements ProjectEvidencePort {
     public GraphEvidence graph(String root) {
         Path graph = Path.of(root, "graphify-out", "graph.json");
         if (!Files.isRegularFile(graph)) {
-            return new GraphEvidence(false, false, 0, "尚未生成 Graphify 图谱");
+            return new GraphEvidence(false, false, 0, "尚未生成 Graphify 图谱", false);
         }
         try {
-            if (Files.size(graph) > GRAPH_SIZE_LIMIT) {
-                return new GraphEvidence(false, false, 0, "图谱超过 128 MiB 检查上限，请使用图谱工具专项核验");
+            if (Files.size(graph) > RegistryGraphSummary.MAX_GRAPH_BYTES) {
+                return new GraphEvidence(false, false, 0, "图谱超过 512 MiB 检查上限，请使用图谱工具专项核验", false);
             }
-            JsonNode data = json.readTree(graph.toFile());
-            if (!data.path("nodes").isArray() || data.path("nodes").isEmpty()
-                    || (!data.path("links").isArray() && !data.path("edges").isArray())) {
-                return new GraphEvidence(false, false, 0, "Graphify 图谱为空或结构无效，请重新生成");
+            var data = RegistryGraphSummary.read(json, graph);
+            if (data.nodes() == 0 || !data.relationships()) {
+                return new GraphEvidence(false, false, 0, "Graphify 图谱为空或结构无效，请重新生成", false);
             }
             boolean fresh = manifestFresh(Path.of(root));
-            return new GraphEvidence(true, fresh, data.path("nodes").size(),
-                    fresh ? "图谱清单与已覆盖源码一致" : "图谱缺少完整的新鲜度证据，请执行 Full Init");
+            boolean complete = data.missingSources() == 0 && data.unresolvedLinks() == 0;
+            String message = fresh ? "图谱清单与已覆盖源码一致" : "图谱缺少完整的新鲜度证据，请执行 Full Init";
+            if (data.missingSources() > 0) {
+                message += "；结构覆盖缺口：" + data.missingSources() + " 个文件未产生节点，详情见图谱 forgeCoverage.missingSources";
+            }
+            if (data.unresolvedLinks() > 0) {
+                message += "；未解析关系：" + data.unresolvedLinks() + " 条，原始证据保留在 forgeCoverage.unresolvedLinks";
+            }
+            return new GraphEvidence(true, fresh, data.nodes(),
+                    message, complete);
         } catch (IOException exception) {
-            return new GraphEvidence(false, false, 0, "Graphify JSON 无法解析，请修复或重新生成");
+            return new GraphEvidence(false, false, 0, "Graphify JSON 无法解析，请修复或重新生成", false);
         }
     }
 
@@ -163,7 +170,7 @@ public class LocalProjectEvidenceAdapter implements ProjectEvidencePort {
         return List.of(
                 new SystemProfile.Asset("PROJECT", "Project Profile", snapshot.complete() ? "READY" : "PARTIAL",
                         manifests, Map.copyOf(projectFacts)),
-                new SystemProfile.Asset("CODE", "Code Intelligence", graph.fresh() && graph.usable() ? "READY" : "PARTIAL",
+                new SystemProfile.Asset("CODE", "Code Intelligence", graph.fresh() && graph.usable() && graph.complete() ? "READY" : "PARTIAL",
                         graph.usable() ? List.of("graphify-out/graph.json") : List.of(),
                         Map.of("nodes", String.valueOf(graph.nodes()), "evidence", graph.message())),
                 semanticAsset,

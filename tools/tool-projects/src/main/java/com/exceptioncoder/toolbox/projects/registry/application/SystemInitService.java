@@ -105,13 +105,14 @@ public class SystemInitService {
             if (!graph.usable() || !graph.fresh()) {
                 throw new IllegalStateException("增量图谱未获得有效覆盖证据，请检查 Graphify 结果");
             }
-        } else if (!graph.usable() || !graph.fresh()) {
+        } else {
             gap = evidence.buildGraph(project.metadata().localPath());
             graph = evidence.graph(project.metadata().localPath());
         }
-        progress.finish(2, graph.usable() && graph.fresh() ? "COMPLETED" : "PARTIAL",
-                gap.isBlank() ? graph.message() : gap);
-        return graph.usable() && graph.fresh() ? "" : gap;
+        boolean complete = graph.usable() && graph.fresh() && graph.complete();
+        String message = gap.isBlank() ? graph.message() : gap + " " + graph.message();
+        progress.finish(2, complete ? "COMPLETED" : "PARTIAL", message);
+        return complete ? "" : message;
     }
 
     private List<String> collectGaps(List<SystemProfile.Asset> assets, ProjectEvidencePort.RepositorySnapshot snapshot,

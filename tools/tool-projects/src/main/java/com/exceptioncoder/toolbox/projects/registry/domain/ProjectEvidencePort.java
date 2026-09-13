@@ -31,6 +31,7 @@ public interface ProjectEvidencePort {
             /** 是否存在可解析的代码图。 */ Boolean usable,
             /** 是否有覆盖当前输入的证据。 */ Boolean fresh,
             /** 实际图节点数量。 */ Integer nodes,
-            /** 缺口说明。 */ String message
+            /** 缺口说明。 */ String message,
+            /** 已检查源码是否全部有结构节点；与输入新鲜度分开。 */ Boolean complete
     ) { }
 }

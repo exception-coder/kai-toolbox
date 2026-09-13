@@ -8,6 +8,7 @@ import java.util.*;
 
 /** 候选产物发布；外部图谱变化时拒绝覆盖，普通写入失败时恢复原文件。 */
 final class GraphifyPublication {
+    private static final long BASELINE_SIZE_LIMIT = 1024L * 1024 * 1024;
     private static final List<String> ARTIFACTS = List.of("graph.json", "manifest.json", ".forge-source-fingerprint", ".graphify_build.json");
     private final Path output;
     private final Map<String, String> digests = new HashMap<>();
@@ -55,8 +56,9 @@ final class GraphifyPublication {
     }
 
     private void publishFile(Path source, String name, List<String> written) throws IOException {
-        if (Files.size(source) > 128L * 1024 * 1024) {
-            throw new IllegalStateException("候选图谱超过 128 MiB 上限，未发布");
+        long limit = "graph.json".equals(name) ? RegistryGraphSummary.MAX_GRAPH_BYTES : 128L * 1024 * 1024;
+        if (Files.size(source) > limit) {
+            throw new IllegalStateException("候选产物超过 " + limit / (1024 * 1024) + " MiB 上限，未发布：" + name);
         }
         Path pending = Files.createTempFile(output, ".forge-publish-", ".tmp");
         try {
@@ -99,8 +101,8 @@ final class GraphifyPublication {
         if (!Files.exists(path)) {
             return "absent";
         }
-        if (Files.size(path) > 128L * 1024 * 1024) {
-            throw new IllegalStateException("图谱产物超过 128 MiB 安全上限");
+        if (Files.size(path) > BASELINE_SIZE_LIMIT) {
+            throw new IllegalStateException("旧图谱产物超过 1 GiB 流式校验上限，请先归档后再初始化");
         }
         try (var stream = Files.newInputStream(path)) {
             var hash = MessageDigest.getInstance("SHA-256");

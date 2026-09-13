@@ -14,9 +14,12 @@ import java.util.*;
 @Component
 public class RegistrySourceScanner {
     private static final int FILE_LIMIT = 50000;
-    private static final long FILE_SIZE_LIMIT = 2 * 1024 * 1024;
+    private static final long FILE_SIZE_LIMIT = 128L * 1024 * 1024;
+    private static final int DEPTH_LIMIT = 32;
+    private static final int GAP_LIMIT = 10;
+    private static final int HASH_BUFFER_SIZE = 64 * 1024;
     private static final Set<String> EXCLUDED = Set.of(".git", ".svn", "node_modules", "target", "dist",
-            "build", ".idea", ".venv", "venv", "__pycache__", "graphify-out", ".codex-work",
+            "build", "out", ".idea", ".venv", "venv", "__pycache__", "graphify-out", ".codex-work",
             ".codex-remote-attachments", ".kai-chat-attachments", ".codex-attachments", ".codex", ".claude",
             "outputs", ".forge", ".next", ".gradle", "dist-assistant", "dist-session-client", "dist-pages");
     private static final Set<String> EXTENSIONS = Set.of("java", "ts", "tsx", "js", "jsx", "mjs", "py",
@@ -28,7 +31,7 @@ public class RegistrySourceScanner {
         List<String> gaps = new ArrayList<>();
         boolean[] complete = {true};
         try {
-            Files.walkFileTree(root, EnumSet.noneOf(FileVisitOption.class), 32, new SimpleFileVisitor<>() {
+            Files.walkFileTree(root, EnumSet.noneOf(FileVisitOption.class), DEPTH_LIMIT, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attributes) {
                     return !dir.equals(root) && EXCLUDED.contains(dir.getFileName().toString())
@@ -38,18 +41,20 @@ public class RegistrySourceScanner {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
                     if (attributes.isDirectory()) {
-                        complete[0] = false;
+                        if (!EXCLUDED.contains(file.getFileName().toString())) {
+                            complete[0] = false;
+                            recordGap(root, file, "目录深度达到 " + DEPTH_LIMIT + " 层", gaps);
+                        }
                     }
                     if (attributes.isRegularFile() && relevant(file)) {
                         if (files.size() >= FILE_LIMIT) {
                             complete[0] = false;
+                            recordGap(root, file, "超过 " + FILE_LIMIT + " 个文件", gaps);
                             return FileVisitResult.TERMINATE;
                         }
                         if (attributes.size() > FILE_SIZE_LIMIT) {
                             complete[0] = false;
-                            if (gaps.size() < 10) {
-                                gaps.add(root.relativize(file) + "：超过 2 MiB");
-                            }
+                            recordGap(root, file, "超过 128 MiB", gaps);
                         } else {
                             files.add(file);
                         }
@@ -60,13 +65,11 @@ public class RegistrySourceScanner {
                 @Override
                 public FileVisitResult visitFileFailed(Path file, IOException exception) {
                     complete[0] = false;
-                    if (gaps.size() < 10) {
-                        gaps.add(root.relativize(file) + "：不可读取");
-                    }
+                    recordGap(root, file, "不可读取", gaps);
                     return FileVisitResult.CONTINUE;
                 }
             });
-            files.sort(Comparator.comparing(Path::toString));
+            files.sort(Comparator.comparing(file -> root.relativize(file).toString().replace('\\', '/')));
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             List<String> relative = new ArrayList<>();
             for (Path file : files) {
@@ -74,7 +77,12 @@ public class RegistrySourceScanner {
                 relative.add(name);
                 digest.update(name.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 digest.update((byte) 0);
-                digest.update(Files.readAllBytes(file));
+                try {
+                    hashContent(file, digest);
+                } catch (IOException exception) {
+                    complete[0] = false;
+                    recordGap(root, file, "内容不可读取或读取期间超过 128 MiB", gaps);
+                }
                 digest.update((byte) 0);
             }
             return new RepositorySnapshot(HexFormat.of().formatHex(digest.digest()), List.copyOf(relative), complete[0],
@@ -82,6 +90,27 @@ public class RegistrySourceScanner {
                             "scanGaps", String.join("；", gaps)));
         } catch (IOException | NoSuchAlgorithmException exception) {
             throw new IllegalStateException("读取项目源码失败，请检查目录权限", exception);
+        }
+    }
+
+    private void hashContent(Path file, MessageDigest digest) throws IOException {
+        try (var input = Files.newInputStream(file)) {
+            byte[] buffer = new byte[HASH_BUFFER_SIZE];
+            long total = 0;
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                total += count;
+                if (total > FILE_SIZE_LIMIT) {
+                    throw new IOException("Source exceeds fingerprint size limit");
+                }
+                digest.update(buffer, 0, count);
+            }
+        }
+    }
+
+    private void recordGap(Path root, Path file, String reason, List<String> gaps) {
+        if (gaps.size() < GAP_LIMIT) {
+            gaps.add(root.relativize(file).toString().replace('\\', '/') + "：" + reason);
         }
     }
 

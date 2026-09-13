@@ -5,27 +5,31 @@ No LLM, graph algorithm replacement or executable from project metadata is used.
 """
 import argparse
 import contextlib
+from functools import lru_cache
 import hashlib
 import importlib.metadata
 import inspect
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import tempfile
 
 SUPPORTED_VERSION = "0.9.16"
-MAX_GRAPH_BYTES = 128 * 1024 * 1024
+MAX_GRAPH_BYTES = 512 * 1024 * 1024
 MAX_SOURCES = 50000
 MAX_CHANGED = 2000
 
 
 def read_json(path):
-    if path.is_symlink() or path.stat().st_size > MAX_GRAPH_BYTES:
-        raise ValueError("Graphify artifact is a link or exceeds 128 MiB")
+    limit = MAX_GRAPH_BYTES if path.name == "graph.json" else 128 * 1024 * 1024
+    if path.is_symlink() or path.stat().st_size > limit:
+        raise ValueError(f"Graphify artifact is a link or exceeds {limit // (1024 * 1024)} MiB: {path.name}")
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@lru_cache(maxsize=MAX_SOURCES)
 def source_path(value, root):
     if not value:
         return None
@@ -34,6 +38,25 @@ def source_path(value, root):
     if not path.is_relative_to(root):
         return None
     return path
+
+
+@contextlib.contextmanager
+def cached_graphify_source_keys():
+    """Reuse native source identity within one immutable-source extraction.
+
+    Graphify 0.9.16 resolves the same file once per node/edge. Windows realpath
+    performs filesystem calls, so cache the native result rather than replacing
+    its identity rules. Restore the function even when extraction fails.
+    """
+    from graphify.extractors import resolution
+    originals = {name: getattr(resolution, name) for name in ("_source_key", "_js_source_path")}
+    for name, original in originals.items():
+        setattr(resolution, name, lru_cache(maxsize=MAX_SOURCES)(original))
+    try:
+        yield
+    finally:
+        for name, original in originals.items():
+            setattr(resolution, name, original)
 
 
 def seed_stage(root, stage, incremental):
@@ -98,6 +121,20 @@ def affected_sources(graph, changed, root):
     return affected
 
 
+def normalize_links(candidate, baseline, scope, root):
+    """Use Graphify's export normalization; retain unresolved links as evidence."""
+    from graphify.export import prune_dangling_edges
+    ids = {node["id"] for node in candidate["nodes"]}
+    unresolved = [edge for edge in candidate.get("links", candidate.get("edges", []))
+                  if edge["source"] not in ids or edge["target"] not in ids]
+    candidate, _ = prune_dangling_edges(candidate)
+    if baseline:
+        for edge in baseline.get("forgeCoverage", {}).get("unresolvedLinks", []):
+            if source_path(edge.get("source_file"), root) not in scope:
+                unresolved.append(edge)
+    return candidate, unresolved
+
+
 def validate_graph(candidate, baseline, scope, root):
     nodes = candidate.get("nodes")
     edges = candidate.get("links", candidate.get("edges"))
@@ -123,6 +160,7 @@ def validate_graph(candidate, baseline, scope, root):
 
 
 def run(root, stage, mode):
+    source_path.cache_clear()
     version = importlib.metadata.version("graphifyy")
     if version != SUPPORTED_VERSION:
         raise RuntimeError(f"Graphify {version} 尚未验证；当前增量适配支持 {SUPPORTED_VERSION}")
@@ -136,7 +174,7 @@ def run(root, stage, mode):
     incremental = mode == "SYNC"
     baseline = seed_stage(root, stage, incremental)
     excludes = _read_build_excludes(stage) or []
-    excludes += [".codex-work", ".codex-remote-attachments", ".kai-chat-attachments", ".forge", "outputs"]
+    excludes += [".codex-work", ".codex-remote-attachments", ".kai-chat-attachments", ".forge", "outputs", "out"]
     # Native detection/rebuild use the same exclusions.
     from graphify.watch import _write_build_config
     _write_build_config(stage, excludes=excludes)
@@ -157,15 +195,19 @@ def run(root, stage, mode):
     if incremental and len(scope) > MAX_CHANGED:
         raise RuntimeError(f"本次需处理 {len(scope)} 个文件，超过单次 2000 文件上限；未修改图谱")
     before = {str(path): source_hash(path) for path in structural}
+    coverage_warnings = []
     if scope or not incremental:
         # Native extraction can report a skipped file without failing the rebuild.
         # Do not publish that partial result as fresh structural evidence.
         with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as diagnostics:
-            with contextlib.redirect_stderr(diagnostics):
+            with contextlib.redirect_stderr(diagnostics), cached_graphify_source_keys():
                 ok = _rebuild_code(root, changed_paths=sorted(scope) if incremental else None,
                                    no_cluster=True, acquire_lock=False, force=False)
             diagnostics.seek(0)
             for line in diagnostics:
+                if re.search(r"warning: \d+ source file\(s\) produced zero nodes and are absent from the graph:", line):
+                    coverage_warnings.append(line.strip()[:1000])
+                    continue
                 if "warning" in line.lower() or "failed" in line.lower():
                     raise RuntimeError("Graphify 提取不完整，原图谱保留：" + line.strip()[:1000])
         if not ok:
@@ -173,18 +215,27 @@ def run(root, stage, mode):
     if before != {str(path): source_hash(path) for path in structural if path.is_file()}:
         raise RuntimeError("提取期间源码发生变化，未发布图谱")
     candidate = read_json(stage / "graph.json")
+    candidate, unresolved_links = normalize_links(candidate, baseline, scope, root)
     validate_graph(candidate, baseline, scope, root)
+    represented = set(graph_sources(candidate, root).values())
+    missing_sources = sorted(str(path.relative_to(root)) for path in structural - represented)
+    candidate["forgeCoverage"] = {"missingSources": missing_sources, "warnings": coverage_warnings,
+                                  "unresolvedLinks": unresolved_links}
     if baseline and not (not scope and incremental):
         for key in ("directed", "multigraph"):
             if key in baseline:
                 candidate[key] = baseline[key]
-        (stage / "graph.json").write_text(json.dumps(candidate, ensure_ascii=False), encoding="utf-8")
+    if scope or not incremental:
+        with (stage / "graph.json").open("w", encoding="utf-8") as graph_file:
+            json.dump(candidate, graph_file, ensure_ascii=False)
     # Stamp only structural sources; semantic freshness is not advanced by AST work.
     save_manifest({"code": [str(path) for path in structural]},
                   manifest_path=str(stage / "manifest.json"), kind="ast", root=root)
     summary = {"mode": mode, "version": version, "changed": len(changed), "deleted": len(deleted),
                "affected": len(affected), "reused": len(structural - changed - affected),
                "nodes": len(candidate["nodes"]), "noChanges": not scope and incremental,
+               "missingSources": missing_sources,
+               "unresolvedRelationships": len(unresolved_links),
                "scope": sorted(str(path.relative_to(root)) for path in scope)}
     (stage / "forge-sync-result.json").write_text(json.dumps(summary, ensure_ascii=False), encoding="utf-8")
     print(json.dumps({key: value for key, value in summary.items() if key != "scope"}, ensure_ascii=False))

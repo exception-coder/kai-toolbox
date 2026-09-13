@@ -24,7 +24,7 @@ public class GraphifyIncrementalUpdater {
 
     public GraphifyIncrementalUpdater(RegistrySourceScanner scanner, RegistryCommandRunner commands,
                                      ObjectMapper json,
-                                     @Value("${toolbox.projects.graphify-python:python}") String python) {
+                                     @Value("${toolbox.projects.graphify-python:}") String python) {
         this.scanner = scanner;
         this.commands = commands;
         this.json = json;
@@ -55,7 +55,8 @@ public class GraphifyIncrementalUpdater {
     private String stageAndPublish(Path root, Path output, boolean incremental) throws IOException {
         var before = scanner.scan(root);
         if (!before.complete()) {
-            throw new IllegalStateException("源码扫描不完整，未启动图谱更新");
+            throw new IllegalStateException("源码扫描不完整，未启动图谱更新："
+                    + before.facts().getOrDefault("scanGaps", "请检查扫描范围及目录权限"));
         }
         var operatingSystem = java.lang.management.ManagementFactory.getOperatingSystemMXBean();
         if (operatingSystem instanceof com.sun.management.OperatingSystemMXBean memory
@@ -69,8 +70,9 @@ public class GraphifyIncrementalUpdater {
             try (var input = new ClassPathResource("graphify/registry_sync.py").getInputStream()) {
                 Files.copy(input, script);
             }
-            var result = commands.run(root, List.of(python, "-I", script.toString(), "--root", root.toString(),
-                    "--stage", stage.toString(), "--mode", incremental ? "SYNC" : "FULL"), Duration.ofMinutes(10));
+            String interpreter = new GraphifyPythonRuntime(commands).resolve(python);
+            var result = commands.run(root, List.of(interpreter, "-I", "-X", "utf8", script.toString(), "--root", root.toString(),
+                    "--stage", stage.toString(), "--mode", incremental ? "SYNC" : "FULL"), Duration.ofMinutes(incremental ? 10 : 30));
             if (result.exitCode() != 0) {
                 throw new IllegalStateException("Graphify 更新失败，原图谱保留。请检查本机 Python/graphifyy 环境：" + result.output());
             }

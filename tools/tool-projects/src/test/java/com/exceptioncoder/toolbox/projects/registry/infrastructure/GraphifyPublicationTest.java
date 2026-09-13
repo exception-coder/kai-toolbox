@@ -11,7 +11,39 @@ import static org.assertj.core.api.Assertions.*;
 
 /** 使用真实文件系统验证图谱候选发布的保留与回滚边界。 */
 class GraphifyPublicationTest {
+    @Test
+    void canReplaceOldGraphLargerThanTheParsingLimit() throws Exception {
+        Path live = baseline();
+        try (var file = new java.io.RandomAccessFile(live.resolve("graph.json").toFile(), "rw")) {
+            file.setLength(129L * 1024 * 1024);
+        }
+        new GraphifyPublication(live).publish(candidate(), "current", false);
+        assertThat(Files.readString(live.resolve("graph.json"))).isEqualTo("new graph");
+    }
     @TempDir Path root;
+
+    @Test
+    void publishesCandidateAboveOldLimitWithoutLoadingItIntoMemory() throws Exception {
+        Path live = baseline();
+        Path stage = candidate();
+        try (var file = new java.io.RandomAccessFile(stage.resolve("graph.json").toFile(), "rw")) {
+            file.setLength(129L * 1024 * 1024);
+        }
+        new GraphifyPublication(live).publish(stage, "current", false);
+        assertThat(Files.size(live.resolve("graph.json"))).isEqualTo(129L * 1024 * 1024);
+    }
+
+    @Test
+    void refusesCandidateOverNativeSizeBoundAndPreservesBaseline() throws Exception {
+        Path live = baseline();
+        Path stage = candidate();
+        try (var file = new java.io.RandomAccessFile(stage.resolve("graph.json").toFile(), "rw")) {
+            file.setLength(513L * 1024 * 1024);
+        }
+        assertThatThrownBy(() -> new GraphifyPublication(live).publish(stage, "current", false))
+                .hasMessageContaining("512 MiB");
+        assertThat(Files.readString(live.resolve("graph.json"))).isEqualTo("old graph");
+    }
 
     @Test
     void publishesReceiptAfterGraphAndManifest() throws Exception {
