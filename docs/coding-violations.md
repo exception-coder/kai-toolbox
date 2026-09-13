@@ -40,3 +40,4 @@
 | 33 | 架构约束 | 将平台级 Agent 管理入口嵌入业务系统咨询页面，导致治理能力被单一业务 Feature 拥有且无法自然扩展其他 Agent | Agent 管理按独立 Feature、菜单和路由注册；业务咨询等模块只作为 Registry 中的被治理对象 | ForeConsultPage.tsx、AgentManagementPanel.tsx | 2026-08-29 | 1 |
 | 34 | 规格流程 | 项目已启用 OpenSpec 时新增 Forge Verification 架构与 MCP 能力，却未检查或创建相关 change，也未明确回显 legacy 降级原因 | 非极简行为或架构变更必须先检查 OpenSpec；没有相关 change 时应创建并维护 proposal、design、delta spec、tasks，只有明确获准兼容降级时才能改用 legacy 设计文档 | openspec、ForgeQualityGate-current.md、forge-quality-mcp | 2026-08-30 | 1 |
 | 35 | 架构约束 | 已有 Agent 管理模块时另建教学工作台和独立示例，造成入口与配置重复 | 教学 Agent 作为现有 Registry 的被管理对象，六块教学内容、配置和运行合并到既有 Agent 详情；复用网关和版本机制 | agent-management、tool-fore-consult | 2026-09-11 | 1 |
+| 36 | 响应式布局 | 工作台仅外层设置满高，中间容器按内容高度结束，导致可见区域底部大面积闲置；验收只看宽度未检查高度链 | 从 Shell 到页面及面板传递剩余空间，明确滚动归属；实测高屏、矮屏、窄屏、动态缩放及长内容，核对底边和操作可达性，阅读限宽不应用于整个工作台 | AgentManagementPage.tsx、AgentRegistryView.tsx | 2026-09-13 | 1 |

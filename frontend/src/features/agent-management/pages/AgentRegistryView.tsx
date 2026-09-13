@@ -67,7 +67,7 @@ export function AgentRegistryView() {
     if (baseline && !draft) setDraft(toDraft(baseline));
   }, [query.data, draft]);
   return (
-      <div className="grid bg-[#f7f8fa] text-slate-950 lg:grid-cols-[270px_minmax(0,1fr)]">
+      <div className="grid min-h-full bg-[#f7f8fa] text-slate-950 lg:h-full lg:min-h-0 lg:grid-cols-[270px_minmax(0,1fr)]">
         <RegistryPanel
           agents={registryQuery.data ?? []}
           selectedAgentId={agentId}
@@ -75,7 +75,7 @@ export function AgentRegistryView() {
           onSelect={(id) => { selectAgent(id); setDraft(null); }}
           onCapabilities={() => setTab("capabilities")}
         />
-        <section className="min-w-0 px-6 py-7 lg:px-10">
+        <section aria-label="Agent 详情" className="min-h-0 min-w-0 px-6 py-7 lg:overflow-y-auto lg:px-10">
           {query.isLoading && <LoadingState />}
           {query.isError && (
             <RecoveryState
@@ -125,7 +125,7 @@ function RegistryPanel({
     return result;
   }, {});
   return (
-    <aside className="border-b border-slate-200 bg-white px-4 py-5 lg:border-b-0 lg:border-r">
+    <aside className="min-h-0 border-b border-slate-200 bg-white px-4 py-5 lg:overflow-y-auto lg:border-b-0 lg:border-r">
       <div className="px-2 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-400">
         Agent 注册表 · Registry · {agents.length}
       </div>
@@ -176,7 +176,7 @@ function AgentDetail(props: {
 }) {
   const { snapshot, draft } = props;
   return (
-    <div className="mx-auto max-w-5xl space-y-7">
+    <div className="flex min-h-full min-w-0 flex-col gap-7">
       <section className="flex flex-col justify-between gap-5 sm:flex-row">
         <div>
           <div className="flex items-center gap-2">
@@ -254,11 +254,11 @@ function AgentDetail(props: {
           {props.error}
         </p>
       )}
-      <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-[#f7f8fa]/95 py-4 backdrop-blur">
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-[#f7f8fa] py-4 lg:sticky lg:bottom-0">
         <p className="text-xs text-slate-400">
           保存后生成包含能力绑定的候选版本（Candidate）快照。
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <ActionButton
             onClick={props.onSave}
             disabled={props.busy}

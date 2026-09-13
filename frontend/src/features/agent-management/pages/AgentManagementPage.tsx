@@ -15,8 +15,8 @@ export function AgentManagementPage() {
     return `${AGENT_MANAGEMENT_PATH}?${next}`
   }
   return (
-    <main className="h-full min-h-0 overflow-y-auto bg-[var(--color-background)] text-[var(--color-foreground)]">
-      <header className="border-b px-6 pt-5 lg:px-10">
+    <main className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--color-background)] text-[var(--color-foreground)] lg:overflow-hidden">
+      <header className="shrink-0 border-b px-6 pt-5 lg:px-10">
         <h1 className="text-2xl font-semibold tracking-tight">Agent 管理</h1>
         <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
           集中管理 Agent、能力配置、回归评测与版本发布。
@@ -33,9 +33,9 @@ export function AgentManagementPage() {
           })}
         </nav>
       </header>
-      <div hidden={evaluation}><AgentRegistryView key={params.get('agent') || 'business-consult'} /></div>
+      <div hidden={evaluation} className="min-h-0 flex-1 lg:overflow-hidden"><AgentRegistryView key={params.get('agent') || 'business-consult'} /></div>
       {evaluation && <Suspense fallback={<p role="status" className="px-6 py-8 lg:px-10">正在加载评测中心…</p>}>
-        <EvalPage />
+        <div className="min-h-0 flex-1 overflow-y-auto"><EvalPage /></div>
       </Suspense>}
     </main>
   )

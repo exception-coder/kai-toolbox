@@ -10,7 +10,17 @@
 - [x] 2.2 通过 Forge CLI all、真实桌面/移动浏览器验收和 60 秒稳定观察。
 - [x] 2.3 更新验证记录并严格校验 OpenSpec，核对本任务范围并提交。
 
+## 3. Viewport repair
+
+- [x] 3.1 修复工作区剩余高度分配并回归高屏、矮屏、窄屏、长内容及评测切换。
+- [x] 3.2 将可用视口与滚动归属验收补充到团队规范，完成当前构建、运行观察与定向提交。
+
 ## Validation
+
+- 2026-09-13 视口修复：原高度链在浏览器复现（仅浏览器恢复旧类，不还原源码），1920×1080 时工作区底边 673，剩余 407px 未利用；修复后底边 1080。1920×1200、1440×900、1280×600、1024×768 的左右面板底边均跟随页面；390×844 纵向表单与底部按钮可达，无文档横向溢出。覆盖动态 resize、侧栏收放、能力长内容、键盘返回保存按钮、评测视图隐藏/恢复及 API 失败恢复；浏览器无 pageerror。原生窗口标题栏覆盖模式和浏览器原生缩放未执行，不由普通浏览器测试代替。
+- 当前 8 项导航/教学回归、typecheck、架构边界与 build 通过。末次修改将吸底限定为桌面，窄屏操作栏随正文流动；其后重新通过浏览器、typecheck/build 与 Forge CLI。Forge status/staticStatus/runtimeStatus 均 PASSED、退出码 0；executedCheckers 为空，未运行静态 checker；API-RUNTIME-001 的 9 个场景通过。已有 chunk 大小警告保留。
+- 源码运行范围：Vite HTTPS 5173，既有后端 HTTP 18080；新版 Vite 页面模块及实际页面验证通过，不改后端契约。08:46:30–08:47:33 UTC 连续观察 63.050 秒，backend PID 28220、frontend PID 46980，重启数均为 0，HTTP 及源模块持续正常，当次追加日志无致命启动或前端编译错误。微信服务原有 waiting restart 不在本次前端交付范围。证据存于本地 `.codex-work/agent-viewport-*`，不提交临时产物。
+- 纠正已记入 `docs/coding-violations.md` 第 36 项；项目 Quiet Luxury 规则同步删除工作台统一最大宽度约束。团队唯一源码 `team-tools/team-standards` 的 frontend-excellence 增加可用视口契约，3.4.1 的三处版本、入口同步、引用、Skill 结构与审计通过，提交 `fdf91fd` 已推送。此为 Agent 验收规范，未新增自动布局检查器；安装中的旧会话缓存不会因源码推送自动改写。
 
 - 2026-09-12：`AgentManagementPage.test.tsx` 6 项、教学详情 2 项、能力探索 3 项，共 11 项通过。测试覆盖旧链接、上下文返回、草稿保持、题集切换、缺失题集与 API 重试；最初使用 data router 遇到 jsdom 与 Node AbortSignal 类型冲突，已改为与本次客户端路由一致的 MemoryRouter，未修改应用协议或全局测试设置。
 - `npm run typecheck`、架构边界检查及 `npm run build` 通过；菜单目录 58 项一致。构建保留项目已有大 chunk 警告，无构建错误。
