@@ -3,7 +3,7 @@ package com.exceptioncoder.toolbox.projects.service;
 import com.exceptioncoder.toolbox.projects.api.dto.ProjectInfo;
 import com.exceptioncoder.toolbox.projects.api.dto.ProjectType;
 import com.exceptioncoder.toolbox.projects.api.dto.ProjectsListResponse;
-import com.exceptioncoder.toolbox.projects.config.ProjectsProperties;
+import com.exceptioncoder.toolbox.common.project.ProjectDirectorySource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -25,40 +25,35 @@ import java.util.stream.Stream;
 @Component
 public class ProjectScanner {
 
-    private final ProjectsProperties props;
+    private final ProjectDirectorySource directories;
 
-    public ProjectScanner(ProjectsProperties props) {
-        this.props = props;
+    public ProjectScanner(ProjectDirectorySource directories) {
+        this.directories = directories;
     }
 
     /**
      * 执行一次完整扫描，返回带 {@code scannedAt} 的响应包。根目录不存在时返回空 items + {@code rootExists=false}。
      */
     public ProjectsListResponse scan() {
-        String rootSetting = props.getRoot();
-        if (rootSetting == null || rootSetting.isBlank()) {
-            log.warn("toolbox.projects.root 未配置，返回空列表");
-            return new ProjectsListResponse("", false, OffsetDateTime.now(), List.of());
-        }
-
-        Path root = Path.of(rootSetting).toAbsolutePath().normalize();
-        if (!Files.isDirectory(root)) {
-            log.warn("扫描根目录不存在或不可读: {}", root);
-            return new ProjectsListResponse(rootSetting, false, OffsetDateTime.now(), List.of());
-        }
-
+        List<Path> roots = directories.scanRoots();
         List<ProjectInfo> items = new ArrayList<>();
+        for (Path root : roots) scanRoot(root, items);
+        List<ProjectInfo> unique = items.stream().collect(java.util.stream.Collectors.toMap(
+                ProjectInfo::path, item -> item, (first, ignored) -> first, java.util.LinkedHashMap::new))
+                .values().stream().sorted(Comparator.comparing(ProjectInfo::lastModified, Comparator.reverseOrder())).toList();
+        return new ProjectsListResponse(roots.isEmpty() ? "" : roots.getFirst().toString(),
+                roots.stream().anyMatch(Files::isDirectory), OffsetDateTime.now(), unique);
+    }
+
+    private void scanRoot(Path root, List<ProjectInfo> items) {
+        if (!Files.isDirectory(root)) return;
         try (Stream<Path> children = Files.list(root)) {
             children.filter(this::isCandidate)
                     .map(this::toProjectInfo)
                     .forEach(items::add);
         } catch (IOException e) {
             log.error("扫描根目录失败: {}", root, e);
-            return new ProjectsListResponse(rootSetting, true, OffsetDateTime.now(), List.of());
         }
-
-        items.sort(Comparator.comparing(ProjectInfo::lastModified, Comparator.reverseOrder()));
-        return new ProjectsListResponse(rootSetting, true, OffsetDateTime.now(), List.copyOf(items));
     }
 
     /**
@@ -69,7 +64,7 @@ public class ProjectScanner {
             return false;
         }
         String name = dir.getFileName().toString();
-        for (String prefix : props.getHiddenPrefixes()) {
+        for (String prefix : directories.hiddenPrefixes()) {
             if (name.startsWith(prefix)) {
                 return false;
             }

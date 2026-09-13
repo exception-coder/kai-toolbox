@@ -1,4 +1,5 @@
 import { PROJECT_DIRECTORY_BLOCKS, type ConfigBlockView } from '@/features/config-center/public-api'
+import { projectPathKey } from '../lib/projectScope'
 
 export interface DirectoryField {
   name: string
@@ -24,15 +25,10 @@ const scanFields = (scope: string): DirectoryField[] => [
 ]
 
 export const DIRECTORY_SECTIONS: DirectorySection[] = [
-  { id: PROJECT_DIRECTORY_BLOCKS.workspace, title: '工作区目录', fields: [
-    { name: 'roots', label: '工作区目录', kind: 'paths', fallback: '',
-      help: '每行一个绝对路径。供本地项目发现、模块工作区、AI 会话及项目上下文查询使用。' },
-    ...scanFields('工作区'),
-  ] },
-  { id: PROJECT_DIRECTORY_BLOCKS.projects, title: '默认项目目录', fields: [
-    { name: 'root', label: '默认项目目录', kind: 'path', fallback: '',
-      help: '用于默认项目列表与本地文件操作。需要用于 AI 会话的目录，也请加入上方工作区目录。' },
-    ...scanFields('默认项目'),
+  { id: PROJECT_DIRECTORY_BLOCKS.workspace, title: '项目目录', fields: [
+    { name: 'roots', label: '项目目录', kind: 'paths', fallback: '',
+      help: '每行一个绝对路径。项目发现、AI 工作区和本地 Git 操作共用这一份目录列表。' },
+    ...scanFields('项目'),
   ] },
   { id: PROJECT_DIRECTORY_BLOCKS.managed, title: '托管业务源码目录', fields: [
     { name: 'root', label: '托管业务源码目录', kind: 'path', fallback: '', optional: true,
@@ -41,6 +37,19 @@ export const DIRECTORY_SECTIONS: DirectorySection[] = [
       help: '单次克隆、拉取和更新允许的最长时间，必须为正整数秒。' },
   ] },
 ]
+
+export function directoriesUnified(block: ConfigBlockView): boolean {
+  return block.entries.find(entry => entry.key === `${block.id}.directories-unified`)?.value === 'true'
+}
+
+export function unifiedDirectoryBlock(workspace: ConfigBlockView, legacy: ConfigBlockView): ConfigBlockView {
+  if (directoriesUnified(workspace)) return workspace
+  const key = `${workspace.id}.roots`
+  const roots = [...directoryValues(workspace, key), ...directoryValues(legacy, `${legacy.id}.root`)]
+  const merged = [...new Map(roots.map(path => [projectPathKey(path), path])).values()]
+  return { ...workspace, entries: [...workspace.entries.filter(entry => entry.key !== key && !entry.key.startsWith(`${key}[`)),
+    { key, type: 'list', value: null, values: merged, overridden: false }] }
+}
 
 export function directoryValues(block: ConfigBlockView, key: string): string[] {
   const direct = block.entries.find(entry => entry.key === key)
@@ -61,11 +70,11 @@ export function directoryDraft(block: ConfigBlockView, section: DirectorySection
   }))
 }
 
-export function directoryUpdate(section: DirectorySection, initial: Record<string, string>, draft: Record<string, string>) {
+export function directoryUpdate(section: DirectorySection, initial: Record<string, string>, draft: Record<string, string>, includeRoots = false) {
   const overrides: Record<string, string> = {}
   const replacePrefixes: string[] = []
   for (const field of section.fields) {
-    if (initial[field.name] === draft[field.name]) continue
+    if (initial[field.name] === draft[field.name] && !(includeRoots && field.name === 'roots')) continue
     const key = `${section.id}.${field.name}`
     const values = [...new Set(draft[field.name].split('\n').map(value => value.trim()).filter(Boolean))]
     if (field.kind === 'duration') {

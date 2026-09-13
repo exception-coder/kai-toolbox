@@ -2,7 +2,7 @@ package com.exceptioncoder.toolbox.projects.api;
 
 import com.exceptioncoder.toolbox.projects.api.dto.OpenInExplorerRequest;
 import com.exceptioncoder.toolbox.projects.api.dto.ProjectsListResponse;
-import com.exceptioncoder.toolbox.projects.config.ProjectsProperties;
+import com.exceptioncoder.toolbox.common.project.ProjectDirectorySource;
 import com.exceptioncoder.toolbox.projects.service.ProjectScanner;
 import com.exceptioncoder.toolbox.projects.service.ProjectsCache;
 import jakarta.validation.Valid;
@@ -36,12 +36,12 @@ import java.nio.file.Path;
 @RequestMapping("/api/projects")
 public class ProjectsController {
 
-    private final ProjectsProperties props;
+    private final ProjectDirectorySource directories;
     private final ProjectScanner scanner;
     private final ProjectsCache cache;
 
-    public ProjectsController(ProjectsProperties props, ProjectScanner scanner, ProjectsCache cache) {
-        this.props = props;
+    public ProjectsController(ProjectDirectorySource directories, ProjectScanner scanner, ProjectsCache cache) {
+        this.directories = directories;
         this.scanner = scanner;
         this.cache = cache;
     }
@@ -52,7 +52,7 @@ public class ProjectsController {
     }
 
     /**
-     * 在系统文件管理器中打开项目目录。强制校验 path 落在 {@code toolbox.projects.root} 之内防越权。
+     * 在系统文件管理器中打开项目目录。强制校验 path 落在统一项目目录范围内防越权。
      */
     @PostMapping("/open")
     public ResponseEntity<Void> openInExplorer(@Valid @RequestBody OpenInExplorerRequest request) {
@@ -75,17 +75,11 @@ public class ProjectsController {
      * 把入参字符串规整为绝对路径并做三道校验：
      * <ol>
      *   <li>路径合法（{@link Path#of} 不抛）</li>
-     *   <li>落在 {@code toolbox.projects.root} 之内（防 {@code ..} 越权）</li>
+     *   <li>落在统一项目目录范围内（防 {@code ..} 越权）</li>
      *   <li>是已存在的目录</li>
      * </ol>
      */
     private Path resolveAndValidate(String rawPath) {
-        String rootSetting = props.getRoot();
-        if (rootSetting == null || rootSetting.isBlank()) {
-            throw new IllegalArgumentException("toolbox.projects.root 未配置");
-        }
-        Path root = Path.of(rootSetting).toAbsolutePath().normalize();
-
         Path target;
         try {
             target = Path.of(rawPath).toAbsolutePath().normalize();
@@ -93,7 +87,7 @@ public class ProjectsController {
             throw new IllegalArgumentException("path 非法: " + rawPath);
         }
 
-        if (!target.startsWith(root)) {
+        if (!directories.contains(target)) {
             throw new IllegalArgumentException("path 不在扫描根目录之内");
         }
         if (!Files.isDirectory(target)) {

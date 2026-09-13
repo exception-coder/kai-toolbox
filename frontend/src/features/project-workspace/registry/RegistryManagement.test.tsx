@@ -27,7 +27,7 @@ describe('central project management', () => {
     ] }] })
     vi.mocked(listProjects).mockResolvedValue({ root: 'D:/work', rootExists: true, scannedAt: '', items: [] })
     vi.mocked(getConfigBlock).mockImplementation(async id => ({ id, name: id, entries: id === workspaceId
-      ? [{ key: `${id}.roots`, value: null, type: 'list', values: ['D:/old', 'E:/old'], overridden: false }]
+      ? [{ key: `${id}.directories-unified`, value: 'true', type: 'string', values: [], overridden: false }, { key: `${id}.roots`, value: null, type: 'list', values: ['D:/old', 'E:/old'], overridden: false }]
       : [{ key: `${id}.root`, value: 'D:/old', values: [], type: 'string', overridden: false }] }))
     vi.mocked(updateConfigBlock).mockResolvedValue({ id: workspaceId, name: '', entries: [] })
   })
@@ -65,18 +65,18 @@ describe('central project management', () => {
 
   it('replaces workspace roots in the existing config block without changing other settings', async () => {
     provider(<ProjectDirectorySettings />)
-    fireEvent.change(await screen.findByLabelText('工作区目录'), { target: { value: 'D:/new' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存工作区目录' }))
+    fireEvent.change(await screen.findByLabelText('项目目录'), { target: { value: 'D:/new' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存项目目录' }))
     await waitFor(() => expect(updateConfigBlock).toHaveBeenCalledWith(workspaceId, { [`${workspaceId}.roots[0]`]: 'D:/new' }, [`${workspaceId}.roots`]))
   })
 
   it('preserves edited directories after a failed save', async () => {
     vi.mocked(updateConfigBlock).mockRejectedValue(new Error('保存失败，请重试'))
     provider(<ProjectDirectorySettings />)
-    fireEvent.change(await screen.findByLabelText('工作区目录'), { target: { value: 'D:/new' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存工作区目录' }))
+    fireEvent.change(await screen.findByLabelText('项目目录'), { target: { value: 'D:/new' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存项目目录' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('保存失败')
-    expect(screen.getByLabelText('工作区目录')).toHaveValue('D:/new')
+    expect(screen.getByLabelText('项目目录')).toHaveValue('D:/new')
   })
 
   it('restores the implicit managed directory without requiring a path', async () => {
@@ -87,31 +87,32 @@ describe('central project management', () => {
       { 'toolbox.claude-chat.business-workspace.root': '' }, []))
   })
 
-  it('still rejects an empty required project directory', async () => {
+  it('accepts an explicitly empty unified directory list without legacy fallback', async () => {
     provider(<ProjectDirectorySettings />)
-    fireEvent.change(await screen.findByLabelText('默认项目目录'), { target: { value: '' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存默认项目目录' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('请填写一个完整的本地目录')
-    expect(updateConfigBlock).not.toHaveBeenCalled()
+    fireEvent.change(await screen.findByLabelText('项目目录'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存项目目录' }))
+    await waitFor(() => expect(updateConfigBlock).toHaveBeenCalledWith(workspaceId,
+      { [`${workspaceId}.roots`]: '' }, [`${workspaceId}.roots`]))
+    expect(screen.queryByLabelText('默认项目目录')).not.toBeInTheDocument()
   })
 
   it('replaces hidden prefixes without overwriting the directory list', async () => {
     provider(<ProjectDirectorySettings />)
-    fireEvent.change(await screen.findByLabelText('工作区隐藏前缀'), { target: { value: '' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存工作区目录' }))
+    fireEvent.change(await screen.findByLabelText('项目隐藏前缀'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存项目目录' }))
     await waitFor(() => expect(updateConfigBlock).toHaveBeenCalledWith(workspaceId,
       { [`${workspaceId}.hidden-prefixes`]: '' }, [`${workspaceId}.hidden-prefixes`]))
   })
 
   it.each(['0', '-1', '1.5', 'abc'])('rejects invalid scan duration %s without writing', async value => {
     provider(<ProjectDirectorySettings />)
-    fireEvent.change(await screen.findByLabelText('工作区扫描缓存（秒）'), { target: { value } })
-    fireEvent.click(screen.getByRole('button', { name: '保存工作区目录' }))
+    fireEvent.change(await screen.findByLabelText('项目扫描缓存（秒）'), { target: { value } })
+    fireEvent.click(screen.getByRole('button', { name: '保存项目目录' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('正整数')
     expect(updateConfigBlock).not.toHaveBeenCalled()
-    fireEvent.change(screen.getByLabelText('工作区扫描缓存（秒）'), { target: { value: '5' } })
+    fireEvent.change(screen.getByLabelText('项目扫描缓存（秒）'), { target: { value: '5' } })
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '保存工作区目录' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '保存项目目录' })).toBeDisabled()
   })
 
   it('converts the managed Git timeout to milliseconds and preserves the source root', async () => {
@@ -129,6 +130,19 @@ describe('central project management', () => {
     expect(await screen.findByText(/目录不可用：D:\/missing/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '管理目录' }))
     expect(settings).toHaveBeenCalled()
+  })
+
+  it('imports the legacy root and switches the full edited list in one save', async () => {
+    vi.mocked(getConfigBlock).mockImplementation(async id => ({ id, name: id, entries: id === workspaceId
+      ? [{ key: `${id}.roots`, value: null, type: 'list', values: ['D:/work'], overridden: false }]
+      : [{ key: `${id}.root`, value: 'E:/legacy', values: [], type: 'string', overridden: false }] }))
+    provider(<ProjectDirectorySettings />)
+    expect(await screen.findByLabelText('项目目录')).toHaveValue('D:/work\nE:/legacy')
+    fireEvent.change(screen.getByLabelText('项目目录'), { target: { value: 'D:/work' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存项目目录' }))
+    await waitFor(() => expect(updateConfigBlock).toHaveBeenCalledWith(workspaceId,
+      { [`${workspaceId}.roots[0]`]: 'D:/work', [`${workspaceId}.directories-unified`]: 'true' }, [`${workspaceId}.roots`]))
+    expect(updateConfigBlock).toHaveBeenCalledTimes(1)
   })
 
 })

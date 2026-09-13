@@ -65,6 +65,7 @@ import { useWorkspaceAggregation } from '../hooks/useWorkspaceAggregation'
 import { useWorkspaceKnowledgeReadiness } from '../hooks/useWorkspaceKnowledgeReadiness'
 import { useWorkspaceModuleSync } from '../hooks/useWorkspaceModuleSync'
 import { useWorkspaceModuleLaunch } from '../hooks/useWorkspaceModuleLaunch'
+import { isWithinProject, type ProjectScope } from '../lib/projectScope'
 
 /** 知识库根目录配置块 id = WorkspaceProperties 的 @ConfigurationProperties prefix。 */
 const WORKSPACE_CFG_ID = 'toolbox.claude-chat.workspace'
@@ -84,17 +85,20 @@ function fmtCheckedAt(iso?: string | null): string {
 
 
 /** 项目工作台：从配置工作区选项目，按确定性模块扫描结果进入对应 Vibe Coding 会话。 */
-export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirectorySettings?: () => void } = {}) {
+export function ProjectWorkspacePage({ onOpenDirectorySettings, scope }: { onOpenDirectorySettings?: () => void; scope?: ProjectScope } = {}) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { activate } = useChatRuntime()
   // 记住上次选中的项目（跨刷新/进出页面不重置）
-  const [selectedPath, setSelectedPath] = useState(() => {
+  const [storedPath, setSelectedPath] = useState(() => {
+    if (scope) return scope.path
     try { return localStorage.getItem(SELECTED_PATH_LS) ?? '' } catch { return '' }
   })
+  const selectedPath = scope?.path ?? storedPath
   useEffect(() => {
+    if (scope) return
     if (selectedPath) { try { localStorage.setItem(SELECTED_PATH_LS, selectedPath) } catch { /* 隐私模式忽略 */ } }
-  }, [selectedPath])
+  }, [selectedPath, scope])
   const [keyword, setKeyword] = useState('')
   const [projectKeyword, setProjectKeyword] = useState('')
   const [ignoredProjectsOpen, setIgnoredProjectsOpen] = useState(false)
@@ -106,6 +110,7 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirect
   const workspacesQ = useQuery({
     queryKey: ['claude-chat-workspaces'],
     queryFn: listWorkspaces,
+    enabled: !scope,
     staleTime: 5000,
   })
   const sessionsQ = useQuery({
@@ -127,8 +132,8 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirect
   })
 
   const projects = useMemo(
-    () => workspacesQ.data?.roots.flatMap(root => root.dirs.map(dir => ({ ...dir, root: root.root }))) ?? [],
-    [workspacesQ.data],
+    () => scope ? [{ ...scope, root: scope.path }] : workspacesQ.data?.roots.flatMap(root => root.dirs.map(dir => ({ ...dir, root: root.root }))) ?? [],
+    [workspacesQ.data, scope],
   )
   const selectedProject = projects.find(project => project.path === selectedPath)
 
@@ -152,7 +157,7 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirect
   )
   const activeProjects = visibleProjects.filter(project => !ignored.isIgnored(project.path))
   const ignoredProjects = visibleProjects.filter(project => ignored.isIgnored(project.path))
-  const sessions = sessionsQ.data ?? []
+  const sessions = useMemo(() => (sessionsQ.data ?? []).filter(session => !scope || isWithinProject(session.cwd, scope.path)), [sessionsQ.data, scope])
   const aliasMutation = useMutation({
     mutationFn: ({ projectPath, alias }: { projectPath: string; alias: string }) => saveProjectAlias(projectPath, alias),
     onSuccess: async () => {
@@ -186,10 +191,11 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirect
   }, [keyword, modulesQ.data?.modules])
 
   useEffect(() => {
+    if (scope) return
     if (projects.length === 0) return
     // 保留上次选择；仅当未选或所选项目已不在列表（被移除）时回落到第一个
     if (!selectedPath || !projects.some(p => p.path === selectedPath)) setSelectedPath(projects[0].path)
-  }, [projects, selectedPath])
+  }, [projects, selectedPath, scope])
 
   // 打开某项目时，若还没有任何检测历史（缓存无快照）就懒检测一次并记录（含检测时间）；已有历史则直接沿用、不重复检测。
   useEffect(() => {
@@ -247,8 +253,8 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirect
   } = useWorkspaceModuleSync(selectedPath, () => { void modulesQ.refetch() })
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 md:p-6">
-      <WorkspacePageHeader
+    <div className={scope ? 'flex min-w-0 flex-col gap-4' : 'mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 md:p-6'}>
+      {!scope && <WorkspacePageHeader
         selectedProjectPath={selectedProject?.path}
         modulesLoading={modulesQ.isLoading || (modulesQ.isFetching && !modulesQ.data)}
         modules={modulesQ.data}
@@ -274,7 +280,15 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirect
           setProjectDependenciesOpen(true)
         }}
         onOpenWorkspaceConfig={onOpenDirectorySettings ?? (() => navigate('/tools/project-workspace?section=directories'))}
-      />
+      />}
+      {scope && <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-[var(--color-muted-foreground)]">按模块缩小执行范围，沿用项目现有代码与会话。</p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setGitChangesProject(scope)}>代码变更</Button>
+          <Button variant="ghost" size="sm" onClick={() => { projectDependenciesMutation.reset(); setProjectDependenciesOpen(true) }}>关联项目</Button>
+          <Button variant="outline" size="sm" disabled={modulesQ.isFetching} onClick={() => { void modulesQ.refetch(); void sessionsQ.refetch() }}><RefreshCw className="size-4" />刷新模块</Button>
+        </div>
+      </div>}
 
       {launchError && <StateLine tone="danger" text={`启动交接失败：${launchError}`} />}
 
@@ -289,8 +303,8 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirect
         />
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <WorkspaceProjectSidebar
+      <div className={scope ? 'min-w-0' : 'grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]'}>
+        {!scope && <WorkspaceProjectSidebar
           source={{
             roots: workspacesQ.data?.roots ?? [],
             loading: workspacesQ.isLoading,
@@ -326,9 +340,9 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirect
             setSyncOpen(false)
             setSyncMsg(null)
           }}
-        />
-        <Card>
-          <CardHeader className="gap-3">
+        />}
+        <Card className={scope ? 'border-0 bg-transparent shadow-none' : undefined}>
+          <CardHeader className={scope ? 'gap-3 p-0 pb-4' : 'gap-3'}>
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0">
                 <CardTitle className="flex items-center gap-2 text-base">
@@ -400,7 +414,7 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirect
               </div>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className={scope ? 'p-0' : undefined}>
             {kbCfgOpen && (
               <div className="mb-3 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/20 p-3">
                 <div className="mb-1.5 flex items-center justify-between">
@@ -489,9 +503,9 @@ export function ProjectWorkspacePage({ onOpenDirectorySettings }: { onOpenDirect
             {modulesQ.isLoading || modulesQ.isFetching && !modulesQ.data ? (
               <StateLine icon={<Loader2 className="h-4 w-4 animate-spin" />} text="正在扫描模块" />
             ) : modulesQ.isError ? (
-              <StateLine tone="danger" text={errorMessage(modulesQ.error)} />
+              <div className="space-y-3"><StateLine tone="danger" text={errorMessage(modulesQ.error)} /><Button variant="outline" onClick={() => void modulesQ.refetch()}>重试模块扫描</Button><Button variant="ghost" onClick={onOpenDirectorySettings}>检查项目目录</Button></div>
             ) : modulesQ.data && !modulesQ.data.exists ? (
-              <StateLine tone="danger" text="项目不存在或不在允许的工作区根目录内" />
+              <div className="space-y-3"><StateLine tone="danger" text="项目不存在或不在允许的工作区根目录内" /><Button variant="outline" onClick={onOpenDirectorySettings}>检查项目目录</Button></div>
             ) : filteredModules.length === 0 ? (
               <StateLine text={keyword.trim() ? '没有匹配模块' : '未识别到模块'} />
             ) : (

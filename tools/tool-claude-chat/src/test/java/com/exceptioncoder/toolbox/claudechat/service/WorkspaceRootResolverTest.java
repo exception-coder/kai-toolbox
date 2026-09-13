@@ -14,6 +14,24 @@ import static org.mockito.Mockito.*;
 
 class WorkspaceRootResolverTest {
 
+    @Test
+    void unifiedSaveRetiresLegacyRootEvenWhenTheListIsEmpty() {
+        var workspace = new WorkspaceProperties();
+        Path current = tempDir.resolve("current");
+        Path legacy = tempDir.resolve("legacy");
+        workspace.setRoots(List.of(current.toString()));
+        var business = mock(BusinessWorkspaceProperties.class);
+        when(business.resolveRoot()).thenReturn(tempDir.resolve("uncreated-managed"));
+        var resolver = new WorkspaceRootResolver(workspace, business);
+        resolver.setLegacyDirectory(() -> legacy.toString());
+        assertThat(resolver.scanRoots()).contains(current, legacy);
+        workspace.setDirectoriesUnified(true);
+        assertThat(resolver.scanRoots()).contains(current).doesNotContain(legacy);
+        assertThat(resolver.contains(legacy.resolve("project"))).isFalse();
+        workspace.setRoots(List.of());
+        assertThat(resolver.scanRoots()).isEmpty();
+    }
+
     @TempDir
     Path tempDir;
 

@@ -6,12 +6,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { RegistryError } from './RegistryStates'
 import type { RegistryProject } from './types'
+import { projectPathKey } from '../lib/projectScope'
+export { projectPathKey } from '../lib/projectScope'
 
 export interface DiscoveredProject { name: string; path: string; details?: ProjectInfo }
-export const projectPathKey = (path: string) => {
-  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
-  return /^[A-Za-z]:|^\/\//.test(normalized) ? normalized.toLowerCase() : normalized
-}
 
 export function mergeDiscoveredProjects(workspaces: DiscoveredProject[], projects: ProjectInfo[]): DiscoveredProject[] {
   const merged = new Map(projects.map(project => [projectPathKey(project.path), { name: project.name, path: project.path, details: project } as DiscoveredProject]))
@@ -30,7 +28,7 @@ export function LocalProjectDiscovery({ registered, onSelect, onOpen, onSettings
   const visible = choices.filter(project => `${project.name} ${project.path}`.toLowerCase().includes(search.trim().toLowerCase()))
   const registeredByPath = new Map(registered.map(project => [projectPathKey(project.metadata.localPath), project.id]))
   return <section className="space-y-5" aria-label="本地项目">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">本地项目</h2><p className="mt-1 text-sm text-[var(--color-muted-foreground)]">搜索代码目录，接入项目库。已登记项目直接进入系统画像。</p></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">本地项目</h2><p className="mt-1 text-sm text-[var(--color-muted-foreground)]">搜索代码目录，接入项目库。已登记项目直接进入 AI 工作区。</p></div>
       <div className="flex gap-2"><Button size="sm" variant="ghost" disabled={workspaces.isFetching || projects.isFetching} onClick={() => { void workspaces.refetch(); void projects.refetch() }}>刷新目录</Button><Button size="sm" variant="outline" onClick={onSettings}>管理目录</Button></div></div>
     <Input aria-label="搜索本地项目" placeholder="搜索项目名称或完整路径" value={search} onChange={event => setSearch(event.target.value)} />
     <RegistryError error={workspaces.error} retry={() => void workspaces.refetch()} /><RegistryError error={projects.error} retry={() => void projects.refetch()} />

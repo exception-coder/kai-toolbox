@@ -9,20 +9,23 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * 新建会话时的「工作目录选择」配置，前缀 {@code toolbox.claude-chat.workspace}。
+ * 统一项目目录配置，前缀 {@code toolbox.claude-chat.workspace}。
  *
- * <p>仅扫描各 root 的一级子目录，供前端下拉选 cwd。roots 为空时接口返回空列表（不报错）。
+ * <p>仅扫描各 root 的一级子目录。首次统一保存前兼容旧单目录；托管源码目录由解析器合并。
  * 标 {@link Refreshable} 纳入运行时动态配置中心，可在线改不重启。</p>
  */
 @Component
 @ConfigurationProperties(prefix = "toolbox.claude-chat.workspace")
-@Refreshable(name = "Claude 工作目录")
+@Refreshable(name = "项目目录")
 @Getter
 @Setter
 public class WorkspaceProperties {
 
-    /** 扫描根目录绝对路径，支持多个。为空时不扫描。 */
+    /** 扫描根目录绝对路径，支持多个；统一保存后允许显式清空用户目录。 */
     private List<String> roots = List.of();
+
+    /** 已从统一目录编辑器保存；此后不再回退到旧单目录配置。 */
+    private boolean directoriesUnified;
 
     /** 扫描结果内存缓存 TTL（秒）。≤0 时回退到 5。 */
     private int cacheTtlSeconds = 5;

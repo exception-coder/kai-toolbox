@@ -6,7 +6,7 @@ import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
 import com.exceptioncoder.toolbox.common.git.GitLogService;
 import com.exceptioncoder.toolbox.common.git.GitProperties;
 import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
-import com.exceptioncoder.toolbox.projects.config.ProjectsProperties;
+import com.exceptioncoder.toolbox.common.project.ProjectDirectorySource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -24,18 +24,18 @@ import java.nio.file.Path;
  *   <li>{@code GET /api/projects/git/commit?path=&hash=} — 单提交 diff</li>
  * </ul>
  *
- * <p>path 必须落在 {@code toolbox.projects.root} 之内、是目录、且含 {@code .git}，否则 400（防越权）。</p>
+ * <p>path 必须落在统一项目目录范围内、是目录、且含 {@code .git}，否则 400（防越权）。</p>
  */
 @RestController
 @RequestMapping("/api/projects/git")
 public class ProjectsGitController {
 
-    private final ProjectsProperties props;
+    private final ProjectDirectorySource directories;
     private final GitProperties gitProps;
     private final GitLogService git;
 
-    public ProjectsGitController(ProjectsProperties props, GitProperties gitProps, GitLogService git) {
-        this.props = props;
+    public ProjectsGitController(ProjectDirectorySource directories, GitProperties gitProps, GitLogService git) {
+        this.directories = directories;
         this.gitProps = gitProps;
         this.git = git;
     }
@@ -82,18 +82,13 @@ public class ProjectsGitController {
 
     /** 规整 + 三道校验（根内 / 是目录 / 含 .git）。非法抛 IllegalArgumentException → 400。 */
     private Path resolveGitDir(String rawPath) {
-        String rootSetting = props.getRoot();
-        if (rootSetting == null || rootSetting.isBlank()) {
-            throw new IllegalArgumentException("toolbox.projects.root 未配置");
-        }
-        Path root = Path.of(rootSetting).toAbsolutePath().normalize();
         Path target;
         try {
             target = Path.of(rawPath).toAbsolutePath().normalize();
         } catch (InvalidPathException e) {
             throw new IllegalArgumentException("path 非法: " + rawPath);
         }
-        if (!target.startsWith(root)) {
+        if (!directories.contains(target)) {
             throw new IllegalArgumentException("path 不在扫描根目录之内");
         }
         if (!Files.isDirectory(target)) {

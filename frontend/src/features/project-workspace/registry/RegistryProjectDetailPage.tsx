@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Play, RefreshCw } from 'lucide-react'
@@ -13,14 +13,15 @@ import { GraphifyGraphModal } from '../components/GraphifyGraphModal'
 import { SystemInitializationGuide } from './SystemInitializationGuide'
 import { ProjectContextDiagnostics } from './diagnostics/ProjectContextDiagnostics'
 
-const tabs = ['概览', '代码智能', '业务域', '任务', '验证', '环境', '设置'] as const
+const ProjectAIWorkspace = lazy(() => import('./ProjectAIWorkspace').then(module => ({ default: module.ProjectAIWorkspace })))
+const tabs = ['AI 工作区', '概览', '代码智能', '业务域', '任务', '验证', '环境', '设置'] as const
 type Tab = typeof tabs[number]
-const tabIds = ['overview', 'code', 'domains', 'tasks', 'verification', 'environment', 'settings']
+const tabIds = ['workspace', 'overview', 'code', 'domains', 'tasks', 'verification', 'environment', 'settings']
 
 export function RegistryProjectDetailPage() {
   const { projectId = '' } = useParams()
   const [params, setParams] = useSearchParams()
-  const tab = tabs[tabIds.indexOf(params.get('tab') ?? 'overview')] ?? '概览'
+  const tab = tabs[tabIds.indexOf(params.get('tab') ?? 'workspace')] ?? 'AI 工作区'
   const setTab = (value: Tab) => { const next = new URLSearchParams(params); next.set('tab', tabIds[tabs.indexOf(value)]); setParams(next) }
   const [graphOpen, setGraphOpen] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -51,6 +52,7 @@ export function RegistryProjectDetailPage() {
       </header>
       <RegistryError error={init.error} />
       <nav className="flex gap-1 overflow-x-auto border-b border-[var(--color-border)] pb-3" aria-label="项目详情区域">{tabs.map(item => <Button key={item} className="shrink-0" variant={tab === item ? 'secondary' : 'ghost'} size="sm" aria-current={tab === item ? 'page' : undefined} onClick={() => setTab(item)}>{item}</Button>)}</nav>
+      {tab === 'AI 工作区' && <Suspense fallback={<p role="status">正在加载项目工作区…</p>}><ProjectAIWorkspace key={`${projectId}:${project.metadata.localPath}`} scope={{ name: project.metadata.name, path: project.metadata.localPath }} /></Suspense>}
       {tab === '概览' && <div className="grid gap-12 xl:grid-cols-2"><div className="space-y-8">
         {detail.profile ? <ProfileOverview profile={detail.profile} /> : <section className="space-y-3"><h2 className="font-semibold">系统已登记，等待初始化</h2><p className="text-sm leading-relaxed text-[var(--color-muted-foreground)]">Full Init 将扫描工程、检查环境与 Graphify、发现规则和验证入口，生成可供 Agent 使用的系统画像。</p><Button onClick={() => init.mutate('FULL')} disabled={running}>开始 Full Init</Button></section>}
         {detail.profile && <AssetPanel asset={asset('EXECUTION')} />}

@@ -3,6 +3,9 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.config.BusinessWorkspaceProperties;
 import com.exceptioncoder.toolbox.claudechat.config.WorkspaceProperties;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.exceptioncoder.toolbox.common.project.ProjectDirectorySource;
+import com.exceptioncoder.toolbox.common.project.LegacyProjectDirectory;
 
 import java.nio.file.InvalidPathException;
 import java.nio.file.Files;
@@ -13,10 +16,22 @@ import java.util.Set;
 
 /** 合并用户配置工作区与 kai-toolbox 托管业务源码根，供扫描和路径授权共同使用。 */
 @Service
-public class WorkspaceRootResolver {
+public class WorkspaceRootResolver implements ProjectDirectorySource {
 
     private final WorkspaceProperties workspaceProperties;
     private final BusinessWorkspaceProperties businessWorkspaceProperties;
+    private LegacyProjectDirectory legacyDirectory;
+
+    @Autowired(required = false)
+    public void setLegacyDirectory(LegacyProjectDirectory legacyDirectory) {
+        this.legacyDirectory = legacyDirectory;
+    }
+
+    @Override
+    public List<String> hiddenPrefixes() { return workspaceProperties.getHiddenPrefixes(); }
+
+    @Override
+    public int cacheTtlSeconds() { return workspaceProperties.getCacheTtlSeconds(); }
 
     public WorkspaceRootResolver(WorkspaceProperties workspaceProperties,
                                  BusinessWorkspaceProperties businessWorkspaceProperties) {
@@ -35,7 +50,11 @@ public class WorkspaceRootResolver {
 
     private List<Path> resolveRoots(boolean includeUnusedDefault) {
         Set<Path> roots = new LinkedHashSet<>();
-        for (String configured : workspaceProperties.getRoots()) {
+        List<String> configuredRoots = new java.util.ArrayList<>(workspaceProperties.getRoots());
+        if (!workspaceProperties.isDirectoriesUnified() && legacyDirectory != null) {
+            configuredRoots.add(legacyDirectory.getRoot());
+        }
+        for (String configured : configuredRoots) {
             if (configured == null || configured.isBlank()) {
                 continue;
             }

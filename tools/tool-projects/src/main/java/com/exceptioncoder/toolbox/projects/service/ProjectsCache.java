@@ -1,7 +1,7 @@
 package com.exceptioncoder.toolbox.projects.service;
 
 import com.exceptioncoder.toolbox.projects.api.dto.ProjectsListResponse;
-import com.exceptioncoder.toolbox.projects.config.ProjectsProperties;
+import com.exceptioncoder.toolbox.common.project.ProjectDirectorySource;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -16,14 +16,14 @@ import java.util.function.Supplier;
 @Component
 public class ProjectsCache {
 
-    private final ProjectsProperties props;
+    private final ProjectDirectorySource directories;
 
     private volatile ProjectsListResponse cached;
     private volatile Instant expireAt = Instant.EPOCH;
     private final Object lock = new Object();
 
-    public ProjectsCache(ProjectsProperties props) {
-        this.props = props;
+    public ProjectsCache(ProjectDirectorySource directories) {
+        this.directories = directories;
     }
 
     /**
@@ -41,7 +41,7 @@ public class ProjectsCache {
             }
             ProjectsListResponse fresh = loader.get();
             cached = fresh;
-            int ttl = props.getCacheTtlSeconds() <= 0 ? 5 : props.getCacheTtlSeconds();
+            int ttl = directories.cacheTtlSeconds() <= 0 ? 5 : directories.cacheTtlSeconds();
             expireAt = Instant.now().plusSeconds(ttl);
             return fresh;
         }

@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { updateConfigBlock, type ConfigBlockView } from '@/features/config-center/public-api'
+import { updateConfigBlock, PROJECT_DIRECTORY_BLOCKS, type ConfigBlockView } from '@/features/config-center/public-api'
 import { Button } from '@/components/ui/button'
 import { RegistryError } from './RegistryStates'
-import { directoryDraft, directoryUpdate, type DirectoryField, type DirectorySection } from './directorySettingsModel'
+import { directoriesUnified, directoryDraft, directoryUpdate, type DirectoryField, type DirectorySection } from './directorySettingsModel'
 
 interface Props {
   block: ConfigBlockView
@@ -18,7 +18,12 @@ export function ProjectDirectoryEditor({ block, section, onSaved, onEdit }: Prop
   const [draft, setDraft] = useState(initial)
   const save = useMutation({
     mutationFn: () => {
-      const { overrides, replacePrefixes } = directoryUpdate(section, initial, draft)
+      const firstUnifiedSave = block.id === PROJECT_DIRECTORY_BLOCKS.workspace && !directoriesUnified(block)
+      const { overrides, replacePrefixes } = directoryUpdate(section, initial, draft, firstUnifiedSave)
+      if (firstUnifiedSave) {
+        // 首次保存用同一请求发布完整列表与切换标记，失败时旧来源仍有效。
+        overrides[`${block.id}.directories-unified`] = 'true'
+      }
       return updateConfigBlock(block.id, overrides, replacePrefixes)
     },
     onSuccess: async updated => {
@@ -34,6 +39,7 @@ export function ProjectDirectoryEditor({ block, section, onSaved, onEdit }: Prop
       onEdit()
     }} />
   const dirty = section.fields.some(field => draft[field.name] !== initial[field.name])
+    || (block.id === PROJECT_DIRECTORY_BLOCKS.workspace && !directoriesUnified(block))
   return <form className="space-y-4" onSubmit={event => { event.preventDefault(); save.mutate() }}>
     {renderField(section.fields[0])}
     <details className="text-sm">
