@@ -1,3 +1,4 @@
+import { assemblyAllows, filterCodexAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
@@ -128,6 +129,7 @@ export interface CodexTurnCtx {
   developerInstructions?: string
   /** 后端在咨询创建时固化的可读证据系统；不允许模型自行扩展。 */
   consultEvidenceSystems?: string[]
+  consultToolAssembly?: ConsultToolAssembly
   /** 是否为当前持久会话注入 Forge 待执行 SQL 登记能力。 */
   forgeSqlRegistration?: boolean
   /** 已有 thread id（resume 续跑）；无则新建线程。 */
@@ -252,15 +254,17 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
                           forgeSqlRegistration = false,
                           turnDeveloperInstructions?: string,
                           sourceRoot?: string,
-                          consultEvidenceSystems: readonly string[] = []): NonNullable<CodexOptions['config']> {
-  const developerInstructions = buildCodexDeveloperInstructions(
-    toolPolicy, sessionId, forgeSqlRegistration, turnDeveloperInstructions,
-  )
+                          consultEvidenceSystems: readonly string[] = [],
+                          assembly?: ConsultToolAssembly): NonNullable<CodexOptions['config']> {
+  const developerInstructions = assembly && toolPolicy === CONSULT_READONLY_POLICY
+    ? ['仅使用实际装配的只读工具，禁止写入文件、Git、配置、数据库或业务数据；不得扩大系统和环境授权。',
+        turnDeveloperInstructions ?? ''].join('\n\n')
+    : buildCodexDeveloperInstructions(toolPolicy, sessionId, forgeSqlRegistration, turnDeveloperInstructions)
   return {
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
     ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),
     ...(toolPolicy === CONSULT_READONLY_POLICY
-      ? consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot, consultEvidenceSystems, forgeSqlRegistration)
+      ? filterCodexAssembly(consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot, consultEvidenceSystems, forgeSqlRegistration), assembly)
       : toolPolicy === REVIEW_ONLY_POLICY
         ? reviewOnlyCodexConfig(codexHome)
       : toolPolicy === 'disabled'
@@ -280,12 +284,13 @@ function pickCodex(
   developerInstructions?: string,
   sourceRoot?: string,
   consultEvidenceSystems: readonly string[] = [],
+  assembly?: ConsultToolAssembly,
 ): Codex {
   if (!apiBaseUrl || !apiBaseUrl.trim()) {
     const home = normalizeCodexHome(codexHome)
     const config = buildCodexConfig(speed, toolPolicy, home, sessionId, forgeSqlRegistration,
-      developerInstructions, sourceRoot, consultEvidenceSystems)
-    if (developerInstructions) {
+      developerInstructions, sourceRoot, consultEvidenceSystems, assembly)
+    if (developerInstructions || assembly) {
       return new Codex({
         ...(home ? { env: codexEnv(home) } : {}),
         ...(Object.keys(config).length ? { config } : {}),
@@ -312,6 +317,7 @@ function pickCodex(
     developerInstructions,
     sourceRoot,
     consultEvidenceSystems,
+    assembly,
   )
   if (developerInstructions) {
     return new Codex({
@@ -322,7 +328,7 @@ function pickCodex(
   }
   const key = baseUrl + ' ' + (authToken ?? '') + ' ' + speed + ' ' + toolPolicy + ' ' + (sessionId ?? '<one-shot>')
     + ' ' + forgeSqlRegistration
-    + ' ' + [...consultEvidenceSystems].sort().join(',')
+    + ' ' + [...consultEvidenceSystems].sort().join(',') + ' ' + JSON.stringify(assembly ?? null)
   let c = gatewayClients.get(key)
   if (!c) {
     c = new Codex({
@@ -420,6 +426,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         ctx.developerInstructions,
         consultSourceRoot,
         ctx.consultEvidenceSystems,
+        ctx.consultToolAssembly,
       ),
       input: toAppServerInput(prepared.input),
       codexHome: home,
@@ -435,6 +442,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       ),
       requiredMcpTools: consultReadonly
         ? consultReadonlyRequiredMcpTools(consultSourceRoot, ctx.consultEvidenceSystems)
+          .filter(item => assemblyAllows(ctx.consultToolAssembly, item.server, item.tool))
         : undefined,
       forbidMcpTools: reviewOnly,
     }
@@ -591,6 +599,7 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
       ctx.developerInstructions,
       consultSourceRoot,
       ctx.consultEvidenceSystems,
+      ctx.consultToolAssembly,
     )
     if (ctx.apiBaseUrl) {
       console.log(`[sidecar] codex turn start model=${ctx.model ?? '默认'} via=${normalizeOpenAiBase(ctx.apiBaseUrl)}`)

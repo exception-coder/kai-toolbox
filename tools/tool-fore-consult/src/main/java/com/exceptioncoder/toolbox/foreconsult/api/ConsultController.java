@@ -51,6 +51,9 @@ import java.util.Map;
 @RequireAuth
 public class ConsultController {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.foreconsult.service.ConsultWorkflowSessionService workflowSessions;
+
     private final ConsultService service;
     private final TurnBugExtractionService bugExtractionService;
     private final ConsultQuestionClassifier questionClassifier;
@@ -79,8 +82,7 @@ public class ConsultController {
     @PostMapping("/sessions")
     public ConsultSessionView start(@Valid @RequestBody StartSessionRequest req) {
         var initial = dispatchService.initial(req);
-        return ConsultSessionView.from(service.startSession(
-                req, initial.orchestration().prompt(), initial.evidenceRoute()));
+        return ConsultSessionView.from(workflowSessions.start(req, initial));
     }
 
     /** Classify and enrich a follow-up with the same server-owned orchestration pipeline. */

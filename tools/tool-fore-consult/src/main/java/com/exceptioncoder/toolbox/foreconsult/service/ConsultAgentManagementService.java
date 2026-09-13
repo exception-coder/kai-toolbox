@@ -74,6 +74,10 @@ public class ConsultAgentManagementService {
     @Transactional
     public AgentManagementSnapshot createCandidate(String agentId, CreateAgentVersionCommand rawCommand) {
         rejectTeachingMutation(agentId);
+        if (rawCommand != null && rawCommand.workflow() != null
+                && !ConsultAgentManagementRepository.BUSINESS_CONSULT_AGENT_ID.equals(agentId)) {
+            throw new IllegalArgumentException("流程节点配置仅适用于业务咨询 Agent");
+        }
         repository.replaceCandidate(agentId, normalize(rawCommand), System.currentTimeMillis());
         return getSnapshot(agentId);
     }
@@ -148,12 +152,12 @@ public class ConsultAgentManagementService {
                 command.temperature(),
                 promptRef,
                 orchestrationVersion,
-                normalizeNames(command.tools(), "Tools"),
-                normalizeNames(command.mcpServers(), "MCP"),
+                command.workflow() == null ? normalizeNames(command.tools(), "Tools") : command.workflow().tools(),
+                command.workflow() == null ? normalizeNames(command.mcpServers(), "MCP") : command.workflow().mcpServers(),
                 normalizeNames(command.skills(), "Skills"),
                 trimToNull(command.evaluationRunId()),
                 command.evaluationScore(),
-                command.evaluationPassed());
+                command.evaluationPassed(), command.workflow());
     }
 
     private AgentVersion requireVersion(String agentId, long version) {

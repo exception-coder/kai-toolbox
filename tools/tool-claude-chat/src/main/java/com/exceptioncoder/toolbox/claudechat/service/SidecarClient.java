@@ -39,6 +39,9 @@ import java.util.function.BiConsumer;
 @Component("claudeChatSidecarClient")
 public class SidecarClient implements ReviewThreadForkGateway {
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private List<com.exceptioncoder.toolbox.llm.spi.AgentToolAssemblyProvider> toolAssemblyProviders = List.of();
+
     private final ClaudeChatProperties props;
     private final ClaudeChatWsProperties wsProps;
     private final ObjectMapper mapper;
@@ -283,6 +286,11 @@ public class SidecarClient implements ReviewThreadForkGateway {
         if (turnToolPolicy != null && !turnToolPolicy.isBlank()) {
             message.put("turnToolPolicy", turnToolPolicy);
         }
+        toolAssemblyProviders.stream().map(provider -> provider.resolve(sessionId)).flatMap(Optional::stream)
+                .findFirst().ifPresent(assembly -> {
+                    message.put("consultToolAssembly", assembly);
+                    message.put("developerInstructions", assembly.instructions());
+                });
         putTelemetry(message, traceContext, telemetry);
         send(message);
     }

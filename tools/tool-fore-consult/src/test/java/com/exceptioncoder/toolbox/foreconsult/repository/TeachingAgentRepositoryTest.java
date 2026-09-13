@@ -24,6 +24,7 @@ class TeachingAgentRepositoryTest {
             String fullSchema = new ClassPathResource("db/fore-consult-schema.sql")
                     .getContentAsString(StandardCharsets.UTF_8);
             String schema = fullSchema.substring(fullSchema.indexOf("CREATE TABLE IF NOT EXISTS consult_agent_definition"));
+            schema += new ClassPathResource("db/consult-workflow-schema.sql").getContentAsString(StandardCharsets.UTF_8);
             for (int pass = 0; pass < 2; pass++) {
                 for (String statement : schema.split(";")) {
                     if (!statement.isBlank()) {

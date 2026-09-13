@@ -1,3 +1,4 @@
+import { assemblyAllowsTool, filterClaudeAssembly, parseConsultToolAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -318,6 +319,7 @@ class Session {
   /** 一次性分析可设 disabled，移除 Claude 内置工具与设置源。 */
   toolPolicy = 'default'
   /** 后端会话快照授权的跨系统只读证据范围。 */
+  consultToolAssembly?: ConsultToolAssembly
   consultEvidenceSystems: string[] = []
   /** 仅真实交互会话启用；one-shot 后台任务的 id 不是持久会话，不能写会话 SQL 台账。 */
   forgeSqlRegistration = true
@@ -874,6 +876,7 @@ class Session {
         if (domainKb) (mcpServers as Record<string, unknown>)['domain-knowledge'] = domainKb
         if (crossTopo) (mcpServers as Record<string, unknown>)['cross-topology'] = crossTopo
       }
+      if (this.toolPolicy === 'consult-readonly') filterClaudeAssembly(mcpServers, this.consultToolAssembly)
       this.claudeSessionMcpNames = new Set(Object.keys(mcpServers))
 
       try {
@@ -925,7 +928,9 @@ class Session {
                       .map(tool => `mcp__domain-knowledge__${tool}`),
                     ...CROSS_TOPOLOGY_READONLY_TOOLS
                       .map(tool => `mcp__cross-topology__${tool}`),
-                  ],
+                  ].filter(name => name === 'AskUserQuestion' || assemblyAllowsTool(this.consultToolAssembly, name)),
+                  settingSources: [],
+                  ...(this.consultToolAssembly ? { tools: ['AskUserQuestion'] } : {}),
                 }
               : {}),
             ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
@@ -1010,6 +1015,7 @@ class Session {
         developerInstructions,
         images,
         consultEvidenceSystems: this.consultEvidenceSystems,
+        consultToolAssembly: this.consultToolAssembly,
         sdkSessionId: this.sdkSessionId,
         apiBaseUrl: this.apiBaseUrl,
         authToken: this.authToken,
@@ -1701,7 +1707,7 @@ export class SessionManager {
 
   user(id: string, text: string, developerInstructions?: string, sessionContext?: string,
        additionalDirectories: string[] = [], turnId?: string, images?: OneShotImage[],
-       turnToolPolicy?: string): void {
+       turnToolPolicy?: string, consultToolAssembly?: unknown): void {
     const s = this.sessions.get(id)
     if (!s) {
       this.emit(id, { type: 'error', code: 'SESSION_NOT_FOUND', message: '会话不存在' })
@@ -1709,6 +1715,10 @@ export class SessionManager {
     }
     // fire-and-forget，但必须收敛异常：runTurn 的非 Claude 引擎分支没有内层 catch，
     // 一旦 reject 会变成 unhandledRejection 拖垮整个 sidecar。这里兜成该会话的 error+result，解除前端「思考中」。
+    if (s.toolPolicy === 'consult-readonly') {
+      s.consultToolAssembly = parseConsultToolAssembly(consultToolAssembly)
+      s.perms.consultToolAssembly = s.consultToolAssembly
+    }
     const delegatedOverride = isDelegatedToolPolicy(turnToolPolicy)
     const previousToolPolicy = s.toolPolicy
     if (delegatedOverride) {

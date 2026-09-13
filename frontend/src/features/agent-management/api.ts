@@ -18,6 +18,13 @@ export interface AgentCapability {
   providedCapabilityIds: string[];
 }
 
+export interface ConsultWorkflowNode {
+  id: string; name: string; enabled: boolean; condition: string; instructions: string;
+  queryConstraints: string; outputContract: string; tools: string[]; mcpServers: string[];
+}
+export interface ConsultWorkflow { nodes: ConsultWorkflowNode[] }
+export const getWorkflowDefaults = () => http<ConsultWorkflow>('/fore-consult/agents/business-consult/workflow-defaults');
+
 export interface AgentVersion {
   version: number;
   status: AgentVersionStatus;
@@ -25,6 +32,7 @@ export interface AgentVersion {
   temperature: number;
   promptRef: string;
   orchestrationVersion: OrchestrationVersion;
+  workflow?: ConsultWorkflow | null;
   tools: string[];
   mcpServers: string[];
   skills: string[];
@@ -83,6 +91,7 @@ export interface CreateAgentVersionRequest {
   temperature: number;
   promptRef: string;
   orchestrationVersion: OrchestrationVersion;
+  workflow?: ConsultWorkflow | null;
   tools: string[];
   mcpServers: string[];
   skills: string[];

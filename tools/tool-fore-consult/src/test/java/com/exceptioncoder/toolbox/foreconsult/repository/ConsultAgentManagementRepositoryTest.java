@@ -38,6 +38,7 @@ class ConsultAgentManagementRepositoryTest {
         jdbc.update("INSERT INTO consult_agent_version VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 "business-consult", 1, "PRODUCTION", "runtime-default", 0.1, "fore-consult-v4", "v4",
                 "[]", "[]", "[]", null, null, 0, 0, 0);
+        jdbc.execute("CREATE TABLE consult_agent_workflow (agent_id TEXT, version INTEGER, workflow_json TEXT, PRIMARY KEY(agent_id, version))");
         repository = new ConsultAgentManagementRepository(jdbc, new ObjectMapper());
     }
 
@@ -55,6 +56,34 @@ class ConsultAgentManagementRepositoryTest {
         assertThat(repository.findVersion(1).orElseThrow().status()).isEqualTo("HISTORICAL");
         assertThat(repository.findVersion(3).orElseThrow().status()).isEqualTo("PRODUCTION");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM consult_agent_release", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void publishedWorkflowRoundTripsAndExistingSessionStaysFrozen() {
+        jdbc.execute("CREATE TABLE consult_session_workflow (session_id TEXT PRIMARY KEY, version INTEGER, workflow_json TEXT)");
+        var node = new com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.ConsultWorkflowNode(
+                "database", "数据库补查", true, "缺少数据证据时", "直接查库", "只读", "返回证据",
+                List.of("scm_db_query"), List.of("consult-readonly"));
+        var workflow = new com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.ConsultWorkflow(List.of(node));
+        var candidate = repository.replaceCandidate(new CreateAgentVersionCommand("runtime-default", 0.1,
+                "fore-consult-v4", "v4", workflow.tools(), workflow.mcpServers(), List.of(), null, null, false,
+                workflow), 100);
+        assertThat(candidate.workflow()).isEqualTo(workflow);
+        var workflows = new ConsultWorkflowRepository(jdbc, new ObjectMapper());
+        assertThat(workflows.production()).isEmpty();
+        repository.promote(candidate.version(), "RELEASE", 110);
+        workflows.freeze("session-a", workflows.production().orElseThrow());
+        var nextNode = new com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.ConsultWorkflowNode(
+                "source", "源码", true, "需要实现证据", "定位源码", "只读", "引用", List.of("source_read"),
+                List.of("consult-readonly"));
+        var next = new com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.ConsultWorkflow(List.of(nextNode));
+        var nextVersion = repository.replaceCandidate(new CreateAgentVersionCommand("runtime-default", 0.1,
+                "fore-consult-v4", "v4", next.tools(), next.mcpServers(), List.of(), null, null, false, next), 120);
+        repository.promote(nextVersion.version(), "RELEASE", 130);
+        assertThat(workflows.production().orElseThrow().workflow()).isEqualTo(next);
+        assertThat(workflows.session("session-a").orElseThrow().workflow()).isEqualTo(workflow);
+        repository.promote(candidate.version(), "ROLLBACK", 140);
+        assertThat(workflows.production().orElseThrow().workflow()).isEqualTo(workflow);
     }
 
     private CreateAgentVersionCommand command(String runId, double score) {

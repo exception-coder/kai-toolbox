@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.foreconsult.repository;
 
 import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.AgentVersion;
+import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.ConsultWorkflow;
 import com.exceptioncoder.toolbox.foreconsult.service.CreateAgentVersionCommand;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -45,25 +46,19 @@ public class ConsultAgentManagementRepository {
                 (rs, rowNum) -> mapDefinition(rs), agentId);
     }
 
+    private static final String VERSION_SELECT = "SELECT v.version, v.status, v.model, v.temperature, "
+            + "v.prompt_ref, v.orchestration_version, v.tools_json, v.mcp_servers_json, v.skills_json, "
+            + "v.evaluation_run_id, v.evaluation_score, v.evaluation_passed, v.created_at, v.released_at, "
+            + "w.workflow_json FROM consult_agent_version v LEFT JOIN consult_agent_workflow w "
+            + "ON w.agent_id = v.agent_id AND w.version = v.version ";
+
     public List<AgentVersion> findVersions(String agentId) {
-        return jdbc.query(
-                "SELECT version, status, model, temperature, prompt_ref, orchestration_version, tools_json, "
-                        + "mcp_servers_json, skills_json, evaluation_run_id, evaluation_score, evaluation_passed, "
-                        + "created_at, released_at FROM consult_agent_version WHERE agent_id = ? "
-                        + "ORDER BY version DESC",
-                versionRowMapper,
-                agentId);
+        return jdbc.query(VERSION_SELECT + "WHERE v.agent_id = ? ORDER BY v.version DESC", versionRowMapper, agentId);
     }
 
     public Optional<AgentVersion> findVersion(String agentId, long version) {
-        List<AgentVersion> matches = jdbc.query(
-                "SELECT version, status, model, temperature, prompt_ref, orchestration_version, tools_json, "
-                        + "mcp_servers_json, skills_json, evaluation_run_id, evaluation_score, evaluation_passed, "
-                        + "created_at, released_at FROM consult_agent_version WHERE agent_id = ? AND version = ?",
-                versionRowMapper,
-                agentId,
-                version);
-        return matches.stream().findFirst();
+        return jdbc.query(VERSION_SELECT + "WHERE v.agent_id = ? AND v.version = ?",
+                versionRowMapper, agentId, version).stream().findFirst();
     }
 
     public AgentVersion replaceCandidate(String agentId, CreateAgentVersionCommand command, long now) {
@@ -94,6 +89,14 @@ public class ConsultAgentManagementRepository {
                 command.evaluationScore(),
                 command.evaluationPassed() ? 1 : 0,
                 now);
+        if (command.workflow() != null) {
+            try {
+                jdbc.update("INSERT INTO consult_agent_workflow (agent_id, version, workflow_json) VALUES (?, ?, ?)",
+                        agentId, version, objectMapper.writeValueAsString(command.workflow()));
+            } catch (JsonProcessingException error) {
+                throw new IllegalArgumentException("无法保存节点配置", error);
+            }
+        }
         return findVersion(agentId, version).orElseThrow();
     }
 
@@ -157,7 +160,18 @@ public class ConsultAgentManagementRepository {
                 score == null ? null : score.doubleValue(),
                 rs.getInt("evaluation_passed") != 0,
                 rs.getLong("created_at"),
-                releasedAt == null ? null : releasedAt.longValue());
+                releasedAt == null ? null : releasedAt.longValue(), readWorkflow(rs.getString("workflow_json")));
+    }
+
+    private ConsultWorkflow readWorkflow(String json) {
+        if (json == null) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, ConsultWorkflow.class);
+        } catch (JsonProcessingException error) {
+            throw new IllegalStateException("无法读取节点配置", error);
+        }
     }
 
     private List<String> readList(String json) {

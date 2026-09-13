@@ -28,6 +28,11 @@ public class ConsultDispatchService {
     private static final Logger log = LoggerFactory.getLogger(ConsultDispatchService.class);
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() { };
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.foreconsult.repository.ConsultWorkflowRepository workflowRepository;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultWorkflowService workflowService;
+
     private final ConsultOrchestrationPipeline pipeline;
     private final ConsultQuestionClassifier questionClassifier;
     private final ConsultEvidenceRouteService evidenceRouteService;
@@ -50,7 +55,7 @@ public class ConsultDispatchService {
         ConsultEvidenceRouteResolution route = evidenceRouteService.resolve(
                 request.systemName(), request.moduleNames(), request.question());
         String systemSourcePath = resolveSystemSourcePath(request);
-        ConsultOrchestrationResult orchestration = pipeline.orchestrate(new ConsultOrchestrationRequest(
+        ConsultOrchestrationResult orchestration = pipeline.configured(new ConsultOrchestrationRequest(
                 request.question(), request.systemName(), systemSourcePath,
                 request.moduleNames(), request.role(), false, route.promptContext()), request.orchestrationVersion());
         return new ConsultInitialDispatch(orchestration, route);
@@ -85,12 +90,16 @@ public class ConsultDispatchService {
         if ("NEW_QUESTION".equals(classification.classification())) {
             return ConsultDispatchView.startNewSession(classification.reason());
         }
-        ConsultOrchestrationResult result = pipeline.orchestrate(new ConsultOrchestrationRequest(
+        var orchestrationRequest = new ConsultOrchestrationRequest(
                 request.question(), session.getSystemName(), session.getSystemSourcePath(),
                 parseModules(session.getModuleNames()), session.getRole(), true,
                 evidenceRouteService.promptContextFromSnapshot(
-                        session.getSystemName(), session.getEvidenceRouteSnapshot())),
-                session.getOrchestrationVersion());
+                        session.getSystemName(), session.getEvidenceRouteSnapshot()));
+        var snapshot = workflowRepository == null ? java.util.Optional.<com.exceptioncoder.toolbox.foreconsult.repository.ConsultWorkflowRepository.Snapshot>empty()
+                : workflowRepository.session(session.getSessionId());
+        ConsultOrchestrationResult result = snapshot.isPresent()
+                ? workflowService.render(orchestrationRequest, snapshot.get())
+                : pipeline.orchestrate(orchestrationRequest, session.getOrchestrationVersion());
         return ConsultDispatchView.send(classification.reason(), result);
     }
 

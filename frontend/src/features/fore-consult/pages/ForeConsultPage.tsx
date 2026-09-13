@@ -810,6 +810,7 @@ export function ForeConsultPage() {
     setPendingDispatching(true)
     setPendingDispatchError(null)
     try {
+      await linkDevSession(pending.consultId, sessionId)
       const uploadedAttachments = await prepareConsultAttachments(sessionId, pending.attachments)
       for (const attachment of uploadedAttachments) {
         attMetaRef.current.set(attachment.name, { path: attachment.path, mime: attachment.mime })

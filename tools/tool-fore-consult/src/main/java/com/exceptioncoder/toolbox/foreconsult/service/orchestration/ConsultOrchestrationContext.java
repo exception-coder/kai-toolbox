@@ -21,6 +21,10 @@ public final class ConsultOrchestrationContext {
         sections.add(new PromptSection(title, content.strip()));
     }
 
+    public String sectionContent() {
+        return sections.stream().map(PromptSection::content).collect(java.util.stream.Collectors.joining("\n\n"));
+    }
+
     public String renderPrompt(String pipelineVersion) {
         String modules = request.moduleNames().isEmpty()
                 ? "未指定（先面向整个系统定位）"

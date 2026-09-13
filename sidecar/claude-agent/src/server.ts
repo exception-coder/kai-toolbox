@@ -188,6 +188,7 @@ wss.on('connection', (ws) => {
           msg.turnId as string | undefined,
           msg.images as import('./sessionManager.js').OneShotImage[] | undefined,
           msg.turnToolPolicy as string | undefined,
+          msg.consultToolAssembly,
         )
         break
       case 'steer':

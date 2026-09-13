@@ -19,7 +19,27 @@ public record AgentVersion(
         Double evaluationScore,
         boolean evaluationPassed,
         long createdAt,
-        Long releasedAt
+        Long releasedAt,
+        ConsultWorkflow workflow
 ) {
+    public AgentVersion(
+        long version,
+        String status,
+        String model,
+        double temperature,
+        String promptRef,
+        String orchestrationVersion,
+        List<String> tools,
+        List<String> mcpServers,
+        List<String> skills,
+        String evaluationRunId,
+        Double evaluationScore,
+        boolean evaluationPassed,
+        long createdAt,
+        Long releasedAt
+    ) {
+        this(version, status, model, temperature, promptRef, orchestrationVersion, tools, mcpServers, skills, evaluationRunId, evaluationScore, evaluationPassed, createdAt, releasedAt, null);
+    }
+
 }
 

@@ -15,3 +15,15 @@
 菜单权限统一为 `menu:agent-management`，包括旧评测地址；原本只有 `menu:eval` 的账号需管理员配置新的菜单权限。权限目录从 FeatureManifest 自动生成，不在 Java 中手工登记。
 
 实现及验收记录：[centralize-agent-evaluation](../../../../openspec/changes/centralize-agent-evaluation/proposal.md)。
+
+## 业务咨询流程
+
+业务咨询详情的「流程」视图支持添加、删除、启停、排序节点，以及编辑触发条件、执行规则、查询约束、输出要求和 Tool/MCP。未保存节点的旧版本展示内置基线，可将其加入候选配置。勾选 Tool 自动挂载提供方 MCP，移除 MCP 同时移除依赖工具。
+
+节点随 Candidate 版本保存；修改节点会清空表单里的旧评测登记。发布后仅新咨询使用新规则，已有咨询和追问使用创建时冻结的快照。当前发布门禁仍使用已有评测登记机制，通用评测不会自动验证或绑定整份节点配置。
+
+默认数据库节点会在需要数据证据时直接只读补查，不要求用户代查。配置节点由同一主 Agent 按条件执行，条件和重试规则是模型指令；实际 MCP/Tool 装配由服务端快照控制并与系统授权取交集。节点配置不等于独立子 Agent、独立权限沙箱或已完成的调查。数据源未配置、证据缺失、环境不明仍须如实反馈。
+
+能力目录只允许平台已有只读连接器。新 MCP 实现或进程安装仍需开发接入，不能在节点配置里填写任意命令或凭据。业务规则调整不需要重新编译。回滚使用现有历史 Production 版本。
+
+实现与验收：[configure-consult-workflow-nodes](../../../../openspec/changes/configure-consult-workflow-nodes/design.md)。

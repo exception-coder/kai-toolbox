@@ -725,6 +725,12 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
   }
 }
 
+const configuredToolNames: unknown = process.env.CONSULT_ENABLED_TOOLS == null
+  ? undefined : JSON.parse(process.env.CONSULT_ENABLED_TOOLS)
+if (configuredToolNames !== undefined && (!Array.isArray(configuredToolNames)
+  || configuredToolNames.some(value => typeof value !== 'string'))) throw new Error('Invalid CONSULT_ENABLED_TOOLS')
+const enabledToolNames = configuredToolNames === undefined ? undefined : new Set(configuredToolNames as string[])
+
 async function handle(message: JsonRpcRequest): Promise<void> {
   const id = message.id
   switch (message.method) {
@@ -742,11 +748,15 @@ async function handle(message: JsonRpcRequest): Promise<void> {
       ok(id, {})
       return
     case 'tools/list':
-      ok(id, { tools })
+      ok(id, { tools: enabledToolNames ? tools.filter(tool => enabledToolNames.has(tool.name)) : tools })
       return
     case 'tools/call': {
       const params = message.params ?? {}
       const name = typeof params.name === 'string' ? params.name : ''
+      if (enabledToolNames && !enabledToolNames.has(name)) {
+        ok(id, { isError: true, content: [{ type: 'text', text: `当前流程未装配工具：${name}` }] })
+        return
+      }
       const args = params.arguments && typeof params.arguments === 'object'
         ? params.arguments as Record<string, unknown>
         : {}

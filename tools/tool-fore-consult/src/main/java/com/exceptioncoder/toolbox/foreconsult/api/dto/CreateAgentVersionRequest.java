@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.foreconsult.api.dto;
 import com.exceptioncoder.toolbox.foreconsult.service.CreateAgentVersionCommand;
 
 import java.util.List;
+import com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.ConsultWorkflow;
 
 /**
  * 创建业务咨询 Agent 候选版本的 HTTP 请求。
@@ -17,8 +18,24 @@ public record CreateAgentVersionRequest(
         List<String> skills,
         String evaluationRunId,
         Double evaluationScore,
-        Boolean evaluationPassed
+        Boolean evaluationPassed,
+        ConsultWorkflow workflow
 ) {
+    public CreateAgentVersionRequest(
+        String model,
+        Double temperature,
+        String promptRef,
+        String orchestrationVersion,
+        List<String> tools,
+        List<String> mcpServers,
+        List<String> skills,
+        String evaluationRunId,
+        Double evaluationScore,
+        Boolean evaluationPassed
+    ) {
+        this(model, temperature, promptRef, orchestrationVersion, tools, mcpServers, skills, evaluationRunId, evaluationScore, evaluationPassed, null);
+    }
+
 
     /**
      * 转换为应用层命令。
@@ -36,7 +53,7 @@ public record CreateAgentVersionRequest(
                 skills,
                 evaluationRunId,
                 evaluationScore,
-                Boolean.TRUE.equals(evaluationPassed));
+                Boolean.TRUE.equals(evaluationPassed), workflow);
     }
 }
 

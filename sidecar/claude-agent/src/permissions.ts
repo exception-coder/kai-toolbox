@@ -1,3 +1,4 @@
+import { assemblyAllowsTool, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { randomUUID } from 'node:crypto'
 import { resolve, sep } from 'node:path'
 
@@ -70,6 +71,7 @@ export class Permissions {
    *
    * 下沉到这里后，裁决在 sidecar 内同步完成，不发请求、不等任何网络回程，与浏览器在不在线彻底解耦。
    */
+  consultToolAssembly?: ConsultToolAssembly
   private autoApprove = false
   /** demo 沙箱模式：开启后忽略 mode，按白名单 deny-by-default 硬裁决，不弹人工审批。 */
   private demo = false
@@ -124,6 +126,9 @@ export class Permissions {
   }
 
   private consultReadonlyDecision(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
+    if (this.consultToolAssembly && !assemblyAllowsTool(this.consultToolAssembly, toolName)) {
+      return { behavior: 'deny', message: `当前流程未装配工具：${toolName}` }
+    }
     if (FORGE_SAFE_TOOLS.has(toolName)
       || CONSULT_READ_TOOLS.has(toolName)
       || CONSULT_READONLY_MCP_TOOLS.has(toolName)
@@ -160,6 +165,9 @@ export class Permissions {
     }
     if (this.toolPolicy === 'delegated-request-only' && toolName !== 'AskUserQuestion') {
       return { behavior: 'deny', message: `当前授权只允许提交和澄清需求，禁止调用工具：${toolName}` }
+    }
+    if (this.consultToolAssembly && !assemblyAllowsTool(this.consultToolAssembly, toolName)) {
+      return { behavior: 'deny', message: `当前流程未装配工具：${toolName}` }
     }
     if (FORGE_SAFE_TOOLS.has(toolName)) {
       return { behavior: 'allow', updatedInput: input }

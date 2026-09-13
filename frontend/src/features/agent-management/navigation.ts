@@ -1,7 +1,7 @@
 import { useSearchParams } from 'react-router-dom'
 
 export const AGENT_MANAGEMENT_PATH = '/tools/agent-management'
-export type AgentDetailTab = 'overview' | 'capabilities' | 'evaluation' | 'versions'
+export type AgentDetailTab = 'overview' | 'workflow' | 'capabilities' | 'evaluation' | 'versions'
 
 export function evaluationHref(agentId?: string, dataset?: string) {
   const params = new URLSearchParams({ section: 'evaluation' })
@@ -18,7 +18,7 @@ export function useAgentNavigation() {
   const [params, setParams] = useSearchParams()
   const requestedTab = params.get('tab')
   const tab: AgentDetailTab = requestedTab === 'capabilities' || requestedTab === 'evaluation'
-    || requestedTab === 'versions' ? requestedTab : 'overview'
+    || requestedTab === 'versions' || requestedTab === 'workflow' ? requestedTab : 'overview'
   const update = (values: Record<string, string>) => setParams(previous => {
     const next = new URLSearchParams(previous)
     for (const [key, value] of Object.entries(values)) next.set(key, value)

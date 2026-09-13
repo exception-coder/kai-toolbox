@@ -31,6 +31,8 @@ import {
   type OrchestrationVersion,
 } from "../api";
 
+import { WorkflowEditor } from "../workflow/WorkflowEditor";
+
 type DetailTab = AgentDetailTab;
 
 /** 公司 Agent Registry 与能力治理工作台。 */
@@ -209,11 +211,12 @@ function AgentDetail(props: {
         {(
           [
             ["overview", "概览"],
+            ["workflow", "流程"],
             ["capabilities", "能力"],
             ["evaluation", "评测"],
             ["versions", "版本"],
           ] as const
-        ).map(([id, label]) => (
+        ).filter(([id]) => id !== "workflow" || snapshot.id === "business-consult").map(([id, label]) => (
           <button
             key={id}
             type="button"
@@ -224,10 +227,18 @@ function AgentDetail(props: {
           </button>
         ))}
       </nav>
+      {props.tab === "workflow" && snapshot.id === "business-consult" && (
+        <WorkflowEditor workflow={draft.workflow} registry={snapshot.capabilityRegistry ?? []}
+          onChange={workflow => props.onDraftChange({ ...draft, workflow,
+            tools: [...new Set(workflow.nodes.filter(n => n.enabled).flatMap(n => n.tools))],
+            mcpServers: [...new Set(workflow.nodes.filter(n => n.enabled).flatMap(n => n.mcpServers))],
+            evaluationRunId: null, evaluationScore: null, evaluationPassed: false })} />
+      )}
       {props.tab === "overview" && (
         <OverviewEditor draft={draft} onChange={props.onDraftChange} />
       )}
-      {props.tab === "capabilities" && (
+      {props.tab === "capabilities" && draft.workflow && <p className="text-sm text-slate-600">能力由启用的流程节点装配，请在「流程」中调整 Tool / MCP。</p>}
+      {props.tab === "capabilities" && !draft.workflow && (
         <CapabilityEditor
           registry={snapshot.capabilityRegistry ?? []}
           productionIds={snapshot.productionCapabilityIds ?? []}
@@ -758,6 +769,7 @@ function toDraft(version: AgentVersion): CreateAgentVersionRequest {
     temperature: version.temperature,
     promptRef: version.promptRef,
     orchestrationVersion: version.orchestrationVersion,
+    workflow: version.workflow,
     tools: version.tools,
     mcpServers: version.mcpServers,
     skills: version.skills,

@@ -9,6 +9,17 @@ import java.util.List;
 @Service
 public class ConsultOrchestrationPipeline {
 
+    private ConsultWorkflowService workflows;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setWorkflows(ConsultWorkflowService workflows) {
+        this.workflows = workflows;
+    }
+
+    public ConsultOrchestrationResult configured(ConsultOrchestrationRequest request, String legacyVersion) {
+        return workflows == null ? orchestrate(request, legacyVersion) : workflows.render(request, workflows.current());
+    }
+
     public static final String CLASSIC_VERSION = "v1";
     public static final String OPTIMIZED_VERSION = "v2";
     public static final String PRODUCTION_STANDBY_VERSION = "v3";
