@@ -114,6 +114,12 @@ http://localhost:5173/tools/claude-chat
 
 ### 功能亮点
 
+页头的「控制模式」可选择 **Code Agent** 或 **纯 LLM**。默认保留 Code Agent 的开发、工具、权限与会话能力；纯 LLM 使用原 AI 对话的模型、历史及附件能力，服务端不提供或执行工具。原 `/tools/ai-chat` 链接兼容进入纯 LLM 模式，菜单统一为 Vibe Coding。
+
+两种模式分别保存会话，切换不会拼接历史、迁移权限或取消后台 Agent 任务。控制模式与 Agent 的「计划 / 批准 / 完全访问」权限模式是不同维度。已有菜单权限分别校验，只有纯 LLM 权限的用户进入统一入口时自动进入纯 LLM，不获得 Agent 权限。
+
+执行边界与回归契约见 [对话控制模式设计](openspec/changes/unify-chat-control-modes/design.md)。
+
 | 能力域 | 功能点 | 说明 |
 |---|---|---|
 | 多 Agent 编排 | 四种编码引擎 | 同一工作台接入 Claude、Codex、Antigravity 和 OpenCode，可按任务特点选择合适的 Agent。 |

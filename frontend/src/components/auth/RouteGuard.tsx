@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
 import { hasFeatureAccess, requiredRolesFor } from '@/shell/access'
 import { useAccessContext } from '@/shell/permission'
@@ -14,11 +14,16 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
   const { user } = useAuth()
   const access = useAccessContext()
   const location = useLocation()
-  const normalAccess = hasFeatureAccess(feature, access)
+  const query = new URLSearchParams(location.search)
+  const control = location.pathname === feature.entry ? feature.controlPermissions : undefined
+  const selectedControl = control ? query.get(control.parameter) : null
+  const selectedPermission = control && selectedControl ? control.modes[selectedControl] : undefined
+  const normalAccess = hasFeatureAccess({ ...feature, controlPermissions: undefined,
+    requiredPermission: selectedPermission ?? feature.requiredPermission }, access)
   const scopedPrdSessionId = useMemo(() => {
-    if (feature.id !== 'claude-chat') return null
+    if (feature.id !== 'claude-chat' || selectedPermission) return null
     return new URLSearchParams(location.search).get('prdSessionId')?.trim() || null
-  }, [feature.id, location.search])
+  }, [feature.id, location.search, selectedPermission])
   const [scopedState, setScopedState] = useState<'idle' | 'checking' | 'allowed' | 'denied'>('idle')
 
   useEffect(() => {
@@ -40,7 +45,18 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
   if (scopedPrdSessionId && scopedState === 'checking') {
     return <div className="flex h-full items-center justify-center text-sm text-[var(--color-muted-foreground)]">正在验证需求开发权限…</div>
   }
+  if (!selectedControl && !scopedPrdSessionId && control && location.pathname === feature.entry) {
+    const permitted = Object.entries(control.modes).find(([, code]) => hasFeatureAccess({ ...feature,
+      controlPermissions: undefined, requiredPermission: code }, access))
+    if (permitted) {
+      query.set(control.parameter, permitted[0])
+      return <Navigate replace to={{ pathname: location.pathname, search: `?${query}`, hash: location.hash }} />
+    }
+  }
   const required = requiredRolesFor(feature.id)
+  const defaultAllowed = hasFeatureAccess({ ...feature, controlPermissions: undefined }, access)
+  const recoveryMode = control && Object.entries(control.modes).find(([, code]) => hasFeatureAccess({ ...feature,
+    controlPermissions: undefined, requiredPermission: code }, access))
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[var(--color-muted-foreground)]">
       <p className="text-base font-medium">无权访问</p>
@@ -49,6 +65,8 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
           ? `该模块需要 ${required.join(' 或 ')} 权限，请联系管理员开通。`
           : '请先登录后再访问该模块，登录入口在左侧菜单栏底部。'}
       </p>
+      {control && (defaultAllowed || recoveryMode) && <Link className="text-sm underline" to={defaultAllowed
+        ? feature.entry! : `${feature.entry}?${control.parameter}=${recoveryMode![0]}`}>返回可用控制模式</Link>}
     </div>
   )
 }

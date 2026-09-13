@@ -41,7 +41,7 @@ public class ChatModelFactory {
 
     /**
      * 工具循环用的「裸」流式模型：仅按 baseUrl/key 建一个,模型名/温度/maxTokens 改由
-     * 每轮 ChatRequest 下发(因工具循环需在同一连接参数下反复请求、并按需带 toolSpecifications)。
+     * 每次 ChatRequest 下发，连接参数共享，生成参数按请求指定。
      */
     public OpenAiStreamingChatModel sharedModel() {
         return cache.computeIfAbsent("__shared__", k -> OpenAiStreamingChatModel.builder()

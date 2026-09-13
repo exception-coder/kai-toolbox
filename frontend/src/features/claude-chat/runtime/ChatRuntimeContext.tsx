@@ -10,11 +10,13 @@ import {
   type EmergencyRepairRequest,
 } from '@/lib/emergencyRepair'
 import { isVibeCodingSession } from '../lib/sessionScope'
+import { chatControlMode } from '../lib/controlMode'
+import { useAccessContext } from '@/shell/permission'
 
 /** Vibe Coding 会话页路由；落在此路由即激活引擎（懒启动）。 */
 export const CHAT_ROUTE = '/tools/claude-chat'
-export function isChatRoute(pathname: string) {
-  return pathname === CHAT_ROUTE
+export function isChatRoute(pathname: string, search = '') {
+  return pathname === CHAT_ROUTE && chatControlMode(search) === 'CODE_AGENT'
 }
 
 interface FloatPos {
@@ -170,15 +172,18 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
   }, [demo, floating, minimized, pos, size])
   const location = useLocation()
   const navigate = useNavigate()
+  const access = useAccessContext()
+  const canOpenAgent = access.superAdmin || access.roles.includes('ADMIN') || access.permissionCodes.includes('menu:claude-chat')
+    || new URLSearchParams(location.search).has('prdSessionId')
   // 记住进入会话页前最后访问的非会话路由，弹出悬浮窗时回到这里（而非每次回首页）
   const lastRouteRef = useRef('/')
   const getReturnRoute = useCallback(() => lastRouteRef.current, [])
 
   // 落在会话页即激活引擎（懒启动）；否则记录为「返回路由」
   useEffect(() => {
-    if (isChatRoute(location.pathname)) setActive(true)
+    if (isChatRoute(location.pathname, location.search) && canOpenAgent) setActive(true)
     else lastRouteRef.current = location.pathname + location.search
-  }, [location.pathname, location.search])
+  }, [location.pathname, location.search, canOpenAgent])
 
   // ── 手势控制（默认关）：抓握=弹出悬浮窗；展开=返回会话页。仅在会话页或悬浮态监控（Vibe Coding 模块内）──
   const [gestureOn, setGestureOn] = useState(() => { try { return localStorage.getItem('kai-toolbox:chat-gesture') === '1' } catch { return false } })
@@ -194,7 +199,7 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
     return nv
   }), [])
   useGrabGesture({
-    enabled: gestureOn && !gesturePaused && (isChatRoute(location.pathname) || floating),
+    enabled: gestureOn && !gesturePaused && (isChatRoute(location.pathname, location.search) || floating),
     onStatus: setGestureStatus,
     onError: setGestureError,
     onGesture: g => {

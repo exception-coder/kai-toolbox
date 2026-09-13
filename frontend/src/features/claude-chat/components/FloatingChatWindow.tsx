@@ -241,7 +241,7 @@ export function FloatingChatWindow() {
   }
 
   // 在会话页时不渲染（全屏页已在），未弹出或引擎未就绪也不渲染
-  if (!floating || !chat || isChatRoute(location.pathname)) return null
+  if (!floating || !chat || isChatRoute(location.pathname, location.search)) return null
 
   const engineLabel = engineDisplayName(chat.currentEngine, chat.currentProviderKind)
   const host = providerHost(chat.currentProviderBaseUrl)

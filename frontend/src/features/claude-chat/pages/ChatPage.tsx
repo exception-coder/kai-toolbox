@@ -200,7 +200,7 @@ function WorkspaceHeaderMount({ target, children }: { target: HTMLElement | null
   return target ? createPortal(children, target) : children
 }
 
-export function ChatPage() {
+export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } = {}) {
   const { chat, setFloating, setMinimized, setVoiceMode, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError: gestureErr } = useChatRuntime()
   const unifiedTitleBarSlot = useUnifiedTitleBarSlot()
   const openMobileNavigation = useMobileNavigation()
@@ -1111,6 +1111,7 @@ export function ChatPage() {
             <Menu className="size-4" />
           </Button>
         )}
+        {renderControl?.()}
         {viewMode === 'multi' ? (
           /* 分屏下顶部不挂某一个会话的标题/引擎/状态/用量（各 pane 自带），只给中性标识 */
           <span className="font-semibold">分屏 · {multiIds.length} 个会话</span>

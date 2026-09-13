@@ -11,6 +11,7 @@ import java.util.List;
  * @param model          覆盖会话默认模型；非空时同步持久化为会话默认
  * @param temperature    覆盖会话默认温度
  * @param maxTokens      覆盖会话默认 maxTokens
+ * @param controlMode    仅接受 LLM；省略时兼容为纯模型模式
  */
 public record SendMessageRequest(
         String conversationId,
@@ -18,5 +19,6 @@ public record SendMessageRequest(
         List<String> attachmentIds,
         String model,
         Double temperature,
-        Integer maxTokens) {
+        Integer maxTokens,
+        String controlMode) {
 }

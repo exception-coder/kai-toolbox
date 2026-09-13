@@ -63,7 +63,7 @@ export function fetchMessages(id: string, before?: string, limit?: number): Prom
 }
 
 export function sendMessage(body: SendMessageBody): Promise<{ taskId: string }> {
-  return http<{ taskId: string }>(`${BASE}/completions`, { method: 'POST', body: JSON.stringify(body) })
+  return http<{ taskId: string }>(`${BASE}/completions`, { method: 'POST', body: JSON.stringify({ ...body, controlMode: 'LLM' }) })
 }
 
 export function stopCompletion(taskId: string): Promise<{ stopped: boolean }> {

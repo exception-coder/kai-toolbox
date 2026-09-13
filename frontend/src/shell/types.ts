@@ -43,5 +43,7 @@ export interface FeatureManifest {
    * 前端构建会从 manifest 生成后端权限目录，禁止再在 Java 中重复声明菜单名称、分组和排序。
    */
   requiredPermission?: string
+  /** 单入口多控制模式：菜单任一授权可见，路由按显式模式分别校验。 */
+  controlPermissions?: { parameter: string; modes: Record<string, string> }
   routes: FeatureRoute[]
 }
