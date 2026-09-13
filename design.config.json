@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "mode": "reference",
+  "profile": "forge-enterprise",
+  "overrides": "docs/product-philosophy.md"
+}

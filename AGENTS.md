@@ -2,6 +2,10 @@
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
+## Product and interaction philosophy
+
+Before adding navigation, object actions, dialogs or AI workflows, read [docs/product-philosophy.md](docs/product-philosophy.md). Record applicable principle IDs and exceptions in the OpenSpec design; preserve object context, operation feedback and keyboard/mobile recovery. The [AI coding architecture](docs/ai-coding-architecture.md) owns the context-layering contract; do not duplicate these documents in agent-specific rules.
+
 ## Project shape
 
 `kai-toolbox` is a local single-user toolkit platform: one Spring Boot shell + multiple pluggable tool modules, served at `http://localhost:8080`. No auth, no multi-tenancy. Stack: Java 21 / Spring Boot 3.4 / Maven multi-module on the backend; Vite 6 + React 19 + Tailwind v4 + React Router v7 + TanStack Query on the frontend. SQLite (via Spring JDBC) for persistence; SSE (`SseEmitter`) for streaming progress.

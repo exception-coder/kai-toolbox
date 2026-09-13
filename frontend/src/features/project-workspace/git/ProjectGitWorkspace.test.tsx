@@ -14,10 +14,13 @@ const snapshot: GitWorkspace = {
   files: [{ path: '新 名称.txt', origPath: 'old.txt', x: 'R', y: 'M' }],
   commits: [{ hash: '123456789abcdef', subject: '新增项目功能', author: 'Kai', date: '2026-09-12T08:00:00Z' }],
 }
-function show(projects = [project]) {
-  return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <ProjectGitWorkspace projects={projects} />
-  </QueryClientProvider>)
+function show(selected = project) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const viewOf = (value: RegistryProject) => <QueryClientProvider client={client}>
+    <ProjectGitWorkspace key={value.id} project={value} />
+  </QueryClientProvider>
+  const view = render(viewOf(selected))
+  return { ...view, select: (value: RegistryProject) => view.rerender(viewOf(value)) }
 }
 describe('project Git workspace', () => {
   afterEach(cleanup)
@@ -64,9 +67,9 @@ describe('project Git workspace', () => {
   })
 
   it('resets repository context when selecting another project', async () => {
-    show([project, { ...project, id: 'other', metadata: { ...project.metadata, name: 'Other' } }])
+    const view = show()
     await screen.findByText('新 名称.txt')
-    fireEvent.click(screen.getByRole('button', { name: /Other/ }))
+    view.select({ ...project, id: 'other', metadata: { ...project.metadata, name: 'Other' } })
     await waitFor(() => expect(getGitWorkspace).toHaveBeenCalledWith('other'))
     expect(screen.getByRole('region', { name: 'Other Git 工作区' })).toBeInTheDocument()
   })
