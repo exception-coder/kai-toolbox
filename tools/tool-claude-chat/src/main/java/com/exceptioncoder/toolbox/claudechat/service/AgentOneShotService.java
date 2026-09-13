@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,7 +22,7 @@ import java.util.function.Consumer;
 
 /**
  * 复用 claude-chat 的 sidecar 跑「一次性 Agent 任务」：给定 system+user prompt，
- * 经 Claude Agent SDK 跑一轮，逐片回吐文本并在结束返回全文。供其它模块（如简历「高质量」优化）调用。
+ * 经 Claude 或 Codex 引擎执行，逐片回吐文本并在结束返回全文。
  *
  * <p>不建持久会话；调用方可通过 {@link ExecutionRequest} 指定工作目录和受限工具策略。
  * requestId 以 {@code oneshot:} 前缀，由 {@link ClaudeChatService#onSidecarEvent} 分发到本服务的 {@link #handle}。
@@ -31,6 +32,7 @@ import java.util.function.Consumer;
 public class AgentOneShotService implements AgentOneShotRunner {
 
     private static final String PREFIX = "oneshot:";
+    private static final Set<String> SUPPORTED_ENGINES = Set.of(DEFAULT_ENGINE, "codex");
 
     private final SidecarProcessRegistry processRegistry;
     private final SidecarClient sidecar;
@@ -47,6 +49,11 @@ public class AgentOneShotService implements AgentOneShotRunner {
         this.props = props;
         this.telemetry = telemetry;
         this.admissionGate = admissionGate;
+    }
+
+    @Override
+    public Set<String> supportedEngines() {
+        return SUPPORTED_ENGINES;
     }
 
     /** 阻塞跑一次，返回完整文本。 */
@@ -103,6 +110,9 @@ public class AgentOneShotService implements AgentOneShotRunner {
     }
 
     private ObservedResult executeObserved(ExecutionRequest request, Consumer<String> onDelta, List<ImageInput> images) {
+        if (request == null || request.userPrompt() == null || request.userPrompt().isBlank()) {
+            throw new IllegalArgumentException("一次性 Agent 任务的 userPrompt 不能为空");
+        }
         String id = PREFIX + UUID.randomUUID();
         String engine = normalizeEngine(request.engine());
         AgentRunMetadata metadata = AgentRunMetadata.generic(
@@ -162,13 +172,16 @@ public class AgentOneShotService implements AgentOneShotRunner {
     }
 
     private static String normalizeEngine(String engine) {
-        if (engine == null || engine.isBlank() || "claude".equalsIgnoreCase(engine)) {
-            return "claude";
+        if (engine == null || engine.isBlank()) {
+            return DEFAULT_ENGINE;
         }
-        if ("codex".equalsIgnoreCase(engine)) {
-            return "codex";
+        for (String supported : SUPPORTED_ENGINES) {
+            if (supported.equalsIgnoreCase(engine.strip())) {
+                return supported;
+            }
         }
-        throw new IllegalArgumentException("不支持的 Agent 引擎: " + engine);
+        throw new IllegalArgumentException("不支持的一次性 Agent 引擎: " + engine
+                + "，支持的引擎: " + SUPPORTED_ENGINES);
     }
 
     /** 当前尚未返回终态的一次性 Agent 调用数；只读快照，供自动重启安全门使用。 */

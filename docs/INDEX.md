@@ -7,6 +7,7 @@
 | 产品哲学 | 对象、动作、视图、AI 证据与交互验收约束 | [product-philosophy.md](product-philosophy.md) |
 | 启动运行 | 跨平台源码守护、配置、重启与迁移 | [STARTUP.md](../scripts/STARTUP.md) |
 | AI 编程 | Agent 上下文分层、检索路由与事实边界 | [ai-coding-architecture.md](ai-coding-architecture.md) |
+| 公共 Agent 调用 | 一次性文本、流式结果、Bean 注入与引擎支持边界 | [toolbox-llm](../toolbox-llm/README.md) |
 | 架构 | 平台架构、模块边界与运行机制 | [architecture/](architecture/) |
 | 设计 | 需求、重构与实施设计 | [design/](design/INDEX.md) |
 | 现状梳理 | 重构前业务链路与代码坐标 | [orientation/](orientation/INDEX.md) |

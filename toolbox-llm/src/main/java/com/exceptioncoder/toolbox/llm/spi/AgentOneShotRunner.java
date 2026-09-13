@@ -3,11 +3,11 @@ package com.exceptioncoder.toolbox.llm.spi;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
- * 一次性 Agent 任务执行接口：给定 system+user prompt，经底层引擎（当前实现为 Claude Agent SDK sidecar）
- * 跑一轮推理，逐片回调 onDelta，结束后返回完整文本。
+ * 公共一次性 Agent 能力：按类型注入已有 Spring Bean，提交任务并获取文本或流式结果。
  *
  * <p>接口定义在 toolbox-llm，使各 tool 模块通过此接口注入能力，
  * 而无需直接依赖 tool-claude-chat（避免跨工具 Maven 强耦合）。
@@ -19,6 +19,21 @@ public interface AgentOneShotRunner {
     String DEFAULT_ENGINE = "claude";
     String TOOL_POLICY_DISABLED = "disabled";
     String TOOL_POLICY_CONSULT_READONLY = "consult-readonly";
+
+    /** 返回实现声明支持的引擎；空集合表示未声明，不代表安装、登录或额度检查通过。 */
+    default Set<String> supportedEngines() {
+        return Set.of();
+    }
+
+    /** 使用默认引擎执行纯文本任务并返回全文；禁用工具，失败向调用方抛出。 */
+    default String runText(String userPrompt) {
+        return runOnce(ExecutionRequest.textBuilder().userPrompt(userPrompt).build());
+    }
+
+    /** 使用默认引擎执行纯文本任务；回调增量并返回全文，禁用工具。 */
+    default String streamText(String userPrompt, Consumer<String> onDelta) {
+        return stream(ExecutionRequest.textBuilder().userPrompt(userPrompt).build(), onDelta);
+    }
 
     /**
      * 流式执行：每产出一片文本回调一次 {@code onDelta}，全部完成后返回全文。
@@ -122,6 +137,17 @@ public interface AgentOneShotRunner {
             String codexHome,
             String toolPolicy
     ) {
+        /** 构造禁用工具的纯文本请求；textBuilder 提供命名参数，模型为空时使用引擎默认值。 */
+        public static ExecutionRequest text(String systemPrompt, String userPrompt, String model, String engine) {
+            String selectedEngine = engine == null || engine.isBlank() ? DEFAULT_ENGINE : engine;
+            return new ExecutionRequest(systemPrompt, userPrompt, null, model, selectedEngine,
+                    null, null, null, null, null, TOOL_POLICY_DISABLED);
+        }
+
+        /** 创建纯文本请求构建器，每次调用返回独立实例。 */
+        public static AgentTextRequestBuilder textBuilder() {
+            return new AgentTextRequestBuilder();
+        }
     }
 
     record ObservedResult(
