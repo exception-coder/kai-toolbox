@@ -1,0 +1,1 @@
+export { LegacyLocalToolRedirect } from './LegacyLocalToolRedirect'

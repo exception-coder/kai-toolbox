@@ -1,15 +1,15 @@
-import { lazy } from 'react'
+import { LegacyLocalToolRedirect } from '@/features/local-tools/public-api'
 import { Network } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-const PortProcessPage = lazy(() => import('./pages/PortProcessPage').then((m) => ({ default: m.PortProcessPage })))
 const manifest: FeatureManifest = {
   id: 'port-process',
+  chrome: true,
   name: '端口进程查询',
   icon: Network,
   group: '系统',
   description: '按端口反查占用进程，自动适配 Windows / Linux / macOS，覆盖 IPv4 与 IPv6',
   order: 25,
-  routes: [{ path: '/tools/port-process', element: <PortProcessPage /> }],
+  routes: [{ path: '/tools/port-process', element: <LegacyLocalToolRedirect tool="port-process" /> }],
 }
 
 export default manifest

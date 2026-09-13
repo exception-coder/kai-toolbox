@@ -94,6 +94,13 @@
       "sort": 20
     },
     {
+      "featureId": "local-tools",
+      "code": "menu:local-tools",
+      "name": "本机工具",
+      "module": "系统",
+      "sort": 20
+    },
+    {
       "featureId": "video-library",
       "code": "menu:video-library",
       "name": "视频库",

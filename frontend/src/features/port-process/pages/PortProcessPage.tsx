@@ -39,7 +39,7 @@ interface KillResult {
   elapsedMs: number
 }
 
-export function PortProcessPage() {
+export function PortProcessPage({ embedded = false }: { embedded?: boolean }) {
   const [portInput, setPortInput] = useState('')
   const [killing, setKilling] = useState<number | null>(null)
   const [killOutcome, setKillOutcome] = useState<{ pid: number; killed: boolean; stderr: string | null } | null>(null)
@@ -109,17 +109,17 @@ export function PortProcessPage() {
   const error = mutation.error
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>端口进程查询</CardTitle>
+    <div className={embedded ? 'w-full space-y-4 p-5 sm:p-6' : 'mx-auto max-w-5xl space-y-4 p-6'}>
+      <Card className={embedded ? 'border-0 bg-transparent shadow-none' : undefined}>
+        <CardHeader className={embedded ? 'px-0 pt-0' : undefined}>
+          {!embedded && <CardTitle>端口进程查询</CardTitle>}
           <CardDescription>
             输入本机端口号，反查占用进程。后端按运行环境自动选择 netstat / lsof / ss，
             同时返回 IPv4 与 IPv6 监听项。
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <form className="flex items-center gap-2" onSubmit={submit}>
+        <CardContent className={embedded ? 'space-y-4 px-0' : 'space-y-4'}>
+          <form className="flex flex-wrap items-center gap-2" onSubmit={submit}>
             <Input
               inputMode="numeric"
               pattern="[0-9]*"

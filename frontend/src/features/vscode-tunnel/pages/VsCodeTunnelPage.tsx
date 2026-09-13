@@ -7,7 +7,7 @@ import { TunnelUrlCard } from '../components/TunnelUrlCard'
 import { AuthPromptCard } from '../components/AuthPromptCard'
 import { RunningTunnelPanel } from '../components/RunningTunnelPanel'
 
-export function VsCodeTunnelPage() {
+export function VsCodeTunnelPage({ embedded = false }: { embedded?: boolean }) {
   const { status, conn } = useTunnelStatus()
   const { start, stop, pending, error } = useTunnelControl()
 
@@ -15,11 +15,11 @@ export function VsCodeTunnelPage() {
   const busy = state === 'STARTING' || state === 'STOPPING' || pending !== null
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-6">
+    <div className={embedded ? 'flex w-full flex-col gap-4 p-5 sm:p-6' : 'mx-auto flex w-full max-w-3xl flex-col gap-4 p-6'}>
       <header className="flex items-center gap-3">
-        <Globe className="size-6 text-[var(--color-primary)]" />
+        {!embedded && <Globe className="size-6 text-[var(--color-primary)]" />}
         <div>
-          <h1 className="text-xl font-semibold">VS Code Tunnel</h1>
+          {!embedded && <h1 className="text-xl font-semibold">VS Code Tunnel</h1>}
           <p className="text-sm text-[var(--color-muted-foreground)]">
             在手机浏览器远程操作本机 VS Code（含已装扩展）
           </p>

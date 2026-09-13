@@ -40,7 +40,7 @@ function resolveAutorun(token: string | null): string | null {
   return AUTORUN_COMMANDS[token] ?? null
 }
 
-export function WebTermPage() {
+export function WebTermPage({ embedded = false }: { embedded?: boolean }) {
   const [params] = useSearchParams()
   const queryCwd = params.get('cwd') ?? ''
   const queryAutorun = resolveAutorun(params.get('autorun'))
@@ -151,7 +151,7 @@ export function WebTermPage() {
         </button>
 
         <TerminalSquare className="size-3.5 text-[var(--color-muted-foreground)]" />
-        <span className="truncate font-medium">终端</span>
+        {!embedded && <span className="truncate font-medium">终端</span>}
         <span className="text-xs text-[var(--color-muted-foreground)]">· {state}</span>
 
         <span className="ml-auto" />

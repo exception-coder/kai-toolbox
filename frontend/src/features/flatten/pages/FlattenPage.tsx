@@ -27,7 +27,7 @@ import {
 } from '../api'
 import type { FlattenScan } from '../types'
 
-export function FlattenPage() {
+export function FlattenPage({ embedded = false }: { embedded?: boolean }) {
   const qc = useQueryClient()
   const [active, setActive] = useState<FlattenScan | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
@@ -116,10 +116,10 @@ export function FlattenPage() {
   const stepState = computeStepState(active)
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6">
+    <div className={embedded ? 'flex w-full flex-col gap-4 p-5 sm:p-6' : 'mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6'}>
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">目录扁平化</h1>
+          {!embedded && <h1 className="text-xl font-semibold tracking-tight">目录扁平化</h1>}
           <p className="text-sm text-[var(--color-muted-foreground)]">
             把嵌套目录中的文件平铺到一处，迁移前先检测重复并选择性删除
           </p>
