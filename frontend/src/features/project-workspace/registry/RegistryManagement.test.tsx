@@ -11,7 +11,7 @@ import type { RegistryProject } from './types'
 
 vi.mock('@/features/claude-chat/public-api', () => ({ listWorkspaces: vi.fn() }))
 vi.mock('@/features/projects/public-api', () => ({ listProjects: vi.fn(), ProjectCard: () => <div>Git 操作</div> }))
-vi.mock('@/features/config-center/public-api', () => ({ getConfigBlock: vi.fn(), updateConfigBlock: vi.fn() }))
+vi.mock('@/features/config-center/public-api', async importOriginal => ({ ...await importOriginal<typeof import('@/features/config-center/public-api')>(), getConfigBlock: vi.fn(), updateConfigBlock: vi.fn() }))
 
 const workspaceId = 'toolbox.claude-chat.workspace'
 function provider(children: React.ReactNode) {
@@ -28,7 +28,7 @@ describe('central project management', () => {
     vi.mocked(listProjects).mockResolvedValue({ root: 'D:/work', rootExists: true, scannedAt: '', items: [] })
     vi.mocked(getConfigBlock).mockImplementation(async id => ({ id, name: id, entries: id === workspaceId
       ? [{ key: `${id}.roots`, value: null, type: 'list', values: ['D:/old', 'E:/old'], overridden: false }]
-      : [{ key: `${id}.root`, value: 'D:/old', overridden: false }] }))
+      : [{ key: `${id}.root`, value: 'D:/old', values: [], type: 'string', overridden: false }] }))
     vi.mocked(updateConfigBlock).mockResolvedValue({ id: workspaceId, name: '', entries: [] })
   })
 
@@ -93,6 +93,33 @@ describe('central project management', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存默认项目目录' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('请填写一个完整的本地目录')
     expect(updateConfigBlock).not.toHaveBeenCalled()
+  })
+
+  it('replaces hidden prefixes without overwriting the directory list', async () => {
+    provider(<ProjectDirectorySettings />)
+    fireEvent.change(await screen.findByLabelText('工作区隐藏前缀'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存工作区目录' }))
+    await waitFor(() => expect(updateConfigBlock).toHaveBeenCalledWith(workspaceId,
+      { [`${workspaceId}.hidden-prefixes`]: '' }, [`${workspaceId}.hidden-prefixes`]))
+  })
+
+  it.each(['0', '-1', '1.5', 'abc'])('rejects invalid scan duration %s without writing', async value => {
+    provider(<ProjectDirectorySettings />)
+    fireEvent.change(await screen.findByLabelText('工作区扫描缓存（秒）'), { target: { value } })
+    fireEvent.click(screen.getByRole('button', { name: '保存工作区目录' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('正整数')
+    expect(updateConfigBlock).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('工作区扫描缓存（秒）'), { target: { value: '5' } })
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存工作区目录' })).toBeDisabled()
+  })
+
+  it('converts the managed Git timeout to milliseconds and preserves the source root', async () => {
+    provider(<ProjectDirectorySettings />)
+    fireEvent.change(await screen.findByLabelText('托管 Git 命令超时（秒）'), { target: { value: '120' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存托管业务源码目录' }))
+    await waitFor(() => expect(updateConfigBlock).toHaveBeenCalledWith('toolbox.claude-chat.business-workspace',
+      { 'toolbox.claude-chat.business-workspace.command-timeout-ms': '120000' }, []))
   })
 
   it('keeps explicit missing roots visible with a directory settings action', async () => {

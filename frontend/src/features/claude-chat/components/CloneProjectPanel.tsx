@@ -97,7 +97,7 @@ export function CloneProjectPanel({ onCloned, onClose }: Props) {
 
       <label className="mt-3 block text-xs text-[var(--color-muted-foreground)]">克隆到工作区（与新建会话一致）</label>
       {roots.length === 0 ? (
-        <p className="mt-1 text-xs text-[var(--color-destructive)]">未配置可用工作区根（toolbox.claude-chat.workspace.roots）。</p>
+        <p className="mt-1 text-xs text-[var(--color-destructive)]">暂无可用工作区目录，请到「项目库 → 目录设置」添加。</p>
       ) : (
         <select
           value={root}

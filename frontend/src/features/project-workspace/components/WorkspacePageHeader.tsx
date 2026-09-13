@@ -90,7 +90,7 @@ export function WorkspacePageHeader({
           <Info className="h-3.5 w-3.5 shrink-0" />依赖声明
         </div>
         <ul className="ml-4 list-disc space-y-0.5">
-          <li><b className="text-[var(--color-foreground)]">项目列表</b> ← <code>workspace.roots</code>（工作区扫描根目录）<DependencyMark ok={dependencies.rootsOk} /></li>
+          <li><b className="text-[var(--color-foreground)]">项目列表</b> ← 项目库工作区目录（工作区扫描根目录）<DependencyMark ok={dependencies.rootsOk} /></li>
           <li><b className="text-[var(--color-foreground)]">模块清单 / 中文名</b> ← 团队初始化目录 <code>{TEAM_KNOWLEDGE_DIR}</code><DependencyMark ok={dependencies.knowledgeBaseOk} label={dependencies.knowledgeBaseOk ? '已就绪' : '未初始化'} /></li>
           <li><b className="text-[var(--color-foreground)]">业务真理识别</b> ← 团队初始化目录下的 <b className="text-[var(--color-foreground)]">project-domain-knowledge</b>（需已 build 引擎 dist）<DependencyMark ok={dependencies.domainOk} label={dependencies.domainLabel} /></li>
           <li><b className="text-[var(--color-foreground)]">跨项目拓扑识别</b> ← 团队初始化目录下的 <b className="text-[var(--color-foreground)]">cross-project-topology</b>（复用上面引擎）<DependencyMark ok={dependencies.crossProjectOk} label={dependencies.crossProjectLabel} /></li>

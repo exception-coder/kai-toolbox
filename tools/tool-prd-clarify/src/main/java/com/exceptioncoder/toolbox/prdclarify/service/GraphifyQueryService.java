@@ -2,9 +2,8 @@ package com.exceptioncoder.toolbox.prdclarify.service;
 
 import com.exceptioncoder.toolbox.prdclarify.config.GraphifyProperties;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.context.properties.bind.Bindable;
-import org.springframework.boot.context.properties.bind.Binder;
-import org.springframework.core.env.Environment;
+import com.exceptioncoder.toolbox.llm.spi.LocalProjectResolver;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.stereotype.Service;
 
@@ -37,21 +36,20 @@ import java.util.stream.Stream;
 @Service
 public class GraphifyQueryService {
 
-    private static final String WORKSPACE_ROOTS_KEY = "toolbox.claude-chat.workspace.roots";
     private static final int MAX_OUTPUT_BYTES = 1_000_000;
     private static final int OUTPUT_DRAIN_TIMEOUT_SECONDS = 2;
 
     private final GraphifyProperties props;
-    private final Environment environment;
+    private final ObjectProvider<LocalProjectResolver> projectResolver;
     private final AsyncTaskExecutor taskExecutor;
 
     public GraphifyQueryService(
             GraphifyProperties props,
-            Environment environment,
+            ObjectProvider<LocalProjectResolver> projectResolver,
             AsyncTaskExecutor taskExecutor
     ) {
         this.props = props;
-        this.environment = environment;
+        this.projectResolver = projectResolver;
         this.taskExecutor = taskExecutor;
     }
 
@@ -172,7 +170,7 @@ public class GraphifyQueryService {
      * 解析图谱所在目录：
      * <ol>
      *   <li>project 本身若已是存在的绝对路径，直接按它处理（兜底容错，正常来自前端下拉的是目录名）；</li>
-     *   <li>否则在 {@code toolbox.claude-chat.workspace.roots} 各根下找名为 project 的一级子目录；</li>
+     *   <li>否则通过项目库共用的本地项目解析端口查找 project；</li>
      *   <li>该目录下若已有 {@code graphify-out/graph.json}，直接使用；</li>
      *   <li>否则视为多子项目聚合容器（如 monorepo 父目录），向下扫描一级子目录找含图谱的候选：
      *       module 非空时优先取目录名包含 module（忽略大小写）的子目录；否则按目录名排序取第一个，
@@ -221,21 +219,16 @@ public class GraphifyQueryService {
         return candidates.get(0);
     }
 
-    /** 在配置的工作区根下找名为 project 的一级子目录，找不到返回 null。 */
+    /** 使用统一项目发现结果，包括工作区及托管源码项目。 */
     private Path findProjectRoot(String project) {
-        List<String> roots = Binder.get(environment)
-                .bind(WORKSPACE_ROOTS_KEY, Bindable.listOf(String.class))
-                .orElse(List.of());
-        for (String rootSetting : roots) {
-            if (rootSetting == null || rootSetting.isBlank()) continue;
-            Path root = Path.of(rootSetting).toAbsolutePath().normalize();
-            if (!Files.isDirectory(root)) continue;
-            Path candidate = root.resolve(project);
-            if (Files.isDirectory(candidate)) {
-                return candidate;
-            }
+        LocalProjectResolver resolver = projectResolver.getIfAvailable();
+        if (resolver == null) {
+            return null;
         }
-        return null;
+        return resolver.resolve(project)
+                .map(location -> Path.of(location.path()))
+                .filter(Files::isDirectory)
+                .orElse(null);
     }
 
     /** 列出 dir 一级子目录中含 graphify-out/graph.json 的候选，按目录名排序。 */

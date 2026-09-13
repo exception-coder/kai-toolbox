@@ -138,7 +138,7 @@ export function NewDevModulePage() {
             onChange={e => pickCwd(e.target.value)}
             className="mt-1 h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
           >
-            {dirs.length === 0 && <option value="">（无可用目录，请把 kai-toolbox 仓所在目录加入 application.yml 的 workspace.roots）</option>}
+            {dirs.length === 0 && <option value="">（无可用目录，请在项目库的目录设置中添加 kai-toolbox 所在的工作区目录）</option>}
             {dirs.map(d => <option key={d.path} value={d.path}>{d.label}</option>)}
           </select>
           <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">脚手架会往这个目录（应为 kai-toolbox 仓）里生成前端 feature/后端配置代码。</p>

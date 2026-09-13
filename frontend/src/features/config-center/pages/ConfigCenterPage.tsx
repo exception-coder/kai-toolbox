@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RELAY_BLOCK, RelayClientsEditor } from '../components/RelayClientsEditor'
+import { isProjectDirectoryBlock, PROJECT_DIRECTORY_SETTINGS_URL } from '../configDestinations'
 import { fetchModels, HeaderModelPicker, type ModelInfo } from '@/features/ai-chat/public-api'
 import {
   getConfigBlock,
@@ -24,9 +25,9 @@ const INTERNAL_CONFIG_KEYS = new Set([
 export function ConfigCenterPage() {
   const qc = useQueryClient()
   const { data: blocksData } = useQuery({ queryKey: BLOCKS_KEY, queryFn: listConfigBlocks })
-  const blocks = blocksData?.blocks ?? []
+  const blocks = (blocksData?.blocks ?? []).filter(block => !isProjectDirectoryBlock(block.id))
 
-  // 支持 ?block=<blockId> 深链直达某配置块（如从项目工作台「去配置中心」跳来定位 workspace 块）
+  // 旧目录深链由项目库接管，其他配置仍按块定位。
   const [searchParams] = useSearchParams()
   const wantBlock = searchParams.get('block')
   const [selected, setSelected] = useState<string | null>(null)
@@ -36,10 +37,17 @@ export function ConfigCenterPage() {
     setSelected(target)
   }, [blocks, selected, wantBlock])
 
+  if (isProjectDirectoryBlock(wantBlock)) {
+    return <Navigate to={PROJECT_DIRECTORY_SETTINGS_URL} replace />
+  }
+
   return (
     <div className="flex h-full min-h-0">
       <aside className="w-60 shrink-0 overflow-y-auto border-r">
         <div className="px-3 py-2 text-xs font-medium text-[var(--color-muted-foreground)]">可刷新配置块</div>
+        <Link to={PROJECT_DIRECTORY_SETTINGS_URL} className="block px-3 pb-3 text-xs text-[var(--color-primary)] hover:underline">
+          项目目录已统一到项目库 →
+        </Link>
         {blocks.length === 0 && (
           <div className="px-3 py-4 text-sm text-[var(--color-muted-foreground)]">
             暂无配置块（给 @ConfigurationProperties 加 @Refreshable 即纳入）

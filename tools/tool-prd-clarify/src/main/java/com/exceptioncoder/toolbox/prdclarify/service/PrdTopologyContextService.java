@@ -1,8 +1,7 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
-import org.springframework.boot.context.properties.bind.Bindable;
-import org.springframework.boot.context.properties.bind.Binder;
-import org.springframework.core.env.Environment;
+import com.exceptioncoder.toolbox.llm.spi.LocalProjectResolver;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -17,12 +16,11 @@ import java.util.stream.Stream;
 @Service
 public class PrdTopologyContextService {
 
-    private static final String WORKSPACE_ROOTS_KEY = "toolbox.claude-chat.workspace.roots";
     private static final int MAX_HITS = 8;
-    private final Environment environment;
+    private final ObjectProvider<LocalProjectResolver> projectResolver;
 
-    public PrdTopologyContextService(Environment environment) {
-        this.environment = environment;
+    public PrdTopologyContextService(ObjectProvider<LocalProjectResolver> projectResolver) {
+        this.projectResolver = projectResolver;
     }
 
     /** 返回同时提及主项目或关联项目的拓扑摘要。 */
@@ -68,18 +66,14 @@ public class PrdTopologyContextService {
     }
 
     private Path resolveTopologyRoot() {
-        List<String> roots = Binder.get(environment)
-                .bind(WORKSPACE_ROOTS_KEY, Bindable.listOf(String.class)).orElse(List.of());
-        for (String configured : roots) {
-            if (configured == null || configured.isBlank()) {
-                continue;
-            }
-            Path candidate = Path.of(configured).toAbsolutePath().normalize().resolve("cross-project-topology");
-            if (Files.isDirectory(candidate.resolve("knowledge"))) {
-                return candidate;
-            }
+        LocalProjectResolver resolver = projectResolver.getIfAvailable();
+        if (resolver == null) {
+            return null;
         }
-        return null;
+        return resolver.resolve("cross-project-topology")
+                .map(location -> Path.of(location.path()))
+                .filter(path -> Files.isDirectory(path.resolve("knowledge")))
+                .orElse(null);
     }
 
     private static String value(String value) {

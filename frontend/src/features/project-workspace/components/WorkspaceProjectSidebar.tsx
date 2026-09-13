@@ -92,7 +92,7 @@ export function WorkspaceProjectSidebar({
           <FolderTree className="h-4 w-4" />
           项目
         </CardTitle>
-        <CardDescription>来自 Vibe Coding 工作区配置（workspace.roots）</CardDescription>
+        <CardDescription>来自项目库目录设置中的工作区与托管源码目录</CardDescription>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--color-muted-foreground)]" />
           <Input
@@ -134,10 +134,10 @@ export function WorkspaceProjectSidebar({
               没有可用项目
             </div>
             <p>
-              项目列表来自配置项 <code>toolbox.claude-chat.workspace.roots</code>（工作区扫描根目录）。
+              项目列表来自项目库维护的工作区扫描目录。
               当前它{source.roots.length > 0 ? '下没有扫描到子目录——检查路径是否存在/写对' : '还未配置'}。
             </p>
-            <p>去「配置中心 → Claude 工作目录」把你的代码目录（如 <code>D:\Users\你\myWork</code>）加进 roots，保存即时生效、无需重启。</p>
+            <p>去「项目库 → 目录设置」添加代码目录（如 <code>D:\Users\你\myWork</code>），保存后按扫描缓存周期刷新。</p>
             <Button type="button" size="sm" variant="outline" onClick={onOpenWorkspaceConfig}>
               <Database className="h-3.5 w-3.5" />去配置工作区目录
             </Button>
