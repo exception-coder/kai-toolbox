@@ -4,6 +4,7 @@ import { getConfigBlock, PROJECT_DIRECTORY_BLOCKS } from '@/features/config-cent
 import { RegistryError } from './RegistryStates'
 import { directoriesUnified, unifiedDirectoryBlock, DIRECTORY_SECTIONS, type DirectorySection } from './directorySettingsModel'
 import { ProjectDirectoryEditor } from './ProjectDirectoryEditor'
+import { ProjectCatalogSettings } from './ProjectCatalogSettings'
 
 export { directoryValues } from './directorySettingsModel'
 
@@ -14,6 +15,7 @@ export function ProjectDirectorySettings() {
       <p className="mt-2 text-sm text-[var(--color-muted-foreground)]">在这里统一管理项目来源与扫描规则。仅扫描各目录的一级子目录；保存不会搬移文件或删除已登记系统。</p>
     </div>
     <DirectoryBlock section={DIRECTORY_SECTIONS[0]} />
+    <ProjectCatalogSettings />
     <details><summary className="cursor-pointer text-sm text-[var(--color-muted-foreground)]">托管源码高级设置</summary><div className="mt-4"><DirectoryBlock section={DIRECTORY_SECTIONS[1]} /></div></details>
   </section>
 }

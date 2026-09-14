@@ -37,9 +37,11 @@ class ProjectRegistryIntegrationTest {
     @Autowired SystemTaskService tasks;
     @Autowired ProjectEvidencePort evidence;
     @Autowired JdbcTemplate jdbc;
+    @Autowired com.exceptioncoder.toolbox.projects.catalog.ProjectCatalogProperties catalogProperties;
 
     @BeforeEach
     void resetState() {
+        catalogProperties.setExcludedPaths(List.of());
         jdbc.update("DELETE FROM forge_system_task");
         jdbc.update("DELETE FROM forge_system_profile");
         jdbc.update("DELETE FROM forge_system_init_run");
@@ -63,6 +65,18 @@ class ProjectRegistryIntegrationTest {
         assertThatThrownBy(() -> projects.register(metadata("Other", "D:/repo")))
                 .hasMessageContaining("已登记");
         assertThat(store.projects()).hasSize(1);
+    }
+
+    @Test
+    void exclusionBlocksListDetailAndInitializationWithoutDeletingIdentity() {
+        RegistryProject project = projects.register(metadata("Forge", "D:/repo"));
+        catalogProperties.setExcludedPaths(List.of("D:/repo"));
+        assertThat(projects.list()).isEmpty();
+        assertThatThrownBy(() -> projects.detail(project.id())).hasMessageContaining("全局排除");
+        assertThatThrownBy(() -> initialization.start(project.id(), "FULL")).hasMessageContaining("全局排除");
+        assertThat(store.project(project.id())).contains(project);
+        catalogProperties.setExcludedPaths(List.of());
+        assertThat(projects.require(project.id())).isEqualTo(project);
     }
 
     @Test
@@ -233,6 +247,12 @@ class ProjectRegistryIntegrationTest {
     @Configuration
     @EnableTransactionManagement
     static class Config {
+        @Bean com.exceptioncoder.toolbox.projects.catalog.ProjectCatalogProperties catalogProperties() {
+            return new com.exceptioncoder.toolbox.projects.catalog.ProjectCatalogProperties();
+        }
+        @Bean com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess(com.exceptioncoder.toolbox.projects.catalog.ProjectCatalogProperties properties) {
+            return new com.exceptioncoder.toolbox.projects.catalog.ProjectVisibilityPolicy(properties);
+        }
         @Bean DataSource dataSource() {
             var source = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
             new ResourceDatabasePopulator(new ClassPathResource("db/project-registry-schema.sql")).execute(source);

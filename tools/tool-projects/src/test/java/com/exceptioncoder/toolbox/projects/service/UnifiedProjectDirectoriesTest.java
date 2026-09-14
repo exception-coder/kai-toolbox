@@ -31,7 +31,13 @@ class UnifiedProjectDirectoriesTest {
         when(source.scanRoots()).thenReturn(List.of(first, second));
         when(source.hiddenPrefixes()).thenReturn(List.of("."));
         when(source.contains(two)).thenReturn(true);
-        var result = new ProjectScanner(source).scan();
+        var scanner = new ProjectScanner(source);
+        var registry = mock(com.exceptioncoder.toolbox.projects.registry.domain.ProjectRegistryStore.class);
+        when(registry.projects()).thenReturn(List.of());
+        var properties = new com.exceptioncoder.toolbox.projects.catalog.ProjectCatalogProperties();
+        scanner.setProjectCatalog(new com.exceptioncoder.toolbox.projects.catalog.ProjectCatalogService(source, registry,
+                new com.exceptioncoder.toolbox.projects.catalog.ProjectVisibilityPolicy(properties), properties));
+        var result = scanner.scan();
         assertThat(result.items()).extracting(item -> item.path()).containsExactlyInAnyOrder(one.toString(), two.toString());
         assertThat(result.rootExists()).isTrue();
         var git = mock(GitLogService.class);

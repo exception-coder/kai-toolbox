@@ -38,6 +38,10 @@ public class ProjectRouteBindingService {
     private final BusinessWorkspaceCatalog businessWorkspaceCatalog;
     private final BusinessWorkspaceProperties businessWorkspaceProperties;
     private final TeamToolsPathService teamToolsPathService;
+    private com.exceptioncoder.toolbox.common.project.ProjectAccess access;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setProjectAccess(com.exceptioncoder.toolbox.common.project.ProjectAccess access) { this.access = access; }
 
     public ProjectRouteBindingService(
             ProjectRouteBindingRepository repository,
@@ -55,44 +59,32 @@ public class ProjectRouteBindingService {
         this.teamToolsPathService = teamToolsPathService;
     }
 
-    /** 返回显式、托管、目录同名和未绑定知识项目的合并视图。 */
+    /** 为统一目录清单投影知识路由；模板和知识文件夹不创建运行项目。 */
     public List<ResolvedProjectRouteBinding> list() {
         Map<String, ResolvedProjectRouteBinding> byProjectKey = new LinkedHashMap<>();
         Set<String> claimedPaths = new LinkedHashSet<>();
 
+        WorkspaceListResponse workspaces = workspaceScanService.scan();
+        Map<String, WorkspaceDirView> candidates = new LinkedHashMap<>();
+        workspaces.roots().stream().flatMap(root -> root.dirs().stream())
+                .forEach(directory -> candidates.put(pathKey(directory.path()), directory));
         for (ProjectRouteBinding explicit : repository.findAll()) {
+            WorkspaceDirView candidate = candidates.get(pathKey(explicit.projectPath()));
+            if (candidate == null) continue;
+            if (access != null && !access.allowed(Path.of(explicit.projectPath()))) {
+                continue;
+            }
             ResolvedProjectRouteBinding resolved = resolved(
-                    explicit.projectKey(), explicit.projectPath(), displayName(explicit.projectKey(), explicit.aliases()),
+                    explicit.projectKey(), explicit.projectPath(), candidate.displayName(),
                     explicit.aliases(), "EXPLICIT", true, "Forge SQLite 显式绑定");
             byProjectKey.put(key(explicit.projectKey()), resolved);
             claimedPaths.add(pathKey(explicit.projectPath()));
         }
 
-        Path businessRoot = businessWorkspaceProperties.resolveRoot();
-        for (BusinessWorkspaceCatalog.SystemDefinition system : businessWorkspaceCatalog.systems()) {
-            String projectKey = system.workspaceName();
-            if (byProjectKey.containsKey(key(projectKey))) {
-                continue;
-            }
-            String projectPath = businessRoot.resolve(system.workspaceName()).normalize().toString();
-            List<String> aliases = List.of(system.id(), system.name());
-            byProjectKey.put(key(projectKey), resolved(
-                    projectKey, projectPath, system.name(), aliases,
-                    "MANAGED_CATALOG", false, "Forge 托管业务源码目录"));
-            claimedPaths.add(pathKey(projectPath));
-        }
-
-        WorkspaceListResponse workspaces = projectAliasService.decorate(workspaceScanService.scan());
         workspaces.roots().stream()
                 .filter(WorkspaceListResponse.RootView::exists)
                 .flatMap(root -> root.dirs().stream())
                 .forEach(directory -> addDirectoryConvention(byProjectKey, claimedPaths, directory));
-
-        for (String projectKey : teamToolsPathService.knowledgeProjectKeys()) {
-            byProjectKey.putIfAbsent(key(projectKey), new ResolvedProjectRouteBinding(
-                    projectKey, "", projectKey, List.of(), "UNBOUND", false,
-                    false, true, "团队知识已存在，但尚未绑定本机源码目录"));
-        }
 
         return byProjectKey.values().stream()
                 .sorted((left, right) -> left.projectKey().compareToIgnoreCase(right.projectKey()))
@@ -159,13 +151,11 @@ public class ProjectRouteBindingService {
             return;
         }
         String projectKey = directory.name();
-        if (byProjectKey.containsKey(key(projectKey))) {
-            return;
-        }
+        if (byProjectKey.containsKey(key(projectKey)) && byProjectKey.get(key(projectKey)).explicit()) return;
         List<String> aliases = directory.alias() == null || directory.alias().isBlank()
                 ? List.of()
                 : List.of(directory.alias());
-        byProjectKey.put(key(projectKey), resolved(
+        byProjectKey.put(key(projectKey) + "@" + normalizedPathKey, resolved(
                 projectKey, directory.path(), directory.displayName(), aliases,
                 "DIRECTORY_CONVENTION", false, "兼容规则：源码目录名等于 knowledge projectKey"));
         claimedPaths.add(normalizedPathKey);

@@ -21,6 +21,14 @@ public class WorkspaceRootResolver implements ProjectDirectorySource {
     private final WorkspaceProperties workspaceProperties;
     private final BusinessWorkspaceProperties businessWorkspaceProperties;
     private LegacyProjectDirectory legacyDirectory;
+    @Autowired(required = false)
+    private com.exceptioncoder.toolbox.common.resource.ProjectSystemDirectory registeredSystems;
+    private com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess;
+
+    @Autowired
+    public void setProjectAccess(com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess) {
+        this.projectAccess = projectAccess;
+    }
 
     @Autowired(required = false)
     public void setLegacyDirectory(LegacyProjectDirectory legacyDirectory) {
@@ -74,7 +82,10 @@ public class WorkspaceRootResolver implements ProjectDirectorySource {
     }
 
     public boolean contains(Path path) {
+        if (projectAccess != null) projectAccess.requireAllowed(path);
         Path normalized = path.toAbsolutePath().normalize();
-        return roots().stream().anyMatch(root -> normalized.equals(root) || normalized.startsWith(root));
+        return roots().stream().anyMatch(root -> normalized.equals(root) || normalized.startsWith(root))
+                || registeredSystems != null && registeredSystems.systems().stream()
+                .anyMatch(system -> normalized.startsWith(Path.of(system.sourcePath()).toAbsolutePath().normalize()));
     }
 }

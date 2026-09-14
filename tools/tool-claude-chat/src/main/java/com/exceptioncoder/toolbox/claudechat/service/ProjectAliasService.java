@@ -81,7 +81,8 @@ public class ProjectAliasService {
 
     private WorkspaceDirView decorateProject(WorkspaceDirView project, Map<String, String> aliases) {
         String alias = aliases.get(pathKey(project.path()));
-        String displayName = alias == null || alias.isBlank() ? project.name() : alias;
+        String displayName = project.displayName() == null || project.displayName().equals(project.name())
+                ? (alias == null || alias.isBlank() ? project.name() : alias) : project.displayName();
         return new WorkspaceDirView(project.name(), project.path(), alias, displayName);
     }
 

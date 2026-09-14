@@ -24,6 +24,8 @@ import java.util.stream.Stream;
 @Slf4j
 @Service
 public class BusinessOpenSpecService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess;
 
     private static final String OPEN_SPEC_SKILL_PREFIX = "openspec-";
     private static final Duration STATUS_TIMEOUT = Duration.ofSeconds(10);
@@ -46,6 +48,7 @@ public class BusinessOpenSpecService {
 
     /** 读取一个仓库内由 OpenSpec 管理的配置根与双端 Skill 证据。 */
     public BusinessOpenSpecStatusView inspect(Path repository) {
+        if (projectAccess != null) projectAccess.requireAllowed(repository);
         if (!Files.isDirectory(repository) || !Files.exists(repository.resolve(".git"))) {
             return status(false, false, false, "NOT_AVAILABLE", "仓库尚未就绪");
         }
@@ -144,6 +147,7 @@ public class BusinessOpenSpecService {
     private Path resolveTarget(RepositoryDefinition repository) {
         Path root = properties.resolveRoot();
         Path target = root.resolve(repository.relativePath()).normalize();
+        if (projectAccess != null) projectAccess.requireAllowed(target);
         if (target.equals(root) || !target.startsWith(root)) {
             throw new IllegalStateException("业务仓库目标越界：" + target);
         }

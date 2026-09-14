@@ -31,7 +31,9 @@ class WorkspaceScanServiceTest {
         when(business.resolveRoot()).thenReturn(managed);
         when(business.getRoot()).thenReturn("");
         var resolver = new WorkspaceRootResolver(properties, business);
-        var response = new WorkspaceScanService(properties, resolver, new ObjectMapper()).scan();
+        var service = new WorkspaceScanService(properties, resolver, new ObjectMapper());
+        service.setProjectCatalog(includeExcluded -> List.of());
+        var response = service.scan();
         assertThat(response.roots()).hasSize(1);
         assertThat(response.roots().getFirst().root()).isEqualTo(missing.toString());
         assertThat(response.roots().getFirst().exists()).isFalse();
@@ -49,6 +51,9 @@ class WorkspaceScanServiceTest {
         businessProperties.setRoot(businessRoot.toString());
         WorkspaceRootResolver rootResolver = new WorkspaceRootResolver(properties, businessProperties);
         WorkspaceScanService service = new WorkspaceScanService(properties, rootResolver, new ObjectMapper());
+
+        service.setProjectCatalog(includeExcluded -> List.of(new com.exceptioncoder.toolbox.common.project.ProjectCatalog.Entry(
+                "srm", "", "SRM", businessRoot.resolve("srm-system").toString(), businessRoot.toString(), true, false, "DISCOVERED")));
 
         assertThat(service.scan().roots()).hasSize(2);
         assertThat(service.scan().roots().get(1).dirs())

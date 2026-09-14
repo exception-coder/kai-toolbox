@@ -27,6 +27,8 @@ import java.util.function.Consumer;
 @Slf4j
 @Service
 public class BusinessWorkspaceService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess;
 
     private static final long STATUS_TIMEOUT_MS = 10_000L;
     private static final int MAX_OUTPUT_LENGTH = 800;
@@ -49,6 +51,7 @@ public class BusinessWorkspaceService {
     public List<BusinessSystemWorkspaceView> readStatuses(boolean fetch) {
         Path root = properties.resolveRoot();
         return catalog.systems().stream()
+                .filter(system -> projectAccess == null || projectAccess.allowed(root.resolve(system.workspaceName())))
                 .map(system -> inspectSystem(root, system, fetch))
                 .toList();
     }
@@ -263,6 +266,7 @@ public class BusinessWorkspaceService {
     private Path resolveTarget(Path root, RepositoryDefinition repository) {
         Path safeRoot = root.toAbsolutePath().normalize();
         Path target = safeRoot.resolve(repository.relativePath()).normalize();
+        if (projectAccess != null) projectAccess.requireAllowed(target);
         if (target.equals(safeRoot) || !target.startsWith(safeRoot)) {
             throw new IllegalStateException("业务仓库目标越界：" + target);
         }

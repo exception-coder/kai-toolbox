@@ -15,6 +15,10 @@ import java.util.UUID;
 public class ProjectRegistryService {
     private final ProjectRegistryStore store;
     private final ProjectEvidencePort evidence;
+    private com.exceptioncoder.toolbox.common.project.ProjectAccess access;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setProjectAccess(com.exceptioncoder.toolbox.common.project.ProjectAccess access) { this.access = access; }
 
     public ProjectRegistryService(ProjectRegistryStore store, ProjectEvidencePort evidence) {
         this.store = store;
@@ -22,11 +26,13 @@ public class ProjectRegistryService {
     }
 
     public List<RegistryProject> list() {
-        return store.projects();
+        return store.projects().stream().filter(project -> access == null || access.allowed(java.nio.file.Path.of(project.metadata().localPath()))).toList();
     }
 
     public RegistryProject require(String id) {
-        return store.project(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "项目未登记"));
+        RegistryProject project = store.project(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "项目未登记"));
+        if (access != null) access.requireAllowed(java.nio.file.Path.of(project.metadata().localPath()));
+        return project;
     }
 
     public RegistryProject register(RegistryProject.Metadata metadata) {
@@ -76,6 +82,7 @@ public class ProjectRegistryService {
     }
 
     private RegistryProject.Metadata validate(RegistryProject.Metadata input) {
+        if (access != null && input != null && input.localPath() != null) access.requireAllowed(java.nio.file.Path.of(input.localPath()));
         if (input == null || input.name() == null || input.name().isBlank() || input.name().length() > 120) {
             throw new IllegalArgumentException("请输入 1–120 字的项目名称");
         }

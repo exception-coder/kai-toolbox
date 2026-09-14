@@ -26,6 +26,10 @@ import java.util.stream.Stream;
 public class ProjectScanner {
 
     private final ProjectDirectorySource directories;
+    private com.exceptioncoder.toolbox.common.project.ProjectCatalog catalog;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setProjectCatalog(com.exceptioncoder.toolbox.common.project.ProjectCatalog catalog) { this.catalog = catalog; }
 
     public ProjectScanner(ProjectDirectorySource directories) {
         this.directories = directories;
@@ -36,48 +40,19 @@ public class ProjectScanner {
      */
     public ProjectsListResponse scan() {
         List<Path> roots = directories.scanRoots();
-        List<ProjectInfo> items = new ArrayList<>();
-        for (Path root : roots) scanRoot(root, items);
-        List<ProjectInfo> unique = items.stream().collect(java.util.stream.Collectors.toMap(
-                ProjectInfo::path, item -> item, (first, ignored) -> first, java.util.LinkedHashMap::new))
-                .values().stream().sorted(Comparator.comparing(ProjectInfo::lastModified, Comparator.reverseOrder())).toList();
+        List<ProjectInfo> unique = catalog.list(false).stream().filter(item -> item.available())
+                .map(item -> toProjectInfo(Path.of(item.path()), item.name()))
+                .sorted(Comparator.comparing(ProjectInfo::lastModified, Comparator.reverseOrder())).toList();
         return new ProjectsListResponse(roots.isEmpty() ? "" : roots.getFirst().toString(),
                 roots.stream().anyMatch(Files::isDirectory), OffsetDateTime.now(), unique);
     }
 
-    private void scanRoot(Path root, List<ProjectInfo> items) {
-        if (!Files.isDirectory(root)) return;
-        try (Stream<Path> children = Files.list(root)) {
-            children.filter(this::isCandidate)
-                    .map(this::toProjectInfo)
-                    .forEach(items::add);
-        } catch (IOException e) {
-            log.error("扫描根目录失败: {}", root, e);
-        }
-    }
-
-    /**
-     * 仅保留目录，且目录名不以隐藏前缀开头。
-     */
-    private boolean isCandidate(Path dir) {
-        if (!Files.isDirectory(dir)) {
-            return false;
-        }
-        String name = dir.getFileName().toString();
-        for (String prefix : directories.hiddenPrefixes()) {
-            if (name.startsWith(prefix)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private ProjectInfo toProjectInfo(Path dir) {
+    private ProjectInfo toProjectInfo(Path dir, String name) {
         ProjectType type = ProjectTypeDetector.detect(dir);
         String branch = readGitBranch(dir);
         OffsetDateTime mtime = readMtime(dir);
         return new ProjectInfo(
-                dir.getFileName().toString(),
+                name,
                 dir.toString(),
                 type,
                 branch,

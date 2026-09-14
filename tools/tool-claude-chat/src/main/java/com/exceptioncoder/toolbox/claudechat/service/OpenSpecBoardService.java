@@ -78,7 +78,8 @@ public class OpenSpecBoardService {
     public BoardList boards(boolean refresh) {
         Snapshot<BoardList> cached = boardSnapshot;
         if (!refresh && fresh(cached)) {
-            return cached.value();
+            var allowedIds = allowedProjects().stream().map(Project::id).collect(java.util.stream.Collectors.toSet());
+            return new BoardList(cached.value().projects().stream().filter(project -> allowedIds.contains(project.id())).toList(), cached.value().snapshotAt());
         }
         Instant snapshotAt = Instant.now();
         List<Project> allowedProjects = allowedProjects();
@@ -91,6 +92,12 @@ public class OpenSpecBoardService {
             boardSnapshot = new Snapshot<>(value, snapshotAt);
             return value;
         }
+    }
+
+    @org.springframework.context.event.EventListener
+    public void projectConfigurationChanged(org.springframework.cloud.context.environment.EnvironmentChangeEvent event) {
+        boardSnapshot = null;
+        changeSnapshots.clear();
     }
 
     /** 读取已批准项目中的单个活动 change 详情。 */
@@ -315,7 +322,7 @@ public class OpenSpecBoardService {
 
     private void addProject(Map<String, Project> projects, WorkspaceDirView directory) {
         Path path = Path.of(directory.path()).toAbsolutePath().normalize();
-        projects.putIfAbsent(path.toString().toLowerCase(Locale.ROOT),
+        projects.putIfAbsent(pathKey(path),
                 new Project(projectId(path), directory.displayName(), path));
     }
 
@@ -376,11 +383,15 @@ public class OpenSpecBoardService {
     private String projectId(Path path) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(path.toString().toLowerCase(Locale.ROOT).getBytes(StandardCharsets.UTF_8));
+                    .digest(pathKey(path).getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest, 0, 8);
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("运行环境不支持 SHA-256", exception);
         }
+    }
+
+    private static String pathKey(Path path) {
+        return java.io.File.separatorChar == '\\' ? path.toString().toLowerCase(Locale.ROOT) : path.toString();
     }
 
     private record Project(String id, String name, Path path) {

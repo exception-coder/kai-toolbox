@@ -17,6 +17,13 @@ public class ClaudeChatSessionAccessPolicy {
     private static final String ADMIN_ROLE = "ADMIN";
 
     private final ClaudeChatSessionRepository repository;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess;
+
+    private boolean projectAllowed(ClaudeChatSession session) {
+        return projectAccess == null || session.getCwd() == null || session.getCwd().isBlank()
+                || projectAccess.allowed(java.nio.file.Path.of(session.getCwd()));
+    }
 
     public ClaudeChatSessionAccessPolicy(ClaudeChatSessionRepository repository) {
         this.repository = repository;
@@ -55,6 +62,7 @@ public class ClaudeChatSessionAccessPolicy {
         if (session == null) {
             return false;
         }
+        if (!projectAllowed(session)) return false;
         if (canAccess(session, principal)) {
             return true;
         }
@@ -84,6 +92,7 @@ public class ClaudeChatSessionAccessPolicy {
     }
 
     private boolean canAccess(ClaudeChatSession session, AuthPrincipal principal) {
+        if (!projectAllowed(session)) return false;
         if (principal != null && principal.hasAnyRole(ADMIN_ROLE)) {
             return true;
         }

@@ -9,12 +9,16 @@ import java.util.List;
 @Component
 public class RegistrySystemDirectory implements ProjectSystemDirectory {
     private final ProjectRegistryStore store;
+    private com.exceptioncoder.toolbox.common.project.ProjectAccess access;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setProjectAccess(com.exceptioncoder.toolbox.common.project.ProjectAccess access) { this.access = access; }
 
     public RegistrySystemDirectory(ProjectRegistryStore store) { this.store = store; }
 
     @Override
     public List<SystemIdentity> systems() {
-        return store.projects().stream().map(project -> new SystemIdentity(
+        return store.projects().stream().filter(project -> access == null || access.allowed(java.nio.file.Path.of(project.metadata().localPath()))).map(project -> new SystemIdentity(
                 project.id(), project.metadata().name(), project.metadata().localPath())).toList();
     }
 }

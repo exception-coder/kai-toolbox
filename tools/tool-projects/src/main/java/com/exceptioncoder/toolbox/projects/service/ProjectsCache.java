@@ -17,10 +17,24 @@ import java.util.function.Supplier;
 public class ProjectsCache {
 
     private final ProjectDirectorySource directories;
+    private com.exceptioncoder.toolbox.common.project.ProjectAccess access;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setProjectAccess(com.exceptioncoder.toolbox.common.project.ProjectAccess access) { this.access = access; }
+
+    private ProjectsListResponse visible(ProjectsListResponse response) {
+        return new ProjectsListResponse(response.root(), response.rootExists(), response.scannedAt(),
+                response.items().stream().filter(item -> access == null || access.allowed(java.nio.file.Path.of(item.path()))).toList());
+    }
 
     private volatile ProjectsListResponse cached;
     private volatile Instant expireAt = Instant.EPOCH;
     private final Object lock = new Object();
+
+    @org.springframework.context.event.EventListener
+    public void configurationChanged(org.springframework.cloud.context.environment.EnvironmentChangeEvent event) {
+        synchronized (lock) { cached = null; expireAt = Instant.EPOCH; }
+    }
 
     public ProjectsCache(ProjectDirectorySource directories) {
         this.directories = directories;
@@ -33,17 +47,17 @@ public class ProjectsCache {
      */
     public ProjectsListResponse getOrLoad(Supplier<ProjectsListResponse> loader) {
         if (Instant.now().isBefore(expireAt) && cached != null) {
-            return cached;
+            return visible(cached);
         }
         synchronized (lock) {
             if (Instant.now().isBefore(expireAt) && cached != null) {
-                return cached;
+                return visible(cached);
             }
             ProjectsListResponse fresh = loader.get();
             cached = fresh;
             int ttl = directories.cacheTtlSeconds() <= 0 ? 5 : directories.cacheTtlSeconds();
             expireAt = Instant.now().plusSeconds(ttl);
-            return fresh;
+            return visible(fresh);
         }
     }
 }

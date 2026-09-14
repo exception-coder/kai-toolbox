@@ -1,15 +1,15 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { listWorkspaces } from '@/features/claude-chat/public-api'
+import { listProjectCatalog } from './projectCatalogApi'
 import { listProjects } from '@/features/projects/public-api'
 import { getConfigBlock, updateConfigBlock } from '@/features/config-center/public-api'
-import { LocalProjectDiscovery, mergeDiscoveredProjects } from './LocalProjectDiscovery'
+import { LocalProjectDiscovery } from './LocalProjectDiscovery'
 import { ProjectDirectorySettings } from './ProjectDirectorySettings'
 import { ProjectRegistrationForm } from './ProjectRegistrationForm'
 import type { RegistryProject } from './types'
 
-vi.mock('@/features/claude-chat/public-api', () => ({ listWorkspaces: vi.fn() }))
+vi.mock('./projectCatalogApi', () => ({ listProjectCatalog: vi.fn(), setProjectExcluded: vi.fn() }))
 vi.mock('@/features/projects/public-api', () => ({ listProjects: vi.fn(), ProjectCard: () => <div>Git 操作</div> }))
 vi.mock('@/features/config-center/public-api', async importOriginal => ({ ...await importOriginal<typeof import('@/features/config-center/public-api')>(), getConfigBlock: vi.fn(), updateConfigBlock: vi.fn() }))
 
@@ -22,9 +22,10 @@ describe('central project management', () => {
   afterEach(cleanup)
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(listWorkspaces).mockResolvedValue({ scannedAt: '', roots: [{ root: 'D:/work', exists: true, dirs: [
-      { name: 'forge', alias: 'Forge', path: 'D:/work/forge' }, { name: 'erp', path: 'D:/work/erp' },
-    ] }] })
+    vi.mocked(listProjectCatalog).mockResolvedValue([
+      { id: 'forge', systemId: '', name: 'Forge', path: 'D:/work/forge', root: 'D:/work', available: true, excluded: false, source: 'DISCOVERED' },
+      { id: 'erp', systemId: '', name: 'erp', path: 'D:/work/erp', root: 'D:/work', available: true, excluded: false, source: 'DISCOVERED' },
+    ])
     vi.mocked(listProjects).mockResolvedValue({ root: 'D:/work', rootExists: true, scannedAt: '', items: [] })
     vi.mocked(getConfigBlock).mockImplementation(async id => ({ id, name: id, entries: id === workspaceId
       ? [{ key: `${id}.directories-unified`, value: 'true', type: 'string', values: [], overridden: false }, { key: `${id}.roots`, value: null, type: 'list', values: ['D:/old', 'E:/old'], overridden: false }]
@@ -32,12 +33,11 @@ describe('central project management', () => {
     vi.mocked(updateConfigBlock).mockResolvedValue({ id: workspaceId, name: '', entries: [] })
   })
 
-  it('merges Windows path variants while preserving project operations and aliases', () => {
-    const merged = mergeDiscoveredProjects([{ name: 'Forge', path: 'd:/work/forge/' }], [
-      { name: 'forge', path: 'D:\\work\\forge', type: 'git', branch: 'main', lastModified: '' },
-    ])
-    expect(merged).toHaveLength(1)
-    expect(merged[0]).toMatchObject({ name: 'Forge', details: { branch: 'main' } })
+  it('uses one catalog without loading a parallel project list', async () => {
+    provider(<LocalProjectDiscovery registered={[]} onSelect={vi.fn()} onOpen={vi.fn()} onSettings={vi.fn()} />)
+    await screen.findByText('Forge')
+    expect(listProjectCatalog).toHaveBeenCalled()
+    expect(listProjects).not.toHaveBeenCalled()
   })
 
   it('searches discovery and selects an unregistered directory without navigation', async () => {
@@ -123,11 +123,11 @@ describe('central project management', () => {
       { 'toolbox.claude-chat.business-workspace.command-timeout-ms': '120000' }, []))
   })
 
-  it('keeps explicit missing roots visible with a directory settings action', async () => {
-    vi.mocked(listWorkspaces).mockResolvedValue({ scannedAt: '', roots: [{ root: 'D:/missing', exists: false, dirs: [] }] })
+  it('offers directory recovery when no usable catalog entries exist', async () => {
+    vi.mocked(listProjectCatalog).mockResolvedValue([])
     const settings = vi.fn()
     provider(<LocalProjectDiscovery registered={[]} onSelect={vi.fn()} onOpen={vi.fn()} onSettings={settings} />)
-    expect(await screen.findByText(/目录不可用：D:\/missing/)).toBeInTheDocument()
+    expect(await screen.findByText(/暂未发现可用项目/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '管理目录' }))
     expect(settings).toHaveBeenCalled()
   })

@@ -55,6 +55,11 @@ public class WorkspaceScanService implements LocalProjectResolver {
     private final WorkspaceRootResolver rootResolver;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
+    private com.exceptioncoder.toolbox.common.project.ProjectCatalog catalog;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setProjectCatalog(com.exceptioncoder.toolbox.common.project.ProjectCatalog catalog) { this.catalog = catalog; }
+
     private volatile WorkspaceListResponse cache;
     private volatile long cacheExpireAt;
 
@@ -74,12 +79,13 @@ public class WorkspaceScanService implements LocalProjectResolver {
                 .filter(value -> !value.isBlank())
                 .toList();
         if (candidates.isEmpty()) return Optional.empty();
-        return scan().roots().stream()
+        var matches = scan().roots().stream()
                 .filter(RootView::exists)
                 .flatMap(root -> root.dirs().stream())
                 .filter(dir -> candidates.stream().anyMatch(name -> dir.name().equalsIgnoreCase(name)))
-                .findFirst()
-                .map(dir -> new ProjectLocation(dir.name(), dir.path()));
+                .toList();
+        if (matches.size() > 1) throw new IllegalArgumentException("项目名称对应多个目录，请使用项目库中的完整路径");
+        return matches.stream().findFirst().map(dir -> new ProjectLocation(dir.name(), dir.path()));
     }
 
     /** 团队初始化完成后，知识库应位于约定目录；本服务只检查，不再重复拉取。 */
@@ -192,22 +198,16 @@ public class WorkspaceScanService implements LocalProjectResolver {
     }
 
     public WorkspaceListResponse scan() {
-        long now = System.currentTimeMillis();
-        WorkspaceListResponse cached = cache;
-        if (cached != null && now < cacheExpireAt) {
-            return cached;
+        Map<String, List<WorkspaceDirView>> grouped = new LinkedHashMap<>();
+        for (Path root : rootResolver.scanRoots()) grouped.put(root.toString(), new ArrayList<>());
+        for (var entry : catalog.list(false)) {
+            if (!entry.available()) continue;
+            grouped.computeIfAbsent(entry.root(), ignored -> new ArrayList<>()).add(new WorkspaceDirView(
+                    Path.of(entry.path()).getFileName().toString(), entry.path(), null, entry.name()));
         }
-
-        List<RootView> roots = new ArrayList<>();
-        for (Path root : rootResolver.scanRoots()) {
-            roots.add(scanRoot(root.toString()));
-        }
-        WorkspaceListResponse result = new WorkspaceListResponse(List.copyOf(roots), OffsetDateTime.now());
-
-        cache = result;
-        int ttl = props.getCacheTtlSeconds() <= 0 ? 5 : props.getCacheTtlSeconds();
-        cacheExpireAt = now + ttl * 1000L;
-        return result;
+        List<RootView> roots = grouped.entrySet().stream().map(entry -> new RootView(
+                entry.getKey(), Files.isDirectory(Path.of(entry.getKey())), List.copyOf(entry.getValue()))).toList();
+        return new WorkspaceListResponse(roots, OffsetDateTime.now());
     }
 
     /** 「自维护机器人」锁定的 kai-toolbox 自身仓库路径；exists=false 时前端隐藏机器人入口。 */
@@ -220,29 +220,6 @@ public class WorkspaceScanService implements LocalProjectResolver {
             current = current.getParent();
         }
         return new SelfRepoResponse("", false);
-    }
-
-    private RootView scanRoot(String rootSetting) {
-        if (rootSetting == null || rootSetting.isBlank()) {
-            return new RootView("", false, List.of());
-        }
-        Path root = Path.of(rootSetting).toAbsolutePath().normalize();
-        if (!Files.isDirectory(root)) {
-            log.debug("workspace 根目录不存在或不可读: {}", root);
-            return new RootView(rootSetting, false, List.of());
-        }
-
-        List<WorkspaceDirView> dirs = new ArrayList<>();
-        try (Stream<Path> children = Files.list(root)) {
-            children.filter(this::isCandidate)
-                    .sorted(Comparator.comparing(p -> p.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
-                    .forEach(p -> dirs.add(new WorkspaceDirView(
-                            p.getFileName().toString(), p.toString(), null, p.getFileName().toString())));
-        } catch (IOException e) {
-            log.debug("扫描 workspace 根目录失败: {}", root, e);
-            return new RootView(rootSetting, true, List.of());
-        }
-        return new RootView(rootSetting, true, List.copyOf(dirs));
     }
 
     // ===== 项目模块扫描（确定性：按构建标志文件识别），供「项目工作台」=====
@@ -853,16 +830,4 @@ public class WorkspaceScanService implements LocalProjectResolver {
         return rootResolver.contains(path);
     }
 
-    private boolean isCandidate(Path dir) {
-        if (!Files.isDirectory(dir)) {
-            return false;
-        }
-        String name = dir.getFileName().toString();
-        for (String prefix : props.getHiddenPrefixes()) {
-            if (name.startsWith(prefix)) {
-                return false;
-            }
-        }
-        return true;
-    }
 }
