@@ -7,17 +7,16 @@ import type { FeatureManifest } from './types'
 import { migrateVisibleMenus } from './menuMigration'
 
 /**
- * 菜单可见性：默认展示「分配给当前用户」的全部模块，用户可在偏好设置的「菜单」分区手动隐藏（软隐藏，路由仍在）。
+ * 菜单可见性：默认展示已授权且未声明 defaultVisible:false 的模块，用户可在偏好设置手动调整（路由仍在）。
  *
  * 模型 = 可见白名单：
- *  - 未定制 → 用 DEFAULT_VISIBLE_IDS（= 全部已注册功能菜单）。侧栏/首页会再按账号权限（menu:<id>）过滤，
- *    故「分配给该用户的菜单默认即展示」，无需逐个勾选。
+ *  - 未定制 → 用 DEFAULT_VISIBLE_IDS（排除声明默认隐藏的功能）。侧栏/首页再按账号权限（menu:<id>）过滤。
  *  - 用户手动隐藏后 → 持久化其完整可见集（白名单），之后以它为准。
  *  - 配置入口在账号菜单的「偏好设置」弹窗里，不占菜单位，故无需「自身始终可见」的防锁死兜底。
  *
  * 持久化（按登录用户存后端）：
  *  - 已登录 → 落后端 `/api/menu-visibility`（关联当前登录用户，多设备同步）；localStorage 仅作缓存 + 兜底。
- *  - 登录后 hydrate：拉后端；库内无记录且本地有配置 → 首次迁移上云；否则用默认集（全部已授权模块）。
+ *  - 登录后 hydrate：拉后端；库内无记录且本地有配置 → 首次迁移上云；否则用默认集。
  *  - 未登录 / 接口失败 → 回退 localStorage + 默认集，不阻塞进入。
  *
  * 与 manifest.hidden 的代码级隐藏区分：那是整体剔除（连路由都不注册）；这里只隐藏侧栏/首页入口，路由仍在。
@@ -25,6 +24,7 @@ import { migrateVisibleMenus } from './menuMigration'
  */
 export const DEFAULT_VISIBLE_IDS: readonly string[] = features
   .filter((f) => !f.chrome) // chrome（管理页）不进功能菜单；manifest.hidden 已在注册表层剔除
+  .filter((f) => f.defaultVisible !== false)
   .map((f) => f.id)
 
 const STORAGE_KEY = 'kai-toolbox:menu-visible-ids'
@@ -44,7 +44,7 @@ function readStored(): string[] | null {
   }
 }
 
-/** 当前生效的可见集合（未定制走默认全集）。 */
+/** 当前生效的可见集合（未定制走 manifest 默认集）。 */
 function computeEffective(): Set<string> {
   const stored = readStored()
   return new Set(stored ?? DEFAULT_VISIBLE_IDS)

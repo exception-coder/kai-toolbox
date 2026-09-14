@@ -34,6 +34,8 @@ export interface FeatureManifest {
    * 「只能通过源码开启」：改回 false（或删除该字段）才恢复。区别于用户在偏好设置里勾掉的软隐藏（仅隐藏菜单入口、路由仍在）。
    */
   hidden?: boolean
+  /** 默认菜单可见性；false 仅影响未定制或恢复默认的菜单，用户仍可手动开启。 */
+  defaultVisible?: boolean
   /**
    * 管理/设置类页面（chrome）：不进侧边栏与首页的功能菜单，也不进偏好设置的「菜单」清单；
    * 路由仍注册、Ctrl+K 亦可达。用于平台管理能力，而非 Vibe 工具本身。

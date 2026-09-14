@@ -15,6 +15,7 @@ const manifest: FeatureManifest = {
   group: "演示",
   description: "微信身份绑定、市场报价待办与移动端供应商报价的独立发布模块",
   order: 91,
+  defaultVisible: false,
   layout: "showcase",
   hideDock: true,
   entry: "/showcase/supplier-quote/notifications",
