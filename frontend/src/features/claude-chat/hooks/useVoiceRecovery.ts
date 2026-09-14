@@ -12,8 +12,6 @@ export function useVoiceRecovery(sessionId: string | null, transport: VoiceTrans
   const requestStart = () => {
     if (!sessionId || !connected || disabled || document.hidden
       || voice.state === 'connecting' || voice.state === 'connected') return
-    rememberVoiceRecovery(sessionId, true)
-    setIntent({ sessionId, recoverable: true })
     void voice.start()
   }
   const stop = () => {
@@ -25,6 +23,11 @@ export function useVoiceRecovery(sessionId: string | null, transport: VoiceTrans
   useEffect(() => {
     setIntent({ sessionId, recoverable: hasVoiceRecoveryHint(sessionId) })
   }, [sessionId])
+  useEffect(() => {
+    if (!sessionId || voice.state !== 'connected') return
+    rememberVoiceRecovery(sessionId, true)
+    setIntent({ sessionId, recoverable: true })
+  }, [sessionId, voice.state])
   return { ...voice, start: requestStart, stop,
     recoverable: intent.sessionId === sessionId && intent.recoverable }
 }

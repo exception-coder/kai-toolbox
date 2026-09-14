@@ -24,6 +24,11 @@ The system SHALL offer native bidirectional voice for an official Codex Code ses
 - **THEN** the client SHALL negotiate native audio for that same thread, show connection progress and play incoming voice
 - **AND** the text draft SHALL be preserved
 
+#### Scenario: Start voice from a historical text-only thread
+- **WHEN** an eligible persisted thread was created without realtime capability and Codex refuses to upgrade it in place
+- **THEN** the system SHALL fork its complete history into a realtime-capable thread and keep it bound to the same Forge session
+- **AND** the user SHALL continue in the same conversation view without manually creating a new session
+
 #### Scenario: Unsupported or busy session
 - **WHEN** voice is requested for a gateway, another engine, or a restricted session
 - **THEN** the system SHALL refuse voice without starting a second writer or changing execution permissions
@@ -69,6 +74,7 @@ The system MUST isolate each call by its session, initiating browser connection 
 - **WHEN** microphone access is denied, the browser lacks a secure context, or upstream negotiation fails
 - **THEN** the UI SHALL show the cause and a retry or text recovery action
 - **AND** every acquired media track SHALL be stopped, including tracks acquired after cancellation
+- **AND** a connection that never reached the started state SHALL NOT be presented as recoverable
 
 #### Scenario: Stale or unauthorized control
 - **WHEN** another connection or an old call attempts to stop or renew the active call

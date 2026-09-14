@@ -16,7 +16,7 @@
 
 采用当前依赖 @openai/codex 0.153.4 的生成协议：thread/realtime/start（outputModality=audio，transport=webrtc+sdp）、thread/realtime/sdp、transcript/delta、transcript/done、error、closed、stop。浏览器通过 WebRTC 原生媒体流播放音频，不引入 STT/TTS 拼接。SDP 只瞬时投递给发起连接，不进入消息回放或日志。
 
-真实账号探测确认需要在线程 config 中设置 `features.realtime_conversation=true`，启动参数显式指定 `version=v3`；默认关闭时返回不支持 realtime，旧 v1/v2 被当前上游拒绝。仅对本次语音线程启用，不修改全局配置。生成协议校验使用 `--experimental`，同时覆盖 `currentTime/read` 的 Unix 秒级返回契约。
+真实账号探测确认需要在线程 config 中设置 `features.realtime_conversation=true`，启动参数显式指定 `version=v3`；默认关闭时返回不支持 realtime，旧 v1/v2 被当前上游拒绝。官方 Codex thread 在创建时预先启用该会话级能力，用户点击语音前不建立媒体连接；历史 text-only thread 若拒绝 realtime，则通过 `thread/fork` 携带完整历史和当前配置生成兼容 thread，并更新同一 Forge session 的原生 thread 标识。该能力不修改用户全局配置。生成协议校验使用 `--experimental`，同时覆盖 `currentTime/read` 的 Unix 秒级返回契约和 fork 配置字段。
 
 语音线程同时设置 `suppress_unstable_features_warning=true`，由入口旁的中文“实验功能”说明承担能力提示，避免把英文全局配置建议混进消息流。该覆盖只属于本次语音调用，不修改用户配置文件，也不屏蔽实际连接错误。
 
@@ -32,7 +32,7 @@
 
 跨设备接管采用同一会话最后到达服务端的合法连接请求优先：Java 校验能力和规划后替换音频 owner，向旧 owner 发送 closed 与“语音已转移到另一设备”，保留聊天连接和代码任务。sidecar 在同一原生线程串行关闭和协商音频，新请求使尚未完成的旧请求失效；旧 callId 的控制、错误和关闭不能影响新 owner。接管同时覆盖正在听取语音但没有代码轮次的情况，停止旧音频前保留线程。网络、设备权限或上游协商失败仍明确报错。接管只由用户点击触发，旧设备不自动争抢连接。
 
-刷新恢复：useVoiceRecovery 仅记住按 Forge sessionId 隔离的恢复提示，不保存 SDP、音频或凭据。点击立即协商音频；不再预约到代码任务结束。运行中携带 voice 的既有 send 请求进入 SessionVoiceService.reconnect，复用会话锁、规划可写性和官方 Code eligibility；不进入 startTurn、队列或用户消息确认。Java 校验后绑定最新请求的浏览器连接，并通知旧 owner 停止本地媒体。sidecar 的 voiceReconnect 查找同一 CodexRealtimeCall 和 request/threadId，串行等待旧 stop 请求及 closed 通知后启动新 WebRTC transport；等待有界，失败只发新 callId 的 voiceEvent/error。重连期间 completeNativeTurn 保留同一 app-server，成功后继续正常音频生命周期。旧 callId 的控制不能操作新音频；连接在协商期间取消同样阻止迟到启动。原先预约方案由本次用户明确要求替代。所有 idle/connecting/connected/error 均以真实媒体状态为准。
+刷新恢复：useVoiceRecovery 仅在服务端确认语音连接成功后，记住按 Forge sessionId 隔离的恢复提示，不保存 SDP、音频或凭据；首次协商失败不得显示“重新连接”。点击立即协商音频；不再预约到代码任务结束。运行中携带 voice 的既有 send 请求进入 SessionVoiceService.reconnect，复用会话锁、规划可写性和官方 Code eligibility；不进入 startTurn、队列或用户消息确认。Java 校验后绑定最新请求的浏览器连接，并通知旧 owner 停止本地媒体。sidecar 的 voiceReconnect 查找同一 CodexRealtimeCall 和 request/threadId，串行等待旧 stop 请求及 closed 通知后启动新 WebRTC transport；等待有界，失败只发新 callId 的 voiceEvent/error。重连期间 completeNativeTurn 保留同一 app-server，成功后继续正常音频生命周期。旧 callId 的控制不能操作新音频；连接在协商期间取消同样阻止迟到启动。原先预约方案由本次用户明确要求替代。所有 idle/connecting/connected/error 均以真实媒体状态为准。
 
 协议证据：2026-09-13 重新读取 [官方 App Server 文档](https://developers.openai.com/codex/app-server/) 并生成本机锁定 Codex 0.153.4 实验类型。start/stop 以 threadId 为作用域；closed 通知没有音频 sessionId，因此必须等待旧 closed 再创建新音频，不能仅换前端 callId 来隔离旧上游通知。真实账号的运行中重连仍须端到端验收，单元测试不替代该证据。
 

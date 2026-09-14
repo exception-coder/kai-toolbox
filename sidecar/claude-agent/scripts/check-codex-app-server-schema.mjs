@@ -42,7 +42,8 @@ try {
     ].join('\n'))
   }
   const realtimeContracts = {
-    'ClientRequest.ts': ['thread/realtime/start', 'thread/realtime/stop', 'thread/realtime/appendText'],
+    'ClientRequest.ts': ['thread/fork', 'thread/realtime/start', 'thread/realtime/stop', 'thread/realtime/appendText'],
+    'v2/ThreadForkParams.ts': ['threadId: string', 'config?:'],
     'ServerNotification.ts': ['thread/realtime/sdp', 'thread/realtime/transcript/delta', 'thread/realtime/transcript/done', 'thread/realtime/error', 'thread/realtime/closed'],
     'v2/ThreadRealtimeStartParams.ts': ['outputModality: RealtimeOutputModality', 'version?: RealtimeConversationVersion', 'includeStartupContext?: boolean'],
     'v2/ThreadRealtimeStartTransport.ts': ['"webrtc"', 'sdp: string'],

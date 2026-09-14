@@ -1,6 +1,7 @@
 ## 1. Protocol and lifecycle
 
 - [x] 1.1 Implement sidecar native realtime lifecycle on the existing thread and verify multi-turn, stop and error boundaries (design: 协议与层次、生命周期与恢复).
+- [x] 1.3 Make ordinary official Codex threads realtime-ready, fork legacy text-only history on capability rejection, and only expose recovery after confirmed connection.
 - [x] 1.2 Implement Java connection-owned voice negotiation/control without replaying SDP; verify unsupported, stale and disconnect cases.
 
 ## 2. Conversation UI

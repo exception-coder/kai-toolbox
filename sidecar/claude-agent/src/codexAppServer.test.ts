@@ -12,10 +12,76 @@ import {
   isCurrentCodexTurnNotification,
   isMissingCodexThreadError,
   inspectCodexSessionCapabilities,
+  isUnsupportedRealtimeThreadError,
   normalizeCodexModel,
   resolveCodexAppServerRequest,
   shouldReconcileCodexTurnAfterItem,
+  startVoiceWithLegacyThreadRecovery,
+  withRealtimeConversationConfig,
 } from './codexAppServer.js'
+
+test('enables realtime capability before an ordinary Codex thread is created', () => {
+  assert.deepEqual(withRealtimeConversationConfig({ existing: 'kept' }), {
+    existing: 'kept',
+    'features.realtime_conversation': true,
+    suppress_unstable_features_warning: true,
+  })
+})
+
+test('forks a legacy text-only thread and retries voice with preserved history', async () => {
+  const starts: string[] = []
+  const requests: Array<{ method: string; params: Record<string, unknown> }> = []
+  const assigned: string[] = []
+  const voice = {
+    start: async (threadId: string) => {
+      starts.push(threadId)
+      if (threadId === 'legacy-thread') {
+        throw new Error('thread legacy-thread does not support realtime conversation')
+      }
+    },
+  }
+  const threadId = await startVoiceWithLegacyThreadRecovery({
+    voice,
+    request: async (method, params) => {
+      requests.push({ method, params })
+      return { thread: { id: 'voice-thread' } }
+    },
+    threadId: 'legacy-thread',
+    resumedThreadId: 'legacy-thread',
+    cwd: 'D:\\workspace',
+    model: 'gpt-6-astra',
+    approvalPolicy: 'never',
+    sandbox: 'danger-full-access',
+    config: withRealtimeConversationConfig(),
+    setThreadId: id => assigned.push(id),
+    onIdleClose: () => undefined,
+  })
+
+  assert.equal(threadId, 'voice-thread')
+  assert.deepEqual(starts, ['legacy-thread', 'voice-thread'])
+  assert.deepEqual(assigned, ['voice-thread'])
+  assert.equal(requests[0]?.method, 'thread/fork')
+  assert.equal(requests[0]?.params.threadId, 'legacy-thread')
+  assert.equal((requests[0]?.params.config as Record<string, unknown>)['features.realtime_conversation'], true)
+})
+
+test('does not fork for unrelated realtime failures', async () => {
+  const requests: string[] = []
+  await assert.rejects(startVoiceWithLegacyThreadRecovery({
+    voice: { start: async () => { throw new Error('account unavailable') } },
+    request: async method => { requests.push(method); return {} },
+    threadId: 'thread-1',
+    resumedThreadId: 'thread-1',
+    cwd: '.',
+    approvalPolicy: 'never',
+    sandbox: 'danger-full-access',
+    config: withRealtimeConversationConfig(),
+    setThreadId: () => undefined,
+    onIdleClose: () => undefined,
+  }), /account unavailable/)
+  assert.deepEqual(requests, [])
+  assert.equal(isUnsupportedRealtimeThreadError(new Error('account unavailable')), false)
+})
 
 test('realtime clock requests return Unix seconds without invoking a code tool', async () => {
   const before = Math.floor(Date.now() / 1000)

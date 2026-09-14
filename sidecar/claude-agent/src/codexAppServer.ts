@@ -35,6 +35,10 @@ const SUB_AGENT_FINALIZING_RECHECK_MS = 1_500
 const TURN_COMPLETION_RECONCILE_INITIAL_MS = 2_000
 const TURN_COMPLETION_RECONCILE_INTERVAL_MS = 10_000
 const TERMINAL_TURN_STATUSES = new Set(['completed', 'failed', 'interrupted', 'cancelled', 'canceled', 'aborted'])
+const REALTIME_THREAD_CONFIG = {
+  'features.realtime_conversation': true,
+  suppress_unstable_features_warning: true,
+} as const
 
 type JsonRpcResponse = {
   id?: number
@@ -125,6 +129,54 @@ export class CodexAppServerTurnError extends Error {
   constructor(message: string, readonly retrySafe: boolean) {
     super(message)
     this.name = 'CodexAppServerTurnError'
+  }
+}
+
+type AppServerRequest = (method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>
+
+/** New official Codex threads opt into realtime up front so a later voice request can reuse their history. */
+export function withRealtimeConversationConfig(config: Record<string, unknown> = {}): Record<string, unknown> {
+  return { ...config, ...REALTIME_THREAD_CONFIG }
+}
+
+export function isUnsupportedRealtimeThreadError(error: unknown): boolean {
+  return error instanceof Error && /thread\s+.+\s+does not support realtime conversation/i.test(error.message)
+}
+
+type VoiceThreadRecoveryOptions = {
+  voice: Pick<CodexRealtimeCall, 'start'>
+  request: AppServerRequest
+  threadId: string
+  resumedThreadId?: string
+  cwd: string
+  model?: string
+  approvalPolicy: AppServerTurnOptions['approvalPolicy']
+  sandbox: AppServerTurnOptions['sandbox']
+  config: Record<string, unknown>
+  setThreadId: (threadId: string) => void
+  onIdleClose: () => void
+}
+
+/** Forks a legacy text-only thread with its history when Codex refuses to upgrade it in place. */
+export async function startVoiceWithLegacyThreadRecovery(options: VoiceThreadRecoveryOptions): Promise<string> {
+  try {
+    await options.voice.start(options.threadId, options.request, options.onIdleClose)
+    return options.threadId
+  } catch (error) {
+    if (!options.resumedThreadId || !isUnsupportedRealtimeThreadError(error)) throw error
+    const forkResult = await options.request('thread/fork', {
+      threadId: options.resumedThreadId,
+      cwd: options.cwd,
+      model: options.model ?? null,
+      approvalPolicy: options.approvalPolicy,
+      sandbox: options.sandbox,
+      config: options.config,
+    })
+    const forkedThreadId = asString(asRecord(forkResult.thread)?.id)
+    if (!forkedThreadId) throw new Error('Codex App Server 未返回语音兼容 thread id')
+    options.setThreadId(forkedThreadId)
+    await options.voice.start(forkedThreadId, options.request, options.onIdleClose)
+    return forkedThreadId
   }
 }
 
@@ -1161,10 +1213,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     void init
     send({ method: 'initialized', params: {} })
     initialized = true
-    const threadConfig = { ...options.config, ...(options.voice ? {
-      'features.realtime_conversation': true,
-      suppress_unstable_features_warning: true,
-    } : {}) }
+    const threadConfig = withRealtimeConversationConfig(options.config)
     const threadResult = await request(threadId ? 'thread/resume' : 'thread/start', threadId
       ? { threadId, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig }
       : { cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig })
@@ -1233,7 +1282,23 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     // 请求一旦发出，服务端就可能已经开始调用工具；从这里起禁止 SDK 自动重放，避免双执行。
     turnAccepted = true
     if (options.voice) {
-      await options.voice.start(threadId, request, () => finishVoiceIdle?.())
+      const originalThreadId = threadId
+      threadId = await startVoiceWithLegacyThreadRecovery({
+        voice: options.voice,
+        request,
+        threadId,
+        resumedThreadId: options.threadId,
+        cwd: options.cwd,
+        model: options.model,
+        approvalPolicy: options.approvalPolicy,
+        sandbox: options.sandbox,
+        config: threadConfig,
+        setThreadId: options.setThreadId,
+        onIdleClose: () => finishVoiceIdle?.(),
+      })
+      if (threadId !== originalThreadId) {
+        options.emit({ type: 'init', sdkSessionId: threadId, ...capabilitySnapshot })
+      }
       if (!finished) activeCodexTurns.set(options.sessionId, { steer: input => options.voice!.appendText(input) })
     } else {
       const turnResult = await request('turn/start', {
