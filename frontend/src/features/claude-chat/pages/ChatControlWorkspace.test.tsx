@@ -15,9 +15,9 @@ vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { roles: [] } }) }))
 const developmentAccess = vi.hoisted(() => vi.fn())
 vi.mock('@/features/reqpool/api', () => ({ getDevelopmentAccess: developmentAccess }))
 vi.mock('./ChatPage', () => ({ ChatPage: ({ renderControl }: { renderControl: () => ReactNode }) => <div>agent-workspace{renderControl()}</div> }))
-vi.mock('@/features/ai-chat/public-api', () => ({ LlmChatPage: ({ renderControl }: { renderControl: () => ReactNode }) => {
+vi.mock('@/features/ai-chat/public-api', () => ({ LlmChatPage: ({ renderControl }: { renderControl?: () => ReactNode }) => {
   const [draft, setDraft] = useState('')
-  return <div>llm-workspace{renderControl()}<input aria-label="LLM draft" value={draft} onChange={event => setDraft(event.target.value)} /></div>
+  return <div>llm-workspace{renderControl?.()}<input aria-label="LLM draft" value={draft} onChange={event => setDraft(event.target.value)} /></div>
 } }))
 
 const feature: FeatureManifest = { id: 'claude-chat', name: 'Vibe Coding', icon: Bot, routes: [],
@@ -26,6 +26,10 @@ const feature: FeatureManifest = { id: 'claude-chat', name: 'Vibe Coding', icon:
 function Location() { return <output data-testid="location">{useLocation().search}</output> }
 function show(entry = '/tools/claude-chat') {
   return render(<MemoryRouter initialEntries={[entry]}><RouteGuard feature={feature}><ChatControlWorkspace /></RouteGuard><Location /></MemoryRouter>)
+}
+function switchMode(label: '开发助手' | '自由对话') {
+  fireEvent.click(screen.getByRole('button', { name: /切换对话方式/ }))
+  fireEvent.click(screen.getByRole('button', { name: label }))
 }
 afterEach(cleanup)
 beforeEach(() => vi.mocked(useAccessContext).mockReturnValue({ roles: [], superAdmin: false, permissionCodes: ['menu:claude-chat', 'menu:ai-chat'] }))
@@ -45,12 +49,12 @@ describe('chat control modes', () => {
   })
   it('preserves LLM draft and Agent session routing when switching', async () => {
     show('/tools/claude-chat?sessionId=existing-agent')
-    fireEvent.change(screen.getByLabelText('控制模式'), { target: { value: 'LLM' } })
+    switchMode('自由对话')
     fireEvent.change(await screen.findByLabelText('LLM draft'), { target: { value: 'draft' } })
-    fireEvent.change(screen.getByLabelText('控制模式'), { target: { value: 'CODE_AGENT' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: '切换对话方式，当前自由对话' })).toHaveFocus())
+    switchMode('开发助手')
     expect(screen.getByTestId('location')).toHaveTextContent('?sessionId=existing-agent')
-    const selects = screen.getAllByLabelText('控制模式')
-    fireEvent.change(selects[0], { target: { value: 'LLM' } })
+    switchMode('自由对话')
     expect(screen.getByLabelText('LLM draft')).toHaveValue('draft')
   })
   it('allows an LLM-only user into the shared entry without granting Agent access', async () => {
@@ -60,7 +64,8 @@ describe('chat control modes', () => {
     show()
     expect(await screen.findByText('llm-workspace')).toBeVisible()
     expect(screen.queryByText('agent-workspace')).not.toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Code Agent' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /切换对话方式/ }))
+    expect(screen.getByRole('button', { name: '开发助手' })).toBeDisabled()
   })
   it('does not grant pure LLM access based on Agent permission alone', () => {
     vi.mocked(useAccessContext).mockReturnValue({ roles: [], superAdmin: false, permissionCodes: ['menu:claude-chat'] })
@@ -87,6 +92,7 @@ describe('chat control modes', () => {
     show('/tools/claude-chat?prdSessionId=authorized-prd')
     expect(await screen.findByText('agent-workspace')).toBeVisible()
     expect(developmentAccess).toHaveBeenCalledWith('authorized-prd')
-    expect(screen.getByRole('option', { name: '纯 LLM' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /切换对话方式/ }))
+    expect(screen.getByRole('button', { name: '自由对话' })).toBeDisabled()
   })
 })

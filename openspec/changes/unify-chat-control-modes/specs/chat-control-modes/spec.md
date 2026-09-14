@@ -7,6 +7,12 @@ The workspace SHALL offer CODE_AGENT and LLM through a control-mode selector, pr
 - **WHEN** a user opens the existing Vibe Coding route without a control mode
 - **THEN** the original Code Agent workspace and execution capabilities remain available
 
+#### Scenario: Choose a conversation mode from the header
+- **WHEN** a user opens the conversation mode picker
+- **THEN** it shows the user-facing names 开发助手 and 自由对话, their purposes, selected state and unavailable permissions
+- **AND** the collapsed trigger remains subordinate to the conversation title and shares the existing header row
+- **AND** closing the picker or switching modes returns focus to the visible trigger without losing the appropriate draft
+
 #### Scenario: Pure model navigation
 - **WHEN** a user follows the legacy AI chat entry or selects LLM
 - **THEN** the pure model workspace opens without starting a previously inactive Code Agent runtime

@@ -8,6 +8,8 @@ Production / M 档跨前后端变更。当前 ai-chat/ChatPage 使用独立 conv
 
 ## Decisions
 
+界面修正（2026-09-13）：按用户反馈和 DENS-01、CTX-01，移除页头原生 select 的独立表单外观，复用项目 Button/Popover 和语义 tokens。默认只显示低强调的“开发助手”或“自由对话”与展开箭头；展开后提供用途说明、当前状态和权限禁用反馈。主会话标题保持视觉优先，不增加第二排模式页签。内部 CODE_AGENT/LLM 枚举和 URL 路由保留，菜单关闭恢复焦点，移动端保持触控尺寸和窄屏边界。
+
 - 遵循 OBJ-01、NAV-01、CTX-01、AI-01、CTRL-01。claude-chat 新增薄控制模式页面，默认 CODE_AGENT，URL control=llm 显式选择 LLM。选择器置于现有页头，避免新增一层页签。两种模式保留各自身份和草稿；LLM 首次访问才挂载，访问后保留隐藏实例，流式与切换互不串线。
 - Code Agent 原 ChatPage 只接收展示插槽；服务端、WebSocket 协议及权限模式保持不变。控制模式与 permission mode 为不同维度。ChatRuntime 懒激活排除纯 LLM 路由；已有 Agent 任务可在后台继续，切换不代表取消。
 - ai-chat 通过 public-api 暴露页面。原路由重定向到统一入口，菜单目录仍由 manifest 生成；保留原 AI 对话权限码，统一页内按既有权限判断可用模式，不扩权。

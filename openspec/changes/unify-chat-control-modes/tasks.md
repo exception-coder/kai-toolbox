@@ -5,7 +5,14 @@
 - [x] 1.3 Add mode, permission, stream/tool rejection and existing Agent regression evidence.
 - [x] 1.4 Build the host, validate updated runtime/UI and stability, update docs and commit.
 
-## Verification evidence
+## 2. Header visual correction
+
+- [x] 2.1 Replace the native select with the shared quiet popover, meaningful mode names and permission-aware choices; preserve mode routing and drafts.
+- [ ] 2.2 Verify keyboard focus, permissions and draft retention, run frontend checks and inspect desktop/mobile layout. The browser currently refuses localhost:5173 because of a saved user permission setting; do not claim real visual acceptance.
+
+2026-09-13 correction evidence: shared Button/Popover now presents 开发助手 / 自由对话 with purpose text and selected/disabled states; the free-conversation header keeps the picker in its existing control row. Hidden mode instances no longer expose a second picker, while their drafts remain mounted. Frontend chat suite passed 133 tests; after correcting test-only query typing, the 10 picker/workspace tests passed again, covering Escape focus return, mode-switch focus, permissions, route identity and draft retention. Typecheck, full frontend build, architecture boundary checks and OpenSpec strict validation passed. Browser access to https://localhost:5173 was rejected by the saved user permission setting; no desktop/mobile visual result is claimed, and the correction remains uncommitted pending that acceptance.
+
+## Prior verification evidence
 
 - 2026-09-13: 33 frontend test files / 108 tests passed, covering existing Code Agent state, reconnect, configuration, permission mode, session client, documents, review, delegation and other current cases. The final control-mode suite separately passed 8 tests after adding actual lazy-runtime and scoped-PRD checks. These tests use isolated fixtures, not real Agent task execution.
 - PureLlmCompletionTest: 4 Java tests passed. Verified request has no tool specifications, unsolicited tool calls produce ERROR with no second round, invalid mode fails before persistence/model invocation, normal output and idempotent stop preserve completion state. No paid model request was sent.
