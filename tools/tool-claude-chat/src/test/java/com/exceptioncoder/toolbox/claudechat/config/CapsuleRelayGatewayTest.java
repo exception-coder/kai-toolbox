@@ -66,4 +66,38 @@ class CapsuleRelayGatewayTest {
                 .beforeHandshake(request, response, null, new HashMap<>())).isFalse();
         verify(response).setStatusCode(org.springframework.http.HttpStatus.FORBIDDEN);
     }
+
+    @Test
+    void allowsVoiceLeaseControlsThroughCapsuleBoundary() throws Exception {
+        var identities = mock(CapsuleRelayIdentityService.class);
+        var handler = mock(ClaudeChatWebSocketHandler.class);
+        var mapper = new ObjectMapper();
+        var gateway = new CapsuleRelayGateway(identities, handler, mapper);
+        var headers = new HttpHeaders();
+        headers.set("Authorization", "Basic test");
+        headers.set("X-Forge-Participant-Id", "12");
+        var identity = new CapsuleRelayIdentityService.Identity("yoooni-one",
+                new AuthPrincipal(101L, "capsule-test", List.of(), List.of(), "capsule", 9999999999L));
+        when(identities.authenticate("Basic test", 12)).thenReturn(identity);
+        var attributes = new HashMap<String, Object>();
+        var request = mock(ServerHttpRequest.class);
+        when(request.getHeaders()).thenReturn(headers);
+        assertThat(gateway.beforeHandshake(request, mock(ServerHttpResponse.class), handler, attributes)).isTrue();
+        var session = mock(WebSocketSession.class);
+        when(session.getAttributes()).thenReturn(attributes);
+        when(session.getHandshakeHeaders()).thenReturn(headers);
+
+        gateway.handleMessage(session, new TextMessage(
+                "{\"type\":\"voiceControl\",\"sessionId\":\"session-1\",\"callId\":\"call-1\",\"action\":\"heartbeat\"}"));
+        gateway.handleMessage(session, new TextMessage(
+                "{\"type\":\"voiceControl\",\"sessionId\":\"session-1\",\"callId\":\"call-1\",\"action\":\"stop\"}"));
+
+        var forwarded = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
+        verify(handler, times(2)).handleMessage(eq(session), forwarded.capture());
+        assertThat(forwarded.getAllValues()).extracting(TextMessage::getPayload)
+                .containsExactly(
+                        "{\"type\":\"voiceControl\",\"sessionId\":\"session-1\",\"callId\":\"call-1\",\"action\":\"heartbeat\"}",
+                        "{\"type\":\"voiceControl\",\"sessionId\":\"session-1\",\"callId\":\"call-1\",\"action\":\"stop\"}");
+        verify(session, never()).close(any(CloseStatus.class));
+    }
 }

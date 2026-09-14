@@ -17,6 +17,7 @@ public final class CapsuleRelayGateway implements WebSocketHandler, HandshakeInt
     public static final String PATH = "/api/session-client/v1/relay/capsule/ws";
     private static final String IDENTITY = CapsuleRelayGateway.class.getName();
     private static final Set<String> COMMANDS = Set.of("open", "attach", "send", "queue", "interrupt",
+            "voiceControl",
             "assistantContextSave", "assistantModuleContextResolve", "assistantModuleContextSave",
             "assistantConversationAnalyze", "assistantIntentRoute");
     private final CapsuleRelayIdentityService identities;

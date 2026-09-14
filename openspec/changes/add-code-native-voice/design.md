@@ -22,6 +22,8 @@
 
 客户端先获取麦克风并建立 offer，再通过既有 send 准入启动语音轮次。Java 的 focused 语音服务验证 Code/official/连接归属，维持连接和 callId 绑定，控制命令只允许 stop/heartbeat。Sidecar focused realtime 模块维持启动与活动句柄；runCodexTurn 沿用既有权限和 MCP 配置，runCodexAppServerTurn 的文字分支不变，语音分支启动 realtime 并复用原生工具事件翻译。
 
+嵌入业务系统的胶囊 WebSocket 仍使用显式命令白名单；除启动语音所复用的 `send` 外，必须允许 `voiceControl` 穿过胶囊边界，否则浏览器 10 秒心跳会被误判为越权并以 1008 关闭整个会话。该白名单只开放消息类型，`SessionVoiceService` 继续校验 action 仅为 stop/heartbeat、session/call 标识和当前连接 owner，不能借此扩大咨询会话的执行权限。
+
 准入消息显式携带 voiceCallId；普通文字轮次不会消费预备语音，取消或过期的语音轮次直接失败，不能回退为文字重放。普通 result 只有通过当前 Forge turnId 校验后才能结束通话；语音信令额外以 callId 隔离。
 
 ### 语音消息接入

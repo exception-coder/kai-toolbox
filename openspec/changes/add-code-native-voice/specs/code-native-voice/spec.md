@@ -54,6 +54,12 @@ The system SHALL display live voice transcripts and retain native code events an
 - **THEN** the call SHALL remain available for the next spoken request on the same thread
 - **AND** subsequent native turns SHALL have independent completion tracking
 
+#### Scenario: Embedded capsule keeps an active voice call alive
+- **WHEN** an authenticated embedded capsule sends heartbeat or stop controls for its active call
+- **THEN** the relay SHALL forward those controls through its restricted command boundary
+- **AND** a heartbeat SHALL NOT close the conversation WebSocket or interrupt transcript delivery
+- **AND** action, session ownership and call ownership SHALL remain subject to the existing voice-control validation
+
 #### Scenario: Speech appears in the existing conversation
 - **WHEN** user or assistant transcript fragments arrive for the active call
 - **THEN** the existing message list SHALL render a user or assistant bubble in arrival order and update that same bubble until the utterance completes
