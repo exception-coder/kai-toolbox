@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
 import type { AssistantMessageEnvelope, Attachment, BackgroundTaskInfo, CapabilitySnapshotSource, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, McpCapability, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, PluginCapability, ProviderKind, SendAttachment, ServerMessage, SkillCapability, TurnDiag } from '../types'
 import { useVoiceTransport } from './useVoiceTransport'
+import { isVoiceTranscriptItem, upsertVoiceTranscript } from '../lib/voiceTranscript'
 import type { VoiceTransport } from '../lib/nativeVoice'
 import { clearQueuedMessages, deleteQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage } from '../api'
 import { notifyPrompt } from '../browserNotify'
@@ -387,12 +388,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }
 
   const voiceChannel = useVoiceTransport(sendRaw, () => {
+    if (turnRunningStateRef.current.running) return
     queueReleaseSessionRef.current = null
     setQueuePausedReason(null)
     turnStartRef.current = Date.now()
     setTurnTokens(0)
     applyTurnRunningSignal('localStart')
-  })
+  }, item => setItems(previous => upsertVoiceTranscript(previous, item)))
 
   const resetTurnRunningState = () => {
     turnRunningStateRef.current = { running: false, terminal: false }
@@ -590,7 +592,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
         setItems(prev => {
           const last = prev[prev.length - 1]
-          if (last && last.kind === 'assistant') {
+          if (last && last.kind === 'assistant' && !isVoiceTranscriptItem(last)) {
             const copy = prev.slice(0, -1)
             return [...copy, { ...last, text: last.text + msg.text }]
           }
@@ -659,7 +661,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setItems(prev => {
           for (let i = prev.length - 1; i >= 0; i--) {
             const it = prev[i]
-            if (it.kind === 'user' && !it.sdkUuid) {
+            if (it.kind === 'user' && !it.sdkUuid && !isVoiceTranscriptItem(it)) {
               const copy = prev.slice()
               copy[i] = { ...it, sdkUuid: msg.uuid }
               return copy

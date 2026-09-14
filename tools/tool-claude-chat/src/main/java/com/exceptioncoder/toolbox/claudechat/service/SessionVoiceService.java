@@ -35,21 +35,59 @@ public class SessionVoiceService {
     private record Binding(String callId, WebSocketSession owner) {
     }
 
+    /**
+     * 由已绑定会话提供的重连依据。
+     * @param sessionId 当前连接所属会话
+     * @param eligibility 服务端能力边界
+     * @param offer 新音频协商
+     * @param writable 当前规划是否允许交互
+     */
+    public record Reconnection(String sessionId, Eligibility eligibility, VoiceOffer offer, boolean writable) {
+    }
+
+    /** 重连只发送音频事件，失败不终结或重启正在运行的代码任务。 */
+    public void reconnect(WebSocketSession ws, Reconnection request) {
+        Binding binding = new Binding(request.offer().callId(), ws);
+        try {
+            if (!request.writable()) {
+                throw new IllegalArgumentException("该规划已过期，请先解锁后恢复语音");
+            }
+            validate(request.eligibility(), request.offer());
+            startBinding(request.sessionId(), binding, request.offer(), true);
+        } catch (RuntimeException exception) {
+            send(binding, Map.of("type", "voiceEvent", "callId", String.valueOf(binding.callId()),
+                    "event", "error", "message", exception.getMessage() == null ? "语音重连失败" : exception.getMessage()));
+        }
+    }
+
     public void bind(WebSocketSession ws, String sessionId, Eligibility eligibility, VoiceOffer offer) {
         if (offer == null) {
             return;
         }
         validate(eligibility, offer);
         Binding binding = new Binding(offer.callId(), ws);
-        if (bindings.putIfAbsent(sessionId, binding) != null) {
+        startBinding(sessionId, binding, offer, false);
+    }
+
+    private void startBinding(String sessionId, Binding binding, VoiceOffer offer, boolean reconnect) {
+        Binding previous = reconnect ? bindings.put(sessionId, binding) : bindings.putIfAbsent(sessionId, binding);
+        if (!reconnect && previous != null) {
             throw new IllegalArgumentException("当前会话已有语音连接，请先结束通话");
         }
+        if (reconnect && previous != null) {
+            send(previous, Map.of("type", "voiceEvent", "callId", previous.callId(),
+                    "event", "closed", "message", "语音已转移到另一设备"));
+        }
         try {
-            if (!sidecar.prepareVoice(sessionId, offer)) {
+            boolean sent = reconnect ? sidecar.reconnectVoice(sessionId, offer) : sidecar.prepareVoice(sessionId, offer);
+            if (!sent) {
                 throw new IllegalArgumentException("语音启动未送达，请恢复会话连接后重试");
             }
         } catch (RuntimeException exception) {
             bindings.remove(sessionId, binding);
+            if (reconnect && previous != null) {
+                stopQuietly(sessionId, previous);
+            }
             throw exception;
         }
     }

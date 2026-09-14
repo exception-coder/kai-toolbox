@@ -13,7 +13,7 @@ import {
   GRAPHIFY_RUNTIME_TOKEN,
 } from './graphifyRuntime.js'
 import { inspectSystemRoute } from './codexSecurity.js'
-import { prepareCodexVoice, controlCodexVoice, type CodexVoiceOffer } from './codexRealtime.js'
+import { prepareCodexVoice, reconnectCodexVoice, controlCodexVoice, type CodexVoiceOffer } from './codexRealtime.js'
 
 const port = Number(process.env.CLAUDE_CHAT_SIDECAR_PORT) || 18890
 initializeTelemetry()
@@ -116,6 +116,9 @@ wss.on('connection', (ws) => {
     switch (type) {
       case 'voicePrepare':
         prepareCodexVoice(sessionId, msg.offer as unknown as CodexVoiceOffer, event => emit(sessionId, event))
+        break
+      case 'voiceReconnect':
+        void reconnectCodexVoice(sessionId, msg.offer as unknown as CodexVoiceOffer, event => emit(sessionId, event))
         break
       case 'voiceControl':
         void controlCodexVoice(sessionId, String(msg.callId), String(msg.action))

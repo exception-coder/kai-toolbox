@@ -24,7 +24,17 @@
 
 准入消息显式携带 voiceCallId；普通文字轮次不会消费预备语音，取消或过期的语音轮次直接失败，不能回退为文字重放。普通 result 只有通过当前 Forge turnId 校验后才能结束通话；语音信令额外以 callId 隔离。
 
+### 语音消息接入
+
+语音转写通过 useVoiceTransport 按活动 callId 过滤，由 focused transcript assembler 按角色维护当前句的稳定消息 ID。delta 更新同一 ChatItem，done 使用完整文本替换；下一句新建气泡。useClaudeChatSocket 复用 items 和原有 MessageList 渲染，NativeVoiceControl 仅承担通话操作与错误反馈。普通 assistantDelta 不得追加到语音气泡，userMessage 的 SDK uuid 不得误绑语音转写。停止、失败、切换或开始新通话会清理句级组装状态，已渲染消息在当前视图保留。此修复不增加历史存储，刷新后的记录仍由原生线程历史决定。
+
 ### 生命周期与恢复
+
+跨设备接管采用同一会话最后到达服务端的合法连接请求优先：Java 校验能力和规划后替换音频 owner，向旧 owner 发送 closed 与“语音已转移到另一设备”，保留聊天连接和代码任务。sidecar 在同一原生线程串行关闭和协商音频，新请求使尚未完成的旧请求失效；旧 callId 的控制、错误和关闭不能影响新 owner。接管同时覆盖正在听取语音但没有代码轮次的情况，停止旧音频前保留线程。网络、设备权限或上游协商失败仍明确报错。接管只由用户点击触发，旧设备不自动争抢连接。
+
+刷新恢复：useVoiceRecovery 仅记住按 Forge sessionId 隔离的恢复提示，不保存 SDP、音频或凭据。点击立即协商音频；不再预约到代码任务结束。运行中携带 voice 的既有 send 请求进入 SessionVoiceService.reconnect，复用会话锁、规划可写性和官方 Code eligibility；不进入 startTurn、队列或用户消息确认。Java 校验后绑定最新请求的浏览器连接，并通知旧 owner 停止本地媒体。sidecar 的 voiceReconnect 查找同一 CodexRealtimeCall 和 request/threadId，串行等待旧 stop 请求及 closed 通知后启动新 WebRTC transport；等待有界，失败只发新 callId 的 voiceEvent/error。重连期间 completeNativeTurn 保留同一 app-server，成功后继续正常音频生命周期。旧 callId 的控制不能操作新音频；连接在协商期间取消同样阻止迟到启动。原先预约方案由本次用户明确要求替代。所有 idle/connecting/connected/error 均以真实媒体状态为准。
+
+协议证据：2026-09-13 重新读取 [官方 App Server 文档](https://developers.openai.com/codex/app-server/) 并生成本机锁定 Codex 0.153.4 实验类型。start/stop 以 threadId 为作用域；closed 通知没有音频 sessionId，因此必须等待旧 closed 再创建新音频，不能仅换前端 callId 来隔离旧上游通知。真实账号的运行中重连仍须端到端验收，单元测试不替代该证据。
 
 UI 状态 idle → connecting → connected/muted → idle；任意失败进入 error，可重试。每次启动有唯一 callId，过期事件不作用到新通话。获取设备等待期间可以取消；迟到授权取得的 track 必须立即释放。页面切换、socket 断线、挂起和退出停止本地媒体；服务端连接解绑和有限心跳租约兜底结束 realtime。
 

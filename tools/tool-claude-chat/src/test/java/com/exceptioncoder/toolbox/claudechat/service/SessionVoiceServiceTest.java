@@ -83,6 +83,96 @@ class SessionVoiceServiceTest {
         assertThat(oldSend.voice()).isNull();
     }
 
+    @Test
+    void reconnectUsesExistingTaskAndIsolatesOldAudioOwner() throws Exception {
+        WebSocketSession oldOwner = socket();
+        WebSocketSession newOwner = socket();
+        VoiceOffer next = new VoiceOffer("call-2", "v=0");
+        when(sidecar.prepareVoice("session-1", offer)).thenReturn(true);
+        when(sidecar.reconnectVoice("session-1", next)).thenReturn(true);
+        service.bind(oldOwner, "session-1", code, offer);
+        service.disconnect(oldOwner);
+        service.reconnect(newOwner, new SessionVoiceService.Reconnection("session-1", code, next, true));
+        verify(sidecar).reconnectVoice("session-1", next);
+        verify(sidecar, never()).prepareVoice("session-1", next);
+        service.observe("session-1", mapper.readTree(
+                "{\"type\":\"voiceEvent\",\"event\":\"closed\",\"callId\":\"call-1\"}"));
+        verify(newOwner, never()).sendMessage(any());
+        service.observe("session-1", mapper.readTree(
+                "{\"type\":\"voiceEvent\",\"event\":\"sdp\",\"callId\":\"call-2\",\"sdp\":\"answer\"}"));
+        verify(newOwner).sendMessage(any(TextMessage.class));
+        service.disconnect(oldOwner);
+        verify(sidecar, never()).controlVoice("session-1", "call-2", "stop");
+        verify(sidecar, never()).interrupt(anyString());
+    }
+
+    @Test
+    void failedReconnectIsVoiceOnlyAndReleasesBindingForRetry() throws Exception {
+        WebSocketSession owner = socket();
+        service.reconnect(owner, new SessionVoiceService.Reconnection("session-1", code, offer, true));
+        var messages = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
+        verify(owner).sendMessage(messages.capture());
+        JsonNodeCheck.assertVoiceError(mapper, messages.getValue());
+        when(sidecar.reconnectVoice("session-1", offer)).thenReturn(true);
+        service.reconnect(owner, new SessionVoiceService.Reconnection("session-1", code, offer, true));
+        verify(sidecar, times(2)).reconnectVoice("session-1", offer);
+        verify(sidecar, never()).prepareVoice(anyString(), any());
+        verify(sidecar, never()).interrupt(anyString());
+    }
+
+    @Test
+    void reconnectPreservesEligibilityAndExistingOwner() throws Exception {
+        WebSocketSession owner = socket();
+        when(sidecar.prepareVoice("session-1", offer)).thenReturn(true);
+        service.bind(owner, "session-1", code, offer);
+        WebSocketSession other = socket();
+        service.reconnect(other, new SessionVoiceService.Reconnection("session-1", code, offer, false));
+        service.reconnect(other, new SessionVoiceService.Reconnection("session-1",
+                new SessionVoiceService.Eligibility("codex", "consult-readonly", null, false), offer, true));
+        verify(sidecar, never()).reconnectVoice(anyString(), any());
+        verify(other, times(2)).sendMessage(any(TextMessage.class));
+        verify(owner, never()).sendMessage(any());
+    }
+
+    @Test
+    void lastDeviceTakesOwnershipAndOldControlsCannotStopIt() throws Exception {
+        WebSocketSession desktop = socket();
+        WebSocketSession phone = socket();
+        WebSocketSession tablet = socket();
+        VoiceOffer phoneOffer = new VoiceOffer("phone", "v=0");
+        VoiceOffer tabletOffer = new VoiceOffer("tablet", "v=0");
+        when(sidecar.prepareVoice("session-1", offer)).thenReturn(true);
+        when(sidecar.reconnectVoice(anyString(), any())).thenReturn(true);
+        when(sidecar.controlVoice(anyString(), anyString(), anyString())).thenReturn(true);
+        service.bind(desktop, "session-1", code, offer);
+        service.reconnect(phone, new SessionVoiceService.Reconnection("session-1", code, phoneOffer, true));
+        var closed = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
+        verify(desktop).sendMessage(closed.capture());
+        assertThat(mapper.readTree(closed.getValue().getPayload()).path("message").asText())
+                .isEqualTo("语音已转移到另一设备");
+        service.reconnect(tablet, new SessionVoiceService.Reconnection("session-1", code, tabletOffer, true));
+        verify(phone).sendMessage(any(TextMessage.class));
+        service.control(desktop, new ClientMessage.VoiceControl("session-1", "call-1", "stop"));
+        service.control(phone, new ClientMessage.VoiceControl("session-1", "phone", "stop"));
+        service.disconnect(desktop);
+        service.disconnect(phone);
+        verify(sidecar, never()).controlVoice(anyString(), anyString(), anyString());
+        service.observe("session-1", mapper.readTree(
+                "{\"type\":\"voiceEvent\",\"event\":\"closed\",\"callId\":\"phone\"}"));
+        service.control(tablet, new ClientMessage.VoiceControl("session-1", "tablet", "heartbeat"));
+        verify(sidecar).controlVoice("session-1", "tablet", "heartbeat");
+        verify(sidecar, never()).interrupt(anyString());
+    }
+
+    private static class JsonNodeCheck {
+        static void assertVoiceError(ObjectMapper mapper, TextMessage message) throws Exception {
+            var payload = mapper.readTree(message.getPayload());
+            assertThat(payload.path("type").asText()).isEqualTo("voiceEvent");
+            assertThat(payload.path("event").asText()).isEqualTo("error");
+            assertThat(payload.path("callId").asText()).isEqualTo("call-1");
+        }
+    }
+
     private WebSocketSession socket() {
         WebSocketSession socket = mock(WebSocketSession.class);
         when(socket.isOpen()).thenReturn(true);

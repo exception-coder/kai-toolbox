@@ -38,6 +38,8 @@ import java.util.function.BiConsumer;
 @Slf4j
 @Component("claudeChatSidecarClient")
 public class SidecarClient implements ReviewThreadForkGateway {
+    @org.springframework.beans.factory.annotation.Autowired
+    private ProjectSessionAccess projectSessionAccess;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private List<com.exceptioncoder.toolbox.llm.spi.AgentToolAssemblyProvider> toolAssemblyProviders = List.of();
@@ -316,6 +318,12 @@ public class SidecarClient implements ReviewThreadForkGateway {
         return send(Map.of("type", "voicePrepare", "sessionId", sessionId, "offer", offer));
     }
 
+    /** 在同一原生线程上重新协商音频，不发送新的代码轮次。 */
+    public boolean reconnectVoice(String sessionId,
+                                 com.exceptioncoder.toolbox.claudechat.api.dto.VoiceOffer offer) {
+        return send(Map.of("type", "voiceReconnect", "sessionId", sessionId, "offer", offer));
+    }
+
     /** 语音停止与续租不改变代码任务的中断状态。 */
     public boolean controlVoice(String sessionId, String callId, String action) {
         return send(Map.of("type", "voiceControl", "sessionId", sessionId, "callId", callId, "action", action));
@@ -589,6 +597,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
 
     /** 发送一条消息到 sidecar。返回是否真正发出（未连接/异常返回 false，供决策类消息据此回告前端）。 */
     private synchronized boolean send(Map<String, ?> payload) {
+        if (projectSessionAccess != null) projectSessionAccess.check(payload);
         if (sdkMaintenance) {
             throw new IllegalStateException("SDK 正在升级，请完成后重试当前操作");
         }

@@ -652,6 +652,13 @@ public class ClaudeChatService {
             log.info("[claude-chat] 收到用户消息 session={} messageId={} attachments={} textLength={}",
                     ctx.sessionId, messageId, msg.attachments() == null ? 0 : msg.attachments().size(),
                     msg.text() == null ? 0 : msg.text().length());
+            if (msg.voice() != null && ctx.status == SessionStatus.RUNNING) {
+                voiceService.reconnect(ws, new SessionVoiceService.Reconnection(ctx.sessionId,
+                        new SessionVoiceService.Eligibility(ctx.engine,
+                                turnPolicy == null ? ctx.executionPolicy : turnPolicy, ctx.apiBaseUrl, ctx.demo),
+                        msg.voice(), planStateService.writable(ctx.sessionId)));
+                return;
+            }
             if (messageId != null && ctx.acceptedMessageIds.contains(messageId)) {
                 sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
                 return;

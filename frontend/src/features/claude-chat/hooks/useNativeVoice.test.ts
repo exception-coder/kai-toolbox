@@ -52,16 +52,32 @@ it('hangup releases media and timers; a stale answer failure cannot end a later 
   expect(f.listeners.size).toBe(0)
 })
 
-it('stale captions are ignored and session navigation stops the original call', async () => {
+it('stale call failures are ignored and session navigation stops the original call', async () => {
   const f = fixture()
   await act(() => f.result.current.start())
-  f.emit({ callId: 'old', event: 'transcript', role: 'user', text: 'wrong' })
-  expect(f.result.current.transcript.user).toBe('')
-  f.emit({ event: 'transcript', role: 'user', text: '你好', done: true })
-  expect(f.result.current.transcript.user).toBe('你好')
+  f.emit({ callId: 'old', event: 'error', message: 'wrong call' })
+  expect(f.result.current.state).toBe('connecting')
+  expect(f.result.current.error).toBeNull()
   f.rerender({ id: 'session-2', connected: true })
   expect(f.transport.control).toHaveBeenCalledWith('session-1', expect.any(String), 'stop')
   expect(f.result.current.state).toBe('idle')
+  f.unmount()
+})
+
+it('device takeover releases local media, explains the transfer and never reconnects automatically', async () => {
+  const f = fixture()
+  await act(() => f.result.current.start())
+  act(() => media.instances[0].connect())
+  f.emit({ event: 'closed', message: '语音已转移到另一设备' })
+  expect(f.result.current.state).toBe('idle')
+  expect(f.result.current.notice).toBe('语音已转移到另一设备')
+  expect(f.result.current.error).toBeNull()
+  expect(media.instances[0].close).toHaveBeenCalledTimes(1)
+  f.rerender({ id: 'session-1', connected: true })
+  expect(f.transport.start).toHaveBeenCalledTimes(1)
+  await act(() => f.result.current.start())
+  expect(f.result.current.notice).toBeNull()
+  expect(f.transport.start).toHaveBeenCalledTimes(2)
   f.unmount()
 })
 

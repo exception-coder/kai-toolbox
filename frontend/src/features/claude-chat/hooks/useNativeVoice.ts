@@ -15,8 +15,8 @@ const HEARTBEAT_MS = 10_000
 export function useNativeVoice(sessionId: string | null, transport: VoiceTransport, connected: boolean) {
   const [state, setState] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [muted, setMuted] = useState(false)
-  const [transcript, setTranscript] = useState({ user: '', assistant: '' })
   const callRef = useRef<Call | null>(null)
   const transportRef = useRef(transport)
   transportRef.current = transport
@@ -44,8 +44,8 @@ export function useNativeVoice(sessionId: string | null, transport: VoiceTranspo
     if (!sessionId || !connected || callRef.current) return
     const id = crypto.randomUUID()
     setError(null)
+    setNotice(null)
     setMuted(false)
-    setTranscript({ user: '', assistant: '' })
     setState('connecting')
     const current = () => callRef.current?.id === id
     const connection = new NativeVoiceConnection(() => {
@@ -53,21 +53,13 @@ export function useNativeVoice(sessionId: string | null, transport: VoiceTranspo
       clearTimeout(callRef.current!.timeout)
       setState('connected')
     }, failure => { if (current()) fail(failure) })
-    const completed = { user: false, assistant: false }
     const onEvent = (event: VoiceEvent) => {
       if (!current() || event.callId !== id) return
       if (event.event === 'sdp' && event.sdp) {
         void connection.answer(event.sdp).catch(failure => { if (current()) fail(failure) })
       }
       if (event.event === 'error') fail(new Error(event.message || '原生语音连接失败'))
-      if (event.event === 'closed') stop()
-      if (event.event === 'transcript' && (event.role === 'user' || event.role === 'assistant')) {
-        const role = event.role
-        const replace = event.done || completed[role]
-        completed[role] = event.done === true
-        setTranscript(previous => ({ ...previous, [role]:
-          (replace ? event.text ?? '' : previous[role] + (event.text ?? '')).slice(-4000) }))
-      }
+      if (event.event === 'closed') { setNotice(event.message || null); stop() }
     }
     callRef.current = {
       id, sessionId, connection, unsubscribe: transportRef.current.subscribe(onEvent),
@@ -83,7 +75,7 @@ export function useNativeVoice(sessionId: string | null, transport: VoiceTranspo
     } catch (failure) { if (current()) fail(failure) }
   }, [sessionId, connected, fail, stop])
 
-  useEffect(() => { stop(); return release }, [sessionId, stop, release])
+  useEffect(() => { stop(); setNotice(null); return release }, [sessionId, stop, release])
   useEffect(() => { if (!connected && callRef.current) fail(new Error('会话连接已断开，请重连后重新开始语音')) }, [connected, fail])
   useEffect(() => {
     const hidden = () => { if (document.hidden && callRef.current) stop() }
@@ -96,5 +88,5 @@ export function useNativeVoice(sessionId: string | null, transport: VoiceTranspo
     callRef.current?.connection.mute(!muted)
     setMuted(!muted)
   }
-  return { state, error, muted, transcript, start, stop, toggleMute }
+  return { state, error, notice, muted, start, stop, toggleMute }
 }
