@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify'
+import { mountAssistantVoiceControls } from './assistantVoiceControls'
 import { marked } from 'marked'
 import type {
   AssistantConversationMessage,
@@ -35,6 +36,7 @@ export function mountAssistantWidget(root: HTMLElement, options: AssistantWidget
   const widget = document.createElement(ELEMENT_NAME) as AssistantWidgetElement
   widget.configure(options)
   root.append(widget)
+  const unmountVoice = mountAssistantVoiceControls(root, widget.shadowRoot!, options.voice)
   const open = (event: Event) => widget.open((event as CustomEvent<{ mode: AssistantMode }>).detail.mode)
   const close = () => widget.close()
   const state = (event: Event) => widget.setState((event as CustomEvent).detail)
@@ -42,6 +44,7 @@ export function mountAssistantWidget(root: HTMLElement, options: AssistantWidget
   root.addEventListener('kai-assistant-close', close)
   root.addEventListener('kai-assistant-state', state)
   return () => {
+    unmountVoice()
     root.removeEventListener('kai-assistant-open', open)
     root.removeEventListener('kai-assistant-close', close)
     root.removeEventListener('kai-assistant-state', state)
@@ -308,6 +311,7 @@ class AssistantWidgetElement extends HTMLElement {
   close(): void {
     this.closeAttachmentPreview(false)
     this.panel.hidden = true
+    this.dispatchEvent(new CustomEvent('assistant-hidden', { bubbles: true }))
     if (!this.launcher.hidden) this.launcher.focus()
   }
 

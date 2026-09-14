@@ -94,10 +94,11 @@ public class SessionVoiceService {
 
     static void validate(Eligibility eligibility, VoiceOffer offer) {
         if (!"codex".equals(eligibility.engine())
-                || !SessionExecutionPolicy.STANDARD.equals(eligibility.executionPolicy())
+                || (!SessionExecutionPolicy.STANDARD.equals(eligibility.executionPolicy())
+                    && !SessionExecutionPolicy.CONSULT_READONLY.equals(eligibility.executionPolicy()))
                 || (eligibility.gateway() != null && !eligibility.gateway().isBlank())
                 || Boolean.TRUE.equals(eligibility.demo())) {
-            throw new IllegalArgumentException("原生语音仅支持官方 Codex 的 Code 会话");
+            throw new IllegalArgumentException("原生语音仅支持官方 Codex 的开发或咨询会话");
         }
         if (offer.callId() == null || !offer.callId().matches("[a-zA-Z0-9_-]{1,100}")
                 || offer.sdp() == null || !offer.sdp().startsWith("v=0")

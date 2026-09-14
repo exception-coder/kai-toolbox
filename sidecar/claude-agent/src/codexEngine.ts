@@ -373,9 +373,9 @@ function mapMode(mode: string): { approvalPolicy: ApprovalMode; sandboxMode: San
 export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   const voice = takeCodexVoice(ctx.sessionId, ctx.voiceCallId)
   voice?.attachEmitter(ctx.emit)
-  if (voice && (ctx.apiBaseUrl?.trim() || (ctx.toolPolicy && ctx.toolPolicy !== 'default'))) {
+  if (voice && (ctx.apiBaseUrl?.trim() || (ctx.toolPolicy && ctx.toolPolicy !== 'default' && ctx.toolPolicy !== CONSULT_READONLY_POLICY))) {
     voice.dispose()
-    ctx.emit({ type: 'error', code: 'VOICE_UNSUPPORTED', message: '原生语音仅支持官方 Codex Code 会话' })
+    ctx.emit({ type: 'error', code: 'VOICE_UNSUPPORTED', message: '原生语音仅支持官方 Codex 开发或咨询会话' })
     ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
     return
   }

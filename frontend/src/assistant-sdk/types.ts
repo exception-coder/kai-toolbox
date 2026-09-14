@@ -120,6 +120,7 @@ export interface AssistantFeedbackArchiveClient {
 }
 
 export interface AssistantWidgetMountOptions {
+  voice?: { start: () => void; stop: () => void; mute: () => void }
   onConfigureConnection?: () => void
   onReconnect?: () => void
   visibility?: AssistantVisibilityOptions
@@ -267,6 +268,7 @@ export interface AssistantWidgetUser {
 }
 
 export interface AssistantWidgetState {
+  voice?: import('./AssistantVoiceSession').AssistantVoiceState
   state?: string
   message?: string
   queueSize?: number
@@ -287,6 +289,9 @@ export interface AssistantWidgetState {
 }
 
 export interface AssistantTransport {
+  startVoice?: (snapshot: AssistantContextSnapshot) => Promise<void>
+  stopVoice?: () => void
+  muteVoice?: () => void
   start: (listener: (state: AssistantWidgetState) => void) => void
   submit: (submission: AssistantSubmission) => void
   saveDraft?: (submission: AssistantDraftSubmission) => void

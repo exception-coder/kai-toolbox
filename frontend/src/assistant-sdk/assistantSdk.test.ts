@@ -9,6 +9,22 @@ afterEach(() => {
 })
 
 describe('initializeAssistant', () => {
+  it('stops voice when the actual panel closes and cancels pending context collection', async () => {
+    let resolve!: (value: undefined) => void
+    const stopVoice = vi.fn()
+    const startVoice = vi.fn().mockResolvedValue(undefined)
+    initializeAssistant({ appId: 'voice-close', trackPageUrl: false,
+      transport: { start: () => {}, submit: () => {}, destroy: () => {}, startVoice, stopVoice },
+      providers: [{ id: 'slow', collect: () => new Promise(done => { resolve = done }) }],
+    }).open()
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    shadow.querySelector<HTMLButtonElement>('[data-voice-start]')!.click()
+    shadow.querySelector<HTMLButtonElement>('[data-close]')!.click()
+    expect(stopVoice).toHaveBeenCalledOnce()
+    resolve(undefined)
+    await new Promise(done => setTimeout(done, 0))
+    expect(startVoice).not.toHaveBeenCalled()
+  })
   it('keeps one widget and one lifecycle when initialized repeatedly', () => {
     const firstMount = vi.fn()
     const secondMount = vi.fn()

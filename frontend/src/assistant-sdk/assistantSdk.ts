@@ -62,6 +62,16 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
     page: currentContext.page,
   }) : undefined
   const transport = options.transport ?? webSocketTransport
+  let voicePreparation = 0
+  const stopVoice = () => { voicePreparation++; transport?.stopVoice?.() }
+  const startVoice = () => {
+    const preparation = ++voicePreparation
+    void captureSnapshot().then(snapshot => {
+      if (preparation === voicePreparation) return transport?.startVoice?.(snapshot)
+    }).catch(error => emitTransportState({ voice: {
+      status: 'error', muted: false, message: error instanceof Error ? error.message : '语音准备失败，请重试',
+    } }))
+  }
   const feedbackArchive = webSocketTransport ?? (isFeedbackArchiveClient(transport) ? transport : undefined)
   const authentication = externalLogin ? {
     authenticated: externalLogin.isAuthenticated(),
@@ -71,6 +81,7 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
     },
   } : undefined
   const unmountWidget = (options.mountWidget ?? mountAssistantWidget)(root, {
+    voice: transport?.startVoice ? { start: startVoice, stop: stopVoice, mute: () => transport.muteVoice?.() } : undefined,
     onConfigureConnection: options.onConfigureConnection,
     onReconnect: webSocketTransport ? () => webSocketTransport.resumeAfterAuthentication() : undefined,
     visibility: options.visibility,
@@ -121,11 +132,14 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
       root.dispatchEvent(new CustomEvent('kai-assistant-open', { detail: { mode } }))
     },
     close: () => {
+      stopVoice()
       opened = false
       root.dataset.open = 'false'
       root.dispatchEvent(new CustomEvent('kai-assistant-close'))
     },
     updateContext: context => {
+      if (context.page?.url && context.page.url !== currentContext.page?.url) stopVoice()
+      if (Object.hasOwn(context, 'user') && context.user?.id !== currentContext.user?.id) stopVoice()
       currentContext = { ...currentContext, ...copyContext(context) }
       transport?.updateContext?.(context)
     },
@@ -150,6 +164,7 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
     },
     destroy: () => {
       if (singleton !== sdk) return
+      stopVoice()
       if (opened) sdk.close()
       if (typeof unmountWidget === 'function') unmountWidget()
       root.removeEventListener('assistant-submit', submit)
@@ -157,6 +172,7 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
       root.removeEventListener('assistant-confirm-draft', confirmDraft)
       root.removeEventListener('assistant-interrupt', interrupt)
       root.removeEventListener('assistant-hidden', hidden)
+      window.removeEventListener('pagehide', stopVoice)
       activePreparation?.abort('assistant-destroyed')
       stopPageNavigation()
       transport?.destroy()
@@ -232,10 +248,12 @@ export function initializeAssistant(options: AssistantInitOptions): AssistantSdk
   }
   const interrupt = () => sdk.interrupt()
   const hidden = () => {
+    stopVoice()
     opened = false
     root.dataset.open = 'false'
   }
   root.addEventListener('assistant-hidden', hidden)
+  window.addEventListener('pagehide', stopVoice)
   root.addEventListener('assistant-submit', submit)
   root.addEventListener('assistant-save-draft', saveDraft)
   root.addEventListener('assistant-confirm-draft', confirmDraft)

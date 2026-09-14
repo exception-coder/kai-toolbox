@@ -22,12 +22,14 @@ class SessionVoiceServiceTest {
             new SessionVoiceService.Eligibility("codex", "standard", null, false);
 
     @Test
-    void bindsOnlyOfficialCodeAndRejectsInvalidOffers() {
+    void bindsOfficialCodeOrConsultAndRejectsInvalidOffers() {
+        SessionVoiceService.validate(
+                new SessionVoiceService.Eligibility("codex", "consult-readonly", null, false), offer);
         assertThatThrownBy(() -> SessionVoiceService.validate(
                 new SessionVoiceService.Eligibility("claude", "standard", null, false), offer))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> SessionVoiceService.validate(
-                new SessionVoiceService.Eligibility("codex", "consult-readonly", null, false), offer))
+                new SessionVoiceService.Eligibility("codex", "review-only", null, false), offer))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> SessionVoiceService.validate(
                 new SessionVoiceService.Eligibility("codex", "standard", "https://gateway", false), offer))
@@ -128,7 +130,7 @@ class SessionVoiceServiceTest {
         WebSocketSession other = socket();
         service.reconnect(other, new SessionVoiceService.Reconnection("session-1", code, offer, false));
         service.reconnect(other, new SessionVoiceService.Reconnection("session-1",
-                new SessionVoiceService.Eligibility("codex", "consult-readonly", null, false), offer, true));
+                new SessionVoiceService.Eligibility("codex", "review-only", null, false), offer, true));
         verify(sidecar, never()).reconnectVoice(anyString(), any());
         verify(other, times(2)).sendMessage(any(TextMessage.class));
         verify(owner, never()).sendMessage(any());
@@ -161,6 +163,18 @@ class SessionVoiceServiceTest {
                 "{\"type\":\"voiceEvent\",\"event\":\"closed\",\"callId\":\"phone\"}"));
         service.control(tablet, new ClientMessage.VoiceControl("session-1", "tablet", "heartbeat"));
         verify(sidecar).controlVoice("session-1", "tablet", "heartbeat");
+        verify(sidecar, never()).interrupt(anyString());
+    }
+
+    @Test
+    void consultationCanStartAndReconnectWithoutTaskInterrupt() {
+        var consult = new SessionVoiceService.Eligibility("codex", "consult-readonly", null, false);
+        when(sidecar.prepareVoice("consult-1", offer)).thenReturn(true);
+        when(sidecar.reconnectVoice("consult-1", offer)).thenReturn(true);
+        service.bind(socket(), "consult-1", consult, offer);
+        service.reconnect(socket(), new SessionVoiceService.Reconnection("consult-1", consult, offer, true));
+        verify(sidecar).prepareVoice("consult-1", offer);
+        verify(sidecar).reconnectVoice("consult-1", offer);
         verify(sidecar, never()).interrupt(anyString());
     }
 

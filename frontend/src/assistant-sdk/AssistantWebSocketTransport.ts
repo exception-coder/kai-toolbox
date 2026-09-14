@@ -1,4 +1,6 @@
 import { buildAssistantDeveloperInstructions } from './prompt'
+import { AssistantVoiceSession } from './AssistantVoiceSession'
+import { VoiceTranscriptAssembler, type VoiceEvent } from '../features/claude-chat/public-api/voice'
 import type {
   AssistantConversationMessage,
   AssistantContextSnapshot,
@@ -151,6 +153,54 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   private transcriptMissing = false
   private started = false
   private currentTurnError?: string
+  private voiceSnapshot?: AssistantContextSnapshot
+  private voiceReady = false
+  private voiceTranscript?: VoiceTranscriptAssembler
+  private readonly voice = new AssistantVoiceSession({
+    start: async offer => {
+      if (!this.voiceReady || !this.sessionId || this.socket?.readyState !== WebSocket.OPEN || !this.voiceSnapshot) {
+        this.connect()
+        throw new Error('会话正在连接，请连接就绪后重试语音')
+      }
+      this.voiceTranscript = new VoiceTranscriptAssembler(offer.callId)
+      this.socket.send(JSON.stringify({ type: 'send', text: '开始语音咨询', messageId: offer.callId, voice: offer,
+        developerInstructions: buildAssistantDeveloperInstructions('AUTO', this.voiceSnapshot),
+        assistant: { protocolVersion: this.voiceSnapshot.protocolVersion, mode: 'AUTO', contextSnapshot: this.voiceSnapshot },
+      }))
+      this.running = true
+    },
+    control: (callId, action) => {
+      if (this.sessionId && this.socket?.readyState === WebSocket.OPEN) {
+        this.socket.send(JSON.stringify({ type: 'voiceControl', sessionId: this.sessionId, callId, action }))
+      }
+    },
+    state: voice => this.listener({ voice }),
+    transcript: event => this.acceptVoiceTranscript(event),
+  })
+
+  async startVoice(snapshot: AssistantContextSnapshot): Promise<void> {
+    if (this.options.engine && this.options.engine !== 'codex') {
+      this.listener({ voice: { status: 'error', muted: false, message: '当前引擎暂不支持语音，请继续文字咨询' } })
+      return
+    }
+    this.voiceSnapshot = snapshot
+    await this.voice.start()
+  }
+
+  stopVoice(): void { this.voice.stop(); this.voiceSnapshot = undefined }
+  muteVoice(): void { this.voice.mute() }
+
+  private acceptVoiceTranscript(event: VoiceEvent): void {
+    const item = this.voiceTranscript?.accept(event)
+    if (!item) return
+    const message: AssistantConversationMessage = {
+      id: item.id, role: item.kind, content: item.text, timestamp: item.ts, streaming: !event.done,
+    }
+    const index = this.messages.findIndex(existing => existing.id === item.id)
+    if (index < 0) this.messages.push(message)
+    else this.messages[index] = message
+    this.listener({ messages: this.messages.map(existing => ({ ...existing })) })
+  }
 
   constructor(options: AssistantWebSocketTransportOptions) {
     this.options = options
@@ -169,6 +219,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
 
   updateContext(context: Pick<AssistantInitOptions, 'user' | 'page' | 'businessObject'>): void {
     if (!Object.hasOwn(context, 'page')) return
+    if (context.page?.url !== this.options.page?.url) this.stopVoice()
     const page = context.page
     if (this.running || this.pending.length > 0 || this.awaitingQueueAck.size > 0 || this.awaitingSendAck.size > 0) {
       this.queuedPageContext = page
@@ -243,6 +294,8 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
 
   resumeAfterAuthentication(accessToken?: string): void {
     if (this.destroyed) return
+    this.stopVoice()
+    this.voiceReady = false
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer)
     this.reconnectTimer = undefined
     this.reconnectAttempts = 0
@@ -336,6 +389,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   }
 
   destroy(): void {
+    this.stopVoice()
     this.destroyed = true
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer)
     this.socket?.close(1000, 'assistant destroyed')
@@ -410,6 +464,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
 
   private onOpen(socket: WebSocket): void {
     if (socket !== this.socket) return
+    this.voiceReady = false
     this.debug('connection', 'WebSocket 握手成功，等待会话就绪', { restoringSession: Boolean(this.sessionId) })
     if (this.sessionId) {
       this.send({ type: 'attach', sessionId: this.sessionId, lastEventSeq: this.lastSeq })
@@ -427,6 +482,8 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
 
   private onClose(socket: WebSocket, code: number): void {
     if (socket !== this.socket) return
+    this.voiceReady = false
+    this.voice.stop('连接已断开，请连接就绪后恢复语音')
     this.socket = undefined
     this.conversationAnalysisInFlight = false
     this.resetLoadingModuleContexts()
@@ -464,6 +521,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
       this.emit('协议异常', '服务端返回了无法解析的消息')
       return
     }
+    if (message.type === 'voiceEvent') { this.voice.accept(message as unknown as VoiceEvent); return }
     this.debug('receive', '收到服务端消息', { type: message.type, seq: message.seq ?? 0 })
     if (!this.acceptSequence(message)) return
     this.applyMessage(message)
@@ -484,6 +542,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   private applyMessage(message: IncomingMessage): void {
     switch (message.type) {
       case 'ready':
+        this.voiceReady = true
         this.sessionId = message.sessionId
         this.running = message.status?.toUpperCase() === 'RUNNING'
         this.resendAwaitingQueueAck()
@@ -508,6 +567,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
         this.acceptSentSubmission(message.messageId)
         break
       case 'result':
+        if (this.voice.active) this.voice.stop()
         this.acceptOldestSentSubmission()
         this.running = false
         if (message.stopReason === 'interrupted') this.activeModuleExploration = undefined
@@ -544,6 +604,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
         this.emit('回复中')
         break
       case 'error':
+        if (this.voice.active && message.terminal !== false) this.voice.stop(message.message)
         if (message.code === 'TURN_BUSY' && this.pending.length > 0) {
           this.flushPendingAsQueue()
           break
@@ -1048,7 +1109,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   private appendAssistantDelta(text: string): void {
     if (!text) return
     const last = this.messages[this.messages.length - 1]
-    if (last?.role === 'assistant' && last.streaming) {
+    if (last?.role === 'assistant' && last.streaming && !last.id.startsWith('voice-transcript:')) {
       last.content += text
       return
     }
@@ -1068,6 +1129,7 @@ export class AssistantWebSocketTransport implements AssistantTransport, Assistan
   }
 
   private emitAuthenticationFailure(error: unknown): void {
+    this.stopVoice()
     this.emit('认证失败', error instanceof Error ? error.message : String(error), true)
   }
 
