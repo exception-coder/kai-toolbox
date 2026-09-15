@@ -7,7 +7,6 @@ import {
   FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
 } from './pendingSqlPolicy.js'
 import { fetchMcpHttpText, type McpRequestExtra } from './mcpHttp.js'
-import { FORGE_AFFECTED_API_TOOL_DESCRIPTION } from './affectedApiPolicy.js'
 
 const pendingSqlTargetSchema = z.object({
   targetKey: z.string().optional().describe('稳定目标标识；已知 Forge 数据源时可传 datasource:<id>'),
@@ -15,19 +14,6 @@ const pendingSqlTargetSchema = z.object({
   targetEnvironment: z.string().describe('目标库或环境，例如“ERP 测试库 · Oracle”'),
   changeType: z.enum(['DDL', 'DML', 'MIXED']).default('MIXED'),
   sqlText: z.string().describe('该目标库独立执行的完整 DDL/DML'),
-})
-
-const affectedApiSchema = z.object({
-  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']),
-  path: z.string().describe('以 / 开头的路由模板，例如 /api/orders/{id}；不要带 host、query 或 fragment'),
-  changeType: z.enum(['ADDED', 'MODIFIED', 'REMOVED']).default('MODIFIED'),
-  sourceFile: z.string().describe('主要 Controller/route/handler 源码的仓库相对路径'),
-  handlerName: z.string().optional().describe('类与方法定位，例如 OrderController#confirm'),
-  summary: z.string().optional().describe('接口契约或行为的具体变更'),
-  verificationStatus: z.enum(['UNVERIFIED', 'PASSED', 'FAILED', 'NOT_APPLICABLE']).default('UNVERIFIED'),
-  verificationMethod: z.string().optional().describe('实际验证方式，例如 AUTOMATED_TEST、BUILD、SAFE_HTTP_PROBE'),
-  verificationCommand: z.string().optional().describe('实际执行的验证命令；不得含密码或 Token'),
-  verificationSummary: z.string().optional().describe('验证结果摘要；不得包含完整敏感响应'),
 })
 
 export { FORGE_PENDING_SQL_STEER } from './pendingSqlPolicy.js'
@@ -140,39 +126,6 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string, 
           }
         },
       ),
-      ...(includeDeliveryTools ? [tool(
-        'register_affected_apis',
-        FORGE_AFFECTED_API_TOOL_DESCRIPTION,
-        {
-          apis: z.array(affectedApiSchema).min(1).max(50),
-        },
-        async (args: { apis: z.infer<typeof affectedApiSchema>[] }, rawExtra: unknown) => {
-          try {
-            const { response, text } = await fetchMcpHttpText(
-              `${apiBase}/api/claude-chat/sessions/${encodeURIComponent(sessionId)}/affected-apis/auto-register`,
-              {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ apis: args.apis }),
-              },
-              rawExtra as McpRequestExtra,
-              '登记 OpenSpec 接口证据',
-            )
-            return {
-              content: [{ type: 'text' as const, text: response.ok
-                ? `已登记为当前会话绑定 OpenSpec change 的接口影响证据。\n${text}`
-                : text }],
-              ...(response.ok ? {} : { isError: true }),
-            }
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
-            return {
-              content: [{ type: 'text' as const, text: `Forge OpenSpec 接口证据登记失败：${message}` }],
-              isError: true,
-            }
-          }
-        },
-      )] : []),
       tool(
         'report_session_progress',
         '向 Forge Runtime 报告当前自动监督轮次的候选处置；运行身份由服务端会话绑定，工具本身不会启动下一轮或宣告整个目标完成。',

@@ -24,7 +24,6 @@
 .explore-featured-heading > span { font-size: 10px; letter-spacing: .12em; color: var(--color-muted-foreground); }
 .explore-featured-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
 .explore-featured { display: flex; flex-direction: column; min-width: 0; border-radius: 12px; text-align: left; padding: 32px; background: var(--color-card); border: 1px solid var(--color-border); cursor: pointer; transition: border-color 160ms ease-out, background-color 160ms ease-out; }
-.explore-featured-delegation { background: var(--color-muted); }
 .explore-featured:hover { border-color: var(--color-border-strong); background: var(--color-accent); }
 .explore-featured:active, .explore-capability:active { background: var(--color-secondary); }
 .explore-featured-label { display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 13px; font-weight: 500; }

@@ -3,7 +3,6 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { RELAY_BLOCK, RelayClientsEditor } from '../components/RelayClientsEditor'
 import { isProjectDirectoryBlock, PROJECT_DIRECTORY_SETTINGS_URL } from '../configDestinations'
 import { fetchModels, HeaderModelPicker, type ModelInfo } from '@/features/ai-chat/public-api'
 import {
@@ -80,7 +79,7 @@ export function ConfigCenterPage() {
       </aside>
 
       <main className="flex-1 overflow-y-auto p-4">
-        {selected === RELAY_BLOCK ? <RelayClientsEditor /> : selected ? <BlockEditor blockId={selected} onChanged={() => qc.invalidateQueries({ queryKey: BLOCKS_KEY })} /> : null}
+        {selected ? <BlockEditor blockId={selected} onChanged={() => qc.invalidateQueries({ queryKey: BLOCKS_KEY })} /> : null}
       </main>
     </div>
   )

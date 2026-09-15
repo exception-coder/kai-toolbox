@@ -7,7 +7,7 @@ import { SessionCapabilityCatalog } from '../guide/SessionCapabilityCatalog'
 import '../showcase.css'
 import '../guide/guide.css'
 
-const sections = [['relationship', '两种能力'], ['openspec', '文档如何驱动执行'], ['binding', '绑定如何实现'], ['supervision', '自动监督闭环'], ['phases', '完成的依据'], ['constraints', '权限执行链'], ['start', '开始使用']] as const
+const sections = [['relationship', '两种能力'], ['openspec', '文档如何驱动执行'], ['binding', '绑定如何实现'], ['supervision', '自动监督闭环'], ['phases', '完成的依据'], ['start', '开始使用']] as const
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return <section id={id} className="guide-section" aria-labelledby={`${id}-heading`}><div className="guide-section-title"><h2 id={`${id}-heading`}>{title}</h2></div>{children}</section>
@@ -18,10 +18,10 @@ function Chain({ title, nodes }: { title: string; nodes: readonly (readonly [str
 }
 
 export default function VibeCodingGuidePage() {
-  return <div className="forge-explore delegation-guide">
+  return <div className="forge-explore">
     <a className="explore-skip" href="#guide-main">跳到说明书正文</a>
     <header className="explore-nav"><Link to="/explore" className="explore-brand"><Layers3 size={22} /><span>Forge</span><span className="explore-brand-caption">能力说明书</span></Link><Link to="/explore" className="explore-workspace"><ArrowLeft size={16} />返回能力展厅</Link></header>
-    <div className="guide-masthead"><p className="explore-eyebrow">CAPABILITY MANUAL / 02 · VIBE CODING</p><h1>持续推进，每一步都有依据。</h1><p>OpenSpec 定义要完成的工作，Forge Runtime 监督执行进度，Session Grant 限定参与权限。让 Agent 连续工作，也保留所有者的关键决策权。</p><div className="guide-masthead-bottom"><span>自动监督 · 受约束会话委托</span><a href="#supervision">查看技术实现<ArrowRight size={16} /></a></div></div>
+    <div className="guide-masthead"><p className="explore-eyebrow">CAPABILITY MANUAL / 02 · VIBE CODING</p><h1>持续推进，每一步都有依据。</h1><p>OpenSpec 定义要完成的工作，Forge Runtime 监督执行进度，让 Agent 连续工作，也保留所有者的关键决策权。</p><div className="guide-masthead-bottom"><span>OpenSpec · 自动监督</span><a href="#supervision">查看技术实现<ArrowRight size={16} /></a></div></div>
     <ExecutionOverview />
     <SessionCapabilityCatalog />
     <AppServerExecutionFlow />
@@ -111,25 +111,15 @@ export default function VibeCodingGuidePage() {
         ].map(([name, detail], index) => <li key={name}><span>0{index + 1}</span><div><h3>{name}</h3><p>{detail}</p></div></li>)}</ol>
         <p className="guide-note">完成判定结合任务文件、Agent 阶段报告与工具结果；Agent 自报仍需要证据核对。流程完成不代表业务验收通过，也不代表未执行的测试或目标部署环境已经验证。</p>
       </Section>
-      <Section id="constraints" title="权限在服务端和工具调用处落地。">
-        <Chain title="参与者请求进入执行环境前，依次通过权限检查" nodes={[
-          ['身份与 Session Grant', '登录身份匹配指定参与者和固定会话；校验到期、暂停、撤销以及输入和回合额度。'],
-          ['公共协议白名单', '仅允许公开命令；回答问题须匹配当前 requestId，中断须属于自己的活跃回合。'],
-          ['Agent 工具策略', '服务端传递执行画像，Sidecar 在工具调用处允许、拒绝或交由所有者审批。'],
-        ]} />
-        <div className="guide-profiles"><div><code>delegated-request-only</code><h3>仅需求</h3><p>允许提交与澄清需求；除业务问答外拒绝工具调用。</p></div><div><code>delegated-development</code><h3>受约束开发</h3><p>允许白名单工具，其余走审批。普通自动批准和 bypassPermissions 不会直接放行这些委托工具请求。</p></div></div>
-        <p className="guide-note">项目、模型、引擎和审批控制保留在所有者端。提示词不能修改服务端画像；公共事件过滤内部管理信息，但消息正文仍需按业务数据要求保护。暂停授权不会自动中断正在执行的回合；工具策略也不等同于操作系统沙箱。</p>
-        <div className="guide-actions"><Link to="/explore/delegation">查看委托协议与权限边界<ArrowRight size={16} /></Link><Link to="/explore/delegation#quickstart">SDK / Spring Boot Starter 接入<ArrowRight size={16} /></Link></div>
-      </Section>
       <Section id="start" title="从一条已明确范围的 change 开始。">
         <ol className="guide-onboarding-steps">{[
           ['准备项目与规格', '在 Vibe Coding 选择项目和会话，准备活动 OpenSpec change，写清目标、任务和验收依据。'],
           ['启用自动监督', '打开「自动推进」，选择 change、填写监督目标，按需选择「完成后归档」，再点击「启用监督」。'],
-          ['按需邀请参与者', '在「委托」指定参与者、画像、有效期和额度。参与者通过参考客户端或 Relay Starter 接入。'],
-          ['查看与处理', '在会话状态和「监督看板」查看阶段与原因；需要时审批风险操作、处理阻塞，再恢复监督。'],
+          ['观察执行进度', '在会话状态和「监督看板」查看当前 task、阶段、预算和最近活动。'],
+          ['查看与处理', '需要时审批风险操作、处理阻塞，再恢复监督。'],
         ].map(([name, detail], index) => <li key={name}><span>0{index + 1}</span><div><h3>{name}</h3><p>{detail}</p></div></li>)}</ol>
         <div className="guide-actions"><Link to="/tools/claude-chat">进入 Vibe Coding<ArrowRight size={16} /></Link></div>
-        <p className="guide-note">实现线索：f7a8055b 引入基础能力。核心代码为 SessionAutopilotService、OpenSpecContinuousRunner、SessionAccessGrant、SessionClientCommandService 和 Sidecar permissions.ts；本页按当前源码说明，不将说明页验证视为真实 Agent 端到端验收。</p>
+        <p className="guide-note">核心代码为 SessionAutopilotService 与 OpenSpecContinuousRunner；本页按当前源码说明，不将说明页验证视为真实 Agent 端到端验收。</p>
       </Section>
     </main></div></details>
   </div>

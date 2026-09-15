@@ -52,7 +52,6 @@ public class OpenSpecBoardService {
     private final WorkspaceScanService workspaceScanService;
     private final OpenSpecCliGateway cliGateway;
     private final OpenSpecRuntimeEvidenceProvider runtimeEvidenceProvider;
-    private final OpenSpecAffectedApiEvidenceService affectedApiEvidenceService;
     private final OpenSpecBoardJsonAdapter jsonAdapter;
     private final Map<String, Snapshot<ChangeDetail>> changeSnapshots = new ConcurrentHashMap<>();
     private volatile Snapshot<BoardList> boardSnapshot;
@@ -60,12 +59,10 @@ public class OpenSpecBoardService {
     public OpenSpecBoardService(WorkspaceScanService workspaceScanService,
                                 OpenSpecCliGateway cliGateway,
                                 OpenSpecRuntimeEvidenceProvider runtimeEvidenceProvider,
-                                OpenSpecAffectedApiEvidenceService affectedApiEvidenceService,
                                 OpenSpecBoardJsonAdapter jsonAdapter) {
         this.workspaceScanService = workspaceScanService;
         this.cliGateway = cliGateway;
         this.runtimeEvidenceProvider = runtimeEvidenceProvider;
-        this.affectedApiEvidenceService = affectedApiEvidenceService;
         this.jsonAdapter = jsonAdapter;
     }
 
@@ -145,14 +142,14 @@ public class OpenSpecBoardService {
         int total = apply.path("progress").path("total").asInt(tasks.size());
         return new ChangeDetail(project.id(), project.name(), changeId, humanize(changeId),
                 changeState(completed, total, tasks), completed, total, artifactPaths(status), tasks,
-                affectedApiEvidenceService.evidence(project.path(), changeId), Instant.now(), Freshness.FRESH,
+                Instant.now(), Freshness.FRESH,
                 workflow(status, apply));
     }
 
     private ChangeDetail stale(ChangeDetail detail) {
         return new ChangeDetail(detail.projectId(), detail.projectName(), detail.changeId(), detail.title(),
                 detail.state(), detail.completedTasks(), detail.totalTasks(), detail.artifactPaths(),
-                detail.tasks(), detail.affectedApis(), detail.snapshotAt(), Freshness.STALE, detail.workflow());
+                detail.tasks(), detail.snapshotAt(), Freshness.STALE, detail.workflow());
     }
 
     private Workflow workflow(JsonNode status, JsonNode apply) {

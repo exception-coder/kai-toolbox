@@ -19,22 +19,7 @@ describe('Forge capability showcase', () => {
     expect(within(explorer).getByRole('button', { name: '了解回归评测' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '了解彩虹胶囊' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '全部' }))
-    expect(within(explorer).getAllByRole('button', { name: /^了解/ })).toHaveLength(8)
-  })
-
-  it('explains delegation entry and returns focus after Escape', async () => {
-    openPage()
-    const trigger = screen.getAllByRole('button', { name: '了解委托' })[0]
-    trigger.focus()
-    fireEvent.click(trigger)
-    const drawer = screen.getByRole('dialog', { name: '委托' })
-    expect(within(drawer).getByText(/创建或选择一个会话/)).toBeTruthy()
-    expect(within(drawer).getByRole('link', { name: '阅读能力说明书' }).getAttribute('href')).toBe('/explore/delegation')
-    expect(within(drawer).getByRole('link', { name: '前往会话委托' }).getAttribute('href')).toBe('/tools/claude-chat')
-    fireEvent.keyDown(drawer, { key: 'Escape' })
-    expect(screen.queryByRole('dialog')).toBeNull()
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(document.activeElement).toBe(trigger)
+    expect(within(explorer).getAllByRole('button', { name: /^了解/ })).toHaveLength(7)
   })
 
   it('keeps rainbow integration distinct from requirements and exposes a return route', () => {

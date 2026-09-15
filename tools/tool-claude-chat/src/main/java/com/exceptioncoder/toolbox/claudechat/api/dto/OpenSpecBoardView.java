@@ -28,8 +28,7 @@ public final class OpenSpecBoardView {
     /** 单个 change 的任务详情。 */
     public record ChangeDetail(String projectId, String projectName, String changeId, String title,
                                ChangeState state, Integer completedTasks, Integer totalTasks,
-                               Map<String, List<String>> artifactPaths, List<Task> tasks,
-                               List<AffectedApiEvidence> affectedApis, Instant snapshotAt,
+                               Map<String, List<String>> artifactPaths, List<Task> tasks, Instant snapshotAt,
                                Freshness freshness, Workflow workflow) {
     }
 
@@ -50,14 +49,6 @@ public final class OpenSpecBoardView {
     /** 可选的运行时状态证据。 */
     public record RuntimeEvidence(String sessionId, String engine, String phase,
                                   Instant lastActivityAt, String attentionReason) {
-    }
-
-    /** 由受监督会话归集到 OpenSpec change 的服务端接口影响证据。 */
-    public record AffectedApiEvidence(String sessionId, String httpMethod, String apiPath,
-                                      String changeType, String sourceFile, String handlerName,
-                                      String summary, String verificationStatus,
-                                      String verificationMethod, String verificationSummary,
-                                      Instant updatedAt) {
     }
 
     /** 项目 OpenSpec 可用状态。 */

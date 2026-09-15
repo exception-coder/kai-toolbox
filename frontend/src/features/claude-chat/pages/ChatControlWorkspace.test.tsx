@@ -73,11 +73,6 @@ describe('chat control modes', () => {
     expect(screen.getByText('无权访问')).toBeInTheDocument()
     expect(screen.queryByText('llm-workspace')).not.toBeInTheDocument()
   })
-  it('does not let alternate permission enter the session client', async () => {
-    vi.mocked(useAccessContext).mockReturnValue({ roles: [], superAdmin: false, permissionCodes: ['menu:ai-chat'] })
-    show('/session-client?control=llm')
-    await waitFor(() => expect(screen.getByText('无权访问')).toBeInTheDocument())
-  })
   it('keeps the actual runtime inactive on a fresh LLM visit', () => {
     localStorage.clear()
     function Probe() { return <span>{useChatRuntime().active ? 'active' : 'inactive'}</span> }

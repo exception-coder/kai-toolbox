@@ -25,7 +25,6 @@ import {
   reviewOnlyCodexConfig,
 } from './codexSecurity.js'
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
-import { FORGE_AFFECTED_API_STEER } from './affectedApiPolicy.js'
 import { CODEX_COMPUTER_USE_RECOVERY_STEER } from './codexComputerUsePolicy.js'
 import { takeCodexVoice } from './codexRealtime.js'
 import {
@@ -51,8 +50,6 @@ export type CodexSpeed = 'default' | 'fast'
 export type CodexReasoningEffort = string
 type CodexTransport = 'appServer' | 'sdkFallback' | 'thirdPartySdk'
 const THREAD_WRITER_RETRY_DELAY_MS = 1_500
-const DELEGATED_DEVELOPMENT_POLICY = 'delegated-development'
-const DELEGATED_REQUEST_ONLY_POLICY = 'delegated-request-only'
 
 export function isArchivedCodexThread(threadId: string | undefined, codexHome: string | undefined): boolean {
   if (!threadId) return false
@@ -237,15 +234,12 @@ export function buildCodexDeveloperInstructions(toolPolicy: string, sessionId?: 
     toolPolicy === CONSULT_READONLY_POLICY ? CONSULT_READONLY_PROMPT : undefined,
     toolPolicy === REVIEW_ONLY_POLICY ? REVIEW_ONLY_PROMPT : undefined,
     toolPolicy !== 'disabled' && toolPolicy !== REVIEW_ONLY_POLICY && sessionId && forgeSqlRegistration
-      ? [FORGE_PENDING_SQL_STEER,
-          toolPolicy !== CONSULT_READONLY_POLICY ? FORGE_AFFECTED_API_STEER : undefined]
-          .filter(Boolean).join('\n\n')
+      ? FORGE_PENDING_SQL_STEER
       : undefined,
   ].filter(Boolean).join('\n\n') || undefined
   const developerInstructions = appendWindowsExecutionInstructions([
     baseDeveloperInstructions,
     toolPolicy === CONSULT_READONLY_POLICY || toolPolicy === REVIEW_ONLY_POLICY
-      || toolPolicy === DELEGATED_DEVELOPMENT_POLICY || toolPolicy === DELEGATED_REQUEST_ONLY_POLICY
       ? turnDeveloperInstructions?.trim() : undefined,
   ].filter(Boolean).join('\n\n'))
   return developerInstructions || undefined
@@ -403,16 +397,12 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   }
 
   const toolsDisabled = ctx.toolPolicy === 'disabled' || ctx.toolPolicy === REVIEW_ONLY_POLICY
-    || ctx.toolPolicy === DELEGATED_REQUEST_ONLY_POLICY
   const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
-  const delegatedDevelopment = ctx.toolPolicy === DELEGATED_DEVELOPMENT_POLICY
   const consultSourceRoot = consultReadonly && ctx.cwd.trim() ? resolve(ctx.cwd) : undefined
   const { approvalPolicy, sandboxMode } = reviewOnly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
     : toolsDisabled || consultReadonly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: IS_WINDOWS ? 'danger-full-access' as SandboxMode : 'read-only' as SandboxMode }
-    : delegatedDevelopment
-      ? { approvalPolicy: 'on-request' as ApprovalMode, sandboxMode: IS_WINDOWS ? 'danger-full-access' as SandboxMode : 'workspace-write' as SandboxMode }
     : mapMode(ctx.permissionMode)
   let tempImageDir: string | undefined
 

@@ -12,9 +12,9 @@ export function CapabilityVisual({ kind }: { kind: string }) {
   }
   return (
     <div className="explore-visual explore-visual-delegation" aria-hidden="true">
-      <div className="explore-handoff"><span>参与者 · 提出需求</span><span className="explore-connector" /><Orbit size={20} /><strong>Forge</strong></div>
-      <div className="explore-execution"><ArrowDown size={16} /><span>受约束执行</span><ArrowRight size={16} /><span>反馈进展</span></div>
-      <div className="explore-return"><Check size={16} /><span>所有者保留配置、审批与撤销权。</span></div>
+      <div className="explore-handoff"><span>目标 · OpenSpec</span><span className="explore-connector" /><Orbit size={20} /><strong>Forge</strong></div>
+      <div className="explore-execution"><ArrowDown size={16} /><span>受约束执行</span><ArrowRight size={16} /><span>验证结果</span></div>
+      <div className="explore-return"><Check size={16} /><span>上下文、进度与验收依据保持可见。</span></div>
     </div>
   )
 }

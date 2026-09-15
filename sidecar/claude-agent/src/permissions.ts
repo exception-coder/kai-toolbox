@@ -22,7 +22,6 @@ const DEMO_DB_TOOL = 'mcp__welfare_db__exec'
 /** 只写 Forge 本地台账、不执行数据库的安全工具；普通开发会话无需弹审批。 */
 const FORGE_SAFE_TOOLS = new Set([
   'mcp__forge__register_pending_sql',
-  'mcp__forge__register_affected_apis',
   'mcp__forge__report_session_progress',
 ])
 
@@ -48,9 +47,6 @@ const CONSULT_READONLY_MCP_PREFIXES = [
   'mcp__domain-knowledge__',
   'mcp__cross-topology__',
 ]
-/** 委托开发自动开放的只读工具；其它工具必须由 Forge 会话所有者批准。 */
-const DELEGATED_AUTO_TOOLS = new Set(['Read', 'Glob', 'Grep'])
-
 /**
  * 单会话的权限/提问交互。绑定到 query() 的 canUseTool 回调：
  * Claude 要用工具或调用 AskUserQuestion 时暂停，发结构化请求给 Java，阻塞等决策回灌。
@@ -89,8 +85,7 @@ export class Permissions {
   }
 
   setToolPolicy(policy: string): void {
-    if (policy === 'default' || policy === 'consult-readonly' || policy === 'review-only'
-      || policy === 'delegated-development' || policy === 'delegated-request-only') {
+    if (policy === 'default' || policy === 'consult-readonly' || policy === 'review-only') {
       this.toolPolicy = policy
     }
   }
@@ -161,13 +156,6 @@ export class Permissions {
     if (this.toolPolicy === 'review-only' && toolName !== 'AskUserQuestion') {
       return { behavior: 'deny', message: `评审会话禁止调用工具：${toolName}` }
     }
-    if (this.toolPolicy === 'delegated-development' && toolName !== 'AskUserQuestion'
-      && DELEGATED_AUTO_TOOLS.has(toolName)) {
-      return { behavior: 'allow', updatedInput: input }
-    }
-    if (this.toolPolicy === 'delegated-request-only' && toolName !== 'AskUserQuestion') {
-      return { behavior: 'deny', message: `当前授权只允许提交和澄清需求，禁止调用工具：${toolName}` }
-    }
     if (this.consultToolAssembly && !assemblyAllowsTool(this.consultToolAssembly, toolName)) {
       return { behavior: 'deny', message: `当前流程未装配工具：${toolName}` }
     }
@@ -177,7 +165,7 @@ export class Permissions {
     // 权限模式自动放行：AskUserQuestion 永远要弹（用户必须作答），其余按当前模式。
     // SDK 一旦提供 canUseTool 就对每个工具调用触发它，permissionMode 不会绕过本回调，
     // 所以放行决策必须在这里做。
-    if (toolName !== 'AskUserQuestion' && this.toolPolicy !== 'delegated-development') {
+    if (toolName !== 'AskUserQuestion') {
       if (this.mode === 'bypassPermissions') {
         return { behavior: 'allow', updatedInput: input }
       }

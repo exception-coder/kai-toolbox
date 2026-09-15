@@ -1,7 +1,6 @@
 import { BotMessageSquare } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 import { ChatControlWorkspace } from './pages/ChatControlWorkspace'
-import { SessionClientPage } from './pages/SessionClientPage'
 
 const manifest: FeatureManifest = {
   id: 'claude-chat',
@@ -14,7 +13,6 @@ const manifest: FeatureManifest = {
   controlPermissions: { parameter: 'control', modes: { llm: 'menu:ai-chat' } },
   routes: [
     { path: '/tools/claude-chat', element: <ChatControlWorkspace /> },
-    { path: '/session-client', element: <SessionClientPage /> },
   ],
 }
 

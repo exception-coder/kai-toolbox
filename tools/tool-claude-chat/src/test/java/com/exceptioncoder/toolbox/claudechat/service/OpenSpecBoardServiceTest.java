@@ -1,6 +1,5 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
-import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.AffectedApiEvidence;
 import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.BoardList;
 import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.ChangeDetail;
 import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.ProjectState;
@@ -40,19 +39,14 @@ class OpenSpecBoardServiceTest {
     @Mock
     OpenSpecCliGateway cliGateway;
 
-    @Mock
-    OpenSpecAffectedApiEvidenceService affectedApiEvidenceService;
-
     private OpenSpecBoardService service;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
         when(workspaceScanService.scan()).thenReturn(workspace());
-        when(affectedApiEvidenceService.evidence(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.anyString())).thenReturn(List.of());
         service = new OpenSpecBoardService(workspaceScanService, cliGateway,
-                (project, change) -> Map.of(), affectedApiEvidenceService,
+                (project, change) -> Map.of(),
                 new OpenSpecBoardJsonAdapter(new ObjectMapper()));
     }
 
@@ -110,12 +104,6 @@ class OpenSpecBoardServiceTest {
                           {"id":"2","description":"1.2 Build board","done":false}
                         ]}
                         """));
-        AffectedApiEvidence affectedApi = new AffectedApiEvidence(
-                "session-1", "POST", "/api/orders", "ADDED", "src/OrderController.java",
-                "OrderController#create", "创建订单", "UNVERIFIED", null, null, Instant.now());
-        when(affectedApiEvidenceService.evidence(projectDirectory, "openspec-task-board"))
-                .thenReturn(List.of(affectedApi));
-
         String projectId = service.boards().projects().getFirst().id();
         ChangeDetail detail = service.change(projectId, "openspec-task-board");
 
@@ -123,7 +111,6 @@ class OpenSpecBoardServiceTest {
                 .containsExactly(TaskState.DONE, TaskState.TODO);
         assertThat(detail.tasks().getFirst().outlineId()).isEqualTo("1.1");
         assertThat(detail.tasks().getFirst().description()).isEqualTo("Build adapter");
-        assertThat(detail.affectedApis()).containsExactly(affectedApi);
         assertThat(detail.workflow().state()).isEqualTo("blocked");
         assertThat(detail.workflow().missingPrerequisites()).containsExactly("design", "tasks");
         assertThat(detail.workflow().artifacts().getFirst().id()).isEqualTo("custom-review");
@@ -195,7 +182,6 @@ class OpenSpecBoardServiceTest {
                 (project, change) -> Map.of(
                         "1", new OpenSpecRuntimeEvidenceProvider.Evidence(TaskState.BLOCKED, runtime),
                         "2", new OpenSpecRuntimeEvidenceProvider.Evidence(TaskState.IN_REVIEW, runtime)),
-                affectedApiEvidenceService,
                 new OpenSpecBoardJsonAdapter(new ObjectMapper()));
         when(cliGateway.run(projectDirectory, List.of("context", "--json")))
                 .thenReturn(result(0, "{}"));

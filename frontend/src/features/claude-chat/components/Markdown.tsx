@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { parseChatMarkdown } from '../../../session-client-sdk/chatMarkdown'
+import { parseChatMarkdown } from '../lib/chatMarkdown'
 import DOMPurify from 'dompurify'
 import mermaid from 'mermaid'
 import { Download, Maximize2 } from 'lucide-react'

@@ -112,7 +112,6 @@ import { SessionDocumentsWorkspace } from '../components/SessionDocumentsWorkspa
 import { SessionDatabaseWorkspace } from '../components/SessionDatabaseWorkspace'
 import { SessionAutopilotStatus } from '../components/SessionAutopilotStatus'
 import { AutopilotDashboard } from '../components/AutopilotDashboard'
-import { SessionDelegationPanel } from '../components/SessionDelegationPanel'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -375,7 +374,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     return () => { alive = false; window.clearInterval(timer) }
   }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
-  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'documents' | 'database' | 'sites' | 'usage' | 'review' | 'delegation' | 'supervision'>(() =>
+  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'documents' | 'database' | 'sites' | 'usage' | 'review' | 'supervision'>(() =>
     new URLSearchParams(location.search).get('view') === 'supervision' ? 'supervision' : 'conversation')
   const openSupervision = useCallback(() => {
     setSessionView('supervision')
@@ -2064,20 +2063,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     评审{reviewRelations.pendingFeedback.length > 0 ? ` ${reviewRelations.pendingFeedback.length}` : ''}
                   </button>
                 )}
-                <button
-                  type="button"
-                  aria-current={sessionView === 'delegation' ? 'page' : undefined}
-                  onClick={() => setSessionView('delegation')}
-                  className={cn(
-                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
-                    sessionView === 'delegation'
-                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
-                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
-                  )}
-                >
-                  <Share2 className="size-3.5" />
-                  委托
-                </button>
               </nav>
             ) : (
               <div className="workspace-contextbar cc-chat-contextbar" aria-hidden="true" />
@@ -2139,8 +2124,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     onApplyFeedbacks={applyReviewFeedbacks}
                     onDismissFeedback={dismissReviewFeedback}
                   />
-                ) : sessionView === 'delegation' ? (
-                  <SessionDelegationPanel sessionId={chat.sessionId} />
                 ) : (
                   <MessageList
                     ref={messageListRef}

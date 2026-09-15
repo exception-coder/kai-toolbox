@@ -45,23 +45,6 @@ export interface OpenSpecTask {
   runtime: OpenSpecRuntimeEvidence | null
 }
 
-export type OpenSpecAffectedApiChangeType = 'ADDED' | 'MODIFIED' | 'REMOVED'
-export type OpenSpecAffectedApiVerificationStatus = 'UNVERIFIED' | 'PASSED' | 'FAILED' | 'NOT_APPLICABLE'
-
-export interface OpenSpecAffectedApiEvidence {
-  sessionId: string
-  httpMethod: string
-  apiPath: string
-  changeType: OpenSpecAffectedApiChangeType
-  sourceFile: string
-  handlerName: string | null
-  summary: string | null
-  verificationStatus: OpenSpecAffectedApiVerificationStatus
-  verificationMethod: string | null
-  verificationSummary: string | null
-  updatedAt: string
-}
-
 export interface OpenSpecChangeDetail {
   projectId: string
   projectName: string
@@ -72,7 +55,6 @@ export interface OpenSpecChangeDetail {
   totalTasks: number
   artifactPaths: Record<string, string[]>
   tasks: OpenSpecTask[]
-  affectedApis: OpenSpecAffectedApiEvidence[]
   snapshotAt: string
   freshness: 'FRESH' | 'STALE'
   workflow?: {

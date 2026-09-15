@@ -29,4 +29,3 @@
 | Forge 研发环境看板 | 已实现 | 完整-技术 | [设计](Forge研发环境看板/Forge研发环境看板-current.md) · [API](Forge研发环境看板/Forge研发环境看板-api-current.md) · [编码摘要](Forge研发环境看板/Forge研发环境看板-coding.md) |
 | Codex App Server 接入加固 | 已实现（持续演进） | 完整-技术 | [设计](CodexAppServer接入加固/CodexAppServer接入加固-current.md) · [编码摘要](CodexAppServer接入加固/CodexAppServer接入加固-coding.md) |
 | Forge Verification | 实施中 | 完整-技术 | [设计](ForgeQualityGate/ForgeQualityGate-current.md) · [编码摘要](ForgeQualityGate/ForgeQualityGate-coding.md) |
-| Vibe Coding 会话委托 SDK | 实施中 | 完整-技术 | [设计](会话委托SDK/会话委托SDK-current.md) · [API](会话委托SDK/会话委托SDK-api-current.md) |

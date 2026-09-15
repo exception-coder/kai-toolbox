@@ -3,7 +3,6 @@ import { Compass } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 
 const ExplorePage = lazy(() => import('./pages/ExplorePage'))
-const DelegationGuidePage = lazy(() => import('./pages/DelegationGuidePage'))
 const VibeCodingGuidePage = lazy(() => import('./pages/VibeCodingGuidePage'))
 
 const manifest: FeatureManifest = {
@@ -17,7 +16,6 @@ const manifest: FeatureManifest = {
   hideDock: true,
   routes: [
     { path: '/explore', element: <ExplorePage /> },
-    { path: '/explore/delegation', element: <DelegationGuidePage /> },
     { path: '/explore/vibe-coding', element: <VibeCodingGuidePage /> },
   ],
 }

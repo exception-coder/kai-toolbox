@@ -1,6 +1,5 @@
 import { FileText } from 'lucide-react'
 import type { OpenSpecChangeDetail, OpenSpecTask } from '../types'
-import { AffectedApiEvidenceSection } from './AffectedApiEvidenceSection'
 import { PlanningStatus } from './PlanningStatus'
 
 export function TaskInspector({ detail, task }: { detail: OpenSpecChangeDetail; task: OpenSpecTask | null }) {
@@ -28,8 +27,6 @@ export function TaskInspector({ detail, task }: { detail: OpenSpecChangeDetail; 
       ) : <p className="mt-3 text-xs leading-5 text-[var(--color-muted-foreground)]">选择任务查看完整内容及关联开发会话。任务勾选来自 OpenSpec，实际验收以测试和运行证据为准。</p>}
 
       <PlanningStatus workflow={detail.workflow} />
-
-      <AffectedApiEvidenceSection entries={detail.affectedApis ?? []} />
 
       <div className="mt-6 border-t border-[var(--color-border)] pt-4">
         <h3 className="text-xs font-semibold">规格文件</h3>

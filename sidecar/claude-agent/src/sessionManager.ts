@@ -11,7 +11,6 @@ import { createSrmDbServer } from './srmDb.js'
 import { createSrmAppServer } from './srmApp.js'
 import { createScmDbServer } from './scmDb.js'
 import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
-import { FORGE_AFFECTED_API_STEER } from './affectedApiPolicy.js'
 import {
   CROSS_TOPOLOGY_READONLY_TOOLS,
   DOMAIN_KNOWLEDGE_READONLY_TOOLS,
@@ -188,12 +187,7 @@ function normalizeConsultEvidenceSystems(values: readonly string[] | undefined):
 }
 
 function normalizeSessionToolPolicy(value: string | undefined): string {
-  return value === 'consult-readonly' || value === 'review-only'
-    || value === 'delegated-development' || value === 'delegated-request-only' ? value : 'default'
-}
-
-function isDelegatedToolPolicy(value: string | undefined): boolean {
-  return value === 'delegated-development' || value === 'delegated-request-only'
+  return value === 'consult-readonly' || value === 'review-only' ? value : 'default'
 }
 
 /** 中断时留给「未决审批的 deny 响应」写回 CLI 的时间，之后才关传输层。见 Session.interrupt()。 */
@@ -900,9 +894,7 @@ class Session {
                       preset: 'claude_code',
                       append: [windowsExecutionInstructions() ?? '', this.apiBaseUrl ? GATEWAY_STEER : '',
                         toolboxApiBase && this.forgeSqlRegistration
-                          ? [FORGE_PENDING_SQL_STEER,
-                              this.toolPolicy !== 'consult-readonly' ? FORGE_AFFECTED_API_STEER : '']
-                              .filter(Boolean).join('\n\n') : '',
+                          ? FORGE_PENDING_SQL_STEER : '',
                         developerInstructions ?? '']
                         .filter(Boolean).join('\n\n'),
                     },
@@ -1726,28 +1718,14 @@ export class SessionManager {
       s.consultToolAssembly = parseConsultToolAssembly(consultToolAssembly)
       s.perms.consultToolAssembly = s.consultToolAssembly
     }
-    const delegatedOverride = isDelegatedToolPolicy(turnToolPolicy)
-    const previousToolPolicy = s.toolPolicy
-    if (delegatedOverride) {
-      s.toolPolicy = turnToolPolicy!
-      s.perms.setToolPolicy(s.toolPolicy)
-    }
-    const delegated = isDelegatedToolPolicy(s.toolPolicy)
-    const restricted = delegated || s.toolPolicy === 'consult-readonly' || s.toolPolicy === 'review-only'
-    const hiddenInstructions = delegated
-      ? [developerInstructions?.trim(), sessionContext?.trim()].filter(Boolean).join('\n\n') || undefined
-      : restricted ? developerInstructions?.trim() || undefined : sessionContext?.trim() || undefined
+    const restricted = s.toolPolicy === 'consult-readonly' || s.toolPolicy === 'review-only'
+    const hiddenInstructions = restricted ? developerInstructions?.trim() || undefined : sessionContext?.trim() || undefined
     const safeAdditionalDirectories = restricted ? [] : additionalDirectories
     const prepare = s.toolPolicy === 'review-only' ? this.ensureReviewDefaults(id, s) : Promise.resolve()
     prepare.then(() => s.runTurn(text, undefined, images, hiddenInstructions, turnId, safeAdditionalDirectories, voiceCallId)).catch((e) => {
       console.error('[sidecar] runTurn 异常（已兜住）session=' + id + ':', e)
       this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e), turnId })
       this.emit(id, { type: 'result', usage: {}, stopReason: 'error', turnId })
-    }).finally(() => {
-      if (delegatedOverride && this.sessions.get(id) === s && s.toolPolicy === turnToolPolicy) {
-        s.toolPolicy = previousToolPolicy
-        s.perms.setToolPolicy(previousToolPolicy)
-      }
     })
   }
 
