@@ -241,6 +241,7 @@ public class ClaudeChatService {
                     ? projectRouteBindingService.resolve(open.projectKey()).projectPath()
                     : open.cwd() == null || open.cwd().isBlank()
                     ? System.getProperty("user.home") : open.cwd().trim();
+            sessionAccessPolicy.requireProjectAllowed(cwd);
         } catch (IllegalArgumentException exception) {
             sendError(ws, 0, "PROJECT_NOT_BOUND", exception.getMessage());
             return;
@@ -522,6 +523,7 @@ public class ClaudeChatService {
         long now = System.currentTimeMillis();
         String cwd = msg.cwd() == null || msg.cwd().isBlank()
                 ? System.getProperty("user.home") : msg.cwd().trim();
+        sessionAccessPolicy.requireProjectAllowed(cwd);
 
         repo.insert(ClaudeChatSession.builder()
                 .id(id).userId(sessionAccessPolicy.ownerId(ws)).cwd(cwd).title(null)
@@ -834,6 +836,7 @@ public class ClaudeChatService {
     }
 
     private void startTurnAdmitted(SessionCtx ctx, ClientMessage.Send msg, String turnPolicy) {
+        sessionAccessPolicy.requireProjectAllowed(ctx.cwd);
         var images = loadMessageImages(ctx.sessionId, msg.attachments());
         ctx.queueReleaseReady = false;
         String turnId = turnLifecycle.begin(ctx.sessionId);

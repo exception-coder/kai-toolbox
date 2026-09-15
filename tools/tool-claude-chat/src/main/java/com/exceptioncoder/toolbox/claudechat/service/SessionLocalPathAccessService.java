@@ -12,6 +12,8 @@ import java.nio.file.Path;
  */
 @Service("claudeChatSessionLocalPathAccessService")
 public class SessionLocalPathAccessService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess;
 
     private final SessionProjectDirectoryService projectDirectoryService;
     private final WorkspaceScanService workspaceScanService;
@@ -32,6 +34,7 @@ public class SessionLocalPathAccessService {
      * @throws IllegalArgumentException 路径非法或超出允许项目范围
      */
     public Path resolve(String sessionId, Path primaryDirectory, String linkedPath) {
+        if (projectAccess != null) projectAccess.requireAllowed(primaryDirectory.resolve(linkedPath));
         Path requested = parse(linkedPath);
         if (!requested.isAbsolute()) {
             return resolveRelative(primaryDirectory, requested);

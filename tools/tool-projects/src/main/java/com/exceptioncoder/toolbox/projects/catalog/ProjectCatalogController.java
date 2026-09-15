@@ -22,9 +22,11 @@ public class ProjectCatalogController {
     }
 
     @PutMapping("/visibility")
-    public void visibility(@RequestBody VisibilityInput input) {
+    @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
+    public void visibility(@jakarta.validation.Valid @RequestBody VisibilityInput input) {
         visibility.setExcluded(input.path(), input.excluded());
     }
 
-    public record VisibilityInput(String path, boolean excluded) { }
+    public record VisibilityInput(@jakarta.validation.constraints.NotBlank String path,
+                                  @jakarta.validation.constraints.NotNull Boolean excluded) { }
 }

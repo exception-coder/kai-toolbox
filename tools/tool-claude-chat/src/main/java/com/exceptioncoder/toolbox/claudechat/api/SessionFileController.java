@@ -60,6 +60,8 @@ public class SessionFileController {
             "msi", "scr", "lnk");
 
     private final ClaudeChatSessionRepository repo;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess;
     private final SessionLocalPathAccessService localPathAccessService;
 
     public SessionFileController(ClaudeChatSessionRepository repo,
@@ -78,7 +80,7 @@ public class SessionFileController {
         }
         List<FileEntryView> out = new ArrayList<>();
         try (Stream<Path> s = Files.list(dir)) {
-            s.limit(MAX_ENTRIES).forEach(p -> {
+            s.filter(p -> projectAccess == null || projectAccess.allowed(p)).limit(MAX_ENTRIES).forEach(p -> {
                 boolean isDir = Files.isDirectory(p);
                 long size = 0, mtime = 0;
                 try {
@@ -202,6 +204,7 @@ public class SessionFileController {
         if (!Files.isDirectory(dir)) {
             throw new IllegalArgumentException("会话工作目录不存在");
         }
+        if (projectAccess != null) projectAccess.requireAllowed(dir);
         return dir;
     }
 
@@ -219,6 +222,7 @@ public class SessionFileController {
         if (!target.startsWith(cwd)) {
             throw new IllegalArgumentException("路径越界");
         }
+        if (projectAccess != null) projectAccess.requireAllowed(target);
         return target;
     }
 

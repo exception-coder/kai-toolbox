@@ -19,6 +19,16 @@ class SessionLocalPathAccessServiceTest {
     private static final String SESSION_ID = "session-1";
 
     @Test
+    void globalPolicyAlsoRejectsPreviouslyAttachedDirectories(@TempDir Path root) {
+        Path primary = root.resolve("primary");
+        Path excluded = root.resolve("excluded");
+        var service = service(primary, null, List.of(excluded.toString()));
+        com.exceptioncoder.toolbox.common.project.ProjectAccess access = path -> !path.toAbsolutePath().normalize().startsWith(excluded);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "projectAccess", access);
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(SESSION_ID, primary, excluded.resolve("README.md").toString()));
+    }
+
+    @Test
     void allowsAbsolutePathFromRegisteredWorkspaceProject(@TempDir Path tempDirectory) {
         Path primary = tempDirectory.resolve("erp").toAbsolutePath().normalize();
         Path registered = tempDirectory.resolve("srm").toAbsolutePath().normalize();

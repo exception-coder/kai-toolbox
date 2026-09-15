@@ -20,6 +20,10 @@ public class ClaudeChatSessionAccessPolicy {
     @org.springframework.beans.factory.annotation.Autowired
     private com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess;
 
+    public void requireProjectAllowed(String path) {
+        if (projectAccess != null && path != null && !path.isBlank()) projectAccess.requireAllowed(java.nio.file.Path.of(path));
+    }
+
     private boolean projectAllowed(ClaudeChatSession session) {
         return projectAccess == null || session.getCwd() == null || session.getCwd().isBlank()
                 || projectAccess.allowed(java.nio.file.Path.of(session.getCwd()));
