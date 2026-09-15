@@ -16,6 +16,16 @@
 
 ## 实现与验证入口
 
+### 彩虹胶囊与会话委托的边界
+
+彩虹胶囊继续作为业务系统内的只读咨询入口；会话委托、邀请码、Grant、公共 Session Client 和委托 SDK 已移除。胶囊使用独立的 `CapsuleRelay*` 组件，复用宿主用户身份、项目绑定和咨询会话，不赋予开发助手权限。
+
+为兼容已部署宿主，胶囊仍使用 `/api/session-client/v1/relay/capsule/ws`，凭据仍从配置中心 `toolbox.claude-chat.session-client.relay` 读取。该命名空间只配置胶囊宿主认证，不恢复其他 Session Client 路由。开关默认关闭；managed 多客户端模式的空列表拒绝所有客户端，配置撤销在下一条消息生效。
+
+排障需要分别验证隧道、WebSocket 握手和会话就绪：普通 `/api/tools` 返回 200 只能证明 HTTP 可达。胶囊固定只读策略、拒绝开发命令，并使用现有会话所有权校验。回归入口：`CapsuleRelay*Test`、`SessionExecutionPolicyTest` 和 `ClaudeChatSessionAccessPolicyTest`。
+
+### 原生语音实现
+
 浏览器 WebRTC 媒体由 `lib/nativeVoice.ts` 管理，`hooks/useNativeVoice.ts` 管理通话状态，`hooks/useVoiceRecovery.ts` 管理显式恢复，`lib/voiceTranscript.ts` 组装语音消息，`hooks/useVoiceTransport.ts` 按通话隔离事件并交给现有聊天列表；Java `SessionVoiceService` 只转发给发起连接，sidecar `codexRealtime.ts` 在当前原生线程上启动或重连 realtime。SDP 不进入消息回放或前端调试记录，音频由 WebRTC 直接传输。
 
 语音轮次包含多个原生代码轮次；只有通话结束且代码收口、受管进程释放后，才释放 Forge 消息队列。浏览器每 10 秒续租，sidecar 在 45 秒无心跳后清理通话；启动超时为 90 秒。

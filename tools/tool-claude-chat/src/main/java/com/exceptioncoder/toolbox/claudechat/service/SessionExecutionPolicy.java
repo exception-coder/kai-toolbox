@@ -11,6 +11,8 @@ public final class SessionExecutionPolicy {
     public static final String CONSULT_READONLY = "consult-readonly";
     public static final String REVIEW_ONLY = "review-only";
     public static final String CONSULT_WS_PATH = "/api/claude-chat/consult/ws";
+    /** 兼容已部署宿主的胶囊路径，不开放其余 Session Client 入口。 */
+    public static final String CAPSULE_WS_PATH = "/api/session-client/v1/relay/capsule/ws";
     public static final String REVIEW_WS_PATH = "/api/claude-chat/review/ws";
     public static final String CONSULT_GROUP_NAME = "业务咨询";
 
@@ -18,6 +20,9 @@ public final class SessionExecutionPolicy {
     }
 
     public static String forWebSocket(URI uri) {
+        if (uri != null && CAPSULE_WS_PATH.equals(uri.getPath())) {
+            return CONSULT_READONLY;
+        }
         if (uri != null && CONSULT_WS_PATH.equals(uri.getPath())) return CONSULT_READONLY;
         if (uri != null && REVIEW_WS_PATH.equals(uri.getPath())) return REVIEW_ONLY;
         return STANDARD;

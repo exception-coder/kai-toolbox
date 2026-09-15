@@ -1,5 +1,7 @@
 # KAI 统一嵌入式 AI 助手
 
+彩虹胶囊的宿主咨询接入独立保留；已退役的会话委托、邀请码和公共 Session Client SDK 不属于本 SDK。现有胶囊服务端路径与凭据配置继续兼容，详见 [胶囊与委托边界](../features/claude-chat/README.md#彩虹胶囊与会话委托的边界)。
+
 KAI Assistant SDK 用于把统一 AI 助手嵌入 ERP、SCM、SRM、JSP 旧系统或其他 Web 页面。宿主只负责加载 SDK、提供当前用户与业务上下文；Loader 默认使用自身所在域连接 Forge，也可通过 `requestBaseUrl` 指向内网 IP。会话恢复、待发送队列、Markdown 消息、诊断、草稿确认和需求登记由统一链路处理。
 
 当前版本提供框架无关的 Web Component，以及 ESM、IIFE 两种构建产物。业务系统默认通过 Forge 托管的稳定 Loader 接入；Loader 会读取渠道清单、校验 SRI，并加载当前 `stable` 或 `canary` 版本，宿主无需反复复制 SDK 文件。

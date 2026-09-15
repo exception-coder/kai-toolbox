@@ -1,5 +1,7 @@
 ## Why
 
+范围更正（用户确认，2026-09-15）：彩虹胶囊只读咨询需要保留，不能随会话委托删除。独立接入修复与验收见 [restore-capsule-relay-without-delegation](../restore-capsule-relay-without-delegation/proposal.md)；下文 Session Client/Relay 退役仅指委托协议，不包括胶囊兼容路径与宿主身份配置。
+
 会话委托、公共 Session Client/Relay SDK 与接口人工登记形成了两套额外控制面，但当前产品只需要所有者直接使用受约束的 Vibe Coding 会话，并由 OpenSpec 记录接口契约。继续保留这些入口会扩大安全面、维护成本和用户认知负担。
 
 ## What Changes

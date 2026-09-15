@@ -1,5 +1,7 @@
 ## Context
 
+范围更正：用户要求保留彩虹胶囊只读咨询。此前完整切片删除误包含胶囊网关；胶囊认证和固定只读策略由 [独立修复设计](../restore-capsule-relay-without-delegation/design.md) 恢复，委托 Grant/Invitation/SDK 仍退役。本设计中的外部 Relay 删除范围限定为委托协议。
+
 当前实现横跨 React 会话页与 Explore 指南、`tool-claude-chat` 的委托聚合和公共网关、Sidecar Tool/权限策略、独立浏览器 SDK 与 Spring Boot Relay Starter。接口登记又通过 `register_affected_apis` 写入会话表，再投影到 OpenSpec 看板，和 OpenSpec 自身的规范形成重复事实源。
 
 本设计遵循产品原则 OBJ-01、NAV-01、AI-01、CTRL-01：删除非核心对象和入口，保持 OpenSpec 上下文连续，删除不可兑现的自动化暗示，并让控制边界回到会话所有者。无原则例外。

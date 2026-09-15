@@ -9,6 +9,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SessionExecutionPolicyTest {
 
     @Test
+    void capsuleEndpointRemainsReadonlyAfterDelegationRetirement() {
+        String policy = SessionExecutionPolicy.forWebSocket(
+                URI.create("ws://localhost/api/session-client/v1/relay/capsule/ws"));
+        assertThat(policy).isEqualTo(SessionExecutionPolicy.CONSULT_READONLY);
+        assertThat(SessionExecutionPolicy.canBind(policy, SessionExecutionPolicy.STANDARD)).isFalse();
+    }
+
+    @Test
     void consultEndpointAlwaysSelectsReadonlyPolicy() {
         assertThat(SessionExecutionPolicy.forWebSocket(
                 URI.create("ws://localhost/api/claude-chat/consult/ws?access_token=x")))
