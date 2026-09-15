@@ -11,3 +11,9 @@
 - [x] 2.2 Pass frontend typecheck, tests and production build.
 - [x] 2.3 Verify the live mobile rendering from the supplied 948×2048 capture, then remove the over-designed timeline and keep SQL detail recoverable by disclosure.
 - [x] 2.4 Pass OpenSpec strict validation and Forge Quality Gate.
+
+## 3. SQL-only management
+
+- [x] 3.1 Remove title, target and change-type configuration from the management overlay while preserving metadata on save.
+- [x] 3.2 Add focused regression coverage for SQL-only editing and metadata preservation.
+- [x] 3.3 Pass frontend component, production build, OpenSpec and Forge verification; restart and commit the change.

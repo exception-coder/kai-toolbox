@@ -15,3 +15,10 @@ The session SQL workspace and management overlay SHALL present the registration 
 - **WHEN** the management overlay is opened on a narrow viewport
 - **THEN** title, timeline, target selection, SQL editor, and primary save action remain reachable in logical order
 - **AND** long target labels do not cause page-level horizontal overflow
+
+#### Scenario: Editing a registered SQL script
+- **WHEN** the user opens management for an existing SQL registration
+- **THEN** the SQL script is the primary editable content
+- **AND** registration title, target database, and change type are not presented as editable controls
+- **AND** saving preserves those persisted metadata values while updating only SQL content
+- **AND** multiple persisted scripts can be switched without adding or removing target databases
