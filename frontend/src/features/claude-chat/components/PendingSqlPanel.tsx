@@ -267,9 +267,9 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
           </button>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-          <div className="flex min-h-full flex-col gap-3">
-            <div className="flex items-center gap-2 rounded-md border border-amber-300/60 bg-amber-50/70 px-3 py-1.5 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4">
+          <div className="flex min-h-full flex-col gap-4">
+            <div className="flex items-start gap-2 border-b border-[var(--color-border)] pb-3 text-[11px] leading-5 text-[var(--color-muted-foreground)]">
               <AlertTriangle className="size-3.5 shrink-0" />
               <span>仅登记和复制 SQL，不会自动连接或执行数据库。请勿填写密码或 Token。</span>
             </div>
@@ -280,7 +280,15 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
               </div>
             ) : (
               <>
-                {registration && <DdlEvidenceSummary registration={registration} />}
+                {registration && (
+                  <div className="grid shrink-0 gap-3 border-b border-[var(--color-border)] pb-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.72fr)] lg:items-start">
+                    <p className="text-[11px] tabular-nums text-[var(--color-muted-foreground)]">
+                      登记于 {formatTimestamp(registration.createdAt)}
+                      {registration.updatedAt > registration.createdAt && <> · 更新于 {formatTimestamp(registration.updatedAt)}</>}
+                    </p>
+                    <DdlEvidenceSummary registration={registration} />
+                  </div>
+                )}
                 <div className="grid shrink-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.7fr)]">
                   <label className="space-y-1 text-xs font-medium">
                     <span>登记标题</span>
@@ -299,23 +307,23 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
                     </div>
                   </div>
                 </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-1 border-b pb-2">
+                <div aria-label="已选目标库" className="scrollbar-autohide flex shrink-0 items-center gap-1 overflow-x-auto border-b pb-2">
                   {targets.map(target => (
                     <button key={target.targetKey} type="button" onClick={() => setActiveTargetKey(target.targetKey)}
-                      className={cn('max-w-64 truncate rounded-md px-3 py-1.5 text-xs', activeTarget?.targetKey === target.targetKey ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]')}>
+                      className={cn('max-w-64 shrink-0 truncate rounded px-2.5 py-1.5 text-xs', activeTarget?.targetKey === target.targetKey ? 'bg-[var(--color-accent)] font-medium text-[var(--color-foreground)]' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]')}>
                       {target.targetEnvironment}
                     </button>
                   ))}
                   {targets.length > 0 && (
                     <button type="button" onClick={() => setActiveTargetKey('__summary__')}
-                      className={cn('rounded-md px-3 py-1.5 text-xs', summaryActive ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]')}>
+                      className={cn('shrink-0 rounded px-2.5 py-1.5 text-xs', summaryActive ? 'bg-[var(--color-accent)] font-medium text-[var(--color-foreground)]' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]')}>
                       汇总 · {targets.length} 库
                     </button>
                   )}
                 </div>
                 {activeTarget && (
-                  <div className="flex shrink-0 items-end gap-3">
-                    <label className="w-44 space-y-1 text-xs font-medium">
+                  <div className="grid shrink-0 gap-3 sm:grid-cols-[11rem_minmax(0,1fr)_auto] sm:items-end">
+                    <label className="space-y-1 text-xs font-medium">
                       <span>当前库变更类型</span>
                       <select value={activeTarget.changeType} onChange={event => updateActiveTarget({ changeType: event.target.value as PendingSqlChangeType })} className="h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]">
                         <option value="DDL">DDL · 表结构</option>
@@ -324,7 +332,7 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
                       </select>
                     </label>
                     <span className="min-w-0 flex-1 truncate pb-2 text-xs text-[var(--color-muted-foreground)]" title={activeTarget.targetEnvironment}>{activeTarget.targetEnvironment}</span>
-                    <button type="button" onClick={removeActiveTarget} className="mb-0.5 inline-flex h-9 items-center gap-1 rounded-md px-3 text-xs text-[var(--color-destructive)] hover:bg-[var(--color-destructive)]/10">
+                    <button type="button" onClick={removeActiveTarget} className="inline-flex h-9 items-center gap-1 justify-self-start rounded-md px-3 text-xs text-[var(--color-destructive)] hover:bg-[var(--color-destructive)]/10 sm:mb-0.5">
                       <Trash2 className="size-3.5" />移除当前库
                     </button>
                   </div>
@@ -341,12 +349,6 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
                     <span className="text-xs">选项来自“系统资源与测试账号”中已登记的 MySQL / Oracle 数据源</span>
                   </div>
                 )}
-                {registration && (
-                  <p className="-mt-1 shrink-0 text-[11px] text-[var(--color-muted-foreground)]">
-                    登记时间 {formatTimestamp(registration.createdAt)} · 最后更新 {formatTimestamp(registration.updatedAt)}
-                  </p>
-                )}
-
                 {activeTarget && (
                   <Suspense fallback={<SqlWorkspaceLoading />}>
                     <PendingSqlReviewWorkspace sqlText={activeTarget.sqlText} onSqlTextChange={value => updateActiveTarget({ sqlText: value })} onError={setError} expanded={isFullscreen} />
@@ -390,7 +392,7 @@ function DdlEvidenceSummary({ registration }: { registration: SessionPendingSql 
   const verified = registration.ddlVerifiedTables ?? []
   const missing = registration.ddlMissingTables ?? []
   return (
-    <details className={cn('group shrink-0 rounded-lg border px-3 py-2 text-xs', config.tone)}>
+    <details className="group shrink-0 border-l-2 border-[var(--color-border)] pl-3 text-xs text-[var(--color-muted-foreground)]">
       <summary className="flex cursor-pointer list-none items-center gap-1.5 font-semibold">
         {evidenceStatus === 'VERIFIED' ? <CheckCircle2 className="size-3.5" /> : <AlertTriangle className="size-3.5" />}
         <span>{config.label}</span>
@@ -398,7 +400,7 @@ function DdlEvidenceSummary({ registration }: { registration: SessionPendingSql 
         <span className="ml-auto font-normal opacity-70">查看证据</span>
         <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
       </summary>
-      <div className="mt-2 space-y-1 border-t border-current/15 pt-2 opacity-90">
+      <div className="mt-2 space-y-1 border-t border-[var(--color-border)] pt-2 font-normal">
         <p>{config.detail}</p>
         {verified.length > 0 && <p className="break-all">已核验：{verified.join('、')}</p>}
         {missing.length > 0 && <p className="break-all font-medium">未命中：{missing.join('、')}</p>}

@@ -3,12 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionPendingSql } from '../types'
 import { SessionDatabaseWorkspace } from './SessionDatabaseWorkspace'
 
-vi.mock('./PendingSqlReviewWorkspace', () => ({
-  PendingSqlReviewWorkspace: ({ sqlText, allowEditing }: { sqlText: string; allowEditing?: boolean }) => (
-    <div data-testid="sql-review" data-editable={String(allowEditing)}>{sqlText}</div>
-  ),
-}))
-
 afterEach(cleanup)
 
 const registration: SessionPendingSql = {
@@ -35,19 +29,31 @@ const registration: SessionPendingSql = {
 }
 
 describe('SessionDatabaseWorkspace', () => {
-  it('按目标库切换只读 SQL 正文', async () => {
+  it('按登记时间、执行库和 SQL 标题展示简洁清单', () => {
     render(<SessionDatabaseWorkspace registration={registration} onManage={vi.fn()} />)
 
-    expect(await screen.findByTestId('sql-review')).toHaveTextContent('ALTER TABLE quote')
-    expect(screen.getByTestId('sql-review')).toHaveAttribute('data-editable', 'false')
-    fireEvent.click(screen.getByRole('button', { name: 'SCM 测试库' }))
-    expect(screen.getByTestId('sql-review')).toHaveTextContent('UPDATE supplier')
+    expect(screen.getByText(/登记于/)).toBeInTheDocument()
+    expect(screen.getByText('执行库')).toBeInTheDocument()
+    expect(screen.getAllByText('SRM 测试库').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('SCM 测试库').length).toBeGreaterThan(0)
+    expect(screen.getByText('修改表 · quote')).toBeInTheDocument()
+    expect(screen.getByText('更新数据 · supplier')).toBeInTheDocument()
+    expect(screen.getByText('2 条')).toBeInTheDocument()
   })
 
   it('通过管理登记按钮进入原编辑面板', () => {
     const manage = vi.fn()
     render(<SessionDatabaseWorkspace registration={registration} onManage={manage} />)
-    fireEvent.click(screen.getByRole('button', { name: '管理登记' }))
+    fireEvent.click(screen.getByRole('button', { name: '管理' }))
     expect(manage).toHaveBeenCalledTimes(1)
+  })
+
+  it('点击条目后才展示 SQL 正文', () => {
+    render(<SessionDatabaseWorkspace registration={registration} onManage={vi.fn()} />)
+
+    const sql = screen.getByText('ALTER TABLE quote ADD COLUMN expires_at DATETIME;')
+    expect(sql).not.toBeVisible()
+    fireEvent.click(screen.getByText('修改表 · quote'))
+    expect(sql).toBeVisible()
   })
 })
