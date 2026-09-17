@@ -17,7 +17,6 @@ spring:
       - classpath:config/common/toolbox-downloader.yml
       - classpath:config/common/toolbox-magnet.yml
       - classpath:config/common/toolbox-auth.yml
-      - classpath:config/common/supplier-quote.yml
   devtools:
     restart:
       # 存盘即热重启默认关：重启时机由人控制（supervisor 的 POST /restart）。

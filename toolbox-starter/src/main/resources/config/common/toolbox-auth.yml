@@ -38,7 +38,6 @@ toolbox:
       - "/api/share/**"
       # Vibe Coding 评审分享：高熵、可撤销、限时 token 只绑定一个 review-only 会话。
       - "/api/claude-chat/reviews/public/**"
-      - "/api/supplier-quote/public/**"
     # 外部宿主临时复用 Forge 账号登录。默认关闭；开启时仍必须配置完整 Origin 白名单。
     external-login:
       enabled: ${TOOLBOX_AUTH_EXTERNAL_LOGIN_ENABLED:false}
