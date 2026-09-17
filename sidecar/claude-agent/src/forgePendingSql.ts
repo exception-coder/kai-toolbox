@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
+import { sdkSpecResolutionTools } from './specResolution/tools.js'
 import { discoverResourceSchema, executeResourceSchema, DISCOVER_RESOURCES_DESCRIPTION, EXECUTE_RESOURCE_DESCRIPTION, discoverSystemResources, executeSystemResource } from './systemResourceTools.js'
 import {
   FORGE_PENDING_SQL_STEER,
@@ -24,6 +25,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string, 
     name: 'forge',
     version: '1.0.0',
     tools: [
+      ...(includeDeliveryTools ? sdkSpecResolutionTools() : []),
       ...(includeDeliveryTools ? [tool('discover_resources', DISCOVER_RESOURCES_DESCRIPTION, discoverResourceSchema,
         (args, extra) => discoverSystemResources(apiBase, args, extra as McpRequestExtra),
         { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }),

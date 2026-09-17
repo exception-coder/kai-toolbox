@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
+import { registerSpecResolutionTools } from './specResolution/tools.js'
 import { discoverResourceSchema, executeResourceSchema, DISCOVER_RESOURCES_DESCRIPTION, EXECUTE_RESOURCE_DESCRIPTION, discoverSystemResources, executeSystemResource } from './systemResourceTools.js'
 import {
   FORGE_PENDING_SQL_TOOL_DESCRIPTION,
@@ -75,6 +76,7 @@ const querySchema = {
 }
 
 if (serverName === 'forge') {
+  registerSpecResolutionTools(server)
   server.registerTool('discover_resources', { description: DISCOVER_RESOURCES_DESCRIPTION, inputSchema: discoverResourceSchema, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }, (args, extra) => discoverSystemResources(apiBase, args, extra))
   server.registerTool('execute_resource', { description: EXECUTE_RESOURCE_DESCRIPTION, inputSchema: executeResourceSchema, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false } }, (args, extra) => executeSystemResource(apiBase, args, extra))
   server.registerTool('prepare_sql_context', {

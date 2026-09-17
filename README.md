@@ -293,3 +293,5 @@ mvn clean install
 Forge 还包含磁盘分析、PRD 澄清、文档处理、媒体工具、项目工作台、业务开发工作台等模块。各模块的安装、配置与使用方式将在后续 README 或独立文档中补充。
 
 架构设计参见：[`docs/design/architecture.md`](docs/design/architecture.md)。
+
+Forge MCP 编写 OpenSpec 前可使用[已有规格解析](sidecar/claude-agent/src/specResolution/README.md)，逐项找回 Requirement，记录决策并检查 Delta；Hook 配置和当前能力边界见该说明。

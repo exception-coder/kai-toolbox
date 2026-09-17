@@ -80,3 +80,7 @@ flowchart TD
 - OpenSpec 只承载可观察行为与变更，不复制代码结构报告。
 - Graphify 产物保持可再生；共享文件与本地缓存边界由 `.gitignore` 明确。
 - `.codex/skills/`、`.claude/` 和知识子目录只有在出现真实内容时才创建。
+
+## Existing Spec Resolution
+
+Forge 开发 MCP 提供 Requirement 级召回、具名 Agent 决策、Delta 和新鲜度检查，SDK 与 stdio 共用实现。使用与限制见[解析服务](../sidecar/claude-agent/src/specResolution/README.md)。OpenSpec 仍为行为权威，Graphify 关联当前标记未验证；readiness 不替代业务审阅或测试。
