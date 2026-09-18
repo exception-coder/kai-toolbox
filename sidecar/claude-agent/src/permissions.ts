@@ -1,6 +1,7 @@
 import { assemblyAllowsTool, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { randomUUID } from 'node:crypto'
 import { resolve, sep } from 'node:path'
+import { guardExecutionTool } from './specResolution/executionGuard.js'
 
 /** Java 回灌的决策。 */
 export interface Decision {
@@ -74,6 +75,11 @@ export class Permissions {
   /** demo 沙箱模式：开启后忽略 mode，按白名单 deny-by-default 硬裁决，不弹人工审批。 */
   private demo = false
   private allowRoot = ''
+  private executionContext?: { project: string; sessionId: string }
+
+  setExecutionContext(project: string, sessionId: string): void {
+    this.executionContext = { project, sessionId }
+  }
 
   constructor(private emit: Emit) {
     this.timeoutMs = Number(process.env.CLAUDE_CHAT_DECISION_TIMEOUT_MS) || 5 * 60 * 1000
@@ -144,6 +150,10 @@ export class Permissions {
     input: Record<string, unknown>,
     opts: { signal?: AbortSignal },
   ): Promise<Record<string, unknown>> => {
+    if (this.executionContext) {
+      const denial = guardExecutionTool(this.executionContext.project, this.executionContext.sessionId, toolName, input)
+      if (denial) return { behavior: 'deny', message: denial }
+    }
     // demo 沙箱：除 AskUserQuestion 外同步硬裁决，绝不发请求/等审批（公开演示无人审批，全自动）。
     // AskUserQuestion 例外——必须让用户作答，走下方正常「发 questionRequest + 等决策回灌」路径。
     if (this.demo && toolName !== 'AskUserQuestion') {

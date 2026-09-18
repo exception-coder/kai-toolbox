@@ -35,4 +35,16 @@ resolve_specs 可将 sessionId 映射到 project/branch/change，Hook 使用会�
 
 ## Review
 
+## Execution impact routing
+
+The existing resolver gains a pre-change execution layer in the same module. An execution belongs to a project, host session and assigned branch; its OpenSpec change is optional. `discover_execution` retrieves existing requirements, active change IDs and Graphify evidence before classification. `assess_execution` records an Agent-reviewed, source-quoted impact decision. Preserved behavior requires no empty change; changed behavior uses the existing resolution/confirmation/Delta chain. Unknown behavior requires more evidence.
+
+Behavior, design and verification are independent axes. Design none creates no documents; detail binds affected detail files; architecture binds affected overview and detail files. Risk selects regression/API/SQL/UI checks without automatically requiring a business Delta. The applicable product principles remain OBJ-01, AI-01, EVID-01, FEED-01 and CTRL-01. Generic design discovery exceeds 1000 documents; this change reuses this existing design and the module README through directed inspection.
+
+State reuses `.forge/spec-resolution` and its atomic lock. One workspace has one writing session, sequential tasks and atomic commits on the assigned branch. No branch/worktree is created by these tools. Native permission callbacks and thin lifecycle Hooks invoke the same readiness logic for recognized writes, commits and branch operations. Branch drift, scope drift and stale formal specs deny the operation. Additional explicitly authorized branches are allocated by the host before binding a new execution; automatic parallel allocation and dependency scheduling are not introduced. Missing Graphify edges do not prove independence.
+
+`run_execution_verification` executes authorized executable/argv checks without a shell, with bounded time/output, saving actual exits and content hashes. Every applicable category must pass. Inputs include implementation, design, quoted evidence, and declared test/config/dependency files. Commit checks compare content and staged/worktree consistency. Command success, changed design files and Agent-selected categories still require semantic review; they are not deployment proof or an OS sandbox.
+
+Plugin mode remains warn until real host coverage is accepted. Bound native permission callbacks check before generic autoApprove. Codex callbacks cover only requests the host emits; arbitrary subprocesses require host mediation. Legacy change-only governance skips only after a successful current Forge NO_SPEC_CHANGE result. Delta executions retain existing governance. Installation and isolated compilation do not restart services.
+
 Codex Agent 自审：接受专家建议的职责划分、防重复与证据要求；将数据库/HTTP 平台方案调整为现有本地 MCP 架构，不新增远端服务。业务批准与 Agent 决策分开标记，不伪造人工确认。

@@ -4,8 +4,21 @@ import { checkSchema, confirmSchema, resolveSchema, refreshSchema, ResolutionErr
 import { checkReadiness, confirmResolution, refreshIndex } from './service.js'
 import { resolveWithModel, intakeRequirements, intakeSchema } from './semantic.js'
 import { resolutionMetrics } from './metrics.js'
+import { discoverExecutionSchema, assessExecutionSchema, executionCheckSchema, executionContextSchema, runExecutionSchema } from './executionContracts.js'
+import { discoverExecution, assessExecution, checkExecution, finishExecution } from './execution.js'
+import { runExecutionVerification } from './executionVerification.js'
 
 export const definitions = [
+  { name: 'discover_execution', schema: discoverExecutionSchema, run: discoverExecution,
+    description: '修改前先探索：无需 changeId，返回既有 Requirement 原文、活跃 changes、Graphify 证据和版本。files 为本批次精确项目相对路径。读取原文后 assess_execution；未命中不能直接新建能力。' },
+  { name: 'assess_execution', schema: assessExecutionSchema, run: assessExecution,
+    description: '具名审阅行为/设计影响及原文引用，绑定会话共享分支和单写入者。behavior=preserved 无需 OpenSpec；changed 先复用/建立相关 change，再走 resolve_specs。风险只增加验证要求，设计按 none/detail/architecture 独立判定。不得把未知填成 preserved。' },
+  { name: 'check_execution_readiness', schema: executionCheckSchema, run: checkExecution,
+    description: '检查执行会话、当前分支、规格版本和文件范围；拒绝自行切换/创建分支、worktree。提交前检查真实暂存区、适用设计更新及实际验证证据。无需 Change 的执行也使用此入口。' },
+  { name: 'run_execution_verification', schema: runExecutionSchema, run: runExecutionVerification,
+    description: '实际执行已授权的测试 executable + argv（无Shell），按影响检查 regression/api/sql/ui/spec/design 覆盖；保存退出码和输入内容摘要。inputFiles 必须包含测试、配置与相关依赖。禁止用此入口部署/重启或伪造空检查；kind/purpose 的语义覆盖需要审阅。超时默认60秒，最多120秒。' },
+  { name: 'finish_execution', schema: executionContextSchema, run: finishExecution,
+    description: '确认本批次验证及提交后释放共享工作区写入权。先逐任务原子提交，不自动提交、建分支或归档 OpenSpec；无需 Change 的执行可直接结束。' },
   { name: 'get_spec_resolution_metrics', schema: refreshSchema, run: resolutionMetrics,
     description: '汇总项目规格解析的真实确认与纠正样本、Top3命中、自动草稿证据率及模型阶段P95。空分母返回null，不能据此宣称达到生产质量指标。' },
   { name: 'intake_spec_requirements', schema: intakeSchema, run: intakeRequirements,
@@ -29,19 +42,21 @@ export async function execute(name: string, input: unknown): Promise<Record<stri
       message: error instanceof Error ? error.message : String(error), actions: ['修复输入或上下文后重试；规格已变时重新 resolve_specs'] }
   }
 }
-async function call(name: string, args: unknown) {
-  const result = await execute(name, args)
+async function call(name: string, args: unknown, hostSessionId?: string) {
+  const bound = hostSessionId && args && typeof args === 'object' && ('sessionId' in args || name === 'resolve_specs')
+    ? { ...args, sessionId: hostSessionId } : args
+  const result = await execute(name, bound)
   return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], ...(result.allowed === false ? { isError: true } : {}) }
 }
-export function registerSpecResolutionTools(server: McpServer) {
+export function registerSpecResolutionTools(server: McpServer, hostSessionId?: string) {
   for (const definition of definitions) server.registerTool(definition.name, {
     description: definition.description, inputSchema: definition.schema.shape,
-    annotations: { readOnlyHint: ['check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: false, idempotentHint: true },
-  }, (args: unknown) => call(definition.name, args))
+    annotations: { readOnlyHint: ['check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: definition.name === 'run_execution_verification', idempotentHint: definition.name !== 'run_execution_verification' },
+  }, (args: unknown) => call(definition.name, args, hostSessionId))
 }
-export function sdkSpecResolutionTools() {
+export function sdkSpecResolutionTools(hostSessionId?: string) {
   return definitions.map(definition => tool(definition.name, definition.description, definition.schema.shape,
-    async (args: unknown) => call(definition.name, args), { annotations: {
-      readOnlyHint: ['check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: false, idempotentHint: true,
+    async (args: unknown) => call(definition.name, args, hostSessionId), { annotations: {
+      readOnlyHint: ['check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: definition.name === 'run_execution_verification', idempotentHint: definition.name !== 'run_execution_verification',
     } }))
 }

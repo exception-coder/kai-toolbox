@@ -375,6 +375,7 @@ class Session {
     private readonly emitRaw: (e: Record<string, unknown>) => void,
   ) {
     this.perms = new Permissions(event => this.emitTurn(event))
+    this.perms.setExecutionContext(cwd, id)
     this.engineRegistry = createBuiltinEngineRegistry({
       claude: request => this.runClaudeTurn(
         request.text,
@@ -1614,7 +1615,10 @@ export class SessionManager {
       this.sessions.set(id, s)
     }
     if (sdkSessionId) s.sdkSessionId = sdkSessionId
-    if (cwd) s.cwd = cwd
+    if (cwd) {
+      s.cwd = cwd
+      s.perms.setExecutionContext(cwd, s.id)
+    }
     if (isEngineId(engine)) s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     s.codexHome = codexHome || undefined

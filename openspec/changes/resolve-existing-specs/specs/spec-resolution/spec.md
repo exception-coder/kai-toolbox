@@ -1,5 +1,34 @@
 ## ADDED Requirements
 
+### Requirement: Assess execution before requiring a change
+Forge SHALL explore existing specifications and Graphify evidence before an Agent-reviewed impact decision. Behavior-preserving execution MUST be possible without an OpenSpec change. Behavior, design and verification impacts SHALL be independent; unknown behavior SHALL require more evidence.
+
+#### Scenario: Restore existing behavior
+- **WHEN** source-grounded review identifies a behavior-preserving fix
+- **THEN** Forge binds execution without an empty change or unrelated design documents
+
+#### Scenario: Internal architecture changes
+- **WHEN** behavior stays the same but architecture changes
+- **THEN** affected overview and detail files are required without automatically creating a business Delta
+
+### Requirement: Own a shared execution branch
+Forge SHALL bind execution to the assigned branch and a single writing session per workspace. Recognized direct branch mutations and branch drift MUST be rejected. Tasks SHALL use atomic commits; extra branches require host allocation, not Agent self-approval.
+
+#### Scenario: A second writer or automatic task branch
+- **WHEN** another session binds the same workspace or a bound Agent requests a task branch
+- **THEN** the guarded path rejects the operation with a recovery reason
+
+### Requirement: Verify applicable execution inputs
+Forge MUST execute declared authorized checks, record actual exits and content hashes, require every applicable category, and reject stale or mismatched staged inputs. Missing checks SHALL NOT count as passed.
+
+#### Scenario: API smoke does not cover database changes
+- **WHEN** execution affects SQL but only API verification passed
+- **THEN** commit readiness reports missing SQL verification
+
+#### Scenario: Content changes without a status change
+- **WHEN** a verified input changes without changing its Git porcelain status
+- **THEN** previous verification evidence is stale
+
 ### Requirement: Retrieve existing requirement evidence
 Forge SHALL return bounded Requirement and Scenario candidates for individually identified atomic inputs, with source paths, content revision and Graphify freshness, without treating code facts as accepted behavior.
 

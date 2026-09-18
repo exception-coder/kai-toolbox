@@ -43,6 +43,7 @@ const server = new McpServer(
     instructions: [
       '这是 kai-toolbox 提供的本地开发验证工具。数据库工具仅允许查询测试库且由后端强制只读；',
       '应用探测工具仅允许访问已配置的本地或测试实例，禁止生产环境。',
+      serverName === 'forge' ? '实施前先 discover_execution 探索既有规格与 Graphify，再 assess_execution 分别判断行为、设计与验证影响。行为保持不创建空 Change；默认共享当前分支，不能为 Task 自行建 branch/worktree。sessionId 由宿主绑定。' : '',
     ].join(''),
   },
 )
@@ -76,7 +77,7 @@ const querySchema = {
 }
 
 if (serverName === 'forge') {
-  registerSpecResolutionTools(server)
+  registerSpecResolutionTools(server, sessionId)
   server.registerTool('discover_resources', { description: DISCOVER_RESOURCES_DESCRIPTION, inputSchema: discoverResourceSchema, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }, (args, extra) => discoverSystemResources(apiBase, args, extra))
   server.registerTool('execute_resource', { description: EXECUTE_RESOURCE_DESCRIPTION, inputSchema: executeResourceSchema, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false } }, (args, extra) => executeSystemResource(apiBase, args, extra))
   server.registerTool('prepare_sql_context', {

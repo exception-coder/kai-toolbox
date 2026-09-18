@@ -25,7 +25,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string, 
     name: 'forge',
     version: '1.0.0',
     tools: [
-      ...(includeDeliveryTools ? sdkSpecResolutionTools() : []),
+      ...(includeDeliveryTools ? sdkSpecResolutionTools(sessionId) : []),
       ...(includeDeliveryTools ? [tool('discover_resources', DISCOVER_RESOURCES_DESCRIPTION, discoverResourceSchema,
         (args, extra) => discoverSystemResources(apiBase, args, extra as McpRequestExtra),
         { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }),

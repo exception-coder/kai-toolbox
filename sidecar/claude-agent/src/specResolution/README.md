@@ -1,5 +1,13 @@
 # Forge Existing Spec Resolution
 
+## 按影响执行
+
+首先 `discover_execution(project, sessionId, request, files)` 探索既有规格、活跃 Change 和 Graphify。读候选原文后 `assess_execution` 记录行为 preserved/changed/unknown、设计 none/detail/architecture、风险类别和逐字引用。preserved 不需要 changeId；changed 复用匹配 Change，继续 resolve/confirm/Delta 链路；unknown 先补证据。设计只绑定受影响层次。
+
+执行保持当前分配分支，一个工作区仅一个写入会话，任务顺序执行并原子提交。`check_execution_readiness` 校验分支、规格版本、文件范围；提交前校验适用设计更新和真实验证。`run_execution_verification` 实际运行已授权 executable/argv 测试，inputFiles 包含测试、配置及依赖；禁止用于服务重启或运行空命令凑 PASS。Windows npm 使用 Node + npm-cli.js 参数数组。缺少类别、失败、内容过期、暂存内容与测试工作区不一致均不能提交。
+
+提交后 `finish_execution` 释放写入权，不自动提交或归档。额外分支由宿主明确分配；不自动生成并行分支或推断任务依赖。中断保留记录与现场，由原会话恢复，不能删除锁抢占。权限回调与 Hook 只覆盖实际触发工具，不是 OS 沙箱。`.forge/verify.yml` 和项目强制门禁仍保留；本入口补充本次影响的原生检查。退出码不证明 kind/purpose 的语义覆盖，也不代表目标版本部署验收。
+
 Forge SDK 和 stdio 均提供 `intake_spec_requirements`、`resolve_specs`、`confirm_spec_resolution`、`check_change_readiness`、`refresh_spec_index`、`get_spec_resolution_metrics`。仅开发工具集注册，受限咨询 SDK 不新增写工具。默认使用本机 Codex 登录；`FORGE_SPEC_ENGINE=claude` 可选择 Claude，`FORGE_SPEC_MODEL` 可指定模型。不另建 HTTP 后端或数据库。
 
 ## 使用
