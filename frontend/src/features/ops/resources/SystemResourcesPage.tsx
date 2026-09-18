@@ -14,11 +14,11 @@ export function SystemResourcesPage() {
   return <main className="mx-auto max-w-7xl space-y-6 p-6 md:p-8">
     <header className="space-y-3 border-b pb-5">
       <Link to="/tools/reqpool" className="text-xs text-muted-foreground hover:text-foreground">← AI 交付中心</Link>
-      <h1 className="text-2xl font-semibold tracking-tight">系统资源与测试账号</h1>
-      <p className="max-w-3xl text-sm leading-6 text-muted-foreground">把项目库中的系统关联到数据库、中间件和测试应用账号。AI 通过统一工具发现可用资源，再按能力查询或验证；密码由服务端使用，不进入资源目录。</p>
+      <h1 className="text-2xl font-semibold tracking-tight">Forge 系统资源</h1>
+      <p className="max-w-3xl text-sm leading-6 text-muted-foreground">集中配置各系统的数据库和应用站点。Forge 通过统一工具动态发现已绑定资源；账号密码只由服务端使用，不进入会话上下文。</p>
     </header>
     <nav aria-label="系统资源视图" className="flex flex-wrap gap-2 border-b pb-3">
-      {([['relations', '系统关联'], ['connections', '中间件连接'], ['accounts', '测试应用账号']] as const).map(([key, label]) => <Button key={key} variant={view === key ? 'secondary' : 'ghost'} onClick={() => setSearch(previous => { const next = new URLSearchParams(previous); next.set('view', key); return next })}>{label}</Button>)}
+      {([['relations', '系统绑定'], ['connections', '数据库与中间件'], ['accounts', '应用站点']] as const).map(([key, label]) => <Button key={key} variant={view === key ? 'secondary' : 'ghost'} onClick={() => setSearch(previous => { const next = new URLSearchParams(previous); next.set('view', key); return next })}>{label}</Button>)}
     </nav>
     {view === 'connections' ? <section className="space-y-4"><p className="text-sm leading-6 text-muted-foreground">这里保留原有连接分组与查询历史。分组名称不代表已关联项目库系统；保存连接后，请到“系统关联”确认所属系统与用途。</p><OpsPage /></section> : view === 'accounts' ? <ApplicationAccounts /> : <ResourceRelations />}
   </main>

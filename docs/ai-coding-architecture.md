@@ -182,6 +182,25 @@ flowchart TD
 - Graphify 产物保持可再生；共享文件与本地缓存边界由 `.gitignore` 明确。
 - `.codex/skills/`、`.claude/` 和知识子目录只有在出现真实内容时才创建。
 
+## Forge 系统资源工具
+
+数据库连接和测试应用账号属于系统资源，不属于会话专属 Tool。`tool-ops` 持有多数据源、应用站点凭据和系统绑定；凭据仅在服务端执行时使用，目录、浏览器和模型只接收脱敏元信息。项目库系统身份仍由 Project Registry 提供，资源关系不复制系统或凭据。
+
+普通开发会话只装配一个 `forge` MCP，并通过稳定的 `discover_resources`、`execute_resource` 动态发现和调用已绑定资源。新增系统、数据库或应用站点不增加 MCP 名称；服务端在每次执行时重新校验绑定、环境和能力。数据库只允许只读查询，应用调用只允许已配置同源的 LOCAL、DEV、TEST、UAT 目标并保留写操作审批语义。受限业务咨询仍使用自己的只读证据装配，不能借统一执行入口扩大权限。
+
+```mermaid
+flowchart LR
+    REGISTRY["Project Registry<br/>系统身份"] --> BINDING["tool-ops<br/>资源配置与绑定"]
+    DB["多个 DB<br/>服务端凭据"] --> BINDING
+    APP["多个 APP<br/>服务端账号"] --> BINDING
+    SESSION["Vibe Coding 会话"] --> FORGE["forge MCP<br/>discover / execute"]
+    FORGE --> BINDING
+    BINDING --> POLICY["绑定 · 环境 · 能力 · 同源校验"]
+    POLICY --> TARGET["只读数据库或测试应用"]
+```
+
+旧 ERP/SRM/SCM 固定配置和桥接仅作为迁移兼容实现保留，不再默认进入普通开发会话；是否实际移除以对应 OpenSpec 变更和运行验收为准。
+
 ## Existing Spec Resolution
 
 实施批次与 OpenSpec Change 分离：Forge execution 总是绑定项目、会话和分配分支，changeId 仅在行为变化时需要。先探索既有规格和 Graphify，再分别判定行为、设计层次及验证范围；风险不自动增加文档。相关任务顺序执行、原子提交，额外分支由宿主分配。执行记录、范围、分支和实际验证输入摘要复用规格解析模块，不增加平行项目配置。完整协议见 [模块说明](../sidecar/claude-agent/src/specResolution/README.md)。

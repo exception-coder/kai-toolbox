@@ -6,9 +6,7 @@ import { query, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
 import { createWelfareDbServer } from './welfareDb.js'
 import { createErpDbServer } from './erpDb.js'
-import { createErpAppServer } from './erpApp.js'
 import { createSrmDbServer } from './srmDb.js'
-import { createSrmAppServer } from './srmApp.js'
 import { createScmDbServer } from './scmDb.js'
 import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import {
@@ -833,29 +831,19 @@ class Session {
         const consultTargets = new Set(resolveConsultTargetSystems(this.cwd, this.consultEvidenceSystems))
         const canRead = (system: 'erp' | 'srm' | 'scm'): boolean =>
           this.toolPolicy !== 'consult-readonly' || consultTargets.has(system)
-        if (this.forgeSqlRegistration) {
+        if (this.toolPolicy !== 'consult-readonly') {
           mcpServers.forge = createForgePendingSqlServer(
             this.id,
             toolboxApiBase,
-            this.toolPolicy !== 'consult-readonly',
+            true,
           )
         }
-        if (canRead('erp')) mcpServers.erp_db = createErpDbServer(toolboxApiBase)
-        // 业务咨询只读策略只注入数据库查询工具和 Forge SQL 台账；可真实写测试环境的 app 工具仅限普通开发会话。
-        if (this.toolPolicy !== 'consult-readonly') {
-          // 自闭环验证：非 demo、后端就绪时挂 erp_app（登录态实发 *.action 探测改动效果；
-          // 未配置本地实例时工具自会回"未配置"，无害）。与只读 erp_db 配合：erp_app 触发、erp_db 回读。
-          mcpServers.erp_app = createErpAppServer(toolboxApiBase)
+        // 受限咨询保持既有只读数据库装配；普通开发会话统一通过 Forge 动态资源目录访问 DB/APP。
+        if (this.toolPolicy === 'consult-readonly') {
+          if (canRead('erp')) mcpServers.erp_db = createErpDbServer(toolboxApiBase)
+          if (canRead('srm')) mcpServers.srm_db = createSrmDbServer(toolboxApiBase)
+          if (canRead('scm')) mcpServers.scm_db = createScmDbServer(toolboxApiBase)
         }
-        // SRM 需求开发同款一对：srm_db（MySQL 只读查库核对）+ srm_app（yudao 网关 OAuth2 登录态实发验证）。
-        // 未配置对应库/实例时工具自会回"未配置"，无害；「SRM需求开发」触发语显式点名这两个工具。
-        if (canRead('srm')) mcpServers.srm_db = createSrmDbServer(toolboxApiBase)
-        if (this.toolPolicy !== 'consult-readonly') {
-          mcpServers.srm_app = createSrmAppServer(toolboxApiBase)
-        }
-        // SCM 需求开发：只挂只读 scm_db（MySQL 查库核对）；无 scm_app——SCM 暂无像 ERP/SRM 那样
-        // 可供登录态实发的网关/接口约定，验证口径改为「重启后查库回读」。未配置库时工具自会回"未配置"，无害。
-        if (canRead('scm')) mcpServers.scm_db = createScmDbServer(toolboxApiBase)
       }
       if (this.toolPolicy === 'consult-readonly') {
         const sourceServer = createClaudeConsultSourceServer(this.cwd, this.consultEvidenceSystems)
