@@ -6,6 +6,12 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 Before adding navigation, object actions, dialogs or AI workflows, read [docs/product-philosophy.md](docs/product-philosophy.md). Record applicable principle IDs and exceptions in the OpenSpec design; preserve object context, operation feedback and keyboard/mobile recovery. The [AI coding architecture](docs/ai-coding-architecture.md) owns the context-layering contract; do not duplicate these documents in agent-specific rules.
 
+## AI 编程架构套件同步约定
+
+[AI 编程架构说明](docs/ai-coding-architecture.md) 是 Forge、Team Standards、OpenSpec、Graphify 和 Agent 协作方式的唯一整体架构说明。修改组件职责、上下文/证据流、规格或概设详设触发条件、分支与任务策略、MCP/Hook 门禁、验证或交付生命周期时，必须在同次作业中同步受影响正文、流程图和能力边界，并随实现提交；跨仓改动在对应仓库分别提交。不因文件数或行数判断是否重大。
+
+普通 Bug 修复、样式/措辞调整、保持上述契约的内部重构无需更新本文，在提交正文说明无架构影响即可。不得仅修改日期或另建同主题副本；未实现、未部署、未验收必须分别标明。具体维护规则见该文档“维护契约”；此约定不授予服务重启或发布权限，也不强制为文档维护创建 OpenSpec Change。
+
 ## Project shape
 
 `kai-toolbox` is a local single-user toolkit platform: one Spring Boot shell + multiple pluggable tool modules, served at `http://localhost:8080`. No auth, no multi-tenancy. Stack: Java 21 / Spring Boot 3.4 / Maven multi-module on the backend; Vite 6 + React 19 + Tailwind v4 + React Router v7 + TanStack Query on the frontend. SQLite (via Spring JDBC) for persistence; SSE (`SseEmitter`) for streaming progress.
