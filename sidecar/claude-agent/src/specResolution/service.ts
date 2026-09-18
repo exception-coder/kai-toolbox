@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { checkSchema, confirmSchema, resolveSchema, refreshSchema, requireCondition, type Context, type Resolution } from './contracts.js'
 import { hash, locked, normalize, projectContext, readJson, saveJson, statePath, safePath } from './storage.js'
 import { indexSpecs } from './indexer.js'
@@ -12,21 +13,23 @@ export function resolveSpecs(raw: unknown): Resolution {
     'REQUIREMENTS_NOT_ATOMIC', 'externalId 必须唯一；先拆分为原子项')
   const index = indexSpecs(root)
   const items = input.requirements.map(item => ({ ...item, text: normalize(item.text) }))
-  const resolutionId = `sr_${hash(JSON.stringify({ root, branch, change: input.changeId, revision: index.revision, items, files: input.changedFiles })).slice(0, 32)}`
+  const graph = graphEvidence(root, items.map(item => item.text).join(' '), input.changedFiles)
+  const resolutionId = `sr_${hash(JSON.stringify({ root, branch, change: input.changeId, revision: index.revision, items, files: input.changedFiles, graph })).slice(0, 32)}`
   return locked(root, () => {
+    const sessionId = input.sessionId || process.env.TOOLBOX_SESSION_ID
+    if (sessionId) saveJson(statePath(root, `session-${hash(sessionId)}`), { project: root, branch, changeId: input.changeId, resolutionId })
     const file = statePath(root, resolutionId)
     if (fs.existsSync(file)) {
       const previous = readJson<Resolution>(file)
       saveJson(statePath(root, `active-${input.changeId}`), { resolutionId })
       return previous
     }
-    const graph = graphEvidence(root, items.map(item => item.text).join(' '), input.changedFiles)
     const resolution: Resolution = { schemaVersion: 1, resolutionId, project: root, branch,
       changeId: input.changeId, requestId: input.requestId, specRevision: index.revision, createdAt: new Date().toISOString(),
       items: items.map(item => ({ itemId: item.externalId, text: item.text, candidates: retrieve(index.units, item.text, item.terms, graph.terms) })),
       warnings: [...index.warnings, 'AGENT_REVIEW_REQUIRED: 排序分数不是语义置信度；逐项审阅并确认',
-        'GRAPH_FRESHNESS_UNVERIFIED: 图谱关联需对照当前源码；不参与自动批准'],
-      graph: { status: graph.status, evidence: graph.evidence }, audit: [] }
+        ...(graph.status === 'VERIFIED_SOURCES' ? [] : [`GRAPH_${graph.status}: 图谱不可参与自动批准或候选加权`])],
+      changedFiles: input.changedFiles, graph, audit: [] }
     saveJson(file, resolution)
     saveJson(statePath(root, `active-${input.changeId}`), { resolutionId })
     return resolution
@@ -49,8 +52,10 @@ export function confirmResolution(raw: unknown) {
     requireCondition(result.resolutionId === input.resolutionId, 'CHANGE_CONTEXT_MISMATCH', '只能确认当前需求批次')
     requireCondition(result.specRevision === index.revision, 'SPEC_INDEX_STALE', '正式规格已变化；重新解析')
     validateDecisions(result, input.decisions, index)
-    if (JSON.stringify(result.decisions) !== JSON.stringify(input.decisions)) {
+    for (const file of input.implementationFiles) safePath(root, file)
+    if (JSON.stringify(result.decisions) !== JSON.stringify(input.decisions) || JSON.stringify(result.implementationFiles) !== JSON.stringify(input.implementationFiles)) {
       result.decisions = input.decisions
+      result.implementationFiles = input.implementationFiles
       result.audit.push({ actor: input.actor, source: 'AGENT', at: new Date().toISOString(), decisions: input.decisions })
       saveJson(statePath(root, result.resolutionId), result)
     }
@@ -65,6 +70,15 @@ export function checkReadiness(raw: unknown) {
   requireCondition(result.decisions, 'SPEC_RESOLUTION_UNCONFIRMED', '尚未完成逐项决策')
   validateDecisions(result, result.decisions, index)
   checkDeltas(root, result)
+  const graph = graphEvidence(root, result.items.map(item => item.text).join(' '), result.changedFiles || [])
+  requireCondition(result.graph.revision === graph.revision && result.graph.status === graph.status
+    && JSON.stringify(result.graph.evidence) === JSON.stringify(graph.evidence), 'GRAPH_INDEX_STALE', '图谱或相关源码已变化；重新解析并审阅')
+  const staged = input.operation === 'BEFORE_COMMIT' ? execFileSync('git', ['diff', '--cached', '--name-only', '--no-renames', '-z'],
+    { cwd: root, encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024, windowsHide: true }).split('\0').filter(Boolean) : []
+  for (const file of new Set([...input.files, ...staged].filter(file => !/^(openspec\/|docs\/|\.forge\/spec-resolution\/)/.test(file) && !/\.(md|txt)$/i.test(file)))) {
+    safePath(root, file)
+    requireCondition(result.implementationFiles?.includes(file), 'IMPLEMENTATION_SCOPE_DRIFT', `文件未绑定到确认范围：${file}；补充 implementationFiles 后重新确认`)
+  }
   return { allowed: true, code: 'PASS', resolutionId: result.resolutionId, specRevision: index.revision,
     operation: input.operation, actions: [], warnings: ['该检查证明规格映射和 Delta 一致，不替代代码范围审阅、OpenSpec validate 或运行验证'] }
 }

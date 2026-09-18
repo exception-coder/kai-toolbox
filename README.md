@@ -294,4 +294,4 @@ Forge 还包含磁盘分析、PRD 澄清、文档处理、媒体工具、项目�
 
 架构设计参见：[`docs/design/architecture.md`](docs/design/architecture.md)。
 
-Forge MCP 编写 OpenSpec 前可使用[已有规格解析](sidecar/claude-agent/src/specResolution/README.md)，逐项找回 Requirement，记录决策并检查 Delta；Hook 配置和当前能力边界见该说明。
+Forge MCP 编写 OpenSpec 前可使用[已有规格解析](sidecar/claude-agent/src/specResolution/README.md)：Codex 辅助拆分与分类、Graphify 来源哈希检查、高置信草稿、会话与文件范围门禁，以及确认/纠正指标。模型超时保留候选供审阅；Hook 安装与实际验收边界见该说明。

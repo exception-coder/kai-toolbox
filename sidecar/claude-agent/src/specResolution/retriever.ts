@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import { hash, safePath } from './storage.js'
 import type { Candidate, Unit } from './contracts.js'
+import { graphFreshness } from './freshness.js'
 
 export function tokens(text: string): string[] {
   const words = text.normalize('NFKC').toLowerCase().match(/[a-z0-9_./-]+|[\p{Script=Han}]+/gu) || []
@@ -10,7 +11,7 @@ export function tokens(text: string): string[] {
 type GraphNode = { id: string; label?: string; source_file?: string; source_location?: string }
 type GraphData = { nodes: GraphNode[]; links?: Array<{ source: string; target: string }> }
 const graphCache = new Map<string, { key: string; graph: GraphData }>()
-export function graphEvidence(root: string, query: string, changedFiles: string[]) {
+export function graphEvidence(root: string, query: string, changedFiles: string[]): { status: string; evidence: string[]; terms: string[]; revision?: string; reasons?: string[] } {
   const file = safePath(root, 'graphify-out/graph.json')
   if (!fs.existsSync(file)) return { status: 'MISSING', evidence: [] as string[], terms: [] as string[] }
   try {
@@ -30,8 +31,9 @@ export function graphEvidence(root: string, query: string, changedFiles: string[
       ids.add(link.source); ids.add(link.target)
     }
     const selected = graph.nodes.filter(node => ids.has(node.id) && node.source_file).slice(0, 20)
-    return { status: 'UNVERIFIED', evidence: selected.map(node => `${node.label}: ${node.source_file}:${node.source_location || ''}`),
-      terms: selected.flatMap(node => tokens(`${node.label} ${node.source_file}`)).slice(0, 80) }
+    const freshness = graphFreshness(root, [...selected.map(node => node.source_file!), ...changedFiles])
+    return { ...freshness, evidence: selected.map(node => `${node.label}: ${node.source_file}:${node.source_location || ''}`),
+      terms: freshness.status === 'VERIFIED_SOURCES' ? selected.flatMap(node => tokens(`${node.label} ${node.source_file}`)).slice(0, 80) : [] }
   } catch (error) { return { status: `UNAVAILABLE: ${error instanceof Error ? error.message : String(error)}`, evidence: [], terms: [] } }
 }
 function readGraph(file: string): GraphData {
@@ -50,6 +52,6 @@ export function retrieve(units: Unit[], text: string, terms: string[], graphTerm
     const graphMatches = graphTerms.filter(term => body.has(term) || title.has(term)).slice(0, 5)
     return { ...unit, score: score + (score > 0 ? graphMatches.length * 0.1 : 0),
       evidence: [`SPEC_TEXT: ${unit.specPath}:${unit.line}`, `MATCHED_TERMS: ${matches.join(', ')}`,
-        ...(graphMatches.length ? [`GRAPH_HINT_UNVERIFIED: ${graphMatches.join(', ')}`] : [])] }
+        ...(graphMatches.length ? [`GRAPH_SOURCE_MATCH: ${graphMatches.join(', ')}`] : [])] }
   }).filter(unit => unit.score > 0).sort((a, b) => b.score - a.score || hash(a.specPath + a.title).localeCompare(hash(b.specPath + b.title))).slice(0, 5)
 }

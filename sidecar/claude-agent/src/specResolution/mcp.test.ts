@@ -14,7 +14,7 @@ test('real stdio Forge advertises and calls the same resolution contract as SDK'
     await client.connect(transport)
     const listed = await client.listTools()
     const names = sdkSpecResolutionTools().map(tool => tool.name)
-    assert.equal(names.length, 4)
+    assert.equal(names.length, 6)
     for (const name of names) assert.ok(listed.tools.some(tool => tool.name === name), name)
     const result = await client.callTool({ name: 'check_change_readiness', arguments: { project: 'not-a-project', changeId: 'test' } })
     assert.equal(result.isError, true)
