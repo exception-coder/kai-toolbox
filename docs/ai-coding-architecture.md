@@ -34,7 +34,33 @@
 | Graphify | 快速定位实现、调用和关联证据，报告新鲜度 | 代码事实不是业务批准，未命中不等于不存在既有能力 |
 | Agent | 阅读原文、理解业务、审阅映射，编写规格/设计、实施和提交 | 具名 Agent 判断不能冒充人工批准；实质业务歧义需要解决 |
 
+## LLM、脚本与人工的判定边界
+
+**LLM 负责理解语义并提出具名判断，脚本负责按固定规则执行、核验证据和阻断，人工负责业务歧义与明确要求的授权。** “Forge 判定”不是每一步都调用模型：Forge 同时包含确定性执行器和可选的模型辅助解析。下文“脚本”也包括 MCP 服务代码、Hook、CLI 和测试程序。
+
+LLM 分为两处：宿主 Agent 阅读 Team Standards 后理解需求、审阅源码并写文档；Forge 解析模型辅助拆分需求与映射候选规格。后者的模型输出仍需结构与引用检查，不能代替宿主 Agent 审阅，也不能冒充人工批准。Team Standards 的 Skill 是给 Agent 的方法指导，只有接入的 Hook 才执行程序检查。
+
+| 环节 | LLM 判断或产出 | 脚本判定或执行 | 仍需注意的边界 |
+|---|---|---|---|
+| 探索既有规格与 Change | Agent 提供检索词、范围，阅读候选并判断是否匹配 | `discover_execution` 索引正式规格、列出活跃 Change、召回候选并保存摘要 | 没有命中不能证明需要新建能力；匹配 Change 由 Agent 审阅 |
+| Graphify 探索 | Agent 解释调用关系与业务含义；图谱语义提取在启用时使用 LLM | AST 提取、图遍历、关联召回和选中来源哈希检查由程序执行 | Graphify 不是全部由 LLM 生成；来源新鲜不证明全图完整或业务正确 |
+| 需求拆分与规格映射 | 解析模型辅助拆分、分类、推荐目标或草稿；Agent 最终确认 | 校验结构化结果、逐字引用与目标，保存 `confirm_spec_resolution` 记录 | 自动草稿和模型置信度均不是业务批准；模型失败保留候选与告警 |
+| 是否更新 OpenSpec | Agent 判定 `behavior` 为 `preserved / changed / unknown` 并给出依据 | `assess_execution` 固定映射为 `NO_SPEC_CHANGE / DELTA_REQUIRED / NEEDS_EVIDENCE`；未知则阻断 | 脚本不独立推断业务是否变化；引用存在不证明推理成立 |
+| 是否更新概设、详设 | Agent 判定 `design` 为 `none / detail / architecture`，选择受影响文件 | `detail` 要求绑定详设；`architecture` 要求绑定概设与详设；提交前检查适用文件更新 | 文件变化不证明设计质量；大改动不等于无条件补全全部文档 |
+| 验证范围 | Agent 判断影响类别，选择有实际断言的测试及输入文件 | 固定推导必需类别：始终有回归；API/权限加 API，SQL/迁移加 SQL，UI 加 UI，行为变化加规格，设计变化加设计 | 类别来自 Agent 输入；误判或漏报影响，脚本不保证自动发现 |
+| 分支与任务顺序 | Agent 理解任务依赖、拆分原子任务；额外分支由宿主明确分配 | 绑定当前分支、限制单写入会话，已接入入口阻断违规分支操作 | 当前没有自动依赖调度或并行分支分配器；不覆盖任意 Shell 绕行 |
+| 编写规格与设计 | Agent 按 Skill 编写、审阅 Requirement、Scenario、概设和详设 | OpenSpec 严格校验结构；Forge 检查确认记录、Delta 绑定与版本 | 格式合法不证明需求完整，需处理真实业务歧义 |
+| 测试与提交门禁 | Agent 编写测试断言、解释失败并修复，审阅提交原子性 | 真正运行测试命令，检查退出状态、必需类别、内容指纹、范围及暂存一致性 | PASS 只覆盖实际执行的检查；程序退出成功不证明断言充分或已部署新版 |
+| 结束与归档 | Agent 判断交付范围和生命周期条件，按授权调用工具 | `finish_execution` 检查提交与范围状态并释放写入权；OpenSpec 工具执行同步/归档 | `finish_execution` 不自动提交或归档，也不代表人工验收 |
+| 架构说明同步 | Agent 判断本次是否改变协作契约，并更新受影响正文与图 | 可检查链接、Markdown 和 Mermaid 语法 | 当前没有自动证明架构说明语义同步的 CI |
+
+业务意图不清、规格与实际业务冲突时由用户或业务负责人澄清；项目要求的重启、发布等授权按适用规则取得。普通分类无需逐次人工审批。记录中的 `AGENT_REVIEWED` 明确表示 Agent 审阅，不能解读为 `HUMAN_APPROVED`。
+
+例如“修复搜索条件”：LLM 对照既有 Scenario 判断是否恢复原行为；若提交 `preserved + none + api`，脚本就不要求 Delta 或设计更新，但要求回归与 API 检查。若实际新增了搜索语义却被误判为 `preserved`，脚本不会仅凭该标签纠正业务判断，仍依赖原文审阅和有效测试。
+
 ## 从需求到交付
+
+图中关键判断标明执行主体：LLM 提交语义分类，脚本依据分类路由并执行门禁；混合节点的具体职责见上表。
 
 ```mermaid
 flowchart TD
@@ -42,12 +68,12 @@ flowchart TD
     READ --> DISCOVER["Forge 探索正式规格和活跃 Change"]
     GRAPHIFY["Graphify 定位实现与关联证据"] --> DISCOVER
     DISCOVER --> REVIEW["Agent 阅读原文和源码，确认影响"]
-    REVIEW --> ASSESS["Forge 记录行为、设计和验证判定<br/>绑定分配分支、文件范围及写入会话"]
-    ASSESS --> SPEC_ROUTE{"行为是否变化?"}
+    REVIEW --> ASSESS["LLM 提交影响分类与引用<br/>Forge 脚本校验并记录判定<br/>绑定分支、范围及写入会话"]
+    ASSESS --> SPEC_ROUTE{"脚本按 LLM 的行为分类路由"}
     SPEC_ROUTE -->|"未知"| REVIEW
     SPEC_ROUTE -->|"保持"| NO_DELTA["引用既有依据，不建空 Change"]
     SPEC_ROUTE -->|"变化"| DELTA["优先复用匹配 Change<br/>Forge 找回 Requirement 并辅助草稿<br/>Agent 确认并写 Delta 与 Scenario<br/>OpenSpec 严格校验"]
-    ASSESS --> DESIGN_ROUTE{"哪些设计受影响?"}
+    ASSESS --> DESIGN_ROUTE{"脚本按 LLM 的设计分类路由"}
     DESIGN_ROUTE -->|"无"| NO_DESIGN["不补建无关设计"]
     DESIGN_ROUTE -->|"机制"| DETAIL["Agent 更新受影响详设"]
     DESIGN_ROUTE -->|"架构或边界"| BOTH["Agent 更新受影响概设与详设"]
@@ -57,8 +83,8 @@ flowchart TD
     DETAIL --> READY
     BOTH --> READY
     READY --> IMPLEMENT["共享分支顺序实施<br/>后续任务读取前序提交"]
-    IMPLEMENT --> VERIFY["Forge 执行适用检查并保存内容指纹"]
-    VERIFY --> GATE{"Hook 或权限入口检查通过?"}
+    IMPLEMENT --> VERIFY["LLM 选择检查与断言<br/>Forge 脚本执行并保存内容指纹"]
+    VERIFY --> GATE{"脚本门禁通过?<br/>Hook 或权限入口"}
     GATE -->|"否"| REPAIR["修复失败；范围或影响改变时重新判定"]
     REPAIR --> REVIEW
     GATE -->|"是"| COMMIT["Agent 原子提交当前任务"]
