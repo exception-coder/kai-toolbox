@@ -12,6 +12,11 @@ const IDLE_TIMEOUT_MS = 2 * 60 * 1_000
 const TRANSCRIPT_RELATIVE = join('.system_generated', 'logs', 'transcript.jsonl')
 const TRANSCRIPT_CLOCK_TOLERANCE_MS = 2_000
 const TRANSCRIPT_RETRY_DELAYS_MS = [0, 60, 180] as const
+const STARTUP_RETRY_DELAY_MS = 1_500
+const BACKGROUND_CONTINUE_DELAY_MS = 2_000
+const MAX_STARTUP_RETRIES = 1
+const MAX_BACKGROUND_CONTINUATIONS = 6
+const BACKGROUND_CONTINUE_PROMPT = '继续处理上一轮已启动的后台任务。读取任务结果并完成剩余工作；在得到最终结论前不要仅回复“请稍候”。'
 
 export interface AntigravityTurnCtx {
   text: string
@@ -74,6 +79,68 @@ export function reconcileAntigravityReply(
     }]
   }
   return []
+}
+
+export function isRetryableAntigravityStartupFailure(
+  diagnostic: string,
+  sawText: boolean,
+): boolean {
+  if (sawText) return false
+  if (/(?:RESOURCE_EXHAUSTED|quota\s+(?:exceeded|exhausted|limit)|rate[\s_-]*limit|PERMISSION_DENIED|User location is not supported)/i.test(diagnostic)) {
+    return false
+  }
+  return /You are not logged into Antigravity|Eligibility check failed[\s\S]*?(?:UNAVAILABLE|503)|failed to get load code assist response[\s\S]*?(?:UNAVAILABLE|503)/i.test(diagnostic)
+}
+
+export function isAntigravityProgressOnlyReply(text: string | undefined): boolean {
+  const normalized = text?.trim() ?? ''
+  if (!normalized || normalized.length > 240) return false
+  const reportsActiveWork = /正在|已(?:启动|提交|进入)|后台任务|(?:运行|执行|验证|处理中)/.test(normalized)
+  const asksToWait = /请稍候|请等待|稍等|等待.{0,20}(?:完成|结果)/.test(normalized)
+  return reportsActiveWork && asksToWait
+}
+
+export type AntigravityRecoveryAction = 'finish' | 'retryStartup' | 'continueBackground' | 'backgroundExhausted'
+
+export function decideAntigravityRecovery(input: {
+  aborted: boolean
+  timedOut: boolean
+  exitCode: number | null
+  hasPendingError: boolean
+  sawText: boolean
+  diagnostic: string
+  terminalText?: string
+  conversationId?: string
+  startupRetries: number
+  backgroundContinuations: number
+}): AntigravityRecoveryAction {
+  if (input.aborted || input.timedOut) return 'finish'
+  if (isRetryableAntigravityStartupFailure(input.diagnostic, input.sawText)
+    && input.startupRetries < MAX_STARTUP_RETRIES) return 'retryStartup'
+  if (input.exitCode !== 0 || input.hasPendingError || !isAntigravityProgressOnlyReply(input.terminalText)) return 'finish'
+  if (input.conversationId && input.backgroundContinuations < MAX_BACKGROUND_CONTINUATIONS) return 'continueBackground'
+  return 'backgroundExhausted'
+}
+
+interface AntigravityRunState {
+  deadline: number
+  startupRetries: number
+  backgroundContinuations: number
+}
+
+function waitForAntigravityRetry(delayMs: number, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return Promise.resolve(false)
+  return new Promise(resolve => {
+    const onAbort = () => {
+      clearTimeout(timer)
+      resolve(false)
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve(true)
+    }, delayMs)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 async function readAntigravityResponseAfterClose(
@@ -312,7 +379,20 @@ function readAndRemoveTurnLog(path: string | undefined): string {
 }
 
 export async function runAntigravityTurn(ctx: AntigravityTurnCtx): Promise<void> {
+  return runAntigravityAttempt(ctx, {
+    deadline: Date.now() + TURN_TIMEOUT_MS,
+    startupRetries: 0,
+    backgroundContinuations: 0,
+  })
+}
+
+async function runAntigravityAttempt(ctx: AntigravityTurnCtx, runState: AntigravityRunState): Promise<void> {
   const turnStartedAt = Date.now()
+  const remainingMs = runState.deadline - turnStartedAt
+  if (remainingMs <= 0) {
+    ctx.emit({ type: 'error', code: 'ANTIGRAVITY_TIMEOUT', message: 'Antigravity 单轮执行超过 15 分钟，已终止' })
+    return
+  }
   const cwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const executable = resolveAntigravityExecutable()
   const args = buildAntigravityArgs(ctx)
@@ -351,7 +431,7 @@ export async function runAntigravityTurn(ctx: AntigravityTurnCtx): Promise<void>
     const timeout = setTimeout(() => {
       timedOut = true
       try { child.kill() } catch { /* ignore */ }
-    }, TURN_TIMEOUT_MS)
+    }, Math.min(TURN_TIMEOUT_MS, remainingMs))
     resetIdleTimer()
     const processLine = (raw: string): void => {
       const line = raw.trim()
@@ -425,7 +505,55 @@ export async function runAntigravityTurn(ctx: AntigravityTurnCtx): Promise<void>
       const authoritativePromise = canReconcile
         ? readAntigravityResponseAfterClose(reportedSessionId, turnStartedAt)
         : Promise.resolve(undefined)
-      void authoritativePromise.then(authoritativeText => {
+      void authoritativePromise.then(async authoritativeText => {
+        const recovery = decideAntigravityRecovery({
+          aborted: ctx.signal.aborted,
+          timedOut,
+          exitCode: code,
+          hasPendingError: Boolean(pendingError),
+          sawText,
+          diagnostic,
+          terminalText: authoritativeText ?? assistantText,
+          conversationId: reportedSessionId,
+          startupRetries: runState.startupRetries,
+          backgroundContinuations: runState.backgroundContinuations,
+        })
+        if (recovery === 'retryStartup') {
+          if (await waitForAntigravityRetry(STARTUP_RETRY_DELAY_MS, ctx.signal)) {
+            await runAntigravityAttempt({ ...ctx, sdkSessionId: reportedSessionId }, {
+              ...runState,
+              startupRetries: runState.startupRetries + 1,
+            })
+          }
+          resolve()
+          return
+        }
+        if (recovery === 'continueBackground') {
+          if (await waitForAntigravityRetry(BACKGROUND_CONTINUE_DELAY_MS, ctx.signal)) {
+            await runAntigravityAttempt({
+              ...ctx,
+              text: BACKGROUND_CONTINUE_PROMPT,
+              developerInstructions: undefined,
+              sdkSessionId: reportedSessionId,
+            }, {
+              ...runState,
+              backgroundContinuations: runState.backgroundContinuations + 1,
+            })
+            resolve()
+            return
+          }
+          resolve()
+          return
+        }
+        if (recovery === 'backgroundExhausted') {
+          ctx.emit({
+            type: 'error',
+            code: 'ANTIGRAVITY_BACKGROUND_CONTINUATION_EXHAUSTED',
+            message: 'Antigravity 后台任务多次仅返回进行中状态，未能在本轮限制内形成最终结果；会话上下文已保留，可稍后重试。',
+          })
+          resolve()
+          return
+        }
         for (const event of reconcileAntigravityReply(assistantText, authoritativeText)) ctx.emit(event)
         ctx.emit(resolveAntigravityTerminal({
           aborted: ctx.signal.aborted,

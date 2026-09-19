@@ -31,3 +31,27 @@ Forge MUST NOT invent replacement text when the matching transcript is unavailab
 #### Scenario: Conversation identifier is invalid
 - **WHEN** a transcript lookup is requested with a non-UUID conversation identifier
 - **THEN** Forge rejects the lookup without reading outside the Antigravity transcript root
+
+### Requirement: Transient Antigravity startup failures recover safely
+
+Forge SHALL retry a bounded Antigravity startup authentication or eligibility failure only when the failed invocation produced no visible assistant output and diagnostics identify a transient login or upstream availability condition.
+
+#### Scenario: Silent authentication completes after an initial eligibility failure
+- **WHEN** the first invocation returns `loadCodeAssist` 503 or a not-logged-in startup error before producing assistant text
+- **THEN** Forge retries the same user request after a bounded delay and exposes only the final terminal outcome
+
+#### Scenario: The provider already produced output or reports a permanent rejection
+- **WHEN** an invocation produced visible output, or reports quota, permission, location, or another permanent rejection
+- **THEN** Forge does not replay the user request automatically
+
+### Requirement: Background task handoffs do not complete the Forge turn
+
+Forge SHALL distinguish a substantive Antigravity answer from a short progress-only handoff and SHALL resume the same Antigravity conversation within bounded continuation and time limits.
+
+#### Scenario: Antigravity exits print mode while a background validation is running
+- **WHEN** the terminal transcript only states that execution or validation is running and asks the user to wait
+- **THEN** Forge keeps the turn non-terminal and resumes that conversation without requiring another user message
+
+#### Scenario: Background continuation does not converge
+- **WHEN** progress-only handoffs reach the configured continuation or total-time limit
+- **THEN** Forge returns an explicit recoverable error instead of reporting successful completion

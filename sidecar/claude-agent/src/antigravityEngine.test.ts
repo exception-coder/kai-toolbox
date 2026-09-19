@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   buildAntigravityArgs,
+  decideAntigravityRecovery,
   explainAntigravityFailure,
+  isAntigravityProgressOnlyReply,
+  isRetryableAntigravityStartupFailure,
   parseAntigravityLine,
   readLatestAntigravityResponse,
   reconcileAntigravityReply,
@@ -136,6 +139,62 @@ test('successful keyring authentication overrides transient startup not-logged m
     'invalid model selection',
   ].join('\n'), 'Agent execution terminated due to error.')
   assert.equal(message, 'Agent execution terminated due to error.')
+})
+
+test('only pre-acceptance authentication and eligibility failures are retryable', () => {
+  assert.equal(isRetryableAntigravityStartupFailure(
+    'Eligibility check failed: failed to get load code assist response: UNAVAILABLE (code 503)',
+    false,
+  ), true)
+  assert.equal(isRetryableAntigravityStartupFailure('You are not logged into Antigravity.', false), true)
+  assert.equal(isRetryableAntigravityStartupFailure('You are not logged into Antigravity.', true), false)
+  assert.equal(isRetryableAntigravityStartupFailure(
+    'RESOURCE_EXHAUSTED: quota exceeded; failed to get load code assist response: UNAVAILABLE',
+    false,
+  ), false)
+  assert.equal(isRetryableAntigravityStartupFailure(
+    'FAILED_PRECONDITION: User location is not supported for the API use',
+    false,
+  ), false)
+})
+
+test('progress-only background handoffs are not substantive terminal replies', () => {
+  assert.equal(isAntigravityProgressOnlyReply('正在运行单元测试基线验证，请稍候...'), true)
+  assert.equal(isAntigravityProgressOnlyReply('后台任务已启动，请等待执行结果。'), true)
+  assert.equal(isAntigravityProgressOnlyReply('测试已完成，全部 42 项通过。'), false)
+  assert.equal(isAntigravityProgressOnlyReply('请稍候，我先解释一下最终结果：权限范围已正确生效。'), false)
+})
+
+test('recovery policy is bounded and requires the original conversation for background continuation', () => {
+  const base = {
+    aborted: false,
+    timedOut: false,
+    exitCode: 0,
+    hasPendingError: false,
+    sawText: true,
+    diagnostic: '',
+    terminalText: '正在使用 Java 21 环境验证测试，请稍候...',
+    conversationId: '33ca067c-a135-40e5-860d-0df70e880098',
+    startupRetries: 0,
+    backgroundContinuations: 0,
+  }
+  assert.equal(decideAntigravityRecovery(base), 'continueBackground')
+  assert.equal(decideAntigravityRecovery({ ...base, conversationId: undefined }), 'backgroundExhausted')
+  assert.equal(decideAntigravityRecovery({ ...base, backgroundContinuations: 6 }), 'backgroundExhausted')
+  assert.equal(decideAntigravityRecovery({ ...base, terminalText: '测试完成，42 项通过。' }), 'finish')
+  assert.equal(decideAntigravityRecovery({
+    ...base,
+    sawText: false,
+    terminalText: undefined,
+    diagnostic: 'Eligibility check failed: UNAVAILABLE (code 503)',
+  }), 'retryStartup')
+  assert.equal(decideAntigravityRecovery({
+    ...base,
+    sawText: false,
+    terminalText: undefined,
+    diagnostic: 'Eligibility check failed: UNAVAILABLE (code 503)',
+    startupRetries: 1,
+  }), 'finish')
 })
 
 test('authenticated quotaProject metadata is not exposed as a provider error', () => {
