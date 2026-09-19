@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.foreconsult.api;
 
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
+import com.exceptioncoder.toolbox.common.auth.annotation.RequireRole;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ArchiveRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ClassifyQuestionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultSessionView;
@@ -13,11 +14,14 @@ import com.exceptioncoder.toolbox.foreconsult.api.dto.LinkDevSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.QuestionClassificationView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.RenameQuestionTitleRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
+import com.exceptioncoder.toolbox.foreconsult.api.dto.BusinessConsultModelPolicyRequest;
+import com.exceptioncoder.toolbox.foreconsult.api.dto.BusinessConsultModelPolicyView;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultDispatchService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultQuestionClassifier;
 import com.exceptioncoder.toolbox.foreconsult.service.CodexHomeDiscoveryService;
 import com.exceptioncoder.toolbox.foreconsult.service.TurnBugExtractionService;
+import com.exceptioncoder.toolbox.foreconsult.service.BusinessConsultModelPolicyService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -25,6 +29,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -59,23 +64,40 @@ public class ConsultController {
     private final ConsultQuestionClassifier questionClassifier;
     private final ConsultDispatchService dispatchService;
     private final CodexHomeDiscoveryService codexHomeDiscoveryService;
+    private final BusinessConsultModelPolicyService modelPolicyService;
 
     public ConsultController(ConsultService service,
                              TurnBugExtractionService bugExtractionService,
                              ConsultQuestionClassifier questionClassifier,
                              ConsultDispatchService dispatchService,
-                             CodexHomeDiscoveryService codexHomeDiscoveryService) {
+                             CodexHomeDiscoveryService codexHomeDiscoveryService,
+                             BusinessConsultModelPolicyService modelPolicyService) {
         this.service = service;
         this.bugExtractionService = bugExtractionService;
         this.questionClassifier = questionClassifier;
         this.dispatchService = dispatchService;
         this.codexHomeDiscoveryService = codexHomeDiscoveryService;
+        this.modelPolicyService = modelPolicyService;
     }
 
     /** Lists Codex authorization directories directly below the runtime user's home directory. */
     @GetMapping("/codex-homes")
     public List<String> listCodexHomes() {
         return codexHomeDiscoveryService.list();
+    }
+
+    /** Returns the administrator-selected default model visible to consultation users. */
+    @GetMapping("/model-policy")
+    public BusinessConsultModelPolicyView getModelPolicy() {
+        return modelPolicyService.get();
+    }
+
+    /** Persists one exact entry selected from the current Codex catalog. */
+    @PutMapping("/model-policy")
+    @RequireRole("ADMIN")
+    public BusinessConsultModelPolicyView saveModelPolicy(
+            @Valid @RequestBody BusinessConsultModelPolicyRequest request) {
+        return modelPolicyService.save(request);
     }
 
     /** 启动咨询会话。 */

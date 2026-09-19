@@ -58,15 +58,18 @@ public class ConsultService {
     private final ConsultTurnRepository turnRepo;
     private final ConsultFeedbackRepository feedbackRepo;
     private final ConsultTurnExtractionRepository extractionRepo;
+    private final BusinessConsultModelPolicyService modelPolicyService;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public ConsultService(ConsultSessionRepository sessionRepo, ConsultTurnRepository turnRepo,
                           ConsultFeedbackRepository feedbackRepo,
-                          ConsultTurnExtractionRepository extractionRepo) {
+                          ConsultTurnExtractionRepository extractionRepo,
+                          BusinessConsultModelPolicyService modelPolicyService) {
         this.sessionRepo = sessionRepo;
         this.turnRepo = turnRepo;
         this.feedbackRepo = feedbackRepo;
         this.extractionRepo = extractionRepo;
+        this.modelPolicyService = modelPolicyService;
     }
 
     /** 保存/更新某轮回答的评分反馈（按 sessionId+turnIndex upsert）。 */
@@ -120,7 +123,7 @@ public class ConsultService {
                 .promptSnapshot(promptSnapshot)
                 .role(req.role() != null && !req.role().isBlank() ? req.role() : "IT")
                 .engine("claude".equalsIgnoreCase(req.engine()) ? "claude" : "codex")
-                .model(blankToNull(req.model()))
+                .model(modelPolicyService.resolveForCurrentUser(req.model()))
                 .codexReasoningEffort(blankToNull(req.codexReasoningEffort()))
                 .codexSpeed(blankToNull(req.codexSpeed()))
                 .codexHome(blankToNull(req.codexHome()))

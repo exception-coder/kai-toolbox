@@ -379,6 +379,14 @@ CREATE TABLE IF NOT EXISTS consult_agent_release (
 CREATE INDEX IF NOT EXISTS idx_consult_agent_release_history
     ON consult_agent_release(agent_id, released_at DESC);
 
+-- 功能：业务咨询默认模型；变更：保存管理员从当前目录选择的模型标识与展示名；目的：普通用户稳定复用管理员配置且不依赖硬编码 slug
+CREATE TABLE IF NOT EXISTS consult_model_policy (
+    policy_id    INTEGER PRIMARY KEY CHECK (policy_id = 1),
+    model        TEXT    NOT NULL,
+    display_name TEXT    NOT NULL,
+    updated_at   INTEGER NOT NULL
+);
+
 -- 教学 Agent 使用既有 Registry 和候选版本，不创建新的菜单或网关配置
 INSERT OR IGNORE INTO consult_agent_definition (
     agent_id, name, owner, description, endpoint, framework, observability_url, created_at, updated_at

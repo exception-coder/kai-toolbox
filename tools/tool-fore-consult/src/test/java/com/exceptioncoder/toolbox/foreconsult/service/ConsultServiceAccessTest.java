@@ -31,8 +31,9 @@ class ConsultServiceAccessTest {
     private final ConsultTurnRepository turnRepo = mock(ConsultTurnRepository.class);
     private final ConsultFeedbackRepository feedbackRepo = mock(ConsultFeedbackRepository.class);
     private final ConsultTurnExtractionRepository extractionRepo = mock(ConsultTurnExtractionRepository.class);
+    private final BusinessConsultModelPolicyService modelPolicyService = mock(BusinessConsultModelPolicyService.class);
     private final ConsultService service =
-            new ConsultService(sessionRepo, turnRepo, feedbackRepo, extractionRepo);
+            new ConsultService(sessionRepo, turnRepo, feedbackRepo, extractionRepo, modelPolicyService);
 
     @AfterEach
     void clearAuthContext() {
@@ -87,7 +88,8 @@ class ConsultServiceAccessTest {
         StartSessionRequest request =
                 new StartSessionRequest(
                         "ERP", "D:\\erp", List.of(), "260806-采购退货单入口", "question", "forged-user", "BIZ",
-                        "codex", null, "low", "default", "C:\\Users\\zhang\\.codex", "v2");
+                        "codex", "gpt-6-astra", "low", "default", "C:\\Users\\zhang\\.codex", "v2");
+        when(modelPolicyService.resolveForCurrentUser("gpt-6-astra")).thenReturn("current-sol-id");
 
         service.startSession(request, "server-built-prompt");
 
@@ -97,9 +99,25 @@ class ConsultServiceAccessTest {
         assertThat(captor.getValue().getQuestionTitle()).isEqualTo("260806-采购退货单入口");
         assertThat(captor.getValue().getPromptSnapshot()).isEqualTo("server-built-prompt");
         assertThat(captor.getValue().getEngine()).isEqualTo("codex");
+        assertThat(captor.getValue().getModel()).isEqualTo("current-sol-id");
         assertThat(captor.getValue().getCodexReasoningEffort()).isEqualTo("low");
         assertThat(captor.getValue().getCodexHome()).isEqualTo("C:\\Users\\zhang\\.codex");
         assertThat(captor.getValue().getOrchestrationVersion()).isEqualTo("v2");
+    }
+
+    @Test
+    void newSessionUsesConfiguredModelWhenClientOmitsModel() {
+        when(modelPolicyService.resolveForCurrentUser(null)).thenReturn("current-sol-id");
+        StartSessionRequest request =
+                new StartSessionRequest(
+                        "ERP", "D:\\erp", List.of(), "260918-固定咨询模型", "question", null, "BIZ",
+                        "codex", null, "low", "default", null, "v4");
+
+        service.startSession(request, "server-built-prompt");
+
+        ArgumentCaptor<ConsultSession> captor = ArgumentCaptor.forClass(ConsultSession.class);
+        verify(sessionRepo).insert(captor.capture());
+        assertThat(captor.getValue().getModel()).isEqualTo("current-sol-id");
     }
 
     @Test

@@ -37,6 +37,8 @@ import {
   linkDevSession,
   listConsults,
   listCodexHomes,
+  getBusinessConsultModelPolicy,
+  saveBusinessConsultModelPolicy,
   analyzeTopology,
   getTopology,
   listBugs,
@@ -1010,6 +1012,10 @@ export function ForeConsultPage() {
     enabled: true,
     staleTime: 60_000,
   })
+  const { data: modelPolicy, isLoading: modelPolicyLoading } = useQuery({
+    queryKey: ['fore-consult-model-policy'],
+    queryFn: getBusinessConsultModelPolicy,
+  })
   useEffect(() => {
     if (consultCodexHome || codexHomes.length === 0) return
     const defaultHome = codexHomes.find(path => /[\\/]\.codex-account-wz$/i.test(path))
@@ -1018,22 +1024,28 @@ export function ForeConsultPage() {
   }, [codexHomes, consultCodexHome])
   useEffect(() => {
     if (isAdmin) return
-    setConsultModel(null)
+    setConsultModel(modelPolicy?.model ?? null)
     setConsultReasoningEffort('low')
     setConsultSpeed('default')
-  }, [isAdmin])
-  const { data: consultCodexModels = [], isSuccess: codexModelsLoaded } = useQuery({
+  }, [isAdmin, modelPolicy?.model])
+  const { data: consultCodexModels = [] } = useQuery({
     queryKey: ['claude-chat-codex-models', consultCodexHome],
     queryFn: () => fetchCodexModels(consultCodexHome),
     enabled: Boolean(consultCodexHome),
     staleTime: 60_000,
   })
   useEffect(() => {
-    if (!codexModelsLoaded || !consultModel) return
-    if (!consultCodexModels.some(model => model.value === consultModel)) {
-      setConsultModel(null)
-    }
-  }, [codexModelsLoaded, consultCodexModels, consultModel])
+    if (!isAdmin || consultModel || !modelPolicy?.model) return
+    setConsultModel(modelPolicy.model)
+  }, [consultModel, isAdmin, modelPolicy?.model])
+  const saveDefaultModelMutation = useMutation({
+    mutationFn: async () => {
+      const selected = consultCodexModels.find(model => model.value === consultModel)
+      if (!selected) throw new Error('请先从当前模型目录选择一个可用模型')
+      return saveBusinessConsultModelPolicy(selected.value, selected.displayName || selected.value)
+    },
+    onSuccess: (saved) => qc.setQueryData(['fore-consult-model-policy'], saved),
+  })
   const triggerArchive = () => {
     if (!activeConsultId || archiveMutation.isPending) return
     archiveMutation.mutate()
@@ -1338,7 +1350,7 @@ export function ForeConsultPage() {
 
   const canStart =
     !!system.trim() && !!questionTitle.trim() && (!!ask.trim() || attachments.length > 0)
-    && !!consultCodexHome.trim() && !startMutation.isPending
+    && !!consultCodexHome.trim() && !!consultModel && !startMutation.isPending && !modelPolicyLoading
     && initialSessionStateResolved
   const retryInitialSessionState = () => {
     void Promise.all([historyQuery.refetch(), devSessionsQuery.refetch()])
@@ -1945,6 +1957,7 @@ export function ForeConsultPage() {
                 <CodexSessionOptions
                   models={consultCodexModels}
                   model={consultModel}
+                  modelDisabled={!isAdmin}
                   reasoningEffort={consultReasoningEffort}
                   speed={consultSpeed}
                   codexHome={consultCodexHome}
@@ -1969,6 +1982,33 @@ export function ForeConsultPage() {
                   }}
                   onCodexHomeChange={setConsultCodexHome}
                 />
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => saveDefaultModelMutation.mutate()}
+                    disabled={!consultModel || saveDefaultModelMutation.isPending}
+                    className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-white/70 disabled:opacity-40"
+                    title="将当前目录中选中的模型保存为普通用户默认模型"
+                  >
+                    <Save className="size-3.5" />
+                    {saveDefaultModelMutation.isPending ? '保存中…' : '设为业务默认'}
+                  </button>
+                )}
+                {!isAdmin && !modelPolicyLoading && !modelPolicy?.model && (
+                  <span className="text-[11px] text-amber-700">管理员尚未配置业务咨询默认模型</span>
+                )}
+                {isAdmin && saveDefaultModelMutation.isSuccess && (
+                  <span className="text-[11px] text-emerald-700">
+                    普通用户默认：{modelPolicy?.displayName ?? modelPolicy?.model}
+                  </span>
+                )}
+                {isAdmin && saveDefaultModelMutation.isError && (
+                  <span className="text-[11px] text-red-600">
+                    {saveDefaultModelMutation.error instanceof Error
+                      ? saveDefaultModelMutation.error.message
+                      : '默认模型保存失败'}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}

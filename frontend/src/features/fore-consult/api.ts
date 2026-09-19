@@ -174,6 +174,23 @@ export function listCodexHomes() {
   return http<string[]>('/fore-consult/codex-homes')
 }
 
+export interface BusinessConsultModelPolicy {
+  model: string | null
+  displayName: string | null
+  updatedAt: number | null
+}
+
+export function getBusinessConsultModelPolicy() {
+  return http<BusinessConsultModelPolicy>('/fore-consult/model-policy')
+}
+
+export function saveBusinessConsultModelPolicy(model: string, displayName: string) {
+  return http<BusinessConsultModelPolicy>('/fore-consult/model-policy', {
+    method: 'PUT',
+    body: JSON.stringify({ model, displayName }),
+  })
+}
+
 export function listConsults() {
   return http<ConsultSessionView[]>('/fore-consult/sessions')
 }

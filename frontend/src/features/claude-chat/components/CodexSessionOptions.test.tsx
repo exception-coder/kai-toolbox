@@ -17,7 +17,7 @@ const models: ModelInfo[] = [
 
 afterEach(cleanup)
 
-function renderOptions(model: string | null, onModelChange = vi.fn()) {
+function renderOptions(model: string | null, onModelChange = vi.fn(), modelDisabled = false) {
   render(
     <CodexSessionOptions
       models={models}
@@ -25,6 +25,7 @@ function renderOptions(model: string | null, onModelChange = vi.fn()) {
       reasoningEffort="low"
       speed="default"
       codexHome="C:\\Users\\zhang\\.codex-account-yx"
+      modelDisabled={modelDisabled}
       onModelChange={onModelChange}
       onOptionsChange={vi.fn()}
       onRefreshModels={vi.fn()}
@@ -56,5 +57,24 @@ describe('CodexSessionOptions model Auth mismatch', () => {
     fireEvent.click(screen.getByRole('button', { name: '使用当前 Auth 默认模型' }))
 
     expect(onModelChange).toHaveBeenCalledWith('')
+  })
+
+  it('can lock only model selection while keeping reasoning options available', () => {
+    render(
+      <CodexSessionOptions
+        models={models}
+        model="gpt-5.6-terra"
+        reasoningEffort="low"
+        speed="default"
+        modelDisabled
+        onModelChange={vi.fn()}
+        onOptionsChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /配置 Codex 模型/ }))
+
+    expect(screen.getByRole('button', { name: /^模型 / })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^推理强度 / })).toBeEnabled()
   })
 })

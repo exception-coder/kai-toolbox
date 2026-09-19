@@ -15,6 +15,7 @@ interface Props {
   advancedOptions?: CodexAdvancedOption[]
   disabled?: boolean
   optionsDisabled?: boolean
+  modelDisabled?: boolean
   engineLabel?: string
   showSpeed?: boolean
   modelsRefreshing?: boolean
@@ -84,6 +85,7 @@ export function CodexSessionOptions({
   advancedOptions = [],
   disabled,
   optionsDisabled,
+  modelDisabled,
   engineLabel = 'Codex',
   showSpeed = true,
   modelsRefreshing = false,
@@ -173,7 +175,7 @@ export function CodexSessionOptions({
             {activeSection === null ? (
               <>
                 <div className="px-2 pb-1.5 pt-1 text-xs font-medium text-[var(--color-muted-foreground)]">{engineLabel} 配置 · 下轮生效</div>
-                <ConfigRow label="模型" value={modelDisplayLabel} disabled={optionsDisabled} onClick={() => setActiveSection('model')} />
+                <ConfigRow label="模型" value={modelDisplayLabel} disabled={optionsDisabled || modelDisabled} onClick={() => setActiveSection('model')} />
                 <ConfigRow label="推理强度" value={effortValueLabel} icon={<Gauge className="size-4" />} disabled={optionsDisabled} onClick={() => setActiveSection('effort')} />
                 {showSpeed && <ConfigRow label="速度" value={speedLabel} icon={<Zap className="size-4" />} disabled={optionsDisabled} onClick={() => setActiveSection('speed')} />}
                 {(showCodexHome || advancedOptions.length > 0) && (
