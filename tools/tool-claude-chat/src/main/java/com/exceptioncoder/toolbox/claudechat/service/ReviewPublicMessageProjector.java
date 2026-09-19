@@ -44,6 +44,7 @@ public final class ReviewPublicMessageProjector {
                     "unknown", 0L, List.of(), List.of(), null, null, null, "server");
         }
         if (message instanceof ServerMessage.AssistantDelta
+                || message instanceof ServerMessage.AssistantSnapshot
                 || message instanceof ServerMessage.InterruptState) {
             return message;
         }

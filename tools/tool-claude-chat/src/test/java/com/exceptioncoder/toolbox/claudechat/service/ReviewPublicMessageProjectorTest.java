@@ -42,6 +42,7 @@ class ReviewPublicMessageProjectorTest {
     @Test
     void realtimeDropsTechnicalEventsAndSanitizesLifecycleEvents() {
         ServerMessage tool = new ServerMessage.ToolUse(2L, "call-1", "Read", Map.of("path", "secret"));
+        ServerMessage snapshot = new ServerMessage.AssistantSnapshot(5L, "完整回复");
         ServerMessage result = new ServerMessage.Result(3L, Map.of("output_tokens", 42), "success", "trace-1");
         ServerMessage error = new ServerMessage.Error(4L, "INTERNAL", "C:/secret failed", true);
         ServerMessage.Ready ready = new ServerMessage.Ready(1L, "review-1", "sdk-secret", List.of("/model"),
@@ -58,6 +59,7 @@ class ReviewPublicMessageProjectorTest {
                 List.of(), "gpt-secret", "high", "fast", "server");
 
         assertThat(ReviewPublicMessageProjector.projectRealtime(tool)).isNull();
+        assertThat(ReviewPublicMessageProjector.projectRealtime(snapshot)).isSameAs(snapshot);
         ServerMessage.Result publicResult = (ServerMessage.Result)
                 ReviewPublicMessageProjector.projectRealtime(result);
         assertThat(publicResult.usage()).isEmpty();

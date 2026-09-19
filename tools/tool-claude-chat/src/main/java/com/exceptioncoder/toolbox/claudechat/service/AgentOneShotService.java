@@ -222,6 +222,10 @@ public class AgentOneShotService implements AgentOneShotRunner {
                     }
                 }
             }
+            case "assistantSnapshot" -> {
+                call.text.setLength(0);
+                call.text.append(node.path("text").asText(""));
+            }
             case "result" -> call.future.complete(new ObservedResult(
                     call.text.toString(), node.path("traceId").asText(null),
                     node.get("evidence"), node.get("trajectory"), requestId));

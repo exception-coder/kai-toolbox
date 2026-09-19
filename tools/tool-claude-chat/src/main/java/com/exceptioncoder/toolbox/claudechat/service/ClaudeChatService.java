@@ -111,7 +111,7 @@ public class ClaudeChatService {
     /** 连续这么多次连不上，才判定端口上是僵尸监听者并强制重建 sidecar */
     private static final int SIDECAR_RESTART_AFTER_ATTEMPTS = 3;
     private static final Set<String> TURN_SCOPED_SIDECAR_EVENTS = Set.of(
-            "assistantDelta", "toolUse", "toolResult", "permissionRequest", "questionRequest",
+            "assistantDelta", "assistantSnapshot", "toolUse", "toolResult", "permissionRequest", "questionRequest",
             "userMessage", "forkAnchor", "turnInfo", "turnProgress", "warning",
             "toolActivity", "turnActivity", "codexActivity", "engineEvent", "result", "error");
     private static final Set<String> SUCCESSFUL_TURN_STOP_REASONS =
@@ -1434,6 +1434,15 @@ public class ClaudeChatService {
                 ActiveReviewReply reviewReply = activeReviewReplies.get(ctx.sessionId);
                 if (reviewReply != null) reviewReply.text().append(delta);
                 sendToBrowser(ctx, seq -> new ServerMessage.AssistantDelta(seq, delta));
+            }
+            case "assistantSnapshot" -> {
+                String text = node.path("text").asText("");
+                ActiveReviewReply reviewReply = activeReviewReplies.get(ctx.sessionId);
+                if (reviewReply != null) {
+                    reviewReply.text().setLength(0);
+                    reviewReply.text().append(text);
+                }
+                sendToBrowser(ctx, seq -> new ServerMessage.AssistantSnapshot(seq, text));
             }
             case "toolUse" -> sendToBrowser(ctx, seq -> new ServerMessage.ToolUse(
                     seq, node.path("toolCallId").asText(null),

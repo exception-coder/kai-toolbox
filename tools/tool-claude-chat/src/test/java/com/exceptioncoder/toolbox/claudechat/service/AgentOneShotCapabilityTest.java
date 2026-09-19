@@ -65,6 +65,25 @@ class AgentOneShotCapabilityTest {
     }
 
     @Test
+    void terminalSnapshotCorrectsOneShotFinalText() {
+        try (var context = context()) {
+            doAnswer(invocation -> {
+                String id = invocation.getArgument(0);
+                var service = context.getBean(AgentOneShotService.class);
+                service.handle(id, JsonNodeFactory.instance.objectNode()
+                        .put("type", "assistantDelta").put("text", "避免跨项目污���"));
+                service.handle(id, JsonNodeFactory.instance.objectNode()
+                        .put("type", "assistantSnapshot").put("text", "避免跨项目污染"));
+                service.handle(id, JsonNodeFactory.instance.objectNode().put("type", "result"));
+                return null;
+            }).when(sidecar).oneShot(anyString(), any(ExecutionRequest.class), eq("claude"), isNull(), any(), any());
+
+            assertThat(context.getBean(AgentOneShotRunner.class).runText("Content"))
+                    .isEqualTo("避免跨项目污染");
+        }
+    }
+
+    @Test
     void invalidRequestsFailBeforeStartingRuntime() {
         try (var context = context()) {
             var runner = context.getBean(AgentOneShotRunner.class);
@@ -98,6 +117,7 @@ class AgentOneShotCapabilityTest {
         var context = new AnnotationConfigApplicationContext();
         context.registerBean(SidecarProcessRegistry.class, () -> processes);
         context.registerBean(SidecarClient.class, () -> sidecar);
+        context.registerBean(ProjectSessionAccess.class, () -> mock(ProjectSessionAccess.class));
         context.registerBean(ClaudeChatProperties.class);
         context.registerBean(AgentTelemetry.class, () -> AgentTelemetry.noop(256));
         context.registerBean(AgentWorkAdmissionGate.class);

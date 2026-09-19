@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { appendSqlDdlFallbackRule } from './pendingSqlPolicy.js'
 import { prependWindowsExecutionInstructions } from './windowsExecution.js'
@@ -9,6 +9,9 @@ import { resolveAntigravityExecutable } from './antigravityRuntime.js'
 const MAX_STDOUT_BUFFER = 2 * 1024 * 1024
 const TURN_TIMEOUT_MS = 15 * 60 * 1_000 + 5_000
 const IDLE_TIMEOUT_MS = 2 * 60 * 1_000
+const TRANSCRIPT_RELATIVE = join('.system_generated', 'logs', 'transcript.jsonl')
+const TRANSCRIPT_CLOCK_TOLERANCE_MS = 2_000
+const TRANSCRIPT_RETRY_DELAYS_MS = [0, 60, 180] as const
 
 export interface AntigravityTurnCtx {
   text: string
@@ -27,6 +30,62 @@ export interface AntigravityTurnCtx {
 export interface ParsedAntigravityLine {
   sessionId?: string
   events: Array<Record<string, unknown>>
+}
+
+export function readLatestAntigravityResponse(
+  conversationId: string | undefined,
+  turnStartedAt: number,
+  antigravityRoot = join(process.env.USERPROFILE || process.env.HOME || '', '.gemini', 'antigravity-cli'),
+): string | undefined {
+  if (!conversationId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId)) return undefined
+  const transcript = join(antigravityRoot, 'brain', conversationId, TRANSCRIPT_RELATIVE)
+  try {
+    if (statSync(transcript).mtimeMs + TRANSCRIPT_CLOCK_TOLERANCE_MS < turnStartedAt) return undefined
+    const lines = readFileSync(transcript, 'utf8').split(/\r?\n/)
+    for (let index = lines.length - 1; index >= 0; index--) {
+      const line = lines[index]?.trim()
+      if (!line) continue
+      try {
+        const event = JSON.parse(line) as Record<string, unknown>
+        if (event.source === 'MODEL' && event.type === 'PLANNER_RESPONSE'
+          && typeof event.content === 'string' && event.content.trim()) {
+          const createdAt = typeof event.created_at === 'string' ? Date.parse(event.created_at) : Number.NaN
+          if (Number.isFinite(createdAt) && createdAt + TRANSCRIPT_CLOCK_TOLERANCE_MS < turnStartedAt) continue
+          return event.content
+        }
+      } catch { /* A concurrently appended partial JSONL line is retried after process close. */ }
+    }
+  } catch { return undefined }
+  return undefined
+}
+
+export function reconcileAntigravityReply(
+  streamedText: string,
+  authoritativeText: string | undefined,
+): Array<Record<string, unknown>> {
+  if (authoritativeText && authoritativeText !== streamedText) {
+    return [{ type: 'assistantSnapshot', text: authoritativeText }]
+  }
+  if (!authoritativeText && streamedText.includes('\uFFFD')) {
+    return [{
+      type: 'warning',
+      code: 'ANTIGRAVITY_TEXT_INTEGRITY_UNVERIFIED',
+      message: 'Antigravity 实时输出包含损坏字符，但当前 transcript 尚不可用；请重新进入会话以读取原始记录。',
+    }]
+  }
+  return []
+}
+
+async function readAntigravityResponseAfterClose(
+  conversationId: string | undefined,
+  turnStartedAt: number,
+): Promise<string | undefined> {
+  for (const delay of TRANSCRIPT_RETRY_DELAYS_MS) {
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay))
+    const response = readLatestAntigravityResponse(conversationId, turnStartedAt)
+    if (response) return response
+  }
+  return undefined
 }
 
 function pickString(...values: unknown[]): string | undefined {
@@ -253,6 +312,7 @@ function readAndRemoveTurnLog(path: string | undefined): string {
 }
 
 export async function runAntigravityTurn(ctx: AntigravityTurnCtx): Promise<void> {
+  const turnStartedAt = Date.now()
   const cwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const executable = resolveAntigravityExecutable()
   const args = buildAntigravityArgs(ctx)
@@ -270,6 +330,7 @@ export async function runAntigravityTurn(ctx: AntigravityTurnCtx): Promise<void>
     let stdoutBuffer = ''
     let stderr = ''
     let sawText = false
+    let assistantText = ''
     let pendingResult: Record<string, unknown> | undefined
     let pendingError: Record<string, unknown> | undefined
     let reportedSessionId = ctx.sdkSessionId
@@ -307,6 +368,7 @@ export async function runAntigravityTurn(ctx: AntigravityTurnCtx): Promise<void>
           if (event.type === 'assistantDelta') {
             if (event.finalFallback && sawText) continue
             sawText = true
+            assistantText += typeof event.text === 'string' ? event.text : ''
           }
           if (event.type === 'result') {
             pendingResult = event
@@ -359,17 +421,24 @@ export async function runAntigravityTurn(ctx: AntigravityTurnCtx): Promise<void>
       processLine(stdoutBuffer)
       const logText = readAndRemoveTurnLog(turnLogPath)
       const diagnostic = `${stderr}\n${logText}`
-      ctx.emit(resolveAntigravityTerminal({
-        aborted: ctx.signal.aborted,
-        timedOut,
-        idleTimedOut,
-        exitCode: code,
-        sawText,
-        pendingResult,
-        pendingError,
-        diagnostic,
-      }))
-      resolve()
+      const canReconcile = !ctx.signal.aborted && !timedOut && !pendingError && code === 0 && sawText
+      const authoritativePromise = canReconcile
+        ? readAntigravityResponseAfterClose(reportedSessionId, turnStartedAt)
+        : Promise.resolve(undefined)
+      void authoritativePromise.then(authoritativeText => {
+        for (const event of reconcileAntigravityReply(assistantText, authoritativeText)) ctx.emit(event)
+        ctx.emit(resolveAntigravityTerminal({
+          aborted: ctx.signal.aborted,
+          timedOut,
+          idleTimedOut,
+          exitCode: code,
+          sawText,
+          pendingResult,
+          pendingError,
+          diagnostic,
+        }))
+        resolve()
+      })
     })
   })
 }

@@ -4,9 +4,14 @@ import {
   buildAntigravityArgs,
   explainAntigravityFailure,
   parseAntigravityLine,
+  readLatestAntigravityResponse,
+  reconcileAntigravityReply,
   resolveAntigravityTerminal,
   summarizeAntigravityError,
 } from './antigravityEngine.js'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 test('args use an explicit conversation and never global continue', () => {
   const args = buildAntigravityArgs({
@@ -180,4 +185,35 @@ test('successful but empty result fails closed instead of pretending completion'
   })
   assert.equal(terminal.code, 'ANTIGRAVITY_EMPTY_RESPONSE')
   assert.match(String(terminal.message), /生成或工具调用阶段提前结束.*原会话上下文已保留/)
+})
+
+test('terminal transcript snapshot repairs damaged Chinese streaming text', () => {
+  assert.deepEqual(reconcileAntigravityReply('避免跨项目污���', '避免跨项目污染'), [
+    { type: 'assistantSnapshot', text: '避免跨项目污染' },
+  ])
+  assert.deepEqual(reconcileAntigravityReply('支持独立目录切换', '支持独立目录切换'), [])
+})
+
+test('damaged streaming text remains observable when transcript is unavailable', () => {
+  const events = reconcileAntigravityReply('支持独立目录切���', undefined)
+  assert.equal(events[0]?.type, 'warning')
+  assert.equal(events[0]?.code, 'ANTIGRAVITY_TEXT_INTEGRITY_UNVERIFIED')
+})
+
+test('transcript reader accepts only current UUID-scoped UTF-8 planner responses', () => {
+  const root = mkdtempSync(join(tmpdir(), 'antigravity-transcript-'))
+  const conversationId = '33ca067c-a135-40e5-860d-0df70e880098'
+  const transcript = join(root, 'brain', conversationId, '.system_generated', 'logs', 'transcript.jsonl')
+  mkdirSync(join(transcript, '..'), { recursive: true })
+  writeFileSync(transcript, [
+    JSON.stringify({ source: 'USER_EXPLICIT', type: 'USER_INPUT', content: '你好' }),
+    JSON.stringify({ source: 'MODEL', type: 'PLANNER_RESPONSE', created_at: new Date().toISOString(), content: '避免跨项目污染；支持独立目录切换' }),
+  ].join('\n'), 'utf8')
+
+  assert.equal(
+    readLatestAntigravityResponse(conversationId, Date.now() - 1_000, root),
+    '避免跨项目污染；支持独立目录切换',
+  )
+  assert.equal(readLatestAntigravityResponse('../outside', 0, root), undefined)
+  assert.equal(readLatestAntigravityResponse(conversationId, Date.now() + 10_000, root), undefined)
 })

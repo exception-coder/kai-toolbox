@@ -783,6 +783,7 @@ export type ServerMessage =
   | import('./lib/nativeVoice').VoiceEvent
   | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; skillDetails?: SkillCapability[]; plugins?: PluginCapability[]; agents?: string[]; mcpServers?: McpCapability[]; outputStyle?: string | null; capabilitySource?: CapabilitySnapshotSource; capabilityRefreshedAt?: number; capabilityErrors?: string[]; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; queueDispatchMode?: 'server' }
   | { type: 'assistantDelta'; seq: number; text: string }
+  | { type: 'assistantSnapshot'; seq: number; text: string }
   | { type: 'toolUse'; seq: number; toolCallId?: string | null; toolName: string; input: unknown }
   | { type: 'toolResult'; seq: number; toolCallId?: string | null; toolName: string; output: string; isError: boolean }
   | { type: 'permissionRequest'; seq: number; reqId: string; toolName: string; input: unknown }

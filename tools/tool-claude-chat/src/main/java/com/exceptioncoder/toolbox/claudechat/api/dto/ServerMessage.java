@@ -12,7 +12,7 @@ import java.util.Map;
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type", include = JsonTypeInfo.As.PROPERTY)
 public sealed interface ServerMessage
-        permits ServerMessage.Ready, ServerMessage.AssistantDelta, ServerMessage.ToolUse,
+        permits ServerMessage.Ready, ServerMessage.AssistantDelta, ServerMessage.AssistantSnapshot, ServerMessage.ToolUse,
                 ServerMessage.ToolResult, ServerMessage.PermissionRequest,
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
                 ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.ForkAnchor, ServerMessage.Forked,
@@ -70,6 +70,10 @@ public sealed interface ServerMessage
 
     @JsonTypeName("assistantDelta")
     record AssistantDelta(long seq, String text) implements ServerMessage {}
+
+    /** 当前轮 assistant 回复的完整权威快照；客户端以 replace 语义收敛流式草稿。 */
+    @JsonTypeName("assistantSnapshot")
+    record AssistantSnapshot(long seq, String text) implements ServerMessage {}
 
     @JsonTypeName("toolUse")
     record ToolUse(long seq, String toolCallId, String toolName, Object input) implements ServerMessage {}

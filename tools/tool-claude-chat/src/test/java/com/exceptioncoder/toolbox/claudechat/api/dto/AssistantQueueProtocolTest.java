@@ -33,6 +33,16 @@ class AssistantQueueProtocolTest {
     }
 
     @Test
+    void shouldSerializeAssistantSnapshotWithOrderedSequence() throws Exception {
+        String json = objectMapper.writeValueAsString(
+                new ServerMessage.AssistantSnapshot(13L, "避免跨项目污染"));
+
+        assertThat(json).contains("\"type\":\"assistantSnapshot\"");
+        assertThat(json).contains("\"seq\":13");
+        assertThat(json).contains("\"text\":\"避免跨项目污染\"");
+    }
+
+    @Test
     void shouldDeserializeAssistantDraftCommand() throws Exception {
         ClientMessage message = objectMapper.readValue("""
                 {"type":"assistantDraftCreate","requestId":"request-1","sessionId":"session-1",

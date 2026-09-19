@@ -22,6 +22,7 @@ import {
   type TurnRunningState,
 } from '../lib/turnRunningState'
 import { shouldReconnectSocket } from '../lib/socketReconnectPolicy'
+import { applyAssistantSnapshot } from '../lib/assistantSnapshot'
 
 // 按 sessionId 持久化权限模式，使刷新/放大缩小/重连后该会话仍保持上次选择，而非回退 default。
 const VALID_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
@@ -598,6 +599,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           }
           return [...prev, { kind: 'assistant', id: nextId(), text: msg.text, ts: Date.now() }]
         })
+        break
+      case 'assistantSnapshot':
+        if (!applyTurnRunningSignal('runtimeEvidence')) break
+        setItems(prev => applyAssistantSnapshot(prev, msg.text))
         break
       case 'toolUse':
         if (!applyTurnRunningSignal('runtimeEvidence')) break
