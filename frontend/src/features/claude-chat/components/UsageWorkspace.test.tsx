@@ -26,7 +26,10 @@ describe('UsageWorkspace', () => {
     expect(screen.getByRole('region', { name: '会话用量' })).toBeInTheDocument()
     expect(screen.getByText('本会话用量')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '关闭' })).not.toBeInTheDocument()
-    expect(await screen.findByText('Token 来自本机各 CLI 会话日志（只读），为实际消耗，缓存命中部分计费约 1/10。官方额度：Claude 调 /usage 端点，Codex 取本地 rollout。')).toBeInTheDocument()
+    expect(screen.getByText('总吞吐')).toBeInTheDocument()
+    expect(screen.getByText('成本参照上限')).toBeInTheDocument()
+    expect(await screen.findByText('尚无本地汇总数据')).toBeInTheDocument()
+    expect(screen.getByText('统计口径')).toBeInTheDocument()
   })
 
   it('保留兼容弹层的关闭能力', () => {
