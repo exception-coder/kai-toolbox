@@ -310,6 +310,11 @@ export function saveProjectAlias(projectPath: string, alias: string) {
   return saveSystemProjectAlias(projectPath, alias)
 }
 
+/** Lists the locally available Codex authorization directories. */
+export function fetchCodexHomes() {
+  return http<string[]>('/claude-chat/codex/homes')
+}
+
 /** 查询主项目长期依赖及其源码、集中式业务知识可用状态。 */
 export function listProjectDependencies(primaryPath: string) {
   const params = new URLSearchParams({ primaryPath })

@@ -97,6 +97,7 @@ export function CodexSessionOptions({
   const [open, setOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [pendingCodexHome, setPendingCodexHome] = useState<string | null>(null)
   const selectedModel = models.find(item => item.value === model)
   const defaultModel = models.find(item => item.isDefault)
   const modelAuthMismatch = Boolean(model && models.length > 0 && !selectedModel)
@@ -125,6 +126,7 @@ export function CodexSessionOptions({
   const close = () => {
     setOpen(false)
     setActiveSection(null)
+    setPendingCodexHome(null)
   }
 
   const pickModel = (value: string) => {
@@ -143,7 +145,16 @@ export function CodexSessionOptions({
   }
 
   const pickCodexHome = (value: string) => {
-    onCodexHomeChange?.(value)
+    if (value === codexHome) {
+      close()
+      return
+    }
+    setPendingCodexHome(value)
+  }
+
+  const confirmCodexHome = () => {
+    if (!pendingCodexHome) return
+    onCodexHomeChange?.(pendingCodexHome)
     close()
   }
 
@@ -296,8 +307,29 @@ export function CodexSessionOptions({
                       onClick={() => pickSpeed(item.value)}
                     />
                   ))}
-                  {activeSection === 'codexHome' && codexHomes.map(path => (
-                    <OptionRow key={path} label={path} selected={path === codexHome} onClick={() => pickCodexHome(path)} />
+                  {activeSection === 'codexHome' && (pendingCodexHome ? (
+                    <div className="px-3 py-2">
+                      <p className="text-sm font-medium">使用另一授权目录继续</p>
+                      <p className="mt-2 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
+                        Codex thread 与 Auth 目录绑定。系统会保留当前会话，并用相同工作目录和运行配置创建一个新会话。
+                      </p>
+                      <p className="mt-2 break-all border-l-2 border-[var(--color-primary)] pl-2 text-xs">{pendingCodexHome}</p>
+                      <div className="mt-3 flex justify-end gap-2">
+                        <button type="button" onClick={() => setPendingCodexHome(null)} className="rounded-md px-2.5 py-1.5 text-xs hover:bg-[var(--color-accent)]">
+                          返回
+                        </button>
+                        <button type="button" onClick={confirmCodexHome} className="rounded-md bg-[var(--color-primary)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)]">
+                          创建并切换
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="px-3 pb-2 text-xs leading-relaxed text-[var(--color-muted-foreground)]">选择后将创建新会话；当前会话保持不变。</p>
+                      {codexHomes.map(path => (
+                        <OptionRow key={path} label={path} selected={path === codexHome} onClick={() => pickCodexHome(path)} />
+                      ))}
+                    </>
                   ))}
                   {activeAdvancedOption?.options.map(item => (
                     <OptionRow

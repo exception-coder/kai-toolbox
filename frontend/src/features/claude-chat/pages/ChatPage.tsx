@@ -57,7 +57,7 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
@@ -834,6 +834,13 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     if (next.length === 0) setViewMode('single')
   }, [multiIds, sessions, sessionsLoaded])
   const currentSession = sessions.find(s => s.id === chat?.sessionId && isVibeCodingSession(s))
+  const codexHomesQuery = useQuery({
+    queryKey: ['claude-chat-codex-homes'],
+    queryFn: fetchCodexHomes,
+    enabled: currentSession?.engine === 'codex' && currentSession.providerKind !== 'thirdParty',
+    staleTime: 30_000,
+    retry: 1,
+  })
   const reviewOnlySession = currentSession?.group === '评审会话'
   const { data: reviewRelations, refetch: refetchReviewRelations } = useQuery({
     queryKey: ['claude-chat-review-relations', chat?.sessionId],
@@ -2354,7 +2361,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     reasoningEffort={chat.codexReasoningEffort}
                     speed={chat.codexSpeed}
                     codexHome={currentSession?.codexHome}
-                    showCodexHome={Boolean(currentSession && currentSession.providerKind !== 'thirdParty')}
+                    codexHomes={codexHomesQuery.data}
+                    codexHomesLoading={codexHomesQuery.isPending}
+                    showCodexHome={Boolean(currentSession?.engine === 'codex' && currentSession.providerKind !== 'thirdParty')}
                     disabled={planLocked}
                     optionsDisabled={planLocked}
                     engineLabel={chat.currentEngine === 'antigravity' ? 'Antigravity' : 'Codex'}
@@ -2362,6 +2371,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     modelsRefreshing={chat.modelsRefreshing}
                     onModelChange={chat.setModel}
                     onOptionsChange={chat.setCodexOptions}
+                    onCodexHomeChange={currentSession?.engine === 'codex'
+                      ? codexHome => chat.duplicateSession(currentSession.id, codexHome)
+                      : undefined}
                     onRefreshModels={chat.refreshModels}
                   />
                 </div>

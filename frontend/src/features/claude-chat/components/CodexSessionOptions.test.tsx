@@ -77,4 +77,33 @@ describe('CodexSessionOptions model Auth mismatch', () => {
     expect(screen.getByRole('button', { name: /^模型 / })).toBeDisabled()
     expect(screen.getByRole('button', { name: /^推理强度 / })).toBeEnabled()
   })
+
+  it('confirms before creating a session on another Auth directory', () => {
+    const onCodexHomeChange = vi.fn()
+    render(
+      <CodexSessionOptions
+        models={models}
+        model="gpt-5.6-terra"
+        reasoningEffort="low"
+        speed="default"
+        codexHome="C:\\Users\\zhang\\.codex"
+        codexHomes={['C:\\Users\\zhang\\.codex', 'C:\\Users\\zhang\\.codex-team']}
+        showCodexHome
+        onModelChange={vi.fn()}
+        onOptionsChange={vi.fn()}
+        onCodexHomeChange={onCodexHomeChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /配置 Codex 模型/ }))
+    fireEvent.click(screen.getByRole('button', { name: '高级' }))
+    fireEvent.click(screen.getByRole('button', { name: /Auth 目录/ }))
+    fireEvent.click(screen.getByRole('button', { name: /codex-team/ }))
+
+    expect(onCodexHomeChange).not.toHaveBeenCalled()
+    expect(screen.getByText(/系统会保留当前会话/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '创建并切换' }))
+    expect(onCodexHomeChange).toHaveBeenCalledWith('C:\\Users\\zhang\\.codex-team')
+  })
 })
