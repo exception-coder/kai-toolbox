@@ -2381,7 +2381,12 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                       ? codexHome => chat.duplicateSession(
                           currentSession.id,
                           codexHome,
-                          buildCodexAuthHandoff(chat.items, currentSession.codexHome, codexHome),
+                          buildCodexAuthHandoff({
+                            items: chat.items,
+                            sourceHome: currentSession.codexHome,
+                            targetHome: codexHome,
+                            cwd: currentSession.cwd,
+                          }),
                         )
                       : undefined}
                     onRefreshModels={chat.refreshModels}

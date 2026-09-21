@@ -6,14 +6,16 @@ Codex 原生 thread 存储在其 `CODEX_HOME` 中。现有 `duplicateSession` �
 
 1. 不修改既有会话的 `codexHome`。切换通过现有复制会话协议完成，避免 thread、模型目录、插件和 MCP 能力跨账号混用。
 2. 目录发现仅扫描运行用户主目录的直属文件夹，并只返回名称以 `.codex` 开头的目录；不提供任意文件系统浏览。
-3. 选择目录后增加确认步骤，明确源会话保留、目标会话沿用工作目录与运行配置。当前页面已加载的用户/助手对话被限制长度后作为可见交接消息发送给新 thread；不声称迁移模型隐藏状态、工具结果或旧 thread 身份。
+3. 选择目录后增加确认步骤，明确源会话保留、目标会话沿用工作目录与运行配置。Forge 生成 `forge.codex-auth-handoff/v1` 结构包，并以新 thread 的显式首轮消息发送；不声称迁移模型隐藏状态、工具结果或旧 thread 身份。
 4. 授权目录查询失败时，使用历史会话中已经绑定过的 Auth 目录作为降级清单；没有任何已知目录时才禁用入口，且不影响当前会话继续工作。
+5. 交接采用“规格优先、证据分层、可降级”协议：先恢复仓库指令和 OpenSpec change/spec，再读取架构索引、领域快照/Graphify、源码、Git 与验证证据。浏览器只能证明当前已加载的可见会话，因此规格引用统一标记为 `PARTIAL_UNVERIFIED` 或 `UNKNOWN`，由目标 Auth 在同一工作目录重新核验 `missing / partial / stale / conflict`。
+6. 官方 App Server 的同存储 `thread/fork` 可复制历史，`thread/inject_items` 可向已加载 thread 注入模型可见项；跨 Auth 的存储和能力边界不同，本实现不伪造原生 fork，而使用可审计显式交接包。后续若改为后台注入，交接 schema 和核验语义保持不变。
 
 ## Risks / Trade-offs
 
-- 新会话不继承原生 thread 的隐藏状态；显式交接只覆盖当前页面已加载的用户/助手对话，界面在确认前说明边界，源会话仍可返回。
+- 新会话不继承原生 thread 的隐藏状态；结构化摘要仍只覆盖当前页面已加载的用户/助手对话，规格与工作区事实必须在目标会话重新读取，源会话仍可返回。
 - 只发现主目录直属 `.codex*` 目录；自定义路径仍可在新建会话时手工填写。
 
 ## Architecture Impact
 
-这是既有按会话 `codexHome` 和复制协议的 UI/API 补全，不改变 AI 编程架构的上下文分层、证据流、任务策略或生命周期，因此无需更新 `docs/ai-coding-architecture.md`。
+本变更把跨 Auth 交接正式纳入上下文分层与证据流，因此同步更新 `docs/ai-coding-architecture.md`；不改变 OpenSpec、Graphify、源码和运行证据各自的权威边界。

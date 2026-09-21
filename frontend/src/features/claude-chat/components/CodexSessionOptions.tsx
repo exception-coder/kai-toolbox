@@ -315,11 +315,13 @@ export function CodexSessionOptions({
                       </p>
                       <dl className="mt-3 grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1 text-xs leading-relaxed">
                         <dt className="text-[var(--color-muted-foreground)]">迁移</dt>
-                        <dd>当前已加载的用户/AI 对话</dd>
+                        <dd>规格优先的结构化交接包与有界可见对话</dd>
                         <dt className="text-[var(--color-muted-foreground)]">保持</dt>
                         <dd>工作目录与运行配置</dd>
                         <dt className="text-[var(--color-muted-foreground)]">重新加载</dt>
                         <dd>模型、插件、MCP 与账号权限</dd>
+                        <dt className="text-[var(--color-muted-foreground)]">目标核验</dt>
+                        <dd>规格完整度、Git 状态与测试证据</dd>
                       </dl>
                       <p className="mt-2 break-all border-l-2 border-[var(--color-primary)] pl-2 text-xs">{pendingCodexHome}</p>
                       <div className="mt-3 flex justify-end gap-2">

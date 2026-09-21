@@ -23,7 +23,9 @@ The system MUST NOT mutate the authorization directory of an existing Codex sess
 - **THEN** the system retains the source session
 - **AND** creates and opens a new session with the source work directory and runtime configuration
 - **AND** binds the new session to the selected authorization directory
-- **AND** sends the currently loaded user/assistant conversation as an explicit bounded context handoff
+- **AND** sends a versioned, explicit handoff package containing the bounded loaded user/assistant conversation
+- **AND** records specification references, completeness limits, evidence recovery order and target-side verification requirements
+- **AND** does not represent hidden model state, tool state or unverified specifications as transferred facts
 - **AND** reloads models, plugins, MCP servers and account permissions from the selected authorization directory
 
 #### Scenario: User cancels confirmation

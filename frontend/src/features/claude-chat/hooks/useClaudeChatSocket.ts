@@ -588,7 +588,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
         if (duplicateContextSeed) {
           setTimeout(() => {
-            sendRef.current?.(duplicateContextSeed!, undefined, '已迁移上一 Auth 会话的可见上下文')
+            sendRef.current?.(duplicateContextSeed!, undefined, '已注入上一 Auth 会话的结构化交接包')
           }, 300)
         }
         break
