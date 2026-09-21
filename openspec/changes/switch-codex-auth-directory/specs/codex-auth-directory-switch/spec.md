@@ -42,3 +42,17 @@ The system MUST NOT mutate the authorization directory of an existing Codex sess
 - **WHEN** the same logical session lineage targets the same authorization directory more than once
 - **THEN** at most one persistent session association exists for that pair
 - **AND** subsequent requests resolve to that session
+
+### Requirement: Recent sessions preserve workspace context
+
+The system SHALL project recent sessions into groups by normalized working directory without creating a second project identity.
+
+#### Scenario: Multiple recent sessions share a working directory
+- **WHEN** recent sessions are displayed
+- **THEN** sessions with the same normalized working directory appear under one workspace heading
+- **AND** workspace groups are ordered by their latest activity
+- **AND** sessions inside a group retain favorite-first and recent-first ordering
+
+#### Scenario: Working directory is unavailable
+- **WHEN** a historical session has no usable working directory
+- **THEN** it appears in an explicit fallback workspace group

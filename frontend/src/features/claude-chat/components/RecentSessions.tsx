@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Clock3, Link2, Loader2, LockKeyhole, Pencil, Star, Tags, Trash2, Unlock } from 'lucide-react'
+import { Check, Clock3, Folder, Link2, Loader2, LockKeyhole, Pencil, Star, Tags, Trash2, Unlock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionFavorite, setSessionGroupApi } from '../api'
 import { engineDisplayName } from './chatStatus'
@@ -26,6 +26,49 @@ interface Props {
 
 const SESSION_QUERY_KEY = ['claude-chat-sessions']
 
+export interface RecentWorkspaceGroup {
+  key: string
+  cwd: string
+  label: string
+  sessions: ClaudeChatSessionView[]
+  lastSeenAt: number
+}
+
+function workspaceIdentity(cwd: string): string {
+  const normalized = cwd.trim().replaceAll('\\', '/').replace(/\/+$/, '')
+  return /^[a-z]:\//i.test(normalized) ? normalized.toLocaleLowerCase() : normalized
+}
+
+function workspaceLabel(cwd: string): string {
+  const normalized = cwd.trim().replaceAll('\\', '/').replace(/\/+$/, '')
+  return normalized.split('/').filter(Boolean).at(-1) || '未识别工作区'
+}
+
+export function groupRecentSessionsByWorkspace(sessions: ClaudeChatSessionView[]): RecentWorkspaceGroup[] {
+  const groups = new Map<string, RecentWorkspaceGroup>()
+  for (const session of sessions) {
+    const cwd = session.cwd?.trim() || ''
+    const key = workspaceIdentity(cwd) || '__unknown_workspace__'
+    const group = groups.get(key) ?? {
+      key,
+      cwd,
+      label: workspaceLabel(cwd),
+      sessions: [],
+      lastSeenAt: 0,
+    }
+    group.sessions.push(session)
+    group.lastSeenAt = Math.max(group.lastSeenAt, session.lastSeenAt)
+    groups.set(key, group)
+  }
+  return [...groups.values()]
+    .map(group => ({
+      ...group,
+      sessions: [...group.sessions].sort((a, b) =>
+        Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || b.lastSeenAt - a.lastSeenAt),
+    }))
+    .sort((a, b) => b.lastSeenAt - a.lastSeenAt || a.label.localeCompare(b.label, 'zh-CN'))
+}
+
 /**
  * 最近会话快速入口：显示最近 N 条会话，风格与 SessionList 保持一致。
  * 视觉层级：Section 标题（一级）→ 会话行（二级）→ 时间元信息（三级）。
@@ -47,6 +90,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .slice(0, limit)
     .sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || b.lastSeenAt - a.lastSeenAt)
+  const workspaceGroups = useMemo(() => groupRecentSessionsByWorkspace(recent), [recent])
 
   // 同 SessionList：批量查一次这几条会话里哪些绑了 PRD，行首标个小图标，不用点开才知道。
   const recentIdsKey = useMemo(() => [...recent.map(s => s.id)].sort().join(','), [recent])
@@ -123,8 +167,19 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
 
       {recent.length === 0 ? (
         <p className="px-3 pb-2 text-xs text-[var(--color-muted-foreground)]">当前状态筛选下没有最近会话</p>
-      ) : <ul className="scrollbar-autohide max-h-[55vh] overflow-y-auto overscroll-contain">
-        {recent.map(session => {
+      ) : <div className="scrollbar-autohide max-h-[55vh] overflow-y-auto overscroll-contain">
+        {workspaceGroups.map(workspace => (
+          <section key={workspace.key} aria-label={`工作目录 ${workspace.cwd || '未识别'}`}>
+            <div
+              className="flex min-w-0 items-center gap-1.5 border-y border-[var(--color-border)]/40 bg-[var(--color-muted)]/25 px-3 py-1.5 text-[10px] text-[var(--color-muted-foreground)]"
+              title={workspace.cwd || '未记录工作目录'}
+            >
+              <Folder className="size-3 shrink-0 opacity-70" />
+              <span className="min-w-0 flex-1 truncate font-medium">{workspace.label}</span>
+              <span className="shrink-0 tabular-nums opacity-70">{workspace.sessions.length}</span>
+            </div>
+            <ul>
+        {workspace.sessions.map(session => {
           const isActive = session.id === currentSessionId
           const title = sessionDisplayName(session)
           const engineLabel = engineDisplayName(session.engine ?? 'claude', session.providerKind)
@@ -300,7 +355,10 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
             </li>
           )
         })}
-      </ul>}
+            </ul>
+          </section>
+        ))}
+      </div>}
     </section>
     {groupPickFor && (
       <SessionGroupPicker
