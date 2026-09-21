@@ -56,7 +56,7 @@ class ReviewPublicMessageProjectorTest {
                         List.of(new ServerMessage.CapabilityProvenance(
                                 "plugin", "auth-directory", "plugin-secret", true, "runtime")))),
                 List.of("agent"), List.of(), "style", "codex-app-server", 100L, List.of("secret error"),
-                List.of(), "gpt-secret", "high", "fast", "server");
+                List.of(), "gpt-secret", "high", "fast", "server", true);
 
         assertThat(ReviewPublicMessageProjector.projectRealtime(tool)).isNull();
         assertThat(ReviewPublicMessageProjector.projectRealtime(snapshot)).isSameAs(snapshot);

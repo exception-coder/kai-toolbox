@@ -39,7 +39,8 @@ public sealed interface ServerMessage
                  List<String> agents, List<McpServer> mcpServers, String outputStyle,
                  String capabilitySource, long capabilityRefreshedAt, List<String> capabilityErrors,
                  List<BackgroundTaskInfo> backgroundTasks, String selectedModel,
-                 String codexReasoningEffort, String codexSpeed, String queueDispatchMode) implements ServerMessage {}
+                 String codexReasoningEffort, String codexSpeed, String queueDispatchMode,
+                 Boolean authHandoffRequired) implements ServerMessage {}
 
     /** 会话激活的 MCP 服务；verified 只表示来源经过运行时核验，Tool 目录完整性单独标识。 */
     record McpServer(String name, String status, String runtimeStatus, String authStatus, String pluginId,

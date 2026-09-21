@@ -41,7 +41,7 @@ public final class ReviewPublicMessageProjector {
             return new ServerMessage.Ready(ready.seq(), ready.sessionId(), null, List.of(), ready.status(),
                     ready.activeTurnId(), ready.epoch(), null, null, null,
                     List.of(), List.of(), List.of(), List.of(), List.of(), null,
-                    "unknown", 0L, List.of(), List.of(), null, null, null, "server");
+                    "unknown", 0L, List.of(), List.of(), null, null, null, "server", null);
         }
         if (message instanceof ServerMessage.AssistantDelta
                 || message instanceof ServerMessage.AssistantSnapshot

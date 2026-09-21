@@ -439,6 +439,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         let duplicateContextSeed: string | null = null
         if (duplicateSourceRef.current && msg.sessionId !== duplicateSourceRef.current) {
           duplicateContextSeed = duplicateContextSeedRef.current
+          if (msg.authHandoffRequired === false) duplicateContextSeed = null
           duplicateSourceRef.current = null
           duplicateContextSeedRef.current = null
           if (duplicateTimeoutRef.current != null) {

@@ -12,6 +12,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.ReviewIntentAssessment;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatAttachmentRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.AuthSessionLinkRepository;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionAutopilotChangedEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionCapabilitiesObservedEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionManualInputEvent;
@@ -37,6 +38,7 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -66,6 +68,7 @@ public class ClaudeChatService {
 
     private final ClaudeChatProperties props;
     private final ClaudeChatSessionRepository repo;
+    private final AuthSessionLinkRepository authSessionLinks;
     private final SidecarProcessRegistry processRegistry;
     private final SidecarClient sidecar;
     private final SessionVoiceService voiceService;
@@ -102,6 +105,8 @@ public class ClaudeChatService {
     private final Map<String, AgentSpan> activeTurnSpans = new ConcurrentHashMap<>();
     /** sessionId -> metadata captured at dispatch; completion must use the same stable turn identity. */
     private final Map<String, AgentRunMetadata> activeTurnMetadata = new ConcurrentHashMap<>();
+    /** duplicateSession 的一次性解析结果；首个 Ready 消费后移除。 */
+    private final Map<String, Boolean> pendingAuthHandoff = new ConcurrentHashMap<>();
     /** 仅为评审轮次累计可见回复，供回复完成后的结构校验；不作为历史事实源。 */
     private final Map<String, ActiveReviewReply> activeReviewReplies = new ConcurrentHashMap<>();
     /** 后台 sidecar 重连任务的去重锁，避免多次断开叠起多个重连循环 */
@@ -121,6 +126,7 @@ public class ClaudeChatService {
 
     public ClaudeChatService(ClaudeChatProperties props,
                              ClaudeChatSessionRepository repo,
+                             AuthSessionLinkRepository authSessionLinks,
                              SidecarProcessRegistry processRegistry,
                              SidecarClient sidecar,
                              NotificationService notifications,
@@ -149,6 +155,7 @@ public class ClaudeChatService {
                              SessionVoiceService voiceService) {
         this.props = props;
         this.repo = repo;
+        this.authSessionLinks = authSessionLinks;
         this.processRegistry = processRegistry;
         this.sidecar = sidecar;
         this.voiceService = voiceService;
@@ -455,6 +462,15 @@ public class ClaudeChatService {
         String codexHome = "codex".equals(engine)
                 ? SessionExecutionPolicy.resolveCodexHome(engine, source.getApiBaseUrl(), msg.codexHome())
                 : source.getCodexHome();
+        String lineageId = authSessionLinks.ensureLineage(source.getId(), authKey(source.getCodexHome()), now);
+        Optional<String> reusableSessionId = authSessionLinks.findSession(lineageId, authKey(codexHome));
+        if (reusableSessionId.isPresent() && !reusableSessionId.get().equals(source.getId())) {
+            pendingAuthHandoff.put(reusableSessionId.get(), false);
+            log.info("[claude-chat] 复用 Auth 会话 source={} target={} auth={}",
+                    source.getId(), reusableSessionId.get(), codexHome);
+            switchSession(ws, new ClientMessage.SwitchSession(reusableSessionId.get()));
+            return;
+        }
         String title = duplicateTitle(source.getTitle());
         String reasoningEffort = normalizeCodexReasoningEffort(source.getCodexReasoningEffort());
         String speed = normalizeCodexSpeed(source.getCodexSpeed());
@@ -468,6 +484,17 @@ public class ClaudeChatService {
                 .consultEvidenceSystems(writeStringList(consultEvidenceSystems))
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
         repo.updateGroup(sessionId, source.getGroupName(), source.getSubgroupName());
+        if (!authSessionLinks.bind(sessionId, lineageId, authKey(codexHome), now)) {
+            String existing = authSessionLinks.findSession(lineageId, authKey(codexHome)).orElse(null);
+            repo.deleteById(sessionId);
+            if (existing != null) {
+                pendingAuthHandoff.put(existing, false);
+                switchSession(ws, new ClientMessage.SwitchSession(existing));
+                return;
+            }
+            sendError(ws, 0, "AUTH_SWITCH_FAILED", "授权目录会话关联失败，请重试");
+            return;
+        }
         sessionProjectDirectories.copy(sourceSessionId, sessionId);
 
         SessionCtx ctx = new SessionCtx(sessionId, source.getCwd());
@@ -483,6 +510,7 @@ public class ClaudeChatService {
         enforceReadonlyDefaults(ctx);
         sessions.put(sessionId, ctx);
         bindViewer(ws, ctx);
+        pendingAuthHandoff.put(sessionId, true);
 
         sidecar.startSession(sessionId, ctx.cwd, ctx.currentModel, ctx.mode, engine, ctx.apiBaseUrl, ctx.authToken,
                 ctx.codexHome, ctx.autoApprove, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
@@ -490,6 +518,16 @@ public class ClaudeChatService {
         pushGatewayModels(ctx);
         log.info("[claude-chat] 复制会话 source={} target={} engine={} cwd={}",
                 source.getId(), sessionId, engine, source.getCwd());
+    }
+
+    private static String authKey(String codexHome) {
+        String value = blankToNull(codexHome);
+        if (value == null) return "__default__";
+        try {
+            return Path.of(value).toAbsolutePath().normalize().toString().toLowerCase(Locale.ROOT);
+        } catch (RuntimeException ignored) {
+            return value.trim().toLowerCase(Locale.ROOT);
+        }
     }
 
     /** 续跑磁盘上的历史会话：建一条本工具的元数据行后 resume，之后它也出现在工具会话列表里。 */
@@ -1159,7 +1197,8 @@ public class ClaudeChatService {
                 ctx.epoch, ctx.engine, providerKind, providerBaseUrl,
                 ctx.skills, ctx.skillDetails, ctx.plugins, ctx.agents, ctx.mcpServers, ctx.outputStyle,
                 ctx.capabilitySource, ctx.capabilityRefreshedAt, ctx.capabilityErrors, ctx.backgroundTasks,
-                ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, "server");
+                ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, "server",
+                pendingAuthHandoff.remove(ctx.sessionId));
     }
 
     /** 从 SQLite 会话元数据恢复模型、推理强度和速度。 */

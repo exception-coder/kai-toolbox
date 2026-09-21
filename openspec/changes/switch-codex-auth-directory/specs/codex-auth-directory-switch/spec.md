@@ -32,3 +32,13 @@ The system MUST NOT mutate the authorization directory of an existing Codex sess
 - **WHEN** the user returns from the confirmation step
 - **THEN** no session is created
 - **AND** the current session remains selected
+
+#### Scenario: Target authorization already belongs to the session lineage
+- **WHEN** the user switches to an authorization directory already associated with the same logical session lineage
+- **THEN** the system restores the associated session instead of creating another session
+- **AND** does not generate or send another handoff package
+
+#### Scenario: Repeated or concurrent switch request
+- **WHEN** the same logical session lineage targets the same authorization directory more than once
+- **THEN** at most one persistent session association exists for that pair
+- **AND** subsequent requests resolve to that session

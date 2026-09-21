@@ -46,6 +46,19 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_session_seen
     ON claude_chat_session(last_seen_at DESC);
 
+-- Codex 跨 Auth 切换链路：同一逻辑会话在每个授权目录至多对应一个可恢复会话。
+CREATE TABLE IF NOT EXISTS claude_chat_auth_session_link (
+    session_id   TEXT PRIMARY KEY,
+    lineage_id   TEXT NOT NULL,
+    auth_key     TEXT NOT NULL,
+    created_at   INTEGER NOT NULL,
+    UNIQUE (lineage_id, auth_key),
+    FOREIGN KEY (session_id) REFERENCES claude_chat_session(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_auth_session_link_lineage
+    ON claude_chat_auth_session_link(lineage_id, auth_key);
+
 -- 开发会话派生的受限评审空间。摘要用于公开访问校验，密文仅供内部恢复原链接。
 CREATE TABLE IF NOT EXISTS claude_chat_review_space (
     id                  TEXT PRIMARY KEY,
