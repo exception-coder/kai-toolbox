@@ -313,6 +313,14 @@ export function CodexSessionOptions({
                       <p className="mt-2 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
                         Codex thread 与 Auth 目录绑定。系统会保留当前会话，并用相同工作目录和运行配置创建一个新会话。
                       </p>
+                      <dl className="mt-3 grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1 text-xs leading-relaxed">
+                        <dt className="text-[var(--color-muted-foreground)]">迁移</dt>
+                        <dd>当前已加载的用户/AI 对话</dd>
+                        <dt className="text-[var(--color-muted-foreground)]">保持</dt>
+                        <dd>工作目录与运行配置</dd>
+                        <dt className="text-[var(--color-muted-foreground)]">重新加载</dt>
+                        <dd>模型、插件、MCP 与账号权限</dd>
+                      </dl>
                       <p className="mt-2 break-all border-l-2 border-[var(--color-primary)] pl-2 text-xs">{pendingCodexHome}</p>
                       <div className="mt-3 flex justify-end gap-2">
                         <button type="button" onClick={() => setPendingCodexHome(null)} className="rounded-md px-2.5 py-1.5 text-xs hover:bg-[var(--color-accent)]">

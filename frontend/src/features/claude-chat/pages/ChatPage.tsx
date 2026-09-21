@@ -30,6 +30,7 @@ import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
 import { useDraftAttachments, type DraftAttachment } from '../lib/attachmentDraftPref'
 import { loadCodexHomePreference, saveCodexHomePreference } from '../lib/codexHomePref'
+import { buildCodexAuthHandoff } from '../lib/codexAuthHandoff'
 import { cn } from '@/lib/utils'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { setSkin, skinClass, useSkin } from '../lib/skinPref'
@@ -841,6 +842,11 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     staleTime: 30_000,
     retry: 1,
   })
+  const availableCodexHomes = useMemo(() => [...new Set([
+    ...(codexHomesQuery.data ?? []),
+    ...sessions.filter(session => session.engine === 'codex').map(session => session.codexHome?.trim() || ''),
+    newCodexHome.trim(),
+  ].filter(Boolean))], [codexHomesQuery.data, sessions, newCodexHome])
   const reviewOnlySession = currentSession?.group === '评审会话'
   const { data: reviewRelations, refetch: refetchReviewRelations } = useQuery({
     queryKey: ['claude-chat-review-relations', chat?.sessionId],
@@ -2361,8 +2367,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     reasoningEffort={chat.codexReasoningEffort}
                     speed={chat.codexSpeed}
                     codexHome={currentSession?.codexHome}
-                    codexHomes={codexHomesQuery.data}
-                    codexHomesLoading={codexHomesQuery.isPending}
+                    codexHomes={availableCodexHomes}
+                    codexHomesLoading={codexHomesQuery.isPending && availableCodexHomes.length === 0}
                     showCodexHome={Boolean(currentSession?.engine === 'codex' && currentSession.providerKind !== 'thirdParty')}
                     disabled={planLocked}
                     optionsDisabled={planLocked}
@@ -2372,7 +2378,11 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     onModelChange={chat.setModel}
                     onOptionsChange={chat.setCodexOptions}
                     onCodexHomeChange={currentSession?.engine === 'codex'
-                      ? codexHome => chat.duplicateSession(currentSession.id, codexHome)
+                      ? codexHome => chat.duplicateSession(
+                          currentSession.id,
+                          codexHome,
+                          buildCodexAuthHandoff(chat.items, currentSession.codexHome, codexHome),
+                        )
                       : undefined}
                     onRefreshModels={chat.refreshModels}
                   />

@@ -125,7 +125,7 @@ type Intent =
       consultEvidenceSystems?: string[]
     }
   | { kind: 'switch'; sessionId: string }
-  | { kind: 'duplicate'; sourceSessionId: string; codexHome?: string }
+  | { kind: 'duplicate'; sourceSessionId: string; codexHome?: string; contextSeed?: string }
   | { kind: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { kind: 'resumeCurrent'; sessionId: string }
   | { kind: 'attach'; sessionId: string; lastEventSeq: number }
@@ -219,7 +219,7 @@ export interface UseClaudeChatSocket {
   cleanRetry: () => void
   /** 切到工具内会话（resume 续跑） */
   switchTo: (sessionId: string, hintRunning?: boolean) => void
-  duplicateSession: (sourceSessionId: string, codexHome?: string) => void
+  duplicateSession: (sourceSessionId: string, codexHome?: string, contextSeed?: string) => void
   duplicatingSessionId: string | null
   /** 续跑磁盘上的历史会话 */
   resumeHistory: (sdkSessionId: string, cwd: string) => void
@@ -320,6 +320,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const ttftRef = useRef<number | null>(null)
   const intentRef = useRef<Intent | null>(null)
   const duplicateSourceRef = useRef<string | null>(null)
+  const duplicateContextSeedRef = useRef<string | null>(null)
   const duplicateTimeoutRef = useRef<number | null>(null)
   const [duplicatingSessionId, setDuplicatingSessionId] = useState<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
@@ -435,8 +436,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     switch (msg.type) {
       case 'ready':
+        let duplicateContextSeed: string | null = null
         if (duplicateSourceRef.current && msg.sessionId !== duplicateSourceRef.current) {
+          duplicateContextSeed = duplicateContextSeedRef.current
           duplicateSourceRef.current = null
+          duplicateContextSeedRef.current = null
           if (duplicateTimeoutRef.current != null) {
             window.clearTimeout(duplicateTimeoutRef.current)
             duplicateTimeoutRef.current = null
@@ -581,6 +585,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
             pendingResendRef.current = null
             setTimeout(() => { sendRef.current?.(pending.text) }, 300)
           }
+        }
+        if (duplicateContextSeed) {
+          setTimeout(() => {
+            sendRef.current?.(duplicateContextSeed!, undefined, '已迁移上一 Auth 会话的可见上下文')
+          }, 300)
         }
         break
       case 'assistantDelta':
@@ -918,6 +927,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
         if (duplicateSourceRef.current) {
           duplicateSourceRef.current = null
+          duplicateContextSeedRef.current = null
           if (duplicateTimeoutRef.current != null) {
             window.clearTimeout(duplicateTimeoutRef.current)
             duplicateTimeoutRef.current = null
@@ -1270,6 +1280,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const resetForNewSession = () => {
     sessionReadyRef.current = false
     duplicateSourceRef.current = null
+    duplicateContextSeedRef.current = null
     if (duplicateTimeoutRef.current != null) {
       window.clearTimeout(duplicateTimeoutRef.current)
       duplicateTimeoutRef.current = null
@@ -1370,16 +1381,18 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (!sendRaw({ type: 'switchSession', sessionId: sid })) connect()
   }, [channel, sendRaw, connect])
 
-  const duplicateSession = useCallback((sourceSessionId: string, codexHome?: string) => {
+  const duplicateSession = useCallback((sourceSessionId: string, codexHome?: string, contextSeed?: string) => {
     if (duplicateSourceRef.current) return
     duplicateSourceRef.current = sourceSessionId
+    duplicateContextSeedRef.current = contextSeed?.trim() || null
     setDuplicatingSessionId(sourceSessionId)
     setErrorMessage(null)
-    intentRef.current = { kind: 'duplicate', sourceSessionId, codexHome }
+    intentRef.current = { kind: 'duplicate', sourceSessionId, codexHome, contextSeed }
     if (!sendRaw({ type: 'duplicateSession', sourceSessionId, codexHome })) connect()
     duplicateTimeoutRef.current = window.setTimeout(() => {
       if (duplicateSourceRef.current !== sourceSessionId) return
       duplicateSourceRef.current = null
+      duplicateContextSeedRef.current = null
       duplicateTimeoutRef.current = null
       setDuplicatingSessionId(null)
       intentRef.current = sessionIdRef.current

@@ -12,7 +12,7 @@ The system SHALL list direct child directories of the runtime user's home whose 
 #### Scenario: Discovery is unavailable
 - **WHEN** authorization directories cannot be loaded
 - **THEN** the current session remains usable
-- **AND** the directory switching control is unavailable
+- **AND** the interface falls back to authorization directories already bound to known sessions
 
 ### Requirement: Authorization switching preserves identity boundaries
 
@@ -23,6 +23,8 @@ The system MUST NOT mutate the authorization directory of an existing Codex sess
 - **THEN** the system retains the source session
 - **AND** creates and opens a new session with the source work directory and runtime configuration
 - **AND** binds the new session to the selected authorization directory
+- **AND** sends the currently loaded user/assistant conversation as an explicit bounded context handoff
+- **AND** reloads models, plugins, MCP servers and account permissions from the selected authorization directory
 
 #### Scenario: User cancels confirmation
 - **WHEN** the user returns from the confirmation step
