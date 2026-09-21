@@ -24,6 +24,49 @@
 
 这是 Agent 的交付约定；当前没有新增能够自动证明文档语义同步的 CI 检查器。
 
+## 四层工程职责与维护入口
+
+Constitution 管 Agent 如何思考；Skill 管任务如何操作；Forge 管上下文候选、状态、策略和确定性约束；Hook/MCP 连接具体宿主。全局认知原则保持简短，仓库入口仍保留项目命令和约束。Agent 提交语义判断与证据，Forge 不把结构检查当成业务理解或人工批准。
+
+| 层 | 维护内容 | 不承担的内容 |
+|---|---|---|
+| Constitution | 足够上下文、事实与推断、最小范围、停止探索 | 项目构建命令、OpenSpec 编排、分支与 SQL 策略 |
+| Skills | 调查、定位、设计写作、实施和验证方法 | Forge 状态文件、重复策略求值、任务分配器 |
+| Forge execution | 会话投影、候选上下文、写入权、分支和验证策略、生命周期决策 | 自动证明控制点正确或业务语义已批准 |
+| Hook / MCP | 身份与事件适配、调用、响应校验与宿主阻断格式 | 新增独立治理状态或复制策略算法 |
+
+现有执行核心从 `sidecar/claude-agent/src/specResolution/` 分离至 `execution/`，保持同一进程和部署单元。`execution/contracts.ts` 定义输入，`context.ts` 聚合规格/Graphify 候选，`session.ts` 提供只读能力与执行投影，`policy.ts` 集中影响映射与分支规则，`service.ts` 管绑定和完成，`lifecycle.ts` 是宿主统一裁决入口，`verification.ts` 运行验证，`guard.ts` 适配原生权限。旧 execution 导入文件仅重导出，旧工具名及 `.forge/spec-resolution` 状态继续兼容。
+
+`specResolution/` 继续负责 Requirement 索引、召回、解析确认和 Delta 校验，execution 单向消费该能力。Graphify、OpenSpec 和领域知识保留事实所有权；本轮没有重建图谱或新增任务数据库。`tools.ts` 在注册边界组合两类工具，CLI/SDK/stdio 共用定义。
+
+### 启动、上下文与实施许可
+
+```mermaid
+flowchart TD
+    HOST["宿主事件或 Agent 主动调用"] --> INIT["session_init 只读能力和执行归属"]
+    INIT --> CONTEXT["resolve_execution_context 候选与缺口"]
+    CONTEXT --> AGENT["Agent 阅读原文、调用链和控制点"]
+    AGENT --> INTENT{"本次需要实施?"}
+    INTENT -->|"否"| ANSWER["交付只读结论，不创建执行状态"]
+    INTENT -->|"是"| DISCOVER["discover_execution 保存精确范围探索"]
+    DISCOVER --> ASSESS["assess_execution 记录判断并申请写入权"]
+    ASSESS --> EVENT["check_execution_event 统一策略裁决"]
+    EVENT --> EDIT["实施、适用验证与原子提交"]
+    EDIT --> FINISH["finish_execution 检查后释放写入权"]
+```
+
+Agent 判断路径、控制点、修改位置和关键未知是否清楚；Forge 另行检查执行范围、分支、写入权和证据，两者不能合并成一个自报 READY。只读查询允许 detached HEAD，不创建 Change、绑定或写入锁。`taskId` 仅作为已有任务的引用，不新建平行 task 清单；OpenSpec/宿主原有任务顺序和生命周期保持权威。当前仍保守串行，没有自动依赖调度、跨会话接管或额外分支分配器。
+
+Session 返回配置、可调用性、授权和宿主覆盖的独立字段；未探测的 OpenSpec CLI 与图谱可用性返回 null，图谱新鲜度由具体查询核验。`BOUND` 不是验证通过，`CURRENT` 仅表示验证输入未变。`HOST_DEPENDENT` 明确表示没有由该查询证明宿主已执行强制检查。
+
+### 适配与迁移边界
+
+Forge 安装器的 runtime protocol v2 由插件 `hooks/forge/client.js` 消费；`SessionStart` 调用 `session_init`，写前/提交前/Stop 由 `check_execution_event` 返回 `allowed/code/enforcement/legacyGovernanceRequired`。Stop 只检查，不结束任务。v2 Hook 不读取 Forge 私有执行 JSON；原生权限适配也调用同一裁决入口。v1 私有文件读取集中保留在 `hooks/forge/legacy-v1.js`，仅支持历史运行时，不扩建策略。
+
+绑定执行的拒绝始终 block；未绑定旧规格流程保留 warn/block 配置。v2 连接失败时绑定未知，默认失败关闭；显式 failure=warn 或 off 不提供故障阻断保证。协议不匹配要求升级，不静默选择另一套治理。Delta 执行暂时继续要求旧设计/审阅证据检查，这属于兼容验证，尚未迁移为 Forge 原生设计内容检查器。历史绑定与 PASS 不自动升级。
+
+以上描述源码协议；插件安装、新会话加载、宿主事件触发和运行服务更新分别验收。无 SessionStart 接线时通过 Agent 主动调用启动入口。任意 Shell 副作用仍需要宿主权限/沙箱覆盖。本轮不新增夜间整合、默认 block 或自动重启。
+
 ## 组件职责与权威位置
 
 | 组件 | 职责 | 权威内容与边界 |
@@ -64,7 +107,8 @@ LLM 分为两处：宿主 Agent 阅读 Team Standards 后理解需求、审阅�
 
 ```mermaid
 flowchart TD
-    REQUEST["用户需求或一批相关任务"] --> READ["Agent 读取项目约束与 Team Standards"]
+    REQUEST["用户需求或一批相关任务"] --> SESSION["Forge session_init 返回能力和执行归属"]
+    SESSION --> READ["Agent 读取项目约束与 Team Standards"]
     READ --> DISCOVER["Forge 探索正式规格和活跃 Change"]
     GRAPHIFY["Graphify 定位实现与关联证据"] --> DISCOVER
     DISCOVER --> REVIEW["Agent 阅读原文和源码，确认影响"]

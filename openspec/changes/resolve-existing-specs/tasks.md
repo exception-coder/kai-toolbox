@@ -45,3 +45,18 @@
 - Codex 真实三项分类为 MODIFIED / ADDED / NO_SPEC_CHANGE，符合预期，约 25.8 秒；首项为 AUTO_DRAFT，未自动确认。12 条混合输入拆成 13 个原子项，原文全覆盖，约 20.3 秒；“删除借用并保留历史”正确拆成两个独立行为。初始评估误要求输出恰为 12，已改为核验原文完整覆盖与真实原子性，并保留该断言修正记录。
 - 默认模型预算计入检索耗时后，真实 Codex 超时降级 5 次均保留候选，4107–4138ms，样本 P95=4138ms。这只证明本机小样本降级耗时，不证明完整语义解析 P95 或生产质量目标。证据位于 `.tmp/spec-resolution-codex-{live,intake,budget}.json`。
 - 新版 CLI 从 `.release-spec-resolution-4.6.0` 注册到本机用户 runtime 配置，未替换现有 sidecar；后端 PID 41412、frontend 57100 等保持原状态，restarts=0。任务 3.4/3.6 保持待验收；change 不归档、不晋升主规格。设计扫描 DESIGN_SCAN_LIMIT 已记录，定向维护本模块，未宣称完整基线治理通过。
+
+## 5. 执行层与宿主适配分层
+
+- [x] 5.1 将执行 contracts/context/policy/service/verification/guard 分离为相邻模块，保持旧工具名和状态格式。
+- [x] 5.2 增加只读 session_init 和 resolve_execution_context，区分能力、授权、宿主覆盖及任务引用。
+- [x] 5.3 Forge 统一 WRITE/COMMIT/STOP/GIT 决策，插件 v2 消费返回结果，隔离 v1 私有状态兼容。
+- [x] 5.4 精简 Skill 主流程并同步唯一架构、接口、维护导航和升级边界。
+- [x] 5.5 完成最终跨仓 Hook→CLI 联调、相关回归和两仓提交。
+- [ ] 5.6 安装目标版本并在 Codex/Claude 新会话记录 SessionStart/写前/Stop 真实事件；未经运行验证不启用默认 block。
+
+纯只读入口不写项目状态；taskId 仅引用已有任务，不新增 Task 数据库或调度器。服务重启与真实宿主加载仍按第 3 节待办和授权边界执行。
+
+5.x 验证：全 sidecar TypeScript 隔离编译通过；`TEAM_STANDARDS_TEST_HOOK_ROOT` 指向插件源码运行 execution、specResolution、codexAppServer、codexMcpPolicy 测试，共 69 项通过、无跳过。真实临时 Git 项目的 Hook→CLI 覆盖只读启动、范围、分支、无验证 Stop/提交、验证后放行和输入失效。插件全量 245 项中 244 通过、1 原有跳过、0 失败；严格 OpenSpec、引用、三 manifest 4.8.0、Skill 审计与 UTF-8 Skill 校验通过。原始本地日志：`.tmp/execution-plane-tests.log`；插件 `.logs/execution-plane-hooks.log`。
+
+Forge Quality all 返回 PASSED，但 executedCheckers 为空，9 个 API-RUNTIME-001 仅验证当前旧服务。新增代码的实际证据是独立编译、stdio 和跨仓进程调用；未重启服务、未修改当前 runtime 指针、未安装/重载新会话，不宣称 5.6 完成。内容审阅为本次 Codex Agent 的源码与场景核对（AGENT_REVIEWED），不是人工验收。首次 Python Skill 校验受 Windows 默认 GBK 解码影响，显式 `-X utf8` 后通过，无需修改 Skill 内容或检查器。

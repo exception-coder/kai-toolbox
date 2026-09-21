@@ -1,8 +1,10 @@
 # Forge Existing Spec Resolution
 
+执行上下文、策略、生命周期与验证现由相邻 [execution 模块](../execution/README.md)维护；本目录保留规格解析。历史 execution 文件只是兼容导出，现有工具名称和状态文件仍可使用。
+
 ## 按影响执行
 
-首先 `discover_execution(project, sessionId, request, files)` 探索既有规格、活跃 Change 和 Graphify。读候选原文后 `assess_execution` 记录行为 preserved/changed/unknown、设计 none/detail/architecture、风险类别和逐字引用。preserved 不需要 changeId；changed 复用匹配 Change，继续 resolve/confirm/Delta 链路；unknown 先补证据。设计只绑定受影响层次。
+会话先只读 `session_init` 和 `resolve_execution_context`，控制点明确后 `discover_execution(project, sessionId, request, files)` 探索既有规格、活跃 Change 和 Graphify。读候选原文后 `assess_execution` 记录行为 preserved/changed/unknown、设计 none/detail/architecture、风险类别和逐字引用。preserved 不需要 changeId；changed 复用匹配 Change，继续 resolve/confirm/Delta 链路；unknown 先补证据。设计只绑定受影响层次。
 
 执行保持当前分配分支，一个工作区仅一个写入会话，任务顺序执行并原子提交。`check_execution_readiness` 校验分支、规格版本、文件范围；提交前校验适用设计更新和真实验证。`run_execution_verification` 实际运行已授权 executable/argv 测试，inputFiles 包含测试、配置及依赖；禁止用于服务重启或运行空命令凑 PASS。Windows npm 使用 Node + npm-cli.js 参数数组。缺少类别、失败、内容过期、暂存内容与测试工作区不一致均不能提交。
 
@@ -20,7 +22,7 @@ Forge SDK 和 stdio 均提供 `intake_spec_requirements`、`resolve_specs`、`co
 
 ## Hook 接入
 
-运行编译目录下 `node <build>/specResolution/install.js`，把 CLI 绝对路径注册至用户目录 `.kai-toolbox/forge-spec-resolution.json`。resolve 的 sessionId 必须使用真实宿主会话 ID；默认取 TOOLBOX_SESSION_ID，Hook 通过 payload.session_id 选择 project/branch/change。也可显式设置 `FORGE_SPEC_RESOLUTION_CLI` 与 `FORGE_OPENSPEC_CHANGE`。薄 Hook 默认 warn，真实宿主验证后设置 `TEAM_STANDARDS_SPEC_RESOLUTION_HOOK=block`；故障默认遵从模式，`TEAM_STANDARDS_SPEC_RESOLUTION_FAILURE=warn` 可显式告警放行。安装器不重启任何服务。
+运行编译目录下 `node <build>/specResolution/install.js`，把 CLI 绝对路径注册至用户目录 `.kai-toolbox/forge-spec-resolution.json`。resolve 的 sessionId 必须使用真实宿主会话 ID；默认取 TOOLBOX_SESSION_ID，Hook 通过 payload.session_id 选择 project/branch/change。也可显式设置 `FORGE_SPEC_RESOLUTION_CLI` 与 `FORGE_OPENSPEC_CHANGE`。安装器注册 protocol v2；Hook 通过统一生命周期接口选择检查，旧 runtime 仍走 v1 适配。未绑定的旧规格 Hook 默认 warn，真实宿主验证后设置 `TEAM_STANDARDS_SPEC_RESOLUTION_HOOK=block`；v2 连接故障默认失败关闭，`TEAM_STANDARDS_SPEC_RESOLUTION_FAILURE=warn` 可显式告警放行。安装器不重启任何服务。
 
 CLI 也接受工具名参数，例如 `node <cli> refresh_spec_index`。解析/确认写入 `.forge/spec-resolution/` 审计，检查与刷新只读。不要提交本机审计或手改其状态来绕过门禁。锁冲突需重试；遗留锁先确认没有活动写进程。正式规格内容摘要包括未提交变化，旧确认因此失效。
 

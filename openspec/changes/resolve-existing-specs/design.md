@@ -37,7 +37,7 @@ resolve_specs 可将 sessionId 映射到 project/branch/change，Hook 使用会�
 
 ## Execution impact routing
 
-The existing resolver gains a pre-change execution layer in the same module. An execution belongs to a project, host session and assigned branch; its OpenSpec change is optional. `discover_execution` retrieves existing requirements, active change IDs and Graphify evidence before classification. `assess_execution` records an Agent-reviewed, source-quoted impact decision. Preserved behavior requires no empty change; changed behavior uses the existing resolution/confirmation/Delta chain. Unknown behavior requires more evidence.
+The execution layer is maintained in a sibling `execution/` module and consumes the existing resolver through its service boundary. Legacy execution imports re-export the new implementation; persisted records remain in their existing location. An execution belongs to a project, host session and assigned branch; its OpenSpec change is optional. `discover_execution` retrieves existing requirements, active change IDs and Graphify evidence before classification. `assess_execution` records an Agent-reviewed, source-quoted impact decision. Preserved behavior requires no empty change; changed behavior uses the existing resolution/confirmation/Delta chain. Unknown behavior requires more evidence.
 
 Behavior, design and verification are independent axes. Design none creates no documents; detail binds affected detail files; architecture binds affected overview and detail files. Risk selects regression/API/SQL/UI checks without automatically requiring a business Delta. The applicable product principles remain OBJ-01, AI-01, EVID-01, FEED-01 and CTRL-01. Generic design discovery exceeds 1000 documents; this change reuses this existing design and the module README through directed inspection.
 
@@ -48,3 +48,11 @@ State reuses `.forge/spec-resolution` and its atomic lock. One workspace has one
 Plugin mode remains warn until real host coverage is accepted. Bound native permission callbacks check before generic autoApprove. Codex callbacks cover only requests the host emits; arbitrary subprocesses require host mediation. Legacy change-only governance skips only after a successful current Forge NO_SPEC_CHANGE result. Delta executions retain existing governance. Installation and isolated compilation do not restart services.
 
 Codex Agent 自审：接受专家建议的职责划分、防重复与证据要求；将数据库/HTTP 平台方案调整为现有本地 MCP 架构，不新增远端服务。业务批准与 Agent 决策分开标记，不伪造人工确认。
+
+## Execution plane maintenance boundary
+
+Session initialization and candidate context resolution are read-only projections; no Change, writer lock or task ledger is created. A known task ID may be carried on assessment as a reference, while OpenSpec and host orchestration retain their task authority. Agent reasoning establishes sufficient context; Forge separately evaluates execution permission.
+
+The protocol v2 lifecycle endpoint owns execution/legacy routing and returns enforcement plus the remaining legacy design-check requirement. Hooks do not inspect private state in v2. The explicit v1 adapter preserves historical runtimes; transport/protocol failures never silently downgrade v2 to v1. SessionStart is a host adapter, with active MCP calls as the fallback when that event is not wired. Runtime availability, authorization and host enforcement remain distinct.
+
+Implementation uses one deployment unit, with contracts/context/session/policy/service/lifecycle/verification/guard modules. Existing verification remains in place. No dependency scheduler, automatic branch allocator, cross-session takeover, night consolidation or new service is introduced.

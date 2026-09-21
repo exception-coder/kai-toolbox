@@ -1,7 +1,7 @@
 import { assemblyAllowsTool, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { randomUUID } from 'node:crypto'
 import { resolve, sep } from 'node:path'
-import { guardExecutionTool } from './specResolution/executionGuard.js'
+import { guardExecutionTool } from './execution/guard.js'
 
 /** Java 回灌的决策。 */
 export interface Decision {

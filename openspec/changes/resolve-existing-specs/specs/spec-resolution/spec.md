@@ -97,3 +97,30 @@ Forge SHALL report confirmation-based recall, mapping agreement, corrections, ev
 #### Scenario: No labeled decisions
 - **WHEN** an automatic draft has not been independently confirmed
 - **THEN** it does not count as an accurate mapping or proof that production targets were achieved
+
+### Requirement: Initialize read-only execution context
+Forge SHALL provide session and candidate context queries without creating project files, Changes, tasks or writer bindings. It MUST distinguish configured assets, probed availability, operation authorization and host enforcement. Candidate retrieval SHALL preserve source and freshness limitations without approving semantic conclusions.
+
+#### Scenario: Read-only consultation before file identification
+- **WHEN** a session asks for context without known implementation files
+- **THEN** Forge returns bounded candidates and explicit gaps without persisting execution state
+
+#### Scenario: Resume a bound task
+- **WHEN** the owning session queries its context
+- **THEN** Forge returns its execution, optional existing task reference, assigned branch and writer ownership
+- **AND** another session cannot acquire that ownership through the read-only query
+
+### Requirement: Centralize execution lifecycle decisions
+Forge SHALL route adapter lifecycle events to execution or legacy specification checks and return versioned decisions, enforcement and any required compatibility design checks. Protocol v2 adapters MUST NOT infer execution policy from private state files. Stop SHALL check readiness without completing or releasing execution.
+
+#### Scenario: Bound execution under legacy warn mode
+- **WHEN** a bound execution requests a prohibited branch operation with legacy mode warn
+- **THEN** Forge returns a blocking decision with the applicable rule code
+
+#### Scenario: Runtime protocol mismatch
+- **WHEN** a protocol v2 adapter receives an incompatible response
+- **THEN** it reports the mismatch and follows explicit transport failure policy without silently reverting to v1
+
+#### Scenario: Older runtime remains installed
+- **WHEN** the configured runtime uses protocol v1
+- **THEN** the isolated compatibility adapter preserves existing bindings and checks without promoting old evidence

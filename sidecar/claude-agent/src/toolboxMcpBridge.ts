@@ -43,7 +43,7 @@ const server = new McpServer(
     instructions: [
       '这是 kai-toolbox 提供的本地开发验证工具。数据库工具仅允许查询测试库且由后端强制只读；',
       '应用探测工具仅允许访问已配置的本地或测试实例，禁止生产环境。',
-      serverName === 'forge' ? '实施前先 discover_execution 探索既有规格与 Graphify，再 assess_execution 分别判断行为、设计与验证影响。行为保持不创建空 Change；默认共享当前分支，不能为 Task 自行建 branch/worktree。sessionId 由宿主绑定。' : '',
+      serverName === 'forge' ? '先 session_init 获取能力和执行归属；resolve_execution_context 只读返回候选。定位后 discover_execution → assess_execution，提交具名影响判断；分支与写入策略由 Forge 执行。sessionId 由宿主绑定。' : '',
     ].join(''),
   },
 )

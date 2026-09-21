@@ -18,7 +18,7 @@ test('real stdio Forge advertises and calls the same resolution contract as SDK'
     await client.connect(transport)
     const listed = await client.listTools()
     const names = sdkSpecResolutionTools().map(tool => tool.name)
-    assert.equal(names.length, 11)
+    assert.equal(names.length, 14)
     for (const name of names) assert.ok(listed.tools.some(tool => tool.name === name), name)
     const result = await client.callTool({ name: 'check_change_readiness', arguments: { project: 'not-a-project', changeId: 'test' } })
     assert.equal(result.isError, true)
@@ -27,6 +27,14 @@ test('real stdio Forge advertises and calls the same resolution contract as SDK'
     try {
       execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root, windowsHide: true })
       fs.writeFileSync(path.join(root, 'source.txt'), 'existing implementation')
+      const initialized = await client.callTool({ name: 'session_init', arguments: { project: root, sessionId: 'forged-session' } })
+      assert.equal(initialized.isError, undefined)
+      assert.equal(JSON.parse((initialized.content as Array<{ text: string }>)[0].text).sessionId, 'test')
+      const candidates = await client.callTool({ name: 'resolve_execution_context', arguments: {
+        project: root, sessionId: 'forged-session', request: 'Explore current behavior',
+      } })
+      assert.equal(candidates.isError, undefined)
+      assert.equal(fs.existsSync(path.join(root, '.forge')), false, 'MCP context queries must remain read-only')
       const discovery = await client.callTool({ name: 'discover_execution', arguments: {
         project: root, sessionId: 'forged-session', request: 'Explore current behavior', files: ['source.txt'],
       } })

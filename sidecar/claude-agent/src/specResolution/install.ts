@@ -8,5 +8,5 @@ import { saveJson } from './storage.js'
 const cli = fileURLToPath(new URL('./cli.js', import.meta.url))
 if (!fs.existsSync(cli)) throw new Error('Build the sidecar before installing the hook runtime')
 const config = path.join(os.homedir(), '.kai-toolbox', 'forge-spec-resolution.json')
-saveJson(config, { protocolVersion: 1, cli, installedAt: new Date().toISOString() })
+saveJson(config, { protocolVersion: 2, cli, installedAt: new Date().toISOString() })
 process.stdout.write(JSON.stringify({ installed: true, config, cli }) + '\n')
