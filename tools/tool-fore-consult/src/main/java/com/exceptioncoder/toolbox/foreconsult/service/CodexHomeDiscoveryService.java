@@ -11,7 +11,7 @@ import java.util.Comparator;
 import java.util.List;
 
 /** Discovers Codex authorization directories directly below the runtime user's home directory. */
-@Service
+@Service("foreConsultCodexHomeDiscoveryService")
 public class CodexHomeDiscoveryService {
 
     private static final Logger log = LoggerFactory.getLogger(CodexHomeDiscoveryService.class);

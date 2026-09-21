@@ -6,6 +6,36 @@ import { prepareNode, preparePython, serviceCatalog } from './services.mjs';
 import { serviceEnvironment } from './service-environment.mjs';
 import { runBackend } from './source-backend.mjs';
 import { createRequire } from 'node:module';
+import { connect } from 'node:net';
+
+const SIDECAR_PORT_RELEASE_TIMEOUT_MS = 15_000;
+const SIDECAR_PORT_POLL_INTERVAL_MS = 250;
+
+function portListening(port) {
+  return new Promise(resolve => {
+    const socket = connect({ host: '127.0.0.1', port });
+    const finish = listening => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(listening);
+    };
+    socket.setTimeout(500);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+  });
+}
+
+async function waitForSidecarPortRelease(env) {
+  const port = Number(env.CLAUDE_CHAT_SIDECAR_PORT || 18890);
+  const deadline = Date.now() + SIDECAR_PORT_RELEASE_TIMEOUT_MS;
+  while (await portListening(port)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Claude Sidecar 端口 ${port} 仍被占用，等待旧进程退出超时`);
+    }
+    await new Promise(resolve => setTimeout(resolve, SIDECAR_PORT_POLL_INTERVAL_MS));
+  }
+}
 
 const [root, name] = process.argv.slice(2);
 const paths = runtimePaths(root);
@@ -32,6 +62,7 @@ async function backend() {
   console.log('[forge-stage] 准备 Agent Sidecar 依赖');
   const sidecar = join(root, 'sidecar/claude-agent');
   await prepareNode(sidecar, env);
+  await waitForSidecarPortRelease(env);
   console.log('[forge-stage] 构建 Agent Sidecar');
   await run(npmCommand(env), ['run', 'build'], { cwd: sidecar, env });
   await runBackend(root, settings, env);
