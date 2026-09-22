@@ -61,13 +61,37 @@ test('parallel modifications and duplicate delta are denied', t => {
   write('openspec/changes/restrict-sample/specs/sample/spec.md', drafts([decision])[0].content + '\n' + base)
   assert.throws(() => checkReadiness(input), /重复 Requirement/)
 })
+test('readiness validates the current resolution subset inside an incrementally reused change', t => {
+  const { input, write } = fixture(t)
+  write('openspec/changes/restrict-sample/specs/history/spec.md',
+    '## ADDED Requirements\n\n### Requirement: 历史规则\n系统 SHALL 保留历史。\n\n#### Scenario: 查询\n- WHEN 查询\n- THEN 返回历史\n')
+  const result = resolveSpecs(input)
+  const decision: Decision = { itemId: 'r1', classification: 'MODIFIED', capabilityId: 'sample',
+    requirementId: 'sample-visibility', reason: '收紧既有销售可见范围，完整保留查询场景。',
+    requirement: base.replace('允许销售查看', '仅允许销售查看已入库') }
+  const confirmed = confirmResolution({ ...input, resolutionId: result.resolutionId, actor: 'Agent', decisions: [decision] })
+  write(`openspec/changes/restrict-sample/${confirmed.drafts[0].path}`, confirmed.drafts[0].content)
+  assert.equal(checkReadiness(input).allowed, true)
+})
 test('new capability needs explicit decision and existing capability cannot be NEW_CAPABILITY', t => {
   const { input } = fixture(t); const result = resolveSpecs(input)
   assert.throws(() => confirmResolution({ ...input, resolutionId: result.resolutionId, actor: 'Agent', decisions: [
     { itemId: 'r1', classification: 'NEW_CAPABILITY', capabilityId: 'sample', reason: '测试已有能力不能重复创建为新能力。', requirement: base },
-  ] }), /Capability/)
+  ] }), /Capability sample 已存在.*ADDED/)
   assert.throws(() => resolveSpecs({ ...input, changeId: '../escape' }))
   assert.throws(() => resolveSpecs({ ...input, requirements: [{ ...input.requirements[0], atomic: false }] }))
+})
+test('duplicate decisions identify both conflicting items and target', t => {
+  const { input } = fixture(t)
+  const result = resolveSpecs({ ...input, requirements: [
+    ...input.requirements,
+    { externalId: 'r2', text: '销售查看样衣时记录审计', atomic: true as const, terms: ['样衣'] },
+  ] })
+  const requirement = '### Requirement: 新增审计\n系统 SHALL 记录审计。\n\n#### Scenario: 查询\n- WHEN 查询\n- THEN 记录审计'
+  assert.throws(() => confirmResolution({ ...input, resolutionId: result.resolutionId, actor: 'Agent', decisions: [
+    { itemId: 'r1', classification: 'ADDED', capabilityId: 'sample', reason: '新增独立审计规则并保留完整场景。', requirement },
+    { itemId: 'r2', classification: 'ADDED', capabilityId: 'sample', reason: '新增独立审计规则并保留完整场景。', requirement },
+  ] }), /r1.*r2.*sample:新增审计/)
 })
 test('stable ID survives rename; fenced headings do not become requirements', () => {
   const first = parseUnits(base, 'sample', 'spec.md')[0]

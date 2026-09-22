@@ -55,6 +55,13 @@
 - [x] 5.5 完成最终跨仓 Hook→CLI 联调、相关回归和两仓提交。
 - [ ] 5.6 安装目标版本并在 Codex/Claude 新会话记录 SessionStart/写前/Stop 真实事件；未经运行验证不启用默认 block。
 
+## 6. 稳定性与增量兼容
+
+- [x] 6.1 Readiness 按当前 resolution 的 Delta 子集校验，兼容同一 Change 多批次顺序迭代并保留重复/并行冲突门禁。
+- [x] 6.2 分类冲突、重复 Requirement 与证据输入限制返回可定位对象及恢复动作。
+- [x] 6.3 运行规格解析、执行层、MCP 回归、测试内置 TypeScript 全量编译、OpenSpec 严格校验与 Forge 质量门禁。
+- [ ] 6.4 经用户确认重启 Sidecar 后生成生产 `dist` 并完成目标版本运行验收；当前构建器因 18890 端口仍在使用而保护现有产物。
+
 纯只读入口不写项目状态；taskId 仅引用已有任务，不新增 Task 数据库或调度器。服务重启与真实宿主加载仍按第 3 节待办和授权边界执行。
 
 5.x 验证：全 sidecar TypeScript 隔离编译通过；`TEAM_STANDARDS_TEST_HOOK_ROOT` 指向插件源码运行 execution、specResolution、codexAppServer、codexMcpPolicy 测试，共 69 项通过、无跳过。真实临时 Git 项目的 Hook→CLI 覆盖只读启动、范围、分支、无验证 Stop/提交、验证后放行和输入失效。插件全量 245 项中 244 通过、1 原有跳过、0 失败；严格 OpenSpec、引用、三 manifest 4.8.0、Skill 审计与 UTF-8 Skill 校验通过。原始本地日志：`.tmp/execution-plane-tests.log`；插件 `.logs/execution-plane-hooks.log`。

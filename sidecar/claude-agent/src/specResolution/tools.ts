@@ -27,9 +27,17 @@ export async function execute(name: string, input: unknown): Promise<Record<stri
     if (!definition) throw new ResolutionError('TOOL_INVALID', '未知规格工具')
     return await definition.run(input) as unknown as Record<string, unknown>
   } catch (error) {
-    return { allowed: false, code: error instanceof ResolutionError ? error.code : 'CHECK_ERROR',
-      message: error instanceof Error ? error.message : String(error), actions: ['修复输入或上下文后重试；规格已变时重新 resolve_specs'] }
+    const code = error instanceof ResolutionError ? error.code : 'CHECK_ERROR'
+    return { allowed: false, code,
+      message: error instanceof Error ? error.message : String(error), actions: recoveryActions(code) }
   }
+}
+function recoveryActions(code: string): string[] {
+  if (code === 'SPEC_TARGET_CONFLICT') return ['按错误中的 capability/Requirement 身份修正分类；规格索引变化时重新 resolve_specs']
+  if (code === 'DELTA_DUPLICATE') return ['合并指向同一 Requirement 的需求项，或使用不同的稳定 Requirement 标题/ID 后重新确认']
+  if (code === 'DELTA_MISSING' || code === 'DELTA_CONTENT_MISMATCH') return ['仅核对本次 resolution 的 Delta 子集，按确认草稿补齐或修正文后重试']
+  if (code === 'INPUT_LIMIT') return ['files 仅传项目内具体普通文件；排除目录、构建产物和超过 4 MiB 的文件后重试']
+  return ['修复输入或上下文后重试；规格已变时重新 resolve_specs']
 }
 async function call(name: string, args: unknown, hostSessionId?: string) {
   const bound = hostSessionId && args && typeof args === 'object'

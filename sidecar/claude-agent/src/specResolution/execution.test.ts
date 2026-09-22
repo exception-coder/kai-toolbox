@@ -64,6 +64,15 @@ test('quotes, discovery revision and scope are enforced', t => {
   assert.throws(() => checkExecution({ ...context, files: ['other.js'] }), /超出执行范围/)
   assert.throws(() => checkExecution({ ...context, files: ['../escape.js'] }), /路径/)
 })
+test('discovery reports the exact directory or oversized evidence path', t => {
+  const { root, write, context } = fixture(t)
+  fs.mkdirSync(path.join(root, 'src-dir'))
+  assert.throws(() => discoverExecution({ ...context, request: 'Inspect exact evidence', files: ['src-dir'] }),
+    /src-dir.*不传目录/)
+  write('large.txt', 'x'.repeat(4 * 1024 * 1024 + 1))
+  assert.throws(() => discoverExecution({ ...context, request: 'Inspect exact evidence', files: ['large.txt'] }),
+    /large\.txt.*4\.00 MiB/)
+})
 
 test('shared workspace rejects a second writer and branch changes even with host auto approval', async t => {
   const { root, assess, context } = fixture(t)

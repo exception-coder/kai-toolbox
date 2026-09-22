@@ -16,7 +16,11 @@ export function projectContext(project: string, requireBranch = true) {
 export function fileDigest(root: string, relative: string) {
   const file = safePath(root, relative)
   if (!fs.existsSync(file)) return 'MISSING'
-  requireCondition(fs.statSync(file).isFile() && fs.statSync(file).size <= 4 * 1024 * 1024, 'INPUT_LIMIT', '证据必须是最多4MiB的普通文件')
+  const stat = fs.statSync(file)
+  requireCondition(stat.isFile(), 'INPUT_LIMIT',
+    `证据路径不是普通文件：${relative}；files 只传具体源码、规格或测试文件，不传目录`)
+  requireCondition(stat.size <= 4 * 1024 * 1024, 'INPUT_LIMIT',
+    `证据文件超过 4 MiB：${relative}（${(stat.size / 1024 / 1024).toFixed(2)} MiB）；缩小到直接相关的文本文件`)
   return hash(fs.readFileSync(file).toString('base64'))
 }
 export function inputFingerprint(root: string, files: string[]) {

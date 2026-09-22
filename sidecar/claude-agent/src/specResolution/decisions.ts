@@ -5,14 +5,16 @@ import { requireCondition, type Decision, type Resolution, type Unit } from './c
 export function validateDecisions(resolution: Resolution, decisions: Decision[], index: { units: Unit[]; capabilities: string[] }) {
   requireCondition(decisions.length === resolution.items.length && new Set(decisions.map(d => d.itemId)).size === decisions.length,
     'SPEC_RESOLUTION_UNCONFIRMED', '每项必须且只能有一个决策')
-  const targets = new Set<string>()
+  const targets = new Map<string, string>()
   for (const decision of decisions) {
     requireCondition(resolution.items.some(item => item.itemId === decision.itemId), 'SPEC_TARGET_CONFLICT', '未知需求项')
     validateDecision(decision, index)
     if (decision.classification === 'NO_SPEC_CHANGE') continue
     const target = `${decision.capabilityId}:${decision.requirementId || parseUnits(decision.requirement!, decision.capabilityId!, '')[0]?.title}`
-    requireCondition(!targets.has(target), 'DELTA_DUPLICATE', '多项指向同一 Requirement；请先合并或明确拆分')
-    targets.add(target)
+    const previous = targets.get(target)
+    requireCondition(!previous, 'DELTA_DUPLICATE',
+      `需求项 ${previous} 与 ${decision.itemId} 指向同一 Requirement（${target}）；合并为一个决策，或拆成不同 Requirement 标题/ID`)
+    targets.set(target, decision.itemId)
   }
 }
 function validateDecision(decision: Decision, index: { units: Unit[]; capabilities: string[] }) {
@@ -26,7 +28,10 @@ function validateDecision(decision: Decision, index: { units: Unit[]; capabiliti
   }
   requireCondition(capabilityId, 'SPEC_TARGET_CONFLICT', '缺少 capabilityId')
   const exists = capabilities.includes(capabilityId)
-  requireCondition(classification === 'NEW_CAPABILITY' ? !exists : exists, 'SPEC_TARGET_CONFLICT', 'Capability 分类与现有规格不符')
+  requireCondition(classification === 'NEW_CAPABILITY' ? !exists : exists, 'SPEC_TARGET_CONFLICT',
+    exists
+      ? `Capability ${capabilityId} 已存在；新增规则使用 ADDED，修改/删除既有 Requirement 使用 MODIFIED/REMOVED，不能使用 NEW_CAPABILITY`
+      : `Capability ${capabilityId} 不存在；请使用 NEW_CAPABILITY，或改为真实存在的 capabilityId`)
   if (classification === 'MODIFIED' || classification === 'REMOVED') requireCondition(target, 'SPEC_TARGET_CONFLICT', '既有 Requirement 不存在')
   else requireCondition(!requirementId, 'SPEC_TARGET_CONFLICT', '新增项不能覆盖既有 Requirement ID')
   requireCondition(decision.requirement, 'DELTA_MISSING', '提供完整 Requirement 草稿')

@@ -20,6 +20,8 @@ Forge SDK 和 stdio 均提供 `intake_spec_requirements`、`resolve_specs`、`co
 4. 将返回 drafts 写入 `openspec/changes/<changeId>/`；运行官方 `openspec validate <changeId> --strict --json --no-interactive`。服务不修改正式规格，也不实现同步/归档算法。
 5. 编码/提交前调用 `check_change_readiness`；归档或正式规格更新后调用 `refresh_spec_index {project}`。
 
+一个活跃 Change 可以按顺序承载多个解析批次；`check_change_readiness` 只核对当前 `resolutionId` 对应的 Delta 子集，既有批次的其它 Delta 不计为本批重复。相同 Requirement 标题/稳定 ID 在本批出现多份、或并行 Change 修改同一目标时仍会阻断。`discover_execution.files` 只传项目内具体普通文件（单文件不超过 4 MiB），不要传目录或构建产物；拒绝结果会返回具体路径和恢复动作。
+
 ## Hook 接入
 
 运行编译目录下 `node <build>/specResolution/install.js`，把 CLI 绝对路径注册至用户目录 `.kai-toolbox/forge-spec-resolution.json`。resolve 的 sessionId 必须使用真实宿主会话 ID；默认取 TOOLBOX_SESSION_ID，Hook 通过 payload.session_id 选择 project/branch/change。也可显式设置 `FORGE_SPEC_RESOLUTION_CLI` 与 `FORGE_OPENSPEC_CHANGE`。安装器注册 protocol v2；Hook 通过统一生命周期接口选择检查，旧 runtime 仍走 v1 适配。未绑定的旧规格 Hook 默认 warn，真实宿主验证后设置 `TEAM_STANDARDS_SPEC_RESOLUTION_HOOK=block`；v2 连接故障默认失败关闭，`TEAM_STANDARDS_SPEC_RESOLUTION_FAILURE=warn` 可显式告警放行。安装器不重启任何服务。

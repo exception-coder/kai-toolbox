@@ -22,6 +22,8 @@ resolve_specs 可将 sessionId 映射到 project/branch/change，Hook 使用会�
 
 只输出 Delta 草稿；MODIFIED 必须由 Agent 提交完整正文及 Scenario，readiness 对比确认正文与实际 Delta。NO_SPEC_CHANGE 必须有理由，不生成空 Delta。并行同目标修改保守阻断并提示协调，不假装能自动判断语义冲突。归档后 reindex 生成新摘要，旧解析不会自动变为有效。
 
+同一活跃 Change 可承载按顺序确认的多个 resolution 批次。Readiness 只验证当前批次映射到的 Delta 子集及其并行冲突，不以整个 Change 的历史 Delta 总数要求与当前批次相等；同标题/稳定 ID 的重复 Delta 仍拒绝。分类与重复目标错误返回具体 capability、item 和期望分类。执行证据继续只接受不超过 4 MiB 的项目内普通文件，但错误必须指出具体路径、类型或实际大小，便于 Agent 定向修正而非盲目重试。
+
 ## Risks / Trade-offs
 
 - 缺少模型认证时保留候选及明确失败，不承诺专家建议的生产召回率/准确率；需独立标注样本校准。
