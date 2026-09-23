@@ -21,8 +21,9 @@ import static org.mockito.Mockito.when;
 class BusinessConsultModelPolicyServiceTest {
 
     private final BusinessConsultModelPolicyRepository repository = mock(BusinessConsultModelPolicyRepository.class);
+    private final CodexHomeDiscoveryService codexHomeDiscoveryService = mock(CodexHomeDiscoveryService.class);
     private final BusinessConsultModelPolicyService service =
-            new BusinessConsultModelPolicyService(repository);
+            new BusinessConsultModelPolicyService(repository, codexHomeDiscoveryService);
 
     @AfterEach
     void clearAuthContext() {
@@ -57,7 +58,9 @@ class BusinessConsultModelPolicyServiceTest {
 
     @Test
     void savesCurrentCatalogIdentifierAndDisplayName() {
-        var request = new BusinessConsultModelPolicyRequest("current-sol-id", "GPT-5.6-Sol");
+        String codexHome = "C:\\Users\\zhang\\.codex-account-wz";
+        var request = new BusinessConsultModelPolicyRequest("current-sol-id", "GPT-5.6-Sol", codexHome);
+        when(codexHomeDiscoveryService.list()).thenReturn(List.of(codexHome));
         configured("current-sol-id", "GPT-5.6-Sol");
 
         var saved = service.save(request);
@@ -67,12 +70,43 @@ class BusinessConsultModelPolicyServiceTest {
         verify(repository).save(
                 org.mockito.ArgumentMatchers.eq("current-sol-id"),
                 org.mockito.ArgumentMatchers.eq("GPT-5.6-Sol"),
+                org.mockito.ArgumentMatchers.eq(codexHome),
                 org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void everyUserUsesConfiguredCodexHome() {
+        authenticate("ADMIN");
+        configured("current-sol-id", "GPT-5.6-Sol");
+
+        assertThat(service.resolveCodexHome()).isEqualTo("C:\\Users\\zhang\\.codex-account-wz");
+    }
+
+    @Test
+    void rejectsCodexHomeOutsideServerDiscovery() {
+        var request = new BusinessConsultModelPolicyRequest(
+                "current-sol-id", "GPT-5.6-Sol", "C:\\Users\\zhang\\.codex-unknown");
+        when(codexHomeDiscoveryService.list()).thenReturn(List.of("C:\\Users\\zhang\\.codex"));
+
+        assertThatThrownBy(() -> service.save(request))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("不在当前服务可用目录中");
+    }
+
+    @Test
+    void receivesRecoverableErrorBeforeCodexHomeConfiguration() {
+        when(repository.find()).thenReturn(Optional.of(
+                new BusinessConsultModelPolicyView("current-sol-id", "GPT-5.6-Sol", null, 123L)));
+
+        assertThatThrownBy(service::resolveCodexHome)
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("默认 Auth 目录尚未配置");
     }
 
     private void configured(String model, String displayName) {
         when(repository.find()).thenReturn(Optional.of(
-                new BusinessConsultModelPolicyView(model, displayName, 123L)));
+                new BusinessConsultModelPolicyView(
+                        model, displayName, "C:\\Users\\zhang\\.codex-account-wz", 123L)));
     }
 
     private static void authenticate(String role) {

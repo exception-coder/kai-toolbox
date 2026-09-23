@@ -126,7 +126,7 @@ public class ConsultService {
                 .model(modelPolicyService.resolveForCurrentUser(req.model()))
                 .codexReasoningEffort(blankToNull(req.codexReasoningEffort()))
                 .codexSpeed(blankToNull(req.codexSpeed()))
-                .codexHome(blankToNull(req.codexHome()))
+                .codexHome(modelPolicyService.resolveCodexHome())
                 .orchestrationVersion(ConsultOrchestrationPipeline.normalizeVersion(req.orchestrationVersion()))
                 .evidenceSystems(serializeModules(evidenceRoute == null ? List.of() : evidenceRoute.evidenceSystems()))
                 .evidenceRouteSnapshot(evidenceRoute == null ? "[]" : evidenceRoute.snapshot())

@@ -387,6 +387,9 @@ CREATE TABLE IF NOT EXISTS consult_model_policy (
     updated_at   INTEGER NOT NULL
 );
 
+-- 功能：业务咨询默认 Auth；变更：为既有模型策略补充 Codex Auth 目录；目的：由服务端统一新咨询的执行身份
+ALTER TABLE consult_model_policy ADD COLUMN codex_home TEXT;
+
 -- 教学 Agent 使用既有 Registry 和候选版本，不创建新的菜单或网关配置
 INSERT OR IGNORE INTO consult_agent_definition (
     agent_id, name, owner, description, endpoint, framework, observability_url, created_at, updated_at

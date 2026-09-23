@@ -9,7 +9,7 @@
 
 ## 2. 前端落点
 
-- `ForeConsultPage.tsx`：引擎选择、Codex 授权目录输入、本地记忆，并在 `chat.open` 时透传。
+- `ForeConsultPage.tsx`：管理员编辑模型与 Auth 并保存业务默认；普通用户只读展示，创建成功后使用服务端返回的会话快照打开底层聊天。
 - `ChatPage.tsx`：Vibe Coding 新建 Codex 官方会话时复用授权目录偏好，在 `chat.open` 的 provider 参数中透传；第三方网关模式不传。
 - `ClaudeChatSessionView` 与 `CodexSessionOptions.tsx`：会话列表返回 `codexHome` 元数据，当前官方 Codex 会话在参数区只读展示默认目录或自定义目录。
 - `useClaudeChatSocket.ts` 与 `types.ts`：扩展 `open` 协议参数。
@@ -17,7 +17,9 @@
 ## 3. 后端与 sidecar 落点
 
 - `ClientMessage.Open`、`ClaudeChatService`、`SidecarClient`：接收、持久化并透传授权目录。
-- `SessionExecutionPolicy.resolveCodexHome`：仅官方 Codex 会话接受并规整前端目录；业务咨询不再维护账号目录常量。
+- `BusinessConsultModelPolicyService`：以单例策略保存模型与服务端发现的 Auth；新咨询忽略客户端 Auth 覆盖，未配置时返回可恢复冲突。
+- `ConsultService`：创建业务咨询时保存策略中的 `codexHome` 快照；既有会话恢复仍使用自己的快照。
+- `SessionExecutionPolicy.resolveCodexHome`：底层官方 Codex 会话接受业务咨询已固化的目录；业务咨询不维护账号目录常量。
 - `ClaudeChatService.enforceReadonlyDefaults`：只恢复只读权限、模式和网关边界，不覆盖已持久化的 `codexHome`。
 - `ClaudeChatSession`、`ClaudeChatSessionRepository`、`ClaudeChatSchemaMigration`：会话元数据落库与旧库迁移。
 - `sessionManager.ts`、`codexEngine.ts`：会话级保存并通过 Codex SDK `env` 注入 `CODEX_HOME`。
@@ -28,6 +30,7 @@
 - 会话查询只回传授权目录字符串，不探测目录内容或登录凭据。
 - 日志只允许记录会话和引擎，不输出 token。
 - 不自动创建授权目录，不代替用户执行登录。
+- 只有管理员可以更新业务咨询默认 Auth；普通用户和旧客户端均不能通过创建请求覆盖。
 
 ## 5. 执行审计落点
 

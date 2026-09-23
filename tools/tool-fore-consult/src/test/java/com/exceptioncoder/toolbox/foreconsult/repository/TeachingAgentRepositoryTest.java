@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessException;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
@@ -28,7 +29,14 @@ class TeachingAgentRepositoryTest {
             for (int pass = 0; pass < 2; pass++) {
                 for (String statement : schema.split(";")) {
                     if (!statement.isBlank()) {
-                        jdbc.execute(statement);
+                        try {
+                            jdbc.execute(statement);
+                        } catch (DataAccessException error) {
+                            String message = error.getMessage() == null ? "" : error.getMessage().toLowerCase();
+                            if (!message.contains("duplicate column")) {
+                                throw error;
+                            }
+                        }
                     }
                 }
             }

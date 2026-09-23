@@ -25,6 +25,10 @@ WebSocket `open` 消息新增可选字段：
 
 ## 4. 咨询归档扩展
 
+- `GET /api/fore-consult/model-policy` 返回业务咨询新会话的服务端权威策略：`model`、`displayName`、`codexHome`、`updatedAt`。
+- `PUT /api/fore-consult/model-policy` 仅管理员可用，请求体为 `{"model":"...","displayName":"...","codexHome":"..."}`；Auth 必须命中服务端当前发现目录。
+- `POST /api/fore-consult/sessions` 保留兼容的可选 `codexHome` 入参，但服务端不会采用该值；所有用户的新咨询统一使用上述策略中的 Auth，未配置时返回 HTTP 409。
+- 已创建会话继续返回并使用 `ConsultSessionView.codexHome` 快照，不随策略更新。
 - `POST /api/fore-consult/sessions` 新增必填字段 `questionTitle`，格式为 `yyMMdd-用户标题`；日期按用户本机当前时刻换算到 UTC，总长度不超过 40 字符。
 - `ConsultSessionView.questionTitle` 表示用户填写并添加 UTC 日期前缀后的归档标题；存量空标题仍兼容回退展示。
 - `PATCH /api/fore-consult/sessions/{id}/question-title`：重命名历史咨询标题。请求体为 `{"title":"用户标题"}`，标题正文必填且不超过 33 字；服务端保留或补齐 UTC 日期前缀并返回更新后的 `ConsultSessionView`。

@@ -90,6 +90,7 @@ class ConsultServiceAccessTest {
                         "ERP", "D:\\erp", List.of(), "260806-采购退货单入口", "question", "forged-user", "BIZ",
                         "codex", "gpt-6-astra", "low", "default", "C:\\Users\\zhang\\.codex", "v2");
         when(modelPolicyService.resolveForCurrentUser("gpt-6-astra")).thenReturn("current-sol-id");
+        when(modelPolicyService.resolveCodexHome()).thenReturn("C:\\Users\\zhang\\.codex-account-wz");
 
         service.startSession(request, "server-built-prompt");
 
@@ -101,13 +102,14 @@ class ConsultServiceAccessTest {
         assertThat(captor.getValue().getEngine()).isEqualTo("codex");
         assertThat(captor.getValue().getModel()).isEqualTo("current-sol-id");
         assertThat(captor.getValue().getCodexReasoningEffort()).isEqualTo("low");
-        assertThat(captor.getValue().getCodexHome()).isEqualTo("C:\\Users\\zhang\\.codex");
+        assertThat(captor.getValue().getCodexHome()).isEqualTo("C:\\Users\\zhang\\.codex-account-wz");
         assertThat(captor.getValue().getOrchestrationVersion()).isEqualTo("v2");
     }
 
     @Test
     void newSessionUsesConfiguredModelWhenClientOmitsModel() {
         when(modelPolicyService.resolveForCurrentUser(null)).thenReturn("current-sol-id");
+        when(modelPolicyService.resolveCodexHome()).thenReturn("C:\\Users\\zhang\\.codex-account-wz");
         StartSessionRequest request =
                 new StartSessionRequest(
                         "ERP", "D:\\erp", List.of(), "260918-固定咨询模型", "question", null, "BIZ",
