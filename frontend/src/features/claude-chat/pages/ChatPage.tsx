@@ -1199,20 +1199,21 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                           {eng === chat.currentEngine && <Check className="size-3.5 shrink-0" />}
                         </button>
                       ))}
-                      {!selectableEngines.includes('antigravity') && (
+                      {(['antigravity', 'trae'] as const).filter(eng => !selectableEngines.includes(eng)).map(eng => (
                         <button
+                          key={eng}
                           type="button"
                           onClick={() => void engineCatalogQuery.refetch()}
                           disabled={engineCatalogQuery.isFetching}
-                          title={engineCatalogQuery.data?.engines.find(entry => entry.id === 'antigravity')?.probe.detail
-                            ?? '重新检测 Antigravity CLI 是否可用'}
+                          title={engineCatalogQuery.data?.engines.find(entry => entry.id === eng)?.probe.detail
+                            ?? `重新检测 ${engineName(eng)} 是否可用`}
                           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:cursor-wait"
                         >
-                          <EngineIcon engine="antigravity" className="size-3.5" />
-                          <span className="min-w-0 flex-1 truncate text-left">Antigravity</span>
+                          <EngineIcon engine={eng} className="size-3.5" />
+                          <span className="min-w-0 flex-1 truncate text-left">{engineName(eng)}</span>
                           <span className="shrink-0 text-[10px]">{engineCatalogQuery.isFetching ? '检测中' : '重新检测'}</span>
                         </button>
-                      )}
+                      ))}
                     </div>
                   </>
                 )}
@@ -1487,16 +1488,16 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               </button>
             ))}
             {engineCatalogQuery.data?.engines
-              .filter(entry => entry.id === 'antigravity' && !entry.selectable)
+              .filter(entry => (entry.id === 'antigravity' || entry.id === 'trae') && !entry.selectable)
               .map(entry => (
                 <button
                   key={entry.id}
                   type="button"
                   disabled
-                  title={entry.probe.detail ?? 'Antigravity CLI 当前不可用'}
+                  title={entry.probe.detail ?? `${entry.displayName} 当前不可用`}
                   className="rounded-full border px-3 py-1 text-xs text-[var(--color-muted-foreground)] opacity-50"
                 >
-                  Antigravity（需升级）
+                  {entry.id === 'trae' ? 'TraeCode CLI（需安装）' : 'Antigravity（需升级）'}
                 </button>
               ))}
             {newEngine === 'codex' && (
@@ -1507,6 +1508,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             )}
             {newEngine === 'antigravity' && (
               <span className="text-xs text-[var(--color-muted-foreground)]">（使用本机 agy 登录；需支持 stream-json 的新版 Antigravity CLI）</span>
+            )}
+            {newEngine === 'trae' && (
+              <span className="text-xs text-[var(--color-muted-foreground)]">（使用 TraeCode CLI 2.0；先在本机完成 traecli login）</span>
             )}
             {newEngine === 'deepseekHarness' && (
               <span className="text-xs text-[var(--color-muted-foreground)]">（实验能力 · 已通过 Sidecar 与 Harness 运行时握手）</span>

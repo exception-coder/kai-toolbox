@@ -40,6 +40,9 @@ const descriptors = [
   descriptor('qwen', 'Qwen Code', [
     'resume', 'interrupt', 'runtimeState', 'modelCatalog',
   ]),
+  descriptor('trae', 'TraeCode CLI', [
+    'resume', 'interrupt', 'runtimeState',
+  ]),
   descriptor('antigravity', 'Antigravity', [
     'resume', 'interrupt', 'attachments', 'modelCatalog',
   ]),

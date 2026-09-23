@@ -43,6 +43,7 @@ import { runAntigravityTurn } from './antigravityEngine.js'
 import { listAntigravityModels } from './antigravityRuntime.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
 import { listQwenModels, runQwenTurn } from './qwenEngine.js'
+import { runTraeTurn } from './traeEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
 import { appendWindowsExecutionInstructions, windowsExecutionInstructions } from './windowsExecution.js'
@@ -390,6 +391,7 @@ class Session {
         request.voiceCallId,
       ),
       qwen: request => this.runQwenTurn(request.text, request.developerInstructions),
+      trae: request => this.runTraeTurn(request.text, request.developerInstructions),
       antigravity: request => this.runAntigravityTurn(
         request.text,
         request.developerInstructions,
@@ -1043,6 +1045,20 @@ class Session {
     }
   }
 
+  /** TraeCode CLI 2.0 JSONL remains isolated from the Forge event contract. */
+  private async runTraeTurn(text: string, developerInstructions?: string): Promise<void> {
+    const ac = new AbortController()
+    this.abort = ac
+    try {
+      await runTraeTurn({ text, developerInstructions, cwd: this.cwd, model: this.model,
+        sdkSessionId: this.sdkSessionId, permissionMode: this.permissionMode, toolPolicy: this.toolPolicy,
+        signal: ac.signal, emit: event => this.emitTurn(event),
+        setSdkSessionId: id => { this.sdkSessionId = id } })
+    } finally {
+      this.abort = undefined
+    }
+  }
+
   /** 跑一轮 OpenCode：委托 opencodeEngine（多 provider agent），AbortController 支持中断。 */
   private async runOpencodeTurn(text: string, developerInstructions?: string): Promise<void> {
     const ac = new AbortController()
@@ -1109,9 +1125,10 @@ class Session {
         .catch(error => console.warn(`[sidecar] Antigravity 模型目录暂不可用，保留当前选择：${error instanceof Error ? error.message : String(error)}`))
       return
     }
-    if (this.engine === 'deepseekHarness') {
+    if (this.engine === 'deepseekHarness' || this.engine === 'trae') {
       this.emitTurn({
-        type: 'init', sdkSessionId: null, slashCommands: [], skills: [], agents: [], mcpServers: [], outputStyle: null,
+        type: 'init', sdkSessionId: this.engine === 'trae' ? this.sdkSessionId ?? null : null,
+        slashCommands: [], skills: [], agents: [], mcpServers: [], outputStyle: null,
       })
       return
     }
@@ -1683,6 +1700,8 @@ export class SessionManager {
       else void this.refreshCodexModels(id, s, false)
     } else if (s.engine === 'qwen') {
       void this.refreshQwenModels(id, s)
+    } else if (s.engine === 'trae') {
+      this.emit(id, { type: 'models', models: [], current: s.model ?? null })
     } else if (s.engine === 'antigravity') {
       void listAntigravityModels()
         .then(models => this.emit(id, { type: 'models', models, current: s.model ?? null }))
@@ -1990,12 +2009,12 @@ export class SessionManager {
 
   private acceptEngine(id: string, engine: unknown): boolean {
     if (!isEngineId(engine)) return true
-    if ((engine !== 'deepseekHarness' && engine !== 'antigravity')
+    if ((engine !== 'deepseekHarness' && engine !== 'antigravity' && engine !== 'trae')
         || this.engineCatalog?.selectableNow(engine) === true) return true
     this.emit(id, {
       type: 'error',
       code: 'ENGINE_UNAVAILABLE',
-      message: `${engine === 'antigravity' ? 'Antigravity CLI' : 'DeepSeek Harness'} 尚未通过当前 Sidecar 的 Runtime 握手，不能创建或切换会话`,
+      message: `${engine === 'antigravity' ? 'Antigravity CLI' : engine === 'trae' ? 'TraeCode CLI 2.0' : 'DeepSeek Harness'} 尚未通过当前 Sidecar 的 Runtime 检测，不能创建或切换会话`,
     })
     return false
   }

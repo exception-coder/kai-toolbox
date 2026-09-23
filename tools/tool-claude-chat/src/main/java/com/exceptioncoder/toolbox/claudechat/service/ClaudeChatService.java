@@ -240,7 +240,7 @@ public class ClaudeChatService {
 
         String engine = normalizeEngine(open.engine());
         if (!engineCatalog.selectable(engine)) {
-            sendError(ws, 0, "ENGINE_UNAVAILABLE", "DeepSeek Harness 尚未通过 Runtime 握手，请刷新引擎目录后重试");
+            sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，请刷新引擎目录后重试");
             return;
         }
         if (consultReadonly && !"claude".equals(engine) && !"codex".equals(engine)) {
@@ -367,7 +367,7 @@ public class ClaudeChatService {
                 writeTo(ws, ready(restored));
                 if (!engineSelectable) {
                     writeTo(ws, new ServerMessage.Error(0, "ENGINE_UNAVAILABLE",
-                            "该会话使用的 DeepSeek Harness 当前未通过 Runtime 握手；历史仍可查看，恢复运行前请重新检测引擎"));
+                            "该会话使用的引擎当前未通过 Runtime 检测；历史仍可查看，恢复运行前请重新检测引擎"));
                 }
                 pushGatewayModels(restored); // 重连恢复网关会话：重发网关模型目录
                 return;
@@ -425,7 +425,7 @@ public class ClaudeChatService {
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         if (!engineSelectable) {
             sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
-                    "该会话使用的 DeepSeek Harness 当前未通过 Runtime 握手；历史仍可查看，恢复运行前请重新检测引擎"));
+                    "该会话使用的引擎当前未通过 Runtime 检测；历史仍可查看，恢复运行前请重新检测引擎"));
         }
         // 该会话若有未决权限/提问请求，随切换补发一次：不然只有 attach（断线重连）路径会重投，
         // 从跨会话横幅点「去确认」走的是这条 switchSession，之前收不到，弹窗切过去后"看不到题面"。
@@ -456,7 +456,7 @@ public class ClaudeChatService {
         long now = System.currentTimeMillis();
         String engine = normalizeEngine(source.getEngine());
         if (!engineCatalog.selectable(engine)) {
-            sendError(ws, 0, "ENGINE_UNAVAILABLE", "DeepSeek Harness 尚未通过 Runtime 握手，不能复制为可运行会话");
+            sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，不能复制为可运行会话");
             return;
         }
         String codexHome = "codex".equals(engine)
@@ -614,7 +614,7 @@ public class ClaudeChatService {
         if (!ensureSidecar(ws)) return;
         if (!engineCatalog.selectable(ctx.engine)) {
             sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
-                    "DeepSeek Harness 尚未通过 Runtime 握手，当前会话不能恢复运行"));
+                    "当前引擎尚未通过 Runtime 检测，当前会话不能恢复运行"));
             return;
         }
 
@@ -1081,7 +1081,7 @@ public class ClaudeChatService {
         if (rejectReviewMutation(ws, ctx)) return;
         String engine = normalizeEngine(msg.engine());
         if (!engineCatalog.selectable(engine)) {
-            sendError(ws, 0, "ENGINE_UNAVAILABLE", "DeepSeek Harness 尚未通过 Runtime 握手，请刷新引擎目录后重试");
+            sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，请刷新引擎目录后重试");
             return;
         }
         if (isConsultReadonly(ctx) && !"claude".equals(engine) && !"codex".equals(engine)) {
@@ -1267,7 +1267,7 @@ public class ClaudeChatService {
 
     private static String normalizeEngine(String e) {
         if ("gemini".equals(e)) return "antigravity";
-        return "codex".equals(e) || "qwen".equals(e) || "antigravity".equals(e) || "opencode".equals(e)
+        return "codex".equals(e) || "qwen".equals(e) || "trae".equals(e) || "antigravity".equals(e) || "opencode".equals(e)
                 || "deepseekHarness".equals(e) ? e : "claude";
     }
 
@@ -1934,7 +1934,7 @@ public class ClaudeChatService {
                 ctx.status = SessionStatus.IDLE;
                 repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
                 sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
-                        "DeepSeek Harness 当前未通过 Runtime 握手，已跳过自动恢复"));
+                        "当前引擎未通过 Runtime 检测，已跳过自动恢复"));
                 continue;
             }
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
@@ -1967,7 +1967,7 @@ public class ClaudeChatService {
         if ((ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) || canResumeWithoutNativeSessionId(ctx.engine)) {
             if (!engineCatalog.selectable(ctx.engine)) {
                 sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
-                        "DeepSeek Harness 当前未通过 Runtime 握手，无法恢复会话"));
+                        "当前引擎未通过 Runtime 检测，无法恢复会话"));
                 return false;
             }
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
@@ -1982,7 +1982,7 @@ public class ClaudeChatService {
 
     /** 这些引擎即使尚无原生句柄，也能在恢复后从下一轮创建新的运行时会话。 */
     private static boolean canResumeWithoutNativeSessionId(String engine) {
-        return "deepseekHarness".equals(engine) || "antigravity".equals(engine);
+        return "deepseekHarness".equals(engine) || "antigravity".equals(engine) || "trae".equals(engine);
     }
 
     /** 空白串归一为 null，避免把空网关地址当成有效配置。 */

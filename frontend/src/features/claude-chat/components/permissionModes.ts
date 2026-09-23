@@ -33,6 +33,12 @@ const QWEN_MODES: PermissionModeOption[] = [
   { value: 'bypassPermissions', label: '完全访问权限', desc: 'Qwen Code 工具不再逐次询问' },
 ]
 
+const TRAE_MODES: PermissionModeOption[] = [
+  { value: 'default', label: '工作区执行', desc: '仅在当前工作区内写入；不能交互批准的操作会被拒绝' },
+  { value: 'plan', label: '只读规划', desc: '仅允许读取与分析，不修改文件' },
+  { value: 'bypassPermissions', label: '完全访问权限', desc: '关闭沙箱，TraeCode CLI 可访问工作区外资源' },
+]
+
 const ANTIGRAVITY_MODES: PermissionModeOption[] = [
   { value: 'default', label: '安全执行', desc: '自动执行只读工具；非交互环境无法确认的高风险操作会拒绝' },
   { value: 'plan', label: '只读规划', desc: '只探索代码并给出计划，不直接改动' },
@@ -46,6 +52,7 @@ const DEEPSEEK_HARNESS_MODES: PermissionModeOption[] = [
 export function permissionModesForEngine(engine: Engine): PermissionModeOption[] {
   if (engine === 'codex') return CODEX_MODES
   if (engine === 'qwen') return QWEN_MODES
+  if (engine === 'trae') return TRAE_MODES
   if (engine === 'antigravity') return ANTIGRAVITY_MODES
   if (engine === 'opencode') return OPENCODE_MODES
   if (engine === 'deepseekHarness') return DEEPSEEK_HARNESS_MODES

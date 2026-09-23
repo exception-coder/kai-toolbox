@@ -24,6 +24,7 @@ function readyDependencies(counter: { clients: number }): DeepSeekHarnessAdapter
 test('catalog hides experimental engine selection when its runtime is disabled', async () => {
   const catalog = new EngineCatalog({
     antigravityProbe: async () => ({ status: 'incompatible', engine: 'antigravity' }),
+    traeProbe: async () => ({ status: 'dependencyMissing', engine: 'trae' }),
     deepSeekConfig: {
       enabled: false,
       runtimeArgs: [],
@@ -41,12 +42,14 @@ test('catalog hides experimental engine selection when its runtime is disabled',
     'claude', 'codex', 'qwen', 'opencode',
   ])
   assert.equal(entries.find(entry => entry.id === 'deepseekHarness')?.probe.status, 'disabled')
+  assert.equal(entries.find(entry => entry.id === 'trae')?.probe.status, 'dependencyMissing')
 })
 
 test('catalog exposes DeepSeek only after an official runtime handshake and caches the probe', async () => {
   const counter = { clients: 0 }
   const catalog = new EngineCatalog({
     antigravityProbe: async () => ({ status: 'ready', engine: 'antigravity' }),
+    traeProbe: async () => ({ status: 'dependencyMissing', engine: 'trae' }),
     deepSeekConfig: {
       enabled: true,
       runtimeCommand: 'fake-runtime',
@@ -68,6 +71,7 @@ test('catalog exposes DeepSeek only after an official runtime handshake and cach
 test('catalog exposes Antigravity only after its structured-output probe is ready', async () => {
   const catalog = new EngineCatalog({
     antigravityProbe: async () => ({ status: 'ready', engine: 'antigravity', runtimeVersion: '1.1.8' }),
+    traeProbe: async () => ({ status: 'dependencyMissing', engine: 'trae' }),
     deepSeekConfig: {
       enabled: false, runtimeArgs: [], cwd: process.cwd(), provider: 'deepseek-official', model: 'deepseek-v4-flash',
       handshakeTimeoutMs: 100, turnTimeoutMs: 100,
@@ -75,4 +79,15 @@ test('catalog exposes Antigravity only after its structured-output probe is read
   })
   assert.equal(await catalog.selectable('antigravity'), true)
   assert.equal(catalog.selectableNow('antigravity'), true)
+})
+
+test('catalog admits Trae only when its own CLI 2.0 probe succeeds', async () => {
+  const catalog = new EngineCatalog({
+    traeProbe: async () => ({ status: 'ready', engine: 'trae', runtimeVersion: '2.0.0' }),
+    antigravityProbe: async () => ({ status: 'incompatible', engine: 'antigravity' }),
+    deepSeekConfig: { enabled: false, runtimeArgs: [], cwd: process.cwd(), provider: 'deepseek-official',
+      model: 'deepseek-v4-flash', handshakeTimeoutMs: 100, turnTimeoutMs: 100 },
+  })
+  assert.equal(await catalog.selectable('trae'), true)
+  assert.equal(catalog.selectableNow('trae'), true)
 })

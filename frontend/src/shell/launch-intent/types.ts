@@ -1,6 +1,6 @@
 export const LAUNCH_INTENT_PROTOCOL_VERSION = 1 as const
 
-export type LaunchEngine = 'claude' | 'codex' | 'qwen' | 'antigravity' | 'opencode' | 'deepseekHarness'
+export type LaunchEngine = 'claude' | 'codex' | 'qwen' | 'trae' | 'antigravity' | 'opencode' | 'deepseekHarness'
 
 export type LaunchIntentPayload =
   | {
