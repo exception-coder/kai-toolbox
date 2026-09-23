@@ -1,6 +1,6 @@
 import { Zap } from 'lucide-react'
 import { RiOpenaiFill } from 'react-icons/ri'
-import { SiClaude, SiDeepseek, SiGoogle, SiOpencode } from 'react-icons/si'
+import { SiClaude, SiDeepseek, SiGoogle, SiOpencode, SiQwen } from 'react-icons/si'
 import type { IconType } from 'react-icons'
 import { cn } from '@/lib/utils'
 import type { Engine } from '../types'
@@ -16,6 +16,7 @@ import type { Engine } from '../types'
 const ENGINE_ICONS: Record<Engine, IconType> = {
   claude: SiClaude,
   codex: RiOpenaiFill,
+  qwen: SiQwen,
   antigravity: SiGoogle,
   opencode: SiOpencode,
   deepseekHarness: SiDeepseek,
@@ -25,6 +26,7 @@ const ENGINE_ICONS: Record<Engine, IconType> = {
 const ENGINE_COLORS: Record<Engine, string> = {
   claude: 'text-[#d97757]',
   codex: 'text-[#0f9d76] dark:text-[#19c37d]',
+  qwen: 'text-[#615ced] dark:text-[#8f8aff]',
   antigravity: 'text-[#7c3aed] dark:text-[#a78bfa]',
   opencode: 'text-[var(--color-foreground)]',
   deepseekHarness: 'text-[#4d6bfe] dark:text-[#7f96ff]',
@@ -42,6 +44,7 @@ export function engineColorOf(engine: string): string {
 export function engineIdFromDisplayName(label?: string): Engine {
   const normalized = label?.split(' ·', 1)[0].trim().toLowerCase()
   if (normalized === 'codex') return 'codex'
+  if (normalized === 'qwen code') return 'qwen'
   if (normalized === 'antigravity') return 'antigravity'
   if (normalized === 'opencode') return 'opencode'
   if (normalized === 'deepseek harness') return 'deepseekHarness'

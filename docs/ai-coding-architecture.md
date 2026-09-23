@@ -207,6 +207,25 @@ flowchart TD
 
 不得把宽泛全仓扫描作为陌生项目的默认第一步。Graphify 查询只用于缩小范围，编辑前仍须核对目标源码。
 
+### 多引擎适配边界
+
+Forge 把 Claude Code、Codex、Qwen Code、Antigravity 与 OpenCode 视为独立 Agent 引擎。Sidecar 的统一引擎契约只承载会话、轮次、权限、中断、运行态和公开事件；供应商 SDK 的请求、消息与错误必须停留在各自适配器内，不能泄漏到 Java 或浏览器。Codex 使用官方 `@openai/codex-sdk`，Qwen Code 使用官方 `@qwen-code/sdk`；QwenWork 桌面端不属于 Qwen Code SDK 的可控制范围，DashScope 模型 API也不能被描述成完整 Agent 引擎。
+
+```mermaid
+flowchart LR
+    SESSION["Forge 持久会话"] --> CONTRACT["统一引擎契约<br/>身份、权限、恢复、中断"]
+    CONTRACT --> CLAUDE["Claude Code 适配器"]
+    CONTRACT --> CODEX["Codex 适配器<br/>App Server / Codex SDK"]
+    CONTRACT --> QWEN["Qwen Code 适配器<br/>Qwen Code SDK"]
+    CONTRACT --> OTHER["Antigravity / OpenCode 适配器"]
+    CLAUDE --> EVENTS["统一公开事件"]
+    CODEX --> EVENTS
+    QWEN --> EVENTS
+    OTHER --> EVENTS
+```
+
+原生会话身份按 Forge 会话持久化并幂等恢复；恢复失败必须显式报出供应商与恢复动作，不得静默换用另一引擎。权限映射采用 Forge 策略下界，供应商默认值不能扩大当前会话权限。SDK 版本发现与升级复用统一管理入口，但源码升级、产物替换、进程重启和运行验收仍是分开的证据与授权阶段。
+
 ### 跨 Auth 会话交接
 
 Codex Auth 目录切换会创建目标 Auth 下的新 thread，不把源 Auth 的原生 thread、隐藏模型状态或工具状态视为可迁移资产。Forge 使用版本化结构交接包承接连续性，交接包只陈述来源明确的事实，并保留有界可见对话作为兜底。

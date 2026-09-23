@@ -54,7 +54,7 @@ export function KnowledgeGraphCard({ projectPath, snapshot }: {
         <div className="flex flex-wrap items-center gap-3"><Button size="sm" variant="outline" disabled={graph.isFetching} onClick={() => void graph.refetch()}>
           <RefreshCw className={graph.isFetching ? 'size-4 animate-spin' : 'size-4'} />{graph.isFetching ? '正在检测，可收起取消' : '检查最新状态'}</Button>
           {graph.data && <><label className="flex items-center gap-2 text-xs">图谱执行引擎<select aria-label="图谱执行引擎" className="h-8 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-2" value={engine} onChange={event => setEngine(event.target.value as Engine)}>
-            {(['codex', 'claude', 'antigravity', 'opencode'] as Engine[]).map(item => <option key={item} value={item}>{engineName(item)}</option>)}</select></label>
+            {(['codex', 'claude', 'qwen', 'antigravity', 'opencode'] as Engine[]).map(item => <option key={item} value={item}>{engineName(item)}</option>)}</select></label>
             <Button size="sm" variant="outline" onClick={() => void launch(graph.data.state === 'STALE' ? 'update' : 'full')}>
               {graph.data.state === 'NOT_GENERATED' ? '一键生成' : graph.data.state === 'STALE' ? '更新' : '强制重新生成'}</Button></>}
         </div>

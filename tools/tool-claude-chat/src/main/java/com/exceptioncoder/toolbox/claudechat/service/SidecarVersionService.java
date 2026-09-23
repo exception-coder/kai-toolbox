@@ -40,6 +40,7 @@ public class SidecarVersionService {
     private static final List<EngineDefinition> NPM_ENGINES = List.of(
             new EngineDefinition("claude", "Claude Code", CLAUDE_PACKAGE, true),
             new EngineDefinition("codex", "Codex", "@openai/codex-sdk", false),
+            new EngineDefinition("qwen", "Qwen Code", "@qwen-code/sdk", false),
             new EngineDefinition("opencode", "OpenCode", "@opencode-ai/sdk", false)
     );
     private static final String ANTIGRAVITY_COMMAND = "agy";
@@ -93,11 +94,12 @@ public class SidecarVersionService {
             return SidecarVersionView.error("读取 sidecar package.json 失败：" + e.getMessage());
         }
         Map<String, String> latestVersions = checkLatest ? fetchLatestVersions() : Map.of();
-        List<SidecarEngineVersionView> engines = new ArrayList<>(4);
+        List<SidecarEngineVersionView> engines = new ArrayList<>(5);
         engines.add(readEngine(NPM_ENGINES.get(0), dependencies, dir, latestVersions));
         engines.add(readEngine(NPM_ENGINES.get(1), dependencies, dir, latestVersions));
-        engines.add(readAntigravity());
         engines.add(readEngine(NPM_ENGINES.get(2), dependencies, dir, latestVersions));
+        engines.add(readAntigravity());
+        engines.add(readEngine(NPM_ENGINES.get(3), dependencies, dir, latestVersions));
         SidecarEngineVersionView claude = engines.get(0);
         boolean outdated = engines.stream().anyMatch(SidecarEngineVersionView::outdated);
         return new SidecarVersionView(

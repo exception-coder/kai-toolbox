@@ -14,7 +14,7 @@ public class ClaudeChatSession {
     private String title;
     /** SDK 侧 session_id，resume 续跑用 */
     private String sdkSessionId;
-    /** 会话引擎：claude / codex / antigravity / opencode；旧 gemini 行启动时迁移，空值按 claude。 */
+    /** 会话引擎：claude / codex / qwen / antigravity / opencode；旧 gemini 行启动时迁移，空值按 claude。 */
     private String engine;
     /** 本会话先后用过的引擎有序列（逗号分隔，如 "claude,codex"），切 agent 时追加；空则按 engine */
     private String engines;

@@ -1263,7 +1263,7 @@ public class ClaudeChatService {
 
     private static String normalizeEngine(String e) {
         if ("gemini".equals(e)) return "antigravity";
-        return "codex".equals(e) || "antigravity".equals(e) || "opencode".equals(e)
+        return "codex".equals(e) || "qwen".equals(e) || "antigravity".equals(e) || "opencode".equals(e)
                 || "deepseekHarness".equals(e) ? e : "claude";
     }
 

@@ -69,6 +69,7 @@ export function SdkUpgradeActions({ onUpdated }: { onUpdated: () => void }) {
           onChange={event => setEngine(event.target.value)}
           className="h-8 rounded-md border bg-[var(--color-background)] px-2 focus-visible:outline-2 disabled:opacity-50">
           <option value="codex">Codex SDK</option>
+          <option value="qwen">Qwen Code SDK</option>
           <option value="claude">Claude Agent SDK</option>
           <option value="opencode">OpenCode SDK</option>
         </select>

@@ -28,6 +28,7 @@ export function engineName(e: Engine): string {
   return e === 'codex' ? 'Codex'
     : e === 'antigravity' ? 'Antigravity'
       : e === 'opencode' ? 'OpenCode'
+        : e === 'qwen' ? 'Qwen Code'
         : e === 'deepseekHarness' ? 'DeepSeek Harness'
           : 'Claude'
 }

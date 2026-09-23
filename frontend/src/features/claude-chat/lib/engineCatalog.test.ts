@@ -5,7 +5,7 @@ import type { EngineCatalogView } from '../types'
 describe('selectableEngineIds', () => {
   it('falls back to stable engines when the sidecar catalog is unavailable', () => {
     expect(selectableEngineIds({ protocolVersion: 1, engines: [], error: 'offline' }))
-      .toEqual(['claude', 'codex', 'opencode'])
+      .toEqual(['claude', 'codex', 'qwen', 'opencode'])
   })
 
   it('only exposes DeepSeek Harness after a ready handshake', () => {
@@ -37,7 +37,7 @@ describe('selectableEngineIds', () => {
         },
       ],
     }
-    expect(selectableEngineIds(catalog)).toEqual(['claude', 'codex', 'opencode'])
+    expect(selectableEngineIds(catalog)).toEqual(['claude', 'codex', 'qwen', 'opencode'])
     catalog.engines[0].selectable = true
     catalog.engines[0].probe.status = 'ready'
     expect(selectableEngineIds(catalog)).toEqual(['antigravity'])

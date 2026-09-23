@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     title           TEXT,
     -- SDK 侧 session_id，用于 query({ resume }) 续跑历史会话
     sdk_session_id  TEXT,
-    -- 会话引擎：claude / codex / antigravity / opencode（旧 gemini 行由应用启动迁移）
+    -- 会话引擎：claude / codex / qwen / antigravity / opencode（旧 gemini 行由应用启动迁移）
     engine          TEXT DEFAULT 'claude',
     -- 本会话先后用过的引擎有序列（逗号分隔，如 'claude,codex'）；切 agent 时追加，用于列表标记
     engines         TEXT,

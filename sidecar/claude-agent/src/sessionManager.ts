@@ -42,6 +42,7 @@ import {
 import { runAntigravityTurn } from './antigravityEngine.js'
 import { listAntigravityModels } from './antigravityRuntime.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
+import { runQwenTurn } from './qwenEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
 import { appendWindowsExecutionInstructions, windowsExecutionInstructions } from './windowsExecution.js'
@@ -388,6 +389,7 @@ class Session {
         request.images as OneShotImage[] | undefined,
         request.voiceCallId,
       ),
+      qwen: request => this.runQwenTurn(request.text, request.developerInstructions),
       antigravity: request => this.runAntigravityTurn(
         request.text,
         request.developerInstructions,
@@ -1011,6 +1013,29 @@ class Session {
         signal: ac.signal,
         emit: (e) => this.emitTurn(e),
         setSdkSessionId: (id) => { this.sdkSessionId = id },
+        canUseTool: this.perms.canUseTool,
+      })
+    } finally {
+      this.abort = undefined
+    }
+  }
+
+  /** 跑一轮 Qwen Code：供应商协议由 qwenEngine 隔离，Session 只提供稳定上下文。 */
+  private async runQwenTurn(text: string, developerInstructions?: string): Promise<void> {
+    const ac = new AbortController()
+    this.abort = ac
+    try {
+      await runQwenTurn({
+        text,
+        developerInstructions,
+        cwd: this.cwd,
+        model: this.model,
+        sdkSessionId: this.sdkSessionId,
+        permissionMode: this.permissionMode,
+        toolPolicy: this.toolPolicy,
+        signal: ac.signal,
+        emit: event => this.emitTurn(event),
+        setSdkSessionId: id => { this.sdkSessionId = id },
         canUseTool: this.perms.canUseTool,
       })
     } finally {

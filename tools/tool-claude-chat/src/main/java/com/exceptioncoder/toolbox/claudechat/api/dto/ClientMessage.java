@@ -202,7 +202,7 @@ public sealed interface ClientMessage
     record SetCodexOptions(String reasoningEffort, String speed) implements ClientMessage {}
 
     /**
-     * 会话内切 agent（引擎）：claude / codex / antigravity / opencode。同一会话 id 不变；
+     * 会话内切 agent（引擎）：claude / codex / qwen / antigravity / opencode。同一会话 id 不变；
      * sidecar 置新引擎并清 sdkSessionId（新引擎起新 SDK 会话）。
      * 历史开场由前端切换后另发一条 send 带过去（复用发送链路、UI 自然显示）。
      */

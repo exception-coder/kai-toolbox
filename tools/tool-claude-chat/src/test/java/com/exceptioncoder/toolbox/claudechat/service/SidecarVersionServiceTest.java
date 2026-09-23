@@ -21,6 +21,7 @@ class SidecarVersionServiceTest {
     private static final List<String> PACKAGES = List.of(
             "@anthropic-ai/claude-agent-sdk",
             "@openai/codex-sdk",
+            "@qwen-code/sdk",
             "@opencode-ai/sdk"
     );
 
@@ -48,9 +49,9 @@ class SidecarVersionServiceTest {
 
         assertThat(result.error()).isNull();
         assertThat(result.engines()).extracting(SidecarEngineVersionView::id)
-                .containsExactly("claude", "codex", "antigravity", "opencode");
+                .containsExactly("claude", "codex", "qwen", "antigravity", "opencode");
         assertThat(result.engines()).extracting(SidecarEngineVersionView::installed)
-                .containsExactly("1.0.0", "1.0.1", "1.1.13", "1.0.2");
+                .containsExactly("1.0.0", "1.0.1", "1.0.2", "1.1.13", "1.0.3");
         assertThat(result.installed()).isEqualTo("1.0.0");
     }
 
@@ -60,6 +61,7 @@ class SidecarVersionServiceTest {
         writeManifest();
         writeInstalledPackage(PACKAGES.get(0), "1.0.0");
         writeInstalledPackage(PACKAGES.get(2), "1.0.2");
+        writeInstalledPackage(PACKAGES.get(3), "1.0.3");
 
         SidecarVersionView result = service().read(false);
 
@@ -81,7 +83,7 @@ class SidecarVersionServiceTest {
 
         SidecarVersionView result = service(command -> null).read(false);
 
-        SidecarEngineVersionView antigravity = result.engines().get(2);
+        SidecarEngineVersionView antigravity = result.engines().get(3);
         assertThat(antigravity.id()).isEqualTo("antigravity");
         assertThat(antigravity.installed()).isNull();
         assertThat(antigravity.error()).contains("agy");
@@ -107,7 +109,8 @@ class SidecarVersionServiceTest {
                   "dependencies": {
                     "@anthropic-ai/claude-agent-sdk": "^1.0.0",
                     "@openai/codex-sdk": "^1.0.1",
-                    "@opencode-ai/sdk": "^1.0.2"
+                    "@qwen-code/sdk": "^1.0.2",
+                    "@opencode-ai/sdk": "^1.0.3"
                   }
                 }
                 """;

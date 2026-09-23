@@ -37,6 +37,9 @@ const descriptors = [
   descriptor('codex', 'Codex', [
     'resume', 'interrupt', 'runtimeState', 'subagents', 'attachments', 'modelCatalog',
   ]),
+  descriptor('qwen', 'Qwen Code', [
+    'resume', 'interrupt', 'runtimeState',
+  ]),
   descriptor('antigravity', 'Antigravity', [
     'resume', 'interrupt', 'attachments', 'modelCatalog',
   ]),
