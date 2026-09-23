@@ -1574,10 +1574,14 @@ export class SessionManager {
       const models = await listQwenModels(session.cwd)
       if (this.sessions.get(id) === session && session.engine === 'qwen') this.emit(id, { type: 'models', models, current: session.model ?? null })
     } catch (error) {
-      if (this.sessions.get(id) === session && session.engine === 'qwen') this.emit(id, {
-        type: 'warning', code: 'QWEN_MODELS_UNAVAILABLE',
-        message: error instanceof Error ? error.message : String(error),
-      })
+      if (this.sessions.get(id) === session && session.engine === 'qwen') {
+        // A failed catalog must invalidate any model list carried over from another session or engine.
+        this.emit(id, { type: 'models', models: [], current: session.model ?? null })
+        this.emit(id, {
+          type: 'warning', code: 'QWEN_MODELS_UNAVAILABLE',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
     }
   }
 

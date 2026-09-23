@@ -1098,8 +1098,10 @@ public class ClaudeChatService {
         ctx.engine = engine;
         ctx.sdkSessionId = target;
         ctx.currentModel = null; // 模型标识属于引擎，切换后由目标引擎目录重新选择。
+        ctx.models = List.of(); // 旧引擎目录不得在目标引擎认证失败时继续显示。
         repo.switchEngine(ctx.sessionId, engine, engines, target, writeEngineSessions(ctx.engineSessions));
         repo.updateSelectedModel(ctx.sessionId, null);
+        sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
         sidecar.switchEngine(ctx.sessionId, engine, target, ctx.apiBaseUrl, ctx.authToken);
         log.info("[claude-chat] 会话 {} 切 agent -> {}（engines={}，resume={}）",
                 ctx.sessionId, engine, engines, target != null);
