@@ -749,6 +749,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setTurnTokens(msg.outputTokens)
         break
       case 'warning':
+        if (msg.code === 'QWEN_MODELS_UNAVAILABLE') setModelsRefreshing(false)
         setItems(prev => [...prev, { kind: 'warning', id: nextId(), code: msg.code, message: msg.message, ts: Date.now() }])
         break
       case 'toolActivity': {
@@ -1331,7 +1332,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (m) setModeState(m)
     setCurrentEngine(engine ?? 'claude') // 乐观：新建即按所选引擎，Ready 回来再确认
     // 非 Claude CLI 无可查询模型清单：新建即清掉残留的 Claude 模型/命令，避免空窗期误显示
-    if (engine === 'codex' || engine === 'antigravity') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
+    if (engine === 'codex' || engine === 'antigravity' || engine === 'qwen') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
     const apiBaseUrl = provider?.apiBaseUrl
     const authToken = provider?.authToken
     setCurrentProviderKind(apiBaseUrl ? 'thirdParty' : 'official')

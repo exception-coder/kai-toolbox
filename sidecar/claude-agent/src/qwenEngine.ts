@@ -11,6 +11,9 @@ import {
   type PermissionMode,
   type SDKMessage,
 } from '@qwen-code/sdk'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { activityOutputTail, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 
 export interface QwenTurnContext {
@@ -29,6 +32,7 @@ export interface QwenTurnContext {
 
 export interface QwenQueryLike extends AsyncIterable<SDKMessage> {
   close(): Promise<void>
+  getAvailableModels?(): Promise<Record<string, unknown> | null>
 }
 
 type QwenQueryFactory = (args: Parameters<typeof query>[0]) => QwenQueryLike
@@ -95,12 +99,43 @@ export async function runQwenTurn(ctx: QwenTurnContext, queryFactory: QwenQueryF
     }
     ctx.emit({
       type: 'error',
-      code: 'QWEN_QUERY_FAILED',
-      message: qwenRecoveryMessage(error),
+      code: /CLI process exited with code 1/i.test(error instanceof Error ? error.message : String(error)) && qwenAuthMissing(ctx.cwd)
+        ? 'QWEN_AUTH_REQUIRED' : 'QWEN_QUERY_FAILED',
+      message: qwenRecoveryMessage(error, ctx.cwd),
     })
     ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
   } finally {
     ctx.signal.removeEventListener('abort', onAbort)
+    await q?.close().catch(() => undefined)
+  }
+}
+
+/** Query the current Qwen Code provider without sending a user turn. */
+export async function listQwenModels(cwd: string, queryFactory: QwenQueryFactory = query) {
+  if (qwenAuthMissing(cwd)) throw new Error(qwenRecoveryMessage(new Error('QWEN_AUTH_REQUIRED'), cwd))
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(new Error('Qwen 模型目录检测超时')), 15_000)
+  timeout.unref?.()
+  let q: QwenQueryLike | undefined
+  try {
+    // Keep stdin open until the control request completes; an empty iterator may end the CLI before it replies.
+    const prompt = (async function* () {
+      await new Promise<void>(resolve => controller.signal.addEventListener('abort', () => resolve(), { once: true }))
+    })()
+    q = queryFactory({ prompt, options: { cwd, abortController: controller } })
+    const response = await q.getAvailableModels?.()
+    const raw = response?.models
+    if (!Array.isArray(raw)) throw new Error('Qwen Code 未返回模型目录')
+    return raw.flatMap((item: unknown) => {
+      if (!isRecord(item) || typeof item.id !== 'string' || !item.id.trim()) return []
+      return [{ value: item.id, displayName: typeof item.label === 'string' ? item.label : item.id,
+        description: typeof item.contextWindowSize === 'number' ? `上下文 ${item.contextWindowSize.toLocaleString()} tokens` : '' }]
+    })
+  } catch (error) {
+    throw new Error(qwenRecoveryMessage(error, cwd))
+  } finally {
+    clearTimeout(timeout)
+    controller.abort()
     await q?.close().catch(() => undefined)
   }
 }
@@ -187,12 +222,29 @@ function translateAssistantBlock(block: ContentBlock, index: number, emit: QwenT
   })
 }
 
-function qwenRecoveryMessage(error: unknown): string {
+function qwenRecoveryMessage(error: unknown, cwd: string): string {
   const detail = error instanceof Error ? error.message : String(error)
+  if (/CLI process exited with code 1|QWEN_AUTH_REQUIRED/i.test(detail) && qwenAuthMissing(cwd)) {
+    return 'Qwen Code 尚未选择认证方式。请在运行 Forge 的同一 Windows 账户下打开 Qwen Code CLI，使用 /auth 配置模型服务；千问办公登录不会自动授权 Qwen Code。配置后点击「重新同步模型」再重试。'
+  }
   if (/auth|login|credential|api.?key|unauthorized/i.test(detail)) {
     return `Qwen Code 认证不可用：${detail}。请先在运行 Sidecar 的账户下完成 qwen 登录或配置模型服务凭据。`
   }
   return `Qwen Code 执行失败：${detail}。请检查 Qwen Code 配置、模型服务和当前工作目录后重试。`
+}
+
+function qwenAuthMissing(cwd: string): boolean {
+  if (['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY'].some(name => process.env[name])) return false
+  const home = process.env.QWEN_HOME || path.join(os.homedir(), '.qwen')
+  for (const file of [path.join(home, 'settings.json'), path.join(cwd, '.qwen', 'settings.json')]) {
+    try {
+      const settings = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+      const security = isRecord(settings.security) ? settings.security : {}
+      const auth = isRecord(security.auth) ? security.auth : {}
+      if (typeof auth.selectedType === 'string' && auth.selectedType.trim()) return false
+    } catch { /* Missing or malformed settings cannot establish an auth selection. */ }
+  }
+  return true
 }
 
 function stringifyContent(value: unknown): string {

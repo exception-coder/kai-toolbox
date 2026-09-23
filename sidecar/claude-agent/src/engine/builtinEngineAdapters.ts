@@ -38,7 +38,7 @@ const descriptors = [
     'resume', 'interrupt', 'runtimeState', 'subagents', 'attachments', 'modelCatalog',
   ]),
   descriptor('qwen', 'Qwen Code', [
-    'resume', 'interrupt', 'runtimeState',
+    'resume', 'interrupt', 'runtimeState', 'modelCatalog',
   ]),
   descriptor('antigravity', 'Antigravity', [
     'resume', 'interrupt', 'attachments', 'modelCatalog',

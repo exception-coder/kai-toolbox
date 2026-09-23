@@ -1097,7 +1097,9 @@ public class ClaudeChatService {
         String target = ctx.engineSessions.get(engine);          // 切回则有原生句柄，首次为 null
         ctx.engine = engine;
         ctx.sdkSessionId = target;
+        ctx.currentModel = null; // 模型标识属于引擎，切换后由目标引擎目录重新选择。
         repo.switchEngine(ctx.sessionId, engine, engines, target, writeEngineSessions(ctx.engineSessions));
+        repo.updateSelectedModel(ctx.sessionId, null);
         sidecar.switchEngine(ctx.sessionId, engine, target, ctx.apiBaseUrl, ctx.authToken);
         log.info("[claude-chat] 会话 {} 切 agent -> {}（engines={}，resume={}）",
                 ctx.sessionId, engine, engines, target != null);

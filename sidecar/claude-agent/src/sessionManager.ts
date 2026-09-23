@@ -42,7 +42,7 @@ import {
 import { runAntigravityTurn } from './antigravityEngine.js'
 import { listAntigravityModels } from './antigravityRuntime.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
-import { runQwenTurn } from './qwenEngine.js'
+import { listQwenModels, runQwenTurn } from './qwenEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
 import { appendWindowsExecutionInstructions, windowsExecutionInstructions } from './windowsExecution.js'
@@ -1516,6 +1516,10 @@ export class SessionManager {
         await emitOpencodeModels(s.cwd, (event) => this.emit(sessionId, event), s.model)
         return
       }
+      if (s?.engine === 'qwen') {
+        await this.refreshQwenModels(sessionId, s)
+        return
+      }
       if (s?.engine === 'codex') {
         await this.refreshCodexModels(sessionId, s, true)
         return
@@ -1562,6 +1566,18 @@ export class SessionManager {
     if (!models) return
     for (const [id, s] of this.sessions) {
       if (s.engine === 'claude' && !s.apiBaseUrl) this.emit(id, { type: 'models', models, current: s.model ?? null })
+    }
+  }
+
+  private async refreshQwenModels(id: string, session: Session): Promise<void> {
+    try {
+      const models = await listQwenModels(session.cwd)
+      if (this.sessions.get(id) === session && session.engine === 'qwen') this.emit(id, { type: 'models', models, current: session.model ?? null })
+    } catch (error) {
+      if (this.sessions.get(id) === session && session.engine === 'qwen') this.emit(id, {
+        type: 'warning', code: 'QWEN_MODELS_UNAVAILABLE',
+        message: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 
@@ -1661,6 +1677,8 @@ export class SessionManager {
       this.emit(id, { type: 'models', models: loadCodexModels(s.codexHome), current: s.model ?? null })
       if (s.toolPolicy === 'review-only') void this.ensureReviewDefaults(id, s)
       else void this.refreshCodexModels(id, s, false)
+    } else if (s.engine === 'qwen') {
+      void this.refreshQwenModels(id, s)
     } else if (s.engine === 'antigravity') {
       void listAntigravityModels()
         .then(models => this.emit(id, { type: 'models', models, current: s.model ?? null }))
@@ -1899,6 +1917,7 @@ export class SessionManager {
     if (!isEngineId(engine) || !this.acceptEngine(id, engine)) return
     s.engine = engine
     s.sdkSessionId = sdkSessionId && sdkSessionId.length > 0 ? sdkSessionId : undefined
+    s.model = undefined
     const nextBaseUrl = apiBaseUrl?.trim()
     s.apiBaseUrl = nextBaseUrl || undefined
     s.authToken = nextBaseUrl ? authToken : undefined

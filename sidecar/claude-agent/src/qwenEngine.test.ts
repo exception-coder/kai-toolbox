@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import type { SDKMessage } from '@qwen-code/sdk'
-import { mapQwenPermissionMode, runQwenTurn, translateQwenMessage, type QwenQueryLike } from './qwenEngine.js'
+import { listQwenModels, mapQwenPermissionMode, runQwenTurn, translateQwenMessage, type QwenQueryLike } from './qwenEngine.js'
 
 test('maps Forge permissions to conservative Qwen modes', () => {
   assert.equal(mapQwenPermissionMode('default'), 'default')
@@ -58,4 +61,47 @@ test('resumes the persisted Qwen session and reports a recoverable authenticatio
   assert.equal(options?.resume, 'qwen-session-1')
   assert.match(String(events.find(event => event.type === 'error')?.message), /认证不可用/)
   assert.equal(events.at(-1)?.stopReason, 'error')
+})
+
+test('Qwen model catalog uses the SDK account and preserves provider model IDs', async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'qwen-models-test-'))
+  const previousHome = process.env.QWEN_HOME
+  process.env.QWEN_HOME = home
+  fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ security: { auth: { selectedType: 'openai' } } }))
+  t.after(() => { if (previousHome === undefined) delete process.env.QWEN_HOME; else process.env.QWEN_HOME = previousHome; fs.rmSync(home, { recursive: true, force: true }) })
+  let closed = false
+  const factory = (() => ({
+    async *[Symbol.asyncIterator](): AsyncIterator<SDKMessage> {},
+    getAvailableModels: async () => ({ subtype: 'get_available_models', models: [
+      { id: 'qwen3-coder', label: 'Qwen3 Coder', contextWindowSize: 262144 },
+    ] }),
+    close: async () => { closed = true },
+  } satisfies QwenQueryLike))
+  assert.deepEqual(await listQwenModels(process.cwd(), factory as never), [
+    { value: 'qwen3-coder', displayName: 'Qwen3 Coder', description: '上下文 262,144 tokens' },
+  ])
+  assert.equal(closed, true)
+})
+
+test('Qwen exit code 1 explains missing CLI auth instead of guessing a model failure', async t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'qwen-auth-test-'))
+  const previousHome = process.env.QWEN_HOME
+  const authKeys = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY'] as const
+  const previousKeys = authKeys.map(key => process.env[key])
+  process.env.QWEN_HOME = home
+  authKeys.forEach(key => { delete process.env[key] })
+  t.after(() => {
+    if (previousHome === undefined) delete process.env.QWEN_HOME; else process.env.QWEN_HOME = previousHome
+    authKeys.forEach((key, index) => { if (previousKeys[index] === undefined) delete process.env[key]; else process.env[key] = previousKeys[index] })
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+  const events: Array<Record<string, unknown>> = []
+  await runQwenTurn({ text: 'hello', cwd: home, permissionMode: 'default', signal: new AbortController().signal,
+    emit: event => events.push(event), setSdkSessionId: () => undefined }, (() => ({
+    async *[Symbol.asyncIterator](): AsyncIterator<SDKMessage> { throw new Error('CLI process exited with code 1') },
+    close: async () => undefined,
+  })) as never)
+  const error = events.find(event => event.type === 'error')
+  assert.equal(error?.code, 'QWEN_AUTH_REQUIRED')
+  assert.match(String(error?.message), /尚未选择认证方式/)
 })
