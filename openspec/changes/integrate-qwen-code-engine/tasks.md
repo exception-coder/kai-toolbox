@@ -16,3 +16,5 @@
 - [x] 3.2 Run Sidecar source compilation/tests, frontend checks, backend tests and OpenSpec strict validation
 - [x] 3.3 Run the Forge quality gate and commit only the verified change files
 - [ ] 3.4 After explicit restart authorization, publish the protected Sidecar `dist` and complete runtime acceptance
+- [x] 3.5 修复目录回退时 Antigravity 在切换菜单中无状态消失：打开菜单刷新目录，缺席时提供检测状态与重试；前端 TypeScript、构建、OpenSpec 与 Forge 门禁通过。
+- [ ] 3.6 在浏览器中确认切换菜单能从目录回退恢复到 Antigravity 可选项；仅靠实时目录接口不能证明页面交互结果。

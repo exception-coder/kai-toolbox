@@ -1165,7 +1165,10 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               <div className="relative hidden shrink-0 md:block">
                 <button
                   type="button"
-                  onClick={() => setEngineMenuOpen(o => !o)}
+                  onClick={() => {
+                    if (!engineMenuOpen) void engineCatalogQuery.refetch()
+                    setEngineMenuOpen(o => !o)
+                  }}
                   title={currentEngineTitle}
                   aria-label={currentEngineTitle}
                   className="cc-session-runtime-item flex items-center gap-1 px-1.5 text-[10px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
@@ -1181,7 +1184,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 {engineMenuOpen && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setEngineMenuOpen(false)} />
-                    <div className="absolute left-0 top-full z-20 mt-1 w-36 rounded-lg border bg-[var(--color-card)] p-1 shadow-lg">
+                    <div className="absolute left-0 top-full z-20 mt-1 w-44 rounded-lg border bg-[var(--color-card)] p-1 shadow-lg">
                       <div className="px-2 py-1 text-[10px] text-[var(--color-muted-foreground)]">切 agent（带上下文）</div>
                       {selectableEngines.map(eng => (
                         <button
@@ -1196,6 +1199,20 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                           {eng === chat.currentEngine && <Check className="size-3.5 shrink-0" />}
                         </button>
                       ))}
+                      {!selectableEngines.includes('antigravity') && (
+                        <button
+                          type="button"
+                          onClick={() => void engineCatalogQuery.refetch()}
+                          disabled={engineCatalogQuery.isFetching}
+                          title={engineCatalogQuery.data?.engines.find(entry => entry.id === 'antigravity')?.probe.detail
+                            ?? '重新检测 Antigravity CLI 是否可用'}
+                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:cursor-wait"
+                        >
+                          <EngineIcon engine="antigravity" className="size-3.5" />
+                          <span className="min-w-0 flex-1 truncate text-left">Antigravity</span>
+                          <span className="shrink-0 text-[10px]">{engineCatalogQuery.isFetching ? '检测中' : '重新检测'}</span>
+                        </button>
+                      )}
                     </div>
                   </>
                 )}
