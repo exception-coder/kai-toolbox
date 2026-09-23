@@ -8,6 +8,7 @@ import { initSession } from './session.js'
 import { resolveContext, discoverExecution } from './context.js'
 import { assessExecution } from './service.js'
 import { checkExecutionEvent } from './lifecycle.js'
+import { runExecutionVerification } from './verification.js'
 import { execute } from '../specResolution/tools.js'
 
 function fixture(t: test.TestContext) {
@@ -57,6 +58,52 @@ test('session resumes the existing task reference without granting another write
   assert.equal(denied.allowed, false)
   assert.equal(denied.code, 'WORKSPACE_BUSY')
   assert.equal(denied.enforcement, 'block')
+})
+
+test('a new session reclaims only a verified committed and clean stale writer', async t => {
+  const { root, context, bind } = fixture(t)
+  const oldExecution = bind()
+  fs.writeFileSync(path.join(root, 'src.js'), 'export const value = 2\n')
+  const verification = await runExecutionVerification({ ...context, inputFiles: ['src.js'],
+    checks: [{ kind: 'regression', program: process.execPath,
+      args: ['-e', "require('node:assert/strict').match(require('node:fs').readFileSync('src.js','utf8'), /value = 2/)"],
+      purpose: 'Prove the completed execution contains the expected value' }] })
+  assert.equal(verification.allowed, true)
+  git(root, ['add', 'src.js']); git(root, ['commit', '-qm', 'complete old execution'])
+
+  const next = { project: root, sessionId: 'two' }
+  const discovery = discoverExecution({ ...next, request: 'Continue with another scoped task', files: ['src.js'] })
+  const replacement = assessExecution({ ...next, discoveryId: discovery.discoveryId, actor: 'fixture',
+    behavior: 'preserved', design: 'none', impacts: ['logic'],
+    reason: 'Continue after the previous verified and committed execution completed.',
+    evidence: [{ path: 'README.md', quote: 'The existing contract returns one.' }] })
+
+  assert.notEqual(replacement.executionId, oldExecution.executionId)
+  assert.equal(initSession(next).execution?.ownsWriter, true)
+  assert.equal(initSession(context).execution, null)
+  const oldRecord = JSON.parse(fs.readFileSync(path.join(root, `.forge/spec-resolution/${oldExecution.executionId}.json`), 'utf8'))
+  assert.equal(oldRecord.release.status, 'AUTO_RECLAIMED')
+  assert.equal(oldRecord.release.reclaimedBySessionId, 'two')
+})
+
+test('a new session cannot reclaim an unverified, uncommitted or dirty writer', async t => {
+  const { root, context, bind } = fixture(t)
+  bind()
+  const next = { project: root, sessionId: 'two' }
+  const assessNext = () => assessExecution({ ...next,
+    discoveryId: discoverExecution({ ...next, request: 'Attempt another scoped task', files: ['src.js'] }).discoveryId,
+    actor: 'fixture', behavior: 'preserved', design: 'none', impacts: ['logic'],
+    reason: 'Attempt work while the previous execution remains incomplete.',
+    evidence: [{ path: 'README.md', quote: 'The existing contract returns one.' }] })
+  assert.throws(assessNext, /已有写入会话/)
+
+  fs.writeFileSync(path.join(root, 'src.js'), 'export const value = 2\n')
+  await runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: [{ kind: 'regression', program: process.execPath,
+    args: ['-e', "require('node:assert/strict').match(require('node:fs').readFileSync('src.js','utf8'), /value = 2/)"],
+    purpose: 'Prove the changed value before checking stale lock recovery' }] })
+  git(root, ['add', 'src.js']); git(root, ['commit', '-qm', 'commit verified execution'])
+  fs.writeFileSync(path.join(root, 'src.js'), 'export const value = 3\n')
+  assert.throws(assessNext, /已有写入会话/)
 })
 
 test('lifecycle centralizes branch, scope, stop and legacy-design decisions', t => {

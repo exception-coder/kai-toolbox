@@ -12,7 +12,9 @@ export type Execution = {
   schemaVersion: 1; executionId: string; project: string; branch: string; sessionId: string; baselineHead: string;
   assessment: Assessment; discovery: Discovery; policy: ReturnType<typeof executionPolicy>;
   designBaseline: Record<string, string>; verification?: { fingerprint: string; inputFiles: string[]; results: Array<{ kind: string; status: string; purpose: string; command: string[]; durationMs: number; diagnostic: string }> };
+  release?: { status: 'AUTO_RECLAIMED'; releasedAt: string; reclaimedBySessionId: string; commit: string };
 }
+type Writer = { sessionId: string; executionId: string }
 export function loadExecution(project: string, sessionId: string): Execution | undefined {
   const root = fs.realpathSync(project)
   const binding = statePath(root, `execution-session-${hash(sessionId)}`)
@@ -42,8 +44,12 @@ export function assessExecution(raw: unknown) {
   const executionId = `ex_${hash(JSON.stringify({ input, branch, discovery: discovery.discoveryId })).slice(0, 32)}`
   return locked(root, () => {
     const writerFile = statePath(root, 'execution-writer')
-    const writer = fs.existsSync(writerFile) ? readJson<{ sessionId: string }>(writerFile) : undefined
-    requireCondition(!writer || writer.sessionId === input.sessionId, 'WORKSPACE_BUSY', '共享工作区已有写入会话；等待完成或由原会话结束，不自动创建 worktree')
+    let writer = fs.existsSync(writerFile) ? readJson<Writer>(writerFile) : undefined
+    if (writer && writer.sessionId !== input.sessionId && reclaimCompletedWriter(root, writer, input.sessionId, branch)) {
+      writer = undefined
+    }
+    requireCondition(!writer || writer.sessionId === input.sessionId, 'WORKSPACE_BUSY',
+      '共享工作区已有写入会话且尚未证明完成；原会话需完成提交和验证并保持范围干净，无法证明完成时禁止接管')
     const existing = statePath(root, executionId)
     const record: Execution = fs.existsSync(existing) ? readJson<Execution>(existing) : {
       schemaVersion: 1, executionId, project: root, branch, sessionId: input.sessionId, baselineHead: git(root, ['rev-parse', 'HEAD']),
@@ -56,6 +62,35 @@ export function assessExecution(raw: unknown) {
       rules: ['保持当前分支，不为子任务自行建 branch/worktree；依赖顺序执行，每任务原子提交。',
         '提交前 run_execution_verification；影响范围扩大时重新探索、判定。', '分类依据来自具名 Agent 审阅，不代表人工批准或语义正确性证明。'] }
   })
+}
+
+function reclaimCompletedWriter(root: string, writer: Writer, nextSessionId: string, branch: string) {
+  try {
+    const recordFile = statePath(root, writer.executionId)
+    if (!fs.existsSync(recordFile)) return false
+    const record = readJson<Execution>(recordFile)
+    if (record.schemaVersion !== 1 || record.project !== root || record.executionId !== writer.executionId
+      || record.sessionId !== writer.sessionId || record.branch !== branch) return false
+    const commit = git(root, ['rev-parse', 'HEAD'])
+    if (commit === record.baselineHead) return false
+    git(root, ['merge-base', '--is-ancestor', record.baselineHead, 'HEAD'])
+    checkExecution({ project: root, sessionId: record.sessionId, operation: 'BEFORE_COMMIT' })
+    const scopedPaths = [...record.discovery.files, ...record.assessment.designFiles.map(file => file.path),
+      ...(record.assessment.changeId ? [`openspec/changes/${record.assessment.changeId}`] : [])]
+    if (git(root, ['status', '--porcelain', '--', ...scopedPaths])) return false
+    const bindingFile = statePath(root, `execution-session-${hash(writer.sessionId)}`)
+    if (fs.existsSync(bindingFile)) {
+      const binding = readJson<{ executionId: string }>(bindingFile)
+      if (binding.executionId !== writer.executionId) return false
+    }
+    record.release = { status: 'AUTO_RECLAIMED', releasedAt: new Date().toISOString(), reclaimedBySessionId: nextSessionId, commit }
+    saveJson(recordFile, record)
+    if (fs.existsSync(bindingFile)) fs.unlinkSync(bindingFile)
+    fs.unlinkSync(statePath(root, 'execution-writer'))
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function checkExecution(raw: unknown) {

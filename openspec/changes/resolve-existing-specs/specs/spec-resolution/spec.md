@@ -18,6 +18,11 @@ Forge SHALL bind execution to the assigned branch and a single writing session p
 - **WHEN** another session binds the same workspace or a bound Agent requests a task branch
 - **THEN** the guarded path rejects the operation with a recovery reason
 
+#### Scenario: A completed writer session did not release its lock
+- **WHEN** another session encounters a writer whose execution has current passing verification, a committed descendant of its baseline, the assigned branch, and no dirty execution or Change scope
+- **THEN** Forge atomically records the completed execution as reclaimed, releases its writer and session binding, and allows the new execution to bind
+- **AND** missing or stale verification, a missing commit, branch drift, dirty scope, mismatched state, or unreadable evidence continues to return `WORKSPACE_BUSY`
+
 ### Requirement: Verify applicable execution inputs
 Forge MUST execute declared authorized checks, record actual exits and content hashes, require every applicable category, and reject stale or mismatched staged inputs. Missing checks SHALL NOT count as passed.
 
