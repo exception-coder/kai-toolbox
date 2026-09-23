@@ -1497,7 +1497,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   title={entry.probe.detail ?? `${entry.displayName} 当前不可用`}
                   className="rounded-full border px-3 py-1 text-xs text-[var(--color-muted-foreground)] opacity-50"
                 >
-                  {entry.id === 'trae' ? 'TraeCode CLI（需安装）' : 'Antigravity（需升级）'}
+                  {entry.id === 'trae'
+                    ? `TraeCode CLI（${entry.probe.status === 'unavailable' ? '需登录' : '需安装或升级'}）`
+                    : 'Antigravity（需升级）'}
                 </button>
               ))}
             {newEngine === 'codex' && (

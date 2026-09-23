@@ -1,11 +1,18 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { promisify } from 'node:util'
+import { existsSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import type { EngineProbeResult } from './engine/engineContract.js'
 
 const execFileAsync = promisify(execFile)
 const MAX_LINE = 1024 * 1024
 const MAX_DIAGNOSTIC = 4096
 const TURN_TIMEOUT_MS = 15 * 60 * 1000
+
+export function supportsTraeExecJsonl(version: string | undefined, execHelp: string, resumeHelp: string): boolean {
+  return !!version && execHelp.includes('--json') && resumeHelp.includes('SESSION_ID')
+}
 
 export interface TraeTurnContext {
   text: string
@@ -20,17 +27,25 @@ export interface TraeTurnContext {
   setSdkSessionId: (id: string) => void
 }
 
-/** TraeCode CLI 2.0 is an external runtime; a desktop Trae login is not a CLI readiness signal. */
+/** Probe the installed CLI's real capabilities; TraeCode CLI 2.0 currently reports a 0.x binary version. */
 export async function probeTraeRuntime(command = traeCommand()): Promise<EngineProbeResult> {
   try {
     const { stdout, stderr } = await execFileAsync(command, ['--version'], { timeout: 3000, windowsHide: true })
     const version = `${stdout} ${stderr}`.match(/\b(\d+\.\d+(?:\.\d+)?)\b/)?.[1]
-    if (!version?.startsWith('2.')) return {
+    const execHelp = await execFileAsync(command, ['exec', '--help'], { timeout: 3000, windowsHide: true })
+    const resumeHelp = await execFileAsync(command, ['exec', 'resume', '--help'], { timeout: 3000, windowsHide: true })
+    if (!supportsTraeExecJsonl(version, execHelp.stdout, resumeHelp.stdout)) return {
       engine: 'trae', status: 'incompatible', runtimeName: 'TraeCode CLI', runtimeVersion: version,
-      detail: '需要 TraeCode CLI 2.0；请安装或升级 traecli',
+      detail: '当前 traecli 缺少 JSONL 执行或按 ID 恢复能力；请安装 TraeCode CLI 2.0',
+    }
+    try {
+      await execFileAsync(command, ['login', 'status'], { timeout: 3000, windowsHide: true })
+    } catch {
+      return { engine: 'trae', status: 'unavailable', runtimeName: 'TraeCode CLI', runtimeVersion: version,
+        detail: 'TraeCode CLI 已安装但未登录；请在运行 Forge 的同一 Windows 账户执行 traecli login' }
     }
     return { engine: 'trae', status: 'ready', runtimeName: 'TraeCode CLI', runtimeVersion: version,
-      detail: 'TraeCode CLI 2.0 已安装；实际执行仍需在同一账户完成 traecli login' }
+      detail: 'TraeCode CLI 已安装并登录；可运行实际会话' }
   } catch (error) {
     return { engine: 'trae', status: 'dependencyMissing', runtimeName: 'TraeCode CLI',
       detail: `未检测到可运行的 traecli：${error instanceof Error ? error.message : String(error)}` }
@@ -38,7 +53,16 @@ export async function probeTraeRuntime(command = traeCommand()): Promise<EngineP
 }
 
 export function traeCommand(): string {
-  return process.env.TRAECLI_PATH?.trim() || 'traecli'
+  if (process.env.TRAECLI_PATH?.trim()) return process.env.TRAECLI_PATH.trim()
+  if (process.platform === 'win32') {
+    const candidates = [
+      ...String(process.env.Path || process.env.PATH || '').split(path.delimiter).map(dir => path.join(dir, 'traex.exe')),
+      path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'TraeCLI', 'bin', 'traex.exe'),
+    ]
+    const found = candidates.find(file => existsSync(file))
+    if (found) return found
+  }
+  return 'traecli'
 }
 
 /** Never implicitly resume "the latest" thread: only the native ID bound to this Forge session may be reused. */
@@ -46,10 +70,14 @@ export function traeExecArgs(ctx: Pick<TraeTurnContext, 'model' | 'sdkSessionId'
   const readonly = ctx.toolPolicy === 'disabled' || ctx.toolPolicy === 'review-only'
     || ctx.toolPolicy === 'consult-readonly' || ctx.permissionMode === 'plan'
   const bypass = !readonly && ctx.permissionMode === 'bypassPermissions'
-  const args = ['exec', '--json', '--color', 'never', '--skip-git-repo-check', '--sandbox', readonly ? 'read-only' : bypass ? 'danger-full-access' : 'workspace-write',
-    '--ask-for-approval', 'never']
+  const sandbox = readonly ? 'read-only' : bypass ? 'danger-full-access' : 'workspace-write'
+  const args = ctx.sdkSessionId
+    ? ['--sandbox', sandbox, '--ask-for-approval', 'never', 'exec', 'resume', '--json', '--skip-git-repo-check',
+      '--permission-mode', readonly ? 'plan' : bypass ? 'bypass_permissions' : 'default']
+    : ['exec', '--json', '--color', 'never', '--skip-git-repo-check', '--sandbox', sandbox,
+      '--ask-for-approval', 'never']
   if (ctx.model) args.push('--model', ctx.model)
-  if (ctx.sdkSessionId) args.push(`--resume=${ctx.sdkSessionId}`)
+  if (ctx.sdkSessionId) args.push(ctx.sdkSessionId)
   args.push('-') // Read prompt from stdin; avoids command-line length and shell escaping issues.
   return args
 }

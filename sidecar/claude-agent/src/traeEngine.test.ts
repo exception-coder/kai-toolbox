@@ -3,13 +3,22 @@ import test from 'node:test'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import type { ChildProcess, spawn } from 'node:child_process'
-import { parseTraeLine, runTraeTurn, traeExecArgs } from './traeEngine.js'
+import { parseTraeLine, runTraeTurn, supportsTraeExecJsonl, traeExecArgs } from './traeEngine.js'
+
+test('TraeCode CLI 2.0 capability probe accepts the official 0.x binary version', () => {
+  assert.equal(supportsTraeExecJsonl('0.206.1', 'exec --json', 'exec resume SESSION_ID'), true)
+  assert.equal(supportsTraeExecJsonl('0.206.1', 'exec', 'resume SESSION_ID'), false)
+})
 
 test('Trae uses only an explicitly bound native session and safe default sandbox', () => {
   assert.deepEqual(traeExecArgs({ permissionMode: 'default' }), [
     'exec', '--json', '--color', 'never', '--skip-git-repo-check', '--sandbox', 'workspace-write', '--ask-for-approval', 'never', '-',
   ])
-  assert.ok(traeExecArgs({ permissionMode: 'plan', sdkSessionId: 'owned-thread' }).includes('--resume=owned-thread'))
+  const resume = traeExecArgs({ permissionMode: 'plan', sdkSessionId: 'owned-thread' })
+  assert.deepEqual(resume.slice(0, 10), ['--sandbox', 'read-only', '--ask-for-approval', 'never',
+    'exec', 'resume', '--json', '--skip-git-repo-check', '--permission-mode', 'plan'])
+  assert.deepEqual(resume.slice(-2), ['owned-thread', '-'])
+  assert.equal(resume.includes('--last'), false)
   assert.ok(traeExecArgs({ permissionMode: 'plan' }).includes('read-only'))
   assert.ok(traeExecArgs({ permissionMode: 'bypassPermissions' }).includes('danger-full-access'))
 })
