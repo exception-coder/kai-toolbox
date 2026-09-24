@@ -49,6 +49,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -302,7 +303,7 @@ public class ClaudeChatService {
         sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken,
                 codexHome, ctx.autoApprove, codexReasoningEffort, codexSpeed, ctx.executionPolicy,
                 ctx.consultEvidenceSystems);
-        pushGatewayModels(ctx); // 网关会话：拉网关 /v1/models 目录推给前端，命令菜单据此选/切模型
+        pushGatewayModels(ctx); // 网关会话：按服务商端点拉模型目录，供命令菜单选/切模型
         log.info("[claude-chat] open 会话 {} cwd={} mode={} engine={}", sessionId, cwd, ctx.mode, engine);
     }
 
@@ -1030,14 +1031,18 @@ public class ClaudeChatService {
         log.info("[claude-chat] 会话 {} 切换模型 -> {}", ctx.sessionId, msg.model());
     }
 
-    /** 主动同步 Claude 模型清单：转交 sidecar 重新询问 claude 二进制，最新清单经 models 事件回发（Claude Code 自更新后用）。 */
+    /** 主动同步当前会话模型目录：第三方网关走目录代理，官方引擎走 Sidecar。 */
     public void refreshModels(WebSocketSession ws) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        sidecar.refreshModels(ctx.sessionId);
+        if (ctx.apiBaseUrl != null && ("claude".equals(ctx.engine) || "codex".equals(ctx.engine))) {
+            pushGatewayModels(ctx);
+        } else {
+            sidecar.refreshModels(ctx.sessionId);
+        }
         log.info("[claude-chat] 会话 {} 请求同步模型清单", ctx.sessionId);
     }
 
@@ -1242,17 +1247,26 @@ public class ClaudeChatService {
     }
 
     /**
-     * 网关会话：异步拉取网关 {@code /v1/models} 目录并以 {@code Models} 事件推给前端，
+     * 网关会话：异步拉取服务商模型目录并以 {@code Models} 事件推给前端，
      * 让会话内命令菜单据此选/切模型（复用既有 setModel 链路）。非网关会话直接跳过——
      * 官方模型清单仍由 sidecar 的 supportedModels 提供。HTTP 调用放虚拟线程，不阻塞 WS 处理。
      */
     private void pushGatewayModels(SessionCtx ctx) {
         if (ctx.apiBaseUrl == null || ctx.apiBaseUrl.isBlank()) return;
+        String baseUrl = ctx.apiBaseUrl;
+        String authToken = ctx.authToken;
+        String engine = ctx.engine;
         Thread.ofVirtual().name("claude-chat-gw-models").start(() -> {
-            List<ModelInfo> models = providerModels.fetchModels(ctx.apiBaseUrl, ctx.authToken);
-            if (models.isEmpty()) return;
-            ctx.models = models;
+            ProviderModelService.FetchResult result = providerModels.fetch(baseUrl, authToken);
+            if (!Objects.equals(ctx.apiBaseUrl, baseUrl) || !Objects.equals(ctx.authToken, authToken)
+                    || !Objects.equals(ctx.engine, engine)) {
+                return;
+            }
+            ctx.models = result.models();
             sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
+            if (result.error() != null) {
+                sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "PROVIDER_MODELS_UNAVAILABLE", result.error()));
+            }
         });
     }
 
@@ -1506,9 +1520,11 @@ public class ClaudeChatService {
                 onDecisionPrompt(ctx, msg, "Claude 有问题等你回答", "请回到对话作答");
             }
             case "models" -> {
-                ctx.models = parseModels(node.get("models"));
-                ctx.currentModel = node.path("current").asText(null);
-                sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
+                if (ctx.apiBaseUrl == null || ctx.apiBaseUrl.isBlank()) {
+                    ctx.models = parseModels(node.get("models"));
+                    ctx.currentModel = node.path("current").asText(null);
+                    sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
+                }
             }
             case "userMessage" -> sendToBrowser(ctx,
                     seq -> new ServerMessage.UserMessage(seq, node.path("uuid").asText("")));

@@ -8,6 +8,7 @@ import { fetchProviderModels } from '../api'
 import { groupModels, modelPlatform } from './modelGroups'
 import type { ModelInfo } from '../types'
 import { loadProfiles, removeProfile, upsertProfile, type ProviderProfile } from '../providerProfiles'
+import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
 
 interface Props {
   onClose: () => void
@@ -93,6 +94,11 @@ export function ProviderProfilesPanel({ onClose }: Props) {
           <div>
             <label className="text-xs text-[var(--color-muted-foreground)]">baseURL（Anthropic 兼容）</label>
             <Input value={draft.baseUrl} onChange={e => setDraft({ ...draft, baseUrl: e.target.value })} placeholder="https://4sapi.com" className="mt-0.5" />
+            {isOfficialDeepSeekBaseUrl(draft.baseUrl) && (
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
+                DeepSeek 官方填 https://api.deepseek.com；Claude 对话走 /anthropic，模型目录走 /models。请使用 DeepSeek 开放平台的 API Key。
+              </p>
+            )}
           </div>
           <div>
             <label className="text-xs text-[var(--color-muted-foreground)]">API Key</label>
@@ -216,14 +222,16 @@ function ModelField({
         <Input
           value={value}
           onChange={e => onChange(e.target.value)}
-          placeholder="网关挂的模型名，如 claude-sonnet-4-5"
+          placeholder={isOfficialDeepSeekBaseUrl(baseUrl) ? '例如 deepseek-flash（以目录为准）' : '网关挂的模型名，如 claude-sonnet-4-5'}
           className="mt-0.5"
         />
       )}
 
       {error && (
         <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-          {error}，已切到手动输入。填好 baseURL/Key 后点「刷新」重试。
+          {error}{isProviderAuthenticationError(error)
+            ? '。手动填写模型不能绕过认证，请核对 DeepSeek 开放平台 API Key 后刷新。'
+            : '，已切到手动输入。核对 baseURL/Key 后点「刷新」重试。'}
         </p>
       )}
     </div>

@@ -38,6 +38,7 @@ import '../styles/skin.css'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { ProviderSwitch } from '../components/ProviderSwitch'
+import { GatewaySessionModelPicker } from '../components/GatewaySessionModelPicker'
 import { CodexSessionOptions } from '../components/CodexSessionOptions'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
@@ -59,6 +60,7 @@ import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
 import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
@@ -1641,7 +1643,10 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               )}
               {newProviderId !== '' && !providerModelsLoading && providerModels.length === 0 && (
                 <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                  没拉到模型目录{providerModelsError ? `：${providerModelsError}` : ''}。可直接手填模型名。
+                  没拉到模型目录{providerModelsError ? `：${providerModelsError}` : ''}。
+                  {isProviderAuthenticationError(providerModelsError)
+                    ? '请在「管理」中核对 API Key；手填模型无法绕过认证。'
+                    : '可直接手填模型名。'}
                 </p>
               )}
               {newProviderId !== '' && providerModels.length > 0 && (
@@ -1653,7 +1658,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 <p className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
                   {newEngine === 'codex'
                     ? '将使用第三方网关（OpenAI 兼容），不是本机 ~/.codex 官方登录。网关 baseURL 只填 host 即可，Codex 会自动补 /v1。'
-                    : '将使用第三方网关，不是 Claude Code 官方登录。'}
+                    : providers.some(p => p.id === newProviderId && isOfficialDeepSeekBaseUrl(p.baseUrl))
+                      ? '将使用 DeepSeek 开放平台 Key；Claude 对话自动走 /anthropic，需选择实际可用的 DeepSeek 模型。'
+                      : '将使用第三方网关，不是 Claude Code 官方登录。'}
                 </p>
               )}
             </div>
@@ -2468,6 +2475,16 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                       hideManage
                     />
                   </div>
+                  {chat.currentEngine === 'claude' && chat.currentProviderKind === 'thirdParty' && (
+                    <GatewaySessionModelPicker
+                      models={chat.models}
+                      currentModel={chat.currentModel}
+                      refreshing={chat.modelsRefreshing}
+                      disabled={planLocked}
+                      onChange={chat.setModel}
+                      onRefresh={chat.refreshModels}
+                    />
+                  )}
                   <div className="md:hidden">
                     <ProviderDiagPanel
                       providerKind={chat.currentProviderKind}

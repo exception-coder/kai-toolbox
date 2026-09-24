@@ -42,6 +42,7 @@ import {
 import { runAntigravityTurn } from './antigravityEngine.js'
 import { listAntigravityModels } from './antigravityRuntime.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
+import { claudeGatewayEnvironment, verifiableResponseModel } from './claudeGatewayRouting.js'
 import { listQwenModels, runQwenTurn } from './qwenEngine.js'
 import { runTraeTurn } from './traeEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
@@ -1312,7 +1313,8 @@ class Session {
         const msg = m.message as Record<string, unknown> | undefined
         // API 响应里的真实模型（权威，非模型自述）——网关把请求路由到哪个上游，这里就是哪个
         const mdl = msg?.model
-        if (typeof mdl === 'string' && mdl) this.lastResponseModel = mdl
+        const responseModel = verifiableResponseModel(mdl)
+        if (responseModel) this.lastResponseModel = responseModel
         const content = msg?.content as Array<Record<string, unknown>> | undefined
         const assistantUuid = typeof m.uuid === 'string' ? m.uuid : undefined
         const hasText = content?.some(b => b.type === 'text' && typeof b.text === 'string' && b.text.length > 0)
@@ -1478,13 +1480,7 @@ class Session {
   }
 
   private gatewayEnv(): NodeJS.ProcessEnv {
-    const key = this.authToken ?? ''
-    return {
-      ...process.env,
-      ANTHROPIC_BASE_URL: this.apiBaseUrl,
-      ANTHROPIC_API_KEY: key,
-      ANTHROPIC_AUTH_TOKEN: key,
-    }
+    return claudeGatewayEnvironment(this.apiBaseUrl, this.authToken ?? '', this.model, process.env)
   }
 
   /**

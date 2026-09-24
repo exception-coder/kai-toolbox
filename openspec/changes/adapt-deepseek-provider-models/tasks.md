@@ -1,0 +1,4 @@
+- [x] 确认 DeepSeek 官方对话与模型目录接口，并区分截图中的 401 与 404。
+- [x] 修正官方 DeepSeek 端点、会话凭据隔离、模型目录缓存与 UI 恢复提示。
+- [x] Java 专项 2 项、Sidecar 263 通过/1 跳过、前端专项 4 项、TypeScript/Vite 构建、宿主装配、OpenSpec 严格校验及 Forge CLI 门禁均通过；Forge Runtime 场景不包含新版 DeepSeek 实流。
+- [ ] 经用户明确授权重启后，以有效开放平台 Key 验证模型目录与真实 Claude 对话并观察稳定性。

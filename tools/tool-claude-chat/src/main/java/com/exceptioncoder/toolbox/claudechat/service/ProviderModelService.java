@@ -10,8 +10,12 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,10 +23,11 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 拉取第三方 Anthropic 兼容网关（如 4sapi）的可用模型目录。
  *
- * <p>由后端代理请求 {@code GET {baseUrl}/v1/models}（避免浏览器 CORS、key 不必额外暴露到前端 fetch），
- * 同时发 {@code x-api-key} 与 {@code Authorization: Bearer}，兼容 Anthropic / OpenAI 两种鉴权习惯；
+ * <p>由后端代理请求服务商的模型目录（DeepSeek 官方使用根路径 {@code /models}，通用网关使用
+ * {@code /v1/models}），避免浏览器 CORS。
+ * 通用网关同时发 {@code x-api-key} 与 {@code Authorization: Bearer}；DeepSeek 官方只发 Bearer。
  * 返回体也按两种结构解析（{@code data[]} / {@code models[]}，取 {@code id}/{@code name} 与可选展示名）。
- * 拉取失败时返回空表 + 可读错误原因（供前端提示，而非静默吞掉）。按 baseUrl 缓存短 TTL，避免反复拉取。
+ * 拉取失败时返回空表 + 可读错误原因（供前端提示，而非静默吞掉）。按 baseUrl 与凭据摘要缓存短 TTL。
  *
  * <p>强制 HTTP/1.1：部分网关（new-api 等常挂 nginx）在 Java HttpClient 默认 HTTP/2 协商下偶发连不上
  * （表现为 “连接被关闭/无响应”）。模型列表是低频小请求，用 1.1 更稳。
@@ -58,35 +63,44 @@ public class ProviderModelService {
         return fetch(baseUrl, key).models();
     }
 
-    /** 取网关模型目录 + 错误原因（控制器用，把原因回给前端展示）。带 baseUrl 维度 60s 缓存（仅缓存成功结果）。 */
+    /** 取网关模型目录 + 错误原因；按地址和凭据摘要缓存成功结果 60 秒。 */
     public FetchResult fetch(String baseUrl, String key) {
         if (baseUrl == null || baseUrl.isBlank()) return FetchResult.fail("未配置网关 baseURL");
         String base = baseUrl.trim().replaceAll("/+$", "");
         long now = System.currentTimeMillis();
-        Cached c = cache.get(base);
+        String cacheKey = cacheKey(base, key);
+        Cached c = cache.get(cacheKey);
         if (c != null && now - c.at() < TTL_MS && !c.models().isEmpty()) return FetchResult.ok(c.models());
         FetchResult r = doFetch(base, key);
-        if (!r.models().isEmpty()) cache.put(base, new Cached(now, r.models()));
+        if (!r.models().isEmpty()) cache.put(cacheKey, new Cached(now, r.models()));
         return r;
     }
 
     private FetchResult doFetch(String base, String key) {
-        String url = base + "/v1/models";
+        String url = base;
         try {
+            URI endpoint = modelCatalogUri(base);
+            url = endpoint.toString();
             HttpRequest.Builder b = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
+                    .uri(endpoint)
                     .timeout(Duration.ofSeconds(10))
-                    .header("anthropic-version", "2023-06-01")
                     .GET();
+            if (!isOfficialDeepSeek(endpoint)) {
+                b.header("anthropic-version", "2023-06-01");
+            }
             if (key != null && !key.isBlank()) {
-                b.header("x-api-key", key);
+                if (!isOfficialDeepSeek(endpoint)) {
+                    b.header("x-api-key", key);
+                }
                 b.header("Authorization", "Bearer " + key);
             }
             HttpResponse<String> resp = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
             String body = resp.body() == null ? "" : resp.body();
             if (resp.statusCode() / 100 != 2) {
                 String detail = extractErrorMessage(body);
-                String msg = "网关返回 HTTP " + resp.statusCode() + (detail == null ? "" : "：" + detail);
+                String msg = isOfficialDeepSeek(endpoint) && resp.statusCode() == 401
+                        ? "DeepSeek API Key 未通过认证；请核对开放平台 Key 与当前档案，模型目录和对话均不可用"
+                        : "网关返回 HTTP " + resp.statusCode() + (detail == null ? "" : "：" + detail);
                 log.warn("[claude-chat] 拉网关模型目录失败 {} -> {}", url, msg);
                 return FetchResult.fail(msg);
             }
@@ -113,6 +127,29 @@ public class ProviderModelService {
             String msg = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : "：" + e.getMessage());
             log.warn("[claude-chat] 拉网关模型目录异常 {} -> {}", url, msg);
             return FetchResult.fail("请求网关失败：" + msg);
+        }
+    }
+
+    /** 将配置地址映射为该服务商真正支持的模型目录端点。 */
+    static URI modelCatalogUri(String base) {
+        URI uri = URI.create(base);
+        if (isOfficialDeepSeek(uri)) {
+            return URI.create("https://api.deepseek.com/models");
+        }
+        return URI.create(base + "/v1/models");
+    }
+
+    private static boolean isOfficialDeepSeek(URI uri) {
+        return "api.deepseek.com".equalsIgnoreCase(uri.getHost());
+    }
+
+    private static String cacheKey(String base, String key) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest((key == null ? "" : key).getBytes(StandardCharsets.UTF_8));
+            return base + ':' + HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 不可用", e);
         }
     }
 
