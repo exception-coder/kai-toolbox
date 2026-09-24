@@ -43,7 +43,7 @@ import { runAntigravityTurn } from './antigravityEngine.js'
 import { listAntigravityModels } from './antigravityRuntime.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
 import { claudeGatewayEnvironment, verifiableResponseModel } from './claudeGatewayRouting.js'
-import { claudeGatewayUserCapabilities, claudeSettingSources } from './claudeGatewaySettings.js'
+import { claudeGatewayUserCapabilities, claudeSessionRoutingOptions } from './claudeGatewaySettings.js'
 import { listQwenModels, runQwenTurn } from './qwenEngine.js'
 import { runTraeTurn } from './traeEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
@@ -882,8 +882,7 @@ class Session {
         const q = query({
           prompt: buildPrompt(),
           options: {
-            ...(this.apiBaseUrl ? { settingSources: claudeSettingSources(this.apiBaseUrl),
-              ...(gatewayCapabilities?.plugins?.length ? { plugins: gatewayCapabilities.plugins } : {}) } : {}),
+            ...(this.apiBaseUrl && gatewayCapabilities?.plugins?.length ? { plugins: gatewayCapabilities.plugins } : {}),
             // 仅 oneShot 传：作为真正的 system 提示（字符串=替换 SDK 默认 system）。
             // 交互式聊天 runTurn：官方会话走 SDK 默认；第三方网关会话在默认提示后 append 引导词
             // （非 Claude 模型经 API 跑 Claude Code 时会乱用计划模式/ExitPlanMode，慢且易报错）。
@@ -937,16 +936,13 @@ class Session {
             ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
             cwd: safeCwd,
             ...(additionalDirectories.length ? { additionalDirectories } : {}),
-            model: this.model || undefined,
-            resume: this.sdkSessionId || undefined,
+            // 网关会话逐轮传入 env/model/resume；官方会话清除继承的网关凭据。
+            ...claudeSessionRoutingOptions(this.apiBaseUrl, this.model, this.sdkSessionId || undefined,
+              this.apiBaseUrl ? this.gatewayEnv() : this.officialEnv()),
             permissionMode: this.permissionMode,
             includePartialMessages: true,
             canUseTool: this.perms.canUseTool,
             abortController: ac,
-            // 网关会话注入 env（SDK 的 env 会整体替换子进程环境，故 spread process.env 再覆盖）。
-            // 官方会话也必须显式传 env：把可能从 sidecar 进程继承来的 ANTHROPIC_BASE_URL/AUTH_TOKEN/API_KEY
-            // 剔除掉——否则运行后端的 shell 若设过这些（为让 CLI 走三方），「切回官方」会因继承脏环境而仍走三方。
-            env: this.apiBaseUrl ? this.gatewayEnv() : this.officialEnv(),
             // 把 native 二进制的 stderr 透到 sidecar 日志，失败时也并入错误信息
             stderr: (s: string) => {
               nativeStderr += s

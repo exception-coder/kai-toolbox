@@ -9,7 +9,7 @@ test('Claude routes official DeepSeek profiles through its Anthropic-compatible 
   assert.equal(claudeGatewayBaseUrl('http://api.deepseek.com'), 'https://api.deepseek.com/anthropic')
   assert.equal(isOfficialDeepSeekGateway('https://api.deepseek.com'), true)
   const env = claudeGatewayEnvironment('https://api.deepseek.com', 'test-key', 'deepseek-flash', {
-    ANTHROPIC_API_KEY: 'stale-key', ANTHROPIC_MODEL: 'stale-model',
+    ANTHROPIC_BASE_URL: 'https://4sapi.com', ANTHROPIC_API_KEY: 'stale-key', ANTHROPIC_MODEL: 'stale-model',
   })
   assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.deepseek.com/anthropic')
   assert.equal(env.ANTHROPIC_API_KEY, undefined)

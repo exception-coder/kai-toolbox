@@ -10,6 +10,12 @@ export function claudeSettingSources(baseUrl: string | undefined): Options['sett
   return baseUrl ? ['project', 'local'] : undefined
 }
 
+export function claudeSessionRoutingOptions(baseUrl: string | undefined, model: string | undefined,
+  resume: string | undefined, env: NodeJS.ProcessEnv): Pick<Options, 'model' | 'resume' | 'env' | 'settingSources'> {
+  return { model: model || undefined, resume: resume || undefined, env,
+    ...(baseUrl ? { settingSources: claudeSettingSources(baseUrl) } : {}) }
+}
+
 function readOptionalJson(file: string): JsonObject {
   if (!fs.existsSync(file)) return {}
   try {

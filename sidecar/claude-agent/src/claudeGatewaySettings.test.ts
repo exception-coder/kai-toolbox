@@ -3,12 +3,23 @@ import test from 'node:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { claudeGatewayUserCapabilities, claudeSettingSources } from './claudeGatewaySettings.js'
+import { claudeGatewayUserCapabilities, claudeSessionRoutingOptions, claudeSettingSources } from './claudeGatewaySettings.js'
 
 test('only third-party Claude sessions isolate user settings; official sessions keep SDK defaults', () => {
   assert.deepEqual(claudeSettingSources('https://api.deepseek.com/v1'), ['project', 'local'])
   assert.deepEqual(claudeSettingSources('https://gateway.example/v1'), ['project', 'local'])
   assert.equal(claudeSettingSources(undefined), undefined)
+})
+
+test('an existing Claude native session resumes with the same selected gateway and model', () => {
+  const env = { ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic', ANTHROPIC_AUTH_TOKEN: 'session-key' }
+  const options = claudeSessionRoutingOptions('https://api.deepseek.com/v1', 'deepseek-flash',
+    'old-native-session', env)
+  assert.equal(options.resume, 'old-native-session')
+  assert.equal(options.model, 'deepseek-flash')
+  assert.equal(options.env, env)
+  assert.deepEqual(options.settingSources, ['project', 'local'])
+  assert.equal(claudeSessionRoutingOptions(undefined, 'claude-sonnet', 'official-session', {}).settingSources, undefined)
 })
 
 test('gateway capabilities inherit only enabled user plugins and personal MCP', t => {
