@@ -22,7 +22,12 @@ test('Claude leaves other provider URLs untouched', () => {
   assert.equal(claudeGatewayBaseUrl('https://4sapi.example'), 'https://4sapi.example')
   assert.equal(isOfficialDeepSeekGateway('https://deepseek.example'), false)
   assert.equal(isOfficialDeepSeekGateway('https://api.deepseek.com.evil.example'), false)
-  assert.equal(claudeGatewayEnvironment('https://4sapi.example', 'test-key', undefined, {}).ANTHROPIC_API_KEY, 'test-key')
+  const env = claudeGatewayEnvironment('https://4sapi.example', 'test-key', 'gateway-model', {
+    ANTHROPIC_MODEL: 'stale-model', ANTHROPIC_AUTH_TOKEN: 'stale-key',
+  })
+  assert.equal(env.ANTHROPIC_API_KEY, 'test-key')
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'test-key')
+  assert.equal(env.ANTHROPIC_MODEL, 'gateway-model')
 })
 
 test('synthetic assistant model is not presented as an upstream response', () => {

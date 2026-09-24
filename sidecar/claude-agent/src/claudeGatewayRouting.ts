@@ -31,17 +31,17 @@ export function claudeGatewayEnvironment(
     ANTHROPIC_BASE_URL: claudeGatewayBaseUrl(baseUrl),
     ANTHROPIC_AUTH_TOKEN: key,
   }
+  for (const name of ['ANTHROPIC_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL']) delete env[name]
+  if (model) {
+    env.ANTHROPIC_MODEL = model
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL = model
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL = model
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = model
+    env.CLAUDE_CODE_SUBAGENT_MODEL = model
+  }
   if (isOfficialDeepSeekGateway(baseUrl)) {
     delete env.ANTHROPIC_API_KEY
-    for (const name of ['ANTHROPIC_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL',
-      'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL']) delete env[name]
-    if (model) {
-      env.ANTHROPIC_MODEL = model
-      env.ANTHROPIC_DEFAULT_OPUS_MODEL = model
-      env.ANTHROPIC_DEFAULT_SONNET_MODEL = model
-      env.ANTHROPIC_DEFAULT_HAIKU_MODEL = model
-      env.CLAUDE_CODE_SUBAGENT_MODEL = model
-    }
   } else {
     env.ANTHROPIC_API_KEY = key
   }

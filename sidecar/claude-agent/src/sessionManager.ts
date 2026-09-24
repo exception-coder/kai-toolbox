@@ -2,7 +2,7 @@ import { assemblyAllowsTool, filterClaudeAssembly, parseConsultToolAssembly, typ
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { query, forkSession } from '@anthropic-ai/claude-agent-sdk'
+import { query, forkSession, type Options as ClaudeOptions } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
 import { createWelfareDbServer } from './welfareDb.js'
 import { createErpDbServer } from './erpDb.js'
@@ -43,6 +43,7 @@ import { runAntigravityTurn } from './antigravityEngine.js'
 import { listAntigravityModels } from './antigravityRuntime.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
 import { claudeGatewayEnvironment, verifiableResponseModel } from './claudeGatewayRouting.js'
+import { claudeGatewayUserCapabilities, claudeSettingSources } from './claudeGatewaySettings.js'
 import { listQwenModels, runQwenTurn } from './qwenEngine.js'
 import { runTraeTurn } from './traeEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
@@ -869,12 +870,20 @@ class Session {
         if (crossTopo) (mcpServers as Record<string, unknown>)['cross-topology'] = crossTopo
       }
       if (this.toolPolicy === 'consult-readonly') filterClaudeAssembly(mcpServers, this.consultToolAssembly)
+      const gatewayCapabilities = this.apiBaseUrl && this.toolPolicy !== 'disabled'
+        && this.toolPolicy !== 'review-only' && this.toolPolicy !== 'consult-readonly'
+        ? claudeGatewayUserCapabilities() : undefined
+      for (const [name, server] of Object.entries(gatewayCapabilities?.mcpServers ?? {})) {
+        if (!(name in mcpServers)) (mcpServers as NonNullable<ClaudeOptions['mcpServers']>)[name] = server
+      }
       this.claudeSessionMcpNames = new Set(Object.keys(mcpServers))
 
       try {
         const q = query({
           prompt: buildPrompt(),
           options: {
+            ...(this.apiBaseUrl ? { settingSources: claudeSettingSources(this.apiBaseUrl),
+              ...(gatewayCapabilities?.plugins?.length ? { plugins: gatewayCapabilities.plugins } : {}) } : {}),
             // 仅 oneShot 传：作为真正的 system 提示（字符串=替换 SDK 默认 system）。
             // 交互式聊天 runTurn：官方会话走 SDK 默认；第三方网关会话在默认提示后 append 引导词
             // （非 Claude 模型经 API 跑 Claude Code 时会乱用计划模式/ExitPlanMode，慢且易报错）。
