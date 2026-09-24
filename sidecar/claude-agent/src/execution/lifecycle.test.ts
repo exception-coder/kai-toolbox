@@ -6,7 +6,7 @@ import path from 'node:path'
 import { git } from './repository.js'
 import { initSession } from './session.js'
 import { resolveContext, discoverExecution } from './context.js'
-import { assessExecution } from './service.js'
+import { abortExecution, assessExecution, inspectExecutionWriter } from './service.js'
 import { checkExecutionEvent } from './lifecycle.js'
 import { runExecutionVerification } from './verification.js'
 import { execute } from '../specResolution/tools.js'
@@ -104,6 +104,46 @@ test('a new session cannot reclaim an unverified, uncommitted or dirty writer', 
   git(root, ['add', 'src.js']); git(root, ['commit', '-qm', 'commit verified execution'])
   fs.writeFileSync(path.join(root, 'src.js'), 'export const value = 3\n')
   assert.throws(assessNext, /已有写入会话/)
+})
+
+test('explicit abort audits the exact writer and preserves dirty scope without inventing completion', t => {
+  const { root, context, bind } = fixture(t)
+  const bound = bind()
+  fs.writeFileSync(path.join(root, 'src.js'), 'export const value = 3\n')
+  const snapshot = inspectExecutionWriter({ project: root })
+  assert.equal(snapshot.writer?.executionId, bound.executionId)
+  assert.equal(snapshot.writer?.verification, 'NOT_RUN')
+  assert.ok(snapshot.writer?.scopeStatus.some(line => line.includes('src.js')))
+  const request = { project: root, executionId: bound.executionId, ownerSessionId: context.sessionId,
+    branch: snapshot.branch, expectedHead: snapshot.head, actor: 'operator',
+    reason: 'Original session was lost; preserve its unfinished working files for review.' }
+  assert.throws(() => abortExecution({ ...request, expectedHead: '0'.repeat(40) }), /已变化/)
+  assert.equal(inspectExecutionWriter({ project: root }).writer?.executionId, bound.executionId)
+  const result = abortExecution(request)
+  assert.equal(result.release.status, 'ABORTED')
+  assert.equal(inspectExecutionWriter({ project: root }).writer, null)
+  assert.equal(fs.readFileSync(path.join(root, 'src.js'), 'utf8'), 'export const value = 3\n')
+  const record = JSON.parse(fs.readFileSync(path.join(root, `.forge/spec-resolution/${bound.executionId}.json`), 'utf8'))
+  assert.equal(record.release.reason, request.reason)
+  assert.equal(record.verification, undefined)
+})
+
+test('an interrupted abort can finish releasing its writer without replacing its audit', t => {
+  const { root, context, bind } = fixture(t)
+  const bound = bind()
+  const snapshot = inspectExecutionWriter({ project: root })
+  const recordFile = path.join(root, `.forge/spec-resolution/${bound.executionId}.json`)
+  const record = JSON.parse(fs.readFileSync(recordFile, 'utf8'))
+  const reason = 'Original session was lost; retry the same interrupted abort operation.'
+  record.release = { status: 'ABORTED', releasedAt: '2026-01-01T00:00:00.000Z', actor: 'operator',
+    reason, head: snapshot.head, scopeStatus: [] }
+  fs.writeFileSync(recordFile, JSON.stringify(record))
+  const binding = fs.readdirSync(path.join(root, '.forge/spec-resolution')).find(name => name.startsWith('execution-session-'))!
+  fs.unlinkSync(path.join(root, '.forge/spec-resolution', binding))
+  const result = abortExecution({ project: root, executionId: bound.executionId, ownerSessionId: context.sessionId,
+    branch: snapshot.branch, expectedHead: snapshot.head, actor: 'operator', reason })
+  assert.equal(result.release.releasedAt, '2026-01-01T00:00:00.000Z')
+  assert.equal(inspectExecutionWriter({ project: root }).writer, null)
 })
 
 test('lifecycle centralizes branch, scope, stop and legacy-design decisions', t => {

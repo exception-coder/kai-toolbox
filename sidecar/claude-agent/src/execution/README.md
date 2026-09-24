@@ -19,6 +19,8 @@
 
 `session_init` 和 `resolve_execution_context` 不写文件，也不要求已知实施范围。准备实施时保留 `discover_execution → assess_execution → check_execution_readiness → run_execution_verification → finish_execution`。现有状态路径、schemaVersion 1、哈希和锁不迁移；新增可选 taskId 引用不升级已有验证。若原会话漏调 `finish_execution`，后续绑定只会在旧执行已验证、已提交、同分支且执行与 Change 范围干净时原子回收 writer，并在旧记录中留下审计；无法证明完成时继续阻断。
 
+原会话丢失时先调用 `inspect_execution_writer` 核对执行 ID、原会话、分支、HEAD 及范围状态。确认不再继续该执行后，使用 `abort_execution` 提交上述身份、具名 actor 和原因；它会在同一状态锁内复核并记录 `ABORTED`，保留原记录和工作文件，只释放写入与会话指针。上下文变化需重新查询，不能按超时或通过删除状态文件接管。
+
 `check_execution_event` 的协议版本为 2：返回 allowed、code、enforcement、governanceBackend、legacyGovernanceRequired。已绑定执行拒绝为 block；旧规格路径使用 legacyMode。没有收到有效结果时，由适配器执行明确的传输故障策略，不能读取私有状态猜测当前绑定。
 
 验证复用旧执行/规格专项，并增加 `lifecycle.test.ts` 的只读、恢复、第二写入者、分支、范围、Stop 与错误协议场景。真实宿主加载和触发仍需单独记录，模块测试不提供该证明。

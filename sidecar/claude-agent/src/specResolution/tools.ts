@@ -49,12 +49,12 @@ async function call(name: string, args: unknown, hostSessionId?: string) {
 export function registerSpecResolutionTools(server: McpServer, hostSessionId?: string) {
   for (const definition of definitions) server.registerTool(definition.name, {
     description: definition.description, inputSchema: definition.schema.shape,
-    annotations: { readOnlyHint: ['session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: definition.name === 'run_execution_verification', idempotentHint: definition.name !== 'run_execution_verification' },
+    annotations: { readOnlyHint: ['inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['abort_execution', 'run_execution_verification'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification' },
   }, (args: unknown) => call(definition.name, args, hostSessionId))
 }
 export function sdkSpecResolutionTools(hostSessionId?: string) {
   return definitions.map(definition => tool(definition.name, definition.description, definition.schema.shape,
     async (args: unknown) => call(definition.name, args, hostSessionId), { annotations: {
-      readOnlyHint: ['session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: definition.name === 'run_execution_verification', idempotentHint: definition.name !== 'run_execution_verification',
+      readOnlyHint: ['inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['abort_execution', 'run_execution_verification'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification',
     } }))
 }

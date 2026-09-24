@@ -1,11 +1,15 @@
-import { discoverExecutionSchema, assessExecutionSchema, executionCheckSchema, executionContextSchema, runExecutionSchema, resolveContextSchema, executionEventSchema } from './contracts.js'
+import { abortExecutionSchema, discoverExecutionSchema, assessExecutionSchema, executionCheckSchema, executionContextSchema, runExecutionSchema, resolveContextSchema, executionEventSchema } from './contracts.js'
 import { discoverExecution, resolveContext } from './context.js'
-import { assessExecution, checkExecution, finishExecution } from './service.js'
+import { abortExecution, assessExecution, checkExecution, finishExecution, inspectExecutionWriter } from './service.js'
 import { runExecutionVerification } from './verification.js'
 import { initSession } from './session.js'
 import { checkExecutionEvent } from './lifecycle.js'
 
 export const executionDefinitions = [
+  { name: 'inspect_execution_writer', schema: executionContextSchema.pick({ project: true }), run: inspectExecutionWriter,
+    description: '只读查询当前写入执行的身份、分支、HEAD、验证记录及工作区范围状态；用于审计遗留占用。' },
+  { name: 'abort_execution', schema: abortExecutionSchema, run: abortExecution,
+    description: '显式中止已核验的遗留执行。须提供查询所得执行 ID、原会话、分支和 HEAD，记录具名操作者、原因及范围状态后释放写入权。不伪造验证或提交；有未提交内容时先审阅。' },
   { name: 'session_init', schema: executionContextSchema, run: initSession,
     description: '只读初始化会话上下文：返回项目能力、策略版本、当前执行/任务引用、分支和写入归属。不创建 Change、不抢锁、不修改项目；可调用不代表已授权或宿主已强制接入。' },
   { name: 'resolve_execution_context', schema: resolveContextSchema, run: resolveContext,

@@ -23,6 +23,11 @@ Forge SHALL bind execution to the assigned branch and a single writing session p
 - **THEN** Forge atomically records the completed execution as reclaimed, releases its writer and session binding, and allows the new execution to bind
 - **AND** missing or stale verification, a missing commit, branch drift, dirty scope, mismatched state, or unreadable evidence continues to return `WORKSPACE_BUSY`
 
+#### Scenario: The original writer session is lost before completion
+- **WHEN** an operator inspects the writer and explicitly aborts it with matching execution ID, owning session, branch and HEAD plus a named actor and reason
+- **THEN** Forge records the abort and affected scope status on the original execution, atomically releases its writer and session binding, and preserves working files
+- **AND** mismatched identity or changed context denies the abort without releasing ownership
+
 ### Requirement: Verify applicable execution inputs
 Forge MUST execute declared authorized checks, record actual exits and content hashes, require every applicable category, and reject stale or mismatched staged inputs. Missing checks SHALL NOT count as passed.
 

@@ -3,7 +3,7 @@ import { requireCondition } from '../specResolution/contracts.js'
 import { hash, locked, readJson, readText, safePath, saveJson, statePath } from '../specResolution/storage.js'
 import { indexSpecs } from '../specResolution/indexer.js'
 import { checkReadiness } from '../specResolution/service.js'
-import { assessExecutionSchema, executionCheckSchema, executionContextSchema, type Assessment } from './contracts.js'
+import { abortExecutionSchema, assessExecutionSchema, executionCheckSchema, executionContextSchema, type Assessment } from './contracts.js'
 import { executionPolicy, isBranchMutation } from './policy.js'
 import { git, fileDigest, inputFingerprint, projectContext } from './repository.js'
 import type { Discovery } from './context.js'
@@ -12,9 +12,60 @@ export type Execution = {
   schemaVersion: 1; executionId: string; project: string; branch: string; sessionId: string; baselineHead: string;
   assessment: Assessment; discovery: Discovery; policy: ReturnType<typeof executionPolicy>;
   designBaseline: Record<string, string>; verification?: { fingerprint: string; inputFiles: string[]; results: Array<{ kind: string; status: string; purpose: string; command: string[]; durationMs: number; diagnostic: string }> };
-  release?: { status: 'AUTO_RECLAIMED'; releasedAt: string; reclaimedBySessionId: string; commit: string };
+  release?: { status: 'AUTO_RECLAIMED'; releasedAt: string; reclaimedBySessionId: string; commit: string }
+    | { status: 'ABORTED'; releasedAt: string; actor: string; reason: string; head: string; scopeStatus: string[] };
 }
 type Writer = { sessionId: string; executionId: string }
+export function inspectExecutionWriter(raw: unknown) {
+  const input = executionContextSchema.pick({ project: true }).parse(raw)
+  const { root, branch } = projectContext(input.project)
+  const file = statePath(root, 'execution-writer')
+  if (!fs.existsSync(file)) return { project: root, branch, writer: null }
+  const writer = readJson<Writer>(file)
+  requireCondition(writer && /^ex_[a-f0-9]{32}$/.test(writer.executionId) && Boolean(writer.sessionId),
+    'EXECUTION_INVALID', '写入指针无效；保留现场并人工检查')
+  const record = readJson<Execution>(statePath(root, writer.executionId))
+  requireCondition(record.schemaVersion === 1 && record.project === root && record.executionId === writer.executionId
+    && record.sessionId === writer.sessionId && (!record.release || record.release.status === 'ABORTED'),
+  'EXECUTION_INVALID', '执行记录与写入指针不匹配')
+  const bindingFile = statePath(root, `execution-session-${hash(writer.sessionId)}`)
+  const binding = fs.existsSync(bindingFile) ? readJson<{ executionId: string }>(bindingFile) : undefined
+  requireCondition(binding?.executionId === writer.executionId || (!binding && record.release?.status === 'ABORTED'),
+    'EXECUTION_INVALID', '会话绑定与写入指针不匹配')
+  const scopedPaths = [...new Set([...record.discovery.files, ...record.assessment.designFiles.map(file => file.path),
+    ...(record.assessment.changeId ? [`openspec/changes/${record.assessment.changeId}`] : [])])]
+  const scopeStatus = git(root, ['status', '--porcelain', '--untracked-files=all', '--', ...scopedPaths]).split(/\r?\n/).filter(Boolean)
+  return { project: root, branch, head: git(root, ['rev-parse', 'HEAD']), writer: {
+    executionId: record.executionId, ownerSessionId: record.sessionId, assignedBranch: record.branch,
+    baselineHead: record.baselineHead, scopeStatus, scopedPaths, verification: record.verification ? 'RECORDED' : 'NOT_RUN' } }
+}
+
+export function abortExecution(raw: unknown) {
+  const input = abortExecutionSchema.parse(raw)
+  const { root } = projectContext(input.project)
+  return locked(root, () => {
+    const inspected = inspectExecutionWriter({ project: root })
+    const writer = inspected.writer
+    requireCondition(writer && writer.executionId === input.executionId && writer.ownerSessionId === input.ownerSessionId
+      && writer.assignedBranch === input.branch && inspected.branch === input.branch && inspected.head === input.expectedHead,
+    'EXECUTION_CONTEXT_MISMATCH', '写入身份、分支或 HEAD 已变化；重新查询后再中止')
+    const recordFile = statePath(root, writer.executionId)
+    const record = readJson<Execution>(recordFile)
+    if (record.release) {
+      requireCondition(record.release.status === 'ABORTED' && record.release.actor === input.actor
+        && record.release.reason === input.reason && record.release.head === input.expectedHead,
+      'EXECUTION_CONTEXT_MISMATCH', '已有中止审计与本次请求不符；保留现场')
+    } else {
+      record.release = { status: 'ABORTED', releasedAt: new Date().toISOString(), actor: input.actor,
+        reason: input.reason, head: inspected.head!, scopeStatus: writer.scopeStatus }
+      saveJson(recordFile, record)
+    }
+    const bindingFile = statePath(root, `execution-session-${hash(writer.ownerSessionId)}`)
+    if (fs.existsSync(bindingFile)) fs.unlinkSync(bindingFile)
+    fs.unlinkSync(statePath(root, 'execution-writer'))
+    return { allowed: true, code: 'PASS', executionId: record.executionId, release: record.release }
+  })
+}
 export function loadExecution(project: string, sessionId: string): Execution | undefined {
   const root = fs.realpathSync(project)
   const binding = statePath(root, `execution-session-${hash(sessionId)}`)
