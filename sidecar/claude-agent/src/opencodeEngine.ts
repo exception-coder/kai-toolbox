@@ -40,6 +40,7 @@ interface Handler {
   toolUse: Set<string>     // 已 emit toolUse 的 callID
   toolDone: Set<string>    // 已 emit toolResult 的 callID
   lastText: Map<string, string> // partID -> 已发文本（无 delta 时按增量回退）
+  hasAssistantText: boolean
   responseModel?: string   // API 实际返回的模型（providerID/modelID）
   directory?: string
   permissionMode: string
@@ -141,11 +142,13 @@ function handlePart(h: Handler, part: Part, delta: string | undefined): void {
     // assistant 流式文本带 delta；用户 prompt 回显无 delta，故按 delta 存在性区分，避免把用户输入当助手回复回吐
     if (typeof delta === 'string' && delta.length > 0) {
       h.emit({ type: 'assistantDelta', text: delta })
+      h.hasAssistantText = true
       h.lastText.set(part.id, part.text ?? '')
     } else if (h.assistant.has(part.messageID) && typeof part.text === 'string') {
       const prev = h.lastText.get(part.id) ?? ''
       if (part.text.length > prev.length) {
         h.emit({ type: 'assistantDelta', text: part.text.slice(prev.length) })
+        h.hasAssistantText = true
         h.lastText.set(part.id, part.text)
       }
     }
@@ -238,7 +241,7 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
   }
 
   const h: Handler = {
-    emit: ctx.emit, assistant: new Set(), toolUse: new Set(), toolDone: new Set(), lastText: new Map(),
+    emit: ctx.emit, assistant: new Set(), toolUse: new Set(), toolDone: new Set(), lastText: new Map(), hasAssistantText: false,
     directory: dir, permissionMode: ctx.permissionMode, autoApprove: ctx.autoApprove, toolPolicy: ctx.toolPolicy,
   }
   handlers.set(sid, h)
@@ -261,6 +264,22 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
       ctx.emit({ type: 'error', code: 'OPENCODE_ERROR', message: stringifyError(res.error) })
       return
     }
+    // SSE may connect late or drop events. The blocking prompt response is authoritative;
+    // replay only the suffix not already delivered by message.part.updated.
+    for (const part of res.data?.parts ?? []) {
+      if (part.type !== 'text' || !part.text) continue
+      const previous = h.lastText.get(part.id) ?? ''
+      const missing = missingAssistantText(part.text, previous, h.hasAssistantText)
+      if (missing) {
+        ctx.emit({ type: 'assistantDelta', text: missing })
+        h.hasAssistantText = true
+        h.lastText.set(part.id, part.text)
+      }
+    }
+    if (!h.hasAssistantText) {
+      ctx.emit({ type: 'error', code: 'OPENCODE_EMPTY_RESPONSE', message: 'OpenCode 本轮没有返回助手文本；请检查模型服务和 OpenCode 日志后重试。' })
+      return
+    }
     const info = res.data?.info
     if (info?.providerID && info?.modelID) h.responseModel = `${info.providerID}/${info.modelID}`
     console.log(`[sidecar] opencode turn done session=${sessionId} requested=${ctx.model ?? '默认'} responded=${h.responseModel ?? '?'}`)
@@ -273,6 +292,11 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
     ctx.signal.removeEventListener('abort', onAbort)
     handlers.delete(sessionId)
   }
+}
+
+/** Reconcile the authoritative prompt response with text already sent over SSE. */
+export function missingAssistantText(text: string, streamed: string, hasAssistantText: boolean): string {
+  return text.startsWith(streamed) ? text.slice(streamed.length) : (hasAssistantText ? '' : text)
 }
 
 export async function emitOpencodeModels(cwd: string, emit: (e: Record<string, unknown>) => void, current?: string): Promise<void> {

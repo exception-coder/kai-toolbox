@@ -2416,18 +2416,18 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   />
                 </div>
               )}
-              {chat.currentEngine === 'qwen' && !reviewOnlySession && (
+              {(chat.currentEngine === 'qwen' || chat.currentEngine === 'opencode') && !reviewOnlySession && (
                 <div className="flex flex-col items-stretch gap-2">
-                  <label htmlFor="qwen-session-model" className="text-sm font-medium">Qwen Code 模型</label>
+                  <label htmlFor="session-engine-model" className="text-sm font-medium">{chat.currentEngine === 'opencode' ? 'OpenCode 模型' : 'Qwen Code 模型'}</label>
                   <div className="flex items-center gap-2">
                     <select
-                      id="qwen-session-model"
+                      id="session-engine-model"
                       value={chat.currentModel ?? ''}
                       onChange={event => chat.setModel(event.target.value)}
                       disabled={planLocked}
                       className="h-8 min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-2 text-xs disabled:opacity-50"
                     >
-                      <option value="">当前账号默认模型</option>
+                      <option value="">{chat.currentEngine === 'opencode' ? 'OpenCode 默认模型' : '当前账号默认模型'}</option>
                       {chat.currentModel && !chat.models.some(model => model.value === chat.currentModel) && (
                         <option value={chat.currentModel}>{chat.currentModel}（当前选择，未在目录中）</option>
                       )}
@@ -2437,8 +2437,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                       type="button"
                       onClick={chat.refreshModels}
                       disabled={chat.modelsRefreshing}
-                      aria-label="重新同步 Qwen Code 模型"
-                      title="从当前 Qwen Code 账号重新同步模型"
+                      aria-label={`重新同步 ${chat.currentEngine === 'opencode' ? 'OpenCode' : 'Qwen Code'} 模型`}
+                      title={`从当前 ${chat.currentEngine === 'opencode' ? 'OpenCode 配置' : 'Qwen Code 账号'}重新同步模型`}
                       className="flex size-8 shrink-0 items-center justify-center rounded-md border hover:bg-[var(--color-accent)] disabled:opacity-50"
                     >
                       <RefreshCw className={cn('size-3.5', chat.modelsRefreshing && 'animate-spin')} />
@@ -2446,7 +2446,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   </div>
                   {chat.models.length === 0 && (
                     <p className="text-xs leading-relaxed text-[var(--color-muted-foreground)]">
-                      暂无可用模型。请先在运行 Forge 的账户中配置 Qwen Code 认证，再重新同步；千问办公模型不自动共享。
+                      {chat.currentEngine === 'opencode'
+                        ? '暂无可用模型。请先在运行 Forge 的账户中执行 opencode auth login 并配置模型服务，然后重新同步。'
+                        : '暂无可用模型。请先在运行 Forge 的账户中配置 Qwen Code 认证，再重新同步；千问办公模型不自动共享。'}
                     </p>
                   )}
                 </div>
