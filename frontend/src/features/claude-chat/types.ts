@@ -717,6 +717,7 @@ export type ClientMessage =
       engine?: Engine
       apiBaseUrl?: string
       authToken?: string
+      providerProfileId?: string
       codexHome?: string
       codexReasoningEffort?: CodexReasoningEffort
       codexSpeed?: CodexSpeed
@@ -753,7 +754,7 @@ export type ClientMessage =
   | { type: 'refreshCapabilities' }
   | { type: 'setCodexOptions'; reasoningEffort: CodexReasoningEffort; speed: CodexSpeed }
   | { type: 'switchEngine'; engine: Engine }
-  | { type: 'switchProvider'; apiBaseUrl?: string; authToken?: string }
+  | { type: 'switchProvider'; apiBaseUrl?: string; authToken?: string; providerProfileId?: string }
   | { type: 'forkSession'; upToMessageId: string }
 
 // ── AskUserQuestion 结构 ─────────────────────────────────────────

@@ -57,7 +57,7 @@ import { DebugPanel } from '../components/DebugPanel'
 import { RestartDialog } from '../components/RestartDialog'
 import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
-import { loadProfiles, type ProviderProfile } from '../providerProfiles'
+import { loadProfiles } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
 import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
@@ -708,7 +708,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [newEngine, setNewEngine] = useState<Engine>('claude')
   const [newCodexHome, setNewCodexHome] = useState(loadCodexHomePreference)
   // 第三方网关「服务商」：newProviderId 空=官方默认；newModel 为走网关时手填的模型名
-  const [providers, setProviders] = useState<ProviderProfile[]>(() => loadProfiles())
+  const { data: providers = [], isPending: providersLoading, error: providersError, refetch: refreshProviders } = useQuery({
+    queryKey: ['gateway-provider-profiles'], queryFn: loadProfiles,
+  })
   const [newProviderId, setNewProviderId] = useState('')
   const [newModel, setNewModel] = useState('')
   // 选中网关后从其 /v1/models 拉的可选模型目录（供下拉选择，仍可手填）
@@ -784,7 +786,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     setProviderModelsLoading(true)
     setProviderModelsError(null)
     setNewModelPlatform('all') // 换网关重置平台筛选
-    fetchProviderModels(p.baseUrl, p.key)
+    fetchProviderModels({ profileId: p.id })
       .then(r => {
         if (cancelled) return
         setProviderModels(r.models ?? [])
@@ -961,8 +963,13 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     // 第三方网关仅对 Claude / Codex 生效（各走各的协议端点）。
     const usesGateway = newEngine === 'claude' || newEngine === 'codex'
     const profile = usesGateway ? providers.find(p => p.id === newProviderId) : undefined
+    if (usesGateway && newProviderId && !profile) {
+      setProviderModelsError('服务商档案已不存在，请刷新列表后重试')
+      void refreshProviders()
+      return
+    }
     const provider = profile
-      ? { apiBaseUrl: profile.baseUrl, authToken: profile.key }
+      ? { providerProfileId: profile.id, apiBaseUrl: profile.baseUrl }
       : newEngine === 'codex'
         ? { codexHome: newCodexHome.trim() || undefined }
         : undefined
@@ -1604,6 +1611,12 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   管理…
                 </button>
               </div>
+              {providersLoading && <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">正在读取服务商档案…</p>}
+              {providersError && (
+                <p className="mt-1 text-xs text-[var(--color-destructive)]">
+                  档案读取失败：{providersError.message} <button type="button" onClick={() => void refreshProviders()} className="underline">重试</button>
+                </p>
+              )}
               {newProviderId !== '' && (
                 <div className="mt-2 space-y-1.5">
                   {/* 平台筛选（二级）：先选平台，下面下拉只列该平台型号 */}
@@ -1705,7 +1718,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
         />
       )}
       {panel === 'providers' && (
-        <ProviderProfilesPanel onClose={() => { setProviders(loadProfiles()); setPanel('new') }} />
+        <ProviderProfilesPanel onClose={() => { void qc.invalidateQueries({ queryKey: ['gateway-provider-profiles'] }); setPanel('new') }} />
       )}
       {/* 会话列表：左侧滑出抽屉（参考 app 菜单栏），PC/移动端一致的侧边会话导航。 */}
       <Sheet open={panel === 'sessions'} onOpenChange={o => { if (!o) setPanel('none') }}>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Check, ChevronDown, Loader2, Pencil, Plus, RefreshCw, Search, Server, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,26 +15,45 @@ interface Props {
   onClose: () => void
 }
 
-type Draft = { id?: string; name: string; baseUrl: string; key: string; model: string }
+type Draft = { id?: string; requestId?: string; name: string; baseUrl: string; key: string; model: string }
 const EMPTY: Draft = { name: '', baseUrl: '', key: '', model: '' }
 
-/** 第三方网关服务商档案管理：本地存储，供会话切换服务商时复用。 */
+/** Server-owned gateway profiles; only a newly entered Key is kept in the edit draft. */
 export function ProviderProfilesPanel({ onClose }: Props) {
   const confirm = useConfirm()
-  const [profiles, setProfiles] = useState<ProviderProfile[]>(() => loadProfiles())
+  const queryClient = useQueryClient()
+  const { data: profiles = [], isPending, error: loadError, refetch } = useQuery({
+    queryKey: ['gateway-provider-profiles'], queryFn: loadProfiles,
+  })
   const [draft, setDraft] = useState<Draft | null>(null)
   const [err, setErr] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  const startNew = () => { setErr(''); setDraft({ ...EMPTY }) }
-  const startEdit = (p: ProviderProfile) => { setErr(''); setDraft({ ...p }) }
+  const startNew = () => {
+    const requestId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `p${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    setErr('')
+    setDraft({ ...EMPTY, requestId })
+  }
+  const startEdit = (p: ProviderProfile) => { setErr(''); setDraft({ id: p.id, name: p.name, baseUrl: p.baseUrl, key: '', model: p.model }) }
 
-  const save = () => {
+  const save = async () => {
     if (!draft) return
     if (!draft.name.trim()) { setErr('请填写名称'); return }
     if (!draft.baseUrl.trim()) { setErr('请填写 baseURL'); return }
-    if (!draft.key.trim()) { setErr('请填写 API Key'); return }
-    setProfiles(upsertProfile(draft))
-    setDraft(null)
+    if (!draft.id && !draft.key.trim()) { setErr('请填写 API Key'); return }
+    setSaving(true)
+    setErr('')
+    try {
+      await upsertProfile(draft)
+      await queryClient.invalidateQueries({ queryKey: ['gateway-provider-profiles'] })
+      setDraft(null)
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : '保存失败，请重试')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const del = async (p: ProviderProfile) => {
@@ -44,7 +64,12 @@ export function ProviderProfilesPanel({ onClose }: Props) {
       variant: 'destructive',
     })
     if (!ok) return
-    setProfiles(removeProfile(p.id))
+    try {
+      await removeProfile(p.id)
+      await queryClient.invalidateQueries({ queryKey: ['gateway-provider-profiles'] })
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : '删除失败，请重试')
+    }
   }
 
   return (
@@ -62,10 +87,17 @@ export function ProviderProfilesPanel({ onClose }: Props) {
 
       <div className="mb-3 flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
         <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-        <span>仅按会话生效，不影响官方登录。Key 存在本机浏览器（明文），请勿在共享设备使用。</span>
+        <span>仅按会话生效，不影响官方登录。档案保存在 Forge 本机数据库；Key 不返回浏览器，但数据库文件及备份仍需妥善保护。</span>
       </div>
 
-      {profiles.length === 0 && !draft && (
+      {isPending && <p className="py-2 text-xs text-[var(--color-muted-foreground)]">正在读取服务商档案…</p>}
+      {loadError && (
+        <p className="py-2 text-xs text-[var(--color-destructive)]">
+          读取失败：{loadError.message} <button type="button" onClick={() => void refetch()} className="underline">重试</button>
+        </p>
+      )}
+      {err && !draft && <p className="py-2 text-xs text-[var(--color-destructive)]">{err}</p>}
+      {!isPending && !loadError && profiles.length === 0 && !draft && (
         <p className="py-2 text-xs text-[var(--color-muted-foreground)]">还没有服务商档案，点「新增」添加一个。</p>
       )}
       <ul className="space-y-1">
@@ -102,18 +134,20 @@ export function ProviderProfilesPanel({ onClose }: Props) {
           </div>
           <div>
             <label className="text-xs text-[var(--color-muted-foreground)]">API Key</label>
-            <Input type="password" value={draft.key} onChange={e => setDraft({ ...draft, key: e.target.value })} placeholder="sk-..." className="mt-0.5" />
+            <Input type="password" value={draft.key} onChange={e => setDraft({ ...draft, key: e.target.value })} placeholder={draft.id ? '留空保留已保存的 Key' : 'sk-...'} className="mt-0.5" />
           </div>
           <ModelField
             baseUrl={draft.baseUrl}
             apiKey={draft.key}
+            profileId={draft.id && !draft.key.trim()
+              && profiles.find(p => p.id === draft.id)?.baseUrl === draft.baseUrl ? draft.id : undefined}
             value={draft.model}
             onChange={model => setDraft({ ...draft, model })}
           />
           {err && <p className="text-xs text-[var(--color-destructive)]">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => setDraft(null)}>取消</Button>
-            <Button size="sm" onClick={save}>保存</Button>
+            <Button size="sm" onClick={() => void save()} disabled={saving}>{saving ? '保存中…' : '保存'}</Button>
           </div>
         </div>
       )}
@@ -124,11 +158,13 @@ export function ProviderProfilesPanel({ onClose }: Props) {
 function ModelField({
   baseUrl,
   apiKey,
+  profileId,
   value,
   onChange,
 }: {
   baseUrl: string
   apiKey: string
+  profileId?: string
   value: string
   onChange: (model: string) => void
 }) {
@@ -148,7 +184,7 @@ function ModelField({
     const seq = ++reqSeq.current
     setLoading(true)
     setError(null)
-    fetchProviderModels(trimmed, key.trim())
+    fetchProviderModels(profileId ? { profileId } : { baseUrl: trimmed, key: key.trim() })
       .then(r => {
         if (seq !== reqSeq.current) return
         const list = r.models ?? []
@@ -175,7 +211,7 @@ function ModelField({
     }
     const timer = setTimeout(() => load(baseUrl, apiKey), 500)
     return () => clearTimeout(timer)
-  }, [baseUrl, apiKey])
+  }, [baseUrl, apiKey, profileId])
 
   const valueMissing = value.trim() !== '' && !models.some(m => m.value === value)
   const dropdownModels = valueMissing ? [{ value, displayName: value, description: '' }, ...models] : models

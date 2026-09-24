@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Cloud, Server, Settings2 } from 'lucide-react'
 import { Overlay } from './PermissionDialog'
 import { ProviderProfilesPanel } from './ProviderProfilesPanel'
@@ -26,7 +27,7 @@ export function ProviderSwitch({
   engine: Engine
   providerKind: 'official' | 'thirdParty'
   providerBaseUrl: string | null
-  onSwitch: (provider?: { apiBaseUrl?: string; authToken?: string }) => void
+  onSwitch: (provider?: { providerProfileId?: string; apiBaseUrl?: string; authToken?: string }) => void
   onPickModel?: (model: string) => void
   disabled?: boolean
   /** 弹层对齐方向：放工具条右侧时用 'right' 防溢出，默认 'left'。 */
@@ -36,7 +37,9 @@ export function ProviderSwitch({
 }) {
   const [open, setOpen] = useState(false)
   const [managing, setManaging] = useState(false)
-  const [profiles, setProfiles] = useState<ProviderProfile[]>(() => loadProfiles())
+  const queryClient = useQueryClient()
+  const profilesQuery = useQuery({ queryKey: ['gateway-provider-profiles'], queryFn: loadProfiles })
+  const profiles: ProviderProfile[] = profilesQuery.data ?? []
 
   // opencode 自管 provider：禁用切换，仅显示静态标签
   const gatewayCapable = engine === 'claude' || engine === 'codex'
@@ -44,14 +47,15 @@ export function ProviderSwitch({
   const host = providerHost(providerBaseUrl)
   const label = isThird ? (host ?? '第三方') : '官方'
   // 当前选中档案（按 baseUrl 匹配），用于打勾
-  const activeId = isThird
-    ? profiles.find(p => p.baseUrl.replace(/\/+$/, '') === (providerBaseUrl ?? '').replace(/\/+$/, ''))?.id
-    : undefined
+  const matchingProfiles = isThird
+    ? profiles.filter(p => p.baseUrl.replace(/\/+$/, '') === (providerBaseUrl ?? '').replace(/\/+$/, ''))
+    : []
+  const activeId = matchingProfiles.length === 1 ? matchingProfiles[0].id : undefined
 
   const toOfficial = () => { setOpen(false); onSwitch(undefined) }
   const toProfile = (p: ProviderProfile) => {
     setOpen(false)
-    onSwitch({ apiBaseUrl: p.baseUrl, authToken: p.key })
+    onSwitch({ providerProfileId: p.id, apiBaseUrl: p.baseUrl })
     if (p.model && onPickModel) onPickModel(p.model) // 档案带默认模型则一并切，省一步
   }
 
@@ -60,7 +64,7 @@ export function ProviderSwitch({
       <button
         type="button"
         disabled={disabled || !gatewayCapable}
-        onClick={() => { setProfiles(loadProfiles()); setOpen(o => !o) }}
+        onClick={() => { void profilesQuery.refetch(); setOpen(o => !o) }}
         title={gatewayCapable
           ? (isThird ? `第三方网关：${providerBaseUrl ?? host}（点击切换服务商）` : '官方登录（点击切到第三方网关）')
           : '当前 agent 自管服务商，不支持切换'}
@@ -93,6 +97,12 @@ export function ProviderSwitch({
             </button>
 
             {/* 第三方网关档案 */}
+            {profilesQuery.isPending && <p className="px-3 py-2 text-xs text-[var(--color-muted-foreground)]">正在读取档案…</p>}
+            {profilesQuery.error && (
+              <p className="px-3 py-2 text-xs text-[var(--color-destructive)]">
+                读取失败：{profilesQuery.error.message} <button type="button" onClick={() => void profilesQuery.refetch()} className="underline">重试</button>
+              </p>
+            )}
             {profiles.map(p => {
               const active = p.id === activeId
               return (
@@ -127,7 +137,7 @@ export function ProviderSwitch({
 
       {!hideManage && managing && (
         <Overlay>
-          <ProviderProfilesPanel onClose={() => { setProfiles(loadProfiles()); setManaging(false) }} />
+          <ProviderProfilesPanel onClose={() => { void queryClient.invalidateQueries({ queryKey: ['gateway-provider-profiles'] }); setManaging(false) }} />
         </Overlay>
       )}
     </div>

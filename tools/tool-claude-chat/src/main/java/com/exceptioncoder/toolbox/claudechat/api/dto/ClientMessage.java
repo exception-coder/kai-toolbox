@@ -61,12 +61,13 @@ public sealed interface ClientMessage
     record Open(String cwd, String model, String mode, String engine, String apiBaseUrl, String authToken,
                 String codexHome, String codexReasoningEffort, String codexSpeed,
                 List<String> consultEvidenceSystems, String projectKey,
-                String assistantAppId, String assistantPageKey, String assistantPageUrl) implements ClientMessage {
+                String assistantAppId, String assistantPageKey, String assistantPageUrl,
+                String providerProfileId) implements ClientMessage {
         public Open(String cwd, String model, String mode, String engine, String apiBaseUrl, String authToken,
                     String codexHome, String codexReasoningEffort, String codexSpeed,
                     List<String> consultEvidenceSystems, String projectKey) {
             this(cwd, model, mode, engine, apiBaseUrl, authToken, codexHome, codexReasoningEffort,
-                    codexSpeed, consultEvidenceSystems, projectKey, null, null, null);
+                    codexSpeed, consultEvidenceSystems, projectKey, null, null, null, null);
         }
     }
 
@@ -213,7 +214,7 @@ public sealed interface ClientMessage
      * 沿用原生会话续跑（保留上下文）。apiBaseUrl 空＝切回官方登录；非空＝该网关，authToken 为其 key。
      * 仅 claude/codex 引擎可用网关；下一轮 query 生效。
      */
-    record SwitchProvider(String apiBaseUrl, String authToken) implements ClientMessage {}
+    record SwitchProvider(String apiBaseUrl, String authToken, String providerProfileId) implements ClientMessage {}
 
     /**
      * 保留到指定回答为止并分叉原生会话。upToMessageId：

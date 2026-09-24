@@ -79,6 +79,7 @@ public class ClaudeChatService {
     private final AgentOneShotService agentOneShot;
     private final AgentWorkAdmissionGate admissionGate;
     private final ProviderModelService providerModels;
+    private final ProviderProfileService providerProfiles;
     private final WelfareDemoSandboxProvisioner welfareDemo;
     private final SessionPlanStateService planStateService;
     private final ReviewSpaceService reviewSpaces;
@@ -136,6 +137,7 @@ public class ClaudeChatService {
                              AgentOneShotService agentOneShot,
                              AgentWorkAdmissionGate admissionGate,
                              ProviderModelService providerModels,
+                             ProviderProfileService providerProfiles,
                              WelfareDemoSandboxProvisioner welfareDemo,
                              SessionPlanStateService planStateService,
                              ReviewSpaceService reviewSpaces,
@@ -166,6 +168,7 @@ public class ClaudeChatService {
         this.agentOneShot = agentOneShot;
         this.admissionGate = admissionGate;
         this.providerModels = providerModels;
+        this.providerProfiles = providerProfiles;
         this.welfareDemo = welfareDemo;
         this.planStateService = planStateService;
         this.reviewSpaces = reviewSpaces;
@@ -250,9 +253,25 @@ public class ClaudeChatService {
         }
         // 第三方网关仅对 Claude / Codex 生效；Antigravity 和 OpenCode 使用各自运行时配置。
         boolean gatewayCapable = "claude".equals(engine) || "codex".equals(engine);
+        String profileId = blankToNull(open.providerProfileId());
+        if (profileId != null && (consultReadonly || !gatewayCapable)) {
+            sendError(ws, 0, "PROVIDER_UNSUPPORTED", "当前会话不支持第三方服务商档案");
+            return;
+        }
         // 业务咨询不接受浏览器指定的第三方网关，避免把源码/业务数据送往任意外部地址。
         String apiBaseUrl = !consultReadonly && gatewayCapable ? blankToNull(open.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(open.authToken());
+        if (profileId != null) {
+            try {
+                ProviderProfileService.ProviderCredentials credentials = providerProfiles.resolve(
+                        profileId, sessionAccessPolicy.ownerId(ws));
+                apiBaseUrl = credentials.baseUrl();
+                authToken = credentials.key();
+            } catch (IllegalArgumentException error) {
+                sendError(ws, 0, "BAD_PROVIDER_PROFILE", error.getMessage());
+                return;
+            }
+        }
         String codexHome = SessionExecutionPolicy.resolveCodexHome(engine, apiBaseUrl, open.codexHome());
         String codexReasoningEffort = normalizeCodexReasoningEffort(open.codexReasoningEffort());
         String codexSpeed = normalizeCodexSpeed(open.codexSpeed());
@@ -1130,11 +1149,24 @@ public class ClaudeChatService {
         }
         // 仅 claude/codex 走第三方网关；其他引擎使用各自运行时配置。
         boolean gatewayCapable = "claude".equals(ctx.engine) || "codex".equals(ctx.engine);
+        String profileId = blankToNull(msg.providerProfileId());
         String apiBaseUrl = gatewayCapable ? blankToNull(msg.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(msg.authToken());
-        if (!gatewayCapable && blankToNull(msg.apiBaseUrl()) != null) {
+        if (!gatewayCapable && (blankToNull(msg.apiBaseUrl()) != null || profileId != null)) {
             sendError(ws, 0, "PROVIDER_UNSUPPORTED", "当前 agent 不支持第三方网关");
             return;
+        }
+        if (profileId != null) {
+            try {
+                ProviderProfileService.ProviderCredentials credentials = providerProfiles.resolve(
+                        profileId, sessionAccessPolicy.ownerId(ws));
+                apiBaseUrl = credentials.baseUrl();
+                authToken = credentials.key();
+            } catch (IllegalArgumentException error) {
+                sendError(ws, 0, "BAD_PROVIDER_PROFILE", error.getMessage());
+                sendToBrowser(ctx, seq -> ready(ctx, seq));
+                return;
+            }
         }
 
         ctx.apiBaseUrl = apiBaseUrl;

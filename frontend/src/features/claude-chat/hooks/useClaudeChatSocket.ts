@@ -119,6 +119,7 @@ type Intent =
       engine?: Engine
       apiBaseUrl?: string
       authToken?: string
+      providerProfileId?: string
       codexHome?: string
       codexReasoningEffort?: CodexReasoningEffort
       codexSpeed?: CodexSpeed
@@ -192,6 +193,7 @@ export interface UseClaudeChatSocket {
     provider?: {
       apiBaseUrl?: string
       authToken?: string
+      providerProfileId?: string
       codexHome?: string
       codexReasoningEffort?: CodexReasoningEffort
       codexSpeed?: CodexSpeed
@@ -212,7 +214,7 @@ export interface UseClaudeChatSocket {
   /** 会话内切 agent（引擎）；上下文靠切后另发 seed 带过去。 */
   switchEngine: (engine: Engine) => void
   /** 会话内切服务商（官方 ↔ 第三方网关），同一会话与 sdkSessionId 不变，保留上下文；空入参＝切回官方 */
-  switchProvider: (provider?: { apiBaseUrl?: string; authToken?: string }) => void
+  switchProvider: (provider?: { providerProfileId?: string; apiBaseUrl?: string; authToken?: string }) => void
   /** 从某条用户消息分叉出新会话（旧会话保留），完成后自动切到新会话 */
   forkSession: (upToMessageId: string) => void
   /** 清理异常并继续：分叉到出错前最后一条正常用户消息，丢掉中毒回合，切到新会话并自动补发续上 */
@@ -976,6 +978,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       engine: intent.engine,
       apiBaseUrl: intent.apiBaseUrl,
       authToken: intent.authToken,
+      providerProfileId: intent.providerProfileId,
       codexHome: intent.codexHome,
       codexReasoningEffort: intent.codexReasoningEffort,
       codexSpeed: intent.codexSpeed,
@@ -1319,6 +1322,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const open = useCallback((cwd: string, model?: string, m?: PermissionMode, engine?: Engine, provider?: {
     apiBaseUrl?: string
     authToken?: string
+    providerProfileId?: string
     codexHome?: string
     codexReasoningEffort?: CodexReasoningEffort
     codexSpeed?: CodexSpeed
@@ -1335,6 +1339,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (engine === 'codex' || engine === 'antigravity' || engine === 'qwen' || engine === 'trae') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
     const apiBaseUrl = provider?.apiBaseUrl
     const authToken = provider?.authToken
+    const providerProfileId = provider?.providerProfileId
     setCurrentProviderKind(apiBaseUrl ? 'thirdParty' : 'official')
     setCurrentProviderBaseUrl(apiBaseUrl ?? null)
     const codexHome = provider?.codexHome
@@ -1349,6 +1354,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       engine,
       apiBaseUrl,
       authToken,
+      providerProfileId,
       codexHome,
       codexReasoningEffort,
       codexSpeed,
@@ -1362,6 +1368,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       engine,
       apiBaseUrl,
       authToken,
+      providerProfileId,
       codexHome,
       codexReasoningEffort,
       codexSpeed,
@@ -1718,9 +1725,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
 
   // 会话内切服务商（官方 ↔ 第三方网关，或两网关互切）：同一会话与 sdkSessionId 不变，保留上下文，下一轮生效。
   // 乐观更新 provider 标识与模型列表；权威值随后端重发的 ready/models 校正。空 baseUrl＝切回官方。
-  const switchProvider = useCallback((provider?: { apiBaseUrl?: string; authToken?: string }) => {
+  const switchProvider = useCallback((provider?: { providerProfileId?: string; apiBaseUrl?: string; authToken?: string }) => {
     const baseUrl = provider?.apiBaseUrl?.trim() || undefined
     const token = baseUrl ? provider?.authToken : undefined
+    const providerProfileId = provider?.providerProfileId
     setCurrentProviderKind(baseUrl ? 'thirdParty' : 'official')
     setCurrentProviderBaseUrl(baseUrl ?? null)
     // 切换 provider 一律先清模型列表：官方↔第三方各自清单不同，残留会串（官方 5 个显示到第三方等）。
@@ -1730,9 +1738,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     // flushIntent 会重放旧 open（带原 baseUrl）→ 把刚切好的 provider 又覆盖回去（切回官方却被弹回三方的根因）。
     const it = intentRef.current
     if (it && it.kind === 'open') {
-      intentRef.current = { ...it, apiBaseUrl: baseUrl, authToken: token }
+      intentRef.current = { ...it, apiBaseUrl: baseUrl, authToken: token, providerProfileId }
     }
-    sendRaw({ type: 'switchProvider', apiBaseUrl: baseUrl, authToken: token })
+    sendRaw({ type: 'switchProvider', apiBaseUrl: baseUrl, authToken: token, providerProfileId })
   }, [sendRaw])
 
   // 保留到指定回答为止并分叉新会话（旧会话保留）。

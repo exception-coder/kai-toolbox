@@ -293,10 +293,10 @@ export function fetchCodexModels(codexHome: string) {
 }
 
 /** 拉第三方网关的可用模型目录（后端按服务商选择端点，避免浏览器 CORS）。error 非空=拉取失败原因。 */
-export function fetchProviderModels(baseUrl: string, key: string) {
+export function fetchProviderModels(input: { profileId?: string; baseUrl?: string; key?: string }) {
   return http<{ models: ModelInfo[]; error?: string | null }>('/claude-chat/provider/models', {
     method: 'POST',
-    body: JSON.stringify({ baseUrl, key }),
+    body: JSON.stringify(input),
   })
 }
 
