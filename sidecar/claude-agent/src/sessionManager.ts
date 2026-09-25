@@ -45,6 +45,8 @@ import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOp
 import { claudeGatewayEnvironment, verifiableResponseModel } from './claudeGatewayRouting.js'
 import { claudeGatewayUserCapabilities, claudeSessionRoutingOptions } from './claudeGatewaySettings.js'
 import { listQwenModels, runQwenTurn } from './qwenEngine.js'
+import { listPiModels, runPiTurn } from './piEngine.js'
+import { listCopilotModels, runCopilotTurn } from './copilotEngine.js'
 import { runTraeTurn } from './traeEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
@@ -393,6 +395,8 @@ class Session {
         request.voiceCallId,
       ),
       qwen: request => this.runQwenTurn(request.text, request.developerInstructions),
+      pi: request => this.runEmbeddedTurn(runPiTurn, request.text, request.developerInstructions),
+      copilot: request => this.runEmbeddedTurn(runCopilotTurn, request.text, request.developerInstructions),
       trae: request => this.runTraeTurn(request.text, request.developerInstructions),
       antigravity: request => this.runAntigravityTurn(
         request.text,
@@ -1051,6 +1055,25 @@ class Session {
     }
   }
 
+  private async runEmbeddedTurn(execute: typeof runPiTurn, text: string, developerInstructions?: string): Promise<void> {
+    const controller = new AbortController()
+    this.abort = controller
+    const timeout = setTimeout(() => controller.abort(new Error('引擎执行超时')), 15 * 60_000)
+    try {
+      await execute({ text, developerInstructions, cwd: this.cwd, model: this.model,
+        apiBaseUrl: this.apiBaseUrl, authToken: this.authToken, sdkSessionId: this.sdkSessionId,
+        signal: controller.signal, emit: event => this.emitTurn(event),
+        setSdkSessionId: id => { this.sdkSessionId = id },
+        canUseTool: (name, input, options) => {
+          if (this.toolPolicy === 'disabled' || this.toolPolicy === 'review-only'
+            || (this.permissionMode === 'plan' && !['Read', 'Grep', 'Glob'].includes(name))) {
+            return Promise.resolve({ behavior: 'deny', message: '当前会话策略不允许此工具操作' })
+          }
+          return this.perms.canUseTool(name, input, options)
+        } })
+    } finally { clearTimeout(timeout); this.abort = undefined }
+  }
+
   /** TraeCode CLI 2.0 JSONL remains isolated from the Forge event contract. */
   private async runTraeTurn(text: string, developerInstructions?: string): Promise<void> {
     const ac = new AbortController()
@@ -1530,6 +1553,20 @@ export class SessionManager {
     // 手动刷新：按触发会话的 provider 询问并只广播给同 provider
     if (sessionId) {
       const s = this.sessions.get(sessionId)
+      if (s?.engine === 'pi' || s?.engine === 'copilot') {
+        // Java owns gateway catalog queries; a native placeholder must not overwrite its result.
+        if (s.apiBaseUrl) return
+        const identity = [s.engine, s.apiBaseUrl, s.model, s.authToken]
+        const isCurrent = () => this.sessions.get(sessionId) === s
+          && identity.every((value, index) => value === [s.engine, s.apiBaseUrl, s.model, s.authToken][index])
+        try {
+          const models = await (s.engine === 'pi' ? listPiModels() : listCopilotModels())
+          if (isCurrent()) this.emit(sessionId, { type: 'models', models, current: s.model ?? null })
+        } catch (error) {
+          if (isCurrent()) this.emit(sessionId, { type: 'warning', code: 'ENGINE_MODELS_UNAVAILABLE', message: error instanceof Error ? error.message : String(error) })
+        }
+        return
+      }
       if (s?.engine === 'opencode') {
         await emitOpencodeModels(s.cwd, (event) => this.emit(sessionId, event), s.model)
         return
@@ -1701,6 +1738,8 @@ export class SessionManager {
       else void this.refreshCodexModels(id, s, false)
     } else if (s.engine === 'qwen') {
       void this.refreshQwenModels(id, s)
+    } else if (s.engine === 'pi' || s.engine === 'copilot') {
+      void this.refreshModels(id)
     } else if (s.engine === 'trae') {
       this.emit(id, { type: 'models', models: [], current: s.model ?? null })
     } else if (s.engine === 'antigravity') {

@@ -50,9 +50,24 @@ vi.mock('../api', async importOriginal => ({
   fetchSessionUsage: async () => null,
 }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  testRuntime.chat.currentEngine = 'codex'
+  testRuntime.chat.currentProviderKind = 'official'
+  testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol' }]
+})
 
 describe('ChatPage session configuration', () => {
+  it.each(['pi', 'copilot'])('offers manual gateway model recovery for %s', async engine => {
+    testRuntime.chat.currentEngine = engine
+    testRuntime.chat.currentProviderKind = 'thirdParty'
+    testRuntime.chat.models = []
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<StrictMode><QueryClientProvider client={client}><MemoryRouter initialEntries={['/tools/claude-chat']}><ConfirmProvider><ChatPage /></ConfirmProvider></MemoryRouter></QueryClientProvider></StrictMode>)
+    fireEvent.click(await screen.findByRole('button', { name: /会话配置，当前/ }))
+    expect(await screen.findByPlaceholderText('手填网关模型 ID')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新同步网关模型' })).toBeInTheDocument()
+  })
   it('opens the configuration while provider profiles are still pending', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<StrictMode><QueryClientProvider client={client}><MemoryRouter initialEntries={['/tools/claude-chat']}><ConfirmProvider><ChatPage /></ConfirmProvider></MemoryRouter></QueryClientProvider></StrictMode>)

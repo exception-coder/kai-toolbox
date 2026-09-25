@@ -85,7 +85,7 @@ test('registry rejects duplicate and unknown adapters explicitly', () => {
 test('builtin registry exposes only implemented engines and their real capabilities', () => {
   assert.deepEqual(
     builtinEngineRegistry.descriptors().map(item => item.id),
-    ['claude', 'codex', 'qwen', 'trae', 'antigravity', 'opencode'],
+    ['claude', 'codex', 'qwen', 'trae', 'antigravity', 'opencode', 'pi', 'copilot'],
   )
   assert.equal(builtinEngineRegistry.supports('codex', 'subagents'), true)
   assert.equal(builtinEngineRegistry.supports('qwen', 'resume'), true)

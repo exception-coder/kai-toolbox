@@ -39,7 +39,7 @@ test('catalog hides experimental engine selection when its runtime is disabled',
   const entries = await catalog.list()
 
   assert.deepEqual(entries.filter(entry => entry.selectable).map(entry => entry.id), [
-    'claude', 'codex', 'qwen', 'opencode',
+    'claude', 'codex', 'qwen', 'opencode', 'pi', 'copilot',
   ])
   assert.equal(entries.find(entry => entry.id === 'deepseekHarness')?.probe.status, 'disabled')
   assert.equal(entries.find(entry => entry.id === 'trae')?.probe.status, 'dependencyMissing')

@@ -782,7 +782,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   // 选中第三方网关时，从其 /v1/models 拉可选模型目录（后端代理）。失败/空回退手填，不阻断新建。
   useEffect(() => {
     if (panel !== 'new') return
-    if ((newEngine !== 'claude' && newEngine !== 'codex') || newProviderId === '') {
+    if (!['claude', 'codex', 'pi', 'copilot'].includes(newEngine) || newProviderId === '') {
       setProviderModels(current => current.length === 0 ? current : [])
       return
     }
@@ -972,8 +972,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const sessionConfigCompactSummary = compactSessionModelLabel(sessionConfigSummary)
 
   const startNew = () => {
-    // 第三方网关仅对 Claude / Codex 生效（各走各的协议端点）。
-    const usesGateway = newEngine === 'claude' || newEngine === 'codex'
+    // 支持会话级网关的引擎复用档案，各自适配原生协议。
+    const usesGateway = ['claude', 'codex', 'pi', 'copilot'].includes(newEngine)
     const profile = usesGateway ? providers.find(p => p.id === newProviderId) : undefined
     if (usesGateway && newProviderId && !profile) {
       setProviderModelsError('服务商档案已不存在，请刷新列表后重试')
@@ -985,8 +985,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
       : newEngine === 'codex'
         ? { codexHome: newCodexHome.trim() || undefined }
         : undefined
-    // 模型：claude/codex 网关用档案/手填；opencode 用手填的 provider/model（留空走默认）；其它引擎不传
-    const model = newEngine === 'opencode'
+    // 网关用档案或手填；OpenCode/Pi/Copilot 原生模式允许明确模型，留空由引擎选择。
+    const model = ['opencode', 'pi', 'copilot'].includes(newEngine) && !profile
       ? (newModel.trim() || undefined)
       : profile ? (newModel.trim() || profile.model || undefined) : undefined
     if (newEngine === 'codex' && !profile) saveCodexHomePreference(newCodexHome)
@@ -1619,8 +1619,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               />
             </div>
           )}
-          {/* 服务商：Claude / Codex 引擎。官方默认 / 第三方网关档案（按会话生效，不动官方） */}
-          {(newEngine === 'claude' || newEngine === 'codex') && (
+          {/* 会话级第三方网关档案，不改引擎全局配置。 */}
+          {(['claude', 'codex', 'pi', 'copilot'].includes(newEngine)) && (
             <div className="mt-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-[var(--color-muted-foreground)]">服务商</span>
@@ -2474,9 +2474,10 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   />
                 </div>
               )}
-              {(chat.currentEngine === 'qwen' || chat.currentEngine === 'opencode') && !reviewOnlySession && (
+              {(['qwen', 'opencode', 'pi', 'copilot'].includes(chat.currentEngine))
+                && !(chat.currentProviderKind === 'thirdParty' && ['pi', 'copilot'].includes(chat.currentEngine)) && !reviewOnlySession && (
                 <div className="flex flex-col items-stretch gap-2">
-                  <label htmlFor="session-engine-model" className="text-sm font-medium">{chat.currentEngine === 'opencode' ? 'OpenCode 模型' : 'Qwen Code 模型'}</label>
+                  <label htmlFor="session-engine-model" className="text-sm font-medium">{currentEngineLabel} 模型</label>
                   <div className="flex items-center gap-2">
                     <select
                       id="session-engine-model"
@@ -2495,8 +2496,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                       type="button"
                       onClick={chat.refreshModels}
                       disabled={chat.modelsRefreshing}
-                      aria-label={`重新同步 ${chat.currentEngine === 'opencode' ? 'OpenCode' : 'Qwen Code'} 模型`}
-                      title={`从当前 ${chat.currentEngine === 'opencode' ? 'OpenCode 配置' : 'Qwen Code 账号'}重新同步模型`}
+                      aria-label={`重新同步 ${currentEngineLabel} 模型`}
+                      title={`从当前 ${currentEngineLabel} 配置重新同步模型`}
                       className="flex size-8 shrink-0 items-center justify-center rounded-md border hover:bg-[var(--color-accent)] disabled:opacity-50"
                     >
                       <RefreshCw className={cn('size-3.5', chat.modelsRefreshing && 'animate-spin')} />
@@ -2506,12 +2507,14 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     <p className="text-xs leading-relaxed text-[var(--color-muted-foreground)]">
                       {chat.currentEngine === 'opencode'
                         ? '暂无可用模型。请先在运行 Forge 的账户中执行 opencode auth login 并配置模型服务，然后重新同步。'
+                        : chat.currentEngine === 'pi' ? '暂无可用模型。请运行 pi 并通过 /login 配置认证，或选择第三方服务商后重新同步。'
+                        : chat.currentEngine === 'copilot' ? '暂无可用模型。请登录 Copilot CLI，或选择第三方服务商并配置模型后重新同步。'
                         : '暂无可用模型。请先在运行 Forge 的账户中配置 Qwen Code 认证，再重新同步；千问办公模型不自动共享。'}
                     </p>
                   )}
                 </div>
               )}
-              {!reviewOnlySession && (chat.currentEngine === 'claude' || chat.currentEngine === 'codex') && (
+              {!reviewOnlySession && ['claude', 'codex', 'pi', 'copilot'].includes(chat.currentEngine) && (
                 <>
                   <div className="flex flex-col items-stretch gap-2">
                     <span className="text-sm font-medium">服务商</span>
@@ -2526,7 +2529,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                       hideManage
                     />
                   </div>
-                  {chat.currentEngine === 'claude' && chat.currentProviderKind === 'thirdParty' && (
+                  {['claude', 'pi', 'copilot'].includes(chat.currentEngine) && chat.currentProviderKind === 'thirdParty' && (
                     <GatewaySessionModelPicker
                       models={chat.models}
                       currentModel={chat.currentModel}

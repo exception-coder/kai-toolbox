@@ -8,6 +8,15 @@
 
 ## 1. 整体架构（三层 + 两条 WebSocket）
 
+### Pi / GitHub Copilot 适配边界
+
+Pi 与 GitHub Copilot 沿用既有引擎目录、会话持久化和模型/服务商配置，不另建会话系统。Pi 使用固定版本 `@earendil-works/pi-coding-agent`，Copilot 使用 `@github/copilot-sdk` 及其配套 CLI；详情与交付状态见 [引擎接入设计](../../openspec/changes/integrate-pi-copilot-engines/design.md)。
+
+- 新建会话选择对应引擎；原生认证需在运行 Forge 的系统账户下配置，Pi 使用 `/login`，Copilot 使用其 CLI 登录。安装 SDK 不等于已有模型额度。
+- 第三方模式复用本地服务商档案。首期要求 OpenAI Chat Completions 兼容地址、API Key 和明确模型 ID；模型目录不可用时可在会话配置手填模型。不会改写 Claude/Codex 或用户全局服务商配置。
+- 流式文本、原生会话恢复、中断和工具授权通过独立适配器转换。未知 Copilot 工具拒绝执行，Pi 不隐式加载用户扩展；修改后的授权参数要求模型重新调用，不能批准新参数却执行旧参数。
+- 首期未声明图片、子代理或自动导入用户 MCP/插件能力，也不推算缺失的计费数据。真实账号、浏览器加载新版及服务稳定性需经授权重启后验收；本地模拟协议测试不能替代该验收。
+
 关键：Java 自己不跑 AI——真正调 Claude 的是独立 Node 进程（sidecar，跑官方 Agent SDK），Java 通过 WebSocket 指挥它。
 
 ```mermaid

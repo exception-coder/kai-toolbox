@@ -251,8 +251,9 @@ public class ClaudeChatService {
             sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
             return;
         }
-        // 第三方网关仅对 Claude / Codex 生效；Antigravity 和 OpenCode 使用各自运行时配置。
-        boolean gatewayCapable = "claude".equals(engine) || "codex".equals(engine);
+        // 可接入会话级网关的引擎复用档案；其余引擎使用各自运行时配置。
+        boolean gatewayCapable = "claude".equals(engine) || "codex".equals(engine)
+                || "pi".equals(engine) || "copilot".equals(engine);
         String profileId = blankToNull(open.providerProfileId());
         if (profileId != null && (consultReadonly || !gatewayCapable)) {
             sendError(ws, 0, "PROVIDER_UNSUPPORTED", "当前会话不支持第三方服务商档案");
@@ -1064,7 +1065,8 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (ctx.apiBaseUrl != null && ("claude".equals(ctx.engine) || "codex".equals(ctx.engine))) {
+        if (ctx.apiBaseUrl != null && ("claude".equals(ctx.engine) || "codex".equals(ctx.engine)
+                || "pi".equals(ctx.engine) || "copilot".equals(ctx.engine))) {
             pushGatewayModels(ctx);
         } else {
             sidecar.refreshModels(ctx.sessionId);
@@ -1154,8 +1156,9 @@ public class ClaudeChatService {
             sendError(ws, 0, "READONLY_POLICY", "业务咨询会话不允许切换到第三方网关");
             return;
         }
-        // 仅 claude/codex 走第三方网关；其他引擎使用各自运行时配置。
-        boolean gatewayCapable = "claude".equals(ctx.engine) || "codex".equals(ctx.engine);
+        // 会话级网关配置由各引擎适配器消费；其余引擎仍自管运行时配置。
+        boolean gatewayCapable = "claude".equals(ctx.engine) || "codex".equals(ctx.engine)
+                || "pi".equals(ctx.engine) || "copilot".equals(ctx.engine);
         String profileId = blankToNull(msg.providerProfileId());
         String apiBaseUrl = gatewayCapable ? blankToNull(msg.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(msg.authToken());
@@ -1320,7 +1323,7 @@ public class ClaudeChatService {
 
     private static String normalizeEngine(String e) {
         if ("gemini".equals(e)) return "antigravity";
-        return "codex".equals(e) || "qwen".equals(e) || "trae".equals(e) || "antigravity".equals(e) || "opencode".equals(e)
+        return "pi".equals(e) || "copilot".equals(e) || "codex".equals(e) || "qwen".equals(e) || "trae".equals(e) || "antigravity".equals(e) || "opencode".equals(e)
                 || "deepseekHarness".equals(e) ? e : "claude";
     }
 

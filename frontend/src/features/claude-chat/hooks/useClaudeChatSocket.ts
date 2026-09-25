@@ -1338,8 +1338,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     setSessionId(null)
     if (m) setModeState(m)
     setCurrentEngine(engine ?? 'claude') // 乐观：新建即按所选引擎，Ready 回来再确认
-    // 非 Claude CLI 无可查询模型清单：新建即清掉残留的 Claude 模型/命令，避免空窗期误显示
-    if (engine === 'codex' || engine === 'antigravity' || engine === 'qwen' || engine === 'trae') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
+    // 原生目录各自加载，新建先清除旧引擎模型/命令，避免空窗期串用。
+    if (engine !== 'claude') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
     const apiBaseUrl = provider?.apiBaseUrl
     const authToken = provider?.authToken
     const providerProfileId = provider?.providerProfileId

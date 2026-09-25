@@ -3,6 +3,8 @@ import type { Engine, EngineCatalogView } from '../types'
 export const STABLE_ENGINE_IDS: readonly Engine[] = ['claude', 'codex', 'qwen', 'opencode']
 
 const KNOWN_ENGINE_IDS = new Set<Engine>([...STABLE_ENGINE_IDS, 'deepseekHarness'])
+KNOWN_ENGINE_IDS.add('pi')
+KNOWN_ENGINE_IDS.add('copilot')
 KNOWN_ENGINE_IDS.add('antigravity')
 KNOWN_ENGINE_IDS.add('trae')
 

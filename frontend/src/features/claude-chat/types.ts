@@ -439,7 +439,7 @@ export type SendAttachment = Attachment & { mime?: string; url?: string }
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
 /** 会话引擎。DeepSeek Harness 仅在 Sidecar 运行时握手通过后由引擎目录开放。 */
-export type Engine = 'claude' | 'codex' | 'qwen' | 'trae' | 'antigravity' | 'opencode' | 'deepseekHarness'
+export type Engine = 'claude' | 'codex' | 'qwen' | 'trae' | 'antigravity' | 'opencode' | 'pi' | 'copilot' | 'deepseekHarness'
 export type CodexReasoningEffort = string
 export type CodexSpeed = 'default' | 'fast'
 

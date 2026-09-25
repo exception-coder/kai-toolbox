@@ -42,7 +42,7 @@ export function ProviderSwitch({
   const profiles: ProviderProfile[] = profilesQuery.data ?? []
 
   // opencode 自管 provider：禁用切换，仅显示静态标签
-  const gatewayCapable = engine === 'claude' || engine === 'codex'
+  const gatewayCapable = ['claude', 'codex', 'pi', 'copilot'].includes(engine)
   const isThird = providerKind === 'thirdParty'
   const host = providerHost(providerBaseUrl)
   const label = isThird ? (host ?? '第三方') : '官方'

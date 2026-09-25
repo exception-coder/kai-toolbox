@@ -26,6 +26,8 @@ export function stateTone(s: string): StatusTone {
 /** 引擎显示名。 */
 export function engineName(e: Engine): string {
   return e === 'codex' ? 'Codex'
+    : e === 'pi' ? 'Pi'
+    : e === 'copilot' ? 'GitHub Copilot'
     : e === 'antigravity' ? 'Antigravity'
       : e === 'opencode' ? 'OpenCode'
         : e === 'qwen' ? 'Qwen Code'

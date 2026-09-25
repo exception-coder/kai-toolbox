@@ -1,6 +1,6 @@
 export const LAUNCH_INTENT_PROTOCOL_VERSION = 1 as const
 
-export type LaunchEngine = 'claude' | 'codex' | 'qwen' | 'trae' | 'antigravity' | 'opencode' | 'deepseekHarness'
+export type LaunchEngine = 'claude' | 'codex' | 'qwen' | 'trae' | 'antigravity' | 'opencode' | 'pi' | 'copilot' | 'deepseekHarness'
 
 export type LaunchIntentPayload =
   | {
@@ -63,7 +63,7 @@ function parsePayload(type: string, payload: Record<string, unknown>): LaunchInt
   }
   if (type === 'CHAT_OPEN_AND_SEND') {
     const engine = requireString(payload.engine, 'engine')
-    if (!['claude', 'codex', 'qwen', 'antigravity', 'opencode', 'deepseekHarness'].includes(engine)) {
+    if (!['claude', 'codex', 'qwen', 'trae', 'antigravity', 'opencode', 'pi', 'copilot', 'deepseekHarness'].includes(engine)) {
       throw new Error(`未知启动引擎: ${engine}`)
     }
     return {

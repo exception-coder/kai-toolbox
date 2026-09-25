@@ -3,6 +3,15 @@ import { selectableEngineIds } from './engineCatalog'
 import type { EngineCatalogView } from '../types'
 
 describe('selectableEngineIds', () => {
+  it('admits Pi and Copilot from the runtime catalog, not from offline guesses', () => {
+    const catalog: EngineCatalogView = { protocolVersion: 1, engines: (['pi', 'copilot'] as const).map(id => ({
+      id, displayName: id, capabilities: ['resume', 'interrupt', 'modelCatalog'],
+      availability: 'stable', selectable: true, probe: { status: 'ready' },
+    })) }
+    expect(selectableEngineIds(catalog)).toEqual(['pi', 'copilot'])
+    expect(selectableEngineIds()).not.toContain('pi')
+    expect(selectableEngineIds()).not.toContain('copilot')
+  })
   it('falls back to stable engines when the sidecar catalog is unavailable', () => {
     expect(selectableEngineIds({ protocolVersion: 1, engines: [], error: 'offline' }))
       .toEqual(['claude', 'codex', 'qwen', 'opencode'])

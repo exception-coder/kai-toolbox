@@ -49,6 +49,8 @@ const descriptors = [
   descriptor('opencode', 'OpenCode', [
     'resume', 'interrupt', 'modelCatalog',
   ]),
+  descriptor('pi', 'Pi', ['resume', 'interrupt', 'modelCatalog']),
+  descriptor('copilot', 'GitHub Copilot', ['resume', 'interrupt', 'modelCatalog']),
 ] as const
 
 /** Descriptor-only catalog for discovery; execution uses a session-bound registry. */
