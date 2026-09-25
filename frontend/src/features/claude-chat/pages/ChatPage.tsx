@@ -57,7 +57,7 @@ import { DebugPanel } from '../components/DebugPanel'
 import { RestartDialog } from '../components/RestartDialog'
 import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
-import { loadProfiles } from '../providerProfiles'
+import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
 import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
@@ -131,6 +131,7 @@ interface PendingOpenSpecInitialization {
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
+const EMPTY_PROVIDER_PROFILES: ProviderProfile[] = []
 
 /** cwd 末段目录名，作为无别名会话的显示名（与会话列表 shortCwd 一致）。 */
 function headerCwdName(cwd: string): string {
@@ -706,13 +707,15 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     })
   }, [chat?.sessionId, setDraft])
   const [newCwd, setNewCwd] = useState('')
+  const [newSessionTitle, setNewSessionTitle] = useState('')
   const [wsIdx, setWsIdx] = useState(0) // 当前选中的工作区（root）下标，两级目录选择用
   const [newEngine, setNewEngine] = useState<Engine>('claude')
   const [newCodexHome, setNewCodexHome] = useState(loadCodexHomePreference)
   // 第三方网关「服务商」：newProviderId 空=官方默认；newModel 为走网关时手填的模型名
-  const { data: providers = [], isPending: providersLoading, error: providersError, refetch: refreshProviders } = useQuery({
+  const { data: providerProfiles, isPending: providersLoading, error: providersError, refetch: refreshProviders } = useQuery({
     queryKey: ['gateway-provider-profiles'], queryFn: loadProfiles,
   })
+  const providers = providerProfiles ?? EMPTY_PROVIDER_PROFILES
   const [newProviderId, setNewProviderId] = useState('')
   const [newModel, setNewModel] = useState('')
   // 选中网关后从其 /v1/models 拉的可选模型目录（供下拉选择，仍可手填）
@@ -779,11 +782,11 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   // 选中第三方网关时，从其 /v1/models 拉可选模型目录（后端代理）。失败/空回退手填，不阻断新建。
   useEffect(() => {
     if (panel !== 'new' || (newEngine !== 'claude' && newEngine !== 'codex') || newProviderId === '') {
-      setProviderModels([])
+      setProviderModels(current => current.length === 0 ? current : [])
       return
     }
     const p = providers.find(x => x.id === newProviderId)
-    if (!p) { setProviderModels([]); return }
+    if (!p) { setProviderModels(current => current.length === 0 ? current : []); return }
     let cancelled = false
     setProviderModelsLoading(true)
     setProviderModelsError(null)
@@ -986,7 +989,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
       ? (newModel.trim() || undefined)
       : profile ? (newModel.trim() || profile.model || undefined) : undefined
     if (newEngine === 'codex' && !profile) saveCodexHomePreference(newCodexHome)
-    chat.open(newCwd.trim(), model, undefined, newEngine, provider)
+    chat.open(newCwd.trim(), model, undefined, newEngine, provider, newSessionTitle.trim() || undefined)
+    setNewSessionTitle('')
     setPanel('none')
   }
 
@@ -1435,8 +1439,13 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
       {/* 折叠面板 */}
       {panel === 'new' && (
-        <div className="border-b px-3 py-3">
-          <label className="text-xs text-[var(--color-muted-foreground)]">工作目录（先选工作区 → 选项目，或手填路径；留空用 home）</label>
+        <div className="max-w-5xl border-b px-4 py-4 md:px-6">
+          <div className="mb-4">
+            <h2 className="text-sm font-semibold text-[var(--color-foreground)]">新建会话</h2>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">先确定工作目录，再按需命名和选择运行配置。</p>
+          </div>
+          <p className="text-xs font-medium">工作目录</p>
+          <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">选择工作区与项目，或直接输入路径；留空使用 home。</p>
           {/* 第 1 级：工作区（多个 root 时才显示） */}
           {wsRoots.length > 1 && (
             <div className="mt-1 flex flex-wrap gap-1.5">
@@ -1460,7 +1469,10 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           )}
           {/* 第 2 级：隐藏项目不进入新会话候选；别名、目录名和路径均可检索。 */}
           {activeRoot && (
-            <Combobox
+            <div className="mt-3">
+              <label className="mb-1 block text-xs text-[var(--color-muted-foreground)]" htmlFor="vibe-coding-project-picker">选择项目</label>
+              <Combobox
+                id="vibe-coding-project-picker"
               value={projectSearch}
               onChange={value => {
                 const selected = selectableProjects.find(project => project.path === value)
@@ -1477,20 +1489,41 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               placeholder={projectVisibilityLoading ? '正在加载可见项目…' : '搜索或选择项目（别名 / 目录名 / 路径）'}
               emptyText="没有匹配的可见项目"
               showAllOnOpen
-              className="mt-2"
               contentClassName="max-h-72"
-            />
+              />
+            </div>
           )}
-          <div className="mt-2 flex gap-2">
-            <input
-              className="flex-1 rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm"
-              placeholder="或手填路径，例如 D:/Users/zhang/IdeaProjects/kai-toolbox"
-              value={newCwd}
-              onChange={e => setNewCwd(e.target.value)}
-            />
-            <Button size="lg" className="shadow-md" onClick={startNew}>开始</Button>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div className="min-w-0">
+              <label className="mb-1 block text-xs text-[var(--color-muted-foreground)]" htmlFor="vibe-coding-new-cwd">目录路径</label>
+              <input
+                id="vibe-coding-new-cwd"
+                className="h-10 w-full min-w-0 rounded-md border bg-[var(--color-background)] px-3 text-sm focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]"
+                placeholder="例如 D:/Users/zhang/myWork/kai-toolbox"
+                value={newCwd}
+                onChange={e => setNewCwd(e.target.value)}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className="mb-1 block text-xs text-[var(--color-muted-foreground)]" htmlFor="vibe-coding-new-title">会话别名 <span className="font-normal">· 可选</span></label>
+              <input
+                id="vibe-coding-new-title"
+                className="h-10 w-full min-w-0 rounded-md border bg-[var(--color-background)] px-3 text-sm focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]"
+                placeholder="例如 SRM 报价流程优化"
+                maxLength={200}
+                value={newSessionTitle}
+                onChange={e => setNewSessionTitle(e.target.value)}
+              />
+            </div>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPanel('taskspace')}
+            className="mt-3 inline-flex items-center gap-1 text-xs text-[var(--color-primary)] hover:underline"
+          >
+            <FolderTree className="size-3.5" /> 合并多个目录为工作区（软链接聚合）
+          </button>
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-4">
             <span className="text-xs text-[var(--color-muted-foreground)]">引擎</span>
             {selectableEngines.map(eng => (
               <button
@@ -1686,13 +1719,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               )}
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => setPanel('taskspace')}
-            className="mt-3 flex items-center gap-1 text-xs text-[var(--color-primary)] hover:underline"
-          >
-            <FolderTree className="size-3.5" /> 合并多个目录为工作区（软链接聚合）
-          </button>
+          <div className="mt-4 flex justify-end border-t border-[var(--color-border)] pt-4">
+            <Button size="lg" className="w-full sm:w-auto" onClick={startNew}>开始会话</Button>
+          </div>
         </div>
       )}
       {panel === 'taskspace' && (

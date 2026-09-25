@@ -62,12 +62,12 @@ public sealed interface ClientMessage
                 String codexHome, String codexReasoningEffort, String codexSpeed,
                 List<String> consultEvidenceSystems, String projectKey,
                 String assistantAppId, String assistantPageKey, String assistantPageUrl,
-                String providerProfileId) implements ClientMessage {
+                String providerProfileId, String title) implements ClientMessage {
         public Open(String cwd, String model, String mode, String engine, String apiBaseUrl, String authToken,
                     String codexHome, String codexReasoningEffort, String codexSpeed,
                     List<String> consultEvidenceSystems, String projectKey) {
             this(cwd, model, mode, engine, apiBaseUrl, authToken, codexHome, codexReasoningEffort,
-                    codexSpeed, consultEvidenceSystems, projectKey, null, null, null, null);
+                    codexSpeed, consultEvidenceSystems, projectKey, null, null, null, null, null);
         }
     }
 

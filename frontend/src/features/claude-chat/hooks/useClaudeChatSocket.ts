@@ -114,6 +114,7 @@ type Intent =
   | {
       kind: 'open'
       cwd: string
+      title?: string
       model?: string
       mode?: PermissionMode
       engine?: Engine
@@ -199,6 +200,7 @@ export interface UseClaudeChatSocket {
       codexSpeed?: CodexSpeed
       consultEvidenceSystems?: string[]
     },
+    title?: string,
   ) => void
   /** 切换权限模式（下一轮生效） */
   setMode: (mode: PermissionMode) => void
@@ -973,6 +975,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (intent.kind === 'open') sendRaw({
       type: 'open',
       cwd: intent.cwd,
+      title: intent.title,
       model: intent.model,
       mode: intent.mode,
       engine: intent.engine,
@@ -1327,7 +1330,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     codexReasoningEffort?: CodexReasoningEffort
     codexSpeed?: CodexSpeed
     consultEvidenceSystems?: string[]
-  }) => {
+  }, title?: string) => {
     resetForNewSession()
     shouldLoadHistoryRef.current = false
     cwdRef.current = cwd
@@ -1349,6 +1352,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     intentRef.current = {
       kind: 'open',
       cwd,
+      title,
       model,
       mode: m,
       engine,
@@ -1363,6 +1367,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (!sendRaw({
       type: 'open',
       cwd,
+      title,
       model,
       mode: m,
       engine,

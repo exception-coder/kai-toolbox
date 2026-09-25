@@ -277,8 +277,15 @@ public class ClaudeChatService {
         String codexSpeed = normalizeCodexSpeed(open.codexSpeed());
         List<String> consultEvidenceSystems = consultReadonly
                 ? normalizeConsultEvidenceSystems(open.consultEvidenceSystems()) : List.of();
+        String title;
+        try {
+            title = normalizeNewSessionTitle(open.title());
+        } catch (IllegalArgumentException exception) {
+            sendError(ws, 0, "BAD_SESSION_TITLE", "会话名称不能超过 200 个字符");
+            return;
+        }
         ClaudeChatSession candidate = ClaudeChatSession.builder()
-                .id(sessionId).userId(sessionAccessPolicy.ownerId(ws)).cwd(cwd).title(null)
+                .id(sessionId).userId(sessionAccessPolicy.ownerId(ws)).cwd(cwd).title(title)
                 .sdkSessionId(null).engine(engine)
                 .apiBaseUrl(apiBaseUrl).authToken(authToken).codexHome(codexHome)
                 .selectedModel(blankToNull(open.model())).codexReasoningEffort(codexReasoningEffort).codexSpeed(codexSpeed)
@@ -2036,6 +2043,14 @@ public class ClaudeChatService {
     /** 空白串归一为 null，避免把空网关地址当成有效配置。 */
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();
+    }
+
+    static String normalizeNewSessionTitle(String title) {
+        String normalized = blankToNull(title);
+        if (normalized != null && normalized.length() > 200) {
+            throw new IllegalArgumentException("会话名称不能超过 200 个字符");
+        }
+        return normalized;
     }
 
     private static boolean isTurnScopedSidecarEvent(String type) {

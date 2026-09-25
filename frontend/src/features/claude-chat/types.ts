@@ -712,6 +712,7 @@ export type ClientMessage =
   | {
       type: 'open'
       cwd: string
+      title?: string
       model?: string
       mode?: PermissionMode
       engine?: Engine
