@@ -5,6 +5,8 @@ import { checkReadiness, confirmResolution, refreshIndex } from './service.js'
 import { resolveWithModel, intakeRequirements, intakeSchema } from './semantic.js'
 import { resolutionMetrics } from './metrics.js'
 import { executionDefinitions } from '../execution/tools.js'
+import { runExecutionVerification } from '../execution/verification.js'
+import { reportMcpProgress, type McpRequestExtra } from '../mcpHttp.js'
 
 export const definitions = [
   ...executionDefinitions,
@@ -21,10 +23,18 @@ export const definitions = [
   { name: 'refresh_spec_index', schema: refreshSchema, run: refreshIndex,
     description: '从正式 OpenSpec 文件重建索引摘要，确认归档或规格同步后的版本；不修改规格，不自动将旧解析标为有效。' },
 ] as const
-export async function execute(name: string, input: unknown): Promise<Record<string, unknown>> {
+export async function execute(name: string, input: unknown, extra?: McpRequestExtra): Promise<Record<string, unknown>> {
   try {
     const definition = definitions.find(item => item.name === name)
     if (!definition) throw new ResolutionError('TOOL_INVALID', '未知规格工具')
+    if (name === 'run_execution_verification') return await runExecutionVerification(input, {
+      signal: extra?.signal,
+      onProgress: event => {
+        const phase = { started: '开始', waiting: '运行中', output: '有输出', completed: '完成' }[event.phase]
+        void reportMcpProgress(extra, event.phase === 'completed' ? event.checkIndex : event.checkIndex - 1,
+          event.checkCount, `验证 ${event.checkIndex}/${event.checkCount}（${event.kind}）${phase}，已用 ${Math.round(event.elapsedMs / 1000)} 秒`)
+      },
+    }) as unknown as Record<string, unknown>
     return await definition.run(input) as unknown as Record<string, unknown>
   } catch (error) {
     const code = error instanceof ResolutionError ? error.code : 'CHECK_ERROR'
@@ -39,22 +49,22 @@ function recoveryActions(code: string): string[] {
   if (code === 'INPUT_LIMIT') return ['files 仅传项目内具体普通文件；排除目录、构建产物和超过 4 MiB 的文件后重试']
   return ['修复输入或上下文后重试；规格已变时重新 resolve_specs']
 }
-async function call(name: string, args: unknown, hostSessionId?: string) {
+async function call(name: string, args: unknown, hostSessionId?: string, extra?: McpRequestExtra) {
   const bound = hostSessionId && args && typeof args === 'object'
     && ('sessionId' in args || ['resolve_specs', 'check_execution_event'].includes(name))
     ? { ...args, sessionId: hostSessionId } : args
-  const result = await execute(name, bound)
+  const result = await execute(name, bound, extra)
   return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], ...(result.allowed === false ? { isError: true } : {}) }
 }
 export function registerSpecResolutionTools(server: McpServer, hostSessionId?: string) {
   for (const definition of definitions) server.registerTool(definition.name, {
     description: definition.description, inputSchema: definition.schema.shape,
     annotations: { readOnlyHint: ['inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['abort_execution', 'run_execution_verification'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification' },
-  }, (args: unknown) => call(definition.name, args, hostSessionId))
+  }, (args: unknown, extra: unknown) => call(definition.name, args, hostSessionId, extra as McpRequestExtra))
 }
 export function sdkSpecResolutionTools(hostSessionId?: string) {
   return definitions.map(definition => tool(definition.name, definition.description, definition.schema.shape,
-    async (args: unknown) => call(definition.name, args, hostSessionId), { annotations: {
+    async (args: unknown, extra: unknown) => call(definition.name, args, hostSessionId, extra as McpRequestExtra), { annotations: {
       readOnlyHint: ['inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['abort_execution', 'run_execution_verification'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification',
     } }))
 }

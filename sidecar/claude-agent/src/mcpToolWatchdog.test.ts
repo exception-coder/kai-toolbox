@@ -72,6 +72,22 @@ test('MCP result clears timeout', async () => {
   assert.equal(timedOut, false)
 })
 
+test('execution verification gets its bounded command budget without extending ordinary MCP calls', async () => {
+  const entries: Array<{ toolName: string; timeoutMs: number; maxDurationMs: number }> = []
+  const watchdog = new McpToolWatchdog({ timeoutMs: 25, maxDurationMs: 100, heartbeatMs: 10,
+    onHeartbeat: entry => entries.push(entry), onTimeout: () => undefined })
+  watchdog.observe({ type: 'toolUse', toolCallId: 'verify', toolName: 'forge/run_execution_verification', toolKind: 'mcp' })
+  watchdog.observe({ type: 'toolUse', toolCallId: 'other', toolName: 'forge/check_execution_readiness', toolKind: 'mcp' })
+  await new Promise(resolve => setTimeout(resolve, 15))
+  const verify = entries.find(entry => entry.toolName === 'forge/run_execution_verification')
+  const other = entries.find(entry => entry.toolName === 'forge/check_execution_readiness')
+  assert.equal(verify?.timeoutMs, 270_000)
+  assert.equal(verify?.maxDurationMs, 300_000)
+  assert.equal(other?.timeoutMs, 25)
+  assert.equal(other?.maxDurationMs, 100)
+  watchdog.clear()
+})
+
 test('ordinary shell work is never tracked as MCP', () => {
   assert.equal(isMcpToolEvent({ type: 'toolUse', toolName: 'shell' }), false)
   assert.equal(isMcpToolEvent({ type: 'toolUse', toolName: 'mcp__domain__search' }), true)

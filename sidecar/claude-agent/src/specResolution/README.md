@@ -6,7 +6,7 @@
 
 会话先只读 `session_init` 和 `resolve_execution_context`，控制点明确后 `discover_execution(project, sessionId, request, files)` 探索既有规格、活跃 Change 和 Graphify。读候选原文后 `assess_execution` 记录行为 preserved/changed/unknown、设计 none/detail/architecture、风险类别和逐字引用。preserved 不需要 changeId；changed 复用匹配 Change，继续 resolve/confirm/Delta 链路；unknown 先补证据。设计只绑定受影响层次。
 
-执行保持当前分配分支，一个工作区仅一个写入会话，任务顺序执行并原子提交。`check_execution_readiness` 校验分支、规格版本、文件范围；提交前校验适用设计更新和真实验证。`run_execution_verification` 实际运行已授权 executable/argv 测试，inputFiles 包含测试、配置及依赖；禁止用于服务重启或运行空命令凑 PASS。Windows npm 使用 Node + npm-cli.js 参数数组。缺少类别、失败、内容过期、暂存内容与测试工作区不一致均不能提交。
+执行保持当前分配分支，一个工作区仅一个写入会话，任务顺序执行并原子提交。`check_execution_readiness` 校验分支、规格版本、文件范围；提交前校验适用设计更新和真实验证。`run_execution_verification` 实际运行已授权 executable/argv 测试，inputFiles 包含测试、配置及依赖；禁止用于服务重启或运行空命令凑 PASS。单次调用的检查超时总预算不超过 4 分钟；长检查按相同 `inputFiles` 分批调用，同一输入摘要下的通过结果会累积，输入变化后旧结果失效。MCP 进度报告检查阶段和等待时间；取消调用会中止正在运行的子进程且不保存本次结果。Windows npm 使用 Node + npm-cli.js 参数数组。缺少类别、失败、内容过期、暂存内容与测试工作区不一致均不能提交。
 
 提交后 `finish_execution` 释放写入权，不自动提交或归档。额外分支由宿主明确分配；不自动生成并行分支或推断任务依赖。中断默认保留记录与现场并由原会话恢复；只有旧执行具备当前通过验证、已提交后继、相同分支和干净范围时，Forge 才在原子锁内审计并回收陈旧 writer，其他情况不能删除锁抢占。权限回调与 Hook 只覆盖实际触发工具，不是 OS 沙箱。`.forge/verify.yml` 和项目强制门禁仍保留；本入口补充本次影响的原生检查。退出码不证明 kind/purpose 的语义覆盖，也不代表目标版本部署验收。
 

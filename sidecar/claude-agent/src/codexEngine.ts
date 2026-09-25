@@ -1,4 +1,5 @@
 import { assemblyAllows, filterCodexAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
+import { EXECUTION_VERIFICATION_CODEX_TIMEOUT_SEC } from './execution/budget.js'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
@@ -184,7 +185,7 @@ function codexEnv(codexHome: string): Record<string, string> {
   return env
 }
 
-function standardToolboxMcpConfig(sessionId?: string,
+export function standardToolboxMcpConfig(sessionId?: string,
                                   forgeSqlRegistration = false): NonNullable<CodexOptions['config']> {
   const apiBase = process.env.TOOLBOX_API_BASE?.trim()
   if (!apiBase) return {}
@@ -202,6 +203,7 @@ function standardToolboxMcpConfig(sessionId?: string,
     },
     enabled: true,
     required,
+    ...(name === 'forge' ? { tool_timeout_sec: EXECUTION_VERIFICATION_CODEX_TIMEOUT_SEC } : {}),
     // 查询库自动放行；应用探测可能写测试数据，沿用 Codex 的写操作审批。
     default_tools_approval_mode: name.endsWith('_db') || name === 'forge' ? 'auto' : 'writes',
   }]))

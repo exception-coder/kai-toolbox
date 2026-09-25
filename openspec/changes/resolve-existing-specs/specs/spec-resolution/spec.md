@@ -39,6 +39,15 @@ Forge MUST execute declared authorized checks, record actual exits and content h
 - **WHEN** a verified input changes without changing its Git porcelain status
 - **THEN** previous verification evidence is stale
 
+#### Scenario: Long verification remains observable and bounded
+- **WHEN** an authorized check runs longer than the ordinary MCP idle window
+- **THEN** Forge reports the active check and elapsed time without claiming it passed, and preserves a finite per-call deadline
+- **AND** cancelling the MCP call stops the owned verification process before its result can be recorded
+
+#### Scenario: Verification is split into bounded calls
+- **WHEN** an execution verifies distinct required categories in multiple calls against identical input content
+- **THEN** passing results accumulate without rerunning completed categories, while a changed input invalidates the earlier evidence
+
 ### Requirement: Retrieve existing requirement evidence
 Forge SHALL return bounded Requirement and Scenario candidates for individually identified atomic inputs, with source paths, content revision and Graphify freshness, without treating code facts as accepted behavior.
 

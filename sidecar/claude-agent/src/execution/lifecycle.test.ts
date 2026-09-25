@@ -13,7 +13,7 @@ import { execute } from '../specResolution/tools.js'
 
 function fixture(t: test.TestContext) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-plane-'))
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }))
   git(root, ['init', '-q', '-b', 'main'])
   git(root, ['config', 'user.name', 'Fixture']); git(root, ['config', 'user.email', 'fixture@example.invalid'])
   fs.writeFileSync(path.join(root, 'src.js'), 'export const value = 1\n')
@@ -58,6 +58,40 @@ test('session resumes the existing task reference without granting another write
   assert.equal(denied.allowed, false)
   assert.equal(denied.code, 'WORKSPACE_BUSY')
   assert.equal(denied.enforcement, 'block')
+})
+
+test('verification accumulates bounded checks for the same inputs and invalidates changed inputs', async t => {
+  const { root, context, bind } = fixture(t)
+  bind()
+  const check = (kind: string) => ({ kind, program: process.execPath, args: ['-e', 'process.stdout.write("ok")'], purpose: `${kind} verification check` })
+  const first = await runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: [check('regression')] })
+  assert.equal(first.results.length, 1)
+  const second = await runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: [check('api')] })
+  assert.deepEqual(second.results.map(result => result.kind), ['regression', 'api'])
+  fs.writeFileSync(path.join(root, 'src.js'), 'export const value = 2\n')
+  const changed = await runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: [check('api')] })
+  assert.deepEqual(changed.results.map(result => result.kind), ['api'])
+})
+
+test('verification reports progress, rejects oversized batches, and does not save cancelled results', async t => {
+  const { root, context, bind } = fixture(t)
+  const execution = bind()
+  const check = { kind: 'regression', program: process.execPath,
+    args: ['-e', 'process.stdout.write("ready"); setTimeout(() => {}, 1000)'], purpose: 'Cancellation regression' }
+  await assert.rejects(runExecutionVerification({ ...context, inputFiles: ['src.js'], timeoutMs: 120_000,
+    checks: [check, check, check] }), /预算超过/)
+  const controller = new AbortController()
+  const phases: string[] = []
+  const result = runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: [check] }, {
+    signal: controller.signal,
+    onProgress: event => { phases.push(event.phase); if (event.phase === 'output') controller.abort() },
+  })
+  await assert.rejects(result, /验证调用已取消/)
+  assert.ok(phases.includes('started'))
+  assert.ok(phases.includes('output'))
+  const saved = JSON.parse(fs.readFileSync(path.join(root, `.forge/spec-resolution/${execution.executionId}.json`), 'utf8'))
+  assert.equal(saved.verification, undefined)
+  await new Promise(resolve => setTimeout(resolve, 1200))
 })
 
 test('a new session reclaims only a verified committed and clean stale writer', async t => {

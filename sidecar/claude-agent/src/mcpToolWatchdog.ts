@@ -1,3 +1,6 @@
+import { EXECUTION_VERIFICATION_MCP_HARD_MS, EXECUTION_VERIFICATION_MCP_IDLE_MS,
+  isExecutionVerificationTool } from './execution/budget.js'
+
 export interface McpToolWatchdogEntry {
   toolCallId: string
   toolName: string
@@ -75,14 +78,15 @@ export class McpToolWatchdog {
   private start(toolCallId: string, toolName: string, toolInput?: Record<string, unknown>): void {
     this.finish(toolCallId)
     const now = Date.now()
+    const verification = isExecutionVerificationTool(toolName)
     const entry = {
       toolCallId,
       toolName,
       toolInput,
       startedAt: now,
       lastActivityAt: now,
-      timeoutMs: this.timeoutMs,
-      maxDurationMs: this.maxDurationMs,
+      timeoutMs: verification ? Math.max(this.timeoutMs, EXECUTION_VERIFICATION_MCP_IDLE_MS) : this.timeoutMs,
+      maxDurationMs: verification ? Math.max(this.maxDurationMs, EXECUTION_VERIFICATION_MCP_HARD_MS) : this.maxDurationMs,
     }
     const tool: ActiveMcpTool = {
       ...entry,
@@ -124,7 +128,7 @@ export class McpToolWatchdog {
       this.clearTimers(tool)
       this.active.delete(entry.toolCallId)
       this.options.onTimeout(this.snapshot(tool, 'idle'))
-    }, this.timeoutMs)
+    }, entry.timeoutMs)
   }
 
   private scheduleHardDeadline(entry: McpToolWatchdogEntry): NodeJS.Timeout {
@@ -134,7 +138,7 @@ export class McpToolWatchdog {
       this.clearTimers(tool)
       this.active.delete(entry.toolCallId)
       this.options.onTimeout(this.snapshot(tool, 'maxDuration'))
-    }, this.maxDurationMs)
+    }, entry.maxDurationMs)
   }
 
   private clearTimers(tool: ActiveMcpTool): void {
