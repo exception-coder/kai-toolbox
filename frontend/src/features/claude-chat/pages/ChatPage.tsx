@@ -781,7 +781,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
   // 选中第三方网关时，从其 /v1/models 拉可选模型目录（后端代理）。失败/空回退手填，不阻断新建。
   useEffect(() => {
-    if (panel !== 'new' || (newEngine !== 'claude' && newEngine !== 'codex') || newProviderId === '') {
+    if (panel !== 'new') return
+    if ((newEngine !== 'claude' && newEngine !== 'codex') || newProviderId === '') {
       setProviderModels(current => current.length === 0 ? current : [])
       return
     }
