@@ -58,7 +58,7 @@ afterEach(() => {
 })
 
 describe('ChatPage session configuration', () => {
-  it.each(['pi', 'copilot'])('offers manual gateway model recovery for %s', async engine => {
+  it.each(['pi', 'copilot', 'opencode'])('offers manual gateway model recovery for %s', async engine => {
     testRuntime.chat.currentEngine = engine
     testRuntime.chat.currentProviderKind = 'thirdParty'
     testRuntime.chat.models = []

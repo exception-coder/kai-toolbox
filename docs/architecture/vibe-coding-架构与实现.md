@@ -10,6 +10,8 @@
 
 ### Pi / GitHub Copilot 适配边界
 
+会话级服务商档案目前由 Claude、Codex、Pi、Copilot、OpenCode 适配器消费。OpenCode 第三方会话使用独占子进程、随机端口和 inline config，结束释放进程；不改写本机配置。明确模型必填，使用 OpenAI Chat Completions 兼容地址；运行时配置不一致时拒绝请求。原生默认模式仍使用原客户端。Qwen、Trae、Antigravity 尚未开放 Forge 会话级覆盖，不能把原生支持第三方等同于 Forge 已适配。详见[隔离设计](../../openspec/changes/isolate-engine-provider-overrides/design.md)；新增 OpenCode 路径尚待真实 CLI/供应商和部署验收。
+
 Pi 与 GitHub Copilot 沿用既有引擎目录、会话持久化和模型/服务商配置，不另建会话系统。Pi 使用固定版本 `@earendil-works/pi-coding-agent`，Copilot 使用 `@github/copilot-sdk` 及其配套 CLI；详情与交付状态见 [引擎接入设计](../../openspec/changes/integrate-pi-copilot-engines/design.md)。
 
 - 新建会话选择对应引擎；原生认证需在运行 Forge 的系统账户下配置，Pi 使用 `/login`，Copilot 使用其 CLI 登录。安装 SDK 不等于已有模型额度。

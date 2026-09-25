@@ -108,7 +108,7 @@ import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
 import { ReviewShareDialog } from '../components/ReviewShareDialog'
 import { ReviewWorkspace } from '../components/ReviewWorkspace'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
-import { selectableEngineIds } from '../lib/engineCatalog'
+import { selectableEngineIds, supportsSessionProvider } from '../lib/engineCatalog'
 import { MobileSessionStatus } from '../components/MobileSessionStatus'
 import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
 import { SessionToolsMenu } from '../components/SessionToolsMenu'
@@ -782,7 +782,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   // 选中第三方网关时，从其 /v1/models 拉可选模型目录（后端代理）。失败/空回退手填，不阻断新建。
   useEffect(() => {
     if (panel !== 'new') return
-    if (!['claude', 'codex', 'pi', 'copilot'].includes(newEngine) || newProviderId === '') {
+    if (!supportsSessionProvider(newEngine) || newProviderId === '') {
       setProviderModels(current => current.length === 0 ? current : [])
       return
     }
@@ -973,7 +973,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
   const startNew = () => {
     // 支持会话级网关的引擎复用档案，各自适配原生协议。
-    const usesGateway = ['claude', 'codex', 'pi', 'copilot'].includes(newEngine)
+    const usesGateway = supportsSessionProvider(newEngine)
     const profile = usesGateway ? providers.find(p => p.id === newProviderId) : undefined
     if (usesGateway && newProviderId && !profile) {
       setProviderModelsError('服务商档案已不存在，请刷新列表后重试')
@@ -1620,7 +1620,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             </div>
           )}
           {/* 会话级第三方网关档案，不改引擎全局配置。 */}
-          {(['claude', 'codex', 'pi', 'copilot'].includes(newEngine)) && (
+          {supportsSessionProvider(newEngine) && (
             <div className="mt-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-[var(--color-muted-foreground)]">服务商</span>
@@ -2475,7 +2475,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 </div>
               )}
               {(['qwen', 'opencode', 'pi', 'copilot'].includes(chat.currentEngine))
-                && !(chat.currentProviderKind === 'thirdParty' && ['pi', 'copilot'].includes(chat.currentEngine)) && !reviewOnlySession && (
+                && !(chat.currentProviderKind === 'thirdParty' && supportsSessionProvider(chat.currentEngine)) && !reviewOnlySession && (
                 <div className="flex flex-col items-stretch gap-2">
                   <label htmlFor="session-engine-model" className="text-sm font-medium">{currentEngineLabel} 模型</label>
                   <div className="flex items-center gap-2">
@@ -2514,7 +2514,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   )}
                 </div>
               )}
-              {!reviewOnlySession && ['claude', 'codex', 'pi', 'copilot'].includes(chat.currentEngine) && (
+              {!reviewOnlySession && supportsSessionProvider(chat.currentEngine) && (
                 <>
                   <div className="flex flex-col items-stretch gap-2">
                     <span className="text-sm font-medium">服务商</span>
@@ -2529,7 +2529,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                       hideManage
                     />
                   </div>
-                  {['claude', 'pi', 'copilot'].includes(chat.currentEngine) && chat.currentProviderKind === 'thirdParty' && (
+                  {['claude', 'pi', 'copilot', 'opencode'].includes(chat.currentEngine) && chat.currentProviderKind === 'thirdParty' && (
                     <GatewaySessionModelPicker
                       models={chat.models}
                       currentModel={chat.currentModel}

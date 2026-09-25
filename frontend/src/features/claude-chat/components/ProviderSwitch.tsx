@@ -6,11 +6,12 @@ import { ProviderProfilesPanel } from './ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { providerHost } from './chatStatus'
 import type { Engine } from '../types'
+import { supportsSessionProvider } from '../lib/engineCatalog'
 
 /**
  * 会话内「切换服务商」：官方登录 ↔ 第三方网关，或两网关互切。点击弹出卡片列表
  * （官方 + 各档案 + 管理档案），切换走 chat.switchProvider —— 同一会话与 sdkSessionId 不变，
- * 保留上下文，下一轮生效。仅 claude/codex 引擎可用网关，其他引擎使用各自官方运行时。
+ * 保留上下文，下一轮生效。网关能力由 supportsSessionProvider 判定，不改变引擎全局配置。
  *
  * 切到某档案时一并把它的默认模型透传（若有）：先 switchProvider 再 setModel，免得用户切完还得手点模型。
  */
@@ -41,8 +42,7 @@ export function ProviderSwitch({
   const profilesQuery = useQuery({ queryKey: ['gateway-provider-profiles'], queryFn: loadProfiles })
   const profiles: ProviderProfile[] = profilesQuery.data ?? []
 
-  // opencode 自管 provider：禁用切换，仅显示静态标签
-  const gatewayCapable = ['claude', 'codex', 'pi', 'copilot'].includes(engine)
+  const gatewayCapable = supportsSessionProvider(engine)
   const isThird = providerKind === 'thirdParty'
   const host = providerHost(providerBaseUrl)
   const label = isThird ? (host ?? '第三方') : '官方'

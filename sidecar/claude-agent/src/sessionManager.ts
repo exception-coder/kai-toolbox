@@ -1095,6 +1095,8 @@ class Session {
     try {
       await runOpencodeTurn({
         text,
+        apiBaseUrl: this.apiBaseUrl,
+        authToken: this.authToken,
         developerInstructions,
         cwd: this.cwd,
         model: this.model,
@@ -1162,7 +1164,10 @@ class Session {
       return
     }
     if (this.engine === 'opencode') {
-      void emitOpencodeModels(this.cwd, event => this.emitTurn(event), this.model)
+      const identity = [this.apiBaseUrl, this.authToken, this.model]
+      if (!this.apiBaseUrl) void emitOpencodeModels(this.cwd, event => {
+        if (this.engine === 'opencode' && identity.every((value, i) => value === [this.apiBaseUrl, this.authToken, this.model][i])) this.emitTurn(event)
+      }, this.model)
       return
     }
     if (this.engine === 'codex') {
@@ -1568,7 +1573,12 @@ export class SessionManager {
         return
       }
       if (s?.engine === 'opencode') {
-        await emitOpencodeModels(s.cwd, (event) => this.emit(sessionId, event), s.model)
+        if (s.apiBaseUrl) return
+        const identity = [s.apiBaseUrl, s.authToken, s.model]
+        await emitOpencodeModels(s.cwd, event => {
+          if (this.sessions.get(sessionId) === s && s.engine === 'opencode'
+            && identity.every((value, i) => value === [s.apiBaseUrl, s.authToken, s.model][i])) this.emit(sessionId, event)
+        }, s.model)
         return
       }
       if (s?.engine === 'qwen') {

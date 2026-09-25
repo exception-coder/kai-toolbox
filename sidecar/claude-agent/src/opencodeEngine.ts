@@ -4,6 +4,8 @@ import { activityOutputTail, emitToolActivity, summarizeToolInput } from './tool
 import { classifyCommandResult } from './commandExecution.js'
 import { prependWindowsExecutionInstructions } from './windowsExecution.js'
 import { appendSqlDdlFallbackRule } from './pendingSqlPolicy.js'
+import { FORGE_OPENCODE_PROVIDER, opencodeGatewayOptions } from './engine/opencodeGateway.js'
+import { safeEngineError } from './engine/embeddedEngineContext.js'
 
 /**
  * OpenCode 引擎：把 opencode（多 provider 的 agent）接成一种引擎，专供第三方 API 模型使用。
@@ -18,6 +20,8 @@ import { appendSqlDdlFallbackRule } from './pendingSqlPolicy.js'
  */
 export interface OpencodeTurnCtx {
   text: string
+  apiBaseUrl?: string
+  authToken?: string
   /** Forge 后端生成的可信会话级项目上下文。 */
   developerInstructions?: string
   cwd: string
@@ -35,6 +39,7 @@ export interface OpencodeTurnCtx {
 
 /** 单个会话本轮的事件聚合状态。 */
 interface Handler {
+  client: OpencodeClient
   emit: (e: Record<string, unknown>) => void
   assistant: Set<string>   // assistant 消息 id（区分助手文本 vs 用户回显）
   toolUse: Set<string>     // 已 emit toolUse 的 callID
@@ -68,18 +73,19 @@ async function ensureClient(): Promise<OpencodeClient> {
 }
 
 /** 全局事件流：断开自动重连；按 sessionID 路由到对应 Handler。 */
-function startEventLoop(client: OpencodeClient): void {
+function startEventLoop(client: OpencodeClient, signal?: AbortSignal, directory?: string): void {
   void (async () => {
-    for (;;) {
+    while (!signal?.aborted) {
       try {
-        const events = await client.event.subscribe()
+        const events = await client.event.subscribe({ signal, query: directory ? { directory } : undefined })
         for await (const ev of events.stream as AsyncIterable<Event>) {
           try { dispatch(ev) } catch { /* 单事件异常不拖垮整条流 */ }
         }
       } catch (e) {
+        if (signal?.aborted) return
         console.warn('[sidecar] opencode 事件流断开，2s 后重连：', e instanceof Error ? e.message : String(e))
       }
-      await delay(2000)
+      if (!signal?.aborted) await delay(2000)
     }
   })()
 }
@@ -215,21 +221,50 @@ function handlePart(h: Handler, part: Part, delta: string | undefined): void {
 }
 
 /** 跑一轮 opencode：建/续会话 → prompt（阻塞到本轮结束）→ 转事件 + 收尾。 */
-export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
-  let client: OpencodeClient
+export async function runOpencodeTurn(ctx: OpencodeTurnCtx, createRuntime: typeof createOpencode = createOpencode): Promise<void> {
+  let owned: Awaited<ReturnType<typeof createOpencode>> | undefined
+  const events = new AbortController()
+  const emit = ctx.emit
+  const safeContext = { ...ctx, emit: (event: Record<string, unknown>) => {
+    emit(event.type === 'error' ? { ...event, message: safeEngineError(event.message, ctx.authToken) } : event)
+  } }
   try {
-    client = await ensureClient()
+    ctx.signal.throwIfAborted()
+    if (ctx.apiBaseUrl) {
+      owned = await createRuntime(opencodeGatewayOptions(ctx))
+      startEventLoop(owned.client, events.signal, ctx.cwd)
+    }
+    await executeOpencodeTurn(safeContext, owned?.client ?? await ensureClient())
   } catch (e) {
-    ctx.emit({
+    if (ctx.signal.aborted) {
+      ctx.emit({ type: 'result', usage: {}, stopReason: 'interrupted' })
+      return
+    }
+    safeContext.emit({
       type: 'error', code: 'OPENCODE_DOWN',
-      message: 'opencode 启动失败：' + (e instanceof Error ? e.message : String(e))
-        + '（确认已安装 opencode 并配置好 provider：opencode auth login）',
+      message: 'OpenCode 执行失败：' + safeEngineError(e, ctx.authToken),
     })
-    return
+    ctx.emit({ type: 'result', usage: {}, stopReason: ctx.signal.aborted ? 'interrupted' : 'error' })
+  } finally {
+    events.abort()
+    owned?.server.close()
   }
+}
 
+async function executeOpencodeTurn(ctx: OpencodeTurnCtx, client: OpencodeClient): Promise<void> {
   const dir = existsSync(ctx.cwd) ? ctx.cwd : undefined
   const query = dir ? { directory: dir } : undefined
+  if (ctx.apiBaseUrl) {
+    const effective = await client.config.get({ query })
+    const expected = opencodeGatewayOptions(ctx).config
+    const actual = effective.data?.provider?.[FORGE_OPENCODE_PROVIDER]
+    if (effective.error || effective.data?.model !== expected.model
+      || effective.data?.small_model !== expected.small_model
+      || actual?.options?.baseURL !== ctx.apiBaseUrl.trim()
+      || actual?.options?.apiKey !== ctx.authToken) {
+      throw new Error('OpenCode 运行时配置与会话服务商不一致，已停止请求；请检查受管配置覆盖。')
+    }
+  }
 
   let sid = ctx.sdkSessionId
   if (!sid) {
@@ -241,6 +276,7 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
   }
 
   const h: Handler = {
+    client,
     emit: ctx.emit, assistant: new Set(), toolUse: new Set(), toolDone: new Set(), lastText: new Map(), hasAssistantText: false,
     directory: dir, permissionMode: ctx.permissionMode, autoApprove: ctx.autoApprove, toolPolicy: ctx.toolPolicy,
   }
@@ -249,7 +285,7 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
   const onAbort = () => { void client.session.abort({ path: { id: sessionId }, query }).catch(() => {}) }
   ctx.signal.addEventListener('abort', onAbort)
 
-  const model = parseModel(ctx.model)
+  const model = ctx.apiBaseUrl ? { providerID: FORGE_OPENCODE_PROVIDER, modelID: ctx.model!.trim() } : parseModel(ctx.model)
   try {
     const res = await client.session.prompt({
       path: { id: sessionId },
@@ -283,7 +319,7 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
     const info = res.data?.info
     if (info?.providerID && info?.modelID) h.responseModel = `${info.providerID}/${info.modelID}`
     console.log(`[sidecar] opencode turn done session=${sessionId} requested=${ctx.model ?? '默认'} responded=${h.responseModel ?? '?'}`)
-    ctx.emit({ type: 'turnInfo', requestedModel: ctx.model ?? null, responseModel: h.responseModel ?? null, viaGateway: false, baseUrl: null })
+    ctx.emit({ type: 'turnInfo', requestedModel: ctx.model ?? null, responseModel: h.responseModel ?? null, viaGateway: !!ctx.apiBaseUrl, baseUrl: ctx.apiBaseUrl ?? null })
     ctx.emit({ type: 'result', usage: {}, stopReason: 'end_turn' })
   } catch (e) {
     if (ctx.signal.aborted) { ctx.emit({ type: 'result', usage: {}, stopReason: 'interrupted' }); return }
@@ -344,7 +380,8 @@ async function replyPermission(
   directory: string | undefined, emit: (e: Record<string, unknown>) => void,
 ): Promise<void> {
   try {
-    const client = await ensureClient()
+    const client = handlers.get(sessionId)?.client
+    if (!client) return
     const result = await client.postSessionIdPermissionsPermissionId({
       path: { id: sessionId, permissionID: permissionId }, query: directory ? { directory } : undefined,
       body: { response },

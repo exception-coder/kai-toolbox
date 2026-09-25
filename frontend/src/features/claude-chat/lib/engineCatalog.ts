@@ -1,5 +1,9 @@
 import type { Engine, EngineCatalogView } from '../types'
 
+export function supportsSessionProvider(engine: Engine): boolean {
+  return ['claude', 'codex', 'pi', 'copilot', 'opencode'].includes(engine)
+}
+
 export const STABLE_ENGINE_IDS: readonly Engine[] = ['claude', 'codex', 'qwen', 'opencode']
 
 const KNOWN_ENGINE_IDS = new Set<Engine>([...STABLE_ENGINE_IDS, 'deepseekHarness'])

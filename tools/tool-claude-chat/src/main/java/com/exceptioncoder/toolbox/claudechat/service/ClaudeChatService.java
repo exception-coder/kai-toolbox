@@ -252,10 +252,9 @@ public class ClaudeChatService {
             return;
         }
         // 可接入会话级网关的引擎复用档案；其余引擎使用各自运行时配置。
-        boolean gatewayCapable = "claude".equals(engine) || "codex".equals(engine)
-                || "pi".equals(engine) || "copilot".equals(engine);
+        boolean gatewayCapable = SessionProviderCapabilities.supportsGateway(engine);
         String profileId = blankToNull(open.providerProfileId());
-        if (profileId != null && (consultReadonly || !gatewayCapable)) {
+        if ((profileId != null || blankToNull(open.apiBaseUrl()) != null) && (consultReadonly || !gatewayCapable)) {
             sendError(ws, 0, "PROVIDER_UNSUPPORTED", "当前会话不支持第三方服务商档案");
             return;
         }
@@ -1065,8 +1064,7 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (ctx.apiBaseUrl != null && ("claude".equals(ctx.engine) || "codex".equals(ctx.engine)
-                || "pi".equals(ctx.engine) || "copilot".equals(ctx.engine))) {
+        if (ctx.apiBaseUrl != null && SessionProviderCapabilities.supportsGateway(ctx.engine)) {
             pushGatewayModels(ctx);
         } else {
             sidecar.refreshModels(ctx.sessionId);
@@ -1113,6 +1111,10 @@ public class ClaudeChatService {
         }
         if (rejectReviewMutation(ws, ctx)) return;
         String engine = normalizeEngine(msg.engine());
+        if (blankToNull(ctx.apiBaseUrl) != null && !SessionProviderCapabilities.supportsGateway(engine)) {
+            sendError(ws, 0, "PROVIDER_UNSUPPORTED", "目标引擎不支持会话级网关，请先切回原生服务商再切换引擎");
+            return;
+        }
         if (!engineCatalog.selectable(engine)) {
             sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，请刷新引擎目录后重试");
             return;
@@ -1157,8 +1159,7 @@ public class ClaudeChatService {
             return;
         }
         // 会话级网关配置由各引擎适配器消费；其余引擎仍自管运行时配置。
-        boolean gatewayCapable = "claude".equals(ctx.engine) || "codex".equals(ctx.engine)
-                || "pi".equals(ctx.engine) || "copilot".equals(ctx.engine);
+        boolean gatewayCapable = SessionProviderCapabilities.supportsGateway(ctx.engine);
         String profileId = blankToNull(msg.providerProfileId());
         String apiBaseUrl = gatewayCapable ? blankToNull(msg.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(msg.authToken());
