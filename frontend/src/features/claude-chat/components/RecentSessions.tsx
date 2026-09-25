@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Clock3, Folder, Link2, Loader2, LockKeyhole, Pencil, Star, Tags, Trash2, Unlock } from 'lucide-react'
+import { Check, ChevronRight, Clock3, Folder, Link2, Loader2, LockKeyhole, Pencil, Star, Tags, Trash2, Unlock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionFavorite, setSessionGroupApi } from '../api'
 import { engineDisplayName } from './chatStatus'
@@ -77,6 +77,7 @@ export function groupRecentSessionsByWorkspace(sessions: ClaudeChatSessionView[]
 export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props) {
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const listId = useId()
   const { busyId: planBusyId, expire: expirePlan, unlock: unlockPlan } = useSessionPlanState()
   const { data: sessions = [], isPending } = useQuery({
     queryKey: SESSION_QUERY_KEY,
@@ -91,6 +92,28 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
     .slice(0, limit)
     .sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || b.lastSeenAt - a.lastSeenAt)
   const workspaceGroups = useMemo(() => groupRecentSessionsByWorkspace(recent), [recent])
+  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(() => new Set())
+  const activeWorkspaceKey = workspaceGroups.find(group =>
+    group.sessions.some(session => session.id === currentSessionId))?.key
+
+  useEffect(() => {
+    if (!activeWorkspaceKey) return
+    setCollapsedWorkspaces(previous => {
+      if (!previous.has(activeWorkspaceKey)) return previous
+      const next = new Set(previous)
+      next.delete(activeWorkspaceKey)
+      return next
+    })
+  }, [activeWorkspaceKey, currentSessionId])
+
+  const toggleWorkspace = (key: string) => {
+    setCollapsedWorkspaces(previous => {
+      const next = new Set(previous)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   // 同 SessionList：批量查一次这几条会话里哪些绑了 PRD，行首标个小图标，不用点开才知道。
   const recentIdsKey = useMemo(() => [...recent.map(s => s.id)].sort().join(','), [recent])
@@ -168,17 +191,25 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
       {recent.length === 0 ? (
         <p className="px-3 pb-2 text-xs text-[var(--color-muted-foreground)]">当前状态筛选下没有最近会话</p>
       ) : <div className="scrollbar-autohide max-h-[55vh] overflow-y-auto overscroll-contain">
-        {workspaceGroups.map(workspace => (
-          <section key={workspace.key} aria-label={`工作目录 ${workspace.cwd || '未识别'}`}>
-            <div
-              className="flex min-w-0 items-center gap-1.5 border-y border-[var(--color-border)]/40 bg-[var(--color-muted)]/25 px-3 py-1.5 text-[10px] text-[var(--color-muted-foreground)]"
+        {workspaceGroups.map((workspace, index) => {
+          const collapsed = collapsedWorkspaces.has(workspace.key)
+          const contentId = `${listId}-workspace-${index}`
+          return <section key={workspace.key} aria-label={`工作目录 ${workspace.cwd || '未识别'}`}>
+            <button
+              type="button"
+              aria-expanded={!collapsed}
+              aria-controls={contentId}
+              aria-label={`${collapsed ? '展开' : '折叠'}工作目录 ${workspace.cwd || '未识别工作目录'}，${workspace.sessions.length} 个会话`}
+              onClick={() => toggleWorkspace(workspace.key)}
+              className="flex min-h-9 w-full min-w-0 items-center gap-1.5 border-y border-[var(--color-border)]/40 bg-[var(--color-muted)]/25 px-3 text-left text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-primary)]"
               title={workspace.cwd || '未记录工作目录'}
             >
-              <Folder className="size-3 shrink-0 opacity-70" />
+              <ChevronRight className={cn('size-3 shrink-0', !collapsed && 'rotate-90')} aria-hidden="true" />
+              <Folder className="size-3 shrink-0 opacity-70" aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate font-medium">{workspace.label}</span>
               <span className="shrink-0 tabular-nums opacity-70">{workspace.sessions.length}</span>
-            </div>
-            <ul>
+            </button>
+            <ul id={contentId} hidden={collapsed}>
         {workspace.sessions.map(session => {
           const isActive = session.id === currentSessionId
           const title = sessionDisplayName(session)
@@ -357,7 +388,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
         })}
             </ul>
           </section>
-        ))}
+        })}
       </div>}
     </section>
     {groupPickFor && (
