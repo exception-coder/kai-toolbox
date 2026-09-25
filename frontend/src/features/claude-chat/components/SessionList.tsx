@@ -16,6 +16,7 @@ import { useSessionPlanState } from '../hooks/useSessionPlanState'
 import { SessionStatusFilter } from './SessionStatusFilter'
 import { DEFAULT_SESSION_STATUSES, isSessionStatusVisible, resetVisibleSessionStatuses, useVisibleSessionStatuses } from '../lib/sessionStatusFilter'
 import { isVibeCodingSession } from '../lib/sessionScope'
+import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
 let groupMigrationDone = false
@@ -182,6 +183,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [renameError, setRenameError] = useState<string | null>(null)
   const [favoriteBusyId, setFavoriteBusyId] = useState<string | null>(null)
   const [groupPickFor, setGroupPickFor] = useState<ClaudeChatSessionView | null>(null)
 
@@ -198,14 +200,18 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     qc.invalidateQueries({ queryKey: KEY })
   }
 
-  const startEdit = (id: string, cur: string) => { setEditingId(id); setDraft(cur) }
+  const startEdit = (id: string, cur: string) => { setRenameError(null); setEditingId(id); setDraft(cur) }
 
   const commitEdit = async (id: string) => {
     const t = draft.trim()
+    if (editingId !== id) return
     setEditingId(null)
     if (t) {
-      await renameSession(id, t)
-      qc.invalidateQueries({ queryKey: KEY })
+      try {
+        await renameSessionOptimistically(qc, id, t, renameSession)
+      } catch (error) {
+        setRenameError(`重命名失败：${error instanceof Error ? error.message : String(error)}`)
+      }
     }
   }
 
@@ -269,6 +275,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
 
   return (
     <>
+      {renameError && <p role="alert" className="px-3 py-2 text-xs text-[var(--color-destructive)]">{renameError}</p>}
       <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--color-border)]/60 px-3 py-2">
         <div className="flex w-full items-center gap-2 pb-0.5">
           {activeProject ? (

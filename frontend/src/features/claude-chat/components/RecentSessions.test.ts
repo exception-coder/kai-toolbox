@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import * as api from '../api'
+import { getSessionsByDevSessions } from '@/features/prd-clarify/public-api'
 import { RecentSessions, groupRecentSessionsByWorkspace } from './RecentSessions'
 import type { ClaudeChatSessionView } from '../types'
 
@@ -59,5 +60,34 @@ describe('recent workspace disclosure', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /折叠工作目录 D:\\Work\\Beta/ }))
       .toHaveAttribute('aria-expanded', 'true'))
     expect(betaList.hidden).toBe(false)
+  })
+})
+
+describe('recent session rename', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('shows the new name before the server responds and restores it on failure', async () => {
+    vi.mocked(getSessionsByDevSessions).mockResolvedValue({})
+    const original = { ...session('one', 'D:\\Work\\Alpha', 100), title: '旧名称' }
+    vi.spyOn(api, 'listSessions').mockResolvedValue([original])
+    let rejectRequest!: (error: Error) => void
+    const rename = vi.spyOn(api, 'renameSession').mockImplementation(() =>
+      new Promise<void>((_, reject) => { rejectRequest = reject }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(createElement(QueryClientProvider, { client },
+      createElement(ConfirmProvider, null,
+        createElement(RecentSessions, { currentSessionId: 'one', onSwitch: vi.fn() }))))
+
+    const row = await screen.findByRole('button', { name: /旧名称/ })
+    fireEvent.doubleClick(row)
+    const input = screen.getByDisplayValue('旧名称')
+    fireEvent.change(input, { target: { value: '新名称' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(rename).toHaveBeenCalledOnce())
+    expect(screen.getByRole('button', { name: /新名称/ })).toBeInTheDocument()
+
+    rejectRequest(new Error('网络不可用'))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('网络不可用'))
+    expect(screen.getByRole('button', { name: /旧名称/ })).toBeInTheDocument()
   })
 })

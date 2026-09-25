@@ -15,6 +15,7 @@ import { useSessionPlanState } from '../hooks/useSessionPlanState'
 import { isSessionStatusVisible, useVisibleSessionStatuses } from '../lib/sessionStatusFilter'
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { sessionDisplayName } from '../lib/sessionDisplayName'
+import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 
 interface Props {
   currentSessionId: string | null
@@ -127,6 +128,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
   // 双击改名：本地记录正在编辑的会话 id + 草稿文本，提交后写回并刷新列表。
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [renameError, setRenameError] = useState<string | null>(null)
   const [groupPickFor, setGroupPickFor] = useState<ClaudeChatSessionView | null>(null)
   const [favoriteBusyId, setFavoriteBusyId] = useState<string | null>(null)
   const allGroupPaths = useMemo(() => recentCandidates
@@ -135,13 +137,17 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
       requirement: (session.subgroup ?? '').trim(),
     }))
     .filter(path => path.project), [recentCandidates])
-  const startEdit = (id: string, cur: string) => { setEditingId(id); setDraft(cur) }
+  const startEdit = (id: string, cur: string) => { setRenameError(null); setEditingId(id); setDraft(cur) }
   const commitEdit = async (id: string) => {
     const t = draft.trim()
+    if (editingId !== id) return
     setEditingId(null)
     if (t) {
-      await renameSession(id, t)
-      qc.invalidateQueries({ queryKey: SESSION_QUERY_KEY })
+      try {
+        await renameSessionOptimistically(qc, id, t, renameSession)
+      } catch (error) {
+        setRenameError(`重命名失败：${error instanceof Error ? error.message : String(error)}`)
+      }
     }
   }
 
@@ -187,6 +193,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
           最近会话
         </span>
       </div>
+      {renameError && <p role="alert" className="px-3 pb-2 text-xs text-[var(--color-destructive)]">{renameError}</p>}
 
       {recent.length === 0 ? (
         <p className="px-3 pb-2 text-xs text-[var(--color-muted-foreground)]">当前状态筛选下没有最近会话</p>

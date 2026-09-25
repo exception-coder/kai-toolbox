@@ -12,6 +12,7 @@ import type { AutopilotChangeOption, AutopilotDashboard, ChatItem, ClaudeChatSes
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 import { buildPendingSqlTargetOptions, type PendingSqlTargetOption } from './lib/pendingSqlTargets'
 import { SESSION_HISTORY_PAGE_TIMEOUT_MS } from './lib/sessionHistoryRequest'
+import { applyPendingSessionTitles } from './lib/optimisticSessionRename'
 
 /** 查询会话关联的 SQL 登记；未登记返回 null。 */
 export async function getSessionPendingSql(sessionId: string): Promise<SessionPendingSql | null> {
@@ -217,8 +218,8 @@ export function testServerPush(config: NotifyConfig) {
   })
 }
 
-export function listSessions() {
-  return http<ClaudeChatSessionView[]>('/claude-chat/sessions')
+export async function listSessions() {
+  return applyPendingSessionTitles(await http<ClaudeChatSessionView[]>('/claude-chat/sessions'))
 }
 
 export type { PendingSqlTargetOption } from './lib/pendingSqlTargets'

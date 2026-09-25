@@ -60,6 +60,7 @@ import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
 import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { canSteerRunningMessage, RunningMessageActions } from '../components/RunningMessageActions'
 import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
@@ -924,17 +925,23 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   // 顶栏标题双击直接改名：本地态显示编辑框，提交后写回后端并让会话列表/标题一并刷新。
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
+  const [titleRenameError, setTitleRenameError] = useState<string | null>(null)
   const startEditTitle = () => {
     if (!currentSession) return
+    setTitleRenameError(null)
     setTitleDraft(currentTitle ?? '')
     setEditingTitle(true)
   }
   const commitEditTitle = async () => {
     const t = titleDraft.trim()
+    if (!editingTitle) return
     setEditingTitle(false)
     if (t && currentSession && t !== currentTitle) {
-      await renameSession(currentSession.id, t)
-      qc.invalidateQueries({ queryKey: ['claude-chat-sessions'] })
+      try {
+        await renameSessionOptimistically(qc, currentSession.id, t, renameSession)
+      } catch (error) {
+        setTitleRenameError(`重命名失败：${error instanceof Error ? error.message : String(error)}`)
+      }
     }
   }
   const currentProviderHost = providerHost(chat?.currentProviderBaseUrl ?? null)
@@ -1162,6 +1169,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 {currentTitle || 'Vibe Coding'}
               </span>
             )}
+              {titleRenameError && <span role="alert" className="block truncate text-[10px] text-[var(--color-destructive)]" title={titleRenameError}>{titleRenameError}</span>}
               <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-[var(--color-muted-foreground)] md:hidden">
                 <EngineIcon engine={chat.currentEngine} thirdParty={chat.currentProviderKind === 'thirdParty'} className="size-3 shrink-0" />
                 <span className="truncate">{currentEngineLabel}</span>
