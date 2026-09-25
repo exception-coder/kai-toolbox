@@ -60,6 +60,7 @@ import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
 import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { canSteerRunningMessage, RunningMessageActions } from '../components/RunningMessageActions'
 import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
@@ -1025,16 +1026,15 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     }
   }
 
-  const submit = () => {
+  const submit = (runningAction: 'queue' | 'steer' = 'queue') => {
     if (!chat.sessionId) return
     if (planLocked) return
     if (!draft.trim() && attachments.length === 0) return
     ensureNotifyPermission() // 借发送这个手势兜底申请一次通知权限
 
     const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
-    // 官方 Codex 支持 turn/steer：运行中纯文本直接补充到当前轮；附件和其它引擎仍进入下一轮队列。
     if (chat.running) {
-      if (chat.currentEngine === 'codex' && chat.currentProviderBaseUrl == null && atts.length === 0) {
+      if (runningAction === 'steer' && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, atts.length)) {
         chat.steer(draft)
       } else {
         chat.enqueue(draft, atts)
@@ -2537,27 +2537,12 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 if (e.key === 'Enter' && !e.shiftKey) {
                   if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return
                   e.preventDefault()
-                  submit() // running 时 submit 自动入队
+                  submit() // 运行中默认加入队列
                 }
               }}
             />
             {chat.running ? (
               <div className="col-start-3 row-start-2 flex shrink-0 gap-1">
-                {!planLocked && (draft.trim().length > 0 || attachments.length > 0) && (
-                  <Button
-                    size="lg"
-                    variant="secondary"
-                    className="hidden shadow-sm md:inline-flex"
-                    onClick={submit}
-                    aria-label={chat.currentEngine === 'codex' && chat.currentProviderBaseUrl == null && attachments.length === 0
-                      ? '补充到当前轮' : '排队发送'}
-                    title={chat.currentEngine === 'codex' && chat.currentProviderBaseUrl == null && attachments.length === 0
-                      ? '补充到 Codex 当前轮，不中断正在进行的工作'
-                      : '加入待发送队列，本轮结束后自动发出'}
-                  >
-                    <Send className="size-4" />
-                  </Button>
-                )}
                 <Button variant="outline" size="lg" className="max-md:size-8 max-md:px-0" onClick={chat.interrupt} disabled={chat.interrupting}
                   aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'}>
                   {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
@@ -2567,12 +2552,21 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               <Button
                 size="lg"
                 className="col-start-3 row-start-2 max-md:size-8 max-md:px-0 shadow-sm"
-                onClick={submit}
+                onClick={() => submit()}
                 disabled={planLocked || (!draft.trim() && attachments.length === 0)}
                 aria-label="发送"
               >
                 <Send className="size-4" />
               </Button>
+            )}
+            {chat.running && (
+              <RunningMessageActions
+                className="col-span-3 row-start-3 w-full border-t border-[var(--color-border)] py-1.5"
+                canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
+                disabled={planLocked || (!draft.trim() && attachments.length === 0)}
+                onSteer={() => submit('steer')}
+                onEnqueue={() => submit('queue')}
+              />
             )}
           </div>
           <div className="hidden md:block">

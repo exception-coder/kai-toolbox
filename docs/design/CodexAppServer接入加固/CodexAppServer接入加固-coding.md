@@ -7,7 +7,7 @@
 - 工具超时只中断当前轮，不自动重放普通工具。
 - 中断后 2.5 秒仍无终态时沿用现有强制清理；正常完成只关闭 stdin 并后台等待退出。
 - MCP 专用恢复逻辑保持不变。
-- 官方 Codex 运行中纯文本使用 `turn/steer`，附件与其它引擎继续排队。
+- 官方 Codex 运行中纯文本由用户显式选择 `turn/steer` 或持久队列，桌面回车默认入队；附件与其它引擎仅排队。
 
 ---
 
@@ -29,7 +29,8 @@
 | `tools/tool-claude-chat/.../ClientMessage.java` | 修改 | 声明浏览器 steer 契约 |
 | `tools/tool-claude-chat/.../ClaudeChatService.java` | 修改 | 校验运行态与官方 Codex 后转发 steer |
 | `frontend/src/features/claude-chat/hooks/useClaudeChatSocket.ts` | 修改 | 乐观展示并发送 steer |
-| `frontend/src/features/claude-chat/pages/ChatPage.tsx` | 修改 | 运行中纯文本选择 steer 或队列 |
+| `frontend/src/features/claude-chat/pages/ChatPage.tsx`、`components/SessionPane.tsx`、`components/FloatingChatWindow.tsx` | 修改 | 三种输入区显式选择 steer 或队列，移动端保留文字操作 |
+| `frontend/src/features/claude-chat/components/RunningMessageActions.tsx` | 新增 | 统一操作标签、触控布局与 steer 可用条件 |
 
 ### 关键方法签名与职责
 

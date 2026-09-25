@@ -37,6 +37,7 @@ import { engineDisplayName, providerHost } from './chatStatus'
 import type { PrdSessionView } from '@/features/prd-clarify/public-api'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from './SessionPlanLockNotice'
+import { canSteerRunningMessage, RunningMessageActions } from './RunningMessageActions'
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 import type { LaunchIntentPayload } from '@/shell/launch-intent/types'
@@ -446,15 +447,19 @@ export function FloatingChatWindow() {
     }
   }
 
-  const submit = () => {
+  const submit = (runningAction: 'queue' | 'steer' = 'queue') => {
     const t = draft.trim()
     const hasAtt = attachments.length > 0
-    if ((!t && !hasAtt) || chat.running || planLocked) return
+    if ((!t && !hasAtt) || planLocked) return
     // 纯文本且命中路由信号(/goto 或导航动词) → 走模块路由，不当对话发出
-    if (!hasAtt && handleUserText(t)) { setDraft(''); return }
+    if (!chat.running && !hasAtt && handleUserText(t)) { setDraft(''); return }
     // 带上 mime + 本地预览 url → 气泡里显示图片缩略图（与全屏/分屏视图一致）；
     // 不在此 revoke object URL：它已被消息气泡引用，revoke 会让缩略图失效。
-    chat.send(t, hasAtt ? attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl })) : undefined)
+    const atts = hasAtt ? attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl })) : undefined
+    if (chat.running) {
+      if (runningAction === 'steer' && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)) chat.steer(t)
+      else chat.enqueue(t, atts)
+    } else chat.send(t, atts)
     setDraft('')
     setAttachments([])
     // 发送后收回输入框高度：等 DOM 清空（下一帧）再按内容重算
@@ -898,7 +903,7 @@ export function FloatingChatWindow() {
           />
         )}
         <SessionPlanLockNotice session={currentSession} compact />
-        <div className="flex items-end gap-2 p-2">
+        <div className="flex flex-wrap items-end gap-2 p-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -972,10 +977,19 @@ export function FloatingChatWindow() {
               {chat.interrupting ? '中断中…' : '中断'}
             </button>
           ) : (
-            <button type="button" onClick={submit} disabled={planLocked || (!draft.trim() && attachments.length === 0)} aria-label="发送"
+            <button type="button" onClick={() => submit()} disabled={planLocked || (!draft.trim() && attachments.length === 0)} aria-label="发送"
               className={`rounded-lg px-3 py-2 disabled:opacity-50 ${giftMode ? 'bg-[#79a861] text-[#0c160c] hover:bg-[#9bc16e]' : 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'}`}>
               <Send className="size-4" />
             </button>
+          )}
+          {chat.running && (
+            <RunningMessageActions
+              className="basis-full border-t border-[var(--color-border)] pt-2"
+              canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
+              disabled={planLocked || (!draft.trim() && attachments.length === 0)}
+              onSteer={() => submit('steer')}
+              onEnqueue={() => submit('queue')}
+            />
           )}
         </div>
       </div>

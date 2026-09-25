@@ -26,6 +26,7 @@ import type { PrdSessionView } from '@/features/prd-clarify/public-api'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from './SessionPlanLockNotice'
 import { SessionRuntimeHealth } from './SessionRuntimeHealth'
+import { canSteerRunningMessage, RunningMessageActions } from './RunningMessageActions'
 
 interface Props {
   /** 本块续接的会话 id。 */
@@ -131,14 +132,18 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
     }
   }
 
-  const submit = () => {
+  const submit = (runningAction: 'queue' | 'steer' = 'queue') => {
     if (planLocked) return
     if (!chat.sessionId) return
     if (!draft.trim() && attachments.length === 0) return
     ensureNotifyPermission()
     // 带上 mime + 本地预览 url → 气泡里显示图片缩略图（与单会话视图一致）；
     // 不在此 revoke object URL：它已被消息气泡引用（revoke 会让缩略图失效）。
-    chat.send(draft, attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl })))
+    const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
+    if (chat.running) {
+      if (runningAction === 'steer' && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, atts.length)) chat.steer(draft)
+      else chat.enqueue(draft, atts)
+    } else chat.send(draft, atts)
     setDraft('')
     setAttachments([])
     const el = taRef.current
@@ -281,7 +286,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           onPick={reference => { void projectMention.pickReference(reference) }}
         />
         <SessionPlanLockNotice session={meta} compact />
-        <div className="flex items-end gap-1">
+        <div className="flex flex-wrap items-end gap-1">
           {/* 附件：label 包 input，保留原生触发（移动端 WebView 不丢手势） */}
           <label
             aria-label="添加附件"
@@ -336,7 +341,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
               if (projectMention.handleKeyDown(e)) return
               if (e.key === 'Enter' && !e.shiftKey) {
                 if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return // 触屏回车换行
-                e.preventDefault(); if (!chat.running) submit()
+                e.preventDefault(); submit()
               }
             }}
             rows={1}
@@ -350,9 +355,18 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
               {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
             </Button>
           ) : (
-            <Button size="icon" onClick={submit} disabled={planLocked || (!draft.trim() && attachments.length === 0)} aria-label="发送" className="shrink-0">
+            <Button size="icon" onClick={() => submit()} disabled={planLocked || (!draft.trim() && attachments.length === 0)} aria-label="发送" className="shrink-0">
               <Send className="size-4" />
             </Button>
+          )}
+          {chat.running && (
+            <RunningMessageActions
+              className="basis-full border-t border-[var(--color-border)] pt-2"
+              canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
+              disabled={planLocked || (!draft.trim() && attachments.length === 0)}
+              onSteer={() => submit('steer')}
+              onEnqueue={() => submit('queue')}
+            />
           )}
         </div>
       </div>
