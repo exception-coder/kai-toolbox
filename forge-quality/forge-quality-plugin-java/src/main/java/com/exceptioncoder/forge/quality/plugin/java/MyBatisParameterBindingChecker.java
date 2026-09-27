@@ -12,6 +12,7 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 
 import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.IOException;
 import java.io.StringReader;
@@ -28,6 +29,10 @@ import java.util.regex.Pattern;
 final class MyBatisParameterBindingChecker implements QualityChecker {
     private static final Pattern PLACEHOLDER = Pattern.compile("#\\{\\s*([A-Za-z_$][\\w$]*)(?:[.\\s,}])");
     private static final Pattern PARAM_ANNOTATION = Pattern.compile("@Param\\s*\\(\\s*\"([^\"]+)\"\\s*\\)");
+    private static final Set<String> MYBATIS_MAPPER_DTD_SYSTEM_IDS = Set.of(
+            "https://mybatis.org/dtd/mybatis-3-mapper.dtd",
+            "http://mybatis.org/dtd/mybatis-3-mapper.dtd"
+    );
 
     @Override
     public String id() {
@@ -174,7 +179,16 @@ final class MyBatisParameterBindingChecker implements QualityChecker {
         factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
         factory.setXIncludeAware(false);
         factory.setExpandEntityReferences(false);
-        return factory.newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        builder.setEntityResolver((publicId, systemId) -> resolveMyBatisMapperDtd(systemId));
+        return builder.parse(new InputSource(new StringReader(xml)));
+    }
+
+    private static InputSource resolveMyBatisMapperDtd(String systemId) {
+        if (!MYBATIS_MAPPER_DTD_SYSTEM_IDS.contains(systemId)) {
+            return null;
+        }
+        return new InputSource(new StringReader(""));
     }
 
     private record ParameterContract(Set<String> names, boolean acceptsArbitraryProperty) {
