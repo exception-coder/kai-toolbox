@@ -50,7 +50,10 @@ class ProjectGitWorkspaceServiceTest {
         assertThat(before.ahead()).isEqualTo(1);
         assertThat(before.commits()).hasSize(1);
         assertThat(before.commits().getFirst().subject()).isEqualTo("待推送提交");
-        service.push("project", before.token());
+        var sharedPreview = service.preview(root);
+        assertThat(sharedPreview.token()).isEqualTo(before.token());
+        assertThat(sharedPreview.destinations()).isEqualTo(before.destinations());
+        service.push(root, sharedPreview.token());
         assertThat(git(remote, "rev-parse", "refs/heads/main").strip()).isEqualTo(before.head());
         assertThat(Files.readString(root.resolve("未提交 文件.txt"))).isEqualTo("keep local");
         assertThat(service.read("project").ahead()).isZero();

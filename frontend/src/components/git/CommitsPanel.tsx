@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronRight, FileText, Folder, GitCommit, MessageSquareText, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { CommitDiff, CommitInfo, GitRepoRef } from './types'
+import * as Dialog from '@radix-ui/react-dialog'
+import { GitPushToolbar } from './GitPushToolbar'
+import type { CommitDiff, CommitInfo, GitRepoRef, GitPushActions } from './types'
 
 interface Props {
   /** 弹层标题（如项目名 / 会话目录名） */
@@ -16,6 +18,8 @@ interface Props {
    * （taskspace 聚合 / 含多个项目的父目录）。返回 >1 个时顶部显示仓库切换；不传则按单仓（不带 repo）加载。
    */
   fetchRepos?: () => Promise<GitRepoRef[]>
+  pushActions?: GitPushActions
+  restoreFocus?: () => void
 }
 
 /**
@@ -23,7 +27,9 @@ interface Props {
  * 与具体后端接口解耦，供 projects（按 path）/ claude-chat（按 sessionId）等复用。
  * 提供 fetchRepos 时支持在会话 cwd 下的多个 git 子仓库间切换查看。
  */
-export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos }: Props) {
+export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos, pushActions, restoreFocus }: Props) {
+  const returnFocus = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  const [pushing, setPushing] = useState(false)
   const [repos, setRepos] = useState<GitRepoRef[] | null>(null)
   const [activeRepo, setActiveRepo] = useState<string | undefined>(undefined)
   const [commits, setCommits] = useState<CommitInfo[] | null>(null)
@@ -32,13 +38,18 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
   const [diffErr, setDiffErr] = useState<string | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
   const [selectedCommit, setSelectedCommit] = useState<CommitInfo | null>(null)
+  const listGeneration = useRef(0)
+  const diffGeneration = useRef(0)
 
   // 载入某仓库的提交（repo=undefined 表示不带 repo：cwd 单仓 / projects 用法）
   const loadCommits = useCallback((repo: string | undefined) => {
+    const current = ++listGeneration.current
+    diffGeneration.current++
+    setDiffLoading(false)
     setCommits(null); setListErr(null); setDiff(null); setDiffErr(null); setSelectedCommit(null)
     fetchCommits(repo)
-      .then(setCommits)
-      .catch(e => setListErr(e instanceof Error ? e.message : String(e)))
+      .then(result => { if (current === listGeneration.current) setCommits(result) })
+      .catch(e => { if (current === listGeneration.current) setListErr(e instanceof Error ? e.message : String(e)) })
   }, [fetchCommits])
 
   // 初始化：有 fetchRepos 则先取仓库列表、选第一个并载入；否则直接不带 repo 载入。
@@ -67,27 +78,30 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
   }
 
   const openDiff = (commit: CommitInfo) => {
+    const current = ++diffGeneration.current
     setSelectedCommit(commit)
     setDiff(null)
     setDiffErr(null)
     setDiffLoading(true)
     fetchDiff(commit.hash, activeRepo)
-      .then(setDiff)
-      .catch(e => setDiffErr(e instanceof Error ? e.message : String(e)))
-      .finally(() => setDiffLoading(false))
+      .then(result => { if (current === diffGeneration.current) setDiff(result) })
+      .catch(e => { if (current === diffGeneration.current) setDiffErr(e instanceof Error ? e.message : String(e)) })
+      .finally(() => { if (current === diffGeneration.current) setDiffLoading(false) })
   }
 
-  const backToList = () => { setDiff(null); setDiffErr(null); setSelectedCommit(null) }
+  const backToList = () => { diffGeneration.current++; setDiffLoading(false); setDiff(null); setDiffErr(null); setSelectedCommit(null) }
   const showingDiff = diff !== null || diffErr !== null || diffLoading
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3"
-      onClick={e => { e.stopPropagation(); onClose() }}
-    >
-      <div
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border bg-[var(--color-background)] shadow-xl"
-        onClick={e => e.stopPropagation()}
+    <Dialog.Root open onOpenChange={open => { if (!open && !pushing) onClose() }}>
+      <Dialog.Portal>
+      <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
+      <Dialog.Content
+        aria-describedby={undefined}
+        className="fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[calc(100%-1.5rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl border bg-[var(--color-background)] shadow-xl"
+        onPointerDownOutside={event => { if (pushing) event.preventDefault() }}
+        onEscapeKeyDown={event => { if (pushing) event.preventDefault() }}
+        onCloseAutoFocus={event => { event.preventDefault(); if (restoreFocus) restoreFocus(); else returnFocus.current?.focus() }}
       >
         <div className="flex items-center gap-2 border-b px-3 py-2">
           {showingDiff && (
@@ -96,11 +110,11 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
             </button>
           )}
           <GitCommit className="size-4 text-[var(--color-primary)]" />
-          <span className="truncate text-sm font-semibold">{title}</span>
+          <Dialog.Title className="truncate text-sm font-semibold">{title}</Dialog.Title>
           <span className="truncate text-xs text-[var(--color-muted-foreground)]">
             {showingDiff ? '提交详情' : '最近提交'}
           </span>
-          <button type="button" onClick={onClose} className="ml-auto rounded-md p-1 hover:bg-[var(--color-muted)]" aria-label="关闭">
+          <button type="button" onClick={onClose} disabled={pushing} className="ml-auto rounded-md p-1 hover:bg-[var(--color-muted)] disabled:opacity-50" aria-label="关闭">
             <X className="size-4" />
           </button>
         </div>
@@ -113,6 +127,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
                 key={r.name}
                 type="button"
                 onClick={() => selectRepo(r.name)}
+                disabled={pushing}
                 title={r.label}
                 className={cn(
                   'inline-flex h-8 max-w-64 shrink-0 items-center rounded-full border px-3 text-xs leading-none',
@@ -126,6 +141,9 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
             ))}
           </div>
         )}
+
+        {pushActions && (!fetchRepos || !!repos?.length) && <GitPushToolbar actions={pushActions} repo={activeRepo}
+          onPending={setPushing} onPushed={() => { if (!showingDiff) loadCommits(activeRepo) }} />}
 
         {!showingDiff && (
           <div className="overflow-y-auto p-2">
@@ -186,8 +204,9 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
             )}
           </div>
         )}
-      </div>
-    </div>
+      </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
 

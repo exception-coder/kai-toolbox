@@ -52,3 +52,19 @@ export interface GitFileDiffResponse {
   diff: string
   truncated: boolean
 }
+export interface GitPushPreview {
+  branch: string
+  head: string
+  remote: string
+  targetBranch: string
+  destinations: string[]
+  ahead: number | null
+  behind: number | null
+  pushBlockedReason: string
+  token: string
+}
+
+export interface GitPushActions {
+  preview: (repo?: string) => Promise<GitPushPreview>
+  push: (token: string, repo?: string) => Promise<{ message: string }>
+}

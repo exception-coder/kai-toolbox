@@ -7,6 +7,7 @@ import type {
   GitFileDiffResponse,
   GitRepoRef,
   GitStatusResponse,
+  GitPushPreview,
 } from '@/components/git/types'
 import type { AutopilotChangeOption, AutopilotDashboard, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAutopilotRun, SessionPendingSql, SessionPendingSqlTarget, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
@@ -220,6 +221,18 @@ export function testServerPush(config: NotifyConfig) {
 
 export async function listSessions() {
   return applyPendingSessionTitles(await http<ClaudeChatSessionView[]>('/claude-chat/sessions'))
+}
+
+export function getSessionPushPreview(sessionId: string, repo?: string) {
+  const query = new URLSearchParams(repo ? { repo } : {})
+  return http<GitPushPreview>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/push-preview?${query}`)
+}
+
+export function pushSessionCommits(sessionId: string, token: string, repo?: string) {
+  const query = new URLSearchParams(repo ? { repo } : {})
+  return http<{ message: string }>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/push?${query}`, {
+    method: 'POST', body: JSON.stringify({ token }),
+  })
 }
 
 export type { PendingSqlTargetOption } from './lib/pendingSqlTargets'

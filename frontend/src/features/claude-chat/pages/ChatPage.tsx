@@ -59,7 +59,7 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionPushPreview, pushSessionCommits, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { canSteerRunningMessage, RunningMessageActions } from '../components/RunningMessageActions'
 import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
@@ -452,6 +452,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [showGestureDebug, setShowGestureDebug] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
+  const sessionToolsTriggerRef = useRef<HTMLButtonElement>(null)
   // 「更多」菜单当前展开的分组（手风琴，单开互斥；null=全部收起）。跨开合记忆上次展开项。
   const [menuGroup, setMenuGroup] = useState<'agent' | 'view' | 'session' | 'workspace' | 'system' | null>(null)
   const [restartOpen, setRestartOpen] = useState(false)
@@ -1311,7 +1312,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             <Package className="size-4" /> <span className="hidden sm:inline">团队依赖</span>
           </Button>
           {/* 其余功能收进「更多」菜单，每项带中文标签，避免一排没标识的图标 */}
-          <SessionToolsMenu open={headerMenu} mockMode={mockMode} onOpenChange={setHeaderMenu}>
+          <SessionToolsMenu open={headerMenu} mockMode={mockMode} onOpenChange={setHeaderMenu} triggerRef={sessionToolsTriggerRef}>
                   <div className="border-b pb-1 md:hidden">
                     <HeaderMenuItem icon={<Plus className="size-4" />} label="新建会话" onClick={() => { setHeaderMenu(false); setPanel('new') }} />
                     <HeaderMenuItem icon={<List className="size-4" />} label="会话列表" onClick={() => { setHeaderMenu(false); setPanel('sessions') }} />
@@ -1852,6 +1853,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           fetchRepos={() => listSessionGitRepos(chat.sessionId!)}
           fetchCommits={repo => listSessionCommits(chat.sessionId!, 50, repo).then(r => r.commits)}
           fetchDiff={(hash, repo) => getSessionCommitDiff(chat.sessionId!, hash, repo)}
+          pushActions={{ preview: repo => getSessionPushPreview(chat.sessionId!, repo), push: (token, repo) => pushSessionCommits(chat.sessionId!, token, repo) }}
+          restoreFocus={() => sessionToolsTriggerRef.current?.focus()}
           onClose={() => setShowCommits(false)}
         />
       )}

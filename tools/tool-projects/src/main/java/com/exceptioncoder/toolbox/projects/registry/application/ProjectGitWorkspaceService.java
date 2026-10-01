@@ -1,5 +1,8 @@
 package com.exceptioncoder.toolbox.projects.registry.application;
 
+import com.exceptioncoder.toolbox.common.git.GitPushOperations;
+import com.exceptioncoder.toolbox.common.git.GitPushPreview;
+
 import com.exceptioncoder.toolbox.projects.registry.domain.ProjectGitWorkspace;
 import com.exceptioncoder.toolbox.projects.registry.infrastructure.ProjectGitCommand;
 import com.exceptioncoder.toolbox.projects.registry.infrastructure.ProjectGitWorkspaceReader;
@@ -15,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /** 已登记项目的工作区查询与快照绑定推送；仓库级互斥阻止重复推送。 */
 @Service
-public class ProjectGitWorkspaceService {
+public class ProjectGitWorkspaceService implements GitPushOperations {
     private final ProjectRegistryService registry;
     private final ProjectGitWorkspaceReader reader;
     private final ProjectGitCommand command;
@@ -35,7 +38,19 @@ public class ProjectGitWorkspaceService {
 
     /** 仅推送用户看到的提交，快照过期时要求重新读取。 */
     public String push(String id, String token) {
-        Path root = root(id);
+        return push(root(id), token);
+    }
+
+    @Override
+    public GitPushPreview preview(Path repository) {
+        var view = reader.inspect(canonicalRoot(repository)).view();
+        return new GitPushPreview(view.branch(), view.head(), view.remote(), view.targetBranch(),
+                view.destinations(), view.ahead(), view.behind(), view.pushBlockedReason(), view.token());
+    }
+
+    @Override
+    public String push(Path repository, String token) {
+        Path root = canonicalRoot(repository);
         if (pushing.putIfAbsent(root, Boolean.TRUE) != null) {
             throw new IllegalStateException("该仓库正在推送，请等待完成后刷新");
         }
@@ -92,8 +107,12 @@ public class ProjectGitWorkspaceService {
 
     private Path root(String id) {
         String localPath = registry.require(id).metadata().localPath();
+        return canonicalRoot(Path.of(localPath));
+    }
+
+    private Path canonicalRoot(Path repository) {
         try {
-            Path root = Path.of(localPath).toRealPath();
+            Path root = repository.toRealPath();
             if (!Files.isDirectory(root) || !Files.exists(root.resolve(".git"))) {
                 throw new IllegalArgumentException("该项目不是 Git 工作区根目录，请在项目设置中检查本地路径");
             }

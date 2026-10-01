@@ -31,7 +31,7 @@ import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
 import { useDraftAttachments } from '../lib/attachmentDraftPref'
-import { getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, resolveModule, transcribe, uploadAttachment } from '../api'
+import { getSessionPushPreview, pushSessionCommits, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, resolveModule, transcribe, uploadAttachment } from '../api'
 import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
 import type { PrdSessionView } from '@/features/prd-clarify/public-api'
@@ -114,6 +114,7 @@ export function FloatingChatWindow() {
   // 「更多选项」整窗覆盖菜单（复刻全屏头部的 … 菜单）：小窗放不下面板，点选后跳全屏并直接打开对应面板。
   const [showMore, setShowMore] = useState(false)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false) // 「指令」菜单（命令 + 模型切换）
+  const moreTriggerRef = useRef<HTMLButtonElement>(null)
   // 直接在浮窗内呈现的弹层（与全屏一致的独立 modal 组件）：提交记录 / 日志 / 调试 / 重启
   const [showCommits, setShowCommits] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
@@ -698,7 +699,7 @@ export function FloatingChatWindow() {
                   <RotateCw className="size-4" />
                 </button>
               )}
-              <button type="button" onClick={() => { setShowMore(s => !s); setShowSessions(false) }} aria-label="更多选项" title="更多选项（工作区/服务商/插件/通知…）"
+              <button ref={moreTriggerRef} type="button" onClick={() => { setShowMore(s => !s); setShowSessions(false) }} aria-label="更多选项" title="更多选项（工作区/服务商/插件/通知…）"
                 className={`rounded p-1 ${hoverClass} ${showMore ? (giftMode ? 'bg-white/10' : 'bg-[var(--color-background)]') : ''}`}>
                 <MoreHorizontal className="size-4" />
               </button>
@@ -1017,6 +1018,8 @@ export function FloatingChatWindow() {
           fetchRepos={() => listSessionGitRepos(chat.sessionId!)}
           fetchCommits={repo => listSessionCommits(chat.sessionId!, 50, repo).then(r => r.commits)}
           fetchDiff={(hash, repo) => getSessionCommitDiff(chat.sessionId!, hash, repo)}
+          pushActions={{ preview: repo => getSessionPushPreview(chat.sessionId!, repo), push: (token, repo) => pushSessionCommits(chat.sessionId!, token, repo) }}
+          restoreFocus={() => moreTriggerRef.current?.focus()}
           onClose={() => setShowCommits(false)}
         />
       )}

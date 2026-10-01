@@ -9,6 +9,11 @@ import com.exceptioncoder.toolbox.common.git.GitLogService;
 import com.exceptioncoder.toolbox.common.git.GitProperties;
 import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
 import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
+import com.exceptioncoder.toolbox.common.git.GitPushOperations;
+import com.exceptioncoder.toolbox.common.git.GitPushPreview;
+import com.exceptioncoder.toolbox.common.project.ProjectAccess;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,10 +30,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 /**
- * 会话工作目录的 git 只读查询：列最近提交 + 取单提交 diff，复用 common {@link GitLogService}。
+ * 会话工作目录的 Git 查询及快照推送，复用 common 查询服务与共享推送端口。
  *
  * <p>路径不收客户端任意入参，只认 sessionId（服务端从会话记录取 cwd）+ 可选 repo（限定为 cwd 的直接子目录名，
  * 严格校验防越权）。查找优先级：</p>
@@ -45,15 +51,38 @@ public class ClaudeChatGitController {
     private final ClaudeChatSessionRepository repo;
     private final GitProperties gitProps;
     private final GitLogService git;
+    private final GitPushOperations pushes;
+    private final ProjectAccess projectAccess;
 
     /** 向上查找父级 git 仓库时的最大层数，防止在根目录上无限循环。 */
     private static final int MAX_PARENT_DEPTH = 10;
 
-    public ClaudeChatGitController(ClaudeChatSessionRepository repo, GitProperties gitProps, GitLogService git) {
+    public ClaudeChatGitController(ClaudeChatSessionRepository repo, GitProperties gitProps, GitLogService git,
+                                   GitPushOperations pushes, ProjectAccess projectAccess) {
         this.repo = repo;
         this.gitProps = gitProps;
         this.git = git;
+        this.pushes = pushes;
+        this.projectAccess = projectAccess;
     }
+
+    @GetMapping("/push-preview")
+    public GitPushPreview pushPreview(@PathVariable String id, @RequestParam(required = false) String repo) {
+        Path directory = resolveSessionGitDir(id, repo);
+        projectAccess.requireAllowed(directory);
+        return pushes.preview(directory);
+    }
+
+    @PostMapping("/push")
+    public Map<String, String> push(@PathVariable String id, @RequestParam(required = false) String repo,
+                                    @RequestBody PushRequest request) {
+        Path directory = resolveSessionGitDir(id, repo);
+        projectAccess.requireAllowed(directory);
+        return Map.of("message", pushes.push(directory, request.token()));
+    }
+
+    /** 用户已经查看的推送快照。 */
+    public record PushRequest(/** 快照指纹。 */ String token) { }
 
     /**
      * 列会话目录下可查看提交的 git 仓库。

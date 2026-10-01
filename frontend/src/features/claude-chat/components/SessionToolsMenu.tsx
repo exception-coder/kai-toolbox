@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { ChevronDown, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -8,10 +8,12 @@ interface SessionToolsMenuProps {
   mockMode?: boolean
   onOpenChange: (open: boolean) => void
   children: ReactNode
+  triggerRef?: RefObject<HTMLButtonElement | null>
 }
 
-export function SessionToolsMenu({ open, mockMode = false, onOpenChange, children }: SessionToolsMenuProps) {
-  const triggerRef = useRef<HTMLButtonElement>(null)
+export function SessionToolsMenu({ open, mockMode = false, onOpenChange, children, triggerRef: suppliedTriggerRef }: SessionToolsMenuProps) {
+  const ownTriggerRef = useRef<HTMLButtonElement>(null)
+  const triggerRef = suppliedTriggerRef ?? ownTriggerRef
 
   useEffect(() => {
     if (!open) return
