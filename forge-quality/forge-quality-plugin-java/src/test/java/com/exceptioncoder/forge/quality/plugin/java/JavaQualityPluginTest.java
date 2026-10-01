@@ -76,6 +76,54 @@ class JavaQualityPluginTest {
     }
 
     @Test
+    void acceptsForeachAndBindLocalVariables() throws IOException {
+        Path mapper = write("src/main/java/example/QuoteMapper.java", """
+                package example;
+                import org.apache.ibatis.annotations.Param;
+                interface QuoteMapper {
+                  int upsert(@Param("version") long version, @Param("rows") java.util.List<Object> rows);
+                  int deleteDirty(@Param("ids") java.util.Collection<Long> ids, @Param("name") String name);
+                }
+                """);
+        Path xml = write("src/main/resources/QuoteMapper.xml", """
+                <mapper namespace="example.QuoteMapper">
+                  <insert id="upsert">INSERT INTO quote VALUES
+                    <foreach collection="rows" item="row" index="i" separator=",">(#{version}, #{row.id}, #{i})</foreach>
+                  </insert>
+                  <delete id="deleteDirty"><bind name="pattern" value="'%' + name + '%'"/>
+                    DELETE FROM quote WHERE name LIKE #{pattern} AND id IN
+                    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+                  </delete>
+                </mapper>
+                """);
+
+        List<Finding> findings = checker().check(new ChangeSet(project, List.of(mapper, xml)), capabilities());
+
+        assertTrue(findings.isEmpty(), findings::toString);
+    }
+
+    @Test
+    void reportsUnboundParameterOutsideForeachScope() throws IOException {
+        Path mapper = write("src/main/java/example/QuoteMapper.java", """
+                package example;
+                import org.apache.ibatis.annotations.Param;
+                interface QuoteMapper { int delete(@Param("ids") java.util.Collection<Long> ids, @Param("v") long v); }
+                """);
+        Path xml = write("src/main/resources/QuoteMapper.xml", """
+                <mapper namespace="example.QuoteMapper">
+                  <delete id="delete">DELETE FROM quote WHERE owner = #{id} AND id IN
+                    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+                  </delete>
+                </mapper>
+                """);
+
+        List<Finding> findings = checker().check(new ChangeSet(project, List.of(mapper, xml)), capabilities());
+
+        assertEquals(1, findings.size());
+        assertTrue(findings.get(0).message().contains("#{id}"));
+    }
+
+    @Test
     void acceptsStandardMyBatisMapperDtdWithoutNetworkAccess() throws IOException {
         Path mapper = write("src/main/java/example/QuoteMapper.java", """
                 package example;

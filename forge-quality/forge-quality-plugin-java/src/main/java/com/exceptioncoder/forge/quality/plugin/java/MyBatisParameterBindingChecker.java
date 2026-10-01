@@ -85,7 +85,8 @@ final class MyBatisParameterBindingChecker implements QualityChecker {
             for (int index = 0; index < statements.getLength(); index++) {
                 Element statement = (Element) statements.item(index);
                 String methodName = statement.getAttribute("id");
-                Set<String> roots = placeholderRoots(statement.getTextContent());
+                Set<String> roots = new HashSet<>();
+                collectUnscopedRoots(statement, bindNames(statement), roots);
                 if (!roots.isEmpty()) {
                     validateMethod(changeSet, xml, mapperJava, javaSource, methodName, roots, findings);
                 }
@@ -140,6 +141,37 @@ final class MyBatisParameterBindingChecker implements QualityChecker {
 
     private static boolean isSimpleParameter(String parameter) {
         return parameter.matches(".*\\b(String|Integer|Long|Short|Byte|Boolean|Double|Float|BigDecimal|UUID|int|long|boolean)\\b.*");
+    }
+
+    /** Collects placeholder roots that are not declared by an enclosing foreach item/index or a bind. */
+    private static void collectUnscopedRoots(Node node, Set<String> scope, Set<String> roots) {
+        NodeList children = node.getChildNodes();
+        for (int index = 0; index < children.getLength(); index++) {
+            Node child = children.item(index);
+            if (child.getNodeType() == Node.TEXT_NODE || child.getNodeType() == Node.CDATA_SECTION_NODE) {
+                placeholderRoots(child.getNodeValue()).stream().filter(root -> !scope.contains(root)).forEach(roots::add);
+            } else if (child instanceof Element element) {
+                Set<String> childScope = scope;
+                if (element.getTagName().equals("foreach")) {
+                    childScope = new HashSet<>(scope);
+                    for (String attribute : List.of("item", "index")) {
+                        if (!element.getAttribute(attribute).isBlank()) {
+                            childScope.add(element.getAttribute(attribute).trim());
+                        }
+                    }
+                }
+                collectUnscopedRoots(element, childScope, roots);
+            }
+        }
+    }
+
+    private static Set<String> bindNames(Element statement) {
+        Set<String> names = new HashSet<>();
+        NodeList binds = statement.getElementsByTagName("bind");
+        for (int index = 0; index < binds.getLength(); index++) {
+            names.add(((Element) binds.item(index)).getAttribute("name").trim());
+        }
+        return names;
     }
 
     private static Set<String> placeholderRoots(String sql) {
