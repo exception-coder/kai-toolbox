@@ -44,7 +44,7 @@ forge-quality/
 
 ## 4. 首批规则限制
 
-`MYBATIS-001` 首批只验证 Mapper XML 占位符的根参数名，不声称完成 Java 类型系统或 OGNL 全语义验证。无法可靠解析的表达式返回 `WARNING`，明确证据和限制；确定缺失的参数返回 `ERROR`。
+`MYBATIS-001` 首批只验证 Mapper XML 占位符的根参数名，不声称完成 Java 类型系统或 OGNL 全语义验证。无法可靠解析的表达式返回 `WARNING`，明确证据和限制；确定缺失的参数返回 `ERROR`。标准 MyBatis Mapper DTD 通过白名单离线解析，未知外部 DTD 继续拒绝，校验过程不得访问网络。
 
 Runtime SQL 首批不支持 DML、存储过程或多语句脚本；API 首批验证状态码与 JSON 路径存在性，不替代完整业务断言。
 
