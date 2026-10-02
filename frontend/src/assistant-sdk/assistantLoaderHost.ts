@@ -24,10 +24,12 @@ export function ensureAssistantLoader(): Promise<AssistantLoader> {
         return
       }
       loaderReady = undefined
+      script.remove()
       reject(new Error('KAI Assistant Loader 已加载，但没有注册运行时'))
     }
     const fail = () => {
       loaderReady = undefined
+      script.remove()
       reject(new Error('KAI Assistant Loader 加载失败'))
     }
 

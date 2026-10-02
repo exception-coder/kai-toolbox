@@ -38,6 +38,8 @@ export interface AssistantShortcut {
 }
 
 export interface AssistantVisibilityOptions {
+  /** 宿主显式开启显示偏好记忆；键应在同一宿主内稳定且唯一。 */
+  storageKey?: string
   /** 首次加载时隐藏入口；宿主主动 open 仍可直接显示。 */
   initiallyHidden?: boolean
   /** 仅用于本地显示门禁，不参与服务端认证。 */

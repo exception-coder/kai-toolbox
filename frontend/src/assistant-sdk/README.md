@@ -431,3 +431,8 @@ npm run assistant:build
 - [技术设计](../../../docs/design/企业内部多Web系统统一嵌入式AI助手/企业内部多Web系统统一嵌入式AI助手-current.md)
 - [API 契约](../../../docs/design/企业内部多Web系统统一嵌入式AI助手/企业内部多Web系统统一嵌入式AI助手-api-current.md)
 - [IIFE 接入示例](../../../frontend/examples/assistant-embed.html)
+# 显示偏好与触屏恢复
+
+宿主可通过 `visibility.storageKey` 显式启用胶囊显示偏好记忆。隐藏保存 `hidden`，主动 `open()` 保存 `visible`；`close()` 仅关闭面板。存储不可用时当前页面仍可操作，未开启的宿主沿用默认行为。
+
+Forge 在会话工具的“系统 · 设置”内提供“显示助手”，加载失败可原地重试。开发模式使用本地 SDK 源码支持前端热更新；打包宿主继续使用 stable Loader，需单独发布 SDK 才能加载新增行为。普通验证使用 `typecheck`、定向测试及直接 Vite 构建，不执行 `assistant:release`。

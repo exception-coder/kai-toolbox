@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { ensureFreshToken, getToken, useAuth } from '@/lib/auth'
 import { AssistantCollector } from './collector'
 import { loadStableAssistantRuntime } from './assistantLoaderHost'
 import type { AssistantSdk } from './types'
 
-/** Forge 宿主适配：通过 stable Loader 启动与外部系统完全一致的 Assistant 运行时。 */
+/** Forge 宿主适配：开发模式支持源码热更新，打包模式消费 stable Loader。 */
 export function AssistantBridge() {
   const location = useLocation()
   const auth = useAuth()
@@ -16,16 +16,26 @@ export function AssistantBridge() {
 
   useEffect(() => {
     let disposed = false
+    let loading = false
+    let pendingOpen = false
     collector.start()
-
-    void loadStableAssistantRuntime().then(({ sdk }) => {
+    const report = (status: string) => window.dispatchEvent(new CustomEvent('kai-assistant-host-status', { detail: status }))
+    const load = () => {
+      if (loading || disposed) return
+      loading = true
+      report('loading')
+      const runtime = import.meta.env.DEV
+        ? import('./assistantSdk').then(module => ({ sdk: { initialize: module.initializeAssistant } }))
+        : loadStableAssistantRuntime()
+      void runtime.then(({ sdk }) => {
       if (disposed) return
       const current = latestContextRef.current
       assistantRef.current = sdk.initialize({
         appId: 'KAI_TOOLBOX',
         appName: 'Forge',
         projectKey: 'kai-toolbox',
-        sourceRevision: 'loader-stable',
+        sourceRevision: import.meta.env.DEV ? 'workspace-dev' : 'loader-stable',
+        visibility: { storageKey: 'kai-assistant:visibility:forge' },
         wsUrl: '/api/claude-chat/consult/ws',
         getAccessToken: async () => {
           await ensureFreshToken()
@@ -45,12 +55,24 @@ export function AssistantBridge() {
           collect: async () => ({ key: 'runtimeEvidence', value: collector.diagnosticWindow() }),
         }],
       })
+      report('ready')
+      if (pendingOpen) { pendingOpen = false; assistantRef.current.open('AUTO') }
     }).catch(error => {
+      if (disposed) return
+      report('error')
       console.error('[assistant-loader] Forge 彩虹胶囊加载失败', error)
-    })
+    }).finally(() => { loading = false })
+    }
+    const restore = () => {
+      if (assistantRef.current) { assistantRef.current.open('AUTO'); report('ready') }
+      else { pendingOpen = true; load() }
+    }
+    window.addEventListener('kai-assistant-host-open', restore)
+    load()
 
     return () => {
       disposed = true
+      window.removeEventListener('kai-assistant-host-open', restore)
       collector.stop()
       assistantRef.current?.destroy()
       assistantRef.current = null
@@ -73,4 +95,19 @@ export function AssistantBridge() {
   }, [auth.user, location.pathname, location.search])
 
   return null
+}
+
+/** 所有触屏宿主恢复均复用 Bridge 中的同一 SDK 实例。 */
+export function AssistantRestoreMenuItem() {
+  const [status, setStatus] = useState('idle')
+  useEffect(() => {
+    const update = (event: Event) => setStatus((event as CustomEvent<string>).detail)
+    window.addEventListener('kai-assistant-host-status', update)
+    return () => window.removeEventListener('kai-assistant-host-status', update)
+  }, [])
+  return <button type="button" disabled={status === 'loading'}
+    className="w-full rounded-md px-3 py-2 text-left text-xs hover:bg-[var(--color-muted)] disabled:opacity-60"
+    onClick={() => { setStatus('loading'); window.dispatchEvent(new Event('kai-assistant-host-open')) }}>
+    {status === 'loading' ? '正在加载助手…' : status === 'error' ? '助手暂不可用，点击重试' : '显示助手'}
+  </button>
 }

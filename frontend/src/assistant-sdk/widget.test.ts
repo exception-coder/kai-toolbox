@@ -4,9 +4,13 @@ import { currentAssistant, initializeAssistant } from './assistantSdk'
 import type { AssistantFeedbackArchiveClient, AssistantTransport, AssistantWidgetState } from './types'
 import { createAssistantDebugEntry } from './assistantDebugLog'
 import { mountAssistantWidget } from './widget'
+import { AssistantRestoreMenuItem } from './AssistantBridge'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { createElement } from 'react'
 import { writeAssistantRequestBaseUrlPreference } from './requestBaseUrlPreference'
 
 afterEach(() => {
+  cleanup()
   currentAssistant()?.destroy()
   sessionStorage.clear()
   localStorage.clear()
@@ -14,6 +18,49 @@ afterEach(() => {
 })
 
 describe('assistant widget', () => {
+  it('offers a touch restore action with loading and retry feedback', () => {
+    const restore = vi.fn()
+    window.addEventListener('kai-assistant-host-open', restore)
+    render(createElement(AssistantRestoreMenuItem))
+    fireEvent.click(screen.getByRole('button', { name: '显示助手' }))
+    expect(restore).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: '正在加载助手…' }).hasAttribute('disabled')).toBe(true)
+    act(() => { window.dispatchEvent(new CustomEvent('kai-assistant-host-status', { detail: 'error' })) })
+    fireEvent.click(screen.getByRole('button', { name: '助手暂不可用，点击重试' }))
+    expect(restore).toHaveBeenCalledTimes(2)
+    act(() => { window.dispatchEvent(new CustomEvent('kai-assistant-host-status', { detail: 'ready' })) })
+    expect(screen.getByRole('button', { name: '显示助手' }).hasAttribute('disabled')).toBe(false)
+    window.removeEventListener('kai-assistant-host-open', restore)
+  })
+  it('remembers hide across mounts but panel close keeps the capsule visible', () => {
+    const options = { appId: 'visibility-test', visibility: { storageKey: 'capsule-test' } }
+    const first = initializeAssistant(options)
+    first.open('AUTO')
+    let shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    shadow.querySelector<HTMLButtonElement>('[data-hide-assistant]')!.click()
+    first.destroy()
+    const second = initializeAssistant(options)
+    shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    expect(shadow.querySelector<HTMLButtonElement>('[data-launcher]')!.hidden).toBe(true)
+    second.open('AUTO')
+    second.close()
+    expect(localStorage.getItem('capsule-test')).toBe('visible')
+    expect(shadow.querySelector<HTMLButtonElement>('[data-launcher]')!.hidden).toBe(false)
+    second.destroy()
+    initializeAssistant(options)
+    shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    expect(shadow.querySelector<HTMLButtonElement>('[data-launcher]')!.hidden).toBe(false)
+  })
+  it('keeps hide and open usable when visibility storage is denied', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied') })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied') })
+    const sdk = initializeAssistant({ appId: 'denied-storage', visibility: { storageKey: 'denied' } })
+    const shadow = document.querySelector('kai-assistant-widget')!.shadowRoot!
+    expect(() => shadow.querySelector<HTMLButtonElement>('[data-hide-assistant]')!.click()).not.toThrow()
+    expect(() => sdk.open('AUTO')).not.toThrow()
+    expect(shadow.querySelector<HTMLButtonElement>('[data-launcher]')!.hidden).toBe(false)
+    vi.restoreAllMocks()
+  })
   it('exposes host configuration and manual recovery without browser address overrides', () => {
     const onConfigureConnection = vi.fn()
     initializeAssistant({ appId: 'host', wsUrl: '/capsule/ws', getWebSocketUrl: async () => '/capsule/ws',

@@ -114,6 +114,7 @@ class AssistantWidgetElement extends HTMLElement {
   private conversationMessages: AssistantConversationMessage[] = []
   private interactionBusy = false
   private activationKey = ''
+  private visibilityStorageKey?: string
   private shortcut = DEFAULT_SHORTCUT
   private positionController?: AssistantPositionController
   private connected = false
@@ -273,7 +274,14 @@ class AssistantWidgetElement extends HTMLElement {
       shift: shortcut?.shift ?? DEFAULT_SHORTCUT.shift,
       alt: shortcut?.alt ?? DEFAULT_SHORTCUT.alt,
     }
+    this.visibilityStorageKey = options.visibility?.storageKey
     this.launcher.hidden = options.visibility?.initiallyHidden ?? false
+    if (this.visibilityStorageKey) {
+      try {
+        const preference = localStorage.getItem(this.visibilityStorageKey)
+        if (preference === 'hidden' || preference === 'visible') this.launcher.hidden = preference === 'hidden'
+      } catch { /* 存储不可用时保留宿主默认值。 */ }
+    }
     this.positionController = new AssistantPositionController({
       launcher: this.launcher,
       panel: this.panel,
@@ -352,6 +360,7 @@ class AssistantWidgetElement extends HTMLElement {
 
   private reveal(): void {
     this.launcher.hidden = false
+    this.saveVisibility('visible')
     this.unlockLayer.hidden = true
   }
 
@@ -359,8 +368,15 @@ class AssistantWidgetElement extends HTMLElement {
     this.closeAttachmentPreview(false)
     this.panel.hidden = true
     this.launcher.hidden = true
+    this.saveVisibility('hidden')
     this.unlockLayer.hidden = true
     this.dispatchEvent(new CustomEvent('assistant-hidden', { bubbles: true }))
+  }
+
+  private saveVisibility(value: 'hidden' | 'visible'): void {
+    if (!this.visibilityStorageKey) return
+    try { localStorage.setItem(this.visibilityStorageKey, value) }
+    catch { /* 显示操作不依赖持久化成功。 */ }
   }
 
   private selectMode(mode: AssistantMode): void {

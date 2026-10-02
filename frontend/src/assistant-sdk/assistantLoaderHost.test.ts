@@ -38,7 +38,7 @@ describe('assistantLoaderHost', () => {
       ?.dispatchEvent(new Event('error'))
     await expect(failed).rejects.toThrow('Loader 加载失败')
 
-    document.head.querySelector('script[data-kai-assistant-loader]')?.remove()
+    expect(document.head.querySelector('script[data-kai-assistant-loader]')).toBeNull()
     const retried = ensureAssistantLoader()
     expect(document.head.querySelectorAll('script[data-kai-assistant-loader]')).toHaveLength(1)
     document.head.querySelector<HTMLScriptElement>('script[data-kai-assistant-loader]')

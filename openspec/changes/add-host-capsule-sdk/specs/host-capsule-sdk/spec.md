@@ -1,5 +1,25 @@
 ## ADDED Requirements
 
+### Requirement: Remember capsule visibility and recover without a keyboard
+The SDK SHALL support opt-in browser-local hidden preferences scoped to its host. Forge SHALL enable this preference and provide a labeled restore action in the session tools menu. Closing only the panel MUST NOT hide the launcher. Unconfigured hosts SHALL retain existing initialization behavior.
+
+#### Scenario: Hide and reload
+- **WHEN** a Forge user hides the capsule and reloads the page
+- **THEN** the launcher remains hidden
+
+#### Scenario: Restore on a phone
+- **WHEN** the user chooses 显示彩虹胶囊 from session tools
+- **THEN** the existing assistant opens without a keyboard and the visible preference is saved
+- **AND** loading or failure is visible with a retry path
+
+#### Scenario: Storage unavailable
+- **WHEN** browser storage rejects access
+- **THEN** the current page still permits hiding and restoring without throwing
+
+#### Scenario: Close the panel
+- **WHEN** the user closes only the assistant panel
+- **THEN** the launcher remains visible and the hidden preference is unchanged
+
 ### Requirement: Recoverable connection failures
 
 The SDK SHALL back off and stop after five unsuccessful reconnects before protocol readiness, retain pending input, and expose manual reconnection. Host configuration SHALL be opened through an optional callback without modifying browser endpoints.

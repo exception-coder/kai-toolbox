@@ -41,6 +41,7 @@ import { ModeSwitch } from '../components/ModeSwitch'
 import { ProviderSwitch } from '../components/ProviderSwitch'
 import { GatewaySessionModelPicker } from '../components/GatewaySessionModelPicker'
 import { CodexSessionOptions } from '../components/CodexSessionOptions'
+import { AssistantRestoreMenuItem } from '@/assistant-sdk/AssistantBridge'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from '../components/ProjectMention'
@@ -1408,6 +1409,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     <HeaderMenuItem nested icon={<ListChecks className="size-4" />} label="项目初始化流水线" hint="拉取→画像→知识图谱→profile→聚合" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'onboard' ? 'none' : 'onboard') }} />
                   </MenuSection>
                   <MenuSection icon={<Settings className="size-4" />} label="系统 · 设置" open={menuGroup === 'system'} onToggle={() => toggle('system')}>
+                    <AssistantRestoreMenuItem />
                     <HeaderMenuItem nested icon={<Server className="size-4" />} label="服务商" hint="第三方网关(按会话,不动官方)" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'providers' ? 'none' : 'providers') }} />
                     <HeaderMenuItem nested icon={<Package className="size-4" />} label="团队依赖" hint="拉取仓库并安装到 Claude Code / Codex" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
                     <HeaderMenuItem nested icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
