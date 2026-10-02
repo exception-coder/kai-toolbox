@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Coins, Database, Loader2, RefreshCw, X } from 'lucide-react'
 import { fetchUsage, type EngineUsage, type SessionUsage, type UsageWindow } from '../api'
 import { SubscriptionQuotaSection, type QuotaContext } from './SubscriptionQuotaSection'
+import type { ClaudeChatSessionView, EngineCatalogView } from '../types'
 import { abbr } from '../lib/metrics'
 
 const ENGINE_LABEL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', antigravity: 'Antigravity' }
@@ -11,20 +12,20 @@ const WINDOWS = [
 ] as const
 type WindowKey = typeof WINDOWS[number]['key']
 
-export function UsagePanel({ onClose, session, quotaContext }: { onClose: () => void; session?: SessionUsage | null; quotaContext?: QuotaContext }) {
+export function UsagePanel({ onClose, session, quotaContext, quotaSessions, engineCatalog }: { onClose: () => void; session?: SessionUsage | null; quotaContext?: QuotaContext; quotaSessions?: readonly ClaudeChatSessionView[]; engineCatalog?: EngineCatalogView }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
-  return <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/40 p-4 pt-[8vh]" onClick={onClose}><UsageContent session={session} quotaContext={quotaContext} onClose={onClose} /></div>
+  return <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/40 p-4 pt-[8vh]" onClick={onClose}><UsageContent session={session} quotaContext={quotaContext} quotaSessions={quotaSessions} engineCatalog={engineCatalog} onClose={onClose} /></div>
 }
 
-export function UsageWorkspace({ session, quotaContext }: { session?: SessionUsage | null; quotaContext?: QuotaContext }) {
-  return <UsageContent session={session} quotaContext={quotaContext} embedded />
+export function UsageWorkspace({ session, quotaContext, quotaSessions, engineCatalog }: { session?: SessionUsage | null; quotaContext?: QuotaContext; quotaSessions?: readonly ClaudeChatSessionView[]; engineCatalog?: EngineCatalogView }) {
+  return <UsageContent session={session} quotaContext={quotaContext} quotaSessions={quotaSessions} engineCatalog={engineCatalog} embedded />
 }
 
-function UsageContent({ session, quotaContext, embedded = false, onClose }: { session?: SessionUsage | null; quotaContext?: QuotaContext; embedded?: boolean; onClose?: () => void }) {
+function UsageContent({ session, quotaContext, quotaSessions, engineCatalog, embedded = false, onClose }: { session?: SessionUsage | null; quotaContext?: QuotaContext; quotaSessions?: readonly ClaudeChatSessionView[]; engineCatalog?: EngineCatalogView; embedded?: boolean; onClose?: () => void }) {
   const usageQuery = useQuery({ queryKey: ['claude-chat-usage'], queryFn: fetchUsage, staleTime: 30_000 })
   const [win, setWin] = useState<WindowKey>('today')
   return (
@@ -40,7 +41,7 @@ function UsageContent({ session, quotaContext, embedded = false, onClose }: { se
         {onClose && <button type="button" onClick={onClose} aria-label="关闭" className="rounded-md p-2 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"><X className="size-4" /></button>}
       </header>
       <div className="flex-1 overflow-y-auto"><div className="mx-auto w-full max-w-5xl px-5 py-6">
-        <SubscriptionQuotaSection context={quotaContext} />
+        <SubscriptionQuotaSection context={quotaContext} sessions={quotaSessions} catalog={engineCatalog} />
         {session && session.turns > 0 ? <SessionUsageSection usage={session} /> : <p className="border-b border-[var(--color-border)] pb-6 text-sm text-[var(--color-muted-foreground)]">当前会话尚未产生可统计的模型用量。</p>}
         <section className="pt-6" aria-labelledby="usage-range-heading">
           <div className="flex items-end justify-between gap-4"><div><p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">{WINDOWS.find(item => item.key === win)?.label}</p><h3 id="usage-range-heading" className="mt-1 text-base font-semibold">本地引擎汇总</h3></div>

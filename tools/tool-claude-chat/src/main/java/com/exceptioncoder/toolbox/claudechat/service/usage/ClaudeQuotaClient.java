@@ -15,13 +15,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.security.MessageDigest;
+import java.util.HexFormat;
+import java.util.function.Supplier;
+import java.util.function.LongSupplier;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  * 取 Claude 官方 5h/周用量额度：调 {@code GET https://api.anthropic.com/api/oauth/usage}
- * （{@code /usage} 背后的未公开端点），用本机 ~/.claude/.credentials.json 的 oauth accessToken。
+ * （{@code /usage} 背后的未公开端点），读取 CLAUDE_CONFIG_DIR 或默认 ~/.claude 的 OAuth 凭据。
  *
  * <p>该端点对 User-Agent 敏感、且 429 极凶——必须带 {@code User-Agent: claude-code/<ver>} +
- * {@code anthropic-beta: oauth-2025-04-20}，并**长缓存**（成功 5 分钟、失败 1 分钟）避免触发限流。
+ * {@code anthropic-beta: oauth-2025-04-20}，缓存成功 10 分钟、失败 5 分钟以减少限流。
  * 任意失败（无凭据/401/429/超时/解析）→ 返回 null，由上层降级（不展示 Claude 额度）。
  *
  * <p>响应：{@code {"five_hour":{"utilization":33.0,"resets_at":ISO},"seven_day":{...}}}。
@@ -36,38 +41,63 @@ class ClaudeQuotaClient {
     private static final String FALLBACK_VER = "2.1.183";
 
     private final ObjectMapper mapper;
-    private final HttpClient http = HttpClient.newBuilder()
-            .version(HttpClient.Version.HTTP_1_1)
-            .connectTimeout(Duration.ofSeconds(5))
-            .build();
+    private final HttpClient http;
+    private final Path configRoot;
+    private final Supplier<String> credentialsReader;
+    private final LongSupplier clock;
 
     private volatile long fetchedAt;
     private volatile boolean lastFailed = true;
     private volatile QuotaSnapshot cached;
+    private String credentialFingerprint;
 
+    @Autowired
     ClaudeQuotaClient(ObjectMapper mapper) {
+        this(mapper, HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(5)).build(), configRoot(), null, System::currentTimeMillis);
+    }
+
+    ClaudeQuotaClient(ObjectMapper mapper, HttpClient http, Path configRoot,
+                      Supplier<String> credentialsReader, LongSupplier clock) {
         this.mapper = mapper;
+        this.http = http;
+        this.configRoot = configRoot;
+        this.credentialsReader = credentialsReader == null ? this::readCredentials : credentialsReader;
+        this.clock = clock;
     }
 
     synchronized QuotaSnapshot get() {
-        long now = System.currentTimeMillis();
+        String credentials = credentialsReader.get();
+        String fingerprint = fingerprint(credentials);
+        if (!java.util.Objects.equals(fingerprint, credentialFingerprint)) {
+            cached = null;
+            fetchedAt = 0;
+            credentialFingerprint = fingerprint;
+        }
+        if (credentials == null) {
+            cached = null;
+            return null;
+        }
+        long now = clock.getAsLong();
         long ttl = lastFailed ? ERR_TTL : OK_TTL;
-        if (now - fetchedAt < ttl) {
+        if (fetchedAt > 0 && now - fetchedAt < ttl) {
             return cached;
         }
         fetchedAt = now;
-        QuotaSnapshot q = doFetch();
+        QuotaSnapshot q = doFetch(credentials);
+        if (!java.util.Objects.equals(fingerprint, fingerprint(credentialsReader.get()))) {
+            cached = null;
+            credentialFingerprint = null;
+            return null;
+        }
         lastFailed = q == null;
         cached = q;
         return q;
     }
 
-    private QuotaSnapshot doFetch() {
+    private QuotaSnapshot doFetch(String credentials) {
         try {
-            Path home = Path.of(System.getProperty("user.home"));
-            Path cred = home.resolve(".claude").resolve(".credentials.json");
-            if (!Files.exists(cred)) return null;
-            JsonNode c = mapper.readTree(Files.readString(cred));
+            JsonNode c = mapper.readTree(credentials);
             String token = c.path("claudeAiOauth").path("accessToken").asText(null);
             if (token == null || token.isBlank()) return null;
 
@@ -76,7 +106,7 @@ class ClaudeQuotaClient {
                     .timeout(Duration.ofSeconds(8))
                     .header("Authorization", "Bearer " + token)
                     .header("anthropic-beta", "oauth-2025-04-20")
-                    .header("User-Agent", "claude-code/" + readVersion(home))
+                    .header("User-Agent", "claude-code/" + readVersion(configRoot))
                     .header("Accept", "application/json")
                     .GET()
                     .build();
@@ -95,15 +125,52 @@ class ClaudeQuotaClient {
             return new QuotaSnapshot(
                     p1, 300, resetSec(fh),
                     p2, 10080, resetSec(sd),
-                    planLabel(c), System.currentTimeMillis());
+                    planLabel(c), clock.getAsLong());
         } catch (Exception e) {
-            log.debug("[usage] claude oauth usage 失败：{}", e.toString());
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            log.debug("[usage] claude oauth usage 失败：{}", e.getClass().getSimpleName());
             return null;
         }
     }
 
+    private static Path configRoot() {
+        String configured = System.getenv("CLAUDE_CONFIG_DIR");
+        return configured == null || configured.isBlank()
+                ? Path.of(System.getProperty("user.home"), ".claude") : Path.of(configured);
+    }
+
+    private String readCredentials() {
+        // 独立OAuth环境令牌无法与文件里的订阅身份核对，拒绝读错账号。
+        if (System.getenv("CLAUDE_CODE_OAUTH_TOKEN") != null) {
+            return null;
+        }
+        try {
+            return Files.readString(configRoot.resolve(".credentials.json"));
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
+    private static String fingerprint(String credentials) {
+        if (credentials == null) {
+            return null;
+        }
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(credentials.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 unavailable", error);
+        }
+    }
+
     private static Double pct(JsonNode n) {
-        return n.path("utilization").isNumber() ? n.path("utilization").asDouble() : null;
+        if (!n.path("utilization").isNumber()) {
+            return null;
+        }
+        double value = n.path("utilization").asDouble();
+        return Double.isFinite(value) && value >= 0 && value <= 100 ? value : null;
     }
 
     private static Long resetSec(JsonNode n) {
@@ -136,17 +203,13 @@ class ClaudeQuotaClient {
                 if (tier.contains("5x")) return "Max 5x";
                 return "Max";
             default:
-                // 订阅类型缺失/未知 → 退回限流档推断
-                if (tier.contains("max_20x")) return "Max 20x";
-                if (tier.contains("max_5x")) return "Max 5x";
-                if (tier.contains("pro")) return "Pro";
                 return sub.isBlank() ? null : sub;
         }
     }
 
-    private String readVersion(Path home) {
+    private String readVersion(Path root) {
         try {
-            Path f = home.resolve(".claude").resolve(".last-update-result.json");
+            Path f = root.resolve(".last-update-result.json");
             if (Files.exists(f)) {
                 JsonNode n = mapper.readTree(Files.readString(f));
                 String v = n.path("version_to").asText(null);

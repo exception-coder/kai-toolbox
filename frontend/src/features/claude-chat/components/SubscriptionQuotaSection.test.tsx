@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fetchSubscriptionQuota } from '../api'
 import { SubscriptionQuotaSection, type QuotaContext } from './SubscriptionQuotaSection'
@@ -27,9 +27,9 @@ describe('订阅额度', () => {
   it('未知窗口不包装成五小时或周额度', async () => {
     vi.mocked(fetchSubscriptionQuota).mockResolvedValue({ ...quota, windows: [{ windowMinutes: 15, remainingPercent: 20, resetsAt: null }] })
     mount()
-    expect(await screen.findByText('20%')).toBeInTheDocument()
-    expect(screen.getAllByText('暂无法获取')).toHaveLength(2)
-    expect(screen.getByText('15 分钟剩余')).toBeInTheDocument()
+    expect(await screen.findByText('15 分钟窗口剩余 20%')).toBeInTheDocument()
+    expect(within(screen.getByRole('article', { name: /Codex/ })).getAllByText('暂无法获取')).toHaveLength(2)
+    expect(screen.getByText('15 分钟窗口剩余 20%')).toBeInTheDocument()
   })
 
   it('会话切换后不显示旧账号额度，失败可重试', async () => {
@@ -41,8 +41,30 @@ describe('订阅额度', () => {
     expect(screen.queryByText('90%')).not.toBeInTheDocument()
     await screen.findByRole('alert')
     expect(screen.queryByText(/最后获取：/)).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '刷新额度' }))
+    fireEvent.click(screen.getByRole('button', { name: '刷新全部' }))
     await waitFor(() => expect(fetchSubscriptionQuota).toHaveBeenLastCalledWith('b'))
     await screen.findByText('共享额度')
+  })
+
+  it('多账号分别显示，共享会话只查询一次，失败不挡住其他账号', async () => {
+    vi.mocked(fetchSubscriptionQuota).mockImplementation(async id => {
+      if (id === 'failed') throw new Error('offline')
+      return quota
+    })
+    const sources = [
+      { ...context, lastSeenAt: 1 },
+      { ...context, id: 'same-account', lastSeenAt: 2 },
+      { ...context, id: 'failed', codexHome: 'home-b', lastSeenAt: 3 },
+      { ...context, id: 'claude-api', engine: 'claude', providerKind: 'thirdParty', lastSeenAt: 4 },
+    ] as import('../types').ClaudeChatSessionView[]
+    render(<QueryClientProvider client={new QueryClient()}><SubscriptionQuotaSection context={context} sessions={sources} /></QueryClientProvider>)
+    expect(await screen.findByText('90%')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('请求失败')
+    expect(screen.getByText(/2 会话/)).toBeInTheDocument()
+    expect(fetchSubscriptionQuota).toHaveBeenCalledTimes(2)
+    expect(fetchSubscriptionQuota).not.toHaveBeenCalledWith('same-account')
+    expect(fetchSubscriptionQuota).not.toHaveBeenCalledWith('claude-api')
+    fireEvent.click(screen.getByRole('button', { name: '刷新 Codex home-b 额度' }))
+    await waitFor(() => expect(fetchSubscriptionQuota).toHaveBeenCalledTimes(3))
   })
 })

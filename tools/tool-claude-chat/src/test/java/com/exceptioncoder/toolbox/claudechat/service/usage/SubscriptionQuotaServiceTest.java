@@ -14,7 +14,8 @@ import static org.mockito.Mockito.*;
 class SubscriptionQuotaServiceTest {
     private final ClaudeChatSessionRepository sessions = mock(ClaudeChatSessionRepository.class);
     private final SidecarClient sidecar = mock(SidecarClient.class);
-    private final SubscriptionQuotaService service = new SubscriptionQuotaService(sessions, sidecar);
+    private final ClaudeQuotaClient claude = mock(ClaudeQuotaClient.class);
+    private final SubscriptionQuotaService service = new SubscriptionQuotaService(sessions, sidecar, claude);
 
     @Test void queriesPersistedAccountWithoutGlobalCache() {
         var a = ClaudeChatSession.builder().id("a").engine("codex").codexHome("home-a").selectedModel("model-a").build();
@@ -30,13 +31,26 @@ class SubscriptionQuotaServiceTest {
 
     @Test void unsupportedAndThirdPartyNeverQuerySubscription() {
         for (var session : new ClaudeChatSession[] {
-                ClaudeChatSession.builder().engine("claude").build(),
+                ClaudeChatSession.builder().engine("qwen").build(),
                 ClaudeChatSession.builder().engine("codex").apiBaseUrl("https://gateway.test").build(),
                 ClaudeChatSession.builder().engine("codex").authToken("test-only").build() }) {
             when(sessions.findById("a")).thenReturn(Optional.of(session));
             assertFalse(service.read("a").path("available").asBoolean());
             assertTrue(service.read("a").path("fetchedAt").isNull());
         }
+        verifyNoInteractions(sidecar);
+        verifyNoInteractions(claude);
+    }
+
+    @Test void claudeMapsActualSnapshotWithoutRestampingCache() {
+        when(sessions.findById("a")).thenReturn(Optional.of(ClaudeChatSession.builder().engine("claude").build()));
+        when(claude.get()).thenReturn(new EngineUsageScanner.QuotaSnapshot(
+                25.0, 300, 2_000_000_000L, 70.0, 10080, null, "Pro", 1234));
+        var quota = service.read("a");
+        assertEquals(75, quota.path("windows").get(0).path("remainingPercent").asDouble());
+        assertEquals(30, quota.path("windows").get(1).path("remainingPercent").asDouble());
+        assertEquals(1234, quota.path("fetchedAt").asLong());
+        assertTrue(quota.path("shared").asBoolean());
         verifyNoInteractions(sidecar);
     }
 
