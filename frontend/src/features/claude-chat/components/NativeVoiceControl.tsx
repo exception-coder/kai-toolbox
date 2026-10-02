@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useImperativeHandle, useRef, type Ref } from 'react'
 import { AudioLines, Loader2, Mic, MicOff, PhoneOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useVoiceRecovery } from '../hooks/useVoiceRecovery'
@@ -10,12 +10,17 @@ interface Props {
   connected: boolean
   disabled?: boolean
   busy?: boolean
+  mobileDisclosure?: boolean
+  controlRef?: Ref<{ start: () => void }>
 }
 
-export function NativeVoiceControl({ sessionId, transport, connected, disabled, busy }: Props) {
+export function NativeVoiceControl({ sessionId, transport, connected, disabled, busy, mobileDisclosure, controlRef }: Props) {
   const voice = useVoiceRecovery(sessionId, transport, { connected, busy, disabled })
   const trigger = useRef<HTMLButtonElement>(null)
   const active = voice.state === 'connecting' || voice.state === 'connected'
+  useImperativeHandle(controlRef, () => ({ start: () => {
+    if (!active && !disabled && connected && sessionId && !voiceAvailability()) voice.start()
+  } }))
   const wasEngaged = useRef(false)
   const restoreFocus = useRef(false)
   useEffect(() => {
@@ -29,7 +34,7 @@ export function NativeVoiceControl({ sessionId, transport, connected, disabled, 
   }, [active, disabled, connected])
   const unavailable = voiceAvailability()
   return (
-    <div className="min-w-0 border-t px-3 py-2" aria-label="原生语音对话">
+    <div className={`${mobileDisclosure && !active && !voice.recoverable && !voice.error && !voice.notice ? 'hidden md:block ' : ''}min-w-0 border-t px-3 py-2`} aria-label="原生语音对话">
       <div className="flex flex-wrap items-center gap-2">
         <Button ref={trigger} type="button" variant="ghost" size="sm"
           disabled={disabled || !connected || !sessionId || Boolean(unavailable)}

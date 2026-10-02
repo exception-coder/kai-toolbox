@@ -299,6 +299,20 @@ describe('deriveMobileSessionStatus', () => {
 })
 
 describe('MobileSessionStatus', () => {
+  it('暂停队列在摘要可见，明细按需展开且不触发发送', async () => {
+    getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
+    const action = vi.fn()
+    renderWithQueryClient(<MobileSessionStatus sessionId="session-1" items={[]} running engineLabel="Codex"
+      turnTokens={279} connState="ready" backgroundTasks={[]} usage={null} usageLoading={false}
+      queueCount={1} queuePausedReason="本轮异常结束，队列已暂停" onOpenUsage={vi.fn()} onOpenTrajectory={vi.fn()}>
+      <button onClick={action}>处理待发送消息</button>
+    </MobileSessionStatus>)
+    expect(screen.getByText('队列 1 · 已暂停')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '处理待发送消息' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+    expect(screen.getByRole('button', { name: '处理待发送消息' })).toBeInTheDocument()
+    expect(action).not.toHaveBeenCalled()
+  })
   it('点击摘要打开详情，并从详情进入轨迹', async () => {
     getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
     const onOpenTrajectory = vi.fn()
@@ -322,7 +336,7 @@ describe('MobileSessionStatus', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '已完成 · 2s，查看运行详情' }))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText('本轮运行详情')).toBeInTheDocument()
+    expect(screen.getByText('Agent 运行与控制')).toBeInTheDocument()
     expect(screen.getByText('3 轮 · 1.5千 Token')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '查看轨迹' }))

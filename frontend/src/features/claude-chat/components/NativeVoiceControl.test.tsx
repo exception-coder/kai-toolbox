@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { VoiceEvent, VoiceTransport } from '../lib/nativeVoice'
 import { NativeVoiceControl } from './NativeVoiceControl'
+import { createRef } from 'react'
 
 const media = vi.hoisted(() => ({ offer: vi.fn(), instances: [] as Array<{ connect: () => void; close: ReturnType<typeof vi.fn> }> }))
 vi.mock('../lib/nativeVoice', async importOriginal => ({
@@ -52,6 +53,7 @@ it('restores the interrupted hint after remount and reconnects on click while co
   const beforeRefresh = render(f.view())
   fireEvent.click(screen.getByRole('button', { name: '语音对话' }))
   await waitFor(() => expect(f.transport.start).toHaveBeenCalledTimes(1))
+  act(() => media.instances[0].connect())
   beforeRefresh.unmount()
   expect(media.instances[0].close).toHaveBeenCalledTimes(1)
   render(f.view(true))
@@ -94,6 +96,7 @@ it('closes old media on session switch and keeps recovery hints isolated', async
   const page = render(f.view(true))
   fireEvent.click(screen.getByRole('button', { name: '语音对话' }))
   await waitFor(() => expect(f.transport.start).toHaveBeenCalledTimes(1))
+  act(() => media.instances[0].connect())
   page.rerender(f.view(false, 'session-2'))
   expect(screen.getByRole('button', { name: '语音对话' })).toBeInTheDocument()
   expect(media.instances[0].close).toHaveBeenCalledTimes(1)
@@ -107,6 +110,7 @@ it('closes media on socket loss and requires another click after reconnection', 
   const page = render(f.view(true))
   fireEvent.click(screen.getByRole('button', { name: '语音对话' }))
   await waitFor(() => expect(f.transport.start).toHaveBeenCalledTimes(1))
+  act(() => media.instances[0].connect())
   page.rerender(f.view(true, 'session-1', false))
   page.rerender(f.view(false))
   expect(media.offer).toHaveBeenCalledTimes(1)
@@ -135,8 +139,21 @@ it('shows permission failure with explicit retry and never retries it automatica
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('麦克风权限被拒绝'))
   page.rerender(f.view())
   expect(media.offer).toHaveBeenCalledTimes(1)
-  expect(screen.getByRole('button', { name: '恢复语音' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: '语音对话' })).toBeEnabled()
   expect(f.transport.start).not.toHaveBeenCalled()
+})
+
+it('discloses idle voice through the dock without starting or unmounting media', async () => {
+  const f = fixture()
+  const controlRef = createRef<{ start: () => void }>()
+  render(<NativeVoiceControl sessionId="session-1" transport={f.transport} connected mobileDisclosure controlRef={controlRef} />)
+  expect(screen.getByLabelText('原生语音对话')).toHaveClass('hidden')
+  expect(media.offer).not.toHaveBeenCalled()
+  act(() => controlRef.current?.start())
+  await waitFor(() => expect(f.transport.start).toHaveBeenCalledOnce())
+  expect(screen.getByLabelText('原生语音对话')).not.toHaveClass('hidden')
+  act(() => media.instances[0].connect())
+  expect(screen.getByRole('button', { name: '结束通话' })).toBeInTheDocument()
 })
 
 it('keeps restricted sessions disabled even when a task is running', () => {

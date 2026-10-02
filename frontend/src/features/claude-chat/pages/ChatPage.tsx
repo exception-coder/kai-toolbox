@@ -22,6 +22,7 @@ import { HistoryList } from '../components/HistoryList'
 import { NotifySettings } from '../components/NotifySettings'
 import { VoiceInputButton } from '../components/VoiceInputButton'
 import { NativeVoiceControl } from '../components/NativeVoiceControl'
+import { MobileRunningSend } from '../components/MobileRunningSend'
 import { chatControlMode } from '../lib/controlMode'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { QueuedList } from '../components/QueuedList'
@@ -109,7 +110,7 @@ import { ReviewShareDialog } from '../components/ReviewShareDialog'
 import { ReviewWorkspace } from '../components/ReviewWorkspace'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
 import { selectableEngineIds, supportsSessionProvider } from '../lib/engineCatalog'
-import { MobileSessionStatus } from '../components/MobileSessionStatus'
+import { MobileAgentDock } from '../components/MobileAgentDock'
 import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
 import { SessionToolsMenu } from '../components/SessionToolsMenu'
 import { OpenSpecInitializationDialog } from '../components/OpenSpecInitializationDialog'
@@ -737,6 +738,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [fullscreen, setFullscreen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const nativeVoiceControlRef = useRef<{ start: () => void }>(null)
   const handlePrdMention = useCallback(async (prdSession: PrdSessionView) => {
     if (!chat?.sessionId) throw new Error('请先创建或打开会话')
     const required = countPrdReferenceDocuments(prdSession)
@@ -2165,11 +2167,13 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               <div className="workspace-contextbar cc-chat-contextbar" aria-hidden="true" />
             )}
             {chat.sessionId && sessionView !== 'supervision' && (
+              <div className="hidden md:block">
               <SessionAutopilotStatus
                 sessionId={chat.sessionId}
                 projectRoot={currentSession?.cwd ?? ''}
                 onOpenDashboard={openSupervision}
               />
+              </div>
             )}
             {/* 跨会话待确认放在统一 Context Strip 下方，避免提示出现时左右两列的顶线错位。 */}
             <PendingSessionsBanner
@@ -2264,7 +2268,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
             {/* 底部输入：移动端单一 Composer Card；桌面保留完整工具区 */}
             {chat.sessionId && sessionView !== 'supervision' && (
-              <div className="cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
+              <div className="cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] pb-[env(safe-area-inset-bottom)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)] md:pb-0">
           <div className="hidden md:block">
             <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
             <SessionWorkStatus
@@ -2276,24 +2280,26 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               backgroundTasks={chat.backgroundTasks}
             />
           </div>
-          <MobileSessionStatus
-            sessionId={chat.sessionId}
-            items={chat.items}
-            running={chat.running}
-            engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
-            turnTokens={chat.turnTokens}
-            connState={chat.state}
-            backgroundTasks={chat.backgroundTasks}
-            usage={sessionUsage}
-            usageLoading={sessionUsage == null && Boolean(usageSid)}
-            onOpenUsage={() => setShowUsage(true)}
-            onOpenTrajectory={() => setSessionView('trajectory')}
+          <MobileAgentDock
+            key={chat.sessionId}
+            status={{ sessionId: chat.sessionId, items: chat.items, running: chat.running,
+              engineLabel: engineDisplayName(chat.currentEngine, chat.currentProviderKind),
+              turnTokens: chat.turnTokens, connState: chat.state, backgroundTasks: chat.backgroundTasks,
+              usage: sessionUsage, usageLoading: sessionUsage == null && Boolean(usageSid),
+              onOpenUsage: () => setShowUsage(true), onOpenTrajectory: () => setSessionView('trajectory') }}
+            queue={{ items: chat.queued,
+              pausedReason: chat.queuePausedReason ?? (chat.backgroundTasks.length > 0 && chat.queued.length > 0 ? '后台作业尚未结束，待发送消息继续等待。' : null),
+              canSendNow: !chat.running && !chat.pending && chat.backgroundTasks.length === 0,
+              onSendNow: chat.sendQueuedNow, onRemove: chat.removeQueued, onClear: chat.clearQueued }}
+            projectRoot={currentSession?.cwd ?? ''} onOpenDashboard={openSupervision}
+            voiceEnabled={chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession}
+            voiceDisabled={planLocked || chat.state !== 'ready'} onStartVoice={() => nativeVoiceControlRef.current?.start()}
           />
           {chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession && (
             <NativeVoiceControl sessionId={chat.sessionId} transport={chat.voiceTransport}
-              connected={chat.state === 'ready'} disabled={planLocked} busy={chat.running} />
+              connected={chat.state === 'ready'} disabled={planLocked} busy={chat.running} mobileDisclosure controlRef={nativeVoiceControlRef} />
           )}
-          <QueuedList
+          <div className="hidden md:block"><QueuedList
             items={chat.queued}
             pausedReason={chat.queuePausedReason
               ?? (chat.backgroundTasks.length > 0 ? '后台作业尚未结束，待发送消息继续等待。' : null)}
@@ -2301,7 +2307,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             onSendNow={chat.sendQueuedNow}
             onRemove={chat.removeQueued}
             onClear={chat.clearQueued}
-          />
+          /></div>
           <AttachmentChips
             items={attachments}
             uploading={uploading}
@@ -2339,7 +2345,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             onPick={reference => { void projectMention.pickReference(reference) }}
           />
           <SessionPlanLockNotice session={currentSession} />
-          <div className="mobile-composer-card mx-2 my-1 grid min-h-[4.5rem] min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] grid-rows-[auto_2rem] items-center gap-x-1 gap-y-0.5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-0.5 shadow-sm focus-within:border-[var(--color-ring)] focus-within:ring-1 focus-within:ring-[var(--color-ring)] md:mx-3 md:my-2 md:min-h-[5rem] md:gap-x-2 md:px-3 md:py-2">
+          <div className="mobile-composer-card mx-2 my-1 grid min-h-[4.5rem] min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] grid-rows-[auto_2.5rem] items-center gap-x-1 gap-y-0.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-0.5 focus-within:border-[var(--color-ring)] focus-within:ring-1 focus-within:ring-[var(--color-ring)] md:mx-3 md:my-2 md:min-h-[5rem] md:grid-rows-[auto_2rem] md:gap-x-2 md:px-3 md:py-2">
             <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1">
             {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}
             <div className="relative">
@@ -2557,7 +2563,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             <textarea
               ref={taRef}
               aria-label="消息输入"
-              className="col-span-3 row-start-1 max-h-32 min-h-8 min-w-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-1 py-1 text-sm outline-none placeholder:text-[var(--color-muted-foreground)] md:min-h-10 md:px-2 md:py-1.5 md:text-base"
+              className="col-span-3 row-start-1 max-h-32 min-h-8 min-w-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-1 py-1 text-base outline-none placeholder:text-[var(--color-muted-foreground)] md:min-h-10 md:px-2 md:py-1.5"
               placeholder="输入消息…"
               rows={1}
               disabled={planLocked}
@@ -2587,15 +2593,18 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             />
             {chat.running ? (
               <div className="col-start-3 row-start-2 flex shrink-0 gap-1">
-                <Button variant="outline" size="lg" className="max-md:size-8 max-md:px-0" onClick={chat.interrupt} disabled={chat.interrupting}
+                <Button variant="outline" size="lg" className="max-md:size-10 max-md:px-0" onClick={chat.interrupt} disabled={chat.interrupting}
                   aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'}>
                   {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
                 </Button>
+                <MobileRunningSend canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
+                  disabled={planLocked || (!draft.trim() && attachments.length === 0)}
+                  onSteer={() => submit('steer')} onEnqueue={() => submit('queue')} onReturnFocus={() => taRef.current?.focus()} />
               </div>
             ) : (
               <Button
                 size="lg"
-                className="col-start-3 row-start-2 max-md:size-8 max-md:px-0 shadow-sm"
+                className="col-start-3 row-start-2 max-md:size-10 max-md:px-0 shadow-sm"
                 onClick={() => submit()}
                 disabled={planLocked || (!draft.trim() && attachments.length === 0)}
                 aria-label="发送"
@@ -2605,7 +2614,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             )}
             {chat.running && (
               <RunningMessageActions
-                className="col-span-3 row-start-3 w-full border-t border-[var(--color-border)] py-1.5"
+                className="col-span-3 row-start-3 hidden w-full border-t border-[var(--color-border)] py-1.5 md:flex"
                 canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
                 disabled={planLocked || (!draft.trim() && attachments.length === 0)}
                 onSteer={() => submit('steer')}

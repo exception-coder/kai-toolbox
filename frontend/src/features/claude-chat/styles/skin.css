@@ -267,6 +267,11 @@
 }
 
 @media (max-width: 767px) {
+  /* 胶囊仍可访问，但默认避开对话页 Dock 与发送控件。 */
+  body:has(.cc-workspace-header) kai-assistant-widget::part(launcher) {
+    margin-bottom: 8rem;
+  }
+
   .cc-session-runtime-cluster {
     display: none;
   }

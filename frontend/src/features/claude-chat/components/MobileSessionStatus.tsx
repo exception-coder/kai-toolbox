@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
   AlertTriangle,
   CheckCircle2,
-  ChevronRight,
+  ChevronUp,
   Loader2,
 } from 'lucide-react'
 import {
@@ -18,6 +18,7 @@ import { getSessionRuntimeState, type SessionUsage } from '../api'
 import type { BackgroundTaskInfo, ChatItem, ConnState, SessionRuntimeState } from '../types'
 import { abbr, parseUsage } from '../lib/metrics'
 import { cn } from '@/lib/utils'
+import { useMobileDisclosure } from '../hooks/useMobileDisclosure'
 
 export type MobileSessionStatusModel = {
   kind: 'running' | 'background' | 'warning' | 'completed' | 'usage'
@@ -37,6 +38,9 @@ interface Props {
   usageLoading: boolean
   onOpenUsage: () => void
   onOpenTrajectory: () => void
+  queueCount?: number
+  queuePausedReason?: string | null
+  children?: ReactNode | ((close: () => void) => ReactNode)
 }
 
 export function MobileSessionStatus({
@@ -51,8 +55,12 @@ export function MobileSessionStatus({
   usageLoading,
   onOpenUsage,
   onOpenTrajectory,
+  queueCount = 0,
+  queuePausedReason,
+  children,
 }: Props) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useMobileDisclosure()
+  const trigger = useRef<HTMLButtonElement>(null)
   const runtime = useQuery({
     queryKey: ['claude-chat-runtime-state', sessionId],
     queryFn: () => getSessionRuntimeState(sessionId),
@@ -73,39 +81,47 @@ export function MobileSessionStatus({
     usageLoading,
   })
 
-  if (!status) return null
+  if (!status && !children && queueCount === 0) return null
 
-  const warning = status.kind === 'warning'
-  const active = status.kind === 'running' || status.kind === 'background'
-  const Icon = warning ? AlertTriangle : active ? Loader2 : status.kind === 'completed' ? CheckCircle2 : Activity
+  const label = status?.label ?? (runtime.isPending ? '正在核对会话状态…' : `${engineLabel} · 空闲`)
+  const currentActivity = running ? findCurrentActivity(items) : null
+  const summary = currentActivity ? `${label} · ${currentActivity}` : label
+  const warning = status?.kind === 'warning' || Boolean(queuePausedReason)
+  const active = status?.kind === 'running' || status?.kind === 'background'
+  const Icon = warning ? AlertTriangle : active ? Loader2 : status?.kind === 'completed' ? CheckCircle2 : Activity
 
   return (
     <div className="md:hidden">
       <button
+        ref={trigger}
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          'flex h-7 w-full min-w-0 items-center gap-1.5 border-b px-2 text-left text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]',
+          'flex h-10 w-full min-w-0 items-center gap-2 border-b px-3 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]',
           warning
             ? 'border-amber-200 bg-amber-50/90 text-amber-800 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200'
             : 'border-[var(--color-border)]/70 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]',
         )}
-        aria-label={`${status.label}，查看运行详情`}
+        aria-label={`${summary}${queueCount ? `，队列 ${queueCount} 条${queuePausedReason ? '已暂停' : ''}` : ''}，查看运行详情`}
+        aria-expanded={open}
         aria-live="polite"
       >
-        <Icon className={cn('size-3.5 shrink-0', active && 'animate-spin', !warning && !active && 'text-[var(--color-primary)]')} />
-        <span className="min-w-0 flex-1 truncate font-medium">{status.label}</span>
-        <ChevronRight className="size-3.5 shrink-0 opacity-60" />
+        <Icon className={cn('size-3.5 shrink-0', active && !warning && 'animate-spin motion-reduce:animate-none', !warning && !active && 'text-[var(--color-primary)]')} />
+        <span className="min-w-0 flex-1 truncate font-medium" title={summary}>{summary}</span>
+        {queueCount > 0 && <span className="shrink-0 tabular-nums">队列 {queueCount}{queuePausedReason ? ' · 已暂停' : ''}</span>}
+        <ChevronUp className="size-3.5 shrink-0 opacity-60" />
       </button>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" className="max-h-[80dvh] overflow-y-auto rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)] md:hidden">
+        <SheetContent side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }} className="max-h-[80dvh] overflow-y-auto rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] md:hidden">
           <div className="border-b px-4 pb-3 pt-4">
-            <SheetTitle>本轮运行详情</SheetTitle>
-            <SheetDescription className="mt-1">运行状态来自会话、Sidecar 与 Agent 的全链路事实；用量为整会话累计。</SheetDescription>
+            <SheetTitle>Agent 运行与控制</SheetTitle>
+            <SheetDescription className="mt-1">查看当前执行、待发送队列及 OpenSpec；关闭后继续对话。</SheetDescription>
           </div>
           <div className="space-y-3 px-4 py-4 text-sm">
-            <DetailRow label="当前状态" value={status.label} />
-            {status.detail && <DetailRow label="说明" value={status.detail} />}
+            <DetailRow label="当前状态" value={label} />
+            {status?.detail && <DetailRow label="说明" value={status.detail} />}
+            {running && <DetailRow label="当前执行" value={currentActivity ?? '正在生成回复…'} />}
+            {queuePausedReason && <p role="status" className="text-amber-700 dark:text-amber-300">{queuePausedReason}</p>}
             {runtime.data && (
               <>
                 <DetailRow label="全链路" value={`${runtimeStatusLabel(runtime.data.effectiveStatus)} · ${runtime.data.consistency}`} />
@@ -119,11 +135,21 @@ export function MobileSessionStatus({
               <Button variant="outline" onClick={() => { setOpen(false); onOpenTrajectory() }}>查看轨迹</Button>
               <Button onClick={() => { setOpen(false); onOpenUsage() }}>会话用量</Button>
             </div>
+            {typeof children === 'function' ? children(() => setOpen(false)) : children}
           </div>
         </SheetContent>
       </Sheet>
     </div>
   )
+}
+
+function findCurrentActivity(items: ChatItem[]): string | null {
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index]
+    if (item.kind === 'result' || item.kind === 'user') break
+    if (item.kind === 'activity' && ['inProgress', 'in_progress', 'running', 'pending', 'started'].includes(item.status)) return item.title
+  }
+  return null
 }
 
 export function deriveMobileSessionStatus({

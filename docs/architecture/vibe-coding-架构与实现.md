@@ -8,6 +8,10 @@
 
 ## 1. 整体架构（三层 + 两条 WebSocket）
 
+### 移动端对话呈现
+
+移动端以消息阅读和输入为主：`MobileAgentDock` 组合原运行状态、待发送队列与 OpenSpec 监督组件，默认一条 40px 摘要，详细操作在底部抽屉中展开。运行中发送入口通过 `MobileRunningSend` 明确选择排队或适用的当前轮补充，复用原执行能力；不增加第二套队列状态或自动发送策略。空闲原生语音从 Dock 开启，通话和恢复控制保留可见反馈。桌面继续使用完整工具区。交互与验收边界见[移动端设计](../../openspec/changes/compact-mobile-agent-workspace/design.md)。
+
 ### Pi / GitHub Copilot 适配边界
 
 会话级服务商档案目前由 Claude、Codex、Pi、Copilot、OpenCode 适配器消费。OpenCode 第三方会话使用独占子进程、随机端口和 inline config，结束释放进程；不改写本机配置。明确模型必填，使用 OpenAI Chat Completions 兼容地址；运行时配置不一致时拒绝请求。原生默认模式仍使用原客户端。Qwen、Trae、Antigravity 尚未开放 Forge 会话级覆盖，不能把原生支持第三方等同于 Forge 已适配。详见[隔离设计](../../openspec/changes/isolate-engine-provider-overrides/design.md)；新增 OpenCode 路径尚待真实 CLI/供应商和部署验收。

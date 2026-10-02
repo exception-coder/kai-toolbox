@@ -1524,7 +1524,7 @@ const template = `
     @media (prefers-reduced-motion: reduce) { .launcher { transition: none; } }
     @media (prefers-reduced-motion: no-preference) { .launcher:hover .capsule-icon::before { animation: capsule-glint 520ms ease-out 1; } .panel { animation: enter 160ms ease-out; } @keyframes capsule-glint { 0% { left: -52%; opacity: 0; } 24% { opacity: .8; } 100% { left: 112%; opacity: 0; } } @keyframes enter { from { transform: translateX(12px); } } @keyframes pulse { 50% { opacity: .3; transform: scale(.8); } } }
   </style>
-  <button class="launcher" type="button" data-launcher aria-label="打开 AI 助手" title="打开 AI 助手；拖动调整位置；Alt + 方向键微调"><span class="capsule-icon" aria-hidden="true"></span></button>
+  <button class="launcher" part="launcher" type="button" data-launcher aria-label="打开 AI 助手" title="打开 AI 助手；拖动调整位置；Alt + 方向键微调"><span class="capsule-icon" aria-hidden="true"></span></button>
   <section class="unlock-layer" data-unlock role="dialog" aria-modal="true" aria-labelledby="assistant-unlock-title" hidden>
     <div class="unlock-dialog">
       <h2 id="assistant-unlock-title">显示 AI 助手</h2>

@@ -24,10 +24,11 @@ export function useVoiceRecovery(sessionId: string | null, transport: VoiceTrans
     setIntent({ sessionId, recoverable: hasVoiceRecoveryHint(sessionId) })
   }, [sessionId])
   useEffect(() => {
-    if (!sessionId || voice.state !== 'connected') return
+    // 切换会话的首个 render 仍可能携带旧通话状态，不能给新会话写恢复提示。
+    if (!sessionId || intent.sessionId !== sessionId || voice.state !== 'connected') return
     rememberVoiceRecovery(sessionId, true)
     setIntent({ sessionId, recoverable: true })
-  }, [sessionId, voice.state])
+  }, [sessionId, intent.sessionId, voice.state])
   return { ...voice, start: requestStart, stop,
     recoverable: intent.sessionId === sessionId && intent.recoverable }
 }

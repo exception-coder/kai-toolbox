@@ -3,7 +3,7 @@ import type { QueuedMessage } from '../hooks/useClaudeChatSocket'
 
 /**
  * 待发送队列：回答执行中排队的消息，本轮结束后按序自动发出。
- * 显示在输入区上方，可逐条移除或一键清空。空队列不渲染。
+ * 桌面输入区与移动端详情抽屉共用，可逐条移除或一键清空。空队列不渲染。
  */
 export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemove, onClear }: {
   items: QueuedMessage[]
@@ -21,7 +21,7 @@ export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemov
         <span className={pausedReason ? 'text-amber-700 dark:text-amber-300' : undefined}>
           {pausedReason ?? `待发送 ${items.length} 条（本轮正常结束后按序自动发）`}
         </span>
-        <button type="button" onClick={onClear} className="ml-auto rounded px-1.5 py-0.5 hover:bg-[var(--color-accent)]">
+        <button type="button" onClick={onClear} className="ml-auto shrink-0 rounded px-1.5 py-0.5 hover:bg-[var(--color-accent)] max-md:min-h-10">
           全部清除
         </button>
       </div>
@@ -40,7 +40,7 @@ export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemov
                 type="button"
                 onClick={() => onSendNow(q.id)}
                 title="立即发送这条消息"
-                className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--color-primary)] hover:bg-[var(--color-accent)]"
+                className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--color-primary)] hover:bg-[var(--color-accent)] max-md:min-h-10"
               >
                 <Send className="size-3" />发送
               </button>
@@ -50,7 +50,7 @@ export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemov
               onClick={() => onRemove(q.id)}
               aria-label="移除"
               title="从待发送队列移除"
-              className="shrink-0 rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-destructive)]"
+              className="shrink-0 rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-destructive)] max-md:size-10 max-md:[&_svg]:mx-auto"
             >
               <X className="size-3.5" />
             </button>
