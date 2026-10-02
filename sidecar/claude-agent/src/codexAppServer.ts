@@ -499,7 +499,7 @@ export function findDefaultCodexModel(models: readonly CodexModelInfo[]): CodexM
   return models.find(model => model.isDefault === true)
 }
 
-function callAppServer(
+export function callAppServer(
   method: string,
   params: Record<string, unknown>,
   codexHome?: string,

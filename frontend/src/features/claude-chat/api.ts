@@ -845,6 +845,20 @@ export function fetchUsage(): Promise<EngineUsage[]> {
   return http<EngineUsage[]>('/claude-chat/usage')
 }
 
+export interface SubscriptionQuota {
+  available: boolean
+  message?: string
+  fetchedAt: number | null
+  planType?: string
+  shared: boolean
+  limitName?: string
+  windows: Array<{ windowMinutes: number; remainingPercent: number; resetsAt: number | null }>
+}
+
+export function fetchSubscriptionQuota(sessionId: string): Promise<SubscriptionQuota> {
+  return http<SubscriptionQuota>(`/claude-chat/usage/subscription?sessionId=${encodeURIComponent(sessionId)}`)
+}
+
 /** 探测 faster-whisper ASR 是否就绪，用于启用/禁用麦克风按钮。 */
 export async function sttAvailable(): Promise<boolean> {
   try {

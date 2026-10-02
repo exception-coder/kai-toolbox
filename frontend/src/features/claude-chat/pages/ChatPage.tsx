@@ -2216,7 +2216,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     onChanged={setLinkedSites}
                   />
                 ) : sessionView === 'usage' ? (
-                  <UsageWorkspace session={sessionUsage} />
+                  <UsageWorkspace session={sessionUsage} quotaContext={currentSession ? { ...currentSession, model: chat.currentModel } : undefined} />
                 ) : sessionView === 'review' && reviewRelations ? (
                   <ReviewWorkspace
                     relation={reviewRelations}
@@ -2645,7 +2645,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
       )}
 
       {/* 本地用量弹层 */}
-      {showUsage && <UsagePanel onClose={() => setShowUsage(false)} session={sessionUsage} />}
+      {showUsage && <UsagePanel onClose={() => setShowUsage(false)} session={sessionUsage} quotaContext={currentSession ? { ...currentSession, model: chat.currentModel } : undefined} />}
 
       {/* 可视化决策弹窗（仅单会话视图；分屏下各块自管弹窗） */}
       {viewMode === 'single' && pending?.kind === 'permission' && (

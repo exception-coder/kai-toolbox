@@ -55,6 +55,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     private final Map<String, CompletableFuture<String>> pendingReviewForks = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingSessionStateQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingEngineCatalogQueries = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<JsonNode>> pendingSubscriptionQuotaQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingProjectRouteQueries = new ConcurrentHashMap<>();
     /** 本实例已随 Spring 上下文停机；不得再建连、不得再上报断开 */
     private volatile boolean shuttingDown;
@@ -403,6 +404,32 @@ public class SidecarClient implements ReviewThreadForkGateway {
         }
     }
 
+    /** 当前会话订阅额度只读查询；按请求独立等待，不缓存或混用其他账号。 */
+    public Optional<JsonNode> querySubscriptionQuota(String codexHome, String model, long timeoutMs) {
+        String requestId = UUID.randomUUID().toString();
+        CompletableFuture<JsonNode> future = new CompletableFuture<>();
+        pendingSubscriptionQuotaQueries.put(requestId, future);
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("type", "querySubscriptionQuota");
+        message.put("requestId", requestId);
+        message.put("codexHome", nz(codexHome));
+        message.put("model", nz(model));
+        try {
+            if (!send(message)) {
+                return Optional.empty();
+            }
+            return Optional.of(future.get(timeoutMs, TimeUnit.MILLISECONDS).path("quota"));
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        } catch (Exception error) {
+            log.warn("[claude-chat] 订阅额度查询未完成 request={}", requestId);
+            return Optional.empty();
+        } finally {
+            pendingSubscriptionQuotaQueries.remove(requestId);
+        }
+    }
+
     /** 查询 Sidecar 权威引擎目录；失败或超时返回空，不在 Java 侧猜测实验引擎状态。 */
     public Optional<JsonNode> queryEngineCatalog(boolean refresh, long timeoutMs) {
         String requestId = UUID.randomUUID().toString();
@@ -626,6 +653,8 @@ public class SidecarClient implements ReviewThreadForkGateway {
         IllegalStateException error = new IllegalStateException(message);
         pendingEngineCatalogQueries.values().forEach(future -> future.completeExceptionally(error));
         pendingEngineCatalogQueries.clear();
+        pendingSubscriptionQuotaQueries.values().forEach(future -> future.completeExceptionally(error));
+        pendingSubscriptionQuotaQueries.clear();
     }
 
     private void failPendingProjectRouteQueries(String message) {
@@ -651,6 +680,13 @@ public class SidecarClient implements ReviewThreadForkGateway {
                 if ("sessionState".equals(node.path("type").asText())) {
                     String requestId = node.path("requestId").asText();
                     CompletableFuture<JsonNode> future = pendingSessionStateQueries.get(requestId);
+                    if (future != null) {
+                        future.complete(node);
+                    }
+                    return;
+                }
+                if ("subscriptionQuota".equals(node.path("type").asText())) {
+                    CompletableFuture<JsonNode> future = pendingSubscriptionQuotaQueries.get(node.path("requestId").asText());
                     if (future != null) {
                         future.complete(node);
                     }

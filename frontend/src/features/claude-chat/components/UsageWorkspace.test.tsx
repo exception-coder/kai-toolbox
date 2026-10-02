@@ -27,7 +27,7 @@ describe('UsageWorkspace', () => {
     expect(screen.getByText('本会话用量')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '关闭' })).not.toBeInTheDocument()
     expect(screen.getByText('总吞吐')).toBeInTheDocument()
-    expect(screen.getByText('成本参照上限')).toBeInTheDocument()
+    expect(screen.getByText('固定价格参照')).toBeInTheDocument()
     expect(await screen.findByText('尚无本地汇总数据')).toBeInTheDocument()
     expect(screen.getByText('统计口径')).toBeInTheDocument()
   })

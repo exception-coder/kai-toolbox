@@ -7,6 +7,7 @@ import { SessionManager } from './sessionManager.js'
 import { AgentTracing } from './telemetry/agentTracing.js'
 import { initializeTelemetry, shutdownTelemetry } from './telemetry/telemetry.js'
 import { EngineCatalog } from './engine/engineCatalog.js'
+import { readCodexSubscriptionQuota } from './codexSubscriptionQuota.js'
 import {
   createGraphifyRuntimeRequestHandler,
   GraphifyRuntime,
@@ -233,6 +234,14 @@ wss.on('connection', (ws) => {
           requestId: msg.requestId as string | undefined,
           ...manager.runtimeState(sessionId, msg.turnId as string | undefined),
         })
+        break
+      case 'querySubscriptionQuota':
+        void readCodexSubscriptionQuota(
+          typeof msg.codexHome === 'string' ? msg.codexHome : undefined,
+          typeof msg.model === 'string' ? msg.model : undefined,
+        ).then(quota => emit('subscription-quota', {
+          type: 'subscriptionQuota', requestId: msg.requestId, quota,
+        }))
         break
       case 'queryEngineCatalog':
         void engineCatalog.list(msg.refresh === true).then(entries => emit('engine-catalog', {
