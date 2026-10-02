@@ -5,8 +5,9 @@ const file = z.string().min(1).max(500)
 export const executionContextSchema = z.object({ project: z.string().min(1), sessionId: z.string().min(1).max(200) })
 export const abortExecutionSchema = z.object({ project: z.string().min(1), executionId: z.string().regex(/^ex_[a-f0-9]{32}$/),
   ownerSessionId: z.string().min(1).max(200), branch: z.string().min(1).max(200),
+  expectedCurrentBranch: z.string().max(200).optional(),
   actor: z.string().min(1).max(200), reason: z.string().min(15).max(2000),
-  expectedHead: z.string().regex(/^[a-f0-9]{40,64}$/) })
+  expectedHead: z.string().regex(/^[a-f0-9]{40,64}$/), expectedScopeFingerprint: z.string().length(64) })
 export const resolveContextSchema = executionContextSchema.extend({
   request: z.string().min(2).max(16000), files: z.array(file).max(200).default([]),
   terms: z.array(z.string().max(100)).max(12).default([]),

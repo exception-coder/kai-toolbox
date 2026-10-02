@@ -43,6 +43,10 @@ export async function execute(name: string, input: unknown, extra?: McpRequestEx
   }
 }
 function recoveryActions(code: string): string[] {
+  if (code === 'WORKSPACE_BUSY') return ['先 inspect_execution_writer；原会话可继续则等待，确认放弃旧执行后按查询结果 abort_execution，再绑定新执行；不要重复提交同一请求']
+  if (code === 'SPEC_STORE_LEGACY_LOCK') return ['inspect_store_lock；确认旧版进程全部停止后，提供摘要、操作者及原因调用 recover_store_lock；不得手删锁或仅凭超时接管']
+  if (code === 'SPEC_STORE_BUSY') return ['内部事务忙；最多有限重试，持续失败时检查受管服务状态，停止重复触发作业']
+  if (code === 'EXECUTION_RELEASED') return ['旧执行已终止，重新 discover_execution → assess_execution；保留旧记录']
   if (code === 'SPEC_TARGET_CONFLICT') return ['按错误中的 capability/Requirement 身份修正分类；规格索引变化时重新 resolve_specs']
   if (code === 'DELTA_DUPLICATE') return ['合并指向同一 Requirement 的需求项，或使用不同的稳定 Requirement 标题/ID 后重新确认']
   if (code === 'DELTA_MISSING' || code === 'DELTA_CONTENT_MISMATCH') return ['仅核对本次 resolution 的 Delta 子集，按确认草稿补齐或修正文后重试']
@@ -59,12 +63,12 @@ async function call(name: string, args: unknown, hostSessionId?: string, extra?:
 export function registerSpecResolutionTools(server: McpServer, hostSessionId?: string) {
   for (const definition of definitions) server.registerTool(definition.name, {
     description: definition.description, inputSchema: definition.schema.shape,
-    annotations: { readOnlyHint: ['inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['abort_execution', 'run_execution_verification'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification' },
+    annotations: { readOnlyHint: ['inspect_store_lock', 'inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['recover_store_lock', 'abort_execution', 'run_execution_verification'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification' },
   }, (args: unknown, extra: unknown) => call(definition.name, args, hostSessionId, extra as McpRequestExtra))
 }
 export function sdkSpecResolutionTools(hostSessionId?: string) {
   return definitions.map(definition => tool(definition.name, definition.description, definition.schema.shape,
     async (args: unknown, extra: unknown) => call(definition.name, args, hostSessionId, extra as McpRequestExtra), { annotations: {
-      readOnlyHint: ['inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['abort_execution', 'run_execution_verification'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification',
+      readOnlyHint: ['inspect_store_lock', 'inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['recover_store_lock', 'abort_execution', 'run_execution_verification'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification',
     } }))
 }

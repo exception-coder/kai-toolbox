@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
+import { DatabaseSync } from 'node:sqlite'
 import { requireCondition, type Context } from './contracts.js'
 
 export const hash = (value: string) => createHash('sha256').update(value).digest('hex')
@@ -43,10 +44,32 @@ export function saveJson(file: string, value: unknown) {
 export function locked<T>(root: string, action: () => T): T {
   const file = safePath(root, '.forge/spec-resolution/write.lock')
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  let descriptor: number
-  try { descriptor = fs.openSync(file, 'wx') }
-  catch { throw new Error('SPEC_STORE_BUSY: 解析记录正在写入；确认无活动进程后处理遗留锁') }
-  try { return action() } finally { fs.closeSync(descriptor); fs.unlinkSync(file) }
+  return storeMutex(root, () => {
+    // The marker also excludes older binaries which still use exclusive creation.
+    if (fs.existsSync(file)) {
+      requireCondition(readText(file) === 'forge-sqlite-mutex-v1', 'SPEC_STORE_LEGACY_LOCK',
+        '旧版存储锁无法判断持有者；inspect_store_lock 后确认旧进程已停止，再 recover_store_lock，禁止重复重试或手删文件')
+      fs.unlinkSync(file)
+    }
+    fs.writeFileSync(file, 'forge-sqlite-mutex-v1', { flag: 'wx' })
+    try { return action() } finally { fs.unlinkSync(file) }
+  })
+}
+
+/** OS-backed lock: process death releases ownership; elapsed time never grants it. */
+export function storeMutex<T>(root: string, action: () => T): T {
+  const file = safePath(root, '.forge/spec-resolution/mutex.sqlite')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const db = new DatabaseSync(file)
+  try {
+    db.exec('PRAGMA busy_timeout = 1000')
+    try { db.exec('BEGIN EXCLUSIVE') }
+    catch (error) {
+      if ((error as { errcode?: number }).errcode !== 5) throw error
+      requireCondition(false, 'SPEC_STORE_BUSY', '存储事务正在执行；稍后有限重试。持续占用时检查服务状态，不重复运行开发任务')
+    }
+    try { return action() } finally { db.exec('ROLLBACK') }
+  } finally { db.close() }
 }
 export function folders(root: string, relative: string): string[] {
   const directory = safePath(root, relative)

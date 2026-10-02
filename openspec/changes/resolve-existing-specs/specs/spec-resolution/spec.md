@@ -143,3 +143,27 @@ Forge SHALL route adapter lifecycle events to execution or legacy specification 
 #### Scenario: Older runtime remains installed
 - **WHEN** the configured runtime uses protocol v1
 - **THEN** the isolated compatibility adapter preserves existing bindings and checks without promoting old evidence
+
+### Requirement: Recover interrupted execution storage safely
+Forge SHALL serialize completion checks and pointer release within one OS-backed critical section. Terminal records SHALL never regain write authority. Internal process termination SHALL release the mutex without a timeout-based takeover of task ownership.
+
+#### Scenario: Process dies while storing execution state
+- **WHEN** a managed writer process exits inside its storage transaction
+- **THEN** another process can acquire the internal mutex and recover a managed marker without deleting task history
+
+#### Scenario: Legacy lock identity is unknown
+- **WHEN** an operator confirms all legacy writers stopped and supplies the exact inspected lock fingerprint, actor and reason
+- **THEN** the recovery tool archives the original marker and preserves an audit before later execution work proceeds
+- **AND** mismatched snapshots and live database transactions block recovery with a specific next action
+
+#### Scenario: Aborted work is requested again
+- **WHEN** identical assessment input refers to an execution with a terminal release
+- **THEN** a new execution is created and retries reuse that new active execution without resurrecting old verification
+
+#### Scenario: Abort snapshot changes
+- **WHEN** workspace or index content changes after inspection even if HEAD and porcelain status remain unchanged
+- **THEN** the abort is rejected until the operator inspects the new snapshot
+
+#### Scenario: Branch drift requires abandonment
+- **WHEN** the operator supplies both the assigned branch and the inspected current branch with the matching content fingerprint
+- **THEN** explicit abort can release the old execution without switching branches or discarding files

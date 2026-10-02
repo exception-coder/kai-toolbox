@@ -4,8 +4,13 @@ import { abortExecution, assessExecution, checkExecution, finishExecution, inspe
 import { runExecutionVerification } from './verification.js'
 import { initSession } from './session.js'
 import { checkExecutionEvent } from './lifecycle.js'
+import { inspectStoreLock, recoverStoreLock, inspectStoreSchema, recoverStoreSchema } from './storeRecovery.js'
 
 export const executionDefinitions = [
+  { name: 'inspect_store_lock', schema: inspectStoreSchema, run: inspectStoreLock,
+    description: '只读查询内部存储锁及现场摘要；不以超时判断锁失效。' },
+  { name: 'recover_store_lock', schema: recoverStoreSchema, run: recoverStoreLock,
+    description: '旧版无身份锁的审计恢复。仅在操作者确认所有旧版写入进程已停止后，核对查询摘要并归档原锁；不释放任务写入权，不自动停止或重启服务。' },
   { name: 'inspect_execution_writer', schema: executionContextSchema.pick({ project: true }), run: inspectExecutionWriter,
     description: '只读查询当前写入执行的身份、分支、HEAD、验证记录及工作区范围状态；用于审计遗留占用。' },
   { name: 'abort_execution', schema: abortExecutionSchema, run: abortExecution,

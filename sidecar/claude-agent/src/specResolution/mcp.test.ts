@@ -18,7 +18,9 @@ test('real stdio Forge advertises and calls the same resolution contract as SDK'
     await client.connect(transport)
     const listed = await client.listTools()
     const names = sdkSpecResolutionTools().map(tool => tool.name)
-    assert.equal(names.length, 16)
+    assert.equal(names.length, 18)
+    assert.equal(listed.tools.find(tool => tool.name === 'inspect_store_lock')?.annotations?.readOnlyHint, true)
+    assert.equal(listed.tools.find(tool => tool.name === 'recover_store_lock')?.annotations?.destructiveHint, true)
     for (const name of names) assert.ok(listed.tools.some(tool => tool.name === name), name)
     const result = await client.callTool({ name: 'check_change_readiness', arguments: { project: 'not-a-project', changeId: 'test' } })
     assert.equal(result.isError, true)
@@ -41,6 +43,15 @@ test('real stdio Forge advertises and calls the same resolution contract as SDK'
       assert.equal(discovery.isError, undefined)
       const content = discovery.content as Array<{ text: string }>
       assert.equal(JSON.parse(content[0].text).sessionId, 'test', 'host session must override caller identity')
+      fs.writeFileSync(path.join(root, '.forge/spec-resolution/write.lock'), '')
+      const inspected = await client.callTool({ name: 'inspect_store_lock', arguments: { project: root } })
+      const snapshot = JSON.parse((inspected.content as Array<{ text: string }>)[0].text)
+      const recovered = await client.callTool({ name: 'recover_store_lock', arguments: {
+        project: root, fingerprint: snapshot.lock.fingerprint, actor: 'fixture',
+        reason: 'Test fixture has no legacy process; archive the simulated orphan lock.', legacyProcessesStopped: true,
+      } })
+      assert.equal(recovered.isError, undefined)
+      assert.equal(fs.existsSync(path.join(root, '.forge/spec-resolution/write.lock')), false)
     } finally { fs.rmSync(root, { recursive: true, force: true }) }
   } finally { await client.close() }
 })

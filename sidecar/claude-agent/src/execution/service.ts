@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { requireCondition } from '../specResolution/contracts.js'
 import { hash, locked, readJson, readText, safePath, saveJson, statePath } from '../specResolution/storage.js'
 import { indexSpecs } from '../specResolution/indexer.js'
@@ -13,12 +14,22 @@ export type Execution = {
   assessment: Assessment; discovery: Discovery; policy: ReturnType<typeof executionPolicy>;
   designBaseline: Record<string, string>; verification?: { fingerprint: string; inputFiles: string[]; results: Array<{ kind: string; status: string; purpose: string; command: string[]; durationMs: number; diagnostic: string }> };
   release?: { status: 'AUTO_RECLAIMED'; releasedAt: string; reclaimedBySessionId: string; commit: string }
+    | { status: 'COMPLETED'; releasedAt: string; commit: string }
     | { status: 'ABORTED'; releasedAt: string; actor: string; reason: string; head: string; scopeStatus: string[] };
 }
 type Writer = { sessionId: string; executionId: string }
+function releasePointers(root: string, record: Execution) {
+  const writerFile = statePath(root, 'execution-writer')
+  const writer = fs.existsSync(writerFile) ? readJson<Writer>(writerFile) : undefined
+  requireCondition(!writer || (writer.executionId === record.executionId && writer.sessionId === record.sessionId),
+    'WORKSPACE_BUSY', '写入者已变化；不得释放其它执行')
+  const binding = statePath(root, `execution-session-${hash(record.sessionId)}`)
+  if (fs.existsSync(binding) && readJson<{ executionId: string }>(binding).executionId === record.executionId) fs.unlinkSync(binding)
+  if (writer) fs.unlinkSync(writerFile)
+}
 export function inspectExecutionWriter(raw: unknown) {
   const input = executionContextSchema.pick({ project: true }).parse(raw)
-  const { root, branch } = projectContext(input.project)
+  const { root, branch } = projectContext(input.project, false)
   const file = statePath(root, 'execution-writer')
   if (!fs.existsSync(file)) return { project: root, branch, writer: null }
   const writer = readJson<Writer>(file)
@@ -26,28 +37,32 @@ export function inspectExecutionWriter(raw: unknown) {
     'EXECUTION_INVALID', '写入指针无效；保留现场并人工检查')
   const record = readJson<Execution>(statePath(root, writer.executionId))
   requireCondition(record.schemaVersion === 1 && record.project === root && record.executionId === writer.executionId
-    && record.sessionId === writer.sessionId && (!record.release || record.release.status === 'ABORTED'),
+    && record.sessionId === writer.sessionId,
   'EXECUTION_INVALID', '执行记录与写入指针不匹配')
   const bindingFile = statePath(root, `execution-session-${hash(writer.sessionId)}`)
   const binding = fs.existsSync(bindingFile) ? readJson<{ executionId: string }>(bindingFile) : undefined
-  requireCondition(binding?.executionId === writer.executionId || (!binding && record.release?.status === 'ABORTED'),
+  requireCondition(!binding || binding.executionId === writer.executionId,
     'EXECUTION_INVALID', '会话绑定与写入指针不匹配')
   const scopedPaths = [...new Set([...record.discovery.files, ...record.assessment.designFiles.map(file => file.path),
     ...(record.assessment.changeId ? [`openspec/changes/${record.assessment.changeId}`] : [])])]
   const scopeStatus = git(root, ['status', '--porcelain', '--untracked-files=all', '--', ...scopedPaths]).split(/\r?\n/).filter(Boolean)
+  const scopeFiles = git(root, ['--literal-pathspecs', 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...scopedPaths]).split('\0').filter(Boolean)
+  const scopeFingerprint = hash(JSON.stringify([inputFingerprint(root, scopeFiles),
+    git(root, ['--literal-pathspecs', 'ls-files', '--stage', '-z', '--', ...scopedPaths])]))
   return { project: root, branch, head: git(root, ['rev-parse', 'HEAD']), writer: {
     executionId: record.executionId, ownerSessionId: record.sessionId, assignedBranch: record.branch,
-    baselineHead: record.baselineHead, scopeStatus, scopedPaths, verification: record.verification ? 'RECORDED' : 'NOT_RUN' } }
+    baselineHead: record.baselineHead, scopeStatus, scopedPaths, scopeFingerprint, verification: record.verification ? 'RECORDED' : 'NOT_RUN' } }
 }
 
 export function abortExecution(raw: unknown) {
   const input = abortExecutionSchema.parse(raw)
-  const { root } = projectContext(input.project)
+  const { root } = projectContext(input.project, false)
   return locked(root, () => {
     const inspected = inspectExecutionWriter({ project: root })
     const writer = inspected.writer
     requireCondition(writer && writer.executionId === input.executionId && writer.ownerSessionId === input.ownerSessionId
-      && writer.assignedBranch === input.branch && inspected.branch === input.branch && inspected.head === input.expectedHead,
+      && writer.assignedBranch === input.branch && inspected.branch === (input.expectedCurrentBranch ?? input.branch) && inspected.head === input.expectedHead
+      && writer.scopeFingerprint === input.expectedScopeFingerprint,
     'EXECUTION_CONTEXT_MISMATCH', '写入身份、分支或 HEAD 已变化；重新查询后再中止')
     const recordFile = statePath(root, writer.executionId)
     const record = readJson<Execution>(recordFile)
@@ -92,15 +107,31 @@ export function assessExecution(raw: unknown) {
     'CHANGE_REQUIRED', '行为发生变化；先复用匹配 change，确无匹配再使用 OpenSpec 创建')
   if (input.design !== 'none') requireCondition(input.designFiles.some(file => file.level === 'detail'), 'DESIGN_REQUIRED', '实现机制变化需要绑定受影响详设')
   if (input.design === 'architecture') requireCondition(input.designFiles.some(file => file.level === 'overview'), 'DESIGN_REQUIRED', '架构边界变化需要绑定受影响概设')
-  const executionId = `ex_${hash(JSON.stringify({ input, branch, discovery: discovery.discoveryId })).slice(0, 32)}`
+  let executionId = `ex_${hash(JSON.stringify({ input, branch, discovery: discovery.discoveryId })).slice(0, 32)}`
   return locked(root, () => {
     const writerFile = statePath(root, 'execution-writer')
     let writer = fs.existsSync(writerFile) ? readJson<Writer>(writerFile) : undefined
+    if (writer) {
+      const previous = readJson<Execution>(statePath(root, writer.executionId))
+      if (previous.release && previous.project === root && previous.executionId === writer.executionId && previous.sessionId === writer.sessionId) {
+        releasePointers(root, previous)
+        writer = undefined
+      }
+    }
     if (writer && writer.sessionId !== input.sessionId && reclaimCompletedWriter(root, writer, input.sessionId, branch)) {
       writer = undefined
     }
     requireCondition(!writer || writer.sessionId === input.sessionId, 'WORKSPACE_BUSY',
-      '共享工作区已有写入会话且尚未证明完成；原会话需完成提交和验证并保持范围干净，无法证明完成时禁止接管')
+      '共享工作区已有写入会话且尚未证明完成；先 inspect_execution_writer，原会话丢失时显式 abort_execution 后建立新执行，不重复重试')
+    if (writer) {
+      const active = readJson<Execution>(statePath(root, writer.executionId))
+      if (!active.release && active.branch === branch && active.discovery.discoveryId === discovery.discoveryId
+        && JSON.stringify(active.assessment) === JSON.stringify(input)) executionId = active.executionId
+    }
+    // Released records are immutable history, never a new lease or verification baseline.
+    if (fs.existsSync(statePath(root, executionId)) && readJson<Execution>(statePath(root, executionId)).release) {
+      executionId = `ex_${randomUUID().replaceAll('-', '')}`
+    }
     const existing = statePath(root, executionId)
     const record: Execution = fs.existsSync(existing) ? readJson<Execution>(existing) : {
       schemaVersion: 1, executionId, project: root, branch, sessionId: input.sessionId, baselineHead: git(root, ['rev-parse', 'HEAD']),
@@ -148,6 +179,7 @@ export function checkExecution(raw: unknown) {
   const input = executionCheckSchema.parse(raw); const { root, branch } = projectContext(input.project)
   const record = loadExecution(root, input.sessionId)
   requireCondition(record, 'EXECUTION_MISSING', '先 discover_execution → assess_execution；无需预先创建 OpenSpec change')
+  requireCondition(!record.release, 'EXECUTION_RELEASED', '执行已结束或中止；重新 discover_execution → assess_execution 建立新执行，不重试旧执行')
   requireCondition(record.branch === branch, 'BRANCH_DRIFT', '当前分支偏离分配分支，重新核对执行上下文')
   const writer = readJson<{ executionId: string }>(statePath(root, 'execution-writer'))
   requireCondition(writer.executionId === record.executionId, 'WORKSPACE_BUSY', '执行不再持有共享工作区写入权')
@@ -179,13 +211,23 @@ export function checkDelivery(record: Execution) {
 }
 export function finishExecution(raw: unknown) {
   const input = executionContextSchema.parse(raw)
-  checkExecution({ ...input, operation: 'BEFORE_COMMIT' })
-  const record = loadExecution(input.project, input.sessionId)!
-  requireCondition(git(record.project, ['rev-parse', 'HEAD']) !== record.baselineHead, 'COMMIT_REQUIRED', '执行结束前提交已验证任务；不代替任务原子性审阅')
-  git(record.project, ['merge-base', '--is-ancestor', record.baselineHead, 'HEAD'])
-  requireCondition(!git(record.project, ['status', '--porcelain', '--', ...record.discovery.files, ...record.assessment.designFiles.map(file => file.path)]),
-    'TASK_DIRTY', '执行范围仍有未提交内容')
-  return locked(record.project, () => {
+  const { root } = projectContext(input.project)
+  return locked(root, () => {
+    const previous = loadExecution(root, input.sessionId)
+    if (previous?.release?.status === 'COMPLETED') {
+      releasePointers(root, previous)
+      return { allowed: true, code: 'PASS', executionId: previous.executionId, commit: previous.release.commit }
+    }
+    checkExecution({ ...input, operation: 'BEFORE_COMMIT' })
+    const record = loadExecution(input.project, input.sessionId)!
+    requireCondition(git(record.project, ['rev-parse', 'HEAD']) !== record.baselineHead, 'COMMIT_REQUIRED', '执行结束前提交已验证任务；不代替任务原子性审阅')
+    git(record.project, ['merge-base', '--is-ancestor', record.baselineHead, 'HEAD'])
+    requireCondition(!git(record.project, ['status', '--porcelain', '--', ...record.discovery.files, ...record.assessment.designFiles.map(file => file.path)]),
+      'TASK_DIRTY', '执行范围仍有未提交内容')
+    const changeScope = record.assessment.changeId ? [`openspec/changes/${record.assessment.changeId}`] : []
+    requireCondition(!changeScope.length || !git(root, ['status', '--porcelain', '--', ...changeScope]), 'TASK_DIRTY', 'Change 范围仍有未提交内容')
+    record.release = { status: 'COMPLETED', releasedAt: new Date().toISOString(), commit: git(root, ['rev-parse', 'HEAD']) }
+    saveJson(statePath(root, record.executionId), record)
     fs.unlinkSync(statePath(record.project, 'execution-writer'))
     fs.unlinkSync(statePath(record.project, `execution-session-${hash(input.sessionId)}`))
     return { allowed: true, code: 'PASS', executionId: record.executionId, commit: git(record.project, ['rev-parse', 'HEAD']) }

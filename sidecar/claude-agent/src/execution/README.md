@@ -24,3 +24,11 @@
 `check_execution_event` 的协议版本为 2：返回 allowed、code、enforcement、governanceBackend、legacyGovernanceRequired。已绑定执行拒绝为 block；旧规格路径使用 legacyMode。没有收到有效结果时，由适配器执行明确的传输故障策略，不能读取私有状态猜测当前绑定。
 
 验证复用旧执行/规格专项，并增加 `lifecycle.test.ts` 的只读、恢复、第二写入者、分支、范围、Stop 与错误协议场景。真实宿主加载和触发仍需单独记录，模块测试不提供该证明。
+
+## 写入恢复与内部锁
+
+`inspect_execution_writer` 返回 `scopeFingerprint`；显式中止必须传 `expectedScopeFingerprint`，防止 HEAD 未变但文件内容变化时释放未经审阅的现场。分支漂移时 `branch` 保留执行分配分支，`expectedCurrentBranch` 指定查询所得当前分支（detached 为字符串空值），恢复不切换分支。
+
+完成检查和释放在同一内部事务内执行。COMPLETED、ABORTED、AUTO_RECLAIMED 是不可恢复为活动态的历史；再次工作建立新执行。终态已写入但指针尚未清理时，下次绑定在锁内续完释放。
+
+内部互斥使用 Node 22.13+ 的内置 SQLite 排他事务，仅用于互斥，不迁移 JSON 业务记录。进程退出由操作系统释放锁；新版 marker 遗留由下一次事务恢复。旧版空锁不能推断持有者：先 `inspect_store_lock`，由操作者确认所有旧版写入进程已停止，再用查询摘要、actor、reason 和 `legacyProcessesStopped: true` 调用 `recover_store_lock`。原锁归档、审计保留，任务写入权不受此操作影响。服务重启仍须单独授权。持有者活跃时有限等待后返回 SPEC_STORE_BUSY，不能无界重试。

@@ -10,6 +10,9 @@ import { abortExecution, assessExecution, inspectExecutionWriter } from './servi
 import { checkExecutionEvent } from './lifecycle.js'
 import { runExecutionVerification } from './verification.js'
 import { execute } from '../specResolution/tools.js'
+import { locked } from '../specResolution/storage.js'
+import { inspectStoreLock, recoverStoreLock } from './storeRecovery.js'
+import { spawnSync } from 'node:child_process'
 
 function fixture(t: test.TestContext) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-plane-'))
@@ -28,6 +31,93 @@ function fixture(t: test.TestContext) {
   })
   return { root, context, bind }
 }
+
+test('aborted execution cannot be resurrected with identical assessment', t => {
+  const { root, context, bind } = fixture(t)
+  const first = bind()
+  const snapshot = inspectExecutionWriter({ project: root })
+  abortExecution({ project: root, executionId: first.executionId, ownerSessionId: context.sessionId,
+    branch: snapshot.branch, expectedHead: snapshot.head, expectedScopeFingerprint: snapshot.writer!.scopeFingerprint,
+    actor: 'operator', reason: 'Abort this execution and keep all source files for a fresh task.' })
+  const next = bind()
+  assert.notEqual(next.executionId, first.executionId)
+  assert.equal(bind().executionId, next.executionId, 'retry reuses the new active execution')
+  assert.equal(checkExecutionEvent({ ...context, event: 'WRITE', files: ['src.js'] }).allowed, true)
+  const old = JSON.parse(fs.readFileSync(path.join(root, `.forge/spec-resolution/${first.executionId}.json`), 'utf8'))
+  assert.equal(old.release.status, 'ABORTED')
+})
+
+test('abort rejects content drift even when HEAD and porcelain status stay unchanged', t => {
+  const { root, context, bind } = fixture(t)
+  const first = bind()
+  fs.writeFileSync(path.join(root, 'src.js'), 'export const value = 2\n')
+  const snapshot = inspectExecutionWriter({ project: root })
+  fs.writeFileSync(path.join(root, 'src.js'), 'export const value = 3\n')
+  assert.throws(() => abortExecution({ project: root, executionId: first.executionId, ownerSessionId: context.sessionId,
+    branch: snapshot.branch, expectedHead: snapshot.head, expectedScopeFingerprint: snapshot.writer!.scopeFingerprint,
+    actor: 'operator', reason: 'Abort after inspecting the original snapshot of changed files.' }), /已变化/)
+  assert.equal(inspectExecutionWriter({ project: root }).writer?.executionId, first.executionId)
+})
+
+test('a process exiting inside storage transaction does not permanently block development', t => {
+  const { root } = fixture(t)
+  const moduleUrl = new URL('../specResolution/storage.js', import.meta.url).href
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { locked } from ${JSON.stringify(moduleUrl)}; locked(${JSON.stringify(root)}, () => process.exit(23))`])
+  assert.equal(child.status, 23)
+  assert.equal(locked(root, () => 'recovered'), 'recovered')
+})
+
+test('a second process cannot enter a live storage transaction', t => {
+  const { root } = fixture(t)
+  const moduleUrl = new URL('../specResolution/storage.js', import.meta.url).href
+  locked(root, () => {
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e',
+      `import { locked } from ${JSON.stringify(moduleUrl)}; try { locked(${JSON.stringify(root)}, () => process.exit(42)) } catch(e) { process.exit(e.code === 'SPEC_STORE_BUSY' ? 24 : 25) }`])
+    assert.equal(child.status, 24)
+  })
+  assert.equal(locked(root, () => 'available'), 'available')
+})
+
+test('an interrupted terminal release is completed before binding the next writer', t => {
+  const { root, bind } = fixture(t)
+  const first = bind()
+  const file = path.join(root, `.forge/spec-resolution/${first.executionId}.json`)
+  const record = JSON.parse(fs.readFileSync(file, 'utf8'))
+  record.release = { status: 'COMPLETED', releasedAt: new Date().toISOString(), commit: git(root, ['rev-parse', 'HEAD']) }
+  fs.writeFileSync(file, JSON.stringify(record))
+  const next = bind()
+  assert.notEqual(next.executionId, first.executionId)
+  assert.equal(inspectExecutionWriter({ project: root }).writer?.executionId, next.executionId)
+})
+
+test('branch drift has an explicit abort recovery without switching the workspace', t => {
+  const { root, context, bind } = fixture(t)
+  const first = bind()
+  git(root, ['checkout', '--detach', '-q'])
+  const snapshot = inspectExecutionWriter({ project: root })
+  assert.equal(snapshot.branch, '')
+  abortExecution({ project: root, executionId: first.executionId, ownerSessionId: context.sessionId,
+    branch: 'main', expectedCurrentBranch: '', expectedHead: snapshot.head, expectedScopeFingerprint: snapshot.writer!.scopeFingerprint,
+    actor: 'operator', reason: 'Explicitly abandon the old execution while preserving detached checkout.' })
+  assert.equal(inspectExecutionWriter({ project: root }).writer, null)
+  assert.equal(git(root, ['branch', '--show-current']), '')
+})
+
+test('legacy store recovery checks snapshot and keeps audited original lock', t => {
+  const { root } = fixture(t)
+  const file = path.join(root, '.forge/spec-resolution/write.lock')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, '')
+  assert.throws(() => locked(root, () => true), /旧版存储锁/)
+  const snapshot = inspectStoreLock({ project: root })
+  const input = { project: root, fingerprint: snapshot.lock!.fingerprint, actor: 'operator',
+    reason: 'All old version writers have stopped; preserve and retire the orphan lock.', legacyProcessesStopped: true }
+  assert.throws(() => recoverStoreLock({ ...input, fingerprint: '0'.repeat(64) }), /现场变化/)
+  const result = recoverStoreLock(input)
+  assert.ok(fs.existsSync(path.join(path.dirname(file), `${result.auditId}.lock`)))
+  assert.equal(locked(root, () => 'available'), 'available')
+})
 
 test('session init and context lookup are read-only, including detached HEAD', t => {
   const { root, context } = fixture(t)
@@ -149,7 +239,7 @@ test('explicit abort audits the exact writer and preserves dirty scope without i
   assert.equal(snapshot.writer?.verification, 'NOT_RUN')
   assert.ok(snapshot.writer?.scopeStatus.some(line => line.includes('src.js')))
   const request = { project: root, executionId: bound.executionId, ownerSessionId: context.sessionId,
-    branch: snapshot.branch, expectedHead: snapshot.head, actor: 'operator',
+    branch: snapshot.branch, expectedHead: snapshot.head, expectedScopeFingerprint: snapshot.writer!.scopeFingerprint, actor: 'operator',
     reason: 'Original session was lost; preserve its unfinished working files for review.' }
   assert.throws(() => abortExecution({ ...request, expectedHead: '0'.repeat(40) }), /已变化/)
   assert.equal(inspectExecutionWriter({ project: root }).writer?.executionId, bound.executionId)
@@ -175,7 +265,7 @@ test('an interrupted abort can finish releasing its writer without replacing its
   const binding = fs.readdirSync(path.join(root, '.forge/spec-resolution')).find(name => name.startsWith('execution-session-'))!
   fs.unlinkSync(path.join(root, '.forge/spec-resolution', binding))
   const result = abortExecution({ project: root, executionId: bound.executionId, ownerSessionId: context.sessionId,
-    branch: snapshot.branch, expectedHead: snapshot.head, actor: 'operator', reason })
+    branch: snapshot.branch, expectedHead: snapshot.head, expectedScopeFingerprint: snapshot.writer!.scopeFingerprint, actor: 'operator', reason })
   assert.equal(result.release.releasedAt, '2026-01-01T00:00:00.000Z')
   assert.equal(inspectExecutionWriter({ project: root }).writer, null)
 })

@@ -70,3 +70,15 @@
 5.x 验证：全 sidecar TypeScript 隔离编译通过；`TEAM_STANDARDS_TEST_HOOK_ROOT` 指向插件源码运行 execution、specResolution、codexAppServer、codexMcpPolicy 测试，共 69 项通过、无跳过。真实临时 Git 项目的 Hook→CLI 覆盖只读启动、范围、分支、无验证 Stop/提交、验证后放行和输入失效。插件全量 245 项中 244 通过、1 原有跳过、0 失败；严格 OpenSpec、引用、三 manifest 4.8.0、Skill 审计与 UTF-8 Skill 校验通过。原始本地日志：`.tmp/execution-plane-tests.log`；插件 `.logs/execution-plane-hooks.log`。
 
 Forge Quality all 返回 PASSED，但 executedCheckers 为空，9 个 API-RUNTIME-001 仅验证当前旧服务。新增代码的实际证据是独立编译、stdio 和跨仓进程调用；未重启服务、未修改当前 runtime 指针、未安装/重载新会话，不宣称 5.6 完成。内容审阅为本次 Codex Agent 的源码与场景核对（AGENT_REVIEWED），不是人工验收。首次 Python Skill 校验受 Windows 默认 GBK 解码影响，显式 `-X utf8` 后通过，无需修改 Skill 内容或检查器。
+
+
+## 7. 执行恢复加固（2026-10-02）
+
+- [x] 7.1 完成检查与释放统一互斥；终态不可重绑，终态释放中断可续办。
+- [x] 7.2 中止复核内容与暂存摘要；分支漂移/detached 有显式恢复路径。
+- [x] 7.3 采用进程退出可释放的 SQLite 内部互斥，保留旧版排他 marker；增加旧锁查询、核验、审计归档入口及具体恢复提示。
+- [x] 7.4 TypeScript 编译通过；execution/specResolution 回归 54 项中 53 通过、1 原有跳过（MCP 清单断言更新后真实 stdio 定向复测通过）。覆盖活跃互斥、持锁退出、终态重试、内容变化、分支漂移及旧锁恢复。依赖文件另有既存修改，本任务不提交依赖变更；新增实现仅使用 Node 内置模块及既有 Zod/MCP 接口；另在隔离编译目录安装基线 Claude SDK 0.3.220，真实 stdio MCP 回归通过，确认不依赖未提交的 SDK 升级。
+- [x] 7.5 OpenSpec 严格校验通过；Forge CLI all 返回 PASSED/exit 0，静态 executedCheckers 为空，9 项 API-RUNTIME-001 仅为当前服务检查；不据此宣称新版运行验收。
+- [ ] 7.6 用户授权重启后验证目标 Sidecar 版本、实际恢复工具及稳定观察；当前未重启、未操作真实任务占用。
+
+运行要求：Node >=22.13，内置 SQLite 互斥不存储业务表；JSON 审计保留。源码实现与部署验收分开。旧版空锁无法自动证明持有进程，恢复仍需操作者确认旧版进程已全部停止；未知状态不以超时强行接管。

@@ -2,7 +2,7 @@
 
 ## 日常只用一个入口
 
-安装 Node.js 22+、JDK 21、Maven 3.9+ 和 Git 后，在项目根目录运行：
+安装 Node.js 22.13+、JDK 21、Maven 3.9+ 和 Git 后，在项目根目录运行：
 
 ```shell
 node forge.mjs start
@@ -110,7 +110,7 @@ Node/PM2 自身依赖升级时先 stop，再在 `scripts/runtime` 执行 `npm ci
 
 ## 平台与验证边界
 
-代码统一面向 Windows、macOS、Ubuntu、受维护的 CentOS Stream，使用平台支持的 Node 22+ / JDK 21；不承诺 CentOS Linux 7/8。微信桌面自动化仍只支持 Windows。
+代码统一面向 Windows、macOS、Ubuntu、受维护的 CentOS Stream，使用平台支持的 Node 22.13+ / JDK 21；不承诺 CentOS Linux 7/8。微信桌面自动化仍只支持 Windows。
 
 Windows 真实隔离测试覆盖中文/空格目录、双实例、源码重载、控制器崩溃、令牌拒绝、重复启动、停止进程树、未知端口保护。Java 原生 replacement 及控制交接有自动测试。macOS/Ubuntu/CentOS 尚未进行实机验收；本次没有自动关闭当前旧服务或迁移用户正在运行的会话。
 

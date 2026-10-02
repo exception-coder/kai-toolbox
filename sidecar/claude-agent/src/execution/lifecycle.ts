@@ -18,7 +18,7 @@ export function checkExecutionEvent(raw: unknown) {
     const record = input.sessionId ? loadExecution(root, input.sessionId) : undefined
     const writer = readWriter(root)
     if (record || writer) {
-      requireCondition(record, 'WORKSPACE_BUSY', '共享工作区已有执行；使用原会话恢复或等待写入者结束，不自行创建 worktree')
+      requireCondition(record, 'WORKSPACE_BUSY', '共享工作区已有执行；inspect_execution_writer 核验后由原会话继续，或显式 abort_execution 后绑定新执行；不要重复重试')
       const result = checkExecution({ project: root, sessionId: input.sessionId, files: input.files, command: input.command,
         operation: ['COMMIT', 'STOP'].includes(input.event) ? 'BEFORE_COMMIT' : 'BEFORE_IMPLEMENTATION' })
       return { ...result, protocolVersion: 2, policyVersion: POLICY_VERSION, governanceBackend, enforcement,
