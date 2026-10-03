@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
+import { Bot } from 'lucide-react'
 import { ensureFreshToken, getToken, useAuth } from '@/lib/auth'
 import { AssistantCollector } from './collector'
 import { loadStableAssistantRuntime } from './assistantLoaderHost'
@@ -106,8 +107,9 @@ export function AssistantRestoreMenuItem() {
     return () => window.removeEventListener('kai-assistant-host-status', update)
   }, [])
   return <button type="button" disabled={status === 'loading'}
-    className="w-full rounded-md px-3 py-2 text-left text-xs hover:bg-[var(--color-muted)] disabled:opacity-60"
+    className="flex w-full items-center gap-2 py-2 pl-9 pr-3 text-left hover:bg-[var(--color-muted)] disabled:opacity-60"
     onClick={() => { setStatus('loading'); window.dispatchEvent(new Event('kai-assistant-host-open')) }}>
-    {status === 'loading' ? '正在加载助手…' : status === 'error' ? '助手暂不可用，点击重试' : '显示助手'}
+    <span className="shrink-0 text-[var(--color-muted-foreground)]" aria-hidden="true"><Bot className="size-4" /></span>
+    <span className="min-w-0 flex-1 text-sm">{status === 'loading' ? '正在加载助手…' : status === 'error' ? '助手暂不可用，点击重试' : '显示助手'}</span>
   </button>
 }
