@@ -1134,7 +1134,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
       <WorkspaceHeaderMount target={unifiedTitleBarSlot}>
       <header className={cn(
-        'cc-workspace-header workspace-unified-chrome relative z-30 flex min-w-0 items-center gap-3 px-4 max-md:h-12 max-md:gap-1 max-md:px-1',
+        'cc-workspace-header workspace-unified-chrome relative z-30 flex min-w-0 items-center gap-3 px-4 max-md:h-11 max-md:gap-1 max-md:px-1',
         unifiedTitleBarSlot && 'cc-workspace-header-integrated',
       )}>
         {!unifiedTitleBarSlot && openMobileNavigation && (
@@ -1156,35 +1156,34 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           <span className="font-semibold">分屏 · {multiIds.length} 个会话</span>
         ) : (
           <>
-            <div className="cc-session-identity min-w-0 flex-1">
-            {editingTitle ? (
-              <input
-                autoFocus
-                value={titleDraft}
-                onChange={e => setTitleDraft(e.target.value)}
-                onBlur={() => void commitEditTitle()}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') { e.preventDefault(); void commitEditTitle() }
-                  else if (e.key === 'Escape') setEditingTitle(false)
-                }}
-                className="w-full min-w-0 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-1.5 py-0.5 font-semibold outline-none"
-              />
-            ) : (
-              <span
-                className="block min-w-0 truncate text-sm font-semibold md:text-[15px]"
-                title={`${currentTitle || 'Vibe Coding'}${currentSession ? '\n双击重命名' : ''}`}
-                onDoubleClick={startEditTitle}
-              >
-                {currentTitle || 'Vibe Coding'}
-              </span>
-            )}
-              {titleRenameError && <span role="alert" className="block truncate text-[10px] text-[var(--color-destructive)]" title={titleRenameError}>{titleRenameError}</span>}
-              <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-[var(--color-muted-foreground)] md:hidden">
+            <div className="cc-session-identity flex min-w-0 flex-1 items-center gap-1.5 md:block">
+              <div className="min-w-0 flex-1">
+                {editingTitle ? (
+                  <input
+                    autoFocus
+                    value={titleDraft}
+                    onChange={e => setTitleDraft(e.target.value)}
+                    onBlur={() => void commitEditTitle()}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { e.preventDefault(); void commitEditTitle() }
+                      else if (e.key === 'Escape') setEditingTitle(false)
+                    }}
+                    className="w-full min-w-0 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-1.5 py-0.5 font-semibold outline-none"
+                  />
+                ) : (
+                  <span
+                    className="block min-w-0 truncate text-sm font-semibold md:text-[15px]"
+                    title={`${currentTitle || 'Vibe Coding'}${currentSession ? '\n双击重命名' : ''}`}
+                    onDoubleClick={startEditTitle}
+                  >
+                    {currentTitle || 'Vibe Coding'}
+                  </span>
+                )}
+                {titleRenameError && <span role="alert" className="block truncate text-[10px] text-[var(--color-destructive)]" title={titleRenameError}>{titleRenameError}</span>}
+              </div>
+              <div role="status" className="flex shrink-0 items-center gap-1 text-[var(--color-muted-foreground)] md:hidden" title={`${currentEngineLabel} · ${stateLabel(chat.state)}`} aria-label={`${currentEngineLabel} · ${stateLabel(chat.state)}`}>
                 <EngineIcon engine={chat.currentEngine} thirdParty={chat.currentProviderKind === 'thirdParty'} className="size-3 shrink-0" />
-                <span className="truncate">{currentEngineLabel}</span>
-                <CodexTransportBadge engine={chat.currentEngine} providerKind={chat.currentProviderKind} diag={chat.providerDiag} className="border-0 bg-transparent px-0 py-0 shadow-none" />
                 <StatusBadge tone={stateTone(chat.state)} pulse={chat.state === 'connecting'} className="ml-0.5 size-2 shrink-0 rounded-full border-0 px-0 shadow-none" />
-                <span className="shrink-0">{stateLabel(chat.state)}</span>
               </div>
             </div>
             <div className="cc-session-runtime-cluster hidden shrink-0 md:flex">

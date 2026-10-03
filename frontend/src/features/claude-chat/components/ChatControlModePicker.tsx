@@ -27,7 +27,8 @@ export function ChatControlModePicker({ mode, allowedAgent, allowedLlm, onChange
       <Button ref={triggerRef} type="button" variant="ghost" size="sm"
         aria-label={`切换对话方式，当前${current.label}`}
         className="shrink-0 gap-1 px-2 font-normal text-[var(--color-muted-foreground)] max-md:min-h-11">
-        <span>{current.label}</span><ChevronDown aria-hidden="true" className="size-3" />
+        <span className="sm:hidden">{mode === 'CODE_AGENT' ? '开发' : '对话'}</span>
+        <span className="hidden sm:inline">{current.label}</span><ChevronDown aria-hidden="true" className="size-3" />
       </Button>
     </PopoverTrigger>
     <PopoverContent align="start" className="w-64 max-w-[calc(100vw-2rem)] p-1" aria-label="对话方式">
