@@ -1,6 +1,8 @@
+import { lazy } from 'react'
 import { BotMessageSquare } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { ChatControlWorkspace } from './pages/ChatControlWorkspace'
+
+const ChatControlWorkspace = lazy(() => import('./pages/ChatControlWorkspace').then(m => ({ default: m.ChatControlWorkspace })))
 
 const manifest: FeatureManifest = {
   id: 'claude-chat',
