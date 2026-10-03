@@ -19,6 +19,25 @@ node forge.mjs stop
 
 ## 常用选项
 
+### Cloudflare 固定域名隧道
+
+```shell
+node forge.mjs tunnel start
+node forge.mjs tunnel status
+node forge.mjs logs cloudflare
+node forge.mjs tunnel stop
+```
+
+复用 `~/.kai-toolbox/cloudflared/config.yml` 及其 `credentials-file`，不自动登录、创建/删除远端隧道或覆盖 DNS。配置缺失时明确失败；迁移机器时需要安全迁移凭证并更新配置内的绝对路径。本地管理隧道使用配置中的 ingress；Cloudflare 控制台创建的远程管理隧道以控制台下发的路由为准，不由 CLI 猜测端口。域名区域和隧道必须属于同一 Cloudflare 账号。
+
+Node 入口支持 Windows、Linux、macOS 的 x64/arm64，优先使用 `CLOUDFLARED_CMD`、本机缓存或 PATH 中的 cloudflared；缺失时下载对应官方程序（macOS 需要 tar）。受限下载网络可先安装 cloudflared。默认 HTTP/2 使用出站 TCP/7844；`--protocol quic` 使用 UDP/7844。可用 `--config PATH` 指定其他现有配置。
+
+隧道加入当前工作区的 PM2，但默认不自动重启；重复 start 复用已有进程，故障先读日志再明确 stop/start。Forge 全量 stop 或控制器重新启动会停止隧道，需要再次执行 tunnel start。它不重启业务服务，不默认加入登录启动。PM2 online 仅表示进程存在，必须通过日志的 Registered tunnel connection 和公网实际页面/API 响应验收。旧 PowerShell 入口只转发参数，不再自行管理进程或修改远端资源。
+
+临时地址使用 `node forge.mjs tunnel start --quick [--url https://localhost:5173]`，地址从日志读取；API 经过 Vite 既有代理。Quick Tunnel 不保证长期可用，HTTPS 本机回源允许自签证书。命名隧道可传 `--dns-resolver IP:PORT`；该选项不适用于 Quick 模式。公网不可达时检查本机代理的 fake-IP DNS 与出站 7844，再检查域名的权威 DNS，不以自动重试作为成功证据。
+
+固定域名采用两条按顺序匹配的路由：`^/api/.*` 指向实际后端 HTTP 地址，其余请求指向实际前端 HTTPS 地址。Windows 本机 mkcert 源站可设置 `originServerName: localhost` 和本机 `rootCA.pem` 的 `caPool` 路径，保留证书验证；迁移机器后需更新该路径。CNAME 使用当前账号隧道的 UUID 加 `.cfargotunnel.com`，开启代理。Clash fake-IP 或全局代理阻断 7844 时，仅针对 Tunnel DNS 和边缘网段调整规则，并保留配置备份；网络配置和凭据不能提交到仓库。
+
 | 用途 | 命令 |
 | --- | --- |
 | 环境检查 | `node forge.mjs doctor` |
