@@ -53,9 +53,16 @@ export function confirmResolution(raw: unknown) {
     requireCondition(result.specRevision === index.revision, 'SPEC_INDEX_STALE', '正式规格已变化；重新解析')
     validateDecisions(result, input.decisions, index)
     for (const file of input.implementationFiles) safePath(root, file)
-    if (JSON.stringify(result.decisions) !== JSON.stringify(input.decisions) || JSON.stringify(result.implementationFiles) !== JSON.stringify(input.implementationFiles)) {
+    if (!result.readinessGraph) {
+      const currentGraph = graphEvidence(root, result.items.map(item => item.text).join(' '), result.changedFiles || [])
+      requireCondition(result.graph.revision === currentGraph.revision && result.graph.status === currentGraph.status
+        && JSON.stringify(result.graph.evidence) === JSON.stringify(currentGraph.evidence), 'GRAPH_INDEX_STALE',
+      '解析后证据已变化；重新 resolve_specs 并审阅后确认一次，建立实现范围基线')
+    }
+    if (!result.readinessGraph || JSON.stringify(result.decisions) !== JSON.stringify(input.decisions) || JSON.stringify(result.implementationFiles) !== JSON.stringify(input.implementationFiles)) {
       result.decisions = input.decisions
       result.implementationFiles = input.implementationFiles
+      result.readinessGraph = graphEvidence(root, result.items.map(item => item.text).join(' '), result.changedFiles || [], input.implementationFiles)
       result.audit.push({ actor: input.actor, source: 'AGENT', at: new Date().toISOString(), decisions: input.decisions })
       saveJson(statePath(root, result.resolutionId), result)
     }
@@ -70,9 +77,12 @@ export function checkReadiness(raw: unknown) {
   requireCondition(result.decisions, 'SPEC_RESOLUTION_UNCONFIRMED', '尚未完成逐项决策')
   validateDecisions(result, result.decisions, index)
   checkDeltas(root, result)
-  const graph = graphEvidence(root, result.items.map(item => item.text).join(' '), result.changedFiles || [])
-  requireCondition(result.graph.revision === graph.revision && result.graph.status === graph.status
-    && JSON.stringify(result.graph.evidence) === JSON.stringify(graph.evidence), 'GRAPH_INDEX_STALE', '图谱或相关源码已变化；重新解析并审阅')
+  const baseline = result.readinessGraph ?? result.graph
+  const graph = graphEvidence(root, result.items.map(item => item.text).join(' '), result.changedFiles || [],
+    result.readinessGraph ? result.implementationFiles : [])
+  requireCondition(baseline.revision === graph.revision && baseline.status === graph.status
+    && JSON.stringify(baseline.evidence) === JSON.stringify(graph.evidence), 'GRAPH_INDEX_STALE',
+    result.readinessGraph ? '图谱或范围外证据已变化；重新解析并审阅。已批准实现文件由执行验证跟踪。' : '旧解析尚无实现范围基线；重新 resolve_specs 并审阅、confirm_spec_resolution 一次后继续')
   const staged = input.operation === 'BEFORE_COMMIT' ? execFileSync('git', ['diff', '--cached', '--name-only', '--no-renames', '-z'],
     { cwd: root, encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024, windowsHide: true }).split('\0').filter(Boolean) : []
   for (const file of new Set([...input.files, ...staged].filter(file => !/^(openspec\/|docs\/|\.forge\/spec-resolution\/)/.test(file) && !/\.(md|txt)$/i.test(file)))) {

@@ -12,7 +12,9 @@ import type { Discovery } from './context.js'
 export type Execution = {
   schemaVersion: 1; executionId: string; project: string; branch: string; sessionId: string; baselineHead: string;
   assessment: Assessment; discovery: Discovery; policy: ReturnType<typeof executionPolicy>;
-  designBaseline: Record<string, string>; verification?: { fingerprint: string; inputFiles: string[]; results: Array<{ kind: string; status: string; purpose: string; command: string[]; durationMs: number; diagnostic: string }> };
+  designBaseline: Record<string, string>; verification?: { fingerprint: string; inputFiles: string[];
+    pendingChecks?: Array<{ kind: string; program: string; args: string[]; cwd: string; purpose: string; replaces?: string }>;
+    results: Array<{ checkId?: string; kind: string; status: string; purpose: string; command: string[]; durationMs: number; diagnostic: string }> };
   release?: { status: 'AUTO_RECLAIMED'; releasedAt: string; reclaimedBySessionId: string; commit: string }
     | { status: 'COMPLETED'; releasedAt: string; commit: string }
     | { status: 'ABORTED'; releasedAt: string; actor: string; reason: string; head: string; scopeStatus: string[] };
@@ -202,6 +204,7 @@ export function checkDelivery(record: Execution) {
     && fileDigest(record.project, file.path) !== record.designBaseline[file.path], 'DESIGN_UPDATE_REQUIRED', `更新受影响设计：${file.path}`)
   const verification = record.verification
   requireCondition(verification && verification.fingerprint === inputFingerprint(record.project, verification.inputFiles), 'VERIFICATION_STALE', '执行对应验证；相关输入变更后重新验证')
+  requireCondition(!verification.pendingChecks?.length, 'VERIFICATION_NOT_RUN', '仍有因调用预算延期的检查；运行 pendingChecks 后再提交')
   for (const kind of record.policy.verification) requireCondition(verification.results.some(result => result.kind === kind && result.status === 'PASSED'),
     'VERIFICATION_NOT_RUN', `缺少通过的 ${kind} 验证，不能用 API 200 代替`)
   requireCondition(verification.results.every(result => result.status === 'PASSED'), 'VERIFICATION_FAILED', '存在失败验证')

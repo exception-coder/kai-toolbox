@@ -28,7 +28,7 @@ export const executionDefinitions = [
   { name: 'check_execution_readiness', schema: executionCheckSchema, run: checkExecution,
     description: '检查执行会话、当前分支、规格版本和文件范围；拒绝自行切换/创建分支、worktree。提交前检查真实暂存区、适用设计更新及实际验证证据。无需 Change 的执行也使用此入口。' },
   { name: 'run_execution_verification', schema: runExecutionSchema, run: runExecutionVerification,
-    description: '实际执行已授权的测试 executable + argv（无Shell），按影响检查 regression/api/sql/ui/spec/design 覆盖；保存退出码和输入内容摘要。inputFiles 必须包含测试、配置与相关依赖。禁止用此入口部署/重启或伪造空检查；kind/purpose 的语义覆盖需要审阅。超时默认60秒，最多120秒。' },
+    description: '执行已授权测试 executable + argv（无Shell），保存退出码与内容摘要。inputFiles 必填，包含测试/配置/依赖，分批保持相同列表；cwd 可为项目相对或项目内绝对目录。Windows openspec/npm/npx 自动解析已安装的 Node 入口。每项超时默认60秒最多120秒，整次实际预算4分钟，延期项返回 pendingChecks。VERIFICATION_PENDING 表示本批成功但缺类别或待运行项，非工具失败且尚不能提交；只补齐 missing/pendingChecks。真实失败返回 checkId，更换失败命令用同类别 replaces 显式替代。禁止部署/重启或伪造空检查。' },
   { name: 'finish_execution', schema: executionContextSchema, run: finishExecution,
     description: '确认本批次验证及提交后释放共享工作区写入权。先逐任务原子提交，不自动提交、建分支或归档 OpenSpec；无需 Change 的执行可直接结束。' },
 ] as const

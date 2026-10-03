@@ -42,6 +42,7 @@ export interface Resolution {
   requestId: string; specRevision: string; createdAt: string;
   items: Array<{ itemId: string; text: string; candidates: Candidate[] }>;
   warnings: string[]; graph: { status: string; evidence: string[]; revision?: string; reasons?: string[] };
+  readinessGraph?: Resolution['graph'];
   changedFiles?: string[]; implementationFiles?: string[];
   semantic?: { status: string; engine?: string; model?: string; recommendations: unknown[]; drafts: Array<{ path: string; content: string }>; elapsedMs: number };
   decisions?: Decision[]; audit: Array<{ actor: string; source: 'AGENT'; at: string; decisions: Decision[] }>

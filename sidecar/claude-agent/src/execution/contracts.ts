@@ -39,9 +39,10 @@ export const verificationKind = z.enum(['regression', 'api', 'sql', 'ui', 'spec'
 export const runExecutionSchema = executionContextSchema.extend({
   checks: z.array(z.object({
     kind: verificationKind, program: z.string().min(1).max(500), args: z.array(z.string().max(4000)).max(100),
-    cwd: z.string().max(500).default('.'), purpose: z.string().min(10).max(2000),
+    replaces: z.string().regex(/^vc_[a-f0-9]{32}$/).optional().describe('更换失败命令时填写其返回的 checkId；只能替换同类别失败检查'),
+    cwd: z.string().max(500).default('.').describe('项目相对目录或项目内绝对目录'), purpose: z.string().trim().min(1).max(2000).describe('说明该检查验证什么；中文短句即可'),
   })).min(1).max(20),
-  inputFiles: z.array(file).min(1).max(1000), timeoutMs: z.number().int().min(100).max(120000).default(60000),
+  inputFiles: z.array(file).min(1).max(1000).describe('必填：具体测试、配置和依赖文件；分批调用保持相同完整列表，不传未定义的缓存变量'), timeoutMs: z.number().int().min(100).max(120000).default(60000),
 })
 export type Assessment = z.infer<typeof assessExecutionSchema>
 export type VerificationKind = z.infer<typeof verificationKind>

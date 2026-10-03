@@ -163,13 +163,65 @@ test('verification accumulates bounded checks for the same inputs and invalidate
   assert.deepEqual(changed.results.map(result => result.kind), ['api'])
 })
 
-test('verification reports progress, rejects oversized batches, and does not save cancelled results', async t => {
+test('fast checks are not rejected by summed timeout ceilings and accept absolute project paths', async t => {
+  const { root, context, bind } = fixture(t)
+  bind()
+  const result = await runExecutionVerification({ ...context, inputFiles: [path.join(root, 'src.js')], timeoutMs: 120000,
+    checks: ['one', 'two', 'three'].map(purpose => ({ kind: 'regression', program: 'node', args: ['-e', 'void '+JSON.stringify(purpose)], cwd: root, purpose })) })
+  assert.equal(result.code, 'PASS')
+  assert.equal(result.results.length, 3)
+  await assert.rejects(runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: [
+    { kind: 'regression', program: 'node', args: ['-e', ''], cwd: path.dirname(root), purpose: '越界检查' },
+  ] }), /路径/)
+})
+
+test('all paths are preflighted before executing any command', async t => {
+  const { root, context, bind } = fixture(t)
+  bind()
+  await assert.rejects(runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: [
+    { kind: 'regression', program: 'node', args: ['-e', 'require("fs").writeFileSync("should-not-exist", "bad")'], purpose: '前置检查' },
+    { kind: 'regression', program: 'node', args: ['-e', ''], cwd: '../outside', purpose: '无效路径' },
+  ] }), /路径/)
+  assert.equal(fs.existsSync(path.join(root, 'should-not-exist')), false)
+})
+
+test('deferred checks persist and block commit readiness until actually executed', async t => {
+  const { context, bind } = fixture(t)
+  bind()
+  const checks = [{ kind: 'regression', program: 'node', args: ['-e', ''], purpose: '真实检查' }]
+  const pending = await runExecutionVerification({ ...context, inputFiles: ['src.js'], checks }, { budgetMs: 0 })
+  assert.equal(pending.code, 'VERIFICATION_PENDING')
+  assert.equal(pending.allowed, false)
+  assert.equal(pending.pendingChecks.length, 1)
+  assert.equal(checkExecutionEvent({ ...context, event: 'COMMIT' }).allowed, false)
+  const completed = await runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: pending.pendingChecks })
+  assert.equal(completed.code, 'PASS')
+  assert.deepEqual(completed.pendingChecks, [])
+})
+
+test('an unrelated passing batch cannot erase a failed check; explicit replacement must pass', async t => {
+  const { context, bind } = fixture(t)
+  bind()
+  const failed = await runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: [
+    { kind: 'regression', program: 'node', args: ['-e', 'process.exit(1)'], purpose: '失败检查' },
+  ] })
+  assert.equal(failed.code, 'VERIFICATION_FAILED')
+  const unrelated = await runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: [
+    { kind: 'api', program: 'node', args: ['-e', ''], purpose: '其它检查' },
+  ] })
+  assert.equal(unrelated.code, 'VERIFICATION_FAILED')
+  assert.equal(unrelated.results.filter(result => result.status === 'FAILED').length, 1)
+  const fixed = await runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: [
+    { kind: 'regression', program: 'node', args: ['-e', ''], purpose: '已修正命令', replaces: failed.results[0].checkId },
+  ] })
+  assert.equal(fixed.code, 'PASS')
+})
+
+test('verification reports progress and does not save cancelled results', async t => {
   const { root, context, bind } = fixture(t)
   const execution = bind()
   const check = { kind: 'regression', program: process.execPath,
     args: ['-e', 'process.stdout.write("ready"); setTimeout(() => {}, 1000)'], purpose: 'Cancellation regression' }
-  await assert.rejects(runExecutionVerification({ ...context, inputFiles: ['src.js'], timeoutMs: 120_000,
-    checks: [check, check, check] }), /预算超过/)
   const controller = new AbortController()
   const phases: string[] = []
   const result = runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: [check] }, {

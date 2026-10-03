@@ -9,6 +9,7 @@ import { parseUnits } from './indexer.js'
 import { drafts } from './decisions.js'
 import type { Decision } from './contracts.js'
 import { saveJson } from './storage.js'
+import { createHash } from 'node:crypto'
 
 const base = '### Requirement: 样衣可见范围\n<!-- requirement-id: sample-visibility -->\n系统 SHALL 允许销售查看样衣。\n\n#### Scenario: 销售查询\n- WHEN 销售查询\n- THEN 返回样衣\n'
 function fixture(t: test.TestContext) {
@@ -23,6 +24,27 @@ function fixture(t: test.TestContext) {
     requirements: [{ externalId: 'r1', text: '销售只能查看已入库样衣', atomic: true as const, terms: ['样衣', '销售'] }] }
   return { root, write, input }
 }
+
+test('approved implementation edits do not stale the pre-edit graph but outside evidence still does', t => {
+  const { input, write } = fixture(t)
+  write('src/implementation.ts', 'original')
+  write('src/dependency.ts', 'contract')
+  write('graphify-out/graph.json', JSON.stringify({ nodes: [
+    { id: 'a', label: '样衣', source_file: 'src/implementation.ts' },
+    { id: 'b', label: 'dependency', source_file: 'src/dependency.ts' },
+  ], links: [{ source: 'a', target: 'b' }] }))
+  write('graphify-out/manifest.json', JSON.stringify(Object.fromEntries([
+    ['src/implementation.ts', 'original'], ['src/dependency.ts', 'contract'],
+  ].map(([file, content]) => [file, { ast_hash: createHash('md5').update(content).digest('hex') }]))))
+  const resolution = resolveSpecs({ ...input, changedFiles: ['src/implementation.ts'] })
+  confirmResolution({ ...input, resolutionId: resolution.resolutionId, actor: 'reviewer', implementationFiles: ['src/implementation.ts'],
+    decisions: [{ itemId: 'r1', classification: 'NO_SPEC_CHANGE', capabilityId: 'sample', requirementId: 'sample-visibility',
+      reason: '仅修复实现，保留既有业务行为及外部依赖契约。' }] })
+  write('src/implementation.ts', 'fixed implementation')
+  assert.equal(checkReadiness({ ...input, files: ['src/implementation.ts'] }).allowed, true)
+  write('src/dependency.ts', 'changed contract')
+  assert.throws(() => checkReadiness(input), /范围外证据/)
+})
 test('recall full Chinese requirement, idempotency, confirmed delta and stale content', t => {
   const { input, write } = fixture(t)
   const resolution = resolveSpecs(input)

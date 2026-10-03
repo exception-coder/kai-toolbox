@@ -43,6 +43,9 @@ export async function execute(name: string, input: unknown, extra?: McpRequestEx
   }
 }
 function recoveryActions(code: string): string[] {
+  if (code === 'PATH_INVALID') return ['cwd/inputFiles 可用项目相对路径或项目内绝对路径；核对具体路径、目录存在性及符号链接，禁止越界；修改参数后再试']
+  if (code === 'CHECK_EXECUTABLE_NOT_FOUND') return ['使用已安装的可执行文件；Windows CLI 可传 node 与入口脚本；不要重复同一不存在的命令']
+  if (code === 'GRAPH_INDEX_STALE') return ['核对范围外源码或图谱变更后重新解析和确认；旧记录重新确认以建立实现范围基线，不要求每次正常改码都刷新图谱']
   if (code === 'WORKSPACE_BUSY') return ['先 inspect_execution_writer；原会话可继续则等待，确认放弃旧执行后按查询结果 abort_execution，再绑定新执行；不要重复提交同一请求']
   if (code === 'SPEC_STORE_LEGACY_LOCK') return ['inspect_store_lock；确认旧版进程全部停止后，提供摘要、操作者及原因调用 recover_store_lock；不得手删锁或仅凭超时接管']
   if (code === 'SPEC_STORE_BUSY') return ['内部事务忙；最多有限重试，持续失败时检查受管服务状态，停止重复触发作业']
@@ -58,7 +61,8 @@ async function call(name: string, args: unknown, hostSessionId?: string, extra?:
     && ('sessionId' in args || ['resolve_specs', 'check_execution_event'].includes(name))
     ? { ...args, sessionId: hostSessionId } : args
   const result = await execute(name, bound, extra)
-  return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], ...(result.allowed === false ? { isError: true } : {}) }
+  const pending = name === 'run_execution_verification' && result.code === 'VERIFICATION_PENDING' && result.batchStatus === 'PASSED'
+  return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], ...(result.allowed === false && !pending ? { isError: true } : {}) }
 }
 export function registerSpecResolutionTools(server: McpServer, hostSessionId?: string) {
   for (const definition of definitions) server.registerTool(definition.name, {

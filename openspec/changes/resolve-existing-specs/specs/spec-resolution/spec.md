@@ -167,3 +167,40 @@ Forge SHALL serialize completion checks and pointer release within one OS-backed
 #### Scenario: Branch drift requires abandonment
 - **WHEN** the operator supplies both the assigned branch and the inspected current branch with the matching content fingerprint
 - **THEN** explicit abort can release the old execution without switching branches or discarding files
+
+### Requirement: Report resumable verification accurately
+Forge SHALL distinguish successful partial verification from execution failure while retaining delivery gates, bounded actual runtime, and all failed or deferred checks.
+
+#### Scenario: Successful partial batch
+- **WHEN** the current checks pass but required categories remain
+- **THEN** the MCP call succeeds with VERIFICATION_PENDING, allowed=false and explicit missing checks
+- **AND** commit readiness continues to reject incomplete evidence
+
+#### Scenario: Short checks have large timeout ceilings
+- **WHEN** declared timeout ceilings sum beyond the call budget but checks complete quickly
+- **THEN** Forge runs them within the actual call deadline without rejecting the batch based on that sum
+
+#### Scenario: Actual budget expires
+- **WHEN** the call budget prevents a check from starting
+- **THEN** the unstarted checks persist and block delivery until they are executed
+
+#### Scenario: A previous check failed
+- **WHEN** an unrelated batch passes
+- **THEN** the previous failure remains blocking until its retry or explicit same-category replacement passes
+
+#### Scenario: Windows CLI and project paths
+- **WHEN** a check uses an installed supported npm CLI on Windows and a project-contained absolute cwd
+- **THEN** Forge executes the Node entry with separate argv and accepts that cwd
+- **AND** paths escaping the project are rejected before any checks run
+
+### Requirement: Separate implementation changes from graph evidence drift
+Forge SHALL track approved implementation file changes through execution input fingerprints instead of treating every edit as pre-implementation graph evidence drift.
+
+#### Scenario: Approved implementation edit
+- **WHEN** a confirmed implementation file changes while outside evidence, graph and formal specs remain unchanged
+- **THEN** readiness does not require repeated graph resolution for that edit
+- **AND** execution delivery requires verification of the changed input
+
+#### Scenario: Outside evidence changes
+- **WHEN** evidence outside the approved implementation scope changes
+- **THEN** readiness requires fresh resolution and review before proceeding

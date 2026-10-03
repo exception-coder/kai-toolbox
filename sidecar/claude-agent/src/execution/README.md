@@ -32,3 +32,13 @@
 完成检查和释放在同一内部事务内执行。COMPLETED、ABORTED、AUTO_RECLAIMED 是不可恢复为活动态的历史；再次工作建立新执行。终态已写入但指针尚未清理时，下次绑定在锁内续完释放。
 
 内部互斥使用 Node 22.13+ 的内置 SQLite 排他事务，仅用于互斥，不迁移 JSON 业务记录。进程退出由操作系统释放锁；新版 marker 遗留由下一次事务恢复。旧版空锁不能推断持有者：先 `inspect_store_lock`，由操作者确认所有旧版写入进程已停止，再用查询摘要、actor、reason 和 `legacyProcessesStopped: true` 调用 `recover_store_lock`。原锁归档、审计保留，任务写入权不受此操作影响。服务重启仍须单独授权。持有者活跃时有限等待后返回 SPEC_STORE_BUSY，不能无界重试。
+
+## 分批验证的结果与恢复
+
+- `PASS`：已声明检查与必需类别均完成；提交仍需 check_execution_readiness。
+- `VERIFICATION_PENDING`：本批没有失败，尚有 missing 类别或 pendingChecks。MCP 调用成功，但 allowed=false，不允许提交。保持同一完整 inputFiles，仅补齐剩余项。
+- `VERIFICATION_FAILED`：真实失败详见 results.diagnostic；保留失败 checkId。无关批次通过不会清除失败。原命令重试通过可更新证据；更换命令须用同类别 `replaces` 引用失败 checkId，替代检查实际通过后解除阻断。
+
+cwd 与 inputFiles 接受项目内绝对路径和相对路径，仍拒绝越界和符号链接。整批预检目录与已知命令适配，避免路径错误出现在先前检查已执行后。Windows openspec/npm/npx 使用本地已安装包的 Node 入口，不执行 .cmd Shell，不自动安装工具。purpose 接受非空简短说明；inputFiles 始终必填。
+
+每项超时上限120秒；整次执行实际预算4分钟，超出预算的未启动检查返回 pendingChecks，持久化后必须完成才能提交。已启动命令仍受剩余调用预算约束。验证进度与取消机制不变。

@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import path from 'node:path'
 import { hash, safePath } from './storage.js'
 import type { Candidate, Unit } from './contracts.js'
 import { graphFreshness } from './freshness.js'
@@ -11,7 +12,7 @@ export function tokens(text: string): string[] {
 type GraphNode = { id: string; label?: string; source_file?: string; source_location?: string }
 type GraphData = { nodes: GraphNode[]; links?: Array<{ source: string; target: string }> }
 const graphCache = new Map<string, { key: string; graph: GraphData }>()
-export function graphEvidence(root: string, query: string, changedFiles: string[]): { status: string; evidence: string[]; terms: string[]; revision?: string; reasons?: string[] } {
+export function graphEvidence(root: string, query: string, changedFiles: string[], implementationFiles: string[] = []): { status: string; evidence: string[]; terms: string[]; revision?: string; reasons?: string[] } {
   const file = safePath(root, 'graphify-out/graph.json')
   if (!fs.existsSync(file)) return { status: 'MISSING', evidence: [] as string[], terms: [] as string[] }
   try {
@@ -31,7 +32,11 @@ export function graphEvidence(root: string, query: string, changedFiles: string[
       ids.add(link.source); ids.add(link.target)
     }
     const selected = graph.nodes.filter(node => ids.has(node.id) && node.source_file).slice(0, 20)
-    const freshness = graphFreshness(root, [...selected.map(node => node.source_file!), ...changedFiles])
+    // Approved implementation edits are verified by execution fingerprints, not the pre-edit graph.
+    const approved = new Set(implementationFiles.map(file => path.resolve(root, file)))
+    const sources = [...selected.map(node => node.source_file!), ...changedFiles]
+      .filter(file => !approved.has(path.resolve(root, file)))
+    const freshness = graphFreshness(root, sources)
     return { ...freshness, evidence: selected.map(node => `${node.label}: ${node.source_file}:${node.source_location || ''}`),
       terms: freshness.status === 'VERIFIED_SOURCES' ? selected.flatMap(node => tokens(`${node.label} ${node.source_file}`)).slice(0, 80) : [] }
   } catch (error) { return { status: `UNAVAILABLE: ${error instanceof Error ? error.message : String(error)}`, evidence: [], terms: [] } }

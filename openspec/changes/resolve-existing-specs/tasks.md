@@ -82,3 +82,16 @@ Forge Quality all 返回 PASSED，但 executedCheckers 为空，9 个 API-RUNTIM
 - [ ] 7.6 用户授权重启后验证目标 Sidecar 版本、实际恢复工具及稳定观察；当前未重启、未操作真实任务占用。
 
 运行要求：Node >=22.13，内置 SQLite 互斥不存储业务表；JSON 审计保留。源码实现与部署验收分开。旧版空锁无法自动证明持有进程，恢复仍需操作者确认旧版进程已全部停止；未知状态不以超时强行接管。
+
+
+## 8. 验证接口可恢复性（2026-10-03）
+
+- [x] 8.1 区分本批成功待补齐、全部通过、真实失败；MCP pending 不置 isError，提交门禁仍拒绝缺失和延期证据。
+- [x] 8.2 项目内绝对路径规范化、整批目录预检、Windows 已安装 openspec/npm/npx Node 入口适配；简短非空 purpose 可用，inputFiles 仍必填。
+- [x] 8.3 用实际截止时间控制调用预算；延期项持久化；失败不能被无关成功批次清除，替代须同类别且实际通过。
+- [x] 8.4 确认时建立范围外图谱基线，正常实现修改由验证指纹跟踪；保留正式规格、范围外证据和索引漂移阻断。
+- [x] 8.5 TypeScript 全量隔离编译通过；execution/specResolution 60项中59通过、1原有跳过；最终确认逻辑及真实 stdio MCP 在基线 SDK 0.3.220 的隔离目录复测13项通过。不依赖未提交的 SDK 升级。OpenSpec严格校验通过。
+- [x] 8.6 Forge CLI all 为 PASSED/exit0：executedCheckers为空，9项API-RUNTIME-001通过，仅证明当前服务；新实现证据来自上述编译、真实子进程和MCP契约测试。
+- [ ] 8.7 授权重启后核对实际 Sidecar/工具版本，验收真实会话分批验证与运行稳定性；本次未重启、未重放业务测试、未更改原会话数据。
+
+原始测试输出位于本地未跟踪目录 sidecar/claude-agent/.test-verification-usability；不提交构建产物。源码改动、运行部署与业务验收分别记录。
