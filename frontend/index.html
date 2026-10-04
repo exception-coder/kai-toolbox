@@ -20,12 +20,28 @@
       .boot-state{display:grid;gap:8px;padding:48px 40px}
       .boot-state strong{font-size:15px;font-weight:600;letter-spacing:-.01em}
       .boot-state span{font-size:13px;color:#71717a}
+      .boot-entry{display:none;width:max-content;margin-top:12px;padding:10px 14px;border:1px solid #c8ccd3;border-radius:8px;color:inherit;font-size:14px;font-weight:600;text-decoration:none}
+      .boot-entry:focus-visible{outline:2px solid #545ce8;outline-offset:3px}
       @media(max-width:640px){#boot-shell{grid-template-columns:1fr;grid-template-rows:48px 1fr}.boot-rail{place-items:center start;padding:0 20px;border-right:0;border-bottom:1px solid rgba(0,0,0,.07)}.boot-main header{display:none}.boot-state{padding:32px 24px}}
-      @media(prefers-color-scheme:dark){#boot-shell{background:#15171a;color:#f4f4f5}.boot-rail{background:#111316}.boot-rail,.boot-main header{border-color:rgba(255,255,255,.08)}.boot-state span{color:#a1a1aa}}
+      @media(prefers-color-scheme:dark){#boot-shell{background:#15171a;color:#f4f4f5}.boot-rail{background:#111316}.boot-rail,.boot-main header{border-color:rgba(255,255,255,.08)}.boot-state span{color:#a1a1aa}.boot-entry{border-color:#50545b}}
     </style>
   </head>
   <body>
-    <div id="root"><div id="boot-shell" role="status" aria-live="polite"><aside class="boot-rail"><span class="boot-mark">FORGE</span></aside><main class="boot-main"><header></header><section class="boot-state"><strong>正在准备工作台</strong><span>加载本地开发资源…</span></section></main></div></div>
+    <div id="root"><div id="boot-shell" role="status" aria-live="polite"><aside class="boot-rail"><span class="boot-mark">FORGE</span></aside><main class="boot-main"><header></header><section class="boot-state"><strong>正在准备工作台</strong><span>正在加载工作台资源…</span><a id="boot-vibe-entry" class="boot-entry" href="/tools/claude-chat">进入 Vibe Coding →</a></section></main></div></div>
+    <script>
+      if (location.pathname === '/') {
+        try {
+          const user = JSON.parse(localStorage.getItem('toolbox.auth.user') || 'null')
+          const permissions = JSON.parse(localStorage.getItem('toolbox.auth.perms') || '[]')
+          const allowed = user?.roles?.includes('ADMIN')
+            || localStorage.getItem('toolbox.auth.superAdmin') === 'true'
+            || (Array.isArray(permissions) && (permissions.includes('menu:claude-chat') || permissions.includes('menu:ai-chat')))
+          if (localStorage.getItem('toolbox.auth.token') && allowed) {
+            document.getElementById('boot-vibe-entry').style.display = 'inline-block'
+          }
+        } catch { /* React will handle an invalid cached login snapshot. */ }
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

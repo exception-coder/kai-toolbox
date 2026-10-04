@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,6 +15,44 @@ export function HomePage() {
   // 按角色/权限码过滤首页入口卡片，再按「菜单配置」软隐藏过滤，与侧边栏一致。chrome（管理页）不进首页。
   const allowed = features.filter(f => !f.chrome && hasFeatureAccess(f, access))
   const visible = useVisibleFeatures(allowed)
+  const [showAll, setShowAll] = useState(false)
+  const vibe = visible.find(f => f.id === 'claude-chat')
+  const remaining = visible.filter(f => f.id !== 'claude-chat')
+
+  useEffect(() => {
+    const schedule = window.requestIdleCallback?.bind(window)
+    if (schedule) {
+      const id = schedule(() => setShowAll(true), { timeout: 1500 })
+      return () => window.cancelIdleCallback(id)
+    }
+    const id = window.setTimeout(() => setShowAll(true), 250)
+    return () => window.clearTimeout(id)
+  }, [])
+
+  const first = vibe ? [vibe] : remaining.slice(0, 1)
+  const later = vibe ? remaining : remaining.slice(1)
+  const renderFeature = (f: (typeof visible)[number]) => {
+    const Icon = f.icon
+    return (
+      <Link key={f.id} to={entryOf(f)} className="group">
+        <Card className="h-full transition-shadow group-hover:shadow-md">
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between text-base">
+              <span className="flex items-center gap-2">
+                <Icon className="h-4 w-4 text-[var(--color-primary)]" />
+                {f.name}
+              </span>
+              <ArrowRight className="h-4 w-4 text-[var(--color-muted-foreground)] transition-transform group-hover:translate-x-0.5" />
+            </CardTitle>
+            {f.description && <CardDescription>{f.description}</CardDescription>}
+          </CardHeader>
+          <CardContent className="text-xs text-[var(--color-muted-foreground)]">
+            {f.group ?? '通用'}
+          </CardContent>
+        </Card>
+      </Link>
+    )
+  }
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="mb-8 flex items-center gap-3">
@@ -30,28 +69,8 @@ export function HomePage() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visible.map(f => {
-            const Icon = f.icon
-            return (
-              <Link key={f.id} to={entryOf(f)} className="group">
-                <Card className="h-full transition-shadow group-hover:shadow-md">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between text-base">
-                      <span className="flex items-center gap-2">
-                        <Icon className="h-4 w-4 text-[var(--color-primary)]" />
-                        {f.name}
-                      </span>
-                      <ArrowRight className="h-4 w-4 text-[var(--color-muted-foreground)] transition-transform group-hover:translate-x-0.5" />
-                    </CardTitle>
-                    {f.description && <CardDescription>{f.description}</CardDescription>}
-                  </CardHeader>
-                  <CardContent className="text-xs text-[var(--color-muted-foreground)]">
-                    {f.group ?? '通用'}
-                  </CardContent>
-                </Card>
-              </Link>
-            )
-          })}
+          {first.map(renderFeature)}
+          {showAll && later.map(renderFeature)}
         </div>
       )}
     </div>
