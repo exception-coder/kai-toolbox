@@ -312,7 +312,7 @@ Forge 开发 MCP 提供 Requirement 级召回、具名 Agent 决策、Delta 和�
 
 中止需核对原身份、当前分支、HEAD、工作文件和暂存区摘要；分支漂移仍可核验后中止而不改分支。新版内部锁遗留自动恢复；旧版无身份锁通过 inspect_store_lock / recover_store_lock 在操作者确认旧进程全部停止后归档并记录原因。此入口不授予重启权限，也不证明任意 Shell 写入已被隔离。最低 Node 版本为22.13；本次源码修复的部署与运行验收另行记录。
 
-Forge 运行入口同时提供 Cloudflare 本地隧道的 Node 控制（tunnel start/stop/status），复用工作区私有 PM2；远端域名、DNS 和凭证仍由 Cloudflare 及本机现有配置负责。隧道不默认随登录启动，不自动重启，不改变工程上下文或交付裁决。进程存在与公网就绪分别验收；全量 Forge 停止或控制器重启后须明确重新启动隧道。固定/临时入口与网络边界见 [启动说明](../scripts/STARTUP.md#cloudflare-固定域名隧道)。
+Forge 运行入口同时提供 Cloudflare 本地隧道的 Node 控制（tunnel start/stop/status/check），复用工作区私有 PM2；远端域名、DNS 和凭证仍由 Cloudflare 及本机现有配置负责。隧道不默认随登录启动，不自动重启，不改变工程上下文或交付裁决。status 自动区分进程状态与固定域名首页、API 的公网回源状态；check 在未就绪时返回非零退出码，不以 PM2 online 代替公网可用。全量 Forge 停止或控制器重启后须明确重新启动隧道。固定/临时入口与网络边界见 [启动说明](../scripts/STARTUP.md#cloudflare-固定域名隧道)。
 
 ### 分批验证与实现期证据
 

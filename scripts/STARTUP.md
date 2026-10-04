@@ -24,6 +24,7 @@ node forge.mjs stop
 ```shell
 node forge.mjs tunnel start
 node forge.mjs tunnel status
+node forge.mjs tunnel check
 node forge.mjs logs cloudflare
 node forge.mjs tunnel stop
 ```
@@ -32,7 +33,7 @@ node forge.mjs tunnel stop
 
 Node 入口支持 Windows、Linux、macOS 的 x64/arm64，优先使用 `CLOUDFLARED_CMD`、本机缓存或 PATH 中的 cloudflared；缺失时下载对应官方程序（macOS 需要 tar）。受限下载网络可先安装 cloudflared。默认 HTTP/2 使用出站 TCP/7844；`--protocol quic` 使用 UDP/7844。可用 `--config PATH` 指定其他现有配置。
 
-隧道加入当前工作区的 PM2，但默认不自动重启；重复 start 复用已有进程，故障先读日志再明确 stop/start。Forge 全量 stop 或控制器重新启动会停止隧道，需要再次执行 tunnel start。它不重启业务服务，不默认加入登录启动。PM2 online 仅表示进程存在，必须通过日志的 Registered tunnel connection 和公网实际页面/API 响应验收。旧 PowerShell 入口只转发参数，不再自行管理进程或修改远端资源。
+隧道加入当前工作区的 PM2，但默认不自动重启；重复 start 复用已有进程，故障先读日志再明确 stop/start。Forge 全量 stop 或控制器重新启动会停止隧道，需要再次执行 tunnel start。它不重启业务服务，不默认加入登录启动。`tunnel status` 自动探测固定域名首页及 `/api/tools` 的公网响应，并区分进程与回源状态；`tunnel check` 执行同一检查，未就绪时返回非零退出码，便于脚本和监控使用。Quick Tunnel 的临时域名仍需从日志确认。PM2 online 仅表示进程存在，仍应核对日志的 Registered tunnel connection。旧 PowerShell 入口只转发参数，不再自行管理进程或修改远端资源。
 
 临时地址使用 `node forge.mjs tunnel start --quick [--url https://localhost:5173]`，地址从日志读取；API 经过 Vite 既有代理。Quick Tunnel 不保证长期可用，HTTPS 本机回源允许自签证书。命名隧道可传 `--dns-resolver IP:PORT`；该选项不适用于 Quick 模式。公网不可达时检查本机代理的 fake-IP DNS 与出站 7844，再检查域名的权威 DNS，不以自动重试作为成功证据。
 

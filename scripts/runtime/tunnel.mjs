@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, renameSy
 import { homedir } from 'node:os';
 import { join, delimiter } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { setTimeout as pause } from 'node:timers/promises';
 import { runtimePaths } from './config.mjs';
 import { connectManager, appOptions } from './process-manager.mjs';
 
@@ -60,9 +61,28 @@ function validateConfig(config) {
   return contents.match(/^\s*- hostname:\s*(\S+)/m)?.[1] || null;
 }
 
+/** Public responses verify routing and origin reachability, not just a live PM2 process. */
+export async function probeNamedTunnel(hostname, request = fetch) {
+  if (!hostname || !/^[a-z0-9.-]+$/i.test(hostname)) return { state: 'unverified', reason: 'NAMED_HOSTNAME_MISSING' };
+  const checks = [];
+  for (const route of ['/', '/api/tools']) {
+    try {
+      const response = await request(`https://${hostname}${route}`, {
+        method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(5000),
+      });
+      const reachable = route === '/' ? response.status >= 200 && response.status < 400 : response.status === 200;
+      checks.push({ route, status: response.status, reachable });
+      await response.body?.cancel();
+    } catch (error) {
+      checks.push({ route, reachable: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { state: checks.every(check => check.reachable) ? 'ready' : 'failed', hostname, checks };
+}
+
 export async function tunnelMain(root, args) {
   const [command = 'status', ...options] = args;
-  if (!['start', 'stop', 'status'].includes(command)) throw new Error('Use node forge.mjs tunnel start|stop|status');
+  if (!['start', 'stop', 'status', 'check'].includes(command)) throw new Error('Use node forge.mjs tunnel start|stop|status|check');
   let config = join(homedir(), '.kai-toolbox', 'cloudflared', 'config.yml');
   let protocol = 'http2';
   let quick = false;
@@ -109,7 +129,26 @@ export async function tunnelMain(root, args) {
       throw new Error('Existing tunnel is not online; inspect logs, then explicitly stop/start after diagnosis');
     }
     const app = (await manager.call('list')).find(item => item.name === 'cloudflare');
-    console.log(JSON.stringify(app ? { name: app.name, pid: app.pid, state: app.pm2_env.status,
-      restarts: app.pm2_env.restart_time } : { name: 'cloudflare', state: 'stopped' }, null, 2));
+    const snapshot = app ? { name: app.name, pid: app.pid, state: app.pm2_env.status,
+      restarts: app.pm2_env.restart_time } : { name: 'cloudflare', state: 'stopped' };
+    let health = { state: 'stopped' };
+    if (app?.pm2_env.status === 'online') {
+      const runningArgs = Array.isArray(app.pm2_env.args) ? app.pm2_env.args : [];
+      const configPosition = runningArgs.indexOf('--config');
+      const activeConfig = configPosition >= 0 ? runningArgs[configPosition + 1] : config;
+      if (runningArgs.includes('--url') || quick) health = { state: 'unverified', reason: 'QUICK_TUNNEL_URL_IN_LOGS' };
+      else {
+        try {
+          const hostname = validateConfig(activeConfig);
+          health = await probeNamedTunnel(hostname);
+          if (command === 'start') for (let attempt = 0; attempt < 5 && health.state === 'failed'; attempt++) {
+            await pause(1000);
+            health = await probeNamedTunnel(hostname);
+          }
+        } catch (error) { health = { state: 'failed', reason: error instanceof Error ? error.message : String(error) }; }
+      }
+    }
+    console.log(JSON.stringify({ ...snapshot, health }, null, 2));
+    if (command === 'check' && health.state !== 'ready') process.exitCode = 1;
   } finally { manager.disconnect(); }
 }
