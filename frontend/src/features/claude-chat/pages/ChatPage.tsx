@@ -2287,7 +2287,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               engineLabel: engineDisplayName(chat.currentEngine, chat.currentProviderKind),
               turnTokens: chat.turnTokens, connState: chat.state, backgroundTasks: chat.backgroundTasks,
               usage: sessionUsage, usageLoading: sessionUsage == null && Boolean(usageSid),
-              onOpenUsage: () => setShowUsage(true), onOpenTrajectory: () => setSessionView('trajectory') }}
+              onOpenUsage: () => setShowUsage(true), onOpenTrajectory: () => setSessionView('trajectory'),
+              onSwitchSession: (id, hintRunning) => chat.switchTo(id, hintRunning) }}
             queue={{ items: chat.queued,
               pausedReason: chat.queuePausedReason ?? (chat.backgroundTasks.length > 0 && chat.queued.length > 0 ? '后台作业尚未结束，待发送消息继续等待。' : null),
               canSendNow: !chat.running && !chat.pending && chat.backgroundTasks.length === 0,

@@ -3,16 +3,18 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import type { SessionUsage } from '../api'
-import type { ChatItem, SessionRuntimeState } from '../types'
+import type { ChatItem, ClaudeChatSessionView, SessionRuntimeState } from '../types'
 import {
   MobileSessionStatus,
   deriveMobileSessionStatus,
 } from './MobileSessionStatus'
 
 const getSessionRuntimeState = vi.fn()
+const listSessions = vi.fn()
 
 vi.mock('../api', () => ({
   getSessionRuntimeState: (...args: unknown[]) => getSessionRuntimeState(...args),
+  listSessions: (...args: unknown[]) => listSessions(...args),
 }))
 
 const USAGE: SessionUsage = {
@@ -299,6 +301,24 @@ describe('deriveMobileSessionStatus', () => {
 })
 
 describe('MobileSessionStatus', () => {
+  it('优先展示正在执行的会话，并可快速切换到最近会话', async () => {
+    getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
+    const session = (id: string, status: 'IDLE' | 'RUNNING', lastSeenAt: number): ClaudeChatSessionView => ({
+      id, cwd: `D:/work/${id}`, title: id, sdkSessionId: null, status,
+      startedAt: lastSeenAt, lastSeenAt, live: status === 'RUNNING',
+    })
+    listSessions.mockResolvedValue([session('current', 'IDLE', 3), session('active', 'RUNNING', 2), session('recent', 'IDLE', 1)])
+    const onSwitchSession = vi.fn()
+    renderWithQueryClient(<MobileSessionStatus sessionId="current" items={[]} running={false} engineLabel="Codex"
+      turnTokens={0} connState="ready" backgroundTasks={[]} usage={null} usageLoading={false}
+      onOpenUsage={vi.fn()} onOpenTrajectory={vi.fn()} onSwitchSession={onSwitchSession} />)
+    fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+    expect(await screen.findByRole('region', { name: '快速切换会话' })).toBeInTheDocument()
+    expect(await screen.findByText('正在执行 · 1')).toBeInTheDocument()
+    expect(screen.getByText('最近会话 · 2')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /active/ }))
+    expect(onSwitchSession).toHaveBeenCalledWith('active', true)
+  })
   it('暂停队列在摘要可见，明细按需展开且不触发发送', async () => {
     getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
     const action = vi.fn()

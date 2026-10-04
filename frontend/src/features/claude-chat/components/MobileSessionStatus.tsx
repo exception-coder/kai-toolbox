@@ -14,11 +14,13 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
-import { getSessionRuntimeState, type SessionUsage } from '../api'
-import type { BackgroundTaskInfo, ChatItem, ConnState, SessionRuntimeState } from '../types'
+import { getSessionRuntimeState, listSessions, type SessionUsage } from '../api'
+import type { BackgroundTaskInfo, ChatItem, ClaudeChatSessionView, ConnState, SessionRuntimeState } from '../types'
 import { abbr, parseUsage } from '../lib/metrics'
 import { cn } from '@/lib/utils'
 import { useMobileDisclosure } from '../hooks/useMobileDisclosure'
+import { isVibeCodingSession } from '../lib/sessionScope'
+import { sessionDisplayName } from '../lib/sessionDisplayName'
 
 export type MobileSessionStatusModel = {
   kind: 'running' | 'background' | 'warning' | 'completed' | 'usage'
@@ -38,6 +40,7 @@ interface Props {
   usageLoading: boolean
   onOpenUsage: () => void
   onOpenTrajectory: () => void
+  onSwitchSession?: (sessionId: string, hintRunning?: boolean) => void
   queueCount?: number
   queuePausedReason?: string | null
   children?: ReactNode | ((close: () => void) => ReactNode)
@@ -55,6 +58,7 @@ export function MobileSessionStatus({
   usageLoading,
   onOpenUsage,
   onOpenTrajectory,
+  onSwitchSession,
   queueCount = 0,
   queuePausedReason,
   children,
@@ -67,6 +71,17 @@ export function MobileSessionStatus({
     refetchInterval: running ? 5_000 : 15_000,
     retry: 1,
   })
+  const sessionList = useQuery({
+    queryKey: ['claude-chat-sessions'],
+    queryFn: listSessions,
+    enabled: open && Boolean(onSwitchSession),
+    refetchInterval: open ? 3_000 : false,
+  })
+  const available = (sessionList.data ?? []).filter(isVibeCodingSession)
+  const runningSessions = available.filter(session => session.status === 'RUNNING' && session.live)
+    .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+  const recentSessions = available.filter(session => !runningSessions.some(active => active.id === session.id))
+    .sort((a, b) => b.lastSeenAt - a.lastSeenAt).slice(0, 8)
   const status = deriveMobileSessionStatus({
     items,
     running,
@@ -81,7 +96,7 @@ export function MobileSessionStatus({
     usageLoading,
   })
 
-  if (!status && !children && queueCount === 0) return null
+  if (!status && !children && queueCount === 0 && !onSwitchSession) return null
 
   const label = status?.label ?? (runtime.isPending ? '正在核对会话状态…' : `${engineLabel} · 空闲`)
   const currentActivity = running ? findCurrentActivity(items) : null
@@ -115,7 +130,7 @@ export function MobileSessionStatus({
         <SheetContent side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }} className="max-h-[80dvh] overflow-y-auto rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] md:hidden">
           <div className="border-b px-4 pb-3 pt-4">
             <SheetTitle>Agent 运行与控制</SheetTitle>
-            <SheetDescription className="mt-1">查看当前执行、待发送队列及 OpenSpec；关闭后继续对话。</SheetDescription>
+            <SheetDescription className="mt-1">查看运行状态并快速切换会话；关闭后继续对话。</SheetDescription>
           </div>
           <div className="space-y-3 px-4 py-4 text-sm">
             <DetailRow label="当前状态" value={label} />
@@ -135,12 +150,42 @@ export function MobileSessionStatus({
               <Button variant="outline" onClick={() => { setOpen(false); onOpenTrajectory() }}>查看轨迹</Button>
               <Button onClick={() => { setOpen(false); onOpenUsage() }}>会话用量</Button>
             </div>
+            {onSwitchSession && <section aria-label="快速切换会话" className="border-t border-[var(--color-border)] pt-3">
+              <h3 className="mb-2 font-medium">快速切换会话</h3>
+              {sessionList.isPending && <p className="text-xs text-[var(--color-muted-foreground)]">正在加载会话…</p>}
+              {sessionList.isError && <p role="alert" className="text-xs text-[var(--color-destructive)]">会话列表加载失败。<button type="button" className="underline" onClick={() => sessionList.refetch()}>重试</button></p>}
+              {!sessionList.isPending && !sessionList.isError && runningSessions.length === 0 && recentSessions.length === 0 && <p className="text-xs text-[var(--color-muted-foreground)]">暂无可切换的会话</p>}
+              {runningSessions.length > 0 && <SessionShortcuts title="正在执行" sessions={runningSessions} currentId={sessionId} onSelect={session => { setOpen(false); onSwitchSession(session.id, true) }} />}
+              {recentSessions.length > 0 && <SessionShortcuts title="最近会话" sessions={recentSessions} currentId={sessionId} onSelect={session => { setOpen(false); onSwitchSession(session.id, false) }} />}
+            </section>}
             {typeof children === 'function' ? children(() => setOpen(false)) : children}
           </div>
         </SheetContent>
       </Sheet>
     </div>
   )
+}
+
+function SessionShortcuts({ title, sessions, currentId, onSelect }: {
+  title: string
+  sessions: ClaudeChatSessionView[]
+  currentId: string
+  onSelect: (session: ClaudeChatSessionView) => void
+}) {
+  return <div className="mb-3">
+    <p className="mb-1 text-xs text-[var(--color-muted-foreground)]">{title} · {sessions.length}</p>
+    <ul className="divide-y divide-[var(--color-border)]/70">
+      {sessions.map(session => <li key={session.id}>
+        <button type="button" onClick={() => onSelect(session)} aria-current={session.id === currentId ? 'page' : undefined}
+          className="flex min-h-11 w-full items-center gap-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--color-ring)]">
+          {title === '正在执行' && <span className="size-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" aria-hidden="true" />}
+          <span className="min-w-0 flex-1 truncate font-medium">{sessionDisplayName(session)}</span>
+          {session.id === currentId && <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">当前</span>}
+          <span className="max-w-24 shrink-0 truncate text-xs text-[var(--color-muted-foreground)]">{session.cwd.split(/[\\/]/).filter(Boolean).at(-1)}</span>
+        </button>
+      </li>)}
+    </ul>
+  </div>
 }
 
 function findCurrentActivity(items: ChatItem[]): string | null {
