@@ -3,7 +3,7 @@ import { executionEventSchema } from './contracts.js'
 import { checkExecution, loadExecution } from './service.js'
 import { projectContext } from './repository.js'
 import { POLICY_VERSION } from './policy.js'
-import { readWriter } from './session.js'
+import { readWriters } from './writers.js'
 import { checkReadiness } from '../specResolution/service.js'
 import { hash, readJson, safePath, statePath } from '../specResolution/storage.js'
 import { ResolutionError, requireCondition } from '../specResolution/contracts.js'
@@ -16,9 +16,9 @@ export function checkExecutionEvent(raw: unknown) {
     const input = executionEventSchema.parse(raw)
     const { root } = projectContext(input.project, false)
     const record = input.sessionId ? loadExecution(root, input.sessionId) : undefined
-    const writer = readWriter(root)
-    if (record || writer) {
-      requireCondition(record, 'WORKSPACE_BUSY', '共享工作区已有执行；inspect_execution_writer 核验后由原会话继续，或显式 abort_execution 后绑定新执行；不要重复重试')
+    const writers = readWriters(root)
+    if (record || writers.length) {
+      requireCondition(record, 'WORKSPACE_BUSY', '工作区已有模块执行；先 discover_execution 和 assess_execution 绑定不冲突的模块范围，或核验占用后恢复原会话')
       const result = checkExecution({ project: root, sessionId: input.sessionId, files: input.files, command: input.command,
         operation: ['COMMIT', 'STOP'].includes(input.event) ? 'BEFORE_COMMIT' : 'BEFORE_IMPLEMENTATION' })
       return { ...result, protocolVersion: 2, policyVersion: POLICY_VERSION, governanceBackend, enforcement,

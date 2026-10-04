@@ -1,6 +1,6 @@
 import type { Assessment, VerificationKind } from './contracts.js'
 
-export const POLICY_VERSION = 1
+export const POLICY_VERSION = 2
 export const BRANCH_POLICY = {
   mode: 'shared_change_branch', createBranchPerTask: false, agentAutoBranch: false, taskIsolation: 'commit',
 } as const
@@ -17,7 +17,7 @@ export function executionPolicy(input: Assessment) {
     spec: input.behavior === 'unknown' ? 'NEEDS_EVIDENCE' : input.behavior === 'changed' ? 'DELTA_REQUIRED' : 'NO_SPEC_CHANGE',
     design: input.design, verification: [...verification],
     branch: BRANCH_POLICY,
-    scheduling: 'sequential_single_writer',
+    scheduling: 'parallel_disjoint_modules',
   } as const
 }
 

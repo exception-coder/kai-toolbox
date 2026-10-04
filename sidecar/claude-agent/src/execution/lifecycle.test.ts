@@ -12,6 +12,7 @@ import { runExecutionVerification } from './verification.js'
 import { execute } from '../specResolution/tools.js'
 import { locked } from '../specResolution/storage.js'
 import { inspectStoreLock, recoverStoreLock } from './storeRecovery.js'
+import { executionScopes, scopesConflict } from './writers.js'
 import { spawnSync } from 'node:child_process'
 
 function fixture(t: test.TestContext) {
@@ -197,6 +198,89 @@ test('deferred checks persist and block commit readiness until actually executed
   const completed = await runExecutionVerification({ ...context, inputFiles: ['src.js'], checks: pending.pendingChecks })
   assert.equal(completed.code, 'PASS')
   assert.deepEqual(completed.pendingChecks, [])
+})
+
+test('different modules run together while shared files and the same module remain exclusive', t => {
+  const { root } = fixture(t)
+  for (const module of ['alpha', 'beta']) {
+    fs.mkdirSync(path.join(root, module))
+    fs.writeFileSync(path.join(root, module, 'pom.xml'), '<project/>')
+    fs.writeFileSync(path.join(root, module, 'Main.java'), `class ${module} {}`)
+  }
+  fs.writeFileSync(path.join(root, 'pom.xml'), '<project/>')
+  git(root, ['add', 'alpha', 'beta', 'pom.xml']); git(root, ['commit', '-qm', 'modules'])
+  const bind = (sessionId: string, files: string[]) => {
+    const context = { project: root, sessionId }
+    return assessExecution({ ...context, discoveryId: discoverExecution({ ...context,
+      request: 'Preserve module behavior', files }).discoveryId,
+      actor: 'fixture', behavior: 'preserved', design: 'none', impacts: ['logic'],
+      reason: 'Keep module behavior while changing its local implementation.',
+      evidence: [{ path: 'README.md', quote: 'The existing contract returns one.' }] })
+  }
+  const alpha = bind('alpha-session', ['alpha/Main.java'])
+  const beta = bind('beta-session', ['beta/Main.java'])
+  assert.equal(inspectExecutionWriter({ project: root }).writers.length, 2)
+  assert.equal(initSession({ project: root, sessionId: 'beta-session' }).execution?.ownsWriter, true)
+  assert.equal(checkExecutionEvent({ project: root, sessionId: 'alpha-session', event: 'WRITE', files: ['alpha/Main.java'] }).allowed, true)
+  assert.equal(checkExecutionEvent({ project: root, sessionId: 'beta-session', event: 'WRITE', files: ['beta/Main.java'] }).allowed, true)
+  fs.writeFileSync(path.join(root, 'beta/Main.java'), 'class beta { int value; }')
+  git(root, ['add', 'beta/Main.java'])
+  assert.equal(checkExecutionEvent({ project: root, sessionId: 'alpha-session', event: 'COMMIT' }).code, 'IMPLEMENTATION_SCOPE_DRIFT')
+  git(root, ['reset', '-q', '--', 'beta/Main.java'])
+  fs.writeFileSync(path.join(root, 'beta/Main.java'), 'class beta {}')
+  assert.throws(() => bind('third', ['alpha/pom.xml']), /已有写入会话/)
+  assert.throws(() => bind('shared', ['pom.xml']), /已有写入会话/)
+  const snapshot = inspectExecutionWriter({ project: root })
+  const target = snapshot.writers.find(writer => writer.executionId === alpha.executionId)!
+  abortExecution({ project: root, executionId: alpha.executionId, ownerSessionId: 'alpha-session',
+    branch: snapshot.branch, expectedHead: snapshot.head, expectedScopeFingerprint: target.scopeFingerprint,
+    actor: 'operator', reason: 'Release only the alpha module after checking its unchanged state.' })
+  assert.deepEqual(inspectExecutionWriter({ project: root }).writers.map(writer => writer.executionId), [beta.executionId])
+  assert.equal(initSession({ project: root, sessionId: 'beta-session' }).execution?.ownsWriter, true)
+})
+
+test('module documentation is scoped by target while root build and migration files remain global', t => {
+  const { root } = fixture(t)
+  for (const module of ['alpha', 'beta']) {
+    fs.mkdirSync(path.join(root, module))
+    fs.writeFileSync(path.join(root, module, 'pom.xml'), '<project/>')
+  }
+  const alpha = executionScopes(root, ['alpha/Main.java', 'docs/design/alpha.md', 'openspec/changes/alpha/tasks.md'])
+  const beta = executionScopes(root, ['beta/Main.java', 'docs/design/beta.md', 'openspec/changes/beta/tasks.md'])
+  assert.equal(scopesConflict(alpha, beta), false)
+  assert.equal(scopesConflict(alpha, executionScopes(root, ['docs/design/alpha.md'])), true)
+  assert.equal(scopesConflict(alpha, executionScopes(root, ['openspec/changes/alpha/design.md'])), true)
+  assert.equal(scopesConflict(alpha, executionScopes(root, ['pom.xml'])), true)
+  assert.equal(scopesConflict(alpha, executionScopes(root, ['beta/db/migration/V1.sql'])), true)
+})
+
+test('another module commit cannot reclaim a verified but uncommitted module writer', async t => {
+  const { root } = fixture(t)
+  for (const module of ['alpha', 'beta']) {
+    fs.mkdirSync(path.join(root, module))
+    fs.writeFileSync(path.join(root, module, 'pom.xml'), '<project/>')
+    fs.writeFileSync(path.join(root, module, 'Main.java'), `class ${module} {}`)
+  }
+  git(root, ['add', 'alpha', 'beta']); git(root, ['commit', '-qm', 'modules'])
+  const context = { project: root, sessionId: 'one' }
+  const old = assessExecution({ ...context, discoveryId: discoverExecution({ ...context,
+    request: 'Change alpha locally', files: ['alpha/Main.java'] }).discoveryId,
+    actor: 'fixture', behavior: 'preserved', design: 'none', impacts: ['logic'],
+    reason: 'Preserve alpha behavior while changing local implementation.',
+    evidence: [{ path: 'README.md', quote: 'The existing contract returns one.' }] })
+  const verified = await runExecutionVerification({ ...context, inputFiles: ['alpha/Main.java'], checks: [
+    { kind: 'regression', program: process.execPath, args: ['-e', 'process.exit(0)'], purpose: 'Verify unchanged alpha module' },
+  ] })
+  assert.equal(verified.allowed, true)
+  fs.writeFileSync(path.join(root, 'beta/Main.java'), 'class beta { int value; }')
+  git(root, ['add', 'beta/Main.java']); git(root, ['commit', '-qm', 'beta commit'])
+  const next = { project: root, sessionId: 'two' }
+  assert.throws(() => assessExecution({ ...next, discoveryId: discoverExecution({ ...next,
+    request: 'Take alpha work', files: ['alpha/Main.java'] }).discoveryId,
+    actor: 'fixture', behavior: 'preserved', design: 'none', impacts: ['logic'],
+    reason: 'Attempt to take alpha after an unrelated beta commit.',
+    evidence: [{ path: 'README.md', quote: 'The existing contract returns one.' }] }), /已有写入会话/)
+  assert.equal(inspectExecutionWriter({ project: root }).writer?.executionId, old.executionId)
 })
 
 test('an unrelated passing batch cannot erase a failed check; explicit replacement must pass', async t => {

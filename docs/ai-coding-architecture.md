@@ -49,13 +49,15 @@ flowchart TD
     AGENT --> INTENT{"本次需要实施?"}
     INTENT -->|"否"| ANSWER["交付只读结论，不创建执行状态"]
     INTENT -->|"是"| DISCOVER["discover_execution 保存精确范围探索"]
-    DISCOVER --> ASSESS["assess_execution 记录判断并申请写入权"]
-    ASSESS --> EVENT["check_execution_event 统一策略裁决"]
+    DISCOVER --> ASSESS["assess_execution 记录判断并计算模块范围"]
+    ASSESS --> CLAIM{"范围与活跃执行冲突?"}
+    CLAIM -->|"同模块或共享路径"| WAIT["等待原会话完成或审计恢复"]
+    CLAIM -->|"不同模块"| EVENT["check_execution_event 统一策略裁决"]
     EVENT --> EDIT["实施、适用验证与原子提交"]
     EDIT --> FINISH["finish_execution 检查后释放写入权"]
 ```
 
-Agent 判断路径、控制点、修改位置和关键未知是否清楚；Forge 另行检查执行范围、分支、写入权和证据，两者不能合并成一个自报 READY。只读查询允许 detached HEAD，不创建 Change、绑定或写入锁。`taskId` 仅作为已有任务的引用，不新建平行 task 清单；OpenSpec/宿主原有任务顺序和生命周期保持权威。当前仍保守串行，没有自动依赖调度、跨会话接管或额外分支分配器。
+Agent 判断路径、控制点、修改位置和关键未知是否清楚；Forge 另行检查执行范围、分支、写入权和证据，两者不能合并成一个自报 READY。只读查询允许 detached HEAD，不创建 Change、绑定或写入锁。`taskId` 仅作为已有任务的引用，不新建平行 task 清单；OpenSpec/宿主原有任务顺序和生命周期保持权威。执行器按模块范围放行不同模块并行编辑；同模块、共享路径和无法确定模块的顶层文件互斥。它不自动推断任务依赖、跨会话接管或分配额外分支。
 
 Session 返回配置、可调用性、授权和宿主覆盖的独立字段；未探测的 OpenSpec CLI 与图谱可用性返回 null，图谱新鲜度由具体查询核验。`BOUND` 不是验证通过，`CURRENT` 仅表示验证输入未变。`HOST_DEPENDENT` 明确表示没有由该查询证明宿主已执行强制检查。
 
@@ -63,7 +65,7 @@ Session 返回配置、可调用性、授权和宿主覆盖的独立字段；未
 
 Forge 安装器的 runtime protocol v2 由插件 `hooks/forge/client.js` 消费；`SessionStart` 调用 `session_init`，写前/提交前/Stop 由 `check_execution_event` 返回 `allowed/code/enforcement/legacyGovernanceRequired`。Stop 只检查，不结束任务。v2 Hook 不读取 Forge 私有执行 JSON；原生权限适配也调用同一裁决入口。v1 私有文件读取集中保留在 `hooks/forge/legacy-v1.js`，仅支持历史运行时，不扩建策略。
 
-遗留写入会话无法恢复且不满足自动完成回收时，Forge 提供只读 `inspect_execution_writer` 与显式 `abort_execution`。中止必须复核执行、原会话、分支、HEAD 和工作区范围，在原记录留下具名原因及状态，再释放写入绑定；不把中止当作完成、验证或提交。此入口不改变 Hook 的普通 Stop 语义。
+遗留写入会话无法恢复且不满足自动完成回收时，Forge 提供只读 `inspect_execution_writer` 与显式 `abort_execution`。查询返回全部活跃执行；只有单个执行时保留兼容的 `writer` 字段。中止按 executionId 复核原会话、分支、HEAD 和该执行范围，在原记录留下具名原因及状态，只释放目标模块写入绑定；不把中止当作完成、验证或提交。此入口不改变 Hook 的普通 Stop 语义。
 
 绑定执行的拒绝始终 block；未绑定旧规格流程保留 warn/block 配置。v2 连接失败时绑定未知，默认失败关闭；显式 failure=warn 或 off 不提供故障阻断保证。协议不匹配要求升级，不静默选择另一套治理。Delta 执行暂时继续要求旧设计/审阅证据检查，这属于兼容验证，尚未迁移为 Forge 原生设计内容检查器。历史绑定与 PASS 不自动升级。
 
@@ -93,7 +95,7 @@ LLM 分为两处：宿主 Agent 阅读 Team Standards 后理解需求、审阅�
 | 是否更新 OpenSpec | Agent 判定 `behavior` 为 `preserved / changed / unknown` 并给出依据 | `assess_execution` 固定映射为 `NO_SPEC_CHANGE / DELTA_REQUIRED / NEEDS_EVIDENCE`；未知则阻断 | 脚本不独立推断业务是否变化；引用存在不证明推理成立 |
 | 是否更新概设、详设 | Agent 判定 `design` 为 `none / detail / architecture`，选择受影响文件 | `detail` 要求绑定详设；`architecture` 要求绑定概设与详设；提交前检查适用文件更新 | 文件变化不证明设计质量；大改动不等于无条件补全全部文档 |
 | 验证范围 | Agent 判断影响类别，选择有实际断言的测试及输入文件 | 固定推导必需类别：始终有回归；API/权限加 API，SQL/迁移加 SQL，UI 加 UI，行为变化加规格，设计变化加设计 | 类别来自 Agent 输入；误判或漏报影响，脚本不保证自动发现 |
-| 分支与任务顺序 | Agent 理解任务依赖、拆分原子任务；额外分支由宿主明确分配 | 绑定当前分支、限制单写入会话，已接入入口阻断违规分支操作 | 当前没有自动依赖调度或并行分支分配器；不覆盖任意 Shell 绕行 |
+| 分支与任务顺序 | Agent 理解任务依赖、拆分原子任务；额外分支由宿主明确分配 | 绑定当前分支；模块范围互斥、不同模块可并行编辑，已接入入口阻断违规分支操作 | 没有自动依赖调度或并行分支分配器；共享 Git 暂存区须按执行隔离提交，不覆盖任意 Shell 绕行 |
 | 陈旧写入权恢复 | Agent 不判断其它会话是否存活，也不删除状态文件 | Forge 仅在同分支、验证当前且通过、已有提交、执行与 Change 范围干净时原子回收并保留审计 | 超时、会话不可见不构成完成证据；无法证明完成时提供核验快照后的显式中止入口，保留原记录和文件 |
 | 编写规格与设计 | Agent 按 Skill 编写、审阅 Requirement、Scenario、概设和详设 | OpenSpec 严格校验结构；Forge 检查确认记录、Delta 绑定与版本 | 格式合法不证明需求完整，需处理真实业务歧义 |
 | 测试与提交门禁 | Agent 编写测试断言、解释失败并修复，审阅提交原子性 | 真正运行测试命令，检查退出状态、必需类别、内容指纹、范围及暂存一致性 | PASS 只覆盖实际执行的检查；程序退出成功不证明断言充分或已部署新版 |
@@ -131,14 +133,14 @@ flowchart TD
     NO_DESIGN --> READY
     DETAIL --> READY
     BOTH --> READY
-    READY --> IMPLEMENT["共享分支顺序实施<br/>后续任务读取前序提交"]
+    READY --> IMPLEMENT["同模块顺序、不同模块并行实施<br/>共享文件保守互斥"]
     IMPLEMENT --> VERIFY["LLM 选择检查与断言<br/>Forge 脚本执行并保存内容指纹"]
     VERIFY --> PARTIAL{"本批及全部类别完成?"}
     PARTIAL -->|"本批成功但未补齐"| VERIFY
     PARTIAL -->|"全部完成或真实失败"| GATE{"脚本门禁通过?<br/>Hook 或权限入口"}
     GATE -->|"否"| REPAIR["修复失败；范围或影响改变时重新判定"]
     REPAIR --> REVIEW
-    GATE -->|"是"| COMMIT["Agent 原子提交当前任务"]
+    GATE -->|"是"| COMMIT["核对共享暂存区<br/>Agent 原子提交当前任务"]
     COMMIT --> MORE{"还有任务?"}
     MORE -->|"有且影响未变"| IMPLEMENT
     MORE -->|"有且影响改变"| REVIEW
@@ -146,7 +148,7 @@ flowchart TD
     FINISH --> ARCHIVE["有 Change 时按生命周期判断<br/>规格同步及归档条件"]
 ```
 
-规格和设计是独立判定路径，汇合表示核对全部适用结果，不表示两份文档必须同时生成，也不表示自动并行写入。Team Standards 指导 Agent 写正文；Forge 校验身份、范围、版本、文件更新和执行证据，不能自动证明正文质量。完整模板与方法留在套件，本文不复制模板。
+规格和设计是独立判定路径，汇合表示核对全部适用结果，不表示两份文档必须同时生成。并行写入仅在声明范围不冲突时放行。Team Standards 指导 Agent 写正文；Forge 校验身份、范围、版本、文件更新和执行证据，不能自动证明正文质量。完整模板与方法留在套件，本文不复制模板。
 
 | 情况 | 规格 | 概设/详设 |
 |---|---|---|
@@ -154,7 +156,7 @@ flowchart TD
 | 增加淘汰状态或改变权限规则 | 更新既有能力的相关 Requirement/Scenario | 只更新受影响流程、状态与实现章节 |
 | 外部行为不变的内部架构重构 | 有行为保持证据时可以无需 Delta | 更新受影响架构与机制 |
 
-默认执行器保守串行，不自动生成并行分支或推断完整任务依赖。绑定 execution 后，已接入的入口阻断不就绪操作；未绑定的旧规格流程保留兼容模式。Hook 和权限回调仅覆盖宿主实际触发的工具，不能视为任意 Shell 的安全沙箱。代码实现、插件安装、宿主触发与运行版本验收分别成立；具体未完成项见[当前变更任务](../openspec/changes/resolve-existing-specs/tasks.md)，归档时同步这里的证据链接。
+执行器以任务声明的源码、设计文件和 Change 路径计算写入范围：源码取最近的模块构建清单目录；设计文档按具体文件、OpenSpec 按 Change 或正式 capability 归属。找不到模块清单的路径、根构建文件、迁移、schema 与项目级架构规则视为全局共享。不同模块可同时持有写入权；同模块和相同共享目标互斥。共享 Git HEAD 与暂存区不提供物理隔离，Agent 必须按本执行文件暂存，提交前门禁拒绝混入其它执行文件；提交后只以本执行范围内的提交证明完成，不能用其它模块推动的 HEAD 代替。旧版单写入指针作为全局占用兼容读取。此能力仍由宿主 Hook 覆盖范围约束，不自动生成并行分支或推断完整任务依赖。绑定 execution 后，已接入的入口阻断不就绪操作；未绑定的旧规格流程保留兼容模式。Hook 和权限回调仅覆盖宿主实际触发的工具，不能视为任意 Shell 的安全沙箱。代码实现、插件安装、宿主触发与运行版本验收分别成立；具体未完成项见[本次变更任务](../openspec/changes/parallel-module-execution/tasks.md)。
 
 ## 目录速览
 

@@ -8,6 +8,7 @@ import { abortExecutionSchema, assessExecutionSchema, executionCheckSchema, exec
 import { executionPolicy, isBranchMutation } from './policy.js'
 import { git, fileDigest, inputFingerprint, projectContext } from './repository.js'
 import type { Discovery } from './context.js'
+import { executionScopes, readWriters, releaseWriter, scopesConflict, writeWriters, type Writer } from './writers.js'
 
 export type Execution = {
   schemaVersion: 1; executionId: string; project: string; branch: string; sessionId: string; baselineHead: string;
@@ -19,24 +20,28 @@ export type Execution = {
     | { status: 'COMPLETED'; releasedAt: string; commit: string }
     | { status: 'ABORTED'; releasedAt: string; actor: string; reason: string; head: string; scopeStatus: string[] };
 }
-type Writer = { sessionId: string; executionId: string }
 function releasePointers(root: string, record: Execution) {
-  const writerFile = statePath(root, 'execution-writer')
-  const writer = fs.existsSync(writerFile) ? readJson<Writer>(writerFile) : undefined
-  requireCondition(!writer || (writer.executionId === record.executionId && writer.sessionId === record.sessionId),
-    'WORKSPACE_BUSY', '写入者已变化；不得释放其它执行')
+  releaseWriter(root, record)
   const binding = statePath(root, `execution-session-${hash(record.sessionId)}`)
   if (fs.existsSync(binding) && readJson<{ executionId: string }>(binding).executionId === record.executionId) fs.unlinkSync(binding)
-  if (writer) fs.unlinkSync(writerFile)
+}
+function scopedPaths(record: Execution) {
+  return [...record.discovery.files, ...record.assessment.designFiles.map(file => file.path),
+    ...(record.assessment.changeId ? [`openspec/changes/${record.assessment.changeId}`] : [])]
+}
+function scopedCommit(record: Execution) {
+  return git(record.project, ['log', '--format=%H', `${record.baselineHead}..HEAD`, '--', ...scopedPaths(record)])
 }
 export function inspectExecutionWriter(raw: unknown) {
   const input = executionContextSchema.pick({ project: true }).parse(raw)
   const { root, branch } = projectContext(input.project, false)
-  const file = statePath(root, 'execution-writer')
-  if (!fs.existsSync(file)) return { project: root, branch, writer: null }
-  const writer = readJson<Writer>(file)
-  requireCondition(writer && /^ex_[a-f0-9]{32}$/.test(writer.executionId) && Boolean(writer.sessionId),
-    'EXECUTION_INVALID', '写入指针无效；保留现场并人工检查')
+  const writers = readWriters(root)
+  if (!writers.length) return { project: root, branch, writer: null, writers: [] }
+  const snapshots = writers.map(writer => inspectWriter(root, writer))
+  return { project: root, branch, head: git(root, ['rev-parse', 'HEAD']),
+    writer: snapshots.length === 1 ? snapshots[0] : null, writers: snapshots }
+}
+function inspectWriter(root: string, writer: Writer) {
   const record = readJson<Execution>(statePath(root, writer.executionId))
   requireCondition(record.schemaVersion === 1 && record.project === root && record.executionId === writer.executionId
     && record.sessionId === writer.sessionId,
@@ -51,9 +56,10 @@ export function inspectExecutionWriter(raw: unknown) {
   const scopeFiles = git(root, ['--literal-pathspecs', 'ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...scopedPaths]).split('\0').filter(Boolean)
   const scopeFingerprint = hash(JSON.stringify([inputFingerprint(root, scopeFiles),
     git(root, ['--literal-pathspecs', 'ls-files', '--stage', '-z', '--', ...scopedPaths])]))
-  return { project: root, branch, head: git(root, ['rev-parse', 'HEAD']), writer: {
+  return {
     executionId: record.executionId, ownerSessionId: record.sessionId, assignedBranch: record.branch,
-    baselineHead: record.baselineHead, scopeStatus, scopedPaths, scopeFingerprint, verification: record.verification ? 'RECORDED' : 'NOT_RUN' } }
+    baselineHead: record.baselineHead, scopes: writer.scopes, scopeStatus, scopedPaths, scopeFingerprint,
+    verification: record.verification ? 'RECORDED' : 'NOT_RUN' }
 }
 
 export function abortExecution(raw: unknown) {
@@ -61,7 +67,7 @@ export function abortExecution(raw: unknown) {
   const { root } = projectContext(input.project, false)
   return locked(root, () => {
     const inspected = inspectExecutionWriter({ project: root })
-    const writer = inspected.writer
+    const writer = inspected.writers.find(item => item.executionId === input.executionId)
     requireCondition(writer && writer.executionId === input.executionId && writer.ownerSessionId === input.ownerSessionId
       && writer.assignedBranch === input.branch && inspected.branch === (input.expectedCurrentBranch ?? input.branch) && inspected.head === input.expectedHead
       && writer.scopeFingerprint === input.expectedScopeFingerprint,
@@ -77,9 +83,7 @@ export function abortExecution(raw: unknown) {
         reason: input.reason, head: inspected.head!, scopeStatus: writer.scopeStatus }
       saveJson(recordFile, record)
     }
-    const bindingFile = statePath(root, `execution-session-${hash(writer.ownerSessionId)}`)
-    if (fs.existsSync(bindingFile)) fs.unlinkSync(bindingFile)
-    fs.unlinkSync(statePath(root, 'execution-writer'))
+    releasePointers(root, record)
     return { allowed: true, code: 'PASS', executionId: record.executionId, release: record.release }
   })
 }
@@ -111,24 +115,33 @@ export function assessExecution(raw: unknown) {
   if (input.design === 'architecture') requireCondition(input.designFiles.some(file => file.level === 'overview'), 'DESIGN_REQUIRED', '架构边界变化需要绑定受影响概设')
   let executionId = `ex_${hash(JSON.stringify({ input, branch, discovery: discovery.discoveryId })).slice(0, 32)}`
   return locked(root, () => {
-    const writerFile = statePath(root, 'execution-writer')
-    let writer = fs.existsSync(writerFile) ? readJson<Writer>(writerFile) : undefined
-    if (writer) {
+    let writers = readWriters(root)
+    for (const writer of writers) {
       const previous = readJson<Execution>(statePath(root, writer.executionId))
       if (previous.release && previous.project === root && previous.executionId === writer.executionId && previous.sessionId === writer.sessionId) {
         releasePointers(root, previous)
-        writer = undefined
       }
     }
-    if (writer && writer.sessionId !== input.sessionId && reclaimCompletedWriter(root, writer, input.sessionId, branch)) {
-      writer = undefined
+    writers = readWriters(root)
+    const scopes = executionScopes(root, [...discovery.files, ...input.designFiles.map(file => file.path),
+      ...(input.changeId ? [`openspec/changes/${input.changeId}/tasks.md`] : [])])
+    for (const writer of writers) {
+      if (writer.sessionId !== input.sessionId && scopesConflict(writer.scopes, scopes)) {
+        reclaimCompletedWriter(root, writer, input.sessionId, branch)
+      }
     }
-    requireCondition(!writer || writer.sessionId === input.sessionId, 'WORKSPACE_BUSY',
-      '共享工作区已有写入会话且尚未证明完成；先 inspect_execution_writer，原会话丢失时显式 abort_execution 后建立新执行，不重复重试')
+    writers = readWriters(root)
+    requireCondition(!writers.some(writer => writer.sessionId !== input.sessionId && scopesConflict(writer.scopes, scopes)), 'WORKSPACE_BUSY',
+      '目标模块或共享文件已有写入会话且尚未证明完成；先 inspect_execution_writer，原会话丢失时显式 abort_execution 后建立新执行')
+    let writer = writers.find(item => item.sessionId === input.sessionId)
+    requireCondition(!writer || JSON.stringify(writer.scopes) === JSON.stringify(scopes), 'WORKSPACE_BUSY',
+      '当前会话已有不同模块范围的执行；先结束原执行')
     if (writer) {
       const active = readJson<Execution>(statePath(root, writer.executionId))
-      if (!active.release && active.branch === branch && active.discovery.discoveryId === discovery.discoveryId
-        && JSON.stringify(active.assessment) === JSON.stringify(input)) executionId = active.executionId
+      requireCondition(!active.release && active.branch === branch && active.discovery.discoveryId === discovery.discoveryId
+        && JSON.stringify(active.assessment) === JSON.stringify(input),
+      'WORKSPACE_BUSY', '当前会话已有未完成执行；先完成或审计中止，再绑定新任务')
+      executionId = active.executionId
     }
     // Released records are immutable history, never a new lease or verification baseline.
     if (fs.existsSync(statePath(root, executionId)) && readJson<Execution>(statePath(root, executionId)).release) {
@@ -140,10 +153,10 @@ export function assessExecution(raw: unknown) {
       assessment: input, discovery, policy, designBaseline: Object.fromEntries(input.designFiles.map(file => [file.path, fileDigest(root, file.path)])),
     }
     saveJson(existing, record)
-    saveJson(writerFile, { sessionId: input.sessionId, executionId })
+    writeWriters(root, [...writers.filter(item => item.sessionId !== input.sessionId), { sessionId: input.sessionId, executionId, scopes }])
     saveJson(statePath(root, `execution-session-${hash(input.sessionId)}`), { executionId })
     return { executionId, policy, branch, files: discovery.files, evidenceSource: 'AGENT_REVIEWED',
-      rules: ['保持当前分支，不为子任务自行建 branch/worktree；依赖顺序执行，每任务原子提交。',
+      rules: ['保持当前分支；同模块或共享文件串行，不同模块可并行编辑；提交前只暂存本执行文件。',
         '提交前 run_execution_verification；影响范围扩大时重新探索、判定。', '分类依据来自具名 Agent 审阅，不代表人工批准或语义正确性证明。'] }
   })
 }
@@ -159,9 +172,7 @@ function reclaimCompletedWriter(root: string, writer: Writer, nextSessionId: str
     if (commit === record.baselineHead) return false
     git(root, ['merge-base', '--is-ancestor', record.baselineHead, 'HEAD'])
     checkExecution({ project: root, sessionId: record.sessionId, operation: 'BEFORE_COMMIT' })
-    const scopedPaths = [...record.discovery.files, ...record.assessment.designFiles.map(file => file.path),
-      ...(record.assessment.changeId ? [`openspec/changes/${record.assessment.changeId}`] : [])]
-    if (git(root, ['status', '--porcelain', '--', ...scopedPaths])) return false
+    if (!scopedCommit(record) || git(root, ['status', '--porcelain', '--', ...scopedPaths(record)])) return false
     const bindingFile = statePath(root, `execution-session-${hash(writer.sessionId)}`)
     if (fs.existsSync(bindingFile)) {
       const binding = readJson<{ executionId: string }>(bindingFile)
@@ -170,7 +181,7 @@ function reclaimCompletedWriter(root: string, writer: Writer, nextSessionId: str
     record.release = { status: 'AUTO_RECLAIMED', releasedAt: new Date().toISOString(), reclaimedBySessionId: nextSessionId, commit }
     saveJson(recordFile, record)
     if (fs.existsSync(bindingFile)) fs.unlinkSync(bindingFile)
-    fs.unlinkSync(statePath(root, 'execution-writer'))
+    releaseWriter(root, record)
     return true
   } catch {
     return false
@@ -183,8 +194,8 @@ export function checkExecution(raw: unknown) {
   requireCondition(record, 'EXECUTION_MISSING', '先 discover_execution → assess_execution；无需预先创建 OpenSpec change')
   requireCondition(!record.release, 'EXECUTION_RELEASED', '执行已结束或中止；重新 discover_execution → assess_execution 建立新执行，不重试旧执行')
   requireCondition(record.branch === branch, 'BRANCH_DRIFT', '当前分支偏离分配分支，重新核对执行上下文')
-  const writer = readJson<{ executionId: string }>(statePath(root, 'execution-writer'))
-  requireCondition(writer.executionId === record.executionId, 'WORKSPACE_BUSY', '执行不再持有共享工作区写入权')
+  const writer = readWriters(root).find(item => item.executionId === record.executionId)
+  requireCondition(writer?.sessionId === input.sessionId, 'WORKSPACE_BUSY', '执行不再持有模块写入权')
   requireCondition(!isBranchMutation(input.command), 'BRANCH_POLICY_DENIED', '共享分支禁止 Agent 自行切换/创建分支或 worktree；额外分支须由宿主明确授权并重新绑定')
   requireCondition(record.discovery.specRevision === indexSpecs(root).revision, 'SPEC_INDEX_STALE', '正式规格变化，重新探索和判定')
   const staged = input.operation === 'BEFORE_COMMIT' ? git(root, ['diff', '--cached', '--name-only', '--no-renames', '-z']).split('\0').filter(Boolean) : []
@@ -225,14 +236,14 @@ export function finishExecution(raw: unknown) {
     const record = loadExecution(input.project, input.sessionId)!
     requireCondition(git(record.project, ['rev-parse', 'HEAD']) !== record.baselineHead, 'COMMIT_REQUIRED', '执行结束前提交已验证任务；不代替任务原子性审阅')
     git(record.project, ['merge-base', '--is-ancestor', record.baselineHead, 'HEAD'])
+    requireCondition(Boolean(scopedCommit(record)), 'COMMIT_REQUIRED', '其它模块提交不等于当前执行已提交')
     requireCondition(!git(record.project, ['status', '--porcelain', '--', ...record.discovery.files, ...record.assessment.designFiles.map(file => file.path)]),
       'TASK_DIRTY', '执行范围仍有未提交内容')
     const changeScope = record.assessment.changeId ? [`openspec/changes/${record.assessment.changeId}`] : []
     requireCondition(!changeScope.length || !git(root, ['status', '--porcelain', '--', ...changeScope]), 'TASK_DIRTY', 'Change 范围仍有未提交内容')
     record.release = { status: 'COMPLETED', releasedAt: new Date().toISOString(), commit: git(root, ['rev-parse', 'HEAD']) }
     saveJson(statePath(root, record.executionId), record)
-    fs.unlinkSync(statePath(record.project, 'execution-writer'))
-    fs.unlinkSync(statePath(record.project, `execution-session-${hash(input.sessionId)}`))
+    releasePointers(root, record)
     return { allowed: true, code: 'PASS', executionId: record.executionId, commit: git(record.project, ['rev-parse', 'HEAD']) }
   })
 }

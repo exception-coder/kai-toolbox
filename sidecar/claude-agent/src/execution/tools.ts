@@ -24,7 +24,7 @@ export const executionDefinitions = [
   { name: 'discover_execution', schema: discoverExecutionSchema, run: discoverExecution,
     description: '修改前先探索：无需 changeId，返回既有 Requirement 原文、活跃 changes、Graphify 证据和版本。files 为本批次精确项目相对路径。读取原文后 assess_execution；未命中不能直接新建能力。' },
   { name: 'assess_execution', schema: assessExecutionSchema, run: assessExecution,
-    description: '具名审阅行为/设计影响及原文引用，绑定会话共享分支和单写入者。behavior=preserved 无需 OpenSpec；changed 先复用/建立相关 change，再走 resolve_specs。风险只增加验证要求，设计按 none/detail/architecture 独立判定。不得把未知填成 preserved。' },
+    description: '具名审阅行为/设计影响及原文引用，绑定会话共享分支和模块写入范围；同模块或共享文件串行，不同模块可并行。behavior=preserved 无需 OpenSpec；changed 先复用/建立相关 change，再走 resolve_specs。' },
   { name: 'check_execution_readiness', schema: executionCheckSchema, run: checkExecution,
     description: '检查执行会话、当前分支、规格版本和文件范围；拒绝自行切换/创建分支、worktree。提交前检查真实暂存区、适用设计更新及实际验证证据。无需 Change 的执行也使用此入口。' },
   { name: 'run_execution_verification', schema: runExecutionSchema, run: runExecutionVerification,
