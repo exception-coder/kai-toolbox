@@ -70,9 +70,10 @@
 - **THEN** Agent 上报 CONTINUE、明确 nextAction 和 remainingWork 中的未验证项
 - **AND** Runtime 保持当前 task 未完成，后续回归数据库验证
 
-#### Scenario: Windows 主机无 Docker 时运行兼容性验证
-- **WHEN** 当前任务包含数据库迁移验证而 Windows 主机无可用目标库
+#### Scenario: 自动推进以无容器路径验证
+- **WHEN** 受监督任务包含数据库迁移验证而当前没有可用目标库
 - **THEN** 自动推进不启动 Docker、WSL 或隐式触发 Testcontainers 的测试套件
+- **AND** Sidecar 对受监督轮次中经权限回调的直接容器命令拒绝，Forge 验证工具拒绝直接容器命令
 - **AND** 可用 H2 MySQL 模式检查兼容的脚本与应用接线，明确记录已执行范围
 - **AND** 若规格仍要求目标 MySQL/MariaDB，H2 结果不替代该验收项
 

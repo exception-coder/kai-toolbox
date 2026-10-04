@@ -31,7 +31,7 @@ flowchart LR
 
 自动监督的外部验证阻塞按 FEED-01、EVID-01、CTRL-01 处理：Agent 将尚未执行的 MySQL/MariaDB 实测列入 `remainingWork`，保留当前 OpenSpec task 未勾选，继续同一任务内可独立完成的代码、静态检查与打包。只有没有可执行步骤或需要用户决策时进入 `WAITING_USER`。若同一活动轮次后来找到明确下一步，且状态快照确认无待用户决策，结构化 `CONTINUE` 可把运行恢复到 `ACTIVE` 并保留未验证证据；其他状态冲突返回 409，附当前版本及既有 resume 入口。Sidecar 写入范围冲突保留门禁，同时返回占用会话、执行 ID 和范围；本会话旧绑定需审计中止，工作文件不自动删除。该边界不授予额外写入权，也不证明数据库 SQL 已通过。
 
-Windows 下缺少目标数据库时，执行 Skill 和 Runtime handoff 明确禁止通过启动 Docker、WSL 或隐式 Testcontainers 测试来反复重试。优先使用项目已有 H2 MySQL 模式检查兼容的迁移脚本与接线，同时记录 H2 与目标库各自的证据边界；OpenSpec 若仍要求 MySQL/MariaDB，任务继续未完成，除非规格负责人明确修改验收条件。已确认 Yoooni One 的 V091 可由 H2 MySQL 模式直接执行，但其结果不能推定目标库通过（EVID-01）。
+受监督任务的执行 Skill 和 Runtime handoff 要求避开 Docker、WSL 和隐式 Testcontainers 测试；Claude SDK 工具授权及 Forge 验证入口额外拒绝显式容器命令（AI-01、CTRL-01）。Codex App Server 完全访问模式的命令不都经过授权回调，间接启动容器的脚本也不能仅凭命令文本拦截，故项目容器测试需默认跳过、显式启用。主对象仍是原受监督会话，不新增用户操作或页面（OBJ-01、NAV-01）；拒绝时返回可见原因，用户仍可在原任务继续 H2 或独立测试库验证（FEED-01、CTX-01）。刷新和续跑复用同一持久 run ID、每轮重新注入约束，不产生新任务（IDEM-01）。此改动不影响弹层焦点或窄屏布局；专项测试覆盖显式拒绝与非容器命令放行，运行验收须在获准重启后完成。优先使用项目已有 H2 MySQL 模式检查兼容的迁移脚本与接线，同时记录 H2 与目标库各自的证据边界；OpenSpec 若仍要求 MySQL/MariaDB，任务继续未完成，除非规格负责人明确修改验收条件。已确认 Yoooni One 的 V091 可由 H2 MySQL 模式直接执行，但其结果不能推定目标库通过（EVID-01）。
 
 主对象仍是当前会话（OBJ-01、NAV-01、CTX-01）。目录候选先返回，独立的只读一次性 Agent 依据最近会话和最多 30 个现有 change 的 proposal 摘要运行 `forge-openspec-spec-recommendation` Skill；返回的 ID 必须属于该目录，最多五项。AI 查询失败或超时仅失去推荐排序，不阻断人工选择。AI 不执行规格、不修改文件；候选真实身份、任务和严格校验仍由 Forge/OpenSpec 裁决（AI-01、EVID-01）。
 

@@ -667,6 +667,7 @@ class Session {
     this.toolExecutionWatchdog.clear()
     this.pendingMcpRecovery = undefined
     this.mcpRecoveryAttempted = false
+    this.perms.setAvoidDocker(developerInstructions?.includes('FORGE_SUPERVISED_NO_DOCKER=1') === true)
     this.startTurnActivity()
     try {
       let nextText = text
@@ -723,6 +724,7 @@ class Session {
         message: error instanceof Error ? error.message : String(error),
       })
     } finally {
+      this.perms.setAvoidDocker(false)
       this.mcpToolWatchdog.clear()
       this.toolExecutionWatchdog.clear()
       if (!this.turnLifecycle.terminal()) {

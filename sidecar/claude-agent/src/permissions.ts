@@ -2,6 +2,7 @@ import { assemblyAllowsTool, type ConsultToolAssembly } from './consultToolAssem
 import { randomUUID } from 'node:crypto'
 import { resolve, sep } from 'node:path'
 import { guardExecutionTool } from './execution/guard.js'
+import { isDockerDependentCommand } from './execution/dockerPolicy.js'
 
 /** Java 回灌的决策。 */
 export interface Decision {
@@ -76,6 +77,11 @@ export class Permissions {
   private demo = false
   private allowRoot = ''
   private executionContext?: { project: string; sessionId: string }
+  private avoidDocker = false
+
+  setAvoidDocker(value: boolean): void {
+    this.avoidDocker = value
+  }
 
   setExecutionContext(project: string, sessionId: string): void {
     this.executionContext = { project, sessionId }
@@ -150,6 +156,10 @@ export class Permissions {
     input: Record<string, unknown>,
     opts: { signal?: AbortSignal },
   ): Promise<Record<string, unknown>> => {
+    if (this.avoidDocker && ['Bash', 'exec_command'].includes(toolName)
+      && isDockerDependentCommand(String(input.command || input.cmd || ''))) {
+      return { behavior: 'deny', message: '自动推进禁止 Docker、WSL 与 Testcontainers；改用 H2 或现有独立测试库，并记录目标库未验项' }
+    }
     if (this.executionContext) {
       const denial = guardExecutionTool(this.executionContext.project, this.executionContext.sessionId, toolName, input)
       if (denial) return { behavior: 'deny', message: denial }

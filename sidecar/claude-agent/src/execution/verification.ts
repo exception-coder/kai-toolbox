@@ -7,6 +7,7 @@ import { runExecutionSchema } from './contracts.js'
 import { checkExecution, loadExecution, type Execution } from './service.js'
 import { inputFingerprint } from './repository.js'
 import { isBranchMutation } from './policy.js'
+import { isDockerDependentCommand } from './dockerPolicy.js'
 import { EXECUTION_VERIFICATION_CALL_BUDGET_MS } from './budget.js'
 import { verificationCommand, verificationPath } from './verificationCommand.js'
 
@@ -47,6 +48,8 @@ export async function runExecutionVerification(raw: unknown, runtime?: Verificat
       result => result.checkId === check.replaces && result.kind === check.kind && result.status === 'FAILED'),
     'CHECK_REPLACEMENT_INVALID', 'replaces 必须引用同一输入快照、同类别的失败 checkId')
     requireCondition(!isBranchMutation([check.program, ...check.args].join(' ')), 'BRANCH_POLICY_DENIED', '验证入口也不能创建或切换分支')
+    requireCondition(!isDockerDependentCommand([check.program, ...check.args].join(' ')),
+      'DOCKER_VERIFICATION_DENIED', 'Forge 验证不启动 Docker、WSL 或 Testcontainers；使用无需容器的检查，目标库实测另行验收')
     requireCondition(!['cmd', 'cmd.exe', 'powershell', 'powershell.exe', 'pwsh', 'pwsh.exe', 'bash', 'sh'].includes(path.basename(check.program).toLowerCase()),
       'CHECK_COMMAND_INVALID', '验证使用明确 executable + argv，不接受通用 Shell；不得通过验证命令启动或重启服务')
     return { check, cwd, command: verificationCommand(check.program, check.args, cwd) }
