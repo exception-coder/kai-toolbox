@@ -26,6 +26,10 @@ export function voiceAvailability(): string | null {
 }
 
 export function voiceErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  if (/404\s+Not Found/i.test(message) && /chatgpt\.com\/backend-api\/codex\/realtime\/calls/i.test(message)) {
+    return 'Codex 原生语音服务当前未开放或不可用（上游返回 404），当前会话仍可继续使用文字'
+  }
   if (error instanceof DOMException) {
     if (error.name === 'NotAllowedError') return '麦克风权限被拒绝，请在浏览器网站设置中允许后重试'
     if (error.name === 'NotFoundError') return '未找到麦克风，请连接设备后重试'

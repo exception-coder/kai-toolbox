@@ -10,6 +10,14 @@ describe('native voice media lifecycle', () => {
     expect(voiceErrorMessage(new DOMException('denied', 'NotAllowedError'))).toContain('麦克风权限')
   })
 
+  it('explains upstream Codex voice 404 without exposing request details', () => {
+    const message = voiceErrorMessage(new Error('unexpected status 404 Not Found: {"detail":"Not Found"}, url: https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas, request id: example'))
+    expect(message).toContain('上游返回 404')
+    expect(message).toContain('继续使用文字')
+    expect(message).not.toContain('https://')
+    expect(message).not.toContain('request id')
+  })
+
   it('stops tracks acquired after cancellation without creating a peer', async () => {
     vi.stubGlobal('isSecureContext', true)
     const peer = vi.fn()

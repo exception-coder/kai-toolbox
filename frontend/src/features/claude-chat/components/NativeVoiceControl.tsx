@@ -61,7 +61,7 @@ export function NativeVoiceControl({ sessionId, transport, connected, disabled, 
         </span>
       </div>
       {voice.error && <p role="alert" className="mt-2 break-words text-xs text-[var(--color-destructive)]">
-        {voice.error}。可重新点击“{voice.recoverable ? '恢复语音' : '语音对话'}”，或继续使用文字。
+        {voice.error}{voice.error.includes('上游返回 404') ? '。' : `。可重新点击“${voice.recoverable ? '恢复语音' : '语音对话'}”，或继续使用文字。`}
       </p>}
     </div>
   )

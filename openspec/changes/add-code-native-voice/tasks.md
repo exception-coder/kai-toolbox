@@ -36,6 +36,8 @@ The deferred-start behavior below was superseded by the user's explicit request 
 
 ## 7. Explicit device takeover
 
+2026-10-04 上游 404 诊断：手机截图中的请求为 Codex App Server 实验语音发往 `chatgpt.com/backend-api/codex/realtime/calls`，与 OpenAI Codex 官方仓库 #17495 报告的 404 相同；Forge 没有构造该 URL。前端已将该特定失败映射为简短上游不可用提示，不显示请求 URL/ID，也不引导立即重试。定向 15 项测试、typecheck、完整 build 和 Forge 质量门禁通过；门禁的 9 个现有 API 探针未覆盖语音。真实账号音频往返、手机页面验收和上游恢复尚未验证；此项不能标记原生语音已修复。
+
 - [x] 7.1 Replace the live audio owner after eligibility validation; notify the displaced browser, serialize native negotiations and let the latest explicit request supersede older attempts.
 - [x] 7.2 Verify idle listening, running code, successive takeovers, cancellation, stale controls and visible local media release; update builds and runtime evidence.
 - [ ] 7.3 Activate the new runtime and complete real desktop/phone audio acceptance before delivery; browser access to localhost:5173 remains denied by the saved user permission setting.
