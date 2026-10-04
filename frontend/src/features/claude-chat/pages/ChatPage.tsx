@@ -26,7 +26,7 @@ import { QueuedList } from '../components/QueuedList'
 import { PendingSessionsBanner } from '../components/PendingSessionsBanner'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
-import { useDraftAttachments, type DraftAttachment } from '../lib/attachmentDraftPref'
+import { useDraftAttachments, useDraftAttachmentUploads, type DraftAttachment } from '../lib/attachmentDraftPref'
 import { loadCodexHomePreference, saveCodexHomePreference } from '../lib/codexHomePref'
 import { buildCodexAuthHandoff } from '../lib/codexAuthHandoff'
 import { cn } from '@/lib/utils'
@@ -742,7 +742,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [newModelPlatform, setNewModelPlatform] = useState('all') // 新建会话模型的平台二级筛选
   // 附件按会话绑定 + 共享 store：与悬浮窗/分屏同一份 → 主界面选了附件再弹悬浮窗不丢、即时同步。
   const [attachments, setAttachments] = useDraftAttachments(chat?.sessionId ?? PENDING_DRAFT_KEY)
-  const [uploading, setUploading] = useState(0)
+  const [uploading, setUploading] = useDraftAttachmentUploads(chat?.sessionId ?? PENDING_DRAFT_KEY)
   const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null)
   useEffect(() => { setAttachmentUploadError(null) }, [chat?.sessionId])
   const [slashIdx, setSlashIdx] = useState(0)
@@ -1068,6 +1068,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const submit = (runningAction: 'queue' | 'steer' = 'queue') => {
     if (!chat.sessionId) return
     if (planLocked) return
+    if (uploading > 0) return
     if (!draft.trim() && attachments.length === 0) return
     if (attachments.length === 0 && draft.trim().length <= 80
       && /^(?:请)?(?:按(?:当前|这个|已选)?(?:规划|规格|openspec).*(?:推进|执行|实现到底)|自动推进(?:当前)?(?:规划|规格)?|按规格一路执行)[。！!\s]*$/i.test(draft.trim())) {
@@ -2675,7 +2676,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
                 </Button>
                 <MobileRunningSend canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
-                  disabled={planLocked || (!draft.trim() && attachments.length === 0)}
+                  disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
                   onSteer={() => submit('steer')} onEnqueue={() => submit('queue')} onReturnFocus={() => taRef.current?.focus()} />
               </div>
             ) : (
@@ -2683,7 +2684,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 size="lg"
                 className="col-start-3 row-start-2 max-md:size-10 max-md:px-0 shadow-sm"
                 onClick={() => submit()}
-                disabled={planLocked || (!draft.trim() && attachments.length === 0)}
+                disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
                 aria-label="发送"
               >
                 <Send className="size-4" />
@@ -2693,7 +2694,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               <RunningMessageActions
                 className="col-span-3 row-start-3 hidden w-full border-t border-[var(--color-border)] py-1.5 md:flex"
                 canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
-                disabled={planLocked || (!draft.trim() && attachments.length === 0)}
+                disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
                 onSteer={() => submit('steer')}
                 onEnqueue={() => submit('queue')}
               />

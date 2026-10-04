@@ -4,7 +4,7 @@ import { AlertTriangle, Loader2, Paperclip, Send, Slash, Square, X } from 'lucid
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { useDraft } from '../lib/draftPref'
-import { useDraftAttachments } from '../lib/attachmentDraftPref'
+import { useDraftAttachments, useDraftAttachmentUploads } from '../lib/attachmentDraftPref'
 import { listSessions, uploadAttachment } from '../api'
 import { ensureNotifyPermission } from '../browserNotify'
 import { CommandMenu } from './CommandMenu'
@@ -58,7 +58,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   const [draft, setDraft] = useDraft(sessionId)
   // 附件走共享 store（按 sessionId），与主界面/悬浮窗同一份，切视图不丢。
   const [attachments, setAttachments] = useDraftAttachments(sessionId)
-  const [uploading, setUploading] = useState(0)
+  const [uploading, setUploading] = useDraftAttachmentUploads(sessionId)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false) // 「指令」菜单（命令 + 模型切换）
   const taRef = useRef<HTMLTextAreaElement>(null)
   const handlePrdMention = useCallback(async (prdSession: PrdSessionView) => {
@@ -134,6 +134,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
 
   const submit = (runningAction: 'queue' | 'steer' = 'queue') => {
     if (planLocked) return
+    if (uploading > 0) return
     if (!chat.sessionId) return
     if (!draft.trim() && attachments.length === 0) return
     ensureNotifyPermission()
@@ -355,7 +356,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
               {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
             </Button>
           ) : (
-            <Button size="icon" onClick={() => submit()} disabled={planLocked || (!draft.trim() && attachments.length === 0)} aria-label="发送" className="shrink-0">
+            <Button size="icon" onClick={() => submit()} disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)} aria-label="发送" className="shrink-0">
               <Send className="size-4" />
             </Button>
           )}
@@ -363,7 +364,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
             <RunningMessageActions
               className="basis-full border-t border-[var(--color-border)] pt-2"
               canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
-              disabled={planLocked || (!draft.trim() && attachments.length === 0)}
+              disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
               onSteer={() => submit('steer')}
               onEnqueue={() => submit('queue')}
             />

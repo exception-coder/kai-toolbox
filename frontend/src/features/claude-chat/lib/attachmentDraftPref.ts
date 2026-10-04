@@ -12,6 +12,7 @@ export type DraftAttachment = UploadedAttachment & { previewUrl?: string }
 
 const PENDING_KEY = '__pending__'
 const store = new Map<string, DraftAttachment[]>()
+const uploadCounts = new Map<string, number>()
 const listeners = new Set<() => void>()
 const EMPTY: DraftAttachment[] = []
 
@@ -19,6 +20,10 @@ function emit() { listeners.forEach(l => l()) }
 
 function get(key: string): DraftAttachment[] {
   return store.get(key) ?? EMPTY
+}
+
+function getUploadCount(key: string): number {
+  return uploadCounts.get(key) ?? 0
 }
 
 /** 覆盖式写入某会话的附件列表；空则删键（回落共享 EMPTY 引用，避免 useSyncExternalStore 抖动）。 */
@@ -48,4 +53,19 @@ export function useDraftAttachments(
     setAttachmentsFor(k, next)
   }, [k])
   return [items, set]
+}
+
+/** 同一会话的各输入视图共用上传中数量，防止另一视图在文件完成前发送文本。 */
+export function useDraftAttachmentUploads(
+  key: string | null | undefined,
+): [number, (update: (current: number) => number) => void] {
+  const k = key ?? PENDING_KEY
+  const count = useSyncExternalStore(subscribe, () => getUploadCount(k), () => 0)
+  const set = useCallback((update: (current: number) => number) => {
+    const next = Math.max(0, update(getUploadCount(k)))
+    if (next === 0) uploadCounts.delete(k)
+    else uploadCounts.set(k, next)
+    emit()
+  }, [k])
+  return [count, set]
 }

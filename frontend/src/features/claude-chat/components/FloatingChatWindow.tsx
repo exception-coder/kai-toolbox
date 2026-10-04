@@ -30,7 +30,7 @@ import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
-import { useDraftAttachments } from '../lib/attachmentDraftPref'
+import { useDraftAttachments, useDraftAttachmentUploads } from '../lib/attachmentDraftPref'
 import { getSessionPushPreview, pushSessionCommits, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, resolveModule, transcribe, uploadAttachment } from '../api'
 import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
@@ -136,7 +136,7 @@ export function FloatingChatWindow() {
   }, [floating])
   // 附件按会话绑定 + 共享 store：与主界面/分屏同一份 → 切视图不丢、即时同步。
   const [attachments, setAttachments] = useDraftAttachments(chat?.sessionId ?? PENDING_DRAFT_KEY)
-  const [uploading, setUploading] = useState(0)
+  const [uploading, setUploading] = useDraftAttachmentUploads(chat?.sessionId ?? PENDING_DRAFT_KEY)
   const dragRef = useRef<{ dx: number; dy: number } | null>(null)
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
   const bubbleRef = useRef<{ dx: number; dy: number; sx: number; sy: number; moved: boolean; long: boolean } | null>(null)
@@ -449,6 +449,7 @@ export function FloatingChatWindow() {
   }
 
   const submit = (runningAction: 'queue' | 'steer' = 'queue') => {
+    if (uploading > 0) return
     const t = draft.trim()
     const hasAtt = attachments.length > 0
     if ((!t && !hasAtt) || planLocked) return
@@ -978,7 +979,7 @@ export function FloatingChatWindow() {
               {chat.interrupting ? '中断中…' : '中断'}
             </button>
           ) : (
-            <button type="button" onClick={() => submit()} disabled={planLocked || (!draft.trim() && attachments.length === 0)} aria-label="发送"
+            <button type="button" onClick={() => submit()} disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)} aria-label="发送"
               className={`rounded-lg px-3 py-2 disabled:opacity-50 ${giftMode ? 'bg-[#79a861] text-[#0c160c] hover:bg-[#9bc16e]' : 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'}`}>
               <Send className="size-4" />
             </button>
@@ -987,7 +988,7 @@ export function FloatingChatWindow() {
             <RunningMessageActions
               className="basis-full border-t border-[var(--color-border)] pt-2"
               canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
-              disabled={planLocked || (!draft.trim() && attachments.length === 0)}
+              disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
               onSteer={() => submit('steer')}
               onEnqueue={() => submit('queue')}
             />
