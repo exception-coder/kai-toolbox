@@ -963,12 +963,20 @@ export interface UploadedAttachment {
 export async function uploadAttachment(sessionId: string, file: File): Promise<UploadedAttachment> {
   const fd = new FormData()
   fd.append('file', file)
-  const res = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/attachments`, {
-    method: 'POST',
-    body: fd,
-  })
-  if (!res.ok) throw new Error(await errMessage(res))
-  return res.json()
+  try {
+    const res = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/attachments`, {
+      method: 'POST',
+      body: fd,
+      signal: AbortSignal.timeout(120_000),
+    })
+    if (!res.ok) throw new Error(await errMessage(res))
+    return res.json()
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      throw new Error('附件上传超时，请重新选择文件上传')
+    }
+    throw error
+  }
 }
 
 export interface PersistedQueuedMessage {
