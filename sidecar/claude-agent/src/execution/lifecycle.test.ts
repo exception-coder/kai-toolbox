@@ -130,6 +130,7 @@ test('session init and context lookup are read-only, including detached HEAD', t
   assert.equal(session.workspace.writer, null)
   assert.equal(session.capabilities.execution.authorization, 'NOT_GRANTED')
   assert.equal(session.capabilities.execution.enforcement, 'HOST_DEPENDENT')
+  assert.ok(session.actions[0].includes('null 不能推断 Forge Runtime 自动监督不存在'))
   const result = resolveContext({ ...context, request: 'Find existing value behavior' })
   assert.equal(result.graph.status, 'MISSING')
   assert.ok(result.gaps.includes('SPEC_CANDIDATES_EMPTY'))

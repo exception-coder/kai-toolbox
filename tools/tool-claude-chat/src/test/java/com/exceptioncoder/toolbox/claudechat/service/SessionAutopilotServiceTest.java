@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
@@ -192,7 +193,13 @@ class SessionAutopilotServiceTest {
         assertThat(saved.getValue().context().currentTaskOrdinal()).isEqualTo(2);
         assertThat(saved.getValue().context().agentSessionRef()).isEqualTo("agent-session");
         assertThat(view.state()).isEqualTo("ACTIVE");
-        verify(queue).saveInternal(eq("session-1"), any(), any(), any(), any(), anyLong());
+        ArgumentCaptor<String> messageId = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> instructions = ArgumentCaptor.forClass(String.class);
+        verify(queue).saveInternal(eq("session-1"), messageId.capture(), any(), any(),
+                instructions.capture(), anyLong());
+        assertThat(messageId.getValue()).isEqualTo("autopilot:" + saved.getValue().id() + ":1:apply:1.2:0");
+        assertThat(instructions.getValue()).contains("Runtime run ID:", "execution=null",
+                "discover_execution", "assess_execution", "session-autopilot", saved.getValue().id());
         when(repository.findBySessionId("session-1")).thenReturn(Optional.of(saved.getValue()));
         assertThat(service.tasks("session-1")).extracting(TaskSnapshot::id)
                 .containsExactly("1.1", "1.2");
@@ -347,6 +354,7 @@ class SessionAutopilotServiceTest {
         SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
         QueuedChatMessageService queue = mock(QueuedChatMessageService.class);
         OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
+        ContinuousExecutionSkillProvisioner skill = mock(ContinuousExecutionSkillProvisioner.class);
         SessionAutopilotRun active = run();
         ChangeSnapshot snapshot = new ChangeSnapshot("session-autopilot", "revision-b", 0, 1,
                 List.of(new TaskSnapshot("6.4", 28, "pending", false)), Map.of(),
@@ -354,10 +362,13 @@ class SessionAutopilotServiceTest {
         when(repository.findBySessionId("session-1")).thenReturn(Optional.of(active));
         when(repository.update(any(), eq(0L))).thenReturn(true);
         when(openSpec.inspect(java.nio.file.Path.of("D:/repo"), "session-autopilot")).thenReturn(snapshot);
+        when(skill.provision(java.nio.file.Path.of("D:/repo"))).thenReturn(new ProvisioningResult(
+                "1.0.1", "updated-hash", List.of(".claude/skills/forge/SKILL.md",
+                ".agents/skills/forge/SKILL.md"), List.of()));
         SessionAutopilotService service = new SessionAutopilotService(repository,
                 mock(ClaudeChatSessionRepository.class), mock(ClaudeChatSessionAccessPolicy.class), queue,
                 mock(SessionRuntimeStateService.class), mock(AutopilotProjectContextResolver.class), openSpec,
-                mock(OpenSpecContinuousRunner.class), mock(ContinuousExecutionSkillProvisioner.class),
+                mock(OpenSpecContinuousRunner.class), skill,
                 new ObjectMapper(), mock(ApplicationEventPublisher.class));
 
         assertThat(service.action("session-1", "pause", 0).state()).isEqualTo("PAUSED");
@@ -367,6 +378,10 @@ class SessionAutopilotServiceTest {
         assertThat(resumed.state()).isEqualTo("ACTIVE");
         assertThat(resumed.generation()).isEqualTo(2);
         assertThat(resumed.currentTaskId()).isEqualTo("6.4");
+        ArgumentCaptor<SessionAutopilotRun> updated = ArgumentCaptor.forClass(SessionAutopilotRun.class);
+        verify(repository, atLeastOnce()).update(updated.capture(), eq(0L));
+        assertThat(updated.getValue().skillVersion()).isEqualTo("1.0.1");
+        assertThat(updated.getValue().skillActivated()).isFalse();
     }
 
     @Test
@@ -374,6 +389,7 @@ class SessionAutopilotServiceTest {
         SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
         QueuedChatMessageService queue = mock(QueuedChatMessageService.class);
         OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
+        ContinuousExecutionSkillProvisioner skill = mock(ContinuousExecutionSkillProvisioner.class);
         SessionAutopilotRun source = run();
         OpenSpecExecutionContext archivedContext = new OpenSpecExecutionContext(
                 source.context().projectRoot(), source.context().repositoryIdentity(),
@@ -391,10 +407,13 @@ class SessionAutopilotServiceTest {
         when(repository.update(any(), eq(17L))).thenReturn(true);
         when(openSpec.isArchived(java.nio.file.Path.of("D:/repo"), "D:/repo", "openspec-task-board"))
                 .thenReturn(true);
+        when(skill.provision(java.nio.file.Path.of("D:/repo"))).thenReturn(new ProvisioningResult(
+                "1.0.1", "updated-hash", List.of(".claude/skills/forge/SKILL.md",
+                ".agents/skills/forge/SKILL.md"), List.of()));
         SessionAutopilotService service = new SessionAutopilotService(repository,
                 mock(ClaudeChatSessionRepository.class), mock(ClaudeChatSessionAccessPolicy.class), queue,
                 mock(SessionRuntimeStateService.class), mock(AutopilotProjectContextResolver.class), openSpec,
-                mock(OpenSpecContinuousRunner.class), mock(ContinuousExecutionSkillProvisioner.class),
+                mock(OpenSpecContinuousRunner.class), skill,
                 new ObjectMapper(), mock(ApplicationEventPublisher.class));
 
         var resumed = service.action("session-1", "resume", 17);

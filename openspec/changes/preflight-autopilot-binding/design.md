@@ -14,6 +14,8 @@
 
 确认时提交 change ID 与预览的 revision。启动端再次读取 tasks、复核 revision 和 strict validation，再写入原有运行记录并派发。规格变化、无待执行 task、校验失败时拒绝启动并保留弹层和草稿；已在监督相同 change 的会话复用运行状态，其他活动绑定拒绝替换。关闭弹层恢复原触发点，键盘焦点由 Radix Dialog 管理；移动端使用相同顶部入口及可滚动弹层。执行后仍由原 Forge Runtime 与 Continuous Execution Skill 监督。
 
+自动监督绑定与 Sidecar 的代码写入执行绑定分开：前者由会话和已确认的 change、阶段、预算唯一确定，后者按具体文件范围和影响评估取得写入权。适用 AI-01、EVID-01、CTRL-01。Runtime 从持久运行记录向 Agent 注入 run ID、change、阶段和 task；Sidecar `session_init.execution` 为空只表示写入执行尚未建立，工具自身也说明此边界。续跑时应复用当前 change，先只读定位精确文件范围，再走 `resolve_execution_context`、`discover_execution`、`assess_execution`；取得许可后才改文件。门禁拒绝或证据不足时向 Runtime 上报具体原因并暂停，不允许把空写入绑定解释为“没有监督任务”，也不允许跳过写入门禁。恢复暂停运行时重新部署 Forge 拥有的 Skill 并更新指纹，避免旧指令继续生效。原会话仍是唯一对象，不增加页面或用户选择步骤；运行状态与恢复动作继续由既有推进页签显示（CTX-01、FEED-01、IDEM-01）。
+
 ```mermaid
 flowchart LR
     U["会话一句话或自动推进"] --> P["最近上下文候选 + OpenSpec 预检"]

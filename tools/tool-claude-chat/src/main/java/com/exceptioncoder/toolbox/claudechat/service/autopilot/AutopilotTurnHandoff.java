@@ -1,0 +1,50 @@
+package com.exceptioncoder.toolbox.claudechat.service.autopilot;
+
+import com.exceptioncoder.toolbox.claudechat.domain.autopilot.SessionAutopilotRun;
+
+/** 将 Runtime 的持久监督身份交给 Agent，不读取或授予 Sidecar 写入权。 */
+public final class AutopilotTurnHandoff {
+
+    private AutopilotTurnHandoff() {
+    }
+
+    public static Message forRun(SessionAutopilotRun run, int completedTasks, int totalTasks, String reason) {
+        String taskId = run.context().currentTaskId() == null ? "-" : run.context().currentTaskId();
+        String task = "-".equals(taskId) ? "无" : taskId;
+        String messageId = "autopilot:" + run.id() + ":" + run.context().generation() + ":"
+                + run.context().phase().name().toLowerCase() + ":" + taskId + ":" + run.turnCount();
+        String display = "自动推进 · " + run.context().changeId() + " · "
+                + ("-".equals(taskId) ? run.context().phase().name() : "task " + taskId);
+        String instructions = """
+                你正在由 Forge Runtime 自动监督。不要请求用户说“继续”，也不要把单轮结束当作目标完成。
+                Runtime run ID: %s
+                Active goal: %s
+                Project root: %s
+                OpenSpec change: %s
+                Phase: %s
+                Current task: %s
+                Progress: %d/%d
+                Runtime decision: %s
+                Turn budget: %d/%d; no-progress budget: %d/%d
+
+                此消息由 Forge Runtime 从当前会话持久运行记录生成；上面的 run ID、
+                change、阶段和 task 就是本轮已绑定的自动监督上下文。
+                forge.session_init 返回的 execution 是另一套代码写入执行绑定；
+                execution=null 不表示上述自动监督未绑定，也不能据此要求重新选择 OpenSpec。
+                如写入执行尚未绑定，先只读定位当前 task 的精确文件范围，再按
+                resolve_execution_context → discover_execution → assess_execution 建立写入范围，
+                复用本消息绑定的 change ID；取得写入许可前不得修改文件。
+                若执行门禁拒绝或缺少必要证据，使用 forge.report_session_progress 上报
+                WAITING_USER 或 BLOCKED 和具体原因，不要反复查询后无报告结束。
+                只执行上述绑定上下文中的下一步。完成或遇到真实阻塞前，遵守
+                forge-openspec-continuous-execution Skill。yield 前必须调用
+                forge.report_session_progress；不要从自然语言自行切换 change 或 task。
+                """.formatted(run.id(), run.goal(), run.context().projectRoot(), run.context().changeId(),
+                run.context().phase(), task, completedTasks, totalTasks, reason,
+                run.turnCount(), run.maxTurns(), run.noProgressCount(), run.maxNoProgress());
+        return new Message(messageId, display, "继续执行 Forge 已绑定的 OpenSpec 自动监督下一步。", instructions);
+    }
+
+    public record Message(String id, String display, String text, String instructions) {
+    }
+}

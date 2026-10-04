@@ -21,6 +21,7 @@ import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.Ch
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.ChangeSnapshot;
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.TaskSnapshot;
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecContinuousRunner.Decision;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.AutopilotTurnHandoff;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionAutopilotChangedEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionCapabilitiesObservedEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionManualInputEvent;
@@ -536,6 +537,12 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     }
 
     private SessionAutopilotRun resume(SessionAutopilotRun run, Instant now) {
+        ProvisioningResult skill = skillProvisioner.provision(Path.of(run.context().projectRoot()));
+        if (!skill.ready()) {
+            throw new IllegalStateException("Continuous Execution Skill 名称与用户文件冲突："
+                    + String.join("、", skill.collisions()));
+        }
+        String skillPaths = String.join(",", skill.installedPaths());
         if (archiveConfirmed(run)) {
             OpenSpecExecutionContext context = new OpenSpecExecutionContext(
                     run.context().projectRoot(), run.context().repositoryIdentity(), run.context().branchAtStart(),
@@ -546,7 +553,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             return new SessionAutopilotRun(run.id(), run.sessionId(), run.goal(), run.completionPolicy(),
                     AutopilotState.ACTIVE, "已发现 OpenSpec 归档，等待当前轮次完成确认", context,
                     run.turnCount(), run.maxTurns(), 0, run.maxNoProgress(), run.autoArchive(),
-                    run.skillActivated(), run.skillPath(), run.skillVersion(), run.skillFingerprint(), true,
+                    false, skillPaths, skill.version(), skill.fingerprint(), true,
                     run.completedTasks(), run.totalTasks(), null, null, null, null, null, null,
                     run.startedAt(), deadline, now);
         }
@@ -562,8 +569,8 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         Instant deadline = run.deadlineAt().isAfter(now) ? run.deadlineAt() : now.plus(DEFAULT_DEADLINE);
         return new SessionAutopilotRun(run.id(), run.sessionId(), run.goal(), run.completionPolicy(),
                 AutopilotState.ACTIVE, "用户恢复自动监督", context, run.turnCount(), run.maxTurns(), 0,
-                run.maxNoProgress(), run.autoArchive(), run.skillActivated(), run.skillPath(), run.skillVersion(),
-                run.skillFingerprint(), true, snapshot.completedTasks(), snapshot.totalTasks(), null, null, null,
+                run.maxNoProgress(), run.autoArchive(), false, skillPaths, skill.version(),
+                skill.fingerprint(), true, snapshot.completedTasks(), snapshot.totalTasks(), null, null, null,
                 null, null, null, run.startedAt(), deadline, now);
     }
 
@@ -575,37 +582,12 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     }
 
     private void queueContinuation(SessionAutopilotRun run, ChangeSnapshot snapshot, String reason) {
-        String task = run.context().currentTaskId() == null ? "-" : run.context().currentTaskId();
-        String messageId = "autopilot:" + run.id() + ":" + run.context().generation() + ":"
-                + run.context().phase().name().toLowerCase() + ":" + task + ":" + run.turnCount();
-        String display = "自动推进 · " + run.context().changeId() + " · "
-                + ("-".equals(task) ? run.context().phase().name() : "task " + task);
-        String text = "继续执行 Forge 已绑定的 OpenSpec 自动监督下一步。";
-        String instructions = continuationInstructions(run, snapshot, reason);
-        queuedMessages.saveInternal(run.sessionId(), messageId, text, display, instructions,
+        AutopilotTurnHandoff.Message handoff = AutopilotTurnHandoff.forRun(run,
+                snapshot.completedTasks(), snapshot.totalTasks(), reason);
+        queuedMessages.saveInternal(run.sessionId(), handoff.id(), handoff.text(), handoff.display(),
+                handoff.instructions(),
                 System.currentTimeMillis());
         events.publishEvent(new SessionQueueReleaseRequestedEvent(run.sessionId()));
-    }
-
-    private String continuationInstructions(SessionAutopilotRun run, ChangeSnapshot snapshot, String reason) {
-        String task = run.context().currentTaskId() == null ? "无" : run.context().currentTaskId();
-        return """
-                你正在由 Forge Runtime 自动监督。不要请求用户说“继续”，也不要把单轮结束当作目标完成。
-                Active goal: %s
-                Project root: %s
-                OpenSpec change: %s
-                Phase: %s
-                Current task: %s
-                Progress: %d/%d
-                Runtime decision: %s
-                Turn budget: %d/%d; no-progress budget: %d/%d
-
-                只执行上述绑定上下文中的下一步。完成或遇到真实阻塞前，遵守
-                forge-openspec-continuous-execution Skill。yield 前必须调用
-                forge.report_session_progress；不要从自然语言自行切换 change 或 task。
-                """.formatted(run.goal(), run.context().projectRoot(), run.context().changeId(),
-                run.context().phase(), task, snapshot.completedTasks(), snapshot.totalTasks(), reason,
-                run.turnCount(), run.maxTurns(), run.noProgressCount(), run.maxNoProgress());
     }
 
     private void persist(SessionAutopilotRun current, SessionAutopilotRun next) {

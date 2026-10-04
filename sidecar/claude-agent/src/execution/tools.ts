@@ -16,7 +16,7 @@ export const executionDefinitions = [
   { name: 'abort_execution', schema: abortExecutionSchema, run: abortExecution,
     description: '显式中止已核验的遗留执行。须提供查询所得执行 ID、原会话、分支和 HEAD，记录具名操作者、原因及范围状态后释放写入权。不伪造验证或提交；有未提交内容时先审阅。' },
   { name: 'session_init', schema: executionContextSchema, run: initSession,
-    description: '只读初始化会话上下文：返回项目能力、策略版本、当前执行/任务引用、分支和写入归属。不创建 Change、不抢锁、不修改项目；可调用不代表已授权或宿主已强制接入。' },
+    description: '只读查看 Sidecar 代码写入执行绑定、分支和范围归属。execution=null 仅表示该会话尚未取得代码写入权，不表示 Forge Runtime 自动监督任务未绑定；本工具不创建 Change、不抢锁。' },
   { name: 'resolve_execution_context', schema: resolveContextSchema, run: resolveContext,
     description: '只读缩小探索范围：无需预知 files，返回有来源和新鲜度的规格/图谱候选及缺口。不替 Agent 判断控制点，不保存执行状态。定位后 discover_execution 精确绑定候选范围。' },
   { name: 'check_execution_event', schema: executionEventSchema, run: checkExecutionEvent,
