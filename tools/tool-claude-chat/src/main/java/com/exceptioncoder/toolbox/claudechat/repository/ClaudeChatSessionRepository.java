@@ -35,6 +35,7 @@ public class ClaudeChatSessionRepository {
             .selectedModel(rs.getString("selected_model"))
             .codexReasoningEffort(rs.getString("codex_reasoning_effort"))
             .codexSpeed(rs.getString("codex_speed"))
+            .permissionMode(rs.getString("permission_mode"))
             .executionPolicy(rs.getString("execution_policy"))
             .consultEvidenceSystems(rs.getString("consult_evidence_systems"))
             .assistantAppId(nullableString(rs, "assistant_app_id"))
@@ -119,14 +120,15 @@ public class ClaudeChatSessionRepository {
         jdbc.update("""
                 INSERT INTO claude_chat_session
                   (id, user_id, cwd, title, sdk_session_id, engine, engines, api_base_url, auth_token, codex_home,
-                   selected_model, codex_reasoning_effort, codex_speed, execution_policy, consult_evidence_systems,
+                   selected_model, codex_reasoning_effort, codex_speed, permission_mode, execution_policy, consult_evidence_systems,
                    assistant_app_id, assistant_page_key, assistant_page_url, status, started_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 s.getId(), s.getUserId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
                 engine, s.getEngines() == null ? engine : s.getEngines(),
                 s.getApiBaseUrl(), s.getAuthToken(), s.getCodexHome(),
                 s.getSelectedModel(), s.getCodexReasoningEffort(), s.getCodexSpeed(),
+                s.getPermissionMode() == null ? "default" : s.getPermissionMode(),
                 s.getExecutionPolicy(), s.getConsultEvidenceSystems(),
                 s.getAssistantAppId(), s.getAssistantPageKey(), s.getAssistantPageUrl(),
                 s.getStatus().name(), s.getStartedAt(), s.getLastSeenAt());
@@ -171,6 +173,10 @@ public class ClaudeChatSessionRepository {
     /** 保存会话选择的模型。 */
     public void updateSelectedModel(String id, String model) {
         jdbc.update("UPDATE claude_chat_session SET selected_model = ? WHERE id = ?", model, id);
+    }
+
+    public void updatePermissionMode(String id, String mode) {
+        jdbc.update("UPDATE claude_chat_session SET permission_mode = ? WHERE id = ?", mode, id);
     }
 
     /** 保存 Codex 推理强度与速度。 */

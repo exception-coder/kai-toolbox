@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     selected_model  TEXT,
     codex_reasoning_effort TEXT,
     codex_speed     TEXT DEFAULT 'default',
+    permission_mode TEXT NOT NULL DEFAULT 'default',
     -- 服务端执行能力边界：standard / consult-readonly。业务咨询入口强制只读，不接受客户端降级。
     execution_policy TEXT DEFAULT 'standard',
     consult_evidence_systems TEXT,

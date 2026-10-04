@@ -32,6 +32,8 @@ public class ClaudeChatSession {
     private String codexReasoningEffort;
     /** Codex 速度档位：default / fast。 */
     private String codexSpeed;
+    /** 当前权限模式，服务端为跨设备恢复的权威来源。 */
+    private String permissionMode;
     /** 服务端执行能力边界：standard / consult-readonly。 */
     private String executionPolicy;
     /** 咨询会话允许的证据系统 JSON 数组，仅包含 erp/srm/scm。 */

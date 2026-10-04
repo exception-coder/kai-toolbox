@@ -24,9 +24,6 @@ import {
 import { shouldReconnectSocket } from '../lib/socketReconnectPolicy'
 import { applyAssistantSnapshot } from '../lib/assistantSnapshot'
 
-// 按 sessionId 持久化权限模式，使刷新/放大缩小/重连后该会话仍保持上次选择，而非回退 default。
-const VALID_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
-const modeStorageKey = (sid: string) => `kai-toolbox:chat-mode:${sid}`
 /**
  * 「弹窗自动允许」：全局偏好（跨会话共用一个键，保持与旧版本一致）。
  * 这里只存「用户的意愿」并在会话 ready 时同步给服务端一次；真正的放行裁决在 sidecar 内同步完成。
@@ -51,18 +48,6 @@ function loadCodexOptions(sid: string): CodexOptions {
     return { reasoningEffort, speed: parsed.speed === 'fast' ? 'fast' : 'default' }
   } catch { return DEFAULT_CODEX_OPTIONS }
 }
-function loadSavedMode(sid: string): PermissionMode | null {
-  try {
-    const v = localStorage.getItem(modeStorageKey(sid))
-    return v && (VALID_MODES as string[]).includes(v) ? (v as PermissionMode) : null
-  } catch {
-    return null
-  }
-}
-function saveMode(sid: string, m: PermissionMode): void {
-  try { localStorage.setItem(modeStorageKey(sid), m) } catch { /* ignore */ }
-}
-
 // 用全局唯一 id（非可重置计数器）：避免 Vite HMR 热更重置模块级计数器后，
 // 新消息 id 与 state 中残留的旧消息 id 撞 key（开发期刷屏 React duplicate-key 警告）。
 const nextId = (): string =>
@@ -313,6 +298,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const [codexSpeed, setCodexSpeed] = useState<CodexSpeed>('default')
   const [currentEngine, setCurrentEngine] = useState<Engine>('claude')
   const [currentProviderKind, setCurrentProviderKind] = useState<ProviderKind>('official')
+  const currentEngineRef = useRef<Engine>(currentEngine)
+  currentEngineRef.current = currentEngine
   const [currentProviderBaseUrl, setCurrentProviderBaseUrl] = useState<string | null>(null)
   const [providerDiag, setProviderDiag] = useState<TurnDiag[]>([])
   // 本轮进行中的实时输出 token 数（SDK 流式 message_delta 累计），供「进行时」指示器展示。
@@ -496,20 +483,16 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           })
         setState('ready')
         setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
-        // 恢复该会话上次的权限模式（按 sessionId 持久化），并同步给 sidecar，
-        // 使刷新/放大缩小/重连后不回退 default。
+        // 后端数据库是会话权限模式的权威来源；刷新和跨设备切换均以 Ready 为准。
         {
           const restricted = channel === 'consult' || channel === 'review'
-          const savedMode = restricted ? null : loadSavedMode(msg.sessionId)
           if (restricted) {
             setModeState('plan')
             modeRef.current = 'plan'
           } else {
-            const restoredMode = normalizePermissionModeForEngine(msg.engine ?? 'claude', savedMode ?? 'default')
+            const restoredMode = normalizePermissionModeForEngine(msg.engine ?? 'claude', msg.permissionMode ?? 'default')
             setModeState(restoredMode)
             modeRef.current = restoredMode
-            if (restoredMode !== savedMode) saveMode(msg.sessionId, restoredMode)
-            sendRaw({ type: 'setMode', mode: restoredMode })
           }
           // 「弹窗自动允许」同步给服务端一次：服务端此后自己保管并随每次 resume 回灌 sidecar，
           // 用户切走页面/关掉浏览器也不影响放行，不再需要前端盯着弹窗自动点。
@@ -667,6 +650,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       case 'models':
         setModels(msg.models)
+      case 'modeChanged': {
+        if (channel === 'consult' || channel === 'review') break
+        const next = normalizePermissionModeForEngine(currentEngineRef.current, msg.mode)
+        modeRef.current = next
+        setModeState(next)
+        break
+      }
         setCurrentModel(msg.current)
         if (channel === 'review') {
           const defaultModel = msg.models.find(model => model.isDefault)
@@ -1651,8 +1641,6 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       return
     }
     setModeState(m) // 乐观更新；下一轮 query 生效
-    const sid = sessionIdRef.current
-    if (sid) saveMode(sid, m) // 按会话持久化，刷新/重连后由 ready 恢复
     sendRaw({ type: 'setMode', mode: m })
     // 模式变了要重算自动放行：切出全自动就必须收回，否则 sidecar 会继续静默放行
     syncAutoApprove(autoApproveRef.current, m)
@@ -1713,8 +1701,6 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (normalizedMode !== modeRef.current) {
       setModeState(normalizedMode)
       modeRef.current = normalizedMode
-      const sid = sessionIdRef.current
-      if (sid) saveMode(sid, normalizedMode)
       sendRaw({ type: 'setMode', mode: normalizedMode })
       syncAutoApprove(autoApproveRef.current, normalizedMode)
     }

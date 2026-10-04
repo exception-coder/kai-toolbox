@@ -783,7 +783,8 @@ export type AgentEventType =
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
   | import('./lib/nativeVoice').VoiceEvent
-  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; skillDetails?: SkillCapability[]; plugins?: PluginCapability[]; agents?: string[]; mcpServers?: McpCapability[]; outputStyle?: string | null; capabilitySource?: CapabilitySnapshotSource; capabilityRefreshedAt?: number; capabilityErrors?: string[]; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; queueDispatchMode?: 'server'; authHandoffRequired?: boolean | null }
+  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; skillDetails?: SkillCapability[]; plugins?: PluginCapability[]; agents?: string[]; mcpServers?: McpCapability[]; outputStyle?: string | null; capabilitySource?: CapabilitySnapshotSource; capabilityRefreshedAt?: number; capabilityErrors?: string[]; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; permissionMode?: PermissionMode; queueDispatchMode?: 'server'; authHandoffRequired?: boolean | null }
+  | { type: 'modeChanged'; seq: number; mode: PermissionMode }
   | { type: 'assistantDelta'; seq: number; text: string }
   | { type: 'assistantSnapshot'; seq: number; text: string }
   | { type: 'toolUse'; seq: number; toolCallId?: string | null; toolName: string; input: unknown }

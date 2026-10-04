@@ -326,6 +326,7 @@ public class ClaudeChatService {
 
         // UI 模式不是安全边界；咨询会话固定为 plan，真正的硬约束由 executionPolicy/toolPolicy 执行。
         ctx.mode = consultReadonly ? "plan" : normalizeMode(open.mode());
+        repo.updatePermissionMode(sessionId, ctx.mode);
         sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken,
                 codexHome, ctx.autoApprove, codexReasoningEffort, codexSpeed, ctx.executionPolicy,
                 ctx.consultEvidenceSystems);
@@ -372,6 +373,7 @@ public class ClaudeChatService {
                     c.authToken = db.getAuthToken();
                     c.codexHome = db.getCodexHome();
                     c.executionPolicy = executionPolicyOf(db);
+                    c.mode = persistedMode(db);
                     enforceReadonlyDefaults(c);
                     restoreModelOptions(c, db);
                     loadEngineSessions(c, db.getEngineSessions());
@@ -434,6 +436,7 @@ public class ClaudeChatService {
         ctx.authToken = db.getAuthToken();
         ctx.codexHome = db.getCodexHome();
         ctx.executionPolicy = executionPolicy;
+        ctx.mode = persistedMode(db);
         enforceReadonlyDefaults(ctx);
         restoreModelOptions(ctx, db);
         loadEngineSessions(ctx, db.getEngineSessions());
@@ -608,6 +611,7 @@ public class ClaudeChatService {
                     restored.authToken = db.getAuthToken();
                     restored.codexHome = db.getCodexHome();
                     restored.executionPolicy = executionPolicyOf(db);
+                    restored.mode = persistedMode(db);
                     enforceReadonlyDefaults(restored);
                     restoreModelOptions(restored, db);
                     loadEngineSessions(restored, db.getEngineSessions());
@@ -647,6 +651,8 @@ public class ClaudeChatService {
 
         ClaudeChatSession db = repo.findById(ctx.sessionId).orElse(null);
         if (db != null) {
+            ctx.mode = persistedMode(db);
+            enforceReadonlyDefaults(ctx);
             restoreModelOptions(ctx, db);
             if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) {
                 ctx.sdkSessionId = db.getSdkSessionId();
@@ -1011,7 +1017,9 @@ public class ClaudeChatService {
             return;
         }
         ctx.mode = msg.mode();
+        if (!ctx.demo) repo.updatePermissionMode(ctx.sessionId, ctx.mode);
         sidecar.setMode(ctx.sessionId, ctx.mode);
+        sendToBrowser(ctx, seq -> new ServerMessage.ModeChanged(seq, ctx.mode));
         log.info("[claude-chat] 会话 {} 切换权限模式 -> {}", ctx.sessionId, ctx.mode);
     }
 
@@ -1249,7 +1257,7 @@ public class ClaudeChatService {
                 ctx.epoch, ctx.engine, providerKind, providerBaseUrl,
                 ctx.skills, ctx.skillDetails, ctx.plugins, ctx.agents, ctx.mcpServers, ctx.outputStyle,
                 ctx.capabilitySource, ctx.capabilityRefreshedAt, ctx.capabilityErrors, ctx.backgroundTasks,
-                ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, "server",
+                ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.mode, "server",
                 pendingAuthHandoff.remove(ctx.sessionId));
     }
 
@@ -1320,6 +1328,10 @@ public class ClaudeChatService {
 
     private static String normalizeMode(String m) {
         return isValidMode(m) ? m : "default";
+    }
+
+    private static String persistedMode(ClaudeChatSession db) {
+        return normalizeMode(db.getPermissionMode());
     }
 
     private static String normalizeEngine(String e) {
