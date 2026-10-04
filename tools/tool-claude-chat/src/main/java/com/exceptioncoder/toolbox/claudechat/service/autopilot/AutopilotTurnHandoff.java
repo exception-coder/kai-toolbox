@@ -38,7 +38,9 @@ public final class AutopilotTurnHandoff {
                 若外部验证环境暂不可用，保留未验证项和证据，先完成当前 task 中
                 不依赖该环境的步骤；有下一步时上报 CONTINUE、nextAction 和 remainingWork。
                 自动推进期间不要启动 Docker Desktop、Docker Engine、WSL 或触发 Testcontainers；
-                优先用 H2 MySQL 模式做兼容性检查，目标 MySQL/MariaDB 实测仍保留待回归。
+                优先用 H2 MySQL 模式实际执行迁移，并完成静态清单、定向测试和装配检查。
+                规格若未明确要求目标库实测，这些证据可完成本地开发 task；目标 MySQL/MariaDB
+                实测作为发布前待验项记录，不能声称已通过或可以发布，不因其缺席停止开发。
                 只有没有可执行步骤或必须等待用户决策时才上报 WAITING_USER 或 BLOCKED。
                 若当前规格有不可越过的前置依赖，先记录具体问题和证据；批次中其他已选规格
                 由 Runtime 预检后调度，不要自行切换 change，也不要混入其他规格的提交。

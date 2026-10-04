@@ -2,7 +2,7 @@
 name: forge-openspec-continuous-execution
 description: Keep a Forge-supervised OpenSpec change running until the bound Done Condition is proven.
 x-forge-owned: true
-x-forge-version: 1.0.6
+x-forge-version: 1.0.7
 ---
 
 # Forge OpenSpec Continuous Execution
@@ -27,7 +27,7 @@ During a supervised run, treat the confirmed OpenSpec goal as the completion bou
 
 ### Container-free database verification
 
-During supervised work, do not start or restart Docker Desktop, Docker Engine, WSL, or a Testcontainers suite to clear a supervised task. Do not run a broad test command that implicitly starts Testcontainers. For migration work, first run compatible local checks with H2 `MODE=MySQL` when the project has H2, then run static migration numbering, packaging, and application wiring checks that do not require the target database. Record exactly which SQL ran on H2 and which target database checks remain. H2 verifies only its own compatibility behavior; it does not prove MySQL/MariaDB semantics, indexes, collation, or Flyway upgrade behavior on those engines. Do not retry an unavailable external database in a loop. If the current OpenSpec task explicitly requires target MySQL/MariaDB execution, leave that acceptance item open until a real target database is available or the specification owner explicitly changes the acceptance boundary.
+During supervised work, do not start or restart Docker Desktop, Docker Engine, WSL, or a Testcontainers suite to clear a supervised task. Do not run a broad test command that implicitly starts Testcontainers. For migration work, first execute compatible local migrations on H2 `MODE=MySQL` when the project has H2, then run static migration numbering, packaging, targeted application tests, and wiring checks that do not require the target database. Record exactly which SQL ran on H2 and which target database checks remain. H2 verifies only its own compatibility behavior; it does not prove MySQL/MariaDB semantics, indexes, collation, or Flyway upgrade behavior on those engines. Do not retry an unavailable external database in a loop. If the OpenSpec development task does not explicitly require target MySQL/MariaDB execution, sufficient local evidence can complete that task; record real target migration and upgrade checks as not executed with a pre-release follow-up in validation evidence. If the task explicitly requires target execution, leave that acceptance item open until a real target database is available or the specification owner changes the boundary. Never claim release readiness from H2 checks.
 
 Never describe the whole goal as complete while Forge says a task or lifecycle phase remains. Phrases such as “下一阶段可以继续” and “后续可以做” are not valid completion outcomes; execute that next step or report why it cannot run.
 
@@ -66,4 +66,4 @@ Call `forge.report_session_progress` with:
 - `reason`: required for `WAITING_USER`, `BLOCKED`, or `FAILED`.
 
 The tool records a candidate report only. It does not grant authority, start a turn, or mark the run complete.
-If a prior report put the run in `WAITING_USER` while this same turn is still active and there is no pending user decision, `CONTINUE` with concrete `nextAction` and `remainingWork` may recover it. Otherwise the API returns HTTP 409 with the current version and the explicit resume action. Never report a database check as passed or check the OpenSpec task until its required target database verification actually ran.
+If a prior report put the run in `WAITING_USER` while this same turn is still active and there is no pending user decision, `CONTINUE` with concrete `nextAction` and `remainingWork` may recover it. Otherwise the API returns HTTP 409 with the current version and the explicit resume action. Never report a target database check as passed until it actually ran. Check the development task against its explicit acceptance condition, and preserve missing target evidence as a pre-release follow-up when target execution is not required by that task.
