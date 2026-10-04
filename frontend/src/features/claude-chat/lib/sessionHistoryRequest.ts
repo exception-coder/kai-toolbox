@@ -14,14 +14,14 @@ export function isCurrentSessionHistoryRequest(
   return token.requestId === activeRequestId && token.sessionId === currentSessionId
 }
 
-export function sessionHistoryLoadErrorMessage(error: unknown): string {
+export function sessionHistoryLoadErrorMessage(error: unknown, initial = false): string {
   const name = error && typeof error === 'object' && 'name' in error
     ? String((error as { name?: unknown }).name ?? '')
     : ''
   if (name === 'TimeoutError' || name === 'AbortError') {
-    return '加载更早消息超时，请点击重试'
+    return `${initial ? '加载最近' : '加载更早'}消息超时，请点击重试`
   }
-  return '加载更早消息失败，请点击重试'
+  return `${initial ? '加载最近' : '加载更早'}消息失败，请点击重试`
 }
 
 /**

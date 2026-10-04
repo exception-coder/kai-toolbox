@@ -16,7 +16,7 @@ import { EngineIcon, engineIdFromDisplayName } from './EngineIcon'
 interface Props {
   items: ChatItem[]
   running: boolean
-  /** 滚到顶部触发加载更早一页 */
+  /** 用户点击顶部入口加载更早一页 */
   onLoadEarlier?: () => void
   /** 正在加载更早 */
   loadingEarlier?: boolean
@@ -129,14 +129,14 @@ function ListFooter({ context }: { context?: ListContext }) {
 const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
 
 /**
- * 消息流：用户气泡靠右、assistant 文本靠左、工具调用与系统标记居中。顶部上拉加载更早历史。
+ * 消息流：用户气泡靠右、assistant 文本靠左、工具调用与系统标记居中。顶部显式加载更早历史。
  *
  * 用 react-virtuoso 做虚拟滚动：同一时刻只挂载可视区域附近的消息节点，翻多少页历史 DOM
  * 规模都不再增长（此前是把每次 loadHistory 拉到的更早历史永久挂在 DOM 里，翻页越多、
  * 消息里的代码块/mermaid/图片越多，滚动和流式渲染就越卡）。
  *
  * 三个原本手写的滚动行为，都换成 virtuoso 内置能力：
- * - 反向无限滚动（上拉不跳动）：firstItemIndex，每次 prepend 就把它减去新增的条数。
+ * - 反向分页（加载后不跳动）：firstItemIndex，每次 prepend 就把它减去新增的条数。
  * - 贴底跟随/锁定：followOutput（默认只在已经贴底时才跟新内容走）+ atBottomStateChange。
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
@@ -226,10 +226,6 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     prevItemsRef.current = visibleItems
   }
 
-  const handleStartReached = useCallback(() => {
-    if (!loadingEarlier && !exhausted) onLoadEarlier?.()
-  }, [loadingEarlier, exhausted, onLoadEarlier])
-
   const jumpToBottom = useCallback(() => {
     virtuosoRef.current?.scrollToIndex({ index: Math.max(0, visibleItems.length - 1), align: 'end', behavior: 'smooth' })
     setAtBottom(true)
@@ -299,7 +295,6 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         followOutput={followOutput}
         atBottomThreshold={64}
         atBottomStateChange={setAtBottom}
-        startReached={handleStartReached}
         computeItemKey={(_index, item) => item.id}
         itemContent={itemContent}
         components={LIST_COMPONENTS}

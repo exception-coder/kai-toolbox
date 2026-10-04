@@ -433,23 +433,23 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
       setPendingScroll(null)
       return
     }
-    if (chat.historyLoading) return // 上一次加载还没完，等它触发的重渲染再判断一次
+    if (chat.historyLoading || chat.historyError) return // 失败时等待用户显式重试，避免循环拉取旧历史
     if (chat.historyExhausted) { setPendingScroll(null); return } // 加载到最早了还没找到，放弃
     chat.loadHistory(false)
-  }, [pendingScroll, chat?.items, chat?.historyLoading, chat?.historyExhausted, chat?.loadHistory])
+  }, [pendingScroll, chat?.items, chat?.historyLoading, chat?.historyError, chat?.historyExhausted, chat?.loadHistory])
   // 「跳到会话开头」：持续触发「加载更早」直到分页到头（exhausted），再滚到已加载的第 0 条——
   // 这样不管会话有多长、翻了多少页，一键都能直接回到最初的第一条消息，不用自己一页页往上翻。
   const [jumpingToStart, setJumpingToStart] = useState(false)
   useEffect(() => {
     if (!jumpingToStart || !chat) return
-    if (chat.historyLoading) return
+    if (chat.historyLoading || chat.historyError) return
     if (chat.historyExhausted) {
       messageListRef.current?.scrollToStart()
       setJumpingToStart(false)
       return
     }
     chat.loadHistory(false)
-  }, [jumpingToStart, chat?.items, chat?.historyLoading, chat?.historyExhausted, chat?.loadHistory])
+  }, [jumpingToStart, chat?.items, chat?.historyLoading, chat?.historyError, chat?.historyExhausted, chat?.loadHistory])
   const [showLogs, setShowLogs] = useState(false)
   const [showGestureDebug, setShowGestureDebug] = useState(false)
   const [showDebug, setShowDebug] = useState(false)

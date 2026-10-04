@@ -1777,7 +1777,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       setHistoryExhausted(done)
     } catch (caught) {
       if (isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) {
-        setHistoryError(sessionHistoryLoadErrorMessage(caught))
+        setHistoryError(sessionHistoryLoadErrorMessage(caught, reset))
       }
     } finally {
       if (isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) {

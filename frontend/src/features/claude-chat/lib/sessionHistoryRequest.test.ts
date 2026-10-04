@@ -63,6 +63,7 @@ describe('sessionHistoryLoadErrorMessage', () => {
   it('将超时和取消归一为可重试的超时提示', () => {
     expect(sessionHistoryLoadErrorMessage({ name: 'TimeoutError' })).toBe('加载更早消息超时，请点击重试')
     expect(sessionHistoryLoadErrorMessage({ name: 'AbortError' })).toBe('加载更早消息超时，请点击重试')
+    expect(sessionHistoryLoadErrorMessage({ name: 'TimeoutError' }, true)).toBe('加载最近消息超时，请点击重试')
   })
 
   it('普通失败不泄露底层异常，提供明确重试动作', () => {

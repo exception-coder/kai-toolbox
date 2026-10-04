@@ -9,9 +9,10 @@ vi.mock('react-virtuoso', async () => {
     Virtuoso: forwardRef(function VirtuosoMock(props: {
       components: { Header: ComponentType<{ context?: unknown }> }
       context: unknown
+      startReached?: () => void
     }, _ref) {
       const Header = props.components.Header
-      return <Header context={props.context} />
+      return <><Header context={props.context} /><span data-testid="automatic-history-load">{String(Boolean(props.startReached))}</span></>
     }),
   }
 })
@@ -29,6 +30,7 @@ describe('MessageList 历史分页入口', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '加载更早' }))
     expect(onLoadEarlier).toHaveBeenCalledOnce()
+    expect(screen.getByTestId('automatic-history-load')).toHaveTextContent('false')
   })
 
   it('分页失败后原位显示可操作的重试提示', () => {
