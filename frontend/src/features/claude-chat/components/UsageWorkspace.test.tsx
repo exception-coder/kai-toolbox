@@ -5,6 +5,7 @@ import { UsagePanel, UsageWorkspace } from './UsagePanel'
 
 vi.mock('../api', () => ({
   fetchUsage: vi.fn().mockResolvedValue([]),
+  fetchCodexHomes: vi.fn().mockResolvedValue([]),
 }))
 
 describe('UsageWorkspace', () => {

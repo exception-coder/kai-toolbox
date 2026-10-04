@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchSubscriptionQuota } from '../api'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchCodexHomes, fetchSubscriptionQuota } from '../api'
 import { SubscriptionQuotaSection, type QuotaContext } from './SubscriptionQuotaSection'
 
-vi.mock('../api', () => ({ fetchSubscriptionQuota: vi.fn() }))
+vi.mock('../api', () => ({ fetchCodexHomes: vi.fn(), fetchSubscriptionQuota: vi.fn() }))
 afterEach(() => { cleanup(); vi.resetAllMocks() })
+beforeEach(() => { vi.mocked(fetchCodexHomes).mockResolvedValue(['home-a', 'home-b']) })
 const context: QuotaContext = { id: 'a', engine: 'codex', codexHome: 'home-a', model: 'model-a' }
 const quota = { available: true, shared: true, fetchedAt: 1234, windows: [{ windowMinutes: 10_080, remainingPercent: 63.5, resetsAt: 2_000_000_000 }, { windowMinutes: 300, remainingPercent: 90, resetsAt: null }] }
 function mount() {
@@ -66,5 +67,28 @@ describe('订阅额度', () => {
     expect(fetchSubscriptionQuota).not.toHaveBeenCalledWith('claude-api')
     fireEvent.click(screen.getByRole('button', { name: '刷新 Codex home-b 额度' }))
     await waitFor(() => expect(fetchSubscriptionQuota).toHaveBeenCalledTimes(3))
+  })
+
+  it('授权目录删除后不展示历史额度行，刷新时重新核验目录', async () => {
+    vi.mocked(fetchCodexHomes).mockResolvedValue(['home-a', 'C:/Users/u/.codex'])
+    vi.mocked(fetchSubscriptionQuota).mockResolvedValue(quota)
+    const sources = [
+      { ...context, lastSeenAt: 2 },
+      { ...context, id: 'removed', codexHome: 'C:/Users/u/.codex-account-pro', lastSeenAt: 1 },
+    ] as import('../types').ClaudeChatSessionView[]
+    render(<QueryClientProvider client={new QueryClient()}><SubscriptionQuotaSection context={context} sessions={sources} /></QueryClientProvider>)
+    await waitFor(() => expect(screen.queryByRole('article', { name: /codex-account-pro/ })).not.toBeInTheDocument())
+    expect(await screen.findByRole('article', { name: /home-a/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '刷新全部' }))
+    await waitFor(() => expect(fetchCodexHomes).toHaveBeenCalledTimes(2))
+    expect(fetchSubscriptionQuota).not.toHaveBeenCalledWith('removed')
+  })
+
+  it('目录核验失败时保留历史配置并提示，不误判为已删除', async () => {
+    vi.mocked(fetchCodexHomes).mockRejectedValue(new Error('offline'))
+    vi.mocked(fetchSubscriptionQuota).mockResolvedValue(quota)
+    mount()
+    expect(await screen.findByText(/授权目录核验失败/)).toBeInTheDocument()
+    expect(await screen.findByRole('article', { name: /home-a/ })).toBeInTheDocument()
   })
 })

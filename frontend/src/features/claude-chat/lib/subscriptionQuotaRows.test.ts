@@ -31,4 +31,12 @@ describe('引擎账号汇总', () => {
     expect(rows.map(row => row.engine)).toEqual(['codex', 'claude'])
     expect(rows[1].queryable).toBe(true)
   })
+  it('目录核验成功时跳过已删除的 Codex 授权目录，保留默认账号和历史会话', () => {
+    const sources = [session('removed', 'C:/Users/u/.codex-account-pro'), session('active', 'c:\\users\\u\\.codex'), session('default'), session('external', 'D:/trusted/codex-home')]
+    const rows = subscriptionQuotaRows(sources, 'active', undefined, ['C:/Users/u/.codex'])
+    const codex = rows.filter(row => row.engine === 'codex')
+    expect(codex).toHaveLength(3)
+    expect(codex.map(row => row.sessionId)).toEqual(['active', 'default', 'external'])
+    expect(sources).toHaveLength(4)
+  })
 })

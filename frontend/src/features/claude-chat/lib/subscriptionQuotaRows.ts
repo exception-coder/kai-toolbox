@@ -20,22 +20,31 @@ const LABELS: Record<Engine, string> = {
 /** 配置来源去重，不宣称不同目录必然是不同身份，更不合计跨账号百分比。 */
 export function subscriptionQuotaRows(
   sessions: readonly ClaudeChatSessionView[], currentId?: string, catalog?: EngineCatalogView,
+  availableCodexHomes?: readonly string[],
 ): QuotaAccountRow[] {
+  const availableHomes = availableCodexHomes && new Set(availableCodexHomes.map(normalizeHome))
+  const scannedParents = new Set(availableHomes ? [...availableHomes].map(home => home.slice(0, home.lastIndexOf('/'))) : [])
+  const eligibleSessions = sessions.filter(session => {
+    if (session.engine !== 'codex' || session.providerKind === 'thirdParty' || !session.codexHome?.trim() || !availableHomes) return true
+    const home = normalizeHome(session.codexHome)
+    const parent = home.slice(0, home.lastIndexOf('/'))
+    // 发现接口只扫描本机用户目录；不推断其他路径已经被删除。
+    return !scannedParents.has(parent) || availableHomes.has(home)
+  })
   const engines = [...new Set<Engine>([
     ...(catalog?.engines.map(entry => entry.id) ?? Object.keys(LABELS) as Engine[]),
-    ...sessions.map(session => session.engine ?? 'claude'),
+    ...eligibleSessions.map(session => session.engine ?? 'claude'),
   ])]
   const rows: QuotaAccountRow[] = []
   for (const engine of engines) {
     const label = catalog?.engines.find(entry => entry.id === engine)?.displayName ?? LABELS[engine]
-    const matching = sessions.filter(session => (session.engine ?? 'claude') === engine)
+    const matching = eligibleSessions.filter(session => (session.engine ?? 'claude') === engine)
       .sort((a, b) => Number(b.id === currentId) - Number(a.id === currentId) || b.lastSeenAt - a.lastSeenAt)
     const accounts = new Map<string, QuotaAccountRow>()
     for (const session of matching) {
       const thirdParty = session.providerKind === 'thirdParty'
       const home = engine === 'codex' ? session.codexHome?.trim() || '' : ''
-      const source = home.replaceAll('\\', '/').replace(/\/$/, '')
-      const normalized = /^[a-z]:\//i.test(source) ? source.toLowerCase() : source
+      const normalized = normalizeHome(home)
       const key = thirdParty ? `${engine}:api` : `${engine}:official:${normalized}`
       const existing = accounts.get(key)
       if (existing) { existing.sessionCount++; continue }
@@ -51,4 +60,9 @@ export function subscriptionQuotaRows(
     else rows.push(...accounts.values())
   }
   return rows.sort((a, b) => Number(b.current) - Number(a.current))
+}
+
+function normalizeHome(home: string): string {
+  const source = home.trim().replaceAll('\\', '/').replace(/\/+$/, '')
+  return /^[a-z]:\//i.test(source) ? source.toLowerCase() : source
 }

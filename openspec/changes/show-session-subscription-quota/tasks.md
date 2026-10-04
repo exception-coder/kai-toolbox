@@ -18,3 +18,11 @@
 - [ ] 3.4 授权后端重启后Claude真实页面验收及60秒观察。
 
 汇总验证：前端14项、Java8项专项回归通过；前端typecheck、无发布的独立Vite构建、完整宿主打包（skip.frontend=true）通过。Forge regression/api/ui/spec/design通过，项目质量CLI status PASSED/退出0，static未运行checker、runtime为9项既有API冒烟。桌面及390×844手机实际显示9引擎账号来源、Codex真实周剩余和重置时间，手机页面宽度与scrollWidth均390；读不到的账号与缺失窗口诚实不可用。Claude新增后端链路未加载，真实页面及60秒观察未执行；未重启、推送或发布共享SDK。
+
+## 4. 已删除授权目录清理
+- [x] 4.1 复用服务端目录发现结果，过滤扫描范围内已经删除的 Codex 授权目录额度行；历史会话和日志统计保留。
+- [x] 4.2 目录发现失败保留历史行并提示，刷新全部重查目录；覆盖过滤、外部路径和失败回归。
+- [x] 4.3 前端专项测试、typecheck、build、OpenSpec strict 与 Forge CLI 门禁。
+- [ ] 4.4 移动端真实用量页验收；浏览器访问被自动安全策略拒绝，禁止换浏览器或底层命令绕过。
+
+本轮验证：前端专项 11/11 通过，`npm run typecheck`、`npm run build`、OpenSpec strict 通过。Forge CLI 退出 0、`status=PASSED`；Static 的 `executedCheckers=[]`，Runtime 仅执行 9 个既有 API 场景，未覆盖这次前端过滤。当前受管服务未重启。

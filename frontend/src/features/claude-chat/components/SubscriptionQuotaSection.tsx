@@ -1,6 +1,6 @@
-import { useQueries, type UseQueryResult } from '@tanstack/react-query'
+import { useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { Loader2, RefreshCw } from 'lucide-react'
-import { fetchSubscriptionQuota, type SubscriptionQuota } from '../api'
+import { fetchCodexHomes, fetchSubscriptionQuota, type SubscriptionQuota } from '../api'
 import type { ClaudeChatSessionView, EngineCatalogView } from '../types'
 import { subscriptionQuotaRows, type QuotaAccountRow } from '../lib/subscriptionQuotaRows'
 import { EngineIcon } from './EngineIcon'
@@ -12,29 +12,35 @@ export function SubscriptionQuotaSection({ context, sessions = [], catalog }: {
 }) {
   const sources = context && !sessions.some(session => session.id === context.id)
     ? [...sessions, { ...context, lastSeenAt: 0 } as ClaudeChatSessionView] : sessions
-  const rows = subscriptionQuotaRows(sources, context?.id, catalog)
+  const codexHomes = useQuery({
+    queryKey: ['claude-chat-codex-homes'], queryFn: fetchCodexHomes,
+    staleTime: 0, refetchInterval: 15_000, retry: false,
+  })
+  const rows = subscriptionQuotaRows(sources, context?.id, catalog, codexHomes.isSuccess ? codexHomes.data : undefined)
   const queries = useQueries({ queries: rows.map(row => ({
     queryKey: ['session-subscription-quota', row.key, row.sessionId, row.current ? context?.model : undefined],
-    queryFn: () => fetchSubscriptionQuota(row.sessionId!), enabled: row.queryable && Boolean(row.sessionId),
+    queryFn: () => fetchSubscriptionQuota(row.sessionId!),
+    enabled: row.queryable && Boolean(row.sessionId) && (row.engine !== 'codex' || !codexHomes.isPending),
     staleTime: 0, retry: false,
   })) })
-  const loading = queries.some(query => query.isFetching)
+  const loading = codexHomes.isFetching || queries.some(query => query.isFetching)
   const readable = queries.filter(query => query.data?.available && !query.error && !query.isFetching).length
   return <section className="mb-5 border-b border-[var(--color-border)] pb-5" aria-labelledby="subscription-quota-heading">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h3 id="subscription-quota-heading" className="text-sm font-semibold">订阅额度汇总</h3>
         <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">{new Set(rows.map(row => row.engine)).size} 个引擎 · {readable} 个账号来源可读取 · 剩余额度</p>
       </div>
-      <button type="button" disabled={loading || !rows.some(row => row.queryable)}
-        onClick={() => { queries.forEach((query, index) => { if (rows[index].queryable) void query.refetch() }) }}
+      <button type="button" disabled={loading}
+        onClick={() => { void codexHomes.refetch(); queries.forEach((query, index) => { if (rows[index].queryable) void query.refetch() }) }}
         className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 text-xs disabled:opacity-50 hover:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
         <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />刷新全部</button>
     </div>
+    {codexHomes.isError && <p role="status" className="mt-3 text-xs text-[var(--color-muted-foreground)]">授权目录核验失败，暂按历史会话显示；可点击“刷新全部”重试。</p>}
     <div className="mt-3 hidden grid-cols-[minmax(10rem,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b border-[var(--color-border)] pb-2 text-[11px] text-[var(--color-muted-foreground)] sm:grid" aria-hidden="true">
       <span>引擎 / 账号</span><span>5 小时剩余</span><span>本周剩余</span>
     </div>
     <div className="divide-y divide-[var(--color-border)]">{rows.map((row, index) => <AccountQuotaRow key={row.key} row={row} query={queries[index]} />)}</div>
-    <p className="mt-3 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">按已加载会话的账号配置来源汇总；同源共享额度只展示一次。不同账号百分比不合计，未返回对应窗口不估算。</p>
+    <p className="mt-3 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">按已加载会话及仍存在的授权目录汇总；同源共享额度只展示一次。不同账号百分比不合计，未返回对应窗口不估算。</p>
   </section>
 }
 
