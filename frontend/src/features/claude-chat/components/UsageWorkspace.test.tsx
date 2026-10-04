@@ -13,7 +13,7 @@ describe('UsageWorkspace', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
       <QueryClientProvider client={queryClient}>
-        <UsageWorkspace session={{
+        <UsageWorkspace quotaContext={{ id: 'session-1', engine: 'codex', providerKind: 'official', codexHome: null, model: 'gpt-6-sol' }} session={{
           inputTokens: 1_000,
           outputTokens: 500,
           cacheReadTokens: 2_000,
@@ -28,7 +28,9 @@ describe('UsageWorkspace', () => {
     expect(screen.getByText('本会话用量')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '关闭' })).not.toBeInTheDocument()
     expect(screen.getByText('总吞吐')).toBeInTheDocument()
-    expect(screen.getByText('固定价格参照')).toBeInTheDocument()
+    expect(screen.getByText('GPT-6 Sol API 标准价估算')).toBeInTheDocument()
+    expect(screen.getByText('≈ ¥0.06')).toBeInTheDocument()
+    expect(screen.getByText(/未计入长上下文/)).toBeInTheDocument()
     expect(await screen.findByText('尚无本地汇总数据')).toBeInTheDocument()
     expect(screen.getByText('统计口径')).toBeInTheDocument()
   })
