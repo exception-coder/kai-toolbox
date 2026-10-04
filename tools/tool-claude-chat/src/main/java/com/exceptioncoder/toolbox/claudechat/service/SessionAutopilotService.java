@@ -264,16 +264,24 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         for (int attempt = 0; attempt < 3; attempt++) {
             SessionAutopilotRun current = repository.findBySessionId(sessionId)
                     .orElseThrow(() -> new IllegalArgumentException("当前会话没有活动的自动监督运行"));
-            if (current.state() != AutopilotState.ACTIVE) {
-                throw new IllegalStateException("自动监督当前不接受进度上报：" + current.state());
+            boolean recover = current.state() == AutopilotState.WAITING_USER
+                    && disposition == AutopilotDisposition.CONTINUE
+                    && request.remainingWork() != null && !request.remainingWork().isEmpty()
+                    && runtimeStates.inspect(sessionId).map(state -> !state.stale()
+                            && Boolean.TRUE.equals(state.sidecarActive())
+                            && Boolean.FALSE.equals(state.pendingDecision())).orElse(false);
+            if (current.state() != AutopilotState.ACTIVE && !recover) {
+                throw new AutopilotProgressConflictException(current.state(), current.context().version());
             }
             Instant now = Instant.now();
             OpenSpecExecutionContext context = incrementVersion(current.context());
             String remainingJson = writeList(request.remainingWork());
             String evidenceJson = writeList(request.evidence());
             SessionAutopilotRun next = new SessionAutopilotRun(
-                    current.id(), current.sessionId(), current.goal(), current.completionPolicy(), current.state(),
-                    boundedText(request.reason()), context, current.turnCount(), current.maxTurns(),
+                    current.id(), current.sessionId(), current.goal(), current.completionPolicy(),
+                    recover ? AutopilotState.ACTIVE : current.state(),
+                    recover ? "已恢复执行；未完成验证保留待回归" : boundedText(request.reason()),
+                    context, current.turnCount(), current.maxTurns(),
                     current.noProgressCount(), current.maxNoProgress(), current.autoArchive(),
                     current.skillActivated(), current.skillPath(), current.skillVersion(), current.skillFingerprint(),
                     current.runtimeSupervision(), current.completedTasks(), current.totalTasks(), disposition,

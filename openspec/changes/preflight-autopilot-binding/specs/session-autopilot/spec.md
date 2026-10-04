@@ -61,3 +61,21 @@
 #### Scenario: 任务快照暂不可读
 - **WHEN** OpenSpec task 读取失败
 - **THEN** 运行摘要仍可见，任务区提供重试，不将未知任务标为完成
+
+### Requirement: 外部验证缺失时继续可执行工作
+系统 SHALL 将不可用的外部验证环境记录为未完成项，并继续当前 task 内不依赖该环境的授权步骤。没有可执行步骤时才能等待用户；不得把未运行的数据库验证标为通过或勾选任务。
+
+#### Scenario: 数据库环境暂不可用
+- **WHEN** MySQL/MariaDB 容器在 SQL 执行前启动失败，且同一 task 尚有可独立实施或验证的步骤
+- **THEN** Agent 上报 CONTINUE、明确 nextAction 和 remainingWork 中的未验证项
+- **AND** Runtime 保持当前 task 未完成，后续回归数据库验证
+
+#### Scenario: 等待状态下同轮继续
+- **WHEN** 运行已在 WAITING_USER，同一活动轮次没有待用户决策，并上报有明确下一步与未完成项的 CONTINUE
+- **THEN** Runtime 恢复 ACTIVE 并保存未完成验证证据，不直接判定任务完成
+- **AND** 其他等待或暂停状态返回 HTTP 409、当前版本和恢复入口
+
+#### Scenario: 旧写入绑定占用新范围
+- **WHEN** 本会话旧执行的写入范围与新的完整文件清单冲突
+- **THEN** WORKSPACE_BUSY 指明占用会话、执行 ID 与范围，并引导审计旧绑定
+- **AND** 不自动解除写入权或删除工作文件

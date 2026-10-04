@@ -34,8 +34,10 @@ public final class AutopilotTurnHandoff {
                 如写入执行尚未绑定，先只读定位当前 task 的精确文件范围，再按
                 resolve_execution_context → discover_execution → assess_execution 建立写入范围，
                 复用本消息绑定的 change ID；取得写入许可前不得修改文件。
-                若执行门禁拒绝或缺少必要证据，使用 forge.report_session_progress 上报
-                WAITING_USER 或 BLOCKED 和具体原因，不要反复查询后无报告结束。
+                若外部验证环境暂不可用，保留未验证项和证据，先完成当前 task 中
+                不依赖该环境的步骤；有下一步时上报 CONTINUE、nextAction 和 remainingWork。
+                只有没有可执行步骤或必须等待用户决策时才上报 WAITING_USER 或 BLOCKED。
+                写入门禁冲突时先 inspect_execution_writer 查明占用者，不得绕过门禁。
                 只执行上述绑定上下文中的下一步。完成或遇到真实阻塞前，遵守
                 forge-openspec-continuous-execution Skill。yield 前必须调用
                 forge.report_session_progress；不要从自然语言自行切换 change 或 task。

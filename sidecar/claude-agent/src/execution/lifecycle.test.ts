@@ -209,7 +209,9 @@ test('different modules run together while shared files and the same module rema
     fs.writeFileSync(path.join(root, module, 'Main.java'), `class ${module} {}`)
   }
   fs.writeFileSync(path.join(root, 'pom.xml'), '<project/>')
-  git(root, ['add', 'alpha', 'beta', 'pom.xml']); git(root, ['commit', '-qm', 'modules'])
+  fs.mkdirSync(path.join(root, 'docs'))
+  fs.writeFileSync(path.join(root, 'docs', 'alpha.md'), 'Module alpha design.\n')
+  git(root, ['add', 'alpha', 'beta', 'pom.xml', 'docs/alpha.md']); git(root, ['commit', '-qm', 'modules'])
   const bind = (sessionId: string, files: string[]) => {
     const context = { project: root, sessionId }
     return assessExecution({ ...context, discoveryId: discoverExecution({ ...context,
@@ -230,6 +232,12 @@ test('different modules run together while shared files and the same module rema
   git(root, ['reset', '-q', '--', 'beta/Main.java'])
   fs.writeFileSync(path.join(root, 'beta/Main.java'), 'class beta {}')
   assert.throws(() => bind('third', ['alpha/pom.xml']), /已有写入会话/)
+  assert.throws(() => bind('alpha-session', ['alpha/Main.java', 'docs/alpha.md']), error => {
+    assert.match(String(error), /本会话旧执行/)
+    assert.match(String(error), new RegExp(alpha.executionId))
+    assert.match(String(error), /module:alpha/)
+    return true
+  })
   assert.throws(() => bind('shared', ['pom.xml']), /已有写入会话/)
   const snapshot = inspectExecutionWriter({ project: root })
   const target = snapshot.writers.find(writer => writer.executionId === alpha.executionId)!

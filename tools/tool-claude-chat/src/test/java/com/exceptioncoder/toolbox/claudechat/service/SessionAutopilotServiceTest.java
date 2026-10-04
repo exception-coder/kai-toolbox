@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.autopilot.AutopilotState;
 import com.exceptioncoder.toolbox.claudechat.domain.autopilot.OpenSpecExecutionContext;
 import com.exceptioncoder.toolbox.claudechat.domain.autopilot.OpenSpecExecutionPhase;
 import com.exceptioncoder.toolbox.claudechat.domain.autopilot.SessionAutopilotRun;
+import com.exceptioncoder.toolbox.claudechat.api.dto.SessionRuntimeStateView;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.SessionAutopilotRepository;
 import com.exceptioncoder.toolbox.claudechat.service.ContinuousExecutionSkillProvisioner.ProvisioningResult;
@@ -452,6 +453,65 @@ class SessionAutopilotServiceTest {
             assertThat(item.toString()).hasSizeLessThanOrEqualTo(2_000);
             assertThat(item.toString()).contains("token=[REDACTED]").doesNotContain("secret-");
         });
+    }
+
+    @Test
+    void waitingRunRejectsProgressWithRecoverableConflictInsteadOfServerError() {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        SessionAutopilotRun waiting = withState(run(), AutopilotState.WAITING_USER);
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.of(waiting));
+        SessionAutopilotService service = service(repository,
+                mock(ClaudeChatSessionRepository.class), mock(ClaudeChatSessionAccessPolicy.class));
+
+        assertThatThrownBy(() -> service.reportProgress("session-1",
+                new SessionAutopilotService.ProgressReport("CONTINUE", "local work", "check build",
+                        List.of("MySQL validation pending"), List.of(), null)))
+                .isInstanceOfSatisfying(AutopilotProgressConflictException.class, conflict -> {
+                    assertThat(conflict.state()).isEqualTo(AutopilotState.WAITING_USER);
+                    assertThat(conflict.version()).isZero();
+                });
+        verify(repository, never()).update(any(), anyLong());
+    }
+
+    @Test
+    void activeTurnCanResumeWaitingRunWhileRetainingDeferredVerification() throws Exception {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        SessionAutopilotRun waiting = withState(run(), AutopilotState.WAITING_USER);
+        SessionRuntimeStateService runtime = mock(SessionRuntimeStateService.class);
+        SessionRuntimeStateView observed = mock(SessionRuntimeStateView.class);
+        when(observed.stale()).thenReturn(false);
+        when(observed.sidecarActive()).thenReturn(true);
+        when(observed.pendingDecision()).thenReturn(false);
+        when(runtime.inspect("session-1")).thenReturn(Optional.of(observed));
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.of(waiting));
+        when(repository.update(any(), eq(0L))).thenReturn(true);
+        SessionAutopilotService service = new SessionAutopilotService(repository,
+                mock(ClaudeChatSessionRepository.class), mock(ClaudeChatSessionAccessPolicy.class),
+                mock(QueuedChatMessageService.class), runtime, mock(AutopilotProjectContextResolver.class),
+                mock(OpenSpecAutopilotAdapter.class), mock(OpenSpecContinuousRunner.class),
+                mock(ContinuousExecutionSkillProvisioner.class), new ObjectMapper(),
+                mock(ApplicationEventPublisher.class));
+
+        service.reportProgress("session-1", new SessionAutopilotService.ProgressReport(
+                "CONTINUE", "main app packaging passed", "finish migration manifest",
+                List.of("MySQL/MariaDB verification not run"), List.of("package passed"), null));
+
+        ArgumentCaptor<SessionAutopilotRun> saved = ArgumentCaptor.forClass(SessionAutopilotRun.class);
+        verify(repository).update(saved.capture(), eq(0L));
+        assertThat(saved.getValue().state()).isEqualTo(AutopilotState.ACTIVE);
+        assertThat(saved.getValue().context().currentTaskId()).isEqualTo("6.4");
+        assertThat(saved.getValue().completedTasks()).isZero();
+        assertThat(saved.getValue().latestRemainingWorkJson()).contains("MySQL/MariaDB verification not run");
+    }
+
+    private SessionAutopilotRun withState(SessionAutopilotRun source, AutopilotState state) {
+        return new SessionAutopilotRun(source.id(), source.sessionId(), source.goal(), source.completionPolicy(), state,
+                source.reason(), source.context(), source.turnCount(), source.maxTurns(), source.noProgressCount(),
+                source.maxNoProgress(), source.autoArchive(), source.skillActivated(), source.skillPath(),
+                source.skillVersion(), source.skillFingerprint(), source.runtimeSupervision(),
+                source.completedTasks(), source.totalTasks(), source.latestDisposition(), source.latestSummary(),
+                source.latestNextAction(), source.latestRemainingWorkJson(), source.latestEvidenceJson(),
+                source.latestReportAt(), source.startedAt(), source.deadlineAt(), source.updatedAt());
     }
 
     private SessionAutopilotService service(SessionAutopilotRepository repository,

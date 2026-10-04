@@ -131,16 +131,17 @@ export function assessExecution(raw: unknown) {
       }
     }
     writers = readWriters(root)
-    requireCondition(!writers.some(writer => writer.sessionId !== input.sessionId && scopesConflict(writer.scopes, scopes)), 'WORKSPACE_BUSY',
-      '目标模块或共享文件已有写入会话且尚未证明完成；先 inspect_execution_writer，原会话丢失时显式 abort_execution 后建立新执行')
+    const conflictingWriter = writers.find(writer => writer.sessionId !== input.sessionId && scopesConflict(writer.scopes, scopes))
+    requireCondition(!conflictingWriter, 'WORKSPACE_BUSY',
+      `目标范围已有写入会话 ${conflictingWriter?.sessionId} 的执行 ${conflictingWriter?.executionId} 占用（范围：${conflictingWriter?.scopes.join(', ')}）；先 inspect_execution_writer，原会话丢失时显式 abort_execution 后建立新执行`)
     let writer = writers.find(item => item.sessionId === input.sessionId)
     requireCondition(!writer || JSON.stringify(writer.scopes) === JSON.stringify(scopes), 'WORKSPACE_BUSY',
-      '当前会话已有不同模块范围的执行；先结束原执行')
+      `本会话旧执行 ${writer?.executionId} 已占用范围 ${writer?.scopes.join(', ')}；先 inspect_execution_writer，审计后 abort_execution 保留工作文件，再重新绑定完整文件范围`)
     if (writer) {
       const active = readJson<Execution>(statePath(root, writer.executionId))
       requireCondition(!active.release && active.branch === branch && active.discovery.discoveryId === discovery.discoveryId
         && JSON.stringify(active.assessment) === JSON.stringify(input),
-      'WORKSPACE_BUSY', '当前会话已有未完成执行；先完成或审计中止，再绑定新任务')
+      'WORKSPACE_BUSY', `本会话旧执行 ${writer.executionId} 尚未完成；先完成或审计中止，再绑定新任务`)
       executionId = active.executionId
     }
     // Released records are immutable history, never a new lease or verification baseline.

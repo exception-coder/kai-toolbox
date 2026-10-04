@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.api;
 import com.exceptioncoder.toolbox.claudechat.api.dto.SessionAutopilotView;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import com.exceptioncoder.toolbox.claudechat.service.SessionAutopilotService;
+import com.exceptioncoder.toolbox.claudechat.service.AutopilotProgressConflictException;
 import com.exceptioncoder.toolbox.claudechat.service.AutopilotBindingPreviewService;
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecChangeCatalog;
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter;
@@ -120,9 +121,17 @@ public class SessionAutopilotController {
     @PostMapping("/sessions/{sessionId}/autopilot/progress")
     public SessionAutopilotView.Run reportProgress(@PathVariable String sessionId,
                                                     @RequestBody ProgressRequest request) {
-        return service.reportProgress(sessionId, new SessionAutopilotService.ProgressReport(
-                request.disposition(), request.summary(), request.nextAction(), request.remainingWork(),
-                request.evidence(), request.reason()));
+        try {
+            return service.reportProgress(sessionId, new SessionAutopilotService.ProgressReport(
+                    request.disposition(), request.summary(), request.nextAction(), request.remainingWork(),
+                    request.evidence(), request.reason()));
+        } catch (AutopilotProgressConflictException conflict) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    conflict.getMessage() + "；当前版本 " + conflict.version()
+                            + "；GET /api/claude-chat/sessions/" + sessionId + "/autopilot"
+                            + "，POST /api/claude-chat/sessions/" + sessionId
+                            + "/autopilot/actions/resume {\"expectedVersion\":" + conflict.version() + "}");
+        }
     }
 
     @GetMapping("/autopilot/runs")
