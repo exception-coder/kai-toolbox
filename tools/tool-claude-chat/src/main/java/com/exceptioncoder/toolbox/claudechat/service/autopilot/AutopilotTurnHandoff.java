@@ -42,6 +42,10 @@ public final class AutopilotTurnHandoff {
                 只有没有可执行步骤或必须等待用户决策时才上报 WAITING_USER 或 BLOCKED。
                 若当前规格有不可越过的前置依赖，先记录具体问题和证据；批次中其他已选规格
                 由 Runtime 预检后调度，不要自行切换 change，也不要混入其他规格的提交。
+                自动推进的完成边界是绑定的 OpenSpec 目标，不是每个 task 的单独提交。
+                共享前置尚未形成独立提交时，保留其依赖、责任范围和未验证项，继续获授权的
+                独立工作；不得仅因“一任务一提交”约定上报 WAITING_USER 或停止推进。
+                到可验证的交付节点再只提交自身写入范围内的文件，不夹带其他执行的修改。
                 写入门禁冲突时先 inspect_execution_writer 查明占用者，不得绕过门禁。
                 只执行上述绑定上下文中的下一步。完成或遇到真实阻塞前，遵守
                 forge-openspec-continuous-execution Skill。yield 前必须调用

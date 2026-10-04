@@ -142,11 +142,13 @@ flowchart TD
     PARTIAL -->|"全部完成或真实失败"| GATE{"脚本门禁通过?<br/>Hook 或权限入口"}
     GATE -->|"否"| REPAIR["修复失败；范围或影响改变时重新判定"]
     REPAIR --> REVIEW
-    GATE -->|"是"| COMMIT["核对共享暂存区<br/>Agent 原子提交当前任务"]
+    GATE -->|"是"| CHECKPOINT{"当前工作可独立验证并提交?"}
+    CHECKPOINT -->|"是"| COMMIT["核对共享暂存区<br/>只提交自身写入范围"]
+    CHECKPOINT -->|"否，自动监督仍有可执行项"| MORE
     COMMIT --> MORE{"还有任务?"}
     MORE -->|"有且影响未变"| IMPLEMENT
     MORE -->|"有且影响改变"| REVIEW
-    MORE -->|"无"| FINISH["Forge 检查完成状态并释放写入权"]
+    MORE -->|"无"| FINISH["Forge 核对完成证据与交付提交<br/>满足条件才释放写入权"]
     FINISH --> ARCHIVE["有 Change 时按生命周期判断<br/>规格同步及归档条件"]
 ```
 
@@ -155,6 +157,8 @@ flowchart TD
 自动监督绑定与 Sidecar 写入执行绑定各有职责：前者确定 OpenSpec 目标、阶段和预算，Runtime 从持久记录向 Agent 注入 run ID、change、阶段和 task；后者通过 `session_init` 查看写入权，`execution: null` 只表示尚未取得该权，Agent 应对当前绑定的 change 继续完成范围探索和影响评估，取得许可后才写入，无法取得时上报具体阻塞而不是宣称监督任务不存在。Team Standards 指导 Agent 写正文；Forge 校验身份、范围、版本、文件更新和执行证据，不能自动证明正文质量。完整模板与方法留在套件，本文不复制模板。
 
 多规格批次中，当前规格若有未解决的前置或待决策项，Agent 先完成该规格内独立且获授权的步骤并记录具体问题。成功终态后 Runtime 才在用户已确认的其余规格中复核 revision、待执行任务和 strict validation；有合格项时持久暂留当前问题并调整未完成项顺序，全部暂留时进入待处理，不循环派发。暂留不代表完成，也不扩大 Sidecar 写入范围；原会话推进详情展示问题，收到回复并恢复后重新检查该规格。此规则不自动推断跨规格依赖或代替用户对高风险事项的授权。
+
+自动推进以用户确认的 OpenSpec 目标为完成边界，不把普通开发的“一 task 一提交”当作中断条件。共享前置未提交或单个任务暂不能形成独立验证快照时，Agent 记录依赖、归属与缺失证据，继续已授权且可独立执行的工作；只有确无可执行步骤或需要用户决策才待回复。可验证的交付节点再提交自身范围，Sidecar 的文件归属、共享暂存区和提交证据门禁继续生效，不借自动监督合并别的执行文件或宣称未验证任务完成。用户回复后在原运行复核并继续，不产生第二套目标。
 
 ```mermaid
 flowchart LR
