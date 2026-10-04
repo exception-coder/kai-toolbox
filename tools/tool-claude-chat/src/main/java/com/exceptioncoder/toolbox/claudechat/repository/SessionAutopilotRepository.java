@@ -48,6 +48,37 @@ public class SessionAutopilotRepository {
                 .stream().findFirst();
     }
 
+    public Optional<Batch> findBatch(String sessionId, String runId) {
+        return jdbc.query("SELECT change_ids_json, expected_revisions_json, current_index"
+                        + " FROM claude_chat_autopilot_batch"
+                        + " WHERE session_id = ? AND run_id = ?",
+                (rs, row) -> new Batch(rs.getString(1), rs.getString(2), rs.getInt(3)), sessionId, runId)
+                .stream().findFirst();
+    }
+
+    public void saveBatch(String sessionId, String runId, String changeIdsJson, String revisionsJson) {
+        jdbc.update("INSERT INTO claude_chat_autopilot_batch"
+                        + "(session_id, run_id, change_ids_json, expected_revisions_json, current_index)"
+                        + " VALUES (?, ?, ?, ?, 0) ON CONFLICT(session_id) DO UPDATE SET"
+                        + " run_id = excluded.run_id, change_ids_json = excluded.change_ids_json,"
+                        + " expected_revisions_json = excluded.expected_revisions_json, current_index = 0",
+                sessionId, runId, changeIdsJson, revisionsJson);
+    }
+
+    @Transactional
+    public void advanceBatch(SessionAutopilotRun next, long expectedVersion, int currentIndex) {
+        if (!update(next, expectedVersion)) {
+            throw new IllegalStateException("自动监督状态已变化，请刷新后重试");
+        }
+        if (jdbc.update("UPDATE claude_chat_autopilot_batch SET current_index = ?"
+                        + " WHERE session_id = ? AND run_id = ? AND current_index = ?",
+                currentIndex + 1, next.sessionId(), next.id(), currentIndex) != 1) {
+            throw new IllegalStateException("自动监督批次已变化，请刷新后重试");
+        }
+    }
+
+    public record Batch(String changeIdsJson, String expectedRevisionsJson, int currentIndex) { }
+
     public Optional<SessionAutopilotRun> findById(String runId) {
         return jdbc.query("SELECT " + SELECT_COLUMNS
                         + " FROM claude_chat_autopilot_run WHERE id = ?", mapper, runId)
@@ -100,6 +131,8 @@ public class SessionAutopilotRepository {
         arguments.add(Math.max(1, Math.min(limit, 200)));
         return jdbc.query("SELECT " + SELECT_COLUMNS + " FROM claude_chat_autopilot_run"
                 + " WHERE state IN (" + placeholders + ")"
+                + " AND NOT EXISTS (SELECT 1 FROM claude_chat_session_plan_state plan"
+                + " WHERE plan.id = claude_chat_autopilot_run.session_id AND plan.plan_expired = 1)"
                 + " AND (lower(goal) LIKE ? OR lower(change_id) LIKE ? OR lower(project_root) LIKE ?)"
                 + " AND (updated_at < ? OR (updated_at = ? AND id < ?))"
                 + " ORDER BY updated_at DESC, id DESC LIMIT ?", mapper, arguments.toArray());

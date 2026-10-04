@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
 import type { AssistantMessageEnvelope, Attachment, BackgroundTaskInfo, CapabilitySnapshotSource, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, McpCapability, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, PluginCapability, ProviderKind, SendAttachment, ServerMessage, SkillCapability, TurnDiag } from '../types'
 import { useVoiceTransport } from './useVoiceTransport'
@@ -297,9 +298,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const [codexReasoningEffort, setCodexReasoningEffort] = useState<CodexReasoningEffort>('low')
   const [codexSpeed, setCodexSpeed] = useState<CodexSpeed>('default')
   const [currentEngine, setCurrentEngine] = useState<Engine>('claude')
-  const [currentProviderKind, setCurrentProviderKind] = useState<ProviderKind>('official')
   const currentEngineRef = useRef<Engine>(currentEngine)
   currentEngineRef.current = currentEngine
+  const [currentProviderKind, setCurrentProviderKind] = useState<ProviderKind>('official')
   const [currentProviderBaseUrl, setCurrentProviderBaseUrl] = useState<string | null>(null)
   const [providerDiag, setProviderDiag] = useState<TurnDiag[]>([])
   // 本轮进行中的实时输出 token 数（SDK 流式 message_delta 累计），供「进行时」指示器展示。
@@ -427,6 +428,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     switch (msg.type) {
       case 'ready':
+        reportVibeEntry('session_ready', 'ok', msg.sessionId)
         let duplicateContextSeed: string | null = null
         if (duplicateSourceRef.current && msg.sessionId !== duplicateSourceRef.current) {
           duplicateContextSeed = duplicateContextSeedRef.current
@@ -648,8 +650,6 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         // 另一端已处理同一请求（多端同看）→ 关掉本端弹窗
         setPending(prev => (prev && prev.reqId === msg.reqId ? null : prev))
         break
-      case 'models':
-        setModels(msg.models)
       case 'modeChanged': {
         if (channel === 'consult' || channel === 'review') break
         const next = normalizePermissionModeForEngine(currentEngineRef.current, msg.mode)
@@ -657,6 +657,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setModeState(next)
         break
       }
+      case 'models':
+        setModels(msg.models)
         setCurrentModel(msg.current)
         if (channel === 'review') {
           const defaultModel = msg.models.find(model => model.isDefault)
@@ -1372,6 +1374,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sendRaw, connect])
 
   const switchTo = useCallback((sid: string, hintRunning = false) => {
+    reportVibeEntry('session_switch', 'start', sid)
     resetForNewSession()
     if (channel === 'consult') setState('connecting')
     shouldLoadHistoryRef.current = true

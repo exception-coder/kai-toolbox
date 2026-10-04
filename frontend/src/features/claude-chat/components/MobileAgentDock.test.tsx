@@ -5,7 +5,6 @@ import { MobileAgentDock } from './MobileAgentDock'
 
 const availability = vi.hoisted(() => vi.fn<() => string | null>(() => null))
 vi.mock('../lib/nativeVoice', () => ({ voiceAvailability: availability }))
-vi.mock('./SessionAutopilotStatus', () => ({ SessionAutopilotStatus: () => <div>OpenSpec</div> }))
 afterEach(() => { cleanup(); availability.mockReset(); availability.mockReturnValue(null) })
 
 function fixture(onStartVoice = vi.fn()) {
@@ -13,7 +12,7 @@ function fixture(onStartVoice = vi.fn()) {
   client.setQueryData(['claude-chat-runtime-state', 'session'], { effectiveStatus: 'IDLE', consistency: 'CONSISTENT', recommendedAction: '可以发送消息' })
   render(<QueryClientProvider client={client}><MobileAgentDock
     status={{ sessionId: 'session', items: [], running: false, engineLabel: 'Codex', turnTokens: 0, connState: 'ready', backgroundTasks: [], usage: null, usageLoading: false, onOpenUsage: vi.fn(), onOpenTrajectory: vi.fn() }}
-    queue={{ items: [], onSendNow: vi.fn(), onRemove: vi.fn(), onClear: vi.fn() }} projectRoot="fixture" onOpenDashboard={vi.fn()}
+    queue={{ items: [], onSendNow: vi.fn(), onRemove: vi.fn(), onClear: vi.fn() }}
     voiceEnabled voiceDisabled={false} onStartVoice={onStartVoice}
   /></QueryClientProvider>)
   return onStartVoice

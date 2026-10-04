@@ -20,6 +20,27 @@ class OpenSpecAutopilotAdapterTest {
     Path temporaryDirectory;
 
     @Test
+    void parsesLargeChangeListWithoutUsingTheSmallDiagnosticLimit() throws IOException {
+        String padding = "x".repeat(17_000);
+        String json = "{\"changes\":[{\"name\":\"implement-iam-organization\",\"completedTasks\":1,"
+                + "\"totalTasks\":11,\"lastModified\":\"" + padding + "\"}]}";
+        Path output = temporaryDirectory.resolve("changes.json");
+        Files.writeString(output, json);
+
+        assertThat(adapter.parseChanges(output)).extracting(OpenSpecAutopilotAdapter.ChangeOption::id)
+                .containsExactly("implement-iam-organization");
+    }
+
+    @Test
+    void reportsTruncatedListInsteadOfClaimingThereAreNoChanges() throws IOException {
+        var cli = new OpenSpecCliGateway();
+        Path output = temporaryDirectory.resolve("list.json");
+        Files.writeString(output, "x".repeat(20_500));
+
+        assertThat(cli.readOutput(output, 16_000)).endsWith(OpenSpecCliGateway.TRUNCATED_MARKER);
+    }
+
+    @Test
     void findsArchivedChangeFromRepositoryRootForNestedSessionDirectory() throws IOException {
         Path repositoryRoot = temporaryDirectory.resolve("repository");
         Path sessionRoot = Files.createDirectories(repositoryRoot.resolve("frontend/src/features/claude-chat"));

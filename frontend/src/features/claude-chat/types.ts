@@ -134,6 +134,23 @@ export interface AutopilotChangeOption {
   lastModified?: string | null
 }
 
+export interface AutopilotBindingCandidate {
+  changeId: string
+  completedTasks: number
+  totalTasks: number
+  revision: string
+  relevance: number
+  ready: boolean
+  reason: string
+}
+
+export interface AutopilotTask {
+  id: string
+  applyOrdinal: number
+  description: string
+  done: boolean
+}
+
 export interface SessionAutopilotRun {
   id: string
   sessionId: string

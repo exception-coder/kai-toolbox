@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
@@ -32,12 +34,35 @@ public class OpenSpecAutopilotAdapter {
     }
 
     public List<ChangeOption> listChanges(Path projectRoot) {
-        JsonNode root = requireJson(projectRoot, List.of("list", "--json"), "读取 OpenSpec changes");
+        return cliGateway.runWithOutputFile(projectRoot, List.of("list", "--json"), this::parseChanges);
+    }
+
+    List<ChangeOption> parseChanges(Path outputFile) throws IOException {
         List<ChangeOption> changes = new ArrayList<>();
-        root.path("changes").forEach(node -> changes.add(new ChangeOption(
-                node.path("name").asText(), node.path("completedTasks").asInt(0),
-                node.path("totalTasks").asInt(0), node.path("lastModified").asText(null))));
-        return List.copyOf(changes);
+        try (JsonParser parser = objectMapper.getFactory().createParser(outputFile.toFile())) {
+            if (parser.nextToken() != JsonToken.START_OBJECT) {
+                throw new IOException("OpenSpec 列表不是 JSON 对象");
+            }
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                String field = parser.currentName();
+                JsonToken value = parser.nextToken();
+                if (!"changes".equals(field)) {
+                    parser.skipChildren();
+                    continue;
+                }
+                if (value != JsonToken.START_ARRAY) {
+                    throw new IOException("OpenSpec 列表缺少 changes 数组");
+                }
+                while (parser.nextToken() != JsonToken.END_ARRAY) {
+                    JsonNode node = objectMapper.readTree(parser);
+                    changes.add(new ChangeOption(node.path("name").asText(),
+                            node.path("completedTasks").asInt(0), node.path("totalTasks").asInt(0),
+                            node.path("lastModified").asText(null)));
+                }
+                return List.copyOf(changes);
+            }
+        }
+        throw new IOException("OpenSpec 列表缺少 changes 数组");
     }
 
     public ChangeSnapshot inspect(Path projectRoot, String changeId) {
@@ -151,7 +176,10 @@ public class OpenSpecAutopilotAdapter {
     }
 
     private JsonNode requireJson(Path projectRoot, List<String> arguments, String operation) {
-        OpenSpecCliGateway.CommandResult result = cliGateway.run(projectRoot, arguments);
+        return parseJson(cliGateway.run(projectRoot, arguments), operation, 16_000);
+    }
+
+    private JsonNode parseJson(OpenSpecCliGateway.CommandResult result, String operation, int maxOutputLength) {
         if (!result.started()) {
             throw new IllegalStateException(operation + "失败：OpenSpec CLI 不可用");
         }
@@ -159,7 +187,10 @@ public class OpenSpecAutopilotAdapter {
             throw new IllegalStateException(operation + "超时");
         }
         if (result.exitCode() != 0) {
-            throw new IllegalStateException(operation + "失败");
+            throw new IllegalStateException(operation + "失败（退出码 " + result.exitCode() + "）");
+        }
+        if (result.output().endsWith(OpenSpecCliGateway.TRUNCATED_MARKER)) {
+            throw new IllegalStateException(operation + "失败：CLI 输出超过 " + maxOutputLength + " 字符上限");
         }
         try {
             return objectMapper.readTree(result.output());

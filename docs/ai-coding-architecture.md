@@ -148,7 +148,19 @@ flowchart TD
     FINISH --> ARCHIVE["有 Change 时按生命周期判断<br/>规格同步及归档条件"]
 ```
 
-规格和设计是独立判定路径，汇合表示核对全部适用结果，不表示两份文档必须同时生成。并行写入仅在声明范围不冲突时放行。Team Standards 指导 Agent 写正文；Forge 校验身份、范围、版本、文件更新和执行证据，不能自动证明正文质量。完整模板与方法留在套件，本文不复制模板。
+规格和设计是独立判定路径，汇合表示核对全部适用结果，不表示两份文档必须同时生成。并行写入仅在声明范围不冲突时放行；执行中扩大到共同文件须重新探索并绑定范围。会话自动监督先返回当前项目的活动 OpenSpec 目录候选，再由只读推荐 Skill 对最近会话文本与规格摘要做语义排序；用户可选择多个 change。Forge 在启动前逐项复核任务、规格修订与严格校验，以一个持久批次在原会话内按所选顺序推进；当前项完成并归档后才重新检查并进入下一项。推荐只提供候选，不替代 OpenSpec 事实或用户确认。推进仍绑定原开发会话；“推进”页签汇总可访问的运行，点击后进入所属会话详情读取原运行状态和 OpenSpec tasks。Team Standards 指导 Agent 写正文；Forge 校验身份、范围、版本、文件更新和执行证据，不能自动证明正文质量。完整模板与方法留在套件，本文不复制模板。
+
+```mermaid
+flowchart LR
+    SESSION["当前会话上下文"] --> PREVIEW["活动目录候选 + 推荐 Skill 排序"]
+    PREVIEW --> CONFIRM["用户多选并逐项预检"]
+    CONFIRM --> RECHECK["Forge 逐项复核 revision、tasks 与 strict validation"]
+    RECHECK --> RUNTIME["原会话持久批次：单项监督 Runtime"]
+    RUNTIME --> NEXT["完成后复核下一项并按序推进"]
+    NEXT --> RUNTIME
+    RUNTIME --> BOARD["推进页签：全部运行与相关性提示"]
+    BOARD --> DETAIL["跳转所属会话详情 + OpenSpec tasks"]
+```
 
 | 情况 | 规格 | 概设/详设 |
 |---|---|---|

@@ -104,6 +104,18 @@ class ClaudeChatSessionAccessPolicyTest {
     }
 
     @Test
+    void checksAlreadyLoadedSessionWithoutAnotherRepositoryQuery() {
+        ClaudeChatSession own = ClaudeChatSession.builder().id("own").userId(7L).build();
+        ClaudeChatSession foreign = ClaudeChatSession.builder().id("foreign").userId(8L).build();
+        AuthContext.set(new AuthPrincipal(7L, "owner", List.of("USER"), List.of(), "jti", 1L));
+
+        assertThat(policy.canAccessCurrentUser(own)).isTrue();
+        assertThat(policy.canAccessCurrentUser(foreign)).isFalse();
+        verify(repository, never()).findById("own");
+        verify(repository, never()).findById("foreign");
+    }
+
+    @Test
     void rejectsProjectOperationWhenProjectContainsAnotherUsersSession() {
         AuthContext.set(new AuthPrincipal(7L, "owner", List.of("USER"), List.of(), "jti", 1L));
         when(repository.findByGroupName("ERP")).thenReturn(List.of(

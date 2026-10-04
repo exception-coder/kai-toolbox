@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { reportVibeEntry, reportVibeResourceSummary } from '@/lib/vibeEntryDiagnostics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -8,18 +9,14 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList, type MessageListHandle } from '../components/MessageList'
-import { TrajectoryView } from '../components/TrajectoryView'
 import { MessageNavPanel } from '../components/MessageNavPanel'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
 import { EngineIcon } from '../components/EngineIcon'
 import { CodexTransportBadge } from '../components/CodexTransportBadge'
-import { UsagePanel, UsageWorkspace } from '../components/UsagePanel'
 import { PermissionDialog } from '../components/PermissionDialog'
 import { QuestionDialog } from '../components/QuestionDialog'
 import { SessionList } from '../components/SessionList'
 import { RecentSessions } from '../components/RecentSessions'
-import { HistoryList } from '../components/HistoryList'
-import { NotifySettings } from '../components/NotifySettings'
 import { VoiceInputButton } from '../components/VoiceInputButton'
 import { NativeVoiceControl } from '../components/NativeVoiceControl'
 import { MobileRunningSend } from '../components/MobileRunningSend'
@@ -39,26 +36,14 @@ import '../styles/skin.css'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { ProviderSwitch } from '../components/ProviderSwitch'
+import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { GatewaySessionModelPicker } from '../components/GatewaySessionModelPicker'
 import { CodexSessionOptions } from '../components/CodexSessionOptions'
 import { AssistantRestoreMenuItem } from '@/assistant-sdk/AssistantBridge'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from '../components/ProjectMention'
-import { PluginPanel } from '../components/PluginPanel'
-import { LogsPanel } from '../components/LogsPanel'
-import { GestureDebugPanel } from '../components/GestureDebugPanel'
-import { ExportSessionDialog } from '../components/ExportSessionDialog'
-import { ProviderDiagPanel } from '../components/ProviderDiagPanel'
 import { groupModels } from '../components/modelGroups'
-import { TaskspacePanel } from '../components/TaskspacePanel'
-import { CloneProjectPanel } from '../components/CloneProjectPanel'
-import { OnboardPipelinePanel } from '../components/OnboardPipelinePanel'
-import { FileTreePanel } from '../components/FileTreePanel'
-import { DebugPanel } from '../components/DebugPanel'
-import { RestartDialog } from '../components/RestartDialog'
-import { MultiSessionView } from '../components/MultiSessionView'
-import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
 import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionPushPreview, pushSessionCommits, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
@@ -67,18 +52,11 @@ import { canSteerRunningMessage, RunningMessageActions } from '../components/Run
 import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
-import { CommitsPanel } from '@/components/git/CommitsPanel'
-import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
-import { PrdLinkPanel } from '../components/PrdLinkPanel'
-import { PendingSqlPanel } from '../components/PendingSqlPanel'
-import { PrdAttachPanel } from '../components/PrdAttachPanel'
 import { getSessionByDevSession, linkDevSession, type PrdSessionView } from '@/features/prd-clarify/public-api'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from '../components/SessionPlanLockNotice'
-import { SessionSitesDialog, SessionSitesWorkspace } from '../components/SessionSitesDialog'
-import { SessionProjectDirectoriesDialog } from '../components/SessionProjectDirectoriesDialog'
 import { Combobox } from '@/components/ui/combobox'
 import {
   acknowledgeLaunchIntent,
@@ -107,18 +85,55 @@ import {
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { SessionWorkStatus } from '../components/SessionWorkStatus'
 import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
-import { ReviewShareDialog } from '../components/ReviewShareDialog'
-import { ReviewWorkspace } from '../components/ReviewWorkspace'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
 import { selectableEngineIds, supportsSessionProvider } from '../lib/engineCatalog'
 import { MobileAgentDock } from '../components/MobileAgentDock'
 import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
 import { SessionToolsMenu } from '../components/SessionToolsMenu'
-import { OpenSpecInitializationDialog } from '../components/OpenSpecInitializationDialog'
-import { SessionDocumentsWorkspace } from '../components/SessionDocumentsWorkspace'
-import { SessionDatabaseWorkspace } from '../components/SessionDatabaseWorkspace'
 import { SessionAutopilotStatus } from '../components/SessionAutopilotStatus'
-import { AutopilotDashboard } from '../components/AutopilotDashboard'
+import { MobileSessionViewMore, type SecondarySessionViewOption } from '../components/MobileSessionViewMore'
+import { previewAutopilotBindings } from '../api'
+
+const TrajectoryView = lazy(() => import('../components/TrajectoryView').then(m => ({ default: m.TrajectoryView })))
+const UsageWorkspace = lazy(() => import('../components/UsagePanel').then(m => ({ default: m.UsageWorkspace })))
+const UsagePanel = lazy(() => import('../components/UsagePanel').then(m => ({ default: m.UsagePanel })))
+const CommitsPanel = lazy(() => import('@/components/git/CommitsPanel').then(m => ({ default: m.CommitsPanel })))
+const GitStatusPanel = lazy(() => import('@/components/git/GitStatusPanel').then(m => ({ default: m.GitStatusPanel })))
+const SessionDocumentsWorkspace = lazy(() => import('../components/SessionDocumentsWorkspace').then(m => ({ default: m.SessionDocumentsWorkspace })))
+const SessionDatabaseWorkspace = lazy(() => import('../components/SessionDatabaseWorkspace').then(m => ({ default: m.SessionDatabaseWorkspace })))
+const AutopilotDashboard = lazy(() => import('../components/AutopilotDashboard').then(m => ({ default: m.AutopilotDashboard })))
+const AutopilotProgressWorkspace = lazy(() => import('../components/AutopilotProgressWorkspace').then(m => ({ default: m.AutopilotProgressWorkspace })))
+
+function deferredPanel<C extends ComponentType<any>>(loader: () => Promise<{ default: C }>, fallback: ReactNode = null) {
+  const Component = lazy(loader)
+  return (props: ComponentProps<C>) => <Suspense fallback={fallback}><Component {...props} /></Suspense>
+}
+
+const workspaceLoading = <div className="p-4 text-sm text-[var(--color-muted-foreground)]" role="status">正在打开视图…</div>
+
+const HistoryList = deferredPanel(() => import('../components/HistoryList').then(m => ({ default: m.HistoryList })))
+const NotifySettings = deferredPanel(() => import('../components/NotifySettings').then(m => ({ default: m.NotifySettings })))
+const PluginPanel = deferredPanel(() => import('../components/PluginPanel').then(m => ({ default: m.PluginPanel })))
+const LogsPanel = deferredPanel(() => import('../components/LogsPanel').then(m => ({ default: m.LogsPanel })))
+const GestureDebugPanel = deferredPanel(() => import('../components/GestureDebugPanel').then(m => ({ default: m.GestureDebugPanel })))
+const ExportSessionDialog = deferredPanel(() => import('../components/ExportSessionDialog').then(m => ({ default: m.ExportSessionDialog })))
+const ProviderDiagPanel = deferredPanel(() => import('../components/ProviderDiagPanel').then(m => ({ default: m.ProviderDiagPanel })))
+const TaskspacePanel = deferredPanel(() => import('../components/TaskspacePanel').then(m => ({ default: m.TaskspacePanel })))
+const CloneProjectPanel = deferredPanel(() => import('../components/CloneProjectPanel').then(m => ({ default: m.CloneProjectPanel })))
+const OnboardPipelinePanel = deferredPanel(() => import('../components/OnboardPipelinePanel').then(m => ({ default: m.OnboardPipelinePanel })))
+const FileTreePanel = deferredPanel(() => import('../components/FileTreePanel').then(m => ({ default: m.FileTreePanel })))
+const DebugPanel = deferredPanel(() => import('../components/DebugPanel').then(m => ({ default: m.DebugPanel })))
+const RestartDialog = deferredPanel(() => import('../components/RestartDialog').then(m => ({ default: m.RestartDialog })))
+const MultiSessionView = deferredPanel(() => import('../components/MultiSessionView').then(m => ({ default: m.MultiSessionView })), workspaceLoading)
+const PrdLinkPanel = deferredPanel(() => import('../components/PrdLinkPanel').then(m => ({ default: m.PrdLinkPanel })))
+const PendingSqlPanel = deferredPanel(() => import('../components/PendingSqlPanel').then(m => ({ default: m.PendingSqlPanel })))
+const PrdAttachPanel = deferredPanel(() => import('../components/PrdAttachPanel').then(m => ({ default: m.PrdAttachPanel })))
+const SessionSitesDialog = deferredPanel(() => import('../components/SessionSitesDialog').then(m => ({ default: m.SessionSitesDialog })))
+const SessionSitesWorkspace = deferredPanel(() => import('../components/SessionSitesDialog').then(m => ({ default: m.SessionSitesWorkspace })), workspaceLoading)
+const SessionProjectDirectoriesDialog = deferredPanel(() => import('../components/SessionProjectDirectoriesDialog').then(m => ({ default: m.SessionProjectDirectoriesDialog })))
+const ReviewShareDialog = deferredPanel(() => import('../components/ReviewShareDialog').then(m => ({ default: m.ReviewShareDialog })))
+const ReviewWorkspace = deferredPanel(() => import('../components/ReviewWorkspace').then(m => ({ default: m.ReviewWorkspace })), workspaceLoading)
+const OpenSpecInitializationDialog = deferredPanel(() => import('../components/OpenSpecInitializationDialog').then(m => ({ default: m.OpenSpecInitializationDialog })))
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -210,6 +225,10 @@ function WorkspaceHeaderMount({ target, children }: { target: HTMLElement | null
 }
 
 export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } = {}) {
+  useEffect(() => {
+    reportVibeEntry('page_mount', 'ok', null, true)
+    reportVibeResourceSummary()
+  }, [])
   const { chat, setFloating, setMinimized, setVoiceMode, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError: gestureErr } = useChatRuntime()
   const unifiedTitleBarSlot = useUnifiedTitleBarSlot()
   const openMobileNavigation = useMobileNavigation()
@@ -382,14 +401,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     return () => { alive = false; window.clearInterval(timer) }
   }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
-  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'documents' | 'database' | 'sites' | 'usage' | 'review' | 'supervision'>(() =>
+  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'autopilot' | 'autopilot_detail' | 'documents' | 'database' | 'sites' | 'usage' | 'review' | 'supervision'>(() =>
     new URLSearchParams(location.search).get('view') === 'supervision' ? 'supervision' : 'conversation')
-  const openSupervision = useCallback(() => {
-    setSessionView('supervision')
-    const params = new URLSearchParams(location.search)
-    params.set('view', 'supervision')
-    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true })
-  }, [location.pathname, location.search, navigate])
+  const openSupervision = useCallback(() => { setSessionView('autopilot') }, [])
   const leaveSupervision = useCallback(() => {
     setSessionView('conversation')
     const params = new URLSearchParams(location.search)
@@ -849,6 +863,15 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     if (next.length === 0) setViewMode('single')
   }, [multiIds, sessions, sessionsLoaded])
   const currentSession = sessions.find(s => s.id === chat?.sessionId && isVibeCodingSession(s))
+  const autopilotSuggestions = useQuery({
+    queryKey: ['claude-chat-autopilot-candidates', chat?.sessionId, currentSession?.cwd],
+    queryFn: () => previewAutopilotBindings(chat?.sessionId ?? '', currentSession?.cwd),
+    enabled: sessionView === 'autopilot' && Boolean(chat?.sessionId && currentSession?.cwd),
+    staleTime: 30_000,
+  })
+  const recommendedChanges = useMemo(() => new Set(
+    autopilotSuggestions.data?.filter(candidate => candidate.relevance > 0).map(candidate => candidate.changeId) ?? [],
+  ), [autopilotSuggestions.data])
   const codexHomesQuery = useQuery({
     queryKey: ['claude-chat-codex-homes'],
     queryFn: fetchCodexHomes,
@@ -1046,6 +1069,12 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     if (!chat.sessionId) return
     if (planLocked) return
     if (!draft.trim() && attachments.length === 0) return
+    if (attachments.length === 0 && draft.trim().length <= 80
+      && /^(?:请)?(?:按(?:当前|这个|已选)?(?:规划|规格|openspec).*(?:推进|执行|实现到底)|自动推进(?:当前)?(?:规划|规格)?|按规格一路执行)[。！!\s]*$/i.test(draft.trim())) {
+      window.dispatchEvent(new CustomEvent('claude-chat:autopilot-bind-request', { detail: chat.sessionId }))
+      setDraft('')
+      return
+    }
     ensureNotifyPermission() // 借发送这个手势兜底申请一次通知权限
 
     const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
@@ -1109,6 +1138,19 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     setSlashDismissed(true)
     setSlashIdx(0)
   }
+
+  const mobileSessionViews: SecondarySessionViewOption[] = [
+    { id: 'trajectory', label: '轨迹', icon: Route },
+    ...(linkedPrd ? [{ id: 'documents' as const, label: '文档', icon: FileText }] : []),
+    ...(pendingSql ? [{ id: 'database' as const, label: 'SQL', icon: Database,
+      attention: pendingSql.status === 'PENDING' }] : []),
+    { id: 'sites', label: linkedSites.length ? `站点 ${linkedSites.length}` : '站点', icon: LayoutGrid },
+    { id: 'usage', label: '用量', icon: Gauge },
+    ...(reviewRelations && (reviewRelations.reviews.length || reviewRelations.pendingFeedback.length)
+      ? [{ id: 'review' as const, label: reviewRelations.pendingFeedback.length
+        ? `评审 ${reviewRelations.pendingFeedback.length}` : '评审', icon: Share2,
+        attention: reviewRelations.pendingFeedback.length > 0 }] : []),
+  ]
 
   return (
     <div className={cn(
@@ -1300,7 +1342,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           <Button variant="ghost" size="sm" className="hidden gap-1 px-2 md:inline-flex xl:px-3" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
             <List className="size-4" /> <span className="hidden xl:inline">会话</span>
           </Button>
-          <Button variant={sessionView === 'supervision' ? 'secondary' : 'ghost'} size="sm" className="hidden gap-1 px-2 md:inline-flex xl:px-3" onClick={openSupervision} aria-label="自动监督会话看板">
+          <Button variant={sessionView === 'supervision' || sessionView === 'autopilot' ? 'secondary' : 'ghost'} size="sm" className="hidden gap-1 px-2 md:inline-flex xl:px-3" onClick={openSupervision} aria-label="自动监督会话看板">
             <ListChecks className="size-4" /> <span className="hidden xl:inline">监督</span>
           </Button>
           <Button
@@ -1851,6 +1893,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
       {/* 会话目录 git 提交记录（复用通用 CommitsPanel，按 sessionId 服务端解析 cwd） */}
       {showCommits && chat.sessionId && (
+        <Suspense fallback={null}>
         <CommitsPanel
           title="会话目录"
           fetchRepos={() => listSessionGitRepos(chat.sessionId!)}
@@ -1860,10 +1903,12 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           restoreFocus={() => sessionToolsTriggerRef.current?.focus()}
           onClose={() => setShowCommits(false)}
         />
+        </Suspense>
       )}
 
       {/* 待提交文件：git status 树形视图 */}
       {showGitStatus && chat.sessionId && (
+        <Suspense fallback={null}>
         <GitStatusPanel
           title="会话目录"
           fetchRepos={() => listSessionGitRepos(chat.sessionId!)}
@@ -1871,6 +1916,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           fetchFileDiff={(filePath, x, repo) => fetchSessionGitFileDiff(chat.sessionId!, filePath, x, repo)}
           onClose={() => setShowGitStatus(false)}
         />
+        </Suspense>
       )}
 
       {/* 会话导出：PDF/Word（含图片），发给同事/领导查看 */}
@@ -2051,7 +2097,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           {/* 右侧：消息流 + 输入 */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {chat.sessionId ? (
-              <nav className="workspace-contextbar cc-chat-contextbar scrollbar-autohide flex items-end gap-1 overflow-x-auto px-2 sm:gap-4 sm:px-3" aria-label="会话视图">
+              <nav className="workspace-contextbar cc-chat-contextbar scrollbar-autohide flex items-end justify-between gap-1 overflow-x-auto px-2 sm:gap-4 sm:px-3 md:justify-start" aria-label="会话视图">
                 <button
                   type="button"
                   aria-current={sessionView === 'conversation' ? 'page' : undefined}
@@ -2071,7 +2117,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   aria-current={sessionView === 'trajectory' ? 'page' : undefined}
                   onClick={() => setSessionView('trajectory')}
                   className={cn(
-                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
+                    'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
                     sessionView === 'trajectory'
                       ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
                       : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
@@ -2080,13 +2126,26 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   <Route className="size-3.5" />
                   轨迹
                 </button>
+                <button
+                  type="button"
+                  aria-current={sessionView === 'autopilot' || sessionView === 'autopilot_detail' ? 'page' : undefined}
+                  onClick={() => setSessionView('autopilot')}
+                  className={cn(
+                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
+                    sessionView === 'autopilot' || sessionView === 'autopilot_detail'
+                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
+                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
+                  )}
+                >
+                  <ListChecks className="size-3.5" />推进
+                </button>
                 {linkedPrd && (
                   <button
                     type="button"
                     aria-current={sessionView === 'documents' ? 'page' : undefined}
                     onClick={() => setSessionView('documents')}
                     className={cn(
-                      'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
+                      'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
                       sessionView === 'documents'
                         ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
                         : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
@@ -2104,7 +2163,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     aria-label={pendingSql.status === 'PENDING' ? '数据库，待执行' : '数据库'}
                     onClick={() => setSessionView('database')}
                     className={cn(
-                      'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
+                      'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
                       sessionView === 'database'
                         ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
                         : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
@@ -2124,7 +2183,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   aria-current={sessionView === 'sites' ? 'page' : undefined}
                   onClick={() => setSessionView('sites')}
                   className={cn(
-                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
+                    'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
                     sessionView === 'sites'
                       ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
                       : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
@@ -2138,7 +2197,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   aria-current={sessionView === 'usage' ? 'page' : undefined}
                   onClick={() => setSessionView('usage')}
                   className={cn(
-                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
+                    'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
                     sessionView === 'usage'
                       ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
                       : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
@@ -2153,7 +2212,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     aria-current={sessionView === 'review' ? 'page' : undefined}
                     onClick={() => setSessionView('review')}
                     className={cn(
-                      'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
+                      'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
                       sessionView === 'review'
                         ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
                         : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
@@ -2163,16 +2222,24 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     评审{reviewRelations.pendingFeedback.length > 0 ? ` ${reviewRelations.pendingFeedback.length}` : ''}
                   </button>
                 )}
+                <MobileSessionViewMore currentView={sessionView} options={mobileSessionViews} onSelect={setSessionView} />
               </nav>
             ) : (
               <div className="workspace-contextbar cc-chat-contextbar" aria-hidden="true" />
             )}
             {chat.sessionId && sessionView !== 'supervision' && (
-              <div className="hidden md:block">
+              <div>
               <SessionAutopilotStatus
                 sessionId={chat.sessionId}
                 projectRoot={currentSession?.cwd ?? ''}
                 onOpenDashboard={openSupervision}
+                agentRunning={chat.running}
+                onSupplementSpec={changeId => {
+                  const target = changeId ? `补齐 OpenSpec change ${changeId}` : '根据本会话最近的目标与规划创建对应的 OpenSpec change'
+                  const prompt = `用户已确认${target}。请先核对当前项目已有规格、最近会话上下文和未完成任务；只补齐缺失的 OpenSpec proposal、delta specs、design 与 tasks，运行严格校验。不要在这一轮执行代码任务，也不要自行启动自动监督。若需求仍有无法推断的业务歧义，明确说明并等待用户选择。规格补齐后结束本轮，Forge 会自动重新预检并启动推进。`
+                  if (chat.running) chat.enqueue(prompt, undefined, '补齐自动推进规格')
+                  else chat.send(prompt, undefined, '补齐自动推进规格')
+                }}
               />
               </div>
             )}
@@ -2183,10 +2250,18 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               onGo={sid => chat.switchTo(sid)}
             />
             <main className="cc-skin-view flex min-h-0 min-w-0 flex-1 flex-col">
+              <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]" role="status">{sessionView === 'conversation' ? '正在加载会话记录…' : '正在打开视图…'}</div>}>
               {sessionView === 'supervision' ? (
-                <AutopilotDashboard onOpenSession={sessionId => { chat.switchTo(sessionId); leaveSupervision() }} />
+                <AutopilotDashboard onOpenSession={sessionId => { chat.switchTo(sessionId); leaveSupervision(); setSessionView('autopilot_detail') }} />
               ) : chat.sessionId ? (
-                sessionView === 'trajectory' ? (
+                sessionView === 'autopilot' ? (
+                  <AutopilotDashboard initialScope="all" recommendedChangeIds={recommendedChanges} recommendationProjectRoot={currentSession?.cwd}
+                    suggestedChanges={autopilotSuggestions.data}
+                    onOpenSession={sessionId => { chat.switchTo(sessionId); setSessionView('autopilot_detail') }} />
+                ) : sessionView === 'autopilot_detail' ? (
+                  <AutopilotProgressWorkspace key={`autopilot-${chat.sessionId}`} sessionId={chat.sessionId}
+                    onOpenAll={() => setSessionView('autopilot')} onOpenConversation={() => setSessionView('conversation')} />
+                ) : sessionView === 'trajectory' ? (
                   <TrajectoryView
                     key={`trajectory-${chat.sessionId}`}
                     items={chat.items}
@@ -2253,10 +2328,11 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   </Button>
                 </div>
               )}
+              </Suspense>
             </main>
 
             {/* 第三方网关调用诊断（可展开）：核对实际命中的模型，仅第三方会话显示 */}
-            {chat.sessionId && sessionView === 'conversation' && (
+            {chat.sessionId && sessionView === 'conversation' && chat.currentProviderKind === 'thirdParty' && (
               <div className="hidden md:block">
                 <ProviderDiagPanel
                   providerKind={chat.currentProviderKind}
@@ -2293,7 +2369,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               pausedReason: chat.queuePausedReason ?? (chat.backgroundTasks.length > 0 && chat.queued.length > 0 ? '后台作业尚未结束，待发送消息继续等待。' : null),
               canSendNow: !chat.running && !chat.pending && chat.backgroundTasks.length === 0,
               onSendNow: chat.sendQueuedNow, onRemove: chat.removeQueued, onClear: chat.clearQueued }}
-            projectRoot={currentSession?.cwd ?? ''} onOpenDashboard={openSupervision}
             voiceEnabled={chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession}
             voiceDisabled={planLocked || chat.state !== 'ready'} onStartVoice={() => nativeVoiceControlRef.current?.start()}
           />
@@ -2645,7 +2720,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
       )}
 
       {/* 本地用量弹层 */}
-      {showUsage && <UsagePanel onClose={() => setShowUsage(false)} session={sessionUsage} quotaContext={currentSession ? { ...currentSession, model: chat.currentModel } : undefined} quotaSessions={sessions} engineCatalog={engineCatalogQuery.data} />}
+      {showUsage && <Suspense fallback={null}><UsagePanel onClose={() => setShowUsage(false)} session={sessionUsage} quotaContext={currentSession ? { ...currentSession, model: chat.currentModel } : undefined} quotaSessions={sessions} engineCatalog={engineCatalogQuery.data} /></Suspense>}
 
       {/* 可视化决策弹窗（仅单会话视图；分屏下各块自管弹窗） */}
       {viewMode === 'single' && pending?.kind === 'permission' && (

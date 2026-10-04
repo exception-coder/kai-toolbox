@@ -487,3 +487,12 @@ CREATE TABLE IF NOT EXISTS claude_chat_autopilot_step (
 
 CREATE INDEX IF NOT EXISTS idx_claude_chat_autopilot_step_run
     ON claude_chat_autopilot_step(run_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS claude_chat_autopilot_batch (
+    session_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    change_ids_json TEXT NOT NULL,
+    expected_revisions_json TEXT NOT NULL,
+    current_index INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (run_id) REFERENCES claude_chat_autopilot_run(id) ON DELETE CASCADE
+);

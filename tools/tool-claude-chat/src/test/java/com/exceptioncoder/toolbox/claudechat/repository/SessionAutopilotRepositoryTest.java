@@ -29,6 +29,7 @@ class SessionAutopilotRepositoryTest {
         jdbc.execute("CREATE TABLE claude_chat_session (id TEXT PRIMARY KEY)");
         jdbc.update("INSERT INTO claude_chat_session(id) VALUES ('session-1')");
         jdbc.update("INSERT INTO claude_chat_session(id) VALUES ('session-2')");
+        jdbc.execute("CREATE TABLE claude_chat_session_plan_state (id TEXT PRIMARY KEY, plan_expired INTEGER NOT NULL)");
         jdbc.execute("""
                 CREATE TABLE claude_chat_autopilot_run (
                   id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE, goal TEXT NOT NULL,
@@ -48,6 +49,10 @@ class SessionAutopilotRepositoryTest {
                 """);
         jdbc.execute("CREATE INDEX idx_claude_chat_autopilot_state_updated "
                 + "ON claude_chat_autopilot_run(state, updated_at DESC, id DESC)");
+        jdbc.execute("CREATE TABLE claude_chat_autopilot_batch (session_id TEXT PRIMARY KEY,"
+                + " run_id TEXT NOT NULL, change_ids_json TEXT NOT NULL,"
+                + " expected_revisions_json TEXT NOT NULL, current_index INTEGER NOT NULL,"
+                + " FOREIGN KEY(run_id) REFERENCES claude_chat_autopilot_run(id) ON DELETE CASCADE)");
         jdbc.execute("""
                 CREATE TABLE claude_chat_autopilot_step (
                   id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, generation INTEGER NOT NULL,
@@ -57,6 +62,19 @@ class SessionAutopilotRepositoryTest {
                   FOREIGN KEY(run_id) REFERENCES claude_chat_autopilot_run(id) ON DELETE CASCADE)
                 """);
         repository = new SessionAutopilotRepository(jdbc);
+    }
+
+    @Test
+    void batchPlanSurvivesProgressUpdateAndIsReplacedWithTheRun() {
+        repository.replace(run(0, AutopilotState.ACTIVE));
+        repository.saveBatch("session-1", "run-1", "[\"first\",\"second\"]",
+                "{\"first\":\"rev-a\",\"second\":\"rev-b\"}");
+        assertThat(repository.findBatch("session-1", "run-1").orElseThrow().currentIndex()).isZero();
+
+        repository.advanceBatch(run(1, AutopilotState.ACTIVE), 0, 0);
+
+        assertThat(repository.findBatch("session-1", "run-1").orElseThrow().currentIndex()).isEqualTo(1);
+        assertThat(repository.findBySessionId("session-1").orElseThrow().context().version()).isEqualTo(1);
     }
 
     @Test
@@ -101,6 +119,21 @@ class SessionAutopilotRepositoryTest {
                  ORDER BY updated_at DESC, id DESC LIMIT 30
                 """);
         assertThat(plan.toString()).contains("idx_claude_chat_autopilot_state_updated");
+    }
+
+    @Test
+    void dashboardExcludesLockedSessionsBeforePagingAndRestoresThemAfterUnlock() {
+        repository.replace(run("run-1", "session-1", 0, AutopilotState.ACTIVE,
+                Instant.parse("2026-09-02T17:00:02Z")));
+        repository.replace(run("run-2", "session-2", 0, AutopilotState.ACTIVE,
+                Instant.parse("2026-09-02T17:00:01Z")));
+        jdbc.update("INSERT INTO claude_chat_session_plan_state(id, plan_expired) VALUES ('session-1', 1)");
+
+        assertThat(repository.findRecentByStates("", null, null, 1, List.of(AutopilotState.ACTIVE)))
+                .extracting(SessionAutopilotRun::sessionId).containsExactly("session-2");
+        jdbc.update("UPDATE claude_chat_session_plan_state SET plan_expired = 0 WHERE id = 'session-1'");
+        assertThat(repository.findRecentByStates("", null, null, 2, List.of(AutopilotState.ACTIVE)))
+                .extracting(SessionAutopilotRun::sessionId).containsExactly("session-1", "session-2");
     }
 
     @Test

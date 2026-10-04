@@ -18,6 +18,7 @@ import com.exceptioncoder.toolbox.claudechat.service.SessionDeletionService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionRuntimeStateService;
 import com.exceptioncoder.toolbox.claudechat.service.EngineCatalogService;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +36,7 @@ import java.util.Set;
  * - DELETE 删持久记录，同时通知 service 释放还挂着的会话。
  */
 @RestController
+@Slf4j
 @RequestMapping("/api/claude-chat/sessions")
 public class ClaudeChatSessionController {
 
@@ -72,9 +74,11 @@ public class ClaudeChatSessionController {
 
     @GetMapping
     public List<ClaudeChatSessionView> list() {
+        long started = System.nanoTime();
         List<ClaudeChatSession> all = repo.findAll().stream()
-                .filter(session -> sessionAccessPolicy.canAccessCurrentUser(session.getId()))
+                .filter(sessionAccessPolicy::canAccessCurrentUser)
                 .toList();
+        long afterAccess = System.nanoTime();
         // 一次目录扫描批量判定 transcript 存在性，避免逐会话遍历目录树
         Set<String> missing = historyService.findMissingTranscriptsByLocation(
                 all.stream()
@@ -82,12 +86,23 @@ public class ClaudeChatSessionController {
                         .map(s -> new SessionHistoryService.TranscriptLocation(
                                 s.getSdkSessionId(), s.getCodexHome()))
                         .toList());
+        long afterTranscripts = System.nanoTime();
         Map<String, SessionPlanState> planStates =
                 planStateService.listStates(all.stream().map(ClaudeChatSession::getId).toList());
-        return all.stream()
+        long afterPlans = System.nanoTime();
+        List<ClaudeChatSessionView> result = all.stream()
                 .map(s -> ClaudeChatSessionView.from(s, service.isLive(s.getId()),
                         transcriptAware(s) && missing.contains(s.getSdkSessionId()), planStates.get(s.getId())))
                 .toList();
+        long finished = System.nanoTime();
+        log.info("[vibe-session-list] count={} accessMs={} transcriptMs={} planMs={} mapMs={} totalMs={}",
+                all.size(), millis(afterAccess - started), millis(afterTranscripts - afterAccess),
+                millis(afterPlans - afterTranscripts), millis(finished - afterPlans), millis(finished - started));
+        return result;
+    }
+
+    private static long millis(long nanos) {
+        return nanos / 1_000_000;
     }
 
     /** 自动更新前的只读活动快照；调用本接口不会 attach、恢复或修改任何会话。 */

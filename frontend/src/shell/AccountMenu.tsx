@@ -92,7 +92,7 @@ export function AccountMenu({ collapsed }: { collapsed?: boolean }) {
           {showMock && (
             <button
               type="button"
-              onClick={() => { toggleMock(); qc.clear() }}
+              onClick={() => { void toggleMock().then(() => qc.clear()).catch(error => console.error('Mock 资源加载失败', error)) }}
               className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-muted)]"
               title={mock ? '关闭 mock，恢复真实接口' : '开启 mock，使用本地模拟数据'}
             >

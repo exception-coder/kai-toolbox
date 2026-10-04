@@ -8,16 +8,24 @@ import { SessionAutopilotStatus } from './SessionAutopilotStatus'
 
 const getSessionAutopilot = vi.fn()
 const listSessionOpenSpecChanges = vi.fn()
+const previewAutopilotBindings = vi.fn()
+const checkAutopilotBinding = vi.fn()
 const listAutopilotRuns = vi.fn()
 const controlSessionAutopilot = vi.fn()
 const startSessionAutopilot = vi.fn()
+const recommendAutopilotBindings = vi.fn()
+const getAutopilotBatch = vi.fn()
 
 vi.mock('../api', () => ({
   getSessionAutopilot: (...args: unknown[]) => getSessionAutopilot(...args),
   listSessionOpenSpecChanges: (...args: unknown[]) => listSessionOpenSpecChanges(...args),
+  previewAutopilotBindings: (...args: unknown[]) => previewAutopilotBindings(...args),
+  checkAutopilotBinding: (...args: unknown[]) => checkAutopilotBinding(...args),
   listAutopilotRuns: (...args: unknown[]) => listAutopilotRuns(...args),
   controlSessionAutopilot: (...args: unknown[]) => controlSessionAutopilot(...args),
   startSessionAutopilot: (...args: unknown[]) => startSessionAutopilot(...args),
+  recommendAutopilotBindings: (...args: unknown[]) => recommendAutopilotBindings(...args),
+  getAutopilotBatch: (...args: unknown[]) => getAutopilotBatch(...args),
 }))
 
 const RUN: SessionAutopilotRun = {
@@ -43,7 +51,84 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+recommendAutopilotBindings.mockResolvedValue([])
+getAutopilotBatch.mockResolvedValue(null)
+
 describe('OpenSpec 自动监督体验', () => {
+  it('AI 推荐优先显示，多选规格逐项预检后按勾选顺序启动', async () => {
+    getSessionAutopilot.mockResolvedValue(null)
+    previewAutopilotBindings.mockResolvedValue(['unrelated', 'implement-iam-access', 'implement-iam-organization'].map(changeId => ({
+      changeId, completedTasks: 1, totalTasks: 10, revision: '', relevance: 0, ready: false, reason: '选择后检查规格',
+    })))
+    recommendAutopilotBindings.mockResolvedValue(['implement-iam-organization', 'implement-iam-access'])
+    checkAutopilotBinding.mockImplementation(async (_sessionId: string, changeId: string) => ({
+      changeId, completedTasks: 1, totalTasks: 10, revision: `rev-${changeId}`,
+      relevance: 0, ready: true, reason: '规格校验通过，可以绑定并推进',
+    }))
+    startSessionAutopilot.mockResolvedValue(RUN)
+    renderWithClient(<SessionAutopilotStatus sessionId="session-1" projectRoot="D:/repo" onOpenDashboard={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '自动推进' }))
+    expect(await screen.findByText('implement-iam-organization')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /implement-iam-organization/ })).toBeChecked())
+    fireEvent.click(screen.getByRole('checkbox', { name: /implement-iam-access/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '确认并推进' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '确认并推进' }))
+    await waitFor(() => expect(startSessionAutopilot).toHaveBeenCalledWith('session-1', expect.objectContaining({
+      changeIds: ['implement-iam-organization', 'implement-iam-access'],
+      expectedRevisions: {
+        'implement-iam-organization': 'rev-implement-iam-organization',
+        'implement-iam-access': 'rev-implement-iam-access',
+      },
+    })))
+  })
+  it('候选读取失败时显示错误，不提示创建新规格', async () => {
+    getSessionAutopilot.mockResolvedValue(null)
+    previewAutopilotBindings.mockRejectedValue(new Error('读取 OpenSpec changes 失败：CLI 输出超过上限'))
+    renderWithClient(<SessionAutopilotStatus sessionId="session-1" projectRoot="D:/repo" onOpenDashboard={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '自动推进' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('CLI 输出超过上限')
+    expect(screen.queryByText(/当前项目缺少可绑定/)).not.toBeInTheDocument()
+  })
+  it('缺少规格时主动请求补齐并在校验通过后自动推进', async () => {
+    getSessionAutopilot.mockResolvedValue(null)
+    previewAutopilotBindings.mockResolvedValueOnce([]).mockResolvedValue([
+      { changeId: 'upload-images', completedTasks: 0, totalTasks: 3, revision: '', relevance: 100, ready: false, reason: '选择后检查规格' },
+    ])
+    checkAutopilotBinding.mockResolvedValue({ changeId: 'upload-images', completedTasks: 0, totalTasks: 3,
+      revision: 'rev-new', relevance: 0, ready: true, reason: '规格校验通过，可以绑定并推进' })
+    startSessionAutopilot.mockResolvedValue(RUN)
+    const supplement = vi.fn()
+    const props = { sessionId: 'session-1', projectRoot: 'D:/repo', onOpenDashboard: vi.fn(), onSupplementSpec: supplement }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(<QueryClientProvider client={client}><SessionAutopilotStatus {...props} agentRunning={false} /></QueryClientProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: '自动推进' }))
+    fireEvent.click(await screen.findByRole('button', { name: '补齐规格并继续' }))
+    expect(supplement).toHaveBeenCalledWith(null)
+    view.rerender(<QueryClientProvider client={client}>
+      <SessionAutopilotStatus {...props} agentRunning />
+    </QueryClientProvider>)
+    view.rerender(<QueryClientProvider client={client}>
+      <SessionAutopilotStatus {...props} agentRunning={false} />
+    </QueryClientProvider>)
+    await waitFor(() => expect(startSessionAutopilot).toHaveBeenCalledWith('session-1', expect.objectContaining({ changeId: 'upload-images', expectedRevision: 'rev-new' })))
+  })
+  it('一句话请求展示推荐规格，确认时带预检修订启动', async () => {
+    getSessionAutopilot.mockResolvedValue(null)
+    previewAutopilotBindings.mockResolvedValue([
+      { changeId: 'upload-images', completedTasks: 1, totalTasks: 3, revision: '', relevance: 100, ready: false, reason: '选择后检查规格' },
+      { changeId: 'draft', completedTasks: 0, totalTasks: 0, revision: '', relevance: 0, ready: false, reason: '选择后检查规格' },
+    ])
+    checkAutopilotBinding.mockResolvedValue({ changeId: 'upload-images', completedTasks: 1, totalTasks: 3, revision: 'rev-1', relevance: 0, ready: true, reason: '规格校验通过，可以绑定并推进' })
+    startSessionAutopilot.mockResolvedValue(RUN)
+    renderWithClient(<SessionAutopilotStatus sessionId="session-1" projectRoot="D:/repo" onOpenDashboard={vi.fn()} />)
+    await screen.findByText(/尚未监督/)
+    window.dispatchEvent(new CustomEvent('claude-chat:autopilot-bind-request', { detail: 'session-1' }))
+    expect(await screen.findByRole('dialog', { name: '选择当前会话的执行规格' })).toBeInTheDocument()
+    expect(await screen.findByText('upload-images')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: '确认并推进' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '确认并推进' }))
+    await waitFor(() => expect(startSessionAutopilot).toHaveBeenCalledWith('session-1', expect.objectContaining({ changeId: 'upload-images', expectedRevision: 'rev-1' })))
+  })
   it('展示当前会话绑定的 spec 与两层独立兜底状态', async () => {
     getSessionAutopilot.mockResolvedValue(RUN)
     listSessionOpenSpecChanges.mockResolvedValue([])
@@ -69,14 +154,44 @@ describe('OpenSpec 自动监督体验', () => {
 
     renderWithClient(<AutopilotDashboard onOpenSession={onOpen} />)
 
-    expect(await screen.findByText('样衣管理')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /样衣管理/ }))
+    expect(await screen.findByRole('button', { name: /进入 样衣管理/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /进入 样衣管理/ }))
     expect(onOpen).toHaveBeenCalledWith('session-1')
     fireEvent.click(screen.getByRole('button', { name: '暂停监督' }))
     await waitFor(() => expect(controlSessionAutopilot).toHaveBeenCalledWith('session-1', 'pause', 7))
   })
 
-  it('为键盘操作提供显式焦点样式，并保持窄屏优先的单列行结构', async () => {
+  it('全部推进按当前会话相关性标记运行并跳转到其会话', async () => {
+    listAutopilotRuns.mockResolvedValue({
+      items: [{ run: RUN, sessionTitle: '上传开发', projectName: 'kai-toolbox', engine: 'codex', sessionStatus: 'IDLE', lastActivityAt: Date.now() }],
+      counts: { active: 1, attention: 0, paused: 0, recent: 0 }, nextCursor: null,
+      snapshotAt: new Date().toISOString(),
+    } satisfies AutopilotDashboardView)
+    const onOpen = vi.fn()
+    renderWithClient(<AutopilotDashboard initialScope="all" recommendedChangeIds={new Set(['sample-image-upload'])}
+      recommendationProjectRoot="D:/repo" onOpenSession={onOpen} />)
+    expect((await screen.findAllByText('推荐')).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /全部\s*1/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /进入 上传开发/ }))
+    expect(onOpen).toHaveBeenCalledWith('session-1')
+    expect(listAutopilotRuns).toHaveBeenCalledWith(expect.objectContaining({ scope: 'all' }))
+  })
+
+  it('推荐规格即使不在当前分页也能直接定位对应会话', async () => {
+    const item = { run: RUN, sessionTitle: '上传开发', projectName: 'kai-toolbox', engine: 'codex', sessionStatus: 'IDLE', lastActivityAt: Date.now() }
+    const snapshot = { counts: { active: 1, attention: 0, paused: 0, recent: 0 }, nextCursor: null, snapshotAt: new Date().toISOString() }
+    listAutopilotRuns.mockResolvedValueOnce({ ...snapshot, items: [] }).mockResolvedValueOnce({ ...snapshot, items: [item] })
+    const onOpen = vi.fn()
+    renderWithClient(<AutopilotDashboard initialScope="all" recommendationProjectRoot="D:/repo"
+      suggestedChanges={[{ changeId: 'sample-image-upload', completedTasks: 27, totalTasks: 36,
+        revision: 'change-hash', relevance: 5, ready: true, reason: '' }]} onOpenSession={onOpen} />)
+    expect(await screen.findByText('这个范围内没有受监督会话')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /sample-image-upload/ }))
+    await waitFor(() => expect(onOpen).toHaveBeenCalledWith('session-1'))
+    expect(listAutopilotRuns).toHaveBeenCalledWith(expect.objectContaining({ scope: 'all', search: 'sample-image-upload' }))
+  })
+
+  it('移动端单行摘要可聚焦进入详情，桌面保留完整表格', async () => {
     const dashboard: AutopilotDashboardView = {
       items: [{ run: RUN, sessionTitle: '样衣管理', projectName: 'kai-toolbox', engine: 'codex', sessionStatus: 'IDLE', lastActivityAt: Date.now() }],
       counts: { active: 1, attention: 0, paused: 0, recent: 0 }, nextCursor: null,
@@ -96,10 +211,15 @@ describe('OpenSpec 自动监督体验', () => {
       expect(document.activeElement).toBe(control)
     }
 
+    const mobileRow = screen.getByRole('button', { name: /进入 样衣管理/ })
+    expect(mobileRow.className).toContain('md:hidden')
+    expect(mobileRow.className).toContain('min-h-11')
+    expect(mobileRow).toHaveTextContent('27/36')
+    expect(mobileRow).toHaveTextContent('监督中')
+    mobileRow.focus()
+    expect(document.activeElement).toBe(mobileRow)
     const article = screen.getByText('sample-image-upload').closest('article')
-    const row = article?.firstElementChild
-    expect(row?.className).toContain('grid gap-2')
-    expect(row?.className).toContain('md:min-w-[980px]')
+    expect(article?.querySelector('.md\\:grid')).toBeInTheDocument()
     expect(screen.getByText('会话 / 项目').parentElement?.className).toContain('hidden')
     expect(screen.getByText('会话 / 项目').parentElement?.className).toContain('md:grid')
   })
@@ -117,6 +237,10 @@ describe('OpenSpec 自动监督体验', () => {
 
     expect(await screen.findByText('快照可能已过期')).toBeInTheDocument()
     expect(screen.getByText(/EXECUTION_CONTEXT_DRIFT/)).toBeInTheDocument()
+    const mobileRow = screen.getByRole('button', { name: /进入 报价联调/ })
+    expect(mobileRow).toHaveTextContent('待处理')
+    expect(mobileRow).not.toHaveTextContent('EXECUTION_CONTEXT_DRIFT')
+    expect(mobileRow).toHaveAccessibleName(/查看原因/)
     expect(screen.getByRole('button', { name: '恢复监督' })).toBeInTheDocument()
   })
 

@@ -34,6 +34,9 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
@@ -43,6 +46,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -59,6 +63,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     private static final int MAX_REPORT_ITEMS = 20;
     private static final int MAX_REPORT_TEXT = 2_000;
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() { };
+    private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() { };
 
     private final SessionAutopilotRepository repository;
     private final ClaudeChatSessionRepository sessionRepository;
@@ -104,20 +109,51 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                 .toList();
     }
 
+    @Transactional
     public Run start(String sessionId, StartRequest request) {
-        if (request == null || request.changeId() == null || request.changeId().isBlank()) {
+        List<String> changeIds = request == null ? List.of() : request.changeIds() == null
+                || request.changeIds().isEmpty() ? request.changeId() == null ? List.of() : List.of(request.changeId())
+                : request.changeIds();
+        if (changeIds.isEmpty() || changeIds.stream().anyMatch(id -> id == null || id.isBlank())
+                || changeIds.size() > 10 || new LinkedHashSet<>(changeIds).size() != changeIds.size()) {
             throw new IllegalArgumentException("请选择要监督的 OpenSpec change");
+        }
+        String firstChangeId = changeIds.getFirst();
+        var existing = repository.findBySessionId(sessionId);
+        if (existing.isPresent() && existing.get().state() == AutopilotState.ACTIVE) {
+            List<String> activeIds = repository.findBatch(sessionId, existing.get().id())
+                    .map(batch -> readList(batch.changeIdsJson()))
+                    .orElse(List.of(existing.get().context().changeId()));
+            if (!activeIds.equals(changeIds)) {
+                throw new IllegalArgumentException("当前会话已有监督中的规格，请先暂停或停止");
+            }
+            return toView(existing.get(), artifactPaths(existing.get()));
         }
         AutopilotProjectContextResolver.ProjectIdentity identity =
                 projectResolver.resolve(sessionId, request.projectRoot());
-        ChangeOption selected = openSpec.listChanges(identity.projectRoot()).stream()
-                .filter(change -> request.changeId().equals(change.id()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("OpenSpec change 不存在或已归档"));
-        ChangeSnapshot snapshot = openSpec.inspect(identity.projectRoot(), selected.id());
+        List<String> available = openSpec.listChanges(identity.projectRoot()).stream()
+                .map(ChangeOption::id).toList();
+        ChangeSnapshot snapshot = null;
+        for (String changeId : changeIds) {
+            if (!available.contains(changeId)) throw new IllegalArgumentException(changeId + " 不存在或已归档");
+            ChangeSnapshot checked = openSpec.inspect(identity.projectRoot(), changeId);
+            String expected = request.expectedRevisions() == null ? request.expectedRevision()
+                    : request.expectedRevisions().get(changeId);
+            if (expected == null || !expected.equals(checked.revision())) {
+                throw new IllegalArgumentException(changeId + " 已变化，请重新预检并确认绑定");
+            }
+            if (checked.totalTasks() == 0 || checked.nextTask() == null) {
+                throw new IllegalArgumentException(changeId + " 没有待执行 task");
+            }
+            var validation = openSpec.strictValidate(identity.projectRoot(), changeId);
+            if (!validation.passed()) {
+                throw new IllegalArgumentException(changeId + " 预检未通过：" + validation.detail());
+            }
+            if (snapshot == null) snapshot = checked;
+        }
         ProvisioningResult skill = skillProvisioner.provision(identity.projectRoot());
         Instant now = Instant.now();
-        long generation = repository.findBySessionId(sessionId)
+        long generation = existing
                 .map(run -> run.context().generation() + 1).orElse(1L);
         TaskSnapshot task = snapshot.nextTask();
         OpenSpecExecutionContext context = new OpenSpecExecutionContext(
@@ -129,23 +165,49 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         String reason = skill.ready() ? "Runtime 已接管，等待下一轮执行"
                 : "Continuous Execution Skill 名称与用户文件冲突：" + String.join("、", skill.collisions());
         SessionAutopilotRun run = new SessionAutopilotRun(
-                UUID.randomUUID().toString(), sessionId, requiredGoal(request.goal(), selected.id()),
+                UUID.randomUUID().toString(), sessionId, requiredGoal(request.goal(), firstChangeId),
                 AutopilotCompletionPolicy.OPEN_SPEC_STRICT, state, reason, context,
-                0, bounded(request.maxTurns(), 1, 200, DEFAULT_MAX_TURNS), 0,
+                0, bounded(request.maxTurns(), 1, 200,
+                        Math.min(200, DEFAULT_MAX_TURNS * changeIds.size())), 0,
                 bounded(request.maxNoProgress(), 1, 10, DEFAULT_MAX_NO_PROGRESS), request.autoArchive(),
                 false, String.join(",", skill.installedPaths()), skill.version(), skill.fingerprint(), true,
                 snapshot.completedTasks(), snapshot.totalTasks(), null, null, null, null, null, null,
-                now, now.plus(boundedDuration(request.deadlineMinutes())), now);
+                now, now.plus(request.deadlineMinutes() == null
+                        ? DEFAULT_DEADLINE.multipliedBy(Math.min(3, changeIds.size()))
+                        : boundedDuration(request.deadlineMinutes())), now);
         repository.replace(run);
+        if (changeIds.size() > 1) repository.saveBatch(sessionId, run.id(), writeList(changeIds),
+                writeMap(request.expectedRevisions()));
         publish(run);
         if (run.state() == AutopilotState.ACTIVE) {
-            queueContinuation(run, snapshot, "开始监督");
+            ChangeSnapshot initial = snapshot;
+            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        queueContinuation(run, initial, "开始监督");
+                    }
+                });
+            } else {
+                queueContinuation(run, initial, "开始监督");
+            }
         }
         return toView(run, snapshot.artifactPaths());
     }
 
     public Optional<Run> current(String sessionId) {
         return repository.findBySessionId(sessionId).map(run -> toView(run, artifactPaths(run)));
+    }
+
+    public Optional<BatchView> batch(String sessionId) {
+        return repository.findBySessionId(sessionId).flatMap(run -> repository.findBatch(sessionId, run.id())
+                .map(batch -> new BatchView(readList(batch.changeIdsJson()), batch.currentIndex())));
+    }
+
+    public List<OpenSpecAutopilotAdapter.TaskSnapshot> tasks(String sessionId) {
+        SessionAutopilotRun run = repository.findBySessionId(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("当前会话尚未启用自动监督"));
+        return openSpec.inspect(Path.of(run.context().projectRoot()), run.context().changeId()).tasks();
     }
 
     public Run action(String sessionId, String action, long expectedVersion) {
@@ -227,7 +289,8 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     public Dashboard dashboard(String scope, String search, String cursor, int requestedLimit) {
         Cursor parsed = Cursor.parse(cursor);
         int limit = Math.max(1, Math.min(requestedLimit <= 0 ? 30 : requestedLimit, 100));
-        List<SessionAutopilotRun> candidates = repository.findRecent(search, null, null, 200);
+        List<SessionAutopilotRun> candidates = repository.findRecentByStates(search, null, null,
+                200, statesForScope("all"));
         List<SessionAutopilotRun> scoped = repository.findRecentByStates(search, parsed.updatedAt(), parsed.id(),
                 Math.min(200, limit + 20), statesForScope(scope));
         List<SessionAutopilotRun> accessible = scoped.stream()
@@ -370,15 +433,74 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             SessionAutopilotRun next = evolve(run, decision.state(), decision.reason(), decision.context(),
                     run.turnCount() + 1, decision.noProgressCount(), snapshot.completedTasks(), snapshot.totalTasks(),
                     true, Instant.now());
-            persist(run, next);
+            ChangeSnapshot dispatchSnapshot = snapshot;
+            var batch = decision.state() == AutopilotState.COMPLETED
+                    ? repository.findBatch(run.sessionId(), run.id()) : Optional.<SessionAutopilotRepository.Batch>empty();
+            int nextIndex = -1;
+            if (batch.isPresent()) {
+                List<String> ids = readList(batch.get().changeIdsJson());
+                nextIndex = batch.get().currentIndex() + 1;
+                if (nextIndex < ids.size()) {
+                    String nextId = ids.get(nextIndex);
+                    dispatchSnapshot = openSpec.inspect(Path.of(run.context().projectRoot()), nextId);
+                    var validation = openSpec.strictValidate(Path.of(run.context().projectRoot()), nextId);
+                    String expectedRevision = readMap(batch.get().expectedRevisionsJson()).get(nextId);
+                    boolean revisionMatches = dispatchSnapshot.revision().equals(expectedRevision);
+                    boolean ready = revisionMatches && validation.passed() && dispatchSnapshot.nextTask() != null;
+                    OpenSpecExecutionContext nextContext = new OpenSpecExecutionContext(
+                            run.context().projectRoot(), run.context().repositoryIdentity(),
+                            run.context().branchAtStart(), run.context().workspaceFingerprint(), nextId,
+                            dispatchSnapshot.revision(), ready ? dispatchSnapshot.nextTask().id() : null,
+                            ready ? dispatchSnapshot.nextTask().applyOrdinal() : null,
+                            OpenSpecExecutionPhase.APPLY, run.context().agentSessionRef(),
+                            run.context().generation() + 1, next.context().version() + 1);
+                    next = evolve(run, ready ? AutopilotState.ACTIVE : AutopilotState.WAITING_USER,
+                            ready ? "上一规格完成，开始下一规格 " + nextId
+                                    : "下一规格 " + nextId + " 需要处理：" + (!revisionMatches
+                                    ? "规格已变化，请核对后恢复" : validation.passed()
+                                    ? "没有待执行 task" : validation.detail()),
+                            nextContext, run.turnCount() + 1, 0,
+                            dispatchSnapshot.completedTasks(), dispatchSnapshot.totalTasks(), true, Instant.now());
+                }
+            }
+            if (batch.isPresent() && nextIndex >= 0 && next.state() != AutopilotState.COMPLETED) {
+                repository.advanceBatch(next, run.context().version(), batch.get().currentIndex());
+            } else {
+                persist(run, next);
+            }
             publish(next);
             if (next.state() == AutopilotState.ACTIVE) {
-                queueContinuation(next, snapshot, decision.reason());
+                queueContinuation(next, dispatchSnapshot, next.reason());
             }
         } catch (RuntimeException exception) {
             if (run.context().phase() == OpenSpecExecutionPhase.ARCHIVE
                     && openSpec.isArchived(Path.of(run.context().projectRoot()),
                     run.context().repositoryIdentity(), run.context().changeId())) {
+                var batch = repository.findBatch(run.sessionId(), run.id());
+                if (batch.isPresent()) {
+                    List<String> ids = readList(batch.get().changeIdsJson());
+                    int nextIndex = batch.get().currentIndex() + 1;
+                    if (nextIndex < ids.size()) {
+                        String nextId = ids.get(nextIndex);
+                        OpenSpecExecutionContext nextContext = new OpenSpecExecutionContext(
+                                run.context().projectRoot(), run.context().repositoryIdentity(),
+                                run.context().branchAtStart(), run.context().workspaceFingerprint(),
+                                nextId, "", null, null, OpenSpecExecutionPhase.APPLY,
+                                run.context().agentSessionRef(), run.context().generation() + 1,
+                                run.context().version() + 1);
+                        if (!repository.appendStep(new AutopilotStep(run.id(), run.context().generation(), turnId,
+                                null, run.context().phase(), run.context().currentTaskId(), "BATCH_NEXT_WAITING",
+                                "上一规格已归档，下一规格等待重新预检", run.latestEvidenceJson(),
+                                progressFingerprint(run), Instant.now()))) return;
+                        SessionAutopilotRun waiting = evolve(run, AutopilotState.WAITING_USER,
+                                "上一规格已归档；下一规格 " + nextId + " 需要重新预检："
+                                        + boundedText(exception.getMessage()), nextContext,
+                                run.turnCount() + 1, 0, 0, 0, true, Instant.now());
+                        repository.advanceBatch(waiting, run.context().version(), batch.get().currentIndex());
+                        publish(waiting);
+                        return;
+                    }
+                }
                 OpenSpecExecutionContext done = new OpenSpecExecutionContext(
                         run.context().projectRoot(), run.context().repositoryIdentity(), run.context().branchAtStart(),
                         run.context().workspaceFingerprint(), run.context().changeId(),
@@ -569,6 +691,22 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         }
     }
 
+    private String writeMap(Map<String, String> values) {
+        try {
+            return objectMapper.writeValueAsString(values == null ? Map.of() : values);
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("规格修订无法序列化", exception);
+        }
+    }
+
+    private Map<String, String> readMap(String json) {
+        try {
+            return objectMapper.readValue(json, STRING_MAP);
+        } catch (Exception exception) {
+            return Map.of();
+        }
+    }
+
     private List<String> readList(String json) {
         if (json == null || json.isBlank()) {
             return List.of();
@@ -619,6 +757,9 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
 
     private List<AutopilotState> statesForScope(String scope) {
         return switch (scope == null ? "active" : scope.toLowerCase()) {
+            case "all" -> List.of(AutopilotState.ACTIVE, AutopilotState.WAITING_USER,
+                    AutopilotState.FAILED, AutopilotState.PAUSED, AutopilotState.COMPLETED,
+                    AutopilotState.STOPPED);
             case "attention" -> List.of(AutopilotState.WAITING_USER, AutopilotState.FAILED);
             case "paused" -> List.of(AutopilotState.PAUSED);
             case "recent" -> List.of(AutopilotState.COMPLETED, AutopilotState.STOPPED);
@@ -641,8 +782,18 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     }
 
     public record StartRequest(String projectRoot, String changeId, String goal, boolean autoArchive,
-                               Integer maxTurns, Integer maxNoProgress, Integer deadlineMinutes) {
+                               Integer maxTurns, Integer maxNoProgress, Integer deadlineMinutes,
+                               String expectedRevision, List<String> changeIds,
+                               Map<String, String> expectedRevisions) {
+        public StartRequest(String projectRoot, String changeId, String goal, boolean autoArchive,
+                            Integer maxTurns, Integer maxNoProgress, Integer deadlineMinutes,
+                            String expectedRevision) {
+            this(projectRoot, changeId, goal, autoArchive, maxTurns, maxNoProgress, deadlineMinutes,
+                    expectedRevision, null, null);
+        }
     }
+
+    public record BatchView(List<String> changeIds, int currentIndex) { }
 
     public record ProgressReport(String disposition, String summary, String nextAction,
                                  List<String> remainingWork, List<String> evidence, String reason) {

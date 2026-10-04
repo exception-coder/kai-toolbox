@@ -41,6 +41,28 @@
           }
         } catch { /* React will handle an invalid cached login snapshot. */ }
       }
+      if (location.pathname === '/tools/claude-chat') {
+        const traceId = crypto.randomUUID()
+        window.__vibeBootTraceId = traceId
+        setTimeout(() => {
+          if (!document.getElementById('boot-shell')) return
+          const token = localStorage.getItem('toolbox.auth.token')
+          if (!token) return
+          fetch('/api/claude-chat/diagnostics/entry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ traceId, stage: 'bootstrap_timeout', status: 'timeout',
+              elapsedMs: Math.min(Math.round(performance.now()), 600000), sessionId: null }),
+          }).catch(() => {})
+        }, 10000)
+      }
+    </script>
+    <script type="module" vite-ignore>
+      if (document.querySelector('script[src="/@vite/client"]')
+        && location.pathname === '/tools/claude-chat'
+        && new URLSearchParams(location.search).get('control') !== 'llm') {
+        import('/src/features/claude-chat/pages/ChatControlWorkspace.tsx')
+      }
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -1,4 +1,5 @@
 import { authFetch, http } from '@/lib/api'
+import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
 import { ensureFreshToken, getToken } from '@/lib/auth'
 import { listSystemModules, listSystemWorkspaces, saveSystemProjectAlias } from '@/lib/systemCatalog'
 import type {
@@ -11,6 +12,7 @@ import type {
 } from '@/components/git/types'
 import type { AutopilotChangeOption, AutopilotDashboard, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAutopilotRun, SessionPendingSql, SessionPendingSqlTarget, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
+import type { AutopilotBindingCandidate, AutopilotTask } from './types'
 import { buildPendingSqlTargetOptions, type PendingSqlTargetOption } from './lib/pendingSqlTargets'
 import { SESSION_HISTORY_PAGE_TIMEOUT_MS } from './lib/sessionHistoryRequest'
 import { applyPendingSessionTitles } from './lib/optimisticSessionRename'
@@ -265,11 +267,41 @@ export function listSessionOpenSpecChanges(sessionId: string, projectRoot?: stri
   )
 }
 
+export function previewAutopilotBindings(sessionId: string, projectRoot?: string) {
+  const params = projectRoot ? `?projectRoot=${encodeURIComponent(projectRoot)}` : ''
+  return http<AutopilotBindingCandidate[]>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/candidates${params}`,
+  )
+}
+
+export function recommendAutopilotBindings(sessionId: string, projectRoot?: string) {
+  const params = projectRoot ? `?projectRoot=${encodeURIComponent(projectRoot)}` : ''
+  return http<string[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/ai-recommendations${params}`)
+}
+
+export async function getAutopilotBatch(sessionId: string): Promise<{ changeIds: string[]; currentIndex: number } | null> {
+  const response = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/batch`)
+  if (response.status === 204) return null
+  if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`)
+  return response.json() as Promise<{ changeIds: string[]; currentIndex: number }>
+}
+
+export function checkAutopilotBinding(sessionId: string, changeId: string, projectRoot?: string) {
+  const params = projectRoot ? `?projectRoot=${encodeURIComponent(projectRoot)}` : ''
+  return http<AutopilotBindingCandidate>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/candidates/${encodeURIComponent(changeId)}${params}`,
+  )
+}
+
 export async function getSessionAutopilot(sessionId: string): Promise<SessionAutopilotRun | null> {
   const response = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot`)
   if (response.status === 204) return null
   if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`)
   return response.json() as Promise<SessionAutopilotRun>
+}
+
+export function listAutopilotTasks(sessionId: string) {
+  return http<AutopilotTask[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/tasks`)
 }
 
 export function startSessionAutopilot(sessionId: string, input: {
@@ -280,6 +312,9 @@ export function startSessionAutopilot(sessionId: string, input: {
   maxTurns?: number
   maxNoProgress?: number
   deadlineMinutes?: number
+  expectedRevision: string
+  changeIds?: string[]
+  expectedRevisions?: Record<string, string>
 }) {
   return http<SessionAutopilotRun>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot`, {
     method: 'PUT',
@@ -1043,15 +1078,24 @@ export async function loadMessages(
   before?: number | null,
   limit = 30,
 ): Promise<{ items: ChatItem[]; nextBefore: number | null }> {
+  const stage = before == null ? 'history_latest' : 'history_earlier'
+  reportVibeEntry(stage, 'start', sdkSessionId)
   const qs = new URLSearchParams()
   if (cwd) qs.set('cwd', cwd)
   if (before != null) qs.set('before', String(before))
   qs.set('limit', String(limit))
-  const page = await http<{ items: RawHistoryMessage[]; nextBefore: number | null }>(
-    `/claude-chat/history/${encodeURIComponent(sdkSessionId)}/messages?${qs.toString()}`,
-    { signal: AbortSignal.timeout(SESSION_HISTORY_PAGE_TIMEOUT_MS) },
-  )
-  return { items: page.items.map(toChatItem), nextBefore: page.nextBefore }
+  try {
+    const page = await http<{ items: RawHistoryMessage[]; nextBefore: number | null }>(
+      `/claude-chat/history/${encodeURIComponent(sdkSessionId)}/messages?${qs.toString()}`,
+      { signal: AbortSignal.timeout(SESSION_HISTORY_PAGE_TIMEOUT_MS) },
+    )
+    reportVibeEntry(stage, 'ok', sdkSessionId)
+    return { items: page.items.map(toChatItem), nextBefore: page.nextBefore }
+  } catch (error) {
+    const name = error instanceof Error ? error.name : ''
+    reportVibeEntry(stage, name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'error', sdkSessionId)
+    throw error
+  }
 }
 
 export async function loadPublicReviewMessages(token: string, before?: number | null, limit = 30) {

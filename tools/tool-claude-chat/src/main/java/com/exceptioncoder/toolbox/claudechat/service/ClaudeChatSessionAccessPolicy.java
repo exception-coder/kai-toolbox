@@ -57,6 +57,11 @@ public class ClaudeChatSessionAccessPolicy {
                 .orElse(false);
     }
 
+    /** 列表已读取完整会话时直接复用实体，避免逐条再次查询数据库。 */
+    public boolean canAccessCurrentUser(ClaudeChatSession session) {
+        return canAccess(session, AuthContext.current().orElse(null));
+    }
+
     /**
      * 明确写操作可由首个认证用户原子认领无归属历史会话；普通读取仍保持原访问边界。
      */

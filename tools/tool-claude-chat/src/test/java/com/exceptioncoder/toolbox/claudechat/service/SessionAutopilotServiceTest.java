@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -34,6 +35,125 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SessionAutopilotServiceTest {
+
+    @Test
+    void batchStartPreflightsEveryChangeBeforePersistingTheOrderedPlan() {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        AutopilotProjectContextResolver projects = mock(AutopilotProjectContextResolver.class);
+        OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
+        ContinuousExecutionSkillProvisioner skill = mock(ContinuousExecutionSkillProvisioner.class);
+        var root = java.nio.file.Path.of("D:/repo");
+        when(projects.resolve("session-1", "D:/repo")).thenReturn(
+                new AutopilotProjectContextResolver.ProjectIdentity(root, "repository", "main", "workspace", "agent"));
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.empty());
+        when(openSpec.listChanges(root)).thenReturn(List.of(
+                new ChangeOption("first", 0, 1, "now"), new ChangeOption("second", 0, 1, "now")));
+        for (String id : List.of("first", "second")) {
+            var task = new TaskSnapshot("1.1", 1, "next", false);
+            when(openSpec.inspect(root, id)).thenReturn(new ChangeSnapshot(id, "rev-" + id, 0, 1,
+                    List.of(task), Map.of(), task));
+            when(openSpec.strictValidate(root, id)).thenReturn(
+                    new OpenSpecAutopilotAdapter.ValidationResult(true, "valid"));
+        }
+        when(skill.provision(root)).thenReturn(new ProvisioningResult("1", "hash", List.of(), List.of()));
+        var service = new SessionAutopilotService(repository, mock(ClaudeChatSessionRepository.class),
+                mock(ClaudeChatSessionAccessPolicy.class), mock(QueuedChatMessageService.class),
+                mock(SessionRuntimeStateService.class), projects, openSpec,
+                mock(OpenSpecContinuousRunner.class), skill, new ObjectMapper(), mock(ApplicationEventPublisher.class));
+
+        service.start("session-1", new SessionAutopilotService.StartRequest("D:/repo", "first", "goal", true,
+                60, 3, 240, "rev-first", List.of("first", "second"),
+                Map.of("first", "rev-first", "second", "rev-second")));
+
+        verify(repository).saveBatch(eq("session-1"), any(), eq("[\"first\",\"second\"]"),
+                any());
+        verify(openSpec).strictValidate(root, "second");
+        assertThatThrownBy(() -> service.start("session-1", new SessionAutopilotService.StartRequest(
+                "D:/repo", "first", "goal", true, 60, 3, 240, "rev-first",
+                List.of("first", "second"), Map.of("first", "rev-first", "second", "stale"))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("second 已变化");
+    }
+
+    @Test
+    void completedBatchItemRechecksAndDispatchesTheNextChange() {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
+        OpenSpecContinuousRunner runner = mock(OpenSpecContinuousRunner.class);
+        QueuedChatMessageService queue = mock(QueuedChatMessageService.class);
+        SessionAutopilotRun current = run();
+        var root = java.nio.file.Path.of("D:/repo");
+        var done = new OpenSpecExecutionContext("D:/repo", "D:/repo", "main", "workspace",
+                "session-autopilot", "revision-a", null, null, OpenSpecExecutionPhase.DONE,
+                "codex-session-1", 1, 1);
+        var nextTask = new TaskSnapshot("2.1", 1, "next", false);
+        var first = new ChangeSnapshot("session-autopilot", "revision-a", 1, 1,
+                List.of(new TaskSnapshot("6.4", 28, "done", true)), Map.of(), null);
+        var second = new ChangeSnapshot("second", "revision-b", 0, 1,
+                List.of(nextTask), Map.of(), nextTask);
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.of(current));
+        when(repository.findBatch("session-1", "run-1")).thenReturn(Optional.of(
+                new SessionAutopilotRepository.Batch("[\"session-autopilot\",\"second\"]",
+                        "{\"session-autopilot\":\"revision-a\",\"second\":\"revision-b\"}", 0)));
+        when(repository.appendStep(any())).thenReturn(true);
+        when(openSpec.inspect(root, "session-autopilot")).thenReturn(first);
+        when(openSpec.inspect(root, "second")).thenReturn(second);
+        when(openSpec.strictValidate(root, "second")).thenReturn(
+                new OpenSpecAutopilotAdapter.ValidationResult(true, "valid"));
+        when(runner.decide(eq(current), eq(first))).thenReturn(new OpenSpecContinuousRunner.Decision(
+                AutopilotState.COMPLETED, "DONE", "finished", done, 0, null, "fingerprint"));
+        var service = new SessionAutopilotService(repository, mock(ClaudeChatSessionRepository.class),
+                mock(ClaudeChatSessionAccessPolicy.class), queue, mock(SessionRuntimeStateService.class),
+                mock(AutopilotProjectContextResolver.class), openSpec, runner,
+                mock(ContinuousExecutionSkillProvisioner.class), new ObjectMapper(), mock(ApplicationEventPublisher.class));
+
+        service.onSettled(new SessionTurnSettledEvent("session-1", "turn-9", "end_turn", true,
+                System.currentTimeMillis()));
+
+        ArgumentCaptor<SessionAutopilotRun> saved = ArgumentCaptor.forClass(SessionAutopilotRun.class);
+        verify(repository, timeout(2_000)).advanceBatch(saved.capture(), eq(0L), eq(0));
+        assertThat(saved.getValue().context().changeId()).isEqualTo("second");
+        assertThat(saved.getValue().state()).isEqualTo(AutopilotState.ACTIVE);
+        verify(queue, timeout(2_000)).saveInternal(eq("session-1"), any(), any(), any(), any(), anyLong());
+    }
+
+    @Test
+    void changedNextRevisionWaitsForUserInsteadOfDispatching() {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
+        OpenSpecContinuousRunner runner = mock(OpenSpecContinuousRunner.class);
+        QueuedChatMessageService queue = mock(QueuedChatMessageService.class);
+        SessionAutopilotRun current = run();
+        var root = java.nio.file.Path.of("D:/repo");
+        var first = new ChangeSnapshot("session-autopilot", "revision-a", 1, 1,
+                List.of(new TaskSnapshot("6.4", 28, "done", true)), Map.of(), null);
+        var task = new TaskSnapshot("2.1", 1, "next", false);
+        var changed = new ChangeSnapshot("second", "revision-changed", 0, 1,
+                List.of(task), Map.of(), task);
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.of(current));
+        when(repository.findBatch("session-1", "run-1")).thenReturn(Optional.of(
+                new SessionAutopilotRepository.Batch("[\"session-autopilot\",\"second\"]",
+                        "{\"second\":\"revision-original\"}", 0)));
+        when(repository.appendStep(any())).thenReturn(true);
+        when(openSpec.inspect(root, "session-autopilot")).thenReturn(first);
+        when(openSpec.inspect(root, "second")).thenReturn(changed);
+        when(openSpec.strictValidate(root, "second")).thenReturn(
+                new OpenSpecAutopilotAdapter.ValidationResult(true, "valid"));
+        when(runner.decide(eq(current), eq(first))).thenReturn(new OpenSpecContinuousRunner.Decision(
+                AutopilotState.COMPLETED, "DONE", "finished", current.context(), 0, null, "fingerprint"));
+        var service = new SessionAutopilotService(repository, mock(ClaudeChatSessionRepository.class),
+                mock(ClaudeChatSessionAccessPolicy.class), queue, mock(SessionRuntimeStateService.class),
+                mock(AutopilotProjectContextResolver.class), openSpec, runner,
+                mock(ContinuousExecutionSkillProvisioner.class), new ObjectMapper(), mock(ApplicationEventPublisher.class));
+
+        service.onSettled(new SessionTurnSettledEvent("session-1", "turn-10", "end_turn", true,
+                System.currentTimeMillis()));
+
+        ArgumentCaptor<SessionAutopilotRun> saved = ArgumentCaptor.forClass(SessionAutopilotRun.class);
+        verify(repository, timeout(2_000)).advanceBatch(saved.capture(), eq(0L), eq(0));
+        assertThat(saved.getValue().state()).isEqualTo(AutopilotState.WAITING_USER);
+        assertThat(saved.getValue().reason()).contains("规格已变化");
+        verify(queue, never()).saveInternal(any(), any(), any(), any(), any(), anyLong());
+    }
 
     @Test
     void startBindsTheFirstTaskBeforeDispatchingTheInitialContinuation() {
@@ -52,6 +172,8 @@ class SessionAutopilotServiceTest {
         when(openSpec.listChanges(identity.projectRoot()))
                 .thenReturn(List.of(new ChangeOption("session-autopilot", 1, 2, "now")));
         when(openSpec.inspect(identity.projectRoot(), "session-autopilot")).thenReturn(snapshot);
+        when(openSpec.strictValidate(identity.projectRoot(), "session-autopilot"))
+                .thenReturn(new OpenSpecAutopilotAdapter.ValidationResult(true, "valid"));
         when(skill.provision(identity.projectRoot())).thenReturn(new ProvisioningResult("1.0.0", "hash",
                 List.of(".claude/skills/forge/SKILL.md", ".agents/skills/forge/SKILL.md"), List.of()));
         when(repository.findBySessionId("session-1")).thenReturn(Optional.empty());
@@ -61,7 +183,7 @@ class SessionAutopilotServiceTest {
                 skill, new ObjectMapper(), mock(ApplicationEventPublisher.class));
 
         var view = service.start("session-1", new SessionAutopilotService.StartRequest(
-                "D:/repo", "session-autopilot", "完成 change", true, 8, 3, 240));
+                "D:/repo", "session-autopilot", "完成 change", true, 8, 3, 240, "revision-a"));
 
         ArgumentCaptor<SessionAutopilotRun> saved = ArgumentCaptor.forClass(SessionAutopilotRun.class);
         verify(repository).replace(saved.capture());
@@ -70,6 +192,13 @@ class SessionAutopilotServiceTest {
         assertThat(saved.getValue().context().agentSessionRef()).isEqualTo("agent-session");
         assertThat(view.state()).isEqualTo("ACTIVE");
         verify(queue).saveInternal(eq("session-1"), any(), any(), any(), any(), anyLong());
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.of(saved.getValue()));
+        assertThat(service.tasks("session-1")).extracting(TaskSnapshot::id)
+                .containsExactly("1.1", "1.2");
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.start("session-1", new SessionAutopilotService.StartRequest(
+                "D:/repo", "session-autopilot", "完成 change", true, 8, 3, 240, "stale")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("重新预检");
     }
 
     @Test
@@ -116,7 +245,10 @@ class SessionAutopilotServiceTest {
         SessionAutopilotService service = service(repository, sessions, access);
         SessionAutopilotRun visible = run();
         SessionAutopilotRun hidden = withIdentity(visible, "run-2", "session-2");
-        when(repository.findRecent("", null, null, 200)).thenReturn(List.of(visible, hidden));
+        when(repository.findRecentByStates("", null, null, 200, List.of(
+                AutopilotState.ACTIVE, AutopilotState.WAITING_USER, AutopilotState.FAILED,
+                AutopilotState.PAUSED, AutopilotState.COMPLETED, AutopilotState.STOPPED)))
+                .thenReturn(List.of(visible, hidden));
         when(repository.findRecentByStates("", null, null, 50, List.of(AutopilotState.ACTIVE)))
                 .thenReturn(List.of(visible, hidden));
         when(access.canAccessCurrentUser("session-1")).thenReturn(true);
@@ -127,6 +259,12 @@ class SessionAutopilotServiceTest {
         assertThat(dashboard.items()).extracting(item -> item.run().sessionId())
                 .containsExactly("session-1");
         assertThat(dashboard.counts().active()).isEqualTo(1);
+        when(repository.findRecentByStates("", null, null, 50, List.of(
+                AutopilotState.ACTIVE, AutopilotState.WAITING_USER, AutopilotState.FAILED,
+                AutopilotState.PAUSED, AutopilotState.COMPLETED, AutopilotState.STOPPED)))
+                .thenReturn(List.of(visible, hidden));
+        assertThat(service.dashboard("all", "", null, 30).items())
+                .extracting(item -> item.run().sessionId()).containsExactly("session-1");
     }
 
     @Test

@@ -11,7 +11,10 @@ import {
 } from '@/lib/emergencyRepair'
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { chatControlMode } from '../lib/controlMode'
+import { clearRecentSessionHint, readRecentSessionHint, saveRecentSessionHint } from '../lib/recentSessionHint'
 import { useAccessContext } from '@/shell/permission'
+import { useAuth } from '@/lib/auth'
+import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
 
 /** Vibe Coding 会话页路由；落在此路由即激活引擎（懒启动）。 */
 export const CHAT_ROUTE = '/tools/claude-chat'
@@ -127,6 +130,7 @@ export function useChatRuntime(): ChatRuntime {
  * 一旦激活即常驻，跨路由不卸载，保证 WS 与会话状态延续。
  */
 export function ChatRuntimeProvider({ children, demo = false }: { children: ReactNode; demo?: boolean }) {
+  useEffect(() => { reportVibeEntry('shell_mount', 'ok', null, true) }, [])
   // 读一次本地持久化的悬浮窗形态（刷新后恢复）。demo 模式不读持久化、强制激活+弹出。
   const persisted = useMemo(() => (demo ? null : loadFloatState()), [demo])
   // 上次处于弹出态（或 demo）→ 初始即激活引擎，否则 chat 为 null 悬浮窗仍不渲染
@@ -248,7 +252,10 @@ function ChatEngine({
   onEmergencyRepairHandled: () => void
   children: ReactNode
 }) {
+  useEffect(() => { reportVibeEntry('chat_engine_mount', 'ok', null, true) }, [])
   const location = useLocation()
+  const { user } = useAuth()
+  const userId = user?.userId
   const routePrdSessionId = useMemo(
     () => new URLSearchParams(location.search).get('prdSessionId')?.trim() || null,
     [location.search],
@@ -374,12 +381,15 @@ function ChatEngine({
       switchedTargetRef.current = targetSessionId
       void (async () => {
         try {
+          reportVibeEntry('session_lookup', 'start', targetSessionId)
           const target = (await listSessions()).find(
             session => session.id === targetSessionId && isVibeCodingSession(session),
           )
+          reportVibeEntry('session_lookup', 'ok', targetSessionId)
           if (!target || switchedTargetRef.current !== targetSessionId) return
           chatRef.current.switchTo(target.id, target.status === 'RUNNING' && target.live)
         } catch {
+          reportVibeEntry('session_lookup', 'error', targetSessionId)
           // 无法确认会话归属时不绑定，避免业务咨询会话误入 Vibe Coding。
         }
       })()
@@ -388,19 +398,34 @@ function ChatEngine({
     // 需求代码节点的新开发 handoff 会由 ChatPage 立即 open；不要先自动切到“最近会话”，
     // 否则负责人范围通道会正确拒绝那条无关会话，并在界面上产生一次误导性的报错。
     if (effectivePrdSessionId) return
+    const hintedSessionId = userId == null ? null : readRecentSessionHint(userId)
+    if (hintedSessionId) chatRef.current.switchTo(hintedSessionId)
+    reportVibeEntry('session_lookup', 'start', hintedSessionId)
     void (async () => {
       try {
         const sessions = (await listSessions()).filter(isVibeCodingSession)
-        if (sessions.length === 0) return
+        reportVibeEntry('session_lookup', 'ok', hintedSessionId)
+        if (sessions.length === 0) {
+          if (userId != null) clearRecentSessionHint(userId)
+          return
+        }
         const latest = [...sessions].sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0]
+        const hintedSession = sessions.find(session => session.id === hintedSessionId)
+        if (chatRef.current.sessionId !== hintedSessionId) return
+        if (hintedSession && latest.id === hintedSessionId) {
+          if (userId != null) saveRecentSessionHint(userId, hintedSessionId!)
+          return
+        }
+        if (userId != null) saveRecentSessionHint(userId, latest.id)
         // 刷新恢复：若该会话仍在回答（后端 status=RUNNING 且挂在活跃 sidecar 上），带上 hint 立即显示「中断」，
         // 避免页面还没感知到就误显示发送按钮。Ready 回来会校正。
         chatRef.current.switchTo(latest.id, latest.status === 'RUNNING' && latest.live)
       } catch {
+        reportVibeEntry('session_lookup', 'error', hintedSessionId)
         // 列表拉取失败：保持空态，用户可手动新建/选择
       }
     })()
-  }, [demo, targetSessionId, effectivePrdSessionId])
+  }, [demo, targetSessionId, effectivePrdSessionId, userId])
 
   useEffect(() => {
     if (demo || !targetSessionId || switchedTargetRef.current === targetSessionId) return
@@ -413,6 +438,7 @@ function ChatEngine({
         if (!target || switchedTargetRef.current !== targetSessionId) return
         chatRef.current.switchTo(target.id, target.status === 'RUNNING' && target.live)
       } catch {
+        reportVibeEntry('session_lookup', 'error', targetSessionId)
         // 无法确认会话归属时保持当前开发会话。
       }
     })()
@@ -427,7 +453,11 @@ function ChatEngine({
       try {
         const sessions = await listSessions()
         const active = sessions.find(session => session.id === activeSessionId)
-        if (!active || isVibeCodingSession(active)) return
+        if (!active) return
+        if (isVibeCodingSession(active)) {
+          if (!cancelled && userId != null) saveRecentSessionHint(userId, active.id)
+          return
+        }
         const fallback = sessions
           .filter(isVibeCodingSession)
           .sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0]
@@ -439,7 +469,7 @@ function ChatEngine({
       }
     })()
     return () => { cancelled = true }
-  }, [demo, chat.sessionId])
+  }, [demo, chat.sessionId, userId])
 
   return <Ctx.Provider value={{ ...control, chat }}>{children}</Ctx.Provider>
 }

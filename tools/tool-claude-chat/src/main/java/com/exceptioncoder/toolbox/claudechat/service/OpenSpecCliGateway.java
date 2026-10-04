@@ -20,6 +20,41 @@ public class OpenSpecCliGateway {
     private static final boolean WINDOWS = System.getProperty("os.name", "").toLowerCase().contains("win");
     private static final long COMMAND_TIMEOUT_SECONDS = 90L;
     private static final int MAX_OUTPUT_LENGTH = 16_000;
+    static final String TRUNCATED_MARKER = "[OPEN_SPEC_OUTPUT_TRUNCATED]";
+
+    @FunctionalInterface
+    interface OutputReader<T> {
+        T read(Path outputFile) throws IOException;
+    }
+
+    /** CLI 完成后在临时文件仍有效时解析输出，适合较大的 JSON 列表。 */
+    <T> T runWithOutputFile(Path projectDirectory, List<String> arguments, OutputReader<T> reader) {
+        Path outputFile = null;
+        try {
+            outputFile = Files.createTempFile("kai-openspec-list-", ".json");
+            Process process = new ProcessBuilder(command(arguments))
+                    .directory(projectDirectory.toFile())
+                    .redirectErrorStream(true)
+                    .redirectOutput(outputFile.toFile())
+                    .start();
+            if (!process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                process.waitFor(5, TimeUnit.SECONDS);
+                throw new IllegalStateException("OpenSpec CLI 列表读取超时");
+            }
+            if (process.exitValue() != 0) {
+                throw new IllegalStateException("OpenSpec CLI 列表读取失败（退出码 " + process.exitValue() + "）");
+            }
+            return reader.read(outputFile);
+        } catch (IOException exception) {
+            throw new IllegalStateException("OpenSpec CLI 列表读取失败：" + exception.getMessage(), exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("OpenSpec CLI 列表读取被中断", exception);
+        } finally {
+            deleteTemporaryOutput(outputFile);
+        }
+    }
 
     /**
      * 在指定项目目录执行 OpenSpec 子命令。
@@ -29,6 +64,10 @@ public class OpenSpecCliGateway {
      * @return 结构化命令结果
      */
     public CommandResult run(Path projectDirectory, List<String> arguments) {
+        return run(projectDirectory, arguments, MAX_OUTPUT_LENGTH);
+    }
+
+    CommandResult run(Path projectDirectory, List<String> arguments, int maxOutputLength) {
         Path outputFile = null;
         try {
             outputFile = Files.createTempFile("kai-openspec-", ".log");
@@ -41,9 +80,9 @@ public class OpenSpecCliGateway {
             if (!completed) {
                 process.destroyForcibly();
                 process.waitFor(5, TimeUnit.SECONDS);
-                return new CommandResult(true, true, -1, readOutput(outputFile));
+                return new CommandResult(true, true, -1, readOutput(outputFile, maxOutputLength));
             }
-            return new CommandResult(true, false, process.exitValue(), readOutput(outputFile));
+            return new CommandResult(true, false, process.exitValue(), readOutput(outputFile, maxOutputLength));
         } catch (IOException e) {
             return new CommandResult(false, false, -1, e.getMessage() == null ? "OpenSpec CLI 启动失败" : e.getMessage());
         } catch (InterruptedException e) {
@@ -69,10 +108,10 @@ public class OpenSpecCliGateway {
     }
 
     /** 读取并限制返回给调用方的诊断信息长度。 */
-    private String readOutput(Path outputFile) throws IOException {
+    String readOutput(Path outputFile, int maxOutputLength) throws IOException {
         String output = Files.readString(outputFile, StandardCharsets.UTF_8).trim();
-        return output.length() <= MAX_OUTPUT_LENGTH
-                ? output : output.substring(output.length() - MAX_OUTPUT_LENGTH);
+        return output.length() <= maxOutputLength
+                ? output : output.substring(0, maxOutputLength) + "\n" + TRUNCATED_MARKER;
     }
 
     /** 尽力删除单次命令的临时输出文件。 */
