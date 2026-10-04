@@ -2,7 +2,7 @@
 name: forge-openspec-continuous-execution
 description: Keep a Forge-supervised OpenSpec change running until the bound Done Condition is proven.
 x-forge-owned: true
-x-forge-version: 1.0.4
+x-forge-version: 1.0.5
 ---
 
 # Forge OpenSpec Continuous Execution
@@ -20,6 +20,8 @@ Do not stop and ask the user to say “continue” merely because one task, impl
 3. If the task is checked and more tasks remain, continue with the next task selected by Forge.
 4. If verification fails inside the authorized scope, fix it and retry within the injected budget. If an external verification environment is unavailable, keep that check unfinished in `remainingWork`, state that SQL was not executed, and continue steps that do not depend on it. Revisit the check before marking the task complete.
 5. Before yielding, call `forge.report_session_progress` exactly once with a truthful structured disposition.
+
+For a multi-change batch, finish every safe step in the current change first. If a concrete prerequisite or unanswered decision still blocks it, report `WAITING_USER` with the exact question and evidence. Forge may preserve that question and dispatch another selected change after revision and strict-validation checks. Do not switch change IDs yourself, mark the blocked task complete, merge another change's files into the current commit, or repeat the same blocked step. When every selected change is deferred, wait for the user's answer; resume the original run to revisit the recorded questions.
 
 ### Container-free database verification
 

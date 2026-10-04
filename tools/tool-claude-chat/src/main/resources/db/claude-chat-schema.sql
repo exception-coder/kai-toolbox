@@ -496,3 +496,12 @@ CREATE TABLE IF NOT EXISTS claude_chat_autopilot_batch (
     current_index INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (run_id) REFERENCES claude_chat_autopilot_run(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS claude_chat_autopilot_batch_deferred (
+    run_id TEXT NOT NULL,
+    change_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (run_id, change_id),
+    FOREIGN KEY (run_id) REFERENCES claude_chat_autopilot_run(id) ON DELETE CASCADE
+);

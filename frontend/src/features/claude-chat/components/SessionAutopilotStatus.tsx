@@ -247,9 +247,13 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
                   <div className="font-medium">批次顺序</div>
                   <ol className="mt-1 space-y-1 text-[var(--color-muted-foreground)]">
                     {batchQuery.data.changeIds.map((id, index) => <li key={id} className={index === batchQuery.data!.currentIndex ? 'font-medium text-[var(--color-foreground)]' : ''}>
-                      {index + 1}. {id} · {index < batchQuery.data!.currentIndex ? '已推进' : index === batchQuery.data!.currentIndex ? '当前' : '待推进'}
+                      {index + 1}. {id} · {index < batchQuery.data!.currentIndex ? '已推进' : index === batchQuery.data!.currentIndex ? '当前' : batchQuery.data!.deferred?.some(item => item.changeId === id) ? '待回复' : '待推进'}
                     </li>)}
                   </ol>
+                  {batchQuery.data.deferred?.length > 0 && <div className="mt-2 space-y-1 text-amber-700 dark:text-amber-400">
+                    <div className="font-medium">待回复的问题</div>
+                    {batchQuery.data.deferred.map(item => <p key={item.changeId} className="break-words">{item.changeId}：{item.reason}</p>)}
+                  </div>}
                 </div>}
                 {run.reason && <p className="flex items-start gap-1.5 text-[var(--color-muted-foreground)]"><TriangleAlert className="mt-0.5 size-3.5 shrink-0" />{run.reason}</p>}
               </div>

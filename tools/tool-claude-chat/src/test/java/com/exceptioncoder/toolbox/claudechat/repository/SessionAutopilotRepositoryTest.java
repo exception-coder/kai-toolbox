@@ -53,6 +53,10 @@ class SessionAutopilotRepositoryTest {
                 + " run_id TEXT NOT NULL, change_ids_json TEXT NOT NULL,"
                 + " expected_revisions_json TEXT NOT NULL, current_index INTEGER NOT NULL,"
                 + " FOREIGN KEY(run_id) REFERENCES claude_chat_autopilot_run(id) ON DELETE CASCADE)");
+        jdbc.execute("CREATE TABLE claude_chat_autopilot_batch_deferred (run_id TEXT NOT NULL,"
+                + " change_id TEXT NOT NULL, reason TEXT NOT NULL, updated_at INTEGER NOT NULL,"
+                + " PRIMARY KEY(run_id, change_id),"
+                + " FOREIGN KEY(run_id) REFERENCES claude_chat_autopilot_run(id) ON DELETE CASCADE)");
         jdbc.execute("""
                 CREATE TABLE claude_chat_autopilot_step (
                   id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, generation INTEGER NOT NULL,
@@ -75,6 +79,27 @@ class SessionAutopilotRepositoryTest {
 
         assertThat(repository.findBatch("session-1", "run-1").orElseThrow().currentIndex()).isEqualTo(1);
         assertThat(repository.findBySessionId("session-1").orElseThrow().context().version()).isEqualTo(1);
+    }
+
+    @Test
+    void deferralReordersPendingBatchAndKeepsItsQuestion() {
+        repository.replace(run(0, AutopilotState.ACTIVE));
+        repository.saveBatch("session-1", "run-1", "[\"first\",\"second\",\"third\"]",
+                "{\"first\":\"rev-a\",\"second\":\"rev-b\",\"third\":\"rev-c\"}");
+        var previous = repository.findBatch("session-1", "run-1").orElseThrow();
+        AutopilotStep step = new AutopilotStep("run-1", 1, "turn-deferred", null,
+                OpenSpecExecutionPhase.APPLY, "1.3", "DEFER_BATCH_ITEM", "前置依赖", "[]",
+                "fingerprint", Instant.now());
+
+        assertThat(repository.deferBatch(step, run(1, AutopilotState.ACTIVE), 0, previous,
+                "[\"second\",\"third\",\"first\"]",
+                List.of(new SessionAutopilotRepository.DeferredChange("first", "V090 待提交")))).isTrue();
+        assertThat(repository.findBatch("session-1", "run-1").orElseThrow().changeIdsJson())
+                .isEqualTo("[\"second\",\"third\",\"first\"]");
+        assertThat(repository.findDeferredChanges("run-1"))
+                .containsExactly(new SessionAutopilotRepository.DeferredChange("first", "V090 待提交"));
+        repository.clearDeferredChange("run-1", "first");
+        assertThat(repository.findDeferredChanges("run-1")).isEmpty();
     }
 
     @Test

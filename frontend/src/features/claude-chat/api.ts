@@ -279,11 +279,11 @@ export function recommendAutopilotBindings(sessionId: string, projectRoot?: stri
   return http<string[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/ai-recommendations${params}`)
 }
 
-export async function getAutopilotBatch(sessionId: string): Promise<{ changeIds: string[]; currentIndex: number } | null> {
+export async function getAutopilotBatch(sessionId: string): Promise<{ changeIds: string[]; currentIndex: number; deferred: { changeId: string; reason: string }[] } | null> {
   const response = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/batch`)
   if (response.status === 204) return null
   if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`)
-  return response.json() as Promise<{ changeIds: string[]; currentIndex: number }>
+  return response.json() as Promise<{ changeIds: string[]; currentIndex: number; deferred: { changeId: string; reason: string }[] }>
 }
 
 export function checkAutopilotBinding(sessionId: string, changeId: string, projectRoot?: string) {

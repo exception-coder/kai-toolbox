@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.domain.autopilot.AutopilotCompletionPolicy;
+import com.exceptioncoder.toolbox.claudechat.domain.autopilot.AutopilotDisposition;
 import com.exceptioncoder.toolbox.claudechat.domain.autopilot.AutopilotState;
 import com.exceptioncoder.toolbox.claudechat.domain.autopilot.OpenSpecExecutionContext;
 import com.exceptioncoder.toolbox.claudechat.domain.autopilot.OpenSpecExecutionPhase;
@@ -38,6 +39,51 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SessionAutopilotServiceTest {
+
+    @Test
+    void waitingBatchItemDefersQuestionAndDispatchesValidatedNextChange() {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
+        QueuedChatMessageService queue = mock(QueuedChatMessageService.class);
+        SessionAutopilotRun base = run();
+        SessionAutopilotRun reported = new SessionAutopilotRun(base.id(), base.sessionId(), base.goal(),
+                base.completionPolicy(), base.state(), base.reason(), base.context(), base.turnCount(),
+                base.maxTurns(), base.noProgressCount(), base.maxNoProgress(), base.autoArchive(),
+                base.skillActivated(), base.skillPath(), base.skillVersion(), base.skillFingerprint(),
+                base.runtimeSupervision(), base.completedTasks(), base.totalTasks(),
+                AutopilotDisposition.WAITING_USER, "V090 尚未独立提交", null, "[]", "[]",
+                Instant.now(), base.startedAt(), base.deadlineAt(), base.updatedAt());
+        var batch = new SessionAutopilotRepository.Batch(
+                "[\"session-autopilot\",\"organization\"]",
+                "{\"organization\":\"rev-b\"}", 0);
+        TaskSnapshot task = new TaskSnapshot("2.1", 1, "next", false);
+        var nextSnapshot = new ChangeSnapshot("organization", "rev-b", 0, 1,
+                List.of(task), Map.of(), task);
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.of(reported));
+        when(repository.findBatch("session-1", "run-1")).thenReturn(Optional.of(batch));
+        when(repository.findDeferredChanges("run-1")).thenReturn(List.of());
+        when(openSpec.inspect(java.nio.file.Path.of("D:/repo"), "organization"))
+                .thenReturn(nextSnapshot);
+        when(openSpec.strictValidate(java.nio.file.Path.of("D:/repo"), "organization"))
+                .thenReturn(new OpenSpecAutopilotAdapter.ValidationResult(true, "valid"));
+        when(repository.deferBatch(any(), any(), eq(0L), eq(batch), any(), any()))
+                .thenReturn(true);
+        var service = new SessionAutopilotService(repository, mock(ClaudeChatSessionRepository.class),
+                mock(ClaudeChatSessionAccessPolicy.class), queue, mock(SessionRuntimeStateService.class),
+                mock(AutopilotProjectContextResolver.class), openSpec,
+                mock(OpenSpecContinuousRunner.class), mock(ContinuousExecutionSkillProvisioner.class),
+                new ObjectMapper(), mock(ApplicationEventPublisher.class));
+
+        service.onSettled(new SessionTurnSettledEvent("session-1", "turn-waiting", "end_turn", true,
+                System.currentTimeMillis()));
+
+        ArgumentCaptor<SessionAutopilotRun> saved = ArgumentCaptor.forClass(SessionAutopilotRun.class);
+        verify(repository, timeout(3000)).deferBatch(any(), saved.capture(), eq(0L), eq(batch),
+                eq("[\"organization\",\"session-autopilot\"]"), any());
+        assertThat(saved.getValue().state()).isEqualTo(AutopilotState.ACTIVE);
+        assertThat(saved.getValue().context().changeId()).isEqualTo("organization");
+        verify(queue, timeout(3000)).saveInternal(eq("session-1"), any(), any(), any(), any(), anyLong());
+    }
 
     @Test
     void batchStartPreflightsEveryChangeBeforePersistingTheOrderedPlan() {
@@ -117,6 +163,50 @@ class SessionAutopilotServiceTest {
         assertThat(saved.getValue().context().changeId()).isEqualTo("second");
         assertThat(saved.getValue().state()).isEqualTo(AutopilotState.ACTIVE);
         verify(queue, timeout(2_000)).saveInternal(eq("session-1"), any(), any(), any(), any(), anyLong());
+    }
+
+    @Test
+    void completedBatchStopsBeforePreviouslyDeferredChangeUntilReply() {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
+        OpenSpecContinuousRunner runner = mock(OpenSpecContinuousRunner.class);
+        QueuedChatMessageService queue = mock(QueuedChatMessageService.class);
+        SessionAutopilotRun current = run();
+        var root = java.nio.file.Path.of("D:/repo");
+        var done = new OpenSpecExecutionContext("D:/repo", "D:/repo", "main", "workspace",
+                "session-autopilot", "revision-a", null, null, OpenSpecExecutionPhase.DONE,
+                "codex-session-1", 1, 1);
+        var first = new ChangeSnapshot("session-autopilot", "revision-a", 1, 1,
+                List.of(new TaskSnapshot("6.4", 28, "done", true)), Map.of(), null);
+        var task = new TaskSnapshot("2.1", 1, "next", false);
+        var deferredSnapshot = new ChangeSnapshot("deferred", "revision-b", 0, 1,
+                List.of(task), Map.of(), task);
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.of(current));
+        when(repository.findBatch("session-1", "run-1")).thenReturn(Optional.of(
+                new SessionAutopilotRepository.Batch("[\"session-autopilot\",\"deferred\"]",
+                        "{\"deferred\":\"revision-b\"}", 0)));
+        when(repository.findDeferredChanges("run-1")).thenReturn(List.of(
+                new SessionAutopilotRepository.DeferredChange("deferred", "等待 V090 前置提交")));
+        when(repository.appendStep(any())).thenReturn(true);
+        when(openSpec.inspect(root, "session-autopilot")).thenReturn(first);
+        when(openSpec.inspect(root, "deferred")).thenReturn(deferredSnapshot);
+        when(openSpec.strictValidate(root, "deferred"))
+                .thenReturn(new OpenSpecAutopilotAdapter.ValidationResult(true, "valid"));
+        when(runner.decide(eq(current), eq(first))).thenReturn(new OpenSpecContinuousRunner.Decision(
+                AutopilotState.COMPLETED, "DONE", "finished", done, 0, null, "fingerprint"));
+        var service = new SessionAutopilotService(repository, mock(ClaudeChatSessionRepository.class),
+                mock(ClaudeChatSessionAccessPolicy.class), queue, mock(SessionRuntimeStateService.class),
+                mock(AutopilotProjectContextResolver.class), openSpec, runner,
+                mock(ContinuousExecutionSkillProvisioner.class), new ObjectMapper(), mock(ApplicationEventPublisher.class));
+
+        service.onSettled(new SessionTurnSettledEvent("session-1", "turn-9", "end_turn", true,
+                System.currentTimeMillis()));
+
+        ArgumentCaptor<SessionAutopilotRun> saved = ArgumentCaptor.forClass(SessionAutopilotRun.class);
+        verify(repository, timeout(2_000)).advanceBatch(saved.capture(), eq(0L), eq(0));
+        assertThat(saved.getValue().state()).isEqualTo(AutopilotState.WAITING_USER);
+        assertThat(saved.getValue().reason()).contains("等待 V090 前置提交");
+        verify(queue, never()).saveInternal(any(), any(), any(), any(), any(), anyLong());
     }
 
     @Test

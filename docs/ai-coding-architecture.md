@@ -154,6 +154,8 @@ flowchart TD
 
 自动监督绑定与 Sidecar 写入执行绑定各有职责：前者确定 OpenSpec 目标、阶段和预算，Runtime 从持久记录向 Agent 注入 run ID、change、阶段和 task；后者通过 `session_init` 查看写入权，`execution: null` 只表示尚未取得该权，Agent 应对当前绑定的 change 继续完成范围探索和影响评估，取得许可后才写入，无法取得时上报具体阻塞而不是宣称监督任务不存在。Team Standards 指导 Agent 写正文；Forge 校验身份、范围、版本、文件更新和执行证据，不能自动证明正文质量。完整模板与方法留在套件，本文不复制模板。
 
+多规格批次中，当前规格若有未解决的前置或待决策项，Agent 先完成该规格内独立且获授权的步骤并记录具体问题。成功终态后 Runtime 才在用户已确认的其余规格中复核 revision、待执行任务和 strict validation；有合格项时持久暂留当前问题并调整未完成项顺序，全部暂留时进入待处理，不循环派发。暂留不代表完成，也不扩大 Sidecar 写入范围；原会话推进详情展示问题，收到回复并恢复后重新检查该规格。此规则不自动推断跨规格依赖或代替用户对高风险事项的授权。
+
 ```mermaid
 flowchart LR
     SESSION["当前会话上下文"] --> PREVIEW["活动目录候选 + 推荐 Skill 排序"]
@@ -163,6 +165,9 @@ flowchart LR
     RUNTIME --> WRITER["Agent 核对监督绑定；独立取得写入执行权"]
     WRITER --> NEXT["取得证据后完成并复核下一项"]
     NEXT --> RUNTIME
+    RUNTIME -->|"当前项待回复"| DEFER["保存问题 + 复核其他已选项"]
+    DEFER -->|"存在可执行项"| RUNTIME
+    DEFER -->|"全部暂留"| BOARD
     RUNTIME --> BOARD["推进页签：全部运行与相关性提示"]
     BOARD --> DETAIL["跳转所属会话详情 + OpenSpec tasks"]
 ```

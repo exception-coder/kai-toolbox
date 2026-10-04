@@ -40,6 +40,8 @@ public final class AutopilotTurnHandoff {
                 自动推进期间不要启动 Docker Desktop、Docker Engine、WSL 或触发 Testcontainers；
                 优先用 H2 MySQL 模式做兼容性检查，目标 MySQL/MariaDB 实测仍保留待回归。
                 只有没有可执行步骤或必须等待用户决策时才上报 WAITING_USER 或 BLOCKED。
+                若当前规格有不可越过的前置依赖，先记录具体问题和证据；批次中其他已选规格
+                由 Runtime 预检后调度，不要自行切换 change，也不要混入其他规格的提交。
                 写入门禁冲突时先 inspect_execution_writer 查明占用者，不得绕过门禁。
                 只执行上述绑定上下文中的下一步。完成或遇到真实阻塞前，遵守
                 forge-openspec-continuous-execution Skill。yield 前必须调用

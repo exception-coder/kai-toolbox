@@ -79,6 +79,42 @@ public class SessionAutopilotRepository {
 
     public record Batch(String changeIdsJson, String expectedRevisionsJson, int currentIndex) { }
 
+    public List<DeferredChange> findDeferredChanges(String runId) {
+        return jdbc.query("SELECT change_id, reason FROM claude_chat_autopilot_batch_deferred"
+                        + " WHERE run_id = ? ORDER BY updated_at, change_id",
+                (rs, row) -> new DeferredChange(rs.getString(1), rs.getString(2)), runId);
+    }
+
+    @Transactional
+    public boolean deferBatch(AutopilotStep step, SessionAutopilotRun next, long expectedVersion,
+                              Batch previous, String reorderedChangeIdsJson, List<DeferredChange> deferred) {
+        if (!appendStep(step)) return false;
+        if (!update(next, expectedVersion)) {
+            throw new IllegalStateException("自动监督状态已变化，请刷新后重试");
+        }
+        if (jdbc.update("UPDATE claude_chat_autopilot_batch SET change_ids_json = ?"
+                        + " WHERE session_id = ? AND run_id = ? AND current_index = ? AND change_ids_json = ?",
+                reorderedChangeIdsJson, next.sessionId(), next.id(), previous.currentIndex(),
+                previous.changeIdsJson()) != 1) {
+            throw new IllegalStateException("自动监督批次已变化，请刷新后重试");
+        }
+        for (DeferredChange item : deferred) {
+            jdbc.update("INSERT INTO claude_chat_autopilot_batch_deferred"
+                            + "(run_id, change_id, reason, updated_at) VALUES (?, ?, ?, ?)"
+                            + " ON CONFLICT(run_id, change_id) DO UPDATE SET"
+                            + " reason = excluded.reason, updated_at = excluded.updated_at",
+                    next.id(), item.changeId(), item.reason(), next.updatedAt().toEpochMilli());
+        }
+        return true;
+    }
+
+    public record DeferredChange(String changeId, String reason) { }
+
+    public void clearDeferredChange(String runId, String changeId) {
+        jdbc.update("DELETE FROM claude_chat_autopilot_batch_deferred WHERE run_id = ? AND change_id = ?",
+                runId, changeId);
+    }
+
     public Optional<SessionAutopilotRun> findById(String runId) {
         return jdbc.query("SELECT " + SELECT_COLUMNS
                         + " FROM claude_chat_autopilot_run WHERE id = ?", mapper, runId)

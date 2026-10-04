@@ -22,6 +22,7 @@ import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.Ch
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.TaskSnapshot;
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecContinuousRunner.Decision;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.AutopilotTurnHandoff;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.AutopilotBatchDeferralPlanner;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionAutopilotChangedEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionCapabilitiesObservedEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionManualInputEvent;
@@ -77,6 +78,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     private final ContinuousExecutionSkillProvisioner skillProvisioner;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher events;
+    private final AutopilotBatchDeferralPlanner batchDeferrals;
 
     public SessionAutopilotService(SessionAutopilotRepository repository,
                                    ClaudeChatSessionRepository sessionRepository,
@@ -100,6 +102,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         this.skillProvisioner = skillProvisioner;
         this.objectMapper = objectMapper;
         this.events = events;
+        this.batchDeferrals = new AutopilotBatchDeferralPlanner(openSpec, objectMapper);
     }
 
     public List<SessionAutopilotView.ChangeOption> listChanges(String sessionId, String projectRoot) {
@@ -202,7 +205,8 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
 
     public Optional<BatchView> batch(String sessionId) {
         return repository.findBySessionId(sessionId).flatMap(run -> repository.findBatch(sessionId, run.id())
-                .map(batch -> new BatchView(readList(batch.changeIdsJson()), batch.currentIndex())));
+                .map(batch -> new BatchView(readList(batch.changeIdsJson()), batch.currentIndex(),
+                        repository.findDeferredChanges(run.id()))));
     }
 
     public List<OpenSpecAutopilotAdapter.TaskSnapshot> tasks(String sessionId) {
@@ -227,6 +231,9 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             default -> throw new IllegalArgumentException("不支持的自动监督动作");
         };
         persist(current, next);
+        if ("resume".equalsIgnoreCase(action) && next.state() == AutopilotState.ACTIVE) {
+            repository.clearDeferredChange(next.id(), next.context().changeId());
+        }
         if (next.state() != AutopilotState.ACTIVE) {
             queuedMessages.clearInternal(sessionId);
         }
@@ -428,6 +435,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         }
         if (run.latestDisposition() == AutopilotDisposition.WAITING_USER
                 || run.latestDisposition() == AutopilotDisposition.BLOCKED) {
+            if (deferBlockedBatchItem(run, turnId)) return;
             finishDecision(run, event, turnId, AutopilotState.WAITING_USER,
                     reportReason(run), run.context(), run.noProgressCount());
             return;
@@ -456,9 +464,12 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                     String nextId = ids.get(nextIndex);
                     dispatchSnapshot = openSpec.inspect(Path.of(run.context().projectRoot()), nextId);
                     var validation = openSpec.strictValidate(Path.of(run.context().projectRoot()), nextId);
+                    var deferred = repository.findDeferredChanges(run.id()).stream()
+                            .filter(item -> item.changeId().equals(nextId)).findFirst();
                     String expectedRevision = readMap(batch.get().expectedRevisionsJson()).get(nextId);
                     boolean revisionMatches = dispatchSnapshot.revision().equals(expectedRevision);
-                    boolean ready = revisionMatches && validation.passed() && dispatchSnapshot.nextTask() != null;
+                    boolean ready = deferred.isEmpty() && revisionMatches && validation.passed()
+                            && dispatchSnapshot.nextTask() != null;
                     OpenSpecExecutionContext nextContext = new OpenSpecExecutionContext(
                             run.context().projectRoot(), run.context().repositoryIdentity(),
                             run.context().branchAtStart(), run.context().workspaceFingerprint(), nextId,
@@ -468,7 +479,8 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                             run.context().generation() + 1, next.context().version() + 1);
                     next = evolve(run, ready ? AutopilotState.ACTIVE : AutopilotState.WAITING_USER,
                             ready ? "上一规格完成，开始下一规格 " + nextId
-                                    : "下一规格 " + nextId + " 需要处理：" + (!revisionMatches
+                                    : "下一规格 " + nextId + " 需要处理：" + (deferred.isPresent()
+                                    ? deferred.get().reason() : !revisionMatches
                                     ? "规格已变化，请核对后恢复" : validation.passed()
                                     ? "没有待执行 task" : validation.detail()),
                             nextContext, run.turnCount() + 1, 0,
@@ -526,6 +538,34 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             finishDecision(run, event, turnId, AutopilotState.WAITING_USER,
                     "无法读取当前 OpenSpec 状态：" + boundedText(exception.getMessage()),
                     run.context(), run.noProgressCount());
+        }
+    }
+
+    private boolean deferBlockedBatchItem(SessionAutopilotRun run, String turnId) {
+        try {
+            var batch = repository.findBatch(run.sessionId(), run.id());
+            if (batch.isEmpty()) return false;
+            var plan = batchDeferrals.plan(run, batch.get(), repository.findDeferredChanges(run.id()),
+                    reportReason(run));
+            if (plan.isEmpty()) return false;
+            var chosen = plan.get();
+            String reason = "规格 " + run.context().changeId() + " 的问题已暂留，继续 "
+                    + chosen.context().changeId();
+            SessionAutopilotRun next = evolve(run, AutopilotState.ACTIVE, reason, chosen.context(),
+                    run.turnCount() + 1, 0, chosen.nextSnapshot().completedTasks(),
+                    chosen.nextSnapshot().totalTasks(), true, Instant.now());
+            AutopilotStep step = new AutopilotStep(run.id(), run.context().generation(), turnId,
+                    "autopilot:" + run.id() + ":defer:" + chosen.context().changeId(),
+                    run.context().phase(), run.context().currentTaskId(), "DEFER_BATCH_ITEM",
+                    reportReason(run), run.latestEvidenceJson(), progressFingerprint(run), Instant.now());
+            if (!repository.deferBatch(step, next, run.context().version(), batch.get(),
+                    chosen.reorderedChangeIdsJson(), chosen.deferred())) return true;
+            publish(next);
+            queueContinuation(next, chosen.nextSnapshot(), reason);
+            return true;
+        } catch (RuntimeException exception) {
+            LOGGER.warn("[autopilot] 批次暂留失败 session={}", run.sessionId(), exception);
+            return false;
         }
     }
 
@@ -786,7 +826,8 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         }
     }
 
-    public record BatchView(List<String> changeIds, int currentIndex) { }
+    public record BatchView(List<String> changeIds, int currentIndex,
+                            List<SessionAutopilotRepository.DeferredChange> deferred) { }
 
     public record ProgressReport(String disposition, String summary, String nextAction,
                                  List<String> remainingWork, List<String> evidence, String reason) {
