@@ -83,6 +83,12 @@ The system SHALL preserve native session identifiers when capability inspection 
 - **THEN** 系统重新查询当前会话绑定的 Auth 目录和工作目录
 - **AND** 原位更新快照来源、刷新时间、状态和树内容
 
+#### Scenario: MCP runtime catalog spans multiple pages
+
+- **WHEN** App Server 的 MCP 运行时目录返回分页游标
+- **THEN** 系统读取全部页面后再发布能力快照或执行工具准入校验
+- **AND** 重复游标、页数超限或后续页失败时明确报告目录不完整，不得把未读取的工具判为不存在
+
 ### Requirement: Per-capability provenance
 
 系统 SHALL 为 MCP、Tool、Plugin 和 Skill 提供逐项来源与作用域，不得只用整份快照的来源代表所有能力。

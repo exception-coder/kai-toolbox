@@ -12,6 +12,7 @@ import {
   isCurrentCodexTurnNotification,
   isMissingCodexThreadError,
   inspectCodexSessionCapabilities,
+  listCodexMcpStatuses,
   isUnsupportedRealtimeThreadError,
   normalizeCodexModel,
   resolveCodexAppServerRequest,
@@ -107,6 +108,31 @@ for (const failure of ['thread not found: persisted-thread', 'transport closed a
     assert.deepEqual(methods, ['mcpServerStatus/list', 'skills/list', 'plugin/list'])
   })
 }
+
+test('reads every MCP status page before building the capability snapshot', async () => {
+  const cursors: unknown[] = []
+  const snapshot = await inspectCodexSessionCapabilities(
+    { threadId: 'thread-1', cwd: '.', configuredMcpServers: [] },
+    async (method, params) => {
+      if (method !== 'mcpServerStatus/list') return { data: [] }
+      cursors.push(params.cursor)
+      const name = params.cursor ? 'second' : 'first'
+      return {
+        data: [{ name, runtimeStatus: 'connected', tools: { tool: { name: 'tool' } } }],
+        nextCursor: params.cursor ? null : 'page-2',
+      }
+    },
+  )
+  assert.deepEqual(cursors, [undefined, 'page-2'])
+  assert.ok(snapshot.mcpServers.some(server => server.name === 'first' && server.verified))
+  assert.ok(snapshot.mcpServers.some(server => server.name === 'second' && server.verified))
+})
+
+test('rejects repeated MCP status cursors instead of treating an incomplete inventory as complete', async () => {
+  await assert.rejects(listCodexMcpStatuses('thread-1', async () => ({
+    data: [], nextCursor: 'repeated',
+  })), /重复分页游标/)
+})
 
 test('classifies only a missing Codex thread as a recoverable stale reference', () => {
   assert.equal(isMissingCodexThreadError(new Error(

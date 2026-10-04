@@ -29,6 +29,8 @@ const RECONNECT_IDLE_TIMEOUT_MS = 5 * 60_000
 const LEGACY_FINAL_RECONNECT_GRACE_MS = 60_000
 const MODEL_PAGE_SIZE = 100
 const MAX_MODEL_PAGES = 20
+const MCP_STATUS_PAGE_SIZE = 100
+const MAX_MCP_STATUS_PAGES = 20
 const MAX_COMMAND_OUTPUT_CHARS = 8_000
 const COMMAND_OUTPUT_EMIT_INTERVAL_MS = 250
 const SUB_AGENT_FINALIZING_RECHECK_MS = 1_500
@@ -54,7 +56,7 @@ type JsonRpcResult = Record<string, unknown> & {
     id?: string
     turns?: Array<{ id?: string; status?: string; error?: unknown }>
   }
-  data?: AppServerModel[]
+  data?: unknown[]
   nextCursor?: string | null
 }
 
@@ -606,7 +608,7 @@ export async function listCodexModels(codexHome?: string): Promise<CodexModelInf
     }, codexHome)
 
     for (const item of result.data ?? []) {
-      const model = normalizeCodexModel(item)
+      const model = normalizeCodexModel(item as AppServerModel)
       if (model) models.push(model)
     }
 
@@ -648,6 +650,32 @@ type CodexCapabilityInspectionOptions = {
   forceReload?: boolean
 }
 
+/** MCP 目录参与权限校验；分页未读全时必须失败，不能把缺失的工具当成不存在。 */
+export async function listCodexMcpStatuses(
+  threadId: string,
+  request: typeof callAppServer = callAppServer,
+  codexHome?: string,
+): Promise<JsonRpcResult> {
+  const data: unknown[] = []
+  const seenCursors = new Set<string>()
+  let cursor: string | undefined
+  for (let page = 0; page < MAX_MCP_STATUS_PAGES; page += 1) {
+    const result = await request('mcpServerStatus/list', {
+      threadId,
+      detail: 'toolsAndAuthOnly',
+      limit: MCP_STATUS_PAGE_SIZE,
+      ...(cursor ? { cursor } : {}),
+    }, codexHome)
+    data.push(...(result.data ?? []))
+    const nextCursor = result.nextCursor?.trim()
+    if (!nextCursor) return { data }
+    if (seenCursors.has(nextCursor)) throw new Error('MCP 运行时目录返回重复分页游标')
+    seenCursors.add(nextCursor)
+    cursor = nextCursor
+  }
+  throw new Error(`MCP 运行时目录超过 ${MAX_MCP_STATUS_PAGES} 页，无法完成能力校验`)
+}
+
 /** 只有受管进程真正退出后，原生 thread writer 才可视为已释放。 */
 export async function waitForManagedProcessRelease(
   closeGracefully: () => void,
@@ -672,11 +700,7 @@ export async function inspectCodexSessionCapabilities(
   const authGlobalMcpServerNames = configuredMcpServerNames(options.codexHome)
   const tasks = [
     options.threadId
-      ? request('mcpServerStatus/list', {
-          threadId: options.threadId,
-          detail: 'toolsAndAuthOnly',
-          limit: 100,
-        }, options.codexHome)
+      ? listCodexMcpStatuses(options.threadId, request, options.codexHome)
       : Promise.resolve(undefined),
     request('skills/list', {
       cwds: [options.cwd],
@@ -1227,11 +1251,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     let skillsRuntimeResult: JsonRpcResult | undefined
     let skillsRuntimeError: string | undefined
     try {
-      mcpRuntimeResult = await request('mcpServerStatus/list', {
-        threadId,
-        detail: 'toolsAndAuthOnly',
-        limit: 100,
-      })
+      mcpRuntimeResult = await listCodexMcpStatuses(threadId, request)
       runtimeStatuses = parseMcpRuntimeStatuses(mcpRuntimeResult)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

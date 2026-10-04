@@ -30,6 +30,8 @@
 
 Codex 会话使用 `mcpServerStatus/list` 判断本线程 MCP 的运行状态与 Tool 注入事实，使用 `plugin/list` 判断当前 Auth 目录的插件安装和版本状态，使用 `skills/list` 判断当前工作目录实际加载的 Skills。相比文件系统扫描，该方案与本轮实际运行时一致，并能在官方目录变化时自动跟随。
 
+`mcpServerStatus/list` 是分页接口。诊断快照与执行前的 MCP 准入校验共用完整分页读取；若游标循环、超过有界页数或中途失败，目录按失败处理。受控会话失败关闭，普通会话保留明确告警，不将未读取的 MCP 误报为不存在。
+
 替代方案是扫描 `.codex/plugins` 和 Skills 目录；该方案无法证明 Tool 已注入，也容易被旧缓存和多 Auth 目录污染，因此只作为 App Server 不可用时的现有配置态降级，不作为权威事实。
 
 ### Extend one backward-compatible capability snapshot
