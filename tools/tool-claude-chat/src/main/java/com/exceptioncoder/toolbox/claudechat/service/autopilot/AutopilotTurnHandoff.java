@@ -36,6 +36,8 @@ public final class AutopilotTurnHandoff {
                 复用本消息绑定的 change ID；取得写入许可前不得修改文件。
                 若外部验证环境暂不可用，保留未验证项和证据，先完成当前 task 中
                 不依赖该环境的步骤；有下一步时上报 CONTINUE、nextAction 和 remainingWork。
+                Windows 下不要启动 Docker Desktop、Docker Engine、WSL 或触发 Testcontainers；
+                优先用 H2 MySQL 模式做兼容性检查，目标 MySQL/MariaDB 实测仍保留待回归。
                 只有没有可执行步骤或必须等待用户决策时才上报 WAITING_USER 或 BLOCKED。
                 写入门禁冲突时先 inspect_execution_writer 查明占用者，不得绕过门禁。
                 只执行上述绑定上下文中的下一步。完成或遇到真实阻塞前，遵守

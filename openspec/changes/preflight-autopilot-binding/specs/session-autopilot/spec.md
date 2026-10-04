@@ -70,6 +70,12 @@
 - **THEN** Agent 上报 CONTINUE、明确 nextAction 和 remainingWork 中的未验证项
 - **AND** Runtime 保持当前 task 未完成，后续回归数据库验证
 
+#### Scenario: Windows 主机无 Docker 时运行兼容性验证
+- **WHEN** 当前任务包含数据库迁移验证而 Windows 主机无可用目标库
+- **THEN** 自动推进不启动 Docker、WSL 或隐式触发 Testcontainers 的测试套件
+- **AND** 可用 H2 MySQL 模式检查兼容的脚本与应用接线，明确记录已执行范围
+- **AND** 若规格仍要求目标 MySQL/MariaDB，H2 结果不替代该验收项
+
 #### Scenario: 等待状态下同轮继续
 - **WHEN** 运行已在 WAITING_USER，同一活动轮次没有待用户决策，并上报有明确下一步与未完成项的 CONTINUE
 - **THEN** Runtime 恢复 ACTIVE 并保存未完成验证证据，不直接判定任务完成
