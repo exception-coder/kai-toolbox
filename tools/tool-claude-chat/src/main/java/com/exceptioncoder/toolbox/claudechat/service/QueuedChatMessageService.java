@@ -81,6 +81,12 @@ public class QueuedChatMessageService {
                 .anyMatch(message -> message.id().startsWith("autopilot:"));
     }
 
+    public boolean firstIsInternal(String sessionId) {
+        return repository.findFirstBySessionId(sessionId)
+                .map(message -> message.id().startsWith("autopilot:"))
+                .orElse(false);
+    }
+
     public void delete(String sessionId, String messageId) {
         requireSession(sessionId);
         repository.delete(sessionId, messageId);

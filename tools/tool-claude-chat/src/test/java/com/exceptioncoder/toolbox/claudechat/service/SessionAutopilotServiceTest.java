@@ -13,6 +13,7 @@ import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.Ch
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.TaskSnapshot;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionTurnSettledEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionManualInputEvent;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionQueueReleaseRequestedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -315,6 +316,30 @@ class SessionAutopilotServiceTest {
 
         verify(queue).saveInternal(eq("session-1"), eq("autopilot:run-1:1:apply:6.4:0"),
                 any(), any(), any(), anyLong());
+    }
+
+    @Test
+    void reconciliationRetriesReleaseOfAnAlreadyQueuedAutopilotTurn() {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        QueuedChatMessageService queue = mock(QueuedChatMessageService.class);
+        SessionRuntimeStateService runtime = mock(SessionRuntimeStateService.class);
+        OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
+        ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+        when(repository.findRecent("", null, null, 200)).thenReturn(List.of(run()));
+        when(queue.hasInternal("session-1")).thenReturn(true);
+        when(runtime.canStartTurn("session-1"))
+                .thenReturn(new SessionRuntimeStateService.SendDecision(true, "CONSISTENT", null));
+        SessionAutopilotService service = new SessionAutopilotService(repository,
+                mock(ClaudeChatSessionRepository.class), mock(ClaudeChatSessionAccessPolicy.class), queue,
+                runtime, mock(AutopilotProjectContextResolver.class), openSpec,
+                mock(OpenSpecContinuousRunner.class), mock(ContinuousExecutionSkillProvisioner.class),
+                new ObjectMapper(), events);
+
+        service.reconcileActiveRuns();
+
+        verify(events).publishEvent(new SessionQueueReleaseRequestedEvent("session-1"));
+        verify(openSpec, never()).inspect(any(), any());
+        verify(queue, never()).saveInternal(any(), any(), any(), any(), any(), anyLong());
     }
 
     @Test

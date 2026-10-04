@@ -313,15 +313,18 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         return new Dashboard(items, viewCounts, nextCursor, Instant.now());
     }
 
-    /** 启动与低频巡检仅恢复可安全发送且没有待发续跑消息的活动运行。 */
+    /** 启动与低频巡检重试待发消息，或为尚未排队的活动运行生成下一轮。 */
     public void reconcileActiveRuns() {
         repository.findRecent("", null, null, 200).stream()
                 .filter(run -> run.state() == AutopilotState.ACTIVE)
                 .filter(run -> run.budgetAvailable(Instant.now()))
-                .filter(run -> !queuedMessages.hasInternal(run.sessionId()))
                 .filter(run -> runtimeStates.canStartTurn(run.sessionId()).allowed())
                 .forEach(run -> {
                     try {
+                        if (queuedMessages.hasInternal(run.sessionId())) {
+                            events.publishEvent(new SessionQueueReleaseRequestedEvent(run.sessionId()));
+                            return;
+                        }
                         queueContinuation(run, openSpec.inspect(Path.of(run.context().projectRoot()),
                                 run.context().changeId()), "重启/断线恢复巡检");
                     } catch (RuntimeException exception) {

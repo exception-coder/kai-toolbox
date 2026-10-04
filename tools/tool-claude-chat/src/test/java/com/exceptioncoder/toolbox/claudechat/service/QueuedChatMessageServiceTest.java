@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -51,6 +52,18 @@ class QueuedChatMessageServiceTest {
         service.restore(message);
 
         verify(repository).upsert(message);
+    }
+
+    @Test
+    void initialAutopilotReleaseRequiresItsMessageAtTheHead() {
+        when(repository.findFirstBySessionId("session-1"))
+                .thenReturn(Optional.of(message()))
+                .thenReturn(Optional.of(new QueuedChatMessage(
+                        "autopilot:run-1:1:apply:1.1:0", "session-1", "continue",
+                        null, null, List.of(), 2L)));
+
+        assertFalse(service.firstIsInternal("session-1"));
+        assertTrue(service.firstIsInternal("session-1"));
     }
 
     private static QueuedChatMessage message() {

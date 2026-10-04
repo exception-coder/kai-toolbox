@@ -1733,8 +1733,16 @@ public class ClaudeChatService {
 
     /** 成功终态最多释放一条持久队列消息；失败、中断、待确认和后台作业均保持队列不动。 */
     private void dispatchNextQueuedMessage(SessionCtx ctx) {
+        dispatchNextQueuedMessage(ctx, false);
+    }
+
+    private void dispatchNextQueuedMessage(SessionCtx ctx, boolean initialAutopilotRelease) {
         synchronized (ctx) {
-            if (!ctx.queueReleaseReady || ctx.status != SessionStatus.IDLE || ctx.pendingRequest != null
+            boolean freshIdleAutopilot = initialAutopilotRelease && !ctx.queueReleaseReady
+                    && queuedMessages.firstIsInternal(ctx.sessionId)
+                    && runtimeStates.canStartTurn(ctx.sessionId).allowed();
+            if ((!ctx.queueReleaseReady && !freshIdleAutopilot)
+                    || ctx.status != SessionStatus.IDLE || ctx.pendingRequest != null
                     || !ctx.backgroundTasks.isEmpty() || !planStateService.writable(ctx.sessionId)) {
                 return;
             }
@@ -1886,7 +1894,7 @@ public class ClaudeChatService {
     public void onAutopilotQueueReleaseRequested(SessionQueueReleaseRequestedEvent event) {
         SessionCtx ctx = sessions.get(event.sessionId());
         if (ctx != null) {
-            dispatchNextQueuedMessage(ctx);
+            dispatchNextQueuedMessage(ctx, true);
         }
     }
 
