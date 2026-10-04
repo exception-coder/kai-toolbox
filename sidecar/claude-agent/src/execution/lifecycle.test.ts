@@ -239,7 +239,7 @@ test('different modules run together while shared files and the same module rema
   assert.equal(initSession({ project: root, sessionId: 'beta-session' }).execution?.ownsWriter, true)
 })
 
-test('module documentation is scoped by target while root build and migration files remain global', t => {
+test('module documentation and local migrations stay scoped while repository build files remain global', t => {
   const { root } = fixture(t)
   for (const module of ['alpha', 'beta']) {
     fs.mkdirSync(path.join(root, module))
@@ -251,7 +251,30 @@ test('module documentation is scoped by target while root build and migration fi
   assert.equal(scopesConflict(alpha, executionScopes(root, ['docs/design/alpha.md'])), true)
   assert.equal(scopesConflict(alpha, executionScopes(root, ['openspec/changes/alpha/design.md'])), true)
   assert.equal(scopesConflict(alpha, executionScopes(root, ['pom.xml'])), true)
-  assert.equal(scopesConflict(alpha, executionScopes(root, ['beta/db/migration/V1.sql'])), true)
+  assert.equal(scopesConflict(alpha, executionScopes(root, ['beta/db/migration/V1.sql'])), false)
+  assert.equal(scopesConflict(beta, executionScopes(root, ['beta/db/migration/V1.sql'])), true)
+  assert.equal(scopesConflict(alpha, executionScopes(root, ['db/migration/V1.sql'])), true)
+})
+
+test('different frontend features can write concurrently while exact shared files and build roots remain exclusive', t => {
+  const { root } = fixture(t)
+  fs.mkdirSync(path.join(root, 'frontend/src/features/accounts'), { recursive: true })
+  fs.mkdirSync(path.join(root, 'frontend/src/features/orders'), { recursive: true })
+  fs.mkdirSync(path.join(root, 'frontend/src/lib'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'frontend/package.json'), '{}')
+  const accounts = executionScopes(root, ['frontend/src/features/accounts/Page.tsx'])
+  const orders = executionScopes(root, ['frontend/src/features/orders/Page.tsx'])
+  assert.deepEqual(accounts, ['module:frontend/src/features/accounts'])
+  assert.equal(scopesConflict(accounts, orders), false)
+  assert.equal(scopesConflict(accounts, executionScopes(root, ['frontend/src/features/accounts/api.ts'])), true)
+  const shared = executionScopes(root, ['frontend/src/lib/api.ts'])
+  assert.deepEqual(shared, ['file:frontend/src/lib/api.ts'])
+  assert.equal(scopesConflict(accounts, shared), false)
+  assert.equal(scopesConflict(shared, executionScopes(root, ['frontend/src/lib/api.ts'])), true)
+  assert.equal(scopesConflict(accounts, executionScopes(root, ['frontend/package.json'])), true)
+  assert.equal(scopesConflict(orders, executionScopes(root, ['frontend/tsconfig.json'])), true)
+  assert.equal(scopesConflict(['module:frontend'], accounts), true)
+  assert.equal(scopesConflict(accounts, ['module:frontend']), true)
 })
 
 test('another module commit cannot reclaim a verified but uncommitted module writer', async t => {

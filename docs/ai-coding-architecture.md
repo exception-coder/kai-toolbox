@@ -57,7 +57,7 @@ flowchart TD
     EDIT --> FINISH["finish_execution 检查后释放写入权"]
 ```
 
-Agent 判断路径、控制点、修改位置和关键未知是否清楚；Forge 另行检查执行范围、分支、写入权和证据，两者不能合并成一个自报 READY。只读查询允许 detached HEAD，不创建 Change、绑定或写入锁。`taskId` 仅作为已有任务的引用，不新建平行 task 清单；OpenSpec/宿主原有任务顺序和生命周期保持权威。执行器按模块范围放行不同模块并行编辑；同模块、共享路径和无法确定模块的顶层文件互斥。它不自动推断任务依赖、跨会话接管或分配额外分支。
+Agent 判断路径、控制点、修改位置和关键未知是否清楚；Forge 另行检查执行范围、分支、写入权和证据，两者不能合并成一个自报 READY。只读查询允许 detached HEAD，不创建 Change、绑定或写入锁。`taskId` 仅作为已有任务的引用，不新建平行 task 清单；OpenSpec/宿主原有任务顺序和生命周期保持权威。执行器按 Maven/包模块及明确的前端功能目录放行不同领域并行编辑；模块内数据库文件归所属模块，前端公共源码按精确文件互斥。功能目录内、父模块构建配置、仓库级共享文件和无法确定模块的顶层文件仍按实际范围互斥。它不自动推断任务依赖、跨会话接管或分配额外分支。
 
 Session 返回配置、可调用性、授权和宿主覆盖的独立字段；未探测的 OpenSpec CLI 与图谱可用性返回 null，图谱新鲜度由具体查询核验。`BOUND` 不是验证通过，`CURRENT` 仅表示验证输入未变。`HOST_DEPENDENT` 明确表示没有由该查询证明宿主已执行强制检查。
 
@@ -133,7 +133,7 @@ flowchart TD
     NO_DESIGN --> READY
     DETAIL --> READY
     BOTH --> READY
-    READY --> IMPLEMENT["同模块顺序、不同模块并行实施<br/>共享文件保守互斥"]
+    READY --> IMPLEMENT["同领域顺序、不同模块或前端功能并行<br/>共同文件和父模块配置互斥"]
     IMPLEMENT --> VERIFY["LLM 选择检查与断言<br/>Forge 脚本执行并保存内容指纹"]
     VERIFY --> PARTIAL{"本批及全部类别完成?"}
     PARTIAL -->|"本批成功但未补齐"| VERIFY

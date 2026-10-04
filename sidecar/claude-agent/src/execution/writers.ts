@@ -7,14 +7,26 @@ export type Writer = { sessionId: string; executionId: string; scopes: string[] 
 const legacyFile = (root: string) => statePath(root, 'execution-writer')
 const writersFile = (root: string) => statePath(root, 'execution-writers')
 
-/** Build roots and migrations are global; design and change claims follow their actual shared target. */
+const moduleFiles = ['pom.xml', 'package.json', 'build.gradle', 'build.gradle.kts', 'go.mod']
+const sharedBuildFiles = new Set([...moduleFiles, 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock',
+  'vite.config.ts', 'vite.config.js', 'tsconfig.json', 'settings.gradle', 'settings.gradle.kts'])
+const domainFolders = new Set(['features', 'domains', 'modules'])
+
+function enclosingModule(root: string, parts: string[]): string {
+  for (let end = parts.length - 1; end > 0; end--) {
+    const candidate = parts.slice(0, end).join('/')
+    if (moduleFiles.some(name => fs.existsSync(safePath(root, `${candidate}/${name}`)))) return candidate
+  }
+  return ''
+}
+
+/** Claims follow explicit module and feature directories; only repository-wide files use the global scope. */
 export function executionScopes(root: string, files: string[]): string[] {
   const scopes = new Set<string>()
   for (const file of files) {
     const normalized = path.relative(root, safePath(root, file)).replaceAll('\\', '/')
     const parts = normalized.split('/')
     if (parts.length < 2 || ['.github', '.forge'].includes(parts[0])
-      || parts.some(part => /^(?:db|database|migrations?|schema)$/i.test(part))
       || ['docs/ai-coding-architecture.md', 'docs/product-philosophy.md'].includes(normalized)) {
       scopes.add('*')
       continue
@@ -29,15 +41,22 @@ export function executionScopes(root: string, files: string[]): string[] {
       else scopes.add('*')
       continue
     }
-    let module = ''
-    for (let end = parts.length - 1; end > 0; end--) {
-      const candidate = parts.slice(0, end).join('/')
-      if (['pom.xml', 'package.json', 'build.gradle', 'build.gradle.kts', 'go.mod'].some(name => fs.existsSync(safePath(root, `${candidate}/${name}`)))) {
-        module = candidate
-        break
-      }
+    const module = enclosingModule(root, parts)
+    if (!module) {
+      scopes.add('*')
+      continue
     }
-    scopes.add(module ? `module:${module}` : '*')
+    const moduleParts = module.split('/')
+    const domainIndex = parts.findIndex((part, index) => index >= moduleParts.length
+      && domainFolders.has(part) && index + 1 < parts.length - 1)
+    if (domainIndex >= 0) {
+      scopes.add(`module:${parts.slice(0, domainIndex + 2).join('/')}`)
+    } else if (module === 'frontend' && !sharedBuildFiles.has(parts.at(-1) || '')
+      && !parts.some(part => /^(?:db|database|migrations?|schema)$/i.test(part))) {
+      scopes.add(`file:${normalized}`)
+    } else {
+      scopes.add(`module:${module}`)
+    }
   }
   return [...scopes].sort()
 }
@@ -81,5 +100,15 @@ export function releaseWriter(root: string, record: { executionId: string; sessi
 }
 
 export function scopesConflict(a: string[], b: string[]) {
-  return a.includes('*') || b.includes('*') || a.some(scope => b.includes(scope))
+  if (a.includes('*') || b.includes('*')) return true
+  return a.some(left => b.some(right => {
+    if (left === right) return true
+    const leftModule = left.startsWith('module:') ? left.slice(7) : null
+    const rightModule = right.startsWith('module:') ? right.slice(7) : null
+    if (leftModule && rightModule) return leftModule.startsWith(`${rightModule}/`)
+      || rightModule.startsWith(`${leftModule}/`)
+    if (leftModule && right.startsWith('file:')) return right.slice(5).startsWith(`${leftModule}/`)
+    if (rightModule && left.startsWith('file:')) return left.slice(5).startsWith(`${rightModule}/`)
+    return false
+  }))
 }
