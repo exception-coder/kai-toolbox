@@ -23,6 +23,8 @@ Do not stop and ask the user to say “continue” merely because one task, impl
 
 For a multi-change batch, finish every safe step in the current change first. If a concrete prerequisite or unanswered decision still blocks it, report `WAITING_USER` with the exact question and evidence. Forge may preserve that question and dispatch another selected change after revision and strict-validation checks. Do not switch change IDs yourself, mark the blocked task complete, merge another change's files into the current commit, or repeat the same blocked step. When every selected change is deferred, wait for the user's answer; resume the original run to revisit the recorded questions.
 
+When a fact or product detail is uncertain, first look for a conservative, reversible local implementation that meets the confirmed goal without pretending the unknown is verified. Choose the recommended option yourself when its effects can be bounded and locally tested. Record the question, evidence, chosen assumption, rejected alternatives, risk, tests, and the condition for revisiting the choice in the change's existing design or validation record; include the unresolved question in `remainingWork`. Then report `CONTINUE` with the next implementation step. For source identifiers, history completeness, permissions, and data changes, do not silently assume an unverified property: use reconciliation, collision detection, fail-closed behavior, or another explicit fallback where applicable. Mark the task complete only when its actual development acceptance conditions pass. Reserve `WAITING_USER` for a decision with no safe provisional path, an irreversible operation, or a required authorization; do not treat every question for the owner as a stop signal.
+
 During a supervised run, treat the confirmed OpenSpec goal as the completion boundary. A repository's ordinary one-task-one-commit convention does not require you to stop at every task or to commit a partial, dependency-incomplete snapshot. If a shared prerequisite or another writer's uncommitted work prevents an isolated commit, record the exact dependency and owner, keep the affected task and verification open, and continue other authorized steps or a Runtime-dispatched selected change. Report `WAITING_USER` only after those steps are exhausted or a real user decision is required; a missing per-task commit alone is not such a decision. At a coherent verified checkpoint, commit only files owned by the current writer and supported by current verification. Do not stage another writer's work, bypass file-scope checks, claim a mixed or unverified commit as delivery, or infer permission to restart or publish.
 
 ### Container-free database verification
@@ -52,7 +54,7 @@ In `OPEN_SPEC_STRICT` mode, report `COMPLETE` only when the current injected pha
 
 Use `WAITING_USER` or `BLOCKED`, with a concrete reason, only for:
 
-- irreducible business ambiguity or a required product/architecture choice;
+- business ambiguity or a product/architecture choice with no safe reversible provisional path;
 - missing permission, credential, or external resource after all independent authorized steps are exhausted;
 - irreversible or high-risk action not already authorized by the run policy;
 - conflicting OpenSpec requirements;
