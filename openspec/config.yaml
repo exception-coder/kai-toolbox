@@ -20,3 +20,4 @@ rules:
     - Cite current source or Graphify coordinates and record verification and rollback strategy.
   tasks:
     - Keep tasks independently verifiable and do not mark them complete before evidence exists.
+    - Separate locally verifiable development tasks from production-only validation and operations. Prefix each production-only task description with [MANUAL_PRODUCTION]; never use the marker for unfinished local code or tests. Keep marked tasks unchecked until a human completes production work.
