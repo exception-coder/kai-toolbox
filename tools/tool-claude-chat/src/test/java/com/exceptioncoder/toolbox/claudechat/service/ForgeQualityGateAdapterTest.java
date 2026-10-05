@@ -46,6 +46,29 @@ class ForgeQualityGateAdapterTest {
         assertThat(result).isEqualTo(projectRoot.toAbsolutePath().normalize());
     }
 
+    @Test
+    void usesHostToolWithoutChangingBusinessVerificationTarget() throws IOException {
+        Path host = createQualityGate(temporaryDirectory.resolve("forge"));
+        Files.createFile(host.resolve("forge.mjs"));
+        Path business = Files.createDirectories(temporaryDirectory.resolve("business"));
+        Path nested = Files.createDirectories(business.resolve("frontend"));
+        var result = adapter.resolveTarget(nested, business.toString(), host.resolve("toolbox-starter"));
+        assertThat(result.projectRoot()).isEqualTo(business);
+        assertThat(result.script()).isEqualTo(host.resolve("scripts/forge-quality.ps1"));
+        assertThat(adapter.resolveTarget(nested, host.toString(), host)).isNull();
+    }
+
+    @Test
+    void doesNotUseUnmarkedHostOrReplaceProjectOverride() throws IOException {
+        Path host = createQualityGate(temporaryDirectory.resolve("host"));
+        Path business = Files.createDirectories(temporaryDirectory.resolve("business"));
+        assertThat(adapter.resolveTarget(business, business.toString(), host)).isNull();
+        createQualityGate(business);
+        Files.createFile(host.resolve("forge.mjs"));
+        assertThat(adapter.resolveTarget(business, business.toString(), host).script())
+                .isEqualTo(business.resolve("scripts/forge-quality.ps1"));
+    }
+
     private Path createQualityGate(Path root) throws IOException {
         Path scripts = Files.createDirectories(root.resolve("scripts"));
         Files.createFile(scripts.resolve("forge-quality.ps1"));

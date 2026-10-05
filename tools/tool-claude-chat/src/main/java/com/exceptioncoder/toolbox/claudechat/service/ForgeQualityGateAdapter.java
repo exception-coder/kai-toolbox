@@ -29,11 +29,12 @@ public class ForgeQualityGateAdapter {
     }
 
     public Result verify(Path projectRoot, String repositoryIdentity) {
-        Path verificationRoot = resolveVerificationRoot(projectRoot, repositoryIdentity);
+        VerificationTarget target = resolveTarget(projectRoot, repositoryIdentity, Path.of(System.getProperty("user.dir")));
+        Path verificationRoot = target == null ? null : target.projectRoot();
         if (verificationRoot == null) {
-            return new Result(Status.UNAVAILABLE, null, "项目没有 Forge Quality Gate 入口");
+            return new Result(Status.UNAVAILABLE, null, "项目及 Forge 宿主均没有可用的 Quality Gate 入口，请检查宿主 scripts/forge-quality.ps1");
         }
-        Path script = verificationRoot.resolve("scripts/forge-quality.ps1").normalize();
+        Path script = target.script();
         String fingerprint = workspaceFingerprint(verificationRoot);
         Path output = null;
         try {
@@ -96,6 +97,34 @@ public class ForgeQualityGateAdapter {
         }
         return repositoryRoot;
     }
+
+    // 工具安装位置与被验证项目分离，不能把宿主的验证结果用于业务仓库。
+    VerificationTarget resolveTarget(Path projectRoot, String repositoryIdentity, Path hostDirectory) {
+        Path local = resolveVerificationRoot(projectRoot, repositoryIdentity);
+        if (local != null) {
+            return new VerificationTarget(local, local.resolve("scripts/forge-quality.ps1"));
+        }
+        Path target = projectRoot.toAbsolutePath().normalize();
+        if (repositoryIdentity != null && !repositoryIdentity.isBlank()) {
+            try {
+                Path repository = Path.of(repositoryIdentity).toAbsolutePath().normalize();
+                if (!target.startsWith(repository)) {
+                    return null;
+                }
+                target = repository;
+            } catch (RuntimeException exception) {
+                return null;
+            }
+        }
+        for (Path host = hostDirectory.toAbsolutePath().normalize(); host != null; host = host.getParent()) {
+            if (Files.isRegularFile(host.resolve("forge.mjs")) && hasQualityGate(host)) {
+                return new VerificationTarget(target, host.resolve("scripts/forge-quality.ps1"));
+            }
+        }
+        return null;
+    }
+
+    record VerificationTarget(Path projectRoot, Path script) { }
 
     private boolean hasQualityGate(Path directory) {
         return Files.isRegularFile(directory.resolve("scripts/forge-quality.ps1").normalize());
