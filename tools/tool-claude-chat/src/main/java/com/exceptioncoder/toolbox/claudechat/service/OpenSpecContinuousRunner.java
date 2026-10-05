@@ -110,6 +110,13 @@ public class OpenSpecContinuousRunner {
             return Decision.continueWith(corrective(run.context(), snapshot.revision()), "FIX_VALIDATE",
                     "OpenSpec strict validation 失败，继续修复", noProgress);
         }
+        if (!snapshot.pendingManualProductionTasks().isEmpty()) {
+            String taskIds = snapshot.pendingManualProductionTasks().stream()
+                    .map(TaskSnapshot::id).collect(java.util.stream.Collectors.joining("、"));
+            return Decision.waiting(run.context(), "PRODUCTION_HANDOFF_REQUIRED",
+                    "本地开发与质量门禁已通过；生产任务 " + taskIds
+                            + " 留待人工验证和执行，不自动勾选或归档", 0);
+        }
         if (!run.autoArchive()) {
             return Decision.waiting(advance(run.context(), OpenSpecExecutionPhase.ARCHIVE,
                     snapshot.revision()), "ARCHIVE_APPROVAL_REQUIRED", "所有门禁已通过，等待用户授权归档", 0);

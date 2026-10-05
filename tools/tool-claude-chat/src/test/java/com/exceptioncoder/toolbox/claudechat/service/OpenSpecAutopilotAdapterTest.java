@@ -10,6 +10,8 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import java.util.List;
 
 class OpenSpecAutopilotAdapterTest {
 
@@ -18,6 +20,24 @@ class OpenSpecAutopilotAdapterTest {
 
     @TempDir
     Path temporaryDirectory;
+
+    @Test
+    void selectsDevelopmentTaskPastExplicitManualProductionTask() {
+        OpenSpecCliGateway cli = mock(OpenSpecCliGateway.class);
+        Path root = temporaryDirectory;
+        when(cli.run(root, List.of("status", "--change", "example", "--json")))
+                .thenReturn(new OpenSpecCliGateway.CommandResult(true, false, 0, "{}"));
+        when(cli.run(root, List.of("instructions", "apply", "--change", "example", "--json")))
+                .thenReturn(new OpenSpecCliGateway.CommandResult(true, false, 0,
+                        "{\"tasks\":[{\"id\":\"1\",\"description\":\"1.1 [MANUAL_PRODUCTION] Verify target database\",\"done\":false},"
+                                + "{\"id\":\"2\",\"description\":\"1.2 Implement locally\",\"done\":false}]}"));
+
+        var snapshot = new OpenSpecAutopilotAdapter(cli, new ObjectMapper()).inspect(root, "example");
+
+        assertThat(snapshot.nextTask().id()).isEqualTo("1.2");
+        assertThat(snapshot.pendingManualProductionTasks()).extracting(OpenSpecAutopilotAdapter.TaskSnapshot::id)
+                .containsExactly("1.1");
+    }
 
     @Test
     void parsesLargeChangeListWithoutUsingTheSmallDiagnosticLimit() throws IOException {

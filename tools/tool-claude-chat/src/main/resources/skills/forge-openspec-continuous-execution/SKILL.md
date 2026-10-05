@@ -33,6 +33,8 @@ When the same task is dispatched repeatedly, review its explicit development acc
 
 The supervised development order is: implement code, pass applicable local baseline tests, close development tasks, then prepare one final production validation and manual operation checklist. Production deployment, real database migration and upgrade checks, and production scheduler activation belong to that final handoff. Do not perform production operations during automatic development or keep a locally accepted development task open solely because those checks have not run. If an older OpenSpec task mixes local acceptance with production validation, update its task boundary under the project's specification rules and preserve each production item as explicitly not executed. Do not check off missing local implementation or describe a development-complete run as production verified or released.
 
+Mark a production-only OpenSpec task by starting its task description with the exact token `[MANUAL_PRODUCTION]`. Split a mixed task into a locally verifiable development task and a marked manual production task before closing the development work. Forge dispatches remaining development tasks past marked tasks, then runs the local quality gate and strict validation. If marked tasks remain, Forge stops at `PRODUCTION_HANDOFF_REQUIRED` and does not automatically check them off or archive the change. Never add this marker to unfinished local code or tests merely to bypass a blocker.
+
 Never describe the whole goal as complete while Forge says a task or lifecycle phase remains. Phrases such as “下一阶段可以继续” and “后续可以做” are not valid completion outcomes; execute that next step or report why it cannot run.
 
 ## Done Condition

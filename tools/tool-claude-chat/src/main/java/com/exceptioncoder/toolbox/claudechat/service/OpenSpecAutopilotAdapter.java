@@ -78,7 +78,7 @@ public class OpenSpecAutopilotAdapter {
         Map<String, List<String>> artifactPaths = artifactPaths(projectRoot, status);
         String revision = sha256(status.toString() + "\n" + apply.toString());
         return new ChangeSnapshot(changeId, revision, completed, total, tasks, artifactPaths,
-                tasks.stream().filter(task -> !task.done()).findFirst().orElse(null));
+                tasks.stream().filter(task -> !task.done() && !task.manualProduction()).findFirst().orElse(null));
     }
 
     public ValidationResult strictValidate(Path projectRoot, String changeId) {
@@ -254,11 +254,17 @@ public class OpenSpecAutopilotAdapter {
     }
 
     public record TaskSnapshot(String id, int applyOrdinal, String description, boolean done) {
+        public boolean manualProduction() {
+            return description.startsWith("[MANUAL_PRODUCTION] ");
+        }
     }
 
     public record ChangeSnapshot(String changeId, String revision, int completedTasks, int totalTasks,
                                  List<TaskSnapshot> tasks, Map<String, List<String>> artifactPaths,
                                  TaskSnapshot nextTask) {
+        public List<TaskSnapshot> pendingManualProductionTasks() {
+            return tasks.stream().filter(task -> !task.done() && task.manualProduction()).toList();
+        }
     }
 
     public record ValidationResult(boolean passed, String detail) {
