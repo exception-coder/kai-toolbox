@@ -161,34 +161,35 @@ describe('OpenSpec 自动监督体验', () => {
     await waitFor(() => expect(controlSessionAutopilot).toHaveBeenCalledWith('session-1', 'pause', 7))
   })
 
-  it('全部推进按当前会话相关性标记运行并跳转到其会话', async () => {
+  it('全部推进只按当前会话持久绑定标记运行并跳转', async () => {
     listAutopilotRuns.mockResolvedValue({
       items: [{ run: RUN, sessionTitle: '上传开发', projectName: 'kai-toolbox', engine: 'codex', sessionStatus: 'IDLE', lastActivityAt: Date.now() }],
       counts: { active: 1, attention: 0, paused: 0, recent: 0 }, nextCursor: null,
       snapshotAt: new Date().toISOString(),
     } satisfies AutopilotDashboardView)
+    getSessionAutopilot.mockResolvedValue(RUN)
+    getAutopilotBatch.mockResolvedValue({ changeIds: ['sample-image-upload', 'implement-iam-access'], currentIndex: 0, deferred: [] })
     const onOpen = vi.fn()
-    renderWithClient(<AutopilotDashboard initialScope="all" recommendedChangeIds={new Set(['sample-image-upload'])}
-      recommendationProjectRoot="D:/repo" onOpenSession={onOpen} />)
-    expect((await screen.findAllByText('推荐')).length).toBeGreaterThan(0)
+    renderWithClient(<AutopilotDashboard initialScope="all" currentSessionId="session-1" onOpenSession={onOpen} />)
+    expect((await screen.findAllByText('本会话')).length).toBeGreaterThan(0)
+    expect(screen.getByText('本会话已绑定的规格')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'implement-iam-access' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'unrelated-change' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /全部\s*1/ })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /进入 上传开发/ }))
     expect(onOpen).toHaveBeenCalledWith('session-1')
     expect(listAutopilotRuns).toHaveBeenCalledWith(expect.objectContaining({ scope: 'all' }))
   })
 
-  it('推荐规格即使不在当前分页也能直接定位对应会话', async () => {
-    const item = { run: RUN, sessionTitle: '上传开发', projectName: 'kai-toolbox', engine: 'codex', sessionStatus: 'IDLE', lastActivityAt: Date.now() }
+  it('未绑定时不把同项目候选误列为当前会话规格', async () => {
     const snapshot = { counts: { active: 1, attention: 0, paused: 0, recent: 0 }, nextCursor: null, snapshotAt: new Date().toISOString() }
-    listAutopilotRuns.mockResolvedValueOnce({ ...snapshot, items: [] }).mockResolvedValueOnce({ ...snapshot, items: [item] })
+    listAutopilotRuns.mockResolvedValue({ ...snapshot, items: [{ run: RUN, sessionTitle: '其他会话', projectName: 'kai-toolbox', engine: 'codex', sessionStatus: 'IDLE', lastActivityAt: Date.now() }] })
+    getSessionAutopilot.mockResolvedValue(null)
     const onOpen = vi.fn()
-    renderWithClient(<AutopilotDashboard initialScope="all" recommendationProjectRoot="D:/repo"
-      suggestedChanges={[{ changeId: 'sample-image-upload', completedTasks: 27, totalTasks: 36,
-        revision: 'change-hash', relevance: 5, ready: true, reason: '' }]} onOpenSession={onOpen} />)
-    expect(await screen.findByText('这个范围内没有受监督会话')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /sample-image-upload/ }))
-    await waitFor(() => expect(onOpen).toHaveBeenCalledWith('session-1'))
-    expect(listAutopilotRuns).toHaveBeenCalledWith(expect.objectContaining({ scope: 'all', search: 'sample-image-upload' }))
+    renderWithClient(<AutopilotDashboard initialScope="all" currentSessionId="session-2" onOpenSession={onOpen} />)
+    expect(await screen.findByText('尚未绑定自动推进规格；可在对话中打开“自动推进”选择。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sample-image-upload' })).not.toBeInTheDocument()
+    expect(getAutopilotBatch).not.toHaveBeenCalled()
   })
 
   it('移动端单行摘要可聚焦进入详情，桌面保留完整表格', async () => {

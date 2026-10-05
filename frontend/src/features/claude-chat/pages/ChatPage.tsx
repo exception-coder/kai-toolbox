@@ -92,7 +92,6 @@ import { compactSessionModelLabel, SessionConfigSheet } from '../components/Sess
 import { SessionToolsMenu } from '../components/SessionToolsMenu'
 import { SessionAutopilotStatus } from '../components/SessionAutopilotStatus'
 import { MobileSessionViewMore, type SecondarySessionViewOption } from '../components/MobileSessionViewMore'
-import { previewAutopilotBindings } from '../api'
 
 const TrajectoryView = lazy(() => import('../components/TrajectoryView').then(m => ({ default: m.TrajectoryView })))
 const UsageWorkspace = lazy(() => import('../components/UsagePanel').then(m => ({ default: m.UsageWorkspace })))
@@ -863,15 +862,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     if (next.length === 0) setViewMode('single')
   }, [multiIds, sessions, sessionsLoaded])
   const currentSession = sessions.find(s => s.id === chat?.sessionId && isVibeCodingSession(s))
-  const autopilotSuggestions = useQuery({
-    queryKey: ['claude-chat-autopilot-candidates', chat?.sessionId, currentSession?.cwd],
-    queryFn: () => previewAutopilotBindings(chat?.sessionId ?? '', currentSession?.cwd),
-    enabled: sessionView === 'autopilot' && Boolean(chat?.sessionId && currentSession?.cwd),
-    staleTime: 30_000,
-  })
-  const recommendedChanges = useMemo(() => new Set(
-    autopilotSuggestions.data?.filter(candidate => candidate.relevance > 0).map(candidate => candidate.changeId) ?? [],
-  ), [autopilotSuggestions.data])
   const codexHomesQuery = useQuery({
     queryKey: ['claude-chat-codex-homes'],
     queryFn: fetchCodexHomes,
@@ -2256,8 +2246,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 <AutopilotDashboard onOpenSession={sessionId => { chat.switchTo(sessionId); leaveSupervision(); setSessionView('autopilot_detail') }} />
               ) : chat.sessionId ? (
                 sessionView === 'autopilot' ? (
-                  <AutopilotDashboard initialScope="all" recommendedChangeIds={recommendedChanges} recommendationProjectRoot={currentSession?.cwd}
-                    suggestedChanges={autopilotSuggestions.data}
+                  <AutopilotDashboard initialScope="all" currentSessionId={currentSession?.id}
                     onOpenSession={sessionId => { chat.switchTo(sessionId); setSessionView('autopilot_detail') }} />
                 ) : sessionView === 'autopilot_detail' ? (
                   <AutopilotProgressWorkspace key={`autopilot-${chat.sessionId}`} sessionId={chat.sessionId}

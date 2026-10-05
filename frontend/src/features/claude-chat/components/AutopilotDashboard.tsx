@@ -3,17 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bot, ChevronRight, CirclePause, Clock3, Play, RefreshCw, Search, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { controlSessionAutopilot, listAutopilotRuns } from '../api'
-import type { AutopilotBindingCandidate, AutopilotDashboardItem } from '../types'
+import { controlSessionAutopilot, getAutopilotBatch, getSessionAutopilot, listAutopilotRuns } from '../api'
+import type { AutopilotDashboardItem } from '../types'
 
 type Scope = 'all' | 'active' | 'attention' | 'paused' | 'recent'
 
 interface AutopilotDashboardProps {
   onOpenSession: (sessionId: string) => void
   initialScope?: Scope
-  recommendedChangeIds?: ReadonlySet<string>
-  recommendationProjectRoot?: string
-  suggestedChanges?: AutopilotBindingCandidate[]
+  currentSessionId?: string
 }
 
 const scopes: Array<{ id: Scope; label: string }> = [
@@ -40,8 +38,7 @@ function stateTone(state: AutopilotDashboardItem['run']['state']): string {
 }
 
 /** 当前用户可访问的受监督会话运营看板。 */
-export function AutopilotDashboard({ onOpenSession, initialScope = 'active', recommendedChangeIds,
-  recommendationProjectRoot, suggestedChanges }: AutopilotDashboardProps) {
+export function AutopilotDashboard({ onOpenSession, initialScope = 'active', currentSessionId }: AutopilotDashboardProps) {
   const queryClient = useQueryClient()
   const [scope, setScope] = useState<Scope>(initialScope)
   const [searchDraft, setSearchDraft] = useState('')
@@ -53,8 +50,21 @@ export function AutopilotDashboard({ onOpenSession, initialScope = 'active', rec
     refetchInterval: document.visibilityState === 'visible' ? 15_000 : false,
     refetchIntervalInBackground: false,
   })
+  const binding = useQuery({
+    queryKey: ['claude-chat-autopilot-binding', currentSessionId],
+    queryFn: async () => {
+      const run = await getSessionAutopilot(currentSessionId!)
+      if (!run) return []
+      const batch = await getAutopilotBatch(currentSessionId!)
+      return batch?.changeIds ?? [run.changeId]
+    },
+    enabled: Boolean(currentSessionId),
+  })
   useEffect(() => {
-    const refresh = () => void queryClient.invalidateQueries({ queryKey: ['claude-chat-autopilot-runs'] })
+    const refresh = () => {
+      void queryClient.invalidateQueries({ queryKey: ['claude-chat-autopilot-runs'] })
+      void queryClient.invalidateQueries({ queryKey: ['claude-chat-autopilot-binding'] })
+    }
     const visible = () => { if (document.visibilityState === 'visible') refresh() }
     window.addEventListener('claude-chat:autopilot-changed', refresh)
     document.addEventListener('visibilitychange', visible)
@@ -72,23 +82,10 @@ export function AutopilotDashboard({ onOpenSession, initialScope = 'active', rec
   const countForScope = (id: Scope) => query.data?.counts
     ? id === 'all' ? Object.values(query.data.counts).reduce((sum, count) => sum + count, 0)
       : query.data.counts[id] : 0
-  const isRecommended = (item: AutopilotDashboardItem) => Boolean(recommendedChangeIds?.has(item.run.changeId)
-    && recommendationProjectRoot
-    && item.run.projectRoot.toLowerCase() === recommendationProjectRoot.toLowerCase())
-  const visibleItems = [...(query.data?.items ?? [])].sort((left, right) => Number(isRecommended(right)) - Number(isRecommended(left)))
-  const recommendations = suggestedChanges?.filter(candidate => candidate.relevance > 0) ?? []
-  const openRecommendation = async (changeId: string) => {
-    const run = query.data?.items.find(item => item.run.changeId === changeId
-      && item.run.projectRoot.toLowerCase() === recommendationProjectRoot?.toLowerCase())
-    if (run) { onOpenSession(run.run.sessionId); return }
-    try {
-      const matches = await listAutopilotRuns({ scope: 'all', search: changeId, limit: 100 })
-      const match = matches.items.find(item => item.run.changeId === changeId
-        && item.run.projectRoot.toLowerCase() === recommendationProjectRoot?.toLowerCase())
-      if (match) { onOpenSession(match.run.sessionId); return }
-    } catch { /* Keep the filtered list as the recovery path. */ }
-    setScope('all'); setSearch(changeId); setSearchDraft(changeId); setCursor(undefined)
-  }
+  const boundIds = new Set(binding.data ?? [])
+  const isBoundHere = (item: AutopilotDashboardItem) => Boolean(currentSessionId
+    && item.run.sessionId === currentSessionId && boundIds.has(item.run.changeId))
+  const visibleItems = [...(query.data?.items ?? [])].sort((left, right) => Number(isBoundHere(right)) - Number(isBoundHere(left)))
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-[var(--color-background)] max-md:overflow-y-auto max-md:overscroll-contain" aria-labelledby="autopilot-dashboard-title">
@@ -100,7 +97,7 @@ export function AutopilotDashboard({ onOpenSession, initialScope = 'active', rec
               <h2 id="autopilot-dashboard-title" className="text-base font-semibold">自动监督会话</h2>
             </div>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">Forge 持续监督；单轮结束不代表任务完成。</p>
-            {Boolean(recommendedChangeIds?.size) && <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">推荐依据当前会话上下文，仅供定位。</p>}
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">已绑定规格来自当前会话的持久监督记录；其他会话在下方查看。</p>
           </div>
           <div className="flex items-center gap-2 text-xs text-[var(--color-muted-foreground)]">
             {snapshotStale && <span className="text-amber-700 dark:text-amber-400">快照可能已过期</span>}
@@ -108,13 +105,16 @@ export function AutopilotDashboard({ onOpenSession, initialScope = 'active', rec
             <button type="button" onClick={() => query.refetch()} className="rounded p-1.5 hover:bg-[var(--color-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" aria-label="刷新监督看板"><RefreshCw className={cn('size-3.5', query.isFetching && 'animate-spin')} /></button>
           </div>
         </div>
-        {recommendations.length > 0 && <div className="mt-4 border-t border-[var(--color-border)] pt-3">
-          <div className="text-xs font-medium">当前会话相关的规格</div>
-          <div className="mt-2 flex flex-wrap gap-2">{recommendations.map(candidate =>
-            <button key={candidate.changeId} type="button" onClick={() => openRecommendation(candidate.changeId)}
-              className="rounded-md border border-[var(--color-border)] px-2.5 py-1.5 text-left text-xs hover:border-[var(--color-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
-              <span className="font-medium">{candidate.changeId}</span><span className="ml-2 tabular-nums text-[var(--color-muted-foreground)]">{candidate.completedTasks}/{candidate.totalTasks}</span>
-            </button>)}</div>
+        {currentSessionId && <div className="mt-4 border-t border-[var(--color-border)] pt-3">
+          <div className="text-xs font-medium">本会话已绑定的规格</div>
+          {binding.isPending ? <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">正在读取绑定记录…</p>
+            : binding.isError ? <p className="mt-2 text-xs text-amber-700">绑定记录读取失败。<button type="button" className="underline" onClick={() => binding.refetch()}>重试</button></p>
+              : boundIds.size ? <div className="mt-2 flex flex-wrap gap-2">{[...boundIds].map(changeId =>
+                <button key={changeId} type="button" onClick={() => onOpenSession(currentSessionId)}
+                  className="rounded-md border border-[var(--color-border)] px-2.5 py-1.5 text-left text-xs hover:border-[var(--color-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
+                  {changeId}
+                </button>)}</div>
+                : <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">尚未绑定自动推进规格；可在对话中打开“自动推进”选择。</p>}
         </div>}
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <nav className="flex gap-1 overflow-x-auto" aria-label="监督会话范围">
@@ -142,7 +142,7 @@ export function AutopilotDashboard({ onOpenSession, initialScope = 'active', rec
               <span>会话 / 项目</span><span>Change / Task</span><span>阶段</span><span>预算</span><span>最近活动</span><span className="text-right">操作</span>
             </div>
             <div className="divide-y divide-[var(--color-border)]">
-              {visibleItems.map(item => <DashboardRow key={item.run.id} item={item} recommended={isRecommended(item)} busy={control.isPending} onOpen={() => onOpenSession(item.run.sessionId)} onAction={action => control.mutate({ item, action })} />)}
+              {visibleItems.map(item => <DashboardRow key={item.run.id} item={item} boundHere={isBoundHere(item)} busy={control.isPending} onOpen={() => onOpenSession(item.run.sessionId)} onAction={action => control.mutate({ item, action })} />)}
             </div>
           </>
         ) : (
@@ -159,7 +159,7 @@ export function AutopilotDashboard({ onOpenSession, initialScope = 'active', rec
   )
 }
 
-function DashboardRow({ item, recommended, busy, onOpen, onAction }: { item: AutopilotDashboardItem; recommended: boolean; busy: boolean; onOpen: () => void; onAction: (action: 'pause' | 'resume' | 'stop') => void }) {
+function DashboardRow({ item, boundHere, busy, onOpen, onAction }: { item: AutopilotDashboardItem; boundHere: boolean; busy: boolean; onOpen: () => void; onAction: (action: 'pause' | 'resume' | 'stop') => void }) {
   const { run } = item
   const percentage = run.progress.totalTasks ? Math.round(run.progress.completedTasks / run.progress.totalTasks * 100) : 0
   const stateLabel = run.state === 'ACTIVE' ? '监督中' : run.state === 'WAITING_USER' ? '待处理'
@@ -171,14 +171,14 @@ function DashboardRow({ item, recommended, busy, onOpen, onAction }: { item: Aut
         aria-label={`进入 ${item.sessionTitle}，${item.projectName}，${run.changeId}，${stateLabel}，已完成 ${run.progress.completedTasks}/${run.progress.totalTasks} 项${run.reason ? '，查看原因' : ''}`}
         className="flex min-h-11 w-full items-center gap-2 px-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)] md:hidden">
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.sessionTitle}</span>
-        {recommended && <span className="shrink-0 text-[11px] font-medium text-[var(--color-primary)]">推荐</span>}
+        {boundHere && <span className="shrink-0 text-[11px] font-medium text-[var(--color-primary)]">本会话</span>}
         <span className="shrink-0 text-xs tabular-nums text-[var(--color-muted-foreground)]">{run.progress.completedTasks}/{run.progress.totalTasks}</span>
         <span className={cn('shrink-0 text-xs font-medium', stateTone(run.state))}>{stateLabel}</span>
         <ChevronRight className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
       </button>
       <div className="hidden gap-2 px-6 py-3 md:grid md:min-w-[980px] md:grid-cols-[minmax(230px,1.3fr)_minmax(180px,1fr)_130px_110px_150px_126px] md:items-center">
         <button type="button" onClick={onOpen} className="min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
-          <div className="flex items-center gap-2"><span className="truncate text-sm font-medium">{item.sessionTitle}</span>{recommended && <span className="shrink-0 text-[11px] font-medium text-[var(--color-primary)]">推荐</span>}<ChevronRight className="size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" /></div>
+          <div className="flex items-center gap-2"><span className="truncate text-sm font-medium">{item.sessionTitle}</span>{boundHere && <span className="shrink-0 text-[11px] font-medium text-[var(--color-primary)]">本会话</span>}<ChevronRight className="size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" /></div>
           <div className="mt-0.5 truncate text-xs text-[var(--color-muted-foreground)]">{item.projectName} · {item.engine}</div>
         </button>
         <div className="min-w-0"><div className="truncate text-xs font-medium">{run.changeId}</div><div className="mt-0.5 truncate text-xs text-[var(--color-muted-foreground)]">{run.currentTaskId ? `task ${run.currentTaskId}` : '无待执行 task'} · {run.progress.completedTasks}/{run.progress.totalTasks}</div></div>
