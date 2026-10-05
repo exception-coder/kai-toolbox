@@ -286,12 +286,15 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             OpenSpecExecutionContext context = incrementVersion(current.context());
             String remainingJson = writeList(request.remainingWork());
             String evidenceJson = writeList(request.evidence());
+            boolean newEvidence = disposition == AutopilotDisposition.CONTINUE
+                    && request.evidence() != null && !request.evidence().isEmpty()
+                    && !evidenceJson.equals(current.latestEvidenceJson());
             SessionAutopilotRun next = new SessionAutopilotRun(
                     current.id(), current.sessionId(), current.goal(), current.completionPolicy(),
                     recover ? AutopilotState.ACTIVE : current.state(),
                     recover ? "已恢复执行；未完成验证保留待回归" : boundedText(request.reason()),
                     context, current.turnCount(), current.maxTurns(),
-                    current.noProgressCount(), current.maxNoProgress(), current.autoArchive(),
+                    newEvidence ? 0 : current.noProgressCount(), current.maxNoProgress(), current.autoArchive(),
                     current.skillActivated(), current.skillPath(), current.skillVersion(), current.skillFingerprint(),
                     current.runtimeSupervision(), current.completedTasks(), current.totalTasks(), disposition,
                     boundedText(request.summary()), boundedText(request.nextAction()), remainingJson, evidenceJson,

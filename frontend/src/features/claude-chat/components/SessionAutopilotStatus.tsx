@@ -241,7 +241,7 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
                   <dt>执行上下文</dt><dd className="truncate text-[var(--color-foreground)]">{run.branchAtStart || '未识别分支'} · generation {run.generation}</dd>
                   <dt>当前阶段</dt><dd className="text-[var(--color-foreground)]">{run.phase}{run.currentTaskId ? ` / task ${run.currentTaskId}` : ''}</dd>
                   <dt>绑定 Specs</dt><dd className="space-y-0.5 text-[var(--color-foreground)]">{specPaths.length ? specPaths.map(path => <div key={path} className="truncate" title={path}>{path}</div>) : '当前 change 未返回 delta spec 路径'}</dd>
-                  <dt>停止预算</dt><dd className="text-[var(--color-foreground)]">轮次 {run.turnCount}/{run.maxTurns} · 无进展 {run.noProgressCount}/{run.maxNoProgress}</dd>
+                  <dt>停止预算</dt><dd className="text-[var(--color-foreground)]">轮次 {run.turnCount}/{run.maxTurns}{run.phase === 'APPLY' ? ` · 同任务连续 ${run.noProgressCount} 轮` : ` · 阶段重试 ${run.noProgressCount}/${run.maxNoProgress}`}</dd>
                 </dl>
                 {batchQuery.data && <div className="border-t border-[var(--color-border)] pt-2">
                   <div className="font-medium">批次顺序</div>

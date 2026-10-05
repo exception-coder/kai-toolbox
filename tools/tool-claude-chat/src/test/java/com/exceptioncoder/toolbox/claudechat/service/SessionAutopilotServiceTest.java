@@ -588,6 +588,31 @@ class SessionAutopilotServiceTest {
     }
 
     @Test
+    void newReportedEvidenceResetsSameTaskCounter() {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        SessionAutopilotRun base = run();
+        SessionAutopilotRun run = new SessionAutopilotRun(base.id(), base.sessionId(), base.goal(),
+                base.completionPolicy(), base.state(), base.reason(), base.context(), base.turnCount(),
+                base.maxTurns(), 3, base.maxNoProgress(), base.autoArchive(), base.skillActivated(),
+                base.skillPath(), base.skillVersion(), base.skillFingerprint(), base.runtimeSupervision(),
+                base.completedTasks(), base.totalTasks(), base.latestDisposition(), base.latestSummary(),
+                base.latestNextAction(), base.latestRemainingWorkJson(), "[\"old evidence\"]",
+                base.latestReportAt(), base.startedAt(), base.deadlineAt(), base.updatedAt());
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.of(run));
+        when(repository.update(any(), eq(0L))).thenReturn(true);
+        SessionAutopilotService service = service(repository, mock(ClaudeChatSessionRepository.class),
+                mock(ClaudeChatSessionAccessPolicy.class));
+
+        service.reportProgress("session-1", new SessionAutopilotService.ProgressReport(
+                "CONTINUE", "implemented another step", "run targeted test", List.of(),
+                List.of("new passing test"), null));
+
+        ArgumentCaptor<SessionAutopilotRun> saved = ArgumentCaptor.forClass(SessionAutopilotRun.class);
+        verify(repository).update(saved.capture(), eq(0L));
+        assertThat(saved.getValue().noProgressCount()).isZero();
+    }
+
+    @Test
     void waitingRunRejectsProgressWithRecoverableConflictInsteadOfServerError() {
         SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
         SessionAutopilotRun waiting = withState(run(), AutopilotState.WAITING_USER);

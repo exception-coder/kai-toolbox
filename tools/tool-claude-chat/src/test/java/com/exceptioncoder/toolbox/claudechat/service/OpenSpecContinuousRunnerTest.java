@@ -44,6 +44,19 @@ class OpenSpecContinuousRunnerTest {
     }
 
     @Test
+    void unfinishedTaskDoesNotPauseOnlyBecauseItSpansSeveralTurns() {
+        SessionAutopilotRun run = run(OpenSpecExecutionPhase.APPLY, "6.4", 28,
+                AutopilotDisposition.COMPLETE, "revision-a", 3);
+        ChangeSnapshot snapshot = snapshot("revision-a", List.of(
+                new TaskSnapshot("6.4", 28, "pending", false)));
+
+        OpenSpecContinuousRunner.Decision decision = runner.decide(run, snapshot);
+
+        assertThat(decision.state()).isEqualTo(AutopilotState.ACTIVE);
+        assertThat(decision.noProgressCount()).isEqualTo(4);
+    }
+
+    @Test
     void persistsNextHumanTaskAndApplyOrdinalAfterCurrentTaskCompletes() {
         SessionAutopilotRun run = run(OpenSpecExecutionPhase.APPLY, "6.4", 28,
                 AutopilotDisposition.CONTINUE, "revision-a", 0);

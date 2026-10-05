@@ -56,11 +56,6 @@ public class OpenSpecContinuousRunner {
         boolean sameTask = next.id().equals(run.context().currentTaskId());
         boolean revisionChanged = !snapshot.revision().equals(run.context().changeRevision());
         int noProgress = sameTask && !revisionChanged ? run.noProgressCount() + 1 : 0;
-        if (sameTask && noProgress >= run.maxNoProgress()
-                && run.latestDisposition() != AutopilotDisposition.CONTINUE) {
-            return Decision.pause(withTask(run.context(), next, snapshot.revision()), "NO_PROGRESS",
-                    "当前任务连续没有可证明进展，已暂停等待处理", noProgress);
-        }
         String reason = sameTask ? "当前 task 仍未完成，Runtime 自动续跑同一 task"
                 : "上一 task 已确认完成，Runtime 已绑定下一 task";
         return Decision.continueWith(withTask(run.context(), next, snapshot.revision()),
