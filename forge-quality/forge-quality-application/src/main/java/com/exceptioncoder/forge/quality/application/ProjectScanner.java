@@ -29,6 +29,12 @@ final class ProjectScanner {
                 if (!directory.equals(projectRoot) && EXCLUDED_DIRECTORIES.contains(directory.getFileName().toString())) {
                     return FileVisitResult.SKIP_SUBTREE;
                 }
+                // Agent scratch repositories are not part of the owning project's source tree.
+                String name = directory.getFileName().toString();
+                if (projectRoot.equals(directory.getParent())
+                        && (name.equals(".tmp") || name.equals(".runtime") || name.equals(".codex-work") || name.startsWith(".codex-work-"))) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
                 return FileVisitResult.CONTINUE;
             }
 
