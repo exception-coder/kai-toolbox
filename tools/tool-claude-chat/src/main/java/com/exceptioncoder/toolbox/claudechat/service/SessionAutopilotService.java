@@ -61,6 +61,8 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     private static final Logger LOGGER = LoggerFactory.getLogger(SessionAutopilotService.class);
     private static final int DEFAULT_MAX_TURNS = 60;
     private static final int DEFAULT_MAX_NO_PROGRESS = 3;
+    private static final String CAPACITY_RETRY_REASON = "模型容量不足，等待后台重试";
+    private static final int MAX_CAPACITY_RETRIES = 3;
     private static final Duration DEFAULT_DEADLINE = Duration.ofHours(8);
     private static final int MAX_REPORT_ITEMS = 20;
     private static final int MAX_REPORT_TEXT = 2_000;
@@ -334,6 +336,9 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         repository.findRecent("", null, null, 200).stream()
                 .filter(run -> run.state() == AutopilotState.ACTIVE)
                 .filter(run -> run.budgetAvailable(Instant.now()))
+                .filter(run -> capacityRetryCount(run.reason()) == 0
+                        || !run.updatedAt().plusSeconds(30L * capacityRetryCount(run.reason()))
+                        .isAfter(Instant.now()))
                 .filter(run -> runtimeStates.canStartTurn(run.sessionId()).allowed())
                 .forEach(run -> {
                     try {
@@ -424,8 +429,19 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         String turnId = event.turnId() == null || event.turnId().isBlank()
                 ? "terminal-" + event.settledAt() : event.turnId();
         if (!successful(event.stopReason()) || !event.queueReleaseSafe()) {
+            int capacityRetries = capacityRetryCount(run.reason());
+            if (transientCapacityFailure(event) && capacityRetries < MAX_CAPACITY_RETRIES
+                    && run.budgetAvailable(Instant.now())) {
+                finishDecision(run, event, turnId, AutopilotState.ACTIVE,
+                        CAPACITY_RETRY_REASON + "（" + (capacityRetries + 1) + "/"
+                                + MAX_CAPACITY_RETRIES + "）；下一轮先核对已有工作，再继续执行",
+                        run.context(), run.noProgressCount());
+                return;
+            }
             finishDecision(run, event, turnId, AutopilotState.PAUSED,
-                    "上一轮未形成可安全续跑的成功终态", run.context(), run.noProgressCount());
+                    transientCapacityFailure(event) ? "模型容量错误连续出现，已达到后台重试上限"
+                            : "上一轮未形成可安全续跑的成功终态",
+                    run.context(), run.noProgressCount());
             return;
         }
         if (!run.budgetAvailable(Instant.now())) {
@@ -782,6 +798,27 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     private boolean successful(String stopReason) {
         return stopReason != null && List.of("end_turn", "success", "completed", "stop")
                 .contains(stopReason.toLowerCase());
+    }
+
+    private boolean transientCapacityFailure(SessionTurnSettledEvent event) {
+        boolean failed = "failed".equalsIgnoreCase(event.stopReason())
+                || "error".equalsIgnoreCase(event.stopReason());
+        return failed && event.errorCode() != null
+                && event.errorCode().startsWith("CODEX_APP_SERVER_")
+                && event.errorMessage() != null
+                && event.errorMessage().toLowerCase(java.util.Locale.ROOT).contains("at capacity");
+    }
+
+    private int capacityRetryCount(String reason) {
+        if (reason == null || !reason.startsWith(CAPACITY_RETRY_REASON)) return 0;
+        int marker = reason.indexOf('（', CAPACITY_RETRY_REASON.length());
+        int slash = reason.indexOf('/', marker + 1);
+        if (marker < 0 || slash < 0) return 0;
+        try {
+            return Integer.parseInt(reason.substring(marker + 1, slash));
+        } catch (NumberFormatException exception) {
+            return 0;
+        }
     }
 
     private String reportReason(SessionAutopilotRun run) {

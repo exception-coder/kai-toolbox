@@ -859,6 +859,8 @@ public class ClaudeChatService {
         sessionAccessPolicy.requireProjectAllowed(ctx.cwd);
         var images = loadMessageImages(ctx.sessionId, msg.attachments());
         ctx.queueReleaseReady = false;
+        ctx.lastTurnErrorCode = null;
+        ctx.lastTurnErrorMessage = null;
         String turnId = turnLifecycle.begin(ctx.sessionId);
         attachmentRepository.bindTurn(ctx.sessionId, turnId,
                 msg.attachments() == null ? List.of() : msg.attachments().stream()
@@ -1628,6 +1630,8 @@ public class ClaudeChatService {
             case "turnState" -> onTurnState(ctx, node);
             case "result" -> onResult(ctx, node);
             case "error" -> {
+                ctx.lastTurnErrorCode = node.path("code").asText("SIDECAR_ERROR");
+                ctx.lastTurnErrorMessage = node.path("message").asText("");
                 AgentSpan span = activeTurnSpans.get(ctx.sessionId);
                 if (span != null) {
                     // 不先移除：部分引擎随后还会发 result，届时需要把该 Trace ID 交给历史归档。
@@ -1722,7 +1726,8 @@ public class ClaudeChatService {
         String resultTraceId = traceId;
         sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, stopReason, resultTraceId));
         applicationEvents.publishEvent(new SessionTurnSettledEvent(
-                ctx.sessionId, turnId, stopReason, queueReleaseSafe, System.currentTimeMillis()));
+                ctx.sessionId, turnId, stopReason, queueReleaseSafe, System.currentTimeMillis(),
+                ctx.lastTurnErrorCode, ctx.lastTurnErrorMessage));
         dispatchNextQueuedMessage(ctx);
         // 所有观察者都不在线才推送，避免打扰
         if (!hasActiveViewer(ctx)) {
@@ -2667,6 +2672,8 @@ public class ClaudeChatService {
         volatile java.util.List<ServerMessage.BackgroundTaskInfo> backgroundTasks = java.util.List.of();
         /** 最近一次成功终态尚未释放队首；消费后立即复位，确保每轮最多自动发送一条。 */
         volatile boolean queueReleaseReady;
+        volatile String lastTurnErrorCode;
+        volatile String lastTurnErrorMessage;
         final Set<String> acceptedMessageIds = new LinkedHashSet<>();
 
         SessionCtx(String sessionId, String cwd) {
