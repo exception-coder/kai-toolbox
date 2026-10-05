@@ -40,6 +40,24 @@ class OpenSpecAutopilotAdapterTest {
     }
 
     @Test
+    void selectsDevelopmentTaskPastManualConfirmation() {
+        OpenSpecCliGateway cli = mock(OpenSpecCliGateway.class);
+        Path root = temporaryDirectory;
+        when(cli.run(root, List.of("status", "--change", "example", "--json")))
+                .thenReturn(new OpenSpecCliGateway.CommandResult(true, false, 0, "{}"));
+        when(cli.run(root, List.of("instructions", "apply", "--change", "example", "--json")))
+                .thenReturn(new OpenSpecCliGateway.CommandResult(true, false, 0,
+                        "{\"tasks\":[{\"id\":\"1.2\",\"description\":\"[MANUAL_CONFIRMATION] Confirm ERP source key\",\"done\":false},"
+                                + "{\"id\":\"1.3\",\"description\":\"Implement local reconciliation\",\"done\":false}]}"));
+
+        var snapshot = new OpenSpecAutopilotAdapter(cli, new ObjectMapper()).inspect(root, "example");
+
+        assertThat(snapshot.nextTask().id()).isEqualTo("2");
+        assertThat(snapshot.pendingManualHandoffTasks()).extracting(OpenSpecAutopilotAdapter.TaskSnapshot::id)
+                .containsExactly("1");
+    }
+
+    @Test
     void parsesLargeChangeListWithoutUsingTheSmallDiagnosticLimit() throws IOException {
         String padding = "x".repeat(17_000);
         String json = "{\"changes\":[{\"name\":\"implement-iam-organization\",\"completedTasks\":1,"

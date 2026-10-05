@@ -162,6 +162,24 @@ class OpenSpecContinuousRunnerTest {
     }
 
     @Test
+    void validatedDevelopmentLeavesAssumptionConfirmationForHumanHandoff() {
+        SessionAutopilotRun run = run(OpenSpecExecutionPhase.STRICT_VALIDATE, null, null,
+                AutopilotDisposition.COMPLETE, "revision-a", 0);
+        TaskSnapshot confirmation = new TaskSnapshot("3.3", 10,
+                "[MANUAL_CONFIRMATION] Confirm ERP source key stability", false);
+        ChangeSnapshot snapshot = new ChangeSnapshot("session-autopilot", "revision-a", 1, 2,
+                List.of(new TaskSnapshot("3.1", 8, "local implementation", true), confirmation),
+                Map.of(), null);
+        when(openSpec.strictValidate(java.nio.file.Path.of("D:/repo"), "session-autopilot"))
+                .thenReturn(new OpenSpecAutopilotAdapter.ValidationResult(true, "valid"));
+
+        OpenSpecContinuousRunner.Decision decision = runner.decide(run, snapshot);
+        assertThat(decision.state()).isEqualTo(AutopilotState.WAITING_USER);
+        assertThat(decision.code()).isEqualTo("PRODUCTION_HANDOFF_REQUIRED");
+        assertThat(decision.reason()).contains("3.3");
+    }
+
+    @Test
     void rejectsTaskOrdinalDriftBeforeDispatch() {
         SessionAutopilotRun run = run(OpenSpecExecutionPhase.APPLY, "6.4", 28,
                 AutopilotDisposition.CONTINUE, "revision-a", 0);
@@ -203,7 +221,7 @@ class OpenSpecContinuousRunnerTest {
     }
 
     private ChangeSnapshot snapshot(String revision, List<TaskSnapshot> tasks) {
-        TaskSnapshot next = tasks.stream().filter(task -> !task.done() && !task.manualProduction())
+        TaskSnapshot next = tasks.stream().filter(task -> !task.done() && !task.manualHandoff())
                 .findFirst().orElse(null);
         int complete = (int) tasks.stream().filter(TaskSnapshot::done).count();
         return new ChangeSnapshot("session-autopilot", revision, complete, tasks.size(), tasks, Map.of(), next);

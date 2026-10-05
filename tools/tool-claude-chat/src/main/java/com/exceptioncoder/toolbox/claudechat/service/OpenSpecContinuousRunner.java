@@ -51,7 +51,7 @@ public class OpenSpecContinuousRunner {
         TaskSnapshot next = snapshot.nextTask();
         if (next == null) {
             return Decision.continueWith(advance(run.context(), OpenSpecExecutionPhase.VERIFY,
-                    snapshot.revision()), "ADVANCE_PHASE", "全部 tasks 已完成，进入实现核验", 0);
+                    snapshot.revision()), "ADVANCE_PHASE", "全部本地开发 tasks 已完成，进入实现核验", 0);
         }
         boolean sameTask = next.id().equals(run.context().currentTaskId());
         boolean revisionChanged = !snapshot.revision().equals(run.context().changeRevision());
@@ -110,12 +110,12 @@ public class OpenSpecContinuousRunner {
             return Decision.continueWith(corrective(run.context(), snapshot.revision()), "FIX_VALIDATE",
                     "OpenSpec strict validation 失败，继续修复", noProgress);
         }
-        if (!snapshot.pendingManualProductionTasks().isEmpty()) {
-            String taskIds = snapshot.pendingManualProductionTasks().stream()
+        if (!snapshot.pendingManualHandoffTasks().isEmpty()) {
+            String taskIds = snapshot.pendingManualHandoffTasks().stream()
                     .map(TaskSnapshot::id).collect(java.util.stream.Collectors.joining("、"));
             return Decision.waiting(run.context(), "PRODUCTION_HANDOFF_REQUIRED",
-                    "本地开发与质量门禁已通过；生产任务 " + taskIds
-                            + " 留待人工验证和执行，不自动勾选或归档", 0);
+                    "本地开发与质量门禁已通过；人工生产或方案核实任务 " + taskIds
+                            + " 留待人工确认和执行，不自动勾选或归档", 0);
         }
         if (!run.autoArchive()) {
             return Decision.waiting(advance(run.context(), OpenSpecExecutionPhase.ARCHIVE,
