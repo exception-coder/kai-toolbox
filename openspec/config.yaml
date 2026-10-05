@@ -19,5 +19,8 @@ rules:
   design:
     - Cite current source or Graphify coordinates and record verification and rollback strategy.
   tasks:
+    - Split development work into bounded tasks with explicit local acceptance evidence. Keep production deployment, real-environment acceptance and human follow-up in final separate tasks; they must not prevent completion of verified local development.
+    - For revisitable uncertainty, implement the recommended reversible solution with local tests and record assumptions, evidence, risks and extension points in design.md. Append a separate [MANUAL_CONFIRMATION] task for human review; never report an assumed source fact as verified.
+    - When continuing a historical change, first split mixed development/manual tasks while preserving existing task IDs, completed evidence and unfinished local work. Append manual tasks at the end; do not simply relabel unfinished implementation as manual or mark it complete.
     - Keep tasks independently verifiable and do not mark them complete before evidence exists.
     - Separate locally verifiable development tasks from production-only validation and operations. Prefix each production-only task description with [MANUAL_PRODUCTION]; never use the marker for unfinished local code or tests. Keep marked tasks unchecked until a human completes production work.
