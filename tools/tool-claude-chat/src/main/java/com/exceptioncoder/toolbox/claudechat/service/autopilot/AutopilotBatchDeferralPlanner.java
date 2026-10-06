@@ -34,7 +34,19 @@ public final class AutopilotBatchDeferralPlanner {
 
     public Optional<Plan> plan(SessionAutopilotRun run, Batch batch, List<DeferredChange> previous,
                                String blocker) {
-        if (run.context().phase() != OpenSpecExecutionPhase.APPLY) return Optional.empty();
+        return plan(run, batch, previous, blocker, false);
+    }
+
+    /** Only the runner's successful local validation may enter this path. */
+    public Optional<Plan> afterManualHandoff(SessionAutopilotRun run, Batch batch,
+                                            List<DeferredChange> previous, String blocker) {
+        return plan(run, batch, previous, blocker, true);
+    }
+
+    private Optional<Plan> plan(SessionAutopilotRun run, Batch batch, List<DeferredChange> previous,
+                                String blocker, boolean manualHandoff) {
+        if (run.context().phase() != (manualHandoff
+                ? OpenSpecExecutionPhase.STRICT_VALIDATE : OpenSpecExecutionPhase.APPLY)) return Optional.empty();
         List<String> order = readIds(batch.changeIdsJson());
         int index = batch.currentIndex();
         if (index >= order.size() - 1 || !order.get(index).equals(run.context().changeId())) {
@@ -48,10 +60,12 @@ public final class AutopilotBatchDeferralPlanner {
         ChangeSnapshot selected = null;
         for (int candidate = index + 1; candidate < order.size(); candidate++) {
             String id = order.get(candidate);
-            if (deferred.contains(id)) continue;
+            if (deferred.contains(id) && !manualHandoff) continue;
             try {
                 ChangeSnapshot snapshot = openSpec.inspect(Path.of(run.context().projectRoot()), id);
-                if (!snapshot.revision().equals(expected.get(id)) || snapshot.nextTask() == null) {
+                // A completed prerequisite permits fresh preflight of old deferred items.
+                // This schedules reassessment, not permission to ignore their previous blockers.
+                if ((!manualHandoff && !snapshot.revision().equals(expected.get(id))) || snapshot.nextTask() == null) {
                     unavailable.add(new DeferredChange(id, "规格已变化或没有待执行 task，等待重新预检"));
                     continue;
                 }

@@ -52,9 +52,50 @@ class AutopilotBatchDeferralPlannerTest {
     }
 
     private SessionAutopilotRun run() {
+        return run(OpenSpecExecutionPhase.APPLY);
+    }
+
+    @Test
+    void manualHandoffRechecksDeferredDevelopmentAfterPrerequisiteCompletion() {
+        OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
+        Path root = Path.of("D:/repo");
+        TaskSnapshot task = new TaskSnapshot("2.1", 1, "local implementation", false);
+        when(openSpec.inspect(root, "auth")).thenReturn(new ChangeSnapshot("auth", "new-rev", 0, 1,
+                List.of(task), Map.of(), task));
+        when(openSpec.strictValidate(root, "auth")).thenReturn(new ValidationResult(true, "valid"));
+        var planner = new AutopilotBatchDeferralPlanner(openSpec, new ObjectMapper());
+        var batch = new Batch("[\"access\",\"auth\"]", "{\"auth\":\"old-rev\"}", 0);
+        var previous = List.of(new DeferredChange("auth", "等待 access 前置"));
+
+        var plan = planner.afterManualHandoff(run(OpenSpecExecutionPhase.STRICT_VALIDATE), batch,
+                previous, "人工确认留到批次末尾").orElseThrow();
+
+        assertThat(plan.context().changeId()).isEqualTo("auth");
+        assertThat(plan.context().changeRevision()).isEqualTo("new-rev");
+        assertThat(plan.reorderedChangeIdsJson()).isEqualTo("[\"auth\",\"access\"]");
+        assertThat(plan.deferred()).containsExactly(new DeferredChange("access", "人工确认留到批次末尾"));
+        assertThat(planner.afterManualHandoff(run(), batch, previous, "manual")).isEmpty();
+        when(openSpec.strictValidate(root, "auth")).thenReturn(new ValidationResult(false, "invalid"));
+        assertThat(planner.afterManualHandoff(run(OpenSpecExecutionPhase.STRICT_VALIDATE), batch,
+                previous, "manual")).isEmpty();
+    }
+
+    @Test
+    void allManualTasksRemainUncompletedForFinalHandoff() {
+        OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
+        TaskSnapshot manual = new TaskSnapshot("5.1", 1, "[MANUAL_CONFIRMATION] source confirmation", false);
+        when(openSpec.inspect(Path.of("D:/repo"), "auth")).thenReturn(new ChangeSnapshot("auth", "rev", 0, 1,
+                List.of(manual), Map.of(), null));
+        var planner = new AutopilotBatchDeferralPlanner(openSpec, new ObjectMapper());
+        assertThat(planner.afterManualHandoff(run(OpenSpecExecutionPhase.STRICT_VALIDATE),
+                new Batch("[\"access\",\"auth\"]", "{}", 0), List.of(), "manual")).isEmpty();
+        assertThat(manual.done()).isFalse();
+    }
+
+    private SessionAutopilotRun run(OpenSpecExecutionPhase phase) {
         Instant now = Instant.now();
         var context = new OpenSpecExecutionContext("D:/repo", "repo", "main", "workspace", "access",
-                "rev-a", "1.3", 3, OpenSpecExecutionPhase.APPLY, "agent", 1, 8);
+                "rev-a", "1.3", 3, phase, "agent", 1, 8);
         return new SessionAutopilotRun("run-1", "session-1", "finish IAM",
                 AutopilotCompletionPolicy.OPEN_SPEC_STRICT, AutopilotState.ACTIVE, null, context,
                 10, 180, 0, 3, true, true, "skill", "1", "hash", true,

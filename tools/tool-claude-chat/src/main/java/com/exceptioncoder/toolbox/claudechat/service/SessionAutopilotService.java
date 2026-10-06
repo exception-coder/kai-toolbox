@@ -492,6 +492,10 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             ChangeSnapshot snapshot = openSpec.inspect(Path.of(run.context().projectRoot()),
                     run.context().changeId());
             Decision decision = continuousRunner.decide(run, snapshot);
+            if ("PRODUCTION_HANDOFF_REQUIRED".equals(decision.code())
+                    && deferBatchItem(run, turnId, decision.reason(), true)) {
+                return;
+            }
             if (!repository.appendStep(new AutopilotStep(run.id(), run.context().generation(), turnId,
                     decision.messageId(), run.context().phase(), run.context().currentTaskId(), decision.code(),
                     boundedText(run.latestSummary()), boundedText(run.latestEvidenceJson()),
@@ -591,14 +595,22 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     }
 
     private boolean deferBlockedBatchItem(SessionAutopilotRun run, String turnId) {
+        return deferBatchItem(run, turnId, reportReason(run), false);
+    }
+
+    private boolean deferBatchItem(SessionAutopilotRun run, String turnId, String blocker,
+                                   boolean manualHandoff) {
         try {
             var batch = repository.findBatch(run.sessionId(), run.id());
             if (batch.isEmpty()) return false;
-            var plan = batchDeferrals.plan(run, batch.get(), repository.findDeferredChanges(run.id()),
-                    reportReason(run));
+            var previous = repository.findDeferredChanges(run.id());
+            var plan = manualHandoff
+                    ? batchDeferrals.afterManualHandoff(run, batch.get(), previous, blocker)
+                    : batchDeferrals.plan(run, batch.get(), previous, blocker);
             if (plan.isEmpty()) return false;
             var chosen = plan.get();
-            String reason = "规格 " + run.context().changeId() + " 的问题已暂留，继续 "
+            String reason = "规格 " + run.context().changeId()
+                    + (manualHandoff ? " 的人工项已后置；重新核对旧阻塞并继续 " : " 的问题已暂留，继续 ")
                     + chosen.context().changeId();
             SessionAutopilotRun next = evolve(run, AutopilotState.ACTIVE, reason, chosen.context(),
                     run.turnCount() + 1, 0, chosen.nextSnapshot().completedTasks(),
@@ -606,9 +618,10 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             AutopilotStep step = new AutopilotStep(run.id(), run.context().generation(), turnId,
                     "autopilot:" + run.id() + ":defer:" + chosen.context().changeId(),
                     run.context().phase(), run.context().currentTaskId(), "DEFER_BATCH_ITEM",
-                    reportReason(run), run.latestEvidenceJson(), progressFingerprint(run), Instant.now());
+                    blocker, run.latestEvidenceJson(), progressFingerprint(run), Instant.now());
             if (!repository.deferBatch(step, next, run.context().version(), batch.get(),
                     chosen.reorderedChangeIdsJson(), chosen.deferred())) return true;
+            repository.clearDeferredChange(run.id(), chosen.context().changeId());
             publish(next);
             queueContinuation(next, chosen.nextSnapshot(), reason);
             return true;
