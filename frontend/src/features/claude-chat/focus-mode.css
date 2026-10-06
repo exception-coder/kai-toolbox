@@ -1,0 +1,3 @@
+.cc-focus-mode [data-focus-chrome] { display: none !important; }
+.cc-focus-mode { background: var(--color-background); }
+.cc-focus-mode .cc-focus-exit { padding-top: max(4px, env(safe-area-inset-top)); }

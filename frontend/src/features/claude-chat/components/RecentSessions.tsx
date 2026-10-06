@@ -1,3 +1,4 @@
+import { useRecentSessionsExpanded } from '../lib/workspacePreferences'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronRight, Clock3, Folder, Link2, Loader2, LockKeyhole, Pencil, Star, Tags, Trash2, Unlock } from 'lucide-react'
@@ -79,6 +80,9 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
   const qc = useQueryClient()
   const confirm = useConfirm()
   const listId = useId()
+  const defaultExpanded = useRecentSessionsExpanded()
+  const [sectionExpanded, setSectionExpanded] = useState(defaultExpanded)
+  useEffect(() => setSectionExpanded(defaultExpanded), [defaultExpanded])
   const { busyId: planBusyId, expire: expirePlan, unlock: unlockPlan } = useSessionPlanState()
   const { data: sessions = [], isPending } = useQuery({
     queryKey: SESSION_QUERY_KEY,
@@ -187,12 +191,16 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
     <>
     <section className="mb-2 border-b border-[var(--color-border)]/60 pb-2">
       {/* Section 标题：与 SessionList 分组 header 对齐 */}
-      <div className="flex items-center gap-1.5 px-3 py-2">
+      <button type="button" aria-expanded={sectionExpanded} aria-controls={`${listId}-recent`}
+        onClick={() => setSectionExpanded(value => !value)}
+        className="flex min-h-11 w-full items-center gap-1.5 px-3 text-left focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
+        <ChevronRight className={cn('size-3', sectionExpanded && 'rotate-90')} aria-hidden="true" />
         <Clock3 className="size-3 shrink-0 text-[var(--color-muted-foreground)]" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
           最近会话
         </span>
-      </div>
+      </button>
+      <div id={`${listId}-recent`} hidden={!sectionExpanded}>
       {renameError && <p role="alert" className="px-3 pb-2 text-xs text-[var(--color-destructive)]">{renameError}</p>}
 
       {recent.length === 0 ? (
@@ -397,6 +405,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
           </section>
         })}
       </div>}
+      </div>
     </section>
     {groupPickFor && (
       <SessionGroupPicker

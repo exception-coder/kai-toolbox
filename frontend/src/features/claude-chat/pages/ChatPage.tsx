@@ -1,3 +1,6 @@
+import '../focus-mode.css'
+import { useChatFocusMode } from '../hooks/useChatFocusMode'
+import { WorkspacePreferences } from '../components/WorkspacePreferences'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -750,6 +753,23 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [moreOpen, setMoreOpen] = useState(false)
   const [engineMenuOpen, setEngineMenuOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
+  const focusRoot = useRef<HTMLDivElement>(null)
+  const [preferencesOpen, setPreferencesOpen] = useState(false)
+  const focusPrevious = useRef<{ view: typeof sessionView; mode: typeof viewMode; panel: typeof panel } | null>(null)
+  const focus = useChatFocusMode(focusRoot, () => {
+    const previous = focusPrevious.current
+    if (previous) { setSessionView(previous.view); setViewMode(previous.mode); setPanel(previous.panel) }
+    requestAnimationFrame(() => sessionToolsTriggerRef.current?.focus())
+  })
+  const enterFocus = () => {
+    focusPrevious.current = { view: sessionView, mode: viewMode, panel }
+    setHeaderMenu(false)
+    setPanel('none')
+    setSessionView('conversation')
+    setViewMode('single')
+    focus.enter()
+  }
+
   const fileRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const nativeVoiceControlRef = useRef<{ start: () => void }>(null)
@@ -1144,8 +1164,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   ]
 
   return (
-    <div className={cn(
-      fullscreen
+    <div ref={focusRoot} className={cn(
+      (fullscreen || focus.focused)
         // 全屏是覆盖整个视口的浮层，背景必须不透明——否则底层（折叠侧栏等）会从半透明背景透出，左侧留残影
         ? 'cc-workspace-fullscreen fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden'
         // relative：给皮肤开启时的 .cc-skin-bg（position:absolute）提供定位上下文，
@@ -1155,7 +1175,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
         // 否则桌面隐藏 TopBar 后会在页面底部留下同等高度的空白。
         : 'relative flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden',
       // 皮肤自带底色（见 skin.css 的 --skin-base），开启时让位，避免两层底色叠加
-      !skin && (fullscreen ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40'),
+      !skin && ((fullscreen || focus.focused) ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40'),
+      focus.focused && 'cc-focus-mode',
       skinClass(skin, chat?.currentEngine ?? 'claude', !!chat?.running),
     )}>
       {/* 极光背景独立裁剪层：见 skin.css .cc-skin-bg 注释——跟外层容器分开，
@@ -1165,8 +1186,14 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           relative z-30：炫彩皮肤下 header 带 backdrop-filter 会自成层叠上下文，把「更多」下拉
           (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
-      <WorkspaceHeaderMount target={unifiedTitleBarSlot}>
-      <header className={cn(
+      {focus.focused && <div className="cc-focus-exit flex shrink-0 justify-end px-2">
+        <Button type="button" variant="ghost" className="min-h-11" onClick={focus.exit} aria-label="退出专注模式">
+          <Minimize2 className="size-4" />退出专注 <span className="hidden text-xs text-[var(--color-muted-foreground)] sm:inline">Esc</span>
+        </Button>
+      </div>}
+      <WorkspacePreferences open={preferencesOpen} onOpenChange={setPreferencesOpen} />
+      <WorkspaceHeaderMount target={focus.focused ? null : unifiedTitleBarSlot}>
+      <header data-focus-chrome className={cn(
         'cc-workspace-header workspace-unified-chrome relative z-30 flex min-w-0 items-center gap-3 px-4 max-md:h-11 max-md:gap-1 max-md:px-1',
         unifiedTitleBarSlot && 'cc-workspace-header-integrated',
       )}>
@@ -1348,6 +1375,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           </Button>
           {/* 其余功能收进「更多」菜单，每项带中文标签，避免一排没标识的图标 */}
           <SessionToolsMenu open={headerMenu} mockMode={mockMode} onOpenChange={setHeaderMenu} triggerRef={sessionToolsTriggerRef}>
+                  <HeaderMenuItem icon={<Maximize2 className="size-4" />} label="专注模式" hint="全屏仅显示对话与输入；Esc 退出" onClick={enterFocus} />
+                  <HeaderMenuItem icon={<Settings className="size-4" />} label="工作区个性化" hint="最近会话默认展开或折叠" onClick={() => { setHeaderMenu(false); setPreferencesOpen(true) }} />
                   <div className="border-b pb-1 md:hidden">
                     <HeaderMenuItem icon={<Plus className="size-4" />} label="新建会话" onClick={() => { setHeaderMenu(false); setPanel('new') }} />
                     <HeaderMenuItem icon={<List className="size-4" />} label="会话列表" onClick={() => { setHeaderMenu(false); setPanel('sessions') }} />
@@ -2051,7 +2080,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
         <div className="flex min-h-0 min-w-0 flex-1">
           {/* 常驻会话导航（lg+ 显示，可折叠）：窄屏继续通过顶部「会话」入口切换，避免双侧栏挤压输入区 */}
           {railOpen ? (
-            <aside className="cc-skin-surface-solid hidden w-72 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] lg:flex">
+            <aside data-focus-chrome className="cc-skin-surface-solid hidden w-72 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] lg:flex">
               <div className="workspace-contextbar cc-chat-contextbar flex items-center gap-1 px-2">
                 <span className="text-xs font-medium text-[var(--color-muted-foreground)]">AI 工作区</span>
                 <button type="button" onClick={() => setPanel('new')} className="ml-auto rounded p-1 hover:bg-[var(--color-accent)]" aria-label="新建会话" title="新建会话">
@@ -2072,7 +2101,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               </div>
             </aside>
           ) : (
-            <aside className="cc-skin-surface-solid hidden w-8 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] lg:flex">
+            <aside data-focus-chrome className="cc-skin-surface-solid hidden w-8 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] lg:flex">
               <button
                 type="button"
                 onClick={() => setRailOpen(true)}
@@ -2088,7 +2117,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           {/* 右侧：消息流 + 输入 */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {chat.sessionId ? (
-              <nav className="workspace-contextbar cc-chat-contextbar scrollbar-autohide flex items-end justify-between gap-1 overflow-x-auto px-2 sm:gap-4 sm:px-3 md:justify-start" aria-label="会话视图">
+              <nav className="workspace-contextbar cc-chat-contextbar scrollbar-autohide flex items-end justify-between gap-1 overflow-x-auto px-2 sm:gap-4 sm:px-3 md:justify-start" aria-label="会话视图" data-focus-chrome>
                 <button
                   type="button"
                   aria-current={sessionView === 'conversation' ? 'page' : undefined}
@@ -2216,10 +2245,10 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 <MobileSessionViewMore currentView={sessionView} options={mobileSessionViews} onSelect={setSessionView} />
               </nav>
             ) : (
-              <div className="workspace-contextbar cc-chat-contextbar" aria-hidden="true" />
+              <div data-focus-chrome className="workspace-contextbar cc-chat-contextbar" aria-hidden="true" />
             )}
             {chat.sessionId && sessionView !== 'supervision' && (
-              <div>
+              <div data-focus-chrome>
               <SessionAutopilotStatus
                 sessionId={chat.sessionId}
                 projectRoot={currentSession?.cwd ?? ''}
@@ -2235,11 +2264,11 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               </div>
             )}
             {/* 跨会话待确认放在统一 Context Strip 下方，避免提示出现时左右两列的顶线错位。 */}
-            <PendingSessionsBanner
+            <div data-focus-chrome><PendingSessionsBanner
               sessions={chat.pendingSessions}
               currentSessionId={chat.sessionId}
               onGo={sid => chat.switchTo(sid)}
-            />
+            /></div>
             <main className="cc-skin-view flex min-h-0 min-w-0 flex-1 flex-col">
               <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]" role="status">{sessionView === 'conversation' ? '正在加载会话记录…' : '正在打开视图…'}</div>}>
               {sessionView === 'supervision' ? (
@@ -2323,7 +2352,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
             {/* 第三方网关调用诊断（可展开）：核对实际命中的模型，仅第三方会话显示 */}
             {chat.sessionId && sessionView === 'conversation' && chat.currentProviderKind === 'thirdParty' && (
-              <div className="hidden md:block">
+              <div data-focus-chrome className="hidden md:block">
                 <ProviderDiagPanel
                   providerKind={chat.currentProviderKind}
                   providerBaseUrl={chat.currentProviderBaseUrl}
@@ -2336,7 +2365,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             {/* 底部输入：移动端单一 Composer Card；桌面保留完整工具区 */}
             {chat.sessionId && sessionView !== 'supervision' && (
               <div className="cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] pb-[env(safe-area-inset-bottom)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)] md:pb-0">
-          <div className="hidden md:block">
+          <div data-focus-chrome className="hidden md:block">
             <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
             <SessionWorkStatus
               items={chat.items}
@@ -2347,7 +2376,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               backgroundTasks={chat.backgroundTasks}
             />
           </div>
-          <MobileAgentDock
+          <div data-focus-chrome><MobileAgentDock
             key={chat.sessionId}
             status={{ sessionId: chat.sessionId, items: chat.items, running: chat.running,
               engineLabel: engineDisplayName(chat.currentEngine, chat.currentProviderKind),
@@ -2361,12 +2390,12 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               onSendNow: chat.sendQueuedNow, onRemove: chat.removeQueued, onClear: chat.clearQueued }}
             voiceEnabled={chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession}
             voiceDisabled={planLocked || chat.state !== 'ready'} onStartVoice={() => nativeVoiceControlRef.current?.start()}
-          />
+          /></div>
           {chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession && (
-            <NativeVoiceControl sessionId={chat.sessionId} transport={chat.voiceTransport}
-              connected={chat.state === 'ready'} disabled={planLocked} busy={chat.running} mobileDisclosure controlRef={nativeVoiceControlRef} />
+            <div data-focus-chrome><NativeVoiceControl sessionId={chat.sessionId} transport={chat.voiceTransport}
+              connected={chat.state === 'ready'} disabled={planLocked} busy={chat.running} mobileDisclosure controlRef={nativeVoiceControlRef} /></div>
           )}
-          <div className="hidden md:block"><QueuedList
+          <div data-focus-chrome className="hidden md:block"><QueuedList
             items={chat.queued}
             pausedReason={chat.queuePausedReason
               ?? (chat.backgroundTasks.length > 0 ? '后台作业尚未结束，待发送消息继续等待。' : null)}
@@ -2689,7 +2718,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               />
             )}
           </div>
-          <div className="hidden md:block">
+          <div data-focus-chrome className="hidden md:block">
             <SessionSummaryBar
               usage={sessionUsage}
               loading={sessionUsage == null && Boolean(usageSid)}
