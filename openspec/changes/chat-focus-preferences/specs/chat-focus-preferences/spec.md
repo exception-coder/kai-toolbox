@@ -1,5 +1,18 @@
 ## ADDED Requirements
 
+### Requirement: Focused reading and writing layout
+The focus view SHALL align assistant content and composer within an 860px reading column, expandable by explicit user choice to 960px and constrained to the viewport on mobile. Assistant text SHALL be presented without a surrounding card, and normal turn metrics SHALL be neutral text while failures remain visible.
+
+#### Scenario: Preserve conversation operations
+- **WHEN** the user enters focus and changes reading width
+- **THEN** the same conversation, draft, attachments, generation stop and permission controls SHALL remain available
+- **AND** exiting SHALL restore the original workspace
+
+#### Scenario: Display actual specification context
+- **WHEN** focus is opened for a session
+- **THEN** the header SHALL display its title and the actual bound OpenSpec change and current Task when returned
+- **AND** absent or unavailable context SHALL be explicit, without guessing from message content or reusing another session's binding
+
 ### Requirement: Reversible conversation focus mode
 The workspace SHALL offer one-action focus mode that fills the screen with conversation and input, retaining an accessible exit action and permission dialogs.
 

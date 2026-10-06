@@ -1,3 +1,68 @@
 .cc-focus-mode [data-focus-chrome] { display: none !important; }
-.cc-focus-mode { background: var(--color-background); }
-.cc-focus-mode .cc-focus-exit { padding-top: max(4px, env(safe-area-inset-top)); }
+.cc-focus-only { display: none; }
+.cc-focus-mode {
+  --focus-column: 884px; /* 860px content plus shared 12px gutters. */
+  background: var(--color-background) !important;
+  background-image: none !important;
+}
+.cc-focus-mode.cc-focus-wide { --focus-column: 984px; }
+.cc-focus-mode .cc-skin-bg { display: none; }
+.cc-focus-mode .cc-skin-view { background: transparent; }
+/* Keep the reading/composer axis identical on narrow screens without a scrollbar gutter. */
+.cc-focus-mode .cc-message-scroller { scrollbar-width: none; }
+.cc-focus-mode .cc-message-scroller::-webkit-scrollbar { display: none; }
+.cc-focus-mode .cc-message-row,
+.cc-focus-mode .cc-focus-composer,
+.cc-focus-mode .cc-focus-header-inner {
+  width: 100%;
+  max-width: var(--focus-column);
+  margin-inline: auto;
+  min-width: 0;
+}
+.cc-focus-mode .cc-message-row { padding-block: 16px; }
+.cc-focus-mode .cc-focus-header {
+  padding-top: env(safe-area-inset-top);
+  background: var(--color-background);
+}
+.cc-focus-mode .cc-focus-header-inner { padding: 8px 12px; }
+.cc-focus-mode .cc-assistant-avatar { display: none; }
+.cc-focus-mode .cc-assistant-body {
+  width: 100%;
+  max-width: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 8px 0;
+  line-height: 1.75;
+}
+.cc-focus-mode .cc-assistant-body p { margin-block: 12px; }
+.cc-focus-mode .cc-assistant-body pre,
+.cc-focus-mode .cc-assistant-body table { max-width: 100%; overflow-x: auto; }
+.cc-focus-mode .cc-focus-composer {
+  background: var(--color-background);
+  box-shadow: none;
+}
+.cc-focus-mode .mobile-composer-card { margin-inline: 12px; border-radius: 8px; }
+.cc-focus-mode .cc-turn-status { align-items: flex-start; }
+.cc-focus-mode .cc-turn-status > div { justify-content: flex-start; }
+.cc-focus-mode .cc-turn-status [data-chip-tone]:not([data-chip-tone="rose"]) {
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-muted-foreground);
+  padding-inline: 0;
+  line-height: 1.5;
+}
+.cc-focus-mode .cc-turn-status [data-chip-tone]:not([data-chip-tone="rose"]) svg { display: none; }
+.cc-focus-mode .cc-turn-status [data-chip-tone] + [data-chip-tone]::before {
+  content: '·';
+  margin-inline: 4px;
+  color: var(--color-muted-foreground);
+}
+.cc-focus-mode .cc-focus-only { display: inline; }
+@media (max-width: 640px) {
+  .cc-focus-mode .cc-focus-header-inner { gap: 4px; }
+  .cc-focus-mode .cc-focus-header-inner > div:first-child { flex-basis: 100%; }
+  .cc-focus-mode .cc-message-row { padding-block: 12px; }
+}

@@ -1,4 +1,5 @@
 import '../focus-mode.css'
+import { FocusReadingHeader } from '../components/FocusReadingHeader'
 import { useChatFocusMode } from '../hooks/useChatFocusMode'
 import { WorkspacePreferences } from '../components/WorkspacePreferences'
 import { VibeCodingGuide } from '../components/guide/VibeCodingGuide'
@@ -435,6 +436,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     })
   }, [chat?.sessionId, linkedPrd, pendingSql])
   const messageListRef = useRef<MessageListHandle>(null)
+  const [focusWide, setFocusWide] = useState(false)
   // 「我的提问」面板点中一条待滚到的目标：可能还没加载进 chat.items（分页更早历史里）。
   const [pendingScroll, setPendingScroll] = useState<Extract<ChatItem, { kind: 'user' }> | null>(null)
   // 目标不在当前已加载消息里时，持续触发「加载更早」直到出现或加载到头——否则用户点了没反应，
@@ -1200,6 +1202,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
       // 皮肤自带底色（见 skin.css 的 --skin-base），开启时让位，避免两层底色叠加
       !skin && ((fullscreen || focus.focused) ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40'),
       focus.focused && 'cc-focus-mode',
+      focus.focused && focusWide && 'cc-focus-wide',
       skinClass(skin, chat?.currentEngine ?? 'claude', !!chat?.running),
     )}>
       {/* 极光背景独立裁剪层：见 skin.css .cc-skin-bg 注释——跟外层容器分开，
@@ -1215,11 +1218,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
         <button className="min-h-11 px-2" onClick={() => setGuideLocation(null)}>结束定位</button>
       </div>}
       <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} hasSession={Boolean(chat.sessionId)} returnFocus={sessionToolsTriggerRef} />
-      {focus.focused && <div className="cc-focus-exit flex shrink-0 justify-end px-2">
-        <Button type="button" variant="ghost" className="min-h-11" onClick={focus.exit} aria-label="退出专注模式">
-          <Minimize2 className="size-4" />退出专注 <span className="hidden text-xs text-[var(--color-muted-foreground)] sm:inline">Esc</span>
-        </Button>
-      </div>}
+      {focus.focused && <FocusReadingHeader title={currentTitle || 'Vibe Coding'} sessionId={chat.sessionId}
+        wide={focusWide} onToggleWidth={() => setFocusWide(value => !value)} onExit={focus.exit} />}
       <WorkspacePreferences open={preferencesOpen} onOpenChange={setPreferencesOpen} gestureEnabled={gestureOn}
         onToggleGesture={() => { setPreferencesOpen(false); toggleGesture() }} />
       <WorkspaceHeaderMount target={focus.focused ? null : unifiedTitleBarSlot}>
@@ -2368,7 +2368,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     onNewSession={currentSession ? handleNewSession : undefined}
                     turnTokens={chat.turnTokens}
                     connState={chat.state}
-                    showRunningFooter={false}
+                    showRunningFooter={focus.focused}
                   />
                 )
               ) : (
@@ -2396,7 +2396,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
             {/* 底部输入：移动端单一 Composer Card；桌面保留完整工具区 */}
             {chat.sessionId && sessionView !== 'supervision' && (
-              <div className="cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] pb-[env(safe-area-inset-bottom)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)] md:pb-0">
+              <div className="cc-focus-composer cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] pb-[env(safe-area-inset-bottom)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)] md:pb-0">
           <div data-focus-chrome className="hidden md:block">
             <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
             <SessionWorkStatus

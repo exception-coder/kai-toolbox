@@ -114,7 +114,7 @@ function ListHeader({ context }: { context?: ListContext }) {
 function ListFooter({ context }: { context?: ListContext }) {
   if (!context?.running) return null
   return (
-    <div className="px-3 pb-3">
+    <div className="cc-message-row px-3 pb-3">
       <ThinkingIndicator
         engineLabel={context.engineLabel}
         tokens={context.turnTokens}
@@ -255,7 +255,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   }), [visibleItems])
 
   const itemContent = useCallback((_index: number, item: ChatItem) => (
-    <div data-msg-id={item.id} className={cn('px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
+    <div data-msg-id={item.id} className={cn('cc-message-row px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
       <Row item={item} onFork={onFork} engineLabel={engineLabel} onNewSession={onNewSession}
         sessionId={sessionKey}
         assistantAvatarUrl={assistantAvatarUrl} assistantAvatarAlt={assistantAvatarAlt}
@@ -286,7 +286,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         key={resetKey}
         ref={virtuosoRef}
         style={{ height: '100%' }}
-        className="scrollbar-autohide min-w-0 overflow-x-hidden"
+        className="cc-message-scroller scrollbar-autohide min-w-0 overflow-x-hidden"
         data={visibleItems}
         context={listContext}
         firstItemIndex={firstItemIndex}
@@ -390,8 +390,8 @@ const TONE: Record<Tone, string> = {
 function Chip({ tone, icon, children, onClick, title }: { tone: Tone; icon?: ReactNode; children?: ReactNode; onClick?: () => void; title?: string }) {
   const cls = cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none tabular-nums', TONE[tone], onClick && 'cursor-pointer select-none active:opacity-80')
   return onClick
-    ? <button type="button" onClick={onClick} title={title} className={cls}>{icon}{children}</button>
-    : <span title={title} className={cls}>{icon}{children}</span>
+    ? <button data-chip-tone={tone} type="button" onClick={onClick} title={title} className={cls}>{icon}{children}</button>
+    : <span data-chip-tone={tone} title={title} className={cls}>{icon}{children}</span>
 }
 
 /** 消息头：角色名 + 时间（轻量、低饱和），按对齐方向排列。 */
@@ -421,10 +421,10 @@ function TurnStatus({ item, turnText }: { item: Extract<ChatItem, { kind: 'resul
     setTimeout(() => setCopied(false), 1500)
   }
   return (
-    <div className="my-1 flex flex-col items-center gap-1">
+    <div className="cc-turn-status my-1 flex flex-col items-center gap-1" data-turn-success={ok}>
       <div className="flex flex-wrap items-center justify-center gap-1.5">
         <Chip tone={ok ? 'emerald' : 'rose'} icon={ok ? <Check className="size-3" /> : <AlertTriangle className="size-3" />} title={`本轮结束：${item.stopReason}`}>
-          {ok ? null : '失败'}
+          {ok ? <span className="cc-focus-only">本轮</span> : '失败'}
         </Chip>
         {turnText && (
           <Chip
@@ -438,7 +438,7 @@ function TurnStatus({ item, turnText }: { item: Extract<ChatItem, { kind: 'resul
         )}
         {u && u.total > 0 && (
           <Chip tone="violet" icon={<Coins className="size-3" />} onClick={() => setOpen(o => !o)} title="点击查看 token 明细">
-            {abbr(u.total)}
+            {abbr(u.total)}<span className="cc-focus-only"> tokens</span>
           </Chip>
         )}
         {hit != null && hit > 0 && (
@@ -557,14 +557,14 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
     }
     case 'assistant':
       return (
-        <div className="flex min-w-0 max-w-full items-start gap-2">
-          <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-[var(--color-border)]/70 bg-[var(--color-card)] shadow-sm">
+        <div className="cc-assistant-row flex min-w-0 max-w-full items-start gap-2">
+          <div className="cc-assistant-avatar mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-[var(--color-border)]/70 bg-[var(--color-card)] shadow-sm">
             <AssistantIdentityIcon avatarUrl={assistantAvatarUrl} alt={assistantAvatarAlt ?? engineLabel}
               engineLabel={engineLabel} />
           </div>
           <div className="flex min-w-0 flex-1 flex-col items-start">
             <MsgHeader label={engineLabel} ts={item.ts} align="start" />
-            <div className="max-w-[90%] min-w-0 wrap-anywhere rounded-2xl border border-[var(--color-border)]/70 bg-[var(--color-card)] px-4 py-2 text-[var(--color-card-foreground)] shadow-sm">
+            <div className="cc-assistant-body max-w-[90%] min-w-0 wrap-anywhere rounded-2xl border border-[var(--color-border)]/70 bg-[var(--color-card)] px-4 py-2 text-[var(--color-card-foreground)] shadow-sm">
               <Markdown text={item.text} className="min-w-0" sessionId={sessionId} />
             </div>
             {item.text.trim() && (
