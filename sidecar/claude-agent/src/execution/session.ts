@@ -36,6 +36,7 @@ export function initSession(raw: unknown) {
       writers: writers.map(item => ({ executionId: item.executionId, ownedBySession: item.sessionId === input.sessionId, scopes: item.scopes })) },
     branchPolicy: BRANCH_POLICY,
     actions: ['execution 仅代表 Sidecar 代码写入绑定；null 不能推断 Forge Runtime 自动监督不存在。写入前 resolve_execution_context → 定向阅读 → discover_execution → assess_execution。',
+      '发现其它 writer 不代表当前任务冲突；用完整精确文件 discover/assess 比较实际范围，无交集可并行。',
       '已有执行使用原宿主会话恢复；当前任务标识仅引用已有 Task，不替代 OpenSpec/宿主任务状态。',
       'available 不代表当前操作已授权，也不证明宿主已触发 Hook。'] }
 }

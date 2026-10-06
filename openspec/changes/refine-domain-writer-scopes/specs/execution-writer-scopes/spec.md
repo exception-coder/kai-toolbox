@@ -28,3 +28,17 @@ Forge SHALL scope a database file inside an identified build module to that modu
 
 - **WHEN** two sessions declare local schema files in separate build modules
 - **THEN** their write ownership does not conflict solely because both paths contain `db`
+
+### Requirement: Ordinary paths do not imply global ownership
+
+Forge SHALL claim unowned ordinary files, governance files and ordinary Sidecar source files by exact path. Root build configuration and root database directories SHALL retain global coordination. Sidecar module build configuration SHALL conflict with its child paths.
+
+#### Scenario: IAM governance file alongside SRM
+
+- **WHEN** IAM declares its module files and `.team-standards/design-baselines.json` while SRM declares a separate module
+- **THEN** both executions can coexist; another writer of that governance file is rejected
+
+#### Scenario: Separate Sidecar implementations
+
+- **WHEN** one writer declares `src/execution/service.ts` and another declares `src/execution/writers.ts` within Sidecar
+- **THEN** their exact file claims do not conflict, while a Sidecar package configuration claim conflicts with both
