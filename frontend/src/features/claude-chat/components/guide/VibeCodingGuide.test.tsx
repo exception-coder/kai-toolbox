@@ -3,21 +3,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VibeCodingGuide } from './VibeCodingGuide'
 import { GUIDE_CHAPTERS } from './guideContent'
 
-const props = () => ({ open: true, onOpenChange: vi.fn(), onLocate: vi.fn(), hasSession: true, returnFocus: { current: null } })
-beforeEach(() => localStorage.clear())
-afterEach(() => { cleanup(); vi.restoreAllMocks() })
+const props = () => ({ open: true, onOpenChange: vi.fn(), onLocate: vi.fn(), onRestore: vi.fn(), hasSession: true, returnFocus: { current: null } })
+beforeEach(() => {
+  localStorage.clear()
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+})
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('Vibe Coding 功能导览', () => {
-  it('逐步阅读，高级功能默认收起，定位不执行业务写操作', () => {
+  it('自动展开每步目标，无需点击定位，退出恢复工作区', () => {
     const options = props()
     render(<VibeCodingGuide {...options} />)
-    expect(screen.getByRole('heading', { name: '开始开发' })).toBeInTheDocument()
-    expect(screen.getByText('这一类还能做什么').closest('details')).not.toHaveAttribute('open')
-    fireEvent.click(screen.getByRole('button', { name: '下一步' }))
-    expect(screen.getByRole('heading', { name: '管理会话' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '上一步' }))
-    fireEvent.click(screen.getByRole('button', { name: '定位入口' }))
+    expect(screen.getByRole('heading', { name: '新建与工作目录' })).toBeInTheDocument()
     expect(options.onLocate).toHaveBeenCalledExactlyOnceWith('start')
+    expect(screen.queryByRole('button', { name: '定位入口' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }))
+    expect(screen.getByRole('heading', { name: '项目分组与搜索' })).toBeInTheDocument()
+    expect(options.onLocate).toHaveBeenLastCalledWith('sessions')
+    fireEvent.click(screen.getByRole('button', { name: '上一步' }))
+    expect(options.onLocate).toHaveBeenLastCalledWith('start')
+    fireEvent.click(screen.getByRole('button', { name: '暂不查看' }))
+    expect(options.onRestore).toHaveBeenCalled()
     expect(options.onOpenChange).toHaveBeenCalledWith(false)
   })
   it('完整指南搜索用途与入口，空结果可恢复', () => {
@@ -44,12 +50,12 @@ describe('Vibe Coding 功能导览', () => {
     expect(screen.getByRole('status')).toHaveTextContent('刷新后可能再次提示')
     spy.mockRestore()
   })
-  it('未选择会话仍可阅读，不能定位执行视图', () => {
+  it('未选择会话仍可继续阅读，并说明执行视图前置条件', () => {
     render(<VibeCodingGuide {...props()} hasSession={false} />)
     fireEvent.click(screen.getByRole('button', { name: '下一步' }))
     fireEvent.click(screen.getByRole('button', { name: '下一步' }))
-    expect(screen.getByRole('button', { name: '定位入口' })).toBeDisabled()
-    expect(screen.getByText(/你尚未选择会话/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '下一步' })).toBeEnabled()
+    expect(screen.getByText(/先新建或选择会话/)).toBeInTheDocument()
   })
   it('六类功能都描述用途、使用时机和真实入口', () => {
     expect(GUIDE_CHAPTERS).toHaveLength(6)

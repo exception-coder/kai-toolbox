@@ -479,21 +479,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [headerMenu, setHeaderMenu] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
   const [guideLocation, setGuideLocation] = useState<GuideTarget | null>(null)
-  const locateGuide = (target: GuideTarget) => {
-    setGuideLocation(target)
-    if (target === 'start') setPanel('new')
-    else if (target === 'sessions') setPanel('sessions')
-    else if (target === 'execution') {
-      setPanel('none')
-      setViewMode('single')
-      setSessionView('trajectory')
-    }
-    else {
-      setPanel('none')
-      setHeaderMenu(true)
-      setMenuGroup(target === 'workspace' ? 'workspace' : target === 'delivery' ? 'session' : 'system')
-    }
-  }
   const sessionToolsTriggerRef = useRef<HTMLButtonElement>(null)
   const commitsReturnFocus = useRef<HTMLElement | null>(null)
   // 「更多」菜单当前展开的分组（手风琴，单开互斥；null=全部收起）。跨开合记忆上次展开项。
@@ -531,6 +516,31 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const splitInit = useMemo(loadSplitState, [])
   const [viewMode, setViewMode] = useState<'single' | 'multi'>(splitInit.viewMode)
   const [multiIds, setMultiIds] = useState<string[]>(splitInit.multiIds)
+  const guideCurrent = useRef({ panel, viewMode, sessionView, headerMenu, menuGroup })
+  guideCurrent.current = { panel, viewMode, sessionView, headerMenu, menuGroup }
+  const guidePrevious = useRef<typeof guideCurrent.current | null>(null)
+  const restoreGuide = useCallback(() => {
+    const previous = guidePrevious.current
+    guidePrevious.current = null
+    setGuideLocation(null)
+    if (!previous) return
+    setPanel(previous.panel); setViewMode(previous.viewMode); setSessionView(previous.sessionView)
+    setHeaderMenu(previous.headerMenu); setMenuGroup(previous.menuGroup)
+  }, [])
+  const locateGuide = useCallback((target: GuideTarget) => {
+    if (!guidePrevious.current) guidePrevious.current = { ...guideCurrent.current }
+    setGuideLocation(target)
+    setHeaderMenu(false)
+    setViewMode('single')
+    if (target === 'start') setPanel('new')
+    else if (target === 'sessions') setPanel('sessions')
+    else if (target === 'execution') {
+      setPanel('none'); setSessionView('conversation')
+    } else {
+      setPanel('none'); setHeaderMenu(true)
+      setMenuGroup(target === 'workspace' ? 'workspace' : target === 'delivery' ? 'session' : 'system')
+    }
+  }, [])
   // 形态变化即写回本地
   useEffect(() => {
     try { localStorage.setItem(SPLIT_STATE_KEY, JSON.stringify({ viewMode, multiIds })) } catch { /* 忽略隐私模式/配额 */ }
@@ -1212,12 +1222,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           relative z-30：炫彩皮肤下 header 带 backdrop-filter 会自成层叠上下文，把「更多」下拉
           (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
-      {guideLocation && <div data-focus-chrome role="status" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--color-border)] px-4 py-2 text-xs">
-        <span className="flex-1">已定位到{guideLocation === 'start' ? '新建会话' : guideLocation === 'sessions' ? '会话列表' : guideLocation === 'execution' ? '轨迹视图' : '会话工具中的对应分类'}，高亮区域是入口；尚未执行任何任务。</span>
-        <button className="min-h-11 px-2 underline underline-offset-4" onClick={() => { setGuideLocation(null); setHeaderMenu(false); setGuideOpen(true) }}>返回导览</button>
-        <button className="min-h-11 px-2" onClick={() => setGuideLocation(null)}>结束定位</button>
-      </div>}
-      <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} hasSession={Boolean(chat.sessionId)} returnFocus={sessionToolsTriggerRef} />
+      <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} onRestore={restoreGuide} hasSession={Boolean(chat.sessionId)} returnFocus={sessionToolsTriggerRef} />
       {focus.focused && <FocusReadingHeader title={currentTitle || 'Vibe Coding'} sessionId={chat.sessionId}
         wide={focusWide} onToggleWidth={() => setFocusWide(value => !value)} onExit={focus.exit} />}
       <WorkspacePreferences open={preferencesOpen} onOpenChange={setPreferencesOpen} gestureEnabled={gestureOn}
@@ -1857,7 +1862,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
         <ProviderProfilesPanel onClose={() => { void qc.invalidateQueries({ queryKey: ['gateway-provider-profiles'] }); setPanel('new') }} />
       )}
       {/* 会话列表：左侧滑出抽屉（参考 app 菜单栏），PC/移动端一致的侧边会话导航。 */}
-      <Sheet open={panel === 'sessions'} onOpenChange={o => { if (!o) setPanel('none') }}>
+      <Sheet modal={!guideOpen} open={panel === 'sessions'} onOpenChange={o => { if (!o) setPanel('none') }}>
         <SheetContent side="left" data-guide-location={guideLocation === 'sessions' ? 'sessions' : undefined} className="w-72 max-w-[85vw] p-0">
           <SheetTitle className="sr-only">AI 工作区</SheetTitle>
           <div className="flex h-full flex-col">

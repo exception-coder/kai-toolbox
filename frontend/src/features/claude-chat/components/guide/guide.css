@@ -7,3 +7,9 @@
   outline: 2px solid var(--color-primary);
   outline-offset: -2px;
 }
+.vibe-tour-spotlight {
+  border: 2px solid var(--color-primary);
+  border-radius: 4px;
+  box-shadow: 0 0 0 9999px rgb(0 0 0 / 35%);
+}
+.vibe-tour-card { overscroll-behavior: contain; }
