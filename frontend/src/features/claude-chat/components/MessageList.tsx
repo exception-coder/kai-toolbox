@@ -228,15 +228,16 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   }
 
   const jumpToBottom = useCallback(() => {
-    virtuosoRef.current?.scrollToIndex({ index: Math.max(0, visibleItems.length - 1), align: 'end', behavior: 'smooth' })
-    setAtBottom(true)
-  }, [visibleItems.length])
+    // 长回复挂载后仍会修正高度；即时定位允许虚拟列表按实测高度重试。
+    // LAST 在重试时仍指向最新项，贴底状态由实际滚动回调确认。
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
+  }, [])
 
   // 一轮开始（running 从 false→true，Footer 里的「思考中」指示器刚出现）时，若本来就贴底，
   // 主动贴一下——指示器的出现不改变 data 长度，followOutput 不会自动因此触发。
   useEffect(() => {
     if (running && atBottom) {
-      virtuosoRef.current?.scrollToIndex({ index: Math.max(0, visibleItems.length - 1), align: 'end' })
+      virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running])
