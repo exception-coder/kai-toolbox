@@ -23,6 +23,9 @@ export const discoverExecutionSchema = executionContextSchema.extend({
 })
 export const assessExecutionSchema = executionContextSchema.extend({
   discoveryId: z.string().regex(/^ed_[a-f0-9]{32}$/), actor: z.string().min(1).max(200),
+  update: z.object({ executionId: z.string().regex(/^ex_[a-f0-9]{32}$/),
+    expectedRevision: z.number().int().min(0) }).optional()
+    .describe('增补原执行范围时填写 inspect_execution_writer 返回的 executionId 与 scopeRevision；必须保留原完整文件范围'),
   behavior: z.enum(['preserved', 'changed', 'unknown']),
   design: z.enum(['none', 'detail', 'architecture']),
   impacts: z.array(z.enum(['logic', 'api', 'sql', 'ui', 'permission', 'state', 'migration'])).max(7),

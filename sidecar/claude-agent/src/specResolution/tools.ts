@@ -43,6 +43,8 @@ export async function execute(name: string, input: unknown, extra?: McpRequestEx
   }
 }
 function recoveryActions(code: string): string[] {
+  if (code === 'EXECUTION_UPDATE_REQUIRED') return ['inspect_execution_writer 读取原 executionId/scopeRevision；同任务重新 discover 完整范围，assess_execution 携带 update: {executionId, expectedRevision}；保留旧文件和验证要求，不要中止原执行']
+  if (code === 'EXECUTION_SCOPE_SHRINK' || code === 'EXECUTION_POLICY_DOWNGRADE') return ['保留原完整文件、设计及验证类别后重新评估；范围更新不能释放旧范围或降低门禁']
   if (code === 'PATH_INVALID') return ['cwd/inputFiles 可用项目相对路径或项目内绝对路径；核对具体路径、目录存在性及符号链接，禁止越界；修改参数后再试']
   if (code === 'CHECK_EXECUTABLE_NOT_FOUND') return ['使用已安装的可执行文件；Windows CLI 可传 node 与入口脚本；不要重复同一不存在的命令']
   if (code === 'GRAPH_INDEX_STALE') return ['核对范围外源码或图谱变更后重新解析和确认；旧记录重新确认以建立实现范围基线，不要求每次正常改码都刷新图谱']

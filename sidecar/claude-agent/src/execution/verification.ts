@@ -93,7 +93,10 @@ function saveVerification(state: { record: Execution; input: ReturnType<typeof r
     requireActive(runtime?.signal)
     checkExecution(input)
     const current = loadExecution(record.project, input.sessionId)
-    requireCondition(current?.executionId === record.executionId && fingerprint === inputFingerprint(record.project, inputFiles),
+    requireCondition(current?.executionId === record.executionId
+      && current.discovery.discoveryId === record.discovery.discoveryId
+      && JSON.stringify(current.assessment) === JSON.stringify(record.assessment)
+      && fingerprint === inputFingerprint(record.project, inputFiles),
       'VERIFICATION_STALE', '验证期间执行上下文或输入变化；结果不能绑定当前工作区')
     const previous = current.verification?.fingerprint === fingerprint
       ? current.verification.results : []

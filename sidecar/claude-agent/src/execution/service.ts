@@ -9,6 +9,7 @@ import { executionPolicy, isBranchMutation } from './policy.js'
 import { git, fileDigest, inputFingerprint, projectContext } from './repository.js'
 import type { Discovery } from './context.js'
 import { executionScopes, readWriters, releaseWriter, scopesConflict, writeWriters, type Writer } from './writers.js'
+import { updateExecutionScope } from './scopeUpdate.js'
 
 export type Execution = {
   schemaVersion: 1; executionId: string; project: string; branch: string; sessionId: string; baselineHead: string;
@@ -16,6 +17,7 @@ export type Execution = {
   designBaseline: Record<string, string>; verification?: { fingerprint: string; inputFiles: string[];
     pendingChecks?: Array<{ kind: string; program: string; args: string[]; cwd: string; purpose: string; replaces?: string }>;
     results: Array<{ checkId?: string; kind: string; status: string; purpose: string; command: string[]; durationMs: number; diagnostic: string }> };
+  scopeHistory?: Array<{ updatedAt: string; actor: string; reason: string; previous: Omit<Execution, 'scopeHistory'> }>;
   release?: { status: 'AUTO_RECLAIMED'; releasedAt: string; reclaimedBySessionId: string; commit: string }
     | { status: 'COMPLETED'; releasedAt: string; commit: string }
     | { status: 'ABORTED'; releasedAt: string; actor: string; reason: string; head: string; scopeStatus: string[] };
@@ -58,7 +60,8 @@ function inspectWriter(root: string, writer: Writer) {
     git(root, ['--literal-pathspecs', 'ls-files', '--stage', '-z', '--', ...scopedPaths])]))
   return {
     executionId: record.executionId, ownerSessionId: record.sessionId, assignedBranch: record.branch,
-    baselineHead: record.baselineHead, scopes: writer.scopes, scopeStatus, scopedPaths, scopeFingerprint,
+    baselineHead: record.baselineHead, discoveryId: record.discovery.discoveryId, scopeRevision: record.scopeHistory?.length ?? 0,
+    scopes: writer.scopes, scopeStatus, scopedPaths, scopeFingerprint,
     verification: record.verification ? 'RECORDED' : 'NOT_RUN' }
 }
 
@@ -115,6 +118,8 @@ export function assessExecution(raw: unknown) {
   if (input.design === 'architecture') requireCondition(input.designFiles.some(file => file.level === 'overview'), 'DESIGN_REQUIRED', '架构边界变化需要绑定受影响概设')
   let executionId = `ex_${hash(JSON.stringify({ input, branch, discovery: discovery.discoveryId })).slice(0, 32)}`
   return locked(root, () => {
+    requireCondition(discovery.specRevision === indexSpecs(root).revision && discovery.sourceRevision === inputFingerprint(root, discovery.files),
+      'DISCOVERY_STALE', '等待写入事务期间输入变化；重新 discover_execution')
     let writers = readWriters(root)
     for (const writer of writers) {
       const previous = readJson<Execution>(statePath(root, writer.executionId))
@@ -134,14 +139,16 @@ export function assessExecution(raw: unknown) {
     const conflictingWriter = writers.find(writer => writer.sessionId !== input.sessionId && scopesConflict(writer.scopes, scopes))
     requireCondition(!conflictingWriter, 'WORKSPACE_BUSY',
       `目标范围已有写入会话 ${conflictingWriter?.sessionId} 的执行 ${conflictingWriter?.executionId} 占用（范围：${conflictingWriter?.scopes.join(', ')}）；先 inspect_execution_writer，原会话丢失时显式 abort_execution 后建立新执行`)
-    let writer = writers.find(item => item.sessionId === input.sessionId)
-    requireCondition(!writer || JSON.stringify(writer.scopes) === JSON.stringify(scopes), 'WORKSPACE_BUSY',
-      `本会话旧执行 ${writer?.executionId} 已占用范围 ${writer?.scopes.join(', ')}；先 inspect_execution_writer，审计后 abort_execution 保留工作文件，再重新绑定完整文件范围`)
+    const writer = writers.find(item => item.sessionId === input.sessionId)
+    requireCondition(!input.update || writer?.executionId === input.update.executionId,
+      'EXECUTION_CONTEXT_MISMATCH', '更新目标不属于本会话的活跃执行；重新查询原身份，禁止接管或创建替代执行')
+    let updated: Execution | undefined
     if (writer) {
       const active = readJson<Execution>(statePath(root, writer.executionId))
-      requireCondition(!active.release && active.branch === branch && active.discovery.discoveryId === discovery.discoveryId
-        && JSON.stringify(active.assessment) === JSON.stringify(input),
-      'WORKSPACE_BUSY', `本会话旧执行 ${writer.executionId} 尚未完成；先完成或审计中止，再绑定新任务`)
+      requireCondition(!active.release && active.branch === branch, 'EXECUTION_CONTEXT_MISMATCH', '原执行已结束或分支变化')
+      if (active.discovery.discoveryId !== discovery.discoveryId || JSON.stringify(active.assessment) !== JSON.stringify(input)) {
+        updated = updateExecutionScope(active, discovery, input, policy)
+      }
       executionId = active.executionId
     }
     // Released records are immutable history, never a new lease or verification baseline.
@@ -149,10 +156,10 @@ export function assessExecution(raw: unknown) {
       executionId = `ex_${randomUUID().replaceAll('-', '')}`
     }
     const existing = statePath(root, executionId)
-    const record: Execution = fs.existsSync(existing) ? readJson<Execution>(existing) : {
+    const record: Execution = updated ?? (fs.existsSync(existing) ? readJson<Execution>(existing) : {
       schemaVersion: 1, executionId, project: root, branch, sessionId: input.sessionId, baselineHead: git(root, ['rev-parse', 'HEAD']),
       assessment: input, discovery, policy, designBaseline: Object.fromEntries(input.designFiles.map(file => [file.path, fileDigest(root, file.path)])),
-    }
+    })
     saveJson(existing, record)
     writeWriters(root, [...writers.filter(item => item.sessionId !== input.sessionId), { sessionId: input.sessionId, executionId, scopes }])
     saveJson(statePath(root, `execution-session-${hash(input.sessionId)}`), { executionId })

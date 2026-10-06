@@ -9,3 +9,9 @@ Forge 从现有模块标记文件识别构建模块；模块内 `features`、`do
 ## 误阻塞修复证据
 
 2026-10-06 重新查询：Forge 的 service.ts/lifecycle.test.ts 被归为整个 Sidecar；IAM 加入 design-baselines.json 后包含全局 `*`。两者都是范围投影错误。Sidecar 文件级占用允许同目录中不重叠实现并行，模块构建配置仍与子路径互斥；不按引用关系推测冲突。发现 writer 只提供归属信息，不能据此停止无关任务。V096 等未登记路径仍由精确文件检查拒绝。2026-10-06 经授权重启后，正式 MCP 查询原 writer 的范围投影通过，原记录摘要未变；服务稳定观察超过 60 秒。原业务会话继续作业及新增文件范围补充未代执行，详见 tasks.md。
+
+## 同任务范围增补
+
+此前 assess_execution 要求旧 discoveryId 和 assessment 完全相同，因而与“扩大后重新探索和评估”的引导矛盾，IAM 的 V096 被自己的 writer 拒绝。正式入口增加可选 update（executionId、expectedRevision），由 inspect_execution_writer 返回 scopeRevision（初始 0）。同会话、分支、change、task 下，完整范围只能保留或扩大，设计及验证要求不得降低；不同 writer 仍比较新范围。范围更新与冲突检查在同一存储事务内执行，原执行 ID、baselineHead 和已有 designBaseline 保留，旧评估、探索和验证移入 scopeHistory 审计。更新清空当前验证，必须重新执行；验证回写同时核对 discovery 与 assessment，防止旧异步检查污染新范围。
+
+完全相同请求重试不追加审计；不同请求须使用当前 scopeRevision，过期版本拒绝并要求重新查询。未显式携带 update 的原会话重评估返回 EXECUTION_UPDATE_REQUIRED 及具体更新步骤，不再引导正常增补去中止 writer。该流程不代表业务语义批准，也不自动为 IAM 添加 V096；实际原会话需读取新版工具契约后提交正式完整范围。代码修复未重启加载。
