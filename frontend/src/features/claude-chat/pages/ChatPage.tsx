@@ -1,6 +1,10 @@
 import '../focus-mode.css'
 import { useChatFocusMode } from '../hooks/useChatFocusMode'
 import { WorkspacePreferences } from '../components/WorkspacePreferences'
+import { VibeCodingGuide } from '../components/guide/VibeCodingGuide'
+import type { GuideTarget } from '../components/guide/guideContent'
+import { BookOpen, SlidersHorizontal } from 'lucide-react'
+import '../components/guide/guide.css'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -471,6 +475,23 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [showGestureDebug, setShowGestureDebug] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(false)
+  const [guideLocation, setGuideLocation] = useState<GuideTarget | null>(null)
+  const locateGuide = (target: GuideTarget) => {
+    setGuideLocation(target)
+    if (target === 'start') setPanel('new')
+    else if (target === 'sessions') setPanel('sessions')
+    else if (target === 'execution') {
+      setPanel('none')
+      setViewMode('single')
+      setSessionView('trajectory')
+    }
+    else {
+      setPanel('none')
+      setHeaderMenu(true)
+      setMenuGroup(target === 'workspace' ? 'workspace' : target === 'delivery' ? 'session' : 'system')
+    }
+  }
   const sessionToolsTriggerRef = useRef<HTMLButtonElement>(null)
   const commitsReturnFocus = useRef<HTMLElement | null>(null)
   // 「更多」菜单当前展开的分组（手风琴，单开互斥；null=全部收起）。跨开合记忆上次展开项。
@@ -1166,7 +1187,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   ]
 
   return (
-    <div ref={focusRoot} className={cn(
+    <div ref={focusRoot} data-vibe-guide={guideLocation ?? undefined} className={cn(
       (fullscreen || focus.focused)
         // 全屏是覆盖整个视口的浮层，背景必须不透明——否则底层（折叠侧栏等）会从半透明背景透出，左侧留残影
         ? 'cc-workspace-fullscreen fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden'
@@ -1188,6 +1209,12 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           relative z-30：炫彩皮肤下 header 带 backdrop-filter 会自成层叠上下文，把「更多」下拉
           (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
+      {guideLocation && <div data-focus-chrome role="status" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[var(--color-border)] px-4 py-2 text-xs">
+        <span className="flex-1">已定位到{guideLocation === 'start' ? '新建会话' : guideLocation === 'sessions' ? '会话列表' : guideLocation === 'execution' ? '轨迹视图' : '会话工具中的对应分类'}，高亮区域是入口；尚未执行任何任务。</span>
+        <button className="min-h-11 px-2 underline underline-offset-4" onClick={() => { setGuideLocation(null); setHeaderMenu(false); setGuideOpen(true) }}>返回导览</button>
+        <button className="min-h-11 px-2" onClick={() => setGuideLocation(null)}>结束定位</button>
+      </div>}
+      <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} hasSession={Boolean(chat.sessionId)} returnFocus={sessionToolsTriggerRef} />
       {focus.focused && <div className="cc-focus-exit flex shrink-0 justify-end px-2">
         <Button type="button" variant="ghost" className="min-h-11" onClick={focus.exit} aria-label="退出专注模式">
           <Minimize2 className="size-4" />退出专注 <span className="hidden text-xs text-[var(--color-muted-foreground)] sm:inline">Esc</span>
@@ -1378,8 +1405,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           </Button>
           {/* 其余功能收进「更多」菜单，每项带中文标签，避免一排没标识的图标 */}
           <SessionToolsMenu open={headerMenu} mockMode={mockMode} onOpenChange={setHeaderMenu} triggerRef={sessionToolsTriggerRef}>
-                  <HeaderMenuItem icon={<Maximize2 className="size-4" />} label="专注模式" hint="全屏仅显示对话与输入；Esc 退出" onClick={enterFocus} />
-                  <HeaderMenuItem icon={<Settings className="size-4" />} label="工作区个性化" hint="最近会话默认展开或折叠" onClick={() => { setHeaderMenu(false); setPreferencesOpen(true) }} />
+                  <HeaderMenuItem icon={<BookOpen className="size-4" />} label="功能导览" hint="六类功能 · 用途、时机与入口" onClick={() => { setHeaderMenu(false); setGuideLocation(null); setGuideOpen(true) }} />
                   <div className="border-b pb-1 md:hidden">
                     <HeaderMenuItem icon={<Plus className="size-4" />} label="新建会话" onClick={() => { setHeaderMenu(false); setPanel('new') }} />
                     <HeaderMenuItem icon={<List className="size-4" />} label="会话列表" onClick={() => { setHeaderMenu(false); setPanel('sessions') }} />
@@ -1405,6 +1431,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     </MenuSection>
                   </div>
                   <MenuSection icon={<LayoutGrid className="size-4" />} label="视图" open={menuGroup === 'view'} onToggle={() => toggle('view')}>
+                    <HeaderMenuItem nested icon={<Maximize2 className="size-4" />} label="专注模式" hint="全屏仅显示对话与输入；Esc 退出" onClick={enterFocus} />
                     <HeaderMenuItem nested icon={<Cloud className="size-4" />} label="语音模式" hint="全屏白云·纯语音对话" onClick={() => { setHeaderMenu(false); setVoiceMode(true) }} />
                     <HeaderMenuItem nested icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
                     <HeaderMenuItem nested icon={<Hand className="size-4" />} label={gestureOn ? '手势控制·开' : '手势控制·关'} hint={gestureOn ? '握拳=弹出悬浮窗；张手=返回会话页' : '开启后：握拳弹窗 / 张手返回(仅本模块)'} onClick={() => { setHeaderMenu(false); toggleGesture() }} />
@@ -1473,6 +1500,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     <HeaderMenuItem nested icon={<ListChecks className="size-4" />} label="项目初始化流水线" hint="拉取→画像→知识图谱→profile→聚合" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'onboard' ? 'none' : 'onboard') }} />
                   </MenuSection>
                   <MenuSection icon={<Settings className="size-4" />} label="系统 · 设置" open={menuGroup === 'system'} onToggle={() => toggle('system')}>
+                    <HeaderMenuItem nested icon={<SlidersHorizontal className="size-4" />} label="工作区个性化" hint="最近会话默认展开或折叠" onClick={() => { setHeaderMenu(false); setPreferencesOpen(true) }} />
                     <AssistantRestoreMenuItem />
                     <HeaderMenuItem nested icon={<Server className="size-4" />} label="服务商" hint="第三方网关(按会话,不动官方)" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'providers' ? 'none' : 'providers') }} />
                     <HeaderMenuItem nested icon={<Package className="size-4" />} label="团队依赖" hint="拉取仓库并安装到 Claude Code / Codex" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
@@ -1509,7 +1537,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
       {/* 折叠面板 */}
       {panel === 'new' && (
-        <div className="max-w-5xl border-b px-4 py-4 md:px-6">
+        <div data-guide-location="start" className="max-w-5xl border-b px-4 py-4 md:px-6">
           <div className="mb-4">
             <h2 className="text-sm font-semibold text-[var(--color-foreground)]">新建会话</h2>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">先确定工作目录，再按需命名和选择运行配置。</p>
@@ -1829,7 +1857,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
       )}
       {/* 会话列表：左侧滑出抽屉（参考 app 菜单栏），PC/移动端一致的侧边会话导航。 */}
       <Sheet open={panel === 'sessions'} onOpenChange={o => { if (!o) setPanel('none') }}>
-        <SheetContent side="left" className="w-72 max-w-[85vw] p-0">
+        <SheetContent side="left" data-guide-location={guideLocation === 'sessions' ? 'sessions' : undefined} className="w-72 max-w-[85vw] p-0">
           <SheetTitle className="sr-only">AI 工作区</SheetTitle>
           <div className="flex h-full flex-col">
             <div className="flex items-center gap-1 px-3 pt-3">

@@ -51,3 +51,7 @@ Codex 读取账号 App Server 真实窗口；Claude 复用 OAuth usage 的真实
 语音轮次包含多个原生代码轮次；只有通话结束且代码收口、受管进程释放后，才释放 Forge 消息队列。浏览器每 10 秒续租，sidecar 在 45 秒无心跳后清理通话；启动超时为 90 秒。
 
 回归入口：前端 `nativeVoice.test.ts`、`useNativeVoice.test.ts`、`useVoiceTransport.test.ts`、`NativeVoiceControl.test.tsx`，sidecar `codexRealtime.test.ts`、`codexAppServer.test.ts`，后端 `SessionVoiceServiceTest`。`npm run app-server:schema:check` 校验锁定 CLI 的实验语音协议，升级 Codex 时必须重新检查并执行真实音频往返验收。
+
+## 功能导览
+
+会话工具顶部的「功能导览」提供六类简短导览和可搜索完整指南，说明用途、使用时机及实际入口。首次仅显示轻提示，可跳过；偏好保存在当前浏览器，存储拒绝时说明降级。定位入口只展开既有表单/视图/菜单并高亮，不自动执行任务或写操作。专注模式位于「视图」，工作区个性化位于「系统 · 设置」。

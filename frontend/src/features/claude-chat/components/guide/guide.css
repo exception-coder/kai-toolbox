@@ -1,0 +1,9 @@
+[data-vibe-guide="start"] [data-guide-location="start"],
+[data-vibe-guide="execution"] [aria-label="会话视图"],
+[data-vibe-guide="workspace"] #session-tools-menu,
+[data-vibe-guide="delivery"] #session-tools-menu,
+[data-vibe-guide="settings"] #session-tools-menu,
+[data-guide-location="sessions"] {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
