@@ -201,6 +201,40 @@ test('deferred checks persist and block commit readiness until actually executed
   assert.deepEqual(completed.pendingChecks, [])
 })
 
+test('commit mismatch names pending inputs and recovers in the same execution after staging', async t => {
+  const { root, context } = fixture(t)
+  const document = '设计 说明.md'
+  fs.writeFileSync(path.join(root, document), 'Existing design.\n')
+  git(root, ['add', document]); git(root, ['commit', '-qm', 'design baseline'])
+  const bound = assessExecution({ ...context,
+    discoveryId: discoverExecution({ ...context, request: 'Preserve the existing contract', files: ['src.js', document] }).discoveryId,
+    actor: 'fixture', behavior: 'preserved', design: 'none', impacts: ['logic'],
+    reason: 'Keep behavior and update its implementation explanation.',
+    evidence: [{ path: 'README.md', quote: 'The existing contract returns one.' }],
+  })
+  fs.writeFileSync(path.join(root, 'src.js'), 'export const value = 1 // explained\n')
+  fs.writeFileSync(path.join(root, document), 'Current design.\n')
+  git(root, ['add', 'src.js'])
+  const verified = await runExecutionVerification({ ...context, inputFiles: ['src.js', document], checks: [
+    { kind: 'regression', program: process.execPath,
+      args: ['-e', 'require("node:assert/strict").match(require("node:fs").readFileSync("src.js", "utf8"), /value = 1/)'],
+      purpose: 'Verify unchanged value' },
+  ] })
+  assert.equal(verified.code, 'PASS')
+  const denied = checkExecutionEvent({ ...context, event: 'COMMIT' })
+  assert.equal(denied.code, 'STAGED_INPUT_MISMATCH')
+  assert.match(JSON.stringify(denied), /设计 说明\.md/)
+  assert.match(JSON.stringify(denied), /归属/)
+  assert.equal(initSession(context).execution?.executionId, bound.executionId)
+  git(root, ['add', document])
+  assert.equal(checkExecutionEvent({ ...context, event: 'COMMIT' }).allowed, true)
+  fs.writeFileSync(path.join(root, document), 'Not yet staged design.\n')
+  await runExecutionVerification({ ...context, inputFiles: ['src.js', document], checks: [
+    { kind: 'regression', program: process.execPath, args: ['-e', 'void 0'], purpose: 'Verify current input snapshot' },
+  ] })
+  assert.equal(checkExecutionEvent({ ...context, event: 'COMMIT' }).code, 'STAGED_INPUT_MISMATCH')
+})
+
 test('different modules run together while shared files and the same module remain exclusive', t => {
   const { root } = fixture(t)
   for (const module of ['alpha', 'beta']) {

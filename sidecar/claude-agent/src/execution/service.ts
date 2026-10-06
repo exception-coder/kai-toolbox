@@ -228,8 +228,12 @@ export function checkDelivery(record: Execution) {
     'VERIFICATION_NOT_RUN', `缺少通过的 ${kind} 验证，不能用 API 200 代替`)
   requireCondition(verification.results.every(result => result.status === 'PASSED'), 'VERIFICATION_FAILED', '存在失败验证')
   // A staged blob can differ from the successfully tested working copy.
-  requireCondition(!git(record.project, ['diff', '--name-only', '--', ...verification.inputFiles]),
-    'STAGED_INPUT_MISMATCH', '验证输入仍有未暂存修改；待提交内容与测试工作区不一致')
+  const unstagedInputs = git(record.project, ['diff', '--name-only', '-z', '--', ...verification.inputFiles]).split('\0').filter(Boolean)
+  requireCondition(!unstagedInputs.length, 'STAGED_INPUT_MISMATCH',
+    `验证输入仍有未暂存修改；待提交内容与测试工作区不一致。差异文件：${JSON.stringify(unstagedInputs)}。`
+    + '先逐项核对 diff 和当前任务归属，将属于本任务的已验证改动按具体路径暂存，再以原执行重试 BEFORE_COMMIT；'
+    + '共享文件须区分内容变化与格式变化，不能仅因文件共享就认定混合归属。存在其他任务的实质改动时保留现场并协调隔离，禁止整批暂存；'
+    + '若修改了验证输入则重新验证，不要通过删除证据或重建 writer 绕过检查。')
 }
 export function finishExecution(raw: unknown) {
   const input = executionContextSchema.parse(raw)
