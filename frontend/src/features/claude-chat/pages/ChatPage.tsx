@@ -1220,7 +1220,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           <Minimize2 className="size-4" />退出专注 <span className="hidden text-xs text-[var(--color-muted-foreground)] sm:inline">Esc</span>
         </Button>
       </div>}
-      <WorkspacePreferences open={preferencesOpen} onOpenChange={setPreferencesOpen} />
+      <WorkspacePreferences open={preferencesOpen} onOpenChange={setPreferencesOpen} gestureEnabled={gestureOn}
+        onToggleGesture={() => { setPreferencesOpen(false); toggleGesture() }} />
       <WorkspaceHeaderMount target={focus.focused ? null : unifiedTitleBarSlot}>
       <header data-focus-chrome className={cn(
         'cc-workspace-header workspace-unified-chrome relative z-30 flex min-w-0 items-center gap-3 px-4 max-md:h-11 max-md:gap-1 max-md:px-1',
@@ -1500,7 +1501,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     <HeaderMenuItem nested icon={<ListChecks className="size-4" />} label="项目初始化流水线" hint="拉取→画像→知识图谱→profile→聚合" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'onboard' ? 'none' : 'onboard') }} />
                   </MenuSection>
                   <MenuSection icon={<Settings className="size-4" />} label="系统 · 设置" open={menuGroup === 'system'} onToggle={() => toggle('system')}>
-                    <HeaderMenuItem nested icon={<SlidersHorizontal className="size-4" />} label="工作区个性化" hint="最近会话默认展开或折叠" onClick={() => { setHeaderMenu(false); setPreferencesOpen(true) }} />
+                    <HeaderMenuItem nested icon={<SlidersHorizontal className="size-4" />} label="工作区个性化" hint="布局与导航、阅读与外观、交互偏好" onClick={() => { setHeaderMenu(false); setPreferencesOpen(true) }} />
                     <AssistantRestoreMenuItem />
                     <HeaderMenuItem nested icon={<Server className="size-4" />} label="服务商" hint="第三方网关(按会话,不动官方)" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'providers' ? 'none' : 'providers') }} />
                     <HeaderMenuItem nested icon={<Package className="size-4" />} label="团队依赖" hint="拉取仓库并安装到 Claude Code / Codex" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
