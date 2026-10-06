@@ -274,6 +274,8 @@ function localPathFromHref(href: string | null): string | null {
   if (!href) return null
   let value = href.trim()
   try { value = decodeURIComponent(value) } catch { /* 保留原值，由后端继续校验 */ }
+  // Markdown 常以 /D:/... 表示本地链接，Windows Path 不接受盘符前的斜线。
+  value = value.replace(/^\/([a-z]:[\\/])/i, '$1')
   if (/^file:\/\//i.test(value)) {
     value = value.replace(/^file:\/\/\/?/i, '')
     if (!/^[a-z]:/i.test(value)) value = `/${value}`

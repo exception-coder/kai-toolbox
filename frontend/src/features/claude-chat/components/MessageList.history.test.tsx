@@ -3,7 +3,7 @@ import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MessageList } from './MessageList'
 
-const scrolling = vi.hoisted(() => ({ scrollToIndex: vi.fn() }))
+const scrolling = vi.hoisted(() => ({ scrollToIndex: vi.fn(), scrollTo: vi.fn() }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 vi.mock('react-virtuoso', async () => {
@@ -14,17 +14,41 @@ vi.mock('react-virtuoso', async () => {
       context: unknown
       startReached?: () => void
       atBottomStateChange: (value: boolean) => void
+      scrollerRef: (element: HTMLElement) => void
+      totalListHeightChanged: () => void
     }, ref) {
       useImperativeHandle(ref, () => ({ scrollToIndex: scrolling.scrollToIndex }))
       const Header = props.components.Header
-      return <><Header context={props.context} /><span data-testid="automatic-history-load">{String(Boolean(props.startReached))}</span>
+      return <div ref={element => {
+        if (!element) return
+        Object.defineProperty(element, 'scrollHeight', { configurable: true, value: 2400 })
+        element.scrollTo = scrolling.scrollTo
+        props.scrollerRef(element)
+      }}><Header context={props.context} /><span data-testid="automatic-history-load">{String(Boolean(props.startReached))}</span>
+        <button onClick={props.totalListHeightChanged}>模拟高度校正</button>
         <button onClick={() => props.atBottomStateChange(false)}>模拟离底</button>
-        <button onClick={() => props.atBottomStateChange(true)}>模拟贴底</button></>
+        <button onClick={() => props.atBottomStateChange(true)}>模拟贴底</button></div>
     }),
   }
 })
 
 describe('MessageList 历史分页入口', () => {
+  it('按真实滚动高度补齐跳转，用户上滑后停止校正', () => {
+    vi.useFakeTimers()
+    render(<MessageList items={[{ kind: 'assistant', id: 'long', text: '长回复' }]} running={false} />)
+    fireEvent.click(screen.getByRole('button', { name: '模拟离底' }))
+    fireEvent.click(screen.getByRole('button', { name: /跳到最新/ }))
+    vi.advanceTimersByTime(20)
+    expect(scrolling.scrollTo).toHaveBeenLastCalledWith({ top: 2400, behavior: 'instant' })
+    fireEvent.click(screen.getByRole('button', { name: '模拟高度校正' }))
+    vi.advanceTimersByTime(20)
+    expect(scrolling.scrollTo).toHaveBeenCalledTimes(2)
+    fireEvent.wheel(screen.getByRole('button', { name: '模拟离底' }))
+    fireEvent.click(screen.getByRole('button', { name: '模拟高度校正' }))
+    vi.advanceTimersByTime(20)
+    expect(scrolling.scrollTo).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
   it('跳到当前末项底部，实际贴底前保留恢复入口', () => {
     const view = render(<MessageList items={[{ kind: 'assistant', id: 'long', text: '长回复'.repeat(1000) }]} running={false} />)
     fireEvent.click(screen.getByRole('button', { name: '模拟离底' }))

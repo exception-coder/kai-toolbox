@@ -189,6 +189,30 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   }, [items])
 
   const virtuosoRef = useRef<VirtuosoHandle>(null)
+  const scrollerRef = useRef<HTMLElement | null>(null)
+  const jumpDeadlineRef = useRef(0)
+  const jumpFrameRef = useRef<number | null>(null)
+  const captureScroller = useCallback((element: HTMLElement | Window | null) => {
+    scrollerRef.current = element instanceof HTMLElement ? element : null
+  }, [])
+  const settleJump = useCallback(() => {
+    if (Date.now() > jumpDeadlineRef.current) return
+    if (jumpFrameRef.current !== null) cancelAnimationFrame(jumpFrameRef.current)
+    jumpFrameRef.current = requestAnimationFrame(() => {
+      jumpFrameRef.current = null
+      const scroller = scrollerRef.current
+      if (scroller && Date.now() <= jumpDeadlineRef.current) {
+        scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'instant' })
+      }
+    })
+  }, [])
+  useEffect(() => {
+    jumpDeadlineRef.current = 0
+    return () => {
+      jumpDeadlineRef.current = 0
+      if (jumpFrameRef.current !== null) cancelAnimationFrame(jumpFrameRef.current)
+    }
+  }, [sessionKey])
   // 点击聊天里的图片放大查看（桌面点击 / 移动端轻触均可）
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null)
   // 「锁定位置」：贴底时新内容自动跟；用户滚离底部后 virtuoso 判定 atBottom=false，新增内容不再拽着视图跑。
@@ -230,8 +254,10 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   const jumpToBottom = useCallback(() => {
     // 长回复挂载后仍会修正高度；即时定位允许虚拟列表按实测高度重试。
     // LAST 在重试时仍指向最新项，贴底状态由实际滚动回调确认。
+    jumpDeadlineRef.current = Date.now() + 1500
     virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
-  }, [])
+    settleJump()
+  }, [settleJump])
 
   // 一轮开始（running 从 false→true，Footer 里的「思考中」指示器刚出现）时，若本来就贴底，
   // 主动贴一下——指示器的出现不改变 data 长度，followOutput 不会自动因此触发。
@@ -283,10 +309,18 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   }
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+      onWheelCapture={() => { jumpDeadlineRef.current = 0 }}
+      onTouchStartCapture={() => { jumpDeadlineRef.current = 0 }}
+      onPointerDownCapture={() => { jumpDeadlineRef.current = 0 }}
+      onKeyDownCapture={event => {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) jumpDeadlineRef.current = 0
+      }}>
       <Virtuoso
         key={resetKey}
         ref={virtuosoRef}
+        scrollerRef={captureScroller}
+        totalListHeightChanged={settleJump}
         style={{ height: '100%' }}
         className="cc-message-scroller scrollbar-autohide min-w-0 overflow-x-hidden"
         data={visibleItems}
