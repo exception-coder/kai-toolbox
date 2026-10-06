@@ -137,8 +137,8 @@ describe('OpenSpec 自动监督体验', () => {
 
     expect(await screen.findByText('OpenSpec · sample-image-upload')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /OpenSpec · sample-image-upload/ }))
-    expect(await screen.findByText('已由引擎加载')).toBeInTheDocument()
-    expect(screen.getByText('正在监督')).toBeInTheDocument()
+    expect(await screen.findByText('Forge Runtime 已接管 · Agent Skill 已加载')).toBeInTheDocument()
+    expect(screen.getByText('执行上下文').closest('details')).not.toHaveAttribute('open')
     expect(screen.getByText('openspec/changes/sample-image-upload/specs/sample-image/spec.md')).toBeInTheDocument()
   })
 

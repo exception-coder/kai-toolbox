@@ -11,7 +11,7 @@ interface Control {
 }
 
 /** 项目范围的开发者控制，不受当前 writer 或监督运行状态约束。 */
-export function ProjectExecutionControl({ sessionId }: { sessionId: string }) {
+export function ProjectExecutionControl({ sessionId, compact = false }: { sessionId: string; compact?: boolean }) {
   const id = useId()
   const client = useQueryClient()
   const key = ['project-execution-control', sessionId]
@@ -29,6 +29,24 @@ export function ProjectExecutionControl({ sessionId }: { sessionId: string }) {
     onError: () => { void query.refetch() },
   })
   const data = query.data
+  if (compact) return <section aria-labelledby={id} className="min-w-0">
+    <div className="flex items-start justify-between gap-3">
+      <details className="min-w-0 flex-1 text-xs text-[var(--color-muted-foreground)]">
+        <summary id={id} className="min-h-11 cursor-pointer content-center focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">项目编码门禁</summary>
+        <p className="break-all">{data?.project ?? '项目状态未读取'}</p>
+        <p className="pb-2 pt-1 leading-relaxed">同项目所有会话共用。关闭后，写入锁、范围及治理前置检查不再阻断编码；记录保留，不代表验证通过。重启、资源和生产授权不变。已暂停的监督需手动恢复。</p>
+      </details>
+      <button type="button" role="switch" aria-labelledby={id} aria-checked={data?.enabled ?? false}
+        disabled={!data || query.isError || update.isPending} onClick={() => data && update.mutate(data)}
+        className="min-h-11 shrink-0 rounded-md px-2 text-xs underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] disabled:opacity-50">
+        {update.isPending ? '保存中…' : query.isError ? '状态未知' : data ? data.enabled ? '已启用 · 关闭' : '已关闭 · 启用' : '读取中…'}
+      </button>
+    </div>
+    {(query.isError || update.isError) && <p role="alert" className="text-xs text-amber-700 dark:text-amber-400">
+      {update.isError ? '保存结果待核对。' : '控制状态读取失败。'}{data ? '当前显示上次已知状态。' : '尚无可用状态。'}
+      <button type="button" className="ml-2 min-h-11 underline" onClick={() => { update.reset(); void query.refetch() }}>重试</button>
+    </p>}
+  </section>
   return <section className="min-w-0 border-t border-[var(--color-border)] py-3" aria-labelledby={id}>
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0">

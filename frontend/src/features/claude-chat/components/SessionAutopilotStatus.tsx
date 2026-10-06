@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Bot, ChevronDown, ChevronUp, CirclePause, Play, ShieldCheck, Square, TriangleAlert } from 'lucide-react'
+import { Bot, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -9,11 +9,13 @@ import {
   checkAutopilotBinding,
   getSessionAutopilot,
   getAutopilotBatch,
+  listAutopilotTasks,
   previewAutopilotBindings,
   recommendAutopilotBindings,
   startSessionAutopilot,
 } from '../api'
 import type { AutopilotBindingCandidate, SessionAutopilotRun } from '../types'
+import { SupervisionSummary } from './SupervisionSummary'
 import { ProjectExecutionControl } from './ProjectExecutionControl'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 
@@ -43,6 +45,11 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
   const queryClient = useQueryClient()
   const portalContainer = useFullscreenPortalContainer()
   const [expanded, setExpanded] = useState(false)
+  const [budgetNow, setBudgetNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = window.setInterval(() => setBudgetNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
   const [pickerOpen, setPickerOpen] = useState(false)
   const [changeId, setChangeId] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -188,9 +195,12 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
     onSuccess: refresh,
   })
   const run = runQuery.data
-  const progress = run?.progress.totalTasks
-    ? Math.round(run.progress.completedTasks / run.progress.totalTasks * 100) : 0
-  const specPaths = useMemo(() => run?.artifactPaths.specs ?? [], [run])
+  const currentTasks = useQuery({
+    queryKey: ['claude-chat-autopilot-tasks', sessionId, run?.changeId],
+    queryFn: () => listAutopilotTasks(sessionId),
+    enabled: expanded && Boolean(run),
+    refetchInterval: expanded ? 30_000 : false,
+  })
   const error = control.error ?? runQuery.error
 
   return (
@@ -227,54 +237,14 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
       </div>
 
       {expanded && (
-        <div className="grid gap-3 border-t border-[var(--color-border)] px-3 py-3 text-xs lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.65fr)]">
-          <div className="lg:col-span-2"><ProjectExecutionControl sessionId={sessionId} /></div>
-          {run ? (
-            <>
-              <div className="min-w-0 space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="truncate font-medium">{run.goal}</span>
-                  <span className="tabular-nums text-[var(--color-muted-foreground)]">{progress}%</span>
-                </div>
-                <div className="h-1 overflow-hidden rounded-full bg-[var(--color-border)]" aria-label={`任务进度 ${progress}%`}>
-                  <div className="h-full bg-[var(--color-primary)]" style={{ width: `${progress}%` }} />
-                </div>
-                <dl className="grid grid-cols-[92px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[var(--color-muted-foreground)]">
-                  <dt>执行上下文</dt><dd className="truncate text-[var(--color-foreground)]">{run.branchAtStart || '未识别分支'} · generation {run.generation}</dd>
-                  <dt>当前阶段</dt><dd className="text-[var(--color-foreground)]">{run.phase}{run.currentTaskId ? ` / task ${run.currentTaskId}` : ''}</dd>
-                  <dt>绑定 Specs</dt><dd className="space-y-0.5 text-[var(--color-foreground)]">{specPaths.length ? specPaths.map(path => <div key={path} className="truncate" title={path}>{path}</div>) : '当前 change 未返回 delta spec 路径'}</dd>
-                  <dt>停止预算</dt><dd className="text-[var(--color-foreground)]">轮次 {run.turnCount}/{run.maxTurns}{run.phase === 'APPLY' ? ` · 同任务连续 ${run.noProgressCount} 轮` : ` · 阶段重试 ${run.noProgressCount}/${run.maxNoProgress}`}</dd>
-                </dl>
-                {batchQuery.data && <div className="border-t border-[var(--color-border)] pt-2">
-                  <div className="font-medium">批次顺序</div>
-                  <ol className="mt-1 space-y-1 text-[var(--color-muted-foreground)]">
-                    {batchQuery.data.changeIds.map((id, index) => <li key={id} className={index === batchQuery.data!.currentIndex ? 'font-medium text-[var(--color-foreground)]' : ''}>
-                      {index + 1}. {id} · {index < batchQuery.data!.currentIndex ? '已推进' : index === batchQuery.data!.currentIndex ? '当前' : batchQuery.data!.deferred?.some(item => item.changeId === id) ? '待回复' : '待推进'}
-                    </li>)}
-                  </ol>
-                  {batchQuery.data.deferred?.length > 0 && <div className="mt-2 space-y-1 text-amber-700 dark:text-amber-400">
-                    <div className="font-medium">待回复的问题</div>
-                    {batchQuery.data.deferred.map(item => <p key={item.changeId} className="break-words">{item.changeId}：{item.reason}</p>)}
-                  </div>}
-                </div>}
-                {run.reason && <p className="flex items-start gap-1.5 text-[var(--color-muted-foreground)]"><TriangleAlert className="mt-0.5 size-3.5 shrink-0" />{run.reason}</p>}
-              </div>
-              <div className="space-y-2 border-t border-[var(--color-border)] pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
-                <div className="font-medium">双层兜底</div>
-                <div className="flex items-center justify-between"><span>Agent Skill</span><span className={run.layers.agentSkillActivated ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}>{run.layers.agentSkillActivated ? '已由引擎加载' : run.layers.agentSkillProvisioned ? '已部署，待引擎确认' : '未部署'}</span></div>
-                <div className="flex items-center justify-between"><span>Forge Runtime</span><span className={run.layers.forgeRuntimeActive ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600'}>{run.layers.forgeRuntimeActive ? '正在监督' : '未接管'}</span></div>
-                <div className="flex items-center gap-2 pt-1">
-                  {run.state === 'ACTIVE' ? (
-                    <Button size="sm" variant="outline" className="h-7" onClick={() => control.mutate('pause')} disabled={control.isPending}><CirclePause className="size-3.5" />暂停</Button>
-                  ) : run.state === 'PAUSED' || run.state === 'WAITING_USER' || run.state === 'FAILED' ? (
-                    <Button size="sm" variant="outline" className="h-7" onClick={() => control.mutate('resume')} disabled={control.isPending}><Play className="size-3.5" />恢复</Button>
-                  ) : <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400"><ShieldCheck className="size-3.5" />运行已收口</span>}
-                  {!['COMPLETED', 'STOPPED'].includes(run.state) && <Button size="sm" variant="ghost" className="h-7" onClick={() => control.mutate('stop')} disabled={control.isPending}><Square className="size-3" />停止</Button>}
-                </div>
-              </div>
-            </>
-          ) : null}
-          {error && <p role="alert" className="lg:col-span-2 text-red-600">{messageOf(error)}</p>}
+        <div className="border-t border-[var(--color-border)] px-3 py-4 sm:px-4">
+          {run ? <SupervisionSummary run={run} now={budgetNow} batch={batchQuery.data}
+              taskQueries={(batchQuery.data?.changeIds ?? [run.changeId]).map(id => id === run.changeId ? currentTasks : undefined)} pending={control.isPending}
+              onAction={action => control.mutate(action)}
+              projectControl={<ProjectExecutionControl sessionId={sessionId} compact />}
+              error={error ? messageOf(error) : undefined} onRetry={() => { control.reset(); void runQuery.refetch() }}
+              batchError={batchQuery.isError} onRetryBatch={() => void batchQuery.refetch()} />
+            : <ProjectExecutionControl sessionId={sessionId} compact />}
         </div>
       )}
       <Dialog.Root open={pickerOpen} onOpenChange={setPickerOpen}>
