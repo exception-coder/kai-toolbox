@@ -67,9 +67,13 @@ Session 返回配置、可调用性、授权和宿主覆盖的独立字段；未
 
 Forge 安装器的 runtime protocol v2 由插件 `hooks/forge/client.js` 消费；`SessionStart` 调用 `session_init`，写前/提交前/Stop 由 `check_execution_event` 返回 `allowed/code/enforcement/legacyGovernanceRequired`。Stop 只检查，不结束任务。v2 Hook 不读取 Forge 私有执行 JSON；原生权限适配也调用同一裁决入口。v1 私有文件读取集中保留在 `hooks/forge/legacy-v1.js`，仅支持历史运行时，不扩建策略。
 
+自动监督面板提供开发者控制的**项目编码门禁**，默认启用，同一真实项目目录的全部会话共享。唯一记录 `.forge/execution-control.json` 独立于执行存储锁，由会话访问受控的 HTTP API 原子更新并保存版本、操作者、原因及历史，不提供模型修改门禁的 MCP 工具。关闭后 Sidecar 在读取 writer 前放行编码准入，执行治理工具返回 `GOVERNANCE_DISABLED`/`skipped`；不修改旧执行、不扩大登记范围、不将跳过标记为 PASS。原子保存失败或版本冲突可从面板刷新核对，已启动的命令不因开关自动取消。
+
+Java 自动监督的规格严格预检与后续治理阶段同时服从此开关。关闭时按实际未完成开发 task 继续，开发项结束返回未验证的 `DEVELOPER_HANDOFF`，进入所选下一项或停止待开发者验收，不自动归档或勾选人工事项。已有暂停需手动恢复；任务事实、预算、资源访问、生产与重启授权保持独立。重新开启恢复原检查，关闭期间的改动仍可能需要增补范围和重新验证。以下写入准入与强制验证流程均以门禁启用为前提。新代码本地实现与首次加载验收分别记录于[项目控制任务](../openspec/changes/project-developer-control/tasks.md)。
+
 遗留写入会话无法恢复且不满足自动完成回收时，Forge 提供只读 `inspect_execution_writer` 与显式 `abort_execution`。查询返回全部活跃执行；只有单个执行时保留兼容的 `writer` 字段。中止按 executionId 复核原会话、分支、HEAD 和该执行范围，在原记录留下具名原因及状态，只释放目标模块写入绑定；不把中止当作完成、验证或提交。此入口不改变 Hook 的普通 Stop 语义。
 
-绑定执行的拒绝始终 block；未绑定旧规格流程保留 warn/block 配置。v2 连接失败时绑定未知，默认失败关闭；显式 failure=warn 或 off 不提供故障阻断保证。协议不匹配要求升级，不静默选择另一套治理。Delta 执行暂时继续要求旧设计/审阅证据检查，这属于兼容验证，尚未迁移为 Forge 原生设计内容检查器。历史绑定与 PASS 不自动升级。
+项目编码门禁启用时，绑定执行的拒绝始终 block；未绑定旧规格流程保留 warn/block 配置。v2 连接失败时绑定未知，默认失败关闭；显式 failure=warn 或 off 不提供故障阻断保证。协议不匹配要求升级，不静默选择另一套治理。Delta 执行暂时继续要求旧设计/审阅证据检查，这属于兼容验证，尚未迁移为 Forge 原生设计内容检查器。历史绑定与 PASS 不自动升级。
 
 以上描述源码协议；插件安装、新会话加载、宿主事件触发和运行服务更新分别验收。无 SessionStart 接线时通过 Agent 主动调用启动入口。任意 Shell 副作用仍需要宿主权限/沙箱覆盖。本轮不新增夜间整合、默认 block 或自动重启。
 
@@ -178,9 +182,14 @@ OpenSpec 的纯人工生产任务在描述首部标记 `[MANUAL_PRODUCTION]`。R
 flowchart LR
     SESSION["当前会话上下文"] --> PREVIEW["活动目录候选 + 推荐 Skill 排序"]
     PREVIEW --> CONFIRM["用户多选并逐项预检"]
-    CONFIRM --> RECHECK["Forge 逐项复核 revision、tasks 与 strict validation"]
+    CONFIRM --> CONTROL{"项目编码门禁"}
+    CONTROL -->|"启用"| RECHECK["Forge 逐项复核 revision、tasks 与 strict validation"]
+    CONTROL -->|"关闭"| DEV["保留真实 tasks；开发者自主控制"]
+    DEV --> RUNTIME
     RECHECK --> RUNTIME["原会话持久批次：单项监督 Runtime"]
-    RUNTIME --> WRITER["Agent 核对监督绑定；独立取得写入执行权"]
+    RUNTIME -->|"门禁启用"| WRITER["Agent 核对监督绑定；独立取得写入执行权"]
+    RUNTIME -->|"门禁关闭"| LOCAL
+    LOCAL -->|"门禁关闭且开发项结束"| DEVHANDOFF["未验证交接；保留人工项，不自动归档"]
     RUNTIME -->|"模型容量暂时不足"| RETRY["后端延时巡检 + 会话门禁 + 已有工作复核"]
     RETRY -->|"未超重试上限"| RUNTIME
     RETRY -->|"达到上限"| BOARD

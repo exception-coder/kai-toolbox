@@ -10,6 +10,7 @@ import { isBranchMutation } from './policy.js'
 import { isDockerDependentCommand } from './dockerPolicy.js'
 import { EXECUTION_VERIFICATION_CALL_BUDGET_MS } from './budget.js'
 import { verificationCommand, verificationPath } from './verificationCommand.js'
+import { developerControl } from './developerControl.js'
 
 export type VerificationProgress = {
   checkIndex: number; checkCount: number; kind: string;
@@ -35,6 +36,7 @@ export async function runExecutionVerification(raw: unknown, runtime?: Verificat
   const input = runExecutionSchema.parse(raw)
   requireActive(runtime?.signal)
   checkExecution(input)
+  const controlRevision = developerControl(input.project).revision
   const record = loadExecution(input.project, input.sessionId)!
   const inputFiles = [...new Set([...record.discovery.files, ...record.assessment.evidence.map(item => item.path),
     ...record.assessment.designFiles.map(item => item.path), ...input.inputFiles.map(file =>
@@ -83,14 +85,17 @@ export async function runExecutionVerification(raw: unknown, runtime?: Verificat
     results.push({ checkId: `vc_${hash(JSON.stringify([check.kind, check.program, check.args, cwd])).slice(0, 32)}`,
       kind: check.kind, purpose: check.purpose, command: [check.program, ...check.args], durationMs: Date.now() - started, ...result })
   }
-  return saveVerification({ record, input, inputFiles, fingerprint, results }, runtime)
+  return saveVerification({ record, input, inputFiles, fingerprint, results, controlRevision }, runtime)
 }
 
 function saveVerification(state: { record: Execution; input: ReturnType<typeof runExecutionSchema.parse>;
-  inputFiles: string[]; fingerprint: string; results: NonNullable<Execution['verification']>['results'] }, runtime?: VerificationRuntime) {
+  inputFiles: string[]; fingerprint: string; results: NonNullable<Execution['verification']>['results']; controlRevision: number }, runtime?: VerificationRuntime) {
   const { record, input, inputFiles, fingerprint, results } = state
   return locked(record.project, () => {
     requireActive(runtime?.signal)
+    const control = developerControl(record.project)
+    requireCondition(control.enabled && control.revision === state.controlRevision, 'EXECUTION_CONTROL_CHANGED',
+      '项目编码门禁状态已变化；本次结果不写回原执行，请按当前状态重新验证')
     checkExecution(input)
     const current = loadExecution(record.project, input.sessionId)
     requireCondition(current?.executionId === record.executionId

@@ -1,6 +1,9 @@
 package com.exceptioncoder.toolbox.claudechat.service.autopilot;
 
 import com.exceptioncoder.toolbox.claudechat.domain.autopilot.SessionAutopilotRun;
+import com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /** 将 Runtime 的持久监督身份交给 Agent，不读取或授予 Sidecar 写入权。 */
 public final class AutopilotTurnHandoff {
@@ -15,6 +18,25 @@ public final class AutopilotTurnHandoff {
                 + run.context().phase().name().toLowerCase() + ":" + taskId + ":" + run.turnCount();
         String display = "自动推进 · " + run.context().changeId() + " · "
                 + ("-".equals(taskId) ? run.context().phase().name() : "task " + taskId);
+        Path controlRoot = Path.of(run.context().projectRoot());
+        if (Files.exists(controlRoot.resolve(".forge/execution-control.json"))
+                && !ProjectExecutionControlStore.read(controlRoot).enabled()) {
+            String developerInstructions = """
+                    Forge 项目编码门禁已由开发者关闭，本项目所有会话共用此状态。
+                    Runtime run ID: %s
+                    Project root: %s
+                    OpenSpec change: %s; Phase: %s; Current task: %s
+                    Progress: %d/%d; Runtime decision: %s
+                    不要求 writer、文件范围扩展、分支或规格/设计绑定及门禁验证前置条件。
+                    即使旧 Skill 或历史消息要求这些步骤，也以本轮项目控制状态为准。
+                    直接继续已授权编码，保留其他会话文件和历史，运行适用测试并如实报告。
+                    GOVERNANCE_DISABLED 表示未执行检查，不代表验证通过、任务完成或原执行已释放。
+                    服务重启、资源访问、生产操作仍遵循原授权；手动暂停、预算和任务状态不自动解除。
+                    yield 前调用 forge.report_session_progress；有可执行工作时附 nextAction 和 remainingWork。
+                    """.formatted(run.id(), run.context().projectRoot(), run.context().changeId(),
+                    run.context().phase(), task, completedTasks, totalTasks, reason);
+            return new Message(messageId, display, "继续开发者控制下的当前任务。", developerInstructions);
+        }
         String instructions = """
                 你正在由 Forge Runtime 自动监督。不要请求用户说“继续”，也不要把单轮结束当作目标完成。
                 Runtime run ID: %s

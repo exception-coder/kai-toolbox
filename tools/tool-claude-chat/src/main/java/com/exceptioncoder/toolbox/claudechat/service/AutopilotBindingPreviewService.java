@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore;
+
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import org.springframework.stereotype.Service;
@@ -128,11 +130,12 @@ public class AutopilotBindingPreviewService {
                 .orElseThrow(() -> new IllegalArgumentException("OpenSpec change 不存在或已归档"));
         try {
             var snapshot = openSpec.inspect(identity.projectRoot(), changeId);
-            var validation = openSpec.strictValidate(identity.projectRoot(), changeId);
-            boolean ready = validation.passed() && snapshot.nextTask() != null && snapshot.totalTasks() > 0;
-            String reason = !validation.passed() ? validation.detail()
+            boolean developer = ProjectExecutionControlStore.disabled(identity.projectRoot());
+            var validation = developer ? null : openSpec.strictValidate(identity.projectRoot(), changeId);
+            boolean ready = (developer || validation.passed()) && snapshot.nextTask() != null && snapshot.totalTasks() > 0;
+            String reason = !developer && !validation.passed() ? validation.detail()
                     : snapshot.totalTasks() == 0 ? "没有可执行的 OpenSpec task"
-                    : snapshot.nextTask() == null ? "全部 task 已完成" : "规格校验通过，可以绑定并推进";
+                    : snapshot.nextTask() == null ? "全部 task 已完成" : developer ? "编码门禁已关闭，可以绑定；规格校验未执行" : "规格校验通过，可以绑定并推进";
             return new Candidate(changeId, snapshot.completedTasks(), snapshot.totalTasks(),
                     snapshot.revision(), 0, ready, reason);
         } catch (RuntimeException exception) {

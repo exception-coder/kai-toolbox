@@ -5,6 +5,7 @@ import { inputFingerprint, projectContext } from './repository.js'
 import { BRANCH_POLICY, POLICY_VERSION } from './policy.js'
 import { safePath } from '../specResolution/storage.js'
 import { readWriters } from './writers.js'
+import { developerBypass } from './developerControl.js'
 
 export function readWriter(root: string) {
   return readWriters(root)[0]
@@ -14,6 +15,10 @@ export function readWriter(root: string) {
 export function initSession(raw: unknown) {
   const input = executionContextSchema.parse(raw)
   const { root, branch } = projectContext(input.project, false)
+  const bypass = developerBypass(root)
+  if (bypass) return { ...bypass, project: root, sessionId: input.sessionId, branch: branch || null,
+    execution: null, executionNotInspected: true, workspace: { writer: null, writers: [] },
+    capabilities: { execution: { configured: true, available: true, authorization: 'DEVELOPER_CONTROL', enforcement: 'DISABLED' } } }
   const execution = loadExecution(root, input.sessionId)
   const writers = readWriters(root)
   const writer = writers.find(item => item.sessionId === input.sessionId) || writers[0]

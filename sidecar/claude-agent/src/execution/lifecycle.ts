@@ -7,6 +7,7 @@ import { readWriters } from './writers.js'
 import { checkReadiness } from '../specResolution/service.js'
 import { hash, readJson, safePath, statePath } from '../specResolution/storage.js'
 import { ResolutionError, requireCondition } from '../specResolution/contracts.js'
+import { developerBypass } from './developerControl.js'
 
 /** The only adapter-facing router: storage layout and policy stay inside Forge. */
 export function checkExecutionEvent(raw: unknown) {
@@ -15,6 +16,8 @@ export function checkExecutionEvent(raw: unknown) {
   try {
     const input = executionEventSchema.parse(raw)
     const { root } = projectContext(input.project, false)
+    const bypass = developerBypass(root)
+    if (bypass) return bypass
     const record = input.sessionId ? loadExecution(root, input.sessionId) : undefined
     const writers = readWriters(root)
     if (record || writers.length) {

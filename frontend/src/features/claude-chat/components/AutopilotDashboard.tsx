@@ -4,6 +4,7 @@ import { Bot, ChevronRight, CirclePause, Clock3, Play, RefreshCw, Search, Square
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { controlSessionAutopilot, getAutopilotBatch, getSessionAutopilot, listAutopilotRuns } from '../api'
+import { ProjectExecutionControl } from './ProjectExecutionControl'
 import type { AutopilotDashboardItem } from '../types'
 
 type Scope = 'all' | 'active' | 'attention' | 'paused' | 'recent'
@@ -105,6 +106,7 @@ export function AutopilotDashboard({ onOpenSession, initialScope = 'active', cur
             <button type="button" onClick={() => query.refetch()} className="rounded p-1.5 hover:bg-[var(--color-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" aria-label="刷新监督看板"><RefreshCw className={cn('size-3.5', query.isFetching && 'animate-spin')} /></button>
           </div>
         </div>
+        {currentSessionId && <ProjectExecutionControl sessionId={currentSessionId} />}
         {currentSessionId && <div className="mt-4 border-t border-[var(--color-border)] pt-3">
           <div className="text-xs font-medium">本会话已绑定的规格</div>
           {binding.isPending ? <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">正在读取绑定记录…</p>

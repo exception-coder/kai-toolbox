@@ -11,6 +11,7 @@ import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.Ch
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.TaskSnapshot;
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.ValidationResult;
 import org.springframework.stereotype.Service;
+import com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore;
 
 import java.nio.file.Path;
 
@@ -28,6 +29,17 @@ public class OpenSpecContinuousRunner {
 
     public Decision decide(SessionAutopilotRun run, ChangeSnapshot snapshot) {
         OpenSpecExecutionContext context = run.context();
+        if (ProjectExecutionControlStore.disabled(Path.of(context.projectRoot()))) {
+            TaskSnapshot next = snapshot.nextTask();
+            if (next != null) {
+                return Decision.continueWith(copy(context, snapshot.revision(), next.id(), next.applyOrdinal(),
+                        OpenSpecExecutionPhase.APPLY, context.version() + 1), "DEVELOPER_CONTINUE",
+                        "项目编码门禁关闭，继续实际未完成的开发 task", 0);
+            }
+            return new Decision(AutopilotState.STOPPED, "DEVELOPER_HANDOFF",
+                    "开发推进结束；项目编码门禁关闭，验证与归档未执行，人工事项保留待开发者验收",
+                    context, 0, null, snapshot.revision() + ":DEVELOPER_HANDOFF");
+        }
         if (context.currentTaskId() != null) {
             TaskSnapshot current = snapshot.tasks().stream()
                     .filter(task -> context.currentTaskId().equals(task.id())).findFirst().orElse(null);

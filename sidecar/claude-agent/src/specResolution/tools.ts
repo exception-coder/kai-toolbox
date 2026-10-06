@@ -7,6 +7,7 @@ import { resolutionMetrics } from './metrics.js'
 import { executionDefinitions } from '../execution/tools.js'
 import { runExecutionVerification } from '../execution/verification.js'
 import { reportMcpProgress, type McpRequestExtra } from '../mcpHttp.js'
+import { developerBypass } from '../execution/developerControl.js'
 
 export const definitions = [
   ...executionDefinitions,
@@ -27,6 +28,12 @@ export async function execute(name: string, input: unknown, extra?: McpRequestEx
   try {
     const definition = definitions.find(item => item.name === name)
     if (!definition) throw new ResolutionError('TOOL_INVALID', '未知规格工具')
+    if (['discover_execution', 'assess_execution', 'check_execution_readiness', 'check_change_readiness',
+      'finish_execution', 'confirm_spec_resolution', 'run_execution_verification'].includes(name)
+      && input && typeof input === 'object' && 'project' in input && typeof input.project === 'string') {
+      const bypass = developerBypass(input.project)
+      if (bypass) return bypass
+    }
     if (name === 'run_execution_verification') return await runExecutionVerification(input, {
       signal: extra?.signal,
       onProgress: event => {

@@ -14,6 +14,7 @@ import {
   startSessionAutopilot,
 } from '../api'
 import type { AutopilotBindingCandidate, SessionAutopilotRun } from '../types'
+import { ProjectExecutionControl } from './ProjectExecutionControl'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 
 interface SessionAutopilotStatusProps {
@@ -227,6 +228,7 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
 
       {expanded && (
         <div className="grid gap-3 border-t border-[var(--color-border)] px-3 py-3 text-xs lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.65fr)]">
+          <div className="lg:col-span-2"><ProjectExecutionControl sessionId={sessionId} /></div>
           {run ? (
             <>
               <div className="min-w-0 space-y-2">

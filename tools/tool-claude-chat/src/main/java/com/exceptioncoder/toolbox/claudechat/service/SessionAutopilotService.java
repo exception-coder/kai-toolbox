@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore;
+
 import com.exceptioncoder.toolbox.claudechat.api.dto.SessionAutopilotView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.RuntimeEvidence;
 import com.exceptioncoder.toolbox.claudechat.api.dto.OpenSpecBoardView.TaskState;
@@ -151,9 +153,11 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             if (checked.totalTasks() == 0 || checked.nextTask() == null) {
                 throw new IllegalArgumentException(changeId + " 没有待执行 task");
             }
-            var validation = openSpec.strictValidate(identity.projectRoot(), changeId);
-            if (!validation.passed()) {
-                throw new IllegalArgumentException(changeId + " 预检未通过：" + validation.detail());
+            if (!ProjectExecutionControlStore.disabled(identity.projectRoot())) {
+                var validation = openSpec.strictValidate(identity.projectRoot(), changeId);
+                if (!validation.passed()) {
+                    throw new IllegalArgumentException(changeId + " 预检未通过：" + validation.detail());
+                }
             }
             if (snapshot == null) snapshot = checked;
         }
@@ -473,7 +477,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                     run.turnCount() + 1, decision.noProgressCount(), snapshot.completedTasks(), snapshot.totalTasks(),
                     true, Instant.now());
             ChangeSnapshot dispatchSnapshot = snapshot;
-            var batch = decision.state() == AutopilotState.COMPLETED
+            var batch = (decision.state() == AutopilotState.COMPLETED || "DEVELOPER_HANDOFF".equals(decision.code()))
                     ? repository.findBatch(run.sessionId(), run.id()) : Optional.<SessionAutopilotRepository.Batch>empty();
             int nextIndex = -1;
             if (batch.isPresent()) {
@@ -482,12 +486,13 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                 if (nextIndex < ids.size()) {
                     String nextId = ids.get(nextIndex);
                     dispatchSnapshot = openSpec.inspect(Path.of(run.context().projectRoot()), nextId);
-                    var validation = openSpec.strictValidate(Path.of(run.context().projectRoot()), nextId);
+                    boolean developer = ProjectExecutionControlStore.disabled(Path.of(run.context().projectRoot()));
+                    var validation = developer ? null : openSpec.strictValidate(Path.of(run.context().projectRoot()), nextId);
                     var deferred = repository.findDeferredChanges(run.id()).stream()
                             .filter(item -> item.changeId().equals(nextId)).findFirst();
                     String expectedRevision = readMap(batch.get().expectedRevisionsJson()).get(nextId);
                     boolean revisionMatches = dispatchSnapshot.revision().equals(expectedRevision);
-                    boolean ready = deferred.isEmpty() && revisionMatches && validation.passed()
+                    boolean ready = (developer || (deferred.isEmpty() && revisionMatches && validation.passed()))
                             && dispatchSnapshot.nextTask() != null;
                     OpenSpecExecutionContext nextContext = new OpenSpecExecutionContext(
                             run.context().projectRoot(), run.context().repositoryIdentity(),
@@ -497,10 +502,10 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                             OpenSpecExecutionPhase.APPLY, run.context().agentSessionRef(),
                             run.context().generation() + 1, next.context().version() + 1);
                     next = evolve(run, ready ? AutopilotState.ACTIVE : AutopilotState.WAITING_USER,
-                            ready ? "上一规格完成，开始下一规格 " + nextId
+                            ready ? (developer ? "上一规格开发推进结束（未验证），开始下一规格 " : "上一规格完成，开始下一规格 ") + nextId
                                     : "下一规格 " + nextId + " 需要处理：" + (deferred.isPresent()
                                     ? deferred.get().reason() : !revisionMatches
-                                    ? "规格已变化，请核对后恢复" : validation.passed()
+                                    ? "规格已变化，请核对后恢复" : (developer || validation.passed())
                                     ? "没有待执行 task" : validation.detail()),
                             nextContext, run.turnCount() + 1, 0,
                             dispatchSnapshot.completedTasks(), dispatchSnapshot.totalTasks(), true, Instant.now());
