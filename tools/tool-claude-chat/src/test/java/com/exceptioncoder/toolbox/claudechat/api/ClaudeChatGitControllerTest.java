@@ -33,7 +33,7 @@ class ClaudeChatGitControllerTest {
         when(pushes.preview(child)).thenReturn(preview);
         when(pushes.push(child, "snapshot")).thenReturn("推送成功");
         ProjectAccess access = path -> true;
-        var controller = new ClaudeChatGitController(repository, new GitProperties(), mock(GitLogService.class),
+        var controller = new ClaudeChatGitController(new com.exceptioncoder.toolbox.claudechat.service.SessionGitRepositoryService(repository, mock(com.exceptioncoder.toolbox.claudechat.service.SessionProjectDirectoryService.class), path -> true), new GitProperties(), mock(GitLogService.class),
                 pushes, access);
         assertThat(controller.pushPreview("session", "child")).isEqualTo(preview);
         assertThat(controller.push("session", "child", new ClaudeChatGitController.PushRequest("snapshot")))
@@ -52,7 +52,7 @@ class ClaudeChatGitControllerTest {
         when(repository.findById("session")).thenReturn(Optional.of(ClaudeChatSession.builder()
                 .id("session").cwd(temporary.toString()).build()));
         var pushes = mock(GitPushOperations.class);
-        var controller = new ClaudeChatGitController(repository, new GitProperties(), mock(GitLogService.class),
+        var controller = new ClaudeChatGitController(new com.exceptioncoder.toolbox.claudechat.service.SessionGitRepositoryService(repository, mock(com.exceptioncoder.toolbox.claudechat.service.SessionProjectDirectoryService.class), path -> true), new GitProperties(), mock(GitLogService.class),
                 pushes, path -> false);
         assertThatThrownBy(() -> controller.pushPreview("session", null)).hasMessageContaining("全局排除");
         assertThatThrownBy(() -> controller.push("session", null,

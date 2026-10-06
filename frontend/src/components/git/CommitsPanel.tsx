@@ -20,6 +20,9 @@ interface Props {
   fetchRepos?: () => Promise<GitRepoRef[]>
   pushActions?: GitPushActions
   restoreFocus?: () => void
+  onManageRepos?: () => void
+  initialRepo?: string
+  onRepoChange?: (repo: string) => void
 }
 
 /**
@@ -27,8 +30,9 @@ interface Props {
  * 与具体后端接口解耦，供 projects（按 path）/ claude-chat（按 sessionId）等复用。
  * 提供 fetchRepos 时支持在会话 cwd 下的多个 git 子仓库间切换查看。
  */
-export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos, pushActions, restoreFocus }: Props) {
+export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos, pushActions, restoreFocus, onManageRepos, initialRepo, onRepoChange }: Props) {
   const returnFocus = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  const [repoRefresh, setRepoRefresh] = useState(0)
   const [pushing, setPushing] = useState(false)
   const [repos, setRepos] = useState<GitRepoRef[] | null>(null)
   const [activeRepo, setActiveRepo] = useState<string | undefined>(undefined)
@@ -55,12 +59,15 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
   // 初始化：有 fetchRepos 则先取仓库列表、选第一个并载入；否则直接不带 repo 载入。
   useEffect(() => {
     let alive = true
+    listGeneration.current++
+    setListErr(null)
+    setCommits(null)
     if (!fetchRepos) { loadCommits(undefined); return () => { alive = false } }
     fetchRepos()
       .then(rs => {
         if (!alive) return
         setRepos(rs)
-        const first = rs[0]?.name
+        const first = rs.find(repo => repo.name === (activeRepo ?? initialRepo))?.name ?? rs[0]?.name
         setActiveRepo(first)
         if (rs.length === 0) setListErr('会话目录及其子目录都不是 git 仓库')
         else loadCommits(first)
@@ -69,11 +76,12 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
     return () => { alive = false }
     // 仅首次加载；fetchRepos/fetchCommits 由调用方 memo
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [repoRefresh])
 
   const selectRepo = (name: string) => {
     if (name === activeRepo) return
     setActiveRepo(name)
+    onRepoChange?.(name)
     loadCommits(name)
   }
 
@@ -119,8 +127,13 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
           </button>
         </div>
 
+        {onManageRepos && <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+          <span className="text-xs font-medium">关联工作目录</span>
+          <button type="button" disabled={pushing} onClick={onManageRepos}
+            className="rounded-md border px-3 py-1.5 text-xs hover:bg-[var(--color-muted)] disabled:opacity-50">管理关联目录</button>
+        </div>}
         {/* 多个 git 子仓库（父目录当工作目录场景）：顶部切换要查看的仓库 */}
-        {repos && repos.length > 1 && !showingDiff && (
+        {repos && (repos.length > 1 || onManageRepos) && !showingDiff && (
           <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
             {repos.map(r => (
               <button
@@ -129,8 +142,9 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
                 onClick={() => selectRepo(r.name)}
                 disabled={pushing}
                 title={r.label}
+                aria-pressed={r.name === activeRepo}
                 className={cn(
-                  'inline-flex h-8 max-w-64 shrink-0 items-center rounded-full border px-3 text-xs leading-none',
+                  'inline-flex h-8 max-w-64 shrink-0 items-center rounded-md border px-3 text-xs leading-none',
                   r.name === activeRepo
                     ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
                     : 'text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/40',
@@ -147,7 +161,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
 
         {!showingDiff && (
           <div className="overflow-y-auto p-2">
-            {listErr && <div className="p-3 text-sm text-[var(--color-destructive)]">{listErr}</div>}
+            {listErr && <div role="alert" className="p-3 text-sm text-[var(--color-destructive)]">{listErr}<button className="ml-3 underline" onClick={() => setRepoRefresh(value => value + 1)}>重试</button></div>}
             {!commits && !listErr && <div className="p-3 text-sm text-[var(--color-muted-foreground)]">加载中…</div>}
             {commits?.length === 0 && <div className="p-3 text-sm text-[var(--color-muted-foreground)]">无提交记录</div>}
             <ul className="flex flex-col">

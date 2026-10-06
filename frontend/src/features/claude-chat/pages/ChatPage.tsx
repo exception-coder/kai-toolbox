@@ -49,7 +49,7 @@ import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from '../
 import { groupModels } from '../components/modelGroups'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionPushPreview, pushSessionCommits, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { canSteerRunningMessage, RunningMessageActions } from '../components/RunningMessageActions'
 import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
@@ -99,7 +99,7 @@ import { MobileSessionViewMore, type SecondarySessionViewOption } from '../compo
 const TrajectoryView = lazy(() => import('../components/TrajectoryView').then(m => ({ default: m.TrajectoryView })))
 const UsageWorkspace = lazy(() => import('../components/UsagePanel').then(m => ({ default: m.UsageWorkspace })))
 const UsagePanel = lazy(() => import('../components/UsagePanel').then(m => ({ default: m.UsagePanel })))
-const CommitsPanel = lazy(() => import('@/components/git/CommitsPanel').then(m => ({ default: m.CommitsPanel })))
+const SessionCommitsPanel = lazy(() => import('../components/SessionCommitsPanel').then(m => ({ default: m.SessionCommitsPanel })))
 const GitStatusPanel = lazy(() => import('@/components/git/GitStatusPanel').then(m => ({ default: m.GitStatusPanel })))
 const SessionDocumentsWorkspace = lazy(() => import('../components/SessionDocumentsWorkspace').then(m => ({ default: m.SessionDocumentsWorkspace })))
 const SessionDatabaseWorkspace = lazy(() => import('../components/SessionDatabaseWorkspace').then(m => ({ default: m.SessionDatabaseWorkspace })))
@@ -471,6 +471,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [showDebug, setShowDebug] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
   const sessionToolsTriggerRef = useRef<HTMLButtonElement>(null)
+  const commitsReturnFocus = useRef<HTMLElement | null>(null)
   // 「更多」菜单当前展开的分组（手风琴，单开互斥；null=全部收起）。跨开合记忆上次展开项。
   const [menuGroup, setMenuGroup] = useState<'agent' | 'view' | 'session' | 'workspace' | 'system' | null>(null)
   const [restartOpen, setRestartOpen] = useState(false)
@@ -1322,13 +1323,14 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           </>
         )}
         <div className="cc-session-header-tail ml-auto flex shrink-0 items-center justify-end gap-1">
-        {linkedProjectPaths.length > 0 && (
-          <button type="button" onClick={() => setShowSessionProjects(true)}
-            title={`${linkedProjectPaths.length} 个附加项目：${linkedProjectPaths.join('、')}`}
-            className="hidden shrink-0 items-center gap-1 rounded-full border border-blue-500/50 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-700 dark:text-blue-300 2xl:flex">
-            <FolderGit2 className="size-3" />
-            <span className="max-sm:hidden">附加项目</span>
-            <span>{linkedProjectPaths.length}</span>
+        {chat.sessionId && currentSession?.cwd && (
+          <button type="button" onClick={event => { commitsReturnFocus.current = event.currentTarget; setShowCommits(true) }}
+            aria-label="关联工作目录与提交记录"
+            title={[currentSession.cwd, ...linkedProjectPaths].join('\n')}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-[var(--color-muted)]">
+            <FolderGit2 className="size-3.5" />
+            <span className="hidden sm:inline">工作目录</span>
+            <span>{linkedProjectPaths.length + 1}</span>
           </button>
         )}
         {/* 手势弹窗状态：开启后提示摄像头正在识别（隐私可见），点击可关 */}
@@ -1461,7 +1463,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     )}
                     {chat.sessionId && (
                       <>
-                        <HeaderMenuItem nested icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
+                        <HeaderMenuItem nested icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { commitsReturnFocus.current = sessionToolsTriggerRef.current; setHeaderMenu(false); setShowCommits(true) }} />
                         <HeaderMenuItem nested icon={<GitBranch className="size-4" />} label="待提交文件" hint="git status · 查看未提交的改动" onClick={() => { setHeaderMenu(false); setShowGitStatus(true) }} />
                       </>
                     )}
@@ -1914,13 +1916,12 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
       {/* 会话目录 git 提交记录（复用通用 CommitsPanel，按 sessionId 服务端解析 cwd） */}
       {showCommits && chat.sessionId && (
         <Suspense fallback={null}>
-        <CommitsPanel
-          title="会话目录"
-          fetchRepos={() => listSessionGitRepos(chat.sessionId!)}
-          fetchCommits={repo => listSessionCommits(chat.sessionId!, 50, repo).then(r => r.commits)}
-          fetchDiff={(hash, repo) => getSessionCommitDiff(chat.sessionId!, hash, repo)}
-          pushActions={{ preview: repo => getSessionPushPreview(chat.sessionId!, repo), push: (token, repo) => pushSessionCommits(chat.sessionId!, token, repo) }}
-          restoreFocus={() => sessionToolsTriggerRef.current?.focus()}
+        <SessionCommitsPanel
+          key={chat.sessionId}
+          sessionId={chat.sessionId}
+          primaryCwd={currentSession?.cwd ?? ''}
+          onDirectoriesChanged={setLinkedProjectPaths}
+          restoreFocus={() => commitsReturnFocus.current?.focus()}
           onClose={() => setShowCommits(false)}
         />
         </Suspense>

@@ -25,13 +25,13 @@ import { CodexTransportBadge } from './CodexTransportBadge'
 import { setSkin, skinClass, useSkin } from '../lib/skinPref'
 import '../styles/skin.css'
 import { RestartDialog } from './RestartDialog'
-import { CommitsPanel } from '@/components/git/CommitsPanel'
+import { SessionCommitsPanel } from './SessionCommitsPanel'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
 import { useDraftAttachments, useDraftAttachmentUploads } from '../lib/attachmentDraftPref'
-import { getSessionPushPreview, pushSessionCommits, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, resolveModule, transcribe, uploadAttachment } from '../api'
+import { listSessions, resolveModule, transcribe, uploadAttachment } from '../api'
 import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
 import type { PrdSessionView } from '@/features/prd-clarify/public-api'
@@ -1014,12 +1014,10 @@ export function FloatingChatWindow() {
 
       {/* 更多选项里就地打开的弹层：与全屏一致的独立 modal 组件（各自 fixed 覆盖，不受浮窗尺寸限制） */}
       {showCommits && chat.sessionId && (
-        <CommitsPanel
-          title="会话目录"
-          fetchRepos={() => listSessionGitRepos(chat.sessionId!)}
-          fetchCommits={repo => listSessionCommits(chat.sessionId!, 50, repo).then(r => r.commits)}
-          fetchDiff={(hash, repo) => getSessionCommitDiff(chat.sessionId!, hash, repo)}
-          pushActions={{ preview: repo => getSessionPushPreview(chat.sessionId!, repo), push: (token, repo) => pushSessionCommits(chat.sessionId!, token, repo) }}
+        <SessionCommitsPanel
+          key={chat.sessionId}
+          sessionId={chat.sessionId}
+          primaryCwd={currentSession?.cwd ?? ''}
           restoreFocus={() => moreTriggerRef.current?.focus()}
           onClose={() => setShowCommits(false)}
         />
