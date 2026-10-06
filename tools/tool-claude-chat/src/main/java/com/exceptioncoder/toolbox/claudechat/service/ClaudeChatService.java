@@ -98,6 +98,7 @@ public class ClaudeChatService {
     private final List<AgentRunCompletionListener> completionListeners;
     private final ApplicationEventPublisher applicationEvents;
     private final TurnLifecycleCoordinator turnLifecycle = new TurnLifecycleCoordinator();
+    private final com.exceptioncoder.toolbox.claudechat.service.changes.TurnChangeService turnChanges;
 
     /** sessionId -> 运行时上下文 */
     private final Map<String, SessionCtx> sessions = new ConcurrentHashMap<>();
@@ -155,13 +156,15 @@ public class ClaudeChatService {
                              List<AgentRunMetadataProvider> metadataProviders,
                              List<AgentRunCompletionListener> completionListeners,
                              ApplicationEventPublisher applicationEvents,
-                             SessionVoiceService voiceService) {
+                             SessionVoiceService voiceService,
+                             com.exceptioncoder.toolbox.claudechat.service.changes.TurnChangeService turnChanges) {
         this.props = props;
         this.repo = repo;
         this.authSessionLinks = authSessionLinks;
         this.processRegistry = processRegistry;
         this.sidecar = sidecar;
         this.voiceService = voiceService;
+        this.turnChanges = turnChanges;
         this.notifications = notifications;
         this.attachments = attachments;
         this.attachmentRepository = attachmentRepository;
@@ -885,6 +888,7 @@ public class ClaudeChatService {
         SessionProjectDirectoryService.SessionProjectContext projectContext =
                 sessionProjectDirectories.buildContext(ctx.sessionId, ctx.cwd, ctx.executionPolicy);
         AgentRunMetadata metadata = resolveMetadata(ctx);
+        turnChanges.begin(ctx.sessionId, turnId);
         String spanName = "fore-consult".equals(metadata.scope()) ? "fore_consult.turn" : "agent.turn";
         AgentSpan span = telemetry.start(spanName, metadata);
         AgentSpan previous = activeTurnSpans.put(ctx.sessionId, span);
@@ -911,6 +915,7 @@ public class ClaudeChatService {
             voiceService.cancel(ctx.sessionId);
             activeReviewReplies.remove(ctx.sessionId);
             turnLifecycle.complete(ctx.sessionId, turnId);
+            turnChanges.finish(ctx.sessionId, turnId, "error");
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
             activeTurnSpans.remove(ctx.sessionId, span);
@@ -1681,7 +1686,7 @@ public class ClaudeChatService {
     }
 
     private void onResult(SessionCtx ctx, JsonNode node) {
-        String turnId = node.path("turnId").asText(null);
+        String turnId = node.path("turnId").asText(turnLifecycle.currentTurnId(ctx.sessionId).orElse(null));
         synchronized (ctx) {
             if (ctx.status != SessionStatus.RUNNING || !turnLifecycle.complete(ctx.sessionId, turnId)) {
                 log.warn("[claude-chat] 忽略重复或过期终态 session={} turn={} status={}",
@@ -1724,7 +1729,8 @@ public class ClaudeChatService {
             log.info("[claude-chat] 当前轮已中断 session={} engine={}", ctx.sessionId, ctx.engine);
         }
         String resultTraceId = traceId;
-        sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, stopReason, resultTraceId));
+        turnChanges.finish(ctx.sessionId, turnId, stopReason);
+        sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, stopReason, resultTraceId, turnId));
         applicationEvents.publishEvent(new SessionTurnSettledEvent(
                 ctx.sessionId, turnId, stopReason, queueReleaseSafe, System.currentTimeMillis(),
                 ctx.lastTurnErrorCode, ctx.lastTurnErrorMessage));

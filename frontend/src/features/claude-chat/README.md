@@ -56,6 +56,12 @@ Codex 读取账号 App Server 真实窗口；Claude 复用 OAuth usage 的真实
 
 回归入口：前端 `nativeVoice.test.ts`、`useNativeVoice.test.ts`、`useVoiceTransport.test.ts`、`NativeVoiceControl.test.tsx`，sidecar `codexRealtime.test.ts`、`codexAppServer.test.ts`，后端 `SessionVoiceServiceTest`。`npm run app-server:schema:check` 校验锁定 CLI 的实验语音协议，升级 Codex 时必须重新检查并执行真实音频往返验收。
 
+## 轮次变更记录
+
+每轮开发开始时保存 Git 基线，正常结束、失败或中断后保存观察到的文件变化。在「会话工具 → 工作区 · 项目 → 变更记录」按路径检索当前会话的记录；新轮次结果旁的「本轮变更」查看对应记录。记录保留新增、修改、删除、重命名路径及提交区间，不保存文件正文。
+
+共享工作区中的变化不能据此认定由当前 Agent 独占产生。未变化的原有脏文件不会计入；原有修改被提交时明确标注。旧轮次不补造基线，忽略文件、修改后完全还原及采集限制可能形成缺口；断线后未收口的记录保持明确提示。首次启用需要新版后端加载自动建表，服务尚未提供接口时可以重试。
+
 ## 功能导览
 
 “会话工具 → 视图 → 专注模式”提供独立阅读布局：正文和输入框默认同为 860px，可切换至 960px 宽版；手机按视口收缩。顶部保留会话标题及实际 OpenSpec/Task 绑定，助手正文去掉卡片框体，正常轮次统计显示为灰色文字。Esc 或“退出专注”恢复工作区，保留草稿和附件；切换宽度不会发起模型请求。

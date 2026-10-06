@@ -875,7 +875,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         const usage = normalizeUsage(msg.usage)
         turnStartRef.current = null
         ttftRef.current = null
-        setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason, traceId: msg.traceId, ts: Date.now(), usage, latencyMs, ttftMs }])
+        setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason, traceId: msg.traceId, turnId: msg.turnId, ts: Date.now(), usage, latencyMs, ttftMs }])
         // Claude 回复完成:仅当页面不在前台时响一声,避免你正盯着看时反复叮咚
         if (typeof document !== 'undefined' && document.hidden) playNotifySound()
         break

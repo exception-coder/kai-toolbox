@@ -1,6 +1,7 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
+import { TurnChangesDialog } from './changes/TurnChangesDialog'
 import { AlertTriangle, ArrowDown, Bot, Check, CircleX, Coins, Copy, Database, FileImage, FilePenLine, FileText, FolderOpen, GitBranch, ListTodo, Route, Shrink, Terminal, Timer, Wifi } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/public-api'
@@ -407,7 +408,8 @@ function MsgHeader({ label, ts, align }: { label?: string; ts?: number; align: '
 }
 
 /** 本轮状态条：成功弱化为 ✓，token（紫，可点开明细）+ 耗时（蓝）+ 时间 + 复制本轮完整回复。 */
-function TurnStatus({ item, turnText }: { item: Extract<ChatItem, { kind: 'result' }>; turnText?: string }) {
+function TurnStatus({ item, turnText, sessionId }: { item: Extract<ChatItem, { kind: 'result' }>; turnText?: string; sessionId?: string }) {
+  const [changesOpen, setChangesOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const ok = item.stopReason === 'success' || item.stopReason === 'end_turn'
@@ -422,6 +424,8 @@ function TurnStatus({ item, turnText }: { item: Extract<ChatItem, { kind: 'resul
   }
   return (
     <div className="cc-turn-status my-1 flex flex-col items-center gap-1" data-turn-success={ok}>
+      {sessionId && item.turnId && <><button className="min-h-9 px-2 text-xs text-[var(--color-muted-foreground)] underline underline-offset-4" onClick={() => setChangesOpen(true)}>本轮变更</button>
+        {changesOpen && <TurnChangesDialog sessionId={sessionId} turnId={item.turnId} open onOpenChange={setChangesOpen} />}</>}
       <div className="flex flex-wrap items-center justify-center gap-1.5">
         <Chip tone={ok ? 'emerald' : 'rose'} icon={ok ? <Check className="size-3" /> : <AlertTriangle className="size-3" />} title={`本轮结束：${item.stopReason}`}>
           {ok ? <span className="cc-focus-only">本轮</span> : '失败'}
@@ -593,7 +597,7 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
     case 'activity':
       return <CodexActivity item={item} />
     case 'result':
-      return <TurnStatus item={item} turnText={turnText} />
+      return <TurnStatus item={item} turnText={turnText} sessionId={sessionId} />
     case 'warning':
       return (
         <div className="flex max-w-full items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">

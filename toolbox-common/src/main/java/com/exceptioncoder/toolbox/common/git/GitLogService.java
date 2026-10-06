@@ -169,6 +169,48 @@ public class GitLogService {
         }
     }
 
+    /** 当前 HEAD；新建仓库尚无提交时返回 null。 */
+    public String workspaceHead(Path dir) {
+        try {
+            Result result = exec(List.of(props.getBinary(), "-C", dir.toString(), "rev-parse", "--verify", "--quiet", "HEAD"));
+            return result.stdout().strip();
+        } catch (IllegalStateException exception) {
+            if ("git 执行失败：".equals(exception.getMessage())) return null;
+            throw exception;
+        }
+    }
+
+    /** 逐文件、NUL 分隔的状态，不把中文或空格路径按行拆分。 */
+    public List<GitStatusEntry> workspaceEntries(Path dir) {
+        Result result = exec(List.of(props.getBinary(), "-C", dir.toString(), "status", "--porcelain=v1", "-z", "-uall"));
+        if (result.truncated()) throw new IllegalStateException("文件清单超过采集上限");
+        List<GitStatusEntry> entries = new ArrayList<>();
+        String[] parts = result.stdout().split("\u0000");
+        for (int i = 0; i < parts.length; i++) {
+            String value = parts[i];
+            if (value.length() < 4) continue;
+            String x = value.substring(0, 1), y = value.substring(1, 2);
+            String original = ("R".equals(x) || "C".equals(x) || "R".equals(y)) && i + 1 < parts.length ? parts[++i] : null;
+            entries.add(new GitStatusEntry(x, y, value.substring(3), original));
+        }
+        return entries;
+    }
+
+    /** 两个确定提交之间的路径差异，包含重命名前的路径。 */
+    public List<GitStatusEntry> workspaceCommittedEntries(Path dir, String before, String after) {
+        requireHash(before); requireHash(after);
+        Result result = exec(List.of(props.getBinary(), "-C", dir.toString(), "diff", "--name-status", "-z", "-M", before, after, "--"));
+        if (result.truncated()) throw new IllegalStateException("提交文件清单超过采集上限");
+        List<GitStatusEntry> entries = new ArrayList<>();
+        String[] parts = result.stdout().split("\u0000");
+        for (int i = 0; i + 1 < parts.length; ) {
+            String status = parts[i++], path = parts[i++], original = null;
+            if ((status.startsWith("R") || status.startsWith("C")) && i < parts.length) { original = path; path = parts[i++]; }
+            entries.add(new GitStatusEntry(status.substring(0, 1), " ", path, original));
+        }
+        return entries;
+    }
+
     private record Result(String stdout, boolean truncated) {
     }
 

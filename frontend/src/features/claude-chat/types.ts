@@ -815,7 +815,7 @@ export type ServerMessage =
   | { type: 'forkAnchor'; seq: number; anchor: string }
   | { type: 'forked'; seq: number; sessionId: string }
   | { type: 'replayGap'; seq: number; missingFrom: number; missingTo: number }
-  | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string; traceId?: string | null }
+  | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string; traceId?: string | null; turnId?: string | null }
   | { type: 'autopilotState'; seq: number; state: SessionAutopilotRun }
   | { type: 'autopilotDashboardChanged'; seq: number; sessionId: string; revision: number }
   | { type: 'turnInfo'; seq: number; requestedModel: string | null; responseModel: string | null; viaGateway: boolean; baseUrl: string | null; transport?: CodexTransport | null }
@@ -863,7 +863,7 @@ export type ChatItem =
   | { kind: 'user'; id: string; text: string; displayText?: string; sdkUuid?: string; ts?: number; attachments?: MsgAttachment[]; turnId?: string; reviewIntent?: ReviewIntentMetadata }
   | { kind: 'assistant'; id: string; text: string; forkAnchor?: string; ts?: number }
   | { kind: 'tool'; id: string; toolCallId?: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number; elapsedMs?: number }
-  | { kind: 'result'; id: string; stopReason: string; traceId?: string | null; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
+  | { kind: 'result'; id: string; stopReason: string; traceId?: string | null; turnId?: string | null; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
   | { kind: 'warning'; id: string; code: string; message: string; ts?: number }
   | { kind: 'activity'; id: string; activityType: string; status: string; title: string; detail?: string | null; outcome?: string | null; severity?: string | null; data?: unknown; ts?: number }
   | { kind: 'error'; id: string; code: string; message: string; ts?: number }

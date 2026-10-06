@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { TurnChangesDialog } from '../components/changes/TurnChangesDialog'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList, type MessageListHandle } from '../components/MessageList'
@@ -478,6 +479,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [showDebug, setShowDebug] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
+  const [changesOpen, setChangesOpen] = useState(false)
   const [guideLocation, setGuideLocation] = useState<GuideTarget | null>(null)
   const sessionToolsTriggerRef = useRef<HTMLButtonElement>(null)
   const commitsReturnFocus = useRef<HTMLElement | null>(null)
@@ -1223,6 +1225,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
       <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} onRestore={restoreGuide} hasSession={Boolean(chat.sessionId)} returnFocus={sessionToolsTriggerRef} />
+      {chat.sessionId && changesOpen && <TurnChangesDialog key={chat.sessionId} sessionId={chat.sessionId} open onOpenChange={setChangesOpen} returnFocus={sessionToolsTriggerRef} />}
       {focus.focused && <FocusReadingHeader title={currentTitle || 'Vibe Coding'} sessionId={chat.sessionId}
         wide={focusWide} onToggleWidth={() => setFocusWide(value => !value)} onExit={focus.exit} />}
       <WorkspacePreferences open={preferencesOpen} onOpenChange={setPreferencesOpen} gestureEnabled={gestureOn}
@@ -1489,6 +1492,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     )}
                   </MenuSection>
                   <MenuSection icon={<FolderTree className="size-4" />} label="工作区 · 项目" open={menuGroup === 'workspace'} onToggle={() => toggle('workspace')}>
+                    {chat.sessionId && <HeaderMenuItem nested icon={<GitBranch className="size-4" />} label="变更记录" hint="按轮次回看和检索文件变化" onClick={() => { setHeaderMenu(false); setChangesOpen(true) }} />}
                     {chat.sessionId && !reviewOnlySession && (
                       <HeaderMenuItem nested icon={<FolderGit2 className="size-4" />} label={linkedProjectPaths.length ? '管理附加项目' : '关联附加项目'} hint={linkedProjectPaths.length ? `已关联 ${linkedProjectPaths.length} 个跨项目目录，下一轮自动生效` : '多项目开发时补充关联目录，统一注入会话上下文'} onClick={() => { setHeaderMenu(false); setShowSessionProjects(true) }} />
                     )}

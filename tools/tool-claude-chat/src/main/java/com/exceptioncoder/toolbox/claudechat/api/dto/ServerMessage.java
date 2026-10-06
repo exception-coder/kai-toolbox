@@ -126,7 +126,11 @@ public sealed interface ServerMessage
     record ReplayGap(long seq, long missingFrom, long missingTo) implements ServerMessage {}
 
     @JsonTypeName("result")
-    record Result(long seq, Map<String, Object> usage, String stopReason, String traceId) implements ServerMessage {}
+    record Result(long seq, Map<String, Object> usage, String stopReason, String traceId, String turnId) implements ServerMessage {
+        public Result(long seq, Map<String, Object> usage, String stopReason, String traceId) {
+            this(seq, usage, stopReason, traceId, null);
+        }
+    }
 
     /** 当前会话自动监督的 replace-semantics 完整快照。 */
     @JsonTypeName("autopilotState")
