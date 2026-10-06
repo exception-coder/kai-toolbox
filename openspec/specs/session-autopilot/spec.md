@@ -75,6 +75,12 @@ Runtime SHALL 在当前规格本地验证通过且仅剩人工项时保留人工
 ### Requirement: Agent Skill 与 Forge Runtime 提供两层连续执行兜底
 系统 SHALL 为严格 OpenSpec 运行激活版本化的 Forge Continuous Execution Skill，并 MUST 由 Forge Runtime 独立复核每个权威回合终态。Skill 输出 SHALL 作为不可信候选证据；只有 Runtime 可以派发下一轮或宣布运行完成。
 
+#### Scenario: 已确认 Skill 后精简交接
+- **WHEN** 引擎已确认加载当前执行 Skill
+- **THEN** Runtime 沿用原会话并交接当前运行、规格修订、任务、阶段、进度和预算，保留必要恢复与权限边界
+- **AND** 不重复注入完整规则；确认被清除后恢复完整兜底
+- **AND** Agent 仅复用输入未变且指纹有效的验证证据，输入变化或检查失败仍须重新验证
+
 #### Scenario: Agent 在同一轮内发现明确下一步
 - **WHEN** Continuous Execution Skill 检查到当前 change 仍有可自行执行的工作
 - **THEN** Agent 继续执行下一步骤或通过结构化进度工具报告当前 task 和下一动作

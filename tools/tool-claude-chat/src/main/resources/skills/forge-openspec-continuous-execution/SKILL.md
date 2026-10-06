@@ -2,7 +2,7 @@
 name: forge-openspec-continuous-execution
 description: Keep a Forge-supervised OpenSpec change running until the bound Done Condition is proven.
 x-forge-owned: true
-x-forge-version: 1.0.7
+x-forge-version: 1.0.9
 ---
 
 # Forge OpenSpec Continuous Execution
@@ -13,13 +13,21 @@ The Forge Runtime supervision binding and the Sidecar code writer binding are se
 
 ## Continuous execution policy
 
+### Recover a missing writer file scope
+
+`IMPLEMENTATION_SCOPE_DRIFT` identifies an unbound file, not an automatic need for a user decision. First distinguish a file required by the current task from another task's staged changes. For a required file owned by this session, inspect the original writer's exact paths, branch, HEAD, content fingerprint and modified-file ownership. Preserve the complete original file scope and add only the reviewed required paths. If the installed API cannot amend the writer in place, use the inspected snapshot with audited `abort_execution` to release only this session's old execution, preserving all files; then `discover_execution` and `assess_execution` with the full reviewed scope and the same real session/change. Update the specification's confirmed implementation scope too when DELTA_REQUIRED applies. Re-run the failed readiness check and affected verification; do not claim old writer evidence as new validation.
+
+Do not abort another session's writer, edit internal state, invent a session ID, broadly authorize the repository or stage other tasks' changes. A real ownership conflict stays explicit; continue other authorized work. When progress reporting returns 409, read current state and recovery actions. CONTINUE can recover WAITING_USER only under the API's live-turn/no-pending-decision conditions and with concrete nextAction/remainingWork; otherwise use the available host versioned recovery action. Do not override a manual pause or replay stale versions. If no such action is exposed, report that specific missing recovery capability rather than repeatedly reporting the same progress or calling the entire task unbound.
+
 Do not stop and ask the user to say “continue” merely because one task, implementation phase, test command, verify pass, or other locally executable step ended. After every step:
 
-1. Re-read the bound OpenSpec change using the project-provided OpenSpec skill or compatible CLI.
+1. Reuse the existing engine-managed conversation context. Read the bound task on first entry, task/change switch, specification revision change, or when context is missing; recheck its authoritative checklist before reporting completion. Do not re-read the entire specification or conversation after every tool call.
 2. Work on the bound current task. Do not select another task from prose or memory.
 3. If the task is checked and more tasks remain, continue with the next task selected by Forge.
 4. If verification fails inside the authorized scope, fix it and retry within the injected budget. If an external verification environment is unavailable, keep that check unfinished in `remainingWork`, state that SQL was not executed, and continue steps that do not depend on it. Revisit the check before marking the task complete.
 5. Before yielding, call `forge.report_session_progress` exactly once with a truthful structured disposition.
+
+Runtime polling is deterministic and does not require an extra model review. Once this Skill is acknowledged by the engine, routine handoffs carry current binding and progress instead of repeating all rules. Use prior test evidence only while its code, test, configuration and dependency inputs remain valid; rerun affected checks after changes, failed checks after repairs, and required delivery gates. Do not repeat unchanged successful tests or unavailable environment probes to fill a turn. Continue concrete implementation within the current task without yielding for every small step; Runtime selects the next bound task after completion reporting.
 
 For a multi-change batch, finish every safe step in the current change first. If a concrete prerequisite or unanswered decision still blocks it, report `WAITING_USER` with the exact question and evidence. Forge may preserve that question and dispatch another selected change after revision and strict-validation checks. Do not switch change IDs yourself, mark the blocked task complete, merge another change's files into the current commit, or repeat the same blocked step. When every selected change is deferred, wait for the user's answer; resume the original run to revisit the recorded questions.
 
