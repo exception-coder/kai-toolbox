@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { setTimeout as delay } from 'node:timers/promises'
 import {
   Codex,
   type ApprovalMode,
@@ -51,6 +52,7 @@ export type CodexSpeed = 'default' | 'fast'
 export type CodexReasoningEffort = string
 type CodexTransport = 'appServer' | 'sdkFallback' | 'thirdPartySdk'
 const THREAD_WRITER_RETRY_DELAY_MS = 1_500
+const THREAD_WRITER_MAX_RETRIES = 20
 
 export function isArchivedCodexThread(threadId: string | undefined, codexHome: string | undefined): boolean {
   if (!threadId) return false
@@ -451,14 +453,14 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     }
     const runAppServer = (options: Parameters<typeof runCodexAppServerTurn>[0]) => runCodexAppServerWithStartupRetry(
       () => runCodexAppServerTurn(options),
-      async error => {
+      async (error, attempt) => {
         if (isRetryableThreadWriterConflict(error)) {
-          ctx.emit({
+          if (attempt === 1) ctx.emit({
             type: 'warning',
             code: 'CODEX_THREAD_WRITER_RETRY',
-            message: 'Codex 上一轮正在释放原生 thread 写锁，等待收口后重试（1/1）。',
+            message: 'Codex 原生会话正在被写入，等待释放后继续当前消息。',
           })
-          await new Promise(resolveDelay => setTimeout(resolveDelay, THREAD_WRITER_RETRY_DELAY_MS))
+          await delay(THREAD_WRITER_RETRY_DELAY_MS, undefined, { signal: ctx.signal })
           return
         }
         ctx.emit({
@@ -467,6 +469,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
           message: `Codex App Server 的 MCP 初始化连接已关闭，正在使用全新进程重试（1/1）。${toolboxMcpRuntimeDiagnostics()}`,
         })
       },
+      { maxWriterRetries: THREAD_WRITER_MAX_RETRIES, signal: ctx.signal },
     )
     if (voice) await runCodexAppServerTurn(appServerOptions)
     else await runAppServer(appServerOptions)

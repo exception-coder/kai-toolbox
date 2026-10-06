@@ -60,3 +60,33 @@ test('does not classify an accepted turn writer error as retryable', () => {
     new CodexAppServerTurnError('thread t-1 already has an active writer', false),
   ), false)
 })
+
+test('waits through repeated writer conflicts and sends the turn once the writer releases', async () => {
+  let attempts = 0
+  const retries: number[] = []
+  await runCodexAppServerWithStartupRetry(async () => {
+    attempts += 1
+    if (attempts < 4) throw new CodexAppServerTurnError('thread-store conflict: active writer', true)
+  }, (_error, attempt) => { retries.push(attempt) }, { maxWriterRetries: 3 })
+  assert.equal(attempts, 4)
+  assert.deepEqual(retries, [1, 2, 3])
+})
+
+test('stops at the writer retry limit without replaying an accepted turn', async () => {
+  let attempts = 0
+  await assert.rejects(() => runCodexAppServerWithStartupRetry(async () => {
+    attempts += 1
+    throw new CodexAppServerTurnError('thread-store conflict: active writer', true)
+  }, () => undefined, { maxWriterRetries: 2 }), /active writer/)
+  assert.equal(attempts, 3)
+})
+
+test('aborted writer wait does not start another operation', async () => {
+  const controller = new AbortController()
+  let attempts = 0
+  await assert.rejects(() => runCodexAppServerWithStartupRetry(async () => {
+    attempts += 1
+    throw new CodexAppServerTurnError('thread-store conflict: active writer', true)
+  }, () => { controller.abort() }, { maxWriterRetries: 3, signal: controller.signal }), /aborted/i)
+  assert.equal(attempts, 1)
+})

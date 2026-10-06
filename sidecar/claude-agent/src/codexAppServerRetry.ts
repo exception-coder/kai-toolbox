@@ -23,13 +23,27 @@ function isRetryableStartupFailure(error: unknown): error is CodexAppServerTurnE
 
 export async function runCodexAppServerWithStartupRetry(
   operation: () => Promise<void>,
-  onRetry: (error: CodexAppServerTurnError) => void | Promise<void>,
+  onRetry: (error: CodexAppServerTurnError, attempt: number) => void | Promise<void>,
+  options: { maxWriterRetries?: number; signal?: AbortSignal } = {},
 ): Promise<void> {
-  try {
-    await operation()
-  } catch (error) {
-    if (!isRetryableStartupFailure(error)) throw error
-    await onRetry(error)
-    await operation()
+  let writerRetries = 0
+  let mcpRetried = false
+  while (true) {
+    if (options.signal?.aborted) throw options.signal.reason ?? new Error('Codex turn aborted')
+    try {
+      await operation()
+      return
+    } catch (error) {
+      if (!isRetryableStartupFailure(error) || options.signal?.aborted) throw error
+      if (isRetryableThreadWriterConflict(error)) {
+        if (writerRetries >= (options.maxWriterRetries ?? 1)) throw error
+        writerRetries += 1
+        await onRetry(error, writerRetries)
+      } else {
+        if (mcpRetried) throw error
+        mcpRetried = true
+        await onRetry(error, 1)
+      }
+    }
   }
 }
