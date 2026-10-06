@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Bot, ChevronDown, ChevronUp } from 'lucide-react'
+import { Bot, ChevronDown, ChevronUp, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -195,13 +195,17 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
     start.mutate()
   }, [resumeAfterSupplement, pickerOpen, start, checkQuery.data, goal, candidatesQuery.data, changeId, selectedIds])
   const control = useMutation({
-    mutationFn: (action: 'pause' | 'resume' | 'stop') => {
+    mutationFn: (action: 'pause' | 'resume' | 'stop' | 'reset-budget') => {
       if (!runQuery.data) throw new Error('自动监督状态尚未加载')
       return controlSessionAutopilot(sessionId, action, runQuery.data.version)
     },
     onSuccess: refresh,
   })
   const run = runQuery.data
+  const turnsExhausted = Boolean(run && run.turnCount >= run.maxTurns)
+  const timeExhausted = Boolean(run && Date.parse(run.deadlineAt) <= budgetNow)
+  const budgetExhausted = turnsExhausted || timeExhausted
+  const budgetReason = [turnsExhausted && '轮次已达上限', timeExhausted && '自动推进时限已到'].filter(Boolean).join('；')
   const error = control.error ?? runQuery.error
 
   return (
@@ -212,7 +216,7 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
           <>
             <button type="button" className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" onClick={() => setExpanded(value => !value)} aria-expanded={expanded}>
               <span className={cn('font-medium', run.state === 'ACTIVE' ? 'text-emerald-700 dark:text-emerald-400' : run.state === 'WAITING_USER' || run.state === 'FAILED' ? 'text-amber-700 dark:text-amber-400' : '')}>
-                {stateLabel[run.state]}
+                {budgetExhausted && !['COMPLETED', 'STOPPED'].includes(run.state) ? budgetReason : stateLabel[run.state]}
               </span>
               <span className="mx-1.5 text-[var(--color-border)]">/</span>
               <span className="font-medium">OpenSpec · {run.changeId}</span>
@@ -242,6 +246,8 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
           {run ? <SupervisionSummary run={run} now={budgetNow} batch={batchQuery.data}
               taskQueries={batchProgress} pending={control.isPending}
               onAction={action => control.mutate(action)}
+              recoveryAction={budgetExhausted && !['COMPLETED', 'STOPPED'].includes(run.state)
+                ? <Button size="sm" variant="outline" className="min-h-11" onClick={() => control.mutate('reset-budget')} disabled={control.isPending}><Play className="size-3.5" />重置预算并继续</Button> : undefined}
               projectControl={<ProjectExecutionControl sessionId={sessionId} compact />}
               error={error ? messageOf(error) : undefined} onRetry={() => { control.reset(); void runQuery.refetch() }}
               batchError={batchQuery.isError} onRetryBatch={() => void batchQuery.refetch()} />

@@ -245,10 +245,20 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                     current.turnCount(), current.noProgressCount(), current.completedTasks(), current.totalTasks(),
                     false, now);
             case "resume" -> resume(current, now);
+            case "reset-budget" -> resume(current, now, true);
             default -> throw new IllegalArgumentException("不支持的自动监督动作");
         };
         persist(current, next);
-        if ("resume".equalsIgnoreCase(action) && next.state() == AutopilotState.ACTIVE) {
+        if ("reset-budget".equalsIgnoreCase(action)) {
+            queuedMessages.clearInternal(sessionId);
+            repository.appendStep(new AutopilotStep(next.id(), next.context().generation(),
+                    "budget-reset:" + next.context().version(), null, next.context().phase(),
+                    next.context().currentTaskId(), "USER_BUDGET_RESET",
+                    "用户重置轮次 " + current.turnCount() + "/" + current.maxTurns()
+                            + "，保留已完成任务与批次", null, progressFingerprint(current), now));
+        }
+        if (("resume".equalsIgnoreCase(action) || "reset-budget".equalsIgnoreCase(action))
+                && next.state() == AutopilotState.ACTIVE) {
             repository.clearDeferredChange(next.id(), next.context().changeId());
         }
         if (next.state() != AutopilotState.ACTIVE) {
@@ -353,7 +363,11 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     public void reconcileActiveRuns() {
         repository.findRecent("", null, null, 200).stream()
                 .filter(run -> run.state() == AutopilotState.ACTIVE)
-                .filter(run -> run.budgetAvailable(Instant.now()))
+                .filter(run -> {
+                    if (run.budgetAvailable(Instant.now())) return true;
+                    pauseForBudget(run);
+                    return false;
+                })
                 .filter(run -> capacityRetryCount(run.reason()) == 0
                         || !run.updatedAt().plusSeconds(30L * capacityRetryCount(run.reason()))
                         .isAfter(Instant.now()))
@@ -612,7 +626,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                 run.latestEvidenceJson(), progressFingerprint(run), Instant.now()))) {
             return;
         }
-        SessionAutopilotRun next = evolve(run, state, reason, context, run.turnCount() + 1,
+        SessionAutopilotRun next = evolve(run, state, reason, context, Math.min(run.maxTurns(), run.turnCount() + 1),
                 noProgress, run.completedTasks(), run.totalTasks(), true, Instant.now());
         if (repository.update(next, run.context().version())) {
             publish(next);
@@ -620,6 +634,17 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     }
 
     private SessionAutopilotRun resume(SessionAutopilotRun run, Instant now) {
+        return resume(run, now, false);
+    }
+
+    private SessionAutopilotRun resume(SessionAutopilotRun run, Instant now, boolean resetBudget) {
+        if (resetBudget && (run.state() == AutopilotState.COMPLETED || run.state() == AutopilotState.STOPPED)) {
+            throw new IllegalArgumentException("已结束的监督不能重置预算，请新建监督运行");
+        }
+        if (!resetBudget && run.turnCount() >= run.maxTurns()) {
+            throw new IllegalArgumentException("轮次预算已耗尽，请选择重置轮次并继续");
+        }
+        int turns = resetBudget ? 0 : run.turnCount();
         ProvisioningResult skill = skillProvisioner.provision(Path.of(run.context().projectRoot()));
         if (!skill.ready()) {
             throw new IllegalStateException("Continuous Execution Skill 名称与用户文件冲突："
@@ -632,10 +657,10 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                     run.context().workspaceFingerprint(), run.context().changeId(), run.context().changeRevision(),
                     null, null, OpenSpecExecutionPhase.ARCHIVE, run.context().agentSessionRef(),
                     run.context().generation() + 1, run.context().version() + 1);
-            Instant deadline = run.deadlineAt().isAfter(now) ? run.deadlineAt() : now.plus(DEFAULT_DEADLINE);
+            Instant deadline = !resetBudget && run.deadlineAt().isAfter(now) ? run.deadlineAt() : now.plus(DEFAULT_DEADLINE);
             return new SessionAutopilotRun(run.id(), run.sessionId(), run.goal(), run.completionPolicy(),
                     AutopilotState.ACTIVE, "已发现 OpenSpec 归档，等待当前轮次完成确认", context,
-                    run.turnCount(), run.maxTurns(), 0, run.maxNoProgress(), run.autoArchive(),
+                    turns, run.maxTurns(), 0, run.maxNoProgress(), run.autoArchive(),
                     false, skillPaths, skill.version(), skill.fingerprint(), true,
                     run.completedTasks(), run.totalTasks(), null, null, null, null, null, null,
                     run.startedAt(), deadline, now);
@@ -649,9 +674,9 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                 task == null ? run.context().phase() : OpenSpecExecutionPhase.APPLY,
                 run.context().agentSessionRef(), run.context().generation() + 1,
                 run.context().version() + 1);
-        Instant deadline = run.deadlineAt().isAfter(now) ? run.deadlineAt() : now.plus(DEFAULT_DEADLINE);
+        Instant deadline = !resetBudget && run.deadlineAt().isAfter(now) ? run.deadlineAt() : now.plus(DEFAULT_DEADLINE);
         return new SessionAutopilotRun(run.id(), run.sessionId(), run.goal(), run.completionPolicy(),
-                AutopilotState.ACTIVE, "用户恢复自动监督", context, run.turnCount(), run.maxTurns(), 0,
+                AutopilotState.ACTIVE, resetBudget ? "用户重置预算并继续监督，已完成任务保留" : "用户恢复自动监督", context, turns, run.maxTurns(), 0,
                 run.maxNoProgress(), run.autoArchive(), false, skillPaths, skill.version(),
                 skill.fingerprint(), true, snapshot.completedTasks(), snapshot.totalTasks(), null, null, null,
                 null, null, null, run.startedAt(), deadline, now);
@@ -665,12 +690,29 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     }
 
     private void queueContinuation(SessionAutopilotRun run, ChangeSnapshot snapshot, String reason) {
+        if (!run.budgetAvailable(Instant.now())) {
+            pauseForBudget(run);
+            return;
+        }
         AutopilotTurnHandoff.Message handoff = AutopilotTurnHandoff.forRun(run,
                 snapshot.completedTasks(), snapshot.totalTasks(), reason);
         queuedMessages.saveInternal(run.sessionId(), handoff.id(), handoff.text(), handoff.display(),
                 handoff.instructions(),
                 System.currentTimeMillis());
         events.publishEvent(new SessionQueueReleaseRequestedEvent(run.sessionId()));
+    }
+
+    private void pauseForBudget(SessionAutopilotRun run) {
+        Instant now = Instant.now();
+        String reason = run.turnCount() >= run.maxTurns()
+                ? "TURN_LIMIT_REACHED：轮次预算已耗尽，可重置轮次并继续"
+                : "TIME_LIMIT_REACHED：运行时间预算已耗尽，可重置预算并继续";
+        SessionAutopilotRun paused = evolve(run, AutopilotState.PAUSED, reason, run.context(),
+                run.turnCount(), run.noProgressCount(), run.completedTasks(), run.totalTasks(), false, now);
+        if (repository.update(paused, run.context().version())) {
+            queuedMessages.clearInternal(run.sessionId());
+            publish(paused);
+        }
     }
 
     private void persist(SessionAutopilotRun current, SessionAutopilotRun next) {

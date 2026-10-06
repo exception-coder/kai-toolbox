@@ -538,6 +538,17 @@ class SessionAutopilotServiceTest {
         verify(repository, atLeastOnce()).update(updated.capture(), eq(0L));
         assertThat(updated.getValue().skillVersion()).isEqualTo("1.0.1");
         assertThat(updated.getValue().skillActivated()).isFalse();
+
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.of(run(60)));
+        assertThatThrownBy(() -> service.action("session-1", "resume", 0))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("预算已耗尽");
+        var reset = service.action("session-1", "reset-budget", 0);
+        assertThat(reset.turnCount()).isZero();
+        assertThat(reset.maxTurns()).isEqualTo(60);
+        assertThat(reset.generation()).isEqualTo(2);
+        assertThat(reset.currentTaskId()).isEqualTo("6.4");
+        verify(queue, atLeastOnce()).clearInternal("session-1");
+        verify(repository).appendStep(org.mockito.ArgumentMatchers.argThat(step -> "USER_BUDGET_RESET".equals(step.disposition())));
     }
 
     @Test
@@ -714,14 +725,35 @@ class SessionAutopilotServiceTest {
                 source.latestReportAt(), source.startedAt(), source.deadlineAt(), source.updatedAt());
     }
 
+    @Test
+    void reconciliationPausesExhaustedRunWithoutIncrementingOrDispatching() {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        when(repository.findRecent("", null, null, 200)).thenReturn(List.of(run(60)));
+        when(repository.update(any(), eq(0L))).thenReturn(true);
+        SessionAutopilotService service = service(repository, mock(ClaudeChatSessionRepository.class),
+                mock(ClaudeChatSessionAccessPolicy.class));
+
+        service.reconcileActiveRuns();
+
+        ArgumentCaptor<SessionAutopilotRun> saved = ArgumentCaptor.forClass(SessionAutopilotRun.class);
+        verify(repository).update(saved.capture(), eq(0L));
+        assertThat(saved.getValue().state()).isEqualTo(AutopilotState.PAUSED);
+        assertThat(saved.getValue().turnCount()).isEqualTo(60);
+        assertThat(saved.getValue().reason()).contains("TURN_LIMIT_REACHED");
+    }
+
     private SessionAutopilotRun run() {
+        return run(0);
+    }
+
+    private SessionAutopilotRun run(int turns) {
         Instant now = Instant.now();
         OpenSpecExecutionContext context = new OpenSpecExecutionContext(
                 "D:/repo", "D:/repo", "main", "workspace", "session-autopilot", "revision-a",
                 "6.4", 28, OpenSpecExecutionPhase.APPLY, "codex-session-1", 1, 0);
         return new SessionAutopilotRun("run-1", "session-1", "完成 change",
                 AutopilotCompletionPolicy.OPEN_SPEC_STRICT, AutopilotState.ACTIVE, null, context,
-                0, 60, 0, 3, true, true, ".agents/skills", "1.0.0", "hash", true,
+                turns, 60, 0, 3, true, true, ".agents/skills", "1.0.0", "hash", true,
                 0, 1, null, null, null, null, null, null, now, now.plusSeconds(3600), now);
     }
 }

@@ -323,7 +323,7 @@ export function startSessionAutopilot(sessionId: string, input: {
   })
 }
 
-export function controlSessionAutopilot(sessionId: string, action: 'pause' | 'resume' | 'stop', expectedVersion: number) {
+export function controlSessionAutopilot(sessionId: string, action: 'pause' | 'resume' | 'stop' | 'reset-budget', expectedVersion: number) {
   return http<SessionAutopilotRun>(
     `/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/actions/${action}`,
     { method: 'POST', body: JSON.stringify({ expectedVersion }) },
