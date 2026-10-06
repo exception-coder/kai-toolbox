@@ -90,6 +90,15 @@ public class PluginUpdateController {
         return service.syncYoooniErpAutoDev();
     }
 
+    /** 初始化缺失团队仓库并快进更新已有仓库，不安装或推送。 */
+    @GetMapping(value = "/repositories/sync/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter syncRepositories(@RequestParam(defaultValue = "gitee") String source) {
+        String taskId = UUID.randomUUID().toString();
+        SseEmitter emitter = sse.create(taskId);
+        service.startSyncRepositories(taskId, source);
+        return emitter;
+    }
+
     /** 校验并提交五个团队仓库的有效本地更新，后台推送至所选 Git 源。 */
     @GetMapping(value = "/repositories/push/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter pushRepositories(@RequestParam(defaultValue = "gitee") String source) {

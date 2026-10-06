@@ -21,7 +21,7 @@ function repository(overrides: Partial<TeamRepositoryStatus> = {}): TeamReposito
 
 describe('dependencySyncLabel', () => {
   it('shows a neutral action while repository state is loading', () => {
-    expect(dependencySyncLabel(null)).toBe('一键拉取 / 更新')
+    expect(dependencySyncLabel(null)).toBe('初始化 / 拉取')
   })
 
   it('calls out the number of repositories that need a first clone', () => {
@@ -29,10 +29,10 @@ describe('dependencySyncLabel', () => {
       repository(),
       repository({ name: 'project-domain-knowledge', cloned: false }),
       repository({ name: 'cross-project-topology', cloned: false }),
-    ])).toBe('一键拉取（缺 2）')
+    ])).toBe('初始化缺失仓库（2）')
   })
 
   it('uses update wording after all repositories have been cloned', () => {
-    expect(dependencySyncLabel([repository()])).toBe('一键更新全部')
+    expect(dependencySyncLabel([repository()])).toBe('拉取 / 更新全部')
   })
 })

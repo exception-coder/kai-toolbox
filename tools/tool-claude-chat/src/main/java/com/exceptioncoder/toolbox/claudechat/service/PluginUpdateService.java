@@ -617,6 +617,38 @@ public class PluginUpdateService {
 
     // ===== 一键更新(SSE 实时回显)=====
 
+    /** 仅准备团队源码仓库，不安装插件、不构建 MCP、不提交或推送。 */
+    public void startSyncRepositories(String taskId, String requestedSource) {
+        Thread.ofVirtual().name("repository-sync-" + taskId).start(() -> {
+            try {
+                Thread.sleep(150);
+                List<Map<String, Object>> results = syncRepositories(taskId, requestedSource);
+                sse.publish(taskId, "message", Map.of("type", "done", "results", results));
+            } catch (Exception exception) {
+                sse.publish(taskId, "message", Map.of("type", "error",
+                        "message", String.valueOf(exception.getMessage())));
+            } finally {
+                sse.complete(taskId);
+            }
+        });
+    }
+
+    /** 缺失时自动创建默认工作区并克隆；已有仓库沿用原有安全同步规则。 */
+    public List<Map<String, Object>> syncRepositories(String taskId, String requestedSource) {
+        String source = normalizeSource(requestedSource);
+        Path workspace = dependencyWorkspace();
+        try {
+            Files.createDirectories(workspace);
+        } catch (IOException exception) {
+            throw new IllegalStateException("无法创建团队依赖目录：" + workspace, exception);
+        }
+        sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                "text", "初始化 / 拉取团队仓库，目录：" + workspace));
+        List<Map<String, Object>> results = new ArrayList<>();
+        syncDependencyRepositories(taskId, workspace, source, DEPENDENCY_REPOS, results);
+        return results;
+    }
+
     /** 拉取/快进更新全部依赖仓，构建 MCP 引擎，并安装到 Claude Code 与 Codex。 */
     public void startInstall(String taskId, String sessionId, String requestedSource) {
         startInstall(taskId, sessionId, requestedSource, "all");
@@ -1002,7 +1034,7 @@ public class PluginUpdateService {
         return normalized;
     }
 
-    private static String repoUrl(String repo, String source) {
+    static String repoUrl(String repo, String source) {
         Map<String, String> owners = source.equals("github") ? GITHUB_OWNERS : GITEE_OWNERS;
         String host = source.equals("github") ? "github.com" : "gitee.com";
         return "https://" + host + "/" + owners.get(repo) + "/" + repo + ".git";

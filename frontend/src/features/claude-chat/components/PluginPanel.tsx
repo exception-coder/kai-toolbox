@@ -46,9 +46,9 @@ function businessRepositoryDot(repository: BusinessRepositoryStatus) {
 
 /** 根据本地依赖仓库是否已完成首次克隆，给主操作一个可预判的动作名称。 */
 export function dependencySyncLabel(repositories: TeamRepositoryStatus[] | null): string {
-  if (repositories == null) return '一键拉取 / 更新'
+  if (repositories == null) return '初始化 / 拉取'
   const missingCount = repositories.filter(repository => !repository.cloned).length
-  return missingCount > 0 ? `一键拉取（缺 ${missingCount}）` : '一键更新全部'
+  return missingCount > 0 ? `初始化缺失仓库（${missingCount}）` : '拉取 / 更新全部'
 }
 
 /** 兼容新旧 sidecar 版本响应，统一生成引擎卡片数据。 */
@@ -212,6 +212,10 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
     startTask(`${path}${separator}source=${gitSource}`)
   }
   const startInstall = () => startTask(pluginInstallStreamPath(sessionId, gitSource))
+  const startSyncRepositories = () => startTask(
+    `/claude-chat/plugins/repositories/sync/stream?source=${gitSource}`,
+    '✓ 团队仓库初始化 / 拉取完成（未安装、未提交或推送）',
+  )
   const startPushRepositories = () => startTask(
     `/claude-chat/plugins/repositories/push/stream?source=${gitSource}`,
     '✓ 团队仓库校验、提交与推送任务完成',
@@ -292,16 +296,20 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
           ))}
         </div>
         <p className="mt-1.5 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
-          切换源后，若本地 origin 不一致，会移除 ~/.kai-toolbox/team-tools 下对应仓库并从新源重新拉取。
+          所选源用于新克隆。已有仓库沿用 origin；拉取会保留本地修改与历史，不删除仓库或自动切源。
         </p>
       </div>
 
       <div className="mb-2 rounded-md border p-2 text-xs">
-        <div className="mb-1.5 flex items-center gap-2">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
           <span className="font-medium">依赖仓库（5）</span>
           <span className="text-[10px] text-[var(--color-muted-foreground)]">目标源：{gitSource === 'gitee' ? 'Gitee' : 'GitHub'}</span>
+          <button type="button" onClick={startSyncRepositories} disabled={updating || repositoriesChecking || repositories == null}
+            className="ml-auto inline-flex min-h-9 items-center gap-1 rounded border px-2 text-xs hover:bg-[var(--color-accent)] disabled:opacity-50">
+            <Download className="size-3.5" /> {updating ? '后台处理中…' : dependencySyncLabel(repositories)}
+          </button>
           <button type="button" onClick={startPushRepositories} disabled={updating || repositoriesChecking}
-            className="ml-auto inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] hover:bg-[var(--color-accent)] disabled:opacity-50">
+            className="inline-flex min-h-9 items-center gap-1 rounded border px-2 text-xs hover:bg-[var(--color-accent)] disabled:opacity-50">
             <UploadCloud className="size-3" /> {updating ? '后台处理中…' : '一键提交并推送'}
           </button>
           <button type="button" onClick={() => void checkRepositories()} disabled={repositoriesChecking || updating}
@@ -323,7 +331,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
                     {!repo.cloned ? (
                       <span className="text-[var(--color-destructive)]">未拉取</span>
                     ) : !repo.sourceMatches ? (
-                      <span className="text-amber-600 dark:text-amber-400">当前 {repo.source} · 待切源</span>
+                      <span className="text-amber-600 dark:text-amber-400">当前 {repo.source} · 拉取沿用原源</span>
                     ) : latest ? (
                       <span className="text-emerald-600 dark:text-emerald-400">已是最新</span>
                     ) : repo.remoteChecked && repo.behind != null && repo.behind > 0 ? (
@@ -357,6 +365,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
           </ul>
         )}
         <p className="mt-1.5 text-[10px] text-[var(--color-muted-foreground)]">
+          “初始化 / 拉取”默认准备到用户目录的 .kai-toolbox/team-tools：缺失仓库自动克隆，已有仓库仅快进更新；有未提交修改时保留现场并报告。该操作不安装插件、不提交或推送。
           “一键提交并推送”会在后台校验新文件、提交有效更新并推送到所选源；本地垃圾会加入忽略，未知文件会阻断对应仓库。
           “检查远端”会执行 git fetch；“已是最新”表示当前 HEAD 相对所选源上游落后数为 0。
         </p>
