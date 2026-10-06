@@ -403,6 +403,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     return () => { alive = false; window.clearInterval(timer) }
   }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
+  const [inspectedAutopilot, setInspectedAutopilot] = useState<{ sessionId: string; changeId?: string } | null>(null)
   const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'autopilot' | 'autopilot_detail' | 'documents' | 'database' | 'sites' | 'usage' | 'review' | 'supervision'>(() =>
     new URLSearchParams(location.search).get('view') === 'supervision' ? 'supervision' : 'conversation')
   const openSupervision = useCallback(() => { setSessionView('autopilot') }, [])
@@ -2273,13 +2274,14 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             <main className="cc-skin-view flex min-h-0 min-w-0 flex-1 flex-col">
               <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]" role="status">{sessionView === 'conversation' ? '正在加载会话记录…' : '正在打开视图…'}</div>}>
               {sessionView === 'supervision' ? (
-                <AutopilotDashboard onOpenSession={sessionId => { chat.switchTo(sessionId); leaveSupervision(); setSessionView('autopilot_detail') }} />
+                <AutopilotDashboard onOpenSession={(sessionId, changeId) => { setInspectedAutopilot({ sessionId, changeId }); chat.switchTo(sessionId); leaveSupervision(); setSessionView('autopilot_detail') }} />
               ) : chat.sessionId ? (
                 sessionView === 'autopilot' ? (
                   <AutopilotDashboard initialScope="all" currentSessionId={currentSession?.id}
-                    onOpenSession={sessionId => { chat.switchTo(sessionId); setSessionView('autopilot_detail') }} />
+                    onOpenSession={(sessionId, changeId) => { setInspectedAutopilot({ sessionId, changeId }); chat.switchTo(sessionId); setSessionView('autopilot_detail') }} />
                 ) : sessionView === 'autopilot_detail' ? (
                   <AutopilotProgressWorkspace key={`autopilot-${chat.sessionId}`} sessionId={chat.sessionId}
+                    changeId={inspectedAutopilot?.sessionId === chat.sessionId ? inspectedAutopilot.changeId : undefined}
                     onOpenAll={() => setSessionView('autopilot')} onOpenConversation={() => setSessionView('conversation')} />
                 ) : sessionView === 'trajectory' ? (
                   <TrajectoryView

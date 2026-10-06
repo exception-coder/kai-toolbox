@@ -10,7 +10,7 @@ import type { AutopilotDashboardItem } from '../types'
 type Scope = 'all' | 'active' | 'attention' | 'paused' | 'recent'
 
 interface AutopilotDashboardProps {
-  onOpenSession: (sessionId: string) => void
+  onOpenSession: (sessionId: string, changeId?: string) => void
   initialScope?: Scope
   currentSessionId?: string
 }
@@ -112,7 +112,7 @@ export function AutopilotDashboard({ onOpenSession, initialScope = 'active', cur
           {binding.isPending ? <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">正在读取绑定记录…</p>
             : binding.isError ? <p className="mt-2 text-xs text-amber-700">绑定记录读取失败。<button type="button" className="underline" onClick={() => binding.refetch()}>重试</button></p>
               : boundIds.size ? <div className="mt-2 flex flex-wrap gap-2">{[...boundIds].map(changeId =>
-                <button key={changeId} type="button" onClick={() => onOpenSession(currentSessionId)}
+                <button key={changeId} type="button" onClick={() => onOpenSession(currentSessionId, changeId)}
                   className="rounded-md border border-[var(--color-border)] px-2.5 py-1.5 text-left text-xs hover:border-[var(--color-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
                   {changeId}
                 </button>)}</div>

@@ -96,6 +96,13 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
     refetchInterval: 15_000,
   })
   const selected = candidatesQuery.data?.find(candidate => candidate.changeId === changeId)
+  const batchProgress = useQueries({ queries: (batchQuery.data?.changeIds ?? []).map(id => ({
+    queryKey: ['claude-chat-autopilot-tasks', sessionId, id],
+    queryFn: () => listAutopilotTasks(sessionId, id),
+    enabled: expanded,
+    staleTime: 30_000,
+    refetchInterval: expanded ? 30_000 : false,
+  })) })
   const selectedChecks = useQueries({ queries: selectedIds.map(id => ({
     queryKey: ['claude-chat-autopilot-check', sessionId, projectRoot, id],
     queryFn: () => checkAutopilotBinding(sessionId, id, projectRoot),
@@ -195,12 +202,6 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
     onSuccess: refresh,
   })
   const run = runQuery.data
-  const currentTasks = useQuery({
-    queryKey: ['claude-chat-autopilot-tasks', sessionId, run?.changeId],
-    queryFn: () => listAutopilotTasks(sessionId),
-    enabled: expanded && Boolean(run),
-    refetchInterval: expanded ? 30_000 : false,
-  })
   const error = control.error ?? runQuery.error
 
   return (
@@ -239,7 +240,7 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
       {expanded && (
         <div className="border-t border-[var(--color-border)] px-3 py-4 sm:px-4">
           {run ? <SupervisionSummary run={run} now={budgetNow} batch={batchQuery.data}
-              taskQueries={(batchQuery.data?.changeIds ?? [run.changeId]).map(id => id === run.changeId ? currentTasks : undefined)} pending={control.isPending}
+              taskQueries={batchProgress} pending={control.isPending}
               onAction={action => control.mutate(action)}
               projectControl={<ProjectExecutionControl sessionId={sessionId} compact />}
               error={error ? messageOf(error) : undefined} onRetry={() => { control.reset(); void runQuery.refetch() }}

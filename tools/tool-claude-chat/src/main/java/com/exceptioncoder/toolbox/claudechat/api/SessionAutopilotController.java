@@ -99,6 +99,13 @@ public class SessionAutopilotController {
         return service.tasks(sessionId);
     }
 
+    @GetMapping("/sessions/{sessionId}/autopilot/changes/{changeId}/tasks")
+    public List<OpenSpecAutopilotAdapter.TaskSnapshot> selectedTasks(@PathVariable String sessionId,
+            @PathVariable String changeId) {
+        requireAccess(sessionId);
+        return service.tasks(sessionId, changeId);
+    }
+
     @PutMapping("/sessions/{sessionId}/autopilot")
     public SessionAutopilotView.Run start(@PathVariable String sessionId,
                                           @RequestBody StartRequest request) {

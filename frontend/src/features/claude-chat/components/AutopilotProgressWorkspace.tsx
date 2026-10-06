@@ -16,8 +16,9 @@ const stateText: Record<string, string> = {
 }
 
 /** 当前开发会话的权威自动推进快照；全局看板仍负责跨会话浏览。 */
-export function AutopilotProgressWorkspace({ sessionId, onOpenAll, onOpenConversation }: {
+export function AutopilotProgressWorkspace({ sessionId, changeId, onOpenAll, onOpenConversation }: {
   sessionId: string
+  changeId?: string
   onOpenAll: () => void
   onOpenConversation: () => void
 }) {
@@ -27,9 +28,11 @@ export function AutopilotProgressWorkspace({ sessionId, onOpenAll, onOpenConvers
     queryFn: () => getSessionAutopilot(sessionId),
     refetchInterval: 15_000,
   })
+  const selectedId = changeId ?? runQuery.data?.changeId
+  const isCurrent = Boolean(runQuery.data && selectedId === runQuery.data.changeId)
   const tasksQuery = useQuery({
-    queryKey: ['claude-chat-autopilot-tasks', sessionId],
-    queryFn: () => listAutopilotTasks(sessionId),
+    queryKey: ['claude-chat-autopilot-tasks', sessionId, selectedId],
+    queryFn: () => listAutopilotTasks(sessionId, selectedId),
     enabled: Boolean(runQuery.data),
     refetchInterval: runQuery.data?.state === 'ACTIVE' ? 15_000 : false,
   })
@@ -52,8 +55,9 @@ export function AutopilotProgressWorkspace({ sessionId, onOpenAll, onOpenConvers
     },
   })
   const run = runQuery.data
-  const progress = run?.progress.totalTasks
-    ? Math.round(run.progress.completedTasks / run.progress.totalTasks * 100) : 0
+  const counts = tasksQuery.data ? { completedTasks: tasksQuery.data.filter(task => task.done).length, totalTasks: tasksQuery.data.length }
+    : isCurrent ? run?.progress : undefined
+  const progress = counts?.totalTasks ? Math.round(counts.completedTasks / counts.totalTasks * 100) : 0
 
   return <section className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-7" aria-label="当前会话自动推进">
     <div className="mx-auto max-w-3xl">
@@ -67,29 +71,29 @@ export function AutopilotProgressWorkspace({ sessionId, onOpenAll, onOpenConvers
         : !run ? <div className="py-8 text-sm"><p className="font-medium">此会话尚未开启自动推进</p><p className="mt-1 text-[var(--color-muted-foreground)]">回到对话，输入“按当前规划推进”并确认要绑定的规格。</p><Button className="mt-4" variant="outline" onClick={onOpenConversation}>返回对话</Button></div>
           : <>
             <div className="py-5">
-              <div className="flex flex-wrap items-baseline justify-between gap-2"><div className="min-w-0"><p className="break-all text-sm font-semibold">{run.changeId}</p><p className="mt-1 text-sm text-[var(--color-muted-foreground)]">{run.goal}</p></div><span className="text-sm font-medium">{stateText[run.state] ?? run.state}</span></div>
+              <div className="flex flex-wrap items-baseline justify-between gap-2"><div className="min-w-0"><p className="break-all text-sm font-semibold">{selectedId}</p><p className="mt-1 text-sm text-[var(--color-muted-foreground)]">{isCurrent ? run.goal : `正在查看已绑定规格；后台当前执行 ${run.changeId}`}</p></div><span className="text-sm font-medium">{isCurrent ? stateText[run.state] ?? run.state : '规格详情'}</span></div>
               <div className="mt-4 h-1.5 bg-[var(--color-muted)]"><div className="h-full bg-[var(--color-primary)]" style={{ width: `${progress}%` }} /></div>
-              <p className="mt-2 text-xs tabular-nums text-[var(--color-muted-foreground)]">已完成 {run.progress.completedTasks}/{run.progress.totalTasks} 项 · {progress}% · 第 {run.turnCount}/{run.maxTurns} 轮</p>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
+              <p className="mt-2 text-xs tabular-nums text-[var(--color-muted-foreground)]">{counts ? `已完成 ${counts.completedTasks}/${counts.totalTasks} 项 · ${progress}%` : '规格进度暂不可用'}{isCurrent && ` · 第 ${run.turnCount}/${run.maxTurns} 轮`}</p>
+              {isCurrent && <div className="mt-4 flex flex-wrap items-center gap-2">
                 {run.state === 'ACTIVE' && <Button size="sm" variant="outline" disabled={control.isPending} onClick={() => control.mutate('pause')}><CirclePause className="size-4" />暂停</Button>}
                 {['PAUSED', 'WAITING_USER', 'FAILED'].includes(run.state) && <Button size="sm" variant="outline" disabled={control.isPending} onClick={() => control.mutate('resume')}><Play className="size-4" />恢复</Button>}
                 {!['COMPLETED', 'STOPPED'].includes(run.state) && <Button size="sm" variant="ghost" disabled={control.isPending} onClick={() => control.mutate('stop')}><Square className="size-3.5" />停止</Button>}
-              </div>
-              {(run.reason || control.error) && <p className="mt-3 text-sm text-amber-700 dark:text-amber-400" role="status">{control.error ? String(control.error) : run.reason}</p>}
+              </div>}
+              {isCurrent && (run.reason || control.error) && <p className="mt-3 text-sm text-amber-700 dark:text-amber-400" role="status">{control.error ? String(control.error) : run.reason}</p>}
             </div>
-            <div className="border-t border-[var(--color-border)] py-5">
+            {isCurrent && <div className="border-t border-[var(--color-border)] py-5">
               <h3 className="text-sm font-semibold">执行阶段</h3>
               <ol className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
                 {phases.map(([id, label]) => <li key={id} className={cn('border-l-2 pl-2', run.phase === id ? 'border-[var(--color-primary)] font-medium' : 'border-[var(--color-border)] text-[var(--color-muted-foreground)]')}>{label}</li>)}
               </ol>
-            </div>
+            </div>}
             <div className="border-t border-[var(--color-border)] py-5">
               <h3 className="text-sm font-semibold">OpenSpec 任务</h3>
               {tasksQuery.isPending ? <p className="mt-3 text-sm text-[var(--color-muted-foreground)]">正在读取任务…</p>
                 : tasksQuery.error ? <p className="mt-3 text-sm text-amber-700" role="alert">任务快照暂不可读。<button className="ml-2 underline" onClick={() => tasksQuery.refetch()}>重试</button></p>
-                  : <ol className="mt-3 divide-y divide-[var(--color-border)]">{tasksQuery.data?.map(task => <li key={`${task.applyOrdinal}-${task.id}`} className="flex gap-3 py-2.5 text-sm"><span className={cn('mt-0.5 flex size-4 shrink-0 items-center justify-center border', task.done ? 'border-emerald-600 text-emerald-600' : task.id === run.currentTaskId ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-[var(--color-border)]')}>{task.done && <Check className="size-3" />}</span><span className="min-w-0"><span className="mr-2 tabular-nums text-[var(--color-muted-foreground)]">{task.id}</span>{task.description}{task.id === run.currentTaskId && !task.done && <span className="ml-2 text-xs text-[var(--color-primary)]">当前</span>}</span></li>)}</ol>}
+                  : <ol className="mt-3 divide-y divide-[var(--color-border)]">{tasksQuery.data?.map(task => <li key={`${task.applyOrdinal}-${task.id}`} className="flex gap-3 py-2.5 text-sm"><span className={cn('mt-0.5 flex size-4 shrink-0 items-center justify-center border', task.done ? 'border-emerald-600 text-emerald-600' : isCurrent && task.id === run.currentTaskId ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-[var(--color-border)]')}>{task.done && <Check className="size-3" />}</span><span className="min-w-0"><span className="mr-2 tabular-nums text-[var(--color-muted-foreground)]">{task.id}</span>{task.description}{isCurrent && task.id === run.currentTaskId && !task.done && <span className="ml-2 text-xs text-[var(--color-primary)]">当前</span>}</span></li>)}</ol>}
             </div>
-            {run.latestReport && <div className="border-t border-[var(--color-border)] py-5 text-sm"><h3 className="font-semibold">最近执行报告</h3><p className="mt-2">{run.latestReport.summary || '暂无摘要'}</p>{run.latestReport.nextAction && <p className="mt-1 text-[var(--color-muted-foreground)]">下一步：{run.latestReport.nextAction}</p>}</div>}
+            {isCurrent && run.latestReport && <div className="border-t border-[var(--color-border)] py-5 text-sm"><h3 className="font-semibold">最近执行报告</h3><p className="mt-2">{run.latestReport.summary || '暂无摘要'}</p>{run.latestReport.nextAction && <p className="mt-1 text-[var(--color-muted-foreground)]">下一步：{run.latestReport.nextAction}</p>}</div>}
           </>}
     </div>
   </section>

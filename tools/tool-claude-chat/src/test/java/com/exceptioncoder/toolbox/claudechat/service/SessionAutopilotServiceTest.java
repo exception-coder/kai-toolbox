@@ -41,6 +41,29 @@ import static org.mockito.Mockito.when;
 class SessionAutopilotServiceTest {
 
     @Test
+    void selectedBoundChangeTasksDoNotSwitchExecutionAndRejectUnboundChange() {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.of(run()));
+        when(repository.findBatch("session-1", "run-1")).thenReturn(Optional.of(
+                new SessionAutopilotRepository.Batch("[\"session-autopilot\",\"organization\"]", "{}", 0)));
+        TaskSnapshot task = new TaskSnapshot("5.1", 1, "人工确认", false);
+        when(openSpec.inspect(java.nio.file.Path.of("D:/repo"), "organization"))
+                .thenReturn(new ChangeSnapshot("organization", "revision", 0, 1, List.of(task), Map.of(), task));
+        SessionAutopilotService service = new SessionAutopilotService(repository,
+                mock(ClaudeChatSessionRepository.class), mock(ClaudeChatSessionAccessPolicy.class),
+                mock(QueuedChatMessageService.class), mock(SessionRuntimeStateService.class),
+                mock(AutopilotProjectContextResolver.class), openSpec, mock(OpenSpecContinuousRunner.class),
+                mock(ContinuousExecutionSkillProvisioner.class), new ObjectMapper(), mock(ApplicationEventPublisher.class));
+
+        assertThat(service.tasks("session-1", "organization")).containsExactly(task);
+        assertThatThrownBy(() -> service.tasks("session-1", "unbound"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("未绑定");
+        verify(repository, never()).update(any(), anyLong());
+        verify(openSpec, never()).inspect(any(), eq("unbound"));
+    }
+
+    @Test
     void waitingBatchItemDefersQuestionAndDispatchesValidatedNextChange() {
         SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
         OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);

@@ -216,9 +216,20 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     }
 
     public List<OpenSpecAutopilotAdapter.TaskSnapshot> tasks(String sessionId) {
+        return tasks(sessionId, null);
+    }
+
+    public List<OpenSpecAutopilotAdapter.TaskSnapshot> tasks(String sessionId, String selectedChangeId) {
         SessionAutopilotRun run = repository.findBySessionId(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("当前会话尚未启用自动监督"));
-        return openSpec.inspect(Path.of(run.context().projectRoot()), run.context().changeId()).tasks();
+        String changeId = selectedChangeId == null || selectedChangeId.isBlank()
+                ? run.context().changeId() : selectedChangeId;
+        List<String> boundIds = repository.findBatch(sessionId, run.id())
+                .map(batch -> readList(batch.changeIdsJson())).orElse(List.of(run.context().changeId()));
+        if (!boundIds.contains(changeId)) {
+            throw new IllegalArgumentException("该规格未绑定到当前会话");
+        }
+        return openSpec.inspect(Path.of(run.context().projectRoot()), changeId).tasks();
     }
 
     public Run action(String sessionId, String action, long expectedVersion) {

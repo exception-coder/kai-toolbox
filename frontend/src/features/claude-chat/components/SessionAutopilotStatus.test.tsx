@@ -15,8 +15,10 @@ const controlSessionAutopilot = vi.fn()
 const startSessionAutopilot = vi.fn()
 const recommendAutopilotBindings = vi.fn()
 const getAutopilotBatch = vi.fn()
+const listAutopilotTasks = vi.fn()
 
 vi.mock('../api', () => ({
+  listAutopilotTasks: (...args: unknown[]) => listAutopilotTasks(...args),
   getSessionAutopilot: (...args: unknown[]) => getSessionAutopilot(...args),
   listSessionOpenSpecChanges: (...args: unknown[]) => listSessionOpenSpecChanges(...args),
   previewAutopilotBindings: (...args: unknown[]) => previewAutopilotBindings(...args),
@@ -49,12 +51,31 @@ function renderWithClient(children: ReactNode) {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  getAutopilotBatch.mockResolvedValue(null)
 })
 
 recommendAutopilotBindings.mockResolvedValue([])
 getAutopilotBatch.mockResolvedValue(null)
 
 describe('OpenSpec 自动监督体验', () => {
+  it('只统计未完成的明确人工标记，读取所选批次而非全项目', async () => {
+    getSessionAutopilot.mockResolvedValue(RUN)
+    getAutopilotBatch.mockResolvedValue({ changeIds: [RUN.changeId, 'organization'], currentIndex: 0, deferred: [] })
+    listAutopilotTasks.mockImplementation(async (_session: string, id: string) => id === 'organization' ? [
+      { id: '1', description: '本地编码', done: true },
+      { id: '2', description: '[MANUAL_CONFIRMATION] 来源键核实', done: false },
+      { id: '3', description: '[MANUAL_PRODUCTION] 目标环境验收', done: false },
+      { id: '4', description: '[MANUAL_CONFIRMATION] 已核实事项', done: true },
+      { id: '5', description: '尚未实现的普通开发任务', done: false },
+    ] : [])
+    renderWithClient(<SessionAutopilotStatus sessionId="session-1" projectRoot="D:/repo" onOpenDashboard={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '展开自动监督详情' }))
+    expect(await screen.findByText('人工确认 1 · 生产验收 1')).toBeInTheDocument()
+    expect(screen.getByText('2 / 5')).toBeInTheDocument()
+    expect(listAutopilotTasks).toHaveBeenCalledWith('session-1', 'organization')
+    expect(listSessionOpenSpecChanges).not.toHaveBeenCalled()
+  })
+
   it('AI 推荐优先显示，多选规格逐项预检后按勾选顺序启动', async () => {
     getSessionAutopilot.mockResolvedValue(null)
     previewAutopilotBindings.mockResolvedValue(['unrelated', 'implement-iam-access', 'implement-iam-organization'].map(changeId => ({

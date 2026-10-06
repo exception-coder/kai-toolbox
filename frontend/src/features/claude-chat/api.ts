@@ -300,8 +300,9 @@ export async function getSessionAutopilot(sessionId: string): Promise<SessionAut
   return response.json() as Promise<SessionAutopilotRun>
 }
 
-export function listAutopilotTasks(sessionId: string) {
-  return http<AutopilotTask[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/tasks`)
+export function listAutopilotTasks(sessionId: string, changeId?: string) {
+  const target = changeId ? `changes/${encodeURIComponent(changeId)}/tasks` : 'tasks'
+  return http<AutopilotTask[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot/${target}`)
 }
 
 export function startSessionAutopilot(sessionId: string, input: {
