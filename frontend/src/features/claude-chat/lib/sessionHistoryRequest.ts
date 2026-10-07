@@ -41,7 +41,7 @@ export function isSessionHistoryPageExhausted(
 
 /** 重载最近一页时替换旧历史，仅保留请求期间新产生的实时消息。 */
 export function mergeResetHistoryItems(history: ChatItem[], existing: ChatItem[]): ChatItem[] {
-  if (history.length === 0) return existing
+  if (history.length === 0) return existing.filter(item => !item.id.startsWith('h'))
   const historyIds = new Set(history.map(item => item.id))
   const newestHistoryTimestamp = history.reduce<number | null>((latest, item) => {
     if (item.ts == null) return latest

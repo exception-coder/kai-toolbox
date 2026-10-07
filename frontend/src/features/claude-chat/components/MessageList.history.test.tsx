@@ -2,9 +2,10 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MessageList } from './MessageList'
+import { setHideToolCalls } from '../lib/toolVisibilityPref'
 
 const scrolling = vi.hoisted(() => ({ scrollToIndex: vi.fn(), scrollTo: vi.fn() }))
-afterEach(() => { cleanup(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); setHideToolCalls(false); vi.clearAllMocks() })
 
 vi.mock('react-virtuoso', async () => {
   const { forwardRef, useImperativeHandle } = await import('react')
@@ -33,6 +34,18 @@ vi.mock('react-virtuoso', async () => {
 })
 
 describe('MessageList 历史分页入口', () => {
+  it('最近一页全为隐藏工具时显示恢复入口', () => {
+    setHideToolCalls(true)
+    render(<MessageList items={[{ kind: 'tool', id: 'h1', toolName: 'read', input: {} }]} running={false} />)
+    expect(screen.getByRole('status')).toHaveTextContent('工具调用当前已隐藏')
+    fireEvent.click(screen.getByRole('button', { name: '显示工具记录' }))
+    expect(screen.queryByText('最近记录已加载，工具调用当前已隐藏。')).not.toBeInTheDocument()
+  })
+
+  it('空首屏明确显示正在加载最近消息', () => {
+    render(<MessageList items={[]} running={false} loadingEarlier onLoadEarlier={() => {}} />)
+    expect(screen.getByRole('button', { name: '正在加载最近消息…' })).toBeDisabled()
+  })
   it('按真实滚动高度补齐跳转，用户上滑后停止校正', () => {
     vi.useFakeTimers()
     render(<MessageList items={[{ kind: 'assistant', id: 'long', text: '长回复' }]} running={false} />)

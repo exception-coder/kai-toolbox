@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/public-api'
 import type { ChatItem, ConnState } from '../types'
 import { abbr, cacheHitRate, fmtMs, formatTime, parseUsage } from '../lib/metrics'
-import { useHideToolCalls } from '../lib/toolVisibilityPref'
+import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
 import { ImageLightbox } from './ImageLightbox'
@@ -102,7 +102,8 @@ function ListHeader({ context }: { context?: ListContext }) {
             context.loadEarlierError && 'text-[var(--color-destructive)] hover:text-[var(--color-destructive)]',
           )}
         >
-          {context.loadingEarlier ? '加载更早…' : context.loadEarlierError ?? '加载更早'}
+          {context.loadingEarlier ? (context.itemCount === 0 ? '正在加载最近消息…' : '正在加载消息…')
+            : context.loadEarlierError ?? (context.itemCount === 0 ? '加载消息' : '加载更早')}
         </button>
       )}
       {context.exhausted && context.itemCount > 0 && (
@@ -316,6 +317,13 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
       onKeyDownCapture={event => {
         if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) jumpDeadlineRef.current = 0
       }}>
+      {items.length > 0 && visibleItems.length === 0 && hideToolCalls && (
+        <div role="status" className="px-4 py-3 text-sm text-[var(--color-muted-foreground)]">
+          最近记录已加载，工具调用当前已隐藏。
+          <button type="button" onClick={() => setHideToolCalls(false)}
+            className="ml-2 underline underline-offset-4 hover:text-[var(--color-foreground)]">显示工具记录</button>
+        </div>
+      )}
       <Virtuoso
         key={resetKey}
         ref={virtuosoRef}

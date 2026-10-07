@@ -24,6 +24,7 @@ import {
 } from '../lib/turnRunningState'
 import { shouldReconnectSocket } from '../lib/socketReconnectPolicy'
 import { applyAssistantSnapshot } from '../lib/assistantSnapshot'
+import { RecentHistoryCache } from '../lib/recentHistoryCache'
 
 /**
  * 「弹窗自动允许」：全局偏好（跨会话共用一个键，保持与旧版本一致）。
@@ -341,6 +342,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const reconnectTimerRef = useRef<number | null>(null)
   // 订阅登录态：登录成功后 token 变化 → 若之前因失效停连，则自动恢复重连。
   const { token: sessionToken } = useAuth()
+  const recentHistoryRef = useRef(new RecentHistoryCache())
+  const historyNeedsRefreshRef = useRef(false)
   const sdkSessionIdRef = useRef<string | null>(null)
   const cwdRef = useRef<string>('')
   const shouldLoadHistoryRef = useRef(false)
@@ -564,6 +567,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         if (shouldLoadHistoryRef.current && (msg.sdkSessionId || channel === 'review')) {
           shouldLoadHistoryRef.current = false
           loadHistoryRef.current(true)
+        } else if (shouldLoadHistoryRef.current) {
+          shouldLoadHistoryRef.current = false
+          historyNeedsRefreshRef.current = false
+          setHistoryLoading(false)
+          setHistoryExhausted(true)
+          historyExhaustedRef.current = true
         }
         // 自动恢复后重发未处理的用户消息：
         // expectingReadyRef 由 auto-resume 效果置位，表示"下一个 ready 是恢复成功信号"。
@@ -1308,6 +1317,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     historyLoadingRef.current = false
     setHistoryLoading(false)
     setHistoryError(null)
+    historyNeedsRefreshRef.current = false
     historyExhaustedRef.current = false
     setHistoryExhausted(false)
     setCurrentProviderKind('official')
@@ -1381,12 +1391,21 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     cwdRef.current = '' // 无 cwd，后端按 sdkSessionId 跨目录定位 transcript
     sessionIdRef.current = sid
     setSessionId(sid)
+    const cached = channel !== 'review' && !demo
+      ? recentHistoryRef.current.get(sessionToken, sid) : undefined
+    if (cached) {
+      setItems(cached.items)
+      historyBeforeRef.current = cached.nextBefore
+      setSyncWarning('正在更新最近消息，当前显示本页缓存')
+    }
+    historyNeedsRefreshRef.current = true
+    setHistoryLoading(true)
     // 刷新/切回时若已知该会话仍在回答（会话列表 status=RUNNING），乐观置位 running，
     // 让输入区立刻显示「中断」而非「发送」；随后 Ready 的 status 会校正（本轮已结束则回落发送）。
     if (hintRunning) applyTurnRunningSignal('serverRunning')
     intentRef.current = { kind: 'switch', sessionId: sid }
     if (!sendRaw({ type: 'switchSession', sessionId: sid })) connect()
-  }, [channel, sendRaw, connect])
+  }, [channel, demo, sessionToken, sendRaw, connect])
 
   const duplicateSession = useCallback((sourceSessionId: string, codexHome?: string, contextSeed?: string) => {
     if (duplicateSourceRef.current) return
@@ -1753,6 +1772,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [switchTo])
 
   const loadHistory = useCallback(async (reset: boolean) => {
+    reset = reset || historyNeedsRefreshRef.current
     const sid = sdkSessionIdRef.current
     if ((!sid && channel !== 'review') || historyLoadingRef.current) return
     if (!reset && historyExhaustedRef.current) return
@@ -1773,7 +1793,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       // ——典型是刚进会话就发出的首条用户气泡（乐观插入）/已开始的流式回复。若 reset 时直接 setItems(hist)，
       // 历史(空会话为 [])加载完成会把这条刚发的消息覆盖掉 → 「新建会话首条消息不显示」。prepend 则两者都保留。
       if (!isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) return
+      if (reset && token.sessionId && channel !== 'review' && !demo) {
+        recentHistoryRef.current.put(sessionToken, token.sessionId, { items: hist, nextBefore })
+      }
       setItems(prev => reset ? mergeResetHistoryItems(hist, prev) : [...hist, ...prev])
+      if (reset) {
+        historyNeedsRefreshRef.current = false
+        setSyncWarning(previous => previous === '正在更新最近消息，当前显示本页缓存'
+          || previous === '最近消息更新失败，保留本页缓存；请点击重试' ? null : previous)
+      }
       historyBeforeRef.current = nextBefore
       const done = isSessionHistoryPageExhausted(hist.length, before, nextBefore)
       historyExhaustedRef.current = done
@@ -1781,6 +1809,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     } catch (caught) {
       if (isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) {
         setHistoryError(sessionHistoryLoadErrorMessage(caught, reset))
+        if (reset) setSyncWarning(previous => previous === '正在更新最近消息，当前显示本页缓存'
+          ? '最近消息更新失败，保留本页缓存；请点击重试' : previous)
       }
     } finally {
       if (isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) {
@@ -1788,7 +1818,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setHistoryLoading(false)
       }
     }
-  }, [channel, reviewToken])
+  }, [channel, demo, reviewToken, sessionToken])
 
   // 让 applyEvent(ready 回调)能在不进依赖环的情况下触发首屏历史加载
   useEffect(() => {

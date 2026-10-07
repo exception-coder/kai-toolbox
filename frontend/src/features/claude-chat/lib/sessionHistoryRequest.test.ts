@@ -34,6 +34,10 @@ describe('isCurrentSessionHistoryRequest', () => {
 })
 
 describe('mergeResetHistoryItems', () => {
+  it('权威空页清除旧缓存，但保留请求期间的新消息', () => {
+    const live: ChatItem = { kind: 'user', id: 'local-1', text: '刚发送' }
+    expect(mergeResetHistoryItems([], [{ kind: 'assistant', id: 'h1', text: '缓存' }, live])).toEqual([live])
+  })
   it('用带分类的新历史替换内存中的旧历史副本', () => {
     const previous: ChatItem[] = [{ kind: 'user', id: 'h1', text: '隐藏工具调用', ts: 10 }]
     const history: ChatItem[] = [{
