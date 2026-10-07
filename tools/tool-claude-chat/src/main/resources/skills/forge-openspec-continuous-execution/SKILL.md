@@ -2,7 +2,7 @@
 name: forge-openspec-continuous-execution
 description: Keep a Forge-supervised OpenSpec change running until the bound Done Condition is proven.
 x-forge-owned: true
-x-forge-version: 1.0.13
+x-forge-version: 1.0.14
 ---
 
 # Forge OpenSpec Continuous Execution
@@ -36,6 +36,8 @@ Deliver a usable base version for frequent main flows, then complete extensions 
 Check only the base tasks proven by actual evidence; deferred requirements stay unchecked. Follow the existing specification update and rebinding process, then let Runtime select executable work. Do not silently drop requirements, mark the whole change complete, select an unbound task or invent passing evidence. Ask for missing external configuration once, keep it as a follow-up, and continue authorized independent work without repeatedly probing the unavailable dependency or retesting unchanged passing code. Wait for the user only when no authorized executable work remains.
 
 ### Coherent coding and verification batches
+
+Small low-risk changes do not automatically require new tests. Prefer existing tests and add coverage only for a concrete acceptance gap or regression risk. Scenarios are acceptance obligations, not test quotas. Full builds, full suites and browser acceptance require an explicit affected-risk, user, CI or release trigger; small slices, turns, reports and commits are not triggers. Finish one usable feature before concentrated targeted acceptance, reuse sufficient unchanged evidence, and retain all mandatory safety checks.
 
 Use the current confirmed acceptance conditions as the boundary. Prioritize a working main user flow, correct permissions and data, and necessary verification; preserve every explicit specification requirement. Keep reasonable boundaries for future extension, defer optional enhancements, and avoid building speculative frameworks. Finish the related code and tests before targeted verification; do not rebuild or request a full gate after every edit. Verify critical permission/transaction logic and repaired failures early when needed; keep required final delivery gates.
 

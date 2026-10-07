@@ -16,6 +16,10 @@ Before adding navigation, object actions, dialogs or AI workflows, read [docs/pr
 
 `kai-toolbox` is a local single-user toolkit platform: one Spring Boot shell + multiple pluggable tool modules, served at `http://localhost:8080`. No auth, no multi-tenancy. Stack: Java 21 / Spring Boot 3.4 / Maven multi-module on the backend; Vite 6 + React 19 + Tailwind v4 + React Router v7 + TanStack Query on the frontend. SQLite (via Spring JDBC) for persistence; SSE (`SseEmitter`) for streaming progress.
 
+## AI 原生开发验证节奏
+
+普通开发与 OpenSpec/Forge 监督使用同一验证节奏：完成一个可用功能后集中执行最小充分的定向验收；复用输入未变的有效证据。小改动不自动新增测试，优先补已有用例，仅为具体风险或验收缺口增加测试。外部接入和可选扩展保留为明确后续任务，继续独立开发；必要权限、数据安全和主流程正确性不能后置。全量构建、全套测试和浏览器验收须有实际影响或明确授权触发理由，不由小切片、模型轮次、提交或进度回报触发。失败检查不得伪报通过。具体边界见 docs/ai-coding-architecture.md 的验证节奏正文。
+
 ## Common commands
 
 Backend (run from repo root):

@@ -11,17 +11,34 @@ context: |
   OpenSpec structural validation does not replace implementation, database,
   runtime, or release-artifact verification.
 
+  AI-native delivery prioritizes one usable feature, then one concentrated targeted
+  acceptance checkpoint. Reuse sufficient passing evidence while relevant code,
+  tests, dependencies, configuration and environment inputs remain valid. Small
+  low-risk changes do not automatically require new tests; add or extend existing
+  tests only for a concrete acceptance gap or regression risk. External integrations
+  become explicit unfinished follow-ups; continue independent authorized work.
+  Necessary permissions, data safety and main-flow correctness remain mandatory.
+  Full builds, full suites and browser acceptance need a concrete trigger; model
+  turns, small slices, progress reports and commits are not triggers. Respect
+  explicit user, CI and release gates. Failed or unexecuted checks are not passes.
+
 rules:
   proposal:
     - Keep one change independently reviewable and state the goal, non-goals, evidence sources, and unresolved decisions.
   specs:
+    - Each scenario is an acceptance obligation, not a one-to-one test quota; equivalent outcomes may share sufficient evidence.
     - Describe observable behavior and scenarios rather than copied implementation structure.
   design:
+    - Choose the smallest sufficient verification set for the usable feature; state concrete risks, reused evidence and triggers for any full build, full suite or browser acceptance.
     - Cite current source or Graphify coordinates and record verification and rollback strategy.
   tasks:
+    - Organize tasks around usable vertical features, not one task per file, endpoint, scenario or test; concentrate targeted acceptance at the completed feature checkpoint.
+    - Do not automatically generate test-writing tasks for small low-risk changes; prefer existing tests and add coverage only for a concrete acceptance gap or regression risk.
+    - Reuse unchanged sufficient passing evidence; rerun failed and affected checks after repairs. A commit, model turn or small implementation slice does not trigger a new acceptance cycle.
+    - Split optional extensions and unavailable external integrations into explicit unfinished follow-ups with dependencies and disabled entry points; preserve all original requirements and continue independent authorized work. Never label unfinished local code as manual production.
     - Group adjacent local tasks only when they share a reviewed implementation and verification boundary; place [VERIFY_GROUP:name] after each task ID, retain per-task acceptance, and record the rationale in design.md. Never combine manual tasks. Runtime authorizes the actual bounded batch; do not independently skip task binding.
     - Split development work into bounded tasks with explicit local acceptance evidence. Keep production deployment, real-environment acceptance and human follow-up in final separate tasks; they must not prevent completion of verified local development.
-    - For revisitable uncertainty, implement the recommended reversible solution with local tests and record assumptions, evidence, risks and extension points in design.md. Append a separate [MANUAL_CONFIRMATION] task for human review; never report an assumed source fact as verified.
+    - For revisitable uncertainty, implement the recommended reversible solution with minimal local acceptance evidence; add tests only for concrete risk or an acceptance gap and record assumptions, evidence, risks and extension points in design.md. Append a separate [MANUAL_CONFIRMATION] task for human review; never report an assumed source fact as verified.
     - When continuing a historical change, first split mixed development/manual tasks while preserving existing task IDs, completed evidence and unfinished local work. Append manual tasks at the end; do not simply relabel unfinished implementation as manual or mark it complete.
     - Keep tasks independently verifiable and do not mark them complete before evidence exists.
     - Separate locally verifiable development tasks from production-only validation and operations. Prefix each production-only task description with [MANUAL_PRODUCTION]; never use the marker for unfinished local code or tests. Keep marked tasks unchecked until a human completes production work.
