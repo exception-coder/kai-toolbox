@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 /** 仅依据持久上下文、OpenSpec 与门禁证据作出确定性的下一步决策。 */
 @Service
@@ -41,9 +42,7 @@ public class OpenSpecContinuousRunner {
                         repeated >= 2 ? "当前 task 验收尚未收口，先核对已有成果并完成剩余项；继续开发"
                                 : "项目编码门禁关闭，继续实际未完成的开发 task", repeated);
             }
-            return new Decision(AutopilotState.STOPPED, "DEVELOPER_HANDOFF",
-                    "开发推进结束；项目编码门禁关闭，验证与归档未执行，人工事项保留待开发者验收",
-                    context, 0, null, snapshot.revision() + ":DEVELOPER_HANDOFF");
+            return developerHandoff(context, snapshot);
         }
         if (context.currentTaskId() != null) {
             TaskSnapshot current = snapshot.tasks().stream()
@@ -62,6 +61,23 @@ public class OpenSpecContinuousRunner {
             case ARCHIVE -> decideArchive(run, snapshot);
             case DONE -> Decision.completed(context, snapshot.revision());
         };
+    }
+
+    /** 空闲巡检只决定开发阶段是否已结束，绝不运行质量检查或归档。 */
+    public Optional<Decision> decideIdleRecovery(SessionAutopilotRun run, ChangeSnapshot snapshot) {
+        if (snapshot.nextTask() != null) return Optional.empty();
+        if (run.context().phase() == OpenSpecExecutionPhase.APPLY) {
+            // APPLY only makes state decisions; retain its context-drift checks.
+            return Optional.of(decide(run, snapshot));
+        }
+        return ProjectExecutionControlStore.disabled(Path.of(run.context().projectRoot()))
+                ? Optional.of(developerHandoff(run.context(), snapshot)) : Optional.empty();
+    }
+
+    private Decision developerHandoff(OpenSpecExecutionContext context, ChangeSnapshot snapshot) {
+        return new Decision(AutopilotState.STOPPED, "DEVELOPER_HANDOFF",
+                "开发推进结束；项目编码门禁关闭，验证与归档未执行，人工事项保留待开发者验收",
+                context, 0, null, snapshot.revision() + ":DEVELOPER_HANDOFF");
     }
 
     private Decision decideApply(SessionAutopilotRun run, ChangeSnapshot snapshot) {

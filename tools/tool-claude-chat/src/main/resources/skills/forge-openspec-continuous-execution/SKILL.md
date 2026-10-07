@@ -2,7 +2,7 @@
 name: forge-openspec-continuous-execution
 description: Keep a Forge-supervised OpenSpec change running until the bound Done Condition is proven.
 x-forge-owned: true
-x-forge-version: 1.0.10
+x-forge-version: 1.0.11
 ---
 
 # Forge OpenSpec Continuous Execution
@@ -31,9 +31,9 @@ Runtime polling is deterministic and does not require an extra model review. Onc
 
 ### Coherent coding and verification batches
 
-Finish a coherent set of related code and test changes before running its targeted verification. Do not compile, run the same suite or request a full gate after every file edit. Verify critical permission/transaction logic and repaired failures early when needed; keep required final delivery gates.
+Use the current confirmed acceptance conditions as the boundary. Prioritize a working main user flow, correct permissions and data, and necessary verification; preserve every explicit specification requirement. Keep reasonable boundaries for future extension, defer optional enhancements, and avoid building speculative frameworks. Finish the related code and tests before targeted verification; do not rebuild or request a full gate after every edit. Verify critical permission/transaction logic and repaired failures early when needed; keep required final delivery gates.
 
-When adjacent local development tasks share a concrete implementation and verification boundary, record that rationale and the complete test/configuration/dependency inputs in the existing change design. Prefix their descriptions after the task ID with `[VERIFY_GROUP:name]` (an ASCII identifier of at most 64 characters). Preserve task IDs, acceptance conditions and completed evidence. For historical changes, add this annotation under the existing specification editing rules, then report the revision and let Runtime read it before expanding work. Never group unrelated tasks merely because their numbers are adjacent. Manual markers remain first and are never grouped.
+Complete the currently bound task directly by default; no grouping annotation or specification rewrite is required to start coding. Optional `[VERIFY_GROUP:name]` annotations (ASCII identifiers of at most 64 characters) allow tasks with a reviewed shared implementation and verification boundary to be batched. Preserve task IDs, acceptance and evidence; any group change follows the existing specification editing rules and must be reread and explicitly authorized by Runtime before expanding work. Do not create groups just because tasks are adjacent. Manual markers remain first and are never grouped.
 
 Runtime emits at most six contiguous pending tasks with the same explicit group, anchored at the bound current task and current change revision. Only those emitted IDs may be implemented together. Shared verification can support multiple tasks; record coverage per task and check off only tasks whose local acceptance actually passed. A partial failure leaves affected tasks pending; report real progress without forcing another full suite. Do not extend the batch across manual tasks, change boundaries, changed revisions, ownership conflicts or authorization boundaries. Writer scope must cover the whole batch.
 

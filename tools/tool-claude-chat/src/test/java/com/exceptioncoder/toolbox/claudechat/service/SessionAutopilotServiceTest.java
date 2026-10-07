@@ -578,19 +578,23 @@ class SessionAutopilotServiceTest {
         OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
         ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
         when(repository.findRecent("", null, null, 200)).thenReturn(List.of(run()));
+        var pending = new TaskSnapshot("6.4", 28, "pending", false);
+        when(openSpec.inspect(any(), eq("session-autopilot"))).thenReturn(new ChangeSnapshot(
+                "session-autopilot", "revision-a", 0, 1, List.of(pending), Map.of(), pending));
         when(queue.hasInternal("session-1")).thenReturn(true);
         when(runtime.canStartTurn("session-1"))
                 .thenReturn(new SessionRuntimeStateService.SendDecision(true, "CONSISTENT", null));
         SessionAutopilotService service = new SessionAutopilotService(repository,
                 mock(ClaudeChatSessionRepository.class), mock(ClaudeChatSessionAccessPolicy.class), queue,
                 runtime, mock(AutopilotProjectContextResolver.class), openSpec,
-                mock(OpenSpecContinuousRunner.class), mock(ContinuousExecutionSkillProvisioner.class),
+                new OpenSpecContinuousRunner(openSpec, mock(ForgeQualityGateAdapter.class)),
+                mock(ContinuousExecutionSkillProvisioner.class),
                 new ObjectMapper(), events);
 
         service.reconcileActiveRuns();
 
         verify(events).publishEvent(new SessionQueueReleaseRequestedEvent("session-1"));
-        verify(openSpec, never()).inspect(any(), any());
+        verify(openSpec).inspect(any(), eq("session-autopilot"));
         verify(queue, never()).saveInternal(any(), any(), any(), any(), any(), anyLong());
     }
 

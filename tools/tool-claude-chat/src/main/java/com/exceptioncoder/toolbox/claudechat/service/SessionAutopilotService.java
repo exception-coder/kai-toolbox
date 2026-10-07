@@ -379,12 +379,14 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                 .forEach(run -> {
                     try {
                         if (!runtimeReadyForContinuation(run, Instant.now())) return;
+                        ChangeSnapshot snapshot = openSpec.inspect(Path.of(run.context().projectRoot()),
+                                run.context().changeId());
+                        if (reconcileCompletedDevelopment(run, snapshot)) return;
                         if (queuedMessages.hasInternal(run.sessionId())) {
                             events.publishEvent(new SessionQueueReleaseRequestedEvent(run.sessionId()));
                             return;
                         }
-                        queueContinuation(run, openSpec.inspect(Path.of(run.context().projectRoot()),
-                                run.context().changeId()), "重启/断线恢复巡检");
+                        queueContinuation(run, snapshot, "重启/断线恢复巡检");
                     } catch (RuntimeException exception) {
                         LOGGER.warn("[autopilot] 恢复巡检失败 session={}", run.sessionId(), exception);
                     }
@@ -550,53 +552,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                     decision.progressFingerprint(), Instant.now()))) {
                 return;
             }
-            SessionAutopilotRun next = evolve(run, decision.state(), decision.reason(), decision.context(),
-                    run.turnCount() + 1, decision.noProgressCount(), snapshot.completedTasks(), snapshot.totalTasks(),
-                    true, Instant.now());
-            ChangeSnapshot dispatchSnapshot = snapshot;
-            var batch = (decision.state() == AutopilotState.COMPLETED || "DEVELOPER_HANDOFF".equals(decision.code()))
-                    ? repository.findBatch(run.sessionId(), run.id()) : Optional.<SessionAutopilotRepository.Batch>empty();
-            int nextIndex = -1;
-            if (batch.isPresent()) {
-                List<String> ids = readList(batch.get().changeIdsJson());
-                nextIndex = batch.get().currentIndex() + 1;
-                if (nextIndex < ids.size()) {
-                    String nextId = ids.get(nextIndex);
-                    dispatchSnapshot = openSpec.inspect(Path.of(run.context().projectRoot()), nextId);
-                    boolean developer = ProjectExecutionControlStore.disabled(Path.of(run.context().projectRoot()));
-                    var validation = developer ? null : openSpec.strictValidate(Path.of(run.context().projectRoot()), nextId);
-                    var deferred = repository.findDeferredChanges(run.id()).stream()
-                            .filter(item -> item.changeId().equals(nextId)).findFirst();
-                    String expectedRevision = readMap(batch.get().expectedRevisionsJson()).get(nextId);
-                    boolean revisionMatches = dispatchSnapshot.revision().equals(expectedRevision);
-                    boolean ready = (developer || (deferred.isEmpty() && revisionMatches && validation.passed()))
-                            && dispatchSnapshot.nextTask() != null;
-                    OpenSpecExecutionContext nextContext = new OpenSpecExecutionContext(
-                            run.context().projectRoot(), run.context().repositoryIdentity(),
-                            run.context().branchAtStart(), run.context().workspaceFingerprint(), nextId,
-                            dispatchSnapshot.revision(), ready ? dispatchSnapshot.nextTask().id() : null,
-                            ready ? dispatchSnapshot.nextTask().applyOrdinal() : null,
-                            OpenSpecExecutionPhase.APPLY, run.context().agentSessionRef(),
-                            run.context().generation() + 1, next.context().version() + 1);
-                    next = evolve(run, ready ? AutopilotState.ACTIVE : AutopilotState.WAITING_USER,
-                            ready ? (developer ? "上一规格开发推进结束（未验证），开始下一规格 " : "上一规格完成，开始下一规格 ") + nextId
-                                    : "下一规格 " + nextId + " 需要处理：" + (deferred.isPresent()
-                                    ? deferred.get().reason() : !revisionMatches
-                                    ? "规格已变化，请核对后恢复" : (developer || validation.passed())
-                                    ? "没有待执行 task" : validation.detail()),
-                            nextContext, run.turnCount() + 1, 0,
-                            dispatchSnapshot.completedTasks(), dispatchSnapshot.totalTasks(), true, Instant.now());
-                }
-            }
-            if (batch.isPresent() && nextIndex >= 0 && next.state() != AutopilotState.COMPLETED) {
-                repository.advanceBatch(next, run.context().version(), batch.get().currentIndex());
-            } else {
-                persist(run, next);
-            }
-            publish(next);
-            if (next.state() == AutopilotState.ACTIVE) {
-                queueContinuation(next, dispatchSnapshot, next.reason(), run);
-            }
+            applyDecision(run, snapshot, decision, run.turnCount() + 1, List.of());
         } catch (RuntimeException exception) {
             if (run.context().phase() == OpenSpecExecutionPhase.ARCHIVE
                     && openSpec.isArchived(Path.of(run.context().projectRoot()),
@@ -639,6 +595,74 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             finishDecision(run, event, turnId, AutopilotState.WAITING_USER,
                     "无法读取当前 OpenSpec 状态：" + boundedText(exception.getMessage()),
                     run.context(), run.noProgressCount());
+        }
+    }
+
+    /** 空闲恢复只处理已结束的开发阶段，不触发验证、归档，也不虚增引擎轮次。 */
+    private boolean reconcileCompletedDevelopment(SessionAutopilotRun run, ChangeSnapshot snapshot) {
+        Optional<Decision> decision = continuousRunner.decideIdleRecovery(run, snapshot);
+        if (decision.isEmpty()) return false;
+        List<String> staleMessageIds = queuedMessages.list(run.sessionId()).stream()
+                .filter(message -> message.id().startsWith("autopilot:"))
+                .map(message -> message.id()).toList();
+        applyDecision(run, snapshot, decision.get(), run.turnCount(), staleMessageIds);
+        return true;
+    }
+
+    /** 正常收轮与空闲恢复复用同一落库/批次切换；只有真实收轮增加 turnCount。 */
+    private void applyDecision(SessionAutopilotRun run, ChangeSnapshot snapshot, Decision decision,
+                               int turnCount, List<String> staleMessageIds) {
+        boolean idleRecovery = turnCount == run.turnCount();
+        String reason = idleRecovery ? "空闲恢复：" + decision.reason() : decision.reason();
+        SessionAutopilotRun next = evolve(run, decision.state(), reason, decision.context(),
+                turnCount, decision.noProgressCount(), snapshot.completedTasks(), snapshot.totalTasks(),
+                true, Instant.now());
+        ChangeSnapshot dispatchSnapshot = snapshot;
+        var batch = (decision.state() == AutopilotState.COMPLETED || "DEVELOPER_HANDOFF".equals(decision.code()))
+                ? repository.findBatch(run.sessionId(), run.id()) : Optional.<SessionAutopilotRepository.Batch>empty();
+        int nextIndex = -1;
+        if (batch.isPresent()) {
+            List<String> ids = readList(batch.get().changeIdsJson());
+            nextIndex = batch.get().currentIndex() + 1;
+            if (nextIndex < ids.size()) {
+                String nextId = ids.get(nextIndex);
+                dispatchSnapshot = openSpec.inspect(Path.of(run.context().projectRoot()), nextId);
+                boolean developer = ProjectExecutionControlStore.disabled(Path.of(run.context().projectRoot()));
+                var validation = developer || idleRecovery ? null : openSpec.strictValidate(Path.of(run.context().projectRoot()), nextId);
+                var deferred = repository.findDeferredChanges(run.id()).stream()
+                        .filter(item -> item.changeId().equals(nextId)).findFirst();
+                String expectedRevision = readMap(batch.get().expectedRevisionsJson()).get(nextId);
+                boolean revisionMatches = dispatchSnapshot.revision().equals(expectedRevision);
+                boolean ready = (developer || (deferred.isEmpty() && revisionMatches
+                        && validation != null && validation.passed()))
+                        && dispatchSnapshot.nextTask() != null;
+                OpenSpecExecutionContext nextContext = new OpenSpecExecutionContext(
+                        run.context().projectRoot(), run.context().repositoryIdentity(),
+                        run.context().branchAtStart(), run.context().workspaceFingerprint(), nextId,
+                        dispatchSnapshot.revision(), ready ? dispatchSnapshot.nextTask().id() : null,
+                        ready ? dispatchSnapshot.nextTask().applyOrdinal() : null,
+                        OpenSpecExecutionPhase.APPLY, run.context().agentSessionRef(),
+                        run.context().generation() + 1, next.context().version() + 1);
+                next = evolve(run, ready ? AutopilotState.ACTIVE : AutopilotState.WAITING_USER,
+                        ready ? (developer ? "上一规格开发推进结束（未验证），开始下一规格 " : "上一规格完成，开始下一规格 ") + nextId
+                                : "下一规格 " + nextId + " 需要处理：" + (idleRecovery && !developer
+                                ? "编码门禁已开启，请按当前策略预检后恢复" : deferred.isPresent()
+                                ? deferred.get().reason() : !revisionMatches
+                                ? "规格已变化，请核对后恢复" : (developer || validation.passed())
+                                ? "没有待执行 task" : validation.detail()),
+                        nextContext, turnCount, 0,
+                        dispatchSnapshot.completedTasks(), dispatchSnapshot.totalTasks(), true, Instant.now());
+            }
+        }
+        if (batch.isPresent() && nextIndex >= 0 && next.state() != AutopilotState.COMPLETED) {
+            repository.advanceBatch(next, run.context().version(), batch.get().currentIndex());
+        } else {
+            persist(run, next);
+        }
+        staleMessageIds.forEach(id -> queuedMessages.delete(run.sessionId(), id));
+        publish(next);
+        if (next.state() == AutopilotState.ACTIVE) {
+            queueContinuation(next, dispatchSnapshot, next.reason(), run);
         }
     }
 
