@@ -309,8 +309,21 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                     && runtimeStates.inspect(sessionId).map(state -> !state.stale()
                             && Boolean.TRUE.equals(state.sidecarActive())
                             && Boolean.FALSE.equals(state.pendingDecision())).orElse(false);
-            if (current.state() != AutopilotState.ACTIVE && !recover) {
+            boolean paused = current.state() == AutopilotState.PAUSED;
+            if (current.state() != AutopilotState.ACTIVE && !recover && !paused) {
                 throw new AutopilotProgressConflictException(current.state(), current.context().version());
+            }
+            // 暂停只禁止调度；当前轮已完成的成果仍可登记。任务计数只读取绑定规格。
+            ChangeSnapshot reportedSnapshot = null;
+            String summary = boundedText(request.summary());
+            if (paused) {
+                try {
+                    reportedSnapshot = openSpec.inspect(Path.of(current.context().projectRoot()),
+                            current.context().changeId());
+                } catch (RuntimeException exception) {
+                    summary = boundedText("规格进度读取失败，保留上次计数；成果报告已记录，恢复前需重新读取规格。\n"
+                            + (summary == null ? "" : summary));
+                }
             }
             Instant now = Instant.now();
             OpenSpecExecutionContext context = incrementVersion(current.context());
@@ -322,16 +335,21 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             SessionAutopilotRun next = new SessionAutopilotRun(
                     current.id(), current.sessionId(), current.goal(), current.completionPolicy(),
                     recover ? AutopilotState.ACTIVE : current.state(),
-                    recover ? "已恢复执行；未完成验证保留待回归" : boundedText(request.reason()),
+                    paused ? current.reason()
+                            : recover ? "已恢复执行；未完成验证保留待回归" : boundedText(request.reason()),
                     context, current.turnCount(), current.maxTurns(),
-                    newEvidence ? 0 : current.noProgressCount(), current.maxNoProgress(), current.autoArchive(),
+                    newEvidence && !paused ? 0 : current.noProgressCount(), current.maxNoProgress(), current.autoArchive(),
                     current.skillActivated(), current.skillPath(), current.skillVersion(), current.skillFingerprint(),
-                    current.runtimeSupervision(), current.completedTasks(), current.totalTasks(), disposition,
-                    boundedText(request.summary()), boundedText(request.nextAction()), remainingJson, evidenceJson,
+                    current.runtimeSupervision(),
+                    reportedSnapshot == null ? current.completedTasks() : reportedSnapshot.completedTasks(),
+                    reportedSnapshot == null ? current.totalTasks() : reportedSnapshot.totalTasks(), disposition,
+                    summary, boundedText(request.nextAction()), remainingJson, evidenceJson,
                     now, current.startedAt(), current.deadlineAt(), now);
             if (repository.update(next, current.context().version())) {
                 publish(next);
-                return toView(next, artifactPaths(next));
+                return toView(next, paused
+                        ? reportedSnapshot == null ? Map.of() : reportedSnapshot.artifactPaths()
+                        : artifactPaths(next));
             }
         }
         throw new IllegalStateException("自动监督状态已变化，请重新上报当前进度");
