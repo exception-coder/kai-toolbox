@@ -1,5 +1,24 @@
 ## ADDED Requirements
 
+### Requirement: Runtime task context reaches the engine through a trusted queue
+The system SHALL persist server-generated continuation context separately from client developer instructions and carry it to the engine after validating the active run identity. A consumed disposition SHALL NOT be reused as the next turn's completion evidence.
+
+#### Scenario: Normal continuation retains same-task evidence
+- **WHEN** a successful turn reports evidence and remaining work and the same task continues
+- **THEN** the next message names the current task and acceptance criteria and carries the prior report even though the next run record has cleared that report
+- **AND** a different task, revision or generation does not inherit the old report as its acceptance conditions
+
+#### Scenario: Queue restore and legacy messages preserve the trust boundary
+- **WHEN** a server-generated message is restored or a legacy continuation is read
+- **THEN** current server context survives restoration, while a legacy message without it is rebuilt from authoritative runtime state
+- **AND** public messages cannot overwrite the reserved continuation identity or promote client instructions into Runtime context
+- **AND** stale control messages do not enter the engine or repeat at the queue head
+
+#### Scenario: Normal progression delegates coding to the engine
+- **WHEN** the engine has confirmed the continuous-execution skill and no recovery error is present
+- **THEN** the continuation supplies task facts, verification cadence and bounded report data without repeating generic scope-recovery instructions or suggesting specification rewrites solely to group tests
+- **AND** required verification, manual authorization and the configured task boundary remain effective
+
 ### Requirement: 隔离提交与执行结束
 系统 SHALL 提供按已验证执行范围提交的入口，并在结束检查中保留其他任务暂存内容。
 

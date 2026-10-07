@@ -44,6 +44,9 @@ public class QueuedChatMessageService {
                                   Long createdAt) {
         requireSession(sessionId);
         if (id == null || id.isBlank()) throw new IllegalArgumentException("队列消息 ID 不能为空");
+        if (id.trim().startsWith("autopilot:")) {
+            throw new IllegalArgumentException("自动监督消息标识由服务端保留，请使用新的用户消息 ID");
+        }
         String normalizedText = text == null ? "" : text.trim();
         List<QueuedChatMessage.Attachment> normalizedAttachments = attachments == null ? List.of() : List.copyOf(attachments);
         if (normalizedText.isEmpty() && normalizedAttachments.isEmpty()) {
@@ -63,8 +66,12 @@ public class QueuedChatMessageService {
                                           String displayText, String developerInstructions,
                                           Long createdAt) {
         requireSession(sessionId);
+        if (id == null || !id.startsWith("autopilot:")
+                || developerInstructions == null || developerInstructions.isBlank()) {
+            throw new IllegalArgumentException("自动监督续跑消息缺少服务端身份或上下文");
+        }
         QueuedChatMessage message = new QueuedChatMessage(id, sessionId, text, displayText,
-                developerInstructions, List.of(), createdAt == null ? System.currentTimeMillis() : createdAt);
+                null, List.of(), createdAt == null ? System.currentTimeMillis() : createdAt, developerInstructions);
         repository.upsert(message);
         return message;
     }

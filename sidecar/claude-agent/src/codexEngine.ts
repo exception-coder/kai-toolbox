@@ -243,8 +243,9 @@ export function buildCodexDeveloperInstructions(toolPolicy: string, sessionId?: 
   ].filter(Boolean).join('\n\n') || undefined
   const developerInstructions = appendWindowsExecutionInstructions([
     baseDeveloperInstructions,
-    toolPolicy === CONSULT_READONLY_POLICY || toolPolicy === REVIEW_ONLY_POLICY
-      ? turnDeveloperInstructions?.trim() : undefined,
+    // SessionManager selects server-owned sessionContext for development turns.
+    // Dropping it here also drops Runtime task boundaries and checkpoint evidence.
+    turnDeveloperInstructions?.trim(),
   ].filter(Boolean).join('\n\n'))
   return developerInstructions || undefined
 }

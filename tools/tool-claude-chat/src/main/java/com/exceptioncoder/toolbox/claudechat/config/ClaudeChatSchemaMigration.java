@@ -5,6 +5,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 
 /**
  * 轻量幂等迁移：给既有库的 claude_chat_session 补 engine 列。
@@ -22,6 +24,18 @@ public class ClaudeChatSchemaMigration {
 
     public ClaudeChatSchemaMigration(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    /** 先补内部续跑上下文列，再允许启动事件恢复队列；真实迁移失败必须显式暴露。 */
+    @EventListener(ApplicationReadyEvent.class)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public void addQueueServerContextColumn() {
+        boolean present = jdbc.queryForList("PRAGMA table_info(claude_chat_queued_message)").stream()
+                .anyMatch(column -> "server_context".equals(column.get("name")));
+        if (!present) {
+            jdbc.execute("ALTER TABLE claude_chat_queued_message ADD COLUMN server_context TEXT");
+            log.info("[claude-chat] 迁移：待发送队列已补服务端监督上下文列");
+        }
     }
 
     @EventListener(ApplicationReadyEvent.class)

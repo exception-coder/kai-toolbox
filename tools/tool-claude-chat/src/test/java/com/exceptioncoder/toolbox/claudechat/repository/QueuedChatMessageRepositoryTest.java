@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.repository;
 
 import com.exceptioncoder.toolbox.claudechat.domain.QueuedChatMessage;
+import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatSchemaMigration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,11 +17,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class QueuedChatMessageRepositoryTest {
 
     private QueuedChatMessageRepository repository;
+    private JdbcTemplate jdbc;
 
     @BeforeEach
     void setUp() {
         SingleConnectionDataSource dataSource = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("""
                 CREATE TABLE claude_chat_queued_message (
                     id TEXT PRIMARY KEY,
@@ -32,7 +34,24 @@ class QueuedChatMessageRepositoryTest {
                     created_at INTEGER NOT NULL
                 )
                 """);
+        new ClaudeChatSchemaMigration(jdbc).addQueueServerContextColumn();
         repository = new QueuedChatMessageRepository(jdbc, new ObjectMapper());
+    }
+
+    @Test
+    void serverContextSurvivesMigrationReloadAndRestoreWithoutPublicSerialization() throws Exception {
+        new ClaudeChatSchemaMigration(jdbc).addQueueServerContextColumn();
+        QueuedChatMessage original = new QueuedChatMessage("autopilot:run:1:apply:2.1:1", "session-1",
+                "继续当前任务", null, null, List.of(), 100L, "已完成: 查询；剩余: 保存；证据: test-21");
+        repository.upsert(original);
+        var reloaded = new QueuedChatMessageRepository(jdbc, new ObjectMapper())
+                .findFirstBySessionId("session-1").orElseThrow();
+        assertEquals(original.serverContext(), reloaded.serverContext());
+        repository.delete("session-1", reloaded.id());
+        repository.upsert(reloaded);
+        assertEquals(original, repository.findFirstBySessionId("session-1").orElseThrow());
+        assertFalse(new ObjectMapper().writeValueAsString(reloaded).contains("serverContext"));
+        assertFalse(new ObjectMapper().writeValueAsString(reloaded).contains("test-21"));
     }
 
     @Test

@@ -206,6 +206,7 @@ CREATE TABLE IF NOT EXISTS claude_chat_queued_message (
     text                    TEXT NOT NULL DEFAULT '',
     display_text            TEXT,
     developer_instructions  TEXT,
+    server_context          TEXT,
     attachments_json        TEXT,
     created_at              INTEGER NOT NULL
 );

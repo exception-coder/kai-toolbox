@@ -22,18 +22,27 @@ discover_execution 与 resolve_specs 可提交非空 specDependencies，含共�
 
 Runtime 从已有 latestSummary、remainingWork、evidence、nextAction 和当前权威任务投影 JSON 检查点。保留来源时间和“上轮报告、待核对归属”的标识，避免切换 task 后把上轮声明视为当前验收。字段限长、列表限项，截断和异常显式提示读取原记录。模型不能通过报告绕过任务勾选或门禁。
 
+正常轮次结束先消费旧 disposition 并清空下一轮状态中的报告；生成交接时显式传入清空前的记录。只有同 run/session/project/repository/branch/workspace/change/revision/generation/phase/task（含 ordinal）的报告才带入，不继承旧 COMPLETE 判定。无报告照常交接当前权威验收，不虚构证据、不新增暂停。
+
+排队消息增加只供服务器使用的 `server_context` 可空列，以保存生成时的检查点。公开队列不能使用 `autopilot:` ID 或写入该字段，JSON 不向客户端投影它。内部领取核对当前运行、会话、代次、任务、轮数及预算；旧消息无服务端上下文时从当前规格重建，绝不把旧客户端 `developerInstructions` 提升为控制指令。过期控制消息丢弃后由现有巡检重派，不能反复回到队首；发送失败仍保留原队列信息供恢复。幂等消息 ID 沿用 run/generation/phase/task/turn，不创建第二份运行；补列迁移成功前不启动监督巡检。
+
+Java 将核验后的 Runtime 指令与既有项目上下文合入 `sessionContext`；Sidecar 普通编码路径只采纳该服务端字段，继续忽略客户端 `developerInstructions`。Codex 的 App Server 与 SDK 共用配置构建器，每轮保留已经筛选的上下文；受限咨询/评审路径仍使用自身策略，原生 thread 与 resume 不改变。
+
+普通续跑消息明确 change、task 和验收摘要。引擎负责单轮内的连续编码、工具调用和必要验证，Forge 只在轮次结束后检查持久任务及派发下一步；不在每次编辑后重新指导或强制整套测试。已确认 Skill 的正常派发不再附大段通用恢复步骤，指定错误时才提供；取消常驻建议“先改 tasks 增加 VERIFY_GROUP”，保留显式登记的分组。检查点只投影数据，验证节奏在一处说明，不自动删测试或更改验收。
+
 错误统一返回 recovery.category、nextTool、action、retry、automaticRetry=false。范围增补、规格重评估、验证补项与提交对账分别指向具体入口。恢复动作仍需满足原身份/版本/权限约束；这一版本提供恢复契约，不声称实现所有跨进程自动修复。
 
 ```mermaid
 flowchart LR
-    A[权威任务与上轮报告] --> B[本轮验收与剩余项]
-    B --> C[实现和适用验证]
+    A[权威任务与清空前的同任务报告] --> B[服务端排队上下文]
+    B --> T[核验当前身份并传入引擎]
+    T --> C[引擎连续实现和适用验证]
     C --> D[核对快照并范围提交]
     D --> E[本执行结束检查]
     E --> F[按证据更新任务并上报]
     F --> A
     C -->|拒绝| R[结构化恢复动作]
-    R --> B
+    R --> A
 ```
 
 ## 验收与上线

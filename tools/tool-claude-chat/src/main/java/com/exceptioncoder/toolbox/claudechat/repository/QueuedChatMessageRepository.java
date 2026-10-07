@@ -26,7 +26,8 @@ public class QueuedChatMessageRepository {
 
     public List<QueuedChatMessage> findBySessionId(String sessionId) {
         return jdbc.query("""
-                SELECT id, session_id, text, display_text, developer_instructions, attachments_json, created_at
+                SELECT id, session_id, text, display_text, developer_instructions, attachments_json, created_at,
+                       server_context
                   FROM claude_chat_queued_message
                  WHERE session_id = ?
                  ORDER BY created_at, id
@@ -37,12 +38,13 @@ public class QueuedChatMessageRepository {
                 rs.getString("display_text"),
                 rs.getString("developer_instructions"),
                 readAttachments(rs.getString("attachments_json")),
-                rs.getLong("created_at")), sessionId);
+                rs.getLong("created_at"), rs.getString("server_context")), sessionId);
     }
 
     public Optional<QueuedChatMessage> findFirstBySessionId(String sessionId) {
         List<QueuedChatMessage> messages = jdbc.query("""
-                SELECT id, session_id, text, display_text, developer_instructions, attachments_json, created_at
+                SELECT id, session_id, text, display_text, developer_instructions, attachments_json, created_at,
+                       server_context
                   FROM claude_chat_queued_message
                  WHERE session_id = ?
                  ORDER BY created_at, id
@@ -50,24 +52,28 @@ public class QueuedChatMessageRepository {
                 """, (rs, rowNum) -> new QueuedChatMessage(
                 rs.getString("id"), rs.getString("session_id"), rs.getString("text"),
                 rs.getString("display_text"), rs.getString("developer_instructions"),
-                readAttachments(rs.getString("attachments_json")), rs.getLong("created_at")), sessionId);
+                readAttachments(rs.getString("attachments_json")), rs.getLong("created_at"),
+                rs.getString("server_context")), sessionId);
         return messages.stream().findFirst();
     }
 
     public void upsert(QueuedChatMessage message) {
         jdbc.update("""
                 INSERT INTO claude_chat_queued_message
-                    (id, session_id, text, display_text, developer_instructions, attachments_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (id, session_id, text, display_text, developer_instructions, attachments_json, created_at,
+                     server_context)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     session_id = excluded.session_id,
                     text = excluded.text,
                     display_text = excluded.display_text,
                     developer_instructions = excluded.developer_instructions,
-                    attachments_json = excluded.attachments_json
+                    attachments_json = excluded.attachments_json,
+                    server_context = excluded.server_context
                 """,
                 message.id(), message.sessionId(), message.text(), message.displayText(),
-                message.developerInstructions(), writeAttachments(message.attachments()), message.createdAt());
+                message.developerInstructions(), writeAttachments(message.attachments()), message.createdAt(),
+                message.serverContext());
     }
 
     public boolean delete(String sessionId, String messageId) {

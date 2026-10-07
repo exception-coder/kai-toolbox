@@ -595,7 +595,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             }
             publish(next);
             if (next.state() == AutopilotState.ACTIVE) {
-                queueContinuation(next, dispatchSnapshot, next.reason());
+                queueContinuation(next, dispatchSnapshot, next.reason(), run);
             }
         } catch (RuntimeException exception) {
             if (run.context().phase() == OpenSpecExecutionPhase.ARCHIVE
@@ -751,11 +751,17 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     }
 
     private void queueContinuation(SessionAutopilotRun run, ChangeSnapshot snapshot, String reason) {
+        queueContinuation(run, snapshot, reason, run);
+    }
+
+    private void queueContinuation(SessionAutopilotRun run, ChangeSnapshot snapshot, String reason,
+                                   SessionAutopilotRun previousRun) {
         if (!run.budgetAvailable(Instant.now())) {
             pauseForBudget(run);
             return;
         }
-        AutopilotTurnHandoff.Message handoff = AutopilotTurnHandoff.forRun(run, snapshot, reason);
+        // The consumed disposition stays cleared; only scoped report data travels into the next message.
+        AutopilotTurnHandoff.Message handoff = AutopilotTurnHandoff.forRun(run, snapshot, reason, previousRun);
         queuedMessages.saveInternal(run.sessionId(), handoff.id(), handoff.text(), handoff.display(),
                 handoff.instructions(),
                 System.currentTimeMillis());

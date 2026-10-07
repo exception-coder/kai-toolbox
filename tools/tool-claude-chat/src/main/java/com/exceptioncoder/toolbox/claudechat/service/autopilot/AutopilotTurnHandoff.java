@@ -5,9 +5,13 @@ import com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecution
 import com.exceptioncoder.toolbox.claudechat.service.governance.VerificationCadence;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.regex.Pattern;
 
 /** 将 Runtime 的持久监督身份交给 Agent，不读取或授予 Sidecar 写入权。 */
 public final class AutopilotTurnHandoff {
+    private static final Pattern RECOVERY_REASON = Pattern.compile(
+            "IMPLEMENTATION_SCOPE_DRIFT|DELTA_REQUIRED|SCOPE_GAP|BINDING_REQUIRED|GOVERNANCE_CHANGE_MISMATCH|(?<!\\d)409(?!\\d)",
+            Pattern.CASE_INSENSITIVE);
 
     private AutopilotTurnHandoff() {
     }
@@ -15,6 +19,13 @@ public final class AutopilotTurnHandoff {
     public static Message forRun(SessionAutopilotRun run,
             com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.ChangeSnapshot snapshot,
             String reason) {
+        return forRun(run, snapshot, reason, run);
+    }
+
+    /** previousRun retains the report cleared from the next persisted dispatch state. */
+    public static Message forRun(SessionAutopilotRun run,
+            com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.ChangeSnapshot snapshot,
+            String reason, SessionAutopilotRun previousRun) {
         Message message = forRun(run, snapshot.completedTasks(), snapshot.totalTasks(), reason);
         var batch = AutopilotTaskBatch.select(run.context(), snapshot);
         Path project = Path.of(run.context().projectRoot());
@@ -23,7 +34,7 @@ public final class AutopilotTurnHandoff {
         if (cadence == VerificationCadence.PER_TASK && batch.size() > 1) {
             batch = batch.subList(0, 1);
         }
-        String guidance = "\n关键权限、事务或失败修复需及时定向验证；最终门禁仍须通过。";
+        String guidance = "";
         if (batch.size() > 1) {
             String ids = batch.stream().map(task -> task.id())
                     .collect(java.util.stream.Collectors.joining(", "));
@@ -31,19 +42,14 @@ public final class AutopilotTurnHandoff {
                     + "。该批次可连续编码后统一验证，按证据逐项勾选；当前 task 仍为进度锚点。"
                     + "不得扩到未列出的 task、其他 change 或人工项；规格修订后先报告，由 Runtime 重读再派发。"
                     + "此批次授权优先于旧引导中仅执行单 task 的限制，不扩大 writer 文件范围。";
-        } else if (batch.size() == 1 && cadence == VerificationCadence.CHECKPOINT) {
-            guidance += "\n如相邻本地任务确有共同实现和验证边界，先在现有设计记录依据，"
-                    + "给任务 ID 后的描述补 [VERIFY_GROUP:name] 标记并报告修订，"
-                    + "由 Runtime 重读后授权批次；不得自行跨任务，人工项不合并。";
         }
-        guidance += "\n验证返回 reusedCheckIds 是复用旧证据，不是新执行；"
-                + "环境或时间敏感检查及必须新跑的验收使用 force=true。";
         if (!batch.isEmpty()) {
-            guidance += AutopilotCheckpointGuidance.describe(run, batch, cadence);
+            guidance += AutopilotCheckpointGuidance.describe(run, batch, cadence, previousRun);
         }
         String display = batch.size() > 1 ? message.display() + " · 合并验证 " + batch.size() + " 项"
                 : message.display();
-        return new Message(message.id(), display, message.text(), message.instructions() + guidance);
+        String text = batch.isEmpty() ? message.text() : taskText(run, batch.getFirst().description());
+        return new Message(message.id(), display, text, message.instructions() + guidance);
     }
 
     public static Message forRun(SessionAutopilotRun run, int completedTasks, int totalTasks, String reason) {
@@ -70,7 +76,7 @@ public final class AutopilotTurnHandoff {
                     yield 前调用 forge.report_session_progress；有可执行工作时附 nextAction 和 remainingWork。
                     """.formatted(run.id(), run.context().projectRoot(), run.context().changeId(),
                     run.context().phase(), task, completedTasks, totalTasks, reason);
-            return new Message(messageId, display, "继续开发者控制下的当前任务。", developerInstructions);
+            return new Message(messageId, display, taskText(run, null), developerInstructions + taskFocus());
         }
         String instructions = run.skillActivated() ? compactInstructions(run, completedTasks, totalTasks, reason) : """
                 你正在由 Forge Runtime 自动监督。不要请求用户说“继续”，也不要把单轮结束当作目标完成。
@@ -150,7 +156,28 @@ public final class AutopilotTurnHandoff {
                 """.formatted(run.id(), run.goal(), run.context().projectRoot(), run.context().changeId(),
                 run.context().phase(), task, completedTasks, totalTasks, reason,
                 run.turnCount(), run.maxTurns(), run.noProgressCount(), run.maxNoProgress());
-        return new Message(messageId, display, "继续执行 Forge 已绑定的 OpenSpec 自动监督下一步。", instructions + scopeRecovery());
+        String recovery = !run.skillActivated() || reason != null && RECOVERY_REASON.matcher(reason).find()
+                ? scopeRecovery() : "";
+        return new Message(messageId, display, taskText(run, null), instructions + taskFocus() + recovery);
+    }
+
+    private static String taskText(SessionAutopilotRun run, String description) {
+        String target = "继续 OpenSpec " + run.context().changeId() + " 的 "
+                + (run.context().currentTaskId() == null ? run.context().phase().name()
+                        : "task " + run.context().currentTaskId());
+        if (description != null && !description.isBlank()) {
+            String normalized = description.replaceAll("\\s+", " ").trim();
+            target += "：" + (normalized.length() <= 320 ? normalized
+                    : normalized.substring(0, 320) + "…（完整验收见本轮任务数据）");
+        }
+        return target + "。先核对已有实现和有效证据，补齐当前验收缺项，再由 Runtime 推进下一任务。";
+    }
+
+    private static String taskFocus() {
+        return "\n只完成本轮授权任务的验收范围；关闭编码门禁不扩大任务授权。"
+                + "满足验收则按真实证据勾选并报告，否则补齐具体缺项，非必要增强留作后续。"
+                + "若已有工作偏离当前任务，先保存成果并回到当前验收；不得无证据勾选任务或删改他人成果。"
+                + "最终交付门禁和人工生产授权保留。\n";
     }
 
     private static String scopeRecovery() {
@@ -182,14 +209,8 @@ public final class AutopilotTurnHandoff {
                 Runtime decision: %s
                 FORGE_SUPERVISED_NO_DOCKER=1
 
-                先核对当前绑定开发任务：本地实现与必要测试已满足则勾选并上报；否则直接补齐缺失。
-                复用输入未变化且指纹有效的证据，不重复读全部历史、规格或运行已通过的测试。
-                对存疑项先实现可回退、可本地验证的推荐默认方案，留配置或策略切换点；
-                记录假设、证据、风险及 [MANUAL_CONFIRMATION]，不得把假设写成已证实事实。
-                生产操作登记 [MANUAL_PRODUCTION]，人工项统一后置到整个批次开发完成后。
-                有可执行工作就继续；仅剩必须人工介入的工作才待回复，权限和预算边界仍有效。
-                Runtime 负责选择下一 task/change；execution=null 仅表示尚无代码写入绑定。
-                遇到绑定错配先修复当前 change 的绑定，不重跑无关测试或绕过写入门禁。
+                引擎在当前授权任务内连续编码和调用工具；Runtime 负责选择下一 task/change。
+                权限和预算边界仍有效；手动暂停、服务重启、资源访问及生产操作遵循原授权。
                 yield 前调用 forge.report_session_progress；可继续时附 nextAction 和 remainingWork。
                 """.formatted(run.id(), run.context().projectRoot(), run.context().changeId(),
                 run.context().phase(), run.context().currentTaskId(), run.context().changeRevision(),

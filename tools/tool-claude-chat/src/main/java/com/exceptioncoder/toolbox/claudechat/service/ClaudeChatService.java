@@ -20,6 +20,7 @@ import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionQueueRelea
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionTurnSettledEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionReadinessResultEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.ReadinessFailureGuard;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.AutopilotQueuedContextService;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunCompletionListener;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadataProvider;
@@ -88,6 +89,7 @@ public class ClaudeChatService {
     private final ReviewIntentService reviewIntents;
     private final SessionProjectDirectoryService sessionProjectDirectories;
     private final QueuedChatMessageService queuedMessages;
+    private final AutopilotQueuedContextService autopilotQueuedContext;
     private final AssistantEnvelopePromptBuilder assistantEnvelopePromptBuilder;
     private final SessionRuntimeStateService runtimeStates;
     private final EngineCatalogService engineCatalog;
@@ -159,7 +161,8 @@ public class ClaudeChatService {
                              List<AgentRunCompletionListener> completionListeners,
                              ApplicationEventPublisher applicationEvents,
                              SessionVoiceService voiceService,
-                             com.exceptioncoder.toolbox.claudechat.service.changes.TurnChangeService turnChanges) {
+                             com.exceptioncoder.toolbox.claudechat.service.changes.TurnChangeService turnChanges,
+                             AutopilotQueuedContextService autopilotQueuedContext) {
         this.props = props;
         this.repo = repo;
         this.authSessionLinks = authSessionLinks;
@@ -180,6 +183,7 @@ public class ClaudeChatService {
         this.reviewIntents = reviewIntents;
         this.sessionProjectDirectories = sessionProjectDirectories;
         this.queuedMessages = queuedMessages;
+        this.autopilotQueuedContext = autopilotQueuedContext;
         this.assistantEnvelopePromptBuilder = assistantEnvelopePromptBuilder;
         this.runtimeStates = runtimeStates;
         this.engineCatalog = engineCatalog;
@@ -861,6 +865,11 @@ public class ClaudeChatService {
     }
 
     private void startTurnAdmitted(SessionCtx ctx, ClientMessage.Send msg, String turnPolicy) {
+        startTurnAdmitted(ctx, msg, turnPolicy, null);
+    }
+
+    private void startTurnAdmitted(SessionCtx ctx, ClientMessage.Send msg, String turnPolicy,
+                                   String trustedContinuationContext) {
         sessionAccessPolicy.requireProjectAllowed(ctx.cwd);
         var images = loadMessageImages(ctx.sessionId, msg.attachments());
         ctx.queueReleaseReady = false;
@@ -889,6 +898,7 @@ public class ClaudeChatService {
                     : null;
         SessionProjectDirectoryService.SessionProjectContext projectContext =
                 sessionProjectDirectories.buildContext(ctx.sessionId, ctx.cwd, ctx.executionPolicy);
+        String sessionContext = mergeSessionContext(projectContext, trustedContinuationContext);
         AgentRunMetadata metadata = resolveMetadata(ctx);
         turnChanges.begin(ctx.sessionId, turnId);
         String spanName = "fore-consult".equals(metadata.scope()) ? "fore_consult.turn" : "agent.turn";
@@ -901,7 +911,7 @@ public class ClaudeChatService {
         try {
             if (msg.voice() != null) {
                 sidecar.userMessage(ctx.sessionId, msg.text(), developerInstructions,
-                        projectContext == null ? null : projectContext.instructions(),
+                        sessionContext,
                         projectContext == null ? List.of() : projectContext.paths(),
                         turnId, span.traceContext(), metadata, images, turnPolicy, msg.voice().callId());
             } else {
@@ -909,7 +919,7 @@ public class ClaudeChatService {
                         appendAttachmentHints(msg.text(), msg.attachments(),
                                 SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)),
                         developerInstructions,
-                        projectContext == null ? null : projectContext.instructions(),
+                        sessionContext,
                         projectContext == null ? List.of() : projectContext.paths(),
                         turnId, span.traceContext(), metadata, images, turnPolicy);
             }
@@ -1802,17 +1812,22 @@ public class ClaudeChatService {
                         attachment.id(), attachment.name(), attachment.path(), attachment.mime()))
                 .toList(), message.developerInstructions(), null, message.id());
         try {
+            String continuationContext = autopilotQueuedContext.resolve(message);
             if (!ensureSessionResumable(ctx)) {
                 queuedMessages.restore(message);
                 return;
             }
-            startTurnAdmitted(ctx, send, null);
+            startTurnAdmitted(ctx, send, null, continuationContext);
             sendToBrowser(ctx, seq -> new ServerMessage.QueueDispatched(seq, message.id(), message.text(),
                     message.displayText(), message.attachments().stream()
                             .map(attachment -> new ServerMessage.QueuedAttachment(
                                     attachment.id(), attachment.name(), attachment.path(), attachment.mime()))
                             .toList(), message.createdAt()));
             log.info("[claude-chat] 正常终态自动发送队首 session={} message={}", ctx.sessionId, message.id());
+        } catch (AutopilotQueuedContextService.StaleContinuationException stale) {
+            log.info("[claude-chat] 丢弃过期监督续跑消息 session={} message={}", ctx.sessionId, message.id());
+            sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "AUTOPILOT_CONTINUATION_STALE",
+                    stale.getMessage()));
         } catch (RuntimeException error) {
             queuedMessages.restore(message);
             log.error("[claude-chat] 自动发送队首失败，已恢复队列 session={} message={}",
@@ -1898,6 +1913,19 @@ public class ClaudeChatService {
                     ctx.sessionId, ctx.engine, turnId);
             sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "correcting", true, false));
         }
+    }
+
+    /** 仅供服务端内部派发合并上下文，浏览器的 developerInstructions 不进入此通道。 */
+    static String mergeSessionContext(SessionProjectDirectoryService.SessionProjectContext projectContext,
+                                      String trustedContinuationContext) {
+        String project = projectContext == null ? null : projectContext.instructions();
+        if (trustedContinuationContext == null || trustedContinuationContext.isBlank()) {
+            return project;
+        }
+        if (project == null || project.isBlank()) {
+            return trustedContinuationContext;
+        }
+        return project + "\n\n" + trustedContinuationContext;
     }
 
     private void forceCloseInterruptedTurn(SessionCtx ctx, String turnId, String reason) {

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 public class SessionAutopilotReconciler {
 
     private final SessionAutopilotService service;
+    private volatile boolean ready;
 
     public SessionAutopilotReconciler(SessionAutopilotService service) {
         this.service = service;
@@ -17,11 +18,12 @@ public class SessionAutopilotReconciler {
 
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {
+        ready = true;
         service.reconcileActiveRuns();
     }
 
     @Scheduled(fixedDelayString = "${toolbox.claude-chat.autopilot.reconcile-ms:15000}")
     public void reconcile() {
-        service.reconcileActiveRuns();
+        if (ready) service.reconcileActiveRuns();
     }
 }
