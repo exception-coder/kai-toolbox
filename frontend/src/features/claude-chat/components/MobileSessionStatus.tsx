@@ -77,7 +77,7 @@ export function MobileSessionStatus({
     enabled: open && Boolean(onSwitchSession),
     refetchInterval: open ? 3_000 : false,
   })
-  const available = (sessionList.data ?? []).filter(isVibeCodingSession)
+  const available = (sessionList.data ?? []).filter(session => isVibeCodingSession(session) && !session.planExpired)
   const runningSessions = available.filter(session => session.status === 'RUNNING' && session.live)
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
   const recentSessions = available.filter(session => !runningSessions.some(active => active.id === session.id))

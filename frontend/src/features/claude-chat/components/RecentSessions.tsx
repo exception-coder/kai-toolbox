@@ -92,6 +92,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
   const visibleStatuses = useVisibleSessionStatuses()
   const recentCandidates = useMemo(() => sessions.filter(isVibeCodingSession), [sessions])
   const recent = recentCandidates
+    .filter(session => !session.planExpired)
     .filter(session => isSessionStatusVisible(session, visibleStatuses))
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .slice(0, limit)

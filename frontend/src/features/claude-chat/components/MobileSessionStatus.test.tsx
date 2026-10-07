@@ -307,7 +307,9 @@ describe('MobileSessionStatus', () => {
       id, cwd: `D:/work/${id}`, title: id, sdkSessionId: null, status,
       startedAt: lastSeenAt, lastSeenAt, live: status === 'RUNNING',
     })
-    listSessions.mockResolvedValue([session('current', 'IDLE', 3), session('active', 'RUNNING', 2), session('recent', 'IDLE', 1)])
+    listSessions.mockResolvedValue([session('current', 'IDLE', 3), session('active', 'RUNNING', 2), session('recent', 'IDLE', 1),
+      { ...session('locked', 'IDLE', 5), planExpired: true },
+      { ...session('locked-active', 'RUNNING', 6), planExpired: true }])
     const onSwitchSession = vi.fn()
     renderWithQueryClient(<MobileSessionStatus sessionId="current" items={[]} running={false} engineLabel="Codex"
       turnTokens={0} connState="ready" backgroundTasks={[]} usage={null} usageLoading={false}
@@ -316,6 +318,7 @@ describe('MobileSessionStatus', () => {
     expect(await screen.findByRole('region', { name: '快速切换会话' })).toBeInTheDocument()
     expect(await screen.findByText('正在执行 · 1')).toBeInTheDocument()
     expect(screen.getByText('最近会话 · 2')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /locked/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /active/ }))
     expect(onSwitchSession).toHaveBeenCalledWith('active', true)
   })
