@@ -2,7 +2,7 @@
 name: forge-openspec-continuous-execution
 description: Keep a Forge-supervised OpenSpec change running until the bound Done Condition is proven.
 x-forge-owned: true
-x-forge-version: 1.0.12
+x-forge-version: 1.0.13
 ---
 
 # Forge OpenSpec Continuous Execution
@@ -28,6 +28,12 @@ Do not stop and ask the user to say “continue” merely because one task, impl
 5. Before yielding, call `forge.report_session_progress` exactly once with a truthful structured disposition.
 
 Runtime polling is deterministic and does not require an extra model review. Once this Skill is acknowledged by the engine, routine handoffs carry current binding and progress instead of repeating all rules. Use prior test evidence only while its code, test, configuration and dependency inputs remain valid; rerun affected checks after changes, failed checks after repairs, and required delivery gates. Do not repeat unchanged successful tests or unavailable environment probes to fill a turn. Continue concrete implementation within the current task without yielding for every small step; Runtime selects the next bound task after completion reporting.
+
+### AI-native base delivery and explicit follow-ups
+
+Deliver a usable base version for frequent main flows, then complete extensions and external integrations incrementally. An optional or deferrable dependency must not stop all independent development. When a bound task mixes base functionality with external channels, credentials, production acceptance or optional enhancements, use the user's authorized base-version goal to split base acceptance and explicit unfinished follow-up tasks in the existing OpenSpec. Preserve every original requirement, record dependencies and acceptance, and keep unavailable capabilities disabled. Necessary permissions, data safety and main-flow correctness remain base acceptance requirements.
+
+Check only the base tasks proven by actual evidence; deferred requirements stay unchecked. Follow the existing specification update and rebinding process, then let Runtime select executable work. Do not silently drop requirements, mark the whole change complete, select an unbound task or invent passing evidence. Ask for missing external configuration once, keep it as a follow-up, and continue authorized independent work without repeatedly probing the unavailable dependency or retesting unchanged passing code. Wait for the user only when no authorized executable work remains.
 
 ### Coherent coding and verification batches
 
