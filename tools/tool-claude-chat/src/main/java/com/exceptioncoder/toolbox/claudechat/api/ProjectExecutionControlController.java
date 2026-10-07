@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.api;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore;
+import com.exceptioncoder.toolbox.claudechat.service.governance.VerificationCadence;
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,7 +26,12 @@ public class ProjectExecutionControlController {
         this.sessions = sessions;
         this.access = access;
     }
-    public record Update(String project, Integer expectedRevision, Boolean enabled, String reason) { }
+    public record Update(String project, Integer expectedRevision, Boolean enabled, String reason,
+                         VerificationCadence verificationCadence) {
+        public Update(String project, Integer expectedRevision, Boolean enabled, String reason) {
+            this(project, expectedRevision, enabled, reason, null);
+        }
+    }
 
     @GetMapping
     public ProjectExecutionControlStore.Control get(@PathVariable String sessionId) {
@@ -44,7 +50,7 @@ public class ProjectExecutionControlController {
         String actor = AuthContext.current().map(user -> user.username() + "#" + user.userId()).orElse("local-developer");
         try {
             return ProjectExecutionControlStore.update(root, input.expectedRevision(), input.enabled(),
-                    actor + " / session:" + sessionId, input.reason());
+                    actor + " / session:" + sessionId, input.reason(), input.verificationCadence());
         } catch (ProjectExecutionControlStore.RevisionConflictException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage());
         }

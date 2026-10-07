@@ -25,6 +25,15 @@ class DeveloperControlRunnerTest {
         var continuation = runner.decide(run, pending);
         assertThat(continuation.context().phase()).isEqualTo(OpenSpecExecutionPhase.APPLY);
         assertThat(continuation.state()).isEqualTo(AutopilotState.ACTIVE);
+        when(run.noProgressCount()).thenReturn(3);
+        var repeated = runner.decide(run, pending);
+        assertThat(repeated.noProgressCount()).isEqualTo(4);
+        assertThat(repeated.state()).isEqualTo(AutopilotState.ACTIVE);
+        assertThat(repeated.reason()).contains("核对已有成果");
+        var next = new OpenSpecAutopilotAdapter.TaskSnapshot("1.3", 3, "next", false);
+        var moved = runner.decide(run, new OpenSpecAutopilotAdapter.ChangeSnapshot("change-a", "rev2", 1, 2,
+                List.of(next), Map.of(), next));
+        assertThat(moved.noProgressCount()).isZero();
         var done = new OpenSpecAutopilotAdapter.ChangeSnapshot("change-a", "rev", 1, 1, List.of(), Map.of(), null);
         var handoff = runner.decide(run, done);
         assertThat(handoff.state()).isEqualTo(AutopilotState.STOPPED);

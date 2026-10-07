@@ -18,6 +18,7 @@ import java.nio.file.Path;
 /** 仅依据持久上下文、OpenSpec 与门禁证据作出确定性的下一步决策。 */
 @Service
 public class OpenSpecContinuousRunner {
+    private static final int MAX_DIAGNOSTIC_REPEATS = 1000;
 
     private final OpenSpecAutopilotAdapter openSpec;
     private final ForgeQualityGateAdapter qualityGate;
@@ -32,9 +33,13 @@ public class OpenSpecContinuousRunner {
         if (ProjectExecutionControlStore.disabled(Path.of(context.projectRoot()))) {
             TaskSnapshot next = snapshot.nextTask();
             if (next != null) {
+                boolean sameTask = next.id().equals(context.currentTaskId())
+                        && snapshot.completedTasks() == run.completedTasks();
+                int repeated = sameTask ? Math.min(run.noProgressCount(), MAX_DIAGNOSTIC_REPEATS - 1) + 1 : 0;
                 return Decision.continueWith(copy(context, snapshot.revision(), next.id(), next.applyOrdinal(),
                         OpenSpecExecutionPhase.APPLY, context.version() + 1), "DEVELOPER_CONTINUE",
-                        "项目编码门禁关闭，继续实际未完成的开发 task", 0);
+                        repeated >= 2 ? "当前 task 验收尚未收口，先核对已有成果并完成剩余项；继续开发"
+                                : "项目编码门禁关闭，继续实际未完成的开发 task", repeated);
             }
             return new Decision(AutopilotState.STOPPED, "DEVELOPER_HANDOFF",
                     "开发推进结束；项目编码门禁关闭，验证与归档未执行，人工事项保留待开发者验收",

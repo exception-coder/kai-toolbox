@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.service.autopilot;
 
 import com.exceptioncoder.toolbox.claudechat.domain.autopilot.SessionAutopilotRun;
 import com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore;
+import com.exceptioncoder.toolbox.claudechat.service.governance.VerificationCadence;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -16,8 +17,13 @@ public final class AutopilotTurnHandoff {
             String reason) {
         Message message = forRun(run, snapshot.completedTasks(), snapshot.totalTasks(), reason);
         var batch = AutopilotTaskBatch.select(run.context(), snapshot);
-        String guidance = "\n先完成关联代码与测试用例，再在完整功能检查点运行必要的关联验证；不要每次编辑后重复构建。"
-                + "关键权限、事务或失败修复需及时定向验证；最终门禁仍须通过。";
+        Path project = Path.of(run.context().projectRoot());
+        VerificationCadence cadence = Files.exists(project.resolve(".forge/execution-control.json"))
+                ? ProjectExecutionControlStore.read(project).verificationCadence() : VerificationCadence.CHECKPOINT;
+        if (cadence == VerificationCadence.PER_TASK && batch.size() > 1) {
+            batch = batch.subList(0, 1);
+        }
+        String guidance = "\n关键权限、事务或失败修复需及时定向验证；最终门禁仍须通过。";
         if (batch.size() > 1) {
             String ids = batch.stream().map(task -> task.id())
                     .collect(java.util.stream.Collectors.joining(", "));
@@ -25,13 +31,16 @@ public final class AutopilotTurnHandoff {
                     + "。该批次可连续编码后统一验证，按证据逐项勾选；当前 task 仍为进度锚点。"
                     + "不得扩到未列出的 task、其他 change 或人工项；规格修订后先报告，由 Runtime 重读再派发。"
                     + "此批次授权优先于旧引导中仅执行单 task 的限制，不扩大 writer 文件范围。";
-        } else if (batch.size() == 1) {
+        } else if (batch.size() == 1 && cadence == VerificationCadence.CHECKPOINT) {
             guidance += "\n如相邻本地任务确有共同实现和验证边界，先在现有设计记录依据，"
                     + "给任务 ID 后的描述补 [VERIFY_GROUP:name] 标记并报告修订，"
                     + "由 Runtime 重读后授权批次；不得自行跨任务，人工项不合并。";
         }
         guidance += "\n验证返回 reusedCheckIds 是复用旧证据，不是新执行；"
                 + "环境或时间敏感检查及必须新跑的验收使用 force=true。";
+        if (!batch.isEmpty()) {
+            guidance += AutopilotCheckpointGuidance.describe(run, batch, cadence);
+        }
         String display = batch.size() > 1 ? message.display() + " · 合并验证 " + batch.size() + " 项"
                 : message.display();
         return new Message(message.id(), display, message.text(), message.instructions() + guidance);

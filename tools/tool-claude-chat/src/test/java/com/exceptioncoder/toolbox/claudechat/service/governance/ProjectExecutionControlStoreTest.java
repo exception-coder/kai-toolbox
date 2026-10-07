@@ -9,6 +9,29 @@ import static org.assertj.core.api.Assertions.*;
 class ProjectExecutionControlStoreTest {
     @TempDir Path root;
 
+    @Test void cadenceIsAuditedWithoutChangingGatesAndLegacyUpdatesPreserveIt() throws Exception {
+        assertThat(ProjectExecutionControlStore.read(root).verificationCadence()).isEqualTo(VerificationCadence.CHECKPOINT);
+        var changed = ProjectExecutionControlStore.update(root, 0, true, "developer", "逐任务验证", VerificationCadence.PER_TASK);
+        assertThat(changed.enabled()).isTrue();
+        assertThat(changed.revision()).isEqualTo(1);
+        assertThat(changed.history().getFirst().verificationCadence()).isEqualTo(VerificationCadence.PER_TASK);
+        assertThat(ProjectExecutionControlStore.read(root)).isEqualTo(changed);
+        assertThat(ProjectExecutionControlStore.update(root, 1, true, "developer", "相同配置", VerificationCadence.PER_TASK)).isEqualTo(changed);
+        assertThatThrownBy(() -> ProjectExecutionControlStore.update(root, 0, true, "other", "过期", VerificationCadence.CHECKPOINT))
+                .isInstanceOf(ProjectExecutionControlStore.RevisionConflictException.class);
+        assertThat(ProjectExecutionControlStore.update(root, 1, false, "developer", "关闭门禁").verificationCadence())
+                .isEqualTo(VerificationCadence.PER_TASK);
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        Path file = root.resolve(".forge/execution-control.json");
+        var legacy = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(file.toFile());
+        legacy.remove("verificationCadence");
+        Files.writeString(file, json.writeValueAsString(legacy));
+        var restored = ProjectExecutionControlStore.read(root);
+        assertThat(restored.verificationCadence()).isEqualTo(VerificationCadence.CHECKPOINT);
+        assertThat(restored.enabled()).isFalse();
+        assertThat(restored.history()).hasSize(2);
+    }
+
     @Test void togglesRemainAuditedAndDoNotTouchBrokenWriters() throws Exception {
         assertThat(ProjectExecutionControlStore.read(root).enabled()).isTrue();
         assertThat(Files.exists(root.resolve(".forge"))).isFalse();

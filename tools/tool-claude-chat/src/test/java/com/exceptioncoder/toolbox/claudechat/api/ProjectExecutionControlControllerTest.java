@@ -33,6 +33,11 @@ class ProjectExecutionControlControllerTest {
         var initial = controller.get("first");
         var changed = controller.update("first", new ProjectExecutionControlController.Update(initial.project(), 0, false, "恢复开发"));
         assertThat(controller.get("second")).isEqualTo(changed);
+        var cadence = controller.update("second", new ProjectExecutionControlController.Update(initial.project(), 1, false,
+                "逐任务验证", com.exceptioncoder.toolbox.claudechat.service.governance.VerificationCadence.PER_TASK));
+        assertThat(controller.get("first")).isEqualTo(cadence);
+        assertThat(cadence.enabled()).isFalse();
+        assertThat(cadence.verificationCadence()).isEqualTo(com.exceptioncoder.toolbox.claudechat.service.governance.VerificationCadence.PER_TASK);
         assertThatThrownBy(() -> controller.update("second", new ProjectExecutionControlController.Update(initial.project(), 0, true, "过期")))
                 .isInstanceOf(ResponseStatusException.class);
         assertThatThrownBy(() -> controller.update("first", new ProjectExecutionControlController.Update("other-project", 1, true, "错误目标")))

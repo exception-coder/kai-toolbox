@@ -21,16 +21,22 @@ public final class ProjectExecutionControlStore {
         return Files.exists(project.resolve(".forge/execution-control.json")) && !read(project).enabled();
     }
 
-    public record Event(int revision, boolean enabled, String changedAt, String actor, String reason) { }
+    public record Event(int revision, boolean enabled, String changedAt, String actor, String reason,
+                        VerificationCadence verificationCadence) { }
     public record Control(int schemaVersion, String project, boolean enabled, int revision,
-                          String changedAt, String actor, String reason, List<Event> history) { }
+                          String changedAt, String actor, String reason, List<Event> history,
+                          VerificationCadence verificationCadence) {
+        public Control {
+            if (verificationCadence == null) verificationCadence = VerificationCadence.CHECKPOINT;
+        }
+    }
 
     public static Control read(Path project) {
         try {
             Path root = project.toRealPath();
             Path file = controlFile(root);
             if (!Files.exists(file)) {
-                return new Control(1, root.toString(), true, 0, null, null, null, List.of());
+                return new Control(1, root.toString(), true, 0, null, null, null, List.of(), VerificationCadence.CHECKPOINT);
             }
             if (Files.size(file) > 4 * 1024 * 1024) {
                 throw new IllegalStateException("编码门禁配置过大，请核对审计记录");
@@ -53,11 +59,17 @@ public final class ProjectExecutionControlStore {
     /** 同项目跨会话共享版本；原 execution、验证和工作文件均不修改。 */
     public static synchronized Control update(Path project, int expectedRevision, boolean enabled,
                                               String actor, String reason) {
+        return update(project, expectedRevision, enabled, actor, reason, null);
+    }
+
+    public static synchronized Control update(Path project, int expectedRevision, boolean enabled,
+                                              String actor, String reason, VerificationCadence cadence) {
         Control before = read(project);
         if (before.revision() != expectedRevision) {
             throw new RevisionConflictException();
         }
-        if (before.enabled() == enabled) {
+        VerificationCadence nextCadence = cadence == null ? before.verificationCadence() : cadence;
+        if (before.enabled() == enabled && before.verificationCadence() == nextCadence) {
             return before;
         }
         if (actor == null || actor.isBlank() || reason == null || reason.isBlank() || reason.length() > 1000) {
@@ -65,9 +77,9 @@ public final class ProjectExecutionControlStore {
         }
         String now = Instant.now().toString();
         var events = new ArrayList<>(before.history());
-        events.add(new Event(before.revision() + 1, enabled, now, actor, reason));
+        events.add(new Event(before.revision() + 1, enabled, now, actor, reason, nextCadence));
         Control next = new Control(1, before.project(), enabled, before.revision() + 1,
-                now, actor, reason, List.copyOf(events));
+                now, actor, reason, List.copyOf(events), nextCadence);
         Path file = controlFile(Path.of(before.project()));
         Path temporary = file.resolveSibling("execution-control." + UUID.randomUUID() + ".tmp");
         try {

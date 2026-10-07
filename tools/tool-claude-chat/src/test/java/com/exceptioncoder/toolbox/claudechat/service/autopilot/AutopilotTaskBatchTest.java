@@ -19,6 +19,24 @@ import static org.mockito.Mockito.when;
 
 class AutopilotTaskBatchTest {
     @Test
+    void projectCadenceLimitsBatchAndDisabledGatesKeepAcceptanceContext(@TempDir Path root) {
+        var run = mock(SessionAutopilotRun.class);
+        when(run.context()).thenReturn(new OpenSpecExecutionContext(root.toString(), "repo", "main", "fp",
+                "change-a", "revision", "1.1", 1, OpenSpecExecutionPhase.APPLY, "thread", 1, 0));
+        when(run.id()).thenReturn("checkpoint");
+        when(run.noProgressCount()).thenReturn(3);
+        var snapshot = snapshot("[VERIFY_GROUP:a] 完成账户编辑和权限校验", "[VERIFY_GROUP:a] 完成审计记录");
+        var grouped = AutopilotTurnHandoff.forRun(run, snapshot, "continue");
+        assertThat(grouped.instructions()).contains("功能检查点", "完成账户编辑和权限校验", "完成审计记录",
+                "当前任务已多次派发", "有效且未变时引用原证据");
+        com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore.update(root, 0, false,
+                "developer", "逐任务验证", com.exceptioncoder.toolbox.claudechat.service.governance.VerificationCadence.PER_TASK);
+        var single = AutopilotTurnHandoff.forRun(run, snapshot, "continue");
+        assertThat(single.instructions()).contains("验证节奏：逐任务", "完成账户编辑和权限校验", "编码门禁已由开发者关闭")
+                .doesNotContain("完成审计记录", "Runtime 本轮授权验证批次", "功能检查点（默认）");
+        assertThat(single.display()).doesNotContain("合并验证");
+    }
+    @Test
     void provisionedBatchInstructionsMatchReportedVersion(@TempDir Path root) throws Exception {
         var result = new ContinuousExecutionSkillProvisioner().provision(root);
         assertThat(result.ready()).isTrue();
