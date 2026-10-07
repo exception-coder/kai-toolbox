@@ -46,6 +46,11 @@ class AutopilotTurnHandoffTest {
                     "未运行的验收不能记为通过");
         }
         assertThat(next.latestReportAt()).isNull();
+        ProjectExecutionControlStore.update(root, 1, false, "developer", "编码优先",
+                com.exceptioncoder.toolbox.claudechat.service.governance.VerificationCadence.CODING_FIRST);
+        var coding = AutopilotTurnHandoff.forRun(next, snapshot, "continue", previous);
+        assertThat(coding.instructions()).contains("编码优先", "[IMPLEMENTED]", "[DEFERRED_VERIFICATION]", "不自动执行编译")
+                .doesNotContain("关键权限、事务、迁移及失败修复及时定向验证", "也不拖到整个规格批次结束");
     }
 
     @Test

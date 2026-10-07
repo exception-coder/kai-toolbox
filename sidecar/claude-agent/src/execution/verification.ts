@@ -35,6 +35,13 @@ function emitProgress(runtime: VerificationRuntime | undefined, progress: Verifi
 export async function runExecutionVerification(raw: unknown, runtime?: VerificationRuntime) {
   const input = runExecutionSchema.parse(raw)
   requireActive(runtime?.signal)
+  if (developerControl(input.project).verificationCadence === 'CODING_FIRST') {
+    return { allowed: true, code: 'VERIFICATION_DEFERRED', skipped: true, verified: false,
+      batchStatus: 'DEFERRED', results: [] as NonNullable<Execution['verification']>['results'],
+      missing: input.checks.map(check => check.kind), pendingChecks: input.checks,
+      executedCheckIds: [], reusedCheckIds: [],
+      message: '项目为编码优先；未执行验证或写入通过记录，继续编码，待开发者切回标准验收后集中验证。' }
+  }
   checkExecution(input)
   const controlRevision = developerControl(input.project).revision
   const record = loadExecution(input.project, input.sessionId)!

@@ -69,8 +69,10 @@ public final class AutopilotBatchDeferralPlanner {
                     unavailable.add(new DeferredChange(id, "规格已变化或没有待执行 task，等待重新预检"));
                     continue;
                 }
-                var validation = openSpec.strictValidate(Path.of(run.context().projectRoot()), id);
-                if (!validation.passed()) {
+                var validation = com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore
+                        .codingFirst(Path.of(run.context().projectRoot())) ? null
+                        : openSpec.strictValidate(Path.of(run.context().projectRoot()), id);
+                if (validation != null && !validation.passed()) {
                     unavailable.add(new DeferredChange(id, "规格校验未通过：" + validation.detail()));
                     continue;
                 }

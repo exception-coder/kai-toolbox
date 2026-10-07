@@ -17,6 +17,25 @@ public final class ProjectExecutionControlStore {
     private static final ObjectMapper JSON = new ObjectMapper();
     private ProjectExecutionControlStore() { }
 
+    public static boolean codingFirst(Path project) {
+        return Files.exists(project.resolve(".forge/execution-control.json"))
+                && read(project).verificationCadence() == VerificationCadence.CODING_FIRST;
+    }
+
+    public static String codingInstructions(Path project) {
+        if (!codingFirst(project)) return "";
+        return """
+                项目验证方式：编码优先。此项目设置优先于旧 Skill、历史消息和默认验证节奏。
+                先完成全部授权编码，不自动执行编译、测试、构建、严格规格校验或浏览器验收。
+                不因缺少验收证据停在同一任务；已实现但未验收的任务保留未勾选，
+                在任务描述开头添加 [IMPLEMENTED]，实现范围和待验收项记录在原 validation。
+                纯验收任务保留未勾选并以 [DEFERRED_VERIFICATION] 开头，不能用此标记掩盖未完成实现。
+                Runtime 按实现标记继续下一项；最终由开发者切回标准验收后集中验证。
+                已知代码缺陷照常修复，外部依赖拆为明确后续项，继续独立编码。
+                不把未执行检查写为通过，不自动归档或发布；写入范围、资源和重启授权不变。
+                """;
+    }
+
     public static boolean disabled(Path project) {
         return Files.exists(project.resolve(".forge/execution-control.json")) && !read(project).enabled();
     }

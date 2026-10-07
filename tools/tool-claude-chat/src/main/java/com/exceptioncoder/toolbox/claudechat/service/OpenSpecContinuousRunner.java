@@ -31,6 +31,15 @@ public class OpenSpecContinuousRunner {
 
     public Decision decide(SessionAutopilotRun run, ChangeSnapshot snapshot) {
         OpenSpecExecutionContext context = run.context();
+        if (ProjectExecutionControlStore.codingFirst(Path.of(context.projectRoot()))) {
+            TaskSnapshot next = OpenSpecAutopilotAdapter.nextTask(Path.of(context.projectRoot()), snapshot.tasks());
+            if (next == null) return new Decision(AutopilotState.STOPPED, "DEVELOPER_HANDOFF",
+                    "授权编码已完成，待开发者集中验收；未执行验证或归档，验收勾选数不代表实现进度",
+                    context, 0, null, snapshot.revision() + ":CODING_FIRST_HANDOFF");
+            return Decision.continueWith(copy(context, snapshot.revision(), next.id(), next.applyOrdinal(),
+                    OpenSpecExecutionPhase.APPLY, context.version() + 1),
+                    "CODING_CONTINUE", "编码优先：继续未实现任务，不以验证证据阻断推进", 0);
+        }
         if (ProjectExecutionControlStore.disabled(Path.of(context.projectRoot()))) {
             TaskSnapshot next = snapshot.nextTask();
             if (next != null) {
@@ -65,6 +74,10 @@ public class OpenSpecContinuousRunner {
 
     /** 空闲巡检只决定开发阶段是否已结束，绝不运行质量检查或归档。 */
     public Optional<Decision> decideIdleRecovery(SessionAutopilotRun run, ChangeSnapshot snapshot) {
+        if (ProjectExecutionControlStore.codingFirst(Path.of(run.context().projectRoot()))) {
+            return OpenSpecAutopilotAdapter.nextTask(Path.of(run.context().projectRoot()), snapshot.tasks()) == null
+                    ? Optional.of(decide(run, snapshot)) : Optional.empty();
+        }
         if (snapshot.nextTask() != null) return Optional.empty();
         if (run.context().phase() == OpenSpecExecutionPhase.APPLY) {
             // APPLY only makes state decisions; retain its context-drift checks.

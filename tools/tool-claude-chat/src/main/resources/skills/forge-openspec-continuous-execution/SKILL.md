@@ -2,7 +2,7 @@
 name: forge-openspec-continuous-execution
 description: Keep a Forge-supervised OpenSpec change running until the bound Done Condition is proven.
 x-forge-owned: true
-x-forge-version: 1.0.14
+x-forge-version: 1.0.15
 ---
 
 # Forge OpenSpec Continuous Execution
@@ -12,6 +12,10 @@ This skill is active only when Forge injects an explicit supervised Execution Co
 The Forge Runtime supervision binding and the Sidecar code writer binding are separate. The injected Runtime run ID, change ID, phase and task come from the current session's persisted supervision record. A `null` value in `forge.session_init.execution` means no code writer has been granted for that session; it does not erase the supervised OpenSpec binding. Before editing, determine exact files for the bound task and follow `resolve_execution_context` → `discover_execution` → `assess_execution`, reusing the bound change ID. Respect the writer decision. If that path cannot grant access, inspect the writer owner and continue independent read-only or nonconflicting work. Report the specific blocker only when no authorized step remains.
 
 ## Continuous execution policy
+
+### Project coding-first override
+
+When the current project context specifies CODING_FIRST, it overrides the verification timing below: finish all authorized coding before any automatic compilation, tests, build, browser or strict-spec acceptance. Mark implemented but unverified tasks with `[IMPLEMENTED]` at the beginning of their unchecked descriptions; Runtime continues other implementation work. Preserve acceptance gaps and evidence without claiming PASS. After coding, hand off for developer-triggered concentrated acceptance by switching back to standard mode and resuming. Do not archive, publish or mark verified completion. Keep writer ownership, file scope, resource and service authorization intact. Do not run a verifier simply because a turn, task or implementation commit ended.
 
 ### Recover a missing writer file scope
 

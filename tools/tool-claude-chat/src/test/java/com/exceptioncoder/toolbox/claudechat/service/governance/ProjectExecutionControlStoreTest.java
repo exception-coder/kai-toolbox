@@ -9,6 +9,18 @@ import static org.assertj.core.api.Assertions.*;
 class ProjectExecutionControlStoreTest {
     @TempDir Path root;
 
+    @Test void codingFirstIsSharedAuditedAndDoesNotDisableWritingGates() {
+        var saved = ProjectExecutionControlStore.update(root, 0, true, "developer", "先完成编码",
+                VerificationCadence.CODING_FIRST);
+        assertThat(saved.enabled()).isTrue();
+        assertThat(ProjectExecutionControlStore.codingFirst(root)).isTrue();
+        assertThat(ProjectExecutionControlStore.read(root).history().getFirst().verificationCadence())
+                .isEqualTo(VerificationCadence.CODING_FIRST);
+        assertThat(ProjectExecutionControlStore.codingInstructions(root)).contains("不自动执行编译", "[IMPLEMENTED]");
+        ProjectExecutionControlStore.update(root, 1, true, "developer", "开始集中验收", VerificationCadence.CHECKPOINT);
+        assertThat(ProjectExecutionControlStore.codingFirst(root)).isFalse();
+    }
+
     @Test void cadenceIsAuditedWithoutChangingGatesAndLegacyUpdatesPreserveIt() throws Exception {
         assertThat(ProjectExecutionControlStore.read(root).verificationCadence()).isEqualTo(VerificationCadence.CHECKPOINT);
         var changed = ProjectExecutionControlStore.update(root, 0, true, "developer", "逐任务验证", VerificationCadence.PER_TASK);

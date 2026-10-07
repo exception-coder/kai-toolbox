@@ -78,7 +78,13 @@ public class OpenSpecAutopilotAdapter {
         Map<String, List<String>> artifactPaths = artifactPaths(projectRoot, status);
         String revision = sha256(status.toString() + "\n" + apply.toString());
         return new ChangeSnapshot(changeId, revision, completed, total, tasks, artifactPaths,
-                tasks.stream().filter(task -> !task.done() && !task.manualHandoff()).findFirst().orElse(null));
+                nextTask(projectRoot, tasks));
+    }
+
+    static TaskSnapshot nextTask(Path projectRoot, List<TaskSnapshot> tasks) {
+        boolean coding = com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore.codingFirst(projectRoot);
+        return tasks.stream().filter(task -> !task.done() && !task.manualHandoff()
+                && (!coding || !task.implemented() && !task.verificationDeferred())).findFirst().orElse(null);
     }
 
     public ValidationResult strictValidate(Path projectRoot, String changeId) {
@@ -254,6 +260,12 @@ public class OpenSpecAutopilotAdapter {
     }
 
     public record TaskSnapshot(String id, int applyOrdinal, String description, boolean done) {
+        public boolean implemented() {
+            return description.startsWith("[IMPLEMENTED] ");
+        }
+        public boolean verificationDeferred() {
+            return description.startsWith("[DEFERRED_VERIFICATION] ");
+        }
         public boolean manualProduction() {
             return description.startsWith("[MANUAL_PRODUCTION] ");
         }

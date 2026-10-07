@@ -24,6 +24,18 @@ function fixture(t: test.TestContext) {
   return { root, set }
 }
 
+test('coding first does not launch verification or read execution records', async t => {
+  const { root } = fixture(t)
+  fs.writeFileSync(path.join(root, '.forge/execution-control.json'), JSON.stringify({ schemaVersion: 1,
+    project: root, enabled: true, revision: 1, verificationCadence: 'CODING_FIRST' }))
+  const result = await runExecutionVerification({ project: root, sessionId: 'owner',
+    inputFiles: ['test.ts'],
+    checks: [{ kind: 'regression', purpose: 'must not execute', program: 'missing-program', args: [], cwd: '.' }] })
+  assert.equal('code' in result && result.code, 'VERIFICATION_DEFERRED')
+  assert.equal('verified' in result && result.verified, false)
+  assert.deepEqual(result.executedCheckIds, [])
+})
+
 test('developer control bypasses all coding gates before reading a broken writer or store lock', async t => {
   const { root, set } = fixture(t)
   assert.equal(developerControl(root).enabled, true)

@@ -158,7 +158,8 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             if (checked.totalTasks() == 0 || checked.nextTask() == null) {
                 throw new IllegalArgumentException(changeId + " 没有待执行 task");
             }
-            if (!ProjectExecutionControlStore.disabled(identity.projectRoot())) {
+            if (!ProjectExecutionControlStore.disabled(identity.projectRoot())
+                    && !ProjectExecutionControlStore.codingFirst(identity.projectRoot())) {
                 var validation = openSpec.strictValidate(identity.projectRoot(), changeId);
                 if (!validation.passed()) {
                     throw new IllegalArgumentException(changeId + " 预检未通过：" + validation.detail());
@@ -645,7 +646,8 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             if (nextIndex < ids.size()) {
                 String nextId = ids.get(nextIndex);
                 dispatchSnapshot = openSpec.inspect(Path.of(run.context().projectRoot()), nextId);
-                boolean developer = ProjectExecutionControlStore.disabled(Path.of(run.context().projectRoot()));
+                boolean developer = ProjectExecutionControlStore.disabled(Path.of(run.context().projectRoot()))
+                        || ProjectExecutionControlStore.codingFirst(Path.of(run.context().projectRoot()));
                 var validation = developer || idleRecovery ? null : openSpec.strictValidate(Path.of(run.context().projectRoot()), nextId);
                 var deferred = repository.findDeferredChanges(run.id()).stream()
                         .filter(item -> item.changeId().equals(nextId)).findFirst();

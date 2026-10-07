@@ -32,6 +32,7 @@ rules:
     - Choose the smallest sufficient verification set for the usable feature; state concrete risks, reused evidence and triggers for any full build, full suite or browser acceptance.
     - Cite current source or Graphify coordinates and record verification and rollback strategy.
   tasks:
+    - "When the project uses CODING_FIRST, finish all authorized implementation before running compilation, tests, builds or browser acceptance. Keep unverified tasks unchecked and prefix their descriptions with [IMPLEMENTED]; continue other implementation tasks. Switch back to standard acceptance only on developer request; never treat implementation as verified delivery."
     - Organize tasks around usable vertical features, not one task per file, endpoint, scenario or test; concentrate targeted acceptance at the completed feature checkpoint.
     - Do not automatically generate test-writing tasks for small low-risk changes; prefer existing tests and add coverage only for a concrete acceptance gap or regression risk.
     - Reuse unchanged sufficient passing evidence; rerun failed and affected checks after repairs. A commit, model turn or small implementation slice does not trigger a new acceptance cycle.
@@ -42,3 +43,5 @@ rules:
     - When continuing a historical change, first split mixed development/manual tasks while preserving existing task IDs, completed evidence and unfinished local work. Append manual tasks at the end; do not simply relabel unfinished implementation as manual or mark it complete.
     - Keep tasks independently verifiable and do not mark them complete before evidence exists.
     - Separate locally verifiable development tasks from production-only validation and operations. Prefix each production-only task description with [MANUAL_PRODUCTION]; never use the marker for unfinished local code or tests. Keep marked tasks unchecked until a human completes production work.
+
+# Project CODING_FIRST policy: keep unchecked tasks prefixed [IMPLEMENTED] for implementation progress; defer all execution verification until the developer switches back to standard acceptance. Never treat implementation as verified delivery.

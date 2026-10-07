@@ -11,6 +11,7 @@ import type { Discovery } from './context.js'
 import { executionScopes, readWriters, releaseWriter, scopesConflict, writeWriters, type Writer } from './writers.js'
 import { updateExecutionScope } from './scopeUpdate.js'
 import { specsCurrent } from './specDependencies.js'
+import { developerControl } from './developerControl.js'
 
 export type Execution = {
   schemaVersion: 1; executionId: string; project: string; branch: string; sessionId: string; baselineHead: string;
@@ -222,7 +223,12 @@ export function checkExecution(raw: unknown) {
   }
   if (record.policy.spec === 'DELTA_REQUIRED') checkReadiness({ project: root, branch, changeId: record.assessment.changeId, files: input.files,
     operation: input.operation === 'BEFORE_COMMIT' ? 'BEFORE_COMMIT' : 'BEFORE_IMPLEMENTATION' })
-  if (input.operation !== 'BEFORE_IMPLEMENTATION') checkDelivery(record)
+  const deferredCommit = input.operation === 'BEFORE_COMMIT'
+    && developerControl(root).verificationCadence === 'CODING_FIRST'
+  if (input.operation !== 'BEFORE_IMPLEMENTATION' && !deferredCommit) checkDelivery(record)
+  if (deferredCommit) return { allowed: true, code: 'IMPLEMENTATION_COMMIT_ALLOWED', verified: false,
+    executionId: record.executionId, policy: record.policy,
+    warnings: ['编码优先：允许保留实现提交；尚未验收，原执行和验证记录保留，不代表交付通过。'] }
   return { allowed: true, code: 'PASS', executionId: record.executionId, policy: record.policy,
     warnings: ['影响分类需要业务审阅；Hook 不构成任意 Shell 或 Git 管理目录的安全沙箱。'] }
 }

@@ -22,6 +22,30 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class OpenSpecContinuousRunnerTest {
+    @org.junit.jupiter.api.io.TempDir java.nio.file.Path codingRoot;
+
+    @Test void codingFirstSkipsAllAutomaticAcceptanceEvenWhenResumedInQualityPhase() {
+        com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore.update(
+                codingRoot, 0, true, "developer", "coding",
+                com.exceptioncoder.toolbox.claudechat.service.governance.VerificationCadence.CODING_FIRST);
+        var old = run(OpenSpecExecutionPhase.QUALITY_GATE, null, null, AutopilotDisposition.COMPLETE, "revision-a", 0);
+        var ctx = old.context();
+        var context = new OpenSpecExecutionContext(codingRoot.toString(), codingRoot.toString(), ctx.branchAtStart(),
+                ctx.workspaceFingerprint(), ctx.changeId(), ctx.changeRevision(), ctx.currentTaskId(), ctx.currentTaskOrdinal(),
+                ctx.phase(), ctx.agentSessionRef(), ctx.generation(), ctx.version());
+        var codingRun = new SessionAutopilotRun(old.id(), old.sessionId(), old.goal(), old.completionPolicy(), old.state(),
+                old.reason(), context, old.turnCount(), old.maxTurns(), old.noProgressCount(), old.maxNoProgress(),
+                old.autoArchive(), old.skillActivated(), old.skillPath(), old.skillVersion(), old.skillFingerprint(),
+                old.runtimeSupervision(), old.completedTasks(), old.totalTasks(), old.latestDisposition(), old.latestSummary(),
+                old.latestNextAction(), old.latestRemainingWorkJson(), old.latestEvidenceJson(), old.latestReportAt(),
+                old.startedAt(), old.deadlineAt(), old.updatedAt());
+        var pending = snapshot("revision-b", List.of(new TaskSnapshot("1.1", 1, "[IMPLEMENTED] first", false),
+                new TaskSnapshot("1.2", 2, "second", false)));
+        assertThat(runner.decide(codingRun, pending).context().currentTaskId()).isEqualTo("1.2");
+        var implemented = snapshot("revision-c", List.of(new TaskSnapshot("1.1", 1, "[IMPLEMENTED] first", false)));
+        assertThat(runner.decide(codingRun, implemented).state()).isEqualTo(AutopilotState.STOPPED);
+        org.mockito.Mockito.verifyNoInteractions(openSpec, qualityGate);
+    }
 
     private final OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);
     private final ForgeQualityGateAdapter qualityGate = mock(ForgeQualityGateAdapter.class);

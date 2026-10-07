@@ -1919,6 +1919,15 @@ public class ClaudeChatService {
     static String mergeSessionContext(SessionProjectDirectoryService.SessionProjectContext projectContext,
                                       String trustedContinuationContext) {
         String project = projectContext == null ? null : projectContext.instructions();
+        if (projectContext != null && !projectContext.paths().isEmpty()) {
+            String coding = com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore
+                    .codingInstructions(java.nio.file.Path.of(projectContext.paths().getFirst()));
+            if (!coding.isBlank()) {
+                project = (project == null ? "" : project) + "\n\n" + coding;
+                trustedContinuationContext = coding + "\n\n"
+                        + (trustedContinuationContext == null ? "" : trustedContinuationContext);
+            }
+        }
         if (trustedContinuationContext == null || trustedContinuationContext.isBlank()) {
             return project;
         }

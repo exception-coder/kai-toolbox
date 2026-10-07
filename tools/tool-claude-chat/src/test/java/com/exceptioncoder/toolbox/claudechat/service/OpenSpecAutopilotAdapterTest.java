@@ -21,6 +21,21 @@ class OpenSpecAutopilotAdapterTest {
     @TempDir
     Path temporaryDirectory;
 
+    @Test void implementedMarkersAdvanceCodingWithoutChangingAcceptanceAndReturnOnStandardMode() {
+        var tasks = List.of(new OpenSpecAutopilotAdapter.TaskSnapshot("1.1", 1, "[IMPLEMENTED] first", false),
+                new OpenSpecAutopilotAdapter.TaskSnapshot("1.2", 2, "[DEFERRED_VERIFICATION] browser acceptance", false),
+                new OpenSpecAutopilotAdapter.TaskSnapshot("1.3", 3, "third", false));
+        com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore.update(
+                temporaryDirectory, 0, true, "developer", "coding",
+                com.exceptioncoder.toolbox.claudechat.service.governance.VerificationCadence.CODING_FIRST);
+        assertThat(OpenSpecAutopilotAdapter.nextTask(temporaryDirectory, tasks).id()).isEqualTo("1.3");
+        assertThat(tasks).noneMatch(OpenSpecAutopilotAdapter.TaskSnapshot::done);
+        com.exceptioncoder.toolbox.claudechat.service.governance.ProjectExecutionControlStore.update(
+                temporaryDirectory, 1, true, "developer", "acceptance",
+                com.exceptioncoder.toolbox.claudechat.service.governance.VerificationCadence.CHECKPOINT);
+        assertThat(OpenSpecAutopilotAdapter.nextTask(temporaryDirectory, tasks).id()).isEqualTo("1.1");
+    }
+
     @Test
     void selectsDevelopmentTaskPastExplicitManualProductionTask() {
         OpenSpecCliGateway cli = mock(OpenSpecCliGateway.class);

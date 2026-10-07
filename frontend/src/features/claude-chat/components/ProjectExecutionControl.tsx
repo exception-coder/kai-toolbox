@@ -8,7 +8,7 @@ interface Control {
   revision: number
   changedAt: string | null
   actor: string | null
-  verificationCadence?: 'CHECKPOINT' | 'PER_TASK'
+  verificationCadence?: 'CHECKPOINT' | 'PER_TASK' | 'CODING_FIRST'
 }
 
 /** 项目范围的开发者控制，不受当前 writer 或监督运行状态约束。 */
@@ -33,17 +33,20 @@ export function ProjectExecutionControl({ sessionId, compact = false }: { sessio
   const data = query.data
   const cadenceControl = <div className="mt-1 text-xs">
     <label className="flex flex-wrap items-center justify-between gap-x-3" htmlFor={`${id}-cadence`}>
-      <span>验证节奏</span>
+      <span>验证方式</span>
       <select id={`${id}-cadence`} value={data?.verificationCadence ?? 'CHECKPOINT'}
         disabled={!data?.verificationCadence || query.isError || update.isPending}
         onChange={event => data && update.mutate({ control: data, cadence: event.target.value as Control['verificationCadence'] })}
         className="min-h-11 max-w-full rounded-md bg-transparent px-2 focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] disabled:opacity-50">
-        <option value="CHECKPOINT">功能检查点（推荐）</option>
+        <option value="CODING_FIRST">编码优先 · 全部编码后手动验收</option>
+        <option value="CHECKPOINT">标准验收 · 功能检查点</option>
         <option value="PER_TASK">逐任务验证</option>
       </select>
     </label>
     <p className="pb-2 leading-relaxed text-[var(--color-muted-foreground)]">
-      {data && !data.verificationCadence ? '当前服务尚未支持验证节奏设置。' : '同项目共用，下次自动续跑生效。关键风险及时验证，最终验收保留。'}
+      {data && !data.verificationCadence ? '当前服务尚未支持验证节奏设置。' : data?.verificationCadence === 'CODING_FIRST'
+        ? '同项目共用，下次派发生效。先完成全部编码，不自动编译、测试、构建或浏览器验收；实现完成即可推进，最后由开发者切回标准验收集中验证。当前轮和已排队指令不会被改写。'
+        : '同项目共用，下次派发生效。完整功能完成后定向验收，复用未变证据。'}
     </p>
   </div>
   if (compact) return <section aria-labelledby={id} className="min-w-0">

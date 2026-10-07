@@ -6,12 +6,16 @@ import { requireCondition } from '../specResolution/contracts.js'
 export function developerControl(project: string) {
   const root = fs.realpathSync(project)
   const file = safePath(root, '.forge/execution-control.json')
-  if (!fs.existsSync(file)) return { project: root, enabled: true, revision: 0 }
-  const value = readJson<{ schemaVersion: number; project: string; enabled: boolean; revision: number }>(file)
+  if (!fs.existsSync(file)) return { project: root, enabled: true, revision: 0, verificationCadence: 'CHECKPOINT' }
+  const value = readJson<{ schemaVersion: number; project: string; enabled: boolean; revision: number; verificationCadence?: string }>(file)
   requireCondition(value?.schemaVersion === 1 && value.project === root && typeof value.enabled === 'boolean'
     && Number.isSafeInteger(value.revision) && value.revision >= 0,
   'EXECUTION_CONTROL_INVALID', '项目编码门禁配置无效；从监督面板核对控制状态')
-  return { project: root, enabled: value.enabled, revision: value.revision }
+  requireCondition(value.verificationCadence === undefined
+    || ['CHECKPOINT', 'PER_TASK', 'CODING_FIRST'].includes(value.verificationCadence),
+  'EXECUTION_CONTROL_INVALID', '项目验证方式无效；从监督面板核对控制状态')
+  return { project: root, enabled: value.enabled, revision: value.revision,
+    verificationCadence: value.verificationCadence ?? 'CHECKPOINT' }
 }
 
 export function developerBypass(project: string) {
