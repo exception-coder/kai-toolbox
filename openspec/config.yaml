@@ -19,6 +19,7 @@ rules:
   design:
     - Cite current source or Graphify coordinates and record verification and rollback strategy.
   tasks:
+    - Group adjacent local tasks only when they share a reviewed implementation and verification boundary; place [VERIFY_GROUP:name] after each task ID, retain per-task acceptance, and record the rationale in design.md. Never combine manual tasks. Runtime authorizes the actual bounded batch; do not independently skip task binding.
     - Split development work into bounded tasks with explicit local acceptance evidence. Keep production deployment, real-environment acceptance and human follow-up in final separate tasks; they must not prevent completion of verified local development.
     - For revisitable uncertainty, implement the recommended reversible solution with local tests and record assumptions, evidence, risks and extension points in design.md. Append a separate [MANUAL_CONFIRMATION] task for human review; never report an assumed source fact as verified.
     - When continuing a historical change, first split mixed development/manual tasks while preserving existing task IDs, completed evidence and unfinished local work. Append manual tasks at the end; do not simply relabel unfinished implementation as manual or mark it complete.

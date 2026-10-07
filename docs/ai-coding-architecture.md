@@ -374,6 +374,21 @@ Forge 运行入口同时提供 Cloudflare 本地隧道的 Node 控制（tunnel s
 
 ### 分批验证与实现期证据
 
+关联开发任务可在原 tasks.md 的任务 ID 后标注 `[VERIFY_GROUP:name]`，设计中登记共同实现边界和验证范围。Runtime 依据持久 change、revision 和当前 task，从权威快照投影最多 6 个连续同组本地任务，写入本轮持久队列指令；未标注时仍单任务推进。任务 ID 和验收条件保留，共享验证须逐项记录覆盖；人工项、不同组、版本漂移和阶段切换截断批次。Agent 可整理历史规格的关联标记，但必须先报告修订，由 Runtime 重读后下发批次，不自行跨任务或扩大 writer。
+
+Sidecar 对相同 execution、完整输入指纹、类别、命令参数和 cwd 的 regression/spec/design 成功结果去重，返回 executedCheckIds 与 reusedCheckIds，旧耗时是原验证记录而非本次运行耗时。force=true 强制重跑；失败、输入变化、API/SQL/UI 外部状态检查不复用。环境或时间敏感的 regression 必须强制执行。本阶段保留完整输入快照失效机制，尚未实现逐测试依赖图或跨执行缓存；减少重复调用不等于降低验证门禁。
+
+```mermaid
+flowchart LR
+    SNAP["当前 change / revision / task"] --> GROUP["投影连续显式验证组，最多 6 项"]
+    GROUP --> CODE["连续编码与测试用例"] --> CHECK["完整功能检查点"]
+    CHECK --> MATCH{"本地成功命令及完整输入未变？"}
+    MATCH -->|是且非强制| REUSE["复用原证据并标明"]
+    MATCH -->|否或外部检查| RUN["执行受影响检查"]
+    REUSE --> ACCEPT["按覆盖证据逐 task 验收"]
+    RUN --> ACCEPT --> FINAL["开发收口后执行必要最终门禁"]
+```
+
 Forge 将工具执行结果和交付许可分开：本批通过但类别或延期检查未补齐时返回 VERIFICATION_PENDING，MCP 不标记工具错误，allowed 仍为 false；真实失败保留 checkId，重跑成功或同类别显式替代通过后才解除阻断。实际调用预算有限，未运行项持久化并阻止提交；调用预算不按每项超时上限简单相加。输入、范围和暂存一致性仍由交付门禁检查。
 
 确认规格时保存范围外图谱证据基线；已确认 implementationFiles 的正常编辑由执行验证内容指纹跟踪，不再要求每次编辑后重复解析。图谱索引、正式规格和范围外证据变化仍需重新审阅。旧记录首次升级需在证据当前时重新确认，证据已变则重新解析后确认一次。Windows 已知 npm CLI 通过已安装的 Node 入口执行，参数作为 argv 传递，不启用通用 Shell。当前源码行为不等于目标服务已部署验收。

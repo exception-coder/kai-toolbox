@@ -43,6 +43,7 @@ export async function runExecutionVerification(raw: unknown, runtime?: Verificat
       path.relative(record.project, verificationPath(record.project, file)).replaceAll('\\', '/'))])].sort()
   const fingerprint = inputFingerprint(record.project, inputFiles)
   const results: NonNullable<Execution['verification']>['results'] = []
+  const reusedCheckIds: string[] = []
   const prepared = input.checks.map(check => {
     const cwd = verificationPath(record.project, check.cwd)
     requireCondition(fs.existsSync(cwd) && fs.statSync(cwd).isDirectory(), 'PATH_INVALID', `检查目录不存在：${check.cwd}`)
@@ -59,6 +60,15 @@ export async function runExecutionVerification(raw: unknown, runtime?: Verificat
   const deadline = Date.now() + Math.min(runtime?.budgetMs ?? EXECUTION_VERIFICATION_CALL_BUDGET_MS, EXECUTION_VERIFICATION_CALL_BUDGET_MS)
   for (const [index, { check, cwd, command }] of prepared.entries()) {
     requireActive(runtime?.signal)
+    const checkId = `vc_${hash(JSON.stringify([check.kind, check.program, check.args, cwd])).slice(0, 32)}`
+    const cached = !input.force && !check.replaces && ['regression', 'spec', 'design'].includes(check.kind)
+      && record.verification?.fingerprint === fingerprint
+      ? record.verification.results.find(result => result.checkId === checkId && result.status === 'PASSED') : undefined
+    if (cached) {
+      results.push({ ...cached, purpose: check.purpose })
+      reusedCheckIds.push(checkId)
+      continue
+    }
     if (Date.now() >= deadline) break
     const started = Date.now()
     const progress = (phase: VerificationProgress['phase']) => emitProgress(runtime, {
@@ -82,10 +92,12 @@ export async function runExecutionVerification(raw: unknown, runtime?: Verificat
     clearInterval(heartbeat)
     requireActive(runtime?.signal)
     progress('completed')
-    results.push({ checkId: `vc_${hash(JSON.stringify([check.kind, check.program, check.args, cwd])).slice(0, 32)}`,
+    results.push({ checkId,
       kind: check.kind, purpose: check.purpose, command: [check.program, ...check.args], durationMs: Date.now() - started, ...result })
   }
-  return saveVerification({ record, input, inputFiles, fingerprint, results, controlRevision }, runtime)
+  return { ...saveVerification({ record, input, inputFiles, fingerprint, results, controlRevision }, runtime),
+    executedCheckIds: results.filter(result => !reusedCheckIds.includes(result.checkId!)).map(result => result.checkId),
+    reusedCheckIds }
 }
 
 function saveVerification(state: { record: Execution; input: ReturnType<typeof runExecutionSchema.parse>;

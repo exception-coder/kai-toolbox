@@ -40,6 +40,7 @@ export const executionCheckSchema = executionContextSchema.extend({
 })
 export const verificationKind = z.enum(['regression', 'api', 'sql', 'ui', 'spec', 'design'])
 export const runExecutionSchema = executionContextSchema.extend({
+  force: z.boolean().default(false).describe('强制重新执行本地检查，不复用相同输入和命令的通过证据；外部 API/SQL/UI 检查始终执行'),
   checks: z.array(z.object({
     kind: verificationKind, program: z.string().min(1).max(500), args: z.array(z.string().max(4000)).max(100),
     replaces: z.string().regex(/^vc_[a-f0-9]{32}$/).optional().describe('更换失败命令时填写其返回的 checkId；只能替换同类别失败检查'),

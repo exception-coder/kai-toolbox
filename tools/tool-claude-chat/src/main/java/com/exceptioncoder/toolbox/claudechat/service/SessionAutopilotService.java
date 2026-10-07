@@ -707,8 +707,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             pauseForBudget(run);
             return;
         }
-        AutopilotTurnHandoff.Message handoff = AutopilotTurnHandoff.forRun(run,
-                snapshot.completedTasks(), snapshot.totalTasks(), reason);
+        AutopilotTurnHandoff.Message handoff = AutopilotTurnHandoff.forRun(run, snapshot, reason);
         queuedMessages.saveInternal(run.sessionId(), handoff.id(), handoff.text(), handoff.display(),
                 handoff.instructions(),
                 System.currentTimeMillis());
