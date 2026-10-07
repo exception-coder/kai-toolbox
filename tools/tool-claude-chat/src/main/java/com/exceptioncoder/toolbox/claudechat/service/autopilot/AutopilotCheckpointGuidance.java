@@ -30,6 +30,7 @@ final class AutopilotCheckpointGuidance {
             result.append(task.id()).append(": ").append(description.length() > 1600
                     ? description.substring(0, 1600) + "…（完整验收见当前 tasks.md）" : description).append('\n');
         }
+        result.append(TaskCheckpoint.describe(run, tasks));
         if (run.noProgressCount() >= 2) {
             result.append("当前任务已多次派发且完成数未变化。先核对已有实现和有效证据，明确剩余验收差距；不要另起无关功能或重跑整套测试。此提示不暂停运行。\n");
         }

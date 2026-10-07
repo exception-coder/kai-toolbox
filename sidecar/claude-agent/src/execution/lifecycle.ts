@@ -8,6 +8,7 @@ import { checkReadiness } from '../specResolution/service.js'
 import { hash, readJson, safePath, statePath } from '../specResolution/storage.js'
 import { ResolutionError, requireCondition } from '../specResolution/contracts.js'
 import { developerBypass } from './developerControl.js'
+import { executionRecovery } from './recovery.js'
 
 /** The only adapter-facing router: storage layout and policy stay inside Forge. */
 export function checkExecutionEvent(raw: unknown) {
@@ -23,7 +24,7 @@ export function checkExecutionEvent(raw: unknown) {
     if (record || writers.length) {
       requireCondition(record, 'WORKSPACE_BUSY', '工作区已有模块执行；先 discover_execution 和 assess_execution 绑定不冲突的模块范围，或核验占用后恢复原会话')
       const result = checkExecution({ project: root, sessionId: input.sessionId, files: input.files, command: input.command,
-        operation: ['COMMIT', 'STOP'].includes(input.event) ? 'BEFORE_COMMIT' : 'BEFORE_IMPLEMENTATION' })
+        operation: input.event === 'COMMIT' ? 'BEFORE_COMMIT' : input.event === 'STOP' ? 'BEFORE_FINISH' : 'BEFORE_IMPLEMENTATION' })
       return { ...result, protocolVersion: 2, policyVersion: POLICY_VERSION, governanceBackend, enforcement,
         legacyGovernanceRequired: result.policy.spec !== 'NO_SPEC_CHANGE' }
     }
@@ -49,8 +50,9 @@ export function checkExecutionEvent(raw: unknown) {
       operation: input.event === 'COMMIT' ? 'BEFORE_COMMIT' : 'BEFORE_IMPLEMENTATION' })
     return { ...result, protocolVersion: 2, policyVersion: POLICY_VERSION, governanceBackend, enforcement, legacyGovernanceRequired: true }
   } catch (error) {
+    const code = error instanceof ResolutionError ? error.code : 'CHECK_ERROR'
     return { protocolVersion: 2, policyVersion: POLICY_VERSION, allowed: false,
-      code: error instanceof ResolutionError ? error.code : 'CHECK_ERROR',
+      code, recovery: executionRecovery(code),
       message: error instanceof Error ? error.message : String(error), enforcement, governanceBackend,
       legacyGovernanceRequired: true, actions: ['读取 session_init 的执行归属；修复具体范围、分支或证据问题后重试。'] }
   }

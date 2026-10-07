@@ -6,6 +6,7 @@ import { indexSpecs } from './indexer.js'
 import { graphEvidence, retrieve } from './retriever.js'
 import { drafts, validateDecisions } from './decisions.js'
 import { checkDeltas } from './readiness.js'
+import { captureSpecDependencies, specsCurrent } from '../execution/specDependencies.js'
 
 export function resolveSpecs(raw: unknown): Resolution {
   const input = resolveSchema.parse(raw); const { root, branch } = projectContext(input)
@@ -14,7 +15,8 @@ export function resolveSpecs(raw: unknown): Resolution {
   const index = indexSpecs(root)
   const items = input.requirements.map(item => ({ ...item, text: normalize(item.text) }))
   const graph = graphEvidence(root, items.map(item => item.text).join(' '), input.changedFiles)
-  const resolutionId = `sr_${hash(JSON.stringify({ root, branch, change: input.changeId, revision: index.revision, items, files: input.changedFiles, graph })).slice(0, 32)}`
+  const specDependencies = captureSpecDependencies(root, input.specDependencies)
+  const resolutionId = `sr_${hash(JSON.stringify({ root, branch, change: input.changeId, revision: index.revision, specDependencies, items, files: input.changedFiles, graph })).slice(0, 32)}`
   return locked(root, () => {
     const sessionId = input.sessionId || process.env.TOOLBOX_SESSION_ID
     if (sessionId) saveJson(statePath(root, `session-${hash(sessionId)}`), { project: root, branch, changeId: input.changeId, resolutionId })
@@ -26,6 +28,7 @@ export function resolveSpecs(raw: unknown): Resolution {
     }
     const resolution: Resolution = { schemaVersion: 1, resolutionId, project: root, branch,
       changeId: input.changeId, requestId: input.requestId, specRevision: index.revision, createdAt: new Date().toISOString(),
+      specDependencies,
       items: items.map(item => ({ itemId: item.externalId, text: item.text, candidates: retrieve(index.units, item.text, item.terms, graph.terms) })),
       warnings: [...index.warnings, 'AGENT_REVIEW_REQUIRED: 排序分数不是语义置信度；逐项审阅并确认',
         ...(graph.status === 'VERIFIED_SOURCES' ? [] : [`GRAPH_${graph.status}: 图谱不可参与自动批准或候选加权`])],
@@ -50,7 +53,11 @@ export function confirmResolution(raw: unknown) {
   return locked(root, () => {
     const result = loadActive(root, input, branch); const index = indexSpecs(root)
     requireCondition(result.resolutionId === input.resolutionId, 'CHANGE_CONTEXT_MISMATCH', '只能确认当前需求批次')
-    requireCondition(result.specRevision === index.revision, 'SPEC_INDEX_STALE', '正式规格已变化；重新解析')
+    requireCondition(specsCurrent(root, result, index.revision), 'SPEC_INDEX_STALE', `${result.specDependencies ? '依赖规格已变化' : '正式规格已变化'}；重新解析`)
+    if (result.specDependencies) for (const decision of input.decisions) {
+      requireCondition(!decision.capabilityId || `openspec/specs/${decision.capabilityId}/spec.md` in result.specDependencies,
+        'SPEC_DEPENDENCY_MISSING', '确认涉及未登记的 capability；重新解析完整规格依赖')
+    }
     validateDecisions(result, input.decisions, index)
     for (const file of input.implementationFiles) safePath(root, file)
     if (!result.readinessGraph) {
@@ -73,7 +80,7 @@ export function confirmResolution(raw: unknown) {
 export function checkReadiness(raw: unknown) {
   const input = checkSchema.parse(raw); const { root, branch } = projectContext(input)
   const result = loadActive(root, input, branch); const index = indexSpecs(root)
-  requireCondition(result.specRevision === index.revision, 'SPEC_INDEX_STALE', '正式规格已变化；重新解析与确认')
+  requireCondition(specsCurrent(root, result, index.revision), 'SPEC_INDEX_STALE', `${result.specDependencies ? '依赖规格已变化' : '正式规格已变化'}；重新解析与确认`)
   requireCondition(result.decisions, 'SPEC_RESOLUTION_UNCONFIRMED', '尚未完成逐项决策')
   validateDecisions(result, result.decisions, index)
   checkDeltas(root, result)

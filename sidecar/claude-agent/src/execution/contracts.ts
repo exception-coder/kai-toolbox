@@ -11,6 +11,7 @@ export const abortExecutionSchema = z.object({ project: z.string().min(1), execu
 export const resolveContextSchema = executionContextSchema.extend({
   request: z.string().min(2).max(16000), files: z.array(file).max(200).default([]),
   terms: z.array(z.string().max(100)).max(12).default([]),
+  specDependencies: z.array(file).min(1).max(100).optional().describe('已审阅的完整正式规格依赖路径；必须含共享权限/状态等依赖，不按模块猜测。省略则保留全局版本检查'),
 })
 export const executionEventSchema = z.object({
   project: z.string().min(1), sessionId: z.string().min(1).max(200).optional(),
@@ -20,6 +21,7 @@ export const executionEventSchema = z.object({
 })
 export const discoverExecutionSchema = executionContextSchema.extend({
   request: z.string().min(2).max(16000), files: z.array(file).min(1).max(200), terms: z.array(z.string().max(100)).max(12).default([]),
+  specDependencies: z.array(file).min(1).max(100).optional(),
 })
 export const assessExecutionSchema = executionContextSchema.extend({
   discoveryId: z.string().regex(/^ed_[a-f0-9]{32}$/), actor: z.string().min(1).max(200),
@@ -35,7 +37,7 @@ export const assessExecutionSchema = executionContextSchema.extend({
   designFiles: z.array(z.object({ path: file, level: z.enum(['overview', 'detail']) })).max(10).default([]),
 })
 export const executionCheckSchema = executionContextSchema.extend({
-  operation: z.enum(['BEFORE_IMPLEMENTATION', 'BEFORE_COMMIT']).default('BEFORE_IMPLEMENTATION'),
+  operation: z.enum(['BEFORE_IMPLEMENTATION', 'BEFORE_COMMIT', 'BEFORE_FINISH']).default('BEFORE_IMPLEMENTATION'),
   files: z.array(file).max(1000).default([]), command: z.string().max(32000).default(''),
 })
 export const verificationKind = z.enum(['regression', 'api', 'sql', 'ui', 'spec', 'design'])

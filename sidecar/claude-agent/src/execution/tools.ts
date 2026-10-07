@@ -4,9 +4,12 @@ import { abortExecution, assessExecution, checkExecution, finishExecution, inspe
 import { runExecutionVerification } from './verification.js'
 import { initSession } from './session.js'
 import { checkExecutionEvent } from './lifecycle.js'
+import { commitExecution, commitExecutionSchema } from './commit.js'
 import { inspectStoreLock, recoverStoreLock, inspectStoreSchema, recoverStoreSchema } from './storeRecovery.js'
 
 export const executionDefinitions = [
+  { name: 'commit_execution', schema: commitExecutionSchema, run: commitExecution,
+    description: '按本执行范围提交已验证内容；需先 inspect_execution_writer 核对 executionId/HEAD/scopeFingerprint 并审阅差异，传完整提交消息。使用 Git --only 保留其他任务暂存内容，执行真实 hooks，不推送、不释放 writer。重试相同成功请求返回原提交；结果未知时先核对历史，不能盲目重试。' },
   { name: 'inspect_store_lock', schema: inspectStoreSchema, run: inspectStoreLock,
     description: '只读查询内部存储锁及现场摘要；不以超时判断锁失效。' },
   { name: 'recover_store_lock', schema: recoverStoreSchema, run: recoverStoreLock,

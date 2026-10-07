@@ -17,12 +17,15 @@ export function updateExecutionScope(active: Execution, discovery: Discovery, in
     && active.assessment.designFiles.every(file => input.designFiles.some(next => next.path === file.path && next.level === file.level)),
   'EXECUTION_SCOPE_SHRINK', '范围更新必须保留原源码和设计文件；重新提交完整范围，不能借增补释放旧范围')
   const levels = { none: 0, detail: 1, architecture: 2 }
+  requireCondition(!active.discovery.specDependencies || Object.keys(active.discovery.specDependencies)
+    .every(file => discovery.specDependencies && file in discovery.specDependencies),
+    'EXECUTION_SCOPE_SHRINK', '范围更新必须保留原规格依赖')
   requireCondition(active.policy.verification.every(kind => policy.verification.includes(kind))
     && levels[policy.design] >= levels[active.policy.design]
     && (active.policy.spec !== 'DELTA_REQUIRED' || policy.spec === 'DELTA_REQUIRED'),
   'EXECUTION_POLICY_DOWNGRADE', '增补范围不能降低原验证或设计要求；保留原影响类别')
   const { scopeHistory = [], ...previous } = active
-  return { ...active, discovery, assessment: input, policy, verification: undefined,
+  return { ...active, discovery, assessment: input, policy, verification: undefined, deliveryCommit: undefined,
     designBaseline: { ...Object.fromEntries(input.designFiles.map(file => [file.path, fileDigest(active.project, file.path)])),
       ...active.designBaseline },
     scopeHistory: [...scopeHistory, { updatedAt: new Date().toISOString(), actor: input.actor, reason: input.reason, previous }] }

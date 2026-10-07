@@ -8,6 +8,8 @@ import { executionDefinitions } from '../execution/tools.js'
 import { runExecutionVerification } from '../execution/verification.js'
 import { reportMcpProgress, type McpRequestExtra } from '../mcpHttp.js'
 import { developerBypass } from '../execution/developerControl.js'
+import { executionRecovery } from '../execution/recovery.js'
+import { commitExecution } from '../execution/commit.js'
 
 export const definitions = [
   ...executionDefinitions,
@@ -28,6 +30,13 @@ export async function execute(name: string, input: unknown, extra?: McpRequestEx
   try {
     const definition = definitions.find(item => item.name === name)
     if (!definition) throw new ResolutionError('TOOL_INVALID', '未知规格工具')
+    if (name === 'commit_execution') {
+      await reportMcpProgress(extra, 0, 1, '核对本执行提交快照')
+      const heartbeat = setInterval(() => { void reportMcpProgress(extra, 0, 1, 'Git 提交及 hooks 执行中，保留其他任务暂存内容') }, 10000)
+      heartbeat.unref?.()
+      try { return await commitExecution(input, extra?.signal) }
+      finally { clearInterval(heartbeat) }
+    }
     if (['discover_execution', 'assess_execution', 'check_execution_readiness', 'check_change_readiness',
       'finish_execution', 'confirm_spec_resolution', 'run_execution_verification'].includes(name)
       && input && typeof input === 'object' && 'project' in input && typeof input.project === 'string') {
@@ -46,7 +55,7 @@ export async function execute(name: string, input: unknown, extra?: McpRequestEx
   } catch (error) {
     const code = error instanceof ResolutionError ? error.code : 'CHECK_ERROR'
     return { allowed: false, code,
-      message: error instanceof Error ? error.message : String(error), actions: recoveryActions(code) }
+      message: error instanceof Error ? error.message : String(error), recovery: executionRecovery(code), actions: recoveryActions(code) }
   }
 }
 function recoveryActions(code: string): string[] {
@@ -55,7 +64,8 @@ function recoveryActions(code: string): string[] {
   if (code === 'PATH_INVALID') return ['cwd/inputFiles 可用项目相对路径或项目内绝对路径；核对具体路径、目录存在性及符号链接，禁止越界；修改参数后再试']
   if (code === 'CHECK_EXECUTABLE_NOT_FOUND') return ['使用已安装的可执行文件；Windows CLI 可传 node 与入口脚本；不要重复同一不存在的命令']
   if (code === 'GRAPH_INDEX_STALE') return ['核对范围外源码或图谱变更后重新解析和确认；旧记录重新确认以建立实现范围基线，不要求每次正常改码都刷新图谱']
-  if (code === 'WORKSPACE_BUSY') return ['先 inspect_execution_writer；原会话可继续则等待，确认放弃旧执行后按查询结果 abort_execution，再绑定新执行；不要重复提交同一请求']
+  if (code === 'WORKSPACE_BUSY' || code === 'IMPLEMENTATION_SCOPE_DRIFT' || code === 'STAGED_INPUT_MISMATCH'
+    || code === 'SPEC_INDEX_STALE' || code === 'COMMIT_RESULT_UNCERTAIN' || code === 'SPEC_DEPENDENCY_MISSING') return [executionRecovery(code).action]
   if (code === 'SPEC_STORE_LEGACY_LOCK') return ['inspect_store_lock；确认旧版进程全部停止后，提供摘要、操作者及原因调用 recover_store_lock；不得手删锁或仅凭超时接管']
   if (code === 'SPEC_STORE_BUSY') return ['内部事务忙；最多有限重试，持续失败时检查受管服务状态，停止重复触发作业']
   if (code === 'EXECUTION_RELEASED') return ['旧执行已终止，重新 discover_execution → assess_execution；保留旧记录']
@@ -76,12 +86,12 @@ async function call(name: string, args: unknown, hostSessionId?: string, extra?:
 export function registerSpecResolutionTools(server: McpServer, hostSessionId?: string) {
   for (const definition of definitions) server.registerTool(definition.name, {
     description: definition.description, inputSchema: definition.schema.shape,
-    annotations: { readOnlyHint: ['inspect_store_lock', 'inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['recover_store_lock', 'abort_execution', 'run_execution_verification'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification' },
+    annotations: { readOnlyHint: ['inspect_store_lock', 'inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['recover_store_lock', 'abort_execution', 'run_execution_verification', 'commit_execution'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification' },
   }, (args: unknown, extra: unknown) => call(definition.name, args, hostSessionId, extra as McpRequestExtra))
 }
 export function sdkSpecResolutionTools(hostSessionId?: string) {
   return definitions.map(definition => tool(definition.name, definition.description, definition.schema.shape,
     async (args: unknown, extra: unknown) => call(definition.name, args, hostSessionId, extra as McpRequestExtra), { annotations: {
-      readOnlyHint: ['inspect_store_lock', 'inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['recover_store_lock', 'abort_execution', 'run_execution_verification'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification',
+      readOnlyHint: ['inspect_store_lock', 'inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['recover_store_lock', 'abort_execution', 'run_execution_verification', 'commit_execution'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification',
     } }))
 }

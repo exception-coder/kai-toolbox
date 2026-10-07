@@ -11,6 +11,7 @@ export const resolveSchema = contextSchema.extend({
   changedFiles: z.array(z.string().min(1).max(500)).max(100).default([]),
   semantic: z.boolean().default(true),
   timeoutMs: z.number().int().min(100).max(60000).default(4000),
+  specDependencies: z.array(z.string().max(500)).min(1).max(100).optional(),
 })
 export const decisionSchema = z.object({
   itemId: identifier,
@@ -40,6 +41,7 @@ export interface Candidate extends Unit { score: number; evidence: string[] }
 export interface Resolution {
   schemaVersion: 1; resolutionId: string; project: string; branch: string; changeId: string;
   requestId: string; specRevision: string; createdAt: string;
+  specDependencies?: Record<string, string>;
   items: Array<{ itemId: string; text: string; candidates: Candidate[] }>;
   warnings: string[]; graph: { status: string; evidence: string[]; revision?: string; reasons?: string[] };
   readinessGraph?: Resolution['graph'];

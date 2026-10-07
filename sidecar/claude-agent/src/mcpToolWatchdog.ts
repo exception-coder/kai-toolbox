@@ -1,5 +1,5 @@
 import { EXECUTION_VERIFICATION_MCP_HARD_MS, EXECUTION_VERIFICATION_MCP_IDLE_MS,
-  isExecutionVerificationTool } from './execution/budget.js'
+  isExecutionVerificationTool, isExecutionCommitTool } from './execution/budget.js'
 
 export interface McpToolWatchdogEntry {
   toolCallId: string
@@ -78,7 +78,7 @@ export class McpToolWatchdog {
   private start(toolCallId: string, toolName: string, toolInput?: Record<string, unknown>): void {
     this.finish(toolCallId)
     const now = Date.now()
-    const verification = isExecutionVerificationTool(toolName)
+    const verification = isExecutionVerificationTool(toolName) || isExecutionCommitTool(toolName)
     const entry = {
       toolCallId,
       toolName,

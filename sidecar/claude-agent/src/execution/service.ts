@@ -10,6 +10,7 @@ import { git, fileDigest, inputFingerprint, projectContext } from './repository.
 import type { Discovery } from './context.js'
 import { executionScopes, readWriters, releaseWriter, scopesConflict, writeWriters, type Writer } from './writers.js'
 import { updateExecutionScope } from './scopeUpdate.js'
+import { specsCurrent } from './specDependencies.js'
 
 export type Execution = {
   schemaVersion: 1; executionId: string; project: string; branch: string; sessionId: string; baselineHead: string;
@@ -17,6 +18,7 @@ export type Execution = {
   designBaseline: Record<string, string>; verification?: { fingerprint: string; inputFiles: string[];
     pendingChecks?: Array<{ kind: string; program: string; args: string[]; cwd: string; purpose: string; replaces?: string }>;
     results: Array<{ checkId?: string; kind: string; status: string; purpose: string; command: string[]; durationMs: number; diagnostic: string }> };
+  deliveryCommit?: { requestFingerprint: string; commit: string };
   scopeHistory?: Array<{ updatedAt: string; actor: string; reason: string; previous: Omit<Execution, 'scopeHistory'> }>;
   release?: { status: 'AUTO_RECLAIMED'; releasedAt: string; reclaimedBySessionId: string; commit: string }
     | { status: 'COMPLETED'; releasedAt: string; commit: string }
@@ -106,10 +108,14 @@ export function assessExecution(raw: unknown) {
   const discovery = readJson<Discovery>(statePath(root, input.discoveryId))
   requireCondition(discovery.project === root && discovery.sessionId === input.sessionId && discovery.branch === branch,
     'EXECUTION_CONTEXT_MISMATCH', '探索记录不属于当前项目、会话或分支')
-  requireCondition(discovery.specRevision === indexSpecs(root).revision && discovery.sourceRevision === inputFingerprint(root, discovery.files),
+  requireCondition(specsCurrent(root, discovery, indexSpecs(root).revision) && discovery.sourceRevision === inputFingerprint(root, discovery.files),
     'DISCOVERY_STALE', '探索后相关内容变化；重新 discover_execution')
   for (const evidence of input.evidence) requireCondition(readText(safePath(root, evidence.path)).includes(evidence.quote),
     'EVIDENCE_INVALID', `引用不在原文中：${evidence.path}`)
+  if (discovery.specDependencies) for (const evidence of input.evidence) {
+    requireCondition(!evidence.path.startsWith('openspec/specs/') || evidence.path in discovery.specDependencies,
+      'SPEC_DEPENDENCY_MISSING', '正式规格证据未包含在依赖清单；重新探索完整依赖')
+  }
   const policy = executionPolicy(input)
   requireCondition(policy.spec !== 'NEEDS_EVIDENCE', 'IMPACT_UNRESOLVED', '行为影响尚未确定，先补充证据，不自动要求写规格')
   if (policy.spec === 'DELTA_REQUIRED') requireCondition(input.changeId && fs.existsSync(safePath(root, `openspec/changes/${input.changeId}/tasks.md`)),
@@ -118,7 +124,7 @@ export function assessExecution(raw: unknown) {
   if (input.design === 'architecture') requireCondition(input.designFiles.some(file => file.level === 'overview'), 'DESIGN_REQUIRED', '架构边界变化需要绑定受影响概设')
   let executionId = `ex_${hash(JSON.stringify({ input, branch, discovery: discovery.discoveryId })).slice(0, 32)}`
   return locked(root, () => {
-    requireCondition(discovery.specRevision === indexSpecs(root).revision && discovery.sourceRevision === inputFingerprint(root, discovery.files),
+    requireCondition(specsCurrent(root, discovery, indexSpecs(root).revision) && discovery.sourceRevision === inputFingerprint(root, discovery.files),
       'DISCOVERY_STALE', '等待写入事务期间输入变化；重新 discover_execution')
     let writers = readWriters(root)
     for (const writer of writers) {
@@ -179,7 +185,7 @@ function reclaimCompletedWriter(root: string, writer: Writer, nextSessionId: str
     const commit = git(root, ['rev-parse', 'HEAD'])
     if (commit === record.baselineHead) return false
     git(root, ['merge-base', '--is-ancestor', record.baselineHead, 'HEAD'])
-    checkExecution({ project: root, sessionId: record.sessionId, operation: 'BEFORE_COMMIT' })
+    checkExecution({ project: root, sessionId: record.sessionId, operation: 'BEFORE_FINISH' })
     if (!scopedCommit(record) || git(root, ['status', '--porcelain', '--', ...scopedPaths(record)])) return false
     const bindingFile = statePath(root, `execution-session-${hash(writer.sessionId)}`)
     if (fs.existsSync(bindingFile)) {
@@ -205,7 +211,8 @@ export function checkExecution(raw: unknown) {
   const writer = readWriters(root).find(item => item.executionId === record.executionId)
   requireCondition(writer?.sessionId === input.sessionId, 'WORKSPACE_BUSY', '执行不再持有模块写入权')
   requireCondition(!isBranchMutation(input.command), 'BRANCH_POLICY_DENIED', '共享分支禁止 Agent 自行切换/创建分支或 worktree；额外分支须由宿主明确授权并重新绑定')
-  requireCondition(record.discovery.specRevision === indexSpecs(root).revision, 'SPEC_INDEX_STALE', '正式规格变化，重新探索和判定')
+  requireCondition(specsCurrent(root, record.discovery, indexSpecs(root).revision), 'SPEC_INDEX_STALE',
+    `${record.discovery.specDependencies ? '依赖规格变化' : '正式规格变化'}，重新探索和判定；旧记录未登记依赖时仍按全局检查`)
   const staged = input.operation === 'BEFORE_COMMIT' ? git(root, ['diff', '--cached', '--name-only', '--no-renames', '-z']).split('\0').filter(Boolean) : []
   for (const file of [...input.files, ...staged]) {
     safePath(root, file)
@@ -213,12 +220,13 @@ export function checkExecution(raw: unknown) {
       || Boolean(record.assessment.changeId && file.startsWith(`openspec/changes/${record.assessment.changeId}/`)),
     'IMPLEMENTATION_SCOPE_DRIFT', `文件超出执行范围：${file}；重新探索实际影响`)
   }
-  if (record.policy.spec === 'DELTA_REQUIRED') checkReadiness({ project: root, branch, changeId: record.assessment.changeId, files: input.files, operation: input.operation })
-  if (input.operation === 'BEFORE_COMMIT') checkDelivery(record)
+  if (record.policy.spec === 'DELTA_REQUIRED') checkReadiness({ project: root, branch, changeId: record.assessment.changeId, files: input.files,
+    operation: input.operation === 'BEFORE_COMMIT' ? 'BEFORE_COMMIT' : 'BEFORE_IMPLEMENTATION' })
+  if (input.operation !== 'BEFORE_IMPLEMENTATION') checkDelivery(record)
   return { allowed: true, code: 'PASS', executionId: record.executionId, policy: record.policy,
     warnings: ['影响分类需要业务审阅；Hook 不构成任意 Shell 或 Git 管理目录的安全沙箱。'] }
 }
-export function checkDelivery(record: Execution) {
+export function checkDelivery(record: Execution, requireStagedEquality = true) {
   for (const file of record.assessment.designFiles) requireCondition(fileDigest(record.project, file.path) !== 'MISSING'
     && fileDigest(record.project, file.path) !== record.designBaseline[file.path], 'DESIGN_UPDATE_REQUIRED', `更新受影响设计：${file.path}`)
   const verification = record.verification
@@ -229,7 +237,7 @@ export function checkDelivery(record: Execution) {
   requireCondition(verification.results.every(result => result.status === 'PASSED'), 'VERIFICATION_FAILED', '存在失败验证')
   // A staged blob can differ from the successfully tested working copy.
   const unstagedInputs = git(record.project, ['diff', '--name-only', '-z', '--', ...verification.inputFiles]).split('\0').filter(Boolean)
-  requireCondition(!unstagedInputs.length, 'STAGED_INPUT_MISMATCH',
+  requireCondition(!requireStagedEquality || !unstagedInputs.length, 'STAGED_INPUT_MISMATCH',
     `验证输入仍有未暂存修改；待提交内容与测试工作区不一致。差异文件：${JSON.stringify(unstagedInputs)}。`
     + '先逐项核对 diff 和当前任务归属，将属于本任务的已验证改动按具体路径暂存，再以原执行重试 BEFORE_COMMIT；'
     + '共享文件须区分内容变化与格式变化，不能仅因文件共享就认定混合归属。存在其他任务的实质改动时保留现场并协调隔离，禁止整批暂存；'
@@ -244,8 +252,9 @@ export function finishExecution(raw: unknown) {
       releasePointers(root, previous)
       return { allowed: true, code: 'PASS', executionId: previous.executionId, commit: previous.release.commit }
     }
-    checkExecution({ ...input, operation: 'BEFORE_COMMIT' })
+    checkExecution({ ...input, operation: 'BEFORE_IMPLEMENTATION' })
     const record = loadExecution(input.project, input.sessionId)!
+    checkDelivery(record)
     requireCondition(git(record.project, ['rev-parse', 'HEAD']) !== record.baselineHead, 'COMMIT_REQUIRED', '执行结束前提交已验证任务；不代替任务原子性审阅')
     git(record.project, ['merge-base', '--is-ancestor', record.baselineHead, 'HEAD'])
     requireCondition(Boolean(scopedCommit(record)), 'COMMIT_REQUIRED', '其它模块提交不等于当前执行已提交')

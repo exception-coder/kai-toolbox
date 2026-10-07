@@ -3,6 +3,7 @@ import { indexSpecs } from '../specResolution/indexer.js'
 import { graphEvidence, retrieve } from '../specResolution/retriever.js'
 import { discoverExecutionSchema, resolveContextSchema } from './contracts.js'
 import { inputFingerprint, projectContext } from './repository.js'
+import { captureSpecDependencies } from './specDependencies.js'
 
 export type Discovery = ReturnType<typeof buildDiscovery>
 function buildDiscovery(input: ReturnType<typeof resolveContextSchema.parse>, root: string, branch: string) {
@@ -13,7 +14,8 @@ function buildDiscovery(input: ReturnType<typeof resolveContextSchema.parse>, ro
   const candidates = retrieve(index.units, input.request, input.terms, graph.terms)
   const sourceRevision = inputFingerprint(root, input.files)
   const discoveryId = `ed_${hash(JSON.stringify({ input, root, branch, revision: index.revision, sourceRevision, changes, graph })).slice(0, 32)}`
-  return { ...input, project: root, branch, discoveryId, specRevision: index.revision, sourceRevision, candidates, activeChanges: changes, graph }
+  return { ...input, project: root, branch, discoveryId, specRevision: index.revision,
+    specDependencies: captureSpecDependencies(root, input.specDependencies), sourceRevision, candidates, activeChanges: changes, graph }
 }
 /** Candidate exploration is read-only; a saved discovery is only needed before assessment. */
 export function resolveContext(raw: unknown) {

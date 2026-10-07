@@ -8,3 +8,7 @@ export function isExecutionVerificationTool(name: string): boolean {
   return name === 'run_execution_verification' || name.endsWith('/run_execution_verification')
     || name.endsWith('__run_execution_verification')
 }
+
+export function isExecutionCommitTool(name: string): boolean {
+  return name === 'commit_execution' || name.endsWith('/commit_execution') || name.endsWith('__commit_execution')
+}
