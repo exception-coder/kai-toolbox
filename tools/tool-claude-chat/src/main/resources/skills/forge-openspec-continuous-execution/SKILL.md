@@ -2,7 +2,7 @@
 name: forge-openspec-continuous-execution
 description: Keep a Forge-supervised OpenSpec change running until the bound Done Condition is proven.
 x-forge-owned: true
-x-forge-version: 1.0.11
+x-forge-version: 1.0.12
 ---
 
 # Forge OpenSpec Continuous Execution
@@ -32,6 +32,8 @@ Runtime polling is deterministic and does not require an extra model review. Onc
 ### Coherent coding and verification batches
 
 Use the current confirmed acceptance conditions as the boundary. Prioritize a working main user flow, correct permissions and data, and necessary verification; preserve every explicit specification requirement. Keep reasonable boundaries for future extension, defer optional enhancements, and avoid building speculative frameworks. Finish the related code and tests before targeted verification; do not rebuild or request a full gate after every edit. Verify critical permission/transaction logic and repaired failures early when needed; keep required final delivery gates.
+
+For frontend work, finish the current deliverable feature's page and API wiring before collecting applicable typecheck, build and browser evidence at one checkpoint. Do not launch a browser, capture screenshots or run a full build for every component, endpoint or implementation slice; do not defer all verification until the entire specification batch ends. Explicit user requests, reproducing a defect or resolving a concrete high-risk issue can justify an earlier targeted check. After a failure, rerun only failed and affected scenarios. Reuse an available preview service; starting or restarting one still follows project authorization. Do not report deferred checks as passed or reuse browser results when relevant UI or environment inputs changed.
 
 Complete the currently bound task directly by default; no grouping annotation or specification rewrite is required to start coding. Optional `[VERIFY_GROUP:name]` annotations (ASCII identifiers of at most 64 characters) allow tasks with a reviewed shared implementation and verification boundary to be batched. Preserve task IDs, acceptance and evidence; any group change follows the existing specification editing rules and must be reread and explicitly authorized by Runtime before expanding work. Do not create groups just because tasks are adjacent. Manual markers remain first and are never grouped.
 

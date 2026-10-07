@@ -33,6 +33,7 @@ class AutopilotTaskBatchTest {
                 "developer", "逐任务验证", com.exceptioncoder.toolbox.claudechat.service.governance.VerificationCadence.PER_TASK);
         var single = AutopilotTurnHandoff.forRun(run, snapshot, "continue");
         assertThat(single.instructions()).contains("验证节奏：逐任务", "完成账户编辑和权限校验", "编码门禁已由开发者关闭")
+                .contains("前端先完成当前可交付功能", "关键权限、事务、迁移及失败修复及时定向验证")
                 .doesNotContain("完成审计记录", "Runtime 本轮授权验证批次", "功能检查点（默认）");
         assertThat(single.display()).doesNotContain("合并验证");
     }
@@ -42,7 +43,8 @@ class AutopilotTaskBatchTest {
         assertThat(result.ready()).isTrue();
         for (String installed : result.installedPaths()) {
             assertThat(Files.readString(root.resolve(installed)))
-                    .contains("x-forge-version: " + result.version(), "[VERIFY_GROUP:name]", "reusedCheckIds");
+                    .contains("x-forge-version: " + result.version(), "[VERIFY_GROUP:name]", "reusedCheckIds",
+                            "page and API wiring", "Do not report deferred checks as passed");
         }
     }
 

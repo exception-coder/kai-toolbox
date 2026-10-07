@@ -40,7 +40,10 @@ class AutopilotTurnHandoffTest {
             assertThat(message.text()).contains("change-a", "task 1.2", task.description())
                     .doesNotContain("继续开发者控制下的当前任务", "自动监督下一步");
             assertThat(message.instructions()).contains("补齐账户权限拒绝分支", "账户查询测试通过",
-                    "先保存成果并回到当前验收", "不得无证据勾选任务或删改他人成果", "不代表验收通过");
+                    "先保存成果并回到当前验收", "不得无证据勾选任务或删改他人成果", "不代表验收通过",
+                    "前端先完成当前可交付功能的页面与接口接线", "也不拖到整个规格批次结束",
+                    "用户明确要求、缺陷复现或高风险问题", "启动/重启仍须遵循项目授权",
+                    "未运行的验收不能记为通过");
         }
         assertThat(next.latestReportAt()).isNull();
     }

@@ -1,5 +1,16 @@
 ## ADDED Requirements
 
+### Requirement: 前端验收集中到功能检查点
+系统 SHALL 在监督交接中引导 Agent 先完成当前可交付功能的页面与接口接线，再集中执行适用的前端验收，而非逐组件或单轮结束重复启动浏览器、截图和全量构建。系统 SHALL 保留明确验收要求及关键风险的提前定向验证，不把未执行记作通过。
+
+#### Scenario: 常规前端连续编码
+- **WHEN** Agent 按功能检查点或逐任务节奏推进前端功能
+- **THEN** 完整、简短及开发者控制交接均提供功能就绪后集中验收的引导；失败只复验失败及受影响场景，不能把验收拖到整个规格批次结束
+
+#### Scenario: 必要提前检查和服务授权
+- **WHEN** 用户明确要求、需要复现缺陷或解决具体高风险问题
+- **THEN** Agent 可提前定向检查，复用已有预览服务，启动和重启继续遵循项目授权，变化后的 UI 或环境不沿用无效证据
+
 ### Requirement: Runtime task context reaches the engine through a trusted queue
 The system SHALL persist server-generated continuation context separately from client developer instructions and carry it to the engine after validating the active run identity. A consumed disposition SHALL NOT be reused as the next turn's completion evidence.
 
