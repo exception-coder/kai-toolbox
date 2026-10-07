@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
+import { jsonLineWriter } from './jsonLineWriter.js'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
@@ -530,9 +531,7 @@ export function callAppServer(
       else resolvePromise(result ?? {})
     }
 
-    const send = (message: Record<string, unknown>) => {
-      child.stdin.write(JSON.stringify(message) + '\n')
-    }
+    const send = jsonLineWriter(child.stdin, error => finish(error), () => settled)
 
     const timer = setTimeout(() => {
       const detail = stderr.trim()
@@ -795,11 +794,9 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     }
     pending.clear()
   }
-  const send = (message: Record<string, unknown>) => {
-    if (child.stdin.destroyed) throw new Error('Codex App Server stdin 已关闭')
-    child.stdin.write(JSON.stringify(message) + '\n')
-  }
+  const send = jsonLineWriter(child.stdin, error => abortCompletion?.(error), () => finished)
   const request = (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    if (finished) return Promise.reject(new Error('Codex App Server 轮次已结束'))
     const id = nextId++
     return new Promise((resolveRequest, rejectRequest) => {
       const timer = setTimeout(() => {
@@ -858,6 +855,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       resolveCompletion()
     }
     const finishError = (error: Error) => {
+      if (finished) return
       options.voice?.reportFailure(error.message)
       closeOpenCodexAppServerActivities(
         emitActivity,

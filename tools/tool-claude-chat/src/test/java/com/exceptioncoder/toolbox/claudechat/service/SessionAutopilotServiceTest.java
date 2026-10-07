@@ -41,6 +41,36 @@ import static org.mockito.Mockito.when;
 class SessionAutopilotServiceTest {
 
     @Test
+    void persistentUnknownRuntimePausesOnlyAutopilotAndPreservesTaskProgress() {
+        var repository = mock(SessionAutopilotRepository.class);
+        var queue = mock(QueuedChatMessageService.class);
+        var runtime = mock(SessionRuntimeStateService.class);
+        var events = mock(ApplicationEventPublisher.class);
+        when(runtime.canStartTurn("session-1")).thenReturn(
+                new SessionRuntimeStateService.SendDecision(false, "STALE", "Sidecar状态快照已过期"));
+        when(repository.update(any(), anyLong())).thenReturn(true);
+        var service = new SessionAutopilotService(repository, mock(ClaudeChatSessionRepository.class),
+                mock(ClaudeChatSessionAccessPolicy.class), queue, runtime, mock(AutopilotProjectContextResolver.class),
+                mock(OpenSpecAutopilotAdapter.class), mock(OpenSpecContinuousRunner.class),
+                mock(ContinuousExecutionSkillProvisioner.class), new ObjectMapper(), events);
+        var current = run();
+        var now = Instant.now();
+        assertThat(service.runtimeReadyForContinuation(current, now)).isFalse();
+        assertThat(service.runtimeReadyForContinuation(current, now.plusSeconds(30))).isFalse();
+        verify(repository, never()).update(any(), anyLong());
+        assertThat(service.runtimeReadyForContinuation(current, now.plusSeconds(60))).isFalse();
+        var paused = ArgumentCaptor.forClass(SessionAutopilotRun.class);
+        verify(repository).update(paused.capture(), eq(current.context().version()));
+        assertThat(paused.getValue().state()).isEqualTo(AutopilotState.PAUSED);
+        assertThat(paused.getValue().reason()).contains("RUNTIME_STATE_UNAVAILABLE", "恢复");
+        assertThat(paused.getValue().completedTasks()).isEqualTo(current.completedTasks());
+        assertThat(paused.getValue().turnCount()).isEqualTo(current.turnCount());
+        assertThat(paused.getValue().context().currentTaskId()).isEqualTo(current.context().currentTaskId());
+        verify(queue).clearInternal("session-1");
+        verify(events).publishEvent(any(com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionAutopilotChangedEvent.class));
+    }
+
+    @Test
     void repeatedReadinessFailureBlocksEvenWhenWholeTurnSettlesSuccessfully() throws Exception {
         SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
         QueuedChatMessageService queue = mock(QueuedChatMessageService.class);

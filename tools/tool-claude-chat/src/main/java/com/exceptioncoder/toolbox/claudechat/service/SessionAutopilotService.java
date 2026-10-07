@@ -32,6 +32,7 @@ import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionQueueRelea
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionTurnSettledEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionReadinessResultEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.ReadinessFailureGuard;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.RuntimeProbeFailureGuard;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -73,6 +74,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() { };
     private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() { };
     private final ReadinessFailureGuard readinessFailures = new ReadinessFailureGuard();
+    private final RuntimeProbeFailureGuard runtimeProbeFailures = new RuntimeProbeFailureGuard();
 
     private final SessionAutopilotRepository repository;
     private final ClaudeChatSessionRepository sessionRepository;
@@ -374,9 +376,9 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                 .filter(run -> capacityRetryCount(run.reason()) == 0
                         || !run.updatedAt().plusSeconds(30L * capacityRetryCount(run.reason()))
                         .isAfter(Instant.now()))
-                .filter(run -> runtimeStates.canStartTurn(run.sessionId()).allowed())
                 .forEach(run -> {
                     try {
+                        if (!runtimeReadyForContinuation(run, Instant.now())) return;
                         if (queuedMessages.hasInternal(run.sessionId())) {
                             events.publishEvent(new SessionQueueReleaseRequestedEvent(run.sessionId()));
                             return;
@@ -411,6 +413,25 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             }
         }
         LOGGER.warn("[autopilot] 重复前置失败状态写入冲突 session={}", event.sessionId());
+    }
+
+    boolean runtimeReadyForContinuation(SessionAutopilotRun run, Instant now) {
+        var decision = runtimeStates.canStartTurn(run.sessionId());
+        String scope = run.id() + ":" + run.context().generation();
+        if (runtimeProbeFailures.observe(scope, decision.code(), now)) {
+            String reason = "RUNTIME_STATE_UNAVAILABLE：运行链路连续至少 60 秒、3 次巡检无法确认状态（"
+                    + decision.code() + "：" + decision.reason() + "）。已暂停自动派发；"
+                    + "原会话、代码和执行进程保留。恢复 Sidecar 连接后点击恢复，后台确认状态后再续跑。";
+            SessionAutopilotRun paused = evolve(run, AutopilotState.PAUSED, reason, run.context(),
+                    run.turnCount(), run.noProgressCount(), run.completedTasks(), run.totalTasks(),
+                    false, Instant.now());
+            if (repository.update(paused, run.context().version())) {
+                queuedMessages.clearInternal(run.sessionId());
+                publish(paused);
+            }
+            return false;
+        }
+        return decision.allowed();
     }
 
     @EventListener
