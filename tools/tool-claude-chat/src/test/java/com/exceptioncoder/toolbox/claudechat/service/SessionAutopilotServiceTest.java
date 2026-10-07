@@ -41,6 +41,65 @@ import static org.mockito.Mockito.when;
 class SessionAutopilotServiceTest {
 
     @Test
+    void repeatedReadinessFailureBlocksEvenWhenWholeTurnSettlesSuccessfully() throws Exception {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        QueuedChatMessageService queue = mock(QueuedChatMessageService.class);
+        OpenSpecAutopilotAdapter specs = mock(OpenSpecAutopilotAdapter.class);
+        var state = new java.util.concurrent.atomic.AtomicReference<>(run());
+        when(repository.findBySessionId("session-1")).thenAnswer(call -> Optional.of(state.get()));
+        when(repository.update(any(), anyLong())).thenAnswer(call -> {
+            state.set(call.getArgument(0));
+            return true;
+        });
+        SessionAutopilotService service = new SessionAutopilotService(repository,
+                mock(ClaudeChatSessionRepository.class), mock(ClaudeChatSessionAccessPolicy.class),
+                queue, mock(SessionRuntimeStateService.class), mock(AutopilotProjectContextResolver.class),
+                specs, mock(OpenSpecContinuousRunner.class), mock(ContinuousExecutionSkillProvisioner.class),
+                new ObjectMapper(), mock(ApplicationEventPublisher.class));
+        var first = new com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionReadinessResultEvent(
+                "session-1", "turn-1", "call-1", "forge/check_execution_readiness", "missing configuration", true);
+        service.onReadinessResult(first);
+        service.onReadinessResult(first);
+        assertThat(state.get().state()).isEqualTo(AutopilotState.ACTIVE);
+        service.onReadinessResult(new com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionReadinessResultEvent(
+                "session-1", "turn-2", "call-2", first.toolName(), first.output(), true));
+        assertThat(state.get().state()).isEqualTo(AutopilotState.WAITING_USER);
+        assertThat(state.get().reason()).contains("READINESS_REPEAT_BLOCKED", "恢复");
+        verify(queue).clearInternal("session-1");
+        var settledRead = new java.util.concurrent.CountDownLatch(1);
+        when(repository.findBySessionId("session-1")).thenAnswer(call -> {
+            settledRead.countDown();
+            return Optional.of(state.get());
+        });
+        service.onSettled(new SessionTurnSettledEvent("session-1", "turn-2", "end_turn", true, 1L));
+        assertThat(settledRead.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        verify(specs, never()).inspect(any(), any());
+        verify(queue, never()).saveInternal(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void staleReconciliationCannotReleaseContinuationAfterReadinessBlocks() {
+        SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
+        QueuedChatMessageService queue = mock(QueuedChatMessageService.class);
+        OpenSpecAutopilotAdapter specs = mock(OpenSpecAutopilotAdapter.class);
+        SessionRuntimeStateService runtime = mock(SessionRuntimeStateService.class);
+        ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+        when(repository.findRecent("", null, null, 200)).thenReturn(List.of(run()));
+        when(repository.findBySessionId("session-1")).thenReturn(Optional.of(withState(run(), AutopilotState.WAITING_USER)));
+        when(runtime.canStartTurn("session-1")).thenReturn(new SessionRuntimeStateService.SendDecision(true, null, null));
+        TaskSnapshot task = new TaskSnapshot("6.4", 28, "implementation", false);
+        when(specs.inspect(any(), any())).thenReturn(new ChangeSnapshot("session-autopilot", "revision-a",
+                0, 1, List.of(task), Map.of(), task));
+        var service = new SessionAutopilotService(repository, mock(ClaudeChatSessionRepository.class),
+                mock(ClaudeChatSessionAccessPolicy.class), queue, runtime, mock(AutopilotProjectContextResolver.class),
+                specs, mock(OpenSpecContinuousRunner.class), mock(ContinuousExecutionSkillProvisioner.class),
+                new ObjectMapper(), events);
+        service.reconcileActiveRuns();
+        verify(queue).delete(eq("session-1"), any());
+        verify(events, never()).publishEvent(any(SessionQueueReleaseRequestedEvent.class));
+    }
+
+    @Test
     void selectedBoundChangeTasksDoNotSwitchExecutionAndRejectUnboundChange() {
         SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
         OpenSpecAutopilotAdapter openSpec = mock(OpenSpecAutopilotAdapter.class);

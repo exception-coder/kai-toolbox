@@ -30,6 +30,8 @@ import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionCapabiliti
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionManualInputEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionQueueReleaseRequestedEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionTurnSettledEvent;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionReadinessResultEvent;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.ReadinessFailureGuard;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -70,6 +72,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     private static final int MAX_REPORT_TEXT = 2_000;
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() { };
     private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() { };
+    private final ReadinessFailureGuard readinessFailures = new ReadinessFailureGuard();
 
     private final SessionAutopilotRepository repository;
     private final ClaudeChatSessionRepository sessionRepository;
@@ -384,6 +387,30 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                         LOGGER.warn("[autopilot] 恢复巡检失败 session={}", run.sessionId(), exception);
                     }
                 });
+    }
+
+    @EventListener
+    public void onReadinessResult(SessionReadinessResultEvent event) {
+        SessionAutopilotRun observed = repository.findBySessionId(event.sessionId()).orElse(null);
+        if (observed == null || observed.state() != AutopilotState.ACTIVE
+                || !readinessFailures.observe(observed, event)) return;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            SessionAutopilotRun current = repository.findBySessionId(event.sessionId()).orElse(null);
+            if (current == null || current.state() != AutopilotState.ACTIVE
+                    || !ReadinessFailureGuard.scope(current).equals(ReadinessFailureGuard.scope(observed))) return;
+            String reason = "READINESS_REPEAT_BLOCKED：同一任务的 " + event.toolName()
+                    + " 连续两次返回相同前置校验失败，已停止自动续跑。"
+                    + "请查看该工具失败记录，修复配置或执行绑定后点击恢复。";
+            SessionAutopilotRun blocked = evolve(current, AutopilotState.WAITING_USER, reason,
+                    current.context(), current.turnCount(), current.noProgressCount(), current.completedTasks(),
+                    current.totalTasks(), false, Instant.now());
+            if (repository.update(blocked, current.context().version())) {
+                queuedMessages.clearInternal(current.sessionId());
+                publish(blocked);
+                return;
+            }
+        }
+        LOGGER.warn("[autopilot] 重复前置失败状态写入冲突 session={}", event.sessionId());
     }
 
     @EventListener
@@ -711,6 +738,13 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         queuedMessages.saveInternal(run.sessionId(), handoff.id(), handoff.text(), handoff.display(),
                 handoff.instructions(),
                 System.currentTimeMillis());
+        // 前置结果可能在旧调度快照生成后阻塞运行；派发前再次核对，不能重新留下续跑消息。
+        SessionAutopilotRun latest = repository.findBySessionId(run.sessionId()).orElse(null);
+        if (latest == null || latest.state() != AutopilotState.ACTIVE
+                || latest.context().generation() != run.context().generation()) {
+            queuedMessages.delete(run.sessionId(), handoff.id());
+            return;
+        }
         events.publishEvent(new SessionQueueReleaseRequestedEvent(run.sessionId()));
     }
 

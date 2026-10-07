@@ -18,6 +18,8 @@ import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionCapabiliti
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionManualInputEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionQueueReleaseRequestedEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionTurnSettledEvent;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionReadinessResultEvent;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.ReadinessFailureGuard;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunCompletionListener;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadataProvider;
@@ -1566,9 +1568,18 @@ public class ClaudeChatService {
             case "toolUse" -> sendToBrowser(ctx, seq -> new ServerMessage.ToolUse(
                     seq, node.path("toolCallId").asText(null),
                     node.path("toolName").asText(""), asObject(node.get("input"))));
-            case "toolResult" -> sendToBrowser(ctx, seq -> new ServerMessage.ToolResult(
+            case "toolResult" -> {
+                sendToBrowser(ctx, seq -> new ServerMessage.ToolResult(
                     seq, node.path("toolCallId").asText(null), node.path("toolName").asText(""),
                     node.path("output").asText(""), node.path("isError").asBoolean(false)));
+                String tool = node.path("toolName").asText("");
+                if (ReadinessFailureGuard.supports(tool)) {
+                    applicationEvents.publishEvent(new SessionReadinessResultEvent(ctx.sessionId,
+                            turnLifecycle.currentTurnId(ctx.sessionId).orElse(null),
+                            node.path("toolCallId").asText(null), tool, node.path("output").asText(""),
+                            node.path("isError").asBoolean(false)));
+                }
+            }
             case "permissionRequest" -> {
                 String toolName = node.path("toolName").asText("");
                 ServerMessage msg = sendToBrowser(ctx, seq -> new ServerMessage.PermissionRequest(
