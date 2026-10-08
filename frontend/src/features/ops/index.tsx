@@ -1,4 +1,4 @@
-import { LegacyOpsRedirect } from './public-api'
+import { LegacyOpsRedirect } from './public-api/navigation'
 import { DatabaseZap } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 

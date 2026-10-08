@@ -1,6 +1,5 @@
 import { Code2, Github, Pi, Zap } from 'lucide-react'
-import { RiOpenaiFill } from 'react-icons/ri'
-import { SiClaude, SiDeepseek, SiGoogle, SiOpencode, SiQwen } from 'react-icons/si'
+import { RiOpenaiFill, SiClaude, SiDeepseek, SiGoogle, SiOpencode, SiQwen } from '../assets/icons/engineBrandIcons'
 import type { IconType } from 'react-icons'
 import { cn } from '@/lib/utils'
 import type { Engine } from '../types'

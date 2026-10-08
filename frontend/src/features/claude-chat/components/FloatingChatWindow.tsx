@@ -102,7 +102,7 @@ function parseRouteIntent(text: string): string | null {
  * 跨路由常驻的可拖拽 / 可调大小悬浮对话窗。仅在「已弹出 + 引擎已激活 + 当前不在会话页」时渲染，
  * 避免与全屏会话页双份 UI。操作的是 Context 里的同一聊天实例（同一 WS、同一会话）。
  */
-export function FloatingChatWindow() {
+export function FloatingChatWindow({ initialCompact = true }: { initialCompact?: boolean }) {
   const { chat, demo, concierge, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, setVoiceMode } = useChatRuntime()
   // 吉祥物图：demo 演示页按主题注入覆盖，否则用内置默认。
   const conciergeSrc = concierge ?? GIFT_CONCIERGE_IMAGE
@@ -125,7 +125,7 @@ export function FloatingChatWindow() {
   const hideToolCalls = useHideToolCalls()
   // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话。
   // demo（受约束演示）默认展开完整对话，便于直接看到改动反馈。
-  const [compact, setCompact] = useState(!demo)
+  const [compact, setCompact] = useState(!demo && initialCompact)
   // 当 floating 从 false 变为 true（手动弹出），自动展开为完整窗口（而非迷你 compact 条）
   const prevFloatingRef = useRef(floating)
   useEffect(() => {

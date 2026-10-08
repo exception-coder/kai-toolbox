@@ -1,8 +1,8 @@
 import { lazy } from 'react'
 import { Radar } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { LegacyDeliveryRedirect } from '@/features/delivery-center/public-api'
-import { SystemResources } from '@/features/ops/public-api'
+import { LegacyDeliveryRedirect } from '@/features/delivery-center/public-api/navigation'
+import { SystemResources } from '@/features/ops/public-api/navigation'
 
 const ReqPoolPage = lazy(() =>
   import('./pages/ReqPoolPage').then((m) => ({ default: m.ReqPoolPage }))

@@ -4,3 +4,4 @@ export {
   isChatRoute,
   useChatRuntime,
 } from '../runtime/ChatRuntimeContext'
+export { ChatRuntimeOverlays } from '../runtime/ChatRuntimeOverlays'

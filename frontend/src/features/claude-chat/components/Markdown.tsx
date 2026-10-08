@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { parseChatMarkdown } from '../lib/chatMarkdown'
 import DOMPurify from 'dompurify'
-import mermaid from 'mermaid'
 import { Download, Maximize2 } from 'lucide-react'
 import { MermaidLightbox } from '@/components/markdown/MermaidLightbox'
 import { downloadSvg } from '@/components/markdown/downloadSvg'
@@ -12,16 +11,21 @@ import { openSessionLocalPath } from '../api'
 // startOnLoad=false：由本组件按需触发，避免 mermaid 自动扫 DOM 与 React 冲突。
 // securityLevel='loose' 允许在 SVG 内使用点击事件（flowchart 的交互节点）。
 // 主题跟随 CSS 变量（CSS vars 由 ThemeMenu 动态切换），改在 config 注入。
-let mermaidInitialized = false
-function ensureMermaidInit() {
-  if (mermaidInitialized) return
-  mermaidInitialized = true
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: 'loose',
-    theme: 'default',
-    fontFamily: 'inherit',
+let mermaidPromise: Promise<(typeof import('mermaid'))['default']> | undefined
+function loadMermaid() {
+  mermaidPromise ??= import('mermaid').then(({ default: mermaid }) => {
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'loose',
+      theme: 'default',
+      fontFamily: 'inherit',
+    })
+    return mermaid
+  }).catch(error => {
+    mermaidPromise = undefined
+    throw error
   })
+  return mermaidPromise
 }
 
 // ── MermaidDiagram ─────────────────────────────────────────────────────────────
@@ -38,9 +42,8 @@ function MermaidDiagram({ code }: { code: string }) {
     let alive = true
     setSvg(null)
     setErr(null)
-    ensureMermaidInit()
-    mermaid.render(idRef.current, code)
-      .then(({ svg: s }) => { if (alive) setSvg(s) })
+    loadMermaid().then(mermaid => alive ? mermaid.render(idRef.current, code) : null)
+      .then(result => { if (alive && result) setSvg(result.svg) })
       .catch((e: unknown) => { if (alive) setErr(e instanceof Error ? e.message : String(e)) })
     return () => { alive = false }
   }, [code])

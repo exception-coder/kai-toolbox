@@ -1,4 +1,6 @@
-@import "tailwindcss";
+/* Only UI sources contribute utilities; generated bundles and local caches are not input. */
+@import "tailwindcss" source(none);
+@source "./";
 
 @theme {
   /* 页面是「画布」，不是纯白。浅色同样保留轻微冷灰层级，避免白底与深色正文形成硬对比。

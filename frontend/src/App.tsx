@@ -6,12 +6,9 @@ import { HomePage } from '@/shell/HomePage'
 import { features } from '@/shell/featureRegistry'
 import { RouteGuard } from '@/components/auth/RouteGuard'
 import { SessionExpiredGate } from '@/components/auth/SessionExpiredGate'
-import { ChatRuntimeProvider } from '@/features/claude-chat/public-api/runtime'
+import { ChatRuntimeOverlays, ChatRuntimeProvider } from '@/features/claude-chat/public-api/runtime'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
-const FloatingChatWindow = lazy(() => import('@/features/claude-chat/components/FloatingChatWindow').then(m => ({ default: m.FloatingChatWindow })))
-const GlobalPendingQuestionModal = lazy(() => import('@/features/claude-chat/components/GlobalPendingQuestionModal').then(m => ({ default: m.GlobalPendingQuestionModal })))
-const VoiceModeView = lazy(() => import('@/features/claude-chat/components/voice/VoiceModeView').then(m => ({ default: m.VoiceModeView })))
 const AssistantBridge = lazy(() => import('@/assistant-sdk/AssistantBridge').then(m => ({ default: m.AssistantBridge })))
 
 // 按布局把 feature 分两支：'showcase' 走全屏展示外壳（脱离 AppShell、公开免鉴权），
@@ -55,11 +52,8 @@ export default function App() {
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
-    {/* 悬浮窗/语音层/跨会话答题弹窗各自兜底：它们跨模块常驻，若自身崩溃也不能拖垮整个应用 */}
+    <ChatRuntimeOverlays />
     <Suspense fallback={null}>
-      <ErrorBoundary label="floating-chat" compact><FloatingChatWindow /></ErrorBoundary>
-      <ErrorBoundary label="voice-mode" compact><VoiceModeView /></ErrorBoundary>
-      <ErrorBoundary label="pending-question" compact><GlobalPendingQuestionModal /></ErrorBoundary>
       <ErrorBoundary label="assistant-bridge" compact><AssistantBridge /></ErrorBoundary>
     </Suspense>
     <SessionExpiredGate />
