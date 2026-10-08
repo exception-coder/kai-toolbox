@@ -726,7 +726,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         // 分叉完成：切到新会话续跑（旧会话保留）
         switchToRef.current(msg.sessionId)
         // 「清理异常并继续」：分叉后待新会话 ready 时自动补发出错前的用户文本（复用 pendingResend 机制）。
-        // 在 switchTo 之后设置——switchTo 内的 resetForNewSession 只重置 state，不动这些 ref。
+        // 在 switchTo 之后设置；resetForNewSession 保留分叉重发所需的 ref。
         if (forkResendRef.current != null) {
           if (forkResendRef.current.trim()) {
             pendingResendRef.current = { forSessionId: msg.sessionId, text: forkResendRef.current }
@@ -1287,7 +1287,19 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sessionToken, connect, publicWithoutLogin])
 
   const resetForNewSession = () => {
+    // 旧协议的文本/工具事件没有会话 ID；连接本身必须属于唯一的会话选择。
+    // 先使旧回调失效，再关闭观察连接，不停止服务端正在运行的任务。
+    const previousSocket = wsRef.current
+    wsRef.current = null
+    connectionGenerationRef.current += 1
+    connectingRef.current = false
+    if (reconnectTimerRef.current != null) {
+      window.clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    previousSocket?.close()
     sessionReadyRef.current = false
+    pendingSendsRef.current = []
     duplicateSourceRef.current = null
     duplicateContextSeedRef.current = null
     if (duplicateTimeoutRef.current != null) {
@@ -1298,6 +1310,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     setItems([])
     setPending(null)
     setQueued([])
+    setBackgroundTasks([])
     queueReleaseSessionRef.current = null
     serverQueueDispatchRef.current = false
     setQueuePausedReason(null)
