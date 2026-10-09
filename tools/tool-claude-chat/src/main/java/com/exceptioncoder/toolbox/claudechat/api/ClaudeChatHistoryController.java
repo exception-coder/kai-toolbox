@@ -8,7 +8,9 @@ import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionReposit
 import com.exceptioncoder.toolbox.claudechat.repository.SessionAliasRepository;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionExecutionPolicy;
+import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,6 +32,8 @@ public class ClaudeChatHistoryController {
     private final SessionAliasRepository aliasRepo;
     private final ClaudeChatSessionRepository sessionRepo;
     private final ObjectMapper mapper;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ClaudeChatSessionAccessPolicy accessPolicy;
 
     public ClaudeChatHistoryController(SessionHistoryService history, SessionAliasRepository aliasRepo,
                                        ClaudeChatSessionRepository sessionRepo, ObjectMapper mapper) {
@@ -49,8 +53,28 @@ public class ClaudeChatHistoryController {
     public MessagePage messages(@PathVariable String sdkSessionId,
                                 @RequestParam(required = false) String cwd,
                                 @RequestParam(required = false) Integer before,
-                                @RequestParam(defaultValue = "30") int limit) {
-        ClaudeChatSession db = sessionRepo.findBySdkSessionId(sdkSessionId).orElse(null);
+                                @RequestParam(defaultValue = "30") int limit,
+                                @RequestParam(required = false) String sessionId) {
+        // Native IDs can occur in different Codex homes. The logical session selects the account.
+        ClaudeChatSession db = sessionId == null || sessionId.isBlank()
+                ? sessionRepo.findBySdkSessionId(sdkSessionId).orElse(null)
+                : sessionRepo.findById(sessionId).orElseThrow(() ->
+                    new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "会话不存在"));
+        if (sessionId != null && !sessionId.isBlank()) {
+            if (!accessPolicy.canAccessCurrentUser(db)) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "无权读取会话");
+            }
+            boolean matches = sdkSessionId.equals(db.getSdkSessionId());
+            if (!matches && db.getEngineSessions() != null) {
+                try {
+                    for (JsonNode value : mapper.readTree(db.getEngineSessions())) {
+                        if (sdkSessionId.equals(value.asText())) matches = true;
+                    }
+                } catch (Exception ignored) { /* Invalid mappings cannot authorize a native handle. */ }
+            }
+            if (!matches) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "原生句柄不属于当前会话");
+            cwd = db.getCwd();
+        }
         if (db != null && SessionExecutionPolicy.isReviewOnly(db.getExecutionPolicy())) {
             return history.readReviewMessages(db.getCwd(), sdkSessionId, db.getCodexHome(), before, limit);
         }

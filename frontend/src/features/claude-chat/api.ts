@@ -1086,6 +1086,7 @@ export async function loadMessages(
   cwd: string,
   before?: number | null,
   limit = 30,
+  sessionId?: string,
 ): Promise<{ items: ChatItem[]; nextBefore: number | null }> {
   const stage = before == null ? 'history_latest' : 'history_earlier'
   reportVibeEntry(stage, 'start', sdkSessionId)
@@ -1093,6 +1094,7 @@ export async function loadMessages(
   if (cwd) qs.set('cwd', cwd)
   if (before != null) qs.set('before', String(before))
   qs.set('limit', String(limit))
+  if (sessionId) qs.set('sessionId', sessionId)
   try {
     const page = await http<{ items: RawHistoryMessage[]; nextBefore: number | null }>(
       `/claude-chat/history/${encodeURIComponent(sdkSessionId)}/messages?${qs.toString()}`,

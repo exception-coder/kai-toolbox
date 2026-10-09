@@ -57,6 +57,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     private final Map<String, CompletableFuture<JsonNode>> pendingEngineCatalogQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingSubscriptionQuotaQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingProjectRouteQueries = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<JsonNode>> pendingCodexDesktopQueries = new ConcurrentHashMap<>();
     /** 本实例已随 Spring 上下文停机；不得再建连、不得再上报断开 */
     private volatile boolean shuttingDown;
     private boolean sdkMaintenance;
@@ -430,6 +431,28 @@ public class SidecarClient implements ReviewThreadForkGateway {
         }
     }
 
+    /** 只读 Codex 原生项目/会话目录，按请求关联返回，不接入运行会话事件流。 */
+    public Optional<JsonNode> queryCodexDesktop(String home, String kind, String cursor, String projectId) {
+        String requestId = UUID.randomUUID().toString();
+        CompletableFuture<JsonNode> future = new CompletableFuture<>();
+        pendingCodexDesktopQueries.put(requestId, future);
+        try {
+            if (!send(Map.of("type", "queryCodexDesktop", "requestId", requestId,
+                    "codexHome", home, "kind", kind, "cursor", nz(cursor), "projectId", nz(projectId)))) {
+                return Optional.empty();
+            }
+            return Optional.of(future.get(45, TimeUnit.SECONDS));
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        } catch (Exception error) {
+            log.warn("[claude-chat] Codex 目录查询未完成 request={}", requestId);
+            return Optional.empty();
+        } finally {
+            pendingCodexDesktopQueries.remove(requestId);
+        }
+    }
+
     /** 查询 Sidecar 权威引擎目录；失败或超时返回空，不在 Java 侧猜测实验引擎状态。 */
     public Optional<JsonNode> queryEngineCatalog(boolean refresh, long timeoutMs) {
         String requestId = UUID.randomUUID().toString();
@@ -655,6 +678,8 @@ public class SidecarClient implements ReviewThreadForkGateway {
         pendingEngineCatalogQueries.clear();
         pendingSubscriptionQuotaQueries.values().forEach(future -> future.completeExceptionally(error));
         pendingSubscriptionQuotaQueries.clear();
+        pendingCodexDesktopQueries.values().forEach(future -> future.completeExceptionally(error));
+        pendingCodexDesktopQueries.clear();
     }
 
     private void failPendingProjectRouteQueries(String message) {
@@ -690,6 +715,11 @@ public class SidecarClient implements ReviewThreadForkGateway {
                     if (future != null) {
                         future.complete(node);
                     }
+                    return;
+                }
+                if ("codexDesktopPage".equals(node.path("type").asText())) {
+                    CompletableFuture<JsonNode> future = pendingCodexDesktopQueries.get(node.path("requestId").asText());
+                    if (future != null) future.complete(node);
                     return;
                 }
                 if ("engineCatalog".equals(node.path("type").asText())) {

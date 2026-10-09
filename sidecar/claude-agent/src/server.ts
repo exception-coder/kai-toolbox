@@ -8,6 +8,7 @@ import { AgentTracing } from './telemetry/agentTracing.js'
 import { initializeTelemetry, shutdownTelemetry } from './telemetry/telemetry.js'
 import { EngineCatalog } from './engine/engineCatalog.js'
 import { readCodexSubscriptionQuota } from './codexSubscriptionQuota.js'
+import { readCodexDesktopPage } from './codexDesktopSync.js'
 import {
   createGraphifyRuntimeRequestHandler,
   GraphifyRuntime,
@@ -241,6 +242,19 @@ wss.on('connection', (ws) => {
           typeof msg.model === 'string' ? msg.model : undefined,
         ).then(quota => emit('subscription-quota', {
           type: 'subscriptionQuota', requestId: msg.requestId, quota,
+        }))
+        break
+      case 'queryCodexDesktop':
+        void readCodexDesktopPage(
+          typeof msg.codexHome === 'string' ? msg.codexHome : '',
+          msg.kind as 'projects' | 'threads',
+          typeof msg.cursor === 'string' ? msg.cursor : undefined,
+          typeof msg.projectId === 'string' ? msg.projectId : undefined,
+        ).then(page => emit('codex-desktop-sync', {
+          type: 'codexDesktopPage', requestId: msg.requestId, page,
+        })).catch(() => emit('codex-desktop-sync', {
+          type: 'codexDesktopPage', requestId: msg.requestId,
+          error: '无法读取 Codex 本机目录，请检查授权目录、CLI 版本及 App Server 可用性后重试',
         }))
         break
       case 'queryEngineCatalog':

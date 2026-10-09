@@ -106,6 +106,27 @@ public class ClaudeChatSessionRepository {
                 .stream().findFirst();
     }
 
+    /** Bounded native-handle lookup, including sessions that later switched to another engine. */
+    public List<ClaudeChatSession> findByCodexThreadIds(List<String> ids) {
+        if (ids.isEmpty()) return List.of();
+        if (ids.size() > 50) throw new IllegalArgumentException("每批最多查询 50 个 Codex 会话");
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        java.util.ArrayList<Object> parameters = new java.util.ArrayList<>(ids);
+        parameters.addAll(ids);
+        return jdbc.query("""
+                SELECT id, user_id, cwd, title, sdk_session_id, engine, engines, engine_sessions,
+                       api_base_url, auth_token, codex_home, selected_model, codex_reasoning_effort,
+                       codex_speed, permission_mode, execution_policy, consult_evidence_systems,
+                       assistant_app_id, assistant_page_key, assistant_page_url, group_name,
+                       subgroup_name, favorite, status, started_at, last_seen_at
+                FROM claude_chat_session
+                WHERE (engine = 'codex' AND sdk_session_id IN (%s))
+                   OR (CASE WHEN json_valid(engine_sessions)
+                       THEN json_extract(engine_sessions, '$.codex') ELSE NULL END IN (%s))
+                ORDER BY last_seen_at DESC
+                """.formatted(placeholders, placeholders), ROW, parameters.toArray());
+    }
+
     /** 按认证用户、来源系统和页面键查询彩虹胶囊固定会话。 */
     public Optional<ClaudeChatSession> findAssistantConversation(long userId, String appId, String pageKey) {
         return jdbc.query("""

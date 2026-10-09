@@ -1,0 +1,42 @@
+package com.exceptioncoder.toolbox.claudechat.api;
+
+import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
+import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.SessionAliasRepository;
+import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
+import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+class CodexImportedHistoryTest {
+    @Test void logicalSessionChoosesHomeEvenWhenNativeIdsAreEqual() {
+        var repo = mock(ClaudeChatSessionRepository.class);
+        var history = mock(SessionHistoryService.class);
+        var policy = mock(ClaudeChatSessionAccessPolicy.class);
+        var controller = new ClaudeChatHistoryController(history, mock(SessionAliasRepository.class), repo, new ObjectMapper());
+        ReflectionTestUtils.setField(controller, "accessPolicy", policy);
+        var a = ClaudeChatSession.builder().id("forge-a").sdkSessionId("shared").cwd("D:/a").codexHome("home-a").build();
+        var b = ClaudeChatSession.builder().id("forge-b").sdkSessionId("shared").cwd("D:/b").codexHome("home-b").build();
+        when(repo.findById("forge-a")).thenReturn(Optional.of(a));
+        when(repo.findById("forge-b")).thenReturn(Optional.of(b));
+        when(policy.canAccessCurrentUser(a)).thenReturn(true);
+        when(policy.canAccessCurrentUser(b)).thenReturn(true);
+        controller.messages("shared", "untrusted", null, 30, "forge-a");
+        controller.messages("shared", "untrusted", null, 30, "forge-b");
+        verify(history).readMessages("D:/a", "shared", "home-a", null, 30);
+        verify(history).readMessages("D:/b", "shared", "home-b", null, 30);
+        verify(repo, never()).findBySdkSessionId(anyString());
+        assertThatThrownBy(() -> controller.messages("wrong-handle", null, null, 30, "forge-a"))
+                .hasMessageContaining("句柄不属于当前会话");
+        when(policy.canAccessCurrentUser(a)).thenReturn(false);
+        assertThatThrownBy(() -> controller.messages("shared", null, null, 30, "forge-a"))
+                .hasMessageContaining("无权读取");
+        verifyNoMoreInteractions(history);
+    }
+}

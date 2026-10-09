@@ -1800,7 +1800,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       const before = reset ? null : historyBeforeRef.current
       const { items: hist, nextBefore } = channel === 'review' && reviewToken
         ? await loadPublicReviewMessages(reviewToken, before)
-        : await loadMessages(sid!, cwdRef.current, before)
+        : await loadMessages(sid!, cwdRef.current, before, 30, token.sessionId ?? undefined)
       // 一律把历史 prepend 到现有项之前，不直接替换：
       // 进会话(switchTo/resumeHistory)会先 resetForNewSession 清空，故此刻 prev 只剩「加载期间本地新增的实时项」
       // ——典型是刚进会话就发出的首条用户气泡（乐观插入）/已开始的流式回复。若 reset 时直接 setItems(hist)，

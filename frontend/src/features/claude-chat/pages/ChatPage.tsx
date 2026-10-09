@@ -86,6 +86,7 @@ import { isChatLaunchTargetReady, planChatLaunch } from '../lib/chatLaunchIntent
 import { useUnifiedTitleBarSlot } from '@/shell/UnifiedTitleBar'
 import { useMobileNavigation } from '@/shell/MobileNavigationContext'
 import { useMockMode } from '@/shell/useMockMode'
+import { useAuth } from '@/lib/auth'
 import {
   customSiteToLinkedSite,
   quickSiteToLinkedSite,
@@ -120,6 +121,7 @@ function deferredPanel<C extends ComponentType<any>>(loader: () => Promise<{ def
 const workspaceLoading = <div className="p-4 text-sm text-[var(--color-muted-foreground)]" role="status">正在打开视图…</div>
 
 const HistoryList = deferredPanel(() => import('../components/HistoryList').then(m => ({ default: m.HistoryList })))
+const CodexDesktopSyncDialog = deferredPanel(() => import('../components/CodexDesktopSyncDialog').then(m => ({ default: m.CodexDesktopSyncDialog })))
 const NotifySettings = deferredPanel(() => import('../components/NotifySettings').then(m => ({ default: m.NotifySettings })))
 const PluginPanel = deferredPanel(() => import('../components/PluginPanel').then(m => ({ default: m.PluginPanel })))
 const LogsPanel = deferredPanel(() => import('../components/LogsPanel').then(m => ({ default: m.LogsPanel })))
@@ -792,6 +794,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [fullscreen, setFullscreen] = useState(false)
   const focusRoot = useRef<HTMLDivElement>(null)
   const [preferencesOpen, setPreferencesOpen] = useState(false)
+  const [codexSyncOpen, setCodexSyncOpen] = useState(false)
+  const codexSyncAuth = useAuth()
   const focusPrevious = useRef<{ view: typeof sessionView; mode: typeof viewMode; panel: typeof panel } | null>(null)
   const focus = useChatFocusMode(focusRoot, () => {
     const previous = focusPrevious.current
@@ -1230,6 +1234,11 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
         wide={focusWide} onToggleWidth={() => setFocusWide(value => !value)} onExit={focus.exit} />}
       <WorkspacePreferences open={preferencesOpen} onOpenChange={setPreferencesOpen} gestureEnabled={gestureOn}
         onToggleGesture={() => { setPreferencesOpen(false); toggleGesture() }} />
+      {codexSyncOpen && <CodexDesktopSyncDialog key={codexSyncAuth.user?.userId ?? 'local'} open onOpenChange={setCodexSyncOpen}
+        defaultHome={currentSession?.codexHome || newCodexHome}
+        returnFocus={() => sessionToolsTriggerRef.current?.focus()}
+        onOpenSession={id => { chat.switchTo(id, false); setPanel('none') }}
+        onCreateProject={(cwd, home) => { setNewCwd(cwd); setNewCodexHome(home); setNewEngine('codex'); setNewProviderId(''); setPanel('new') }} />}
       <WorkspaceHeaderMount target={focus.focused ? null : unifiedTitleBarSlot}>
       <header data-focus-chrome className={cn(
         'cc-workspace-header workspace-unified-chrome relative z-30 flex min-w-0 items-center gap-3 px-4 max-md:h-11 max-md:gap-1 max-md:px-1',
@@ -1451,6 +1460,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     <HeaderMenuItem nested icon={<EyeOff className="size-4" />} label={hideToolCalls ? '隐藏工具调用 · 开' : '隐藏工具调用 · 关'} hint="消息流里不再显示 MCP/命令/读写等工具调用气泡" onClick={() => { setHideToolCalls(!hideToolCalls) }} />
                   </MenuSection>
                   <MenuSection icon={<MessageSquare className="size-4" />} label="会话" open={menuGroup === 'session'} onToggle={() => toggle('session')}>
+                    {!mockMode && (!codexSyncAuth.user || codexSyncAuth.user.roles.includes('ADMIN')) && (
+                      <HeaderMenuItem nested icon={<RefreshCw className="size-4" />} label="同步 Codex 项目与会话" hint="读取本机账号目录，导入历史并续接原会话" onClick={() => { setHeaderMenu(false); setCodexSyncOpen(true) }} />
+                    )}
                     {currentSession && (
                       <HeaderMenuItem nested icon={<FileText className="size-4" />} label="重命名会话" hint="编辑当前会话标题" onClick={() => { setHeaderMenu(false); startEditTitle() }} />
                     )}

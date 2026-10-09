@@ -50,6 +50,7 @@ describe('会话消息隔离', () => {
     const old = TestSocket.sockets[0]
     act(() => { old.open(); old.receive(ready('a')) })
     await waitFor(() => expect(result.current.items).toEqual(page('a').items))
+    expect(api.loadMessages).toHaveBeenCalledWith('sdk-a', '', null, 30, 'a')
 
     act(() => result.current.switchTo('b'))
     act(() => old.receive({ type: 'assistantDelta', seq: 10, text: '旧会话输出' }))
@@ -60,6 +61,7 @@ describe('会话消息隔离', () => {
     const current = TestSocket.sockets[1]
     act(() => { current.open(); current.receive(ready('b')) })
     await waitFor(() => expect(result.current.items).toEqual(page('b').items))
+    expect(api.loadMessages).toHaveBeenCalledWith('sdk-b', '', null, 30, 'b')
     act(() => { result.current.send('B 的新消息'); current.receive({ type: 'assistantDelta', seq: 2, text: 'B 的回复' }) })
     const ownItems = result.current.items
     expect(ownItems.at(-1)).toMatchObject({ kind: 'assistant', text: 'B 的回复' })
