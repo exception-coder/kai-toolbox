@@ -18,6 +18,7 @@ import { getSessionRuntimeState, listSessions, type SessionUsage } from '../api'
 import type { BackgroundTaskInfo, ChatItem, ClaudeChatSessionView, ConnState, SessionRuntimeState } from '../types'
 import { abbr, parseUsage } from '../lib/metrics'
 import { cn } from '@/lib/utils'
+import { sessionWorkspaceLabel } from '../lib/sessionProjectGroups'
 import { useMobileDisclosure } from '../hooks/useMobileDisclosure'
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { sessionDisplayName } from '../lib/sessionDisplayName'
@@ -181,7 +182,7 @@ function SessionShortcuts({ title, sessions, currentId, onSelect }: {
           {title === '正在执行' && <span className="size-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" aria-hidden="true" />}
           <span className="min-w-0 flex-1 truncate font-medium">{sessionDisplayName(session)}</span>
           {session.id === currentId && <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">当前</span>}
-          <span className="max-w-24 shrink-0 truncate text-xs text-[var(--color-muted-foreground)]">{session.cwd.split(/[\\/]/).filter(Boolean).at(-1)}</span>
+          <span className="max-w-24 shrink-0 truncate text-xs text-[var(--color-muted-foreground)]" title={session.cwd}>{sessionWorkspaceLabel(session.cwd)}</span>
         </button>
       </li>)}
     </ul>

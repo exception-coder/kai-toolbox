@@ -17,6 +17,7 @@ import { isSessionStatusVisible, useVisibleSessionStatuses } from '../lib/sessio
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { sessionDisplayName } from '../lib/sessionDisplayName'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
+import { sessionWorkspaceIdentity, sessionWorkspaceLabel } from '../lib/sessionProjectGroups'
 
 interface Props {
   currentSessionId: string | null
@@ -36,25 +37,15 @@ export interface RecentWorkspaceGroup {
   lastSeenAt: number
 }
 
-function workspaceIdentity(cwd: string): string {
-  const normalized = cwd.trim().replaceAll('\\', '/').replace(/\/+$/, '')
-  return /^[a-z]:\//i.test(normalized) ? normalized.toLocaleLowerCase() : normalized
-}
-
-function workspaceLabel(cwd: string): string {
-  const normalized = cwd.trim().replaceAll('\\', '/').replace(/\/+$/, '')
-  return normalized.split('/').filter(Boolean).at(-1) || '未识别工作区'
-}
-
 export function groupRecentSessionsByWorkspace(sessions: ClaudeChatSessionView[]): RecentWorkspaceGroup[] {
   const groups = new Map<string, RecentWorkspaceGroup>()
   for (const session of sessions) {
     const cwd = session.cwd?.trim() || ''
-    const key = workspaceIdentity(cwd) || '__unknown_workspace__'
+    const key = sessionWorkspaceIdentity(cwd) || '__unknown_workspace__'
     const group = groups.get(key) ?? {
       key,
       cwd,
-      label: workspaceLabel(cwd),
+      label: sessionWorkspaceLabel(cwd),
       sessions: [],
       lastSeenAt: 0,
     }

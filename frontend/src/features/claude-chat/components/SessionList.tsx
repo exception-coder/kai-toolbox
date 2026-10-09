@@ -17,6 +17,7 @@ import { SessionStatusFilter } from './SessionStatusFilter'
 import { DEFAULT_SESSION_STATUSES, isSessionStatusVisible, resetVisibleSessionStatuses, useVisibleSessionStatuses } from '../lib/sessionStatusFilter'
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
+import { groupSessionsByProject, manualSessionProjectKey, resolveSessionProject } from '../lib/sessionProjectGroups'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
 let groupMigrationDone = false
@@ -34,7 +35,6 @@ interface Props {
 }
 
 const KEY = ['claude-chat-sessions']
-const UNGROUPED = ' ungrouped'
 
 export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicatingSessionId, selectable, selectedIds, onToggleSelect }: Props) {
   const qc = useQueryClient()
@@ -59,6 +59,11 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
 
   // 项目目录和项目会话面板是纯导航状态，不修改会话分组。
   const [activeProject, setActiveProject] = useState<string | null>(null)
+  const activeProjectInfo = useMemo(() => vibeSessions
+    .map(resolveSessionProject).find(project => project.key === activeProject), [vibeSessions, activeProject])
+  useEffect(() => {
+    if (activeProject && !activeProjectInfo && !isPending) setActiveProject(null)
+  }, [activeProject, activeProjectInfo, isPending])
   const [filterPrd, setFilterPrd] = useState<'all' | 'linked' | 'unlinked'>('all')
   const [aliasQuery, setAliasQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
@@ -81,7 +86,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
   }
   const filteredSessions = useMemo(() => vibeSessions.filter(s => {
     if (!isSessionStatusVisible(s, visibleStatuses)) return false
-    if (activeProject && ((s.group ?? '').trim() || UNGROUPED) !== activeProject) return false
+    if (activeProject && resolveSessionProject(s).key !== activeProject) return false
     if (normalizedAliasQuery && !(s.title ?? '').toLocaleLowerCase().includes(normalizedAliasQuery)) return false
     if (filterPrd === 'linked' && !prdLinks[s.id]) return false
     if (filterPrd === 'unlinked' && prdLinks[s.id]) return false
@@ -124,7 +129,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     setProjectRenameError('')
     try {
       await renameSessionProject(oldName, newName)
-      if (activeProject === oldName) setActiveProject(newName)
+      if (activeProject === manualSessionProjectKey(oldName)) setActiveProject(manualSessionProjectKey(newName))
       setRenameProjectFor(null)
       await qc.invalidateQueries({ queryKey: KEY })
     } catch (error) {
@@ -253,16 +258,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     if (filterPrd === 'unlinked' && prdLinks[session.id]) return false
     return true
   })
-  const projects = [...visibleBaseSessions.reduce((map, session) => {
-    const key = (session.group ?? '').trim() || UNGROUPED
-    const current = map.get(key) ?? { key, count: 0, running: 0, lastSeenAt: 0 }
-    current.count += 1
-    if (session.status === 'RUNNING' && session.live) current.running += 1
-    current.lastSeenAt = Math.max(current.lastSeenAt, session.lastSeenAt)
-    map.set(key, current)
-    return map
-  }, new Map<string, { key: string; count: number; running: number; lastSeenAt: number }>()).values()]
-    .sort((a, b) => Number(a.key === UNGROUPED) - Number(b.key === UNGROUPED) || b.lastSeenAt - a.lastSeenAt)
+  const projects = groupSessionsByProject(visibleBaseSessions)
 
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
@@ -288,11 +284,16 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
               <ArrowLeft className="size-3.5" />
             </button>
           ) : <Folder className="size-3.5 text-[var(--color-primary)]" />}
-          <span className="min-w-0 flex-1 truncate text-xs font-semibold">
-            {activeProject ? (activeProject === UNGROUPED ? '未分组' : activeProject) : '项目'}
+          <span className="min-w-0 flex-1 truncate text-xs font-semibold" title={activeProjectInfo?.cwd || activeProjectInfo?.label}>
+            {activeProject ? activeProjectInfo?.label || '项目会话' : '项目'}
           </span>
           {!activeProject && <span className="text-[10px] tabular-nums text-[var(--color-muted-foreground)]">{projects.length}</span>}
         </div>
+        {activeProjectInfo?.kind === 'directory' && (
+          <p className="w-full truncate text-[10px] text-[var(--color-muted-foreground)]" title={activeProjectInfo.cwd}>
+            主工作目录 · {activeProjectInfo.cwd}
+          </p>
+        )}
         <div className="relative w-full">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
           <input
@@ -369,26 +370,32 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
                 type="button"
                 onClick={() => { setActiveProject(project.key); setAliasQuery('') }}
                 className="flex min-w-0 flex-1 items-center gap-2.5 py-2.5 pl-3 text-left"
+                aria-label={'打开项目 ' + project.label + (project.cwd ? '，工作目录 ' + project.cwd : '')}
               >
                 <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
                   <Folder className="size-3.5" />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-[var(--color-foreground)]">
-                    {project.key === UNGROUPED ? '未分组' : project.key}
+                    {project.label}
                   </span>
+                  {project.kind === 'directory' && (
+                    <span className="mt-0.5 block truncate text-[10px] text-[var(--color-muted-foreground)]" title={project.cwd}>
+                      {project.cwd}
+                    </span>
+                  )}
                   <span className="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--color-muted-foreground)]">
                     <span>{project.count} 个会话</span>
                     {project.running > 0 && <span className="text-emerald-600">{project.running} 个进行中</span>}
                   </span>
                 </span>
               </button>
-              {project.key !== UNGROUPED && (
+              {project.kind === 'manual' && (
                 <button
                   type="button"
-                  onClick={() => openProjectRename(project.key)}
+                  onClick={() => openProjectRename(project.label)}
                   className="rounded p-1.5 text-[var(--color-muted-foreground)] opacity-0 transition-opacity hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] group-hover:opacity-100 focus:opacity-100"
-                  aria-label={`重命名项目 ${project.key}`}
+                  aria-label={`重命名项目 ${project.label}`}
                   title="重命名项目"
                 >
                   <Pencil className="size-3.5" />
@@ -516,7 +523,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     const isActive = s.id === currentSessionId
     const linkedPrd = prdLinks[s.id]
     const isRunning = s.status === 'RUNNING' && s.live
-    const projectLabel = (s.group ?? '').trim()
+    const projectLabel = resolveSessionProject(s).label
     const requirementLabel = (s.subgroup ?? '').trim()
     const contextLabel = normalizedAliasQuery
       ? [projectLabel || '未分组', requirementLabel].filter(Boolean).join(' / ')
@@ -808,11 +815,11 @@ export function SessionGroupPicker({ currentProject, currentRequirement, all, on
             contentClassName="z-[90]"
           />
         </label>
-        <p className="mt-2 text-[11px] text-[var(--color-muted-foreground)]">同一系统/项目下可建立多个需求分组，会话归档到具体需求中。</p>
+        <p className="mt-2 text-[11px] text-[var(--color-muted-foreground)]">未设置自定义分组时，按主工作目录自动分组。同一项目下可建立多个需求分组。</p>
         <div className="mt-3 flex items-center gap-2">
           {(currentProject || currentRequirement) && (
             <button type="button" onClick={() => onPick(null)} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]">
-              <FolderMinus className="size-3.5" />移出分组
+              <FolderMinus className="size-3.5" />恢复自动分组
             </button>
           )}
           <button type="button" onClick={() => onPick(project.trim(), requirement.trim() || null)} disabled={!canSave} className="ml-auto inline-flex items-center gap-1 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs text-[var(--color-primary-foreground)] disabled:opacity-50">
