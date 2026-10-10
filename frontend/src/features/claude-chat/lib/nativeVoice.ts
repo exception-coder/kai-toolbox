@@ -27,6 +27,9 @@ export function voiceAvailability(): string | null {
 
 export function voiceErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
+  if (/already has an active writer|thread-store conflict:[^\n]*\bactive writer\b|Codex 原生会话被占用/i.test(message)) {
+    return 'Codex 原生会话被占用，请先在持有该会话的 VS Code、Codex 桌面或 Forge 语音连接中释放占用，再重试；仅停止生成可能不会立即释放连接'
+  }
   if (/404\s+Not Found/i.test(message) && /chatgpt\.com\/backend-api\/codex\/realtime\/calls/i.test(message)) {
     return 'Codex 原生语音服务当前未开放或不可用（上游返回 404），当前会话仍可继续使用文字'
   }
@@ -36,6 +39,11 @@ export function voiceErrorMessage(error: unknown): string {
     if (error.name === 'NotReadableError') return '麦克风正被占用或不可用，请检查设备后重试'
   }
   return error instanceof Error ? error.message : '语音连接失败，请重试或继续文字会话'
+}
+
+export function voiceErrorRetryHint(message: string, recoverable: boolean): string {
+  if (message.includes('上游返回 404') || message.includes('Codex 原生会话被占用')) return '。'
+  return `。可重新点击“${recoverable ? '恢复语音' : '语音对话'}”，或继续使用文字。`
 }
 
 /** Owns media resources even when permission resolves after the view has gone away. */

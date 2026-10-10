@@ -65,6 +65,14 @@ The system SHALL expose verified import origin in existing session lists and kee
 The system SHALL preserve the native thread ID and authorization directory for existing history viewing and Codex resume.
 
 #### Scenario: Open imported session
-- **WHEN** the user chooses an imported session after stopping work in the desktop client
+- **WHEN** the user chooses an imported session after releasing the original thread's writing connection in its holding client
 - **THEN** Forge selects the existing logical session and restores its Codex configuration and original native thread rather than creating a new thread
 - **AND** importing alone never resumes the native thread
+
+#### Scenario: Original thread is held by another client
+- **WHEN** a native thread reports an active writer during startup or after a turn has been accepted
+- **THEN** Forge identifies the writer conflict without claiming it was necessarily the previous Forge turn or the desktop client
+- **AND** failure pauses the pending-message queue and cannot fall back or replay a possibly accepted turn
+- **AND** text and voice explain releasing the same thread in its holding client before retrying, without claiming text bypasses the lock or stopping generation guarantees immediate release
+- **AND** Forge preserves native identity and never deletes native locks, closes other clients or interrupts unknown work
+- **AND** unrelated thread-store errors are not mislabeled as active-writer conflicts

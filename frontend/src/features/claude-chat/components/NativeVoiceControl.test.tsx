@@ -36,6 +36,19 @@ function fixture() {
   return { transport, view }
 }
 
+it('shows release-before-retry guidance for a writer conflict without a text bypass hint', async () => {
+  media.offer.mockRejectedValueOnce(new Error('thread native-thread-id already has an active writer'))
+  const f = fixture()
+  render(f.view())
+  fireEvent.click(screen.getByRole('button', { name: '语音对话' }))
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('原生会话被占用')
+  expect(alert).toHaveTextContent('VS Code')
+  expect(alert).not.toHaveTextContent('继续使用文字')
+  expect(alert).not.toHaveTextContent('可重新点击')
+  expect(f.transport.start).not.toHaveBeenCalled()
+})
+
 it('connects immediately while code runs and does not restart when the task finishes', async () => {
   const f = fixture()
   const page = render(f.view(true))

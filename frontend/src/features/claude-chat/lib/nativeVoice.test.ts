@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { NativeVoiceConnection, voiceAvailability, voiceErrorMessage } from './nativeVoice'
+import { NativeVoiceConnection, voiceAvailability, voiceErrorMessage, voiceErrorRetryHint } from './nativeVoice'
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
@@ -16,6 +16,24 @@ describe('native voice media lifecycle', () => {
     expect(message).toContain('继续使用文字')
     expect(message).not.toContain('https://')
     expect(message).not.toContain('request id')
+  })
+
+  it('explains a native writer conflict without suggesting text bypasses the same lock', () => {
+    const message = voiceErrorMessage(new Error('thread native-thread-id already has an active writer'))
+    expect(message).toContain('原生会话被占用')
+    expect(message).toContain('VS Code')
+    expect(message).toContain('释放')
+    expect(message).not.toContain('native-thread-id')
+    expect(message).not.toContain('继续使用文字')
+    expect(voiceErrorRetryHint(message, false)).toBe('。')
+    expect(voiceErrorRetryHint(message, true)).toBe('。')
+    expect(voiceErrorMessage(new Error('Codex 原生会话被占用，待发送队列已暂停'))).toBe(message)
+  })
+
+  it('retains explicit retry guidance for recoverable media errors', () => {
+    expect(voiceErrorRetryHint('麦克风权限被拒绝', false)).toContain('语音对话')
+    expect(voiceErrorRetryHint('语音网络连接已断开', true)).toContain('恢复语音')
+    expect(voiceErrorRetryHint('上游返回 404', true)).toBe('。')
   })
 
   it('stops tracks acquired after cancellation without creating a peer', async () => {

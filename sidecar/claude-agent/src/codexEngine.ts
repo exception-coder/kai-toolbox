@@ -43,6 +43,7 @@ import { isMcpToolTimeoutAbort } from './mcpToolWatchdog.js'
 import { isToolExecutionTimeoutAbort } from './toolExecutionWatchdog.js'
 import { standardToolboxMcpRequirements } from './codexMcpPolicy.js'
 import {
+  emitCodexThreadWriterConflict,
   isRetryableMcpInitializationFailure,
   isRetryableThreadWriterConflict,
   runCodexAppServerWithStartupRetry,
@@ -480,15 +481,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       ctx.emit({ type: 'result', usage: {}, stopReason: 'interrupted' })
       return
     }
-    if (isRetryableThreadWriterConflict(error)) {
-      ctx.emit({
-        type: 'error',
-        code: 'CODEX_THREAD_WRITER_BUSY',
-        message: 'Codex 原生 thread 仍被上一轮占用，本次未回退 SDK，也未放行下一条待发送消息。请稍后重试当前消息。',
-      })
-      ctx.emit({ type: 'result', usage: {}, stopReason: 'error', queueReleaseSafe: false })
-      return
-    }
+    if (emitCodexThreadWriterConflict(error, ctx.emit)) return
     if (!voice && error instanceof CodexAppServerTurnError && error.retrySafe) {
       const diagnostic = isRetryableMcpInitializationFailure(error) ? `；${toolboxMcpRuntimeDiagnostics()}` : ''
       ctx.emit({

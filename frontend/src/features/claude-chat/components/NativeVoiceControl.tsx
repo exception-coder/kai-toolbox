@@ -2,7 +2,7 @@ import { useEffect, useImperativeHandle, useRef, type Ref } from 'react'
 import { AudioLines, Loader2, Mic, MicOff, PhoneOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useVoiceRecovery } from '../hooks/useVoiceRecovery'
-import { voiceAvailability, type VoiceTransport } from '../lib/nativeVoice'
+import { voiceAvailability, voiceErrorRetryHint, type VoiceTransport } from '../lib/nativeVoice'
 
 interface Props {
   sessionId: string | null
@@ -61,7 +61,7 @@ export function NativeVoiceControl({ sessionId, transport, connected, disabled, 
         </span>
       </div>
       {voice.error && <p role="alert" className="mt-2 break-words text-xs text-[var(--color-destructive)]">
-        {voice.error}{voice.error.includes('上游返回 404') ? '。' : `。可重新点击“${voice.recoverable ? '恢复语音' : '语音对话'}”，或继续使用文字。`}
+        {voice.error}{voiceErrorRetryHint(voice.error, voice.recoverable)}
       </p>}
     </div>
   )
