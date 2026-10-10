@@ -47,6 +47,20 @@ The system SHALL import selected persistent threads into existing Forge sessions
 - **WHEN** a preview expired, belongs to another user, includes an excluded or unavailable directory, or contains an unselected unknown thread ID
 - **THEN** import is rejected before any selected session is inserted and the user can refresh the preview
 
+### Requirement: Identify imported sessions without obscuring navigation
+The system SHALL expose verified import origin in existing session lists and keep object actions from covering session titles on desktop and touch screens.
+
+#### Scenario: Identify a session created by Codex sync
+- **WHEN** persisted account, native thread and logical session identities match the Codex sync creation identity
+- **THEN** the session list exposes and displays its Codex import origin, including older imports and sessions subsequently switched to another engine
+- **AND** reused existing Forge sessions and missing or inconsistent identities are not mislabeled as newly imported
+
+#### Scenario: Open session actions on a narrow screen
+- **WHEN** the user browses the full or recent session list
+- **THEN** titles, source and favorite state remain visible without an overlaid row of action icons
+- **AND** one more-actions trigger opens labeled controls for that exact session, preserving confirmation, busy and running-state restrictions
+- **AND** the popover stays within the viewport, supports scrolling and Escape with focus recovery, and copying an ID reports success or recoverable failure
+
 ### Requirement: Continue the original Codex session
 The system SHALL preserve the native thread ID and authorization directory for existing history viewing and Codex resume.
 

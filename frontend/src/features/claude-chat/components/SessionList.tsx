@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Check, ChevronRight, Copy, Filter, Folder, FolderMinus, FolderPlus, Link2, Loader2, LockKeyhole, Pencil, Search, Star, Tags, Trash2, Unlock, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Copy, Filter, Folder, FolderMinus, FolderPlus, Link2, Loader2, LockKeyhole, Pencil, Search, Star, Tags, X } from 'lucide-react'
 import { EngineIcon } from './EngineIcon'
 import { cn, formatDate } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, renameSessionProject, setSessionFavorite, setSessionGroupApi } from '../api'
@@ -11,7 +11,8 @@ import { getSessionsByDevSessions } from '@/features/prd-clarify/public-api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Combobox } from '@/components/ui/combobox'
 import { SessionActivityBar } from './SessionActivityBar'
-import { CopySessionIdButton } from './CopySessionIdButton'
+import { SessionRowActions } from './SessionRowActions'
+import { SessionImportBadge } from './SessionImportBadge'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
 import { SessionStatusFilter } from './SessionStatusFilter'
 import { DEFAULT_SESSION_STATUSES, isSessionStatusVisible, resetVisibleSessionStatuses, useVisibleSessionStatuses } from '../lib/sessionStatusFilter'
@@ -609,7 +610,6 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
           <button
             type="button"
             className={cn(
-              // pr-16 给操作按钮预留隐形空间（按钮绝对定位，不占布局，但文字不能延伸进按钮区）
               'relative z-10 min-h-[44px] min-w-0 flex-1 py-2.5 pr-2 text-left',
               inGroup ? 'pl-8' : 'pl-5',
             )}
@@ -633,6 +633,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
               )}>
                 {s.title || shortCwd(s.cwd)}
               </span>
+              {s.favorite && <Star aria-label="已收藏" className="size-3 shrink-0 fill-amber-400 text-amber-500" />}
               {linkedPrd && (
                 <span
                   title={`已关联规格：${linkedPrd.title || '（未命名）'}`}
@@ -644,10 +645,10 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
             </div>
             {/* Line 2：Badge（从 Line 1 移来）+ 时间 */}
             <div className={cn(
-              'mt-0.5 flex items-center gap-1.5 text-[11px] leading-snug',
+              'mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] leading-snug',
               isActive
                 ? 'text-[var(--color-primary)]/60'
-                : 'text-[var(--color-muted-foreground)] opacity-60',
+                : 'text-[var(--color-muted-foreground)]',
             )}>
               {showContext && (
                 <span className="max-w-28 truncate rounded bg-[var(--color-muted)] px-1 py-0.5 text-[10px]" title={[projectLabel, requirementLabel].filter(Boolean).join(' / ')}>
@@ -655,17 +656,17 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
                 </span>
               )}
               {engineBadge}
+              <SessionImportBadge session={s} />
               {s.planExpired && (
                 <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 opacity-100 dark:bg-amber-950 dark:text-amber-300">
                   <LockKeyhole className="size-2.5" />规划已过期
                 </span>
               )}
-              <span className="tabular-nums">{formatDate(s.lastSeenAt)}</span>
+              <span className="shrink-0 tabular-nums">{formatDate(s.lastSeenAt)}</span>
             </div>
           </button>
         )}
 
-        {/* Actions：绝对定位，不占布局宽度，hover 时叠加显示 */}
         {editingId === s.id ? (
           <button
             type="button"
@@ -677,86 +678,18 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
             <Check className="size-3.5" />
           </button>
         ) : (
-          <div
-            className={cn(
-              // 绝对定位贴右边，同行垂直居中；背景色与行状态一致，遮挡身后的文字
-              'absolute inset-y-0 right-0 z-10 flex items-center pl-2 pr-1',
-              // 触屏没有 hover：移动端始终显示操作，桌面端仍在 hover 时出现。
-              'opacity-100 transition-opacity duration-100 sm:opacity-0 sm:group-hover:opacity-100',
-              s.planExpired
-                ? 'bg-[var(--color-muted)]'
-                : isActive ? 'bg-[var(--color-selection)]' : 'bg-[var(--color-accent)]',
-            )}
-          >
-            <button
-              type="button"
-              disabled={favoriteBusyId != null}
-              className={cn(
-                'rounded p-1.5 disabled:opacity-40',
-                s.favorite
-                  ? 'text-amber-500 hover:text-amber-600'
-                  : 'text-[var(--color-muted-foreground)] hover:text-amber-500',
-              )}
-              onClick={e => { e.stopPropagation(); void toggleFavorite(s) }}
-              aria-label={s.favorite ? '取消收藏会话' : '收藏会话'}
-              title={s.favorite ? '取消收藏' : '收藏重点会话'}
-            >
-              {favoriteBusyId === s.id
-                ? <Loader2 className="size-3.5 animate-spin" />
-                : <Star className={cn('size-3.5', s.favorite && 'fill-current')} />}
-            </button>
-            <CopySessionIdButton sessionId={s.id} />
-            <button
-              type="button"
-              disabled={duplicatingSessionId != null}
-              className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-              onClick={e => { e.stopPropagation(); requestDuplicate(s) }}
-              aria-label="复制会话配置"
-              title={duplicatingSessionId === s.id ? '正在复制会话配置' : '复制会话配置'}
-            >
-              {duplicatingSessionId === s.id
-                ? <Loader2 className="size-3.5 animate-spin" />
-                : <Copy className="size-3.5" />}
-            </button>
-            <button
-              type="button"
-              disabled={planBusyId === s.id || isRunning}
-              className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-amber-600 disabled:opacity-40"
-              onClick={e => {
-                e.stopPropagation()
-                void (s.planExpired ? unlockPlan(s) : expirePlan(s))
-              }}
-              aria-label={s.planExpired ? '解锁过期规划' : '标记规划过期'}
-              title={isRunning ? '运行中的会话需先中断' : s.planExpired ? '解锁过期规划' : '标记规划过期'}
-            >
-              {s.planExpired ? <Unlock className="size-3.5" /> : <LockKeyhole className="size-3.5" />}
-            </button>
-            <button
-              type="button"
-              className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-              onClick={e => { e.stopPropagation(); assignGroup(s) }}
-              aria-label="设置系统和需求分组"
-              title="设置系统和需求分组"
-            >
-              <Tags className="size-3.5" />
-            </button>
-            <button
-              type="button"
-              className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-              onClick={e => { e.stopPropagation(); startEdit(s.id, s.title || shortCwd(s.cwd)) }}
-              aria-label="重命名会话"
-            >
-              <Pencil className="size-3.5" />
-            </button>
-            <button
-              type="button"
-              className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-destructive)]"
-              onClick={e => { e.stopPropagation(); void remove(s) }}
-              aria-label="删除会话"
-            >
-              <Trash2 className="size-3.5" />
-            </button>
-          </div>
+          <SessionRowActions
+            sessionId={s.id} title={s.title || shortCwd(s.cwd)} favorite={s.favorite}
+            favoriteBusy={favoriteBusyId != null} duplicateBusy={duplicatingSessionId != null}
+            duplicating={duplicatingSessionId === s.id} planExpired={s.planExpired}
+            planBusy={planBusyId === s.id} running={isRunning}
+            onFavorite={() => void toggleFavorite(s)}
+            onDuplicate={onDuplicate ? () => requestDuplicate(s) : undefined}
+            onPlan={() => void (s.planExpired ? unlockPlan(s) : expirePlan(s))}
+            onGroup={() => assignGroup(s)}
+            onRename={() => startEdit(s.id, s.title || shortCwd(s.cwd))}
+            onDelete={() => void remove(s)}
+          />
         )}
       </li>
     )

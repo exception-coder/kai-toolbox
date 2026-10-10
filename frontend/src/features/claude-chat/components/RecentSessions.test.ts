@@ -78,16 +78,39 @@ describe('recent session rename', () => {
       createElement(ConfirmProvider, null,
         createElement(RecentSessions, { currentSessionId: 'one', onSwitch: vi.fn() }))))
 
-    const row = await screen.findByRole('button', { name: /旧名称/ })
+    const row = await screen.findByRole('button', { name: /^旧名称/ })
     fireEvent.doubleClick(row)
     const input = screen.getByDisplayValue('旧名称')
     fireEvent.change(input, { target: { value: '新名称' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     await waitFor(() => expect(rename).toHaveBeenCalledOnce())
-    expect(screen.getByRole('button', { name: /新名称/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^新名称/ })).toBeInTheDocument()
 
     rejectRequest(new Error('网络不可用'))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('网络不可用'))
-    expect(screen.getByRole('button', { name: /旧名称/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^旧名称/ })).toBeInTheDocument()
+  })
+
+  it('shows import origin in recent rows and copies their own IDs with recoverable feedback', async () => {
+    vi.mocked(getSessionsByDevSessions).mockResolvedValue({})
+    const imported = { ...session('imported-id', 'D:/work/Alpha', 200), title: '导入会话', importSource: 'codex' as const }
+    vi.spyOn(api, 'listSessions').mockResolvedValue([imported])
+    const writeText = vi.fn().mockRejectedValueOnce(new Error('clipboard unavailable')).mockResolvedValueOnce(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const onSwitch = vi.fn()
+    render(createElement(QueryClientProvider, { client }, createElement(ConfirmProvider, null,
+      createElement(RecentSessions, { currentSessionId: null, onSwitch }))))
+    expect(await screen.findByRole('button', { name: /^导入会话/ })).toHaveTextContent('Codex 导入')
+    expect(screen.queryByRole('button', { name: '复制会话 ID' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '更多操作：导入会话' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制会话 ID' }))
+    const retry = await screen.findByRole('button', { name: '复制会话 ID 失败' })
+    expect(retry).toHaveTextContent('复制会话 ID 失败')
+    fireEvent.click(retry)
+    expect(await screen.findByRole('button', { name: '会话 ID 已复制' })).toHaveTextContent('会话 ID 已复制')
+    expect(writeText).toHaveBeenNthCalledWith(1, 'imported-id')
+    expect(writeText).toHaveBeenNthCalledWith(2, 'imported-id')
+    expect(onSwitch).not.toHaveBeenCalled()
   })
 })

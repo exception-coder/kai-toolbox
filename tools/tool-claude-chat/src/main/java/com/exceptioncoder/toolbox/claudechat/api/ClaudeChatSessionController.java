@@ -18,6 +18,7 @@ import com.exceptioncoder.toolbox.claudechat.service.SessionDeletionService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionRuntimeStateService;
 import com.exceptioncoder.toolbox.claudechat.service.EngineCatalogService;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
+import com.exceptioncoder.toolbox.claudechat.service.codexsync.CodexDesktopSyncService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -52,6 +53,7 @@ public class ClaudeChatSessionController {
     private final SessionRuntimeStateService runtimeStateService;
     private final EngineCatalogService engineCatalogService;
     private final ClaudeChatSessionAccessPolicy sessionAccessPolicy;
+    private final CodexDesktopSyncService codexDesktopSyncService;
 
     public ClaudeChatSessionController(ClaudeChatSessionRepository repo, ClaudeChatService service,
                                        SessionHistoryService historyService,
@@ -60,7 +62,8 @@ public class ClaudeChatSessionController {
                                        SessionDeletionService sessionDeletionService,
                                        SessionRuntimeStateService runtimeStateService,
                                        EngineCatalogService engineCatalogService,
-                                       ClaudeChatSessionAccessPolicy sessionAccessPolicy) {
+                                       ClaudeChatSessionAccessPolicy sessionAccessPolicy,
+                                       CodexDesktopSyncService codexDesktopSyncService) {
         this.repo = repo;
         this.service = service;
         this.historyService = historyService;
@@ -70,6 +73,7 @@ public class ClaudeChatSessionController {
         this.runtimeStateService = runtimeStateService;
         this.engineCatalogService = engineCatalogService;
         this.sessionAccessPolicy = sessionAccessPolicy;
+        this.codexDesktopSyncService = codexDesktopSyncService;
     }
 
     @GetMapping
@@ -92,7 +96,8 @@ public class ClaudeChatSessionController {
         long afterPlans = System.nanoTime();
         List<ClaudeChatSessionView> result = all.stream()
                 .map(s -> ClaudeChatSessionView.from(s, service.isLive(s.getId()),
-                        transcriptAware(s) && missing.contains(s.getSdkSessionId()), planStates.get(s.getId())))
+                        transcriptAware(s) && missing.contains(s.getSdkSessionId()), planStates.get(s.getId()),
+                        codexDesktopSyncService.isImportedSession(s) ? "codex" : null))
                 .toList();
         long finished = System.nanoTime();
         log.info("[vibe-session-list] count={} accessMs={} transcriptMs={} planMs={} mapMs={} totalMs={}",

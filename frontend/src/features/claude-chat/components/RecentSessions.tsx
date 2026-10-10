@@ -1,7 +1,7 @@
 import { useRecentSessionsExpanded } from '../lib/workspacePreferences'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronRight, Clock3, Folder, Link2, Loader2, LockKeyhole, Pencil, Star, Tags, Trash2, Unlock } from 'lucide-react'
+import { Check, ChevronRight, Clock3, Folder, Link2, LockKeyhole, Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionFavorite, setSessionGroupApi } from '../api'
 import { engineDisplayName } from './chatStatus'
@@ -9,7 +9,8 @@ import { getSessionsByDevSessions } from '@/features/prd-clarify/public-api'
 import { SessionActivityBar } from './SessionActivityBar'
 import { EngineIcon } from './EngineIcon'
 import { SessionGroupPicker } from './SessionList'
-import { CopySessionIdButton } from './CopySessionIdButton'
+import { SessionRowActions } from './SessionRowActions'
+import { SessionImportBadge } from './SessionImportBadge'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { ClaudeChatSessionView } from '../types'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
@@ -229,7 +230,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
             <li
               key={session.id}
               className={cn(
-                'group relative isolate transition-colors duration-100',
+                'group relative isolate flex items-center transition-colors duration-100',
                 session.planExpired
                   ? 'bg-[var(--color-muted)]/60 hover:bg-[var(--color-muted)]/80'
                   : isActive ? 'bg-[var(--color-primary)]/10' : 'hover:bg-[var(--color-accent)]',
@@ -273,7 +274,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
                   onClick={() => onSwitch(session.id, session.status === 'RUNNING' && session.live)}
                   onDoubleClick={e => { e.stopPropagation(); startEdit(session.id, title) }}
                   title={`${title}\n${session.cwd}\n（双击重命名）`}
-                  className="relative z-10 min-h-[52px] w-full py-2 pl-5 pr-2 text-left"
+                  className="relative z-10 min-h-[52px] min-w-0 flex-1 py-2 pl-5 pr-2 text-left"
                 >
                   <div className="flex min-w-0 items-center gap-1.5">
                     {session.live
@@ -305,10 +306,11 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
                     )}
                   </div>
                   <div className={cn(
-                    'mt-0.5 flex min-w-0 items-center gap-1.5 pr-32 text-[11px] leading-snug',
-                    isActive ? 'text-[var(--color-primary)]/60' : 'text-[var(--color-muted-foreground)] opacity-60',
+                    'mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] leading-snug',
+                    isActive ? 'text-[var(--color-primary)]/60' : 'text-[var(--color-muted-foreground)]',
                   )}>
                     <span className="shrink-0 rounded bg-[var(--color-muted)] px-1 py-0.5 text-[10px]">{engineLabel}</span>
+                    <SessionImportBadge session={session} />
                     {session.planExpired && (
                       <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 opacity-100 dark:bg-amber-950 dark:text-amber-300">
                         <LockKeyhole className="size-2.5" />规划已过期
@@ -320,75 +322,16 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
               )}
 
               {!isEditing && (
-                <div className={cn(
-                  'absolute bottom-0 right-0 z-20 flex h-7 items-center pl-2 pr-1',
-                  'opacity-100 transition-opacity duration-100 sm:opacity-0 sm:group-hover:opacity-100',
-                  session.planExpired
-                    ? 'bg-[var(--color-muted)]'
-                    : isActive ? 'bg-[var(--color-primary)]/10' : 'bg-[var(--color-accent)]',
-                )}>
-                  <button
-                    type="button"
-                    disabled={favoriteBusyId !== null}
-                    onClick={event => {
-                      event.stopPropagation()
-                      void toggleFavorite(session)
-                    }}
-                    aria-label={session.favorite ? '取消收藏会话' : '收藏会话'}
-                    title={session.favorite ? '取消收藏' : '收藏会话'}
-                    className={cn(
-                      'rounded p-1.5 disabled:opacity-40',
-                      session.favorite
-                        ? 'text-amber-500 hover:text-amber-600'
-                        : 'text-[var(--color-muted-foreground)] hover:text-amber-500',
-                    )}
-                  >
-                    {favoriteBusyId === session.id
-                      ? <Loader2 className="size-3.5 animate-spin" />
-                      : <Star className={cn('size-3.5', session.favorite && 'fill-current')} />}
-                  </button>
-                  <CopySessionIdButton sessionId={session.id} />
-                  <button
-                    type="button"
-                    disabled={planBusyId === session.id || isRunning}
-                    onClick={event => {
-                      event.stopPropagation()
-                      void (session.planExpired ? unlockPlan(session) : expirePlan(session))
-                    }}
-                    aria-label={session.planExpired ? '解锁过期规划' : '标记规划过期'}
-                    title={isRunning ? '运行中的会话需先中断' : session.planExpired ? '解锁过期规划' : '标记规划过期'}
-                    className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-amber-600 disabled:opacity-40"
-                  >
-                    {session.planExpired ? <Unlock className="size-3.5" /> : <LockKeyhole className="size-3.5" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={event => { event.stopPropagation(); setGroupPickFor(session) }}
-                    aria-label="设置系统和需求分组"
-                    title="设置系统和需求分组"
-                    className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-                  >
-                    <Tags className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={event => { event.stopPropagation(); startEdit(session.id, title) }}
-                    aria-label="重命名会话"
-                    title="重命名会话"
-                    className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={event => { event.stopPropagation(); void remove(session) }}
-                    aria-label="删除会话"
-                    title="删除会话"
-                    className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-destructive)]"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
+                <SessionRowActions
+                  sessionId={session.id} title={title} favorite={session.favorite}
+                  favoriteBusy={favoriteBusyId !== null} planExpired={session.planExpired}
+                  planBusy={planBusyId === session.id} running={isRunning}
+                  onFavorite={() => void toggleFavorite(session)}
+                  onPlan={() => void (session.planExpired ? unlockPlan(session) : expirePlan(session))}
+                  onGroup={() => setGroupPickFor(session)}
+                  onRename={() => startEdit(session.id, title)}
+                  onDelete={() => void remove(session)}
+                />
               )}
             </li>
           )

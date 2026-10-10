@@ -3,12 +3,13 @@ import { Check, CircleAlert, Fingerprint } from 'lucide-react'
 
 interface Props {
   sessionId: string
+  variant?: 'icon' | 'menu'
 }
 
 type CopyState = 'idle' | 'copied' | 'failed'
 
 /** 复制 Forge 会话 ID，并在原操作位反馈复制结果。 */
-export function CopySessionIdButton({ sessionId }: Props) {
+export function CopySessionIdButton({ sessionId, variant = 'icon' }: Props) {
   const [copyState, setCopyState] = useState<CopyState>('idle')
   const resetTimer = useRef<number | null>(null)
 
@@ -42,13 +43,16 @@ export function CopySessionIdButton({ sessionId }: Props) {
       }}
       aria-label={label}
       title={`${label}\n${sessionId}`}
-      className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+      className={variant === 'menu'
+        ? 'flex min-h-11 w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]'
+        : 'rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'}
     >
       {copyState === 'copied'
         ? <Check className="size-3.5 text-emerald-600" />
         : copyState === 'failed'
           ? <CircleAlert className="size-3.5 text-[var(--color-destructive)]" />
           : <Fingerprint className="size-3.5" />}
+      {variant === 'menu' && <span aria-live="polite">{label}</span>}
     </button>
   )
 }

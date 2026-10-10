@@ -93,6 +93,40 @@ public class CodexDesktopSyncService {
         return transactions.execute(status -> persist(preview, selected));
     }
 
+    /** 根据导入时持久化的完整身份识别来源，不将复用的 Forge 会话误标为导入。 */
+    public boolean isImportedSession(ClaudeChatSession session) {
+        String nativeId = codexThreadId(session);
+        if (nativeId == null || nativeId.isBlank()) {
+            return false;
+        }
+        String home = session.getCodexHome();
+        if (home == null || home.isBlank()) {
+            home = Path.of(System.getProperty("user.home"), ".codex").toString();
+        }
+        try {
+            return stableId(home, nativeId).equals(session.getId());
+        } catch (java.nio.file.InvalidPathException error) {
+            return false;
+        }
+    }
+
+    private String codexThreadId(ClaudeChatSession session) {
+        if ("codex".equals(session.getEngine()) && session.getSdkSessionId() != null) {
+            return session.getSdkSessionId();
+        }
+        if (session.getEngineSessions() != null) {
+            try {
+                JsonNode mapping = mapper.readTree(session.getEngineSessions());
+                if (mapping != null && mapping.path("codex").isTextual()) {
+                    return mapping.path("codex").asText();
+                }
+            } catch (java.io.IOException error) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     private ImportResult persist(CodexSyncPreviews.Preview preview, List<Thread> selected) {
         Map<String, ClaudeChatSession> existing = existing(preview.home(), selected.stream().map(Thread::id).toList());
         // Validate the entire batch before inserting any row.
@@ -128,11 +162,7 @@ public class CodexDesktopSyncService {
             String rowHome = row.getCodexHome() == null || row.getCodexHome().isBlank()
                     ? Path.of(System.getProperty("user.home"), ".codex").toString() : row.getCodexHome();
             if (!pathKey(home).equals(pathKey(rowHome))) continue;
-            String nativeId = "codex".equals(row.getEngine()) ? row.getSdkSessionId() : null;
-            if (nativeId == null && row.getEngineSessions() != null) {
-                try { nativeId = mapper.readTree(row.getEngineSessions()).path("codex").asText(null); }
-                catch (Exception ignored) { /* Corrupt legacy mappings are not usable identities. */ }
-            }
+            String nativeId = codexThreadId(row);
             if (ids.contains(nativeId)) result.putIfAbsent(nativeId, row);
         }
         return result;

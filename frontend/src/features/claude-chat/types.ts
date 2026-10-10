@@ -79,6 +79,8 @@ export interface ClaudeChatSessionView {
   providerBaseUrl?: string | null
   /** 官方 Codex 会话绑定的授权目录；空值表示使用默认目录 */
   codexHome?: string | null
+  /** 已核对的同步创建来源；未提供时不根据引擎或标题猜测。 */
+  importSource?: 'codex' | null
   /** 手动分组名（后端持久化，跨端可见）；空/缺省时按主工作目录自动展示分组 */
   group?: string | null
   /** 二级需求分组；一级 group 通常表示系统/项目。 */

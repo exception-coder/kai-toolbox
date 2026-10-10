@@ -35,7 +35,9 @@ public record ClaudeChatSessionView(
         boolean transcriptMissing,
         boolean planExpired,
         Long planExpiredAt,
-        Long planUnlockedAt
+        Long planUnlockedAt,
+        /** 通过同步创建的来源引擎；空值不推断来源。 */
+        String importSource
 ) {
     public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live) {
         return from(s, live, false);
@@ -56,6 +58,12 @@ public record ClaudeChatSessionView(
      */
     public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live, boolean transcriptMissing,
                                              SessionPlanState planState) {
+        return from(s, live, transcriptMissing, planState, null);
+    }
+
+    /** 将经过导入身份核对的来源与现有会话状态一并投影。 */
+    public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live, boolean transcriptMissing,
+                                             SessionPlanState planState, String importSource) {
         String engine = s.getEngine() == null ? "claude" : s.getEngine();
         String engines = s.getEngines() == null || s.getEngines().isBlank() ? engine : s.getEngines();
         String providerBaseUrl = s.getApiBaseUrl() == null || s.getApiBaseUrl().isBlank() ? null : s.getApiBaseUrl();
@@ -68,6 +76,6 @@ public record ClaudeChatSessionView(
                 s.getStatus(), s.getStartedAt(), s.getLastSeenAt(), live, transcriptMissing,
                 planState != null && planState.planExpired(),
                 planState == null ? null : planState.expiredAt(),
-                planState == null ? null : planState.unlockedAt());
+                planState == null ? null : planState.unlockedAt(), importSource);
     }
 }

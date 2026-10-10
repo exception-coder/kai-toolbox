@@ -36,7 +36,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@mediapipe/tasks-vision": "^0.10.35",
-    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dialog": "1.1.19",
     "@radix-ui/react-popover": "^1.1.19",
     "@radix-ui/react-slot": "^1.1.1",
     "@radix-ui/react-tooltip": "^1.1.6",
@@ -76,6 +76,9 @@
     "tailwind-merge": "^2.5.5",
     "xml-formatter": "^3.7.0",
     "zod": "4.4.3"
+  },
+  "overrides": {
+    "@radix-ui/react-dismissable-layer": "1.1.15"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

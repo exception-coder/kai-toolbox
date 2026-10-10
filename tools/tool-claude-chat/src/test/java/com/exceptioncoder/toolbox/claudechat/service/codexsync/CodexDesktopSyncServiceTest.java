@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.claudechat.service.codexsync;
 
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
+import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatSessionView;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import com.exceptioncoder.toolbox.claudechat.service.SidecarClient;
@@ -96,6 +98,9 @@ class CodexDesktopSyncServiceTest {
         assertThat(row.getCodexHome()).isEqualTo(home);
         assertThat(row.getSdkSessionId()).isEqualTo("native-1");
         assertThat(row.getEngineSessions()).isEqualTo("{\"codex\":\"native-1\"}");
+        assertThat(service.isImportedSession(row)).isTrue();
+        assertThat(ClaudeChatSessionView.from(row, false, false, null,
+                service.isImportedSession(row) ? "codex" : null).importSource()).isEqualTo("codex");
         verifyNoInteractions(sidecar);
     }
 
@@ -126,6 +131,40 @@ class CodexDesktopSyncServiceTest {
         assertThat(result.reused()).isEqualTo(1);
         assertThat(sessions.findAll()).hasSize(1);
         assertThat(sessions.findById(id).orElseThrow().getEngine()).isEqualTo("claude");
+        assertThat(service.isImportedSession(sessions.findById(id).orElseThrow())).isTrue();
+    }
+
+    @Test void reusingAnExistingForgeSessionDoesNotChangeItsOrigin() {
+        sessions.insert(ClaudeChatSession.builder().id("forge-original").cwd(cwd).title("原会话")
+                .engine("codex").codexHome(home).sdkSessionId("native-1")
+                .status(SessionStatus.IDLE).startedAt(1000).lastSeenAt(2000).build());
+        ImportResult result = service.importThreads(request(home, List.of(thread("native-1", cwd))));
+        assertThat(result.reused()).isEqualTo(1);
+        var existing = sessions.findById("forge-original").orElseThrow();
+        assertThat(service.isImportedSession(existing)).isFalse();
+        assertThat(ClaudeChatSessionView.from(existing, false).importSource()).isNull();
+        verifyNoInteractions(sidecar);
+    }
+
+    @Test void importOriginMatchesFullAccountAndNativeIdentityWithoutTrustingUuidShapeOrBrokenMappings() {
+        var original = ClaudeChatSession.builder()
+                .id(CodexDesktopSyncService.stableId(home, "native-1"))
+                .engine("codex").sdkSessionId("native-1").codexHome(home).build();
+        assertThat(service.isImportedSession(original)).isTrue();
+        original.setCodexHome(home + "-other");
+        assertThat(service.isImportedSession(original)).isFalse();
+        original.setCodexHome(home);
+        original.setSdkSessionId("native-2");
+        assertThat(service.isImportedSession(original)).isFalse();
+        original.setEngine("claude");
+        for (String mapping : List.of("", "broken", "null", "{}", "{\"codex\":4}")) {
+            original.setEngineSessions(mapping);
+            assertThat(service.isImportedSession(original)).isFalse();
+        }
+        original.setEngineSessions("{\"codex\":\"native-1\"}");
+        assertThat(service.isImportedSession(original)).isTrue();
+        original.setCodexHome("bad\u0000path");
+        assertThat(service.isImportedSession(original)).isFalse();
     }
 
     @Test void invalidDirectoryRejectsWholeBatchBeforeInserting() {
