@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowRight, Loader2, RefreshCw, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, RefreshCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import { fetchCodexHomes } from '../api'
 import { importCodexNativeThreads, listCodexNativeProjects, listCodexNativeThreads } from '../api/codexDesktopSync'
+import type { CodexThreadPage } from '../api/codexDesktopSync'
 
 interface Props {
   open: boolean; onOpenChange: (open: boolean) => void; defaultHome?: string
@@ -25,6 +26,7 @@ export function CodexDesktopSyncDialog({ open, onOpenChange, defaultHome, onOpen
   const [projectId, setProjectId] = useState('')
   const [cursors, setCursors] = useState<string[]>([''])
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirmedImports, setConfirmedImports] = useState<Map<string, string>>(new Map())
   const homes = useQuery({ queryKey: ['codex-sync-homes', auth.user?.userId], queryFn: fetchCodexHomes, enabled: open, retry: false })
   const home = chosenHome || homes.data?.[0] || ''
   const accountKey = ['codex-desktop-sync', auth.user?.userId ?? 'local', home]
@@ -38,24 +40,34 @@ export function CodexDesktopSyncDialog({ open, onOpenChange, defaultHome, onOpen
     queryFn: ({ signal }) => listCodexNativeThreads(home, cursors.at(-1), projectId, signal),
   })
   const importing = useMutation({
-    mutationFn: () => importCodexNativeThreads(threads.data!.previewToken, [...selected]),
-    onSuccess: () => {
+    mutationFn: () => importCodexNativeThreads(threads.data!.previewToken, selectedIds),
+    onSuccess: result => {
+      const imported = new Map(result.sessions.map(session => [session.threadId, session.sessionId]))
       setSelected(new Set())
+      setConfirmedImports(previous => new Map([...previous, ...imported]))
+      qc.setQueriesData<CodexThreadPage>({ queryKey: [...accountKey, 'threads'] }, page => page && ({
+        ...page, data: page.data.map(row => imported.has(row.thread.id)
+          ? { ...row, importedSessionId: imported.get(row.thread.id)! } : row),
+      }))
       void qc.invalidateQueries({ queryKey: ['claude-chat-sessions'] })
       void qc.invalidateQueries({ queryKey: [...accountKey, 'threads'] })
     },
   })
-  function resetSelection() { setCursors(['']); setSelected(new Set()); importing.reset() }
+  function resetSelection() { setCursors(['']); setSelected(new Set()); setConfirmedImports(new Map()); importing.reset() }
   function switchHome(value: string) { setChosenHome(value); setProjectId(''); resetSelection() }
   function switchProject(value: string) { setProjectId(value); resetSelection() }
   function movePage(next?: string) {
     setCursors(value => next ? [...value, next] : value.slice(0, -1))
-    setSelected(new Set()); importing.reset()
+    setSelected(new Set()); setConfirmedImports(new Map()); importing.reset()
   }
   const projectRows = projects.data?.pages.flatMap(page => page.data) ?? []
   const currentProject = projectRows.find(project => project.id === projectId)
-  const rows = threads.data?.data ?? []
-  const selectable = rows.filter(row => !row.unavailableReason)
+  const rows = (threads.data?.data ?? []).map(row => confirmedImports.has(row.thread.id)
+    ? { ...row, importedSessionId: confirmedImports.get(row.thread.id)! } : row)
+  const selectable = rows.filter(row => !row.unavailableReason && !row.importedSessionId)
+  const selectedIds = selectable.filter(row => selected.has(row.thread.id)).map(row => row.thread.id)
+  const importedCount = rows.filter(row => row.importedSessionId).length
+  const allImported = rows.length > 0 && importedCount === rows.length
   const pending = importing.isPending
   const openSession = (id: string) => { onOpenChange(false); onOpenSession(id) }
 
@@ -101,18 +113,18 @@ export function CodexDesktopSyncDialog({ open, onOpenChange, defaultHome, onOpen
           </div>}
           <p className="mt-4 text-xs leading-relaxed text-[var(--color-muted-foreground)]">此目录可能同时包含桌面、CLI 和 VS Code 会话。这里只同步未归档的持久会话；导入不会启动模型。继续对话前，请先停止桌面对同一会话的生成。</p>
           <div className="mt-4 flex items-center justify-between border-b pb-2 text-xs text-[var(--color-muted-foreground)]">
-            <span>本页 {rows.length} 个会话</span>
+            <span>本页 {rows.length} 个会话 · 已导入 {importedCount} 个</span>
             <button type="button" className="min-h-9 rounded px-2 hover:bg-[var(--color-muted)] disabled:opacity-40" disabled={pending || threads.isFetching || !selectable.length}
-              onClick={() => setSelected(selected.size === selectable.length ? new Set() : new Set(selectable.map(row => row.thread.id)))}>{selected.size === selectable.length && selectable.length ? '取消全选' : '选择本页'}</button>
+              onClick={() => setSelected(selectedIds.length === selectable.length ? new Set() : new Set(selectable.map(row => row.thread.id)))}>{selectedIds.length === selectable.length && selectable.length ? '取消全选' : '选择本页'}</button>
           </div>
-          {threads.isFetching ? <p role="status" className="flex items-center gap-2 py-8 text-sm text-[var(--color-muted-foreground)]"><Loader2 className="size-4 animate-spin" />正在读取 Codex 会话…</p>
-            : threads.isError ? <div role="alert" className="py-6 text-sm"><p>{message(threads.error)}</p><Button variant="outline" className="mt-3" onClick={() => void threads.refetch()}>重试读取</Button></div>
-              : rows.length === 0 ? <div className="py-6 text-sm text-[var(--color-muted-foreground)]"><p>{home ? '该范围暂无未归档会话。' : '请选择已登录的 Codex 授权目录。'}</p>
+          {threads.isError && <div role="alert" className="py-6 text-sm"><p>{message(threads.error)}</p><Button variant="outline" className="mt-3" onClick={() => void threads.refetch()}>重试读取</Button></div>}
+          {threads.isFetching && !threads.data ? <p role="status" className="flex items-center gap-2 py-8 text-sm text-[var(--color-muted-foreground)]"><Loader2 className="size-4 animate-spin" />正在读取 Codex 会话…</p>
+              : rows.length === 0 ? !threads.isError && <div className="py-6 text-sm text-[var(--color-muted-foreground)]"><p>{home ? '该范围暂无未归档会话。' : '请选择已登录的 Codex 授权目录。'}</p>
                 {currentProject?.roots[0] && <Button variant="outline" className="mt-3" onClick={() => { onOpenChange(false); onCreateProject(currentProject.roots[0], home) }}>在此项目新建会话</Button>}
               </div> : <ul className="divide-y" aria-label="Codex 原生会话">
                 {rows.map(({ thread, importedSessionId, unavailableReason }) => <li key={thread.id} className="flex gap-3 py-3">
                   <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                  <input type="checkbox" aria-label={`选择 ${thread.title}`} checked={selected.has(thread.id)} disabled={pending || Boolean(unavailableReason)} className="mt-1 size-4 shrink-0 accent-[var(--color-primary)]"
+                  <input type="checkbox" aria-label={`选择 ${thread.title}`} checked={!importedSessionId && selected.has(thread.id)} disabled={pending || threads.isFetching || Boolean(importedSessionId) || Boolean(unavailableReason)} className="mt-1 size-4 shrink-0 accent-[var(--color-primary)]"
                     onChange={event => setSelected(previous => { const next = new Set(previous); if (event.target.checked) next.add(thread.id); else next.delete(thread.id); return next })} />
                   <div className="min-w-0 flex-1"><p className="break-words text-sm font-medium">{thread.title}</p>
                     <p className="mt-1 break-all text-xs text-[var(--color-muted-foreground)]">{thread.cwd}</p>
@@ -120,7 +132,7 @@ export function CodexDesktopSyncDialog({ open, onOpenChange, defaultHome, onOpen
                     {unavailableReason && <p className="mt-1 text-xs text-amber-700">{unavailableReason}</p>}
                   </div>
                   </label>
-                  {importedSessionId && <Button variant="ghost" size="sm" disabled={pending || Boolean(unavailableReason)} onClick={() => openSession(importedSessionId)}>已导入 · 打开</Button>}
+                  {importedSessionId && <Button variant="ghost" size="sm" disabled={pending || Boolean(unavailableReason)} onClick={() => openSession(importedSessionId)}><CheckCircle2 aria-hidden="true" className="size-4 text-[var(--color-success)]" />已导入 · 打开</Button>}
                 </li>)}
               </ul>}
           {(cursors.length > 1 || threads.data?.nextCursor) && <div className="mt-3 flex items-center justify-between">
@@ -131,11 +143,11 @@ export function CodexDesktopSyncDialog({ open, onOpenChange, defaultHome, onOpen
         </div>
         <div className="border-t px-5 py-4">
           {importing.isError && <p role="alert" className="mb-3 text-sm text-red-600">{message(importing.error)}。如请求超时，请刷新核对已导入状态后重试。</p>}
-          {importing.data && <div role="status" className="mb-3 text-sm"><p>新增 {importing.data.added} 个，复用 {importing.data.reused} 个已有会话。</p>
+          {importing.data && <div role="status" className="mb-3 text-sm"><p className="mb-1 flex items-center gap-2 font-medium text-[var(--color-success)]"><CheckCircle2 aria-hidden="true" className="size-4" />导入成功</p><p>新增 {importing.data.added} 个，复用 {importing.data.reused} 个已有会话。</p>
             {importing.data.sessions.length === 1 && <Button variant="ghost" size="sm" onClick={() => openSession(importing.data.sessions[0].sessionId)}>打开导入的会话</Button>}
           </div>}
-          <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-[var(--color-muted-foreground)]">已选 {selected.size} 个 · 保留原生上下文，已有设置不覆盖</span>
-            <Button className="min-h-11" disabled={pending || threads.isFetching || !threads.data || !selected.size} onClick={() => importing.mutate()}>{pending && <Loader2 className="size-4 animate-spin" />}{pending ? '正在导入…' : '导入所选会话'}</Button>
+          <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-[var(--color-muted-foreground)]">{allImported ? '已导入记录可直接打开，无需重复导入' : `已选 ${selectedIds.length} 个 · 保留原生上下文，已有设置不覆盖`}</span>
+            <Button className="min-h-11" disabled={pending || threads.isFetching || threads.isError || !threads.data || !selectedIds.length} onClick={() => importing.mutate()}>{pending && <Loader2 className="size-4 animate-spin" />}{pending ? '正在导入…' : allImported ? '本页已全部导入' : '导入所选会话'}</Button>
           </div>
         </div>
       </Dialog.Content>

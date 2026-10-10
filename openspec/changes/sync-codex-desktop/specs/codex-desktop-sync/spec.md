@@ -28,6 +28,17 @@ The system SHALL import selected persistent threads into existing Forge sessions
 - **WHEN** the same threads are imported again or a request is retried
 - **THEN** the existing Forge sessions are returned without duplicating sessions or overwriting their titles, favorites, configuration, ownership or running state
 
+#### Scenario: Already imported threads in preview
+- **WHEN** a preview includes threads already associated with Forge sessions
+- **THEN** those rows are marked as imported with an open-session action and cannot be selected for another import
+- **AND** bulk selection only includes available, not-yet-imported threads, and a fully imported page explicitly states that no further import is needed
+
+#### Scenario: Confirmed import result
+- **WHEN** import returns the created or reused Forge sessions
+- **THEN** the dialog immediately shows import success and the actual added and reused counts, clears the selection and marks the confirmed threads as imported
+- **AND** a slow or failed preview refresh does not undo the confirmed state or enable importing those threads again
+- **AND** remaining available threads can still be selected, while changing accounts, projects or pages clears the current operation result
+
 #### Scenario: Import another account
 - **WHEN** different authorization directories contain the same native thread ID
 - **THEN** their Forge sessions and history are kept separate
