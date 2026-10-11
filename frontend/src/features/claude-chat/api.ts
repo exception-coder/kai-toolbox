@@ -991,9 +991,10 @@ export interface PersistedQueuedMessage {
 }
 
 /** 恢复会话待发送队列；图片预览由已落盘路径重建，不依赖刷新后失效的 blob URL。 */
-export async function listQueuedMessages(sessionId: string): Promise<PersistedQueuedMessage[]> {
+export async function listQueuedMessages(sessionId: string, signal?: AbortSignal): Promise<PersistedQueuedMessage[]> {
   const messages = await http<PersistedQueuedMessage[]>(
     `/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue`,
+    signal ? { signal } : undefined,
   )
   return messages.map(message => ({
     ...message,

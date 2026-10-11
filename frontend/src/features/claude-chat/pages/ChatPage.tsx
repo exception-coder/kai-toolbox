@@ -105,6 +105,7 @@ import { MobileSessionViewMore, type SecondarySessionViewOption } from '../compo
 
 const TrajectoryView = lazy(() => import('../components/TrajectoryView').then(m => ({ default: m.TrajectoryView })))
 const UsageWorkspace = lazy(() => import('../components/UsagePanel').then(m => ({ default: m.UsageWorkspace })))
+const SessionBoard = lazy(() => import('../components/SessionBoard').then(m => ({ default: m.SessionBoard })))
 const UsagePanel = lazy(() => import('../components/UsagePanel').then(m => ({ default: m.UsagePanel })))
 const SessionCommitsPanel = lazy(() => import('../components/SessionCommitsPanel').then(m => ({ default: m.SessionCommitsPanel })))
 const GitStatusPanel = lazy(() => import('@/components/git/GitStatusPanel').then(m => ({ default: m.GitStatusPanel })))
@@ -412,7 +413,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
   const [inspectedAutopilot, setInspectedAutopilot] = useState<{ sessionId: string; changeId?: string } | null>(null)
-  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'autopilot' | 'autopilot_detail' | 'documents' | 'database' | 'sites' | 'usage' | 'review' | 'supervision'>(() =>
+  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'autopilot' | 'autopilot_detail' | 'documents' | 'database' | 'sites' | 'usage' | 'review' | 'supervision' | 'board'>(() =>
     new URLSearchParams(location.search).get('view') === 'supervision' ? 'supervision' : 'conversation')
   const openSupervision = useCallback(() => { setSessionView('autopilot') }, [])
   const leaveSupervision = useCallback(() => {
@@ -2295,11 +2296,26 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   </button>
                 )}
                 <MobileSessionViewMore currentView={sessionView} options={mobileSessionViews} onSelect={setSessionView} />
+                <button type="button" aria-label="会话看板" aria-current={sessionView === 'board' ? 'page' : undefined}
+                  onClick={() => setSessionView('board')}
+                  className={cn(
+                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]',
+                    sessionView === 'board' ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
+                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
+                  )}>
+                  <ListChecks className="size-3.5" aria-hidden="true" /><span className="hidden md:inline">会话</span>看板
+                </button>
               </nav>
             ) : (
-              <div data-focus-chrome className="workspace-contextbar cc-chat-contextbar" aria-hidden="true" />
+              <nav data-focus-chrome className="workspace-contextbar cc-chat-contextbar px-3" aria-label="会话视图">
+                <button type="button" aria-label="会话看板" aria-current={sessionView === 'board' ? 'page' : undefined}
+                  onClick={() => setSessionView('board')}
+                  className="inline-flex h-full items-center gap-1.5 text-xs text-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
+                  <ListChecks className="size-3.5" aria-hidden="true" />会话看板
+                </button>
+              </nav>
             )}
-            {chat.sessionId && sessionView !== 'supervision' && (
+            {chat.sessionId && sessionView !== 'supervision' && sessionView !== 'board' && (
               <div data-focus-chrome>
               <SessionAutopilotStatus
                 sessionId={chat.sessionId}
@@ -2323,7 +2339,12 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             /></div>
             <main className="cc-skin-view flex min-h-0 min-w-0 flex-1 flex-col">
               <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]" role="status">{sessionView === 'conversation' ? '正在加载会话记录…' : '正在打开视图…'}</div>}>
-              {sessionView === 'supervision' ? (
+              {sessionView === 'board' ? (
+                <SessionBoard currentSessionId={chat.sessionId} onNewSession={() => { setSessionView('conversation'); setPanel('new') }} onOpenSession={(id, hintRunning) => {
+                  chat.switchTo(id, hintRunning)
+                  setSessionView('conversation')
+                }} />
+              ) : sessionView === 'supervision' ? (
                 <AutopilotDashboard onOpenSession={(sessionId, changeId) => { setInspectedAutopilot({ sessionId, changeId }); chat.switchTo(sessionId); leaveSupervision(); setSessionView('autopilot_detail') }} />
               ) : chat.sessionId ? (
                 sessionView === 'autopilot' ? (
@@ -2416,7 +2437,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             )}
 
             {/* 底部输入：移动端单一 Composer Card；桌面保留完整工具区 */}
-            {chat.sessionId && sessionView !== 'supervision' && (
+            {chat.sessionId && sessionView !== 'supervision' && sessionView !== 'board' && (
               <div className="cc-focus-composer cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] pb-[env(safe-area-inset-bottom)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)] md:pb-0">
           <div data-focus-chrome className="hidden md:block">
             <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
