@@ -42,9 +42,12 @@ try {
     ].join('\n'))
   }
   const realtimeContracts = {
-    'ClientRequest.ts': ['thread/fork', 'thread/realtime/start', 'thread/realtime/stop', 'thread/realtime/appendText'],
+    'ClientRequest.ts': ['thread/fork', 'thread/realtime/start', 'thread/realtime/stop', 'thread/realtime/appendText', 'thread/prediction/request'],
     'v2/ThreadForkParams.ts': ['threadId: string', 'config?:'],
-    'ServerNotification.ts': ['thread/realtime/sdp', 'thread/realtime/transcript/delta', 'thread/realtime/transcript/done', 'thread/realtime/error', 'thread/realtime/closed'],
+    'ServerNotification.ts': ['thread/realtime/sdp', 'thread/realtime/transcript/delta', 'thread/realtime/transcript/done', 'thread/realtime/error', 'thread/realtime/closed', 'thread/prediction/updated'],
+    'v2/ThreadPredictionRequestParams.ts': ['threadId: string', 'sourceTurnId: string'],
+    'v2/ThreadPredictionUpdatedNotification.ts': ['threadId: string', 'sourceTurnId: string', 'result: ThreadPredictionResult'],
+    'v2/ThreadPredictionResult.ts': ['"completed"', 'text: string | null', '"failed"'],
     'v2/ThreadRealtimeStartParams.ts': ['outputModality: RealtimeOutputModality', 'version?: RealtimeConversationVersion', 'includeStartupContext?: boolean'],
     'v2/ThreadRealtimeStartTransport.ts': ['"webrtc"', 'sdp: string'],
     'v2/ThreadRealtimeAppendTextParams.ts': ['text: string', 'role: ConversationTextRole'],

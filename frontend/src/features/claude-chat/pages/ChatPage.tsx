@@ -31,6 +31,7 @@ import { NativeVoiceControl } from '../components/NativeVoiceControl'
 import { MobileRunningSend } from '../components/MobileRunningSend'
 import { chatControlMode } from '../lib/controlMode'
 import { AttachmentChips } from '../components/AttachmentChips'
+import { ComposerTextarea } from '../components/ComposerTextarea'
 import { QueuedList } from '../components/QueuedList'
 import { PendingSessionsBanner } from '../components/PendingSessionsBanner'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
@@ -848,7 +849,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${el.scrollHeight}px`
-  }, [draft])
+  }, [draft, chat?.followUpPrediction?.text, attachments.length, uploading])
 
   // 全屏时按 Esc 退出
   useEffect(() => {
@@ -2730,8 +2731,18 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 </>
               )}
             </SessionConfigSheet>
-            <textarea
+            <ComposerTextarea
               ref={taRef}
+              suggestion={!chat.running && chat.currentEngine === 'codex' && !reviewOnlySession
+                && chat.currentProviderKind !== 'thirdParty' && attachments.length === 0 && uploading === 0
+                && chat.followUpPrediction?.sessionId === chat.sessionId ? chat.followUpPrediction.text : null}
+              onAcceptSuggestion={text => {
+                if (draft || !chat.followUpPrediction || chat.followUpPrediction.sessionId !== chat.sessionId) return
+                setDraft(text)
+                chat.dismissFollowUpPrediction()
+                taRef.current?.focus()
+              }}
+              onDismissSuggestion={() => chat.dismissFollowUpPrediction()}
               aria-label="消息输入"
               className="col-span-3 row-start-1 max-h-32 min-h-8 min-w-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-1 py-1 text-base outline-none placeholder:text-[var(--color-muted-foreground)] md:min-h-10 md:px-2 md:py-1.5"
               placeholder="输入消息…"

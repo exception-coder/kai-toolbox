@@ -688,6 +688,30 @@ export async function waitForManagedProcessRelease(
   throw new Error('Codex App Server 进程树强制清理后仍未退出')
 }
 
+/** A bounded auxiliary process; close resolves only after its native writer is released. */
+export function createCodexPredictionProcess(codexHome?: string) {
+  const child = spawn(process.execPath, [codexCliEntrypoint(), 'app-server', '--stdio'], {
+    env: appServerEnv(codexHome), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+  })
+  let closed = false
+  child.once('close', () => { closed = true })
+  const waitForPredictionClose = () => closed ? Promise.resolve(true) : new Promise<boolean>(resolveClose => {
+    const onClose = () => { clearTimeout(timer); resolveClose(true) }
+    const timer = setTimeout(() => { child.removeListener('close', onClose); resolveClose(false) }, 2_000)
+    timer.unref?.()
+    child.once('close', onClose)
+  })
+  let closing: Promise<unknown> | undefined
+  return {
+    child,
+    close: () => closing ??= waitForManagedProcessRelease(
+      () => closeInput(child),
+      waitForPredictionClose,
+      () => forceStop(child),
+    ),
+  }
+}
+
 /**
  * 使用当前 Auth 目录的 App Server 读取会话能力目录。三个目录相互隔离：某一项失败时仍返回
  * 其余成功结果，避免插件远端目录异常把已经验证的 MCP Tool 一并抹掉。

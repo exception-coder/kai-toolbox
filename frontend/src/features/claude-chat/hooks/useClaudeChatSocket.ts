@@ -25,6 +25,7 @@ import {
 import { shouldReconnectSocket } from '../lib/socketReconnectPolicy'
 import { applyAssistantSnapshot } from '../lib/assistantSnapshot'
 import { RecentHistoryCache } from '../lib/recentHistoryCache'
+import { currentFollowUpPrediction, type FollowUpPrediction } from '../lib/followUpPrediction'
 
 /**
  * 「弹窗自动允许」：全局偏好（跨会话共用一个键，保持与旧版本一致）。
@@ -120,6 +121,9 @@ type Intent =
   | { kind: 'attach'; sessionId: string; lastEventSeq: number }
 
 export interface UseClaudeChatSocket {
+  /** 当前已完成轮次的原生续问建议；不属于草稿或消息历史。 */
+  followUpPrediction: FollowUpPrediction | null
+  dismissFollowUpPrediction: () => void
   voiceTransport: VoiceTransport
   state: ConnState
   sessionId: string | null
@@ -262,6 +266,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const [state, setState] = useState<ConnState>('idle')
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [items, setItems] = useState<ChatItem[]>([])
+  const [followUpPrediction, setFollowUpPrediction] = useState<FollowUpPrediction | null>(null)
+  const predictionAnchorRef = useRef<string | null>(null)
+  const dismissFollowUpPrediction = useCallback(() => setFollowUpPrediction(null), [])
   const [pending, setPending] = useState<PendingRequest | null>(null)
   // 全局跨会话待答（连接级快照，非本会话）：任意界面据此标红点并可一键跳去作答。
   const [pendingSessions, setPendingSessions] = useState<PendingSessionRef[]>([])
@@ -342,6 +349,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const reconnectTimerRef = useRef<number | null>(null)
   // 订阅登录态：登录成功后 token 变化 → 若之前因失效停连，则自动恢复重连。
   const { token: sessionToken } = useAuth()
+  useEffect(() => {
+    setFollowUpPrediction(null)
+    predictionAnchorRef.current = null
+  }, [currentEngine, currentModel, currentProviderBaseUrl, sessionToken])
   const recentHistoryRef = useRef(new RecentHistoryCache())
   const historyNeedsRefreshRef = useRef(false)
   const sdkSessionIdRef = useRef<string | null>(null)
@@ -375,6 +386,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
    * 子 Agent 事件只能补全已有内容，不能把同一轮重新点亮；只有明确的新轮信号才能解锁。
    */
   const applyTurnRunningSignal = (signal: TurnRunningSignal, terminalReason?: string): boolean => {
+    if (signal === 'localStart' || signal === 'turnStarted' || signal === 'serverRunning') {
+      setFollowUpPrediction(null)
+      predictionAnchorRef.current = null
+    }
     const next = reduceTurnRunningState(turnRunningStateRef.current, signal)
     turnRunningStateRef.current = next
     setRunning(next.running)
@@ -709,6 +724,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           : item))
         break
       case 'forkAnchor':
+        predictionAnchorRef.current = msg.anchor
         // 挂到本轮最后一条回答：Claude 是 message UUID，Codex 是 turn ID。
         setItems(prev => {
           for (let i = prev.length - 1; i >= 0; i--) {
@@ -736,6 +752,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
         break
       case 'replayGap':
+        setFollowUpPrediction(null)
         // 重连回放有空洞：中间事件已被服务端缓冲淘汰，本端显示可能不全
         setSyncWarning('部分消息可能未同步（断线较久）。下拉到顶可加载历史，或重进该会话查看完整记录。')
         break
@@ -753,6 +770,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       case 'turnProgress':
         setTurnTokens(msg.outputTokens)
         break
+      case 'codexPrediction': {
+        const prediction = currentFollowUpPrediction(msg, {
+          sessionId: sessionIdRef.current, sdkSessionId: sdkSessionIdRef.current,
+          sourceTurnId: predictionAnchorRef.current, running: turnRunningStateRef.current.running,
+          engine: currentEngineRef.current,
+        })
+        if (prediction) setFollowUpPrediction(prediction)
+        break
+      }
       case 'warning':
         if (msg.code === 'QWEN_MODELS_UNAVAILABLE') setModelsRefreshing(false)
         setItems(prev => [...prev, { kind: 'warning', id: nextId(), code: msg.code, message: msg.message, ts: Date.now() }])
@@ -1287,6 +1313,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sessionToken, connect, publicWithoutLogin])
 
   const resetForNewSession = () => {
+    setFollowUpPrediction(null)
+    predictionAnchorRef.current = null
     // 旧协议的文本/工具事件没有会话 ID；连接本身必须属于唯一的会话选择。
     // 先使旧回调失效，再关闭观察连接，不停止服务端正在运行的任务。
     const previousSocket = wsRef.current
@@ -1882,7 +1910,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }
 
 function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {

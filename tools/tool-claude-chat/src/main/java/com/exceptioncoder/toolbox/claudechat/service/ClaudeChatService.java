@@ -1611,8 +1611,22 @@ public class ClaudeChatService {
             }
             case "userMessage" -> sendToBrowser(ctx,
                     seq -> new ServerMessage.UserMessage(seq, node.path("uuid").asText("")));
-            case "forkAnchor" -> sendToBrowser(ctx,
-                    seq -> new ServerMessage.ForkAnchor(seq, node.path("anchor").asText("")));
+            case "forkAnchor" -> {
+                String anchor = node.path("anchor").asText("");
+                if ("codex".equals(ctx.engine)) ctx.codexPredictionSourceTurnId = anchor;
+                sendToBrowser(ctx, seq -> new ServerMessage.ForkAnchor(seq, anchor));
+            }
+            case "codexPrediction" -> {
+                String threadId = node.path("sdkSessionId").asText("");
+                String sourceTurnId = node.path("sourceTurnId").asText("");
+                String text = node.path("text").asText("").trim();
+                if ("codex".equals(ctx.engine) && blankToNull(ctx.apiBaseUrl) == null && ctx.status == SessionStatus.IDLE
+                        && threadId.equals(ctx.sdkSessionId) && sourceTurnId.equals(ctx.codexPredictionSourceTurnId)
+                        && !text.isBlank() && text.length() <= 1_000) {
+                    sendToBrowser(ctx, seq -> new ServerMessage.CodexPrediction(
+                            seq, ctx.sessionId, threadId, sourceTurnId, text));
+                }
+            }
             case "forked" -> onForked(ctx, node);
             case "turnInfo" -> sendToBrowser(ctx, seq -> new ServerMessage.TurnInfo(
                     seq,
@@ -2674,6 +2688,7 @@ public class ClaudeChatService {
         final String epoch = UUID.randomUUID().toString();
         final Deque<ServerMessage> buffer = new ArrayDeque<>();
         volatile String sdkSessionId;
+        volatile String codexPredictionSourceTurnId;
         /** 会话引擎 claude/codex；start/resume 透传给 sidecar，决定走哪条 agentic loop。 */
         volatile String engine = "claude";
         /** 各引擎各自的 SDK 会话句柄（engine -> sdkSessionId）；切回某引擎时 resume 其原生会话，持久化到 DB engine_sessions(JSON)。 */

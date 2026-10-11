@@ -1,4 +1,5 @@
 import { assemblyAllows, filterCodexAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
+import { codexPredictions } from './codexPrediction.js'
 import { EXECUTION_VERIFICATION_CODEX_TIMEOUT_SEC } from './execution/budget.js'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -398,6 +399,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     })
   }
   if (ctx.apiBaseUrl?.trim()) {
+    await codexPredictions.cancel(ctx.sdkSessionId, home)
     await runCodexSdkTurn(turnContext, 'thirdPartySdk')
     return
   }
@@ -413,6 +415,10 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   let tempImageDir: string | undefined
 
   try {
+    await codexPredictions.cancel(ctx.sdkSessionId, home)
+    let predictionThreadId: string | undefined
+    let predictionTurnId: string | undefined
+    let predictionEligible = false
     const prepared = prepareCodexInput(ctx.text, ctx.images)
     tempImageDir = prepared.tempDir
     const appServerOptions: Parameters<typeof runCodexAppServerTurn>[0] = {
@@ -438,8 +444,12 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       input: toAppServerInput(prepared.input),
       codexHome: home,
       signal: ctx.signal,
-      emit: ctx.emit,
-      setThreadId: ctx.setSdkSessionId,
+      emit: event => {
+        if (event.type === 'forkAnchor' && typeof event.anchor === 'string') predictionTurnId = event.anchor
+        if (event.type === 'result') predictionEligible = event.stopReason === 'end_turn' && event.queueReleaseSafe === true
+        ctx.emit(event)
+      },
+      setThreadId: threadId => { predictionThreadId = threadId; ctx.setSdkSessionId(threadId) },
       canUseTool: ctx.canUseTool,
       mcpServers: codexMcpCapabilities(
         ctx.toolPolicy ?? 'default',
@@ -475,6 +485,12 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     )
     if (voice) await runCodexAppServerTurn(appServerOptions)
     else await runAppServer(appServerOptions)
+    if (!voice && ctx.sessionId && !ctx.sessionId.startsWith('ephemeral:') && !ctx.signal.aborted
+      && (!ctx.toolPolicy || ctx.toolPolicy === 'default') && predictionEligible && predictionThreadId && predictionTurnId) {
+      codexPredictions.start({ sessionId: ctx.sessionId, threadId: predictionThreadId,
+        sourceTurnId: predictionTurnId, codexHome: home, cwd: safeCwd,
+        model: ctx.model || undefined, config: appServerOptions.config, emit: ctx.emit })
+    }
   } catch (error) {
     if (ctx.signal.aborted) {
       if (isMcpToolTimeoutAbort(ctx.signal.reason) || isToolExecutionTimeoutAbort(ctx.signal.reason)) return

@@ -806,6 +806,7 @@ export type ServerMessage =
   | { type: 'modeChanged'; seq: number; mode: PermissionMode }
   | { type: 'assistantDelta'; seq: number; text: string }
   | { type: 'assistantSnapshot'; seq: number; text: string }
+  | { type: 'codexPrediction'; seq: number; sessionId: string; sdkSessionId: string; sourceTurnId: string; text: string }
   | { type: 'toolUse'; seq: number; toolCallId?: string | null; toolName: string; input: unknown }
   | { type: 'toolResult'; seq: number; toolCallId?: string | null; toolName: string; output: string; isError: boolean }
   | { type: 'permissionRequest'; seq: number; reqId: string; toolName: string; input: unknown }

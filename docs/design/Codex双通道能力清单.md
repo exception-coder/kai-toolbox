@@ -1,6 +1,6 @@
 # Codex 双通道能力清单
 
-本清单核对 2026-10-03 项目源码与 [Codex SDK](https://developers.openai.com/codex/sdk)、[Codex App Server](https://developers.openai.com/codex/app-server) 官方文档。它区分官方接口存在、Forge 已接入和实际运行验收；接口存在不代表当前账号有权限，也不代表 Forge 已交付。
+本清单核对项目源码与 [Codex SDK](https://developers.openai.com/codex/sdk)、[Codex App Server](https://developers.openai.com/codex/app-server) 官方文档；续问能力另以 2026-10-12 锁定 CLI 导出的实验 schema 核验。它区分官方接口存在、Forge 已接入和实际运行验收；接口存在不代表当前账号有权限，也不代表 Forge 已交付。
 
 ## 当前路由
 
@@ -10,7 +10,7 @@
 | App Server 在可安全重试阶段失败 | Codex SDK 回退 | 已产生可见输出或副作用时禁止重放 |
 | 第三方兼容网关 | Codex SDK | 不使用官方账号的 App Server 通道 |
 
-Sidecar 当前声明 `@openai/codex-sdk` 0.159.3。依赖文件已有其他作业的未提交修改，本批不改版本或锁文件。App Server 与 SDK 共用 Codex 运行时的部分配置，但不是同一个功能面；不能用 SDK 回退来声称所有 App Server 方法都有 SDK 等价实现。
+Sidecar 当前锁定 `@openai/codex-sdk` / CLI 0.162.1。升级增加原生续问预测实验接口，协议检查同时覆盖既有语音与服务端请求；目标服务版本加载和真实账号运行验收仍待本次重启授权。App Server 与 SDK 共用 Codex 运行时的部分配置，但不是同一个功能面；不能用 SDK 回退来声称所有 App Server 方法都有 SDK 等价实现。
 
 ## 能力对照
 
@@ -23,6 +23,7 @@ Sidecar 当前声明 `@openai/codex-sdk` 0.159.3。依赖文件已有其他作�
 | 会话分叉 | `thread/fork` | 无同等方法 | App Server 已接入；第三方 SDK 路径不能承诺精确原生分叉 |
 | MCP 与 Skills | 运行时目录、工具和认证状态 | 配置传入 SDK 运行时 | 已接入；App Server 的 MCP 分页完整性是本批修复点；SDK 的配置态不能标成运行时核验 |
 | 原生语音 | App Server 实时会话 | 当前 TypeScript SDK 无等价接口 | 仅官方 App Server 路径接入 |
+| 续问预测 | 0.162.1 实验 `thread/prediction/request` / `thread/prediction/updated` | 无等价接口 | 已接入独立可取消请求及浅灰预览，Tab／触屏只采纳至草稿；账号与目标服务运行待验收，第三方不启用 |
 | 原生线程搜索、命名、置顶、归档 | 稳定线程接口 | 无对应管理接口 | 尚未全面接入；优先沿用 Forge 现有会话身份，避免第二套列表 |
 | 主动上下文压缩与原生审查 | `thread/compact/start`、`review/start` | 无等价接口 | 待设计明确用户入口、事件反馈与结果归属 |
 | 结构化结果 | 轮次输出配置 | SDK `outputSchema` | 尚无跨通道统一业务场景，先不暴露空白控件 |

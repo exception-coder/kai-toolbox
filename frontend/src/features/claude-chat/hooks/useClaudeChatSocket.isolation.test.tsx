@@ -43,6 +43,33 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('会话消息隔离', () => {
+  it('续问建议只属于当前原生轮次，发送和切换会话会清除它', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const old = TestSocket.sockets[0]
+    act(() => { old.open(); old.receive(ready('a')) })
+    await waitFor(() => expect(result.current.items).toEqual(page('a').items))
+    const prediction: Extract<ServerMessage, { type: 'codexPrediction' }> = {
+      type: 'codexPrediction', seq: 3, sessionId: 'a', sdkSessionId: 'sdk-a', sourceTurnId: 'turn-a', text: '检查本轮变更',
+    }
+    act(() => {
+      old.receive({ type: 'forkAnchor', seq: 2, anchor: 'turn-a' })
+      old.receive(prediction)
+    })
+    expect(result.current.followUpPrediction).toMatchObject(prediction)
+    act(() => old.receive({ ...prediction, seq: 4, sourceTurnId: 'older-turn' }))
+    expect(result.current.followUpPrediction?.sourceTurnId).toBe('turn-a')
+    act(() => result.current.send('下一轮'))
+    expect(result.current.followUpPrediction).toBeNull()
+    act(() => old.receive({ ...prediction, seq: 5 }))
+    expect(result.current.followUpPrediction).toBeNull()
+    act(() => result.current.switchTo('b'))
+    act(() => old.receive({ ...prediction, seq: 6 }))
+    expect(result.current.followUpPrediction).toBeNull()
+    expect(result.current.sessionId).toBe('b')
+  })
+
   it('切换后旧连接的输出和ready不能污染新会话或它的缓存', async () => {
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
     act(() => result.current.switchTo('a'))
