@@ -225,6 +225,13 @@ export async function listSessions() {
   return applyPendingSessionTitles(await http<ClaudeChatSessionView[]>('/claude-chat/sessions'))
 }
 
+/** 有界的只读批量文件大小查询，独立于会话名单和消息加载。 */
+export function fetchSessionStorage(sessionIds: string[], signal?: AbortSignal) {
+  return http<import('./types').SessionStorageView[]>('/claude-chat/sessions/storage', {
+    method: 'POST', body: JSON.stringify({ sessionIds }), signal,
+  })
+}
+
 export function getSessionPushPreview(sessionId: string, repo?: string) {
   const query = new URLSearchParams(repo ? { repo } : {})
   return http<GitPushPreview>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/push-preview?${query}`)

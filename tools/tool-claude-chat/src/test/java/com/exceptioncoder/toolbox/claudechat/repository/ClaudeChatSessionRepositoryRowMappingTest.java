@@ -67,6 +67,23 @@ class ClaudeChatSessionRepositoryRowMappingTest {
                 assertThat(session.getUserId()).isEqualTo(8L));
     }
 
+    @Test
+    void batchesOnlyRequestedIdsAndBindsThemAsValues() {
+        try (SingleConnectionDataSource dataSource = new SingleConnectionDataSource("jdbc:sqlite::memory:", true)) {
+            JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+            createSessionTable(jdbc);
+            insertSession(jdbc, "alpha", 8L);
+            insertSession(jdbc, "beta", 9L);
+            ClaudeChatSessionRepository repository = new ClaudeChatSessionRepository(jdbc);
+            assertThat(repository.findByIds(java.util.List.of("alpha", "absent", "' OR 1=1 --")))
+                    .singleElement().satisfies(session -> {
+                        assertThat(session.getId()).isEqualTo("alpha");
+                        assertThat(session.getUserId()).isEqualTo(8L);
+                    });
+            assertThat(repository.findByIds(java.util.List.of())).isEmpty();
+        }
+    }
+
     private static void createSessionTable(JdbcTemplate jdbc) {
         jdbc.execute("""
                 CREATE TABLE claude_chat_session (
@@ -87,6 +104,9 @@ class ClaudeChatSessionRepositoryRowMappingTest {
                     permission_mode TEXT NOT NULL DEFAULT 'default',
                     execution_policy TEXT,
                     consult_evidence_systems TEXT,
+                    assistant_app_id TEXT,
+                    assistant_page_key TEXT,
+                    assistant_page_url TEXT,
                     group_name TEXT,
                     subgroup_name TEXT,
                     favorite INTEGER NOT NULL DEFAULT 0,

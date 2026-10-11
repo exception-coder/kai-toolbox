@@ -12,6 +12,9 @@ import type { ClaudeChatSessionView } from '../types'
 import { engineDisplayName } from './chatStatus'
 import { EngineIcon } from './EngineIcon'
 import { SessionImportBadge } from './SessionImportBadge'
+import { SessionStorageLabel } from './SessionStorageLabel'
+import { useSessionStorage } from '../hooks/useSessionStorage'
+import type { SessionStorageView } from '../types'
 
 type Scope = 'all' | 'running' | 'queued'
 const REFRESH_INTERVAL_MS = 15_000
@@ -31,6 +34,7 @@ export function SessionBoard({ currentSessionId, onOpenSession, onNewSession }: 
     retry: false,
   })
   const recent = recentBoardSessions(sessionQuery.data ?? [])
+  const storage = useSessionStorage(recent)
   const queues = useQueries({
     queries: recent.map(session => ({
       queryKey: ['claude-chat-session-board-queue', user?.userId ?? 'local', session.id],
@@ -50,6 +54,7 @@ export function SessionBoard({ currentSessionId, onOpenSession, onNewSession }: 
   const refresh = () => {
     void sessionQuery.refetch()
     queues.forEach(queue => { void queue.refetch() })
+    storage.refresh()
   }
 
   return <section aria-label="最近会话看板" className="@container/session-board flex min-h-0 flex-1 flex-col bg-[var(--color-background)]">
@@ -91,6 +96,7 @@ export function SessionBoard({ currentSessionId, onOpenSession, onNewSession }: 
           </div>
           <ol className="divide-y divide-[var(--color-border)]">
             {entries.map(({ session, queue }) => <SessionBoardRow key={session.id} session={session} queue={queue}
+              storage={storage.values.get(session.id)}
               current={session.id === currentSessionId} onOpen={() => onOpenSession(session.id, isBoardSessionRunning(session))} />)}
           </ol>
         </> : <div className="px-4 py-6 md:px-6">
@@ -104,9 +110,10 @@ export function SessionBoard({ currentSessionId, onOpenSession, onNewSession }: 
   </section>
 }
 
-function SessionBoardRow({ session, queue, current, onOpen }: {
+function SessionBoardRow({ session, queue, storage, current, onOpen }: {
   session: ClaudeChatSessionView
   queue: UseQueryResult<SessionBoardQueue, Error>
+  storage?: { value?: SessionStorageView; failed: boolean }
   current: boolean
   onOpen: () => void
 }) {
@@ -124,6 +131,7 @@ function SessionBoardRow({ session, queue, current, onOpen }: {
         <span title={session.cwd} className="max-w-full truncate">{project.label}</span>
         <span>{engineDisplayName(session.engine ?? 'claude', session.providerKind)}</span>
         <SessionImportBadge session={session} />
+        <SessionStorageLabel {...storage} />
         {current && <span className="text-[var(--color-primary)]">当前会话</span>}
       </div>
     </div>

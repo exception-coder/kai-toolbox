@@ -64,6 +64,17 @@ export interface SessionSiteConfiguration {
 
 export type ProviderKind = 'official' | 'thirdParty'
 
+/** 实测原生记录大小；null 代表未知，partial 只表示已知部分。 */
+export interface SessionStorageView {
+  sessionId: string
+  status: 'available' | 'partial' | 'pending' | 'missing' | 'unsupported' | 'unavailable'
+  bytes: number | null
+  fileCount: number
+  checkedAt: number
+  description: string
+  engines: { engine: string; status: SessionStorageView['status']; bytes: number | null; fileCount: number; description: string }[]
+}
+
 export interface ClaudeChatSessionView {
   id: string
   cwd: string

@@ -73,6 +73,25 @@ public class ClaudeChatSessionRepository {
                 .stream().findFirst();
     }
 
+    /** 按最多 100 个主键批量读取会话元数据，避免文件统计逐行查询数据库。 */
+    public List<ClaudeChatSession> findByIds(List<String> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        if (ids.size() > 100) {
+            throw new IllegalArgumentException("每批最多查询 100 个会话");
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        return jdbc.query("""
+                SELECT id, user_id, cwd, title, sdk_session_id, engine, engines, engine_sessions,
+                       api_base_url, auth_token, codex_home, selected_model, codex_reasoning_effort,
+                       codex_speed, permission_mode, execution_policy, consult_evidence_systems,
+                       assistant_app_id, assistant_page_key, assistant_page_url, group_name,
+                       subgroup_name, favorite, status, started_at, last_seen_at
+                FROM claude_chat_session WHERE id IN (%s)
+                """.formatted(placeholders), ROW, ids.toArray());
+    }
+
     /** 查询项目分组下的会话，用于项目级操作前统一校验所有权。 */
     public List<ClaudeChatSession> findByGroupName(String groupName) {
         return jdbc.query(

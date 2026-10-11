@@ -11,6 +11,8 @@ import { EngineIcon } from './EngineIcon'
 import { SessionGroupPicker } from './SessionList'
 import { SessionRowActions } from './SessionRowActions'
 import { SessionImportBadge } from './SessionImportBadge'
+import { SessionStorageLabel } from './SessionStorageLabel'
+import { useSessionStorage } from '../hooks/useSessionStorage'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { ClaudeChatSessionView } from '../types'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
@@ -123,6 +125,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
   })
 
   // 双击改名：本地记录正在编辑的会话 id + 草稿文本，提交后写回并刷新列表。
+  const storage = useSessionStorage(recent)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [renameError, setRenameError] = useState<string | null>(null)
@@ -317,6 +320,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
                       </span>
                     )}
                     <span className="truncate tabular-nums">{isActive ? '当前' : relativeTime(session.lastSeenAt)}</span>
+                    <SessionStorageLabel {...storage.values.get(session.id)} />
                   </div>
                 </button>
               )}

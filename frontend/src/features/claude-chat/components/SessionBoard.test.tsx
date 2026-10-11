@@ -1,13 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { listQueuedMessages, listSessions } from '../api'
+import { fetchSessionStorage, listQueuedMessages, listSessions } from '../api'
 import type { ClaudeChatSessionView } from '../types'
 import { SessionBoard } from './SessionBoard'
 
 const auth = vi.hoisted(() => ({ user: { userId: 1 } as { userId: number } | null }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => auth }))
-vi.mock('../api', () => ({ listSessions: vi.fn(), listQueuedMessages: vi.fn() }))
+vi.mock('../api', () => ({ listSessions: vi.fn(), listQueuedMessages: vi.fn(), fetchSessionStorage: vi.fn() }))
 const sessionsRead = vi.mocked(listSessions)
 const queueRead = vi.mocked(listQueuedMessages)
 const clients: QueryClient[] = []
@@ -25,7 +25,13 @@ function mount(onOpenSession = vi.fn()) {
   return { client, onOpenSession, onNewSession, ...render(<QueryClientProvider client={client}><SessionBoard currentSessionId={null} onOpenSession={onOpenSession} onNewSession={onNewSession} /></QueryClientProvider>) }
 }
 
-beforeEach(() => { auth.user = { userId: 1 }; queueRead.mockResolvedValue([]) })
+beforeEach(() => {
+  auth.user = { userId: 1 }
+  queueRead.mockResolvedValue([])
+  vi.mocked(fetchSessionStorage).mockImplementation(async ids => ids.map(sessionId => ({
+    sessionId, status: 'available', bytes: 2048, fileCount: 1, checkedAt: 1, description: '本地原生记录', engines: [],
+  })))
+})
 afterEach(() => { cleanup(); clients.forEach(client => client.clear()); clients.length = 0; vi.resetAllMocks() })
 
 describe('SessionBoard', () => {
@@ -34,6 +40,7 @@ describe('SessionBoard', () => {
     queueRead.mockImplementation(async id => id === 'idle-task' ? [task(id, '修复权限表单并核验')] : [])
     const view = mount()
     await screen.findByText('修复权限表单并核验')
+    await waitFor(() => expect(screen.getAllByText('记录 2 KB')).toHaveLength(3))
     expect(screen.getByText('1 条待发送 · 尚未执行')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '进行中 1' }))
     expect(screen.getByRole('button', { name: '进入会话：running' })).toBeInTheDocument()

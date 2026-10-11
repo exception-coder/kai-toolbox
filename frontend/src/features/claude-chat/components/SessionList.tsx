@@ -13,6 +13,8 @@ import { Combobox } from '@/components/ui/combobox'
 import { SessionActivityBar } from './SessionActivityBar'
 import { SessionRowActions } from './SessionRowActions'
 import { SessionImportBadge } from './SessionImportBadge'
+import { SessionStorageLabel } from './SessionStorageLabel'
+import { useSessionStorage } from '../hooks/useSessionStorage'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
 import { SessionStatusFilter } from './SessionStatusFilter'
 import { DEFAULT_SESSION_STATUSES, isSessionStatusVisible, resetVisibleSessionStatuses, useVisibleSessionStatuses } from '../lib/sessionStatusFilter'
@@ -97,6 +99,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     .filter(s => s.engine === 'codex' && s.providerKind !== 'thirdParty')
     .map(s => s.codexHome?.trim() || '')
   )], [vibeSessions])
+  const storage = useSessionStorage(activeProject || normalizedAliasQuery ? filteredSessions : [])
 
   const requestDuplicate = (session: ClaudeChatSessionView) => {
     if (session.engine !== 'codex' || session.providerKind === 'thirdParty') {
@@ -663,6 +666,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
                 </span>
               )}
               <span className="shrink-0 tabular-nums">{formatDate(s.lastSeenAt)}</span>
+              <SessionStorageLabel {...storage.values.get(s.id)} />
             </div>
           </button>
         )}

@@ -33,6 +33,9 @@ beforeEach(() => {
   resetVisibleSessionStatuses()
   vi.mocked(getSessionsByDevSessions).mockResolvedValue({})
   vi.spyOn(api, 'listSessions').mockImplementation(() => new Promise(() => {}))
+  vi.spyOn(api, 'fetchSessionStorage').mockImplementation(async ids => ids.map(sessionId => ({
+    sessionId, status: 'available', bytes: 3072, fileCount: 1, checkedAt: 1, description: '本地原生记录', engines: [],
+  })))
   vi.spyOn(api, 'setSessionGroupApi').mockResolvedValue(undefined)
 })
 
@@ -111,7 +114,7 @@ describe('session project navigation', () => {
     expect(screen.queryByRole('button', { name: /^打开项目 Alpha/ })).not.toBeInTheDocument()
   })
 
-  it('labels verified imports without treating every Codex session as imported', () => {
+  it('labels verified imports and record sizes without treating every Codex session as imported', async () => {
     renderList([
       { ...session('imported', 'D:/work/Alpha'), importSource: 'codex' },
       session('forge', 'D:/work/Alpha'),
@@ -121,6 +124,7 @@ describe('session project navigation', () => {
     expect(screen.getByRole('button', { name: /^任务 forge/ })).not.toHaveTextContent('Codex 导入')
     expect(screen.queryByRole('button', { name: '删除会话' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /^更多操作：/ })).toHaveLength(2)
+    await waitFor(() => expect(screen.getByRole('button', { name: /^任务 imported/ })).toHaveTextContent('记录 3 KB'))
   })
 
   it('keeps row operations attached to the selected session without switching the conversation', async () => {

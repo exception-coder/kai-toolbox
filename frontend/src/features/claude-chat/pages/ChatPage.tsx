@@ -97,6 +97,7 @@ import { isVibeCodingSession } from '../lib/sessionScope'
 import { SessionWorkStatus } from '../components/SessionWorkStatus'
 import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
+import { CurrentSessionStorage } from '../components/CurrentSessionStorage'
 import { selectableEngineIds, supportsSessionProvider } from '../lib/engineCatalog'
 import { MobileAgentDock } from '../components/MobileAgentDock'
 import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
@@ -2516,6 +2517,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             onPick={reference => { void projectMention.pickReference(reference) }}
           />
           <SessionPlanLockNotice session={currentSession} />
+          <CurrentSessionStorage session={currentSession} />
           <div className="mobile-composer-card mx-2 my-1 grid min-h-[4.5rem] min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] grid-rows-[auto_2.5rem] items-center gap-x-1 gap-y-0.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-0.5 focus-within:border-[var(--color-ring)] focus-within:ring-1 focus-within:ring-[var(--color-ring)] md:mx-3 md:my-2 md:min-h-[5rem] md:grid-rows-[auto_2rem] md:gap-x-2 md:px-3 md:py-2">
             <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1">
             {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}
