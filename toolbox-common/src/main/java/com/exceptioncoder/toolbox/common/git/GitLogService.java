@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 /**
@@ -32,9 +33,17 @@ public class GitLogService {
     private static final String LOG_PRETTY = PRETTY + "%x1f%b%x1e";
 
     private final GitProperties props;
+    private final GitStatusReader statusReader;
 
     public GitLogService(GitProperties props) {
         this.props = props;
+        this.statusReader = new GitStatusReader(props, (arguments, input) -> {
+            Result result = exec(arguments, input, input != null);
+            if (result.truncated()) {
+                throw new IllegalStateException("Git 文件清单超过采集上限，请缩小仓库范围后重试");
+            }
+            return result.stdout();
+        });
     }
 
     /** 列最近提交。limit 钳到 [1, commitLimitMax]。 */
@@ -87,37 +96,11 @@ public class GitLogService {
     }
 
     /**
-     * 返回工作区待提交文件列表（{@code git status --porcelain -unormal}）。
-     * 每条 entry 含 x（index/暂存区状态）、y（工作树状态）、path（相对路径）、origPath（重命名时的原路径）。
-     *
-     * <p>用 {@code -unormal}（git 默认）而非 {@code -uall}：整块未跟踪目录折叠为单条目录条目（如
-     * {@code somedir/}），不逐个展开其中每个文件。避免会话目录下存在大的未跟踪目录（构建产物/数据目录等，
-     * 未被 .gitignore 覆盖）时炸出成千上万条、拖垮前端「待提交文件」树。已被 .gitignore 忽略的文件
-     * git status 本就不列出，无需额外过滤；已跟踪目录里的新增文件仍逐个显示。</p>
+     * 返回暂存区、工作树状态和精确路径，未跟踪目录按 Git 的 normal 模式合并展示。
+     * ignoredPaths 由原生 check-ignore 判定，包含已跟踪但匹配忽略规则的路径。
      */
     public GitStatusResponse gitStatus(Path dir) {
-        Result r = exec(List.of(
-                props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
-                "status", "--porcelain", "-unormal"));
-        List<GitStatusEntry> entries = new ArrayList<>();
-        for (String line : r.stdout().split("\n")) {
-            if (line.length() < 3) continue;
-            String x = String.valueOf(line.charAt(0));
-            String y = String.valueOf(line.charAt(1));
-            // char[2] 是空格分隔符
-            String rest = line.length() > 3 ? line.substring(3) : "";
-            // 重命名/复制：old -> new
-            String path, origPath = null;
-            int arrow = rest.indexOf(" -> ");
-            if (arrow >= 0) {
-                origPath = rest.substring(0, arrow).trim();
-                path = rest.substring(arrow + 4).trim();
-            } else {
-                path = rest.trim();
-            }
-            entries.add(new GitStatusEntry(x, y, path, origPath));
-        }
-        return new GitStatusResponse(entries);
+        return statusReader.read(dir);
     }
 
     /** 取单提交完整 diff（含 stat + patch）。 */
@@ -216,6 +199,10 @@ public class GitLogService {
 
     /** 跑 git，捕获 stdout（截断到 diffMaxBytes）+ stderr；超时杀进程；非 0 退出抛异常带 stderr。 */
     private Result exec(List<String> argv) {
+        return exec(argv, null, false);
+    }
+
+    private Result exec(List<String> argv, byte[] input, boolean allowNoMatch) {
         Process p;
         try {
             p = new ProcessBuilder(argv).redirectErrorStream(false).start();
@@ -227,6 +214,8 @@ public class GitLogService {
         ByteArrayOutputStream outBuf = new ByteArrayOutputStream();
         boolean[] truncated = {false};
         Thread outReader = Thread.startVirtualThread(() -> truncated[0] = drainBytes(p.getInputStream(), outBuf, props.getDiffMaxBytes()));
+        AtomicReference<IOException> inputFailure = new AtomicReference<>();
+        Thread inputWriter = writeInput(p, input, inputFailure);
         try {
             if (!p.waitFor(props.getTimeoutMs(), TimeUnit.MILLISECONDS)) {
                 p.destroyForcibly();
@@ -234,15 +223,31 @@ public class GitLogService {
             }
             outReader.join(1000);
             errReader.join(1000);
+            inputWriter.join(1000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             p.destroyForcibly();
             throw new IllegalStateException("git 执行被中断");
         }
-        if (p.exitValue() != 0) {
+        if (p.exitValue() != 0 && !(allowNoMatch && p.exitValue() == 1)) {
             throw new IllegalStateException("git 执行失败：" + errBuf.toString().strip());
         }
+        if (inputFailure.get() != null) {
+            throw new IllegalStateException("写入 Git 查询路径失败", inputFailure.get());
+        }
         return new Result(outBuf.toString(StandardCharsets.UTF_8), truncated[0]);
+    }
+
+    private Thread writeInput(Process process, byte[] input, AtomicReference<IOException> failure) {
+        return Thread.startVirtualThread(() -> {
+            try (var stream = process.getOutputStream()) {
+                if (input != null) {
+                    stream.write(input);
+                }
+            } catch (IOException exception) {
+                failure.set(exception);
+            }
+        });
     }
 
     /** 读到字节上限即停（标记截断），剩余流读掉避免子进程阻塞。返回是否截断。 */

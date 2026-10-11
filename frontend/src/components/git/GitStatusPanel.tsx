@@ -45,7 +45,7 @@ function buildTree(entries: GitStatusEntry[]): TreeNode[] {
   const root: TreeNode = { name: '', path: '', isDir: true, children: [] }
 
   for (const e of entries) {
-    const parts = e.path.replace(/\\/g, '/').split('/')
+    const parts = e.path.replace(/\/$/, '').split('/')
     let cur = root
     for (let i = 0; i < parts.length; i++) {
       const name = parts[i]
@@ -123,7 +123,7 @@ function TreeRow({
             <span className="size-3.5 shrink-0" />
             <File className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
             <span className="min-w-0 flex-1 truncate">
-              {node.name}
+              {node.name}{node.entry?.path.endsWith('/') ? '/' : ''}
               {node.entry?.origPath && (
                 <span className="ml-1 text-[11px] text-[var(--color-muted-foreground)]">← {node.entry.origPath.split('/').pop()}</span>
               )}
@@ -154,6 +154,7 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [hideIgnored, setHideIgnored] = useState(false)
 
   // ── diff 视图状态 ──────────────────────────────────────────────────────────
   const [diffEntry, setDiffEntry] = useState<GitStatusEntry | null>(null)
@@ -220,7 +221,14 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
     load(repo)
   }
 
-  const tree = useMemo(() => (data ? buildTree(data.entries) : []), [data])
+  const entries = useMemo(() => {
+    if (!data) return []
+    if (!hideIgnored) return data.entries
+    const ignored = new Set(data.ignoredPaths ?? [])
+    return data.entries.filter(entry => !ignored.has(entry.path))
+  }, [data, hideIgnored])
+  const hiddenCount = (data?.entries.length ?? 0) - entries.length
+  const tree = useMemo(() => buildTree(entries), [entries])
 
   const toggle = (path: string) => {
     setCollapsed(prev => {
@@ -234,15 +242,15 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
   const stats = useMemo(() => {
     if (!data) return null
     let modified = 0, added = 0, deleted = 0, untracked = 0, renamed = 0
-    for (const e of data.entries) {
+    for (const e of entries) {
       if (e.x === '?' && e.y === '?') { untracked++; continue }
       if (e.x === 'A' || e.y === 'A') added++
       else if (e.x === 'D' || e.y === 'D') deleted++
       else if (e.x === 'R' || e.y === 'R') renamed++
       else modified++
     }
-    return { total: data.entries.length, modified, added, deleted, untracked, renamed }
-  }, [data])
+    return { total: entries.length, modified, added, deleted, untracked, renamed }
+  }, [data, entries])
 
   return (
     <div
@@ -290,6 +298,7 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
               disabled={loading}
               className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
               title="刷新"
+              aria-label="刷新"
             >
               <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
             </button>
@@ -349,10 +358,20 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
         {/* ── 文件树视图 ────────────────────────────────────────────────────── */}
         {!showingDiff && (
           <>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-xs">
+              <label className="inline-flex cursor-pointer items-center gap-2 py-1" title="按 Git 忽略规则隐藏匹配项，包括已跟踪文件；仅影响此列表。">
+                <input type="checkbox" checked={hideIgnored} onChange={event => setHideIgnored(event.target.checked)}
+                  disabled={loading || !!err || !Array.isArray(data?.ignoredPaths)}
+                  className="size-4 shrink-0 accent-[var(--color-primary)]" />
+                隐藏 Git 忽略项
+              </label>
+              {!loading && !err && hiddenCount > 0 && <span className="text-[var(--color-muted-foreground)]">已隐藏 {hiddenCount} 项</span>}
+              {!loading && !err && data && !Array.isArray(data.ignoredPaths) && <span className="text-[var(--color-muted-foreground)]">暂无法获取忽略规则</span>}
+            </div>
             {/* 汇总条 */}
-            {stats && stats.total > 0 && (
+            {!loading && !err && stats && stats.total > 0 && (
               <div className="flex flex-wrap items-center gap-2 border-b bg-[var(--color-muted)]/30 px-4 py-2 text-[11px] text-[var(--color-muted-foreground)]">
-                <span className="font-medium text-[var(--color-foreground)]">{stats.total} 个文件</span>
+                <span className="font-medium text-[var(--color-foreground)]">{stats.total} 项变更</span>
                 {stats.modified > 0 && <span className="text-amber-600 dark:text-amber-400">M:{stats.modified}</span>}
                 {stats.added > 0 && <span className="text-emerald-600 dark:text-emerald-400">A:{stats.added}</span>}
                 {stats.deleted > 0 && <span className="text-rose-600 dark:text-rose-400">D:{stats.deleted}</span>}
@@ -372,9 +391,9 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
                   {err}
                 </div>
               )}
-              {!loading && !err && data && data.entries.length === 0 && (
+              {!loading && !err && data && entries.length === 0 && (
                 <div className="py-12 text-center text-sm text-[var(--color-muted-foreground)]">
-                  ✓ 工作区干净，没有未提交的改动
+                  {hiddenCount > 0 ? '当前变更均已被过滤，取消勾选可查看。' : '✓ 工作区干净，没有未提交的改动'}
                 </div>
               )}
               {!loading && !err && tree.length > 0 && (

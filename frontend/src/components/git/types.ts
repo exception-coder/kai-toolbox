@@ -46,6 +46,8 @@ export interface GitStatusEntry {
 
 export interface GitStatusResponse {
   entries: GitStatusEntry[]
+  /** Paths matching Git ignore rules, including tracked paths; absent on older servers. */
+  ignoredPaths?: string[]
 }
 
 export interface GitFileDiffResponse {

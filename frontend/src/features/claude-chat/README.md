@@ -92,6 +92,10 @@ Codex 读取账号 App Server 真实窗口；Claude 复用 OAuth usage 的真实
 
 回归入口：前端 `nativeVoice.test.ts`、`useNativeVoice.test.ts`、`useVoiceTransport.test.ts`、`NativeVoiceControl.test.tsx`，sidecar `codexRealtime.test.ts`、`codexAppServer.test.ts`，后端 `SessionVoiceServiceTest`。`npm run app-server:schema:check` 校验锁定 CLI 的实验语音协议，升级 Codex 时必须重新检查并执行真实音频往返验收。
 
+## 待提交文件
+
+「会话工具 → 工作区 · 项目 → 待提交文件」可勾选「隐藏 Git 忽略项」，按当前仓库的 `.gitignore`、仓库排除和全局忽略规则过滤显示，包括已跟踪但匹配忽略规则的文件。取消勾选恢复完整列表；只改变显示，不修改 Git 配置、暂存区或跟踪状态。文件树与计数同步显示，并提示隐藏数量；全部被隐藏不代表工作区干净。新版后端未加载时筛选暂不可用，原列表仍可查看。
+
 ## 轮次变更记录
 
 每轮开发开始时保存 Git 基线，正常结束、失败或中断后保存观察到的文件变化。在「会话工具 → 工作区 · 项目 → 变更记录」按路径检索当前会话的记录；新轮次结果旁的「本轮变更」查看对应记录。记录保留新增、修改、删除、重命名路径及提交区间，不保存文件正文。
