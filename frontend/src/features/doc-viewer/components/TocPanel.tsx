@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
+const HEADING_SELECTOR = 'h2, h3, h4, h5, h6'
+
 export interface TocEntry {
   id: string
   level: number
@@ -35,14 +37,19 @@ export function TocPanel({
       return
     }
     const refresh = () => {
-      const headings = Array.from(root.querySelectorAll<HTMLElement>('h2, h3'))
-      const out: TocEntry[] = headings.map((el, i) => {
+      const headings = Array.from(root.querySelectorAll<HTMLElement>(HEADING_SELECTOR))
+      // 章节备注持久化引用旧 h2/h3 锚点，深层标题不能占用它们的顺序编号。
+      let sectionIndex = 0
+      let nestedIndex = 0
+      const out: TocEntry[] = headings.map(el => {
+        const level = Number(el.tagName.slice(1))
+        const prefix = level <= 3 ? `doc-toc-${sectionIndex++}` : `doc-toc-h${level}-${nestedIndex++}`
         let id = el.id
         if (!id) {
-          id = `doc-toc-${i}-${(el.textContent ?? '').slice(0, 30).replace(/\s+/g, '-')}`
+          id = `${prefix}-${(el.textContent ?? '').slice(0, 30).replace(/\s+/g, '-')}`
           el.id = id
         }
-        return { id, level: el.tagName === 'H2' ? 2 : 3, text: el.textContent ?? '' }
+        return { id, level, text: el.textContent ?? '' }
       })
       setEntries(out)
       onEntriesChangeRef.current?.(out)
@@ -55,7 +62,7 @@ export function TocPanel({
       const headingChanged = mutations.some(mutation =>
         [...mutation.addedNodes, ...mutation.removedNodes].some(node => {
           if (!(node instanceof HTMLElement)) return false
-          return node.matches('h2, h3') || node.querySelector('h2, h3') !== null
+          return node.matches(HEADING_SELECTOR) || node.querySelector(HEADING_SELECTOR) !== null
         }),
       )
       if (headingChanged) refresh()
@@ -81,6 +88,9 @@ export function TocPanel({
         <div key={e.id} className="group flex min-w-0 items-center gap-1">
           <a
             href={`#${e.id}`}
+            title={e.text}
+            aria-current={activeId === e.id ? 'location' : undefined}
+            style={{ paddingLeft: 8 + (e.level - 2) * 12 }}
             onClick={ev => {
               ev.preventDefault()
               setActiveId(e.id)
@@ -89,7 +99,7 @@ export function TocPanel({
             className={
               'min-w-0 flex-1 truncate rounded px-2 py-1 transition-colors hover:bg-[var(--color-accent)]/30 ' +
               (activeId === e.id ? 'bg-[var(--color-accent)]/40 font-medium' : '') +
-              (e.level === 3 ? ' pl-5 text-xs text-[var(--color-muted-foreground)]' : '')
+              (e.level > 2 ? ' text-xs text-[var(--color-muted-foreground)]' : '')
             }
           >
             {e.text}
