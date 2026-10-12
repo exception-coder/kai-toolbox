@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { reportVibeEntry, reportVibeResourceSummary } from '@/lib/vibeEntryDiagnostics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { TurnChangesDialog } from '../components/changes/TurnChangesDialog'
@@ -56,12 +56,12 @@ import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from '../
 import { groupModels } from '../components/modelGroups'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, getSessionPendingSql, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { canSteerRunningMessage, RunningMessageActions } from '../components/RunningMessageActions'
 import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
-import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
+import type { ChatItem, ModelInfo } from '../types'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 import { getSessionByDevSession, linkDevSession, type PrdSessionView } from '@/features/prd-clarify/public-api'
@@ -103,7 +103,7 @@ import { MobileAgentDock } from '../components/MobileAgentDock'
 import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
 import { SessionToolsMenu } from '../components/SessionToolsMenu'
 import { SessionAutopilotStatus } from '../components/SessionAutopilotStatus'
-import { MobileSessionViewMore, type SecondarySessionViewOption } from '../components/MobileSessionViewMore'
+import { SessionViewTabs, type SessionView } from '../components/SessionViewTabs'
 
 const TrajectoryView = lazy(() => import('../components/TrajectoryView').then(m => ({ default: m.TrajectoryView })))
 const UsageWorkspace = lazy(() => import('../components/UsagePanel').then(m => ({ default: m.UsageWorkspace })))
@@ -112,7 +112,6 @@ const UsagePanel = lazy(() => import('../components/UsagePanel').then(m => ({ de
 const SessionCommitsPanel = lazy(() => import('../components/SessionCommitsPanel').then(m => ({ default: m.SessionCommitsPanel })))
 const GitStatusPanel = lazy(() => import('@/components/git/GitStatusPanel').then(m => ({ default: m.GitStatusPanel })))
 const SessionDocumentsWorkspace = lazy(() => import('../components/SessionDocumentsWorkspace').then(m => ({ default: m.SessionDocumentsWorkspace })))
-const SessionDatabaseWorkspace = lazy(() => import('../components/SessionDatabaseWorkspace').then(m => ({ default: m.SessionDatabaseWorkspace })))
 const AutopilotDashboard = lazy(() => import('../components/AutopilotDashboard').then(m => ({ default: m.AutopilotDashboard })))
 const AutopilotProgressWorkspace = lazy(() => import('../components/AutopilotProgressWorkspace').then(m => ({ default: m.AutopilotProgressWorkspace })))
 
@@ -139,7 +138,6 @@ const DebugPanel = deferredPanel(() => import('../components/DebugPanel').then(m
 const RestartDialog = deferredPanel(() => import('../components/RestartDialog').then(m => ({ default: m.RestartDialog })))
 const MultiSessionView = deferredPanel(() => import('../components/MultiSessionView').then(m => ({ default: m.MultiSessionView })), workspaceLoading)
 const PrdLinkPanel = deferredPanel(() => import('../components/PrdLinkPanel').then(m => ({ default: m.PrdLinkPanel })))
-const PendingSqlPanel = deferredPanel(() => import('../components/PendingSqlPanel').then(m => ({ default: m.PendingSqlPanel })))
 const PrdAttachPanel = deferredPanel(() => import('../components/PrdAttachPanel').then(m => ({ default: m.PrdAttachPanel })))
 const SessionSitesDialog = deferredPanel(() => import('../components/SessionSitesDialog').then(m => ({ default: m.SessionSitesDialog })))
 const SessionSitesWorkspace = deferredPanel(() => import('../components/SessionSitesDialog').then(m => ({ default: m.SessionSitesWorkspace })), workspaceLoading)
@@ -287,7 +285,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [showReviewShare, setShowReviewShare] = useState(false)
   const [showPrdLink, setShowPrdLink] = useState(false)
   const [pendingOpenSpecInitialization, setPendingOpenSpecInitialization] = useState<PendingOpenSpecInitialization | null>(null)
-  const [showPendingSql, setShowPendingSql] = useState(false)
   const [showSessionSites, setShowSessionSites] = useState(false)
   const [showSessionProjects, setShowSessionProjects] = useState(false)
   // 「+ 更多功能」里的「PRD 文档」：搜索 PRD 澄清助手里的记录，一键把 PRD/开发文档内容附加进当前对话。
@@ -400,22 +397,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     }
     void linkLatestTarget().finally(() => { autoPrdLinkInFlightRef.current = false })
   }, [chat?.sessionId, navigate])
-  const [pendingSql, setPendingSql] = useState<SessionPendingSql | null | undefined>(undefined)
-  useEffect(() => {
-    const sessionId = chat?.sessionId
-    if (!sessionId) { setPendingSql(undefined); return }
-    let alive = true
-    const refreshPendingSql = () => getSessionPendingSql(sessionId)
-      .then(value => { if (alive) setPendingSql(value) })
-      .catch(() => { if (alive) setPendingSql(null) })
-    void refreshPendingSql()
-    // Agent 可在前端弹框关闭甚至页面切后台时通过 Forge Tool 自动登记；轻量轮询让顶栏标识自动出现。
-    const timer = window.setInterval(() => { void refreshPendingSql() }, 3_000)
-    return () => { alive = false; window.clearInterval(timer) }
-  }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
   const [inspectedAutopilot, setInspectedAutopilot] = useState<{ sessionId: string; changeId?: string } | null>(null)
-  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory' | 'autopilot' | 'autopilot_detail' | 'documents' | 'database' | 'sites' | 'usage' | 'review' | 'supervision' | 'board'>(() =>
+  const [sessionView, setSessionView] = useState<SessionView>(() =>
     new URLSearchParams(location.search).get('view') === 'supervision' ? 'supervision' : 'conversation')
   const openSupervision = useCallback(() => { setSessionView('autopilot') }, [])
   const leaveSupervision = useCallback(() => {
@@ -437,10 +421,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   useEffect(() => {
     setSessionView(current => {
       if (current === 'documents' && !linkedPrd) return 'conversation'
-      if (current === 'database' && !pendingSql) return 'conversation'
       return current
     })
-  }, [chat?.sessionId, linkedPrd, pendingSql])
+  }, [chat?.sessionId, linkedPrd])
   const messageListRef = useRef<MessageListHandle>(null)
   const [focusWide, setFocusWide] = useState(false)
   // 「我的提问」面板点中一条待滚到的目标：可能还没加载进 chat.items（分页更早历史里）。
@@ -1194,19 +1177,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     setSlashIdx(0)
   }
 
-  const mobileSessionViews: SecondarySessionViewOption[] = [
-    { id: 'trajectory', label: '轨迹', icon: Route },
-    ...(linkedPrd ? [{ id: 'documents' as const, label: '文档', icon: FileText }] : []),
-    ...(pendingSql ? [{ id: 'database' as const, label: 'SQL', icon: Database,
-      attention: pendingSql.status === 'PENDING' }] : []),
-    { id: 'sites', label: linkedSites.length ? `站点 ${linkedSites.length}` : '站点', icon: LayoutGrid },
-    { id: 'usage', label: '用量', icon: Gauge },
-    ...(reviewRelations && (reviewRelations.reviews.length || reviewRelations.pendingFeedback.length)
-      ? [{ id: 'review' as const, label: reviewRelations.pendingFeedback.length
-        ? `评审 ${reviewRelations.pendingFeedback.length}` : '评审', icon: Share2,
-        attention: reviewRelations.pendingFeedback.length > 0 }] : []),
-  ]
-
   return (
     <div ref={focusRoot} data-vibe-guide={guideLocation ?? undefined} className={cn(
       (fullscreen || focus.focused)
@@ -1498,9 +1468,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<Link2 className="size-4" />} label={linkedPrd ? '管理规格关联' : '关联规格'} hint={linkedPrd ? `已关联：${linkedPrd.title || '（未命名）'}` : '搜索绑定一份规格，绑定后可同步更新核心规格与执行计划'} onClick={() => { setHeaderMenu(false); setShowPrdLink(true) }} />
-                    )}
-                    {chat.sessionId && (
-                      <HeaderMenuItem nested icon={<Database className="size-4" />} label={pendingSql ? '管理待执行 SQL' : '登记待执行 SQL'} hint={pendingSql ? `${pendingSql.title || '未命名登记'} · ${pendingSql.status === 'PENDING' ? '待执行' : pendingSql.status === 'EXECUTED' ? '已执行' : '已取消'}` : '关联本次开发涉及的 DDL / DML，仅登记不执行'} onClick={() => { setHeaderMenu(false); setShowPendingSql(true) }} />
                     )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={linkedSites[0] ? (() => { const Icon = resolveSiteIcon(linkedSites[0].icon); return <Icon className="size-4" /> })() : <LayoutGrid className="size-4" />} label={linkedSites.length > 0 ? '管理测试站点' : '关联测试站点'} hint={linkedSites.length > 0 ? `已关联 ${linkedSites.length} 个测试站点` : '选择快捷入口或添加当前会话的临时地址'} onClick={() => { setHeaderMenu(false); setSessionView('sites') }} />
@@ -2052,14 +2019,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
         />
       )}
 
-      {showPendingSql && chat.sessionId && (
-        <PendingSqlPanel
-          sessionId={chat.sessionId}
-          onChanged={setPendingSql}
-          onClose={() => setShowPendingSql(false)}
-        />
-      )}
-
       {showSessionSites && chat.sessionId && (
         <SessionSitesDialog
           sessionId={chat.sessionId}
@@ -2171,152 +2130,10 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
           {/* 右侧：消息流 + 输入 */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {chat.sessionId ? (
-              <nav className="workspace-contextbar cc-chat-contextbar scrollbar-autohide flex items-end justify-between gap-1 overflow-x-auto px-2 sm:gap-4 sm:px-3 md:justify-start" aria-label="会话视图" data-focus-chrome>
-                <button
-                  type="button"
-                  aria-current={sessionView === 'conversation' ? 'page' : undefined}
-                  onClick={() => setSessionView('conversation')}
-                  className={cn(
-                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
-                    sessionView === 'conversation'
-                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
-                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
-                  )}
-                >
-                  <MessageSquare className="size-3.5" />
-                  对话
-                </button>
-                <button
-                  type="button"
-                  aria-current={sessionView === 'trajectory' ? 'page' : undefined}
-                  onClick={() => setSessionView('trajectory')}
-                  className={cn(
-                    'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
-                    sessionView === 'trajectory'
-                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
-                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
-                  )}
-                >
-                  <Route className="size-3.5" />
-                  轨迹
-                </button>
-                <button
-                  type="button"
-                  aria-current={sessionView === 'autopilot' || sessionView === 'autopilot_detail' ? 'page' : undefined}
-                  onClick={() => setSessionView('autopilot')}
-                  className={cn(
-                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1',
-                    sessionView === 'autopilot' || sessionView === 'autopilot_detail'
-                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
-                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
-                  )}
-                >
-                  <ListChecks className="size-3.5" />推进
-                </button>
-                {linkedPrd && (
-                  <button
-                    type="button"
-                    aria-current={sessionView === 'documents' ? 'page' : undefined}
-                    onClick={() => setSessionView('documents')}
-                    className={cn(
-                      'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
-                      sessionView === 'documents'
-                        ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
-                        : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
-                    )}
-                    title={linkedPrd.title || '查看绑定文档'}
-                  >
-                    <FileText className="size-3.5" />
-                    文档
-                  </button>
-                )}
-                {pendingSql && (
-                  <button
-                    type="button"
-                    aria-current={sessionView === 'database' ? 'page' : undefined}
-                    aria-label={pendingSql.status === 'PENDING' ? '数据库，待执行' : '数据库'}
-                    onClick={() => setSessionView('database')}
-                    className={cn(
-                      'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
-                      sessionView === 'database'
-                        ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
-                        : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
-                    )}
-                    title={pendingSql.title || '查看待执行 SQL'}
-                  >
-                    <Database className="size-3.5" />
-                    <span className="sm:hidden">SQL</span>
-                    <span className="hidden sm:inline">数据库</span>
-                    {pendingSql.status === 'PENDING' && (
-                      <span className="size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
-                    )}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  aria-current={sessionView === 'sites' ? 'page' : undefined}
-                  onClick={() => setSessionView('sites')}
-                  className={cn(
-                    'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
-                    sessionView === 'sites'
-                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
-                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
-                  )}
-                >
-                  <LayoutGrid className="size-3.5" />
-                  站点{linkedSites.length > 0 ? ` ${linkedSites.length}` : ''}
-                </button>
-                <button
-                  type="button"
-                  aria-current={sessionView === 'usage' ? 'page' : undefined}
-                  onClick={() => setSessionView('usage')}
-                  className={cn(
-                    'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
-                    sessionView === 'usage'
-                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
-                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
-                  )}
-                >
-                  <Gauge className="size-3.5" />
-                  用量
-                </button>
-                {reviewRelations && (reviewRelations.reviews.length > 0 || reviewRelations.pendingFeedback.length > 0) && (
-                  <button
-                    type="button"
-                    aria-current={sessionView === 'review' ? 'page' : undefined}
-                    onClick={() => setSessionView('review')}
-                    className={cn(
-                      'relative hidden h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full md:inline-flex sm:gap-1.5 sm:px-1',
-                      sessionView === 'review'
-                        ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
-                        : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
-                    )}
-                  >
-                    <Share2 className="size-3.5" />
-                    评审{reviewRelations.pendingFeedback.length > 0 ? ` ${reviewRelations.pendingFeedback.length}` : ''}
-                  </button>
-                )}
-                <MobileSessionViewMore currentView={sessionView} options={mobileSessionViews} onSelect={setSessionView} />
-                <button type="button" aria-label="会话看板" aria-current={sessionView === 'board' ? 'page' : undefined}
-                  onClick={() => setSessionView('board')}
-                  className={cn(
-                    'relative inline-flex h-full shrink-0 items-center gap-1 whitespace-nowrap px-2 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full sm:gap-1.5 sm:px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]',
-                    sessionView === 'board' ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
-                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
-                  )}>
-                  <ListChecks className="size-3.5" aria-hidden="true" /><span className="hidden md:inline">会话</span>看板
-                </button>
-              </nav>
-            ) : (
-              <nav data-focus-chrome className="workspace-contextbar cc-chat-contextbar px-3" aria-label="会话视图">
-                <button type="button" aria-label="会话看板" aria-current={sessionView === 'board' ? 'page' : undefined}
-                  onClick={() => setSessionView('board')}
-                  className="inline-flex h-full items-center gap-1.5 text-xs text-[var(--color-primary)] focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
-                  <ListChecks className="size-3.5" aria-hidden="true" />会话看板
-                </button>
-              </nav>
-            )}
+            <SessionViewTabs view={sessionView} onSelect={setSessionView} hasSession={!!chat.sessionId}
+              documentTitle={linkedPrd ? linkedPrd.title || '查看绑定文档' : undefined} siteCount={linkedSites.length}
+              pendingReviewCount={reviewRelations && (reviewRelations.reviews.length > 0 || reviewRelations.pendingFeedback.length > 0)
+                ? reviewRelations.pendingFeedback.length : undefined} />
             {chat.sessionId && sessionView !== 'supervision' && sessionView !== 'board' && (
               <div data-focus-chrome>
               <SessionAutopilotStatus
@@ -2371,12 +2188,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     session={linkedPrd}
                     onManage={() => setShowPrdLink(true)}
                     onOpenSource={() => navigate(`/tools/prd-clarify?viewSession=${encodeURIComponent(linkedPrd.id)}`)}
-                  />
-                ) : sessionView === 'database' && pendingSql ? (
-                  <SessionDatabaseWorkspace
-                    key={`database-${chat.sessionId}-${pendingSql.updatedAt}`}
-                    registration={pendingSql}
-                    onManage={() => setShowPendingSql(true)}
                   />
                 ) : sessionView === 'sites' ? (
                   <SessionSitesWorkspace

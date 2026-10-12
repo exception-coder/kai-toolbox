@@ -29,8 +29,10 @@ describe('Vibe Coding 功能导览', () => {
   it('完整指南搜索用途与入口，空结果可恢复', () => {
     render(<VibeCodingGuide {...props()} />)
     fireEvent.click(screen.getByRole('button', { name: '完整功能指南' }))
-    fireEvent.change(screen.getByLabelText('查找功能或入口'), { target: { value: 'SQL' } })
-    expect(screen.getByText('待执行 SQL')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('查找功能或入口'), { target: { value: '测试站点' } })
+    expect(screen.getByText('测试站点')).toBeInTheDocument()
+    expect(screen.getByText(/更多 → 站点/)).toBeInTheDocument()
+    expect(screen.queryByText('待执行 SQL')).not.toBeInTheDocument()
     expect(screen.queryByText('新建与工作目录')).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('查找功能或入口'), { target: { value: '不存在功能' } })
     expect(screen.getByRole('status')).toHaveTextContent('没有匹配功能')

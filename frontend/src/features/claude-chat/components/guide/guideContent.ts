@@ -14,7 +14,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     { title: '回看与导出', purpose: '按自己的提问跳转、回到开头，或导出 PDF / Word。', when: '查找先前结论或向同事交接时。', path: '会话工具 → 会话 → 我的提问 / 跳到会话开头 / 导出会话', session: true },
   ] },
   { id: 'execution', title: '查看执行', summary: '把聊天结果、执行过程和自动监督分开看。', entry: '会话视图', topics: [
-    { title: '对话与轨迹', purpose: '对话查看回复，轨迹查看执行过程及工具活动。', when: '判断 Agent 正在做什么、排查执行问题时。', path: '会话顶部「对话」「轨迹」', session: true },
+    { title: '对话与轨迹', purpose: '对话查看回复，轨迹查看执行过程及工具活动。', when: '判断 Agent 正在做什么、排查执行问题时。', path: '会话顶部「对话」；「更多 → 轨迹」', session: true },
     { title: '推进与自动监督', purpose: '查看推进状态；跨会话看板集中查看监督中的任务。', when: '按 OpenSpec 推进任务或同时跟进多个运行时。', path: '会话顶部「推进」；顶部「监督」打开看板', session: true },
     { title: '用量与运行控制', purpose: '查看真实订阅窗口与本地统计；执行中可中断或按引擎能力补充、排队。', when: '安排额度、调整任务或发现执行方向偏离时。', path: '会话顶部「用量」；输入区运行控制', session: true },
   ] },
@@ -23,10 +23,9 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     { title: '附加项目', purpose: '为多项目任务补充关联目录，作为会话上下文。', when: '前后端分仓或需要联动多个项目时。', path: '会话工具 → 工作区 · 项目 → 关联附加项目', session: true },
     { title: '准备项目', purpose: '拉取远端仓库、聚合工作区，或运行项目初始化流水线。', when: '本地尚无代码，或需要准备项目工程上下文时。', path: '会话工具 → 工作区 · 项目 → 拉取项目 / 合并工作区 / 项目初始化流水线' },
   ] },
-  { id: 'delivery', title: '交付结果', summary: '让规格、评审、测试入口和待执行变更留在会话中。', entry: '会话', topics: [
+  { id: 'delivery', title: '交付结果', summary: '让规格、评审和测试入口留在会话中。', entry: '会话', topics: [
     { title: '规格与计划评审', purpose: '关联规格，分享独立评审消息流，让业务和测试提供意见。', when: '需要确认需求、审阅计划或追踪实现依据时。', path: '会话工具 → 会话 → 关联规格 / 分享计划评审', session: true },
-    { title: '测试站点', purpose: '关联测试地址，集中访问当前会话的验证入口。', when: '功能具备测试环境、需要实际验证时。', path: '会话顶部「站点」；会话工具 → 会话 → 关联测试站点', session: true },
-    { title: '待执行 SQL', purpose: '登记需要人工审核执行的 DDL / DML，并记录后续状态。', when: '开发涉及人工数据库迁移或一次性修复时；登记不等于执行。', path: '会话工具 → 会话 → 登记待执行 SQL', session: true },
+    { title: '测试站点', purpose: '关联测试地址，集中访问当前会话的验证入口。', when: '功能具备测试环境、需要实际验证时。', path: '会话顶部「更多 → 站点」；会话工具 → 会话 → 关联测试站点', session: true },
   ] },
   { id: 'settings', title: '调整工作区', summary: '先区分阅读方式、个人偏好与运行环境，再按需调整。', entry: '系统 · 设置', topics: [
     { title: '阅读与显示', purpose: '使用专注、悬浮窗或全屏；按需调整工具着色和调用显示。', when: '长篇阅读、切换模块或需要降低信息干扰时。', path: '会话工具 → 视图；工作区个性化在 系统 · 设置' },

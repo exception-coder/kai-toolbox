@@ -2,53 +2,6 @@
 
 export type SessionStatus = 'RUNNING' | 'IDLE' | 'INTERRUPTED' | 'DONE'
 
-export type PendingSqlStatus = 'PENDING' | 'EXECUTED' | 'CANCELLED'
-
-export type PendingSqlChangeType = 'DDL' | 'DML' | 'MIXED'
-
-export type DdlEvidenceStatus =
-  | 'VERIFIED'
-  | 'PARTIAL'
-  | 'DDL_MISSING'
-  | 'PROJECT_AMBIGUOUS'
-  | 'STALE'
-  | 'NOT_CHECKED'
-
-export interface SessionPendingSqlTarget {
-  targetId: string
-  targetKey: string
-  datasourceId: string | null
-  targetEnvironment: string
-  changeType: PendingSqlChangeType
-  sqlText: string
-  status: PendingSqlStatus
-  sortOrder: number
-  createdAt: number
-  updatedAt: number
-  executedAt: number | null
-}
-
-/** Vibe Coding 会话关联的 SQL 台账；状态由用户维护，平台不会执行其中脚本。 */
-export interface SessionPendingSql {
-  sessionId: string
-  title: string | null
-  targetEnvironment: string | null
-  changeType: PendingSqlChangeType
-  sqlText: string
-  status: PendingSqlStatus
-  createdAt: number
-  updatedAt: number
-  executedAt: number | null
-  ddlEvidenceStatus: DdlEvidenceStatus
-  ddlProject: string | null
-  ddlBaselinePath: string | null
-  ddlEvidenceId: string | null
-  ddlVerifiedTables: string[]
-  ddlMissingTables: string[]
-  ddlCheckedAt: number | null
-  targets: SessionPendingSqlTarget[]
-}
-
 /** 当前 Vibe Coding 会话专属的临时测试站点。 */
 export interface SessionCustomSite {
   id: string

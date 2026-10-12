@@ -44,7 +44,6 @@ vi.mock('../api', async importOriginal => ({
   listEngineCatalog: async () => ({ engines: [] }),
   fetchCodexHomes: async () => [],
   getReviewRelations: async () => null,
-  getSessionPendingSql: async () => null,
   getSessionSiteConfiguration: async () => ({ quickSiteIds: [], customSites: [] }),
   listSessionProjectDirectories: async () => [],
   fetchSessionUsage: async () => null,

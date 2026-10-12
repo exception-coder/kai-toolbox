@@ -10,50 +10,11 @@ import type {
   GitStatusResponse,
   GitPushPreview,
 } from '@/components/git/types'
-import type { AutopilotChangeOption, AutopilotDashboard, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAutopilotRun, SessionPendingSql, SessionPendingSqlTarget, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { AutopilotChangeOption, AutopilotDashboard, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAutopilotRun, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 import type { AutopilotBindingCandidate, AutopilotTask } from './types'
-import { buildPendingSqlTargetOptions, type PendingSqlTargetOption } from './lib/pendingSqlTargets'
 import { SESSION_HISTORY_PAGE_TIMEOUT_MS } from './lib/sessionHistoryRequest'
 import { applyPendingSessionTitles } from './lib/optimisticSessionRename'
-
-/** 查询会话关联的 SQL 登记；未登记返回 null。 */
-export async function getSessionPendingSql(sessionId: string): Promise<SessionPendingSql | null> {
-  const result = await http<SessionPendingSql | undefined>(
-    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql`,
-  )
-  return result ?? null
-}
-
-/** 保存登记。保存正文意味着有新变更，后端会把状态置为待执行。 */
-export function saveSessionPendingSql(sessionId: string, input: {
-  title?: string
-  targetEnvironment?: string
-  changeType: PendingSqlChangeType
-  sqlText: string
-  targets?: Array<Pick<SessionPendingSqlTarget, 'targetKey' | 'datasourceId' | 'targetEnvironment' | 'changeType' | 'sqlText'>>
-}): Promise<SessionPendingSql> {
-  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql`, {
-    method: 'PUT',
-    body: JSON.stringify(input),
-  })
-}
-
-/** 人工更新 SQL 登记状态，接口不会执行 SQL。 */
-export function updateSessionPendingSqlStatus(
-  sessionId: string,
-  status: PendingSqlStatus,
-): Promise<SessionPendingSql> {
-  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql/status`, {
-    method: 'PUT',
-    body: JSON.stringify({ status }),
-  })
-}
-
-/** 解除会话的 SQL 登记。 */
-export function deleteSessionPendingSql(sessionId: string): Promise<void> {
-  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql`, { method: 'DELETE' })
-}
 
 /** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
 export function listSessionGitRepos(sessionId: string) {
@@ -242,19 +203,6 @@ export function pushSessionCommits(sessionId: string, token: string, repo?: stri
   return http<{ message: string }>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/push?${query}`, {
     method: 'POST', body: JSON.stringify({ token }),
   })
-}
-
-export type { PendingSqlTargetOption } from './lib/pendingSqlTargets'
-
-/** 复用系统资源与测试账号中的脱敏 SQL 数据源，绝不读取连接密码。 */
-export async function listPendingSqlTargetOptions(): Promise<PendingSqlTargetOption[]> {
-  type SystemView = { id: string; name: string }
-  type DatasourceView = { id: string; systemId: string; env: string; type: string; category: string; name: string; dbName: string | null }
-  const [systems, datasources] = await Promise.all([
-    http<SystemView[]>('/ops/systems'),
-    http<DatasourceView[]>('/ops/datasources'),
-  ])
-  return buildPendingSqlTargetOptions(systems, datasources)
 }
 
 /** Sidecar 权威引擎目录；refresh=true 会跳过短缓存并重新执行实验引擎握手。 */

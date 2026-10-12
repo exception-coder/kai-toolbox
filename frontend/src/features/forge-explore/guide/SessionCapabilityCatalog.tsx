@@ -3,17 +3,17 @@ import { Link } from 'react-router-dom'
 
 const tools = [
   { name: 'prepare_sql_context', title: '写 SQL 前，先准备表结构证据', input: '变更目的、目标表、必要时选择项目', path: 'POST /pending-sql/prepare-context', output: '返回结构证据与 evidenceId，供后续 SQL 登记关联。', limit: '项目或证据未确认时需继续核对，不能把工具调用成功当作 SQL 正确。' },
-  { name: 'register_pending_sql', title: '把数据库改动存成待执行台账', input: '标题、DDL/DML、目标环境、多库 targets、可选证据 ID', path: 'PUT /pending-sql/auto-register', output: '关联当前会话的 SQL 记录，供「待执行 SQL」管理与复核。', limit: '登记不执行 SQL；缺少 VERIFIED 证据仍可登记为待复核，不能把登记当成已验证或已上线。' },
+  { name: 'register_pending_sql', title: '把数据库改动存成待执行台账', input: '标题、DDL/DML、目标环境、多库 targets、可选证据 ID', path: 'PUT /pending-sql/auto-register', output: '关联当前会话的 SQL 记录，供 Agent 交付与人工复核；Vibe Coding 不再提供 SQL 管理视图。', limit: '登记不执行 SQL；缺少 VERIFIED 证据仍可登记为待复核，不能把登记当成已验证或已上线。' },
   { name: 'report_session_progress', title: '让服务端知道这一轮做到了哪里', input: '处置建议、摘要、下一步、剩余工作、证据', path: 'POST /autopilot/progress', output: '写入当前监督运行，回合结束后由监督器决定下一步。', limit: '需要有效的监督运行；报告本身不续跑、不扩大权限、不宣布整个目标完成。' },
 ] as const
 
 const groups = [
   ['需求与项目', '把业务材料带进开发会话', '关联核心规格、初始化规格、TDD / 执行计划；附加文档与附件；工作目录、文件树、Git 状态和提交；合并工作区、拉取项目、项目初始化流水线。', '入口：关联规格、文档、工作目录、Git、项目菜单。需要已有材料、仓库或相应项目配置。', 'ChatPage / SessionDocumentsWorkspace / PrdLinkPanel / TaskspacePanel / OnboardPipelinePanel'],
   ['自动推进', '按变更任务持续派工与收口', '绑定 OpenSpec、当前任务与阶段；内部队列续跑；预算与暂停恢复；监督看板、质量门禁与授权归档。', '入口：自动推进 / 监督看板。需要活动 change、运行中的服务端及可用引擎；不是新建会话就自动监督。', 'SessionAutopilotService / OpenSpecContinuousRunner / QueuedChatMessageService'],
-  ['数据与接口契约', '把代码之外的数据库改动留下来', 'SQL 上下文准备、待执行 SQL 台账、多库目标；接口契约直接写入 OpenSpec；数据库阅读工作区与配置后的测试验证工具。', '入口：待执行 SQL / 数据库 / OpenSpec 变更。登记、实际执行、验证通过是三个不同状态。', 'SessionPendingSqlService / OpenSpec / SessionDatabaseWorkspace'],
+  ['数据与接口契约', '把代码之外的数据库改动留下来', 'Agent 可准备 SQL 上下文、登记待执行台账及多库目标；接口契约写入 OpenSpec。Vibe Coding 已移除数据库阅读与 SQL 管理视图，已有记录保留。', '入口：Agent SQL 工具 / OpenSpec 变更。登记、实际执行、验证通过是三个不同状态。', 'SessionPendingSqlService / OpenSpec / forgePendingSql'],
   ['评审与业务参与', '把澄清和评审接回研发会话', '分享计划评审、收集文字与附件反馈并带回实现；业务问题回答和风险审批。', '入口：分享计划评审 / 评审。评审可以有独立会话，不等于自动监督另开了一个监督会话。', 'ReviewSpaceService / ReviewIntentService'],
-  ['执行与恢复', '统一呈现引擎状态和待处理动作', '引擎与模型配置、权限模式、问题和审批交互；消息排队、中断、历史恢复、多会话分屏、工具执行轨迹与运行健康提示。', '入口：会话配置 / 队列 / 历史 / 多会话 / 轨迹。各引擎支持范围不同，执行策略可能进一步收紧权限。', 'ClaudeChatService / SessionRuntimeHealth / TrajectoryView / MultiSessionView'],
-  ['成果与沟通', '把研发产物交给协作方查看', '关联测试站点；会话用量、Token 与费用明细；PDF / Word 导出；完成通知；语音输入、悬浮会话等交互入口。', '入口：站点 / 会话用量 / 导出会话 / 通知设置。关联地址不等于已经部署，费用和状态以可取得的数据为准。', 'SessionSitesWorkspace / UsageWorkspace / ExportSessionDialog / NotifySettings'],
+  ['执行与恢复', '统一呈现引擎状态和待处理动作', '引擎与模型配置、权限模式、问题和审批交互；消息排队、中断、历史恢复、多会话分屏、工具执行轨迹与运行健康提示。', '入口：会话配置 / 队列 / 历史 / 多会话 / 更多 → 轨迹。各引擎支持范围不同，执行策略可能进一步收紧权限。', 'ClaudeChatService / SessionRuntimeHealth / TrajectoryView / MultiSessionView'],
+  ['成果与沟通', '把研发产物交给协作方查看', '关联测试站点；会话用量、Token 与费用明细；PDF / Word 导出；完成通知；语音输入、悬浮会话等交互入口。', '入口：更多 → 站点 / 会话用量 / 导出会话 / 通知设置。关联地址不等于已经部署，费用和状态以可取得的数据为准。', 'SessionSitesWorkspace / UsageWorkspace / ExportSessionDialog / NotifySettings'],
   ['能力与环境诊断', '看到当前会话究竟能调用什么', 'MCP 工具、Plugins、Skills、子代理与命令目录；来源、作用域、连接状态、刷新时间；团队依赖与服务商诊断。', '入口：会话能力 / 团队依赖 / 服务商。仅配置、已连接、工具清单已核验是不同层次；项目插件不是 Forge 固定内置。', 'SessionCapsPanel / PluginPanel / ProviderDiagPanel'],
 ] as const
 
