@@ -26,6 +26,7 @@ import { PermissionDialog } from '../components/PermissionDialog'
 import { QuestionDialog } from '../components/QuestionDialog'
 import { SessionList } from '../components/SessionList'
 import { RecentSessions } from '../components/RecentSessions'
+import { SessionDuplicationDialog } from '../components/SessionDuplicationDialog'
 import { VoiceInputButton } from '../components/VoiceInputButton'
 import { NativeVoiceControl } from '../components/NativeVoiceControl'
 import { MobileRunningSend } from '../components/MobileRunningSend'
@@ -1204,6 +1205,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
       <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} onRestore={restoreGuide} hasSession={Boolean(chat.sessionId)} returnFocus={sessionToolsTriggerRef} />
+      <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onReturnFocus={() => taRef.current?.focus()} />
       {chat.sessionId && changesOpen && <TurnChangesDialog key={chat.sessionId} sessionId={chat.sessionId} open onOpenChange={setChangesOpen} returnFocus={sessionToolsTriggerRef} />}
       {focus.focused && <FocusReadingHeader title={currentTitle || 'Vibe Coding'} sessionId={chat.sessionId}
         wide={focusWide} onToggleWidth={() => setFocusWide(value => !value)} onExit={focus.exit} />}
@@ -1884,6 +1886,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     <RecentSessions
                       currentSessionId={chat.sessionId}
                       onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setPanel('none') }}
+                      onDuplicate={(id, codexHome) => { chat.duplicateSession(id, codexHome); setPanel('none') }}
+                      duplicatingSessionId={chat.duplicatingSessionId}
                     />
                   )}
                   <SessionList
@@ -2115,7 +2119,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 </button>
               </div>
               <div className="scrollbar-autohide min-h-0 flex-1 overflow-y-auto">
-                <RecentSessions currentSessionId={chat.sessionId} onSwitch={(id, hintRunning) => chat.switchTo(id, hintRunning)} />
+                <RecentSessions currentSessionId={chat.sessionId} onSwitch={(id, hintRunning) => chat.switchTo(id, hintRunning)}
+                  onDuplicate={chat.duplicateSession} duplicatingSessionId={chat.duplicatingSessionId} />
                 <SessionList
                   currentSessionId={chat.sessionId}
                   onSwitch={(id, hintRunning) => chat.switchTo(id, hintRunning)}

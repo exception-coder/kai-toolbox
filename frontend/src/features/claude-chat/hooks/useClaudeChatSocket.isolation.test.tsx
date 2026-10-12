@@ -31,7 +31,7 @@ class TestSocket {
   receive(message: ServerMessage) { this.onmessage?.({ data: JSON.stringify(message) }) }
 }
 
-const ready = (id: string): ServerMessage => ({ type: 'ready', sessionId: id, sdkSessionId: `sdk-${id}`,
+const ready = (id: string): Extract<ServerMessage, { type: 'ready' }> => ({ type: 'ready', sessionId: id, sdkSessionId: `sdk-${id}`,
   seq: 1, epoch: id, status: 'IDLE', engine: 'codex' })
 const page = (id: string) => ({ items: [{ kind: 'assistant', id: `h-${id}`, text: `历史 ${id}` } as ChatItem], nextBefore: null })
 
@@ -40,9 +40,82 @@ beforeEach(() => {
   vi.stubGlobal('WebSocket', TestSocket)
   api.loadMessages.mockImplementation((id: string) => Promise.resolve(page(id.replace('sdk-', ''))))
 })
-afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('会话消息隔离', () => {
+  it('普通复制立即反馈并只发送一次，收到新会话确认后完成且不复制旧消息', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('source'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive(ready('source')) })
+    await waitFor(() => expect(result.current.items).toEqual(page('source').items))
+    act(() => {
+      result.current.duplicateSession('source', 'C:/Users/test/.codex')
+      result.current.duplicateSession('source', 'C:/Users/test/.codex')
+      result.current.dismissDuplication()
+    })
+    expect(result.current.duplicationOperation).toMatchObject({ sourceSessionId: 'source', phase: 'pending', authSwitch: false })
+    const copies = socket.send.mock.calls.map(([value]) => JSON.parse(value)).filter(message => message.type === 'duplicateSession')
+    expect(copies).toEqual([{ type: 'duplicateSession', sourceSessionId: 'source', codexHome: 'C:/Users/test/.codex', reuseAuthSession: false }])
+    act(() => socket.receive(ready('copy')))
+    expect(result.current.duplicationOperation).toMatchObject({ phase: 'success', targetSessionId: 'copy' })
+    expect(result.current.sessionId).toBe('copy')
+    expect(result.current.items).toEqual([])
+    expect(result.current.duplicatingSessionId).toBeNull()
+    act(() => result.current.dismissDuplication())
+    expect(result.current.duplicationOperation).toBeNull()
+  })
+
+  it('Auth 切换保持复用标识，复用已有会话时不再发送交接包', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.duplicateSession('source', 'C:/Users/test/.codex-other', '交接内容'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive({ ...ready('existing-auth'), authHandoffRequired: false }) })
+    expect(result.current.duplicationOperation).toMatchObject({ phase: 'success', authSwitch: true })
+    const sent = socket.send.mock.calls.map(([value]) => JSON.parse(value))
+    expect(sent).toContainEqual({ type: 'duplicateSession', sourceSessionId: 'source', codexHome: 'C:/Users/test/.codex-other', reuseAuthSession: true })
+    expect(sent.some(message => message.type === 'send')).toBe(false)
+  })
+
+  it('保留复制失败的真实原因，原会话可继续使用', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('source'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive(ready('source')) })
+    act(() => {
+      result.current.duplicateSession('source')
+      socket.receive({ type: 'error', seq: 2, code: 'ENGINE_UNAVAILABLE', message: '引擎尚未就绪', terminal: false })
+    })
+    expect(result.current.duplicationOperation).toMatchObject({ phase: 'error', message: '引擎尚未就绪' })
+    expect(result.current.duplicatingSessionId).toBeNull()
+    expect(result.current.sessionId).toBe('source')
+  })
+
+  it('已发送的复制不随重连重复执行，超时显示未知结果并阻止盲目重试', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket())
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    vi.useFakeTimers()
+    act(() => result.current.duplicateSession('source'))
+    const first = TestSocket.sockets[0]
+    act(() => first.open())
+    act(() => first.close())
+    await act(async () => { await vi.advanceTimersByTimeAsync(3_500) })
+    expect(TestSocket.sockets).toHaveLength(2)
+    act(() => TestSocket.sockets[1].open())
+    const copies = TestSocket.sockets.flatMap(socket => socket.send.mock.calls.map(([value]) => JSON.parse(value)))
+      .filter(message => message.type === 'duplicateSession')
+    expect(copies).toHaveLength(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+    expect(result.current.duplicationOperation).toMatchObject({ phase: 'unknown' })
+    expect(result.current.errorMessage).toContain('副本可能已经创建')
+    act(() => result.current.duplicateSession('source'))
+    expect(result.current.duplicationOperation?.phase).toBe('unknown')
+    act(() => TestSocket.sockets[1].receive(ready('late-copy')))
+    expect(result.current.duplicationOperation).toMatchObject({ phase: 'success', targetSessionId: 'late-copy' })
+  })
   it('续问建议只属于当前原生轮次，发送和切换会话会清除它', async () => {
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
     act(() => result.current.switchTo('a'))

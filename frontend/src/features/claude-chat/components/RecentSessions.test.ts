@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import * as api from '../api'
 import { getSessionsByDevSessions } from '@/features/prd-clarify/public-api'
@@ -9,6 +9,9 @@ import { RecentSessions, groupRecentSessionsByWorkspace } from './RecentSessions
 import type { ClaudeChatSessionView } from '../types'
 
 vi.mock('@/features/prd-clarify/public-api', () => ({ getSessionsByDevSessions: vi.fn().mockResolvedValue({}) }))
+
+beforeEach(() => vi.mocked(getSessionsByDevSessions).mockResolvedValue({}))
+afterEach(cleanup)
 
 function session(id: string, cwd: string, lastSeenAt: number, favorite = false): ClaudeChatSessionView {
   return { id, cwd, lastSeenAt, favorite, engine: 'codex', status: 'IDLE' } as ClaudeChatSessionView
@@ -35,6 +38,25 @@ describe('groupRecentSessionsByWorkspace', () => {
 
 describe('recent workspace disclosure', () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it('offers the same copy action in recent sessions and disables it while a copy is pending', async () => {
+    const source = { ...session('source', 'D:/work/Alpha', Date.now()), title: '当前开发', codexHome: 'C:/Users/test/.codex-pro' }
+    vi.spyOn(api, 'listSessions').mockResolvedValue([source])
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const onDuplicate = vi.fn()
+    const onSwitch = vi.fn()
+    const view = (duplicatingSessionId: string | null) => createElement(QueryClientProvider, { client },
+      createElement(ConfirmProvider, null, createElement(RecentSessions,
+        { currentSessionId: 'source', onSwitch, onDuplicate, duplicatingSessionId })))
+    const { rerender } = render(view(null))
+    fireEvent.click(await screen.findByRole('button', { name: '更多操作：当前开发' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制会话配置' }))
+    expect(onDuplicate).toHaveBeenCalledExactlyOnceWith('source', 'C:/Users/test/.codex-pro')
+    expect(onSwitch).not.toHaveBeenCalled()
+    rerender(view('source'))
+    fireEvent.click(screen.getByRole('button', { name: '更多操作：当前开发' }))
+    expect(screen.getByRole('button', { name: '复制会话配置' })).toBeDisabled()
+  })
 
   it('collapses groups independently, keeps the choice on data refresh, and reveals a newly current session', async () => {
     const alpha = session('alpha', 'D:\\Work\\Alpha', 100)

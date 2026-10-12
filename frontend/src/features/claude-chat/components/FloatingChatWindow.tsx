@@ -9,6 +9,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { MessageList } from './MessageList'
 import { SessionList } from './SessionList'
 import { RecentSessions } from './RecentSessions'
+import { SessionDuplicationDialog } from './SessionDuplicationDialog'
 import { CommandMenu } from './CommandMenu'
 import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
@@ -623,6 +624,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
       )}
       style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
+      <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onReturnFocus={() => taRef.current?.focus()} />
       {/* 极光背景独立裁剪层：见 skin.css .cc-skin-bg 注释 */}
       {!giftMode && skin && <div className="cc-skin-bg" aria-hidden="true" />}
       {/* 顶部品牌色细线：标识「这是 AI 助手」，而非整窗染色（方案3：同色系分层 + 品牌色点缀） */}
@@ -791,6 +793,8 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
           <RecentSessions
             currentSessionId={chat.sessionId}
             onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setShowSessions(false) }}
+            onDuplicate={(id, codexHome) => { chat.duplicateSession(id, codexHome); setShowSessions(false) }}
+            duplicatingSessionId={chat.duplicatingSessionId}
           />
           <SessionList
             currentSessionId={chat.sessionId}

@@ -22,10 +22,11 @@ function renderList(sessions: ClaudeChatSessionView[]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   client.setQueryData(['claude-chat-sessions'], sessions)
   const onSwitch = vi.fn()
+  const onDuplicate = vi.fn()
   render(<QueryClientProvider client={client}>
-    <ConfirmProvider><SessionList currentSessionId={null} onSwitch={onSwitch} /></ConfirmProvider>
+    <ConfirmProvider><SessionList currentSessionId={null} onSwitch={onSwitch} onDuplicate={onDuplicate} /></ConfirmProvider>
   </QueryClientProvider>)
-  return { client, onSwitch }
+  return { client, onSwitch, onDuplicate }
 }
 
 beforeEach(() => {
@@ -45,6 +46,15 @@ afterEach(() => {
 })
 
 describe('session project navigation', () => {
+  it('duplicates the selected configuration in one step with its original Codex authorization', () => {
+    const { onDuplicate, onSwitch } = renderList([{ ...session('source', 'D:/work/Alpha'), codexHome: 'C:/Users/test/.codex-pro' }])
+    fireEvent.click(screen.getByRole('button', { name: '打开项目 Alpha，工作目录 D:/work/Alpha' }))
+    fireEvent.click(screen.getByRole('button', { name: '更多操作：任务 source' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制会话配置' }))
+    expect(onDuplicate).toHaveBeenCalledExactlyOnceWith('source', 'C:/Users/test/.codex-pro')
+    expect(onSwitch).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: '选择 Codex Auth 目录' })).not.toBeInTheDocument()
+  })
   it('automatically groups equivalent directories and enters only their sessions without writing groups', () => {
     const running = { ...session('alpha-2', 'd:/work/alpha/'), status: 'RUNNING' as const, live: true }
     const { onSwitch } = renderList([

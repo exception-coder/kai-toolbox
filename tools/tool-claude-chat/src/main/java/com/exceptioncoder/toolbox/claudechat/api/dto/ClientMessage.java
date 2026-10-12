@@ -77,8 +77,12 @@ public sealed interface ClientMessage
     /** 切到工具内会话（触发 sidecar resume） */
     record SwitchSession(String sessionId) implements ClientMessage {}
 
-    /** 复制会话配置并创建一个不带历史消息的新会话。 */
-    record DuplicateSession(String sourceSessionId, String codexHome) implements ClientMessage {}
+    /** 复制配置；reuseAuthSession=true 表示切换 Auth 并复用链路，缺省兼容旧客户端。 */
+    record DuplicateSession(String sourceSessionId, String codexHome, Boolean reuseAuthSession) implements ClientMessage {
+        public DuplicateSession(String sourceSessionId, String codexHome) {
+            this(sourceSessionId, codexHome, null);
+        }
+    }
 
     /** 续跑磁盘上的某历史会话：为该 sdkSessionId 建元数据行后 resume */
     record ResumeHistory(String sdkSessionId, String cwd) implements ClientMessage {}

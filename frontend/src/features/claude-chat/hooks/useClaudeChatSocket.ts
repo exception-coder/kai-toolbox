@@ -115,10 +115,18 @@ type Intent =
       consultEvidenceSystems?: string[]
     }
   | { kind: 'switch'; sessionId: string }
-  | { kind: 'duplicate'; sourceSessionId: string; codexHome?: string; contextSeed?: string }
+  | { kind: 'duplicate'; sourceSessionId: string; codexHome?: string; contextSeed?: string; reuseAuthSession: boolean }
   | { kind: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { kind: 'resumeCurrent'; sessionId: string }
   | { kind: 'attach'; sessionId: string; lastEventSeq: number }
+
+export interface SessionDuplicationOperation {
+  sourceSessionId: string
+  authSwitch: boolean
+  phase: 'pending' | 'success' | 'error' | 'unknown'
+  targetSessionId?: string
+  message?: string
+}
 
 export interface UseClaudeChatSocket {
   /** 当前已完成轮次的原生续问建议；不属于草稿或消息历史。 */
@@ -216,6 +224,8 @@ export interface UseClaudeChatSocket {
   switchTo: (sessionId: string, hintRunning?: boolean) => void
   duplicateSession: (sourceSessionId: string, codexHome?: string, contextSeed?: string) => void
   duplicatingSessionId: string | null
+  duplicationOperation: SessionDuplicationOperation | null
+  dismissDuplication: () => void
   /** 续跑磁盘上的历史会话 */
   resumeHistory: (sdkSessionId: string, cwd: string) => void
   resumeCurrent: () => void
@@ -322,7 +332,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const duplicateSourceRef = useRef<string | null>(null)
   const duplicateContextSeedRef = useRef<string | null>(null)
   const duplicateTimeoutRef = useRef<number | null>(null)
+  const duplicateSentRef = useRef(false)
   const [duplicatingSessionId, setDuplicatingSessionId] = useState<string | null>(null)
+  const [duplicationOperation, setDuplicationOperation] = useState<SessionDuplicationOperation | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   /** 当前会话最近一次正常终态授予的一次性出队凭证；普通空闲状态不能创建凭证。 */
   const queueReleaseSessionRef = useRef<string | null>(null)
@@ -449,10 +461,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         reportVibeEntry('session_ready', 'ok', msg.sessionId)
         let duplicateContextSeed: string | null = null
         if (duplicateSourceRef.current && msg.sessionId !== duplicateSourceRef.current) {
+          intentRef.current = { kind: 'attach', sessionId: msg.sessionId, lastEventSeq: lastSeqRef.current }
+          setDuplicationOperation(previous => previous ? { ...previous, phase: 'success', targetSessionId: msg.sessionId } : null)
           duplicateContextSeed = duplicateContextSeedRef.current
           if (msg.authHandoffRequired === false) duplicateContextSeed = null
           duplicateSourceRef.current = null
           duplicateContextSeedRef.current = null
+          duplicateSentRef.current = false
           if (duplicateTimeoutRef.current != null) {
             window.clearTimeout(duplicateTimeoutRef.current)
             duplicateTimeoutRef.current = null
@@ -959,8 +974,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           setQueuePausedReason('上一轮发生终态错误，待发送消息已暂停；请确认后手动继续。')
         }
         if (duplicateSourceRef.current) {
+          setDuplicationOperation(previous => previous ? { ...previous, phase: 'error', message: msg.message } : null)
           duplicateSourceRef.current = null
           duplicateContextSeedRef.current = null
+          duplicateSentRef.current = false
           if (duplicateTimeoutRef.current != null) {
             window.clearTimeout(duplicateTimeoutRef.current)
             duplicateTimeoutRef.current = null
@@ -1015,11 +1032,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       consultEvidenceSystems: intent.consultEvidenceSystems,
     })
     else if (intent.kind === 'switch') sendRaw({ type: 'switchSession', sessionId: intent.sessionId })
-    else if (intent.kind === 'duplicate') sendRaw({
-      type: 'duplicateSession',
-      sourceSessionId: intent.sourceSessionId,
-      codexHome: intent.codexHome,
-    })
+    else if (intent.kind === 'duplicate') {
+      // 复制是写操作；请求已经发送时，断线重连不能再次创建副本。
+      if (!duplicateSentRef.current) duplicateSentRef.current = sendRaw({
+        type: 'duplicateSession',
+        sourceSessionId: intent.sourceSessionId,
+        codexHome: intent.codexHome,
+        reuseAuthSession: intent.reuseAuthSession,
+      })
+    }
     else if (intent.kind === 'resumeHistory') sendRaw({ type: 'resumeHistory', sdkSessionId: intent.sdkSessionId, cwd: intent.cwd })
     else if (intent.kind === 'resumeCurrent') sendRaw({ type: 'resumeCurrent', sessionId: intent.sessionId })
     else sendRaw({ type: 'attach', sessionId: intent.sessionId, lastEventSeq: intent.lastEventSeq })
@@ -1272,6 +1293,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       }
       wsRef.current?.close()
       wsRef.current = null
+      if (duplicateTimeoutRef.current != null) {
+        window.clearTimeout(duplicateTimeoutRef.current)
+        duplicateTimeoutRef.current = null
+      }
     }
   }, [autoConnect, connect])
 
@@ -1330,11 +1355,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     pendingSendsRef.current = []
     duplicateSourceRef.current = null
     duplicateContextSeedRef.current = null
+    duplicateSentRef.current = false
     if (duplicateTimeoutRef.current != null) {
       window.clearTimeout(duplicateTimeoutRef.current)
       duplicateTimeoutRef.current = null
     }
     setDuplicatingSessionId(null)
+    setDuplicationOperation(null)
     setItems([])
     setPending(null)
     setQueued([])
@@ -1450,24 +1477,35 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
 
   const duplicateSession = useCallback((sourceSessionId: string, codexHome?: string, contextSeed?: string) => {
     if (duplicateSourceRef.current) return
+    const reuseAuthSession = !!contextSeed?.trim()
     duplicateSourceRef.current = sourceSessionId
     duplicateContextSeedRef.current = contextSeed?.trim() || null
     setDuplicatingSessionId(sourceSessionId)
+    setDuplicationOperation({ sourceSessionId, authSwitch: reuseAuthSession, phase: 'pending' })
     setErrorMessage(null)
-    intentRef.current = { kind: 'duplicate', sourceSessionId, codexHome, contextSeed }
-    if (!sendRaw({ type: 'duplicateSession', sourceSessionId, codexHome })) connect()
+    intentRef.current = { kind: 'duplicate', sourceSessionId, codexHome, contextSeed, reuseAuthSession }
+    duplicateSentRef.current = sendRaw({ type: 'duplicateSession', sourceSessionId, codexHome, reuseAuthSession })
+    if (!duplicateSentRef.current) connect()
     duplicateTimeoutRef.current = window.setTimeout(() => {
       if (duplicateSourceRef.current !== sourceSessionId) return
-      duplicateSourceRef.current = null
-      duplicateContextSeedRef.current = null
       duplicateTimeoutRef.current = null
-      setDuplicatingSessionId(null)
+      const message = '尚未收到完成确认，副本可能已经创建。请先查看会话列表，避免重复复制。'
+      setDuplicationOperation(previous => previous ? { ...previous, phase: 'unknown', message } : null)
       intentRef.current = sessionIdRef.current
         ? { kind: 'attach', sessionId: sessionIdRef.current, lastEventSeq: lastSeqRef.current }
         : null
-      setErrorMessage('复制会话超时：后端可能未启动或尚未加载最新版本，请重启后端后重试')
+      setErrorMessage(message)
     }, 15_000)
   }, [sendRaw, connect])
+
+  const dismissDuplication = useCallback(() => {
+    if (duplicateSourceRef.current && duplicateTimeoutRef.current != null) return
+    duplicateSourceRef.current = null
+    duplicateContextSeedRef.current = null
+    duplicateSentRef.current = false
+    setDuplicatingSessionId(null)
+    setDuplicationOperation(null)
+  }, [])
 
   const resumeHistory = useCallback((sdkSessionId: string, cwd: string) => {
     resetForNewSession()
@@ -1910,7 +1948,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }
 
 function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {

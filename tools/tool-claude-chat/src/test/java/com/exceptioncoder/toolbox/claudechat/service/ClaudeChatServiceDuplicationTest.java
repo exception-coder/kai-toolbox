@@ -1,0 +1,109 @@
+package com.exceptioncoder.toolbox.claudechat.service;
+
+import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
+import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
+import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
+import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
+import com.exceptioncoder.toolbox.claudechat.repository.AuthSessionLinkRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URI;
+import java.util.List;
+import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.web.socket.WebSocketSession;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class ClaudeChatServiceDuplicationTest {
+    private final ClaudeChatSessionRepository repo = mock(ClaudeChatSessionRepository.class);
+    private final AuthSessionLinkRepository links = mock(AuthSessionLinkRepository.class);
+    private final SidecarClient sidecar = mock(SidecarClient.class);
+    private final SessionProjectDirectoryService directories = mock(SessionProjectDirectoryService.class);
+    private final EngineCatalogService engines = mock(EngineCatalogService.class);
+    private final ClaudeChatSessionAccessPolicy access = mock(ClaudeChatSessionAccessPolicy.class);
+    private final WebSocketSession ws = mock(WebSocketSession.class);
+    private final ClaudeChatService service = new ClaudeChatService(
+            new ClaudeChatProperties(), repo, links, mock(SidecarProcessRegistry.class), sidecar,
+            null, null, null, null, null, null, null, null, null, null, null,
+            directories, null, null, null, engines, access, null, null, new ObjectMapper(), null,
+            List.of(), List.of(), null, mock(SessionVoiceService.class), null, null);
+
+    @BeforeEach
+    void prepare() {
+        when(ws.getId()).thenReturn("viewer");
+        when(ws.getUri()).thenReturn(URI.create("ws://localhost/api/claude-chat/ws"));
+        when(access.canAccess(ws, "source")).thenReturn(true);
+        when(access.ownerId(ws)).thenReturn(1L);
+        when(engines.selectable(anyString())).thenReturn(true);
+        when(links.bind(anyString(), anyString(), anyString(), anyLong())).thenReturn(true);
+    }
+
+    @Test
+    void sameAuthCopyCreatesAnIndependentSessionAndLineageWhilePreservingConfiguration() {
+        ClaudeChatSession source = source("codex", "C:/Users/test/.codex-pro");
+        when(repo.findById("source")).thenReturn(Optional.of(source));
+
+        service.duplicateSession(ws, new ClientMessage.DuplicateSession("source", null, false));
+
+        ArgumentCaptor<ClaudeChatSession> inserted = ArgumentCaptor.forClass(ClaudeChatSession.class);
+        verify(repo).insert(inserted.capture());
+        ClaudeChatSession copy = inserted.getValue();
+        assertThat(copy.getId()).isNotEqualTo(source.getId());
+        assertThat(copy.getCodexHome()).isEqualTo(source.getCodexHome());
+        assertThat(copy.getCwd()).isEqualTo(source.getCwd());
+        assertThat(copy.getSelectedModel()).isEqualTo(source.getSelectedModel());
+        assertThat(copy.getSdkSessionId()).isNull();
+        verify(links).bind(eq(copy.getId()), eq(copy.getId()), anyString(), anyLong());
+        verify(links, never()).ensureLineage(anyString(), anyString(), anyLong());
+        verify(repo).updateGroup(copy.getId(), "研发", "任务");
+        verify(directories).copy("source", copy.getId());
+        verify(repo, never()).deleteById(anyString());
+        assertThat(source.getSdkSessionId()).isEqualTo("native-source");
+    }
+
+    @Test
+    void nonCodexCopyAlsoHasItsOwnLineage() {
+        when(repo.findById("source")).thenReturn(Optional.of(source("claude", null)));
+
+        service.duplicateSession(ws, new ClientMessage.DuplicateSession("source", null, false));
+
+        ArgumentCaptor<ClaudeChatSession> inserted = ArgumentCaptor.forClass(ClaudeChatSession.class);
+        verify(repo).insert(inserted.capture());
+        String id = inserted.getValue().getId();
+        verify(links).bind(eq(id), eq(id), eq("__default__"), anyLong());
+        verify(links, never()).ensureLineage(anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    void authHandoffKeepsLookingUpTheExistingTargetInsteadOfCreatingAnotherCopy() {
+        when(repo.findById("source")).thenReturn(Optional.of(source("codex", null)));
+        when(links.ensureLineage(eq("source"), anyString(), anyLong())).thenReturn("lineage");
+        when(links.findSession(eq("lineage"), anyString())).thenReturn(Optional.of("existing-target"));
+        // 目标在读取间被删除时走既有 SESSION_NOT_FOUND 恢复路径，也不能创建额外副本。
+        when(repo.findById("existing-target")).thenReturn(Optional.empty());
+
+        service.duplicateSession(ws, new ClientMessage.DuplicateSession("source", "C:/Users/test/.codex-other", true));
+
+        verify(repo).findById("existing-target");
+        verify(repo, never()).insert(any());
+        verify(directories, never()).copy(anyString(), anyString());
+    }
+
+    private static ClaudeChatSession source(String engine, String codexHome) {
+        return ClaudeChatSession.builder().id("source").userId(1L).cwd("D:/work/project")
+                .title("开发任务").engine(engine).codexHome(codexHome).sdkSessionId("native-source")
+                .selectedModel("test-model").groupName("研发").subgroupName("任务")
+                .status(SessionStatus.IDLE).build();
+    }
+}

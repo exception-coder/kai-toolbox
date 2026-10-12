@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Check, ChevronRight, Copy, Filter, Folder, FolderMinus, FolderPlus, Link2, Loader2, LockKeyhole, Pencil, Search, Star, Tags, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Filter, Folder, FolderMinus, FolderPlus, Link2, Loader2, LockKeyhole, Pencil, Search, Star, Tags, X } from 'lucide-react'
 import { EngineIcon } from './EngineIcon'
 import { cn, formatDate } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, renameSessionProject, setSessionFavorite, setSessionGroupApi } from '../api'
@@ -70,9 +70,6 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
   const [filterPrd, setFilterPrd] = useState<'all' | 'linked' | 'unlinked'>('all')
   const [aliasQuery, setAliasQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
-  const [codexCopyFor, setCodexCopyFor] = useState<ClaudeChatSessionView | null>(null)
-  const [selectedCodexHome, setSelectedCodexHome] = useState<string | null>(null)
-  const [customCodexHome, setCustomCodexHome] = useState('')
   const [renameProjectFor, setRenameProjectFor] = useState<string | null>(null)
   const [projectNameDraft, setProjectNameDraft] = useState('')
   const [projectRenameBusy, setProjectRenameBusy] = useState(false)
@@ -95,28 +92,11 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     if (filterPrd === 'unlinked' && prdLinks[s.id]) return false
     return true
   }), [vibeSessions, visibleStatuses, activeProject, normalizedAliasQuery, filterPrd, prdLinks])
-  const knownCodexHomes = useMemo(() => [...new Set(vibeSessions
-    .filter(s => s.engine === 'codex' && s.providerKind !== 'thirdParty')
-    .map(s => s.codexHome?.trim() || '')
-  )], [vibeSessions])
   const storage = useSessionStorage(activeProject || normalizedAliasQuery ? filteredSessions : [])
 
   const requestDuplicate = (session: ClaudeChatSessionView) => {
-    if (session.engine !== 'codex' || session.providerKind === 'thirdParty') {
-      onDuplicate?.(session.id)
-      return
-    }
-    setCodexCopyFor(session)
-    setSelectedCodexHome(null)
-    setCustomCodexHome('')
-  }
-
-  const confirmCodexDuplicate = () => {
-    if (!codexCopyFor || selectedCodexHome == null) return
-    const codexHome = selectedCodexHome === '__custom__' ? customCodexHome.trim() : selectedCodexHome
-    if (selectedCodexHome === '__custom__' && !codexHome) return
-    onDuplicate?.(codexCopyFor.id, codexHome || undefined)
-    setCodexCopyFor(null)
+    onDuplicate?.(session.id,
+      session.engine === 'codex' && session.providerKind !== 'thirdParty' ? session.codexHome || undefined : undefined)
   }
 
   const openProjectRename = (project: string) => {
@@ -419,71 +399,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
           onClose={() => setGroupPickFor(null)}
         />
       )}
-      {codexCopyFor && (
-        <div className="fixed inset-0 z-[80] flex items-start justify-center bg-black/40 p-4 pt-24" role="dialog" aria-label="选择 Codex Auth 目录" onClick={() => setCodexCopyFor(null)}>
-          <div className="w-full max-w-md rounded-xl border bg-[var(--color-popover)] p-4 text-[var(--color-popover-foreground)] shadow-xl" onClick={event => event.stopPropagation()}>
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Copy className="size-4 text-[var(--color-primary)]" />复制 Codex 会话
-              <button type="button" onClick={() => setCodexCopyFor(null)} aria-label="关闭" className="ml-auto rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]"><X className="size-4" /></button>
-            </div>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
-              副本将创建新的 Codex thread，不继承源会话 Auth。请选择本次使用的授权目录。
-            </p>
-            <div className="mt-3 space-y-1.5">
-              {[...new Set(['', ...knownCodexHomes])].map(home => (
-                <button
-                  key={home || '__default__'}
-                  type="button"
-                  onClick={() => setSelectedCodexHome(home)}
-                  className={cn(
-                    'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm',
-                    selectedCodexHome === home
-                      ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10'
-                      : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]',
-                  )}
-                >
-                  <span className={cn('size-3 rounded-full border', selectedCodexHome === home && 'border-4 border-[var(--color-primary)]')} />
-                  <span className="min-w-0 flex-1 truncate">{home || '默认目录（%USERPROFILE%\\.codex）'}</span>
-                  {(codexCopyFor.codexHome?.trim() || '') === home && <span className="text-[10px] text-[var(--color-muted-foreground)]">源会话</span>}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setSelectedCodexHome('__custom__')}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm',
-                  selectedCodexHome === '__custom__'
-                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10'
-                    : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]',
-                )}
-              >
-                <span className={cn('size-3 rounded-full border', selectedCodexHome === '__custom__' && 'border-4 border-[var(--color-primary)]')} />
-                其他授权目录
-              </button>
-              {selectedCodexHome === '__custom__' && (
-                <input
-                  autoFocus
-                  value={customCodexHome}
-                  onChange={event => setCustomCodexHome(event.target.value)}
-                  placeholder="例如 C:\\Users\\zhang\\.codex-account-2"
-                  className="h-9 w-full rounded-md border bg-[var(--color-background)] px-2.5 text-sm outline-none focus:border-[var(--color-primary)]"
-                />
-              )}
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setCodexCopyFor(null)} className="rounded-md border px-3 py-1.5 text-xs hover:bg-[var(--color-muted)]">取消</button>
-              <button
-                type="button"
-                onClick={confirmCodexDuplicate}
-                disabled={selectedCodexHome == null || (selectedCodexHome === '__custom__' && !customCodexHome.trim())}
-                className="rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs text-[var(--color-primary-foreground)] disabled:opacity-50"
-              >
-                创建副本
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
       {renameProjectFor && (
         <div className="fixed inset-0 z-[80] flex items-start justify-center bg-black/40 p-4 pt-24" role="dialog" aria-modal="true" aria-label="重命名项目" onClick={() => !projectRenameBusy && setRenameProjectFor(null)}>
           <div className="w-full max-w-sm rounded-xl border bg-[var(--color-popover)] p-4 text-[var(--color-popover-foreground)] shadow-xl" onClick={event => event.stopPropagation()}>

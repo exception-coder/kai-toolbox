@@ -11,6 +11,26 @@ class ClientMessageContractTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void distinguishesOrdinaryCopiesFromAuthHandoffsWithoutBreakingLegacyMessages() throws Exception {
+        ClientMessage.DuplicateSession copy = (ClientMessage.DuplicateSession) objectMapper.readValue(
+                """
+                {"type":"duplicateSession","sourceSessionId":"source","reuseAuthSession":false}
+                """, ClientMessage.class);
+        ClientMessage.DuplicateSession handoff = (ClientMessage.DuplicateSession) objectMapper.readValue(
+                """
+                {"type":"duplicateSession","sourceSessionId":"source","reuseAuthSession":true}
+                """, ClientMessage.class);
+        ClientMessage.DuplicateSession legacy = (ClientMessage.DuplicateSession) objectMapper.readValue(
+                """
+                {"type":"duplicateSession","sourceSessionId":"source"}
+                """, ClientMessage.class);
+
+        assertThat(copy.reuseAuthSession()).isFalse();
+        assertThat(handoff.reuseAuthSession()).isTrue();
+        assertThat(legacy.reuseAuthSession()).isNull();
+    }
+
+    @Test
     void decodesLegacySendWithoutAssistantMetadata() throws Exception {
         ClientMessage.Send message = (ClientMessage.Send) objectMapper.readValue(
                 """

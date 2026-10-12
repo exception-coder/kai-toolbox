@@ -498,11 +498,15 @@ public class ClaudeChatService {
             sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，不能复制为可运行会话");
             return;
         }
+        boolean reuseAuthSession = !Boolean.FALSE.equals(msg.reuseAuthSession());
         String codexHome = "codex".equals(engine)
-                ? SessionExecutionPolicy.resolveCodexHome(engine, source.getApiBaseUrl(), msg.codexHome())
+                ? SessionExecutionPolicy.resolveCodexHome(engine, source.getApiBaseUrl(),
+                        reuseAuthSession ? msg.codexHome() : source.getCodexHome())
                 : source.getCodexHome();
-        String lineageId = authSessionLinks.ensureLineage(source.getId(), authKey(source.getCodexHome()), now);
-        Optional<String> reusableSessionId = authSessionLinks.findSession(lineageId, authKey(codexHome));
+        String lineageId = reuseAuthSession
+                ? authSessionLinks.ensureLineage(source.getId(), authKey(source.getCodexHome()), now) : sessionId;
+        Optional<String> reusableSessionId = reuseAuthSession
+                ? authSessionLinks.findSession(lineageId, authKey(codexHome)) : Optional.empty();
         if (reusableSessionId.isPresent() && !reusableSessionId.get().equals(source.getId())) {
             pendingAuthHandoff.put(reusableSessionId.get(), false);
             log.info("[claude-chat] 复用 Auth 会话 source={} target={} auth={}",

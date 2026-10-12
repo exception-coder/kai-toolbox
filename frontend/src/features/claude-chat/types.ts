@@ -709,7 +709,7 @@ export type ClientMessage =
     }
   | { type: 'attach'; sessionId: string; lastEventSeq: number }
   | { type: 'switchSession'; sessionId: string }
-  | { type: 'duplicateSession'; sourceSessionId: string; codexHome?: string }
+  | { type: 'duplicateSession'; sourceSessionId: string; codexHome?: string; reuseAuthSession?: boolean }
   | { type: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { type: 'resumeCurrent'; sessionId?: string }
   | {
