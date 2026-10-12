@@ -12,6 +12,11 @@ KNOWN_ENGINE_IDS.add('copilot')
 KNOWN_ENGINE_IDS.add('antigravity')
 KNOWN_ENGINE_IDS.add('trae')
 
+/** 本地偏好只能恢复已知引擎；实际可用性仍由运行目录判断。 */
+export function isKnownEngine(value: unknown): value is Engine {
+  return typeof value === 'string' && KNOWN_ENGINE_IDS.has(value as Engine)
+}
+
 /**
  * 目录不可达时保留现有稳定引擎；实验引擎必须由 Sidecar 明确报告 ready + selectable，
  * 不能用列表第一项、前端环境变量或历史缓存猜测可用性。

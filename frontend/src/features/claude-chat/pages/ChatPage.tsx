@@ -38,6 +38,8 @@ import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
 import { useDraftAttachments, useDraftAttachmentUploads, type DraftAttachment } from '../lib/attachmentDraftPref'
 import { loadCodexHomePreference, saveCodexHomePreference } from '../lib/codexHomePref'
+import { useNewSessionPreferences } from '../hooks/useNewSessionPreferences'
+import { newSessionSelectionIssue, resolveNewSessionWorkspace } from '../lib/newSessionPreferences'
 import { buildCodexAuthHandoff } from '../lib/codexAuthHandoff'
 import { cn } from '@/lib/utils'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
@@ -750,18 +752,21 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
       setLaunchIntentError(error instanceof Error ? error.message : String(error))
     })
   }, [chat?.sessionId, setDraft])
-  const [newCwd, setNewCwd] = useState('')
+  const codexSyncAuth = useAuth()
   const [newSessionTitle, setNewSessionTitle] = useState('')
-  const [wsIdx, setWsIdx] = useState(0) // 当前选中的工作区（root）下标，两级目录选择用
-  const [newEngine, setNewEngine] = useState<Engine>('claude')
   const [newCodexHome, setNewCodexHome] = useState(loadCodexHomePreference)
   // 第三方网关「服务商」：newProviderId 空=官方默认；newModel 为走网关时手填的模型名
   const { data: providerProfiles, isPending: providersLoading, error: providersError, refetch: refreshProviders } = useQuery({
-    queryKey: ['gateway-provider-profiles'], queryFn: loadProfiles,
+    queryKey: ['gateway-provider-profiles', codexSyncAuth.user?.userId ?? 'local'], queryFn: loadProfiles,
   })
   const providers = providerProfiles ?? EMPTY_PROVIDER_PROFILES
-  const [newProviderId, setNewProviderId] = useState('')
-  const [newModel, setNewModel] = useState('')
+  const newSessionPreferences = useNewSessionPreferences(codexSyncAuth.user?.userId, providers)
+  const { cwd: newCwd, engine: newEngine, providerId: newProviderId, model: newModel } = newSessionPreferences.choice
+  const { setCwd: setNewCwd, setEngine: setNewEngine, setProviderId: setNewProviderId, setModel: setNewModel } = newSessionPreferences
+  const newSessionIssue = newSessionSelectionIssue(newSessionPreferences.choice, {
+    engines: selectableEngines, enginesLoading: engineCatalogQuery.isPending,
+    providers, providersLoading, providersFailed: !!providersError,
+  })
   // 选中网关后从其 /v1/models 拉的可选模型目录（供下拉选择，仍可手填）
   const [providerModels, setProviderModels] = useState<ModelInfo[]>([])
   const [providerModelsLoading, setProviderModelsLoading] = useState(false)
@@ -781,7 +786,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const focusRoot = useRef<HTMLDivElement>(null)
   const [preferencesOpen, setPreferencesOpen] = useState(false)
   const [codexSyncOpen, setCodexSyncOpen] = useState(false)
-  const codexSyncAuth = useAuth()
   const focusPrevious = useRef<{ view: typeof sessionView; mode: typeof viewMode; panel: typeof panel } | null>(null)
   const focus = useChatFocusMode(focusRoot, () => {
     const previous = focusPrevious.current
@@ -815,11 +819,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   }, [attachments.length, chat?.sessionId, setAttachments, uploading])
   const projectMention = useProjectMention(draft, setDraft, taRef, { onPickPrd: handlePrdMention })
   const engineWatermark = useRef<Record<string, number>>({}) // 每引擎"上次看到的消息位置"，切 agent 时算增量 seed
-
-  // 实验引擎的运行时握手可能在面板打开期间失效；此时不能留下一个后端会拒绝的新建选项。
-  useEffect(() => {
-    if (!selectableEngines.includes(newEngine)) setNewEngine('claude')
-  }, [newEngine, selectableEngines])
 
   // 新建会话：网关模型按平台分组 + 平台二级筛选（网关动辄上百个，平铺难选）
   const providerModelGroups = useMemo(() => groupModels(providerModels), [providerModels])
@@ -871,7 +870,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
   // 新建面板展开时才扫描工作目录；接口失败/为空则下拉为空，输入框仍可手填（降级不阻断）
   const { data: workspaces } = useQuery({
-    queryKey: ['claude-chat-workspaces'],
+    queryKey: ['claude-chat-workspaces', codexSyncAuth.user?.userId ?? 'local'],
     queryFn: listWorkspaces,
     enabled: panel === 'new',
     staleTime: 5000,
@@ -884,7 +883,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   })
   // 两级工作目录：先选工作区 root，再列该 root 下的一级目录（只显示名字）。
   const wsRoots = workspaces?.roots.filter(r => r.exists) ?? []
-  const activeRoot = wsRoots.length ? wsRoots[Math.min(wsIdx, wsRoots.length - 1)] : null
+  const activeRoot = resolveNewSessionWorkspace(wsRoots, newSessionPreferences.choice.workspaceRoot)
+  const wsIdx = activeRoot ? wsRoots.indexOf(activeRoot) : -1
   const hiddenProjectPaths = useMemo(() => new Set(
     (projectWorkspacePreference?.ignoredProjects ?? loadLocalIgnoredProjectPaths())
       .map(normalizeWorkspaceProjectPath),
@@ -1036,6 +1036,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const sessionConfigCompactSummary = compactSessionModelLabel(sessionConfigSummary)
 
   const startNew = () => {
+    if (newSessionIssue) { setProviderModelsError(newSessionIssue); return }
     // 支持会话级网关的引擎复用档案，各自适配原生协议。
     const usesGateway = supportsSessionProvider(newEngine)
     const profile = usesGateway ? providers.find(p => p.id === newProviderId) : undefined
@@ -1055,6 +1056,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
       : profile ? (newModel.trim() || profile.model || undefined) : undefined
     if (newEngine === 'codex' && !profile) saveCodexHomePreference(newCodexHome)
     chat.open(newCwd.trim(), model, undefined, newEngine, provider, newSessionTitle.trim() || undefined)
+    newSessionPreferences.remember(activeRoot?.root ?? '')
     setNewSessionTitle('')
     setPanel('none')
   }
@@ -1533,11 +1535,15 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           <div className="mb-4">
             <h2 className="text-sm font-semibold text-[var(--color-foreground)]">新建会话</h2>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">先确定工作目录，再按需命名和选择运行配置。</p>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">开始会话后，本浏览器会记住工作区、目录、引擎和服务商选择。</p>
+            {newSessionPreferences.warning && <p role="status" className="mt-2 text-xs text-[var(--color-muted-foreground)]">{newSessionPreferences.warning}</p>}
+            {newSessionIssue && <p role="status" className="mt-2 text-xs text-[var(--color-muted-foreground)]">{newSessionIssue}</p>}
+            {workspaces && newSessionPreferences.choice.workspaceRoot && !activeRoot && <p role="status" className="mt-2 text-xs text-[var(--color-muted-foreground)]">上次工作区未出现在当前目录列表，可重新选择工作区或手动指定目录。</p>}
           </div>
           <p className="text-xs font-medium">工作目录</p>
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">选择工作区与项目，或直接输入路径；留空使用 home。</p>
-          {/* 第 1 级：工作区（多个 root 时才显示） */}
-          {wsRoots.length > 1 && (
+          {/* 第 1 级：多个工作区或原选择失效时显示，允许显式恢复。 */}
+          {(wsRoots.length > 1 || (wsRoots.length === 1 && !activeRoot)) && (
             <div className="mt-1 flex flex-wrap gap-1.5">
               {wsRoots.map((r, i) => {
                 const rname = r.root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || r.root
@@ -1546,7 +1552,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     key={r.root}
                     type="button"
                     title={r.root}
-                    onClick={() => { setWsIdx(i); setProjectSearch('') }}
+                    onClick={() => { newSessionPreferences.setWorkspaceRoot(r.root); setProjectSearch('') }}
+                    aria-pressed={i === wsIdx}
                     className={`rounded-full border px-2.5 py-1 text-xs ${i === wsIdx
                       ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
                       : 'text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/40'}`}
@@ -1620,6 +1627,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 key={eng}
                 type="button"
                 onClick={() => setNewEngine(eng)}
+                aria-pressed={newEngine === eng}
                 className={`rounded-full border px-3 py-1 text-xs ${newEngine === eng
                   ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                   : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
@@ -1716,6 +1724,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 <button
                   type="button"
                   onClick={() => { setNewProviderId(''); setNewModel('') }}
+                  aria-pressed={newProviderId === ''}
                   className={`rounded-full border px-3 py-1 text-xs ${newProviderId === ''
                     ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                     : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
@@ -1727,6 +1736,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     key={p.id}
                     type="button"
                     onClick={() => { setNewProviderId(p.id); setNewModel(p.model || '') }}
+                    aria-pressed={newProviderId === p.id}
                     className={`rounded-full border px-3 py-1 text-xs ${newProviderId === p.id
                       ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                       : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
@@ -1810,7 +1820,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             </div>
           )}
           <div className="mt-4 flex justify-end border-t border-[var(--color-border)] pt-4">
-            <Button size="lg" className="w-full sm:w-auto" onClick={startNew}>开始会话</Button>
+            <Button size="lg" className="w-full sm:w-auto" disabled={!!newSessionIssue} onClick={startNew}>开始会话</Button>
           </div>
         </div>
       )}
