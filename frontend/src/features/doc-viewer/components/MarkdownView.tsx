@@ -10,7 +10,7 @@ import '../styles/markdown.css'
 interface MarkdownViewProps {
   content: string
   size: number
-  rewriteContext: RewriteContext
+  rewriteContext?: RewriteContext
   /** 由父级注入；变化时强制重新渲染（即用 path+sha 拼接） */
   contentKey: string
   /** 渲染区根节点引用，供 TocPanel 提取标题 */

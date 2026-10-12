@@ -1,6 +1,7 @@
 import { marked, type RendererObject } from 'marked'
 import DOMPurify from 'dompurify'
 import { rewriteRelativeLinks, type RewriteContext } from './rewriteRelativeLinks'
+import { rewriteStandaloneLinks } from './rewriteStandaloneLinks'
 
 /**
  * 自定义 renderer：把 ```mermaid 代码块直接渲染成专属 `<div>` 占位元素，
@@ -22,18 +23,20 @@ const customRenderer: RendererObject = {
 marked.use({ renderer: customRenderer, gfm: true, breaks: false })
 
 /**
- * 渲染 markdown → 安全 HTML，并把相对链接重写到 raw URL / 应用内路由。
+ * 渲染 markdown → 安全 HTML；有目录上下文时重写相对链接，临时文件仅保留可独立访问的链接。
  * 不在此处处理 mermaid（mermaid 渲染需要在 DOM 挂载后做，见 mermaidRenderer.replaceMermaidBlocks）。
  */
-export function renderMarkdownToHtml(text: string, ctx: RewriteContext): string {
+export function renderMarkdownToHtml(text: string, ctx?: RewriteContext): string {
   if (!text || !text.trim()) return ''
   try {
     const raw = marked.parse(text, { async: false }) as string
     const sanitized = DOMPurify.sanitize(raw, {
       USE_PROFILES: { html: true },
       ADD_ATTR: ['target', 'class'],
+      FORBID_TAGS: ctx ? [] : ['style', 'link', 'iframe', 'object', 'embed', 'form'],
+      FORBID_ATTR: ctx ? [] : ['style', 'srcset'],
     })
-    return rewriteRelativeLinks(sanitized, ctx)
+    return ctx ? rewriteRelativeLinks(sanitized, ctx) : rewriteStandaloneLinks(sanitized)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return `<pre class="doc-viewer-render-error">渲染失败：${escapeHtml(msg)}</pre>`

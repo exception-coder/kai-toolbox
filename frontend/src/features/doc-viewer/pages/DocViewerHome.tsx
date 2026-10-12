@@ -16,6 +16,7 @@ import {
 } from '../api'
 import { AddLocalSourceDialog } from '../components/AddLocalSourceDialog'
 import { AddSourceDialog } from '../components/AddSourceDialog'
+import { QuickFilePreview } from '../file-preview/QuickFilePreview'
 
 export function DocViewerHome() {
   const navigate = useNavigate()
@@ -56,7 +57,7 @@ export function DocViewerHome() {
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-semibold tracking-tight sm:text-xl">文档浏览器</h1>
           <p className="text-xs text-[var(--color-muted-foreground)] sm:text-sm">
-            浏览 GitHub 仓库中的 Markdown，或挂载本机目录预览和编辑 Markdown、HTML 等文档
+            直接打开文档，或浏览 GitHub 仓库和本机目录中的 Markdown、HTML 等文档
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -68,6 +69,8 @@ export function DocViewerHome() {
           />
         </div>
       </header>
+
+      <QuickFilePreview />
 
       {/* === 本地目录源 === */}
       <section className="flex flex-col gap-3">
