@@ -301,6 +301,8 @@ export function ReviewPage() {
       <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 overflow-hidden">
         <MessageList
           items={displayItems}
+          onLoadLatest={() => chat.loadHistory(true)}
+          loadEarlierError={chat.historyError}
           running={chat.running}
           sessionKey={review.reviewSessionId}
           engineLabel="AI 评审"

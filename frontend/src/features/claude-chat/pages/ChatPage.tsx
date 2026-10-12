@@ -987,6 +987,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     }
   }
   const handleLoadEarlier = useCallback(() => chat?.loadHistory(false), [chat?.loadHistory])
+  const handleLoadLatest = useCallback(() => chat?.loadHistory(true) ?? Promise.resolve(false), [chat?.loadHistory])
   const handleNewSession = useCallback(() => {
     if (chat && currentSession) chat.open(currentSession.cwd)
   }, [chat?.open, currentSession?.cwd])
@@ -2229,6 +2230,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     items={chat.items}
                     running={chat.running}
                     onLoadEarlier={handleLoadEarlier}
+                    onLoadLatest={handleLoadLatest}
                     loadingEarlier={chat.historyLoading}
                     exhausted={chat.historyExhausted}
                     loadEarlierError={chat.historyError}

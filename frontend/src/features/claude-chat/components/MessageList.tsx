@@ -1,6 +1,7 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
+import { Virtuoso } from 'react-virtuoso'
+import { useLatestMessageNavigation } from '../hooks/useLatestMessageNavigation'
 import { TurnChangesDialog } from './changes/TurnChangesDialog'
 import { AlertTriangle, ArrowDown, Bot, Check, CircleX, Coins, Copy, Database, FileImage, FilePenLine, FileText, FolderOpen, GitBranch, ListTodo, Route, Shrink, Terminal, Timer, Wifi } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -19,6 +20,8 @@ interface Props {
   running: boolean
   /** 用户点击顶部入口加载更早一页 */
   onLoadEarlier?: () => void
+  /** 显式跳转前更新权威最近页；返回 false 时保留重试入口。 */
+  onLoadLatest?: () => Promise<boolean | null>
   /** 正在加载更早 */
   loadingEarlier?: boolean
   /** 已无更早历史 */
@@ -143,7 +146,7 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
 export const MessageList = memo(forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge },
+  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
@@ -189,42 +192,18 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     return map
   }, [items])
 
-  const virtuosoRef = useRef<VirtuosoHandle>(null)
-  const scrollerRef = useRef<HTMLElement | null>(null)
-  const jumpDeadlineRef = useRef(0)
-  const jumpFrameRef = useRef<number | null>(null)
-  const captureScroller = useCallback((element: HTMLElement | Window | null) => {
-    scrollerRef.current = element instanceof HTMLElement ? element : null
-  }, [])
-  const settleJump = useCallback(() => {
-    if (Date.now() > jumpDeadlineRef.current) return
-    if (jumpFrameRef.current !== null) cancelAnimationFrame(jumpFrameRef.current)
-    jumpFrameRef.current = requestAnimationFrame(() => {
-      jumpFrameRef.current = null
-      const scroller = scrollerRef.current
-      if (scroller && Date.now() <= jumpDeadlineRef.current) {
-        scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'instant' })
-      }
-    })
-  }, [])
-  useEffect(() => {
-    jumpDeadlineRef.current = 0
-    return () => {
-      jumpDeadlineRef.current = 0
-      if (jumpFrameRef.current !== null) cancelAnimationFrame(jumpFrameRef.current)
-    }
-  }, [sessionKey])
+  // 切会话或工具过滤时重挂载列表，清除旧尺寸、分页游标及在途定位意图。
+  const resetKey = `${sessionKey ?? ''}::${hideToolCalls ? 1 : 0}`
+  const { virtuosoRef, captureScroller, settleJump, jumpToBottom, cancelJump,
+    atBottom, onBottomStateChange, loadingLatest, latestError } = useLatestMessageNavigation({
+    sessionKey: resetKey, lastItemId: visibleItems.at(-1)?.id,
+    historyLoading: loadingEarlier, historyError: loadEarlierError, onLoadLatest,
+  })
   // 点击聊天里的图片放大查看（桌面点击 / 移动端轻触均可）
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null)
   // 「锁定位置」：贴底时新内容自动跟；用户滚离底部后 virtuoso 判定 atBottom=false，新增内容不再拽着视图跑。
-  const [atBottom, setAtBottom] = useState(true)
   // 「我的提问」等外部调用 scrollToItem 后短暂高亮的目标 id（配合 kai-msg-flash 做一次性闪烁）。
   const [highlightedId, setHighlightedId] = useState<string | null>(null)
-
-  // Virtuoso 的 key：切会话 或 切「隐藏工具调用」都整体重挂载虚拟列表——后者是因为过滤条件一变，
-  // visibleItems 在各个位置对应的内容全变了（不是纯粹的头部/尾部增减），继续复用旧的尺寸缓存/
-  // firstItemIndex 会跟实际内容对不上，直接重挂载最简单可靠（这个开关很少切，成本可以忽略）。
-  const resetKey = `${sessionKey ?? ''}::${hideToolCalls ? 1 : 0}`
 
   // ── 反向分页游标：prepend 时把 firstItemIndex 减去新增条数，virtuoso 就知道"这批是往前接的"，
   //    保持滚动位置不跳动。在渲染期间比对 items 引用变化并同步调整（React 官方推荐的
@@ -252,14 +231,6 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     prevItemsRef.current = visibleItems
   }
 
-  const jumpToBottom = useCallback(() => {
-    // 长回复挂载后仍会修正高度；即时定位允许虚拟列表按实测高度重试。
-    // LAST 在重试时仍指向最新项，贴底状态由实际滚动回调确认。
-    jumpDeadlineRef.current = Date.now() + 1500
-    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
-    settleJump()
-  }, [settleJump])
-
   // 一轮开始（running 从 false→true，Footer 里的「思考中」指示器刚出现）时，若本来就贴底，
   // 主动贴一下——指示器的出现不改变 data 长度，followOutput 不会自动因此触发。
   useEffect(() => {
@@ -274,14 +245,16 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     scrollToItem: (id: string) => {
       const idx = visibleItems.findIndex(it => it.id === id)
       if (idx === -1) return
+      cancelJump()
       virtuosoRef.current?.scrollToIndex({ index: idx, align: 'center', behavior: 'smooth' })
       setHighlightedId(id)
       window.setTimeout(() => setHighlightedId(cur => (cur === id ? null : cur)), 1500)
     },
     scrollToStart: () => {
+      cancelJump()
       virtuosoRef.current?.scrollToIndex({ index: 0, align: 'start', behavior: 'smooth' })
     },
-  }), [visibleItems])
+  }), [visibleItems, cancelJump, virtuosoRef])
 
   const itemContent = useCallback((_index: number, item: ChatItem) => (
     <div data-msg-id={item.id} className={cn('cc-message-row px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
@@ -311,11 +284,11 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col"
-      onWheelCapture={() => { jumpDeadlineRef.current = 0 }}
-      onTouchStartCapture={() => { jumpDeadlineRef.current = 0 }}
-      onPointerDownCapture={() => { jumpDeadlineRef.current = 0 }}
+      onWheelCapture={cancelJump}
+      onTouchStartCapture={event => { if (!(event.target instanceof Element && event.target.closest('[data-latest-navigation]'))) cancelJump() }}
+      onPointerDownCapture={event => { if (!(event.target instanceof Element && event.target.closest('[data-latest-navigation]'))) cancelJump() }}
       onKeyDownCapture={event => {
-        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) jumpDeadlineRef.current = 0
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) cancelJump()
       }}>
       {items.length > 0 && visibleItems.length === 0 && hideToolCalls && (
         <div role="status" className="px-4 py-3 text-sm text-[var(--color-muted-foreground)]">
@@ -337,22 +310,26 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         initialTopMostItemIndex={Math.max(0, visibleItems.length - 1)}
         alignToBottom
         followOutput={followOutput}
-        atBottomThreshold={64}
-        atBottomStateChange={setAtBottom}
+        atBottomThreshold={1}
+        atBottomStateChange={onBottomStateChange}
         computeItemKey={(_index, item) => item.id}
         itemContent={itemContent}
         components={LIST_COMPONENTS}
       />
       {/* 已锁定位置（滚离了底部）时的提示 + 快捷跳回：回答生成中最有用——一边看着之前内容，
           一边知道「新内容没有打断我、想看的话点一下就能追上」。 */}
-      {!atBottom && (
+      {(!atBottom || loadingLatest || latestError) && (
         <button
           type="button"
+          data-latest-navigation
           onClick={jumpToBottom}
+          disabled={loadingLatest}
+          aria-busy={loadingLatest}
           className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-1.5 text-xs font-medium text-[var(--color-card-foreground)] shadow-lg transition-colors hover:bg-[var(--color-accent)]"
         >
           <ArrowDown className="size-3.5" />
-          位置已锁定{running ? '· 新回复生成中' : ''} · 跳到最新
+          {loadingLatest ? '正在获取最新消息…' : latestError ? '获取最新消息失败 · 跳到最新重试'
+            : <>位置已锁定{running ? '· 新回复生成中' : ''} · 跳到最新</>}
         </button>
       )}
       {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}

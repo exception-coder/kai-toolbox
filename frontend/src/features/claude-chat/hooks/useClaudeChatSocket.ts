@@ -259,8 +259,8 @@ export interface UseClaudeChatSocket {
   historyExhausted: boolean
   /** 最近一次历史分页失败；原位展示并允许重试。 */
   historyError: string | null
-  /** 加载历史消息：reset=true 进会话取最近一页；否则上拉取更早一页 prepend */
-  loadHistory: (reset: boolean) => void
+  /** reset=true 取最近页，否则取更早页；false 为失败/失效，null 为尚未建立原生历史。 */
+  loadHistory: (reset: boolean) => Promise<boolean | null>
 }
 
 export type ClaudeChatChannel = 'admin' | 'consult' | 'prd-dev' | 'review'
@@ -372,8 +372,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const shouldLoadHistoryRef = useRef(false)
   const historyBeforeRef = useRef<number | null>(null)
   const historyExhaustedRef = useRef(false)
-  const historyLoadingRef = useRef(false)
   const historyRequestIdRef = useRef(0)
+  const historyRequestRef = useRef<{ reset: boolean; promise: Promise<boolean | null>; latestPromise?: Promise<boolean | null> } | null>(null)
   const loadHistoryRef = useRef<(reset: boolean) => void>(() => {})
   // applyEvent('forked') 需要切会话，但 switchTo 在其后定义 → 用 ref 解依赖环
   const switchToRef = useRef<(sid: string) => void>(() => {})
@@ -1382,7 +1382,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     sdkSessionIdRef.current = null
     historyBeforeRef.current = null
     historyRequestIdRef.current += 1
-    historyLoadingRef.current = false
+    historyRequestRef.current = null
     setHistoryLoading(false)
     setHistoryError(null)
     historyNeedsRefreshRef.current = false
@@ -1850,53 +1850,67 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     switchToRef.current = switchTo
   }, [switchTo])
 
-  const loadHistory = useCallback(async (reset: boolean) => {
+  const loadHistory = useCallback(async function loadHistoryPage(reset: boolean): Promise<boolean | null> {
     reset = reset || historyNeedsRefreshRef.current
     const sid = sdkSessionIdRef.current
-    if ((!sid && channel !== 'review') || historyLoadingRef.current) return
-    if (!reset && historyExhaustedRef.current) return
-    historyLoadingRef.current = true
+    if (!sid && channel !== 'review') return null
+    const inFlight = historyRequestRef.current
+    if (inFlight) {
+      if (!reset || inFlight.reset) return inFlight.promise
+      if (!inFlight.latestPromise) {
+        const token = { requestId: historyRequestIdRef.current, sessionId: sessionIdRef.current }
+        inFlight.latestPromise = inFlight.promise.then(() => {
+          if (!isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) return false
+          return loadHistoryPage(true)
+        })
+      }
+      return inFlight.latestPromise
+    }
+    if (!reset && historyExhaustedRef.current) return true
     setHistoryLoading(true)
     setHistoryError(null)
     const token = {
       requestId: ++historyRequestIdRef.current,
       sessionId: sessionIdRef.current,
     }
-    try {
-      const before = reset ? null : historyBeforeRef.current
-      const { items: hist, nextBefore } = channel === 'review' && reviewToken
-        ? await loadPublicReviewMessages(reviewToken, before)
-        : await loadMessages(sid!, cwdRef.current, before, 30, token.sessionId ?? undefined)
-      // 一律把历史 prepend 到现有项之前，不直接替换：
-      // 进会话(switchTo/resumeHistory)会先 resetForNewSession 清空，故此刻 prev 只剩「加载期间本地新增的实时项」
-      // ——典型是刚进会话就发出的首条用户气泡（乐观插入）/已开始的流式回复。若 reset 时直接 setItems(hist)，
-      // 历史(空会话为 [])加载完成会把这条刚发的消息覆盖掉 → 「新建会话首条消息不显示」。prepend 则两者都保留。
-      if (!isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) return
-      if (reset && token.sessionId && channel !== 'review' && !demo) {
-        recentHistoryRef.current.put(sessionToken, token.sessionId, { items: hist, nextBefore })
+    const promise = (async () => {
+      try {
+        const before = reset ? null : historyBeforeRef.current
+        const { items: hist, nextBefore } = channel === 'review' && reviewToken
+          ? await loadPublicReviewMessages(reviewToken, before)
+          : await loadMessages(sid!, cwdRef.current, before, 30, token.sessionId ?? undefined)
+        // 用权威最近页替换旧缓存，保留加载期间比它更新的实时消息与乐观用户输入。
+        if (!isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) return false
+        if (reset && token.sessionId && channel !== 'review' && !demo) {
+          recentHistoryRef.current.put(sessionToken, token.sessionId, { items: hist, nextBefore })
+        }
+        setItems(prev => reset ? mergeResetHistoryItems(hist, prev) : [...hist, ...prev])
+        if (reset) {
+          historyNeedsRefreshRef.current = false
+          setSyncWarning(previous => previous === '正在更新最近消息，当前显示本页缓存'
+            || previous === '最近消息更新失败，保留本页缓存；请点击重试' ? null : previous)
+        }
+        historyBeforeRef.current = nextBefore
+        const done = isSessionHistoryPageExhausted(hist.length, before, nextBefore)
+        historyExhaustedRef.current = done
+        setHistoryExhausted(done)
+        return true
+      } catch (caught) {
+        if (isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) {
+          setHistoryError(sessionHistoryLoadErrorMessage(caught, reset))
+          if (reset) setSyncWarning(previous => previous === '正在更新最近消息，当前显示本页缓存'
+            ? '最近消息更新失败，保留本页缓存；请点击重试' : previous)
+        }
+        return false
+      } finally {
+        if (isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) {
+          historyRequestRef.current = null
+          setHistoryLoading(false)
+        }
       }
-      setItems(prev => reset ? mergeResetHistoryItems(hist, prev) : [...hist, ...prev])
-      if (reset) {
-        historyNeedsRefreshRef.current = false
-        setSyncWarning(previous => previous === '正在更新最近消息，当前显示本页缓存'
-          || previous === '最近消息更新失败，保留本页缓存；请点击重试' ? null : previous)
-      }
-      historyBeforeRef.current = nextBefore
-      const done = isSessionHistoryPageExhausted(hist.length, before, nextBefore)
-      historyExhaustedRef.current = done
-      setHistoryExhausted(done)
-    } catch (caught) {
-      if (isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) {
-        setHistoryError(sessionHistoryLoadErrorMessage(caught, reset))
-        if (reset) setSyncWarning(previous => previous === '正在更新最近消息，当前显示本页缓存'
-          ? '最近消息更新失败，保留本页缓存；请点击重试' : previous)
-      }
-    } finally {
-      if (isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) {
-        historyLoadingRef.current = false
-        setHistoryLoading(false)
-      }
-    }
+    })()
+    historyRequestRef.current = { reset, promise }
+    return promise
   }, [channel, demo, reviewToken, sessionToken])
 
   // 让 applyEvent(ready 回调)能在不进依赖环的情况下触发首屏历史加载

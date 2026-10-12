@@ -43,6 +43,46 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('会话消息隔离', () => {
+  it('显式更新最近页绕过旧缓存，重复点击复用同一权威请求', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    act(() => { TestSocket.sockets[0].open(); TestSocket.sockets[0].receive(ready('a')) })
+    await waitFor(() => expect(result.current.items).toEqual(page('a').items))
+    let finish!: (value: ReturnType<typeof page>) => void
+    api.loadMessages.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    let first!: Promise<boolean | null>
+    let second!: Promise<boolean | null>
+    act(() => { first = result.current.loadHistory(true); second = result.current.loadHistory(true) })
+    expect(api.loadMessages).toHaveBeenCalledTimes(2)
+    expect(api.loadMessages).toHaveBeenLastCalledWith('sdk-a', '', null, 30, 'a')
+    await act(async () => finish(page('latest')))
+    expect(await first).toBe(true)
+    expect(await second).toBe(true)
+    expect(result.current.items).toEqual(page('latest').items)
+  })
+
+  it('加载更早期间跳到最新，等待旧页后另取最近页而非使用旧分页结果', async () => {
+    api.loadMessages.mockResolvedValueOnce({ ...page('a'), nextBefore: 100 })
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    act(() => { TestSocket.sockets[0].open(); TestSocket.sockets[0].receive(ready('a')) })
+    await waitFor(() => expect(result.current.items).toEqual(page('a').items))
+    let finish!: (value: ReturnType<typeof page>) => void
+    api.loadMessages.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    api.loadMessages.mockResolvedValueOnce(page('latest'))
+    let latest!: Promise<boolean | null>
+    let repeated!: Promise<boolean | null>
+    act(() => { void result.current.loadHistory(false); latest = result.current.loadHistory(true); repeated = result.current.loadHistory(true) })
+    expect(api.loadMessages).toHaveBeenLastCalledWith('sdk-a', '', 100, 30, 'a')
+    await act(async () => { finish(page('earlier')); await latest })
+    expect(api.loadMessages).toHaveBeenLastCalledWith('sdk-a', '', null, 30, 'a')
+    expect(api.loadMessages).toHaveBeenCalledTimes(3)
+    expect(await repeated).toBe(true)
+    expect(result.current.items).toEqual(page('latest').items)
+  })
+
   it('普通复制立即反馈并只发送一次，收到新会话确认后完成且不复制旧消息', async () => {
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
     act(() => result.current.switchTo('source'))

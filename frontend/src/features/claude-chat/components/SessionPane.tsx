@@ -210,6 +210,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           items={chat.items}
           running={chat.running}
           onLoadEarlier={handleLoadEarlier}
+          onLoadLatest={() => chat.loadHistory(true)}
           loadingEarlier={chat.historyLoading}
           exhausted={chat.historyExhausted}
           loadEarlierError={chat.historyError}
