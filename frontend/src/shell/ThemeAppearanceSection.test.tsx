@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ThemeAppearanceSection } from './ThemeAppearanceSection'
 import {
   APPEARANCE_STORAGE_KEY,
+  DEFAULT_THEME_STATE,
   getThemeSnapshot,
   initTheme,
   resetTheme,
@@ -62,5 +63,28 @@ describe('ThemeAppearanceSection', () => {
     expect(getThemeSnapshot().material).toBe('soft')
     expect(soft).toHaveFocus()
     expect(soft).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('应用当前配置保留自定义组合，恢复默认才重置所选外观', () => {
+    render(<ThemeAppearanceSection />)
+    fireEvent.click(screen.getByRole('radio', { name: /^自然/ }))
+    fireEvent.click(screen.getByRole('radio', { name: /琥珀/ }))
+    fireEvent.click(screen.getByRole('radio', { name: /^紧凑/ }))
+    fireEvent.click(screen.getByRole('switch', { name: /减少动画/ }))
+    const selected = getThemeSnapshot()
+
+    fireEvent.click(screen.getByRole('button', { name: '应用当前配置' }))
+    expect(getThemeSnapshot()).toEqual(selected)
+    expect(JSON.parse(localStorage.getItem(APPEARANCE_STORAGE_KEY) ?? '{}')).toEqual(selected)
+    expect(document.documentElement.dataset).toMatchObject({ material: 'natural', density: 'compact', reduceMotion: 'true' })
+    expect(screen.getByRole('button', { name: '已应用当前配置' })).toBeDisabled()
+    expect(screen.getByText(/自然 · 琥珀 · 紧凑/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('radio', { name: /翠绿/ }))
+    expect(screen.getByRole('button', { name: '应用当前配置' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认' }))
+    expect(getThemeSnapshot()).toEqual(DEFAULT_THEME_STATE)
+    expect(JSON.parse(localStorage.getItem(APPEARANCE_STORAGE_KEY) ?? '{}')).toEqual(DEFAULT_THEME_STATE)
+    expect(screen.getByRole('button', { name: '恢复默认' })).toBeDisabled()
   })
 })

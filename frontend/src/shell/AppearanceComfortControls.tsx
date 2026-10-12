@@ -1,7 +1,8 @@
-import { BookOpenText, Check, RotateCcw } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { handleAppearanceRadioKeyDown } from './appearanceRadioGroup'
-import { DEFAULT_THEME_STATE, THEME_DENSITIES, resetTheme, updateTheme, type ThemeState } from './theme'
+import { THEME_DENSITIES, updateTheme, type ThemeState } from './theme'
+import { AppearanceConfigurationActions } from './AppearanceConfigurationActions'
 
 const COMFORT_OPTIONS = [
   { id: 'reduceContrast', label: '降低对比度', description: '柔化边界与次级文字，正文仍保持清晰' },
@@ -12,10 +13,6 @@ const COMFORT_OPTIONS = [
 
 export function AppearanceComfortControls({ state }: { state: ThemeState }) {
   const densityIds = THEME_DENSITIES.map(option => option.id)
-  const readingPresetActive = state.material === 'ink'
-    && state.density === 'comfortable'
-    && Object.values(state.comfort).every(Boolean)
-  const isDefault = JSON.stringify(state) === JSON.stringify(DEFAULT_THEME_STATE)
 
   return (
     <div className="space-y-5">
@@ -80,43 +77,7 @@ export function AppearanceComfortControls({ state }: { state: ThemeState }) {
         )}
       </fieldset>
 
-      <div className="flex flex-col gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)]/55 p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-medium"><BookOpenText className="size-4 text-[var(--color-primary)]" />舒适阅读</div>
-          <p className="mt-1 text-xs leading-5 text-[var(--color-muted-foreground)]">一键应用墨水材质、暖色温、柔和对比与少动画。</p>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <button
-            type="button"
-            disabled={isDefault}
-            onClick={resetTheme}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-3 text-xs font-medium text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)] disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            <RotateCcw className="size-3.5" />恢复默认
-          </button>
-          <button
-            type="button"
-            disabled={readingPresetActive}
-            onClick={applyReadingPreset}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-[var(--color-primary)] px-3 text-xs font-medium text-[var(--color-primary-foreground)] shadow-sm hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-55"
-          >
-            {readingPresetActive && <Check className="size-3.5" />}{readingPresetActive ? '已应用' : '应用预设'}
-          </button>
-        </div>
-      </div>
+      <AppearanceConfigurationActions state={state} />
     </div>
   )
-}
-
-function applyReadingPreset() {
-  updateTheme({
-    material: 'ink',
-    density: 'comfortable',
-    comfort: {
-      reduceContrast: true,
-      warmTone: true,
-      reduceTransparency: true,
-      reduceMotion: true,
-    },
-  })
 }
