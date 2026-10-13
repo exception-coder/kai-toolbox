@@ -7,6 +7,11 @@ The system SHALL place focus mode in the View group and workspace personalizatio
 - **WHEN** the user changes tool coloring, skin or tool visibility in personalization
 - **THEN** the workspace and its existing shortcuts reflect the same preference without parallel storage
 
+#### Scenario: Tool calls are hidden by default
+- **WHEN** no explicit tool visibility preference has been saved, or browser storage cannot be read
+- **THEN** tool call bubbles are hidden in the conversation by default without affecting execution or trajectory inspection
+- **AND** an explicitly saved choice to show tool calls remains effective across remounts
+
 #### Scenario: Interaction settings require explicit action
 - **WHEN** the user opens personalization
 - **THEN** gesture control is displayed from its current state without starting a camera

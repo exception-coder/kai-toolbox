@@ -1,11 +1,11 @@
 import { useSyncExternalStore } from 'react'
 
-/** 「隐藏工具调用」开关：默认关（关=当前默认行为，工具调用气泡照常显示）。纯前端、localStorage 持久、跨气泡实时同步。 */
+/** 工具调用气泡默认隐藏；保留用户显式选择，纯前端持久化并跨视图同步。 */
 const KEY = 'kai-toolbox:claude-chat:hide-tool-calls'
 const listeners = new Set<() => void>()
 
 function read(): boolean {
-  try { return localStorage.getItem(KEY) === '1' } catch { return false }
+  try { return localStorage.getItem(KEY) !== '0' } catch { return true }
 }
 
 export function setHideToolCalls(on: boolean): void {
@@ -20,5 +20,5 @@ function subscribe(cb: () => void): () => void {
 
 /** 当前是否隐藏消息流中的工具调用气泡（MCP/命令/读写/子代理…）。 */
 export function useHideToolCalls(): boolean {
-  return useSyncExternalStore(subscribe, read, () => false)
+  return useSyncExternalStore(subscribe, read, () => true)
 }
