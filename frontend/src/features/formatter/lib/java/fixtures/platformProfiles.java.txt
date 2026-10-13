@@ -1,0 +1,32 @@
+/**
+ * 查询需要新增或重新激活的平台授权。
+ */
+default Map<String, Optional<SubAcctPlatformProfileDO>> selectAddedPlatformProfiles(
+        String subLoginDetailId, Set<String> targetPlatforms) {
+    checkArgument(!Strings.isNullOrEmpty(subLoginDetailId));
+    checkNotNull(targetPlatforms);
+    // 无目标平台时，无需查询或新增授权。
+    if (targetPlatforms.isEmpty()) {
+        return Collections.emptyMap();
+    }
+    // 先将目标平台全部视为新增，Optional.empty() 表示尚无历史授权。
+    Map<String, Optional<SubAcctPlatformProfileDO>> addedProfiles = new HashMap<>();
+    targetPlatforms.forEach(platformCode -> addedProfiles.put(platformCode, Optional.empty()));
+
+    // 一次查询目标平台的全部状态记录。
+    List<SubAcctPlatformProfileDO> profiles = selectList(new QueryWrapper<SubAcctPlatformProfileDO>().lambda()
+            .eq(SubAcctPlatformProfileDO::getSubLoginDetailId, subLoginDetailId)
+            .in(SubAcctPlatformProfileDO::getPlatformCode, targetPlatforms));
+    Set<String> closableStatuses = SubAcctPlatformStatus.getClosableStatusList().stream()
+            .map(Enum::name).collect(Collectors.toSet());
+    for (SubAcctPlatformProfileDO profile : profiles) {
+        if (closableStatuses.contains(profile.getStatus())) {
+            // ACTIVE/FROZEN 已有授权，无需新增或重新激活。
+            addedProfiles.remove(profile.getPlatformCode());
+        } else {
+            // 保留 INACTIVE 历史授权，供后续重新激活；未查到的平台仍为 Optional.empty()。
+            addedProfiles.put(profile.getPlatformCode(), Optional.of(profile));
+        }
+    }
+    return addedProfiles;
+}

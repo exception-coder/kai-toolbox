@@ -10,7 +10,7 @@ const manifest: FeatureManifest = {
   icon: Shapes,
   group: '内容',
   order: 30,
-  description: 'Markdown 转卡片、图片打码、加解密、二维码与格式化',
+  description: 'Markdown 转卡片、图片打码、加解密、二维码与 Java / 数据格式化',
   routes: [{ path: '/tools/content-tools', element: <ContentToolsPage /> }],
 }
 export default manifest

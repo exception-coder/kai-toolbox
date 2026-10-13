@@ -6,9 +6,10 @@ import { json } from '@codemirror/lang-json'
 import { xml } from '@codemirror/lang-xml'
 import { yaml } from '@codemirror/lang-yaml'
 import { sql } from '@codemirror/lang-sql'
+import { java } from '@codemirror/lang-java'
 import { useIsDarkTheme } from '@/lib/useIsDarkTheme'
 
-export type EditorLanguage = 'json' | 'xml' | 'yaml' | 'sql'
+export type EditorLanguage = 'json' | 'xml' | 'yaml' | 'sql' | 'java'
 
 export interface CodeEditorRef {
   getValue: () => string
@@ -33,6 +34,10 @@ interface CodeEditorProps {
   highlight?: boolean
   /** 200ms debounce 上报当前字节长度，供 UI 显示和阈值判断。 */
   onBytesChange?: (bytes: number) => void
+  /** 代码计算版本需要即时失效，不能等待字节统计的 debounce。 */
+  onChange?: (value: string) => void
+  ariaLabel?: string
+  lineWrapping?: boolean
 }
 
 /** 字号对齐项目其他 pre 块；字体走 monospace 栈。 */
@@ -51,6 +56,8 @@ function pickLangExt(lang: EditorLanguage): Extension {
       return yaml()
     case 'sql':
       return sql()
+    case 'java':
+      return java()
   }
 }
 
@@ -64,6 +71,9 @@ function CodeEditorImpl(
     language = 'json',
     highlight = true,
     onBytesChange,
+    onChange,
+    ariaLabel,
+    lineWrapping = true,
   }: CodeEditorProps,
   ref: Ref<CodeEditorRef>,
 ) {
@@ -72,12 +82,18 @@ function CodeEditorImpl(
   const debounceRef = useRef<number | null>(null)
   const onBytesChangeRef = useRef(onBytesChange)
   onBytesChangeRef.current = onBytesChange
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
 
   const extensions = useMemo<Extension[]>(() => {
-    const exts: Extension[] = [cmFontTheme, EditorView.lineWrapping]
+    const exts: Extension[] = [cmFontTheme]
+    if (lineWrapping) exts.push(EditorView.lineWrapping)
+    if (ariaLabel || readOnly) exts.push(EditorView.contentAttributes.of({
+      ...(ariaLabel ? { 'aria-label': ariaLabel } : {}), ...(readOnly ? { tabindex: '0' } : {}),
+    }))
     if (highlight) exts.push(pickLangExt(language))
     return exts
-  }, [highlight, language])
+  }, [highlight, language, lineWrapping, ariaLabel, readOnly])
 
   useImperativeHandle(
     ref,
@@ -115,6 +131,7 @@ function CodeEditorImpl(
   )
 
   const handleChange = useCallback((value: string) => {
+    onChangeRef.current?.(value)
     if (!onBytesChangeRef.current) return
     if (debounceRef.current != null) window.clearTimeout(debounceRef.current)
     debounceRef.current = window.setTimeout(() => {
@@ -131,6 +148,7 @@ function CodeEditorImpl(
   return (
     <CodeMirror
       ref={cmRef}
+      style={maxHeight === '100%' ? { height: '100%', minHeight: 0 } : undefined}
       // 仅在挂载时作为初始 doc；后续值由 ref.setValue 写入。
       // 上层 panel 不会改这个 prop（始终传相同字符串引用语义），不会触发 lib 内部 dispatch。
       value={defaultValue}
