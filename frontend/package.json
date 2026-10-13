@@ -22,8 +22,7 @@
     "assistant:release:test": "node --test scripts/publish-assistant-release.test.mjs",
     "assistant:release": "npm run assistant:release:test && npm run assistant:build && npm run assistant:loader:build && node scripts/publish-assistant-release.mjs",
     "assistant:release:canary": "npm run assistant:release:test && npm run assistant:build && npm run assistant:loader:build && node scripts/publish-assistant-release.mjs --channel=canary",
-    "java8gu:sync": "node scripts/build-java8gu-index.mjs",
-    "webppt-report:quant": "node scripts/generate-webppt-quant-data.mjs"
+    "java8gu:sync": "node scripts/build-java8gu-index.mjs"
   },
   "dependencies": {
     "@codemirror/lang-html": "^6.4.11",
@@ -74,7 +73,6 @@
     "react-router-dom": "^7.1.1",
     "react-virtuoso": "^4.18.11",
     "recharts": "^2.15.0",
-    "reveal.js": "^5.2.1",
     "shiki": "^4.1.0",
     "sql-formatter": "^15.8.0",
     "tailwind-merge": "^2.5.5",
@@ -92,7 +90,6 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
-    "@types/reveal.js": "^5.2.2",
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^26.1.0",
     "tailwindcss": "^4.0.0",
