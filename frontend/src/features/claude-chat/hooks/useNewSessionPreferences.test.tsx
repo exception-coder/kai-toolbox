@@ -28,7 +28,7 @@ describe('new session local preferences', () => {
     const hook = renderHook(({ owner }) => useNewSessionPreferences(owner, []), { initialProps: { owner: 11 } })
     const old = hook.result.current
     hook.rerender({ owner: 22 })
-    act(() => { old.setCwd('D:/late'); old.remember('D:/late') })
+    act(() => { old.setCwd('D:/late'); old.select({ engine: 'codex', cwd: 'D:/late' }); old.remember('D:/late') })
     expect(hook.result.current.choice.cwd).toBe('')
     expect(localStorage.getItem(newSessionPreferenceKey(22))).toBeNull()
     expect(loadNewSessionPreferences(11).value.cwd).toBe('D:/first/project')
@@ -60,7 +60,7 @@ describe('new session local preferences', () => {
     expect(loadNewSessionPreferences(11)).toMatchObject({ value: { engine: 'claude' }, warning: expect.any(String) })
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied') })
     const hook = renderHook(() => useNewSessionPreferences(11, []))
-    act(() => { hook.result.current.setEngine('codex'); hook.result.current.setCwd('D:/work'); hook.result.current.remember('D:/work') })
+    act(() => hook.result.current.select({ engine: 'codex', cwd: 'D:/work', workspaceRoot: 'D:/work' }))
     expect(hook.result.current.choice.cwd).toBe('D:/work')
     expect(hook.result.current.warning).toContain('未允许保存')
   })

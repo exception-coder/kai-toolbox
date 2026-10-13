@@ -43,7 +43,7 @@ import { useDraftAttachments, useDraftAttachmentUploads, type DraftAttachment } 
 import type { CommunicationReference } from '../api/communicationJournal'
 import { loadCodexHomePreference, saveCodexHomePreference } from '../lib/codexHomePref'
 import { useNewSessionPreferences } from '../hooks/useNewSessionPreferences'
-import { newSessionSelectionIssue, resolveNewSessionWorkspace } from '../lib/newSessionPreferences'
+import { newSessionSelectionIssue, resolveNewSessionWorkspace, type NewSessionPreferences } from '../lib/newSessionPreferences'
 import { buildCodexAuthHandoff } from '../lib/codexAuthHandoff'
 import { cn } from '@/lib/utils'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
@@ -890,6 +890,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   // 两级工作目录：先选工作区 root，再列该 root 下的一级目录（只显示名字）。
   const wsRoots = workspaces?.roots.filter(r => r.exists) ?? []
   const activeRoot = resolveNewSessionWorkspace(wsRoots, newSessionPreferences.choice.workspaceRoot)
+  const selectNewSessionPreference = (change: Partial<NewSessionPreferences>) => newSessionPreferences.select({
+    workspaceRoot: activeRoot?.root ?? newSessionPreferences.choice.workspaceRoot, ...change,
+  })
   const wsIdx = activeRoot ? wsRoots.indexOf(activeRoot) : -1
   const hiddenProjectPaths = useMemo(() => new Set(
     (projectWorkspacePreference?.ignoredProjects ?? loadLocalIgnoredProjectPaths())
@@ -1583,7 +1586,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           <div className="mb-4">
             <h2 className="text-sm font-semibold text-[var(--color-foreground)]">新建会话</h2>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">先确定工作目录，再按需命名和选择运行配置。</p>
-            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">开始会话后，本浏览器会记住工作区、目录、引擎和服务商选择。</p>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">本浏览器会自动记住你选择的工作区、目录、引擎和服务商，下次新建直接沿用。</p>
             {newSessionPreferences.warning && <p role="status" className="mt-2 text-xs text-[var(--color-muted-foreground)]">{newSessionPreferences.warning}</p>}
             {newSessionIssue && <p role="status" className="mt-2 text-xs text-[var(--color-muted-foreground)]">{newSessionIssue}</p>}
             {workspaces && newSessionPreferences.choice.workspaceRoot && !activeRoot && <p role="status" className="mt-2 text-xs text-[var(--color-muted-foreground)]">上次工作区未出现在当前目录列表，可重新选择工作区或手动指定目录。</p>}
@@ -1600,7 +1603,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     key={r.root}
                     type="button"
                     title={r.root}
-                    onClick={() => { newSessionPreferences.setWorkspaceRoot(r.root); setProjectSearch('') }}
+                    onClick={() => { selectNewSessionPreference({ workspaceRoot: r.root }); setProjectSearch('') }}
                     aria-pressed={i === wsIdx}
                     className={`rounded-full border px-2.5 py-1 text-xs ${i === wsIdx
                       ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
@@ -1622,7 +1625,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               onChange={value => {
                 const selected = selectableProjects.find(project => project.path === value)
                 setProjectSearch(selected ? getSystemWorkspaceDisplayName(selected) : value)
-                if (selected) setNewCwd(selected.path)
+                if (selected) selectNewSessionPreference({ cwd: selected.path })
               }}
               options={selectableProjects.map(project => {
                 const displayName = getSystemWorkspaceDisplayName(project)
@@ -1646,7 +1649,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 className="h-10 w-full min-w-0 rounded-md border bg-[var(--color-background)] px-3 text-sm focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]"
                 placeholder="例如 D:/Users/zhang/myWork/kai-toolbox"
                 value={newCwd}
-                onChange={e => setNewCwd(e.target.value)}
+                onChange={e => selectNewSessionPreference({ cwd: e.target.value })}
               />
             </div>
             <div className="min-w-0">
@@ -1674,7 +1677,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               <button
                 key={eng}
                 type="button"
-                onClick={() => setNewEngine(eng)}
+                onClick={() => selectNewSessionPreference({ engine: eng })}
                 aria-pressed={newEngine === eng}
                 className={`rounded-full border px-3 py-1 text-xs ${newEngine === eng
                   ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
@@ -1771,7 +1774,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 <span className="text-xs text-[var(--color-muted-foreground)]">服务商</span>
                 <button
                   type="button"
-                  onClick={() => { setNewProviderId(''); setNewModel('') }}
+                  onClick={() => { selectNewSessionPreference({ providerId: '' }); setNewModel('') }}
                   aria-pressed={newProviderId === ''}
                   className={`rounded-full border px-3 py-1 text-xs ${newProviderId === ''
                     ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
@@ -1783,7 +1786,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   <button
                     key={p.id}
                     type="button"
-                    onClick={() => { setNewProviderId(p.id); setNewModel(p.model || '') }}
+                    onClick={() => { selectNewSessionPreference({ providerId: p.id }); setNewModel(p.model || '') }}
                     aria-pressed={newProviderId === p.id}
                     className={`rounded-full border px-3 py-1 text-xs ${newProviderId === p.id
                       ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'

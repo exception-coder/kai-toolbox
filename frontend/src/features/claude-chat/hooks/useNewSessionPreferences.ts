@@ -6,13 +6,14 @@ import { supportsSessionProvider } from '../lib/engineCatalog'
 
 interface Draft extends NewSessionPreferences { model: string; modelEdited: boolean }
 
-/** 新建表单的本地默认值；仅“开始会话”写入，不保存取消的表单或服务商凭据。 */
+/** 手动新建选择即时记忆；程序填充和服务商凭据不进入新存储。 */
 export function useNewSessionPreferences(userId: number | undefined, profiles: ProviderProfile[]) {
   const loaded = useMemo(() => loadNewSessionPreferences(userId), [userId])
   const seed = useMemo(() => ({ userId, value: { ...loaded.value, model: '', modelEdited: false } as Draft,
     warning: loaded.warning }), [loaded, userId])
   const [state, setState] = useState(seed)
   const owner = useRef(userId)
+  const pendingSelection = useRef<{ userId: number | undefined } | null>(null)
   owner.current = userId
   const current = state.userId === userId ? state : seed
   useEffect(() => { setState(previous => previous.userId === userId ? previous : seed) }, [seed, userId])
@@ -25,6 +26,14 @@ export function useNewSessionPreferences(userId: number | undefined, profiles: P
       return { ...previous, value: { ...previous.value, model: profile.model || '' } }
     })
   }, [profiles, current.value.providerId, userId])
+  useEffect(() => {
+    const pending = pendingSelection.current
+    if (!pending) return
+    pendingSelection.current = null
+    if (pending.userId !== userId || state.userId !== userId) return
+    const warning = saveNewSessionPreferences(userId, state.value)
+    if (warning !== state.warning) setState(previous => previous.userId === userId ? { ...previous, warning } : previous)
+  }, [state, userId])
   const update = (change: Partial<Draft>) => setState(previous => {
     if (owner.current !== userId) return previous
     const base = previous.userId === userId ? previous : seed
@@ -40,6 +49,16 @@ export function useNewSessionPreferences(userId: number | undefined, profiles: P
     }),
     setProviderId: (providerId: string) => update({ providerId, model: '', modelEdited: false }),
     setModel: (model: string) => update({ model, modelEdited: true }),
+    select: (change: Partial<NewSessionPreferences>) => {
+      if (owner.current !== userId) return
+      const draft: Partial<Draft> = { ...change }
+      if (change.providerId !== undefined) Object.assign(draft, { model: '', modelEdited: false })
+      if (change.engine && !supportsSessionProvider(change.engine)) {
+        Object.assign(draft, { providerId: '', model: '', modelEdited: false })
+      }
+      pendingSelection.current = { userId }
+      update(draft)
+    },
     remember: (workspaceRoot: string) => {
       if (owner.current !== userId) return
       const warning = saveNewSessionPreferences(userId, { ...current.value, workspaceRoot })

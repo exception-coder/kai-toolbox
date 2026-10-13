@@ -33,7 +33,7 @@ export function loadNewSessionPreferences(userId?: number): { value: NewSessionP
   }
 }
 
-/** 用户确认开始后仅保存目录、引擎和档案 ID；存储失败不阻断会话。 */
+/** 仅保存目录、引擎和档案 ID；存储失败不阻断选择或会话。 */
 export function saveNewSessionPreferences(userId: number | undefined, value: NewSessionPreferences): string | undefined {
   try {
     if (!isKnownEngine(value.engine) || value.workspaceRoot.length > 2048 || value.cwd.length > 2048

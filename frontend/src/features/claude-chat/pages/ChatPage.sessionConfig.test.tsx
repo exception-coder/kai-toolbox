@@ -80,6 +80,29 @@ async function openNewSessionForm() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('keeps manual new-session choices after leaving without starting a session', async () => {
+    testRuntime.profiles = [{ id: 'gateway', name: '测试服务商', model: 'current-model', hasKey: true, baseUrl: 'https://gateway.invalid' }]
+    testRuntime.roots = [{ root: 'D:/first', exists: true, dirs: [] }, { root: 'D:/second', exists: true, dirs: [] }]
+    const first = mountChat()
+    await openNewSessionForm()
+    fireEvent.click(await screen.findByRole('button', { name: 'second' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
+    fireEvent.click(await screen.findByRole('button', { name: '测试服务商' }))
+    fireEvent.change(screen.getByLabelText('目录路径'), { target: { value: 'D:/second/project' } })
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+    expect(JSON.parse(localStorage.getItem(newSessionPreferenceKey())!)).toEqual({
+      version: 1, workspaceRoot: 'D:/second', cwd: 'D:/second/project', engine: 'codex', providerId: 'gateway',
+    })
+    first.unmount()
+    testRuntime.roots.reverse()
+    mountChat()
+    await openNewSessionForm()
+    expect(await screen.findByRole('button', { name: 'second', pressed: true })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Codex', pressed: true })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '测试服务商', pressed: true })).toBeInTheDocument()
+    expect(screen.getByLabelText('目录路径')).toHaveValue('D:/second/project')
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+  })
   it('用户菜单的导览意图在跳过首次提示后仍可打开，会话工具不再重复提供入口', async () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
     localStorage.setItem('kai-toolbox:vibe-guide:v1:seen', 'true')
@@ -146,6 +169,6 @@ describe('ChatPage session configuration', () => {
     expect(testRuntime.chat.open).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '官方默认' }))
     expect(screen.getByRole('button', { name: '开始会话' })).toBeEnabled()
-    expect(JSON.parse(localStorage.getItem(newSessionPreferenceKey())!).providerId).toBe('removed')
+    expect(JSON.parse(localStorage.getItem(newSessionPreferenceKey())!).providerId).toBe('')
   })
 })
