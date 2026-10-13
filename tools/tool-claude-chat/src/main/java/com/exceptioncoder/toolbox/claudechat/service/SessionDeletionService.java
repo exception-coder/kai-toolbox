@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.communication.SessionCommunicationRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -11,15 +12,18 @@ public class SessionDeletionService {
     private final SessionSiteService sessionSiteService;
     private final SessionProjectDirectoryService projectDirectoryService;
     private final ClaudeChatSessionRepository sessionRepository;
+    private final SessionCommunicationRepository communications;
 
     public SessionDeletionService(ClaudeChatService chatService,
                                   SessionSiteService sessionSiteService,
                                   SessionProjectDirectoryService projectDirectoryService,
-                                  ClaudeChatSessionRepository sessionRepository) {
+                                  ClaudeChatSessionRepository sessionRepository,
+                                  SessionCommunicationRepository communications) {
         this.chatService = chatService;
         this.sessionSiteService = sessionSiteService;
         this.projectDirectoryService = projectDirectoryService;
         this.sessionRepository = sessionRepository;
+        this.communications = communications;
     }
 
     @Transactional
@@ -27,6 +31,7 @@ public class SessionDeletionService {
         chatService.dropSession(sessionId);
         sessionSiteService.clear(sessionId);
         projectDirectoryService.clear(sessionId);
+        communications.deleteBySession(sessionId);
         sessionRepository.deleteById(sessionId);
     }
 }

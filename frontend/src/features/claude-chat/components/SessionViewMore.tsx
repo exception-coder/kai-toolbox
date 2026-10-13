@@ -3,7 +3,7 @@ import { Check, ChevronDown, MoreHorizontal, type LucideIcon } from 'lucide-reac
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 
-export type SecondarySessionView = 'trajectory' | 'documents' | 'sites' | 'usage' | 'review'
+export type SecondarySessionView = 'trajectory' | 'documents' | 'sites' | 'usage' | 'review' | 'communications'
 
 export interface SecondarySessionViewOption {
   id: SecondarySessionView

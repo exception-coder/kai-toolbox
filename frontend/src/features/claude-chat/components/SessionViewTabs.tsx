@@ -1,9 +1,9 @@
-import { FileText, Gauge, LayoutGrid, ListChecks, MessageSquare, Route, Share2 } from 'lucide-react'
+import { FileText, Gauge, LayoutGrid, ListChecks, MessageSquare, NotebookPen, Route, Share2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SessionViewMore, type SecondarySessionViewOption } from './SessionViewMore'
 
 export type SessionView = 'conversation' | 'trajectory' | 'autopilot' | 'autopilot_detail'
-  | 'documents' | 'sites' | 'usage' | 'review' | 'supervision' | 'board'
+  | 'documents' | 'sites' | 'usage' | 'review' | 'supervision' | 'board' | 'communications'
 
 interface Props {
   view: SessionView
@@ -27,6 +27,7 @@ export function SessionViewTabs({ view, onSelect, hasSession, documentTitle, sit
     ...(hasReview ? [{ id: 'review' as const, label: reviewLabel, icon: Share2, desktop: true }] : []),
   ]
   const secondary: SecondarySessionViewOption[] = [
+    { id: 'communications', label: '沟通流水', icon: NotebookPen },
     { id: 'trajectory', label: '轨迹', icon: Route },
     { id: 'sites', label: siteCount ? '站点 ' + siteCount : '站点', icon: LayoutGrid },
     ...(documentTitle != null ? [{ id: 'documents' as const, label: '文档', icon: FileText, mobileOnly: true }] : []),

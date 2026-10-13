@@ -134,7 +134,29 @@ public class AttachmentStorageService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ATTACHMENT_NOT_FOUND"));
         String cwd = repo.findById(sessionId).map(session -> session.getCwd())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND"));
-        Path root = Path.of(cwd, ATTACH_DIR, sessionId).toAbsolutePath().normalize();
+        return resolveArchived(attachment, cwd);
+    }
+
+    /** 同批引用图片共用一次身份检索及工作目录读取。 */
+    public List<ArchivedAttachment> loadArchivedBatch(String sessionId, List<String> attachmentIds) {
+        if (attachmentIds.isEmpty()) return List.of();
+        List<ClaudeChatAttachment> found = archivedMetadataBatch(sessionId, attachmentIds);
+        if (found.size() != attachmentIds.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "图片不属于当前会话，或已不存在");
+        }
+        String cwd = repo.findById(sessionId).map(session -> session.getCwd())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "SESSION_NOT_FOUND"));
+        var byId = found.stream().collect(java.util.stream.Collectors.toMap(ClaudeChatAttachment::id, value -> value));
+        return attachmentIds.stream().map(id -> resolveArchived(byId.get(id), cwd)).toList();
+    }
+
+    /** 元数据可用于显示缺失文件的恢复提示，实际内容读取另行校验。 */
+    public List<ClaudeChatAttachment> archivedMetadataBatch(String sessionId, List<String> attachmentIds) {
+        return attachmentRepository.findMany(sessionId, attachmentIds);
+    }
+
+    private ArchivedAttachment resolveArchived(ClaudeChatAttachment attachment, String cwd) {
+        Path root = Path.of(cwd, ATTACH_DIR, attachment.sessionId()).toAbsolutePath().normalize();
         Path file = root.resolve(attachment.storagePath()).toAbsolutePath().normalize();
         if (!file.startsWith(root) || !Files.isRegularFile(file) || !Files.isReadable(file)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "ATTACHMENT_FILE_MISSING");

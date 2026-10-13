@@ -38,6 +38,21 @@ public class ClaudeChatAttachmentRepository {
                 rs.getLong("created_at")), sessionId, attachmentId).stream().findFirst();
     }
 
+    /** 批量校验当前会话的附件身份，避免资料阅读和引用逐条访问数据库。 */
+    public List<ClaudeChatAttachment> findMany(String sessionId, List<String> attachmentIds) {
+        if (attachmentIds.isEmpty()) return List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(attachmentIds.size(), "?"));
+        Object[] args = new Object[attachmentIds.size() + 1];
+        args[0] = sessionId;
+        for (int i = 0; i < attachmentIds.size(); i++) args[i + 1] = attachmentIds.get(i);
+        return jdbc.query("""
+                SELECT id, session_id, name, mime, size_bytes, storage_path, created_at
+                FROM claude_chat_attachment WHERE session_id = ? AND id IN (%s)
+                """.formatted(placeholders), (rs, row) -> new ClaudeChatAttachment(
+                rs.getString("id"), rs.getString("session_id"), rs.getString("name"), rs.getString("mime"),
+                rs.getLong("size_bytes"), rs.getString("storage_path"), rs.getLong("created_at")), args);
+    }
+
     public void bindTurn(String sessionId, String turnId, List<String> attachmentIds) {
         if (attachmentIds == null || attachmentIds.isEmpty()) return;
         long now = System.currentTimeMillis();

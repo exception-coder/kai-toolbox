@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.communication.SessionCommunicationRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
@@ -15,14 +16,16 @@ class SessionDeletionServiceTest {
         SessionSiteService sites = mock(SessionSiteService.class);
         SessionProjectDirectoryService directories = mock(SessionProjectDirectoryService.class);
         ClaudeChatSessionRepository sessions = mock(ClaudeChatSessionRepository.class);
-        SessionDeletionService service = new SessionDeletionService(chat, sites, directories, sessions);
+        SessionCommunicationRepository communications = mock(SessionCommunicationRepository.class);
+        SessionDeletionService service = new SessionDeletionService(chat, sites, directories, sessions, communications);
 
         service.delete("review-session-1");
 
-        InOrder ordered = inOrder(chat, sites, directories, sessions);
+        InOrder ordered = inOrder(chat, sites, directories, communications, sessions);
         ordered.verify(chat).dropSession("review-session-1");
         ordered.verify(sites).clear("review-session-1");
         ordered.verify(directories).clear("review-session-1");
+        ordered.verify(communications).deleteBySession("review-session-1");
         ordered.verify(sessions).deleteById("review-session-1");
     }
 }

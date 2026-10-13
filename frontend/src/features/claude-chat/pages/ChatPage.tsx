@@ -1,6 +1,7 @@
 import '../focus-mode.css'
 import { FocusReadingHeader } from '../components/FocusReadingHeader'
 import { useChatFocusMode } from '../hooks/useChatFocusMode'
+import { useSessionViewRoute } from '../hooks/useSessionViewRoute'
 import { WorkspacePreferences } from '../components/WorkspacePreferences'
 import { VibeCodingGuide } from '../components/guide/VibeCodingGuide'
 import type { GuideTarget } from '../components/guide/guideContent'
@@ -38,6 +39,7 @@ import { PendingSessionsBanner } from '../components/PendingSessionsBanner'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
 import { useDraftAttachments, useDraftAttachmentUploads, type DraftAttachment } from '../lib/attachmentDraftPref'
+import type { CommunicationReference } from '../api/communicationJournal'
 import { loadCodexHomePreference, saveCodexHomePreference } from '../lib/codexHomePref'
 import { useNewSessionPreferences } from '../hooks/useNewSessionPreferences'
 import { newSessionSelectionIssue, resolveNewSessionWorkspace } from '../lib/newSessionPreferences'
@@ -115,6 +117,7 @@ const UsagePanel = lazy(() => import('../components/UsagePanel').then(m => ({ de
 const SessionCommitsPanel = lazy(() => import('../components/SessionCommitsPanel').then(m => ({ default: m.SessionCommitsPanel })))
 const GitStatusPanel = lazy(() => import('@/components/git/GitStatusPanel').then(m => ({ default: m.GitStatusPanel })))
 const SessionDocumentsWorkspace = lazy(() => import('../components/SessionDocumentsWorkspace').then(m => ({ default: m.SessionDocumentsWorkspace })))
+const SessionCommunicationWorkspace = lazy(() => import('../components/communications/SessionCommunicationWorkspace'))
 const AutopilotDashboard = lazy(() => import('../components/AutopilotDashboard').then(m => ({ default: m.AutopilotDashboard })))
 const AutopilotProgressWorkspace = lazy(() => import('../components/AutopilotProgressWorkspace').then(m => ({ default: m.AutopilotProgressWorkspace })))
 
@@ -403,7 +406,8 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [showMsgNav, setShowMsgNav] = useState(false)
   const [inspectedAutopilot, setInspectedAutopilot] = useState<{ sessionId: string; changeId?: string } | null>(null)
   const [sessionView, setSessionView] = useState<SessionView>(() =>
-    new URLSearchParams(location.search).get('view') === 'supervision' ? 'supervision' : 'conversation')
+    new URLSearchParams(location.search).get('view') === 'supervision' ? 'supervision'
+      : new URLSearchParams(location.search).get('view') === 'communications' ? 'communications' : 'conversation')
   const openSupervision = useCallback(() => { setSessionView('autopilot') }, [])
   const leaveSupervision = useCallback(() => {
     setSessionView('conversation')
@@ -411,16 +415,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     params.delete('view')
     navigate({ pathname: location.pathname, search: params.toString() }, { replace: true })
   }, [location.pathname, location.search, navigate])
-  useEffect(() => {
-    if (new URLSearchParams(location.search).get('view') === 'supervision') setSessionView('supervision')
-  }, [location.search])
-  useEffect(() => {
-    if (sessionView === 'supervision') return
-    const params = new URLSearchParams(location.search)
-    if (params.get('view') !== 'supervision') return
-    params.delete('view')
-    navigate({ pathname: location.pathname, search: params.toString() }, { replace: true })
-  }, [location.pathname, location.search, navigate, sessionView])
+  useSessionViewRoute({ pathname: location.pathname, search: location.search, view: sessionView, setView: setSessionView, navigate })
   useEffect(() => {
     setSessionView(current => {
       if (current === 'documents' && !linkedPrd) return 'conversation'
@@ -931,6 +926,46 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     refetchInterval: 10_000,
   })
   const planLocked = currentSession?.planExpired === true
+  const communicationUser = codexSyncAuth.user?.userId ?? 'local'
+  const communicationContext = useRef({ sessionId: chat?.sessionId, planLocked, user: communicationUser })
+  communicationContext.current = { sessionId: chat?.sessionId, planLocked, user: communicationUser }
+  const handleCommunicationReference = useCallback(async (sid: string, material: CommunicationReference) => {
+    const contextMatches = () => communicationContext.current.sessionId === sid && !communicationContext.current.planLocked
+      && communicationContext.current.user === communicationUser
+    if (!contextMatches() || material.records.some(record => record.sessionId !== sid)) throw new Error('会话已切换或锁定，请在原会话重新引用。')
+    const existing = new Set(attachments.map(image => image.id))
+    const wanted = material.attachments.filter(image => !existing.has(image.id))
+    if (attachments.length + uploading + wanted.length > MAX_ATTACHMENTS) throw new Error('当前草稿的附件名额不足，请移除部分附件或分批引用。')
+    if (attachments.filter(image => image.mime.startsWith('image/')).reduce((sum, image) => sum + image.size, 0)
+      + wanted.reduce((sum, image) => sum + image.size, 0) > 25 * 1024 * 1024) throw new Error('当前草稿的图片合计超过 25 MiB，请分批引用。')
+    setUploading(count => count + wanted.length)
+    let added: DraftAttachment[] = []
+    try {
+      const { loadCommunicationImage, communicationReferenceText } = await import('../api/communicationJournal')
+      const blobs = await Promise.all(wanted.map(image => loadCommunicationImage(sid, image.recordId, image.id, AbortSignal.timeout(30000))))
+      if (!contextMatches()) throw new Error('会话已切换或锁定，引用未写入草稿。请回原会话重试。')
+      added = wanted.map((image, index) => ({ ...image, previewUrl: URL.createObjectURL(blobs[index]) }))
+      let acceptedIds = new Set<string>()
+      setAttachments(current => {
+        const currentIds = new Set(current.map(image => image.id))
+        const fresh = added.filter(image => !currentIds.has(image.id))
+        if (current.length + fresh.length > MAX_ATTACHMENTS) throw new Error('草稿附件已变化，请核对名额后重试。')
+        if (current.filter(image => image.mime.startsWith('image/')).reduce((sum, image) => sum + image.size, 0)
+          + fresh.reduce((sum, image) => sum + image.size, 0) > 25 * 1024 * 1024) throw new Error('草稿图片已变化，请核对大小后重试。')
+        acceptedIds = new Set(fresh.map(image => image.id))
+        return [...current, ...fresh]
+      })
+      added.forEach(image => { if (!acceptedIds.has(image.id) && image.previewUrl) URL.revokeObjectURL(image.previewUrl) })
+      added = []
+      const text = communicationReferenceText(material)
+      setDraft(current => current.trim() ? `${current}\n\n${text}` : text)
+      setSessionView('conversation')
+      requestAnimationFrame(() => taRef.current?.focus())
+    } finally {
+      added.forEach(image => { if (image.previewUrl) URL.revokeObjectURL(image.previewUrl) })
+      setUploading(count => count - wanted.length)
+    }
+  }, [attachments, uploading, setAttachments, setDraft, setUploading, communicationUser])
   const currentTitle = currentSession
     ? (currentSession.title?.trim() || headerCwdName(currentSession.cwd))
     : undefined
@@ -2198,6 +2233,11 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     loadingEarlier={chat.historyLoading}
                     exhausted={chat.historyExhausted}
                   />
+                ) : sessionView === 'communications' ? (
+                  <SessionCommunicationWorkspace sessionId={chat.sessionId} sessionTitle={currentSession?.title || '当前会话'}
+                    readOnly={planLocked} onReference={handleCommunicationReference}
+                    initialRecordId={new URLSearchParams(location.search).get('sessionId') === chat.sessionId
+                      ? new URLSearchParams(location.search).get('recordId') ?? undefined : undefined} />
                 ) : sessionView === 'documents' && linkedPrd ? (
                   <SessionDocumentsWorkspace
                     key={`documents-${chat.sessionId}-${linkedPrd.id}`}
