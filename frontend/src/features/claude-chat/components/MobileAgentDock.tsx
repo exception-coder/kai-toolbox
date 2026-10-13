@@ -12,14 +12,16 @@ interface Props {
   voiceDisabled: boolean
   onStartVoice: () => void
   storage?: ReactNode
+  diagnostics?: ReactNode
 }
 
-/** 会话控制的移动端呈现层；不持有第二份执行、队列或监督状态。 */
-export function MobileAgentDock({ status, queue, voiceEnabled, voiceDisabled, onStartVoice, storage }: Props) {
+/** 主工作区共用的执行摘要与详情；不持有第二份执行、队列或监督状态。 */
+export function MobileAgentDock({ status, queue, voiceEnabled, voiceDisabled, onStartVoice, storage, diagnostics }: Props) {
   const voiceUnavailable = voiceEnabled ? voiceAvailability() : null
   return <MobileSessionStatus {...status} queueCount={queue.items.length} queuePausedReason={queue.pausedReason}>
     {(close, executing) => <>
     <MobileExecutionDetails items={status.items} running={executing} turnTokens={status.running ? status.turnTokens : 0} />
+    {diagnostics && <section aria-label="状态与诊断" className="border-t pt-3"><h3 className="mb-2 font-medium">状态与诊断</h3>{diagnostics}</section>}
     <section aria-label="待发送队列">
       <h3 className="font-medium">待发送队列</h3>
       {queue.items.length === 0

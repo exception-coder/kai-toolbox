@@ -11,13 +11,16 @@ interface Props {
   disabled?: boolean
   busy?: boolean
   mobileDisclosure?: boolean
+  hideIdle?: boolean
+  onReturnFocus?: () => void
   controlRef?: Ref<{ start: () => void }>
 }
 
-export function NativeVoiceControl({ sessionId, transport, connected, disabled, busy, mobileDisclosure, controlRef }: Props) {
+export function NativeVoiceControl({ sessionId, transport, connected, disabled, busy, mobileDisclosure, hideIdle, onReturnFocus, controlRef }: Props) {
   const voice = useVoiceRecovery(sessionId, transport, { connected, busy, disabled })
   const trigger = useRef<HTMLButtonElement>(null)
   const active = voice.state === 'connecting' || voice.state === 'connected'
+  const inactive = !active && !voice.recoverable && !voice.error && !voice.notice
   useImperativeHandle(controlRef, () => ({ start: () => {
     if (!active && !disabled && connected && sessionId && !voiceAvailability()) voice.start()
   } }))
@@ -28,13 +31,14 @@ export function NativeVoiceControl({ sessionId, transport, connected, disabled, 
     if (wasEngaged.current && !engaged) restoreFocus.current = true
     wasEngaged.current = engaged
     if (restoreFocus.current && !active && !disabled && connected) {
-      trigger.current?.focus()
+      if (hideIdle && inactive) onReturnFocus?.()
+      else trigger.current?.focus()
       restoreFocus.current = false
     }
-  }, [active, disabled, connected])
+  }, [active, disabled, connected, hideIdle, inactive, onReturnFocus])
   const unavailable = voiceAvailability()
   return (
-    <div className={`${mobileDisclosure && !active && !voice.recoverable && !voice.error && !voice.notice ? 'hidden md:block ' : ''}min-w-0 border-t px-3 py-2`} aria-label="原生语音对话">
+    <div className={`${inactive ? hideIdle ? 'hidden ' : mobileDisclosure ? 'hidden md:block ' : '' : ''}min-w-0 border-t px-3 py-2`} aria-label="原生语音对话">
       <div className="flex flex-wrap items-center gap-2">
         <Button ref={trigger} type="button" variant="ghost" size="sm"
           disabled={disabled || !connected || !sessionId || Boolean(unavailable)}

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { ChevronDown, SlidersHorizontal } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -35,9 +35,7 @@ export function SessionConfigSheet({
           aria-label={`会话配置，当前 ${summary}`}
           title={`会话配置 · ${summary}`}
         >
-          <SlidersHorizontal className="hidden size-3.5 shrink-0 text-[var(--color-primary)] md:block" />
-          <span className="min-w-0 flex-1 truncate md:hidden">{visibleSummary}</span>
-          <span className="hidden min-w-0 flex-1 truncate md:inline">会话配置 · {visibleSummary}</span>
+          <span className="min-w-0 flex-1 truncate">{visibleSummary}</span>
           <ChevronDown className="size-3.5 shrink-0 opacity-60" />
         </button>
       </SheetTrigger>

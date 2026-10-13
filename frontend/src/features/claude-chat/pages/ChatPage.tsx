@@ -35,7 +35,6 @@ import { MobileRunningSend } from '../components/MobileRunningSend'
 import { chatControlMode } from '../lib/controlMode'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { ComposerTextarea } from '../components/ComposerTextarea'
-import { QueuedList } from '../components/QueuedList'
 import { PendingSessionsBanner } from '../components/PendingSessionsBanner'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
@@ -64,7 +63,7 @@ import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
 import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
-import { canSteerRunningMessage, RunningMessageActions } from '../components/RunningMessageActions'
+import { canSteerRunningMessage } from '../components/RunningMessageActions'
 import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import type { ChatItem, ModelInfo } from '../types'
@@ -100,12 +99,12 @@ import {
   type SessionLinkedSite,
 } from '../lib/sessionSites'
 import { isVibeCodingSession } from '../lib/sessionScope'
-import { SessionWorkStatus } from '../components/SessionWorkStatus'
 import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
 import { CurrentSessionStorage } from '../components/CurrentSessionStorage'
 import { selectableEngineIds, supportsSessionProvider } from '../lib/engineCatalog'
 import { MobileAgentDock } from '../components/MobileAgentDock'
+import '../styles/workspace-composer.css'
 import { useMobileViewport } from '../hooks/useMobileViewport'
 import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
 import { SessionToolsMenu } from '../components/SessionToolsMenu'
@@ -2308,35 +2307,12 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               </Suspense>
             </main>
 
-            {/* 第三方网关调用诊断（可展开）：核对实际命中的模型，仅第三方会话显示 */}
-            {chat.sessionId && sessionView === 'conversation' && chat.currentProviderKind === 'thirdParty' && (
-              <div data-focus-chrome className="hidden md:block">
-                <ProviderDiagPanel
-                  providerKind={chat.currentProviderKind}
-                  providerBaseUrl={chat.currentProviderBaseUrl}
-                  currentModel={chat.currentModel}
-                  diag={chat.providerDiag}
-                />
-              </div>
-            )}
-
-            {/* 底部输入：移动端单一 Composer Card；桌面保留完整工具区 */}
+            {/* 底部只常驻执行摘要与输入；详情及诊断按需打开。 */}
             {chat.sessionId && sessionView !== 'supervision' && sessionView !== 'board' && (
-              <div className="cc-focus-composer cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] pb-[env(safe-area-inset-bottom)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)] md:pb-0">
-          <div data-focus-chrome className="hidden md:block">
-            <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
-            <SessionWorkStatus
-              items={chat.items}
-              running={chat.running}
-              engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
-              turnTokens={chat.turnTokens}
-              connState={chat.state}
-              backgroundTasks={chat.backgroundTasks}
-            />
-          </div>
+              <div className="cc-focus-composer cc-desktop-composer cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)] md:pb-0">
           <div data-focus-chrome><MobileAgentDock
             key={chat.sessionId}
-            status={{ sessionId: chat.sessionId, items: chat.items, running: chat.running,
+            status={{ workspace: true, sessionId: chat.sessionId, items: chat.items, running: chat.running,
               engineLabel: engineDisplayName(chat.currentEngine, chat.currentProviderKind),
               turnTokens: chat.turnTokens, connState: chat.state, backgroundTasks: chat.backgroundTasks,
               usage: sessionUsage, usageLoading: sessionUsage == null && Boolean(usageSid),
@@ -2350,20 +2326,22 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             voiceEnabled={chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession}
             voiceDisabled={planLocked || chat.state !== 'ready'} onStartVoice={() => nativeVoiceControlRef.current?.start()}
             storage={<CurrentSessionStorage session={currentSession} />}
+            diagnostics={<Suspense fallback={<p role="status" className="text-xs">正在加载诊断…</p>}>
+              <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
+              <SessionSummaryBar usage={sessionUsage} loading={sessionUsage == null && Boolean(usageSid)} running={usageRunning} onOpenDetails={() => setShowUsage(true)} />
+              {chat.currentProviderKind === 'thirdParty' && <ProviderDiagPanel providerKind={chat.currentProviderKind}
+                providerBaseUrl={chat.currentProviderBaseUrl} currentModel={chat.currentModel} diag={chat.providerDiag} compact />}
+              {chat.currentEngine === 'deepseekHarness' && <p className="px-3 py-2 text-xs text-[var(--color-muted-foreground)]"
+                title={currentEngineCatalogEntry?.probe.detail ?? 'DeepSeek Harness Runtime 握手已通过'}>
+                实验 · SDK JSON-RPC{currentEngineCatalogEntry?.probe.runtimeVersion ? ` · ${currentEngineCatalogEntry.probe.runtimeVersion}` : ''}
+              </p>}
+            </Suspense>}
           /></div>
           {chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession && (
             <div data-focus-chrome><NativeVoiceControl sessionId={chat.sessionId} transport={chat.voiceTransport}
-              connected={chat.state === 'ready'} disabled={planLocked} busy={chat.running} mobileDisclosure controlRef={nativeVoiceControlRef} /></div>
+              connected={chat.state === 'ready'} disabled={planLocked} busy={chat.running} mobileDisclosure hideIdle
+              onReturnFocus={() => taRef.current?.focus()} controlRef={nativeVoiceControlRef} /></div>
           )}
-          <div data-focus-chrome className="hidden md:block"><QueuedList
-            items={chat.queued}
-            pausedReason={chat.queuePausedReason
-              ?? (chat.backgroundTasks.length > 0 ? '后台作业尚未结束，待发送消息继续等待。' : null)}
-            canSendNow={!chat.running && !chat.pending && chat.backgroundTasks.length === 0}
-            onSendNow={chat.sendQueuedNow}
-            onRemove={chat.removeQueued}
-            onClear={chat.clearQueued}
-          /></div>
           <AttachmentChips
             items={attachments}
             uploading={uploading}
@@ -2375,17 +2353,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               return prev.filter(a => a.id !== id)
             })}
           />
-          {chat.currentEngine === 'deepseekHarness' && (
-            <div className="hidden items-center px-3 pt-2 md:flex">
-              <span
-                className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-xs text-blue-700 dark:text-blue-300"
-                title={currentEngineCatalogEntry?.probe.detail ?? 'DeepSeek Harness Runtime 握手已通过'}
-              >
-                <EngineIcon engine="deepseekHarness" className="size-3.5" />
-                实验 · SDK JSON-RPC{currentEngineCatalogEntry?.probe.runtimeVersion ? ` · ${currentEngineCatalogEntry.probe.runtimeVersion}` : ''}
-              </span>
-            </div>
-          )}
           {showSlash && (
             <SlashCommandMenu commands={slashFiltered} activeIndex={slashActive} onPick={pickSlash} />
           )}
@@ -2401,7 +2368,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             onPick={reference => { void projectMention.pickReference(reference) }}
           />
           <SessionPlanLockNotice session={currentSession} />
-          {!mobileLayout && <div className="hidden md:block"><CurrentSessionStorage session={currentSession} /></div>}
           <div className="mobile-composer-card mx-2 my-1 grid min-h-[4.5rem] min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] grid-rows-[auto_2.5rem] items-center gap-x-1 gap-y-0.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-0.5 focus-within:border-[var(--color-ring)] focus-within:ring-1 focus-within:ring-[var(--color-ring)] md:mx-3 md:my-2 md:min-h-[5rem] md:grid-rows-[auto_2rem] md:gap-x-2 md:px-3 md:py-2">
             <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1">
             {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}
@@ -2654,24 +2620,27 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 if (e.key === 'Enter' && !e.shiftKey) {
                   if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return
                   e.preventDefault()
-                  submit() // 运行中默认加入队列
+                  if ((e.ctrlKey || e.metaKey) && chat.running) {
+                    if (canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)) submit('steer')
+                  } else submit() // 运行中默认加入队列
                 }
               }}
             />
             {chat.running ? (
               <div className="col-start-3 row-start-2 flex shrink-0 gap-1">
-                <Button variant="outline" size="lg" className="max-md:size-10 max-md:px-0" onClick={chat.interrupt} disabled={chat.interrupting}
+                <Button variant="outline" size="icon" className="size-9 max-md:size-10 px-0" onClick={chat.interrupt} disabled={chat.interrupting}
                   aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'}>
                   {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
                 </Button>
                 <MobileRunningSend canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
+                  desktop={!mobileLayout}
                   disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
                   onSteer={() => submit('steer')} onEnqueue={() => submit('queue')} onReturnFocus={() => taRef.current?.focus()} />
               </div>
             ) : (
               <Button
-                size="lg"
-                className="col-start-3 row-start-2 max-md:size-10 max-md:px-0 shadow-sm"
+                size="icon"
+                className="col-start-3 row-start-2 size-9 max-md:size-10 px-0"
                 onClick={() => submit()}
                 disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
                 aria-label="发送"
@@ -2679,23 +2648,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 <Send className="size-4" />
               </Button>
             )}
-            {chat.running && (
-              <RunningMessageActions
-                className="col-span-3 row-start-3 hidden w-full border-t border-[var(--color-border)] py-1.5 md:flex"
-                canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
-                disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
-                onSteer={() => submit('steer')}
-                onEnqueue={() => submit('queue')}
-              />
-            )}
-          </div>
-          <div data-focus-chrome className="hidden md:block">
-            <SessionSummaryBar
-              usage={sessionUsage}
-              loading={sessionUsage == null && Boolean(usageSid)}
-              running={usageRunning}
-              onOpenDetails={() => setShowUsage(true)}
-            />
           </div>
         </div>
             )}

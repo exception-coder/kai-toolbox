@@ -16,7 +16,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { getSessionRuntimeState, listSessions, type SessionUsage } from '../api'
 import type { BackgroundTaskInfo, ChatItem, ClaudeChatSessionView, ConnState, SessionRuntimeState } from '../types'
-import { abbr, parseUsage } from '../lib/metrics'
+import { abbr, fmtMs, parseUsage } from '../lib/metrics'
 import { cn } from '@/lib/utils'
 import { sessionWorkspaceLabel } from '../lib/sessionProjectGroups'
 import { useMobileDisclosure } from '../hooks/useMobileDisclosure'
@@ -30,6 +30,7 @@ export type MobileSessionStatusModel = {
 }
 
 interface Props {
+  workspace?: boolean
   sessionId: string
   items: ChatItem[]
   running: boolean
@@ -49,6 +50,7 @@ interface Props {
 }
 
 export function MobileSessionStatus({
+  workspace = false,
   sessionId,
   items,
   running,
@@ -66,7 +68,7 @@ export function MobileSessionStatus({
   queuePausedReason,
   children,
 }: Props) {
-  const [open, setOpen] = useMobileDisclosure()
+  const [open, setOpen] = useMobileDisclosure(!workspace)
   const trigger = useRef<HTMLButtonElement>(null)
   const runtime = useQuery({
     queryKey: ['claude-chat-runtime-state', sessionId],
@@ -103,19 +105,21 @@ export function MobileSessionStatus({
 
   const label = status?.label ?? (runtime.isPending ? '正在核对会话状态…' : `${engineLabel} · 空闲`)
   const currentActivity = running ? findCurrentActivity(items) : null
-  const summary = currentActivity ? `${label} · ${currentActivity}` : label
+  const elapsed = running ? currentActivityElapsed(items) : null
+  const summary = [label, currentActivity, workspace && elapsed != null ? fmtMs(elapsed) : null].filter(Boolean).join(' · ')
   const warning = status?.kind === 'warning' || Boolean(queuePausedReason)
   const active = status?.kind === 'running' || status?.kind === 'background'
   const Icon = warning ? AlertTriangle : active ? Loader2 : status?.kind === 'completed' ? CheckCircle2 : Activity
 
   return (
-    <div className="md:hidden">
+    <div className={workspace ? 'cc-workspace-execution-dock' : 'md:hidden'}>
       <button
         ref={trigger}
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
           'flex h-11 w-full min-w-0 items-center gap-2 border-b px-3 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]',
+          workspace && 'md:h-9',
           warning
             ? 'border-amber-200 bg-amber-50/90 text-amber-800 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200'
             : 'border-[var(--color-border)]/70 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]',
@@ -130,7 +134,7 @@ export function MobileSessionStatus({
         <ChevronUp className="size-3.5 shrink-0 opacity-60" />
       </button>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }} className="max-h-[80dvh] overflow-y-auto rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] md:hidden [&_button]:min-h-11 [&>button]:min-w-11">
+        <SheetContent side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }} className={cn('max-h-[80dvh] overflow-y-auto rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] [&_button]:min-h-11 [&>button]:min-w-11', workspace ? 'md:inset-x-auto md:bottom-4 md:left-1/2 md:w-[min(42rem,calc(100vw-2rem))] md:-translate-x-1/2 md:rounded-xl md:border' : 'md:hidden')}>
           <div className="border-b px-4 pb-3 pt-4">
             <SheetTitle>Agent 运行与控制</SheetTitle>
             <SheetDescription className="mt-1">查看运行状态并快速切换会话；关闭后继续对话。</SheetDescription>
@@ -168,6 +172,17 @@ export function MobileSessionStatus({
       </Sheet>
     </div>
   )
+}
+
+function currentActivityElapsed(items: ChatItem[]): number | null {
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index]
+    if (item.kind === 'result' || item.kind === 'user') break
+    if (item.kind !== 'activity' || !['inProgress', 'in_progress', 'running', 'pending', 'started'].includes(item.status)) continue
+    const value = item.data && typeof item.data === 'object' && 'elapsedMs' in item.data ? item.data.elapsedMs : null
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+  }
+  return null
 }
 
 function SessionShortcuts({ title, sessions, currentId, onSelect }: {

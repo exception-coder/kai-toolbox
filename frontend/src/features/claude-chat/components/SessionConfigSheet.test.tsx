@@ -40,7 +40,8 @@ describe('SessionConfigSheet', () => {
 
     const trigger = screen.getByRole('button', { name: '会话配置，当前 GPT-5.6-Sol' })
     expect(screen.getByText('5.6 Sol')).toBeInTheDocument()
-    expect(screen.getByText('会话配置 · 5.6 Sol')).toBeInTheDocument()
+    expect(trigger).toHaveTextContent('5.6 Sol')
+    expect(screen.queryByText('会话配置 · 5.6 Sol')).not.toBeInTheDocument()
     expect(trigger).toHaveAttribute('title', '会话配置 · GPT-5.6-Sol')
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByRole('button', { name: '权限模式' })).not.toBeInTheDocument()

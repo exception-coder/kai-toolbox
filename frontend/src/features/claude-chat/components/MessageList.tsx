@@ -50,7 +50,7 @@ interface Props {
   sessionKey?: string
   /** 输入区已经提供常驻作业条时关闭列表 Footer，避免同一状态重复展示。 */
   showRunningFooter?: boolean
-  /** 主 Coding 工作区手机呈现；正常执行活动在 Dock 查看。 */
+  /** 主 Coding 工作区：正常执行与指标在 Dock / 轮次详情，手机另收敛阅读布局。 */
   mobileWorkspace?: boolean
   /** 特定场景覆盖 AI 头像；加载失败自动回退引擎图标。 */
   assistantAvatarUrl?: string
@@ -163,13 +163,13 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   const mobile = useMobileViewport()
   const compactMobile = mobileWorkspace && mobile
   const visibleItems = useMemo(() => items.filter(item => {
-    if (hideToolCalls && item.kind === 'tool' && !(compactMobile && item.isError)) return false
-    if (compactMobile && isRoutineExecution(item)) return false
+    if (hideToolCalls && item.kind === 'tool' && !(mobileWorkspace && item.isError)) return false
+    if (mobileWorkspace && isRoutineExecution(item)) return false
     // 统一作业卡只在进行中或失败时保留；成功后由详细工具卡承载结果，避免重复占位。
     return !(item.kind === 'activity'
       && (item.activityType === 'tool' || item.activityType === 'turn')
       && item.status === 'completed')
-  }), [items, hideToolCalls, compactMobile])
+  }), [items, hideToolCalls, mobileWorkspace])
   const activeTask = useMemo<ActiveTask | null>(() => {
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const item = items[index]
@@ -267,6 +267,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     <div data-msg-id={item.id} className={cn('cc-message-row px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
       <Row item={item} onFork={onFork} engineLabel={engineLabel} onNewSession={onNewSession}
         compactMobile={compactMobile}
+        compactMetrics={mobileWorkspace}
         sessionId={sessionKey}
         assistantAvatarUrl={assistantAvatarUrl} assistantAvatarAlt={assistantAvatarAlt}
         userMessageBadge={item.kind === 'user' ? getUserMessageBadge?.(item) : undefined}
@@ -274,7 +275,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         onOpenImage={(src, alt) => setViewer({ src, alt })}
         turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
     </div>
-  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, compactMobile])
+  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, compactMobile, mobileWorkspace])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {
@@ -298,7 +299,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
       onKeyDownCapture={event => {
         if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) cancelJump()
       }}>
-      {items.length > 0 && visibleItems.length === 0 && hideToolCalls && !compactMobile && (
+      {items.some(item => item.kind === 'tool') && visibleItems.length === 0 && hideToolCalls && !compactMobile && (
         <div role="status" className="px-4 py-3 text-sm text-[var(--color-muted-foreground)]">
           最近记录已加载，工具调用当前已隐藏。
           <button type="button" onClick={() => setHideToolCalls(false)}
@@ -516,7 +517,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
   )
 }
 
-function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean }) {
+function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -643,7 +644,7 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
     case 'activity':
       return <CodexActivity item={item} />
     case 'result':
-      return <TurnStatus item={item} turnText={turnText} sessionId={sessionId} compactMobile={compactMobile} />
+      return <TurnStatus item={item} turnText={turnText} sessionId={sessionId} compactMobile={compactMobile || compactMetrics} />
     case 'warning':
       return (
         <div className="flex max-w-full items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">

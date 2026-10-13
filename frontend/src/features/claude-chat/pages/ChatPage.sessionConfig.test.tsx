@@ -14,13 +14,14 @@ const testRuntime = vi.hoisted(() => ({
   roots: [] as WorkspaceList['roots'],
   chat: {
     open: vi.fn(),
+    send: vi.fn(), steer: vi.fn(), enqueue: vi.fn(), interrupt: vi.fn(),
     sessionId: 'session-config-regression',
     state: 'ready',
     items: [],
     models: [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol' }],
     currentEngine: 'codex',
     currentProviderKind: 'official',
-    currentProviderBaseUrl: null,
+    currentProviderBaseUrl: null as string | null,
     currentModel: 'gpt-5.6-sol',
     mode: 'default',
     codexReasoningEffort: 'low',
@@ -43,6 +44,7 @@ vi.mock('../runtime/ChatRuntimeContext', () => ({
 vi.mock('@/shell/UnifiedTitleBar', () => ({ useUnifiedTitleBarSlot: () => null }))
 vi.mock('@/shell/MobileNavigationContext', () => ({ useMobileNavigation: () => null }))
 vi.mock('@/shell/useMockMode', () => ({ useMockMode: () => ({ enabled: false }) }))
+vi.mock('../browserNotify', () => ({ ensureNotifyPermission: vi.fn() }))
 vi.mock('../providerProfiles', async importOriginal => ({ ...(await importOriginal<typeof import('../providerProfiles')>()),
   loadProfiles: () => testRuntime.profiles ? Promise.resolve(testRuntime.profiles) : new Promise(() => {}) }))
 vi.mock('../api', async importOriginal => ({
@@ -65,6 +67,11 @@ afterEach(() => {
   testRuntime.profiles = undefined
   testRuntime.roots = []
   testRuntime.chat.open.mockClear()
+  testRuntime.chat.send.mockClear()
+  testRuntime.chat.steer.mockClear()
+  testRuntime.chat.enqueue.mockClear()
+  testRuntime.chat.running = false
+  testRuntime.chat.currentProviderBaseUrl = null
   testRuntime.chat.currentEngine = 'codex'
   testRuntime.chat.currentProviderKind = 'official'
   testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol' }]
@@ -80,6 +87,44 @@ async function openNewSessionForm() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('running desktop Enter queues, modifier Enter steers and Shift/IME Enter never sends', async () => {
+    testRuntime.chat.running = true
+    mountChat()
+    const input = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.change(input, { target: { value: '排队任务' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(testRuntime.chat.enqueue).toHaveBeenCalledExactlyOnceWith('排队任务', [])
+    fireEvent.change(input, { target: { value: '补充说明' } })
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+    expect(testRuntime.chat.steer).toHaveBeenCalledExactlyOnceWith('补充说明')
+    fireEvent.change(input, { target: { value: '继续输入' } })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    fireEvent.compositionStart(input)
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.compositionEnd(input)
+    expect(testRuntime.chat.enqueue).toHaveBeenCalledOnce()
+    expect(testRuntime.chat.steer).toHaveBeenCalledOnce()
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+  })
+  it('unsupported steering shortcuts do not silently queue; idle Enter sends', async () => {
+    testRuntime.chat.running = true
+    testRuntime.chat.currentProviderBaseUrl = 'https://gateway.invalid'
+    const first = mountChat()
+    const input = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.change(input, { target: { value: '独立任务' } })
+    fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+    expect(testRuntime.chat.steer).not.toHaveBeenCalled()
+    expect(testRuntime.chat.enqueue).not.toHaveBeenCalled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(testRuntime.chat.enqueue).toHaveBeenCalledOnce()
+    first.unmount()
+    testRuntime.chat.running = false
+    mountChat()
+    const idleInput = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.change(idleInput, { target: { value: '立即执行' } })
+    fireEvent.keyDown(idleInput, { key: 'Enter' })
+    expect(testRuntime.chat.send).toHaveBeenCalledExactlyOnceWith('立即执行', [])
+  })
   it('keeps manual new-session choices after leaving without starting a session', async () => {
     testRuntime.profiles = [{ id: 'gateway', name: '测试服务商', model: 'current-model', hasKey: true, baseUrl: 'https://gateway.invalid' }]
     testRuntime.roots = [{ root: 'D:/first', exists: true, dirs: [] }, { root: 'D:/second', exists: true, dirs: [] }]

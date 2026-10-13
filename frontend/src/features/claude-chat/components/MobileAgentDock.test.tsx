@@ -6,18 +6,33 @@ import type { ChatItem } from '../types'
 
 const availability = vi.hoisted(() => vi.fn<() => string | null>(() => null))
 vi.mock('../lib/nativeVoice', () => ({ voiceAvailability: availability }))
-afterEach(() => { cleanup(); availability.mockReset(); availability.mockReturnValue(null) })
+afterEach(() => { cleanup(); availability.mockReset(); availability.mockReturnValue(null); vi.unstubAllGlobals() })
 
-function fixture(onStartVoice = vi.fn(), items: ChatItem[] = [], running = false, backendRunning = false) {
+function fixture(onStartVoice = vi.fn(), items: ChatItem[] = [], running = false, backendRunning = false, workspace = false) {
   const client = new QueryClient({ defaultOptions: { queries: { enabled: false } } })
   client.setQueryData(['claude-chat-runtime-state', 'session'], { effectiveStatus: backendRunning ? 'RUNNING' : 'IDLE', consistency: 'CONSISTENT', recommendedAction: '可以发送消息' })
   render(<QueryClientProvider client={client}><MobileAgentDock
-    status={{ sessionId: 'session', items, running, engineLabel: 'Codex', turnTokens: 61, connState: 'ready', backgroundTasks: [], usage: null, usageLoading: false, onOpenUsage: vi.fn(), onOpenTrajectory: vi.fn() }}
+    status={{ workspace, sessionId: 'session', items, running, engineLabel: 'Codex', turnTokens: 61, connState: 'ready', backgroundTasks: [], usage: null, usageLoading: false, onOpenUsage: vi.fn(), onOpenTrajectory: vi.fn() }}
     queue={{ items: [], onSendNow: vi.fn(), onRemove: vi.fn(), onClear: vi.fn() }}
     voiceEnabled voiceDisabled={false} onStartVoice={onStartVoice}
+    diagnostics={<p>全链路诊断</p>} storage={<p>记录暂无法获取，请刷新重试</p>}
   /></QueryClientProvider>)
   return onStartVoice
 }
+
+it('desktop workspace discloses diagnostics and record recovery on demand and restores focus', async () => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  fixture(vi.fn(), [{ kind: 'activity', id: 'current', activityType: 'command', title: '检查文件', status: 'running', data: { elapsedMs: 68000 } }], true, true, true)
+  const trigger = screen.getByRole('button', { name: /查看运行详情/ })
+  expect(trigger).toHaveTextContent('68.0s')
+  expect(screen.queryByText('全链路诊断')).not.toBeInTheDocument()
+  expect(screen.queryByText(/记录暂无法获取/)).not.toBeInTheDocument()
+  fireEvent.click(trigger)
+  expect(screen.getByText('全链路诊断')).toBeInTheDocument()
+  expect(screen.getByText(/记录暂无法获取/)).toBeInTheDocument()
+  fireEvent.keyDown(document, { key: 'Escape' })
+  await vi.waitFor(() => expect(trigger).toHaveFocus())
+})
 
 it('opens controls without starting voice; explicit start closes the dock and starts once', () => {
   const start = fixture()

@@ -1,0 +1,15 @@
+/* 主 Coding 工作区桌面底部：正常状态仅执行摘要和输入，剩余高度交给消息。 */
+@media (min-width: 768px) {
+  .cc-desktop-composer { flex-shrink: 0; box-shadow: none; }
+  .cc-desktop-composer .mobile-composer-card {
+    min-height: 96px; margin: 0; padding: 8px 12px;
+    grid-template-rows: auto 36px; border: 0; border-radius: 0;
+  }
+  .cc-desktop-composer .mobile-composer-card textarea {
+    display: block; min-height: 36px; max-height: min(128px, 18dvh);
+    font-size: 14px; line-height: 1.5;
+  }
+  .cc-desktop-composer .mobile-composer-card > button[aria-label^='会话配置'] {
+    max-width: 160px; height: 36px; border: 0; background: transparent;
+  }
+}

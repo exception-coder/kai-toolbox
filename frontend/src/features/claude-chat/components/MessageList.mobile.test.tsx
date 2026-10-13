@@ -22,11 +22,11 @@ const items: ChatItem[] = [
   { kind: 'error', id: 'error', code: 'TEST', message: '保存失败，请重试' },
   { kind: 'tool', id: 'tool-error', toolName: '读取文件失败', input: {}, output: '权限不足', isError: true },
 ]
-function mount(mobile: boolean) {
+function mount(mobile: boolean, workspace = true) {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: mobile, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
   setHideToolCalls(true)
   const fork = vi.fn()
-  render(<MemoryRouter><MessageList items={items} running mobileWorkspace showRunningFooter={false} onFork={fork} /></MemoryRouter>)
+  render(<MemoryRouter><MessageList items={items} running mobileWorkspace={workspace} showRunningFooter={false} onFork={fork} /></MemoryRouter>)
   return fork
 }
 
@@ -50,8 +50,17 @@ it('consolidates routine mobile execution but preserves warnings, ended-turn det
   expect(screen.getByRole('button', { name: '转为卡片' })).toBeInTheDocument()
 })
 
-it('retains desktop activity cards and the detailed turn controls', () => {
+it('consolidates desktop workspace execution and turn metrics while preserving message actions', () => {
   mount(false)
+  expect(screen.queryByText('执行命令中')).not.toBeInTheDocument()
+  expect(screen.queryByText('文件修改中')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '转为卡片' })).toBeInTheDocument()
+  expect(screen.getByText('此轮已完成')).toBeInTheDocument()
+  expect(screen.getByText(/Token 2.4百万/)).not.toBeVisible()
+})
+
+it('preserves activity cards in other embedded desktop views', () => {
+  mount(false, false)
   expect(screen.getByText('执行命令中')).toBeInTheDocument()
   expect(screen.getByText('文件修改中')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '转为卡片' })).toBeInTheDocument()

@@ -169,6 +169,27 @@ it('discloses idle voice through the dock without starting or unmounting media',
   expect(screen.getByRole('button', { name: '结束通话' })).toBeInTheDocument()
 })
 
+it('hides idle desktop voice but retains the connection when disclosure changes', async () => {
+  const f = fixture()
+  const controlRef = createRef<{ start: () => void }>()
+  const restoreFocus = vi.fn()
+  const view = (busy: boolean) => <NativeVoiceControl sessionId="session-1" transport={f.transport} connected busy={busy} hideIdle onReturnFocus={restoreFocus} controlRef={controlRef} />
+  const page = render(view(true))
+  expect(screen.getByLabelText('原生语音对话')).toHaveClass('hidden')
+  expect(media.offer).not.toHaveBeenCalled()
+  act(() => controlRef.current?.start())
+  await waitFor(() => expect(f.transport.start).toHaveBeenCalledOnce())
+  act(() => media.instances[0].connect())
+  page.rerender(view(false))
+  expect(screen.getByLabelText('原生语音对话')).not.toHaveClass('hidden')
+  expect(screen.getByRole('button', { name: '结束通话' })).toBeInTheDocument()
+  expect(media.instances[0].close).not.toHaveBeenCalled()
+  expect(f.transport.start).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('button', { name: '结束通话' }))
+  expect(screen.getByLabelText('原生语音对话')).toHaveClass('hidden')
+  expect(restoreFocus).toHaveBeenCalledOnce()
+})
+
 it('keeps restricted sessions disabled even when a task is running', () => {
   const f = fixture()
   render(f.view(true, 'session-1', true, true))
