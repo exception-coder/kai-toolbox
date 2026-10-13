@@ -5,7 +5,8 @@ import { useSessionViewRoute } from '../hooks/useSessionViewRoute'
 import { WorkspacePreferences } from '../components/WorkspacePreferences'
 import { VibeCodingGuide } from '../components/guide/VibeCodingGuide'
 import type { GuideTarget } from '../components/guide/guideContent'
-import { BookOpen, SlidersHorizontal } from 'lucide-react'
+import { SlidersHorizontal } from 'lucide-react'
+import { useGuideRoute } from '../hooks/useGuideRoute'
 import '../components/guide/guide.css'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -470,6 +471,13 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const [changesOpen, setChangesOpen] = useState(false)
   const [guideLocation, setGuideLocation] = useState<GuideTarget | null>(null)
   const sessionToolsTriggerRef = useRef<HTMLButtonElement>(null)
+  const guideReturnFocus = useRef<HTMLButtonElement>(null)
+  const openGuideFromAccount = useCallback(() => {
+    guideReturnFocus.current = (!mobileLayout && Array.from(document.querySelectorAll<HTMLButtonElement>('[data-account-menu-trigger]'))
+      .find(button => button.getClientRects().length > 0)) || sessionToolsTriggerRef.current
+    setGuideOpen(true)
+  }, [mobileLayout])
+  useGuideRoute(location, navigate, openGuideFromAccount)
   const commitsReturnFocus = useRef<HTMLElement | null>(null)
   // 「更多」菜单当前展开的分组（手风琴，单开互斥；null=全部收起）。跨开合记忆上次展开项。
   const [menuGroup, setMenuGroup] = useState<'agent' | 'view' | 'session' | 'workspace' | 'system' | null>(null)
@@ -1243,7 +1251,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           relative z-30：炫彩皮肤下 header 带 backdrop-filter 会自成层叠上下文，把「更多」下拉
           (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
-      <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} onRestore={restoreGuide} hasSession={Boolean(chat.sessionId)} returnFocus={sessionToolsTriggerRef} />
+      <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} onRestore={restoreGuide} hasSession={Boolean(chat.sessionId)} returnFocus={guideReturnFocus.current ? guideReturnFocus : sessionToolsTriggerRef} />
       <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onReturnFocus={() => taRef.current?.focus()} />
       {chat.sessionId && changesOpen && <TurnChangesDialog key={chat.sessionId} sessionId={chat.sessionId} open onOpenChange={setChangesOpen} returnFocus={sessionToolsTriggerRef} />}
       {focus.focused && <FocusReadingHeader title={currentTitle || 'Vibe Coding'} sessionId={chat.sessionId}
@@ -1439,7 +1447,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           </Button>
           {/* 其余功能收进「更多」菜单，每项带中文标签，避免一排没标识的图标 */}
           <SessionToolsMenu open={headerMenu} mockMode={mockMode} onOpenChange={setHeaderMenu} triggerRef={sessionToolsTriggerRef}>
-                  <HeaderMenuItem icon={<BookOpen className="size-4" />} label="功能导览" hint="六类功能 · 用途、时机与入口" onClick={() => { setHeaderMenu(false); setGuideLocation(null); setGuideOpen(true) }} />
                   <div className="border-b pb-1 md:hidden">
                     <HeaderMenuItem icon={<Plus className="size-4" />} label="新建会话" onClick={() => { setHeaderMenu(false); setPanel('new') }} />
                     <HeaderMenuItem icon={<List className="size-4" />} label="会话列表" onClick={() => { setHeaderMenu(false); setPanel('sessions') }} />

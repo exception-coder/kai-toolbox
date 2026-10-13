@@ -33,7 +33,8 @@ export function VibeCodingGuide({ open, onOpenChange, onLocate, onRestore, hasSe
       <BookOpen className="size-4 text-[var(--color-muted-foreground)]" />
       <span className="min-w-0 flex-1">功能很多？跟着页面高亮了解从新建会话到交付的工作路径。</span>
       <button className={control} onClick={() => { setMode('tour'); setStep(0); onOpenChange(true) }}>开始导览</button>
-      <button className={control} onClick={markSeen}>暂时跳过</button>
+      <button className={control} onClick={markSeen}>跳过导览</button>
+      <span className="text-[var(--color-muted-foreground)]">之后可从左下角用户菜单的“功能导览”重看。</span>
     </aside>}
     {storageError && !open && <p role="status" className="px-4 py-1 text-xs text-[var(--color-muted-foreground)]">浏览器未允许记住导览偏好；本次已关闭，刷新后可能再次提示。</p>}
     {open && mode === 'tour' && <SpotlightTour step={step} onStep={setStep} onLocate={onLocate} onRestore={onRestore}

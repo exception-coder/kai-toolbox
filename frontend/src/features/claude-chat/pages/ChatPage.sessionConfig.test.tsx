@@ -61,6 +61,7 @@ vi.mock('../api', async importOriginal => ({
 beforeEach(() => localStorage.clear())
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
   testRuntime.profiles = undefined
   testRuntime.roots = []
   testRuntime.chat.open.mockClear()
@@ -79,6 +80,19 @@ async function openNewSessionForm() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('用户菜单的导览意图在跳过首次提示后仍可打开，会话工具不再重复提供入口', async () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+    localStorage.setItem('kai-toolbox:vibe-guide:v1:seen', 'true')
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<StrictMode><QueryClientProvider client={client}><MemoryRouter initialEntries={['/tools/claude-chat?guide=1']}>
+      <ConfirmProvider><ChatPage /></ConfirmProvider>
+    </MemoryRouter></QueryClientProvider></StrictMode>)
+    expect(await screen.findByRole('heading', { name: '新建与工作目录' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '关闭导览' }))
+    fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
+    expect(screen.queryByRole('menuitem', { name: '功能导览' })).not.toBeInTheDocument()
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+  })
   it.each(['pi', 'copilot', 'opencode'])('offers manual gateway model recovery for %s', async engine => {
     testRuntime.chat.currentEngine = engine
     testRuntime.chat.currentProviderKind = 'thirdParty'

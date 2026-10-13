@@ -36,7 +36,7 @@ export function AppShell() {
   useMenuVisibilitySync()
 
   // 路由切换时关闭移动端抽屉
-  useEffect(() => { setMobileOpen(false) }, [location.pathname])
+  useEffect(() => { setMobileOpen(false) }, [location.pathname, location.search])
 
   useLayoutEffect(() => {
     collapsedRef.current = collapsed

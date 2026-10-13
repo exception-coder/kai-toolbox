@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { FlaskConical, LogIn, LogOut, Settings } from 'lucide-react'
+import { BookOpen, FlaskConical, LogIn, LogOut, Settings } from 'lucide-react'
+import { buildVibeGuideRoute } from '@/features/claude-chat/public-api/guide'
 import { cn } from '@/lib/utils'
 import { logout, useAuth } from '@/lib/auth'
 import { LoginDialog } from '@/components/auth/LoginDialog'
@@ -15,7 +16,7 @@ import { SettingsDialog } from './SettingsDialog'
  * 心智模型：左侧导航负责「去哪」、顶栏搜索负责「找什么」、内容区负责「做什么」、这里负责「我是谁」。
  * 外观主题 / 品牌 / 工作区导航这些「会反复调整、内容较多」的持久化配置（Persistent UI）收进
  * 「偏好设置」打开的 SettingsDialog（居中弹窗、左导航+右内容），账号菜单本身只留高频入口：
- * 身份信息、偏好设置、Mock 联调开关（仅当前页面相关时出现）、退出登录。折叠态只显示头像；未登录降级为登录入口。
+ * 身份信息、偏好设置、功能导览、Mock 联调开关（仅当前页面相关时出现）、退出登录。折叠态只显示头像；未登录降级为登录入口。
  */
 export function AccountMenu({ collapsed }: { collapsed?: boolean }) {
   const qc = useQueryClient()
@@ -27,8 +28,9 @@ export function AccountMenu({ collapsed }: { collapsed?: boolean }) {
 
   // Mock 联调开关：仅当前模块支持 mock 或已全局开启时出现（避免点了 404 / 被困无法关闭）。
   const { enabled: mock, toggle: toggleMock } = useMockMode()
-  const { pathname } = useLocation()
-  const showMock = pathHasMock(pathname) || mock
+  const location = useLocation()
+  const navigate = useNavigate()
+  const showMock = pathHasMock(location.pathname) || mock
 
   // 点菜单外部关闭。
   useEffect(() => {
@@ -88,6 +90,15 @@ export function AccountMenu({ collapsed }: { collapsed?: boolean }) {
             偏好设置
           </button>
 
+          <button
+            type="button"
+            onClick={() => { setOpen(false); navigate(buildVibeGuideRoute(location)) }}
+            className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-muted)]"
+          >
+            <BookOpen className="size-4 text-[var(--color-muted-foreground)]" />
+            功能导览
+          </button>
+
           {/* Mock 联调开关：高频、仅当前页面相关时才出现，保留在瞬时菜单里（不是要「配置一次」的偏好） */}
           {showMock && (
             <button
@@ -126,6 +137,8 @@ export function AccountMenu({ collapsed }: { collapsed?: boolean }) {
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={`${user.username}（${user.roles.join(', ')}）`}
+        data-account-menu-trigger
         title={`${user.username}（${user.roles.join(', ')}）`}
         className={cn(
           'flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm transition-colors hover:bg-[var(--color-sidebar-accent)]',
