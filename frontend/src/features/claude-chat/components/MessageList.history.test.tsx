@@ -5,7 +5,7 @@ import { MessageList } from './MessageList'
 import { setHideToolCalls } from '../lib/toolVisibilityPref'
 
 const scrolling = vi.hoisted(() => ({ scrollToIndex: vi.fn(), scrollTo: vi.fn() }))
-afterEach(() => { cleanup(); setHideToolCalls(false); vi.useRealTimers(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); setHideToolCalls(false); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 vi.mock('react-virtuoso', async () => {
   const { forwardRef, useImperativeHandle } = await import('react')
@@ -34,6 +34,42 @@ vi.mock('react-virtuoso', async () => {
 })
 
 describe('MessageList 历史分页入口', () => {
+  it('跳转后虚拟列表校正回旧位置时继续贴底，只有用户上滑才撤销', () => {
+    vi.useFakeTimers()
+    render(<MessageList items={[{ kind: 'assistant', id: 'last', text: '实际末条' }]} running={false} />)
+    fireEvent.wheel(screen.getByRole('button', { name: '模拟离底' }))
+    fireEvent.click(screen.getByRole('button', { name: '模拟离底' }))
+    fireEvent.click(screen.getByRole('button', { name: /跳到最新/ }))
+    act(() => vi.advanceTimersByTime(20))
+    scrolling.scrollTo.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: '模拟贴底' }))
+    fireEvent.click(screen.getByRole('button', { name: '模拟离底' }))
+    act(() => vi.advanceTimersByTime(20))
+    expect(scrolling.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 2400, behavior: 'instant' })
+    fireEvent.wheel(screen.getByRole('button', { name: '模拟离底' }))
+    fireEvent.click(screen.getByRole('button', { name: '模拟离底' }))
+    act(() => vi.advanceTimersByTime(20))
+    expect(scrolling.scrollTo).toHaveBeenCalledTimes(1)
+  })
+
+  it('输入区改变列表可用高度时重新贴底，不要求消息总高度发生变化', () => {
+    vi.useFakeTimers()
+    const callbacks: ResizeObserverCallback[] = []
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) { callbacks.push(callback) }
+      observe() {} unobserve() {} disconnect() {}
+    })
+    render(<MessageList items={[{ kind: 'assistant', id: 'last', text: '实际末条' }]} running={false} />)
+    fireEvent.click(screen.getByRole('button', { name: '模拟离底' }))
+    fireEvent.click(screen.getByRole('button', { name: /跳到最新/ }))
+    act(() => vi.advanceTimersByTime(20))
+    scrolling.scrollTo.mockClear()
+    act(() => { callbacks.forEach(callback => callback([], {} as ResizeObserver)); vi.advanceTimersByTime(20) })
+    expect(scrolling.scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 2400, behavior: 'instant' })
+    fireEvent.wheel(screen.getByRole('button', { name: '模拟离底' }))
+    act(() => { callbacks.forEach(callback => callback([], {} as ResizeObserver)); vi.advanceTimersByTime(20) })
+    expect(scrolling.scrollTo).toHaveBeenCalledTimes(1)
+  })
   it('最近一页全为隐藏工具时显示恢复入口', () => {
     setHideToolCalls(true)
     render(<MessageList items={[{ kind: 'tool', id: 'h1', toolName: 'read', input: {} }]} running={false} />)

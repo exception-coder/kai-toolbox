@@ -44,13 +44,21 @@ function useBottomAlignment(sessionKey: string) {
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
     }
   }, [sessionKey, cancelAlignment])
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller || typeof ResizeObserver === 'undefined') return
+    // 队列、运行状态或输入框会改变视口高度，消息总高度可能完全不变。
+    const observer = new ResizeObserver(settleJump)
+    observer.observe(scroller)
+    return () => observer.disconnect()
+  }, [sessionKey, settleJump])
   return { virtuosoRef, captureScroller, settleJump, scrollToLatest, cancelAlignment }
 }
 
 /** 最新消息导航先确认数据，再在提交后的列表中定位；上滑或切换会话撤销定位意图。 */
 export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoading, historyError, onLoadLatest }: Options) {
   const alignment = useBottomAlignment(sessionKey)
-  const { virtuosoRef, scrollToLatest, cancelAlignment } = alignment
+  const { virtuosoRef, scrollToLatest, cancelAlignment, settleJump } = alignment
   const generationRef = useRef(0)
   const followingRef = useRef(true)
   const [atBottom, setAtBottom] = useState(true)
@@ -102,7 +110,10 @@ export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoad
   const onBottomStateChange = useCallback((bottom: boolean) => {
     setAtBottom(bottom)
     if (bottom) followingRef.current = true
-  }, [])
+    // 虚拟列表更新尺寸后仍可能回退位置；离底事件本身不代表用户上滑。
+    // 只有保留贴底意图时补齐，用户滚轮、触屏或导航已经通过 cancelJump 撤销。
+    else settleJump()
+  }, [settleJump])
 
   return { ...alignment, jumpToBottom, cancelJump, atBottom, onBottomStateChange,
     loadingLatest: navigation === 'loading' || (navigation === 'ready' && !!historyLoading),
