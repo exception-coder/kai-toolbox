@@ -47,3 +47,9 @@ export function editJournalDraft(detail: CommunicationDetail): JournalDraft {
     attachmentIds: record.attachmentIds, expectedVersion: record.version,
   } }
 }
+
+/** 简单待办的标题取正文首行；保留旧记录标题与创建时间，重试保持相同内容。 */
+export function journalSaveInput(draft: JournalDraft): CommunicationInput {
+  const title = draft.input.title || draft.input.originalText.trim().split(/\r?\n/, 1)[0].slice(0, 160) || '图片待办'
+  return { ...draft.input, title }
+}

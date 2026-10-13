@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { communicationError, saveCommunication } from '../../api/communicationJournal'
-import { editJournalDraft, newJournalDraft, readJournalDraft, writeJournalDraft, type JournalDraft } from './journalDraft'
+import { editJournalDraft, journalSaveInput, newJournalDraft, readJournalDraft, writeJournalDraft, type JournalDraft } from './journalDraft'
 import type { CommunicationJournal } from './useCommunicationJournal'
 
 export function useJournalEditor(journal: CommunicationJournal, readOnly: boolean) {
@@ -20,16 +20,19 @@ export function useJournalEditor(journal: CommunicationJournal, readOnly: boolea
   }
   const save = async () => {
     if (!draft || saving || readOnly) return
+    if (!draft.input.originalText.trim() && !draft.input.attachmentIds.length && !draft.input.notes.trim()) {
+      setSaveError('请填写内容或添加图片。'); return
+    }
     const submitted = draft
     setSaving(true); setSaveError(''); setError('')
     try {
-      const result = await saveCommunication(sessionId, submitted.id, submitted.input)
+      const result = await saveCommunication(sessionId, submitted.id, journalSaveInput(submitted))
       if (JSON.stringify(readJournalDraft(sessionId, userScope)) === JSON.stringify(submitted)) writeJournalDraft(sessionId, null, userScope)
       client.setQueryData([...queryRoot, 'detail', submitted.id], result)
       refresh()
       if (alive.current) {
         setDraft(readJournalDraft(sessionId, userScope)); setOpen(false); setSelectedId(submitted.id)
-        setFilter(value => ({ ...value, removed: false })); setNotice('沟通记录已保存。')
+        setFilter(value => ({ ...value, removed: false })); setNotice('待办已保存。')
       }
     } catch (reason) { if (alive.current) setSaveError(communicationError(reason, true)) }
     finally { if (alive.current) setSaving(false) }

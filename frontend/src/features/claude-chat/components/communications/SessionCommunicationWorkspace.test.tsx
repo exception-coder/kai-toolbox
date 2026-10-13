@@ -28,13 +28,14 @@ function shell(component: React.ReactNode) {
 }
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = vi.fn(() => 'blob:test-image'); static revokeObjectURL = vi.fn() })
   vi.mocked(listCommunications).mockResolvedValue(page)
   vi.mocked(getCommunication).mockResolvedValue(record)
   vi.mocked(saveCommunication).mockResolvedValue(record)
   vi.mocked(referenceCommunications).mockResolvedValue({ records: [record.record], attachments: [] })
   writeJournalDraft(sid, null); writeJournalDraft('other-journal-test', null)
 })
-afterEach(() => { cleanup(); clients.forEach(client => client.clear()); clients.length = 0 })
+afterEach(() => { cleanup(); clients.forEach(client => client.clear()); clients.length = 0; vi.unstubAllGlobals() })
 
 it('reads original material, selects several records and only asks the current composer to reference', async () => {
   const second = { ...page.records[0], id: '0195f671-0062-475a-a4bd-366d60bac8c6', title: '后续确认' }
@@ -63,7 +64,7 @@ it('never displays a previous session response or references it after switching'
   expect(screen.queryByText('生产单保存过程')).not.toBeInTheDocument()
   ui.rerender(node(sid))
   fireEvent.click(await screen.findByRole('button', { name: /生产单保存过程/ }))
-  await screen.findByRole('heading', { name: '沟通原文' })
+  await screen.findByRole('button', { name: '编辑' })
   vi.mocked(referenceCommunications).mockReturnValue(oldQuote.promise)
   fireEvent.click(screen.getByRole('button', { name: '引用到草稿' }))
   ui.rerender(node('other-journal-test'))
@@ -74,18 +75,21 @@ it('never displays a previous session response or references it after switching'
 it('keeps stable draft identity when saving fails, and keeps the original draft on version conflicts', async () => {
   vi.mocked(saveCommunication).mockRejectedValueOnce(new ApiError(409, null, '记录已更新，请核对'))
   render(shell(<SessionCommunicationWorkspace sessionId={sid} sessionTitle="需求会话" onReference={vi.fn()} />))
-  fireEvent.click(screen.getByRole('button', { name: '新增记录' }))
-  fireEvent.change(screen.getByLabelText('主题'), { target: { value: '新增沟通' } })
-  fireEvent.change(screen.getByLabelText('沟通原文'), { target: { value: '新的原始内容' } })
+  fireEvent.click(screen.getByRole('button', { name: '新增待办' }))
+  fireEvent.change(screen.getByLabelText('内容'), { target: { value: '新的原始内容' } })
+  expect(screen.queryByLabelText('主题')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('沟通时间')).not.toBeInTheDocument()
+  const occurredAt = readJournalDraft(sid)?.input.occurredAt
   const firstId = readJournalDraft(sid)?.id
   fireEvent.submit(document.querySelector('form')!)
   expect(await screen.findByText('记录已更新，请核对')).toBeInTheDocument()
-  expect(screen.getByLabelText('沟通原文')).toHaveValue('新的原始内容')
-  fireEvent.click(screen.getByRole('button', { name: '暂存并关闭' }))
+  expect(screen.getByLabelText('内容')).toHaveValue('新的原始内容')
+  fireEvent.click(screen.getByRole('button', { name: '取消' }))
   fireEvent.click(screen.getByRole('button', { name: '继续草稿' }))
   fireEvent.submit(document.querySelector('form')!)
-  await screen.findByText('沟通记录已保存。')
+  await screen.findByText('待办已保存。')
   expect(vi.mocked(saveCommunication).mock.calls.map(call => call[1])).toEqual([firstId, firstId])
+  expect(saveCommunication).toHaveBeenLastCalledWith(sid, firstId, expect.objectContaining({ title: '新的原始内容', occurredAt, source: '', participants: '', sourceUrl: '' }))
   expect(readJournalDraft(sid)).toBeNull()
 })
 
@@ -95,16 +99,15 @@ it('keeps a late save in the original session and leaves the newly opened sessio
   const quote = vi.fn(), client = new QueryClient(); clients.push(client)
   const node = (sessionId: string) => <QueryClientProvider client={client}><SessionCommunicationWorkspace sessionId={sessionId} sessionTitle={sessionId} onReference={quote} /></QueryClientProvider>
   const ui = render(node(sid))
-  fireEvent.click(screen.getByRole('button', { name: '新增记录' }))
-  fireEvent.change(screen.getByLabelText('主题'), { target: { value: '原会话草稿' } })
-  fireEvent.change(screen.getByLabelText('沟通原文'), { target: { value: '原会话原文' } })
+  fireEvent.click(screen.getByRole('button', { name: '新增待办' }))
+  fireEvent.change(screen.getByLabelText('内容'), { target: { value: '原会话原文' } })
   fireEvent.submit(document.querySelector('form')!)
   ui.rerender(node('other-journal-test'))
-  fireEvent.click(screen.getByRole('button', { name: '新增记录' }))
-  fireEvent.change(screen.getByLabelText('主题'), { target: { value: '另一个会话草稿' } })
+  fireEvent.click(screen.getByRole('button', { name: '新增待办' }))
+  fireEvent.change(screen.getByLabelText('内容'), { target: { value: '另一个会话草稿' } })
   await act(async () => pending.resolve(record))
-  expect(screen.getByLabelText('主题')).toHaveValue('另一个会话草稿')
-  expect(readJournalDraft('other-journal-test')?.input.title).toBe('另一个会话草稿')
+  expect(screen.getByLabelText('内容')).toHaveValue('另一个会话草稿')
+  expect(readJournalDraft('other-journal-test')?.input.originalText).toBe('另一个会话草稿')
 })
 
 it('shows recoverable list failures and permits only reading for a locked session', async () => {
@@ -115,7 +118,7 @@ it('shows recoverable list failures and permits only reading for a locked sessio
   fireEvent.click(await screen.findByRole('button', { name: /生产单保存过程/ }))
   expect(await screen.findByRole('button', { name: '编辑' })).toBeDisabled()
   expect(screen.getByRole('button', { name: '引用到草稿' })).toBeDisabled()
-  expect(screen.getByRole('button', { name: '新增记录' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '新增待办' })).toBeDisabled()
 })
 
 it('soft removes and restores without claiming a failed operation succeeded', async () => {
@@ -141,16 +144,19 @@ it('adds uploaded screenshots to the owning draft and blocks a duplicate upload 
   const upload = deferred<{ id: string; name: string; mime: string; size: number; path: string }>()
   vi.mocked(uploadCommunicationImage).mockReturnValue(upload.promise)
   render(shell(<SessionCommunicationWorkspace sessionId={sid} sessionTitle="需求会话" onReference={vi.fn()} />))
-  fireEvent.click(screen.getByRole('button', { name: '新增记录' }))
-  const fileInput = screen.getByLabelText('选择沟通截图')
+  fireEvent.click(screen.getByRole('button', { name: '新增待办' }))
+  const fileInput = screen.getByLabelText('选择待办图片')
   const file = new File(['png'], 'process.png', { type: 'image/png' })
   fireEvent.change(fileInput, { target: { files: [file] } })
-  expect(screen.getByRole('button', { name: '保存记录' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
   fireEvent.change(fileInput, { target: { files: [file] } })
   expect(uploadCommunicationImage).toHaveBeenCalledTimes(1)
   await act(async () => upload.resolve({ id: 'att_1', name: 'process.png', mime: 'image/png', size: 100, path: 'local-test.png' }))
   expect(readJournalDraft(sid)?.input.attachmentIds).toEqual(['att_1'])
   expect(screen.getByRole('button', { name: '移除截图 process.png' })).toBeInTheDocument()
+  expect(screen.getByAltText('process.png')).toHaveAttribute('src', 'blob:test-image')
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  await waitFor(() => expect(saveCommunication).toHaveBeenCalledWith(sid, expect.any(String), expect.objectContaining({ title: '图片待办', originalText: '', attachmentIds: ['att_1'] })))
 })
 
 it('separates persisted draft ownership and rejects unsupported or excessive screenshot batches', () => {
@@ -162,4 +168,21 @@ it('separates persisted draft ownership and rejects unsupported or excessive scr
   expect(journalFileIssue(Array.from({ length: 11 }, () => new File(['png'], 'screen.png', { type: 'image/png' })), newJournalDraft())).toContain('最多 10')
   const large = newJournalDraft(); large.images = [{ id: 'att-1', name: 'big.png', mime: 'image/png', size: 25 * 1024 * 1024 }]
   expect(journalFileIssue([new File(['png'], 'screen.png', { type: 'image/png' })], large)).toContain('25 MiB')
+})
+
+it('preserves legacy metadata when editing only the todo content and rejects an empty card', async () => {
+  render(shell(<SessionCommunicationWorkspace sessionId={sid} sessionTitle="需求会话" onReference={vi.fn()} />))
+  fireEvent.click(screen.getByRole('button', { name: '新增待办' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  expect(await screen.findByText('请填写内容或添加图片。')).toBeInTheDocument()
+  expect(saveCommunication).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '放弃草稿' }))
+  fireEvent.click(await screen.findByRole('button', { name: /生产单保存过程/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '编辑' }))
+  fireEvent.change(screen.getByLabelText('内容'), { target: { value: '调整保存顺序' } })
+  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  await waitFor(() => expect(saveCommunication).toHaveBeenCalledWith(sid, id, expect.objectContaining({
+    originalText: '调整保存顺序', occurredAt: record.record.occurredAt, title: record.record.title,
+    source: '飞书', participants: '张凯', notes: '待确认默认字段。', expectedVersion: 1,
+  })))
 })

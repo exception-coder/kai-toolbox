@@ -20,7 +20,7 @@ it('keeps frequent views on the desktop and moves trajectory and sites into more
   trigger.focus()
   fireEvent.click(trigger)
   const menu = within(screen.getByRole('group', { name: '选择会话视图' }))
-  expect(menu.getByRole('button', { name: '沟通流水' })).toBeInTheDocument()
+  expect(menu.getByRole('button', { name: '开发待办' })).toBeInTheDocument()
   expect(menu.queryByRole('button', { name: '用量' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '轨迹' })).toHaveAttribute('aria-current', 'page')
   fireEvent.click(screen.getByRole('button', { name: '站点 2' }))

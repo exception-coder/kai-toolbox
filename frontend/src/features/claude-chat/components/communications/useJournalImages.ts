@@ -17,7 +17,10 @@ export function useJournalImages(sessionId: string, userScope: string | number, 
 }) {
   const alive = useRef(true), inFlight = useRef(false)
   const [uploading, setUploading] = useState(false), [error, setError] = useState('')
-  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
+  const [previews, setPreviews] = useState<Record<string, string>>({}), previewUrls = useRef<string[]>([])
+  useEffect(() => { alive.current = true; return () => {
+    alive.current = false; previewUrls.current.forEach(url => URL.revokeObjectURL(url)); previewUrls.current = []
+  } }, [])
   const upload = async (files: File[]) => {
     if (!files.length || inFlight.current || options.disabled) return
     const issue = journalFileIssue(files, options.draft)
@@ -28,11 +31,15 @@ export function useJournalImages(sessionId: string, userScope: string | number, 
         const image = await uploadCommunicationImage(sessionId, file)
         const current = readJournalDraft(sessionId, userScope)
         if (!current || current.id !== options.draft.id) break
+        if (alive.current) {
+          const url = URL.createObjectURL(file); previewUrls.current.push(url)
+          setPreviews(value => ({ ...value, [image.id]: url }))
+        }
         options.onChange({ ...current, images: [...current.images, image],
           input: { ...current.input, attachmentIds: [...current.input.attachmentIds, image.id] } })
       }
     } catch (reason) { if (alive.current) setError(communicationError(reason, true)) }
     finally { inFlight.current = false; if (alive.current) setUploading(false) }
   }
-  return { uploading, error, upload, setError }
+  return { uploading, error, upload, setError, previews }
 }

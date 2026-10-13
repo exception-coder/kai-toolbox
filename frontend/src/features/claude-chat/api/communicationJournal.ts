@@ -67,7 +67,7 @@ export async function loadCommunicationImage(sid: string, id: string, imageId: s
 
 export function communicationError(error: unknown, writing = false): string {
   if (error instanceof ApiError) return error.status === 404
-    ? '沟通流水暂不可用：服务可能尚未加载此能力，或记录已不存在。请刷新后重试。'
+    ? '开发待办暂不可用：服务可能尚未加载此能力，或记录已不存在。请刷新后重试。'
     : error.message
   if (error instanceof Error && /Timeout|Abort|fetch|network/i.test(error.name + error.message)) return writing
     ? '结果尚未确认，草稿已保留。请先刷新核对；保存重试会复用同一记录编号。'

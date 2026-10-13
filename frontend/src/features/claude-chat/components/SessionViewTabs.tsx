@@ -27,7 +27,7 @@ export function SessionViewTabs({ view, onSelect, hasSession, documentTitle, sit
     ...(hasReview ? [{ id: 'review' as const, label: reviewLabel, icon: Share2, desktop: true }] : []),
   ]
   const secondary: SecondarySessionViewOption[] = [
-    { id: 'communications', label: '沟通流水', icon: NotebookPen },
+    { id: 'communications', label: '开发待办', icon: NotebookPen },
     { id: 'trajectory', label: '轨迹', icon: Route },
     { id: 'sites', label: siteCount ? '站点 ' + siteCount : '站点', icon: LayoutGrid },
     ...(documentTitle != null ? [{ id: 'documents' as const, label: '文档', icon: FileText, mobileOnly: true }] : []),
