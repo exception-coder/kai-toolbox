@@ -106,8 +106,9 @@ export function FileTreePanel({ sessionId, onClose, variant = 'panel', onAddToCh
         >
           <button
             type="button"
+            title={e.abs || e.path}
             onClick={() => (e.dir ? toggle(e.path) : void openFile(e.path))}
-            className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left"
+            className="flex flex-1 items-center gap-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]"
           >
             {e.dir ? (
               <ChevronRight className={cn('size-3.5 shrink-0 text-[var(--color-muted-foreground)] transition-transform', expanded.has(e.path) && 'rotate-90')} />
@@ -117,7 +118,7 @@ export function FileTreePanel({ sessionId, onClose, variant = 'panel', onAddToCh
             {e.dir
               ? <Folder className="size-3.5 shrink-0 text-[var(--color-primary)]" />
               : <FileText className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />}
-            <span className="truncate text-xs">{e.name}</span>
+            <span className="whitespace-nowrap text-xs">{e.name}</span>
             {loading.has(e.path) && <Loader2 className="size-3 shrink-0 animate-spin text-[var(--color-muted-foreground)]" />}
             {!e.dir && <span className="ml-1 shrink-0 text-[10px] text-[var(--color-muted-foreground)]">{fmtSize(e.size)}</span>}
           </button>
@@ -126,7 +127,7 @@ export function FileTreePanel({ sessionId, onClose, variant = 'panel', onAddToCh
             onClick={ev => reveal(ev, e.path)}
             title="在文件管理器中定位"
             aria-label="在文件管理器中定位"
-            className="shrink-0 rounded p-1 text-[var(--color-muted-foreground)] opacity-0 hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)] group-hover:opacity-100"
+            className="shrink-0 rounded p-1 text-[var(--color-muted-foreground)] opacity-0 hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)] group-hover:opacity-100 focus-visible:opacity-100"
           >
             <ExternalLink className="size-3.5" />
           </button>
@@ -138,12 +139,12 @@ export function FileTreePanel({ sessionId, onClose, variant = 'panel', onAddToCh
 
   return (
     <div className={side
-      ? 'flex h-full w-72 shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-background)] text-sm lg:w-80'
-      : 'border-b text-sm'}>
+      ? 'flex h-full min-w-0 w-72 shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-background)] text-sm lg:w-80'
+      : 'min-w-0 border-b text-sm'}>
       <div className="flex items-center gap-2 px-3 py-2">
         <FolderTree className="size-4 text-[var(--color-primary)]" />
         <span className="font-medium">工作目录</span>
-        <span className="text-xs text-[var(--color-muted-foreground)]">展开找文件 · 悬停行可定位</span>
+        <span className="text-xs text-[var(--color-muted-foreground)]">横向滚动查看全名</span>
         <button type="button" onClick={onClose} aria-label="关闭" className="ml-auto rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]">
           <X className="size-4" />
         </button>
@@ -166,11 +167,12 @@ export function FileTreePanel({ sessionId, onClose, variant = 'panel', onAddToCh
         </div>
       </div>
 
-      <div className={side ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-2' : 'max-h-[52vh] overflow-y-auto px-2 pb-2'}>
+      <div role="region" aria-label="工作目录文件树" tabIndex={0}
+        className={cn('min-w-0 overflow-auto overscroll-contain px-2 pb-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]', side ? 'min-h-0 flex-1' : 'max-h-[52vh]')}>
         {rootErr && <p className="px-2 py-3 text-xs text-[var(--color-destructive)]">{rootErr}</p>}
         {!rootErr && !children[''] && <p className="px-2 py-3 text-xs text-[var(--color-muted-foreground)]">加载中…</p>}
         {children[''] && children[''].length === 0 && <p className="px-2 py-3 text-xs text-[var(--color-muted-foreground)]">空目录</p>}
-        {renderLevel('', 0)}
+        <div className="w-max min-w-full">{renderLevel('', 0)}</div>
       </div>
 
       {(preview || previewLoading || previewErr) && (
@@ -241,7 +243,7 @@ function FilePreview({ content, loading, error, onReveal, onClose }: {
       <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border bg-[var(--color-background)] shadow-xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <FileText className="size-4 text-[var(--color-primary)]" />
-          <span className="truncate text-sm font-semibold">{content?.name ?? '文件预览'}</span>
+          <span className="min-w-0 flex-1 break-all text-sm font-semibold" title={content?.path}>{content?.name ?? '文件预览'}</span>
           {content && <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">{fmtSize(content.size)}{content.truncated ? ' · 已截断' : ''}</span>}
           <button type="button" onClick={onReveal} title="在文件管理器中定位" className="ml-auto rounded-md p-1 hover:bg-[var(--color-muted)]" aria-label="定位">
             <ExternalLink className="size-4" />
