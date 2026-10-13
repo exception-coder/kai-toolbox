@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
+import { createPredictionClose } from './codexPredictionCleanup.js'
 import { jsonLineWriter } from './jsonLineWriter.js'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
@@ -701,14 +702,16 @@ export function createCodexPredictionProcess(codexHome?: string) {
     timer.unref?.()
     child.once('close', onClose)
   })
-  let closing: Promise<unknown> | undefined
+  const close = createPredictionClose(
+    () => waitForManagedProcessRelease(
+      () => closeInput(child), waitForPredictionClose, () => forceStop(child),
+    ),
+    waitForPredictionClose,
+    () => ({ pid: child.pid, closed, exitCode: child.exitCode, signalCode: child.signalCode }),
+  )
   return {
     child,
-    close: () => closing ??= waitForManagedProcessRelease(
-      () => closeInput(child),
-      waitForPredictionClose,
-      () => forceStop(child),
-    ),
+    close,
   }
 }
 

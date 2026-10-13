@@ -15,6 +15,12 @@ The system SHALL request native App Server predictions only after a successful o
 - **WHEN** a user or queue starts another turn on the same native thread
 - **THEN** the prior prediction is cancelled and its process writer is released before the new turn starts
 
+#### Scenario: Prediction cleanup fails before consecutive messages
+- **WHEN** prediction cleanup times out and another message is sent on the same thread
+- **THEN** the system rechecks closure of the original process, keeps the message blocked while closure is unconfirmed, and reports the failure without repeating forced termination
+- **AND** after closure is confirmed, the failed prediction barrier is removed and subsequent consecutive messages can start normally
+- **AND** concurrent closure checks share one wait and unrelated errors are not swallowed
+
 ### Requirement: Accept a suggestion into the current draft
 The interface SHALL show a native suggestion as light gray text only for an empty, idle composer in its matching session and source turn.
 

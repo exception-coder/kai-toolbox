@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events'
 import { PassThrough, Writable } from 'node:stream'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { CodexPredictionCoordinator, parseCodexPrediction, readCodexPrediction, type CodexPredictionOptions } from './codexPrediction.js'
+import { CodexPredictionCleanupError, createPredictionClose } from './codexPredictionCleanup.js'
 
 const options = (home = 'C:/nonexistent/prediction-test'): CodexPredictionOptions => ({
   sessionId: 'forge-session', threadId: 'native-thread', sourceTurnId: 'turn-one', codexHome: home,
@@ -137,4 +138,66 @@ test('a prediction timeout releases the process without a user turn or tool call
     assert.equal(fake.closed, true)
     assert.equal(methods.includes('turn/start'), false)
   } finally { clearTimeout(keepAlive) }
+})
+
+test('consecutive sends stay blocked until the original prediction closes, then both resume', async () => {
+  let nativeClosed = false
+  let releaseAttempts = 0
+  let observations = 0
+  let mainTurns = 0
+  const emitted: unknown[] = []
+  const fake = fakeProcess((message, send) => {
+    if (message.id != null) send({ id: message.id, error: { message: 'prediction unavailable' } })
+  })
+  const close = createPredictionClose(async () => {
+    releaseAttempts++
+    throw new Error('native writer still alive')
+  }, async () => { observations++; return nativeClosed }, () => ({ pid: 1234, closed: nativeClosed }))
+  const coordinator = new CodexPredictionCoordinator((input, signal) => readCodexPrediction(input, signal, {
+    open: () => ({ child: fake.child, close }), timeoutMs: 1_000,
+  }))
+  coordinator.start({ ...options(), emit: event => emitted.push(event) })
+  await new Promise(resolve => setImmediate(resolve))
+  const sendMessage = async () => {
+    await coordinator.cancel('native-thread', options().codexHome)
+    mainTurns++
+  }
+  await assert.rejects(sendMessage(), CodexPredictionCleanupError)
+  await assert.rejects(sendMessage(), CodexPredictionCleanupError)
+  assert.equal(mainTurns, 0)
+  assert.equal(releaseAttempts, 1)
+  assert.equal(observations, 2)
+  nativeClosed = true
+  await sendMessage()
+  await sendMessage()
+  assert.equal(mainTurns, 2)
+  assert.equal(observations, 3)
+  assert.deepEqual(emitted, [])
+})
+
+test('simultaneous release checks share observation and never repeat forced cleanup', async () => {
+  let finish!: (closed: boolean) => void
+  let observations = 0
+  const close = createPredictionClose(async () => { throw new Error('timeout') }, () => {
+    observations++
+    return new Promise(resolve => { finish = resolve })
+  }, () => ({ pid: 5678 }))
+  await assert.rejects(close(), CodexPredictionCleanupError)
+  const first = close()
+  const second = close()
+  assert.equal(first, second)
+  assert.equal(observations, 1)
+  finish(true)
+  await Promise.all([first, second])
+  await close()
+  assert.equal(observations, 1)
+})
+
+test('unexpected runner failures remain visible and cannot unlock another writer', async () => {
+  const failure = new Error('unexpected runner failure')
+  const coordinator = new CodexPredictionCoordinator(async () => { throw failure })
+  coordinator.start(options())
+  await new Promise(resolve => setImmediate(resolve))
+  await assert.rejects(coordinator.cancel('native-thread', options().codexHome), error => error === failure)
+  await assert.rejects(coordinator.cancel('native-thread', options().codexHome), error => error === failure)
 })

@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import { createCodexPredictionProcess } from './codexAppServer.js'
 import { configuredMcpServerNames } from './codexSecurity.js'
+import { CodexPredictionCleanupError } from './codexPredictionCleanup.js'
 
 export interface CodexPredictionOptions {
   sessionId: string
@@ -51,7 +52,7 @@ export class CodexPredictionCoordinator {
     const controller = new AbortController()
     const task = { controller, sourceTurnId: options.sourceTurnId, promise: Promise.resolve() }
     task.promise = (async () => {
-      if (previous) await previous.promise
+      if (previous) await this.release(previous.promise)
       if (controller.signal.aborted) return
       const text = await this.run(options, controller.signal)
       if (text && !controller.signal.aborted && this.tasks.get(key) === task) {
@@ -63,8 +64,9 @@ export class CodexPredictionCoordinator {
     })
     this.tasks.set(key, task)
     // Failed cleanup remains a barrier rather than allowing a second writer to overlap it.
-    void task.promise.catch(() => console.warn(JSON.stringify({
+    void task.promise.catch(error => console.warn(JSON.stringify({
       event: 'codex_prediction_cleanup_failed', sessionId: options.sessionId,
+      message: error instanceof Error ? error.message : String(error),
     })))
   }
 
@@ -73,7 +75,18 @@ export class CodexPredictionCoordinator {
     const task = this.tasks.get(predictionKey(threadId, codexHome))
     if (!task) return
     task.controller.abort()
-    await task.promise
+    await this.release(task.promise)
+    const key = predictionKey(threadId, codexHome)
+    if (this.tasks.get(key) === task) this.tasks.delete(key)
+  }
+
+  private async release(promise: Promise<void>): Promise<void> {
+    try {
+      await promise
+    } catch (error) {
+      if (!(error instanceof CodexPredictionCleanupError)) throw error
+      await error.verifyRelease()
+    }
   }
 }
 
