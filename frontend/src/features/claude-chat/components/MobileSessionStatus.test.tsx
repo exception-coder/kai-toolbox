@@ -89,7 +89,7 @@ describe('deriveMobileSessionStatus', () => {
       usageLoading: false,
     })).toEqual({
       kind: 'running',
-      label: 'Codex 正在运行 · 2.4千 Token',
+      label: 'Codex 正在运行',
       detail: undefined,
     })
 
@@ -195,7 +195,7 @@ describe('deriveMobileSessionStatus', () => {
       runtimeError: false,
       usage: USAGE,
       usageLoading: false,
-    })).toEqual({ kind: 'completed', label: '已完成 · 1m5s · 2.5千 Token' })
+    })).toEqual({ kind: 'completed', label: '空闲 · 最近一轮完成', detail: '1m5s · 2.5千 Token' })
 
     expect(deriveMobileSessionStatus({
       items: [{ kind: 'result', id: 'result-2', stopReason: 'interrupted' }],
@@ -236,7 +236,8 @@ describe('deriveMobileSessionStatus', () => {
 
     expect(deriveMobileSessionStatus({ ...base, usageLoading: false })).toEqual({
       kind: 'usage',
-      label: '会话累计 · 3 轮 · 1.5千 Token',
+      label: 'Codex · 空闲',
+      detail: '会话累计 · 3 轮 · 1.5千 Token',
     })
     expect(deriveMobileSessionStatus({ ...base, usageLoading: true })).toBeNull()
   })
@@ -280,7 +281,7 @@ describe('deriveMobileSessionStatus', () => {
       },
     })).toEqual({
       kind: 'running',
-      label: 'Codex 正在运行 · 800 Token',
+      label: 'Codex 正在运行',
       detail: 'tool_call',
     })
 
@@ -357,7 +358,7 @@ describe('MobileSessionStatus', () => {
       />,
     )
 
-    fireEvent.click(await screen.findByRole('button', { name: '已完成 · 2s，查看运行详情' }))
+    fireEvent.click(await screen.findByRole('button', { name: '空闲 · 最近一轮完成，查看运行详情' }))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.getByText('Agent 运行与控制')).toBeInTheDocument()
     expect(screen.getByText('3 轮 · 1.5千 Token')).toBeInTheDocument()
@@ -386,7 +387,7 @@ describe('MobileSessionStatus', () => {
       />,
     )
 
-    fireEvent.click(await screen.findByRole('button', { name: '已完成 · 2s，查看运行详情' }))
+    fireEvent.click(await screen.findByRole('button', { name: '空闲 · 最近一轮完成，查看运行详情' }))
     fireEvent.click(await screen.findByRole('button', { name: '会话用量' }))
     expect(onOpenUsage).toHaveBeenCalledOnce()
   })

@@ -105,6 +105,7 @@ import { SessionSummaryBar } from '../components/SessionSummaryBar'
 import { CurrentSessionStorage } from '../components/CurrentSessionStorage'
 import { selectableEngineIds, supportsSessionProvider } from '../lib/engineCatalog'
 import { MobileAgentDock } from '../components/MobileAgentDock'
+import { useMobileViewport } from '../hooks/useMobileViewport'
 import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
 import { SessionToolsMenu } from '../components/SessionToolsMenu'
 import { SessionAutopilotStatus } from '../components/SessionAutopilotStatus'
@@ -242,6 +243,7 @@ function WorkspaceHeaderMount({ target, children }: { target: HTMLElement | null
 }
 
 export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } = {}) {
+  const mobileLayout = useMobileViewport()
   useEffect(() => {
     reportVibeEntry('page_mount', 'ok', null, true)
     reportVibeResourceSummary()
@@ -1218,6 +1220,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
   return (
     <div ref={focusRoot} data-vibe-guide={guideLocation ?? undefined} className={cn(
+      'cc-mobile-coding-workspace',
       (fullscreen || focus.focused)
         // 全屏是覆盖整个视口的浮层，背景必须不透明——否则底层（折叠侧栏等）会从半透明背景透出，左侧留残影
         ? 'cc-workspace-fullscreen fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden'
@@ -2186,7 +2189,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               pendingReviewCount={reviewRelations && (reviewRelations.reviews.length > 0 || reviewRelations.pendingFeedback.length > 0)
                 ? reviewRelations.pendingFeedback.length : undefined} />
             {chat.sessionId && sessionView !== 'supervision' && sessionView !== 'board' && (
-              <div data-focus-chrome>
+              <div data-focus-chrome className={sessionView === 'conversation' ? 'hidden md:block' : undefined}>
               <SessionAutopilotStatus
                 sessionId={chat.sessionId}
                 projectRoot={currentSession?.cwd ?? ''}
@@ -2281,6 +2284,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     turnTokens={chat.turnTokens}
                     connState={chat.state}
                     showRunningFooter={focus.focused}
+                    mobileWorkspace
                   />
                 )
               ) : (
@@ -2327,6 +2331,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               turnTokens: chat.turnTokens, connState: chat.state, backgroundTasks: chat.backgroundTasks,
               usage: sessionUsage, usageLoading: sessionUsage == null && Boolean(usageSid),
               onOpenUsage: () => setShowUsage(true), onOpenTrajectory: () => setSessionView('trajectory'),
+              onOpenSupervision: () => setSessionView('autopilot'),
               onSwitchSession: (id, hintRunning) => chat.switchTo(id, hintRunning) }}
             queue={{ items: chat.queued,
               pausedReason: chat.queuePausedReason ?? (chat.backgroundTasks.length > 0 && chat.queued.length > 0 ? '后台作业尚未结束，待发送消息继续等待。' : null),
@@ -2334,6 +2339,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               onSendNow: chat.sendQueuedNow, onRemove: chat.removeQueued, onClear: chat.clearQueued }}
             voiceEnabled={chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession}
             voiceDisabled={planLocked || chat.state !== 'ready'} onStartVoice={() => nativeVoiceControlRef.current?.start()}
+            storage={<CurrentSessionStorage session={currentSession} />}
           /></div>
           {chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession && (
             <div data-focus-chrome><NativeVoiceControl sessionId={chat.sessionId} transport={chat.voiceTransport}
@@ -2385,7 +2391,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             onPick={reference => { void projectMention.pickReference(reference) }}
           />
           <SessionPlanLockNotice session={currentSession} />
-          <CurrentSessionStorage session={currentSession} />
+          {!mobileLayout && <div className="hidden md:block"><CurrentSessionStorage session={currentSession} /></div>}
           <div className="mobile-composer-card mx-2 my-1 grid min-h-[4.5rem] min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] grid-rows-[auto_2.5rem] items-center gap-x-1 gap-y-0.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-0.5 focus-within:border-[var(--color-ring)] focus-within:ring-1 focus-within:ring-[var(--color-ring)] md:mx-3 md:my-2 md:min-h-[5rem] md:grid-rows-[auto_2rem] md:gap-x-2 md:px-3 md:py-2">
             <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1">
             {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}

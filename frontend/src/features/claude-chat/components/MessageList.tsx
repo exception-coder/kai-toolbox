@@ -14,6 +14,11 @@ import { Markdown } from './Markdown'
 import { ImageLightbox } from './ImageLightbox'
 import { ThinkingIndicator, type ActiveTask } from './ThinkingIndicator'
 import { EngineIcon, engineIdFromDisplayName } from './EngineIcon'
+import { useMobileViewport } from '../hooks/useMobileViewport'
+import { isRoutineExecution } from '../lib/mobileExecutionPresentation'
+import * as Popover from '@radix-ui/react-popover'
+import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
+import '../styles/mobile-workspace.css'
 
 interface Props {
   items: ChatItem[]
@@ -45,6 +50,8 @@ interface Props {
   sessionKey?: string
   /** 输入区已经提供常驻作业条时关闭列表 Footer，避免同一状态重复展示。 */
   showRunningFooter?: boolean
+  /** 主 Coding 工作区手机呈现；正常执行活动在 Dock 查看。 */
+  mobileWorkspace?: boolean
   /** 特定场景覆盖 AI 头像；加载失败自动回退引擎图标。 */
   assistantAvatarUrl?: string
   assistantAvatarAlt?: string
@@ -146,20 +153,23 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
 export const MessageList = memo(forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge },
+  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, mobileWorkspace = false, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
   const hasForkTarget = useMemo(() => items.some(it => it.kind === 'user' && !!it.sdkUuid), [items])
   // 「隐藏工具调用」开关：开启时消息流里的工具调用气泡（MCP/命令/读写/子代理…）整条不渲染，减少视觉噪音
   const hideToolCalls = useHideToolCalls()
+  const mobile = useMobileViewport()
+  const compactMobile = mobileWorkspace && mobile
   const visibleItems = useMemo(() => items.filter(item => {
-    if (hideToolCalls && item.kind === 'tool') return false
+    if (hideToolCalls && item.kind === 'tool' && !(compactMobile && item.isError)) return false
+    if (compactMobile && isRoutineExecution(item)) return false
     // 统一作业卡只在进行中或失败时保留；成功后由详细工具卡承载结果，避免重复占位。
     return !(item.kind === 'activity'
       && (item.activityType === 'tool' || item.activityType === 'turn')
       && item.status === 'completed')
-  }), [items, hideToolCalls])
+  }), [items, hideToolCalls, compactMobile])
   const activeTask = useMemo<ActiveTask | null>(() => {
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const item = items[index]
@@ -259,6 +269,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   const itemContent = useCallback((_index: number, item: ChatItem) => (
     <div data-msg-id={item.id} className={cn('cc-message-row px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
       <Row item={item} onFork={onFork} engineLabel={engineLabel} onNewSession={onNewSession}
+        compactMobile={compactMobile}
         sessionId={sessionKey}
         assistantAvatarUrl={assistantAvatarUrl} assistantAvatarAlt={assistantAvatarAlt}
         userMessageBadge={item.kind === 'user' ? getUserMessageBadge?.(item) : undefined}
@@ -266,7 +277,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         onOpenImage={(src, alt) => setViewer({ src, alt })}
         turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
     </div>
-  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge])
+  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, compactMobile])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {
@@ -283,14 +294,14 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   }
 
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+    <div className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col', mobileWorkspace && 'cc-mobile-conversation')}
       onWheelCapture={cancelJump}
       onTouchStartCapture={event => { if (!(event.target instanceof Element && event.target.closest('[data-latest-navigation]'))) cancelJump() }}
       onPointerDownCapture={event => { if (!(event.target instanceof Element && event.target.closest('[data-latest-navigation]'))) cancelJump() }}
       onKeyDownCapture={event => {
         if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) cancelJump()
       }}>
-      {items.length > 0 && visibleItems.length === 0 && hideToolCalls && (
+      {items.length > 0 && visibleItems.length === 0 && hideToolCalls && !compactMobile && (
         <div role="status" className="px-4 py-3 text-sm text-[var(--color-muted-foreground)]">
           最近记录已加载，工具调用当前已隐藏。
           <button type="button" onClick={() => setHideToolCalls(false)}
@@ -428,11 +439,11 @@ function MsgHeader({ label, ts, align }: { label?: string; ts?: number; align: '
 }
 
 /** 本轮状态条：成功弱化为 ✓，token（紫，可点开明细）+ 耗时（蓝）+ 时间 + 复制本轮完整回复。 */
-function TurnStatus({ item, turnText, sessionId }: { item: Extract<ChatItem, { kind: 'result' }>; turnText?: string; sessionId?: string }) {
+function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extract<ChatItem, { kind: 'result' }>; turnText?: string; sessionId?: string; compactMobile?: boolean }) {
   const [changesOpen, setChangesOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
-  const ok = item.stopReason === 'success' || item.stopReason === 'end_turn'
+  const ok = ['success', 'end_turn', 'completed', 'stop'].includes(item.stopReason.trim().toLowerCase())
   const u = parseUsage(item.usage)
   const hit = cacheHitRate(item.usage)
   const time = formatTime(item.ts)
@@ -442,6 +453,23 @@ function TurnStatus({ item, turnText, sessionId }: { item: Extract<ChatItem, { k
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
+  if (compactMobile) return <div className="cc-turn-status text-xs text-[var(--color-muted-foreground)]" data-turn-success={ok}>
+    <details>
+      <summary className={cn('flex min-h-11 cursor-pointer items-center gap-2', !ok && 'text-[var(--color-destructive)]')}>
+        {ok ? <Check className="size-3.5" /> : <AlertTriangle className="size-3.5" />}<span>{ok ? '此轮已完成' : '此轮异常结束'}</span>
+        {time && <span className="tabular-nums">· {time}</span>}<span className="ml-auto">详情 ›</span>
+      </summary>
+      <div className="space-y-2 border-t py-3 text-xs">
+        <p>结束原因：{item.stopReason}</p>
+        {u && <p>Token {abbr(u.total)} · 输入 {abbr(u.input)} · 输出 {abbr(u.output)}{u.cache > 0 ? ` · 缓存读 ${abbr(u.cacheRead)} / 写 ${abbr(u.cache - u.cacheRead)}` : ''}</p>}
+        {hit != null && <p>缓存命中率 {Math.floor(hit * 100)}%</p>}
+        {item.latencyMs != null && <p>耗时 {fmtMs(item.latencyMs)}{item.ttftMs != null ? ` · 首字 ${fmtMs(item.ttftMs)}` : ''}</p>}
+        {turnText && <button type="button" className="min-h-11 px-2 underline" onClick={copyTurn}>{copied ? '已复制' : '复制本轮'}</button>}
+        {sessionId && item.turnId && <button type="button" className="min-h-11 px-2 underline" onClick={() => setChangesOpen(true)}>本轮变更</button>}
+      </div>
+    </details>
+    {changesOpen && sessionId && item.turnId && <TurnChangesDialog sessionId={sessionId} turnId={item.turnId} open onOpenChange={setChangesOpen} />}
+  </div>
   return (
     <div className="cc-turn-status my-1 flex flex-col items-center gap-1" data-turn-success={ok}>
       {sessionId && item.turnId && <><button className="min-h-9 px-2 text-xs text-[var(--color-muted-foreground)] underline underline-offset-4" onClick={() => setChangesOpen(true)}>本轮变更</button>
@@ -491,7 +519,7 @@ function TurnStatus({ item, turnText, sessionId }: { item: Extract<ChatItem, { k
   )
 }
 
-function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null }) {
+function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -592,9 +620,9 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
               <Markdown text={item.text} className="min-w-0" sessionId={sessionId} />
             </div>
             {item.text.trim() && (
-              <div className="flex items-center gap-1">
+              <div className="cc-message-actions flex items-center gap-1">
                 <CopyButton text={item.text} />
-                <ToCardButton text={item.text} />
+                {!compactMobile && <ToCardButton text={item.text} />}
                 {onFork && item.forkAnchor && (
                   <button
                     type="button"
@@ -604,9 +632,10 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
                     className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
                   >
                     <GitBranch className="size-3.5" />
-                    从此处分叉
+                    {compactMobile ? '分叉' : '从此处分叉'}
                   </button>
                 )}
+                {compactMobile && <MobileMessageMore text={item.text} />}
               </div>
             )}
           </div>
@@ -617,7 +646,7 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
     case 'activity':
       return <CodexActivity item={item} />
     case 'result':
-      return <TurnStatus item={item} turnText={turnText} sessionId={sessionId} />
+      return <TurnStatus item={item} turnText={turnText} sessionId={sessionId} compactMobile={compactMobile} />
     case 'warning':
       return (
         <div className="flex max-w-full items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
@@ -669,6 +698,13 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
       )
     }
   }
+}
+
+function MobileMessageMore({ text }: { text: string }) {
+  const portal = useFullscreenPortalContainer()
+  return <Popover.Root><Popover.Trigger asChild><button type="button" aria-label="更多回复操作" className="min-h-11 min-w-11 rounded-md px-2 text-xs text-[var(--color-muted-foreground)]">···</button></Popover.Trigger>
+    <Popover.Portal container={portal}><Popover.Content align="start" sideOffset={4} className="z-[90] rounded-lg border bg-[var(--color-background)] p-2 shadow-sm [&_button]:min-h-11"><ToCardButton text={text} /></Popover.Content></Popover.Portal>
+  </Popover.Root>
 }
 
 function AssistantIdentityIcon({ avatarUrl, alt, engineLabel }: { avatarUrl?: string; alt?: string; engineLabel?: string }) {

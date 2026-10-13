@@ -41,10 +41,11 @@ interface Props {
   usageLoading: boolean
   onOpenUsage: () => void
   onOpenTrajectory: () => void
+  onOpenSupervision?: () => void
   onSwitchSession?: (sessionId: string, hintRunning?: boolean) => void
   queueCount?: number
   queuePausedReason?: string | null
-  children?: ReactNode | ((close: () => void) => ReactNode)
+  children?: ReactNode | ((close: () => void, executing: boolean) => ReactNode)
 }
 
 export function MobileSessionStatus({
@@ -59,6 +60,7 @@ export function MobileSessionStatus({
   usageLoading,
   onOpenUsage,
   onOpenTrajectory,
+  onOpenSupervision,
   onSwitchSession,
   queueCount = 0,
   queuePausedReason,
@@ -113,7 +115,7 @@ export function MobileSessionStatus({
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          'flex h-10 w-full min-w-0 items-center gap-2 border-b px-3 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]',
+          'flex h-11 w-full min-w-0 items-center gap-2 border-b px-3 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]',
           warning
             ? 'border-amber-200 bg-amber-50/90 text-amber-800 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200'
             : 'border-[var(--color-border)]/70 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]',
@@ -128,7 +130,7 @@ export function MobileSessionStatus({
         <ChevronUp className="size-3.5 shrink-0 opacity-60" />
       </button>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }} className="max-h-[80dvh] overflow-y-auto rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] md:hidden">
+        <SheetContent side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }} className="max-h-[80dvh] overflow-y-auto rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] md:hidden [&_button]:min-h-11 [&>button]:min-w-11">
           <div className="border-b px-4 pb-3 pt-4">
             <SheetTitle>Agent 运行与控制</SheetTitle>
             <SheetDescription className="mt-1">查看运行状态并快速切换会话；关闭后继续对话。</SheetDescription>
@@ -151,6 +153,7 @@ export function MobileSessionStatus({
               <Button variant="outline" onClick={() => { setOpen(false); onOpenTrajectory() }}>查看轨迹</Button>
               <Button onClick={() => { setOpen(false); onOpenUsage() }}>会话用量</Button>
             </div>
+            {onOpenSupervision && <Button variant="ghost" className="min-h-11 w-full justify-start" onClick={() => { setOpen(false); onOpenSupervision() }}>监督与推进</Button>}
             {onSwitchSession && <section aria-label="快速切换会话" className="border-t border-[var(--color-border)] pt-3">
               <h3 className="mb-2 font-medium">快速切换会话</h3>
               {sessionList.isPending && <p className="text-xs text-[var(--color-muted-foreground)]">正在加载会话…</p>}
@@ -159,7 +162,7 @@ export function MobileSessionStatus({
               {runningSessions.length > 0 && <SessionShortcuts title="正在执行" sessions={runningSessions} currentId={sessionId} onSelect={session => { setOpen(false); onSwitchSession(session.id, true) }} />}
               {recentSessions.length > 0 && <SessionShortcuts title="最近会话" sessions={recentSessions} currentId={sessionId} onSelect={session => { setOpen(false); onSwitchSession(session.id, false) }} />}
             </section>}
-            {typeof children === 'function' ? children(() => setOpen(false)) : children}
+            {typeof children === 'function' ? children(() => setOpen(false), active) : children}
           </div>
         </SheetContent>
       </Sheet>
@@ -202,7 +205,6 @@ export function deriveMobileSessionStatus({
   items,
   running,
   engineLabel,
-  turnTokens,
   connState,
   backgroundTasks,
   runtimeState,
@@ -229,7 +231,7 @@ export function deriveMobileSessionStatus({
       kind: 'running',
       label: reconnecting
         ? '正在重连会话…'
-        : `${engineLabel} 正在运行${turnTokens > 0 ? ` · ${abbr(turnTokens)} Token` : ''}`,
+        : `${engineLabel} 正在运行`,
       detail: reconnecting ? 'Agent 可能仍在后台执行，连接恢复前不会误判为空闲。' : undefined,
     }
   }
@@ -278,7 +280,7 @@ export function deriveMobileSessionStatus({
       case 'RUNNING':
         return {
           kind: 'running',
-          label: `${engineLabel} 正在运行${turnTokens > 0 ? ` · ${abbr(turnTokens)} Token` : ''}`,
+          label: `${engineLabel} 正在运行`,
           detail: runtimeState.phase || runtimeState.reason,
         }
       case 'AWAITING_DECISION':
@@ -336,7 +338,7 @@ export function deriveMobileSessionStatus({
       .filter(Boolean)
       .join(' · ')
     return completed
-      ? { kind: 'completed', label: `已完成${metrics ? ` · ${metrics}` : ''}` }
+      ? { kind: 'completed', label: '空闲 · 最近一轮完成', detail: metrics || undefined }
       : {
           kind: 'warning',
           label: reason === 'interrupted' ? '本轮已中断' : '本轮异常结束',
@@ -348,7 +350,8 @@ export function deriveMobileSessionStatus({
   if (usage && usage.turns > 0) {
     return {
       kind: 'usage',
-      label: `会话累计 · ${usage.turns} 轮 · ${abbr(usage.totalTokens)} Token`,
+      label: `${engineLabel} · 空闲`,
+      detail: `会话累计 · ${usage.turns} 轮 · ${abbr(usage.totalTokens)} Token`,
     }
   }
   return null
