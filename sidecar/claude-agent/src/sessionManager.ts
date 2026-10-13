@@ -1,5 +1,6 @@
 import { assemblyAllowsTool, filterClaudeAssembly, parseConsultToolAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { existsSync, readFileSync } from 'node:fs'
+import { CodexResponseWatchdog } from './codexResponseWatchdog.js'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { query, forkSession, type Options as ClaudeOptions } from '@anthropic-ai/claude-agent-sdk'
@@ -339,6 +340,7 @@ class Session {
   private turnActivityTitle = '正在启动代码引擎'
   private turnActivityDetail?: string
   private turnActivityTimer?: NodeJS.Timeout
+  private readonly codexResponseWatchdog = new CodexResponseWatchdog()
   private modelsFetched = false
   /** 本轮 API 响应里实际返回的模型（来自 assistant message.model，权威）；用于调用诊断。 */
   private lastResponseModel?: string
@@ -426,6 +428,7 @@ class Session {
   }
 
   private emitTurn(event: Record<string, unknown>): void {
+    if (this.engine === 'codex') this.codexResponseWatchdog.observe(event)
     const type = typeof event.type === 'string' ? event.type : ''
     // result 只是引擎流终态；整轮还要经过 finally 清理，不能在这里提前显示“已结束”。
     if (type !== 'result') this.updateTurnActivity(event)
@@ -441,12 +444,25 @@ class Session {
 
   private startTurnActivity(): void {
     this.clearTurnActivityTimer()
+    this.codexResponseWatchdog.start()
     this.turnActivityStartedAt = Date.now()
     this.turnActivityPhase = 'starting'
     this.turnActivityTitle = '正在启动代码引擎'
     this.turnActivityDetail = undefined
     this.emitTurnActivity('inProgress')
-    this.turnActivityTimer = setInterval(() => this.emitTurnActivity('inProgress'), TURN_ACTIVITY_HEARTBEAT_MS)
+    this.turnActivityTimer = setInterval(() => {
+      if (this.engine === 'codex') {
+        const idle = this.codexResponseWatchdog.check()
+        if (idle) {
+          // Only engine terminal/error, connection failure or explicit cancellation can end the turn.
+          // A silent reasoning interval is not proof of failure, even in a multi-hour task.
+          console.info(JSON.stringify({ event: 'codex_response_idle', sessionId: this.id,
+            turnId: this.turnLifecycle.snapshot().activeTurnId, phase: this.turnActivityPhase,
+            idleMs: idle.idleMs, action: 'observe' }))
+        }
+      }
+      this.emitTurnActivity('inProgress')
+    }, TURN_ACTIVITY_HEARTBEAT_MS)
     this.turnActivityTimer.unref?.()
   }
 

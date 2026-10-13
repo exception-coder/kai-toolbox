@@ -42,6 +42,19 @@ The Sidecar SHALL observe native close from process creation and drain remaining
 - **WHEN** a one-shot capability query receives a result or RPC error but cannot confirm process closure
 - **THEN** the operation reports cleanup failure with any original RPC error retained instead of returning a successful result
 
+### Requirement: Observe silent main turns without inferring failure
+The Sidecar SHALL treat absence of model activity as diagnostic information, not as proof of failure or completion. Silence monitoring SHALL NOT interrupt or replay a main turn, change its phase to failed or stalled, or generate a warning message solely because an interval elapsed.
+
+#### Scenario: A task remains silent for more than two hours
+- **WHEN** a main turn has no new model activity for more than two hours and no authoritative terminal or failure is received
+- **THEN** response monitoring records at most one diagnostic per silent interval and keeps the turn awaiting the engine
+- **AND** a local heartbeat does not count as genuine progress, and real activity allows a new diagnostic interval
+
+#### Scenario: Real failure or cancellation
+- **WHEN** the engine reports a terminal error, its process crashes, explicit connection recovery fails, or the user cancels
+- **THEN** existing failure, cancellation and cleanup handling remains effective
+- **AND** independent tool execution deadlines remain applicable
+
 ### Requirement: Accept a suggestion into the current draft
 The interface SHALL show a native suggestion as light gray text only for an empty, idle composer in its matching session and source turn.
 
