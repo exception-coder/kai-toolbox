@@ -1,6 +1,9 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import type { VirtuosoHandle } from 'react-virtuoso'
 
+// 窄浮窗的消息底部边距和虚拟列表测量可相差数像素，导航与跟随必须使用同一容差。
+export const LATEST_BOTTOM_TOLERANCE_PX = 8
+
 interface Options {
   sessionKey: string
   lastItemId?: string
@@ -23,7 +26,7 @@ function useBottomAlignment(sessionKey: string) {
       frameRef.current = null
       const scroller = scrollerRef.current
       if (scroller && followingHeightRef.current
-        && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop > 1) {
+        && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop > LATEST_BOTTOM_TOLERANCE_PX) {
         // 尺寸测量、重试和滚动都由虚拟列表持有，不能再用 DOM scrollTo 抢写位置。
         virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
       }

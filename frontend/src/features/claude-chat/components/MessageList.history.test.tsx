@@ -15,6 +15,7 @@ vi.mock('react-virtuoso', async () => {
       context: unknown
       startReached?: () => void
       atBottomStateChange: (value: boolean) => void
+      atBottomThreshold: number
       scrollerRef: (element: HTMLElement) => void
       totalListHeightChanged: () => void
       firstItemIndex: number
@@ -29,6 +30,7 @@ vi.mock('react-virtuoso', async () => {
         props.scrollerRef(element)
       }}><Header context={props.context} /><span data-testid="automatic-history-load">{String(Boolean(props.startReached))}</span>
         <button onClick={props.totalListHeightChanged}>模拟高度校正</button>
+        <button onClick={() => props.atBottomStateChange(4 <= props.atBottomThreshold)}>模拟浮窗末条边距</button>
         <button onClick={() => props.atBottomStateChange(false)}>模拟离底</button>
         <button onClick={() => props.atBottomStateChange(true)}>模拟贴底</button></div>
     }),
@@ -36,6 +38,21 @@ vi.mock('react-virtuoso', async () => {
 })
 
 describe('MessageList 历史分页入口', () => {
+  it('浮窗末条的四像素测量差仍视为贴底，不再提示跳转或重复校正', () => {
+    vi.useFakeTimers()
+    render(<MessageList items={[{ kind: 'assistant', id: 'last', text: '末条' }]} running={false} />)
+    act(() => vi.advanceTimersByTime(20))
+    const scroller = screen.getByTestId('message-scroller')
+    scroller.scrollTop = 1996
+    vi.clearAllMocks()
+    fireEvent.click(screen.getByRole('button', { name: '模拟离底' }))
+    fireEvent.click(screen.getByRole('button', { name: '模拟浮窗末条边距' }))
+    fireEvent.click(screen.getByRole('button', { name: '模拟高度校正' }))
+    act(() => vi.advanceTimersByTime(20))
+    expect(screen.queryByRole('button', { name: /跳到最新/ })).toBeNull()
+    expect(scrolling.scrollToIndex).not.toHaveBeenCalled()
+  })
+
   it('已实际贴底时重复尺寸通知不再发起滚动', () => {
     vi.useFakeTimers()
     render(<MessageList items={[{ kind: 'assistant', id: 'last', text: '末条' }]} running={false} />)

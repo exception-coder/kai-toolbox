@@ -1,7 +1,7 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Virtuoso } from 'react-virtuoso'
-import { useLatestMessageNavigation } from '../hooks/useLatestMessageNavigation'
+import { LATEST_BOTTOM_TOLERANCE_PX, useLatestMessageNavigation } from '../hooks/useLatestMessageNavigation'
 import { TurnChangesDialog } from './changes/TurnChangesDialog'
 import { AlertTriangle, ArrowDown, Bot, Check, CircleX, Coins, Copy, Database, FileImage, FilePenLine, FileText, FolderOpen, GitBranch, ListTodo, Route, Shrink, Terminal, Timer, Wifi } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -319,7 +319,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         initialTopMostItemIndex={Math.max(0, visibleItems.length - 1)}
         alignToBottom
         followOutput={followOutput}
-        atBottomThreshold={1}
+        atBottomThreshold={LATEST_BOTTOM_TOLERANCE_PX}
         atBottomStateChange={onBottomStateChange}
         computeItemKey={(_index, item) => item.id}
         itemContent={itemContent}
