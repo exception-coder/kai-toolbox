@@ -181,6 +181,9 @@ export async function readCodexPrediction(
     clearTimeout(timer)
     signal.removeEventListener('abort', onAbort)
     lines.close()
+    // readline.close() pauses stdout; drain trailing output so EOF can deliver close.
+    // Keep the native close check: exitCode alone does not prove inherited pipes released.
+    child.stdout.resume()
     await auxiliary.close()
   }
 }

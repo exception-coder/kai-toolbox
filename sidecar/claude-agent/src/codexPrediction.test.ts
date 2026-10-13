@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { EventEmitter } from 'node:events'
 import { PassThrough, Writable } from 'node:stream'
-import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { CodexPredictionCoordinator, parseCodexPrediction, readCodexPrediction, type CodexPredictionOptions } from './codexPrediction.js'
 import { CodexPredictionCleanupError, createPredictionClose } from './codexPredictionCleanup.js'
 
@@ -200,4 +200,47 @@ test('unexpected runner failures remain visible and cannot unlock another writer
   await new Promise(resolve => setImmediate(resolve))
   await assert.rejects(coordinator.cancel('native-thread', options().codexHome), error => error === failure)
   await assert.rejects(coordinator.cancel('native-thread', options().codexHome), error => error === failure)
+})
+
+test('consecutive predictions drain trailing native output before releasing their writer', async () => {
+  let mainTurns = 0
+  for (let turn = 0; turn < 2; turn++) {
+    const child = spawn(process.execPath, ['-e', `
+      const rl = require('node:readline').createInterface({ input: process.stdin });
+      rl.on('line', line => {
+        const m = JSON.parse(line);
+        if (m.id != null) process.stdout.write(JSON.stringify({id:m.id,error:{message:'unsupported'}})+'\\n');
+      });
+      process.stdin.on('end', () => {
+        process.stdout.write('x'.repeat(1024 * 1024), () => process.exit(0));
+      });
+    `], { stdio: 'pipe', windowsHide: true })
+    let closed = false
+    const closedPromise = new Promise<void>(resolve => child.once('close', () => { closed = true; resolve() }))
+    const waitForClose = async () => {
+      if (closed) return true
+      let timer!: ReturnType<typeof setTimeout>
+      const result = await Promise.race([closedPromise.then(() => true),
+        new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), 1500) })])
+      clearTimeout(timer)
+      return result
+    }
+    const close = createPredictionClose(async () => {
+      child.stdin.end()
+      if (!await waitForClose()) throw new Error('output pipes did not close')
+    }, waitForClose, () => ({ pid: child.pid, closed }))
+    try {
+      assert.equal(await readCodexPrediction(options(), new AbortController().signal,
+        { open: () => ({ child, close }), timeoutMs: 3000 }), null)
+      assert.equal(closed, true)
+      mainTurns++
+    } finally {
+      // Drain the fixture even when the assertion fails; no process termination is needed.
+      child.stdin.end()
+      child.stdout.resume()
+      child.stderr.resume()
+      await closedPromise
+    }
+  }
+  assert.equal(mainTurns, 2)
 })
