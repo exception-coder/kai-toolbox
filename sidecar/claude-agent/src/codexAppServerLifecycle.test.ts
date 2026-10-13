@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { CODEX_WS_CONTEXT_BUDGET_BYTES } from './codexTransportPolicy.js'
 import { callAppServer, createCodexPredictionProcess, runCodexAppServerTurn, steerCodexAppServerTurn, CodexAppServerTurnError } from './codexAppServer.js'
 import { CodexPredictionCoordinator, readCodexPrediction } from './codexPrediction.js'
 import { observeCodexProcess } from './codexProcessLifetime.js'
 
 // Real pipes and EOF, with a local JSON-RPC peer: no account, tools or model calls.
-function fixture(mode: 'complete' | 'hold' | 'holdError' | 'cancel' | 'rpcError' | 'crash' | 'steer' = 'complete') {
+function fixture(mode: 'complete' | 'hold' | 'holdError' | 'cancel' | 'rpcError' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
   const child = spawn(process.execPath, ['-e', `
     const mode = ${JSON.stringify(mode)};
+    const rolloutPath = ${JSON.stringify(rolloutPath)};
     const rl = require('node:readline').createInterface({input:process.stdin});
     const send = value => process.stdout.write(JSON.stringify(value)+'\\n');
     const watchdog = setTimeout(() => process.exit(91), 20000);
@@ -33,7 +38,15 @@ function fixture(mode: 'complete' | 'hold' | 'holdError' | 'cancel' | 'rpcError'
       const m = JSON.parse(line);
       if (m.id == null) return;
       if (mode === 'rpcError' || mode === 'holdError') { send({id:m.id,error:{message:'fixture RPC failed'}}); return; }
-      if (m.method === 'thread/start' || m.method === 'thread/resume') {
+      if (m.method === 'config/read') {
+        send({id:m.id,result:{config:{model_provider:'openai'}}});
+      } else if (m.method === 'thread/read' && rolloutPath) {
+        send({id:m.id,result:{thread:{path:rolloutPath,modelProvider:'openai'}}});
+      } else if (m.method === 'thread/start' || m.method === 'thread/resume') {
+        if (mode === 'transport' && (m.params.modelProvider !== 'forge_openai_https'
+          || m.params.config['model_providers.forge_openai_https']?.supports_websockets !== false)) {
+          send({id:m.id,error:{message:'Oversized context would retry WebSocket five times'}}); return;
+        }
         send({id:m.id,result:{thread:{id:'lifecycle-thread'}}});
       } else if (m.method === 'turn/start') {
         send({id:m.id,result:{turn:{id:'lifecycle-turn'}}});
@@ -81,6 +94,27 @@ const turnOptions = (sessionId: string, events: Record<string, unknown>[] = [], 
   sandbox: 'read-only' as const, approvalPolicy: 'never' as const,
   input: [{ type: 'text', text: 'fixture only' }], signal, emit: (event: Record<string, unknown>) => { events.push(event) },
   setThreadId: () => {},
+})
+
+test('oversized context selects HTTPS before each of two fresh native processes accepts a message', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'forge-native-transport-'))
+  t.after(() => rm(home, { recursive: true, force: true }))
+  await mkdir(join(home, 'sessions'))
+  const path = join(home, 'sessions', 'rollout-lifecycle-thread.jsonl')
+  await writeFile(path, JSON.stringify({ type: 'compacted', payload: { replacement_history: [
+    { type: 'message', role: 'user', content: [{ type: 'input_image', image_url: 'a'.repeat(CODEX_WS_CONTEXT_BUDGET_BYTES) }] },
+  ] } }) + '\n')
+  for (let turn = 0; turn < 2; turn++) {
+    const process = fixture('transport', path)
+    const events: Record<string, unknown>[] = []
+    try {
+      await runCodexAppServerTurn({ ...turnOptions('transport', events), codexHome: home }, process.runtime)
+      assert.equal(events.filter(event => event.type === 'result').length, 1)
+      assert.equal(events.find(event => event.type === 'result')?.stopReason, 'end_turn')
+      assert.equal(process.opens, 1)
+      assert.equal(process.stops, 0)
+    } finally { await process.release() }
+  }
 })
 
 test('consecutive main sends interleaved with predictions wait for native close and drain both pipes', async () => {

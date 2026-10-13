@@ -99,7 +99,7 @@ test('requests the real native prediction contract and waits beyond its empty ac
   publish()
   assert.equal(await result, '核对修改后的行为')
   assert.equal(fake.closed, true)
-  assert.deepEqual(methods, ['initialize', 'initialized', 'thread/resume', 'thread/prediction/request'])
+  assert.deepEqual(methods, ['initialize', 'initialized', 'config/read', 'thread/read', 'thread/resume', 'thread/prediction/request'])
 })
 
 test('accepts a notification before acknowledgement and disables session MCP overrides', async () => {

@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline'
+import { prepareCodexTransport } from './codexTransportPolicy.js'
 import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import { createCodexPredictionProcess } from './codexAppServer.js'
@@ -176,8 +177,12 @@ export async function readCodexPrediction(
     }
     for (const server of servers) config[`mcp_servers.${server}.enabled`] = false
     config.mcp_servers = Object.fromEntries([...servers].map(server => [server, { enabled: false }]))
+    const transport = await prepareCodexTransport({ ...options, config, input: [] },
+      async (method, params) => (await request(method, params) ?? {}) as Record<string, unknown>)
+    if (settled || signal.aborted) return null
     await request('thread/resume', { threadId: options.threadId, cwd: options.cwd,
-      model: options.model ?? null, approvalPolicy: 'never', sandbox: 'read-only', config })
+      model: options.model ?? null, approvalPolicy: 'never', sandbox: 'read-only', config: transport.config,
+      ...(transport.modelProvider ? { modelProvider: transport.modelProvider } : {}) })
     predictionRequested = true
     await request('thread/prediction/request', { threadId: options.threadId, sourceTurnId: options.sourceTurnId })
     return await prediction

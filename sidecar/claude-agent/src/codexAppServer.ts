@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
+import { prepareCodexTransport } from './codexTransportPolicy.js'
 import { createPredictionClose } from './codexPredictionCleanup.js'
 import { codexCleanupBarriers, observeCodexProcess } from './codexProcessLifetime.js'
 import { jsonLineWriter } from './jsonLineWriter.js'
@@ -1262,10 +1263,13 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
     void init
     send({ method: 'initialized', params: {} })
     initialized = true
-    const threadConfig = withRealtimeConversationConfig(options.config)
+    const transport = await prepareCodexTransport(options, request)
+    options.signal.throwIfAborted()
+    const threadConfig = withRealtimeConversationConfig(transport.config)
+    const providerOverride = transport.modelProvider ? { modelProvider: transport.modelProvider } : {}
     const threadResult = await request(threadId ? 'thread/resume' : 'thread/start', threadId
-      ? { threadId, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig }
-      : { cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig })
+      ? { threadId, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride }
+      : { cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride })
     const thread = asRecord(threadResult.thread)
     threadId = asString(thread?.id) || threadId
     if (!threadId) throw new Error('Codex App Server 未返回 thread id')

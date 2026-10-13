@@ -48,6 +48,8 @@ flowchart LR
 - **上下游**：上游为 `codexEngine.ts`，下游为 Codex App Server 子进程。
 - **关键设计**：依据当前 CLI 生成的 TypeScript schema 校验方法集合；未知服务端请求返回明确 JSON-RPC 错误，禁止静默丢弃。
 
+官方 Codex 的主消息与续问预测在加载线程前共用大小预检：有效上下文达到 12 MiB 时，通过单次 provider 配置使用 HTTPS，避免历史图片超过已观测的约 16 MiB WebSocket 消息限制后，每个新进程都重复五次重试。压缩后重新评估，小会话继续使用 WebSocket；不修改账号、历史或全局配置。临时 provider ID、预检失败和运行验证边界见[大上下文传输设计](../../../openspec/changes/avoid-oversized-codex-websocket-retries/design.md)。源码验证与目标服务加载分开记录，未获本次重启授权前不宣称运行已修复。
+
 ### 3.2 工具无进展监管
 
 - **定位**：普通 Shell 与动态工具的单轮生命周期守卫。
