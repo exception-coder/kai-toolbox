@@ -16,3 +16,10 @@
 - Edge 使用真实 MessageList、Agent Dock、ComposerTextarea、SessionConfigSheet 和发送组件的隔离 API 样例。桌面保留 32px 模拟监督栏：1440×900 对话区 663px（73.7%）、Dock 36px、Composer 96px；1280×600 为 363px（60.5%），短屏不承诺 70%。手机 390×844 对话区 611px（72.4%）、Dock 44px、Composer 96px。三种视口无水平或 body 纵向溢出，消息列表拥有滚动。
 - 浏览器展开详情可查工具 / 文件 / 命令、队列与记录；记录不可用刷新为可用，关闭回摘要。桌面发送菜单排队一次，手机发送抽屉保留。焦点回 Dock / 输入、权限与语音生命周期由对应定向测试核对；没有发送真实消息或申请麦克风权限。
 - 原始日志位于 `.git/desktop-dock-*.log`；截图为 `frontend/dist/desktop-dock-evidence/desktop-final.png` 与 `mobile-final.png`，均为本地忽略产物，不进入提交。
+
+## 新建表单收起修复（2026-10-13）
+
+- [x] 复现手机工具菜单的新建表单不能收起：菜单只改变 `headerMenu`，未关闭独立的 `panel=new`。补充既有 ChatPage 用例，修复前在“新建会话标题应消失”断言失败，修复后通过。
+- [x] 打开工具菜单时只收起新建面板；验证目录和引擎选择保留、重新打开恢复、Escape 焦点返回及不自动创建会话。原有其他工具面板不受该状态转移影响。
+- [x] ChatPage 既有 suite 11 项通过，typecheck 和独立 Vite 构建 exit 0，OpenSpec 严格校验通过。Forge 全阶段 exit 0 / PASSED，0 项静态 checker、9 项既有 HTTP 探测，不声称新增前端运行验证。
+- 证据位于 `.git/new-form-close-{before,after,page-tests,typecheck,build,quality}.log`。本次为局部状态修复，没有新视觉布局，未进行新的真实手机会话验收、重启或发布；上一节的新版运行待验收状态仍保留。

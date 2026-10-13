@@ -87,6 +87,27 @@ async function openNewSessionForm() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('collapses the new-session form when reopening mobile tools and preserves unfinished choices', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    testRuntime.profiles = []
+    mountChat()
+    fireEvent.click(await screen.findByRole('button', { name: '会话工具' }))
+    fireEvent.click(within(screen.getByRole('menu', { name: '会话工具' })).getByRole('button', { name: '新建会话' }))
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('目录路径'), { target: { value: 'D:/draft-project' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
+    fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
+    expect(screen.queryByRole('heading', { name: '新建会话' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menu', { name: '会话工具' })).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '会话工具' })).toHaveFocus()
+    fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
+    fireEvent.click(within(screen.getByRole('menu', { name: '会话工具' })).getByRole('button', { name: '新建会话' }))
+    expect(screen.getByLabelText('目录路径')).toHaveValue('D:/draft-project')
+    expect(screen.getByRole('button', { name: 'Codex', pressed: true })).toBeInTheDocument()
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+  })
   it('running desktop Enter queues, modifier Enter steers and Shift/IME Enter never sends', async () => {
     testRuntime.chat.running = true
     mountChat()

@@ -1448,7 +1448,10 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             <Package className="size-4" /> <span className="hidden sm:inline">团队依赖</span>
           </Button>
           {/* 其余功能收进「更多」菜单，每项带中文标签，避免一排没标识的图标 */}
-          <SessionToolsMenu open={headerMenu} mockMode={mockMode} onOpenChange={setHeaderMenu} triggerRef={sessionToolsTriggerRef}>
+          <SessionToolsMenu open={headerMenu} mockMode={mockMode} onOpenChange={open => {
+            setHeaderMenu(open)
+            if (open) setPanel(current => current === 'new' ? 'none' : current)
+          }} triggerRef={sessionToolsTriggerRef}>
                   <div className="border-b pb-1 md:hidden">
                     <HeaderMenuItem icon={<Plus className="size-4" />} label="新建会话" onClick={() => { setHeaderMenu(false); setPanel('new') }} />
                     <HeaderMenuItem icon={<List className="size-4" />} label="会话列表" onClick={() => { setHeaderMenu(false); setPanel('sessions') }} />
