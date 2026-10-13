@@ -21,6 +21,27 @@ The system SHALL request native App Server predictions only after a successful o
 - **AND** after closure is confirmed, the failed prediction barrier is removed and subsequent consecutive messages can start normally
 - **AND** concurrent closure checks share one wait and unrelated errors are not swallowed
 
+#### Scenario: A prediction is replaced during cancellation
+- **WHEN** cancellation is waiting for a prior prediction and another prediction replaces it
+- **THEN** cancellation also releases or prevents the replacement before permitting a subsequent main turn
+
+### Requirement: Confirm App Server process release across client operations
+The Sidecar SHALL observe native close from process creation and drain remaining stdout and stderr after protocol handling ends for main turns, predictions and one-shot queries.
+
+#### Scenario: Exit precedes output closure
+- **WHEN** a wrapper exits while buffered output or inherited child pipes remain open
+- **THEN** exit code alone does not release its writer, and pending protocol output receives a bounded drain window
+- **AND** close observed before a later wait remains valid evidence of release
+
+#### Scenario: Main turn cleanup fails before subsequent sends
+- **WHEN** a main turn cannot confirm process closure after its bounded cleanup attempt
+- **THEN** the failure remains visible and subsequent sends through the same session or native-thread identity are blocked before spawning another process
+- **AND** original process closure releases the barrier for future sends without automatically replaying an accepted turn
+
+#### Scenario: One-shot query cleanup fails
+- **WHEN** a one-shot capability query receives a result or RPC error but cannot confirm process closure
+- **THEN** the operation reports cleanup failure with any original RPC error retained instead of returning a successful result
+
 ### Requirement: Accept a suggestion into the current draft
 The interface SHALL show a native suggestion as light gray text only for an empty, idle composer in its matching session and source turn.
 

@@ -4,6 +4,8 @@ import { resolve } from 'node:path'
 import { createCodexPredictionProcess } from './codexAppServer.js'
 import { configuredMcpServerNames } from './codexSecurity.js'
 import { CodexPredictionCleanupError } from './codexPredictionCleanup.js'
+import { observeCodexProcess } from './codexProcessLifetime.js'
+import { jsonLineWriter } from './jsonLineWriter.js'
 
 export interface CodexPredictionOptions {
   sessionId: string
@@ -72,12 +74,15 @@ export class CodexPredictionCoordinator {
 
   async cancel(threadId: string | undefined, codexHome?: string): Promise<void> {
     if (!threadId) return
-    const task = this.tasks.get(predictionKey(threadId, codexHome))
-    if (!task) return
-    task.controller.abort()
-    await this.release(task.promise)
     const key = predictionKey(threadId, codexHome)
-    if (this.tasks.get(key) === task) this.tasks.delete(key)
+    // A newer prediction may replace the task while its predecessor is closing.
+    while (true) {
+      const task = this.tasks.get(key)
+      if (!task) return
+      task.controller.abort()
+      await this.release(task.promise)
+      if (this.tasks.get(key) === task) this.tasks.delete(key)
+    }
   }
 
   private async release(promise: Promise<void>): Promise<void> {
@@ -103,6 +108,7 @@ export async function readCodexPrediction(
     return null
   }
   const { child } = auxiliary
+  const lifetime = observeCodexProcess(child)
   const lines = createInterface({ input: child.stdout })
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
   let nextId = 0
@@ -124,15 +130,17 @@ export async function readCodexPrediction(
     const id = ++nextId
     return new Promise((resolveRequest, reject) => {
       pending.set(id, { resolve: resolveRequest, reject })
-      child.stdin.write(JSON.stringify({ id, method, params }) + '\n', error => { if (error) finish() })
+      send({ id, method, params })
     })
   }
+  const send = jsonLineWriter(child.stdin, () => finish(), () => settled)
   const timer = setTimeout(() => finish(), runtime.timeoutMs)
   timer.unref?.()
   const onAbort = () => finish()
   signal.addEventListener('abort', onAbort, { once: true })
-  child.stdin.on('error', () => finish())
   child.stderr.resume()
+  child.stderr.on('error', () => finish())
+  lines.on('error', () => finish())
   child.once('error', () => finish())
   child.once('close', () => finish())
   lines.on('line', line => {
@@ -150,13 +158,13 @@ export async function readCodexPrediction(
       const result = parseCodexPrediction((event.params ?? {}) as Record<string, unknown>, options.threadId, options.sourceTurnId)
       if (result) finish(result.text)
     } else if (event.method && event.id != null) {
-      child.stdin.write(JSON.stringify({ id: event.id, error: { code: -32601, message: 'Prediction does not execute tools' } }) + '\n')
+      send({ id: event.id, error: { code: -32601, message: 'Prediction does not execute tools' } })
     }
   })
   try {
     await request('initialize', { clientInfo: { name: 'kai_toolbox_prediction', version: '0.1.0' }, capabilities: { experimentalApi: true } })
     if (settled) return null
-    child.stdin.write(JSON.stringify({ method: 'initialized', params: {} }) + '\n')
+    send({ method: 'initialized', params: {} })
     const config = { ...options.config }
     const servers = new Set(configuredMcpServerNames(options.codexHome))
     const sessionServers = config.mcp_servers && typeof config.mcp_servers === 'object'
@@ -180,10 +188,7 @@ export async function readCodexPrediction(
     finish()
     clearTimeout(timer)
     signal.removeEventListener('abort', onAbort)
-    lines.close()
-    // readline.close() pauses stdout; drain trailing output so EOF can deliver close.
-    // Keep the native close check: exitCode alone does not prove inherited pipes released.
-    child.stdout.resume()
+    lifetime.drain(lines)
     await auxiliary.close()
   }
 }

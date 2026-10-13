@@ -202,6 +202,38 @@ test('unexpected runner failures remain visible and cannot unlock another writer
   await assert.rejects(coordinator.cancel('native-thread', options().codexHome), error => error === failure)
 })
 
+test('cancellation also releases a prediction replaced while its predecessor is closing', async () => {
+  let finishFirst!: (value: string | null) => void
+  let replacementStarted = false
+  let replacementAborted = false
+  const coordinator = new CodexPredictionCoordinator(async (input, signal) => {
+    if (input.sourceTurnId === 'turn-one') return new Promise(resolve => { finishFirst = resolve })
+    replacementStarted = true
+    return new Promise(resolve => {
+      signal.addEventListener('abort', () => { replacementAborted = true; resolve(null) })
+    })
+  })
+  coordinator.start(options())
+  const cancellation = coordinator.cancel('native-thread', options().codexHome)
+  coordinator.start({ ...options(), sourceTurnId: 'turn-two' })
+  finishFirst(null)
+  await cancellation
+  await new Promise(resolve => setImmediate(resolve))
+  try {
+    // The replacement either never starts or must be cancelled before returning.
+    assert.equal(replacementStarted, replacementAborted)
+  } finally { await coordinator.cancel('native-thread', options().codexHome) }
+})
+
+test('prediction stdin failure is optional but cleanup failure still blocks the next send', async () => {
+  const fake = fakeProcess(() => {})
+  fake.child.stdin.end()
+  const failure = new Error('cleanup remains unconfirmed')
+  await assert.rejects(readCodexPrediction(options(), new AbortController().signal, {
+    open: () => ({ child: fake.child, close: async () => { throw failure } }), timeoutMs: 100,
+  }), error => error === failure)
+})
+
 test('consecutive predictions drain trailing native output before releasing their writer', async () => {
   let mainTurns = 0
   for (let turn = 0; turn < 2; turn++) {

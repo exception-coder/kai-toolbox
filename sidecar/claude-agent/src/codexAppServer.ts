@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
 import { createPredictionClose } from './codexPredictionCleanup.js'
+import { codexCleanupBarriers, observeCodexProcess } from './codexProcessLifetime.js'
 import { jsonLineWriter } from './jsonLineWriter.js'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
@@ -463,16 +464,13 @@ function forceStop(child: ChildProcessWithoutNullStreams): void {
   child.kill()
 }
 
-function waitForProcessClose(child: ChildProcessWithoutNullStreams): Promise<boolean> {
-  if (child.exitCode != null) return Promise.resolve(true)
-  return new Promise(resolveClose => {
-    const timer = setTimeout(() => resolveClose(false), PROCESS_CLOSE_TIMEOUT_MS)
-    timer.unref?.()
-    child.once('close', () => {
-      clearTimeout(timer)
-      resolveClose(true)
-    })
-  })
+const appServerRuntime = {
+  open: (codexHome?: string): ChildProcessWithoutNullStreams => spawn(
+    process.execPath, [codexCliEntrypoint(), 'app-server', '--stdio'],
+    { env: appServerEnv(codexHome), stdio: 'pipe', windowsHide: true },
+  ),
+  stop: forceStop,
+  closeTimeoutMs: PROCESS_CLOSE_TIMEOUT_MS,
 }
 
 function isReasoningEffort(value: unknown): value is string {
@@ -507,17 +505,11 @@ export function callAppServer(
   method: string,
   params: Record<string, unknown>,
   codexHome?: string,
+  runtime = { ...appServerRuntime, closeTimeoutMs: 2_000 },
 ): Promise<JsonRpcResult> {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(
-      process.execPath,
-      [codexCliEntrypoint(), 'app-server', '--stdio'],
-      {
-        env: appServerEnv(codexHome),
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
-      },
-    )
+    const child = runtime.open(codexHome)
+    const lifetime = observeCodexProcess(child)
     const lines = createInterface({ input: child.stdout })
     let stderr = ''
     let settled = false
@@ -526,10 +518,14 @@ export function callAppServer(
       if (settled) return
       settled = true
       clearTimeout(timer)
-      lines.close()
-      forceStop(child)
-      if (error) rejectPromise(error)
-      else resolvePromise(result ?? {})
+      lifetime.drain(lines)
+      void waitForManagedProcessRelease(() => closeInput(child),
+        () => lifetime.wait(runtime.closeTimeoutMs), () => runtime.stop(child)).then(() => {
+        if (error) rejectPromise(error)
+        else resolvePromise(result ?? {})
+      }, cleanupError => rejectPromise(new Error(`Codex ${method} 进程清理失败`, {
+        cause: new AggregateError([...(error ? [error] : []), cleanupError]),
+      })))
     }
 
     const send = jsonLineWriter(child.stdin, error => finish(error), () => settled)
@@ -544,11 +540,16 @@ export function callAppServer(
       stderr = (stderr + String(chunk)).slice(-4000)
     })
     child.on('error', error => finish(error))
-    child.on('exit', code => {
-      if (!settled) {
-        const detail = stderr.trim()
-        finish(new Error(`Codex App Server 异常退出（${code ?? 'unknown'}）${detail ? `：${detail}` : ''}`))
-      }
+    lines.on('error', error => finish(error))
+    child.stderr.on('error', error => finish(error))
+    child.once('exit', code => {
+      // Exit can precede the final buffered RPC response; wait for pipe closure.
+      void lifetime.wait(runtime.closeTimeoutMs).then(() => {
+        if (!settled) {
+          const detail = stderr.trim()
+          finish(new Error(`Codex App Server 异常退出（${code ?? 'unknown'}）${detail ? `：${detail}` : ''}`))
+        }
+      })
     })
 
     lines.on('line', line => {
@@ -558,6 +559,7 @@ export function callAppServer(
       } catch {
         return
       }
+      if (!message || typeof message !== 'object' || Array.isArray(message)) return
       if (message.id === 0) {
         if (message.error) {
           finish(new Error(message.error.message ?? 'Codex App Server 初始化失败'))
@@ -690,21 +692,15 @@ export async function waitForManagedProcessRelease(
 }
 
 /** A bounded auxiliary process; close resolves only after its native writer is released. */
-export function createCodexPredictionProcess(codexHome?: string) {
-  const child = spawn(process.execPath, [codexCliEntrypoint(), 'app-server', '--stdio'], {
-    env: appServerEnv(codexHome), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
-  })
+export function createCodexPredictionProcess(codexHome?: string, runtime = { ...appServerRuntime, closeTimeoutMs: 2_000 }) {
+  const child = runtime.open(codexHome)
+  const lifetime = observeCodexProcess(child)
   let closed = false
   child.once('close', () => { closed = true })
-  const waitForPredictionClose = () => closed ? Promise.resolve(true) : new Promise<boolean>(resolveClose => {
-    const onClose = () => { clearTimeout(timer); resolveClose(true) }
-    const timer = setTimeout(() => { child.removeListener('close', onClose); resolveClose(false) }, 2_000)
-    timer.unref?.()
-    child.once('close', onClose)
-  })
+  const waitForPredictionClose = () => lifetime.wait(runtime.closeTimeoutMs)
   const close = createPredictionClose(
     () => waitForManagedProcessRelease(
-      () => closeInput(child), waitForPredictionClose, () => forceStop(child),
+      () => closeInput(child), waitForPredictionClose, () => runtime.stop(child),
     ),
     waitForPredictionClose,
     () => ({ pid: child.pid, closed, exitCode: child.exitCode, signalCode: child.signalCode }),
@@ -767,12 +763,12 @@ export async function deleteCodexThread(threadId: string, codexHome?: string): P
  * 通过 App Server 执行一轮并转换客户端级流式事件。
  * 每轮独立进程使 Auth 目录天然隔离；轮次完成后先关闭 stdin 等待自然退出，异常时才强制清理进程树。
  */
-export async function runCodexAppServerTurn(options: AppServerTurnOptions): Promise<void> {
-  const child = spawn(process.execPath, [codexCliEntrypoint(), 'app-server', '--stdio'], {
-    env: appServerEnv(options.codexHome),
-    stdio: ['pipe', 'pipe', 'pipe'],
-    windowsHide: true,
-  })
+export async function runCodexAppServerTurn(options: AppServerTurnOptions, runtime = appServerRuntime): Promise<void> {
+  options.signal.throwIfAborted()
+  await codexCleanupBarriers.verify(options.sessionId, options.threadId, options.codexHome, runtime.closeTimeoutMs)
+  options.signal.throwIfAborted()
+  const child = runtime.open(options.codexHome)
+  const lifetime = observeCodexProcess(child)
   const lines = createInterface({ input: child.stdout })
   const pending = new Map<number, PendingRequest>()
   let nextId = 1
@@ -810,8 +806,8 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     if (reconnectDeadline) clearTimeout(reconnectDeadline)
     if (finalizingRecheck) clearTimeout(finalizingRecheck)
     if (completionReconcile) clearTimeout(completionReconcile)
-    lines.close()
-    if (force) forceStop(child)
+    lifetime.drain(lines)
+    if (force) runtime.stop(child)
     else closeInput(child)
   }
   const failPending = (error: Error) => {
@@ -1029,10 +1025,14 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', chunk => { stderr = (stderr + String(chunk)).slice(-4000) })
     child.on('error', finishError)
-    child.on('exit', code => {
-      if (finished) return
-      const detail = stderr.trim()
-      finishError(new Error(`Codex App Server 异常退出（${code ?? 'unknown'}）${detail ? `：${detail}` : ''}`))
+    lines.on('error', finishError)
+    child.stderr.on('error', finishError)
+    child.once('exit', code => {
+      void lifetime.wait(runtime.closeTimeoutMs).then(() => {
+        if (finished) return
+        const detail = stderr.trim()
+        finishError(new Error(`Codex App Server 异常退出（${code ?? 'unknown'}）${detail ? `：${detail}` : ''}`))
+      })
     })
 
     lines.on('line', line => {
@@ -1358,7 +1358,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       if (!turnId) throw new Error('Codex App Server turn/start 未返回 turn id')
       const activeThreadId = threadId
       const activeTurnId = turnId
-      activeCodexTurns.set(options.sessionId, {
+      if (!finished) activeCodexTurns.set(options.sessionId, {
         steer: async input => {
           await request('turn/steer', {
             threadId: activeThreadId,
@@ -1375,14 +1375,14 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     // 同一原生 thread 只允许一个 writer。业务终态不能早于受管进程退出对外释放队列。
     const release = await waitForManagedProcessRelease(
       () => closeInput(child),
-      () => waitForProcessClose(child),
-      () => forceStop(child),
+      () => lifetime.wait(runtime.closeTimeoutMs),
+      () => runtime.stop(child),
     )
     if (release === 'forced') {
       options.emit({
         type: 'warning',
         code: 'CODEX_APP_SERVER_CLEANUP_TIMEOUT',
-        message: `Codex App Server 轮次已完成，但进程树在 ${PROCESS_CLOSE_TIMEOUT_MS}ms 内未自然退出，已执行兜底清理。`,
+        message: `Codex App Server 轮次已完成，但进程树在 ${runtime.closeTimeoutMs}ms 内未自然退出，已执行兜底清理。`,
       })
     }
     options.emit(terminalEvent)
@@ -1390,7 +1390,8 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     options.voice?.reportFailure(error instanceof Error ? error.message : String(error))
     cleanup(true)
     failPending(error instanceof Error ? error : new Error(String(error)))
-    if (!await waitForProcessClose(child)) {
+    if (!await lifetime.wait(runtime.closeTimeoutMs)) {
+      codexCleanupBarriers.retain(lifetime, options.sessionId, threadId, options.codexHome)
       throw new CodexAppServerTurnError(
         `Codex App Server 进程树清理超时，已阻止自动重试以避免重复执行：${error instanceof Error ? error.message : String(error)}`,
         false,
@@ -1398,6 +1399,9 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     }
     if (error instanceof CodexAppServerTurnError) throw error
     throw new CodexAppServerTurnError(error instanceof Error ? error.message : String(error), !turnAccepted && !emittedActivity)
+  } finally {
+    // A terminal notification can overtake a background reconciliation RPC.
+    failPending(new Error('Codex App Server 轮次已结束'))
   }
 }
 
