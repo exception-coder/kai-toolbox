@@ -18,21 +18,21 @@ function useBottomAlignment(sessionKey: string) {
     scrollerRef.current = element instanceof HTMLElement ? element : null
   }, [])
   const settleJump = useCallback(() => {
-    if (!followingHeightRef.current) return
-    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+    if (!followingHeightRef.current || frameRef.current !== null) return
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = null
       const scroller = scrollerRef.current
-      if (scroller && followingHeightRef.current) {
-        scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'instant' })
+      if (scroller && followingHeightRef.current
+        && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop > 1) {
+        // 尺寸测量、重试和滚动都由虚拟列表持有，不能再用 DOM scrollTo 抢写位置。
+        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
       }
     })
   }, [])
   const scrollToLatest = useCallback(() => {
     followingHeightRef.current = true
     virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
-    settleJump()
-  }, [settleJump])
+  }, [])
   const cancelAlignment = useCallback(() => {
     followingHeightRef.current = false
     if (frameRef.current !== null) { cancelAnimationFrame(frameRef.current); frameRef.current = null }
@@ -58,9 +58,10 @@ function useBottomAlignment(sessionKey: string) {
 /** 最新消息导航先确认数据，再在提交后的列表中定位；上滑或切换会话撤销定位意图。 */
 export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoading, historyError, onLoadLatest }: Options) {
   const alignment = useBottomAlignment(sessionKey)
-  const { virtuosoRef, scrollToLatest, cancelAlignment, settleJump } = alignment
+  const { scrollToLatest, cancelAlignment } = alignment
   const generationRef = useRef(0)
   const followingRef = useRef(true)
+  const alignedItemRef = useRef<string | undefined>(undefined)
   const [atBottom, setAtBottom] = useState(true)
   const [navigation, setNavigation] = useState<'loading' | 'ready' | 'error' | null>(null)
 
@@ -74,6 +75,7 @@ export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoad
   useLayoutEffect(() => {
     generationRef.current += 1
     followingRef.current = true
+    alignedItemRef.current = undefined
     setAtBottom(true)
     setNavigation(null)
     return () => {
@@ -86,10 +88,12 @@ export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoad
     if (navigation === 'ready') {
       if (historyError) { setNavigation('error'); return }
       followingRef.current = true
+      alignedItemRef.current = lastItemId
       scrollToLatest()
       setNavigation(null)
-    } else if (!navigation && followingRef.current && lastItemId) {
+    } else if (!navigation && followingRef.current && lastItemId && alignedItemRef.current !== lastItemId) {
       // 最近页替换往往仍是 30 条，Virtuoso 按条数跟随不会处理这种更新。
+      alignedItemRef.current = lastItemId
       scrollToLatest()
     }
   }, [sessionKey, lastItemId, historyLoading, historyError, navigation, scrollToLatest])
@@ -110,10 +114,8 @@ export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoad
   const onBottomStateChange = useCallback((bottom: boolean) => {
     setAtBottom(bottom)
     if (bottom) followingRef.current = true
-    // 虚拟列表更新尺寸后仍可能回退位置；离底事件本身不代表用户上滑。
-    // 只有保留贴底意图时补齐，用户滚轮、触屏或导航已经通过 cancelJump 撤销。
-    else settleJump()
-  }, [settleJump])
+    // 这里只报告位置，不以滚动结果再次驱动滚动；尺寸变化才触发补齐。
+  }, [])
 
   return { ...alignment, jumpToBottom, cancelJump, atBottom, onBottomStateChange,
     loadingLatest: navigation === 'loading' || (navigation === 'ready' && !!historyLoading),

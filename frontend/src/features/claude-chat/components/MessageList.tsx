@@ -230,14 +230,11 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     const prevArr = prevItemsRef.current
     const prevLen = prevArr.length
     const newLen = visibleItems.length
-    if (newLen > prevLen) {
-      const prevLastId = prevArr[prevLen - 1]?.id
-      const newLastId = visibleItems[newLen - 1]?.id
-      // 末尾 id 不变 = 新增的都在前面 = prepend（上拉加载更早历史）；末尾 id 变了 = append（新消息）。
-      if (prevLen === 0 || prevLastId === newLastId) {
-        setFirstItemIndex(idx => idx - (newLen - prevLen))
-      }
-    }
+    // 用重叠消息保持绝对索引：最近页会裁掉前缀，分页也可能同时收到末尾新消息。
+    const prepended = prevLen === 0 ? newLen : visibleItems.findIndex(item => item.id === prevArr[0].id)
+    const removed = prevArr.findIndex(item => item.id === visibleItems[0]?.id)
+    if (prepended > 0) setFirstItemIndex(idx => idx - prepended)
+    else if (removed > 0) setFirstItemIndex(idx => idx + removed)
     prevItemsRef.current = visibleItems
   }
 
