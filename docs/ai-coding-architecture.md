@@ -24,6 +24,17 @@
 
 这是 Agent 的交付约定；当前没有新增能够自动证明文档语义同步的 CI 检查器。
 
+## Team Standards 默认引导边界
+
+Team Standards 4.11.0 保留 change-readiness 与 delivery-verification 作为方法引导，默认不再注册 SessionStart、规格/就绪检查和交付 Stop 链。普通项目不因安装插件就需要 Forge 绑定、兼容治理记录或机器 PASS；缺失材料允许继续可确认工作，验证失败和未执行仍如实报告。下文 Forge 执行流程适用于项目明确采用 Forge 的场景；项目自有宿主权限、CI 和执行门禁不由插件升级取消。历史适配器及治理 CLI 仅供项目显式接入。
+
+```mermaid
+flowchart LR
+    REQUEST["已授权开发任务"] --> GUIDE["Skill 引导与适用验证"]
+    GUIDE --> REPORT["交付实际结果及未验证项"]
+    REQUEST -->|"项目明确采用"| FORGE["Forge 独立执行策略"]
+```
+
 ## 四层工程职责与维护入口
 
 Constitution 管 Agent 如何思考；Skill 管任务如何操作；Forge 管上下文候选、状态、策略和确定性约束；Hook/MCP 连接具体宿主。全局认知原则保持简短，仓库入口仍保留项目命令和约束。Agent 提交语义判断与证据，Forge 不把结构检查当成业务理解或人工批准。
@@ -73,7 +84,7 @@ Java 自动监督的规格严格预检与后续治理阶段同时服从此开关
 
 遗留写入会话无法恢复且不满足自动完成回收时，Forge 提供只读 `inspect_execution_writer` 与显式 `abort_execution`。查询返回全部活跃执行；只有单个执行时保留兼容的 `writer` 字段。中止按 executionId 复核原会话、分支、HEAD 和该执行范围，在原记录留下具名原因及状态，只释放目标模块写入绑定；不把中止当作完成、验证或提交。此入口不改变 Hook 的普通 Stop 语义。
 
-项目编码门禁启用时，绑定执行的拒绝始终 block；未绑定旧规格流程保留 warn/block 配置。v2 连接失败时绑定未知，默认失败关闭；显式 failure=warn 或 off 不提供故障阻断保证。协议不匹配要求升级，不静默选择另一套治理。Delta 执行暂时继续要求旧设计/审阅证据检查，这属于兼容验证，尚未迁移为 Forge 原生设计内容检查器。历史绑定与 PASS 不自动升级。
+项目编码门禁启用时，绑定执行的拒绝始终 block；未绑定旧规格流程保留 warn/block 配置。v2 连接失败时绑定未知，默认失败关闭；显式 failure=warn 或 off 不提供故障阻断保证。协议不匹配要求升级，不静默选择另一套治理。Delta 执行暂时继续要求旧设计/审阅证据检查，这属于兼容验证，尚未迁移为 Forge 原生设计内容检查器。历史绑定与 PASS 不自动升级。兼容治理入口通过 Forge `session_init` 获取当前真实写入执行，以项目、真实会话及 change 选择设计准备与绑定记录；仅同 change 可复用旧单会话记录，跨 change 不覆盖、不继承 PASS。Agent 在自动推进切换后核对三者身份，按证据更新当前计划并修复绑定，设计检查通过后续跑；工具不替 Agent 决定设计内容或认领不明归属改动。
 
 以上描述源码协议；插件安装、新会话加载、宿主事件触发和运行服务更新分别验收。无 SessionStart 接线时通过 Agent 主动调用启动入口。任意 Shell 副作用仍需要宿主权限/沙箱覆盖。本轮不新增夜间整合、默认 block 或自动重启。
 
@@ -181,6 +192,8 @@ flowchart TD
 迁移类开发 task 未明确要求目标库实测时，可用 H2 MySQL 模式实际执行、静态清单、定向应用测试及装配证据判定开发完成；MySQL/MariaDB 真实迁移和升级路径仍记录为发布前未执行项。Forge 的每轮指令不把缺少 Docker 或目标库变成开发停止条件，也不把 H2 证据描述成目标库通过。明确写入目标库验收的规格必须由负责人修订或按原条件执行。
 
 自动推进统一按“编码与本地基准测试 → 开发任务收口 → 生产验证清单 → 人工生产操作”执行。生产部署、真实数据库迁移及升级、生产调度启用等不作为普通开发任务的隐含完成条件；本地实现和适用回归通过后可收口开发 task，并将生产项集中记录为最终未执行清单，由人工在开发完成后执行。旧规格若混写两类条件，须先维护任务边界，不能直接勾选缺少本地实现的任务，也不能将开发完成称为生产验收或发布完成。Runtime 仍以 OpenSpec 勾选状态推进，不自动执行生产操作。
+
+本地 Java 回归通过项目 `.forge/verify.yml` 的 `maven-test` 场景接入现有质量门禁：Application 注入真实项目路径，Runtime SPI 固定执行指定模块的 Maven test，并核验本次唯一标识的 Surefire 报告。每个指定模块必须有实际执行且无失败的测试；退出失败、超时、全部跳过或旧报告不通过。配置选择本地用例，目标库兼容性测试单列人工验收。该能力执行项目构建，不是进程沙箱；新后端监督接入仍待加载与运行验收。
 
 OpenSpec 的纯人工生产任务在描述首部标记 `[MANUAL_PRODUCTION]`。Runtime 保留其未完成事实，派发时跳过该项并继续后续开发 task；开发项完成后执行本地质量门禁和严格规格校验。单项返回 `PRODUCTION_HANDOFF_REQUIRED` 时，批次调度先持久暂留人工清单，对其余已绑定规格重新读取和严格预检，包括先前因依赖而暂留的规格；有开发任务则继续，旧阻塞由 Agent 重新核对，写入仍须授权。只有批次已无可执行开发项才统一进入人工交接，不自动勾选或归档。未标记任务仍按原顺序执行；混合任务须先拆分，不能根据自然语言或环境失败自动把本地实现归为人工任务。必要实现采用探索后推荐的可逆默认方案，通过配置或策略接口保留切换点，并将假设、证据、风险与后续确认记录在当前规格；确认前不把来源事实说成已验证。
 
@@ -378,11 +391,41 @@ Forge 开发 MCP 提供 Requirement 级召回、具名 Agent 决策、Delta 和�
 
 ### 执行恢复的存储边界
 
+兼容设计绑定的开发恢复与交付验收分阶段处理。Team Standards 4.10.11 的 `recover-writer` 面向真实 writer 已有未提交改动、当前 task 未完成且缺少兼容绑定的状态：通过公开 `session_init` 与 `inspect_execution_writer` 核对原会话、当前 change、分支、HEAD、精确文件及并行归属；Agent 重新审阅当前设计与输入后，保留原始起点和恢复审计，建立当前开发检查点，再 bind/preflight。它不释放或接管 writer、不补造历史 PASS、不关闭 task；提交交付仍需适用的真实验证与 delivery。已验证并提交的切片继续使用 resume。
+
+Runtime 已进入 `WAITING_USER` 时，进度上报的 HTTP 409 是状态冲突。用户已授权恢复且版本与绑定核验完成后，通过宿主监督面板或带当前 expectedVersion 的 resume 动作恢复原运行，重新读取实际插件版本并继续原 task。不得通过循环上报、删除会话、手改缓存或伪造新身份绕过状态与归属检查。
+
+共享分支的独立外部提交使用 4.10.12 的 `--external-commit` 逐个完整 SHA 声明并审阅。入口验证线性提交链，拒绝触及当前 writer 模块/文件、change、设计输入或 registry 的提交；外部文件不认领、不继承 PASS，SHA 与文件单列审计。未声明或混合归属的提交继续阻断。
+
+4.10.13 的 `resume-writer` 补齐已有兼容绑定、HEAD 已推进、当前任务尚未完成的开发续接。它保留原绑定和证据审计，核对当前 writer、完整提交范围与当前审阅；已绑定且干净的历史文件可保留，未提交改动仍需当前写入权。准备检查点通过后执行正式设计 upsert；输入变化须重新审阅及续接，再 bind/preflight。绑定消费核验过的检查点并清空交付指针，不能将开发恢复当作 delivery PASS。
+
+规范 `governance-evidence.json` 是当前 change 的输出，保留在文件归属范围中，但从自身源输入摘要中排除，避免 record 后立即自判过期。其他 JSON、业务源码、设计与规格仍校验新鲜度；规范输出也不能充当自身的审阅或验证引用，旧证据不会自动升级为当前 PASS。
+
+```mermaid
+flowchart LR
+    WR["原真实 writer + 未提交改动"] --> REVIEW["当前设计审阅 + 输入快照"]
+    REVIEW --> REC["缺绑定 recover-writer / 已绑定 resume-writer"]
+    REC --> BIND["同会话同 change bind / preflight"]
+    BIND --> RESUME["宿主恢复原监督运行"]
+    RESUME --> TASK["继续原 task / 实际验证 / delivery"]
+```
+
 完成校验与释放指针在同一 SQLite 排他事务互斥范围内执行；SQLite 只持有内部互斥，JSON 仍是执行事实来源。内部锁与任务写入权分开：进程退出释放内部锁，不等于任务完成；已记录终态的中断清理可续完。终态执行不可复活，新任务使用新执行身份。
 
 中止需核对原身份、当前分支、HEAD、工作文件和暂存区摘要；分支漂移仍可核验后中止而不改分支。新版内部锁遗留自动恢复；旧版无身份锁通过 inspect_store_lock / recover_store_lock 在操作者确认旧进程全部停止后归档并记录原因。此入口不授予重启权限，也不证明任意 Shell 写入已被隔离。最低 Node 版本为22.13；本次源码修复的部署与运行验收另行记录。
 
-Forge 运行入口同时提供 Cloudflare 本地隧道的 Node 控制（tunnel start/stop/status/check），复用工作区私有 PM2；远端域名、DNS 和凭证仍由 Cloudflare 及本机现有配置负责。隧道不默认随登录启动，不自动重启，不改变工程上下文或交付裁决。status 自动区分进程状态与固定域名首页、API 的公网回源状态；check 在未就绪时返回非零退出码，不以 PM2 online 代替公网可用。全量 Forge 停止或控制器重启后须明确重新启动隧道。固定/临时入口与网络边界见 [启动说明](../scripts/STARTUP.md#cloudflare-固定域名隧道)。
+Forge 运行入口提供 Cloudflare 本地隧道的 Node 控制（tunnel start/stop/status/check），复用工作区私有 PM2。本机显式启用 `FORGE_CLOUDFLARE_ENABLED` 后，固定域名隧道随项目启动与完整重载运行，控制器重建时恢复，PM2 对意外退出做有限次数重试；全量 stop 仍停止它。启动完成判断要求本机服务与固定域名首页、API 均可回源，status/check 区分进程与公网状态，不能以 PM2 online 代替公网可用。远端域名、DNS 和凭证仍由 Cloudflare 及本机现有配置负责；Quick Tunnel 保持手动控制，不随登录默认启动，也不改变工程上下文、Agent 重启授权或交付裁决。固定/临时入口与网络边界见 [启动说明](../scripts/STARTUP.md#cloudflare-固定域名隧道)。
+
+```mermaid
+flowchart LR
+    START["Forge start / 完整重载"] --> CTRL["Forge 控制器"]
+    CTRL --> APP["本机前后端"]
+    CTRL -->|本机显式启用| TUNNEL["PM2 固定域名隧道"]
+    TUNNEL -->|有限重试| TUNNEL
+    APP --> READY["启动等待"]
+    TUNNEL --> PUBLIC["公网首页与 API 回源"] --> READY
+    READY -->|全部可达| SUCCESS["报告启动成功"]
+```
 
 ### 分批验证与实现期证据
 
@@ -403,6 +446,7 @@ flowchart LR
     HANDOFF -->|切回标准并恢复| CHECK
     CHECK --> ACCEPT[真实通过后勾选验收]
 ```
+
 
 Runtime 的任务检查点在清理本轮报告前投影上轮候选信息，只有 run、会话、项目、仓库、分支、工作区、change、修订、generation、阶段及 task 均一致才继承；新轮持久状态清空旧 disposition，避免重复消费 COMPLETE。当前授权任务、上轮剩余项、证据和下一步有界交接，不自动修改任务完成状态。MCP 与生命周期拒绝统一附 recovery 分类和下一工具；恢复必须改变对应输入或状态，不能把原样重试当作推进。
 
