@@ -16,12 +16,14 @@ import {
 import { Button } from '@/components/ui/button'
 import { getSessionRuntimeState, listSessions, type SessionUsage } from '../api'
 import type { BackgroundTaskInfo, ChatItem, ClaudeChatSessionView, ConnState, SessionRuntimeState } from '../types'
-import { abbr, fmtMs, parseUsage } from '../lib/metrics'
+import { abbr, fmtMs, formatTime, parseUsage } from '../lib/metrics'
 import { cn } from '@/lib/utils'
 import { sessionWorkspaceLabel } from '../lib/sessionProjectGroups'
 import { useMobileDisclosure } from '../hooks/useMobileDisclosure'
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { sessionDisplayName } from '../lib/sessionDisplayName'
+import { currentActivityElapsed, hasExecutionNotice } from '../lib/mobileExecutionPresentation'
+import { useMobileViewport } from '../hooks/useMobileViewport'
 
 export type MobileSessionStatusModel = {
   kind: 'running' | 'background' | 'warning' | 'completed' | 'usage'
@@ -69,6 +71,7 @@ export function MobileSessionStatus({
   children,
 }: Props) {
   const [open, setOpen] = useMobileDisclosure(!workspace)
+  const mobile = useMobileViewport()
   const trigger = useRef<HTMLButtonElement>(null)
   const runtime = useQuery({
     queryKey: ['claude-chat-runtime-state', sessionId],
@@ -106,9 +109,14 @@ export function MobileSessionStatus({
   const label = status?.label ?? (runtime.isPending ? '正在核对会话状态…' : `${engineLabel} · 空闲`)
   const currentActivity = running ? findCurrentActivity(items) : null
   const elapsed = running ? currentActivityElapsed(items) : null
-  const summary = [label, currentActivity, workspace && elapsed != null ? fmtMs(elapsed) : null].filter(Boolean).join(' · ')
+  const summaryLabel = workspace && status?.kind === 'completed'
+    ? mobile ? '本轮完成' : 'Agent 状态'
+    : workspace && status?.kind === 'usage' ? 'Agent 状态' : label
+  const completedTime = workspace && mobile && status?.kind === 'completed' ? formatTime(findLatestResult(items)?.ts) : null
+  const summary = [summaryLabel, currentActivity, workspace && elapsed != null ? fmtMs(elapsed) : null, completedTime].filter(Boolean).join(' · ')
   const warning = status?.kind === 'warning' || Boolean(queuePausedReason)
   const active = status?.kind === 'running' || status?.kind === 'background'
+  const executionNotice = workspace && mobile && hasExecutionNotice(items, active)
   const Icon = warning ? AlertTriangle : active ? Loader2 : status?.kind === 'completed' ? CheckCircle2 : Activity
 
   return (
@@ -124,12 +132,13 @@ export function MobileSessionStatus({
             ? 'border-amber-200 bg-amber-50/90 text-amber-800 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200'
             : 'border-[var(--color-border)]/70 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]',
         )}
-        aria-label={`${summary}${queueCount ? `，队列 ${queueCount} 条${queuePausedReason ? '已暂停' : ''}` : ''}，查看运行详情`}
+        aria-label={`${summary}${executionNotice ? '，本轮有执行提示' : ''}${queueCount ? `，队列 ${queueCount} 条${queuePausedReason ? '已暂停' : ''}` : ''}，查看运行详情`}
         aria-expanded={open}
         aria-live="polite"
       >
-        <Icon className={cn('size-3.5 shrink-0', active && !warning && 'animate-spin motion-reduce:animate-none', !warning && !active && 'text-[var(--color-primary)]')} />
+        <Icon className={cn('size-3.5 shrink-0', active && !warning && 'animate-spin text-[var(--color-primary)] motion-reduce:animate-none', !warning && status?.kind === 'completed' && 'text-emerald-600 dark:text-emerald-400')} />
         <span className="min-w-0 flex-1 truncate font-medium" title={summary}>{summary}</span>
+        {executionNotice && <span className="shrink-0">执行提示</span>}
         {queueCount > 0 && <span className="shrink-0 tabular-nums">队列 {queueCount}{queuePausedReason ? ' · 已暂停' : ''}</span>}
         <ChevronUp className="size-3.5 shrink-0 opacity-60" />
       </button>
@@ -172,17 +181,6 @@ export function MobileSessionStatus({
       </Sheet>
     </div>
   )
-}
-
-function currentActivityElapsed(items: ChatItem[]): number | null {
-  for (let index = items.length - 1; index >= 0; index--) {
-    const item = items[index]
-    if (item.kind === 'result' || item.kind === 'user') break
-    if (item.kind !== 'activity' || !['inProgress', 'in_progress', 'running', 'pending', 'started'].includes(item.status)) continue
-    const value = item.data && typeof item.data === 'object' && 'elapsedMs' in item.data ? item.data.elapsedMs : null
-    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
-  }
-  return null
 }
 
 function SessionShortcuts({ title, sessions, currentId, onSelect }: {

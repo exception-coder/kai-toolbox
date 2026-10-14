@@ -1,6 +1,28 @@
 /* Coding 工作区移动呈现；不改桌面、公开评审或事件数据。 */
 @media (max-width: 767px) {
-  .cc-mobile-conversation .cc-message-row { padding: 8px 16px; }
+  /* Portal 顶部在工作区根节点之外，仅收敛 Coding 的集成标题栏。 */
+  .unified-window-titlebar:has(.cc-workspace-header-integrated) .unified-window-titlebar-brand { width: 48px; }
+  .unified-window-titlebar:has(.cc-workspace-header-integrated) .unified-window-titlebar-brand > a { display: none; }
+  .unified-window-titlebar:has(.cc-workspace-header-integrated) button[aria-label='打开导航'] {
+    width: 44px; height: 44px; margin: 0 2px; align-self: center;
+  }
+  .unified-window-titlebar:has(.cc-workspace-header-integrated) button[aria-label='打开导航'] svg { width: 20px; height: 20px; }
+  .cc-workspace-header { background: var(--color-background); backdrop-filter: none; }
+  .cc-workspace-header .cc-session-header-actions > div { border-left: 0; padding-inline: 0; }
+  .cc-workspace-header button[aria-label^='会话工具'] { min-width: 44px; min-height: 44px; }
+  .cc-mobile-coding-workspace { background: var(--color-background); }
+  .cc-mobile-coding-workspace > .cc-skin-bg { display: none; }
+  .cc-mobile-coding-workspace .cc-skin-view,
+  .cc-mobile-coding-workspace .cc-focus-composer,
+  .cc-mobile-coding-workspace .cc-chat-contextbar { background: var(--color-background); backdrop-filter: none; }
+  .cc-mobile-conversation .cc-message-row { padding: 8px 16px 12px; }
+  .cc-mobile-conversation .cc-assistant-row {
+    display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 8px; row-gap: 4px;
+  }
+  .cc-mobile-conversation .cc-assistant-content { display: contents; }
+  .cc-mobile-conversation .cc-assistant-row .cc-message-header { align-self: center; margin: 0; padding: 0; }
+  .cc-mobile-conversation .cc-assistant-row .cc-assistant-body,
+  .cc-mobile-conversation .cc-assistant-row .cc-message-actions { grid-column: 1 / -1; }
   .cc-mobile-conversation .cc-assistant-avatar {
     width: 24px; height: 24px; border: 0; border-radius: 6px;
     background: transparent; box-shadow: none;
@@ -8,10 +30,17 @@
   .cc-mobile-conversation .cc-assistant-avatar img { width: 24px; height: 24px; }
   .cc-mobile-conversation .cc-assistant-body {
     max-width: 100%; width: 100%; padding: 0; border: 0; border-radius: 0;
-    background: transparent; box-shadow: none; font-size: 14px; line-height: 1.5;
+    background: transparent; box-shadow: none; font-size: 15px; line-height: 1.5;
   }
   .cc-mobile-conversation .cc-assistant-body p { margin-block: 8px; }
-  .cc-mobile-conversation .cc-assistant-body .markdown-body { line-height: 1.5; }
+  .cc-mobile-conversation .cc-assistant-body .markdown-body { font-size: 15px; line-height: 1.5; }
+  .cc-mobile-conversation .cc-assistant-body h1,
+  .cc-mobile-conversation .cc-assistant-body h2,
+  .cc-mobile-conversation .cc-assistant-body h3 { font-size: 16px; margin-block: 16px 8px; }
+  .cc-mobile-conversation .cc-message-actions { gap: 0; opacity: 0.8; }
+  .cc-mobile-conversation .cc-session-error,
+  .cc-mobile-conversation .cc-session-warning { padding: 8px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+  .cc-mobile-conversation .cc-session-error { color: var(--color-destructive); }
   .cc-mobile-conversation .cc-assistant-body pre,
   .cc-mobile-conversation .cc-assistant-body table { max-width: 100%; overflow-x: auto; }
   .cc-mobile-conversation .cc-message-actions button,
@@ -20,9 +49,10 @@
   .cc-mobile-coding-workspace .cc-workspace-header button { min-height: 44px; min-width: 44px; }
   .cc-mobile-coding-workspace .cc-chat-contextbar { height: 44px; flex-shrink: 0; }
   .cc-mobile-coding-workspace .cc-chat-contextbar button { min-height: 44px; min-width: 44px; }
+  .cc-mobile-coding-workspace .cc-chat-contextbar button > svg { display: none; }
   .cc-mobile-coding-workspace .cc-focus-composer { flex-shrink: 0; box-shadow: none; }
   .cc-mobile-coding-workspace .mobile-composer-card {
-    min-height: 96px; margin: 0; padding: 4px 8px;
+    min-height: 88px; margin: 0; padding: 4px 12px;
     grid-template-rows: auto 44px; border: 0; border-radius: 0;
   }
   .cc-mobile-coding-workspace .mobile-composer-card textarea { display: block; max-height: min(128px, 20dvh); }

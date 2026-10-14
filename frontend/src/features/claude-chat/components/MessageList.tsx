@@ -11,11 +11,15 @@ import { abbr, cacheHitRate, fmtMs, formatTime, parseUsage } from '../lib/metric
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
+import { AssistantReply } from './messages/AssistantReply'
+import { TurnResultDetails } from './messages/TurnResultDetails'
+import { copyTextToClipboard } from '../lib/clipboard'
+import { MessageImage } from './messages/MessageImage'
 import { ImageLightbox } from './ImageLightbox'
 import { ThinkingIndicator, type ActiveTask } from './ThinkingIndicator'
 import { EngineIcon, engineIdFromDisplayName } from './EngineIcon'
 import { useMobileViewport } from '../hooks/useMobileViewport'
-import { isRoutineExecution } from '../lib/mobileExecutionPresentation'
+import { isExecutionDetail, isRoutineExecution } from '../lib/mobileExecutionPresentation'
 import * as Popover from '@radix-ui/react-popover'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import '../styles/mobile-workspace.css'
@@ -52,6 +56,8 @@ interface Props {
   showRunningFooter?: boolean
   /** 主 Coding 工作区：正常执行与指标在 Dock / 轮次详情，手机另收敛阅读布局。 */
   mobileWorkspace?: boolean
+  /** 当前轮终态与技术事件由已挂载的 Dock 承载；其他嵌入场景保留原入口。 */
+  executionInDock?: boolean
   /** 特定场景覆盖 AI 头像；加载失败自动回退引擎图标。 */
   assistantAvatarUrl?: string
   assistantAvatarAlt?: string
@@ -153,7 +159,7 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
 export const MessageList = memo(forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, mobileWorkspace = false, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge },
+  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, mobileWorkspace = false, executionInDock = false, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
@@ -162,14 +168,35 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   const hideToolCalls = useHideToolCalls()
   const mobile = useMobileViewport()
   const compactMobile = mobileWorkspace && mobile
+  const dockPresentation = compactMobile && executionInDock
+  const latestResultId = useMemo(() => {
+    if (!dockPresentation || running) return null
+    for (let index = items.length - 1; index >= 0; index--) {
+      if (items[index].kind === 'user') break
+      if (items[index].kind === 'result') return items[index].id
+    }
+    return null
+  }, [items, running, dockPresentation])
+  const liveReplyIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (!running) return ids
+    for (let index = items.length - 1; index >= 0; index--) {
+      const item = items[index]
+      if (item.kind === 'result' || item.kind === 'user') break
+      if (item.kind === 'assistant') ids.add(item.id)
+    }
+    return ids
+  }, [items, running])
   const visibleItems = useMemo(() => items.filter(item => {
+    if (dockPresentation && hideToolCalls && isExecutionDetail(item)) return false
+    if (item.id === latestResultId) return false
     if (hideToolCalls && item.kind === 'tool' && !(mobileWorkspace && item.isError)) return false
     if (mobileWorkspace && isRoutineExecution(item)) return false
     // 统一作业卡只在进行中或失败时保留；成功后由详细工具卡承载结果，避免重复占位。
     return !(item.kind === 'activity'
       && (item.activityType === 'tool' || item.activityType === 'turn')
       && item.status === 'completed')
-  }), [items, hideToolCalls, mobileWorkspace])
+  }), [items, hideToolCalls, mobileWorkspace, dockPresentation, latestResultId])
   const activeTask = useMemo<ActiveTask | null>(() => {
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const item = items[index]
@@ -267,6 +294,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     <div data-msg-id={item.id} className={cn('cc-message-row px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
       <Row item={item} onFork={onFork} engineLabel={engineLabel} onNewSession={onNewSession}
         compactMobile={compactMobile}
+        streaming={liveReplyIds.has(item.id)}
         compactMetrics={mobileWorkspace}
         sessionId={sessionKey}
         assistantAvatarUrl={assistantAvatarUrl} assistantAvatarAlt={assistantAvatarAlt}
@@ -275,7 +303,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         onOpenImage={(src, alt) => setViewer({ src, alt })}
         turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
     </div>
-  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, compactMobile, mobileWorkspace])
+  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, compactMobile, mobileWorkspace, liveReplyIds])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {
@@ -346,24 +374,6 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   )
 }))
 
-/** 剪贴板写入 + 降级（非安全上下文/旧浏览器用隐藏 textarea + execCommand），CopyButton 和
- *  TurnStatus 的「复制本轮」共用同一条路径。 */
-async function copyTextToClipboard(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return
-  } catch {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.select()
-    try { document.execCommand('copy') } catch { /* 忽略 */ }
-    document.body.removeChild(ta)
-  }
-}
-
 /** 回复下方的一键复制：复制该条 assistant 的原始文本，移动端常显。 */
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -429,7 +439,7 @@ function MsgHeader({ label, ts, align }: { label?: string; ts?: number; align: '
   const t = formatTime(ts)
   if (!label && !t) return null
   return (
-    <div className={cn('mb-0.5 flex items-center gap-1.5 px-1 text-[11px]', align === 'end' && 'flex-row-reverse')}>
+    <div className={cn('cc-message-header mb-0.5 flex items-center gap-1.5 px-1 text-[11px]', align === 'end' && 'flex-row-reverse')}>
       {label && <span className="font-medium text-[var(--color-muted-foreground)]">{label}</span>}
       {t && <time className="tabular-nums text-[var(--color-muted-foreground)] opacity-70">{t}</time>}
     </div>
@@ -457,14 +467,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
         {ok ? <Check className="size-3.5" /> : <AlertTriangle className="size-3.5" />}<span>{ok ? '此轮已完成' : '此轮异常结束'}</span>
         {time && <span className="tabular-nums">· {time}</span>}<span className="ml-auto">详情 ›</span>
       </summary>
-      <div className="space-y-2 border-t py-3 text-xs">
-        <p>结束原因：{item.stopReason}</p>
-        {u && <p>Token {abbr(u.total)} · 输入 {abbr(u.input)} · 输出 {abbr(u.output)}{u.cache > 0 ? ` · 缓存读 ${abbr(u.cacheRead)} / 写 ${abbr(u.cache - u.cacheRead)}` : ''}</p>}
-        {hit != null && <p>缓存命中率 {Math.floor(hit * 100)}%</p>}
-        {item.latencyMs != null && <p>耗时 {fmtMs(item.latencyMs)}{item.ttftMs != null ? ` · 首字 ${fmtMs(item.ttftMs)}` : ''}</p>}
-        {turnText && <button type="button" className="min-h-11 px-2 underline" onClick={copyTurn}>{copied ? '已复制' : '复制本轮'}</button>}
-        {sessionId && item.turnId && <button type="button" className="min-h-11 px-2 underline" onClick={() => setChangesOpen(true)}>本轮变更</button>}
-      </div>
+      <div className="border-t py-3"><TurnResultDetails item={item} turnText={turnText} sessionId={sessionId} /></div>
     </details>
     {changesOpen && sessionId && item.turnId && <TurnChangesDialog sessionId={sessionId} turnId={item.turnId} open onOpenChange={setChangesOpen} />}
   </div>
@@ -517,7 +520,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
   )
 }
 
-function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean }) {
+function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics, streaming }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean; streaming?: boolean }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -546,12 +549,11 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
                   item.attachments.filter(a => a.url && a.mime?.startsWith('image/')).length >= 2 && 'grid grid-cols-2',
                 )}>
                   {item.attachments.filter(a => a.url && a.mime?.startsWith('image/')).map((a, i) => (
-                    <img
-                      key={i}
-                      src={a.url}
+                    <MessageImage
+                      key={`${i}:${a.url}`}
+                      src={a.url!}
                       alt={a.name}
-                      title={`${a.name}（点击查看大图）`}
-                      onClick={() => onOpenImage?.(a.url!, a.name)}
+                      onOpen={onOpenImage}
                       className={cn(
                         'cursor-zoom-in rounded-xl border border-[var(--color-border)] object-cover transition-opacity hover:opacity-90',
                         item.attachments!.filter(a => a.url && a.mime?.startsWith('image/')).length === 1
@@ -612,10 +614,10 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
             <AssistantIdentityIcon avatarUrl={assistantAvatarUrl} alt={assistantAvatarAlt ?? engineLabel}
               engineLabel={engineLabel} />
           </div>
-          <div className="flex min-w-0 flex-1 flex-col items-start">
+          <div className="cc-assistant-content flex min-w-0 flex-1 flex-col items-start">
             <MsgHeader label={engineLabel} ts={item.ts} align="start" />
             <div className="cc-assistant-body max-w-[90%] min-w-0 wrap-anywhere rounded-2xl border border-[var(--color-border)]/70 bg-[var(--color-card)] px-4 py-2 text-[var(--color-card-foreground)] shadow-sm">
-              <Markdown text={item.text} className="min-w-0" sessionId={sessionId} />
+              <AssistantReply text={item.text} sessionId={sessionId} compact={compactMobile} streaming={streaming} />
             </div>
             {item.text.trim() && (
               <div className="cc-message-actions flex items-center gap-1">
@@ -647,7 +649,7 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
       return <TurnStatus item={item} turnText={turnText} sessionId={sessionId} compactMobile={compactMobile || compactMetrics} />
     case 'warning':
       return (
-        <div className="flex max-w-full items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        <div className="cc-session-warning flex max-w-full items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span className="min-w-0 break-words">{item.message}</span>
         </div>
@@ -659,7 +661,7 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
       // 只能分叉到出错前（丢掉中毒回合）才能续。识别后主推「清理异常并继续」。
       const isPoisoned = !isPermanentlyLost && /signature in thinking block|invalid signature/i.test(item.message ?? '')
       return (
-        <div className={cn('flex max-w-full flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm',
+        <div className={cn('cc-session-error flex max-w-full flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm',
           isPermanentlyLost
             ? 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
             : 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200',

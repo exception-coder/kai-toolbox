@@ -1,5 +1,8 @@
-import { FileText, Gauge, LayoutGrid, ListChecks, MessageSquare, NotebookPen, Route, Share2 } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Check, ChevronDown, FileText, Gauge, LayoutGrid, ListChecks, MessageSquare, NotebookPen, Route, Share2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { useMobileViewport } from '../hooks/useMobileViewport'
 import { SessionViewMore, type SecondarySessionViewOption } from './SessionViewMore'
 
 export type SessionView = 'conversation' | 'trajectory' | 'autopilot' | 'autopilot_detail'
@@ -12,11 +15,10 @@ interface Props {
   documentTitle?: string
   siteCount: number
   pendingReviewCount?: number
+  desktopOnly?: boolean
 }
 
-/** 会话内视图导航；只展示和选择，数据及执行仍由原工作区持有。 */
-export function SessionViewTabs({ view, onSelect, hasSession, documentTitle, siteCount, pendingReviewCount }: Props) {
-  const current = view === 'autopilot_detail' ? 'autopilot' : view
+function viewOptions({ documentTitle, siteCount, pendingReviewCount }: Pick<Props, 'documentTitle' | 'siteCount' | 'pendingReviewCount'>) {
   const hasReview = pendingReviewCount != null
   const reviewLabel = pendingReviewCount ? '评审 ' + pendingReviewCount : '评审'
   const primary = [
@@ -34,8 +36,15 @@ export function SessionViewTabs({ view, onSelect, hasSession, documentTitle, sit
     { id: 'usage', label: '用量', icon: Gauge, mobileOnly: true },
     ...(hasReview ? [{ id: 'review' as const, label: reviewLabel, icon: Share2, mobileOnly: true, attention: !!pendingReviewCount }] : []),
   ]
+  return { primary, secondary }
+}
+
+/** 会话内视图导航；只展示和选择，数据及执行仍由原工作区持有。 */
+export function SessionViewTabs({ view, onSelect, hasSession, desktopOnly, ...metadata }: Props) {
+  const current = view === 'autopilot_detail' ? 'autopilot' : view
+  const { primary, secondary } = viewOptions(metadata)
   return <nav aria-label="会话视图" data-focus-chrome
-    className="workspace-contextbar cc-chat-contextbar scrollbar-autohide flex items-end justify-between gap-1 overflow-x-auto px-2 sm:gap-4 sm:px-3 md:justify-start">
+    className={cn('workspace-contextbar cc-chat-contextbar scrollbar-autohide items-end justify-between gap-1 overflow-x-auto px-2 sm:gap-4 sm:px-3 md:justify-start', desktopOnly ? 'hidden md:flex' : 'flex')}>
     {hasSession && primary.map(option => <button key={option.id} type="button"
       aria-current={current === option.id ? 'page' : undefined}
       title={'title' in option ? option.title : undefined} onClick={() => onSelect(option.id)}
@@ -57,4 +66,58 @@ export function SessionViewTabs({ view, onSelect, hasSession, documentTitle, sit
     </button>
     {hasSession && <SessionViewMore currentView={view} options={secondary} onSelect={onSelect} />}
   </nav>
+}
+
+/** 移动端从会话标题展开同一套视图，保留对象身份，不另建导航状态。 */
+export function MobileSessionNavigation({ title, status, control, onOpen, view, onSelect, hasSession, ...metadata }: Props & {
+  title: string
+  status: string
+  control?: ReactNode
+  onOpen?: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const mobile = useMobileViewport()
+  useEffect(() => { if (!mobile) setOpen(false) }, [mobile])
+  const { primary, secondary } = viewOptions(metadata)
+  const current = view === 'autopilot_detail' ? 'autopilot' : view
+  const frequent = [
+    ...(hasSession ? primary.filter(option => !('desktop' in option)) : []),
+    { id: 'board' as const, label: '看板', icon: ListChecks },
+  ]
+  const details = hasSession ? secondary : []
+  const currentLabel = [...frequent, ...details].find(option => option.id === current)?.label
+    ?? (current === 'supervision' ? '监督' : '对话')
+  const select = (next: SessionView) => { setOpen(false); onSelect(next) }
+  return <Popover open={open} onOpenChange={next => { setOpen(next); if (next) onOpen?.() }}>
+    <PopoverTrigger asChild>
+      <button type="button" aria-label={`切换会话视图，当前${currentLabel}，${title}`}
+        className="cc-mobile-session-navigation mx-auto flex min-h-11 min-w-0 max-w-full items-center justify-center gap-1 rounded-xl px-2 text-sm font-semibold hover:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+        title={`${title} · ${currentLabel}`}>
+        <span className="truncate">{title}</span>
+        {current !== 'conversation' && <span className="shrink-0 text-xs font-normal text-[var(--color-muted-foreground)]">· {currentLabel}</span>}
+        <ChevronDown aria-hidden="true" className="size-3 shrink-0 text-[var(--color-muted-foreground)]" />
+      </button>
+    </PopoverTrigger>
+    <PopoverContent align="center" className="w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-80px)] overflow-y-auto rounded-xl p-2" aria-label="会话导航">
+      <p className="break-words px-2 pt-1 text-sm font-semibold">{title}</p>
+      <p className="px-2 pb-2 pt-1 text-xs text-[var(--color-muted-foreground)]">{status}</p>
+      <div role="group" aria-label="常用会话视图" className="flex gap-1 rounded-lg bg-[var(--color-muted)] p-1">
+        {frequent.map(option => <button key={option.id} type="button" aria-current={current === option.id ? 'page' : undefined}
+          onClick={() => select(option.id)} className={cn('min-h-11 min-w-0 flex-1 rounded-md text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]',
+            current === option.id ? 'bg-[var(--color-background)] font-medium' : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]')}>
+          {option.label}
+        </button>)}
+      </div>
+      {details.length > 0 && <div role="group" aria-label="其他会话视图" className="mt-1">
+        {details.map(option => <button key={option.id} type="button" aria-current={current === option.id ? 'page' : undefined}
+          onClick={() => select(option.id)} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
+          <option.icon aria-hidden="true" className="size-4 text-[var(--color-muted-foreground)]" />
+          <span className="flex-1">{option.label}</span>
+          {option.attention && <span aria-label="有待处理评审" className="size-1.5 rounded-full bg-[var(--color-primary)]" />}
+          {current === option.id && <Check aria-hidden="true" className="size-4" />}
+        </button>)}
+      </div>}
+      {control && <div className="mt-1 border-t pt-1">{control}</div>}
+    </PopoverContent>
+  </Popover>
 }

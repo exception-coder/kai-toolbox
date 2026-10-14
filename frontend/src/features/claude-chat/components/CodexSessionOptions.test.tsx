@@ -37,6 +37,18 @@ function renderOptions(model: string | null, onModelChange = vi.fn(), modelDisab
 }
 
 describe('CodexSessionOptions model Auth mismatch', () => {
+  it('embedded mobile configuration keeps model and effort selection in the scrollable sheet', () => {
+    const changeModel = vi.fn(), changeOptions = vi.fn()
+    render(<CodexSessionOptions embedded models={models} model={models[0].value} reasoningEffort="low" speed="default" onModelChange={changeModel} onOptionsChange={changeOptions} />)
+    expect(screen.queryByRole('button', { name: /配置 Codex 模型/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^推理强度 / }))
+    fireEvent.click(screen.getByRole('button', { name: /中 · 官方/ }))
+    expect(changeOptions).toHaveBeenCalledWith('medium', 'default')
+    expect(screen.getByRole('button', { name: /^模型 / })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: /^模型 / }))
+    fireEvent.click(screen.getByRole('button', { name: 'GPT-5.6-Terra' }))
+    expect(changeModel).toHaveBeenCalledWith('gpt-5.6-terra')
+  })
   it('keeps the normal presentation when the selected model is in the catalog', () => {
     renderOptions('gpt-5.6-terra')
 

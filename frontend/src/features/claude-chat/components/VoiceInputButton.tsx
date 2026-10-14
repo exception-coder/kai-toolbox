@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Loader2, Mic, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
@@ -11,7 +12,10 @@ import { sttAvailable, transcribe } from '../api'
  * 「✕ 取消 · 跳动绿点 + 秒数 · ■ 停止并转写」的胶囊条；识别中显示「识别中…」胶囊；
  * 空闲态才是麦克风图标按钮。浏览器不支持或 faster-whisper 未就绪时禁用并提示。
  */
-export function VoiceInputButton({ onText, disabled, className }: { onText: (t: string) => void; disabled?: boolean; className?: string }) {
+export function VoiceInputButton({ onText, disabled, className, idleTarget, onIdleActivate }: {
+  onText: (t: string) => void; disabled?: boolean; className?: string
+  idleTarget?: HTMLElement | null; onIdleActivate?: () => void
+}) {
   const rec = useVoiceRecorder()
   const [available, setAvailable] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
@@ -23,6 +27,7 @@ export function VoiceInputButton({ onText, disabled, className }: { onText: (t: 
 
   const start = async () => {
     setErr(null)
+    onIdleActivate?.()
     try {
       await rec.start()
     } catch {
@@ -96,18 +101,22 @@ export function VoiceInputButton({ onText, disabled, className }: { onText: (t: 
     : err ? err
     : '语音输入'
 
-  return (
+  const button = (
     <Button
       type="button"
       variant="ghost"
-      size="icon"
-      className={className}
+      size={idleTarget ? 'sm' : 'icon'}
+      className={idleTarget ? 'min-h-11 w-full gap-2 text-xs' : className}
       onClick={start}
       disabled={disabled || off}
       title={title}
       aria-label={title}
     >
       <Mic className="size-5" />
+      {idleTarget && <span>语音输入</span>}
     </Button>
   )
+  // 移动端只移动空闲入口；录音、识别及错误状态保留在 Composer，不随菜单关闭卸载。
+  if (idleTarget === null && !err) return null
+  return idleTarget ? createPortal(button, idleTarget) : button
 }

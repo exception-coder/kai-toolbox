@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { MessageImage } from './messages/MessageImage'
 import { parseChatMarkdown } from '../lib/chatMarkdown'
 import DOMPurify from 'dompurify'
 import { Download, Maximize2 } from 'lucide-react'
@@ -129,6 +131,8 @@ function splitMermaid(text: string): Segment[] {
 // ── MarkdownPart：单段普通 markdown 渲染（保留原有实现）──────────────────────
 function MarkdownPart({ text, className, sessionId }: { text: string; className?: string; sessionId?: string }) {
   const [localPathNotice, setLocalPathNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const content = useRef<HTMLDivElement>(null)
+  const [imageTargets, setImageTargets] = useState<HTMLSpanElement[]>([])
   const html = useMemo(() => {
     if (!text.trim()) return null
     try {
@@ -143,6 +147,12 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
       })
       const sanitized = DOMPurify.sanitize(rawDoc.body.innerHTML)
       const doc = new DOMParser().parseFromString(sanitized, 'text/html')
+      doc.querySelectorAll<HTMLImageElement>('img').forEach(image => {
+        const placeholder = doc.createElement('span')
+        placeholder.dataset.messageImage = image.getAttribute('src') ?? ''
+        placeholder.dataset.imageAlt = image.getAttribute('alt') ?? ''
+        image.replaceWith(placeholder)
+      })
       doc.querySelectorAll<HTMLOListElement>('ol').forEach(list => {
         const items = Array.from(list.children) as HTMLLIElement[]
         let value = list.hasAttribute('start') ? list.start : list.reversed ? items.length : 1
@@ -166,6 +176,12 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
       return null
     }
   }, [text])
+
+  const markup = useMemo(() => ({ __html: html ?? '' }), [html])
+
+  useLayoutEffect(() => {
+    setImageTargets(Array.from(content.current?.querySelectorAll<HTMLSpanElement>('span[data-message-image]') ?? []))
+  }, [html])
 
   const handleClick = async (event: ReactMouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
@@ -234,6 +250,7 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
   return (
     <>
       <div
+        ref={content}
         onClick={handleClick}
         onCopy={copySelection}
         className={cn(
@@ -260,8 +277,12 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
         '[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded-lg',
         className,
       )}
-        dangerouslySetInnerHTML={{ __html: html }}
+        dangerouslySetInnerHTML={markup}
       />
+      {imageTargets.map((target, index) => createPortal(
+        <MessageImage src={target.dataset.messageImage ?? ''} alt={target.dataset.imageAlt ?? ''} />,
+        target, `${index}:${target.dataset.messageImage}`,
+      ))}
       {localPathNotice && (
         <div className={cn('mt-1 text-[11px]', localPathNotice.tone === 'success'
           ? 'text-emerald-600 dark:text-emerald-400'

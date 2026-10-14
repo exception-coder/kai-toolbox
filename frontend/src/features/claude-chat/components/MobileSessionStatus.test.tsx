@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import type { SessionUsage } from '../api'
@@ -8,6 +8,7 @@ import {
   MobileSessionStatus,
   deriveMobileSessionStatus,
 } from './MobileSessionStatus'
+import { MobileExecutionDetails } from './MobileExecutionDetails'
 
 const getSessionRuntimeState = vi.fn()
 const listSessions = vi.fn()
@@ -67,6 +68,7 @@ function renderWithQueryClient(children: ReactNode) {
 afterEach(() => {
   cleanup()
   getSessionRuntimeState.mockReset()
+  vi.unstubAllGlobals()
 })
 
 describe('deriveMobileSessionStatus', () => {
@@ -302,6 +304,49 @@ describe('deriveMobileSessionStatus', () => {
 })
 
 describe('MobileSessionStatus', () => {
+  it('keeps tool warnings in one dock and exposes their original details only after opening', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
+    const items: ChatItem[] = [
+      { kind: 'user', id: 'user', text: '修复页面' },
+      { kind: 'tool', id: 'tool', toolName: '运行测试', input: { command: 'vitest' }, output: '测试断言失败', isError: true },
+      { kind: 'activity', id: 'activity', activityType: 'command', title: '正在修复断言', status: 'running' },
+    ]
+    renderWithQueryClient(<MobileSessionStatus workspace sessionId="session-1" items={items} running engineLabel="Codex"
+      turnTokens={61} connState="ready" backgroundTasks={[]} usage={null} usageLoading={false} onOpenUsage={vi.fn()} onOpenTrajectory={vi.fn()}>
+      <MobileExecutionDetails items={items} running turnTokens={61}/>
+    </MobileSessionStatus>)
+    expect(screen.getByText('执行提示')).toBeVisible()
+    expect(screen.queryByText('运行测试')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+    expect(screen.getByText('运行测试')).toBeVisible()
+    expect(screen.getByText('当前轮输出 61 Token')).toBeVisible()
+  })
+
+  it('mobile completion has one dock summary with copied round text and recovered tool evidence', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
+    const items: ChatItem[] = [
+      { kind: 'user', id: 'user', text: '修复页面' },
+      { kind: 'tool', id: 'tool', toolName: '已处理的失败尝试', input: {}, output: '之前的断言失败', isError: true },
+      { kind: 'assistant', id: 'first', text: '已修复。' },
+      { kind: 'assistant', id: 'second', text: '定向验证通过。' },
+      { kind: 'result', id: 'result', turnId: 'turn-1', stopReason: 'end_turn', latencyMs: 1000 },
+    ]
+    renderWithQueryClient(<MobileSessionStatus workspace sessionId="session-1" items={items} running={false} engineLabel="Codex"
+      turnTokens={0} connState="ready" backgroundTasks={[]} usage={null} usageLoading={false} onOpenUsage={vi.fn()} onOpenTrajectory={vi.fn()}>
+      <MobileExecutionDetails items={items} running={false} turnTokens={0} sessionId="session-1"/>
+    </MobileSessionStatus>)
+    const trigger = await screen.findByRole('button', { name: '本轮完成，查看运行详情' })
+    expect(screen.queryByText('执行提示')).not.toBeInTheDocument()
+    fireEvent.click(trigger)
+    expect(screen.getByText('已处理的失败尝试')).toBeVisible()
+    expect(screen.getByRole('button', { name: '本轮变更' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '复制本轮' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledExactlyOnceWith('已修复。\n\n定向验证通过。'))
+  })
   it('优先展示正在执行的会话，并可快速切换到最近会话', async () => {
     getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
     const session = (id: string, status: 'IDLE' | 'RUNNING', lastSeenAt: number): ClaudeChatSessionView => ({

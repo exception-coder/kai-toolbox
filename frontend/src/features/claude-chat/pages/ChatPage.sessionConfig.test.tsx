@@ -15,6 +15,7 @@ const testRuntime = vi.hoisted(() => ({
   chat: {
     open: vi.fn(),
     send: vi.fn(), steer: vi.fn(), enqueue: vi.fn(), interrupt: vi.fn(),
+    setModel: vi.fn(), setCodexOptions: vi.fn(), modelsRefreshing: false,
     sessionId: 'session-config-regression',
     state: 'ready',
     items: [],
@@ -70,10 +71,13 @@ afterEach(() => {
   testRuntime.chat.send.mockClear()
   testRuntime.chat.steer.mockClear()
   testRuntime.chat.enqueue.mockClear()
+  testRuntime.chat.setModel.mockClear()
+  testRuntime.chat.setCodexOptions.mockClear()
   testRuntime.chat.running = false
   testRuntime.chat.currentProviderBaseUrl = null
   testRuntime.chat.currentEngine = 'codex'
   testRuntime.chat.currentProviderKind = 'official'
+  testRuntime.chat.codexSpeed = 'default'
   testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol' }]
 })
 
@@ -87,6 +91,22 @@ async function openNewSessionForm() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('mobile header switches views without losing the composer draft and retains the directory entry', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    mountChat()
+    const input = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.change(input, { target: { value: '尚未发送的需求' } })
+    fireEvent.click(await screen.findByRole('button', { name: /切换会话视图，当前对话/ }))
+    fireEvent.click(within(screen.getByRole('group', { name: '其他会话视图' })).getByRole('button', { name: '用量' }))
+    expect(screen.getByRole('button', { name: /切换会话视图，当前用量/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /切换会话视图，当前用量/ }))
+    fireEvent.click(within(screen.getByRole('group', { name: '常用会话视图' })).getByRole('button', { name: '对话' }))
+    expect(screen.getByRole('textbox', { name: '消息输入' })).toHaveValue('尚未发送的需求')
+    fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
+    expect(within(screen.getByRole('menu', { name: '会话工具' })).getByRole('button', { name: /^工作目录与提交记录 · 1/ })).toBeInTheDocument()
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+  })
   it('collapses the new-session form when reopening mobile tools and preserves unfinished choices', async () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     testRuntime.profiles = []
@@ -202,6 +222,32 @@ describe('ChatPage session configuration', () => {
       fireEvent.keyDown(document, { key: 'Escape' })
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     }
+  })
+  it('applies a mobile Codex combination through existing settings without sending or queueing a message', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    const quickModels = [
+      { value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol', description: '', reasoningEfforts: ['low', 'medium', 'high'], fastSupported: true },
+      { value: 'gpt-6-astra', displayName: 'GPT-6-Astra', description: '', reasoningEfforts: ['high', 'xhigh'], fastSupported: false },
+    ]
+    testRuntime.chat.models = quickModels
+    testRuntime.chat.codexSpeed = 'fast'
+    mountChat()
+    expect(screen.queryByRole('button', { name: /会话配置，当前/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '引用项目或规格' })).not.toBeInTheDocument()
+    const more = screen.getByRole('button', { name: '更多功能' })
+    fireEvent.click(more)
+    expect(screen.getByRole('button', { name: '引用项目或规格' })).toBeVisible()
+    fireEvent.click(await screen.findByRole('button', { name: /会话配置，当前/ }))
+    expect(screen.queryByRole('group', { name: '消息附加功能' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '选择 GPT-6-Astra 深入' }))
+    expect(testRuntime.chat.setModel).toHaveBeenCalledExactlyOnceWith('gpt-6-astra')
+    expect(testRuntime.chat.setCodexOptions).toHaveBeenCalledExactlyOnceWith('high', 'default')
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+    expect(testRuntime.chat.enqueue).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '自定义模型与参数' }))
+    expect(screen.getByRole('button', { name: /^推理强度 / })).toBeVisible()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await vi.waitFor(() => expect(more).toHaveFocus())
   })
   it('restores local choices, uses current provider configuration and survives workspace reordering', async () => {
     testRuntime.profiles = [{ id: 'gateway', name: '测试服务商', model: 'current-model', hasKey: true, baseUrl: 'https://gateway.invalid' }]

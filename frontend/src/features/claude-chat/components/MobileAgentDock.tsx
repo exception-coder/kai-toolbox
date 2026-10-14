@@ -20,7 +20,7 @@ export function MobileAgentDock({ status, queue, voiceEnabled, voiceDisabled, on
   const voiceUnavailable = voiceEnabled ? voiceAvailability() : null
   return <MobileSessionStatus {...status} queueCount={queue.items.length} queuePausedReason={queue.pausedReason}>
     {(close, executing) => <>
-    <MobileExecutionDetails items={status.items} running={executing} turnTokens={status.running ? status.turnTokens : 0} />
+    <MobileExecutionDetails items={status.items} running={executing} turnTokens={status.running ? status.turnTokens : 0} sessionId={status.sessionId} />
     {diagnostics && <section aria-label="状态与诊断" className="border-t pt-3"><h3 className="mb-2 font-medium">状态与诊断</h3>{diagnostics}</section>}
     <section aria-label="待发送队列">
       <h3 className="font-medium">待发送队列</h3>

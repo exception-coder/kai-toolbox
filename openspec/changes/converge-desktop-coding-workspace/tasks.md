@@ -23,3 +23,11 @@
 - [x] 打开工具菜单时只收起新建面板；验证目录和引擎选择保留、重新打开恢复、Escape 焦点返回及不自动创建会话。原有其他工具面板不受该状态转移影响。
 - [x] ChatPage 既有 suite 11 项通过，typecheck 和独立 Vite 构建 exit 0，OpenSpec 严格校验通过。Forge 全阶段 exit 0 / PASSED，0 项静态 checker、9 项既有 HTTP 探测，不声称新增前端运行验证。
 - 证据位于 `.git/new-form-close-{before,after,page-tests,typecheck,build,quality}.log`。本次为局部状态修复，没有新视觉布局，未进行新的真实手机会话验收、重启或发布；上一节的新版运行待验收状态仍保留。
+
+## 执行耗时引用紧急修复（2026-10-14）
+
+- 用户报告 `/tools/claude-chat` 出现 `ReferenceError: currentActivityElapsed is not defined`。检查时前端没有既有已跟踪文件改动；后端、Sidecar 和暂存区的其他增量保留，未中断浏览器中仍在执行的会话。
+- 错误引用位于运行中执行摘要。检查时源码及 Vite 返回的模块均包含原局部函数，未复现原始失败版本；不能据此确认是旧缓存或热更新造成。现将函数作为 `mobileExecutionPresentation` 的明确导出，由执行摘要及详情显式导入，共用当前轮次边界、活动状态及有效耗时校验，避免两处实现漂移。
+- 复用执行摘要 / Dock 的 16 项定向用例通过；`npm run typecheck` exit 0，菜单目录与模块边界检查通过。独立 Vite 生产构建 exit 0，保留既有大 chunk 警告；OpenSpec 严格校验通过。运行服务返回的摘要模块包含显式导入，共享模块包含对应导出，两者 HTTP 200。
+- 在 Chrome 已打开的真实会话页核对桌面及 390×844 手机视口：运行摘要、输入入口及展开执行详情正常，没有该 ReferenceError。未刷新页面、发送消息或切换会话；完成后关闭详情并恢复原视口。截图为 `frontend/dist/activity-elapsed-emergency-evidence/recovered-mobile.jpg`。
+- Forge CLI exit 0 / `status=PASSED`；静态 checker 未执行，运行执行了 9 项既有 HTTP 探测，不把这些探测作为新前端行为的验收证据。日志位于 `.git/activity-elapsed-emergency-*.log`，未重启或发布；遵照临时紧急任务要求不暂存、不提交。本次没有架构契约变更。

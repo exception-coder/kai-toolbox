@@ -5,7 +5,7 @@ import { useSessionViewRoute } from '../hooks/useSessionViewRoute'
 import { WorkspacePreferences } from '../components/WorkspacePreferences'
 import { VibeCodingGuide } from '../components/guide/VibeCodingGuide'
 import type { GuideTarget } from '../components/guide/guideContent'
-import { SlidersHorizontal } from 'lucide-react'
+import { AtSign, SlidersHorizontal } from 'lucide-react'
 import { useGuideRoute } from '../hooks/useGuideRoute'
 import '../components/guide/guide.css'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react'
@@ -30,6 +30,8 @@ import { SessionList } from '../components/SessionList'
 import { RecentSessions } from '../components/RecentSessions'
 import { SessionDuplicationDialog } from '../components/SessionDuplicationDialog'
 import { VoiceInputButton } from '../components/VoiceInputButton'
+import { CodexQuickPicker } from '../components/model-selection/CodexQuickPicker'
+import { QUICK_EFFORT_LABELS } from '../lib/codexQuickPresets'
 import { NativeVoiceControl } from '../components/NativeVoiceControl'
 import { MobileRunningSend } from '../components/MobileRunningSend'
 import { chatControlMode } from '../lib/controlMode'
@@ -109,7 +111,7 @@ import { useMobileViewport } from '../hooks/useMobileViewport'
 import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
 import { SessionToolsMenu } from '../components/SessionToolsMenu'
 import { SessionAutopilotStatus } from '../components/SessionAutopilotStatus'
-import { SessionViewTabs, type SessionView } from '../components/SessionViewTabs'
+import { MobileSessionNavigation, SessionViewTabs, type SessionView } from '../components/SessionViewTabs'
 
 const TrajectoryView = lazy(() => import('../components/TrajectoryView').then(m => ({ default: m.TrajectoryView })))
 const UsageWorkspace = lazy(() => import('../components/UsagePanel').then(m => ({ default: m.UsageWorkspace })))
@@ -809,6 +811,19 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
   const fileRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const nativeVoiceControlRef = useRef<{ start: () => void }>(null)
+  const [dictationTarget, setDictationTarget] = useState<HTMLElement | null>(null)
+  const [sessionConfigTarget, setSessionConfigTarget] = useState<HTMLElement | null>(null)
+  const composerMoreTrigger = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!moreOpen) return
+    const close = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setMoreOpen(false)
+      composerMoreTrigger.current?.focus()
+    }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [moreOpen])
   const handlePrdMention = useCallback(async (prdSession: PrdSessionView) => {
     if (!chat?.sessionId) throw new Error('请先创建或打开会话')
     const required = countPrdReferenceDocuments(prdSession)
@@ -1083,6 +1098,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
     || chat.currentModel
     || currentEngineLabel
   const sessionConfigCompactSummary = compactSessionModelLabel(sessionConfigSummary)
+    + (chat.currentEngine === 'codex' ? ` ${QUICK_EFFORT_LABELS[chat.codexReasoningEffort] || chat.codexReasoningEffort}` : '')
 
   const startNew = () => {
     if (newSessionIssue) { setProviderModelsError(newSessionIssue); return }
@@ -1283,7 +1299,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             <Menu className="size-4" />
           </Button>
         )}
-        {renderControl?.()}
+        {!mobileLayout && renderControl?.()}
         {viewMode === 'multi' ? (
           /* 分屏下顶部不挂某一个会话的标题/引擎/状态/用量（各 pane 自带），只给中性标识 */
           <span className="font-semibold">分屏 · {multiIds.length} 个会话</span>
@@ -1303,6 +1319,13 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     }}
                     className="w-full min-w-0 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-1.5 py-0.5 font-semibold outline-none"
                   />
+                ) : mobileLayout ? (
+                  <MobileSessionNavigation title={currentTitle || 'Vibe Coding'} status={`${currentEngineLabel} · ${stateLabel(chat.state)}`}
+                    view={sessionView} onSelect={view => { setPanel('none'); setSessionView(view) }} hasSession={!!chat.sessionId}
+                    documentTitle={linkedPrd ? linkedPrd.title || '查看绑定文档' : undefined} siteCount={linkedSites.length}
+                    pendingReviewCount={reviewRelations && (reviewRelations.reviews.length > 0 || reviewRelations.pendingFeedback.length > 0)
+                      ? reviewRelations.pendingFeedback.length : undefined}
+                    control={renderControl?.()} onOpen={() => setHeaderMenu(false)} />
                 ) : (
                   <span
                     className="block min-w-0 truncate text-sm font-semibold md:text-[15px]"
@@ -1315,7 +1338,6 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 {titleRenameError && <span role="alert" className="block truncate text-[10px] text-[var(--color-destructive)]" title={titleRenameError}>{titleRenameError}</span>}
               </div>
               <div role="status" className="flex shrink-0 items-center gap-1 text-[var(--color-muted-foreground)] md:hidden" title={`${currentEngineLabel} · ${stateLabel(chat.state)}`} aria-label={`${currentEngineLabel} · ${stateLabel(chat.state)}`}>
-                <EngineIcon engine={chat.currentEngine} thirdParty={chat.currentProviderKind === 'thirdParty'} className="size-3 shrink-0" />
                 <StatusBadge tone={stateTone(chat.state)} pulse={chat.state === 'connecting'} className="ml-0.5 size-2 shrink-0 rounded-full border-0 px-0 shadow-none" />
               </div>
             </div>
@@ -1399,7 +1421,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
           <button type="button" onClick={event => { commitsReturnFocus.current = event.currentTarget; setShowCommits(true) }}
             aria-label="关联工作目录与提交记录"
             title={[currentSession.cwd, ...linkedProjectPaths].join('\n')}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-[var(--color-muted)]">
+            className="hidden shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-[var(--color-muted)] md:inline-flex">
             <FolderGit2 className="size-3.5" />
             <span className="hidden sm:inline">工作目录</span>
             <span>{linkedProjectPaths.length + 1}</span>
@@ -1455,6 +1477,9 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                   <div className="border-b pb-1 md:hidden">
                     <HeaderMenuItem icon={<Plus className="size-4" />} label="新建会话" onClick={() => { setHeaderMenu(false); setPanel('new') }} />
                     <HeaderMenuItem icon={<List className="size-4" />} label="会话列表" onClick={() => { setHeaderMenu(false); setPanel('sessions') }} />
+                    {chat.sessionId && currentSession?.cwd && <HeaderMenuItem icon={<FolderGit2 className="size-4" />}
+                      label={`工作目录与提交记录 · ${linkedProjectPaths.length + 1}`} hint={currentSession.cwd}
+                      onClick={() => { commitsReturnFocus.current = sessionToolsTriggerRef.current; setHeaderMenu(false); setShowCommits(true) }} />}
                     <HeaderMenuItem icon={<ListChecks className="size-4" />} label="自动监督看板" onClick={() => { setHeaderMenu(false); openSupervision() }} />
                   </div>
                   {/* 分组折叠（手风琴），单开互斥：默认全部收起，点分组才展开，减少一次性铺陈 */}
@@ -2196,7 +2221,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
 
           {/* 右侧：消息流 + 输入 */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <SessionViewTabs view={sessionView} onSelect={setSessionView} hasSession={!!chat.sessionId}
+            <SessionViewTabs desktopOnly view={sessionView} onSelect={setSessionView} hasSession={!!chat.sessionId}
               documentTitle={linkedPrd ? linkedPrd.title || '查看绑定文档' : undefined} siteCount={linkedSites.length}
               pendingReviewCount={reviewRelations && (reviewRelations.reviews.length > 0 || reviewRelations.pendingFeedback.length > 0)
                 ? reviewRelations.pendingFeedback.length : undefined} />
@@ -2297,6 +2322,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                     connState={chat.state}
                     showRunningFooter={focus.focused}
                     mobileWorkspace
+                    executionInDock={!focus.focused}
                   />
                 )
               ) : (
@@ -2376,20 +2402,23 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
             {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}
             <div className="relative">
               <Button
+                ref={composerMoreTrigger}
                 variant="ghost"
                 size="icon"
                 className="max-md:size-8"
                 disabled={planLocked}
                 onClick={() => { setMoreOpen(o => !o); setCmdMenuOpen(false) }}
                 aria-label="更多功能"
+                aria-expanded={moreOpen}
+                aria-controls="composer-more-actions"
                 title="更多功能（附件 / 指令 / 规格文档）"
               >
                 <Plus className={`size-5 transition-transform${moreOpen ? ' rotate-45' : ''}`} />
               </Button>
               {moreOpen && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMoreOpen(false)} />
-                  <div className="absolute bottom-full left-0 z-20 mb-2 w-64 rounded-xl border bg-[var(--color-card)] p-2 shadow-lg">
+                  <div className="fixed inset-0 z-10" onClick={() => { setMoreOpen(false); composerMoreTrigger.current?.focus() }} />
+                  <div id="composer-more-actions" role="group" aria-label="消息附加功能" className="absolute bottom-full left-0 z-20 mb-2 max-h-[60dvh] w-64 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border bg-[var(--color-card)] p-2 shadow-sm">
                     <div className="grid grid-cols-3 gap-1">
                       {/* 附件：label 包 input，保留原生触发（移动端 WebView 不丢手势） */}
                       <label
@@ -2429,6 +2458,15 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                         规格文档
                       </button>
                     </div>
+                    {mobileLayout && <div className="mt-1 border-t pt-1">
+                      <div ref={setSessionConfigTarget} />
+                      <button type="button" disabled={planLocked} onClick={() => {
+                        setMoreOpen(false); setCmdMenuOpen(false); projectMention.togglePicker()
+                      }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-sm hover:bg-[var(--color-accent)] disabled:opacity-50">
+                        <AtSign aria-hidden="true" className="size-4 text-[var(--color-muted-foreground)]" />引用项目或规格
+                      </button>
+                      <div ref={setDictationTarget} />
+                    </div>}
                   </div>
                 </>
               )}
@@ -2447,7 +2485,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 />
               )}
             </div>
-            <ProjectMentionButton
+            {!mobileLayout && <ProjectMentionButton
               active={projectMention.open}
               className="max-md:size-8"
               disabled={planLocked}
@@ -2456,9 +2494,11 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 setCmdMenuOpen(false)
                 projectMention.togglePicker()
               }}
-            />
+            />}
             <VoiceInputButton
               className="max-md:size-8"
+              idleTarget={mobileLayout ? dictationTarget : undefined}
+              onIdleActivate={() => setMoreOpen(false)}
               disabled={planLocked}
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
@@ -2467,6 +2507,16 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
               summary={sessionConfigSummary}
               compactSummary={sessionConfigCompactSummary}
               disabled={planLocked}
+              triggerContainer={mobileLayout ? sessionConfigTarget : undefined}
+              onOpen={() => setMoreOpen(false)}
+              onReturnFocus={mobileLayout ? () => composerMoreTrigger.current?.focus() : undefined}
+              quickSelection={!reviewOnlySession && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty'
+                ? onCustom => <CodexQuickPicker key={chat.sessionId} models={chat.models} model={chat.currentModel}
+                    effort={chat.codexReasoningEffort} refreshing={chat.modelsRefreshing} disabled={planLocked}
+                    onCustom={onCustom} onApply={preset => {
+                      if (preset.model !== chat.currentModel) chat.setModel(preset.model)
+                      chat.setCodexOptions(preset.effort, preset.fastSupported ? chat.codexSpeed : 'default')
+                    }} /> : undefined}
             >
               <div className="flex flex-col items-stretch gap-2">
                 <span className="text-sm font-medium">权限模式</span>
@@ -2478,6 +2528,7 @@ export function ChatPage({ renderControl }: { renderControl?: () => ReactNode } 
                 <div className="flex flex-col items-stretch gap-2">
                   <span className="shrink-0 text-sm font-medium">模型参数</span>
                   <CodexSessionOptions
+                    embedded={mobileLayout && chat.currentEngine === 'codex'}
                     models={chat.models}
                     model={chat.currentModel}
                     reasoningEffort={chat.codexReasoningEffort}

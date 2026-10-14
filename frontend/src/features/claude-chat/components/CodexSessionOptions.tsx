@@ -5,6 +5,7 @@ import type { CodexReasoningEffort, CodexSpeed, ModelInfo } from '../types'
 
 interface Props {
   models: ModelInfo[]
+  embedded?: boolean
   model: string | null
   reasoningEffort: CodexReasoningEffort
   speed: CodexSpeed
@@ -75,6 +76,7 @@ const SPEEDS: Array<{ value: CodexSpeed; label: string }> = [
 
 export function CodexSessionOptions({
   models,
+  embedded = false,
   model,
   reasoningEffort,
   speed,
@@ -165,7 +167,7 @@ export function CodexSessionOptions({
 
   return (
     <div className="relative min-w-0 max-w-full">
-      <button
+      {!embedded && <button
         type="button"
         disabled={disabled}
         onClick={() => { setOpen(value => !value); setActiveSection(null) }}
@@ -177,12 +179,12 @@ export function CodexSessionOptions({
         <span className="truncate font-medium">{modelDisplayLabel}</span>
         <span className="shrink-0 text-[var(--color-muted-foreground)]">· {effortValueLabel}{showSpeed ? ` · ${speedLabel}` : ''}</span>
         <ChevronDown className={`ml-1 size-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
+      </button>}
 
-      {open && (
+      {(embedded || open) && (
         <>
-          <div className="fixed inset-0 z-40" onClick={close} />
-          <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border bg-[var(--color-background)] p-2 shadow-xl">
+          {!embedded && <div className="fixed inset-0 z-40" onClick={close} />}
+          <div className={embedded ? 'w-full min-w-0 py-1 [&_button]:min-h-11' : 'absolute bottom-full left-0 z-50 mb-2 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border bg-[var(--color-background)] p-2 shadow-xl'}>
             {activeSection === null ? (
               <>
                 <div className="px-2 pb-1.5 pt-1 text-xs font-medium text-[var(--color-muted-foreground)]">{engineLabel} 配置 · 下轮生效</div>
