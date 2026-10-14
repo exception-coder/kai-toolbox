@@ -8,6 +8,7 @@
 node forge.mjs start
 node forge.mjs status
 node forge.mjs restart
+node forge.mjs restart --scope backend
 node forge.mjs stop
 ```
 
@@ -33,7 +34,9 @@ node forge.mjs tunnel stop
 
 Node 入口支持 Windows、Linux、macOS 的 x64/arm64，优先使用 `CLOUDFLARED_CMD`、本机缓存或 PATH 中的 cloudflared；缺失时下载对应官方程序（macOS 需要 tar）。受限下载网络可先安装 cloudflared。默认 HTTP/2 使用出站 TCP/7844；`--protocol quic` 使用 UDP/7844。可用 `--config PATH` 指定其他现有配置。
 
-隧道加入当前工作区的 PM2，但默认不自动重启；重复 start 复用已有进程，故障先读日志再明确 stop/start。Forge 全量 stop 或控制器重新启动会停止隧道，需要再次执行 tunnel start。它不重启业务服务，不默认加入登录启动。`tunnel status` 自动探测固定域名首页及 `/api/tools` 的公网响应，并区分进程与回源状态；`tunnel check` 执行同一检查，未就绪时返回非零退出码，便于脚本和监控使用。Quick Tunnel 的临时域名仍需从日志确认。PM2 online 仅表示进程存在，仍应核对日志的 Registered tunnel connection。旧 PowerShell 入口只转发参数，不再自行管理进程或修改远端资源。
+在本机的忽略文件 `scripts/run-tools.conf` 中设置 `FORGE_CLOUDFLARE_ENABLED=true` 后，固定域名隧道随 `node forge.mjs start` 和完整重启启动；Forge 控制器重启时也会重建它。可用 `FORGE_CLOUDFLARE_CONFIG` 指向其他现有配置，`FORGE_CLOUDFLARE_PROTOCOL` 选择协议。未启用时保持手动控制，配置及凭据不得提交。该设置不授予 Agent 自动重启项目的权限。
+
+固定域名隧道由工作区 PM2 在意外退出后有限次数重试；完整 stop 仍停止隧道。项目启动等待同时核对本机前后端和公网首页、`/api/tools` 回源，公网未通不会报告启动成功。`tunnel status` 区分进程与公网状态；`tunnel check` 未就绪返回非零码。网络或 DNS 故障仍需看 `node forge.mjs logs cloudflare` 诊断，进程 online 不等于公网可用。Quick Tunnel 保持手动模式；旧 PowerShell 入口只转发参数。
 
 临时地址使用 `node forge.mjs tunnel start --quick [--url https://localhost:5173]`，地址从日志读取；API 经过 Vite 既有代理。Quick Tunnel 不保证长期可用，HTTPS 本机回源允许自签证书。命名隧道可传 `--dns-resolver IP:PORT`；该选项不适用于 Quick 模式。公网不可达时检查本机代理的 fake-IP DNS 与出站 7844，再检查域名的权威 DNS，不以自动重试作为成功证据。
 
@@ -98,6 +101,8 @@ TOOLBOX_AUTO_UPDATE_ENABLED=true
 ## 重启与自动更新
 
 PM2 是独立进程所有者。控制器保留 `/status`、`/restart`、`/reload`、`/full-reload` 协议 v1，页面仍通过 Vite `/supervisor` 代理访问。`/restart` 重启后端及启用的辅助服务；`/full-reload` 重启整个运行栈，并从磁盘读取新的控制器代码和配置。并发重启请求返回 409。
+
+`node forge.mjs restart --scope backend` 调用 `/restart`，保留前端和现有 Cloudflare 进程；本机需配置 `TOOLBOX_SUPERVISOR_RESTART_TOKEN`，缺失时命令直接失败。无 scope 的 `restart` 执行完整 reload，会短暂重启前端和 Cloudflare。重启后均须核对 `node forge.mjs tunnel check` 的公网首页和 API 回源；单进程后端重启期间 API 仍会短暂不可用。
 
 Java 继续负责 Git 检查、空闲判断、候选构建和更新；控制层不增加第二套自动更新。工作树 dirty、分支分叉或会话忙碌时仍延期，不执行 stash/reset/clean。实际更新进度看 `/api/system/auto-update/status`。自动生成的内部控制令牌保存在 PM2 进程环境，不打印、不保存 PM2 dump。运行目录位于当前用户 `~/.kai-toolbox/runtime/<仓库标识>/`，日志也在此处。
 

@@ -5,6 +5,7 @@ import { runtimePaths, readConfig, flag } from './config.mjs';
 import { connectManager, appOptions, daemonPid } from './process-manager.mjs';
 import { enabledServices } from './services.mjs';
 import { controlServer, portOpen } from './control.mjs';
+import { ensureManagedTunnel } from './tunnel.mjs';
 
 const root = process.argv[2];
 const paths = runtimePaths(root);
@@ -53,14 +54,19 @@ async function status() {
   }));
   const backend = states.find(item => item.name === 'backend');
   const frontend = states.find(item => item.name === 'frontend');
+  const tunnelEnabled = flag(env.FORGE_CLOUDFLARE_ENABLED, false);
+  const tunnelApp = apps.find(item => item.name === 'cloudflare');
+  const tunnel = { enabled: tunnelEnabled, pid: tunnelApp?.pid || null,
+    state: tunnelApp?.pm2_env.status || 'not_started', restarts: tunnelApp?.pm2_env.restart_time || 0 };
   const bootstrapPid = daemonPid(paths);
   const attached = !initializing && Boolean(bootstrapPid && apps.some(app => app.name === 'forge-controller' && app.pid === process.pid));
   return { protocolVersion: 1, implementation: 'forge-node-pm2', repoRoot: paths.root,
     capabilities: { fullReload: attached }, bootstrapAttached: attached, bootstrapPid,
     backendEnabled: Boolean(backend), backendUp: backend?.state === 'online', backendReady: backend?.ready || false,
     frontendEnabled: Boolean(frontend), frontendUp: frontend?.state === 'online', frontendReady: frontend?.ready || false,
-    servicesReady: !initializing && (!backend || backend.ready) && (!frontend || frontend.ready),
-    pid: backend?.pid || null, controllerPid: process.pid, services: states, lastError,
+    servicesReady: !initializing && (!backend || backend.ready) && (!frontend || frontend.ready)
+      && (!tunnelEnabled || tunnel.state === 'online'),
+    pid: backend?.pid || null, controllerPid: process.pid, services: states, tunnel, lastError,
     autoUpdate: { owner: 'java', enabled: flag(env.TOOLBOX_AUTO_UPDATE_ENABLED, true), state: 'managed_by_java' } };
 }
 
@@ -83,6 +89,7 @@ try {
   const apps = await manager.call('list');
   await stopServices(apps.filter(app => app.name !== 'forge-controller').map(app => app.name));
   await startServices(currentServices());
+  try { await ensureManagedTunnel(manager, paths, env); } catch (error) { report(error); }
   initializing = false;
   console.log(`Forge control ready at http://127.0.0.1:${settings.port}`);
 } catch (error) { report(error); server.close(); manager.disconnect(); process.exit(1); }

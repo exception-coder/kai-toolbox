@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import http from 'node:http';
 import https from 'node:https';
 import { setTimeout as delay } from 'node:timers/promises';
+import { managedTunnelConfig, probeNamedTunnel } from './tunnel.mjs';
 
 const names = { backend: '后端', frontend: '前端', wechat: '微信服务', studio: 'AgentScope Studio', 'faster-whisper': '语音服务' };
 
@@ -61,8 +62,10 @@ export async function waitForStartup(paths, settings, env, hooks = {}) {
     return response.json();
   });
   const probe = hooks.probe || (snapshot => readyUrls(snapshot, env));
+  const probeTunnel = hooks.probeTunnel || (hostname => probeNamedTunnel(hostname));
   const emit = hooks.emit || console.log;
   let previous = '', printedAt = 0;
+  let tunnelHealth = { state: 'not_checked' }, lastTunnelProbe = 0;
   emit(`正在启动 Forge，等待前后端就绪（最长 ${timeout / 1000} 秒）…`);
   emit('Ctrl+C 可结束等待；后台服务继续运行，停止请用 node forge.mjs stop。');
   while (Date.now() - started < timeout) {
@@ -73,13 +76,26 @@ export async function waitForStartup(paths, settings, env, hooks = {}) {
       const failed = core.find(service => service.state === 'errored' || (service.state === 'not_started' && snapshot.bootstrapAttached));
       if (failed) throw new Error(`${names[failed.name]}启动失败。${snapshot.lastError || ''}\n查看原因：node forge.mjs logs ${failed.name}\n日志目录：${paths.logs}`);
       const urls = await probe(snapshot);
+      if (snapshot.tunnel?.enabled && (snapshot.tunnel.state === 'errored'
+        || (snapshot.tunnel.state === 'not_started' && snapshot.bootstrapAttached))) {
+        throw new Error(`Cloudflare 隧道启动失败。${snapshot.lastError || ''}\n查看原因：node forge.mjs logs cloudflare`);
+      }
+      if (snapshot.tunnel?.enabled && snapshot.tunnel.state === 'online'
+        && core.every(service => urls[service.name]) && Date.now() - lastTunnelProbe >= (hooks.tunnelProbeIntervalMs || 5000)) {
+        lastTunnelProbe = Date.now();
+        try { tunnelHealth = await probeTunnel(managedTunnelConfig(env).hostname); }
+        catch (error) { tunnelHealth = { state: 'failed', reason: error instanceof Error ? error.message : String(error) }; }
+      }
       const summary = core.map(service => `${names[service.name]}：${urls[service.name] ? '已就绪' : service.state === 'waiting restart'
         ? `已退出，正在重试（${service.restarts}）` : service.ready ? '等待 HTTP 响应' : currentStage(paths, service)}`).join(' ｜ ');
-      if (summary !== previous || Date.now() - printedAt >= 15000) {
-        emit(`[${Math.round((Date.now() - started) / 1000)}s] ${summary || '控制器正在初始化'}`);
-        previous = summary; printedAt = Date.now();
+      const fullSummary = snapshot.tunnel?.enabled ? `${summary} ｜ Cloudflare：${snapshot.tunnel.state === 'online'
+        ? tunnelHealth.state === 'ready' ? '公网已就绪' : '等待公网回源' : snapshot.tunnel.state}` : summary;
+      if (fullSummary !== previous || Date.now() - printedAt >= 15000) {
+        emit(`[${Math.round((Date.now() - started) / 1000)}s] ${fullSummary || '控制器正在初始化'}`);
+        previous = fullSummary; printedAt = Date.now();
       }
-      if (snapshot.servicesReady && core.length > 0 && core.every(service => urls[service.name])) {
+      if (snapshot.servicesReady && core.length > 0 && core.every(service => urls[service.name])
+        && (!snapshot.tunnel?.enabled || tunnelHealth.state === 'ready')) {
         emit(`\nForge 主服务启动成功（${Math.round((Date.now() - started) / 1000)} 秒）。`);
         if (urls.frontend) emit(`工作台：${urls.frontend}`);
         if (urls.backend) emit(`后端：${urls.backend}`);

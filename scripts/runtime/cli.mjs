@@ -9,6 +9,7 @@ import { enabledServices, prepareNode, preparePython } from './services.mjs';
 import { executable, mavenCommand, npmCommand, run } from './commands.mjs';
 import { reportUnmanagedRuntime } from './unmanaged-runtime.mjs';
 import { waitForStartup, startupTimeout } from './startup-progress.mjs';
+import { ensureManagedTunnel } from './tunnel.mjs';
 
 function optionsFrom(args) {
   const options = {};
@@ -26,6 +27,18 @@ function optionsFrom(args) {
     else throw new Error(`Unknown option ${args[i]}; use node forge.mjs help`);
   }
   return options;
+}
+
+export function restartRequest(options, settings, env, controller) {
+  if (options.scope === 'backend') {
+    if (settings.scope === 'frontend') throw new Error('Backend is not enabled in this Forge runtime');
+    if (!controller || controller.pm2_env.status !== 'online') throw new Error('Controller is offline; backend-only restart cannot preserve the tunnel');
+    if (!env.TOOLBOX_SUPERVISOR_RESTART_TOKEN) throw new Error('Backend-only restart requires TOOLBOX_SUPERVISOR_RESTART_TOKEN');
+    return { path: '/restart', token: env.TOOLBOX_SUPERVISOR_RESTART_TOKEN, message: 'Backend restart requested; frontend and Cloudflare tunnel remain running.' };
+  }
+  if (options.scope === 'frontend') throw new Error('Frontend-only restart is not supported; use an explicitly authorized full restart');
+  return { path: '/full-reload', token: controller?.pm2_env.KAI_SUPERVISOR_CONTROL_TOKEN,
+    message: 'Forge reload requested; use status to check readiness.' };
 }
 
 async function doctor(paths, env) {
@@ -64,6 +77,7 @@ async function start(paths, env, settings, manager) {
   const apps = await manager.call('list');
   if (apps.some(app => app.name === 'forge-controller' && app.pm2_env.status === 'online')) {
     console.log('检测到已有守护器，检查实际就绪状态…');
+    await ensureManagedTunnel(manager, paths, env);
     const activeSettings = JSON.parse(readFileSync(paths.settings, 'utf8'));
     return waitForStartup(paths, activeSettings, env);
   }
@@ -125,7 +139,7 @@ export async function main(root, args) {
   if (['help', '--help', '-h'].includes(command)) {
     console.log('Cloudflare tunnel: node forge.mjs tunnel start|stop|status|check [--config PATH] [--protocol http2|quic|auto]\nTemporary address: node forge.mjs tunnel start --quick [--url https://localhost:5173]');
     console.log('Isolated backend measurement:\nnode forge.mjs measure-startup [--port 18090] [--timeout-seconds 120] [--skip-build] [--application-jar PATH] [--output-root PATH] [--target-path /api/tools]\n');
-    console.log('Forge source runtime (Node 22+, Java 21, Maven)\n\nnode forge.mjs start [--scope all|backend|frontend] [--mode dev|full]\nnode forge.mjs stop\nnode forge.mjs status\nnode forge.mjs restart\nnode forge.mjs logs [service]\nnode forge.mjs doctor\nnode forge.mjs prepare\n\nDocker is optional and is not used to run Forge.');
+    console.log('Forge source runtime (Node 22+, Java 21, Maven)\n\nnode forge.mjs start [--scope all|backend|frontend] [--mode dev|full]\nnode forge.mjs stop\nnode forge.mjs status\nnode forge.mjs restart [--scope backend]\nnode forge.mjs logs [service]\nnode forge.mjs doctor\nnode forge.mjs prepare\n\nDocker is optional and is not used to run Forge.');
     return;
   }
   const paths = runtimePaths(root);
@@ -157,14 +171,15 @@ export async function main(root, args) {
     } else if (command === 'restart') {
       const controller = apps.find(app => app.name === 'forge-controller');
       if (!controller) throw new Error('Forge is not running; use start');
+      const request = restartRequest(options, settings, env, controller);
       if (controller.pm2_env.status === 'online') {
-        const response = await fetch(`http://127.0.0.1:${settings.port}/full-reload`, {
-          method: 'POST', headers: { 'X-Restart-Token': controller.pm2_env.KAI_SUPERVISOR_CONTROL_TOKEN },
+        const response = await fetch(`http://127.0.0.1:${settings.port}${request.path}`, {
+          method: 'POST', headers: { 'X-Restart-Token': request.token },
           signal: AbortSignal.timeout(5000),
         });
         if (!response.ok) throw new Error(`Reload rejected (${response.status}); inspect status and retry`);
       } else await manager.call('restart', 'forge-controller');
-      console.log('Forge reload requested; use status to check readiness.');
+      console.log(request.message);
     } else if (command === 'status') {
       if (apps.length === 0) return await reportUnmanagedRuntime(paths, env, settings, options.scope);
       if (apps.some(app => app.name === 'forge-controller' && app.pm2_env.status === 'online')) {

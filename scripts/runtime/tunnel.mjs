@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join, delimiter } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { setTimeout as pause } from 'node:timers/promises';
-import { runtimePaths } from './config.mjs';
+import { runtimePaths, flag } from './config.mjs';
 import { connectManager, appOptions } from './process-manager.mjs';
 
 export function tunnelAsset(platform, arch) {
@@ -59,6 +59,28 @@ function validateConfig(config) {
   const credential = contents.match(/^credentials-file:\s*(.+)$/m)?.[1].trim().replace(/^['"]|['"]$/g, '');
   if (!credential || !existsSync(credential)) throw new Error('Tunnel credential is missing; restore it without deleting the remote tunnel');
   return contents.match(/^\s*- hostname:\s*(\S+)/m)?.[1] || null;
+}
+
+export function managedTunnelConfig(env) {
+  if (!flag(env.FORGE_CLOUDFLARE_ENABLED, false)) return null;
+  const config = env.FORGE_CLOUDFLARE_CONFIG || join(homedir(), '.kai-toolbox', 'cloudflared', 'config.yml');
+  const hostname = validateConfig(config);
+  if (!hostname) throw new Error('Managed Cloudflare tunnel requires a named hostname in config.yml');
+  const protocol = env.FORGE_CLOUDFLARE_PROTOCOL || 'http2';
+  return { config, hostname, args: tunnelArguments(config, protocol) };
+}
+
+/** Idempotent startup path shared with the Forge controller; PM2 owns bounded crash retries. */
+export async function ensureManagedTunnel(manager, paths, env, binary = cloudflaredBinary) {
+  const plan = managedTunnelConfig(env);
+  if (!plan) return { enabled: false };
+  const existing = (await manager.call('list')).find(app => app.name === 'cloudflare');
+  if (existing?.pm2_env.status === 'online') return { enabled: true, hostname: plan.hostname, pid: existing.pid };
+  if (existing) throw new Error('Managed Cloudflare tunnel is not online; inspect logs before retrying startup');
+  const executable = await binary();
+  await manager.call('start', { ...appOptions(paths, 'cloudflare', executable, plan.args),
+    interpreter: 'none', autorestart: true });
+  return { enabled: true, hostname: plan.hostname };
 }
 
 /** Public responses verify routing and origin reachability, not just a live PM2 process. */
@@ -123,7 +145,7 @@ export async function tunnelMain(root, args) {
       if (resolver) tunnelArgs.push('--dns-resolver-addrs', resolver);
       const binary = await cloudflaredBinary();
       await manager.call('start', { ...appOptions(paths, 'cloudflare', binary, tunnelArgs),
-        interpreter: 'none', autorestart: false });
+        interpreter: 'none', autorestart: !quick });
       console.log(`Tunnel process launched for ${hostname}; public readiness is not yet verified. Inspect node forge.mjs logs cloudflare.`);
     } else if (command === 'start' && existing.pm2_env.status !== 'online') {
       throw new Error('Existing tunnel is not online; inspect logs, then explicitly stop/start after diagnosis');

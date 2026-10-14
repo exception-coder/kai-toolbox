@@ -40,6 +40,13 @@ TOOLBOX_SQLITE_FILE=
 #   TOOLBOX_HTTP_PROXY=http://127.0.0.1:7897
 TOOLBOX_HTTP_PROXY=
 
+# 固定域名 Cloudflare 隧道跟随 Forge 启停；需要现有 config.yml 与凭据。
+# 默认关闭，配置完本机隧道后设为 true。Quick Tunnel 不自动管理。
+FORGE_CLOUDFLARE_ENABLED=false
+# 可选：覆盖默认 ~/.kai-toolbox/cloudflared/config.yml。
+FORGE_CLOUDFLARE_CONFIG=
+FORGE_CLOUDFLARE_PROTOCOL=http2
+
 # whisper 后端模式（Windows 留空 = cli；macOS supervisor 留空 = asr-service）。启动脚本据此
 # 决定要不要拉起 faster-whisper ASR sidecar(:9500)，两者必须一致，所以只在这一处配：
 #   cli         —— 调 whisper-cli.exe 子进程；需要 toolbox.whisper.binary 与 model-path
