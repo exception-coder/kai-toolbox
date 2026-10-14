@@ -25,10 +25,11 @@ export function ChatControlWorkspace() {
   const allowedLlm = access.superAdmin || access.roles.includes('ADMIN') || access.permissionCodes.includes('menu:ai-chat')
   const allowedAgent = access.superAdmin || access.roles.includes('ADMIN') || access.permissionCodes.includes('menu:claude-chat')
     || new URLSearchParams(location.search).has('prdSessionId')
-  const renderControl = () => <div className="flex shrink-0 items-center gap-1">
+  const renderControl = (onChoose?: () => void) => <div className={onChoose ? 'w-full' : 'flex shrink-0 items-center gap-1'}>
     {mode === 'LLM' && openNavigation && <button type="button" onClick={openNavigation}
       aria-label="打开导航" className="flex size-8 items-center justify-center md:hidden"><Menu className="size-4" /></button>}
     <ChatControlModePicker mode={mode} allowedAgent={allowedAgent} allowedLlm={allowedLlm} triggerRef={focusControl}
+      inline={!!onChoose} onChoose={onChoose}
       onChange={next => {
         focusRequested.current = true
         if (next === 'LLM') setLlmVisited(true)
@@ -36,7 +37,7 @@ export function ChatControlWorkspace() {
       }} />
   </div>
   return <div className="h-full min-h-0">
-    {mode === 'CODE_AGENT' && <ChatPage renderControl={renderControl} />}
+    {mode === 'CODE_AGENT' && <ChatPage renderControl={renderControl} controlRef={focusControl} />}
     {(llmVisited || mode === 'LLM') && allowedLlm && <div hidden={mode !== 'LLM'} className="h-full min-h-0">
       <Suspense fallback={<p role="status" className="p-4">正在加载自由对话…</p>}><LlmChatPage renderControl={mode === 'LLM' ? renderControl : undefined} /></Suspense>
     </div>}

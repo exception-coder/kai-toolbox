@@ -16,12 +16,20 @@ interface Props {
   allowedLlm: boolean
   onChange: (mode: ChatControlMode) => void
   triggerRef?: Ref<HTMLButtonElement>
+  inline?: boolean
+  onChoose?: () => void
 }
 
 /** Keep the current conversation title primary; explain the choice only when requested. */
-export function ChatControlModePicker({ mode, allowedAgent, allowedLlm, onChange, triggerRef }: Props) {
+export function ChatControlModePicker({ mode, allowedAgent, allowedLlm, onChange, triggerRef, inline, onChoose }: Props) {
   const [open, setOpen] = useState(false)
   const current = modes.find(option => option.value === mode)!
+  const choices = <ModeChoices mode={mode} allowedAgent={allowedAgent} allowedLlm={allowedLlm} onChange={next => {
+    setOpen(false)
+    onChoose?.()
+    if (next !== mode) onChange(next)
+  }} />
+  if (inline) return choices
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild>
       <Button ref={triggerRef} type="button" variant="ghost" size="sm"
@@ -32,26 +40,30 @@ export function ChatControlModePicker({ mode, allowedAgent, allowedLlm, onChange
       </Button>
     </PopoverTrigger>
     <PopoverContent align="start" className="w-64 max-w-[calc(100vw-2rem)] p-1" aria-label="对话方式">
-      <div role="group" aria-label="选择对话方式">
+      {choices}
+    </PopoverContent>
+  </Popover>
+}
+
+function ModeChoices({ mode, allowedAgent, allowedLlm, onChange }: Pick<Props, 'mode' | 'allowedAgent' | 'allowedLlm' | 'onChange'>) {
+  return <div role="group" aria-label="选择对话方式">
         {modes.map(option => {
           const allowed = option.value === 'CODE_AGENT' ? allowedAgent : allowedLlm
           const selected = mode === option.value
           return <button key={option.value} type="button" aria-label={option.label}
             aria-pressed={selected} disabled={!allowed}
-            onClick={() => { setOpen(false); if (!selected) onChange(option.value) }}
-            className={cn('flex w-full items-start gap-3 rounded px-3 py-3 text-left transition-colors hover:bg-[var(--color-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] disabled:cursor-not-allowed disabled:opacity-50',
-              selected && 'bg-[var(--color-accent)]')}>
+            onClick={() => onChange(option.value)}
+            className={cn('flex min-h-14 w-full items-start gap-3 rounded-md border-l-2 px-3 py-2 text-left transition-colors hover:bg-[var(--color-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] disabled:cursor-not-allowed disabled:opacity-50',
+              selected ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/5' : 'border-transparent')}>
             <option.icon aria-hidden="true" className="mt-1 size-4 shrink-0 text-[var(--color-muted-foreground)]" />
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-medium">{option.label}</span>
-              <span className="mt-1 block text-xs leading-relaxed text-[var(--color-muted-foreground)]">
+              <span className="mt-0.5 block text-xs leading-relaxed text-[var(--color-muted-foreground)]">
                 {allowed ? option.description : '当前账号暂无此权限'}
               </span>
             </span>
-            {selected && <Check aria-hidden="true" className="mt-1 size-4 shrink-0" />}
+            {selected && <Check aria-hidden="true" className="mt-1 size-4 shrink-0 text-[var(--color-primary)]" />}
           </button>
         })}
       </div>
-    </PopoverContent>
-  </Popover>
 }

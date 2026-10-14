@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { MobileSessionNavigation, SessionViewTabs } from './SessionViewTabs'
+import { SessionWorkViews, SessionViewTabs } from './SessionViewTabs'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
@@ -61,38 +61,21 @@ it('keeps the board available before a session is selected', () => {
   expect(screen.queryByRole('button', { name: '对话' })).not.toBeInTheDocument()
 })
 
-it('mobile title navigation preserves every view and restores focus after selection', async () => {
-  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+it('mobile work views retain every existing destination with explicit labels', () => {
   const onSelect = vi.fn()
-  render(<MobileSessionNavigation title="采购报价" status="Codex · 已连接" view="autopilot_detail"
-    onSelect={onSelect} hasSession siteCount={2} documentTitle="需求" pendingReviewCount={1} />)
-  const trigger = screen.getByRole('button', { name: '切换会话视图，当前推进，采购报价' })
-  trigger.focus()
-  fireEvent.click(trigger)
-  expect(screen.getByRole('button', { name: '推进' })).toHaveAttribute('aria-current', 'page')
-  for (const name of ['对话', '看板', '开发待办', '轨迹', '站点 2', '文档', '用量', /评审 1/]) {
-    expect(screen.getByRole('button', { name })).toBeInTheDocument()
+  render(<SessionWorkViews view="autopilot_detail" onSelect={onSelect} hasSession siteCount={2}
+    documentTitle="需求" pendingReviewCount={1} />)
+  const views = within(screen.getByRole('group', { name: '工作视图' }))
+  expect(views.getByRole('button', { name: '推进' })).toHaveAttribute('aria-current', 'page')
+  for (const name of ['对话', '会话看板', '开发待办', '执行轨迹', '工作站点 2', '文档', 'Token 用量', /评审 1/]) {
+    expect(views.getByRole('button', { name })).toBeInTheDocument()
   }
-  fireEvent.click(screen.getByRole('button', { name: '文档' }))
+  fireEvent.click(views.getByRole('button', { name: '文档' }))
   expect(onSelect).toHaveBeenCalledExactlyOnceWith('documents')
-  await waitFor(() => expect(trigger).toHaveFocus())
-  expect(screen.queryByRole('group', { name: '其他会话视图' })).not.toBeInTheDocument()
 })
 
-it('mobile navigation offers only the global board without a selected session and closes on desktop', async () => {
-  const listeners = new Set<() => void>()
-  const media = { matches: true, addEventListener: (_event: string, callback: () => void) => listeners.add(callback),
-    removeEventListener: (_event: string, callback: () => void) => listeners.delete(callback) }
-  vi.stubGlobal('matchMedia', vi.fn(() => media))
-  const onSelect = vi.fn()
-  render(<MobileSessionNavigation title="Vibe Coding" status="空闲" view="board" onSelect={onSelect}
-    hasSession={false} siteCount={0} control={<button>选择对话方式</button>} />)
-  const trigger = screen.getByRole('button', { name: /切换会话视图/ })
-  fireEvent.click(trigger)
-  expect(screen.getByRole('button', { name: '看板' })).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: '对话' })).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '选择对话方式' })).toBeInTheDocument()
-  act(() => { media.matches = false; listeners.forEach(callback => callback()) })
-  await waitFor(() => expect(screen.queryByRole('button', { name: '选择对话方式' })).not.toBeInTheDocument())
-  expect(onSelect).not.toHaveBeenCalled()
+it('mobile work views only offer the global board without a selected session', () => {
+  render(<SessionWorkViews view="board" onSelect={vi.fn()} hasSession={false} siteCount={0} />)
+  expect(screen.getAllByRole('button')).toHaveLength(1)
+  expect(screen.getByRole('button', { name: '会话看板' })).toHaveAttribute('aria-current', 'page')
 })
