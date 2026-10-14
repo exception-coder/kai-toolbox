@@ -30,10 +30,10 @@ final class RuntimeScenarioLoader {
         try (InputStream input = Files.newInputStream(config)) {
             document = new Yaml(new SafeConstructor(options)).load(input);
         }
-        return parseScenarios(document);
+        return parseScenarios(document, projectRoot.toRealPath());
     }
 
-    private static List<RuntimeScenario> parseScenarios(Object document) {
+    private static List<RuntimeScenario> parseScenarios(Object document, Path projectRoot) {
         if (!(document instanceof Map<?, ?> root) || !(root.get("runtime") instanceof Map<?, ?> runtime)) {
             throw new IllegalArgumentException("Runtime configuration requires runtime.scenarios");
         }
@@ -42,12 +42,12 @@ final class RuntimeScenarioLoader {
         }
         List<RuntimeScenario> result = new ArrayList<>();
         for (Object item : scenarioList) {
-            result.add(parseScenario(item));
+            result.add(parseScenario(item, projectRoot));
         }
         return List.copyOf(result);
     }
 
-    private static RuntimeScenario parseScenario(Object item) {
+    private static RuntimeScenario parseScenario(Object item, Path projectRoot) {
         if (!(item instanceof Map<?, ?> scenarioMap)) {
             throw new IllegalArgumentException("Each runtime scenario must be a map");
         }
@@ -59,6 +59,9 @@ final class RuntimeScenarioLoader {
             if (!key.equals("id") && !key.equals("type")) {
                 configuration.put(key, entry.getValue());
             }
+        }
+        if ("maven-test".equals(type)) {
+            configuration.put("projectRoot", projectRoot.toString());
         }
         return new RuntimeScenario(id, type, configuration);
     }

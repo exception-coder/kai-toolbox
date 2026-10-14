@@ -1,2 +1,3 @@
 com.exceptioncoder.forge.quality.runtime.SqlRuntimeVerifier
 com.exceptioncoder.forge.quality.runtime.ApiRuntimeVerifier
+com.exceptioncoder.forge.quality.runtime.MavenTestRuntimeVerifier

@@ -20,7 +20,7 @@ AI 修改代码后，仅凭源码推理不能证明改动真的可用。Forge Ve
 | 层次 | 回答的问题 | 资产来源 | 特点 |
 |---|---|---|---|
 | Static Gate | 从代码结构看，是否存在明显错误 | 通用规则与技术栈插件 | 快速、无环境依赖、适合前置拦截 |
-| Runtime Verification | 在真实数据库或服务中，是否实际运行成功 | 项目业务场景 | 接近真实事实、成本更高、依赖测试环境 |
+| Runtime Verification | 本地测试或测试数据库、服务是否实际运行成功 | 项目业务场景 | 记录实际执行证据，环境依赖由场景决定 |
 
 完整验证默认先执行 Static。Static 失败时不会连接数据库或调用 API，Runtime 状态为 `SKIPPED`。
 
@@ -40,8 +40,10 @@ flowchart LR
     DECISION -->|"是"| RUNTIME["Runtime Engine"]
     RUNTIME --> SQL["SQL Runtime Verifier"]
     RUNTIME --> API["API Runtime Verifier"]
+    RUNTIME --> LOCAL["Maven 本地测试"]
     SQL --> REPORT
     API --> REPORT
+    LOCAL --> REPORT
 ```
 
 CLI 和 MCP 都是薄适配器，共同调用 Application 层，不各自复制验证逻辑。Core 只认识 ChangeSet、Checker、Plugin 和 Report，不依赖 MyBatis、JPA 或具体数据库。
@@ -70,7 +72,7 @@ flowchart TB
 forge-quality/
 ├── forge-quality-core/          通用模型、Plugin SPI、Checker 路由和静态报告
 ├── forge-quality-plugin-java/   Java 技术栈探测与 MyBatis 静态规则
-├── forge-quality-runtime/       SQL、API Runtime SPI 与执行器
+├── forge-quality-runtime/       SQL、API、Maven 本地测试 Runtime SPI 与执行器
 ├── forge-quality-application/   Static-first 编排和统一 VerificationReport
 ├── forge-quality-cli/           开发者与 CI 的命令行适配器
 └── forge-quality-mcp/           Codex、Claude Code 的 stdio MCP 适配器
@@ -258,6 +260,20 @@ quality:
 未配置 `.forge/quality.yml` 时，Static Engine 使用自动探测结果路由 Checker。
 
 ### 8.2 Runtime 场景配置
+
+本地开发可以配置 `maven-test`，无需在线应用或数据库服务：
+
+```yaml
+runtime:
+  scenarios:
+    - id: local-regression
+      type: maven-test
+      modules: [path/to/module]
+      tests: '*Test,!ExternalDatabaseTest'
+      timeoutSeconds: 300
+```
+
+使用当前 JVM 与 PATH/MAVEN_HOME 中已安装的 Maven，固定执行 `test`（包括上游模块）。指定模块必须位于项目内且有 pom.xml；每个指定模块必须生成本次唯一后缀的 Surefire XML，实际执行数大于零且没有失败/错误。旧报告、全部跳过、退出非零和超时都失败。报告保留在各模块 `target/surefire-reports`，自定义报告路径不支持。测试选择器支持 Surefire 名称模式，配置作者须明确排除容器/外部环境测试；此执行器不是构建脚本沙箱。本地 PASS 不表示目标数据库或生产环境通过。超时范围 1–1200 秒。
 
 Runtime 场景位于 `.forge/verify.yml`。这是项目业务事实，不应进入通用插件：
 
