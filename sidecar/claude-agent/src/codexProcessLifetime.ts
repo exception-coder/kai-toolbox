@@ -9,14 +9,30 @@ export class CodexProcessLifetime {
   private readonly waiters = new Set<() => void>()
 
   constructor(readonly child: ChildProcessWithoutNullStreams) {
-    child.once('close', () => {
-      this.closed = true
-      for (const notify of this.waiters) notify()
-      this.waiters.clear()
+    child.once('close', () => this.release())
+    child.once('exit', code => {
+      if (typeof code === 'number') this.confirmExit(code)
     })
   }
 
+  private release(): void {
+    this.closed = true
+    for (const notify of this.waiters) notify()
+    this.waiters.clear()
+  }
+
+  /** The Codex CLI mirrors native exit; inherited pipes are not writer liveness. */
+  private confirmExit(code: number): void {
+    if (this.closed) return
+    console.error(JSON.stringify({ event: 'codex_process_exit_confirmed',
+      pid: this.child.pid, exitCode: code, signalCode: this.child.signalCode,
+      stdoutClosed: this.child.stdout?.destroyed, stderrClosed: this.child.stderr?.destroyed,
+      releaseReason: 'launcher_mirrored_native_exit' }))
+    this.release()
+  }
+
   wait(timeoutMs: number): Promise<boolean> {
+    if (!this.closed && typeof this.child.exitCode === 'number') this.confirmExit(this.child.exitCode)
     if (this.closed) return Promise.resolve(true)
     return new Promise(resolveWait => {
       const finish = (closed: boolean) => {

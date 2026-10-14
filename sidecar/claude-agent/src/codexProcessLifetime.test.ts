@@ -5,15 +5,15 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { CodexCleanupBarriers, observeCodexProcess } from './codexProcessLifetime.js'
 
 function processStub(pid: number) {
-  const child = Object.assign(new EventEmitter(), { pid, exitCode: 0 }) as ChildProcessWithoutNullStreams
+  const child = Object.assign(new EventEmitter(), { pid, exitCode: null }) as ChildProcessWithoutNullStreams
   return { child, lifetime: observeCodexProcess(child) }
 }
 
-test('exit is not close, close is remembered, and repeated waits do not leak child listeners', async () => {
+test('unknown exit blocks, close is remembered, and repeated waits do not leak child listeners', async () => {
   const { child, lifetime } = processStub(1)
   const keepAlive = setInterval(() => {}, 100)
   try {
-    child.emit('exit', 0)
+    child.emit('exit', null, 'SIGTERM')
     const checks = await Promise.all(Array.from({ length: 20 }, () => lifetime.wait(5)))
     assert.ok(checks.every(closed => !closed))
     assert.equal(child.listenerCount('close'), 1)
@@ -68,4 +68,42 @@ test('failed cleanup blocks both session and native aliases until the original c
     await barriers.verify('session', 'thread', '/auth/a', 5)
     await barriers.verify('alias', 'thread', '/auth/a', 5)
   } finally { clearInterval(keepAlive) }
+})
+
+
+test('native exit releases both barrier aliases even when inherited pipes never close', async () => {
+  const { child, lifetime } = processStub(30344)
+  const barriers = new CodexCleanupBarriers()
+  barriers.retain(lifetime, 'session', 'thread', '/auth/a')
+  child.emit('exit', 0, null)
+  await barriers.verify('session', 'thread', '/auth/a', 5)
+  await barriers.verify('alias', 'thread', '/auth/a', 5)
+  assert.equal(await lifetime.wait(0), true)
+})
+
+test('rechecks an already recorded native exit instead of retaining a stale barrier', async () => {
+  const { child, lifetime } = processStub(30344)
+  const barriers = new CodexCleanupBarriers()
+  barriers.retain(lifetime, 'session', 'thread', '/auth/a')
+  Object.assign(child, { exitCode: 1 })
+  await barriers.verify('session', 'thread', '/auth/a', 5)
+  await barriers.verify('alias', 'thread', '/auth/a', 5)
+})
+
+
+
+test('real launcher exit releases with a finite descendant', async () => {
+  const child = spawn(process.execPath, ['-e', `
+    const {spawn}=require('node:child_process');
+    spawn(process.execPath,['-e','setTimeout(()=>{},800)'],{stdio:['ignore',1,2]}).unref();
+    process.exit(0);
+  `], { stdio: 'pipe', windowsHide: true })
+  const lifetime = observeCodexProcess(child)
+  let pipeClosed = false
+  child.once('close', () => { pipeClosed = true })
+  assert.equal(await lifetime.wait(3_000), true)
+  assert.equal(child.exitCode, 0)
+  child.stdout.resume()
+  child.stderr.resume()
+  if (!pipeClosed) await new Promise<void>(resolve => child.once('close', () => resolve()))
 })
