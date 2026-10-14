@@ -5,6 +5,7 @@ import { prepareCodexTransport } from './codexTransportPolicy.js'
 import { createPredictionClose } from './codexPredictionCleanup.js'
 import { codexCleanupBarriers, observeCodexProcess } from './codexProcessLifetime.js'
 import { jsonLineWriter } from './jsonLineWriter.js'
+import { codexCleanupSnapshot } from './codexProcessCleanup.js'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
@@ -1377,11 +1378,23 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
       throw new CodexAppServerTurnError('Codex App Server 未生成轮次终态', false)
     }
     // 同一原生 thread 只允许一个 writer。业务终态不能早于受管进程退出对外释放队列。
+    const cleanupStarted = Date.now()
     const release = await waitForManagedProcessRelease(
       () => closeInput(child),
-      () => lifetime.wait(runtime.closeTimeoutMs),
+      async () => {
+        const closed = await lifetime.wait(runtime.closeTimeoutMs)
+        if (!closed) console.error(JSON.stringify({
+          event: 'codex_process_cleanup_timeout', sessionId: options.sessionId,
+          elapsedMs: Date.now() - cleanupStarted,
+          ...await codexCleanupSnapshot(child),
+        }))
+        return closed
+      },
       () => runtime.stop(child),
     )
+    console.error(JSON.stringify({ event: 'codex_process_cleanup_complete',
+      sessionId: options.sessionId, pid: child.pid, release,
+      elapsedMs: Date.now() - cleanupStarted, exitCode: child.exitCode, signalCode: child.signalCode }))
     if (release === 'forced') {
       options.emit({
         type: 'warning',
