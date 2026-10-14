@@ -1,9 +1,12 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ChatItem } from '../types'
 import { MessageList } from './MessageList'
+import { copyTextToClipboard } from '../lib/clipboard'
 import { setHideToolCalls } from '../lib/toolVisibilityPref'
+
+vi.mock('../lib/clipboard', () => ({ copyTextToClipboard: vi.fn(async () => {}) }))
 
 vi.mock('react-virtuoso', async () => {
   const { forwardRef, useImperativeHandle } = await import('react')
@@ -12,7 +15,7 @@ vi.mock('react-virtuoso', async () => {
     return <div>{props.data.map((item, index) => <div key={item.id}>{props.itemContent(index, item)}</div>)}</div>
   }) }
 })
-afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.mocked(copyTextToClipboard).mockReset() })
 const items: ChatItem[] = [
   { kind: 'assistant', id: 'answer', text: '本轮调整已完成。', forkAnchor: 'turn-old' },
   { kind: 'result', id: 'result', stopReason: 'end_turn', latencyMs: 371400, usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 2400000 } },
@@ -38,11 +41,14 @@ it('consolidates routine mobile execution but preserves warnings, ended-turn det
   expect(screen.getByText(/保存失败，请重试/)).toBeInTheDocument()
   expect(screen.getByText('读取文件失败')).toBeInTheDocument()
   expect(screen.getByText('此轮已完成')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '复制回复' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '从这条回答处分叉对话' })).not.toBeInTheDocument()
   const token = screen.getByText(/Token 2.4百万/)
   expect(token).not.toBeVisible()
   fireEvent.click(screen.getByText('详情 ›'))
   expect(token).toBeVisible()
   expect(screen.getByRole('button', { name: '复制本轮' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '更多回复操作' }))
   fireEvent.click(screen.getByRole('button', { name: '从这条回答处分叉对话' }))
   expect(fork).toHaveBeenCalledExactlyOnceWith('turn-old')
   expect(screen.queryByRole('button', { name: '转为卡片' })).not.toBeInTheDocument()
@@ -79,6 +85,7 @@ it('shows the original introduction on mobile and discloses complete headings, c
   expect(screen.getByRole('heading', { name: '修改与验证' })).toBeVisible()
   expect(screen.getByText('return result;')).toBeVisible()
   expect(screen.getByRole('link', { name: '查看源文件' })).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '更多回复操作' }))
   fireEvent.click(screen.getByRole('button', { name: '从这条回答处分叉对话' }))
   expect(fork).toHaveBeenCalledExactlyOnceWith('anchor')
   fireEvent.click(screen.getByRole('button', { name: '收起回复详情' }))
@@ -151,4 +158,25 @@ it('surfaces verification after file details without rewriting the original evid
   fireEvent.click(screen.getByRole('button', { name: '查看回复详情' }))
   expect(screen.getByText('修改文件：')).toBeVisible()
   expect(screen.getAllByText('frontend/src/components/long-path-example.tsx')).toHaveLength(12)
+})
+
+it('copies the complete folded reply from more, surfaces failures and permits retry without changing content', async () => {
+  vi.mocked(copyTextToClipboard).mockRejectedValueOnce(new Error('denied')).mockResolvedValueOnce()
+  mount(true, true, [{ kind: 'assistant', id: 'copy', text: longReply }], false)
+  const trigger = screen.getByRole('button', { name: '更多回复操作' })
+  fireEvent.click(trigger)
+  fireEvent.click(screen.getByRole('button', { name: '复制回复' }))
+  await screen.findByText('复制失败，重试')
+  fireEvent.click(screen.getByRole('button', { name: '复制回复' }))
+  await screen.findByText('已复制')
+  expect(copyTextToClipboard).toHaveBeenLastCalledWith(longReply)
+  fireEvent.keyDown(screen.getByLabelText('回复操作'), { key: 'Escape' })
+  await waitFor(() => expect(trigger).toHaveFocus())
+})
+
+it('retains shared reference definitions and code blocks when layering an answer', () => {
+  const text = '当前验证尚未完成。\n\n## 关键变化\n\n[源文件][source]\n\n## 验证结果\n\n没有执行部署。\n\n[source]: https://example.com/source\n'
+  mount(true, true, [{ kind: 'assistant', id: 'references', text }], false)
+  expect(screen.getByRole('link', { name: '源文件' })).toHaveAttribute('href', 'https://example.com/source')
+  expect(screen.getByText('没有执行部署。')).toBeVisible()
 })

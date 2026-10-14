@@ -8,15 +8,7 @@ const ESSENTIAL_SECTIONS = new Set(['风险', '风险与限制', '注意事项',
 /** 从原文投影摘要、变化与验证；不截断 Markdown 块，不生成结论或成功状态。 */
 export function replyPreview(text: string): { preview: string; details: string } | null {
   if (text.length < LONG_REPLY_LENGTH) return null
-  const tokens = marked.lexer(text)
-  const sections: { label: string | null; raw: string }[] = [{ label: null, raw: '' }]
-  let hasIntroduction = false
-  for (const token of tokens) {
-    const label = sectionLabel(token)
-    if (label && hasIntroduction) sections.push({ label, raw: token.raw })
-    else sections[sections.length - 1].raw += token.raw
-    if (token.type !== 'space' && token.type !== 'heading' && !label) hasIntroduction = true
-  }
+  const { sections, hasIntroduction } = splitReplySections(text)
   const introduction = sections[0].raw
   if (!hasIntroduction || introduction.length > MAX_PREVIEW_LENGTH) return null
   let preview = introduction
@@ -33,6 +25,37 @@ export function replyPreview(text: string): { preview: string; details: string }
     }
   }
   return details.trim().length >= 160 ? { preview, details } : null
+}
+
+export interface ReplySection {
+  label: string | null
+  raw: string
+  kind: 'summary' | 'changes' | 'verification' | 'artifact' | 'context'
+}
+
+/** 只划分原文中已存在的小节；标签不代表任务成功或验收通过。 */
+export function replySections(text: string): ReplySection[] {
+  return splitReplySections(text).sections.map(section => ({ ...section,
+    kind: section.label == null ? 'summary'
+      : ['验证', '验证结果'].includes(section.label) ? 'verification'
+        : ['产物', '交付产物', '附件', '修改文件', '文件修改'].includes(section.label) ? 'artifact'
+          : OVERVIEW_SECTIONS.has(section.label) ? 'changes' : 'context',
+  }))
+}
+
+function splitReplySections(text: string) {
+  const tokens = marked.lexer(text)
+  // 引用式链接共享文末定义，拆开渲染会丢失目标；保留整个 Markdown 上下文。
+  if (Object.keys(tokens.links).length) return { sections: [{ label: null, raw: text }], hasIntroduction: true }
+  const sections: { label: string | null; raw: string }[] = [{ label: null, raw: '' }]
+  let hasIntroduction = false
+  for (const token of tokens) {
+    const label = sectionLabel(token)
+    if (label && hasIntroduction) sections.push({ label, raw: token.raw })
+    else sections[sections.length - 1].raw += token.raw
+    if (token.type !== 'space' && token.type !== 'heading' && !label) hasIntroduction = true
+  }
+  return { sections, hasIntroduction }
 }
 
 function sectionLabel(token: ReturnType<typeof marked.lexer>[number]): string | null {

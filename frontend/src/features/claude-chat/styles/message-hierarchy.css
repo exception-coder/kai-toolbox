@@ -1,0 +1,58 @@
+/* 一条回复是一块信息；小节只用分隔与排版分层，不重复套卡。 */
+.cc-layered-conversation {
+  --cc-message-surface: var(--color-card);
+  --cc-message-border: color-mix(in oklab, var(--color-border) 60%, var(--color-card));
+  --cc-message-divider: color-mix(in oklab, var(--color-border) 50%, var(--color-card));
+  background: var(--color-background);
+}
+.cc-layered-conversation .cc-assistant-body {
+  border: 1px solid var(--cc-message-border); border-radius: 10px;
+  background: var(--cc-message-surface); box-shadow: none;
+}
+.cc-layered-conversation .cc-assistant-avatar { box-shadow: none; }
+.cc-layered-conversation .cc-message-header { margin-bottom: 4px; font-size: 12px; }
+.cc-layered-conversation .cc-reply-section + .cc-reply-section {
+  border-top: 1px solid var(--cc-message-divider); margin-top: 12px; padding-top: 12px;
+}
+.cc-layered-conversation .cc-reply-section--verification {
+  border-left: 2px solid color-mix(in oklab, var(--color-primary) 25%, var(--cc-message-surface));
+  padding-left: 12px;
+}
+.cc-layered-conversation .cc-reply-section .markdown-body > :first-child { margin-top: 0; }
+.cc-layered-conversation .cc-reply-section .markdown-body > :last-child { margin-bottom: 0; }
+.cc-layered-conversation .cc-assistant-body .markdown-body > :first-child { margin-top: 0; }
+.cc-layered-conversation .cc-assistant-body .markdown-body > :last-child { margin-bottom: 0; }
+.cc-layered-conversation .cc-assistant-body h1,
+.cc-layered-conversation .cc-assistant-body h2,
+.cc-layered-conversation .cc-assistant-body h3 { font-size: 16px; font-weight: 600; line-height: 1.5; }
+.cc-layered-conversation .cc-reply-section:not(.cc-reply-section--summary) .markdown-body > p:first-child {
+  font-size: 14px; font-weight: 600;
+}
+@media (min-width: 768px) and (hover: hover) {
+  .cc-layered-conversation .cc-message-actions { opacity: 0; transition: opacity 140ms ease; }
+  .cc-layered-conversation .cc-assistant-row:hover .cc-message-actions,
+  .cc-layered-conversation .cc-assistant-row:focus-within .cc-message-actions { opacity: 1; }
+}
+.cc-layered-conversation .cc-reply-disclosure { margin-top: 8px; }
+.cc-layered-conversation .cc-reply-disclosure + div:not([hidden]) {
+  border-top: 1px solid var(--cc-message-divider); padding-top: 12px;
+}
+@media (max-width: 767px) {
+  .cc-layered-conversation .cc-message-row { padding-bottom: 16px; }
+  .cc-layered-conversation .cc-assistant-body { width: 100%; max-width: 100%; }
+  .cc-layered-conversation .cc-assistant-row {
+    grid-template-columns: 24px minmax(0, 1fr) 44px; row-gap: 4px;
+  }
+  .cc-layered-conversation .cc-assistant-row .cc-message-header { grid-column: 2; grid-row: 1; }
+  .cc-layered-conversation .cc-assistant-avatar { align-self: center; margin-top: 0; }
+  .cc-layered-conversation .cc-assistant-row .cc-message-actions { grid-column: 3; grid-row: 1; align-self: center; }
+
+}
+@media (forced-colors: active) {
+  .cc-layered-conversation .cc-assistant-body,
+  .cc-layered-conversation .cc-reply-section { border-color: CanvasText; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-layered-conversation .cc-message-actions { transition: none; }
+}

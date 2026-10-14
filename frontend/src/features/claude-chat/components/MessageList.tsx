@@ -23,6 +23,7 @@ import { isExecutionDetail, isRoutineExecution } from '../lib/mobileExecutionPre
 import * as Popover from '@radix-ui/react-popover'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import '../styles/mobile-workspace.css'
+import '../styles/message-hierarchy.css'
 
 interface Props {
   items: ChatItem[]
@@ -320,7 +321,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   }
 
   return (
-    <div className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col', mobileWorkspace && 'cc-mobile-conversation')}
+    <div className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col', mobileWorkspace && 'cc-mobile-conversation cc-layered-conversation')}
       onWheelCapture={cancelJump}
       onTouchStartCapture={event => { if (!(event.target instanceof Element && event.target.closest('[data-latest-navigation]'))) cancelJump() }}
       onPointerDownCapture={event => { if (!(event.target instanceof Element && event.target.closest('[data-latest-navigation]'))) cancelJump() }}
@@ -374,13 +375,18 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   )
 }))
 
-/** 回复下方的一键复制：复制该条 assistant 的原始文本，移动端常显。 */
+/** 复制原始文本；手机从消息更多打开，失败保留重试入口。 */
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
+  const [failed, setFailed] = useState(false)
   const copy = async () => {
-    await copyTextToClipboard(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    setFailed(false)
+    setCopied(false)
+    try {
+      await copyTextToClipboard(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { setFailed(true) }
   }
   return (
     <button
@@ -390,7 +396,7 @@ function CopyButton({ text }: { text: string }) {
       className="mt-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
     >
       {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      {copied ? '已复制' : '复制'}
+      <span aria-live="polite">{copied ? '已复制' : failed ? '复制失败，重试' : '复制'}</span>
     </button>
   )
 }
@@ -617,25 +623,15 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
           <div className="cc-assistant-content flex min-w-0 flex-1 flex-col items-start">
             <MsgHeader label={engineLabel} ts={item.ts} align="start" />
             <div className="cc-assistant-body max-w-[90%] min-w-0 wrap-anywhere rounded-2xl border border-[var(--color-border)]/70 bg-[var(--color-card)] px-4 py-2 text-[var(--color-card-foreground)] shadow-sm">
-              <AssistantReply text={item.text} sessionId={sessionId} compact={compactMobile} streaming={streaming} />
+              <AssistantReply text={item.text} sessionId={sessionId} compact={compactMobile} streaming={streaming} layered={compactMetrics} />
             </div>
             {item.text.trim() && (
               <div className="cc-message-actions flex items-center gap-1">
-                <CopyButton text={item.text} />
-                {!compactMobile && <ToCardButton text={item.text} />}
-                {onFork && item.forkAnchor && (
-                  <button
-                    type="button"
-                    onClick={() => onFork(item.forkAnchor!)}
-                    aria-label="从这条回答处分叉对话"
-                    title="保留到这条回答为止，并从这里创建独立新会话"
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
-                  >
-                    <GitBranch className="size-3.5" />
-                    {compactMobile ? '分叉' : '从此处分叉'}
-                  </button>
-                )}
-                {compactMobile && <MobileMessageMore text={item.text} />}
+                {compactMobile ? <MobileMessageMore text={item.text} onFork={onFork} forkAnchor={item.forkAnchor} /> : <>
+                  <CopyButton text={item.text} />
+                  <ToCardButton text={item.text} />
+                  {onFork && item.forkAnchor && <ForkReplyButton onFork={() => onFork(item.forkAnchor!)} />}
+                </>}
               </div>
             )}
           </div>
@@ -700,10 +696,26 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
   }
 }
 
-function MobileMessageMore({ text }: { text: string }) {
+function ForkReplyButton({ onFork }: { onFork: () => void }) {
+  return <button type="button" onClick={onFork} aria-label="从这条回答处分叉对话"
+    title="保留到这条回答为止，并从这里创建独立新会话"
+    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]">
+    <GitBranch className="size-3.5" />从此处分叉
+  </button>
+}
+
+function MobileMessageMore({ text, onFork, forkAnchor }: { text: string; onFork?: (anchor: string) => void; forkAnchor?: string }) {
   const portal = useFullscreenPortalContainer()
-  return <Popover.Root><Popover.Trigger asChild><button type="button" aria-label="更多回复操作" className="min-h-11 min-w-11 rounded-md px-2 text-xs text-[var(--color-muted-foreground)]">···</button></Popover.Trigger>
-    <Popover.Portal container={portal}><Popover.Content align="start" sideOffset={4} className="z-[90] rounded-lg border bg-[var(--color-background)] p-2 shadow-sm [&_button]:min-h-11"><ToCardButton text={text} /></Popover.Content></Popover.Portal>
+  const [open, setOpen] = useState(false)
+  return <Popover.Root open={open} onOpenChange={setOpen}><Popover.Trigger asChild>
+    <button type="button" aria-label="更多回复操作" className="min-h-11 min-w-11 rounded-md px-2 text-xs text-[var(--color-muted-foreground)]">···</button>
+  </Popover.Trigger>
+    <Popover.Portal container={portal}><Popover.Content aria-label="回复操作" align="start" sideOffset={4}
+      className="z-[90] rounded-lg border bg-[var(--color-popover)] p-2 shadow-sm [&_button]:min-h-11">
+      <CopyButton text={text} />
+      {onFork && forkAnchor && <ForkReplyButton onFork={() => { setOpen(false); onFork(forkAnchor) }} />}
+      <ToCardButton text={text} />
+    </Popover.Content></Popover.Portal>
   </Popover.Root>
 }
 

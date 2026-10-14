@@ -29,15 +29,15 @@
   }
   .cc-mobile-conversation .cc-assistant-avatar img { width: 24px; height: 24px; }
   .cc-mobile-conversation .cc-assistant-body {
-    max-width: 100%; width: 100%; padding: 0; border: 0; border-radius: 0;
-    background: transparent; box-shadow: none; font-size: 15px; line-height: 1.5;
+    max-width: 100%; width: 100%; padding: 12px 16px; border: 1px solid var(--cc-message-border); border-radius: 10px;
+    background: var(--cc-message-surface); box-shadow: none; font-size: 15px; line-height: 1.5;
   }
   .cc-mobile-conversation .cc-assistant-body p { margin-block: 8px; }
   .cc-mobile-conversation .cc-assistant-body .markdown-body { font-size: 15px; line-height: 1.5; }
   .cc-mobile-conversation .cc-assistant-body h1,
   .cc-mobile-conversation .cc-assistant-body h2,
   .cc-mobile-conversation .cc-assistant-body h3 { font-size: 16px; margin-block: 16px 8px; }
-  .cc-mobile-conversation .cc-message-actions { gap: 0; opacity: 0.8; }
+  .cc-mobile-conversation .cc-message-actions { justify-self: end; gap: 0; opacity: 1; }
   .cc-mobile-conversation .cc-session-error,
   .cc-mobile-conversation .cc-session-warning { padding: 8px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
   .cc-mobile-conversation .cc-session-error { color: var(--color-destructive); }
