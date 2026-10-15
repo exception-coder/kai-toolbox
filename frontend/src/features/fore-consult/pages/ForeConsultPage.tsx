@@ -29,6 +29,7 @@ import { ConsultConversation } from '../components/ConsultConversation'
 import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
 import { EvidenceRouteManager } from '../components/EvidenceRouteManager'
+import { ConsultSkinToggle, useConsultSkin } from '../components/ConsultSkinToggle'
 import {
   archiveConsult,
   deleteConsult,
@@ -63,6 +64,7 @@ import {
 
 type ConsultAtt = ConsultDraftAttachment
 import '../styles/space.css'
+import '../styles/forge-skin.css'
 
 /**
  * 业务域分类：决定球体配色 + 图例分组（同一业务域同色，便于把星图读成有组织的系统地图）。
@@ -479,6 +481,7 @@ function extractTurns(items: ChatItem[], attMeta: Map<string, { path: string; mi
 }
 
 export function ForeConsultPage() {
+  const { skin, toggleSkin, remembered } = useConsultSkin()
   const qc = useQueryClient()
   const confirm = useConfirm()
   const prompt = usePrompt()
@@ -1432,6 +1435,7 @@ export function ForeConsultPage() {
   return (
     <div
       ref={containerRef}
+      data-consult-skin={skin}
       className={`fc-space h-full min-h-0 w-full rounded-2xl ${
         pageVisible && topoMutation.isPending && !conversationOpen ? 'is-topology-animating' : ''
       }`}
@@ -1446,6 +1450,7 @@ export function ForeConsultPage() {
           </div>
         </div>
         <div className="fc-toolbar pointer-events-auto flex w-full min-w-0 items-center gap-1.5 overflow-x-auto pb-1 lg:w-auto lg:overflow-visible lg:pb-0">
+          <ConsultSkinToggle skin={skin} onToggle={toggleSkin} remembered={remembered} />
           {isAdmin && (
             <button
               type="button"

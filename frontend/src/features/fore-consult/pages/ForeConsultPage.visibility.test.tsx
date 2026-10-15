@@ -35,8 +35,18 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } })
   client.setQueryData(['workspaces'], workspaces)
 })
-afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals(); vi.clearAllMocks(); localStorage.removeItem('toolbox.fore-consult.skin') })
 function mount() { render(<QueryClientProvider client={client}><ForeConsultPage /></QueryClientProvider>) }
+
+it('switches the current page skin without changing the project selection policy or saving configuration', async () => {
+  mount()
+  const project = await screen.findByRole('button', { name: 'ERP' })
+  fireEvent.click(screen.getByRole('button', { name: 'Forge 风格' }))
+  expect(project.closest('.fc-space')).toHaveAttribute('data-consult-skin', 'forge')
+  expect(screen.getByRole('button', { name: 'ERP' })).toBe(project)
+  expect(screen.queryByRole('button', { name: 'new-project' })).not.toBeInTheDocument()
+  expect(saveSystemPrefs).not.toHaveBeenCalled()
+})
 
 it('only renders marked systems after discovery and leaves new roots unselected when saving configuration', async () => {
   mount()

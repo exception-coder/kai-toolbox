@@ -1,0 +1,181 @@
+/* 外观变体：不改变 DOM、布局尺寸、滚动归属、交互事件或业务状态。 */
+.fc-skin-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-card);
+  color: var(--color-muted-foreground);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.fc-skin-toggle:hover { background: var(--color-accent); color: var(--color-foreground); }
+.fc-skin-toggle[aria-pressed='true'] {
+  background: var(--color-selection);
+  border-color: var(--color-selection-border);
+  color: var(--color-primary);
+}
+.fc-skin-toggle:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
+
+.fc-space[data-consult-skin='forge'] {
+  /* 将存量中性色工具类接到全站 tokens，不复制第二套明暗主题。 */
+  --color-slate-50: var(--color-background);
+  --color-slate-100: var(--color-muted);
+  --color-slate-200: var(--color-border);
+  --color-slate-300: var(--color-border-strong);
+  --color-slate-400: var(--color-muted-foreground);
+  --color-slate-500: var(--color-muted-foreground);
+  --color-slate-600: var(--color-muted-foreground);
+  --color-slate-700: var(--color-foreground);
+  --color-slate-800: var(--color-foreground);
+  --color-slate-900: var(--color-foreground);
+  --color-slate-950: var(--color-foreground);
+  --color-sky-50: var(--color-info-soft);
+  --color-sky-100: var(--color-info-soft);
+  --color-sky-200: color-mix(in oklab, var(--color-info) 30%, var(--color-border));
+  --color-sky-500: var(--color-primary);
+  --color-sky-600: var(--color-primary);
+  --color-sky-700: var(--color-info-soft-foreground);
+  --color-blue-200: var(--color-selection-border);
+  --color-blue-500: var(--color-primary);
+  --color-emerald-50: var(--color-success-soft);
+  --color-emerald-100: var(--color-success-soft);
+  --color-emerald-200: color-mix(in oklab, var(--color-success) 30%, var(--color-border));
+  --color-emerald-400: var(--color-success);
+  --color-emerald-500: var(--color-success);
+  --color-emerald-600: var(--color-success-soft-foreground);
+  --color-emerald-700: var(--color-success-soft-foreground);
+  --color-emerald-950: var(--color-success-soft-foreground);
+  --color-amber-50: var(--color-warning-soft);
+  --color-amber-100: var(--color-warning-soft);
+  --color-amber-200: color-mix(in oklab, var(--color-warning) 30%, var(--color-border));
+  --color-amber-700: var(--color-warning-soft-foreground);
+  --color-orange-700: var(--color-warning-soft-foreground);
+  --color-red-50: var(--color-danger-soft);
+  --color-red-200: color-mix(in oklab, var(--color-danger) 30%, var(--color-border));
+  --color-red-500: var(--color-danger);
+  --color-red-600: var(--color-danger);
+  --color-red-700: var(--color-danger-soft-foreground);
+  --color-rose-50: var(--color-danger-soft);
+  --color-rose-200: color-mix(in oklab, var(--color-danger) 30%, var(--color-border));
+  --color-rose-500: var(--color-danger);
+  --color-rose-700: var(--color-danger-soft-foreground);
+  background: var(--color-background);
+  color: var(--color-foreground);
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+.fc-space[data-consult-skin='forge']::before,
+.fc-space[data-consult-skin='forge'] :is(.fc-core, .fc-orb, .fc-prompt-dock)::before,
+.fc-space[data-consult-skin='forge'] :is(.fc-core, .fc-orb)::after,
+.fc-space[data-consult-skin='forge'] .fc-console-scan { display: none; }
+
+.fc-space[data-consult-skin='forge'] :is(.fc-console, .fc-panel, .fc-prompt-dock, .fc-module-picker, .fc-toolbar) {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.fc-space[data-consult-skin='forge'] .fc-conversation-layer { background: none; }
+.fc-space[data-consult-skin='forge'] .fc-backdrop {
+  background: color-mix(in oklab, var(--color-foreground) 12%, transparent);
+}
+.fc-space[data-consult-skin='forge'] :is(.fc-core, .fc-console-glyph) {
+  background: var(--color-muted);
+  border-color: var(--color-border);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.fc-space[data-consult-skin='forge'] .fc-orb {
+  background: color-mix(in oklab, var(--fc-hue) 8%, var(--color-card));
+  border-color: color-mix(in oklab, var(--fc-hue) 32%, var(--color-border));
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.fc-space[data-consult-skin='forge'] .is-active .fc-orb {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+.fc-space[data-consult-skin='forge'] :is(.fc-orb-glyph, .fc-console-glyph svg) {
+  color: color-mix(in oklab, var(--fc-hue) 65%, var(--color-foreground));
+}
+.fc-space[data-consult-skin='forge'] :is(.fc-orb-label, .fc-core-label b) {
+  color: var(--color-foreground);
+  text-shadow: none;
+}
+.fc-space[data-consult-skin='forge'] .fc-core-label span { color: var(--color-muted-foreground); }
+.fc-space[data-consult-skin='forge'] .fc-edge { stroke: var(--color-muted-foreground); }
+.fc-space[data-consult-skin='forge'] .fc-edge-glow { stroke: var(--color-border); }
+.fc-space[data-consult-skin='forge'] :is(.fc-edge-label, .fc-hint) {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  color: var(--color-muted-foreground);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.fc-space[data-consult-skin='forge'] :is(.fc-hint, .fc-hint-icon) { animation: none; }
+
+/* 存量组件中的浅色表面统一使用实色，覆盖 Tailwind 的透明白色与装饰阴影。 */
+.fc-space[data-consult-skin='forge'] [class*='bg-white'] { background-color: var(--color-card); }
+.fc-space[data-consult-skin='forge'] [class*='border-white'] { border-color: var(--color-border); }
+.fc-space[data-consult-skin='forge'] [class*='shadow-'] { box-shadow: none; }
+.fc-space[data-consult-skin='forge'] [class*='backdrop-blur'] { backdrop-filter: none; }
+.fc-space[data-consult-skin='forge'] [class~='rounded-2xl'] { border-radius: 12px; }
+.fc-space[data-consult-skin='forge'] .fc-toolbar > button:not(.fc-skin-toggle) {
+  background: var(--color-card);
+  border-color: var(--color-border);
+  border-radius: 8px;
+  color: var(--color-foreground);
+}
+.fc-space[data-consult-skin='forge'] .fc-toolbar > button:hover:not(:disabled) {
+  background: var(--color-accent);
+}
+.fc-space[data-consult-skin='forge'] :is(.fc-glass-input, .fc-module-search, .fc-prompt-field) {
+  background: var(--color-background);
+  border-color: var(--color-input);
+  border-radius: 8px;
+  color: var(--color-foreground);
+  box-shadow: none;
+}
+.fc-space[data-consult-skin='forge'] :is(input, textarea)::placeholder { color: var(--color-muted-foreground); }
+.fc-space[data-consult-skin='forge'] :is(.fc-glass-input, .fc-module-search, .fc-prompt-field):focus-within {
+  border-color: var(--color-ring);
+  box-shadow: none;
+}
+.fc-space[data-consult-skin='forge'] :is(button, input, textarea, select, summary):focus-visible,
+.fc-space[data-consult-skin='forge'] .fc-panel-resizer:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: -2px;
+}
+.fc-space[data-consult-skin='forge'] :is(.fc-ask-button, [class*='bg-gradient-'], [class~='bg-blue-500']) {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-foreground);
+  box-shadow: none;
+  border-radius: 8px;
+}
+.fc-space[data-consult-skin='forge'] .fc-panel-expand { color: var(--color-muted-foreground); }
+.fc-space[data-consult-skin='forge'] .fc-panel-expand:hover { background: var(--color-accent); }
+.fc-space[data-consult-skin='forge'] .fc-panel-resizer::after { background: var(--color-border-strong); }
+.fc-space[data-consult-skin='forge'] :is(.fc-panel-resizer:hover, .fc-panel-resizer:focus-visible)::after {
+  background: var(--color-primary);
+}
+.fc-space[data-consult-skin='forge'] .fc-md { color: var(--color-foreground); }
+.fc-space[data-consult-skin='forge'] .fc-md :is(h1, h2, h3, h4, strong) { color: var(--color-foreground); }
+.fc-space[data-consult-skin='forge'] .fc-md :is(em, blockquote) { color: var(--color-muted-foreground); }
+.fc-space[data-consult-skin='forge'] .fc-md a { color: var(--color-primary); }
+.fc-space[data-consult-skin='forge'] .fc-md :is(code, pre, th) {
+  background: var(--color-muted);
+  color: var(--color-foreground);
+  border-color: var(--color-border);
+}
+.fc-space[data-consult-skin='forge'] .fc-md pre code { background: none; border: none; }
+.fc-space[data-consult-skin='forge'] .fc-md :is(th, td, blockquote) { border-color: var(--color-border); }
+.fc-space[data-consult-skin='forge'] .fc-answer-content table:focus-visible { outline-color: var(--color-ring); }
