@@ -15,6 +15,7 @@ import type { ConsultDraftAttachment } from '../consultAttachmentDispatch'
 import { useConsultConversationRuntimeState } from '../consultConversationState'
 import { stripConsultRecognition } from '../consultRecognition'
 import { ConsultMessageActions } from './ConsultMessageActions'
+import { ConsultAnswerContent, ConsultPanel } from './ConsultPanel'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
 const BUG_RE = /<<<BUG_REPORT>>>\s*([\s\S]*?)\s*<<<END_BUG_REPORT>>>/
@@ -430,10 +431,8 @@ export function ConsultConversation({
 
   return (
     <div className="fc-conversation-layer absolute inset-0 z-30" onClick={onClose}>
-      <div
-        className="fc-console absolute inset-y-3 left-3 flex w-[min(520px,calc(100%-24px))] flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <ConsultPanel side="left" initialWidth={520} className="fc-console">
+        {sizeControls => <>
         <div className="fc-console-scan" />
 
         {/* 头部 */}
@@ -449,7 +448,8 @@ export function ConsultConversation({
               </h2>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5">
+            {sizeControls}
             <button
               type="button"
               onPointerDown={(event) => event.stopPropagation()}
@@ -458,7 +458,7 @@ export function ConsultConversation({
                 onArchive()
               }}
               disabled={archiving}
-              className="flex min-w-[76px] items-center justify-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50/80 px-2.5 py-1 text-[11px] text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+              className="flex min-w-[76px] items-center justify-center gap-1 whitespace-nowrap rounded-lg border border-emerald-200 bg-emerald-50/80 px-2.5 py-1 text-[11px] text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
               title="结束并归档本次咨询"
             >
               {archiving ? <Loader2 className="size-3 animate-spin" /> : <Archive className="size-3" />}
@@ -694,7 +694,8 @@ export function ConsultConversation({
             </div>
           </div>
         )}
-      </div>
+        </>}
+      </ConsultPanel>
       {lightbox && <ImageLightbox src={lightbox} onClose={() => setLightbox(null)} />}
     </div>
   )
@@ -869,9 +870,9 @@ const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: Chat
   if (item.kind === 'assistant') {
     if (!item.text.trim()) return null
     return (
-      <div className="flex max-w-[92%] flex-col items-start gap-1">
-        <div className="rounded-2xl rounded-tl-sm border border-slate-200/90 bg-white/72 px-3.5 py-2.5 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.32)]">
-          <Markdown text={stripConsultRecognition(stripBug(item.text))} className="fc-md" />
+      <div className="flex w-full min-w-0 max-w-full flex-col items-start gap-1">
+        <div className="min-w-0 max-w-full rounded-2xl rounded-tl-sm border border-slate-200/90 bg-white/72 px-3.5 py-2.5 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.32)]">
+          <ConsultAnswerContent text={item.text}><Markdown text={stripConsultRecognition(stripBug(item.text))} className="fc-md" /></ConsultAnswerContent>
         </div>
         {messageTime && <MessageTime timestamp={item.ts!} label={messageTime} align="left" />}
       </div>

@@ -1,0 +1,74 @@
+.fc-resizable-panel {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: min(var(--fc-panel-width), calc(100% - 24px));
+  max-width: calc(100% - 24px);
+}
+.fc-resizable-panel[data-side="left"] { left: 12px; }
+.fc-resizable-panel[data-side="right"] { right: 12px; }
+.fc-resizable-panel[data-side="left"]:not([data-expanded]) { padding-right: 12px; }
+.fc-resizable-panel[data-side="right"]:not([data-expanded]) { padding-left: 12px; }
+.fc-resizable-panel > .fc-panel-resizer[role="separator"] {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.fc-panel-resizer::after {
+  content: '';
+  position: absolute;
+  top: 40%;
+  bottom: 40%;
+  width: 3px;
+  border-radius: 4px;
+  background: #94a3b8;
+  opacity: 0.5;
+}
+[data-side="left"] > .fc-panel-resizer { right: 0; }
+[data-side="right"] > .fc-panel-resizer { left: 0; }
+[data-side="left"] > .fc-panel-resizer::after { right: 3px; }
+[data-side="right"] > .fc-panel-resizer::after { left: 3px; }
+.fc-panel-resizer:hover::after, .fc-panel-resizer:focus-visible::after { background: #0284c7; opacity: 1; }
+.fc-panel-resizer:focus-visible { outline: 2px solid #0284c7; outline-offset: -2px; }
+.fc-panel-expand {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  color: #64748b;
+}
+.fc-panel-expand:hover { background: #e2e8f0; color: #0f172a; }
+.fc-panel-expand:focus-visible { outline: 2px solid #0284c7; outline-offset: -2px; }
+.fc-answer-content { min-width: 0; max-width: 100%; }
+.fc-answer-content .fc-md { min-width: 0; max-width: 100%; }
+.fc-answer-content .fc-md table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  word-break: normal;
+}
+.fc-answer-content .fc-md th, .fc-answer-content .fc-md td {
+  min-width: 8rem;
+  max-width: 28rem;
+  padding: 8px 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.fc-answer-content table:focus-visible { outline: 2px solid #0284c7; outline-offset: -2px; }
+@media (max-width: 767px) {
+  .fc-resizable-panel { width: calc(100% - 24px); }
+  .fc-resizable-panel[data-side]:not([data-expanded]) { padding-inline: 0; }
+  .fc-resizable-panel > .fc-panel-resizer, .fc-panel-expand { display: none; }
+}

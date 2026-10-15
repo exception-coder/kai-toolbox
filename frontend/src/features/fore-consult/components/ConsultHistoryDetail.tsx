@@ -6,6 +6,7 @@ import { Copy, Loader2, X } from 'lucide-react'
 import { getConsult, type ConsultAttRef, type ConsultTurnView, type FeedbackView } from '../api'
 import { stripConsultRecognition } from '../consultRecognition'
 import { ImageLightbox } from './ImageLightbox'
+import { ConsultAnswerContent, ConsultPanel } from './ConsultPanel'
 
 interface Props {
   sessionId: string
@@ -123,10 +124,8 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
 
   return (
     <div className="absolute inset-0 z-40 flex justify-end" onClick={onClose}>
-      <div
-        className="fc-panel flex h-full w-[min(560px,94vw)] flex-col rounded-l-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <ConsultPanel side="right" initialWidth={560} className="fc-panel rounded-xl">
+        {sizeControls => <>
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-5">
           <div className="min-w-0">
             <div className="text-[10px] uppercase tracking-[0.22em] text-sky-600">Consult Archive</div>
@@ -145,12 +144,15 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
               </div>
             )}
           </div>
+          <div className="flex shrink-0 items-center gap-1">
+          {sizeControls}
           <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="关闭">
             <X className="size-4" />
           </button>
+          </div>
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
           {isLoading ? (
             <div className="flex items-center justify-center gap-2 pt-10 text-sm text-slate-500">
               <Loader2 className="size-4 animate-spin" /> 加载中…
@@ -208,8 +210,8 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
                   </div>
                 )}
                 {p.answer.trim() && (
-                  <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-3.5 py-2.5">
-                    <div className="fc-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(p.answer) }} />
+                  <div className="min-w-0 max-w-full rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-3.5 py-2.5">
+                    <ConsultAnswerContent text={p.answer}><div className="fc-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(p.answer) }} /></ConsultAnswerContent>
                   </div>
                 )}
                 {(() => {
@@ -237,7 +239,8 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
         <div className="border-t border-slate-200 px-5 py-2.5 text-center text-[10px] text-slate-500">
           只读归档 · {pairs.length} 轮问答
         </div>
-      </div>
+        </>}
+      </ConsultPanel>
       {lightbox && <ImageLightbox src={lightbox} onClose={() => setLightbox(null)} />}
     </div>
   )
