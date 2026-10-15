@@ -2,16 +2,19 @@ import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type Reac
 import { Maximize2, Minimize2 } from 'lucide-react'
 import './consult-panel.css'
 import { consultDocumentPath, downloadConsultDocument } from '../consultDocuments'
+import { ConsultFileDropZone } from './ConsultFileDropZone'
 
 const PANEL_GAP = 24
 const MIN_WIDTH = 360
 
 /** 咨询窗口在当前工作区内调宽，内容不因展开或还原而重新挂载。 */
-export function ConsultPanel({ side, initialWidth, className, children }: {
+export function ConsultPanel({ side, initialWidth, className, children, onFiles, dropDisabled }: {
   side: 'left' | 'right'
   initialWidth: number
   className: string
   children: (controls: ReactNode) => ReactNode
+  onFiles?: (files: FileList) => void | Promise<void>
+  dropDisabled?: boolean
 }) {
   const id = useId()
   const panel = useRef<HTMLDivElement>(null)
@@ -37,7 +40,8 @@ export function ConsultPanel({ side, initialWidth, className, children }: {
     onClick={() => setExpanded(value => !value)}>
     {expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
   </button>
-  return <div ref={panel} id={id} className={`fc-resizable-panel ${className}`} data-side={side}
+  return <ConsultFileDropZone ref={panel} onFiles={onFiles} dropDisabled={dropDisabled}
+    id={id} className={`fc-resizable-panel ${className}`} data-side={side}
     data-expanded={expanded || undefined} style={{ '--fc-panel-width': `${shownWidth}px` } as CSSProperties}
     onClick={event => event.stopPropagation()}>
     {children(controls)}
@@ -66,7 +70,7 @@ export function ConsultPanel({ side, initialWidth, className, children }: {
         const direction = (event.key === 'ArrowRight' ? 1 : -1) * (side === 'left' ? 1 : -1)
         setWidth(event.key === 'Home' ? min : event.key === 'End' ? available : limit(shownWidth + direction * (event.shiftKey ? 96 : 32)))
       }} />}
-  </div>
+  </ConsultFileDropZone>
 }
 
 /** 表格保持原生语义，同时允许键盘聚焦其横向滚动区域。 */

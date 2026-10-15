@@ -41,6 +41,7 @@ flowchart LR
 - `frontend/src/features/fore-consult/pages/ForeConsultPage.tsx`：系统、模块、菜单、问题分类、咨询版本和当前咨询状态。
 - `frontend/src/features/fore-consult/components/ConsultConversation.tsx`：底层开发会话的只读/受控展示，不得抢占 Vibe Coding 当前会话。
 - `frontend/src/features/fore-consult/api.ts`：业务咨询 HTTP 契约。
+- 首问输入区与当前咨询窗口支持直接拖入文件，落下后进入原附件列表，无需打开选择器；仍可粘贴或点击附件。沿用10个附件及服务端上传限制，拖入文件夹、不可操作或超额时显示原因，不自动发送。行为与验证见[咨询附件拖入](../../openspec/changes/consult-file-drop/tasks.md)。
 
 ### Java 业务模块
 

@@ -27,6 +27,7 @@ import {
 } from '@/features/claude-chat/public-api'
 import { ConsultConversation } from '../components/ConsultConversation'
 import { ConsultVoiceActions } from '../components/ConsultVoiceActions'
+import { ConsultFileDropZone } from '../components/ConsultFileDropZone'
 import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
 import { EvidenceRouteManager } from '../components/EvidenceRouteManager'
@@ -505,6 +506,7 @@ export function ForeConsultPage() {
   const [modulesExpanded, setModulesExpanded] = useState(false)
   const [modulePickerOpen, setModulePickerOpen] = useState(false)
   const [attachments, setAttachments] = useState<ConsultAtt[]>([])
+  const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null)
   const [pendingDispatching, setPendingDispatching] = useState(false)
   const [pendingDispatchError, setPendingDispatchError] = useState<string | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -1256,6 +1258,7 @@ export function ForeConsultPage() {
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return
     const room = MAX_ATT - attachments.length
+    setAttachmentNotice(files.length > room ? `每条消息最多 ${MAX_ATT} 个附件，超出的文件未添加` : null)
     const take = Array.from(files).slice(0, Math.max(0, room))
     for (const f of take) {
       const url = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
@@ -1937,7 +1940,9 @@ export function ForeConsultPage() {
             </div>
           </div>
 
-          <div className="fc-prompt-field mx-2 mb-2 rounded-2xl px-2 pb-2 pt-1.5">
+          <ConsultFileDropZone onFiles={handleFiles} dropDisabled={!initialSessionStateResolved || startMutation.isPending}
+            className="fc-prompt-field relative mx-2 mb-2 rounded-2xl px-2 pb-2 pt-1.5">
+            {attachmentNotice && <p role="status" className="px-2 py-1 text-xs text-amber-700">{attachmentNotice}</p>}
             <div className="mb-1.5 flex items-center rounded-xl border border-slate-200/80 bg-white/55 px-2.5 focus-within:border-sky-300 focus-within:bg-white/80">
               <span className="shrink-0 text-xs font-medium text-slate-500">{formatUtcDatePrefix(new Date())}-</span>
               <input
@@ -1986,7 +1991,7 @@ export function ForeConsultPage() {
                 e.preventDefault()
                 if (canStart) startMutation.mutate()
               }}
-              placeholder={`向 Forge 询问 ${displayName(system)}，例如：采购退货单在哪里录入？`}
+              placeholder={`向 Forge 询问 ${displayName(system)}，可直接拖入文件或粘贴图片`}
               className="max-h-28 min-h-11 w-full resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-sm leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none"
             />
             <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
@@ -2057,7 +2062,7 @@ export function ForeConsultPage() {
                   onClick={() => fileRef.current?.click()}
                   disabled={!initialSessionStateResolved || attachments.length >= MAX_ATT}
                   className="flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-slate-500 transition-colors hover:bg-white/65 hover:text-slate-900 disabled:opacity-35"
-                  title="上传图片、Excel、Word、Markdown 或 PDF；也可直接粘贴图片"
+                  title="可直接拖入文件、粘贴图片，也可选择图片、Excel、Word、Markdown 或 PDF"
                 >
                   <Paperclip className="size-3.5" /> 附件
                 </button>
@@ -2080,7 +2085,7 @@ export function ForeConsultPage() {
                 Ask Forge
               </button>
             </div>
-          </div>
+          </ConsultFileDropZone>
         </section>
       )}
 

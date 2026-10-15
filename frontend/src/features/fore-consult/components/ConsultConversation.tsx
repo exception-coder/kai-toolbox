@@ -320,6 +320,7 @@ export function ConsultConversation({
     }
     setAttachmentError(null)
     const room = MAX_ATT - atts.length - uploading
+    if (files.length > room) setAttachmentError(`每条消息最多 ${MAX_ATT} 个附件，超出的文件未添加`)
     for (const f of Array.from(files).slice(0, Math.max(0, room))) {
       setUploading((n) => n + 1)
       try {
@@ -433,7 +434,8 @@ export function ConsultConversation({
 
   return (
     <div className="fc-conversation-layer absolute inset-0 z-30" onClick={onClose}>
-      <ConsultPanel side="left" initialWidth={520} className="fc-console">
+      <ConsultPanel side="left" initialWidth={520} className="fc-console" onFiles={handleFiles}
+        dropDisabled={inputLocked || archiving || startupPending}>
         {sizeControls => <>
         <div className="fc-console-scan" />
 
@@ -593,7 +595,7 @@ export function ConsultConversation({
                 void send()
               }}
               placeholder={sessionReady
-                ? inputLocked ? '当前问题仍在处理中，完成后可继续追问' : '继续追问…（Shift+Enter 发送 / Enter 换行，可粘贴或上传附件）'
+                ? inputLocked ? '当前问题仍在处理中，完成后可继续追问' : '继续追问…（可直接拖入文件、粘贴图片；Shift+Enter 发送）'
                 : '正在恢复会话状态…'}
               className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:cursor-wait disabled:opacity-60"
             />
