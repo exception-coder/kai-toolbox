@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, DatabaseZap, Pencil, Plus, Server } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -49,6 +50,16 @@ export function OpsPage() {
   const [dsOpen, setDsOpen] = useState(false)
   const [dsEditId, setDsEditId] = useState<string | null>(null)
   const [dsForm, setDsForm] = useState<DatasourcePayload>(emptyDatasource(''))
+  const [search] = useSearchParams()
+  const openedConnection = useRef<string | null>(null)
+  const editConnection = search.get('editDatasource')
+  useEffect(() => {
+    if (!editConnection || !dsQuery.isSuccess || openedConnection.current === editConnection) return
+    openedConnection.current = editConnection
+    const source = dsQuery.data.find(item => item.id === editConnection)
+    if (source) { setSelectedId(source.id); startEditDs(source) }
+    else setError('指定数据库连接已不存在，请从列表重新选择。')
+  }, [editConnection, dsQuery.isSuccess, dsQuery.data])
 
   const bySystem = useMemo(() => {
     const map = new Map<string, DatasourceView[]>()

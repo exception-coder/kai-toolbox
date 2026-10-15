@@ -27,7 +27,9 @@ public class ReadonlyResourceService implements ReadonlyResourceGateway {
                         .map(item -> new Entry(item.binding().id(), system.id(), system.name(),
                                 item.resource() == null ? item.binding().resourceId() : item.resource().name(),
                                 item.resource() == null ? "UNKNOWN" : item.resource().environment(),
-                                item.binding().purpose(), item.state(), "/tools/reqpool/resources"))).toList();
+                                item.binding().purpose(), item.state(), item.resource() == null ? "/tools/reqpool/resources"
+                                        : item.resource().configurationUrl(),
+                                item.resource() == null ? null : item.resource().endpoint()))).toList();
     }
 
     @Override

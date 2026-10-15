@@ -25,7 +25,7 @@ public class DatasourceResourceProvider implements ResourceProvider {
                 source.getPassword() != null && !source.getPassword().isBlank(),
                 source.getType().category() == DatasourceType.Category.SQL ? List.of("TEST", "QUERY")
                         : source.getType().category() == DatasourceType.Category.REDIS ? List.of("TEST") : List.of(),
-                "/tools/reqpool/resources?view=connections")).toList();
+                "/tools/reqpool/resources?view=connections&editDatasource=" + source.getId())).toList();
     }
 
     @Override public Object execute(String resourceId, ResourceCall call) {

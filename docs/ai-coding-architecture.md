@@ -370,6 +370,22 @@ flowchart LR
 
 咨询语音复用原咨询身份：录音转写经登录级`/api/fore-consult/stt`调用已有语音服务，结果只回填草稿；官方Codex实时语音经原consult WebSocket、SessionVoiceService及同一只读工具装配处理，不切换开发权限或数据库目标。音频连接的callId、所有者、心跳与恢复沿用原协议，挂断仅关闭音频，媒体离开页面必须释放；实际账号语音能力与部署验收见[咨询语音任务](../openspec/changes/consult-voice/tasks.md)。
 
+业务咨询管理员配置是附件策略与数据库现状的聚合视图，不是第二份连接事实源。附件大小复用动态配置中心持久覆盖，全体用户共用；存储模块通过`SessionAttachmentPolicy`读取当前咨询上传上限，普通开发会话保持原限制。`read_consult_attachment`经会话签名和附件存储拥有方的`SessionAttachmentReader`分页读取登记的文本附件，每次校验动态读取上限与真实路径归属，不放宽`source_read`源码边界，不执行HTML脚本。Office/PDF解析和模型图片容量未因此扩大；实现与尚未部署的验收范围见[管理员附件配置任务](../openspec/changes/consult-admin-attachment-policy/tasks.md)。数据库地址编辑仍更新原资源ID，流程选择仍评测发布，旧咨询保留原选择快照。
+
+```mermaid
+flowchart LR
+    ADMIN["咨询管理员配置"] --> POLICY["动态配置中心<br/>SQLite持久覆盖"]
+    POLICY --> LIMIT["咨询上传/读取策略<br/>每次取当前值"]
+    USER["用户附件"] --> STORE["claude-chat附件存储"]
+    LIMIT --> STORE
+    AGENT["Codex / Claude<br/>read_consult_attachment"] --> SIGN["咨询会话签名校验"]
+    SIGN --> READER["附件拥有方<br/>元数据+真实路径+分页"]
+    LIMIT --> READER
+    STORE --> READER
+    ADMIN --> DBVIEW["资源目录+已发布流程投影"]
+    DBVIEW --> ORIGINAL["原资源记录编辑<br/>不复制凭据"]
+```
+
 ```mermaid
 flowchart LR
     REGISTRY["Project Registry<br/>系统身份"] --> BINDING["tool-ops<br/>资源配置与绑定"]

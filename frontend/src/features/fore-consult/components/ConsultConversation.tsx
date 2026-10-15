@@ -18,6 +18,7 @@ import { ConsultMessageActions } from './ConsultMessageActions'
 import { ConsultAnswerContent, ConsultPanel } from './ConsultPanel'
 import { ConsultDocuments } from './ConsultDocuments'
 import { ConsultVoiceActions } from './ConsultVoiceActions'
+import { checkConsultFiles } from '../consultAttachmentPolicy'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
 const BUG_RE = /<<<BUG_REPORT>>>\s*([\s\S]*?)\s*<<<END_BUG_REPORT>>>/
@@ -77,6 +78,7 @@ export function ConsultConversation({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [atts, setAtts] = useState<Att[]>([])
   const [uploading, setUploading] = useState(0)
+  const checkingAttachments = useRef(false)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [ratings, setRatings] = useState<Map<number, Rating>>(new Map())
   const [badDialog, setBadDialog] = useState<number | null>(null) // 打开不满意弹框的 turnIndex
@@ -313,15 +315,26 @@ export function ConsultConversation({
   const MAX_ATT = 10
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
+    const candidates = Array.from(files)
     const sessionId = chat.sessionId
     if (!sessionId) {
       setAttachmentError('会话尚未就绪，请稍后再上传附件')
       return
     }
     setAttachmentError(null)
+    if (checkingAttachments.current) { setAttachmentError('正在检查上一批附件，请稍后再添加。'); return }
+    checkingAttachments.current = true
+    setUploading(value => value + 1)
+    let checked: Awaited<ReturnType<typeof checkConsultFiles>>
+    try { checked = await checkConsultFiles(candidates) } catch {
+      setAttachmentError('无法读取附件限制，本次未上传文件，请重试；原输入已保留。'); return
+    } finally {
+      checkingAttachments.current = false; setUploading(value => value - 1)
+    }
     const room = MAX_ATT - atts.length - uploading
-    if (files.length > room) setAttachmentError(`每条消息最多 ${MAX_ATT} 个附件，超出的文件未添加`)
-    for (const f of Array.from(files).slice(0, Math.max(0, room))) {
+    if (checked.notice) setAttachmentError(checked.notice)
+    else if (checked.files.length > room) setAttachmentError(`每条消息最多 ${MAX_ATT} 个附件，超出的文件未添加`)
+    for (const f of checked.files.slice(0, Math.max(0, room))) {
       setUploading((n) => n + 1)
       try {
         const up = await uploadAttachment(sessionId, f)

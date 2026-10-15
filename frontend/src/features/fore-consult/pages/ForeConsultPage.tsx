@@ -28,6 +28,9 @@ import {
 import { ConsultConversation } from '../components/ConsultConversation'
 import { ConsultVoiceActions } from '../components/ConsultVoiceActions'
 import { ConsultFileDropZone } from '../components/ConsultFileDropZone'
+import { ConsultAdminSettings } from '../components/ConsultAdminSettings'
+import { checkConsultFiles } from '../consultAttachmentPolicy'
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
 import { EvidenceRouteManager } from '../components/EvidenceRouteManager'
@@ -507,6 +510,8 @@ export function ForeConsultPage() {
   const [modulePickerOpen, setModulePickerOpen] = useState(false)
   const [attachments, setAttachments] = useState<ConsultAtt[]>([])
   const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null)
+  const [attachmentChecking, setAttachmentChecking] = useState(false)
+  const attachmentCheck = useRef(false)
   const [pendingDispatching, setPendingDispatching] = useState(false)
   const [pendingDispatchError, setPendingDispatchError] = useState<string | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -530,6 +535,7 @@ export function ForeConsultPage() {
     }
   })
   const [configOpen, setConfigOpen] = useState(false)
+  const configTrigger = useRef<HTMLElement | null>(null)
   const [configRows, setConfigRows] = useState<Array<{ name: string; path: string; alias: string; visible: boolean }>>([])
   const [showLinks, setShowLinks] = useState(true)
   const [topologyNotice, setTopologyNotice] = useState<{ tone: 'success' | 'empty' | 'error'; text: string } | null>(null)
@@ -1167,6 +1173,7 @@ export function ForeConsultPage() {
 
   const openConfig = () => {
     if (!systemPrefsQuery.isSuccess) return
+    configTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     // 用全部工作区项目（含当前被隐藏的）铺初始行，套上已保存的别名/可见性。
     setConfigRows(
       projects
@@ -1255,11 +1262,21 @@ export function ForeConsultPage() {
 
   // 首问附件先保留在浏览器；Agent 会话 ready 后再上传到该会话专属目录。
   const MAX_ATT = 10
-  const handleFiles = (files: FileList | null) => {
+  const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
+    if (attachmentCheck.current) { setAttachmentNotice('正在检查上一批附件，请稍后再添加。'); return }
+    attachmentCheck.current = true
+    setAttachmentChecking(true)
+    const candidates = Array.from(files)
+    let checked: Awaited<ReturnType<typeof checkConsultFiles>>
+    try { checked = await checkConsultFiles(candidates) } catch {
+      setAttachmentNotice('无法读取附件限制，本次未添加文件，请重试；原输入已保留。'); return
+    } finally {
+      attachmentCheck.current = false; setAttachmentChecking(false)
+    }
     const room = MAX_ATT - attachments.length
-    setAttachmentNotice(files.length > room ? `每条消息最多 ${MAX_ATT} 个附件，超出的文件未添加` : null)
-    const take = Array.from(files).slice(0, Math.max(0, room))
+    setAttachmentNotice(checked.notice ?? (checked.files.length > room ? `每条消息最多 ${MAX_ATT} 个附件，超出的文件未添加` : null))
+    const take = checked.files.slice(0, Math.max(0, room))
     for (const f of take) {
       const url = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
       setAttachments((prev) => [...prev, {
@@ -1378,7 +1395,7 @@ export function ForeConsultPage() {
   const canStart =
     !!system.trim() && !!questionTitle.trim() && (!!ask.trim() || attachments.length > 0)
     && selectedAuthMatchesPolicy && !!consultModel && !startMutation.isPending && !modelPolicyLoading
-    && initialSessionStateResolved
+    && initialSessionStateResolved && !attachmentChecking
   const retryInitialSessionState = () => {
     void Promise.all([historyQuery.refetch(), devSessionsQuery.refetch()])
   }
@@ -1940,7 +1957,7 @@ export function ForeConsultPage() {
             </div>
           </div>
 
-          <ConsultFileDropZone onFiles={handleFiles} dropDisabled={!initialSessionStateResolved || startMutation.isPending}
+          <ConsultFileDropZone onFiles={handleFiles} dropDisabled={!initialSessionStateResolved || startMutation.isPending || attachmentChecking}
             className="fc-prompt-field relative mx-2 mb-2 rounded-2xl px-2 pb-2 pt-1.5">
             {attachmentNotice && <p role="status" className="px-2 py-1 text-xs text-amber-700">{attachmentNotice}</p>}
             <div className="mb-1.5 flex items-center rounded-xl border border-slate-200/80 bg-white/55 px-2.5 focus-within:border-sky-300 focus-within:bg-white/80">
@@ -2060,7 +2077,7 @@ export function ForeConsultPage() {
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  disabled={!initialSessionStateResolved || attachments.length >= MAX_ATT}
+                  disabled={!initialSessionStateResolved || attachments.length >= MAX_ATT || attachmentChecking}
                   className="flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-slate-500 transition-colors hover:bg-white/65 hover:text-slate-900 disabled:opacity-35"
                   title="可直接拖入文件、粘贴图片，也可选择图片、Excel、Word、Markdown 或 PDF"
                 >
@@ -2247,14 +2264,15 @@ export function ForeConsultPage() {
 
       {/* 配置抽屉：别名 + 过滤 */}
       {isAdmin && configOpen && (
-        <div className="fc-backdrop absolute inset-0 z-40 flex justify-end" onClick={() => setConfigOpen(false)}>
-          <div className="fc-panel flex h-full w-[min(460px,calc(100vw-2rem))] flex-col rounded-l-2xl" onClick={(e) => e.stopPropagation()}>
+        <Sheet open={configOpen} onOpenChange={setConfigOpen}>
+          <SheetContent hideCloseButton className="flex h-full w-full max-w-[560px] flex-col bg-background text-foreground shadow-sm"
+            onCloseAutoFocus={event => { event.preventDefault(); configTrigger.current?.focus() }}>
             <div className="flex items-center justify-between border-b border-slate-200/80 p-5">
               <div>
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                  <SlidersHorizontal className="size-4 text-sky-600" /> 系统别名与显示
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-500">仅显示已标记的项目；新发现的项目默认不显示。别名为空则用原名。</p>
+                <SheetTitle className="flex items-center gap-2 text-sm font-semibold">
+                  <SlidersHorizontal className="size-4" /> 业务咨询配置
+                </SheetTitle>
+                <SheetDescription className="mt-1 text-xs">管理员配置，全体用户共用。附件、数据库与系统显示集中查看。</SheetDescription>
               </div>
               <button type="button" onClick={() => setConfigOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="关闭">
                 <X className="size-4" />
@@ -2262,11 +2280,9 @@ export function ForeConsultPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
-              <div className="mb-4 border-b pb-4 text-xs leading-6">
-                <p className="font-medium">咨询数据库</p>
-                <p>只使用流程节点明确选择的系统资源，不读取 ERP/SRM/SCM 旧连接。</p>
-                <a className="inline-flex min-h-11 items-center underline" href="/tools/agent-management?agent=business-consult" target="_blank" rel="noreferrer">配置业务咨询数据库 ↗</a>
-              </div>
+              <ConsultAdminSettings />
+              <h3 className="mb-2 mt-6 text-sm font-semibold">系统别名与显示</h3>
+              <p className="mb-3 text-xs text-muted-foreground">仅显示已标记的项目；新发现项目默认不显示，别名为空则用原名。</p>
               {configRows.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-slate-300/80 p-6 text-center text-sm text-slate-500">未扫描到业务系统</p>
               ) : (
@@ -2305,14 +2321,14 @@ export function ForeConsultPage() {
                 type="button"
                 onClick={() => saveConfigMutation.mutate()}
                 disabled={saveConfigMutation.isPending}
-                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-5 py-2 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:opacity-50"
+                className="flex min-h-11 items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
               >
                 {saveConfigMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                保存配置
+                保存系统显示
               </button>
             </div>
-          </div>
-        </div>
+          </SheetContent>
+        </Sheet>
       )}
     </div>
   )

@@ -28,6 +28,12 @@ public class ClaudeChatAttachmentRepository {
                 attachment.size(), attachment.storagePath(), attachment.createdAt());
     }
 
+    /** 按本会话的实际存储文件名核对身份，路径不能代替元数据授权。 */
+    public Optional<String> findStored(String sessionId, String storagePath) {
+        return jdbc.query("SELECT id FROM claude_chat_attachment WHERE session_id = ? AND storage_path = ?",
+                (rs, row) -> rs.getString("id"), sessionId, storagePath).stream().findFirst();
+    }
+
     public Optional<ClaudeChatAttachment> find(String sessionId, String attachmentId) {
         return jdbc.query("""
                 SELECT id, session_id, name, mime, size_bytes, storage_path, created_at

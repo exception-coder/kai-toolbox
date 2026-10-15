@@ -37,12 +37,13 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
                             session.getModuleNames() == null ? java.util.List.of() : java.util.List.of(session.getModuleNames()),
                             session.getRole(), true, session.getEvidenceRouteSnapshot());
                     return new Assembly(Stream.concat(snapshot.stream().flatMap(value -> value.workflow().tools().stream()),
-                                    ConsultDocumentPolicy.TOOLS.stream()).distinct().toList(),
+                                    Stream.concat(ConsultDocumentPolicy.TOOLS.stream(), Stream.of("read_consult_attachment"))).distinct().toList(),
                             Stream.concat(snapshot.stream().flatMap(value -> value.workflow().mcpServers().stream()),
                                     Stream.of("consult-readonly")).distinct().toList(),
                             snapshot.map(value -> workflowService.render(request, value).prompt())
                                     .orElse("【受控文档生成】" + ConsultDocumentPolicy.INSTRUCTIONS)
-                                    + "\n【数据库访问边界】" + ConsultDatabasePolicy.INSTRUCTIONS,
+                                    + "\n【数据库访问边界】" + ConsultDatabasePolicy.INSTRUCTIONS
+                                    + "\n【上传附件】文本或HTML附件使用read_consult_attachment分段读取，用nextOffset继续；超过2MB不等于不可读，读取上限由管理员动态配置。禁止改用source_read绕过附件身份。HTML脚本/内嵌图片不代表已解析数据，未解析部分必须明确说明。",
                             resourceAccess == null ? null : resourceAccess.issue(runtimeSessionId));
                 });
     }

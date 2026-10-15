@@ -7,6 +7,7 @@ import { validateReadonlySql } from './readonlyPolicy.js'
 import { knowledgeQueryTool, queryKnowledge } from './knowledgeQuery.js'
 import { consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool } from './consultDocuments.js'
 import { callConsultDocumentTool } from './consultDocumentMcp.js'
+import { consultAttachmentTool, readConsultAttachment } from './consultAttachments.js'
 import {
   DEFAULT_GRAPH_JSON_FALLBACK_MAX_BYTES,
   GraphifyQueryCoordinator,
@@ -114,7 +115,7 @@ const resourceTools = ['consult_resources', 'consult_resource_query'].map(name =
 }))
 const tools = [...(API_BASE && process.env.TOOLBOX_SESSION_ID
   ? [...resourceTools, ...(process.env.CONSULT_RESOURCE_TOKEN
-    ? [consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool] : [])] : []),
+    ? [consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool, consultAttachmentTool] : [])] : []),
   knowledgeQueryTool,
   ...sourceTools, ...standbySchemaTools]
 const SKIPPED_DIRECTORIES = new Set([
@@ -643,7 +644,7 @@ function readSource(args: Record<string, unknown>): Record<string, unknown> {
   const stat = statSync(target)
   if (!stat.isFile()) throw new Error('source_read.path 必须是文件')
   if (!isSourceFile(target)) throw new Error('仅允许读取源码或文本配置文件')
-  if (stat.size > MAX_SOURCE_FILE_BYTES) throw new Error('文件超过 2 MB，请改用更精确的源码文件')
+  if (stat.size > MAX_SOURCE_FILE_BYTES) throw new Error('源码文件超过2 MiB；若是本会话上传附件，请使用read_consult_attachment，附件读取上限由管理员动态配置')
   const lines = decodeSourceFile(target).split(/\r?\n/)
   const startLine = clampInteger(args.startLine, 1, 1, Math.max(1, lines.length))
   const requestedEnd = clampInteger(args.endLine, startLine + 399, startLine, Math.max(startLine, lines.length))
@@ -673,6 +674,9 @@ function fail(id: JsonRpcRequest['id'], code: number, message: string): void {
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   try {
+    if (name === 'read_consult_attachment') return await readConsultAttachment(args, {
+      apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN,
+    })
     if (['generate_consult_document', 'design_consult_document', 'preview_consult_document'].includes(name)) {
       return await callConsultDocumentTool(name, args, {
         apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN,

@@ -9,5 +9,10 @@ public interface ReadonlyResourceGateway {
     Object query(String sourcePath, List<String> bindingIds, String bindingId, String sql);
 
     record Entry(String bindingId, String systemId, String systemName, String name,
-                 String environment, String purpose, String state, String configurationUrl) { }
+                 String environment, String purpose, String state, String configurationUrl, String endpoint) {
+        public Entry(String bindingId, String systemId, String systemName, String name,
+                     String environment, String purpose, String state, String configurationUrl) {
+            this(bindingId, systemId, systemName, name, environment, purpose, state, configurationUrl, null);
+        }
+    }
 }

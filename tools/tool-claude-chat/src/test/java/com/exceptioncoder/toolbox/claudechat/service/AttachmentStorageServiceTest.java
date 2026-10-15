@@ -23,6 +23,25 @@ class AttachmentStorageServiceTest {
     Path tempDir;
 
     @Test
+    void consultLimitOverridesDefaultAndIsRecheckedBeforeEveryUpload() throws Exception {
+        var repository = mock(ClaudeChatSessionRepository.class);
+        var metadata = mock(com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatAttachmentRepository.class);
+        when(repository.findById("consult")).thenReturn(Optional.of(session(tempDir)));
+        var policy = mock(com.exceptioncoder.toolbox.common.attachment.SessionAttachmentPolicy.class);
+        when(policy.uploadLimit("consult")).thenReturn(java.util.OptionalLong.of(100L * 1024 * 1024));
+        var service = new AttachmentStorageService(new ClaudeChatProperties(), repository, metadata);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "attachmentPolicies", List.of(policy));
+        var file = mock(org.springframework.web.multipart.MultipartFile.class);
+        when(file.getSize()).thenReturn(60L * 1024 * 1024);
+        when(file.getOriginalFilename()).thenReturn("report.html"); when(file.getContentType()).thenReturn("text/html");
+        assertThat(service.store("consult", file).size()).isEqualTo(60L * 1024 * 1024);
+        when(policy.uploadLimit("consult")).thenReturn(java.util.OptionalLong.of(40L * 1024 * 1024));
+        assertThatThrownBy(() -> service.store("consult", file)).hasMessageContaining("40 MiB");
+        when(policy.uploadLimit("consult")).thenReturn(java.util.OptionalLong.empty());
+        assertThatThrownBy(() -> service.store("consult", file)).hasMessageContaining("50 MiB");
+    }
+
+    @Test
     void loadsImageOnlyFromCurrentSessionAttachmentDirectory() throws Exception {
         ClaudeChatSessionRepository repository = mock(ClaudeChatSessionRepository.class);
         when(repository.findById("review-1")).thenReturn(Optional.of(session(tempDir)));

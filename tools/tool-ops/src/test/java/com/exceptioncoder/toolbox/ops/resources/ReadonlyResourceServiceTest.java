@@ -19,6 +19,8 @@ class ReadonlyResourceServiceTest {
                 new ProjectSystemDirectory.SystemIdentity("system", "系统", "/projects/one"),
                 new ProjectSystemDirectory.SystemIdentity("other", "其他", "/projects/two")));
         var service = new ReadonlyResourceService(new SystemResourceService(List.of(provider), directories, store), directories);
+        assertEquals("localhost", service.catalog().getFirst().endpoint());
+        assertEquals("/tools/reqpool/resources?view=connections&editDatasource=db", service.catalog().getFirst().configurationUrl());
         when(provider.execute(eq("db"), any())).thenReturn("result");
         var evidence = (ReadonlyResourceService.QueryEvidence) service.query("/projects/one", List.of("binding"), "binding", "select 1");
         assertEquals("result", evidence.result());
@@ -51,6 +53,6 @@ class ReadonlyResourceServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.discover("/source", List.of()));
     }
     private ResourceDescriptor resource(String environment) {
-        return new ResourceDescriptor("db", "数据库", "MYSQL", environment, "localhost", "account", true, List.of("QUERY"), "");
+        return new ResourceDescriptor("db", "数据库", "MYSQL", environment, "localhost", "account", true, List.of("QUERY"), "/tools/reqpool/resources?view=connections&editDatasource=db");
     }
 }

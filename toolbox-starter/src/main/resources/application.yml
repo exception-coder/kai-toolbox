@@ -34,8 +34,9 @@ spring:
   servlet:
     multipart:
       # claude-chat 附件上传上限；留余量让 AttachmentStorageService 的 50MB 应用层校验先返回友好错误
-      max-file-size: 60MB
-      max-request-size: 70MB
+      # 传输层硬边界；业务咨询在此范围内通过持久化动态策略限制，普通会话仍用原上限。
+      max-file-size: 200MB
+      max-request-size: 210MB
 
 
 server:

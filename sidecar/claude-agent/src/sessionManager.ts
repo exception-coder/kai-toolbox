@@ -928,6 +928,7 @@ class Session {
                     'mcp__consult-readonly__generate_consult_document',
                     'mcp__consult-readonly__design_consult_document',
                     'mcp__consult-readonly__preview_consult_document',
+                    'mcp__consult-readonly__read_consult_attachment',
                     'mcp__consult-readonly__knowledge_query',
                     'mcp__consult-readonly__source_search',
                     'mcp__consult-readonly__source_read',

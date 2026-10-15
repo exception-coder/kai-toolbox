@@ -47,6 +47,9 @@ public class AttachmentStorageService {
     private final ClaudeChatAttachmentRepository attachmentRepository;
 
     @Autowired
+    private List<com.exceptioncoder.toolbox.common.attachment.SessionAttachmentPolicy> attachmentPolicies = List.of();
+
+    @Autowired
     public AttachmentStorageService(ClaudeChatProperties props, ClaudeChatSessionRepository repo,
                                     ClaudeChatAttachmentRepository attachmentRepository) {
         this.props = props;
@@ -66,8 +69,11 @@ public class AttachmentStorageService {
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "EMPTY_FILE");
         }
-        if (file.getSize() > props.getMaxAttachmentBytes()) {
-            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "FILE_TOO_LARGE");
+        long uploadLimit = attachmentPolicies.stream().map(policy -> policy.uploadLimit(sessionId))
+                .filter(java.util.OptionalLong::isPresent).mapToLong(java.util.OptionalLong::getAsLong)
+                .min().orElse(props.getMaxAttachmentBytes());
+        if (file.getSize() > uploadLimit) {
+            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "文件超过当前单文件上传上限：" + uploadLimit / 1024 / 1024 + " MiB");
         }
 
         String name = sanitize(file.getOriginalFilename());
