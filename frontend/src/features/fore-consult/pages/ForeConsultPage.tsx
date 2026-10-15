@@ -612,7 +612,8 @@ export function ForeConsultPage() {
     return out.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
   }, [workspaces])
 
-  const { data: prefs } = useQuery({ queryKey: ['fore-consult-system-prefs'], queryFn: listSystemPrefs })
+  const systemPrefsQuery = useQuery({ queryKey: ['fore-consult-system-prefs'], queryFn: listSystemPrefs })
+  const prefs = systemPrefsQuery.data
   const prefMap = useMemo(() => {
     const m = new Map<string, { alias: string | null; visible: boolean; sortOrder: number }>()
     for (const p of prefs ?? []) m.set(p.systemName, { alias: p.alias, visible: p.visible, sortOrder: p.sortOrder })
@@ -625,10 +626,10 @@ export function ForeConsultPage() {
     [prefMap],
   )
 
-  // 星图只渲染「未被隐藏」的系统，按 (sortOrder, 展示名) 排序；无偏好记录默认可见。
+  // 新扫描项目不自动进入咨询图谱；只渲染明确标记显示的系统。
   const visibleProjects = useMemo(() => {
     return projects
-      .filter((p) => prefMap.get(p.name)?.visible !== false)
+      .filter((p) => prefMap.get(p.name)?.visible === true)
       .map((p) => ({ ...p, label: displayName(p.name, p.defaultLabel), sortOrder: prefMap.get(p.name)?.sortOrder ?? 0 }))
       .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, 'zh'))
   }, [projects, prefMap, displayName])
@@ -1159,12 +1160,13 @@ export function ForeConsultPage() {
   })
 
   const openConfig = () => {
+    if (!systemPrefsQuery.isSuccess) return
     // 用全部工作区项目（含当前被隐藏的）铺初始行，套上已保存的别名/可见性。
     setConfigRows(
       projects
         .map((p) => {
           const pref = prefMap.get(p.name)
-          return { name: p.name, path: p.path, alias: pref?.alias ?? '', visible: pref?.visible !== false, sortOrder: pref?.sortOrder ?? 0 }
+          return { name: p.name, path: p.path, alias: pref?.alias ?? '', visible: pref?.visible === true, sortOrder: pref?.sortOrder ?? 0 }
         })
         .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'zh')),
     )
@@ -1479,7 +1481,8 @@ export function ForeConsultPage() {
             <button
               type="button"
               onClick={openConfig}
-              className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 lg:rounded-full"
+              disabled={!systemPrefsQuery.isSuccess}
+              className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 disabled:opacity-50 lg:rounded-full"
               title="管理系统别名与显示范围"
             >
               <SlidersHorizontal className="size-3.5" />
@@ -1625,7 +1628,7 @@ export function ForeConsultPage() {
       )}
 
       {/* 中央 AI 恒星：Forge —— 业务系统围绕其运行 */}
-      {projects.length > 0 && (
+      {visibleProjects.length > 0 && (
         <div className="fc-core-wrap">
           <div className="fc-core" />
           <div className="fc-core-label">
@@ -1702,13 +1705,24 @@ export function ForeConsultPage() {
 
       {/* 星系：资产球体 */}
       <div className="absolute inset-0 z-10">
-        {projects.length === 0 ? (
+        {systemPrefsQuery.isPending ? (
+          <div role="status" className="flex h-full items-center justify-center text-sm text-slate-500">正在加载系统显示配置…</div>
+        ) : systemPrefsQuery.isError ? (
+          <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 text-sm text-slate-600">
+            系统显示配置加载失败
+            <button type="button" onClick={() => { void systemPrefsQuery.refetch() }} disabled={systemPrefsQuery.isFetching}
+              className="min-h-11 rounded-lg border border-slate-200 px-3 text-sm hover:bg-white disabled:opacity-50">
+              重新加载显示配置
+            </button>
+          </div>
+        ) : projects.length === 0 ? (
           <div className="flex h-full items-center justify-center text-sm text-slate-500">
             未扫描到业务系统（检查 claude-chat 工作区配置）
           </div>
         ) : visibleProjects.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-slate-400">
-            所有系统都被隐藏了
+            尚未选择显示的业务系统
+            <span className="px-4 text-center text-xs">{isAdmin ? '在配置中标记需要显示的项目，新增目录不会自动加入图谱。' : '请联系管理员配置需要显示的业务系统。'}</span>
             {isAdmin && (
               <button type="button" onClick={openConfig} className="rounded-full border border-slate-200 bg-white/65 px-3 py-1.5 text-xs text-slate-700 hover:bg-white">
                 打开配置调整显示范围
@@ -2227,7 +2241,7 @@ export function ForeConsultPage() {
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                   <SlidersHorizontal className="size-4 text-sky-600" /> 系统别名与显示
                 </h2>
-                <p className="mt-0.5 text-xs text-slate-500">取消勾选可从图谱隐藏；别名为空则用原名。</p>
+                <p className="mt-0.5 text-xs text-slate-500">仅显示已标记的项目；新发现的项目默认不显示。别名为空则用原名。</p>
               </div>
               <button type="button" onClick={() => setConfigOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="关闭">
                 <X className="size-4" />
