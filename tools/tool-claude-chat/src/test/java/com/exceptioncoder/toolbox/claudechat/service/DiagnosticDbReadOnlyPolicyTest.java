@@ -1,26 +1,20 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
+/** 旧独立连接执行入口不再访问数据库，任何SQL都只能得到迁移提示。 */
 class DiagnosticDbReadOnlyPolicyTest {
-
-    @Test
-    void acceptsSingleSelectOrWithAcrossAllDiagnosticConnections() {
-        assertThat(ErpDbService.isReadOnly("SELECT status FROM orders WHERE id = ?")).isTrue();
-        assertThat(SrmDbService.isReadOnly("WITH target AS (SELECT id FROM orders WHERE id = ?) SELECT * FROM target")).isTrue();
-        assertThat(ScmDbService.isReadOnly("SELECT 1")).isTrue();
-    }
-
-    @Test
-    void rejectsWritesDdlAndMultipleStatements() {
-        for (String sql : new String[]{
-                "UPDATE orders SET status = 'DONE'", "DROP TABLE orders",
-                "SELECT * FROM orders; DELETE FROM orders", "CALL rebuild_orders()"}) {
-            assertThat(ErpDbService.isReadOnly(sql)).as(sql).isFalse();
-            assertThat(SrmDbService.isReadOnly(sql)).as(sql).isFalse();
-            assertThat(ScmDbService.isReadOnly(sql)).as(sql).isFalse();
+    @Test void legacyQueriesCannotBypassResourceBindings() {
+        for (String sql : new String[]{"select 1", "SELECT * FROM sensitive_table", "update orders set status=1"}) {
+            assertThat(new ErpDbService().query(sql, null).error()).contains("已停用");
+            assertThat(new SrmDbService().query(sql, null).error()).contains("已停用");
+            assertThat(new ScmDbService().query(sql, null).error()).contains("已停用");
         }
+    }
+    @Test void legacyConnectionTestsDoNotOpenUnknownOrProductionConnections() {
+        assertThat(new ErpDbService().test()).contains("已停用");
+        assertThat(new SrmDbService().test()).contains("已停用");
+        assertThat(new ScmDbService().test()).contains("已停用");
     }
 }

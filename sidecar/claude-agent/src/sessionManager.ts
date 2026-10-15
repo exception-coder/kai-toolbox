@@ -6,9 +6,6 @@ import { join } from 'node:path'
 import { query, forkSession, type Options as ClaudeOptions } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
 import { createWelfareDbServer } from './welfareDb.js'
-import { createErpDbServer } from './erpDb.js'
-import { createSrmDbServer } from './srmDb.js'
-import { createScmDbServer } from './scmDb.js'
 import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import {
   CROSS_TOPOLOGY_READONLY_TOOLS,
@@ -24,7 +21,6 @@ import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, runEphemeralCod
 import {
   configuredMcpServerNames,
   createClaudeConsultSourceServer,
-  resolveConsultTargetSystems,
 } from './codexSecurity.js'
 import {
   findDefaultCodexModel,
@@ -848,17 +844,13 @@ class Session {
       let nativeStderr = ''
 
       // MCP：演示会话注入 welfare_db（改数据唯一通道）；普通 Claude 会话若后端就绪(TOOLBOX_API_BASE)
-      // 注入【只读】erp_db（查 ERP 测试库核对逻辑）+ erp_app（自闭环验证实发 *.action）；
-      // 未配置库/实例时工具自会回"未配置"，无害。
+      // 普通会话经Forge访问系统资源；咨询仅注入会话绑定的只读资源门面。
       const mcpServers: Record<string, ReturnType<typeof createWelfareDbServer>> = {}
       if (this.toolPolicy !== 'disabled' && this.toolPolicy !== 'review-only' && this.demo && this.demoApiBase) {
         mcpServers.welfare_db = createWelfareDbServer(this.id, this.demoApiBase)
       }
       const toolboxApiBase = process.env.TOOLBOX_API_BASE
       if (this.toolPolicy !== 'disabled' && this.toolPolicy !== 'review-only' && !this.demo && toolboxApiBase) {
-        const consultTargets = new Set(resolveConsultTargetSystems(this.cwd, this.consultEvidenceSystems))
-        const canRead = (system: 'erp' | 'srm' | 'scm'): boolean =>
-          this.toolPolicy !== 'consult-readonly' || consultTargets.has(system)
         if (this.toolPolicy !== 'consult-readonly') {
           mcpServers.forge = createForgePendingSqlServer(
             this.id,
@@ -866,12 +858,7 @@ class Session {
             true,
           )
         }
-        // 受限咨询保持既有只读数据库装配；普通开发会话统一通过 Forge 动态资源目录访问 DB/APP。
-        if (this.toolPolicy === 'consult-readonly') {
-          if (canRead('erp')) mcpServers.erp_db = createErpDbServer(toolboxApiBase)
-          if (canRead('srm')) mcpServers.srm_db = createSrmDbServer(toolboxApiBase)
-          if (canRead('scm')) mcpServers.scm_db = createScmDbServer(toolboxApiBase)
-        }
+
       }
       if (this.toolPolicy === 'consult-readonly') {
         const sourceServer = createClaudeConsultSourceServer(this.cwd, this.consultEvidenceSystems)
@@ -948,7 +935,6 @@ class Session {
                     'mcp__consult-readonly__erp_standby_validate_sql',
                     'mcp__forge__prepare_sql_context',
                     'mcp__forge__register_pending_sql',
-                    'mcp__erp_db__query', 'mcp__srm_db__query', 'mcp__scm_db__query',
                     ...DOMAIN_KNOWLEDGE_READONLY_TOOLS
                       .map(tool => `mcp__domain-knowledge__${tool}`),
                     ...CROSS_TOPOLOGY_READONLY_TOOLS

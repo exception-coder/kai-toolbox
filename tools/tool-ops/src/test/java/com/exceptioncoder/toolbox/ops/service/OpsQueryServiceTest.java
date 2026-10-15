@@ -38,6 +38,25 @@ class OpsQueryServiceTest {
     }
 
     @Test
+    void readonlyEndpointRejectsProductionAndUnknownBeforeConnecting() throws Exception {
+        for (String environment : new String[]{"PROD", "production", "", null}) {
+            datasource.setEnv(environment);
+            assertThatThrownBy(() -> service.readOnlySqlQuery("mysql-dev", "select 1", 10))
+                    .hasMessageContaining("仅允许本地、开发或测试");
+        }
+        verify(sqlConnector, never()).queryReadOnly(any(), any(), any());
+    }
+
+    @Test
+    void readonlyEndpointUsesConfiguredTestResource() throws Exception {
+        datasource.setEnv("TEST");
+        when(sqlConnector.queryReadOnly(eq(datasource), any(), eq(10)))
+                .thenReturn(new SqlQueryResult(List.of("id"), List.of(List.of("1")), 1, -1, false, 3));
+        service.readOnlySqlQuery("mysql-dev", "select 1", 10);
+        verify(sqlConnector).queryReadOnly(datasource, "select 1", 10);
+    }
+
+    @Test
     void rejectsWriteWithoutExplicitConfirmation() throws Exception {
         assertThatThrownBy(() -> service.sqlQuery(
                 "mysql-dev", "update orders set status = 1", 1000, false))

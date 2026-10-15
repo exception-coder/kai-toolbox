@@ -2254,6 +2254,11 @@ export function ForeConsultPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
+              <div className="mb-4 border-b pb-4 text-xs leading-6">
+                <p className="font-medium">咨询数据库</p>
+                <p>只使用流程节点明确选择的系统资源，不读取 ERP/SRM/SCM 旧连接。</p>
+                <a className="inline-flex min-h-11 items-center underline" href="/tools/agent-management?agent=business-consult" target="_blank" rel="noreferrer">配置业务咨询数据库 ↗</a>
+              </div>
               {configRows.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-slate-300/80 p-6 text-center text-sm text-slate-500">未扫描到业务系统</p>
               ) : (

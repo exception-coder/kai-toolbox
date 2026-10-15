@@ -36,12 +36,6 @@ const CONSULT_TARGET_BY_SOURCE_DIRECTORY: Readonly<Record<string, ConsultTargetS
   'scm-system': 'scm',
 }
 
-const DATABASE_TOOL_BY_TARGET: Readonly<Record<ConsultTargetSystem, string>> = {
-  erp: 'erp_db_query',
-  srm: 'srm_db_query',
-  scm: 'scm_db_query',
-}
-
 export type RequiredMcpTool = { server: string; tool: string }
 
 export type SystemRouteInspection = {
@@ -71,16 +65,16 @@ export function resolveConsultTargetSystems(
   return [...result]
 }
 
-/** Core Spec 与当前系统数据库是咨询硬依赖；App Server 启动后校验真实 Tool 清单。 */
+/** 资源工具只表达绑定能力，具体系统身份与连接由后端核验。 */
 export function consultReadonlyRequiredMcpTools(
-  sourceRoot?: string,
-  evidenceSystems: readonly string[] = [],
+  _sourceRoot?: string,
+  _evidenceSystems: readonly string[] = [],
 ): RequiredMcpTool[] {
   return [
     ...DOMAIN_KNOWLEDGE_CORE_SPEC_TOOLS
       .map(tool => ({ server: 'domain-knowledge', tool })),
-    ...resolveConsultTargetSystems(sourceRoot, evidenceSystems)
-      .map(target => ({ server: 'consult-readonly', tool: DATABASE_TOOL_BY_TARGET[target] })),
+    { server: 'consult-readonly', tool: 'consult_resources' },
+    { server: 'consult-readonly', tool: 'consult_resource_query' },
   ]
 }
 
@@ -103,7 +97,7 @@ export const CONSULT_READONLY_PROMPT = [
   '从源码发现类名、方法名、SQL ID 或流程节点后，应带这些上下文再次调用 source_context 反问 Graphify，逐步追踪调用链；不要退回仓库根目录搜索。',
   '不得直接搜索或读取 graphify-out/cache；source_context 会调用 Graphify 查询 graphify-out/graph.json。',
   '定位源码时直接使用可用的只读工具。MCP resources/list 为空不代表 MCP tools 或源码读取能力不可用，不得据此停止分析。',
-  '数据库 Tool 由平台按当前会话的目标系统单一注入；不得尝试调用能力清单中不存在的其他系统数据库，也不得用其他系统证据替代当前系统事实。',
+  '数据库只通过consult_resources发现本咨询已选择且属于当前系统的非生产资源，再通过consult_resource_query查询；无资源时说明尚未配置，禁止回退erp_db/srm_db/scm_db独立连接。',
   '严禁自行创建、修改、删除、移动或重命名文件；严禁执行会改变 Git、依赖、配置、数据库或业务数据的命令。文档具名例外：用户需要Word/Excel/PPT时，可调用已装配的consult-readonly.generate_consult_document快速导出，或design_consult_document提交纯JavaScript设计代码，由无宿主API的WASM解释器转换成有界版式后生成文件。不得在终端执行脚本、指定路径、读写模板或生成宏。创作后必须用返回预览或preview_consult_document检查并修订，不得伪造下载链接或视觉验收。',
   '允许在回答中生成完整的 UPDATE/INSERT/DELETE/MERGE 及 DDL SQL，供 IT 实施人员交给 DBA 人工审核执行；“输出 SQL 文本”不属于执行写操作。',
   PENDING_SQL_MANUAL_SCOPE,
@@ -163,7 +157,7 @@ function createConsultReadonlyServer(
   const apiBase = process.env.TOOLBOX_API_BASE?.trim()
   const readableSourceRoot = sourceRoot?.trim() && existsSync(sourceRoot) ? resolve(sourceRoot) : undefined
   const targets = resolveConsultTargetSystems(sourceRoot, evidenceSystems)
-  const databaseTools = apiBase ? targets.map(target => DATABASE_TOOL_BY_TARGET[target]) : []
+  const databaseTools = apiBase ? ['consult_resources', 'consult_resource_query'] : []
   const standbySchema = targets.includes('erp') ? erpStandbySchemaPath() : undefined
   if (!apiBase && !readableSourceRoot && !standbySchema) return null
   const script = readonlyMcpScript()
@@ -172,6 +166,7 @@ function createConsultReadonlyServer(
     ...script,
     env: {
       ...readonlyProcessEnv(),
+      CONSULT_DISABLE_LEGACY_DATABASES: 'true',
       ...(apiBase ? { TOOLBOX_API_BASE: apiBase } : {}),
       ...(readableSourceRoot ? { TOOLBOX_SOURCE_ROOT: readableSourceRoot } : {}),
       ...(standbySchema ? { ERP_STANDBY_SCHEMA_PATH: standbySchema } : {}),

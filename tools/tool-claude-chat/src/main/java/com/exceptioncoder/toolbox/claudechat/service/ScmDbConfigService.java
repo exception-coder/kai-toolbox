@@ -9,9 +9,8 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 
 /**
- * SCM 测试库（MySQL）只读连接配置的持久化：存 SQLite {@code claude_chat_setting} 表（name='scm-db'，
- * payload 为 JSON 串，含密码，仅服务端持有，前端读取时脱敏）。供「SCM需求开发」让 agent 只读查库核对逻辑用——
- * 强烈建议配只读账号，后端 {@link ScmDbService} 另有 SELECT-only 双闸。
+ * 保留旧 SCM 连接历史：存 SQLite {@code claude_chat_setting} 表（name='scm-db'，
+ * payload 为 JSON 串，含密码，仅服务端持有，前端读取时脱敏）。旧查询执行器已停用，新查询使用系统资源连接与绑定。
  *
  * <p>持久化范式完全照 {@link SrmDbConfigService}（库类型同为 MySQL）。本模块无历史散 json，故不做 legacy 迁移。</p>
  */

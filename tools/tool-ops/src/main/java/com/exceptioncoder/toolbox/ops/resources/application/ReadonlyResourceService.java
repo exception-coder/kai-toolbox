@@ -9,6 +9,7 @@ import java.util.List;
 
 /** 咨询仅复用 QUERY，不能访问应用 CALL。 */
 @Service
+@lombok.extern.slf4j.Slf4j
 public class ReadonlyResourceService implements ReadonlyResourceGateway {
     private final SystemResourceService resources;
     private final List<ProjectSystemDirectory> directories;
@@ -41,8 +42,20 @@ public class ReadonlyResourceService implements ReadonlyResourceGateway {
         var resource = discover(sourcePath, bindingIds).stream().filter(entry -> entry.bindingId().equals(bindingId))
                 .findFirst().orElseThrow(() -> new IllegalArgumentException("资源未在本咨询配置中授权或不属于当前系统"));
         if (!"AVAILABLE".equals(resource.state())) throw new IllegalArgumentException("资源当前不可查询：" + resource.state());
-        return resources.execute(bindingId, new ResourceCall("QUERY", sql, null, null, null, null));
+        try {
+            Object result = resources.execute(bindingId, new ResourceCall("QUERY", sql, null, null, null, null));
+            log.info("consult_resource_query system={} binding={} environment={} status=OK",
+                    resource.systemId(), resource.bindingId(), resource.environment());
+            return new QueryEvidence(resource, result);
+        } catch (RuntimeException error) {
+            log.warn("consult_resource_query system={} binding={} environment={} status=FAILED",
+                    resource.systemId(), resource.bindingId(), resource.environment());
+            throw error;
+        }
     }
+
+    /** 查询结果自带已核验的资源与环境，不向模型返回连接串或凭据。 */
+    public record QueryEvidence(Entry resource, Object result) { }
 
     private String systemId(String sourcePath) {
         if (sourcePath == null || sourcePath.isBlank()) throw new IllegalArgumentException("咨询缺少目标源码目录");

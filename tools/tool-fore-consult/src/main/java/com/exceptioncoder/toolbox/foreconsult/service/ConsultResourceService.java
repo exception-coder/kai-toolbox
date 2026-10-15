@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.foreconsult.service;
 
 import com.exceptioncoder.toolbox.common.resource.ReadonlyResourceGateway;
+import com.exceptioncoder.toolbox.foreconsult.domain.ConsultDatabasePolicy;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultSessionRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultWorkflowRepository;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,9 @@ public class ConsultResourceService {
 
     public Object query(String runtimeId, String bindingId, String sql) {
         var scope = scope(runtimeId, "consult_resource_query");
+        if (!scope.bindings().contains(bindingId)) {
+            throw new IllegalArgumentException("本咨询未选择该数据库；请到Agent管理的业务咨询流程节点配置资源后发布，新建咨询使用新选择");
+        }
         return gateway.query(scope.sourcePath(), scope.bindings(), bindingId, sql);
     }
 
@@ -35,7 +39,7 @@ public class ConsultResourceService {
                 .orElseThrow(() -> new IllegalArgumentException("未关联咨询会话"));
         var snapshot = workflows.session(session.getSessionId())
                 .orElseThrow(() -> new IllegalArgumentException("咨询没有冻结的资源配置"));
-        var nodes = snapshot.workflow().nodes().stream()
+        var nodes = ConsultDatabasePolicy.effective(snapshot.workflow()).nodes().stream()
                 .filter(node -> node.enabled() && node.tools().contains(tool)).toList();
         if (nodes.isEmpty()) throw new IllegalArgumentException("本咨询未装配该资源工具");
         return new Scope(session.getSystemSourcePath(), nodes.stream()

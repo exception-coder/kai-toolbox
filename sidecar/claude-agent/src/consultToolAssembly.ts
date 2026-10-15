@@ -21,11 +21,9 @@ export function parseConsultToolAssembly(value: unknown): ConsultToolAssembly | 
 
 /** Claude 的数据库 MCP 使用独立服务名，配置保持与 Codex 相同的逻辑工具名。 */
 export function assemblyAllows(assembly: ConsultToolAssembly | undefined, server: string, tool?: string): boolean {
+  if (/^(erp|srm|scm)_(db|app)$/.test(server) || /^(erp|srm|scm)_db_query$/.test(tool ?? '')) return false
   if (!assembly) return true
-  const database = /^(erp|srm|scm)_db$/.exec(server)
-  const provider = database ? 'consult-readonly' : server
-  if (!assembly.mcpServers.includes(provider)) return false
-  if (database) return assembly.tools.includes(`${database[1]}_db_query`)
+  if (!assembly.mcpServers.includes(server)) return false
   if (server === 'consult-readonly') return tool == null
     ? assembly.tools.length > 0 : assembly.tools.includes(tool)
   return true
@@ -38,6 +36,9 @@ export function assemblyAllowsTool(assembly: ConsultToolAssembly | undefined, na
 }
 
 export function filterClaudeAssembly<T>(servers: Record<string, T>, assembly?: ConsultToolAssembly): void {
+  for (const server of Object.keys(servers)) {
+    if (/^(erp|srm|scm)_(db|app)$/.test(server)) delete servers[server]
+  }
   if (!assembly) return
   for (const server of Object.keys(servers)) {
     if (!assemblyAllows(assembly, server)) { delete servers[server]; continue }

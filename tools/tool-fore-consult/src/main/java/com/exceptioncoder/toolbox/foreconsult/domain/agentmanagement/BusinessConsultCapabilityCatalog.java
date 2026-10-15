@@ -13,7 +13,6 @@ public final class BusinessConsultCapabilityCatalog {
             capability("mcp:consult-readonly", "consult-readonly", "MCP_SERVER", "v1", "业务咨询模块",
                     "提供业务咨询源码证据读取能力，不包含写操作。", "READ_ONLY", "LOW",
                     List.of("tool:source_context", "tool:source_read", "tool:source_search", "tool:knowledge_query",
-                            "tool:erp_db_query", "tool:srm_db_query", "tool:scm_db_query",
                             "tool:erp_standby_schema_search", "tool:erp_standby_validate_sql",
                             "tool:consult_resources", "tool:consult_resource_query")),
             capability("mcp:domain-knowledge", "domain-knowledge", "MCP_SERVER", "v1", "团队领域知识服务",
@@ -27,11 +26,11 @@ public final class BusinessConsultCapabilityCatalog {
             capability("tool:knowledge_query", "knowledge_query", "TOOL", "v1", "consult-readonly",
                     "统一领域知识与跨系统关系查询。实际可用性取决于目标系统和连接配置。", "READ_ONLY", "MEDIUM", List.of()),
             capability("tool:erp_db_query", "erp_db_query", "TOOL", "v1", "consult-readonly",
-                    "ERP 已授权环境只读查询。实际可用性取决于目标系统和连接配置。", "READ_ONLY", "MEDIUM", List.of()),
+                    "仅兼容历史节点反序列化，运行时不再执行旧连接。", "READ_ONLY", "MEDIUM", List.of()),
             capability("tool:srm_db_query", "srm_db_query", "TOOL", "v1", "consult-readonly",
-                    "SRM 已授权环境只读查询。实际可用性取决于目标系统和连接配置。", "READ_ONLY", "MEDIUM", List.of()),
+                    "仅兼容历史节点反序列化，运行时不再执行旧连接。", "READ_ONLY", "MEDIUM", List.of()),
             capability("tool:scm_db_query", "scm_db_query", "TOOL", "v1", "consult-readonly",
-                    "SCM 已授权环境只读查询。实际可用性取决于目标系统和连接配置。", "READ_ONLY", "MEDIUM", List.of()),
+                    "仅兼容历史节点反序列化，运行时不再执行旧连接。", "READ_ONLY", "MEDIUM", List.of()),
             capability("tool:erp_standby_schema_search", "erp_standby_schema_search", "TOOL", "v1", "consult-readonly",
                     "ERP 备用库结构证据检索。实际可用性取决于目标系统和连接配置。", "READ_ONLY", "MEDIUM", List.of()),
             capability("tool:erp_standby_validate_sql", "erp_standby_validate_sql", "TOOL", "v1", "consult-readonly",
@@ -48,7 +47,8 @@ public final class BusinessConsultCapabilityCatalog {
     }
 
     public static List<AgentCapability> capabilities() {
-        return CAPABILITIES;
+        return CAPABILITIES.stream().filter(capability -> !List.of("erp_db_query", "srm_db_query", "scm_db_query")
+                .contains(capability.name())).toList();
     }
 
     public static Map<String, AgentCapability> byId() {

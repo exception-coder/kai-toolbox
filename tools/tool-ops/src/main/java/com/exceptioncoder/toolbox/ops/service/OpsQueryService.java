@@ -80,6 +80,7 @@ public class OpsQueryService {
 
     public SqlQueryResult readOnlySqlQuery(String datasourceId, String sql, Integer maxRows) {
         OpsDatasource ds = datasources.findRequired(datasourceId);
+        com.exceptioncoder.toolbox.common.resource.ResourceEnvironmentPolicy.requireAllowed(ds.getEnv());
         if (ds.getType().category() != DatasourceType.Category.SQL) {
             throw new IllegalArgumentException("该实例不是 SQL 类型: " + ds.getType());
         }

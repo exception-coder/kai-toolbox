@@ -30,12 +30,6 @@ const FORGE_SAFE_TOOLS = new Set([
 /** 咨询仅允许读工具及具名的平台文档写入口，不开放通用写入或命令。 */
 const CONSULT_READ_TOOLS = new Set(['Read'])
 const CONSULT_READONLY_MCP_TOOLS = new Set([
-  'mcp__erp_db__query',
-  'mcp__srm_db__query',
-  'mcp__scm_db__query',
-  'mcp__consult-readonly__erp_db_query',
-  'mcp__consult-readonly__srm_db_query',
-  'mcp__consult-readonly__scm_db_query',
   'mcp__consult-readonly__source_context',
   'mcp__consult-readonly__consult_resources',
   'mcp__consult-readonly__consult_resource_query',

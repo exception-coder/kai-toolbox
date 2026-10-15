@@ -42,37 +42,41 @@ test('review config closes apps, plugins, code mode and every configured MCP', (
   }
 })
 
-test('resolves the consultation database target from the registered source directory', () => {
+test('resolves legacy system hints only for static evidence, not database connections', () => {
   assert.equal(resolveConsultTargetSystem('D:\\Users\\zhang\\myWork\\srm-system'), 'srm')
   assert.equal(resolveConsultTargetSystem('D:\\Users\\zhang\\myWork\\scm-system'), 'scm')
   assert.equal(resolveConsultTargetSystem('D:\\Users\\zhang\\myWork\\Yoooni'), 'erp')
   assert.equal(resolveConsultTargetSystem('D:\\Users\\zhang\\myWork\\unknown-system'), undefined)
 })
 
-test('adds only confirmed evidence systems to the selected consultation system', () => {
+test('evidence-system hints do not select a fixed database tool', () => {
   assert.deepEqual(resolveConsultTargetSystems('D:\\work\\srm-system', ['ERP', 'unknown', 'erp']), ['srm', 'erp'])
   assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\srm-system', ['erp']), [
     { server: 'domain-knowledge', tool: 'get_module_core_spec' },
     { server: 'domain-knowledge', tool: 'resolve_consult_context' },
-    { server: 'consult-readonly', tool: 'srm_db_query' },
-    { server: 'consult-readonly', tool: 'erp_db_query' },
+    { server: 'consult-readonly', tool: 'consult_resources' },
+    { server: 'consult-readonly', tool: 'consult_resource_query' },
   ])
 })
 
-test('requires Core Spec tools and the database tool for the selected consultation system', () => {
+test('requires bound resource tools for every system without guessing a database', () => {
   assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\srm-system'), [
     { server: 'domain-knowledge', tool: 'get_module_core_spec' },
     { server: 'domain-knowledge', tool: 'resolve_consult_context' },
-    { server: 'consult-readonly', tool: 'srm_db_query' },
+    { server: 'consult-readonly', tool: 'consult_resources' },
+    { server: 'consult-readonly', tool: 'consult_resource_query' },
   ])
   assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\Yoooni'), [
     { server: 'domain-knowledge', tool: 'get_module_core_spec' },
     { server: 'domain-knowledge', tool: 'resolve_consult_context' },
-    { server: 'consult-readonly', tool: 'erp_db_query' },
+    { server: 'consult-readonly', tool: 'consult_resources' },
+    { server: 'consult-readonly', tool: 'consult_resource_query' },
   ])
   assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\unknown-system'), [
     { server: 'domain-knowledge', tool: 'get_module_core_spec' },
     { server: 'domain-knowledge', tool: 'resolve_consult_context' },
+    { server: 'consult-readonly', tool: 'consult_resources' },
+    { server: 'consult-readonly', tool: 'consult_resource_query' },
   ])
 })
 
@@ -83,7 +87,8 @@ test('inspects the exact runtime route without starting a consultation session',
     tools: [
       { server: 'domain-knowledge', tool: 'get_module_core_spec' },
       { server: 'domain-knowledge', tool: 'resolve_consult_context' },
-      { server: 'consult-readonly', tool: 'scm_db_query' },
+      { server: 'consult-readonly', tool: 'consult_resources' },
+      { server: 'consult-readonly', tool: 'consult_resource_query' },
     ],
   })
 })
@@ -94,7 +99,7 @@ test('prioritizes domain context before reading implementation evidence', () => 
   assert.doesNotMatch(CONSULT_READONLY_PROMPT, /必须先调用 consult-readonly\.source_context，再调用业务知识工具/)
 })
 
-test('exposes the selected and confirmed authority database tools together', () => {
+test('exposes resource tools and static schema tools without any legacy database', () => {
   const previousApiBase = process.env.TOOLBOX_API_BASE
   process.env.TOOLBOX_API_BASE = 'http://127.0.0.1:18080'
   try {
@@ -102,8 +107,8 @@ test('exposes the selected and confirmed authority database tools together', () 
     const servers = config.mcp_servers as Record<string, Record<string, unknown>>
     assert.deepEqual(servers['consult-readonly'].enabled_tools, [
       'knowledge_query',
-      'srm_db_query',
-      'erp_db_query',
+      'consult_resources',
+      'consult_resource_query',
       'erp_standby_schema_search',
       'erp_standby_validate_sql',
     ])
@@ -113,7 +118,7 @@ test('exposes the selected and confirmed authority database tools together', () 
   }
 })
 
-test('exposes only the selected system database tool through the code-mode host', () => {
+test('code-mode host exposes only the bound database entry point', () => {
   const previousApiBase = process.env.TOOLBOX_API_BASE
   process.env.TOOLBOX_API_BASE = 'http://127.0.0.1:18080'
   try {
@@ -123,7 +128,7 @@ test('exposes only the selected system database tool through the code-mode host'
     const readonly = servers['consult-readonly']
 
     assert.equal(features.code_mode_host, true)
-    assert.deepEqual(readonly.enabled_tools, ['knowledge_query', 'srm_db_query'])
+    assert.deepEqual(readonly.enabled_tools, ['knowledge_query', 'consult_resources', 'consult_resource_query'])
   } finally {
     if (previousApiBase == null) delete process.env.TOOLBOX_API_BASE
     else process.env.TOOLBOX_API_BASE = previousApiBase

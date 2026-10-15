@@ -1,5 +1,6 @@
 export { getDevPreference, saveDevPreference } from './devPreferenceApi'
 export { DevServiceSection } from './DevServiceSection'
+export { DatabaseResourceNotice } from './DatabaseResourceNotice'
 export {
   IGNORED_PROJECTS_STORAGE_KEY,
   PROJECT_WORKSPACE_PREFERENCE_ID,

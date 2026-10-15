@@ -58,7 +58,7 @@ public class ConsultWorkflowService {
         List<String> tools = switch (step.id()) {
             case "v4-module-and-core-spec" -> List.of("knowledge_query");
             case "v4-implementation-evidence" -> List.of("source_context", "source_read", "source_search");
-            case "v4-ddl-and-runtime-evidence" -> List.of("erp_db_query", "srm_db_query", "scm_db_query",
+            case "v4-ddl-and-runtime-evidence" -> List.of("consult_resources", "consult_resource_query",
                     "erp_standby_schema_search", "erp_standby_validate_sql");
             default -> List.of();
         };

@@ -43,6 +43,8 @@ class ConsultResourceServiceTest {
         var service = new ConsultResourceService(sessions, workflows, gateway);
         service.query("runtime", "selected", "select 1");
         verify(gateway).query("/system", List.of("selected"), "selected", "select 1");
+        assertThrows(IllegalArgumentException.class, () -> service.query("runtime", "denied", "select 1"));
+        verify(gateway, times(1)).query(anyString(), anyList(), anyString(), anyString());
         verify(workflows, never()).production();
         assertThrows(IllegalArgumentException.class, () -> service.query("unknown", "selected", "select 1"));
     }

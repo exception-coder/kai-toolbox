@@ -23,7 +23,7 @@ flowchart LR
     SCHED --> BACKEND["GraphifyBackend\n可插拔 MCP 适配器"]
     BACKEND --> GMCP["Graphify MCP Server\n进程级多项目缓存"]
     RO --> SRC["路径受限源码"]
-    RO --> DB["测试库只读 API"]
+    RO --> DB["冻结的资源绑定 → 系统/环境/启用校验 → 测试库只读查询"]
     RO --> DESIGN["受限JS文档设计 / 预览"]
     DESIGN --> WASM["无宿主能力的QuickJS WASM"]
     WASM --> DOC["后端版式校验与Office产物"]
@@ -55,7 +55,7 @@ flowchart LR
 - `tools/tool-claude-chat/.../ClaudeChatService.java`：Java 会话状态、WebSocket 命令、持久化与观察者广播。
 - `sidecar/claude-agent/src/sessionManager.ts`：引擎会话、轮次、取消、工具和子 Agent 权威状态归约。
 - `sidecar/claude-agent/src/codexSecurity.ts`：`consult-readonly` 工具策略与系统安全边界。
-- `sidecar/claude-agent/src/readonlyMcp.ts`：源码、测试库和 ERP 备库 DDL 的短生命周期只读门面。
+- `sidecar/claude-agent/src/readonlyMcp.ts`：源码、会话资源绑定查询和 ERP 备库 DDL 静态核验的短生命周期门面，不装配固定数据库连接。
 - `sidecar/claude-agent/src/graphifyRuntime.ts`：进程级查询服务、项目状态和本机 HTTP 协议。
 - `sidecar/claude-agent/src/graphifyQueryScheduler.ts`：跨会话单并发 FIFO、同键合并和成功结果缓存。
 - `sidecar/claude-agent/src/graphifyMcpBackend.ts`：官方 MCP/Python 生命周期适配器，可替换而不污染业务编排。
@@ -196,6 +196,16 @@ consult-readonly
 ```
 
 只有满足以下任一条件才进入本 README：跨进程边界、容易重复踩坑、影响安全/终态/数据正确性、需要运维判断。单个页面样式或一次性业务规则留在对应功能文档。
+
+## 咨询数据库配置
+
+1. 在项目库登记真实业务系统，源码目录须与咨询目标完全一致。
+2. 在“AI交付中心 → 系统资源 → 数据库与中间件”登记测试连接并绑定该系统；不能仅导入连接而不绑定。
+3. 在“Agent管理 → 业务咨询 → 流程节点 → 数据库资源”选择绑定，保存候选、评测并发布后，新建咨询使用。
+
+未选择、无唯一系统、停用、生产或未知环境会拒绝查询，不回退ERP/SRM/SCM独立配置。旧咨询保留选择快照；修改连接影响后续查询，停用绑定立即禁止后续查询。旧专属开发页只保留到统一配置的引导，历史配置不删除。
+
+本次实现不含服务重启或同事部署实例的配置变更；验证状态见[统一咨询数据库入口](../../openspec/changes/consult-bound-databases/tasks.md)。
 
 ## 验证命令
 

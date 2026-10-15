@@ -10,15 +10,13 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
+import com.exceptioncoder.toolbox.common.resource.ResourceEnvironmentPolicy;
 import java.util.UUID;
 
 /** 配置、内置工具和 MCP 共用的资源关系与执行边界。 */
 @Service
 public class SystemResourceService {
-    private static final Set<String> TEST_ENVIRONMENTS = Set.of("LOCAL", "DEV", "TEST", "UAT");
     private final Map<String, ResourceProvider> providers;
     private final List<ProjectSystemDirectory> directories;
     private final ResourceBindingStore store;
@@ -102,8 +100,7 @@ public class SystemResourceService {
     }
 
     private static boolean testEnvironment(ResourceDescriptor resource) {
-        return resource.environment() != null
-                && TEST_ENVIRONMENTS.contains(resource.environment().trim().toUpperCase(Locale.ROOT));
+        return ResourceEnvironmentPolicy.allowed(resource.environment());
     }
 
     public record AvailableResource(String providerId, ResourceDescriptor resource) { }

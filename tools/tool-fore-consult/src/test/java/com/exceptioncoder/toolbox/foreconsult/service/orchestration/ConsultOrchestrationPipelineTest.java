@@ -198,7 +198,7 @@ class ConsultOrchestrationPipelineTest {
                 List.of(), "BIZ", false), "v4");
         assertThat(srmResult.prompt())
                 .contains("当前目标系统是 SRM")
-                .contains("consult-readonly.srm_db_query")
+                .contains("consult-readonly.consult_resource_query")
                 .contains("information_schema")
                 .doesNotContain("erp_standby_validate_sql")
                 .doesNotContain("erp_standby_schema_search");
@@ -208,7 +208,7 @@ class ConsultOrchestrationPipelineTest {
                 List.of(), "IT", false), "v4");
         assertThat(erpResult.prompt())
                 .contains("当前目标系统是 ERP")
-                .contains("consult-readonly.erp_db_query")
+                .contains("consult-readonly.consult_resource_query")
                 .contains("consult-readonly.erp_standby_validate_sql")
                 .doesNotContain("consult-readonly.srm_db_query");
 
@@ -216,7 +216,7 @@ class ConsultOrchestrationPipelineTest {
                 "查询运行数据", "unknown-system", "D:\\unknown-system",
                 List.of(), "IT", false), "v4");
         assertThat(unknownResult.prompt())
-                .contains("尚未映射专用数据库工具")
+                .contains("当前系统数据库由明确的资源绑定确定")
                 .doesNotContain("consult-readonly.erp_db_query")
                 .doesNotContain("consult-readonly.srm_db_query")
                 .doesNotContain("consult-readonly.scm_db_query");

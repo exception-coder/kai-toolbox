@@ -8,6 +8,7 @@ import type { ConsultWorkflowNode } from '../api'
 vi.mock('../api', () => ({ getConsultResources: vi.fn().mockResolvedValue([
   { bindingId: 'bound', systemId: 'one', systemName: 'ERP', name: '测试库', environment: 'TEST', purpose: '订单查询', state: 'AVAILABLE' },
   { bindingId: 'prod', systemId: 'one', systemName: 'ERP', name: '生产库', environment: 'PROD', purpose: '', state: 'RESTRICTED' },
+  { bindingId: 'unknown', systemId: 'one', systemName: 'ERP', name: '未知环境库', environment: 'UNKNOWN', purpose: '', state: 'AVAILABLE' },
 ]) }))
 function Harness() {
   const [node, setNode] = useState<ConsultWorkflowNode>({ id: 'db', name: '查询', enabled: true,
@@ -25,9 +26,10 @@ describe('NodeResources', () => {
     expect(node.resourceBindingIds).toEqual(['missing', 'bound'])
     expect(node.tools).toEqual(['consult_resources', 'consult_resource_query'])
     expect(screen.getByLabelText(/ERP · 生产库/)).toBeDisabled()
+    expect(screen.getByLabelText(/ERP · 未知环境库/)).toBeDisabled()
     fireEvent.click(screen.getByLabelText(/已失效的资源绑定/))
     node = JSON.parse(screen.getByTestId('selection').textContent!)
     expect(node.resourceBindingIds).toEqual(['bound'])
-    expect(screen.getByRole('link', { name: /配置系统资源/ })).toHaveAttribute('target', '_blank')
+    expect(screen.getByRole('link', { name: /配置连接与系统绑定/ })).toHaveAttribute('target', '_blank')
   })
 })

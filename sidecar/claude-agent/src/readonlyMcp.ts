@@ -23,32 +23,6 @@ type JsonRpcRequest = {
 const API_BASE = (process.env.TOOLBOX_API_BASE || '').replace(/\/+$/, '')
 const SOURCE_ROOT = resolveSourceRoot(process.env.TOOLBOX_SOURCE_ROOT)
 const ERP_STANDBY_SCHEMA_PATH = resolveSchemaPath(process.env.ERP_STANDBY_SCHEMA_PATH)
-const DATABASES = {
-  erp_db_query: '/api/claude-chat/erp-db/query',
-  srm_db_query: '/api/claude-chat/srm-db/query',
-  scm_db_query: '/api/claude-chat/scm-db/query',
-} as const
-
-const databaseTools = Object.keys(DATABASES).map(name => ({
-  name,
-  description: `在${name.startsWith('erp') ? ' ERP' : name.startsWith('srm') ? ' SRM' : ' SCM'}测试库执行只读 SQL。仅允许单条 SELECT/WITH，后端使用只读连接二次拦截。`,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      sql: { type: 'string', description: '单条只读 SELECT/WITH SQL' },
-      params: { type: 'array', description: 'SQL 参数化占位值' },
-    },
-    required: ['sql'],
-    additionalProperties: false,
-  },
-  annotations: {
-    readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: false,
-  },
-}))
-
 const sourceTools = SOURCE_ROOT ? [
   {
     name: 'source_context',
@@ -141,7 +115,7 @@ const resourceTools = ['consult_resources', 'consult_resource_query'].map(name =
 const tools = [...(API_BASE && process.env.TOOLBOX_SESSION_ID
   ? [...resourceTools, ...(process.env.CONSULT_RESOURCE_TOKEN
     ? [consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool] : [])] : []),
-  knowledgeQueryTool, ...(API_BASE && process.env.CONSULT_DISABLE_LEGACY_DATABASES !== 'true' ? databaseTools : []),
+  knowledgeQueryTool,
   ...sourceTools, ...standbySchemaTools]
 const SKIPPED_DIRECTORIES = new Set([
   '.git', '.idea', '.vscode', 'node_modules', 'target', 'dist', 'build', 'out', 'coverage', '.next', '.cache',
@@ -730,36 +704,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
   } catch (error) {
     return textResult(error instanceof Error ? error.message : String(error), true)
   }
-  const endpoint = DATABASES[name as keyof typeof DATABASES]
-  if (!endpoint || process.env.CONSULT_DISABLE_LEGACY_DATABASES === 'true') {
-    return { content: [{ type: 'text', text: `工具不在业务咨询只读白名单中：${name}` }], isError: true }
-  }
-  const sql = typeof args.sql === 'string' ? args.sql : ''
-  const violation = validateReadonlySql(sql)
-  if (violation) {
-    return { content: [{ type: 'text', text: `已拒绝：${violation}` }], isError: true }
-  }
-  if (!API_BASE) {
-    return { content: [{ type: 'text', text: 'TOOLBOX_API_BASE 未配置，无法查询测试库' }], isError: true }
-  }
-  try {
-    const response = await fetch(API_BASE + endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sql, params: Array.isArray(args.params) ? args.params : [] }),
-      signal: AbortSignal.timeout(20_000),
-    })
-    const text = await response.text()
-    return {
-      content: [{ type: 'text', text: text.slice(0, 200_000) }],
-      ...(response.ok ? {} : { isError: true }),
-    }
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }],
-      isError: true,
-    }
-  }
+  return textResult('该工具不可用；数据库请使用已装配的consult_resources与consult_resource_query，不能回退旧连接', true)
 }
 
 const configuredToolNames: unknown = process.env.CONSULT_ENABLED_TOOLS == null
@@ -790,7 +735,7 @@ async function handle(message: JsonRpcRequest): Promise<void> {
     case 'tools/call': {
       const params = message.params ?? {}
       const name = typeof params.name === 'string' ? params.name : ''
-      if (enabledToolNames && !enabledToolNames.has(name)) {
+      if (!tools.some(tool => tool.name === name) || (enabledToolNames && !enabledToolNames.has(name))) {
         ok(id, { isError: true, content: [{ type: 'text', text: `当前流程未装配工具：${name}` }] })
         return
       }

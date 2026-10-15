@@ -100,26 +100,26 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
         String normalized = systemName == null ? "" : systemName.strip().toLowerCase(Locale.ROOT);
         String systemRules = switch (normalized) {
             case "erp", "erp-system", "yoooni" -> """
-                    当前目标系统是 ERP。涉及表、视图、字段、关联关系或准备输出生产备库 SELECT/WITH SQL 时，必须使用真实 DDL 工具核对物理结构。
+                    当前目标系统是 ERP。先通过consult_resources核对已选择的资源与环境，实际表结构以该绑定数据库的元数据为准。备库DDL快照仅作静态参考，不证明测试库结构或生产数据。
                     输出 ERP 生产备库查询 SQL 前必须调用 consult-readonly.erp_standby_validate_sql；对象缺失时调用 consult-readonly.erp_standby_schema_search，并区分 TABLE 与 VIEW。名称相似只能作为候选，不能自行认定替代关系。
-                    涉及具体单据、状态或环境事实时使用 consult-readonly.erp_db_query。仅执行单条参数化 SELECT/WITH 并限制行数，不得执行写入、DDL 或存储过程。
+                    涉及具体单据、状态或环境事实时使用 consult-readonly.consult_resource_query。仅执行单条只读 SELECT/WITH 并限制行数，不得执行写入、DDL 或存储过程。
                     ERP 数据库工具未出现在运行时能力清单或调用失败时，必须明确说明工具不可用；不得改用 SRM、SCM 数据库或把未查询到证据表述为“无数据”。
                     DDL 证明物理结构，运行查询证明具体环境实例事实。工具或环境不可用时给出阶段性结论与最小核验条件，不得编造结果，也不得中断整个咨询。
                     """;
             case "srm", "srm-system" -> """
-                    当前目标系统是 SRM。涉及表、视图、字段或关联关系时，先使用 consult-readonly.srm_db_query 查询 information_schema 的表和字段元数据，再生成与真实结构一致的单条 SELECT/WITH。
-                    涉及具体采购记录、单据、状态或环境事实时必须使用 consult-readonly.srm_db_query，并限制查询列、条件和返回行数。不得执行写入、DDL、存储过程或无条件宽表扫描。
+                    当前目标系统是 SRM。涉及表、视图、字段或关联关系时，先使用 consult-readonly.consult_resource_query 查询 information_schema 的表和字段元数据，再生成与真实结构一致的单条 SELECT/WITH。
+                    涉及具体采购记录、单据、状态或环境事实时必须使用 consult-readonly.consult_resource_query，并限制查询列、条件和返回行数。不得执行写入、DDL、存储过程或无条件宽表扫描。
                     SRM 数据库工具未出现在运行时能力清单或调用失败时，必须明确说明工具不可用；不得调用 ERP 生产备库工具、不得切换到其他系统，也不得把未查询到证据表述为“无数据”。
                     元数据查询证明物理结构，业务查询证明具体环境实例事实。工具或环境不可用时给出阶段性结论与最小核验条件，不得编造表名、字段、SQL 或查询结果。
                     """;
             case "scm", "scm-system" -> """
-                    当前目标系统是 SCM。涉及表、视图、字段或关联关系时，先使用 consult-readonly.scm_db_query 查询可信数据库元数据，再生成与真实结构一致的单条 SELECT/WITH。
-                    涉及具体单据、状态或环境事实时必须使用 consult-readonly.scm_db_query，并限制查询列、条件和返回行数。不得执行写入、DDL、存储过程或无条件宽表扫描。
+                    当前目标系统是 SCM。涉及表、视图、字段或关联关系时，先使用 consult-readonly.consult_resource_query 查询可信数据库元数据，再生成与真实结构一致的单条 SELECT/WITH。
+                    涉及具体单据、状态或环境事实时必须使用 consult-readonly.consult_resource_query，并限制查询列、条件和返回行数。不得执行写入、DDL、存储过程或无条件宽表扫描。
                     SCM 数据库工具未出现在运行时能力清单或调用失败时，必须明确说明工具不可用；不得调用 ERP、SRM 数据库工具、不得切换到其他系统，也不得把未查询到证据表述为“无数据”。
                     元数据查询证明物理结构，业务查询证明具体环境实例事实。工具或环境不可用时给出阶段性结论与最小核验条件，不得编造表名、字段、SQL 或查询结果。
                     """;
             default -> """
-                    当前目标系统尚未映射专用数据库工具。涉及表、视图、字段、关联关系、具体单据或环境事实时，只能使用当前会话运行时明确提供的只读证据工具。
+                    当前系统数据库由明确的资源绑定确定，不依赖目录名映射。先调用consult_resources确认当前系统的已选数据库，使用consult_resource_query查询其元数据与实例事实。没有可用绑定时明确说明尚未配置。
                     不得自行选择 ERP、SRM 或 SCM 数据库工具，不得把其他系统的 DDL、SQL 或运行数据当作当前系统证据。
                     未取得真实 DDL 或运行数据时给出阶段性结论与最小核验条件，不得编造表名、字段、SQL、查询结果或“无数据”结论。
                     """;
@@ -127,9 +127,9 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
         return systemRules + """
 
                 【已确认的数据归属优先规则】
-                当前系统数据库用于核对当前系统本地数据；只有平台提供的“证据路由”才能授权额外系统数据库。
-                若证据路由明确某业务对象的权威数据位于其他系统，必须查询该权威系统的 DDL/运行数据，并在结论中标明数据来源；
-                此规则优先于上方“不得切换其他系统”的默认限制。非权威系统返回空结果，只能说明本地未保存，不能回答业务上无数据。
+                当前系统数据库只用于核对当前系统已选环境的数据；证据路由仅指导分析，不能扩大资源绑定授权。
+                若证据路由明确权威数据位于其他系统，应说明数据归属与证据缺口；未在当前系统绑定范围内不得查询，请在对应系统咨询中配置资源后核验；
+                非权威系统返回空结果只能说明当前环境未查询到，不能回答业务上无数据。
                 不得自行猜测、扩大或永久记忆跨系统范围，也不得调用本轮运行时能力清单之外的工具。
                 本会话证据路由：
                 """ + (evidenceRouteContext == null || evidenceRouteContext.isBlank()

@@ -366,6 +366,8 @@ flowchart LR
 
 普通开发会话只装配一个 `forge` MCP，并通过稳定的 `discover_resources`、`execute_resource` 动态发现和调用已绑定资源。新增系统、数据库或应用站点不增加 MCP 名称；服务端在每次执行时重新校验绑定、环境和能力。数据库只允许只读查询，应用调用只允许已配置同源的 LOCAL、DEV、TEST、UAT 目标并保留写操作审批语义。受限业务咨询仍使用自己的只读证据装配，不能借统一执行入口扩大权限。
 
+业务咨询的数据库只经`consult_resources / consult_resource_query`访问同一资源服务，授权选择来自已发布流程节点的`resourceBindingIds`，并冻结在原咨询中。系统按完整源码目录唯一关联Project Registry；未登记、绑定为空、跨系统、停用、非QUERY能力、PROD或未知环境一律拒绝，不扫描其他连接、不回退旧配置。跨系统证据路由只指导分析，不授予其他系统的数据库访问权。每次查询重新校验当前资源状态，连接修改影响后续查询，绑定停用立即撤销；流程选择发布仅对新咨询生效。查询结果包含资源绑定和实际环境，日志以绑定及系统标识关联原数据源查询历史，不记录凭据。配置入口统一为Agent管理的业务咨询流程节点，连接及系统绑定仍在系统资源管理。旧快照只兼容读取，不重新授予旧固定连接能力。
+
 ```mermaid
 flowchart LR
     REGISTRY["Project Registry<br/>系统身份"] --> BINDING["tool-ops<br/>资源配置与绑定"]
@@ -376,11 +378,13 @@ flowchart LR
     BINDING --> POLICY["绑定 · 环境 · 能力 · 同源校验"]
     POLICY --> TARGET["只读数据库或测试应用"]
     CONSULT["业务咨询<br/>只读 Agent"] --> DOC_TOOL["generate_consult_document<br/>结构化内容 + 服务端会话签名"]
+    CONSULT --> QUERY_TOOL["consult_resources / consult_resource_query<br/>原咨询冻结的绑定选择"]
+    QUERY_TOOL --> BINDING
     DOC_TOOL --> DOC_STORE["tool-fore-consult<br/>固定目录 · 格式/容量限制 · 内容幂等"]
     DOC_STORE --> DOC_DOWNLOAD["原咨询和归档下载<br/>登录 + 会话所有权校验"]
 ```
 
-旧 ERP/SRM/SCM 固定配置和桥接仅作为迁移兼容实现保留，不再默认进入普通开发会话；是否实际移除以对应 OpenSpec 变更和运行验收为准。
+旧ERP/SRM/SCM数据库查询和连通性执行入口停止访问数据库，返回迁移说明；旧配置与历史保留。固定工具不进入普通开发或业务咨询，修改独立配置不会改变新查询目标。资源中心的AI只读SQL入口同样采用非生产环境门禁；人工通用SQL入口仍遵循原有确认流程，不向咨询开放。实现及未完成的运行验收见[统一咨询数据库入口](../openspec/changes/consult-bound-databases/tasks.md)。
 
 业务咨询的 Office 产物是受限只读策略的具名写入例外：`tool-fore-consult` 持有文档生成、固定的用户目录下 `.kai-toolbox/consult-artifacts/<consultId>/`、内容哈希索引及下载授权。快速导出提交结构化正文；文档创作允许模型向专用工具提交纯JavaScript代码，由Sidecar独立Worker内的QuickJS WASM在无宿主函数、文件、网络或凭据的环境中转换为正文与受限版式，后端重新校验后生成可编辑Office。解释器与Worker均限时限资源；不在宿主Node/终端执行模型代码，不接受任意路径、模板、宏或网络素材，不授予源码、配置及业务数据写入权。两引擎复用服务端会话装配与 HMAC；旧咨询缺少冻结证据流程时仅增文档能力，不回退加载生产证据配置。生成后返回预览供模型检查修订：PPT实际渲染、可分批检查，Word/Excel仅为明确标注的结构预览；未完成检查不得声明已验收。浏览器下载/预览复用原咨询owner/admin策略，MCP预览复用会话签名，与资源凭据、SQL登记和通用附件路径读取分离。相同正文与版式重试复用结果，修订保留旧文件，达到配额返回可恢复错误，不自动清理历史文件。实现与验收状态见[受控咨询文档变更](../openspec/changes/controlled-consult-documents/tasks.md)和[模型文档创作](../openspec/changes/consult-model-document-design/tasks.md)；当前运行版本是否具备能力仍以部署和真实验收为准。
 

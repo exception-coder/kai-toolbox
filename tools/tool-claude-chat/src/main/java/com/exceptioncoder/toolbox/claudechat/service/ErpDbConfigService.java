@@ -12,9 +12,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 /**
- * ERP 测试库只读连接配置的持久化：存 SQLite {@code claude_chat_setting} 表（name='erp-db'，payload 为 JSON 串，
- * 含密码，仅服务端持有，前端读取时脱敏）。供「ERP 需求开发」让 agent 只读查库核对逻辑用——强烈建议配只读账号，
- * 后端另有 SELECT-only 双闸。
+ * 保留旧 ERP 连接历史：存 SQLite {@code claude_chat_setting} 表（name='erp-db'，payload 为 JSON 串，
+ * 含密码，仅服务端持有，前端读取时脱敏）。旧查询执行器已停用，新查询使用系统资源连接与绑定。
  *
  * <p>早期该配置存 {@code ~/.kai-toolbox/erp-db.json}；现统一落 SQLite，首次读取时若表内无记录而旧 json 仍在，
  * 自动导入并把 json 改名为 {@code .bak}（一次性平滑迁移）。</p>

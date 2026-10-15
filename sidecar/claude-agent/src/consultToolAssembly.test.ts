@@ -22,9 +22,9 @@ test('Claude filters database providers and passes exact tool restriction into s
     scm_db: {}, erp_db: {}, 'domain-knowledge': {}, 'consult-readonly': { env: { TOOLBOX_SOURCE_ROOT: '/source' } },
   }
   filterClaudeAssembly(servers, assembly)
-  assert.deepEqual(Object.keys(servers).sort(), ['consult-readonly', 'scm_db'])
+  assert.deepEqual(Object.keys(servers).sort(), ['consult-readonly'])
   assert.equal((servers['consult-readonly'].env as Record<string, string>).CONSULT_ENABLED_TOOLS, JSON.stringify(assembly.tools))
-  assert.equal(assemblyAllowsTool(assembly, 'mcp__scm_db__query'), true)
+  assert.equal(assemblyAllowsTool(assembly, 'mcp__scm_db__query'), false)
   assert.equal(assemblyAllowsTool(assembly, 'mcp__consult-readonly__source_read'), true)
   assert.equal(assemblyAllowsTool(assembly, 'mcp__consult-readonly__source_search'), false)
   assert.equal(assemblyAllowsTool(assembly, 'Read'), false)
@@ -42,7 +42,7 @@ test('permission broker denies unbound tools despite auto approval', async () =>
   broker.setAutoApprove(true)
   broker.consultToolAssembly = assembly
   assert.equal((await broker.canUseTool('mcp__consult-readonly__source_search', {}, {})).behavior, 'deny')
-  assert.equal((await broker.canUseTool('mcp__scm_db__query', {}, {})).behavior, 'allow')
+  assert.equal((await broker.canUseTool('mcp__scm_db__query', {}, {})).behavior, 'deny')
 })
 
 test('resource tools receive server session in both engines and stay permission restricted', async () => {

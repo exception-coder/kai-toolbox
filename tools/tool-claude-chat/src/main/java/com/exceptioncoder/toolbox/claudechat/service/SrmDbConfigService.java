@@ -9,9 +9,8 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 
 /**
- * SRM 测试库（MySQL）只读连接配置的持久化：存 SQLite {@code claude_chat_setting} 表（name='srm-db'，
- * payload 为 JSON 串，含密码，仅服务端持有，前端读取时脱敏）。供「SRM需求开发」让 agent 只读查库核对逻辑用——
- * 强烈建议配只读账号，后端 {@link SrmDbService} 另有 SELECT-only 双闸。
+ * 保留旧 SRM 连接历史：存 SQLite {@code claude_chat_setting} 表（name='srm-db'，
+ * payload 为 JSON 串，含密码，仅服务端持有，前端读取时脱敏）。旧查询执行器已停用，新查询使用系统资源连接与绑定。
  *
  * <p>与 ERP 的区别只在库类型（MySQL vs Oracle），持久化范式完全照 {@link ErpDbConfigService}。
  * 本模块无历史散 json，故不做 legacy 迁移。</p>
