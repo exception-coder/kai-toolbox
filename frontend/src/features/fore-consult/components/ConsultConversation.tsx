@@ -16,6 +16,7 @@ import { useConsultConversationRuntimeState } from '../consultConversationState'
 import { stripConsultRecognition } from '../consultRecognition'
 import { ConsultMessageActions } from './ConsultMessageActions'
 import { ConsultAnswerContent, ConsultPanel } from './ConsultPanel'
+import { ConsultDocuments } from './ConsultDocuments'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
 const BUG_RE = /<<<BUG_REPORT>>>\s*([\s\S]*?)\s*<<<END_BUG_REPORT>>>/
@@ -525,6 +526,7 @@ export function ConsultConversation({
               )
             })
           })()}
+          <ConsultDocuments key={consultId} sessionId={consultId} running={running} />
           {startupError ? (
             <div className="flex items-start justify-between gap-3 border-l-2 border-red-300 pl-3 text-xs text-slate-600">
               <div>

@@ -15,8 +15,9 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
     ConsultOrchestrationStep consultV4SafetyAndEvidencePlanStep() {
         return step("v4-safety-and-evidence-plan", "只读边界与动态证据计划", 100, context ->
                 context.addSection("只读边界与动态证据计划", """
-                        本会话只允许读取源码、文档、业务知识、代码图谱、真实 DDL 快照，以及调用所选系统可用的只读查询工具。
-                        禁止修改文件、配置、Git、数据库或业务数据。目标系统和模块由平台提供，不得把其他系统证据当作当前系统事实。
+                        业务证据仅可读取源码、文档、业务知识、代码图谱、真实 DDL 快照，以及调用所选系统可用的只读查询工具。
+                        禁止自行修改文件、配置、Git、数据库或业务数据。目标系统和模块由平台提供，不得把其他系统证据当作当前系统事实。
+                        用户需要 Word/Excel/PPT 时，仅可通过已装配的 generate_consult_document 生成受控文档，使用工具返回的真实下载链接，不得执行脚本或指定路径。
                         先把问题归入有限类型：菜单操作、业务规则、页面或接口异常、数据异常、SQL/结构、跨系统协同、其他。
                         在内部形成最小证据计划，至少包含 intent、module、knownIdentifiers、requiredEvidence、optionalEvidence、missingInformation 和 stopCondition。
                         只调用能补足当前证据缺口的工具；证据已经足以回答时立即停止，不为展示调用链而重复查询。

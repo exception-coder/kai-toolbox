@@ -1,13 +1,15 @@
 package com.exceptioncoder.toolbox.foreconsult.service;
 
+import com.exceptioncoder.toolbox.foreconsult.domain.ConsultDocumentPolicy;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultSessionRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultWorkflowRepository;
 import com.exceptioncoder.toolbox.llm.spi.AgentToolAssemblyProvider;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
+import java.util.stream.Stream;
 
-/** 仅从服务端冻结的咨询快照装配能力，不接受客户端工具清单。 */
+/** 从冻结快照装配证据能力，叠加平台受控文档工具，不接受客户端工具清单。 */
 @Component
 public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
     private final com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultWorkflowService workflowService;
@@ -26,14 +28,19 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
     @Override
     public Optional<Assembly> resolve(String runtimeSessionId) {
         return sessions.findByDevSessionId(runtimeSessionId)
-                .flatMap(session -> workflows.session(session.getSessionId()).map(snapshot -> {
+                .map(session -> {
+                    var snapshot = workflows.session(session.getSessionId());
                     var request = new com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultOrchestrationRequest(
                             "以本轮用户消息为准", session.getSystemName(), session.getSystemSourcePath(),
                             session.getModuleNames() == null ? java.util.List.of() : java.util.List.of(session.getModuleNames()),
                             session.getRole(), true, session.getEvidenceRouteSnapshot());
-                    return new Assembly(snapshot.workflow().tools(), snapshot.workflow().mcpServers(),
-                            workflowService.render(request, snapshot).prompt(),
+                    return new Assembly(Stream.concat(snapshot.stream().flatMap(value -> value.workflow().tools().stream()),
+                                    Stream.of(ConsultDocumentPolicy.TOOL)).distinct().toList(),
+                            Stream.concat(snapshot.stream().flatMap(value -> value.workflow().mcpServers().stream()),
+                                    Stream.of("consult-readonly")).distinct().toList(),
+                            snapshot.map(value -> workflowService.render(request, value).prompt())
+                                    .orElse("【受控文档生成】" + ConsultDocumentPolicy.INSTRUCTIONS),
                             resourceAccess == null ? null : resourceAccess.issue(runtimeSessionId));
-                }));
+                });
     }
 }

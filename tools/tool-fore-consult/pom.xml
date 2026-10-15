@@ -16,6 +16,12 @@
     <name>tool-fore-consult</name>
 
     <dependencies>
+        <!-- 与宿主现有 Office 解析模块保持同版；这里只生成结构化文档，不接受上传模板。 -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
         <dependency>
             <groupId>io.agentscope</groupId>
             <artifactId>agentscope-core</artifactId>

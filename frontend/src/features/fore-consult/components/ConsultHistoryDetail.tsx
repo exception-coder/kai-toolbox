@@ -7,6 +7,7 @@ import { getConsult, type ConsultAttRef, type ConsultTurnView, type FeedbackView
 import { stripConsultRecognition } from '../consultRecognition'
 import { ImageLightbox } from './ImageLightbox'
 import { ConsultAnswerContent, ConsultPanel } from './ConsultPanel'
+import { ConsultDocuments } from './ConsultDocuments'
 
 interface Props {
   sessionId: string
@@ -236,6 +237,7 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
           )}
         </div>
 
+        <div className="max-h-48 overflow-y-auto px-5"><ConsultDocuments key={sessionId} sessionId={sessionId} /></div>
         <div className="border-t border-slate-200 px-5 py-2.5 text-center text-[10px] text-slate-500">
           只读归档 · {pairs.length} 轮问答
         </div>

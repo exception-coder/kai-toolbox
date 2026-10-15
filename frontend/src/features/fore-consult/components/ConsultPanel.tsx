@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Maximize2, Minimize2 } from 'lucide-react'
 import './consult-panel.css'
+import { consultDocumentPath, downloadConsultDocument } from '../consultDocuments'
 
 const PANEL_GAP = 24
 const MIN_WIDTH = 360
@@ -71,6 +72,8 @@ export function ConsultPanel({ side, initialWidth, className, children }: {
 /** 表格保持原生语义，同时允许键盘聚焦其横向滚动区域。 */
 export function ConsultAnswerContent({ text, children }: { text: string; children: ReactNode }) {
   const content = useRef<HTMLDivElement>(null)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
   useLayoutEffect(() => {
     const element = content.current
     if (!element) return
@@ -83,5 +86,23 @@ export function ConsultAnswerContent({ text, children }: { text: string; childre
     observer.observe(element, { childList: true, subtree: true })
     return () => observer.disconnect()
   }, [text])
-  return <div ref={content} className="fc-answer-content">{children}</div>
+  return <div ref={content} className="fc-answer-content" onClickCapture={event => {
+    const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]')
+    if (!link) return
+    let path: string | null = null
+    try { path = consultDocumentPath(link.href) } catch { return }
+    if (!path) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (downloading) return
+    setDownloading(true)
+    setDownloadError(null)
+    void downloadConsultDocument(path).catch(cause => {
+      setDownloadError(cause instanceof Error ? cause.message : '下载失败，请再次点击链接重试')
+    }).finally(() => setDownloading(false))
+  }}>
+    {children}
+    {downloading && <p role="status" className="mt-2 text-xs text-slate-500">正在下载文档…</p>}
+    {downloadError && <p role="alert" className="mt-2 text-xs text-red-700">{downloadError}，可再次点击链接重试。</p>}
+  </div>
 }

@@ -375,9 +375,14 @@ flowchart LR
     FORGE --> BINDING
     BINDING --> POLICY["绑定 · 环境 · 能力 · 同源校验"]
     POLICY --> TARGET["只读数据库或测试应用"]
+    CONSULT["业务咨询<br/>只读 Agent"] --> DOC_TOOL["generate_consult_document<br/>结构化内容 + 服务端会话签名"]
+    DOC_TOOL --> DOC_STORE["tool-fore-consult<br/>固定目录 · 格式/容量限制 · 内容幂等"]
+    DOC_STORE --> DOC_DOWNLOAD["原咨询和归档下载<br/>登录 + 会话所有权校验"]
 ```
 
 旧 ERP/SRM/SCM 固定配置和桥接仅作为迁移兼容实现保留，不再默认进入普通开发会话；是否实际移除以对应 OpenSpec 变更和运行验收为准。
+
+业务咨询的 Office 产物是受限只读策略的具名写入例外：`tool-fore-consult` 持有文档生成、固定的用户目录下 `.kai-toolbox/consult-artifacts/<consultId>/`、内容哈希索引及下载授权。Agent 仅提交 docx/xlsx/pptx 的结构化正文，不接受任意路径、模板、脚本、宏或网络素材，不授予终端、源码、配置及业务数据写入权。两引擎复用服务端会话装配与 HMAC；旧咨询缺少冻结证据流程时仅增文档能力，不回退加载生产证据配置。下载复用原咨询的 owner/admin 访问策略，与资源凭据、SQL 登记和通用附件路径读取分离。相同内容重试复用已保存结果，达到配额返回可恢复错误，不自动清理历史文件。实现与验收状态见 [受控咨询文档变更](../openspec/changes/controlled-consult-documents/tasks.md)；当前运行版本是否具备该能力仍以部署和真实验收为准。
 
 ## Existing Spec Resolution
 

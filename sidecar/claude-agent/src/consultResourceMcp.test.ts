@@ -17,7 +17,7 @@ test('readonly resource MCP forwards trusted session header and refuses writes b
   const child = spawn(process.execPath, [fileURLToPath(new URL('./readonlyMcp.js', import.meta.url))], {
     windowsHide: true, env: { ...process.env, TOOLBOX_API_BASE: `http://127.0.0.1:${address.port}`,
       CONSULT_DISABLE_LEGACY_DATABASES: 'true', TOOLBOX_SOURCE_ROOT: '', TOOLBOX_SESSION_ID: 'runtime-test', CONSULT_RESOURCE_TOKEN: 'trusted-test-token',
-      CONSULT_ENABLED_TOOLS: JSON.stringify(['consult_resources', 'consult_resource_query', 'erp_db_query']) }, stdio: ['pipe', 'pipe', 'pipe'],
+      CONSULT_ENABLED_TOOLS: JSON.stringify(['consult_resources', 'consult_resource_query', 'erp_db_query', 'generate_consult_document']) }, stdio: ['pipe', 'pipe', 'pipe'],
   })
   const replies = new Map<number, (value: Record<string, any>) => void>()
   const lines = createInterface({ input: child.stdout })
@@ -30,14 +30,24 @@ test('readonly resource MCP forwards trusted session header and refuses writes b
   })
   try {
     const list = await request('tools/list', {})
-    assert.deepEqual(list.result.tools.map((tool: { name: string }) => tool.name), ['consult_resources', 'consult_resource_query'])
+    assert.deepEqual(list.result.tools.map((tool: { name: string }) => tool.name), ['consult_resources', 'consult_resource_query', 'generate_consult_document'])
+    assert.equal(list.result.tools[2].annotations.readOnlyHint, false)
+    assert.equal(list.result.tools[2].inputSchema.additionalProperties, false)
     await request('tools/call', { name: 'consult_resources', arguments: {} })
     await request('tools/call', { name: 'consult_resource_query', arguments: { bindingId: 'binding', sql: 'select 1' } })
     const denied = await request('tools/call', { name: 'consult_resource_query', arguments: { bindingId: 'binding', sql: 'delete from orders' } })
     assert.equal(denied.result.isError, true)
     const legacy = await request('tools/call', { name: 'erp_db_query', arguments: { sql: 'select 1' } })
     assert.equal(legacy.result.isError, true)
-    assert.equal(requests.length, 2)
+    const document = { format: 'xlsx', title: '确认表', sheets: [{ name: '口径', columns: ['指标'], rows: [['周转率']] }] }
+    await request('tools/call', { name: 'generate_consult_document', arguments: document })
+    assert.equal(requests.length, 3)
+    assert.equal(requests[2].url, '/api/fore-consult/document-tools/sessions/runtime-test')
+    assert.equal(requests[2].token, 'trusted-test-token')
+    assert.deepEqual(JSON.parse(requests[2].body), document)
+    const oversized = await request('tools/call', { name: 'generate_consult_document', arguments: { title: 'x'.repeat(300_001) } })
+    assert.equal(oversized.result.isError, true)
+    assert.equal(requests.length, 3)
     assert.equal(requests[0].url, '/api/fore-consult/resources/sessions/runtime-test')
     assert.equal(requests[0].token, 'trusted-test-token')
     assert.deepEqual(JSON.parse(requests[1].body), { bindingId: 'binding', sql: 'select 1' })

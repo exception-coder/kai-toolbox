@@ -27,7 +27,7 @@ const FORGE_SAFE_TOOLS = new Set([
   'mcp__forge__report_session_progress',
 ])
 
-/** 业务咨询只读策略：内置工具只开放读能力；MCP 也必须命中明确的只读白名单。 */
+/** 咨询仅允许读工具及具名的平台文档写入口，不开放通用写入或命令。 */
 const CONSULT_READ_TOOLS = new Set(['Read'])
 const CONSULT_READONLY_MCP_TOOLS = new Set([
   'mcp__erp_db__query',
@@ -39,6 +39,7 @@ const CONSULT_READONLY_MCP_TOOLS = new Set([
   'mcp__consult-readonly__source_context',
   'mcp__consult-readonly__consult_resources',
   'mcp__consult-readonly__consult_resource_query',
+  'mcp__consult-readonly__generate_consult_document',
   'mcp__consult-readonly__knowledge_query',
   'mcp__consult-readonly__source_search',
   'mcp__consult-readonly__source_read',

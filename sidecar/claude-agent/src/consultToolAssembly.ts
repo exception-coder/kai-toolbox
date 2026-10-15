@@ -64,7 +64,8 @@ export function filterCodexAssembly(config: Record<string, unknown>, assembly?: 
     }
     if (server === 'consult-readonly' && assembly.runtimeSessionId && Array.isArray(value.enabled_tools)) {
       value.enabled_tools = [...new Set([...value.enabled_tools,
-        ...['consult_resources', 'consult_resource_query'].filter(tool => assembly.tools.includes(tool))])]
+        ...['consult_resources', 'consult_resource_query', 'generate_consult_document']
+          .filter(tool => assembly.tools.includes(tool))])]
     }
     if (Array.isArray(value.enabled_tools)) {
       value.enabled_tools = value.enabled_tools.filter(tool => assemblyAllows(assembly, server, String(tool)))
