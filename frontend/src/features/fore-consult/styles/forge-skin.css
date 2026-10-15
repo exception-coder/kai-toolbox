@@ -1,4 +1,4 @@
-/* 外观变体：不改变 DOM、布局尺寸、滚动归属、交互事件或业务状态。 */
+/* 外观变体：保留组件树、滚动归属、交互事件与业务状态。 */
 .fc-skin-toggle {
   display: inline-flex;
   flex-shrink: 0;
@@ -136,6 +136,24 @@
 }
 .fc-space[data-consult-skin='forge'] .fc-toolbar > button:hover:not(:disabled) {
   background: var(--color-accent);
+}
+.fc-space[data-consult-skin='forge'] .fc-consult-status {
+  padding: 4px 12px;
+  border-radius: 12px;
+  border-color: var(--color-border);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.fc-space[data-consult-skin='forge'] :is(.fc-toolbar, .fc-consult-status) > button {
+  min-height: 36px;
+  min-width: 36px;
+  border-radius: 8px;
+}
+@media (max-width: 1023px), (pointer: coarse) {
+  .fc-space[data-consult-skin='forge'] :is(.fc-toolbar, .fc-consult-status) > button {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 .fc-space[data-consult-skin='forge'] :is(.fc-glass-input, .fc-module-search, .fc-prompt-field) {
   background: var(--color-background);

@@ -1576,7 +1576,7 @@ export function ForeConsultPage() {
           onPointerUp={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-emerald-200/80 bg-white/90 px-3 py-2 text-xs text-emerald-700 shadow-[0_16px_38px_-24px_rgba(5,150,105,0.45)] backdrop-blur-xl lg:w-auto lg:flex-nowrap lg:gap-3 lg:rounded-full lg:bg-white/75 lg:px-4 lg:py-1.5">
+          <div className="fc-consult-status flex w-full flex-wrap items-center gap-2 rounded-xl border border-emerald-200/80 bg-white/90 px-3 py-2 text-xs text-emerald-700 shadow-[0_16px_38px_-24px_rgba(5,150,105,0.45)] backdrop-blur-xl lg:w-auto lg:flex-nowrap lg:gap-3 lg:rounded-full lg:bg-white/75 lg:px-4 lg:py-1.5">
             <span className="relative flex size-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
               <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
