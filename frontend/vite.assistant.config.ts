@@ -4,6 +4,9 @@ import { copyFileSync, writeFileSync } from 'node:fs'
 
 export default defineConfig({
   publicDir: false,
+  resolve: {
+    alias: { '@': path.resolve(__dirname, 'src') },
+  },
   plugins: [{
     name: 'assistant-package-artifacts',
     closeBundle() {
