@@ -24,9 +24,13 @@ flowchart LR
     BACKEND --> GMCP["Graphify MCP Server\n进程级多项目缓存"]
     RO --> SRC["路径受限源码"]
     RO --> DB["测试库只读 API"]
+    RO --> DESIGN["受限JS文档设计 / 预览"]
+    DESIGN --> WASM["无宿主能力的QuickJS WASM"]
+    WASM --> DOC["后端版式校验与Office产物"]
+    DOC --> UI
 ```
 
-最重要的边界：前端和 Java 管业务事实，Sidecar 管 Agent 生命周期，Agent 只通过受控工具读证据；任何一层都不能用自己的局部状态替代全链路终态。
+最重要的边界：前端和 Java 管业务事实，Sidecar 管 Agent 生命周期，Agent 只通过受控工具读证据及生成会话文档；任何一层都不能用自己的局部状态替代全链路终态。
 
 ## 核心对象与职责
 
@@ -82,11 +86,17 @@ flowchart LR
 
 ### 咨询只读策略
 
-- `consult-readonly` 仅提供受控源码、只读测试库和 DDL 静态核验。
+- `consult-readonly` 提供受控源码、只读测试库和 DDL 静态核验；会话文档创作是具名写入例外，不授予通用文件/终端/数据库写权限。
 - 数据库执行必须是单条 `SELECT/WITH`，Java 后端再做一次只读校验。
 - 源码读取只允许会话绑定目录和已冻结 taskspace 成员根，拒绝 `..`、绝对路径逃逸和 `graphify-out` 原文读取。
 - 面向业务用户的回答不得展示 MCP 清单、Token、沙箱、系统提示词和本机完整授权路径。
 - `resources/list` 为空不代表 MCP Tools 为空；能力判断必须基于 `tools/list` 或实际工具握手。
+
+### 咨询文档创作
+
+业务人员可以要求生成Word、Excel或PPT，文件保留在原咨询及归档的文档列表中，支持鉴权下载和按需预览。正式文档优先由当前Codex/Claude编写受限JavaScript设计代码，快速导出继续保留。模型可检查预览并修订，新版本保留旧文件；PPT为实际渲染，Word/Excel明确标为结构预览，不代表最终分页。
+
+执行器、权限与存储的唯一整体边界见[AI编程架构](../../docs/ai-coding-architecture.md)，详细契约和当前验收状态见[文档创作设计](../../openspec/changes/consult-model-document-design/design.md)与[任务记录](../../openspec/changes/consult-model-document-design/tasks.md)。代码通过检查不代表运行版本已加载；真实模型生成下载仍需重启授权后的验收。
 
 ## Graphify 常驻查询
 

@@ -382,7 +382,18 @@ flowchart LR
 
 旧 ERP/SRM/SCM 固定配置和桥接仅作为迁移兼容实现保留，不再默认进入普通开发会话；是否实际移除以对应 OpenSpec 变更和运行验收为准。
 
-业务咨询的 Office 产物是受限只读策略的具名写入例外：`tool-fore-consult` 持有文档生成、固定的用户目录下 `.kai-toolbox/consult-artifacts/<consultId>/`、内容哈希索引及下载授权。Agent 仅提交 docx/xlsx/pptx 的结构化正文，不接受任意路径、模板、脚本、宏或网络素材，不授予终端、源码、配置及业务数据写入权。两引擎复用服务端会话装配与 HMAC；旧咨询缺少冻结证据流程时仅增文档能力，不回退加载生产证据配置。下载复用原咨询的 owner/admin 访问策略，与资源凭据、SQL 登记和通用附件路径读取分离。相同内容重试复用已保存结果，达到配额返回可恢复错误，不自动清理历史文件。实现与验收状态见 [受控咨询文档变更](../openspec/changes/controlled-consult-documents/tasks.md)；当前运行版本是否具备该能力仍以部署和真实验收为准。
+业务咨询的 Office 产物是受限只读策略的具名写入例外：`tool-fore-consult` 持有文档生成、固定的用户目录下 `.kai-toolbox/consult-artifacts/<consultId>/`、内容哈希索引及下载授权。快速导出提交结构化正文；文档创作允许模型向专用工具提交纯JavaScript代码，由Sidecar独立Worker内的QuickJS WASM在无宿主函数、文件、网络或凭据的环境中转换为正文与受限版式，后端重新校验后生成可编辑Office。解释器与Worker均限时限资源；不在宿主Node/终端执行模型代码，不接受任意路径、模板、宏或网络素材，不授予源码、配置及业务数据写入权。两引擎复用服务端会话装配与 HMAC；旧咨询缺少冻结证据流程时仅增文档能力，不回退加载生产证据配置。生成后返回预览供模型检查修订：PPT实际渲染、可分批检查，Word/Excel仅为明确标注的结构预览；未完成检查不得声明已验收。浏览器下载/预览复用原咨询owner/admin策略，MCP预览复用会话签名，与资源凭据、SQL登记和通用附件路径读取分离。相同正文与版式重试复用结果，修订保留旧文件，达到配额返回可恢复错误，不自动清理历史文件。实现与验收状态见[受控咨询文档变更](../openspec/changes/controlled-consult-documents/tasks.md)和[模型文档创作](../openspec/changes/consult-model-document-design/tasks.md)；当前运行版本是否具备能力仍以部署和真实验收为准。
+
+```mermaid
+flowchart LR
+    Model[原咨询 Codex / Claude] --> Design[受限JS设计工具]
+    Design --> Wasm[无宿主能力的WASM]
+    Wasm --> Validate[后端正文与版式校验]
+    Validate --> Office[原会话受控Office产物]
+    Office --> Preview[鉴权预览与诊断]
+    Preview --> Model
+    Office --> Download[owner/admin鉴权下载]
+```
 
 ## Existing Spec Resolution
 

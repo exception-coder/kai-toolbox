@@ -35,7 +35,7 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
                             session.getModuleNames() == null ? java.util.List.of() : java.util.List.of(session.getModuleNames()),
                             session.getRole(), true, session.getEvidenceRouteSnapshot());
                     return new Assembly(Stream.concat(snapshot.stream().flatMap(value -> value.workflow().tools().stream()),
-                                    Stream.of(ConsultDocumentPolicy.TOOL)).distinct().toList(),
+                                    ConsultDocumentPolicy.TOOLS.stream()).distinct().toList(),
                             Stream.concat(snapshot.stream().flatMap(value -> value.workflow().mcpServers().stream()),
                                     Stream.of("consult-readonly")).distinct().toList(),
                             snapshot.map(value -> workflowService.render(request, value).prompt())

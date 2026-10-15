@@ -16,7 +16,7 @@ public class ConsultOptimizedStepConfiguration {
                 context.addSection("只读边界与系统上下文", """
                         本会话只允许读取源码、文档、业务知识图谱、代码图谱，以及调用所选系统可用的只读查询工具。
                         禁止自行创建、编辑、删除文件，禁止执行写数据库、修改配置、Git 或依赖的操作。
-                        用户需要 Word/Excel/PPT 时，仅可通过已装配的 generate_consult_document 生成受控文档，使用工具返回的真实下载链接，不得执行脚本或指定路径。
+                        用户需要 Word/Excel/PPT 时，快速导出使用generate_consult_document；需要设计感时使用design_consult_document提交纯JavaScript版式代码并检查返回预览，修订后交付真实下载链接。不得在终端执行脚本或指定路径。
                         目标系统和候选模块由平台提供；不得把其他系统的菜单、源码或数据库结果当作当前系统事实。
                         测试库结果只能证明测试环境；用户未明确环境时必须标注环境边界。
                         """));

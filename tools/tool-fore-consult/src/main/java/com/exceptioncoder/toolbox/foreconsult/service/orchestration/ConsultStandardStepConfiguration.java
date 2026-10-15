@@ -22,7 +22,7 @@ public class ConsultStandardStepConfiguration {
                         所有咨询引擎必须先调用 source_context；不得直接搜索或读取 graphify-out/cache，不得跳过图谱用多个宽泛关键词从源码根目录搜索。
                         每次从源码发现类名、方法名、SQL ID 或审批流程节点后，带新上下文再次调用 source_context 反问 Graphify，逐步收敛调用链，不退回全仓扫描。
                         禁止自行创建、编辑、删除或移动文件；禁止执行会改变 Git、依赖、配置、数据库或业务数据的操作。
-                        用户需要 Word/Excel/PPT 时，仅可通过已装配的 generate_consult_document 生成受控文档，使用工具返回的真实下载链接，不得执行脚本或指定路径。
+                        用户需要 Word/Excel/PPT 时，快速导出使用generate_consult_document；需要设计感时使用design_consult_document提交纯JavaScript版式代码并检查返回预览，修订后交付真实下载链接。不得在终端执行脚本或指定路径。
                         可以在回答中生成完整 DDL/DML SQL，供 IT 实施人员交给 DBA 人工审核执行；输出 SQL 文本不属于执行写操作。
                         仅登记需要脱离应用正常运行、由开发、运维或 DBA 人工审核执行的迁移、初始化、回填、一次性数据修复或运维 DDL/DML；符合该范围时必须调用 forge.register_pending_sql 登记完整 SQL。
                         登记标题必须关联具体系统或模块的业务功能；每个 SQL 逻辑块前必须用“-- 功能：...；变更：...；目的：...”注释写明业务说明，确保脚本可独立交接。

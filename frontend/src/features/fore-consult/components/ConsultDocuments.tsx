@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Download, Loader2 } from 'lucide-react'
 import { http } from '@/lib/api'
 import { downloadConsultDocument } from '../consultDocuments'
+import { ConsultDocumentPreview } from './ConsultDocumentPreview'
 
 interface ConsultDocument {
   id: string
@@ -38,7 +39,8 @@ export function ConsultDocuments({ sessionId, running = false }: { sessionId: st
     <details open>
       <summary className="cursor-pointer text-xs font-medium text-slate-500">生成的文档 · {query.data.length}</summary>
       <ul className="mt-1 divide-y divide-slate-100">
-        {query.data.map(file => <li key={file.id} className="flex min-w-0 items-center justify-between gap-3 py-1">
+        {query.data.map(file => <li key={file.id} className="min-w-0 py-1">
+          <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="break-words font-medium">{file.name}</p>
             <p className="text-[11px] text-slate-500">{Math.max(1, Math.round(file.bytes / 1024))} KB · {file.format.toUpperCase()}</p>
@@ -51,6 +53,8 @@ export function ConsultDocuments({ sessionId, running = false }: { sessionId: st
             aria-label={`下载 ${file.name}`} disabled={busy !== null} onClick={() => void download(file)}>
             {busy === file.id ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}下载
           </button>
+          </div>
+          <ConsultDocumentPreview key={`${sessionId}:${file.id}`} sessionId={sessionId} id={file.id} name={file.name} />
         </li>)}
       </ul>
     </details>

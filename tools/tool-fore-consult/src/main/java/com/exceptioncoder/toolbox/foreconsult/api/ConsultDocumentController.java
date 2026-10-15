@@ -43,6 +43,23 @@ public class ConsultDocumentController {
         return documents.list(sessionId);
     }
 
+    @PostMapping("/document-tools/sessions/{runtimeId}/documents/{id}/preview")
+    public ConsultDocumentService.Preview previewForAgent(@PathVariable String runtimeId, @PathVariable String id,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestHeader(value = "X-Consult-Resource-Token", required = false) String token) throws IOException {
+        access.require(runtimeId, token);
+        return documents.previewForRuntime(runtimeId, id, page);
+    }
+
+    @GetMapping("/sessions/{sessionId}/documents/{id}/preview")
+    @RequireAuth
+    public ResponseEntity<ConsultDocumentService.Preview> preview(@PathVariable String sessionId, @PathVariable String id,
+            @RequestParam(defaultValue = "1") int page) throws IOException {
+        consults.get(sessionId);
+        return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(documents.preview(sessionId, id, page));
+    }
+
     @GetMapping("/sessions/{sessionId}/documents/{id}/download")
     @RequireAuth
     public ResponseEntity<byte[]> download(@PathVariable String sessionId, @PathVariable String id) throws IOException {

@@ -40,7 +40,21 @@ class ConsultDocumentControllerTest {
                 .sessionId("other").userId("8").build()));
         assertThatThrownBy(() -> controller.list("other")).hasMessageContaining("404");
         assertThatThrownBy(() -> controller.download("other", "a".repeat(64))).hasMessageContaining("404");
+        assertThatThrownBy(() -> controller.preview("other", "a".repeat(64), 1)).hasMessageContaining("404");
         verifyNoInteractions(documents);
+    }
+
+    @Test void previewRequiresRuntimeSignatureAndOwnerAccess() throws Exception {
+        String id = "a".repeat(64);
+        assertThatThrownBy(() -> controller.previewForAgent("runtime-a", id, 1, access.issue("other")))
+                .hasMessageContaining("签名无效");
+        verifyNoInteractions(documents);
+        controller.previewForAgent("runtime-a", id, 1, access.issue("runtime-a"));
+        verify(documents).previewForRuntime("runtime-a", id, 1);
+        authenticate(7L, "USER");
+        when(sessions.findById("own")).thenReturn(Optional.of(ConsultSession.builder().sessionId("own").userId("7").build()));
+        assertThat(controller.preview("own", id, 1).getHeaders().getCacheControl()).isEqualTo("no-store");
+        verify(documents).preview("own", id, 1);
     }
 
     @Test void ownerDownloadsAttachmentWithNoCacheAndOfficeContentType() throws Exception {

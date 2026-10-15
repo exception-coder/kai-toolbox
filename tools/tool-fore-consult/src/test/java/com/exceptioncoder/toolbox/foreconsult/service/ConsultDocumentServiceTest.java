@@ -81,6 +81,14 @@ class ConsultDocumentServiceTest {
 
     @Test void retriesAndNewServiceInstanceReusePersistedArtifact() throws Exception {
         var first = documents.create("runtime-a", mapper.readTree(excel));
+        var input = mapper.readTree(excel);
+        var legacy = mapper.createObjectNode();
+        for (String key : java.util.List.of("format", "title", "sections", "sheets", "slides")) {
+            legacy.set(key, input.has(key) ? input.get(key) : com.fasterxml.jackson.databind.node.NullNode.instance);
+        }
+        String legacyId = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(mapper.writeValueAsBytes(legacy)));
+        assertThat(first.id()).isEqualTo(legacyId);
         var restored = new ConsultDocumentService(temporary.resolve("artifacts"), mapper, sessions,
                 new ConsultDocumentRenderer());
         assertThat(restored.create("runtime-a", mapper.readTree(excel))).isEqualTo(first);

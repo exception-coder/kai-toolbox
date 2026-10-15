@@ -5,7 +5,8 @@ import { createInterface } from 'node:readline'
 import { TextDecoder } from 'node:util'
 import { validateReadonlySql } from './readonlyPolicy.js'
 import { knowledgeQueryTool, queryKnowledge } from './knowledgeQuery.js'
-import { consultDocumentTool } from './consultDocuments.js'
+import { consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool } from './consultDocuments.js'
+import { callConsultDocumentTool } from './consultDocumentMcp.js'
 import {
   DEFAULT_GRAPH_JSON_FALLBACK_MAX_BYTES,
   GraphifyQueryCoordinator,
@@ -138,7 +139,8 @@ const resourceTools = ['consult_resources', 'consult_resource_query'].map(name =
   annotations: readonlyAnnotations(),
 }))
 const tools = [...(API_BASE && process.env.TOOLBOX_SESSION_ID
-  ? [...resourceTools, ...(process.env.CONSULT_RESOURCE_TOKEN ? [consultDocumentTool] : [])] : []),
+  ? [...resourceTools, ...(process.env.CONSULT_RESOURCE_TOKEN
+    ? [consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool] : [])] : []),
   knowledgeQueryTool, ...(API_BASE && process.env.CONSULT_DISABLE_LEGACY_DATABASES !== 'true' ? databaseTools : []),
   ...sourceTools, ...standbySchemaTools]
 const SKIPPED_DIRECTORIES = new Set([
@@ -697,17 +699,10 @@ function fail(id: JsonRpcRequest['id'], code: number, message: string): void {
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   try {
-    if (name === 'generate_consult_document') {
-      const session = process.env.TOOLBOX_SESSION_ID
-      const token = process.env.CONSULT_RESOURCE_TOKEN
-      if (!session || !token || !API_BASE) return textResult('当前会话未装配文档生成，请重新连接咨询后重试', true)
-      const body = JSON.stringify(args)
-      if (body.length > 300_000) return textResult('文档内容超过30万字符，请拆分生成', true)
-      const response = await fetch(`${API_BASE}/api/fore-consult/document-tools/sessions/${encodeURIComponent(session)}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Consult-Resource-Token': token },
-        body, signal: AbortSignal.timeout(60_000),
+    if (['generate_consult_document', 'design_consult_document', 'preview_consult_document'].includes(name)) {
+      return await callConsultDocumentTool(name, args, {
+        apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN,
       })
-      return textResult((await response.text()).slice(0, 20_000), !response.ok)
     }
     if (name === 'consult_resources' || name === 'consult_resource_query') {
       const session = process.env.TOOLBOX_SESSION_ID

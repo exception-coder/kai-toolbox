@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.foreconsult.service;
 
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultDocumentRequest;
+import com.exceptioncoder.toolbox.foreconsult.service.documents.ConsultLayoutValidator;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultSessionRepository;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -36,6 +37,7 @@ public class ConsultDocumentService {
     private final ObjectMapper mapper;
     private final ConsultSessionRepository sessions;
     private final ConsultDocumentRenderer renderer;
+    private final java.util.concurrent.Semaphore previewSlots = new java.util.concurrent.Semaphore(2);
 
     @Autowired
     public ConsultDocumentService(ObjectMapper mapper, ConsultSessionRepository sessions,
@@ -60,7 +62,9 @@ public class ConsultDocumentService {
             throw new ResponseStatusException(CONFLICT, "咨询已结束，可下载已有文件；请在新咨询生成新文档");
         }
         var request = validate(content);
-        String id = digest(mapper.writeValueAsBytes(request));
+        var canonical = mapper.<com.fasterxml.jackson.databind.node.ObjectNode>valueToTree(request);
+        if (request.layout() == null) { canonical.remove("layout"); }
+        String id = digest(mapper.writeValueAsBytes(canonical));
         Path directory = directory(session.getSessionId(), true);
         Path manifest = directory.resolve(id + ".json");
         if (Files.exists(manifest, LinkOption.NOFOLLOW_LINKS)) {
@@ -121,6 +125,31 @@ public class ConsultDocumentService {
         Path file = directory.resolve(id + "." + document.format());
         return new Download(document, Files.readAllBytes(file));
     }
+
+    /** 从受控文件生成预览，不保存新文件；仍要求调用方先核验会话权限。 */
+    public Preview preview(String sessionId, String id, int page) throws IOException {
+        if (!previewSlots.tryAcquire()) {
+            throw new ResponseStatusException(TOO_MANY_REQUESTS, "预览正在忙，请稍后重试");
+        }
+        try {
+            var download = download(sessionId, id);
+            var result = com.exceptioncoder.toolbox.foreconsult.service.documents.ConsultDocumentPreview
+                    .render(download.document().format(), download.content(), page);
+            return new Preview("image/png", java.util.Base64.getEncoder().encodeToString(result.png()),
+                    result.kind(), result.notes(), page, result.totalPages());
+        } finally { previewSlots.release(); }
+    }
+
+    /** MCP签名只对应本运行时关联的咨询，不从模型参数接收咨询ID。 */
+    public Preview previewForRuntime(String runtimeId, String id, int page) throws IOException {
+        String consultId = sessions.findByDevSessionId(runtimeId)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "未关联咨询会话")).getSessionId();
+        return preview(consultId, id, page);
+    }
+
+    /** 预览图与真实性说明；不返回磁盘路径或凭据。 */
+    public record Preview(String mimeType, String imageBase64, String kind, List<String> notes,
+                          int page, int totalPages) { }
 
     private Document read(Path directory, String id) throws IOException {
         Path manifest = directory.resolve(id + ".json");
@@ -277,6 +306,10 @@ public class ConsultDocumentService {
             }
             case "pptx" -> {
                 exclusive(document.sections(), document.sheets());
+                if (document.layout() != null && document.layout().pages() != null) {
+                    if (document.slides() != null) { throw new IllegalArgumentException("自定义pages与快速slides不可同时提供"); }
+                    break;
+                }
                 count(document.slides(), 1, 30);
                 for (var slide : document.slides()) {
                     text(slide.title(), 36, false);
@@ -294,6 +327,7 @@ public class ConsultDocumentService {
             }
             default -> throw new IllegalArgumentException("仅支持 docx、xlsx、pptx，不支持宏或可执行文件");
         }
+        ConsultLayoutValidator.validate(document);
         return document;
     }
 

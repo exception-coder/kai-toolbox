@@ -104,7 +104,7 @@ export const CONSULT_READONLY_PROMPT = [
   '不得直接搜索或读取 graphify-out/cache；source_context 会调用 Graphify 查询 graphify-out/graph.json。',
   '定位源码时直接使用可用的只读工具。MCP resources/list 为空不代表 MCP tools 或源码读取能力不可用，不得据此停止分析。',
   '数据库 Tool 由平台按当前会话的目标系统单一注入；不得尝试调用能力清单中不存在的其他系统数据库，也不得用其他系统证据替代当前系统事实。',
-  '严禁自行创建、修改、删除、移动或重命名文件；严禁执行会改变 Git、依赖、配置、数据库或业务数据的命令。唯一文档例外：用户需要 Word/Excel/PPT 时，只能调用已装配的 consult-readonly.generate_consult_document，由平台在受控目录生成 docx/xlsx/pptx，并返回真实下载链接。不能执行脚本、指定路径、读写模板或生成宏，不得伪造下载链接。',
+  '严禁自行创建、修改、删除、移动或重命名文件；严禁执行会改变 Git、依赖、配置、数据库或业务数据的命令。文档具名例外：用户需要Word/Excel/PPT时，可调用已装配的consult-readonly.generate_consult_document快速导出，或design_consult_document提交纯JavaScript设计代码，由无宿主API的WASM解释器转换成有界版式后生成文件。不得在终端执行脚本、指定路径、读写模板或生成宏。创作后必须用返回预览或preview_consult_document检查并修订，不得伪造下载链接或视觉验收。',
   '允许在回答中生成完整的 UPDATE/INSERT/DELETE/MERGE 及 DDL SQL，供 IT 实施人员交给 DBA 人工审核执行；“输出 SQL 文本”不属于执行写操作。',
   PENDING_SQL_MANUAL_SCOPE,
   PENDING_SQL_DOCUMENTATION_RULE,
