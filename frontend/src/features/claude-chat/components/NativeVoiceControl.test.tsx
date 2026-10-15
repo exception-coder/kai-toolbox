@@ -36,6 +36,20 @@ function fixture() {
   return { transport, view }
 }
 
+it('uses consultation copy and stops only audio when the view closes', async () => {
+  const f = fixture()
+  const page = render(<NativeVoiceControl sessionId="consult-runtime" transport={f.transport}
+    connected context="consultation" compact />)
+  fireEvent.click(screen.getByRole('button', { name: '语音对话' }))
+  await waitFor(() => expect(f.transport.start).toHaveBeenCalledOnce())
+  act(() => media.instances[0].connect())
+  expect(screen.getByRole('status')).toHaveTextContent('咨询继续执行')
+  expect(screen.queryByText(/代码任务/)).not.toBeInTheDocument()
+  page.unmount()
+  expect(media.instances[0].close).toHaveBeenCalled()
+  expect(f.transport.control).toHaveBeenCalledWith('consult-runtime', expect.any(String), 'stop')
+})
+
 it('shows release-before-retry guidance for a writer conflict without a text bypass hint', async () => {
   media.offer.mockRejectedValueOnce(new Error('thread native-thread-id already has an active writer'))
   const f = fixture()

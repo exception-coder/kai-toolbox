@@ -34,6 +34,8 @@ flowchart LR
 
 ## 核心对象与职责
 
+咨询输入区复用Vibe Coding语音能力：首问和追问可录音转文字，确认后发送；官方Codex原生账号的已就绪咨询可点击“语音对话”连续交流，并支持静音、挂断及主动恢复。未发送草稿或附件需先处理。实时语音仍使用原咨询与只读资源边界，挂断不取消已启动咨询；其他引擎或第三方网关使用转写。转写复用FFmpeg/faster-whisper，经登录校验的`/api/fore-consult/stt`处理，不需要开发模块管理权限。浏览器需HTTPS或localhost及麦克风授权，上游账号未开放语音时保留文字和转写入口；部署与真实音频验收见[咨询语音任务](../../openspec/changes/consult-voice/tasks.md)。
+
 ### 前端
 
 - `frontend/src/features/fore-consult/pages/ForeConsultPage.tsx`：系统、模块、菜单、问题分类、咨询版本和当前咨询状态。

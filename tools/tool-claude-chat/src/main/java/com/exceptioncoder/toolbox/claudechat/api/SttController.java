@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.SttResult;
 import com.exceptioncoder.toolbox.claudechat.service.SttService;
+import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -14,7 +15,8 @@ import java.util.Map;
  * 语音转写：录音音频以 raw body 上传，同步返回纯文本。契约见 api 文档 §1。
  */
 @RestController("claudeChatSttController")
-@RequestMapping("/api/claude-chat/stt")
+@RequestMapping({"/api/claude-chat/stt", "/api/fore-consult/stt"})
+@RequireAuth
 public class SttController {
 
     private final SttService stt;

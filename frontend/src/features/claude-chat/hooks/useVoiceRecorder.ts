@@ -31,8 +31,12 @@ export function useVoiceRecorder(): UseVoiceRecorder {
   const chunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const generationRef = useRef(0)
+  const startingRef = useRef(false)
 
   const cleanup = useCallback(() => {
+    generationRef.current++
+    startingRef.current = false
     if (timerRef.current) {
       clearInterval(timerRef.current)
       timerRef.current = null
@@ -45,24 +49,50 @@ export function useVoiceRecorder(): UseVoiceRecorder {
     setSeconds(0)
   }, [])
 
-  useEffect(() => cleanup, [cleanup])
+  useEffect(() => () => {
+    const recorder = recRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.onstop = null
+      recorder.stop()
+    }
+    cleanup()
+  }, [cleanup])
 
   const start = useCallback(async (onStream?: (stream: MediaStream) => void) => {
-    if (recRef.current) return
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    if (recRef.current || startingRef.current) return
+    startingRef.current = true
+    const generation = generationRef.current
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch (error) {
+      startingRef.current = false
+      throw error
+    }
+    startingRef.current = false
+    if (generation !== generationRef.current) {
+      stream.getTracks().forEach(track => track.stop())
+      return
+    }
     streamRef.current = stream
-    onStream?.(stream)
-    const rec = new MediaRecorder(stream)
+    let rec: MediaRecorder
+    try {
+      onStream?.(stream)
+      rec = new MediaRecorder(stream)
+      rec.start()
+    } catch (error) {
+      cleanup()
+      throw error
+    }
     chunksRef.current = []
     rec.ondataavailable = e => {
       if (e.data.size > 0) chunksRef.current.push(e.data)
     }
-    rec.start()
     recRef.current = rec
     setRecording(true)
     setSeconds(0)
     timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000)
-  }, [])
+  }, [cleanup])
 
   const stop = useCallback(() => {
     return new Promise<Blob>((resolve, reject) => {

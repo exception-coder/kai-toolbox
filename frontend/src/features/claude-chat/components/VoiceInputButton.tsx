@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Loader2, Mic, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -12,26 +12,40 @@ import { sttAvailable, transcribe } from '../api'
  * 「✕ 取消 · 跳动绿点 + 秒数 · ■ 停止并转写」的胶囊条；识别中显示「识别中…」胶囊；
  * 空闲态才是麦克风图标按钮。浏览器不支持或 faster-whisper 未就绪时禁用并提示。
  */
-export function VoiceInputButton({ onText, disabled, className, idleTarget, onIdleActivate }: {
+export function VoiceInputButton({ onText, disabled, className, idleTarget, onIdleActivate, onActiveChange, scope = 'coding' }: {
   onText: (t: string) => void; disabled?: boolean; className?: string
   idleTarget?: HTMLElement | null; onIdleActivate?: () => void
+  onActiveChange?: (active: boolean) => void
+  scope?: 'coding' | 'consultation'
 }) {
   const rec = useVoiceRecorder()
   const [available, setAvailable] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
+  const [starting, setStarting] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const mounted = useRef(false)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  useEffect(() => {
+    onActiveChange?.(starting || rec.recording || busy)
+    return () => onActiveChange?.(false)
+  }, [starting, rec.recording, busy, onActiveChange])
 
   useEffect(() => {
-    sttAvailable().then(setAvailable)
-  }, [])
+    sttAvailable(scope).then(value => { if (mounted.current) setAvailable(value) })
+      .catch(() => { if (mounted.current) setAvailable(false) })
+  }, [scope])
 
   const start = async () => {
+    if (starting || disabled) return
+    setStarting(true)
     setErr(null)
     onIdleActivate?.()
     try {
       await rec.start()
     } catch {
-      setErr('无法访问麦克风')
+      if (mounted.current) setErr('无法访问麦克风，请在网站设置中允许后重试')
+    } finally {
+      if (mounted.current) setStarting(false)
     }
   }
 
@@ -39,13 +53,14 @@ export function VoiceInputButton({ onText, disabled, className, idleTarget, onId
     setErr(null)
     try {
       const blob = await rec.stop()
+      if (!mounted.current) return
       setBusy(true)
-      const text = await transcribe(blob)
-      if (text) onText(text)
+      const text = await transcribe(blob, 'auto', scope)
+      if (text && mounted.current) onText(text)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : '转写失败')
+      if (mounted.current) setErr(e instanceof Error ? e.message : '转写失败')
     } finally {
-      setBusy(false)
+      if (mounted.current) setBusy(false)
     }
   }
 
@@ -96,7 +111,7 @@ export function VoiceInputButton({ onText, disabled, className, idleTarget, onId
   }
 
   const off = !rec.supported || available === false
-  const title = !rec.supported ? '当前浏览器不支持录音'
+  const title = !rec.supported ? (window.isSecureContext ? '当前浏览器不支持录音' : '请使用 HTTPS 或 localhost 后使用语音输入')
     : available === false ? 'faster-whisper 服务未启动，语音输入不可用'
     : err ? err
     : '语音输入'
@@ -108,15 +123,17 @@ export function VoiceInputButton({ onText, disabled, className, idleTarget, onId
       size={idleTarget ? 'sm' : 'icon'}
       className={idleTarget ? 'min-h-11 w-full gap-2 text-xs' : className}
       onClick={start}
-      disabled={disabled || off}
+      disabled={disabled || off || starting || available === null}
       title={title}
       aria-label={title}
     >
-      <Mic className="size-5" />
+      {starting ? <Loader2 className="size-5 animate-spin" /> : <Mic className="size-5" />}
       {idleTarget && <span>语音输入</span>}
     </Button>
   )
   // 移动端只移动空闲入口；录音、识别及错误状态保留在 Composer，不随菜单关闭卸载。
   if (idleTarget === null && !err) return null
-  return idleTarget ? createPortal(button, idleTarget) : button
+  return <>{idleTarget ? createPortal(button, idleTarget) : button}
+    {err && <span role="alert" className="max-w-full break-words text-xs text-[var(--color-destructive)]">{err}</span>}
+  </>
 }

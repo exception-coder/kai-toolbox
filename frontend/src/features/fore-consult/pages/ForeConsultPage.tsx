@@ -26,6 +26,7 @@ import {
   type Engine,
 } from '@/features/claude-chat/public-api'
 import { ConsultConversation } from '../components/ConsultConversation'
+import { ConsultVoiceActions } from '../components/ConsultVoiceActions'
 import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
 import { EvidenceRouteManager } from '../components/EvidenceRouteManager'
@@ -2065,6 +2066,8 @@ export function ForeConsultPage() {
                     聚焦：{moduleTags.join('、')}
                   </span>
                 )}
+                <ConsultVoiceActions key={system} disabled={!initialSessionStateResolved || startMutation.isPending}
+                  onText={value => setAsk(previous => previous ? `${previous}\n${value}` : value)} />
                 <span className="hidden text-[10px] text-slate-500 sm:inline">Enter 发送 · Shift+Enter 换行</span>
               </div>
               <button

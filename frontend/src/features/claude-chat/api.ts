@@ -851,9 +851,9 @@ export function fetchSubscriptionQuota(sessionId: string): Promise<SubscriptionQ
 }
 
 /** 探测 faster-whisper ASR 是否就绪，用于启用/禁用麦克风按钮。 */
-export async function sttAvailable(): Promise<boolean> {
+export async function sttAvailable(scope: 'coding' | 'consultation' = 'coding'): Promise<boolean> {
   try {
-    const res = await authFetch('/claude-chat/stt/available')
+    const res = await authFetch(`${scope === 'consultation' ? '/fore-consult' : '/claude-chat'}/stt/available`)
     if (!res.ok) return false
     const j = await res.json()
     return !!j.available
@@ -863,12 +863,11 @@ export async function sttAvailable(): Promise<boolean> {
 }
 
 /** 上传录音音频，返回转写文本。 */
-export async function transcribe(audio: Blob, language = 'auto'): Promise<string> {
-  // claude-chat 是 ADMIN-only：token 过期时软鉴权会回「200 + 空响应」而非 401，
-  // 必须先主动续期，否则转写被静默拦成空文本（表现为「识别失败/无结果」）。
+export async function transcribe(audio: Blob, language = 'auto', scope: 'coding' | 'consultation' = 'coding'): Promise<string> {
+  // 录音可能持续较久，上传前续期并确认身份，避免录音结束时才因登录过期丢失转写。
   await ensureFreshToken()
   if (!getToken()) throw new Error('未登录或登录已过期，请重新登录后再用语音')
-  const res = await authFetch(`/claude-chat/stt?language=${encodeURIComponent(language)}`, {
+  const res = await authFetch(`${scope === 'consultation' ? '/fore-consult' : '/claude-chat'}/stt?language=${encodeURIComponent(language)}`, {
     method: 'POST',
     headers: { 'Content-Type': audio.type || 'application/octet-stream' },
     body: audio,

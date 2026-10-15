@@ -1,3 +1,5 @@
 export { NativeVoiceConnection, voiceAvailability, voiceErrorMessage } from '../lib/nativeVoice'
 export type { VoiceEvent, VoiceOffer } from '../lib/nativeVoice'
 export { VoiceTranscriptAssembler } from '../lib/voiceTranscript'
+export { NativeVoiceControl } from '../components/NativeVoiceControl'
+export { VoiceInputButton } from '../components/VoiceInputButton'

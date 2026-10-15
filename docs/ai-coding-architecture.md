@@ -368,6 +368,8 @@ flowchart LR
 
 业务咨询的数据库只经`consult_resources / consult_resource_query`访问同一资源服务，授权选择来自已发布流程节点的`resourceBindingIds`，并冻结在原咨询中。系统按完整源码目录唯一关联Project Registry；未登记、绑定为空、跨系统、停用、非QUERY能力、PROD或未知环境一律拒绝，不扫描其他连接、不回退旧配置。跨系统证据路由只指导分析，不授予其他系统的数据库访问权。每次查询重新校验当前资源状态，连接修改影响后续查询，绑定停用立即撤销；流程选择发布仅对新咨询生效。查询结果包含资源绑定和实际环境，日志以绑定及系统标识关联原数据源查询历史，不记录凭据。配置入口统一为Agent管理的业务咨询流程节点，连接及系统绑定仍在系统资源管理。旧快照只兼容读取，不重新授予旧固定连接能力。
 
+咨询语音复用原咨询身份：录音转写经登录级`/api/fore-consult/stt`调用已有语音服务，结果只回填草稿；官方Codex实时语音经原consult WebSocket、SessionVoiceService及同一只读工具装配处理，不切换开发权限或数据库目标。音频连接的callId、所有者、心跳与恢复沿用原协议，挂断仅关闭音频，媒体离开页面必须释放；实际账号语音能力与部署验收见[咨询语音任务](../openspec/changes/consult-voice/tasks.md)。
+
 ```mermaid
 flowchart LR
     REGISTRY["Project Registry<br/>系统身份"] --> BINDING["tool-ops<br/>资源配置与绑定"]
@@ -378,6 +380,8 @@ flowchart LR
     BINDING --> POLICY["绑定 · 环境 · 能力 · 同源校验"]
     POLICY --> TARGET["只读数据库或测试应用"]
     CONSULT["业务咨询<br/>只读 Agent"] --> DOC_TOOL["generate_consult_document<br/>结构化内容 + 服务端会话签名"]
+    CONSULT_UI["咨询语音输入 / 实时语音"] --> CONSULT_CHANNEL["原consult WS / SessionVoiceService<br/>官方账号 · 原会话 · 同一只读装配"]
+    CONSULT_CHANNEL --> CONSULT
     CONSULT --> QUERY_TOOL["consult_resources / consult_resource_query<br/>原咨询冻结的绑定选择"]
     QUERY_TOOL --> BINDING
     DOC_TOOL --> DOC_STORE["tool-fore-consult<br/>固定目录 · 格式/容量限制 · 内容幂等"]

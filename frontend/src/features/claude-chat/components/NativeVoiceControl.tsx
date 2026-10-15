@@ -14,13 +14,18 @@ interface Props {
   hideIdle?: boolean
   onReturnFocus?: () => void
   controlRef?: Ref<{ start: () => void }>
+  context?: 'coding' | 'consultation'
+  compact?: boolean
+  onActiveChange?: (active: boolean) => void
+  disabledReason?: string
 }
 
-export function NativeVoiceControl({ sessionId, transport, connected, disabled, busy, mobileDisclosure, hideIdle, onReturnFocus, controlRef }: Props) {
+export function NativeVoiceControl({ sessionId, transport, connected, disabled, busy, mobileDisclosure, hideIdle, onReturnFocus, controlRef, context = 'coding', compact, onActiveChange, disabledReason }: Props) {
   const voice = useVoiceRecovery(sessionId, transport, { connected, busy, disabled })
   const trigger = useRef<HTMLButtonElement>(null)
   const active = voice.state === 'connecting' || voice.state === 'connected'
   const inactive = !active && !voice.recoverable && !voice.error && !voice.notice
+  useEffect(() => { onActiveChange?.(active); return () => onActiveChange?.(false) }, [active, onActiveChange])
   useImperativeHandle(controlRef, () => ({ start: () => {
     if (!active && !disabled && connected && sessionId && !voiceAvailability()) voice.start()
   } }))
@@ -37,13 +42,14 @@ export function NativeVoiceControl({ sessionId, transport, connected, disabled, 
     }
   }, [active, disabled, connected, hideIdle, inactive, onReturnFocus])
   const unavailable = voiceAvailability()
+  const task = context === 'consultation' ? '咨询' : '代码任务'
   return (
-    <div className={`${inactive ? hideIdle ? 'hidden ' : mobileDisclosure ? 'hidden md:block ' : '' : ''}min-w-0 border-t px-3 py-2`} aria-label="原生语音对话">
+    <div className={`${inactive ? hideIdle ? 'hidden ' : mobileDisclosure ? 'hidden md:block ' : '' : ''}min-w-0 ${compact ? '' : 'border-t px-3 py-2'}`} aria-label="原生语音对话">
       <div className="flex flex-wrap items-center gap-2">
-        <Button ref={trigger} type="button" variant="ghost" size="sm"
+        <Button ref={trigger} type="button" variant="ghost" size="sm" className={compact ? 'min-h-11' : undefined}
           disabled={disabled || !connected || !sessionId || Boolean(unavailable)}
           onClick={() => { if (!active) voice.start() }} aria-pressed={active}
-          title={unavailable || (busy && !active ? '重新连接原会话音频，代码任务继续执行' : '与当前 Codex 会话进行原生语音对话')}>
+          title={unavailable || (disabled && disabledReason) || (busy && !active ? `重新连接原会话音频，${task}继续执行` : '与当前 Codex 会话进行原生语音对话')}>
           {voice.state === 'connecting' ? <Loader2 className="size-4 animate-spin motion-reduce:animate-none" /> : <AudioLines className="size-4" />}
           {active ? voice.state === 'connecting' ? '正在连接语音…' : voice.muted ? '麦克风已静音' : '语音已连接'
             : voice.recoverable ? '恢复语音' : '语音对话'}
@@ -58,10 +64,10 @@ export function NativeVoiceControl({ sessionId, transport, connected, disabled, 
             <PhoneOff className="size-4" />{voice.state === 'connecting' ? '取消连接' : '结束通话'}
           </Button>
         </>}
-        <span className="text-xs text-[var(--color-muted-foreground)]" role="status">
-          {active ? '结束通话后，已启动的代码任务继续执行' : unavailable || voice.notice || (voice.recoverable
-            ? '语音已中断，点击恢复；代码任务无需停止'
-            : busy ? '可重新连接原语音会话，代码任务继续执行' : '原生语音 · 实验功能，可连续交流')}
+        <span className={`${compact && inactive && !unavailable ? 'sr-only ' : ''}text-xs text-[var(--color-muted-foreground)]`} role="status">
+          {active ? `结束通话后，已启动的${task}继续执行` : unavailable || voice.notice || (voice.recoverable
+            ? `语音已中断，点击恢复；${task}无需停止`
+            : busy ? `可重新连接原语音会话，${task}继续执行` : '原生语音 · 实验功能，可连续交流')}
         </span>
       </div>
       {voice.error && <p role="alert" className="mt-2 break-words text-xs text-[var(--color-destructive)]">

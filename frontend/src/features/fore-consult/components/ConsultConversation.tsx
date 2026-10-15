@@ -17,6 +17,7 @@ import { stripConsultRecognition } from '../consultRecognition'
 import { ConsultMessageActions } from './ConsultMessageActions'
 import { ConsultAnswerContent, ConsultPanel } from './ConsultPanel'
 import { ConsultDocuments } from './ConsultDocuments'
+import { ConsultVoiceActions } from './ConsultVoiceActions'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
 const BUG_RE = /<<<BUG_REPORT>>>\s*([\s\S]*?)\s*<<<END_BUG_REPORT>>>/
@@ -597,7 +598,7 @@ export function ConsultConversation({
               className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:cursor-wait disabled:opacity-60"
             />
             <input ref={fileRef} type="file" multiple disabled={inputLocked} className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-            <div className="flex items-center justify-between px-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
@@ -607,7 +608,11 @@ export function ConsultConversation({
               >
                 <Paperclip className="size-3.5" /> 附件
               </button>
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+                <ConsultVoiceActions key={consultId} chat={chat}
+                  disabled={!sessionReady || archiving || startupPending || dispatching || uploading > 0}
+                  draftPending={Boolean(text.trim() || atts.length)}
+                  onText={value => setText(previous => previous ? `${previous}\n${value}` : value)} />
                 {sessionReady
                   && (conversationState.phase === 'dispatching' || conversationState.phase === 'running')
                   && (
