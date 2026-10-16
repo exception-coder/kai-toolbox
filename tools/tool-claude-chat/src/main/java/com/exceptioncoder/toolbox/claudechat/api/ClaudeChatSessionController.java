@@ -96,7 +96,7 @@ public class ClaudeChatSessionController {
         long afterPlans = System.nanoTime();
         List<ClaudeChatSessionView> result = all.stream()
                 .map(s -> ClaudeChatSessionView.from(s, service.isLive(s.getId()),
-                        transcriptAware(s) && missing.contains(s.getSdkSessionId()), planStates.get(s.getId()),
+                        transcriptMissing(s, missing), planStates.get(s.getId()),
                         codexDesktopSyncService.isImportedSession(s) ? "codex" : null))
                 .toList();
         long finished = System.nanoTime();
@@ -120,6 +120,12 @@ public class ClaudeChatSessionController {
     private boolean transcriptAware(ClaudeChatSession s) {
         String engine = s.getEngine() == null ? "claude" : s.getEngine();
         return TRANSCRIPT_AWARE_ENGINES.contains(engine);
+    }
+
+    /** SDK身份尚未建立的会话没有可判定丢失的记录；与历史索引使用相同的ID规范化。 */
+    private boolean transcriptMissing(ClaudeChatSession session, Set<String> missing) {
+        String sdkId = session.getSdkSessionId();
+        return transcriptAware(session) && sdkId != null && !sdkId.isBlank() && missing.contains(sdkId.trim());
     }
 
     @DeleteMapping("/{id}")

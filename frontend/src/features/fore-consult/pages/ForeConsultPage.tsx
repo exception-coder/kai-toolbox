@@ -783,7 +783,7 @@ export function ForeConsultPage() {
   })
   const history = historyQuery.data
   const initialSessionStateError = !initialSessionStateResolved
-    ? historyQuery.error ?? devSessionsQuery.error
+    ? historyQuery.error
     : null
   const { data: bugs } = useQuery({
     queryKey: ['fore-consult-bugs'],
@@ -1206,16 +1206,13 @@ export function ForeConsultPage() {
     setConversationOpen(true)
   }, [chat.sessionId, chat.switchTo, devSessionsQuery.data, displayName, setActiveDevSessionBinding])
 
-  // 冷启动必须等待两份服务端状态都返回；随后自动恢复最近一条待归档咨询。
+  // 咨询历史决定是否恢复原会话；运行列表只提供提示，最终发送权限由原会话ready和实时状态校正。
   useEffect(() => {
     if (
       initialSessionStateResolved
       || historyQuery.isPending
       || historyQuery.isFetching
-      || devSessionsQuery.isPending
-      || devSessionsQuery.isFetching
       || historyQuery.isError
-      || devSessionsQuery.isError
     ) return
     const pending = (history ?? []).find((session) =>
       session.archiveStatus === 'PENDING' && !!session.devSessionId,
@@ -1223,9 +1220,6 @@ export function ForeConsultPage() {
     if (pending) resumeConsult(pending)
     setInitialSessionStateResolved(true)
   }, [
-    devSessionsQuery.isError,
-    devSessionsQuery.isFetching,
-    devSessionsQuery.isPending,
     history,
     historyQuery.isError,
     historyQuery.isFetching,
@@ -1397,7 +1391,7 @@ export function ForeConsultPage() {
     && selectedAuthMatchesPolicy && !!consultModel && !startMutation.isPending && !modelPolicyLoading
     && initialSessionStateResolved && !attachmentChecking
   const retryInitialSessionState = () => {
-    void Promise.all([historyQuery.refetch(), devSessionsQuery.refetch()])
+    void historyQuery.refetch()
   }
   const PanelIcon = iconForSystem(system, displayName(system))
   const deferredHistoryUser = useDeferredValue(historyUser)
@@ -1555,7 +1549,7 @@ export function ForeConsultPage() {
         >
           {initialSessionStateError ? (
             <>
-              <span>会话状态加载失败，为避免重复提问已锁定输入</span>
+              <span>咨询记录加载失败，为避免重复提问已暂时锁定输入</span>
               <button
                 type="button"
                 onClick={retryInitialSessionState}

@@ -124,7 +124,8 @@ public class ConsultController {
                 sessions.stream().map(session -> session.getUserId()).toList());
         return sessions.stream()
                 .map(session -> ConsultSessionView.summary(
-                        session, creatorNames.get(session.getUserId()), turnCounts.getOrDefault(session.getSessionId(), 0)))
+                        session, session.getUserId() == null ? null : creatorNames.get(session.getUserId()),
+                        turnCounts.getOrDefault(session.getSessionId(), 0)))
                 .toList();
     }
 

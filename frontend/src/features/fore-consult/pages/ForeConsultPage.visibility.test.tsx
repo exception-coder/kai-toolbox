@@ -66,7 +66,7 @@ it('only renders marked systems after discovery and leaves new roots unselected 
   vi.mocked(listSystemPrefs).mockResolvedValue([...preferences, {
     systemName: 'new-root-project', systemSourcePath: 'D:/new-root/new-root-project', alias: null, visible: true, sortOrder: 3,
   }])
-  fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存系统显示' }))
   await waitFor(() => expect(saveSystemPrefs).toHaveBeenCalledOnce())
   const saved = vi.mocked(saveSystemPrefs).mock.calls[0][0]
   expect(saved.find(item => item.systemName === 'erp')).toMatchObject({ alias: 'ERP', visible: true })
