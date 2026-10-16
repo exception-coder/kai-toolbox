@@ -62,7 +62,21 @@ class ConsultAttachmentPolicyTest {
             AuthContext.clear();
             mvc.perform(post("/api/fore-consult/attachments/sessions/runtime/read").contentType("application/json").content("{\"path\":\"file.html\"}")).andExpect(status().isForbidden());
             mvc.perform(post("/api/fore-consult/attachments/sessions/runtime/read").header("X-Consult-Resource-Token",access.issue("runtime")).contentType("application/json").content("{\"path\":\"file.html\"}")).andExpect(status().isOk());
-            verify(reader).read("runtime","file.html",52428800,0,12000);
+            verify(reader).readContent("runtime",52428800,
+                    new SessionAttachmentReader.Request("file.html", null, null, null, null, null));
+            var workbookRequest = new SessionAttachmentReader.Request("stock.xlsx", null, null, "款号库存", 501, 100);
+            when(reader.readContent("runtime", 52428800, workbookRequest)).thenReturn(
+                    new SessionAttachmentReader.WorkbookPage("workbook", "stock.xlsx", 2000,
+                            List.of(new SessionAttachmentReader.SheetInfo("款号库存", "visible")),
+                            "款号库存", 2219, 501, 601, false, List.of(), "不执行公式"));
+            mvc.perform(post("/api/fore-consult/attachments/sessions/runtime/read")
+                    .header("X-Consult-Resource-Token",access.issue("runtime"))
+                    .contentType("application/json")
+                    .content("{\"path\":\"stock.xlsx\",\"sheet\":\"款号库存\",\"startRow\":501,\"maxRows\":100}"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.kind").value("workbook"))
+                    .andExpect(jsonPath("$.nextRow").value(601));
+            verify(reader).readContent("runtime",52428800,
+                    new SessionAttachmentReader.Request("stock.xlsx", null, null, "款号库存", 501, 100));
         } finally { AuthContext.clear(); }
     }
 }

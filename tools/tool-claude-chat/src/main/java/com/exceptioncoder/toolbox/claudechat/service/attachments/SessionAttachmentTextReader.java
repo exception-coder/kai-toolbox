@@ -13,8 +13,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Set;
+import com.exceptioncoder.toolbox.claudechat.service.attachments.xlsx.XlsxAttachmentReader;
 
-/** 只读取附件元数据登记且真实路径位于本会话目录的文本，不执行HTML脚本。 */
+/** 只读取元数据登记且真实路径位于本会话目录的附件，不执行HTML或Office内容。 */
 @Service
 public class SessionAttachmentTextReader implements SessionAttachmentReader {
     private static final Set<String> TEXT_EXTENSIONS = Set.of("html", "htm", "txt", "md", "csv", "tsv", "json", "xml", "log", "sql", "yaml", "yml");
@@ -30,6 +31,34 @@ public class SessionAttachmentTextReader implements SessionAttachmentReader {
         if (requestedPath == null || requestedPath.isBlank() || offset < 0 || maxChars < 1 || maxChars > 50000) {
             throw new IllegalArgumentException("附件路径不能为空，起点须非负，单次读取须为1至50000字符");
         }
+        Path target = storedPath(sessionId, requestedPath, maxBytes);
+        long size = Files.size(target);
+        String name = target.getFileName().toString();
+        String extension = name.substring(name.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
+        if (!TEXT_EXTENSIONS.contains(extension)) {
+            throw new IllegalArgumentException("此格式不能按文本读取：XLSX请列出工作表后按sheet读取；"
+                    + "图片使用图片输入；旧XLS、Word/PDF请转存XLSX或文本后重新上传，不是文件写入权限问题");
+        }
+        try {
+            return page(target, size, offset, maxChars, StandardCharsets.UTF_8);
+        } catch (CharacterCodingException exception) {
+            return page(target, size, offset, maxChars, Charset.forName("GB18030"));
+        }
+    }
+
+    @Override
+    public Content readContent(String sessionId, long maxBytes, Request request) throws IOException {
+        Path target = storedPath(sessionId, request.path(), maxBytes);
+        if (target.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".xlsx")) {
+            return XlsxAttachmentReader.read(target, request);
+        }
+        return SessionAttachmentReader.super.readContent(sessionId, maxBytes, request);
+    }
+
+    private Path storedPath(String sessionId, String requestedPath, long maxBytes) throws IOException {
+        if (requestedPath == null || requestedPath.isBlank() || maxBytes < 1) {
+            throw new IllegalArgumentException("附件路径与读取上限无效");
+        }
         String cwd = sessions.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("会话不存在")).getCwd();
         Path root = Path.of(cwd, ".kai-chat-attachments", sessionId).toAbsolutePath().normalize().toRealPath();
         Path requested = Path.of(requestedPath);
@@ -40,14 +69,7 @@ public class SessionAttachmentTextReader implements SessionAttachmentReader {
         }
         long size = Files.size(target);
         if (size > maxBytes) throw new IllegalArgumentException("附件超过管理员配置的读取上限：" + maxBytes / 1024 / 1024 + " MiB，请联系管理员在业务咨询配置中调整");
-        String name = target.getFileName().toString();
-        String extension = name.substring(name.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
-        if (!TEXT_EXTENSIONS.contains(extension)) throw new IllegalArgumentException("本工具只分段读取文本与HTML；Office/PDF请使用对应文档解析能力，图片使用图片输入，不能按文本猜测内容");
-        try {
-            return page(target, size, offset, maxChars, StandardCharsets.UTF_8);
-        } catch (CharacterCodingException exception) {
-            return page(target, size, offset, maxChars, Charset.forName("GB18030"));
-        }
+        return target;
     }
 
     private Page page(Path target, long size, int offset, int maxChars, Charset charset) throws IOException {

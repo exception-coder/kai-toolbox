@@ -43,7 +43,12 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
                             snapshot.map(value -> workflowService.render(request, value).prompt())
                                     .orElse("【受控文档生成】" + ConsultDocumentPolicy.INSTRUCTIONS)
                                     + "\n【数据库访问边界】" + ConsultDatabasePolicy.INSTRUCTIONS
-                                    + "\n【上传附件】文本或HTML附件使用read_consult_attachment分段读取，用nextOffset继续；超过2MB不等于不可读，读取上限由管理员动态配置。禁止改用source_read绕过附件身份。HTML脚本/内嵌图片不代表已解析数据，未解析部分必须明确说明。",
+                                    + "\n【上传附件】使用read_consult_attachment：文本/HTML用nextOffset字符分页；"
+                                    + "XLSX先仅传path列出工作表，再用sheet原名、startRow/maxRows读取，以nextRow继续直至complete，"
+                                    + "不能把文本offset当行号。保留款号前导零、颜色与订单文本；缺失坐标为空而非零。"
+                                    + "公式仅表达式和保存的缓存值，未重新计算。读取上限由管理员动态配置，超过2MB不等于不可读。"
+                                    + "禁止改用source_read或终端绕过附件身份和安全限制。图片走视觉输入；"
+                                    + "HTML脚本/内嵌图片不代表已解析数据。解析失败说明具体原因及转存/重新上传路径，不误报写入权限。",
                             resourceAccess == null ? null : resourceAccess.issue(runtimeSessionId));
                 });
     }

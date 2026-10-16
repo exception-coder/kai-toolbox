@@ -11,9 +11,10 @@ try {
     maxStackSizeBytes: 256 * 1024,
     shouldInterrupt: shouldInterruptAfterDeadline(Date.now() + 1500),
   })
-  if (typeof result !== 'string' || result.length > 300_000) throw new Error('脚本必须返回不超过30万字符的文档对象')
+  if (typeof result !== 'string' || result.length > 1_000_000) throw new Error('脚本必须返回有界文档对象，最多100万字符')
   const document: unknown = JSON.parse(result)
   if (!document || typeof document !== 'object' || Array.isArray(document)) throw new Error('脚本须返回文档对象')
+  if ((document as { format?: string }).format !== 'xlsx' && result.length > 300_000) throw new Error('非Excel文档最多30万字符')
   parentPort?.postMessage({ document })
 } catch (cause) {
   const message = cause && typeof cause === 'object' && 'message' in cause

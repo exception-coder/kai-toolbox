@@ -21,14 +21,14 @@ it('shows published database selection and links to the original record; invalid
   expect(await screen.findByText('ERP · 测试Oracle')).toBeInTheDocument()
   expect(screen.getByText(/已发布流程选用 · 允许查询/)).toBeInTheDocument()
   expect(screen.getByRole('link', { name: '查看 / 修改此连接 ↗' })).toHaveAttribute('href', expect.stringContaining('editDatasource=ds-test'))
-  fireEvent.change(screen.getByLabelText('文本附件读取上限'), { target: { value: '101' } })
+  fireEvent.change(screen.getByLabelText('附件读取上限'), { target: { value: '101' } })
   expect(screen.getByRole('button', { name: '保存附件限制' })).toBeDisabled()
   expect(saveConsultAttachmentPolicy).not.toHaveBeenCalled()
 })
 
 it('keeps the draft after save failure and allows a successful retry', async () => {
   vi.mocked(saveConsultAttachmentPolicy).mockRejectedValueOnce(new Error('网络暂不可用')).mockResolvedValue({ ...policy, readMaxMb: 60, effectiveReadBytes: 60 * 1024 * 1024 })
-  mount(); const read = await screen.findByLabelText('文本附件读取上限')
+  mount(); const read = await screen.findByLabelText('附件读取上限')
   fireEvent.change(read, { target: { value: '60' } })
   fireEvent.click(screen.getByRole('button', { name: '保存附件限制' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('原配置未更改')

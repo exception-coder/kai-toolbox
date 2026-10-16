@@ -30,6 +30,9 @@ import static org.springframework.http.HttpStatus.*;
 @Service
 public class ConsultDocumentService {
     private static final int MAX_CONTENT_CHARS = 300_000;
+    private static final int MAX_EXCEL_CONTENT_CHARS = 1_000_000;
+    private static final int MAX_EXCEL_ROWS = 5000;
+    private static final int MAX_EXCEL_CELLS = 100_000;
     private static final long MAX_FILE_BYTES = 10L * 1024 * 1024;
     private static final long MAX_SESSION_BYTES = 250L * 1024 * 1024;
     private static final long MAX_TOTAL_BYTES = 2L * 1024 * 1024 * 1024;
@@ -224,8 +227,12 @@ public class ConsultDocumentService {
     }
 
     private ConsultDocumentRequest validate(JsonNode content) throws IOException {
-        if (content == null || !content.isObject() || content.toString().length() > MAX_CONTENT_CHARS) {
-            throw new IllegalArgumentException("文档内容须为对象且不超过 30 万字符");
+        if (content == null || !content.isObject()) {
+            throw new IllegalArgumentException("文档内容须为对象");
+        }
+        int limit = "xlsx".equals(content.path("format").asText()) ? MAX_EXCEL_CONTENT_CHARS : MAX_CONTENT_CHARS;
+        if (content.toString().length() > limit) {
+            throw new IllegalArgumentException("文档内容超过" + limit / 10000 + "万字符，请拆分生成");
         }
         ConsultDocumentRequest document;
         try {
@@ -280,7 +287,7 @@ public class ConsultDocumentService {
                     }
                     count(sheet.columns(), 1, 40);
                     sheet.columns().forEach(value -> text(value, 120, false));
-                    count(sheet.rows(), 0, 2000);
+                    count(sheet.rows(), 0, MAX_EXCEL_ROWS);
                     cells += (sheet.rows().size() + 1) * sheet.columns().size();
                     for (var row : sheet.rows()) {
                         if (row.size() != sheet.columns().size()) {
@@ -300,8 +307,8 @@ public class ConsultDocumentService {
                         }
                     }
                 }
-                if (cells > 10_000) {
-                    throw new IllegalArgumentException("Excel 总单元格不得超过 10000，请拆分导出");
+                if (cells > MAX_EXCEL_CELLS) {
+                    throw new IllegalArgumentException("Excel 总单元格不得超过100000（含表头），请拆分导出");
                 }
             }
             case "pptx" -> {

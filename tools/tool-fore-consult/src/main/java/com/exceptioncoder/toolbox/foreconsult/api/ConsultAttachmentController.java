@@ -32,16 +32,14 @@ public class ConsultAttachmentController {
     }
 
     @PostMapping("/sessions/{runtimeId}/read")
-    public SessionAttachmentReader.Page read(@PathVariable String runtimeId, @RequestBody ReadRequest request,
+    public SessionAttachmentReader.Content read(@PathVariable String runtimeId,
+            @RequestBody SessionAttachmentReader.Request request,
             @RequestHeader(value = "X-Consult-Resource-Token", required = false) String token) throws IOException {
         access.require(runtimeId, token);
         if (sessions.findByDevSessionId(runtimeId).isEmpty()) throw new IllegalArgumentException("未关联咨询会话");
-        return reader.read(runtimeId, request.path(), policy.get().effectiveReadBytes(),
-                request.offset() == null ? 0 : request.offset(), request.maxChars() == null ? 12000 : request.maxChars());
+        return reader.readContent(runtimeId, policy.get().effectiveReadBytes(), request);
     }
 
     /** 全局附件大小策略。 */
     public record PolicyRequest(int uploadMaxMb, int readMaxMb) { }
-    /** 原附件路径及有界字符分页，不接受调用者指定上限或根目录。 */
-    public record ReadRequest(String path, Integer offset, Integer maxChars) { }
 }

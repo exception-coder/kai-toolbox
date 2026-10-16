@@ -105,6 +105,8 @@ flowchart LR
 
 执行器、权限与存储的唯一整体边界见[AI编程架构](../../docs/ai-coding-architecture.md)，详细契约和当前验收状态见[文档创作设计](../../openspec/changes/consult-model-document-design/design.md)与[任务记录](../../openspec/changes/consult-model-document-design/tasks.md)。代码通过检查不代表运行版本已加载；真实模型生成下载仍需重启授权后的验收。
 
+咨询附件读取使用同一个`read_consult_attachment`：文本/HTML按`offset/nextOffset`字符分页，XLSX先列出工作表，再按`sheet/startRow/maxRows`及`nextRow`继续。空值保留稀疏坐标，公式只返回保存缓存，不计算或刷新外链；大小、解压和解析规模超限不能通过终端绕过。旧XLS、Word/PDF需另存支持格式，图片沿用视觉输入。Excel导出每表最多5000数据行、40列，总计100000单元格（含表头）及1000000字符；原鉴权下载和受控目录不变。详情及未部署验收见[附件读取任务](../../openspec/changes/consult-xlsx-attachment/tasks.md)。
+
 ## Graphify 常驻查询
 
 `readonlyMcp` 会随 Agent 会话创建和退出，不能承载大图缓存。Graphify 因此由 Sidecar 主进程托管：

@@ -36,3 +36,10 @@ test('rejects oversized code, output and non-object results', async () => {
   await assert.rejects(executeDocumentDesign("return {x:'a'.repeat(300001)}", {}), /30万/)
   await assert.rejects(executeDocumentDesign('return 1', {}), /文档对象/)
 })
+
+test('Excel design output supports inventory exports without lifting other format limits', async () => {
+  const result = await executeDocumentDesign("return {format:'xlsx',title:'库存',sheets:[{name:'库存',columns:['备注'],rows:Array.from({length:2218},()=>['说明'.repeat(80)])}]}", {})
+  assert.equal((result.sheets as any[])[0].rows.length, 2218)
+  assert.ok(JSON.stringify(result).length > 300000)
+  await assert.rejects(executeDocumentDesign("return {format:'xlsx',x:'a'.repeat(1000001)}", {}), /100万/)
+})

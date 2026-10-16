@@ -28,6 +28,9 @@ class SessionAttachmentTextReaderTest {
         assertThat(first.text()).hasSize(123); assertThat(first.complete()).isFalse();
         var second = reader.read("s", html.toString(), 50L * 1024 * 1024, first.nextOffset(), 150);
         assertThat(second.offset()).isEqualTo(123); assertThat(second.text()).hasSize(150);
+        assertThat(reader.readContent("s", 50L * 1024 * 1024,
+                new com.exceptioncoder.toolbox.common.attachment.SessionAttachmentReader.Request(
+                        html.toString(), 123, 150, null, null, null))).isEqualTo(second);
         assertThatThrownBy(() -> reader.read("s", html.toString(), 1024, 0, 123)).hasMessageContaining("管理员配置");
         assertThatThrownBy(() -> reader.read("s", html.toString(), 50L * 1024 * 1024, 0, 50001)).isInstanceOf(IllegalArgumentException.class);
     }
@@ -45,6 +48,6 @@ class SessionAttachmentTextReaderTest {
         assertThatThrownBy(() -> reader.read("s", unknown.toString(), 9999, 0, 10)).hasMessageContaining("不属于");
         Path binary = root.resolve("data.xlsx"); Files.writeString(binary, "data");
         when(attachments.findStored("s", "data.xlsx")).thenReturn(Optional.of("att"));
-        assertThatThrownBy(() -> reader.read("s", binary.toString(), 9999, 0, 10)).hasMessageContaining("解析能力");
+        assertThatThrownBy(() -> reader.read("s", binary.toString(), 9999, 0, 10)).hasMessageContaining("按sheet读取");
     }
 }

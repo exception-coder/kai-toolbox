@@ -26,14 +26,14 @@ export function ConsultAdminSettings() {
       {limits.isPending && <p role="status">正在读取附件配置…</p>}
       {limits.isError && <p role="alert">附件配置读取失败，暂不可修改。<button className="min-h-11 underline" onClick={() => void limits.refetch()}>重试</button></p>}
       {values && <form onSubmit={event => { event.preventDefault(); if (!invalid) save.mutate(values) }} className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">{([['uploadMaxMb', '单文件上传上限'], ['readMaxMb', '文本附件读取上限']] as const).map(([key, label]) =>
+        <div className="grid grid-cols-2 gap-3">{([['uploadMaxMb', '单文件上传上限'], ['readMaxMb', '附件读取上限']] as const).map(([key, label]) =>
           <label key={key} className="min-w-0 space-y-2 text-xs"><span className="block">{label}（MiB）</span>
             <input aria-label={label} type="number" min="1" max={key === 'readMaxMb' ? values.uploadMaxMb : Math.min(200, (limits.data?.transportMaxBytes ?? 0) / 1024 / 1024)} step="1"
               disabled={save.isPending || !limits.isSuccess} value={Number.isNaN(values[key]) ? '' : values[key]}
               onChange={event => { setDraft({ uploadMaxMb: values.uploadMaxMb, readMaxMb: values.readMaxMb, [key]: event.target.valueAsNumber }); save.reset() }}
               className="min-h-11 w-full rounded-md border bg-background px-3 text-sm" />
           </label>)}</div>
-        <p className="text-xs leading-5 text-muted-foreground">当前生效：上传 {(limits.data?.effectiveUploadBytes ?? 0) / 1024 / 1024} MiB；读取 {(limits.data?.effectiveReadBytes ?? 0) / 1024 / 1024} MiB。部署传输上限 {(limits.data?.transportMaxBytes ?? 0) / 1024 / 1024} MiB，每条最多10个附件。图片输入仍受模型限制；文本/HTML分段读取不等于执行网页或完整解析Office。</p>
+        <p className="text-xs leading-5 text-muted-foreground">当前生效：上传 {(limits.data?.effectiveUploadBytes ?? 0) / 1024 / 1024} MiB；读取 {(limits.data?.effectiveReadBytes ?? 0) / 1024 / 1024} MiB。部署传输上限 {(limits.data?.transportMaxBytes ?? 0) / 1024 / 1024} MiB，每条最多10个附件。文本/HTML分段读取；XLSX按工作表分页，另受解压和表格规模限制。图片输入仍受模型限制，旧XLS、Word/PDF需转存支持格式。</p>
         {draft && invalid && <p role="alert" className="text-xs text-destructive">请填写1至200的整数，读取不超过上传，上传不超过部署上限。</p>}
         {save.isError && <p role="alert" className="text-xs text-destructive">{save.error.message}；原配置未更改，请重试。</p>}
         {save.isSuccess && <p role="status" className="text-xs">附件限制已保存并生效。</p>}

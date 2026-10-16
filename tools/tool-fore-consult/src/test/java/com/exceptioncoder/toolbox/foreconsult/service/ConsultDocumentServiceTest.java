@@ -64,6 +64,35 @@ class ConsultDocumentServiceTest {
         }
     }
 
+    @Test void exports2218InventoryRowsWithOrderIdsAndRejectsCellQuotaOverflow() throws Exception {
+        var content = mapper.createObjectNode().put("format", "xlsx").put("title", "库存订单匹配");
+        var sheet = content.putArray("sheets").addObject().put("name", "款号库存");
+        var columns = sheet.putArray("columns");
+        for (String name : java.util.List.of("款号", "颜色", "库存", "订单号", "下单日期", "部门", "匹配状态", "备注")) {
+            columns.add(name);
+        }
+        var rows = sheet.putArray("rows");
+        for (int index = 0; index < 2218; index++) {
+            var row = rows.addArray();
+            row.add("00123").add("深蓝").add(9).add("001234567890123456789")
+                    .add("2026-10-15").add("广东外贸部").add("未验证的示例").add("");
+        }
+        var file = documents.create("runtime-a", content);
+        try (var book = new XSSFWorkbook(new ByteArrayInputStream(documents.download("consult-a", file.id()).content()))) {
+            assertThat(book.getSheetAt(0).getLastRowNum()).isEqualTo(2218);
+            assertThat(book.getSheetAt(0).getRow(2218).getCell(3).getStringCellValue())
+                    .isEqualTo("001234567890123456789");
+        }
+        columns.removeAll();
+        for (int index = 0; index < 40; index++) { columns.add("字段" + index); }
+        rows.removeAll();
+        for (int index = 0; index < 2500; index++) {
+            var row = rows.addArray();
+            for (int col = 0; col < 40; col++) { row.add(1); }
+        }
+        assertThatThrownBy(() -> documents.create("runtime-a", content)).hasMessageContaining("100000");
+    }
+
     @Test void powerpointContainsEditableSlidesWithBoundedCanvas() throws Exception {
         var file = documents.create("runtime-a", mapper.readTree("""
                 {"format":"pptx","title":"采购汇报","slides":[{"title":"本周进展","bullets":["确认19项口径","下一步：业务复核"]},

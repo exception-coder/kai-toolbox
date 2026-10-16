@@ -11,7 +11,8 @@ export async function callConsultDocumentTool(name: string, args: Record<string,
   if (name === 'preview_consult_document') return preview(args.documentId, args.page, context)
   const document = name === 'design_consult_document' ? await executeDocumentDesign(args.script, args.data) : args
   const body = JSON.stringify(document)
-  if (body.length > 300_000) return text('文档内容超过30万字符，请拆分生成', true)
+  const maxChars = document.format === 'xlsx' ? 1_000_000 : 300_000
+  if (body.length > maxChars) return text(`文档内容超过${maxChars / 10000}万字符，请拆分生成`, true)
   const response = await fetch(`${context.apiBase}/api/fore-consult/document-tools/sessions/${encodeURIComponent(context.session)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Consult-Resource-Token': context.token },
     body, signal: AbortSignal.timeout(60_000),
