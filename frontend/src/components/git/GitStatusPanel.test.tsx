@@ -22,6 +22,55 @@ function show(data: GitStatusResponse) {
 }
 
 describe('pending changes ignore filter', () => {
+  it('expands the same diff without reloading and restores the window before Escape closes it', async () => {
+    const fetchStatus = vi.fn().mockResolvedValue(response)
+    const fetchFileDiff = vi.fn().mockResolvedValue({ truncated: false,
+      diff: '--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1 +1 @@\n-old\n+new\n' })
+    const onClose = vi.fn()
+    const onParentClick = vi.fn()
+    render(<div onClick={onParentClick}><GitStatusPanel title="repo" fetchStatus={fetchStatus}
+      fetchFileDiff={fetchFileDiff} onClose={onClose} /></div>)
+    fireEvent.click(await screen.findByText('main.ts'))
+    await screen.findByText('old')
+    const oldLine = screen.getByText('old')
+    const pane = oldLine.closest('.overflow-auto')!
+    pane.scrollLeft = 160
+    pane.scrollTop = 88
+    fireEvent.click(screen.getByRole('button', { name: '全屏查看' }))
+    expect(screen.getByRole('dialog')).toHaveClass('inset-0', 'h-dvh')
+    expect(screen.getByRole('button', { name: '还原窗口' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('old')).toBe(oldLine)
+    expect(pane.scrollLeft).toBe(160)
+    expect(pane.scrollTop).toBe(88)
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '全屏查看' })).toBeInTheDocument()
+    expect(screen.getByText('old')).toBe(oldLine)
+    expect(fetchFileDiff).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: '返回文件列表' }))
+    expect(screen.getByText('main.ts')).toBeInTheDocument()
+    expect(fetchStatus).toHaveBeenCalledOnce()
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(onParentClick).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('restores the triggering control after closing the modal (menu origin: %s)', async menuOrigin => {
+    const trigger = document.createElement('button')
+    const menuItem = document.createElement('button')
+    document.body.append(trigger)
+    if (menuOrigin) document.body.append(menuItem)
+    ;(menuOrigin ? menuItem : trigger).focus()
+    const view = render(<GitStatusPanel title="repo" fetchStatus={async () => response}
+      fetchFileDiff={vi.fn()} onClose={vi.fn()} restoreFocus={menuOrigin ? () => trigger.focus() : undefined} />)
+    await screen.findByText('main.ts')
+    menuItem.remove()
+    expect(screen.getByRole('dialog')).toContainElement(document.activeElement as HTMLElement)
+    view.unmount()
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+    trigger.remove()
+  })
+
   it('filters and restores the same Git result with synchronized counts and no new request', async () => {
     const { fetchStatus, fetchFileDiff } = show(response)
     const checkbox = screen.getByRole('checkbox', { name: '隐藏 Git 忽略项' })

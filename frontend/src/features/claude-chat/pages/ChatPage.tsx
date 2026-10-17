@@ -2027,6 +2027,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
           fetchRepos={() => listSessionGitRepos(chat.sessionId!)}
           fetchStatus={repo => fetchSessionGitStatus(chat.sessionId!, repo)}
           fetchFileDiff={(filePath, x, repo) => fetchSessionGitFileDiff(chat.sessionId!, filePath, x, repo)}
+          restoreFocus={() => sessionToolsTriggerRef.current?.focus()}
           onClose={() => setShowGitStatus(false)}
         />
         </Suspense>

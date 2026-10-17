@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ChevronRight, File, Folder, RefreshCw, X } from 'lucide-react'
+import { ChevronRight, File, Folder, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { GitFileDiffResponse, GitRepoRef, GitStatusEntry, GitStatusResponse } from './types'
 import { SideBySideDiff } from './SideBySideDiff'
+import { GitStatusDialog } from './GitStatusDialog'
 
 interface Props {
   title: string
@@ -12,6 +13,7 @@ interface Props {
   /** 列出会话目录下可查看的 Git 仓库；多仓库时显示切换入口。 */
   fetchRepos?: () => Promise<GitRepoRef[]>
   onClose: () => void
+  restoreFocus?: () => void
 }
 
 // ── 状态码语义 ────────────────────────────────────────────────────────────────
@@ -147,7 +149,7 @@ function TreeRow({
 
 // ── 主组件 ────────────────────────────────────────────────────────────────────
 
-export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, onClose }: Props) {
+export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, onClose, restoreFocus }: Props) {
   const [repos, setRepos] = useState<GitRepoRef[] | null>(null)
   const [activeRepo, setActiveRepo] = useState<string | undefined>(undefined)
   const [data, setData] = useState<GitStatusResponse | null>(null)
@@ -253,66 +255,9 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
   }, [data, entries])
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-16"
-      onClick={e => { e.stopPropagation(); onClose() }}
-    >
-      <div
-        className={cn(
-          'flex flex-col overflow-hidden rounded-xl border bg-[var(--color-card)] shadow-2xl',
-          showingDiff
-            // diff 视图：用固定 h-[]（而非 max-h-[]）撑出确定高度。
-            // 原因：只给 max-height 时，容器自身高度是"content-auto、被 max-height 封顶"，
-            // 当内容自然高度还没超过 85vh（比如只有二三十行差异）时 max-height 根本不会触发钳制，
-            // 子级 flex-1/h-full 链条就拿不到一个"确定"的高度基准，
-            // 导致内部 overflow-auto 面板既不裁剪也不出滚动条——多出来的行只是被外层
-            // fixed 视口边缘悄悄裁掉，观感上就是"滚动条消失了"。
-            // 固定 h-[85vh] 让高度在所有内容量下都是确定值，flex-1/h-full 链路能可靠地
-            // 逐级传递下去，双栏 overflow-auto 才能正常出滚动条。
-            ? 'h-[85vh] w-full max-w-5xl'   // diff 视图用更宽的面板
-            : 'max-h-[75vh] w-full max-w-lg',
-        )}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* 标题栏 */}
-        <div className="flex items-center gap-2 border-b px-4 py-3">
-          {showingDiff && (
-            <button
-              type="button"
-              onClick={closeDiff}
-              className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
-              aria-label="返回文件列表"
-            >
-              <ArrowLeft className="size-3.5" />
-            </button>
-          )}
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-            {showingDiff
-              ? <><span className="text-[var(--color-muted-foreground)]">待提交文件 · </span>{diffEntry?.path ?? ''}</>
-              : `待提交文件 · ${title}`}
-          </span>
-          {!showingDiff && (
-            <button
-              type="button"
-              onClick={() => load(activeRepo)}
-              disabled={loading}
-              className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
-              title="刷新"
-              aria-label="刷新"
-            >
-              <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
-            aria-label="关闭"
-          >
-            <X className="size-3.5" />
-          </button>
-        </div>
-
+    <GitStatusDialog title={`待提交文件 · ${showingDiff ? diffEntry.path : title}`}
+      showingDiff={showingDiff} loading={loading} onBack={closeDiff}
+      onRefresh={() => load(activeRepo)} onClose={onClose} restoreFocus={restoreFocus}>
         {repos && repos.length > 1 && !showingDiff && (
           <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
             {repos.map(repo => (
@@ -406,7 +351,6 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
             </div>
           </>
         )}
-      </div>
-    </div>
+    </GitStatusDialog>
   )
 }
