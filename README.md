@@ -46,6 +46,8 @@ node forge.mjs stop
 
 已有 Task 可使用 `task start / status / restart / stop`。环境检查用 `node forge.mjs doctor`，只启动前端用 `node forge.mjs start --scope frontend`。更多配置、独立调试、日志和旧监督器切换步骤见 [启动指南](scripts/STARTUP.md)。旧入口仅转发新 CLI；迁移时先退出旧监督器，避免端口冲突。
 
+已有本地登录快照时，首页先显示有权访问且未隐藏的功能导航，再加载完整工作台；菜单不等待业务模块和 API。入口仍由 FeatureManifest 生成，在 `frontend/` 执行 `npm run feature-catalog:generate` 同步权限目录和 HTML 导航，`npm run typecheck` 检查两者是否过期。主应用接管后继续同步权限与菜单偏好；首次登录或缓存不可用时仍需等待登录界面，加载超过十秒可选择重新加载。
+
 ## 首次配置
 
 ### 本机工具路径

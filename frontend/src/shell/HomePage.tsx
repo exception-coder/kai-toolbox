@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,19 +14,8 @@ export function HomePage() {
   // 按角色/权限码过滤首页入口卡片，再按「菜单配置」软隐藏过滤，与侧边栏一致。chrome（管理页）不进首页。
   const allowed = features.filter(f => !f.chrome && hasFeatureAccess(f, access))
   const visible = useVisibleFeatures(allowed)
-  const [showAll, setShowAll] = useState(false)
   const vibe = visible.find(f => f.id === 'claude-chat')
   const remaining = visible.filter(f => f.id !== 'claude-chat')
-
-  useEffect(() => {
-    const schedule = window.requestIdleCallback?.bind(window)
-    if (schedule) {
-      const id = schedule(() => setShowAll(true), { timeout: 1500 })
-      return () => window.cancelIdleCallback(id)
-    }
-    const id = window.setTimeout(() => setShowAll(true), 250)
-    return () => window.clearTimeout(id)
-  }, [])
 
   const first = vibe ? [vibe] : remaining.slice(0, 1)
   const later = vibe ? remaining : remaining.slice(1)
@@ -70,7 +58,7 @@ export function HomePage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {first.map(renderFeature)}
-          {showAll && later.map(renderFeature)}
+          {later.map(renderFeature)}
         </div>
       )}
     </div>

@@ -47,7 +47,7 @@ function toContext(ctx: AccessContext | string[]): AccessContext {
  * 超管恒 true → manifest.requiredPermission（Forge 权限码，命中或 ADMIN 放行）→ 存量角色表门禁。
  * 兼容旧调用（第二参传 roles 数组）。
  */
-export function hasFeatureAccess(feature: FeatureManifest, ctx: AccessContext | string[]): boolean {
+export function hasFeatureAccess(feature: Pick<FeatureManifest, 'id' | 'replacesMenus' | 'controlPermissions' | 'requiredPermission'>, ctx: AccessContext | string[]): boolean {
   const c = toContext(ctx)
   if (c.superAdmin) return true
   if (feature.replacesMenus?.some(id => c.permissionCodes.includes(`menu:${id}`))) return true

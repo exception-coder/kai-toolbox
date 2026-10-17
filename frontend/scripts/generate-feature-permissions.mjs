@@ -59,6 +59,30 @@ if (checkOnly) {
   console.log(`[feature-permissions] 已生成 ${path.relative(frontendDir, outputFile)}（${permissions.length} 个菜单权限）`)
 }
 
+await syncBootNavigation()
+
+async function syncBootNavigation() {
+  const { build } = await import('vite')
+  // One small inline bundle reuses access.ts and menuMigration.ts, without React or feature imports.
+  const result = await build({ configFile: false, root: frontendDir, publicDir: false, logLevel: 'error',
+    build: { write: false, emptyOutDir: false, lib: { entry: path.join(frontendDir, 'src/shell/bootNavigation.ts'), name: 'ForgeBootNavigation', formats: ['iife'] }, minify: 'esbuild' } })
+  const script = (Array.isArray(result) ? result[0] : result).output.find(item => item.type === 'chunk').code
+  const navigation = manifests.filter(item => !item.hidden && !item.chrome && item.layout !== 'showcase')
+    .map(item => ({ ...item, requiredPermission: item.requiredPermission ?? `menu:${item.id}` }))
+    .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.name.localeCompare(b.name))
+  const data = JSON.stringify(navigation).replace(/</g, '\\u003c')
+  const block = `<!-- forge:boot-navigation:start -->\n    <script id="boot-navigation-data" type="application/json">${data}</script>\n    <script>${script.replace(/<\/script/gi, '<\\/script')}</script>\n    <!-- forge:boot-navigation:end -->`
+  const file = path.join(frontendDir, 'index.html')
+  const html = fs.readFileSync(file, 'utf8')
+  const marker = /<!-- forge:boot-navigation:start -->[\s\S]*?<!-- forge:boot-navigation:end -->/
+  if (!marker.test(html)) throw new Error('[boot-navigation] index.html 缺少生成区标记')
+  const nextHtml = html.replace(marker, () => block)
+  if (html.replace(/\r\n/g, '\n') === nextHtml.replace(/\r\n/g, '\n')) return
+  if (checkOnly) throw new Error('[boot-navigation] 首页导航已过期，请运行 npm run feature-catalog:generate')
+  fs.writeFileSync(file, nextHtml, 'utf8')
+  console.log('[boot-navigation] 已从 FeatureManifest 生成首页即时导航')
+}
+
 function readManifest(file) {
   const sourceText = fs.readFileSync(file, 'utf8')
   const sourceFile = ts.createSourceFile(file, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
@@ -88,7 +112,32 @@ function readManifest(file) {
     layout: readString(object, 'layout', file, false),
     hidden: readBoolean(object, 'hidden', file),
     requiredPermission: readString(object, 'requiredPermission', file, false),
+    chrome: readBoolean(object, 'chrome', file),
+    defaultVisible: readBoolean(object, 'defaultVisible', file),
+    description: readString(object, 'description', file, false),
+    entry: readString(object, 'entry', file, false) ?? readFirstRoute(object, file),
+    replacesMenus: readLiteral(findProperty(object, 'replacesMenus')?.initializer, file),
+    controlPermissions: readLiteral(findProperty(object, 'controlPermissions')?.initializer, file),
   }
+}
+
+function readFirstRoute(object, file) {
+  const routes = findProperty(object, 'routes')?.initializer
+  if (!routes || !ts.isArrayLiteralExpression(routes) || !ts.isObjectLiteralExpression(routes.elements[0])) {
+    fail(file, 'routes 必须提供可静态解析的首个入口')
+  }
+  return readString(routes.elements[0], 'path', file, true)
+}
+
+function readLiteral(node, file) {
+  if (!node) return undefined
+  if (ts.isStringLiteral(node)) return node.text
+  if (ts.isArrayLiteralExpression(node)) return node.elements.map(item => readLiteral(item, file))
+  if (ts.isObjectLiteralExpression(node)) return Object.fromEntries(node.properties.map(property => {
+    if (!ts.isPropertyAssignment(property) || (!ts.isIdentifier(property.name) && !ts.isStringLiteral(property.name))) fail(file, '导航元数据必须为字面量')
+    return [property.name.text, readLiteral(property.initializer, file)]
+  }))
+  fail(file, '导航元数据必须为字符串、数组或对象字面量')
 }
 
 function findProperty(object, key) {

@@ -4,13 +4,20 @@
 
 ### Requirement: 快速显示可进入的高频模块
 
-Forge 首页加载时 SHALL 在已有登录权限快照允许时提供 Vibe Coding 快捷入口，并在 React 首页优先显示用户有权访问且未隐藏的 Vibe Coding 模块。
+Forge 首页加载时 SHALL 在已有登录权限快照允许时立即提供从 FeatureManifest 生成的分组菜单，不依赖主应用模块或 API；React 首页一次显示用户有权访问且未隐藏的全部功能，保留 Vibe Coding 优先位置。
 
 #### Scenario: 已授权用户打开首页
 
 - **WHEN** 用户带有有效的本地登录与 Vibe Coding 菜单权限快照打开首页
-- **THEN** 加载壳显示指向现有 Vibe Coding 路由的可聚焦链接
-- **AND** React 首页先显示 Vibe Coding，随后补齐其他可见菜单
+- **THEN** HTML 内联脚本显示指向现有功能路由的可聚焦链接，包含 Vibe Coding
+- **AND** 菜单遵循账号权限、chrome/hidden 标记、默认可见性及本地可见集和旧菜单迁移
+- **AND** React 首页不等待浏览器空闲再补齐其他可见菜单
+
+#### Scenario: 主应用加载缓慢
+
+- **WHEN** 主应用 JavaScript 尚未完成下载或执行
+- **THEN** 已生成的 HTML 菜单仍可导航且无需 API
+- **AND** 十秒未接管时提供重新加载入口，不取消正常加载
 
 #### Scenario: 无权限或快照不可用
 

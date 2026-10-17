@@ -31,6 +31,7 @@ const queryClient = new QueryClient({
 })
 
 function mountApp() {
+  document.documentElement.dataset.appMountMs = String(Math.round(performance.now()))
   const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
   if (navigation) reportVibeEntry('html_response', 'ok', null, true, navigation.responseEnd)
   reportVibeEntry('app_mount', 'ok', null, true)
