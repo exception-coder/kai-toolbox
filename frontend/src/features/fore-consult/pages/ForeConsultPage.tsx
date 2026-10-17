@@ -2274,7 +2274,7 @@ export function ForeConsultPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
-              <ConsultAdminSettings />
+              <ConsultAdminSettings sourcePath={systemPath} />
               <h3 className="mb-2 mt-6 text-sm font-semibold">系统别名与显示</h3>
               <p className="mb-3 text-xs text-muted-foreground">仅显示已标记的项目；新发现项目默认不显示，别名为空则用原名。</p>
               {configRows.length === 0 ? (

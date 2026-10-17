@@ -3,6 +3,13 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { usePermission } from '@/shell/permission'
 
 const Resources = lazy(() => import('./resources/SystemResourcesPage').then(module => ({ default: module.SystemResourcesPage })))
+const DatabaseBindings = lazy(() => import('./resources/DatabaseResourceBindings').then(module => ({ default: module.DatabaseResourceBindings })))
+
+export function DatabaseResourceBindings({ sourcePath }: { sourcePath?: string }) {
+  const allowed = usePermission('menu:ops')
+  if (!allowed) return <p role="status" className="text-xs">需要系统资源管理权限，才能编辑数据库连接与关联。</p>
+  return <Suspense fallback={<p role="status">正在读取数据库关联…</p>}><DatabaseBindings sourcePath={sourcePath} /></Suspense>
+}
 
 export function SystemResources() {
   const allowed = usePermission('menu:ops')

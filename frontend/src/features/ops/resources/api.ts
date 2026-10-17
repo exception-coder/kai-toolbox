@@ -8,7 +8,7 @@ export interface ResourceBinding {
   id: string; systemId: string; providerId: string; resourceId: string; purpose: string; enabled: boolean
 }
 export interface ResourceCatalog {
-  systems: { id: string; name: string }[]
+  systems: { id: string; name: string; sourcePath?: string | null }[]
   resources: { providerId: string; resource: ResourceDescriptor }[]
   bindings: ResourceBinding[]; unavailableProviders: string[]
 }

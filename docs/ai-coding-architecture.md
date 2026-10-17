@@ -366,7 +366,19 @@ flowchart LR
 
 普通开发会话只装配一个 `forge` MCP，并通过稳定的 `discover_resources`、`execute_resource` 动态发现和调用已绑定资源。新增系统、数据库或应用站点不增加 MCP 名称；服务端在每次执行时重新校验绑定、环境和能力。数据库只允许只读查询，应用调用只允许已配置同源的 LOCAL、DEV、TEST、UAT 目标并保留写操作审批语义。受限业务咨询仍使用自己的只读证据装配，不能借统一执行入口扩大权限。
 
-业务咨询的数据库只经`consult_resources / consult_resource_query`访问同一资源服务，授权选择来自已发布流程节点的`resourceBindingIds`，并冻结在原咨询中。系统按完整源码目录唯一关联Project Registry；未登记、绑定为空、跨系统、停用、非QUERY能力、PROD或未知环境一律拒绝，不扫描其他连接、不回退旧配置。跨系统证据路由只指导分析，不授予其他系统的数据库访问权。每次查询重新校验当前资源状态，连接修改影响后续查询，绑定停用立即撤销；流程选择发布仅对新咨询生效。查询结果包含资源绑定和实际环境，日志以绑定及系统标识关联原数据源查询历史，不记录凭据。配置入口统一为Agent管理的业务咨询流程节点，连接及系统绑定仍在系统资源管理。旧快照只兼容读取，不重新授予旧固定连接能力。
+业务咨询的数据库只经`consult_resources / consult_resource_query`访问同一资源服务，授权选择来自已发布流程节点的`resourceBindingIds`，并冻结在原咨询中。系统按完整源码目录唯一关联Project Registry；未登记、绑定为空、跨系统、停用、非QUERY能力、PROD或未知环境一律拒绝，不扫描其他连接、不回退旧配置。跨系统证据路由只指导分析，不授予其他系统的数据库访问权。每次查询重新校验当前资源状态，连接修改影响后续查询，绑定停用立即撤销；流程选择发布仅对新咨询生效。查询结果包含资源绑定和实际环境，日志以绑定及系统标识关联原数据源查询历史，不记录凭据。流程节点支持多个绑定；连接及系统关联仍由系统资源管理拥有，授权选择仍由Agent管理的业务咨询流程拥有。咨询配置抽屉通过这两个模块的公开组件就地编辑原连接、多个系统关联及流程选择，不增加配置副本；保留各自权限，选择变更清除旧评测结果，沿用候选评测与发布门禁。旧快照只兼容读取，不重新授予旧固定连接能力。
+
+```mermaid
+flowchart LR
+    Settings[咨询配置抽屉] --> Resources[系统资源公开编辑组件]
+    Resources --> Connections[原数据源与多个系统绑定]
+    Settings --> Workflow[Agent公开数据库选择组件]
+    Workflow --> Candidate[流程节点多选绑定 / 保存候选]
+    Candidate --> Evaluation[评测与发布门禁]
+    Evaluation --> NewConsult[新咨询冻结已发布选择]
+    NewConsult --> Scope[当前系统 / 当前绑定状态 / 非生产只读校验]
+    Connections --> Scope
+```
 
 咨询语音复用原咨询身份：录音转写经登录级`/api/fore-consult/stt`调用已有语音服务，结果只回填草稿；官方Codex实时语音经原consult WebSocket、SessionVoiceService及同一只读工具装配处理，不切换开发权限或数据库目标。音频连接的callId、所有者、心跳与恢复沿用原协议，挂断仅关闭音频，媒体离开页面必须释放；实际账号语音能力与部署验收见[咨询语音任务](../openspec/changes/consult-voice/tasks.md)。
 

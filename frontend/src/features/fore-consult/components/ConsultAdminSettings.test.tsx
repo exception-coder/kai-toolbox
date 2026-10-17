@@ -3,6 +3,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ConsultAdminSettings } from './ConsultAdminSettings'
 import { getConsultAttachmentPolicy, getConsultDatabaseConfiguration, saveConsultAttachmentPolicy } from '../consultAttachmentPolicy'
+import { DatabaseResourceBindings } from '@/features/ops/public-api'
+
+vi.mock('@/features/ops/public-api', () => ({ DatabaseResourceBindings: vi.fn(({ sourcePath }: { sourcePath?: string }) => <label>关联草稿<input defaultValue={sourcePath} /></label>) }))
+vi.mock('@/features/agent-management/public-api', () => ({ ConsultDatabaseSelection: () => <p>流程多库编辑器</p> }))
 
 vi.mock('../consultAttachmentPolicy', async original => ({ ...await original<typeof import('../consultAttachmentPolicy')>(),
   getConsultAttachmentPolicy: vi.fn(), getConsultDatabaseConfiguration: vi.fn(), saveConsultAttachmentPolicy: vi.fn() }))
@@ -14,7 +18,7 @@ beforeEach(() => {
   ] })
 })
 afterEach(() => { cleanup(); vi.resetAllMocks() })
-function mount() { render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><ConsultAdminSettings /></QueryClientProvider>) }
+function mount(sourcePath?: string) { render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><ConsultAdminSettings sourcePath={sourcePath} /></QueryClientProvider>) }
 
 it('shows published database selection and links to the original record; invalid limits cannot save', async () => {
   mount()
@@ -36,4 +40,20 @@ it('keeps the draft after save failure and allows a successful retry', async () 
   fireEvent.click(screen.getByRole('button', { name: '保存附件限制' }))
   await waitFor(() => expect(screen.getByText('附件限制已保存并生效。')).toBeInTheDocument())
   expect(saveConsultAttachmentPolicy).toHaveBeenLastCalledWith(expect.objectContaining({ uploadMaxMb: 100, readMaxMb: 60 }), expect.anything())
+})
+
+it('loads inline editors on demand with source context and preserves drafts when collapsed', async () => {
+  mount('D:/ERP')
+  await screen.findByText('ERP · 测试Oracle')
+  expect(DatabaseResourceBindings).not.toHaveBeenCalled()
+  const disclosure = screen.getByText('1. 管理系统关联与连接')
+  fireEvent.click(disclosure)
+  const draft = await screen.findByLabelText('关联草稿')
+  expect(draft).toHaveValue('D:/ERP')
+  fireEvent.change(draft, { target: { value: '保留当前修改' } })
+  fireEvent.click(disclosure)
+  fireEvent.click(disclosure)
+  expect(draft).toHaveValue('保留当前修改')
+  fireEvent.click(screen.getByText('2. 多选咨询数据库与发布'))
+  expect(await screen.findByText('流程多库编辑器')).toBeInTheDocument()
 })

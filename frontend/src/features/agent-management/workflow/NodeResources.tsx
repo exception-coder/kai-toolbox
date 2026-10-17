@@ -21,7 +21,7 @@ export function NodeResources({ node, onChange }: { node: ConsultWorkflowNode; o
   const missing = resources.data ? selected.filter(id => !resources.data.some(entry => entry.bindingId === id)) : []
   return <fieldset className="min-w-0 border-t border-slate-200 pt-5">
     <legend className="text-sm font-semibold">数据库资源</legend>
-    <p className="mt-2 text-xs leading-6 text-slate-600">这是业务咨询数据库的唯一选择入口。只使用属于当前系统、已绑定且环境为 LOCAL / DEV / TEST / UAT 的数据库；不会读取 ERP/SRM/SCM 旧独立连接。</p>
+    <p className="mt-2 text-xs leading-6 text-slate-600">支持多选，统一保存到咨询流程节点。只使用属于当前系统、已绑定且环境为 LOCAL / DEV / TEST / UAT 的数据库；不会读取 ERP/SRM/SCM 旧独立连接。</p>
     <div className="my-3 flex flex-wrap gap-4 text-xs">
       <a href="/tools/reqpool/resources?view=connections" target="_blank" rel="noreferrer" className="underline underline-offset-4">配置连接与系统绑定 ↗</a>
       <a href="/tools/project-workspace" target="_blank" rel="noreferrer" className="underline underline-offset-4">登记项目库系统 ↗</a>
