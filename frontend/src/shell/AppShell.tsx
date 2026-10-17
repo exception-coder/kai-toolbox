@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
+import { X } from 'lucide-react'
+import { Sheet, SheetClose, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { DeferredCommandPalette } from './DeferredCommandPalette'
@@ -15,6 +16,7 @@ import { MobileNavigationProvider } from './MobileNavigationContext'
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const mobileTrigger = useRef<HTMLElement | null>(null)
   const [unifiedTitleBarSlot, setUnifiedTitleBarSlot] = useState<HTMLDivElement | null>(null)
   const collapsedRef = useRef(collapsed)
   const collapsedBeforeConsultRef = useRef<boolean | null>(null)
@@ -27,7 +29,11 @@ export function AppShell() {
   const currentFeatureName = currentFeature?.name ?? (location.pathname === '/' ? '工作台' : undefined)
   const featureIntegratedTitleBar = windowControlsOverlayVisible && currentFeature?.id === 'claude-chat' && !shellless
   const featureIntegratedMobileHeader = ['claude-chat', 'fore-consult'].includes(currentFeature?.id ?? '') && !shellless
-  const openMobileNavigation = useCallback(() => setMobileOpen(true), [])
+  const openMobileNavigation = useCallback((event?: { currentTarget: EventTarget | null }) => {
+    mobileTrigger.current = event?.currentTarget instanceof HTMLElement ? event.currentTarget
+      : document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setMobileOpen(true)
+  }, [])
   const isConsultRoute =
     location.pathname === '/tools/fore-consult' ||
     location.pathname.startsWith('/tools/fore-consult/')
@@ -122,14 +128,22 @@ export function AppShell() {
           side="left"
           className="w-60 max-w-[80vw] p-0"
           style={windowControlsOverlayVisible ? { paddingTop: 'var(--window-titlebar-height)' } : undefined}
+          onCloseAutoFocus={event => { event.preventDefault(); if (mobileTrigger.current?.isConnected) mobileTrigger.current.focus() }}
           hideCloseButton
         >
           <SheetTitle className="sr-only">导航</SheetTitle>
           <Sidebar
             features={features}
+            onNavigate={() => setMobileOpen(false)}
             hideBrandHeader={windowControlsOverlayVisible}
             titleBarIntegrated={featureIntegratedTitleBar}
           />
+          <SheetClose asChild>
+            <button type="button" aria-label="关闭导航" className="absolute right-0.5 top-0.5 flex size-11 items-center justify-center rounded-md text-[var(--color-muted-foreground)] hover:bg-[var(--color-sidebar-accent)] focus-visible:outline-2 focus-visible:outline-[var(--color-ring)]"
+              style={windowControlsOverlayVisible ? { top: 'calc(var(--window-titlebar-height) + 2px)' } : undefined}>
+              <X className="size-4" />
+            </button>
+          </SheetClose>
         </SheetContent>
       </Sheet>
 

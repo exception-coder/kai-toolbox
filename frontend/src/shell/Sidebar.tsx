@@ -1,3 +1,4 @@
+import type { MouseEvent } from 'react'
 import { NavLink } from 'react-router-dom'
 import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -18,6 +19,7 @@ interface SidebarProps {
   onToggleCollapsed?: () => void
   hideBrandHeader?: boolean
   titleBarIntegrated?: boolean
+  onNavigate?: () => void
 }
 
 export function Sidebar({
@@ -26,6 +28,7 @@ export function Sidebar({
   onToggleCollapsed,
   hideBrandHeader = false,
   titleBarIntegrated = false,
+  onNavigate,
 }: SidebarProps) {
   const { brand } = useBrand()
   const { enabled: mock } = useMockMode()
@@ -35,6 +38,11 @@ export function Sidebar({
   // 再按「菜单配置」的软隐藏过滤：管理员勾掉的模块不显示入口（路由仍在，勾回来即时恢复）。
   const visible = useVisibleFeatures(allowed)
   const groups = groupFeatures(visible)
+  const onLinkClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    onNavigate?.()
+  }
+  const onSearch = () => { onNavigate?.(); openCommandPalette() }
 
   return (
     <aside
@@ -48,7 +56,7 @@ export function Sidebar({
         {hideBrandHeader ? (
           <button
             type="button"
-            onClick={openCommandPalette}
+            onClick={onSearch}
             title="搜索与跳转（Ctrl / ⌘ + K）"
             className={cn(
               'mx-2 flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-[var(--color-muted-foreground)] hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-foreground)]',
@@ -67,6 +75,7 @@ export function Sidebar({
           <>
             <NavLink
               to="/explore"
+              onClick={onLinkClick}
               aria-label={`${brand.appName} 产品介绍`}
               className={cn(
                 'flex min-w-0 flex-1 self-stretch items-center gap-2 px-4 hover:bg-[var(--color-sidebar-accent)]',
@@ -104,7 +113,7 @@ export function Sidebar({
         {(!hideBrandHeader || titleBarIntegrated) && (
           <button
             type="button"
-            onClick={openCommandPalette}
+            onClick={onSearch}
             title="搜索与跳转（Ctrl / ⌘ + K）"
             className={cn(
               'mb-3 flex w-full items-center gap-2.5 rounded-md border border-[var(--color-sidebar-border)] bg-[var(--color-background)]/60 px-2.5 py-[var(--density-nav-padding)] text-sm text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-sidebar-accent)]',
@@ -139,6 +148,7 @@ export function Sidebar({
                   <li key={f.id}>
                     <NavLink
                       to={entryOf(f)}
+                      onClick={onLinkClick}
                       title={f.name}
                       className={({ isActive }) =>
                         cn(
