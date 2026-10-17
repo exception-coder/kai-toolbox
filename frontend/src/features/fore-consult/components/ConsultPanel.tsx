@@ -8,13 +8,14 @@ const PANEL_GAP = 24
 const MIN_WIDTH = 360
 
 /** 咨询窗口在当前工作区内调宽，内容不因展开或还原而重新挂载。 */
-export function ConsultPanel({ side, initialWidth, className, children, onFiles, dropDisabled }: {
+export function ConsultPanel({ side, initialWidth, className, children, onFiles, dropDisabled, embedded = false }: {
   side: 'left' | 'right'
   initialWidth: number
   className: string
   children: (controls: ReactNode) => ReactNode
   onFiles?: (files: FileList) => void | Promise<void>
   dropDisabled?: boolean
+  embedded?: boolean
 }) {
   const id = useId()
   const panel = useRef<HTMLDivElement>(null)
@@ -41,11 +42,11 @@ export function ConsultPanel({ side, initialWidth, className, children, onFiles,
     {expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
   </button>
   return <ConsultFileDropZone ref={panel} onFiles={onFiles} dropDisabled={dropDisabled}
-    id={id} className={`fc-resizable-panel ${className}`} data-side={side}
+    id={id} className={embedded ? 'fc-embedded-panel' : `fc-resizable-panel ${className}`} data-side={side}
     data-expanded={expanded || undefined} style={{ '--fc-panel-width': `${shownWidth}px` } as CSSProperties}
     onClick={event => event.stopPropagation()}>
-    {children(controls)}
-    {!expanded && <div className="fc-panel-resizer" role="separator" tabIndex={0} aria-label="调整对话窗口宽度"
+    {children(embedded ? null : controls)}
+    {!embedded && !expanded && <div className="fc-panel-resizer" role="separator" tabIndex={0} aria-label="调整对话窗口宽度"
       aria-orientation="vertical" aria-controls={id} aria-valuemin={min} aria-valuemax={available}
       aria-valuenow={shownWidth} aria-valuetext={`${Math.round(shownWidth)} 像素`}
       title="拖拽调整宽度；左右方向键调节，Home / End 最小 / 最大，双击还原"

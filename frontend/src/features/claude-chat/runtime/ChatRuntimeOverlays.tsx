@@ -20,7 +20,7 @@ export function ChatRuntimeOverlays() {
   return (
     <>
       {chat && (showFloating || floatingStarted) && (
-        <div hidden={!showFloating}>
+        <div hidden={!showFloating} className={showFloating && pathname.startsWith('/tools/fore-consult') ? 'hidden lg:block' : undefined}>
           <ErrorBoundary label="floating-chat" compact>
             <Suspense fallback={null}><FloatingChatWindow initialCompact={floatingAtStartup} /></Suspense>
           </ErrorBoundary>

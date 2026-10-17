@@ -20,6 +20,7 @@ import { ConsultDocuments } from './ConsultDocuments'
 import { ConsultRoutingStatus } from './ConsultRoutingStatus'
 import { ConsultVoiceActions } from './ConsultVoiceActions'
 import { checkConsultFiles } from '../consultAttachmentPolicy'
+import { MobileConsultComposer } from './MobileConsultComposer'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
 const BUG_RE = /<<<BUG_REPORT>>>\s*([\s\S]*?)\s*<<<END_BUG_REPORT>>>/
@@ -65,6 +66,8 @@ interface Props {
   startupPending?: boolean
   startupError?: string | null
   onRetryStartup?: () => void
+  embedded?: boolean
+  onViewGraph?: () => void
 }
 
 /**
@@ -74,7 +77,7 @@ interface Props {
  */
 export function ConsultConversation({
   chat, consultId, questionTitle, systemLabel, roleLabel, onUploaded, onBugRegistered, onClose,
-  onArchive, onStartNew, archiving, startupPending = false, startupError, onRetryStartup, sourceRoutingEnabled = false,
+  onArchive, onStartNew, archiving, startupPending = false, startupError, onRetryStartup, sourceRoutingEnabled = false, embedded = false, onViewGraph,
 }: Props) {
   const [text, setText] = useState('')
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
@@ -450,14 +453,14 @@ export function ConsultConversation({
   }
 
   return (
-    <div className="fc-conversation-layer absolute inset-0 z-30" onClick={onClose}>
+    <div className={embedded ? 'fc-embedded-conversation' : 'fc-conversation-layer absolute inset-0 z-30'} onClick={embedded ? undefined : onClose}>
       <ConsultPanel side="left" initialWidth={520} className="fc-console" onFiles={handleFiles}
-        dropDisabled={!sessionReady || archiving || startupPending}>
+        dropDisabled={!sessionReady || archiving || startupPending} embedded={embedded}>
         {sizeControls => <>
         <div className="fc-console-scan" />
 
         {/* 头部 */}
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200/80 p-4">
+        <div className="fc-conversation-header flex shrink-0 items-center justify-between gap-3 border-b border-slate-200/80 p-4">
           <div className="flex min-w-0 items-center gap-2.5">
             <MessagesSquare className="size-4 shrink-0 text-sky-600" />
             <div className="min-w-0">
@@ -485,9 +488,9 @@ export function ConsultConversation({
               {archiving ? <Loader2 className="size-3 animate-spin" /> : <Archive className="size-3" />}
               {archiving ? '归档中…' : '结束归档'}
             </button>
-            <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="收起">
+            {!embedded && <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="收起">
               <X className="size-4" />
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -500,7 +503,8 @@ export function ConsultConversation({
         )}
 
         {/* 消息流 */}
-        <div ref={scrollRef} onScroll={handleMessageScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        <div ref={scrollRef} onScroll={handleMessageScroll} className="fc-message-stream min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+          {embedded && onViewGraph && <button type="button" onClick={onViewGraph} className="min-h-11 text-xs text-slate-600">咨询上下文：{systemLabel} · 查看图谱 →</button>}
           {historyPagingEnabled && chat.historyLoading && items.length > 0 && (
             <div className="flex items-center justify-center gap-1.5 py-1 text-[11px] text-slate-400">
               <Loader2 className="size-3 animate-spin" /> 正在加载更早消息…
@@ -577,7 +581,14 @@ export function ConsultConversation({
         </div>
 
         {/* 组合器 */}
-        <div className="shrink-0 border-t border-slate-200/80 p-3">
+        {embedded ? <MobileConsultComposer value={text} onChange={setText} attachments={atts}
+          onFiles={handleFiles} onRemove={removeAtt} onPaste={onPaste} onSend={() => void send()} canSend={canSend}
+          disabled={!sessionReady || archiving || startupPending} attachmentsDisabled={!sessionReady || atts.length + uploading >= MAX_ATT}
+          busy={sendLocked} notice={attachmentError || (uploading ? '附件上传中…' : sendLocked ? '正在回答，可先准备下一条问题' : null)}
+          modelLabel={chat.currentModel ?? '当前咨询模型'}
+          voice={<ConsultVoiceActions key={consultId} chat={chat} disabled={!sessionReady || archiving || startupPending || dispatching || uploading > 0} draftPending={Boolean(text.trim() || atts.length)} onText={value => setText(previous => previous ? `${previous}\n${value}` : value)} />}
+          interrupt={sessionReady && running ? <button type="button" aria-label="中断当前回答" onClick={interruptGeneration}><Square className="size-4" /></button> : undefined}
+        /> : <div className="shrink-0 border-t border-slate-200/80 p-3">
           <div className="rounded-2xl border border-slate-200 bg-white/65 p-2 shadow-[0_10px_28px_-24px_rgba(15,23,42,0.3)] transition-colors focus-within:border-sky-300 focus-within:bg-white/85 focus-within:shadow-[0_0_0_3px_rgba(56,189,248,0.1)]">
             {(atts.length > 0 || uploading > 0) && (
               <div className="mb-1.5 flex max-h-20 flex-wrap gap-2 overflow-y-auto px-1">
@@ -659,6 +670,7 @@ export function ConsultConversation({
           </div>
         </div>
 
+        }
         {badDialog !== null && (
           <BadFeedbackDialog onCancel={() => setBadDialog(null)} onSubmit={(c, r, co) => submitBad(badDialog, c, r, co)} />
         )}

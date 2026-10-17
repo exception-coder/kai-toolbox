@@ -26,7 +26,7 @@ export function AppShell() {
   const currentFeature = featureAtPath(location.pathname)
   const currentFeatureName = currentFeature?.name ?? (location.pathname === '/' ? '工作台' : undefined)
   const featureIntegratedTitleBar = windowControlsOverlayVisible && currentFeature?.id === 'claude-chat' && !shellless
-  const featureIntegratedMobileHeader = currentFeature?.id === 'claude-chat' && !shellless
+  const featureIntegratedMobileHeader = ['claude-chat', 'fore-consult'].includes(currentFeature?.id ?? '') && !shellless
   const openMobileNavigation = useCallback(() => setMobileOpen(true), [])
   const isConsultRoute =
     location.pathname === '/tools/fore-consult' ||

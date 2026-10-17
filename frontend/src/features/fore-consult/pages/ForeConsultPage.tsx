@@ -5,7 +5,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowDown, ArrowUp, BarChart3, Boxes, BrainCircuit, Briefcase, Bug, ChevronDown, Contact, Copy, Eye, EyeOff, Factory, Handshake,
-  FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, MousePointerClick, Pin,
+  FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, MousePointerClick, Pin, Menu, MoreHorizontal,
   Paperclip, Pencil, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal,
   Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
 } from 'lucide-react'
@@ -27,6 +27,9 @@ import {
 } from '@/features/claude-chat/public-api'
 import { ConsultConversation } from '../components/ConsultConversation'
 import { ConsultUpgradeNotice } from '../components/ConsultUpgradeNotice'
+import { MobileConsultComposer } from '../components/MobileConsultComposer'
+import { useConsultLayout } from '../useConsultLayout'
+import { useMobileNavigation } from '@/shell/MobileNavigationContext'
 import { ConsultVoiceActions } from '../components/ConsultVoiceActions'
 import { ConsultFileDropZone } from '../components/ConsultFileDropZone'
 import { ConsultAdminSettings } from '../components/ConsultAdminSettings'
@@ -493,6 +496,11 @@ export function ForeConsultPage() {
   const confirm = useConfirm()
   const prompt = usePrompt()
   const { user } = useAuth()
+  const { compact, phone } = useConsultLayout()
+  const openMobileNavigation = useMobileNavigation()
+  const [mobileView, setMobileView] = useState<'consult' | 'graph'>('consult')
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false)
+  const mobileToolsTrigger = useRef<HTMLButtonElement>(null)
   const [upgradeNotesOpen, setUpgradeNotesOpen] = useState(false)
   const upgradeNotesTrigger = useRef<HTMLButtonElement>(null)
   const isAdmin = !!user?.roles?.includes('ADMIN')
@@ -577,6 +585,7 @@ export function ForeConsultPage() {
     dispatching: boolean
   } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const graphRef = useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 1600, height: 900 })
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState === 'visible')
   const dragRef = useRef<{ name: string; startX: number; startY: number; dragging: boolean } | null>(null)
@@ -596,7 +605,7 @@ export function ForeConsultPage() {
   }, [])
 
   useEffect(() => {
-    const container = containerRef.current
+    const container = graphRef.current
     if (!container) return
     const updateSize = () => {
       const rect = container.getBoundingClientRect()
@@ -819,6 +828,7 @@ export function ForeConsultPage() {
     setModulePickerOpen(false)
     setPanelOpen(false)
     setConversationOpen(true)
+    setMobileView('consult')
     // 会话 id 异步产生，关联 + 分组交给下方 effect 监听 chat.sessionId 处理（比 setTimeout 读 null 可靠）。
   }, [chat, setActiveDevSessionBinding])
 
@@ -1109,7 +1119,7 @@ export function ForeConsultPage() {
   // pointermove 合并到浏览器下一绘制帧，每帧最多触发一次 React 更新。
   const ORB_DRAG_THRESHOLD_PX = 6
   const toPct = (clientX: number, clientY: number): Pos | null => {
-    const rect = containerRef.current?.getBoundingClientRect()
+    const rect = graphRef.current?.getBoundingClientRect()
     if (!rect) return null
     return { x: clamp(((clientX - rect.left) / rect.width) * 100, 4, 96), y: clamp(((clientY - rect.top) / rect.height) * 100, 6, 92) }
   }
@@ -1194,6 +1204,7 @@ export function ForeConsultPage() {
 
   // 恢复待归档咨询：运行提示来自底层会话列表，WebSocket ready 与实时事件会继续校正。
   const resumeConsult = useCallback((s: ConsultSessionView) => {
+    setMobileView('consult')
     setSystem(s.systemName)
     setHasSourcePreference(false)
     setModuleTags(s.moduleNames)
@@ -1246,6 +1257,7 @@ export function ForeConsultPage() {
   }
 
   const openSystem = (name: string) => {
+    setMobileView('consult')
     dismissHint() // 点过星球即视为已学会，之后不再提示
     setSystem(name)
     setHasSourcePreference(true)
@@ -1454,6 +1466,69 @@ export function ForeConsultPage() {
     }
   }, [moduleOptions, moduleQuery, moduleTags, modulesExpanded])
 
+  const modelOptions = <>
+                <CodexSessionOptions
+                  models={consultCodexModels}
+                  model={consultModel}
+                  modelDisabled={!isAdmin}
+                  reasoningEffort={consultReasoningEffort}
+                  speed={consultSpeed}
+                  codexHome={consultCodexHome}
+                  codexHomes={codexHomes}
+                  codexHomesLoading={codexHomesLoading}
+                  showCodexHome
+                  advancedOptions={[{
+                    id: 'orchestrationVersion',
+                    label: '调度版本',
+                    value: orchestrationLabel(orchestrationVersion),
+                    icon: <Route className="size-4" />,
+                    options: ORCHESTRATION_OPTIONS,
+                    disabled: startMutation.isPending || !initialSessionStateResolved,
+                    onChange: value => setOrchestrationVersion(value as ConsultOrchestrationVersion),
+                  }]}
+                  disabled={startMutation.isPending || !initialSessionStateResolved}
+                  optionsDisabled={!isAdmin || startMutation.isPending || !initialSessionStateResolved}
+                  onModelChange={(value) => setConsultModel(value || null)}
+                  onOptionsChange={(effort, speed) => {
+                    setConsultReasoningEffort(effort)
+                    setConsultSpeed(speed)
+                  }}
+                  onCodexHomeChange={setConsultCodexHome}
+                />
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => saveDefaultModelMutation.mutate()}
+                    disabled={!consultModel || !consultCodexHome.trim() || saveDefaultModelMutation.isPending}
+                    className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-white/70 disabled:opacity-40"
+                    title="将当前模型和 Auth 目录保存为所有业务咨询的新会话默认配置"
+                  >
+                    <Save className="size-3.5" />
+                    {saveDefaultModelMutation.isPending ? '保存中…' : '设为业务默认'}
+                  </button>
+                )}
+                {!modelPolicyLoading && (!modelPolicy?.model || !modelPolicy?.codexHome) && (
+                  <span className="text-[11px] text-amber-700">
+                    管理员尚未完成业务咨询默认模型与 Auth 目录配置
+                  </span>
+                )}
+                {isAdmin && saveDefaultModelMutation.isSuccess && (
+                  <span className="text-[11px] text-emerald-700">
+                    业务默认已保存：{modelPolicy?.displayName ?? modelPolicy?.model} · {modelPolicy?.codexHome}
+                  </span>
+                )}
+                {isAdmin && configuredCodexHome && !selectedAuthMatchesPolicy && !saveDefaultModelMutation.isPending && (
+                  <span className="text-[11px] text-amber-700">Auth 目录尚未保存，保存后才能发起咨询</span>
+                )}
+                {isAdmin && saveDefaultModelMutation.isError && (
+                  <span className="text-[11px] text-red-600">
+                    {saveDefaultModelMutation.error instanceof Error
+                      ? saveDefaultModelMutation.error.message
+                      : '默认模型保存失败'}
+                  </span>
+                )}
+  </>
+
   return (
     <div
       ref={containerRef}
@@ -1462,9 +1537,29 @@ export function ForeConsultPage() {
         pageVisible && topoMutation.isPending && !conversationOpen ? 'is-topology-animating' : ''
       }`}
     >
-      {/* 顶部标题栏 */}
-      <header className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex flex-col items-stretch gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-6">
-        <div className="flex min-w-0 shrink-0 items-center gap-2.5">
+      {compact && <div className="fc-mobile-header">
+        <div className="fc-mobile-header-row">
+          {phone && openMobileNavigation && <button type="button" aria-label="打开导航" onClick={openMobileNavigation}><Menu className="size-5" /></button>}
+          <h1>业务咨询</h1>
+          <button type="button" ref={mobileToolsTrigger} aria-label="更多咨询功能" aria-expanded={mobileToolsOpen} onClick={() => setMobileToolsOpen(value => !value)}><MoreHorizontal className="size-5" /></button>
+        </div>
+        <div role="tablist" aria-label="咨询工作台视图" className="fc-mobile-tabs" onKeyDown={event => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+          event.preventDefault()
+          const next = event.key === 'Home' ? 'consult' : event.key === 'End' ? 'graph' : mobileView === 'consult' ? 'graph' : 'consult'
+          setMobileView(next); document.getElementById(next === 'consult' ? 'fc-consult-tab' : 'fc-graph-tab')?.focus()
+        }}>
+          <button type="button" role="tab" id="fc-consult-tab" tabIndex={mobileView === 'consult' ? 0 : -1} aria-selected={mobileView === 'consult'} aria-controls="fc-consult-view" onClick={() => setMobileView('consult')}>咨询</button>
+          <button type="button" role="tab" id="fc-graph-tab" tabIndex={mobileView === 'graph' ? 0 : -1} aria-selected={mobileView === 'graph'} aria-controls="fc-graph-view" onClick={() => setMobileView('graph')}>系统图谱</button>
+        </div>
+      </div>}
+      {compact && mobileToolsOpen && <button type="button" className="fc-mobile-tools-backdrop" aria-label="关闭更多功能" onClick={() => { setMobileToolsOpen(false); mobileToolsTrigger.current?.focus() }} />}
+      {/* 工具动作在手机更多菜单与桌面工具栏之间复用，不复制动作状态。 */}
+      <header hidden={compact && !mobileToolsOpen} className={compact ? 'fc-mobile-tools' : 'pointer-events-none absolute left-0 right-0 top-0 z-20 flex flex-col items-stretch gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-6'}
+        onClick={compact ? () => setMobileToolsOpen(false) : undefined}
+        onKeyDown={event => { if (compact && event.key === 'Escape') { setMobileToolsOpen(false); mobileToolsTrigger.current?.focus() } }}>
+        {compact && <button type="button" className="fc-mobile-tools-close" onClick={() => { setMobileToolsOpen(false); mobileToolsTrigger.current?.focus() }}>更多功能<X className="size-4" /></button>}
+        <div className="fc-header-title flex min-w-0 shrink-0 items-center gap-2.5">
           <Radar className="size-5 text-sky-600" />
           <div>
             <h1 className="text-base font-semibold tracking-wide text-slate-900">业务系统图谱</h1>
@@ -1597,7 +1692,7 @@ export function ForeConsultPage() {
 
       {/* 进行中横幅：对话面板打开时隐藏（面板 z-30 全屏遮罩会盖住本横幅 z-20，
           否则点这里的「结束并归档」会先被遮罩吃掉变成关闭对话，导致要点两次）。归档入口此时用面板头部的按钮。 */}
-      {activeConsultId && !conversationOpen && (
+      {!compact && activeConsultId && !conversationOpen && (
         <div
           className="absolute left-4 right-4 top-32 z-50 lg:left-1/2 lg:right-auto lg:top-14 lg:-translate-x-1/2 lg:p-3"
           onPointerDown={(event) => event.stopPropagation()}
@@ -1660,6 +1755,7 @@ export function ForeConsultPage() {
         </div>
       )}
 
+      <div ref={graphRef} id="fc-graph-view" role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-graph-tab' : undefined} className="fc-graph-surface absolute inset-0" hidden={phone && mobileView !== 'graph'}>
       {/* 中央 AI 恒星：Forge —— 业务系统围绕其运行 */}
       {visibleProjects.length > 0 && (
         <div className="fc-core-wrap">
@@ -1790,6 +1886,7 @@ export function ForeConsultPage() {
                 <button
                   type="button"
                   disabled={!initialSessionStateResolved}
+                  data-system-name={p.name}
                   onPointerDown={(e) => onOrbPointerDown(e, p.name)}
                   onPointerMove={onOrbPointerMove}
                   onPointerUp={() => onOrbPointerUp(p.name)}
@@ -1819,7 +1916,7 @@ export function ForeConsultPage() {
           role="group"
           aria-label="按业务域筛选系统"
           className={`fc-category-filter absolute left-4 right-20 z-20 flex snap-x snap-mandatory touch-pan-x flex-nowrap items-center justify-start gap-1 overflow-x-auto overscroll-x-contain rounded-xl border border-white/80 bg-white/70 px-1.5 py-1.5 shadow-[0_16px_36px_-26px_rgba(15,23,42,0.32)] backdrop-blur-xl transition-[bottom] duration-300 lg:left-1/2 lg:right-auto lg:max-w-[86%] lg:-translate-x-1/2 lg:flex-wrap lg:justify-center lg:rounded-full lg:bg-white/55 lg:py-1 ${
-          panelOpen ? 'bottom-[172px]' : 'bottom-4'
+          panelOpen && !compact ? 'bottom-[172px]' : 'bottom-4'
           }`}
         >
           <FilterChip label="全部" active={categoryFilter === null} onClick={() => setCategoryFilter(null)} />
@@ -1835,8 +1932,22 @@ export function ForeConsultPage() {
         </div>
       )}
 
-      {/* AI Mission Workspace：图谱是主舞台，咨询仅作为底部轻量入口。 */}
-      {panelOpen && (
+      </div>
+      {compact && !activeConsultId && <section id="fc-consult-view" role="tabpanel" aria-labelledby="fc-consult-tab" className="fc-mobile-consult-view" hidden={phone && mobileView !== 'consult'}>
+        <div className="fc-mobile-empty">
+          <div className="fc-mobile-welcome"><h2>从一个问题开始</h2><p>描述遇到的问题，或添加业务截图。Forge 会自动定位相关系统。</p>{hasSourcePreference && <p>优先探索：{displayName(system)}</p>}</div>
+          <MobileConsultComposer value={ask} onChange={setAsk} title={questionTitle} onTitleChange={setQuestionTitle}
+            attachments={attachments} onFiles={handleFiles} onRemove={removeAttachment} onPaste={handlePaste}
+            onSend={() => startMutation.mutate()} canSend={canStart} disabled={!initialSessionStateResolved}
+            attachmentsDisabled={!initialSessionStateResolved || attachments.length >= MAX_ATT || attachmentChecking}
+            notice={attachmentNotice || (startMutation.isError ? (startMutation.error instanceof Error ? startMutation.error.message : '创建咨询失败，请重试') : startMutation.isPending ? '正在创建咨询…' : null)} modelLabel={consultModel ?? modelPolicy?.model ?? '业务默认模型'}
+            voice={<ConsultVoiceActions disabled={!initialSessionStateResolved || startMutation.isPending} onText={value => setAsk(previous => previous ? `${previous}\n${value}` : value)} />}
+            options={modelOptions}
+          />
+        </div>
+      </section>}
+      {/* PC 维持原有首问工作区；手机使用独立输入布局、复用原状态和发送。 */}
+      {!compact && panelOpen && (
         <section
           className="fc-prompt-dock absolute bottom-5 left-1/2 z-40 w-[min(860px,calc(100%-32px))] -translate-x-1/2"
           style={{ ['--fc-hue' as string]: sysCat.color }}
@@ -2019,66 +2130,7 @@ export function ForeConsultPage() {
             <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
             <div className="flex flex-wrap items-center justify-between gap-3 px-1 pt-1">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                <CodexSessionOptions
-                  models={consultCodexModels}
-                  model={consultModel}
-                  modelDisabled={!isAdmin}
-                  reasoningEffort={consultReasoningEffort}
-                  speed={consultSpeed}
-                  codexHome={consultCodexHome}
-                  codexHomes={codexHomes}
-                  codexHomesLoading={codexHomesLoading}
-                  showCodexHome
-                  advancedOptions={[{
-                    id: 'orchestrationVersion',
-                    label: '调度版本',
-                    value: orchestrationLabel(orchestrationVersion),
-                    icon: <Route className="size-4" />,
-                    options: ORCHESTRATION_OPTIONS,
-                    disabled: startMutation.isPending || !initialSessionStateResolved,
-                    onChange: value => setOrchestrationVersion(value as ConsultOrchestrationVersion),
-                  }]}
-                  disabled={startMutation.isPending || !initialSessionStateResolved}
-                  optionsDisabled={!isAdmin || startMutation.isPending || !initialSessionStateResolved}
-                  onModelChange={(value) => setConsultModel(value || null)}
-                  onOptionsChange={(effort, speed) => {
-                    setConsultReasoningEffort(effort)
-                    setConsultSpeed(speed)
-                  }}
-                  onCodexHomeChange={setConsultCodexHome}
-                />
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => saveDefaultModelMutation.mutate()}
-                    disabled={!consultModel || !consultCodexHome.trim() || saveDefaultModelMutation.isPending}
-                    className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-600 hover:bg-white/70 disabled:opacity-40"
-                    title="将当前模型和 Auth 目录保存为所有业务咨询的新会话默认配置"
-                  >
-                    <Save className="size-3.5" />
-                    {saveDefaultModelMutation.isPending ? '保存中…' : '设为业务默认'}
-                  </button>
-                )}
-                {!modelPolicyLoading && (!modelPolicy?.model || !modelPolicy?.codexHome) && (
-                  <span className="text-[11px] text-amber-700">
-                    管理员尚未完成业务咨询默认模型与 Auth 目录配置
-                  </span>
-                )}
-                {isAdmin && saveDefaultModelMutation.isSuccess && (
-                  <span className="text-[11px] text-emerald-700">
-                    业务默认已保存：{modelPolicy?.displayName ?? modelPolicy?.model} · {modelPolicy?.codexHome}
-                  </span>
-                )}
-                {isAdmin && configuredCodexHome && !selectedAuthMatchesPolicy && !saveDefaultModelMutation.isPending && (
-                  <span className="text-[11px] text-amber-700">Auth 目录尚未保存，保存后才能发起咨询</span>
-                )}
-                {isAdmin && saveDefaultModelMutation.isError && (
-                  <span className="text-[11px] text-red-600">
-                    {saveDefaultModelMutation.error instanceof Error
-                      ? saveDefaultModelMutation.error.message
-                      : '默认模型保存失败'}
-                  </span>
-                )}
+                {modelOptions}
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
@@ -2112,8 +2164,11 @@ export function ForeConsultPage() {
       )}
 
       {/* 独立业务咨询会话面板（不用 Vibe Coding 悬浮窗，复用同一 WS 同步渲染） */}
-      {conversationOpen && activeConsultId && (
+      {(conversationOpen || compact) && activeConsultId && (
+        <div id={compact ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : undefined} hidden={phone && mobileView !== 'consult'}>
         <ConsultConversation
+          embedded={compact}
+          onViewGraph={() => { setMobileView('graph'); setCategoryFilter(null); requestAnimationFrame(() => { const node = Array.from(containerRef.current?.querySelectorAll<HTMLButtonElement>('[data-system-name]') ?? []).find(element => element.dataset.systemName === system); node?.focus({ preventScroll: true }) }) }}
           chat={chat}
           consultId={activeConsultId}
           sourceRoutingEnabled={Boolean(readConsultSourceRouting((history ?? []).find((session) => session.sessionId === activeConsultId)?.evidenceRouteSnapshot))}
@@ -2130,11 +2185,12 @@ export function ForeConsultPage() {
           startupError={pendingDispatchError}
           onRetryStartup={() => void dispatchPendingConsultMessage()}
         />
+        </div>
       )}
 
       {/* 历史抽屉 */}
       {historyOpen && (
-        <div className="fc-backdrop absolute inset-0 z-30 flex justify-end" onClick={() => setHistoryOpen(false)}>
+        <div className={`fc-backdrop absolute inset-0 flex justify-end ${compact ? 'z-[70]' : 'z-30'}`} onClick={() => setHistoryOpen(false)}>
           <div
             className="fc-panel h-full w-[min(400px,calc(100vw-2rem))] overflow-y-auto rounded-l-2xl p-5"
             onClick={(e) => e.stopPropagation()}

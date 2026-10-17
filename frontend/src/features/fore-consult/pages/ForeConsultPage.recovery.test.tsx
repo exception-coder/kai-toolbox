@@ -7,6 +7,8 @@ import type { ConsultSessionView } from '../api'
 const calls = vi.hoisted(() => ({
   history: vi.fn(), runtime: vi.fn(), switchTo: vi.fn(), start: vi.fn(),
 }))
+const viewport = vi.hoisted(() => ({ phone: false }))
+vi.mock('../useConsultLayout', () => ({ useConsultLayout: () => ({ phone: viewport.phone, compact: viewport.phone, layout: viewport.phone ? 'phone' : 'desktop' }) }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { roles: ['USER'] } }) }))
 vi.mock('@/components/ui/confirm-dialog', () => ({ useConfirm: () => vi.fn() }))
 vi.mock('@/components/ui/prompt-dialog', () => ({ usePrompt: () => vi.fn() }))
@@ -39,6 +41,7 @@ const pending: ConsultSessionView = {
 }
 
 beforeEach(() => {
+  viewport.phone = false
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   calls.history.mockReset().mockResolvedValue([])
   calls.runtime.mockReset().mockResolvedValue([])
@@ -129,4 +132,20 @@ it('does not trust a cached empty history while the fresh history request is sti
   await act(async () => resolve([pending]))
   expect(await screen.findByText('原咨询对话')).toBeVisible()
   expect(calls.switchTo).toHaveBeenCalledExactlyOnceWith('original-runtime', false)
+})
+
+it('preserves the mobile first-question draft while switching between consultation and graph', async () => {
+  viewport.phone = true
+  mount()
+  const edit = await screen.findByRole('button', { name: '编辑咨询' })
+  await waitFor(() => expect(edit).toBeEnabled())
+  fireEvent.click(edit)
+  fireEvent.change(await screen.findByRole('textbox', { name: '咨询问题描述' }), { target: { value: '检查手机订单日期' } })
+  fireEvent.click(screen.getByRole('button', { name: '完成' }))
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '编辑咨询' })).not.toBeInTheDocument())
+  fireEvent.click(screen.getByRole('tab', { name: '系统图谱' }))
+  expect(screen.queryByRole('button', { name: '编辑咨询' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: /^咨询$/ }))
+  expect(screen.getByRole('button', { name: '编辑咨询' })).toHaveTextContent('检查手机订单日期')
+  expect(calls.start).not.toHaveBeenCalled()
 })

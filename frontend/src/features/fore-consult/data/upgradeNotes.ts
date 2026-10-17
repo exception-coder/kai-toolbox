@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 重磅更新登记处。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-10-18-mobile-consult-workspace', date: '2026-10-18', title: '手机咨询更顺手',
+    summary: '新版前端默认进入咨询，可切换系统图谱；点输入区全屏编辑，附件折叠收纳。',
+  },
+  {
     id: '2026-10-18-screenshot-question', date: '2026-10-18', title: '截图即可提问',
     summary: '直接粘贴截图，Forge 自动定位相关系统。',
   },
