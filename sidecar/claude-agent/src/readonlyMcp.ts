@@ -27,7 +27,7 @@ const ERP_STANDBY_SCHEMA_PATH = resolveSchemaPath(process.env.ERP_STANDBY_SCHEMA
 const sourceTools = SOURCE_ROOT ? [
   {
     name: 'source_context',
-    description: '源码定位的首要入口：先定位 URL，再查询当前项目 Graphify 图谱并返回候选文件与调用链上下文；可带候选符号再次调用以反问图谱。任何源码搜索前必须先调用本工具。',
+    description: '源码定位的首要入口：有 URL 时优先定位路由，没有 URL 时直接使用业务问题和模块查询当前项目 Graphify 图谱，返回候选文件与调用链上下文；可带候选符号再次调用以反问图谱。任何源码搜索前必须先调用本工具。',
     inputSchema: {
       type: 'object',
       properties: {

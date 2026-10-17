@@ -32,6 +32,8 @@ class ConsultOrchestrationPipelineTest {
                         "environment-context", "evidence-retrieval", "candidate-reasons",
                         "answer-and-verification", "handoff-and-learning");
         assertThat(result.prompt())
+                .contains("URL 是可选定位线索，不是开始探索的前置条件")
+                .contains("菜单知识未命中不等于无法定位")
                 .contains("同一信息最多追问一次")
                 .contains("不知道/不会看/找不到")
                 .contains("当前未连接生产数据库和日志")

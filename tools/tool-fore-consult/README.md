@@ -72,7 +72,9 @@ flowchart LR
 5. Sidecar 为咨询会话固定注入领域知识与 `consult-readonly`，不开放任意 Shell 或文件写入。
 6. Agent 先查领域知识；需要实现证据时调用 `source_context`，再精确 `source_read`，最后才允许限定子目录 `source_search`。
 7. 根 Agent 最终回复、最新 `agentsStates`、工具闭合和根 `turn/completed` 共同确认后，Sidecar 才上报权威终态。
-8. Java 保存轮次、Trace 和结构化证据，前端解除输入门禁。
+8. Java 保存轮次、Trace 和结构化证据，前端解除发送门禁；输入区始终允许编辑追问草稿。
+
+URL 是可选定位线索。平台共用咨询规则要求先利用截图、页面文案、模块及业务标识查询知识与源码，菜单未命中仍继续图谱定位；确有无法消除的页面歧义或定位能力缺口时，再请用户提供地址并说明具体缺口。规则覆盖各编排版本、已发布流程和历史咨询的后续追问，不扩大工具或系统权限。当前实现及待运行验收见[自主定位任务](../../openspec/changes/consult-explore-before-url/tasks.md)。
 
 ## 状态与安全边界
 

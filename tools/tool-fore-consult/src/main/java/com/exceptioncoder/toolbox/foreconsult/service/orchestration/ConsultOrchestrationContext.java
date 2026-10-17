@@ -6,6 +6,18 @@ import java.util.List;
 /** Mutable prompt-building context shared only during one pipeline execution. */
 public final class ConsultOrchestrationContext {
 
+    private static final String EXPLORATION_RULES = """
+            以下定位与追问顺序适用于所有流程节点：URL 是可选定位线索，不是开始探索的前置条件。
+            用户未提供 URL 时，先利用所选系统、模块、截图中的页面标题、菜单、按钮、列名、提示及业务单号收敛问题。
+            先查询可用的菜单与业务知识；菜单知识未命中不等于无法定位，应继续调用 source_context，
+            使用问题描述和已知模块查询 Graphify，再对候选文件调用 source_read 核对页面、接口及字段取值条件。
+            发现新符号或关联后可带新上下文继续追踪；只有范围已收敛且图谱证据不足时，才在明确子目录内使用 source_search。
+            只有已探索可用证据仍无法区分候选页面、存在关键歧义，或所需定位工具不可用且现有线索不足时，才请求用户提供页面地址（URL）。
+            追问时简述已核对的线索和仍不能确认的具体问题，只索取会改变判断的最少信息；能自行查明的内容不要求用户代查。
+            不得仅因没有 URL 或菜单知识未命中就停止分析、直接要求用户补地址；也不得为避免追问而猜测唯一页面或具体单据根因。
+            仅使用本轮已装配且已授权的工具，不扩大系统、目录或数据源范围；不重复无效查询，证据充分即停止。
+            """;
+
     private final ConsultOrchestrationRequest request;
     private final List<PromptSection> sections = new ArrayList<>();
 
@@ -43,6 +55,7 @@ public final class ConsultOrchestrationContext {
                     .append(section.title()).append("】\n")
                     .append(section.content()).append('\n');
         }
+        prompt.append("\n【自主定位与必要追问】\n").append(EXPLORATION_RULES);
         return prompt.toString().strip();
     }
 

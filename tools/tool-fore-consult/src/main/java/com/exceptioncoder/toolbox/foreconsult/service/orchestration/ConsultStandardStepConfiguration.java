@@ -18,7 +18,7 @@ public class ConsultStandardStepConfiguration {
         return step("security-boundary", "只读安全边界", 100, ConsultStepAvailability.AVAILABLE, List.of(), context ->
                 context.addSection("只读安全边界", """
                         业务证据仅可读取或搜索源码、文档、知识图谱，并调用系统注入的只读工具。
-                        源码读取与检索是业务咨询的必备能力，但禁止无上下文全仓扫描。固定顺序为：识别 URL → URL 路由定位 → Graphify 代码图谱 → 业务知识 → 候选源码精确读取 → 限定子目录搜索兜底。
+                        源码读取与检索是业务咨询的必备能力，但禁止无上下文全仓扫描。有 URL 时优先路由定位；无 URL 时从业务线索与知识收敛模块，再通过 Graphify 定位候选源码、精确读取，最后限定子目录搜索兜底。
                         所有咨询引擎必须先调用 source_context；不得直接搜索或读取 graphify-out/cache，不得跳过图谱用多个宽泛关键词从源码根目录搜索。
                         每次从源码发现类名、方法名、SQL ID 或审批流程节点后，带新上下文再次调用 source_context 反问 Graphify，逐步收敛调用链，不退回全仓扫描。
                         禁止自行创建、编辑、删除或移动文件；禁止执行会改变 Git、依赖、配置、数据库或业务数据的操作。

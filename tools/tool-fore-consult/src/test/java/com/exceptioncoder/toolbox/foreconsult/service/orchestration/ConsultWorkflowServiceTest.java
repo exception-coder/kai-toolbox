@@ -23,7 +23,9 @@ class ConsultWorkflowServiceTest {
                 node("disabled", false, "不可出现的规则", List.of("scm_db_query"))));
         var rendered = service.render(new ConsultOrchestrationRequest("为什么失败", "SCM", "D:/scm", List.of(), "IT", true),
                 new ConsultWorkflowRepository.Snapshot(8L, changed));
-        assertThat(rendered.prompt()).contains("仅核验采购订单", "平台安全边界", "consult-workflow-8")
+        assertThat(rendered.prompt()).contains("仅核验采购订单", "平台安全边界", "consult-workflow-8",
+                        "URL 是可选定位线索，不是开始探索的前置条件", "菜单知识未命中不等于无法定位",
+                        "只有已探索可用证据仍无法区分候选页面", "不扩大系统、目录或数据源范围")
                 .doesNotContain("不可出现的规则");
         assertThat(changed.tools()).containsExactly("source_read");
         assertThat(rendered.steps()).hasSize(1);
