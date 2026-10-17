@@ -42,3 +42,19 @@ The system SHALL retain existing fixed ERP/SRM/SCM resource endpoints during mig
 #### Scenario: Start an ordinary development session
 - **WHEN** Forge prepares the session MCP configuration
 - **THEN** the session receives the Forge resource tools and does not receive fixed `erp_db`, `erp_app`, `srm_db`, `srm_app`, or `scm_db` servers
+
+### Requirement: Connection test feedback stays with its datasource
+
+The UI SHALL show progress and the final connection test result beside the relevant datasource row or editor action, rather than only below the full datasource list.
+
+#### Scenario: Test from the editor
+
+- **WHEN** an administrator tests an existing connection in its editor
+- **THEN** progress and success with elapsed time or failure with a reason appear beside the action, and another test cannot be started while one is pending
+- **AND** the request uses the saved datasource ID without saving form changes, as stated in the editor
+
+#### Scenario: Retry or switch datasource
+
+- **WHEN** the administrator retries a failed test or switches editors before a result arrives
+- **THEN** retry clears the previous feedback, and results remain associated with their original datasource ID
+- **AND** testing from a list row shows the result on that row without requiring scrolling to the list end

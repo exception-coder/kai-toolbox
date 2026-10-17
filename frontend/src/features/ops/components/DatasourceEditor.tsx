@@ -1,14 +1,17 @@
-import { Save, Trash2, Wifi } from 'lucide-react'
+import { LoaderCircle, Save, Trash2, Wifi } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { DatasourcePayload, DatasourceType } from '../types'
+import type { DatasourcePayload, DatasourceType, TestResult } from '../types'
 import { ENV_PRESETS, TYPE_DEFAULT_PORT, TYPE_META, TYPE_OPTIONS } from '../meta'
+import { ConnectionTestFeedback } from './ConnectionTestFeedback'
 
 interface Props {
   value: DatasourcePayload
   editing: boolean
   saving: boolean
   testing: boolean
+  testDisabled: boolean
+  testResult: TestResult | null
   onChange: (next: DatasourcePayload) => void
   onCancel: () => void
   onSave: () => void
@@ -18,7 +21,7 @@ interface Props {
 
 /** 中间件实例增删改 + 测试连接的内嵌编辑器。 */
 export function DatasourceEditor({
-  value, editing, saving, testing, onChange, onCancel, onSave, onTest, onDelete,
+  value, editing, saving, testing, testDisabled, testResult, onChange, onCancel, onSave, onTest, onDelete,
 }: Props) {
   const patch = (next: Partial<DatasourcePayload>) => onChange({ ...value, ...next })
   const dbLabel = dbNameLabel(value.type)
@@ -99,14 +102,14 @@ export function DatasourceEditor({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" onClick={onSave} disabled={saving}>
+        <Button type="button" size="sm" onClick={onSave} disabled={saving || testing}>
           <Save />
           保存
         </Button>
         {editing && onTest && (
-          <Button type="button" variant="outline" size="sm" onClick={onTest} disabled={testing}>
-            <Wifi />
-            测试连接
+          <Button type="button" variant="outline" size="sm" onClick={onTest} disabled={testDisabled || saving}>
+            {testing ? <LoaderCircle className="animate-spin motion-reduce:animate-none" /> : <Wifi />}
+            {testing ? '测试中…' : '测试连接'}
           </Button>
         )}
         <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
@@ -125,6 +128,12 @@ export function DatasourceEditor({
           </Button>
         )}
       </div>
+      {editing && onTest && (
+        <div>
+          <p className="text-xs text-muted-foreground">测试使用已保存的连接配置；修改后请先保存。</p>
+          <ConnectionTestFeedback testing={testing} result={testResult} />
+        </div>
+      )}
     </div>
   )
 }

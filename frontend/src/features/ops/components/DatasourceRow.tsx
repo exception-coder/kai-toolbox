@@ -1,22 +1,26 @@
 import { useState } from 'react'
-import { Check, Copy, Eye, EyeOff, Pencil, Wifi } from 'lucide-react'
+import { Check, Copy, Eye, EyeOff, LoaderCircle, Pencil, Wifi } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api'
 import { getDatasourceConnection } from '../api'
-import type { DatasourceView } from '../types'
+import type { DatasourceView, TestResult } from '../types'
 import { TYPE_META, envBadge } from '../meta'
+import { ConnectionTestFeedback } from './ConnectionTestFeedback'
 
 interface Props {
   d: DatasourceView
   selected: boolean
   testing: boolean
+  testDisabled: boolean
+  testResult: TestResult | null
+  showTestFeedback: boolean
   onOpen: () => void
   onTest: () => void
   onEdit: () => void
 }
 
 /** 单个中间件实例行：展示 + 测试/编辑 + 「眼睛」按需显示明文密码。 */
-export function DatasourceRow({ d, selected, testing, onOpen, onTest, onEdit }: Props) {
+export function DatasourceRow({ d, selected, testing, testDisabled, testResult, showTestFeedback, onOpen, onTest, onEdit }: Props) {
   const [show, setShow] = useState(false)
   const [pwd, setPwd] = useState<string | null | undefined>(undefined) // undefined=未取, null=无密码
   const [user, setUser] = useState<string | null>(null)
@@ -83,11 +87,11 @@ export function DatasourceRow({ d, selected, testing, onOpen, onTest, onEdit }: 
         )}
         <button
           className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] disabled:opacity-50"
-          title="测试连接"
+          title={testing ? '正在测试连接' : '测试连接'}
           onClick={onTest}
-          disabled={testing}
+          disabled={testDisabled}
         >
-          <Wifi className="size-3.5" />
+          {testing ? <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Wifi className="size-3.5" />}
         </button>
         <button
           className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
@@ -97,6 +101,8 @@ export function DatasourceRow({ d, selected, testing, onOpen, onTest, onEdit }: 
           <Pencil className="size-3.5" />
         </button>
       </div>
+
+      {showTestFeedback && <ConnectionTestFeedback testing={testing} result={testResult} />}
 
       {err && <div className="mt-1 text-[11px] text-[var(--color-destructive)]">读取失败：{err}</div>}
 

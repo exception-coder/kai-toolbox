@@ -91,7 +91,7 @@ export function OpsPage() {
   })
   const saveDs = useMutation({
     mutationFn: (p: DatasourcePayload) => (dsEditId ? updateDatasource(dsEditId, p) : createDatasource(p)),
-    onMutate: () => setError(null),
+    onMutate: () => { setError(null); setTest(null) },
     onSuccess: () => { closeDs(); invalidate() },
     onError: e => setError(msg(e)),
   })
@@ -102,7 +102,7 @@ export function OpsPage() {
   })
   const testDs = useMutation({
     mutationFn: testDatasource,
-    onMutate: () => setError(null),
+    onMutate: () => { setError(null); setTest(null) },
     onSuccess: (r, id) => setTest({ ...r, dsId: id }),
     onError: (e, id) => setTest({ ok: false, message: msg(e), elapsedMs: 0, dsId: id }),
   })
@@ -237,7 +237,10 @@ export function OpsPage() {
                               key={d.id}
                               d={d}
                               selected={selectedId === d.id}
-                              testing={testDs.isPending}
+                              testing={testDs.isPending && testDs.variables === d.id}
+                              testDisabled={testDs.isPending}
+                              testResult={test?.dsId === d.id ? test : null}
+                              showTestFeedback={!(dsOpen && dsEditId === d.id)}
                               onOpen={() => { if (d.queryable) { setSelectedId(d.id); setPanel('query') } }}
                               onTest={() => testDs.mutate(d.id)}
                               onEdit={() => startEditDs(d)}
@@ -250,19 +253,6 @@ export function OpsPage() {
                 </Card>
               )
             })
-          )}
-          {test && (
-            <div
-              className={cn(
-                'rounded-md border px-3 py-2 text-xs',
-                test.ok
-                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                  : 'border-[var(--color-destructive)]/50 bg-[var(--color-destructive)]/10 text-[var(--color-destructive)]',
-              )}
-            >
-              {test.ok ? '✓ 连接成功：' : '✗ 连接失败：'}{test.message}
-              {test.ok && ` · ${test.elapsedMs}ms`}
-            </div>
           )}
         </div>
 
@@ -277,7 +267,9 @@ export function OpsPage() {
                   value={dsForm}
                   editing={!!dsEditId}
                   saving={saveDs.isPending}
-                  testing={testDs.isPending}
+                  testing={testDs.isPending && testDs.variables === dsEditId}
+                  testDisabled={testDs.isPending}
+                  testResult={test?.dsId === dsEditId ? test : null}
                   onChange={setDsForm}
                   onCancel={closeDs}
                   onSave={() => saveDs.mutate(dsForm)}
