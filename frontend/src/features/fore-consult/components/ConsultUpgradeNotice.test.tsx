@@ -1,35 +1,65 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
-import { afterEach, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
 import { ConsultUpgradeNotice } from './ConsultUpgradeNotice'
 import { CONSULT_UPGRADE_NOTES } from '../data/upgradeNotes'
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks() })
 
-it('shows five upgrades directly without a trigger or dialog and preserves the question draft', () => {
-  render(<><textarea aria-label="提问草稿" defaultValue="还要核查另一条订单" /><ConsultUpgradeNotice /></>)
-  const note = screen.getByRole('complementary', { name: '近期重大升级' })
-  expect(within(note).getAllByRole('listitem')).toHaveLength(5)
-  expect(within(note).getByRole('heading', { name: '截图直接问' })).toBeVisible()
+it('shows one sentence by default and opens complete history without losing draft or focus', async () => {
+  render(<><textarea aria-label="提问草稿" defaultValue="继续核查订单" /><ConsultUpgradeNotice /></>)
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: '查看更新小纸条' })).not.toBeInTheDocument()
-  expect(screen.getByRole('textbox', { name: '提问草稿' })).toHaveValue('还要核查另一条订单')
+  const paper = screen.getByRole('complementary', { name: '近期升级纸签' })
+  expect(paper).toHaveTextContent('截图即可提问')
+  expect(paper).not.toHaveTextContent('2026-10-18')
+  expect(paper).not.toHaveTextContent('自动定位相关系统')
+  const trigger = screen.getByRole('button', { name: '查看近期升级详情' })
+  trigger.focus(); fireEvent.click(trigger)
+  const drawer = await screen.findByRole('dialog', { name: '近期升级' })
+  expect(within(drawer).getAllByRole('listitem')).toHaveLength(5)
+  expect(document.querySelector('[data-radix-dialog-overlay]')).toBeNull()
+  // 非模态：操作背景不会关闭详情或禁止继续编辑。
+  const draft = screen.getByRole('textbox', { name: '提问草稿' })
+  fireEvent.change(draft, { target: { value: '继续核查另一笔订单' } })
+  fireEvent.keyDown(drawer, { key: 'Escape' })
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  expect(draft).toHaveValue('继续核查另一笔订单')
+  await waitFor(() => expect(trigger).toHaveFocus())
 })
 
-it('shows only the five newest entries without deleting or reordering the registry', () => {
-  const notices = Array.from({ length: 7 }, (_, i) => ({
-    ...CONSULT_UPGRADE_NOTES[0], id: `note-${i}`, date: `2026-10-0${i + 1}`, title: `更新${i + 1}`,
-  }))
-  render(<ConsultUpgradeNotice notices={notices} />)
-  expect(screen.getAllByRole('listitem').map(item => within(item).getByRole('heading').textContent))
-    .toEqual(['更新7', '更新6', '更新5', '更新4', '更新3'])
-  expect(notices).toHaveLength(7)
+it('remembers dismissal per user, restores via toolbar and reappears for a new release', async () => {
+  const { unmount } = render(<ConsultUpgradeNotice userId={21} />)
+  fireEvent.click(screen.getByRole('button', { name: '收起升级纸签' }))
+  expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+  unmount()
+  const next = render(<ConsultUpgradeNotice userId={21} />)
+  expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+  next.rerender(<ConsultUpgradeNotice userId={22} />)
+  expect(screen.getByRole('complementary')).toBeVisible()
+  next.rerender(<ConsultUpgradeNotice userId={21} open />)
+  await screen.findByRole('dialog')
+  await waitFor(() => expect(screen.getByRole('complementary')).toBeVisible())
+  next.unmount()
+  render(<ConsultUpgradeNotice userId={21} />)
+  fireEvent.click(screen.getByRole('button', { name: '收起升级纸签' }))
+  cleanup()
+  render(<ConsultUpgradeNotice userId={21} notices={[{ ...CONSULT_UPGRADE_NOTES[0], id: 'new-release', date: '2026-10-19' }, ...CONSULT_UPGRADE_NOTES]} />)
+  expect(screen.getByRole('complementary')).toBeVisible()
+})
+
+it('retains all history and sorts newest first without mutating the source', async () => {
+  const notices = Array.from({ length: 7 }, (_, i) => ({ ...CONSULT_UPGRADE_NOTES[0], id: `note-${i}`, date: `2026-10-0${i + 1}`, title: `更新${i + 1}` }))
+  const { rerender } = render(<ConsultUpgradeNotice notices={notices} />)
+  fireEvent.click(screen.getByRole('button', { name: '查看近期升级详情' }))
+  expect((await screen.findAllByRole('listitem')).map(item => within(item).getByRole('heading').textContent))
+    .toEqual(['更新7', '更新6', '更新5', '更新4', '更新3', '更新2', '更新1'])
   expect(notices[0].id).toBe('note-0')
+  rerender(<ConsultUpgradeNotice notices={[]} />)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 })
 
-it('keeps the registration order on the same date and hides an empty note', () => {
-  const { rerender } = render(<ConsultUpgradeNotice notices={CONSULT_UPGRADE_NOTES.slice(0, 2)} />)
-  expect(screen.getAllByRole('listitem').map(item => within(item).getByRole('heading').textContent))
-    .toEqual(CONSULT_UPGRADE_NOTES.slice(0, 2).map(note => note.title))
-  rerender(<ConsultUpgradeNotice notices={[]} />)
+it('supports closing for this page when local storage is unavailable', () => {
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+  render(<ConsultUpgradeNotice />)
+  fireEvent.click(screen.getByRole('button', { name: '收起升级纸签' }))
   expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
 })

@@ -5,7 +5,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowDown, ArrowUp, BarChart3, Boxes, BrainCircuit, Briefcase, Bug, ChevronDown, Contact, Copy, Eye, EyeOff, Factory, Handshake,
-  FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, MousePointerClick,
+  FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, MousePointerClick, Pin,
   Paperclip, Pencil, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal,
   Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
 } from 'lucide-react'
@@ -493,6 +493,8 @@ export function ForeConsultPage() {
   const confirm = useConfirm()
   const prompt = usePrompt()
   const { user } = useAuth()
+  const [upgradeNotesOpen, setUpgradeNotesOpen] = useState(false)
+  const upgradeNotesTrigger = useRef<HTMLButtonElement>(null)
   const isAdmin = !!user?.roles?.includes('ADMIN')
   const chat = useClaudeChatSocket({ channel: 'consult' })
 
@@ -1522,6 +1524,10 @@ export function ForeConsultPage() {
             <History className="size-3.5" />
             历史咨询 {(history ?? []).length > 0 && `· ${(history ?? []).length}`}
           </button>
+          <button type="button" ref={upgradeNotesTrigger} onClick={() => setUpgradeNotesOpen(true)} aria-label="查看更新记录"
+            className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 hover:bg-white/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500 lg:rounded-full">
+            <Pin className="size-3.5" />更新
+          </button>
           <button
             type="button"
             onClick={() => setBugsOpen((o) => !o)}
@@ -1543,7 +1549,7 @@ export function ForeConsultPage() {
         </div>
       </header>
 
-      <ConsultUpgradeNotice />
+      <ConsultUpgradeNotice userId={user?.userId} open={upgradeNotesOpen} onOpenChange={setUpgradeNotesOpen} fallbackFocusRef={upgradeNotesTrigger} />
 
       {!initialSessionStateResolved && (
         <div
