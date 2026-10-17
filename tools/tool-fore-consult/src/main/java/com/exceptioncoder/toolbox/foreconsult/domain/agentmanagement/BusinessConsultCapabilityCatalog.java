@@ -12,7 +12,7 @@ public final class BusinessConsultCapabilityCatalog {
     private static final List<AgentCapability> CAPABILITIES = List.of(
             capability("mcp:consult-readonly", "consult-readonly", "MCP_SERVER", "v1", "业务咨询模块",
                     "提供业务咨询源码证据读取能力，不包含写操作。", "READ_ONLY", "LOW",
-                    List.of("tool:source_context", "tool:source_read", "tool:source_search", "tool:knowledge_query",
+                    List.of("tool:source_context", "tool:source_read", "tool:source_search", "tool:source_git_history", "tool:knowledge_query",
                             "tool:erp_standby_schema_search", "tool:erp_standby_validate_sql",
                             "tool:consult_resources", "tool:consult_resource_query")),
             capability("mcp:domain-knowledge", "domain-knowledge", "MCP_SERVER", "v1", "团队领域知识服务",
@@ -21,6 +21,8 @@ public final class BusinessConsultCapabilityCatalog {
                     "收敛模块、符号及其关联上下文。", "READ_ONLY", "LOW", List.of()),
             capability("tool:source_read", "source_read", "TOOL", "v1", "consult-readonly",
                     "按明确目标读取源码证据。", "READ_ONLY", "LOW", List.of()),
+            capability("tool:source_git_history", "source_git_history", "TOOL", "v1", "consult-readonly",
+                    "查询已定位文件的本地提交与行归属，为运维提供联系线索，不代表开发责任。", "READ_ONLY", "LOW", List.of()),
             capability("tool:source_search", "source_search", "TOOL", "v1", "consult-readonly",
                     "在授权源码范围内检索实现证据。", "READ_ONLY", "MEDIUM", List.of()),
             capability("tool:knowledge_query", "knowledge_query", "TOOL", "v1", "consult-readonly",

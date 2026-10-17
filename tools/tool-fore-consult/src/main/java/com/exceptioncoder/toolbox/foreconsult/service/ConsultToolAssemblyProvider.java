@@ -36,7 +36,10 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
                             "以本轮用户消息为准", session.getSystemName(), session.getSystemSourcePath(),
                             session.getModuleNames() == null ? java.util.List.of() : java.util.List.of(session.getModuleNames()),
                             session.getRole(), true, session.getEvidenceRouteSnapshot());
-                    return new Assembly(Stream.concat(snapshot.stream().flatMap(value -> value.workflow().tools().stream()),
+                    var sourceHistory = snapshot.stream().flatMap(value -> value.workflow().tools().stream())
+                            .anyMatch("source_read"::equals) ? Stream.of("source_git_history") : Stream.<String>empty();
+                    return new Assembly(Stream.concat(Stream.concat(
+                                    snapshot.stream().flatMap(value -> value.workflow().tools().stream()), sourceHistory),
                                     Stream.concat(ConsultDocumentPolicy.TOOLS.stream(), Stream.of("read_consult_attachment"))).distinct().toList(),
                             Stream.concat(snapshot.stream().flatMap(value -> value.workflow().mcpServers().stream()),
                                     Stream.of("consult-readonly")).distinct().toList(),

@@ -8,6 +8,7 @@ import { knowledgeQueryTool, queryKnowledge } from './knowledgeQuery.js'
 import { consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool } from './consultDocuments.js'
 import { callConsultDocumentTool } from './consultDocumentMcp.js'
 import { consultAttachmentTool, readConsultAttachment } from './consultAttachments.js'
+import { consultGitHistoryTool, queryConsultGitHistory } from './consultGitHistory.js'
 import {
   DEFAULT_GRAPH_JSON_FALLBACK_MAX_BYTES,
   GraphifyQueryCoordinator,
@@ -25,6 +26,7 @@ const API_BASE = (process.env.TOOLBOX_API_BASE || '').replace(/\/+$/, '')
 const SOURCE_ROOT = resolveSourceRoot(process.env.TOOLBOX_SOURCE_ROOT)
 const ERP_STANDBY_SCHEMA_PATH = resolveSchemaPath(process.env.ERP_STANDBY_SCHEMA_PATH)
 const sourceTools = SOURCE_ROOT ? [
+  consultGitHistoryTool,
   {
     name: 'source_context',
     description: '源码定位的首要入口：有 URL 时优先定位路由，没有 URL 时直接使用业务问题和模块查询当前项目 Graphify 图谱，返回候选文件与调用链上下文；可带候选符号再次调用以反问图谱。任何源码搜索前必须先调用本工具。',
@@ -703,6 +705,12 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
     if (name === 'source_context') return buildSourceContext(args)
     if (name === 'source_search') return searchSource(args)
     if (name === 'source_read') return readSource(args)
+    if (name === 'source_git_history') {
+      const path = typeof args.path === 'string' ? args.path : ''
+      const target = resolveWithinSourceRoot(path)
+      if (!isSourceFile(target)) throw new Error('仅允许查询已定位源码或文本配置文件的历史')
+      return textResult(JSON.stringify(await queryConsultGitHistory(SOURCE_ROOT!, args)))
+    }
     if (name === 'erp_standby_schema_search') return standbySchemaSearch(args)
     if (name === 'erp_standby_validate_sql') return validateStandbySql(args)
   } catch (error) {

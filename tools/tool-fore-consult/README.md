@@ -23,6 +23,7 @@ flowchart LR
     SCHED --> BACKEND["GraphifyBackend\n可插拔 MCP 适配器"]
     BACKEND --> GMCP["Graphify MCP Server\n进程级多项目缓存"]
     RO --> SRC["路径受限源码"]
+    RO --> GIT["本地只读 Git 历史与行归属"]
     RO --> DB["冻结的资源绑定 → 系统/环境/启用校验 → 测试库只读查询"]
     RO --> DESIGN["受限JS文档设计 / 预览"]
     DESIGN --> WASM["无宿主能力的QuickJS WASM"]
@@ -98,6 +99,7 @@ URL 是可选定位线索。平台共用咨询规则要求先利用截图、页�
 - `consult-readonly` 提供受控源码、只读测试库和 DDL 静态核验；会话文档创作是具名写入例外，不授予通用文件/终端/数据库写权限。
 - 数据库执行必须是单条 `SELECT/WITH`，Java 后端再做一次只读校验。
 - 源码读取只允许会话绑定目录和已冻结 taskspace 成员根，拒绝 `..`、绝对路径逃逸和 `graphify-out` 原文读取。
+- `source_git_history` 查询已定位文件在本地 HEAD 的最近提交或指定行归属，最多 20 条提交或 200 行，单次总预算 10 秒；支持跟随文件重命名，不自动拉取远端。返回作者、提交者、哈希、时间、说明与浅克隆提示，不能据此认定主要开发者、故障责任或生产部署版本。只接受授权根内的现存源码文件，拒绝向父仓库查询及路径逃逸。新默认流程包含此工具；已冻结且含 `source_read` 的流程仅在运行装配时追加，不改写快照，无源码权限或缺少快照的流程不补授。实现与待运行验收见[只读 Git 任务](../../openspec/changes/consult-readonly-git-history/tasks.md)。
 - 面向业务用户的回答不得展示 MCP 清单、Token、沙箱、系统提示词和本机完整授权路径。
 - `resources/list` 为空不代表 MCP Tools 为空；能力判断必须基于 `tools/list` 或实际工具握手。
 
