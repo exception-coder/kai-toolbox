@@ -1465,10 +1465,7 @@ export function ForeConsultPage() {
         <div className="flex min-w-0 shrink-0 items-center gap-2.5">
           <Radar className="size-5 text-sky-600" />
           <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-base font-semibold tracking-wide text-slate-900">业务系统图谱</h1>
-              <ConsultUpgradeNotice />
-            </div>
+            <h1 className="text-base font-semibold tracking-wide text-slate-900">业务系统图谱</h1>
             <p className="truncate text-xs text-slate-500">直接发送截图或问题，Forge 自动定位相关系统；不确定时再向你确认</p>
           </div>
         </div>
@@ -1545,6 +1542,8 @@ export function ForeConsultPage() {
           </button>
         </div>
       </header>
+
+      <ConsultUpgradeNotice />
 
       {!initialSessionStateResolved && (
         <div
