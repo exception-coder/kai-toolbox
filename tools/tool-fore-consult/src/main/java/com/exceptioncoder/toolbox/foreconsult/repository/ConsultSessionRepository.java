@@ -92,6 +92,16 @@ public class ConsultSessionRepository {
                 s.getCreatedAt(), s.getEndedAt());
     }
 
+    /** 自动定位仅更新当前咨询身份与证据路由，不修改开发会话或资源选择快照。 */
+    public void updateSourceRouting(String id, String name, String path, String snapshot, String evidenceSystems,
+                                     String expectedSnapshot) {
+        int changed = jdbc.update("UPDATE consult_session SET system_name = ?, system_source_path = ?, "
+                        + "module_names = NULL, evidence_route_snapshot = ?, evidence_systems = ? "
+                        + "WHERE session_id = ? AND archive_status = 'PENDING' AND evidence_route_snapshot = ?",
+                name, path, snapshot, evidenceSystems, id, expectedSnapshot);
+        if (changed != 1) { throw new IllegalArgumentException("咨询状态已变更，请刷新后重试"); }
+    }
+
     public Optional<ConsultSession> findById(String sessionId) {
         List<ConsultSession> rows = jdbc.query(
                 "SELECT * FROM consult_session WHERE session_id = ?", ROW, sessionId);

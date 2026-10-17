@@ -28,6 +28,7 @@ export class GraphifyQueryCoordinator {
     key: string,
     execute: () => Promise<string>,
     busyFallback: () => string,
+    cacheable: () => boolean = () => true,
   ): Promise<string> {
     const cached = this.cache.get(key)
     if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.value)
@@ -40,7 +41,7 @@ export class GraphifyQueryCoordinator {
 
     const promise = execute()
       .then(value => {
-        this.cache.set(key, { value, expiresAt: Date.now() + this.cacheTtlMs })
+        if (cacheable()) this.cache.set(key, { value, expiresAt: Date.now() + this.cacheTtlMs })
         while (this.cache.size > this.maxCacheEntries) {
           const oldest = this.cache.keys().next().value as string | undefined
           if (!oldest) break

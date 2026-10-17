@@ -403,6 +403,8 @@ flowchart LR
     DBVIEW --> ORIGINAL["原资源记录编辑<br/>不复制凭据"]
 ```
 
+新建业务咨询默认自动定位系统：从ProjectCatalog、ProjectAccess及咨询可见配置投影最多八个候选，按本人已定位咨询使用情况与配置顺序探索。启动cwd仅为锚点，助手沿截图对应前端请求核对服务端；`source_projects`只保存原咨询的模型推断或用户指定焦点，不能生成已确认业务事实。它是具名元数据写入例外，MCP标记readOnlyHint=false，服务端逐次签名与真实路径核验才是执行边界。Sidecar按调用隔离源码根；核验失败不回退。版本2证据路由快照将源码候选与原确认数据归属分离，旧数组保留单项目行为。AUTO无有效焦点不得查询数据库，定位后仍使用原冻结绑定和环境校验。图谱等待不缓存为完成证据，可用有界结构线索继续定位；原理及未部署、未验收项见[自动系统定位](../openspec/changes/automatic-consult-system-routing/design.md)和[任务](../openspec/changes/automatic-consult-system-routing/tasks.md)。
+
 ```mermaid
 flowchart LR
     REGISTRY["Project Registry<br/>系统身份"] --> BINDING["tool-ops<br/>资源配置与绑定"]
@@ -415,7 +417,11 @@ flowchart LR
     CONSULT["业务咨询<br/>只读 Agent"] --> DOC_TOOL["generate_consult_document<br/>结构化内容 + 服务端会话签名"]
     CONSULT_UI["咨询语音输入 / 实时语音"] --> CONSULT_CHANNEL["原consult WS / SessionVoiceService<br/>官方账号 · 原会话 · 同一只读装配"]
     CONSULT_CHANNEL --> CONSULT
-    CONSULT --> QUERY_TOOL["consult_resources / consult_resource_query<br/>原咨询冻结的绑定选择"]
+    CONSULT --> SOURCE_ROUTE["source_projects<br/>原会话签名 + 当前候选核验"]
+    SOURCE_ROUTE --> SOURCE_CATALOG["ProjectCatalog + ProjectAccess<br/>咨询可见配置 · 本人使用排序 · 最多8项"]
+    SOURCE_ROUTE --> SOURCE_READ["逐调用源码根隔离<br/>前端证据追到服务端焦点"]
+    SOURCE_READ --> SOURCE_FOCUS["模型推断 / 用户纠正<br/>原咨询快照 · 不授予数据库权限"]
+    CONSULT --> QUERY_TOOL["consult_resources / consult_resource_query<br/>有效服务端焦点 + 原冻结绑定"]
     QUERY_TOOL --> BINDING
     DOC_TOOL --> DOC_STORE["tool-fore-consult<br/>固定目录 · 格式/容量限制 · 内容幂等"]
     DOC_STORE --> DOC_DOWNLOAD["原咨询和归档下载<br/>登录 + 会话所有权校验"]

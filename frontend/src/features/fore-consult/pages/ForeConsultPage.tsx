@@ -53,6 +53,7 @@ import {
   renameConsultQuestionTitle,
   saveSystemPrefs,
   startConsult,
+  readConsultSourceRouting,
   syncConsultTurns,
   type ArchiveTurnItem,
   type ConsultAttRef,
@@ -495,6 +496,7 @@ export function ForeConsultPage() {
   const chat = useClaudeChatSocket({ channel: 'consult' })
 
   const [system, setSystem] = useState('')
+  const [autoDetect, setAutoDetect] = useState(true)
   const [moduleTags, setModuleTags] = useState<string[]>([])
   const [questionTitle, setQuestionTitle] = useState('')
   const [ask, setAsk] = useState('')
@@ -514,7 +516,7 @@ export function ForeConsultPage() {
   const attachmentCheck = useRef(false)
   const [pendingDispatching, setPendingDispatching] = useState(false)
   const [pendingDispatchError, setPendingDispatchError] = useState<string | null>(null)
-  const [panelOpen, setPanelOpen] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(true)
   const [conversationOpen, setConversationOpen] = useState(false)
   const [viewSession, setViewSession] = useState<{ id: string; title: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -950,10 +952,11 @@ export function ForeConsultPage() {
       const cwd = systemPath || system.trim()
       const legacySeed = buildConsultSeed(system.trim(), moduleTags, ask, CONSULT_ROLE)
       const created = await startConsult({
-        systemName: system.trim(),
-        systemSourcePath: cwd,
+        autoDetect,
+        systemName: autoDetect ? '' : system.trim(),
+        systemSourcePath: autoDetect ? '' : cwd,
         moduleNames: moduleTags,
-        questionTitle: buildQuestionTitle(questionTitle),
+        questionTitle: buildQuestionTitle(questionTitle.trim() || ask.trim().replace(/\s+/g, ' ').slice(0, QUESTION_TITLE_MAX_LENGTH) || '截图问题'),
         question: ask.trim() || '请结合附件识别并分析业务问题',
         role: CONSULT_ROLE,
         engine: 'codex',
@@ -962,7 +965,7 @@ export function ForeConsultPage() {
         codexSpeed: isAdmin ? consultSpeed : 'default',
         orchestrationVersion,
       })
-      return { created, seed: created.promptSnapshot || legacySeed, cwd }
+      return { created, seed: created.promptSnapshot || legacySeed, cwd: created.systemSourcePath }
     },
     onSuccess: ({ created, seed, cwd }) => {
       setRole(CONSULT_ROLE)
@@ -1189,6 +1192,7 @@ export function ForeConsultPage() {
   // 恢复待归档咨询：运行提示来自底层会话列表，WebSocket ready 与实时事件会继续校正。
   const resumeConsult = useCallback((s: ConsultSessionView) => {
     setSystem(s.systemName)
+    setAutoDetect(readConsultSourceRouting(s.evidenceRouteSnapshot)?.automatic === true)
     setModuleTags(s.moduleNames)
     setRole(s.role === 'BIZ' ? 'BIZ' : 'IT')
     setActiveConsultId(s.sessionId)
@@ -1204,6 +1208,7 @@ export function ForeConsultPage() {
       chat.switchTo(s.devSessionId, runtime?.status === 'RUNNING' && runtime.live)
     }
     setConversationOpen(true)
+    setPanelOpen(false)
   }, [chat.sessionId, chat.switchTo, devSessionsQuery.data, displayName, setActiveDevSessionBinding])
 
   // 咨询历史决定是否恢复原会话；运行列表只提供提示，最终发送权限由原会话ready和实时状态校正。
@@ -1240,13 +1245,11 @@ export function ForeConsultPage() {
   const openSystem = (name: string) => {
     dismissHint() // 点过星球即视为已学会，之后不再提示
     setSystem(name)
+    setAutoDetect(false)
     setModuleTags([])
-    setAsk('')
     setModuleQuery('')
     setModulesExpanded(false)
     setModulePickerOpen(false)
-    setAttachments([])
-    attMetaRef.current = new Map()
     setPanelOpen(true)
   }
 
@@ -1322,6 +1325,7 @@ export function ForeConsultPage() {
     const nextRole: ConsultRole = current?.role === 'IT' ? 'IT' : CONSULT_ROLE
     const legacySeed = buildConsultSeed(nextSystem, nextModules, question, nextRole)
     const created = await startConsult({
+      autoDetect: current ? readConsultSourceRouting(current.evidenceRouteSnapshot)?.automatic === true : autoDetect,
       systemName: nextSystem,
       systemSourcePath: nextPath,
       moduleNames: nextModules,
@@ -1340,7 +1344,7 @@ export function ForeConsultPage() {
     setActiveConsultId(created.sessionId)
     setActiveQuestionTitle(created.questionTitle || displayName(created.systemName))
     pendingRef.current = {
-      cwd: nextPath,
+      cwd: created.systemSourcePath,
       seed: created.promptSnapshot || legacySeed,
       displayText: question.trim() || '（见附件）',
       consultId: created.sessionId,
@@ -1387,7 +1391,7 @@ export function ForeConsultPage() {
   const selectedAuthMatchesPolicy = configuredCodexHome.length > 0
     && consultCodexHome.trim().toLowerCase() === configuredCodexHome.toLowerCase()
   const canStart =
-    !!system.trim() && !!questionTitle.trim() && (!!ask.trim() || attachments.length > 0)
+    (autoDetect ? visibleProjects.length > 0 : !!system.trim()) && (!!ask.trim() || attachments.length > 0)
     && selectedAuthMatchesPolicy && !!consultModel && !startMutation.isPending && !modelPolicyLoading
     && initialSessionStateResolved && !attachmentChecking
   const retryInitialSessionState = () => {
@@ -1461,7 +1465,7 @@ export function ForeConsultPage() {
           <Radar className="size-5 text-sky-600" />
           <div>
             <h1 className="text-base font-semibold tracking-wide text-slate-900">业务系统图谱</h1>
-            <p className="truncate text-xs text-slate-500">点击一个业务系统，选定模块后向 AI 发起咨询</p>
+            <p className="truncate text-xs text-slate-500">直接发送截图或问题，Forge 自动定位相关系统；不确定时再向你确认</p>
           </div>
         </div>
         <div className="fc-toolbar pointer-events-auto flex w-full min-w-0 items-center gap-1.5 overflow-x-auto pb-1 lg:w-auto lg:overflow-visible lg:pb-0">
@@ -1826,9 +1830,9 @@ export function ForeConsultPage() {
         <section
           className="fc-prompt-dock absolute bottom-5 left-1/2 z-40 w-[min(860px,calc(100%-32px))] -translate-x-1/2"
           style={{ ['--fc-hue' as string]: sysCat.color }}
-          aria-label={`${displayName(system)} 业务咨询`}
+          aria-label={`${autoDetect ? '自动识别' : displayName(system)} 业务咨询`}
         >
-          {modulePickerOpen && (
+          {modulePickerOpen && !autoDetect && (
             <div className="fc-module-picker absolute bottom-[calc(100%+10px)] left-1/2 w-[min(660px,100%)] -translate-x-1/2 overflow-hidden rounded-2xl p-3">
               <div className="mb-2 flex items-center justify-between px-1">
                 <div>
@@ -1900,22 +1904,28 @@ export function ForeConsultPage() {
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h2 className="truncate text-sm font-medium text-slate-900">{displayName(system)}</h2>
+                <h2 className="truncate text-sm font-medium text-slate-900">{autoDetect ? '自动识别系统' : displayName(system)}</h2>
                 <span className="hidden items-center gap-1 text-[10px] text-emerald-700/70 sm:flex">
                   <span className="size-1.5 rounded-full bg-emerald-400/80" />
-                  {systemPath ? '已连接' : '外部系统'}
+                  {autoDetect ? '无需预选' : systemPath ? '已连接' : '外部系统'}
                 </span>
                 <span className="hidden items-center gap-1 text-[10px] text-slate-400 sm:flex">
                   <span className="size-1.5 rounded-full bg-sky-300/65" />
-                  知识就绪
+                  {autoDetect ? '按截图与问题定位' : '指定系统'}
                 </span>
               </div>
               <p className="mt-0.5 truncate text-[10px] text-slate-500">
-                {moduleOptions.length} 个模块 · Forge 跨系统分析
+                {autoDetect ? `候选：${visibleProjects.slice(0, 3).map(project => project.label).join('、') || '请先在配置中显示可用系统'}` : `${moduleOptions.length} 个模块 · Forge 跨系统分析`}
               </p>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-1">
-              <button
+              <select aria-label="系统定位方式" value={autoDetect ? '' : system}
+                onChange={event => { setAutoDetect(!event.target.value); setSystem(event.target.value); setModuleTags([]) }}
+                className="max-w-32 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-600">
+                <option value="">自动识别</option>
+                {visibleProjects.map(project => <option key={project.path} value={project.name}>{project.label}</option>)}
+              </select>
+              {!autoDetect && <button
                 type="button"
                 onClick={() => setModulePickerOpen((open) => !open)}
                 className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] transition-colors ${
@@ -1928,11 +1938,11 @@ export function ForeConsultPage() {
                 <Boxes className="size-3.5" />
                 {moduleTags.length > 0 ? `模块 ${moduleTags.length}` : '聚焦模块'}
                 <ChevronDown className={`size-3 transition-transform ${modulePickerOpen ? 'rotate-180' : ''}`} />
-              </button>
+              </button>}
               <button
                 type="button"
                 className="rounded-lg p-1.5 text-slate-400 hover:bg-white/65 hover:text-slate-900"
-                title="页面问题可附上 URL；截图尽量包含浏览器地址栏，便于 Forge 准确定位页面。"
+                title="直接提供截图和问题即可；Forge 会先自主定位，确实无法确认时再请你补充地址。"
                 aria-label="咨询提示"
               >
                 <Lightbulb className="size-3.5" />
@@ -1961,7 +1971,7 @@ export function ForeConsultPage() {
                 onChange={(event) => setQuestionTitle(event.target.value)}
                 disabled={!initialSessionStateResolved}
                 maxLength={QUESTION_TITLE_MAX_LENGTH}
-                placeholder="填写问题标题（必填）"
+                placeholder="问题标题（可选，默认从问题生成）"
                 aria-label="问题标题"
                 className="h-9 min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
               />
@@ -1992,6 +2002,7 @@ export function ForeConsultPage() {
             )}
             <textarea
               autoFocus
+              aria-label="业务问题"
               rows={2}
               value={ask}
               onChange={(e) => setAsk(e.target.value)}
@@ -2002,7 +2013,7 @@ export function ForeConsultPage() {
                 e.preventDefault()
                 if (canStart) startMutation.mutate()
               }}
-              placeholder={`向 Forge 询问 ${displayName(system)}，可直接拖入文件或粘贴图片`}
+              placeholder={autoDetect ? '直接描述问题或粘贴截图，Forge 自动定位相关系统' : `向 Forge 询问 ${displayName(system)}，可直接拖入文件或粘贴图片`}
               className="max-h-28 min-h-11 w-full resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-sm leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none"
             />
             <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
@@ -2105,8 +2116,9 @@ export function ForeConsultPage() {
         <ConsultConversation
           chat={chat}
           consultId={activeConsultId}
+          sourceRoutingEnabled={Boolean(readConsultSourceRouting((history ?? []).find((session) => session.sessionId === activeConsultId)?.evidenceRouteSnapshot))}
           questionTitle={activeQuestionTitle}
-          systemLabel={displayName(system)}
+          systemLabel={autoDetect ? '自动识别' : displayName(system)}
           roleLabel={ROLE_META[role].label}
           onUploaded={(name, path, mime) => attMetaRef.current.set(name, { path, mime })}
           onBugRegistered={() => qc.invalidateQueries({ queryKey: ['fore-consult-bugs'] })}

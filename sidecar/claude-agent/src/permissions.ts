@@ -41,6 +41,7 @@ const CONSULT_READONLY_MCP_TOOLS = new Set([
   'mcp__consult-readonly__source_search',
   'mcp__consult-readonly__source_read',
   'mcp__consult-readonly__source_git_history',
+  'mcp__consult-readonly__source_projects',
   'mcp__consult-readonly__erp_standby_schema_search',
   'mcp__consult-readonly__erp_standby_validate_sql',
 ])

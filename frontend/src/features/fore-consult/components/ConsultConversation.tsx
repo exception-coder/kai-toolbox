@@ -17,6 +17,7 @@ import { stripConsultRecognition } from '../consultRecognition'
 import { ConsultMessageActions } from './ConsultMessageActions'
 import { ConsultAnswerContent, ConsultPanel } from './ConsultPanel'
 import { ConsultDocuments } from './ConsultDocuments'
+import { ConsultRoutingStatus } from './ConsultRoutingStatus'
 import { ConsultVoiceActions } from './ConsultVoiceActions'
 import { checkConsultFiles } from '../consultAttachmentPolicy'
 
@@ -52,6 +53,7 @@ interface Props {
   chat: UseClaudeChatSocket
   consultId: string
   questionTitle?: string | null
+  sourceRoutingEnabled?: boolean
   systemLabel: string
   roleLabel: string
   onUploaded?: (name: string, path: string, mime?: string | null) => void
@@ -72,7 +74,7 @@ interface Props {
  */
 export function ConsultConversation({
   chat, consultId, questionTitle, systemLabel, roleLabel, onUploaded, onBugRegistered, onClose,
-  onArchive, onStartNew, archiving, startupPending = false, startupError, onRetryStartup,
+  onArchive, onStartNew, archiving, startupPending = false, startupError, onRetryStartup, sourceRoutingEnabled = false,
 }: Props) {
   const [text, setText] = useState('')
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
@@ -489,6 +491,7 @@ export function ConsultConversation({
           </div>
         </div>
 
+        {sourceRoutingEnabled && <ConsultRoutingStatus consultId={consultId} />}
         {/* 正常 bypass 不会触发；异常出现待确认时留在咨询面板提示，避免跳入 ADMIN-only 悬浮窗。 */}
         {pending && (
           <div className="shrink-0 border-b border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-700">

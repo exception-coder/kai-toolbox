@@ -48,6 +48,40 @@ class ConsultResourceServiceTest {
         verify(workflows, never()).production();
         assertThrows(IllegalArgumentException.class, () -> service.query("unknown", "selected", "select 1"));
     }
+    @Test void sourceRoutingHttpSignsEveryReadAndSerializesLegacyNull() throws Exception {
+        var access = new ConsultResourceAccess();
+        var routing = mock(ConsultSourceRoutingService.class);
+        var controller = new com.exceptioncoder.toolbox.foreconsult.api.ConsultResourceController(
+                mock(ConsultResourceService.class), access);
+        org.springframework.test.util.ReflectionTestUtils.setField(controller, "routing", routing);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
+        String url = "/api/fore-consult/resources/sessions/runtime/source-routing";
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(url))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        verifyNoInteractions(routing);
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(url)
+                        .header("X-Consult-Resource-Token", access.issue("runtime")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().string("null"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(url)
+                        .param("project", "api").param("path", "src/Order.java")
+                        .header("X-Consult-Resource-Token", access.issue("runtime")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        verify(routing).forRuntime("runtime", "api", "src/Order.java");
+    }
+    @Test void automaticAnchorCannotBeUsedAsDatabaseIdentity() {
+        var sessions = mock(ConsultSessionRepository.class);
+        var workflows = mock(ConsultWorkflowRepository.class);
+        var gateway = mock(ReadonlyResourceGateway.class);
+        var scope = new com.exceptioncoder.toolbox.foreconsult.domain.ConsultSourceRouting(
+                true, null, List.of(), null, null, null);
+        when(sessions.findByDevSessionId("runtime")).thenReturn(Optional.of(ConsultSession.builder()
+                .sessionId("consult").systemSourcePath("/anchor").evidenceRouteSnapshot(scope.wrap("[]")).build()));
+        var service = new ConsultResourceService(sessions, workflows, gateway);
+        var exception = assertThrows(IllegalArgumentException.class, () -> service.query("runtime", "selected", "select 1"));
+        assertTrue(exception.getMessage().contains("尚未定位服务端"));
+        verifyNoInteractions(gateway, workflows);
+    }
     private ConsultWorkflowNode node(String id, boolean enabled, String binding) {
         return new ConsultWorkflowNode(id, id, enabled, "开始", "查询", "只读", "证据",
                 List.of("consult_resources", "consult_resource_query"), List.of("consult-readonly"), List.of(binding));

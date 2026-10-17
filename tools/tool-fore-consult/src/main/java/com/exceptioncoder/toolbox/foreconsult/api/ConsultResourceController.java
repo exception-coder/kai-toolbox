@@ -17,6 +17,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/fore-consult/resources")
 public class ConsultResourceController {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.foreconsult.service.ConsultSourceRoutingService routing;
     private final ConsultResourceService service;
     private final ConsultResourceAccess access;
     public ConsultResourceController(ConsultResourceService service,
@@ -41,4 +43,24 @@ public class ConsultResourceController {
         return service.query(runtimeId, request.bindingId(), request.sql());
     }
     public record Query(String bindingId, String sql) { }
+
+    @GetMapping("/sessions/{runtimeId}/source-routing")
+    public Object sourceRouting(@PathVariable String runtimeId,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String project,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String path,
+            @RequestHeader(value = "X-Consult-Resource-Token", required = false) String token) {
+        access.require(runtimeId, token);
+        var scope = routing.forRuntime(runtimeId, project, path);
+        return scope == null ? com.fasterxml.jackson.databind.node.NullNode.getInstance() : scope;
+    }
+
+    @PostMapping("/sessions/{runtimeId}/source-routing")
+    public com.exceptioncoder.toolbox.foreconsult.domain.ConsultSourceRouting selectSource(@PathVariable String runtimeId,
+            @RequestBody SelectSource request,
+            @RequestHeader(value = "X-Consult-Resource-Token", required = false) String token) {
+        access.require(runtimeId, token);
+        return routing.focusRuntime(runtimeId, request.project(), request.evidencePath(), request.reason());
+    }
+
+    public record SelectSource(String project, String evidencePath, String reason) { }
 }

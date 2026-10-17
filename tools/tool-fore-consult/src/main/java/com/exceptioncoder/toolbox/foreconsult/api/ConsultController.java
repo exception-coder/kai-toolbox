@@ -58,6 +58,8 @@ public class ConsultController {
 
     @org.springframework.beans.factory.annotation.Autowired
     private com.exceptioncoder.toolbox.foreconsult.service.ConsultWorkflowSessionService workflowSessions;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.foreconsult.service.ConsultSourceRoutingService sourceRouting;
 
     private final ConsultService service;
     private final TurnBugExtractionService bugExtractionService;
@@ -103,9 +105,24 @@ public class ConsultController {
     /** 启动咨询会话。 */
     @PostMapping("/sessions")
     public ConsultSessionView start(@Valid @RequestBody StartSessionRequest req) {
-        var initial = dispatchService.initial(req);
-        return ConsultSessionView.from(workflowSessions.start(req, initial));
+        var prepared = sourceRouting.prepare(req);
+        var initial = sourceRouting.decorate(dispatchService.initial(prepared.request()), prepared.scope());
+        return ConsultSessionView.from(workflowSessions.start(prepared.request(), initial));
     }
+
+    @GetMapping("/sessions/{id}/source-routing")
+    public com.exceptioncoder.toolbox.foreconsult.domain.ConsultSourceRouting sourceRouting(@PathVariable String id) {
+        return sourceRouting.current(service.get(id));
+    }
+
+    @PutMapping("/sessions/{id}/source-routing")
+    public com.exceptioncoder.toolbox.foreconsult.domain.ConsultSourceRouting correctSourceRouting(
+            @PathVariable String id, @RequestBody SourceCorrection request) {
+        service.get(id);
+        return sourceRouting.focus(id, request.project(), null, null, true);
+    }
+
+    public record SourceCorrection(String project) { }
 
     /** Classify and enrich a follow-up with the same server-owned orchestration pipeline. */
     @PostMapping("/sessions/{id}/dispatch")

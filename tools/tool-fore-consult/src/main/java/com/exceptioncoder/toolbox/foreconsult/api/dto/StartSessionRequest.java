@@ -18,8 +18,8 @@ import java.util.List;
  * @param role             回答对象角色：{@code IT}（IT 客服）| {@code BIZ}（业务员），null 时按 IT 兜底
  */
 public record StartSessionRequest(
-        @NotBlank String systemName,
-        @NotBlank String systemSourcePath,
+        @Size(max = 120) String systemName,
+        @Size(max = 1000) String systemSourcePath,
         List<String> moduleNames,
         @NotBlank @Size(max = 40) @Pattern(regexp = "\\d{6}-.+", message = "问题标题格式必须为 yyMMdd-标题")
         String questionTitle,
@@ -31,6 +31,14 @@ public record StartSessionRequest(
         @Size(max = 20) String codexReasoningEffort,
         @Pattern(regexp = "default|fast") String codexSpeed,
         @Size(max = 500) String codexHome,
-        @Pattern(regexp = "v1|v2|v3|v4") String orchestrationVersion
+        @Pattern(regexp = "v1|v2|v3|v4") String orchestrationVersion,
+        Boolean autoDetect
 ) {
+    public StartSessionRequest(String systemName, String systemSourcePath, List<String> moduleNames,
+                               String questionTitle, String question, String userId, String role, String engine,
+                               String model, String codexReasoningEffort, String codexSpeed, String codexHome,
+                               String orchestrationVersion) {
+        this(systemName, systemSourcePath, moduleNames, questionTitle, question, userId, role, engine, model,
+                codexReasoningEffort, codexSpeed, codexHome, orchestrationVersion, false);
+    }
 }

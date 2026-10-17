@@ -175,7 +175,7 @@ function createConsultReadonlyServer(
     enabled_tools: [
       'knowledge_query',
       ...databaseTools,
-      ...(readableSourceRoot ? ['source_context', 'source_search', 'source_read', 'source_git_history'] : []),
+      ...(readableSourceRoot ? ['source_context', 'source_search', 'source_read', 'source_git_history', 'source_projects'] : []),
       ...(standbySchema ? ['erp_standby_schema_search', 'erp_standby_validate_sql'] : []),
     ],
     required: true,

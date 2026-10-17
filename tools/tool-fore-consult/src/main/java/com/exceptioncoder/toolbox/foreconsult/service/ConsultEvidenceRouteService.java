@@ -94,7 +94,8 @@ public class ConsultEvidenceRouteService {
     public String promptContextFromSnapshot(String contextSystem, String snapshot) {
         if (snapshot == null || snapshot.isBlank()) return promptContext(contextSystem, List.of());
         try {
-            List<ConsultEvidenceRoute> routes = mapper.readValue(snapshot, ROUTES);
+            var tree = mapper.readTree(snapshot);
+            List<ConsultEvidenceRoute> routes = mapper.convertValue(tree.isArray() ? tree : tree.path("routes"), ROUTES);
             return promptContext(contextSystem, routes == null ? List.of() : routes);
         } catch (Exception ignored) {
             return promptContext(contextSystem, List.of());

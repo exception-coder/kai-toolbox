@@ -10,6 +10,8 @@ import java.util.List;
 /** 每次执行读取冻结的节点资源选择，不接受客户端指定系统或连接。 */
 @Service
 public class ConsultResourceService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private ConsultSourceRoutingService sourceRouting;
     private final ConsultSessionRepository sessions;
     private final ConsultWorkflowRepository workflows;
     private final ReadonlyResourceGateway gateway;
@@ -37,6 +39,12 @@ public class ConsultResourceService {
     private Scope scope(String runtimeId, String tool) {
         var session = sessions.findByDevSessionId(runtimeId)
                 .orElseThrow(() -> new IllegalArgumentException("未关联咨询会话"));
+        var routing = sourceRouting == null
+                ? com.exceptioncoder.toolbox.foreconsult.domain.ConsultSourceRouting.read(session.getEvidenceRouteSnapshot())
+                : sourceRouting.current(session);
+        if (routing != null && routing.focusedProject() == null) {
+            throw new IllegalArgumentException("尚未定位服务端，请先探索源码并通过 source_projects 保存有证据的服务端焦点；不能按启动锚点查询数据库");
+        }
         var snapshot = workflows.session(session.getSessionId())
                 .orElseThrow(() -> new IllegalArgumentException("咨询没有冻结的资源配置"));
         var nodes = ConsultDatabasePolicy.effective(snapshot.workflow()).nodes().stream()

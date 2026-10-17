@@ -5,6 +5,16 @@ import {
   GraphifyQueryCoordinator,
   isGraphJsonSafeForFallback,
 } from './sourceContextGraph.js'
+test('transient graph states are not cached as completed query evidence', async () => {
+  const coordinator = new GraphifyQueryCoordinator()
+  let calls = 0
+  const first = await coordinator.resolve('same-query', async () => { calls++; return 'pending' }, () => 'busy', () => false)
+  assert.equal(first, 'pending')
+  const ready = await coordinator.resolve('same-query', async () => { calls++; return 'ready' }, () => 'busy')
+  assert.equal(ready, 'ready')
+  assert.equal(await coordinator.resolve('same-query', async () => { calls++; return 'duplicate' }, () => 'busy'), 'ready')
+  assert.equal(calls, 2)
+})
 
 test('coalesces identical Graphify queries', async () => {
   const coordinator = new GraphifyQueryCoordinator()

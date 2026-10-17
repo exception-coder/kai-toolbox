@@ -16,6 +16,8 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
     private final com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultWorkflowService workflowService;
     @org.springframework.beans.factory.annotation.Autowired
     private ConsultResourceAccess resourceAccess;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ConsultSourceRoutingService routing;
     private final ConsultSessionRepository sessions;
     private final ConsultWorkflowRepository workflows;
 
@@ -37,7 +39,8 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
                             session.getModuleNames() == null ? java.util.List.of() : java.util.List.of(session.getModuleNames()),
                             session.getRole(), true, session.getEvidenceRouteSnapshot());
                     var sourceHistory = snapshot.stream().flatMap(value -> value.workflow().tools().stream())
-                            .anyMatch("source_read"::equals) ? Stream.of("source_git_history") : Stream.<String>empty();
+                            .anyMatch("source_read"::equals) ? Stream.of("source_git_history", "source_projects") : Stream.<String>empty();
+                    var sourceScope = routing == null ? null : routing.current(session);
                     return new Assembly(Stream.concat(Stream.concat(
                                     snapshot.stream().flatMap(value -> value.workflow().tools().stream()), sourceHistory),
                                     Stream.concat(ConsultDocumentPolicy.TOOLS.stream(), Stream.of("read_consult_attachment"))).distinct().toList(),
@@ -45,6 +48,7 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
                                     Stream.of("consult-readonly")).distinct().toList(),
                             snapshot.map(value -> workflowService.render(request, value).prompt())
                                     .orElse("【受控文档生成】" + ConsultDocumentPolicy.INSTRUCTIONS)
+                                    + (sourceScope == null ? "" : "\n" + ConsultSourceRoutingService.instructions(sourceScope))
                                     + "\n【数据库访问边界】" + ConsultDatabasePolicy.INSTRUCTIONS
                                     + "\n【上传附件】使用read_consult_attachment：文本/HTML用nextOffset字符分页；"
                                     + "XLSX先仅传path列出工作表，再用sheet原名、startRow/maxRows读取，以nextRow继续直至complete，"

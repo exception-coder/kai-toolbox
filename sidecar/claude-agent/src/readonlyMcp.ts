@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { existsSync, realpathSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -9,6 +10,7 @@ import { consultDocumentTool, designConsultDocumentTool, previewConsultDocumentT
 import { callConsultDocumentTool } from './consultDocumentMcp.js'
 import { consultAttachmentTool, readConsultAttachment } from './consultAttachments.js'
 import { consultGitHistoryTool, queryConsultGitHistory } from './consultGitHistory.js'
+import { sourceProjectsTool, sourceRouting, callSourceProjects } from './consultSourceProjects.js'
 import {
   DEFAULT_GRAPH_JSON_FALLBACK_MAX_BYTES,
   GraphifyQueryCoordinator,
@@ -23,9 +25,12 @@ type JsonRpcRequest = {
 }
 
 const API_BASE = (process.env.TOOLBOX_API_BASE || '').replace(/\/+$/, '')
-const SOURCE_ROOT = resolveSourceRoot(process.env.TOOLBOX_SOURCE_ROOT)
+const DEFAULT_SOURCE_ROOT = resolveSourceRoot(process.env.TOOLBOX_SOURCE_ROOT)
+const sourceRootScope = new AsyncLocalStorage<string>()
+function sourceRoot(): string { return sourceRootScope.getStore() ?? DEFAULT_SOURCE_ROOT ?? '' }
 const ERP_STANDBY_SCHEMA_PATH = resolveSchemaPath(process.env.ERP_STANDBY_SCHEMA_PATH)
-const sourceTools = SOURCE_ROOT ? [
+const sourceTools = sourceRoot() ? [
+  sourceProjectsTool,
   consultGitHistoryTool,
   {
     name: 'source_context',
@@ -45,7 +50,7 @@ const sourceTools = SOURCE_ROOT ? [
   },
   {
     name: 'source_search',
-    description: 'Graphify 和业务知识已收敛范围后，在指定子目录内做纯文本兜底搜索。禁止仓库根目录扫描，永久排除 graphify-out。',
+    description: 'Graphify、业务知识或 source_context 结构目录已收敛范围后，在指定子目录内做纯文本兜底搜索。禁止仓库根目录扫描，永久排除 graphify-out。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -115,17 +120,22 @@ const resourceTools = ['consult_resources', 'consult_resource_query'].map(name =
       required: ['bindingId', 'sql'], additionalProperties: false },
   annotations: readonlyAnnotations(),
 }))
+const projectedSourceTools = sourceTools.map(tool => tool.name === 'source_projects' ? tool : ({ ...tool,
+  inputSchema: { ...tool.inputSchema, properties: { ...tool.inputSchema.properties,
+    project: { type: 'string', description: 'source_projects 返回的候选 id；自动识别时必填，禁止自行传目录' },
+  } },
+}))
 const tools = [...(API_BASE && process.env.TOOLBOX_SESSION_ID
   ? [...resourceTools, ...(process.env.CONSULT_RESOURCE_TOKEN
     ? [consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool, consultAttachmentTool] : [])] : []),
   knowledgeQueryTool,
-  ...sourceTools, ...standbySchemaTools]
+  ...projectedSourceTools, ...standbySchemaTools]
 const SKIPPED_DIRECTORIES = new Set([
   '.git', '.idea', '.vscode', 'node_modules', 'target', 'dist', 'build', 'out', 'coverage', '.next', '.cache',
   'graphify-out',
 ])
 const SOURCE_EXTENSIONS = new Set([
-  '.java', '.kt', '.kts', '.xml', '.jsp', '.jspx', '.js', '.jsx', '.ts', '.tsx', '.vue', '.css', '.scss',
+  '.java', '.kt', '.kts', '.xml', '.jsp', '.jspx', '.js', '.jsx', '.ts', '.tsx', '.vue', '.css', '.scss', '.wxml', '.wxss', '.wxs',
   '.html', '.htm', '.sql', '.properties', '.yml', '.yaml', '.json', '.md', '.txt', '.py', '.go', '.dart',
   '.cs', '.php', '.rb', '.sh', '.ps1', '.bat', '.cmd', '.gradle', '.groovy', '.toml', '.ini', '.conf',
 ])
@@ -148,7 +158,7 @@ const GRAPH_JSON_FALLBACK_MAX_BYTES = clampInteger(
   128 * 1024 * 1024,
 )
 const graphifyQueries = new GraphifyQueryCoordinator()
-let routeMapPathsPromise: Promise<string[]> | null = null
+const routeMapPaths = new Map<string, Promise<string[]>>()
 
 function readonlyAnnotations(): Record<string, boolean> {
   return {
@@ -289,14 +299,14 @@ function validateStandbySql(args: Record<string, unknown>): Record<string, unkno
 }
 
 function resolveWithinSourceRoot(requestedPath: string): string {
-  if (!SOURCE_ROOT) throw new Error('当前会话未绑定可读取的源码目录')
-  const unresolved = resolve(SOURCE_ROOT, requestedPath || '.')
-  const unresolvedRelative = relative(SOURCE_ROOT, unresolved)
+  if (!sourceRoot()) throw new Error('当前会话未绑定可读取的源码目录')
+  const unresolved = resolve(sourceRoot(), requestedPath || '.')
+  const unresolvedRelative = relative(sourceRoot(), unresolved)
   if (unresolvedRelative === '..' || unresolvedRelative.startsWith('..' + sep) || isAbsolute(unresolvedRelative)) {
     throw new Error('请求路径超出当前会话源码目录')
   }
   const candidate = realpathSync(unresolved)
-  const rel = relative(SOURCE_ROOT, candidate)
+  const rel = relative(sourceRoot(), candidate)
   if (rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) {
     throw new Error('请求路径超出当前会话源码目录')
   }
@@ -354,7 +364,7 @@ function findTextMatches(target: string, query: string, caseSensitive: boolean, 
   const results: string[] = []
   const scannedFiles = walkSourceFiles(target, path => {
     const lines = decodeSourceFile(path).split(/\r?\n/)
-    const displayPath = relative(SOURCE_ROOT!, path)
+    const displayPath = relative(sourceRoot()!, path)
     for (let index = 0; index < lines.length && results.length < maxResults; index++) {
       const haystack = caseSensitive ? lines[index] : lines[index].toLocaleLowerCase()
       if (haystack.includes(needle)) results.push(`${displayPath}:${index + 1}: ${lines[index].trim()}`)
@@ -385,12 +395,12 @@ function findFilesByName(target: string, fileName: string, maxResults: number): 
 }
 
 function graphDirectories(moduleName: string): string[] {
-  if (!SOURCE_ROOT) return []
+  if (!sourceRoot()) return []
   const hasGraph = (path: string) => existsSync(resolve(path, 'graphify-out', 'graph.json'))
-  if (hasGraph(SOURCE_ROOT)) return [SOURCE_ROOT]
-  const candidates = readdirSync(SOURCE_ROOT, { withFileTypes: true })
+  if (hasGraph(sourceRoot())) return [sourceRoot()]
+  const candidates = readdirSync(sourceRoot(), { withFileTypes: true })
     .filter(entry => entry.isDirectory() && !entry.isSymbolicLink())
-    .map(entry => resolve(SOURCE_ROOT, entry.name))
+    .map(entry => resolve(sourceRoot(), entry.name))
     .filter(hasGraph)
     .sort((a, b) => a.localeCompare(b))
   if (!moduleName.trim()) return candidates.slice(0, 1)
@@ -449,13 +459,15 @@ async function queryGraphify(question: string, moduleName: string, budget: numbe
   const graphRoot = graphDirectories(moduleName)[0]
   if (!graphRoot) return '当前项目未找到 graphify-out/graph.json。'
   const key = `${graphRoot}\n${budget}\n${question}`
+  let cacheable = true
   return graphifyQueries.resolve(key, async () => {
-    const deadline = Date.now() + GRAPHIFY_TOTAL_BUDGET_MS
+    const deadline = Date.now() + (sourceRootScope.getStore() ? Math.min(GRAPHIFY_TOTAL_BUDGET_MS, 10_000) : GRAPHIFY_TOTAL_BUDGET_MS)
     if (GRAPHIFY_RUNTIME_URL && GRAPHIFY_RUNTIME_TOKEN) {
       try {
         const persistent = await queryPersistentGraphify(graphRoot, question, budget, remainingMs(deadline))
         if (persistent.kind === 'ready') return persistent.text
         if (persistent.kind === 'pending') {
+          cacheable = false
           return `Graphify 代码图谱正在由 Sidecar 常驻运行时预热（阶段：${persistent.phase}）。后台任务仍在继续，本次不会再启动第二个冷进程；请先使用上方 URL 候选精确读取源码，约 ${Math.ceil(persistent.retryAfterMs / 1000)} 秒后带已发现的类名或方法名再次查询。`
         }
         process.stderr.write(`[consult-readonly] Graphify 常驻后端不可用，评估有界 CLI 回退：${persistent.message}\n`)
@@ -464,7 +476,7 @@ async function queryGraphify(question: string, moduleName: string, budget: numbe
       }
     }
     const cliBudget = remainingMs(deadline) - 1_500
-    if (cliBudget < 3_000) return queryGraphJson(graphRoot, question)
+    if (cliBudget < 3_000) { cacheable = false; return queryGraphJson(graphRoot, question) }
     try {
       return await runFile(process.env.GRAPHIFY_BINARY?.trim() || 'graphify',
         ['query', question, '--budget', String(budget)], {
@@ -473,9 +485,10 @@ async function queryGraphify(question: string, moduleName: string, budget: numbe
           maxBuffer: 2 * 1024 * 1024,
         })
     } catch {
+      cacheable = false
       return queryGraphJson(graphRoot, question)
     }
-  }, () => 'Graphify 正在处理另一项图谱查询；本次已快速降级，避免 MCP 排队超时。请先使用上方 URL 候选精确读取源码，稍后带已发现的类名或方法名再次查询。')
+  }, () => 'Graphify 正在处理另一项图谱查询；本次已快速降级，避免 MCP 排队超时。请先使用上方 URL 候选精确读取源码，稍后带已发现的类名或方法名再次查询。', () => cacheable)
 }
 
 type PersistentGraphifyOutcome =
@@ -542,23 +555,24 @@ function splitOutputLines(output: string, maxResults: number): string[] {
 }
 
 async function findRouteMaps(): Promise<string[]> {
-  if (!SOURCE_ROOT) return []
-  if (!routeMapPathsPromise) {
-    routeMapPathsPromise = runFile('rg', [
-      '--files', SOURCE_ROOT,
+  if (!sourceRoot()) return []
+  const root = sourceRoot()
+  if (!routeMapPaths.has(root)) {
+    routeMapPaths.set(root, runFile('rg', [
+      '--files', sourceRoot(),
       '--glob', 'url-route-map.md',
       '--glob', '!graphify-out/**',
       '--glob', '!node_modules/**',
       '--glob', '!target/**',
-    ], { cwd: SOURCE_ROOT, timeout: 5_000, maxBuffer: 256 * 1024 })
+    ], { cwd: sourceRoot(), timeout: 5_000, maxBuffer: 256 * 1024 })
       .then(output => splitOutputLines(output, 8))
-      .catch(() => [])
+      .catch(() => []))
   }
-  return routeMapPathsPromise
+  return routeMapPaths.get(root)!
 }
 
 async function searchRouteWithRipgrep(routeName: string, targets: string[], maxResults: number): Promise<string[]> {
-  if (!SOURCE_ROOT || !targets.length) return []
+  if (!sourceRoot() || !targets.length) return []
   try {
     const output = await runFile('rg', [
       '-n', '-F', '--no-heading', '--color', 'never',
@@ -569,7 +583,7 @@ async function searchRouteWithRipgrep(routeName: string, targets: string[], maxR
       '--glob', '!target/**',
       routeName,
       ...targets,
-    ], { cwd: SOURCE_ROOT, timeout: 8_000, maxBuffer: 512 * 1024 })
+    ], { cwd: sourceRoot(), timeout: 8_000, maxBuffer: 512 * 1024 })
     return splitOutputLines(output, maxResults)
   } catch {
     return []
@@ -577,14 +591,14 @@ async function searchRouteWithRipgrep(routeName: string, targets: string[], maxR
 }
 
 async function locateUrl(route: string): Promise<string[]> {
-  if (!SOURCE_ROOT || !route) return []
+  if (!sourceRoot() || !route) return []
   const routeName = basename(route)
   const routeMaps = await findRouteMaps()
   const mapHits = await searchRouteWithRipgrep(routeName, routeMaps, 20)
   if (mapHits.length) return mapHits
   const preferredRoots = [
     'WebRoot', 'web', 'frontend/src', 'src/main', 'src',
-  ].map(path => resolve(SOURCE_ROOT, path))
+  ].map(path => resolve(sourceRoot(), path))
     .filter(path => existsSync(path) && statSync(path).isDirectory())
     // src/main 已覆盖时不再重复扫描其父级 src。
     .filter((path, index, paths) => !paths.some((other, otherIndex) => otherIndex < index && other.startsWith(path + sep)))
@@ -603,6 +617,10 @@ async function buildSourceContext(args: Record<string, unknown>): Promise<Record
     locateUrl(route),
     queryGraphify(graphQuestion, moduleName, clampInteger(args.graphBudget, 1200, 200, 2000)),
   ])
+  const structure = readdirSync(sourceRoot(), { withFileTypes: true })
+    .filter(entry => !SKIPPED_DIRECTORIES.has(entry.name.toLowerCase()))
+    .filter(entry => entry.isDirectory() || ['package.json', 'app.json', 'pages.json', 'pom.xml'].includes(entry.name))
+    .slice(0, 20).map(entry => `${entry.name}${entry.isDirectory() ? '/' : ''}`).join('、')
   return textResult([
     '【URL 定位】',
     route || '问题中未识别到 action URL。',
@@ -610,6 +628,10 @@ async function buildSourceContext(args: Record<string, unknown>): Promise<Record
     '',
     '【Graphify 代码图谱】',
     graph,
+    '',
+    '【有界结构线索】',
+    structure || '未发现可用入口或子目录。',
+    '图谱预热时可先读取这些入口配置，或在已列出的明确子目录中核对页面文案；不得扫描项目根目录。',
     '',
     '【下一步】先调用业务知识工具核对业务语义，再对以上候选文件使用 source_read；需要继续追调用链时，带已发现的类名、方法名或 SQL ID 再次调用 source_context 反问图谱。只有图谱反问后证据仍不足，才在明确子目录调用 source_search。',
   ].join('\n'))
@@ -623,8 +645,8 @@ function searchSource(args: Record<string, unknown>): Record<string, unknown> {
     throw new Error('source_search 只允许在 Graphify 已收敛的文件或子目录中检索，禁止源码根目录扫描')
   }
   const target = resolveWithinSourceRoot(requestedPath)
-  if (target === SOURCE_ROOT) throw new Error('source_search 禁止源码根目录扫描')
-  const relativeTarget = relative(SOURCE_ROOT!, target).replace(/\\/g, '/')
+  if (target === sourceRoot()) throw new Error('source_search 禁止源码根目录扫描')
+  const relativeTarget = relative(sourceRoot()!, target).replace(/\\/g, '/')
   if (relativeTarget === 'graphify-out' || relativeTarget.startsWith('graphify-out/')) {
     throw new Error('source_search 禁止扫描 graphify-out；请使用 source_context 查询代码图谱')
   }
@@ -639,7 +661,7 @@ function readSource(args: Record<string, unknown>): Record<string, unknown> {
   const requestedPath = typeof args.path === 'string' ? args.path : ''
   if (!requestedPath.trim()) throw new Error('source_read.path 不能为空')
   const target = resolveWithinSourceRoot(requestedPath)
-  const relativeTarget = relative(SOURCE_ROOT!, target).replace(/\\/g, '/')
+  const relativeTarget = relative(sourceRoot()!, target).replace(/\\/g, '/')
   if (relativeTarget === 'graphify-out' || relativeTarget.startsWith('graphify-out/')) {
     throw new Error('source_read 不直接读取 graphify-out；请使用 source_context 获取图谱上下文')
   }
@@ -654,7 +676,7 @@ function readSource(args: Record<string, unknown>): Record<string, unknown> {
   const content = lines.slice(startLine - 1, endLine)
     .map((line, index) => `${startLine + index}: ${line}`)
     .join('\n')
-  return textResult(`${relative(SOURCE_ROOT!, target)}:${startLine}-${endLine}\n${content}`)
+  return textResult(`${relative(sourceRoot()!, target)}:${startLine}-${endLine}\n${content}`)
 }
 
 function clampInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -676,6 +698,9 @@ function fail(id: JsonRpcRequest['id'], code: number, message: string): void {
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   try {
+    if (name === 'source_projects') return textResult(JSON.stringify(await callSourceProjects(args, {
+      apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN,
+    })))
     if (name === 'read_consult_attachment') return await readConsultAttachment(args, {
       apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN,
     })
@@ -709,7 +734,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
       const path = typeof args.path === 'string' ? args.path : ''
       const target = resolveWithinSourceRoot(path)
       if (!isSourceFile(target)) throw new Error('仅允许查询已定位源码或文本配置文件的历史')
-      return textResult(JSON.stringify(await queryConsultGitHistory(SOURCE_ROOT!, args)))
+      return textResult(JSON.stringify(await queryConsultGitHistory(sourceRoot()!, args)))
     }
     if (name === 'erp_standby_schema_search') return standbySchemaSearch(args)
     if (name === 'erp_standby_validate_sql') return validateStandbySql(args)
@@ -754,6 +779,27 @@ async function handle(message: JsonRpcRequest): Promise<void> {
       const args = params.arguments && typeof params.arguments === 'object'
         ? params.arguments as Record<string, unknown>
         : {}
+      if (['source_context', 'source_search', 'source_read', 'source_git_history'].includes(name)) {
+        try {
+          const scope = await sourceRouting({ apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID,
+            token: process.env.CONSULT_RESOURCE_TOKEN }, undefined, { project: args.project, path: args.path })
+          if (scope) {
+            const project = scope.projects.find(project => project.id === (args.project ?? scope.focusedProject))
+            if (!project) throw new Error('请先调用 source_projects，并为本次源码查询指定可用候选 project')
+            const root = resolveSourceRoot(project.path)
+            if (!root) throw new Error('候选源码目录当前不可用')
+            const result = await sourceRootScope.run(root, () => callTool(name, args))
+            ok(id, { ...result, content: [
+              { type: 'text', text: `来源项目：${project.label}（${project.id}）；归属需结合调用证据核对。` },
+              ...result.content as unknown[],
+            ] })
+            return
+          }
+          if (args.project != null) throw new Error('旧咨询不接受额外项目，请新建自动识别咨询')
+        } catch (error) {
+          ok(id, textResult(error instanceof Error ? error.message : String(error), true)); return
+        }
+      }
       ok(id, await callTool(name, args))
       return
     }

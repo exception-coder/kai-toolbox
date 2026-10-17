@@ -23,7 +23,7 @@ vi.mock('../api', async original => ({ ...await original<typeof import('../api')
   listConsults: calls.history, startConsult: calls.start,
   getTopology: async () => ({ links: [] }), listCodexHomes: async () => [],
   fetchProjectModules: async () => ({ modules: [] }),
-  getBusinessConsultModelPolicy: async () => ({}),
+  getBusinessConsultModelPolicy: async () => ({ model: 'test-model', codexHome: 'C:/test-codex' }),
 }))
 
 let client: QueryClient
@@ -47,6 +47,30 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals() })
 function mount() { render(<QueryClientProvider client={client}><ForeConsultPage /></QueryClientProvider>) }
+
+it('starts from the question without selecting a system or entering a title', async () => {
+  calls.start.mockReturnValue(new Promise(() => {}))
+  mount()
+  const question = await screen.findByRole('textbox', { name: '业务问题' })
+  await waitFor(() => expect(question).toBeEnabled())
+  expect(screen.getByRole('combobox', { name: '系统定位方式' })).toHaveValue('')
+  fireEvent.change(question, { target: { value: '为什么订单价格\n下限变成了65' } })
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Ask Forge' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Ask Forge' }))
+  await waitFor(() => expect(calls.start).toHaveBeenCalledOnce())
+  expect(calls.start.mock.calls[0][0]).toMatchObject({ autoDetect: true, systemName: '', systemSourcePath: '' })
+  expect(calls.start.mock.calls[0][0].questionTitle).toMatch(/^\d{6}-为什么订单价格 下限变成了65$/)
+})
+
+it('allows an optional system correction without discarding the question draft', async () => {
+  mount()
+  const question = await screen.findByRole('textbox', { name: '业务问题' })
+  await waitFor(() => expect(question).toBeEnabled())
+  fireEvent.change(question, { target: { value: '请核查截图' } })
+  fireEvent.change(screen.getByRole('combobox', { name: '系统定位方式' }), { target: { value: 'erp' } })
+  expect(question).toHaveValue('请核查截图')
+  expect(calls.start).not.toHaveBeenCalled()
+})
 
 it('allows a new question after authoritative history succeeds even when runtime hints fail', async () => {
   calls.runtime.mockRejectedValue(new Error('HTTP 500'))

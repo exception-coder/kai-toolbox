@@ -44,7 +44,7 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
                 context.addSection("Graphify 与源码实现证据", """
                         只有问题需要证明当前实现、调用关系或候选根因时才调用 source_context，通过 Graphify 收敛页面、Action/API、Service、SQL/实体和调用链。
                         对 Graphify 返回的关键候选必须使用 source_read 精确读取源码确认条件；发现新的类名、方法名或 SQL ID 后可带新上下文再次调用 source_context。
-                        source_search 仅允许在 modules.json 或 Graphify 已确认的 codePath/webPath 子目录内使用单关键词兜底；禁止扫描项目根目录、graphify-out 和缓存目录。
+                        source_search 仅允许在 modules.json、Graphify 或 source_context 有界结构线索已确认的子目录内使用单关键词兜底；禁止扫描项目根目录、graphify-out 和缓存目录。
                         Graphify 只证明结构关系，源码只证明当前版本存在某种实现，均不能单独证明用户环境实际走过该分支。
                         """));
     }

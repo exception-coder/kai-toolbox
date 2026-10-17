@@ -127,6 +127,7 @@ export function submitFeedback(sessionId: string, turnIndex: number, req: Feedba
 }
 
 export interface StartSessionRequest {
+  autoDetect?: boolean
   systemName: string
   systemSourcePath: string
   moduleNames: string[]
@@ -139,6 +140,30 @@ export interface StartSessionRequest {
   codexSpeed?: 'default' | 'fast' | null
   codexHome?: string | null
   orchestrationVersion?: ConsultOrchestrationVersion
+}
+
+export interface ConsultSourceRouting {
+  automatic: boolean
+  focusedProject: string | null
+  projects: Array<{ id: string; name: string; label: string; path: string }>
+  evidencePath: string | null
+  reason: string | null
+  selectedBy: string | null
+}
+
+export function readConsultSourceRouting(snapshot: string | null | undefined): ConsultSourceRouting | null {
+  if (!snapshot) return null
+  try { return (JSON.parse(snapshot) as { sourceRouting?: ConsultSourceRouting }).sourceRouting ?? null } catch { return null }
+}
+
+export function getConsultSourceRouting(id: string) {
+  return http<ConsultSourceRouting | null>(`/fore-consult/sessions/${encodeURIComponent(id)}/source-routing`)
+}
+
+export function correctConsultSourceRouting(id: string, project: string) {
+  return http<ConsultSourceRouting>(`/fore-consult/sessions/${encodeURIComponent(id)}/source-routing`, {
+    method: 'PUT', body: JSON.stringify({ project }),
+  })
 }
 
 export interface ArchiveTurnItem {

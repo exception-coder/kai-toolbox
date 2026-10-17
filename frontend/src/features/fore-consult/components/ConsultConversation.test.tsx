@@ -17,6 +17,7 @@ vi.mock('../consultConversationState', () => ({
   }),
 }))
 vi.mock('./ConsultDocuments', () => ({ ConsultDocuments: () => null }))
+vi.mock('./ConsultRoutingStatus', () => ({ ConsultRoutingStatus: () => null }))
 vi.mock('./ConsultVoiceActions', () => ({ ConsultVoiceActions: () => null }))
 vi.mock('./ConsultPanel', () => ({
   ConsultPanel: ({ children }: { children: (controls: null) => React.ReactNode }) => <div>{children(null)}</div>,
