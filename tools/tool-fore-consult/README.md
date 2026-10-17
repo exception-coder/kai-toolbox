@@ -42,6 +42,8 @@ flowchart LR
 
 ### 前端
 
+标题旁“升级公告”供全体用户主动查看2026.10.18变化，可复制正文转发同事；不会自动弹出、发送消息或影响咨询草稿。内容和交互边界见[公告设计](../../openspec/changes/consult-upgrade-announcement/design.md)，验证状态见[任务](../../openspec/changes/consult-upgrade-announcement/tasks.md)。
+
 提问始终自动识别，首问没有系统选择框或模式切换，标题可由问题生成。点击图谱系统仅标记首查源码上下文，保留问题及附件并轻提示优先探索；未命中后按管理员配置的其余顺序，从上往下结合截图定位并追到服务端。没有标记直接采用管理员顺序，不按使用频次或由模型重排。管理员在配置中上移/下移并保存；最多八个候选，标记不等于确认归属。顺序对新咨询生效；启动cwd只是锚点。原对话可纠正焦点且保留草稿，旧单项目咨询保持原范围，见[自动定位设计](../../openspec/changes/automatic-consult-system-routing/design.md)及[任务/部署状态](../../openspec/changes/automatic-consult-system-routing/tasks.md)。
 
 - `frontend/src/features/fore-consult/pages/ForeConsultPage.tsx`：系统、模块、菜单、问题分类、咨询版本和当前咨询状态。
