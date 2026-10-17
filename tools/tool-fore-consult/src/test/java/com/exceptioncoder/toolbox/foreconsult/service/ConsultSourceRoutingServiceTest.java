@@ -57,18 +57,45 @@ class ConsultSourceRoutingServiceTest {
 
     @AfterEach void cleanup() { AuthContext.clear(); }
 
-    @Test void startsWithoutSystemAndRanksOwnUsageWithoutClaimingAnIdentity() {
+    @Test void startsInAdministratorOrderWithoutUsingHistoryOrClaimingAnIdentity() {
         AuthContext.set(new AuthPrincipal(7, "tester", List.of(), List.of(), "test", 0));
         when(sessions.findRecentByUserId("7", 100)).thenReturn(List.of(
                 ConsultSession.builder().systemSourcePath(api.toString()).build()));
         var prepared = service.prepare(request(true, null));
-        assertThat(prepared.request().systemSourcePath()).isEqualTo(api.toString());
+        assertThat(prepared.request().systemSourcePath()).isEqualTo(web.toString());
         assertThat(prepared.scope().focusedProject()).isNull();
-        assertThat(prepared.scope().projects()).extracting(ConsultSourceRouting.Project::id).containsExactly("api", "web");
+        assertThat(prepared.scope().projects()).extracting(ConsultSourceRouting.Project::id).containsExactly("web", "api");
         assertThat(ConsultSourceRouting.read(prepared.scope().wrap("[]")).unresolved()).isTrue();
         assertThat(ConsultSourceRoutingService.instructions(prepared.scope()))
-                .contains("最可能的三个", "不是截图归属", "不得查询数据库", "不反复等待");
+                .contains("从上往下逐个", "不是截图归属", "不得查询数据库", "不反复等待", "不得按使用频次或自行重排");
         verify(sessions, never()).findRecent(anyInt());
+        verify(sessions, never()).findRecentByUserId(anyString(), anyInt());
+    }
+
+    @Test void selectedSystemMovesFirstWithoutRemovingFallbacksOrBecomingConfirmedFocus() {
+        var prepared = service.prepare(request(true, api.toString()));
+        assertThat(prepared.request().systemSourcePath()).isEqualTo(api.toString());
+        assertThat(prepared.scope().projects()).extracting(ConsultSourceRouting.Project::id).containsExactly("api", "web");
+        assertThat(prepared.scope().focusedProject()).isNull();
+        when(prefs.listAll()).thenReturn(List.of(pref("web", web, 5), pref("api", api, 0)));
+        assertThat(service.candidates()).extracting(ConsultSourceRouting.Project::id).containsExactly("api", "web");
+        assertThatThrownBy(() -> service.prepare(request(true, directory.toString())))
+                .hasMessageContaining("优先系统已不可用");
+    }
+
+    @Test void selectedSystemBeyondLimitIsIncludedAndRemainingAdministratorOrderIsStable() throws Exception {
+        var all = new java.util.ArrayList<>(entries);
+        var preferences = new java.util.ArrayList<>(List.of(pref("web", web, 0), pref("api", api, 1)));
+        for (int index = 2; index < 10; index++) {
+            String name = "project" + index;
+            Path path = Files.createDirectory(directory.resolve(name));
+            all.add(entry(name, path)); preferences.add(pref(name, path, index));
+        }
+        when(catalog.list(false)).thenReturn(all);
+        when(prefs.listAll()).thenReturn(preferences);
+        assertThat(service.prepare(request(true, directory.resolve("project9").toString())).scope().projects())
+                .extracting(ConsultSourceRouting.Project::id)
+                .containsExactly("project9", "web", "api", "project2", "project3", "project4", "project5", "project6");
     }
 
     @Test void limitsCandidatesToVisibleAvailableNonExcludedProjectsAndRejectsArbitraryPinnedPaths() {

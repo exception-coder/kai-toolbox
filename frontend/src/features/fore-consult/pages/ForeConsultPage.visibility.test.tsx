@@ -38,6 +38,55 @@ beforeEach(() => {
 afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals(); vi.clearAllMocks(); localStorage.removeItem('toolbox.fore-consult.skin.v2') })
 function mount() { render(<QueryClientProvider client={client}><ForeConsultPage /></QueryClientProvider>) }
 
+it('moves candidate projects and saves administrator order with aliases and visibility intact', async () => {
+  vi.mocked(listSystemPrefs).mockResolvedValue([...preferences.map(pref => ({ ...pref, visible: true })),
+    { systemName: 'new-project', systemSourcePath: 'D:/workspace/new-project', alias: null, visible: true, sortOrder: 0 }])
+  mount()
+  await screen.findByRole('button', { name: 'ERP' })
+  fireEvent.click(screen.getByRole('button', { name: '配置' }))
+  const orderedNames = () => within(screen.getByRole('list', { name: '候选系统排序' }))
+    .getAllByRole('textbox').map(input => input.getAttribute('placeholder'))
+  expect(orderedNames()).toEqual(['new-project', 'hidden', 'erp'])
+  expect(screen.getByRole('button', { name: '上移 new-project' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '下移 ERP' })).toBeDisabled()
+  const move = screen.getByRole('button', { name: '上移 ERP' })
+  move.focus()
+  fireEvent.click(move)
+  expect(move).toHaveFocus()
+  expect(orderedNames()).toEqual(['new-project', 'erp', 'hidden'])
+  vi.mocked(listSystemPrefs).mockResolvedValue([
+    { systemName: 'new-project', systemSourcePath: 'D:/workspace/new-project', alias: null, visible: true, sortOrder: 0 },
+    { ...preferences[0], sortOrder: 1 }, { ...preferences[1], visible: true, sortOrder: 2 },
+  ])
+  fireEvent.click(screen.getByRole('button', { name: '保存系统显示' }))
+  await waitFor(() => expect(saveSystemPrefs).toHaveBeenCalledOnce())
+  expect(vi.mocked(saveSystemPrefs).mock.calls[0][0]).toEqual([
+    { systemName: 'new-project', systemSourcePath: 'D:/workspace/new-project', alias: null, visible: true, sortOrder: 0 },
+    { systemName: 'erp', systemSourcePath: 'D:/workspace/erp', alias: 'ERP', visible: true, sortOrder: 1 },
+    { systemName: 'hidden', systemSourcePath: 'D:/workspace/hidden', alias: null, visible: true, sortOrder: 2 },
+  ])
+  await waitFor(() => expect(screen.queryByRole('list', { name: '候选系统排序' })).not.toBeInTheDocument())
+  fireEvent.click(screen.getByRole('button', { name: '配置' }))
+  expect(orderedNames()).toEqual(['new-project', 'erp', 'hidden'])
+})
+
+it('keeps the reordered candidates after a save failure so the administrator can retry', async () => {
+  vi.mocked(listSystemPrefs).mockResolvedValue([...preferences.map(pref => ({ ...pref, visible: true })),
+    { systemName: 'new-project', systemSourcePath: 'D:/workspace/new-project', alias: null, visible: true, sortOrder: 0 }])
+  vi.mocked(saveSystemPrefs).mockRejectedValueOnce(new Error('暂时不可用')).mockResolvedValueOnce([])
+  mount()
+  await screen.findByRole('button', { name: 'ERP' })
+  fireEvent.click(screen.getByRole('button', { name: '配置' }))
+  fireEvent.click(screen.getByRole('button', { name: '上移 ERP' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存系统显示' }))
+  expect(await screen.findByText('保存失败，当前顺序已保留，可重试。')).toBeVisible()
+  expect(within(screen.getByRole('list', { name: '候选系统排序' })).getAllByRole('textbox')
+    .map(input => input.getAttribute('placeholder'))).toEqual(['new-project', 'erp', 'hidden'])
+  fireEvent.click(screen.getByRole('button', { name: '保存系统显示' }))
+  await waitFor(() => expect(saveSystemPrefs).toHaveBeenCalledTimes(2))
+  expect(vi.mocked(saveSystemPrefs).mock.calls[1][0]).toEqual(vi.mocked(saveSystemPrefs).mock.calls[0][0])
+})
+
 it('switches the current page skin without changing the project selection policy or saving configuration', async () => {
   mount()
   const project = await screen.findByRole('button', { name: 'ERP' })

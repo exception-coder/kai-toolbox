@@ -1,6 +1,5 @@
 package com.exceptioncoder.toolbox.foreconsult.service;
 
-import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
 import com.exceptioncoder.toolbox.common.project.ProjectAccess;
 import com.exceptioncoder.toolbox.common.project.ProjectCatalog;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
@@ -56,34 +55,39 @@ public class ConsultSourceRoutingService {
                     request.question(), request.userId(), request.role(), request.engine(), request.model(),
                     request.codexReasoningEffort(), request.codexSpeed(), request.codexHome(), request.orchestrationVersion(), false), null);
         }
-        var projects = candidates();
+        var projects = candidates(request.systemSourcePath());
         if (projects.isEmpty()) {
             throw new IllegalArgumentException("暂无可探索系统，请在咨询配置中显示系统，并在项目库恢复可用源码目录");
         }
         var anchor = projects.getFirst();
-        var normalized = new StartSessionRequest(anchor.name(), anchor.path(), List.of(), request.questionTitle(),
+        var modules = request.systemSourcePath() == null || request.systemSourcePath().isBlank()
+                || request.moduleNames() == null ? List.<String>of() : request.moduleNames();
+        var normalized = new StartSessionRequest(anchor.name(), anchor.path(), modules, request.questionTitle(),
                 request.question(), request.userId(), request.role(), request.engine(), request.model(),
                 request.codexReasoningEffort(), request.codexSpeed(), request.codexHome(), request.orchestrationVersion(), true);
         return new Prepared(normalized, new ConsultSourceRouting(true, null, projects, null, null, null));
     }
 
     public List<ConsultSourceRouting.Project> candidates() {
+        return candidates(null);
+    }
+
+    private List<ConsultSourceRouting.Project> candidates(String preferredPath) {
         Map<String, ConsultSystemPref> visible = prefs.listAll().stream().filter(ConsultSystemPref::isVisible)
                 .collect(Collectors.toMap(ConsultSystemPref::getSystemName, Function.identity(), (a, b) -> a));
-        var recent = AuthContext.current().map(user -> sessions.findRecentByUserId(String.valueOf(user.userId()), 100))
-                .orElse(List.of()).stream().filter(session -> {
-                    var scope = ConsultSourceRouting.read(session.getEvidenceRouteSnapshot());
-                    return scope == null || scope.focusedProject() != null;
-                }).collect(Collectors.groupingBy(
-                        session -> key(session.getSystemSourcePath()), Collectors.counting()));
-        return catalog.list(false).stream().filter(entry -> entry.available() && !entry.excluded())
+        var eligible = catalog.list(false).stream().filter(entry -> entry.available() && !entry.excluded())
                 .filter(entry -> visible.containsKey(entry.name()) && access.allowed(Path.of(entry.path())))
                 .filter(entry -> visible.get(entry.name()).getSystemSourcePath() == null
                         || key(visible.get(entry.name()).getSystemSourcePath()).equals(key(entry.path())))
-                .sorted(Comparator.<ProjectCatalog.Entry>comparingLong(entry ->
-                                -recent.getOrDefault(key(entry.path()), 0L))
-                        .thenComparingInt(entry -> visible.get(entry.name()).getSortOrder())
+                .sorted(Comparator.<ProjectCatalog.Entry>comparingInt(entry -> visible.get(entry.name()).getSortOrder())
                         .thenComparing(ProjectCatalog.Entry::name).thenComparing(ProjectCatalog.Entry::id))
+                .toList();
+        boolean preferred = preferredPath != null && !preferredPath.isBlank();
+        if (preferred && eligible.stream().noneMatch(entry -> key(entry.path()).equals(key(preferredPath)))) {
+            throw new IllegalArgumentException("优先系统已不可用或不在咨询显示范围，请重新选择或使用自动识别");
+        }
+        return eligible.stream().sorted(Comparator.comparingInt(entry ->
+                        preferred && key(entry.path()).equals(key(preferredPath)) ? 0 : 1))
                 .limit(8).map(entry -> new ConsultSourceRouting.Project(entry.id(), entry.name(),
                         visible.get(entry.name()).getAlias() == null ? entry.name() : visible.get(entry.name()).getAlias(),
                         entry.path())).toList();
@@ -190,8 +194,9 @@ public class ConsultSourceRoutingService {
 
     public static String instructions(ConsultSourceRouting scope) {
         return "【自动系统定位】用户无需预选系统。会话工作目录只是启动锚点，不是截图归属。"
-                + "先调用 source_projects 查看服务端候选；按截图、菜单、提示及业务语义重排，常用排序不等于归属证据。"
-                + "先探索最可能的三个项目，未命中换下一个；图谱预热/排队不是未命中，不反复等待同一项目。"
+                + "先调用 source_projects 查看有序候选。用户选中的系统排首位，其余按管理员配置顺序；没有选择时直接按管理员顺序。"
+                + "必须从上往下逐个根据截图、菜单、提示及源码核对，未命中再查下一个，不得按使用频次或自行重排。排序不等于归属证据。"
+                + "图谱预热/排队不是未命中，不反复等待同一项目；利用结构线索继续定位，仍不能确认再按顺序探索其他候选。"
                 + "图谱预热时利用 source_context 的有界结构线索读取入口配置、在已确认子目录核对文案，不必等待图谱；仍禁止根目录搜索。"
                 + "source_context/source_read/source_search/source_git_history 的 project 参数使用候选 id，不能自行指定目录。"
                 + "找到前端后沿请求接口核对服务端，跨项目证据注明来源；确定服务端后用 source_projects(action=select)"

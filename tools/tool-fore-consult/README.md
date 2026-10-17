@@ -24,7 +24,7 @@ flowchart LR
     BACKEND --> GMCP["Graphify MCP Server\n进程级多项目缓存"]
     RO --> SRC["路径受限源码"]
     RO --> ROUTE["source_projects<br/>签名核验候选与服务端焦点"]
-    ROUTE --> CATALOG["ProjectCatalog + ProjectAccess<br/>咨询可见配置 + 本人使用排序"]
+    ROUTE --> CATALOG["ProjectCatalog + ProjectAccess<br/>用户所选置首 + 管理员顺序后备"]
     ROUTE --> SRC
     RO --> GIT["本地只读 Git 历史与行归属"]
     RO --> DB["冻结的资源绑定 → 系统/环境/启用校验 → 测试库只读查询"]
@@ -42,7 +42,7 @@ flowchart LR
 
 ### 前端
 
-默认直接输入截图或问题，无需先选系统，标题可由问题生成。服务端汇聚最多八个可用常用候选，助手按页面语义探索并追到服务端；启动cwd只是锚点。原对话展示候选及焦点，用户可纠正且保留草稿。旧咨询保持原单项目范围，见[自动定位设计](../../openspec/changes/automatic-consult-system-routing/design.md)及[任务/部署状态](../../openspec/changes/automatic-consult-system-routing/tasks.md)。
+默认直接输入截图或问题，无需先选系统，标题可由问题生成。管理员在配置中上移/下移候选系统并保存；用户首问选中系统时先查它，未命中后按其余管理员顺序，从上往下结合截图逐项定位并追到服务端。不选系统直接采用管理员顺序，不按使用频次或由模型重排；最多八个候选，首查选择不等于确认归属。顺序对新咨询生效；启动cwd只是锚点。原对话可纠正焦点且保留草稿，旧单项目咨询保持原范围，见[自动定位设计](../../openspec/changes/automatic-consult-system-routing/design.md)及[任务/部署状态](../../openspec/changes/automatic-consult-system-routing/tasks.md)。
 
 - `frontend/src/features/fore-consult/pages/ForeConsultPage.tsx`：系统、模块、菜单、问题分类、咨询版本和当前咨询状态。
 - `frontend/src/features/fore-consult/components/ConsultConversation.tsx`：底层开发会话的只读/受控展示，不得抢占 Vibe Coding 当前会话。

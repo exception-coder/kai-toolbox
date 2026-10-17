@@ -62,7 +62,8 @@ it('starts from the question without selecting a system or entering a title', as
   expect(calls.start.mock.calls[0][0].questionTitle).toMatch(/^\d{6}-为什么订单价格 下限变成了65$/)
 })
 
-it('allows an optional system correction without discarding the question draft', async () => {
+it('uses the selected system as a preference and keeps automatic fallback and the draft', async () => {
+  calls.start.mockReturnValue(new Promise(() => {}))
   mount()
   const question = await screen.findByRole('textbox', { name: '业务问题' })
   await waitFor(() => expect(question).toBeEnabled())
@@ -70,6 +71,11 @@ it('allows an optional system correction without discarding the question draft',
   fireEvent.change(screen.getByRole('combobox', { name: '系统定位方式' }), { target: { value: 'erp' } })
   expect(question).toHaveValue('请核查截图')
   expect(calls.start).not.toHaveBeenCalled()
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Ask Forge' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Ask Forge' }))
+  await waitFor(() => expect(calls.start).toHaveBeenCalledOnce())
+  expect(calls.start.mock.calls[0][0]).toMatchObject({ autoDetect: true,
+    systemName: 'erp', systemSourcePath: 'D:/workspace/erp', question: '请核查截图' })
 })
 
 it('allows a new question after authoritative history succeeds even when runtime hints fail', async () => {

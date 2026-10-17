@@ -403,7 +403,7 @@ flowchart LR
     DBVIEW --> ORIGINAL["原资源记录编辑<br/>不复制凭据"]
 ```
 
-新建业务咨询默认自动定位系统：从ProjectCatalog、ProjectAccess及咨询可见配置投影最多八个候选，按本人已定位咨询使用情况与配置顺序探索。启动cwd仅为锚点，助手沿截图对应前端请求核对服务端；`source_projects`只保存原咨询的模型推断或用户指定焦点，不能生成已确认业务事实。它是具名元数据写入例外，MCP标记readOnlyHint=false，服务端逐次签名与真实路径核验才是执行边界。Sidecar按调用隔离源码根；核验失败不回退。版本2证据路由快照将源码候选与原确认数据归属分离，旧数组保留单项目行为。AUTO无有效焦点不得查询数据库，定位后仍使用原冻结绑定和环境校验。图谱等待不缓存为完成证据，可用有界结构线索继续定位；原理及未部署、未验收项见[自动系统定位](../openspec/changes/automatic-consult-system-routing/design.md)和[任务](../openspec/changes/automatic-consult-system-routing/tasks.md)。
+新建业务咨询默认自动定位系统：从ProjectCatalog、ProjectAccess及咨询可见配置投影候选，用户首问选中的系统置首，其余保留管理员sortOrder相对顺序，再截取最多八个；没有选择时按管理员顺序。从上往下逐项结合截图核对，未命中再查下一项，不按历史频次或由模型重排。管理员在原配置调整顺序，批量保存要求ADMIN并使用事务；新咨询冻结该顺序，旧咨询不因配置更新而重排。启动cwd仅为锚点，助手沿前端请求核对服务端；`source_projects`只保存原咨询的模型推断或用户纠正焦点，不能生成已确认业务事实。它是具名元数据写入例外，MCP标记readOnlyHint=false，服务端逐次签名与真实路径核验才是执行边界。Sidecar按调用隔离源码根，核验失败不回退。版本2快照将源码候选与原确认数据归属分离，旧数组保留单项目行为。AUTO无有效焦点不得查询数据库，定位后仍使用原冻结绑定和环境校验；首查选择不构成数据库授权。图谱等待不缓存为完成证据，可用有界结构线索继续定位；原理及未部署、未验收项见[自动系统定位](../openspec/changes/automatic-consult-system-routing/design.md)和[任务](../openspec/changes/automatic-consult-system-routing/tasks.md)。
 
 ```mermaid
 flowchart LR
@@ -418,7 +418,7 @@ flowchart LR
     CONSULT_UI["咨询语音输入 / 实时语音"] --> CONSULT_CHANNEL["原consult WS / SessionVoiceService<br/>官方账号 · 原会话 · 同一只读装配"]
     CONSULT_CHANNEL --> CONSULT
     CONSULT --> SOURCE_ROUTE["source_projects<br/>原会话签名 + 当前候选核验"]
-    SOURCE_ROUTE --> SOURCE_CATALOG["ProjectCatalog + ProjectAccess<br/>咨询可见配置 · 本人使用排序 · 最多8项"]
+    SOURCE_ROUTE --> SOURCE_CATALOG["ProjectCatalog + ProjectAccess<br/>用户所选置首 · 其余管理员排序 · 最多8项"]
     SOURCE_ROUTE --> SOURCE_READ["逐调用源码根隔离<br/>前端证据追到服务端焦点"]
     SOURCE_READ --> SOURCE_FOCUS["模型推断 / 用户纠正<br/>原咨询快照 · 不授予数据库权限"]
     CONSULT --> QUERY_TOOL["consult_resources / consult_resource_query<br/>有效服务端焦点 + 原冻结绑定"]

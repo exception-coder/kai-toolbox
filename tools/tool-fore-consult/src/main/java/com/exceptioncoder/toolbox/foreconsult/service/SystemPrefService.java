@@ -24,6 +24,7 @@ public class SystemPrefService {
     }
 
     /** 批量保存：按项 upsert。别名空白视为无别名（存 null，前端回退原名）。 */
+    @org.springframework.transaction.annotation.Transactional
     public List<ConsultSystemPref> save(SaveSystemPrefsRequest req) {
         long now = System.currentTimeMillis();
         List<SaveSystemPrefsRequest.Item> items = req.prefs() != null ? req.prefs() : List.of();

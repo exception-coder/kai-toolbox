@@ -4,7 +4,7 @@ import {
 } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BarChart3, Boxes, BrainCircuit, Briefcase, Bug, ChevronDown, Contact, Copy, Eye, EyeOff, Factory, Handshake,
+  ArrowDown, ArrowUp, BarChart3, Boxes, BrainCircuit, Briefcase, Bug, ChevronDown, Contact, Copy, Eye, EyeOff, Factory, Handshake,
   FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, MousePointerClick,
   Paperclip, Pencil, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal,
   Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
@@ -952,7 +952,7 @@ export function ForeConsultPage() {
       const cwd = systemPath || system.trim()
       const legacySeed = buildConsultSeed(system.trim(), moduleTags, ask, CONSULT_ROLE)
       const created = await startConsult({
-        autoDetect,
+        autoDetect: true,
         systemName: autoDetect ? '' : system.trim(),
         systemSourcePath: autoDetect ? '' : cwd,
         moduleNames: moduleTags,
@@ -1184,7 +1184,7 @@ export function ForeConsultPage() {
           const pref = prefMap.get(p.name)
           return { name: p.name, path: p.path, alias: pref?.alias ?? '', visible: pref?.visible === true, sortOrder: pref?.sortOrder ?? 0 }
         })
-        .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'zh')),
+        .sort((a, b) => Number(b.visible) - Number(a.visible) || a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'zh')),
     )
     setConfigOpen(true)
   }
@@ -1325,7 +1325,7 @@ export function ForeConsultPage() {
     const nextRole: ConsultRole = current?.role === 'IT' ? 'IT' : CONSULT_ROLE
     const legacySeed = buildConsultSeed(nextSystem, nextModules, question, nextRole)
     const created = await startConsult({
-      autoDetect: current ? readConsultSourceRouting(current.evidenceRouteSnapshot)?.automatic === true : autoDetect,
+      autoDetect: true,
       systemName: nextSystem,
       systemSourcePath: nextPath,
       moduleNames: nextModules,
@@ -1911,11 +1911,11 @@ export function ForeConsultPage() {
                 </span>
                 <span className="hidden items-center gap-1 text-[10px] text-slate-400 sm:flex">
                   <span className="size-1.5 rounded-full bg-sky-300/65" />
-                  {autoDetect ? '按截图与问题定位' : '指定系统'}
+                  {autoDetect ? '按配置顺序定位' : '优先核查，未命中继续探索'}
                 </span>
               </div>
               <p className="mt-0.5 truncate text-[10px] text-slate-500">
-                {autoDetect ? `候选：${visibleProjects.slice(0, 3).map(project => project.label).join('、') || '请先在配置中显示可用系统'}` : `${moduleOptions.length} 个模块 · Forge 跨系统分析`}
+                {autoDetect ? `配置顺序：${visibleProjects.slice(0, 3).map(project => project.label).join(' → ') || '请先在配置中显示可用系统'}` : `优先：${displayName(system)}；未命中按管理员顺序继续`}
               </p>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -2278,7 +2278,7 @@ export function ForeConsultPage() {
                 <SheetTitle className="flex items-center gap-2 text-sm font-semibold">
                   <SlidersHorizontal className="size-4" /> 业务咨询配置
                 </SheetTitle>
-                <SheetDescription className="mt-1 text-xs">管理员配置，全体用户共用。附件、数据库与系统显示集中查看。</SheetDescription>
+                <SheetDescription className="mt-1 text-xs">管理员配置，全体用户共用。附件、数据库与候选系统集中查看。</SheetDescription>
               </div>
               <button type="button" onClick={() => setConfigOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="关闭">
                 <X className="size-4" />
@@ -2287,19 +2287,22 @@ export function ForeConsultPage() {
 
             <div className="flex-1 overflow-y-auto p-4">
               <ConsultAdminSettings sourcePath={systemPath} />
-              <h3 className="mb-2 mt-6 text-sm font-semibold">系统别名与显示</h3>
-              <p className="mb-3 text-xs text-muted-foreground">仅显示已标记的项目；新发现项目默认不显示，别名为空则用原名。</p>
+              <h3 className="mb-2 mt-6 text-sm font-semibold">候选系统与探索顺序</h3>
+              <p className="mb-3 text-xs text-muted-foreground">用户选中的系统优先；未命中后，按下方已显示系统从上往下逐个核查截图。最多选取前8个可用候选；新咨询生效，新发现项目默认不加入。</p>
               {configRows.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-slate-300/80 p-6 text-center text-sm text-slate-500">未扫描到业务系统</p>
               ) : (
-                <ul className="flex flex-col gap-2">
+                <ul aria-label="候选系统排序" className="flex flex-col gap-2">
                   {configRows.map((r, idx) => (
                     <li key={r.name} className={`flex items-center gap-2.5 rounded-xl border border-slate-200/80 bg-white/45 px-3 py-2.5 ${r.visible ? '' : 'opacity-55'}`}>
+                      <span className="w-5 shrink-0 text-center text-xs tabular-nums text-slate-500" aria-label={`排序 ${idx + 1}`}>{idx + 1}</span>
                       <button
                         type="button"
-                        onClick={() => setConfigRows((rows) => rows.map((x, i) => (i === idx ? { ...x, visible: !x.visible } : x)))}
+                        onClick={() => setConfigRows((rows) => rows.map((x, i) => (i === idx ? { ...x, visible: !x.visible } : x))
+                          .sort((a, b) => Number(b.visible) - Number(a.visible)))}
                         className={`shrink-0 rounded-lg p-1.5 transition-colors ${r.visible ? 'text-sky-600 hover:bg-sky-50' : 'text-slate-400 hover:bg-slate-100'}`}
                         title={r.visible ? '点击隐藏' : '点击显示'}
+                        disabled={saveConfigMutation.isPending}
                         aria-label={r.visible ? '隐藏' : '显示'}
                       >
                         {r.visible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
@@ -2309,9 +2312,24 @@ export function ForeConsultPage() {
                           value={r.alias}
                           onChange={(e) => setConfigRows((rows) => rows.map((x, i) => (i === idx ? { ...x, alias: e.target.value } : x)))}
                           placeholder={r.name}
+                          disabled={saveConfigMutation.isPending}
                           className="fc-glass-input w-full rounded-lg px-2.5 py-1.5 text-sm"
                         />
                         <div className="mt-1 truncate text-[11px] text-slate-400">原名：{r.name}</div>
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-1">
+                        {([-1, 1] as const).map(offset => {
+                          const Icon = offset === -1 ? ArrowUp : ArrowDown
+                          const label = `${offset === -1 ? '上移' : '下移'} ${r.alias || r.name}`
+                          return <button key={offset} type="button" aria-label={label} title={label}
+                            disabled={saveConfigMutation.isPending || !configRows[idx + offset] || configRows[idx + offset].visible !== r.visible}
+                            className="rounded p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-sky-500 disabled:opacity-30"
+                            onClick={() => setConfigRows(rows => {
+                              const next = [...rows]
+                              ;[next[idx], next[idx + offset]] = [next[idx + offset], next[idx]]
+                              return next
+                            })}><Icon className="size-3.5" /></button>
+                        })}
                       </div>
                     </li>
                   ))}
@@ -2320,6 +2338,7 @@ export function ForeConsultPage() {
             </div>
 
             <div className="flex items-center justify-end gap-3 border-t border-slate-200/80 p-4">
+              {saveConfigMutation.isError && <p role="alert" className="mr-auto text-xs text-red-600">保存失败，当前顺序已保留，可重试。</p>}
               <button type="button" onClick={() => setConfigOpen(false)} className="rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-white/65 hover:text-slate-900">
                 取消
               </button>

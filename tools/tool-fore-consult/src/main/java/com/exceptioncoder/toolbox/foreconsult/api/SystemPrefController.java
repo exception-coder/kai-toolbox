@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.foreconsult.api;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.SaveSystemPrefsRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.SystemPrefView;
 import com.exceptioncoder.toolbox.foreconsult.service.SystemPrefService;
+import com.exceptioncoder.toolbox.common.auth.annotation.RequireRole;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -37,6 +38,7 @@ public class SystemPrefController {
     }
 
     @PutMapping
+    @RequireRole("ADMIN")
     public List<SystemPrefView> save(@Valid @RequestBody SaveSystemPrefsRequest req) {
         return service.save(req).stream().map(SystemPrefView::from).toList();
     }

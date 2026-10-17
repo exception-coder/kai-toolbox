@@ -7,7 +7,7 @@ export interface SourceRoutingContext { apiBase: string; session?: string; token
 
 export const sourceProjectsTool = {
   name: 'source_projects',
-  description: '查看本咨询授权的候选项目（常用排序不代表归属）。先按截图/页面语义探索最可能的三个，未命中换下一个；图谱排队不重复等待。定位前端后沿接口核对服务端，再通过 select 和相对文件证据记录服务端焦点。仅改变咨询分析元数据，不授予数据库或终端权限。',
+  description: '查看本咨询授权的有序候选（排序不代表归属）。用户所选系统首位，其余按管理员配置从上往下逐个结合截图核对，未命中再查下一项，不自行重排；图谱排队不重复等待。定位前端后沿接口核对服务端，再通过 select 和相对文件证据记录服务端焦点。仅改变咨询分析元数据，不授予数据库或终端权限。',
   inputSchema: { type: 'object', properties: {
     action: { type: 'string', enum: ['list', 'select'] },
     project: { type: 'string', description: '候选项目 id，不接受目录或自造系统名' },
