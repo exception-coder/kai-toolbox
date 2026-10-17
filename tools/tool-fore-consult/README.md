@@ -42,7 +42,13 @@ flowchart LR
 
 ### 前端
 
-标题旁“升级公告”供全体用户主动查看2026.10.18变化，可复制正文转发同事；不会自动弹出、发送消息或影响咨询草稿。内容和交互边界见[公告设计](../../openspec/changes/consult-upgrade-announcement/design.md)，验证状态见[任务](../../openspec/changes/consult-upgrade-announcement/tasks.md)。
+标题旁“更新小纸条”供全体用户主动查看重磅更新及历史，按日期倒序展示，每条可独立复制转发同事；不会自动弹出、发送消息或影响咨询草稿。内容和交互边界见[公告设计](../../openspec/changes/consult-upgrade-announcement/design.md)，验证状态见[任务](../../openspec/changes/consult-upgrade-announcement/tasks.md)。
+
+#### 更新小纸条登记
+
+每次面向用户的新能力、重要交互变化、旧限制解除或操作方式变化，在同次改动中向[登记文件](../../frontend/src/features/fore-consult/data/upgradeNotes.ts)的`CONSULT_UPGRADE_NOTES`追加一条记录。使用唯一稳定`id`、`YYYY-MM-DD`日期、简明标题、一句摘要、变化与用法及适用范围；同一更新更正沿用ID，不覆盖其他历史。页面自动按日期倒序展示，同日沿用登记顺序，复制仅包含所选纸条。
+
+内容面向业务同事，说明“更新了什么、现在怎么用”，不照搬Git日志。只写有证据的变化；尚未部署或运行验收时在摘要/范围明确状态，不能宣称已经上线。普通内部重构和无感小修复无需登记。登记随源码提交并随前端版本发布，不是后台在线编辑；无需新增数据库或公告推送服务。
 
 提问始终自动识别，首问没有系统选择框或模式切换，标题可由问题生成。点击图谱系统仅标记首查源码上下文，保留问题及附件并轻提示优先探索；未命中后按管理员配置的其余顺序，从上往下结合截图定位并追到服务端。没有标记直接采用管理员顺序，不按使用频次或由模型重排。管理员在配置中上移/下移并保存；最多八个候选，标记不等于确认归属。顺序对新咨询生效；启动cwd只是锚点。原对话可纠正焦点且保留草稿，旧单项目咨询保持原范围，见[自动定位设计](../../openspec/changes/automatic-consult-system-routing/design.md)及[任务/部署状态](../../openspec/changes/automatic-consult-system-routing/tasks.md)。
 

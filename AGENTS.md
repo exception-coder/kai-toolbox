@@ -154,6 +154,8 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 
 ### 自动提交与交付记录
 
+面向用户的重磅更新（新能力、重要交互变化、旧限制解除或操作方式变化）须在同次作业登记到业务咨询的[更新小纸条](frontend/src/features/fore-consult/data/upgradeNotes.ts)，保留历史，写明日期、具体变化、使用方法及适用范围。登记规范见[咨询说明](tools/tool-fore-consult/README.md#更新小纸条登记)。普通内部重构、无用户感知的小修复无需单独登记；尚未部署或验收的能力必须明确状态，不以公告代替验收。
+
 本项目采用 AI 原生开发工作流；本节是 Codex、Claude Code 和其他仓库 Agent 的统一收尾约束。自动提交授权不包含服务重启授权。
 - 每完成一个可独立验收的功能、修复或重构，更新相关 OpenSpec 任务与必要文档，执行适用测试及项目质量门禁，通过后立即自动 `git commit`，不积累到下一轮。用户已授权此行为，无需再次询问；用户明确要求不提交时除外。
 - 开始工作时记录 Git 状态；提交前核对 diff 与暂存区，只提交本任务完成的改动。用 `git add <具体路径>`，禁止 `git add -A` / `git add .`。同一文件混有其他任务改动时按块暂存；不能可靠拆分时说明阻碍，不擅自提交、还原或 stash 他人改动。

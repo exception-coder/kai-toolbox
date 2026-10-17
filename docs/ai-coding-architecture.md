@@ -127,6 +127,8 @@ LLM 分为两处：宿主 Agent 阅读 Team Standards 后理解需求、审阅�
 
 ## 从需求到交付
 
+面向用户的重磅更新在同次交付中登记业务咨询[更新小纸条](../frontend/src/features/fore-consult/data/upgradeNotes.ts)，由本次实施Agent维护日期、变化、用法与范围，保留历史。未部署或未验收须明确标注；小纸条是用户沟通内容，不作为规格、验证或部署事实源，不增加自动发布和服务重启授权。具体登记规范见[咨询说明](../tools/tool-fore-consult/README.md#更新小纸条登记)，普通内部重构和无感小修复无需登记。
+
 图中关键判断标明执行主体：LLM 提交语义分类，脚本依据分类路由并执行门禁；混合节点的具体职责见上表。
 
 ```mermaid
@@ -160,7 +162,7 @@ flowchart TD
     GATE -->|"否"| REPAIR["修复失败；范围或影响改变时重新判定"]
     REPAIR --> REVIEW
     GATE -->|"是"| CHECKPOINT{"当前工作可独立验证并提交?"}
-    CHECKPOINT -->|"是"| COMMIT["核对共享暂存区<br/>只提交自身写入范围"]
+    CHECKPOINT -->|"是"| COMMIT["重磅更新登记小纸条<br/>核对共享暂存区，只提交自身范围"]
     CHECKPOINT -->|"否，自动监督仍有可执行项"| MORE
     COMMIT --> MORE{"还有任务?"}
     MORE -->|"有且影响未变：原会话精简续跑"| IMPLEMENT
