@@ -19,6 +19,21 @@ class AgentReleaseGateTest {
     }
 
     @Test
+    void optionalEvaluationAllowsMissingFailedAndLowScoresWithoutRewritingEvidence() {
+        AgentVersion missing = version(null, null, false);
+        assertThat(AgentReleaseGate.evaluate(missing, false).releasable()).isTrue();
+        assertThat(AgentReleaseGate.evaluate(missing, false).reason()).contains("未评测");
+        assertThat(AgentReleaseGate.evaluate(version("failed", 10.0, false), false).releasable()).isTrue();
+        assertThat(AgentReleaseGate.evaluate(version("low", 80.0, true), false).releasable()).isTrue();
+        assertThat(missing.evaluationPassed()).isFalse();
+        assertThat(AgentReleaseGate.evaluate(null, false).releasable()).isFalse();
+        assertThat(AgentReleaseGate.evaluate(version(null, null, false,
+                List.of("source_read"), List.of()), false).releasable()).isFalse();
+        assertThat(AgentReleaseGate.evaluate(version(null, null, false,
+                List.of("write_source"), List.of()), false).releasable()).isFalse();
+    }
+
+    @Test
     void rejectsUnknownCapabilityAndToolWithoutProviderBinding() {
         AgentVersion unknown = version("eval-1", 98.1, true, List.of("write_source"), List.of());
         AgentVersion missingProvider = version("eval-1", 98.1, true, List.of("source_read"), List.of());

@@ -37,6 +37,6 @@ export function NodeResources({ node, onChange }: { node: ConsultWorkflowNode; o
     </label>)}</div>
     {missing.map(id => <label key={id} className="flex gap-3 py-2 text-xs text-amber-800"><input type="checkbox" checked onChange={() => toggle(id, false)} /><span className="break-all">已失效的资源绑定：{id}，可取消选择。</span></label>)}
     {node.tools.some(tool => legacyQueries.has(tool)) && <p role="status" className="my-2 text-xs text-amber-800">当前节点保留旧工具配置，但运行时已禁用旧连接；请明确选择数据库资源。</p>}
-    <p className="mt-2 text-xs leading-5 text-slate-500">凭据只在资源中心保存。流程选择评测并发布后对新咨询生效；旧咨询保留选择快照。修改资源连接影响下次查询，停用绑定立即禁止后续查询。配置状态不代表已测试连接。</p>
+    <p className="mt-2 text-xs leading-5 text-slate-500">凭据只在资源中心保存。流程选择发布后对新咨询生效；旧咨询保留选择快照。修改资源连接影响下次查询，停用绑定立即禁止后续查询。配置状态不代表已测试连接。</p>
   </fieldset>
 }

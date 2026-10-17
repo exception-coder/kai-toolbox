@@ -83,7 +83,7 @@ export function DatabaseResourceBindings({ sourcePath }: { sourcePath?: string }
       </fieldset>}
     </>}
     {save.isError && <p role="alert" className="text-xs text-destructive">关联保存失败，草稿已保留。请先刷新核对实际结果，再重试。</p>}
-    {save.isSuccess && <p role="status" className="text-xs">关联已保存。新增关联还需在下方流程中勾选、评测并发布。</p>}
+    {save.isSuccess && <p role="status" className="text-xs">关联已保存。新增关联还需在下方流程中勾选、保存候选并发布。</p>}
     {connection && <SavedDatabaseEditor key={connection} id={connection} onClose={() => setConnection(null)} />}
     <a className="inline-flex min-h-11 items-center text-xs underline" href="/tools/reqpool/resources?view=connections" target="_blank" rel="noreferrer">登记其他连接 ↗</a>
     {catalog.isSuccess && !systemId && <a className="ml-4 inline-flex min-h-11 items-center text-xs underline" href="/tools/project-workspace" target="_blank" rel="noreferrer">登记项目库系统 ↗</a>}

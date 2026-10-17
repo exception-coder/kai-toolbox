@@ -14,7 +14,7 @@ export function ConsultDatabaseSettings({ sourcePath }: { sourcePath?: string })
   const missing = selected.filter(id => !databases.data?.resources.some(resource => resource.bindingId === id))
   return <section aria-labelledby="consult-database-settings" className="space-y-3">
     <div className="flex items-center justify-between gap-3"><h3 id="consult-database-settings" className="font-semibold">咨询数据库</h3><Button variant="ghost" onClick={() => void databases.refetch()} disabled={databases.isFetching}>刷新</Button></div>
-    <p className="text-xs leading-5 text-muted-foreground">支持多个数据库。先关联到咨询系统，再在流程中多选、评测并发布。旧咨询保留资源选择快照；连接地址修改影响后续查询。</p>
+    <p className="text-xs leading-5 text-muted-foreground">支持多个数据库。先关联到咨询系统，再在流程中多选、保存候选并发布；评测可选。旧咨询保留资源选择快照；连接地址修改影响后续查询。</p>
     {databases.isPending && <p role="status">正在读取数据库配置…</p>}
     {databases.isError && <p role="alert" className="text-xs text-destructive">数据库配置读取失败，请刷新重试。</p>}
     {databases.isSuccess && <p className="text-xs">已发布流程 v{databases.data.workflowVersion ?? '默认'} · 选用 {selected.length} 个数据库绑定（按咨询系统隔离）</p>}

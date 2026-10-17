@@ -497,7 +497,7 @@ function EvaluationEditor({
   return (
     <section>
       <SectionTitle
-        title="评测与发布门禁 · Evaluation & Release Gate"
+        title={snapshot.id === "business-consult" ? "评测记录 · 可选" : "评测与发布门禁 · Evaluation & Release Gate"}
         detail={gate.reason}
       />
       <div className="mt-6 border-y border-slate-200">
@@ -598,7 +598,7 @@ function EvaluationEditor({
           ) : (
             <ShieldCheck className="size-3.5" />
           )}
-          最低分 {gate.minimumScore}
+          {snapshot.id === "business-consult" ? "评测仅供参考，不限制发布" : `最低分 ${gate.minimumScore}`}
         </span>
         <a
           href={observabilityUrl}

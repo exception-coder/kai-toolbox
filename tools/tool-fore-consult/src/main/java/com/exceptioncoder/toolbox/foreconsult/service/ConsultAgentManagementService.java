@@ -63,7 +63,7 @@ public class ConsultAgentManagementService {
                 AgentGovernanceCatalog.evaluationDataset(agentId, smokeSampleSource.preview()),
                 TeachingConfig.AGENT_ID.equals(agentId)
                         ? new AgentReleaseGate(false, 95, "教学 Agent 仅用于试运行，不提供生产发布")
-                        : AgentReleaseGate.evaluate(candidate));
+                        : releaseGate(agentId, candidate));
     }
 
     @Transactional
@@ -97,7 +97,7 @@ public class ConsultAgentManagementService {
         if (!"CANDIDATE".equals(target.status())) {
             throw new IllegalArgumentException("只有 Candidate 版本可以发布");
         }
-        AgentReleaseGate gate = AgentReleaseGate.evaluate(target);
+        AgentReleaseGate gate = releaseGate(agentId, target);
         if (!gate.releasable()) {
             throw new IllegalArgumentException(gate.reason());
         }
@@ -122,6 +122,12 @@ public class ConsultAgentManagementService {
         }
         repository.promote(agentId, version, "ROLLBACK", System.currentTimeMillis());
         return getSnapshot(agentId);
+    }
+
+    /** 业务咨询开发迭代允许直接发布，其他Agent保留原评测策略。 */
+    private AgentReleaseGate releaseGate(String agentId, AgentVersion candidate) {
+        return AgentReleaseGate.evaluate(candidate,
+                !ConsultAgentManagementRepository.BUSINESS_CONSULT_AGENT_ID.equals(agentId));
     }
 
     private void rejectTeachingMutation(String agentId) {

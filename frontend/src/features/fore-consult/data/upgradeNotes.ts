@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 重磅更新登记处。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-10-18-consult-release-evaluation-optional', date: '2026-10-18', title: '流程候选可直接发布',
+    summary: '待部署验收：管理员保存咨询流程候选后可直接发布，评测仅供参考；数据库只读与系统绑定限制保持。',
+  },
+  {
     id: '2026-10-18-mobile-consult-workspace', date: '2026-10-18', title: '手机咨询更顺手',
     summary: '新版前端默认进入咨询，可切换系统图谱；点输入区全屏编辑，附件折叠收纳。',
   },

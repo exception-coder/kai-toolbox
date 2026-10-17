@@ -382,7 +382,7 @@ flowchart LR
 
 业务咨询的 `source_git_history` 是源码证据的只读补充，通过同一 `consult-readonly` MCP 返回已定位文件的本地提交及行归属，不开放通用终端或 Git 写入。新默认流程登记此能力；已冻结流程仅在已有 `source_read` 时由服务端装配追加，缺少源码权限或流程快照时不补授，原快照不变。Sidecar 限定文件、HEAD、行数、条数、时间与输出预算，拒绝越界及父仓库，不自动 fetch/pull；作者、提交者和最新修改者只提供联系线索，不是责任或部署证据。受影响能力图见[咨询架构](../tools/tool-fore-consult/README.md#架构总览)，实现及未部署、未验收项见[只读 Git 任务](../openspec/changes/consult-readonly-git-history/tasks.md)。
 
-业务咨询的数据库只经`consult_resources / consult_resource_query`访问同一资源服务，授权选择来自已发布流程节点的`resourceBindingIds`，并冻结在原咨询中。系统按完整源码目录唯一关联Project Registry；未登记、绑定为空、跨系统、停用、非QUERY能力、PROD或未知环境一律拒绝，不扫描其他连接、不回退旧配置。跨系统证据路由只指导分析，不授予其他系统的数据库访问权。每次查询重新校验当前资源状态，连接修改影响后续查询，绑定停用立即撤销；流程选择发布仅对新咨询生效。查询结果包含资源绑定和实际环境，日志以绑定及系统标识关联原数据源查询历史，不记录凭据。流程节点支持多个绑定；连接及系统关联仍由系统资源管理拥有，授权选择仍由Agent管理的业务咨询流程拥有。咨询配置抽屉通过这两个模块的公开组件就地编辑原连接、多个系统关联及流程选择，不增加配置副本；保留各自权限，选择变更清除旧评测结果，沿用候选评测与发布门禁。旧快照只兼容读取，不重新授予旧固定连接能力。
+业务咨询的数据库只经`consult_resources / consult_resource_query`访问同一资源服务，授权选择来自已发布流程节点的`resourceBindingIds`，并冻结在原咨询中。系统按完整源码目录唯一关联Project Registry；未登记、绑定为空、跨系统、停用、非QUERY能力、PROD或未知环境一律拒绝，不扫描其他连接、不回退旧配置。跨系统证据路由只指导分析，不授予其他系统的数据库访问权。每次查询重新校验当前资源状态，连接修改影响后续查询，绑定停用立即撤销；流程选择发布仅对新咨询生效。查询结果包含资源绑定和实际环境，日志以绑定及系统标识关联原数据源查询历史，不记录凭据。流程节点支持多个绑定；连接及系统关联仍由系统资源管理拥有，授权选择仍由Agent管理的业务咨询流程拥有。咨询配置抽屉通过这两个模块的公开组件就地编辑原连接、多个系统关联及流程选择，不增加配置副本；保留各自权限，选择变更清除旧评测结果，业务咨询候选可直接发布，评测状态仅供参考，能力安全及原权限仍校验（见[发布策略](../openspec/changes/allow-unevaluated-consult-release/design.md)，当前尚未部署验收）。旧快照只兼容读取，不重新授予旧固定连接能力。
 
 ```mermaid
 flowchart LR
@@ -390,7 +390,7 @@ flowchart LR
     Resources --> Connections[原数据源与多个系统绑定]
     Settings --> Workflow[Agent公开数据库选择组件]
     Workflow --> Candidate[流程节点多选绑定 / 保存候选]
-    Candidate --> Evaluation[评测与发布门禁]
+    Candidate --> Evaluation["显式发布：能力安全校验，评测可选"]
     Evaluation --> NewConsult[新咨询冻结已发布选择]
     NewConsult --> Scope[当前系统 / 当前绑定状态 / 非生产只读校验]
     Connections --> Scope
@@ -398,7 +398,7 @@ flowchart LR
 
 咨询语音复用原咨询身份：录音转写经登录级`/api/fore-consult/stt`调用已有语音服务，结果只回填草稿；官方Codex实时语音经原consult WebSocket、SessionVoiceService及同一只读工具装配处理，不切换开发权限或数据库目标。音频连接的callId、所有者、心跳与恢复沿用原协议，挂断仅关闭音频，媒体离开页面必须释放；实际账号语音能力与部署验收见[咨询语音任务](../openspec/changes/consult-voice/tasks.md)。
 
-业务咨询管理员配置是附件策略与数据库现状的聚合视图，不是第二份连接事实源。附件大小复用动态配置中心持久覆盖，全体用户共用；存储模块通过`SessionAttachmentPolicy`读取当前咨询上传上限，普通开发会话保持原限制。`read_consult_attachment`经会话签名和附件存储拥有方的`SessionAttachmentReader`读取已登记附件，每次校验动态读取上限与真实路径归属，不放宽`source_read`源码边界。文本沿用字符分页，不执行HTML脚本；XLSX使用POI SAX列出工作表，按表名与独立行游标有界读取，保留坐标、显示格式与原值，公式只返回表达式及保存缓存。解压规模、表格行列、返回量、时间和并发由解析器限制；任何拒绝均不能改走宿主终端绕过。旧XLS、Word/PDF仍需转存受支持格式，图片继续走既有视觉输入，模型容量不因此扩大。Excel受控导出支持每表5000数据行、全表100000单元格（含表头）、1000000字符；目录、下载鉴权与幂等不变。附件配置见[管理员配置任务](../openspec/changes/consult-admin-attachment-policy/tasks.md)，XLSX实现及待部署验收见[附件读取任务](../openspec/changes/consult-xlsx-attachment/tasks.md)。数据库地址编辑仍更新原资源ID，流程选择仍评测发布，旧咨询保留原选择快照。
+业务咨询管理员配置是附件策略与数据库现状的聚合视图，不是第二份连接事实源。附件大小复用动态配置中心持久覆盖，全体用户共用；存储模块通过`SessionAttachmentPolicy`读取当前咨询上传上限，普通开发会话保持原限制。`read_consult_attachment`经会话签名和附件存储拥有方的`SessionAttachmentReader`读取已登记附件，每次校验动态读取上限与真实路径归属，不放宽`source_read`源码边界。文本沿用字符分页，不执行HTML脚本；XLSX使用POI SAX列出工作表，按表名与独立行游标有界读取，保留坐标、显示格式与原值，公式只返回表达式及保存缓存。解压规模、表格行列、返回量、时间和并发由解析器限制；任何拒绝均不能改走宿主终端绕过。旧XLS、Word/PDF仍需转存受支持格式，图片继续走既有视觉输入，模型容量不因此扩大。Excel受控导出支持每表5000数据行、全表100000单元格（含表头）、1000000字符；目录、下载鉴权与幂等不变。附件配置见[管理员配置任务](../openspec/changes/consult-admin-attachment-policy/tasks.md)，XLSX实现及待部署验收见[附件读取任务](../openspec/changes/consult-xlsx-attachment/tasks.md)。数据库地址编辑仍更新原资源ID，流程选择仍先保存候选再显式发布，业务咨询评测可选，旧咨询保留原选择快照。
 
 ```mermaid
 flowchart LR

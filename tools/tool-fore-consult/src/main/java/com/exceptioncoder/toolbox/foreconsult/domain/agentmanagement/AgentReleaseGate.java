@@ -19,8 +19,23 @@ public record AgentReleaseGate(boolean releasable, double minimumScore, String r
      * @return 发布门禁结论
      */
     public static AgentReleaseGate evaluate(AgentVersion candidate) {
+        return evaluate(candidate, true);
+    }
+
+    /** 评测可选时仍校验能力绑定，不将缺少评测伪装成评测通过。 */
+    public static AgentReleaseGate evaluate(AgentVersion candidate, boolean evaluationRequired) {
+        double minimumScore = evaluationRequired ? DEFAULT_MINIMUM_SCORE : 0;
         if (candidate == null) {
-            return new AgentReleaseGate(false, DEFAULT_MINIMUM_SCORE, "请先保存 Candidate 配置");
+            return new AgentReleaseGate(false, minimumScore, "请先保存 Candidate 配置");
+        }
+        String capabilityIssue = capabilityIssue(candidate, BusinessConsultCapabilityCatalog.byId());
+        if (capabilityIssue != null) {
+            return new AgentReleaseGate(false, minimumScore, capabilityIssue);
+        }
+        if (!evaluationRequired) {
+            String evaluationState = candidate.evaluationRunId() == null || candidate.evaluationRunId().isBlank()
+                    ? "未评测" : candidate.evaluationPassed() ? "已记录评测" : "评测未通过";
+            return new AgentReleaseGate(true, minimumScore, evaluationState + "；评测仅供参考，可直接发布候选");
         }
         if (candidate.evaluationRunId() == null || candidate.evaluationRunId().isBlank()) {
             return new AgentReleaseGate(false, DEFAULT_MINIMUM_SCORE, "Candidate 尚未关联确定性评测运行");
@@ -31,10 +46,6 @@ public record AgentReleaseGate(boolean releasable, double minimumScore, String r
         if (candidate.evaluationScore() == null || candidate.evaluationScore() < DEFAULT_MINIMUM_SCORE) {
             return new AgentReleaseGate(false, DEFAULT_MINIMUM_SCORE,
                     "Candidate 评测分数需达到 " + DEFAULT_MINIMUM_SCORE);
-        }
-        String capabilityIssue = capabilityIssue(candidate, BusinessConsultCapabilityCatalog.byId());
-        if (capabilityIssue != null) {
-            return new AgentReleaseGate(false, DEFAULT_MINIMUM_SCORE, capabilityIssue);
         }
         return new AgentReleaseGate(true, DEFAULT_MINIMUM_SCORE, "评测与能力安全门禁已通过，可以发布");
     }

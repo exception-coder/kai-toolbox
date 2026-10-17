@@ -6,7 +6,7 @@ import { NodeResources } from './NodeResources'
 
 const queryTools = new Set(['consult_resource_query', 'erp_db_query', 'srm_db_query', 'scm_db_query'])
 
-/** 咨询抽屉中的流程资源编辑器，沿用原候选、评测和发布门禁。 */
+/** 咨询抽屉中的流程资源编辑器，沿用原候选与发布接口，评测仅供参考。 */
 export function ConsultDatabaseSelection() {
   const client = useQueryClient()
   const key = ['agent-management', 'business-consult']
@@ -41,11 +41,12 @@ export function ConsultDatabaseSelection() {
   }
   const nodes = workflow?.nodes.filter(node => node.tools.some(tool => queryTools.has(tool)) || !!node.resourceBindingIds?.length) ?? []
   return <div className="space-y-3 text-sm">
-    <p className="text-xs leading-5 text-muted-foreground">可同时勾选多个数据库。流程是全局配置；实际查询仍仅允许当前咨询系统的已启用绑定。修改仅保存候选，评测并发布后对新咨询生效。</p>
+    <p className="text-xs leading-5 text-muted-foreground">可同时勾选多个数据库。流程是全局配置；实际查询仍仅允许当前咨询系统的已启用绑定。修改仅保存候选，发布后对新咨询生效；开发迭代期间无需先评测。</p>
     <Button variant="ghost" disabled={busy || agent.isFetching} onClick={() => { void agent.refetch(); if (!baseline?.workflow) void defaults.refetch() }}>刷新流程</Button>
     {(agent.isPending || defaults.isFetching) && <p role="status">正在读取咨询流程…</p>}
     {(agent.isError || defaults.isError) && <p role="alert" className="text-xs text-destructive">流程读取失败，原选择及草稿保留，请刷新重试。</p>}
     {agent.data && <p className="text-xs text-muted-foreground">已发布：{agent.data.productionVersion ? `v${agent.data.productionVersion.version}` : '无'} · 候选：{agent.data.candidateVersion ? `v${agent.data.candidateVersion.version}（未发布）` : '无'}</p>}
+    {agent.data?.candidateVersion && <p className="text-xs text-muted-foreground">评测：{!agent.data.candidateVersion.evaluationRunId ? '未评测' : agent.data.candidateVersion.evaluationPassed ? '已通过' : '未通过'}{agent.data.candidateVersion.evaluationScore != null && ` · ${agent.data.candidateVersion.evaluationScore}分`}；仅供参考，不限制发布。</p>}
     <fieldset disabled={busy || !agent.isSuccess} className="min-w-0 space-y-3">
       {nodes.map(node => <section key={node.id} className="min-w-0 space-y-2">
         <h4 className="break-words text-xs font-medium">{node.name}{!node.enabled && ' · 节点未启用，选用不会执行查询'}</h4>
@@ -62,11 +63,11 @@ export function ConsultDatabaseSelection() {
         {draft && <Button variant="ghost" onClick={() => { setDraft(null); setBase(undefined); save.reset() }}>放弃选择修改</Button>}
         <Button disabled={!!draft || !agent.isSuccess || !agent.data?.candidateVersion || !agent.data.releaseGate.releasable} onClick={() => {
           if (agent.data?.candidateVersion && agent.data.releaseGate.releasable) release.mutate(agent.data.candidateVersion.version)
-        }}>发布已评测候选</Button>
+        }}>发布候选</Button>
       </div>
     </fieldset>
     {(save.isError || release.isError) && <p role="alert" className="text-xs text-destructive">{save.isError ? '候选保存失败，草稿已保留。' : '发布失败。'}请刷新核对实际版本后重试。</p>}
-    {save.isSuccess && !release.isSuccess && <p role="status" className="text-xs">数据库选择已保存为候选，尚未生效。资源变更已清除旧评测结果，请重新评测后发布。</p>}
+    {save.isSuccess && !release.isSuccess && <p role="status" className="text-xs">数据库选择已保存为候选，尚未生效。资源变更已清除旧评测结果，可直接发布后验证。</p>}
     {release.isSuccess && <p role="status" className="text-xs">候选已发布，对新咨询生效；已有咨询保留原资源选择。</p>}
     {agent.data?.candidateVersion && !draft && !agent.data.releaseGate.releasable && <p className="text-xs text-muted-foreground">暂不可发布：{agent.data.releaseGate.reason}</p>}
     <a className="inline-flex min-h-11 items-center text-xs underline" href="/tools/agent-management?agent=business-consult" target="_blank" rel="noreferrer">评测 / 编辑完整流程 ↗</a>
