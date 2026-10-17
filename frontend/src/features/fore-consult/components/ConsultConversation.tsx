@@ -179,14 +179,14 @@ export function ConsultConversation({
     dispatching,
   })
   const conversationState = runtime.state
-  const inputLocked = !sessionReady
+  const sendLocked = !sessionReady
     || conversationState.phase === 'dispatching'
     || conversationState.phase === 'running'
     || conversationState.phase === 'checking'
     || conversationState.phase === 'runtimeUnavailable'
   const sessionSendableRef = useRef(false)
   const runtimeTerminalRef = useRef(false)
-  sessionSendableRef.current = sessionReady && !inputLocked
+  sessionSendableRef.current = sessionReady && !sendLocked
   runtimeTerminalRef.current = runtime.runtimeState?.effectiveStatus === 'IDLE'
     || runtime.runtimeState?.effectiveStatus === 'INTERRUPTED'
   const firstItemId = items[0]?.id ?? ''
@@ -373,7 +373,7 @@ export function ConsultConversation({
   }
 
   const hasSendableContent = (!!text.trim() || atts.length > 0) && uploading === 0
-  const canSend = hasSendableContent && !inputLocked
+  const canSend = hasSendableContent && !sendLocked
   const dispatchMessage = (
     message: string,
     attachments: Array<{ name: string; path: string; mime?: string; url?: string }> | undefined,
@@ -384,8 +384,10 @@ export function ConsultConversation({
       && !(preparedDispatch && sessionReady && (!running || runtimeTerminalRef.current))) return false
     isNearBottomRef.current = true
     chat.send(message, attachments, undefined, developerInstructions)
-    setText('')
-    setAtts([])
+    // 调度期间仍可编辑；只清除已发送的原草稿和附件。
+    setText(current => current === message ? '' : current)
+    const sentPaths = new Set(attachments?.map(attachment => attachment.path))
+    setAtts(current => current.filter(attachment => !sentPaths.has(attachment.path)))
     return true
   }
 
@@ -448,7 +450,7 @@ export function ConsultConversation({
   return (
     <div className="fc-conversation-layer absolute inset-0 z-30" onClick={onClose}>
       <ConsultPanel side="left" initialWidth={520} className="fc-console" onFiles={handleFiles}
-        dropDisabled={inputLocked || archiving || startupPending}>
+        dropDisabled={!sessionReady || archiving || startupPending}>
         {sizeControls => <>
         <div className="fc-console-scan" />
 
@@ -600,24 +602,24 @@ export function ConsultConversation({
               rows={3}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              disabled={inputLocked}
+              aria-label="追问草稿"
               onPaste={onPaste}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' || !e.shiftKey || e.nativeEvent.isComposing) return
                 e.preventDefault()
                 void send()
               }}
-              placeholder={sessionReady
-                ? inputLocked ? '当前问题仍在处理中，完成后可继续追问' : '继续追问…（可直接拖入文件、粘贴图片；Shift+Enter 发送）'
-                : '正在恢复会话状态…'}
-              className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:cursor-wait disabled:opacity-60"
+              placeholder={sendLocked
+                ? '可先编写追问，当前处理结束且会话就绪后可发送…'
+                : '继续追问…（可直接拖入文件、粘贴图片；Shift+Enter 发送）'}
+              className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
             />
-            <input ref={fileRef} type="file" multiple disabled={inputLocked} className="hidden" onChange={(e) => handleFiles(e.target.files)} />
+            <input ref={fileRef} type="file" multiple disabled={!sessionReady} className="hidden" onChange={(e) => handleFiles(e.target.files)} />
             <div className="flex flex-wrap items-center justify-between gap-2 px-1">
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                disabled={inputLocked || atts.length + uploading >= MAX_ATT}
+                disabled={!sessionReady || atts.length + uploading >= MAX_ATT}
                 className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40"
                 title="上传附件：图片/Excel/Word/Markdown/PDF"
               >
@@ -647,7 +649,7 @@ export function ConsultConversation({
                   className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Send className="size-4" />
-                  {!sessionReady ? '恢复中' : inputLocked ? '处理中' : '发送'}
+                  {!sessionReady ? '恢复中' : sendLocked ? '处理中' : '发送'}
                 </button>
               </div>
             </div>
