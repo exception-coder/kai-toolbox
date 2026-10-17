@@ -48,6 +48,8 @@ interface Props {
   onSwitchSession?: (sessionId: string, hintRunning?: boolean) => void
   queueCount?: number
   queuePausedReason?: string | null
+  queueContent?: ReactNode
+  actions?: ReactNode | ((close: () => void) => ReactNode)
   children?: ReactNode | ((close: () => void, executing: boolean) => ReactNode)
 }
 
@@ -68,6 +70,8 @@ export function MobileSessionStatus({
   onSwitchSession,
   queueCount = 0,
   queuePausedReason,
+  queueContent,
+  actions,
   children,
 }: Props) {
   const [open, setOpen] = useMobileDisclosure(!workspace)
@@ -104,7 +108,7 @@ export function MobileSessionStatus({
     usageLoading,
   })
 
-  if (!status && !children && queueCount === 0 && !onSwitchSession) return null
+  if (!status && !children && !queueContent && !actions && queueCount === 0 && !onSwitchSession) return null
 
   const label = status?.label ?? (runtime.isPending ? '正在核对会话状态…' : `${engineLabel} · 空闲`)
   const currentActivity = running ? findCurrentActivity(items) : null
@@ -143,25 +147,14 @@ export function MobileSessionStatus({
         <ChevronUp className="size-3.5 shrink-0 opacity-60" />
       </button>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }} className={cn('max-h-[80dvh] overflow-y-auto rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] [&_button]:min-h-11 [&>button]:min-w-11', workspace ? 'md:inset-x-auto md:bottom-4 md:left-1/2 md:w-[min(42rem,calc(100vw-2rem))] md:-translate-x-1/2 md:rounded-xl md:border' : 'md:hidden')}>
-          <div className="border-b px-4 pb-3 pt-4">
+        <SheetContent side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }} className={cn('flex max-h-[80dvh] flex-col gap-0 overflow-hidden rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] [&_button]:min-h-11 [&>button]:min-w-11', workspace ? 'md:inset-x-auto md:bottom-4 md:left-1/2 md:w-[min(42rem,calc(100vw-2rem))] md:-translate-x-1/2 md:rounded-xl md:border' : 'md:hidden')}>
+          <div className="shrink-0 border-b px-4 pb-3 pt-4 pr-14">
             <SheetTitle>Agent 运行与控制</SheetTitle>
-            <SheetDescription className="mt-1">查看运行状态并快速切换会话；关闭后继续对话。</SheetDescription>
+            <SheetDescription className="mt-1">管理待发送消息和会话操作；运行详情在下方。</SheetDescription>
           </div>
-          <div className="space-y-3 px-4 py-4 text-sm">
-            <DetailRow label="当前状态" value={label} />
-            {status?.detail && <DetailRow label="说明" value={status.detail} />}
-            {running && <DetailRow label="当前执行" value={currentActivity ?? '正在生成回复…'} />}
-            {queuePausedReason && <p role="status" className="text-amber-700 dark:text-amber-300">{queuePausedReason}</p>}
-            {runtime.data && (
-              <>
-                <DetailRow label="全链路" value={`${runtimeStatusLabel(runtime.data.effectiveStatus)} · ${runtime.data.consistency}`} />
-                <DetailRow label="建议" value={runtime.data.recommendedAction} />
-              </>
-            )}
-            {usage && usage.turns > 0 && (
-              <DetailRow label="会话累计" value={`${usage.turns} 轮 · ${abbr(usage.totalTokens)} Token`} />
-            )}
+          {queueContent && <div className="max-h-[32dvh] shrink-0 overflow-y-auto border-b px-4 py-3 text-sm">{queueContent}</div>}
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 text-sm" role="region" aria-label="会话操作与运行详情" tabIndex={0}>
+            {typeof actions === 'function' ? actions(() => setOpen(false)) : actions}
             <div className="grid grid-cols-2 gap-2 pt-1">
               <Button variant="outline" onClick={() => { setOpen(false); onOpenTrajectory() }}>查看轨迹</Button>
               <Button onClick={() => { setOpen(false); onOpenUsage() }}>会话用量</Button>
@@ -175,6 +168,18 @@ export function MobileSessionStatus({
               {runningSessions.length > 0 && <SessionShortcuts title="正在执行" sessions={runningSessions} currentId={sessionId} onSelect={session => { setOpen(false); onSwitchSession(session.id, true) }} />}
               {recentSessions.length > 0 && <SessionShortcuts title="最近会话" sessions={recentSessions} currentId={sessionId} onSelect={session => { setOpen(false); onSwitchSession(session.id, false) }} />}
             </section>}
+            <section aria-label="运行概览" className="border-t pt-3">
+              <h3 className="mb-2 font-medium">运行概览</h3>
+              <DetailRow label="当前状态" value={label} />
+              {status?.detail && <DetailRow label="说明" value={status.detail} />}
+              {running && <DetailRow label="当前执行" value={currentActivity ?? '正在生成回复…'} />}
+              {queuePausedReason && (!queueContent || queueCount === 0) && <p role="status" className="text-amber-700 dark:text-amber-300">{queuePausedReason}</p>}
+              {runtime.data && <>
+                <DetailRow label="全链路" value={`${runtimeStatusLabel(runtime.data.effectiveStatus)} · ${runtime.data.consistency}`} />
+                <DetailRow label="建议" value={runtime.data.recommendedAction} />
+              </>}
+              {usage && usage.turns > 0 && <DetailRow label="会话累计" value={`${usage.turns} 轮 · ${abbr(usage.totalTokens)} Token`} />}
+            </section>
             {typeof children === 'function' ? children(() => setOpen(false), active) : children}
           </div>
         </SheetContent>

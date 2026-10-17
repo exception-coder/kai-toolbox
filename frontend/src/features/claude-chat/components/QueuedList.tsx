@@ -1,21 +1,23 @@
 import { AlertTriangle, Clock, Send, X } from 'lucide-react'
 import type { QueuedMessage } from '../hooks/useClaudeChatSocket'
+import { cn } from '@/lib/utils'
 
 /**
  * 待发送队列：回答执行中排队的消息，本轮结束后按序自动发出。
  * 桌面输入区与移动端详情抽屉共用，可逐条移除或一键清空。空队列不渲染。
  */
-export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemove, onClear }: {
+export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemove, onClear, className }: {
   items: QueuedMessage[]
   pausedReason?: string | null
   canSendNow?: boolean
   onSendNow: (id: string) => void
   onRemove: (id: string) => void
   onClear: () => void
+  className?: string
 }) {
   if (items.length === 0) return null
   return (
-    <div className="border-b border-[var(--color-border)] px-3 py-2">
+    <div className={cn('border-b border-[var(--color-border)] px-3 py-2', className)}>
       <div className="mb-1 flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)]">
         {pausedReason ? <AlertTriangle className="size-3 text-amber-600" /> : <Clock className="size-3" />}
         <span className={pausedReason ? 'text-amber-700 dark:text-amber-300' : undefined}>
