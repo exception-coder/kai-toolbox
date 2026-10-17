@@ -24,8 +24,9 @@ export const TYPE_DEFAULT_PORT: Record<DatasourceType, number> = {
   NACOS: 8848,
 }
 
-/** 常用环境（可自定义输入）。 */
-export const ENV_PRESETS = ['DEV', 'TEST', 'UAT', 'PROD']
+/** 可选择的部署环境；历史自定义值保留读取，不自动迁移。 */
+export const ENV_PRESETS = ['LOCAL', 'DEV', 'TEST', 'UAT', 'PROD']
+export const ENV_LABELS: Record<string, string> = { LOCAL: '本地', DEV: '开发', TEST: '测试', UAT: '验收', PROD: '生产' }
 
 /** 环境色板，用于分组标识。 */
 export function envBadge(env: string): string {

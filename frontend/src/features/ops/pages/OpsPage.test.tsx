@@ -25,8 +25,8 @@ it('opens the linked existing connection with a blank password and updates its o
   expect(api.createDatasource).not.toHaveBeenCalled()
 })
 
-function mountConnections(edit = true) {
-  const source: DatasourceView = { id: 'db-test', systemId: 'erp', env: 'TEST', type: 'ORACLE', category: 'SQL', queryable: true, name: 'ERP测试库', host: 'db-test.local', port: 1521, username: 'reader', passwordConfigured: true, dbName: 'test', params: null, note: null, sortOrder: 0, createdAt: 0, updatedAt: 0, endpoint: 'db-test.local:1521/test' }
+function mountConnections(edit = true, env = 'TEST') {
+  const source: DatasourceView = { id: 'db-test', systemId: 'erp', env, type: 'ORACLE', category: 'SQL', queryable: true, name: 'ERP测试库', host: 'db-test.local', port: 1521, username: 'reader', passwordConfigured: true, dbName: 'test', params: null, note: null, sortOrder: 0, createdAt: 0, updatedAt: 0, endpoint: 'db-test.local:1521/test' }
   vi.mocked(api.listSystems).mockResolvedValue([{ id: 'erp', name: 'ERP', code: 'erp', owner: null, description: null, sortOrder: 0, createdAt: 0, updatedAt: 0 }])
   vi.mocked(api.listDatasources).mockResolvedValue([source, { ...source, id: 'db-other', name: 'ERP备用测试库' }])
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -35,6 +35,32 @@ function mountConnections(edit = true) {
 }
 
 function editor() { return within(screen.getByText('编辑中间件实例').parentElement!) }
+
+it('uses full fixed environment choices and the shared selector for type changes', async () => {
+  mountConnections()
+  await screen.findByDisplayValue('db-test.local')
+  const environment = editor().getByRole('combobox', { name: '部署环境' })
+  expect(environment.tagName).toBe('BUTTON')
+  fireEvent.click(environment)
+  expect(await screen.findAllByRole('option')).toHaveLength(5)
+  expect(screen.getByRole('option', { name: 'LOCAL · 本地' })).toBeVisible()
+  fireEvent.click(screen.getByRole('option', { name: 'UAT · 验收' }))
+  expect(environment).toHaveTextContent('UAT · 验收')
+  fireEvent.click(editor().getByRole('combobox', { name: '中间件类型' }))
+  fireEvent.click(await screen.findByRole('option', { name: 'Redis' }))
+  expect(editor().getByPlaceholderText('端口')).toHaveValue('6379')
+  fireEvent.click(editor().getByRole('button', { name: '保存' }))
+  await waitFor(() => expect(api.updateDatasource).toHaveBeenCalledWith('db-test', expect.objectContaining({ env: 'UAT', type: 'REDIS', port: 6379 })))
+})
+
+it('preserves a historical environment unless the user explicitly reselects it', async () => {
+  mountConnections(true, 'OLD-QA')
+  await screen.findByDisplayValue('db-test.local')
+  expect(editor().getByRole('combobox', { name: '部署环境' })).toHaveTextContent('OLD-QA · 历史值')
+  expect(editor().getByRole('status')).toHaveTextContent('未重新选择时保留原值')
+  fireEvent.click(editor().getByRole('button', { name: '保存' }))
+  await waitFor(() => expect(api.updateDatasource).toHaveBeenCalledWith('db-test', expect.objectContaining({ env: 'OLD-QA' })))
+})
 
 it('shows progress and success beside the editor action and tests only the saved ID', async () => {
   let finish!: (result: TestResult) => void

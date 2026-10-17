@@ -1,8 +1,9 @@
 import { LoaderCircle, Save, Trash2, Wifi } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Combobox } from '@/components/ui/combobox'
 import type { DatasourcePayload, DatasourceType, TestResult } from '../types'
-import { ENV_PRESETS, TYPE_DEFAULT_PORT, TYPE_META, TYPE_OPTIONS } from '../meta'
+import { ENV_LABELS, ENV_PRESETS, TYPE_DEFAULT_PORT, TYPE_META, TYPE_OPTIONS } from '../meta'
 import { ConnectionTestFeedback } from './ConnectionTestFeedback'
 
 interface Props {
@@ -29,35 +30,28 @@ export function DatasourceEditor({
   return (
     <div className="grid gap-3 rounded-md border bg-[var(--color-background)] p-3">
       <div className="grid gap-2 sm:grid-cols-[1fr_1fr_2fr]">
-        <select
+        <Combobox allowCustom={false} aria-label="中间件类型" disabled={saving || testing}
           value={value.type}
-          onChange={e => {
-            const t = e.target.value as DatasourceType
+          onChange={next => {
+            const t = next as DatasourceType
             patch({ type: t, port: TYPE_DEFAULT_PORT[t] })
           }}
-          className="h-9 rounded-md border bg-[var(--color-background)] px-3 text-sm"
-        >
-          {TYPE_OPTIONS.map(t => (
-            <option key={t} value={t}>
-              {TYPE_META[t].label}{TYPE_META[t].queryable ? '' : '（暂只登记）'}
-            </option>
-          ))}
-        </select>
-        <Input
-          value={value.env}
-          onChange={e => patch({ env: e.target.value.toUpperCase() })}
-          placeholder="环境（DEV/TEST/UAT/PROD）"
-          list="ops-env-presets"
+          options={TYPE_OPTIONS.map(type => ({ value: type, label: `${TYPE_META[type].label}${TYPE_META[type].queryable ? '' : '（暂只登记）'}` }))}
         />
-        <datalist id="ops-env-presets">
-          {ENV_PRESETS.map(e => <option key={e} value={e} />)}
-        </datalist>
+        <Combobox allowCustom={false} aria-label="部署环境" disabled={saving || testing}
+          value={value.env}
+          onChange={env => patch({ env })}
+          placeholder="选择环境"
+          options={ENV_PRESETS.map(env => ({ value: env, label: `${env} · ${ENV_LABELS[env]}` }))}
+        />
         <Input
           value={value.name}
           onChange={e => patch({ name: e.target.value })}
           placeholder="实例名称（订单库-主库）"
         />
       </div>
+
+      {value.env && !ENV_PRESETS.includes(value.env) && <p role="status" className="break-words text-xs text-muted-foreground">当前环境“{value.env}”为历史值；未重新选择时保留原值，也可从环境下拉中选择标准环境。</p>}
 
       <div className="grid gap-2 sm:grid-cols-[2fr_90px_1fr]">
         <Input value={value.host} onChange={e => patch({ host: e.target.value })} placeholder="Host / IP" />

@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 import { Popover, PopoverAnchor, PopoverContent } from './popover'
 import { cn } from '@/lib/utils'
+import { FixedCombobox } from './fixed-combobox'
 
 export interface ComboboxOption {
   label: string
@@ -21,6 +22,13 @@ export interface ComboboxProps {
   contentClassName?: string
   disabled?: boolean
   autoFocus?: boolean
+  /** false 时仅允许选择完整候选，不提供自由输入。 */
+  allowCustom?: boolean
+  'aria-label'?: string
+}
+
+export function Combobox(props: ComboboxProps) {
+  return props.allowCustom === false ? <FixedCombobox {...props} /> : <EditableCombobox {...props} />
 }
 
 /**
@@ -31,7 +39,7 @@ export interface ComboboxProps {
  * 数据」自动填充抢先展示（样式是浏览器自己的、不可控，内容也是历史输入痕迹而非我们的
  * 候选项），体验混乱且不符合本项目自有控件体系。
  */
-export function Combobox({
+function EditableCombobox({
   value,
   onChange,
   options,
@@ -43,6 +51,7 @@ export function Combobox({
   contentClassName,
   disabled = false,
   autoFocus = false,
+  'aria-label': ariaLabel,
 }: ComboboxProps) {
   const [open, setOpen] = React.useState(false)
   const [typedSinceOpen, setTypedSinceOpen] = React.useState(false)
@@ -66,6 +75,7 @@ export function Combobox({
       <PopoverAnchor asChild>
         <div className={cn('relative', className)}>
           <input
+            aria-label={ariaLabel}
             id={id}
             ref={inputRef}
             value={value}
