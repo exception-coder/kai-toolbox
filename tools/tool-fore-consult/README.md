@@ -42,7 +42,7 @@ flowchart LR
 
 ### 前端
 
-默认直接输入截图或问题，无需先选系统，标题可由问题生成。管理员在配置中上移/下移候选系统并保存；用户首问选中系统时先查它，未命中后按其余管理员顺序，从上往下结合截图逐项定位并追到服务端。不选系统直接采用管理员顺序，不按使用频次或由模型重排；最多八个候选，首查选择不等于确认归属。顺序对新咨询生效；启动cwd只是锚点。原对话可纠正焦点且保留草稿，旧单项目咨询保持原范围，见[自动定位设计](../../openspec/changes/automatic-consult-system-routing/design.md)及[任务/部署状态](../../openspec/changes/automatic-consult-system-routing/tasks.md)。
+提问始终自动识别，首问没有系统选择框或模式切换，标题可由问题生成。点击图谱系统仅标记首查源码上下文，保留问题及附件并轻提示优先探索；未命中后按管理员配置的其余顺序，从上往下结合截图定位并追到服务端。没有标记直接采用管理员顺序，不按使用频次或由模型重排。管理员在配置中上移/下移并保存；最多八个候选，标记不等于确认归属。顺序对新咨询生效；启动cwd只是锚点。原对话可纠正焦点且保留草稿，旧单项目咨询保持原范围，见[自动定位设计](../../openspec/changes/automatic-consult-system-routing/design.md)及[任务/部署状态](../../openspec/changes/automatic-consult-system-routing/tasks.md)。
 
 - `frontend/src/features/fore-consult/pages/ForeConsultPage.tsx`：系统、模块、菜单、问题分类、咨询版本和当前咨询状态。
 - `frontend/src/features/fore-consult/components/ConsultConversation.tsx`：底层开发会话的只读/受控展示，不得抢占 Vibe Coding 当前会话。
