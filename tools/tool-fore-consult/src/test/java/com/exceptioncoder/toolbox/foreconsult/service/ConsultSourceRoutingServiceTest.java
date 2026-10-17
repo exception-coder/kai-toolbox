@@ -79,8 +79,53 @@ class ConsultSourceRoutingServiceTest {
         assertThat(prepared.scope().focusedProject()).isNull();
         when(prefs.listAll()).thenReturn(List.of(pref("web", web, 5), pref("api", api, 0)));
         assertThat(service.candidates()).extracting(ConsultSourceRouting.Project::id).containsExactly("api", "web");
-        assertThatThrownBy(() -> service.prepare(request(true, directory.toString())))
-                .hasMessageContaining("优先系统已不可用");
+        assertThat(service.prepare(request(true, directory.toString())).scope().projects())
+                .extracting(ConsultSourceRouting.Project::id).containsExactly("api", "web");
+    }
+
+    @Test void registeredNamesDoNotInvalidateDirectoryBasedPreferencesOrRestoredScope() {
+        when(catalog.list(false)).thenReturn(List.of(
+                new ProjectCatalog.Entry("web", "web-system", "ERP小程序", web.toString(),
+                        directory.toString(), true, false, "REGISTERED"),
+                new ProjectCatalog.Entry("api", "api-system", "ERP", api.toString(),
+                        directory.toString(), true, false, "REGISTERED")));
+        var prepared = service.prepare(request(true, api.toString()));
+        assertThat(prepared.scope().projects()).extracting(ConsultSourceRouting.Project::id)
+                .containsExactly("api", "web");
+        assertThat(prepared.scope().projects().getFirst().label()).isEqualTo("api");
+        var session = ConsultSession.builder().evidenceRouteSnapshot(prepared.scope().wrap("[]")).build();
+        assertThat(service.current(session).projects()).hasSize(2);
+        var hidden = pref("api", api, 1);
+        hidden.setVisible(false);
+        when(prefs.listAll()).thenReturn(List.of(pref("web", web, 0), hidden));
+        assertThat(service.current(session).projects()).extracting(ConsultSourceRouting.Project::id)
+                .containsExactly("web");
+    }
+
+    @Test void stalePreferenceFallsBackWithoutCarryingModuleTagsOrGrantingItsPath() {
+        var original = request(true, directory.resolve("removed").toString());
+        var request = new StartSessionRequest(original.systemName(), original.systemSourcePath(),
+                List.of("旧项目模块"), original.questionTitle(), original.question(), original.userId(),
+                original.role(), original.engine(), original.model(), original.codexReasoningEffort(),
+                original.codexSpeed(), original.codexHome(), original.orchestrationVersion(), true);
+        var prepared = service.prepare(request);
+        assertThat(prepared.scope().projects()).extracting(ConsultSourceRouting.Project::id)
+                .containsExactly("web", "api");
+        assertThat(prepared.request().systemSourcePath()).isEqualTo(web.toString());
+        assertThat(prepared.request().moduleNames()).isEmpty();
+        assertThat(prepared.request().question()).isEqualTo(original.question());
+        assertThat(prepared.scope().focusedProject()).isNull();
+    }
+
+    @Test void pathMismatchAndAmbiguousPreferencesCannotAuthorizeAnotherDirectory() {
+        var wrongPath = pref("web", api, 0);
+        wrongPath.setVisible(false);
+        when(prefs.listAll()).thenReturn(List.of(pref("web", web, 0), wrongPath));
+        assertThat(service.candidates()).extracting(ConsultSourceRouting.Project::id).containsExactly("web");
+        when(prefs.listAll()).thenReturn(List.of(pref("web", web, 0), pref("duplicate", web, 1)));
+        assertThat(service.candidates()).isEmpty();
+        assertThatThrownBy(() -> service.prepare(request(true, web.toString())))
+                .hasMessageContaining("暂无可探索系统");
     }
 
     @Test void selectedSystemBeyondLimitIsIncludedAndRemainingAdministratorOrderIsStable() throws Exception {

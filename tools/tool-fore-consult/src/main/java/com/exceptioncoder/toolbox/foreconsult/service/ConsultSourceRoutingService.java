@@ -18,8 +18,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /** 从项目目录投影有界候选；模型作语义选择，代码核对身份、范围与文件证据。 */
 @Service
@@ -60,8 +58,9 @@ public class ConsultSourceRoutingService {
             throw new IllegalArgumentException("暂无可探索系统，请在咨询配置中显示系统，并在项目库恢复可用源码目录");
         }
         var anchor = projects.getFirst();
-        var modules = request.systemSourcePath() == null || request.systemSourcePath().isBlank()
-                || request.moduleNames() == null ? List.<String>of() : request.moduleNames();
+        boolean preferredRetained = request.systemSourcePath() != null && !request.systemSourcePath().isBlank()
+                && key(anchor.path()).equals(key(request.systemSourcePath()));
+        var modules = !preferredRetained || request.moduleNames() == null ? List.<String>of() : request.moduleNames();
         var normalized = new StartSessionRequest(anchor.name(), anchor.path(), modules, request.questionTitle(),
                 request.question(), request.userId(), request.role(), request.engine(), request.model(),
                 request.codexReasoningEffort(), request.codexSpeed(), request.codexHome(), request.orchestrationVersion(), true);
@@ -73,24 +72,48 @@ public class ConsultSourceRoutingService {
     }
 
     private List<ConsultSourceRouting.Project> candidates(String preferredPath) {
-        Map<String, ConsultSystemPref> visible = prefs.listAll().stream().filter(ConsultSystemPref::isVisible)
-                .collect(Collectors.toMap(ConsultSystemPref::getSystemName, Function.identity(), (a, b) -> a));
-        var eligible = catalog.list(false).stream().filter(entry -> entry.available() && !entry.excluded())
-                .filter(entry -> visible.containsKey(entry.name()) && access.allowed(Path.of(entry.path())))
-                .filter(entry -> visible.get(entry.name()).getSystemSourcePath() == null
-                        || key(visible.get(entry.name()).getSystemSourcePath()).equals(key(entry.path())))
-                .sorted(Comparator.<ProjectCatalog.Entry>comparingInt(entry -> visible.get(entry.name()).getSortOrder())
+        var preferences = prefs.listAll();
+        var available = catalog.list(false);
+        Map<String, ConsultSystemPref> visible = new java.util.HashMap<>();
+        for (var entry : available) {
+            if (!entry.available() || entry.excluded() || !access.allowed(Path.of(entry.path()))) {
+                continue;
+            }
+            var preference = preferenceFor(entry, preferences, available);
+            if (preference != null) {
+                visible.put(entry.id(), preference);
+            }
+        }
+        var eligible = available.stream().filter(entry -> entry.available() && !entry.excluded())
+                .filter(entry -> visible.containsKey(entry.id()))
+                .sorted(Comparator.<ProjectCatalog.Entry>comparingInt(entry -> visible.get(entry.id()).getSortOrder())
                         .thenComparing(ProjectCatalog.Entry::name).thenComparing(ProjectCatalog.Entry::id))
                 .toList();
         boolean preferred = preferredPath != null && !preferredPath.isBlank();
-        if (preferred && eligible.stream().noneMatch(entry -> key(entry.path()).equals(key(preferredPath)))) {
-            throw new IllegalArgumentException("优先系统已不可用或不在咨询显示范围，请重新选择或使用自动识别");
-        }
         return eligible.stream().sorted(Comparator.comparingInt(entry ->
                         preferred && key(entry.path()).equals(key(preferredPath)) ? 0 : 1))
                 .limit(8).map(entry -> new ConsultSourceRouting.Project(entry.id(), entry.name(),
-                        visible.get(entry.name()).getAlias() == null ? entry.name() : visible.get(entry.name()).getAlias(),
+                        visible.get(entry.id()).getAlias() == null ? entry.name() : visible.get(entry.id()).getAlias(),
                         entry.path())).toList();
+    }
+
+    /** 配置归属按源码路径，名称只用于兼容未保存路径的旧记录，不使用展示别名推断身份。 */
+    private ConsultSystemPref preferenceFor(ProjectCatalog.Entry entry, List<ConsultSystemPref> preferences,
+                                            List<ProjectCatalog.Entry> available) {
+        var matches = preferences.stream().filter(pref -> pref.getSystemSourcePath() != null
+                && !pref.getSystemSourcePath().isBlank()
+                && key(pref.getSystemSourcePath()).equals(key(entry.path()))).toList();
+        if (matches.isEmpty()) {
+            String directoryName = Path.of(entry.path()).getFileName().toString();
+            matches = preferences.stream().filter(pref -> pref.getSystemSourcePath() == null
+                    || pref.getSystemSourcePath().isBlank())
+                    .filter(pref -> directoryName.equals(pref.getSystemName())).toList();
+            if (!matches.isEmpty() && available.stream().filter(value -> directoryName.equals(
+                    Path.of(value.path()).getFileName().toString())).count() != 1) {
+                return null;
+            }
+        }
+        return matches.size() == 1 && matches.getFirst().isVisible() ? matches.getFirst() : null;
     }
 
     public ConsultInitialDispatch decorate(ConsultInitialDispatch dispatch, ConsultSourceRouting scope) {
@@ -106,11 +129,11 @@ public class ConsultSourceRoutingService {
         var scope = ConsultSourceRouting.read(session.getEvidenceRouteSnapshot());
         if (scope == null) { return null; }
         var available = catalog.list(false);
-        var visible = prefs.listAll().stream().filter(ConsultSystemPref::isVisible)
-                .map(ConsultSystemPref::getSystemName).toList();
+        var preferences = prefs.listAll();
         var projects = scope.projects().stream().filter(project -> available.stream().anyMatch(entry ->
                         entry.available() && !entry.excluded() && entry.id().equals(project.id())
-                                && visible.contains(entry.name()) && key(entry.path()).equals(key(project.path()))))
+                                && preferenceFor(entry, preferences, available) != null
+                                && key(entry.path()).equals(key(project.path()))))
                 .filter(project -> access.allowed(Path.of(project.path()))).toList();
         String focus = projects.stream().anyMatch(project -> Objects.equals(project.id(), scope.focusedProject()))
                 ? scope.focusedProject() : null;
