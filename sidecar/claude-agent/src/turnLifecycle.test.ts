@@ -53,3 +53,31 @@ test('accepted interrupt selects interrupted fallback terminal', () => {
   assert.equal(lifecycle.requestInterrupt('turn-1', true).outcome, 'accepted')
   assert.equal(lifecycle.fallbackStopReason(), 'interrupted')
 })
+
+test('interrupt during cleanup revokes buffered success without releasing the writer early', () => {
+  const lifecycle = new TurnLifecycle()
+  lifecycle.begin('finishing')
+  lifecycle.decorate({ type: 'result', stopReason: 'end_turn', queueReleaseSafe: true, usage: { input_tokens: 12 } })
+  lifecycle.requestInterrupt('finishing', false)
+  assert.equal(lifecycle.interrupted(), true)
+  assert.equal(lifecycle.begin('next').accepted, false)
+  assert.deepEqual(lifecycle.finish('finishing'), { type: 'result', turnId: 'finishing',
+    stopReason: 'interrupted', queueReleaseSafe: false, usage: { input_tokens: 12 } })
+})
+
+test('a late successful native result cannot override an accepted interrupt', () => {
+  const lifecycle = new TurnLifecycle()
+  lifecycle.begin('running')
+  lifecycle.requestInterrupt('running', false)
+  lifecycle.decorate({ type: 'result', stopReason: 'end_turn', queueReleaseSafe: true })
+  assert.equal(lifecycle.finish('running')?.stopReason, 'interrupted')
+})
+
+test('a stale interrupt leaves buffered success unchanged', () => {
+  const lifecycle = new TurnLifecycle()
+  lifecycle.begin('new')
+  lifecycle.decorate({ type: 'result', stopReason: 'end_turn', queueReleaseSafe: true })
+  lifecycle.requestInterrupt('old', false)
+  assert.equal(lifecycle.interrupted(), false)
+  assert.equal(lifecycle.finish('new')?.queueReleaseSafe, true)
+})

@@ -245,6 +245,16 @@ type ActiveCodexTurn = {
 }
 
 const activeCodexTurns = new Map<string, ActiveCodexTurn>()
+// 清理期仍持有进程所有权；不能随 steer 入口一起提前删除。
+const codexCleanupRequests = new Map<string, { released: () => Promise<boolean>; stop: () => void }>()
+
+/** 仅重试本会话拥有的原生进程清理；true 表示已请求，不代表已确认退出。 */
+export async function requestCodexAppServerCleanup(sessionId: string): Promise<boolean> {
+  const owned = codexCleanupRequests.get(sessionId)
+  if (!owned || await owned.released() || codexCleanupRequests.get(sessionId) !== owned) return false
+  owned.stop()
+  return true
+}
 
 /** 将新输入追加到当前活跃 Codex turn；false 表示该会话已经没有可 steer 的轮次。 */
 export async function steerCodexAppServerTurn(
@@ -1256,6 +1266,19 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   // 初始化请求可能先于 completion 的 await 失败；提前挂拒绝处理，避免进程级 unhandledRejection。
   void completion.catch(() => undefined)
 
+  const cleanupRequest = {
+    released: () => lifetime.wait(0),
+    stop: () => {
+      const error = new Error('用户重试终止，正在清理本会话 Codex 进程')
+      if (!finished) abortCompletion?.(error)
+      else {
+        failPending(error)
+        runtime.stop(child)
+      }
+    },
+  }
+  codexCleanupRequests.set(options.sessionId, cleanupRequest)
+
   try {
     const init = await request('initialize', {
       clientInfo: { name: 'kai_toolbox', title: 'Kai Toolbox', version: '0.1.0' },
@@ -1418,6 +1441,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
     throw new CodexAppServerTurnError(error instanceof Error ? error.message : String(error), !turnAccepted && !emittedActivity)
   } finally {
     // A terminal notification can overtake a background reconciliation RPC.
+    if (codexCleanupRequests.get(options.sessionId) === cleanupRequest) codexCleanupRequests.delete(options.sessionId)
     failPending(new Error('Codex App Server 轮次已结束'))
   }
 }

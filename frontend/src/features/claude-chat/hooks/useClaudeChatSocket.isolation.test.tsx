@@ -43,6 +43,66 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('会话消息隔离', () => {
+  it('中断等待超时恢复重试入口，但保持运行态且不派发队列', async () => {
+    api.listQueuedMessages.mockResolvedValueOnce([{ id: 'q-1', sessionId: 'a', text: 'next', createdAt: 1 }])
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive({ ...ready('a'), status: 'RUNNING', activeTurnId: 'turn-a' }) })
+    await waitFor(() => expect(result.current.queued).toHaveLength(1))
+    vi.useFakeTimers()
+    act(() => result.current.interrupt())
+    expect(result.current.interrupting).toBe(true)
+    act(() => vi.advanceTimersByTime(30_000))
+    expect(result.current.interrupting).toBe(false)
+    expect(result.current.running).toBe(true)
+    expect(result.current.queued).toHaveLength(1)
+    expect(result.current.syncWarning).toContain('再次点击终止')
+    expect(socket.send.mock.calls.map(([value]) => JSON.parse(value)).filter(message => message.type === 'send')).toEqual([])
+    act(() => result.current.interrupt())
+    expect(result.current.interrupting).toBe(true)
+    expect(result.current.syncWarning).toBeNull()
+    expect(socket.send.mock.calls.map(([value]) => JSON.parse(value)).filter(message => message.type === 'interrupt')).toHaveLength(2)
+    act(() => socket.receive({ type: 'result', usage: {}, stopReason: 'interrupted', seq: 2 }))
+    act(() => vi.advanceTimersByTime(30_000))
+    expect(result.current.interrupting).toBe(false)
+    expect(result.current.running).toBe(false)
+    expect(result.current.queued).toHaveLength(1)
+    expect(result.current.queuePausedReason).toBeTruthy()
+    expect(result.current.syncWarning).toBeNull()
+  })
+
+  it('引擎清理待确认只解锁重试，不伪造任务完成', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive({ ...ready('a'), status: 'RUNNING', activeTurnId: 'turn-a' }) })
+    act(() => result.current.interrupt())
+    act(() => socket.receive({ type: 'warning', code: 'INTERRUPT_CLEANUP_PENDING', message: 'pending', seq: 2 }))
+    expect(result.current.interrupting).toBe(false)
+    expect(result.current.running).toBe(true)
+    expect(result.current.syncWarning).toContain('仍保持锁定')
+    act(() => socket.receive({ type: 'result', usage: {}, stopReason: 'interrupted', seq: 3 }))
+    expect(result.current.syncWarning).toBeNull()
+  })
+
+  it('切换会话会取消旧会话的中断等待计时', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive({ ...ready('a'), status: 'RUNNING', activeTurnId: 'turn-a' }) })
+    vi.useFakeTimers()
+    act(() => result.current.interrupt())
+    act(() => { result.current.switchTo('b'); socket.receive(ready('b')) })
+    act(() => vi.advanceTimersByTime(30_000))
+    expect(result.current.sessionId).toBe('b')
+    expect(result.current.interrupting).toBe(false)
+    expect(result.current.syncWarning).toBeNull()
+  })
+
   it('显式更新最近页绕过旧缓存，重复点击复用同一权威请求', async () => {
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
     act(() => result.current.switchTo('a'))

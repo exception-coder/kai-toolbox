@@ -33,6 +33,8 @@ import { currentFollowUpPrediction, type FollowUpPrediction } from '../lib/follo
  * 以前是前端收到弹窗再自动点「允许」，页面一旦切走/卸载就失效——该开关的语义本就与页面在不在无关。
  */
 const AUTO_APPROVE_KEY = 'kai-toolbox:auto-approve-permission'
+const INTERRUPT_WAIT_MS = 30_000
+const INTERRUPT_PENDING_MESSAGE = '中断尚未确认，可再次点击终止重试；运行与队列仍保持锁定。若持续失败，请联系管理员检查引擎清理状态。'
 function loadAutoApprove(): boolean {
   try { return localStorage.getItem(AUTO_APPROVE_KEY) === '1' } catch { return false }
 }
@@ -291,6 +293,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const sessionReadyRef = useRef(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
+  useEffect(() => {
+    if (!interrupting) return
+    // 超时只恢复终止重试入口，不伪造终态，也不释放下一条队列消息。
+    const timer = setTimeout(() => {
+      setInterrupting(false)
+      setSyncWarning(INTERRUPT_PENDING_MESSAGE)
+    }, INTERRUPT_WAIT_MS)
+    return () => clearTimeout(timer)
+  }, [interrupting, sessionId])
   const [mode, setModeState] = useState<PermissionMode>('default')
   const [autoApprove, setAutoApproveState] = useState<boolean>(loadAutoApprove)
   // 供回调内读取最新值而不把 mode/autoApprove 卷进依赖环
@@ -795,6 +806,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       }
       case 'warning':
+        if (msg.code === 'INTERRUPT_CLEANUP_PENDING') {
+          setInterrupting(false)
+          setSyncWarning(INTERRUPT_PENDING_MESSAGE)
+          break
+        }
         if (msg.code === 'QWEN_MODELS_UNAVAILABLE') setModelsRefreshing(false)
         setItems(prev => [...prev, { kind: 'warning', id: nextId(), code: msg.code, message: msg.message, ts: Date.now() }])
         break
@@ -911,6 +927,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       }
       case 'result': {
+        setSyncWarning(previous => previous === INTERRUPT_PENDING_MESSAGE ? null : previous)
         applyTurnRunningSignal('terminal', '本轮已返回最终结果')
         setInterrupting(false)
         setPending(null)
@@ -968,6 +985,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       case 'error':
         if (msg.terminal !== false) {
+          setSyncWarning(previous => previous === INTERRUPT_PENDING_MESSAGE ? null : previous)
           applyTurnRunningSignal('terminal', '本轮因终态错误结束')
           setInterrupting(false)
           queueReleaseSessionRef.current = null
@@ -1708,7 +1726,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     // 不在点击时乐观结束运行态：消息可能因 WS 断开根本没有发出。
     // 只有后端收到 sidecar 的 result(interrupted) 后，applyEvent 才会把 running 置回 false。
     if (interrupting) return
-    if (sendRaw({ type: 'interrupt' })) setInterrupting(true)
+    if (sendRaw({ type: 'interrupt' })) {
+      setSyncWarning(previous => previous === INTERRUPT_PENDING_MESSAGE ? null : previous)
+      setInterrupting(true)
+    }
   }, [interrupting, sendRaw])
 
   /**

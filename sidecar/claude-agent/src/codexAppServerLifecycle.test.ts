@@ -5,12 +5,12 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { CODEX_WS_CONTEXT_BUDGET_BYTES } from './codexTransportPolicy.js'
-import { callAppServer, createCodexPredictionProcess, runCodexAppServerTurn, steerCodexAppServerTurn, CodexAppServerTurnError } from './codexAppServer.js'
+import { callAppServer, createCodexPredictionProcess, runCodexAppServerTurn, steerCodexAppServerTurn, requestCodexAppServerCleanup, CodexAppServerTurnError } from './codexAppServer.js'
 import { CodexPredictionCoordinator, readCodexPrediction } from './codexPrediction.js'
 import { observeCodexProcess } from './codexProcessLifetime.js'
 
 // Real pipes and EOF, with a local JSON-RPC peer: no account, tools or model calls.
-function fixture(mode: 'complete' | 'hold' | 'holdError' | 'cancel' | 'rpcError' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
+function fixture(mode: 'complete' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
   const child = spawn(process.execPath, ['-e', `
     const mode = ${JSON.stringify(mode)};
     const rolloutPath = ${JSON.stringify(rolloutPath)};
@@ -51,7 +51,7 @@ function fixture(mode: 'complete' | 'hold' | 'holdError' | 'cancel' | 'rpcError'
       } else if (m.method === 'turn/start') {
         send({id:m.id,result:{turn:{id:'lifecycle-turn'}}});
         process.send?.('turn-started');
-        if (mode === 'cancel') return;
+        if (mode === 'cancel' || mode === 'holdCancel') return;
         if (mode === 'crash') { process.exit(23); return; }
         if (mode === 'steer') {
           setTimeout(() => send({method:'item/agentMessage/delta',params:{threadId:'lifecycle-thread',turnId:'lifecycle-turn',delta:'ready'}}), 20);
@@ -62,6 +62,7 @@ function fixture(mode: 'complete' | 'hold' | 'holdError' | 'cancel' | 'rpcError'
         complete(); // The turn ends without acknowledging the concurrent steer.
       } else if (m.method === 'turn/interrupt') {
         send({id:m.id,result:{}});
+        if (mode === 'holdCancel') return;
         send({method:'turn/completed',params:{threadId:'lifecycle-thread',turn:{id:'lifecycle-turn',status:'interrupted'}}});
       } else if (m.method === 'thread/prediction/request') {
         send({id:m.id,result:{}});
@@ -205,6 +206,59 @@ test('cancellation after turn acceptance closes cleanly and does not release the
     assert.equal(result?.queueReleaseSafe, false)
     assert.equal(result?.stopReason, 'interrupted')
   } finally { await process.release() }
+})
+
+test('repeated cancellation can clean the owned process after protocol cleanup already ran', async () => {
+  const process = fixture('holdCancel')
+  const controller = new AbortController()
+  const events: Record<string, unknown>[] = []
+  const started = new Promise<void>(resolve => process.child.once('message', () => resolve()))
+  let stops = 0
+  const runtime = { ...process.runtime, closeTimeoutMs: 2_000, stop: () => {
+    stops++
+    if (stops === 2 && process.child.connected) process.child.send('release')
+  } }
+  const pending = runCodexAppServerTurn(turnOptions('retry-cancel', events, controller.signal), runtime)
+  const rejected = assert.rejects(pending, error => error instanceof CodexAppServerTurnError && !error.retrySafe)
+  try {
+    await started
+    controller.abort()
+    assert.equal(await requestCodexAppServerCleanup('another-session'), false)
+    assert.equal(stops, 0)
+    assert.equal(await requestCodexAppServerCleanup('retry-cancel'), true)
+    assert.equal(stops, 1)
+    assert.equal(await requestCodexAppServerCleanup('retry-cancel'), true)
+    await rejected
+    assert.equal(await process.lifetime.wait(0), true)
+    assert.equal(stops, 2)
+    assert.equal(events.some(event => event.type === 'result'), false)
+    assert.equal(await requestCodexAppServerCleanup('retry-cancel'), false)
+  } finally { await process.release() }
+})
+
+test('cancellation during successful protocol cleanup retains the owned process until real exit', async () => {
+  const process = fixture('hold')
+  const controller = new AbortController()
+  const events: Record<string, unknown>[] = []
+  let stops = 0
+  const pending = runCodexAppServerTurn(turnOptions('cleanup-cancel', events, controller.signal), {
+    ...process.runtime, closeTimeoutMs: 2_000,
+    stop: () => { stops++; if (process.child.connected) process.child.send('release') },
+  })
+  try {
+    const deadline = Date.now() + 1_500
+    while (!process.child.stdin.writableEnded && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5))
+    assert.equal(process.child.stdin.writableEnded, true, 'protocol completion has started cleanup')
+    assert.equal(await steerCodexAppServerTurn('cleanup-cancel', []), false)
+    assert.equal(events.some(event => event.type === 'result'), false)
+    controller.abort() // Its protocol listener has already been removed by cleanup.
+    assert.equal(await requestCodexAppServerCleanup('cleanup-cancel'), true)
+    await pending
+    assert.equal(stops, 1)
+    assert.equal(await process.lifetime.wait(0), true)
+    assert.equal(events.filter(event => event.type === 'result').length, 1)
+    assert.equal(await requestCodexAppServerCleanup('cleanup-cancel'), false)
+  } finally { await process.release(); await pending.catch(() => undefined) }
 })
 
 test('an accepted turn that crashes is not safe to replay; an already-aborted turn never spawns', async () => {

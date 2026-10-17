@@ -27,6 +27,7 @@ import {
   forkCodexThread,
   inspectCodexSessionCapabilities,
   listCodexModels,
+  requestCodexAppServerCleanup,
   type CodexModelInfo,
 } from './codexAppServer.js'
 import {
@@ -325,6 +326,8 @@ class Session {
   /** demo 的 welfare_db 工具回灌后端的基址（如 http://127.0.0.1:18080）。 */
   demoApiBase?: string
   private abort?: AbortController
+  private interruptRetry?: () => Promise<void>
+  private interruptTimer?: NodeJS.Timeout
   private readonly turnLifecycle = new TurnLifecycle()
   private readonly engineRegistry: EngineAdapterRegistry
   private readonly mcpToolWatchdog: McpToolWatchdog
@@ -402,7 +405,11 @@ class Session {
         [...request.additionalDirectories],
       ),
       opencode: request => this.runOpencodeTurn(request.text, request.developerInstructions),
-    }, async () => { this.abort?.abort() })
+    }, async () => {
+      const repeated = this.abort?.signal.aborted === true
+      this.abort?.abort()
+      if (repeated) await this.interruptRetry?.()
+    })
     const deepSeekConfig = { ...deepSeekHarnessConfigFromEnv(), cwd: this.cwd }
     if (deepSeekConfig.enabled) {
       this.engineRegistry.register(new DeepSeekHarnessAdapter(deepSeekConfig))
@@ -432,7 +439,7 @@ class Session {
     if (this.engine === 'codex') this.toolExecutionWatchdog.observe(event)
     const wasTerminal = this.turnLifecycle.terminal()
     const decorated = this.turnLifecycle.decorate(event)
-    if (type === 'result' && !wasTerminal && this.turnLifecycle.terminal()) {
+    if (type === 'result' && !wasTerminal && this.turnLifecycle.terminal() && !this.turnLifecycle.interrupted()) {
       this.setTurnActivityPhase('finalizing', '正在收口当前轮次')
     }
     if (decorated) this.emitRaw(decorated)
@@ -463,7 +470,7 @@ class Session {
   }
 
   private updateTurnActivity(event: Record<string, unknown>): void {
-    if (!this.turnActivityTimer || event.type === 'turnActivity') return
+    if (!this.turnActivityTimer || event.type === 'turnActivity' || this.turnLifecycle.interrupted()) return
     const type = typeof event.type === 'string' ? event.type : ''
     if (type === 'voiceEvent' && (event.event === 'started' || event.event === 'transcript')) {
       this.setTurnActivityPhase('listening', '语音对话中')
@@ -737,6 +744,8 @@ class Session {
       })
     } finally {
       this.perms.setAvoidDocker(false)
+      if (this.interruptTimer) clearTimeout(this.interruptTimer)
+      this.interruptTimer = undefined
       this.mcpToolWatchdog.clear()
       this.toolExecutionWatchdog.clear()
       if (!this.turnLifecycle.terminal()) {
@@ -1010,6 +1019,7 @@ class Session {
   private async runCodexTurn(text: string, developerInstructions?: string, images?: OneShotImage[], voiceCallId?: string): Promise<void> {
     const ac = new AbortController()
     this.abort = ac
+    this.interruptRetry = async () => { await requestCodexAppServerCleanup(this.id) }
     try {
       await runCodexTurn({
         sessionId: this.id,
@@ -1036,7 +1046,10 @@ class Session {
         canUseTool: this.perms.canUseTool,
       })
     } finally {
-      this.abort = undefined
+      if (this.abort === ac) {
+        this.abort = undefined
+        this.interruptRetry = undefined
+      }
     }
   }
 
@@ -1460,6 +1473,7 @@ class Session {
     const snapshot = this.turnLifecycle.requestInterrupt(expectedTurnId, hadPending)
     console.log(`[sidecar] interrupt requested session=${this.id} engine=${this.engine} active=${hadActiveTurn} pendingDecision=${hadPending} outcome=${snapshot.outcome} turn=${snapshot.activeTurnId ?? 'none'}`)
     if (snapshot.outcome !== 'accepted') return snapshot
+    this.setTurnActivityPhase('interrupting', '正在终止代码引擎，等待执行清理')
     if (!hadPending) {
       void this.interruptEngine() // 无未决审批，没什么要等的，立刻关
     } else {
@@ -1468,13 +1482,17 @@ class Session {
       setTimeout(() => { void this.interruptEngine() }, INTERRUPT_DENY_FLUSH_MS)
     }
     const interruptedTurnId = snapshot.activeTurnId
-    const fallback = setTimeout(() => {
+    if (this.interruptTimer) clearTimeout(this.interruptTimer)
+    this.interruptTimer = setTimeout(() => {
       const state = this.turnLifecycle.snapshot(interruptedTurnId)
       if (state.outcome !== 'accepted') return
-      console.warn(`[sidecar] interrupt terminal timeout session=${this.id} engine=${this.engine} turn=${interruptedTurnId}`)
-      this.emitTurn({ type: 'result', usage: {}, stopReason: 'interrupted' })
-    }, 4000)
-    fallback.unref?.()
+      console.warn(`[sidecar] interrupt cleanup pending session=${this.id} engine=${this.engine} turn=${interruptedTurnId}`)
+      void this.interruptEngine()
+      this.setTurnActivityPhase('interrupting', '中断仍待确认，可重试终止')
+      this.emitTurn({ type: 'warning', code: 'INTERRUPT_CLEANUP_PENDING',
+        message: '引擎中断尚未确认，可再次点击终止重试；运行与队列仍保持锁定。' })
+    }, 30_000)
+    this.interruptTimer.unref?.()
     return snapshot
   }
 

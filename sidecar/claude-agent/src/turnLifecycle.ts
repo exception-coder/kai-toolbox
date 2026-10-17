@@ -41,7 +41,8 @@ export class TurnLifecycle {
     if (type === 'result') {
       if (turn.terminal) return null
       turn.terminal = true
-      turn.terminalEvent = { ...event, turnId: turn.id }
+      turn.terminalEvent = { ...event, turnId: turn.id,
+        ...(turn.interrupted ? { stopReason: 'interrupted', queueReleaseSafe: false } : {}) }
       return null
     }
     return { ...event, turnId: turn.id }
@@ -61,6 +62,10 @@ export class TurnLifecycle {
       }
     }
     turn.interrupted = true
+    // 用户终止也撤销尚未发布的成功终态，防止清理结束后自动派发队列。
+    if (turn.terminalEvent) {
+      turn.terminalEvent = { ...turn.terminalEvent, stopReason: 'interrupted', queueReleaseSafe: false }
+    }
     return {
       outcome: 'accepted',
       active: true,
@@ -92,6 +97,10 @@ export class TurnLifecycle {
 
   terminal(): boolean {
     return this.active?.terminal ?? true
+  }
+
+  interrupted(): boolean {
+    return this.active?.interrupted ?? false
   }
 
   /** 原子释放当前轮并返回之前暂存的唯一终态；调用方应在本方法返回后再对上游发布。 */

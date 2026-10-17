@@ -33,6 +33,21 @@ The system SHALL recover an interrupted session only after fresh runtime evidenc
 
 The interface SHALL provide an explicit reload action for interrupted sessions and a recheck action when runtime state is unavailable or inconsistent.
 
+#### Scenario: Interrupt remains unconfirmed
+
+- **WHEN** interruption remains unconfirmed for 30 seconds
+- **THEN** the interface restores the retry action and explains the pending cleanup without marking the turn idle or releasing queued input
+
+#### Scenario: Repeated cancellation during protocol cleanup
+
+- **WHEN** a user retries interruption while the owned Codex process is still cleaning up
+- **THEN** the adapter can request cleanup of that same owned process and continues to require actual release evidence without affecting another session
+
+#### Scenario: User cancels a buffered successful result
+
+- **WHEN** a successful result is buffered but its execution has not returned and the user interrupts the matching turn
+- **THEN** the eventual result is interrupted, retains usage, and cannot release the queue as success
+
 #### Scenario: Interrupted status
 
 - **WHEN** an interrupted session is displayed
