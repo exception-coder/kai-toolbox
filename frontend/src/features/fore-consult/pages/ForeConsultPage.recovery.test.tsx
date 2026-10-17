@@ -84,6 +84,27 @@ it('uses keyboard activation of a graph system only as a preference and preserve
     systemName: 'erp', systemSourcePath: 'D:/workspace/erp', question: '请核查截图' })
 })
 
+it('submits with Enter outside composition and shows a failed request with draft-preserving retry', async () => {
+  calls.start.mockRejectedValueOnce(new Error('优先系统已不可用或不在咨询显示范围'))
+  mount()
+  const question = await screen.findByRole('textbox', { name: '业务问题' })
+  fireEvent.change(question, { target: { value: '检查这些截图和订单日期' } })
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Ask Forge' })).toBeEnabled())
+  fireEvent.keyDown(question, { key: 'Enter', shiftKey: true })
+  fireEvent.keyDown(question, { key: 'Enter', isComposing: true })
+  expect(calls.start).not.toHaveBeenCalled()
+  fireEvent.keyDown(question, { key: 'Enter' })
+  const error = await screen.findByRole('alert')
+  expect(error).toHaveTextContent('优先系统已不可用或不在咨询显示范围')
+  expect(calls.start).toHaveBeenCalledOnce()
+  expect(question).toHaveValue('检查这些截图和订单日期')
+  expect(calls.start.mock.calls[0][0].question).toBe('检查这些截图和订单日期')
+  calls.start.mockReturnValue(new Promise(() => {}))
+  fireEvent.click(screen.getByRole('button', { name: '重试发送' }))
+  await waitFor(() => expect(calls.start).toHaveBeenCalledTimes(2))
+  expect(screen.getByRole('button', { name: 'Ask Forge' })).toBeDisabled()
+})
+
 it('allows a new question after authoritative history succeeds even when runtime hints fail', async () => {
   calls.runtime.mockRejectedValue(new Error('HTTP 500'))
   mount()

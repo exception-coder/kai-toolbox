@@ -2127,6 +2127,10 @@ export function ForeConsultPage() {
               placeholder="直接描述问题或粘贴截图，Forge 自动定位相关系统"
               className="max-h-28 min-h-11 w-full resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-sm leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none"
             />
+            {startMutation.isError && <div role="alert" className="flex flex-wrap items-center justify-between gap-2 px-2 py-2 text-xs text-red-800">
+              <p className="min-w-0 break-words">发送未成功：{startMutation.error instanceof Error ? startMutation.error.message : '创建咨询失败，请重试'}。问题和附件已保留。</p>
+              <button type="button" disabled={!canStart} onClick={() => startMutation.mutate()} className="min-h-9 shrink-0 rounded-md px-2 underline underline-offset-4 focus-visible:outline-2 disabled:opacity-40">重试发送</button>
+            </div>}
             <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
             <div className="flex flex-wrap items-center justify-between gap-3 px-1 pt-1">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
