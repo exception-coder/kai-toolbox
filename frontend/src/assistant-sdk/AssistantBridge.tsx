@@ -6,6 +6,8 @@ import { AssistantCollector } from './collector'
 import { loadStableAssistantRuntime } from './assistantLoaderHost'
 import type { AssistantSdk } from './types'
 
+const MOBILE_VIEWPORT_QUERY = '(max-width: 767px)'
+
 /** Forge 宿主适配：开发模式支持源码热更新，打包模式消费 stable Loader。 */
 export function AssistantBridge() {
   const location = useLocation()
@@ -36,7 +38,10 @@ export function AssistantBridge() {
         appName: 'Forge',
         projectKey: 'kai-toolbox',
         sourceRevision: import.meta.env.DEV ? 'workspace-dev' : 'loader-stable',
-        visibility: { storageKey: 'kai-assistant:visibility:forge' },
+        // 手机每次进入默认收起，不继承桌面或上次主动唤起的显示记忆。
+        visibility: window.matchMedia?.(MOBILE_VIEWPORT_QUERY)?.matches
+          ? { initiallyHidden: true }
+          : { storageKey: 'kai-assistant:visibility:forge' },
         wsUrl: '/api/claude-chat/consult/ws',
         getAccessToken: async () => {
           await ensureFreshToken()

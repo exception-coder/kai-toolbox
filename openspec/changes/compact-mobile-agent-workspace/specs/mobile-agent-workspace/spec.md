@@ -8,9 +8,10 @@ The mobile conversation SHALL allocate remaining workspace height to messages an
 - **THEN** one dock displays runtime state and queue count, with queue details and OpenSpec controls available in a bottom sheet
 - **AND** the full queue and supervision bars are not persistently expanded above or below messages
 
-#### Scenario: Global assistant launcher is available
-- **WHEN** the mobile conversation shows its default composer
-- **THEN** the global assistant launcher remains accessible above the dock without covering the stop and send controls
+#### Scenario: Global assistant launcher is hidden by default on phones
+- **WHEN** Forge loads in a phone viewport below 768px, including unauthenticated pages
+- **THEN** the global rainbow launcher is hidden without inheriting desktop or previous visible preferences
+- **AND** existing explicit assistant activation remains available; desktop preferences and other SDK hosts retain their existing behavior
 
 #### Scenario: Abnormal completion pauses queue
 - **WHEN** queued work is paused after abnormal completion
