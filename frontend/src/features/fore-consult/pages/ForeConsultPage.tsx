@@ -1581,7 +1581,7 @@ export function ForeConsultPage() {
           </div>
         </div>
         <div className="fc-toolbar pointer-events-auto flex w-full min-w-0 items-center gap-1.5 overflow-x-auto pb-1 lg:w-auto lg:overflow-visible lg:pb-0">
-          <ConsultSkinToggle skin={skin} onToggle={toggleSkin} remembered={remembered} />
+          {isAdmin && <ConsultSkinToggle skin={skin} onToggle={toggleSkin} remembered={remembered} />}
           {isAdmin && (
             <button
               type="button"
@@ -1594,15 +1594,15 @@ export function ForeConsultPage() {
               {topoMutation.isPending ? '分析中…' : '分析链路'}
             </button>
           )}
-          <button
+          {isAdmin && <button
             type="button"
             onClick={() => setEvidenceRoutesOpen(true)}
             className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-emerald-200/70 bg-emerald-50/70 px-3 py-1.5 text-xs text-emerald-700 transition-colors hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 lg:rounded-full"
             title="查看并确认跨系统数据归属"
           >
             <Radar className="size-3.5" /> 数据归属 {(topoData?.evidenceRoutes?.length ?? 0) || ''}
-          </button>
-          {(topoData?.links.length ?? 0) > 0 && (
+          </button>}
+          {isAdmin && (topoData?.links.length ?? 0) > 0 && (
             <button
               type="button"
               onClick={() => setShowLinks((s) => !s)}
@@ -1637,7 +1637,7 @@ export function ForeConsultPage() {
             className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 hover:bg-white/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500 lg:rounded-full">
             <Pin className="size-3.5" />更新
           </button>
-          <button
+          {isAdmin && <button
             type="button"
             onClick={() => setBugsOpen((o) => !o)}
             className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-200/80 bg-amber-50/75 px-3 py-1.5 text-xs text-amber-700 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 lg:rounded-full"
@@ -1645,7 +1645,7 @@ export function ForeConsultPage() {
           >
             <Bug className="size-3.5" />
             Bug 登记 {(bugs ?? []).length > 0 && `· ${(bugs ?? []).length}`}
-          </button>
+          </button>}
           <button
             type="button"
             onClick={toggleFullscreen}
@@ -1689,7 +1689,7 @@ export function ForeConsultPage() {
         </div>
       )}
 
-      {evidenceRoutesOpen && (
+      {isAdmin && evidenceRoutesOpen && (
         <EvidenceRouteManager isAdmin={isAdmin} onClose={() => setEvidenceRoutesOpen(false)} />
       )}
       {topologyNotice && (
@@ -2337,7 +2337,7 @@ export function ForeConsultPage() {
       )}
 
       {/* Bug 登记抽屉 */}
-      {bugsOpen && <BugDrawer onClose={() => setBugsOpen(false)} />}
+      {isAdmin && bugsOpen && <BugDrawer onClose={() => setBugsOpen(false)} />}
 
       {/* 历史咨询详情（只读查看归档问答） */}
       {viewSession && (

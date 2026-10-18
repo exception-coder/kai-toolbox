@@ -51,6 +51,16 @@ beforeEach(() => {
 afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals() })
 function mount() { render(<QueryClientProvider client={client}><ForeConsultPage /></QueryClientProvider>) }
 
+it.each([false, true])('hides administrator tools for ordinary users (phone=%s)', async phone => {
+  viewport.phone = phone
+  mount()
+  await screen.findByRole('button', { name: phone ? '编辑咨询' : 'ERP' })
+  if (phone) fireEvent.click(screen.getByRole('button', { name: '更多咨询功能' }))
+  expect(screen.queryByRole('button', { name: /Forge 风格|Glass 风格|数据归属|连线|Bug 登记/ })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /历史咨询/ })).toBeVisible()
+  expect(screen.getByRole('button', { name: '查看更新记录' })).toBeVisible()
+})
+
 it('opens a separate mobile question draft without archiving and can return to the same consultation', async () => {
   viewport.phone = true
   calls.history.mockResolvedValue([pending])
