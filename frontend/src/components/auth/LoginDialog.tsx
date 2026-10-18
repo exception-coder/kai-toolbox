@@ -1,4 +1,4 @@
-import { useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -25,12 +25,23 @@ interface Props {
  * 居中在侧边栏里而不是屏幕中央，还被抽屉的 w-60/max-w-[80vw] 裁切。
  */
 export function LoginDialog({ open, onClose, onSuccess, message, returnFocusRef }: Props) {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const submitting = useRef(false)
 
-  const submit = async () => {
+  useEffect(() => {
+    if (open) setErr(null)
+  }, [open])
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = event.currentTarget
+    if (submitting.current || !form.reportValidity()) return
+    // 密码管理器可能不触发 React change；提交时读取真实表单，不复制密码到组件状态或持久存储。
+    const fields = new FormData(form)
+    const username = String(fields.get('username') ?? '')
+    const password = String(fields.get('password') ?? '')
+    submitting.current = true
     setBusy(true)
     setErr(null)
     try {
@@ -40,6 +51,7 @@ export function LoginDialog({ open, onClose, onSuccess, message, returnFocusRef 
     } catch (e) {
       setErr((e as Error).message)
     } finally {
+      submitting.current = false
       setBusy(false)
     }
   }
@@ -82,20 +94,19 @@ export function LoginDialog({ open, onClose, onSuccess, message, returnFocusRef 
             </div>
           </div>
           {message && <p className="mb-3 text-center text-xs text-[var(--color-muted-foreground)]">{message}</p>}
-          <form name="forge-sign-in" aria-label="账号登录" onSubmit={event => {
-            event.preventDefault()
-            if (!busy && username && password) void submit()
-          }}>
+          <form name="forge-sign-in" method="post" autoComplete="on" aria-label="账号登录" onSubmit={submit}>
             <input
               autoFocus
               id="forge-login-username"
               name="username"
               aria-label="登录账号"
               autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              required
               className="mb-2 w-full rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm"
               placeholder="用户名"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
             />
             <input
               type="password"
@@ -103,16 +114,19 @@ export function LoginDialog({ open, onClose, onSuccess, message, returnFocusRef 
               name="password"
               aria-label="登录密码"
               autoComplete="current-password"
+              required
+              aria-describedby="forge-login-password-help"
               className="mb-2 w-full rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm"
               placeholder="密码"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
             />
-            {err && <p className="mb-2 text-xs text-[var(--color-destructive)]">{err}</p>}
+            <p id="forge-login-password-help" className="mb-3 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
+              个人设备可在登录成功后选择浏览器的“保存密码”，下次自动填充。共用设备请勿保存。
+            </p>
+            {err && <p role="alert" className="mb-2 text-xs text-[var(--color-destructive)]">{err}</p>}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" size="sm" onClick={onClose}>取消</Button>
-              <Button type="submit" size="sm" disabled={busy || !username || !password}>
-                登录
+              <Button type="submit" size="sm" disabled={busy}>
+                {busy ? '登录中…' : '登录'}
               </Button>
             </div>
           </form>
