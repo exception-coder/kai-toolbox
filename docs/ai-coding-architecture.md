@@ -24,6 +24,23 @@
 
 这是 Agent 的交付约定；当前没有新增能够自动证明文档语义同步的 CI 检查器。
 
+## 前端生产资源与提交后更新
+
+Forge 的受管前端新增可选 static 模式，后端 dev/full 与前端模式分别选择。现有 Java 自动更新继续拥有远端 Git 检查和工作区收敛；Node 前端只观察本地已提交 frontend 树，从不可变归档构建候选并在完整性校验后原子切换资源指针，不读取 dirty 作业发布、不新增 Git 拉取或后端重启链。未启用时仍使用开发前端。
+
+```mermaid
+flowchart LR
+    COMMIT["已提交 frontend 树"] --> BUILD["独立快照和依赖缓存构建"]
+    BUILD --> CHECK{"资源完整性通过"}
+    CHECK -->|"是"| ACTIVE["原子切换当前版本"]
+    CHECK -->|"否"| KEEP["保留当前版本并记录失败"]
+    ACTIVE --> CLIENT["版本检测和页面刷新提示"]
+    CLIENT --> IDLE["保守空闲首页单次刷新"]
+    CLIENT --> EDIT["业务页保存后确认刷新"]
+```
+
+静态服务复用 PM2 前端进程、HTTPS 与固定本机 API/WS/SSE、控制代理。版本化资源保留旧版并采用长期缓存，HTML/版本检查不长期缓存；后台构建不替换运行器代码或重启服务。首次模式切换、配置和运行器生效仍遵守每次重启单独确认，不能以自动构建授权扩大服务重启权限。业务页面不自动刷新，刷新也不等于取消服务端任务。源码、独立验证、日常模式切换、稳定观察与公网真机性能分别记录于[生产前端任务](../openspec/changes/serve-built-frontend/tasks.md)；未切换不能宣称手机首屏已达标。
+
 ## Team Standards 默认引导边界
 
 Team Standards 4.11.0 保留 change-readiness 与 delivery-verification 作为方法引导，默认不再注册 SessionStart、规格/就绪检查和交付 Stop 链。普通项目不因安装插件就需要 Forge 绑定、兼容治理记录或机器 PASS；缺失材料允许继续可确认工作，验证失败和未执行仍如实报告。下文 Forge 执行流程适用于项目明确采用 Forge 的场景；项目自有宿主权限、CI 和执行门禁不由插件升级取消。历史适配器及治理 CLI 仅供项目显式接入。

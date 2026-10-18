@@ -6,6 +6,7 @@ import { connectManager, appOptions, daemonPid } from './process-manager.mjs';
 import { enabledServices } from './services.mjs';
 import { controlServer, portOpen } from './control.mjs';
 import { ensureManagedTunnel } from './tunnel.mjs';
+import { readFrontendStatus } from './frontend/runtime.mjs';
 
 const root = process.argv[2];
 const paths = runtimePaths(root);
@@ -49,8 +50,11 @@ async function status() {
   const states = await Promise.all(currentServices().map(async service => {
     const app = apps.find(item => item.name === service.name);
     const up = app?.pm2_env.status === 'online';
+    const frontend = service.name === 'frontend' && settings.frontendMode === 'static'
+      ? await readFrontendStatus(paths, app?.pid) : null;
     return { name: service.name, pid: app?.pid || null, state: app?.pm2_env.status || 'not_started',
-      ready: up && await portOpen(service.port), restarts: app?.pm2_env.restart_time || 0 };
+      ready: up && await portOpen(service.port) && (service.name !== 'frontend' || settings.frontendMode !== 'static' || frontend?.ready === true),
+      restarts: app?.pm2_env.restart_time || 0, ...(frontend ? { frontend } : {}) };
   }));
   const backend = states.find(item => item.name === 'backend');
   const frontend = states.find(item => item.name === 'frontend');

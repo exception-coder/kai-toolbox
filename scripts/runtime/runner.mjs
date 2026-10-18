@@ -71,6 +71,10 @@ async function backend() {
 async function executeService() {
   if (name === 'backend') return backend();
   if (name === 'frontend') {
+    if (settings.frontendMode === 'static') {
+      const { startStaticFrontend } = await import('./frontend/runtime.mjs');
+      return startStaticFrontend(paths, settings, env);
+    }
     console.log('[forge-stage] 准备前端依赖');
     const cwd = join(root, 'frontend');
     await prepareNode(cwd, env);

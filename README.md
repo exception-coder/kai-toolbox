@@ -31,6 +31,8 @@ git clone https://github.com/exception-coder/kai-toolbox.git
 cd kai-toolbox
 ```
 
+前端支持可选 `--frontend-mode static`：从已提交快照构建生产资源，检测前端提交后原子更新，失败保留旧版，业务页提示保存后刷新。可先用 `node forge.mjs frontend build` 构建，不启动服务。已有实例切换需要明确授权全量重启，详见[静态前端运行说明](scripts/STARTUP.md#本地生产前端与提交后更新)。当前尚未切换日常服务，公网手机速度待运行验收。
+
 ### 一键源码启动
 
 Windows、macOS、Ubuntu、CentOS Stream 使用同一个入口：

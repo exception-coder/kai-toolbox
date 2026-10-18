@@ -9,6 +9,13 @@ ARIA2_BIN=
 # Unified Node supervisor (optional overrides)
 FORGE_SCOPE=all
 FORGE_MODE=dev
+# Independent frontend runtime, committed snapshots only in static mode.
+FORGE_FRONTEND_MODE=dev
+FORGE_FRONTEND_AUTO_BUILD=true
+FORGE_FRONTEND_POLL_SECONDS=15
+# Optional existing TLS leaf certificate/key; defaults to ~/.vite-plugin-mkcert/.
+FORGE_FRONTEND_TLS_CERT=
+FORGE_FRONTEND_TLS_KEY=
 # Leave empty for platform default: enabled only on Windows
 FORGE_WECHAT_ENABLED=
 FORGE_STUDIO_ENABLED=false

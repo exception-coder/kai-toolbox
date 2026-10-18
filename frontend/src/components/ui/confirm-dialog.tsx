@@ -6,6 +6,8 @@ import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import { cn } from '@/lib/utils'
 
 export interface ConfirmOptions {
+  /** Restore the originating action when a caller has no Radix Dialog.Trigger. */
+  returnFocusRef?: React.RefObject<HTMLElement | null>
   title?: React.ReactNode
   description?: React.ReactNode
   confirmText?: string
@@ -30,12 +32,14 @@ interface PendingConfirm {
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = React.useState<PendingConfirm | null>(null)
+  const returnFocusTarget = React.useRef<HTMLElement | null>(null)
   // 全屏时挂到全屏元素内，否则对话框会渲染在全屏元素外面 → 用户只看到「点了没反应」
   const portalContainer = useFullscreenPortalContainer()
 
   const confirm = React.useCallback<ConfirmFn>(opts => {
     const options: ConfirmOptions =
       typeof opts === 'string' ? { description: opts } : opts
+    returnFocusTarget.current = options.returnFocusRef?.current ?? null
     return new Promise<boolean>(resolve => {
       setPending({ options, resolve })
     })
@@ -67,6 +71,12 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             )}
           />
           <DialogPrimitive.Content
+            onCloseAutoFocus={event => {
+              if (returnFocusTarget.current?.isConnected) {
+                event.preventDefault()
+                returnFocusTarget.current.focus()
+              }
+            }}
             className={cn(
               'fixed left-1/2 top-1/2 z-50 w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2',
               'appearance-elevated-chrome rounded-lg border text-[var(--color-card-foreground)] shadow-lg',

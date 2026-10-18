@@ -58,6 +58,30 @@ Node 入口支持 Windows、Linux、macOS 的 x64/arm64，优先使用 `CLOUDFLA
 
 前台断点调试仍可使用 `task prepare` 后 `task dev`，或分终端 `task dev:backend / task dev:frontend`。这些前台调试任务关闭自动更新，不受后台守护管理。发布制品沿用 `task build / task run`；full 模式仍是本地源码构建，不是 Docker。
 
+## 本地生产前端与提交后更新
+
+前端可独立选择 dev 或 static，与后端 `--mode dev|full` 分开。已有服务不会因重复 start 静默切换模式。
+
+```shell
+node forge.mjs frontend build
+node forge.mjs frontend status
+node forge.mjs start --frontend-mode static
+node forge.mjs restart --frontend-mode static
+node forge.mjs restart --frontend-mode dev
+```
+
+`frontend build` 只构建已提交快照，不启动服务；服务未运行时才用 start。已有实例切换使用明确授权的全量 restart，范围包括前后端、启用的辅助服务及隧道，不能结合 `--scope backend` 偷换模式。Agent 每次重启仍须取得本次确认。
+
+static 由原 PM2 前端进程提供生产资源，默认复用 `~/.vite-plugin-mkcert/cert.pem`、`dev.pem` 和端口 5173，也可设置 `FORGE_FRONTEND_TLS_CERT` / `FORGE_FRONTEND_TLS_KEY`。证书缺失明确失败，不自动安装 CA。`FORGE_FRONTEND_HTTPS=false` 显式启用 HTTP 时须同步隧道回源，不自动降级 TLS。API、WebSocket、SSE、supervisor 代理使用实际后端和控制器端口。
+
+默认每 15 秒检查已提交 frontend 树；Java 继续拥有远端 Git 检查和工作区更新。仅后端提交不重建前端；未提交代码不发布，连续提交串行收敛到最新树。构建使用独立快照和按锁文件隔离的依赖缓存，不改工作区 node_modules；调用现有 npm run build。首次需安装依赖，实际更新延迟以日志为准。
+
+完整性检查通过后原子切换，无需重启前端进程或 Java；失败继续服务旧版。失败树不循环重试，新前端提交或手动 build 可恢复。版本资源保留至少七天且至少最近三个版本，超出保留期的旧页面可能需要刷新。产物、状态、构建锁与日志保存在当前用户 runtime 目录，状态不含凭据。
+
+业务页面提示“新版已就绪”，可稍后或保存后确认刷新；刷新不取消服务器任务。仅无输入、无对话框、无已激活聊天引擎及已知写操作的可见首页，在 30 秒无交互后刷新一次。开发或没有版本元数据的旧页不启用检测。
+
+本机忽略配置支持 `FORGE_FRONTEND_MODE=static`、`FORGE_FRONTEND_AUTO_BUILD=false`（只手动发布）、`FORGE_FRONTEND_POLL_SECONDS=15`（5–300）。已有实例采用持久设置，修改配置本身不重启；模式切换参数会重新读取自动构建与轮询配置。静态服务不使用 vite preview 长期运行。本次尚未切换日常服务，公网手机性能待授权切换后验收。
+
 ## 独立启动测量
 
 日常 `node forge.mjs start` 已自动采集后端启动阶段。需要保存一次隔离实验时使用同一个 CLI：

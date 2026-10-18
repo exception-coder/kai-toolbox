@@ -11,6 +11,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { RouteLoading } from '@/shell/RouteLoading'
 
 const AssistantBridge = lazy(() => import('@/assistant-sdk/AssistantBridge').then(m => ({ default: m.AssistantBridge })))
+const FrontendUpdateNotice = lazy(() => import('@/shell/FrontendUpdateNotice').then(m => ({ default: m.FrontendUpdateNotice })))
 
 // 按布局把 feature 分两支：'showcase' 走全屏展示外壳（脱离 AppShell、公开免鉴权），
 // 其余默认 'tool' 走 AppShell（Sidebar + TopBar）。Suspense 各自在对应外壳里。
@@ -58,6 +59,9 @@ export default function App() {
       <ErrorBoundary label="assistant-bridge" compact><AssistantBridge /></ErrorBoundary>
     </Suspense>
     <SessionExpiredGate />
+    {import.meta.env.PROD && <Suspense fallback={null}>
+      <ErrorBoundary label="frontend-update" compact><FrontendUpdateNotice /></ErrorBoundary>
+    </Suspense>}
     </ChatRuntimeProvider>
   )
 }

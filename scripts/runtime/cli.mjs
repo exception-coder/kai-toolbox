@@ -14,6 +14,7 @@ import { ensureManagedTunnel } from './tunnel.mjs';
 function optionsFrom(args) {
   const options = {};
   const aliases = { '-Mode': 'mode', '--mode': 'mode', '-Scope': 'scope', '--scope': 'scope', '--port': 'port',
+    '--frontend-mode': 'frontendMode',
     '-Observability': 'observability', '--observability': 'observability' };
   for (let i = 0; i < args.length; i++) {
     if (aliases[args[i]]) {
@@ -72,13 +73,14 @@ async function prepare(paths, env, settings) {
   }
 }
 
-async function start(paths, env, settings, manager) {
+async function start(paths, env, settings, manager, requestedFrontendMode) {
   startupTimeout(env);
   const apps = await manager.call('list');
   if (apps.some(app => app.name === 'forge-controller' && app.pm2_env.status === 'online')) {
+    const activeSettings = JSON.parse(readFileSync(paths.settings, 'utf8'));
+    if (requestedFrontendMode && (activeSettings.frontendMode || 'dev') !== requestedFrontendMode) throw new Error('Frontend mode differs; an explicitly authorized full restart is required');
     console.log('检测到已有守护器，检查实际就绪状态…');
     await ensureManagedTunnel(manager, paths, env);
-    const activeSettings = JSON.parse(readFileSync(paths.settings, 'utf8'));
     return waitForStartup(paths, activeSettings, env);
   }
   if (await portOpen(settings.port)) throw new Error(`Control port ${settings.port} is occupied; stop the existing supervisor first`);
@@ -139,11 +141,18 @@ export async function main(root, args) {
   if (['help', '--help', '-h'].includes(command)) {
     console.log('Cloudflare tunnel: node forge.mjs tunnel start|stop|status|check [--config PATH] [--protocol http2|quic|auto]\nTemporary address: node forge.mjs tunnel start --quick [--url https://localhost:5173]');
     console.log('Isolated backend measurement:\nnode forge.mjs measure-startup [--port 18090] [--timeout-seconds 120] [--skip-build] [--application-jar PATH] [--output-root PATH] [--target-path /api/tools]\n');
-    console.log('Forge source runtime (Node 22+, Java 21, Maven)\n\nnode forge.mjs start [--scope all|backend|frontend] [--mode dev|full]\nnode forge.mjs stop\nnode forge.mjs status\nnode forge.mjs restart [--scope backend]\nnode forge.mjs logs [service]\nnode forge.mjs doctor\nnode forge.mjs prepare\n\nDocker is optional and is not used to run Forge.');
+    console.log('Forge source runtime (Node 22+, Java 21, Maven)\n\nnode forge.mjs start [--scope all|backend|frontend] [--mode dev|full] [--frontend-mode dev|static]\nnode forge.mjs stop\nnode forge.mjs status\nnode forge.mjs restart [--scope backend] [--frontend-mode dev|static]\nnode forge.mjs frontend build|status\nnode forge.mjs logs [service]\nnode forge.mjs doctor\nnode forge.mjs prepare\n\nDocker is optional and is not used to run Forge.');
     return;
   }
   const paths = runtimePaths(root);
   const env = readConfig(root);
+  if (command === 'frontend') {
+    if (rest.length !== 1 || !['build', 'status'].includes(rest[0])) throw new Error('Use frontend build|status');
+    const { buildRelease, frontendHome } = await import('./frontend/build.mjs');
+    const { readActive } = await import('./frontend/releases.mjs');
+    const result = rest[0] === 'build' ? await buildRelease(paths, env) : await readActive(frontendHome(paths));
+    console.log(JSON.stringify(result, null, 2)); return;
+  }
   const options = command === 'logs' ? {} : optionsFrom(rest);
   const requestedSettings = settingsFrom(env, options);
   const settings = existsSync(paths.settings) && !['start', 'prepare', 'doctor'].includes(command)
@@ -155,7 +164,7 @@ export async function main(root, args) {
   }
   const manager = await connectManager(paths);
   try {
-    if (command === 'start') return await start(paths, env, settings, manager);
+    if (command === 'start') return await start(paths, env, settings, manager, options.frontendMode);
     if (command === 'logs') {
       const name = rest[0] || 'forge-controller';
       if (!/^[a-z-]+$/.test(name)) throw new Error('Invalid service name');
@@ -169,16 +178,27 @@ export async function main(root, args) {
     if (command === 'stop') {
       await stop(paths, settings, manager, { apps, options });
     } else if (command === 'restart') {
+      if (options.frontendMode && options.scope) throw new Error('Changing frontend mode requires an explicitly authorized full restart without --scope');
       const controller = apps.find(app => app.name === 'forge-controller');
       if (!controller) throw new Error('Forge is not running; use start');
       const request = restartRequest(options, settings, env, controller);
+      const nextSettings = options.frontendMode ? { ...settings, ...settingsFrom(env, { ...settings, ...options }) } : settings;
       if (controller.pm2_env.status === 'online') {
-        const response = await fetch(`http://127.0.0.1:${settings.port}${request.path}`, {
+        if (options.frontendMode) writeFileSync(paths.settings, JSON.stringify(nextSettings), { mode: 0o600 });
+        let response;
+        try { response = await fetch(`http://127.0.0.1:${settings.port}${request.path}`, {
           method: 'POST', headers: { 'X-Restart-Token': request.token },
           signal: AbortSignal.timeout(5000),
-        });
+        }); } catch (error) {
+          // An acknowledgement timeout has an unknown outcome; do not race the controller by restoring settings.
+          throw error;
+        }
+        if (!response.ok && options.frontendMode) writeFileSync(paths.settings, JSON.stringify(settings), { mode: 0o600 });
         if (!response.ok) throw new Error(`Reload rejected (${response.status}); inspect status and retry`);
-      } else await manager.call('restart', 'forge-controller');
+      } else {
+        if (options.frontendMode) writeFileSync(paths.settings, JSON.stringify(nextSettings), { mode: 0o600 });
+        await manager.call('restart', 'forge-controller');
+      }
       console.log(request.message);
     } else if (command === 'status') {
       if (apps.length === 0) return await reportUnmanagedRuntime(paths, env, settings, options.scope);

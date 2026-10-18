@@ -45,9 +45,14 @@ export function settingsFrom(env, options = {}) {
   const mode = options.mode || env.FORGE_MODE || 'dev';
   if (!['all', 'frontend', 'backend'].includes(scope)) throw new Error('scope must be all, frontend or backend');
   if (!['dev', 'full'].includes(mode)) throw new Error('mode must be dev or full');
+  const frontendMode = options.frontendMode || env.FORGE_FRONTEND_MODE || 'dev';
+  if (!['dev', 'static'].includes(frontendMode)) throw new Error('frontend mode must be dev or static');
+  const frontendPollSeconds = Number(env.FORGE_FRONTEND_POLL_SECONDS || 15);
+  if (!Number.isInteger(frontendPollSeconds) || frontendPollSeconds < 5 || frontendPollSeconds > 300) throw new Error('Frontend poll seconds must be 5–300');
   const port = Number(options.port || env.FORGE_CONTROL_PORT || 18081);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Invalid control port');
   const observability = options.observability || env.FORGE_OBSERVABILITY || 'external';
   if (!['external', 'phoenix', 'langfuse', 'off'].includes(observability)) throw new Error('Invalid observability mode');
-  return { scope, mode, port, observability, hotReload: flag(options.hotReload ?? env.FORGE_HOT_RELOAD) };
+  return { scope, mode, port, observability, hotReload: flag(options.hotReload ?? env.FORGE_HOT_RELOAD), frontendMode,
+    frontendAutoBuild: flag(env.FORGE_FRONTEND_AUTO_BUILD, true), frontendPollSeconds };
 }
