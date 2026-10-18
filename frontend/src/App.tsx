@@ -8,6 +8,7 @@ import { RouteGuard } from '@/components/auth/RouteGuard'
 import { SessionExpiredGate } from '@/components/auth/SessionExpiredGate'
 import { ChatRuntimeOverlays, ChatRuntimeProvider } from '@/features/claude-chat/public-api/runtime'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { PageSkeleton } from '@/components/ui/page-skeleton'
 
 const AssistantBridge = lazy(() => import('@/assistant-sdk/AssistantBridge').then(m => ({ default: m.AssistantBridge })))
 
@@ -42,7 +43,7 @@ export default function App() {
                 <RouteGuard feature={f}>
                   {/* 每个工具页各自套错误边界：某模块崩溃/断网加载失败只兜住内容区，侧边栏仍在，随时可切到别的模块 */}
                   <ErrorBoundary label={f.id}>
-                    <Suspense fallback={<PageLoading />}>{r.element}</Suspense>
+                    <Suspense key={r.path} fallback={<PageSkeleton title={f.name} />}>{r.element}</Suspense>
                   </ErrorBoundary>
                 </RouteGuard>
               }
@@ -58,14 +59,6 @@ export default function App() {
     </Suspense>
     <SessionExpiredGate />
     </ChatRuntimeProvider>
-  )
-}
-
-function PageLoading() {
-  return (
-    <div className="flex h-full items-center justify-center text-sm text-[var(--color-muted-foreground)]">
-      加载中…
-    </div>
   )
 }
 

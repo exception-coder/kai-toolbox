@@ -1,4 +1,5 @@
 import { Suspense, useLayoutEffect, useRef, useState } from 'react'
+import { PageSkeleton } from '@/components/ui/page-skeleton'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { GripVertical, LayoutGrid } from 'lucide-react'
 import { featureAtPath } from './featureRegistry'
@@ -114,9 +115,7 @@ export function ShowcaseLayout() {
 
       <Suspense
         fallback={
-          <div className="flex min-h-screen items-center justify-center text-sm text-[var(--color-muted-foreground)]">
-            加载中…
-          </div>
+          <PageSkeleton title={currentFeature?.name} />
         }
       >
         <Outlet />

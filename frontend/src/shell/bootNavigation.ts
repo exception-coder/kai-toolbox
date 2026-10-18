@@ -6,7 +6,6 @@ type BootFeature = Pick<FeatureManifest, 'id' | 'name' | 'entry' | 'group' | 'de
 
 /** Runs inline before the React module graph; metadata and access rules come from the normal menu. */
 export function mountBootNavigation() {
-  if (location.pathname !== '/') return
   const source = document.getElementById('boot-navigation-data')
   const nav = document.getElementById('boot-navigation')
   if (!source || !nav) return
@@ -37,7 +36,12 @@ export function mountBootNavigation() {
     }
     if (!nav.childElementCount) return
     nav.hidden = false
-    document.getElementById('boot-title')!.textContent = '工作台'
+    const menu = document.getElementById('boot-menu') as HTMLDetailsElement | null
+    if (menu) { menu.hidden = false; menu.open = location.pathname === '/' }
+    const placeholder = document.getElementById('boot-placeholder')
+    if (placeholder && location.pathname === '/') placeholder.hidden = true
+    const current = features.find(feature => feature.entry && location.pathname === feature.entry.split('?')[0])
+    document.getElementById('boot-title')!.textContent = current?.name ?? '工作台'
     document.getElementById('boot-description')!.textContent = '选择功能，继续工作。'
     document.getElementById('boot-progress')!.textContent = '正在连接工作台，菜单已可使用。'
     document.documentElement.dataset.homeMenuReadyMs = String(Math.round(performance.now()))

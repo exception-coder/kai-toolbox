@@ -374,6 +374,20 @@ flowchart LR
 - Graphify 产物保持可再生；共享文件与本地缓存边界由 `.gitignore` 明确。
 - `.codex/skills/`、`.claude/` 和知识子目录只有在出现真实内容时才创建。
 
+## 工作台渐进加载边界
+
+HTML 内联骨架负责主应用下载前的反馈；导航仍由 FeatureManifest 生成，只在本地登录与权限快照有效时展示入口。React 外壳保留可用导航，各工具和展示页的代码加载由局部 Suspense 骨架承接；页面自己的数据请求仍由所属模块负责，不能把骨架当成数据已就绪。聊天 Context 与外壳先挂载，独立 ChatRuntimeEngine 首次激活才下载，以旁挂组件发布聊天实例，避免引擎接管时卸载页面和草稿；激活后跨路由常驻，保持原会话恢复、通道与权限规则。失败使用现有错误边界，慢加载提供返回或重载，不触发服务重启。
+
+```mermaid
+flowchart LR
+    HTML["HTML：骨架与受权限约束的导航"] --> SHELL["React 外壳与稳定 Context"]
+    SHELL --> PAGE["局部骨架 → 页面代码 → 模块数据"]
+    SHELL -->|首次激活| ENGINE["下载并挂载聊天引擎"]
+    ENGINE -->|发布共享实例，不重建页面| SHELL
+```
+
+能力状态及验收范围见[渐进页面加载](../openspec/changes/progressive-page-loading/tasks.md)；未实测的手机公网冷加载不能按本机构建结果宣称提速。
+
 ## Forge 系统资源工具
 
 数据库连接和测试应用账号属于系统资源，不属于会话专属 Tool。`tool-ops` 持有多数据源、应用站点凭据和系统绑定；凭据仅在服务端执行时使用，目录、浏览器和模型只接收脱敏元信息。项目库系统身份仍由 Project Registry 提供，资源关系不复制系统或凭据。

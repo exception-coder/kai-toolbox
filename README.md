@@ -46,7 +46,9 @@ node forge.mjs stop
 
 已有 Task 可使用 `task start / status / restart / stop`。环境检查用 `node forge.mjs doctor`，只启动前端用 `node forge.mjs start --scope frontend`。更多配置、独立调试、日志和旧监督器切换步骤见 [启动指南](scripts/STARTUP.md)。旧入口仅转发新 CLI；迁移时先退出旧监督器，避免端口冲突。
 
-已有本地登录快照时，首页先显示有权访问且未隐藏的功能导航，再加载完整工作台；菜单不等待业务模块和 API。入口仍由 FeatureManifest 生成，在 `frontend/` 执行 `npm run feature-catalog:generate` 同步权限目录和 HTML 导航，`npm run typecheck` 检查两者是否过期。主应用接管后继续同步权限与菜单偏好；首次登录或缓存不可用时仍需等待登录界面，加载超过十秒可选择重新加载。
+页面首次打开先显示内联骨架，不必等 React 和业务模块下载。已有本地登录快照时，首页立即显示有权访问且未隐藏的功能导航；直达模块也可展开导航或返回工作台。所有工具页及展示页首次下载页面代码时使用统一骨架，十秒仍未就绪提供返回与重载入口。聊天引擎首次激活才下载，接管时保留页面与草稿，跨路由仍共用一个会话实例。骨架不代表数据已加载，也不能消除 HTML 响应前的网络等待。
+
+入口仍由 FeatureManifest 生成，在 `frontend/` 执行 `npm run feature-catalog:generate` 同步权限目录和 HTML 导航，`npm run typecheck` 检查两者是否过期。主应用接管后继续同步权限与个人菜单偏好；菜单开关即时更新侧栏与首页，无需刷新。首次登录或缓存不可用时不显示受保护菜单，仍需等待登录界面。
 
 移动端导航选择功能后立即收起，点击当前功能也会返回原页面；搜索会先收起导航再打开命令面板，右上角关闭按钮可直接退出抽屉。
 

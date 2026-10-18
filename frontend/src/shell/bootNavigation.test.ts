@@ -59,9 +59,17 @@ it.each(['missing', 'corrupt', 'blocked'])('does not expose protected entries wi
   expect(document.getElementById('boot-navigation')).not.toBeVisible()
 })
 
-it('leaves direct tool routes to their existing application and guards', () => {
+it('offers cached navigation on direct tool routes without loading the application', () => {
   login(['ADMIN'])
   history.replaceState(null, '', '/tools/fore-consult')
   new Function(code)()
-  expect(entries()).toHaveLength(0)
+  expect(entries().some(link => link.textContent === '业务系统咨询')).toBe(true)
+  expect(document.getElementById('boot-title')).toHaveTextContent('业务系统咨询')
+})
+
+it('includes a usable static skeleton and home recovery even without JavaScript or a login snapshot', () => {
+  const page = new DOMParser().parseFromString(html, 'text/html')
+  expect(page.querySelector('#boot-placeholder[aria-busy="true"]')).not.toBeNull()
+  expect(page.querySelectorAll('#boot-placeholder .boot-skeleton-row')).toHaveLength(6)
+  expect(page.querySelector<HTMLAnchorElement>('.boot-home')?.getAttribute('href')).toBe('/')
 })

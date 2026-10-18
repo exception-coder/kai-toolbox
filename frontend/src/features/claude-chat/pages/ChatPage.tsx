@@ -1,3 +1,4 @@
+import { PageSkeleton } from '@/components/ui/page-skeleton'
 import '../focus-mode.css'
 import { FocusReadingHeader } from '../components/FocusReadingHeader'
 import { useChatFocusMode } from '../hooks/useChatFocusMode'
@@ -1066,9 +1067,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   // 引擎激活前一帧 chat 可能为空（懒启动）：占位，下一帧即就绪
   if (!chat) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-[var(--color-muted-foreground)]">
-        正在启动 Vibe Coding…
-      </div>
+      <PageSkeleton title="Vibe Coding" />
     )
   }
 

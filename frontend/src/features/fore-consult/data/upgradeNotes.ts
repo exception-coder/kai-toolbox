@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 重磅更新登记处。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-10-18-progressive-loading', date: '2026-10-18', title: '页面先显示骨架与导航',
+    summary: '待部署验收：首次打开显示骨架；已有登录快照可先用功能导航，页面代码分区加载。聊天引擎首次使用再下载，慢加载可返回或重试。',
+  },
+  {
     id: '2026-10-18-host-sftp', date: '2026-10-18', title: '主机文件支持 SFTP 传输',
     summary: '待部署验收：管理员从主机管理的“SFTP 文件”浏览、下载、上传；替换先核对原文件并保留备份。支持提供 SFTP 的 Linux/Windows 主机，单文件20 MiB。',
   },
