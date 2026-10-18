@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 重磅更新登记处。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-10-18-immediate-navigation', date: '2026-10-18', title: '菜单点击即切换',
+    summary: '待部署验收：点击菜单即进入目标页并显示骨架；悬停、聚焦或触摸提前加载页面代码，手机等待时仍可打开导航。',
+  },
+  {
     id: '2026-10-18-progressive-loading', date: '2026-10-18', title: '页面先显示骨架与导航',
     summary: '待部署验收：首次打开显示骨架；已有登录快照可先用功能导航，页面代码分区加载。聊天引擎首次使用再下载，慢加载可返回或重试。',
   },

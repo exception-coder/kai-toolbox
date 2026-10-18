@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Radar } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 import { LegacyDeliveryRedirect } from '@/features/delivery-center/public-api/navigation'

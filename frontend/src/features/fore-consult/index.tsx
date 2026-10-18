@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { MessagesSquare } from 'lucide-react'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import type { FeatureManifest } from '@/shell/types'

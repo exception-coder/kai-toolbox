@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Magnet } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const MagnetPage = lazy(() => import('./pages/MagnetPage').then((m) => ({ default: m.MagnetPage })))

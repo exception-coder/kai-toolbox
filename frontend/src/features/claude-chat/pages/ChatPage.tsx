@@ -1,4 +1,4 @@
-import { PageSkeleton } from '@/components/ui/page-skeleton'
+import { RouteLoading } from '@/shell/RouteLoading'
 import '../focus-mode.css'
 import { FocusReadingHeader } from '../components/FocusReadingHeader'
 import { useChatFocusMode } from '../hooks/useChatFocusMode'
@@ -1067,7 +1067,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   // 引擎激活前一帧 chat 可能为空（懒启动）：占位，下一帧即就绪
   if (!chat) {
     return (
-      <PageSkeleton title="Vibe Coding" />
+      <RouteLoading title="Vibe Coding" integratedHeader />
     )
   }
 

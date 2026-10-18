@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import './page-skeleton.css'
 
 /** 页面代码和首次数据共用的占位，不推测业务数据、不拦截外壳导航。 */
-export function PageSkeleton({ title = '工作台', compact = false }: { title?: string; compact?: boolean }) {
+export function PageSkeleton({ title = '工作台', compact = false, action }: { title?: string; compact?: boolean; action?: ReactNode }) {
   const [slow, setSlow] = useState(false)
   useEffect(() => {
     const timer = window.setTimeout(() => setSlow(true), 10_000)
@@ -11,7 +11,7 @@ export function PageSkeleton({ title = '工作台', compact = false }: { title?:
 
   return (
     <section className={`page-skeleton ${compact ? 'page-skeleton-compact' : ''}`} aria-label={`${title}加载中`} aria-busy="true">
-      {!compact && <h1 className="text-base font-semibold">{title}</h1>}
+      {!compact && <div className="flex items-center gap-2">{action}<h1 className="text-base font-semibold">{title}</h1></div>}
       <p role="status" className="text-sm text-[var(--color-muted-foreground)]">
         {slow ? '加载比平时慢，可先切换其他功能，或重新加载。' : '正在加载内容…'}
       </p>

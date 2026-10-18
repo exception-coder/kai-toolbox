@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Mail } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const MailInboxPage = lazy(() => import('./pages/MailInboxPage').then((m) => ({ default: m.MailInboxPage })))

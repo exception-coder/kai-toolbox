@@ -1,4 +1,5 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Navigate, useLocation } from 'react-router-dom'
 import { usePermission } from '@/shell/permission'
 
@@ -16,6 +17,8 @@ export function SystemResources() {
   if (!allowed) return <section className="p-6"><h1 className="font-semibold">需要系统资源管理权限</h1><p className="mt-2 text-sm text-muted-foreground">请联系管理员授予原资源管理权限，再管理系统资源与测试账号。</p></section>
   return <Suspense fallback={<p role="status">正在读取系统资源…</p>}><Resources /></Suspense>
 }
+
+SystemResources.preload = Resources.preload
 
 export function LegacyOpsRedirect() {
   const location = useLocation()

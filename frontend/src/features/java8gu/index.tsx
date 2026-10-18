@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { GraduationCap } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const Java8guHubPage = lazy(() => import('./pages/Java8guHubPage').then((m) => ({ default: m.Java8guHubPage })))

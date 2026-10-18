@@ -1,8 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { lazy, Suspense, type ComponentType } from 'react'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AppShell } from './AppShell'
+import { WorkspaceRouter } from './WorkspaceRouter'
 
 const search = vi.hoisted(() => vi.fn())
 vi.mock('./commandPaletteBus', () => ({ openCommandPalette: search }))
@@ -17,23 +18,24 @@ vi.mock('./menuVisibility', () => ({ useMenuVisibilitySync: () => {}, useVisible
 vi.mock('./featureRegistry', () => ({
   featureAtPath: () => undefined,
   entryOf: (feature: { entry: string }) => feature.entry,
-  features: [{ id: 'current', name: '当前功能', entry: '/current', icon: () => null, requiredPermission: 'menu:current' },
-    { id: 'slow', name: '稍慢的功能', entry: '/slow', icon: () => null, requiredPermission: 'menu:slow' }],
+  features: [{ id: 'current', name: '当前功能', entry: '/current', icon: () => null, requiredPermission: 'menu:current', routes: [] },
+    { id: 'slow', name: '稍慢的功能', entry: '/slow', icon: () => null, requiredPermission: 'menu:slow', routes: [] }],
 }))
 
-afterEach(() => { cleanup(); search.mockClear() })
+afterEach(() => { cleanup(); search.mockClear(); history.replaceState(null, '', '/') })
 
 function LocationProbe() { return <output data-testid="current-location">{useLocation().pathname}</output> }
 
 function fixture(loader?: () => Promise<{ default: ComponentType }>) {
   const Target = loader ? lazy(loader) : () => <p>目标页面内容</p>
-  render(<Suspense fallback={<p>路由加载中</p>}><MemoryRouter initialEntries={['/current']}>
+  history.replaceState(null, '', '/current')
+  render(<WorkspaceRouter>
     <LocationProbe /><Routes><Route element={<AppShell />}>
       <Route path="/current" element={<p>当前页面内容</p>} />
-      <Route path="/slow" element={<Target />} />
+      <Route path="/slow" element={<Suspense fallback={<p>路由加载中</p>}><Target /></Suspense>} />
       <Route path="/explore" element={<p>产品介绍内容</p>} />
     </Route></Routes>
-  </MemoryRouter></Suspense>)
+  </WorkspaceRouter>)
   const trigger = screen.getByRole('button', { name: '打开导航' })
   trigger.focus()
   fireEvent.click(trigger)
@@ -54,7 +56,8 @@ it('closes before a slow route finishes loading and then navigates once', async 
   const { menu } = fixture(loader)
   fireEvent.click(within(menu).getByRole('link', { name: '稍慢的功能' }))
   expect(screen.queryByRole('dialog', { name: '导航' })).not.toBeInTheDocument()
-  expect(screen.getByTestId('current-location')).toHaveTextContent('/current')
+  expect(screen.getByTestId('current-location')).toHaveTextContent('/slow')
+  expect(screen.getByText('路由加载中')).toBeVisible()
   await act(async () => { finish({ default: () => <p>目标页面内容</p> }) })
   expect(await screen.findByText('目标页面内容')).toBeVisible()
   expect(loader).toHaveBeenCalledOnce()

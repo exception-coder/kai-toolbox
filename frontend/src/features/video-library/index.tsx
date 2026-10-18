@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Film } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const VideoLibraryPage = lazy(() => import('./pages/VideoLibraryPage').then((m) => ({ default: m.VideoLibraryPage })))

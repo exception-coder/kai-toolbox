@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { WorkspaceRouter } from './shell/WorkspaceRouter'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import { loadFeatureMocks } from './lib/mock/loader'
@@ -38,7 +38,7 @@ function mountApp() {
   createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <WorkspaceRouter>
         <ConfirmProvider>
           <PromptProvider>
             {/* 顶层兜底：连外壳/运行时都崩了也只显示可刷新的兜底页，而非整屏白屏无法访问 */}
@@ -47,7 +47,7 @@ function mountApp() {
             </ErrorBoundary>
           </PromptProvider>
         </ConfirmProvider>
-      </BrowserRouter>
+      </WorkspaceRouter>
     </QueryClientProvider>
   </StrictMode>,
   )

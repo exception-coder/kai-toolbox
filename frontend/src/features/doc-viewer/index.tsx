@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { BookOpen } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const DocViewerHome = lazy(() => import('./pages/DocViewerHome').then((m) => ({ default: m.DocViewerHome })))

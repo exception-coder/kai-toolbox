@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { ListChecks } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const TaskCenterPage = lazy(() => import('./pages/TaskCenterPage').then((m) => ({ default: m.TaskCenterPage })))

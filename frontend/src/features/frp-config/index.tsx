@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Share2 } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const FrpConfigPage = lazy(() => import('./pages/FrpConfigPage').then((m) => ({ default: m.FrpConfigPage })))

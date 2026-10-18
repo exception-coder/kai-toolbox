@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom'
 import { useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowRight } from 'lucide-react'
@@ -6,7 +5,8 @@ import { LoginDialog } from '@/components/auth/LoginDialog'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { entryOf, features } from './featureRegistry'
+import { features } from './featureRegistry'
+import { FeatureLink } from './FeatureLink'
 import { hasFeatureAccess } from './access'
 import { useAccessContext } from './permission'
 import { useVisibleFeatures } from './menuVisibility'
@@ -44,7 +44,7 @@ export function HomePage() {
   const renderFeature = (f: (typeof visible)[number]) => {
     const Icon = f.icon
     return (
-      <Link key={f.id} to={entryOf(f)} className="group">
+      <FeatureLink key={f.id} feature={f} className="group">
         <Card className="h-full transition-shadow group-hover:shadow-md">
           <CardHeader>
             <CardTitle className="flex items-center justify-between text-base">
@@ -60,7 +60,7 @@ export function HomePage() {
             {f.group ?? '通用'}
           </CardContent>
         </Card>
-      </Link>
+      </FeatureLink>
     )
   }
   return (

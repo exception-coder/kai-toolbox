@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Users } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const AccountAdminPage = lazy(() => import('./pages/AccountAdminPage').then((m) => ({ default: m.AccountAdminPage })))

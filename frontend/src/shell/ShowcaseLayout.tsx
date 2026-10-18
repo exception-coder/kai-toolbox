@@ -114,6 +114,7 @@ export function ShowcaseLayout() {
       )}
 
       <Suspense
+        key={currentFeature?.id ?? location.pathname}
         fallback={
           <PageSkeleton title={currentFeature?.name} />
         }

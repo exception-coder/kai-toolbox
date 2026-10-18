@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Boxes } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const DockerPage = lazy(() => import('./pages/DockerPage').then((m) => ({ default: m.DockerPage })))

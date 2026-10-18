@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { HardDrive } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const TreeSizePage = lazy(() => import('./pages/TreeSizePage').then((m) => ({ default: m.TreeSizePage })))

@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Bot } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 import { LegacyEvaluationRedirect } from './pages/LegacyEvaluationRedirect'

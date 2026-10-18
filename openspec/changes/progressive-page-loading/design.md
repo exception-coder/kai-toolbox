@@ -10,4 +10,12 @@ React 工具路由与展示布局使用 PageSkeleton；路由错误沿用 ErrorB
 
 Context 与页面始终保持相同树位置；ChatRuntimeEngine 作为旁挂的 memo 组件，首次激活才动态下载，下载后发布实例到原 Context，避免页面重建与父子更新循环。原会话查找、PRD 通道、紧急修复和跨路由常驻逻辑整体保留。下载失败由局部边界承接，不阻塞侧栏。重复激活和切换路由复用同一实例，不创建额外会话。
 
-验证静态 HTML、权限缓存与直达链接、慢加载恢复、页面草稿和引擎挂载次数、桌面/窄屏宽度及真实页面接管。采用项目现有 React 19 lazy/Suspense，不增加框架：[lazy](https://react.dev/reference/react/lazy)、[Suspense](https://react.dev/reference/react/Suspense)（查阅于2026-10-18）。不使用实验接口。
+验证静态 HTML、权限缓存与直达链接、慢加载恢复、页面草稿和引擎挂载次数、桌面/窄屏宽度及真实页面接管。采用项目现有 React 19 lazy/Suspense，不增加框架：[lazy](https://react.dev/reference/react/lazy)、[Suspense](https://react.dev/reference/react/Suspense)（查阅于2026-10-18）。
+
+## 点击立即切换与意图预加载
+
+React Router锁定版本7.14.2默认把位置更新放进startTransition，现有移动导航测试曾明确断言慢页完成前位置仍为旧页面。WorkspaceRouter采用该版本公开的`unstable_useTransitions={false}`，统一让菜单、首页、程序导航及浏览器历史先提交位置；保持现有路由守卫和局部Suspense，不自制第二套路由。该API带unstable前缀，升级路由依赖时应随类型及回归核对命名：[7.14.2官方契约](https://reactrouter.com/7.14.2/api/declarative-routers/BrowserRouter)。
+
+页面manifest保留原动态import与组件属性，统一使用公共preloadable包装。FeatureLink只在鼠标停留120ms、键盘聚焦、触摸时请求入口代码；不遍历并提前下载全量菜单。指针离开和卸载清理等待定时器。省流量及2G/slow-2G跳过。重复意图与首次渲染共用同一promise；预加载失败不提前污染React.lazy初始化状态，真实访问仍按现有错误边界处理。
+
+入口预加载只读声明的React元素树，支持ConfirmProvider包装，不调用组件函数。SystemResources显式转发其内部Resources.preload；不借预加载触发数据库请求、连接聊天引擎或扩大权限。静态重定向和代码级隐藏模块沿用原行为。咨询与Vibe Coding骨架保持移动导航按钮，关闭后仍能切换其他目标；快捷键、焦点与修饰点击保持原链接语义。

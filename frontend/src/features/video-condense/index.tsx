@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Gauge } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const VideoCondensePage = lazy(() => import('./pages/VideoCondensePage').then((m) => ({ default: m.VideoCondensePage })))

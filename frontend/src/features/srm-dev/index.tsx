@@ -1,5 +1,5 @@
 import { LegacyDevelopmentRedirect } from '@/features/project-development/public-api'
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Handshake } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 

@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Globe } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const BrowserRequestPage = lazy(() => import('./pages/BrowserRequestPage').then((m) => ({ default: m.BrowserRequestPage })))

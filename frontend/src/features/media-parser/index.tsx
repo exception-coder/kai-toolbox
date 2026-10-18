@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Film } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const MediaParserPage = lazy(() => import('./pages/MediaParserPage').then((m) => ({ default: m.MediaParserPage })))

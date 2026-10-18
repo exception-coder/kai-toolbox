@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Server } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const HostsPage = lazy(() => import('./pages/HostsPage').then((m) => ({ default: m.HostsPage })))

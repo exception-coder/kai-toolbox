@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { Download } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const DownloaderPage = lazy(() => import('./pages/DownloaderPage').then((m) => ({ default: m.DownloaderPage })))

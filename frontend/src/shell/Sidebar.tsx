@@ -4,7 +4,7 @@ import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { BrandLogo } from './BrandLogo'
 import type { FeatureManifest } from './types'
-import { entryOf } from './featureRegistry'
+import { FeatureLink } from './FeatureLink'
 import { hasFeatureAccess } from './access'
 import { useAccessContext } from './permission'
 import { useVisibleFeatures } from './menuVisibility'
@@ -146,8 +146,8 @@ export function Sidebar({
                 const Icon = f.icon
                 return (
                   <li key={f.id}>
-                    <NavLink
-                      to={entryOf(f)}
+                    <FeatureLink
+                      feature={f}
                       onClick={onLinkClick}
                       title={f.name}
                       className={({ isActive }) =>
@@ -160,7 +160,7 @@ export function Sidebar({
                     >
                       <Icon className="h-4 w-4 shrink-0" />
                       {!collapsed && <span className="truncate">{f.name}</span>}
-                    </NavLink>
+                    </FeatureLink>
                   </li>
                 )
               })}

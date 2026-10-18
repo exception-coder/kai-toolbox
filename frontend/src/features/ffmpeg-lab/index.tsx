@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { preloadable as lazy } from '@/lib/preloadable'
 import { FlaskConical } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const FfmpegLabPage = lazy(() => import('./pages/FfmpegLabPage').then((m) => ({ default: m.FfmpegLabPage })))
