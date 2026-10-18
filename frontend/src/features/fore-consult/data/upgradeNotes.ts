@@ -7,12 +7,8 @@ export interface ConsultUpgradeNote {
   summary: string
 }
 
-/** 仅登记业务咨询板块的重大能力变更，不收录全平台或其他工具更新。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
+/** 仅登记业务人员直接受益的业务咨询重大变化；管理员配置、流程发布、开发排障及其他工具更新不收录。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
-  {
-    id: '2026-10-18-consult-web-environments', date: '2026-10-18', title: '咨询支持多环境网页登录',
-    summary: '待部署验收：管理员在咨询配置关联DEV/TEST/UAT的Web账号并在流程中选用发布。助手按问题URL或明确环境登录读取页面；无法确认时再询问地址，密码不进入对话。当前支持同源标准表单，验证码及跨域SSO暂不支持。',
-  },
   {
     id: '2026-10-18-consult-history-reading', date: '2026-10-18', title: '历史咨询直接阅读原对话',
     summary: '历史优先打开原会话；已归档只读，进行中可追问。手机旧归档全宽阅读，普通用户菜单精简。移动浏览器待验收。',
@@ -20,10 +16,6 @@ export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
     id: '2026-10-18-mobile-new-consult', date: '2026-10-18', title: '新咨询无需先归档',
     summary: '手机和平板可点顶部“新建”准备另一项问题，原咨询从历史继续；页面内草稿分别保留。移动浏览器待验收。',
-  },
-  {
-    id: '2026-10-18-consult-release-evaluation-optional', date: '2026-10-18', title: '流程候选可直接发布',
-    summary: '待部署验收：管理员保存咨询流程候选后可直接发布，评测仅供参考；数据库只读与系统绑定限制保持。',
   },
   {
     id: '2026-10-18-mobile-consult-workspace', date: '2026-10-18', title: '手机咨询更顺手',
@@ -45,14 +37,22 @@ export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
     id: '2026-10-18-drop-attachments', date: '2026-10-18', title: '支持拖入附件',
     summary: '图片和文件直接拖入输入区，截图也可粘贴。',
   },
+]
+
+/** 历史误收记录，仅留档，不进入业务咨询纸签或详情；包含原有管理员、开发运维及其他模块条目；后续技术更新不在此登记。 */
+export const EXCLUDED_UPGRADE_NOTE_HISTORY: readonly ConsultUpgradeNote[] = [
+  {
+    id: '2026-10-18-consult-web-environments', date: '2026-10-18', title: '咨询支持多环境网页登录',
+    summary: '待部署验收：管理员在咨询配置关联DEV/TEST/UAT的Web账号并在流程中选用发布。助手按问题URL或明确环境登录读取页面；无法确认时再询问地址，密码不进入对话。当前支持同源标准表单，验证码及跨域SSO暂不支持。',
+  },
+  {
+    id: '2026-10-18-consult-release-evaluation-optional', date: '2026-10-18', title: '流程候选可直接发布',
+    summary: '待部署验收：管理员保存咨询流程候选后可直接发布，评测仅供参考；数据库只读与系统绑定限制保持。',
+  },
   {
     id: '2026-10-18-source-git', date: '2026-10-18', title: '源码与提交记录辅助定位',
     summary: '结合已接入源码与本地 Git 修改线索，帮助 IT 找到相关开发联系人。',
   },
-]
-
-/** 历史误收记录，仅留档，不进入业务咨询纸签或详情；其他模块后续更新不得追加至此。 */
-export const EXCLUDED_UPGRADE_NOTE_HISTORY: readonly ConsultUpgradeNote[] = [
   {
     id: '2026-10-18-immediate-navigation', date: '2026-10-18', title: '菜单点击即切换',
     summary: '待部署验收：点击菜单即进入目标页并显示骨架；悬停、聚焦或触摸提前加载页面代码，手机等待时仍可打开导航。',
