@@ -1,3 +1,4 @@
+import { PAGE_PREVIEW_STEER } from './pagePreviewTools.js'
 import { assemblyAllowsTool, filterClaudeAssembly, parseConsultToolAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { CodexResponseWatchdog } from './codexResponseWatchdog.js'
@@ -915,6 +916,8 @@ class Session {
                       append: [windowsExecutionInstructions() ?? '', this.apiBaseUrl ? GATEWAY_STEER : '',
                         toolboxApiBase && this.forgeSqlRegistration
                           ? FORGE_PENDING_SQL_STEER : '',
+                        toolboxApiBase && this.forgeSqlRegistration && this.toolPolicy !== 'consult-readonly'
+                          ? PAGE_PREVIEW_STEER : '',
                         developerInstructions ?? '']
                         .filter(Boolean).join('\n\n'),
                     },

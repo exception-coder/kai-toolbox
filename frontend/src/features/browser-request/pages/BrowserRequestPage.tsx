@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Globe } from 'lucide-react'
 import { Segmented } from '@/components/ui/segmented'
 import { SessionList } from '../components/SessionList'
@@ -38,6 +39,7 @@ export function BrowserRequestPage() {
       <header className="flex flex-wrap items-center gap-2">
         <Globe className="size-5" />
         <h1 className="text-lg font-semibold">站点录制编排</h1>
+        <Link className="ml-auto inline-flex min-h-11 items-center text-sm underline underline-offset-4" to="/tools/fore-consult/preview">页面预览</Link>
         <span className="hidden text-xs text-[var(--color-muted-foreground)] sm:inline">
           浏览器里点一遍 → 自动录 HTTP → 标参数 → 一键回放
         </span>

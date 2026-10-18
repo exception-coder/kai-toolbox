@@ -16,6 +16,7 @@ test('SDK tools preserve the restricted consultation inventory', async () => {
       await client.connect(clientTransport)
       const listed = await client.listTools()
       assert.equal(listed.tools.some(tool => tool.name === 'discover_resources'), enabled)
+      assert.equal(listed.tools.some(tool => tool.name === 'prepare_page_preview'), enabled)
       assert.equal(listed.tools.some(tool => tool.name === 'execute_resource'), enabled)
     } finally { await client.close(); await server.instance.close() }
   }

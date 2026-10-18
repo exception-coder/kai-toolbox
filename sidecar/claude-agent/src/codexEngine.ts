@@ -1,3 +1,4 @@
+import { PAGE_PREVIEW_STEER } from './pagePreviewTools.js'
 import { assemblyAllows, filterCodexAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { codexPredictions } from './codexPrediction.js'
 import { EXECUTION_VERIFICATION_CODEX_TIMEOUT_SEC } from './execution/budget.js'
@@ -242,6 +243,8 @@ export function buildCodexDeveloperInstructions(toolPolicy: string, sessionId?: 
     toolPolicy !== 'disabled' && toolPolicy !== REVIEW_ONLY_POLICY && sessionId && forgeSqlRegistration
       ? FORGE_PENDING_SQL_STEER
       : undefined,
+    toolPolicy !== 'disabled' && toolPolicy !== REVIEW_ONLY_POLICY && toolPolicy !== CONSULT_READONLY_POLICY
+      && sessionId && forgeSqlRegistration ? PAGE_PREVIEW_STEER : undefined,
   ].filter(Boolean).join('\n\n') || undefined
   const developerInstructions = appendWindowsExecutionInstructions([
     baseDeveloperInstructions,

@@ -1,3 +1,4 @@
+import { pagePreviewSchema, PAGE_PREVIEW_DESCRIPTION, preparePagePreview } from './pagePreviewTools.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
@@ -77,6 +78,7 @@ const querySchema = {
 }
 
 if (serverName === 'forge') {
+  server.registerTool('prepare_page_preview', { description: PAGE_PREVIEW_DESCRIPTION, inputSchema: pagePreviewSchema, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }, async args => preparePagePreview(args, sessionId))
   registerSpecResolutionTools(server, sessionId)
   server.registerTool('discover_resources', { description: DISCOVER_RESOURCES_DESCRIPTION, inputSchema: discoverResourceSchema, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }, (args, extra) => discoverSystemResources(apiBase, args, extra))
   server.registerTool('execute_resource', { description: EXECUTE_RESOURCE_DESCRIPTION, inputSchema: executeResourceSchema, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false } }, (args, extra) => executeSystemResource(apiBase, args, extra))

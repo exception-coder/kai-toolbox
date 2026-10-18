@@ -7,6 +7,8 @@ const ForeConsultPage = lazy(() =>
   import('./pages/ForeConsultPage').then((m) => ({ default: m.ForeConsultPage }))
 )
 
+const PagePreviewPage = lazy(() => import('@/features/browser-request/public-api').then(m => ({ default: m.PagePreviewPage })))
+
 const manifest: FeatureManifest = {
   id: 'fore-consult',
   name: '业务系统咨询',
@@ -21,7 +23,8 @@ const manifest: FeatureManifest = {
         <ForeConsultPage />
       </ConfirmProvider>
     ),
-  }],
+  }, { path: '/tools/fore-consult/preview', element: <PagePreviewPage /> },
+  { path: '/tools/fore-consult/preview/:previewId', element: <PagePreviewPage /> }],
 }
 
 export default manifest

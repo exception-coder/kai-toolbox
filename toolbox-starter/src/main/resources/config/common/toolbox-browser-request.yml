@@ -7,6 +7,8 @@ toolbox:
     # CDP(Runtime.enable) 检测→打不开硬反爬站点）；undetected-node（patchright sidecar，规避 CDP 检测，
     # 实测可开 BOSS，Phase 1 仅支持 开/保活/页签/存登录态/清除/关闭，录制回放暂无）。
     # 切 undetected-node 前需先在 node-services/undetected-browser 跑 npm install + npm run install-browser。
+    # 当前 Forge 身份仅可注入这些精确来源，不能使用任意请求地址。
+    preview-origins: ${TOOLBOX_PREVIEW_ORIGINS:https://localhost:5173,http://localhost:5173,http://localhost:8080,https://kai-tool.exception-coder.com}
     engine: playwright-java
     sidecar:
       port: 18092

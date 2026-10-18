@@ -59,6 +59,7 @@ public class BrowserSessionManager {
     private final Map<String, Page> firstPages = new ConcurrentHashMap<>();
     private volatile Playwright playwright;
     private volatile Browser browser;
+    private Browser renderingBrowser;
     private volatile boolean shuttingDown = false;
 
     /**
@@ -634,10 +635,27 @@ public class BrowserSessionManager {
         return ctx;
     }
 
+    /** 在既有 worker 上复用 Playwright，提供不弹窗口的独立渲染浏览器。 */
+    public <T> T withRenderingBrowser(java.util.function.Function<Browser, T> operation) {
+        return runOnWorker(() -> {
+            if (playwright == null) {
+                playwright = Playwright.create();
+            }
+            if (renderingBrowser == null || !renderingBrowser.isConnected()) {
+                renderingBrowser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
+            }
+            return operation.apply(renderingBrowser);
+        });
+    }
+
     private void ensureBrowser() {
         if (browser != null && browser.isConnected()) return;
-        closeBrowserQuietly();
-        this.playwright = Playwright.create();
+        if (browser != null) {
+            try { browser.close(); } catch (Exception ignored) { }
+        }
+        if (playwright == null) {
+            this.playwright = Playwright.create();
+        }
         BrowserType.LaunchOptions opts = new BrowserType.LaunchOptions()
                 .setHeadless(props.isHeadless())
                 .setArgs(StealthConfig.chromiumArgs())
@@ -650,6 +668,10 @@ public class BrowserSessionManager {
     }
 
     private void closeBrowserQuietly() {
+        if (renderingBrowser != null) {
+            try { renderingBrowser.close(); } catch (Exception ignored) { }
+            renderingBrowser = null;
+        }
         if (browser != null) {
             try { browser.close(); } catch (Exception ignored) {}
             browser = null;

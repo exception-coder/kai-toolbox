@@ -576,3 +576,23 @@ flowchart LR
 Forge 将工具执行结果和交付许可分开：本批通过但类别或延期检查未补齐时返回 VERIFICATION_PENDING，MCP 不标记工具错误，allowed 仍为 false；真实失败保留 checkId，重跑成功或同类别显式替代通过后才解除阻断。实际调用预算有限，未运行项持久化并阻止提交；调用预算不按每项超时上限简单相加。输入、范围和暂存一致性仍由交付门禁检查。
 
 确认规格时保存范围外图谱证据基线；已确认 implementationFiles 的正常编辑由执行验证内容指纹跟踪，不再要求每次编辑后重复解析。图谱索引、正式规格和范围外证据变化仍需重新审阅。旧记录首次升级需在证据当前时重新确认，证据已变则重新解析后确认一次。Windows 已知 npm CLI 通过已安装的 Node 入口执行，参数作为 argv 传递，不启用通用 Shell。当前源码行为不等于目标服务已部署验收。
+
+
+## Web 修改的登录后页面预览
+
+Web 修改交付在工具可用时默认通过 Forge 的 `prepare_page_preview`（SDK/stdio 同名）给出包含目标路由、设备及查看状态的入口。工具准备阶段返回 `WAITING_VIEWER_AUTH`，用户打开入口后，由现有登录守卫取得访问者真实身份，再经 `/api/page-previews` 创建短期无头浏览器。不能从匿名 Agent 请求推定 admin 或为便利签发身份；登录、目标就绪、运行版本核验与功能验收分别报告。
+
+```mermaid
+flowchart LR
+  A[Agent 完成 Web 改动] --> B[prepare_page_preview 准备交付入口]
+  B --> C[访问者登录并打开入口]
+  C --> D[browser-request 预览用例]
+  D --> E[当前身份快照或资源中心测试账号]
+  E --> F[独立 headless context 路由与目标状态]
+  F --> G[本人实时画面与显式接管]
+  G --> H[记录实际页面和验收证据]
+```
+
+browser-request 拥有渲染上下文及预览生命周期，复用既有 Playwright worker；tool-ops 通过 common 的 BrowserLoginResources 端口提供资源，不复制账号配置或跨工具查询表。上下文不进入录制目录、不写登录态文件；预览只向创建用户开放，过期或关闭释放。受限业务咨询不获得交付工具。手机和桌面视口预览不等于对应实机通过。
+
+前端入口 `/tools/fore-consult/preview` 沿用业务咨询权限，站点录制编排提供入口；不新增平行项目或菜单。跨域 SSO、生产账号、视频推流和运行版本指纹未在一期实现。源码标记与运行版本分别展示，页面 READY 不证明修改已部署。当前服务未加载时明确待运行验收；预览工具不构成服务重启授权，不改变验证节奏或提交规则。完整用法与 API 见[浏览器页面预览](../tools/tool-browser-request/README.md)，当前交付证据见[预览任务](../openspec/changes/add-authenticated-page-preview/tasks.md)。

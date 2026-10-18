@@ -1,0 +1,28 @@
+.page-preview { display:flex; flex-direction:column; gap:16px; min-height:0; height:100%; overflow:auto; padding:24px; color:var(--color-foreground); background:var(--color-background); }
+.preview-heading,.preview-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+.preview-heading { border-bottom:1px solid var(--color-border); padding-bottom:16px; }
+.preview-heading h1 { font-size:20px; font-weight:600; }
+.preview-heading p,.preview-meta,.preview-takeover p { font-size:12px; color:var(--color-muted-foreground); line-height:1.6; }
+.page-preview a { text-decoration:underline; text-underline-offset:4px; font-size:13px; }
+.page-preview button,.page-preview input,.page-preview select { min-height:44px; border:1px solid var(--color-border); border-radius:8px; padding:8px 12px; background:var(--color-background); color:inherit; font-size:14px; }
+.page-preview button { display:inline-flex; align-items:center; justify-content:center; gap:8px; cursor:pointer; }
+.page-preview button:hover { background:var(--color-muted); }
+.page-preview button:disabled { opacity:.5; cursor:default; }
+.page-preview :is(button,input,select,a):focus-visible { outline:2px solid var(--color-ring); outline-offset:2px; }
+.preview-setup { display:flex; flex-direction:column; gap:16px; max-width:640px; }
+.preview-setup label { display:flex; flex-direction:column; gap:8px; font-size:13px; }
+.preview-options { display:flex; gap:16px; flex-wrap:wrap; }
+.preview-options > label { flex:1; min-width:160px; }
+.preview-toolbar > div,.preview-takeover form { display:flex; flex-wrap:wrap; gap:8px; }
+.preview-toolbar > p { font-size:14px; font-weight:500; }
+.preview-screen { display:flex; flex-direction:column; align-items:center; gap:16px; padding:16px 0; background:var(--color-muted); }
+.preview-frame { display:block; max-width:100%; height:auto; border:1px solid var(--color-border); }
+.preview-frame-phone { width:390px; }
+.preview-control { display:flex; align-items:center; gap:8px; font-size:13px; }
+.preview-control input { min-height:20px; }
+.preview-takeover { align-self:stretch; padding:0 16px; }
+.preview-takeover input { min-width:200px; flex:1; }
+.preview-error { color:var(--color-destructive); font-size:13px; }
+@media(max-width:767px) { .page-preview { padding:16px; } .preview-heading h1 { font-size:18px; } .preview-toolbar > div { width:100%; } .preview-toolbar button { flex:1; padding:8px; } }
+
+.preview-toolbar a { display:inline-flex; align-items:center; min-height:44px; padding:8px; }
