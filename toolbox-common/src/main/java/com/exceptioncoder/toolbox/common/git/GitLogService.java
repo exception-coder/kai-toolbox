@@ -63,6 +63,45 @@ public class GitLogService {
         return out;
     }
 
+    /** 读取时间段内所有现存引用的非合并提交；完整性不足时拒绝交付截断证据。 */
+    public String readReportEvidence(Path dir, java.time.Instant from, java.time.Instant until, String author) {
+        if (from == null || until == null || !from.isBefore(until) || author == null || author.isBlank()) {
+            throw new IllegalArgumentException("周报必须指定有效日期范围和作者姓名或邮箱");
+        }
+        Result result = exec(List.of(props.getBinary(), "-C", dir.toString(), "log", "--all", "--no-merges",
+                "--since-as-filter=" + from, "--until=" + until.minusNanos(1), "--max-count=501", "--no-color",
+                "--pretty=format:%H%x1f%an%x1f%ae%x1f%cI%x1f%s%x1f%b%x1e"));
+        if (result.truncated()) {
+            throw new IllegalArgumentException("Git 证据超过输出上限，请缩小周报范围");
+        }
+        String[] records = result.stdout().split(RS);
+        if (records.length > 500) {
+            throw new IllegalArgumentException("时间范围内超过 500 条提交，请缩小范围");
+        }
+        StringBuilder evidence = new StringBuilder();
+        for (String record : records) {
+            String[] fields = record.stripLeading().split(FS, -1);
+            if (fields.length < 6 || !(fields[1].equalsIgnoreCase(author.strip())
+                    || fields[2].equalsIgnoreCase(author.strip()))) {
+                continue;
+            }
+            java.time.Instant committed = java.time.OffsetDateTime.parse(fields[3]).toInstant();
+            if (!committed.isBefore(from) && committed.isBefore(until)) {
+                evidence.append(record.strip()).append('\n');
+            }
+        }
+        return evidence.toString();
+    }
+
+    /** 解析真实仓库根，用于同仓工作目录去重，不执行 fetch 或工作树写入。 */
+    public Path repositoryRoot(Path directory) {
+        Result result = exec(List.of(props.getBinary(), "-C", directory.toString(), "rev-parse", "--show-toplevel"));
+        if (result.truncated()) {
+            throw new IllegalArgumentException("Git 根目录输出不完整");
+        }
+        return Path.of(result.stdout().strip()).toAbsolutePath().normalize();
+    }
+
     /**
      * 返回单个文件相对于 HEAD（或暂存区）的 unified diff。
      * 按状态选择最合适的 git diff 命令：

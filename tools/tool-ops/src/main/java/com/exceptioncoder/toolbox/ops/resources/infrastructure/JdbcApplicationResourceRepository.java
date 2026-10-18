@@ -10,8 +10,13 @@ import java.util.Optional;
 @Repository
 public class JdbcApplicationResourceRepository {
     private final JdbcTemplate jdbc;
+    private final com.exceptioncoder.toolbox.ops.security.OpsCredentialCipher cipher;
 
-    public JdbcApplicationResourceRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public JdbcApplicationResourceRepository(JdbcTemplate jdbc,
+            com.exceptioncoder.toolbox.ops.security.OpsCredentialCipher cipher) {
+        this.jdbc = jdbc;
+        this.cipher = cipher;
+    }
 
     public List<ApplicationResource> findAll() {
         return jdbc.query("SELECT * FROM ops_application_resource ORDER BY name,id", (row, index) -> map(row));
@@ -29,7 +34,7 @@ public class JdbcApplicationResourceRepository {
                  password_field,token_json_path,tenant_header,tenant_value,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, value.id(), value.name(), value.environment(), value.baseUrl(), value.authType().name(),
-                value.loginPath(), value.username(), value.password(), value.usernameField(), value.passwordField(),
+                value.loginPath(), value.username(), cipher.encrypt(value.password()), value.usernameField(), value.passwordField(),
                 value.tokenJsonPath(), value.tenantHeader(), value.tenantValue(), value.createdAt(), value.updatedAt());
     }
 
@@ -39,16 +44,16 @@ public class JdbcApplicationResourceRepository {
                 username=?,password=?,username_field=?,password_field=?,token_json_path=?,tenant_header=?,
                 tenant_value=?,updated_at=? WHERE id=?
                 """, value.name(), value.environment(), value.baseUrl(), value.authType().name(), value.loginPath(),
-                value.username(), value.password(), value.usernameField(), value.passwordField(), value.tokenJsonPath(),
+                value.username(), cipher.encrypt(value.password()), value.usernameField(), value.passwordField(), value.tokenJsonPath(),
                 value.tenantHeader(), value.tenantValue(), value.updatedAt(), value.id());
     }
 
     public void delete(String id) { jdbc.update("DELETE FROM ops_application_resource WHERE id=?", id); }
 
-    private static ApplicationResource map(java.sql.ResultSet row) throws java.sql.SQLException {
+    private ApplicationResource map(java.sql.ResultSet row) throws java.sql.SQLException {
         return new ApplicationResource(row.getString("id"), row.getString("name"), row.getString("environment"),
                 row.getString("base_url"), ApplicationResource.AuthType.valueOf(row.getString("auth_type")),
-                row.getString("login_path"), row.getString("username"), row.getString("password"),
+                row.getString("login_path"), row.getString("username"), cipher.decrypt(row.getString("password")),
                 row.getString("username_field"), row.getString("password_field"), row.getString("token_json_path"),
                 row.getString("tenant_header"), row.getString("tenant_value"), row.getLong("created_at"),
                 row.getLong("updated_at"));

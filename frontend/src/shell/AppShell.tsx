@@ -12,6 +12,7 @@ import { useMenuVisibilitySync } from './menuVisibility'
 import { UnifiedTitleBar, UnifiedTitleBarSlotContext } from './UnifiedTitleBar'
 import { useWindowControlsOverlay } from './useWindowControlsOverlay'
 import { MobileNavigationProvider } from './MobileNavigationContext'
+import { AssistantHost } from '@/features/work-assistants/public-api'
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
@@ -89,7 +90,7 @@ export function AppShell() {
   }, [])
 
   return (
-    <MobileNavigationProvider onOpen={openMobileNavigation}>
+    <MobileNavigationProvider onOpen={openMobileNavigation}><AssistantHost>
     <UnifiedTitleBarSlotContext.Provider value={featureIntegratedTitleBar ? unifiedTitleBarSlot : null}>
     <div
       className="app-shell-canvas flex w-full overflow-hidden text-[var(--color-foreground)]"
@@ -166,6 +167,6 @@ export function AppShell() {
       )}
     </div>
     </UnifiedTitleBarSlotContext.Provider>
-    </MobileNavigationProvider>
+    </AssistantHost></MobileNavigationProvider>
   )
 }

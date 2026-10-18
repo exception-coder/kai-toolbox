@@ -1,6 +1,6 @@
 -- tool-ops：系统中间件台
 -- 三层：系统(ops_system) -> 中间件实例(ops_datasource，带 env 维度) -> 查询历史(ops_query_history)
--- 凭据明文存储（本地单用户工具，与 host / treesize_ssh_host 一致）。
+-- 新写入凭据由原仓储 AES-GCM 封装，历史未封装值兼容读取，下次保存转换。
 
 CREATE TABLE IF NOT EXISTS ops_system (
     id          TEXT PRIMARY KEY,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS ops_datasource (
     host        TEXT NOT NULL,
     port        INTEGER NOT NULL,
     username    TEXT,
-    password    TEXT,                   -- 明文，本地单用户
+    password    TEXT,                   -- 新写入密文，历史值兼容读取
     -- MySQL 库名 / Oracle service_name / Redis db 索引(数字) / MQ vhost
     db_name     TEXT,
     -- 额外连接参数：JDBC 追加到 URL 的 query 串(如 useSSL=false&serverTimezone=UTC)

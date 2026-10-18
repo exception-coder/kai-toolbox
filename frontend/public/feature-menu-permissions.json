@@ -332,6 +332,13 @@
       "sort": 52
     },
     {
+      "featureId": "work-assistants",
+      "code": "menu:work-assistants",
+      "name": "工作助理",
+      "module": "AI",
+      "sort": 52
+    },
+    {
       "featureId": "srm-dev",
       "code": "menu:srm-dev",
       "name": "SRM",

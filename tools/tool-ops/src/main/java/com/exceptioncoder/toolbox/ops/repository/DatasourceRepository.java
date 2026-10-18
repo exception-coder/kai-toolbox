@@ -13,12 +13,18 @@ import java.util.Optional;
 public class DatasourceRepository {
 
     private final JdbcTemplate jdbc;
+    private final com.exceptioncoder.toolbox.ops.security.OpsCredentialCipher cipher;
 
-    public DatasourceRepository(JdbcTemplate jdbc) {
+    public DatasourceRepository(JdbcTemplate jdbc, com.exceptioncoder.toolbox.ops.security.OpsCredentialCipher cipher) {
         this.jdbc = jdbc;
+        this.cipher = cipher;
+        this.ROW = this::map;
     }
 
-    private static final RowMapper<OpsDatasource> ROW = (rs, i) -> OpsDatasource.builder()
+    private final RowMapper<OpsDatasource> ROW;
+
+    private OpsDatasource map(java.sql.ResultSet rs, int index) throws java.sql.SQLException {
+        return OpsDatasource.builder()
             .id(rs.getString("id"))
             .systemId(rs.getString("system_id"))
             .env(rs.getString("env"))
@@ -27,7 +33,7 @@ public class DatasourceRepository {
             .host(rs.getString("host"))
             .port(rs.getInt("port"))
             .username(rs.getString("username"))
-            .password(rs.getString("password"))
+            .password(cipher.decrypt(rs.getString("password")))
             .dbName(rs.getString("db_name"))
             .params(rs.getString("params"))
             .note(rs.getString("note"))
@@ -35,6 +41,7 @@ public class DatasourceRepository {
             .createdAt(rs.getLong("created_at"))
             .updatedAt(rs.getLong("updated_at"))
             .build();
+    }
 
     public List<OpsDatasource> findAll() {
         return jdbc.query("SELECT * FROM ops_datasource ORDER BY sort_order ASC, name ASC", ROW);
@@ -69,7 +76,7 @@ public class DatasourceRepository {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 d.getId(), d.getSystemId(), d.getEnv(), d.getType().name(), d.getName(),
-                d.getHost(), d.getPort(), d.getUsername(), d.getPassword(),
+                d.getHost(), d.getPort(), d.getUsername(), cipher.encrypt(d.getPassword()),
                 d.getDbName(), d.getParams(), d.getNote(), d.getSortOrder(),
                 d.getCreatedAt(), d.getUpdatedAt());
     }
@@ -83,7 +90,7 @@ public class DatasourceRepository {
                  WHERE id = ?
                 """,
                 d.getSystemId(), d.getEnv(), d.getType().name(), d.getName(), d.getHost(), d.getPort(),
-                d.getUsername(), d.getPassword(), d.getDbName(), d.getParams(), d.getNote(),
+                d.getUsername(), cipher.encrypt(d.getPassword()), d.getDbName(), d.getParams(), d.getNote(),
                 d.getSortOrder(), d.getUpdatedAt(), d.getId());
     }
 

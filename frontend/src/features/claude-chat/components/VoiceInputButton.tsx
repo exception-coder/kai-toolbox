@@ -16,7 +16,7 @@ export function VoiceInputButton({ onText, disabled, className, idleTarget, onId
   onText: (t: string) => void; disabled?: boolean; className?: string
   idleTarget?: HTMLElement | null; onIdleActivate?: () => void
   onActiveChange?: (active: boolean) => void
-  scope?: 'coding' | 'consultation'
+  scope?: 'coding' | 'consultation' | 'work-assistants'
 }) {
   const rec = useVoiceRecorder()
   const [available, setAvailable] = useState<boolean | null>(null)

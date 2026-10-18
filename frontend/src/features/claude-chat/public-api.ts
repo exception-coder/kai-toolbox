@@ -1,5 +1,6 @@
 export { loadCodexHomePreference, saveCodexHomePreference } from './lib/codexHomePref'
 export { AttachmentChips } from './components/AttachmentChips'
+export { ComposerFileDropZone } from './components/ComposerFileDropZone'
 export { CodexSessionOptions } from './components/CodexSessionOptions'
 export { EngineIcon } from './components/EngineIcon'
 export { Markdown } from './components/Markdown'

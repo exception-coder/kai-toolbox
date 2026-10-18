@@ -15,7 +15,7 @@ import java.util.Map;
  * 语音转写：录音音频以 raw body 上传，同步返回纯文本。契约见 api 文档 §1。
  */
 @RestController("claudeChatSttController")
-@RequestMapping({"/api/claude-chat/stt", "/api/fore-consult/stt"})
+@RequestMapping({"/api/claude-chat/stt", "/api/fore-consult/stt", "/api/work-assistants/stt"})
 @RequireAuth
 public class SttController {
 

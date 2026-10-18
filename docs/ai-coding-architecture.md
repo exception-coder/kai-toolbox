@@ -332,6 +332,25 @@ flowchart LR
     OWN --> EXIT
 ```
 
+### 轻量工作助理
+
+工作助理通过独立的用户逻辑会话组织周报和资源登记，不接管 Vibe Coding 当前会话。Shell 只保留轻量唤醒入口，机器人工作区按需加载。平台保存随包发布的 Skill 全文与 SHA-256；新任务绑定快照，执行前核验并显式交接给 AgentOneShotRunner。每轮复用现有 Claude/Codex 一次性执行器，携带有界可见历史与平台采集证据，不声称复制或持续恢复原生 thread，也不以能力目录存在代替加载证据。引擎账号是否可用仍需目标版本运行验证。
+
+```mermaid
+flowchart LR
+    ENTRY["机器人首页 / 常驻助理坞"] --> SESSION["当前用户助理会话<br/>Skill 快照 + 有界历史"]
+    CATALOG["ProjectCatalog + ProjectAccess"] --> GIT["受控 Git 只读采集"]
+    GIT --> SESSION
+    SESSION --> RUNNER["原 AgentOneShotRunner<br/>Claude / Codex · 工具关闭"]
+    RUNNER --> RESULT["任务状态与正文结果<br/>复制 / Markdown 下载"]
+    ENTRY --> SECURE["安全登记表单<br/>本地解析 · 预览确认"]
+    SECURE --> OPS["原资源中心<br/>管理员校验 · 幂等回执 · 凭据加密"]
+```
+
+普通助理消息不获得终端、宿主写入或数据库执行能力。周报事实由平台校验项目、作者、日期与采集规模后提供；资源元数据与真实连通性分开。密码经专用登记入口直接进入 ops，不交给模型或会话；原仓储加密新写入、兼容历史读取，密钥与 SQLite 分开保管。登记生产资源不改变原执行环境门禁。会话所有者、资源管理员与菜单权限在服务端检查，不以 UI 显隐或 Skill 代替。
+
+任务请求按会话与请求 ID 幂等，同会话运行互斥，关闭窗口不取消；显式取消后迟到结果不得覆盖终态。服务重启后未完成任务标为中断失败，不自动重放。语音首期复用转写回填，媒体离开工作区即释放；不新增常听唤醒或实时通话。源码实现、独立验证、制品启动及运行验收分别记录于 [工作助理任务](../openspec/changes/work-assistants/tasks.md)，未部署状态不代表真实引擎或账号验证通过。
+
 ### 跨 Auth 会话交接
 
 Codex Auth 目录切换会创建目标 Auth 下的新 thread，不把源 Auth 的原生 thread、隐藏模型状态或工具状态视为可迁移资产。Forge 使用版本化结构交接包承接连续性，交接包只陈述来源明确的事实，并保留有界可见对话作为兜底。
