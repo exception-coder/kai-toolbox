@@ -2262,7 +2262,7 @@ export function ForeConsultPage() {
                     key={s.sessionId}
                     onClick={() => {
                       // 有底层会话时复用原消息流；归档记录仅允许阅读。
-                      if (s.devSessionId || (s.archiveStatus === 'PENDING' && s.sessionId === activeConsultId)) {
+                      if (s.devSessionId) {
                         resumeConsult(s)
                       } else {
                         setHistoryOpen(false)
@@ -2354,7 +2354,7 @@ export function ForeConsultPage() {
       {/* 历史咨询详情（只读查看归档问答） */}
       {viewSession && (
         <div id={compact ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : undefined} hidden={phone && mobileView !== 'consult'}>
-          <ConsultHistoryDetail embedded={compact} sessionId={viewSession.id} title={viewSession.title} onClose={() => { setViewSession(null); setHistoryOpen(true) }} />
+          <ConsultHistoryDetail key={viewSession.id} embedded={compact} sessionId={viewSession.id} title={viewSession.title} onResume={resumeConsult} onClose={() => { setViewSession(null); setHistoryOpen(true) }} />
         </div>
       )}
 

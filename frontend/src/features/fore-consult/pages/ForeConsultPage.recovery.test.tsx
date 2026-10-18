@@ -55,6 +55,24 @@ beforeEach(() => {
 afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals() })
 function mount() { render(<QueryClientProvider client={client}><ForeConsultPage /></QueryClientProvider>) }
 
+it('automatically connects a pending consultation when its history row has not received the runtime binding', async () => {
+  viewport.phone = true
+  const row = { ...pending, sessionId: 'other-pending', devSessionId: null, questionTitle: '进行中的另一咨询' }
+  calls.history.mockResolvedValue([pending, row])
+  calls.detail.mockResolvedValue({ ...row, devSessionId: 'recovered-runtime' })
+  mount()
+  await screen.findByText('原咨询对话')
+  fireEvent.click(screen.getByRole('button', { name: '更多咨询功能' }))
+  fireEvent.click(screen.getByRole('button', { name: /历史咨询/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '进行中的另一咨询' }))
+  await waitFor(() => expect(calls.switchTo).toHaveBeenLastCalledWith('recovered-runtime', false))
+  expect(screen.getByText('原咨询对话')).toBeVisible()
+  expect(screen.queryByText('归档只读')).not.toBeInTheDocument()
+  expect(screen.queryByText(/回到星图|查看对话.*可继续/)).not.toBeInTheDocument()
+  expect(calls.start).not.toHaveBeenCalled()
+  expect(calls.archive).not.toHaveBeenCalled()
+})
+
 it('opens archived history using the original session in read-only mode', async () => {
   viewport.phone = true
   calls.history.mockResolvedValue([pending, { ...pending, sessionId: 'archived', devSessionId: 'archived-runtime', archiveStatus: 'SUCCESS', questionTitle: '归档问题标题' }])
