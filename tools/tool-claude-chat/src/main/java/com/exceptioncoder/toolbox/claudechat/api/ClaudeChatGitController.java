@@ -9,6 +9,8 @@ import com.exceptioncoder.toolbox.common.git.GitProperties;
 import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
 import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
 import com.exceptioncoder.toolbox.common.git.GitPushOperations;
+import com.exceptioncoder.toolbox.common.git.GitPullOperations;
+import com.exceptioncoder.toolbox.common.git.GitPullPreview;
 import com.exceptioncoder.toolbox.common.git.GitPushPreview;
 import com.exceptioncoder.toolbox.common.project.ProjectAccess;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,15 +34,17 @@ public class ClaudeChatGitController {
     private final GitProperties gitProps;
     private final GitLogService git;
     private final GitPushOperations pushes;
+    private final GitPullOperations pulls;
     private final ProjectAccess projectAccess;
 
 
     public ClaudeChatGitController(SessionGitRepositoryService repositories, GitProperties gitProps, GitLogService git,
-                                   GitPushOperations pushes, ProjectAccess projectAccess) {
+                                   GitPushOperations pushes, ProjectAccess projectAccess, GitPullOperations pulls) {
         this.repositories = repositories;
         this.gitProps = gitProps;
         this.git = git;
         this.pushes = pushes;
+        this.pulls = pulls;
         this.projectAccess = projectAccess;
     }
 
@@ -58,6 +62,26 @@ public class ClaudeChatGitController {
         projectAccess.requireAllowed(directory);
         return Map.of("message", pushes.push(directory, request.token()));
     }
+
+    /** 获取当前所选目录的远端版本预览，不更新工作文件。 */
+    @PostMapping("/pull-preview")
+    public GitPullPreview pullPreview(@PathVariable String id, @RequestParam(required = false) String repo) {
+        Path directory = repositories.resolve(id, repo);
+        projectAccess.requireAllowed(directory);
+        return pulls.prepare(directory);
+    }
+
+    /** 按用户确认的上游版本执行快进。 */
+    @PostMapping("/pull")
+    public Map<String, String> pull(@PathVariable String id, @RequestParam(required = false) String repo,
+                                    @RequestBody PullRequest request) {
+        Path directory = repositories.resolve(id, repo);
+        projectAccess.requireAllowed(directory);
+        return Map.of("message", pulls.pull(directory, request.token()));
+    }
+
+    /** 用户已查看的拉取快照。 */
+    public record PullRequest(/** 快照指纹。 */ String token) { }
 
     /** 用户已经查看的推送快照。 */
     public record PushRequest(/** 快照指纹。 */ String token) { }

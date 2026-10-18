@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { SessionProjectDirectoriesDialog } from './SessionProjectDirectoriesDialog'
-import { getSessionCommitDiff, getSessionPushPreview, listSessionCommits, listSessionGitRepos, pushSessionCommits } from '../api'
+import { getSessionCommitDiff, getSessionPushPreview, listSessionCommits, listSessionGitRepos, pushSessionCommits, prepareSessionPull, pullSessionCommits } from '../api'
 
 /** 会话关联管理与通用 Git 浏览解耦，保存后重新查询服务端仓库列表。 */
 export function SessionCommitsPanel({ sessionId, primaryCwd, onClose, restoreFocus, onDirectoriesChanged }: {
@@ -20,6 +20,7 @@ export function SessionCommitsPanel({ sessionId, primaryCwd, onClose, restoreFoc
     fetchCommits={repo => listSessionCommits(sessionId, 50, repo).then(result => result.commits)}
     fetchDiff={(hash, repo) => getSessionCommitDiff(sessionId, hash, repo)}
     pushActions={{ preview: repo => getSessionPushPreview(sessionId, repo), push: (token, repo) => pushSessionCommits(sessionId, token, repo) }}
+    pullActions={{ prepare: repo => prepareSessionPull(sessionId, repo), pull: (token, repo) => pullSessionCommits(sessionId, token, repo) }}
     onManageRepos={primaryCwd ? () => setEditing(true) : undefined}
     restoreFocus={restoreFocus} onClose={onClose} />
 }

@@ -374,6 +374,23 @@ flowchart LR
 - Graphify 产物保持可再生；共享文件与本地缓存边界由 `.gitignore` 明确。
 - `.codex/skills/`、`.claude/` 和知识子目录只有在出现真实内容时才创建。
 
+## 会话工作目录的 Git 更新
+
+会话的 Git 操作继承当前关联目录身份，通过 SessionGitRepositoryService 和 ProjectAccess 重新解析与授权，浏览器不传任意宿主路径。公共 GitPullOperations 只定义检查与确认端口，projects 模块实现 fetch 快照和固定提交快进，复用原 Git 命令边界；推送和拉取共用规范仓库互斥。预览仅获取上游引用，确认后才修改工作树，重新核对版本、分支、上游配置与工作树状态；不自动 stash、rebase、覆盖脏文件或解决分叉。业务咨询只读 Git 能力不获得此写入口。
+
+```mermaid
+flowchart LR
+    UI["当前会话与选中仓库"] --> AUTH["服务端关系解析与路径授权"]
+    AUTH --> PORT["公共拉取端口"]
+    PORT --> CHECK["项目模块：互斥检查与 fetch"]
+    CHECK --> SNAPSHOT["脱敏来源与固定版本快照"]
+    SNAPSHOT --> CONFIRM["用户确认与重新校验"]
+    CONFIRM --> FF["共享仓库锁：仅快进更新"]
+    FF --> RESULT["刷新提交与推送状态，保留结果"]
+```
+
+写操作期间保护弹框及目录上下文；失败结果未知时先核对实际状态，不自动重试。互斥限于应用内，不替代 Git 文件锁或协调宿主终端；用户需停止其他仓库写入。此能力不授予重启、部署或任意 Git 命令权限，运行验收边界见[会话拉取任务](../openspec/changes/add-session-git-pull/tasks.md)。
+
 ## 工作台渐进加载边界
 
 工作台路由采用当前锁定 React Router 的同步位置提交：菜单点击先更新路径与高亮，页面代码由局部骨架承接，不用路由级过渡保留旧页面。菜单与首页入口复用 FeatureLink，只有悬停、聚焦或触摸意图才调用页面公开的 preload；preloadable 与首次渲染共享模块请求，失败可重新请求，禁止调用组件函数或 React 私有 lazy 初始化器来预加载。弱网/省流量跳过，预加载不挂载组件，不主动查询业务数据；权限及会话启动仍由原页面生命周期负责。

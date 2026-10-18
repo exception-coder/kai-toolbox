@@ -70,3 +70,21 @@ export interface GitPushActions {
   preview: (repo?: string) => Promise<GitPushPreview>
   push: (token: string, repo?: string) => Promise<{ message: string }>
 }
+
+export interface GitPullPreview {
+  branch: string
+  head: string
+  remote: string
+  targetBranch: string
+  source: string
+  upstreamHead: string
+  ahead: number
+  behind: number
+  pullBlockedReason: string
+  token: string
+}
+
+export interface GitPullActions {
+  prepare: (repo?: string) => Promise<GitPullPreview>
+  pull: (token: string, repo?: string) => Promise<{ message: string }>
+}

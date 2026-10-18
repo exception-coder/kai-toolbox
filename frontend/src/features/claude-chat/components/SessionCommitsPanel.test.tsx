@@ -1,10 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { SessionCommitsPanel } from './SessionCommitsPanel'
-import { listSessionCommits, listSessionGitRepos, getSessionPushPreview } from '../api'
+import { listSessionCommits, listSessionGitRepos, getSessionPushPreview, prepareSessionPull, pullSessionCommits } from '../api'
 
 vi.mock('../api', () => ({
   listSessionGitRepos: vi.fn(), listSessionCommits: vi.fn(), getSessionCommitDiff: vi.fn(),
+  prepareSessionPull: vi.fn(), pullSessionCommits: vi.fn(),
   getSessionPushPreview: vi.fn(async () => ({ branch: 'main', head: 'a', remote: 'origin', targetBranch: 'main',
     destinations: [], ahead: 0, behind: 0, token: '', pushBlockedReason: '无待推送提交' })), pushSessionCommits: vi.fn(),
 }))
@@ -29,4 +30,12 @@ it('returns from association management with refreshed repositories and queries 
   expect(screen.queryByText('主项目提交')).not.toBeInTheDocument()
   expect(listSessionCommits).toHaveBeenLastCalledWith('s', 50, 'linked:team')
   await waitFor(() => expect(getSessionPushPreview).toHaveBeenLastCalledWith('s', 'linked:team'))
+  vi.mocked(prepareSessionPull).mockResolvedValue({ branch: 'main', head: 'a', remote: 'origin', targetBranch: 'main',
+    source: 'safe', upstreamHead: 'b', ahead: 0, behind: 1, pullBlockedReason: '', token: 'pull-snapshot' })
+  vi.mocked(pullSessionCommits).mockResolvedValue({ message: '拉取成功' })
+  fireEvent.click(screen.getByRole('button', { name: '拉取更新' }))
+  fireEvent.click(await screen.findByRole('button', { name: '确认拉取' }))
+  await screen.findByText('拉取成功')
+  expect(prepareSessionPull).toHaveBeenCalledWith('s', 'linked:team')
+  expect(pullSessionCommits).toHaveBeenCalledWith('s', 'pull-snapshot', 'linked:team')
 })

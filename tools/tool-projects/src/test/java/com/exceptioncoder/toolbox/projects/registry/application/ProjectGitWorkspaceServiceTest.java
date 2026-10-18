@@ -38,7 +38,7 @@ class ProjectGitWorkspaceServiceTest {
         when(registry.require("project")).thenReturn(new RegistryProject("project",
                 new RegistryProject.Metadata("Fixture", root.toString(), "git", "", "", "", "", ""),
                 "UNINITIALIZED", 0, 0L, 0L));
-        service = new ProjectGitWorkspaceService(registry, new ProjectGitWorkspaceReader(command), command);
+        service = new ProjectGitWorkspaceService(registry, new ProjectGitWorkspaceReader(command), command, new ProjectGitMutationLock());
     }
 
     @Test

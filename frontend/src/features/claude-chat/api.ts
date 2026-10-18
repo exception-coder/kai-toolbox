@@ -9,6 +9,7 @@ import type {
   GitRepoRef,
   GitStatusResponse,
   GitPushPreview,
+  GitPullPreview,
 } from '@/components/git/types'
 import type { AutopilotChangeOption, AutopilotDashboard, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAutopilotRun, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
@@ -201,6 +202,22 @@ export function getSessionPushPreview(sessionId: string, repo?: string) {
 export function pushSessionCommits(sessionId: string, token: string, repo?: string) {
   const query = new URLSearchParams(repo ? { repo } : {})
   return http<{ message: string }>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/push?${query}`, {
+    method: 'POST', body: JSON.stringify({ token }),
+  })
+}
+
+/** 检查所选仓库的实际远端版本，不更新工作文件。 */
+export function prepareSessionPull(sessionId: string, repo?: string) {
+  const query = new URLSearchParams(repo ? { repo } : {})
+  return http<GitPullPreview>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/pull-preview?${query}`, {
+    method: 'POST',
+  })
+}
+
+/** 确认固定上游版本后，仅以快进方式更新所选仓库。 */
+export function pullSessionCommits(sessionId: string, token: string, repo?: string) {
+  const query = new URLSearchParams(repo ? { repo } : {})
+  return http<{ message: string }>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/pull?${query}`, {
     method: 'POST', body: JSON.stringify({ token }),
   })
 }

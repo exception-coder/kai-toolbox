@@ -129,24 +129,25 @@ public class ProjectGitWorkspaceReader {
         var view = new ProjectGitWorkspace(position.branch(), position.head(),
                 position.upstreamRef().replaceFirst("^refs/remotes/", ""), position.remote(),
                 position.target().replaceFirst("^refs/heads/", ""), position.urls().stream()
-                .map(this::displayDestination).toList(), comparison.ahead(), comparison.behind(),
+                .map(ProjectGitWorkspaceReader::displayDestination).toList(), comparison.ahead(), comparison.behind(),
                 files, commits, comparison.blocked(), token);
         return new Snapshot(view, position.urls(), position.target(), position.upstreamRef(), position.upstreamHead());
     }
 
-    private String displayDestination(String url) {
+    /** @return 不含用户信息或查询参数的 Git 地址，用于对象操作确认 */
+    public static String displayDestination(String url) {
         try {
             URI uri = URI.create(url);
             if (uri.getHost() != null) {
                 return uri.getHost() + (uri.getPort() < 0 ? "" : ":" + uri.getPort()) + uri.getPath();
             }
         } catch (IllegalArgumentException exception) {
-            return "本机 Git 配置的推送地址";
+            return "本机 Git 配置的远端地址";
         }
         if (url.matches("^[^@\\s]+@[^:]+:.+$")) {
             return url.substring(url.indexOf('@') + 1).split("[?#]", 2)[0];
         }
-        return "本地推送地址";
+        return "本地仓库地址";
     }
 
     private String digest(String value) {

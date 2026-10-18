@@ -14,7 +14,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 
 /** 已登记项目的工作区查询与快照绑定推送；仓库级互斥阻止重复推送。 */
 @Service
@@ -22,13 +21,14 @@ public class ProjectGitWorkspaceService implements GitPushOperations {
     private final ProjectRegistryService registry;
     private final ProjectGitWorkspaceReader reader;
     private final ProjectGitCommand command;
-    private final ConcurrentHashMap<Path, Boolean> pushing = new ConcurrentHashMap<>();
+    private final ProjectGitMutationLock mutations;
 
     public ProjectGitWorkspaceService(ProjectRegistryService registry, ProjectGitWorkspaceReader reader,
-                                      ProjectGitCommand command) {
+                                      ProjectGitCommand command, ProjectGitMutationLock mutations) {
         this.registry = registry;
         this.reader = reader;
         this.command = command;
+        this.mutations = mutations;
     }
 
     /** 读取已登记项目的本地 Git 快照。 */
@@ -51,10 +51,7 @@ public class ProjectGitWorkspaceService implements GitPushOperations {
     @Override
     public String push(Path repository, String token) {
         Path root = canonicalRoot(repository);
-        if (pushing.putIfAbsent(root, Boolean.TRUE) != null) {
-            throw new IllegalStateException("该仓库正在推送，请等待完成后刷新");
-        }
-        try {
+        return mutations.execute(root, () -> {
             var snapshot = reader.inspect(root);
             var view = snapshot.view();
             if (token == null || !token.equals(view.token())) {
@@ -65,9 +62,7 @@ public class ProjectGitWorkspaceService implements GitPushOperations {
             }
             pushDestinations(root, snapshot);
             return updateTracking(root, snapshot);
-        } finally {
-            pushing.remove(root);
-        }
+        });
     }
 
     private void pushDestinations(Path root, ProjectGitWorkspaceReader.Snapshot snapshot) {

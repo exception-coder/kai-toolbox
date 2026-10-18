@@ -3,7 +3,7 @@ import { ArrowLeft, ChevronRight, FileText, Folder, GitCommit, MessageSquareText
 import { cn } from '@/lib/utils'
 import * as Dialog from '@radix-ui/react-dialog'
 import { GitPushToolbar } from './GitPushToolbar'
-import type { CommitDiff, CommitInfo, GitRepoRef, GitPushActions } from './types'
+import type { CommitDiff, CommitInfo, GitRepoRef, GitPushActions, GitPullActions } from './types'
 
 interface Props {
   /** 弹层标题（如项目名 / 会话目录名） */
@@ -19,6 +19,7 @@ interface Props {
    */
   fetchRepos?: () => Promise<GitRepoRef[]>
   pushActions?: GitPushActions
+  pullActions?: GitPullActions
   restoreFocus?: () => void
   onManageRepos?: () => void
   initialRepo?: string
@@ -30,7 +31,7 @@ interface Props {
  * 与具体后端接口解耦，供 projects（按 path）/ claude-chat（按 sessionId）等复用。
  * 提供 fetchRepos 时支持在会话 cwd 下的多个 git 子仓库间切换查看。
  */
-export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos, pushActions, restoreFocus, onManageRepos, initialRepo, onRepoChange }: Props) {
+export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos, pushActions, pullActions, restoreFocus, onManageRepos, initialRepo, onRepoChange }: Props) {
   const returnFocus = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
   const [repoRefresh, setRepoRefresh] = useState(0)
   const [pushing, setPushing] = useState(false)
@@ -156,8 +157,9 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
           </div>
         )}
 
-        {pushActions && (!fetchRepos || !!repos?.length) && <GitPushToolbar actions={pushActions} repo={activeRepo}
-          onPending={setPushing} onPushed={() => { if (!showingDiff) loadCommits(activeRepo) }} />}
+        {pushActions && (!fetchRepos || !!repos?.length) && <GitPushToolbar actions={pushActions} pullActions={pullActions} repo={activeRepo}
+          onPending={setPushing} onPushed={() => { if (!showingDiff) loadCommits(activeRepo) }}
+          onPulled={() => loadCommits(activeRepo)} />}
 
         {!showingDiff && (
           <div className="overflow-y-auto p-2">
