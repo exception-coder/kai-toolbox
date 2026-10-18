@@ -82,30 +82,40 @@ export function LoginDialog({ open, onClose, onSuccess, message, returnFocusRef 
             </div>
           </div>
           {message && <p className="mb-3 text-center text-xs text-[var(--color-muted-foreground)]">{message}</p>}
-          <input
-            autoFocus
-            autoComplete="username"
-            className="mb-2 w-full rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm"
-            placeholder="用户名"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-          />
-          <input
-            type="password"
-            autoComplete="current-password"
-            className="mb-2 w-full rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm"
-            placeholder="密码"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') void submit() }}
-          />
-          {err && <p className="mb-2 text-xs text-[var(--color-destructive)]">{err}</p>}
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={onClose}>取消</Button>
-            <Button size="sm" onClick={() => void submit()} disabled={busy || !username || !password}>
-              登录
-            </Button>
-          </div>
+          <form name="forge-sign-in" aria-label="账号登录" onSubmit={event => {
+            event.preventDefault()
+            if (!busy && username && password) void submit()
+          }}>
+            <input
+              autoFocus
+              id="forge-login-username"
+              name="username"
+              aria-label="登录账号"
+              autoComplete="username"
+              className="mb-2 w-full rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm"
+              placeholder="用户名"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+            />
+            <input
+              type="password"
+              id="forge-login-password"
+              name="password"
+              aria-label="登录密码"
+              autoComplete="current-password"
+              className="mb-2 w-full rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm"
+              placeholder="密码"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+            />
+            {err && <p className="mb-2 text-xs text-[var(--color-destructive)]">{err}</p>}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={onClose}>取消</Button>
+              <Button type="submit" size="sm" disabled={busy || !username || !password}>
+                登录
+              </Button>
+            </div>
+          </form>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

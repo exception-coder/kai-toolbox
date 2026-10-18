@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 重磅更新登记处。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-10-18-business-autofill', date: '2026-10-18', title: '业务输入防误填',
+    summary: '区分业务输入与登录字段，减少账号被误填为问题标题或筛选条件；代码已修正，真实浏览器待验证。',
+  },
+  {
     id: '2026-10-18-consult-history-reading', date: '2026-10-18', title: '历史咨询直接阅读原对话',
     summary: '历史优先打开原会话；已归档只读，进行中可追问。手机旧归档全宽阅读，普通用户菜单精简。移动浏览器待验收。',
   },

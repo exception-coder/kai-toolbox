@@ -76,7 +76,7 @@ export function MobileConsultComposer(props: Props) {
           onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus({ preventScroll: true }) }}>
           <header className="fc-mobile-editor-header"><Dialog.Title>编辑咨询</Dialog.Title><Dialog.Close>完成</Dialog.Close></header>
           <div className="fc-mobile-editor-meta">
-            {props.onTitleChange && <details><summary>问题标题（可选）</summary><input aria-label="问题标题" value={props.title ?? ''} maxLength={33} onChange={event => props.onTitleChange?.(event.target.value)} placeholder="默认从问题生成" /></details>}
+            {props.onTitleChange && <details><summary>问题标题（可选）</summary><input name="consult-mobile-question-subject" autoComplete="off" aria-label="问题标题" value={props.title ?? ''} maxLength={33} onChange={event => props.onTitleChange?.(event.target.value)} placeholder="默认从问题生成" /></details>}
             {props.attachments.length > 0 && <details><summary>附件 · {props.attachments.length}</summary><ul className="fc-mobile-attachments">
               {props.attachments.map(att => <li key={att.path}>{att.url ? <img src={att.url} alt="" /> : <FileText className="size-5" />}<span>{att.name}</span><button type="button" onClick={() => props.onRemove(att.path)} aria-label={`移除附件 ${att.name}`}><X className="size-4" /></button></li>)}
             </ul></details>}

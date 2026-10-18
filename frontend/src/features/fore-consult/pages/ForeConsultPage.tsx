@@ -2096,9 +2096,11 @@ export function ForeConsultPage() {
           <ConsultFileDropZone onFiles={handleFiles} dropDisabled={!initialSessionStateResolved || startMutation.isPending || attachmentChecking}
             className="fc-prompt-field relative mx-2 mb-2 rounded-2xl px-2 pb-2 pt-1.5">
             {attachmentNotice && <p role="status" className="px-2 py-1 text-xs text-amber-700">{attachmentNotice}</p>}
-            <div className="mb-1.5 flex items-center rounded-xl border border-slate-200/80 bg-white/55 px-2.5 focus-within:border-sky-300 focus-within:bg-white/80">
+            <form name="consult-question-title" autoComplete="off" onSubmit={event => event.preventDefault()} className="mb-1.5 flex items-center rounded-xl border border-slate-200/80 bg-white/55 px-2.5 focus-within:border-sky-300 focus-within:bg-white/80">
               <span className="shrink-0 text-xs font-medium text-slate-500">{formatUtcDatePrefix(new Date())}-</span>
               <input
+                name="consult-question-subject"
+                autoComplete="off"
                 value={questionTitle}
                 onChange={(event) => setQuestionTitle(event.target.value)}
                 disabled={!initialSessionStateResolved}
@@ -2107,7 +2109,7 @@ export function ForeConsultPage() {
                 aria-label="问题标题"
                 className="h-9 min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
               />
-            </div>
+            </form>
             {attachments.length > 0 && (
               <div className="mb-1 flex max-h-16 flex-wrap gap-1.5 overflow-y-auto px-1">
                 {attachments.map((a) => (
@@ -2232,22 +2234,27 @@ export function ForeConsultPage() {
                 <X className="size-4" />
               </button>
             </div>
-            <div className="mb-3 grid grid-cols-2 gap-2">
+            <form name="consult-history-filters" autoComplete="off" onSubmit={event => event.preventDefault()} className="mb-3 grid grid-cols-2 gap-2">
               <input
                 type="date"
+                name="consult-history-created-date"
+                autoComplete="off"
                 value={historyDate}
                 onChange={(event) => setHistoryDate(event.target.value)}
                 className="rounded-lg border border-slate-200 bg-white/70 px-2.5 py-2 text-xs text-slate-600 outline-none focus:border-sky-300"
                 aria-label="按创建日期筛选"
               />
               <input
+                type="search"
+                name="consult-history-creator-query"
+                autoComplete="off"
                 value={historyUser}
                 onChange={(event) => setHistoryUser(event.target.value)}
                 placeholder="提问用户"
                 className="rounded-lg border border-slate-200 bg-white/70 px-2.5 py-2 text-xs text-slate-600 outline-none placeholder:text-slate-400 focus:border-sky-300"
                 aria-label="按提问用户筛选"
               />
-            </div>
+            </form>
             {extractionNotice && (
               <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
                 {extractionNotice}

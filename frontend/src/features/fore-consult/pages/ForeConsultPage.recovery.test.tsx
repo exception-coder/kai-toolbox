@@ -9,7 +9,7 @@ const calls = vi.hoisted(() => ({
 }))
 const viewport = vi.hoisted(() => ({ phone: false }))
 vi.mock('../useConsultLayout', () => ({ useConsultLayout: () => ({ phone: viewport.phone, compact: viewport.phone, layout: viewport.phone ? 'phone' : 'desktop' }) }))
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { roles: ['USER'] } }) }))
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { username: 'admin', roles: ['USER'] } }) }))
 vi.mock('@/components/ui/confirm-dialog', () => ({ useConfirm: () => vi.fn() }))
 vi.mock('@/components/ui/prompt-dialog', () => ({ usePrompt: () => vi.fn() }))
 vi.mock('@/features/claude-chat/public-api', () => ({
@@ -54,6 +54,33 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals() })
 function mount() { render(<QueryClientProvider client={client}><ForeConsultPage /></QueryClientProvider>) }
+
+it.each([false, true])('keeps business fields empty for a signed-in admin name and accepts deliberate creator filtering (phone=%s)', async phone => {
+  viewport.phone = phone
+  mount()
+  if (phone) {
+    const edit = await screen.findByRole('button', { name: '编辑咨询' })
+    await waitFor(() => expect(edit).toBeEnabled())
+    fireEvent.click(edit)
+    fireEvent.click(screen.getByText('问题标题（可选）'))
+  }
+  const title = await screen.findByRole('textbox', { name: '问题标题' })
+  expect(title).toHaveValue('')
+  expect(title).toHaveAttribute('autocomplete', 'off')
+  if (!phone) expect((title as HTMLInputElement).form).toHaveAttribute('name', 'consult-question-title')
+  if (phone) {
+    fireEvent.click(screen.getByRole('button', { name: '完成' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '更多咨询功能' }))
+  }
+  fireEvent.click(screen.getByRole('button', { name: /历史咨询/ }))
+  const filter = screen.getByRole('searchbox', { name: '按提问用户筛选' })
+  expect(filter).toHaveValue('')
+  expect(filter).toHaveAttribute('autocomplete', 'off')
+  fireEvent.change(filter, { target: { value: 'admin' } })
+  expect(filter).toHaveValue('admin')
+  expect(calls.start).not.toHaveBeenCalled()
+})
 
 it('automatically connects a pending consultation when its history row has not received the runtime binding', async () => {
   viewport.phone = true

@@ -119,9 +119,9 @@ function AdminPanel() {
       {/* 新建账号 */}
       <section aria-labelledby="create-account-heading" className="border-b border-[var(--color-border)] pb-6">
         <h3 id="create-account-heading" className="mb-3 flex items-center gap-2 text-sm font-semibold"><UserPlus className="size-4" /> 新建账号</h3>
-        <form onSubmit={event => { event.preventDefault(); if (newName.trim() && newPwd && !create.isPending) create.mutate() }}>
+        <form name="forge-account-creation" autoComplete="off" onSubmit={event => { event.preventDefault(); if (newName.trim() && newPwd && !create.isPending) create.mutate() }}>
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-center">
-            <input aria-label="用户名" autoComplete="username" className="h-10 min-w-0 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm" placeholder="用户名" value={newName} onChange={e => setNewName(e.target.value)} />
+            <input name="new-account-identifier" aria-label="用户名" autoComplete="off" className="h-10 min-w-0 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm" placeholder="用户名" value={newName} onChange={e => setNewName(e.target.value)} />
             <input aria-label="密码" type="password" autoComplete="new-password" className="h-10 min-w-0 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm" placeholder="密码" value={newPwd} onChange={e => setNewPwd(e.target.value)} />
             <input aria-label="姓名（可空）" className="h-10 min-w-0 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm" placeholder="姓名（可空）" value={newRealName} onChange={e => setNewRealName(e.target.value)} />
             <Button type="submit" disabled={!newName.trim() || !newPwd || create.isPending} className="h-10 w-full sm:w-auto">{create.isPending ? '创建中…' : '创建'}</Button>
