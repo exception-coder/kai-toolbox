@@ -72,7 +72,7 @@ export function AttachmentChips({
           >
             <AlertCircle className="size-3.5 shrink-0" />
             <span className="truncate">{error}</span>
-            <span className="shrink-0 text-red-600/70 dark:text-red-300/70">请重新粘贴或选择文件</span>
+            <span className="shrink-0 text-red-600/70 dark:text-red-300/70">请重新拖入、粘贴或选择文件</span>
             {onDismissError && (
               <button
                 type="button"

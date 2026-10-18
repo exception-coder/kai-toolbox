@@ -8,6 +8,7 @@ import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import type { ProviderProfile } from '../providerProfiles'
 import type { WorkspaceList } from '../types'
 import { newSessionPreferenceKey, saveNewSessionPreferences } from '../lib/newSessionPreferences'
+import { uploadAttachment } from '../api'
 
 const testRuntime = vi.hoisted(() => ({
   profiles: undefined as ProviderProfile[] | undefined,
@@ -59,6 +60,7 @@ vi.mock('../api', async importOriginal => ({
   fetchSessionUsage: async () => null,
   listWorkspaces: async () => ({ roots: testRuntime.roots, scannedAt: 'test' }),
   fetchProviderModels: async () => ({ models: [] }),
+  uploadAttachment: vi.fn(),
 }))
 
 beforeEach(() => localStorage.clear())
@@ -79,6 +81,8 @@ afterEach(() => {
   testRuntime.chat.currentProviderKind = 'official'
   testRuntime.chat.codexSpeed = 'default'
   testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol' }]
+  testRuntime.chat.sessionId = 'session-config-regression'
+  vi.mocked(uploadAttachment).mockReset()
 })
 
 function mountChat() {
@@ -91,6 +95,24 @@ async function openNewSessionForm() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('adds dropped files to the current session without sending or replacing the draft', async () => {
+    testRuntime.chat.sessionId = 'composer-file-drop-regression'
+    vi.mocked(uploadAttachment).mockResolvedValue({ id: 'drop-file', name: '拖入说明.txt', mime: 'text/plain', size: 3, path: '/attachments/drop-file.txt' })
+    mountChat()
+    const input = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.change(input, { target: { value: '请先阅读附件' } })
+    const file = new File(['abc'], '拖入说明.txt', { type: 'text/plain' })
+    const dataTransfer = { types: ['Files'], files: [file], items: [], dropEffect: 'none' }
+    fireEvent.dragEnter(input, { dataTransfer })
+    expect(screen.getByText('松开即可添加附件')).toBeInTheDocument()
+    fireEvent.drop(input, { dataTransfer })
+    await screen.findByText('拖入说明.txt')
+    expect(uploadAttachment).toHaveBeenCalledExactlyOnceWith('composer-file-drop-regression', file)
+    expect(input).toHaveValue('请先阅读附件')
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+    expect(testRuntime.chat.enqueue).not.toHaveBeenCalled()
+    expect(testRuntime.chat.steer).not.toHaveBeenCalled()
+  })
   it('mobile header switches views without losing the composer draft and retains the directory entry', async () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     mountChat()

@@ -26,6 +26,16 @@ function getUploadCount(key: string): number {
   return uploadCounts.get(key) ?? 0
 }
 
+/** 同步预留整批名额，避免连续拖入或跨视图上传突破附件上限。 */
+export function reserveDraftAttachmentSlots(key: string, requested: number, limit: number): number {
+  const count = Math.max(0, Math.min(requested, limit - get(key).length - getUploadCount(key)))
+  if (count > 0) {
+    uploadCounts.set(key, getUploadCount(key) + count)
+    emit()
+  }
+  return count
+}
+
 /** 覆盖式写入某会话的附件列表；空则删键（回落共享 EMPTY 引用，避免 useSyncExternalStore 抖动）。 */
 export function setAttachmentsFor(key: string, next: DraftAttachment[]) {
   if (next.length === 0) store.delete(key)

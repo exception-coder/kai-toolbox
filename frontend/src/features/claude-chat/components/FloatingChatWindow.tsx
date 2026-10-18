@@ -14,6 +14,8 @@ import { CommandMenu } from './CommandMenu'
 import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
 import { AttachmentChips } from './AttachmentChips'
+import { ComposerFileDropZone } from './ComposerFileDropZone'
+import { useComposerFileUpload } from '../hooks/useComposerFileUpload'
 import { PendingSessionsBanner } from './PendingSessionsBanner'
 import { VoiceInputButton } from './VoiceInputButton'
 import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from './ProjectMention'
@@ -32,7 +34,7 @@ import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
 import { useDraftAttachments, useDraftAttachmentUploads } from '../lib/attachmentDraftPref'
-import { listSessions, resolveModule, transcribe, uploadAttachment } from '../api'
+import { listSessions, resolveModule, transcribe } from '../api'
 import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
 import type { PrdSessionView } from '@/features/prd-clarify/public-api'
@@ -202,6 +204,8 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
   })
   const currentSession = sessions.find(s => s.id === chat?.sessionId && isVibeCodingSession(s))
   const planLocked = currentSession?.planExpired === true
+  const { uploadFiles, error: attachmentUploadError, clearError: clearAttachmentUploadError }
+    = useComposerFileUpload({ sessionId: chat?.sessionId, disabled: planLocked || !!demo, limit: MAX_ATTACHMENTS })
   const headerTitle = currentSession
     ? (currentSession.title?.trim() || cwdName(currentSession.cwd))
     : 'Vibe Coding'
@@ -421,24 +425,6 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
     ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
     if (b?.long) void finishBubbleListen()          // 长按录音 → 松手转写并自动发送
     else if (b && !b.moved) setMinimized(false)      // 短按 → 展开
-  }
-
-  const uploadFiles = async (files: FileList | null) => {
-    if (!files || !chat.sessionId) return
-    const room = MAX_ATTACHMENTS - attachments.length - uploading
-    const sid = chat.sessionId
-    for (const f of Array.from(files).slice(0, Math.max(0, room))) {
-      setUploading(n => n + 1)
-      try {
-        const att = await uploadAttachment(sid, f)
-        const previewUrl = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
-        setAttachments(prev => [...prev, { ...att, previewUrl }])
-      } catch (e) {
-        console.error('[claude-chat] 悬浮窗附件上传失败', e)
-      } finally {
-        setUploading(n => n - 1)
-      }
-    }
   }
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -867,11 +853,15 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
 
       {/* 完整态输入区（会话列表 / 更多选项展开时隐藏） */}
       {!showSessions && !showMore && !compact && (
-      <div className={`border-t ${giftMode ? 'border-[#6f9b54]/14 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}>
-        {(attachments.length > 0 || uploading > 0) && (
+      <ComposerFileDropZone sessionId={chat.sessionId ?? ''} onFiles={uploadFiles}
+        disabledReason={demo ? '演示会话不可上传附件' : planLocked ? '当前会话已锁定，请恢复后再上传附件' : !chat.sessionId ? '请先创建或打开会话' : attachments.length + uploading >= MAX_ATTACHMENTS ? `每条消息最多 ${MAX_ATTACHMENTS} 个附件，请移除附件或分批发送` : undefined}
+        className={`border-t ${giftMode ? 'border-[#6f9b54]/14 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}>
+        {(attachments.length > 0 || uploading > 0 || attachmentUploadError) && (
           <AttachmentChips
             items={attachments}
             uploading={uploading}
+            error={attachmentUploadError}
+            onDismissError={clearAttachmentUploadError}
             onRemove={id => setAttachments(prev => {
               const t = prev.find(a => a.id === id)
               if (t?.previewUrl) URL.revokeObjectURL(t.previewUrl)
@@ -925,7 +915,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
               onClick={() => fileInputRef.current?.click()}
               disabled={planLocked || chat.running || attachments.length + uploading >= MAX_ATTACHMENTS}
               aria-label="上传附件"
-              title={attachments.length + uploading >= MAX_ATTACHMENTS ? `最多 ${MAX_ATTACHMENTS} 个附件` : '上传附件（也可直接粘贴图片）'}
+              title={attachments.length + uploading >= MAX_ATTACHMENTS ? `最多 ${MAX_ATTACHMENTS} 个附件` : '上传附件（支持拖入文件、粘贴图片）'}
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border disabled:opacity-50 ${giftMode ? 'border-white/12 text-white/55 hover:bg-white/10' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]'}`}
             >
               <Paperclip className="size-4" />
@@ -1000,7 +990,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
             />
           )}
         </div>
-      </div>
+      </ComposerFileDropZone>
       )}
 
       {/* 右下角缩放手柄（仅完整态，迷你态高度自适应无需缩放） */}

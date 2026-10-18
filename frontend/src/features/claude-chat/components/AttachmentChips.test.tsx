@@ -18,7 +18,7 @@ describe('AttachmentChips', () => {
     )
 
     expect(screen.getByText('当前用户不能访问该会话')).toBeInTheDocument()
-    expect(screen.getByText('请重新粘贴或选择文件')).toBeInTheDocument()
+    expect(screen.getByText('请重新拖入、粘贴或选择文件')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '关闭附件上传错误' }))
     expect(onDismissError).toHaveBeenCalledOnce()

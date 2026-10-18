@@ -38,6 +38,8 @@ import { MobileRunningSend } from '../components/MobileRunningSend'
 import { chatControlMode } from '../lib/controlMode'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { ComposerTextarea } from '../components/ComposerTextarea'
+import { ComposerFileDropZone } from '../components/ComposerFileDropZone'
+import { useComposerFileUpload } from '../hooks/useComposerFileUpload'
 import { PendingSessionsBanner } from '../components/PendingSessionsBanner'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
@@ -64,7 +66,7 @@ import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from '../
 import { groupModels } from '../components/modelGroups'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { canSteerRunningMessage } from '../components/RunningMessageActions'
 import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
@@ -763,8 +765,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   // 附件按会话绑定 + 共享 store：与悬浮窗/分屏同一份 → 主界面选了附件再弹悬浮窗不丢、即时同步。
   const [attachments, setAttachments] = useDraftAttachments(chat?.sessionId ?? PENDING_DRAFT_KEY)
   const [uploading, setUploading] = useDraftAttachmentUploads(chat?.sessionId ?? PENDING_DRAFT_KEY)
-  const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null)
-  useEffect(() => { setAttachmentUploadError(null) }, [chat?.sessionId])
   const [slashIdx, setSlashIdx] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false)
@@ -934,6 +934,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     refetchInterval: 10_000,
   })
   const planLocked = currentSession?.planExpired === true
+  const { uploadFiles: handleFiles, error: attachmentUploadError, clearError: clearAttachmentUploadError }
+    = useComposerFileUpload({ sessionId: chat?.sessionId, disabled: planLocked, limit: MAX_ATTACHMENTS })
   const communicationUser = codexSyncAuth.user?.userId ?? 'local'
   const communicationContext = useRef({ sessionId: chat?.sessionId, planLocked, user: communicationUser })
   communicationContext.current = { sessionId: chat?.sessionId, planLocked, user: communicationUser }
@@ -1105,38 +1107,12 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     setPanel('none')
   }
 
-  // 上传单个文件并落进 attachments 状态——handleFiles（本地选取/粘贴）和 handlePrdAttach
-  // （搜索附加 PRD/开发文档，见下方）共用同一条上传路径，行为（含失败提示）保持一致。
-  const uploadOneFile = async (sid: string, f: File) => {
-    setAttachmentUploadError(null)
-    setUploading(n => n + 1)
-    try {
-      const att = await uploadAttachment(sid, f)
-      const previewUrl = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
-      setAttachments(prev => [...prev, { ...att, previewUrl }])
-    } catch (e) {
-      console.error('[claude-chat] 附件上传失败', e)
-      setAttachmentUploadError(e instanceof Error ? e.message : '附件上传失败')
-    } finally {
-      setUploading(n => n - 1)
-    }
-  }
-
-  const handleFiles = async (files: FileList | null) => {
-    if (!files || !chat.sessionId) return
-    const room = MAX_ATTACHMENTS - attachments.length - uploading
-    const take = Array.from(files).slice(0, Math.max(0, room))
-    const sid = chat.sessionId
-    for (const f of take) await uploadOneFile(sid, f)
-    if (fileRef.current) fileRef.current.value = ''
-  }
-
   // 「PRD 文档」快捷附加：PrdAttachPanel 里选好 PRD/开发文档后回调这里，把文本内容包成
   // File 走跟本地上传完全一样的路径——不用用户自己去 PRD 澄清助手里找文件、复制粘贴。
   const handlePrdAttach = (file: File) => {
     if (!chat.sessionId) return
     if (attachments.length + uploading >= MAX_ATTACHMENTS) return
-    void uploadOneFile(chat.sessionId, file)
+    void handleFiles([file])
   }
 
   // 粘贴：剪贴板含文件（如截图）则当附件上传，纯文本照常粘贴
@@ -2319,7 +2295,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 
             {/* 底部只常驻执行摘要与输入；详情及诊断按需打开。 */}
             {chat.sessionId && sessionView !== 'supervision' && sessionView !== 'board' && (
-              <div className="cc-focus-composer cc-desktop-composer cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)] md:pb-0">
+              <ComposerFileDropZone sessionId={chat.sessionId} onFiles={handleFiles}
+                disabledReason={planLocked ? '当前会话已锁定，请恢复后再上传附件' : attachments.length + uploading >= MAX_ATTACHMENTS ? `每条消息最多 ${MAX_ATTACHMENTS} 个附件，请移除附件或分批发送` : undefined}
+                className="cc-focus-composer cc-desktop-composer cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)] md:pb-0">
           <div data-focus-chrome><MobileAgentDock
             key={chat.sessionId}
             status={{ workspace: true, sessionId: chat.sessionId, items: chat.items, running: chat.running,
@@ -2356,7 +2334,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
             items={attachments}
             uploading={uploading}
             error={attachmentUploadError}
-            onDismissError={() => setAttachmentUploadError(null)}
+            onDismissError={clearAttachmentUploadError}
             onRemove={id => setAttachments(prev => {
               const t = prev.find(a => a.id === id)
               if (t?.previewUrl) URL.revokeObjectURL(t.previewUrl)
@@ -2404,7 +2382,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                       {/* 附件：label 包 input，保留原生触发（移动端 WebView 不丢手势） */}
                       <label
                         aria-label="添加附件"
-                        title="添加图片 / 文档"
+                        title="添加图片 / 文档（可直接拖入输入区）"
                         className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)]${planLocked || attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
                       >
                         <input
@@ -2413,7 +2391,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                           multiple
                           className="sr-only"
                           disabled={planLocked || attachments.length + uploading >= MAX_ATTACHMENTS}
-                          onChange={e => { handleFiles(e.target.files); setMoreOpen(false) }}
+                          onChange={e => { void handleFiles(e.target.files); e.target.value = ''; setMoreOpen(false) }}
                         />
                         <Paperclip className="size-5 text-[var(--color-primary)]" />
                         附件
@@ -2632,7 +2610,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               onDismissSuggestion={() => chat.dismissFollowUpPrediction()}
               aria-label="消息输入"
               className="col-span-3 row-start-1 max-h-32 min-h-8 min-w-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-1 py-1 text-base outline-none placeholder:text-[var(--color-muted-foreground)] md:min-h-10 md:px-2 md:py-1.5"
-              placeholder="输入消息…"
+              placeholder="输入消息…（可直接拖入文件）"
               rows={1}
               disabled={planLocked}
               value={draft}
@@ -2684,7 +2662,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               </Button>
             )}
           </div>
-        </div>
+        </ComposerFileDropZone>
             )}
           </div>
           {/* PC 端右侧文件树栏（类 Codex）：与聊天并排；移动端改用上方顶部折叠条 */}
