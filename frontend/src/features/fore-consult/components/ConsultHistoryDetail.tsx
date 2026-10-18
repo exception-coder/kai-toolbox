@@ -110,19 +110,27 @@ const SESSION_LINK_WAIT_MS = 30000
 /** 归档问答兜底阅读：移动端内嵌工作台，桌面保留侧栏。 */
 export function ConsultHistoryDetail({ sessionId, title, onClose, embedded = false, onResume }: Props) {
   const [lightbox, setLightbox] = useState<string | null>(null)
-  const recoveryStartedAt = useRef(Date.now())
+  const [connectionTimedOut, setConnectionTimedOut] = useState(false)
+  const [connectionAttempt, setConnectionAttempt] = useState(0)
   const resumed = useRef<string | null>(null)
   useEffect(() => {
-    recoveryStartedAt.current = Date.now()
     resumed.current = null
   }, [sessionId])
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['fore-consult-session', sessionId],
     queryFn: () => getConsult(sessionId),
     refetchInterval: query => onResume && query.state.data?.archiveStatus === 'PENDING'
-      && !query.state.data.devSessionId && Date.now() - recoveryStartedAt.current < SESSION_LINK_WAIT_MS
+      && !query.state.data.devSessionId && !connectionTimedOut
       ? SESSION_LINK_RETRY_MS : false,
   })
+  const waitingForLink = Boolean(onResume && data?.archiveStatus === 'PENDING' && !data.devSessionId)
+  useEffect(() => {
+    setConnectionTimedOut(false)
+    if (!waitingForLink) return
+    // 独立计时，避免轮询失败或最后一次响应未触发渲染时一直显示连接中。
+    const timeout = window.setTimeout(() => setConnectionTimedOut(true), SESSION_LINK_WAIT_MS)
+    return () => window.clearTimeout(timeout)
+  }, [sessionId, waitingForLink, connectionAttempt])
   useEffect(() => {
     if (!onResume || data?.archiveStatus !== 'PENDING' || !data.devSessionId || resumed.current === data.sessionId) return
     resumed.current = data.sessionId
@@ -176,15 +184,18 @@ export function ConsultHistoryDetail({ sessionId, title, onClose, embedded = fal
             <div className="flex items-center justify-center gap-2 pt-10 text-sm text-slate-500">
               <Loader2 className="size-4 animate-spin" /> 加载中…
             </div>
-          ) : isError ? <div role="alert" className="text-sm text-slate-600">咨询内容加载失败，记录仍保留。<button type="button" className="ml-2 min-h-11 underline" onClick={() => void refetch()}>重试加载</button></div> : data?.archiveStatus === 'PENDING' && onResume ? (
+          ) : isError && !data ? <div role="alert" className="text-sm text-slate-600">咨询内容加载失败，记录仍保留。<button type="button" className="ml-2 min-h-11 underline" onClick={() => void refetch()}>重试加载</button></div> : <>
+          {isError && <div role="alert" className="text-sm leading-6 text-slate-600">检查原会话失败，已保存的内容仍可阅读。<button type="button" className="ml-2 min-h-11 underline" onClick={() => void refetch()}>重试检查</button></div>}
+          {waitingForLink && !isError && (
             <div role="status" className="text-sm leading-6 text-slate-600">
-              {Date.now() - recoveryStartedAt.current < SESSION_LINK_WAIT_MS ? '正在连接原会话…' : '原会话连接暂未就绪，咨询记录已保留。'}
-              <button type="button" className="ml-2 min-h-11 underline" onClick={() => { recoveryStartedAt.current = Date.now(); void refetch() }}>重新连接</button>
+              <p>{connectionTimedOut ? '尚未找到关联的原会话，已停止自动连接。咨询记录仍保留。' : '正在连接原会话…'}</p>
+              <button type="button" className="min-h-11 underline" onClick={() => { setConnectionTimedOut(false); setConnectionAttempt(value => value + 1); void refetch() }}>重新检查连接</button>
             </div>
-          ) : pairs.length === 0 ? (
-            <p className="px-6 pt-10 text-center text-sm leading-relaxed text-slate-600">
+          )}
+          {pairs.length === 0 ? (
+            <p className="text-sm leading-6 text-slate-600">
               {data?.archiveStatus === 'PENDING'
-                ? '该咨询尚未关联可恢复的会话，暂时没有保存的问答。可返回历史咨询，或新建咨询。'
+                ? '暂时没有保存的问答内容。'
                 : '本次咨询没有归档的问答内容'}
             </p>
           ) : (
@@ -258,11 +269,12 @@ export function ConsultHistoryDetail({ sessionId, title, onClose, embedded = fal
               </div>
             ))
           )}
+          </>}
         </div>
 
         <div className="max-h-48 overflow-y-auto px-5"><ConsultDocuments key={sessionId} sessionId={sessionId} /></div>
         <div className="border-t border-slate-200 px-5 py-2.5 text-center text-[10px] text-slate-500">
-          {data?.archiveStatus === 'PENDING' && onResume ? '恢复进行中的咨询' : `${data?.archiveStatus === 'PENDING' ? '历史快照' : '已归档 · 不再接受追问'} · ${pairs.length} 轮问答`}
+          {waitingForLink ? '尚未关联原会话' : `${data?.archiveStatus === 'PENDING' ? '历史快照' : '已归档 · 不再接受追问'} · ${pairs.length} 轮问答`}
         </div>
         </>}
       </ConsultPanel>
