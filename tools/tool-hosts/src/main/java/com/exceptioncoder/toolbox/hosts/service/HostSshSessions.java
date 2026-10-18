@@ -36,7 +36,12 @@ public class HostSshSessions {
         @Override public OutputStream getOutputStream(Socket s) throws IOException { return s.getOutputStream(); }
     };
 
-    public Session open(Host host) throws JSchException {
+    public Session open(Host host) throws JSchException { return open(host, false); }
+
+    /** File replacement requires an explicitly trusted server key. */
+    public Session openVerified(Host host) throws JSchException { return open(host, true); }
+
+    private Session open(Host host, boolean verifyKey) throws JSchException {
         if (host.getHost() == null || host.getHost().isBlank()) {
             throw new IllegalArgumentException("host is required");
         }
@@ -46,6 +51,9 @@ public class HostSshSessions {
         int port = host.getPort() <= 0 ? 22 : host.getPort();
 
         JSch jsch = new JSch();
+        if (verifyKey) {
+            jsch.setKnownHosts(java.nio.file.Path.of(System.getProperty("user.home"), ".ssh", "known_hosts").toString());
+        }
         if (host.getAuthType() == HostAuthType.KEY) {
             if (host.getPrivateKey() == null || host.getPrivateKey().isBlank()) {
                 throw new IllegalArgumentException("private key path is required");
@@ -58,7 +66,7 @@ public class HostSshSessions {
         }
 
         Session session = jsch.getSession(host.getUsername(), host.getHost(), port);
-        session.setConfig("StrictHostKeyChecking", "no");
+        session.setConfig("StrictHostKeyChecking", verifyKey ? "yes" : "no");
         session.setConfig("PreferredAuthentications", preferredAuthentications(host));
         if (host.getAuthType() == HostAuthType.PASSWORD) {
             if (host.getPassword() == null || host.getPassword().isBlank()) {
@@ -67,7 +75,12 @@ public class HostSshSessions {
             session.setPassword(host.getPassword());
         }
         session.setSocketFactory(DIRECT);
-        session.connect(CONNECT_TIMEOUT_MS);
+        try {
+            session.connect(CONNECT_TIMEOUT_MS);
+        } catch (JSchException e) {
+            session.disconnect();
+            throw e;
+        }
         return session;
     }
 

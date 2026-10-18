@@ -1,3 +1,4 @@
+import { HostFiles } from '../files/HostFiles'
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -43,6 +44,7 @@ interface TestState {
 }
 
 export function HostsPage() {
+  const [fileHost, setFileHost] = useState<HostView | null>(null)
   const qc = useQueryClient()
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -224,6 +226,7 @@ export function HostsPage() {
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex gap-1">
+                          <Button size="sm" variant="outline" onClick={() => setFileHost(h)}>SFTP 文件</Button>
                           <Button
                             size="sm"
                             variant="outline"
@@ -258,6 +261,7 @@ export function HostsPage() {
           )}
         </CardContent>
       </Card>
+      {fileHost && <HostFiles key={fileHost.id} host={fileHost} onClose={() => setFileHost(null)} />}
     </div>
   )
 }
