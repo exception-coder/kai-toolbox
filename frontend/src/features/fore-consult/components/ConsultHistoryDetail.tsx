@@ -13,6 +13,7 @@ interface Props {
   sessionId: string
   title: string
   onClose: () => void
+  embedded?: boolean
 }
 
 interface QaPair {
@@ -103,10 +104,10 @@ function parseRawPairs(raw: string | null | undefined): QaPair[] {
 
 const ROLE_LABEL: Record<string, string> = { IT: 'IT 客服', BIZ: '业务员' }
 
-/** 历史咨询详情：只读查看已归档的问答（含 Markdown 渲染），全息风右侧滑出。 */
-export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
+/** 归档问答兜底阅读：移动端内嵌工作台，桌面保留侧栏。 */
+export function ConsultHistoryDetail({ sessionId, title, onClose, embedded = false }: Props) {
   const [lightbox, setLightbox] = useState<string | null>(null)
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['fore-consult-session', sessionId],
     queryFn: () => getConsult(sessionId),
   })
@@ -124,13 +125,13 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
   }, [data])
 
   return (
-    <div className="absolute inset-0 z-40 flex justify-end" onClick={onClose}>
-      <ConsultPanel side="right" initialWidth={560} className="fc-panel rounded-xl">
+    <div className={embedded ? 'flex h-full min-h-0 flex-col bg-[#f8f9fb]' : 'absolute inset-0 z-40 flex justify-end'} onClick={embedded ? undefined : onClose}>
+      <ConsultPanel embedded={embedded} side="right" initialWidth={560} className="fc-panel rounded-xl">
         {sizeControls => <>
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-5">
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-[0.22em] text-sky-600">Consult Archive</div>
-            <h2 className="truncate text-base font-semibold text-slate-950">{title}</h2>
+            <div className="text-xs text-slate-500">历史咨询</div>
+            <h2 className="break-words text-base font-semibold text-slate-950">{title}</h2>
             {data && (
               <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
                 <span className="rounded-full border border-slate-200 px-2 py-0.5">{ROLE_LABEL[data.role] ?? data.role}</span>
@@ -147,7 +148,7 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
           </div>
           <div className="flex shrink-0 items-center gap-1">
           {sizeControls}
-          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="关闭">
+          <button type="button" onClick={onClose} className="flex min-h-11 min-w-11 items-center justify-center rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900" aria-label="返回历史咨询">
             <X className="size-4" />
           </button>
           </div>
@@ -158,10 +159,10 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
             <div className="flex items-center justify-center gap-2 pt-10 text-sm text-slate-500">
               <Loader2 className="size-4 animate-spin" /> 加载中…
             </div>
-          ) : pairs.length === 0 ? (
+          ) : isError ? <div role="alert" className="text-sm text-slate-600">咨询内容加载失败，记录仍保留。<button type="button" className="ml-2 min-h-11 underline" onClick={() => void refetch()}>重试加载</button></div> : pairs.length === 0 ? (
             <p className="px-6 pt-10 text-center text-sm leading-relaxed text-slate-600">
               {data?.archiveStatus === 'PENDING'
-                ? '该咨询还在进行中，尚未归档。回到星图点「查看对话」可继续，结束并归档后即可在此查看完整问答。'
+                ? '该咨询尚未关联可恢复的会话，暂时没有保存的问答。可返回历史咨询，或新建咨询。'
                 : '本次咨询没有归档的问答内容'}
             </p>
           ) : (
@@ -239,7 +240,7 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
 
         <div className="max-h-48 overflow-y-auto px-5"><ConsultDocuments key={sessionId} sessionId={sessionId} /></div>
         <div className="border-t border-slate-200 px-5 py-2.5 text-center text-[10px] text-slate-500">
-          只读归档 · {pairs.length} 轮问答
+          {data?.archiveStatus === 'PENDING' ? '历史快照' : '已归档 · 不再接受追问'} · {pairs.length} 轮问答
         </div>
         </>}
       </ConsultPanel>

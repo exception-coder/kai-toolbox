@@ -4,7 +4,7 @@ interface ConsultMessageActionsProps {
   align: 'start' | 'end'
   copied: boolean
   onCopy: () => void
-  onQuote: () => void
+  onQuote?: () => void
 }
 
 export function ConsultMessageActions({ align, copied, onCopy, onQuote }: ConsultMessageActionsProps) {
@@ -18,9 +18,9 @@ export function ConsultMessageActions({ align, copied, onCopy, onQuote }: Consul
       }`}
       aria-label="消息操作"
     >
-      <button type="button" onClick={onQuote} className={buttonClass} title="引用这条消息到输入框追问">
+      {onQuote && <button type="button" onClick={onQuote} className={buttonClass} title="引用这条消息到输入框追问">
         <Quote className="size-3.5 sm:size-3" /> 引用
-      </button>
+      </button>}
       <button type="button" onClick={onCopy} className={buttonClass} title="复制消息内容" aria-live="polite">
         {copied ? <CheckCircle2 className="size-3.5 text-emerald-600 sm:size-3" /> : <Copy className="size-3.5 sm:size-3" />}
         {copied ? '已复制' : '复制'}

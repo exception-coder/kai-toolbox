@@ -3,13 +3,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { UseClaudeChatSocket } from '@/features/claude-chat/public-api'
 import { ConsultConversation, type ConsultConversationDraft } from './ConsultConversation'
 
-const mocks = vi.hoisted(() => ({ phase: 'running', dispatch: vi.fn() }))
+const mocks = vi.hoisted(() => ({ phase: 'running', dispatch: vi.fn(), registerBug: vi.fn() }))
 vi.mock('@/features/claude-chat/public-api', () => ({
   Markdown: ({ text }: { text: string }) => <span>{text}</span>, uploadAttachment: vi.fn(),
 }))
 vi.mock('../api', () => ({
   dispatchConsultQuestion: mocks.dispatch, classifyConsultQuestion: vi.fn(async () => ({ classification: 'FOLLOW_UP' })),
-  registerBug: vi.fn(), submitFeedback: vi.fn(),
+  registerBug: mocks.registerBug, submitFeedback: vi.fn(),
 }))
 vi.mock('../consultConversationState', () => ({
   useConsultConversationRuntimeState: () => ({
@@ -36,6 +36,28 @@ function setup() {
     onClose: vi.fn(), onArchive: vi.fn(), onStartNew: vi.fn(), archiving: false }
   return { chat, props }
 }
+
+it('reads the original archived messages without exposing follow-up, archive or bug writes', () => {
+  const { props, chat } = setup()
+  chat.running = false
+  chat.historyError = '原会话记录无法访问'
+  mocks.phase = 'idle'
+  chat.items = [{ id: 'q1', kind: 'user', text: '原问题', ts: 1 },
+    { id: 'a1', kind: 'assistant', text: '原会话完整回答\n<<<BUG_REPORT>>>\n{"title":"历史缺陷"}\n<<<END_BUG_REPORT>>>', ts: 2 }]
+  const onViewArchive = vi.fn()
+  render(<ConsultConversation {...props} readOnly embedded onViewArchive={onViewArchive} />)
+  expect(screen.getByText('原问题')).toBeVisible()
+  expect(screen.getByText('原会话完整回答')).toBeVisible()
+  expect(screen.getByText(/已归档 · 仅供阅读/)).toBeVisible()
+  expect(screen.queryByRole('button', { name: '结束归档' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '编辑咨询' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '引用' })).not.toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: '复制' })).toHaveLength(2)
+  expect(mocks.registerBug).not.toHaveBeenCalled()
+  expect(chat.send).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '查看归档副本' }))
+  expect(onViewArchive).toHaveBeenCalledOnce()
+})
 
 it('keeps follow-up drafts separate when switching to a new consultation and back', () => {
   const { props } = setup()

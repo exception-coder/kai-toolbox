@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 重磅更新登记处。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-10-18-consult-history-reading', date: '2026-10-18', title: '历史咨询直接阅读原对话',
+    summary: '历史优先打开原会话；已归档只读，进行中可追问。手机旧归档全宽阅读，普通用户菜单精简。移动浏览器待验收。',
+  },
+  {
     id: '2026-10-18-mobile-new-consult', date: '2026-10-18', title: '新咨询无需先归档',
     summary: '手机和平板可点顶部“新建”准备另一项问题，原咨询从历史继续；页面内草稿分别保留。移动浏览器待验收。',
   },

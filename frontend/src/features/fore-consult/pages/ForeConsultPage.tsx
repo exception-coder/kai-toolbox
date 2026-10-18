@@ -559,6 +559,7 @@ export function ForeConsultPage() {
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
   const [overrides, setOverrides] = useState<Map<string, Pos>>(new Map())
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
+  const [activeConsultReadOnly, setActiveConsultReadOnly] = useState(false)
   const [activeQuestionTitle, setActiveQuestionTitle] = useState('')
   const [initialSessionStateResolved, setInitialSessionStateResolved] = useState(false)
   const activeDevSessionBindingRef = useRef<{ consultId: string; devSessionId: string } | null>(null)
@@ -812,6 +813,7 @@ export function ForeConsultPage() {
     const p = pendingRef.current
     if (!p || p.opened) return
     p.opened = true
+    setActiveConsultReadOnly(false)
     setNewConsultDraftOpen(false)
     setPendingDispatchError(null)
     setActiveDevSessionBinding(null)
@@ -904,6 +906,7 @@ export function ForeConsultPage() {
     let cancelled = false
     const repairHistoryTitles = async () => {
       for (const session of history) {
+        if (session.archiveStatus !== 'PENDING') continue
         const title = session.questionTitle?.trim()
         const sid = session.devSessionId?.trim()
         if (!title || !sid || devSessionOwners.get(sid) !== 1) continue
@@ -1207,8 +1210,11 @@ export function ForeConsultPage() {
     setConfigOpen(true)
   }
 
-  // 恢复待归档咨询：运行提示来自底层会话列表，WebSocket ready 与实时事件会继续校正。
+  // 打开原咨询：归档只读；进行中的运行提示继续由实时事件校正。
   const resumeConsult = useCallback((s: ConsultSessionView) => {
+    setMobileToolsOpen(false)
+    const readOnly = s.archiveStatus !== 'PENDING'
+    setActiveConsultReadOnly(readOnly)
     setNewConsultDraftOpen(false)
     setMobileView('consult')
     setSystem(s.systemName)
@@ -1217,7 +1223,7 @@ export function ForeConsultPage() {
     setRole(s.role === 'BIZ' ? 'BIZ' : 'IT')
     setActiveConsultId(s.sessionId)
     setActiveQuestionTitle(s.questionTitle || displayName(s.systemName))
-    setActiveDevSessionBinding(s.devSessionId
+    setActiveDevSessionBinding(s.devSessionId && !readOnly
       ? { consultId: s.sessionId, devSessionId: s.devSessionId }
       : null)
     setHistoryOpen(false)
@@ -1547,8 +1553,9 @@ export function ForeConsultPage() {
         <div className="fc-mobile-header-row">
           {phone && openMobileNavigation && <button type="button" aria-label="打开导航" onClick={openMobileNavigation}><Menu className="size-5" /></button>}
           <h1>业务咨询</h1>
-          {activeConsultId && !newConsultDraftOpen && <button ref={newConsultTrigger} type="button" aria-label="新建咨询" disabled={!initialSessionStateResolved || startMutation.isPending || pendingDispatching || Boolean(pendingRef.current) || archiveMutation.isPending} onClick={() => {
+          {(activeConsultId || viewSession) && !newConsultDraftOpen && <button ref={newConsultTrigger} type="button" aria-label="新建咨询" disabled={!initialSessionStateResolved || startMutation.isPending || pendingDispatching || Boolean(pendingRef.current) || archiveMutation.isPending} onClick={() => {
             setNewConsultDraftOpen(true)
+            setViewSession(null)
             setMobileView('consult')
             setMobileToolsOpen(false)
             setHasSourcePreference(false)
@@ -1627,7 +1634,7 @@ export function ForeConsultPage() {
           )}
           <button
             type="button"
-            onClick={() => setHistoryOpen((o) => !o)}
+            onClick={() => { setMobileToolsOpen(false); setHistoryOpen((o) => !o) }}
             className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 lg:rounded-full"
           >
             <History className="size-3.5" />
@@ -1706,7 +1713,7 @@ export function ForeConsultPage() {
 
       {/* 进行中横幅：对话面板打开时隐藏（面板 z-30 全屏遮罩会盖住本横幅 z-20，
           否则点这里的「结束并归档」会先被遮罩吃掉变成关闭对话，导致要点两次）。归档入口此时用面板头部的按钮。 */}
-      {!compact && activeConsultId && !conversationOpen && (
+      {!compact && activeConsultId && !activeConsultReadOnly && !conversationOpen && (
         <div
           className="absolute left-4 right-4 top-32 z-50 lg:left-1/2 lg:right-auto lg:top-14 lg:-translate-x-1/2 lg:p-3"
           onPointerDown={(event) => event.stopPropagation()}
@@ -1947,7 +1954,7 @@ export function ForeConsultPage() {
       )}
 
       </div>
-      {compact && (!activeConsultId || newConsultDraftOpen) && <section id="fc-consult-view" role="tabpanel" aria-labelledby="fc-consult-tab" className="fc-mobile-consult-view" hidden={phone && mobileView !== 'consult'}>
+      {compact && !viewSession && (!activeConsultId || newConsultDraftOpen) && <section id="fc-consult-view" role="tabpanel" aria-labelledby="fc-consult-tab" className="fc-mobile-consult-view" hidden={phone && mobileView !== 'consult'}>
         <div className="fc-mobile-empty">
           <div className="fc-mobile-welcome"><h2>从一个问题开始</h2><p>描述遇到的问题，或添加业务截图。Forge 会自动定位相关系统。</p>{hasSourcePreference && <p>优先探索：{displayName(system)}</p>}{activeConsultId && <><p>原咨询已保留，可从历史咨询继续。</p><button type="button" disabled={startMutation.isPending} className="mt-3 min-h-11 text-sm underline underline-offset-4 disabled:opacity-40" onClick={() => { setNewConsultDraftOpen(false); requestAnimationFrame(() => newConsultTrigger.current?.focus()) }}>返回当前咨询</button></>}</div>
           <MobileConsultComposer value={ask} onChange={setAsk} title={questionTitle} onTitleChange={setQuestionTitle}
@@ -2183,10 +2190,12 @@ export function ForeConsultPage() {
 
       {/* 独立业务咨询会话面板（不用 Vibe Coding 悬浮窗，复用同一 WS 同步渲染） */}
       {(conversationOpen || compact) && activeConsultId && (
-        <div id={compact && !newConsultDraftOpen ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : undefined} hidden={(compact && newConsultDraftOpen) || (phone && mobileView !== 'consult')}>
+        <div id={compact && !newConsultDraftOpen && !viewSession ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : undefined} hidden={(compact && (newConsultDraftOpen || Boolean(viewSession))) || (phone && mobileView !== 'consult')}>
         <ConsultConversation
           key={activeConsultId}
           draftCache={conversationDrafts.current}
+          readOnly={activeConsultReadOnly}
+          onViewArchive={() => setViewSession({ id: activeConsultId, title: activeQuestionTitle || '历史咨询' })}
           embedded={compact}
           onViewGraph={() => { setMobileView('graph'); setCategoryFilter(null); requestAnimationFrame(() => { const node = Array.from(containerRef.current?.querySelectorAll<HTMLButtonElement>('[data-system-name]') ?? []).find(element => element.dataset.systemName === system); node?.focus({ preventScroll: true }) }) }}
           chat={chat}
@@ -2252,19 +2261,22 @@ export function ForeConsultPage() {
                   <li
                     key={s.sessionId}
                     onClick={() => {
-                      // 进行中（PENDING）：续跑并打开可发消息的实时对话面板，直接在会话里继续回答；
-                      // 已归档（SUCCESS/FAILED）：只读查看。无底层会话可续跑的进行中记录，退回只读。
-                      if (s.archiveStatus === 'PENDING' && (s.sessionId === activeConsultId || s.devSessionId)) {
+                      // 有底层会话时复用原消息流；归档记录仅允许阅读。
+                      if (s.devSessionId || (s.archiveStatus === 'PENDING' && s.sessionId === activeConsultId)) {
                         resumeConsult(s)
                       } else {
+                        setHistoryOpen(false)
+                        setMobileToolsOpen(false)
+                        setNewConsultDraftOpen(false)
+                        setMobileView('consult')
                         setViewSession({ id: s.sessionId, title: s.questionTitle || displayName(s.systemName) })
                       }
                     }}
                     className="fc-history-item cursor-pointer rounded-xl border border-slate-200/80 bg-white/70 px-3.5 py-3 transition-colors hover:border-sky-200 hover:bg-white"
                   >
-                    <div className="break-words text-sm font-medium leading-5 text-slate-900">
+                    <button type="button" className="min-h-11 w-full break-words text-left text-sm font-medium leading-5 text-slate-900">
                       {s.questionTitle || displayName(s.systemName)}
-                    </div>
+                    </button>
                     <div className="mt-1 flex items-center gap-1 text-[11px] text-sky-700">
                       <Landmark className="size-3 shrink-0" />
                       <span className="break-words">发起系统：{displayName(s.systemName)}</span>
@@ -2288,7 +2300,7 @@ export function ForeConsultPage() {
                         <ArchiveBadge status={s.archiveStatus} />
                       </div>
                       <div className="flex shrink-0 items-center gap-0.5">
-                        <button
+                        {isAdmin && <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); void compensateBugExtraction(s) }}
                           disabled={extractingSessionId !== null}
@@ -2299,7 +2311,7 @@ export function ForeConsultPage() {
                           {extractingSessionId === s.sessionId
                             ? <Loader2 className="size-3.5 animate-spin" />
                             : <Bug className="size-3.5" />}
-                        </button>
+                        </button>}
                         <button type="button" onClick={(e) => { e.stopPropagation(); void copySessionId(s.sessionId) }} className="rounded-lg p-1 text-slate-400 hover:bg-sky-50 hover:text-sky-600" aria-label="复制会话 ID" title={copiedSessionId === s.sessionId ? '已复制' : '复制会话 ID'}>
                           <Copy className="size-3.5" />
                         </button>
@@ -2341,7 +2353,9 @@ export function ForeConsultPage() {
 
       {/* 历史咨询详情（只读查看归档问答） */}
       {viewSession && (
-        <ConsultHistoryDetail sessionId={viewSession.id} title={viewSession.title} onClose={() => setViewSession(null)} />
+        <div id={compact ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : undefined} hidden={phone && mobileView !== 'consult'}>
+          <ConsultHistoryDetail embedded={compact} sessionId={viewSession.id} title={viewSession.title} onClose={() => { setViewSession(null); setHistoryOpen(true) }} />
+        </div>
       )}
 
       {/* 配置抽屉：别名 + 过滤 */}

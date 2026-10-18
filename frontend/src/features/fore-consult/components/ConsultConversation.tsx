@@ -73,6 +73,8 @@ interface Props {
   embedded?: boolean
   onViewGraph?: () => void
   draftCache?: Map<string, ConsultConversationDraft>
+  readOnly?: boolean
+  onViewArchive?: () => void
 }
 
 /**
@@ -82,7 +84,7 @@ interface Props {
  */
 export function ConsultConversation({
   chat, consultId, questionTitle, systemLabel, roleLabel, onUploaded, onBugRegistered, onClose,
-  onArchive, onStartNew, archiving, startupPending = false, startupError, onRetryStartup, sourceRoutingEnabled = false, embedded = false, onViewGraph, draftCache,
+  onArchive, onStartNew, archiving, startupPending = false, startupError, onRetryStartup, sourceRoutingEnabled = false, embedded = false, onViewGraph, draftCache, readOnly = false, onViewArchive,
 }: Props) {
   const [text, setText] = useState(() => draftCache?.get(consultId)?.text ?? '')
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
@@ -283,7 +285,7 @@ export function ConsultConversation({
 
   // 回答完成后：解析其中的 BUG 结构化块并自动登记（每条 assistant 只处理一次）。
   useEffect(() => {
-    if (running) return
+    if (running || readOnly) return
     items.forEach((it) => {
       if (it.kind !== 'assistant' || registeredRef.current.has(it.id)) return
       const bug = extractBug(it.text)
@@ -323,10 +325,11 @@ export function ConsultConversation({
           console.error('[fore-consult] BUG 自动登记失败', error)
         })
     })
-  }, [items, running, consultId, onBugRegistered])
+  }, [items, running, consultId, onBugRegistered, readOnly])
 
   const MAX_ATT = 10
   const handleFiles = async (files: FileList | null) => {
+    if (readOnly) return
     if (!files || files.length === 0) return
     const candidates = Array.from(files)
     const sessionId = chat.sessionId
@@ -405,6 +408,7 @@ export function ConsultConversation({
   }
 
   const send = async () => {
+    if (readOnly) return
     if (!chat || !canSend || sendingRef.current) return
     sendingRef.current = true
     const message = text
@@ -463,7 +467,7 @@ export function ConsultConversation({
   return (
     <div className={embedded ? 'fc-embedded-conversation' : 'fc-conversation-layer absolute inset-0 z-30'} onClick={embedded ? undefined : onClose}>
       <ConsultPanel side="left" initialWidth={520} className="fc-console" onFiles={handleFiles}
-        dropDisabled={!sessionReady || archiving || startupPending} embedded={embedded}>
+        dropDisabled={readOnly || !sessionReady || archiving || startupPending} embedded={embedded}>
         {sizeControls => <>
         <div className="fc-console-scan" />
 
@@ -482,7 +486,7 @@ export function ConsultConversation({
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             {sizeControls}
-            <button
+            {!readOnly && <button
               type="button"
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
@@ -495,14 +499,14 @@ export function ConsultConversation({
             >
               {archiving ? <Loader2 className="size-3 animate-spin" /> : <Archive className="size-3" />}
               {archiving ? '归档中…' : '结束归档'}
-            </button>
+            </button>}
             {!embedded && <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="收起">
               <X className="size-4" />
             </button>}
           </div>
         </div>
 
-        {sourceRoutingEnabled && <ConsultRoutingStatus consultId={consultId} />}
+        {!readOnly && sourceRoutingEnabled && <ConsultRoutingStatus consultId={consultId} />}
         {/* 正常 bypass 不会触发；异常出现待确认时留在咨询面板提示，避免跳入 ADMIN-only 悬浮窗。 */}
         {pending && (
           <div className="shrink-0 border-b border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-700">
@@ -540,11 +544,11 @@ export function ConsultConversation({
                     <ConsultMessageActions
                       align={it.kind === 'user' ? 'end' : 'start'}
                       copied={copiedMessageId === it.id}
-                      onQuote={() => quoteMessage(quotable)}
+                      onQuote={readOnly ? undefined : () => quoteMessage(quotable)}
                       onCopy={() => void copyMessage(it.id, quotable)}
                     />
                   )}
-                  {showRating && (
+                  {showRating && !readOnly && (
                     <>
                       {turnAudits.get(it.id) && <ConsultAuditRow audit={turnAudits.get(it.id)!} />}
                       <RatingRow rating={ratings.get(turnIdx)} onGood={() => rateGood(turnIdx)} onBad={() => setBadDialog(turnIdx)} />
@@ -560,7 +564,11 @@ export function ConsultConversation({
             })
           })()}
           <ConsultDocuments key={consultId} sessionId={consultId} running={running} />
-          {startupError ? (
+          {readOnly && chat.historyError && <div role="alert" className="text-sm text-slate-600">
+            原会话暂时无法读取，归档内容仍保留。
+            {onViewArchive && <button type="button" className="ml-2 min-h-11 underline" onClick={onViewArchive}>查看归档副本</button>}
+          </div>}
+          {readOnly ? null : startupError ? (
             <div className="flex items-start justify-between gap-3 border-l-2 border-red-300 pl-3 text-xs text-slate-600">
               <div>
                 <p className="font-medium text-slate-800">首问发送失败</p>
@@ -589,7 +597,7 @@ export function ConsultConversation({
         </div>
 
         {/* 组合器 */}
-        {embedded ? <MobileConsultComposer value={text} onChange={setText} attachments={atts}
+        {readOnly ? <div className="shrink-0 border-t border-slate-200 px-4 py-3 text-xs leading-5 text-slate-500">已归档 · 仅供阅读。如需继续讨论，请新建咨询。</div> : embedded ? <MobileConsultComposer value={text} onChange={setText} attachments={atts}
           onFiles={handleFiles} onRemove={removeAtt} onPaste={onPaste} onSend={() => void send()} canSend={canSend}
           disabled={!sessionReady || archiving || startupPending} attachmentsDisabled={!sessionReady || atts.length + uploading >= MAX_ATT}
           busy={sendLocked} notice={attachmentError || (uploading ? '附件上传中…' : sendLocked ? '正在回答，可先准备下一条问题' : null)}

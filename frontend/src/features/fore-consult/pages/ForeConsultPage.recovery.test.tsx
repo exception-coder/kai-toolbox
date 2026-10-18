@@ -5,7 +5,7 @@ import { ForeConsultPage } from './ForeConsultPage'
 import type { ConsultSessionView } from '../api'
 
 const calls = vi.hoisted(() => ({
-  history: vi.fn(), runtime: vi.fn(), switchTo: vi.fn(), start: vi.fn(), archive: vi.fn(),
+  history: vi.fn(), runtime: vi.fn(), switchTo: vi.fn(), start: vi.fn(), archive: vi.fn(), detail: vi.fn(),
 }))
 const viewport = vi.hoisted(() => ({ phone: false }))
 vi.mock('../useConsultLayout', () => ({ useConsultLayout: () => ({ phone: viewport.phone, compact: viewport.phone, layout: viewport.phone ? 'phone' : 'desktop' }) }))
@@ -15,14 +15,17 @@ vi.mock('@/components/ui/prompt-dialog', () => ({ usePrompt: () => vi.fn() }))
 vi.mock('@/features/claude-chat/public-api', () => ({
   useClaudeChatSocket: () => ({ items: [], sessionId: null, switchTo: calls.switchTo }),
   listSessions: calls.runtime, fetchCodexModels: async () => [], CodexSessionOptions: () => null,
+  renameSession: vi.fn(async () => {}),
 }))
-vi.mock('../components/ConsultConversation', () => ({ ConsultConversation: () => <div>原咨询对话</div> }))
+vi.mock('../components/ConsultConversation', () => ({ ConsultConversation: ({ readOnly }: { readOnly?: boolean }) => <div>原咨询对话{readOnly && <span>归档只读</span>}</div> }))
+vi.mock('../components/ConsultDocuments', () => ({ ConsultDocuments: () => null }))
 vi.mock('../api', async original => ({ ...await original<typeof import('../api')>(),
   listWorkspaces: async () => ({ roots: [{ root: 'D:/workspace', exists: true,
     dirs: [{ name: 'erp', path: 'D:/workspace/erp' }] }] }),
   listSystemPrefs: async () => [{ systemName: 'erp', systemSourcePath: 'D:/workspace/erp',
     alias: 'ERP', visible: true, sortOrder: 0 }],
   listConsults: calls.history, startConsult: calls.start, archiveConsult: calls.archive,
+  getConsult: calls.detail,
   getTopology: async () => ({ links: [] }), listCodexHomes: async () => [],
   fetchProjectModules: async () => ({ modules: [] }),
   getBusinessConsultModelPolicy: async () => ({ model: 'test-model', codexHome: 'C:/test-codex' }),
@@ -46,10 +49,49 @@ beforeEach(() => {
   calls.history.mockReset().mockResolvedValue([])
   calls.runtime.mockReset().mockResolvedValue([])
   calls.switchTo.mockReset(); calls.start.mockReset(); calls.archive.mockReset()
+  calls.detail.mockReset()
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 })
 afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals() })
 function mount() { render(<QueryClientProvider client={client}><ForeConsultPage /></QueryClientProvider>) }
+
+it('opens archived history using the original session in read-only mode', async () => {
+  viewport.phone = true
+  calls.history.mockResolvedValue([pending, { ...pending, sessionId: 'archived', devSessionId: 'archived-runtime', archiveStatus: 'SUCCESS', questionTitle: '归档问题标题' }])
+  mount()
+  await screen.findByText('原咨询对话')
+  fireEvent.click(screen.getByRole('button', { name: '更多咨询功能' }))
+  fireEvent.click(screen.getByRole('button', { name: /历史咨询/ }))
+  fireEvent.click(await screen.findByText('归档问题标题'))
+  expect(screen.getByText('归档只读')).toBeVisible()
+  expect(calls.switchTo).toHaveBeenLastCalledWith('archived-runtime', false)
+  expect(screen.queryByRole('button', { name: '关闭更多功能' })).not.toBeInTheDocument()
+  expect(calls.archive).not.toHaveBeenCalled()
+  expect(calls.start).not.toHaveBeenCalled()
+})
+
+it('reads legacy archives without a runtime session in the full mobile workspace and returns to history', async () => {
+  viewport.phone = true
+  const archived = { ...pending, sessionId: 'legacy', devSessionId: null, archiveStatus: 'SUCCESS', questionTitle: '旧归档问题',
+    rawReferenceJson: JSON.stringify([{ kind: 'user', text: '旧问题全文' }, { kind: 'assistant', text: '旧回答完整内容' }]) }
+  calls.history.mockResolvedValue([pending, archived])
+  calls.detail.mockResolvedValue(archived)
+  mount()
+  await screen.findByText('原咨询对话')
+  fireEvent.click(screen.getByRole('button', { name: '更多咨询功能' }))
+  fireEvent.click(screen.getByRole('button', { name: /历史咨询/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /旧归档问题/ }))
+  expect(await screen.findByText('旧回答完整内容')).toBeVisible()
+  expect(screen.getByText('旧问题全文')).toBeVisible()
+  expect(document.querySelectorAll('#fc-consult-view')).toHaveLength(1)
+  expect(document.querySelector('.fc-resizable-panel')).toBeNull()
+  expect(screen.getByRole('button', { name: '新建咨询' })).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '返回历史咨询' }))
+  expect(await screen.findByRole('button', { name: /旧归档问题/ })).toBeVisible()
+  expect(screen.queryByRole('button', { name: '补偿抽取 BUG' })).not.toBeInTheDocument()
+  expect(calls.archive).not.toHaveBeenCalled()
+  expect(calls.switchTo).toHaveBeenCalledExactlyOnceWith('original-runtime', false)
+})
 
 it.each([false, true])('hides administrator tools for ordinary users (phone=%s)', async phone => {
   viewport.phone = phone
