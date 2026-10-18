@@ -1,0 +1,15 @@
+.wa-launcher{--wa-safe-left:env(safe-area-inset-left,0px);--wa-safe-right:env(safe-area-inset-right,0px);--wa-safe-top:env(safe-area-inset-top,0px);--wa-safe-bottom:env(safe-area-inset-bottom,0px);position:fixed;z-index:30;display:flex;width:76px;height:44px;border:1px solid var(--color-border);border-radius:8px;background:var(--color-background);color:var(--color-primary);box-shadow:0 2px 6px rgb(0 0 0 / .06);isolation:isolate}
+.wa-launcher[hidden]{display:none}
+.wa-launcher button{display:flex;align-items:center;justify-content:center;flex:none;height:42px;padding:0;border:0;background:transparent;color:inherit;touch-action:none;user-select:none;-webkit-user-select:none}
+.wa-launcher button:hover{background:var(--color-accent)}
+.wa-launcher button:active{background:var(--color-muted)}
+.wa-launcher button:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px;border-radius:6px}
+.wa-launcher-main{width:43px;cursor:grab;border-radius:7px 0 0 7px}
+.wa-launcher-main svg{width:20px;height:20px}
+.wa-launcher .wa-launcher-collapse{width:31px;border-left:1px solid var(--color-border);border-radius:0 7px 7px 0;cursor:pointer;color:var(--color-muted-foreground)}
+.wa-launcher-collapse svg{width:14px;height:14px}
+.wa-launcher.is-dragging .wa-launcher-main{cursor:grabbing}
+.wa-launcher.is-collapsed{width:28px;border-radius:8px 0 0 8px;box-shadow:none}
+.wa-launcher.is-collapsed .wa-launcher-main{width:26px;border-radius:inherit}
+.wa-launcher.is-collapsed .wa-launcher-main svg{width:16px;height:16px}
+.wa-launcher.is-collapsed[data-side=left]{border-radius:0 8px 8px 0}

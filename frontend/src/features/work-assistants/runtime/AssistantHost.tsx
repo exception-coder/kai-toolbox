@@ -1,5 +1,5 @@
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Bot } from 'lucide-react'
+import { AssistantLauncher } from './AssistantLauncher'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { usePermission } from '@/shell/permission'
 import { useAuth } from '@/lib/auth'
@@ -42,9 +42,7 @@ function AuthorizedAssistantHost({ children, userId }: { children: ReactNode; us
   }, [launch])
   return <Context.Provider value={launch}>{children}
     <>
-      <button type="button" onClick={() => launch()} className="fixed right-3 top-1/2 z-30 flex min-h-11 min-w-11 -translate-y-1/2 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 text-sm shadow-sm focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]" aria-label="唤醒工作助理" aria-keyshortcuts="Alt+Shift+A" title="工作助理 · Alt+Shift+A">
-        <Bot className="size-5 text-[var(--color-primary)]" /><span className="sr-only">工作助理</span>
-      </button>
+      <AssistantLauncher userId={userId} suspended={open} onLaunch={() => launch()} />
       <Sheet open={open} onOpenChange={next => {
         if (next) { setOpen(true); return }
         if (secureBusy) return
