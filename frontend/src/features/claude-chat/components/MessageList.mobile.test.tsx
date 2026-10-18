@@ -41,7 +41,7 @@ it('consolidates routine mobile execution but preserves warnings, ended-turn det
   expect(screen.getByText(/保存失败，请重试/)).toBeInTheDocument()
   expect(screen.getByText('读取文件失败')).toBeInTheDocument()
   expect(screen.getByText('此轮已完成')).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: '复制回复' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '复制回复' })).toBeVisible()
   expect(screen.queryByRole('button', { name: '从这条回答处分叉对话' })).not.toBeInTheDocument()
   const token = screen.getByText(/Token 2.4百万/)
   expect(token).not.toBeVisible()
@@ -160,18 +160,45 @@ it('surfaces verification after file details without rewriting the original evid
   expect(screen.getAllByText('frontend/src/components/long-path-example.tsx')).toHaveLength(12)
 })
 
-it('copies the complete folded reply from more, surfaces failures and permits retry without changing content', async () => {
+it('copies the complete folded reply directly below the message, surfaces failures and permits retry', async () => {
   vi.mocked(copyTextToClipboard).mockRejectedValueOnce(new Error('denied')).mockResolvedValueOnce()
   mount(true, true, [{ kind: 'assistant', id: 'copy', text: longReply }], false)
-  const trigger = screen.getByRole('button', { name: '更多回复操作' })
-  fireEvent.click(trigger)
   fireEvent.click(screen.getByRole('button', { name: '复制回复' }))
   await screen.findByText('复制失败，重试')
   fireEvent.click(screen.getByRole('button', { name: '复制回复' }))
   await screen.findByText('已复制')
   expect(copyTextToClipboard).toHaveBeenLastCalledWith(longReply)
+  expect(screen.queryByRole('heading', { name: '修改与验证' })).not.toBeInTheDocument()
+  const trigger = screen.getByRole('button', { name: '更多回复操作' })
+  fireEvent.click(trigger)
+  expect(screen.getAllByRole('button', { name: '复制回复' })).toHaveLength(1)
+  expect(screen.getByRole('button', { name: '转为卡片' })).toBeVisible()
   fireEvent.keyDown(screen.getByLabelText('回复操作'), { key: 'Escape' })
   await waitFor(() => expect(trigger).toHaveFocus())
+})
+
+it('keeps per-message copy targets separate when several replies are visible', async () => {
+  mount(true, true, [
+    { kind: 'assistant', id: 'one', text: '第一条完整正文' },
+    { kind: 'assistant', id: 'two', text: '第二条完整正文' },
+  ], false)
+  const copies = screen.getAllByRole('button', { name: '复制回复' })
+  fireEvent.click(copies[1])
+  await waitFor(() => expect(copyTextToClipboard).toHaveBeenLastCalledWith('第二条完整正文'))
+  fireEvent.click(copies[0])
+  await waitFor(() => expect(copyTextToClipboard).toHaveBeenLastCalledWith('第一条完整正文'))
+})
+
+it.each([true, false])('retains a retry action if copying the complete turn fails (mobile=%s)', async mobile => {
+  vi.mocked(copyTextToClipboard).mockRejectedValueOnce(new Error('denied')).mockResolvedValueOnce()
+  mount(mobile, mobile, items.slice(0, 2), false)
+  if (mobile) fireEvent.click(screen.getByText('详情 ›'))
+  const copy = screen.getByRole('button', { name: '复制本轮' })
+  fireEvent.click(copy)
+  await screen.findByText('复制失败，重试')
+  fireEvent.click(copy)
+  await screen.findByText('已复制')
+  expect(copyTextToClipboard).toHaveBeenLastCalledWith('本轮调整已完成。')
 })
 
 it('retains shared reference definitions and code blocks when layering an answer', () => {

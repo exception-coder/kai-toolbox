@@ -12,11 +12,12 @@ The coding conversation SHALL distinguish assistant replies from the canvas with
 - **THEN** the complete Markdown context remains available without broken links or omitted text
 
 ### Requirement: Reply actions on demand
-The mobile workspace SHALL expose reply actions from one message-header more button while retaining the existing copy, fork and card capabilities.
+The mobile workspace SHALL display a direct copy action below each nonempty assistant reply. Fork and card capabilities SHALL remain in a nearby more menu, without duplicating the copy action or depending on hover.
 
 #### Scenario: Copy a folded reply
-- **WHEN** the user copies a reply with collapsed details
+- **WHEN** the user taps the visible copy action below a reply with collapsed details
 - **THEN** the complete original Markdown is copied and failure offers an in-place retry
+- **AND** a rejected clipboard API and unsuccessful fallback do not display success; temporary copy controls are removed and the original focus and selection are restored
 
 #### Scenario: Restore keyboard focus
 - **WHEN** the action menu closes with Escape or after a fork choice

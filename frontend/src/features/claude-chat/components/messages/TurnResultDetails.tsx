@@ -9,6 +9,7 @@ export function TurnResultDetails({ item, turnText, sessionId }: {
   item: Extract<ChatItem, { kind: 'result' }>; turnText?: string; sessionId?: string
 }) {
   const [copied, setCopied] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
   const [changesOpen, setChangesOpen] = useState(false)
   const usage = parseUsage(item.usage)
   const hit = cacheHitRate(item.usage)
@@ -17,9 +18,10 @@ export function TurnResultDetails({ item, turnText, sessionId }: {
     {usage && <p>Token {abbr(usage.total)} · 输入 {abbr(usage.input)} · 输出 {abbr(usage.output)}{usage.cache > 0 ? ` · 缓存读 ${abbr(usage.cacheRead)} / 写 ${abbr(usage.cache - usage.cacheRead)}` : ''}</p>}
     {hit != null && <p>缓存命中率 {Math.floor(hit * 100)}%</p>}
     {item.latencyMs != null && <p>耗时 {fmtMs(item.latencyMs)}{item.ttftMs != null ? ` · 首字 ${fmtMs(item.ttftMs)}` : ''}</p>}
-    {turnText && <button type="button" className="min-h-11 px-2 underline" onClick={async () => {
-      await copyTextToClipboard(turnText); setCopied(true)
-    }}>{copied ? '已复制' : '复制本轮'}</button>}
+    {turnText && <button type="button" aria-label="复制本轮" className="min-h-11 px-2 underline" onClick={async () => {
+      setCopyFailed(false); setCopied(false)
+      try { await copyTextToClipboard(turnText); setCopied(true) } catch { setCopyFailed(true) }
+    }}><span aria-live="polite">{copied ? '已复制' : copyFailed ? '复制失败，重试' : '复制本轮'}</span></button>}
     {sessionId && item.turnId && <button type="button" className="min-h-11 px-2 underline" onClick={() => setChangesOpen(true)}>本轮变更</button>}
     {changesOpen && sessionId && item.turnId && <TurnChangesDialog sessionId={sessionId} turnId={item.turnId} open onOpenChange={setChangesOpen} />}
   </div>

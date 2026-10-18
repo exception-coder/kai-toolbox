@@ -375,7 +375,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   )
 }))
 
-/** 复制原始文本；手机从消息更多打开，失败保留重试入口。 */
+/** 复制原始全文；手机在正文下直接展示，失败保留原位重试入口。 */
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -457,15 +457,19 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
   const [changesOpen, setChangesOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
   const ok = ['success', 'end_turn', 'completed', 'stop'].includes(item.stopReason.trim().toLowerCase())
   const u = parseUsage(item.usage)
   const hit = cacheHitRate(item.usage)
   const time = formatTime(item.ts)
   const copyTurn = async () => {
     if (!turnText) return
-    await copyTextToClipboard(turnText)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    setCopyFailed(false); setCopied(false)
+    try {
+      await copyTextToClipboard(turnText)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { setCopyFailed(true) }
   }
   if (compactMobile) return <div className="cc-turn-status text-xs text-[var(--color-muted-foreground)]" data-turn-success={ok}>
     <details>
@@ -492,7 +496,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
             onClick={copyTurn}
             title="复制这一轮的完整回复（上一次提问到这里的所有内容，不止某一个气泡）"
           >
-            {copied ? '已复制' : '复制本轮'}
+            {copied ? '已复制' : copyFailed ? '复制失败，重试' : '复制本轮'}
           </Chip>
         )}
         {u && u.total > 0 && (
@@ -627,8 +631,8 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
             </div>
             {item.text.trim() && (
               <div className="cc-message-actions flex items-center gap-1">
+                <CopyButton text={item.text} />
                 {compactMobile ? <MobileMessageMore text={item.text} onFork={onFork} forkAnchor={item.forkAnchor} /> : <>
-                  <CopyButton text={item.text} />
                   <ToCardButton text={item.text} />
                   {onFork && item.forkAnchor && <ForkReplyButton onFork={() => onFork(item.forkAnchor!)} />}
                 </>}
@@ -712,7 +716,6 @@ function MobileMessageMore({ text, onFork, forkAnchor }: { text: string; onFork?
   </Popover.Trigger>
     <Popover.Portal container={portal}><Popover.Content aria-label="回复操作" align="start" sideOffset={4}
       className="z-[90] rounded-lg border bg-[var(--color-popover)] p-2 shadow-sm [&_button]:min-h-11">
-      <CopyButton text={text} />
       {onFork && forkAnchor && <ForkReplyButton onFork={() => { setOpen(false); onFork(forkAnchor) }} />}
       <ToCardButton text={text} />
     </Popover.Content></Popover.Portal>

@@ -41,11 +41,13 @@
   .cc-layered-conversation .cc-message-row { padding-bottom: 16px; }
   .cc-layered-conversation .cc-assistant-body { width: 100%; max-width: 100%; }
   .cc-layered-conversation .cc-assistant-row {
-    grid-template-columns: 24px minmax(0, 1fr) 44px; row-gap: 4px;
+    grid-template-columns: 24px minmax(0, 1fr); row-gap: 4px;
   }
   .cc-layered-conversation .cc-assistant-row .cc-message-header { grid-column: 2; grid-row: 1; }
   .cc-layered-conversation .cc-assistant-avatar { align-self: center; margin-top: 0; }
-  .cc-layered-conversation .cc-assistant-row .cc-message-actions { grid-column: 3; grid-row: 1; align-self: center; }
+  .cc-layered-conversation .cc-assistant-row .cc-message-actions {
+    grid-column: 1 / -1; grid-row: auto; justify-self: start; flex-wrap: wrap;
+  }
 
 }
 @media (forced-colors: active) {
