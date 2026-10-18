@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type RefObject } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -12,6 +12,8 @@ interface Props {
   onSuccess?: () => void
   /** 可选提示语，显示在标题下方（如「登录已过期，请重新登录」）。 */
   message?: string
+  /** 没有 Radix Trigger 的页面入口，在弹窗关闭后恢复到原按钮。 */
+  returnFocusRef?: RefObject<HTMLElement | null>
 }
 
 /**
@@ -22,7 +24,7 @@ interface Props {
  * containing block，使内部的 fixed inset-0 退化为「相对抽屉」定位——表现就是登录卡片
  * 居中在侧边栏里而不是屏幕中央，还被抽屉的 w-60/max-w-[80vw] 裁切。
  */
-export function LoginDialog({ open, onClose, onSuccess, message }: Props) {
+export function LoginDialog({ open, onClose, onSuccess, message, returnFocusRef }: Props) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [err, setErr] = useState<string | null>(null)
@@ -52,6 +54,12 @@ export function LoginDialog({ open, onClose, onSuccess, message }: Props) {
           )}
         />
         <DialogPrimitive.Content
+          onCloseAutoFocus={event => {
+            if (returnFocusRef?.current?.isConnected) {
+              event.preventDefault()
+              returnFocusRef.current.focus()
+            }
+          }}
           className={cn(
             // 小屏留边距按 viewport 收窄，大屏回到定宽卡片；键盘顶起时可滚
             'fixed left-1/2 top-1/2 z-[60] w-[min(92vw,22rem)] max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto',

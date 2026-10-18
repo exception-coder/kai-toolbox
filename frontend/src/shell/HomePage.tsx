@@ -1,5 +1,10 @@
 import { Link } from 'react-router-dom'
+import { useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { ArrowRight } from 'lucide-react'
+import { LoginDialog } from '@/components/auth/LoginDialog'
+import { Button } from '@/components/ui/button'
+import { useAuth } from '@/lib/auth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { entryOf, features } from './featureRegistry'
 import { hasFeatureAccess } from './access'
@@ -8,7 +13,24 @@ import { useVisibleFeatures } from './menuVisibility'
 import { BrandLogo } from './BrandLogo'
 import { useBrand } from './brand'
 
+function WorkspaceLogin() {
+  const queryClient = useQueryClient()
+  const [showLogin, setShowLogin] = useState(false)
+  const loginButtonRef = useRef<HTMLButtonElement>(null)
+  return (
+    <section aria-labelledby="workspace-login-title" className="mb-8 border-y py-6">
+      <h2 id="workspace-login-title" className="text-base font-medium">登录工作台</h2>
+      <p className="mt-2 text-sm leading-relaxed text-[var(--color-muted-foreground)]">
+        登录后查看可用功能，再选择要进入的模块。
+      </p>
+      <Button ref={loginButtonRef} className="mt-4 min-h-11" onClick={() => setShowLogin(true)}>登录</Button>
+      <LoginDialog open={showLogin} onClose={() => setShowLogin(false)} onSuccess={() => queryClient.clear()} returnFocusRef={loginButtonRef} />
+    </section>
+  )
+}
+
 export function HomePage() {
+  const { user } = useAuth()
   const { brand } = useBrand()
   const access = useAccessContext()
   // 按角色/权限码过滤首页入口卡片，再按「菜单配置」软隐藏过滤，与侧边栏一致。chrome（管理页）不进首页。
@@ -51,9 +73,11 @@ export function HomePage() {
         </div>
       </div>
 
-      {visible.length === 0 ? (
+      {!user && <WorkspaceLogin />}
+
+      {user && visible.length === 0 ? (
         <div className="rounded-md border border-dashed bg-[var(--color-card)] p-10 text-center text-sm text-[var(--color-muted-foreground)]">
-          还没有任何工具。在 <code className="rounded bg-[var(--color-muted)] px-1 py-0.5">src/features/</code> 下新建一个 feature manifest 即可。
+          暂无可用功能，请联系管理员确认模块权限与菜单配置。
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

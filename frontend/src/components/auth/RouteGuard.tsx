@@ -7,7 +7,7 @@ import type { FeatureManifest } from '@/shell/types'
 import { getDevelopmentAccess } from '@/features/reqpool/api'
 
 /**
- * 路由级门禁：无权访问该模块时渲染占位（请登录 / 需要权限），不渲染真实页面，
+ * 路由级门禁：未登录返回工作台，无权限时提供恢复入口，不渲染真实页面，
  * 防止深链直达绕过菜单隐藏，也避免页面用 localStorage/示例数据兜底渲染敏感内容。
  */
 export function RouteGuard({ feature, children }: { feature: FeatureManifest; children: ReactNode }) {
@@ -27,7 +27,7 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
   const [scopedState, setScopedState] = useState<'idle' | 'checking' | 'allowed' | 'denied'>('idle')
 
   useEffect(() => {
-    if (normalAccess || !scopedPrdSessionId) {
+    if (!user || normalAccess || !scopedPrdSessionId) {
       setScopedState('idle')
       return
     }
@@ -37,8 +37,11 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
       .then(() => { if (alive) setScopedState('allowed') })
       .catch(() => { if (alive) setScopedState('denied') })
     return () => { alive = false }
-  }, [normalAccess, scopedPrdSessionId])
+  }, [user, normalAccess, scopedPrdSessionId])
 
+  // 工具路由均由注册表赋予菜单权限；公开展示页不经过本门禁。
+  // replace 避免手机返回键再次进入无登录态的深链。
+  if (!user) return <Navigate replace to="/" />
   if (normalAccess || (scopedPrdSessionId && scopedState === 'allowed')) {
     return <>{children}</>
   }
@@ -61,10 +64,11 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[var(--color-muted-foreground)]">
       <p className="text-base font-medium">无权访问</p>
       <p className="text-sm">
-        {user
+        {required.length > 0
           ? `该模块需要 ${required.join(' 或 ')} 权限，请联系管理员开通。`
-          : '请先登录后再访问该模块，登录入口在左侧菜单栏底部。'}
+          : '当前账号没有该模块的访问权限，请联系管理员开通。'}
       </p>
+      <Link className="inline-flex min-h-11 items-center text-sm underline" to="/">返回工作台首页</Link>
       {control && (defaultAllowed || recoveryMode) && <Link className="text-sm underline" to={defaultAllowed
         ? feature.entry! : `${feature.entry}?${control.parameter}=${recoveryMode![0]}`}>返回可用控制模式</Link>}
     </div>
