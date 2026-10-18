@@ -23,6 +23,7 @@ public class ReadonlyResourceService implements ReadonlyResourceGateway {
     public List<Entry> catalog() {
         return directories.stream().flatMap(directory -> directory.systems().stream()).flatMap(system ->
                 resources.discover(system.id()).stream()
+                        .filter(item -> !"application".equals(item.binding().providerId()))
                         .filter(item -> item.resource() == null || item.resource().capabilities().contains("QUERY"))
                         .map(item -> new Entry(item.binding().id(), system.id(), system.name(),
                                 item.resource() == null ? item.binding().resourceId() : item.resource().name(),

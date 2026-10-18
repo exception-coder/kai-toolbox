@@ -23,10 +23,14 @@ class PagePreviewBrowserTest {
     @TempDir Path temporary;
     @Test void rendersLoginRouteAndPhoneFrameInAnIsolatedHeadlessContext() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var logins = new java.util.concurrent.atomic.AtomicInteger();
+        var writes = new java.util.concurrent.atomic.AtomicInteger();
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
             String body;
+            if ("/mutate".equals(path)) { writes.incrementAndGet(); exchange.sendResponseHeaders(204, -1); exchange.close(); return; }
             if ("/session".equals(path)) {
+                logins.incrementAndGet();
                 String form = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                 if (!form.contains("username=test-user") || !form.contains("password=test-password")) {
                     exchange.sendResponseHeaders(403, -1); exchange.close(); return;
@@ -39,7 +43,7 @@ class PagePreviewBrowserTest {
                         + "<input name='username' autocomplete='username'><input name='password' type='password'>"
                         + "<button type='submit'>登录</button></form></html>";
             } else if ("/target".equals(path) && "preview-session=authenticated".equals(exchange.getRequestHeaders().getFirst("Cookie"))) {
-                body = "<html><meta charset='utf-8'><h1>登录后的目标页面</h1><p>真实渲染引擎验收</p></html>";
+                body = "<html><meta charset='utf-8'><h1>登录后的目标页面</h1><p>真实渲染引擎验收 test-password</p><script>fetch('/mutate',{method:'POST'}).catch(()=>{});try{new WebSocket('ws://'+location.host+'/mutate')}catch(e){}</script></html>";
             } else {
                 exchange.sendResponseHeaders(401, -1); exchange.close(); return;
             }
@@ -72,6 +76,23 @@ class PagePreviewBrowserTest {
                     stages::add, () -> false);
             assertEquals(List.of("NAVIGATING", "READY"), stages);
             browser.close("test");
+            writes.set(0); logins.set(0);
+            var reader = new ConsultWebPageReader(browser);
+            try {
+                var first = reader.read("consult:binding", account, "/target", "/login");
+                assertEquals("READY", first.status());
+                assertFalse(first.text().contains("test-password"));
+                assertEquals("READY", reader.read("consult:binding", account, "/target", "/login").status());
+                assertEquals("FAILED", reader.read("consult:binding", account, "/missing", "/login").status());
+                assertEquals("READY", reader.read("consult:binding", account, "/target", "/login").status());
+                assertEquals(1, logins.get(), "页面未找到后应能更正路径，且复用原登录态");
+                assertEquals(0, writes.get(), "咨询页面不应执行非登录POST或WebSocket");
+                logins.set(0);
+                var bad = new BrowserLoginTarget("bad", "错误账号", "TEST", origin, "wrong-user", "test-password", "username", "password");
+                assertNotEquals("READY", reader.read("consult:bad", bad, "/target", "/login").status());
+                assertNotEquals("READY", reader.read("consult:bad", bad, "/target", "/login").status());
+                assertEquals(1, logins.get(), "同一失败账号不可自动重复登录");
+            } finally { reader.shutdown(); }
         } finally { manager.shutdown(); server.stop(0); }
     }
 }

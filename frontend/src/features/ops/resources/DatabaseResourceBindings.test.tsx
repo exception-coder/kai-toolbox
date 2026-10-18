@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { DatabaseResourceBindings } from './DatabaseResourceBindings'
+import { DatabaseResourceBindings, WebResourceBindings } from './DatabaseResourceBindings'
 import { DatabaseResourceBindings as PublicBindings } from '../public-api'
 import { SavedDatabaseEditor } from './SavedDatabaseEditor'
 import { resourceCatalog, saveResourceBinding, type ResourceCatalog } from './api'
@@ -78,4 +78,15 @@ it('edits the original source with a blank password and tests the saved connecti
   fireEvent.click(screen.getByRole('button', { name: '测试连接' }))
   expect(await screen.findByText(/连接成功.*Oracle 可用/)).toBeInTheDocument()
   expect(vi.mocked(testDatasource).mock.calls[0][0]).toBe('db1')
+})
+
+it('binds a DEV or UAT web account by reference and keeps production accounts unavailable', async () => {
+  vi.mocked(resourceCatalog).mockResolvedValue({ ...catalog, bindings: [], resources: ['DEV', 'UAT', 'PROD'].map(environment => ({ providerId: 'application', resource: { id: environment, name: `ERP-${environment}`, kind: 'APP', environment, endpoint: `https://${environment.toLowerCase()}.example.test`, account: 'tester', credentialConfigured: true, capabilities: [], configurationUrl: '/tools/reqpool/resources?view=accounts' } })) })
+  mount(<WebResourceBindings sourcePath="D:/ERP" />)
+  await screen.findByRole('option', { name: /ERP-UAT/ })
+  expect(screen.getByRole('option', { name: /ERP-PROD/ })).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('可关联Web账号'), { target: { value: 'UAT' } })
+  fireEvent.change(screen.getByLabelText('资源用途'), { target: { value: 'UAT订单核对' } })
+  fireEvent.click(screen.getByRole('button', { name: '关联Web账号' }))
+  await waitFor(() => expect(saveResourceBinding).toHaveBeenCalledWith({ systemId: 'erp', providerId: 'application', resourceId: 'UAT', purpose: 'UAT订单核对', enabled: true }, expect.anything()))
 })

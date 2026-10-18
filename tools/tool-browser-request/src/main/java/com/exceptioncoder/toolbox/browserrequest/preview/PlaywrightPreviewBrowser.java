@@ -32,14 +32,26 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
             Browser.NewContextOptions options = new Browser.NewContextOptions()
                     .setViewportSize(plan.phone() ? 390 : 1440, plan.phone() ? 844 : 900)
                     .setIsMobile(plan.phone()).setHasTouch(plan.phone()).setLocale("zh-CN");
+            if (plan.readOnly()) { options.setServiceWorkers(com.microsoft.playwright.options.ServiceWorkerPolicy.BLOCK); }
             if (plan.storageState() != null) {
                 options.setStorageState(plan.storageState());
             }
             BrowserContext context = browser.newContext(options);
             contexts.put(id, context);
+            if (plan.readOnly()) {
+                context.addInitScript("window.WebSocket = class { constructor() { throw new Error('咨询不开放WebSocket'); } }; navigator.sendBeacon = () => false;");
+            }
             context.setDefaultTimeout(15000);
             context.setDefaultNavigationTimeout(20000);
+            var authenticating = new java.util.concurrent.atomic.AtomicBoolean(plan.login() != null);
+            var loginSubmission = new java.util.concurrent.atomic.AtomicReference<String>();
             context.route("**/*", route -> {
+                String url = route.request().url();
+                boolean safeMethod = Set.of("GET", "HEAD", "OPTIONS").contains(route.request().method());
+                boolean loginRequest = authenticating.get() && sameOrigin(plan.origin(), url)
+                        && (url.equals(loginSubmission.get()) || (plan.login() != null && plan.login().loginRequestPath() != null
+                        && url.equals(plan.origin() + plan.login().loginRequestPath())));
+                if (plan.readOnly() && !safeMethod && !loginRequest) { route.abort(); return; }
                 if (route.request().isNavigationRequest() && !sameOrigin(plan.origin(), route.request().url())) {
                     route.abort();
                 } else {
@@ -51,15 +63,17 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
             try {
                 if (plan.login() != null) {
                     stage.accept("AUTHENTICATING");
-                    if (!login(page, plan)) {
+                    if (!login(page, plan, loginSubmission)) {
                         stage.accept("WAITING_LOGIN");
                         return null;
                     }
                 }
+                authenticating.set(false);
                 navigate(page, plan, stage);
             } catch (RuntimeException failure) {
                 stage.accept(plan.login() != null ? "WAITING_LOGIN" : "FAILED");
             } finally {
+                authenticating.set(false);
                 if (cancelled.getAsBoolean()) {
                     pages.remove(id); contexts.remove(id); context.close();
                 }
@@ -68,7 +82,7 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
         });
     }
 
-    private boolean login(Page page, PreviewPlan plan) {
+    private boolean login(Page page, PreviewPlan plan, java.util.concurrent.atomic.AtomicReference<String> submission) {
         page.navigate(plan.origin() + plan.loginPage(), new Page.NavigateOptions()
                 .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         Locator form = page.locator("form:has(input[type=password]):visible");
@@ -83,9 +97,16 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
                 || !plan.login().passwordField().matches("[A-Za-z0-9_.-]+")) {
             return false;
         }
+        Locator submit = form.locator("button[type=submit],input[type=submit]");
+        if (plan.readOnly()) {
+            submit = form.getByRole(AriaRole.BUTTON, new Locator.GetByRoleOptions().setName(
+                    java.util.regex.Pattern.compile("登\\s*[录入]|sign\\s*in|log\\s*in|进入系统", java.util.regex.Pattern.CASE_INSENSITIVE)));
+            if (submit.count() != 1) { return false; }
+        }
         form.locator("input[name='" + plan.login().usernameField() + "']").fill(plan.login().username());
         form.locator("input[name='" + plan.login().passwordField() + "'][type=password]").fill(plan.login().password());
-        form.locator("button[type=submit],input[type=submit]").click();
+        submission.set((String) form.evaluate("form => form.action"));
+        submit.click();
         form.waitFor(new Locator.WaitForOptions().setState(com.microsoft.playwright.options.WaitForSelectorState.HIDDEN));
         return true;
     }
@@ -123,6 +144,19 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
                 catch (RuntimeException failure) { stage.accept("FAILED"); }
             }
             return null;
+        });
+    }
+
+    @Override
+    public com.exceptioncoder.toolbox.common.resource.WebPageReader.Page read(String id, String status) {
+        return manager.withRenderingBrowser(browser -> {
+            Page page = required(id);
+            String text = page.locator("body").innerText();
+            String actual = page.locator("input[type=password]:visible").count() > 0 ? "WAITING_LOGIN" : status;
+            URI url = URI.create(page.url());
+            return new com.exceptioncoder.toolbox.common.resource.WebPageReader.Page(actual,
+                    url.getScheme() + "://" + url.getRawAuthority() + url.getRawPath(), page.title(),
+                    text.length() > 20000 ? text.substring(0, 20000) : text);
         });
     }
 

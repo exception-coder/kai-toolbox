@@ -109,6 +109,7 @@ test('exposes resource tools and static schema tools without any legacy database
       'knowledge_query',
       'consult_resources',
       'consult_resource_query',
+      'consult_web',
       'erp_standby_schema_search',
       'erp_standby_validate_sql',
     ])
@@ -128,7 +129,7 @@ test('code-mode host exposes only the bound database entry point', () => {
     const readonly = servers['consult-readonly']
 
     assert.equal(features.code_mode_host, true)
-    assert.deepEqual(readonly.enabled_tools, ['knowledge_query', 'consult_resources', 'consult_resource_query'])
+    assert.deepEqual(readonly.enabled_tools, ['knowledge_query', 'consult_resources', 'consult_resource_query', 'consult_web'])
   } finally {
     if (previousApiBase == null) delete process.env.TOOLBOX_API_BASE
     else process.env.TOOLBOX_API_BASE = previousApiBase

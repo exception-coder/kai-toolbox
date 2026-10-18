@@ -12,6 +12,8 @@ import java.util.List;
 public class ConsultResourceService {
     @org.springframework.beans.factory.annotation.Autowired
     private ConsultSourceRoutingService sourceRouting;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.common.resource.WebResourceGateway webResources;
     private final ConsultSessionRepository sessions;
     private final ConsultWorkflowRepository workflows;
     private final ReadonlyResourceGateway gateway;
@@ -21,7 +23,20 @@ public class ConsultResourceService {
         this.sessions = sessions; this.workflows = workflows; this.gateway = gateway;
     }
 
-    public List<ReadonlyResourceGateway.Entry> catalog() { return gateway.catalog(); }
+    public List<ReadonlyResourceGateway.Entry> catalog() {
+        return java.util.stream.Stream.concat(gateway.catalog().stream(), webResources == null
+                ? java.util.stream.Stream.empty() : webResources.catalog().stream()).toList();
+    }
+
+    public List<ReadonlyResourceGateway.Entry> webResources(String runtimeId) {
+        var selected = scope(runtimeId, "consult_web");
+        return webResources.discover(selected.sourcePath(), selected.bindings());
+    }
+
+    public Object webPage(String runtimeId, com.exceptioncoder.toolbox.common.resource.WebResourceGateway.Request request) {
+        var selected = scope(runtimeId, "consult_web");
+        return webResources.read(runtimeId, selected.sourcePath(), selected.bindings(), request);
+    }
 
     public List<ReadonlyResourceGateway.Entry> discover(String runtimeId) {
         var scope = scope(runtimeId, "consult_resources");

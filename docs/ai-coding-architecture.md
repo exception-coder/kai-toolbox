@@ -613,3 +613,20 @@ flowchart LR
 browser-request 拥有渲染上下文及预览生命周期，复用既有 Playwright worker；tool-ops 通过 common 的 BrowserLoginResources 端口提供资源，不复制账号配置或跨工具查询表。上下文不进入录制目录、不写登录态文件；预览只向创建用户开放，过期或关闭释放。受限业务咨询不获得交付工具。手机和桌面视口预览不等于对应实机通过。
 
 前端入口 `/tools/fore-consult/preview` 沿用业务咨询权限，站点录制编排提供入口；不新增平行项目或菜单。跨域 SSO、生产账号、视频推流和运行版本指纹未在一期实现。源码标记与运行版本分别展示，页面 READY 不证明修改已部署。当前服务未加载时明确待运行验收；预览工具不构成服务重启授权，不改变验证节奏或提交规则。完整用法与 API 见[浏览器页面预览](../tools/tool-browser-request/README.md)，当前交付证据见[预览任务](../openspec/changes/add-authenticated-page-preview/tasks.md)。
+
+
+## 咨询的多环境 Web 证据
+
+业务咨询的Web账号复用资源中心应用资源和系统绑定，在原流程节点选择、发布并冻结；数据库QUERY与Web页面读取保持不同执行端口。fore-consult核验既有会话签名和节点工具，ops通过WebResourceGateway核验系统、绑定、环境和地址，browser-request通过WebPageReader复用受管worker的隔离浏览器。SDK/stdio均通过consult_web执行DISCOVER/READ；不开放任意应用CALL，不把密码交给模型。
+
+```mermaid
+flowchart LR
+  A[管理员登记环境账号与绑定] --> B[流程选用并发布]
+  B --> C[咨询冻结工具与资源选择]
+  C --> D[consult_web 会话签名校验]
+  D --> E[资源环境 来源与路径校验]
+  E --> F[隔离浏览器登录和页面读取]
+  F --> G[实际环境与外部页面证据]
+```
+
+URL与明确环境指导账号选择，歧义时才询问地址；不能把DEV结果当成UAT或生产证据。登录态仅在隔离context内短期复用，不写普通录制目录；失败不反复尝试同一账号。当前仅支持同源标准表单，跨域SSO、验证码和任意业务操作不在此边界。实现、开发验证与真实业务页面验收分别记录于[多环境Web账号任务](../openspec/changes/consult-web-environment-accounts/tasks.md)，不因工具可用绕过本次重启确认。

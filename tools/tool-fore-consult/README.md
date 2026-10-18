@@ -28,6 +28,7 @@ flowchart LR
     ROUTE --> SRC
     RO --> GIT["本地只读 Git 历史与行归属"]
     RO --> DB["冻结的资源绑定 → 系统/环境/启用校验 → 测试库只读查询"]
+    RO --> WEB["consult_web → 已选环境账号 → 隔离登录与页面读取"]
     RO --> DESIGN["受限JS文档设计 / 预览"]
     DESIGN --> WASM["无宿主能力的QuickJS WASM"]
     WASM --> DOC["后端版式校验与Office产物"]
@@ -260,3 +261,12 @@ mvn -pl tools/tool-fore-consult -am test
 ### 业务咨询候选发布（开发迭代）
 
 业务咨询管理员保存候选后可直接发布；未评测、未通过或分数不足95均不阻止发布，结果仍如实保留供参考。只读能力、MCP绑定、原管理权限和显式发布保持；数据库资源选择对新咨询生效，旧咨询保留快照。其他Agent策略不变。实现与待部署验收见[变更任务](../../openspec/changes/allow-unevaluated-consult-release/tasks.md)。
+
+
+### 咨询的多环境 Web 登录账号
+
+管理员展开咨询配置中的“Web登录账号与环境”，复用资源中心应用账号，为同一系统关联DEV、TEST、UAT等实例；没有账号时从该区进入资源中心登记。baseUrl填写实际应用地址，账号密码只在资源中心保存；仅用于网页登录时可不填登录API路径，接口调用是否可用不影响Web账号选用。随后在“多选咨询数据库 / Web账号与发布”中勾选Web绑定、保存候选并发布，新咨询才使用新选择；旧咨询保留快照。普通用户仍直接发送问题或截图。
+
+助手通过consult_web的DISCOVER发现已授权账号，READ按用户URL或明确环境选择绑定并登录读取正文。loginPage表示同源网页登录路径，缺省从baseUrl进入；原账号loginPath仍表示登录API，不要混填。多个环境无法确认时再询问URL；同一失败账号不反复尝试，可选择同环境其他已授权账号。返回实际账号、环境与状态，不把DEV验证当成UAT事实。
+
+当前使用隔离浏览器的标准密码表单登录，支持LOCAL/DEV/TEST/UAT，禁止生产资源。页面仅供读取，不开放任意应用CALL或业务操作；登录结束后非读取HTTP、WebSocket和ServiceWorker被阻断，依赖这些请求的页面可能不完整。验证码、跨域SSO和复杂登录未实现，失败明确显示待核验。账号/绑定停用后禁止后续读取，登录态最多15分钟且不落盘。状态和实际部署验收见[任务](../../openspec/changes/consult-web-environment-accounts/tasks.md)。

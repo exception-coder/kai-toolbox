@@ -157,7 +157,7 @@ function createConsultReadonlyServer(
   const apiBase = process.env.TOOLBOX_API_BASE?.trim()
   const readableSourceRoot = sourceRoot?.trim() && existsSync(sourceRoot) ? resolve(sourceRoot) : undefined
   const targets = resolveConsultTargetSystems(sourceRoot, evidenceSystems)
-  const databaseTools = apiBase ? ['consult_resources', 'consult_resource_query'] : []
+  const databaseTools = apiBase ? ['consult_resources', 'consult_resource_query', 'consult_web'] : []
   const standbySchema = targets.includes('erp') ? erpStandbySchemaPath() : undefined
   if (!apiBase && !readableSourceRoot && !standbySchema) return null
   const script = readonlyMcpScript()

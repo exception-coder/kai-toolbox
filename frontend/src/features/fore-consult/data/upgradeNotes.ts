@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 仅登记业务咨询板块的重大能力变更，不收录全平台或其他工具更新。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-10-18-consult-web-environments', date: '2026-10-18', title: '咨询支持多环境网页登录',
+    summary: '待部署验收：管理员在咨询配置关联DEV/TEST/UAT的Web账号并在流程中选用发布。助手按问题URL或明确环境登录读取页面；无法确认时再询问地址，密码不进入对话。当前支持同源标准表单，验证码及跨域SSO暂不支持。',
+  },
+  {
     id: '2026-10-18-consult-history-reading', date: '2026-10-18', title: '历史咨询直接阅读原对话',
     summary: '历史优先打开原会话；已归档只读，进行中可追问。手机旧归档全宽阅读，普通用户菜单精简。移动浏览器待验收。',
   },

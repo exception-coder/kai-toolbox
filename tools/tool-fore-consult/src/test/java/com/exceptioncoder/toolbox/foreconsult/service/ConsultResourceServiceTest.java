@@ -82,6 +82,37 @@ class ConsultResourceServiceTest {
         assertTrue(exception.getMessage().contains("尚未定位服务端"));
         verifyNoInteractions(gateway, workflows);
     }
+    @Test void webResourcesUseFrozenNodeSelectionAndSignedHttpWithoutOpeningDatabaseCalls() throws Exception {
+        var sessions = mock(ConsultSessionRepository.class);
+        var workflows = mock(ConsultWorkflowRepository.class);
+        var db = mock(ReadonlyResourceGateway.class);
+        var web = mock(com.exceptioncoder.toolbox.common.resource.WebResourceGateway.class);
+        when(sessions.findByDevSessionId("runtime")).thenReturn(Optional.of(ConsultSession.builder()
+                .sessionId("consult").systemSourcePath("/system").build()));
+        var workflow = new ConsultWorkflow(List.of(new ConsultWorkflowNode("web", "网页", true, "需要时", "登录读取", "只读", "环境证据",
+                List.of("consult_web"), List.of("consult-readonly"), List.of("web-uat"))));
+        when(workflows.session("consult")).thenReturn(Optional.of(new ConsultWorkflowRepository.Snapshot(4L, workflow)));
+        var service = new ConsultResourceService(sessions, workflows, db);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "webResources", web);
+        service.webResources("runtime");
+        verify(web).discover("/system", List.of("web-uat"));
+        var request = new com.exceptioncoder.toolbox.common.resource.WebResourceGateway.Request("web-uat", "/orders", "UAT", null);
+        service.webPage("runtime", request);
+        verify(web).read("runtime", "/system", List.of("web-uat"), request);
+        verifyNoInteractions(db);
+        var assembly = new ConsultToolAssemblyProvider(sessions, workflows,
+                new com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultWorkflowService(List.of(), workflows))
+                .resolve("runtime").orElseThrow();
+        assertTrue(assembly.tools().contains("consult_web"));
+        assertFalse(assembly.tools().contains("consult_resource_query"));
+        assertTrue(assembly.instructions().contains("匹配用户URL或明确环境"));
+        var access = new ConsultResourceAccess();
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new com.exceptioncoder.toolbox.foreconsult.api.ConsultResourceController(service, access)).build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/fore-consult/resources/sessions/runtime/web"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+    }
+
     private ConsultWorkflowNode node(String id, boolean enabled, String binding) {
         return new ConsultWorkflowNode(id, id, enabled, "开始", "查询", "只读", "证据",
                 List.of("consult_resources", "consult_resource_query"), List.of("consult-readonly"), List.of(binding));

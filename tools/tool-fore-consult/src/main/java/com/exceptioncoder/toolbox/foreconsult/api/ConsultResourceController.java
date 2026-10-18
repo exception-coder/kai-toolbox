@@ -44,6 +44,21 @@ public class ConsultResourceController {
     }
     public record Query(String bindingId, String sql) { }
 
+    @GetMapping("/sessions/{runtimeId}/web")
+    public Object webResources(@PathVariable String runtimeId,
+            @RequestHeader(value = "X-Consult-Resource-Token", required = false) String token) {
+        access.require(runtimeId, token);
+        return service.webResources(runtimeId);
+    }
+
+    @PostMapping("/sessions/{runtimeId}/web")
+    public Object webPage(@PathVariable String runtimeId,
+            @jakarta.validation.Valid @RequestBody com.exceptioncoder.toolbox.common.resource.WebResourceGateway.Request request,
+            @RequestHeader(value = "X-Consult-Resource-Token", required = false) String token) {
+        access.require(runtimeId, token);
+        return service.webPage(runtimeId, request);
+    }
+
     @GetMapping("/sessions/{runtimeId}/source-routing")
     public Object sourceRouting(@PathVariable String runtimeId,
             @org.springframework.web.bind.annotation.RequestParam(required = false) String project,

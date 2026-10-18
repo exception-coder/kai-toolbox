@@ -5,7 +5,7 @@ import { ConsultAdminSettings } from './ConsultAdminSettings'
 import { getConsultAttachmentPolicy, getConsultDatabaseConfiguration, saveConsultAttachmentPolicy } from '../consultAttachmentPolicy'
 import { DatabaseResourceBindings } from '@/features/ops/public-api'
 
-vi.mock('@/features/ops/public-api', () => ({ DatabaseResourceBindings: vi.fn(({ sourcePath }: { sourcePath?: string }) => <label>关联草稿<input defaultValue={sourcePath} /></label>) }))
+vi.mock('@/features/ops/public-api', () => ({ WebResourceBindings: () => <p>Web账号关联编辑器</p>, DatabaseResourceBindings: vi.fn(({ sourcePath }: { sourcePath?: string }) => <label>关联草稿<input defaultValue={sourcePath} /></label>) }))
 vi.mock('@/features/agent-management/public-api', () => ({ ConsultDatabaseSelection: () => <p>流程多库编辑器</p> }))
 
 vi.mock('../consultAttachmentPolicy', async original => ({ ...await original<typeof import('../consultAttachmentPolicy')>(),
@@ -54,6 +54,6 @@ it('loads inline editors on demand with source context and preserves drafts when
   fireEvent.click(disclosure)
   fireEvent.click(disclosure)
   expect(draft).toHaveValue('保留当前修改')
-  fireEvent.click(screen.getByText('2. 多选咨询数据库与发布'))
+  fireEvent.click(screen.getByText('2. 多选咨询数据库 / Web账号与发布'))
   expect(await screen.findByText('流程多库编辑器')).toBeInTheDocument()
 })

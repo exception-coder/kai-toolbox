@@ -17,7 +17,7 @@ test('readonly resource MCP forwards trusted session header and refuses writes b
   const child = spawn(process.execPath, [fileURLToPath(new URL('./readonlyMcp.js', import.meta.url))], {
     windowsHide: true, env: { ...process.env, TOOLBOX_API_BASE: `http://127.0.0.1:${address.port}`,
       CONSULT_DISABLE_LEGACY_DATABASES: 'true', TOOLBOX_SOURCE_ROOT: '', TOOLBOX_SESSION_ID: 'runtime-test', CONSULT_RESOURCE_TOKEN: 'trusted-test-token',
-      CONSULT_ENABLED_TOOLS: JSON.stringify(['consult_resources', 'consult_resource_query', 'erp_db_query', 'generate_consult_document', 'read_consult_attachment']) }, stdio: ['pipe', 'pipe', 'pipe'],
+      CONSULT_ENABLED_TOOLS: JSON.stringify(['consult_resources', 'consult_resource_query', 'consult_web', 'erp_db_query', 'generate_consult_document', 'read_consult_attachment']) }, stdio: ['pipe', 'pipe', 'pipe'],
   })
   const replies = new Map<number, (value: Record<string, any>) => void>()
   const lines = createInterface({ input: child.stdout })
@@ -30,9 +30,9 @@ test('readonly resource MCP forwards trusted session header and refuses writes b
   })
   try {
     const list = await request('tools/list', {})
-    assert.deepEqual(list.result.tools.map((tool: { name: string }) => tool.name), ['consult_resources', 'consult_resource_query', 'generate_consult_document', 'read_consult_attachment'])
-    assert.equal(list.result.tools[2].annotations.readOnlyHint, false)
-    assert.equal(list.result.tools[2].inputSchema.additionalProperties, false)
+    assert.deepEqual(list.result.tools.map((tool: { name: string }) => tool.name), ['consult_resources', 'consult_resource_query', 'consult_web', 'generate_consult_document', 'read_consult_attachment'])
+    assert.equal(list.result.tools[3].annotations.readOnlyHint, false)
+    assert.equal(list.result.tools[3].inputSchema.additionalProperties, false)
     await request('tools/call', { name: 'consult_resources', arguments: {} })
     await request('tools/call', { name: 'consult_resource_query', arguments: { bindingId: 'binding', sql: 'select 1' } })
     const denied = await request('tools/call', { name: 'consult_resource_query', arguments: { bindingId: 'binding', sql: 'delete from orders' } })
@@ -56,6 +56,14 @@ test('readonly resource MCP forwards trusted session header and refuses writes b
     assert.equal(requests[3].url, '/api/fore-consult/attachments/sessions/runtime-test/read')
     assert.equal(requests[3].token, 'trusted-test-token')
     assert.deepEqual(JSON.parse(requests[3].body), { path: 'report.html', offset: 12000 })
+    await request('tools/call', { name: 'consult_web', arguments: { operation: 'DISCOVER' } })
+    await request('tools/call', { name: 'consult_web', arguments: { operation: 'READ', bindingId: 'web-uat', url: 'https://uat.test/orders', environment: 'UAT' } })
+    assert.equal(requests[4].url, '/api/fore-consult/resources/sessions/runtime-test/web')
+    assert.equal(requests[5].token, 'trusted-test-token')
+    assert.deepEqual(JSON.parse(requests[5].body), { bindingId: 'web-uat', url: 'https://uat.test/orders', environment: 'UAT' })
+    const credentials = await request('tools/call', { name: 'consult_web', arguments: { operation: 'READ', bindingId: 'web-uat', password: 'secret' } })
+    assert.equal(credentials.result.isError, true)
+    assert.equal(requests.length, 6)
   } finally {
     child.kill(); lines.close(); await new Promise<void>(resolve => server.close(() => resolve()))
   }

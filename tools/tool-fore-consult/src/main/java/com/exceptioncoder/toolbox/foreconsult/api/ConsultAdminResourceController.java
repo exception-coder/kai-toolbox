@@ -12,6 +12,8 @@ import java.util.List;
 @RestController
 @RequireRole("ADMIN")
 public class ConsultAdminResourceController {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.common.resource.WebResourceGateway web;
     private final ReadonlyResourceGateway resources;
     private final ConsultWorkflowService workflows;
 
@@ -25,7 +27,9 @@ public class ConsultAdminResourceController {
         var selected = ConsultDatabasePolicy.effective(current.workflow()).nodes().stream()
                 .filter(node -> node.enabled() && node.tools().contains("consult_resource_query"))
                 .flatMap(node -> node.resourceBindingIds().stream()).distinct().toList();
-        return new View(current.version(), selected, resources.catalog());
+        var webBindings = web == null ? java.util.Set.<String>of() : web.catalog().stream()
+                .map(ReadonlyResourceGateway.Entry::bindingId).collect(java.util.stream.Collectors.toSet());
+        return new View(current.version(), selected.stream().filter(id -> !webBindings.contains(id)).toList(), resources.catalog());
     }
 
     /** selectedBindingIds属于已发布流程，资源状态与地址每次读取当前配置。 */

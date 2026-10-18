@@ -7,6 +7,7 @@ import java.util.function.BooleanSupplier;
 interface PreviewBrowser {
     void open(String id, PreviewPlan plan, Consumer<String> stage, BooleanSupplier cancelled);
     void resume(String id, PreviewPlan plan, Consumer<String> stage, BooleanSupplier cancelled);
+    com.exceptioncoder.toolbox.common.resource.WebPageReader.Page read(String id, String status);
     byte[] screenshot(String id);
     void input(String id, PreviewInput input);
     void close(String id);

@@ -38,6 +38,6 @@ public class BrowserLoginResourceAdapter implements BrowserLoginResources {
 
     private BrowserLoginTarget target(ApplicationResource value) {
         return new BrowserLoginTarget(value.id(), value.name(), value.environment(), value.baseUrl(),
-                value.username(), value.password(), value.usernameField(), value.passwordField());
+                value.username(), value.password(), value.usernameField(), value.passwordField(), value.loginPath());
     }
 }

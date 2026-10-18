@@ -1,3 +1,4 @@
+import { consultWebTool, callConsultWeb } from './consultWebTool.js'
 import { execFile } from 'node:child_process'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { existsSync, realpathSync, readdirSync, readFileSync, statSync } from 'node:fs'
@@ -126,7 +127,7 @@ const projectedSourceTools = sourceTools.map(tool => tool.name === 'source_proje
   } },
 }))
 const tools = [...(API_BASE && process.env.TOOLBOX_SESSION_ID
-  ? [...resourceTools, ...(process.env.CONSULT_RESOURCE_TOKEN
+  ? [...resourceTools, consultWebTool, ...(process.env.CONSULT_RESOURCE_TOKEN
     ? [consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool, consultAttachmentTool] : [])] : []),
   knowledgeQueryTool,
   ...projectedSourceTools, ...standbySchemaTools]
@@ -709,6 +710,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
         apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN,
       })
     }
+    if (name === 'consult_web') return await callConsultWeb(args, { apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN })
     if (name === 'consult_resources' || name === 'consult_resource_query') {
       const session = process.env.TOOLBOX_SESSION_ID
       if (!session || !API_BASE) return textResult('咨询资源会话上下文未配置', true)

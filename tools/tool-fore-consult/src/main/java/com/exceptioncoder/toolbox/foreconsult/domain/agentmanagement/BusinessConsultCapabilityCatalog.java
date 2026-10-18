@@ -14,7 +14,7 @@ public final class BusinessConsultCapabilityCatalog {
                     "提供只读业务证据及受限咨询焦点元数据，不写源码或业务数据。", "READ_ONLY", "LOW",
                     List.of("tool:source_context", "tool:source_read", "tool:source_search", "tool:source_git_history", "tool:source_projects", "tool:knowledge_query",
                             "tool:erp_standby_schema_search", "tool:erp_standby_validate_sql",
-                            "tool:consult_resources", "tool:consult_resource_query")),
+                            "tool:consult_resources", "tool:consult_resource_query", "tool:consult_web")),
             capability("mcp:domain-knowledge", "domain-knowledge", "MCP_SERVER", "v1", "团队领域知识服务",
                     "提供已确认的领域术语与业务规范上下文。", "READ_ONLY", "LOW", List.of()),
             capability("tool:source_context", "source_context", "TOOL", "v1", "consult-readonly",
@@ -43,6 +43,8 @@ public final class BusinessConsultCapabilityCatalog {
                     "发现本咨询已选择且属于当前系统的数据库资源，不返回凭据。", "READ_ONLY", "LOW", List.of()),
             capability("tool:consult_resource_query", "consult_resource_query", "TOOL", "v1", "consult-readonly",
                     "按资源绑定执行只读数据库查询，不支持应用调用。", "READ_ONLY", "MEDIUM", List.of()),
+            capability("tool:consult_web", "consult_web", "TOOL", "v1", "consult-readonly",
+                    "发现本咨询选用的多环境Web账号；按URL或明确环境登录并读取页面，不返回密码、不执行业务操作。", "READ_ONLY", "MEDIUM", List.of()),
             capability("skill:backend-evidence", "backend-evidence", "SKILL", "2.1.0", "team-standards",
                     "约束 Agent 区分代码事实、行为规范与数据库运行事实。", "INSTRUCTION_ONLY", "LOW", List.of())
     );

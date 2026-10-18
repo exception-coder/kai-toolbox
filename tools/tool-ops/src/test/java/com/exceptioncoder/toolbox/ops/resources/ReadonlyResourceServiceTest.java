@@ -52,6 +52,14 @@ class ReadonlyResourceServiceTest {
                 new ProjectSystemDirectory.SystemIdentity("two", "二", "/source"))));
         assertThrows(IllegalArgumentException.class, () -> service.discover("/source", List.of()));
     }
+    @Test void unavailableWebAccountsDoNotAppearAsMissingDatabases() {
+        var resources = mock(SystemResourceService.class);
+        when(resources.discover("system")).thenReturn(List.of(new SystemResourceService.BoundResource(
+                new ResourceBinding("web", "system", "application", "deleted", "", true), null, "UNAVAILABLE")));
+        var service = new ReadonlyResourceService(resources, List.of(() -> List.of(
+                new ProjectSystemDirectory.SystemIdentity("system", "系统", "/source"))));
+        assertTrue(service.catalog().isEmpty());
+    }
     private ResourceDescriptor resource(String environment) {
         return new ResourceDescriptor("db", "数据库", "MYSQL", environment, "localhost", "account", true, List.of("QUERY"), "/tools/reqpool/resources?view=connections&editDatasource=db");
     }

@@ -133,6 +133,7 @@ export function rollbackAgentVersion(agentId: string, version: number) {
 }
 
 export interface ConsultResourceEntry {
+  kind?: 'DB' | 'APP'; endpoint?: string;
   bindingId: string; systemId: string; systemName: string; name: string;
   environment: string; purpose: string; state: string; configurationUrl: string;
 }
