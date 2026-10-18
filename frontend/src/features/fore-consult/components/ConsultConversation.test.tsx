@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { UseClaudeChatSocket } from '@/features/claude-chat/public-api'
-import { ConsultConversation } from './ConsultConversation'
+import { ConsultConversation, type ConsultConversationDraft } from './ConsultConversation'
 
 const mocks = vi.hoisted(() => ({ phase: 'running', dispatch: vi.fn() }))
 vi.mock('@/features/claude-chat/public-api', () => ({
@@ -36,6 +36,19 @@ function setup() {
     onClose: vi.fn(), onArchive: vi.fn(), onStartNew: vi.fn(), archiving: false }
   return { chat, props }
 }
+
+it('keeps follow-up drafts separate when switching to a new consultation and back', () => {
+  const { props } = setup()
+  const draftCache = new Map<string, ConsultConversationDraft>()
+  const { rerender } = render(<ConsultConversation key="first" {...props} draftCache={draftCache} />)
+  fireEvent.change(screen.getByRole('textbox', { name: '追问草稿' }), { target: { value: '原咨询的待发追问' } })
+  rerender(<ConsultConversation key="second" {...props} consultId="consult-2" draftCache={draftCache} />)
+  expect(screen.getByRole('textbox', { name: '追问草稿' })).toHaveValue('')
+  fireEvent.change(screen.getByRole('textbox', { name: '追问草稿' }), { target: { value: '新咨询的追问' } })
+  rerender(<ConsultConversation key="first" {...props} draftCache={draftCache} />)
+  expect(screen.getByRole('textbox', { name: '追问草稿' })).toHaveValue('原咨询的待发追问')
+  expect(draftCache.get('consult-2')?.text).toBe('新咨询的追问')
+})
 
 it('allows drafting and attachments during an answer, blocks sending, and keeps the draft when it finishes', () => {
   const { chat, props } = setup()

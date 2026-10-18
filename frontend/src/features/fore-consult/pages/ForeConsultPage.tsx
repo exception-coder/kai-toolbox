@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowDown, ArrowUp, BarChart3, Boxes, BrainCircuit, Briefcase, Bug, ChevronDown, Contact, Copy, Eye, EyeOff, Factory, Handshake,
   FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, MousePointerClick, Pin, Menu, MoreHorizontal,
-  Paperclip, Pencil, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal,
+  Paperclip, Pencil, Plus, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal,
   Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
@@ -25,7 +25,7 @@ import {
   type CodexSpeed,
   type Engine,
 } from '@/features/claude-chat/public-api'
-import { ConsultConversation } from '../components/ConsultConversation'
+import { ConsultConversation, type ConsultConversationDraft } from '../components/ConsultConversation'
 import { ConsultUpgradeNotice } from '../components/ConsultUpgradeNotice'
 import { MobileConsultComposer } from '../components/MobileConsultComposer'
 import { useConsultLayout } from '../useConsultLayout'
@@ -529,6 +529,9 @@ export function ForeConsultPage() {
   const [pendingDispatchError, setPendingDispatchError] = useState<string | null>(null)
   const [panelOpen, setPanelOpen] = useState(true)
   const [conversationOpen, setConversationOpen] = useState(false)
+  const [newConsultDraftOpen, setNewConsultDraftOpen] = useState(false)
+  const newConsultTrigger = useRef<HTMLButtonElement>(null)
+  const conversationDrafts = useRef(new Map<string, ConsultConversationDraft>())
   const [viewSession, setViewSession] = useState<{ id: string; title: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyDate, setHistoryDate] = useState('')
@@ -809,6 +812,7 @@ export function ForeConsultPage() {
     const p = pendingRef.current
     if (!p || p.opened) return
     p.opened = true
+    setNewConsultDraftOpen(false)
     setPendingDispatchError(null)
     setActiveDevSessionBinding(null)
     pendingDevSessionLinkRef.current = { consultId: p.consultId, questionTitle: p.questionTitle }
@@ -963,12 +967,13 @@ export function ForeConsultPage() {
   const startMutation = useMutation({
     mutationFn: async () => {
       const cwd = systemPath || system.trim()
-      const legacySeed = buildConsultSeed(system.trim(), moduleTags, ask, CONSULT_ROLE)
+      const selectedModules = newConsultDraftOpen ? [] : moduleTags
+      const legacySeed = buildConsultSeed(system.trim(), selectedModules, ask, CONSULT_ROLE)
       const created = await startConsult({
         autoDetect: true,
         systemName: hasSourcePreference ? system.trim() : '',
         systemSourcePath: hasSourcePreference ? cwd : '',
-        moduleNames: moduleTags,
+        moduleNames: selectedModules,
         questionTitle: buildQuestionTitle(questionTitle.trim() || ask.trim().replace(/\s+/g, ' ').slice(0, QUESTION_TITLE_MAX_LENGTH) || '截图问题'),
         question: ask.trim() || '请结合附件识别并分析业务问题',
         role: CONSULT_ROLE,
@@ -1204,6 +1209,7 @@ export function ForeConsultPage() {
 
   // 恢复待归档咨询：运行提示来自底层会话列表，WebSocket ready 与实时事件会继续校正。
   const resumeConsult = useCallback((s: ConsultSessionView) => {
+    setNewConsultDraftOpen(false)
     setMobileView('consult')
     setSystem(s.systemName)
     setHasSourcePreference(false)
@@ -1541,6 +1547,14 @@ export function ForeConsultPage() {
         <div className="fc-mobile-header-row">
           {phone && openMobileNavigation && <button type="button" aria-label="打开导航" onClick={openMobileNavigation}><Menu className="size-5" /></button>}
           <h1>业务咨询</h1>
+          {activeConsultId && !newConsultDraftOpen && <button ref={newConsultTrigger} type="button" aria-label="新建咨询" disabled={!initialSessionStateResolved || startMutation.isPending || pendingDispatching || Boolean(pendingRef.current) || archiveMutation.isPending} onClick={() => {
+            setNewConsultDraftOpen(true)
+            setMobileView('consult')
+            setMobileToolsOpen(false)
+            setHasSourcePreference(false)
+            startMutation.reset()
+            requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('#fc-consult-view [aria-label="编辑咨询"]')?.focus())
+          }}><span className="inline-flex items-center gap-1 text-sm"><Plus className="size-4" />新建</span></button>}
           <button type="button" ref={mobileToolsTrigger} aria-label="更多咨询功能" aria-expanded={mobileToolsOpen} onClick={() => setMobileToolsOpen(value => !value)}><MoreHorizontal className="size-5" /></button>
         </div>
         <div role="tablist" aria-label="咨询工作台视图" className="fc-mobile-tabs" onKeyDown={event => {
@@ -1933,9 +1947,9 @@ export function ForeConsultPage() {
       )}
 
       </div>
-      {compact && !activeConsultId && <section id="fc-consult-view" role="tabpanel" aria-labelledby="fc-consult-tab" className="fc-mobile-consult-view" hidden={phone && mobileView !== 'consult'}>
+      {compact && (!activeConsultId || newConsultDraftOpen) && <section id="fc-consult-view" role="tabpanel" aria-labelledby="fc-consult-tab" className="fc-mobile-consult-view" hidden={phone && mobileView !== 'consult'}>
         <div className="fc-mobile-empty">
-          <div className="fc-mobile-welcome"><h2>从一个问题开始</h2><p>描述遇到的问题，或添加业务截图。Forge 会自动定位相关系统。</p>{hasSourcePreference && <p>优先探索：{displayName(system)}</p>}</div>
+          <div className="fc-mobile-welcome"><h2>从一个问题开始</h2><p>描述遇到的问题，或添加业务截图。Forge 会自动定位相关系统。</p>{hasSourcePreference && <p>优先探索：{displayName(system)}</p>}{activeConsultId && <><p>原咨询已保留，可从历史咨询继续。</p><button type="button" disabled={startMutation.isPending} className="mt-3 min-h-11 text-sm underline underline-offset-4 disabled:opacity-40" onClick={() => { setNewConsultDraftOpen(false); requestAnimationFrame(() => newConsultTrigger.current?.focus()) }}>返回当前咨询</button></>}</div>
           <MobileConsultComposer value={ask} onChange={setAsk} title={questionTitle} onTitleChange={setQuestionTitle}
             attachments={attachments} onFiles={handleFiles} onRemove={removeAttachment} onPaste={handlePaste}
             onSend={() => startMutation.mutate()} canSend={canStart} disabled={!initialSessionStateResolved}
@@ -2169,8 +2183,10 @@ export function ForeConsultPage() {
 
       {/* 独立业务咨询会话面板（不用 Vibe Coding 悬浮窗，复用同一 WS 同步渲染） */}
       {(conversationOpen || compact) && activeConsultId && (
-        <div id={compact ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : undefined} hidden={phone && mobileView !== 'consult'}>
+        <div id={compact && !newConsultDraftOpen ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : undefined} hidden={(compact && newConsultDraftOpen) || (phone && mobileView !== 'consult')}>
         <ConsultConversation
+          key={activeConsultId}
+          draftCache={conversationDrafts.current}
           embedded={compact}
           onViewGraph={() => { setMobileView('graph'); setCategoryFilter(null); requestAnimationFrame(() => { const node = Array.from(containerRef.current?.querySelectorAll<HTMLButtonElement>('[data-system-name]') ?? []).find(element => element.dataset.systemName === system); node?.focus({ preventScroll: true }) }) }}
           chat={chat}

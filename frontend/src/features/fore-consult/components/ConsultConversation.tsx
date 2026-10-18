@@ -44,6 +44,10 @@ import { ImageLightbox } from './ImageLightbox'
 import { ConsultConversationRuntimeStatus } from './ConsultConversationRuntimeStatus'
 
 type Att = ConsultDraftAttachment
+export interface ConsultConversationDraft {
+  text: string
+  attachments: ConsultDraftAttachment[]
+}
 type Rating = 'GOOD' | 'BAD'
 
 const BAD_CATEGORIES = ['答非所问', '信息有误', '不够具体', '入口/步骤不对', '其他']
@@ -68,6 +72,7 @@ interface Props {
   onRetryStartup?: () => void
   embedded?: boolean
   onViewGraph?: () => void
+  draftCache?: Map<string, ConsultConversationDraft>
 }
 
 /**
@@ -77,11 +82,14 @@ interface Props {
  */
 export function ConsultConversation({
   chat, consultId, questionTitle, systemLabel, roleLabel, onUploaded, onBugRegistered, onClose,
-  onArchive, onStartNew, archiving, startupPending = false, startupError, onRetryStartup, sourceRoutingEnabled = false, embedded = false, onViewGraph,
+  onArchive, onStartNew, archiving, startupPending = false, startupError, onRetryStartup, sourceRoutingEnabled = false, embedded = false, onViewGraph, draftCache,
 }: Props) {
-  const [text, setText] = useState('')
+  const [text, setText] = useState(() => draftCache?.get(consultId)?.text ?? '')
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
-  const [atts, setAtts] = useState<Att[]>([])
+  const [atts, setAtts] = useState<Att[]>(() => draftCache?.get(consultId)?.attachments ?? [])
+  useEffect(() => {
+    draftCache?.set(consultId, { text, attachments: atts })
+  }, [draftCache, consultId, text, atts])
   const [uploading, setUploading] = useState(0)
   const checkingAttachments = useRef(false)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)

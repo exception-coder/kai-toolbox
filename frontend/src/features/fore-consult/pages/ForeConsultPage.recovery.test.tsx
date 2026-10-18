@@ -5,7 +5,7 @@ import { ForeConsultPage } from './ForeConsultPage'
 import type { ConsultSessionView } from '../api'
 
 const calls = vi.hoisted(() => ({
-  history: vi.fn(), runtime: vi.fn(), switchTo: vi.fn(), start: vi.fn(),
+  history: vi.fn(), runtime: vi.fn(), switchTo: vi.fn(), start: vi.fn(), archive: vi.fn(),
 }))
 const viewport = vi.hoisted(() => ({ phone: false }))
 vi.mock('../useConsultLayout', () => ({ useConsultLayout: () => ({ phone: viewport.phone, compact: viewport.phone, layout: viewport.phone ? 'phone' : 'desktop' }) }))
@@ -22,7 +22,7 @@ vi.mock('../api', async original => ({ ...await original<typeof import('../api')
     dirs: [{ name: 'erp', path: 'D:/workspace/erp' }] }] }),
   listSystemPrefs: async () => [{ systemName: 'erp', systemSourcePath: 'D:/workspace/erp',
     alias: 'ERP', visible: true, sortOrder: 0 }],
-  listConsults: calls.history, startConsult: calls.start,
+  listConsults: calls.history, startConsult: calls.start, archiveConsult: calls.archive,
   getTopology: async () => ({ links: [] }), listCodexHomes: async () => [],
   fetchProjectModules: async () => ({ modules: [] }),
   getBusinessConsultModelPolicy: async () => ({ model: 'test-model', codexHome: 'C:/test-codex' }),
@@ -45,11 +45,38 @@ beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   calls.history.mockReset().mockResolvedValue([])
   calls.runtime.mockReset().mockResolvedValue([])
-  calls.switchTo.mockReset(); calls.start.mockReset()
+  calls.switchTo.mockReset(); calls.start.mockReset(); calls.archive.mockReset()
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 })
 afterEach(() => { cleanup(); client.clear(); vi.unstubAllGlobals() })
 function mount() { render(<QueryClientProvider client={client}><ForeConsultPage /></QueryClientProvider>) }
+
+it('opens a separate mobile question draft without archiving and can return to the same consultation', async () => {
+  viewport.phone = true
+  calls.history.mockResolvedValue([pending])
+  calls.start.mockReturnValue(new Promise(() => {}))
+  mount()
+  expect(await screen.findByText('原咨询对话')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '新建咨询' }))
+  expect(screen.getByText('原咨询对话')).not.toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '编辑咨询' }))
+  fireEvent.change(screen.getByRole('textbox', { name: '咨询问题描述' }), { target: { value: '独立的新问题' } })
+  fireEvent.click(screen.getByRole('button', { name: '完成' }))
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '编辑咨询' })).not.toBeInTheDocument())
+  fireEvent.click(screen.getByRole('button', { name: '返回当前咨询' }))
+  expect(screen.getByText('原咨询对话')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '新建咨询' }))
+  expect(screen.getByRole('button', { name: '编辑咨询' })).toHaveTextContent('独立的新问题')
+  await act(async () => { await client.invalidateQueries({ queryKey: ['fore-consult-sessions'] }) })
+  expect(screen.getByRole('button', { name: '编辑咨询' })).toHaveTextContent('独立的新问题')
+  expect(calls.archive).not.toHaveBeenCalled()
+  expect(calls.start).not.toHaveBeenCalled()
+  expect(calls.switchTo).toHaveBeenCalledExactlyOnceWith('original-runtime', false)
+  fireEvent.click(screen.getByRole('button', { name: '发送咨询' }))
+  await waitFor(() => expect(calls.start).toHaveBeenCalledOnce())
+  expect(calls.start.mock.calls[0][0]).toMatchObject({ autoDetect: true, systemName: '', question: '独立的新问题', moduleNames: [] })
+  expect(calls.archive).not.toHaveBeenCalled()
+})
 
 it('starts from the question without selecting a system or entering a title', async () => {
   calls.start.mockReturnValue(new Promise(() => {}))
