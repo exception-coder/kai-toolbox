@@ -50,14 +50,25 @@ function computeEffective(): Set<string> {
   return new Set(stored ?? DEFAULT_VISIBLE_IDS)
 }
 
-let effective = computeEffective()
-let snapshot: readonly string[] = Object.freeze([...effective].sort())
-const listeners = new Set<() => void>()
+interface MenuVisibilityStore {
+  effective: Set<string>
+  snapshot: readonly string[]
+  listeners: Set<() => void>
+  revision: number
+  hydratedUserId: number | null
+}
 
-function emit() {
-  effective = computeEffective()
-  snapshot = Object.freeze([...effective].sort())
-  listeners.forEach((l) => l())
+// Vite 热更新后不同消费者可能保留不同版本的模块，状态与订阅必须仍是同一个页面实例。
+const page = globalThis as typeof globalThis & { __forgeMenuVisibilityStore?: MenuVisibilityStore }
+const initial = computeEffective()
+const store = page.__forgeMenuVisibilityStore ??= {
+  effective: initial, snapshot: Object.freeze([...initial].sort()), listeners: new Set(), revision: 0, hydratedUserId: null,
+}
+
+function emit(ids = computeEffective()) {
+  store.effective = ids
+  store.snapshot = Object.freeze([...ids].sort())
+  store.listeners.forEach((listener) => listener())
 }
 
 function persist(ids: Set<string>) {
@@ -106,7 +117,6 @@ function deleteServer() {
   void http('/menu-visibility', { method: 'DELETE' }).catch(() => {})
 }
 
-let hydratedUserId: number | null = null
 
 /**
  * 登录后把该用户的可见集从后端拉下来（或首次迁移本地配置上云）。
@@ -115,14 +125,15 @@ let hydratedUserId: number | null = null
  * - 库内无记录 + 本地也无 → 用默认核心集（computeEffective 已兜底），不改动。
  */
 async function hydrateForUser(userId: number) {
+  const revision = store.revision
   const dto = await fetchServer()
   // 竞态保护：await 期间用户可能已切换/登出。
-  if (getUser()?.userId !== userId) return
+  if (getUser()?.userId !== userId || store.revision !== revision) return
   if (dto && dto.visibleIds) {
     const migrated = migrateVisibleMenus(dto.visibleIds, features)
     persist(new Set(migrated))
     if (JSON.stringify(dto.visibleIds) !== JSON.stringify(migrated)) pushServer(migrated)
-    emit()
+    emit(new Set(migrated))
   } else {
     const local = readStored()
     if (local && local.length) {
@@ -130,49 +141,52 @@ async function hydrateForUser(userId: number) {
     }
     // 无本地记录：保持默认核心集。
   }
-  hydratedUserId = userId
+  store.hydratedUserId = userId
 }
 
 /** 设置某模块是否在菜单显示。 */
 export function setMenuVisible(id: string, visible: boolean) {
-  const next = new Set(effective)
+  const next = new Set(store.effective)
   if (visible) next.add(id)
   else next.delete(id)
+  store.revision++
   persist(next)
-  emit()
+  emit(next)
   if (getUser()) pushServer([...next])
 }
 
 /** 批量设置（如「全部显示」）。 */
 export function setManyVisible(ids: string[], visible: boolean) {
-  const next = new Set(effective)
+  const next = new Set(store.effective)
   for (const id of ids) {
     if (visible) next.add(id)
     else next.delete(id)
   }
+  store.revision++
   persist(next)
-  emit()
+  emit(next)
   if (getUser()) pushServer([...next])
 }
 
 /** 恢复默认（只显示核心集）。 */
 export function resetMenuVisibility() {
+  store.revision++
   try {
     localStorage.removeItem(STORAGE_KEY)
   } catch {
     /* ignore */
   }
-  emit()
+  emit(new Set(DEFAULT_VISIBLE_IDS))
   if (getUser()) deleteServer()
 }
 
 function subscribe(cb: () => void) {
-  listeners.add(cb)
-  return () => listeners.delete(cb)
+  store.listeners.add(cb)
+  return () => store.listeners.delete(cb)
 }
 
 function getSnapshot() {
-  return snapshot
+  return store.snapshot
 }
 
 /** 当前可见模块 id（响应式）。 */
@@ -201,10 +215,10 @@ export function useMenuVisibilitySync() {
   const userId = user?.userId ?? null
   useEffect(() => {
     if (userId == null) {
-      hydratedUserId = null
+      store.hydratedUserId = null
       return
     }
-    if (hydratedUserId === userId) return
+    if (store.hydratedUserId === userId) return
     void hydrateForUser(userId)
   }, [userId])
 }
