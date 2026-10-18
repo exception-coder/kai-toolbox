@@ -7,28 +7,8 @@ export interface ConsultUpgradeNote {
   summary: string
 }
 
-/** 重磅更新登记处。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
+/** 仅登记业务咨询板块的重大能力变更，不收录全平台或其他工具更新。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
-  {
-    id: '2026-10-18-immediate-navigation', date: '2026-10-18', title: '菜单点击即切换',
-    summary: '待部署验收：点击菜单即进入目标页并显示骨架；悬停、聚焦或触摸提前加载页面代码，手机等待时仍可打开导航。',
-  },
-  {
-    id: '2026-10-18-page-preview', date: '2026-10-18', title: '交付页面一键预览',
-    summary: '待部署验收：打开交付预览入口后以本人身份自动进入目标页面，可切换手机/桌面和接管操作；测试账号引用资源中心，当前支持同源表单登录。',
-  },
-  {
-    id: '2026-10-18-progressive-loading', date: '2026-10-18', title: '页面先显示骨架与导航',
-    summary: '待部署验收：首次打开显示骨架；已有登录快照可先用功能导航，页面代码分区加载。聊天引擎首次使用再下载，慢加载可返回或重试。',
-  },
-  {
-    id: '2026-10-18-host-sftp', date: '2026-10-18', title: '主机文件支持 SFTP 传输',
-    summary: '待部署验收：管理员从主机管理的“SFTP 文件”浏览、下载、上传；替换先核对原文件并保留备份。支持提供 SFTP 的 Linux/Windows 主机，单文件20 MiB。',
-  },
-  {
-    id: '2026-10-18-business-autofill', date: '2026-10-18', title: '业务输入防误填',
-    summary: '区分业务输入与登录字段，减少账号被误填为问题标题或筛选条件；代码已修正，真实浏览器待验证。',
-  },
   {
     id: '2026-10-18-consult-history-reading', date: '2026-10-18', title: '历史咨询直接阅读原对话',
     summary: '历史优先打开原会话；已归档只读，进行中可追问。手机旧归档全宽阅读，普通用户菜单精简。移动浏览器待验收。',
@@ -36,10 +16,6 @@ export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
     id: '2026-10-18-mobile-new-consult', date: '2026-10-18', title: '新咨询无需先归档',
     summary: '手机和平板可点顶部“新建”准备另一项问题，原咨询从历史继续；页面内草稿分别保留。移动浏览器待验收。',
-  },
-  {
-    id: '2026-10-18-home-navigation', date: '2026-10-18', title: '首页先显示功能菜单',
-    summary: '已有登录快照时，首页先显示有权访问的功能入口，再加载完整工作台；可直接进入业务系统咨询。其他同事环境待更新验收。',
   },
   {
     id: '2026-10-18-consult-release-evaluation-optional', date: '2026-10-18', title: '流程候选可直接发布',
@@ -68,5 +44,33 @@ export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
     id: '2026-10-18-source-git', date: '2026-10-18', title: '源码与提交记录辅助定位',
     summary: '结合已接入源码与本地 Git 修改线索，帮助 IT 找到相关开发联系人。',
+  },
+]
+
+/** 历史误收记录，仅留档，不进入业务咨询纸签或详情；其他模块后续更新不得追加至此。 */
+export const EXCLUDED_UPGRADE_NOTE_HISTORY: readonly ConsultUpgradeNote[] = [
+  {
+    id: '2026-10-18-immediate-navigation', date: '2026-10-18', title: '菜单点击即切换',
+    summary: '待部署验收：点击菜单即进入目标页并显示骨架；悬停、聚焦或触摸提前加载页面代码，手机等待时仍可打开导航。',
+  },
+  {
+    id: '2026-10-18-page-preview', date: '2026-10-18', title: '交付页面一键预览',
+    summary: '待部署验收：打开交付预览入口后以本人身份自动进入目标页面，可切换手机/桌面和接管操作；测试账号引用资源中心，当前支持同源表单登录。',
+  },
+  {
+    id: '2026-10-18-progressive-loading', date: '2026-10-18', title: '页面先显示骨架与导航',
+    summary: '待部署验收：首次打开显示骨架；已有登录快照可先用功能导航，页面代码分区加载。聊天引擎首次使用再下载，慢加载可返回或重试。',
+  },
+  {
+    id: '2026-10-18-host-sftp', date: '2026-10-18', title: '主机文件支持 SFTP 传输',
+    summary: '待部署验收：管理员从主机管理的“SFTP 文件”浏览、下载、上传；替换先核对原文件并保留备份。支持提供 SFTP 的 Linux/Windows 主机，单文件20 MiB。',
+  },
+  {
+    id: '2026-10-18-business-autofill', date: '2026-10-18', title: '业务输入防误填',
+    summary: '区分业务输入与登录字段，减少账号被误填为问题标题或筛选条件；代码已修正，真实浏览器待验证。',
+  },
+  {
+    id: '2026-10-18-home-navigation', date: '2026-10-18', title: '首页先显示功能菜单',
+    summary: '已有登录快照时，首页先显示有权访问的功能入口，再加载完整工作台；可直接进入业务系统咨询。其他同事环境待更新验收。',
   },
 ]
