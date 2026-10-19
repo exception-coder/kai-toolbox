@@ -23,6 +23,7 @@ interface Props {
   options?: ReactNode
   voice?: ReactNode
   modelLabel?: string
+  canConfigureModel?: boolean
   interrupt?: ReactNode
 }
 
@@ -42,6 +43,10 @@ export function MobileConsultComposer(props: Props) {
   const editor = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const portal = useFullscreenPortalContainer()
+  const canConfigureModel = Boolean(props.canConfigureModel && props.options)
+  const modelControl = canConfigureModel
+    ? <button type="button" className="fc-mobile-model" aria-label="配置咨询模型" aria-expanded={showOptions && editing} onClick={() => { setShowOptions(value => !value); setEditing(true) }}>{props.modelLabel || '当前模型'}</button>
+    : <span className="fc-mobile-model" title="咨询模型由管理员配置">{props.modelLabel || '当前模型'}</span>
   useEffect(() => {
     if (!editing) return
     const viewport = window.visualViewport
@@ -64,7 +69,7 @@ export function MobileConsultComposer(props: Props) {
       <div className="fc-mobile-actions">
         <button type="button" aria-label="添加咨询附件" disabled={props.attachmentsDisabled} onClick={() => { setEditing(true); file.current?.click() }}><Plus className="size-5" /></button>
         {props.voice}
-        <button type="button" className="fc-mobile-model" onClick={() => { setShowOptions(true); setEditing(true) }} aria-label="查看咨询模型设置">{props.modelLabel || '当前模型'}</button>
+        {modelControl}
         {props.interrupt}{sendButton}
       </div>
     </div>
@@ -83,8 +88,8 @@ export function MobileConsultComposer(props: Props) {
             {props.notice && <p role="status" className="fc-mobile-notice">{props.notice}</p>}
           </div>
           <textarea ref={text} aria-label="咨询问题描述" value={props.value} disabled={props.disabled} onChange={event => props.onChange(event.target.value)} onPaste={props.onPaste} placeholder="描述问题或粘贴截图…" />
-          {showOptions && <div className="fc-mobile-options">{props.options ?? <p>沿用当前咨询模型</p>}</div>}
-          <footer className="fc-mobile-actions"><button type="button" aria-label="添加咨询附件" disabled={props.attachmentsDisabled} onClick={() => file.current?.click()}><Plus className="size-5" /></button><button type="button" className="fc-mobile-model" onClick={() => setShowOptions(value => !value)}>{props.modelLabel || '当前模型'}</button>{props.interrupt}{sendButton}</footer>
+          {canConfigureModel && showOptions && <section aria-label="咨询模型配置" className="fc-mobile-options">{props.options}</section>}
+          <footer className="fc-mobile-actions"><button type="button" aria-label="添加咨询附件" disabled={props.attachmentsDisabled} onClick={() => file.current?.click()}><Plus className="size-5" /></button>{modelControl}{props.interrupt}{sendButton}</footer>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

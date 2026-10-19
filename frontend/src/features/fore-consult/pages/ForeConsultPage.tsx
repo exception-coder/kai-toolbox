@@ -1480,6 +1480,7 @@ export function ForeConsultPage() {
 
   const modelOptions = <>
                 <CodexSessionOptions
+                  embedded={compact}
                   models={consultCodexModels}
                   model={consultModel}
                   modelDisabled={!isAdmin}
@@ -1963,7 +1964,7 @@ export function ForeConsultPage() {
             attachmentsDisabled={!initialSessionStateResolved || attachments.length >= MAX_ATT || attachmentChecking}
             notice={attachmentNotice || (startMutation.isError ? (startMutation.error instanceof Error ? startMutation.error.message : '创建咨询失败，请重试') : startMutation.isPending ? '正在创建咨询…' : null)} modelLabel={consultModel ?? modelPolicy?.model ?? '业务默认模型'}
             voice={<ConsultVoiceActions disabled={!initialSessionStateResolved || startMutation.isPending} onText={value => setAsk(previous => previous ? `${previous}\n${value}` : value)} />}
-            options={modelOptions}
+            canConfigureModel={isAdmin} options={isAdmin ? modelOptions : undefined}
           />
         </div>
       </section>}
