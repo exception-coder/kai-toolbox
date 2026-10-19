@@ -71,6 +71,7 @@ interface Props {
   startupError?: string | null
   onRetryStartup?: () => void
   embedded?: boolean
+  compactComposer?: boolean
   onViewGraph?: () => void
   draftCache?: Map<string, ConsultConversationDraft>
   readOnly?: boolean
@@ -84,7 +85,7 @@ interface Props {
  */
 export function ConsultConversation({
   chat, consultId, questionTitle, systemLabel, roleLabel, onUploaded, onBugRegistered, onClose,
-  onArchive, onStartNew, archiving, startupPending = false, startupError, onRetryStartup, sourceRoutingEnabled = false, embedded = false, onViewGraph, draftCache, readOnly = false, onViewArchive,
+  onArchive, onStartNew, archiving, startupPending = false, startupError, onRetryStartup, sourceRoutingEnabled = false, embedded = false, compactComposer = embedded, onViewGraph, draftCache, readOnly = false, onViewArchive,
 }: Props) {
   const [text, setText] = useState(() => draftCache?.get(consultId)?.text ?? '')
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
@@ -597,14 +598,14 @@ export function ConsultConversation({
         </div>
 
         {/* 组合器 */}
-        {readOnly ? <div className="shrink-0 border-t border-slate-200 px-4 py-3 text-xs leading-5 text-slate-500">已归档 · 仅供阅读。如需继续讨论，请新建咨询。</div> : embedded ? <MobileConsultComposer value={text} onChange={setText} attachments={atts}
+        {readOnly ? <div className="shrink-0 border-t border-slate-200 px-4 py-3 text-xs leading-5 text-slate-500">已归档 · 仅供阅读。如需继续讨论，请新建咨询。</div> : compactComposer ? <MobileConsultComposer value={text} onChange={setText} attachments={atts}
           onFiles={handleFiles} onRemove={removeAtt} onPaste={onPaste} onSend={() => void send()} canSend={canSend}
           disabled={!sessionReady || archiving || startupPending} attachmentsDisabled={!sessionReady || atts.length + uploading >= MAX_ATT}
           busy={sendLocked} notice={attachmentError || (uploading ? '附件上传中…' : sendLocked ? '正在回答，可先准备下一条问题' : null)}
           modelLabel={chat.currentModel ?? '当前咨询模型'}
           voice={<ConsultVoiceActions key={consultId} chat={chat} disabled={!sessionReady || archiving || startupPending || dispatching || uploading > 0} draftPending={Boolean(text.trim() || atts.length)} onText={value => setText(previous => previous ? `${previous}\n${value}` : value)} />}
           interrupt={sessionReady && running ? <button type="button" aria-label="中断当前回答" onClick={interruptGeneration}><Square className="size-4" /></button> : undefined}
-        /> : <div className="shrink-0 border-t border-slate-200/80 p-3">
+        /> : <div className="fc-desktop-composer shrink-0 border-t border-slate-200/80 p-3">
           <div className="rounded-2xl border border-slate-200 bg-white/65 p-2 shadow-[0_10px_28px_-24px_rgba(15,23,42,0.3)] transition-colors focus-within:border-sky-300 focus-within:bg-white/85 focus-within:shadow-[0_0_0_3px_rgba(56,189,248,0.1)]">
             {(atts.length > 0 || uploading > 0) && (
               <div className="mb-1.5 flex max-h-20 flex-wrap gap-2 overflow-y-auto px-1">

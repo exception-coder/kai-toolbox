@@ -535,6 +535,7 @@ export function ForeConsultPage() {
   const [newConsultDraftOpen, setNewConsultDraftOpen] = useState(false)
   const [desktopGraphOpen, setDesktopGraphOpen] = useState(false)
   const [desktopToolsOpen, setDesktopToolsOpen] = useState(false)
+  const [desktopConversationExpanded, setDesktopConversationExpanded] = useState(false)
   const [continuationSource, setContinuationSource] = useState<ConsultSessionView | null>(null)
   const newConsultTrigger = useRef<HTMLButtonElement>(null)
   const conversationDrafts = useRef(new Map<string, ConsultConversationDraft>())
@@ -1305,6 +1306,7 @@ export function ForeConsultPage() {
     setViewSession(null)
     setDesktopGraphOpen(false)
     setDesktopToolsOpen(false)
+    setDesktopConversationExpanded(false)
     setHasSourcePreference(Boolean(source))
     setModuleTags(source?.moduleNames ?? [])
     if (source) setSystem(source.systemName)
@@ -1619,6 +1621,7 @@ export function ForeConsultPage() {
       ref={containerRef}
       data-consult-skin={skin}
       data-desktop-view={!compact ? desktopGraphOpen ? 'graph' : 'consult' : undefined}
+      data-conversation-expanded={!compact && desktopConversationExpanded || undefined}
       className={`fc-space ${!compact ? 'fc-desktop-workspace' : ''} h-full min-h-0 w-full rounded-2xl ${
         pageVisible && topoMutation.isPending && !conversationOpen ? 'is-topology-animating' : ''
       }`}
@@ -1626,6 +1629,7 @@ export function ForeConsultPage() {
       {!compact && <ConsultDesktopHeader title={!initialSessionStateResolved ? '正在恢复最近对话…' : newConsultDraftOpen ? continuationSource ? '延续咨询' : '新咨询' : viewSession?.title || activeQuestionTitle || '从一个问题开始'}
         disabled={desktopActionDisabled} hasSession={Boolean(currentConsult)} draftOpen={newConsultDraftOpen || Boolean(viewSession)}
         graphOpen={desktopGraphOpen} toolsOpen={desktopToolsOpen}
+        expanded={desktopConversationExpanded} onExpand={() => setDesktopConversationExpanded(value => !value)}
         onNew={() => openDesktopDraft()} onExtend={() => openDesktopDraft(currentConsult ?? null)}
         onContinue={returnToDesktopConsult}
         onHistory={() => setHistoryOpen(value => !value)} onGraph={() => setDesktopGraphOpen(value => !value)}
@@ -1657,7 +1661,7 @@ export function ForeConsultPage() {
       </div>}
       {compact && mobileToolsOpen && <button type="button" className="fc-mobile-tools-backdrop" aria-label="关闭更多功能" onClick={() => { setMobileToolsOpen(false); mobileToolsTrigger.current?.focus() }} />}
       {/* 工具动作在手机更多菜单与桌面工具栏之间复用，不复制动作状态。 */}
-      <header id="fc-consult-tools" hidden={compact ? !mobileToolsOpen : !desktopToolsOpen} className={compact ? 'fc-mobile-tools' : 'fc-desktop-tools'}
+      {(compact ? mobileToolsOpen : desktopToolsOpen) && <header id="fc-consult-tools" aria-label="更多咨询设置" className={compact ? 'fc-mobile-tools' : 'fc-desktop-tools'}
         onClick={compact ? () => setMobileToolsOpen(false) : undefined}
         onKeyDown={event => { if (event.key === 'Escape') { setMobileToolsOpen(false); setDesktopToolsOpen(false); if (compact) mobileToolsTrigger.current?.focus(); else containerRef.current?.querySelector<HTMLButtonElement>('[aria-label="更多咨询设置"]')?.focus() } }}>
         {compact && <button type="button" className="fc-mobile-tools-close" onClick={() => { setMobileToolsOpen(false); mobileToolsTrigger.current?.focus() }}>更多功能<X className="size-4" /></button>}
@@ -1745,7 +1749,7 @@ export function ForeConsultPage() {
             {isFullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </button>
         </div>
-      </header>
+      </header>}
 
       <ConsultUpgradeNotice userId={user?.userId} open={upgradeNotesOpen} onOpenChange={setUpgradeNotesOpen} fallbackFocusRef={upgradeNotesTrigger} />
 
@@ -1858,7 +1862,7 @@ export function ForeConsultPage() {
         </div>
       )}
 
-      <div ref={graphRef} id="fc-graph-view" role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-graph-tab' : undefined} className="fc-graph-surface absolute inset-0" hidden={(!compact && !desktopGraphOpen) || (phone && mobileView !== 'graph')}>
+      <div ref={graphRef} id="fc-graph-view" role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-graph-tab' : undefined} className="fc-graph-surface absolute inset-0" hidden={phone && mobileView !== 'graph'}>
       {/* 中央 AI 恒星：Forge —— 业务系统围绕其运行 */}
       {visibleProjects.length > 0 && (
         <div className="fc-core-wrap">
@@ -2290,7 +2294,7 @@ export function ForeConsultPage() {
           draftCache={conversationDrafts.current}
           readOnly={activeConsultReadOnly}
           onViewArchive={() => setViewSession({ id: activeConsultId, title: activeQuestionTitle || '历史咨询' })}
-          embedded
+          embedded compactComposer={compact}
           onViewGraph={() => { setMobileView('graph'); setDesktopGraphOpen(true); setCategoryFilter(null); requestAnimationFrame(() => { const node = Array.from(containerRef.current?.querySelectorAll<HTMLButtonElement>('[data-system-name]') ?? []).find(element => element.dataset.systemName === system); node?.focus({ preventScroll: true }) }) }}
           chat={chat}
           consultId={activeConsultId}

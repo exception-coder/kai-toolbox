@@ -28,3 +28,13 @@ The system SHALL use Asia/Shanghai calendar dates to recommend new sessions for 
 #### Scenario: Source is unavailable or belongs to another user
 - **WHEN** a user attempts continuation without accessible owned source content
 - **THEN** the service rejects the request without creating a new consultation and the UI preserves the draft for recovery
+
+### Requirement: Desktop panels retain canvas context and theme
+The system SHALL open desktop conversations in a bounded panel by default, expose explicit expansion and restoration, and use the active theme for its composer. Graph settings SHALL appear only in the optional vertical more menu, with a single graph return action.
+
+#### Scenario: Default panel and settings recovery
+- **WHEN** a user opens a desktop consultation
+- **THEN** the panel leaves visible canvas space and follows the page theme, without a fixed white composer
+- **AND** expanding or restoring preserves the mounted conversation and drafts
+- **WHEN** the user opens more settings and presses Escape
+- **THEN** the single settings menu closes and focus returns to its trigger

@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ForeConsultPage } from './ForeConsultPage'
-import { listSystemPrefs, saveSystemPrefs, type SystemPrefView, type WorkspaceList } from '../api'
+import { listWorkspaces, listSystemPrefs, saveSystemPrefs, type SystemPrefView, type WorkspaceList } from '../api'
 
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { roles: ['ADMIN'] } }) }))
 vi.mock('@/components/ui/confirm-dialog', () => ({ useConfirm: () => vi.fn() }))
@@ -31,6 +31,7 @@ const preferences: SystemPrefView[] = [
 let client: QueryClient
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  vi.mocked(listWorkspaces).mockResolvedValue(workspaces)
   vi.mocked(listSystemPrefs).mockResolvedValue(preferences)
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } })
   client.setQueryData(['workspaces'], workspaces)
@@ -42,6 +43,7 @@ it('moves candidate projects and saves administrator order with aliases and visi
   vi.mocked(listSystemPrefs).mockResolvedValue([...preferences.map(pref => ({ ...pref, visible: true })),
     { systemName: 'new-project', systemSourcePath: 'D:/workspace/new-project', alias: null, visible: true, sortOrder: 0 }])
   mount()
+  fireEvent.click(screen.getByRole('button', { name: '更多咨询设置' }))
   await screen.findByRole('button', { name: 'ERP' })
   fireEvent.click(screen.getByRole('button', { name: '配置' }))
   const orderedNames = () => within(screen.getByRole('list', { name: '候选系统排序' }))
@@ -75,6 +77,7 @@ it('keeps the reordered candidates after a save failure so the administrator can
     { systemName: 'new-project', systemSourcePath: 'D:/workspace/new-project', alias: null, visible: true, sortOrder: 0 }])
   vi.mocked(saveSystemPrefs).mockRejectedValueOnce(new Error('暂时不可用')).mockResolvedValueOnce([])
   mount()
+  fireEvent.click(screen.getByRole('button', { name: '更多咨询设置' }))
   await screen.findByRole('button', { name: 'ERP' })
   fireEvent.click(screen.getByRole('button', { name: '配置' }))
   fireEvent.click(screen.getByRole('button', { name: '上移 ERP' }))
@@ -89,6 +92,7 @@ it('keeps the reordered candidates after a save failure so the administrator can
 
 it('switches the current page skin without changing the project selection policy or saving configuration', async () => {
   mount()
+  fireEvent.click(screen.getByRole('button', { name: '更多咨询设置' }))
   const project = await screen.findByRole('button', { name: 'ERP' })
   expect(project.closest('.fc-space')).toHaveAttribute('data-consult-skin', 'forge')
   fireEvent.click(screen.getByRole('button', { name: 'Forge 风格' }))
@@ -100,15 +104,16 @@ it('switches the current page skin without changing the project selection policy
 
 it('only renders marked systems after discovery and leaves new roots unselected when saving configuration', async () => {
   mount()
+  fireEvent.click(screen.getByRole('button', { name: '更多咨询设置' }))
   await screen.findByRole('button', { name: 'ERP' })
   expect(screen.queryByRole('button', { name: 'new-project' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'hidden' })).not.toBeInTheDocument()
-  await act(async () => { client.setQueryData<WorkspaceList>(['workspaces'], {
-    roots: [...workspaces.roots, { root: 'D:/new-root', exists: true, dirs: [{ name: 'new-root-project', path: 'D:/new-root/new-root-project' }] }],
-  }) })
+  const discovered = { roots: [...workspaces.roots, { root: 'D:/new-root', exists: true, dirs: [{ name: 'new-root-project', path: 'D:/new-root/new-root-project' }] }] }
+  vi.mocked(listWorkspaces).mockResolvedValue(discovered)
+  await act(async () => { client.setQueryData<WorkspaceList>(['workspaces'], discovered); await new Promise(resolve => setTimeout(resolve, 0)) })
   expect(screen.queryByRole('button', { name: 'new-root-project' })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '配置' }))
-  const newRow = screen.getByPlaceholderText('new-root-project').closest('li')!
+  const newRow = (await screen.findByPlaceholderText('new-root-project')).closest('li')!
   expect(within(newRow).getByRole('button', { name: '显示' })).toBeInTheDocument()
   expect(within(screen.getByPlaceholderText('erp').closest('li')!).getByRole('button', { name: '隐藏' })).toBeInTheDocument()
   fireEvent.click(within(newRow).getByRole('button', { name: '显示' }))
@@ -129,6 +134,7 @@ it('does not flash discovered projects before preferences load and offers config
   let resolve!: (value: SystemPrefView[]) => void
   vi.mocked(listSystemPrefs).mockReturnValueOnce(new Promise(done => { resolve = done }))
   mount()
+  fireEvent.click(screen.getByRole('button', { name: '更多咨询设置' }))
   expect(screen.queryByRole('button', { name: 'erp' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '配置' })).toBeDisabled()
   await act(async () => resolve([]))
@@ -141,6 +147,7 @@ it('does not flash discovered projects before preferences load and offers config
 it('keeps discovered projects hidden on preference failure and retries without saving', async () => {
   vi.mocked(listSystemPrefs).mockRejectedValueOnce(new Error('unavailable')).mockResolvedValue(preferences)
   mount()
+  fireEvent.click(screen.getByRole('button', { name: '更多咨询设置' }))
   expect(await screen.findByText('系统显示配置加载失败')).toBeVisible()
   expect(screen.getByRole('button', { name: '配置' })).toBeDisabled()
   expect(screen.queryByRole('button', { name: 'new-project' })).not.toBeInTheDocument()

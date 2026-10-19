@@ -107,3 +107,14 @@ it('preserves edits made while a follow-up is being dispatched', async () => {
   expect(chat.send).toHaveBeenCalledWith('本次追问', undefined, undefined, '服务端调度')
   expect(draft).toHaveValue('准备下一条问题')
 })
+
+it('uses an inline themed composer in a desktop embedded panel without opening a mobile editor', () => {
+  const { props } = setup()
+  render(<ConsultConversation {...props} embedded compactComposer={false} />)
+  const input = screen.getByRole('textbox', { name: '追问草稿' })
+  fireEvent.change(input, { target: { value: '在面板内继续输入' } })
+  expect(input).toHaveValue('在面板内继续输入')
+  expect(input.closest('.fc-desktop-composer')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '编辑咨询' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})

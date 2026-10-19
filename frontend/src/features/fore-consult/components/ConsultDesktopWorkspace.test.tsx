@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { ConsultDayReminder, isPreviousConsultDay, readContinuationReference } from './ConsultDesktopWorkspace'
+import { ConsultDesktopHeader, ConsultDayReminder, isPreviousConsultDay, readContinuationReference } from './ConsultDesktopWorkspace'
 
 afterEach(() => { cleanup(); vi.useRealTimers() })
 
@@ -27,4 +27,19 @@ it('reads only a well-shaped durable source reference', () => {
   expect(readContinuationReference('{"continuation":{"sourceSessionId":1}}')).toBeNull()
   expect(readContinuationReference(JSON.stringify({ continuation: { sourceSessionId: 'old', sourceTitle: '库存', excerptTurnCount: 3 } })))
     .toEqual({ sourceSessionId: 'old', sourceTitle: '库存', excerptTurnCount: 3 })
+})
+
+it('keeps one graph return action and makes conversation expansion explicit', () => {
+  const onExpand = vi.fn()
+  const props = { title: '采购咨询', disabled: false, hasSession: true, draftOpen: false, graphOpen: false, toolsOpen: false,
+    onNew: vi.fn(), onContinue: vi.fn(), onExtend: vi.fn(), onHistory: vi.fn(), onGraph: vi.fn(), onTools: vi.fn(), onExpand }
+  const view = render(<ConsultDesktopHeader {...props} />)
+  expect(screen.getByRole('button', { name: '展开对话窗口' })).toHaveAttribute('aria-pressed', 'false')
+  fireEvent.click(screen.getByRole('button', { name: '展开对话窗口' }))
+  expect(onExpand).toHaveBeenCalledOnce()
+  view.rerender(<ConsultDesktopHeader {...props} expanded />)
+  expect(screen.getByRole('button', { name: '还原对话窗口' })).toHaveAttribute('aria-pressed', 'true')
+  view.rerender(<ConsultDesktopHeader {...props} graphOpen />)
+  expect(screen.getByRole('button', { name: '返回对话' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: '返回当前咨询' })).not.toBeInTheDocument()
 })

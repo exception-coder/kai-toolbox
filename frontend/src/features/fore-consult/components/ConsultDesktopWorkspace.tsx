@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { History, MessagesSquare, MoreHorizontal, Plus, Route } from 'lucide-react'
+import { History, Maximize2, MessagesSquare, Minimize2, MoreHorizontal, Plus, Route } from 'lucide-react'
 import type { ConsultSessionView } from '../api'
 import './consult-desktop-workspace.css'
 
@@ -26,21 +26,24 @@ export function readContinuationReference(snapshot: string | null | undefined): 
 }
 
 export function ConsultDesktopHeader({ title, disabled, hasSession, draftOpen, graphOpen, toolsOpen,
-  onNew, onContinue, onExtend, onHistory, onGraph, onTools }: {
+  onNew, onContinue, onExtend, onHistory, onGraph, onTools, expanded = false, onExpand }: {
   title: string; disabled: boolean; hasSession: boolean; draftOpen: boolean; graphOpen: boolean; toolsOpen: boolean
   onNew: () => void; onContinue: () => void; onExtend: () => void; onHistory: () => void
-  onGraph: () => void; onTools: () => void
+  onGraph: () => void; onTools: () => void; expanded?: boolean; onExpand?: () => void
 }) {
   return <div className="fc-desktop-header">
     <div className="fc-desktop-heading"><MessagesSquare className="size-4" /><strong>业务咨询</strong><span>{title}</span></div>
     <nav aria-label="咨询操作">
       <button type="button" disabled={disabled} onClick={onNew}><Plus className="size-4" />新建咨询</button>
       {hasSession && <>
-        {(draftOpen || graphOpen) && <button type="button" onClick={onContinue}>返回当前咨询</button>}
+        {draftOpen && !graphOpen && <button type="button" onClick={onContinue}>返回当前咨询</button>}
         <button type="button" disabled={disabled} onClick={onExtend}>延续新建</button>
       </>}
       <button type="button" onClick={onHistory}><History className="size-4" />历史咨询</button>
       <button type="button" aria-pressed={graphOpen} onClick={onGraph}><Route className="size-4" />{graphOpen ? '返回对话' : '系统图谱'}</button>
+      {!graphOpen && onExpand && <button type="button" aria-label={expanded ? '还原对话窗口' : '展开对话窗口'} aria-pressed={expanded} onClick={onExpand}>
+        {expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+      </button>}
       <button type="button" aria-label="更多咨询设置" aria-expanded={toolsOpen} aria-controls="fc-consult-tools" onClick={onTools}><MoreHorizontal className="size-4" /></button>
     </nav>
   </div>
