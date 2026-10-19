@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { EventEmitter } from 'node:events'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { CodexCleanupBarriers, observeCodexProcess } from './codexProcessLifetime.js'
+import { CodexCleanupBarriers, CodexProcessLifetime, observeCodexProcess } from './codexProcessLifetime.js'
 
 function processStub(pid: number) {
   const child = Object.assign(new EventEmitter(), { pid, exitCode: null }) as ChildProcessWithoutNullStreams
@@ -79,6 +79,20 @@ test('native exit releases both barrier aliases even when inherited pipes never 
   await barriers.verify('session', 'thread', '/auth/a', 5)
   await barriers.verify('alias', 'thread', '/auth/a', 5)
   assert.equal(await lifetime.wait(0), true)
+})
+
+test('SDK signal exit survives removed listeners without treating a signalled launcher as released', async () => {
+  const direct = processStub(30345)
+  const native = new CodexProcessLifetime(direct.child, true)
+  const launcher = processStub(30346)
+  const keepAlive = setInterval(() => {}, 100)
+  try {
+    direct.child.removeAllListeners()
+    Object.assign(direct.child, { signalCode: 'SIGTERM' })
+    Object.assign(launcher.child, { signalCode: 'SIGTERM' })
+    assert.equal(await native.wait(0), true)
+    assert.equal(await launcher.lifetime.wait(5), false)
+  } finally { clearInterval(keepAlive) }
 })
 
 test('rechecks an already recorded native exit instead of retaining a stale barrier', async () => {

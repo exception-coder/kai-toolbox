@@ -8,7 +8,7 @@ export class CodexProcessLifetime {
   private closed = false
   private readonly waiters = new Set<() => void>()
 
-  constructor(readonly child: ChildProcessWithoutNullStreams) {
+  constructor(readonly child: ChildProcessWithoutNullStreams, private readonly directNativeProcess = false) {
     child.once('close', () => this.release())
     child.once('exit', code => {
       if (typeof code === 'number') this.confirmExit(code)
@@ -33,6 +33,9 @@ export class CodexProcessLifetime {
 
   wait(timeoutMs: number): Promise<boolean> {
     if (!this.closed && typeof this.child.exitCode === 'number') this.confirmExit(this.child.exitCode)
+    // SDK exec starts the native binary directly. Its confirmed signal exit is
+    // sufficient; a signalled launcher still needs the ordinary close barrier.
+    if (!this.closed && this.directNativeProcess && this.child.signalCode != null) this.release()
     if (this.closed) return Promise.resolve(true)
     return new Promise(resolveWait => {
       const finish = (closed: boolean) => {
@@ -62,10 +65,10 @@ export class CodexProcessLifetime {
 }
 
 const lifetimes = new WeakMap<ChildProcessWithoutNullStreams, CodexProcessLifetime>()
-export function observeCodexProcess(child: ChildProcessWithoutNullStreams): CodexProcessLifetime {
+export function observeCodexProcess(child: ChildProcessWithoutNullStreams, directNativeProcess = false): CodexProcessLifetime {
   let lifetime = lifetimes.get(child)
   if (!lifetime) {
-    lifetime = new CodexProcessLifetime(child)
+    lifetime = new CodexProcessLifetime(child, directNativeProcess)
     lifetimes.set(child, lifetime)
   }
   return lifetime

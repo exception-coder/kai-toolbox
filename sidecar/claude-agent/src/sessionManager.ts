@@ -1,4 +1,5 @@
 import { PAGE_PREVIEW_STEER } from './pagePreviewTools.js'
+import { requestCodexSdkCleanup } from './engine/codexSdkLifecycle.js'
 import { assemblyAllowsTool, filterClaudeAssembly, parseConsultToolAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { CodexResponseWatchdog } from './codexResponseWatchdog.js'
@@ -1022,7 +1023,9 @@ class Session {
   private async runCodexTurn(text: string, developerInstructions?: string, images?: OneShotImage[], voiceCallId?: string): Promise<void> {
     const ac = new AbortController()
     this.abort = ac
-    this.interruptRetry = async () => { await requestCodexAppServerCleanup(this.id) }
+    this.interruptRetry = async () => {
+      if (!await requestCodexAppServerCleanup(this.id)) await requestCodexSdkCleanup(this.id)
+    }
     try {
       await runCodexTurn({
         sessionId: this.id,

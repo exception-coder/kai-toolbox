@@ -1,6 +1,7 @@
 import { PAGE_PREVIEW_STEER } from './pagePreviewTools.js'
 import { assemblyAllows, filterCodexAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { codexPredictions } from './codexPrediction.js'
+import { readCodexSdkTurnEvents, withCodexSdkLifecycle } from './engine/codexSdkLifecycle.js'
 import { EXECUTION_VERIFICATION_CODEX_TIMEOUT_SEC } from './execution/budget.js'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -578,6 +579,25 @@ function isReviewWorkspace(cwd: string): boolean {
 }
 
 async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Promise<void> {
+  let result: Record<string, unknown> | undefined
+  const sdkTurn = {
+    sessionId: ctx.sessionId ?? `ephemeral:${Date.now()}:${Math.random()}`,
+    threadId: ctx.sdkSessionId,
+    codexHome: normalizeCodexHome(ctx.codexHome),
+    signal: ctx.signal,
+  }
+  await withCodexSdkLifecycle(sdkTurn, () => executeCodexSdkTurn({ ...ctx, emit: event => {
+    if (event.type === 'init' && typeof event.sdkSessionId === 'string') sdkTurn.threadId = event.sdkSessionId
+    if (event.type === 'result') result = event
+    else ctx.emit(event)
+  } }, transport))
+  ctx.emit(result
+    ? { ...result, ...(ctx.signal.aborted ? { stopReason: 'interrupted' } : {}),
+      queueReleaseSafe: result.stopReason === 'end_turn' && !ctx.signal.aborted }
+    : { type: 'result', usage: {}, stopReason: ctx.signal.aborted ? 'interrupted' : 'error', queueReleaseSafe: false })
+}
+
+async function executeCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Promise<void> {
   const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const home = normalizeCodexHome(ctx.codexHome)
   if (!validateCodexHome(ctx, home)) return
@@ -627,7 +647,7 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
     }
     const thread = ctx.sdkSessionId ? client.resumeThread(ctx.sdkSessionId, opts) : client.startThread(opts)
     const { events } = await thread.runStreamed(prepared.input, { signal: ctx.signal })
-    for await (const ev of events) {
+    for await (const ev of readCodexSdkTurnEvents(events)) {
       switch (ev.type) {
         case 'thread.started':
           if (ev.thread_id) {

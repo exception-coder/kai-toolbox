@@ -29,6 +29,18 @@ The system SHALL recover an interrupted session only after fresh runtime evidenc
 - **WHEN** the backend reconciliation deadline expires while Sidecar still reports the interrupted turn as active
 - **THEN** the backend keeps the turn active and requests fresh runtime state instead of manufacturing a completed terminal state
 
+#### Scenario: SDK terminal event without output EOF
+
+- **WHEN** the Codex SDK fallback or gateway has delivered a successful or failed native terminal event but its output stream remains open
+- **THEN** the adapter ends SDK iteration and confirms its owned native process has exited before publishing the settled result
+- **AND** cancelling during cleanup changes an unpublished success to interrupted without releasing queued input
+
+#### Scenario: SDK removes process listeners during cleanup
+
+- **WHEN** SDK cleanup removes ChildProcess listeners before the adapter has confirmed native exit
+- **THEN** the adapter rechecks recorded native exit properties instead of waiting indefinitely for a detached listener
+- **AND** absent process ownership or unconfirmed exit cannot be reported as a successful turn or bypass the native writer barrier
+
 ### Requirement: Recovery guidance
 
 The interface SHALL provide an explicit reload action for interrupted sessions and a recheck action when runtime state is unavailable or inconsistent.
