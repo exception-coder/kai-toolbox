@@ -13,26 +13,32 @@ import java.util.Optional;
 public class HostRepository {
 
     private final JdbcTemplate jdbc;
+    private final com.exceptioncoder.toolbox.common.resource.ResourceCredentialCipher cipher;
 
-    public HostRepository(JdbcTemplate jdbc) {
+    public HostRepository(JdbcTemplate jdbc, com.exceptioncoder.toolbox.common.resource.ResourceCredentialCipher cipher) {
         this.jdbc = jdbc;
+        this.cipher = cipher;
     }
 
-    private static final RowMapper<Host> ROW = (rs, i) -> Host.builder()
+    private final RowMapper<Host> ROW = this::readHost;
+
+    private Host readHost(java.sql.ResultSet rs, int index) throws java.sql.SQLException {
+        return Host.builder()
             .id(rs.getString("id"))
             .name(rs.getString("name"))
             .host(rs.getString("host"))
             .port(rs.getInt("port"))
             .username(rs.getString("username"))
             .authType(HostAuthType.valueOf(rs.getString("auth_type")))
-            .password(rs.getString("password"))
+            .password(this.cipher.decrypt(rs.getString("password")))
             .privateKey(rs.getString("private_key"))
-            .passphrase(rs.getString("passphrase"))
+            .passphrase(this.cipher.decrypt(rs.getString("passphrase")))
             .tag(rs.getString("tag"))
             .note(rs.getString("note"))
             .createdAt(rs.getLong("created_at"))
             .updatedAt(rs.getLong("updated_at"))
             .build();
+    }
 
     public List<Host> findAll() {
         return jdbc.query("SELECT * FROM host ORDER BY updated_at DESC, name ASC", ROW);
@@ -62,7 +68,7 @@ public class HostRepository {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 h.getId(), h.getName(), h.getHost(), h.getPort(), h.getUsername(),
-                h.getAuthType().name(), h.getPassword(), h.getPrivateKey(), h.getPassphrase(),
+                h.getAuthType().name(), cipher.encrypt(h.getPassword()), h.getPrivateKey(), cipher.encrypt(h.getPassphrase()),
                 h.getTag(), h.getNote(),
                 h.getCreatedAt(), h.getUpdatedAt());
     }
@@ -76,7 +82,7 @@ public class HostRepository {
                  WHERE id = ?
                 """,
                 h.getName(), h.getHost(), h.getPort(), h.getUsername(), h.getAuthType().name(),
-                h.getPassword(), h.getPrivateKey(), h.getPassphrase(),
+                cipher.encrypt(h.getPassword()), h.getPrivateKey(), cipher.encrypt(h.getPassphrase()),
                 h.getTag(), h.getNote(),
                 h.getUpdatedAt(), h.getId());
     }

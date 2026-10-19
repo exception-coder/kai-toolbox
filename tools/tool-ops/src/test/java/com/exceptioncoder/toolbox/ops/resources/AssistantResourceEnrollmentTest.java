@@ -33,6 +33,19 @@ class AssistantResourceEnrollmentTest {
     JdbcApplicationResourceRepository applications;
     AssistantResourceEnrollment service;
     TransactionTemplate transaction;
+    final com.exceptioncoder.toolbox.common.resource.HostEnrollmentGateway hostGateway = mock(com.exceptioncoder.toolbox.common.resource.HostEnrollmentGateway.class);
+
+    @Test void hostEnrollmentUsesTheOwningModuleAndDeduplicatesTheReceipt() {
+        when(hostGateway.register(any())).thenReturn("registered-host");
+        var command = new AssistantResourceEnrollment.Command(UUID.randomUUID().toString(), "HOST", "ERP 生产主机",
+                "PROD", "erp", "SSH", "10.0.0.8", 22, "", "", "", "ops", "secret");
+        var first = transaction.execute(status -> service.enroll(command));
+        var retried = transaction.execute(status -> service.enroll(command));
+        assertThat(retried).isEqualTo(first);
+        assertThat(first.configurationUrl()).isEqualTo("/tools/hosts");
+        verify(hostGateway, times(1)).register(any());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ops_datasource", Integer.class)).isZero();
+    }
 
     @BeforeEach void setup() {
         source = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
@@ -48,7 +61,7 @@ class AssistantResourceEnrollmentTest {
                 mock(com.exceptioncoder.toolbox.ops.repository.QueryHistoryRepository.class),
                 mock(com.exceptioncoder.toolbox.ops.service.OpsDataSourcePool.class));
         service = new AssistantResourceEnrollment(datasourceService, datasources,
-                new ApplicationResourceService(applications), jdbc, cipher, new ObjectMapper());
+                new ApplicationResourceService(applications), jdbc, cipher, new ObjectMapper(), List.of(hostGateway));
         transaction = new TransactionTemplate(new DataSourceTransactionManager(source));
         AuthContext.set(new AuthPrincipal(1, "admin", List.of("ADMIN"), List.of(), "test", Long.MAX_VALUE));
     }

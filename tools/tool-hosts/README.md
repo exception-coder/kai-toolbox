@@ -2,6 +2,8 @@
 
 主机管理复用已登记的 SSH 账号，管理员点击主机行的「SFTP 文件」浏览目录、下载与上传。仅支持 SFTP SSH，不支持普通 FTP/FTPS。
 
+资源管家可通过自然描述或 SSH 连接串登记密码认证的主机，确认后经公共 HostEnrollmentGateway 调用本模块，不创建另一份主机目录，也不测试连接或执行命令。环境与原资源中心系统分组写入主机 tag；不等同 Project Registry 绑定。主机仓储的新密码与 passphrase 经 ResourceCredentialCipher 加密，历史明文兼容读取并在下次正常保存时封装；当前宿主复用 OpsCredentialCipher 的原密钥文件。备份数据库必须同时备份服务账号的密钥，缺失/损坏时恢复原密钥；独立装配 hosts 模块时须提供该公共端口。API 继续只返回凭据是否存在。
+
 1. 在主机管理登记 hostname（不含 http://）、SSH 端口、用户名与密码或私钥。
 2. 通过管理员可信渠道核对服务器主机密钥，并登记到 **Forge 服务账号** ~/.ssh/known_hosts；非标准端口使用 [hostname]:port 格式。不要仅凭 ssh-keyscan 输出自动信任。
 3. 点击「SFTP 文件」，打开远端目录。原「测试连接」执行SSH命令，仅SFTP账号不必通过它，应以目录读取结果验收。Windows 可尝试 C:/目录，最终以服务器返回的路径为准。

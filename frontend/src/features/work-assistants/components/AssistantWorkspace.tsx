@@ -11,6 +11,7 @@ import type { AssistantMemory } from '../runtime/AssistantHost'
 import { RobotPortrait } from './RobotPortrait'
 import { AssistantSetup } from './AssistantSetup'
 import { SecureResourceForm } from './SecureResourceForm'
+import { ResourceIntake } from './ResourceIntake'
 import '../styles.css'
 
 export function AssistantWorkspace({ selection, memory, onSecureDirtyChange, onSecureBusyChange }: { selection: { assistant?: string; session?: string; revision: number }; memory: AssistantMemory; onSecureDirtyChange?: (dirty: boolean) => void; onSecureBusyChange?: (busy: boolean) => void }) {
@@ -29,7 +30,7 @@ export function AssistantWorkspace({ selection, memory, onSecureDirtyChange, onS
   const [assistantId, setAssistant] = useState(selection.assistant || memory.assistantId || 'weekly')
   const [sessionId, setSessionId] = useState<string | undefined>(selection.session || (!selection.assistant || memory.assistantId === selection.assistant ? memory.sessionId : undefined))
   const [draft, setDraft] = useState(() => memory.drafts[selection.session || memory.sessionId || 'new'] || '')
-  const [setup, setSetup] = useState(false), [history, setHistory] = useState(false), [secure, setSecure] = useState(false)
+  const [setup, setSetup] = useState(assistantId === 'resources'), [history, setHistory] = useState(false), [secure, setSecure] = useState(false)
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('')
   const mounted = useRef(true), identity = useRef(sessionId), input = useRef<HTMLTextAreaElement>(null)
   const request = useRef<{ id: string; session: string; text: string } | null>(null)
@@ -40,6 +41,7 @@ export function AssistantWorkspace({ selection, memory, onSecureDirtyChange, onS
     refetchInterval: state => state.state.data?.turns.some(turn => turn.status === 'RUNNING') ? 1500 : false })
   const active = current.data?.turns.find(turn => turn.status === 'RUNNING')
   const assistant = catalog.data?.assistants.find(item => item.id === assistantId)
+  const setupVersion = memory.selectionVersion
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const changeDraft = (text: string) => { memory.drafts[sessionId || 'new'] = text; setDraft(text) }
   const select = (id: string, target?: string) => {
@@ -52,11 +54,12 @@ export function AssistantWorkspace({ selection, memory, onSecureDirtyChange, onS
     if (selection.assistant || selection.session) {
       const target = selection.session || sessions.data?.find(item => item.assistantId === selection.assistant)?.id
       select(selection.assistant || 'weekly', target)
+      if (selection.assistant === 'resources' && !selection.session) setSetup(true)
     }
     // 请求选择只在目录读取后及显式唤醒时应用，轮询不重新选择会话。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection.revision, !!sessions.data])
-  const open = async (engine: string, model: string, scope: Scope) => {
+  const open = async (engine: string, model: string, scope: Scope, initialInput: string) => {
     const version = memory.selectionVersion
     setBusy(true); setError('')
     try {
@@ -67,6 +70,15 @@ export function AssistantWorkspace({ selection, memory, onSecureDirtyChange, onS
       }
       query.setQueryData(['work-assistants', owner, 'session', value.id], value)
       void query.invalidateQueries({ queryKey: ['work-assistants', owner, 'sessions'] })
+      memory.drafts[value.id] = initialInput
+      if (mounted.current && identity.current === value.id) setDraft(initialInput)
+      const initialRequest = request.current?.session === value.id && request.current.text === initialInput ? request.current.id : crypto.randomUUID()
+      request.current = { id: initialRequest, session: value.id, text: initialInput }
+      await sendMessage(value.id, initialRequest, initialInput)
+      if (memory.drafts[value.id] === initialInput) memory.drafts[value.id] = ''
+      if (memory.drafts['setup:weekly'] === initialInput) delete memory.drafts['setup:weekly']
+      if (mounted.current && identity.current === value.id) setDraft(currentDraft => currentDraft === initialInput ? '' : currentDraft)
+      void query.invalidateQueries({ queryKey: ['work-assistants', owner, 'session', value.id] })
     } catch (failure) { if (mounted.current) setError(failure instanceof Error ? failure.message : '任务准备失败') }
     finally { if (mounted.current) setBusy(false) }
   }
@@ -104,14 +116,14 @@ export function AssistantWorkspace({ selection, memory, onSecureDirtyChange, onS
       <Button variant="ghost" className="min-h-11" disabled={secureBusy} aria-label="查看助理历史" onClick={() => void leaveSecure(() => { setHistory(value => !value); setSecure(false) })}><History className="size-4" /></Button>
       <Button variant="outline" className="min-h-11" disabled={busy || secureBusy} onClick={() => void leaveSecure(() => { creation.current = crypto.randomUUID(); setSetup(true); setSecure(false); setHistory(false) })}><Plus className="mr-2 size-4" />新任务</Button>
     </div>
-    <div className="flex gap-2 border-b px-5 py-2" role="group" aria-label="切换助理">{catalog.data?.assistants.map(item => <button key={item.id} disabled={!item.enabled || busy || secureBusy} aria-pressed={assistantId === item.id} onClick={() => void leaveSecure(() => select(item.id, sessions.data?.find(value => value.assistantId === item.id)?.id))} className={`min-h-11 rounded-md px-3 text-sm ${assistantId === item.id ? 'bg-[var(--color-accent)] font-medium' : 'text-[var(--color-muted-foreground)]'}`}>{item.name}</button>)}</div>
+    <div className="flex gap-2 border-b px-5 py-2" role="group" aria-label="切换助理">{catalog.data?.assistants.map(item => <button key={item.id} disabled={!item.enabled || busy || secureBusy} aria-pressed={assistantId === item.id} onClick={() => void leaveSecure(() => { select(item.id, sessions.data?.find(value => value.assistantId === item.id)?.id); if (item.id === 'resources') setSetup(true) })} className={`min-h-11 rounded-md px-3 text-sm ${assistantId === item.id ? 'bg-[var(--color-accent)] font-medium' : 'text-[var(--color-muted-foreground)]'}`}>{item.name}</button>)}</div>
     {catalog.isError && <p role="alert" className="p-5 text-sm">助理目录不可用，<button className="min-h-11 underline" onClick={() => void catalog.refetch()}>重新读取</button></p>}
     {error && <p role="alert" className="shrink-0 break-words px-5 py-3 text-sm text-[var(--color-destructive)]">{error}</p>}
     {notice && <p role="status" className="px-5 py-2 text-xs">{notice}</p>}
     {!sessionId && !sessions.isSuccess ? <div role={sessions.isError ? 'alert' : 'status'} className="p-5 text-sm"><p>{sessions.isError ? '任务目录读取失败，请先恢复后再创建，避免重复任务。' : '正在恢复最近的助理任务…'}</p>{sessions.isError && <Button className="mt-3" variant="outline" onClick={() => void sessions.refetch()}>重新读取</Button>}</div>
       : secure ? <SecureResourceForm onDirtyChange={dirtyChanged} onBusyChange={busyChanged} onClose={() => { setSecure(false); input.current?.focus() }} />
       : history ? <div className="min-h-0 flex-1 overflow-y-auto p-5"><h3 className="mb-3 text-sm font-medium">任务历史</h3>{sessions.data?.filter(value => value.assistantId === assistantId).map(value => <button key={value.id} className="min-h-14 w-full border-b py-3 text-left text-sm" onClick={() => select(value.assistantId, value.id)}>{value.title}</button>)}<Button className="mt-4" variant="ghost" onClick={() => setHistory(false)}>返回对话</Button></div>
-      : setup || !sessionId ? <div className="min-h-0 flex-1 overflow-y-auto"><AssistantSetup key={assistantId} assistant={assistantId} projects={catalog.data?.projects || []} busy={busy} onStart={(engine, model, scope) => void open(engine, model, scope)} />{assistantId === 'resources' && assistant?.enabled && <Button className="mx-5 mb-5" variant="outline" onClick={() => setSecure(true)}><LockKeyhole className="mr-2 size-4" />直接安全登记</Button>}</div>
+      : setup || !sessionId ? assistantId === 'resources' ? <ResourceIntake onDirtyChange={dirtyChanged} onBusyChange={busyChanged} onManual={() => setSecure(true)} onClose={() => { setSetup(false); input.current?.focus() }} /> : <div className="min-h-0 flex-1 overflow-y-auto"><AssistantSetup key={assistantId} assistant={assistantId} projects={catalog.data?.projects || []} busy={busy} initialInput={memory.drafts['setup:weekly']} onInputChange={value => { memory.drafts['setup:weekly'] = value }} onPlanningChange={setBusy} onStart={async (...args) => { if (memory.selectionVersion === setupVersion) await open(...args) }} /></div>
       : <>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5" aria-label="助理任务对话">
           {current.isPending && <div role="status" className="h-24 animate-pulse rounded bg-[var(--color-muted)]" />}
@@ -124,7 +136,7 @@ export function AssistantWorkspace({ selection, memory, onSecureDirtyChange, onS
           </article>)}
         </div>
         <ComposerFileDropZone sessionId={sessionId} onFiles={drop} disabledReason={busy ? '正在提交，请稍后添加文字附件' : undefined} className="shrink-0 space-y-3 border-t p-4">
-          {assistantId === 'resources' && <Button variant="outline" className="min-h-11" onClick={() => setSecure(true)}><LockKeyhole className="mr-2 size-4" />安全登记连接与账号</Button>}
+          {assistantId === 'resources' && <Button variant="outline" className="min-h-11" onClick={() => setSetup(true)}><LockKeyhole className="mr-2 size-4" />粘贴登记连接与主机</Button>}
           <textarea ref={input} aria-label="给工作助理的消息" className="wa-field max-h-40 min-h-24 resize-y" value={draft} maxLength={12000} placeholder="说说需要处理的工作…（请勿输入密码）" onChange={event => changeDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing) { event.preventDefault(); void send() } }} />
           <div className="flex flex-wrap items-center gap-2"><VoiceInputButton key={sessionId} scope="work-assistants" disabled={busy || !!active} onText={text => changeDraft(`${draft}${draft ? '\n' : ''}${text}`)} /><span className="min-w-0 flex-1 text-xs text-[var(--color-muted-foreground)]">Ctrl / ⌘ + Enter 发送 · 可拖入文字附件</span>
             {active ? <Button variant="outline" disabled={busy} onClick={() => void cancelTurn(sessionId, active.id).then(() => current.refetch()).catch(() => setError('取消请求失败，请刷新核对任务状态'))}><Square className="mr-2 size-4" />取消任务</Button>

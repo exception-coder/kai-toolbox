@@ -14,8 +14,9 @@ export const getSession = (id: string) => http<Session>(`${base}/sessions/${enco
 export const createSession = (body: { assistantId: string; newTask: boolean; requestId: string; engine: string; model: string; scope: Scope }) => post<Session>(`${base}/sessions`, body)
 export const sendMessage = (id: string, requestId: string, input: string) => post<Turn>(`${base}/sessions/${encodeURIComponent(id)}/messages`, { requestId, input })
 export const cancelTurn = (id: string, turn: string) => post<void>(`${base}/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turn)}/cancel`, {})
+export const resolveWeeklyRequest = (body: { projectIds: string[]; input: string; engine: string; model: string }) => post<{ scope: Scope | null; message: string }>(`${base}/weekly/resolve`, body)
 export interface Enrollment {
-  requestId: string; kind: 'DATABASE' | 'APPLICATION'; name: string; environment: string; systemId: string;
+  requestId: string; kind: 'DATABASE' | 'APPLICATION' | 'HOST'; name: string; environment: string; systemId: string;
   type: string; host: string; port: number; database: string; baseUrl: string; loginPath: string; username: string; password: string
 }
 export const enrollResource = (body: Enrollment) => post<{ resourceId: string; configurationUrl: string }>('/ops/assistant-enrollment', body)

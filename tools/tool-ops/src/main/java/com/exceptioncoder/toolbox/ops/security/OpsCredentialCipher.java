@@ -24,7 +24,7 @@ import java.util.List;
 
 /** 原资源仓储的凭据封装；密钥独立于 SQLite，历史明文仅兼容读取。 */
 @Component
-public class OpsCredentialCipher {
+public class OpsCredentialCipher implements com.exceptioncoder.toolbox.common.resource.ResourceCredentialCipher {
     private static final String PREFIX = "forge-ops:v1:";
     private final Path keyFile;
     private final SecureRandom random = new SecureRandom();

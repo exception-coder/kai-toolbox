@@ -368,15 +368,20 @@ flowchart LR
 
 工作助理通过独立的用户逻辑会话组织周报和资源登记，不接管 Vibe Coding 当前会话。Shell 只保留轻量唤醒入口，机器人工作区按需加载。平台保存随包发布的 Skill 全文与 SHA-256；新任务绑定快照，执行前核验并显式交接给 AgentOneShotRunner。每轮复用现有 Claude/Codex 一次性执行器，携带有界可见历史与平台采集证据，不声称复制或持续恢复原生 thread，也不以能力目录存在代替加载证据。引擎账号是否可用仍需目标版本运行验证。
 
+默认入口只保留项目选择与自然语言输入，模型/引擎放在高级设置。周报先通过禁用工具的一次性规划提取明确作者和受控周期，平台按上海日历计算相对日期、复核项目及规模后采集事实，创建会话并幂等发送首轮；缺失条件追问，不猜作者。规划有并发和 90 秒等待上限，未创建会话前不执行 Git。资源粘贴为独立确定性登记流程：在本地按有限环境/类型词表和连接语法识别已标注信息，缺失或歧义只提示补充；密码与原文不进入模型或会话，确认后才写入原资源中心。SSH 主机通过 common 的 HostEnrollmentGateway 路由到原主机模块；密码/passphrase 仓储使用 ResourceCredentialCipher，复用现有 OpsCredentialCipher 的密钥和兼容读取，禁止 tool-to-tool 依赖。资源中心分组和主机 tag 不被当成 Project Registry 绑定。本次自然语言入口及主机扩展待目标版本加载与真实账号/手机验收。
+
 ```mermaid
 flowchart LR
     ENTRY["机器人首页 / 常驻助理坞"] --> SESSION["当前用户助理会话<br/>Skill 快照 + 有界历史"]
     CATALOG["ProjectCatalog + ProjectAccess"] --> GIT["受控 Git 只读采集"]
+    ENTRY --> PLAN["自然需求提取作者与周期<br/>平台校验与上海日历"]
+    PLAN --> GIT
     GIT --> SESSION
     SESSION --> RUNNER["原 AgentOneShotRunner<br/>Claude / Codex · 工具关闭"]
     RUNNER --> RESULT["任务状态与正文结果<br/>复制 / Markdown 下载"]
-    ENTRY --> SECURE["安全登记表单<br/>本地解析 · 预览确认"]
+    ENTRY --> SECURE["安全自然输入<br/>本地解析 · 缺项补充 · 预览确认"]
     SECURE --> OPS["原资源中心<br/>管理员校验 · 幂等回执 · 凭据加密"]
+    OPS --> HOSTS["HostEnrollmentGateway<br/>原主机模块 · 共享凭据封装端口"]
 ```
 
 普通助理消息不获得终端、宿主写入或数据库执行能力。周报事实由平台校验项目、作者、日期与采集规模后提供；资源元数据与真实连通性分开。密码经专用登记入口直接进入 ops，不交给模型或会话；原仓储加密新写入、兼容历史读取，密钥与 SQLite 分开保管。登记生产资源不改变原执行环境门禁。会话所有者、资源管理员与菜单权限在服务端检查，不以 UI 显隐或 Skill 代替。

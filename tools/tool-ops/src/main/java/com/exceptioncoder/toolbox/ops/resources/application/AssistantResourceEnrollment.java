@@ -23,15 +23,18 @@ public class AssistantResourceEnrollment {
     private final JdbcTemplate jdbc;
     private final OpsCredentialCipher cipher;
     private final ObjectMapper mapper;
+    private final List<com.exceptioncoder.toolbox.common.resource.HostEnrollmentGateway> hosts;
 
     public AssistantResourceEnrollment(OpsDatasourceService datasources, DatasourceRepository datasourceRepository,
-            ApplicationResourceService applications, JdbcTemplate jdbc, OpsCredentialCipher cipher, ObjectMapper mapper) {
+            ApplicationResourceService applications, JdbcTemplate jdbc, OpsCredentialCipher cipher, ObjectMapper mapper,
+            List<com.exceptioncoder.toolbox.common.resource.HostEnrollmentGateway> hosts) {
         this.datasources = datasources;
         this.datasourceRepository = datasourceRepository;
         this.applications = applications;
         this.jdbc = jdbc;
         this.cipher = cipher;
         this.mapper = mapper;
+        this.hosts = hosts;
     }
 
     /** 验证权限、目标和重复资源后一次性保存；事务失败不留下成功回执。 */
@@ -61,7 +64,11 @@ public class AssistantResourceEnrollment {
                         return receipt(row.getString("resource_id"), row.getString("kind"));
                     }, user.userId(), command.requestId()).getFirst();
         }
-        String id = "DATABASE".equals(command.kind()) ? createDatasource(command) : createApplication(command);
+        String id = switch (command.kind()) {
+            case "DATABASE" -> createDatasource(command);
+            case "HOST" -> createHost(command);
+            default -> createApplication(command);
+        };
         jdbc.update("UPDATE ops_assistant_enrollment SET resource_id=? WHERE user_id=? AND request_id=?",
                 id, user.userId(), command.requestId());
         return receipt(id, command.kind());
@@ -84,6 +91,15 @@ public class AssistantResourceEnrollment {
                 null, null, 0)).getId();
     }
 
+    private String createHost(Command value) {
+        if (hosts.size() != 1) throw new IllegalArgumentException("主机登记能力未就绪，请到主机管理核对");
+        if (value.systemId() == null || jdbc.queryForObject("SELECT count(*) FROM ops_system WHERE id=?", Integer.class, value.systemId()) == 0) {
+            throw new IllegalArgumentException("请选择已有系统分组");
+        }
+        return hosts.getFirst().register(new com.exceptioncoder.toolbox.common.resource.HostEnrollmentGateway.Command(
+                value.name(), value.environment(), value.systemId(), value.host(), value.port(), value.username(), value.password()));
+    }
+
     private String createApplication(Command value) {
         String url = java.net.URI.create(value.baseUrl()).normalize().toString().replaceAll("/+$", "");
         if (applications.list().stream().anyMatch(item -> item.environment().equals(value.environment())
@@ -97,7 +113,7 @@ public class AssistantResourceEnrollment {
 
     private void validate(Command value) {
         if (value == null || value.requestId() == null || !value.requestId().matches("[A-Za-z0-9-]{16,80}")
-                || !Set.of("DATABASE", "APPLICATION").contains(value.kind() == null ? "" : value.kind())
+                || !Set.of("DATABASE", "APPLICATION", "HOST").contains(value.kind() == null ? "" : value.kind())
                 || !Set.of("LOCAL", "DEV", "TEST", "UAT", "PROD").contains(value.environment() == null ? "" : value.environment())
                 || value.name() == null || value.name().isBlank() || value.name().length() > 100
                 || value.password() != null && value.password().length() > 4096) {
@@ -132,6 +148,10 @@ public class AssistantResourceEnrollment {
                 throw new IllegalArgumentException("登录路径须为站内路径，不含查询参数或凭据");
             }
         }
+        if ("HOST".equals(value.kind()) && (value.host() == null || !value.host().matches("[A-Za-z0-9.:-]{1,253}")
+                || value.port() == null || value.port() < 1 || value.port() > 65535)) {
+            throw new IllegalArgumentException("请核对主机地址和 SSH 端口");
+        }
     }
 
     private static String blank(String value) {
@@ -139,6 +159,7 @@ public class AssistantResourceEnrollment {
     }
 
     private Receipt receipt(String id, String kind) {
+        if ("HOST".equals(kind)) return new Receipt(id, "/tools/hosts");
         return new Receipt(id, "/tools/reqpool/resources?view="
                 + ("DATABASE".equals(kind) ? "connections&editDatasource=" + id : "accounts"));
     }

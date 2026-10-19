@@ -3,9 +3,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AssistantWorkspace } from './AssistantWorkspace'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
-import { getCatalog, listSessions, getSession, sendMessage, type Session } from '../api'
+import { getCatalog, listSessions, getSession, sendMessage, createSession, resolveWeeklyRequest, type Session } from '../api'
 
-vi.mock('../api', () => ({ getCatalog: vi.fn(), listSessions: vi.fn(), getSession: vi.fn(), sendMessage: vi.fn(), createSession: vi.fn(), cancelTurn: vi.fn() }))
+vi.mock('../api', () => ({ getCatalog: vi.fn(), listSessions: vi.fn(), getSession: vi.fn(), sendMessage: vi.fn(), createSession: vi.fn(), cancelTurn: vi.fn(), resolveWeeklyRequest: vi.fn() }))
 vi.mock('@/features/claude-chat/public-api', () => ({ Markdown: ({ text }: { text: string }) => <p>{text}</p>, ComposerFileDropZone: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }))
 vi.mock('@/features/claude-chat/public-api/voice', () => ({ VoiceInputButton: ({ onText }: { onText: (text: string) => void }) => <button onClick={() => onText('语音草稿')}>语音输入</button> }))
 vi.mock('./SecureResourceForm', () => ({ SecureResourceForm: () => <div>安全登记</div> }))
@@ -17,6 +17,25 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><ConfirmProvider>{children}</ConfirmProvider></QueryClientProvider>
+
+it('creates and submits the natural request once, preserving its retry key if the first acknowledgement fails', async () => {
+  vi.mocked(getCatalog).mockResolvedValue({ assistants: [{ id: 'weekly', name: '周报助理', description: '周报', enabled: true, skill: 'weekly', skillHash: 'hash' }], projects: [{ id: 'erp', name: 'ERP', path: '/erp' }] })
+  vi.mocked(listSessions).mockResolvedValue([])
+  vi.mocked(resolveWeeklyRequest).mockResolvedValue({ scope: { projectIds: ['erp'], author: '张凯', from: '2026-10-12', through: '2026-10-18' }, message: '已识别' })
+  vi.mocked(createSession).mockResolvedValue(session('created'))
+  vi.mocked(sendMessage).mockRejectedValue(new Error('首次提交未确认'))
+  const memory = { drafts: {} }
+  render(<AssistantWorkspace selection={{ revision: 0 }} memory={memory} />, { wrapper })
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'ERP' }))
+  fireEvent.change(screen.getByRole('textbox', { name: '交给助理的工作' }), { target: { value: '看看上周张凯的提交' } })
+  fireEvent.click(screen.getByRole('button', { name: '交给助理' }))
+  await screen.findByText('首次提交未确认')
+  expect(screen.getByRole('textbox', { name: '给工作助理的消息' })).toHaveValue('看看上周张凯的提交')
+  fireEvent.click(screen.getByRole('button', { name: '交给助理' }))
+  await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2))
+  expect(vi.mocked(sendMessage).mock.calls[0]).toEqual(vi.mocked(sendMessage).mock.calls[1])
+  expect(createSession).toHaveBeenCalledTimes(1)
+})
 
 it('voice only fills the retained draft and uncertain submit retries reuse the same request id', async () => {
   vi.mocked(sendMessage).mockRejectedValue(new Error('网络中断，请刷新核对'))
