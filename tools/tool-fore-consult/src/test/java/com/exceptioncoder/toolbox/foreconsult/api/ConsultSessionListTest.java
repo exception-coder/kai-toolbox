@@ -21,6 +21,25 @@ class ConsultSessionListTest {
             mock(BusinessConsultModelPolicyService.class));
 
     @Test
+    void ownRecentUsesSeparateOwnedLookupInsteadOfAdministrativeHistory() throws Exception {
+        when(service.listOwnRecent(1)).thenReturn(List.of(ConsultSession.builder().sessionId("own")
+                .userId("1").systemName("ERP").archiveStatus("SUCCESS").build()));
+        var mvc = MockMvcBuilders.standaloneSetup(controller).addInterceptors(new RequireAuthInterceptor())
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
+        try {
+            mvc.perform(get("/api/fore-consult/sessions/recent-own")).andExpect(status().isUnauthorized());
+            AuthContext.set(new AuthPrincipal(1, "admin", List.of("ADMIN"), List.of(), "j", 0));
+            mvc.perform(get("/api/fore-consult/sessions/recent-own")).andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].sessionId").value("own"))
+                    .andExpect(jsonPath("$[0].archiveStatus").value("SUCCESS"));
+            verify(service).listOwnRecent(1);
+            verify(service, never()).listRecent(anyInt());
+        } finally {
+            AuthContext.clear();
+        }
+    }
+
+    @Test
     void listsLegacySessionsWithUnknownCreatorWithoutDroppingThemOrInventingAnOwner() throws Exception {
         when(service.listRecent(50)).thenReturn(List.of(ConsultSession.builder().sessionId("legacy")
                 .systemName("ERP").devSessionId("original-runtime").archiveStatus("PENDING").build()));

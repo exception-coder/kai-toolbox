@@ -59,6 +59,18 @@ public class ConsultTurnRepository {
                 "SELECT * FROM consult_turn WHERE session_id = ? ORDER BY turn_index ASC", ROW, sessionId);
     }
 
+    /** 延续只读取最近六轮可见问答，每列截取 1000 字符；不加载附件、工具日志或提示词。 */
+    public List<ContextTurn> continuationExcerpt(String sessionId) {
+        return jdbc.query("SELECT turn_index, SUBSTR(question, 1, 1000) AS question, "
+                        + "SUBSTR(answer, 1, 1000) AS answer FROM consult_turn "
+                        + "WHERE session_id = ? ORDER BY turn_index DESC LIMIT 6",
+                (rs, i) -> new ContextTurn(rs.getInt("turn_index"), rs.getString("question"), rs.getString("answer")),
+                sessionId);
+    }
+
+    /** 用于交接的有界可见问答，不包含执行权限。 */
+    public record ContextTurn(int turnIndex, String question, String answer) { }
+
     /** 跨会话取有回答的轮次，最近优先。评测样本回捞用。 */
     public List<ConsultTurn> findAllAnswered(int limit) {
         return jdbc.query("SELECT * FROM consult_turn WHERE answer IS NOT NULL AND TRIM(answer) <> '' "

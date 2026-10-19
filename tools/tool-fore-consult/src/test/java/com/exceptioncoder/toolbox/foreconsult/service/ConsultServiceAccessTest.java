@@ -41,6 +41,14 @@ class ConsultServiceAccessTest {
     }
 
     @Test
+    void ownRecentAlwaysFiltersAdminIdentity() {
+        authenticate(7L, "admin", "ADMIN");
+        when(sessionRepo.findRecentByUserId("7", 1)).thenReturn(List.of(session("own", "7")));
+        assertThat(service.listOwnRecent(1)).extracting(ConsultSession::getSessionId).containsExactly("own");
+        verify(sessionRepo, never()).findRecent(1);
+    }
+
+    @Test
     void regularUserListsOnlyOwnSessions() {
         authenticate(7L, "yuy", "USER");
         ConsultSession own = session("own", "7");

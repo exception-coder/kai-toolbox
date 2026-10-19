@@ -37,6 +37,8 @@ import { checkConsultFiles } from '../consultAttachmentPolicy'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
+import { ConsultDesktopHeader, ConsultDayReminder, readContinuationReference } from '../components/ConsultDesktopWorkspace'
+import { requestConsultContinuation } from '../consultContinuation'
 import { EvidenceRouteManager } from '../components/EvidenceRouteManager'
 import { ConsultSkinToggle, useConsultSkin } from '../components/ConsultSkinToggle'
 import {
@@ -57,6 +59,7 @@ import {
   renameConsultQuestionTitle,
   saveSystemPrefs,
   startConsult,
+  listOwnRecentConsult,
   readConsultSourceRouting,
   syncConsultTurns,
   type ArchiveTurnItem,
@@ -530,9 +533,12 @@ export function ForeConsultPage() {
   const [panelOpen, setPanelOpen] = useState(true)
   const [conversationOpen, setConversationOpen] = useState(false)
   const [newConsultDraftOpen, setNewConsultDraftOpen] = useState(false)
+  const [desktopGraphOpen, setDesktopGraphOpen] = useState(false)
+  const [desktopToolsOpen, setDesktopToolsOpen] = useState(false)
+  const [continuationSource, setContinuationSource] = useState<ConsultSessionView | null>(null)
   const newConsultTrigger = useRef<HTMLButtonElement>(null)
   const conversationDrafts = useRef(new Map<string, ConsultConversationDraft>())
-  const [viewSession, setViewSession] = useState<{ id: string; title: string } | null>(null)
+  const [viewSession, setViewSession] = useState<{ id: string; title: string; reference?: boolean } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyDate, setHistoryDate] = useState('')
   const [historyUser, setHistoryUser] = useState('')
@@ -800,8 +806,12 @@ export function ForeConsultPage() {
     refetchOnMount: 'always',
   })
   const history = historyQuery.data
+  const ownRecentQuery = useQuery({
+    queryKey: ['fore-consult-own-recent', user?.userId], queryFn: listOwnRecentConsult,
+    enabled: !compact, staleTime: 0, refetchOnMount: 'always',
+  })
   const initialSessionStateError = !initialSessionStateResolved
-    ? historyQuery.error
+    ? historyQuery.error || (!compact ? ownRecentQuery.error : null)
     : null
   const { data: bugs } = useQuery({
     queryKey: ['fore-consult-bugs'],
@@ -970,9 +980,9 @@ export function ForeConsultPage() {
   const startMutation = useMutation({
     mutationFn: async () => {
       const cwd = systemPath || system.trim()
-      const selectedModules = newConsultDraftOpen ? [] : moduleTags
+      const selectedModules = newConsultDraftOpen && !hasSourcePreference ? [] : moduleTags
       const legacySeed = buildConsultSeed(system.trim(), selectedModules, ask, CONSULT_ROLE)
-      const created = await startConsult({
+      const request = {
         autoDetect: true,
         systemName: hasSourcePreference ? system.trim() : '',
         systemSourcePath: hasSourcePreference ? cwd : '',
@@ -980,16 +990,34 @@ export function ForeConsultPage() {
         questionTitle: buildQuestionTitle(questionTitle.trim() || ask.trim().replace(/\s+/g, ' ').slice(0, QUESTION_TITLE_MAX_LENGTH) || '截图问题'),
         question: ask.trim() || '请结合附件识别并分析业务问题',
         role: CONSULT_ROLE,
-        engine: 'codex',
+        engine: 'codex' as const,
         model: isAdmin ? consultModel : null,
         codexReasoningEffort: isAdmin ? consultReasoningEffort : 'low',
-        codexSpeed: isAdmin ? consultSpeed : 'default',
+        codexSpeed: isAdmin ? consultSpeed : 'default' as const,
         orchestrationVersion,
-      })
+      }
+      const created = continuationSource
+        ? await requestConsultContinuation(user?.userId, continuationSource.sessionId, request,
+          JSON.stringify(attachments.map(attachment => ({ name: attachment.name, size: attachment.file?.size,
+            modified: attachment.file?.lastModified, mime: attachment.mime }))))
+        : await startConsult(request)
       return { created, seed: created.promptSnapshot || legacySeed, cwd: created.systemSourcePath }
     },
     onSuccess: ({ created, seed, cwd }) => {
+      if (created.devSessionId) {
+        // 断连重试命中已经建立的咨询时仅恢复原运行会话，不再次发送首问或改绑。
+        resumeConsult(created)
+        setContinuationSource(null)
+        setQuestionTitle('')
+        setAsk('')
+        qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
+        qc.invalidateQueries({ queryKey: ['fore-consult-own-recent'] })
+        return
+      }
       setRole(CONSULT_ROLE)
+      setContinuationSource(null)
+      setDesktopGraphOpen(false)
+      setDesktopToolsOpen(false)
       setActiveConsultId(created.sessionId)
       setActiveQuestionTitle(created.questionTitle || displayName(created.systemName))
       pendingRef.current = {
@@ -1013,6 +1041,7 @@ export function ForeConsultPage() {
       setAsk('')
       setPanelOpen(false)
       qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
+      qc.invalidateQueries({ queryKey: ['fore-consult-own-recent'] })
     },
   })
 
@@ -1212,6 +1241,8 @@ export function ForeConsultPage() {
 
   // 打开原咨询：归档只读；进行中的运行提示继续由实时事件校正。
   const resumeConsult = useCallback((s: ConsultSessionView) => {
+    setDesktopGraphOpen(false)
+    setDesktopToolsOpen(false)
     setMobileToolsOpen(false)
     const readOnly = s.archiveStatus !== 'PENDING'
     setActiveConsultReadOnly(readOnly)
@@ -1244,11 +1275,18 @@ export function ForeConsultPage() {
       || historyQuery.isPending
       || historyQuery.isFetching
       || historyQuery.isError
+      || (!compact && (ownRecentQuery.isPending || ownRecentQuery.isFetching || ownRecentQuery.isError))
     ) return
-    const pending = (history ?? []).find((session) =>
+    const pending = compact ? (history ?? []).find((session) =>
       session.archiveStatus === 'PENDING' && !!session.devSessionId,
-    )
-    if (pending) resumeConsult(pending)
+    ) : ownRecentQuery.data?.[0]
+    if (pending?.devSessionId) resumeConsult(pending)
+    else if (pending) {
+      setActiveConsultId(pending.sessionId)
+      setActiveQuestionTitle(pending.questionTitle || '最近咨询')
+      setViewSession({ id: pending.sessionId, title: pending.questionTitle || '最近咨询' })
+      setPanelOpen(false)
+    }
     setInitialSessionStateResolved(true)
   }, [
     history,
@@ -1257,7 +1295,23 @@ export function ForeConsultPage() {
     historyQuery.isPending,
     initialSessionStateResolved,
     resumeConsult,
+    compact, ownRecentQuery.data, ownRecentQuery.isPending, ownRecentQuery.isFetching, ownRecentQuery.isError,
   ])
+
+  const openDesktopDraft = (source: ConsultSessionView | null = null) => {
+    setContinuationSource(source)
+    setNewConsultDraftOpen(true)
+    setPanelOpen(true)
+    setViewSession(null)
+    setDesktopGraphOpen(false)
+    setDesktopToolsOpen(false)
+    setHasSourcePreference(Boolean(source))
+    setModuleTags(source?.moduleNames ?? [])
+    if (source) setSystem(source.systemName)
+    startMutation.reset()
+    requestAnimationFrame(() => containerRef.current?.querySelector<HTMLTextAreaElement>('[aria-label="业务问题"]')?.focus())
+  }
+
 
   const dismissHint = () => {
     setHintDismissed(true)
@@ -1269,6 +1323,11 @@ export function ForeConsultPage() {
   }
 
   const openSystem = (name: string) => {
+    if (!compact) {
+      setDesktopGraphOpen(false)
+      setNewConsultDraftOpen(true)
+      setContinuationSource(null)
+    }
     setMobileView('consult')
     dismissHint() // 点过星球即视为已学会，之后不再提示
     setSystem(name)
@@ -1423,7 +1482,20 @@ export function ForeConsultPage() {
     && initialSessionStateResolved && !attachmentChecking
   const retryInitialSessionState = () => {
     void historyQuery.refetch()
+    if (!compact) void ownRecentQuery.refetch()
   }
+  const currentConsult = (history ?? []).find(session => session.sessionId === activeConsultId)
+    ?? ownRecentQuery.data?.find(session => session.sessionId === activeConsultId)
+  const sourceReference = readContinuationReference(currentConsult?.evidenceRouteSnapshot)
+  const returnToDesktopConsult = () => {
+    setDesktopGraphOpen(false)
+    setNewConsultDraftOpen(false)
+    setPanelOpen(false)
+    if (currentConsult?.devSessionId) resumeConsult(currentConsult)
+    else if (currentConsult) setViewSession({ id: currentConsult.sessionId, title: currentConsult.questionTitle || '最近咨询' })
+  }
+  const desktopActionDisabled = !initialSessionStateResolved || startMutation.isPending || pendingDispatching
+    || Boolean(pendingRef.current) || archiveMutation.isPending
   const PanelIcon = iconForSystem(system, displayName(system))
   const deferredHistoryUser = useDeferredValue(historyUser)
   const filteredHistory = useMemo(() => {
@@ -1546,10 +1618,18 @@ export function ForeConsultPage() {
     <div
       ref={containerRef}
       data-consult-skin={skin}
-      className={`fc-space h-full min-h-0 w-full rounded-2xl ${
+      data-desktop-view={!compact ? desktopGraphOpen ? 'graph' : 'consult' : undefined}
+      className={`fc-space ${!compact ? 'fc-desktop-workspace' : ''} h-full min-h-0 w-full rounded-2xl ${
         pageVisible && topoMutation.isPending && !conversationOpen ? 'is-topology-animating' : ''
       }`}
     >
+      {!compact && <ConsultDesktopHeader title={!initialSessionStateResolved ? '正在恢复最近对话…' : newConsultDraftOpen ? continuationSource ? '延续咨询' : '新咨询' : viewSession?.title || activeQuestionTitle || '从一个问题开始'}
+        disabled={desktopActionDisabled} hasSession={Boolean(currentConsult)} draftOpen={newConsultDraftOpen || Boolean(viewSession)}
+        graphOpen={desktopGraphOpen} toolsOpen={desktopToolsOpen}
+        onNew={() => openDesktopDraft()} onExtend={() => openDesktopDraft(currentConsult ?? null)}
+        onContinue={returnToDesktopConsult}
+        onHistory={() => setHistoryOpen(value => !value)} onGraph={() => setDesktopGraphOpen(value => !value)}
+        onTools={() => setDesktopToolsOpen(value => !value)} />}
       {compact && <div className="fc-mobile-header">
         <div className="fc-mobile-header-row">
           {phone && openMobileNavigation && <button type="button" aria-label="打开导航" onClick={openMobileNavigation}><Menu className="size-5" /></button>}
@@ -1577,9 +1657,9 @@ export function ForeConsultPage() {
       </div>}
       {compact && mobileToolsOpen && <button type="button" className="fc-mobile-tools-backdrop" aria-label="关闭更多功能" onClick={() => { setMobileToolsOpen(false); mobileToolsTrigger.current?.focus() }} />}
       {/* 工具动作在手机更多菜单与桌面工具栏之间复用，不复制动作状态。 */}
-      <header hidden={compact && !mobileToolsOpen} className={compact ? 'fc-mobile-tools' : 'pointer-events-none absolute left-0 right-0 top-0 z-20 flex flex-col items-stretch gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-6'}
+      <header id="fc-consult-tools" hidden={compact ? !mobileToolsOpen : !desktopToolsOpen} className={compact ? 'fc-mobile-tools' : 'fc-desktop-tools'}
         onClick={compact ? () => setMobileToolsOpen(false) : undefined}
-        onKeyDown={event => { if (compact && event.key === 'Escape') { setMobileToolsOpen(false); mobileToolsTrigger.current?.focus() } }}>
+        onKeyDown={event => { if (event.key === 'Escape') { setMobileToolsOpen(false); setDesktopToolsOpen(false); if (compact) mobileToolsTrigger.current?.focus(); else containerRef.current?.querySelector<HTMLButtonElement>('[aria-label="更多咨询设置"]')?.focus() } }}>
         {compact && <button type="button" className="fc-mobile-tools-close" onClick={() => { setMobileToolsOpen(false); mobileToolsTrigger.current?.focus() }}>更多功能<X className="size-4" /></button>}
         <div className="fc-header-title flex min-w-0 shrink-0 items-center gap-2.5">
           <Radar className="size-5 text-sky-600" />
@@ -1635,6 +1715,7 @@ export function ForeConsultPage() {
           )}
           <button
             type="button"
+            hidden={!compact}
             onClick={() => { setMobileToolsOpen(false); setHistoryOpen((o) => !o) }}
             className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 lg:rounded-full"
           >
@@ -1714,7 +1795,7 @@ export function ForeConsultPage() {
 
       {/* 进行中横幅：对话面板打开时隐藏（面板 z-30 全屏遮罩会盖住本横幅 z-20，
           否则点这里的「结束并归档」会先被遮罩吃掉变成关闭对话，导致要点两次）。归档入口此时用面板头部的按钮。 */}
-      {!compact && activeConsultId && !activeConsultReadOnly && !conversationOpen && (
+      {!compact && desktopGraphOpen && activeConsultId && !activeConsultReadOnly && !conversationOpen && (
         <div
           className="absolute left-4 right-4 top-32 z-50 lg:left-1/2 lg:right-auto lg:top-14 lg:-translate-x-1/2 lg:p-3"
           onPointerDown={(event) => event.stopPropagation()}
@@ -1777,7 +1858,7 @@ export function ForeConsultPage() {
         </div>
       )}
 
-      <div ref={graphRef} id="fc-graph-view" role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-graph-tab' : undefined} className="fc-graph-surface absolute inset-0" hidden={phone && mobileView !== 'graph'}>
+      <div ref={graphRef} id="fc-graph-view" role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-graph-tab' : undefined} className="fc-graph-surface absolute inset-0" hidden={(!compact && !desktopGraphOpen) || (phone && mobileView !== 'graph')}>
       {/* 中央 AI 恒星：Forge —— 业务系统围绕其运行 */}
       {visibleProjects.length > 0 && (
         <div className="fc-core-wrap">
@@ -1969,12 +2050,17 @@ export function ForeConsultPage() {
         </div>
       </section>}
       {/* PC 维持原有首问工作区；手机使用独立输入布局、复用原状态和发送。 */}
-      {!compact && panelOpen && (
+      {!compact && panelOpen && !desktopGraphOpen && !viewSession && (
         <section
           className="fc-prompt-dock absolute bottom-5 left-1/2 z-40 w-[min(860px,calc(100%-32px))] -translate-x-1/2"
           style={{ ['--fc-hue' as string]: sysCat.color }}
           aria-label="自动识别业务咨询"
         >
+          <div className="fc-desktop-welcome"><h2>{continuationSource ? '接着上次的内容，开始新咨询' : '今天有什么需要帮忙？'}</h2>
+            <p>{continuationSource ? `来源：${continuationSource.questionTitle}。发送后带入最近已保存问答的有界摘录，原咨询保持不变。` : '直接描述业务问题，拖入文件或粘贴截图。Forge 会自动定位相关系统。'}</p>
+            {continuationSource && <button type="button" className="mt-3 min-h-9 text-sm underline" onClick={() => setContinuationSource(null)}>取消引用，作为全新问题</button>}
+            {activeConsultId && <button type="button" className="mt-3 ml-4 min-h-9 text-sm underline" onClick={returnToDesktopConsult}>返回当前咨询</button>}
+          </div>
           {modulePickerOpen && hasSourcePreference && (
             <div className="fc-module-picker absolute bottom-[calc(100%+10px)] left-1/2 w-[min(660px,100%)] -translate-x-1/2 overflow-hidden rounded-2xl p-3">
               <div className="mb-2 flex items-center justify-between px-1">
@@ -2084,7 +2170,8 @@ export function ForeConsultPage() {
                 type="button"
                 onClick={() => {
                   setModulePickerOpen(false)
-                  setPanelOpen(false)
+                  if (currentConsult) returnToDesktopConsult()
+                  else setDesktopGraphOpen(true)
                 }}
                 className="rounded-lg p-1.5 text-slate-400 hover:bg-white/65 hover:text-slate-900"
                 aria-label="关闭咨询入口"
@@ -2193,14 +2280,18 @@ export function ForeConsultPage() {
 
       {/* 独立业务咨询会话面板（不用 Vibe Coding 悬浮窗，复用同一 WS 同步渲染） */}
       {(conversationOpen || compact) && activeConsultId && (
-        <div id={compact && !newConsultDraftOpen && !viewSession ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : undefined} hidden={(compact && (newConsultDraftOpen || Boolean(viewSession))) || (phone && mobileView !== 'consult')}>
+        <div id={compact && !newConsultDraftOpen && !viewSession ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : 'fc-desktop-conversation'} hidden={newConsultDraftOpen || Boolean(viewSession) || (!compact && desktopGraphOpen) || (phone && mobileView !== 'consult')}>
+        {!compact && currentConsult && <ConsultDayReminder key={currentConsult.sessionId} session={currentConsult} disabled={desktopActionDisabled}
+          onNew={() => openDesktopDraft()} onExtend={() => openDesktopDraft(currentConsult)} />}
+        {!compact && sourceReference && <aside className="fc-desktop-notice"><span>延续自：{sourceReference.sourceTitle} · 已带入 {sourceReference.excerptTurnCount} 轮以内的摘录</span>
+          <button type="button" onClick={() => setViewSession({ id: sourceReference.sourceSessionId, title: sourceReference.sourceTitle, reference: true })}>查看旧咨询</button></aside>}
         <ConsultConversation
           key={activeConsultId}
           draftCache={conversationDrafts.current}
           readOnly={activeConsultReadOnly}
           onViewArchive={() => setViewSession({ id: activeConsultId, title: activeQuestionTitle || '历史咨询' })}
-          embedded={compact}
-          onViewGraph={() => { setMobileView('graph'); setCategoryFilter(null); requestAnimationFrame(() => { const node = Array.from(containerRef.current?.querySelectorAll<HTMLButtonElement>('[data-system-name]') ?? []).find(element => element.dataset.systemName === system); node?.focus({ preventScroll: true }) }) }}
+          embedded
+          onViewGraph={() => { setMobileView('graph'); setDesktopGraphOpen(true); setCategoryFilter(null); requestAnimationFrame(() => { const node = Array.from(containerRef.current?.querySelectorAll<HTMLButtonElement>('[data-system-name]') ?? []).find(element => element.dataset.systemName === system); node?.focus({ preventScroll: true }) }) }}
           chat={chat}
           consultId={activeConsultId}
           sourceRoutingEnabled={Boolean(readConsultSourceRouting((history ?? []).find((session) => session.sessionId === activeConsultId)?.evidenceRouteSnapshot))}
@@ -2222,7 +2313,7 @@ export function ForeConsultPage() {
 
       {/* 历史抽屉 */}
       {historyOpen && (
-        <div className={`fc-backdrop absolute inset-0 flex justify-end ${compact ? 'z-[70]' : 'z-30'}`} onClick={() => setHistoryOpen(false)}>
+        <div className="fc-backdrop absolute inset-0 z-[70] flex justify-end" onClick={() => setHistoryOpen(false)}>
           <div
             className="fc-panel h-full w-[min(400px,calc(100vw-2rem))] overflow-y-auto rounded-l-2xl p-5"
             onClick={(e) => e.stopPropagation()}
@@ -2361,8 +2452,10 @@ export function ForeConsultPage() {
 
       {/* 历史咨询详情（只读查看归档问答） */}
       {viewSession && (
-        <div id={compact ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : undefined} hidden={phone && mobileView !== 'consult'}>
-          <ConsultHistoryDetail key={viewSession.id} embedded={compact} sessionId={viewSession.id} title={viewSession.title} onResume={resumeConsult} onClose={() => { setViewSession(null); setHistoryOpen(true) }} />
+        <div id={compact ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : 'fc-desktop-archive'} hidden={(!compact && desktopGraphOpen) || (phone && mobileView !== 'consult')}>
+          {!compact && currentConsult && <ConsultDayReminder key={currentConsult.sessionId} session={currentConsult} disabled={desktopActionDisabled}
+            onNew={() => openDesktopDraft()} onExtend={() => openDesktopDraft(currentConsult)} />}
+          <ConsultHistoryDetail key={viewSession.id} embedded sessionId={viewSession.id} title={viewSession.title} onResume={viewSession.reference ? undefined : resumeConsult} onClose={() => { if (viewSession.reference) returnToDesktopConsult(); else { setViewSession(null); setHistoryOpen(true) } }} />
         </div>
       )}
 

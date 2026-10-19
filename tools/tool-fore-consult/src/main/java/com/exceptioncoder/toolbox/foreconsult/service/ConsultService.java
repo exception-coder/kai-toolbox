@@ -109,12 +109,18 @@ public class ConsultService {
 
     public ConsultSession startSession(StartSessionRequest req, String promptSnapshot,
                                        ConsultEvidenceRouteResolution evidenceRoute) {
+        return startSession(req, promptSnapshot, evidenceRoute, UUID.randomUUID().toString());
+    }
+
+    /** 延续咨询使用客户端持久化的目标 UUID；主键保证重试不会生成多份咨询。 */
+    public ConsultSession startSession(StartSessionRequest req, String promptSnapshot,
+                                       ConsultEvidenceRouteResolution evidenceRoute, String sessionId) {
         String currentUserId = AuthContext.current()
                 .map(AuthPrincipal::userId)
                 .map(String::valueOf)
                 .orElseGet(() -> blankToNull(req.userId()));
         ConsultSession s = ConsultSession.builder()
-                .sessionId(UUID.randomUUID().toString())
+                .sessionId(sessionId)
                 .userId(currentUserId)
                 .questionTitle(req.questionTitle().trim())
                 .systemName(req.systemName())
@@ -323,6 +329,13 @@ public class ConsultService {
                 .filter(principal -> !principal.hasAnyRole("ADMIN"))
                 .map(principal -> sessionRepo.findRecentByUserId(String.valueOf(principal.userId()), limit))
                 .orElseGet(() -> sessionRepo.findRecent(limit));
+    }
+
+    /** 管理员的默认恢复也只选择本人，历史列表的管理权限保持不变。 */
+    public List<ConsultSession> listOwnRecent(int limit) {
+        return AuthContext.current()
+                .map(principal -> sessionRepo.findRecentByUserId(String.valueOf(principal.userId()), limit))
+                .orElseGet(List::of);
     }
 
     public Map<String, Integer> turnCounts(List<String> sessionIds) {

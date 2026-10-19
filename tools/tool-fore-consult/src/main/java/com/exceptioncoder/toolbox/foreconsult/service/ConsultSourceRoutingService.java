@@ -207,7 +207,7 @@ public class ConsultSourceRoutingService {
                 user ? "用户纠正系统" : reason, user ? "USER" : "MODEL_INFERRED");
         var dataRoute = routes.resolve(project.name(), List.of(), "");
         try {
-            sessions.updateSourceRouting(sessionId, project.name(), project.path(), selected.wrap(dataRoute.snapshot()),
+            sessions.updateSourceRouting(sessionId, project.name(), project.path(), selected.wrap(dataRoute.snapshot(), session.getEvidenceRouteSnapshot()),
                     mapper.writeValueAsString(dataRoute.evidenceSystems()), session.getEvidenceRouteSnapshot());
         } catch (com.fasterxml.jackson.core.JsonProcessingException error) {
             throw new IllegalStateException("无法保存数据归属", error);

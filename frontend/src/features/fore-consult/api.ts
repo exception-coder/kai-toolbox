@@ -195,6 +195,17 @@ export function startConsult(req: StartSessionRequest) {
   })
 }
 
+export function continueConsult(sourceId: string, requestId: string, req: StartSessionRequest) {
+  return http<ConsultSessionView>(`/fore-consult/sessions/${encodeURIComponent(sourceId)}/continuations/${encodeURIComponent(requestId)}`, {
+    method: 'POST', body: JSON.stringify(req),
+  })
+}
+
+/** 管理员进入咨询也恢复自己的最近记录，不自动切入其他同事的对话。 */
+export function listOwnRecentConsult() {
+  return http<ConsultSessionView[]>('/fore-consult/sessions/recent-own')
+}
+
 export function listCodexHomes() {
   return http<string[]>('/fore-consult/codex-homes')
 }

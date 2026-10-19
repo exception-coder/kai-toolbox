@@ -1,0 +1,28 @@
+.fc-desktop-header { position: absolute; inset: 0 0 auto; z-index: 50; height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 24px; border-bottom: 1px solid var(--color-border); background: var(--color-background); }
+.fc-desktop-heading, .fc-desktop-header nav { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fc-desktop-heading strong { white-space: nowrap; font-size: 14px; font-weight: 600; }
+.fc-desktop-heading span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--color-muted-foreground); }
+.fc-desktop-header nav { flex-shrink: 0; }
+.fc-desktop-header button { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 12px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 12px; white-space: nowrap; }
+.fc-desktop-header button:hover, .fc-desktop-header button[aria-pressed=true] { background: var(--color-accent); }
+.fc-desktop-workspace button:disabled { opacity: .45; }
+.fc-desktop-workspace button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.fc-desktop-conversation, .fc-desktop-archive { position: absolute; inset: 56px 0 0; z-index: 35; display: flex; flex-direction: column; min-height: 0; background: var(--color-background); }
+.fc-desktop-conversation > .fc-embedded-conversation { flex: 1; min-height: 0; height: auto; }
+.fc-desktop-archive > .flex { flex: 1; min-height: 0; height: auto; }
+.fc-desktop-workspace .fc-embedded-conversation { background: var(--color-background); }
+.fc-desktop-conversation .fc-message-stream > * { max-width: 1120px; margin-left: auto; margin-right: auto; }
+.fc-desktop-workspace [hidden] { display: none !important; }
+.fc-desktop-notice { flex-shrink: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px; padding: 12px 24px; font-size: 12px; line-height: 1.6; border-bottom: 1px solid var(--color-border); color: var(--color-muted-foreground); }
+.fc-desktop-notice > div { display: flex; flex-wrap: wrap; gap: 16px; }
+.fc-desktop-notice button { min-height: 32px; text-decoration: underline; text-underline-offset: 4px; }
+.fc-desktop-workspace .fc-desktop-tools { position: absolute; inset: 56px 16px auto auto; z-index: 65; max-width: calc(100% - 32px); padding: 12px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-background); }
+.fc-desktop-tools .fc-header-title { display: none; }
+.fc-desktop-tools .fc-toolbar { flex-wrap: wrap; }
+.fc-desktop-workspace[data-desktop-view=consult] .fc-prompt-dock { inset: 56px 0 0; width: 100%; transform: none; display: flex; flex-direction: column; padding: 24px; border-radius: 0; background: var(--color-background); }
+.fc-desktop-welcome { flex: 1; min-height: 0; overflow: auto; padding: 32px 8px; }
+.fc-desktop-welcome h2 { font-size: 24px; font-weight: 600; letter-spacing: -.025em; }
+.fc-desktop-welcome p { margin-top: 12px; font-size: 14px; line-height: 1.8; color: var(--color-muted-foreground); }
+.fc-desktop-workspace[data-desktop-view=consult] .fc-prompt-dock > :not(.fc-desktop-welcome):not(.fc-module-picker) { flex-shrink: 0; }
+.fc-desktop-workspace[data-desktop-view=consult] .fc-prompt-dock textarea { min-height: 96px; max-height: 240px; }
+.fc-desktop-workspace[data-desktop-view=consult] .fc-graph-surface, .fc-desktop-workspace[data-desktop-view=consult] .fc-session-indicator { display: none; }

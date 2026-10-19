@@ -26,4 +26,15 @@ public class ConsultWorkflowSessionService {
         }
         return session;
     }
+
+    /** 延续引用、咨询记录及当前流程快照在调用方事务中一并冻结。 */
+    @Transactional
+    public ConsultSession startContinuation(StartSessionRequest request, ConsultInitialDispatch dispatch, String id) {
+        var result = dispatch.orchestration();
+        var session = sessions.startSession(request, result.prompt(), dispatch.evidenceRoute(), id);
+        if (result.workflowSnapshot() != null) {
+            workflows.freeze(session.getSessionId(), result.workflowSnapshot());
+        }
+        return session;
+    }
 }

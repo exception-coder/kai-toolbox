@@ -21,11 +21,22 @@ public record ConsultSourceRouting(boolean automatic, String focusedProject, Lis
     }
 
     public String wrap(String routes) {
+        return wrap(routes, null);
+    }
+
+    /** 更新执行范围时保留历史来源引用；它不是权限的一部分。 */
+    public String wrap(String routes, String previousSnapshot) {
         try {
             var out = MAPPER.createObjectNode();
             out.put("version", 2);
             out.set("routes", MAPPER.readTree(routes));
             out.set("sourceRouting", MAPPER.valueToTree(this));
+            if (previousSnapshot != null) {
+                var previous = MAPPER.readTree(previousSnapshot);
+                if (previous.has("continuation")) {
+                    out.set("continuation", previous.get("continuation"));
+                }
+            }
             return MAPPER.writeValueAsString(out);
         } catch (Exception error) {
             throw new IllegalArgumentException("无法保存咨询源码路由", error);

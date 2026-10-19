@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 仅登记业务人员直接受益的业务咨询重大变化；管理员配置、流程发布、开发排障及其他工具更新不收录。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-10-19-desktop-conversation', date: '2026-10-19', title: '电脑打开即可接着聊',
+    summary: '待部署验收：PC直接打开本人最近咨询，顶部可新建、继续或延续新建；跨天会提醒。延续可带旧咨询引用与最近已保存问答摘录，原咨询保留。',
+  },
+  {
     id: '2026-10-18-consult-history-reading', date: '2026-10-18', title: '历史咨询直接阅读原对话',
     summary: '历史优先打开原会话；已归档只读，进行中可追问。手机旧归档全宽阅读，普通用户菜单精简。移动浏览器待验收。',
   },

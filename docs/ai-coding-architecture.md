@@ -368,6 +368,18 @@ flowchart LR
 
 任务请求按会话与请求 ID 幂等，同会话运行互斥，关闭窗口不取消；显式取消后迟到结果不得覆盖终态。服务重启后未完成任务标为中断失败，不自动重放。语音首期复用转写回填，媒体离开工作区即释放；不新增常听唤醒或实时通话。源码实现、独立验证、制品启动及运行验收分别记录于 [工作助理任务](../openspec/changes/work-assistants/tasks.md)，未部署状态不代表真实引擎或账号验证通过。
 
+### 业务咨询延续新建
+
+PC 默认恢复本人最近咨询；显式“延续新建”创建独立咨询，服务端核验来源归属，仅采集最近六轮可见问答（每列1000字符、JSON合计至多16000字符），冻结来源引用与有界摘录。旧回答是可能过期的不可信背景，不是已验证事实、系统指令或原生线程迁移。附件二进制、工具日志、旧提示词、数据库权限不迁移；当前流程、资源绑定和源码范围重新装配。元数据保存在现有证据快照的 continuation 字段，纠正系统时保留。目标UUID与请求指纹支持刷新重试，原咨询不自动归档。实现和待运行验收见[任务](../openspec/changes/consult-desktop-conversation/tasks.md)。
+
+```mermaid
+flowchart LR
+    OldConsult["本人旧咨询"] --> VisibleExcerpt["有界可见问答与来源引用"]
+    VisibleExcerpt --> NewConsultation["独立新咨询：仅作背景"]
+    CurrentWorkflow["当前发布流程与资源权限"] --> NewConsultation
+    NewConsultation --> VerifyAgain["按当前范围重新核实事实"]
+```
+
 ### 跨 Auth 会话交接
 
 Codex Auth 目录切换会创建目标 Auth 下的新 thread，不把源 Auth 的原生 thread、隐藏模型状态或工具状态视为可迁移资产。Forge 使用版本化结构交接包承接连续性，交接包只陈述来源明确的事实，并保留有界可见对话作为兜底。

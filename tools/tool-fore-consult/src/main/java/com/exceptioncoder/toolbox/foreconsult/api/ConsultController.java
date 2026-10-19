@@ -146,6 +146,11 @@ public class ConsultController {
                 .toList();
     }
 
+    @GetMapping("/sessions/recent-own")
+    public List<ConsultSessionView> listOwnRecent() {
+        return service.listOwnRecent(1).stream().map(ConsultSessionView::from).toList();
+    }
+
     /** 会话详情（含轮次明细 + 评分反馈）。 */
     @GetMapping("/sessions/{id}")
     public ConsultSessionView get(@PathVariable String id) {

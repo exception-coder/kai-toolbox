@@ -5,9 +5,10 @@ import { ForeConsultPage } from './ForeConsultPage'
 import type { ConsultSessionView } from '../api'
 
 const calls = vi.hoisted(() => ({
-  history: vi.fn(), runtime: vi.fn(), switchTo: vi.fn(), start: vi.fn(), archive: vi.fn(), detail: vi.fn(),
+  history: vi.fn(), own: vi.fn(), runtime: vi.fn(), switchTo: vi.fn(), start: vi.fn(), continuation: vi.fn(), archive: vi.fn(), detail: vi.fn(),
 }))
 const viewport = vi.hoisted(() => ({ phone: false }))
+vi.mock('../consultContinuation', () => ({ requestConsultContinuation: calls.continuation }))
 vi.mock('../useConsultLayout', () => ({ useConsultLayout: () => ({ phone: viewport.phone, compact: viewport.phone, layout: viewport.phone ? 'phone' : 'desktop' }) }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { username: 'admin', roles: ['USER'] } }) }))
 vi.mock('@/components/ui/confirm-dialog', () => ({ useConfirm: () => vi.fn() }))
@@ -25,6 +26,7 @@ vi.mock('../api', async original => ({ ...await original<typeof import('../api')
   listSystemPrefs: async () => [{ systemName: 'erp', systemSourcePath: 'D:/workspace/erp',
     alias: 'ERP', visible: true, sortOrder: 0 }],
   listConsults: calls.history, startConsult: calls.start, archiveConsult: calls.archive,
+  listOwnRecentConsult: calls.own,
   getConsult: calls.detail,
   getTopology: async () => ({ links: [] }), listCodexHomes: async () => [],
   fetchProjectModules: async () => ({ modules: [] }),
@@ -47,8 +49,9 @@ beforeEach(() => {
   viewport.phone = false
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   calls.history.mockReset().mockResolvedValue([])
+  calls.own.mockReset().mockImplementation(() => calls.history())
   calls.runtime.mockReset().mockResolvedValue([])
-  calls.switchTo.mockReset(); calls.start.mockReset(); calls.archive.mockReset()
+  calls.switchTo.mockReset(); calls.start.mockReset(); calls.archive.mockReset(); calls.continuation.mockReset()
   calls.detail.mockReset()
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 })
@@ -141,8 +144,10 @@ it('reads legacy archives without a runtime session in the full mobile workspace
 it.each([false, true])('hides administrator tools for ordinary users (phone=%s)', async phone => {
   viewport.phone = phone
   mount()
-  await screen.findByRole('button', { name: phone ? '编辑咨询' : 'ERP' })
+  if (phone) await screen.findByRole('button', { name: '编辑咨询' })
+  else await screen.findByRole('textbox', { name: '业务问题' })
   if (phone) fireEvent.click(screen.getByRole('button', { name: '更多咨询功能' }))
+  else fireEvent.click(screen.getByRole('button', { name: '更多咨询设置' }))
   expect(screen.queryByRole('button', { name: /Forge 风格|Glass 风格|数据归属|连线|Bug 登记/ })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: /历史咨询/ })).toBeVisible()
   expect(screen.getByRole('button', { name: '查看更新记录' })).toBeVisible()
@@ -195,6 +200,7 @@ it('uses keyboard activation of a graph system only as a preference and preserve
   const question = await screen.findByRole('textbox', { name: '业务问题' })
   await waitFor(() => expect(question).toBeEnabled())
   fireEvent.change(question, { target: { value: '请核查截图' } })
+  fireEvent.click(screen.getByRole('button', { name: '系统图谱' }))
   const project = screen.getByRole('button', { name: 'ERP' })
   fireEvent.click(project, { detail: 0 })
   expect(screen.queryByRole('combobox', { name: '系统定位方式' })).not.toBeInTheDocument()
@@ -232,6 +238,7 @@ it('submits with Enter outside composition and shows a failed request with draft
 it('allows a new question after authoritative history succeeds even when runtime hints fail', async () => {
   calls.runtime.mockRejectedValue(new Error('HTTP 500'))
   mount()
+  fireEvent.click(screen.getByRole('button', { name: '系统图谱' }))
   const project = await screen.findByRole('button', { name: 'ERP' })
   await waitFor(() => expect(project).toBeEnabled())
   project.setPointerCapture = vi.fn()
@@ -245,7 +252,7 @@ it('allows a new question after authoritative history succeeds even when runtime
 it('does not wait for an unrelated runtime listing that never settles', async () => {
   calls.runtime.mockReturnValue(new Promise(() => {}))
   mount()
-  await waitFor(() => expect(screen.getByRole('button', { name: 'ERP' })).toBeEnabled())
+  await waitFor(() => expect(screen.getByRole('textbox', { name: '业务问题' })).toBeEnabled())
 })
 
 it('restores the original pending consultation once without resending a question if runtime hints fail', async () => {
@@ -261,7 +268,7 @@ it('keeps entry locked on history failure and retries history before restoring t
   calls.history.mockRejectedValueOnce(new Error('HTTP 500')).mockResolvedValue([pending])
   mount()
   await screen.findByRole('alert')
-  expect(screen.getByRole('button', { name: 'ERP' })).toBeDisabled()
+  expect(screen.getByRole('textbox', { name: '业务问题' })).toBeDisabled()
   fireEvent.click(screen.getByRole('button', { name: /^重试$/ }))
   expect(await screen.findByText('原咨询对话')).toBeVisible()
   expect(calls.switchTo).toHaveBeenCalledExactlyOnceWith('original-runtime', false)
@@ -272,11 +279,70 @@ it('does not trust a cached empty history while the fresh history request is sti
   let resolve!: (value: ConsultSessionView[]) => void
   client.setQueryData(['fore-consult-sessions'], [])
   calls.history.mockReturnValue(new Promise<ConsultSessionView[]>(done => { resolve = done }))
+  calls.own.mockResolvedValue([pending])
   mount()
-  expect(await screen.findByRole('button', { name: 'ERP' })).toBeDisabled()
+  expect(await screen.findByRole('textbox', { name: '业务问题' })).toBeDisabled()
   await act(async () => resolve([pending]))
   expect(await screen.findByText('原咨询对话')).toBeVisible()
   expect(calls.switchTo).toHaveBeenCalledExactlyOnceWith('original-runtime', false)
+})
+
+it('restores only the owned recent conversation even when administrative history contains other users', async () => {
+  calls.history.mockResolvedValue([{ ...pending, sessionId: 'colleague', devSessionId: 'colleague-runtime' }, pending])
+  calls.own.mockResolvedValue([pending])
+  mount()
+  expect(await screen.findByText('原咨询对话')).toBeVisible()
+  expect(calls.switchTo).toHaveBeenCalledExactlyOnceWith('original-runtime', false)
+  expect(screen.queryByRole('button', { name: 'ERP' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '新建咨询' }))
+  expect(screen.getByRole('textbox', { name: '业务问题' })).toBeVisible()
+  fireEvent.change(screen.getByRole('textbox', { name: '业务问题' }), { target: { value: '今天的新问题' } })
+  fireEvent.click(screen.getAllByRole('button', { name: '返回当前咨询' })[0])
+  expect(screen.getByText('原咨询对话')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '新建咨询' }))
+  expect(screen.getByRole('textbox', { name: '业务问题' })).toHaveValue('今天的新问题')
+  expect(calls.archive).not.toHaveBeenCalled()
+  expect(calls.start).not.toHaveBeenCalled()
+})
+
+it('opens the latest owned archived runtime without reviving its write permission', async () => {
+  const archived = { ...pending, archiveStatus: 'SUCCESS' }
+  calls.history.mockResolvedValue([archived]); calls.own.mockResolvedValue([archived])
+  mount()
+  expect(await screen.findByText('归档只读')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '延续新建' }))
+  expect(screen.getByText('接着上次的内容，开始新咨询')).toBeVisible()
+  expect(calls.start).not.toHaveBeenCalled()
+  expect(calls.archive).not.toHaveBeenCalled()
+})
+
+it('restores an already-bound continuation returned by retry without opening or sending another runtime', async () => {
+  calls.history.mockResolvedValue([pending]); calls.own.mockResolvedValue([pending])
+  calls.continuation.mockResolvedValue({ ...pending, sessionId: 'continued', devSessionId: 'continued-runtime', questionTitle: '新咨询' })
+  mount()
+  await screen.findByText('原咨询对话')
+  fireEvent.click(screen.getByRole('button', { name: '延续新建' }))
+  fireEvent.change(screen.getByRole('textbox', { name: '业务问题' }), { target: { value: '继续检查今天的订单' } })
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Ask Forge' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Ask Forge' }))
+  await waitFor(() => expect(calls.switchTo).toHaveBeenLastCalledWith('continued-runtime', false))
+  expect(calls.continuation).toHaveBeenCalledOnce()
+  expect(calls.start).not.toHaveBeenCalled()
+  expect(calls.archive).not.toHaveBeenCalled()
+})
+
+it('reads a source reference without switching the active runtime and can return to the new consultation', async () => {
+  const continued = { ...pending, sessionId: 'continued', devSessionId: 'continued-runtime',
+    evidenceRouteSnapshot: JSON.stringify({ continuation: { sourceSessionId: 'source', sourceTitle: '旧问题', excerptTurnCount: 2 } }) }
+  calls.history.mockResolvedValue([continued]); calls.own.mockResolvedValue([continued])
+  calls.detail.mockResolvedValue({ ...pending, sessionId: 'source', questionTitle: '旧问题' })
+  mount()
+  fireEvent.click(await screen.findByRole('button', { name: '查看旧咨询' }))
+  await waitFor(() => expect(calls.detail).toHaveBeenCalledWith('source'))
+  expect(calls.switchTo).toHaveBeenCalledExactlyOnceWith('continued-runtime', false)
+  fireEvent.click(screen.getByRole('button', { name: '返回当前咨询' }))
+  expect(screen.getByText('原咨询对话')).toBeVisible()
+  expect(calls.start).not.toHaveBeenCalled()
 })
 
 it('preserves the mobile first-question draft while switching between consultation and graph', async () => {
