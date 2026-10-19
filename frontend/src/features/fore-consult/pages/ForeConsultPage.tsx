@@ -2285,12 +2285,12 @@ export function ForeConsultPage() {
       {/* 独立业务咨询会话面板（不用 Vibe Coding 悬浮窗，复用同一 WS 同步渲染） */}
       {(conversationOpen || compact) && activeConsultId && (
         <div id={compact && !newConsultDraftOpen && !viewSession ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : 'fc-desktop-conversation'} hidden={newConsultDraftOpen || Boolean(viewSession) || (!compact && desktopGraphOpen) || (phone && mobileView !== 'consult')}>
-        {!compact && currentConsult && <ConsultDayReminder key={currentConsult.sessionId} session={currentConsult} disabled={desktopActionDisabled}
+        {!compact && currentConsult && <ConsultDayReminder key={`day-reminder:${currentConsult.sessionId}`} session={currentConsult} disabled={desktopActionDisabled}
           onNew={() => openDesktopDraft()} onExtend={() => openDesktopDraft(currentConsult)} />}
         {!compact && sourceReference && <aside className="fc-desktop-notice"><span>延续自：{sourceReference.sourceTitle} · 已带入 {sourceReference.excerptTurnCount} 轮以内的摘录</span>
           <button type="button" onClick={() => setViewSession({ id: sourceReference.sourceSessionId, title: sourceReference.sourceTitle, reference: true })}>查看旧咨询</button></aside>}
         <ConsultConversation
-          key={activeConsultId}
+          key={`conversation:${activeConsultId}`}
           draftCache={conversationDrafts.current}
           readOnly={activeConsultReadOnly}
           onViewArchive={() => setViewSession({ id: activeConsultId, title: activeQuestionTitle || '历史咨询' })}
@@ -2457,9 +2457,9 @@ export function ForeConsultPage() {
       {/* 历史咨询详情（只读查看归档问答） */}
       {viewSession && (
         <div id={compact ? 'fc-consult-view' : undefined} role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-consult-tab' : undefined} className={compact ? 'fc-mobile-consult-view' : 'fc-desktop-archive'} hidden={(!compact && desktopGraphOpen) || (phone && mobileView !== 'consult')}>
-          {!compact && currentConsult && <ConsultDayReminder key={currentConsult.sessionId} session={currentConsult} disabled={desktopActionDisabled}
+          {!compact && currentConsult && <ConsultDayReminder key={`day-reminder:${currentConsult.sessionId}`} session={currentConsult} disabled={desktopActionDisabled}
             onNew={() => openDesktopDraft()} onExtend={() => openDesktopDraft(currentConsult)} />}
-          <ConsultHistoryDetail key={viewSession.id} embedded sessionId={viewSession.id} title={viewSession.title} onResume={viewSession.reference ? undefined : resumeConsult} onClose={() => { if (viewSession.reference) returnToDesktopConsult(); else { setViewSession(null); setHistoryOpen(true) } }} />
+          <ConsultHistoryDetail key={`history:${viewSession.id}`} embedded sessionId={viewSession.id} title={viewSession.title} onResume={viewSession.reference ? undefined : resumeConsult} onClose={() => { if (viewSession.reference) returnToDesktopConsult(); else { setViewSession(null); setHistoryOpen(true) } }} />
         </div>
       )}
 

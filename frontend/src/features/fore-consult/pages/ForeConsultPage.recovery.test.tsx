@@ -377,3 +377,24 @@ it('keeps desktop settings in a single optional menu and opens a bounded workspa
   expect(workspace).not.toHaveAttribute('data-conversation-expanded')
   expect(question).toBeInTheDocument()
 })
+
+it('replaces the previous-day reminder instead of accumulating siblings during repeated history switches', async () => {
+  const rows = [pending, ...['second', 'third'].map(id => ({ ...pending, sessionId: id,
+    devSessionId: `${id}-runtime`, questionTitle: `${id}咨询` }))]
+  calls.history.mockResolvedValue(rows)
+  calls.own.mockResolvedValue([pending])
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+  try {
+    mount()
+    await screen.findByText('原咨询对话')
+    expect(screen.getAllByRole('complementary', { name: '跨天咨询提醒' })).toHaveLength(1)
+    for (const row of [rows[1], rows[2], rows[0], rows[1], rows[2], rows[0]]) {
+      fireEvent.click(screen.getByRole('button', { name: '历史咨询' }))
+      fireEvent.click(await screen.findByRole('button', { name: row.questionTitle! }))
+      await waitFor(() => expect(calls.switchTo).toHaveBeenLastCalledWith(row.devSessionId, false))
+      expect(screen.getAllByRole('complementary', { name: '跨天咨询提醒' })).toHaveLength(1)
+      expect(screen.getAllByText('原咨询对话')).toHaveLength(1)
+    }
+    expect(errors.mock.calls.some(args => args.some(value => String(value).includes('same key')))).toBe(false)
+  } finally { errors.mockRestore() }
+})
