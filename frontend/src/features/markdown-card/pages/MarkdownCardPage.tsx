@@ -11,25 +11,26 @@ import { WatermarkForm } from '../components/WatermarkForm'
 import { ExportButton } from '../components/ExportButton'
 import { CardRenderer } from '../components/CardRenderer'
 import type { SlideCardsHandle } from '../components/SlideCards'
-import { DEFAULT_STATE, loadState, saveState } from '../lib/persistence'
+import { loadState, saveState } from '../lib/persistence'
 import { captureNode, exportSlides, saveImage, buildFilename } from '../lib/exporter'
 import type { Mode, PersistedState, SlideRatio, SplitMode, Theme, Watermark } from '../types'
 
 type MobileTab = 'edit' | 'preview'
 
-export function MarkdownCardPage({ embedded = false }: { embedded?: boolean; active?: boolean } = {}) {
-  const [state, setState] = useState<PersistedState>(DEFAULT_STATE)
-  const [hydrated, setHydrated] = useState(false)
-  const [mobileTab, setMobileTab] = useState<MobileTab>('edit')
+export interface MarkdownCardPageProps {
+  embedded?: boolean; active?: boolean; initialSourceText?: string; persist?: boolean
+  initialMobileTab?: MobileTab; onExportBusyChange?: (busy: boolean) => void
+}
+
+export function MarkdownCardPage({ embedded = false, initialSourceText, persist = true, initialMobileTab = 'edit', onExportBusyChange }: MarkdownCardPageProps = {}) {
+  // The overlay starts from this reply without overwriting the standalone tool's saved draft.
+  const [state, setState] = useState<PersistedState>(() => ({ ...loadState(), ...(initialSourceText === undefined ? {} : { sourceText: initialSourceText }) }))
+  const [mobileTab, setMobileTab] = useState<MobileTab>(initialMobileTab)
   // 卡片内「可视删除」的已删块集合（视图级，不入持久化，不改源文本）
   const [removedBlocks, setRemovedBlocks] = useState<Set<string>>(new Set())
   const singleNodeRef = useRef<HTMLDivElement>(null)
   const slideHandleRef = useRef<SlideCardsHandle>(null)
-
-  useEffect(() => {
-    setState(loadState())
-    setHydrated(true)
-  }, [])
+  const exporting = useRef(false)
 
   // 源文本/分页/模式变化会让块索引或分页边界漂移，已删块 key 失效 → 清空，避免删错块
   useEffect(() => {
@@ -45,8 +46,8 @@ export function MarkdownCardPage({ embedded = false }: { embedded?: boolean; act
     })
 
   useEffect(() => {
-    if (hydrated) saveState(state)
-  }, [state, hydrated])
+    if (persist) saveState(state)
+  }, [state, persist])
 
   const setText = (sourceText: string) => setState(s => ({ ...s, sourceText }))
   const setMode = (mode: Mode) => setState(s => ({ ...s, mode }))
@@ -58,22 +59,27 @@ export function MarkdownCardPage({ embedded = false }: { embedded?: boolean; act
   const isEmpty = !state.sourceText.trim()
 
   async function handleExport(setProgress: (m: string | null) => void) {
-    if (state.mode === 'slide') {
-      const handle = slideHandleRef.current
-      if (!handle) throw new Error('幻灯渲染器未就绪')
-      const nodes = handle.getSlideNodes()
-      if (nodes.length === 0) throw new Error('没有可导出的幻灯页')
-      await exportSlides(nodes, state.mode, (i, total) =>
-        setProgress(`导出第 ${i} / ${total} 张…`),
-      )
-      return
-    }
-    const node = singleNodeRef.current
-    if (!node) throw new Error('卡片渲染器未就绪')
-    setProgress('正在渲染图片…')
-    const dataUrl = await captureNode(node)
-    setProgress('正在保存…')
-    await saveImage(dataUrl, buildFilename(state.mode))
+    if (exporting.current) return
+    exporting.current = true
+    onExportBusyChange?.(true)
+    try {
+      if (state.mode === 'slide') {
+        const handle = slideHandleRef.current
+        if (!handle) throw new Error('幻灯渲染器未就绪')
+        const nodes = handle.getSlideNodes()
+        if (nodes.length === 0) throw new Error('没有可导出的幻灯页')
+        await exportSlides(nodes, state.mode, (i, total) =>
+          setProgress(`导出第 ${i} / ${total} 张…`),
+        )
+        return
+      }
+      const node = singleNodeRef.current
+      if (!node) throw new Error('卡片渲染器未就绪')
+      setProgress('正在渲染图片…')
+      const dataUrl = await captureNode(node)
+      setProgress('正在保存…')
+      await saveImage(dataUrl, buildFilename(state.mode))
+    } finally { exporting.current = false; onExportBusyChange?.(false) }
   }
 
   return (

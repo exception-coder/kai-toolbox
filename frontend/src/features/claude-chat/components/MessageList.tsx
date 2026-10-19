@@ -1,11 +1,10 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Virtuoso } from 'react-virtuoso'
 import { LATEST_BOTTOM_TOLERANCE_PX, useLatestMessageNavigation } from '../hooks/useLatestMessageNavigation'
 import { TurnChangesDialog } from './changes/TurnChangesDialog'
 import { AlertTriangle, ArrowDown, Bot, Check, CircleX, Coins, Copy, Database, FileImage, FilePenLine, FileText, FolderOpen, GitBranch, ListTodo, Route, Shrink, Terminal, Timer, Wifi } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/public-api'
+import { MarkdownCardDialog } from '@/features/markdown-card/public-api/dialog'
 import type { ChatItem, ConnState } from '../types'
 import { abbr, cacheHitRate, fmtMs, formatTime, parseUsage } from '../lib/metrics'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
@@ -239,6 +238,13 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   })
   // 点击聊天里的图片放大查看（桌面点击 / 移动端轻触均可）
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null)
+  const cardReturnFocus = useRef<HTMLElement | null>(null), listElement = useRef<HTMLDivElement>(null)
+  const [card, setCard] = useState<{ text: string; session?: string } | null>(null)
+  useEffect(() => { setCard(null) }, [sessionKey])
+  const openCard = useCallback((text: string, trigger: HTMLElement) => {
+    cardReturnFocus.current = trigger
+    setCard({ text, session: sessionKey })
+  }, [sessionKey])
   // 「锁定位置」：贴底时新内容自动跟；用户滚离底部后 virtuoso 判定 atBottom=false，新增内容不再拽着视图跑。
   // 「我的提问」等外部调用 scrollToItem 后短暂高亮的目标 id（配合 kai-msg-flash 做一次性闪烁）。
   const [highlightedId, setHighlightedId] = useState<string | null>(null)
@@ -293,7 +299,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
 
   const itemContent = useCallback((_index: number, item: ChatItem) => (
     <div data-msg-id={item.id} className={cn('cc-message-row px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
-      <Row item={item} onFork={onFork} engineLabel={engineLabel} onNewSession={onNewSession}
+      <Row item={item} onFork={onFork} onToCard={openCard} engineLabel={engineLabel} onNewSession={onNewSession}
         compactMobile={compactMobile}
         streaming={liveReplyIds.has(item.id)}
         compactMetrics={mobileWorkspace}
@@ -304,7 +310,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         onOpenImage={(src, alt) => setViewer({ src, alt })}
         turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
     </div>
-  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, compactMobile, mobileWorkspace, liveReplyIds])
+  ), [highlightedId, onFork, openCard, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, compactMobile, mobileWorkspace, liveReplyIds])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {
@@ -321,7 +327,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   }
 
   return (
-    <div className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col', mobileWorkspace && 'cc-mobile-conversation cc-layered-conversation')}
+    <div ref={listElement} tabIndex={-1} className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col', mobileWorkspace && 'cc-mobile-conversation cc-layered-conversation')}
       onWheelCapture={cancelJump}
       onTouchStartCapture={event => { if (!(event.target instanceof Element && event.target.closest('[data-latest-navigation]'))) cancelJump() }}
       onPointerDownCapture={event => { if (!(event.target instanceof Element && event.target.closest('[data-latest-navigation]'))) cancelJump() }}
@@ -371,6 +377,10 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         </button>
       )}
       {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}
+      {card && card.session === sessionKey && <MarkdownCardDialog sourceText={card.text} onClose={() => setCard(null)} returnFocus={() => {
+        const target = cardReturnFocus.current?.isConnected ? cardReturnFocus.current : listElement.current
+        target?.focus({ preventScroll: true })
+      }} />}
     </div>
   )
 }))
@@ -401,19 +411,14 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-/** 转卡片：把该条回复 markdown 带入「Markdown 转卡片」模块（仅换正文，保留用户主题等偏好），跳转后选主题导出图片。 */
-function ToCardButton({ text }: { text: string }) {
-  const navigate = useNavigate()
-  const toCard = () => {
-    saveCardState({ ...loadCardState(), sourceText: text })
-    navigate('/tools/markdown-card')
-  }
+/** 将完整回复交给列表外的卡片弹框，避免虚拟行或菜单卸载带走编辑器。 */
+function ToCardButton({ onClick }: { onClick: (trigger: HTMLElement) => void }) {
   return (
     <button
       type="button"
-      onClick={toCard}
+      onClick={event => onClick(event.currentTarget)}
       aria-label="转为卡片"
-      title="把这条回复带入「Markdown 转卡片」，选主题后导出图片"
+      title="在当前对话中编辑卡片并导出图片"
       className="mt-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
     >
       <FileImage className="size-3.5" />
@@ -530,7 +535,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
   )
 }
 
-function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics, streaming }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean; streaming?: boolean }) {
+function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics, streaming }: { item: ChatItem; onFork?: (forkAnchor: string) => void; onToCard: (text: string, trigger: HTMLElement) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean; streaming?: boolean }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -632,8 +637,8 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
             {item.text.trim() && (
               <div className="cc-message-actions flex items-center gap-1">
                 <CopyButton text={item.text} />
-                {compactMobile ? <MobileMessageMore text={item.text} onFork={onFork} forkAnchor={item.forkAnchor} /> : <>
-                  <ToCardButton text={item.text} />
+                {compactMobile ? <MobileMessageMore text={item.text} onFork={onFork} onToCard={onToCard} forkAnchor={item.forkAnchor} /> : <>
+                  <ToCardButton onClick={trigger => onToCard(item.text, trigger)} />
                   {onFork && item.forkAnchor && <ForkReplyButton onFork={() => onFork(item.forkAnchor!)} />}
                 </>}
               </div>
@@ -708,16 +713,19 @@ function ForkReplyButton({ onFork }: { onFork: () => void }) {
   </button>
 }
 
-function MobileMessageMore({ text, onFork, forkAnchor }: { text: string; onFork?: (anchor: string) => void; forkAnchor?: string }) {
+function MobileMessageMore({ text, onFork, onToCard, forkAnchor }: { text: string; onFork?: (anchor: string) => void; onToCard: (text: string, trigger: HTMLElement) => void; forkAnchor?: string }) {
   const portal = useFullscreenPortalContainer()
   const [open, setOpen] = useState(false)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const openingCard = useRef(false)
   return <Popover.Root open={open} onOpenChange={setOpen}><Popover.Trigger asChild>
-    <button type="button" aria-label="更多回复操作" className="min-h-11 min-w-11 rounded-md px-2 text-xs text-[var(--color-muted-foreground)]">···</button>
+    <button ref={trigger} type="button" aria-label="更多回复操作" className="min-h-11 min-w-11 rounded-md px-2 text-xs text-[var(--color-muted-foreground)]">···</button>
   </Popover.Trigger>
     <Popover.Portal container={portal}><Popover.Content aria-label="回复操作" align="start" sideOffset={4}
+      onCloseAutoFocus={event => { if (openingCard.current) { event.preventDefault(); openingCard.current = false } }}
       className="z-[90] rounded-lg border bg-[var(--color-popover)] p-2 shadow-sm [&_button]:min-h-11">
       {onFork && forkAnchor && <ForkReplyButton onFork={() => { setOpen(false); onFork(forkAnchor) }} />}
-      <ToCardButton text={text} />
+      <ToCardButton onClick={() => { openingCard.current = true; setOpen(false); if (trigger.current) onToCard(text, trigger.current) }} />
     </Popover.Content></Popover.Portal>
   </Popover.Root>
 }

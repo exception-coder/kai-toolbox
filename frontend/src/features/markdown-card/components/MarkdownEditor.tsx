@@ -89,6 +89,7 @@ export function MarkdownEditor({ value, onChange, className }: MarkdownEditorPro
       {/* 主编辑区 */}
       <textarea
         ref={textareaRef}
+        aria-label="卡片 Markdown 正文"
         value={value}
         onChange={e => onChange(e.target.value)}
         spellCheck={false}

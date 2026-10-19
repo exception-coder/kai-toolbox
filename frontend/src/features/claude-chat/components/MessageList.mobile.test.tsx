@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ChatItem } from '../types'
 import { MessageList } from './MessageList'
@@ -7,6 +7,9 @@ import { copyTextToClipboard } from '../lib/clipboard'
 import { setHideToolCalls } from '../lib/toolVisibilityPref'
 
 vi.mock('../lib/clipboard', () => ({ copyTextToClipboard: vi.fn(async () => {}) }))
+vi.mock('@/features/markdown-card/public-api/dialog', () => ({ MarkdownCardDialog: ({ sourceText, onClose, returnFocus }: {
+  sourceText: string; onClose: () => void; returnFocus: () => void
+}) => <div role="dialog" aria-label="转卡片"><pre>{sourceText}</pre><button onClick={() => { onClose(); returnFocus() }}>关闭卡片编辑器</button></div> }))
 
 vi.mock('react-virtuoso', async () => {
   const { forwardRef, useImperativeHandle } = await import('react')
@@ -16,6 +19,31 @@ vi.mock('react-virtuoso', async () => {
   }) }
 })
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.mocked(copyTextToClipboard).mockReset() })
+
+function RouteProbe() { return <output data-testid="route">{useLocation().pathname}</output> }
+
+it.each([true, false])('opens the complete reply in place and survives virtual row removal (mobile=%s)', async mobile => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: mobile, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  const reply: ChatItem = { kind: 'assistant', id: 'card-answer', text: longReply }
+  const view = (data: ChatItem[], sessionKey = 'original') => <MemoryRouter initialEntries={['/tools/claude-chat']}><RouteProbe /><MessageList items={data} running={false} sessionKey={sessionKey} mobileWorkspace /></MemoryRouter>
+  const mounted = render(view([reply]))
+  if (mobile) fireEvent.click(screen.getByRole('button', { name: '更多回复操作' }))
+  fireEvent.click(screen.getByRole('button', { name: '转为卡片' }))
+  expect(screen.getByRole('dialog', { name: '转卡片' })).toHaveTextContent('修改与验证')
+  expect(screen.getByTestId('route')).toHaveTextContent('/tools/claude-chat')
+  expect(screen.queryByLabelText('回复操作')).not.toBeInTheDocument()
+  mounted.rerender(view([]))
+  expect(screen.getByRole('dialog')).toHaveTextContent('修改与验证')
+  fireEvent.click(screen.getByRole('button', { name: '关闭卡片编辑器' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  mounted.rerender(view([reply]))
+  if (mobile) fireEvent.click(screen.getByRole('button', { name: '更多回复操作' }))
+  fireEvent.click(screen.getByRole('button', { name: '转为卡片' }))
+  mounted.rerender(view([reply], 'other'))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  mounted.rerender(view([reply]))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
 const items: ChatItem[] = [
   { kind: 'assistant', id: 'answer', text: '本轮调整已完成。', forkAnchor: 'turn-old' },
   { kind: 'result', id: 'result', stopReason: 'end_turn', latencyMs: 371400, usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 2400000 } },
