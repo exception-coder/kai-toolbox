@@ -43,7 +43,10 @@ try {
   }
   const realtimeContracts = {
     'ClientRequest.ts': ['thread/fork', 'thread/realtime/start', 'thread/realtime/stop', 'thread/realtime/appendText', 'thread/prediction/request'],
-    'v2/ThreadForkParams.ts': ['threadId: string', 'config?:'],
+    'v2/ThreadForkParams.ts': ['threadId: string', 'config?:', 'excludeTurns?: boolean'],
+    'v2/ThreadResumeParams.ts': ['threadId: string', 'excludeTurns?: boolean'],
+    'v2/ThreadTurnsListParams.ts': ['threadId: string', 'limit?: number', 'sortDirection?:', 'itemsView?:'],
+    'v2/ThreadTurnsListResponse.ts': ['data: Array<Turn>'],
     'ServerNotification.ts': ['thread/realtime/sdp', 'thread/realtime/transcript/delta', 'thread/realtime/transcript/done', 'thread/realtime/error', 'thread/realtime/closed', 'thread/prediction/updated'],
     'v2/ThreadPredictionRequestParams.ts': ['threadId: string', 'sourceTurnId: string'],
     'v2/ThreadPredictionUpdatedNotification.ts': ['threadId: string', 'sourceTurnId: string', 'result: ThreadPredictionResult'],

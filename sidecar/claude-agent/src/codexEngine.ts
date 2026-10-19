@@ -2,6 +2,9 @@ import { PAGE_PREVIEW_STEER } from './pagePreviewTools.js'
 import { assemblyAllows, filterCodexAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { codexPredictions } from './codexPrediction.js'
 import { readCodexSdkTurnEvents, withCodexSdkLifecycle } from './engine/codexSdkLifecycle.js'
+import { logCodexSdkTransport, logCodexTransportError } from './engine/codexTransportDiagnostics.js'
+import { createCodexSdkFallbackClient } from './engine/codexSdkTransport.js'
+import { prepareCodexTransport, type CodexTransportSelection } from './codexTransportPolicy.js'
 import { EXECUTION_VERIFICATION_CODEX_TIMEOUT_SEC } from './execution/budget.js'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -34,6 +37,7 @@ import { CODEX_COMPUTER_USE_RECOVERY_STEER } from './codexComputerUsePolicy.js'
 import { takeCodexVoice } from './codexRealtime.js'
 import {
   CodexAppServerTurnError,
+  callAppServer,
   deleteCodexThread,
   latestCodexTurnId,
   runCodexAppServerTurn,
@@ -292,11 +296,15 @@ function pickCodex(
   sourceRoot?: string,
   consultEvidenceSystems: readonly string[] = [],
   assembly?: ConsultToolAssembly,
+  transportSelection?: CodexTransportSelection,
 ): Codex {
   if (!apiBaseUrl || !apiBaseUrl.trim()) {
     const home = normalizeCodexHome(codexHome)
     const config = buildCodexConfig(speed, toolPolicy, home, sessionId, forgeSqlRegistration,
       developerInstructions, sourceRoot, consultEvidenceSystems, assembly)
+    if (transportSelection) return createCodexSdkFallbackClient({
+      ...(home ? { env: codexEnv(home) } : {}), config,
+    }, transportSelection)
     if (developerInstructions || assembly) {
       return new Codex({
         ...(home ? { env: codexEnv(home) } : {}),
@@ -417,6 +425,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: IS_WINDOWS ? 'danger-full-access' as SandboxMode : 'read-only' as SandboxMode }
     : mapMode(ctx.permissionMode)
   let tempImageDir: string | undefined
+  let transportSelection: CodexTransportSelection | undefined
 
   try {
     await codexPredictions.cancel(ctx.sdkSessionId, home)
@@ -454,6 +463,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         ctx.emit(event)
       },
       setThreadId: threadId => { predictionThreadId = threadId; ctx.setSdkSessionId(threadId) },
+      onTransportSelected: selection => { transportSelection = selection },
       canUseTool: ctx.canUseTool,
       mcpServers: codexMcpCapabilities(
         ctx.toolPolicy ?? 'default',
@@ -509,7 +519,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         code: 'CODEX_APP_SERVER_FALLBACK',
         message: `Codex App Server 启动失败，已自动回退 SDK：${error.message}${diagnostic}`,
       })
-      await runCodexSdkTurn(turnContext, 'sdkFallback')
+      await runCodexSdkTurn(turnContext, 'sdkFallback', transportSelection)
       return
     }
     ctx.emit({
@@ -578,7 +588,7 @@ function isReviewWorkspace(cwd: string): boolean {
     && !isAbsolute(child)
 }
 
-async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Promise<void> {
+async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport, selection?: CodexTransportSelection): Promise<void> {
   let result: Record<string, unknown> | undefined
   const sdkTurn = {
     sessionId: ctx.sessionId ?? `ephemeral:${Date.now()}:${Math.random()}`,
@@ -590,14 +600,14 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
     if (event.type === 'init' && typeof event.sdkSessionId === 'string') sdkTurn.threadId = event.sdkSessionId
     if (event.type === 'result') result = event
     else ctx.emit(event)
-  } }, transport))
+  } }, transport, selection))
   ctx.emit(result
     ? { ...result, ...(ctx.signal.aborted ? { stopReason: 'interrupted' } : {}),
       queueReleaseSafe: result.stopReason === 'end_turn' && !ctx.signal.aborted }
     : { type: 'result', usage: {}, stopReason: ctx.signal.aborted ? 'interrupted' : 'error', queueReleaseSafe: false })
 }
 
-async function executeCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Promise<void> {
+async function executeCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport, selection?: CodexTransportSelection): Promise<void> {
   const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const home = normalizeCodexHome(ctx.codexHome)
   if (!validateCodexHome(ctx, home)) return
@@ -629,6 +639,16 @@ async function executeCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport)
   try {
     const prepared = prepareCodexInput(ctx.text, ctx.images)
     tempImageDir = prepared.tempDir
+    const inherited = selection != null
+    if (transport === 'sdkFallback' && !selection) {
+      selection = await prepareCodexTransport({ threadId: ctx.sdkSessionId, codexHome: home, cwd: safeCwd,
+        input: toAppServerInput(prepared.input), config: buildCodexConfig(ctx.speed ?? 'default', ctx.toolPolicy ?? 'default',
+          home, ctx.sessionId, ctx.forgeSqlRegistration, ctx.developerInstructions, consultSourceRoot,
+          ctx.consultEvidenceSystems, ctx.consultToolAssembly) },
+      (method, params) => callAppServer(method, params, home))
+    }
+    ctx.signal.throwIfAborted()
+    logCodexSdkTransport({ sessionId: ctx.sessionId, threadId: ctx.sdkSessionId, execution: transport, selection }, inherited)
     const client = pickCodex(
       ctx.apiBaseUrl,
       ctx.authToken,
@@ -641,6 +661,7 @@ async function executeCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport)
       consultSourceRoot,
       ctx.consultEvidenceSystems,
       ctx.consultToolAssembly,
+      selection,
     )
     if (ctx.apiBaseUrl) {
       console.log(`[sidecar] codex turn start model=${ctx.model ?? '默认'} via=${normalizeOpenAiBase(ctx.apiBaseUrl)}`)
@@ -692,9 +713,11 @@ async function executeCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport)
           ctx.emit({ type: 'result', usage: ev.usage ?? {}, stopReason: 'end_turn' })
           break
         case 'turn.failed':
+          logCodexTransportError({ sessionId: ctx.sessionId, threadId: thread.id ?? undefined, execution: transport, selection }, ev.error?.message ?? '')
           ctx.emit({ type: 'error', code: 'CODEX_TURN_FAILED', message: ev.error?.message ?? 'Codex 轮次失败' })
           break
         case 'error':
+          logCodexTransportError({ sessionId: ctx.sessionId, threadId: thread.id ?? undefined, execution: transport, selection }, ev.message)
           ctx.emit({ type: 'error', code: 'CODEX_ERROR', message: ev.message })
           break
       }
@@ -711,9 +734,10 @@ async function executeCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport)
         code: 'CODEX_THREAD_ARCHIVED_RECREATED',
         message: '原 Codex 会话已归档，已自动创建新会话继续处理当前消息。',
       })
-      await runCodexSdkTurn({ ...ctx, sdkSessionId: undefined }, transport)
+      await runCodexSdkTurn({ ...ctx, sdkSessionId: undefined }, transport, selection)
       return
     }
+    logCodexTransportError({ sessionId: ctx.sessionId, threadId: ctx.sdkSessionId, execution: transport, selection }, e instanceof Error ? e.message : String(e))
     ctx.emit({ type: 'error', code: 'CODEX_QUERY_FAILED', message: e instanceof Error ? e.message : String(e) })
   } finally {
     if (tempImageDir) rmSync(tempImageDir, { recursive: true, force: true })

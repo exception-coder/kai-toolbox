@@ -4,13 +4,13 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { CODEX_WS_CONTEXT_BUDGET_BYTES } from './codexTransportPolicy.js'
+import { CODEX_WS_CONTEXT_BUDGET_BYTES, type CodexTransportSelection } from './codexTransportPolicy.js'
 import { callAppServer, createCodexPredictionProcess, runCodexAppServerTurn, steerCodexAppServerTurn, requestCodexAppServerCleanup, CodexAppServerTurnError } from './codexAppServer.js'
 import { CodexPredictionCoordinator, readCodexPrediction } from './codexPrediction.js'
 import { observeCodexProcess } from './codexProcessLifetime.js'
 
 // Real pipes and EOF, with a local JSON-RPC peer: no account, tools or model calls.
-function fixture(mode: 'complete' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
+function fixture(mode: 'complete' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
   const child = spawn(process.execPath, ['-e', `
     const mode = ${JSON.stringify(mode)};
     const rolloutPath = ${JSON.stringify(rolloutPath)};
@@ -27,12 +27,16 @@ function fixture(mode: 'complete' | 'hold' | 'holdError' | 'holdCancel' | 'cance
       process.stdout.write('o'.repeat(1024*1024), done);
       process.stderr.write('e'.repeat(1024*1024), done);
     }
-    process.on('message', message => { if (message === 'release') drain(); });
+    let resumeRequest;
+    process.on('message', message => {
+      if (message === 'release') drain();
+      if (message === 'resume' && resumeRequest) send({id:resumeRequest.id,result:{thread:{id:'lifecycle-thread'}}});
+    });
     process.stdin.on('end', () => { if (!mode.startsWith('hold')) drain(); });
     function complete() {
       send({method:'item/completed',params:{threadId:'lifecycle-thread',turnId:'lifecycle-turn',
         item:{type:'agentMessage',id:'answer',text:'fixture answer'}}});
-      send({method:'turn/completed',params:{threadId:'lifecycle-thread',turn:{id:'lifecycle-turn',status:'completed'}}});
+      if (mode !== 'lostTerminal') send({method:'turn/completed',params:{threadId:'lifecycle-thread',turn:{id:'lifecycle-turn',status:'completed'}}});
     }
     rl.on('line', line => {
       const m = JSON.parse(line);
@@ -43,11 +47,21 @@ function fixture(mode: 'complete' | 'hold' | 'holdError' | 'holdCancel' | 'cance
       } else if (m.method === 'thread/read' && rolloutPath) {
         send({id:m.id,result:{thread:{path:rolloutPath,modelProvider:'openai'}}});
       } else if (m.method === 'thread/start' || m.method === 'thread/resume') {
+        if (m.method === 'thread/resume' && m.params.excludeTurns !== true) {
+          send({id:m.id,error:{message:'Full history hydration is not allowed'}}); return;
+        }
+        if (mode === 'resumeError') { send({id:m.id,error:{message:'fixture restore unavailable'}}); return; }
+        if (mode === 'slowResume') { resumeRequest = m; process.send?.('resuming'); return; }
         if (mode === 'transport' && (m.params.modelProvider !== 'forge_openai_https'
           || m.params.config['model_providers.forge_openai_https']?.supports_websockets !== false)) {
           send({id:m.id,error:{message:'Oversized context would retry WebSocket five times'}}); return;
         }
         send({id:m.id,result:{thread:{id:'lifecycle-thread'}}});
+      } else if (m.method === 'thread/turns/list') {
+        if (m.params.limit !== 1 || m.params.sortDirection !== 'desc' || m.params.itemsView !== 'notLoaded') {
+          send({id:m.id,error:{message:'Unbounded turn history'}}); return;
+        }
+        send({id:m.id,result:{data:[{id:'lifecycle-turn',status:'completed'}]}});
       } else if (m.method === 'turn/start') {
         send({id:m.id,result:{turn:{id:'lifecycle-turn'}}});
         process.send?.('turn-started');
@@ -76,7 +90,10 @@ function fixture(mode: 'complete' | 'hold' | 'holdError' | 'holdCancel' | 'cance
   let opens = 0
   const runtime = {
     open: () => { opens++; return child },
-    stop: () => { stops++ },
+    stop: () => {
+      stops++
+      if ((mode === 'resumeError' || mode === 'slowResume') && child.connected) child.send('release')
+    },
     closeTimeoutMs: mode.startsWith('hold') ? 50 : 2_000,
   }
   return { child, lifetime, runtime, get stops() { return stops }, get opens() { return opens },
@@ -97,6 +114,63 @@ const turnOptions = (sessionId: string, events: Record<string, unknown>[] = [], 
   setThreadId: () => {},
 })
 
+test('a failed restore still hands the selected transport to fallback after native cleanup', async () => {
+  const process = fixture('resumeError')
+  let selection: CodexTransportSelection | undefined
+  try {
+    await assert.rejects(runCodexAppServerTurn({ ...turnOptions('resume-fallback'),
+      onTransportSelected: value => { selection = value } }, process.runtime), error =>
+      error instanceof CodexAppServerTurnError && error.retrySafe && /restore unavailable/.test(error.message))
+    assert.ok(selection)
+    assert.equal(await process.lifetime.wait(0), true)
+  } finally { await process.release() }
+})
+
+test('a restore may pass the former 20-second deadline and still complete without replay', async t => {
+  const process = fixture('slowResume')
+  const resuming = new Promise<void>(resolve => process.child.once('message', () => resolve()))
+  const events: Record<string, unknown>[] = []
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const pending = runCodexAppServerTurn(turnOptions('slow-resume', events), process.runtime)
+  void pending.catch(() => undefined)
+  try {
+    await resuming
+    t.mock.timers.tick(20_001)
+    t.mock.timers.reset()
+    process.child.send('resume')
+    await pending
+    assert.equal(events.filter(event => event.type === 'result').length, 1)
+    assert.equal(process.opens, 1)
+  } finally { await process.release(); await pending.catch(() => undefined) }
+})
+
+test('cancelling a pending restore stops before turn/start and is not reported as success', async () => {
+  const process = fixture('slowResume')
+  const resuming = new Promise<void>(resolve => process.child.once('message', () => resolve()))
+  const controller = new AbortController()
+  const events: Record<string, unknown>[] = []
+  const pending = runCodexAppServerTurn(turnOptions('cancel-resume', events, controller.signal), process.runtime)
+  const rejected = assert.rejects(pending, /中断/)
+  try {
+    await resuming
+    controller.abort()
+    await rejected
+    assert.equal(events.some(event => event.type === 'result'), false)
+    assert.equal(await process.lifetime.wait(0), true)
+  } finally { await process.release(); await pending.catch(() => undefined) }
+})
+
+test('a lost terminal notification is reconciled with a bounded page and actual process exit', async () => {
+  const process = fixture('lostTerminal')
+  const events: Record<string, unknown>[] = []
+  try {
+    await runCodexAppServerTurn(turnOptions('lost-terminal', events), process.runtime)
+    assert.equal(events.filter(event => event.type === 'result').length, 1)
+    assert.equal(events.find(event => event.type === 'result')?.queueReleaseSafe, true)
+    assert.equal(await process.lifetime.wait(0), true)
+  } finally { await process.release() }
+})
+
 test('oversized context selects HTTPS before each of two fresh native processes accepts a message', async t => {
   const home = await mkdtemp(join(tmpdir(), 'forge-native-transport-'))
   t.after(() => rm(home, { recursive: true, force: true }))
@@ -108,8 +182,11 @@ test('oversized context selects HTTPS before each of two fresh native processes 
   for (let turn = 0; turn < 2; turn++) {
     const process = fixture('transport', path)
     const events: Record<string, unknown>[] = []
+    let selection: CodexTransportSelection | undefined
     try {
-      await runCodexAppServerTurn({ ...turnOptions('transport', events), codexHome: home }, process.runtime)
+      await runCodexAppServerTurn({ ...turnOptions('transport', events), codexHome: home,
+        onTransportSelected: value => { selection = value } }, process.runtime)
+      assert.equal(selection?.modelProvider, 'forge_openai_https', 'fallback must receive the selected transport')
       assert.equal(events.filter(event => event.type === 'result').length, 1)
       assert.equal(events.find(event => event.type === 'result')?.stopReason, 'end_turn')
       assert.equal(process.opens, 1)

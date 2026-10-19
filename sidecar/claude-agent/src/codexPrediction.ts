@@ -180,7 +180,7 @@ export async function readCodexPrediction(
     const transport = await prepareCodexTransport({ ...options, config, input: [] },
       async (method, params) => (await request(method, params) ?? {}) as Record<string, unknown>)
     if (settled || signal.aborted) return null
-    await request('thread/resume', { threadId: options.threadId, cwd: options.cwd,
+    await request('thread/resume', { threadId: options.threadId, excludeTurns: true, cwd: options.cwd,
       model: options.model ?? null, approvalPolicy: 'never', sandbox: 'read-only', config: transport.config,
       ...(transport.modelProvider ? { modelProvider: transport.modelProvider } : {}) })
     predictionRequested = true

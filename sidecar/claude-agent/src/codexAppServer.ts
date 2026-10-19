@@ -1,7 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
-import { prepareCodexTransport } from './codexTransportPolicy.js'
+import { prepareCodexTransport, type CodexTransportSelection } from './codexTransportPolicy.js'
+import { CodexRpcTimeoutError, codexRpcTimeoutMs, observeCodexRpc } from './engine/codexRpcPolicy.js'
+import { logCodexTransportError } from './engine/codexTransportDiagnostics.js'
 import { createPredictionClose } from './codexPredictionCleanup.js'
 import { codexCleanupBarriers, observeCodexProcess } from './codexProcessLifetime.js'
 import { jsonLineWriter } from './jsonLineWriter.js'
@@ -25,7 +27,6 @@ import {
 } from './sessionCapabilities.js'
 
 const require = createRequire(import.meta.url)
-const REQUEST_TIMEOUT_MS = 20_000
 // Windows 上 taskkill /T 需要等待命令子树和 stdio 句柄逐级关闭；3 秒会把正常清理误报成失败。
 const PROCESS_CLOSE_TIMEOUT_MS = 10_000
 // 切换网络后旧连接的 TCP/TLS 失效检测和上游退避可能持续数十秒。
@@ -115,6 +116,7 @@ type AppServerTurnOptions = {
   signal: AbortSignal
   emit: (event: Record<string, unknown>) => void
   setThreadId: (threadId: string) => void
+  onTransportSelected?: (selection: CodexTransportSelection) => void
   canUseTool?: (
     toolName: string,
     input: Record<string, unknown>,
@@ -173,6 +175,7 @@ export async function startVoiceWithLegacyThreadRecovery(options: VoiceThreadRec
     if (!options.resumedThreadId || !isUnsupportedRealtimeThreadError(error)) throw error
     const forkResult = await options.request('thread/fork', {
       threadId: options.resumedThreadId,
+      excludeTurns: true,
       cwd: options.cwd,
       model: options.model ?? null,
       approvalPolicy: options.approvalPolicy,
@@ -387,13 +390,13 @@ export type CodexTerminalTurn = {
   errorMessage?: string
 }
 
-/** Uses thread/read as the authority when a terminal notification is lost in transit. */
+/** Match the exact native turn; another turn's terminal state cannot release this queue. */
 export function findCodexTerminalTurn(result: JsonRpcResult, expectedTurnId: string): CodexTerminalTurn | undefined {
-  const turn = result.thread?.turns?.find(candidate => candidate.id === expectedTurnId)
+  const turn = asRecord((result.data ?? result.thread?.turns ?? []).find(candidate => asRecord(candidate)?.id === expectedTurnId))
   const status = asString(turn?.status).toLowerCase()
   if (!turn?.id || !TERMINAL_TURN_STATUSES.has(status)) return undefined
   const errorMessage = asString(asRecord(turn.error)?.message)
-  return { id: turn.id, status, ...(errorMessage ? { errorMessage } : {}) }
+  return { id: asString(turn.id), status, ...(errorMessage ? { errorMessage } : {}) }
 }
 
 export function shouldReconcileCodexTurnAfterItem(
@@ -545,7 +548,7 @@ export function callAppServer(
     const timer = setTimeout(() => {
       const detail = stderr.trim()
       finish(new Error(`Codex ${method} 超时${detail ? `：${detail}` : ''}`))
-    }, REQUEST_TIMEOUT_MS)
+    }, codexRpcTimeoutMs(method))
 
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', chunk => {
@@ -642,6 +645,7 @@ export async function forkCodexThread(
 ): Promise<string> {
   const result = await callAppServer('thread/fork', {
     threadId,
+    excludeTurns: true,
     ...(options.lastTurnId ? { lastTurnId: options.lastTurnId } : {}),
   }, options.codexHome)
   const forkedId = result.thread?.id
@@ -651,9 +655,10 @@ export async function forkCodexThread(
 
 /** 读取当前 thread 最新一轮的 turn id，作为消息底部“从这里分叉”的锚点。 */
 export async function latestCodexTurnId(threadId: string, codexHome?: string): Promise<string | undefined> {
-  const result = await callAppServer('thread/read', { threadId, includeTurns: true }, codexHome)
-  const turns = result.thread?.turns ?? []
-  return turns.at(-1)?.id
+  const result = await callAppServer('thread/turns/list', {
+    threadId, limit: 1, sortDirection: 'desc', itemsView: 'notLoaded',
+  }, codexHome)
+  return asString(asRecord(result.data?.[0])?.id) || undefined
 }
 
 type CodexCapabilityInspectionOptions = {
@@ -789,6 +794,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   let emittedActivity = false
   let threadId = options.threadId
   let turnId: string | undefined
+  let transportSelection: CodexTransportSelection | undefined
   const completedVoiceTurns = new Set<string>()
   let turnAccepted = false
   let finished = false
@@ -833,15 +839,16 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   const request = (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> => {
     if (finished) return Promise.reject(new Error('Codex App Server 轮次已结束'))
     const id = nextId++
-    return new Promise((resolveRequest, rejectRequest) => {
+    const timeoutMs = codexRpcTimeoutMs(method)
+    return observeCodexRpc(method, () => new Promise((resolveRequest, rejectRequest) => {
       const timer = setTimeout(() => {
         pending.delete(id)
-        rejectRequest(new Error(`Codex App Server 请求 ${method} 超时（${REQUEST_TIMEOUT_MS}ms）`))
-      }, REQUEST_TIMEOUT_MS)
+        rejectRequest(new CodexRpcTimeoutError(method, timeoutMs))
+      }, timeoutMs)
       timer.unref?.()
       pending.set(id, { resolve: resolveRequest, reject: rejectRequest, timer })
       send({ method, id, params })
-    })
+    }), { sessionId: options.sessionId, threadId })
   }
   const emitActivity = (event: Record<string, unknown>) => {
     emittedActivity = true
@@ -966,7 +973,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
         completionReconcile = undefined
         if (finished || completionReconcileInFlight || !threadId || !turnId) return
         completionReconcileInFlight = true
-        void request('thread/read', { threadId, includeTurns: true })
+        void request('thread/turns/list', { threadId, limit: 1, sortDirection: 'desc', itemsView: 'notLoaded' })
           .then(result => {
             if (finished || !turnId) return
             const terminalTurn = findCodexTerminalTurn(result, turnId)
@@ -1229,6 +1236,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
         }
         case 'error': {
           const notice = classifyCodexAppServerError(params)
+          logCodexTransportError({ sessionId: options.sessionId, threadId, execution: 'appServer', selection: transportSelection }, notice.message)
           if (notice.willRetry || notice.retryExhausted) {
             reconnectActivityId ??= `${asString(params.turnId) || turnId || threadId || 'current'}-reconnect`
             const progress = notice.attempt && notice.maxAttempts ? `${notice.attempt}/${notice.maxAttempts}` : '重试中'
@@ -1288,11 +1296,13 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
     send({ method: 'initialized', params: {} })
     initialized = true
     const transport = await prepareCodexTransport(options, request)
+    transportSelection = transport
+    options.onTransportSelected?.(transport)
     options.signal.throwIfAborted()
     const threadConfig = withRealtimeConversationConfig(transport.config)
     const providerOverride = transport.modelProvider ? { modelProvider: transport.modelProvider } : {}
     const threadResult = await request(threadId ? 'thread/resume' : 'thread/start', threadId
-      ? { threadId, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride }
+      ? { threadId, excludeTurns: true, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride }
       : { cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride })
     const thread = asRecord(threadResult.thread)
     threadId = asString(thread?.id) || threadId

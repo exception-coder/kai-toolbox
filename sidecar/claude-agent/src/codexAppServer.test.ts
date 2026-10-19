@@ -63,6 +63,7 @@ test('forks a legacy text-only thread and retries voice with preserved history',
   assert.deepEqual(assigned, ['voice-thread'])
   assert.equal(requests[0]?.method, 'thread/fork')
   assert.equal(requests[0]?.params.threadId, 'legacy-thread')
+  assert.equal(requests[0]?.params.excludeTurns, true)
   assert.equal((requests[0]?.params.config as Record<string, unknown>)['features.realtime_conversation'], true)
 })
 
@@ -394,6 +395,9 @@ test('reconciles a completed native turn when turn/completed was not delivered',
   assert.equal(findCodexTerminalTurn({
     thread: { turns: [{ id: 'current-turn', status: 'inProgress' }] },
   }, 'current-turn'), undefined)
+  assert.deepEqual(findCodexTerminalTurn({ data: [{ id: 'current-turn', status: 'completed' }] }, 'current-turn'), terminal)
+  assert.equal(findCodexTerminalTurn({ data: [{ id: 'other-turn', status: 'completed' }] }, 'current-turn'), undefined)
+  assert.equal(findCodexTerminalTurn({ data: [{ id: 'current-turn', status: 'inProgress' }] }, 'current-turn'), undefined)
 })
 
 test('preserves a failed native turn error during terminal reconciliation', () => {
