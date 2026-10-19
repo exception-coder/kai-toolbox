@@ -5,13 +5,15 @@ import { CONSULT_UPGRADE_NOTES } from '../data/upgradeNotes'
 
 afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks() })
 
-it('shows one sentence by default and opens complete history without losing draft or focus', async () => {
+it('shows five concise updates and opens complete history without losing draft or focus', async () => {
   render(<><textarea aria-label="提问草稿" defaultValue="继续核查订单" /><ConsultUpgradeNotice /></>)
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   const paper = screen.getByRole('complementary', { name: '近期升级纸签' })
   expect(paper).toHaveTextContent(CONSULT_UPGRADE_NOTES[0].title)
   expect(paper).not.toHaveTextContent('2026-10-18')
-  expect(paper).not.toHaveTextContent('自动定位相关系统')
+  expect(within(paper).getAllByRole('listitem').map(item => item.textContent?.slice(2)))
+    .toEqual(CONSULT_UPGRADE_NOTES.slice(0, 5).map(note => note.title))
+  expect(paper).not.toHaveTextContent(CONSULT_UPGRADE_NOTES[5].title)
   const trigger = screen.getByRole('button', { name: '查看近期升级详情' })
   trigger.focus(); fireEvent.click(trigger)
   const drawer = await screen.findByRole('dialog', { name: '近期升级' })
@@ -49,8 +51,12 @@ it('remembers dismissal per user, restores via toolbar and reappears for a new r
 it('retains all history and sorts newest first without mutating the source', async () => {
   const notices = Array.from({ length: 7 }, (_, i) => ({ ...CONSULT_UPGRADE_NOTES[0], id: `note-${i}`, date: `2026-10-0${i + 1}`, title: `更新${i + 1}` }))
   const { rerender } = render(<ConsultUpgradeNotice notices={notices} />)
+  const paper = screen.getByRole('complementary', { name: '近期升级纸签' })
+  expect(within(paper).getAllByRole('listitem').map(item => item.textContent?.slice(2)))
+    .toEqual(['更新7', '更新6', '更新5', '更新4', '更新3'])
   fireEvent.click(screen.getByRole('button', { name: '查看近期升级详情' }))
-  expect((await screen.findAllByRole('listitem')).map(item => within(item).getByRole('heading').textContent))
+  const drawer = await screen.findByRole('dialog', { name: '近期升级' })
+  expect(within(drawer).getAllByRole('listitem').map(item => within(item).getByRole('heading').textContent))
     .toEqual(['更新7', '更新6', '更新5', '更新4', '更新3', '更新2', '更新1'])
   expect(notices[0].id).toBe('note-0')
   rerender(<ConsultUpgradeNotice notices={[]} />)

@@ -1,8 +1,9 @@
 import { useRef, useState, type RefObject } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { ArrowUpRight, Pin, X } from 'lucide-react'
+import { ArrowUpRight, X } from 'lucide-react'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import { CONSULT_UPGRADE_NOTES, type ConsultUpgradeNote } from '../data/upgradeNotes'
+import './consult-upgrade-note.css'
 
 interface UpgradeNoticeProps {
   notices?: readonly ConsultUpgradeNote[]
@@ -38,12 +39,18 @@ export function ConsultUpgradeNotice({ notices = CONSULT_UPGRADE_NOTES, userId, 
   }
   if (!latest) return null
   return <>
-    {!isDismissed && <aside aria-label="近期升级纸签" className="group pointer-events-auto absolute right-6 top-20 z-[25] hidden w-[232px] rounded-[10px] border border-[#e9e5db] bg-[#fffef9] text-stone-800 shadow-[0_2px_8px_rgba(56,48,32,0.04)] lg:block">
-      <Pin className="pointer-events-none absolute -top-2 left-1/2 size-4 -translate-x-1/2 text-[#a68b67]" aria-hidden="true" />
-      <button type="button" onClick={showDetails} aria-label="查看近期升级详情" className="block min-h-[108px] w-full rounded-[10px] px-4 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500">
+    {!isDismissed && <aside aria-label="近期升级纸签" className="fc-release-note group pointer-events-auto absolute right-6 top-20 z-[25] hidden w-[232px] text-[#343434] lg:block">
+      <span className="fc-release-note__paper" aria-hidden="true" />
+      <span className="fc-release-note__pin" aria-hidden="true" />
+      <button type="button" onClick={showDetails} aria-label="查看近期升级详情" className="relative block w-full px-4 pb-4 pt-5 text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-stone-500">
         <span className="block text-xs font-medium text-stone-500">近期升级</span>
-        <span className="mt-2 block text-[13px] font-medium leading-5">{latest.title}</span>
-        <span className="mt-2 flex items-center gap-1 text-xs text-stone-500">查看更新详情<ArrowUpRight className="size-3" aria-hidden="true" /></span>
+        <span role="list" aria-label="最近五项重大更新" className="mb-3 mt-3 block space-y-2">
+          {sortedNotes.slice(0, 5).map((note, index) => <span key={note.id} role="listitem" className="flex items-baseline gap-2 text-[13px] font-medium leading-5">
+            <span aria-hidden="true" className="text-[10px] font-normal tabular-nums text-stone-400">{String(index + 1).padStart(2, '0')}</span>
+            <span>{note.title}</span>
+          </span>)}
+        </span>
+        <span className="flex items-center gap-1 text-xs text-stone-500">查看更新详情<ArrowUpRight className="size-3" aria-hidden="true" /></span>
       </button>
       <button type="button" aria-label="收起升级纸签" onClick={dismiss} className="absolute right-1 top-1 rounded-md p-1 text-stone-500 opacity-0 hover:bg-stone-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-stone-500 group-hover:opacity-100 group-focus-within:opacity-100"><X className="size-3" /></button>
     </aside>}

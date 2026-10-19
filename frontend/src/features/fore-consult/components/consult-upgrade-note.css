@@ -1,0 +1,62 @@
+.fc-release-note {
+  transform: rotate(-0.8deg);
+  filter: drop-shadow(0 3px 4px rgb(56 48 32 / 7%));
+  transition: transform 160ms ease;
+}
+
+.fc-release-note:hover,
+.fc-release-note:focus-within {
+  transform: translateY(-1px) rotate(0deg);
+}
+
+/* 仅裁切纸面，保留纸外图钉和键盘焦点轮廓。 */
+.fc-release-note__paper {
+  position: absolute;
+  inset: 0;
+  background: #e9e5db;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%);
+}
+
+.fc-release-note__paper::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  background: #fffdf6;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%);
+}
+
+.fc-release-note__paper::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 15px;
+  height: 15px;
+  background: #f1ebdd;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  filter: drop-shadow(-1px -1px 1px rgb(87 70 40 / 12%));
+}
+
+/* 小面积金属高光与接触暗部，让钉头压住纸张而不是悬空。 */
+.fc-release-note__pin {
+  position: absolute;
+  z-index: 1;
+  top: -5px;
+  left: 29px;
+  width: 11px;
+  height: 11px;
+  pointer-events: none;
+  border: 1px solid #a68b67;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ede4d3, #af9573 70%, #927959);
+  box-shadow: inset 1px 1px 1px rgb(255 255 255 / 75%), 1px 3px 2px rgb(77 61 37 / 18%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-release-note,
+  .fc-release-note:hover,
+  .fc-release-note:focus-within {
+    transform: none;
+    transition: none;
+  }
+}
