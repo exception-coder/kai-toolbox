@@ -6,6 +6,7 @@ import { VoiceInputButton } from '@/features/claude-chat/public-api/voice'
 import { useAuth } from '@/lib/auth'
 import { enrollResource, listResourceGroups } from '../api'
 import { parseNaturalResourceInput } from '../lib/parseNaturalResourceInput'
+import { useRememberedProjects } from '../lib/useRememberedProjects'
 
 /** Sensitive intake lives only in this mounted component and the enrollment API. */
 export function ResourceIntake({ onClose, onDirtyChange, onBusyChange, onManual }: {
@@ -14,7 +15,9 @@ export function ResourceIntake({ onClose, onDirtyChange, onBusyChange, onManual 
 }) {
   const { user } = useAuth()
   const groups = useQuery({ queryKey: ['work-assistants', user?.userId, 'resource-groups'], queryFn: listResourceGroups })
-  const [systemId, setSystem] = useState(''), [text, setText] = useState(''), [busy, setBusy] = useState(false)
+  const [selectedSystems, rememberSystem] = useRememberedProjects('resources', (groups.data || []).map(group => group.id))
+  const systemId = selectedSystems[0] || ''
+  const [text, setText] = useState(''), [busy, setBusy] = useState(false)
   const [parsed, setParsed] = useState<ReturnType<typeof parseNaturalResourceInput> | null>(null)
   const [error, setError] = useState(''), [receipt, setReceipt] = useState<{ resourceId: string; configurationUrl: string } | null>(null)
   const submitting = useRef(false)
@@ -49,7 +52,7 @@ export function ResourceIntake({ onClose, onDirtyChange, onBusyChange, onManual 
         <p className="text-xs leading-5 text-[var(--color-muted-foreground)]">只登记配置，不测试连接、不执行命令，也不改变业务咨询绑定。</p>
         <div className="flex gap-3"><Button disabled={busy} onClick={() => void save()}>{busy ? '正在登记…' : '确认登记'}</Button><Button variant="outline" disabled={busy} onClick={() => setParsed(null)}>补充或修改</Button></div>
       </div> : <form className="space-y-5" onSubmit={event => { event.preventDefault(); inspect() }}>
-        <div><label htmlFor="wa-resource-system" className="text-sm">所属项目 / 系统</label><FixedCombobox id="wa-resource-system" className="mt-2 min-h-11" value={systemId} onChange={setSystem} options={(groups.data || []).map(group => ({ value: group.id, label: group.name }))} placeholder={groups.isPending ? '正在读取项目…' : '选择所属项目 / 系统'} /></div>
+        <div><label htmlFor="wa-resource-system" className="text-sm">所属项目 / 系统</label><FixedCombobox id="wa-resource-system" className="mt-2 min-h-11" value={systemId} onChange={id => rememberSystem(id ? [id] : [])} options={(groups.data || []).map(group => ({ value: group.id, label: group.name }))} placeholder={groups.isPending ? '正在读取项目…' : '选择所属项目 / 系统'} /></div>
         {groups.isError && <p role="alert" className="text-sm">项目读取失败，<button type="button" className="underline" onClick={() => void groups.refetch()}>重试</button></p>}
         <label className="block text-sm">直接说或粘贴资源信息<textarea autoComplete="off" spellCheck={false} maxLength={12000} className="wa-field mt-2 min-h-40 resize-y" value={text} onChange={event => setText(event.target.value)} placeholder={'例如：登记生产环境 MySQL 10.0.0.8:3306\n数据库：erp\n账号：report\n密码：…\n也可以粘贴 MySQL / Redis / SSH 连接串。'} /></label>
         <p className="text-xs leading-5 text-[var(--color-muted-foreground)]">自动识别环境和中间件 / 主机。密码只在此安全输入中处理，不进入普通聊天、对话模型或浏览器持久存储。每次登记一项，缺少信息会提示补充；语音请只描述资源，不口述密码。</p>

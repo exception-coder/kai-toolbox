@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { FixedCombobox } from '@/components/ui/fixed-combobox'
 import { VoiceInputButton } from '@/features/claude-chat/public-api/voice'
 import { resolveWeeklyRequest, type Project, type Scope } from '../api'
+import { useRememberedProjects } from '../lib/useRememberedProjects'
 
 export function AssistantSetup({ projects, busy, onStart, onPlanningChange, initialInput, onInputChange }: {
   assistant: string; projects: Project[]; busy: boolean;
@@ -12,7 +13,8 @@ export function AssistantSetup({ projects, busy, onStart, onPlanningChange, init
   initialInput?: string; onInputChange?: (value: string) => void
 }) {
   const [engine, setEngine] = useState('codex'), [model, setModel] = useState('')
-  const [projectIds, setProjects] = useState<string[]>([]), [input, setInput] = useState(initialInput || '')
+  const [projectIds, setProjects] = useRememberedProjects('weekly', projects.map(project => project.id))
+  const [input, setInput] = useState(initialInput || '')
   const changeInput = (value: string) => { setInput(value); onInputChange?.(value) }
   const [planning, setPlanning] = useState(false), [notice, setNotice] = useState('')
   const submit = async () => {
@@ -29,7 +31,7 @@ export function AssistantSetup({ projects, busy, onStart, onPlanningChange, init
     <fieldset disabled={busy || planning} className="space-y-5">
       <fieldset><legend className="mb-2 text-sm">选择项目 · 最多 5 个</legend>
         <div className="max-h-40 overflow-y-auto rounded-md border p-2">{projects.map(project => <label key={project.id} className="flex min-h-11 items-center gap-3 px-2 text-sm">
-          <input type="checkbox" checked={projectIds.includes(project.id)} disabled={!projectIds.includes(project.id) && projectIds.length >= 5} onChange={event => setProjects(current => event.target.checked ? [...current, project.id] : current.filter(id => id !== project.id))} />
+          <input type="checkbox" checked={projectIds.includes(project.id)} disabled={!projectIds.includes(project.id) && projectIds.length >= 5} onChange={event => setProjects(event.target.checked ? [...projectIds, project.id] : projectIds.filter(id => id !== project.id))} />
           <span className="min-w-0 truncate" title={project.path}>{project.name}</span>
         </label>)}{!projects.length && <p className="py-3 text-sm">没有可用项目，请先在项目库登记并允许访问。</p>}</div>
       </fieldset>

@@ -5,7 +5,21 @@ import { ResourceIntake } from './ResourceIntake'
 import { enrollResource, listResourceGroups } from '../api'
 vi.mock('../api', () => ({ enrollResource: vi.fn(), listResourceGroups: vi.fn() }))
 vi.mock('@/features/claude-chat/public-api/voice', () => ({ VoiceInputButton: () => <span>语音</span> }))
-afterEach(() => { cleanup(); vi.resetAllMocks() })
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { userId: 7 } }) }))
+afterEach(() => { cleanup(); vi.resetAllMocks(); localStorage.clear() })
+
+it('restores only the system selection when reopened, leaving sensitive text empty', async () => {
+  vi.mocked(listResourceGroups).mockResolvedValue([{ id: 'erp', name: 'ERP' }])
+  const first = render(<QueryClientProvider client={new QueryClient()}><ResourceIntake onClose={vi.fn()} /></QueryClientProvider>)
+  fireEvent.click(screen.getByRole('combobox', { name: '所属项目 / 系统' }))
+  fireEvent.click(await screen.findByRole('option', { name: 'ERP' }))
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: '生产 MySQL password=secret-only-in-memory' } })
+  first.unmount()
+  render(<QueryClientProvider client={new QueryClient()}><ResourceIntake onClose={vi.fn()} /></QueryClientProvider>)
+  await waitFor(() => expect(screen.getByRole('combobox', { name: '所属项目 / 系统' })).toHaveTextContent('ERP'))
+  expect(screen.getByRole('textbox')).toHaveValue('')
+  expect(localStorage.getItem('forge:work-assistants:projects:7:resources:v1')).toBe('["erp"]')
+})
 
 it('uses one paste, masks credentials before confirmation and reuses the request after uncertainty', async () => {
   vi.mocked(listResourceGroups).mockResolvedValue([{ id: 'erp', name: 'ERP' }])

@@ -4,7 +4,17 @@ import { AssistantSetup } from './AssistantSetup'
 import { resolveWeeklyRequest } from '../api'
 vi.mock('../api', () => ({ resolveWeeklyRequest: vi.fn() }))
 vi.mock('@/features/claude-chat/public-api/voice', () => ({ VoiceInputButton: () => <span>语音</span> }))
-afterEach(() => { cleanup(); vi.resetAllMocks() })
+vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { userId: 7 } }) }))
+afterEach(() => { cleanup(); vi.resetAllMocks(); localStorage.clear() })
+
+it('remembers the selected project when the setup is reopened', () => {
+  const props = { assistant: 'weekly', projects: [{ id: 'erp', name: 'ERP', path: '/erp' }], busy: false, onStart: vi.fn() }
+  const first = render(<AssistantSetup {...props} />)
+  fireEvent.click(screen.getByRole('checkbox', { name: 'ERP' }))
+  first.unmount()
+  render(<AssistantSetup {...props} />)
+  expect(screen.getByRole('checkbox', { name: 'ERP' })).toBeChecked()
+})
 
 it('starts directly from the selected project and a natural request, without author/date fields', async () => {
   const scope = { projectIds: ['erp'], from: '2026-10-12', through: '2026-10-18', author: '张凯' }
