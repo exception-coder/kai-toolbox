@@ -69,6 +69,26 @@ class ConsultResourceServiceTest {
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
         verify(routing).forRuntime("runtime", "api", "src/Order.java");
     }
+    @Test void sourceSynchronizationRequiresRuntimeSignatureAndUsesOnlyProjectIdentity() throws Exception {
+        var access = new ConsultResourceAccess();
+        var sync = mock(ConsultSourceSyncService.class);
+        var controller = new com.exceptioncoder.toolbox.foreconsult.api.ConsultResourceController(mock(ConsultResourceService.class), access);
+        org.springframework.test.util.ReflectionTestUtils.setField(controller, "sourceSync", sync);
+        when(sync.synchronize("runtime", "api")).thenReturn(new ConsultSourceSyncService.Result("UP_TO_DATE", "checked", "main", "a".repeat(40), 1));
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
+        String url = "/api/fore-consult/resources/sessions/runtime/source-sync";
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(url)
+                        .contentType("application/json").content("{\"project\":\"api\"}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+        verifyNoInteractions(sync);
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(url)
+                        .header("X-Consult-Resource-Token", access.issue("runtime"))
+                        .contentType("application/json").content("{\"project\":\"api\"}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.status").value("UP_TO_DATE"));
+        verify(sync).synchronize("runtime", "api");
+    }
+
     @Test void automaticAnchorCannotBeUsedAsDatabaseIdentity() {
         var sessions = mock(ConsultSessionRepository.class);
         var workflows = mock(ConsultWorkflowRepository.class);

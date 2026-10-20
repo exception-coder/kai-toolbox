@@ -19,6 +19,8 @@ import java.util.List;
 public class ConsultResourceController {
     @org.springframework.beans.factory.annotation.Autowired
     private com.exceptioncoder.toolbox.foreconsult.service.ConsultSourceRoutingService routing;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.foreconsult.service.ConsultSourceSyncService sourceSync;
     private final ConsultResourceService service;
     private final ConsultResourceAccess access;
     public ConsultResourceController(ConsultResourceService service,
@@ -68,6 +70,17 @@ public class ConsultResourceController {
         var scope = routing.forRuntime(runtimeId, project, path);
         return scope == null ? com.fasterxml.jackson.databind.node.NullNode.getInstance() : scope;
     }
+
+    /** 同步是显式写动作，不能挂在只读路由GET上。 */
+    @PostMapping("/sessions/{runtimeId}/source-sync")
+    public com.exceptioncoder.toolbox.foreconsult.service.ConsultSourceSyncService.Result synchronizeSource(
+            @PathVariable String runtimeId, @RequestBody SourceSync request,
+            @RequestHeader(value = "X-Consult-Resource-Token", required = false) String token) {
+        access.require(runtimeId, token);
+        return sourceSync.synchronize(runtimeId, request.project());
+    }
+
+    public record SourceSync(String project) { }
 
     @PostMapping("/sessions/{runtimeId}/source-routing")
     public com.exceptioncoder.toolbox.foreconsult.domain.ConsultSourceRouting selectSource(@PathVariable String runtimeId,

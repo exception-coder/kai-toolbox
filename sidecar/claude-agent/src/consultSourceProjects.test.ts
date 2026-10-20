@@ -22,6 +22,12 @@ test('automatic MCP scope reads multiple real roots, preserves provenance and ne
   const server = createServer(async (req, res) => {
     assert.equal(req.headers['x-consult-resource-token'], 'trusted-scope-token')
     if (unavailable) { res.writeHead(503).end(); return }
+    if (req.url?.endsWith('/source-sync')) {
+      writeFileSync(join(a, 'src/same.ts'), 'latest frontend marker')
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ status: 'LOCAL_ONLY', message: '本地测试目录', branch: null, headAtCheck: null, checkedAt: Date.now() }))
+      return
+    }
     if (req.method === 'POST') {
       let body = ''; for await (const chunk of req) body += String(chunk)
       selection = JSON.parse(body)
@@ -59,7 +65,7 @@ test('automatic MCP scope reads multiple real roots, preserves provenance and ne
       request('source_read', { project: 'front', path: 'src/same.ts' }),
       request('source_read', { project: 'back', path: 'src/same.ts' }),
     ])
-    assert.match(text(front), /来源项目：小程序/); assert.match(text(front), /frontend marker/)
+    assert.match(text(front), /来源项目：小程序/); assert.match(text(front), /latest frontend marker/)
     assert.doesNotMatch(text(front), /backend marker/)
     assert.match(text(back), /来源项目：服务端/); assert.match(text(back), /backend marker/)
     assert.doesNotMatch(text(back), /frontend marker/)

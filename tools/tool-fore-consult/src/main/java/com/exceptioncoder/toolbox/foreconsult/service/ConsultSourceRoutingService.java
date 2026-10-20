@@ -171,6 +171,34 @@ public class ConsultSourceRoutingService {
         return scope;
     }
 
+    /** 仅解析原会话授权的现存项目根，不接受调用方目录。 */
+    public Path rootForRuntime(String runtimeId, String projectId) {
+        var session = sessions.findByDevSessionId(runtimeId).orElseThrow(() -> new IllegalArgumentException("未关联咨询"));
+        if (!"PENDING".equals(session.getArchiveStatus())) {
+            throw new IllegalArgumentException("已归档咨询不自动更新源码");
+        }
+        var scope = forRuntime(runtimeId, projectId, null);
+        String path;
+        if (scope == null) {
+            if (projectId != null) {
+                throw new IllegalArgumentException("旧咨询不接受额外项目");
+            }
+            path = sessions.findByDevSessionId(runtimeId).orElseThrow().getSystemSourcePath();
+        } else {
+            String id = projectId == null ? scope.focusedProject() : projectId;
+            path = scope.projects().stream().filter(project -> Objects.equals(project.id(), id))
+                    .map(ConsultSourceRouting.Project::path).findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("请指定本咨询可用候选 project"));
+        }
+        try {
+            var root = Path.of(path).toRealPath();
+            access.requireAllowed(root);
+            return root;
+        } catch (java.io.IOException error) {
+            throw new IllegalArgumentException("源码目录不可用", error);
+        }
+    }
+
     public ConsultSourceRouting focusRuntime(String runtimeId, String project, String evidencePath, String reason) {
         var session = sessions.findByDevSessionId(runtimeId).orElseThrow(() -> new IllegalArgumentException("未关联咨询"));
         return focus(session.getSessionId(), project, evidencePath, reason, false);

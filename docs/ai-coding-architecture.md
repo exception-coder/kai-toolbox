@@ -713,3 +713,19 @@ flowchart LR
 ```
 
 URL与明确环境指导账号选择，歧义时才询问地址；不能把DEV结果当成UAT或生产证据。登录态仅在隔离context内短期复用，不写普通录制目录；失败不反复尝试同一账号。当前仅支持同源标准表单，跨域SSO、验证码和任意业务操作不在此边界。实现、开发验证与真实业务页面验收分别记录于[多环境Web账号任务](../openspec/changes/consult-web-environment-accounts/tasks.md)，不因工具可用绕过本次重启确认。
+
+## 咨询源码同步与证据新鲜度
+
+咨询源码工具的只读业务边界增加一个服务端同步前置阶段：MCP以运行会话签名和既有项目ID调用POST，fore-consult复核当前ProjectCatalog/ProjectAccess与会话范围，再通过common的GitPullOperations端口复用tool-projects的安全快进与仓库互斥。模型不获得Git写命令、目录选择或凭据；GET发现不执行同步。同目录五分钟复用检查，并发和结果未知时不读取，完成后再次核验文件授权。
+
+```mermaid
+flowchart LR
+  Tool[咨询源码请求] --> Scope[运行签名与当前项目范围]
+  Scope --> Sync[服务端安全同步]
+  Sync --> Port[GitPullOperations 与既有仓库锁]
+  Port --> Evidence[同步状态及检查时提交]
+  Evidence --> Read[重验范围后读取源码]
+  Read --> Agent[模型区分本地源码与部署事实]
+```
+
+Graphify仍是结构事实源，System Profile和领域快照仍适用原新鲜度规则；同步源码不重建索引、不代替运行与DDL验证、不改变资源授权。不满足安全快进条件时保留本地内容并报告未确认最新。源码实现、宿主装配、实际远端同步及运行验收分别记在[同步任务](../openspec/changes/consult-source-auto-sync/tasks.md)，本轮未启动或重启服务。

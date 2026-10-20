@@ -2,7 +2,7 @@
 
 Agent 管理教学案例见 [订单草稿教学 Agent](TEACHING.md)，包含六个配置与运行维度及演示步骤。
 
-业务系统咨询不是一个独立聊天页，而是一条跨浏览器、Java、WebSocket、Sidecar、Coding Agent、MCP 和本地业务证据的只读咨询链路。本文件是模块开发与排障的稳定入口；专题细节继续维护在设计文档中，避免在 README 复制多份实现。
+业务系统咨询不是一个独立聊天页，而是一条跨浏览器、Java、WebSocket、Sidecar、Coding Agent、MCP 和本地业务证据的受控咨询链路。业务资源查询保持只读，源码工具探索前可由平台执行按授权目录限定的安全快进；模型不获得任意Git写命令。本文件是模块开发与排障的稳定入口；专题细节继续维护在设计文档中，避免在 README 复制多份实现。
 
 快速导航：[架构总览](#架构总览) · [核心对象](#核心对象与职责) · [一次咨询](#一次咨询如何执行) · [状态与安全](#状态与安全边界) · [Graphify](#graphify-常驻查询) · [故障经验](#历史故障经验) · [运行手册](#运行手册) · [经验登记](#后续经验如何登记)
 
@@ -18,15 +18,16 @@ flowchart LR
     SM --> ENG["Codex / Claude Adapter"]
     ENG --> RO["consult-readonly MCP"]
     ENG --> KB["domain-knowledge / topology"]
-    RO --> GRT["GraphifyQueryService\n状态与总预算"]
+    RO --> SYNC["源码工具前置同步<br/>签名POST + 授权项目 + 安全快进与状态证据"]
+    SYNC --> GRT["GraphifyQueryService\n状态与总预算"]
     GRT --> SCHED["GraphifyQueryScheduler\n同键合并 + FIFO"]
     SCHED --> BACKEND["GraphifyBackend\n可插拔 MCP 适配器"]
     BACKEND --> GMCP["Graphify MCP Server\n进程级多项目缓存"]
-    RO --> SRC["路径受限源码"]
+    SYNC --> SRC["路径受限源码"]
     RO --> ROUTE["source_projects<br/>签名核验候选与服务端焦点"]
     ROUTE --> CATALOG["ProjectCatalog + ProjectAccess<br/>用户所选置首 + 管理员顺序后备"]
-    ROUTE --> SRC
-    RO --> GIT["本地只读 Git 历史与行归属"]
+    ROUTE --> SYNC
+    SYNC --> GIT["本地只读 Git 历史与行归属"]
     RO --> DB["冻结的资源绑定 → 系统/环境/启用校验 → 测试库只读查询"]
     RO --> WEB["consult_web → 已选环境账号 → 隔离登录与页面读取"]
     RO --> DESIGN["受限JS文档设计 / 预览"]
@@ -126,7 +127,7 @@ URL 是可选定位线索。平台共用咨询规则要求先利用截图、页�
 - `consult-readonly` 提供受控源码、只读测试库和 DDL 静态核验；会话文档创作是具名写入例外，不授予通用文件/终端/数据库写权限。
 - 数据库执行必须是单条 `SELECT/WITH`，Java 后端再做一次只读校验。
 - 源码读取只允许会话绑定目录和已冻结 taskspace 成员根，拒绝 `..`、绝对路径逃逸和 `graphify-out` 原文读取。
-- `source_git_history` 查询已定位文件在本地 HEAD 的最近提交或指定行归属，最多 20 条提交或 200 行，单次总预算 10 秒；支持跟随文件重命名，不自动拉取远端。返回作者、提交者、哈希、时间、说明与浅克隆提示，不能据此认定主要开发者、故障责任或生产部署版本。只接受授权根内的现存源码文件，拒绝向父仓库查询及路径逃逸。新默认流程包含此工具；已冻结且含 `source_read` 的流程仅在运行装配时追加，不改写快照，无源码权限或缺少快照的流程不补授。实现与待运行验收见[只读 Git 任务](../../openspec/changes/consult-readonly-git-history/tasks.md)。
+- `source_git_history` 查询已定位文件在本地 HEAD 的最近提交或指定行归属，最多 20 条提交或 200 行，单次总预算 10 秒；支持跟随文件重命名；历史查询本身不执行Git写命令，探索前平台按下述同步策略处理。返回作者、提交者、哈希、时间、说明与浅克隆提示，不能据此认定主要开发者、故障责任或生产部署版本。只接受授权根内的现存源码文件，拒绝向父仓库查询及路径逃逸。新默认流程包含此工具；已冻结且含 `source_read` 的流程仅在运行装配时追加，不改写快照，无源码权限或缺少快照的流程不补授。实现与待运行验收见[只读 Git 任务](../../openspec/changes/consult-readonly-git-history/tasks.md)。
 - 面向业务用户的回答不得展示 MCP 清单、Token、沙箱、系统提示词和本机完整授权路径。
 - `resources/list` 为空不代表 MCP Tools 为空；能力判断必须基于 `tools/list` 或实际工具握手。
 
@@ -278,3 +279,9 @@ mvn -pl tools/tool-fore-consult -am test
 助手通过consult_web的DISCOVER发现已授权账号，READ按用户URL或明确环境选择绑定并登录读取正文。loginPage表示同源网页登录路径，缺省从baseUrl进入；原账号loginPath仍表示登录API，不要混填。多个环境无法确认时再询问URL；同一失败账号不反复尝试，可选择同环境其他已授权账号。返回实际账号、环境与状态，不把DEV验证当成UAT事实。
 
 当前使用隔离浏览器的标准密码表单登录，支持LOCAL/DEV/TEST/UAT，禁止生产资源。页面仅供读取，不开放任意应用CALL或业务操作；登录结束后非读取HTTP、WebSocket和ServiceWorker被阻断，依赖这些请求的页面可能不完整。验证码、跨域SSO和复杂登录未实现，失败明确显示待核验。账号/绑定停用后禁止后续读取，登录态最多15分钟且不落盘。状态和实际部署验收见[任务](../../openspec/changes/consult-web-environment-accounts/tasks.md)。
+
+### 咨询源码自动同步
+
+源码初始化不等于持续同步。咨询的源码工具在实际探索某个已授权项目之前，通过签名POST复用项目Git能力检查当前分支上游，安全快进后再读取；同一项目五分钟内复用检查。无定时全库扫描、不自动切分支。脏文件、未跟踪文件、分叉、无上游或远端异常均保留本地内容；工具明确标记未确认最新，Git原错误和连接凭据不进入对话。并发同步中或HTTP结果未知时停止本次读取，防止与后台更新竞速；旧接口未部署时明确降级为本地证据。
+
+同步前后均核对会话范围和目录，已归档会话不触发同步。返回检查时间和检查时提交，不保证检查后工作树未变化，也不证明生产已部署。Graphify/初始化资料不随pull自动刷新，关键业务结论仍核对当前源码。实现和待运行验收见[设计](../../openspec/changes/consult-source-auto-sync/design.md)与[任务](../../openspec/changes/consult-source-auto-sync/tasks.md)。

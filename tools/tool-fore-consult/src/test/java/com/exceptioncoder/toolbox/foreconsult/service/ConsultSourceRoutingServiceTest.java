@@ -216,4 +216,17 @@ class ConsultSourceRoutingServiceTest {
         return new StartSessionRequest("api", path, List.of(), "261017-价格问题", "为什么下限65", null,
                 "BIZ", "codex", null, null, null, null, "v4", automatic);
     }
+    @Test void synchronizationRootUsesCurrentAuthorizationAndRejectsUnknownOrArchivedProjects() throws Exception {
+        var scope = service.prepare(request(true, null)).scope();
+        var session = ConsultSession.builder().sessionId("sync-consult").archiveStatus("PENDING")
+                .systemName("web").systemSourcePath(web.toString()).evidenceRouteSnapshot(scope.wrap("[]")).build();
+        when(sessions.findByDevSessionId("runtime")).thenReturn(Optional.of(session));
+        assertThat(service.rootForRuntime("runtime", "api")).isEqualTo(api.toRealPath());
+        assertThatThrownBy(() -> service.rootForRuntime("runtime", "unknown")).hasMessageContaining("可用候选");
+        when(access.allowed(api)).thenReturn(false);
+        assertThatThrownBy(() -> service.rootForRuntime("runtime", "api")).hasMessageContaining("可用候选");
+        session.setArchiveStatus("ARCHIVED");
+        assertThatThrownBy(() -> service.rootForRuntime("runtime", "web")).hasMessageContaining("已归档");
+    }
+
 }

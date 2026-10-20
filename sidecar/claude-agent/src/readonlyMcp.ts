@@ -1,3 +1,4 @@
+import { synchronizeConsultSource } from './consultSourceSync.js'
 import { consultWebTool, callConsultWeb } from './consultWebTool.js'
 import { execFile } from 'node:child_process'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -121,7 +122,12 @@ const resourceTools = ['consult_resources', 'consult_resource_query'].map(name =
       required: ['bindingId', 'sql'], additionalProperties: false },
   annotations: readonlyAnnotations(),
 }))
+const sourceSynchronizationEnabled = Boolean(API_BASE && process.env.TOOLBOX_SESSION_ID && process.env.CONSULT_RESOURCE_TOKEN)
 const projectedSourceTools = sourceTools.map(tool => tool.name === 'source_projects' ? tool : ({ ...tool,
+  ...(sourceSynchronizationEnabled ? {
+    description: `读取前由可信服务端安全同步已授权项目；失败会说明本地证据范围，不授予任意Git写命令。${tool.description.replace('不联网，', '')}`,
+    annotations: { ...tool.annotations, readOnlyHint: false },
+  } : {}),
   inputSchema: { ...tool.inputSchema, properties: { ...tool.inputSchema.properties,
     project: { type: 'string', description: 'source_projects 返回的候选 id；自动识别时必填，禁止自行传目录' },
   } },
@@ -784,20 +790,36 @@ async function handle(message: JsonRpcRequest): Promise<void> {
       if (['source_context', 'source_search', 'source_read', 'source_git_history'].includes(name)) {
         try {
           const scope = await sourceRouting({ apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID,
-            token: process.env.CONSULT_RESOURCE_TOKEN }, undefined, { project: args.project, path: args.path })
+            token: process.env.CONSULT_RESOURCE_TOKEN }, undefined, { project: args.project })
           if (scope) {
             const project = scope.projects.find(project => project.id === (args.project ?? scope.focusedProject))
             if (!project) throw new Error('请先调用 source_projects，并为本次源码查询指定可用候选 project')
+            const context = { apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN }
+            const sync = await synchronizeConsultSource(context, project.id)
+            const verified = await sourceRouting(context, undefined, { project: project.id, path: args.path })
+            if (verified?.projects.find(candidate => candidate.id === project.id)?.path !== project.path) {
+              throw new Error('同步期间项目范围已变化，请重新获取候选，不读取旧目录')
+            }
             const root = resolveSourceRoot(project.path)
             if (!root) throw new Error('候选源码目录当前不可用')
             const result = await sourceRootScope.run(root, () => callTool(name, args))
             ok(id, { ...result, content: [
               { type: 'text', text: `来源项目：${project.label}（${project.id}）；归属需结合调用证据核对。` },
+              ...(sync ? [{ type: 'text', text: `源码同步检查（检查时版本，非生产部署版本）：${JSON.stringify(sync)}；初始化与Graphify索引需核对新鲜度。` }] : []),
               ...result.content as unknown[],
             ] })
             return
           }
           if (args.project != null) throw new Error('旧咨询不接受额外项目，请新建自动识别咨询')
+          const context = { apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN }
+          const sync = await synchronizeConsultSource(context)
+          await sourceRouting(context, undefined, { path: args.path })
+          const result = await callTool(name, args)
+          ok(id, { ...result, content: [
+            ...(sync ? [{ type: 'text', text: `源码同步检查（检查时版本，非生产部署版本）：${JSON.stringify(sync)}；初始化与Graphify索引需核对新鲜度。` }] : []),
+            ...result.content as unknown[],
+          ] })
+          return
         } catch (error) {
           ok(id, textResult(error instanceof Error ? error.message : String(error), true)); return
         }
