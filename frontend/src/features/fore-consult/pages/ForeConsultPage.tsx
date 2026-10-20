@@ -32,6 +32,7 @@ import { useConsultLayout } from '../useConsultLayout'
 import { useMobileNavigation } from '@/shell/MobileNavigationContext'
 import { ConsultVoiceActions } from '../components/ConsultVoiceActions'
 import { ConsultFileDropZone } from '../components/ConsultFileDropZone'
+import { ConsultSourceSync } from '../components/ConsultSourceSync'
 import { ConsultAdminSettings } from '../components/ConsultAdminSettings'
 import { checkConsultFiles } from '../consultAttachmentPolicy'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
@@ -558,6 +559,7 @@ export function ForeConsultPage() {
     }
   })
   const [configOpen, setConfigOpen] = useState(false)
+  const [sourceSyncBusy, setSourceSyncBusy] = useState(false)
   const configTrigger = useRef<HTMLElement | null>(null)
   const [configRows, setConfigRows] = useState<Array<{ name: string; path: string; alias: string; visible: boolean }>>([])
   const [showLinks, setShowLinks] = useState(true)
@@ -2465,7 +2467,7 @@ export function ForeConsultPage() {
 
       {/* 配置抽屉：别名 + 过滤 */}
       {isAdmin && configOpen && (
-        <Sheet open={configOpen} onOpenChange={setConfigOpen}>
+        <Sheet open={configOpen} onOpenChange={open => { if (!sourceSyncBusy) setConfigOpen(open) }}>
           <SheetContent hideCloseButton className="flex h-full w-full max-w-[560px] flex-col bg-background text-foreground shadow-sm"
             onCloseAutoFocus={event => { event.preventDefault(); configTrigger.current?.focus() }}>
             <div className="flex items-center justify-between border-b border-slate-200/80 p-5">
@@ -2475,13 +2477,14 @@ export function ForeConsultPage() {
                 </SheetTitle>
                 <SheetDescription className="mt-1 text-xs">管理员配置，全体用户共用。附件、数据库与候选系统集中查看。</SheetDescription>
               </div>
-              <button type="button" onClick={() => setConfigOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="关闭">
+              <button type="button" disabled={sourceSyncBusy} onClick={() => setConfigOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="关闭">
                 <X className="size-4" />
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
               <ConsultAdminSettings sourcePath={systemPath} />
+              <ConsultSourceSync onBusyChange={setSourceSyncBusy} disabled={saveConfigMutation.isPending} />
               <h3 className="mb-2 mt-6 text-sm font-semibold">候选系统与探索顺序</h3>
               <p className="mb-3 text-xs text-muted-foreground">用户选中的系统优先；未命中后，按下方已显示系统从上往下逐个核查截图。最多选取前8个可用候选；新咨询生效，新发现项目默认不加入。</p>
               {configRows.length === 0 ? (
@@ -2497,7 +2500,7 @@ export function ForeConsultPage() {
                           .sort((a, b) => Number(b.visible) - Number(a.visible)))}
                         className={`shrink-0 rounded-lg p-1.5 transition-colors ${r.visible ? 'text-sky-600 hover:bg-sky-50' : 'text-slate-400 hover:bg-slate-100'}`}
                         title={r.visible ? '点击隐藏' : '点击显示'}
-                        disabled={saveConfigMutation.isPending}
+                        disabled={sourceSyncBusy || saveConfigMutation.isPending}
                         aria-label={r.visible ? '隐藏' : '显示'}
                       >
                         {r.visible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
@@ -2507,7 +2510,7 @@ export function ForeConsultPage() {
                           value={r.alias}
                           onChange={(e) => setConfigRows((rows) => rows.map((x, i) => (i === idx ? { ...x, alias: e.target.value } : x)))}
                           placeholder={r.name}
-                          disabled={saveConfigMutation.isPending}
+                          disabled={sourceSyncBusy || saveConfigMutation.isPending}
                           className="fc-glass-input w-full rounded-lg px-2.5 py-1.5 text-sm"
                         />
                         <div className="mt-1 truncate text-[11px] text-slate-400">原名：{r.name}</div>
@@ -2517,7 +2520,7 @@ export function ForeConsultPage() {
                           const Icon = offset === -1 ? ArrowUp : ArrowDown
                           const label = `${offset === -1 ? '上移' : '下移'} ${r.alias || r.name}`
                           return <button key={offset} type="button" aria-label={label} title={label}
-                            disabled={saveConfigMutation.isPending || !configRows[idx + offset] || configRows[idx + offset].visible !== r.visible}
+                            disabled={sourceSyncBusy || saveConfigMutation.isPending || !configRows[idx + offset] || configRows[idx + offset].visible !== r.visible}
                             className="rounded p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-sky-500 disabled:opacity-30"
                             onClick={() => setConfigRows(rows => {
                               const next = [...rows]
@@ -2534,13 +2537,13 @@ export function ForeConsultPage() {
 
             <div className="flex items-center justify-end gap-3 border-t border-slate-200/80 p-4">
               {saveConfigMutation.isError && <p role="alert" className="mr-auto text-xs text-red-600">保存失败，当前顺序已保留，可重试。</p>}
-              <button type="button" onClick={() => setConfigOpen(false)} className="rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-white/65 hover:text-slate-900">
+              <button type="button" disabled={sourceSyncBusy} onClick={() => setConfigOpen(false)} className="rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-white/65 hover:text-slate-900">
                 取消
               </button>
               <button
                 type="button"
                 onClick={() => saveConfigMutation.mutate()}
-                disabled={saveConfigMutation.isPending}
+                disabled={sourceSyncBusy || saveConfigMutation.isPending}
                 className="flex min-h-11 items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
               >
                 {saveConfigMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}

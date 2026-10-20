@@ -722,10 +722,14 @@ URL与明确环境指导账号选择，歧义时才询问地址；不能把DEV�
 flowchart LR
   Tool[咨询源码请求] --> Scope[运行签名与当前项目范围]
   Scope --> Sync[服务端安全同步]
+  Admin[管理员配置一键Pull] --> Candidates[当前已保存候选与ADMIN校验]
+  Candidates --> Sync
   Sync --> Port[GitPullOperations 与既有仓库锁]
   Port --> Evidence[同步状态及检查时提交]
   Evidence --> Read[重验范围后读取源码]
   Read --> Agent[模型区分本地源码与部署事实]
 ```
+
+管理员也可在咨询配置对已保存候选逐项主动同步：与自动探索共享同一同步服务、仓库互斥和目录授权复核，手动绕过五分钟缓存，不向模型开放写命令。发现使用GET，更新使用ADMIN保护的POST；逐项失败不影响其余项目，断连结果未知需重新检查。管理入口实现与待运行验收见[管理同步任务](../openspec/changes/consult-manual-source-sync/tasks.md)。
 
 Graphify仍是结构事实源，System Profile和领域快照仍适用原新鲜度规则；同步源码不重建索引、不代替运行与DDL验证、不改变资源授权。不满足安全快进条件时保留本地内容并报告未确认最新。源码实现、宿主装配、实际远端同步及运行验收分别记在[同步任务](../openspec/changes/consult-source-auto-sync/tasks.md)，本轮未启动或重启服务。

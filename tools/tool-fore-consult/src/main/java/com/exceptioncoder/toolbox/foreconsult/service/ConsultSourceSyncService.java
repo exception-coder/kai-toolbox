@@ -28,19 +28,29 @@ public class ConsultSourceSyncService {
     public Result synchronize(String runtimeId, String project) {
         // 每次先重验会话范围和排除策略，不因缓存命中扩大权限。
         Path root = routing.rootForRuntime(runtimeId, project);
+        return synchronize(root, () -> routing.rootForRuntime(runtimeId, project), false);
+    }
+
+    /** 管理员主动检查不复用五分钟缓存；仍共享项目锁与安全快进策略。 */
+    public Result synchronizeCandidate(String project) {
+        Path root = routing.rootForCandidate(project);
+        return synchronize(root, () -> routing.rootForCandidate(project), true);
+    }
+
+    private Result synchronize(Path root, java.util.function.Supplier<Path> authorizedRoot, boolean fresh) {
         Check check = checks.computeIfAbsent(root, ignored -> new Check());
         synchronized (check) {
             if (check.running) {
                 return result("SYNCING", "该项目正在同步，请稍后再读取源码", null, null);
             }
-            if (check.result != null && System.currentTimeMillis() - check.result.checkedAt() < CHECK_INTERVAL_MILLIS) {
+            if (!fresh && check.result != null && System.currentTimeMillis() - check.result.checkedAt() < CHECK_INTERVAL_MILLIS) {
                 return check.result;
             }
             check.running = true;
         }
         Result outcome;
         try {
-            outcome = synchronize(root, runtimeId, project);
+            outcome = synchronize(root, authorizedRoot);
         } catch (RuntimeException error) {
             // Git错误可能带远端凭据，绝不把原异常直接返回模型。
             String message = error.getMessage() == null ? "" : error.getMessage();
@@ -59,7 +69,7 @@ public class ConsultSourceSyncService {
         return outcome;
     }
 
-    private Result synchronize(Path root, String runtimeId, String project) {
+    private Result synchronize(Path root, java.util.function.Supplier<Path> authorizedRoot) {
         if (!Files.exists(root.resolve(".git"))) {
             return result("LOCAL_ONLY", "此目录不是Git仓库根目录，保留本地源码，不向父仓库拉取", null, null);
         }
@@ -80,7 +90,7 @@ public class ConsultSourceSyncService {
         if (preview.pullBlockedReason() != null && !preview.pullBlockedReason().isBlank()) {
             return result("BLOCKED", "当前仓库不满足安全快进条件，保留本地源码；请在项目Git操作中核对", preview.branch(), preview.head());
         }
-        if (!root.equals(routing.rootForRuntime(runtimeId, project))) {
+        if (!root.equals(authorizedRoot.get())) {
             throw new IllegalArgumentException("同步期间项目目录已变化，未快进");
         }
         operations.pull(root, preview.token());

@@ -71,6 +71,19 @@ public class ConsultSourceRoutingService {
         return candidates(null);
     }
 
+    /** 管理操作也只接受当前已保存、可用且未排除的候选身份。 */
+    public Path rootForCandidate(String projectId) {
+        var project = candidates().stream().filter(value -> Objects.equals(value.id(), projectId))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("项目不在当前咨询候选范围，请保存配置后重试"));
+        try {
+            var root = Path.of(project.path()).toRealPath();
+            access.requireAllowed(root);
+            return root;
+        } catch (java.io.IOException error) {
+            throw new IllegalArgumentException("源码目录不可用", error);
+        }
+    }
+
     private List<ConsultSourceRouting.Project> candidates(String preferredPath) {
         var preferences = prefs.listAll();
         var available = catalog.list(false);

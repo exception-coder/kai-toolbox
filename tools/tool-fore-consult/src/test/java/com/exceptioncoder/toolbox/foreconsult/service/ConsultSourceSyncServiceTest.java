@@ -108,4 +108,28 @@ class ConsultSourceSyncServiceTest {
         verify(git, times(2)).prepare(root);
     }
 
+    @Test void manualCheckBypassesAutomaticCacheAndRefreshesSharedEvidence() throws Exception {
+        when(routing.rootForCandidate("project")).thenReturn(root.toRealPath());
+        when(git.prepare(root)).thenReturn(preview(0, 0, "current"), preview(0, 1, ""));
+        assertThat(service.synchronize("runtime", "project").status()).isEqualTo("UP_TO_DATE");
+        var manual = service.synchronizeCandidate("project");
+        assertThat(manual.status()).isEqualTo("UPDATED");
+        assertThat(service.synchronize("runtime", "project")).isEqualTo(manual);
+        verify(git, times(2)).prepare(root);
+        verify(git).pull(root, "fixed-token");
+    }
+
+    @Test void manualCheckRejectsUnknownCandidateBeforeGitAndRechecksAfterFetch() throws Exception {
+        when(routing.rootForCandidate("outside")).thenThrow(new IllegalArgumentException("outside"));
+        assertThatThrownBy(() -> service.synchronizeCandidate("outside")).hasMessage("outside");
+        verifyNoInteractions(git);
+        when(routing.rootForCandidate("project")).thenReturn(root.toRealPath());
+        when(git.prepare(root)).thenAnswer(ignored -> {
+            when(routing.rootForCandidate("project")).thenThrow(new IllegalArgumentException("hidden"));
+            return preview(0, 1, "");
+        });
+        assertThat(service.synchronizeCandidate("project").status()).isEqualTo("UNVERIFIED");
+        verify(git, never()).pull(any(), any());
+    }
+
 }

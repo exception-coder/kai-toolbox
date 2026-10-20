@@ -55,6 +55,17 @@ class ConsultSourceRoutingServiceTest {
         service = new ConsultSourceRoutingService(catalog, access, prefs, sessions, routes, new ObjectMapper());
     }
 
+    @Test void manualCandidatesUseSavedScopeAndRejectHiddenOrExcludedProjects() throws Exception {
+        assertThat(service.rootForCandidate("api")).isEqualTo(api.toRealPath());
+        assertThatThrownBy(() -> service.rootForCandidate("outside")).isInstanceOf(IllegalArgumentException.class);
+        var hidden = pref("api", api, 1);
+        hidden.setVisible(false);
+        when(prefs.listAll()).thenReturn(List.of(pref("web", web, 0), hidden));
+        assertThatThrownBy(() -> service.rootForCandidate("api")).isInstanceOf(IllegalArgumentException.class);
+        when(access.allowed(any())).thenReturn(false);
+        assertThatThrownBy(() -> service.rootForCandidate("web")).isInstanceOf(IllegalArgumentException.class);
+    }
+
     @AfterEach void cleanup() { AuthContext.clear(); }
 
     @Test void startsInAdministratorOrderWithoutUsingHistoryOrClaimingAnIdentity() {
