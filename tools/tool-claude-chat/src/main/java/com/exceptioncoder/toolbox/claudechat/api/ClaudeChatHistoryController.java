@@ -54,13 +54,19 @@ public class ClaudeChatHistoryController {
                                 @RequestParam(required = false) String cwd,
                                 @RequestParam(required = false) Integer before,
                                 @RequestParam(defaultValue = "30") int limit,
-                                @RequestParam(required = false) String sessionId) {
+                                @RequestParam(required = false) String sessionId,
+                                @RequestParam(required = false) String pagination,
+                                @RequestParam(required = false) String cursor) {
         // Native IDs can occur in different Codex homes. The logical session selects the account.
         ClaudeChatSession db = sessionId == null || sessionId.isBlank()
                 ? sessionRepo.findBySdkSessionId(sdkSessionId).orElse(null)
                 : sessionRepo.findById(sessionId).orElseThrow(() ->
                     new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "会话不存在"));
-        if (sessionId != null && !sessionId.isBlank()) {
+        if ("cursor".equals(pagination) && db == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.NOT_FOUND, "请先导入历史会话再读取最近消息");
+        }
+        if (sessionId != null && !sessionId.isBlank() || "cursor".equals(pagination)) {
             if (!accessPolicy.canAccessCurrentUser(db)) {
                 throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "无权读取会话");
             }
@@ -76,9 +82,20 @@ public class ClaudeChatHistoryController {
             cwd = db.getCwd();
         }
         if (db != null && SessionExecutionPolicy.isReviewOnly(db.getExecutionPolicy())) {
+            if (cursor != null) {
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST, "评审历史不接受普通会话字节游标");
+            }
             return history.readReviewMessages(db.getCwd(), sdkSessionId, db.getCodexHome(), before, limit);
         }
         String codexHome = db == null ? null : db.getCodexHome();
+        if ("cursor".equals(pagination)) {
+            return history.readCursorMessages(cwd, sdkSessionId, codexHome, before, cursor, limit);
+        }
+        if (cursor != null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "字节游标需要匹配的分页模式");
+        }
         return history.readMessages(cwd, sdkSessionId, codexHome, before, limit);
     }
 

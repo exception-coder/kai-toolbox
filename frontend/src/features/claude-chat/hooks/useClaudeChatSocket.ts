@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
+import { ApiError } from '@/lib/api'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
 import type { AssistantMessageEnvelope, Attachment, BackgroundTaskInfo, CapabilitySnapshotSource, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, McpCapability, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, PluginCapability, ProviderKind, SendAttachment, ServerMessage, SkillCapability, TurnDiag } from '../types'
 import { useVoiceTransport } from './useVoiceTransport'
@@ -15,6 +16,7 @@ import {
   isSessionHistoryPageExhausted,
   mergeResetHistoryItems,
   sessionHistoryLoadErrorMessage,
+  type HistoryCursor,
 } from '../lib/sessionHistoryRequest'
 import {
   finalizeRunningActivities,
@@ -381,7 +383,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const sdkSessionIdRef = useRef<string | null>(null)
   const cwdRef = useRef<string>('')
   const shouldLoadHistoryRef = useRef(false)
-  const historyBeforeRef = useRef<number | null>(null)
+  const historyBeforeRef = useRef<HistoryCursor>(null)
+  const historyCompatibilityRef = useRef<string | null>(null)
   const historyExhaustedRef = useRef(false)
   const historyRequestIdRef = useRef(0)
   const historyRequestRef = useRef<{ reset: boolean; promise: Promise<boolean | null>; latestPromise?: Promise<boolean | null> } | null>(null)
@@ -1898,8 +1901,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       try {
         const before = reset ? null : historyBeforeRef.current
         const { items: hist, nextBefore } = channel === 'review' && reviewToken
-          ? await loadPublicReviewMessages(reviewToken, before)
-          : await loadMessages(sid!, cwdRef.current, before, 30, token.sessionId ?? undefined)
+          ? await loadPublicReviewMessages(reviewToken, typeof before === 'number' ? before : null)
+          : historyCompatibilityRef.current === token.sessionId && token.sessionId != null
+            ? await loadMessages(sid!, cwdRef.current, before, 30, token.sessionId, true)
+            : await loadMessages(sid!, cwdRef.current, before, 30, token.sessionId ?? undefined)
         // 用权威最近页替换旧缓存，保留加载期间比它更新的实时消息与乐观用户输入。
         if (!isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) return false
         if (reset && token.sessionId && channel !== 'review' && !demo) {
@@ -1918,7 +1923,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         return true
       } catch (caught) {
         if (isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) {
-          setHistoryError(sessionHistoryLoadErrorMessage(caught, reset))
+          const staleCursor = caught instanceof ApiError && caught.status === 409
+          const oversizedTurn = caught instanceof ApiError && caught.status === 413
+          if (staleCursor) historyNeedsRefreshRef.current = true
+          if (oversizedTurn) {
+            historyCompatibilityRef.current = token.sessionId
+            historyNeedsRefreshRef.current = true
+          }
+          setHistoryError(staleCursor ? '历史文件已变化，请点击重新加载最近消息'
+            : oversizedTurn ? '本轮历史较大，点击使用完整历史读取（可能较慢）' : sessionHistoryLoadErrorMessage(caught, reset))
           if (reset) setSyncWarning(previous => previous === '正在更新最近消息，当前显示本页缓存'
             ? '最近消息更新失败，保留本页缓存；请点击重试' : previous)
         }

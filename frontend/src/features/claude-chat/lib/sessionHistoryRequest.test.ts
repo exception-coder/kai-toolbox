@@ -85,4 +85,10 @@ describe('isSessionHistoryPageExhausted', () => {
   it('游标正常前进时允许继续加载', () => {
     expect(isSessionHistoryPageExhausted(30, 120, 90)).toBe(false)
   })
+  it('字节游标不依赖条数，空窗口仍可继续且不反复读取同一游标', () => {
+    expect(isSessionHistoryPageExhausted(2, null, 'cursor-a')).toBe(false)
+    expect(isSessionHistoryPageExhausted(0, 'cursor-a', 'cursor-b')).toBe(false)
+    expect(isSessionHistoryPageExhausted(30, 'cursor-a', 'cursor-a')).toBe(true)
+    expect(isSessionHistoryPageExhausted(30, 'cursor-a', null)).toBe(true)
+  })
 })

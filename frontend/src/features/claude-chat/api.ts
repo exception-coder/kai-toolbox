@@ -14,7 +14,7 @@ import type {
 import type { AutopilotChangeOption, AutopilotDashboard, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAutopilotRun, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 import type { AutopilotBindingCandidate, AutopilotTask } from './types'
-import { SESSION_HISTORY_PAGE_TIMEOUT_MS } from './lib/sessionHistoryRequest'
+import { SESSION_HISTORY_PAGE_TIMEOUT_MS, type HistoryCursor } from './lib/sessionHistoryRequest'
 import { applyPendingSessionTitles } from './lib/optimisticSessionRename'
 
 /** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
@@ -1058,24 +1058,26 @@ export interface RawHistoryMessage {
 export async function loadMessages(
   sdkSessionId: string,
   cwd: string,
-  before?: number | null,
+  before?: HistoryCursor,
   limit = 30,
   sessionId?: string,
-): Promise<{ items: ChatItem[]; nextBefore: number | null }> {
+  compatibility = false,
+): Promise<{ items: ChatItem[]; nextBefore: HistoryCursor }> {
   const stage = before == null ? 'history_latest' : 'history_earlier'
   reportVibeEntry(stage, 'start', sdkSessionId)
   const qs = new URLSearchParams()
   if (cwd) qs.set('cwd', cwd)
-  if (before != null) qs.set('before', String(before))
+  if (before != null) qs.set(typeof before === 'string' ? 'cursor' : 'before', String(before))
+  if (!compatibility) qs.set('pagination', 'cursor')
   qs.set('limit', String(limit))
   if (sessionId) qs.set('sessionId', sessionId)
   try {
-    const page = await http<{ items: RawHistoryMessage[]; nextBefore: number | null }>(
+    const page = await http<{ items: RawHistoryMessage[]; nextBefore: number | null; nextCursor?: string | null }>(
       `/claude-chat/history/${encodeURIComponent(sdkSessionId)}/messages?${qs.toString()}`,
       { signal: AbortSignal.timeout(SESSION_HISTORY_PAGE_TIMEOUT_MS) },
     )
     reportVibeEntry(stage, 'ok', sdkSessionId)
-    return { items: page.items.map(toChatItem), nextBefore: page.nextBefore }
+    return { items: page.items.map(toChatItem), nextBefore: page.nextCursor ?? page.nextBefore }
   } catch (error) {
     const name = error instanceof Error ? error.name : ''
     reportVibeEntry(stage, name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'error', sdkSessionId)

@@ -29,10 +29,20 @@ final class CodexHistoryIndex {
     private String turnId;
     private long completedOffset;
     private long scannedRecords;
+    private final boolean byteIds;
+    private long turnAnchor;
 
     CodexHistoryIndex(String reviewCwd) {
+        this(reviewCwd, 0, false);
+    }
+
+    /** 尾部窗口从完整轮次边界开始，消息身份来自文件字节位置。 */
+    CodexHistoryIndex(String reviewCwd, long start, boolean byteIds) {
         this.reviewCwd = reviewCwd;
         this.visible = reviewCwd == null || reviewCwd.isBlank();
+        this.completedOffset = start;
+        this.byteIds = byteIds;
+        this.turnAnchor = start;
     }
 
     void update(ObjectMapper mapper, Path path, long size) throws IOException {
@@ -97,6 +107,7 @@ final class CodexHistoryIndex {
             usage.add(result);
         }
         turn.reset(timestamp);
+        turnAnchor = record.offset();
         entries.add(new Entry("user", record.offset(), timestamp, turnId));
     }
 
@@ -152,7 +163,8 @@ final class CodexHistoryIndex {
             return entry.result;
         }
         JsonNode payload = entry.offset < 0 ? mapper.createObjectNode() : readPayload(mapper, path, entry.offset);
-        String id = "h" + index;
+        long sourceOffset = entry.offset >= 0 ? entry.offset : entry.outputOffset;
+        String id = byteIds ? "hb" + sourceOffset + ":" + entry.kind : "h" + index;
         return switch (entry.kind) {
             case "user" -> ChatMessageView.user(id,
                     SessionHistoryService.normalizeCodexUserMessage(CodexHistoryMessageDecoder.text(payload)),
@@ -206,7 +218,7 @@ final class CodexHistoryIndex {
     }
 
     private ChatMessageView pendingTurn() {
-        return turn.result("h" + entries.size());
+        return turn.result(byteIds ? "hb" + turnAnchor + ":result" : "h" + entries.size());
     }
 
     static String normalizeCwd(String cwd) {

@@ -51,12 +51,14 @@ public class SessionHistoryService {
     private final SessionAliasRepository aliasRepo;
     private final AntigravityHistoryReader antigravityHistory;
     private final CodexHistoryReader codexHistory;
+    private final CodexHistoryTailReader codexTail;
 
     public SessionHistoryService(ObjectMapper mapper, SessionAliasRepository aliasRepo) {
         this.mapper = mapper;
         this.aliasRepo = aliasRepo;
         this.antigravityHistory = AntigravityHistoryReader.forCurrentUser(mapper);
         this.codexHistory = new CodexHistoryReader(mapper);
+        this.codexTail = new CodexHistoryTailReader(mapper);
     }
 
     /** 留空 cwd 时跨所有项目目录列出的最近会话上限（控制解析量） */
@@ -208,6 +210,33 @@ public class SessionHistoryService {
      */
     public MessagePage readMessages(String cwd, String sdkSessionId, Integer before, int limit) {
         return readMessages(cwd, sdkSessionId, null, before, limit);
+    }
+
+    /** 新客户端的尾部优先读取；旧整数游标及其他引擎保留原协议。 */
+    public MessagePage readCursorMessages(String cwd, String sdkSessionId, String codexHome,
+                                         Integer before, String cursor, int limit) {
+        if (before != null && cursor != null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "不能混用历史分页游标");
+        }
+        if (before != null || findTranscript(cwd, sdkSessionId) != null) {
+            if (cursor != null) {
+                throw CodexHistoryCursor.stale();
+            }
+            return readMessages(cwd, sdkSessionId, codexHome, before, limit);
+        }
+        Path rollout = findCodexRollout(sdkSessionId, codexHome);
+        if (rollout == null) {
+            if (cursor != null) {
+                throw CodexHistoryCursor.stale();
+            }
+            return readMessages(cwd, sdkSessionId, codexHome, null, limit);
+        }
+        try {
+            return codexTail.page(rollout, cursor, limit);
+        } catch (IOException failure) {
+            throw new java.io.UncheckedIOException("读取最近历史消息失败", failure);
+        }
     }
 
     /**

@@ -5,7 +5,7 @@ import java.util.Map;
 /**
  * 历史会话的单条消息项，从 transcript jsonl 解析而来。
  * 形状与前端 ChatItem 对齐；按 kind 取用对应字段，其余为 null。
- * id 用 "h{全局行索引}"，与实时项 "i{seq}" 隔离，避免渲染 key 冲突。
+ * 旧分页 id 用 "h{全局行索引}"，字节分页用 "hb{源偏移}:{类型}"，与实时项 "i{seq}" 隔离。
  * ts：该消息时间（epoch ms，来自行级 timestamp），可空。
  * usage/latencyMs/ttftMs：仅 result 项有——由本轮 assistant 用量聚合 + 时间戳推导。
  * elapsedMs：tool 项从调用与结果时间戳推导，供会话轨迹按真实耗时绘制。

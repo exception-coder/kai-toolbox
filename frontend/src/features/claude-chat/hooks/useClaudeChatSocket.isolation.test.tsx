@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useClaudeChatSocket } from './useClaudeChatSocket'
+import { ApiError } from '@/lib/api'
 import type { ChatItem, ServerMessage } from '../types'
 
 const api = vi.hoisted(() => ({
@@ -43,6 +44,25 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('会话消息隔离', () => {
+  it('字节游标失效后由用户重试最近页，超大单轮提供明确兼容读取', async () => {
+    api.loadMessages.mockResolvedValueOnce({ ...page('a'), nextBefore: 'cursor-a' })
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    act(() => { TestSocket.sockets[0].open(); TestSocket.sockets[0].receive(ready('a')) })
+    await waitFor(() => expect(result.current.items).toEqual(page('a').items))
+    api.loadMessages.mockRejectedValueOnce(new ApiError(409, {}, 'changed'))
+    await act(async () => { await result.current.loadHistory(false) })
+    expect(result.current.historyError).toContain('重新加载最近消息')
+    api.loadMessages.mockRejectedValueOnce(new ApiError(413, {}, 'large'))
+    await act(async () => { await result.current.loadHistory(false) })
+    expect(api.loadMessages).toHaveBeenLastCalledWith('sdk-a', '', null, 30, 'a')
+    expect(result.current.historyError).toContain('完整历史读取')
+    api.loadMessages.mockResolvedValueOnce(page('latest'))
+    await act(async () => { await result.current.loadHistory(false) })
+    expect(api.loadMessages).toHaveBeenLastCalledWith('sdk-a', '', null, 30, 'a', true)
+    expect(result.current.items).toEqual(page('latest').items)
+  })
   it('中断等待超时恢复重试入口，但保持运行态且不派发队列', async () => {
     api.listQueuedMessages.mockResolvedValueOnce([{ id: 'q-1', sessionId: 'a', text: 'next', createdAt: 1 }])
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))

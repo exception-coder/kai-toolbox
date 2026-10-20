@@ -19,25 +19,36 @@ class CodexHistoryPerformanceTest {
         var modified = Files.getLastModifiedTime(path);
         ObjectMapper mapper = new ObjectMapper();
         CodexHistoryReader reader = new CodexHistoryReader(mapper);
+        CodexHistoryTailReader tail = new CodexHistoryTailReader(mapper);
         long start = System.nanoTime();
-        var cold = reader.page(path, null, null, 30);
+        var cold = tail.page(path, null, 30);
         double coldMs = elapsedMs(start);
-        long records = reader.scannedRecords(path);
         start = System.nanoTime();
-        var hot = reader.page(path, null, cold.nextBefore(), 30);
+        var hot = new CodexHistoryTailReader(mapper).page(path, cold.nextCursor(), 30);
         double hotMs = elapsedMs(start);
         start = System.nanoTime();
         var usage = reader.usage(path);
         double usageMs = elapsedMs(start);
+        long records = reader.scannedRecords(path);
+        var expected = reader.page(path, null, null, cold.items().size() + hot.items().size());
+        var combined = new java.util.ArrayList<>(hot.items());
+        combined.addAll(cold.items());
 
-        assertThat(cold.items()).hasSize(30);
-        assertThat(hot.items()).hasSize(30);
-        assertThat(coldMs).isLessThan(20_000);
-        assertThat(reader.scannedRecords(path)).isEqualTo(records);
-        assertThat(Files.size(path)).isEqualTo(size);
-        assertThat(Files.getLastModifiedTime(path)).isEqualTo(modified);
         System.out.printf("CODEX_HISTORY_BENCH bytes=%d records=%d coldMs=%.3f hotMs=%.3f usageMs=%.3f pageBytes=%d%n",
                 size, records, coldMs, hotMs, usageMs, mapper.writeValueAsBytes(cold).length);
+        assertThat(cold.items()).isNotEmpty().hasSizeLessThanOrEqualTo(30);
+        assertThat(hot.items()).isNotEmpty().hasSizeLessThanOrEqualTo(30);
+        assertThat(coldMs).isLessThan(5_000);
+        assertThat(hotMs).isLessThan(5_000);
+        var actualItems = withoutIds(mapper, combined);
+        var expectedItems = withoutIds(mapper, expected.items());
+        assertThat(actualItems).hasSize(expectedItems.size());
+        for (int index = 0; index < actualItems.size(); index++) {
+            assertThat(actualItems.get(index).equals(expectedItems.get(index)))
+                    .as("history item %d matches full reader (content omitted)", index).isTrue();
+        }
+        assertThat(Files.size(path)).isEqualTo(size);
+        assertThat(Files.getLastModifiedTime(path)).isEqualTo(modified);
         System.out.println("CODEX_HISTORY_USAGE " + mapper.writeValueAsString(usage));
 
         String output = System.getProperty("history.performance.output");
@@ -51,5 +62,14 @@ class CodexHistoryPerformanceTest {
 
     private double elapsedMs(long start) {
         return (System.nanoTime() - start) / 1_000_000.0;
+    }
+
+    private java.util.List<com.fasterxml.jackson.databind.JsonNode> withoutIds(ObjectMapper mapper,
+            java.util.List<com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView> items) {
+        return items.stream().map(item -> {
+            var node = mapper.<com.fasterxml.jackson.databind.node.ObjectNode>valueToTree(item);
+            node.remove("id");
+            return (com.fasterxml.jackson.databind.JsonNode) node;
+        }).toList();
     }
 }

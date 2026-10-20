@@ -1,8 +1,9 @@
 import type { ChatItem } from '../types'
+import type { HistoryCursor } from './sessionHistoryRequest'
 
 export interface RecentHistoryPage {
   items: ChatItem[]
-  nextBefore: number | null
+  nextBefore: HistoryCursor
 }
 
 /** 仅缓存已授权读取的最近页；不落盘、不保存整份 transcript，登录凭据变化即失效。 */
