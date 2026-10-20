@@ -43,6 +43,10 @@ flowchart LR
 
 ## Team Standards 默认引导边界
 
+Team Standards 以最小复杂度持续交付可靠、可维护的软件。4.14.0 将文件数、行数、分支数等通用阈值改为审阅线索；Agent 根据目标、当前事实和实际风险按需使用 Skill，规格、概设、详设与验证分别按影响维护。小改不自动补齐全模块设计或新增测试套件。
+
+架构路径与注释模式 Hook 默认 `warn`：用于提示核对，不直接证明违规。项目显式设置 `TEAM_STANDARDS_ARCH_BOUNDARY_HOOK=block` 或 `TEAM_STANDARDS_COMMENT_HOOK=block` 时仍按原模式阻断，`off` 仍可关闭。升级不改写项目环境变量、Forge 执行策略、权限、CI 或业务不变量；插件也不保证所有宿主已加载新版本。确定性检查只能证明其覆盖的结果，失败与未验证内容如实交付。
+
 Team Standards 4.11.0 保留 change-readiness 与 delivery-verification 作为方法引导，默认不再注册 SessionStart、规格/就绪检查和交付 Stop 链。普通项目不因安装插件就需要 Forge 绑定、兼容治理记录或机器 PASS；缺失材料允许继续可确认工作，验证失败和未执行仍如实报告。下文 Forge 执行流程适用于项目明确采用 Forge 的场景；项目自有宿主权限、CI 和执行门禁不由插件升级取消。历史适配器及治理 CLI 仅供项目显式接入。
 
 ```mermaid
