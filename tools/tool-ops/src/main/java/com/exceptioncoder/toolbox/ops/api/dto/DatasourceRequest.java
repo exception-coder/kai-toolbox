@@ -8,7 +8,7 @@ import jakarta.validation.constraints.NotNull;
  * password 留空表示「保持原值」（编辑场景）。
  */
 public record DatasourceRequest(
-        @NotBlank String systemId,
+        String systemId,
         @NotBlank String env,
         @NotNull String type,
         @NotBlank String name,

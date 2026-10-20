@@ -14,6 +14,18 @@ import java.util.Base64;
 import static org.assertj.core.api.Assertions.*;
 
 class HostCredentialStorageTest {
+    @Test void assistantCanRegisterAnEnvironmentOnlyHostWithoutAnEmptySystemTag() {
+        var hosts = org.mockito.Mockito.mock(HostsService.class);
+        org.mockito.Mockito.when(hosts.findAll()).thenReturn(java.util.List.of());
+        org.mockito.Mockito.when(hosts.create(org.mockito.ArgumentMatchers.any())).thenReturn(Host.builder().id("shared").build());
+        var gateway = new AssistantHostEnrollment(hosts);
+        gateway.register(new com.exceptioncoder.toolbox.common.resource.HostEnrollmentGateway.Command(
+                "共享主机", "SIT", "", "10.0.0.2", 22, "ops", "test-only-password"));
+        var request = org.mockito.ArgumentCaptor.forClass(com.exceptioncoder.toolbox.hosts.api.dto.HostRequest.class);
+        org.mockito.Mockito.verify(hosts).create(request.capture());
+        assertThat(request.getValue().tag()).isEqualTo("SIT");
+    }
+
     @Test void sealsNewWritesAndReadsLegacyPasswordsThroughTheSharedPort() {
         var source = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
         try {

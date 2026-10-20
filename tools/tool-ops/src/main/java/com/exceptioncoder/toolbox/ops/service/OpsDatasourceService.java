@@ -43,7 +43,7 @@ public class OpsDatasourceService {
         DatasourceType type = parseType(req.type());
         OpsDatasource d = OpsDatasource.builder()
                 .id(UUID.randomUUID().toString())
-                .systemId(req.systemId())
+                .systemId(req.systemId() == null ? "" : req.systemId().strip())
                 .env(req.env().trim().toUpperCase())
                 .type(type)
                 .name(req.name().trim())
@@ -65,7 +65,7 @@ public class OpsDatasourceService {
     public OpsDatasource update(String id, DatasourceRequest req) {
         OpsDatasource existing = findRequired(id);
         DatasourceType type = parseType(req.type());
-        existing.setSystemId(req.systemId());
+        existing.setSystemId(req.systemId() == null ? "" : req.systemId().strip());
         existing.setEnv(req.env().trim().toUpperCase());
         existing.setType(type);
         existing.setName(req.name().trim());

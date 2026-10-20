@@ -19,7 +19,7 @@ it('supports inline fields without copying password text into visible database o
 
 it('classifies SSH and strips URL userinfo from public application addresses', () => {
   expect(parseNaturalResourceInput('测试环境 ssh://ops:p%40ss@10.0.0.2:2222', 'erp', 'ERP').value)
-    .toMatchObject({ kind: 'HOST', environment: 'TEST', type: 'SSH', port: 2222, username: 'ops', password: 'p@ss' })
+    .toMatchObject({ kind: 'HOST', environment: 'SIT', type: 'SSH', port: 2222, username: 'ops', password: 'p@ss' })
   const app = parseNaturalResourceInput('开发 https://admin:secret@example.com/login', 'erp', 'ERP')
   expect(app.value).toMatchObject({ kind: 'APPLICATION', baseUrl: 'https://example.com/login', username: 'admin', password: 'secret' })
 })
@@ -29,4 +29,12 @@ it('does not infer an environment from a credential or invent one when missing o
   expect(parseNaturalResourceInput('测试和生产 MySQL 10.0.0.2', 'erp', 'ERP').value.environment).toBe('')
   expect(parseNaturalResourceInput('MySQL 10.0.0.2\npassword=TEST', 'erp', 'ERP').value.environment).toBe('')
   expect(parseNaturalResourceInput('生产 MySQL 10.0.0.2 port=99999', 'erp', 'ERP').missing).toContain('有效端口')
+})
+
+it('uses an explicitly selected environment without requiring a system or environment in the pasted connection', () => {
+  const parsed = parseNaturalResourceInput('mysql://reader:PROD@10.0.0.2/erp', '', '', 'SIT')
+  expect(parsed.missing).toEqual([])
+  expect(parsed.value).toMatchObject({ environment: 'SIT', systemId: '', type: 'MYSQL' })
+  expect(parseNaturalResourceInput('生产 MySQL 10.0.0.2', '', '', 'DEV').missing.join(' ')).toContain('所选环境不一致')
+  expect(parseNaturalResourceInput('SIT MySQL 10.0.0.2', '', '', 'SIT').missing).toEqual([])
 })

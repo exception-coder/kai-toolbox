@@ -23,7 +23,7 @@ export function parseResourceInput(text: string): { patch: Partial<Enrollment>; 
       if (!Number.isInteger(port) || port < 1 || port > 65535) { unknown++; continue }
       patch.port = port
     } else if (key === 'environment') {
-      if (!['LOCAL', 'DEV', 'TEST', 'UAT', 'PROD'].includes(value.toUpperCase())) { unknown++; continue }
+      if (!['LOCAL', 'DEV', 'SIT', 'TEST', 'UAT', 'PROD'].includes(value.toUpperCase())) { unknown++; continue }
       patch.environment = value.toUpperCase()
     } else if (key === 'type') {
       if (!['ORACLE', 'MYSQL', 'REDIS', 'RABBITMQ', 'KAFKA'].includes(value.toUpperCase())) { unknown++; continue }

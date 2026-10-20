@@ -3,7 +3,7 @@ import { parseResourceInput } from './parseResourceInput'
 
 const environments = [
   ['PROD', /生产|正式|\bprod(?:uction)?\b/i], ['UAT', /验收|预发布|\buat\b/i],
-  ['TEST', /测试|\btest(?:ing)?\b/i], ['DEV', /开发|\bdev(?:elopment)?\b/i], ['LOCAL', /本地|\blocal\b/i],
+  ['SIT', /测试|\bsit\b|\btest(?:ing)?\b/i], ['DEV', /开发|\bdev(?:elopment)?\b/i], ['LOCAL', /本地|\blocal\b/i],
 ] as const
 const ports: Record<string, number> = { MYSQL: 3306, ORACLE: 1521, REDIS: 6379, RABBITMQ: 5672, KAFKA: 9092, SSH: 22 }
 const field = (text: string, names: string) => {
@@ -13,7 +13,7 @@ const field = (text: string, names: string) => {
 
 /** Only connection grammar and a finite environment/type vocabulary are parsed locally.
  * Raw text and credentials never enter a model, browser storage or ordinary chat. */
-export function parseNaturalResourceInput(text: string, systemId: string, systemName: string): { value: Enrollment; missing: string[] } {
+export function parseNaturalResourceInput(text: string, systemId: string, systemName: string, selectedEnvironment = ''): { value: Enrollment; missing: string[] } {
   const explicit = parseResourceInput(text.split(/\r?\n/).filter(line => /^\s*[^:=：\s]+\s*[:=：]\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s]+)\s*$/.test(line)
     && !/[,，;；]\s*(?:password|passwd|pwd|密码|口令|user|username|账号|host|port|database|db)\s*[:=：]/i.test(line)).join('\n')).patch
   const password = explicit.password ?? field(text, 'password|passwd|pwd|密码|口令') ?? ''
@@ -21,11 +21,12 @@ export function parseNaturalResourceInput(text: string, systemId: string, system
   const metadata = text.replace(/(?:password|passwd|pwd|密码|口令|username|user|用户名|账号)\s*(?:[:=：]|是|为)?\s*("[^"\r\n]*"|'[^'\r\n]*'|[^\s,，;；]+)/gi, '')
     .replace(/(?:jdbc:)?[a-z]+:\/\/[^\s，,；;]+/gi, '')
   const matches = environments.filter(([, pattern]) => pattern.test(metadata))
+  const contentEnvironment = explicit.environment === 'TEST' ? 'SIT' : explicit.environment || (matches.length === 1 ? matches[0][0] : '')
   const type = explicit.type || Object.keys(ports).filter(key => key !== 'SSH').find(key => new RegExp(`\\b${key}\\b`, 'i').test(metadata))
     || (/\bssh\b|linux|主机|服务器/i.test(metadata) ? 'SSH' : '')
   const suppliedPort = field(text, 'port|端口')
   const value: Enrollment = { requestId: crypto.randomUUID(), kind: type === 'SSH' ? 'HOST' : 'DATABASE', name: '',
-    environment: explicit.environment || (matches.length === 1 ? matches[0][0] : ''), systemId, type,
+    environment: selectedEnvironment || contentEnvironment, systemId, type,
     host: explicit.host || field(text, 'host|ip|主机地址|地址') || '',
     port: explicit.port ?? (suppliedPort ? Number(suppliedPort) : ports[type] || 0), database: explicit.database || field(text, 'database|db|数据库|服务名') || '',
     baseUrl: explicit.baseUrl || '', loginPath: explicit.loginPath || '', username, password }
@@ -63,7 +64,9 @@ export function parseNaturalResourceInput(text: string, systemId: string, system
   if (!connection && !explicit.password && /(?:password|passwd|pwd|密码|口令)\s*[:=：]\s*[^"'\s][^\s]*[,;，；]/i.test(text)) {
     missing.push('密码含分隔符，请将密码单独一行填写或加引号，避免截断')
   }
-  if (!value.systemId) missing.push('所属项目 / 系统')
+  if (matches.length > 1) missing.push('环境存在歧义，请一次登记一个环境')
+  if (selectedEnvironment && (contentEnvironment && selectedEnvironment !== contentEnvironment
+    || matches.some(([environment]) => environment !== selectedEnvironment))) missing.push('内容中的环境与所选环境不一致，请核对环境选择或粘贴内容')
   if (!value.environment) missing.push(matches.length > 1 ? '环境存在歧义，请一次登记一个环境' : '环境（如生产、测试）')
   if (value.kind === 'APPLICATION') { if (!value.baseUrl) missing.push('站点地址') }
   else {

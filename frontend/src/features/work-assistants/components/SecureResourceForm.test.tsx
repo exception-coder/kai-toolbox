@@ -11,7 +11,7 @@ it('previews without a network write, masks the password and retries the same co
   vi.mocked(enrollResource).mockRejectedValueOnce(new Error('暂时断线')).mockResolvedValueOnce({ resourceId: 'record', configurationUrl: '/tools/reqpool/resources?view=connections' })
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><SecureResourceForm onClose={vi.fn()} /></QueryClientProvider>)
   fireEvent.change(screen.getByLabelText('名称'), { target: { value: '测试连接' } })
-  fireEvent.click(screen.getByRole('combobox', { name: '已有系统分组' }))
+  fireEvent.click(screen.getByRole('combobox', { name: '已有系统分组（可选）' }))
   fireEvent.click(await screen.findByRole('option', { name: 'ERP' }))
   fireEvent.change(screen.getByLabelText('主机地址'), { target: { value: '127.0.0.1' } })
   fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'never-echo-this' } })

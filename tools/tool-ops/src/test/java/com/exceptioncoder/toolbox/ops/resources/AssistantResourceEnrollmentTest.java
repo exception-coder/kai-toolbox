@@ -47,6 +47,31 @@ class AssistantResourceEnrollmentTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM ops_datasource", Integer.class)).isZero();
     }
 
+    @Test void resourcesCanUseSitWithoutARegisteredSystemAndRetainTheirOriginalEditPath() {
+        var command = new AssistantResourceEnrollment.Command(UUID.randomUUID().toString(), "DATABASE", "共享 SIT 数据库",
+                "SIT", null, "MYSQL", "10.0.0.9", 3306, "erp", "", "", "reader", "test-only-password");
+        var receipt = transaction.execute(status -> service.enroll(command));
+        var saved = datasources.findById(receipt.resourceId()).orElseThrow();
+        assertThat(saved.getSystemId()).isEmpty();
+        assertThat(saved.getEnv()).isEqualTo("SIT");
+        assertThat(receipt.configurationUrl()).contains("editDatasource=" + saved.getId());
+        var retried = transaction.execute(status -> service.enroll(command));
+        assertThat(retried).isEqualTo(receipt);
+        when(hostGateway.register(any())).thenReturn("shared-host");
+        transaction.execute(status -> service.enroll(new AssistantResourceEnrollment.Command(UUID.randomUUID().toString(), "HOST",
+                "共享主机", "DEV", "", "SSH", "10.0.0.10", 22, "", "", "", "ops", "test-only-password")));
+        verify(hostGateway).register(argThat(value -> value.systemId().isEmpty() && value.environment().equals("DEV")));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM ops_system", Integer.class)).isEqualTo(1);
+        var invalid = new AssistantResourceEnrollment.Command(UUID.randomUUID().toString(), "DATABASE", "未知系统",
+                "SIT", "does-not-exist", "MYSQL", "10.0.0.11", 3306, "erp", "", "", "reader", "test-only-password");
+        assertThatThrownBy(() -> transaction.execute(status -> service.enroll(invalid))).hasMessageContaining("已有系统分组");
+        var dto = new com.exceptioncoder.toolbox.ops.api.dto.DatasourceRequest(null, "SIT", "MYSQL", "修改共享库",
+                "10.0.0.9", 3306, "reader", "", "erp", "", "", 0);
+        var service = new OpsDatasourceService(datasources, mock(com.exceptioncoder.toolbox.ops.repository.QueryHistoryRepository.class),
+                mock(com.exceptioncoder.toolbox.ops.service.OpsDataSourcePool.class));
+        assertThat(service.update(saved.getId(), dto).getSystemId()).isEmpty();
+    }
+
     @BeforeEach void setup() {
         source = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
         new ResourceDatabasePopulator(new ClassPathResource("db/ops-schema.sql"),

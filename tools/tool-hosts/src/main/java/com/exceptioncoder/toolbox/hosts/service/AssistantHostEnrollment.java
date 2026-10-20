@@ -16,7 +16,7 @@ public class AssistantHostEnrollment implements HostEnrollmentGateway {
         if (command.username() == null || command.username().isBlank() || command.password() == null || command.password().isBlank()) {
             throw new IllegalArgumentException("请补充主机账号和密码；密钥认证请在主机管理中配置");
         }
-        String tag = command.environment() + " · " + command.systemId();
+        String tag = command.environment() + (command.systemId() == null || command.systemId().isBlank() ? "" : " · " + command.systemId());
         if (hosts.findAll().stream().anyMatch(value -> value.getHost().equalsIgnoreCase(command.host())
                 && value.getPort() == command.port() && value.getUsername().equals(command.username()))) {
             throw new IllegalArgumentException("主机账号已登记，请到主机管理核对原记录");

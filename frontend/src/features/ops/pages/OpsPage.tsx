@@ -36,6 +36,10 @@ export function OpsPage() {
   const dsQuery = useQuery({ queryKey: ['ops', 'datasources'], queryFn: () => listDatasources() })
   const systems = systemsQuery.data ?? []
   const datasources = dsQuery.data ?? []
+  // Unassigned is a view group, never a synthetic persisted system.
+  const groups = datasources.some(source => !source.systemId)
+    ? [...systems, { id: '', name: '未绑定系统', code: null, owner: null, description: null, sortOrder: 0, createdAt: 0, updatedAt: 0 }]
+    : systems
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -192,12 +196,12 @@ export function OpsPage() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(320px,420px)_1fr]">
         <div className="space-y-3">
-          {systems.length === 0 ? (
+          {groups.length === 0 ? (
             <div className="rounded-md border border-dashed p-8 text-center text-sm text-[var(--color-muted-foreground)]">
               还没有系统。点上面「新增系统」开始登记。
             </div>
           ) : (
-            systems.map(sys => {
+            groups.map(sys => {
               const list = bySystem.get(sys.id) ?? []
               const isCollapsed = collapsed[sys.id]
               return (
@@ -218,9 +222,9 @@ export function OpsPage() {
                         </div>
                         {sys.owner && <div className="text-xs text-[var(--color-muted-foreground)]">负责人 {sys.owner}</div>}
                       </div>
-                      <Button size="sm" variant="ghost" onClick={() => startEditSystem(sys)}>
+                      {sys.id && <Button size="sm" variant="ghost" onClick={() => startEditSystem(sys)}>
                         <Pencil />
-                      </Button>
+                      </Button>}
                       <Button size="sm" variant="outline" onClick={() => startNewDs(sys.id)}>
                         <Plus />
                       </Button>

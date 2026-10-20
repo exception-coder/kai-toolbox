@@ -75,10 +75,8 @@ public class AssistantResourceEnrollment {
     }
 
     private String createDatasource(Command value) {
-        if (jdbc.queryForObject("SELECT count(*) FROM ops_system WHERE id=?", Integer.class, value.systemId()) == 0) {
-            throw new IllegalArgumentException("请选择已有系统分组");
-        }
-        var duplicate = datasourceRepository.findBySystem(value.systemId()).stream().filter(item ->
+        String systemId = optionalSystem(value.systemId());
+        var duplicate = datasourceRepository.findBySystem(systemId).stream().filter(item ->
                 item.getEnv().equals(value.environment()) && item.getType().name().equals(value.type())
                         && item.getHost().equalsIgnoreCase(value.host().strip()) && item.getPort() == value.port()
                         && java.util.Objects.equals(item.getDbName(), blank(value.database()))
@@ -86,18 +84,24 @@ public class AssistantResourceEnrollment {
         if (duplicate.isPresent()) {
             throw new IllegalArgumentException("该连接与账号已登记，请在原资源中心编辑，记录 ID：" + duplicate.get().getId());
         }
-        return datasources.create(new DatasourceRequest(value.systemId(), value.environment(), value.type(),
+        return datasources.create(new DatasourceRequest(systemId, value.environment(), value.type(),
                 value.name(), value.host(), value.port(), value.username(), value.password(), value.database(),
                 null, null, 0)).getId();
     }
 
     private String createHost(Command value) {
         if (hosts.size() != 1) throw new IllegalArgumentException("主机登记能力未就绪，请到主机管理核对");
-        if (value.systemId() == null || jdbc.queryForObject("SELECT count(*) FROM ops_system WHERE id=?", Integer.class, value.systemId()) == 0) {
-            throw new IllegalArgumentException("请选择已有系统分组");
-        }
+        String systemId = optionalSystem(value.systemId());
         return hosts.getFirst().register(new com.exceptioncoder.toolbox.common.resource.HostEnrollmentGateway.Command(
-                value.name(), value.environment(), value.systemId(), value.host(), value.port(), value.username(), value.password()));
+                value.name(), value.environment(), systemId, value.host(), value.port(), value.username(), value.password()));
+    }
+
+    private String optionalSystem(String value) {
+        String systemId = value == null ? "" : value.strip();
+        if (!systemId.isEmpty() && jdbc.queryForObject("SELECT count(*) FROM ops_system WHERE id=?", Integer.class, systemId) == 0) {
+            throw new IllegalArgumentException("请选择已有系统分组，或选择不绑定系统");
+        }
+        return systemId;
     }
 
     private String createApplication(Command value) {
@@ -114,7 +118,7 @@ public class AssistantResourceEnrollment {
     private void validate(Command value) {
         if (value == null || value.requestId() == null || !value.requestId().matches("[A-Za-z0-9-]{16,80}")
                 || !Set.of("DATABASE", "APPLICATION", "HOST").contains(value.kind() == null ? "" : value.kind())
-                || !Set.of("LOCAL", "DEV", "TEST", "UAT", "PROD").contains(value.environment() == null ? "" : value.environment())
+                || !Set.of("LOCAL", "DEV", "SIT", "TEST", "UAT", "PROD").contains(value.environment() == null ? "" : value.environment())
                 || value.name() == null || value.name().isBlank() || value.name().length() > 100
                 || value.password() != null && value.password().length() > 4096) {
             throw new IllegalArgumentException("请核对登记类型、名称、环境和请求标识");
@@ -124,7 +128,7 @@ public class AssistantResourceEnrollment {
                 throw new IllegalArgumentException("账号、地址和路径字段最多 250 字符");
             }
         }
-        if ("DATABASE".equals(value.kind()) && (value.systemId() == null || value.host() == null
+        if ("DATABASE".equals(value.kind()) && (value.host() == null
                 || !value.host().matches("[A-Za-z0-9.:-]{1,253}") || value.port() == null
                 || value.port() < 1 || value.port() > 65535
                 || !Set.of("MYSQL", "ORACLE", "REDIS", "RABBITMQ", "KAFKA").contains(value.type() == null ? "" : value.type()))) {

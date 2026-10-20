@@ -25,14 +25,15 @@ export const TYPE_DEFAULT_PORT: Record<DatasourceType, number> = {
 }
 
 /** 可选择的部署环境；历史自定义值保留读取，不自动迁移。 */
-export const ENV_PRESETS = ['LOCAL', 'DEV', 'TEST', 'UAT', 'PROD']
-export const ENV_LABELS: Record<string, string> = { LOCAL: '本地', DEV: '开发', TEST: '测试', UAT: '验收', PROD: '生产' }
+export const ENV_PRESETS = ['LOCAL', 'DEV', 'SIT', 'TEST', 'UAT', 'PROD']
+export const ENV_LABELS: Record<string, string> = { LOCAL: '本地', DEV: '开发', SIT: '集成测试', TEST: '测试', UAT: '验收', PROD: '生产' }
 
 /** 环境色板，用于分组标识。 */
 export function envBadge(env: string): string {
   switch (env.toUpperCase()) {
     case 'PROD': return 'bg-red-500/15 text-red-600 dark:text-red-300'
     case 'UAT': return 'bg-amber-500/15 text-amber-600 dark:text-amber-300'
+    case 'SIT':
     case 'TEST': return 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300'
     case 'DEV': return 'bg-sky-500/15 text-sky-600 dark:text-sky-300'
     default: return 'bg-neutral-500/15 text-neutral-600 dark:text-neutral-300'

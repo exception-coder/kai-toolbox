@@ -25,9 +25,9 @@ it('opens the linked existing connection with a blank password and updates its o
   expect(api.createDatasource).not.toHaveBeenCalled()
 })
 
-function mountConnections(edit = true, env = 'TEST') {
-  const source: DatasourceView = { id: 'db-test', systemId: 'erp', env, type: 'ORACLE', category: 'SQL', queryable: true, name: 'ERP测试库', host: 'db-test.local', port: 1521, username: 'reader', passwordConfigured: true, dbName: 'test', params: null, note: null, sortOrder: 0, createdAt: 0, updatedAt: 0, endpoint: 'db-test.local:1521/test' }
-  vi.mocked(api.listSystems).mockResolvedValue([{ id: 'erp', name: 'ERP', code: 'erp', owner: null, description: null, sortOrder: 0, createdAt: 0, updatedAt: 0 }])
+function mountConnections(edit = true, env = 'TEST', systemId = 'erp') {
+  const source: DatasourceView = { id: 'db-test', systemId, env, type: 'ORACLE', category: 'SQL', queryable: true, name: 'ERP测试库', host: 'db-test.local', port: 1521, username: 'reader', passwordConfigured: true, dbName: 'test', params: null, note: null, sortOrder: 0, createdAt: 0, updatedAt: 0, endpoint: 'db-test.local:1521/test' }
+  vi.mocked(api.listSystems).mockResolvedValue(systemId ? [{ id: 'erp', name: 'ERP', code: 'erp', owner: null, description: null, sortOrder: 0, createdAt: 0, updatedAt: 0 }] : [])
   vi.mocked(api.listDatasources).mockResolvedValue([source, { ...source, id: 'db-other', name: 'ERP备用测试库' }])
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   clients.push(client)
@@ -42,7 +42,7 @@ it('uses full fixed environment choices and the shared selector for type changes
   const environment = editor().getByRole('combobox', { name: '部署环境' })
   expect(environment.tagName).toBe('BUTTON')
   fireEvent.click(environment)
-  expect(await screen.findAllByRole('option')).toHaveLength(5)
+  expect(await screen.findAllByRole('option')).toHaveLength(6)
   expect(screen.getByRole('option', { name: 'LOCAL · 本地' })).toBeVisible()
   fireEvent.click(screen.getByRole('option', { name: 'UAT · 验收' }))
   expect(environment).toHaveTextContent('UAT · 验收')
@@ -115,4 +115,13 @@ it('shows row-triggered results on the same row instead of below the entire list
   fireEvent.click(within(row).getByTitle('测试连接'))
   expect(await within(row).findByRole('status')).toHaveTextContent('连接成功')
   expect(within(row).getByRole('status')).toHaveTextContent('12 ms')
+})
+
+it('keeps an unassigned SIT connection visible and editable without creating a system', async () => {
+  mountConnections(true, 'SIT', '')
+  expect(await screen.findByText('未绑定系统')).toBeVisible()
+  await screen.findByDisplayValue('db-test.local')
+  fireEvent.click(editor().getByRole('button', { name: '保存' }))
+  await waitFor(() => expect(api.updateDatasource).toHaveBeenCalledWith('db-test', expect.objectContaining({ systemId: '', env: 'SIT' })))
+  expect(api.createDatasource).not.toHaveBeenCalled()
 })
