@@ -16,6 +16,21 @@ it('remembers the selected project when the setup is reopened', () => {
   expect(screen.getByRole('checkbox', { name: 'ERP' })).toBeChecked()
 })
 
+it('puts selected projects first and changes only the week in the retained request', () => {
+  const projects = ['A', 'B', 'C'].map(id => ({ id, name: id, path: `/${id}` }))
+  render(<AssistantSetup assistant="weekly" projects={projects} busy={false} onStart={vi.fn()} />)
+  fireEvent.click(screen.getByRole('checkbox', { name: 'C' }))
+  expect(screen.getAllByRole('checkbox').map(input => input.closest('label')?.textContent)).toEqual(['C', 'A', 'B'])
+  const input = screen.getByRole('textbox', { name: '交给助理的工作' })
+  expect((input as HTMLTextAreaElement).value).toContain('【作者姓名或邮箱】上周')
+  expect(screen.getByRole('button', { name: '交给助理' })).toBeDisabled()
+  fireEvent.change(input, { target: { value: '查看张凯上周的提交，保留业务模块和证据要求' } })
+  fireEvent.click(screen.getByRole('button', { name: '本周' }))
+  expect(input).toHaveValue('查看张凯本周的提交，保留业务模块和证据要求')
+  fireEvent.click(screen.getByRole('button', { name: '上周' }))
+  expect(input).toHaveValue('查看张凯上周的提交，保留业务模块和证据要求')
+})
+
 it('starts directly from the selected project and a natural request, without author/date fields', async () => {
   const scope = { projectIds: ['erp'], from: '2026-10-12', through: '2026-10-18', author: '张凯' }
   vi.mocked(resolveWeeklyRequest).mockResolvedValue({ scope, message: '已识别上周张凯' })
