@@ -23,6 +23,32 @@ import static org.mockito.Mockito.when;
 class SqlConnectorTest {
 
     @Test
+    void authenticationCircuitIsAConnectionErrorRatherThanInvalidSql() throws Exception {
+        OpsDataSourcePool pool = mock(OpsDataSourcePool.class);
+        var datasource = OpsDatasource.builder().id("db").type(DatasourceType.ORACLE).build();
+        when(pool.borrowSql(datasource)).thenThrow(new java.sql.SQLInvalidAuthorizationSpecException("paused", "28000"));
+        var result = new SqlConnector(pool).check(datasource, "select 1 from dual");
+        assertThat(result.status()).isEqualTo(SqlCheckResult.Status.ERROR);
+        assertThat(result.message()).isEqualTo("paused");
+    }
+
+    @Test
+    void explicitConnectionTestUsesOneControlledBorrow() throws Exception {
+        OpsDataSourcePool pool = mock(OpsDataSourcePool.class);
+        Connection connection = mock(Connection.class);
+        var metadata = mock(java.sql.DatabaseMetaData.class);
+        var datasource = OpsDatasource.builder().id("db").build();
+        when(pool.borrowSqlForTest(datasource)).thenReturn(connection);
+        when(connection.getMetaData()).thenReturn(metadata);
+        when(metadata.getDatabaseProductName()).thenReturn("Oracle");
+        when(metadata.getDatabaseProductVersion()).thenReturn("test");
+        assertThat(new SqlConnector(pool).test(datasource).ok()).isTrue();
+        verify(pool).borrowSqlForTest(datasource);
+        verify(pool, never()).borrowSql(datasource);
+        verify(connection).close();
+    }
+
+    @Test
     void mysqlCheckPreparesButNeverExecutesTargetSql() throws Exception {
         OpsDataSourcePool pool = mock(OpsDataSourcePool.class);
         Connection connection = mock(Connection.class);

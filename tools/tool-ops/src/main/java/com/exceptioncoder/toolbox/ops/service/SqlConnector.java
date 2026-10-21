@@ -44,8 +44,7 @@ public class SqlConnector {
     public TestResult test(OpsDatasource ds) {
         long start = System.currentTimeMillis();
         try {
-            pool.validateSql(ds);
-            try (Connection conn = pool.borrowSql(ds)) {
+            try (Connection conn = pool.borrowSqlForTest(ds)) {
                 String product = conn.getMetaData().getDatabaseProductName()
                         + " " + conn.getMetaData().getDatabaseProductVersion();
                 return new TestResult(true, product, System.currentTimeMillis() - start);
@@ -250,7 +249,7 @@ public class SqlConnector {
 
     private static boolean isConnectionError(SQLException error) {
         String sqlState = error.getSQLState();
-        return sqlState != null && sqlState.startsWith("08");
+        return sqlState != null && (sqlState.startsWith("08") || sqlState.startsWith("28"));
     }
 
     private static boolean isUnsupportedPrepare(SQLException error) {

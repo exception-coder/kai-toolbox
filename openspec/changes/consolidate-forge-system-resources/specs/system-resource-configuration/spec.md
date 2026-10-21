@@ -79,3 +79,25 @@ The datasource editor SHALL use the shared Combobox in selection-only mode for e
 
 - **WHEN** a caller uses Combobox without selection-only mode
 - **THEN** existing free-text input behavior is preserved
+
+### Requirement: Bound SQL connection acquisition failures
+
+The SQL resource pool MUST serialize creation per datasource ID, close failed pools and stop the driver's automatic connection retries after an acquisition failure. A healthy full pool MUST time out without being replaced.
+
+#### Scenario: Credentials rotate while a pool is in use
+
+- **WHEN** a new physical connection fails with an authentication or account lock/expiry error
+- **THEN** the pool closes and ordinary requests return an actionable paused-state error without further physical connection attempts
+- **AND** changes to labels, notes or environment do not reset the paused state
+
+#### Scenario: Recover through the existing configuration and test actions
+
+- **WHEN** different connection fields are saved, or the administrator explicitly tests after the 30-second authentication cooldown
+- **THEN** the next eligible request may probe the connection once, resuming reuse only on success
+- **AND** repeated tests during cooldown do not connect, stale configuration cannot restore old credentials, and deleted resources cannot be revived by late requests or update notifications
+
+#### Scenario: Transient failure and concurrent requests
+
+- **WHEN** non-authentication connection failures continue under concurrent requests
+- **THEN** request-driven probes use successive 30, 60, 120, 240 and at most 300-second cooldowns with one probe at a time per datasource
+- **AND** no background retry scheduler is created, other resources remain independent, and initialization failures release their pool

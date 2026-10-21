@@ -78,9 +78,9 @@ public class OpsDatasourceService {
         existing.setParams(blankToNull(req.params()));
         existing.setNote(blankToNull(req.note()));
         existing.setSortOrder(req.sortOrder() == null ? existing.getSortOrder() : req.sortOrder());
-        existing.setUpdatedAt(System.currentTimeMillis());
+        existing.setUpdatedAt(Math.max(System.currentTimeMillis(), existing.getUpdatedAt() + 1));
         datasources.update(existing);
-        pool.invalidate(id);
+        pool.reconfigure(existing);
         return existing;
     }
 
