@@ -107,7 +107,7 @@ class ConsultOrchestrationPipelineTest {
                 .contains("impl/modules.json")
                 .contains("domain-knowledge.locate_menu")
                 .contains("没有菜单证据时不得给出具体菜单")
-                .contains("【业务员怎么操作】")
+                .contains("【平台表达Skill：consult-plain-writing】")
                 .doesNotContain("产品文档、FAQ 与历史工单");
     }
 
@@ -138,7 +138,7 @@ class ConsultOrchestrationPipelineTest {
                 .contains("erp_standby_validate_sql")
                 .contains("TABLE 与 VIEW")
                 .contains("名称相似只能作为候选")
-                .contains("【业务员怎么操作】");
+                .contains("【平台表达Skill：consult-plain-writing】");
 
         ConsultOrchestrationResult v2Result = pipeline.orchestrate(new ConsultOrchestrationRequest(
                 "给出测试库查询订单的 SQL", "ERP", "D:\\yoooni",
@@ -181,7 +181,7 @@ class ConsultOrchestrationPipelineTest {
                 .contains("先调用 domain-knowledge.resolve_consult_context")
                 .contains("证据已经足以回答时立即停止")
                 .contains("erp_standby_validate_sql")
-                .contains("【明确结论】")
+                .contains("【平台表达Skill：consult-plain-writing】")
                 .contains("<<<CONSULT_RECOGNITION>>>")
                 .contains("MENU_OPERATION")
                 .contains("recognitionStatus")

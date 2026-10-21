@@ -67,4 +67,20 @@
         </dependency>
     </dependencies>
 
+    <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!-- Skill与项目同仓管理；运行时只读取随模块打包的受控副本。 -->
+            <resource>
+                <directory>${project.basedir}/../../.agents/skills</directory>
+                <targetPath>fore-consult-skills</targetPath>
+                <includes>
+                    <include>consult-plain-writing/SKILL.md</include>
+                </includes>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
+    </build>
 </project>

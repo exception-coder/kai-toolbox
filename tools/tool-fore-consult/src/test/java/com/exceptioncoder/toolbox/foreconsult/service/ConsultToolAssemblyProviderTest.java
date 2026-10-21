@@ -66,6 +66,7 @@ class ConsultToolAssemblyProviderTest {
         var assembly = provider.resolve("legacy").orElseThrow();
         assertThat(assembly.tools()).containsExactly("generate_consult_document", "design_consult_document", "preview_consult_document", "read_consult_attachment");
         assertThat(assembly.mcpServers()).containsExactly("consult-readonly");
-        assertThat(assembly.instructions()).contains("不得执行脚本", "downloadUrl");
+        assertThat(assembly.instructions()).contains("不得执行脚本", "downloadUrl",
+                "【平台表达Skill：consult-plain-writing】");
     }
 }

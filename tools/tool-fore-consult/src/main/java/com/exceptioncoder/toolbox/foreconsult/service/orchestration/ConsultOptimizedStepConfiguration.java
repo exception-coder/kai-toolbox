@@ -67,16 +67,10 @@ public class ConsultOptimizedStepConfiguration {
 
     @Bean
     ConsultOrchestrationStep consultV2AnswerContractStep() {
-        return step("v2-answer-contract", "明确结论与双口径交付", 600, context ->
-                context.addSection("明确结论与双口径交付", """
-                        最终回答按以下结构组织：
-                        【明确结论】一句话说明问题、处理方式、责任角色，以及是否需要开发、配置或修数据。
-                        【业务员怎么操作】给出经过证据确认的菜单、页面、按钮、填写内容和预期结果；没有业务入口时明确写“业务员无法自行配置”。
-                        【IT 如何实施】给出必要的 URL、Action/API、页面模板、Service/SQL/实体、字段来源、修改范围和共用入口。
-                        【影响范围】说明是否影响现有模板、历史数据、其他菜单或格式。
-                        【验证方法】说明测试环境、测试数据、操作入口和预期结果。
-                        【尚待确认】只列会改变实施方案的信息；没有则写“无”。
-                        面向业务员时使用业务语言；面向 IT 时保留可实施的技术坐标，但都必须先给明确结论。
+        return step("v2-answer-contract", "结论优先与按需说明", 600, context ->
+                context.addSection("结论优先与按需说明", """
+                        最终正文遵循平台装配的consult-plain-writing Skill，结论优先，按当前问题决定深度，不固定六段或强制双口径。
+                        需要技术实施或取数说明时保留精确依据；证据边界、环境、未验证事项不得因精简而删除。
                         """));
     }
 

@@ -733,3 +733,20 @@ flowchart LR
 管理员也可在咨询配置对已保存候选逐项主动同步：与自动探索共享同一同步服务、仓库互斥和目录授权复核，手动绕过五分钟缓存，不向模型开放写命令。发现使用GET，更新使用ADMIN保护的POST；逐项失败不影响其余项目，断连结果未知需重新检查。管理入口实现与待运行验收见[管理同步任务](../openspec/changes/consult-manual-source-sync/tasks.md)。
 
 Graphify仍是结构事实源，System Profile和领域快照仍适用原新鲜度规则；同步源码不重建索引、不代替运行与DDL验证、不改变资源授权。不满足安全快进条件时保留本地内容并报告未确认最新。源码实现、宿主装配、实际远端同步及运行验收分别记在[同步任务](../openspec/changes/consult-source-auto-sync/tasks.md)，本轮未启动或重启服务。
+
+## 咨询表达Skill的版本化装配
+
+咨询默认表达规则由仓库内[consult-plain-writing](../.agents/skills/consult-plain-writing/SKILL.md)维护，Maven按明确白名单复制进fore-consult模块；运行时仅加载随包资源，不读取开发者个人Skill或业务项目指令。统一提示词出口在证据规则之后装配，覆盖旧版管道和已发布/冻结流程；无快照会话由工具装配入口补入。旧快照保持原样，平台Skill仅调整正文深度与组织，证据校验、机器识别和资源权限不变。
+
+```mermaid
+flowchart LR
+  Repo[项目Skill唯一源] --> Maven[模块资源打包]
+  Maven --> Rules[受控表达Skill]
+  Workflow[旧版管道与冻结流程] --> Render[统一提示词渲染]
+  Rules --> Render
+  Rules --> Legacy[无快照会话装配]
+  Render --> Agent[既有执行引擎]
+  Legacy --> Agent
+```
+
+默认业务结论先行，明确技术问题按需展开，不通过角色或关键词硬分类。装配验证不等于真实回答质量通过；实现、部署和模型效果分别记录于[咨询人话任务](../openspec/changes/consult-plain-writing-skill/tasks.md)。本次没有新增工具、模型调用或安全例外。

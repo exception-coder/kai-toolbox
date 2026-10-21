@@ -44,7 +44,7 @@ it('remembers dismissal per user, restores via toolbar and reappears for a new r
   render(<ConsultUpgradeNotice userId={21} />)
   fireEvent.click(screen.getByRole('button', { name: '收起升级纸签' }))
   cleanup()
-  render(<ConsultUpgradeNotice userId={21} notices={[{ ...CONSULT_UPGRADE_NOTES[0], id: 'new-release', date: '2026-10-19' }, ...CONSULT_UPGRADE_NOTES]} />)
+  render(<ConsultUpgradeNotice userId={21} notices={[{ ...CONSULT_UPGRADE_NOTES[0], id: 'new-release', date: CONSULT_UPGRADE_NOTES[0].date }, ...CONSULT_UPGRADE_NOTES]} />)
   expect(screen.getByRole('complementary')).toBeVisible()
 })
 

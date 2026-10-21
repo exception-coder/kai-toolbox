@@ -47,7 +47,8 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
                             Stream.concat(snapshot.stream().flatMap(value -> value.workflow().mcpServers().stream()),
                                     Stream.of("consult-readonly")).distinct().toList(),
                             snapshot.map(value -> workflowService.render(request, value).prompt())
-                                    .orElse("【受控文档生成】" + ConsultDocumentPolicy.INSTRUCTIONS)
+                                    .orElse("【受控文档生成】" + ConsultDocumentPolicy.INSTRUCTIONS
+                                            + com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultPlainWritingSkill.instructions())
                                     + (sourceScope == null ? "" : "\n" + ConsultSourceRoutingService.instructions(sourceScope))
                                     + "\n【数据库访问边界】" + ConsultDatabasePolicy.INSTRUCTIONS
                                     + "\n【上传附件】使用read_consult_attachment：文本/HTML用nextOffset字符分页；"

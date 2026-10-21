@@ -71,16 +71,10 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
 
     @Bean
     ConsultOrchestrationStep consultV4AnswerContractStep() {
-        return step("v4-answer-contract", "结论优先与双口径交付", 600, context ->
-                context.addSection("结论优先与双口径交付", """
-                        最终回答按以下结构组织：
-                        【明确结论】一句话说明问题、处理方式、责任角色和证据等级。
-                        【业务员怎么操作】给出已确认的菜单、页面、按钮、填写内容和预期结果；没有业务入口时明确写“业务员无法自行配置”。
-                        【IT 如何实施】给出必要的 URL、Action/API、页面、Service/SQL/实体、字段来源、修改范围，以及 Core Spec、源码或 DDL 的冲突点。
-                        【影响范围】说明历史数据、其他菜单、共用逻辑和上下游系统影响。
-                        【验证方法】给出最少测试数据、操作入口、只读核验条件和预期结果。
-                        【尚待确认】只列会改变实施方案的信息；没有则写“无”。
-                        简单操作问题无需输出无关技术细节；BUG、数据异常和实施问题必须把已确认事实、高概率判断、候选和待验证事项明确分开。
+        return step("v4-answer-contract", "结论优先与按需说明", 600, context ->
+                context.addSection("结论优先与按需说明", """
+                        最终正文遵循平台装配的consult-plain-writing Skill，结论优先，按当前问题决定深度，不固定六段或强制双口径。
+                        需要技术实施或取数说明时保留精确依据；证据边界、环境、未验证事项不得因精简而删除。
 
                         回答正文末尾必须追加以下内部识别块，供系统归档；不要在正文中解释此块：
                         <<<CONSULT_RECOGNITION>>>

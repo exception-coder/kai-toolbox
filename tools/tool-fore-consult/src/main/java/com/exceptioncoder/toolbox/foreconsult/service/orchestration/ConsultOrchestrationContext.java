@@ -59,6 +59,7 @@ public final class ConsultOrchestrationContext {
                     .append(section.content()).append('\n');
         }
         prompt.append("\n【自主定位与必要追问】\n").append(EXPLORATION_RULES);
+        prompt.append(ConsultPlainWritingSkill.instructions());
         return prompt.toString().strip();
     }
 
