@@ -29,6 +29,7 @@ import { ConsultConversation, type ConsultConversationDraft } from '../component
 import { ConsultSuggestions } from '../components/ConsultSuggestions'
 import { ConsultUpgradeNotice } from '../components/ConsultUpgradeNotice'
 import { MobileConsultComposer } from '../components/MobileConsultComposer'
+import { MobileSystemGraph } from '../components/MobileSystemGraph'
 import { useConsultLayout } from '../useConsultLayout'
 import { useMobileNavigation } from '@/shell/MobileNavigationContext'
 import { ConsultVoiceActions } from '../components/ConsultVoiceActions'
@@ -684,7 +685,8 @@ export function ForeConsultPage() {
     return [...map.values()]
   }, [visibleProjects])
 
-  const { data: topoData } = useQuery({ queryKey: ['fore-consult-topology'], queryFn: getTopology })
+  const topologyQuery = useQuery({ queryKey: ['fore-consult-topology'], queryFn: getTopology })
+  const topoData = topologyQuery.data
   const topoLinks = useMemo<TopoLink[]>(() => (showLinks ? topoData?.links ?? [] : []), [showLinks, topoData])
 
   // 业务域筛选（顶部 chips）：null=全部。
@@ -1869,6 +1871,14 @@ export function ForeConsultPage() {
       )}
 
       <div ref={graphRef} id="fc-graph-view" role={compact ? 'tabpanel' : undefined} aria-labelledby={compact ? 'fc-graph-tab' : undefined} className="fc-graph-surface absolute inset-0" hidden={phone && mobileView !== 'graph'}>
+      {phone && <MobileSystemGraph
+        systems={shownProjects.map(project => ({ name: project.name, label: project.label, category: categoryOf(project.name, project.label).key, Icon: iconForSystem(project.name, project.label) }))}
+        links={activeLinks} categories={presentCategories} category={categoryFilter} onCategory={setCategoryFilter}
+        onConsult={name => { setViewSession(null); setNewConsultDraftOpen(true); setContinuationSource(null); startMutation.reset(); openSystem(name) }}
+        canConsult={initialSessionStateResolved} loading={systemPrefsQuery.isPending || topologyQuery.isPending}
+        error={systemPrefsQuery.isError || topologyQuery.isError} onRetry={() => { void systemPrefsQuery.refetch(); void topologyQuery.refetch() }}
+      />}
+      {!phone && <>
       {/* 中央 AI 恒星：Forge —— 业务系统围绕其运行 */}
       {visibleProjects.length > 0 && (
         <div className="fc-core-wrap">
@@ -2045,6 +2055,7 @@ export function ForeConsultPage() {
         </div>
       )}
 
+      </>}
       </div>
       {compact && !viewSession && (!activeConsultId || newConsultDraftOpen) && <section id="fc-consult-view" role="tabpanel" aria-labelledby="fc-consult-tab" className="fc-mobile-consult-view" hidden={phone && mobileView !== 'consult'}>
         <div className="fc-mobile-empty">

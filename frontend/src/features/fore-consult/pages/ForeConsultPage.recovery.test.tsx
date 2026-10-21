@@ -361,6 +361,30 @@ it('preserves the mobile first-question draft while switching between consultati
   expect(calls.start).not.toHaveBeenCalled()
 })
 
+it('focuses the mobile graph without sending and opens a system-specific new draft while retaining the original consult', async () => {
+  viewport.phone = true
+  calls.history.mockResolvedValue([pending])
+  mount()
+  expect(await screen.findByText('原咨询对话')).toBeVisible()
+  fireEvent.click(screen.getByRole('tab', { name: '系统图谱' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'ERP' }))
+  expect(screen.getByRole('region', { name: 'ERP 的关联关系' })).toBeVisible()
+  expect(calls.start).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '放大图谱' }))
+  const transform = screen.getByTestId('mobile-graph-world').style.transform
+  fireEvent.click(screen.getByRole('button', { name: '咨询此系统' }))
+  expect(screen.getByRole('button', { name: '编辑咨询' })).toBeVisible()
+  expect(screen.getByText('优先探索：ERP')).toBeVisible()
+  expect(screen.getByRole('button', { name: '返回当前咨询' })).toBeVisible()
+  fireEvent.click(screen.getByRole('tab', { name: '系统图谱' }))
+  expect(screen.getByTestId('mobile-graph-world').style.transform).toBe(transform)
+  fireEvent.click(screen.getByRole('tab', { name: /^咨询$/ }))
+  fireEvent.click(screen.getByRole('button', { name: '返回当前咨询' }))
+  expect(screen.getByText('原咨询对话')).toBeVisible()
+  expect(calls.archive).not.toHaveBeenCalled()
+  expect(calls.start).not.toHaveBeenCalled()
+})
+
 it('keeps desktop settings in a single optional menu and opens a bounded workspace', async () => {
   mount()
   const question = await screen.findByRole('textbox', { name: '业务问题' })

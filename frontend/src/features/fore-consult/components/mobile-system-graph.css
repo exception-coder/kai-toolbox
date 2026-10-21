@@ -1,0 +1,32 @@
+.fc-mobile-map { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; color: var(--color-foreground); }
+.fc-mobile-map-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 16px; flex: none; }
+.fc-mobile-map button, .fc-mobile-map select { min-height: 44px; }
+.fc-mobile-map button:focus-visible, .fc-mobile-map select:focus-visible, .fc-mobile-map-canvas:focus-visible { outline: 2px solid var(--color-ring); outline-offset: -2px; }
+.fc-mobile-map-toolbar select { max-width: 140px; border: 0; background: transparent; font-size: 13px; padding: 0 4px; }
+.fc-mobile-map-toolbar > button, .fc-mobile-map-zoom button, .fc-mobile-map-details header button { width: 44px; display: grid; place-items: center; flex: none; }
+.fc-mobile-map-count { margin-left: auto; color: var(--color-muted-foreground); font-size: 11px; white-space: nowrap; }
+.fc-mobile-map-canvas { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; user-select: none; }
+.fc-mobile-map-world { position: absolute; width: 0; height: 0; transform-origin: 0 0; }
+.fc-mobile-map-lines { position: absolute; width: 1px; height: 1px; overflow: visible; }
+.fc-mobile-map-lines path { fill: none; stroke: #9caebd; stroke-width: 1.4; }
+.fc-mobile-map-lines marker path { fill: context-stroke; stroke: none; }
+.fc-mobile-map-lines path.is-focused { stroke: #5b7fa8; stroke-width: 2; }
+.fc-mobile-map-lines path.fc-mobile-map-edge-hit { stroke: transparent; stroke-width: 22; pointer-events: stroke; cursor: pointer; }
+.fc-mobile-map-node { position: absolute; width: 108px; height: 102px; padding: 0; border: 0; background: transparent; transform: translate(-50%, -32px); display: flex; align-items: center; flex-direction: column; color: inherit; }
+.fc-mobile-map-orb { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--color-border); background: var(--color-background); color: #6683a2; flex: none; }
+.fc-mobile-map-node.is-selected .fc-mobile-map-orb { border-color: #5b7fa8; background: color-mix(in oklab, #5b7fa8 8%, var(--color-background)); box-shadow: 0 0 0 3px color-mix(in oklab, #5b7fa8 12%, transparent); }
+.fc-mobile-map-name { margin-top: 8px; font-size: 13px; line-height: 17px; max-width: 108px; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.fc-mobile-map-core { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); color: var(--color-muted-foreground); font-size: 14px; font-weight: 600; text-align: center; }
+.fc-mobile-map-core span { display: block; font-size: 10px; font-weight: 400; margin-top: 5px; }
+.fc-mobile-map-zoom { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); right: 16px; display: flex; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-background); }
+.fc-mobile-map-details { position: absolute; bottom: 0; left: 0; right: 0; max-height: 42%; overflow-y: auto; overscroll-behavior: contain; padding: 12px 20px max(12px, env(safe-area-inset-bottom)); background: var(--color-background); border-top: 1px solid var(--color-border); border-radius: 12px 12px 0 0; }
+.fc-mobile-map-details header { display: flex; align-items: center; justify-content: space-between; }
+.fc-mobile-map-details h3 { font-size: 15px; font-weight: 600; }
+.fc-mobile-map-details p { font-size: 12px; color: var(--color-muted-foreground); margin-top: 3px; }
+.fc-mobile-map-details ul { margin-top: 12px; }
+.fc-mobile-map-details li { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; padding: 9px 0; border-top: 1px solid var(--color-border); }
+.fc-mobile-map-details li > span:first-child { overflow-wrap: anywhere; }
+.fc-mobile-map-details li > span:last-child { flex: none; color: var(--color-muted-foreground); }
+.fc-mobile-map-consult { margin-top: 8px; font-size: 13px; color: #5b7fa8; }
+.fc-mobile-map-consult:disabled { opacity: 0.4; }
+.fc-mobile-map-state { position: absolute; inset: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; font-size: 13px; color: var(--color-muted-foreground); }
