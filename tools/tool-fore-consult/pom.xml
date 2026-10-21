@@ -78,6 +78,7 @@
                 <targetPath>fore-consult-skills</targetPath>
                 <includes>
                     <include>consult-plain-writing/SKILL.md</include>
+                    <include>consult-suggestion-development/SKILL.md</include>
                 </includes>
                 <filtering>false</filtering>
             </resource>

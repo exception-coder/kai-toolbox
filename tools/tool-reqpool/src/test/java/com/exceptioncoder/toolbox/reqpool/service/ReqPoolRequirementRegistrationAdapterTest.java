@@ -9,8 +9,24 @@ import org.mockito.ArgumentCaptor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.*;
 
 class ReqPoolRequirementRegistrationAdapterTest {
+
+    @Test
+    void sameSourceReusesTaskAndDifferentSourceHasDifferentIdentity() {
+        ReqItemRepository repository = mock(ReqItemRepository.class);
+        var stored = new java.util.HashMap<String, ReqItem>();
+        when(repository.findById(anyString())).thenAnswer(call -> java.util.Optional.ofNullable(stored.get(call.getArgument(0))));
+        doAnswer(call -> { ReqItem item = call.getArgument(0); stored.put(item.getId(), item); return null; }).when(repository).insert(any());
+        var adapter = new ReqPoolRequirementRegistrationAdapter(repository);
+        var command = new RequirementRegistrationCommand("咨询阅读", "简化阅读", "kai-toolbox", "fore-consult", null);
+        String first = adapter.registerPendingExecutionOnce("consult-suggestion:one", command);
+        assertThat(adapter.registerPendingExecutionOnce("consult-suggestion:one", command)).isEqualTo(first);
+        assertThat(adapter.registerPendingExecutionOnce("consult-suggestion:two", command)).isNotEqualTo(first);
+        assertThat(stored).hasSize(2);
+        verify(repository, times(2)).insert(any());
+    }
 
     @Test
     void confirmedAssistantDraftStartsAsPendingExecution() {

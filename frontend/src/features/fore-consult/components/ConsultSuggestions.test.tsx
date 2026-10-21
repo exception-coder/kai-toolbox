@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ConsultSuggestions } from './ConsultSuggestions'
-import { listSuggestions, normalizeSuggestion, submitSuggestion, type SuggestionDraft } from '../suggestionApi'
-vi.mock('../suggestionApi', () => ({ listSuggestions: vi.fn(), normalizeSuggestion: vi.fn(), submitSuggestion: vi.fn() }))
+import { listSuggestions, normalizeSuggestion, submitSuggestion, retrySuggestionReview, type SuggestionDraft } from '../suggestionApi'
+vi.mock('../suggestionApi', () => ({ listSuggestions: vi.fn(), normalizeSuggestion: vi.fn(), submitSuggestion: vi.fn(), retrySuggestionReview: vi.fn() }))
 const draft: SuggestionDraft = { title: '手机快速回到最新消息', problem: '长回答不容易定位', expected: '点击回到最新消息', acceptance: '' }
 const saved = { ...draft, id: 'saved', original: '手机长回答不好找', createdAt: 1 }
 let client: QueryClient
@@ -18,6 +18,22 @@ function mount(open = true, userId = 7, compact = false) {
   render(<QueryClientProvider client={client}><ConsultSuggestions userId={userId} open={open} onOpenChange={close} compact={compact} /></QueryClientProvider>)
   return close
 }
+
+it('distinguishes review, rejection and committed-but-not-published results', async () => {
+  vi.mocked(listSuggestions).mockResolvedValue({ items: [
+    { ...saved, id: 'rejected', title: '扩大查询范围', state: 'REJECTED', reason: '涉及权限放开，不予接收' },
+    { ...saved, id: 'committed', title: '阅读文字改进', state: 'COMMITTED', commitHash: 'a'.repeat(40), reason: '独立分支等待合并' },
+    { ...saved, id: 'retry', title: '审核未完成的建议', state: 'REVIEW_FAILED' },
+  ], total: 3 })
+  vi.mocked(retrySuggestionReview).mockResolvedValue(undefined)
+  mount(true, 7, true)
+  expect(await screen.findByText(/未通过审核 ·/)).toBeInTheDocument()
+  expect(screen.getByText('涉及权限放开，不予接收')).toBeInTheDocument()
+  expect(screen.getByText(/提交 aaaaaaaa · 尚未发布/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '重试审核（仅提交人）' }))
+  await screen.findByText('已重新排队审核。')
+  expect(retrySuggestionReview).toHaveBeenCalledWith('retry')
+})
 
 it('retains raw feedback, lets users edit normalization and safely retries the same submission', async () => {
   vi.mocked(submitSuggestion).mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce(saved)
@@ -35,7 +51,7 @@ it('retains raw feedback, lets users edit normalization and safely retries the s
   expect(submittedDraft.title).toBe('手机添加回到最新消息按钮')
   expect(dialog.getByLabelText('你的原始建议')).toHaveValue(saved.original)
   fireEvent.click(dialog.getByRole('button', { name: '提交建议' }))
-  await dialog.findByText(/已提交到业务咨询需求建议清单/)
+  await dialog.findByText(/建议已保存，正在等待审核/)
   expect(vi.mocked(submitSuggestion).mock.calls[1][0]).toBe(key)
   expect(dialog.getByLabelText('你的原始建议')).toHaveValue('')
 })

@@ -25,16 +25,18 @@ class ConsultSuggestionTest {
     ConsultSuggestionService service;
     AgentOneShotRunner runner;
     ConsultSuggestionRepository repository;
+    ConsultSuggestionWorkRepository work;
 
     @BeforeEach @SuppressWarnings("unchecked") void setup() {
         var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + directory.resolve("suggestions.db"));
-        var schema = new ResourceDatabasePopulator(new ClassPathResource("db/consult-suggestion-schema.sql"));
+        var schema = new ResourceDatabasePopulator(new ClassPathResource("db/consult-suggestion-schema.sql"), new ClassPathResource("db/consult-suggestion-work-schema.sql"));
         schema.execute(dataSource); schema.execute(dataSource);
         repository = new ConsultSuggestionRepository(new JdbcTemplate(dataSource));
+        work = new ConsultSuggestionWorkRepository(new JdbcTemplate(dataSource));
         runner = mock(AgentOneShotRunner.class);
         ObjectProvider<AgentOneShotRunner> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(runner);
-        service = new ConsultSuggestionService(repository, provider, new ObjectMapper());
+        service = new ConsultSuggestionService(repository, provider, new ObjectMapper(), work);
     }
     @AfterEach void clear() { AuthContext.clear(); }
     ConsultSuggestion.Draft draft() { return new ConsultSuggestion.Draft("手机回答定位", "长回答难以定位", "回到最新消息", "点击后看到最新消息"); }
@@ -86,11 +88,12 @@ class ConsultSuggestionTest {
     }
 
     @Test void allEndpointsRequireLoginAndAuthorComesFromServerContext() throws Exception {
-        var controller = new ConsultSuggestionController(service);
+        var controller = new ConsultSuggestionController(service, work);
         var interceptor = new RequireAuthInterceptor();
         for (var method : List.of(ConsultSuggestionController.class.getMethod("list", int.class),
                 ConsultSuggestionController.class.getMethod("normalize", ConsultSuggestionController.Normalize.class),
-                ConsultSuggestionController.class.getMethod("submit", ConsultSuggestion.Submit.class))) {
+                ConsultSuggestionController.class.getMethod("submit", ConsultSuggestion.Submit.class),
+                ConsultSuggestionController.class.getMethod("retryReview", String.class))) {
             AuthContext.clear();
             var handler = new HandlerMethod(controller, method);
             assertThatThrownBy(() -> interceptor.preHandle(new MockHttpServletRequest(), new MockHttpServletResponse(), handler)).isInstanceOf(AuthException.class);
@@ -101,5 +104,10 @@ class ConsultSuggestionTest {
         var saved = controller.submit(request);
         assertThat(repository.find(7, request.requestId())).contains(saved);
         assertThat(repository.find(8, request.requestId())).isEmpty();
+        work.finish(saved.id(), "REVIEW_FAILED", "暂不可用", null, null);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).addInterceptors(interceptor).build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/fore-consult/suggestions/" + saved.id() + "/retry-review"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isNoContent());
+        assertThat(repository.find(7, request.requestId()).orElseThrow().state()).isEqualTo("REVIEW_PENDING");
     }
 }

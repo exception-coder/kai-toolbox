@@ -23,8 +23,23 @@ public class ReqPoolRequirementRegistrationAdapter implements RequirementRegistr
 
     @Override
     public String registerPendingExecution(RequirementRegistrationCommand command) {
+        return register(UUID.randomUUID().toString(), command);
+    }
+
+    @Override
+    public String registerPendingExecutionOnce(String sourceKey, RequirementRegistrationCommand command) {
+        if (sourceKey == null || sourceKey.isBlank() || sourceKey.length() > 200) throw new IllegalArgumentException("需求来源标识无效");
+        String id = UUID.nameUUIDFromBytes(("requirement-source:" + sourceKey).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        if (repository.findById(id).isPresent()) return id;
+        try { return register(id, command); }
+        catch (org.springframework.dao.DataIntegrityViolationException conflict) {
+            if (repository.findById(id).isPresent()) return id;
+            throw conflict;
+        }
+    }
+
+    private String register(String id, RequirementRegistrationCommand command) {
         long now = System.currentTimeMillis();
-        String id = UUID.randomUUID().toString();
         repository.insert(ReqItem.builder()
                 .id(id)
                 .title(command.title())

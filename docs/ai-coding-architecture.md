@@ -762,6 +762,18 @@ flowchart LR
   Validation --> Confirm[用户核对修改]
   Confirm --> Record[咨询模块幂等保存]
   Record --> Board[统一建议卡片与分页清单]
+  Record --> Review[禁用工具语义审核]
+  Review --> Reject[非咨询或扩权拒绝]
+  Review --> Queue[公共端口幂等需求排队]
+  Queue --> Human[复杂需求人工接续]
+  Queue --> Patch[同仓Skill生成展示补丁]
+  Patch --> Guard[独立工作树固定范围与验证]
+  Guard --> Commit[真实commit 待合并与运行验收]
+  Commit --> Board
 ```
 
-需求池端口直接创建待执行任务，不用于未评审建议，因此不复制到需求池或跨模块读表。首期不包含排期、审批、投票及自动开发。schema随应用正常启动幂等执行；开发验证与真实模型、数据库启动和浏览器验收分别记录于[建议任务](../openspec/changes/consult-suggestion-board/tasks.md)。
+需求池端口不接收未评审建议；审核通过后使用来源键幂等登记到既有需求池，不跨模块读表。咨询模块持有审核/开发状态及关联任务、提交号；旧建议保持待评审，不自动执行。失败不放行；普通用户只能提交及重试本人失败审核，不能设置目录或命令，不因此获得开发/管理员权限。
+
+同仓`consult-suggestion-development` Skill随模块打包，复用无工具AgentOneShotRunner，仅生成四个咨询展示组件的精确替换。AST护栏限制文字和样式，拒绝程序结构、权限、接口、测试与依赖修改；宿主创建独立worktree、执行固定检查及代码审核，最多两次修正后真实作者commit。该有界能力不替代Forge连续监督，不伪造会话绑定或执行归属。复杂需求人工接续；隔离分支提交不等于需求交付，不自动merge/push/启动/重启/发布，当前工作区及运行版本不变。中断保留产物等待核对，不盲目重复提交。
+
+schema启动时幂等执行，无人工SQL。开发验证、夹具模型的真实临时Git提交、真实模型效果及服务运行分别记录于[自动开发任务](../openspec/changes/consult-suggestion-automation/tasks.md)，未部署/未验收必须明确。

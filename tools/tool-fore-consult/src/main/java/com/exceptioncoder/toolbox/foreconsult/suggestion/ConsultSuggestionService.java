@@ -16,9 +16,11 @@ public class ConsultSuggestionService {
     private final ConsultSuggestionRepository repository;
     private final ObjectProvider<AgentOneShotRunner> runners;
     private final ObjectMapper mapper;
+    private final ConsultSuggestionWorkRepository work;
 
-    public ConsultSuggestionService(ConsultSuggestionRepository repository, ObjectProvider<AgentOneShotRunner> runners, ObjectMapper mapper) {
+    public ConsultSuggestionService(ConsultSuggestionRepository repository, ObjectProvider<AgentOneShotRunner> runners, ObjectMapper mapper, ConsultSuggestionWorkRepository work) {
         this.repository = repository; this.runners = runners; this.mapper = mapper;
+        this.work = work;
     }
 
     public ConsultSuggestion.Page list(int offset) {
@@ -61,7 +63,7 @@ public class ConsultSuggestionService {
         try { if (!java.util.UUID.fromString(request.requestId()).toString().equals(request.requestId())) { throw new IllegalArgumentException(); } }
         catch (IllegalArgumentException error) { throw new IllegalArgumentException("提交标识无效"); }
         var normalized = new ConsultSuggestion.Submit(request.requestId(), text(request.original(), 8000, "原始建议", false), clean(request.draft()));
-        repository.insert(userId, normalized);
+        boolean inserted = repository.insert(userId, normalized);
         var saved = repository.find(userId, normalized.requestId()).orElseThrow();
         var draft = normalized.draft();
         if (!saved.original().equals(normalized.original()) || !saved.title().equals(draft.title())
@@ -69,7 +71,8 @@ public class ConsultSuggestionService {
                 || !saved.acceptance().equals(draft.acceptance())) {
             throw new ResponseStatusException(CONFLICT, "该提交标识已用于其他内容，请刷新清单核对后重新提交");
         }
-        return saved;
+        if (inserted) work.enqueue(saved.id());
+        return repository.findById(saved.id()).orElseThrow();
     }
 
     private ConsultSuggestion.Draft clean(ConsultSuggestion.Draft draft) {

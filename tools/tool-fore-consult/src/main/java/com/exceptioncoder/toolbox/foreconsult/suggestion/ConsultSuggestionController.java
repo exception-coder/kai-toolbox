@@ -9,7 +9,8 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/fore-consult/suggestions")
 public class ConsultSuggestionController {
     private final ConsultSuggestionService service;
-    public ConsultSuggestionController(ConsultSuggestionService service) { this.service = service; }
+    private final ConsultSuggestionWorkRepository work;
+    public ConsultSuggestionController(ConsultSuggestionService service, ConsultSuggestionWorkRepository work) { this.service = service; this.work = work; }
     public record Normalize(String original) { }
 
     @GetMapping
@@ -21,5 +22,13 @@ public class ConsultSuggestionController {
     @PostMapping
     public ConsultSuggestion submit(@RequestBody ConsultSuggestion.Submit request) {
         return service.submit(AuthContext.current().orElseThrow().userId(), request);
+    }
+
+    @PostMapping("/{id}/retry-review")
+    @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
+    public void retryReview(@PathVariable String id) {
+        if (!work.retryReview(id, AuthContext.current().orElseThrow().userId())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "仅可重试本人审核失败的建议，请刷新清单核对状态");
+        }
     }
 }

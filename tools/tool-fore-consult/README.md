@@ -302,4 +302,8 @@ mvn -pl tools/tool-fore-consult -am test
 
 点击业务咨询的「需求反馈」，填写原始建议，选择「整理成需求描述」后核对标题、遇到的问题、期望改进和可选完成标准，再提交。整理失败也可手动填写；提交响应丢失时重试同一份内容不会重复登记。原文和草稿会保留，关闭/刷新后同一登录用户可继续填写（浏览器存储不可用时仅页面内保留）。
 
-桌面右下小卡片展示最近三条及总数，点击查看完整分页清单；手机从更多功能进入同一抽屉。清单对平台登录用户可见，不展示提交人账号，记录仅代表待评审建议，不自动排期或变成需求池待执行任务。后台复用禁用工具的纯文本Agent和咨询人话Skill，启动schema由应用幂等执行，无人工SQL。实现与真实模型/保存验收见[建议清单任务](../../openspec/changes/consult-suggestion-board/tasks.md)。
+桌面右下小卡片展示最近三条及总数，点击查看完整分页清单；手机从更多功能进入同一抽屉。清单对平台登录用户可见，不展示提交人账号。新建议先审核：只接受业务咨询优化，拒绝扩权、放开限制及其他系统需求；审核失败不放行，提交人可重试。通过后幂等登记现有需求池，复杂需求人工接续，简单展示改进自动排队。旧建议不自动开发。
+
+自动开发首期只调整四个咨询展示组件的现有文字与样式，不修改逻辑、权限、API、测试或依赖。同仓[consult-suggestion-development Skill](../../.agents/skills/consult-suggestion-development/SKILL.md)复用无工具Agent生成补丁，宿主在独立工作树执行AST范围、语义审核、类型、组件测试及静态门禁，通过后真实作者commit。最多两次修正，失败保留产物；清单显示理由和提交号。“已提交”指独立分支待合并验收，不代表上线。
+
+源码根默认为服务工作目录，可用`toolbox.consult.suggestion-development.project-root`指定咨询仓库，遵守ProjectAccess，需要frontend/node_modules、真实Git作者及Forge门禁jar。工作树位于`~/.kai-toolbox/consult-development/<建议UUID>`，分支为`consult-suggestion/<建议UUID>`。不自动改写当前工作区、merge、push、重启或发布；开发中断等待核对。启动schema幂等，无人工SQL。专项验证和真实模型/运行验收分别见[审核自动开发任务](../../openspec/changes/consult-suggestion-automation/tasks.md)。

@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { MessageSquarePlus, ArrowUpRight, Loader2, X } from 'lucide-react'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
-import { listSuggestions, normalizeSuggestion, submitSuggestion, type SuggestionDraft } from '../suggestionApi'
+import { listSuggestions, normalizeSuggestion, submitSuggestion, retrySuggestionReview, type SuggestionDraft } from '../suggestionApi'
 
 const emptyDraft: SuggestionDraft = { title: '', problem: '', expected: '', acceptance: '' }
+const stateLabel: Record<string, string> = { PENDING_REVIEW: '待评审', REVIEW_PENDING: '等待审核', REVIEWING: '正在审核', REVIEW_FAILED: '审核未完成', REJECTED: '未通过审核', QUEUED: '已通过 · 自动开发排队中', MANUAL_QUEUED: '已通过 · 待人工接续', RUNNING: '自动开发中', COMMITTED: '已提交 · 待合并验收', FAILED: '自动开发未完成' }
 interface StoredDraft { original: string; draft: SuggestionDraft; requestId: string }
 function restore(key: string): StoredDraft {
   try {
@@ -34,7 +35,7 @@ export function ConsultSuggestions({ userId, open, onOpenChange, compact = false
     getNextPageParam: (page, pages) => {
       const loaded = pages.reduce((count, part) => count + part.items.length, 0)
       return page.items.length > 0 && loaded < page.total ? loaded : undefined
-    }, staleTime: 30000, retry: false })
+    }, staleTime: 30000, retry: false, refetchInterval: open ? 15000 : false })
   const suggestions = query.data?.pages.flatMap(page => page.items) ?? []
   const total = query.data?.pages[0]?.total ?? 0
   useEffect(() => { try { sessionStorage.setItem(storageKey, JSON.stringify(form)) } catch { /* 页面内草稿仍保留。 */ } }, [storageKey, form])
@@ -65,7 +66,7 @@ export function ConsultSuggestions({ userId, open, onOpenChange, compact = false
       const saved = await submitSuggestion(form.requestId, form.original, form.draft)
       setSubmitted(saved.id)
       setForm({ original: '', draft: { ...emptyDraft }, requestId: crypto.randomUUID() })
-      setMessage('已提交到业务咨询需求建议清单，等待评审；不代表已排期。')
+      setMessage('建议已保存，正在等待审核。通过后进入需求队列；简单改进自动开发，复杂需求排队处理。')
       void client.invalidateQueries({ queryKey: ['consult-suggestions', userId] })
     } catch {
       setFailure(true); setMessage('未收到提交成功结果，草稿已保留。可刷新清单核对，或重试同一提交，不会重复登记。')
@@ -89,7 +90,7 @@ export function ConsultSuggestions({ userId, open, onOpenChange, compact = false
         }}
         onCloseAutoFocus={event => { openTarget.current = null; event.preventDefault(); if (returnFocus.current?.isConnected && returnFocus.current !== document.body) returnFocus.current.focus(); else fallbackFocusRef?.current?.focus() }}>
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-border p-5">
-          <div><SheetTitle>业务咨询需求建议</SheetTitle><SheetDescription className="mt-1 text-xs">说说哪里不顺手、希望怎样改进。提交后同事可在清单查看，建议需评审后安排。</SheetDescription></div>
+          <div><SheetTitle>业务咨询需求建议</SheetTitle><SheetDescription className="mt-1 text-xs">仅接收业务咨询板块的优化建议，不接收扩大权限或放开限制的需求。审核通过后排队处理，简单改进可自动开发并提交，发布前仍需验收。</SheetDescription></div>
           <button type="button" aria-label="关闭需求建议" disabled={!!busy} onClick={() => onOpenChange(false)} className="inline-flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-muted disabled:opacity-50"><X className="size-4" /></button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 pb-[max(20px,env(safe-area-inset-bottom))]">
@@ -115,7 +116,13 @@ export function ConsultSuggestions({ userId, open, onOpenChange, compact = false
             {query.isError && <p role="alert" className="text-xs text-destructive">暂时无法读取清单，反馈草稿已保留，请刷新重试。</p>}
             {!query.isPending && !query.isError && !suggestions.length && <p className="py-4 text-sm text-muted-foreground">还没有建议。提交后会显示在这里。</p>}
             <ul className="divide-y divide-border">{suggestions.map(item => <li key={item.id} id={`suggestion-${item.id}`} tabIndex={-1} className={`py-4 ${submitted === item.id ? 'border-l-2 border-primary pl-3' : ''}`}>
-              <h4 className="break-words text-sm font-medium">{item.title}</h4><p className="mt-1 text-xs text-muted-foreground">待评审 · {new Date(item.createdAt).toLocaleDateString()}</p>
+              <h4 className="break-words text-sm font-medium">{item.title}</h4><p className="mt-1 text-xs text-muted-foreground">{stateLabel[item.state ?? 'PENDING_REVIEW'] ?? '状态待核对'} · {new Date(item.createdAt).toLocaleDateString()}</p>
+              {item.reason && <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">{item.reason}</p>}
+              {item.commitHash && <p className="mt-2 text-xs text-muted-foreground">提交 {item.commitHash.slice(0, 8)} · 尚未发布</p>}
+              {item.state === 'REVIEW_FAILED' && <button type="button" className="min-h-11 text-xs underline" onClick={async () => {
+                try { await retrySuggestionReview(item.id); setFailure(false); setMessage('已重新排队审核。'); void query.refetch() }
+                catch { setFailure(true); setMessage('无法重新审核，仅提交人可以重试本人审核失败的建议，请刷新核对。') }
+              }}>重试审核（仅提交人）</button>}
               <dl className="mt-3 space-y-2 text-sm">{([['问题', item.problem], ['期望', item.expected], ['完成标准', item.acceptance]] as const).filter(([, value]) => value).map(([label, value]) => <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 whitespace-pre-wrap break-words leading-relaxed">{value}</dd></div>)}</dl>
               <details className="mt-3 text-xs text-muted-foreground"><summary className="cursor-pointer py-1">查看原始建议</summary><p className="mt-2 whitespace-pre-wrap break-words leading-relaxed">{item.original}</p></details>
             </li>)}</ul>
