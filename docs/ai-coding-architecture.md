@@ -750,3 +750,18 @@ flowchart LR
 ```
 
 默认业务结论先行，明确技术问题按需展开，不通过角色或关键词硬分类。装配验证不等于真实回答质量通过；实现、部署和模型效果分别记录于[咨询人话任务](../openspec/changes/consult-plain-writing-skill/tasks.md)。本次没有新增工具、模型调用或安全例外。
+
+## 咨询建议整理与登记
+
+咨询平台的需求建议由fore-consult模块持有，区别于单轮回答评分和需求池待执行开发任务。登录用户输入原文，已有AgentOneShotRunner在禁用工具、无项目目录的纯文本请求中整理；服务端校验有界JSON，用户可编辑并提交，模型输出不直接入库。作者来自服务端身份，唯一用户与提交键保证安全重试，原文与标准描述同时保留。模型不可用时支持手填，不引入新的执行器或外部任务系统。
+
+```mermaid
+flowchart LR
+  Raw[建议原文] --> Runner[既有无工具纯文本能力]
+  Runner --> Validation[结构和长度校验]
+  Validation --> Confirm[用户核对修改]
+  Confirm --> Record[咨询模块幂等保存]
+  Record --> Board[统一建议卡片与分页清单]
+```
+
+需求池端口直接创建待执行任务，不用于未评审建议，因此不复制到需求池或跨模块读表。首期不包含排期、审批、投票及自动开发。schema随应用正常启动幂等执行；开发验证与真实模型、数据库启动和浏览器验收分别记录于[建议任务](../openspec/changes/consult-suggestion-board/tasks.md)。

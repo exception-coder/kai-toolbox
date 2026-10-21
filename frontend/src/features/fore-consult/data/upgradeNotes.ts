@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 仅登记业务人员直接受益的业务咨询重大变化；管理员配置、流程发布、开发排障及其他工具更新不收录。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-10-22-suggestions', date: '2026-10-22', title: '使用建议可以直接反馈',
+    summary: '待部署验收：点击“需求反馈”写下想法，AI帮助整理成清楚的需求描述，核对后提交到统一建议清单；原文保留，整理失败也能手动填写。清单可供同事查看，建议需评审后安排。',
+  },
+  {
     id: '2026-10-22-plain-answers', date: '2026-10-22', title: '回答先说结论和怎么办',
     summary: '待部署及真实回答验收：咨询默认先讲清问题、原因和下一步，简单问题不再堆技术章节；需要表、SQL或开发细节时直接追问，仍会保留必要依据和未确认事项。',
   },

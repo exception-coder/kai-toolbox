@@ -26,6 +26,7 @@ import {
   type Engine,
 } from '@/features/claude-chat/public-api'
 import { ConsultConversation, type ConsultConversationDraft } from '../components/ConsultConversation'
+import { ConsultSuggestions } from '../components/ConsultSuggestions'
 import { ConsultUpgradeNotice } from '../components/ConsultUpgradeNotice'
 import { MobileConsultComposer } from '../components/MobileConsultComposer'
 import { useConsultLayout } from '../useConsultLayout'
@@ -558,6 +559,7 @@ export function ForeConsultPage() {
       return false
     }
   })
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
   const [sourceSyncBusy, setSourceSyncBusy] = useState(false)
   const configTrigger = useRef<HTMLElement | null>(null)
@@ -1728,6 +1730,7 @@ export function ForeConsultPage() {
             <History className="size-3.5" />
             历史咨询 {(history ?? []).length > 0 && `· ${(history ?? []).length}`}
           </button>
+          <button type="button" onClick={() => setSuggestionsOpen(true)} className="flex min-h-11 items-center gap-2 rounded-md border border-border px-3 text-xs text-foreground hover:bg-muted">需求反馈</button>
           <button type="button" ref={upgradeNotesTrigger} onClick={() => setUpgradeNotesOpen(true)} aria-label="查看更新记录"
             className="flex min-h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 hover:bg-white/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500 lg:rounded-full">
             <Pin className="size-3.5" />更新
@@ -1753,6 +1756,7 @@ export function ForeConsultPage() {
         </div>
       </header>}
 
+      {user?.userId != null && <ConsultSuggestions key={user.userId} userId={user.userId} open={suggestionsOpen} onOpenChange={setSuggestionsOpen} compact={compact} fallbackFocusRef={mobileToolsTrigger} />}
       <ConsultUpgradeNotice userId={user?.userId} open={upgradeNotesOpen} onOpenChange={setUpgradeNotesOpen} fallbackFocusRef={upgradeNotesTrigger} />
 
       {!initialSessionStateResolved && (
