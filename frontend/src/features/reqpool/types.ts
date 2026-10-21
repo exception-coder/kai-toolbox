@@ -1,5 +1,5 @@
 export type ReqPriority = 'HIGH' | 'MEDIUM' | 'LOW'
-export type ReqStatus = 'DRAFT' | 'CLARIFYING' | 'PRD_READY' | 'IN_DEV' | 'DONE' | 'CANCELLED'
+export type ReqStatus = 'DRAFT' | 'CLARIFYING' | 'PRD_READY' | 'PENDING_EXECUTION' | 'IN_DEV' | 'READY_FOR_RELEASE' | 'DONE' | 'CANCELLED'
 export type RequirementType = 'BUG_FIX' | 'MODULE_ADJUST' | 'NEW_MODULE' | 'UNKNOWN'
 export type RequirementTypeSource = 'EXPLICIT' | 'AI' | 'PRD_SESSION' | 'UNKNOWN'
 export type PlanningAssessmentStatus = 'RUNNING' | 'COMPLETED' | 'FAILED'
@@ -185,6 +185,8 @@ export const STATUS_META: Record<ReqStatus, { label: string; color: string; bg: 
   DRAFT:      { label: '草稿',    color: 'text-slate-500',  bg: 'bg-slate-500/10 border-slate-500/20' },
   CLARIFYING: { label: '澄清中',  color: 'text-yellow-500', bg: 'bg-yellow-500/10 border-yellow-500/20' },
   PRD_READY:  { label: '规格就绪', color: 'text-blue-500',   bg: 'bg-blue-500/10 border-blue-500/20' },
+  PENDING_EXECUTION: { label: '待实现', color: 'text-muted-foreground', bg: 'bg-muted border-border' },
+  READY_FOR_RELEASE: { label: '待发布', color: 'text-muted-foreground', bg: 'bg-muted border-border' },
   IN_DEV:     { label: '开发中',  color: 'text-purple-500', bg: 'bg-purple-500/10 border-purple-500/20' },
   DONE:       { label: '已完成',  color: 'text-green-500',  bg: 'bg-green-500/10 border-green-500/20' },
   CANCELLED:  { label: '已取消',  color: 'text-red-400',    bg: 'bg-red-500/10 border-red-500/20' },

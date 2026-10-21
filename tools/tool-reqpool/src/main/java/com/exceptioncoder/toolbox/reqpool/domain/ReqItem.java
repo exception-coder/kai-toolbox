@@ -20,7 +20,7 @@ public class ReqItem {
     private String module;
     /** HIGH | MEDIUM | LOW */
     private String priority;
-    /** DRAFT | CLARIFYING | PRD_READY | IN_DEV | DONE | CANCELLED */
+    /** DRAFT | CLARIFYING | PRD_READY | PENDING_EXECUTION | IN_DEV | READY_FOR_RELEASE | DONE | CANCELLED */
     private String status;
     private String assignee;
     /** 绑定的 auth_user.id；assignee 仅保留选择时的姓名快照用于降级展示。 */

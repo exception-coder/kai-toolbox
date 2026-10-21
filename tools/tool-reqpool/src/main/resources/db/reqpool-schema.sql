@@ -1,5 +1,5 @@
 -- 需求管理池主表
--- status: DRAFT（草稿）| CLARIFYING（澄清中）| PRD_READY（PRD就绪）| IN_DEV（开发中）| DONE（已完成）| CANCELLED（已取消）
+-- status: DRAFT（草稿）| CLARIFYING（澄清中）| PRD_READY（PRD就绪）| PENDING_EXECUTION（待实现）| IN_DEV（实现中）| READY_FOR_RELEASE（待发布）| DONE（已完成）| CANCELLED（已取消）
 -- priority: HIGH | MEDIUM | LOW
 CREATE TABLE IF NOT EXISTS req_pool_item (
     id             TEXT    PRIMARY KEY,             -- UUID

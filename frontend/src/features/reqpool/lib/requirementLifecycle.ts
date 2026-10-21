@@ -19,6 +19,8 @@ export const REQUIREMENT_LIFECYCLE_META: Record<RequirementLifecycle, { label: s
 export function requirementLifecycle(item: ReqItemView, requirement?: DeliveryRequirement, session?: PrdSessionView): RequirementLifecycle {
   if (item.status === 'CANCELLED') return 'ARCHIVED'
   if (item.status === 'DONE') return 'DONE'
+  if (item.status === 'READY_FOR_RELEASE') return 'REVIEW'
+  if (item.status === 'PENDING_EXECUTION') return 'READY'
   const codeScore = requirement?.stages.code.score
   if (session?.progressWorkStatus === 'COMPLETED' && codeScore != null && codeScore >= 90) return 'REVIEW'
   if (session?.progressWorkStatus === 'RUNNING' || item.status === 'IN_DEV') return 'EXECUTING'

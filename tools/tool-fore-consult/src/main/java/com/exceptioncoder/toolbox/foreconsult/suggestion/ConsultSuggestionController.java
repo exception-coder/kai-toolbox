@@ -10,11 +10,15 @@ import org.springframework.web.bind.annotation.*;
 public class ConsultSuggestionController {
     private final ConsultSuggestionService service;
     private final ConsultSuggestionWorkRepository work;
-    public ConsultSuggestionController(ConsultSuggestionService service, ConsultSuggestionWorkRepository work) { this.service = service; this.work = work; }
+    private final ConsultDevelopmentSession development;
+    public ConsultSuggestionController(ConsultSuggestionService service, ConsultSuggestionWorkRepository work, ConsultDevelopmentSession development) { this.service = service; this.work = work; this.development = development; }
     public record Normalize(String original) { }
 
     @GetMapping
     public ConsultSuggestion.Page list(@RequestParam(defaultValue = "0") int offset) { return service.list(offset); }
+
+    @GetMapping("/development-session")
+    public ConsultDevelopmentSession.View developmentSession(@RequestParam(defaultValue = "0") long before) { return development.read(before); }
 
     @PostMapping("/normalize")
     public ConsultSuggestion.Draft normalize(@RequestBody Normalize request) { return service.normalize(request.original()); }

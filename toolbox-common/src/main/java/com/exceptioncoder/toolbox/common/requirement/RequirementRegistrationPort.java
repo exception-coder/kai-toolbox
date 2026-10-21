@@ -15,4 +15,11 @@ public interface RequirementRegistrationPort {
     default String registerPendingExecutionOnce(String sourceKey, RequirementRegistrationCommand command) {
         throw new UnsupportedOperationException("当前需求登记器尚不支持幂等任务登记");
     }
+
+    enum ImplementationStatus { PENDING_EXECUTION, IN_DEV, READY_FOR_RELEASE }
+
+    /** 仅更新该来源创建的任务，不能复活已完成/取消任务。 */
+    default void updateImplementationStatus(String sourceKey, String requirementId, ImplementationStatus status) {
+        throw new UnsupportedOperationException("当前需求登记器尚不支持开发状态回写");
+    }
 }

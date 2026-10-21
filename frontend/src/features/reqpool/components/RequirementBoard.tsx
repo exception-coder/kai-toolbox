@@ -27,6 +27,9 @@ export function selectMissionFocus(items: ReqItemView[]): ReqItemView | null {
 }
 
 function activityNarrative(item: ReqItemView): { current: string; next: string } {
+  if (item.status === 'PENDING_EXECUTION') return { current: '需求审核已接收，等待实现', next: '由后台开发会话领取任务' }
+  if (item.status === 'READY_FOR_RELEASE') return { current: '代码已提交，等待发布', next: '合并代码并完成运行验收后发布' }
+  if (item.status === 'IN_DEV') return { current: '需求正在实现，持续核对代码与验证结果', next: '验证并提交后进入待发布' }
   if (item.insightRun?.status === 'RUNNING') {
     const current = item.insightRun.stage === 'DISCOVERING'
       ? '正在查询业务知识、Graphify 与项目路由'
@@ -38,7 +41,6 @@ function activityNarrative(item: ReqItemView): { current: string; next: string }
   if (item.status === 'DRAFT') return { current: '正在等待需求事实与验收口径补齐', next: '完成澄清后进入规格生成' }
   if (item.status === 'CLARIFYING') return { current: 'AI 正在收敛业务规则与边界', next: '回答待确认问题并生成规格' }
   if (item.status === 'PRD_READY') return { current: '规格已就绪，等待形成可执行计划', next: '生成执行方案并确认开发入口' }
-  if (item.status === 'IN_DEV') return { current: '需求正在交付，持续核对代码与计划证据', next: '完成代码验证并收敛交付结论' }
   if (item.status === 'DONE') return { current: '交付证据已收敛', next: '复核结果或进入归档' }
   return { current: '任务已退出当前执行流', next: '需要时打开详情查看历史证据' }
 }

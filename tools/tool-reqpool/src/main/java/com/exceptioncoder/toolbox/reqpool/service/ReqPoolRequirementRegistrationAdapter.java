@@ -54,4 +54,11 @@ public class ReqPoolRequirementRegistrationAdapter implements RequirementRegistr
                 .build());
         return id;
     }
+
+    @Override
+    public void updateImplementationStatus(String sourceKey, String requirementId, ImplementationStatus status) {
+        String expected = UUID.nameUUIDFromBytes(("requirement-source:" + sourceKey).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        if (!expected.equals(requirementId) || status == null) throw new IllegalArgumentException("任务与需求来源不匹配");
+        if (!repository.updateImplementationStatus(requirementId, status.name())) throw new IllegalStateException("需求状态已变化，不能继续自动开发");
+    }
 }

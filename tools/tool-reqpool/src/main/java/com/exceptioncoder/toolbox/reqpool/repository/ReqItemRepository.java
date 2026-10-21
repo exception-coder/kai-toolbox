@@ -142,6 +142,11 @@ public class ReqItemRepository {
                 item.getUpdatedAt(), item.getId());
     }
 
+    public boolean updateImplementationStatus(String id, String state) {
+        return jdbc.update("UPDATE req_pool_item SET status=?,updated_at=? WHERE id=? AND status IN ('PENDING_EXECUTION','IN_DEV','READY_FOR_RELEASE')",
+                state, System.currentTimeMillis(), id) == 1;
+    }
+
     /** 将需求状态更新为澄清中，并记录此时还未关联 PRD。 */
     public void markClarifying(String id) {
         jdbc.update("UPDATE req_pool_item SET status='CLARIFYING', updated_at=? WHERE id=?",

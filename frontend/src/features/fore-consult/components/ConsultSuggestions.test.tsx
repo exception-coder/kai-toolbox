@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ConsultSuggestions } from './ConsultSuggestions'
-import { listSuggestions, normalizeSuggestion, submitSuggestion, retrySuggestionReview, type SuggestionDraft } from '../suggestionApi'
-vi.mock('../suggestionApi', () => ({ listSuggestions: vi.fn(), normalizeSuggestion: vi.fn(), submitSuggestion: vi.fn(), retrySuggestionReview: vi.fn() }))
+import { listSuggestions, normalizeSuggestion, submitSuggestion, retrySuggestionReview, readDevelopmentSession, type SuggestionDraft } from '../suggestionApi'
+vi.mock('../suggestionApi', () => ({ listSuggestions: vi.fn(), normalizeSuggestion: vi.fn(), submitSuggestion: vi.fn(), retrySuggestionReview: vi.fn(), readDevelopmentSession: vi.fn() }))
 const draft: SuggestionDraft = { title: '手机快速回到最新消息', problem: '长回答不容易定位', expected: '点击回到最新消息', acceptance: '' }
 const saved = { ...draft, id: 'saved', original: '手机长回答不好找', createdAt: 1 }
 let client: QueryClient
@@ -11,6 +11,7 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   vi.mocked(listSuggestions).mockResolvedValue({ items: [], total: 0 })
   vi.mocked(normalizeSuggestion).mockResolvedValue(draft)
+  vi.mocked(readDevelopmentSession).mockResolvedValue({ id: null, title: '后台开发会话', messages: [], hasMore: false, nextBefore: 0 })
 })
 afterEach(() => { cleanup(); client.clear(); sessionStorage.clear(); vi.resetAllMocks() })
 function mount(open = true, userId = 7, compact = false) {
@@ -18,6 +19,21 @@ function mount(open = true, userId = 7, compact = false) {
   render(<QueryClientProvider client={client}><ConsultSuggestions userId={userId} open={open} onOpenChange={close} compact={compact} /></QueryClientProvider>)
   return close
 }
+
+it('opens the independent background session without losing the feedback draft', async () => {
+  vi.mocked(readDevelopmentSession).mockResolvedValue({ id: 'consult-suggestion-development', title: '后台开发会话', messages: [
+    { sequence: 2, suggestionId: 'suggestion-1', phase: '待发布', content: '代码已提交，尚未发布', createdAt: 1 },
+    { sequence: 1, suggestionId: 'suggestion-1', phase: '实现中', content: '开始后台编码', createdAt: 0 },
+  ], hasMore: false, nextBefore: 1 })
+  mount(true, 7, true)
+  fireEvent.change(screen.getByLabelText('你的原始建议'), { target: { value: '保留我的新建议' } })
+  fireEvent.click(screen.getByRole('button', { name: '开发会话' }))
+  expect(await screen.findByText('代码已提交，尚未发布')).toBeInTheDocument()
+  expect(screen.getByText('开始后台编码')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '需求建议' }))
+  expect(screen.getByLabelText('你的原始建议')).toHaveValue('保留我的新建议')
+  expect(submitSuggestion).not.toHaveBeenCalled()
+})
 
 it('distinguishes review, rejection and committed-but-not-published results', async () => {
   vi.mocked(listSuggestions).mockResolvedValue({ items: [

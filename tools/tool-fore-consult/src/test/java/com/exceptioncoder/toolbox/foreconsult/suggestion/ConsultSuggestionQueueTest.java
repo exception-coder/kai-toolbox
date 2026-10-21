@@ -25,12 +25,12 @@ class ConsultSuggestionQueueTest {
 
     @BeforeEach @SuppressWarnings("unchecked") void setup() {
         var ds = new DriverManagerDataSource("jdbc:sqlite:" + directory.resolve("queue.db"));
-        new ResourceDatabasePopulator(new ClassPathResource("db/consult-suggestion-schema.sql"), new ClassPathResource("db/consult-suggestion-work-schema.sql")).execute(ds);
+        new ResourceDatabasePopulator(new ClassPathResource("db/consult-suggestion-schema.sql"), new ClassPathResource("db/consult-suggestion-work-schema.sql"), new ClassPathResource("db/consult-development-session-schema.sql")).execute(ds);
         suggestions = new ConsultSuggestionRepository(new JdbcTemplate(ds)); work = new ConsultSuggestionWorkRepository(new JdbcTemplate(ds));
         review = mock(ConsultSuggestionReview.class); patch = mock(ConsultSuggestionPatch.class); registration = mock(RequirementRegistrationPort.class);
         ObjectProvider<RequirementRegistrationPort> provider = mock(ObjectProvider.class); when(provider.getIfAvailable()).thenReturn(registration);
         when(registration.registerPendingExecutionOnce(anyString(), any())).thenReturn("task-1");
-        queue = new ConsultSuggestionQueue(suggestions, work, review, patch, provider, new DataSourceTransactionManager(ds));
+        queue = new ConsultSuggestionQueue(suggestions, work, review, patch, provider, new DataSourceTransactionManager(ds), new ConsultDevelopmentSession(new JdbcTemplate(ds)));
     }
     @AfterEach void close() { queue.close(); }
 
@@ -55,6 +55,11 @@ class ConsultSuggestionQueueTest {
         assertThat(completed.commitHash()).isEqualTo("a".repeat(40));
         verify(patch, times(1)).develop(any());
         verify(registration, times(1)).registerPendingExecutionOnce(eq("consult-suggestion:" + saved.id()), any());
+        var ordered = inOrder(registration);
+        ordered.verify(registration).registerPendingExecutionOnce(anyString(), any());
+        ordered.verify(registration).updateImplementationStatus(eq("consult-suggestion:" + saved.id()), eq("task-1"), eq(RequirementRegistrationPort.ImplementationStatus.IN_DEV));
+        ordered.verify(registration).updateImplementationStatus(eq("consult-suggestion:" + saved.id()), eq("task-1"), eq(RequirementRegistrationPort.ImplementationStatus.READY_FOR_RELEASE));
+        assertThat(completed.implementationStatus()).isEqualTo("READY_FOR_RELEASE");
     }
 
     @Test void scopeAndPermissionRejectionsNeverReachDevelopment() throws Exception {
@@ -94,10 +99,22 @@ class ConsultSuggestionQueueTest {
 
     @Test void invalidReviewAndPathTraversalNeverFallThrough() throws Exception {
         var model = mock(ConsultSuggestionModel.class);
-        when(model.ask(anyString(), any())).thenReturn(new ObjectMapper().readTree("{\"decision\":\"ALLOW_ALL\",\"reason\":\"approved\"}"));
+        when(model.ask(anyString(), anyString(), anyString(), any())).thenReturn(new ObjectMapper().readTree("{\"decision\":\"ALLOW_ALL\",\"reason\":\"approved\"}"));
         assertThatThrownBy(() -> new ConsultSuggestionReview(model).review(create(false))).isInstanceOf(IllegalArgumentException.class);
         var patchJson = new ObjectMapper().readTree("{\"outcome\":\"PATCH\",\"edits\":[{\"path\":\"../../admin.ts\",\"before\":\"x\",\"after\":\"y\"}]}");
         assertThatThrownBy(() -> ConsultSuggestionPatch.apply(directory, Map.of(), patchJson)).hasMessageContaining("范围");
         verifyNoInteractions(patch);
+    }
+
+    @Test void failedImplementationReturnsToPendingAndNeverClaimsReadyForRelease() throws Exception {
+        var saved = create(true);
+        when(review.review(any())).thenReturn(new ConsultSuggestionReview.Result(ConsultSuggestionReview.Decision.ACCEPT_SIMPLE, "展示改进"));
+        when(patch.develop(any())).thenThrow(new IllegalStateException("test verification failed"));
+        queue.consumeOne(); queue.consumeOne();
+        var failed = suggestions.findById(saved.id()).orElseThrow();
+        assertThat(failed.state()).isEqualTo("FAILED");
+        assertThat(failed.implementationStatus()).isEqualTo("PENDING_EXECUTION");
+        verify(registration).updateImplementationStatus(anyString(), eq("task-1"), eq(RequirementRegistrationPort.ImplementationStatus.PENDING_EXECUTION));
+        verify(registration, never()).updateImplementationStatus(anyString(), anyString(), eq(RequirementRegistrationPort.ImplementationStatus.READY_FOR_RELEASE));
     }
 }

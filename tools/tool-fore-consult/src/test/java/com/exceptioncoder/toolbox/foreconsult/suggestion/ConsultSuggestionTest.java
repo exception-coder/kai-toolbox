@@ -26,13 +26,15 @@ class ConsultSuggestionTest {
     AgentOneShotRunner runner;
     ConsultSuggestionRepository repository;
     ConsultSuggestionWorkRepository work;
+    ConsultDevelopmentSession development;
 
     @BeforeEach @SuppressWarnings("unchecked") void setup() {
         var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + directory.resolve("suggestions.db"));
-        var schema = new ResourceDatabasePopulator(new ClassPathResource("db/consult-suggestion-schema.sql"), new ClassPathResource("db/consult-suggestion-work-schema.sql"));
+        var schema = new ResourceDatabasePopulator(new ClassPathResource("db/consult-suggestion-schema.sql"), new ClassPathResource("db/consult-suggestion-work-schema.sql"), new ClassPathResource("db/consult-development-session-schema.sql"));
         schema.execute(dataSource); schema.execute(dataSource);
         repository = new ConsultSuggestionRepository(new JdbcTemplate(dataSource));
         work = new ConsultSuggestionWorkRepository(new JdbcTemplate(dataSource));
+        development = new ConsultDevelopmentSession(new JdbcTemplate(dataSource));
         runner = mock(AgentOneShotRunner.class);
         ObjectProvider<AgentOneShotRunner> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(runner);
@@ -88,12 +90,13 @@ class ConsultSuggestionTest {
     }
 
     @Test void allEndpointsRequireLoginAndAuthorComesFromServerContext() throws Exception {
-        var controller = new ConsultSuggestionController(service, work);
+        var controller = new ConsultSuggestionController(service, work, development);
         var interceptor = new RequireAuthInterceptor();
         for (var method : List.of(ConsultSuggestionController.class.getMethod("list", int.class),
                 ConsultSuggestionController.class.getMethod("normalize", ConsultSuggestionController.Normalize.class),
                 ConsultSuggestionController.class.getMethod("submit", ConsultSuggestion.Submit.class),
-                ConsultSuggestionController.class.getMethod("retryReview", String.class))) {
+                ConsultSuggestionController.class.getMethod("retryReview", String.class),
+                ConsultSuggestionController.class.getMethod("developmentSession", long.class))) {
             AuthContext.clear();
             var handler = new HandlerMethod(controller, method);
             assertThatThrownBy(() -> interceptor.preHandle(new MockHttpServletRequest(), new MockHttpServletResponse(), handler)).isInstanceOf(AuthException.class);

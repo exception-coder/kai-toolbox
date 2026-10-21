@@ -13,6 +13,8 @@ describe('requirementLifecycle', () => {
     expect(requirementLifecycle(item('DRAFT'))).toBe('DRAFT')
     expect(requirementLifecycle(item('PRD_READY'))).toBe('READY')
     expect(requirementLifecycle(item('IN_DEV'))).toBe('EXECUTING')
+    expect(requirementLifecycle(item('PENDING_EXECUTION'))).toBe('READY')
+    expect(requirementLifecycle(item('READY_FOR_RELEASE'))).toBe('REVIEW')
     expect(requirementLifecycle(item('DONE'))).toBe('DONE')
     expect(requirementLifecycle(item('CANCELLED'))).toBe('ARCHIVED')
   })

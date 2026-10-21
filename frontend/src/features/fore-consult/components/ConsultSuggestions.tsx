@@ -3,9 +3,10 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { MessageSquarePlus, ArrowUpRight, Loader2, X } from 'lucide-react'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { listSuggestions, normalizeSuggestion, submitSuggestion, retrySuggestionReview, type SuggestionDraft } from '../suggestionApi'
+import { ConsultDevelopmentSession } from './ConsultDevelopmentSession'
 
 const emptyDraft: SuggestionDraft = { title: '', problem: '', expected: '', acceptance: '' }
-const stateLabel: Record<string, string> = { PENDING_REVIEW: '待评审', REVIEW_PENDING: '等待审核', REVIEWING: '正在审核', REVIEW_FAILED: '审核未完成', REJECTED: '未通过审核', QUEUED: '已通过 · 自动开发排队中', MANUAL_QUEUED: '已通过 · 待人工接续', RUNNING: '自动开发中', COMMITTED: '已提交 · 待合并验收', FAILED: '自动开发未完成' }
+const stateLabel: Record<string, string> = { PENDING_REVIEW: '待评审', REVIEW_PENDING: '等待审核', REVIEWING: '正在审核', REVIEW_FAILED: '审核未完成', REJECTED: '未通过审核', QUEUED: '待实现', MANUAL_QUEUED: '待实现 · 需人工接续', RUNNING: '实现中', COMMITTED: '待发布', FAILED: '待实现 · 自动开发中断' }
 interface StoredDraft { original: string; draft: SuggestionDraft; requestId: string }
 function restore(key: string): StoredDraft {
   try {
@@ -27,6 +28,7 @@ export function ConsultSuggestions({ userId, open, onOpenChange, compact = false
   const [message, setMessage] = useState('')
   const [failure, setFailure] = useState(false)
   const [submitted, setSubmitted] = useState<string | null>(null)
+  const [showDevelopment, setShowDevelopment] = useState(false)
   const returnFocus = useRef<HTMLElement | null>(null)
   const openTarget = useRef<string | null>(null)
   const client = useQueryClient()
@@ -79,9 +81,10 @@ export function ConsultSuggestions({ userId, open, onOpenChange, compact = false
       <p className="mt-1 text-xs text-muted-foreground">一起把咨询助手用得更顺手</p>
       {query.isPending ? <p role="status" className="mt-3 text-xs text-muted-foreground">正在读取建议…</p>
         : query.isError ? <button className="mt-3 min-h-11 text-xs underline" onClick={() => void query.refetch()}>读取失败，重试</button>
-        : suggestions.length ? <ul className="my-3 space-y-2">{suggestions.slice(0, 3).map(item => <li key={item.id}><button onClick={() => { openTarget.current = item.id; setSubmitted(item.id); onOpenChange(true) }} className="block w-full truncate text-left text-xs hover:underline">{item.title}</button></li>)}</ul>
+        : suggestions.length ? <ul className="my-3 space-y-2">{suggestions.slice(0, 3).map(item => <li key={item.id}><button aria-label={item.title} onClick={() => { setShowDevelopment(false); openTarget.current = item.id; setSubmitted(item.id); onOpenChange(true) }} className="flex w-full items-start justify-between gap-2 text-left text-xs hover:underline"><span className="truncate">{item.title}</span><span className="shrink-0 text-[10px] text-muted-foreground">{stateLabel[item.state ?? 'PENDING_REVIEW'] ?? '待核对'}</span></button></li>)}</ul>
         : <p className="my-3 text-xs text-muted-foreground">还没有建议，欢迎说说你的想法。</p>}
-      <button type="button" onClick={() => { setSubmitted(null); onOpenChange(true) }} className="mt-2 inline-flex min-h-11 w-full items-center justify-between gap-2 border-t border-border pt-2 text-xs focus-visible:outline-2 focus-visible:outline-ring"><span className="flex items-center gap-2"><MessageSquarePlus className="size-4" />反馈与建议清单</span><ArrowUpRight className="size-3" /></button>
+      <button type="button" onClick={() => { setSubmitted(null); setShowDevelopment(false); onOpenChange(true) }} className="mt-2 inline-flex min-h-11 w-full items-center justify-between gap-2 border-t border-border pt-2 text-xs focus-visible:outline-2 focus-visible:outline-ring"><span className="flex items-center gap-2"><MessageSquarePlus className="size-4" />反馈与建议清单</span><ArrowUpRight className="size-3" /></button>
+      <button type="button" onClick={() => { setShowDevelopment(true); onOpenChange(true) }} className="min-h-11 text-xs text-muted-foreground underline">查看后台开发会话</button>
     </aside>}
     <Sheet open={open} onOpenChange={next => { if (!busy) onOpenChange(next) }}>
       <SheetContent hideCloseButton className="flex h-[100dvh] w-full max-w-[560px] flex-col bg-background p-0 text-foreground"
@@ -93,7 +96,9 @@ export function ConsultSuggestions({ userId, open, onOpenChange, compact = false
           <div><SheetTitle>业务咨询需求建议</SheetTitle><SheetDescription className="mt-1 text-xs">仅接收业务咨询板块的优化建议，不接收扩大权限或放开限制的需求。审核通过后排队处理，简单改进可自动开发并提交，发布前仍需验收。</SheetDescription></div>
           <button type="button" aria-label="关闭需求建议" disabled={!!busy} onClick={() => onOpenChange(false)} className="inline-flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-muted disabled:opacity-50"><X className="size-4" /></button>
         </header>
+        <nav aria-label="需求建议视图" className="flex shrink-0 gap-4 border-b border-border px-5 text-sm"><button type="button" disabled={!!busy} aria-pressed={!showDevelopment} onClick={() => setShowDevelopment(false)} className="min-h-11 aria-pressed:font-medium disabled:opacity-50">需求建议</button><button type="button" disabled={!!busy} aria-pressed={showDevelopment} onClick={() => setShowDevelopment(true)} className="min-h-11 aria-pressed:font-medium disabled:opacity-50">开发会话</button></nav>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 pb-[max(20px,env(safe-area-inset-bottom))]">
+          {showDevelopment ? <ConsultDevelopmentSession userId={userId} /> : <>
           <form onSubmit={event => { event.preventDefault(); void submit() }} className="space-y-3">
             <label className="block text-xs font-medium">你的原始建议<textarea aria-label="你的原始建议" disabled={!!busy} value={form.original} maxLength={8000} rows={3}
               onChange={event => changed({ original: event.target.value, draft: { ...emptyDraft } })} className={`${fieldClass} mt-2`} placeholder="例如：手机上看长回答不方便，希望能一键回到最近消息。" /></label>
@@ -128,6 +133,7 @@ export function ConsultSuggestions({ userId, open, onOpenChange, compact = false
             </li>)}</ul>
             {query.hasNextPage && <button onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage} className="min-h-11 w-full text-xs underline disabled:opacity-50">{query.isFetchingNextPage ? '正在加载…' : '加载更多建议'}</button>}
           </section>
+          </>}
         </div>
       </SheetContent>
     </Sheet>

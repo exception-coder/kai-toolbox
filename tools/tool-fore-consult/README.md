@@ -307,3 +307,5 @@ mvn -pl tools/tool-fore-consult -am test
 自动开发首期只调整四个咨询展示组件的现有文字与样式，不修改逻辑、权限、API、测试或依赖。同仓[consult-suggestion-development Skill](../../.agents/skills/consult-suggestion-development/SKILL.md)复用无工具Agent生成补丁，宿主在独立工作树执行AST范围、语义审核、类型、组件测试及静态门禁，通过后真实作者commit。最多两次修正，失败保留产物；清单显示理由和提交号。“已提交”指独立分支待合并验收，不代表上线。
 
 源码根默认为服务工作目录，可用`toolbox.consult.suggestion-development.project-root`指定咨询仓库，遵守ProjectAccess，需要frontend/node_modules、真实Git作者及Forge门禁jar。工作树位于`~/.kai-toolbox/consult-development/<建议UUID>`，分支为`consult-suggestion/<建议UUID>`。不自动改写当前工作区、merge、push、重启或发布；开发中断等待核对。启动schema幂等，无人工SQL。专项验证和真实模型/运行验收分别见[审核自动开发任务](../../openspec/changes/consult-suggestion-automation/tasks.md)。
+
+「需求建议 → 开发会话」展示清单专属后台开发会话，按需求记录真实审核、编码、验证与提交过程，打开时自动刷新，关闭后后台继续工作。建议卡片及需求池会回写“待实现 → 实现中 → 待发布”；失败保留待实现并说明接续原因，待发布表示已验证和提交、尚待合并验收与发布。会话为队列的持久业务上下文，各模型阶段仍复用已有无工具执行器及真实引擎回执，不冒充原生连续Thread或Forge监督会话。普通用户只读安全阶段记录，不能借此改变工具或资源权限。

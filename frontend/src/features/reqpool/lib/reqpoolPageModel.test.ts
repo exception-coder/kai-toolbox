@@ -57,7 +57,7 @@ describe('reqpool page model', () => {
     const done = item('done', null, 'DONE')
     const grouped = groupRequirementsByStatus([done, draft])
 
-    expect(REQUIREMENT_BOARD_STAGES).toEqual(['DRAFT', 'CLARIFYING', 'PRD_READY', 'IN_DEV', 'DONE', 'CANCELLED'])
+    expect(REQUIREMENT_BOARD_STAGES).toEqual(['DRAFT', 'CLARIFYING', 'PRD_READY', 'PENDING_EXECUTION', 'IN_DEV', 'READY_FOR_RELEASE', 'DONE', 'CANCELLED'])
     expect(grouped.get('DRAFT')).toEqual([draft])
     expect(grouped.get('DONE')).toEqual([done])
     expect(grouped.get('IN_DEV')).toEqual([])

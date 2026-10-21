@@ -172,6 +172,8 @@ const STATUS_META: Record<ReqStatus, { label: string; cls: string }> = {
   DRAFT: { label: '待受理', cls: 'text-[var(--color-muted-foreground)]' },
   CLARIFYING: { label: '澄清中', cls: 'text-amber-700 dark:text-amber-300' },
   PRD_READY: { label: '已准入', cls: 'text-[var(--color-foreground)]/75' },
+  PENDING_EXECUTION: { label: '待实现', cls: 'bg-muted text-muted-foreground' },
+  READY_FOR_RELEASE: { label: '待发布', cls: 'bg-muted text-muted-foreground' },
   IN_DEV: { label: '交付中', cls: 'text-[var(--color-foreground)]/75' },
   DONE: { label: '已交付', cls: 'text-emerald-700 dark:text-emerald-300' },
   CANCELLED: { label: '已归档', cls: 'text-[var(--color-muted-foreground)]' },

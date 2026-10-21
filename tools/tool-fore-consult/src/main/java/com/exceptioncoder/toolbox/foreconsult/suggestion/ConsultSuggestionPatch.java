@@ -22,12 +22,14 @@ public class ConsultSuggestionPatch {
     private final Path root;
     private final Path workspaceBase;
     private final com.exceptioncoder.toolbox.common.project.ProjectAccess access;
+    private ConsultDevelopmentSession session;
 
     @org.springframework.beans.factory.annotation.Autowired
     public ConsultSuggestionPatch(ConsultSuggestionModel model, ConsultSuggestionReview review,
             @Value("${toolbox.consult.suggestion-development.project-root:}") String projectRoot,
-            com.exceptioncoder.toolbox.common.project.ProjectAccess access) {
+            com.exceptioncoder.toolbox.common.project.ProjectAccess access, ConsultDevelopmentSession session) {
         this(model, review, projectRoot, Path.of(System.getProperty("user.home"), ".kai-toolbox", "consult-development"), access);
+        this.session = session;
     }
 
     ConsultSuggestionPatch(ConsultSuggestionModel model, ConsultSuggestionReview review, String projectRoot, Path workspaceBase) {
@@ -55,6 +57,7 @@ public class ConsultSuggestionPatch {
         Files.createDirectories(workspace.getParent());
         // 同一任务只创建一次；中断保留工作树，不 reset/remove 他人的产物。
         command(root, "git", "worktree", "add", "-b", "consult-suggestion/" + id, workspace.toString(), "HEAD");
+        report(id, "准备工作区", "已创建独立分支，开始实现需求；不会改动当前咨询会话");
         Path frontend = workspace.resolve("frontend");
         Path dependencies = root.resolve("frontend/node_modules").toRealPath();
         if (System.getProperty("os.name").startsWith("Windows")) {
@@ -72,7 +75,7 @@ public class ConsultSuggestionPatch {
         for (int attempt = 0; attempt < 3; attempt++) {
             // 修正只重建本任务的四个展示文件；不是 git reset，不改变其他对象。
             for (var entry : baseline.entrySet()) Files.writeString(workspace.resolve(entry.getKey()), entry.getValue(), StandardCharsets.UTF_8);
-            JsonNode patch = model.ask(skill, Map.of("suggestion", suggestion, "files", baseline, "previousFailure", failure));
+            JsonNode patch = model.ask(id, "编码", skill, Map.of("suggestion", suggestion, "files", baseline, "previousFailure", failure));
             if ("MANUAL".equals(patch.path("outcome").asText())) return new Result(null, "自动实现范围不足，已转入人工排队");
             Set<String> changed = apply(workspace, baseline, patch);
             boolean committing = false;
@@ -81,6 +84,7 @@ public class ConsultSuggestionPatch {
                 for (String file : changed) guard.add(file.substring("frontend/".length()));
                 command(frontend, guard.toArray(String[]::new));
                 review.reviewPatch(suggestion, command(workspace, "git", "diff", "--", PREFIX));
+                report(id, "验证", "代码范围及审核通过，正在执行类型检查、组件测试和项目门禁");
                 command(frontend, "node", "node_modules/typescript/bin/tsc", "-b", "--noEmit");
                 command(frontend, "node", "scripts/check-feature-boundaries.mjs");
                 command(frontend, "node", "node_modules/vitest/vitest.mjs", "run", "src/features/fore-consult/components");
@@ -88,6 +92,7 @@ public class ConsultSuggestionPatch {
                 if (!Files.isRegularFile(qualityJar)) throw new IllegalStateException("项目质量门禁制品未就绪，请维护人员先构建门禁");
                 String quality = command(workspace, "java", "-jar", qualityJar.toString(), "verify", "static", "--project", workspace.toString(), "--format", "json");
                 if (!"PASSED".equals(new com.fasterxml.jackson.databind.ObjectMapper().readTree(quality).path("status").asText())) throw new IllegalStateException("项目质量门禁未通过");
+                report(id, "验证", "固定检查已通过，开始提交代码");
                 var add = new ArrayList<>(List.of("git", "add", "--")); add.addAll(changed);
                 committing = true;
                 command(workspace, add.toArray(String[]::new));
@@ -101,6 +106,7 @@ public class ConsultSuggestionPatch {
                 if (!commit.matches("[a-f0-9]{40}")) throw new IllegalStateException("无法核对提交结果");
                 Set<String> committedPaths = new LinkedHashSet<>(command(workspace, "git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").lines().toList());
                 if (!committedPaths.equals(changed) || !command(workspace, "git", "diff", "--name-only").isBlank()) throw new IllegalStateException("提交范围或工作区状态需人工核对");
+                report(id, "提交", "代码已提交：" + commit + "；待合并与运行验收，尚未发布");
                 return new Result(commit, "已在独立分支提交，等待合并与运行验收；未发布");
             } catch (Exception error) {
                 // 提交阶段不重跑，避免未知提交结果产生第二次提交；验证失败才带回给模型修正。
@@ -108,6 +114,7 @@ public class ConsultSuggestionPatch {
                 if (Thread.currentThread().isInterrupted()) throw error;
                 if (committing) throw error;
                 LOG.warn("咨询补丁验证未通过 suggestion={} attempt={}", id, attempt + 1, error);
+                report(id, "修正", "第" + (attempt + 1) + "轮验证未通过，自动修正；最多三轮");
                 lastFailure = error;
                 failure = error.getMessage();
                 if (failure == null) failure = "验证失败";
@@ -116,6 +123,8 @@ public class ConsultSuggestionPatch {
         }
         throw new IllegalStateException("三次实现仍未通过验证，保留工作区等待人工接续", lastFailure);
     }
+
+    private void report(String id, String phase, String content) { if (session != null) session.append(id, phase, content); }
 
     static Set<String> apply(Path workspace, Map<String, String> baseline, JsonNode patch) throws Exception {
         JsonNode edits = patch.path("edits");

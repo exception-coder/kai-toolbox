@@ -770,6 +770,11 @@ flowchart LR
   Patch --> Guard[独立工作树固定范围与验证]
   Guard --> Commit[真实commit 待合并与运行验收]
   Commit --> Board
+  Review --> DevSession[清单专属后台开发会话]
+  Patch --> DevSession
+  Guard --> DevSession
+  Commit --> DevSession
+  DevSession --> Observe[关闭页面只停止观察]
 ```
 
 需求池端口不接收未评审建议；审核通过后使用来源键幂等登记到既有需求池，不跨模块读表。咨询模块持有审核/开发状态及关联任务、提交号；旧建议保持待评审，不自动执行。失败不放行；普通用户只能提交及重试本人失败审核，不能设置目录或命令，不因此获得开发/管理员权限。
@@ -777,3 +782,5 @@ flowchart LR
 同仓`consult-suggestion-development` Skill随模块打包，复用无工具AgentOneShotRunner，仅生成四个咨询展示组件的精确替换。AST护栏限制文字和样式，拒绝程序结构、权限、接口、测试与依赖修改；宿主创建独立worktree、执行固定检查及代码审核，最多两次修正后真实作者commit。该有界能力不替代Forge连续监督，不伪造会话绑定或执行归属。复杂需求人工接续；隔离分支提交不等于需求交付，不自动merge/push/启动/重启/发布，当前工作区及运行版本不变。中断保留产物等待核对，不盲目重复提交。
 
 schema启动时幂等执行，无人工SQL。开发验证、夹具模型的真实临时Git提交、真实模型效果及服务运行分别记录于[自动开发任务](../openspec/changes/consult-suggestion-automation/tasks.md)，未部署/未验收必须明确。
+
+需求清单的后台开发会话由咨询模块持久拥有，事件按建议UUID与单调sequence关联，最近50条及稳定历史游标按需读取。它复用已有单工作者和runObserved：真实引擎会话标识仅内部留存，公开只读阶段、结果和时间；不建立新的通用Agent或伪造Forge监督绑定，模型阶段不是共享原生Thread。关闭前端视图不取消队列。公共RequirementRegistrationPort新增来源校验的状态回写，由需求池自己持久化PENDING_EXECUTION/IN_DEV/READY_FOR_RELEASE，咨询内部状态投影为待实现/实现中/待发布，不能自动写DONE或复活CANCELLED。验证失败、中断和回写异常保留证据并明确人工接续，待发布仍需合并及运行验收。

@@ -33,6 +33,10 @@ public class ConsultSuggestionWorkRepository {
     }
 
     /** 中断的开发不能盲目重跑并制造第二个分支；保留产物，等待维护人员核对。 */
+    public java.util.List<String> interruptedIds() {
+        return jdbc.queryForList("SELECT suggestion_id FROM consult_suggestion_work WHERE state='RUNNING'", String.class);
+    }
+
     public void recoverInterrupted() {
         jdbc.update("UPDATE consult_suggestion_work SET state='REVIEW_PENDING' WHERE state='REVIEWING'");
         jdbc.update("UPDATE consult_suggestion_work SET state='FAILED',reason='开发被中断，已保留独立工作区，请维护人员核对后接续' WHERE state='RUNNING'");

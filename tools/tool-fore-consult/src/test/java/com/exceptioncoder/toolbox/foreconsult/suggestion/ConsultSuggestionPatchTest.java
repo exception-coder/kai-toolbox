@@ -41,7 +41,7 @@ class ConsultSuggestionPatchTest {
         else Files.createSymbolicLink(dependencies, source.resolve("frontend/node_modules"));
         var model = mock(ConsultSuggestionModel.class); var review = mock(ConsultSuggestionReview.class);
         String file = ConsultSuggestionPatch.FILES.getFirst();
-        when(model.ask(anyString(), any())).thenReturn(new ObjectMapper().valueToTree(Map.of("outcome", "PATCH", "edits", List.of(Map.of("path", file, "before", ">复制</button>", "after", ">复制回答</button>")))));
+        when(model.ask(anyString(), anyString(), anyString(), any())).thenReturn(new ObjectMapper().valueToTree(Map.of("outcome", "PATCH", "edits", List.of(Map.of("path", file, "before", ">复制</button>", "after", ">复制回答</button>")))));
         String id = UUID.randomUUID().toString();
         Path work = worktrees.resolve(id);
         try {
