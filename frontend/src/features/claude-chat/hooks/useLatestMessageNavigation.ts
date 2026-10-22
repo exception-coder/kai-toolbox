@@ -9,6 +9,8 @@ interface Options {
   lastItemId?: string
   historyLoading?: boolean
   historyError?: string | null
+  /** 正在接收的实时流可能领先于落盘历史，显式跳转不以旧快照替换它。 */
+  liveOutput?: boolean
   onLoadLatest?: () => Promise<boolean | null>
 }
 
@@ -58,8 +60,8 @@ function useBottomAlignment(sessionKey: string) {
   return { virtuosoRef, captureScroller, settleJump, scrollToLatest, cancelAlignment }
 }
 
-/** 最新消息导航先确认数据，再在提交后的列表中定位；上滑或切换会话撤销定位意图。 */
-export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoading, historyError, onLoadLatest }: Options) {
+/** 实时输出直接定位，历史恢复先确认数据；上滑或切换会话撤销定位意图。 */
+export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoading, historyError, liveOutput, onLoadLatest }: Options) {
   const alignment = useBottomAlignment(sessionKey)
   const { scrollToLatest, cancelAlignment } = alignment
   const generationRef = useRef(0)
@@ -102,8 +104,14 @@ export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoad
   }, [sessionKey, lastItemId, historyLoading, historyError, navigation, scrollToLatest])
 
   const jumpToBottom = useCallback(async () => {
-    if (!onLoadLatest) { followingRef.current = true; scrollToLatest(); return }
     const generation = ++generationRef.current
+    if (!onLoadLatest || liveOutput && lastItemId && !historyLoading) {
+      followingRef.current = true
+      alignedItemRef.current = lastItemId
+      setNavigation(null)
+      scrollToLatest()
+      return
+    }
     cancelAlignment()
     setNavigation('loading')
     try {
@@ -113,7 +121,7 @@ export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoad
     } catch {
       if (generation === generationRef.current) setNavigation('error')
     }
-  }, [onLoadLatest, scrollToLatest, cancelAlignment])
+  }, [onLoadLatest, liveOutput, lastItemId, historyLoading, scrollToLatest, cancelAlignment])
   const onBottomStateChange = useCallback((bottom: boolean) => {
     setAtBottom(bottom)
     if (bottom) followingRef.current = true

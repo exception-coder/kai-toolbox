@@ -29,7 +29,7 @@ interface Props {
   running: boolean
   /** 用户点击顶部入口加载更早一页 */
   onLoadEarlier?: () => void
-  /** 显式跳转前更新权威最近页；返回 false 时保留重试入口。 */
+  /** 空闲或恢复连接时更新最近页；实时输出中直接定位，避免滞后历史覆盖。 */
   onLoadLatest?: () => Promise<boolean | null>
   /** 正在加载更早 */
   loadingEarlier?: boolean
@@ -235,6 +235,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     atBottom, onBottomStateChange, loadingLatest, latestError } = useLatestMessageNavigation({
     sessionKey: resetKey, lastItemId: visibleItems.at(-1)?.id,
     historyLoading: loadingEarlier, historyError: loadEarlierError, onLoadLatest,
+    liveOutput: running && connState === 'ready',
   })
   // 点击聊天里的图片放大查看（桌面点击 / 移动端轻触均可）
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null)
