@@ -17,10 +17,21 @@ interface Options {
 function useBottomAlignment(sessionKey: string) {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const scrollerRef = useRef<HTMLElement | null>(null)
+  const [scroller, setScroller] = useState<HTMLElement | null>(null)
   const followingHeightRef = useRef(false)
   const frameRef = useRef<number | null>(null)
   const captureScroller = useCallback((element: HTMLElement | Window | null) => {
     scrollerRef.current = element instanceof HTMLElement ? element : null
+    setScroller(scrollerRef.current)
+  }, [])
+  const scrollToMeasuredBottom = useCallback(() => {
+    const scroller = scrollerRef.current
+    if (scroller) {
+      // 长历史的索引估算可能停在旧回复；读取真实范围，仍只由 Virtuoso 写滚动位置。
+      virtuosoRef.current?.scrollTo({ top: Math.max(0, scroller.scrollHeight - scroller.clientHeight), behavior: 'auto' })
+    } else {
+      virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
+    }
   }, [])
   const settleJump = useCallback(() => {
     if (!followingHeightRef.current || frameRef.current !== null) return
@@ -29,15 +40,14 @@ function useBottomAlignment(sessionKey: string) {
       const scroller = scrollerRef.current
       if (scroller && followingHeightRef.current
         && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop > LATEST_BOTTOM_TOLERANCE_PX) {
-        // 尺寸测量、重试和滚动都由虚拟列表持有，不能再用 DOM scrollTo 抢写位置。
-        virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
+        scrollToMeasuredBottom()
       }
     })
-  }, [])
+  }, [scrollToMeasuredBottom])
   const scrollToLatest = useCallback(() => {
     followingHeightRef.current = true
-    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
-  }, [])
+    scrollToMeasuredBottom()
+  }, [scrollToMeasuredBottom])
   const cancelAlignment = useCallback(() => {
     followingHeightRef.current = false
     if (frameRef.current !== null) { cancelAnimationFrame(frameRef.current); frameRef.current = null }
@@ -50,13 +60,14 @@ function useBottomAlignment(sessionKey: string) {
     }
   }, [sessionKey, cancelAlignment])
   useLayoutEffect(() => {
-    const scroller = scrollerRef.current
-    if (!scroller || typeof ResizeObserver === 'undefined') return
+    if (!scroller) return
+    // 虚拟列表可能在跳转后补偿位置而不改变总高度；只在跟随意图仍有效时补齐。
+    scroller.addEventListener('scroll', settleJump, { passive: true })
     // 队列、运行状态或输入框会改变视口高度，消息总高度可能完全不变。
-    const observer = new ResizeObserver(settleJump)
-    observer.observe(scroller)
-    return () => observer.disconnect()
-  }, [sessionKey, settleJump])
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(settleJump)
+    observer?.observe(scroller)
+    return () => { observer?.disconnect(); scroller.removeEventListener('scroll', settleJump) }
+  }, [scroller, settleJump])
   return { virtuosoRef, captureScroller, settleJump, scrollToLatest, cancelAlignment }
 }
 

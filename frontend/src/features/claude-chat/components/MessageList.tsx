@@ -231,7 +231,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
 
   // 切会话或工具过滤时重挂载列表，清除旧尺寸、分页游标及在途定位意图。
   const resetKey = `${sessionKey ?? ''}::${hideToolCalls ? 1 : 0}`
-  const { virtuosoRef, captureScroller, settleJump, jumpToBottom, cancelJump,
+  const { virtuosoRef, captureScroller, settleJump, scrollToLatest, jumpToBottom, cancelJump,
     atBottom, onBottomStateChange, loadingLatest, latestError } = useLatestMessageNavigation({
     sessionKey: resetKey, lastItemId: visibleItems.at(-1)?.id,
     historyLoading: loadingEarlier, historyError: loadEarlierError, onLoadLatest,
@@ -277,7 +277,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   // 主动贴一下——指示器的出现不改变 data 长度，followOutput 不会自动因此触发。
   useEffect(() => {
     if (running && atBottom) {
-      virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
+      scrollToLatest()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running])
