@@ -1,9 +1,11 @@
-export const BROWSER_FILE_ACCEPT = '.md,.markdown,.mdx,.html,.htm,.txt,.rst,.adoc'
+import { isDrawioFile } from '../drawio/drawioDocument'
+
+export const BROWSER_FILE_ACCEPT = '.md,.markdown,.mdx,.html,.htm,.txt,.rst,.adoc,.drawio,.drawio.xml'
 export const MAX_BROWSER_FILE_BYTES = 5 * 1024 * 1024
 export const MAX_BROWSER_BATCH_BYTES = 20 * 1024 * 1024
 export const MAX_BROWSER_FILE_COUNT = 10
 
-export type BrowserDocumentKind = 'markdown' | 'html' | 'text'
+export type BrowserDocumentKind = 'markdown' | 'html' | 'text' | 'drawio'
 export interface BrowserDocument {
   id: number
   name: string
@@ -13,11 +15,12 @@ export interface BrowserDocument {
 }
 
 export function documentKind(name: string): BrowserDocumentKind {
+  if (isDrawioFile(name)) return 'drawio'
   const extension = name.includes('.') ? name.split('.').pop()?.toLowerCase() : ''
   if (['md', 'markdown', 'mdx'].includes(extension ?? '')) return 'markdown'
   if (['html', 'htm'].includes(extension ?? '')) return 'html'
   if (['txt', 'rst', 'adoc'].includes(extension ?? '')) return 'text'
-  throw new Error(`不支持「${name}」。请选择 Markdown、HTML、TXT、RST 或 ADOC 文件。`)
+  throw new Error(`不支持「${name}」。请选择 Markdown、HTML、TXT、RST、ADOC 或 draw.io 文件。`)
 }
 
 export function validateBrowserFiles(files: File[]): void {

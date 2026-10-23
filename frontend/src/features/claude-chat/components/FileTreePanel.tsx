@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ChevronRight, Copy, ExternalLink, FileText, Folder, FolderTree, Loader2, MessageSquarePlus, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { listSessionFiles, readSessionFile, revealSessionFile } from '../api'
 import type { FileContent, FileEntry } from '../types'
+import { DrawioPreview, isDrawioFile } from '@/features/doc-viewer/public-api/drawio'
 
 interface Props {
   sessionId: string
@@ -232,15 +233,16 @@ function FilePreview({ content, loading, error, onReveal, onClose }: {
   onReveal: () => void
   onClose: () => void
 }) {
+  const drawio = !!content && isDrawioFile(content.name)
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !e.defaultPrevented) onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
   return (
     <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/50 p-4" onClick={onClose} role="dialog" aria-label="文件预览">
-      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border bg-[var(--color-background)] shadow-xl" onClick={e => e.stopPropagation()}>
+      <div className={cn('flex max-h-[85vh] w-full flex-col rounded-xl border bg-[var(--color-background)] shadow-xl', drawio ? 'h-[85vh] max-w-6xl' : 'max-w-3xl')} onClick={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <FileText className="size-4 text-[var(--color-primary)]" />
           <span className="min-w-0 flex-1 break-all text-sm font-semibold" title={content?.path}>{content?.name ?? '文件预览'}</span>
@@ -256,7 +258,9 @@ function FilePreview({ content, loading, error, onReveal, onClose }: {
           {loading && <p className="p-4 text-sm text-[var(--color-muted-foreground)]">加载中…</p>}
           {error && <p className="p-4 text-sm text-[var(--color-destructive)]">{error}</p>}
           {content?.binary && <p className="p-4 text-sm text-[var(--color-muted-foreground)]">二进制文件，无法预览。可用右上角「定位」在文件管理器中打开。</p>}
-          {content && !content.binary && (
+          {content && !content.binary && drawio && !content.truncated && <Suspense fallback={<p role="status" className="p-4 text-sm">正在打开图形预览…</p>}><DrawioPreview content={content.content} name={content.name} /></Suspense>}
+          {content && !content.binary && drawio && content.truncated && <p role="alert" className="p-4 text-sm">文件读取结果已截断，无法完整渲染。请点击「定位」，通过文档浏览器的「直接打开文件」选择原文件。</p>}
+          {content && !content.binary && !drawio && (
             <pre className="whitespace-pre-wrap break-words p-3 text-[12px] leading-relaxed">{content.content}</pre>
           )}
         </div>

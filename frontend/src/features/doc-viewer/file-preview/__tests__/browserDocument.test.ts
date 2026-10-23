@@ -9,6 +9,8 @@ describe('浏览器文档读取边界', () => {
     expect(documentKind('开发说明.MDX')).toBe('markdown')
     expect(documentKind('原型.HTM')).toBe('html')
     expect(documentKind('说明.adoc')).toBe('text')
+    expect(documentKind('架构.DRAWIO')).toBe('drawio')
+    expect(documentKind('架构.drawio.xml')).toBe('drawio')
     expect(() => documentKind('md')).toThrow('不支持')
     expect(() => validateBrowserFiles([textFile('合同.pdf')])).toThrow('不支持')
     const result = await readBrowserDocument(textFile('中文.md', '## 阅读'), 1)

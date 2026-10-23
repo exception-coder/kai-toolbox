@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Code2, Eye, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,8 @@ import { chooseInitialViewMode, RAW_DEFAULT_THRESHOLD } from '../lib/sizeStrateg
 import { renderStandaloneHtml } from '../lib/renderStandaloneHtml'
 import type { BrowserDocument } from './browserDocument'
 import type { useBrowserDocuments } from './useBrowserDocuments'
+
+const DrawioPreview = lazy(() => import('../drawio/DrawioPreview').then(module => ({ default: module.DrawioPreview })))
 
 interface Props {
   files: ReturnType<typeof useBrowserDocuments>
@@ -56,7 +58,7 @@ export function BrowserDocumentDialog({ files, onChoose, onReturnFocus }: Props)
 }
 
 function BrowserDocumentContent({ document }: { document: BrowserDocument }) {
-  const [source, setSource] = useState(document.kind === 'text' || chooseInitialViewMode(document.size) === 'raw')
+  const [source, setSource] = useState(document.kind === 'text' || (document.kind !== 'drawio' && chooseInitialViewMode(document.size) === 'raw'))
   const rootRef = useRef<HTMLDivElement | null>(null)
   const markdownRef = useRef<HTMLDivElement | null>(null)
   const html = useMemo(() => document.kind === 'html' ? renderStandaloneHtml(document.content) : '', [document])
@@ -64,7 +66,7 @@ function BrowserDocumentContent({ document }: { document: BrowserDocument }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
-        <p className="text-xs text-[var(--color-muted-foreground)]">{document.kind === 'html' ? 'HTML 静态预览；关联资源与交互请通过本地目录打开' : '关联文件与图片请通过本地目录打开'}{document.size >= RAW_DEFAULT_THRESHOLD ? ' · 大文件默认显示源码' : ''}</p>
+        <p className="text-xs text-[var(--color-muted-foreground)]">{document.kind === 'drawio' ? 'draw.io 只读预览 · 可切换页面、缩放及全屏查看' : document.kind === 'html' ? 'HTML 静态预览；关联资源与交互请通过本地目录打开' : '关联文件与图片请通过本地目录打开'}{document.kind !== 'drawio' && document.size >= RAW_DEFAULT_THRESHOLD ? ' · 大文件默认显示源码' : ''}</p>
         {document.kind !== 'text' && <div className="flex gap-1">
           <Button type="button" variant={source ? 'ghost' : 'secondary'} className="min-h-11" aria-pressed={!source} onClick={() => setSource(false)}><Eye className="size-4" />预览</Button>
           <Button type="button" variant={source ? 'secondary' : 'ghost'} className="min-h-11" aria-pressed={source} onClick={() => setSource(true)}><Code2 className="size-4" />源码</Button>
@@ -73,7 +75,9 @@ function BrowserDocumentContent({ document }: { document: BrowserDocument }) {
       {showToc && <details className="shrink-0 border-b px-4 py-2 lg:hidden"><summary className="cursor-pointer py-2 text-sm">大纲</summary><div className="max-h-48 overflow-y-auto py-2"><TocPanel rootRef={rootRef} contentKey={String(document.id)} showLabel={false} /></div></details>}
       <div className="flex min-h-0 min-w-0 flex-1">
         <div ref={rootRef} className="min-h-0 min-w-0 flex-1 overflow-auto">
-          {source ? <RawTextView content={document.content} /> : document.kind === 'html' ? (
+          {source ? <RawTextView content={document.content} /> : document.kind === 'drawio' ? (
+            <Suspense fallback={<p role="status" className="p-4 text-sm">正在打开图形预览…</p>}><DrawioPreview content={document.content} name={document.name} /></Suspense>
+          ) : document.kind === 'html' ? (
             <iframe title={`${document.name} HTML 预览`} srcDoc={html} sandbox="" referrerPolicy="no-referrer" className="block h-full w-full border-0 bg-white" />
           ) : <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6"><MarkdownView content={document.content} size={document.size} contentKey={String(document.id)} rootRef={markdownRef} /></div>}
           {!document.content && <p className="px-4 py-6 text-sm text-[var(--color-muted-foreground)]">文件内容为空</p>}

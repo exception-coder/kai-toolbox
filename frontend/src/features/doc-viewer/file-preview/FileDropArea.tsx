@@ -53,7 +53,7 @@ export function FileDropArea({ onFiles, onChoose, buttonRef }: Props) {
       <div className="min-w-0 space-y-1">
         <h2 className="flex items-center gap-2 text-sm font-semibold"><FileUp className="size-4" aria-hidden="true" />直接打开文件</h2>
         <p className="text-sm">拖入文档即可预览，也可选择文件</p>
-        <p className="text-xs leading-relaxed text-[var(--color-muted-foreground)]">Markdown、HTML、TXT、RST、ADOC · 每份最多 5 MiB · 仅在浏览器中读取</p>
+        <p className="text-xs leading-relaxed text-[var(--color-muted-foreground)]">Markdown、HTML、TXT、RST、ADOC、draw.io · 每份最多 5 MiB · 仅在浏览器中读取</p>
       </div>
       <Button ref={buttonRef} type="button" variant="outline" className="min-h-11" onClick={onChoose}>选择文件</Button>
     </section>
