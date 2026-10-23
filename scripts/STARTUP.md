@@ -132,6 +132,8 @@ Java 继续负责 Git 检查、空闲判断、候选构建和更新；控制层�
 
 源码辅助服务、控制器或前端崩溃由 PM2 重试；连续快速失败最多 5 次，状态显示 errored，修复后 restart。ready 表示受管进程已监听端口，不代表所有业务接口都已验证。Java Agent Sidecar 仍由 Java 管理，PM2 只对所属进程树做退出兜底。
 
+Claude Sidecar 默认端口为 18890，与后端和外网代理端口独立。新版在构建前等待旧监听退出，只回收已核验属于本工作区且父进程已退出的 Node 绝对入口；身份未知或旧版仅有相对入口时不自动终止。无法释放时跳过 Sidecar 依赖/构建准备，后端继续启动，AI 操作明确报不可用及恢复原因，不能把普通模块 ready 当作 AI 已恢复。请先查看 `node forge.mjs logs backend`，通过原所属进程管理器处理占用，再明确确认本次 Forge 重启；不按端口批量杀 Node。父 JVM 管道监控、清理截止时间和验证边界见 [Sidecar 生命周期修复](../openspec/changes/recover-orphan-sidecar-startup/design.md)。此行为需加载新版后生效，旧进程不会随源码提交自动升级。
+
 独立 IDE/JAR 运行不会再启动 PowerShell 抢占自身端口。独立 JAR 更新接管使用 Java 原生 ProcessBuilder 和参数文件，保留原握手、候选失败保留当前服务与取消流程。
 
 ## 辅助服务与观测

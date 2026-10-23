@@ -99,6 +99,9 @@ public class SidecarClient implements ReviewThreadForkGateway {
 
     /** 幂等连接，带超时重试。需在 sidecar 进程已启动后调用。 */
     public synchronized void ensureConnected() throws IOException {
+        if (props.getSidecarStartupError() != null && !props.getSidecarStartupError().isBlank()) {
+            throw new IOException(props.getSidecarStartupError());
+        }
         if (shuttingDown) {
             throw new IOException("sidecar 客户端已停机");
         }

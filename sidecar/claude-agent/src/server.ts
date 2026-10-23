@@ -16,6 +16,7 @@ import {
 } from './graphifyRuntime.js'
 import { inspectSystemRoute } from './codexSecurity.js'
 import { prepareCodexVoice, reconnectCodexVoice, controlCodexVoice, type CodexVoiceOffer } from './codexRealtime.js'
+import { watchParentLifetime, stopWithinDeadline } from './parentLifetime.js'
 
 const port = Number(process.env.CLAUDE_CHAT_SIDECAR_PORT) || 18890
 initializeTelemetry()
@@ -72,16 +73,14 @@ void engineCatalog.list(true).then(entries => {
   console.error('[sidecar] engine catalog warmup failed:', error)
 })
 
-// 是否已成功监听。监听建立【前】的致命错误（尤其 EADDRINUSE：端口已被另一个 sidecar 占用）绝不能被
-// 兜住变成「活着但没监听」的僵尸——那会打乱后端「spawn 失败→退出→回落连到已有实例」的自愈，导致
-// 事件收不到、前端永久「思考中」。此类必须退出；退出后后端会连到已有监听实例（或重新拉起）。
+// 监听建立前的致命错误必须退出，不能留下活着但无法提供服务的进程。
 let listening = false
 
-// 端口占用：已有 sidecar 在跑，本冗余实例干净退出（0），让后端连到既有监听者。
+// 端口占用属于启动失败，不能将未知监听者冒充本 JVM 所属的运行时。
 httpServer.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`[sidecar] 端口 ${port} 已被占用（已有 sidecar 在运行），本实例退出`)
-    process.exit(0)
+    console.error(`[sidecar] 端口 ${port} 已被占用，拒绝沿用归属未知的监听者，本实例退出`)
+    process.exit(1)
   }
   console.error('[sidecar] WebSocketServer 致命错误，退出:', err)
   process.exit(1)
@@ -334,11 +333,18 @@ let stopping = false
 const gracefulStop = (signal: string): void => {
   if (stopping) return
   stopping = true
-  agentTracing.finishAll(signal)
-  void Promise.allSettled([
-    graphifyRuntime.close(signal),
-    shutdownTelemetry(),
-  ]).finally(() => process.exit(0))
+  stopWithinDeadline(async () => {
+    // Release the listener before asynchronous exporters/runtime cleanup.
+    for (const client of clients) client.terminate()
+    wss.close()
+    httpServer.close()
+    console.log(`[sidecar] stopping: ${signal}`)
+    agentTracing.finishAll(signal)
+    await Promise.allSettled([graphifyRuntime.close(signal), shutdownTelemetry()])
+  }, code => process.exit(code))
 }
 process.once('SIGTERM', () => gracefulStop('SIGTERM'))
 process.once('SIGINT', () => gracefulStop('SIGINT'))
+if (process.env.KAI_SIDECAR_PARENT_PID === String(process.ppid)) {
+  watchParentLifetime(process.stdin, gracefulStop, [process.stdout, process.stderr])
+}

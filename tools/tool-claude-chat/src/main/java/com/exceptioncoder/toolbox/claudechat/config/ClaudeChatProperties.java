@@ -27,6 +27,9 @@ public class ClaudeChatProperties {
     /** sidecar 监听端口，仅绑 127.0.0.1。Java 作为 WS 客户端连接此端口 */
     private int sidecarPort = 18890;
 
+    /** 运行入口发现无法安全回收的端口冲突时，阻止 AI 运行时启动；不影响宿主服务。 */
+    private String sidecarStartupError;
+
     /** 浏览器无操作时，权限/提问请求多久未决策即按 deny（毫秒） */
     private long decisionTimeoutMs = 5 * 60 * 1000L;
 

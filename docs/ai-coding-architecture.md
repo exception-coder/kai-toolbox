@@ -622,6 +622,19 @@ flowchart LR
     READY -->|全部可达| SUCCESS["报告启动成功"]
 ```
 
+### Sidecar 生命周期与启动隔离
+
+Java 继续拥有 Agent Sidecar 进程；Sidecar 通过所属 JVM 的独占 stdin 管道感知父进程退出，先释放监听，再执行有截止时间的异步清理。正常启动器在修改依赖和构建前等待端口释放，只回收经实际监听 PID、绝对工作区入口及父进程状态核验的孤儿。未知监听者不被终止或当作健康运行时；无法释放的冲突仅阻止 AI 准备与使用，宿主继续启动并保留明确恢复原因。此隔离不改变 PM2 有限重试、AI 任务权限和每次服务重启授权。旧版相对入口无法自动证明归属，仍需通过原所属进程管理器处理。源码、隔离测试和待运行验收分别记录于 [Sidecar 修复任务](../openspec/changes/recover-orphan-sidecar-startup/tasks.md)。
+
+```mermaid
+flowchart LR
+    PREP["启动前检查 Sidecar 端口"] --> OWNER{"端口空闲或可验证孤儿?"}
+    OWNER -->|是| BUILD["确认释放后构建"] --> HOST["启动 Forge 后端"]
+    OWNER -->|否| BLOCK["保留占用者和产物并阻止 AI"] --> HOST
+    HOST --> JVM["Java 懒启动所属 Sidecar"]
+    JVM --> PIPE["父进程管道关闭"] --> CLOSE["释放监听与限时清理"]
+```
+
 ### 分批验证与实现期证据
 
 关联开发任务可在原 tasks.md 的任务 ID 后标注 `[VERIFY_GROUP:name]`，设计中登记共同实现边界和验证范围。Runtime 依据持久 change、revision 和当前 task，从权威快照投影最多 6 个连续同组本地任务，写入本轮持久队列指令；未标注时仍单任务推进。任务 ID 和验收条件保留，共享验证须逐项记录覆盖；人工项、不同组、版本漂移和阶段切换截断批次。Agent 可整理历史规格的关联标记，但必须先报告修订，由 Runtime 重读后下发批次，不自行跨任务或扩大 writer。

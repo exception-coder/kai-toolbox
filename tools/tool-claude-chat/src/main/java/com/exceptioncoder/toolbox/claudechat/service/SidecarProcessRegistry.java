@@ -38,6 +38,7 @@ public class SidecarProcessRegistry {
     /** 遗留 sidecar 的清理在本 JVM 内只做一次（见 {@link #ensureStarted()}） */
     private volatile boolean orphanCleaned;
     private boolean sdkMaintenance;
+    private boolean shuttingDown;
 
     /** 维护期间禁止后台重连逻辑拉起运行时。 */
     public synchronized void beginSdkMaintenance() {
@@ -54,7 +55,7 @@ public class SidecarProcessRegistry {
         stopProcess();
         killOrphanSidecar();
         orphanCleaned = true;
-        if (isAlive()) {
+        if (isAlive() || isPortOccupied(props.getSidecarPort())) {
             throw new IOException("Sidecar 尚未停止，未切换 SDK 文件");
         }
     }
@@ -68,16 +69,16 @@ public class SidecarProcessRegistry {
     }
 
     /**
-     * 幂等：确保端口上有一个可用的 sidecar。
-     *
-     * <p>判据是<b>端口事实</b>而非本地 {@link #process} 句柄：sidecar 有一条设计好的退让路径——
-     * 端口被占则冗余实例自杀（见 server.ts 的 EADDRINUSE 分支），让后端连既有监听者。因此句柄常态
-     * 是死的，若据此判定「没有 sidecar」并去杀端口占用者，杀掉的正是当前正在服务的那个实例，
-     * 拉起的新实例又自杀 —— 循环自噬，会话永远收不到事件。
-     *
-     * <p>遗留孤儿（上一轮后端 @PreDestroy 未跑到、可能是旧构建）只在本 JVM 首次调用时清理一次。
+     * 幂等地维护本 JVM 所属的 Sidecar；端口监听不能代替进程归属或协议就绪。
+     * 遗留进程仅在首次调用时尝试核验清理，未知监听者不被采用。
      */
     public synchronized void ensureStarted() throws IOException {
+        if (shuttingDown) {
+            throw new IOException("Forge 正在关闭，不再启动 Sidecar");
+        }
+        if (props.getSidecarStartupError() != null && !props.getSidecarStartupError().isBlank()) {
+            throw new IOException(props.getSidecarStartupError());
+        }
         if (sdkMaintenance) {
             throw new IOException("SDK 正在升级，请稍后重试");
         }
@@ -87,10 +88,10 @@ public class SidecarProcessRegistry {
         if (!orphanCleaned) {
             killOrphanSidecar();
             orphanCleaned = true;
-        } else if (isPortOccupied(props.getSidecarPort())) {
-            // 端口上已有监听者＝可用 sidecar（多半是本后端先前拉起、句柄随冗余实例退出而失效），直接采用
-            log.debug("[claude-chat] 端口 {} 上已有 sidecar 在监听，沿用既有实例", props.getSidecarPort());
-            return;
+        }
+        if (isPortOccupied(props.getSidecarPort())) {
+            throw new IOException("Sidecar 端口 " + props.getSidecarPort()
+                    + " 已被占用且归属未确认，拒绝连接未知实例，请通过原进程管理器处理后重启 Forge");
         }
         Path dir = resolveSidecarDir();
         Path entry = dir.resolve(props.getEntryScript());
@@ -100,13 +101,14 @@ public class SidecarProcessRegistry {
 
         List<String> cmd = new ArrayList<>();
         cmd.add(props.getNodeCommand());
-        cmd.add(props.getEntryScript());
+        cmd.add(entry.toAbsolutePath().normalize().toString());
 
         ProcessBuilder pb = new ProcessBuilder(cmd)
                 .directory(dir.toFile())
                 .redirectErrorStream(true);
         // sidecar 从环境变量读监听端口，仅绑 127.0.0.1
         pb.environment().put("CLAUDE_CHAT_SIDECAR_PORT", String.valueOf(props.getSidecarPort()));
+        pb.environment().put("KAI_SIDECAR_PARENT_PID", String.valueOf(ProcessHandle.current().pid()));
         // 后端 HTTP 基址：供 sidecar 的 erp_db 只读 MCP 回灌查询（本机）
         pb.environment().put("TOOLBOX_API_BASE", "http://127.0.0.1:" + serverPort);
         applyDeepSeekHarnessEnvironment(pb);
@@ -147,17 +149,21 @@ public class SidecarProcessRegistry {
         return resolveSidecarDir();
     }
 
-    /** 是否有可用 sidecar：本进程句柄存活，或端口上有监听者（冗余实例退让后由既有实例服务）。 */
+    /** 本后端所属进程是否存活；WebSocket 协议就绪由 SidecarClient 判断。 */
     public boolean isAlive() {
-        return (process != null && process.isAlive()) || isPortOccupied(props.getSidecarPort());
+        Process current = process;
+        return current != null && current.isAlive();
     }
 
     /**
      * 强制重建 sidecar：端口上有监听者但连不上（僵尸监听）时的最后手段。
      *
-     * <p>只由重连流程在多次连接失败后调用——正常路径一律沿用既有实例，见 {@link #ensureStarted()}。
+     * <p>只由重连流程在多次连接失败后调用；不会沿用归属未知的端口监听者。
      */
     public synchronized void restart() throws IOException {
+        if (shuttingDown) {
+            throw new IOException("Forge 正在关闭，不再重建 Sidecar");
+        }
         if (sdkMaintenance) {
             throw new IOException("SDK 正在升级，请稍后重试");
         }
@@ -175,8 +181,7 @@ public class SidecarProcessRegistry {
      *   <li>端口占用：pid 文件缺失/失效（如修复前启动、无 pid 文件的孤儿）时，按 OS 命令查 18890 的
      *       LISTENING 占用进程。</li>
      * </ol>
-     * 只在进程存活、且（取不到名或名字像 node）时才杀，避免 pid 复用误伤；最后轮询确认端口释放，
-     * 避免新实例立刻撞 EADDRINUSE 又退回旧实例。
+     * 只有 Node 命令、绝对入口及工作区一致且父进程已退出时才清理；未知或相对 argv 保留。
      */
     private void killOrphanSidecar() {
         int port = props.getSidecarPort();
@@ -192,7 +197,7 @@ public class SidecarProcessRegistry {
             }
         }
         if (isPortOccupied(port) && !waitPortFree(port, 2500)) {
-            log.warn("[claude-chat] 端口 {} 仍被占用，新 sidecar 可能退回旧实例；如仍异常请手动结束占用进程", port);
+            log.warn("[claude-chat] 端口 {} 仍被占用，拒绝沿用未知实例，请通过原进程管理器处理", port);
         }
     }
 
@@ -218,8 +223,11 @@ public class SidecarProcessRegistry {
             return;
         }
         String cmd = handle.info().command().orElse("").toLowerCase();
-        if (!cmd.isEmpty() && !cmd.contains("node")) {
-            log.warn("[claude-chat] {}定位 pid={} 为非 node 进程（{}），跳过清理", via, pid, cmd);
+        String[] arguments = handle.info().arguments().orElse(new String[0]);
+        Path entry = resolveSidecarDir().resolve(props.getEntryScript()).toAbsolutePath().normalize();
+        boolean parentAlive = handle.parent().filter(parent -> parent.pid() > 1 && parent.isAlive()).isPresent();
+        if (!isOwnedSidecarCommand(cmd, arguments, entry) || parentAlive) {
+            log.warn("[claude-chat] {}定位 pid={} 未确认是本工作区孤儿 Sidecar，跳过清理", via, pid);
             return;
         }
         log.info("[claude-chat] 终止遗留 sidecar（{}）pid={}，改拉当前构建", via, pid);
@@ -229,6 +237,17 @@ public class SidecarProcessRegistry {
         } catch (Exception e) {
             handle.destroyForcibly();
         }
+    }
+
+    static boolean isOwnedSidecarCommand(String command, String[] arguments, Path entry) {
+        String executable = Path.of(command).getFileName().toString();
+        if (!executable.equalsIgnoreCase("node") && !executable.equalsIgnoreCase("node.exe")) {
+            return false;
+        }
+        if (arguments.length != 1 || !Path.of(arguments[0]).isAbsolute()) {
+            return false;
+        }
+        return Path.of(arguments[0]).normalize().equals(entry);
     }
 
     /** 端口是否有监听者（本机短连接探测）。 */
@@ -287,10 +306,10 @@ public class SidecarProcessRegistry {
             }
             if (windows) {
                 // 形如： TCP    127.0.0.1:18890   0.0.0.0:0   LISTENING   54228
-                if (!line.contains("LISTENING") || !line.contains(":" + port)) {
+                String[] parts = line.split("\\s+");
+                if (parts.length < 5 || !parts[3].equals("LISTENING") || !parts[1].endsWith(":" + port)) {
                     continue;
                 }
-                String[] parts = line.split("\\s+");
                 try {
                     return Long.parseLong(parts[parts.length - 1]);
                 } catch (NumberFormatException ignore) {
@@ -416,25 +435,42 @@ public class SidecarProcessRegistry {
     }
 
     @PreDestroy
-    public void shutdown() {
-        stopProcess();
+    public synchronized void shutdown() {
+        shuttingDown = true;
+        try {
+            stopProcess();
+        } catch (IOException e) {
+            log.error("[claude-chat] Sidecar 未确认退出，保留句柄供进程树退出兜底", e);
+        }
     }
 
     /** 结束本后端拉起的 sidecar 进程（先优雅后强杀），并清掉句柄。 */
-    private void stopProcess() {
+    private void stopProcess() throws IOException {
         if (process == null || !process.isAlive()) {
             process = null;
             return;
         }
         log.info("[claude-chat] 关闭 sidecar 进程 pid={}", process.pid());
-        process.destroy();
+        // 关闭父进程独占的 stdin 管道，跨平台通知 Node；父 JVM 异常退出也会触发 EOF。
+        try {
+            process.getOutputStream().close();
+        } catch (IOException e) {
+            log.debug("[claude-chat] Sidecar stdin 已关闭", e);
+        }
         try {
             if (!process.waitFor(3, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
+                process.destroy();
+                if (!process.waitFor(1, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                    if (!process.waitFor(1, TimeUnit.SECONDS)) {
+                        throw new IOException("Sidecar 强制退出后仍存活，未清除进程句柄");
+                    }
+                }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             process.destroyForcibly();
+            throw new IOException("等待 Sidecar 退出被中断", e);
         }
         process = null;
     }
