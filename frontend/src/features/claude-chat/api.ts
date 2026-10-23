@@ -428,6 +428,11 @@ export function readSessionFile(sessionId: string, path: string) {
   return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/file?path=${encodeURIComponent(path)}`)
 }
 
+/** 完整读取消息链接中的 draw.io 文件，沿用会话与已登记项目访问范围。 */
+export function readSessionDiagram(sessionId: string, path: string, signal?: AbortSignal) {
+  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/diagram?path=${encodeURIComponent(path)}`, { signal })
+}
+
 /** 在系统资源管理器/Finder 里定位会话工作目录下的文件/目录（相对 cwd）。 */
 export function revealSessionFile(sessionId: string, path: string) {
   return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/reveal`, {

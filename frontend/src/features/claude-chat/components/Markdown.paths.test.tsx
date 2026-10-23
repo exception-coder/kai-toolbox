@@ -1,12 +1,76 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Markdown } from './Markdown'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const openPath = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
-vi.mock('../api', () => ({ openSessionLocalPath: openPath }))
+const readDiagram = vi.hoisted(() => vi.fn())
+vi.mock('../api', () => ({ openSessionLocalPath: openPath, readSessionDiagram: readDiagram }))
+vi.mock('@/features/doc-viewer/public-api/drawio', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/features/doc-viewer/public-api/drawio')>()
+  return { ...actual, DrawioPreview: ({ name }: { name: string }) => <div>图画布：{name}</div> }
+})
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe('消息本地路径', () => {
+  it.each([
+    ['/D:/Project/架构.drawio', 'D:/Project/架构.drawio'],
+    ['file:///D:/My%20Project/架构.drawio', 'D:/My Project/架构.drawio'],
+    ['docs/架构.drawio.xml', 'docs/架构.drawio.xml'],
+    ['./架构.drawio#L2', './架构.drawio'],
+  ])('点击图文件 %s 页内预览，关闭恢复原链接焦点', async (href, expected) => {
+    readDiagram.mockResolvedValue({ name: '架构.drawio', content: '<mxGraphModel/>', size: 15, binary: false, truncated: false })
+    const client = new QueryClient()
+    render(<QueryClientProvider client={client}><Markdown text={`[查看架构](${href})`} sessionId="session" /></QueryClientProvider>)
+    const link = screen.getByRole('link', { name: '查看架构' })
+    fireEvent.click(link)
+    expect(await screen.findByText('图画布：架构.drawio')).toBeVisible()
+    expect(readDiagram).toHaveBeenCalledWith('session', expected, expect.any(AbortSignal))
+    expect(openPath).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '关闭图文件预览' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(link).toHaveFocus()
+    client.clear()
+  })
+
+  it('外部图链接保持原链接，没有会话时说明原因而不读取', () => {
+    render(<Markdown text={'[外链](https://example.org/架构.drawio) [本地图](./架构.drawio)'} />)
+    expect(screen.getByRole('link', { name: '外链' })).toHaveAttribute('href', 'https://example.org/%E6%9E%B6%E6%9E%84.drawio')
+    fireEvent.click(screen.getByRole('link', { name: '本地图' }))
+    expect(screen.getByText(/没有可用的会话/)).toBeVisible()
+    expect(readDiagram).not.toHaveBeenCalled()
+  })
+
+  it('读取失败可以重试，失败不打开系统程序，关闭取消迟到读取', async () => {
+    const client = new QueryClient()
+    readDiagram.mockRejectedValueOnce(new Error('路径不属于当前会话或项目工作台'))
+    let cancelled: AbortSignal | undefined
+    readDiagram.mockImplementationOnce((_session, _path, signal) => { cancelled = signal; return new Promise(() => {}) })
+    render(<QueryClientProvider client={client}><Markdown text="[架构](./架构.drawio)" sessionId="session" /></QueryClientProvider>)
+    fireEvent.click(screen.getByRole('link', { name: '架构' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('路径不属于')
+    fireEvent.click(screen.getByRole('button', { name: '重试读取' }))
+    await waitFor(() => expect(readDiagram).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByRole('button', { name: '关闭图文件预览' }))
+    await waitFor(() => expect(cancelled?.aborted).toBe(true))
+    expect(openPath).not.toHaveBeenCalled()
+    client.clear()
+  })
+
+  it('切换会话立即取消原图读取，不用新会话读取旧链接', async () => {
+    const client = new QueryClient()
+    let cancelled: AbortSignal | undefined
+    readDiagram.mockImplementationOnce((_session, _path, signal) => { cancelled = signal; return new Promise(() => {}) })
+    const view = render(<QueryClientProvider client={client}><Markdown text="[图](./旧图.drawio)" sessionId="old" /></QueryClientProvider>)
+    fireEvent.click(screen.getByRole('link', { name: '图' }))
+    await waitFor(() => expect(readDiagram).toHaveBeenCalledTimes(1))
+    view.rerender(<QueryClientProvider client={client}><Markdown text="新的会话" sessionId="new" /></QueryClientProvider>)
+    await waitFor(() => expect(cancelled?.aborted).toBe(true))
+    expect(readDiagram).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    client.clear()
+  })
+
   it.each([
     ['/D:/Project/yoooni-one/tasks.md', 'D:/Project/yoooni-one/tasks.md'],
     ['/D:/Project/My%20Project/tasks.md', 'D:/Project/My Project/tasks.md'],

@@ -12,6 +12,7 @@ describe('工作目录 draw.io 预览', () => {
     vi.mocked(readSessionFile).mockResolvedValue({ name: '架构.drawio', path: '架构.drawio', size: 100, binary: false, truncated, content: '<mxGraphModel><root><mxCell id="0"/></root></mxGraphModel>' })
     render(<FileTreePanel sessionId="fixture" onClose={() => {}} />)
     fireEvent.click(await screen.findByRole('button', { name: /架构.drawio/ }))
+    await vi.dynamicImportSettled()
     if (truncated) {
       expect(await screen.findByRole('alert')).toHaveTextContent('文件读取结果已截断')
       expect(screen.queryByTitle('架构.drawio draw.io 画布')).toBeNull()

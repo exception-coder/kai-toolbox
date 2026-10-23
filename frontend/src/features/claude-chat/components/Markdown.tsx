@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { MessageImage } from './messages/MessageImage'
 import { parseChatMarkdown } from '../lib/chatMarkdown'
@@ -8,6 +8,9 @@ import { MermaidLightbox } from '@/components/markdown/MermaidLightbox'
 import { downloadSvg } from '@/components/markdown/downloadSvg'
 import { cn } from '@/lib/utils'
 import { openSessionLocalPath } from '../api'
+import { isDrawioFile } from '@/features/doc-viewer/public-api/drawio'
+
+const MessageDrawioDialog = lazy(() => import('./messages/MessageDrawioDialog').then(module => ({ default: module.MessageDrawioDialog })))
 
 // ── Mermaid 初始化（全局一次）──────────────────────────────────────────────────
 // startOnLoad=false：由本组件按需触发，避免 mermaid 自动扫 DOM 与 React 冲突。
@@ -132,6 +135,8 @@ function splitMermaid(text: string): Segment[] {
 function MarkdownPart({ text, className, sessionId }: { text: string; className?: string; sessionId?: string }) {
   const [localPathNotice, setLocalPathNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
   const content = useRef<HTMLDivElement>(null)
+  const [diagram, setDiagram] = useState<{ sessionId: string; path: string; trigger: HTMLAnchorElement } | null>(null)
+  useEffect(() => { setDiagram(null) }, [sessionId])
   const [imageTargets, setImageTargets] = useState<HTMLSpanElement[]>([])
   const html = useMemo(() => {
     if (!text.trim()) return null
@@ -139,6 +144,13 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
       const raw = parseChatMarkdown(text)
       const rawDoc = new DOMParser().parseFromString(raw, 'text/html')
       rawDoc.querySelectorAll<HTMLAnchorElement>('a').forEach(anchor => {
+        const diagramPath = diagramPathFromHref(anchor.getAttribute('href'))
+        if (diagramPath) {
+          anchor.dataset.diagramPath = diagramPath
+          anchor.href = '#'
+          anchor.title = `预览 draw.io：${diagramPath}`
+          return
+        }
         const localPath = localPathFromHref(anchor.getAttribute('href'))
         if (!localPath) return
         anchor.dataset.localPath = localPath
@@ -185,6 +197,16 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
 
   const handleClick = async (event: ReactMouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
+    const diagramLink = target.closest<HTMLAnchorElement>('a[data-diagram-path]')
+    if (diagramLink) {
+      event.preventDefault()
+      if (!sessionId) {
+        setLocalPathNotice({ tone: 'error', text: '当前视图没有可用的会话，无法读取图文件' })
+      } else {
+        setDiagram({ sessionId, path: diagramLink.dataset.diagramPath!, trigger: diagramLink })
+      }
+      return
+    }
     const localLink = target.closest<HTMLAnchorElement>('a[data-local-path]')
     if (localLink) {
       event.preventDefault()
@@ -251,6 +273,7 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
     <>
       <div
         ref={content}
+        tabIndex={-1}
         onClick={handleClick}
         onCopy={copySelection}
         className={cn(
@@ -283,6 +306,10 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
         <MessageImage src={target.dataset.messageImage ?? ''} alt={target.dataset.imageAlt ?? ''} />,
         target, `${index}:${target.dataset.messageImage}`,
       ))}
+      {diagram && sessionId && diagram.sessionId === sessionId && <Suspense fallback={<p role="status" className="mt-2 text-sm">正在打开图形预览…</p>}><MessageDrawioDialog key={`${sessionId}:${diagram.path}`} sessionId={sessionId} path={diagram.path} onClose={() => setDiagram(null)} returnFocus={() => {
+        const target = diagram.trigger.isConnected ? diagram.trigger : content.current
+        target?.focus({ preventScroll: true })
+      }} /></Suspense>}
       {localPathNotice && (
         <div className={cn('mt-1 text-[11px]', localPathNotice.tone === 'success'
           ? 'text-emerald-600 dark:text-emerald-400'
@@ -307,6 +334,19 @@ function localPathFromHref(href: string | null): string | null {
   return /^[a-z]:[\\/]/i.test(value) || /^\/(?!\/)/.test(value) || /^\.\.?[\\/]/.test(value)
     ? value
     : null
+}
+
+function diagramPathFromHref(href: string | null): string | null {
+  if (!href) return null
+  const value = href.replace(/(?::\d+(?::\d+)?|#L\d+)$/i, '')
+  const local = localPathFromHref(value)
+  if (local) return isDrawioFile(local) ? local : null
+  // Bare relative paths are common in generated file links; URLs and anchors remain ordinary links.
+  if (/^(?:[a-z][\w+.-]*:|\/\/|#|\?)/i.test(value)) return null
+  try {
+    const decoded = decodeURIComponent(value)
+    return isDrawioFile(decoded) ? decoded : null
+  } catch { return null }
 }
 
 // ── Markdown（对外导出）────────────────────────────────────────────────────────

@@ -25,7 +25,7 @@ var data=event.data;
 if(data.action==='load'){
 if(viewer)viewer.graph.destroy();
 var container=document.getElementById('diagram');container.replaceChildren();
-container.setAttribute('data-mxgraph',JSON.stringify({xml:data.xml,toolbar:'',lightbox:false,nav:true,'auto-fit':true,'responsive':false,'resize':false,lazy:false}));
+container.setAttribute('data-mxgraph',JSON.stringify({xml:data.xml,toolbar:null,lightbox:false,nav:true,'auto-fit':true,'responsive':false,'resize':false,lazy:false}));
 GraphViewer.createViewerForElement(container,function(instance){viewer=instance;report('rendered')});
 }else if(viewer){
 if(data.action==='zoom-in')viewer.graph.zoomIn();

@@ -49,6 +49,7 @@ public class SessionFileController {
     private static final int MAX_ENTRIES = 2000;
     /** 文本预览上限（字节）：超出截断。 */
     private static final int MAX_PREVIEW_BYTES = 512 * 1024;
+    private static final int MAX_DIAGRAM_BYTES = 5 * 1024 * 1024;
     private static final boolean IS_WINDOWS =
             System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     private static final boolean IS_MAC =
@@ -137,6 +138,42 @@ public class SessionFileController {
             text = new String(bytes, StandardCharsets.UTF_8);
         }
         return new FileContentView(name, rel(cwd, f), size, false, truncated, text);
+    }
+
+    /** 完整读取消息图文件，复用本地链接的会话/已登记项目校验，不执行或写入文件。 */
+    @GetMapping("/diagram")
+    public FileContentView diagram(@PathVariable String id, @RequestParam String path) {
+        Path cwd = sessionCwd(id);
+        Path target = localPathAccessService.resolve(id, cwd, normalizeLinkedPath(path));
+        String name = target.getFileName() == null ? "" : target.getFileName().toString();
+        String lower = name.toLowerCase(Locale.ROOT);
+        if ((!lower.endsWith(".drawio") && !lower.endsWith(".drawio.xml")) || !Files.isRegularFile(target)) {
+            throw new IllegalArgumentException("请选择存在的 .drawio 或 .drawio.xml 图文件");
+        }
+        try {
+            if (Files.size(target) > MAX_DIAGRAM_BYTES) {
+                throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "图文件超过 5 MiB，请拆分后查看");
+            }
+            byte[] bytes;
+            try (var input = Files.newInputStream(target)) {
+                bytes = input.readNBytes(MAX_DIAGRAM_BYTES + 1);
+            }
+            if (bytes.length > MAX_DIAGRAM_BYTES) {
+                throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "图文件超过 5 MiB，请拆分后查看");
+            }
+            if (looksBinary(bytes)) {
+                throw new IllegalArgumentException("图文件不是有效的 UTF-8 文本，请重新导出");
+            }
+            String text = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
+            return new FileContentView(name, target.toString(), bytes.length, false, false, text);
+        } catch (CharacterCodingException exception) {
+            throw new IllegalArgumentException("图文件不是有效的 UTF-8 文本，请重新导出", exception);
+        } catch (IOException exception) {
+            throw new IllegalStateException("读取图文件失败：" + exception.getMessage(), exception);
+        }
     }
 
     /** 在系统资源管理器/Finder 里定位文件（相对 cwd）。本机单用户工具，best-effort，不阻塞。 */
