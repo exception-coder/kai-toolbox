@@ -2028,12 +2028,10 @@ public class ClaudeChatService {
         finishAllActiveSpans("sidecar disconnected");
         sessions.values().forEach(ctx -> {
             if (ctx.status == SessionStatus.RUNNING) {
-                turnLifecycle.clear(ctx.sessionId);
-                ctx.status = SessionStatus.INTERRUPTED;
-                repo.touch(ctx.sessionId, SessionStatus.INTERRUPTED, System.currentTimeMillis());
+                // 断开的是传输，不代表Agent已停止；保留轮次身份接收仍在执行的任务及其终态。
                 observeRuntimeState(ctx);
                 sendToBrowser(ctx, seq -> new ServerMessage.Error(
-                        seq, "SIDECAR_DOWN", "sidecar 已断开，正在自动重连…"));
+                        seq, "SIDECAR_DOWN", "sidecar 已断开，正在自动重连…", false));
             }
         });
         scheduleSidecarRecovery();
@@ -2063,8 +2061,10 @@ public class ClaudeChatService {
                             }
                             sidecar.ensureConnected();
                         }
-                        resumeAllSessions();
-                        return;
+                        if (resumeAllSessions()) {
+                            return;
+                        }
+                        throw new IOException("部分会话的Sidecar状态尚未确认");
                     } catch (IOException e) {
                         if (attempt == 20) {
                             log.warn("[claude-chat] sidecar 自动重连失败，放弃（等下次用户动作再试）：{}", e.getMessage());
@@ -2081,28 +2081,69 @@ public class ClaudeChatService {
         });
     }
 
-    /** 重连成功后把所有已知 sdkSessionId 的会话在新 sidecar 上 resume，并 emit Ready 让前端清错恢复可用。 */
-    void resumeAllSessions() {
+    /** 按真实Sidecar快照恢复连接；仍活动的轮次不能被清空或再次resume。 */
+    boolean resumeAllSessions() {
         int n = 0;
+        boolean confirmed = true;
         for (SessionCtx ctx : sessions.values()) {
-            if (!engineCatalog.selectable(ctx.engine)) {
-                ctx.status = SessionStatus.IDLE;
-                repo.updateStatus(ctx.sessionId, SessionStatus.IDLE);
-                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
-                        "当前引擎未通过 Runtime 检测，已跳过自动恢复"));
-                continue;
+            String expectedTurn = turnLifecycle.currentTurnId(ctx.sessionId).orElse(null);
+            SessionStatus expectedStatus = ctx.status;
+            // 不能持有ctx锁等待回包，否则前面的result回调会阻塞同一条WebSocket的状态响应。
+            JsonNode snapshot = sidecar.querySessionState(ctx.sessionId, expectedTurn,
+                    SessionRuntimeStateService.SIDECAR_QUERY_TIMEOUT_MS).orElse(null);
+            synchronized (ctx) {
+                if (!Objects.equals(expectedTurn, turnLifecycle.currentTurnId(ctx.sessionId).orElse(null))
+                        || expectedStatus != ctx.status) {
+                    confirmed = false;
+                    continue; // 查询期间用户开始了新轮或收到了终态，旧快照不能覆盖它。
+                }
+                if (snapshot == null) {
+                    confirmed = false;
+                    continue;
+                }
+                if (snapshot.path("active").asBoolean(false)) {
+                    String activeTurn = blankToNull(snapshot.path("activeTurnId").asText(null));
+                    if (activeTurn == null) {
+                        confirmed = false;
+                        continue;
+                    }
+                    if (!Objects.equals(expectedTurn, activeTurn)) {
+                        turnLifecycle.adopt(ctx.sessionId, activeTurn);
+                    }
+                    ctx.status = SessionStatus.RUNNING;
+                    repo.updateStatus(ctx.sessionId, SessionStatus.RUNNING);
+                    observeRuntimeState(ctx);
+                    sendToBrowser(ctx, seq -> ready(ctx, seq));
+                    n++;
+                    continue;
+                }
+                if (snapshot.path("pendingDecision").asBoolean(false)
+                        || snapshot.path("backgroundTaskCount").asInt(0) > 0) {
+                    confirmed = false;
+                    continue;
+                }
+                if (!engineCatalog.selectable(ctx.engine)) {
+                    confirmed = false;
+                    sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
+                            "当前引擎未通过 Runtime 检测，已跳过自动恢复", false));
+                    continue;
+                }
+                sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
+                        ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
+                        ctx.consultEvidenceSystems);
+                turnLifecycle.clear(ctx.sessionId);
+                ctx.status = expectedStatus == SessionStatus.RUNNING ? SessionStatus.INTERRUPTED : expectedStatus;
+                ctx.pendingRequest = null;
+                ctx.backgroundTasks = List.of();
+                ctx.queueReleaseReady = false;
+                repo.updateStatus(ctx.sessionId, ctx.status);
+                observeRuntimeState(ctx);
+                sendToBrowser(ctx, seq -> ready(ctx, seq));
+                n++;
             }
-            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
-                    ctx.consultEvidenceSystems);
-            turnLifecycle.clear(ctx.sessionId);
-            ctx.status = SessionStatus.IDLE;
-            repo.updateStatus(ctx.sessionId, SessionStatus.IDLE);
-            observeRuntimeState(ctx);
-            sendToBrowser(ctx, seq -> ready(ctx, seq));
-            n++;
         }
-        log.info("[claude-chat] sidecar 重连成功，已 resume {} 个会话", n);
+        log.info("[claude-chat] sidecar 重连核对完成，已恢复 {} 个会话，全部确认={}", n, confirmed);
+        return confirmed;
     }
 
     /**
@@ -2116,23 +2157,14 @@ public class ClaudeChatService {
             sidecar.ensureConnected();
         } catch (IOException e) {
             sendToBrowser(ctx, seq -> new ServerMessage.Error(
-                    seq, "SIDECAR_DOWN", "sidecar 重连失败：" + e.getMessage()));
+                    seq, "SIDECAR_DOWN", "sidecar 重连失败：" + e.getMessage(), false));
             return false;
         }
-        if ((ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) || canResumeWithoutNativeSessionId(ctx.engine)) {
-            if (!engineCatalog.selectable(ctx.engine)) {
-                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
-                        "当前引擎未通过 Runtime 检测，无法恢复会话"));
-                return false;
-            }
-            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
-                    ctx.consultEvidenceSystems);
-            turnLifecycle.clear(ctx.sessionId);
-            ctx.status = SessionStatus.IDLE;
-            repo.updateStatus(ctx.sessionId, SessionStatus.IDLE);
-        }
-        return true;
+        // 此入口可能持有ctx锁；统一交给后台在锁外反查，不能连接一恢复就清空正在执行的轮次。
+        scheduleSidecarRecovery();
+        sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "SIDECAR_DOWN",
+                "连接已恢复，正在核对原轮次；当前消息尚未发送，请状态恢复后重试。", false));
+        return false;
     }
 
     /** 这些引擎即使尚无原生句柄，也能在恢复后从下一轮创建新的运行时会话。 */

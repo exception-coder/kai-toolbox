@@ -39,3 +39,17 @@
 本次仅修改 Sidecar 适配与相关说明，不修改前后端公开消息格式、SQLite 或前端交互。隔离测试不覆盖真实模型、账号和用户会话；既有运行进程未重启，新版尚未运行验收。
 
 验证：完整 Sidecar TypeScript 源码编译到独立测试目录，exit=0；55 项定向回归通过，其中 6 项为真实 SDK/本地进程测试，含旧 EOF 等待的复现、修复后成功/失败收口、取消、并发会话停止隔离及缺少所有权证据拒绝。复用并执行 App Server 生命周期、进程释放、轮次完成/中断与启动重试用例；补充 SDK 移除监听后的信号退出与 launcher 保护回归。OpenSpec strict 与 diff 检查通过；Forge JSON status=PASSED、exit=0，executedCheckers 为空，实际执行 9 个既有 API-RUNTIME-001 场景，不代表本次新 Sidecar 或指定会话已在线恢复。未覆盖运行中的 dist，未重启服务。
+
+## 6. 传输重连保留活动轮次（2026-10-24）
+
+- [x] 6.1 核对截图会话、Java迟到事件日志、只读Sidecar快照与原生历史，确认回答仍存在且轮次标识被清空。
+- [x] 6.2 断线保留turnId，自动及即时恢复统一核对真实运行快照；查询在ctx锁外，锁内拒绝旧快照覆盖新轮次。活动任务不重复resume，未知态不放行。
+- [x] 6.3 忽略被替换连接上的消息；SDK升级复用同一核对结果，未确认不报告恢复成功。未执行任何SDK升级。
+- [x] 6.4 浏览器收到过程回复但漏收结束事件时，可信本轮终态校正残留running；旧快照、启动宽限期、查询错误和未知态仍保持发送保护。
+- [x] 6.5 后端定向回归、前端定向回归、宿主编译、typecheck、OpenSpec与Forge门禁，详见下方证据。
+- [x] 6.6 已登录浏览器重新进入原咨询，可读到18:48、18:55回复；非空测试草稿时发送按钮可用，草稿已清空，没有发送诊断消息。
+- [ ] 6.7 用户明确确认后重启后端加载新修复，执行真实重连回归及至少60秒稳定观察。
+
+代码验证与原会话读取恢复不是新版后端运行验收。原生历史与运行数据未被改写，未注册人工SQL。普通故障修复不写升级纸签；本次不改变AI编程架构的职责、证据流或生命周期契约。当前服务保持运行，无本次重启授权。
+
+验证：后端ClaudeChatSessionRecoveryTest 16项、SidecarClientConnectionTest 1项、SessionRuntimeStateServiceTest 10项、TurnLifecycleCoordinatorTest 3项、SidecarSdkUpgradeServiceTest 10项，共40项通过，覆盖活动轮次保留与终态接收、丢失身份接回、缺少身份拒绝、未知态与后台任务锁定、查询期间新轮互斥及旧连接丢弃。修复前两个回归明确复现清空turnId的失败。前端运行态及咨询组件18项通过，typecheck含菜单目录和Feature boundaries通过。toolbox-starter及依赖宿主compile exit=0，OpenSpec strict通过。Forge JSON status=PASSED、exit=0，executedCheckers为空，实际仅9个已有API探针，不作为新恢复路径的在线验收。未覆盖Sidecar dist、未重启、未推送。

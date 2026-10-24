@@ -41,6 +41,27 @@ The system SHALL recover an interrupted session only after fresh runtime evidenc
 - **THEN** the adapter rechecks recorded native exit properties instead of waiting indefinitely for a detached listener
 - **AND** absent process ownership or unconfirmed exit cannot be reported as a successful turn or bypass the native writer barrier
 
+### Requirement: Preserve active turns across transport reconnection
+
+The system SHALL distinguish a transport disconnect from execution termination. It SHALL reconcile fresh Sidecar state without clearing a live turn or replaying user input, and SHALL reject frames from replaced connections.
+
+#### Scenario: Sidecar keeps executing during a disconnect
+
+- **WHEN** transport reconnects and Sidecar confirms an active turn with its identity
+- **THEN** Java retains or adopts that exact identity and continues receiving its output and result
+- **AND** the session remains running without resuming or dispatching the same work again
+
+#### Scenario: Recovery snapshot is unavailable or races with a new turn
+
+- **WHEN** the state query fails, active identity is missing, background work remains, or the Java turn changes while querying
+- **THEN** recovery cannot declare the old snapshot idle or overwrite the newer turn
+- **AND** querying happens outside the session lock to allow WebSocket terminal callbacks to complete
+
+#### Scenario: A turn disappears during transport recovery
+
+- **WHEN** fresh Sidecar state confirms no activity, pending decision or background work for the previously running turn
+- **THEN** the original native context may be mounted while the lost turn remains interrupted, with no automatic message replay or queue release
+
 ### Requirement: Recovery guidance
 
 The interface SHALL provide an explicit reload action for interrupted sessions and a recheck action when runtime state is unavailable or inconsistent.

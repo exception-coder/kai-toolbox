@@ -96,6 +96,7 @@ class SidecarSdkUpgradeServiceTest {
         var workspace = workspace();
         when(chat.activitySnapshot()).thenReturn(activity(false));
         when(client.isConnected()).thenReturn(true);
+        when(chat.resumeAllSessions()).thenReturn(true);
         service.activate(workspace);
         assertThat(Files.readString(root.resolve("package.json"))).isEqualTo("new");
         assertThat(Files.readString(workspace.backup().resolve("package.json"))).isEqualTo("old");
@@ -114,12 +115,23 @@ class SidecarSdkUpgradeServiceTest {
         var workspace = workspace();
         when(chat.activitySnapshot()).thenReturn(activity(false));
         when(client.isConnected()).thenReturn(true);
+        when(chat.resumeAllSessions()).thenReturn(true);
         doThrow(new IOException("new runtime failed")).doNothing().when(client).ensureConnected();
         assertThatThrownBy(() -> service.activate(workspace)).hasMessageContaining("已恢复原版本");
         assertThat(Files.readString(root.resolve("package.json"))).isEqualTo("old");
         assertThat(Files.readString(root.resolve("node_modules/version"))).isEqualTo("old");
         verify(chat).resumeAllSessions();
         verify(client).endSdkMaintenance();
+    }
+
+    @Test void doesNotClaimResumedWhenTheRuntimeSnapshotIsUnknown() throws Exception {
+        var workspace = workspace();
+        when(chat.activitySnapshot()).thenReturn(activity(false));
+        when(client.isConnected()).thenReturn(true);
+        when(chat.resumeAllSessions()).thenReturn(false);
+        assertThatThrownBy(() -> service.activate(workspace)).hasMessageContaining("部分会话状态尚未确认");
+        verify(client).endSdkMaintenance();
+        verify(registry, atLeastOnce()).endSdkMaintenance();
     }
 
     @Test void restoresPartialPromotion() throws Exception {

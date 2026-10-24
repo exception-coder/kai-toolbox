@@ -117,8 +117,16 @@ export function deriveConsultConversationState(
     || input.runtimeState?.stale === true
     || (input.runtimeState != null
       && UNRELIABLE_RUNTIME_CONSISTENCIES.has(input.runtimeState.consistency))
-  if (unanswered && runtimeUnreliable) {
-    return { phase: 'runtimeUnavailable', hasUnansweredUserTurn: true, waiting: false }
+  if ((unanswered || input.localRunning) && runtimeUnreliable) {
+    return { phase: 'runtimeUnavailable', hasUnansweredUserTurn: unanswered, waiting: false }
+  }
+
+  // 过程性文字不代表已收到结束事件；可信终态仍须覆盖浏览器残留的running，避免永久锁住追问。
+  if (!unanswered && runtimeStatus && TERMINAL_RUNTIME_STATUSES.has(runtimeStatus)
+    && runtimeBelongsToCurrentTurn && !runtimeUnreliable
+    && (input.runtimeActiveObservedForTurn || currentTurn?.ts == null
+      || input.now - currentTurn.ts >= RUNTIME_TERMINAL_STARTUP_GRACE_MS)) {
+    return { phase: 'idle', hasUnansweredUserTurn: false, waiting: false }
   }
 
   if (runtimeStatus && ACTIVE_RUNTIME_STATUSES.has(runtimeStatus)) {
@@ -139,8 +147,8 @@ export function deriveConsultConversationState(
     return { phase: 'stoppedWithoutResponse', hasUnansweredUserTurn: true, waiting: false }
   }
 
-  if (unanswered && (runtimeStatus === 'UNKNOWN' || runtimeStatus === 'RECONNECTING')) {
-    return { phase: 'runtimeUnavailable', hasUnansweredUserTurn: true, waiting: false }
+  if ((unanswered || input.localRunning) && (runtimeStatus === 'UNKNOWN' || runtimeStatus === 'RECONNECTING')) {
+    return { phase: 'runtimeUnavailable', hasUnansweredUserTurn: unanswered, waiting: false }
   }
 
   if (input.localRunning) {

@@ -694,6 +694,9 @@ public class SidecarClient implements ReviewThreadForkGateway {
     private class ClientHandler extends TextWebSocketHandler {
         @Override
         protected void handleTextMessage(WebSocketSession ws, TextMessage message) {
+            if (!isCurrent(ws)) {
+                return;
+            }
             try {
                 JsonNode node = mapper.readTree(message.getPayload());
                 if ("reviewForked".equals(node.path("type").asText())) {
@@ -763,7 +766,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
             failPendingProjectRouteQueries("sidecar连接已关闭");
             log.warn("[claude-chat] 与 sidecar 的连接已关闭：{}", status);
             session = null;
-            // 连接级事件：通知 service 把挂着的会话标记 INTERRUPTED
+            // 连接级事件：任务可能仍在执行，由service核对快照后恢复，不将断线等同任务停止。
             listener.accept(null, null);
         }
     }

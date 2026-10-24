@@ -151,7 +151,9 @@ public class SidecarSdkUpgradeService {
             registry.endSdkMaintenance();
             client.endSdkMaintenance();
             if (stopped && client.isConnected()) {
-                chat.resumeAllSessions();
+                if (!chat.resumeAllSessions()) {
+                    throw new IOException("运行时已连接，但部分会话状态尚未确认，请重新检查会话");
+                }
             }
         }
     }

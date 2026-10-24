@@ -161,6 +161,133 @@ class ClaudeChatSessionRecoveryTest {
                 new SessionRuntimeStateService.SendDecision(true, "RECOVERABLE_INTERRUPTED", "ready"));
     }
 
+    @Test
+    void shouldKeepTheLiveSidecarTurnDuringConnectionRecovery() {
+        ReflectionTestUtils.setField(context, "status", SessionStatus.RUNNING);
+        var turns = (TurnLifecycleCoordinator) ReflectionTestUtils.getField(service, "turnLifecycle");
+        turns.adopt("session-1", "live-turn");
+        when(sidecar.querySessionState(eq("session-1"), eq("live-turn"), anyLong())).thenReturn(Optional.of(
+                new ObjectMapper().createObjectNode().put("sessionPresent", true).put("active", true)
+                        .put("activeTurnId", "live-turn").put("backgroundTaskCount", 0)));
+        service.resumeAllSessions();
+        assertThat(turns.currentTurnId("session-1")).contains("live-turn");
+        assertThat(service.isRunning("session-1")).isTrue();
+        verify(sidecar, never()).resumeSession(anyString(), any(), anyString(), anyString(), any(), any(), any(),
+                anyString(), anyBoolean(), any(), any(), any(), any(), anyList());
+        verify(repository, never()).updateStatus("session-1", SessionStatus.IDLE);
+        service.onSidecarEvent("session-1", new ObjectMapper().createObjectNode()
+                .put("type", "result").put("turnId", "live-turn").put("stopReason", "interrupted"));
+        assertThat(turns.currentTurnId("session-1")).isEmpty();
+        assertThat(service.isRunning("session-1")).isFalse();
+        verify(repository).touch(eq("session-1"), eq(SessionStatus.IDLE), anyLong());
+    }
+
+    @Test
+    void shouldNotDeclareAnUnconfirmedRecoveryIdle() {
+        ReflectionTestUtils.setField(context, "status", SessionStatus.RUNNING);
+        var turns = (TurnLifecycleCoordinator) ReflectionTestUtils.getField(service, "turnLifecycle");
+        turns.adopt("session-1", "unconfirmed-turn");
+        when(sidecar.querySessionState(anyString(), any(), anyLong())).thenReturn(Optional.empty());
+        service.resumeAllSessions();
+        assertThat(turns.currentTurnId("session-1")).contains("unconfirmed-turn");
+        assertThat(service.isRunning("session-1")).isTrue();
+        verify(repository, never()).updateStatus(anyString(), eq(SessionStatus.IDLE));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void shouldKeepTurnIdentityWhenOnlyTransportDisconnects() throws Exception {
+        ReflectionTestUtils.setField(context, "status", SessionStatus.RUNNING);
+        var turns = (TurnLifecycleCoordinator) ReflectionTestUtils.getField(service, "turnLifecycle");
+        turns.adopt("session-1", "live-turn");
+        ((java.util.Set<WebSocketSession>) ReflectionTestUtils.getField(context, "viewers")).add(socket);
+        ((java.util.concurrent.atomic.AtomicBoolean) ReflectionTestUtils.getField(service, "recovering")).set(true);
+        service.onSidecarEvent(null, null);
+        assertThat(turns.currentTurnId("session-1")).contains("live-turn");
+        assertThat(service.isRunning("session-1")).isTrue();
+        verify(repository, never()).touch(anyString(), any(), anyLong());
+        verify(socket).sendMessage(argThat(message -> message.getPayload().toString().contains("SIDECAR_DOWN")
+                && message.getPayload().toString().contains("\"terminal\":false")));
+    }
+
+    @Test
+    void shouldNotResetTheTurnOnImmediateTransportReconnect() {
+        ReflectionTestUtils.setField(context, "status", SessionStatus.RUNNING);
+        var turns = (TurnLifecycleCoordinator) ReflectionTestUtils.getField(service, "turnLifecycle");
+        turns.adopt("session-1", "live-turn");
+        when(sidecar.isConnected()).thenReturn(false);
+        ((java.util.concurrent.atomic.AtomicBoolean) ReflectionTestUtils.getField(service, "recovering")).set(true);
+        assertThat((Boolean) ReflectionTestUtils.invokeMethod(service, "ensureSessionResumable", context)).isFalse();
+        assertThat(turns.currentTurnId("session-1")).contains("live-turn");
+        assertThat(service.isRunning("session-1")).isTrue();
+        verify(repository, never()).updateStatus(anyString(), any());
+    }
+
+    @Test
+    void shouldRetainInterruptionWhenSidecarConfirmsTheTurnIsGone() {
+        ReflectionTestUtils.setField(context, "status", SessionStatus.RUNNING);
+        var turns = (TurnLifecycleCoordinator) ReflectionTestUtils.getField(service, "turnLifecycle");
+        turns.adopt("session-1", "lost-turn");
+        when(sidecar.querySessionState(anyString(), any(), anyLong())).thenReturn(Optional.of(
+                new ObjectMapper().createObjectNode().put("sessionPresent", false).put("active", false)));
+        assertThat(service.resumeAllSessions()).isTrue();
+        assertThat(turns.currentTurnId("session-1")).isEmpty();
+        assertThat(ReflectionTestUtils.getField(context, "status")).isEqualTo(SessionStatus.INTERRUPTED);
+        verify(repository).updateStatus("session-1", SessionStatus.INTERRUPTED);
+    }
+
+    @Test
+    void shouldNotOverwriteANewerTurnWhileInspectingRecovery() {
+        ReflectionTestUtils.setField(context, "status", SessionStatus.RUNNING);
+        var turns = (TurnLifecycleCoordinator) ReflectionTestUtils.getField(service, "turnLifecycle");
+        turns.adopt("session-1", "old-turn");
+        when(sidecar.querySessionState(anyString(), any(), anyLong())).thenAnswer(invocation -> {
+            assertThat(Thread.holdsLock(context)).isFalse();
+            turns.adopt("session-1", "new-turn");
+            return Optional.of(new ObjectMapper().createObjectNode().put("sessionPresent", true).put("active", false));
+        });
+        assertThat(service.resumeAllSessions()).isFalse();
+        assertThat(turns.currentTurnId("session-1")).contains("new-turn");
+        assertThat(service.isRunning("session-1")).isTrue();
+        verify(repository, never()).updateStatus(anyString(), any());
+    }
+
+    @Test
+    void shouldKeepRecoveryLockedWhileBackgroundTasksRemain() {
+        ReflectionTestUtils.setField(context, "status", SessionStatus.RUNNING);
+        var turns = (TurnLifecycleCoordinator) ReflectionTestUtils.getField(service, "turnLifecycle");
+        turns.adopt("session-1", "pending-cleanup");
+        when(sidecar.querySessionState(anyString(), any(), anyLong())).thenReturn(Optional.of(
+                new ObjectMapper().createObjectNode().put("sessionPresent", true).put("active", false)
+                        .put("backgroundTaskCount", 1)));
+        assertThat(service.resumeAllSessions()).isFalse();
+        assertThat(turns.currentTurnId("session-1")).contains("pending-cleanup");
+        verify(repository, never()).updateStatus(anyString(), any());
+    }
+
+    @Test
+    void shouldAdoptTheConfirmedLiveTurnIfJavaLostItsIdentity() {
+        var turns = (TurnLifecycleCoordinator) ReflectionTestUtils.getField(service, "turnLifecycle");
+        when(sidecar.querySessionState(anyString(), any(), anyLong())).thenReturn(Optional.of(
+                new ObjectMapper().createObjectNode().put("sessionPresent", true).put("active", true)
+                        .put("activeTurnId", "native-live-turn")));
+        assertThat(service.resumeAllSessions()).isTrue();
+        assertThat(turns.currentTurnId("session-1")).contains("native-live-turn");
+        assertThat(service.isRunning("session-1")).isTrue();
+    }
+
+    @Test
+    void shouldNotUnlockAnActiveSessionWithoutTurnIdentity() {
+        ReflectionTestUtils.setField(context, "status", SessionStatus.RUNNING);
+        var turns = (TurnLifecycleCoordinator) ReflectionTestUtils.getField(service, "turnLifecycle");
+        turns.adopt("session-1", "old-turn");
+        when(sidecar.querySessionState(anyString(), any(), anyLong())).thenReturn(Optional.of(
+                new ObjectMapper().createObjectNode().put("sessionPresent", true).put("active", true)));
+        assertThat(service.resumeAllSessions()).isFalse();
+        assertThat(turns.currentTurnId("session-1")).contains("old-turn");
+        verify(repository, never()).updateStatus(anyString(), any());
+    }
+
     private <T> T dependency(Class<T> type) {
         return type.cast(dependencies.get(type));
     }

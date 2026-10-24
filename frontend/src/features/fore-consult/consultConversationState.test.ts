@@ -55,6 +55,14 @@ function derive(overrides: Partial<Parameters<typeof deriveConsultConversationSt
 }
 
 describe('consult conversation state', () => {
+  it('有过程回复但漏收结束事件时，可信Runtime终态仍可解除本地运行锁', () => {
+    expect(derive({ items: [user(), assistant('我继续核对…')], localRunning: true,
+      runtimeState: runtime('IDLE'), runtimeActiveObservedForTurn: true }).phase).toBe('idle')
+    expect(derive({ items: [user(), assistant('我继续核对…')], localRunning: true,
+      runtimeState: runtime('IDLE', NOW - 90_000) }).phase).toBe('running')
+    expect(derive({ items: [user(), assistant('我继续核对…')], localRunning: true,
+      runtimeState: runtime('IDLE'), runtimeError: true }).phase).toBe('runtimeUnavailable')
+  })
   it('识别最后一轮存在有效回答', () => {
     expect(hasUnansweredUserTurn([user(), assistant()])).toBe(false)
     expect(hasUnansweredUserTurn([user(), assistant('')])).toBe(true)
