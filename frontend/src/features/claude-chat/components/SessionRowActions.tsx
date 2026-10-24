@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { Copy, Loader2, LockKeyhole, MoreHorizontal, Pencil, Star, Tags, Trash2, Unlock } from 'lucide-react'
+import { Copy, Loader2, LockKeyhole, MoreHorizontal, Pencil, Pin, Tags, Trash2, Unlock } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { CopySessionIdButton } from './CopySessionIdButton'
@@ -51,7 +51,7 @@ export function SessionRowActions(props: Props) {
       className="pointer-events-auto z-[80] max-h-[var(--radix-popover-content-available-height)] w-56 max-w-[calc(100vw-24px)] overflow-y-auto p-1"
       onCloseAutoFocus={event => { if (handingOffFocus.current) event.preventDefault() }}>
       <p className="truncate border-b border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-muted-foreground)]" title={props.title}>{props.title}</p>
-      {action(props.favorite ? '取消收藏会话' : '收藏会话', props.favoriteBusy ? <Loader2 className="size-4 animate-spin" /> : <Star className={cn('size-4', props.favorite && 'fill-current text-amber-500')} />, props.onFavorite, props.favoriteBusy)}
+      {action(props.favorite ? '取消置顶' : '置顶会话', props.favoriteBusy ? <Loader2 className="size-4 animate-spin" /> : <Pin className="size-4" />, props.onFavorite, props.favoriteBusy)}
       <CopySessionIdButton sessionId={props.sessionId} variant="menu" />
       {props.onDuplicate && action('复制会话配置', props.duplicating ? <Loader2 className="size-4 animate-spin" /> : <Copy className="size-4" />, props.onDuplicate, props.duplicateBusy, true)}
       {action(props.planExpired ? '解锁过期规划' : '标记规划过期', props.planExpired ? <Unlock className="size-4" /> : <LockKeyhole className="size-4" />, props.onPlan, props.planBusy || props.running, true)}

@@ -52,14 +52,14 @@ export function resolveSessionProject(session: SessionProjectSource): SessionPro
   return { key: JSON.stringify(['ungrouped']), label: '未分组', kind: 'ungrouped', cwd: '' }
 }
 
-export function groupSessionsByProject(sessions: ClaudeChatSessionView[]): SessionProjectSummary[] {
+export function groupSessionsByProject(sessions: ClaudeChatSessionView[], activityAt = (session: ClaudeChatSessionView) => session.lastActivityAt ?? session.lastSeenAt): SessionProjectSummary[] {
   const projects = new Map<string, SessionProjectSummary>()
   for (const session of sessions) {
     const project = resolveSessionProject(session)
     const summary = projects.get(project.key) ?? { ...project, count: 0, running: 0, lastSeenAt: 0 }
     summary.count += 1
     if (session.status === 'RUNNING' && session.live) summary.running += 1
-    summary.lastSeenAt = Math.max(summary.lastSeenAt, session.lastSeenAt)
+    summary.lastSeenAt = Math.max(summary.lastSeenAt, activityAt(session))
     projects.set(project.key, summary)
   }
   return [...projects.values()].sort((a, b) =>

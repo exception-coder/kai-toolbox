@@ -15,6 +15,7 @@ import com.exceptioncoder.toolbox.claudechat.service.SessionPlanStateService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionProjectService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionDeletionService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionPinService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionRuntimeStateService;
 import com.exceptioncoder.toolbox.claudechat.service.EngineCatalogService;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
@@ -54,6 +55,7 @@ public class ClaudeChatSessionController {
     private final EngineCatalogService engineCatalogService;
     private final ClaudeChatSessionAccessPolicy sessionAccessPolicy;
     private final CodexDesktopSyncService codexDesktopSyncService;
+    private final SessionPinService sessionPins;
 
     public ClaudeChatSessionController(ClaudeChatSessionRepository repo, ClaudeChatService service,
                                        SessionHistoryService historyService,
@@ -63,7 +65,7 @@ public class ClaudeChatSessionController {
                                        SessionRuntimeStateService runtimeStateService,
                                        EngineCatalogService engineCatalogService,
                                        ClaudeChatSessionAccessPolicy sessionAccessPolicy,
-                                       CodexDesktopSyncService codexDesktopSyncService) {
+                                       CodexDesktopSyncService codexDesktopSyncService, SessionPinService sessionPins) {
         this.repo = repo;
         this.service = service;
         this.historyService = historyService;
@@ -74,6 +76,7 @@ public class ClaudeChatSessionController {
         this.engineCatalogService = engineCatalogService;
         this.sessionAccessPolicy = sessionAccessPolicy;
         this.codexDesktopSyncService = codexDesktopSyncService;
+        this.sessionPins = sessionPins;
     }
 
     @GetMapping
@@ -94,10 +97,12 @@ public class ClaudeChatSessionController {
         Map<String, SessionPlanState> planStates =
                 planStateService.listStates(all.stream().map(ClaudeChatSession::getId).toList());
         long afterPlans = System.nanoTime();
+        var pins = sessionPins.current();
         List<ClaudeChatSessionView> result = all.stream()
                 .map(s -> ClaudeChatSessionView.from(s, service.isLive(s.getId()),
                         transcriptMissing(s, missing), planStates.get(s.getId()),
-                        codexDesktopSyncService.isImportedSession(s) ? "codex" : null))
+                        codexDesktopSyncService.isImportedSession(s) ? "codex" : null,
+                        pins.state(s).pinned(), pins.state(s).pinnedAt()))
                 .toList();
         long finished = System.nanoTime();
         log.info("[vibe-session-list] count={} accessMs={} transcriptMs={} planMs={} mapMs={} totalMs={}",
@@ -193,18 +198,16 @@ public class ClaudeChatSessionController {
     @PutMapping("/{id}/favorite")
     public ResponseEntity<Void> favorite(@PathVariable String id) {
         if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        return repo.updateFavorite(id, true)
-                ? ResponseEntity.noContent().build()
-                : ResponseEntity.notFound().build();
+        sessionPins.set(id, true);
+        return ResponseEntity.noContent().build();
     }
 
     /** 取消会话重点收藏。 */
     @DeleteMapping("/{id}/favorite")
     public ResponseEntity<Void> unfavorite(@PathVariable String id) {
         if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        return repo.updateFavorite(id, false)
-                ? ResponseEntity.noContent().build()
-                : ResponseEntity.notFound().build();
+        sessionPins.set(id, false);
+        return ResponseEntity.noContent().build();
     }
 
     /**

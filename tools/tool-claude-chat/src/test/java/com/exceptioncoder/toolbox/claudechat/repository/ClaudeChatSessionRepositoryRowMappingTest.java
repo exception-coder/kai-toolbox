@@ -51,6 +51,12 @@ class ClaudeChatSessionRepositoryRowMappingTest {
             assertThat(session.getId()).isEqualTo("legacy-session");
             assertThat(session.getUserId()).isNull();
         });
+        var repository = new ClaudeChatSessionRepository(jdbc);
+        repository.updateStatus("legacy-session", com.exceptioncoder.toolbox.claudechat.domain.SessionStatus.RUNNING);
+        assertThat(repository.findById("legacy-session")).get().satisfies(session -> {
+            assertThat(session.getLastSeenAt()).isEqualTo(2L);
+            assertThat(session.getStatus()).isEqualTo(com.exceptioncoder.toolbox.claudechat.domain.SessionStatus.RUNNING);
+        });
     }
 
     @Test

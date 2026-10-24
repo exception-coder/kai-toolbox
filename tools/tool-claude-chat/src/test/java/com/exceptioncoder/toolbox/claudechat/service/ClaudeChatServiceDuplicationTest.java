@@ -50,6 +50,22 @@ class ClaudeChatServiceDuplicationTest {
     }
 
     @Test
+    void viewingAndReattachingSessionDoesNotRecordNewActivityOrPinIt() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "runtimeStates", mock(SessionRuntimeStateService.class));
+        var source = source("codex", null);
+        source.setLastSeenAt(123L);
+        when(repo.findById("source")).thenReturn(Optional.of(source));
+        when(sidecar.isConnected()).thenReturn(true);
+        service.switchSession(ws, new ClientMessage.SwitchSession("source"));
+        service.switchSession(ws, new ClientMessage.SwitchSession("source"));
+        service.attach(ws, new ClientMessage.Attach("source", 0));
+        verify(repo, org.mockito.Mockito.atLeastOnce()).updateStatus("source", SessionStatus.IDLE);
+        verify(repo, never()).touch(eq("source"), any(), anyLong());
+        verify(repo, never()).updateFavorite(anyString(), org.mockito.ArgumentMatchers.anyBoolean());
+        assertThat(source.getLastSeenAt()).isEqualTo(123L);
+    }
+
+    @Test
     void sameAuthCopyCreatesAnIndependentSessionAndLineageWhilePreservingConfiguration() {
         ClaudeChatSession source = source("codex", "C:/Users/test/.codex-pro");
         when(repo.findById("source")).thenReturn(Optional.of(source));

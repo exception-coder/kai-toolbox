@@ -46,6 +46,46 @@ afterEach(() => {
 })
 
 describe('session project navigation', () => {
+  it('holds project/session order during activity and pins only by an explicit menu action', async () => {
+    const initial = [
+      { ...session('a', 'D:/Alpha'), lastSeenAt: 300 },
+      { ...session('b', 'D:/Alpha'), lastSeenAt: 200 },
+      { ...session('other', 'D:/Beta'), lastSeenAt: 500 },
+    ]
+    const { client, onSwitch } = renderList(initial)
+    const projectOrder = () => screen.getAllByRole('button', { name: /^打开项目 / }).map(row => row.getAttribute('aria-label'))
+    expect(projectOrder()[0]).toContain('Beta')
+    await act(async () => { client.setQueryData(['claude-chat-sessions'], [{ ...initial[1], lastSeenAt: 1000 }, initial[0], initial[2]]) })
+    expect(projectOrder()[0]).toContain('Beta')
+    fireEvent.click(screen.getByRole('button', { name: '打开项目 Alpha，工作目录 D:/Alpha' }))
+    const rowOrder = () => screen.getAllByRole('button', { name: /^任务 [ab]/ }).map(row => row.textContent?.match(/^任务 [ab]/)?.[0])
+    expect(rowOrder()).toEqual(['任务 b', '任务 a'])
+    fireEvent.click(screen.getByRole('button', { name: /^任务 a/ }))
+    await act(async () => { client.setQueryData(['claude-chat-sessions'], [{ ...initial[0], lastSeenAt: 2000 }, initial[1], initial[2]]) })
+    expect(rowOrder()).toEqual(['任务 b', '任务 a'])
+    expect(onSwitch).toHaveBeenCalledWith('a', false)
+    expect(screen.queryByText('置顶会话')).not.toBeInTheDocument()
+    let server = client.getQueryData<ClaudeChatSessionView[]>(['claude-chat-sessions'])!
+    vi.mocked(api.listSessions).mockImplementation(async () => server)
+    const pin = vi.spyOn(api, 'setSessionFavorite').mockImplementation(async (id, favorite) => {
+      server = server.map(row => row.id === id ? { ...row, favorite, pinnedAt: favorite ? 3000 : null } : row)
+    })
+    fireEvent.click(screen.getByRole('button', { name: '更多操作：任务 a' }))
+    fireEvent.click(screen.getByRole('button', { name: '置顶会话' }))
+    await waitFor(() => expect(screen.getByText('置顶会话')).toBeInTheDocument())
+    expect(rowOrder()).toEqual(['任务 a', '任务 b'])
+    fireEvent.click(screen.getByRole('button', { name: '更多操作：任务 a' }))
+    const unpin = screen.getByRole('button', { name: '取消置顶' })
+    await waitFor(() => expect(unpin).toBeEnabled())
+    fireEvent.click(unpin)
+    await waitFor(() => expect(screen.queryByText('置顶会话')).not.toBeInTheDocument())
+    expect(rowOrder()).toEqual(['任务 b', '任务 a'])
+    expect(pin).toHaveBeenNthCalledWith(1, 'a', true)
+    expect(pin).toHaveBeenNthCalledWith(2, 'a', false)
+    fireEvent.click(screen.getByRole('button', { name: '更新项目会话排序' }))
+    expect(rowOrder()).toEqual(['任务 a', '任务 b'])
+  })
+
   it('duplicates the selected configuration in one step with its original Codex authorization', () => {
     const { onDuplicate, onSwitch } = renderList([{ ...session('source', 'D:/work/Alpha'), codexHome: 'C:/Users/test/.codex-pro' }])
     fireEvent.click(screen.getByRole('button', { name: '打开项目 Alpha，工作目录 D:/work/Alpha' }))
@@ -142,7 +182,7 @@ describe('session project navigation', () => {
     const { onSwitch } = renderList([session('one', 'D:/work/Alpha'), session('two', 'D:/work/Alpha')])
     fireEvent.click(screen.getByRole('button', { name: '打开项目 Alpha，工作目录 D:/work/Alpha' }))
     fireEvent.click(screen.getByRole('button', { name: '更多操作：任务 two' }))
-    fireEvent.click(screen.getByRole('button', { name: '收藏会话' }))
+    fireEvent.click(screen.getByRole('button', { name: '置顶会话' }))
     await waitFor(() => expect(favorite).toHaveBeenCalledWith('two', true))
     expect(onSwitch).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog', { name: '会话操作：任务 two' })).not.toBeInTheDocument()
@@ -161,7 +201,7 @@ describe('session project navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: '打开项目 Alpha，工作目录 D:/work/Alpha' }))
     const trigger = screen.getByRole('button', { name: '更多操作：任务 one' })
     fireEvent.click(trigger)
-    const favorite = screen.getByRole('button', { name: '收藏会话' })
+    const favorite = screen.getByRole('button', { name: '置顶会话' })
     await waitFor(() => expect(favorite).toHaveFocus())
     fireEvent.keyDown(favorite, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '会话操作：任务 one' })).not.toBeInTheDocument())

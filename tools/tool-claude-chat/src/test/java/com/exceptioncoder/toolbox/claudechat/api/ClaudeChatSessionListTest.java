@@ -2,6 +2,8 @@ package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSettingRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exceptioncoder.toolbox.claudechat.service.*;
 import com.exceptioncoder.toolbox.claudechat.service.codexsync.CodexDesktopSyncService;
 import com.exceptioncoder.toolbox.common.exception.GlobalExceptionHandler;
@@ -20,10 +22,12 @@ class ClaudeChatSessionListTest {
     private final SessionHistoryService history = mock(SessionHistoryService.class);
     private final SessionPlanStateService plans = mock(SessionPlanStateService.class);
     private final ClaudeChatSessionAccessPolicy access = mock(ClaudeChatSessionAccessPolicy.class);
+    private final ClaudeChatSettingRepository settings = mock(ClaudeChatSettingRepository.class);
     private final ClaudeChatSessionController controller = new ClaudeChatSessionController(repository,
             mock(ClaudeChatService.class), history, plans, mock(SessionProjectService.class),
             mock(SessionDeletionService.class), mock(SessionRuntimeStateService.class),
-            mock(EngineCatalogService.class), access, mock(CodexDesktopSyncService.class));
+            mock(EngineCatalogService.class), access, mock(CodexDesktopSyncService.class),
+            new SessionPinService(settings, new ObjectMapper()));
 
     @Test
     void listsNewSessionsWithoutSdkIdentityWithAnImmutableEmptyMissingSet() throws Exception {
@@ -36,10 +40,25 @@ class ClaudeChatSessionListTest {
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         mvc.perform(get("/api/claude-chat/sessions")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$[0].lastActivityAt").value(0))
                 .andExpect(jsonPath("$[0].transcriptMissing").value(false))
                 .andExpect(jsonPath("$[1].transcriptMissing").value(false))
                 .andExpect(jsonPath("$[2].transcriptMissing").value(false))
                 .andExpect(jsonPath("$[3].transcriptMissing").value(false));
+        verify(settings, times(1)).find("session-pins:local");
+    }
+
+    @Test
+    void pinEndpointChecksAccessAndDoesNotUpdateActivityOrGlobalFavorites() throws Exception {
+        when(access.canAccessCurrentUser("owned")).thenReturn(true);
+        var mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/claude-chat/sessions/owned/favorite"))
+                .andExpect(status().isNoContent());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/claude-chat/sessions/other/favorite"))
+                .andExpect(status().isForbidden());
+        verify(settings).upsert(org.mockito.ArgumentMatchers.eq("session-pins:local"), org.mockito.ArgumentMatchers.contains("owned"));
+        verify(repository, never()).updateFavorite(any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(repository, never()).touch(any(), any(), org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test

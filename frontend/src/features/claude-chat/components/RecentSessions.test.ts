@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import * as api from '../api'
@@ -38,6 +38,61 @@ describe('groupRecentSessionsByWorkspace', () => {
 
 describe('recent workspace disclosure', () => {
   afterEach(() => vi.restoreAllMocks())
+
+  it('keeps row/group order and scroll while switching and polling; applies new activity only on request', async () => {
+    const rows = [
+      { ...session('a', 'D:/Alpha', 300), title: '任务 a' },
+      { ...session('b', 'D:/Alpha', 200), title: '任务 b' },
+      { ...session('c', 'D:/Alpha', 100), title: '任务 c' },
+      { ...session('other', 'D:/Beta', 500), title: '任务 other' },
+    ]
+    let serverRows: ClaudeChatSessionView[] = rows
+    vi.spyOn(api, 'listSessions').mockImplementation(async () => serverRows)
+    const pin = vi.spyOn(api, 'setSessionFavorite').mockResolvedValue(undefined)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const onSwitch = vi.fn()
+    const view = (current: string) => createElement(QueryClientProvider, { client }, createElement(ConfirmProvider, null,
+      createElement(RecentSessions, { currentSessionId: current, onSwitch })))
+    const result = render(view('a'))
+    const alpha = await screen.findByRole('region', { name: '工作目录 D:/Alpha' })
+    const order = () => within(alpha).getAllByRole('button', { name: /^任务 / }).map(row => row.getAttribute('title')?.split('\n')[0])
+    const scroll = alpha.parentElement!
+    scroll.scrollTop = 80
+    for (const id of ['b', 'c', 'a']) {
+      fireEvent.click(within(alpha).getByRole('button', { name: new RegExp('^任务 ' + id) }))
+      result.rerender(view(id))
+      expect(order()).toEqual(['任务 a', '任务 b', '任务 c'])
+    }
+    serverRows = [
+      { ...rows[2], lastSeenAt: 1000, status: 'RUNNING', live: true }, ...rows.slice(0, 2), rows[3],
+    ]
+    await act(async () => { client.setQueryData(['claude-chat-sessions'], serverRows) })
+    await waitFor(() => expect(screen.getByRole('button', { name: '更新最近会话排序' })).toHaveTextContent('有新活动'))
+    expect(order()).toEqual(['任务 a', '任务 b', '任务 c'])
+    expect(screen.getAllByRole('region', { name: /^工作目录 / }).map(region => region.getAttribute('aria-label')))
+      .toEqual(['工作目录 D:/Beta', '工作目录 D:/Alpha'])
+    expect(scroll.scrollTop).toBe(80)
+    expect(screen.getByRole('button', { name: '更新最近会话排序' })).toHaveTextContent('有新活动')
+    expect(pin).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '更新最近会话排序' }))
+    expect(order()).toEqual(['任务 c', '任务 a', '任务 b'])
+    expect(screen.getAllByRole('region', { name: /^工作目录 / })[0]).toHaveAttribute('aria-label', '工作目录 D:/Alpha')
+  })
+
+  it('keeps old manually pinned sessions visible beyond the normal recent limit', async () => {
+    vi.spyOn(api, 'listSessions').mockResolvedValue([
+      { ...session('new', 'D:/Alpha', 300), title: '最新会话' },
+      { ...session('older', 'D:/Alpha', 200), title: '普通旧会话' },
+      { ...session('pin', 'D:/Alpha', 1, true), title: '置顶旧会话', pinnedAt: 400 },
+    ])
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(createElement(QueryClientProvider, { client }, createElement(ConfirmProvider, null,
+      createElement(RecentSessions, { currentSessionId: null, onSwitch: vi.fn(), limit: 1 }))))
+    expect(await screen.findByRole('button', { name: /^置顶旧会话/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^最新会话/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^普通旧会话/ })).not.toBeInTheDocument()
+    expect(screen.getAllByLabelText('已置顶')).toHaveLength(1)
+  })
 
   it('offers the same copy action in recent sessions and disables it while a copy is pending', async () => {
     const source = { ...session('source', 'D:/work/Alpha', Date.now()), title: '当前开发', codexHome: 'C:/Users/test/.codex-pro' }

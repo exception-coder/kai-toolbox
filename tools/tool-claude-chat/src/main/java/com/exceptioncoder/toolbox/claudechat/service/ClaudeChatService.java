@@ -393,7 +393,7 @@ public class ClaudeChatService {
                 if (!canBind(ws, restored.executionPolicy, db.getId())) return;
                 bindViewer(ws, restored);
                 if (created[0] && engineSelectable) {
-                    repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
+                    repo.updateStatus(db.getId(), SessionStatus.IDLE);
                     sidecar.resumeSession(db.getId(), restored.sdkSessionId, db.getCwd(), restored.engine,
                             restored.apiBaseUrl, restored.authToken, restored.codexHome,
                             restored.mode, restored.autoApprove, restored.currentModel,
@@ -452,9 +452,8 @@ public class ClaudeChatService {
         migrateLegacyOfficialGemini(ctx, db);
         bindViewer(ws, ctx);
         boolean engineSelectable = engineCatalog.selectable(ctx.engine);
-        // 只更新 lastSeenAt，保留会话真实状态：若该会话仍有在跑的一轮（ctx 内存中为 RUNNING），
-        // 切回/刷新恢复时不能把 DB 状态抹成 IDLE，否则会话列表与前端 running 判定都会误判为「空闲」。
-        repo.touch(db.getId(), ctx.status, System.currentTimeMillis());
+        // 查看不算活动；仍保留 RUNNING 等真实状态，避免切换导致最近列表重排。
+        repo.updateStatus(db.getId(), ctx.status);
         if (engineSelectable) {
             sidecar.resumeSession(db.getId(), ctx.sdkSessionId, db.getCwd(), ctx.engine, ctx.apiBaseUrl,
                     ctx.authToken, ctx.codexHome, ctx.mode, ctx.autoApprove, ctx.currentModel,
@@ -2088,7 +2087,7 @@ public class ClaudeChatService {
         for (SessionCtx ctx : sessions.values()) {
             if (!engineCatalog.selectable(ctx.engine)) {
                 ctx.status = SessionStatus.IDLE;
-                repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
+                repo.updateStatus(ctx.sessionId, SessionStatus.IDLE);
                 sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
                         "当前引擎未通过 Runtime 检测，已跳过自动恢复"));
                 continue;
@@ -2098,7 +2097,7 @@ public class ClaudeChatService {
                     ctx.consultEvidenceSystems);
             turnLifecycle.clear(ctx.sessionId);
             ctx.status = SessionStatus.IDLE;
-            repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
+            repo.updateStatus(ctx.sessionId, SessionStatus.IDLE);
             observeRuntimeState(ctx);
             sendToBrowser(ctx, seq -> ready(ctx, seq));
             n++;
@@ -2131,7 +2130,7 @@ public class ClaudeChatService {
                     ctx.consultEvidenceSystems);
             turnLifecycle.clear(ctx.sessionId);
             ctx.status = SessionStatus.IDLE;
-            repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
+            repo.updateStatus(ctx.sessionId, SessionStatus.IDLE);
         }
         return true;
     }

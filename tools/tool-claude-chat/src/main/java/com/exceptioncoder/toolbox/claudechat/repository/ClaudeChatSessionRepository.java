@@ -203,6 +203,11 @@ public class ClaudeChatSessionRepository {
                 status.name(), lastSeenAt, id);
     }
 
+    /** 连接恢复只校正状态，不能把查看会话算作新的业务活动。 */
+    public void updateStatus(String id, SessionStatus status) {
+        jdbc.update("UPDATE claude_chat_session SET status = ? WHERE id = ?", status.name(), id);
+    }
+
     /** 会话内切服务商：更新第三方网关 baseUrl + token（空＝切回官方）。sdk_session_id 不动，沿用原生会话。 */
     public void updateProvider(String id, String apiBaseUrl, String authToken) {
         jdbc.update(

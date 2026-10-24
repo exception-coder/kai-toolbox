@@ -37,8 +37,12 @@ public record ClaudeChatSessionView(
         Long planExpiredAt,
         Long planUnlockedAt,
         /** 通过同步创建的来源引擎；空值不推断来源。 */
-        String importSource
+        String importSource,
+        Long pinnedAt
 ) {
+    /** 兼容 lastSeenAt 字段名；现在只记录真实执行活动，不记录打开/切换。 */
+    @com.fasterxml.jackson.annotation.JsonProperty("lastActivityAt")
+    public long lastActivityAt() { return lastSeenAt; }
     public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live) {
         return from(s, live, false);
     }
@@ -64,6 +68,12 @@ public record ClaudeChatSessionView(
     /** 将经过导入身份核对的来源与现有会话状态一并投影。 */
     public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live, boolean transcriptMissing,
                                              SessionPlanState planState, String importSource) {
+        return from(s, live, transcriptMissing, planState, importSource, s.isFavorite(), null);
+    }
+
+    public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live, boolean transcriptMissing,
+                                             SessionPlanState planState, String importSource,
+                                             boolean pinned, Long pinnedAt) {
         String engine = s.getEngine() == null ? "claude" : s.getEngine();
         String engines = s.getEngines() == null || s.getEngines().isBlank() ? engine : s.getEngines();
         String providerBaseUrl = s.getApiBaseUrl() == null || s.getApiBaseUrl().isBlank() ? null : s.getApiBaseUrl();
@@ -72,10 +82,10 @@ public record ClaudeChatSessionView(
         String subgroup = s.getSubgroupName() == null || s.getSubgroupName().isBlank() ? null : s.getSubgroupName();
         return new ClaudeChatSessionView(
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
-                engine, engines, providerKind, providerBaseUrl, s.getCodexHome(), group, subgroup, s.isFavorite(),
+                engine, engines, providerKind, providerBaseUrl, s.getCodexHome(), group, subgroup, pinned,
                 s.getStatus(), s.getStartedAt(), s.getLastSeenAt(), live, transcriptMissing,
                 planState != null && planState.planExpired(),
                 planState == null ? null : planState.expiredAt(),
-                planState == null ? null : planState.unlockedAt(), importSource);
+                planState == null ? null : planState.unlockedAt(), importSource, pinnedAt);
     }
 }

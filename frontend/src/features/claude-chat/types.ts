@@ -51,6 +51,10 @@ export interface ClaudeChatSessionView {
   subgroup?: string | null
   /** 用户重点收藏，收藏会话在所属需求分组内优先展示。 */
   favorite?: boolean
+  /** 用户主动置顶时间；favorite 保留为兼容字段，不由选中或执行触发。 */
+  pinnedAt?: number | null
+  /** 真实执行活动；旧服务使用 lastSeenAt 兼容。 */
+  lastActivityAt?: number
   status: SessionStatus
   startedAt: number
   lastSeenAt: number

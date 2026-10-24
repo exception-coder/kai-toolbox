@@ -1,7 +1,7 @@
 import { useRecentSessionsExpanded } from '../lib/workspacePreferences'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronRight, Clock3, Folder, Link2, LockKeyhole, Star } from 'lucide-react'
+import { Check, ChevronRight, Clock3, Folder, Link2, LockKeyhole, Pin } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionFavorite, setSessionGroupApi } from '../api'
 import { engineDisplayName } from './chatStatus'
@@ -21,6 +21,7 @@ import { isVibeCodingSession } from '../lib/sessionScope'
 import { sessionDisplayName } from '../lib/sessionDisplayName'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { sessionWorkspaceIdentity, sessionWorkspaceLabel } from '../lib/sessionProjectGroups'
+import { useStableSessionOrder } from '../hooks/useStableSessionOrder'
 
 interface Props {
   currentSessionId: string | null
@@ -42,7 +43,7 @@ export interface RecentWorkspaceGroup {
   lastSeenAt: number
 }
 
-export function groupRecentSessionsByWorkspace(sessions: ClaudeChatSessionView[]): RecentWorkspaceGroup[] {
+export function groupRecentSessionsByWorkspace(sessions: ClaudeChatSessionView[], stable?: ReturnType<typeof useStableSessionOrder>): RecentWorkspaceGroup[] {
   const groups = new Map<string, RecentWorkspaceGroup>()
   for (const session of sessions) {
     const cwd = session.cwd?.trim() || ''
@@ -55,14 +56,15 @@ export function groupRecentSessionsByWorkspace(sessions: ClaudeChatSessionView[]
       lastSeenAt: 0,
     }
     group.sessions.push(session)
-    group.lastSeenAt = Math.max(group.lastSeenAt, session.lastSeenAt)
+    group.lastSeenAt = Math.max(group.lastSeenAt, stable ? stable.activityAt(session) : session.lastActivityAt ?? session.lastSeenAt)
     groups.set(key, group)
   }
   return [...groups.values()]
     .map(group => ({
       ...group,
       sessions: [...group.sessions].sort((a, b) =>
-        Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || b.lastSeenAt - a.lastSeenAt),
+        stable ? stable.comparePinned(a, b) : Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))
+          || (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0) || (b.lastActivityAt ?? b.lastSeenAt) - (a.lastActivityAt ?? a.lastSeenAt)),
     }))
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt || a.label.localeCompare(b.label, 'zh-CN'))
 }
@@ -87,13 +89,13 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
   })
   const visibleStatuses = useVisibleSessionStatuses()
   const recentCandidates = useMemo(() => sessions.filter(isVibeCodingSession), [sessions])
-  const recent = recentCandidates
+  const eligible = recentCandidates
     .filter(session => !session.planExpired)
     .filter(session => isSessionStatusVisible(session, visibleStatuses))
-    .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
-    .slice(0, limit)
-    .sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || b.lastSeenAt - a.lastSeenAt)
-  const workspaceGroups = useMemo(() => groupRecentSessionsByWorkspace(recent), [recent])
+  const stableOrder = useStableSessionOrder(eligible, visibleStatuses.join(','))
+  const normalIds = new Set(stableOrder.ordered.filter(session => !session.favorite).slice(0, limit).map(session => session.id))
+  const recent = stableOrder.ordered.filter(session => session.favorite || normalIds.has(session.id))
+  const workspaceGroups = groupRecentSessionsByWorkspace(recent, stableOrder)
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(() => new Set())
   const activeWorkspaceKey = workspaceGroups.find(group =>
     group.sessions.some(session => session.id === currentSessionId))?.key
@@ -160,10 +162,15 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
 
   const toggleFavorite = async (session: ClaudeChatSessionView) => {
     if (favoriteBusyId) return
+    setRenameError(null)
     setFavoriteBusyId(session.id)
     try {
       await setSessionFavorite(session.id, !session.favorite)
+      qc.setQueryData<ClaudeChatSessionView[]>(SESSION_QUERY_KEY, previous => previous?.map(row => row.id === session.id
+        ? { ...row, favorite: !session.favorite, pinnedAt: session.favorite ? null : Date.now() } : row))
       await qc.invalidateQueries({ queryKey: SESSION_QUERY_KEY })
+    } catch (error) {
+      setRenameError(`置顶更新失败：${error instanceof Error ? error.message : String(error)}，请重试前核对当前状态。`)
     } finally {
       setFavoriteBusyId(null)
     }
@@ -189,15 +196,18 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
     <>
     <section className="mb-2 border-b border-[var(--color-border)]/60 pb-2">
       {/* Section 标题：与 SessionList 分组 header 对齐 */}
+      <div className="flex items-center">
       <button type="button" aria-expanded={sectionExpanded} aria-controls={`${listId}-recent`}
         onClick={() => setSectionExpanded(value => !value)}
-        className="flex min-h-11 w-full items-center gap-1.5 px-3 text-left focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
+        className="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 px-3 text-left focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
         <ChevronRight className={cn('size-3', sectionExpanded && 'rotate-90')} aria-hidden="true" />
         <Clock3 className="size-3 shrink-0 text-[var(--color-muted-foreground)]" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
           最近会话
         </span>
       </button>
+      <button type="button" onClick={stableOrder.refresh} className="min-h-11 shrink-0 px-3 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" aria-label="更新最近会话排序">{stableOrder.hasUpdates ? '有新活动 · 更新排序' : '更新排序'}</button>
+      </div>
       <div id={`${listId}-recent`} hidden={!sectionExpanded}>
       {renameError && <p role="alert" className="px-3 pb-2 text-xs text-[var(--color-destructive)]">{renameError}</p>}
 
@@ -296,9 +306,9 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
                       {title}
                     </span>
                     {session.favorite && (
-                      <Star
-                        aria-label="已收藏"
-                        className="size-3 shrink-0 fill-amber-400 text-amber-500"
+                      <Pin
+                        aria-label="已置顶"
+                        className="size-3 shrink-0 text-[var(--color-muted-foreground)]"
                       />
                     )}
                     {linkedPrd && (

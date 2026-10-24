@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Check, ChevronRight, Filter, Folder, FolderMinus, FolderPlus, Link2, Loader2, LockKeyhole, Pencil, Search, Star, Tags, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Filter, Folder, FolderMinus, FolderPlus, Link2, Loader2, LockKeyhole, Pencil, Pin, Search, Tags, X } from 'lucide-react'
 import { EngineIcon } from './EngineIcon'
 import { cn, formatDate } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, renameSessionProject, setSessionFavorite, setSessionGroupApi } from '../api'
@@ -21,6 +21,7 @@ import { DEFAULT_SESSION_STATUSES, isSessionStatusVisible, resetVisibleSessionSt
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { groupSessionsByProject, manualSessionProjectKey, resolveSessionProject } from '../lib/sessionProjectGroups'
+import { useStableSessionOrder } from '../hooks/useStableSessionOrder'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
 let groupMigrationDone = false
@@ -76,6 +77,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
   const [projectRenameError, setProjectRenameError] = useState('')
   const visibleStatuses = useVisibleSessionStatuses()
   const normalizedAliasQuery = aliasQuery.trim().toLocaleLowerCase()
+  const stableOrder = useStableSessionOrder(vibeSessions, JSON.stringify([activeProject, normalizedAliasQuery, filterPrd, visibleStatuses]))
   const statusFilterIsDefault = visibleStatuses.length === DEFAULT_SESSION_STATUSES.length
     && DEFAULT_SESSION_STATUSES.every(status => visibleStatuses.includes(status))
   const filterActive = filterPrd !== 'all' || !!normalizedAliasQuery || !statusFilterIsDefault
@@ -84,14 +86,14 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     setAliasQuery('')
     resetVisibleSessionStatuses()
   }
-  const filteredSessions = useMemo(() => vibeSessions.filter(s => {
+  const filteredSessions = stableOrder.ordered.filter(s => {
     if (!isSessionStatusVisible(s, visibleStatuses)) return false
     if (activeProject && resolveSessionProject(s).key !== activeProject) return false
     if (normalizedAliasQuery && !(s.title ?? '').toLocaleLowerCase().includes(normalizedAliasQuery)) return false
     if (filterPrd === 'linked' && !prdLinks[s.id]) return false
     if (filterPrd === 'unlinked' && prdLinks[s.id]) return false
     return true
-  }), [vibeSessions, visibleStatuses, activeProject, normalizedAliasQuery, filterPrd, prdLinks])
+  })
   const storage = useSessionStorage(activeProject || normalizedAliasQuery ? filteredSessions : [])
 
   const requestDuplicate = (session: ClaudeChatSessionView) => {
@@ -208,19 +210,21 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
 
   const toggleFavorite = async (session: ClaudeChatSessionView) => {
     if (favoriteBusyId) return
+    setRenameError(null)
     setFavoriteBusyId(session.id)
     try {
       await setSessionFavorite(session.id, !session.favorite)
+      qc.setQueryData<ClaudeChatSessionView[]>(KEY, previous => previous?.map(row => row.id === session.id
+        ? { ...row, favorite: !session.favorite, pinnedAt: session.favorite ? null : Date.now() } : row))
       await qc.invalidateQueries({ queryKey: KEY })
+    } catch (error) {
+      setRenameError(`置顶更新失败：${error instanceof Error ? error.message : String(error)}，请重试前核对当前状态。`)
     } finally {
       setFavoriteBusyId(null)
     }
   }
 
-  const sortSessions = (list: ClaudeChatSessionView[]) => [...list].sort((a, b) => {
-    const favoriteOrder = Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))
-    return favoriteOrder || b.lastSeenAt - a.lastSeenAt
-  })
+  const sortSessions = (list: ClaudeChatSessionView[]) => [...list].sort(stableOrder.comparePinned)
 
   useEffect(() => {
     const focusGlobalSearch = (event: KeyboardEvent) => {
@@ -236,21 +240,22 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
   if (isPending) return <div className="px-4 py-4 text-sm text-[var(--color-muted-foreground)]">加载中…</div>
   if (vibeSessions.length === 0) return <div className="px-4 py-4 text-sm text-[var(--color-muted-foreground)]">还没有会话，点上方「新建」开始</div>
 
-  const visibleBaseSessions = vibeSessions.filter(session => {
+  const visibleBaseSessions = stableOrder.ordered.filter(session => {
     if (!isSessionStatusVisible(session, visibleStatuses)) return false
     if (filterPrd === 'linked' && !prdLinks[session.id]) return false
     if (filterPrd === 'unlinked' && prdLinks[session.id]) return false
     return true
   })
-  const projects = groupSessionsByProject(visibleBaseSessions)
+  const projects = groupSessionsByProject(visibleBaseSessions, stableOrder.activityAt)
 
   const now = new Date()
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const weekStart = todayStart - 6 * 24 * 60 * 60 * 1000
   const timeSections = [
-    { label: '今天', sessions: filteredSessions.filter(session => session.lastSeenAt >= todayStart) },
-    { label: '本周', sessions: filteredSessions.filter(session => session.lastSeenAt >= weekStart && session.lastSeenAt < todayStart) },
-    { label: '更早', sessions: filteredSessions.filter(session => session.lastSeenAt < weekStart) },
+    { label: '置顶会话', sessions: filteredSessions.filter(session => session.favorite) },
+    { label: '今天', sessions: filteredSessions.filter(session => !session.favorite && stableOrder.activityAt(session) >= todayStart) },
+    { label: '本周', sessions: filteredSessions.filter(session => !session.favorite && stableOrder.activityAt(session) >= weekStart && stableOrder.activityAt(session) < todayStart) },
+    { label: '更早', sessions: filteredSessions.filter(session => !session.favorite && stableOrder.activityAt(session) < weekStart) },
   ].filter(section => section.sessions.length > 0)
 
   return (
@@ -272,6 +277,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
             {activeProject ? activeProjectInfo?.label || '项目会话' : '项目'}
           </span>
           {!activeProject && <span className="text-[10px] tabular-nums text-[var(--color-muted-foreground)]">{projects.length}</span>}
+          <button type="button" onClick={stableOrder.refresh} aria-label="更新项目会话排序" className="min-h-9 shrink-0 text-[11px] font-normal text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">{stableOrder.hasUpdates ? '有新活动 · 更新排序' : '更新排序'}</button>
         </div>
         {activeProjectInfo?.kind === 'directory' && (
           <p className="w-full truncate text-[10px] text-[var(--color-muted-foreground)]" title={activeProjectInfo.cwd}>
@@ -552,7 +558,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
               )}>
                 {s.title || shortCwd(s.cwd)}
               </span>
-              {s.favorite && <Star aria-label="已收藏" className="size-3 shrink-0 fill-amber-400 text-amber-500" />}
+              {s.favorite && <Pin aria-label="已置顶" className="size-3 shrink-0 text-[var(--color-muted-foreground)]" />}
               {linkedPrd && (
                 <span
                   title={`已关联规格：${linkedPrd.title || '（未命名）'}`}
