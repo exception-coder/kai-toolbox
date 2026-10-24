@@ -17,7 +17,7 @@ interface Props {
   batch?: { changeIds: string[]; currentIndex: number; deferred: { changeId: string; reason: string }[] } | null
   taskQueries?: (TaskQuery | undefined)[]
   pending: boolean
-  onAction: (action: 'resume' | 'stop') => void
+  onAction: (action: 'pause' | 'resume' | 'stop') => void
   recoveryAction?: ReactNode
   projectControl: ReactNode
   error?: string
@@ -61,6 +61,7 @@ function Metric({ title, value, detail, progress, risk = false }: {
 export function SupervisionSummary({ run, now, batch, taskQueries = [], pending, onAction, recoveryAction,
   projectControl, error, onRetry, batchError, onRetryBatch }: Props) {
   const terminal = run.state === 'COMPLETED' || run.state === 'STOPPED'
+  const requirement = run.completionPolicy === 'REQUIREMENT_BEST_EFFORT'
   const deadline = Date.parse(run.deadlineAt)
   const started = Date.parse(run.startedAt)
   const remaining = Math.max(0, deadline - now)
@@ -91,24 +92,25 @@ export function SupervisionSummary({ run, now, batch, taskQueries = [], pending,
           <h3 className="flex items-center gap-2 text-sm font-medium">
             <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', needsAttention || budgetEnded || runtimeMissing
               ? 'bg-amber-600' : run.state === 'ACTIVE' ? 'bg-emerald-600' : 'bg-[var(--color-muted-foreground)]')} />
-            {error ? '监督状态刷新失败' : budgetEnded ? '监督预算已用尽' : runtimeMissing ? '监督未接管' : labels[run.state]}
+            {error ? '监督状态刷新失败' : budgetEnded ? '监督预算已用尽' : runtimeMissing ? '监督未接管' : requirement && run.state === 'COMPLETED' ? 'Agent 自验完成 · 待复核' : labels[run.state]}
           </h3>
           <p className={cn('mt-1 break-words', muted)}>{run.phase} · {run.currentTaskId ? `Task ${run.currentTaskId} · ` : ''}{run.branchAtStart || '未识别分支'} · generation {run.generation}</p>
         </div>
+        {requirement && run.state === 'ACTIVE' && <Button size="sm" variant="ghost" className="min-h-11 shrink-0" disabled={pending} onClick={() => onAction('pause')}>暂停</Button>}
         {!terminal && (recoveryAction || <Button size="sm" variant="outline" className="min-h-11 shrink-0" disabled={pending}
           onClick={() => onAction(run.state === 'ACTIVE' ? 'stop' : 'resume')}>
           {run.state === 'ACTIVE' ? <Square className="size-3.5" /> : <Play className="size-3.5" />}
           {pending ? '处理中…' : run.state === 'ACTIVE' ? '停止' : '恢复'}
         </Button>)}
       </div>
-      <p className={muted}>Forge Runtime {run.layers.forgeRuntimeActive ? '已接管' : '未接管'} · Agent Skill {run.layers.agentSkillActivated ? '已加载' : run.layers.agentSkillProvisioned ? '待引擎确认' : '未部署'}</p>
+      <p className={muted}>Forge Runtime {run.layers.forgeRuntimeActive ? '已接管' : '未接管'} · {requirement ? '需求持续推进 · 完成后提供 Agent 自验证据' : `Agent Skill ${run.layers.agentSkillActivated ? '已加载' : run.layers.agentSkillProvisioned ? '待引擎确认' : '未部署'}`}</p>
       {error && <p role="alert" className={warning}>当前显示上次已知状态 · {error} <button type="button" className="min-h-11 underline" onClick={onRetry}>重试读取</button></p>}
       {projectControl}
     </header>
 
     <section aria-label="进度与资源" className="grid grid-cols-2 gap-x-6 gap-y-4 border-y border-[var(--color-border)] py-4 sm:grid-cols-4">
-      <Metric title="执行进度" value={completed === undefined ? '—' : `${Math.round(completed)}%`} progress={completed}
-        detail={`${run.progress.completedTasks} / ${run.progress.totalTasks}`} />
+      <Metric title="执行进度" value={requirement ? run.state === 'COMPLETED' ? '已自验' : '按目标推进' : completed === undefined ? '—' : `${Math.round(completed)}%`} progress={requirement ? undefined : completed}
+        detail={requirement ? '无规格任务百分比' : `${run.progress.completedTasks} / ${run.progress.totalTasks}`} />
       <Metric title="轮次预算" value={`${run.turnCount} / ${run.maxTurns}`} progress={turns} risk={!terminal && turns !== undefined && turns >= 90}
         detail={`剩余 ${Math.max(0, run.maxTurns - run.turnCount)} 轮`} />
       <Metric title="监督窗口" value={terminal ? '已结束' : Number.isFinite(deadline) ? `剩余 ${duration(remaining)}` : '未知'}
@@ -131,7 +133,7 @@ export function SupervisionSummary({ run, now, batch, taskQueries = [], pending,
       {batchError && <p role="alert" className={warning}>批次状态读取失败，已有数据可能过期。<button type="button" className="min-h-11 underline" onClick={onRetryBatch}>重试批次</button></p>}
     </section>}
 
-    <section aria-label="批次进度" className="space-y-2">
+    {!requirement && <section aria-label="批次进度" className="space-y-2">
       <h4 className="font-medium">批次进度</h4>
       <ol className="divide-y divide-[var(--color-border)]">
         {rows.map(row => <li key={row.id} className="space-y-2 py-3 first:pt-0">
@@ -147,13 +149,21 @@ export function SupervisionSummary({ run, now, batch, taskQueries = [], pending,
           {row.query?.isError && <p role="alert" className={warning}>{row.query.data ? '刷新失败，显示上次数据' : '任务读取失败'} <button type="button" className="min-h-11 underline" onClick={() => row.query?.refetch()}>重试 {row.id}</button></p>}
         </li>)}
       </ol>
-    </section>
+    </section>}
+
+    {requirement && <section aria-label="需求与执行报告" className="space-y-2">
+      <h4 className="font-medium">监督目标</h4><p className="whitespace-pre-wrap break-words">{run.goal}</p>
+      {run.latestReport && <><p className="break-words">{run.latestReport.summary}</p>
+        {run.latestReport.nextAction && <p className={muted}>下一步：{run.latestReport.nextAction}</p>}
+        {run.latestReport.evidence.map((item, index) => <p key={index} className={cn('break-words', muted)}>{item}</p>)}
+      </>}
+    </section>}
 
     <details className="border-t border-[var(--color-border)] pt-1">
       <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">执行上下文 <span className={muted}>展开 / 收起</span></summary>
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 pb-3">
         <dt className={muted}>监督目标</dt><dd className="break-words">{run.goal}</dd>
-        <dt className={muted}>绑定规格</dt><dd className="break-all">{run.changeId}<div className={cn('mt-1', muted)}>{(run.artifactPaths.specs ?? []).join(' · ') || '未返回规格路径'}</div></dd>
+        <dt className={muted}>{requirement ? '需求运行' : '绑定规格'}</dt><dd className="break-all">{requirement ? run.id : run.changeId}<div className={cn('mt-1', muted)}>{requirement ? '未执行 OpenSpec 严格验收；完成报告由 Agent 提交' : (run.artifactPaths.specs ?? []).join(' · ') || '未返回规格路径'}</div></dd>
         <dt className={muted}>开始 / 截止</dt><dd className="break-words">{run.startedAt} / {run.deadlineAt}</dd>
         <dt className={muted}>续跑状态</dt><dd>{run.noProgressCount === 0 ? '本轮未触发额外暂停' : `当前连续续跑 ${run.noProgressCount} 轮`}</dd>
         <dt className={muted}>更新说明</dt><dd className="break-words">{run.reason || '暂无'}<div className={muted}>{run.updatedAt}</div></dd>

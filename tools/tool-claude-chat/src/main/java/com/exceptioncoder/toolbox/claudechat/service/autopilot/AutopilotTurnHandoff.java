@@ -66,6 +66,7 @@ public final class AutopilotTurnHandoff {
     }
 
     public static Message forRun(SessionAutopilotRun run, int completedTasks, int totalTasks, String reason) {
+        if (RequirementAutopilot.applies(run)) return RequirementAutopilot.handoff(run, run);
         String taskId = run.context().currentTaskId() == null ? "-" : run.context().currentTaskId();
         String task = "-".equals(taskId) ? "无" : taskId;
         String messageId = "autopilot:" + run.id() + ":" + run.context().generation() + ":"

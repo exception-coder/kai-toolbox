@@ -69,6 +69,23 @@ class SessionAutopilotRepositoryTest {
     }
 
     @Test
+    void requirementPolicyRoundTripsWithoutCreatingASpecOrBatch() {
+        Instant now = Instant.now();
+        var context = new OpenSpecExecutionContext("D:/repo", "repo", "main", "fp", "goal-run-1", "",
+                null, null, OpenSpecExecutionPhase.APPLY, "thread", 1, 0);
+        var run = new SessionAutopilotRun("run-1", "session-1", "完善移动菜单",
+                AutopilotCompletionPolicy.REQUIREMENT_BEST_EFFORT, AutopilotState.ACTIVE, null, context,
+                0, 60, 0, 3, false, false, null, null, null, true, 0, 0,
+                null, null, null, null, null, null, now, now.plusSeconds(3600), now);
+        repository.replace(run);
+        var loaded = repository.findBySessionId("session-1").orElseThrow();
+        assertThat(loaded.completionPolicy()).isEqualTo(AutopilotCompletionPolicy.REQUIREMENT_BEST_EFFORT);
+        assertThat(loaded.context().changeId()).isEqualTo("goal-run-1");
+        assertThat(loaded.context().currentTaskId()).isNull();
+        assertThat(repository.findBatch("session-1", "run-1")).isEmpty();
+    }
+
+    @Test
     void batchPlanSurvivesProgressUpdateAndIsReplacedWithTheRun() {
         repository.replace(run(0, AutopilotState.ACTIVE));
         repository.saveBatch("session-1", "run-1", "[\"first\",\"second\"]",

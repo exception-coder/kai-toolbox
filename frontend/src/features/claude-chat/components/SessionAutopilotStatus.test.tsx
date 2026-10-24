@@ -58,6 +58,51 @@ recommendAutopilotBindings.mockResolvedValue([])
 getAutopilotBatch.mockResolvedValue(null)
 
 describe('OpenSpec 自动监督体验', () => {
+  it('需求模式无需候选规格即可提交，关闭后保留同会话需求草稿', async () => {
+    getSessionAutopilot.mockResolvedValue(null)
+    previewAutopilotBindings.mockResolvedValue([])
+    startSessionAutopilot.mockResolvedValue({ ...RUN, completionPolicy: 'REQUIREMENT_BEST_EFFORT', changeId: 'goal-run-1', progress: { completedTasks: 0, totalTasks: 0 } })
+    renderWithClient(<SessionAutopilotStatus sessionId="session-1" projectRoot="D:/repo" onOpenDashboard={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '自动推进' }))
+    fireEvent.click(screen.getByRole('radio', { name: '需求持续推进' }))
+    expect(screen.getByRole('button', { name: '发送需求并持续推进' })).toBeDisabled()
+    fireEvent.change(screen.getByRole('textbox', { name: '需求与预期结果' }), { target: { value: '修复移动菜单并验证' } })
+    fireEvent.click(screen.getByRole('button', { name: '关闭自动推进' }))
+    fireEvent.click(screen.getByRole('button', { name: '自动推进' }))
+    expect(screen.getByRole('textbox', { name: '需求与预期结果' })).toHaveValue('修复移动菜单并验证')
+    fireEvent.click(screen.getByRole('button', { name: '发送需求并持续推进' }))
+    await waitFor(() => expect(startSessionAutopilot).toHaveBeenCalledWith('session-1', {
+      projectRoot: 'D:/repo', goal: '修复移动菜单并验证', completionPolicy: 'REQUIREMENT_BEST_EFFORT',
+      autoArchive: false, maxTurns: 60, deadlineMinutes: 480,
+    }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: '暂停' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('批次进度')).not.toBeInTheDocument()
+    expect(screen.getByText('无规格任务百分比')).toBeInTheDocument()
+    expect(checkAutopilotBinding).not.toHaveBeenCalled()
+  })
+
+  it('需求模式启动失败可重试，完成展示不冒充严格验收', async () => {
+    getSessionAutopilot.mockResolvedValue(null)
+    previewAutopilotBindings.mockResolvedValue([])
+    const completed: SessionAutopilotRun = { ...RUN, completionPolicy: 'REQUIREMENT_BEST_EFFORT',
+      state: 'COMPLETED', phase: 'DONE', changeId: 'goal-run-1', progress: { completedTasks: 0, totalTasks: 0 },
+      latestReport: { disposition: 'COMPLETE', summary: '菜单修复并自验', remainingWork: [], evidence: ['菜单回归 3 项通过'], reportedAt: new Date().toISOString() } }
+    startSessionAutopilot.mockRejectedValueOnce(new Error('启动结果未知，请核对状态')).mockResolvedValueOnce(completed)
+    renderWithClient(<SessionAutopilotStatus sessionId="session-1" projectRoot="D:/repo" onOpenDashboard={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '自动推进' }))
+    fireEvent.click(screen.getByRole('radio', { name: '需求持续推进' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '需求与预期结果' }), { target: { value: '修复菜单' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送需求并持续推进' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('启动结果未知')
+    expect(screen.getByRole('textbox', { name: '需求与预期结果' })).toHaveValue('修复菜单')
+    fireEvent.click(screen.getByRole('button', { name: '发送需求并持续推进' }))
+    expect(await screen.findByText('Agent 自验完成 · 待复核')).toBeInTheDocument()
+    expect(screen.getByText('菜单回归 3 项通过')).toBeInTheDocument()
+    expect(screen.getByText('未执行 OpenSpec 严格验收；完成报告由 Agent 提交')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '新监督' })).toBeInTheDocument()
+  })
+
   it('只统计未完成的明确人工标记，读取所选批次而非全项目', async () => {
     getSessionAutopilot.mockResolvedValue(RUN)
     getAutopilotBatch.mockResolvedValue({ changeIds: [RUN.changeId, 'organization'], currentIndex: 0, deferred: [] })
@@ -144,7 +189,7 @@ describe('OpenSpec 自动监督体验', () => {
     renderWithClient(<SessionAutopilotStatus sessionId="session-1" projectRoot="D:/repo" onOpenDashboard={vi.fn()} />)
     await screen.findByText(/尚未监督/)
     window.dispatchEvent(new CustomEvent('claude-chat:autopilot-bind-request', { detail: 'session-1' }))
-    expect(await screen.findByRole('dialog', { name: '选择当前会话的执行规格' })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: '当前会话自动推进' })).toBeInTheDocument()
     expect(await screen.findByText('upload-images')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('button', { name: '确认并推进' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: '确认并推进' }))

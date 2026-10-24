@@ -36,6 +36,7 @@ public class AutopilotQueuedContextService {
         if (message.serverContext() != null && !message.serverContext().isBlank()) {
             return message.serverContext();
         }
+        if (RequirementAutopilot.applies(run)) return RequirementAutopilot.handoff(run, run).instructions();
         var snapshot = openSpec.inspect(Path.of(run.context().projectRoot()), run.context().changeId());
         return AutopilotTurnHandoff.forRun(run, snapshot, run.reason()).instructions();
     }

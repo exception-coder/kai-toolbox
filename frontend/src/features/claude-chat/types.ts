@@ -121,7 +121,7 @@ export interface SessionAutopilotRun {
   id: string
   sessionId: string
   goal: string
-  completionPolicy: 'OPEN_SPEC_STRICT'
+  completionPolicy: 'OPEN_SPEC_STRICT' | 'REQUIREMENT_BEST_EFFORT'
   state: AutopilotState
   reason?: string | null
   phase: OpenSpecExecutionPhase

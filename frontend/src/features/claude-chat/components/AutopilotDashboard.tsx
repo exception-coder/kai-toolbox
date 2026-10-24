@@ -55,7 +55,7 @@ export function AutopilotDashboard({ onOpenSession, initialScope = 'active', cur
     queryKey: ['claude-chat-autopilot-binding', currentSessionId],
     queryFn: async () => {
       const run = await getSessionAutopilot(currentSessionId!)
-      if (!run) return []
+      if (!run || run.completionPolicy === 'REQUIREMENT_BEST_EFFORT') return []
       const batch = await getAutopilotBatch(currentSessionId!)
       return batch?.changeIds ?? [run.changeId]
     },
@@ -163,9 +163,10 @@ export function AutopilotDashboard({ onOpenSession, initialScope = 'active', cur
 
 function DashboardRow({ item, boundHere, busy, onOpen, onAction }: { item: AutopilotDashboardItem; boundHere: boolean; busy: boolean; onOpen: () => void; onAction: (action: 'pause' | 'resume' | 'stop') => void }) {
   const { run } = item
+  const requirement = run.completionPolicy === 'REQUIREMENT_BEST_EFFORT'
   const percentage = run.progress.totalTasks ? Math.round(run.progress.completedTasks / run.progress.totalTasks * 100) : 0
   const stateLabel = run.state === 'ACTIVE' ? '监督中' : run.state === 'WAITING_USER' ? '待处理'
-    : run.state === 'PAUSED' ? '已暂停' : run.state === 'COMPLETED' ? '已完成'
+    : run.state === 'PAUSED' ? '已暂停' : run.state === 'COMPLETED' ? requirement ? 'Agent 自验完成' : '已完成'
       : run.state === 'FAILED' ? '失败' : run.state === 'STOPPED' ? '已停止' : run.state
   return (
     <article className="group hover:bg-[color-mix(in_srgb,var(--color-muted)_42%,transparent)]">
@@ -174,7 +175,7 @@ function DashboardRow({ item, boundHere, busy, onOpen, onAction }: { item: Autop
         className="flex min-h-11 w-full items-center gap-2 px-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)] md:hidden">
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.sessionTitle}</span>
         {boundHere && <span className="shrink-0 text-[11px] font-medium text-[var(--color-primary)]">本会话</span>}
-        <span className="shrink-0 text-xs tabular-nums text-[var(--color-muted-foreground)]">{run.progress.completedTasks}/{run.progress.totalTasks}</span>
+        <span className="shrink-0 text-xs tabular-nums text-[var(--color-muted-foreground)]">{requirement ? '需求' : `${run.progress.completedTasks}/${run.progress.totalTasks}`}</span>
         <span className={cn('shrink-0 text-xs font-medium', stateTone(run.state))}>{stateLabel}</span>
         <ChevronRight className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
       </button>
@@ -183,9 +184,9 @@ function DashboardRow({ item, boundHere, busy, onOpen, onAction }: { item: Autop
           <div className="flex items-center gap-2"><span className="truncate text-sm font-medium">{item.sessionTitle}</span>{boundHere && <span className="shrink-0 text-[11px] font-medium text-[var(--color-primary)]">本会话</span>}<ChevronRight className="size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" /></div>
           <div className="mt-0.5 truncate text-xs text-[var(--color-muted-foreground)]">{item.projectName} · {item.engine}</div>
         </button>
-        <div className="min-w-0"><div className="truncate text-xs font-medium">{run.changeId}</div><div className="mt-0.5 truncate text-xs text-[var(--color-muted-foreground)]">{run.currentTaskId ? `task ${run.currentTaskId}` : '无待执行 task'} · {run.progress.completedTasks}/{run.progress.totalTasks}</div></div>
+        <div className="min-w-0"><div className="truncate text-xs font-medium">{requirement ? '需求持续推进' : run.changeId}</div><div className="mt-0.5 truncate text-xs text-[var(--color-muted-foreground)]">{requirement ? run.goal : `${run.currentTaskId ? `task ${run.currentTaskId}` : '无待执行 task'} · ${run.progress.completedTasks}/${run.progress.totalTasks}`}</div></div>
         <div><div className={cn('text-xs font-medium', stateTone(run.state))}>{stateLabel}</div><div className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">{run.phase}</div></div>
-        <div className="text-xs tabular-nums"><div>{run.turnCount}/{run.maxTurns} 轮</div><div className="mt-0.5 text-[var(--color-muted-foreground)]">{percentage}%</div></div>
+        <div className="text-xs tabular-nums"><div>{run.turnCount}/{run.maxTurns} 轮</div><div className="mt-0.5 text-[var(--color-muted-foreground)]">{requirement ? 'Agent 自验' : `${percentage}%`}</div></div>
         <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted-foreground)]"><Clock3 className="size-3.5" />{timeLabel(run.updatedAt)}</div>
         <div className="flex justify-start gap-1 md:justify-end">
           <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onOpen}>进入</Button>

@@ -46,3 +46,18 @@ it('shows a recovery action when this session has no supervised run', async () =
   expect(await screen.findByText('此会话尚未开启自动推进')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '返回对话' })).toBeInTheDocument()
 })
+
+it('shows requirement completion as agent self-verification without requesting spec tasks', async () => {
+  getSessionAutopilot.mockResolvedValue({
+    sessionId: 'session-1', changeId: 'goal-run-1', completionPolicy: 'REQUIREMENT_BEST_EFFORT',
+    goal: '修复移动菜单', state: 'COMPLETED', phase: 'DONE', version: 3,
+    progress: { completedTasks: 0, totalTasks: 0 }, turnCount: 2, maxTurns: 60,
+    latestReport: { summary: '菜单已实现并通过必要回归', remainingWork: [], evidence: ['测试通过'], reportedAt: '' },
+  })
+  renderWorkspace()
+  expect(await screen.findByText('Agent 自验完成 · 待复核')).toBeInTheDocument()
+  expect(screen.getByText('菜单已实现并通过必要回归')).toBeInTheDocument()
+  expect(screen.queryByText('OpenSpec 任务')).not.toBeInTheDocument()
+  expect(screen.queryByText('goal-run-1')).not.toBeInTheDocument()
+  expect(listAutopilotTasks).not.toHaveBeenCalled()
+})

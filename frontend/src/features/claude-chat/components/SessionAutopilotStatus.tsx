@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Bot, ChevronDown, ChevronUp, Play } from 'lucide-react'
@@ -17,6 +17,7 @@ import {
 import type { AutopilotBindingCandidate, SessionAutopilotRun } from '../types'
 import { SupervisionSummary } from './SupervisionSummary'
 import { ProjectExecutionControl } from './ProjectExecutionControl'
+import { RequirementAutopilotForm } from './RequirementAutopilotForm'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 
 interface SessionAutopilotStatusProps {
@@ -44,6 +45,8 @@ function messageOf(error: unknown): string {
 export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard, agentRunning = false, onSupplementSpec }: SessionAutopilotStatusProps) {
   const queryClient = useQueryClient()
   const portalContainer = useFullscreenPortalContainer()
+  const sectionRef = useRef<HTMLElement>(null)
+  const pickerTrigger = useRef<HTMLElement | null>(null)
   const [expanded, setExpanded] = useState(false)
   const [budgetNow, setBudgetNow] = useState(Date.now)
   useEffect(() => {
@@ -51,6 +54,18 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
     return () => window.clearInterval(timer)
   }, [])
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [mode, setMode] = useState<'spec' | 'requirement'>('spec')
+  const [requirementGoal, setRequirementGoal] = useState('')
+  const [requirementPending, setRequirementPending] = useState(false)
+  useEffect(() => {
+    setPickerOpen(false)
+    setRequirementGoal('')
+    setRequirementPending(false)
+    setSelectedIds([])
+    setChangeId('')
+    setGoal('')
+    setMode('spec')
+  }, [sessionId])
   const [changeId, setChangeId] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [selectionTouched, setSelectionTouched] = useState(false)
@@ -69,13 +84,13 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
   const candidatesQuery = useQuery({
     queryKey: ['claude-chat-autopilot-candidates', sessionId, projectRoot],
     queryFn: () => previewAutopilotBindings(sessionId, projectRoot),
-    enabled: pickerOpen && !runQuery.data && supplementing === undefined,
+    enabled: pickerOpen && mode === 'spec' && supplementing === undefined,
     staleTime: 0,
   })
   const aiQuery = useQuery({
     queryKey: ['claude-chat-autopilot-ai-recommendations', sessionId, projectRoot],
     queryFn: () => recommendAutopilotBindings(sessionId, projectRoot),
-    enabled: pickerOpen && !runQuery.data && supplementing === undefined,
+    enabled: pickerOpen && mode === 'spec' && supplementing === undefined,
     staleTime: 60_000,
     retry: false,
   })
@@ -106,7 +121,7 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
   const selectedChecks = useQueries({ queries: selectedIds.map(id => ({
     queryKey: ['claude-chat-autopilot-check', sessionId, projectRoot, id],
     queryFn: () => checkAutopilotBinding(sessionId, id, projectRoot),
-    enabled: pickerOpen,
+    enabled: pickerOpen && mode === 'spec',
     staleTime: 0,
   })) })
   const allReady = selectedIds.length > 0 && selectedChecks.length === selectedIds.length
@@ -116,7 +131,7 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
   const checkQuery = useQuery({
     queryKey: ['claude-chat-autopilot-check', sessionId, projectRoot, changeId],
     queryFn: () => checkAutopilotBinding(sessionId, changeId, projectRoot),
-    enabled: pickerOpen && Boolean(changeId),
+    enabled: pickerOpen && mode === 'spec' && Boolean(changeId),
     staleTime: 0,
   })
   useEffect(() => {
@@ -133,6 +148,8 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
   useEffect(() => {
     const onRequest = (event: Event) => {
       if ((event as CustomEvent<string>).detail === sessionId) {
+        pickerTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        setMode('spec')
         setChangeId('')
         setSelectedIds([])
         setSelectionTouched(false)
@@ -188,12 +205,12 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
     onSuccess: run => { refresh(run); void queryClient.invalidateQueries({ queryKey: ['claude-chat-autopilot-batch', sessionId] }); setPickerOpen(false); setExpanded(true) },
   })
   useEffect(() => {
-    if (!resumeAfterSupplement || !pickerOpen || start.isPending || checkQuery.isFetching || !checkQuery.data?.ready || !goal.trim() || selectedIds.length !== 1) return
+    if (mode !== 'spec' || !resumeAfterSupplement || !pickerOpen || start.isPending || checkQuery.isFetching || !checkQuery.data?.ready || !goal.trim() || selectedIds.length !== 1) return
     if (candidatesQuery.data?.length !== 1 && !changeId) return
     if (checkQuery.data.changeId !== changeId || !checkQuery.data.revision) return
     setResumeAfterSupplement(false)
     start.mutate()
-  }, [resumeAfterSupplement, pickerOpen, start, checkQuery.data, goal, candidatesQuery.data, changeId, selectedIds])
+  }, [mode, resumeAfterSupplement, pickerOpen, start, checkQuery.data, goal, candidatesQuery.data, changeId, selectedIds])
   const control = useMutation({
     mutationFn: (action: 'pause' | 'resume' | 'stop' | 'reset-budget') => {
       if (!runQuery.data) throw new Error('自动监督状态尚未加载')
@@ -202,6 +219,7 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
     onSuccess: refresh,
   })
   const run = runQuery.data
+  const requirement = run?.completionPolicy === 'REQUIREMENT_BEST_EFFORT'
   const turnsExhausted = Boolean(run && run.turnCount >= run.maxTurns)
   const timeExhausted = Boolean(run && Date.parse(run.deadlineAt) <= budgetNow)
   const budgetExhausted = turnsExhausted || timeExhausted
@@ -209,23 +227,24 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
   const error = control.error ?? runQuery.error
 
   return (
-    <section className="border-b border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-muted)_42%,transparent)]" aria-label="OpenSpec 自动监督">
+    <section ref={sectionRef} className="border-b border-[var(--color-border)] bg-[color-mix(in_srgb,var(--color-muted)_42%,transparent)]" aria-label="会话自动监督">
       <div className="flex min-h-9 items-center gap-2 px-3 text-xs">
         <Bot className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" aria-hidden="true" />
         {run ? (
           <>
             <button type="button" className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" onClick={() => setExpanded(value => !value)} aria-expanded={expanded}>
               <span className={cn('font-medium', run.state === 'ACTIVE' ? 'text-emerald-700 dark:text-emerald-400' : run.state === 'WAITING_USER' || run.state === 'FAILED' ? 'text-amber-700 dark:text-amber-400' : '')}>
-                {budgetExhausted && !['COMPLETED', 'STOPPED'].includes(run.state) ? budgetReason : stateLabel[run.state]}
+                {budgetExhausted && !['COMPLETED', 'STOPPED'].includes(run.state) ? budgetReason : requirement && run.state === 'COMPLETED' ? 'Agent 自验完成' : stateLabel[run.state]}
               </span>
               <span className="mx-1.5 text-[var(--color-border)]">/</span>
-              <span className="font-medium">OpenSpec · {run.changeId}</span>
+              <span className="font-medium">{requirement ? '需求持续推进' : `OpenSpec · ${run.changeId}`}</span>
               {batchQuery.data && <span className="ml-1.5 text-[var(--color-muted-foreground)]">{batchQuery.data.currentIndex + 1}/{batchQuery.data.changeIds.length} 项</span>}
               <span className="ml-1.5 text-[var(--color-muted-foreground)]">
-                {run.currentTaskId ? `task ${run.currentTaskId}` : run.phase} · {run.progress.completedTasks}/{run.progress.totalTasks}
+                {requirement ? `${run.turnCount}/${run.maxTurns} 轮` : `${run.currentTaskId ? `task ${run.currentTaskId}` : run.phase} · ${run.progress.completedTasks}/${run.progress.totalTasks}`}
               </span>
             </button>
             <button type="button" onClick={onOpenDashboard} className="shrink-0 rounded-sm text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">监督看板</button>
+            {['COMPLETED', 'STOPPED'].includes(run.state) && <Button size="sm" variant="ghost" onClick={event => { pickerTrigger.current = event.currentTarget; setPickerOpen(true) }}>新监督</Button>}
             <button type="button" onClick={() => setExpanded(value => !value)} className="rounded p-1 hover:bg-[var(--color-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" aria-label={expanded ? '收起自动监督详情' : '展开自动监督详情'}>
               {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
             </button>
@@ -234,7 +253,7 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
           <>
             <span className="flex-1 text-[var(--color-muted-foreground)]">尚未监督 · 可输入“按当前规划推进”</span>
             <button type="button" onClick={onOpenDashboard} className="rounded-sm text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">监督看板</button>
-            <Button type="button" size="sm" variant="ghost" className="h-7 px-2" onClick={() => { setChangeId(''); setSelectedIds([]); setSelectionTouched(false); setPickerOpen(true) }}>
+            <Button type="button" size="sm" variant="ghost" className="h-7 px-2" onClick={event => { pickerTrigger.current = event.currentTarget; setChangeId(''); setSelectedIds([]); setSelectionTouched(false); setPickerOpen(true) }}>
               自动推进
             </Button>
           </>
@@ -257,12 +276,25 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
       <Dialog.Root open={pickerOpen} onOpenChange={setPickerOpen}>
         <Dialog.Portal container={portalContainer}>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[min(92vw,540px)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-4 shadow-lg focus:outline-none">
+          <Dialog.Content onCloseAutoFocus={event => {
+            event.preventDefault()
+            const target = pickerTrigger.current?.isConnected ? pickerTrigger.current : sectionRef.current?.querySelector('button')
+            target?.focus({ preventScroll: true })
+          }} className="fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[min(92vw,540px)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-4 shadow-lg focus:outline-none">
             <div className="flex items-start justify-between gap-3">
-              <div><Dialog.Title className="text-base font-semibold">选择当前会话的执行规格</Dialog.Title>
-                <Dialog.Description className="mt-1 text-sm text-[var(--color-muted-foreground)]">根据最近会话推荐，确认后才启动自动监督。</Dialog.Description></div>
-              <Dialog.Close className="rounded p-1 text-[var(--color-muted-foreground)] focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" aria-label="关闭规格选择">关闭</Dialog.Close>
+              <div><Dialog.Title className="text-base font-semibold">当前会话自动推进</Dialog.Title>
+                <Dialog.Description className="mt-1 text-sm text-[var(--color-muted-foreground)]">选择推进方式，在当前项目与会话中持续处理。</Dialog.Description></div>
+              <Dialog.Close className="min-h-11 shrink-0 whitespace-nowrap rounded px-2 text-[var(--color-muted-foreground)] focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" aria-label="关闭自动推进">关闭</Dialog.Close>
             </div>
+            <fieldset className="mt-4 flex gap-4 border-b border-[var(--color-border)] pb-3 text-sm" disabled={start.isPending || requirementPending}>
+              <legend className="sr-only">推进方式</legend>
+              <label className="flex min-h-9 cursor-pointer items-center gap-2"><input type="radio" name={`autopilot-mode-${sessionId}`} checked={mode === 'spec'} onChange={() => setMode('spec')} />按规格推进</label>
+              <label className="flex min-h-9 cursor-pointer items-center gap-2"><input type="radio" name={`autopilot-mode-${sessionId}`} checked={mode === 'requirement'} onChange={() => setMode('requirement')} />需求持续推进</label>
+            </fieldset>
+            {mode === 'requirement' ? <RequirementAutopilotForm key={sessionId} sessionId={sessionId} projectRoot={projectRoot}
+              goal={requirementGoal} onGoalChange={setRequirementGoal} onPendingChange={setRequirementPending} onStarted={next => {
+              refresh(next); setRequirementGoal(''); setPickerOpen(false); setExpanded(true)
+            }} /> : <>
             <div className="mt-4 min-h-0 space-y-1 overflow-y-auto">
               {candidatesQuery.isFetching && <p className="text-sm text-[var(--color-muted-foreground)]">正在探索会话中的规格…</p>}
               {aiQuery.isFetching && <p className="text-xs text-[var(--color-muted-foreground)]">AI 正在比对最近会话与规格内容；目录候选可先选择</p>}
@@ -307,6 +339,7 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
               void queryClient.invalidateQueries({ queryKey: ['claude-chat-autopilot-check', sessionId, projectRoot] })
             }}>重新探索</Button>
               <Button onClick={() => start.mutate()} disabled={!selected || !allReady || !goal.trim() || start.isPending || candidatesQuery.isFetching}>{start.isPending ? '正在启动…' : '确认并推进'}</Button></div>
+            </>}
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

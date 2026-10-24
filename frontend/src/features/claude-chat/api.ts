@@ -279,15 +279,16 @@ export function listAutopilotTasks(sessionId: string, changeId?: string) {
 
 export function startSessionAutopilot(sessionId: string, input: {
   projectRoot: string
-  changeId: string
+  changeId?: string
   goal: string
   autoArchive: boolean
   maxTurns?: number
   maxNoProgress?: number
   deadlineMinutes?: number
-  expectedRevision: string
+  expectedRevision?: string
   changeIds?: string[]
   expectedRevisions?: Record<string, string>
+  completionPolicy?: SessionAutopilotRun['completionPolicy']
 }) {
   return http<SessionAutopilotRun>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/autopilot`, {
     method: 'PUT',

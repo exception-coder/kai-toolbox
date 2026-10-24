@@ -24,6 +24,7 @@ import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.Ch
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.TaskSnapshot;
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecContinuousRunner.Decision;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.AutopilotTurnHandoff;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.RequirementAutopilot;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.AutopilotBatchDeferralPlanner;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionAutopilotChangedEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionCapabilitiesObservedEvent;
@@ -124,6 +125,9 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
 
     @Transactional
     public Run start(String sessionId, StartRequest request) {
+        if (request != null && request.completionPolicy() == AutopilotCompletionPolicy.REQUIREMENT_BEST_EFFORT) {
+            return startRequirement(sessionId, request);
+        }
         List<String> changeIds = request == null ? List.of() : request.changeIds() == null
                 || request.changeIds().isEmpty() ? request.changeId() == null ? List.of() : List.of(request.changeId())
                 : request.changeIds();
@@ -211,6 +215,48 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         return toView(run, snapshot.artifactPaths());
     }
 
+    private Run startRequirement(String sessionId, StartRequest request) {
+        if (request.goal() == null || request.goal().isBlank() || request.goal().length() > MAX_REPORT_TEXT) {
+            throw new IllegalArgumentException("请输入 1 至 2000 字的需求和预期结果");
+        }
+        var identity = projectResolver.resolve(sessionId, request.projectRoot());
+        var existing = repository.findBySessionId(sessionId);
+        if (existing.isPresent() && existing.get().state() == AutopilotState.ACTIVE) {
+            var active = existing.get();
+            if (RequirementAutopilot.applies(active) && active.goal().equals(request.goal().trim())
+                    && active.context().projectRoot().equals(identity.projectRoot().toString())) {
+                return toView(active, Map.of());
+            }
+            throw new IllegalArgumentException("当前会话已有监督运行，请先停止后再创建需求监督");
+        }
+        String id = UUID.randomUUID().toString();
+        Instant now = Instant.now();
+        // 复用非空 context 标识存储；goal-* 从不作为 OpenSpec change 读取或派发。
+        var context = new OpenSpecExecutionContext(identity.projectRoot().toString(), identity.repositoryIdentity(),
+                identity.branch(), identity.workspaceFingerprint(), "goal-" + id, "", null, null,
+                OpenSpecExecutionPhase.APPLY, identity.agentSessionRef(),
+                existing.map(run -> run.context().generation() + 1).orElse(1L), 0);
+        var run = new SessionAutopilotRun(id, sessionId, request.goal().trim(),
+                AutopilotCompletionPolicy.REQUIREMENT_BEST_EFFORT, AutopilotState.ACTIVE,
+                "Runtime 已接管需求，等待梳理与执行", context, 0,
+                bounded(request.maxTurns(), 1, 200, DEFAULT_MAX_TURNS), 0,
+                bounded(request.maxNoProgress(), 1, 10, DEFAULT_MAX_NO_PROGRESS), false,
+                false, null, null, null, true, 0, 0, null, null, null, null, null, null,
+                now, now.plus(request.deadlineMinutes() == null ? DEFAULT_DEADLINE
+                        : boundedDuration(request.deadlineMinutes())), now);
+        repository.replace(run);
+        publish(run);
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() { queueContinuation(run, null, "开始需求监督"); }
+            });
+        } else {
+            queueContinuation(run, null, "开始需求监督");
+        }
+        return toView(run, Map.of());
+    }
+
     public Optional<Run> current(String sessionId) {
         return repository.findBySessionId(sessionId).map(run -> toView(run, artifactPaths(run)));
     }
@@ -228,6 +274,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     public List<OpenSpecAutopilotAdapter.TaskSnapshot> tasks(String sessionId, String selectedChangeId) {
         SessionAutopilotRun run = repository.findBySessionId(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("当前会话尚未启用自动监督"));
+        if (RequirementAutopilot.applies(run)) return List.of();
         String changeId = selectedChangeId == null || selectedChangeId.isBlank()
                 ? run.context().changeId() : selectedChangeId;
         List<String> boundIds = repository.findBatch(sessionId, run.id())
@@ -273,8 +320,8 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         publish(next);
         if (next.state() == AutopilotState.ACTIVE) {
             if (!archiveConfirmed(next)) {
-                queueContinuation(next, openSpec.inspect(Path.of(next.context().projectRoot()),
-                        next.context().changeId()), "恢复监督");
+                queueContinuation(next, RequirementAutopilot.applies(next) ? null
+                        : openSpec.inspect(Path.of(next.context().projectRoot()), next.context().changeId()), "恢复监督", current);
             }
         }
         return toView(next, artifactPaths(next));
@@ -304,6 +351,17 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         for (int attempt = 0; attempt < 3; attempt++) {
             SessionAutopilotRun current = repository.findBySessionId(sessionId)
                     .orElseThrow(() -> new IllegalArgumentException("当前会话没有活动的自动监督运行"));
+            if (RequirementAutopilot.applies(current) && disposition == AutopilotDisposition.COMPLETE
+                    && ProjectExecutionControlStore.codingFirst(Path.of(current.context().projectRoot()))) {
+                throw new IllegalArgumentException("编码优先模式未完成验收，请保留待验收清单并报告 WAITING_USER，恢复标准验收后再继续");
+            }
+            if (RequirementAutopilot.applies(current) && disposition == AutopilotDisposition.COMPLETE
+                    && (request.summary() == null || request.summary().isBlank()
+                    || request.remainingWork() == null || !request.remainingWork().isEmpty()
+                    || request.evidence() == null || request.evidence().isEmpty()
+                    || request.evidence().stream().anyMatch(item -> item == null || item.isBlank()))) {
+                throw new IllegalArgumentException("需求完成须提供摘要、非空验证证据及显式空 remainingWork；尚有必要工作请报告 CONTINUE");
+            }
             boolean recover = current.state() == AutopilotState.WAITING_USER
                     && disposition == AutopilotDisposition.CONTINUE
                     && request.remainingWork() != null && !request.remainingWork().isEmpty()
@@ -317,7 +375,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             // 暂停只禁止调度；当前轮已完成的成果仍可登记。任务计数只读取绑定规格。
             ChangeSnapshot reportedSnapshot = null;
             String summary = boundedText(request.summary());
-            if (paused) {
+            if (paused && !RequirementAutopilot.applies(current)) {
                 try {
                     reportedSnapshot = openSpec.inspect(Path.of(current.context().projectRoot()),
                             current.context().changeId());
@@ -329,8 +387,12 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             Instant now = Instant.now();
             OpenSpecExecutionContext context = incrementVersion(current.context());
             String remainingJson = writeList(request.remainingWork());
-            String evidenceJson = writeList(request.evidence());
-            boolean newEvidence = disposition == AutopilotDisposition.CONTINUE
+            List<String> evidence = RequirementAutopilot.applies(current) && request.evidence() != null
+                    ? request.evidence().stream().filter(java.util.Objects::nonNull).map(String::trim)
+                            .filter(item -> !item.isBlank()).distinct().sorted().toList()
+                    : request.evidence();
+            String evidenceJson = writeList(evidence);
+            boolean newEvidence = !RequirementAutopilot.applies(current) && disposition == AutopilotDisposition.CONTINUE
                     && request.evidence() != null && !request.evidence().isEmpty()
                     && !evidenceJson.equals(current.latestEvidenceJson());
             SessionAutopilotRun next = new SessionAutopilotRun(
@@ -398,6 +460,14 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                 .forEach(run -> {
                     try {
                         if (!runtimeReadyForContinuation(run, Instant.now())) return;
+                        if (RequirementAutopilot.applies(run)) {
+                            if (queuedMessages.hasInternal(run.sessionId())) {
+                                events.publishEvent(new SessionQueueReleaseRequestedEvent(run.sessionId()));
+                            } else {
+                                queueContinuation(run, null, "需求监督恢复巡检");
+                            }
+                            return;
+                        }
                         ChangeSnapshot snapshot = openSpec.inspect(Path.of(run.context().projectRoot()),
                                 run.context().changeId());
                         if (reconcileCompletedDevelopment(run, snapshot)) return;
@@ -505,6 +575,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     public Map<String, Evidence> evidence(Path projectDirectory, String changeId) {
         return repository.findRecent(changeId, null, null, 200).stream()
                 .filter(run -> changeId.equals(run.context().changeId()))
+                .filter(run -> !RequirementAutopilot.applies(run))
                 .filter(run -> run.context().currentTaskOrdinal() != null)
                 .filter(run -> workspaceFingerprintMatches(run, projectDirectory))
                 .findFirst()
@@ -526,7 +597,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         }
     }
 
-    private void evaluateSettled(SessionAutopilotRun run, SessionTurnSettledEvent event) {
+    void evaluateSettled(SessionAutopilotRun run, SessionTurnSettledEvent event) {
         String turnId = event.turnId() == null || event.turnId().isBlank()
                 ? "terminal-" + event.settledAt() : event.turnId();
         if (!successful(event.stopReason()) || !event.queueReleaseSafe()) {
@@ -552,9 +623,13 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         }
         if (run.latestDisposition() == AutopilotDisposition.WAITING_USER
                 || run.latestDisposition() == AutopilotDisposition.BLOCKED) {
-            if (deferBlockedBatchItem(run, turnId)) return;
+            if (!RequirementAutopilot.applies(run) && deferBlockedBatchItem(run, turnId)) return;
             finishDecision(run, event, turnId, AutopilotState.WAITING_USER,
                     reportReason(run), run.context(), run.noProgressCount());
+            return;
+        }
+        if (RequirementAutopilot.applies(run)) {
+            settleRequirement(run, turnId);
             return;
         }
         try {
@@ -615,6 +690,25 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                     "无法读取当前 OpenSpec 状态：" + boundedText(exception.getMessage()),
                     run.context(), run.noProgressCount());
         }
+    }
+
+    private void settleRequirement(SessionAutopilotRun run, String turnId) {
+        var decision = RequirementAutopilot.decide(run);
+        var old = run.context();
+        var context = new OpenSpecExecutionContext(old.projectRoot(), old.repositoryIdentity(), old.branchAtStart(),
+                old.workspaceFingerprint(), old.changeId(), decision.fingerprint().isEmpty()
+                        ? old.changeRevision() : decision.fingerprint(), null, null,
+                decision.state() == AutopilotState.COMPLETED ? OpenSpecExecutionPhase.DONE : old.phase(),
+                old.agentSessionRef(), old.generation(), old.version() + 1);
+        if (!repository.appendStep(new AutopilotStep(run.id(), old.generation(), turnId, null,
+                old.phase(), null, decision.state().name(), run.latestSummary(), run.latestEvidenceJson(),
+                decision.fingerprint(), Instant.now()))) return;
+        var next = evolve(run, decision.state(), decision.reason(), context, run.turnCount() + 1,
+                decision.noProgress(), 0, 0, decision.state() == AutopilotState.ACTIVE, Instant.now());
+        if (!repository.update(next, old.version())) return;
+        publish(next);
+        if (next.state() == AutopilotState.ACTIVE) queueContinuation(next, null, next.reason(), run);
+        else queuedMessages.clearInternal(run.sessionId());
     }
 
     /** 空闲恢复只处理已结束的开发阶段，不触发验证、归档，也不虚增引擎轮次。 */
@@ -732,7 +826,8 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             return;
         }
         SessionAutopilotRun next = evolve(run, state, reason, context, Math.min(run.maxTurns(), run.turnCount() + 1),
-                noProgress, run.completedTasks(), run.totalTasks(), true, Instant.now());
+                noProgress, run.completedTasks(), run.totalTasks(),
+                !RequirementAutopilot.applies(run) || state == AutopilotState.ACTIVE, Instant.now());
         if (repository.update(next, run.context().version())) {
             publish(next);
         }
@@ -750,6 +845,20 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             throw new IllegalArgumentException("轮次预算已耗尽，请选择重置轮次并继续");
         }
         int turns = resetBudget ? 0 : run.turnCount();
+        if (RequirementAutopilot.applies(run)) {
+            if (run.state() == AutopilotState.COMPLETED || run.state() == AutopilotState.STOPPED) {
+                throw new IllegalArgumentException("已结束的需求请新建监督运行");
+            }
+            var old = run.context();
+            var context = new OpenSpecExecutionContext(old.projectRoot(), old.repositoryIdentity(), old.branchAtStart(),
+                    old.workspaceFingerprint(), old.changeId(), old.changeRevision(), null, null,
+                    OpenSpecExecutionPhase.APPLY, old.agentSessionRef(), old.generation() + 1, old.version() + 1);
+            return new SessionAutopilotRun(run.id(), run.sessionId(), run.goal(), run.completionPolicy(),
+                    AutopilotState.ACTIVE, "用户恢复需求监督", context, turns, run.maxTurns(), 0,
+                    run.maxNoProgress(), false, false, null, null, null, true, 0, 0,
+                    null, null, null, null, null, null, run.startedAt(),
+                    !resetBudget && run.deadlineAt().isAfter(now) ? run.deadlineAt() : now.plus(DEFAULT_DEADLINE), now);
+        }
         ProvisioningResult skill = skillProvisioner.provision(Path.of(run.context().projectRoot()));
         if (!skill.ready()) {
             throw new IllegalStateException("Continuous Execution Skill 名称与用户文件冲突："
@@ -788,7 +897,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     }
 
     private boolean archiveConfirmed(SessionAutopilotRun run) {
-        return (run.context().phase() == OpenSpecExecutionPhase.ARCHIVE
+        return !RequirementAutopilot.applies(run) && (run.context().phase() == OpenSpecExecutionPhase.ARCHIVE
                 || run.context().phase() == OpenSpecExecutionPhase.DONE)
                 && openSpec.isArchived(Path.of(run.context().projectRoot()),
                 run.context().repositoryIdentity(), run.context().changeId());
@@ -805,7 +914,9 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
             return;
         }
         // The consumed disposition stays cleared; only scoped report data travels into the next message.
-        AutopilotTurnHandoff.Message handoff = AutopilotTurnHandoff.forRun(run, snapshot, reason, previousRun);
+        AutopilotTurnHandoff.Message handoff = RequirementAutopilot.applies(run)
+                ? RequirementAutopilot.handoff(run, previousRun)
+                : AutopilotTurnHandoff.forRun(run, snapshot, reason, previousRun);
         queuedMessages.saveInternal(run.sessionId(), handoff.id(), handoff.text(), handoff.display(),
                 handoff.instructions(),
                 System.currentTimeMillis());
@@ -864,6 +975,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     }
 
     private Map<String, List<String>> artifactPaths(SessionAutopilotRun run) {
+        if (RequirementAutopilot.applies(run)) return Map.of();
         if ((run.context().phase() == OpenSpecExecutionPhase.ARCHIVE
                 || run.context().phase() == OpenSpecExecutionPhase.DONE) && archiveConfirmed(run)) {
             return Map.of();
@@ -1032,7 +1144,13 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     public record StartRequest(String projectRoot, String changeId, String goal, boolean autoArchive,
                                Integer maxTurns, Integer maxNoProgress, Integer deadlineMinutes,
                                String expectedRevision, List<String> changeIds,
-                               Map<String, String> expectedRevisions) {
+                               Map<String, String> expectedRevisions, AutopilotCompletionPolicy completionPolicy) {
+        public StartRequest(String projectRoot, String changeId, String goal, boolean autoArchive,
+                            Integer maxTurns, Integer maxNoProgress, Integer deadlineMinutes,
+                            String expectedRevision, List<String> changeIds, Map<String, String> expectedRevisions) {
+            this(projectRoot, changeId, goal, autoArchive, maxTurns, maxNoProgress, deadlineMinutes,
+                    expectedRevision, changeIds, expectedRevisions, AutopilotCompletionPolicy.OPEN_SPEC_STRICT);
+        }
         public StartRequest(String projectRoot, String changeId, String goal, boolean autoArchive,
                             Integer maxTurns, Integer maxNoProgress, Integer deadlineMinutes,
                             String expectedRevision) {

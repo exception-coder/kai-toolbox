@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.SessionAutopilotView;
+import com.exceptioncoder.toolbox.claudechat.domain.autopilot.AutopilotCompletionPolicy;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import com.exceptioncoder.toolbox.claudechat.service.SessionAutopilotService;
 import com.exceptioncoder.toolbox.claudechat.service.AutopilotProgressConflictException;
@@ -113,7 +114,7 @@ public class SessionAutopilotController {
         return service.start(sessionId, new SessionAutopilotService.StartRequest(
                 request.projectRoot(), request.changeId(), request.goal(), request.autoArchive(),
                 request.maxTurns(), request.maxNoProgress(), request.deadlineMinutes(), request.expectedRevision(),
-                request.changeIds(), request.expectedRevisions()));
+                request.changeIds(), request.expectedRevisions(), request.completionPolicy()));
     }
 
     @PostMapping("/sessions/{sessionId}/autopilot/actions/{action}")
@@ -159,7 +160,7 @@ public class SessionAutopilotController {
     public record StartRequest(String projectRoot, String changeId, String goal, boolean autoArchive,
                                Integer maxTurns, Integer maxNoProgress, Integer deadlineMinutes,
                                String expectedRevision, List<String> changeIds,
-                               Map<String, String> expectedRevisions) {
+                               Map<String, String> expectedRevisions, AutopilotCompletionPolicy completionPolicy) {
     }
 
     public record ActionRequest(long expectedVersion) {
