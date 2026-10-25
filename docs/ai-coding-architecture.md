@@ -713,6 +713,17 @@ Forge 将工具执行结果和交付许可分开：本批通过但类别或延�
 
 ## Web 修改的登录后页面预览
 
+回复中的 `site-preview` 是独立的轻量展示声明：前端校验 HTTP(S) 地址，用户点击后在受限 iframe 弹框打开站点，可全屏、缩小、刷新或新窗口恢复。它不调用下面的无头预览服务，不读取资源账号/DPAPI，不自动登录，不改变 Agent 执行、重启授权或验收流程；跨域加载与登录结果保持未知，受目标站证书和嵌入策略约束。声明和公共组件用法见[站点弹框预览](development/site-preview.md)。
+
+```mermaid
+flowchart LR
+  DECL["AI 回复中的站点声明"] --> VALID["前端校验地址与字段"]
+  VALID --> CLICK["用户点击入口"]
+  CLICK --> FRAME["浏览器 iframe 弹框"]
+  FRAME --> VIEW["全屏 缩小 刷新 关闭"]
+  FRAME --> FALLBACK["嵌入受限时新窗口打开"]
+```
+
 Web 修改交付在工具可用时默认通过 Forge 的 `prepare_page_preview`（SDK/stdio 同名）给出包含目标路由、设备及查看状态的入口。工具准备阶段返回 `WAITING_VIEWER_AUTH`，用户打开入口后，由现有登录守卫取得访问者真实身份，再经 `/api/page-previews` 创建短期无头浏览器。不能从匿名 Agent 请求推定 admin 或为便利签发身份；登录、目标就绪、运行版本核验与功能验收分别报告。
 
 ```mermaid

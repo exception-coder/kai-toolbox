@@ -9,6 +9,8 @@ import { downloadSvg } from '@/components/markdown/downloadSvg'
 import { cn } from '@/lib/utils'
 import { openSessionLocalPath } from '../api'
 import { isDrawioFile } from '@/features/doc-viewer/public-api/drawio'
+import { SitePreviewLink } from '@/components/site-preview/SitePreviewLink'
+import { splitMessageBlocks } from '../lib/messageBlocks'
 
 const MessageDrawioDialog = lazy(() => import('./messages/MessageDrawioDialog').then(module => ({ default: module.MessageDrawioDialog })))
 
@@ -110,25 +112,6 @@ function MermaidDiagram({ code }: { code: string }) {
       )}
     </>
   )
-}
-
-// ── 文本分段：普通 markdown vs. mermaid 代码块 ────────────────────────────────
-// 只有 ``` 块完整闭合（有结束 ```）时才切出 mermaid 段落，未闭合的（流式中）
-// 当作普通代码块处理，等下一次 text 更新后再尝试。
-type Segment = { kind: 'text'; content: string } | { kind: 'mermaid'; code: string }
-
-function splitMermaid(text: string): Segment[] {
-  const segs: Segment[] = []
-  const re = /```mermaid\r?\n([\s\S]*?)```/g
-  let last = 0
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) segs.push({ kind: 'text', content: text.slice(last, m.index) })
-    segs.push({ kind: 'mermaid', code: m[1].trim() })
-    last = m.index + m[0].length
-  }
-  if (last < text.length) segs.push({ kind: 'text', content: text.slice(last) })
-  return segs
 }
 
 // ── MarkdownPart：单段普通 markdown 渲染（保留原有实现）──────────────────────
@@ -354,10 +337,11 @@ function diagramPathFromHref(href: string | null): string | null {
  * 渲染 assistant 回复的 markdown，支持 mermaid 图表渲染。
  * - 普通 markdown：marked 解析 → DOMPurify 消毒 → 注入
  * - ```mermaid 块：提取后由 MermaidDiagram 异步渲染为 SVG
- * - 流式输出期间 mermaid 块未闭合时当普通代码块显示，闭合后自动升级为图表
+ * - site-preview 声明仅提供点击入口，不在输出或流式更新时访问站点
+ * - 流式代码块未闭合时当普通代码块显示
  */
 export function Markdown({ text, className, sessionId }: { text: string; className?: string; sessionId?: string }) {
-  const segments = useMemo(() => splitMermaid(text ?? ''), [text])
+  const segments = useMemo(() => splitMessageBlocks(text ?? ''), [text])
 
   // 只有一段普通文本（最常见情况）：走原来最简路径，不引入额外 wrapper
   if (segments.length === 1 && segments[0].kind === 'text') {
@@ -369,7 +353,9 @@ export function Markdown({ text, className, sessionId }: { text: string; classNa
       {segments.map((seg, i) =>
         seg.kind === 'mermaid'
           ? <MermaidDiagram key={i} code={seg.code} />
-          : <MarkdownPart key={i} text={seg.content} sessionId={sessionId} />
+          : seg.kind === 'site-preview'
+            ? <SitePreviewLink key={`${sessionId ?? ''}:${i}:${seg.code}`} declaration={seg.code} />
+            : <MarkdownPart key={i} text={seg.content} sessionId={sessionId} />
       )}
     </div>
   )
