@@ -122,3 +122,42 @@ it('keeps configuration and refresh recovery when no eligible applications exist
   expect(screen.getByRole('button', { name: '刷新账号' })).toBeEnabled()
   expect(calls.create).not.toHaveBeenCalled()
 })
+
+it('lists production accounts but never accepts auto links as production confirmation', async () => {
+  calls.resources.mockResolvedValue([{ id: 'prod', name: 'Yoooni One', environment: 'PROD', username: 'admmin', baseUrl: 'https://prod.example/login' }])
+  mount('/tools/fore-consult/preview?auto=1&resourceId=prod&productionConfirmed=true&route=%2Flogin')
+  const confirm = await screen.findByRole('checkbox', { name: '确认使用生产账号打开预览' })
+  expect(confirm).not.toBeChecked()
+  expect(calls.create).not.toHaveBeenCalled()
+  expect(screen.getByRole('option', { name: /Yoooni One · PROD · admmin/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '登录并打开页面' })).toBeDisabled()
+  fireEvent.click(confirm)
+  fireEvent.click(screen.getByRole('button', { name: '登录并打开页面' }))
+  await waitFor(() => expect(calls.create).toHaveBeenCalledOnce())
+  expect(calls.create.mock.calls[0][0]).toMatchObject({ resourceId: 'prod', route: '/login', productionConfirmed: true })
+  expect(calls.create.mock.calls[0][0]).not.toHaveProperty('password')
+})
+
+it('resets production confirmation when the application changes', async () => {
+  calls.resources.mockResolvedValue(['one', 'two'].map(id => ({ id, name: id, environment: 'PROD', username: 'operator', baseUrl: `https://${id}.example/login` })))
+  mount('/tools/fore-consult/preview')
+  await screen.findByRole('option', { name: /one · PROD/ })
+  fireEvent.change(screen.getByLabelText('应用与环境'), { target: { value: 'one' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: '确认使用生产账号打开预览' }))
+  expect(screen.getByRole('button', { name: '登录并打开页面' })).toBeEnabled()
+  fireEvent.change(screen.getByLabelText('应用与环境'), { target: { value: 'two' } })
+  expect(screen.getByRole('checkbox', { name: '确认使用生产账号打开预览' })).not.toBeChecked()
+  expect(screen.getByRole('button', { name: '登录并打开页面' })).toBeDisabled()
+  expect(calls.create).not.toHaveBeenCalled()
+})
+
+it('does not start an unresolved resource while its environment is still loading', async () => {
+  let resolve!: (resources: unknown[]) => void
+  calls.resources.mockReturnValue(new Promise(done => { resolve = done }))
+  mount('/tools/fore-consult/preview?auto=1&resourceId=unresolved')
+  expect(screen.getByRole('button', { name: '登录并打开页面' })).toBeDisabled()
+  expect(calls.create).not.toHaveBeenCalled()
+  resolve([])
+  await screen.findByText(/暂无可自动登录的应用/)
+  expect(calls.create).not.toHaveBeenCalled()
+})

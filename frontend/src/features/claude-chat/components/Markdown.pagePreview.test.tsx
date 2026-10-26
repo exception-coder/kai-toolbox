@@ -7,7 +7,7 @@ const calls = vi.hoisted(() => ({ create: vi.fn(), get: vi.fn(), close: vi.fn(),
 vi.mock('../api', () => ({ openSessionLocalPath: calls.openLocal }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { userId: 1 } }) }))
 vi.mock('@/features/browser-request/preview/api', () => ({ createPreview: calls.create, getPreview: calls.get,
-  closePreview: calls.close, previewResources: async () => [], continuePreview: vi.fn() }))
+  closePreview: calls.close, previewResources: async () => [{ id: 'test-account', name: '测试应用', environment: 'TEST', username: 'test-user' }], continuePreview: vi.fn() }))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 it('opens desktop preview in context, preserves full entry and disposes it on session change', async () => {
@@ -22,7 +22,7 @@ it('opens desktop preview in context, preserves full entry and disposes it on se
   const location = window.location.href
   fireEvent.click(trigger)
   await act(() => vi.dynamicImportSettled())
-  expect(await screen.findByText('正在登录测试应用')).toBeVisible()
+  expect(await screen.findByText('正在登录应用')).toBeVisible()
   expect(calls.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ ...target, requestKey: expect.any(String) }))
   expect(calls.openLocal).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: '全屏页面预览' }))

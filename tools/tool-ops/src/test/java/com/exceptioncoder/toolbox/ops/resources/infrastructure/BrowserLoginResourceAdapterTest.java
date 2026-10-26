@@ -12,7 +12,7 @@ class BrowserLoginResourceAdapterTest {
         return new ApplicationResource(id, "测试账号", environment, "https://test.example", ApplicationResource.AuthType.FORM_COOKIE,
                 "/login", "tester", "private-password", "username", "password", "token", null, null, 1, 1);
     }
-    @Test void reusesExistingTestAccountsAndRejectsProduction() {
+    @Test void interactivePreviewIncludesProductionWhileAgentAccessRemainsRestricted() {
         ApplicationResourceService resources = mock(ApplicationResourceService.class);
         when(resources.list()).thenReturn(List.of(resource("test", "TEST"), resource("prod", "PROD")));
         when(resources.required("test")).thenReturn(resource("test", "TEST"));
@@ -21,5 +21,8 @@ class BrowserLoginResourceAdapterTest {
         assertEquals(List.of("test"), adapter.targets().stream().map(target -> target.id()).toList());
         assertEquals("private-password", adapter.require("test").password());
         assertThrows(IllegalArgumentException.class, () -> adapter.require("prod"));
+        assertEquals(List.of("test", "prod"), adapter.interactiveTargets().stream().map(target -> target.id()).toList());
+        assertEquals("PROD", adapter.requireInteractive("prod").environment());
+        assertEquals("private-password", adapter.requireInteractive("prod").password());
     }
 }

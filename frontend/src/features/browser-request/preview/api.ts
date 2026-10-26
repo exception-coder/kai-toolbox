@@ -4,7 +4,7 @@ import { ensureFreshToken, getToken } from '@/lib/auth'
 export interface PreviewTarget {
   requestKey: string; origin: string; route: string; device: 'phone' | 'desktop'
   scene: 'page' | 'consult-image'; resourceId?: string; loginPage?: string
-  readySelector?: string; sourceRevision?: string
+  readySelector?: string; sourceRevision?: string; productionConfirmed?: boolean
 }
 export interface PreviewView {
   id: string; status: string; target: PreviewTarget; targetOrigin: string; account: string; environment: string; runtimeVersion: string; expiresAt: number; viewerPath: string

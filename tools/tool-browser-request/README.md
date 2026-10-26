@@ -4,11 +4,11 @@
 
 从站点录制编排点击「页面预览」，或打开 `/tools/fore-consult/preview?auto=1&route=%2Ftools%2Ffore-consult&device=phone&scene=consult-image&requestKey=本次交付唯一标识`。Vibe Coding 回复中的该链接直接在当前会话弹框打开，不再当作本地文件路径；完整查询和锚点保留。访问者需先登录 Forge；未选择应用账号时用本人 Forge 身份预览 Forge 页面。弹框可全屏/缩小，关闭恢复原对话；切会话释放其新建的浏览器。切换设备、账号或重新预览先关闭旧上下文；关闭后重开产生新请求，不复用 CLOSED 记录。仅查看既有预览 ID 不取得其关闭所有权。查看实际页面不等于功能验收通过。
 
-管理员在 **AI 交付中心 → Forge 系统资源 → 应用站点** 配置运行环境的应用地址、环境和账号密码（`/tools/reqpool/resources?view=accounts`）；复用原资源和密码加密存储，不另建预览凭据库。预览中选择账号或点击「调整预览账号」，可在不离开对话的情况下修改账号及目标；新增账号后点「刷新账号」。已有账号的交付链接带上 `resourceId` 即自动执行服务端登录，链接不含用户名、密码或 Token。本机 DPAPI 文件不自动成为服务运行账号；普通 `site-preview` iframe 也不读取这些密码。
+管理员在 **AI 交付中心 → Forge 系统资源 → 应用站点** 配置运行环境的应用地址、环境和账号密码（`/tools/reqpool/resources?view=accounts`）；复用原资源和密码加密存储，不另建预览凭据库。预览中选择账号或点击「调整预览账号」，可在不离开对话的情况下修改账号及目标；新增账号后点「刷新账号」。已有非生产账号的交付链接带上 `resourceId` 即自动执行服务端登录，链接不含用户名、密码或 Token。本机 DPAPI 文件不自动成为服务运行账号；普通 `site-preview` iframe 也不读取这些密码。
 
-Vibe Coding 的桌面/手机输入框「＋ → 站点预览」直接打开同一工作台；先在「应用与环境」选择登记记录，目标路径会同步为该应用登记地址的路径，选好设备并确认后才启动。无需离开当前会话，也不会发送聊天消息。空列表保留配置及刷新入口，已准备的 auto=1 链接仍自动启动。
+Vibe Coding 的桌面/手机输入框「＋ → 站点预览」直接打开同一工作台；先在「应用与环境」选择登记记录，目标路径会同步为该应用登记地址的路径，选好设备并确认后才启动。无需离开当前会话，也不会发送聊天消息。空列表保留配置及刷新入口。管理员人工预览还可选择 PROD 账号：先核对站点和账号，勾选「确认使用生产账号打开预览」，再点击打开；切换账号或重新调整配置会清除确认。生产资源的 auto=1 链接只打开设置，不能跳过确认；未知或尚未加载的资源不会自动启动。同一已确认预览的设备切换和重新预览可复用本次确认。
 
-仅支持 LOCAL/DEV/TEST/UAT 应用账号。同源**网页登录路径**可留空，此时从受保护目标页进入并跟随登录跳转；显式路径不是登录 API。字段 name 优先取资源的 usernameField/passwordField；未定制字段时，也识别唯一的 autocomplete/文本账号框与密码框，兼容不带 form/name 的简单 SPA。多个候选不猜选、不自动反复登录；导航后仍有可见密码框时保留 WAITING_LOGIN，不因登录页标题存在就报 READY。验证码或登录未完成时开启「接管操作」，处理后点击「继续打开目标页」。跨域 SSO 不支持，TLS 校验不被跳过。
+Agent 与业务咨询的网页登录资源仍仅支持 LOCAL/DEV/TEST/UAT，人工生产预览不扩大其授权。同源**网页登录路径**可留空，此时从受保护目标页进入并跟随登录跳转；显式路径不是登录 API。字段 name 优先取资源的 usernameField/passwordField；未定制字段时，也识别唯一的 autocomplete/文本账号框与密码框，兼容不带 form/name 的简单 SPA。多个候选不猜选、不自动反复登录；导航后仍有可见密码框时保留 WAITING_LOGIN，不因登录页标题存在就报 READY。验证码或登录未完成时开启「接管操作」，处理后点击「继续打开目标页」。跨域 SSO 不支持，TLS 校验不被跳过。
 
 SDK/stdio MCP 的 `prepare_page_preview` 支持 route、device、scene、resourceId、loginPage、readySelector、sourceRevision。外部应用必须引用资源中心账号的 resourceId；缺少账号时先提供配置入口，不把外部应用路由作为 Forge 身份预览。返回 WAITING_VIEWER_AUTH 和不带凭据的 viewerPath；开发 Agent 在交付消息中将其作为链接提供。工具只准备入口，用户登录 Forge 后才校验权限并使用服务端账号，不能凭入口宣称已登录或验收通过。受限业务咨询不会注册此交付工具。
 
@@ -18,8 +18,8 @@ SDK/stdio MCP 的 `prepare_page_preview` 支持 route、device、scene、resourc
 
 | 接口 | 行为 |
 |---|---|
-| GET /api/page-previews/resources | 管理员可用的非生产账号元信息，无密码 |
-| POST /api/page-previews | requestKey、origin、route、device、scene，以及可选资源/登录路径/就绪元素/源码标记 |
+| GET /api/page-previews/resources | 管理员人工预览可用账号元信息，含 PROD，无密码 |
+| POST /api/page-previews | requestKey、origin、route、device、scene，以及可选资源/登录路径/就绪元素/源码标记；PROD 必须 productionConfirmed=true |
 | GET /api/page-previews/{id} | 生命周期、目标、账号、环境、有效期及查看路径 |
 | GET /api/page-previews/{id}/screenshot | 不缓存的 JPEG，仅在可查看状态返回 |
 | POST /api/page-previews/{id}/resume | 人工完成登录后复用原 context 打开目标路由 |

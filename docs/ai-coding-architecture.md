@@ -731,15 +731,16 @@ flowchart LR
   A[Agent 完成 Web 改动] --> B[prepare_page_preview 准备交付入口]
   B --> C["访问者登录并打开页面或会话内弹框"]
   C --> D[browser-request 预览用例]
-  D --> E[当前身份快照或资源中心测试账号]
+  MANUAL["管理员人工选站点"] --> CONFIRM["PROD 打开前确认"] --> D
+  D --> E["当前身份快照或已授权资源账号"]
   E --> F[独立 headless context 路由与目标状态]
   F --> G[本人实时画面与显式接管]
   G --> H[记录实际页面和验收证据]
 ```
 
-browser-request 拥有渲染上下文及预览生命周期，复用既有 Playwright worker；tool-ops 通过 common 的 BrowserLoginResources 端口提供资源，不复制账号配置或跨工具查询表。应用站点保存的运行账号是自动登录的唯一凭据源，本机 DPAPI 文件不自动导入服务。未指定网页登录路径时从目标受保护路由进入；唯一标准表单/简单 SPA 可以自动填写，字段或登录结果不明确时等待接管，不反复猜测登录。仍显示密码框的登录页不标 READY。上下文不进入录制目录、不写登录态文件；预览只向创建用户开放，过期或关闭释放。弹框显式重开使用新请求 ID，尺寸切换不重建；关闭及切会话尽力释放弹框新建上下文，迟到创建结果也关闭，失败仍由服务端 TTL 兜底。受限业务咨询不获得交付工具。手机和桌面视口预览不等于对应实机通过。
+browser-request 拥有渲染上下文及预览生命周期，复用既有 Playwright worker；tool-ops 通过 common 的 BrowserLoginResources 端口提供资源，不复制账号配置或跨工具查询表。默认 targets/require 继续只提供非生产资源给 Agent/业务咨询；interactiveTargets/requireInteractive 仅供已认证管理员的人工预览，允许已登记 PROD。预览服务对 PROD 强制 productionConfirmed，取凭据后再复核环境，未确认不启动浏览器；前端不从交付链接读取此确认，生产 auto 链接停留在设置。确认只复用于同一已打开预览的设备切换/重开；换账号、调整配置清除确认。此人工例外不改变 prepare_page_preview、资源执行或咨询的非生产限制。应用站点保存的运行账号是自动登录的唯一凭据源，本机 DPAPI 文件不自动导入服务。未指定网页登录路径时从目标受保护路由进入；唯一标准表单/简单 SPA 可以自动填写，字段或登录结果不明确时等待接管，不反复猜测登录。仍显示密码框的登录页不标 READY。上下文不进入录制目录、不写登录态文件；预览只向创建用户开放，过期或关闭释放。弹框显式重开使用新请求 ID，尺寸切换不重建；关闭及切会话尽力释放弹框新建上下文，迟到创建结果也关闭，失败仍由服务端 TTL 兜底。受限业务咨询不获得交付工具。手机和桌面视口预览不等于对应实机通过。
 
-前端入口 `/tools/fore-consult/preview` 沿用业务咨询权限，站点录制编排提供入口；不新增平行项目或菜单。跨域 SSO、生产账号、视频推流和运行版本指纹未在一期实现。源码标记与运行版本分别展示，页面 READY 不证明修改已部署。当前服务未加载时明确待运行验收；预览工具不构成服务重启授权，不改变验证节奏或提交规则。完整用法与 API 见[浏览器页面预览](../tools/tool-browser-request/README.md)，交付证据见[初始预览任务](../openspec/changes/add-authenticated-page-preview/tasks.md)和[运行账号与弹框闭环](../openspec/changes/complete-runtime-account-preview/tasks.md)。
+前端入口 `/tools/fore-consult/preview` 沿用业务咨询权限，站点录制编排提供入口；不新增平行项目或菜单。跨域 SSO、视频推流和运行版本指纹未实现。源码标记与运行版本分别展示，页面 READY 不证明修改已部署。当前服务未加载时明确待运行验收；预览工具不构成服务重启授权，不改变验证节奏或提交规则。完整用法与 API 见[浏览器页面预览](../tools/tool-browser-request/README.md)，交付证据见[初始预览任务](../openspec/changes/add-authenticated-page-preview/tasks.md)、[运行账号与弹框闭环](../openspec/changes/complete-runtime-account-preview/tasks.md)和[人工生产预览](../openspec/changes/allow-manual-production-preview/tasks.md)。
 
 
 ## 咨询的多环境 Web 证据

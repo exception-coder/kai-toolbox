@@ -33,8 +33,8 @@ class PreviewTargetsTest {
         BrowserLoginResources provider = mock(BrowserLoginResources.class);
         BrowserLoginTarget target = new BrowserLoginTarget("test-app", "测试应用", "TEST", "https://test.example",
                 "test-user", "private-secret", "username", "password");
-        when(provider.targets()).thenReturn(List.of(target));
-        when(provider.require("test-app")).thenReturn(target);
+        when(provider.interactiveTargets()).thenReturn(List.of(target));
+        when(provider.requireInteractive("test-app")).thenReturn(target);
         PreviewTargets targets = new PreviewTargets("https://localhost:5173", List.of(provider), mapper, mock(ForgeGuardService.class));
         assertTrue(targets.resources(user).isEmpty());
         assertThrows(RuntimeException.class, () -> targets.resolve(request(null, "/", "test-app"), user, null));
@@ -43,6 +43,34 @@ class PreviewTargetsTest {
         assertEquals("/app/employees?view=runtime", targets.resolve(request(null, "/app/employees?view=runtime", "test-app"), admin, null).loginPage());
         assertFalse(mapper.writeValueAsString(targets.resources(admin)).contains("private-secret"));
         assertFalse(target.toString().contains("private-secret"));
+    }
+    @Test void productionPreviewRequiresAdminAndExplicitConfirmationBeforeReadingCredentials() throws Exception {
+        BrowserLoginResources provider = mock(BrowserLoginResources.class);
+        BrowserLoginTarget production = new BrowserLoginTarget("prod", "生产应用", "PROD", "https://prod.example/login",
+                "operator", "private-secret", "username", "password");
+        when(provider.interactiveTargets()).thenReturn(List.of(production));
+        when(provider.requireInteractive("prod")).thenReturn(production);
+        PreviewTargets targets = new PreviewTargets("https://localhost:5173", List.of(provider), mapper, null);
+        AuthPrincipal admin = new AuthPrincipal(1, "admin", List.of("ADMIN"), List.of(), "jti", user.expiresAt());
+        assertTrue(targets.resources(user).isEmpty());
+        assertEquals("prod", targets.resources(admin).getFirst().id());
+        assertFalse(mapper.writeValueAsString(targets.resources(admin)).contains("private-secret"));
+        assertThrows(IllegalArgumentException.class, () -> targets.resolve(request(null, "/login", "prod"), admin, null));
+        verify(provider, never()).requireInteractive(anyString());
+        PreviewRequest confirmed = new PreviewRequest("manual-prod", null, "/login", "prod", null, null, "phone", "page", null, true);
+        assertThrows(RuntimeException.class, () -> targets.resolve(confirmed, user, null));
+        assertEquals("PROD", targets.resolve(confirmed, admin, null).login().environment());
+        verify(provider, never()).require(anyString());
+    }
+    @Test void environmentChangeBetweenSelectionAndCredentialReadStillRequiresConfirmation() {
+        BrowserLoginResources provider = mock(BrowserLoginResources.class);
+        when(provider.interactiveTargets()).thenReturn(List.of(new BrowserLoginTarget("app", "应用", "TEST", "https://app.example",
+                "user", "private-secret", "username", "password")));
+        when(provider.requireInteractive("app")).thenReturn(new BrowserLoginTarget("app", "应用", "PROD", "https://app.example",
+                "user", "private-secret", "username", "password"));
+        PreviewTargets targets = new PreviewTargets("https://localhost:5173", List.of(provider), mapper, null);
+        AuthPrincipal admin = new AuthPrincipal(1, "admin", List.of("ADMIN"), List.of(), "jti", user.expiresAt());
+        assertThrows(IllegalArgumentException.class, () -> targets.resolve(request(null, "/", "app"), admin, null));
     }
     @Test void rejectsCredentialUrlsAndOriginRedirects() {
         for (String path : List.of("https://evil.example", "//evil.example", "/x?access_token=secret", "/x?password=p", "/\\evil")) {

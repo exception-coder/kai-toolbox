@@ -37,7 +37,7 @@ public class PreviewTargets {
         if (!user.hasAnyRole("ADMIN")) {
             return List.of();
         }
-        return resources.stream().flatMap(provider -> provider.targets().stream()).toList();
+        return resources.stream().flatMap(provider -> provider.interactiveTargets().stream()).toList();
     }
 
     PreviewPlan resolve(PreviewRequest request, AuthPrincipal user, String token) {
@@ -57,12 +57,16 @@ public class PreviewTargets {
             if (!user.hasAnyRole("ADMIN")) {
                 throw AuthException.forbidden();
             }
-            List<BrowserLoginResources> matches = resources.stream().filter(provider -> provider.targets().stream()
+            List<BrowserLoginResources> matches = resources.stream().filter(provider -> provider.interactiveTargets().stream()
                     .anyMatch(target -> target.id().equals(request.resourceId()))).toList();
             if (matches.size() != 1) {
-                throw new IllegalArgumentException("测试应用资源不可用或身份有歧义");
+                throw new IllegalArgumentException("应用资源不可用或身份有歧义");
             }
-            BrowserLoginTarget secret = matches.get(0).require(request.resourceId());
+            BrowserLoginTarget selected = matches.getFirst().interactiveTargets().stream()
+                    .filter(target -> target.id().equals(request.resourceId())).findFirst().orElseThrow();
+            requireProductionConfirmation(selected, request);
+            BrowserLoginTarget secret = matches.getFirst().requireInteractive(request.resourceId());
+            requireProductionConfirmation(secret, request);
             return new PreviewPlan(applicationOrigin(secret.baseUrl()), route, path(request.loginPage() == null || request.loginPage().isBlank() ? route : request.loginPage()),
                     request.readySelector(), scene, phone, null, secret);
         }
@@ -74,6 +78,12 @@ public class PreviewTargets {
             throw new IllegalArgumentException("当前登录即将过期，请重新登录后预览");
         }
         return new PreviewPlan(origin, route, null, request.readySelector(), scene, phone, storage(origin, token, user), null);
+    }
+
+    private static void requireProductionConfirmation(BrowserLoginTarget target, PreviewRequest request) {
+        if ("PROD".equalsIgnoreCase(target.environment()) && !request.productionConfirmed()) {
+            throw new IllegalArgumentException("这是生产环境，请先确认使用生产账号打开预览");
+        }
     }
 
     private String storage(String origin, String token, AuthPrincipal user) {

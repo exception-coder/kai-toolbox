@@ -8,4 +8,10 @@ public interface BrowserLoginResources {
     List<BrowserLoginTarget> targets();
     /** 读取服务端凭据，不得经 API 或 Agent 上下文返回。 */
     BrowserLoginTarget require(String id);
+
+    /** 人工预览候选；调用方必须核验管理员身份及生产环境确认，不供 Agent 资源发现使用。 */
+    default List<BrowserLoginTarget> interactiveTargets() { return targets(); }
+
+    /** 人工预览专用凭据读取，不能替代 Agent 使用的 require。 */
+    default BrowserLoginTarget requireInteractive(String id) { return require(id); }
 }

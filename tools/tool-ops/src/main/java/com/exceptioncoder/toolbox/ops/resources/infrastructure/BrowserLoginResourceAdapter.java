@@ -32,6 +32,25 @@ public class BrowserLoginResourceAdapter implements BrowserLoginResources {
         return target(resource);
     }
 
+    @Override
+    public List<BrowserLoginTarget> interactiveTargets() {
+        return resources.list().stream().filter(this::interactiveSupported).map(this::target).toList();
+    }
+
+    @Override
+    public BrowserLoginTarget requireInteractive(String id) {
+        ApplicationResource resource = resources.required(id);
+        if (!interactiveSupported(resource)) {
+            throw new IllegalArgumentException("预览需要已配置账号的应用资源");
+        }
+        return target(resource);
+    }
+
+    private boolean interactiveSupported(ApplicationResource value) {
+        return (ENVIRONMENTS.contains(value.environment()) || "PROD".equals(value.environment()))
+                && value.hasPassword() && value.username() != null && !value.username().isBlank();
+    }
+
     private boolean supported(ApplicationResource value) {
         return ENVIRONMENTS.contains(value.environment()) && value.hasPassword() && value.username() != null;
     }
