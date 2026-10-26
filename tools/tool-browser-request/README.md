@@ -30,6 +30,8 @@ SDK/stdio MCP 的 `prepare_page_preview` 支持 route、device、scene、resourc
 
 启动/继续导航最长 90 秒；会话最多 15 分钟或至当前 access token 更早过期，并发最多 4 个、内存最多 64 条。相同用户与 requestKey 的相同请求复用原结果，参数冲突拒绝；关闭或过期后通过「重新预览」使用新请求标识。重启会丢弃预览，登录态不落盘，不与其他用户共享。
 
+关闭与接管输入是无返回内容的命令。前端显式接受成功的 200 空响应及 204，不再尝试将空内容解析为 JSON，避免“重新预览”先关闭旧上下文时被 JSON 错误中断。非成功响应仍报告错误；创建和查询仍要求有效 JSON。
+
 ## 验证与限制
 
 `PagePreviewBrowserTest` 使用独立回环测试站点，显式 `-Dpreview.browser-test=true` 验证真实 Chromium 的登录、Cookie、路由及 390×844 JPEG；需要安装 Playwright 1.49.0 对应 Chromium。它不会启动或重启应用服务。控制器/实际业务页面、部署版本及手机实机分别验收；尚未部署的能力以 OpenSpec tasks 为准。

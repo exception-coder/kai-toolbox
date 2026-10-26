@@ -10,7 +10,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function http<T>(path: string, init?: RequestInit): Promise<T> {
+export async function http<T>(path: string, init?: RequestInit, responseType: 'json' | 'empty' = 'json'): Promise<T> {
   if (isMockEnabled()) {
     return mockHttp<T>(path, init)
   }
@@ -37,7 +37,8 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
         : `HTTP ${res.status}`
     throw new ApiError(res.status, payload, msg)
   }
-  if (res.status === 204) return undefined as T
+  // Some command endpoints return 200 with no body; JSON queries must still reject invalid data.
+  if (res.status === 204 || responseType === 'empty') return undefined as T
   return res.json() as Promise<T>
 }
 
