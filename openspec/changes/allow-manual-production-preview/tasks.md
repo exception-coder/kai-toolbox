@@ -7,4 +7,5 @@
 - [x] Java 21 下 `mvn -pl toolbox-starter -am package` 宿主装配通过（定向测试、`-Dskip.frontend=true`）；前端 `npm run typecheck` 与 `npx vite build` 通过。前端独立产物未随本次后端 jar 嵌入，不宣称已部署。
 - [x] 真实 Firefox 的实际 ChatPage/预览组件 + HTTP 夹具在 1440×900、390×844、390×500 通过：PROD 列表、键盘确认、换账号清除确认、提交与关闭恢复、全屏及错误恢复。非生产 auto 链接回归和架构 Mermaid 实际渲染通过并检查截图。未访问生产站点，不证明实际登录或手机实机通过。
 - [x] OpenSpec 严格校验、diff 检查通过。Forge 质量门禁 JSON status=PASSED、exit=0；实际执行 9 项既有 API 探测，executedCheckers 为空，不能视为新增预览功能的运行验收。
-- [ ] 用户确认后加载新后端，验证真实 PROD 列表和人工登录；本任务尚未重启、未进行生产登录验收。
+- [x] 用户确认后经 `node forge.mjs restart --scope backend` 加载 `11a318c7b`。真实预览选择器已显示 Yoooni One · PROD；选中后生产确认默认未勾选、打开按钮禁用，未触发生产登录。启用服务及公网 API 正常，连续 306.5 秒观察通过；证据见[预览运行复核](../complete-runtime-account-preview/tasks.md#2026-10-27-运行复核)。
+- [ ] 生产站点由用户人工确认后的实际登录尚未验收；本次不通过 Agent 工具执行生产登录，业务子页另有旧预览内核兼容性缺口。
