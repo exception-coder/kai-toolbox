@@ -563,9 +563,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           }
           setCodexReasoningEffort(options.reasoningEffort)
           setCodexSpeed(options.speed)
-          if (msg.engine === 'codex' && channel !== 'consult' && channel !== 'review') {
-            sendRaw({ type: 'setCodexOptions', ...options })
-          }
+          // Ready 也会从历史缓冲回放；恢复显示不能回写参数，否则旧快照会覆盖已保存的选择。
+          // 服务端负责恢复引擎参数，只有用户主动 setCodexOptions 才修改会话配置。
         }
         setSlashCommands(msg.slashCommands ?? [])
         setSkills(msg.skills ?? [])

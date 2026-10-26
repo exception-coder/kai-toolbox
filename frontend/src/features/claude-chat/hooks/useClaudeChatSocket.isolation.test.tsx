@@ -43,6 +43,73 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
+describe('Codex 会话参数恢复', () => {
+  it('刷新回放旧标准速度时不覆盖已保存的快速设置，连续刷新仍恢复快速', async () => {
+    let savedSpeed: 'default' | 'fast' = 'fast'
+    for (let refresh = 0; refresh < 2; refresh++) {
+      const { result, unmount } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+      act(() => result.current.switchTo('speed-replay'))
+      await waitFor(() => expect(TestSocket.sockets).toHaveLength(refresh + 1))
+      const socket = TestSocket.sockets[refresh]
+      // 模拟服务端收到浏览器回写后，再构造 attach 结束时的当前快照。
+      socket.send.mockImplementation((value: string) => {
+        const message = JSON.parse(value)
+        if (message.type === 'setCodexOptions') savedSpeed = message.speed
+      })
+      act(() => {
+        socket.open()
+        socket.receive({ ...ready('speed-replay'), codexReasoningEffort: 'low', codexSpeed: 'default' })
+      })
+      act(() => socket.receive({ ...ready('speed-replay'), seq: 3, codexReasoningEffort: 'high', codexSpeed: savedSpeed }))
+      expect(result.current.codexSpeed).toBe('fast')
+      expect(result.current.codexReasoningEffort).toBe('high')
+      expect(savedSpeed).toBe('fast')
+      expect(socket.send.mock.calls.map(([value]) => JSON.parse(value))
+        .filter(message => message.type === 'setCodexOptions')).toEqual([])
+      unmount()
+    }
+  })
+
+  it('服务端参数优先于本机缓存，只有用户修改参数时才保存一次', async () => {
+    const key = 'kai-toolbox:codex-options:speed-authority'
+    localStorage.setItem(key, JSON.stringify({ reasoningEffort: 'low', speed: 'default' }))
+    try {
+      const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+      act(() => result.current.switchTo('speed-authority'))
+      await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+      const socket = TestSocket.sockets[0]
+      act(() => {
+        socket.open()
+        socket.receive({ ...ready('speed-authority'), codexReasoningEffort: 'high', codexSpeed: 'fast' })
+        socket.receive({ type: 'models', seq: 2, current: 'gpt-test', models: [] })
+      })
+      expect(result.current.codexSpeed).toBe('fast')
+      expect(result.current.codexReasoningEffort).toBe('high')
+      act(() => result.current.setCodexOptions('high', 'default'))
+      expect(result.current.codexSpeed).toBe('default')
+      expect(JSON.parse(localStorage.getItem(key)!)).toEqual({ reasoningEffort: 'high', speed: 'default' })
+      expect(socket.send.mock.calls.map(([value]) => JSON.parse(value))
+        .filter(message => message.type === 'setCodexOptions'))
+        .toEqual([{ type: 'setCodexOptions', reasoningEffort: 'high', speed: 'default' }])
+    } finally { localStorage.removeItem(key) }
+  })
+
+  it('兼容旧服务端缺省字段时只读缓存，不把恢复操作变成配置修改', async () => {
+    const key = 'kai-toolbox:codex-options:speed-legacy'
+    localStorage.setItem(key, JSON.stringify({ reasoningEffort: 'high', speed: 'fast' }))
+    try {
+      const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+      act(() => result.current.switchTo('speed-legacy'))
+      await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+      const socket = TestSocket.sockets[0]
+      act(() => { socket.open(); socket.receive(ready('speed-legacy')) })
+      expect(result.current.codexSpeed).toBe('fast')
+      expect(socket.send.mock.calls.map(([value]) => JSON.parse(value))
+        .filter(message => message.type === 'setCodexOptions')).toEqual([])
+    } finally { localStorage.removeItem(key) }
+  })
+})
+
 describe('会话消息隔离', () => {
   it('字节游标失效后由用户重试最近页，超大单轮提供明确兼容读取', async () => {
     api.loadMessages.mockResolvedValueOnce({ ...page('a'), nextBefore: 'cursor-a' })

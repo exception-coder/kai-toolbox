@@ -32,3 +32,9 @@ The selection flow SHALL retain current session context, speed compatibility, dr
 #### Scenario: Desktop and locked sessions
 - **WHEN** the viewport is desktop or the session is locked
 - **THEN** desktop retains full configuration and locked sessions cannot change settings
+
+#### Scenario: Restore saved speed after refresh or reconnect
+- **WHEN** a mobile or desktop client receives replayed Ready snapshots followed by the current session snapshot
+- **THEN** model reasoning and speed are restored from the server without sending configuration mutations
+- **AND** older standard-speed snapshots cannot overwrite the saved fast selection
+- **AND** local cached options are used only for fields omitted by older servers; explicit user edits retain the existing persistence path

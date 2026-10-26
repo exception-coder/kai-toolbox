@@ -8,6 +8,8 @@ Page Anatomy：现有 Composer 模型短标签（含思考强度）→ 手机底
 
 滑动只更新预览；pointer up、键盘导航 key up、显式档位点选或辅助输入离焦确认时应用一次。pointer cancel、来源模型/强度/目录变化清掉未确认预览；重复点选已有组合不重复写。现有 setModel 与 setCodexOptions 按原配置协议调用，下轮生效。速度保留当前值，目标模型明确不支持快速模式时回到 default；权限和服务商不变。锁定会话仍禁用原入口。
 
+会话刷新和重连只从 Ready 恢复已保存的强度、速度，缺省字段才读取本机兼容缓存，不发送 setCodexOptions。Ready 可能来自旧事件缓冲，自动回写会把历史标准速度重新存入当前会话；参数写入只由用户修改触发。服务端原有数据库持久化和引擎恢复不变，手机与桌面共用此规则，遵循 CTX-01、IDEM-01，无例外。
+
 视觉使用现有中性主题及品牌色，12px 滑杆承载面、32px 拇指、档位至少 44px 触控范围；标题显示真正的模型与强度，未知强度保留原值。native range step=1，提供名称和 aria-valuetext，保留方向键 / Home / End 及可点击档位。触控及 AT 风险参照 [WAI Slider](https://www.w3.org/WAI/ARIA/apg/patterns/slider/)；原生范围输入契约参照 [MDN range](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/range)，查阅于 2026-10-14。不新增 Slider 库或手写全局手势框架。
 
 验收覆盖拖动预览/确认/取消、键盘、目录缺项、刷新/锁定、自定义保留及桌面回归；真实会话只开关和检查不改用户模型，实际选择在生产组件隔离样例及现有 ChatPage 用例中验证。390×844 / 360×640 及桌面检查溢出、末项可达、焦点恢复；模拟浏览器触控不宣称真实华为设备或 TalkBack 验收。
