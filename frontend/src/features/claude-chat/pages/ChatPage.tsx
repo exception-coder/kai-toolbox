@@ -6,7 +6,7 @@ import { useSessionViewRoute } from '../hooks/useSessionViewRoute'
 import { WorkspacePreferences } from '../components/WorkspacePreferences'
 import { VibeCodingGuide } from '../components/guide/VibeCodingGuide'
 import type { GuideTarget } from '../components/guide/guideContent'
-import { AtSign, SlidersHorizontal } from 'lucide-react'
+import { AtSign, Globe2, SlidersHorizontal } from 'lucide-react'
 import { useGuideRoute } from '../hooks/useGuideRoute'
 import '../components/guide/guide.css'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType, type Ref, type ReactNode } from 'react'
@@ -16,6 +16,7 @@ import { reportVibeEntry, reportVibeResourceSummary } from '@/lib/vibeEntryDiagn
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PagePreviewDialog } from '@/features/browser-request/public-api/page-preview'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { TurnChangesDialog } from '../components/changes/TurnChangesDialog'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -769,6 +770,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [sitePreviewSession, setSitePreviewSession] = useState<string | null>(null)
+  useEffect(() => { setSitePreviewSession(null) }, [chat?.sessionId])
   const [engineMenuOpen, setEngineMenuOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const focusRoot = useRef<HTMLDivElement>(null)
@@ -2066,6 +2069,11 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
         />
       )}
 
+      {sitePreviewSession && sitePreviewSession === chat.sessionId && <PagePreviewDialog
+        entryPath="/tools/fore-consult/preview?device=desktop"
+        onClose={() => setSitePreviewSession(null)}
+        returnFocus={() => composerMoreTrigger.current?.focus({ preventScroll: true })}
+      />}
       {showSessionSites && chat.sessionId && (
         <SessionSitesDialog
           sessionId={chat.sessionId}
@@ -2370,7 +2378,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 aria-label="更多功能"
                 aria-expanded={moreOpen}
                 aria-controls="composer-more-actions"
-                title="更多功能（附件 / 指令 / 规格文档）"
+                title="更多功能（附件 / 指令 / 规格文档 / 站点预览）"
               >
                 <Plus className={`size-5 transition-transform${moreOpen ? ' rotate-45' : ''}`} />
               </Button>
@@ -2415,6 +2423,11 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                       >
                         <FileText className="size-5 text-[var(--color-primary)]" />
                         规格文档
+                      </button>
+                      <button type="button" disabled={!chat.sessionId} onClick={() => {
+                        setMoreOpen(false); setCmdMenuOpen(false); setSitePreviewSession(chat.sessionId)
+                      }} className="flex min-h-11 flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-50">
+                        <Globe2 className="size-5 text-[var(--color-primary)]" />站点预览
                       </button>
                     </div>
                     {mobileLayout && <div className="mt-1 border-t pt-1">

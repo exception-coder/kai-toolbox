@@ -88,7 +88,7 @@ it('can change a running preview to a configured application account and close t
   fireEvent.click(await screen.findByRole('button', { name: '调整预览账号' }))
   await screen.findByRole('option', { name: /测试应用/ })
   expect(screen.getByRole('link', { name: '配置运行账号' })).toHaveAttribute('href', '/tools/reqpool/resources?view=accounts')
-  fireEvent.change(screen.getByLabelText('访问账号'), { target: { value: 'test-app' } })
+  fireEvent.change(screen.getByLabelText('应用与环境'), { target: { value: 'test-app' } })
   fireEvent.change(screen.getByLabelText('目标路由'), { target: { value: '/app/employees' } })
   fireEvent.click(screen.getByRole('button', { name: '登录并打开页面' }))
   await waitFor(() => expect(calls.create).toHaveBeenCalledOnce())
@@ -99,6 +99,26 @@ it('can change a running preview to a configured application account and close t
 
 it('manual setup does not start a browser until submitted', () => {
   mount('/tools/fore-consult/preview')
-  expect(screen.getByLabelText('访问账号')).toBeVisible()
+  expect(screen.getByLabelText('应用与环境')).toBeVisible()
+  expect(calls.create).not.toHaveBeenCalled()
+})
+
+it('updates the target path when choosing another application and explains an empty list', async () => {
+  calls.resources.mockResolvedValue([{ id: 'sales', name: '销售', environment: 'TEST', username: 'qa', baseUrl: 'https://sales.example/sales' }, { id: 'erp', name: 'ERP', environment: 'UAT', username: 'qa', baseUrl: 'https://erp.example/erp?view=home' }])
+  mount('/tools/fore-consult/preview')
+  await screen.findByRole('option', { name: /销售/ })
+  fireEvent.change(screen.getByLabelText('应用与环境'), { target: { value: 'sales' } })
+  expect(screen.getByLabelText('目标路由')).toHaveValue('/sales')
+  fireEvent.change(screen.getByLabelText('应用与环境'), { target: { value: 'erp' } })
+  expect(screen.getByLabelText('目标路由')).toHaveValue('/erp?view=home')
+  expect(calls.create).not.toHaveBeenCalled()
+})
+
+it('keeps configuration and refresh recovery when no eligible applications exist', async () => {
+  calls.resources.mockResolvedValue([])
+  mount('/tools/fore-consult/preview')
+  expect(await screen.findByText(/暂无可自动登录的应用/)).toBeVisible()
+  expect(screen.getByRole('link', { name: '配置运行账号' })).toBeVisible()
+  expect(screen.getByRole('button', { name: '刷新账号' })).toBeEnabled()
   expect(calls.create).not.toHaveBeenCalled()
 })

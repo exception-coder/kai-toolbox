@@ -39,6 +39,11 @@ const testRuntime = vi.hoisted(() => ({
     turnTokens: 0,
   },
 }))
+const previewCalls = vi.hoisted(() => ({ create: vi.fn(), get: vi.fn(), close: vi.fn() }))
+vi.mock('@/features/browser-request/preview/api', () => ({
+  previewResources: async () => [{ id: 'sales-test', name: '销售智能体', environment: 'TEST', username: 'qa', baseUrl: 'https://sales.example/app?view=home' }],
+  createPreview: previewCalls.create, getPreview: previewCalls.get, closePreview: previewCalls.close,
+}))
 
 vi.mock('../runtime/ChatRuntimeContext', () => ({
   useChatRuntime: () => ({ chat: { ...testRuntime.chat }, setFloating: vi.fn(), setMinimized: vi.fn(), setVoiceMode: vi.fn(), getReturnRoute: vi.fn(), gestureOn: false, toggleGesture: vi.fn(), gestureStatus: 'idle' }),
@@ -83,6 +88,7 @@ afterEach(() => {
   testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol' }]
   testRuntime.chat.sessionId = 'session-config-regression'
   vi.mocked(uploadAttachment).mockReset()
+  previewCalls.create.mockReset(); previewCalls.get.mockReset(); previewCalls.close.mockReset()
 })
 
 function mountChat() {
@@ -95,6 +101,34 @@ async function openNewSessionForm() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('opens the mobile composer site preview without navigation, auto-creation or losing the draft', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    const preview = { id: 'composer-preview', status: 'STARTING', target: { route: '/app?view=home', device: 'phone', scene: 'page' }, environment: 'TEST', account: 'qa', targetOrigin: 'https://sales.example', runtimeVersion: '尚未核验' }
+    previewCalls.create.mockResolvedValue(preview); previewCalls.get.mockResolvedValue(preview); previewCalls.close.mockResolvedValue(undefined)
+    mountChat()
+    const input = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.change(input, { target: { value: '查看完后继续这个需求' } })
+    const trigger = screen.getByRole('button', { name: '更多功能' })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: '站点预览' }))
+    expect(await screen.findByRole('dialog', { name: '登录并预览页面' })).toBeVisible()
+    await screen.findByRole('option', { name: /销售智能体/ })
+    expect(previewCalls.create).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('应用与环境'), { target: { value: 'sales-test' } })
+    expect(screen.getByLabelText('目标路由')).toHaveValue('/app?view=home')
+    fireEvent.change(screen.getByLabelText('设备'), { target: { value: 'phone' } })
+    fireEvent.click(screen.getByRole('button', { name: '登录并打开页面' }))
+    await waitFor(() => expect(previewCalls.create).toHaveBeenCalledOnce())
+    expect(previewCalls.create.mock.calls[0][0]).toMatchObject({ resourceId: 'sales-test', route: '/app?view=home', device: 'phone' })
+    expect(previewCalls.create.mock.calls[0][0]).not.toHaveProperty('password')
+    await screen.findByText('正在准备独立浏览器')
+    fireEvent.click(screen.getByRole('button', { name: '关闭页面预览' }))
+    await waitFor(() => expect(trigger).toHaveFocus())
+    expect(input).toHaveValue('查看完后继续这个需求')
+    expect(previewCalls.close).toHaveBeenCalledWith('composer-preview')
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+  })
   it('adds dropped files to the current session without sending or replacing the draft', async () => {
     testRuntime.chat.sessionId = 'composer-file-drop-regression'
     vi.mocked(uploadAttachment).mockResolvedValue({ id: 'drop-file', name: '拖入说明.txt', mime: 'text/plain', size: 3, path: '/attachments/drop-file.txt' })

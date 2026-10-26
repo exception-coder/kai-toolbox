@@ -15,7 +15,7 @@ export function PagePreviewDialog({ entryPath, onClose, returnFocus }: { entryPa
     if (!safe) return null
     const url = new URL(safe, window.location.origin)
     // Closing and reopening is an explicit new preview; do not reuse a CLOSED handoff context.
-    return { target: { ...previewTargetFromSearch(url.searchParams), requestKey: crypto.randomUUID() }, id: url.pathname.split('/')[4] }
+    return { target: { ...previewTargetFromSearch(url.searchParams), requestKey: crypto.randomUUID() }, id: url.pathname.split('/')[4], autoStart: url.searchParams.get('auto') === '1' }
   }, [entryPath])
   const [id, setId] = useState(entry?.id)
   const [fullscreen, setFullscreen] = useState(false)
@@ -29,7 +29,7 @@ export function PagePreviewDialog({ entryPath, onClose, returnFocus }: { entryPa
         <Button variant="ghost" className="min-h-11 min-w-11" aria-label={fullscreen ? '缩小页面预览' : '全屏页面预览'} onClick={() => setFullscreen(value => !value)}>{fullscreen ? <Minimize2 /> : <Maximize2 />}</Button>
         <Dialog.Close asChild><Button variant="ghost" className="min-h-11 min-w-11" aria-label="关闭页面预览"><X /></Button></Dialog.Close>
       </header>
-      {entry ? <PagePreviewWorkspace initial={entry.target} previewId={id} onOpened={opened} embedded autoStart /> : <p role="alert" className="p-4 text-sm">预览链接无效，请重新准备不含凭据的预览入口。</p>}
+      {entry ? <PagePreviewWorkspace initial={entry.target} previewId={id} onOpened={opened} embedded autoStart={entry.autoStart} /> : <p role="alert" className="p-4 text-sm">预览链接无效，请重新准备不含凭据的预览入口。</p>}
     </Dialog.Content>
   </Dialog.Portal></Dialog.Root>
 }

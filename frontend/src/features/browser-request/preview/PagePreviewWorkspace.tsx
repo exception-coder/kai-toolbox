@@ -52,8 +52,8 @@ export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = 
   const adjust = () => { if (view) setTarget(view.target); setSettingsOpen(value => !value) }
   const chooseResource = (resourceId: string) => {
     const resource = resources.data?.find(item => item.id === resourceId)
-    let route = target.route
-    if (resource?.baseUrl && route === '/tools/fore-consult') {
+    let route = '/tools/fore-consult'
+    if (resource?.baseUrl) {
       const url = new URL(resource.baseUrl); route = url.pathname + url.search + url.hash
     }
     setTarget({ ...target, resourceId: resourceId || undefined, route, loginPage: undefined })
@@ -62,14 +62,16 @@ export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = 
     {!embedded && <header className="preview-heading"><div><h1>页面预览</h1><p>真实浏览器渲染 · 当前账号隔离 · 15 分钟内有效</p></div><a href="/tools/fore-consult">返回咨询</a></header>}
     {error && <p role="alert" className="preview-error">{error}</p>}
     {settingsOpen && <form className="preview-setup" onSubmit={event => { event.preventDefault(); void open({ ...target, requestKey: previewId ? crypto.randomUUID() : target.requestKey }, view?.id) }}>
-      <label>访问账号<select disabled={busy} value={target.resourceId ?? ''} onChange={event => chooseResource(event.target.value)}>
+      <label>应用与环境<select disabled={busy} value={target.resourceId ?? ''} onChange={event => chooseResource(event.target.value)}>
         <option value="">当前登录的 Forge 用户</option>
         {target.resourceId && !resources.data?.some(item => item.id === target.resourceId) && <option value={target.resourceId}>已引用账号（等待核对）</option>}
         {resources.data?.map(resource => <option key={resource.id} value={resource.id}>{resource.name} · {resource.environment} · {resource.username}</option>)}
       </select></label>
+      {resources.isPending && <p role="status" className="preview-meta">正在读取已登记应用…</p>}
+      {resources.isSuccess && resources.data.length === 0 && <p className="preview-meta">暂无可自动登录的应用。管理员可在应用站点配置非生产环境账号，然后刷新列表。</p>}
       <label>目标路由<input autoComplete="off" value={target.route} onChange={event => setTarget({ ...target, route: event.target.value })} required /></label>
       {target.resourceId && <label>网页登录路径<input autoComplete="off" value={target.loginPage ?? ''} placeholder="留空从目标页进入，自动跟随登录跳转" onChange={event => setTarget({ ...target, loginPage: event.target.value })} /></label>}
-      <p className="preview-meta">测试应用使用服务端已保存的账号密码自动登录；本机 DPAPI 文件不会自动转为运行环境账号。<a href="/tools/reqpool/resources?view=accounts" target="_blank" rel="noopener noreferrer">配置运行账号</a> <button type="button" disabled={resources.isFetching} onClick={() => void resources.refetch()}>刷新账号</button></p>
+      <p className="preview-meta">使用所选应用已保存的运行账号自动登录。<a href="/tools/reqpool/resources?view=accounts" target="_blank" rel="noopener noreferrer">配置运行账号</a> <button type="button" disabled={resources.isFetching} onClick={() => void resources.refetch()}>刷新账号</button></p>
       <div className="preview-options"><label>设备<select value={target.device} onChange={event => setTarget({ ...target, device: event.target.value as PreviewTarget['device'] })}><option value="desktop">桌面</option><option value="phone">手机</option></select></label>
       <label>查看状态<select value={target.scene} onChange={event => setTarget({ ...target, scene: event.target.value as PreviewTarget['scene'] })}><option value="page">页面</option><option value="consult-image">业务咨询图片预览</option></select></label></div>
       <button type="submit" disabled={busy}>{busy ? '正在创建预览…' : '登录并打开页面'}</button>
