@@ -14,6 +14,16 @@ afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 describe('消息本地路径', () => {
   it.each([
+    '/tools/fore-consult/preview?auto=1&requestKey=abc&route=%2Femployees#screen',
+    '/tools/reqpool/resources?view=accounts', '/api/page-previews/id/screenshot',
+  ])('站内网页 %s 保留查询与锚点，不当作本地文件', href => {
+    render(<Markdown text={`[页面](${href})`} sessionId="session" />)
+    const link = screen.getByRole('link', { name: '页面' })
+    expect(link).toHaveAttribute('href', href)
+    expect(link).not.toHaveAttribute('data-local-path')
+    expect(openPath).not.toHaveBeenCalled()
+  })
+  it.each([
     ['/D:/Project/架构.drawio', 'D:/Project/架构.drawio'],
     ['file:///D:/My%20Project/架构.drawio', 'D:/My Project/架构.drawio'],
     ['docs/架构.drawio.xml', 'docs/架构.drawio.xml'],

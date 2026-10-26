@@ -21,6 +21,57 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfSystemProperty(named = "preview.browser-test", matches = "true")
 class PagePreviewBrowserTest {
     @TempDir Path temporary;
+    @Test void logsIntoAnUnambiguousSpaWithoutInputNamesAndDoesNotReportLoginPagesAsReady() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var submissions = new java.util.concurrent.atomic.AtomicInteger();
+        server.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            String body;
+            if ("/json-session".equals(path)) {
+                submissions.incrementAndGet();
+                String json = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                if (!json.contains("test-user") || !json.contains("test-password")) {
+                    exchange.sendResponseHeaders(403, -1); exchange.close(); return;
+                }
+                body = "{}";
+            } else if ("/spa-target".equals(path)) {
+                body = "<html><script>if(localStorage.getItem('fixture-auth')!=='yes'){location.href='/spa-login'}</script><h1>登录后的SPA</h1></html>";
+            } else if ("/login-heading".equals(path)) {
+                body = "<html><h1>请登录</h1><input type=password></html>";
+            } else {
+                body = "<html><meta charset=utf-8><input autocomplete=username id=u>"
+                        + ("/ambiguous".equals(path) ? "<input type=password><input type=password>" : "<input type=password id=p>")
+                        + "<button id=submit>登录</button><script>document.getElementById('submit').onclick=async()=>{"
+                        + "await fetch('/json-session',{method:'POST',body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});"
+                        + "localStorage.setItem('fixture-auth','yes');location.href='/spa-target'}</script></html>";
+            }
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/html;charset=UTF-8");
+            exchange.sendResponseHeaders(200, bytes.length); exchange.getResponseBody().write(bytes); exchange.close();
+        });
+        server.start();
+        BrowserRequestProperties properties = new BrowserRequestProperties(); properties.setDataDir(temporary.toString());
+        BrowserSessionManager manager = new BrowserSessionManager(properties, new ObjectMapper());
+        PlaywrightPreviewBrowser browser = new PlaywrightPreviewBrowser(manager);
+        try {
+            String origin = "http://127.0.0.1:" + server.getAddress().getPort();
+            BrowserLoginTarget account = new BrowserLoginTarget("spa", "SPA", "TEST", origin,
+                    "test-user", "test-password", "username", "password");
+            List<String> stages = new ArrayList<>();
+            browser.open("spa", new PreviewPlan(origin, "/spa-target", "/spa-login", "h1", "page", false, null, account), stages::add, () -> false);
+            assertEquals(List.of("AUTHENTICATING", "NAVIGATING", "READY"), stages);
+            assertEquals(1, submissions.get());
+            stages.clear();
+            browser.resume("spa", new PreviewPlan(origin, "/login-heading", null, "h1", "page", false, null, null), stages::add, () -> false);
+            assertEquals(List.of("NAVIGATING", "WAITING_LOGIN"), stages);
+            browser.close("spa");
+            stages.clear();
+            browser.open("ambiguous", new PreviewPlan(origin, "/spa-target", "/ambiguous", "h1", "page", false, null, account), stages::add, () -> false);
+            assertEquals(List.of("AUTHENTICATING", "WAITING_LOGIN"), stages);
+            assertEquals(1, submissions.get(), "存在多个密码框时不应猜测账号或提交");
+            browser.close("ambiguous");
+        } finally { manager.shutdown(); server.stop(0); }
+    }
     @Test void rendersLoginRouteAndPhoneFrameInAnIsolatedHeadlessContext() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var logins = new java.util.concurrent.atomic.AtomicInteger();

@@ -18,3 +18,12 @@ test('preview handoff rejects external and credential-bearing paths', () => {
     assert.throws(() => preparePagePreview({ route, device: 'desktop', scene: 'page' }))
   }
 })
+
+test('external test preview references the runtime resource instead of passing credentials', () => {
+  const result = preparePagePreview({ route: '/app/employees', resourceId: 'test-resource', device: 'desktop', scene: 'page' })
+  const url = new URL(result.structuredContent.viewerPath, 'https://forge.example')
+  assert.equal(url.searchParams.get('resourceId'), 'test-resource')
+  assert.equal(url.searchParams.has('password'), false)
+  assert.match(result.structuredContent.message, /测试账号/)
+  assert.match(result.structuredContent.message, /尚未执行登录/)
+})

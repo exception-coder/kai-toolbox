@@ -11,6 +11,7 @@ import { openSessionLocalPath } from '../api'
 import { isDrawioFile } from '@/features/doc-viewer/public-api/drawio'
 import { SitePreviewLink } from '@/components/site-preview/SitePreviewLink'
 import { splitMessageBlocks } from '../lib/messageBlocks'
+import { PagePreviewDialog, pagePreviewEntryFromHref } from '@/features/browser-request/public-api/page-preview'
 
 const MessageDrawioDialog = lazy(() => import('./messages/MessageDrawioDialog').then(module => ({ default: module.MessageDrawioDialog })))
 
@@ -119,7 +120,8 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
   const [localPathNotice, setLocalPathNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
   const content = useRef<HTMLDivElement>(null)
   const [diagram, setDiagram] = useState<{ sessionId: string; path: string; trigger: HTMLAnchorElement } | null>(null)
-  useEffect(() => { setDiagram(null) }, [sessionId])
+  const [pagePreview, setPagePreview] = useState<{ sessionId?: string; path: string; trigger: HTMLAnchorElement } | null>(null)
+  useEffect(() => { setDiagram(null); setPagePreview(null) }, [sessionId])
   const [imageTargets, setImageTargets] = useState<HTMLSpanElement[]>([])
   const html = useMemo(() => {
     if (!text.trim()) return null
@@ -127,6 +129,12 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
       const raw = parseChatMarkdown(text)
       const rawDoc = new DOMParser().parseFromString(raw, 'text/html')
       rawDoc.querySelectorAll<HTMLAnchorElement>('a').forEach(anchor => {
+        const previewPath = pagePreviewEntryFromHref(anchor.getAttribute('href'))
+        if (previewPath) {
+          anchor.dataset.pagePreview = previewPath
+          anchor.title = '登录并在当前对话中预览'
+          return
+        }
         const diagramPath = diagramPathFromHref(anchor.getAttribute('href'))
         if (diagramPath) {
           anchor.dataset.diagramPath = diagramPath
@@ -180,6 +188,12 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
 
   const handleClick = async (event: ReactMouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
+    const previewLink = target.closest<HTMLAnchorElement>('a[data-page-preview]')
+    if (previewLink) {
+      event.preventDefault()
+      setPagePreview({ sessionId, path: previewLink.dataset.pagePreview!, trigger: previewLink })
+      return
+    }
     const diagramLink = target.closest<HTMLAnchorElement>('a[data-diagram-path]')
     if (diagramLink) {
       event.preventDefault()
@@ -293,6 +307,12 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
         const target = diagram.trigger.isConnected ? diagram.trigger : content.current
         target?.focus({ preventScroll: true })
       }} /></Suspense>}
+      {pagePreview && pagePreview.sessionId === sessionId && <PagePreviewDialog key={`${sessionId}:${pagePreview.path}`} entryPath={pagePreview.path} onClose={() => setPagePreview(null)} returnFocus={() => {
+        const replacement = Array.from(content.current?.querySelectorAll<HTMLAnchorElement>('a[data-page-preview]') ?? [])
+          .find(anchor => anchor.dataset.pagePreview === pagePreview.path)
+        const target = pagePreview.trigger.isConnected ? pagePreview.trigger : replacement ?? content.current
+        target?.focus({ preventScroll: true })
+      }} />}
       {localPathNotice && (
         <div className={cn('mt-1 text-[11px]', localPathNotice.tone === 'success'
           ? 'text-emerald-600 dark:text-emerald-400'
@@ -307,7 +327,10 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
 function localPathFromHref(href: string | null): string | null {
   if (!href) return null
   let value = href.trim()
+  // Web routes keep their query/fragment intact; never pass them to Windows Path.of.
+  if (/^\/(?:tools|api|assets)(?:\/|\?|#|$)/i.test(value)) return null
   try { value = decodeURIComponent(value) } catch { /* 保留原值，由后端继续校验 */ }
+  if (/^\/(?:tools|api|assets)(?:\/|\?|#|$)/i.test(value)) return null
   // Markdown 常以 /D:/... 表示本地链接，Windows Path 不接受盘符前的斜线。
   value = value.replace(/^\/([a-z]:[\\/])/i, '$1')
   if (/^file:\/\//i.test(value)) {

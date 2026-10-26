@@ -63,7 +63,7 @@ public class PreviewTargets {
                 throw new IllegalArgumentException("测试应用资源不可用或身份有歧义");
             }
             BrowserLoginTarget secret = matches.get(0).require(request.resourceId());
-            return new PreviewPlan(applicationOrigin(secret.baseUrl()), route, path(request.loginPage() == null ? "/" : request.loginPage()),
+            return new PreviewPlan(applicationOrigin(secret.baseUrl()), route, path(request.loginPage() == null || request.loginPage().isBlank() ? route : request.loginPage()),
                     request.readySelector(), scene, phone, null, secret);
         }
         String origin = origin(request.origin());

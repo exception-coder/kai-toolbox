@@ -40,6 +40,7 @@ class PreviewTargetsTest {
         assertThrows(RuntimeException.class, () -> targets.resolve(request(null, "/", "test-app"), user, null));
         AuthPrincipal admin = new AuthPrincipal(1, "admin", List.of("ADMIN"), List.of(), "jti", user.expiresAt());
         assertNotNull(targets.resolve(request(null, "/", "test-app"), admin, null).login());
+        assertEquals("/app/employees?view=runtime", targets.resolve(request(null, "/app/employees?view=runtime", "test-app"), admin, null).loginPage());
         assertFalse(mapper.writeValueAsString(targets.resources(admin)).contains("private-secret"));
         assertFalse(target.toString().contains("private-secret"));
     }

@@ -85,29 +85,42 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
     private boolean login(Page page, PreviewPlan plan, java.util.concurrent.atomic.AtomicReference<String> submission) {
         page.navigate(plan.origin() + plan.loginPage(), new Page.NavigateOptions()
                 .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
-        Locator form = page.locator("form:has(input[type=password]):visible");
-        if (form.count() == 0) {
+        Locator passwords = page.locator("input[type=password]:visible");
+        if (passwords.count() == 0) {
             Locator loginButton = page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("登录").setExact(true));
             if (loginButton.count() == 1) {
                 loginButton.click();
             }
         }
-        form.waitFor();
-        if (form.count() != 1 || !plan.login().usernameField().matches("[A-Za-z0-9_.-]+")
+        passwords.first().waitFor();
+        if (passwords.count() != 1 || !plan.login().usernameField().matches("[A-Za-z0-9_.-]+")
                 || !plan.login().passwordField().matches("[A-Za-z0-9_.-]+")) {
             return false;
         }
-        Locator submit = form.locator("button[type=submit],input[type=submit]");
-        if (plan.readOnly()) {
-            submit = form.getByRole(AriaRole.BUTTON, new Locator.GetByRoleOptions().setName(
-                    java.util.regex.Pattern.compile("登\\s*[录入]|sign\\s*in|log\\s*in|进入系统", java.util.regex.Pattern.CASE_INSENSITIVE)));
-            if (submit.count() != 1) { return false; }
+        Locator form = page.locator("form:has(input[type=password]):visible");
+        if (form.count() > 1) { return false; }
+        Locator scope = form.count() == 1 ? form : page.locator("body");
+        Locator username = scope.locator("input[name='" + plan.login().usernameField() + "']:visible");
+        if (username.count() == 0 && "username".equals(plan.login().usernameField())) {
+            username = scope.locator("input[autocomplete=username]:visible");
+            if (username.count() == 0) {
+                username = scope.locator("input[type=text]:visible,input[type=email]:visible,input:not([type]):visible");
+            }
         }
-        form.locator("input[name='" + plan.login().usernameField() + "']").fill(plan.login().username());
-        form.locator("input[name='" + plan.login().passwordField() + "'][type=password]").fill(plan.login().password());
-        submission.set((String) form.evaluate("form => form.action"));
+        Locator password = scope.locator("input[name='" + plan.login().passwordField() + "'][type=password]:visible");
+        if (password.count() == 0 && "password".equals(plan.login().passwordField())) { password = passwords; }
+        if (username.count() != 1 || password.count() != 1) { return false; }
+        Locator submit = scope.locator("button[type=submit]:visible,input[type=submit]:visible");
+        if (plan.readOnly() || submit.count() != 1) {
+            submit = scope.getByRole(AriaRole.BUTTON, new Locator.GetByRoleOptions().setName(
+                    java.util.regex.Pattern.compile("登\\s*[录入]|sign\\s*in|log\\s*in|进入系统", java.util.regex.Pattern.CASE_INSENSITIVE)));
+        }
+        if (submit.count() != 1) { return false; }
+        username.fill(plan.login().username());
+        password.fill(plan.login().password());
+        if (form.count() == 1) { submission.set((String) form.evaluate("form => form.action")); }
         submit.click();
-        form.waitFor(new Locator.WaitForOptions().setState(com.microsoft.playwright.options.WaitForSelectorState.HIDDEN));
+        passwords.waitFor(new Locator.WaitForOptions().setState(com.microsoft.playwright.options.WaitForSelectorState.HIDDEN));
         return true;
     }
 
@@ -121,6 +134,10 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
         }
         String selector = plan.readySelector() == null || plan.readySelector().isBlank() ? "h1,h2" : plan.readySelector();
         page.locator(selector).first().waitFor();
+        if (page.locator("input[type=password]:visible").count() > 0) {
+            stage.accept("WAITING_LOGIN");
+            return;
+        }
         if (page.getByText("无权访问", new Page.GetByTextOptions().setExact(true)).count() > 0) {
             stage.accept("FAILED");
             return;

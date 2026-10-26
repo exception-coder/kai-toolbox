@@ -10,7 +10,7 @@ export const pagePreviewSchema = {
   readySelector: z.string().max(200).optional().describe('预期可见的页面元素；不传时等待页面标题'),
   sourceRevision: z.string().max(100).optional().describe('源码版本标记；不能代替实际运行版本核验'),
 }
-export const PAGE_PREVIEW_STEER = 'Web 页面或交互修改交付时，若 prepare_page_preview 可用，应准备目标路由及手机/桌面预览入口并提供给用户。入口准备成功不等于已登录或验收通过；真实浏览器未执行、运行版本未核验或服务待启动时须明确标注，不得自行重启服务。'
+export const PAGE_PREVIEW_STEER = 'Web 页面或交互修改交付时，若 prepare_page_preview 可用，应准备目标路由及手机/桌面预览入口并提供给用户。外部测试应用须引用资源中心已配置账号的 resourceId；未配置时给出应用站点账号配置入口，不得将外部路由作为当前 Forge 身份预览或传递密码。入口准备成功不等于已登录或验收通过；真实浏览器未执行、运行版本未核验或服务待启动时须明确标注，不得自行重启服务。'
 export const PAGE_PREVIEW_DESCRIPTION = '生成真实浏览器页面预览入口。用户打开入口后以本人登录身份自动启动隔离渲染会话；测试应用引用资源中心账号，不能传密码。返回 WAITING_VIEWER_AUTH 只表示入口已准备，不能宣称已登录、截图或验收通过。不会启动或重启应用。'
 type Args = z.infer<z.ZodObject<typeof pagePreviewSchema>>
 
@@ -24,6 +24,6 @@ export function preparePagePreview(args: Args, sessionId = 'delivery') {
   const query = new URLSearchParams({ auto: '1', requestKey })
   for (const [key, value] of Object.entries(args)) if (value) query.set(key, value)
   const result = { status: 'WAITING_VIEWER_AUTH', viewerPath: `/tools/fore-consult/preview?${query}`,
-    message: '打开入口后将以访问者身份登录并渲染目标页面；尚未执行页面验收。' }
+    message: args.resourceId ? '入口已准备；访问者登录 Forge 后，服务端将使用引用的测试账号登录目标应用。尚未执行登录或页面验收。' : '入口已准备；将使用访问者当前 Forge 身份预览 Forge 页面。外部应用需配置 resourceId；尚未执行页面验收。' }
   return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], structuredContent: result }
 }

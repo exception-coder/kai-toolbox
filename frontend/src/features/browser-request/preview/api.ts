@@ -9,7 +9,7 @@ export interface PreviewTarget {
 export interface PreviewView {
   id: string; status: string; target: PreviewTarget; targetOrigin: string; account: string; environment: string; runtimeVersion: string; expiresAt: number; viewerPath: string
 }
-export interface PreviewResource { id: string; name: string; environment: string; username: string }
+export interface PreviewResource { id: string; name: string; environment: string; username: string; baseUrl?: string }
 export const createPreview = (target: PreviewTarget) => http<PreviewView>('/page-previews', { method: 'POST', body: JSON.stringify(target) })
 export const getPreview = (id: string) => http<PreviewView>(`/page-previews/${encodeURIComponent(id)}`)
 export const closePreview = (id: string) => http<void>(`/page-previews/${encodeURIComponent(id)}`, { method: 'DELETE' })
