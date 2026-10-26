@@ -21,6 +21,62 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledIfSystemProperty(named = "preview.browser-test", matches = "true")
 class PagePreviewBrowserTest {
     @TempDir Path temporary;
+
+    @Test void resolvesRuntimeModulesWhenSwitchingChildApplicationsAfterTheShellHasLoaded() {
+        BrowserRequestProperties properties = new BrowserRequestProperties();
+        properties.setDataDir(temporary.toString());
+        BrowserSessionManager manager = new BrowserSessionManager(properties, new ObjectMapper());
+        String fixture = """
+                <html><head><meta charset="utf-8">
+                <script type="importmap">{"imports":{"shell-runtime":"data:text/javascript,export default 'shell'"}}</script>
+                </head><body><button id="alpha">应用甲</button><button id="beta">应用乙</button>
+                <div id="result">loading</div><script type="module">
+                import shell from 'shell-runtime';
+                const result = document.querySelector('#result');
+                let revision = 0;
+                async function activate(name) {
+                  result.dataset.state = 'loading';
+                  const key = '__ck_fixture_' + (++revision) + '/__runtime__';
+                  const map = document.createElement('script');
+                  map.type = 'importmap';
+                  map.textContent = JSON.stringify({ imports: {
+                    [key]: 'data:text/javascript,' + encodeURIComponent('export default ' + JSON.stringify(name))
+                  }});
+                  document.head.appendChild(map);
+                  try { result.textContent = (await import(key)).default; }
+                  catch (error) { result.textContent = 'ERROR: ' + error.message; }
+                  result.dataset.state = 'done';
+                }
+                document.querySelector('#alpha').onclick = () => activate('应用甲');
+                document.querySelector('#beta').onclick = () => activate('应用乙');
+                result.textContent = shell;
+                result.dataset.state = 'done';
+                </script></body></html>
+                """;
+        try {
+            manager.withRenderingBrowser(browser -> {
+                for (boolean phone : List.of(false, true)) {
+                    try (var context = browser.newContext(new com.microsoft.playwright.Browser.NewContextOptions()
+                            .setViewportSize(phone ? 390 : 1440, phone ? 844 : 900)
+                            .setIsMobile(phone).setHasTouch(phone))) {
+                        var page = context.newPage();
+                        page.setDefaultTimeout(5000);
+                        page.setContent(fixture);
+                        page.waitForFunction("() => document.querySelector('#result').dataset.state === 'done'");
+                        assertEquals("shell", page.locator("#result").innerText());
+                        for (String app : List.of("alpha", "beta", "alpha")) {
+                            page.locator("#" + app).click();
+                            page.waitForFunction("() => document.querySelector('#result').dataset.state === 'done'");
+                            assertEquals("alpha".equals(app) ? "应用甲" : "应用乙", page.locator("#result").innerText(),
+                                    "Chromium " + browser.version() + ", phone=" + phone + ", app=" + app);
+                        }
+                    }
+                }
+                return null;
+            });
+        } finally { manager.shutdown(); }
+    }
+
     @Test void logsIntoAnUnambiguousSpaWithoutInputNamesAndDoesNotReportLoginPagesAsReady() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var submissions = new java.util.concurrent.atomic.AtomicInteger();

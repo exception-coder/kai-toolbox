@@ -643,6 +643,7 @@ public class BrowserSessionManager {
             }
             if (renderingBrowser == null || !renderingBrowser.isConnected()) {
                 renderingBrowser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
+                log.info("[BrowserRequest] Preview Chromium launched (version={})", renderingBrowser.version());
             }
             return operation.apply(renderingBrowser);
         });
@@ -664,7 +665,7 @@ public class BrowserSessionManager {
             opts.setProxy(new Proxy(props.getProxy()));
         }
         this.browser = playwright.chromium().launch(opts);
-        log.info("[BrowserRequest] Chromium launched (headless={}, stealth=on)", props.isHeadless());
+        log.info("[BrowserRequest] Chromium launched (version={}, headless={}, stealth=on)", browser.version(), props.isHeadless());
     }
 
     private void closeBrowserQuietly() {

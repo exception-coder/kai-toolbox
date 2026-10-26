@@ -34,4 +34,10 @@ SDK/stdio MCP 的 `prepare_page_preview` 支持 route、device、scene、resourc
 
 ## 验证与限制
 
-`PagePreviewBrowserTest` 使用独立回环测试站点，显式 `-Dpreview.browser-test=true` 验证真实 Chromium 的登录、Cookie、路由及 390×844 JPEG；需要安装 Playwright 1.49.0 对应 Chromium。它不会启动或重启应用服务。控制器/实际业务页面、部署版本及手机实机分别验收；尚未部署的能力以 OpenSpec tasks 为准。
+`PagePreviewBrowserTest` 使用独立回环测试站点和模块切换夹具，显式 `-Dpreview.browser-test=true` 验证真实 Chromium 的登录、Cookie、路由、390×844 JPEG，以及壳模块加载后多份 import map 的甲→乙→甲切换。需要安装本模块 Playwright 1.64.0 对应 Chromium，不复用旧版缓存或依赖个人 Chrome 安装。可在依赖就绪后执行：
+
+```powershell
+mvn -pl tools/tool-browser-request exec:java '-Dexec.mainClass=com.microsoft.playwright.CLI' '-Dexec.args=install chromium'
+```
+
+该安装与测试不会启动或重启 Forge。升级依赖后须在用户确认的后端重启中加载新驱动；预览浏览器启动日志会记录实际 Chromium 版本，旧预览需关闭再打开。内核支持验证、控制器/实际业务页面、部署版本及手机实机分别验收；尚未运行的能力以 OpenSpec tasks 为准。

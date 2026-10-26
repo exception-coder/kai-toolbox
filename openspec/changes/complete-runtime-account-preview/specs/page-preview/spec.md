@@ -26,3 +26,11 @@ Repeated clicks and fullscreen changes SHALL reuse the active modal context. Exp
 #### Scenario: User changes runtime account
 - **WHEN** the user confirms an account change
 - **THEN** the old context SHALL close before a new request starts, with no duplicate submissions
+
+### Requirement: Render child applications with dynamic module maps
+The isolated preview runtime SHALL support merging import maps added after the shell ES module has loaded, without depending on a user's installed browser or weakening existing origin and credential restrictions.
+
+#### Scenario: Switch between child applications in one preview
+- **WHEN** a user switches from one child application to another and back, each adding a runtime module map
+- **THEN** all three selections SHALL resolve and render the corresponding module content in desktop and phone preview contexts
+- **AND** the actual preview browser version SHALL be available in launch logs for runtime verification

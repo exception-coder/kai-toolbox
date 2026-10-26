@@ -13,3 +13,7 @@ Vibe Markdown 在本地文件分类之前识别当前 Forge 来源下的精确�
 兼容标准 form 与同源 SPA 登录；咨询只读路径继续只开放原有登录 API / form action，未增加写权限。导航后若仍存在可见密码框，即便存在标题也不标 READY。验证码、SSO、TLS 信任和错误密码保持等待/失败，由用户核对；不自动绕过证书。普通 `site-preview` iframe 保持无凭据浏览，自动登录必须使用资源账号预览链路。
 
 验证包括截图链接回归、弹框焦点/滚动/草稿/生命周期、运行账号引用无密码、错误恢复、桌面及手机矮屏；后端真实回环 Chromium 验证 Cookie 登录、SPA 无 name 输入、含密码框的登录页不误报就绪、多密码框不提交。依据 [Playwright 认证](https://playwright.dev/java/docs/auth) 与 [定位器](https://playwright.dev/java/docs/locators)（2026-10-26）。运行测试账号真实目标与服务加载状态单独记录，不以构建或入口准备代替验收。
+
+2026-10-27 子应用切换兼容修复：旧 Playwright 1.49.0 的 Chromium 131 在壳模块加载后无法合并新 import map，动态 `__runtime__` 导入失败。升级本模块到 Maven Central 已发布的 Playwright 1.64.0 并配套安装其 Chromium，保留独立无头 context、TLS、同源及账号边界，不改子应用打包或采用个人浏览器回退。依据 [Chrome 133 多份 import map 支持](https://developer.chrome.com/release-notes/133#multiple_import_maps)、[Playwright 1.64 发布说明](https://playwright.dev/java/docs/release-notes#version-164)及[驱动与浏览器版本配套要求](https://playwright.dev/java/docs/browsers)（2026-10-27）。在真实内核夹具中先加载壳模块，再点击甲→乙→甲并验证模块正文，覆盖桌面/手机 context；另复核原登录/只读路径和宿主装配。实际运行内核版本写入启动日志；服务加载与外部应用切换须在用户确认重启后单独验收。
+
+版本由父 POM 的 `playwright.version` 和 dependencyManagement 统一管理，浏览器录制与媒体解析模块不再各自声明版本，避免 Maven 在宿主选择较早声明的媒体解析 1.49.0。除了模块回归，验收须核对最终宿主 jar 的 playwright、driver、driver-bundle 三项实际版本。媒体解析保留原可选初始化与失败缓存行为，不扩大本次外部抓取验收范围。
