@@ -1,18 +1,70 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Markdown } from './Markdown'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const openPath = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 const readDiagram = vi.hoisted(() => vi.fn())
-vi.mock('../api', () => ({ openSessionLocalPath: openPath, readSessionDiagram: readDiagram }))
+const readImage = vi.hoisted(() => vi.fn())
+vi.mock('../api', () => ({ openSessionLocalPath: openPath, readSessionDiagram: readDiagram, readSessionImage: readImage }))
 vi.mock('@/features/doc-viewer/public-api/drawio', async importOriginal => {
   const actual = await importOriginal<typeof import('@/features/doc-viewer/public-api/drawio')>()
   return { ...actual, DrawioPreview: ({ name }: { name: string }) => <div>图画布：{name}</div> }
 })
-afterEach(() => { cleanup(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('消息本地路径', () => {
+  it('本地图读取失败显示真实原因，重试重新鉴权读取', async () => {
+    vi.stubGlobal('URL', Object.assign(class extends URL {}, {
+      createObjectURL: vi.fn(() => 'blob:retried-proof'), revokeObjectURL: vi.fn(),
+    }))
+    readImage.mockRejectedValueOnce(new Error('图片文件不存在或不可读'))
+      .mockResolvedValueOnce(new Blob(['image'], { type: 'image/png' }))
+    render(<Markdown text="![失败截图](D:/project/proof.png)" sessionId="session" />)
+    expect(await screen.findByText('图片文件不存在或不可读')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', {name:'重试图片 失败截图'}))
+    expect(await screen.findByAltText('失败截图')).toHaveAttribute('src', 'blob:retried-proof')
+    expect(readImage).toHaveBeenCalledTimes(2)
+  })
+
+  it('切换会话取消旧图片读取，迟到内容不创建对象地址', async () => {
+    const create = vi.fn(() => 'blob:late')
+    vi.stubGlobal('URL', Object.assign(class extends URL {}, { createObjectURL:create, revokeObjectURL:vi.fn() }))
+    let finish!: (blob: Blob) => void, signal!: AbortSignal
+    readImage.mockImplementationOnce((_id, _path, input) => { signal = input; return new Promise(resolve => { finish = resolve }) })
+    const view = render(<Markdown text="![旧图](D:/project/old.png)" sessionId="old" />)
+    await waitFor(() => expect(readImage).toHaveBeenCalledTimes(1))
+    view.rerender(<Markdown text="新会话" sessionId="new" />)
+    expect(signal.aborted).toBe(true)
+    await act(async () => finish(new Blob(['image'], {type:'image/png'})))
+    await waitFor(() => expect(screen.queryByAltText('旧图')).toBeNull())
+    expect(create).not.toHaveBeenCalled()
+    expect(readImage).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['D:/Project/.git/proof.png', 'D:/Project/.git/proof.png'],
+    ['/D:/My%20Project/截图.png', 'D:/My Project/截图.png'],
+    ['file:///D:/My%20Project/截图.png', 'D:/My Project/截图.png'],
+    ['./outputs/proof.png', './outputs/proof.png'],
+    ['outputs/proof.png', 'outputs/proof.png'],
+    ['/home/user/proof.png', '/home/user/proof.png'],
+  ])('本地图 %s 通过当前会话鉴权读取，不交给浏览器加载磁盘协议', async (href, expected) => {
+    const revoke = vi.fn()
+    vi.stubGlobal('URL', Object.assign(class extends URL {}, {
+      createObjectURL: vi.fn(() => 'blob:local-proof'), revokeObjectURL: revoke,
+    }))
+    readImage.mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
+    const view = render(<Markdown text={`![核验截图](${href})`} sessionId="session" />)
+    await waitFor(() => expect(readImage).toHaveBeenCalledWith('session', expected, expect.any(AbortSignal)))
+    const image = await screen.findByAltText('核验截图')
+    expect(image).toHaveAttribute('src', 'blob:local-proof')
+    fireEvent.load(image)
+    expect(image).toBeVisible()
+    view.unmount()
+    expect(revoke).toHaveBeenCalledWith('blob:local-proof')
+  })
+
   it.each([
     '/tools/fore-consult/preview?auto=1&requestKey=abc&route=%2Femployees#screen',
     '/tools/reqpool/resources?view=accounts', '/api/page-previews/id/screenshot',

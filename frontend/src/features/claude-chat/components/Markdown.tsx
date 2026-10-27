@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { MessageImage } from './messages/MessageImage'
 import { parseChatMarkdown } from '../lib/chatMarkdown'
@@ -7,13 +7,20 @@ import { Download, Maximize2 } from 'lucide-react'
 import { MermaidLightbox } from '@/components/markdown/MermaidLightbox'
 import { downloadSvg } from '@/components/markdown/downloadSvg'
 import { cn } from '@/lib/utils'
-import { openSessionLocalPath } from '../api'
+import { openSessionLocalPath, readSessionImage } from '../api'
 import { isDrawioFile } from '@/features/doc-viewer/public-api/drawio'
 import { SitePreviewLink } from '@/components/site-preview/SitePreviewLink'
 import { splitMessageBlocks } from '../lib/messageBlocks'
 import { PagePreviewDialog, pagePreviewEntryFromHref } from '@/features/browser-request/public-api/page-preview'
 
 const MessageDrawioDialog = lazy(() => import('./messages/MessageDrawioDialog').then(module => ({ default: module.MessageDrawioDialog })))
+
+function LocalMessageImage({ sessionId, path, alt }: { sessionId?: string; path: string; alt: string }) {
+  const load = useCallback((signal: AbortSignal) => sessionId
+    ? readSessionImage(sessionId, path, signal)
+    : Promise.reject(new Error('当前视图没有可用的会话，无法读取本地图片。')), [sessionId, path])
+  return <MessageImage src="" alt={alt} loadSource={load} />
+}
 
 // ── Mermaid 初始化（全局一次）──────────────────────────────────────────────────
 // startOnLoad=false：由本组件按需触发，避免 mermaid 自动扫 DOM 与 React 冲突。
@@ -122,7 +129,7 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
   const [diagram, setDiagram] = useState<{ sessionId: string; path: string; trigger: HTMLAnchorElement } | null>(null)
   const [pagePreview, setPagePreview] = useState<{ sessionId?: string; path: string; trigger: HTMLAnchorElement } | null>(null)
   useEffect(() => { setDiagram(null); setPagePreview(null) }, [sessionId])
-  const [imageTargets, setImageTargets] = useState<HTMLSpanElement[]>([])
+  const [imageTargets, setImageTargets] = useState<{ html: string | null; sessionId?: string; targets: HTMLSpanElement[] }>({ html: null, targets: [] })
   const html = useMemo(() => {
     if (!text.trim()) return null
     try {
@@ -148,12 +155,19 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
         anchor.href = '#'
         anchor.title = `打开本地路径：${localPath}`
       })
+      // 盘符和 file: 不是浏览器可加载的 URL。先保存为普通数据，再消毒所有 HTML。
+      rawDoc.querySelectorAll<HTMLImageElement>('img').forEach(image => {
+        delete image.dataset.localImage
+        const path = localImagePath(image.getAttribute('src'))
+        if (path) { image.dataset.localImage = path; image.removeAttribute('src') }
+      })
       const sanitized = DOMPurify.sanitize(rawDoc.body.innerHTML)
       const doc = new DOMParser().parseFromString(sanitized, 'text/html')
       doc.querySelectorAll<HTMLImageElement>('img').forEach(image => {
         const placeholder = doc.createElement('span')
         placeholder.dataset.messageImage = image.getAttribute('src') ?? ''
         placeholder.dataset.imageAlt = image.getAttribute('alt') ?? ''
+        if (image.dataset.localImage) placeholder.dataset.localImage = image.dataset.localImage
         image.replaceWith(placeholder)
       })
       doc.querySelectorAll<HTMLOListElement>('ol').forEach(list => {
@@ -183,8 +197,8 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
   const markup = useMemo(() => ({ __html: html ?? '' }), [html])
 
   useLayoutEffect(() => {
-    setImageTargets(Array.from(content.current?.querySelectorAll<HTMLSpanElement>('span[data-message-image]') ?? []))
-  }, [html])
+    setImageTargets({ html, sessionId, targets: Array.from(content.current?.querySelectorAll<HTMLSpanElement>('span[data-message-image]') ?? []) })
+  }, [html, sessionId])
 
   const handleClick = async (event: ReactMouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
@@ -299,9 +313,11 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
       )}
         dangerouslySetInnerHTML={markup}
       />
-      {imageTargets.map((target, index) => createPortal(
-        <MessageImage src={target.dataset.messageImage ?? ''} alt={target.dataset.imageAlt ?? ''} />,
-        target, `${index}:${target.dataset.messageImage}`,
+      {imageTargets.html === html && imageTargets.sessionId === sessionId && imageTargets.targets.map((target, index) => createPortal(
+        target.dataset.localImage
+          ? <LocalMessageImage sessionId={sessionId} path={target.dataset.localImage} alt={target.dataset.imageAlt ?? ''} />
+          : <MessageImage src={target.dataset.messageImage ?? ''} alt={target.dataset.imageAlt ?? ''} />,
+        target, `${sessionId}:${index}:${target.dataset.localImage ?? target.dataset.messageImage}`,
       ))}
       {diagram && sessionId && diagram.sessionId === sessionId && <Suspense fallback={<p role="status" className="mt-2 text-sm">正在打开图形预览…</p>}><MessageDrawioDialog key={`${sessionId}:${diagram.path}`} sessionId={sessionId} path={diagram.path} onClose={() => setDiagram(null)} returnFocus={() => {
         const target = diagram.trigger.isConnected ? diagram.trigger : content.current
@@ -322,6 +338,17 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
       )}
     </>
   )
+}
+
+function localImagePath(src: string | null): string | null {
+  if (!src || /^(?:https?:|data:|blob:|\/\/|#|\?)/i.test(src)) return null
+  if (/^\/(?:api|assets|tools|images|static|uploads)(?:\/|\?|#|$)/i.test(src)) return null
+  // 保留网站根目录下的 /logo.png 等原有图片链接；有目录的本地路径按会话读取。
+  if (/^\/[^/]+$/.test(src)) return null
+  const local = localPathFromHref(src)
+  if (local) return local
+  if (/^[a-z][\w+.-]*:/i.test(src)) return null
+  try { return decodeURIComponent(src) } catch { return src }
 }
 
 function localPathFromHref(href: string | null): string | null {

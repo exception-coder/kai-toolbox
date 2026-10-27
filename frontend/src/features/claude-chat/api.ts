@@ -434,6 +434,17 @@ export function readSessionDiagram(sessionId: string, path: string, signal?: Abo
   return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/diagram?path=${encodeURIComponent(path)}`, { signal })
 }
 
+/** 本地图片经会话鉴权读取；不把服务器磁盘路径作为浏览器 URL。 */
+export async function readSessionImage(sessionId: string, path: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/image?path=${encodeURIComponent(path)}`, { signal })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    throw new Error(body?.message || `图片读取失败（HTTP ${response.status}），请确认文件及会话访问权限。`)
+  }
+  if (!response.headers.get('content-type')?.startsWith('image/')) throw new Error('服务返回的不是图片，请检查登录状态后重试。')
+  return response.blob()
+}
+
 /** 在系统资源管理器/Finder 里定位会话工作目录下的文件/目录（相对 cwd）。 */
 export function revealSessionFile(sessionId: string, path: string) {
   return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/reveal`, {
