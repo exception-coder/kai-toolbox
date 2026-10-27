@@ -19,6 +19,7 @@ function useBottomAlignment(sessionKey: string) {
   const scrollerRef = useRef<HTMLElement | null>(null)
   const [scroller, setScroller] = useState<HTMLElement | null>(null)
   const followingHeightRef = useRef(false)
+  const correctedLayoutsRef = useRef(new Set<string>())
   const frameRef = useRef<number | null>(null)
   const captureScroller = useCallback((element: HTMLElement | Window | null) => {
     scrollerRef.current = element instanceof HTMLElement ? element : null
@@ -40,16 +41,22 @@ function useBottomAlignment(sessionKey: string) {
       const scroller = scrollerRef.current
       if (scroller && followingHeightRef.current
         && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop > LATEST_BOTTOM_TOLERANCE_PX) {
+        // 同一测量范围只补偿一次，防止原生 scroll 与 Virtuoso 的位置补偿互相触发。
+        const layout = `${scroller.scrollHeight}:${scroller.clientHeight}`
+        if (correctedLayoutsRef.current.has(layout)) return
+        correctedLayoutsRef.current.add(layout)
         scrollToMeasuredBottom()
       }
     })
   }, [scrollToMeasuredBottom])
   const scrollToLatest = useCallback(() => {
     followingHeightRef.current = true
+    correctedLayoutsRef.current.clear()
     scrollToMeasuredBottom()
   }, [scrollToMeasuredBottom])
   const cancelAlignment = useCallback(() => {
     followingHeightRef.current = false
+    correctedLayoutsRef.current.clear()
     if (frameRef.current !== null) { cancelAnimationFrame(frameRef.current); frameRef.current = null }
   }, [])
   useLayoutEffect(() => {
