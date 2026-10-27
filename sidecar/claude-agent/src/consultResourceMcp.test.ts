@@ -17,7 +17,7 @@ test('readonly resource MCP forwards trusted session header and refuses writes b
   const child = spawn(process.execPath, [fileURLToPath(new URL('./readonlyMcp.js', import.meta.url))], {
     windowsHide: true, env: { ...process.env, TOOLBOX_API_BASE: `http://127.0.0.1:${address.port}`,
       CONSULT_DISABLE_LEGACY_DATABASES: 'true', TOOLBOX_SOURCE_ROOT: '', TOOLBOX_SESSION_ID: 'runtime-test', CONSULT_RESOURCE_TOKEN: 'trusted-test-token',
-      CONSULT_ENABLED_TOOLS: JSON.stringify(['consult_resources', 'consult_resource_query', 'consult_web', 'erp_db_query', 'generate_consult_document', 'read_consult_attachment']) }, stdio: ['pipe', 'pipe', 'pipe'],
+      CONSULT_ENABLED_TOOLS: JSON.stringify(['consult_resources', 'consult_resource_query', 'consult_web', 'erp_db_query', 'generate_consult_document', 'read_consult_attachment', 'read_consult_history']) }, stdio: ['pipe', 'pipe', 'pipe'],
   })
   const replies = new Map<number, (value: Record<string, any>) => void>()
   const lines = createInterface({ input: child.stdout })
@@ -30,7 +30,7 @@ test('readonly resource MCP forwards trusted session header and refuses writes b
   })
   try {
     const list = await request('tools/list', {})
-    assert.deepEqual(list.result.tools.map((tool: { name: string }) => tool.name), ['consult_resources', 'consult_resource_query', 'consult_web', 'generate_consult_document', 'read_consult_attachment'])
+    assert.deepEqual(list.result.tools.map((tool: { name: string }) => tool.name), ['consult_resources', 'consult_resource_query', 'consult_web', 'generate_consult_document', 'read_consult_attachment', 'read_consult_history'])
     assert.equal(list.result.tools[3].annotations.readOnlyHint, false)
     assert.equal(list.result.tools[3].inputSchema.additionalProperties, false)
     await request('tools/call', { name: 'consult_resources', arguments: {} })
@@ -64,6 +64,9 @@ test('readonly resource MCP forwards trusted session header and refuses writes b
     const credentials = await request('tools/call', { name: 'consult_web', arguments: { operation: 'READ', bindingId: 'web-uat', password: 'secret' } })
     assert.equal(credentials.result.isError, true)
     assert.equal(requests.length, 6)
+    await request('tools/call', { name: 'read_consult_history', arguments: { offset: 12000, maxChars: 2000 } })
+    assert.equal(requests[6].url, '/api/fore-consult/context/sessions/runtime-test?offset=12000&maxChars=2000')
+    assert.equal(requests[6].token, 'trusted-test-token')
   } finally {
     child.kill(); lines.close(); await new Promise<void>(resolve => server.close(() => resolve()))
   }

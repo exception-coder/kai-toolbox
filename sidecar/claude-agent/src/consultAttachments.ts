@@ -13,7 +13,9 @@ export const consultAttachmentTool = {
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 }
 
-export async function readConsultAttachment(args: Record<string, unknown>, context: { apiBase: string; session?: string; token?: string }) {
+export async function readConsultAttachment(args: Record<string, unknown>, context: { apiBase: string; session?: string; token?: string }): Promise<{
+  content: Array<{ type: string; text?: string; mimeType?: string; data?: string }>; isError?: boolean
+}> {
   if (!context.session || !context.token || typeof args.path !== 'string' || args.path.length > 4096) throw new Error('咨询附件上下文或路径无效')
   const response = await fetch(`${context.apiBase}/api/fore-consult/attachments/sessions/${encodeURIComponent(context.session)}/read`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Consult-Resource-Token': context.token },
@@ -21,6 +23,12 @@ export async function readConsultAttachment(args: Record<string, unknown>, conte
       sheet: args.sheet, startRow: args.startRow, maxRows: args.maxRows }), signal: AbortSignal.timeout(20000),
   })
   const result = await response.text()
+  if (response.ok && result.length < 36000000 && result.startsWith('{')) {
+    const image = JSON.parse(result) as { kind?: string; mimeType?: string; data?: string }
+    if (image.kind === 'image' && image.mimeType && image.data) {
+      return { content: [{ type: 'image', mimeType: image.mimeType, data: image.data }] }
+    }
+  }
   if (result.length > 350000) return { content: [{ type: 'text', text: '附件响应超限，不能把截断内容当成完整数据；请减小maxRows或maxChars重试。' }], isError: true }
   return { content: [{ type: 'text', text: result }], ...(!response.ok ? { isError: true } : {}) }
 }

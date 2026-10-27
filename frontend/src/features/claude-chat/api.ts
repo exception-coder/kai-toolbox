@@ -1078,12 +1078,15 @@ export async function loadMessages(
   qs.set('limit', String(limit))
   if (sessionId) qs.set('sessionId', sessionId)
   try {
-    const page = await http<{ items: RawHistoryMessage[]; nextBefore: number | null; nextCursor?: string | null }>(
+    const page = await http<{ items: RawHistoryMessage[]; nextBefore: number | null; nextCursor?: string | null; historyGap?: string | null }>(
       `/claude-chat/history/${encodeURIComponent(sdkSessionId)}/messages?${qs.toString()}`,
       { signal: AbortSignal.timeout(SESSION_HISTORY_PAGE_TIMEOUT_MS) },
     )
     reportVibeEntry(stage, 'ok', sdkSessionId)
-    return { items: page.items.map(toChatItem), nextBefore: page.nextCursor ?? page.nextBefore }
+    const items = page.items.map(toChatItem)
+    if (before == null && page.historyGap) items.unshift({ kind: 'warning', id: 'consult-history-gap',
+      code: 'CONSULT_HISTORY_GAP', message: page.historyGap, ts: Date.now() })
+    return { items, nextBefore: page.nextCursor ?? page.nextBefore }
   } catch (error) {
     const name = error instanceof Error ? error.name : ''
     reportVibeEntry(stage, name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'error', sdkSessionId)

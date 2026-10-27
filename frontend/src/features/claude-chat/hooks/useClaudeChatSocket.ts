@@ -635,6 +635,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
         break
       case 'assistantDelta':
+        if (channel === 'consult') setSyncWarning(previous => previous === '正在核对咨询账号与历史上下文……' ? null : previous)
         // 实打实收到流式内容 = 该会话确凿无疑正在跑，不管此刻 running 之前是什么值都直接点亮——
         // 比 switchTo 的 hintRunning 更可靠：hint 是切会话那一刻的乐观猜测（可能因缓存过期猜错），
         // 这里是"正在发生的事实"，用来自愈任何猜错的场景（包括从没猜过、hint 传了 false 的老路径）。
@@ -656,6 +657,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setItems(prev => applyAssistantSnapshot(prev, msg.text))
         break
       case 'toolUse':
+        if (channel === 'consult') setSyncWarning(previous => previous === '正在核对咨询账号与历史上下文……' ? null : previous)
         if (!applyTurnRunningSignal('runtimeEvidence')) break
         setItems(prev => {
           const toolCallId = msg.toolCallId || undefined
@@ -808,6 +810,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       }
       case 'warning':
+        if (msg.code === 'CONSULT_CONTEXT_CONNECTING') {
+          setSyncWarning(msg.message)
+          break
+        }
         if (msg.code === 'INTERRUPT_CLEANUP_PENDING') {
           setInterrupting(false)
           setSyncWarning(INTERRUPT_PENDING_MESSAGE)
@@ -929,7 +935,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       }
       case 'result': {
-        setSyncWarning(previous => previous === INTERRUPT_PENDING_MESSAGE ? null : previous)
+        setSyncWarning(previous => previous === INTERRUPT_PENDING_MESSAGE || previous === '正在核对咨询账号与历史上下文……' ? null : previous)
         applyTurnRunningSignal('terminal', '本轮已返回最终结果')
         setInterrupting(false)
         setPending(null)
@@ -986,6 +992,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           || msg.outcome === 'accepted' || msg.outcome === 'correcting'))
         break
       case 'error':
+        setSyncWarning(previous => previous === '正在核对咨询账号与历史上下文……' ? null : previous)
         if (msg.terminal !== false) {
           setSyncWarning(previous => previous === INTERRUPT_PENDING_MESSAGE ? null : previous)
           applyTurnRunningSignal('terminal', '本轮因终态错误结束')

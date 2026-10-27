@@ -9,6 +9,12 @@ public record BusinessConsultModelPolicyView(
         /** Administrator-selected Codex authorization directory. */
         String codexHome,
         /** Last configuration time in epoch milliseconds. */
-        Long updatedAt
+        Long updatedAt,
+        long version,
+        String validationCode,
+        Long checkedAt
 ) {
+    public BusinessConsultModelPolicyView(String model, String displayName, String codexHome, Long updatedAt) {
+        this(model, displayName, codexHome, updatedAt, 0, "NOT_CHECKED", null);
+    }
 }

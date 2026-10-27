@@ -104,6 +104,16 @@ export function ConsultConversation({
   const sendingRef = useRef(false)
   const dispatchAbortRef = useRef<AbortController | null>(null)
   const [dispatching, setDispatching] = useState(false)
+  const pendingAccountDraft = useRef<{ message: string; attachments: Att[] } | null>(null)
+  useEffect(() => {
+    const latest = chat.items.at(-1)
+    if (latest?.kind !== 'error' || latest.code !== 'CONSULT_ACCOUNT_HANDOFF_FAILED') return
+    const draft = pendingAccountDraft.current
+    if (!draft) return
+    pendingAccountDraft.current = null
+    setText(current => !current || current === draft.message ? draft.message : `${draft.message}\n\n${current}`)
+    setAtts(current => [...current, ...draft.attachments.filter(attachment => !current.some(existing => existing.path === attachment.path))])
+  }, [chat.items])
   const [newQuestionReason, setNewQuestionReason] = useState<string | null>(null)
   const [newQuestionDraft, setNewQuestionDraft] = useState<{ message: string; attachments: Att[] } | null>(null)
   const [newQuestionTitle, setNewQuestionTitle] = useState('')
@@ -230,6 +240,7 @@ export function ConsultConversation({
     setHistoryPagingEnabled(chat.historyLoading)
     historyScrollSnapshotRef.current = null
     isNearBottomRef.current = true
+    pendingAccountDraft.current = null
     previousRenderRef.current = { itemCount: 0, firstId: '', lastId: '', running: false }
   }, [consultId])
 
@@ -400,6 +411,7 @@ export function ConsultConversation({
     if (!sessionSendableRef.current
       && !(preparedDispatch && sessionReady && (!running || runtimeTerminalRef.current))) return false
     isNearBottomRef.current = true
+    pendingAccountDraft.current = { message, attachments: [...atts] }
     chat.send(message, attachments, undefined, developerInstructions)
     // 调度期间仍可编辑；只清除已发送的原草稿和附件。
     setText(current => current === message ? '' : current)

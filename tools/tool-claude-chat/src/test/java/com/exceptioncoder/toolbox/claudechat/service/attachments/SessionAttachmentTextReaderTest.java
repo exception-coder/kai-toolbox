@@ -14,6 +14,25 @@ import static org.mockito.Mockito.*;
 class SessionAttachmentTextReaderTest {
     @TempDir Path temp;
 
+    @Test void historicalImagesUseTheSameOwnedStorageValidation() throws Exception {
+        var sessions = mock(ClaudeChatSessionRepository.class);
+        var attachments = mock(ClaudeChatAttachmentRepository.class);
+        var storage = mock(com.exceptioncoder.toolbox.claudechat.service.AttachmentStorageService.class);
+        when(sessions.findById("s")).thenReturn(Optional.of(ClaudeChatSession.builder().cwd(temp.toString()).build()));
+        Path root = temp.resolve(".kai-chat-attachments/s"); Files.createDirectories(root);
+        Path image = root.resolve("original.png"); Files.write(image, new byte[]{1, 2, 3});
+        when(attachments.findStored("s", "original.png")).thenReturn(Optional.of("image-id"));
+        when(storage.loadImages(eq("s"), anyList())).thenReturn(java.util.List.of(
+                new com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput("aW1hZ2U=", "image/png")));
+        var reader = new SessionAttachmentTextReader(sessions, attachments);
+        org.springframework.test.util.ReflectionTestUtils.setField(reader, "imageStorage", storage);
+        var request = new com.exceptioncoder.toolbox.common.attachment.SessionAttachmentReader.Request(image.toString(), null, null, null, null, null);
+        var result = reader.readContent("s", 1024, request);
+        assertThat(result).isInstanceOf(com.exceptioncoder.toolbox.common.attachment.SessionAttachmentReader.ImagePage.class);
+        verify(storage).loadImages(eq("s"), anyList());
+        assertThatThrownBy(() -> reader.readContent("s", 1, request)).hasMessageContaining("管理员配置");
+    }
+
     @Test void readsLargeHtmlByBoundedCharacterOffsetAndRechecksLimit() throws Exception {
         var sessions = mock(ClaudeChatSessionRepository.class);
         var attachments = mock(ClaudeChatAttachmentRepository.class);

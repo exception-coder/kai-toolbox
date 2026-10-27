@@ -94,6 +94,12 @@ public class ConsultController {
         return modelPolicyService.get();
     }
 
+    @GetMapping("/model-policy/audit")
+    @RequireRole("ADMIN")
+    public List<Map<String, Object>> modelPolicyAudit() {
+        return modelPolicyService.auditTrail();
+    }
+
     /** Persists one exact entry selected from the current Codex catalog. */
     @PutMapping("/model-policy")
     @RequireRole("ADMIN")

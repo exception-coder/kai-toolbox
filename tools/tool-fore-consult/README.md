@@ -14,7 +14,9 @@ flowchart LR
     API --> SVC["ConsultService / DispatchService"]
     SVC --> PIPE["ConsultOrchestrationPipeline\nV1-V4 版本化编排"]
     PIPE --> CHAT["ClaudeChatService\nWS 会话与持久化"]
-    CHAT --> SM["Sidecar SessionManager"]
+    CHAT --> POLICY["每轮解析业务默认账号与版本<br/>验证、只读状态与归属"]
+    POLICY --> HISTORY["稳定平台会话＋持久问答<br/>账号变化创建新原生段"]
+    HISTORY --> SM["Sidecar SessionManager"]
     SM --> ENG["Codex / Claude Adapter"]
     ENG --> RO["consult-readonly MCP"]
     ENG --> KB["domain-knowledge / topology"]
@@ -39,6 +41,14 @@ flowchart LR
 最重要的边界：前端和 Java 管业务事实，Sidecar 管 Agent 生命周期，Agent 只通过受控工具读证据及生成会话文档；任何一层都不能用自己的局部状态替代全链路终态。
 
 ## 核心对象与职责
+
+### 默认 AI 账号与历史接续
+
+管理员沿用输入区的“设为业务默认”保存模型和账号；保存前检测登录、工作区授权与模型目录，不发送业务问题。检测失败保留原设置，成功后新旧咨询的后续提问统一使用新账号，正在生成的回答按原账号完成。配置抽屉展示当前账号、策略版本、检测时间和最近 50 条切换审计。仅业务咨询应用此策略，不影响开发会话。
+
+咨询及平台聊天 ID 不变，原始创建账号留作来源。每轮实际准入解析服务端最新策略并固定版本；换账号建立新的原生线程段，切回旧账号也重新接续。服务端保存问答、工具依据及附件引用；旧原生历史缺失时读取已保存问答并明确缺口。长 SQL 和用户修正通过 `read_consult_history` 按 `nextOffset` 分页读取，不能只依赖摘录。历史是参考资料，资源授权仍需实时核验。原图片经 `read_consult_attachment` 返回真实图片内容，原生成文件继续按咨询身份访问。
+
+已归档咨询只能阅读或延续新建。普通用户不新增账号操作；接续前检测失败保留输入和附件，不静默换回原账号。运行账号、请求 ID、原生段和状态持久记录；结果未知的业务问题不自动重放。此能力不修复账号凭据、不迁移供应商内部线程状态。实现与验证状态见[统一账号任务](../../openspec/changes/unify-consult-runtime-account/tasks.md)，尚待另行授权加载服务及真实账号验收。
 
 咨询输入区复用Vibe Coding语音能力：首问和追问可录音转文字，确认后发送；官方Codex原生账号的已就绪咨询可点击“语音对话”连续交流，并支持静音、挂断及主动恢复。未发送草稿或附件需先处理。实时语音仍使用原咨询与只读资源边界，挂断不取消已启动咨询；其他引擎或第三方网关使用转写。转写复用FFmpeg/faster-whisper，经登录校验的`/api/fore-consult/stt`处理，不需要开发模块管理权限。浏览器需HTTPS或localhost及麦克风授权，上游账号未开放语音时保留文字和转写入口；部署与真实音频验收见[咨询语音任务](../../openspec/changes/consult-voice/tasks.md)。
 

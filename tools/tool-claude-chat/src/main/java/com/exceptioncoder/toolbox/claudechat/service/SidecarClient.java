@@ -55,6 +55,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     private final Map<String, CompletableFuture<String>> pendingReviewForks = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingSessionStateQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingEngineCatalogQueries = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<JsonNode>> pendingConsultAccountQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingSubscriptionQuotaQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingProjectRouteQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingCodexDesktopQueries = new ConcurrentHashMap<>();
@@ -286,10 +287,20 @@ public class SidecarClient implements ReviewThreadForkGateway {
                             TraceContext traceContext, AgentRunMetadata telemetry,
                             List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
                             String turnToolPolicy, String voiceCallId) {
+        userMessage(sessionId, text, developerInstructions, sessionContext, additionalDirectories, turnId,
+                traceContext, telemetry, images, turnToolPolicy, voiceCallId, null);
+    }
+
+    public void userMessage(String sessionId, String text, String developerInstructions,
+                            String sessionContext, List<String> additionalDirectories, String turnId,
+                            TraceContext traceContext, AgentRunMetadata telemetry,
+                            List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
+                            String turnToolPolicy, String voiceCallId, Map<String, Object> consultAccount) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", "user");
         message.put("sessionId", sessionId);
         message.put("text", nz(text));
+        if (consultAccount != null) message.put("consultAccount", consultAccount);
         if (voiceCallId != null) message.put("voiceCallId", voiceCallId);
         message.put("developerInstructions", nz(developerInstructions));
         message.put("sessionContext", nz(sessionContext));
@@ -314,7 +325,20 @@ public class SidecarClient implements ReviewThreadForkGateway {
                     message.put("developerInstructions", assembly.instructions());
                 });
         putTelemetry(message, traceContext, telemetry);
-        send(message);
+        if (!send(message)) throw new IllegalStateException("Sidecar 未确认接收，发送状态待核对，不能自动重发问题");
+    }
+
+    public Optional<JsonNode> inspectConsultAccount(String codexHome, String model, long timeoutMs) {
+        String id = UUID.randomUUID().toString();
+        var future = new CompletableFuture<JsonNode>();
+        pendingConsultAccountQueries.put(id, future);
+        try {
+            if (!send(Map.of("type", "inspectConsultAccount", "requestId", id, "codexHome", codexHome, "model", model))) return Optional.empty();
+            return Optional.of(future.get(timeoutMs, TimeUnit.MILLISECONDS));
+        } catch (Exception error) {
+            if (error instanceof InterruptedException) Thread.currentThread().interrupt();
+            return Optional.empty();
+        } finally { pendingConsultAccountQueries.remove(id); }
     }
 
     /** 为下一次正常准入的轮次绑定瞬时语音协商。 */
@@ -677,6 +701,8 @@ public class SidecarClient implements ReviewThreadForkGateway {
     /** 连接失效时结束全部引擎目录查询，避免请求线程等待到超时。 */
     private void failPendingEngineCatalogQueries(String message) {
         IllegalStateException error = new IllegalStateException(message);
+        pendingConsultAccountQueries.values().forEach(future -> future.completeExceptionally(error));
+        pendingConsultAccountQueries.clear();
         pendingEngineCatalogQueries.values().forEach(future -> future.completeExceptionally(error));
         pendingEngineCatalogQueries.clear();
         pendingSubscriptionQuotaQueries.values().forEach(future -> future.completeExceptionally(error));
@@ -734,6 +760,11 @@ public class SidecarClient implements ReviewThreadForkGateway {
                     if (future != null) {
                         future.complete(node);
                     }
+                    return;
+                }
+                if ("consultAccountInspection".equals(node.path("type").asText())) {
+                    var future = pendingConsultAccountQueries.get(node.path("requestId").asText());
+                    if (future != null) future.complete(node);
                     return;
                 }
                 if ("systemRouteInspection".equals(node.path("type").asText())) {

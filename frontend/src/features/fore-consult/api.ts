@@ -215,6 +215,23 @@ export interface BusinessConsultModelPolicy {
   displayName: string | null
   codexHome: string | null
   updatedAt: number | null
+  version?: number
+  validationCode?: string | null
+  checkedAt?: number | null
+}
+
+export interface ConsultAccountAudit {
+  version: number
+  operator_id: string
+  previous_home: string | null
+  target_home: string
+  model: string
+  result_code: string
+  checked_at: number
+}
+
+export function getConsultAccountAudit() {
+  return http<ConsultAccountAudit[]>('/fore-consult/model-policy/audit')
 }
 
 export function getBusinessConsultModelPolicy() {

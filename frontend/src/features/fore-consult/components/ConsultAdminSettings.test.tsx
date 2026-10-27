@@ -4,14 +4,17 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ConsultAdminSettings } from './ConsultAdminSettings'
 import { getConsultAttachmentPolicy, getConsultDatabaseConfiguration, saveConsultAttachmentPolicy } from '../consultAttachmentPolicy'
 import { DatabaseResourceBindings } from '@/features/ops/public-api'
+import { getConsultAccountAudit } from '../api'
 
 vi.mock('@/features/ops/public-api', () => ({ WebResourceBindings: () => <p>Web账号关联编辑器</p>, DatabaseResourceBindings: vi.fn(({ sourcePath }: { sourcePath?: string }) => <label>关联草稿<input defaultValue={sourcePath} /></label>) }))
 vi.mock('@/features/agent-management/public-api', () => ({ ConsultDatabaseSelection: () => <p>流程多库编辑器</p> }))
+vi.mock('../api', async original => ({ ...await original<typeof import('../api')>(), getConsultAccountAudit: vi.fn().mockResolvedValue([]) }))
 
 vi.mock('../consultAttachmentPolicy', async original => ({ ...await original<typeof import('../consultAttachmentPolicy')>(),
   getConsultAttachmentPolicy: vi.fn(), getConsultDatabaseConfiguration: vi.fn(), saveConsultAttachmentPolicy: vi.fn() }))
 const policy = { uploadMaxMb: 100, readMaxMb: 50, effectiveUploadBytes: 104857600, effectiveReadBytes: 52428800, transportMaxBytes: 209715200, maxAttachments: 10 }
 beforeEach(() => {
+  vi.mocked(getConsultAccountAudit).mockResolvedValue([])
   vi.mocked(getConsultAttachmentPolicy).mockResolvedValue(policy)
   vi.mocked(getConsultDatabaseConfiguration).mockResolvedValue({ workflowVersion: 2, selectedBindingIds: ['erp-test'], resources: [
     { bindingId: 'erp-test', systemName: 'ERP', name: '测试Oracle', environment: 'TEST', endpoint: 'db-test:1521/test', state: 'AVAILABLE', configurationUrl: '/tools/reqpool/resources?view=connections&editDatasource=ds-test' },

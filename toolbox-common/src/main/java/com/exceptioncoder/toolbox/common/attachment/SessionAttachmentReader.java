@@ -23,6 +23,8 @@ public interface SessionAttachmentReader {
 
     /** 文本响应保持原字段；工作簿响应明确使用1起始行号，不复用字符offset。 */
     interface Content { }
+    /** Controlled original image read for authorized consultation history continuation. */
+    record ImagePage(String kind, String name, String mimeType, String data) implements Content { }
 
     /** path为当前会话附件；offset/maxChars用于文本，sheet/startRow/maxRows用于XLSX。 */
     record Request(String path, Integer offset, Integer maxChars, String sheet, Integer startRow,

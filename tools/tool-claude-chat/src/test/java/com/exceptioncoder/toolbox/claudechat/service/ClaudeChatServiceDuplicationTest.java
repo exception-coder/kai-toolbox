@@ -66,6 +66,59 @@ class ClaudeChatServiceDuplicationTest {
     }
 
     @Test
+    void anotherViewerDoesNotReplaceARunningConsultationAccountOrResumeItsThread() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "runtimeStates", mock(SessionRuntimeStateService.class));
+        var source = source("codex", "A");
+        source.setExecutionPolicy("consult-readonly");
+        when(repo.findById("source")).thenReturn(Optional.of(source));
+        when(sidecar.isConnected()).thenReturn(true);
+        when(ws.getUri()).thenReturn(URI.create("ws://localhost" + SessionExecutionPolicy.CONSULT_WS_PATH));
+        service.switchSession(ws, new ClientMessage.SwitchSession("source"));
+        @SuppressWarnings("unchecked")
+        var contexts = (java.util.Map<String, Object>) org.springframework.test.util.ReflectionTestUtils.getField(service, "sessions");
+        Object ctx = contexts.get("source");
+        org.springframework.test.util.ReflectionTestUtils.setField(ctx, "status", SessionStatus.RUNNING);
+        org.springframework.test.util.ReflectionTestUtils.setField(ctx, "codexHome", "frozen-A");
+        org.mockito.Mockito.clearInvocations(sidecar);
+        source.setCodexHome("B");
+        service.switchSession(ws, new ClientMessage.SwitchSession("source"));
+        assertThat(org.springframework.test.util.ReflectionTestUtils.getField(ctx, "codexHome")).isEqualTo("frozen-A");
+        assertThat(org.springframework.test.util.ReflectionTestUtils.getField(ctx, "status")).isEqualTo(SessionStatus.RUNNING);
+        verify(sidecar, never()).resumeSession(any(), any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void threadCreationDoesNotCommitAnAccountUntilContextInputOrResponseIsAcknowledged() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "runtimeStates", mock(SessionRuntimeStateService.class));
+        var runtime = mock(ConsultRuntimeCoordinator.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "consultRuntime", runtime);
+        var source = source("codex", "A"); source.setExecutionPolicy("consult-readonly");
+        when(repo.findById("source")).thenReturn(Optional.of(source));
+        when(sidecar.isConnected()).thenReturn(true);
+        when(ws.getUri()).thenReturn(URI.create("ws://localhost" + SessionExecutionPolicy.CONSULT_WS_PATH));
+        service.switchSession(ws, new ClientMessage.SwitchSession("source"));
+        @SuppressWarnings("unchecked")
+        var contexts = (java.util.Map<String, Object>) org.springframework.test.util.ReflectionTestUtils.getField(service, "sessions");
+        Object ctx = contexts.get("source");
+        var plan = new ConsultRuntimeCoordinator.Plan(new com.exceptioncoder.toolbox.llm.spi.ConsultationRuntimePolicy.Selection(
+                "consult", "B", "new-model", 2, "scope"), "segment-B", true, "context");
+        org.springframework.test.util.ReflectionTestUtils.setField(ctx, "consultAccountPlan", plan);
+        org.springframework.test.util.ReflectionTestUtils.setField(ctx, "consultAccountCommitted", false);
+        org.springframework.test.util.ReflectionTestUtils.setField(ctx, "status", SessionStatus.RUNNING);
+        Object lifecycle = org.springframework.test.util.ReflectionTestUtils.getField(service, "turnLifecycle");
+        String turn = org.springframework.test.util.ReflectionTestUtils.invokeMethod(lifecycle, "begin", "source");
+        var mapper = new ObjectMapper();
+        service.onSidecarEvent("source", mapper.readTree("{\"type\":\"init\",\"consultSegmentId\":\"segment-B\",\"sdkSessionId\":\"native-B\"}"));
+        verify(repo, never()).updateConsultAccount(any(), any(), any(), any(), any(), any(), any());
+        service.onSidecarEvent("source", mapper.readTree("{\"type\":\"init\",\"consultSegmentId\":\"segment-A\",\"sdkSessionId\":\"late-A\"}"));
+        assertThat(org.springframework.test.util.ReflectionTestUtils.getField(ctx, "sdkSessionId")).isEqualTo("native-B");
+        service.onSidecarEvent("source", mapper.readTree("{\"type\":\"assistantDelta\",\"turnId\":\"" + turn + "\",\"text\":\"按修正规则继续\"}"));
+        verify(repo).updateConsultAccount(eq("source"), eq("B"), eq("new-model"), eq("native-B"), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq("default"));
+    }
+
+    @Test
     void sameAuthCopyCreatesAnIndependentSessionAndLineageWhilePreservingConfiguration() {
         ClaudeChatSession source = source("codex", "C:/Users/test/.codex-pro");
         when(repo.findById("source")).thenReturn(Optional.of(source));

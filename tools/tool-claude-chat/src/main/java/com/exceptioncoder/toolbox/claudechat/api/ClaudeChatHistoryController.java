@@ -34,6 +34,10 @@ public class ClaudeChatHistoryController {
     private final ObjectMapper mapper;
     @org.springframework.beans.factory.annotation.Autowired
     private ClaudeChatSessionAccessPolicy accessPolicy;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.claudechat.repository.ConsultRuntimeRepository consultHistory;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.claudechat.service.ConsultRuntimeCoordinator consultRuntime;
 
     public ClaudeChatHistoryController(SessionHistoryService history, SessionAliasRepository aliasRepo,
                                        ClaudeChatSessionRepository sessionRepo, ObjectMapper mapper) {
@@ -62,13 +66,21 @@ public class ClaudeChatHistoryController {
                 ? sessionRepo.findBySdkSessionId(sdkSessionId).orElse(null)
                 : sessionRepo.findById(sessionId).orElseThrow(() ->
                     new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "会话不存在"));
+        if (db == null && consultHistory != null) {
+            db = consultHistory.sessionForNative(sdkSessionId).flatMap(sessionRepo::findById).orElse(null);
+        }
         if ("cursor".equals(pagination) && db == null) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.NOT_FOUND, "请先导入历史会话再读取最近消息");
         }
-        if (sessionId != null && !sessionId.isBlank() || "cursor".equals(pagination)) {
+        if (sessionId != null && !sessionId.isBlank() || "cursor".equals(pagination)
+                || db != null && SessionExecutionPolicy.isConsultReadonly(db.getExecutionPolicy())) {
             if (!accessPolicy.canAccessCurrentUser(db)) {
                 throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "无权读取会话");
+            }
+            if (SessionExecutionPolicy.isConsultReadonly(db.getExecutionPolicy()) && consultHistory != null) {
+                if (consultRuntime != null) consultRuntime.ensureHistory(db);
+                if (consultHistory.imported(db.getId())) return consultHistory.messages(db.getId(), before, limit);
             }
             boolean matches = sdkSessionId.equals(db.getSdkSessionId());
             if (!matches && db.getEngineSessions() != null) {

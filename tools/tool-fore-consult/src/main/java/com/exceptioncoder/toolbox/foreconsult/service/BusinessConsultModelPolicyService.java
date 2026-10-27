@@ -17,6 +17,8 @@ public class BusinessConsultModelPolicyService {
 
     private final BusinessConsultModelPolicyRepository repository;
     private final CodexHomeDiscoveryService codexHomeDiscoveryService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.beans.factory.ObjectProvider<com.exceptioncoder.toolbox.llm.spi.AgentAccountValidator> validators;
 
     public BusinessConsultModelPolicyService(BusinessConsultModelPolicyRepository repository,
                                              CodexHomeDiscoveryService codexHomeDiscoveryService) {
@@ -31,10 +33,24 @@ public class BusinessConsultModelPolicyService {
 
     /** Saves the exact identifier and label selected from the current catalog. */
     public BusinessConsultModelPolicyView save(BusinessConsultModelPolicyRequest request) {
+        var principal = AuthContext.current().filter(user -> user.hasAnyRole("ADMIN"))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "仅管理员可修改业务咨询默认账号"));
         String codexHome = requireDiscoveredCodexHome(request.codexHome());
-        repository.save(
-                request.model().trim(), request.displayName().trim(), codexHome, System.currentTimeMillis());
+        var validator = validators == null ? null : validators.getIfAvailable();
+        if (validator == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "账号检测能力尚未就绪，原配置已保留");
+        var result = validator.validate(codexHome, request.model().trim());
+        if (!result.available()) {
+            repository.audit(String.valueOf(principal.userId()), get().codexHome(), codexHome,
+                    request.model().trim(), result.code(), result.checkedAt());
+            throw new ResponseStatusException(HttpStatus.CONFLICT, result.message() + "；原配置已保留");
+        }
+        repository.saveValidated(request.model().trim(), request.displayName().trim(), codexHome,
+                String.valueOf(principal.userId()), result.checkedAt());
         return get();
+    }
+
+    public java.util.List<java.util.Map<String, Object>> auditTrail() {
+        return repository.auditTrail();
     }
 
     /** Administrators may override one session; ordinary users always use the configured default. */

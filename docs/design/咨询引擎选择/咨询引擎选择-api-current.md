@@ -25,10 +25,17 @@ WebSocket `open` 消息新增可选字段：
 
 ## 4. 咨询归档扩展
 
-- `GET /api/fore-consult/model-policy` 返回业务咨询新会话的服务端权威策略：`model`、`displayName`、`codexHome`、`updatedAt`。
-- `PUT /api/fore-consult/model-policy` 仅管理员可用，请求体为 `{"model":"...","displayName":"...","codexHome":"..."}`；Auth 必须命中服务端当前发现目录。
+- `GET /api/fore-consult/model-policy` 返回业务咨询的服务端权威策略：`model`、`displayName`、`codexHome`、`updatedAt`，以及 `version`、`validationCode`、`checkedAt`。存量未检测配置版本为 0，不代表账号可用。
+- `PUT /api/fore-consult/model-policy` 仅管理员可用，请求体为 `{"model":"...","displayName":"...","codexHome":"..."}`；Auth 必须命中服务端当前发现目录，并通过受控登录、工作区授权与模型目录检测。检测不发送业务问题；失败保留原配置，成功生成版本。
+- `GET /api/fore-consult/model-policy/audit` 仅管理员可用，返回最近 50 条操作者、原账号、目标账号、模型、检测结果与时间。失败审计不改变当前策略版本，不含 token。
 - `POST /api/fore-consult/sessions` 保留兼容的可选 `codexHome` 入参，但服务端不会采用该值；所有用户的新咨询统一使用上述策略中的 Auth，未配置时返回 HTTP 409。
-- 已创建会话继续返回并使用 `ConsultSessionView.codexHome` 快照，不随策略更新。
+- 已创建会话继续返回 `ConsultSessionView.codexHome` 作为创建来源；实际每轮执行重新读取默认账号和版本，不采用旧页面或创建快照的账号。历史咨询保留原模型，缺失才使用默认模型；目标账号不支持时明确报错。
+- 平台聊天 ID 与附件授权不变；账号变化时创建新原生线程段，切回旧账号也重新交接当前历史。正在运行的轮次保持原账号；已归档咨询不能发送。业务咨询 `send.messageId` 必填，持久去重，不自动重放发送结果未知的问题。开发会话不采用这套账号策略。
+- 咨询历史消息接口优先读取平台日志，补充可空 `historyGap`；存在缺口时显示警告。原账号失效不阻止已保存历史读取。
+- `GET /api/fore-consult/context/sessions/{runtimeId}?offset=0&maxChars=16000` 供 `read_consult_history` 工具按 Unicode 字符分页；`maxChars` 为 1～50000，响应含 `offset/nextOffset/complete/text/gap/documents`。必须携带服务端签发的当前咨询 `X-Consult-Resource-Token`，不能使用另一咨询的签名。
+- 原附件图片通过原签名附件读取接口返回 `{kind:"image",name,mimeType,data}`，工具转换为图片内容；路径、登记身份、大小与图片格式仍按原会话核验。生成文件引用与预览保持原咨询权限。
+
+以上新增统一账号协议尚待服务加载及真实多账号验收，状态见[任务](../../../openspec/changes/unify-consult-runtime-account/tasks.md)。
 - `POST /api/fore-consult/sessions` 新增必填字段 `questionTitle`，格式为 `yyMMdd-用户标题`；日期按用户本机当前时刻换算到 UTC，总长度不超过 40 字符。
 - `ConsultSessionView.questionTitle` 表示用户填写并添加 UTC 日期前缀后的归档标题；存量空标题仍兼容回退展示。
 - `PATCH /api/fore-consult/sessions/{id}/question-title`：重命名历史咨询标题。请求体为 `{"title":"用户标题"}`，标题正文必填且不超过 33 字；服务端保留或补齐 UTC 日期前缀并返回更新后的 `ConsultSessionView`。

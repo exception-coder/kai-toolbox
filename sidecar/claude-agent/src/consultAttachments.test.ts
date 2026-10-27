@@ -14,7 +14,7 @@ test('attachment reader forwards signed identity and pagination, reporting polic
   try {
     const apiBase = `http://127.0.0.1:${(server.address() as { port: number }).port}`
     const result = await readConsultAttachment({ path: 'report.html', offset: 12000, maxChars: 12000 }, { apiBase, session: 's', token: 'signed' })
-    assert.equal(result.isError, true); assert.match(result.content[0].text, /管理员/)
+    assert.equal(result.isError, true); assert.match(String(result.content[0].text ?? ''), /管理员/)
     assert.equal(receivedToken, 'signed'); assert.equal(url, '/api/fore-consult/attachments/sessions/s/read')
     assert.deepEqual(received, { path: 'report.html', offset: 12000, maxChars: 12000 })
     await assert.rejects(readConsultAttachment({ path: 'x' }, { apiBase, session: 's' }), /上下文/)
@@ -35,8 +35,8 @@ test('workbook pagination is forwarded separately from character offsets with st
     const args = { path: 'stock.xlsx', sheet: '款号库存', startRow: 101, maxRows: 100 }
     const result = await readConsultAttachment(args, { apiBase, session: 's', token: 'signed' })
     assert.deepEqual(received, args)
-    assert.equal(JSON.parse(result.content[0].text).rows[0].cells[0].raw, '00123')
-    assert.equal(JSON.parse(result.content[0].text).nextRow, 201)
+    assert.equal(JSON.parse(String(result.content[0].text ?? '')).rows[0].cells[0].raw, '00123')
+    assert.equal(JSON.parse(String(result.content[0].text ?? '')).nextRow, 201)
     assert.equal(consultAttachmentTool.inputSchema.properties.maxRows.maximum, 500)
     assert.match(consultAttachmentTool.description, /不计算/)
   } finally { await new Promise<void>(resolve => server.close(() => resolve())) }
@@ -49,6 +49,17 @@ test('oversized responses are errors instead of silently truncated workbook JSON
     const apiBase = `http://127.0.0.1:${(server.address() as { port: number }).port}`
     const result = await readConsultAttachment({ path: 'stock.xlsx' }, { apiBase, session: 's', token: 'signed' })
     assert.equal(result.isError, true)
-    assert.match(result.content[0].text, /不能把截断内容当成完整数据/)
+    assert.match(String(result.content[0].text ?? ''), /不能把截断内容当成完整数据/)
+  } finally { await new Promise<void>(resolve => server.close(() => resolve())) }
+})
+
+test('an authorized original image is returned as image content rather than just its filename', async () => {
+  const server = createServer((_req, res) => res.end(JSON.stringify({ kind: 'image', mimeType: 'image/png', data: 'aW1hZ2U=' })))
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const apiBase = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+    const result = await readConsultAttachment({ path: 'original.png' }, { apiBase, session: 's', token: 'signed' })
+    assert.equal(result.content[0].type, 'image')
+    assert.equal(result.content[0].data, 'aW1hZ2U=')
   } finally { await new Promise<void>(resolve => server.close(() => resolve())) }
 })

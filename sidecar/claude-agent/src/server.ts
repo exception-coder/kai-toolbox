@@ -8,6 +8,7 @@ import { AgentTracing } from './telemetry/agentTracing.js'
 import { initializeTelemetry, shutdownTelemetry } from './telemetry/telemetry.js'
 import { EngineCatalog } from './engine/engineCatalog.js'
 import { readCodexSubscriptionQuota } from './codexSubscriptionQuota.js'
+import { inspectConsultAccount } from './consultAccountProbe.js'
 import { readCodexDesktopPage } from './codexDesktopSync.js'
 import {
   createGraphifyRuntimeRequestHandler,
@@ -187,6 +188,7 @@ wss.on('connection', (ws) => {
           Array.isArray(msg.consultEvidenceSystems) ? msg.consultEvidenceSystems.filter((value): value is string => typeof value === 'string') : [])
         break
       case 'user':
+        if (msg.consultAccount) manager.configureConsultAccount(sessionId, msg.consultAccount)
         agentTracing.begin(sessionId, msg.traceContext, msg.telemetry)
         manager.user(
           sessionId,
@@ -242,6 +244,10 @@ wss.on('connection', (ws) => {
         ).then(quota => emit('subscription-quota', {
           type: 'subscriptionQuota', requestId: msg.requestId, quota,
         }))
+        break
+      case 'inspectConsultAccount':
+        void inspectConsultAccount(String(msg.codexHome ?? ''), String(msg.model ?? '')).then(result =>
+          emit('consult-account-inspection', { type: 'consultAccountInspection', requestId: msg.requestId, ...result }))
         break
       case 'queryCodexDesktop':
         void readCodexDesktopPage(
@@ -309,8 +315,9 @@ wss.on('connection', (ws) => {
       // 同步分发异常兜底：不让一条消息的处理异常冒泡到 ws 监听器（会触发进程崩溃）。
       console.error('[sidecar] 处理消息异常（已兜住）type=' + type + ':', e)
       if (sessionId) {
-        emit(sessionId, { type: 'error', code: 'SIDECAR_DISPATCH_ERROR', message: e instanceof Error ? e.message : String(e) })
-        emit(sessionId, { type: 'result', usage: {}, stopReason: 'error' })
+        const correlation = typeof msg.turnId === 'string' ? { turnId: msg.turnId } : {}
+        emit(sessionId, { type: 'error', ...correlation, code: msg.consultAccount ? 'CONSULT_ACCOUNT_PREPARATION_FAILED' : 'SIDECAR_DISPATCH_ERROR', message: e instanceof Error ? e.message : String(e) })
+        emit(sessionId, { type: 'result', ...correlation, usage: {}, stopReason: 'error' })
       }
     }
   })

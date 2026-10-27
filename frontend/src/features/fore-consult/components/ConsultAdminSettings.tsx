@@ -3,9 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { getConsultAttachmentPolicy, saveConsultAttachmentPolicy } from '../consultAttachmentPolicy'
 import { ConsultDatabaseSettings } from './ConsultDatabaseSettings'
+import type { BusinessConsultModelPolicy } from '../api'
+import { ConsultAccountPolicyStatus } from './ConsultAccountPolicyStatus'
 
 /** 管理员从原配置抽屉管理附件限制，并定位唯一数据库事实源。 */
-export function ConsultAdminSettings({ sourcePath }: { sourcePath?: string }) {
+export function ConsultAdminSettings({ sourcePath, modelPolicy }: { sourcePath?: string; modelPolicy?: BusinessConsultModelPolicy }) {
   const client = useQueryClient()
   const limits = useQuery({ queryKey: ['consult-attachment-policy'], queryFn: getConsultAttachmentPolicy })
   const [draft, setDraft] = useState<{ uploadMaxMb: number; readMaxMb: number } | null>(null)
@@ -17,6 +19,11 @@ export function ConsultAdminSettings({ sourcePath }: { sourcePath?: string }) {
     || values.uploadMaxMb < 1 || values.uploadMaxMb > 200 || values.readMaxMb < 1 || values.readMaxMb > values.uploadMaxMb
     || values.uploadMaxMb * 1024 * 1024 > (limits.data?.transportMaxBytes ?? 0)
   return <div className="space-y-6 border-b pb-6 text-sm">
+    <section aria-labelledby="consult-account-settings" className="space-y-3">
+      <h3 id="consult-account-settings" className="font-semibold">咨询默认 AI 账号</h3>
+      <p className="break-all text-xs text-muted-foreground">{modelPolicy?.codexHome ?? '尚未配置'} · {modelPolicy?.displayName ?? modelPolicy?.model ?? '尚未选择模型'}</p>
+      <ConsultAccountPolicyStatus policy={modelPolicy} />
+    </section>
     <section aria-labelledby="consult-file-settings" className="space-y-3">
       <h3 id="consult-file-settings" className="font-semibold">附件大小</h3>
       <p className="text-xs leading-5 text-muted-foreground">全体用户共用，保存后下次上传或读取立即生效，包含已有咨询。上传和读取是不同限制，不会扩大源码读取权限。</p>

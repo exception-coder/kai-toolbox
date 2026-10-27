@@ -27,7 +27,7 @@ class ConsultToolAssemblyProviderTest {
         when(workflows.session("consult-a")).thenReturn(Optional.of(new ConsultWorkflowRepository.Snapshot(9L, restored)));
         var provider = new ConsultToolAssemblyProvider(sessions, workflows, new ConsultWorkflowService(List.of(), workflows));
         var assembly = provider.resolve("runtime-a").orElseThrow();
-        assertThat(assembly.tools()).containsExactly("consult_resources", "consult_resource_query", "generate_consult_document", "design_consult_document", "preview_consult_document", "read_consult_attachment");
+        assertThat(assembly.tools()).containsExactly("consult_resources", "consult_resource_query", "generate_consult_document", "design_consult_document", "preview_consult_document", "read_consult_attachment", "read_consult_history");
         assertThat(assembly.instructions()).contains("consult-workflow-9", "不要求用户代查", "目标系统：SCM");
         assertThat(assembly.instructions()).contains("不得调用旧erp_db", "LOCAL/DEV/TEST/UAT");
         assertThat(com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.BusinessConsultCapabilityCatalog.capabilities())
@@ -64,7 +64,7 @@ class ConsultToolAssemblyProviderTest {
                 .sessionId("consult-legacy").build()));
         var provider = new ConsultToolAssemblyProvider(sessions, workflows, new ConsultWorkflowService(List.of(), workflows));
         var assembly = provider.resolve("legacy").orElseThrow();
-        assertThat(assembly.tools()).containsExactly("generate_consult_document", "design_consult_document", "preview_consult_document", "read_consult_attachment");
+        assertThat(assembly.tools()).containsExactly("generate_consult_document", "design_consult_document", "preview_consult_document", "read_consult_attachment", "read_consult_history");
         assertThat(assembly.mcpServers()).containsExactly("consult-readonly");
         assertThat(assembly.instructions()).contains("不得执行脚本", "downloadUrl",
                 "【平台表达Skill：consult-plain-writing】");

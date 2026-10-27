@@ -66,7 +66,7 @@ class ConsultQuestionClassifierTest {
         when(turnRepo.findBySession("session-1")).thenReturn(List.of(
                 ConsultTurn.builder().question("首个问题").build()));
         ConsultQuestionClassifier classifier = new ConsultQuestionClassifier(
-                runnerProvider, sessionRepo, turnRepo, new ObjectMapper(), 100);
+                runnerProvider, sessionRepo, turnRepo, new ObjectMapper(), 100, policy());
 
         long startedAt = System.nanoTime();
         var result = classifier.classify(
@@ -81,7 +81,14 @@ class ConsultQuestionClassifierTest {
         assertThat(usedRequest.get().model()).isEqualTo("gpt-5.6-codex");
         assertThat(usedRequest.get().reasoningEffort()).isEqualTo("high");
         assertThat(usedRequest.get().speed()).isEqualTo("fast");
-        assertThat(usedRequest.get().codexHome()).isEqualTo("C:\\Users\\zhang\\.codex");
+        assertThat(usedRequest.get().codexHome()).isEqualTo("platform-new-account");
         assertThat(usedRequest.get().toolPolicy()).isEqualTo(AgentOneShotRunner.TOOL_POLICY_DISABLED);
+    }
+
+    private static BusinessConsultModelPolicyService policy() {
+        var policy = mock(BusinessConsultModelPolicyService.class);
+        when(policy.get()).thenReturn(new com.exceptioncoder.toolbox.foreconsult.api.dto.BusinessConsultModelPolicyView(
+                "model", "模型", "platform-new-account", 1L));
+        return policy;
     }
 }

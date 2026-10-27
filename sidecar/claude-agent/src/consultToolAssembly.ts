@@ -65,7 +65,7 @@ export function filterCodexAssembly(config: Record<string, unknown>, assembly?: 
     }
     if (server === 'consult-readonly' && assembly.runtimeSessionId && Array.isArray(value.enabled_tools)) {
       value.enabled_tools = [...new Set([...value.enabled_tools,
-        ...['consult_resources', 'consult_resource_query', 'consult_web', 'generate_consult_document', 'design_consult_document', 'preview_consult_document', 'read_consult_attachment']
+        ...['consult_resources', 'consult_resource_query', 'consult_web', 'generate_consult_document', 'design_consult_document', 'preview_consult_document', 'read_consult_attachment', 'read_consult_history']
           .filter(tool => assembly.tools.includes(tool))])]
     }
     if (Array.isArray(value.enabled_tools)) {

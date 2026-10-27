@@ -2498,7 +2498,7 @@ export function ForeConsultPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
-              <ConsultAdminSettings sourcePath={systemPath} />
+              <ConsultAdminSettings sourcePath={systemPath} modelPolicy={modelPolicy} />
               <ConsultSourceSync onBusyChange={setSourceSyncBusy} disabled={saveConfigMutation.isPending} />
               <h3 className="mb-2 mt-6 text-sm font-semibold">候选系统与探索顺序</h3>
               <p className="mb-3 text-xs text-muted-foreground">用户选中的系统优先；未命中后，按下方已显示系统从上往下逐个核查截图。最多选取前8个可用候选；新咨询生效，新发现项目默认不加入。</p>

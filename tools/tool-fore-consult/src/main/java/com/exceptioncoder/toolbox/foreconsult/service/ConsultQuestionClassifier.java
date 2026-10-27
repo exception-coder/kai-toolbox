@@ -41,18 +41,20 @@ public class ConsultQuestionClassifier {
     private final ConsultTurnRepository turnRepository;
     private final ObjectMapper mapper;
     private final long timeoutMs;
+    private final BusinessConsultModelPolicyService modelPolicy;
 
     public ConsultQuestionClassifier(ObjectProvider<AgentOneShotRunner> runnerProvider,
                                      ConsultSessionRepository sessionRepository,
                                      ConsultTurnRepository turnRepository,
                                      ObjectMapper mapper,
                                      @Value("${toolbox.fore-consult.question-classify-timeout-ms:15000}")
-                                     long timeoutMs) {
+                                     long timeoutMs, BusinessConsultModelPolicyService modelPolicy) {
         this.runnerProvider = runnerProvider;
         this.sessionRepository = sessionRepository;
         this.turnRepository = turnRepository;
         this.mapper = mapper;
         this.timeoutMs = Math.max(100, timeoutMs);
+        this.modelPolicy = modelPolicy;
     }
 
     public QuestionClassificationView classify(String sessionId, ClassifyQuestionRequest request) {
@@ -94,11 +96,15 @@ public class ConsultQuestionClassifier {
     }
 
     private String runWithTimeout(AgentOneShotRunner runner, String userPrompt, ConsultSession session) throws Exception {
-        AgentOneShotRunner.ExecutionRequest request = new AgentOneShotRunner.ExecutionRequest(
-                SYSTEM_PROMPT, userPrompt, session.getSystemSourcePath(), session.getModel(), normalizeEngine(session.getEngine()),
-                valueOrDefault(session.getCodexReasoningEffort(), "low"), valueOrDefault(session.getCodexSpeed(), "default"),
-                null, null, session.getCodexHome(), AgentOneShotRunner.TOOL_POLICY_DISABLED);
-        FutureTask<String> task = new FutureTask<>(() -> runner.runOnce(request));
+        FutureTask<String> task = new FutureTask<>(() -> {
+            var selected = modelPolicy.get();
+            if (selected.codexHome() == null || selected.codexHome().isBlank()) throw new IllegalStateException("咨询默认账号未配置");
+            return runner.runOnce(new AgentOneShotRunner.ExecutionRequest(
+                    SYSTEM_PROMPT, userPrompt, session.getSystemSourcePath(),
+                    valueOrDefault(session.getModel(), selected.model()), "codex",
+                    valueOrDefault(session.getCodexReasoningEffort(), "low"), valueOrDefault(session.getCodexSpeed(), "default"),
+                    null, null, selected.codexHome(), AgentOneShotRunner.TOOL_POLICY_DISABLED));
+        });
         Thread.ofVirtual().name("fore-consult-classify").start(task);
         try {
             return task.get(timeoutMs, TimeUnit.MILLISECONDS);
@@ -111,13 +117,6 @@ public class ConsultQuestionClassifier {
             Thread.currentThread().interrupt();
             throw e;
         }
-    }
-
-    private static String normalizeEngine(String engine) {
-        if (engine == null || engine.isBlank()) return "codex";
-        if ("claude".equalsIgnoreCase(engine)) return "claude";
-        if ("codex".equalsIgnoreCase(engine)) return "codex";
-        throw new IllegalArgumentException("业务咨询仅支持 claude 或 codex 引擎");
     }
 
     private static String valueOrDefault(String value, String fallback) {

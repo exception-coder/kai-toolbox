@@ -310,6 +310,7 @@ class Session {
   authToken?: string
   /** Codex 官方登录配置根目录；空值使用默认 ~/.codex。 */
   codexHome?: string
+  consultSegmentId?: string
   /** 会话引擎，新建时定、resume 沿用；决定 runTurn 走 Claude 还是 Codex。 */
   engine: Engine = 'claude'
   /** 会话级权限模式，每轮 query 传入；运行中切换下一轮生效。 */
@@ -942,6 +943,7 @@ class Session {
                     'mcp__consult-readonly__design_consult_document',
                     'mcp__consult-readonly__preview_consult_document',
                     'mcp__consult-readonly__read_consult_attachment',
+                    'mcp__consult-readonly__read_consult_history',
                     'mcp__consult-readonly__knowledge_query',
                     'mcp__consult-readonly__source_search',
                     'mcp__consult-readonly__source_read',
@@ -1696,7 +1698,10 @@ export class SessionManager {
         demo?: boolean, demoApiBase?: string, autoApprove?: boolean, codexReasoningEffort?: string, codexSpeed?: string,
         toolPolicy?: string, consultEvidenceSystems: string[] = []): void {
     if (!this.acceptEngine(id, engine)) return
-    const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
+    const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => {
+      if (this.sessions.get(id) !== s) return
+      this.emit(id, s.consultSegmentId ? { ...e, consultSegmentId: s.consultSegmentId } : e)
+    })
     if (model) s.model = model
     if (isEngineId(engine)) s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
@@ -1741,7 +1746,11 @@ export class SessionManager {
     if (!this.acceptEngine(id, engine)) return
     let s = this.sessions.get(id)
     if (!s) {
-      s = new Session(id, cwd, (e) => this.emit(id, e))
+      const created = new Session(id, cwd, (e) => {
+        if (this.sessions.get(id) !== created) return
+        this.emit(id, created.consultSegmentId ? { ...e, consultSegmentId: created.consultSegmentId } : e)
+      })
+      s = created
       this.sessions.set(id, s)
     }
     if (sdkSessionId) s.sdkSessionId = sdkSessionId
@@ -1952,6 +1961,28 @@ export class SessionManager {
   }
 
   /** 切换会话权限模式，下一轮 runTurn 生效。 */
+  configureConsultAccount(id: string, value: unknown): void {
+    const config = value as { codexHome?: unknown; model?: unknown; segmentId?: unknown; resetThread?: unknown }
+    const original = this.sessions.get(id)
+    if (!original || original.toolPolicy !== 'consult-readonly') {
+      throw new Error('统一账号只适用于原业务咨询会话')
+    }
+    const state = original.runtimeState()
+    if (state.active || state.pendingDecision || state.backgroundTaskCount > 0) throw new Error('咨询仍有活动任务，不能切换账号')
+    if (typeof config.codexHome !== 'string' || !config.codexHome || typeof config.model !== 'string'
+      || !config.model || typeof config.segmentId !== 'string' || !config.segmentId) throw new Error('咨询账号快照无效')
+    if (!config.resetThread && (original.codexHome !== config.codexHome || original.engine !== 'codex')) throw new Error('账号变化必须建立新原生线程')
+    if (config.resetThread === true) {
+      this.pendingCodexOptions.delete(id)
+      this.start(id, original.cwd, config.model, 'plan', 'codex', undefined, undefined, config.codexHome,
+        false, undefined, false, undefined, 'default', 'consult-readonly', original.consultEvidenceSystems)
+    }
+    const selected = this.sessions.get(id)!
+    if (selected.model !== config.model) this.setCodexOptions(id, '', 'default')
+    selected.model = config.model
+    selected.consultSegmentId = config.segmentId
+  }
+
   setMode(id: string, mode: string): void {
     const s = this.sessions.get(id)
     if (s) {

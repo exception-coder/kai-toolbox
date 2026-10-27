@@ -13,11 +13,15 @@ import java.util.List;
  *                          此时 items 为空，但语义不是「新会话还没消息」而是「记录已永久丢失、resume 必败」，
  *                          前端据此在进入会话的那一刻就提示，不必等用户发消息后由 sidecar 报 QUERY_FAILED。
  */
-public record MessagePage(List<ChatMessageView> items, Integer nextBefore, boolean transcriptMissing, String nextCursor) {
+public record MessagePage(List<ChatMessageView> items, Integer nextBefore, boolean transcriptMissing, String nextCursor, String historyGap) {
 
     /** 旧客户端继续使用整数游标；字节游标由请求方显式选择。 */
     public MessagePage(List<ChatMessageView> items, Integer nextBefore, boolean transcriptMissing) {
-        this(items, nextBefore, transcriptMissing, null);
+        this(items, nextBefore, transcriptMissing, null, null);
+    }
+
+    public MessagePage(List<ChatMessageView> items, Integer nextBefore, boolean transcriptMissing, String nextCursor) {
+        this(items, nextBefore, transcriptMissing, nextCursor, null);
     }
 
     public static MessagePage empty() {

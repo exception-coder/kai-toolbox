@@ -118,3 +118,19 @@ it('uses an inline themed composer in a desktop embedded panel without opening a
   expect(screen.queryByRole('button', { name: '编辑咨询' })).not.toBeInTheDocument()
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 })
+
+it('restores the unsent question on account preparation failure without automatically sending it again', () => {
+  const { chat, props } = setup()
+  chat.running = false
+  mocks.phase = 'idle'
+  const { rerender } = render(<ConsultConversation {...props} />)
+  const draft = screen.getByRole('textbox', { name: '追问草稿' })
+  fireEvent.change(draft, { target: { value: '按原规则继续' } })
+  fireEvent.click(screen.getByRole('button', { name: '发送' }))
+  expect(chat.send).toHaveBeenCalledTimes(1)
+  fireEvent.change(draft, { target: { value: '准备下一条' } })
+  chat.items = [{ id: 'failed', kind: 'error', code: 'CONSULT_ACCOUNT_HANDOFF_FAILED', message: '工作区授权失败，未发送', ts: 1 }]
+  rerender(<ConsultConversation {...props} />)
+  expect(draft).toHaveValue('按原规则继续\n\n准备下一条')
+  expect(chat.send).toHaveBeenCalledTimes(1)
+})

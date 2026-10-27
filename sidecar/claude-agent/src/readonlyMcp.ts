@@ -11,6 +11,7 @@ import { knowledgeQueryTool, queryKnowledge } from './knowledgeQuery.js'
 import { consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool } from './consultDocuments.js'
 import { callConsultDocumentTool } from './consultDocumentMcp.js'
 import { consultAttachmentTool, readConsultAttachment } from './consultAttachments.js'
+import { consultHistoryTool, readConsultHistory } from './consultHistory.js'
 import { consultGitHistoryTool, queryConsultGitHistory } from './consultGitHistory.js'
 import { sourceProjectsTool, sourceRouting, callSourceProjects } from './consultSourceProjects.js'
 import {
@@ -134,7 +135,7 @@ const projectedSourceTools = sourceTools.map(tool => tool.name === 'source_proje
 }))
 const tools = [...(API_BASE && process.env.TOOLBOX_SESSION_ID
   ? [...resourceTools, consultWebTool, ...(process.env.CONSULT_RESOURCE_TOKEN
-    ? [consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool, consultAttachmentTool] : [])] : []),
+    ? [consultDocumentTool, designConsultDocumentTool, previewConsultDocumentTool, consultAttachmentTool, consultHistoryTool] : [])] : []),
   knowledgeQueryTool,
   ...projectedSourceTools, ...standbySchemaTools]
 const SKIPPED_DIRECTORIES = new Set([
@@ -708,6 +709,9 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
     if (name === 'source_projects') return textResult(JSON.stringify(await callSourceProjects(args, {
       apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN,
     })))
+    if (name === 'read_consult_history') return await readConsultHistory(args, {
+      apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN,
+    })
     if (name === 'read_consult_attachment') return await readConsultAttachment(args, {
       apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID, token: process.env.CONSULT_RESOURCE_TOKEN,
     })

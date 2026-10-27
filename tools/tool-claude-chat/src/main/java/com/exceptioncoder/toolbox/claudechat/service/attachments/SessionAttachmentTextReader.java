@@ -21,6 +21,8 @@ public class SessionAttachmentTextReader implements SessionAttachmentReader {
     private static final Set<String> TEXT_EXTENSIONS = Set.of("html", "htm", "txt", "md", "csv", "tsv", "json", "xml", "log", "sql", "yaml", "yml");
     private final ClaudeChatSessionRepository sessions;
     private final ClaudeChatAttachmentRepository attachments;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.exceptioncoder.toolbox.claudechat.service.AttachmentStorageService imageStorage;
 
     public SessionAttachmentTextReader(ClaudeChatSessionRepository sessions, ClaudeChatAttachmentRepository attachments) {
         this.sessions = sessions; this.attachments = attachments;
@@ -49,6 +51,13 @@ public class SessionAttachmentTextReader implements SessionAttachmentReader {
     @Override
     public Content readContent(String sessionId, long maxBytes, Request request) throws IOException {
         Path target = storedPath(sessionId, request.path(), maxBytes);
+        if (target.getFileName().toString().toLowerCase(Locale.ROOT).matches(".*\\.(png|jpe?g|webp|gif)$") && imageStorage != null) {
+            var images = imageStorage.loadImages(sessionId, java.util.List.of(
+                    new com.exceptioncoder.toolbox.claudechat.service.AttachmentStorageService.ImageReference(
+                            target.getFileName().toString(), target.toString(), Files.probeContentType(target))));
+            if (images.size() != 1) throw new IllegalArgumentException("无法读取原图片内容，请重新上传图片");
+            return new ImagePage("image", target.getFileName().toString(), images.getFirst().mimeType(), images.getFirst().base64Data());
+        }
         if (target.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".xlsx")) {
             return XlsxAttachmentReader.read(target, request);
         }

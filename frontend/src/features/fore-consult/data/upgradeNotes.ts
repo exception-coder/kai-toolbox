@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 仅登记业务人员直接受益的业务咨询重大变化；管理员配置、流程发布、开发排障及其他工具更新不收录。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-10-27-consult-history-continuation', date: '2026-10-27', title: '旧咨询可以接着问',
+    summary: '待加载及真实账号验收：咨询服务账号调整后，在原咨询继续提问即可，历史和附件保留，无需重新创建咨询；系统自动接续必要上下文，存在缺口时会明确提示。',
+  },
+  {
     id: '2026-10-22-mobile-system-graph', date: '2026-10-22', title: '手机图谱点系统看关联',
     summary: '待正式部署及真机验收：手机系统图谱自动居中，连线文字按需查看；点击系统高亮关联并查看关系，可直接准备该系统的新咨询，原咨询保留。支持拖动、双指缩放和定位全图。',
   },

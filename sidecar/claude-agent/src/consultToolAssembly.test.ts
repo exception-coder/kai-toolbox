@@ -47,7 +47,7 @@ test('permission broker denies unbound tools despite auto approval', async () =>
 })
 
 test('resource tools receive server session in both engines and stay permission restricted', async () => {
-  const scoped = parseConsultToolAssembly({ tools: ['consult_resources', 'consult_resource_query', 'consult_web', 'generate_consult_document', 'design_consult_document', 'preview_consult_document', 'read_consult_attachment'],
+  const scoped = parseConsultToolAssembly({ tools: ['consult_resources', 'consult_resource_query', 'consult_web', 'generate_consult_document', 'design_consult_document', 'preview_consult_document', 'read_consult_attachment', 'read_consult_history'],
     mcpServers: ['consult-readonly'], runtimeSessionId: 'session-123' })!
   const claude: Record<string, Record<string, unknown>> = { 'consult-readonly': { env: {} } }
   filterClaudeAssembly(claude, scoped)
@@ -65,6 +65,7 @@ test('resource tools receive server session in both engines and stay permission 
   assert.equal((await broker.canUseTool('mcp__consult-readonly__design_consult_document', {}, {})).behavior, 'allow')
   assert.equal((await broker.canUseTool('mcp__consult-readonly__preview_consult_document', {}, {})).behavior, 'allow')
   assert.equal((await broker.canUseTool('mcp__consult-readonly__read_consult_attachment', {}, {})).behavior, 'allow')
+  assert.equal((await broker.canUseTool('mcp__consult-readonly__read_consult_history', {}, {})).behavior, 'allow')
   for (const tool of ['Write', 'Edit', 'Bash', 'exec_command', 'mcp__forge__execute_resource']) {
     assert.equal((await broker.canUseTool(tool, {}, {})).behavior, 'deny')
   }

@@ -220,6 +220,15 @@ public class ClaudeChatSessionRepository {
         jdbc.update("UPDATE claude_chat_session SET selected_model = ? WHERE id = ?", model, id);
     }
 
+    public void updateConsultAccount(String id, String codexHome, String model, String nativeId,
+                                     String engineSessions, String reasoningEffort, String speed) {
+        jdbc.update("""
+                UPDATE claude_chat_session SET codex_home=?, selected_model=?, sdk_session_id=?, engine_sessions=?,
+                  codex_reasoning_effort=?, codex_speed=?, engine='codex', api_base_url=NULL, auth_token=NULL
+                WHERE id=? AND execution_policy='consult-readonly'
+                """, codexHome, model, nativeId, engineSessions, reasoningEffort, speed, id);
+    }
+
     public void updatePermissionMode(String id, String mode) {
         jdbc.update("UPDATE claude_chat_session SET permission_mode = ? WHERE id = ?", mode, id);
     }

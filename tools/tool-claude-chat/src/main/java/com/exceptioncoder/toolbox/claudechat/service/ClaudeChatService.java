@@ -114,6 +114,8 @@ public class ClaudeChatService {
     private final Map<String, AgentRunMetadata> activeTurnMetadata = new ConcurrentHashMap<>();
     /** duplicateSession 的一次性解析结果；首个 Ready 消费后移除。 */
     private final Map<String, Boolean> pendingAuthHandoff = new ConcurrentHashMap<>();
+    @org.springframework.beans.factory.annotation.Autowired
+    private ConsultRuntimeCoordinator consultRuntime;
     /** 仅为评审轮次累计可见回复，供回复完成后的结构校验；不作为历史事实源。 */
     private final Map<String, ActiveReviewReply> activeReviewReplies = new ConcurrentHashMap<>();
     /** 后台 sidecar 重连任务的去重锁，避免多次断开叠起多个重连循环 */
@@ -438,6 +440,16 @@ public class ClaudeChatService {
         }
         String executionPolicy = executionPolicyOf(db);
         if (!canBind(ws, executionPolicy, db.getId())) return;
+        SessionCtx existing = sessions.get(db.getId());
+        if (SessionExecutionPolicy.isConsultReadonly(executionPolicy) && existing != null) {
+            synchronized (existing) {
+                // Another viewer must not replace a running consultation's frozen account/native handle.
+                bindViewer(ws, existing);
+                writeTo(ws, ready(existing));
+                if (existing.pendingRequest != null) writeTo(ws, existing.pendingRequest);
+            }
+            return;
+        }
         SessionCtx ctx = sessions.computeIfAbsent(db.getId(), id -> new SessionCtx(id, db.getCwd()));
         ctx.sdkSessionId = db.getSdkSessionId();
         ctx.engine = normalizeEngine(db.getEngine());
@@ -720,7 +732,8 @@ public class ClaudeChatService {
                         msg.voice(), planStateService.writable(ctx.sessionId)));
                 return;
             }
-            if (messageId != null && ctx.acceptedMessageIds.contains(messageId)) {
+            if (messageId != null && (ctx.acceptedMessageIds.contains(messageId)
+                    || isConsultReadonly(ctx) && consultRuntime != null && consultRuntime.accepted(ctx.sessionId, messageId))) {
                 sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
                 return;
             }
@@ -756,7 +769,16 @@ public class ClaudeChatService {
             applicationEvents.publishEvent(new SessionManualInputEvent(ctx.sessionId, "SEND"));
             voiceService.bind(ws, ctx.sessionId, new SessionVoiceService.Eligibility(
                     ctx.engine, turnPolicy == null ? ctx.executionPolicy : turnPolicy, ctx.apiBaseUrl, ctx.demo), msg.voice());
-            if (!startTurn(ctx, msg, turnPolicy)) {
+            boolean started;
+            try {
+                started = startTurn(ctx, msg, turnPolicy);
+            } catch (RuntimeException error) {
+                voiceService.cancel(ctx.sessionId);
+                sendError(ws, 0, error instanceof ConsultRuntimeCoordinator.PreparationFailure
+                        ? "CONSULT_ACCOUNT_HANDOFF_FAILED" : "SEND_STATUS_UNCONFIRMED", error.getMessage());
+                return;
+            }
+            if (!started) {
                 voiceService.cancel(ctx.sessionId);
                 sendError(ws, 0, "SYSTEM_UPDATING",
                         "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
@@ -855,9 +877,14 @@ public class ClaudeChatService {
 
     private boolean startTurn(SessionCtx ctx, ClientMessage.Send msg, String turnPolicy) {
         try {
-            return admissionGate.tryAdmit(() -> startTurnAdmitted(ctx, msg, turnPolicy));
+            var plan = prepareConsultTurn(ctx, msg);
+            return admissionGate.tryAdmit(() -> startTurnAdmitted(ctx, msg, turnPolicy, null, plan));
         } catch (RuntimeException exception) {
             if (msg.voice() != null) voiceService.cancel(ctx.sessionId);
+            if (resetFailedConsultPreparation(ctx, exception)) {
+                // Preparation before the send block failed; no business input has left this process.
+                throw new ConsultRuntimeCoordinator.PreparationFailure("咨询执行准备失败，未发送本次问题：" + exception.getMessage(), exception);
+            }
             throw exception;
         }
     }
@@ -873,8 +900,31 @@ public class ClaudeChatService {
 
     private void startTurnAdmitted(SessionCtx ctx, ClientMessage.Send msg, String turnPolicy,
                                    String trustedContinuationContext) {
+        startTurnAdmitted(ctx, msg, turnPolicy, trustedContinuationContext, null);
+    }
+
+    private ConsultRuntimeCoordinator.Plan prepareConsultTurn(SessionCtx ctx, ClientMessage.Send msg) {
+        if (!isConsultReadonly(ctx) || consultRuntime == null) return null;
+        sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "CONSULT_CONTEXT_CONNECTING", "正在核对咨询账号与历史上下文……"));
+        try { return consultRuntime.prepare(repo.findById(ctx.sessionId).orElseThrow(), msg); }
+        catch (RuntimeException error) { throw new ConsultRuntimeCoordinator.PreparationFailure(error.getMessage(), error); }
+    }
+
+    private void startTurnAdmitted(SessionCtx ctx, ClientMessage.Send msg, String turnPolicy,
+                                   String trustedContinuationContext, ConsultRuntimeCoordinator.Plan accountPlan) {
         sessionAccessPolicy.requireProjectAllowed(ctx.cwd);
         var images = loadMessageImages(ctx.sessionId, msg.attachments());
+        if (accountPlan != null) {
+            if (blankToNull(msg.messageId()) == null) {
+                throw new ConsultRuntimeCoordinator.PreparationFailure("发送标识缺失，未发送问题，请刷新页面后重试", null);
+            }
+            try { consultRuntime.confirm(repo.findById(ctx.sessionId).orElseThrow(), accountPlan); }
+            catch (RuntimeException error) { throw new ConsultRuntimeCoordinator.PreparationFailure(error.getMessage(), error); }
+        }
+        ctx.consultAccountPlan = accountPlan;
+        ctx.consultNativeReady = false;
+        ctx.consultAccountCommitted = accountPlan == null;
+        ctx.consultAssistantBlock = 0;
         ctx.queueReleaseReady = false;
         ctx.lastTurnErrorCode = null;
         ctx.lastTurnErrorMessage = null;
@@ -912,7 +962,17 @@ public class ClaudeChatService {
             previous.fail("overlapping turn replaced", null);
         }
         try {
-            if (msg.voice() != null) {
+            if (accountPlan != null) {
+                try { consultRuntime.dispatched(ctx.sessionId, msg.messageId(), turnId, msg, accountPlan); }
+                catch (RuntimeException error) {
+                    throw new ConsultRuntimeCoordinator.PreparationFailure("咨询记录保存失败，未发送问题：" + error.getMessage(), error);
+                }
+                // History remains user data, never a trusted developer/system instruction.
+                String text = accountPlan.context() + appendAttachmentHints(msg.text(), msg.attachments(), false);
+                sidecar.userMessage(ctx.sessionId, text, developerInstructions, sessionContext,
+                        projectContext == null ? List.of() : projectContext.paths(), turnId, span.traceContext(),
+                        metadata, images, turnPolicy, msg.voice() == null ? null : msg.voice().callId(), accountPlan.configuration());
+            } else if (msg.voice() != null) {
                 sidecar.userMessage(ctx.sessionId, msg.text(), developerInstructions,
                         sessionContext,
                         projectContext == null ? List.of() : projectContext.paths(),
@@ -1527,23 +1587,48 @@ public class ClaudeChatService {
             return;
         }
         voiceService.observe(sessionId, node);
+        if (ctx.consultAccountPlan != null && Set.of("userMessage", "assistantDelta", "assistantSnapshot", "toolUse").contains(type)) {
+            commitConsultAccount(ctx);
+        }
         switch (type) {
             case "init" -> {
+                if (ctx.consultAccountPlan != null && node.hasNonNull("consultSegmentId")
+                        && !ctx.consultAccountPlan.segment().equals(node.path("consultSegmentId").asText())) return;
                 // sidecar 的 start 会先回一条 sdkSessionId=null 的 init 让前端尽快可输入，真句柄首轮才回填；
                 // 空值一律不落库，否则会把已有句柄抹成 null，切回会话按句柄读历史就成了空白。
                 if (node.path("sdkSessionInvalidated").asBoolean(false)) {
                     ctx.sdkSessionId = null;
                     ctx.engineSessions.remove(ctx.engine);
-                    repo.updateSdkSessionId(sessionId, null);
-                    repo.updateEngineSessions(sessionId, writeEngineSessions(ctx.engineSessions));
+                    if (ctx.consultAccountCommitted) {
+                        repo.updateSdkSessionId(sessionId, null);
+                        repo.updateEngineSessions(sessionId, writeEngineSessions(ctx.engineSessions));
+                    }
                 }
                 String sdkSessionId = node.path("sdkSessionId").asText(null);
                 if (sdkSessionId != null && !sdkSessionId.isBlank()) {
+                    if (ctx.consultAccountPlan != null) {
+                        String segment = node.path("consultSegmentId").asText(null);
+                        if (!ctx.consultAccountPlan.segment().equals(segment)) return;
+                        consultRuntime.initialized(ctx.consultAccountPlan, sdkSessionId);
+                        ctx.codexHome = ctx.consultAccountPlan.selection().codexHome();
+                        boolean modelChanged = !java.util.Objects.equals(ctx.currentModel, ctx.consultAccountPlan.selection().model());
+                        ctx.currentModel = ctx.consultAccountPlan.selection().model();
+                        if (ctx.consultAccountPlan.switched() || modelChanged) {
+                            ctx.codexReasoningEffort = null;
+                            ctx.codexSpeed = "default";
+                        }
+                        ctx.engine = "codex";
+                        ctx.apiBaseUrl = null;
+                        ctx.authToken = null;
+                        ctx.consultNativeReady = true;
+                    }
                     ctx.sdkSessionId = sdkSessionId;
-                    repo.updateSdkSessionId(sessionId, sdkSessionId);
                     // 记录当前引擎拿到的句柄，持久化各引擎句柄映射（跨重启精准切回 + 增量）
                     ctx.engineSessions.put(ctx.engine, sdkSessionId);
-                    repo.updateEngineSessions(sessionId, writeEngineSessions(ctx.engineSessions));
+                    if (ctx.consultAccountPlan == null || ctx.consultAccountCommitted) {
+                        repo.updateSdkSessionId(sessionId, sdkSessionId);
+                        repo.updateEngineSessions(sessionId, writeEngineSessions(ctx.engineSessions));
+                    }
                 }
                 ctx.slashCommands = parseStringList(node.get("slashCommands"));
                 ctx.skills = parseStringList(node.get("skills"));
@@ -1565,12 +1650,14 @@ public class ClaudeChatService {
             }
             case "assistantDelta" -> {
                 String delta = node.path("text").asText("");
+                if (ctx.consultAccountPlan != null) consultRuntime.delta(sessionId, eventTurnId, ctx.consultAssistantBlock, delta, false);
                 ActiveReviewReply reviewReply = activeReviewReplies.get(ctx.sessionId);
                 if (reviewReply != null) reviewReply.text().append(delta);
                 sendToBrowser(ctx, seq -> new ServerMessage.AssistantDelta(seq, delta));
             }
             case "assistantSnapshot" -> {
                 String text = node.path("text").asText("");
+                if (ctx.consultAccountPlan != null) consultRuntime.delta(sessionId, eventTurnId, ctx.consultAssistantBlock, text, true);
                 ActiveReviewReply reviewReply = activeReviewReplies.get(ctx.sessionId);
                 if (reviewReply != null) {
                     reviewReply.text().setLength(0);
@@ -1578,10 +1665,21 @@ public class ClaudeChatService {
                 }
                 sendToBrowser(ctx, seq -> new ServerMessage.AssistantSnapshot(seq, text));
             }
-            case "toolUse" -> sendToBrowser(ctx, seq -> new ServerMessage.ToolUse(
+            case "toolUse" -> {
+                ctx.consultAssistantBlock++;
+                if (ctx.consultAccountPlan != null) consultRuntime.tool(sessionId,
+                        com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView.tool(
+                                eventTurnId + ":tool:" + node.path("toolCallId").asText(), node.path("toolName").asText(),
+                                asObject(node.get("input")), null, false, System.currentTimeMillis()));
+                sendToBrowser(ctx, seq -> new ServerMessage.ToolUse(
                     seq, node.path("toolCallId").asText(null),
                     node.path("toolName").asText(""), asObject(node.get("input"))));
+            }
             case "toolResult" -> {
+                if (ctx.consultAccountPlan != null) consultRuntime.tool(sessionId,
+                        com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView.tool(
+                                eventTurnId + ":tool:" + node.path("toolCallId").asText(), node.path("toolName").asText(),
+                                asObject(node.get("input")), node.path("output").asText(), node.path("isError").asBoolean(), System.currentTimeMillis()));
                 sendToBrowser(ctx, seq -> new ServerMessage.ToolResult(
                     seq, node.path("toolCallId").asText(null), node.path("toolName").asText(""),
                     node.path("output").asText(""), node.path("isError").asBoolean(false)));
@@ -1680,8 +1778,11 @@ public class ClaudeChatService {
                     // 不先移除：部分引擎随后还会发 result，届时需要把该 Trace ID 交给历史归档。
                     span.fail(node.path("message").asText("sidecar error"), null);
                 }
-                sendToBrowser(ctx, seq -> new ServerMessage.Error(
-                        seq, node.path("code").asText("SIDECAR_ERROR"), node.path("message").asText(""), false));
+                boolean handoffFailed = ctx.consultAccountPlan != null && !ctx.consultAccountCommitted;
+                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq,
+                        handoffFailed ? "CONSULT_ACCOUNT_HANDOFF_FAILED" : node.path("code").asText("SIDECAR_ERROR"),
+                        handoffFailed ? "历史上下文接续未确认成功，原输入已保留。请先核对是否已回复后重试：" + node.path("message").asText("")
+                                : node.path("message").asText(""), false));
             }
             case "backgroundTasks" -> {
                 ctx.backgroundTasks = parseBackgroundTasks(node.get("tasks"));
@@ -1744,6 +1845,22 @@ public class ClaudeChatService {
 
     private void completeTurn(SessionCtx ctx, String turnId, Map<String, Object> usage, String stopReason, String traceId,
                               boolean queueReleaseSafe) {
+        if (ctx.consultAccountPlan != null) {
+            if (SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason)) commitConsultAccount(ctx);
+            consultRuntime.settled(ctx.sessionId, turnId, stopReason);
+            if (!ctx.consultAccountCommitted) {
+                // The native thread was created but context was not acknowledged: keep the old binding.
+                var saved = repo.findById(ctx.sessionId).orElseThrow();
+                ctx.consultAccountPlan = null;
+                ctx.sdkSessionId = saved.getSdkSessionId();
+                ctx.codexHome = saved.getCodexHome();
+                ctx.engine = normalizeEngine(saved.getEngine());
+                ctx.apiBaseUrl = saved.getApiBaseUrl();
+                ctx.authToken = saved.getAuthToken();
+                restoreModelOptions(ctx, saved);
+                loadEngineSessions(ctx, saved.getEngineSessions());
+            }
+        }
         ctx.status = SessionStatus.IDLE;
         ctx.pendingRequest = null; // 本轮结束，未决请求（含超时被拒）一并失效
         ctx.queueReleaseReady = queueReleaseSafe;
@@ -1782,7 +1899,31 @@ public class ClaudeChatService {
 
     /** 成功终态最多释放一条持久队列消息；失败、中断、待确认和后台作业均保持队列不动。 */
     private void dispatchNextQueuedMessage(SessionCtx ctx) {
-        dispatchNextQueuedMessage(ctx, false);
+        if (isConsultReadonly(ctx) && consultRuntime != null) {
+            // Account control RPCs must not block the Sidecar receiver that delivers their responses.
+            Thread.ofVirtual().name("consult-queued-turn").start(() -> dispatchNextQueuedMessage(ctx, false));
+        } else dispatchNextQueuedMessage(ctx, false);
+    }
+
+    /** Commit only after a native input/response acknowledgement, never on thread creation alone. */
+    private void commitConsultAccount(SessionCtx ctx) {
+        if (ctx.consultAccountCommitted || !ctx.consultNativeReady || ctx.consultAccountPlan == null) return;
+        repo.updateConsultAccount(ctx.sessionId, ctx.codexHome, ctx.currentModel, ctx.sdkSessionId,
+                writeEngineSessions(ctx.engineSessions), ctx.codexReasoningEffort, ctx.codexSpeed);
+        ctx.consultAccountCommitted = true;
+    }
+
+    private boolean resetFailedConsultPreparation(SessionCtx ctx, RuntimeException error) {
+        if (ctx.consultAccountPlan == null || ctx.status != SessionStatus.RUNNING) return false;
+        turnLifecycle.currentTurnId(ctx.sessionId).ifPresent(turn -> turnLifecycle.complete(ctx.sessionId, turn));
+        ctx.status = SessionStatus.IDLE;
+        ctx.queueReleaseReady = false;
+        repo.updateStatus(ctx.sessionId, SessionStatus.IDLE);
+        observeRuntimeState(ctx);
+        AgentSpan span = activeTurnSpans.remove(ctx.sessionId);
+        activeTurnMetadata.remove(ctx.sessionId);
+        if (span != null) span.fail("consultation preparation failed", error);
+        return true;
     }
 
     private void dispatchNextQueuedMessage(SessionCtx ctx, boolean initialAutopilotRelease) {
@@ -1804,7 +1945,17 @@ public class ClaudeChatService {
             }
             // takeFirst 必须在 admission 临界区内：drain 已开始时队列保持原样；若本次
             // dispatch 先获得门禁，则 RUNNING 会在 drain 返回前进入活动快照。
-            if (!admissionGate.tryAdmit(() -> dispatchNextQueuedMessageAdmitted(ctx))) {
+            ConsultRuntimeCoordinator.Plan plan;
+            try {
+                var next = queuedMessages.list(ctx.sessionId).stream().findFirst().orElse(null);
+                plan = next == null ? null : prepareConsultTurn(ctx,
+                        new ClientMessage.Send(next.text(), List.of(), next.developerInstructions(), null, next.id()));
+            } catch (RuntimeException error) {
+                ctx.queueReleaseReady = false;
+                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "CONSULT_ACCOUNT_HANDOFF_FAILED", error.getMessage()));
+                return;
+            }
+            if (!admissionGate.tryAdmit(() -> dispatchNextQueuedMessageAdmitted(ctx, plan))) {
                 log.info("[claude-chat] 自动更新排空中，保留待发送队列 session={}", ctx.sessionId);
             }
         }
@@ -1817,7 +1968,7 @@ public class ClaudeChatService {
     }
 
     /** 调用方同时持有会话锁与 admission gate。 */
-    private void dispatchNextQueuedMessageAdmitted(SessionCtx ctx) {
+    private void dispatchNextQueuedMessageAdmitted(SessionCtx ctx, ConsultRuntimeCoordinator.Plan accountPlan) {
         Optional<QueuedChatMessage> next = queuedMessages.takeFirst(ctx.sessionId);
         ctx.queueReleaseReady = false;
         if (next.isEmpty()) {
@@ -1834,7 +1985,7 @@ public class ClaudeChatService {
                 queuedMessages.restore(message);
                 return;
             }
-            startTurnAdmitted(ctx, send, null, continuationContext);
+            startTurnAdmitted(ctx, send, null, continuationContext, accountPlan);
             sendToBrowser(ctx, seq -> new ServerMessage.QueueDispatched(seq, message.id(), message.text(),
                     message.displayText(), message.attachments().stream()
                             .map(attachment -> new ServerMessage.QueuedAttachment(
@@ -1846,6 +1997,7 @@ public class ClaudeChatService {
             sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "AUTOPILOT_CONTINUATION_STALE",
                     stale.getMessage()));
         } catch (RuntimeException error) {
+            resetFailedConsultPreparation(ctx, error);
             queuedMessages.restore(message);
             log.error("[claude-chat] 自动发送队首失败，已恢复队列 session={} message={}",
                     ctx.sessionId, message.id(), error);
@@ -2741,6 +2893,10 @@ public class ClaudeChatService {
         /** 服务端执行能力边界；咨询只读策略优先于 mode，且会随持久化恢复。 */
         volatile String executionPolicy = SessionExecutionPolicy.STANDARD;
         volatile List<String> consultEvidenceSystems = List.of();
+        volatile ConsultRuntimeCoordinator.Plan consultAccountPlan;
+        volatile boolean consultNativeReady;
+        volatile boolean consultAccountCommitted = true;
+        volatile int consultAssistantBlock;
         /**
          * 「弹窗自动允许」兜底开关。服务端持有是关键：它以前是纯前端 useEffect 自动点「允许」，
          * 用户切走页面（组件卸载/浏览器后台节流）就失效，请求挂到超时 deny 或撞上中断变成
