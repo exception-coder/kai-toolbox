@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import com.exceptioncoder.toolbox.claudechat.service.SessionLocalPathAccessService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionImageReferenceService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionProjectDirectoryService;
 import com.exceptioncoder.toolbox.claudechat.service.WorkspaceScanService;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
@@ -58,7 +59,7 @@ class SessionImageControllerTest {
         var paths = paths(List.of(additional.toString()));
         org.springframework.test.util.ReflectionTestUtils.setField(paths, "projectAccess",
                 (com.exceptioncoder.toolbox.common.project.ProjectAccess) path -> !path.toAbsolutePath().normalize().startsWith(additional));
-        assertThrows(IllegalArgumentException.class, () -> new SessionImageController(repository(primary), access(), paths)
+        assertThrows(IllegalArgumentException.class, () -> new SessionImageController(repository(primary), access(), paths, references())
                 .image("session", image.toString()));
     }
 
@@ -72,13 +73,31 @@ class SessionImageControllerTest {
         assertEquals(413, assertThrows(ResponseStatusException.class, () -> controller.image("session", "large.png")).getStatusCode().value());
     }
 
+    @Test void servesOnlyTheCrossDirectoryImageReferencedInThisSessionsAssistantReply() throws Exception {
+        Path primary = Files.createDirectories(root.resolve("primary"));
+        Path image = root.resolve("external-phone.png"); Files.write(image, png());
+        var history = mock(com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService.class);
+        var references = new SessionImageReferenceService(history, path -> true, new com.fasterxml.jackson.databind.ObjectMapper());
+        var session = ClaudeChatSession.builder().id("session").cwd(primary.toString()).build();
+        references.remember(session, new com.exceptioncoder.toolbox.claudechat.api.dto.MessagePage(
+                List.of(com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView.assistant("reply", "![手机验收](" + image + ")", 1L)), null, false));
+        var controller = new SessionImageController(repository(primary), access(), paths(List.of()), references);
+        assertArrayEquals(png(), controller.image("session", image.toString()).getBody());
+        verifyNoInteractions(history);
+    }
+
+    private static SessionImageReferenceService references() {
+        var references = mock(SessionImageReferenceService.class);
+        when(references.resolve(any(), anyString())).thenThrow(new IllegalArgumentException("no reference"));
+        return references;
+    }
     private static byte[] png() throws Exception {
         var output = new ByteArrayOutputStream();
         ImageIO.write(new BufferedImage(2, 1, BufferedImage.TYPE_INT_RGB), "png", output);
         return output.toByteArray();
     }
     private static SessionImageController controller(Path primary, List<String> additional) {
-        return new SessionImageController(repository(primary), access(), paths(additional));
+        return new SessionImageController(repository(primary), access(), paths(additional), references());
     }
     private static ClaudeChatSessionRepository repository(Path primary) {
         var repository = mock(ClaudeChatSessionRepository.class);

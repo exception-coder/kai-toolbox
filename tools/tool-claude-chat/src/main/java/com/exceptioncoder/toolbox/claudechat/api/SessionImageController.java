@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.api;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import com.exceptioncoder.toolbox.claudechat.service.SessionLocalPathAccessService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionImageReferenceService;
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -26,12 +27,14 @@ public class SessionImageController {
     private final ClaudeChatSessionRepository repository;
     private final ClaudeChatSessionAccessPolicy access;
     private final SessionLocalPathAccessService paths;
+    private final SessionImageReferenceService imageReferences;
 
     public SessionImageController(ClaudeChatSessionRepository repository, ClaudeChatSessionAccessPolicy access,
-                                  SessionLocalPathAccessService paths) {
+                                  SessionLocalPathAccessService paths, SessionImageReferenceService imageReferences) {
         this.repository = repository;
         this.access = access;
         this.paths = paths;
+        this.imageReferences = imageReferences;
     }
 
     @RequireAuth
@@ -45,8 +48,13 @@ public class SessionImageController {
         if (session.getCwd() == null || session.getCwd().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "会话没有工作目录");
         }
-        Path file = paths.resolve(id, Path.of(session.getCwd()).toAbsolutePath().normalize(),
-                SessionFileController.normalizeLinkedPath(path));
+        String linkedPath = SessionFileController.normalizeLinkedPath(path);
+        Path file;
+        try {
+            file = paths.resolve(id, Path.of(session.getCwd()).toAbsolutePath().normalize(), linkedPath);
+        } catch (IllegalArgumentException outsideProject) {
+            file = imageReferences.resolve(session, linkedPath);
+        }
         if (!Files.isRegularFile(file) || !Files.isReadable(file)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "图片文件不存在或不可读");
         }
