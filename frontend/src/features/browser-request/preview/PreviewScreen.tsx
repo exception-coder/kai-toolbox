@@ -53,6 +53,7 @@ export function PreviewScreen({ id, interactive, phone }: { id: string; interact
         <button type="submit" disabled={!text}>输入</button>
         <button type="button" onClick={() => void input({ type: 'key', key: 'Enter' })}>Enter</button>
         <button type="button" onClick={() => void input({ type: 'key', key: 'Escape' })}>Esc</button>
+        <button type="button" onClick={() => void input({ type: 'scroll', deltaY: -600 })}>向上滚动</button>
         <button type="button" onClick={() => void input({ type: 'scroll', deltaY: 600 })}>向下滚动</button>
       </form>
     </div>}
