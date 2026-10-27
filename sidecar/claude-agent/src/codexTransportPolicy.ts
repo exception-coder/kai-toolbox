@@ -31,6 +31,26 @@ function record(value: unknown): Json {
   return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Json : {}
 }
 
+function httpsProvider(baseUrl: string | undefined): Json {
+  return {
+    name: 'OpenAI', wire_api: 'responses', requires_openai_auth: true,
+    supports_websockets: false, supports_standalone_web_search: true,
+    http_headers: { version: cliVersion },
+    env_http_headers: { 'OpenAI-Organization': 'OPENAI_ORGANIZATION', 'OpenAI-Project': 'OPENAI_PROJECT' },
+    ...(baseUrl ? { base_url: baseUrl } : {}),
+  }
+}
+
+function isManagedHttpsProvider(value: unknown, expected: Json): boolean {
+  const configured = record(value)
+  return configured.name === expected.name
+    && configured.wire_api === expected.wire_api
+    && configured.requires_openai_auth === expected.requires_openai_auth
+    && configured.supports_websockets === expected.supports_websockets
+    && configured.supports_standalone_web_search === expected.supports_standalone_web_search
+    && configured.base_url === expected.base_url
+}
+
 const jsonBytes = (value: unknown): number => Buffer.byteLength(JSON.stringify(value) ?? '', 'utf8')
 const historyCache = new Map<string, { size: number; mtimeMs: number; bytes: number }>()
 
@@ -127,16 +147,18 @@ function officialBaseUrl(value: unknown): string | undefined {
 }
 
 /** Native 0.162.1 cannot override the built-in provider; use its documented
- * provider contract only for oversized first-party requests, without config writes. */
+ * provider contract only for oversized first-party requests. */
 export async function selectCodexTransport(options: Options, request: Request): Promise<CodexTransportSelection> {
   const config = { ...options.config }
-  const effective = record((await request('config/read', { cwd: options.cwd, includeLayers: false })).config)
+  const configResult = await request('config/read', { cwd: options.cwd, includeLayers: false })
+  const effective = record(configResult.config)
   const provider = config.model_provider ?? effective.model_provider ?? 'openai'
   if (provider !== 'openai') return { config }
   const baseUrl = officialBaseUrl(config.openai_base_url ?? effective.openai_base_url ?? process.env.OPENAI_BASE_URL)
-  // Do not shadow a user-owned provider with our private adapter name.
-  if (record(effective.model_providers)[CODEX_HTTPS_PROVIDER]
-      || record(config.model_providers)[CODEX_HTTPS_PROVIDER]
+  const expectedProvider = httpsProvider(baseUrl)
+  const configuredProvider = record(effective.model_providers)[CODEX_HTTPS_PROVIDER]
+    ?? record(config.model_providers)[CODEX_HTTPS_PROVIDER]
+  if ((configuredProvider && !isManagedHttpsProvider(configuredProvider, expectedProvider))
       || Object.keys(config).some(key => key.startsWith(`model_providers.${CODEX_HTTPS_PROVIDER}`))) {
     throw new Error('Codex HTTPS adapter name conflicts with configured provider')
   }
@@ -151,13 +173,16 @@ export async function selectCodexTransport(options: Options, request: Request): 
     // A compaction may make the next full request small enough for WebSockets again.
     return { config, contextBytes, ...(recordedProvider === CODEX_HTTPS_PROVIDER ? { modelProvider: 'openai' } : {}) }
   }
-  config[`model_providers.${CODEX_HTTPS_PROVIDER}`] = {
-    name: 'OpenAI', wire_api: 'responses', requires_openai_auth: true,
-    supports_websockets: false, supports_standalone_web_search: true,
-    http_headers: { version: cliVersion },
-    env_http_headers: { 'OpenAI-Organization': 'OPENAI_ORGANIZATION', 'OpenAI-Project': 'OPENAI_PROJECT' },
-    ...(baseUrl ? { base_url: baseUrl } : {}),
+  // Codex persists the provider id with the thread. Register the matching definition
+  // in the selected CODEX_HOME so ChatGPT/Codex can reopen the thread independently.
+  if (!configuredProvider) {
+    await request('config/batchWrite', {
+      edits: [{ keyPath: `model_providers.${CODEX_HTTPS_PROVIDER}`, mergeStrategy: 'upsert', value: expectedProvider }],
+      expectedVersion: typeof configResult.version === 'string' ? configResult.version : null,
+      reloadUserConfig: true,
+    })
   }
+  config[`model_providers.${CODEX_HTTPS_PROVIDER}`] = expectedProvider
   config.model_provider = CODEX_HTTPS_PROVIDER
   return { config, modelProvider: CODEX_HTTPS_PROVIDER, contextBytes, reason: 'large_context' }
 }

@@ -18,6 +18,15 @@ Forge SHALL 在官方 Codex 主轮次和续问预测开始前，基于当前有�
 - **THEN** 不覆盖用户配置，失败保留可观测记录，继续由原生执行逻辑报告真实结果
 - **AND** 不将预检失败当成业务成功或自动重放依据
 
+#### Scenario: ChatGPT 恢复 Forge HTTPS 线程
+- **WHEN** Forge 首次为某个 Codex 授权目录选择 HTTPS 兼容 provider
+- **THEN** 通过 Codex 官方配置接口幂等登记完整 provider 定义，再使用该 provider 执行线程
+- **AND** ChatGPT/Codex 独立恢复该线程时不会遇到只有 provider ID、没有定义的悬空配置
+
+#### Scenario: 兼容 provider 无法安全登记
+- **WHEN** 保留名称已被用户配置占用，或官方配置写入失败
+- **THEN** 不覆盖用户定义，也不把悬空 provider 写入线程，回退原生传输策略并记录预检失败
+
 ### Requirement: 恢复必须有界且避免回传完整历史
 
 Forge SHALL 使用仅返回元数据及实时状态的恢复与分叉方式，保持原生历史和模型上下文；恢复使用独立有界预算，取消仍受进程退出与队列保护契约约束。

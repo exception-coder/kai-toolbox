@@ -20,12 +20,25 @@ async function fixture(t: test.TestContext) {
   await writeFile(path, jsonl(response('old message')))
   const options = { threadId: 'thread', codexHome: home, cwd: home, input: [{ type: 'text', text: 'continue' }],
     config: { 'features.realtime_conversation': true, 'mcp_servers.toolbox.enabled': false } }
-  const request = async (method: string) => {
-    if (method === 'config/read') return { config: { model_provider: 'openai' } }
+  let managedProvider: unknown
+  let writes = 0
+  const request = async (method: string, params?: Record<string, unknown>) => {
+    if (method === 'config/read') return { config: { model_provider: 'openai',
+      ...(managedProvider ? { model_providers: { [CODEX_HTTPS_PROVIDER]: managedProvider } } : {}) }, version: 'fixture-v1' }
     if (method === 'thread/read') return { thread: { path, modelProvider: 'openai' } }
+    if (method === 'config/batchWrite') {
+      const edits = params?.edits as Array<{ keyPath: string; mergeStrategy: string; value: unknown }>
+      assert.equal(edits[0]?.keyPath, `model_providers.${CODEX_HTTPS_PROVIDER}`)
+      assert.equal(edits[0]?.mergeStrategy, 'upsert')
+      assert.equal(params?.expectedVersion, 'fixture-v1')
+      assert.equal(params?.reloadUserConfig, true)
+      managedProvider = edits[0]?.value
+      writes++
+      return { status: 'ok' }
+    }
     throw new Error(`Unexpected request: ${method}`)
   }
-  return { home, path, options, request }
+  return { home, path, options, request, get writes() { return writes } }
 }
 
 test('two independent sends use HTTPS before execution for oversized retained images, without rewriting history', async t => {
@@ -46,6 +59,7 @@ test('two independent sends use HTTPS before execution for oversized retained im
     assert.equal(provider.stream_max_retries, undefined, 'do not weaken HTTPS retries')
     assert.equal(chosen.config['mcp_servers.toolbox.enabled'], false)
   }
+  assert.equal(f.writes, 1, 'provider definition is persisted once for cross-client resume')
   assert.equal(await readFile(f.path, 'utf8'), history)
   assert.deepEqual(Object.keys(f.options.config).sort(), ['features.realtime_conversation', 'mcp_servers.toolbox.enabled'])
 })
@@ -109,6 +123,20 @@ test('reserved alias collisions fail visibly and do not overwrite user configura
   await assert.rejects(selectCodexTransport(f.options, async () => ({ config: {
     model_provider: 'openai', model_providers: { [CODEX_HTTPS_PROVIDER]: { name: 'user choice' } },
   } })), /conflicts/)
+})
+
+test('a failed provider registration falls back without returning a dangling provider id', async t => {
+  const f = await fixture(t)
+  await writeFile(f.path, jsonl(response('x'.repeat(CODEX_WS_CONTEXT_BUDGET_BYTES))))
+  const warnings: unknown[][] = []
+  t.mock.method(console, 'warn', (...args: unknown[]) => { warnings.push(args) })
+  const selected = await prepareCodexTransport(f.options, async (method, params) => {
+    if (method === 'config/batchWrite') throw new Error('config is read-only')
+    return f.request(method, params)
+  })
+  assert.deepEqual(selected, { config: f.options.config })
+  assert.equal(Object.hasOwn(selected, 'modelProvider'), false)
+  assert.match(String(warnings[0]?.[0]), /codex_transport_preflight_failed/)
 })
 
 test('event logs and legacy compaction cannot erase retained size evidence', async t => {

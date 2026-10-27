@@ -19,8 +19,8 @@
 1. `config/read` 按 cwd 取得实际配置。仅处理内置官方 OpenAI 通道，第三方 provider/自定义端点保留原策略。
 2. `thread/read` 仅取元数据；校验 rollout 的真实路径位于所选授权目录，并匹配 thread ID。倒序读取到最近一次 `replacement_history`，计入后续原生消息、当前输入的 UTF-8/图片 base64 字节及本轮配置。最多缓存 32 个文件的大小、mtime 和计数，不缓存内容；读中发生变更不采用不完整结果。旧式 compaction 没有替换历史时保守保留原计数。
 3. 上下文达到 12 MiB 时选 HTTPS，为原生指令、工具 schema 和请求信封预留 4 MiB。该数值是保守预检预算，不是假称精确测量原生最终请求。小上下文保留 WebSocket；压缩后重新计算，不永久锁定账号或网络。
-4. 原生 0.162.1 不允许覆盖内置 `openai` provider。按[官方 provider 配置契约](https://developers.openai.com/codex/config-reference) 在单次 RPC 配置中声明 `forge_openai_https`，保持 OpenAI 名称、原生鉴权、官方端点解析、版本和组织/项目头、搜索能力，仅关闭 Responses WebSocket。不写 config/auth，不调整普通流重试及任务时长。
-5. 原生元数据会记录该运行时 provider ID，这是 SDK 契约的可见影响。隔离原生 CLI 实验确认 ID 不变、默认列表可见、下次不带覆盖仍可按 `openai` 恢复。显式只筛 `openai` 的外部客户端可能过滤该别名；Forge 的历史读取不使用该过滤。别名冲突时不覆盖用户配置。
+4. 原生 0.162.1 不允许覆盖内置 `openai` provider。按[官方 provider 配置契约](https://developers.openai.com/codex/config-reference) 声明 `forge_openai_https`，保持 OpenAI 名称、原生鉴权、官方端点解析、版本和组织/项目头、搜索能力，仅关闭 Responses WebSocket。不改默认 provider、账号凭据、普通流重试或任务时长。
+5. 原生会把 provider ID 持久化到线程索引，ChatGPT 独立恢复时不会继承 Forge 单次 RPC 中的 provider 定义；这会形成 `Model provider forge_openai_https not found` 的悬空引用。Forge 因此在首次实际选择 HTTPS 时，通过官方 `config/batchWrite` 幂等登记完整定义，再执行线程。名称被用户占用或写入失败时不覆盖、不选择该别名，保留原生策略并记录预检失败。
 6. 选择结果记录传输、原因、字节数；失败记录安全的错误摘要并保留原生处理，不伪称连接恢复，不重放轮次或吞掉后续模型错误。预测保持可选性及既有清理屏障。
 
 ### 会话恢复与 SDK 回退
@@ -66,4 +66,6 @@ flowchart LR
 
 Forge 质量门禁 JSON 为 `PASSED`、退出码 0；`executedCheckers` 为空，不能将其当成额外静态扫描通过，静态证据来自上述类型、协议和规格检查。`executedVerifiers` 仅执行 9 个已有只读 HTTP 场景，均通过，属于当前旧运行版本的可用性证据；不证明本次源码已加载、当前真实 WSS 关闭码或公网大上下文已恢复。编译写入独立目录，未替换运行产物、调用模型或重启服务，任务 7 保持待确认和待运行验收。
 
-回滚移除预检及本次轻量恢复/SDK 配置交接，恢复原适配器行为；本变更没有改写历史或账号配置。既有临时 provider 记录可由下次默认原生 resume 恢复。进程所有权、终态、队列和工程上下文分层契约保持不变；SDK 回退传输和恢复边界已同步整体 AI 编程架构说明。本次扩展尚未加载，真实受影响会话、当前上游关闭码与稳定观察仍待运行验收。
+2026-10-27 跨客户端恢复修复：确认用户三个 `config.toml` 均未定义 `forge_openai_https`，而 Codex 线程索引会保留自定义 provider ID；这与 ChatGPT 报 `Model provider forge_openai_https not found` 一致。通过 Codex 官方 `config/batchWrite` 补齐三个授权目录并用 `config/read` 回读确认。Sidecar 全源 TypeScript 编译及传输/生命周期 22 项定向测试通过，覆盖首次登记、重复使用、名称冲突和写入失败不返回悬空 provider；OpenSpec 严格校验通过。Forge 质量门禁为 `PASSED`，静态 `executedCheckers` 为空，运行部分仍是当前旧版本的 9 个只读 HTTP 场景。运行中的 Sidecar 仍是旧产物，未获重启授权，未执行目标版本运行验收。
+
+回滚移除预检、轻量恢复/SDK 配置交接及 Forge 管理的兼容 provider 定义，恢复原适配器行为；本变更不改写原生历史或账号凭据。进程所有权、终态、队列和工程上下文分层契约保持不变；SDK 回退传输和恢复边界已同步整体 AI 编程架构说明。本次源码尚未加载，真实受影响会话、当前上游关闭码与稳定观察仍待运行验收。

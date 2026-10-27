@@ -8,7 +8,8 @@ Forge 为每轮创建独立 Codex App Server 进程。长会话保留的图片�
 
 - Sidecar 官方 Codex 通道的传输预检与针对性回归。
 - 使用轻量恢复及独立恢复预算，并将本轮传输选择交接给安全回退的 SDK，避免回退重新进入同样的 WSS 重试。
-- 不修改账号凭据、用户 Codex 配置、原生历史、代理、前端 WebSocket 或普通网络重试次数。
+- 首次实际选择 HTTPS 时，通过 Codex 官方配置写入接口幂等登记 Forge 兼容 provider，使 ChatGPT/Codex 能独立恢复该线程；不改默认 provider 或账号凭据。
+- 不修改原生历史、代理、前端 WebSocket 或普通网络重试次数。
 - 不重放已接受的轮次，不在本变更中重构进程池或自行实现 Responses 协议。
 
 ## 证据
