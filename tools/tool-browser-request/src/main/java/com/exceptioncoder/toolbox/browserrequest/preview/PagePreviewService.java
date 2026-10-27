@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.common.auth.AuthException;
 import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
 import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Service;
+import java.time.Clock;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -14,21 +15,34 @@ import java.util.concurrent.TimeUnit;
 /** 有界、按用户隔离的预览生命周期；认证信息仅在短期内存中使用。 */
 @Service
 public class PagePreviewService {
-    private static final long LIFETIME_MS = TimeUnit.MINUTES.toMillis(15);
+    private static final long IDLE_TIMEOUT_MS = TimeUnit.MINUTES.toMillis(15);
     private static final Set<String> DISPLAYABLE = Set.of("READY", "WAITING_LOGIN", "FAILED");
+    private final Clock clock;
     private final PreviewTargets targets;
     private final PreviewBrowser browser;
     private final Map<String, Run> runs = new ConcurrentHashMap<>();
     private final Map<String, String> requests = new ConcurrentHashMap<>();
 
+    @org.springframework.beans.factory.annotation.Autowired
     PagePreviewService(PreviewTargets targets, PreviewBrowser browser) {
+        this(targets, browser, Clock.systemUTC());
+    }
+
+    PagePreviewService(PreviewTargets targets, PreviewBrowser browser, Clock clock) {
         this.targets = targets;
         this.browser = browser;
+        this.clock = clock;
     }
 
     public synchronized View create(PreviewRequest request, AuthPrincipal user, String token) {
-        runs.values().stream().filter(run -> run.expiresAt < System.currentTimeMillis())
-                .forEach(run -> { runs.remove(run.id); requests.remove(run.key); });
+        runs.values().forEach(run -> {
+            synchronized (run) {
+                if (run.expiresAt <= clock.millis()) {
+                    finish(run, "EXPIRED");
+                    runs.remove(run.id); requests.remove(run.key);
+                }
+            }
+        });
         String key = user.userId() + ":" + request.requestKey();
         Run existing = runs.get(requests.getOrDefault(key, ""));
         if (existing != null) {
@@ -42,14 +56,13 @@ public class PagePreviewService {
             throw new IllegalArgumentException("预览会话已达上限，请关闭不用的预览后重试");
         }
         PreviewPlan plan = targets.resolve(request, user, token);
-        long expires = Math.min(System.currentTimeMillis() + LIFETIME_MS, user.expiresAt());
+        long expires = Math.min(clock.millis() + IDLE_TIMEOUT_MS, user.expiresAt());
         Run run = new Run(UUID.randomUUID().toString(), key, request, user.userId(), expires, plan, user.username());
         runs.put(run.id, run);
         requests.put(key, run.id);
         Thread.startVirtualThread(() -> start(run));
         armTimeout(run);
-        CompletableFuture.delayedExecutor(Math.max(1, expires - System.currentTimeMillis()), TimeUnit.MILLISECONDS)
-                .execute(() -> finish(run, "EXPIRED"));
+        armExpiry(run);
         return view(run);
     }
 
@@ -126,10 +139,32 @@ public class PagePreviewService {
         if (run == null || run.owner != user.userId()) {
             throw AuthException.forbidden();
         }
-        if (run.expiresAt <= System.currentTimeMillis()) {
-            finish(run, "EXPIRED");
+        long now = clock.millis();
+        if (user.expiresAt() <= now) throw AuthException.tokenInvalid();
+        synchronized (run) {
+            if (run.expiresAt <= now) finish(run, "EXPIRED");
+            if (!terminal(run.status)) {
+                // 每个请求均已验证当前用户令牌，滑动延长闲置期限，不保留或延长旧令牌。
+                run.expiresAt = Math.max(run.expiresAt, Math.min(now + IDLE_TIMEOUT_MS, user.expiresAt()));
+            }
         }
         return run;
+    }
+
+    private void armExpiry(Run run) {
+        CompletableFuture.delayedExecutor(Math.max(1, run.expiresAt - clock.millis()), TimeUnit.MILLISECONDS)
+                .execute(() -> checkExpiry(run.id));
+    }
+
+    /** 每个会话只保留一条定时检查链；旧截止时间不能关闭已续期的会话。 */
+    void checkExpiry(String id) {
+        Run run = runs.get(id);
+        if (run == null) return;
+        synchronized (run) {
+            if (terminal(run.status)) return;
+            if (run.expiresAt <= clock.millis()) finish(run, "EXPIRED");
+            else armExpiry(run);
+        }
     }
 
     private void finish(Run run, String status) {
@@ -166,7 +201,7 @@ public class PagePreviewService {
         final String key;
         final PreviewRequest request;
         final long owner;
-        final long expiresAt;
+        volatile long expiresAt;
         final String origin;
         final String account;
         final String environment;

@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth'
 import { Monitor, Smartphone, X, RefreshCw } from 'lucide-react'
 import { createPreview, getPreview, closePreview, continuePreview, previewResources, type PreviewTarget, type PreviewView } from './api'
 import { PreviewScreen } from './PreviewScreen'
+import { usePreviewVisibility } from './usePreviewVisibility'
 import './preview.css'
 
 const messages: Record<string, string> = {
@@ -14,6 +15,7 @@ const messages: Record<string, string> = {
 }
 const displayable = new Set(['READY', 'WAITING_LOGIN', 'FAILED'])
 export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = false, autoStart = false }: { initial: PreviewTarget; previewId?: string; onOpened: (view: PreviewView) => void; embedded?: boolean; autoStart?: boolean }) {
+  const visible = usePreviewVisibility()
   const { user } = useAuth()
   const [target, setTarget] = useState(initial)
   const [busy, setBusy] = useState(false)
@@ -29,7 +31,7 @@ export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = 
   const selectedResource = resources.data?.find(item => item.id === target.resourceId)
   const production = selectedResource?.environment.toUpperCase() === 'PROD'
   const selectionReady = !target.resourceId || (resources.isSuccess && !!selectedResource)
-  const query = useQuery({ queryKey: ['page-preview', user?.userId, previewId], queryFn: () => getPreview(previewId!), enabled: !!previewId,
+  const query = useQuery({ queryKey: ['page-preview', user?.userId, previewId], queryFn: () => getPreview(previewId!), enabled: !!previewId && visible, refetchIntervalInBackground: false,
     refetchInterval: state => ['CLOSED', 'EXPIRED', 'TIMED_OUT'].includes(state.state.data?.status ?? '') ? false : 1500 })
   const open = useCallback(async (value: PreviewTarget, closeId?: string) => {
     if (operation.current) return
@@ -70,7 +72,7 @@ export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = 
     setTarget({ ...target, resourceId: resourceId || undefined, route, loginPage: undefined, productionConfirmed: false })
   }
   return <main className={embedded ? "page-preview page-preview-embedded" : "page-preview"}>
-    {!embedded && <header className="preview-heading"><div><h1>页面预览</h1><p>真实浏览器渲染 · 当前账号隔离 · 15 分钟内有效</p></div><a href="/tools/fore-consult">返回咨询</a></header>}
+    {!embedded && <header className="preview-heading"><div><h1>页面预览</h1><p>真实浏览器渲染 · 当前账号隔离 · 查看中自动续期 · 闲置 15 分钟后回收</p></div><a href="/tools/fore-consult">返回咨询</a></header>}
     {error && <p role="alert" className="preview-error">{error}</p>}
     {settingsOpen && <form className="preview-setup" onSubmit={event => {
       event.preventDefault()

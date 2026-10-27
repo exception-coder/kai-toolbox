@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
 import { previewFrame, previewInput } from './api'
+import { usePreviewVisibility } from './usePreviewVisibility'
 
 /** 使用受保护的截图接口，认证令牌不进入图片 URL 或预览链接。 */
 export function PreviewScreen({ id, interactive, phone }: { id: string; interactive: boolean; phone: boolean }) {
+  const visible = usePreviewVisibility()
   const [frame, setFrame] = useState('')
   const [error, setError] = useState('')
   const [text, setText] = useState('')
   useEffect(() => {
+    if (!visible) { setFrame(''); return }
     let stopped = false
     let objectUrl = ''
     let timer: ReturnType<typeof setTimeout>
@@ -28,7 +31,7 @@ export function PreviewScreen({ id, interactive, phone }: { id: string; interact
     }
     void refresh()
     return () => { stopped = true; controller.abort(); clearTimeout(timer); if (objectUrl) URL.revokeObjectURL(objectUrl) }
-  }, [id])
+  }, [id, visible])
   async function input(value: object) {
     try { await previewInput(id, value); setError('') }
     catch (failure) { setError(failure instanceof Error ? failure.message : '操作失败') }

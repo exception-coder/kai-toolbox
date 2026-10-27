@@ -74,4 +74,61 @@ class PagePreviewServiceTest {
         } finally { service.shutdown(); }
     }
 
+    @Test void foregroundReadsSlideTheLeaseAndOldDeadlineDoesNotCloseTheBrowser() {
+        PreviewTargets targets = mock(PreviewTargets.class);
+        PreviewBrowser browser = mock(PreviewBrowser.class);
+        long start = System.currentTimeMillis();
+        var now = new java.util.concurrent.atomic.AtomicLong(start);
+        var clock = mock(java.time.Clock.class); when(clock.millis()).thenAnswer(call -> now.get());
+        var principal = new AuthPrincipal(1, "one", List.of("USER"), List.of(), "jti", start + 7200000);
+        when(targets.resolve(any(), any(), any())).thenReturn(new PreviewPlan("https://localhost:5173", "/", null, null, "page", true, null, null));
+        doAnswer(call -> { Consumer<String> stage = call.getArgument(2); stage.accept("READY"); return null; })
+                .when(browser).open(any(), any(), any(), any());
+        PagePreviewService service = new PagePreviewService(targets, browser, clock);
+        try {
+            var first = service.create(request, principal, "token");
+            org.awaitility.Awaitility.await().until(() -> "READY".equals(service.get(first.id(), principal).status()));
+            now.set(start + 14 * 60000);
+            service.screenshot(first.id(), principal);
+            now.set(start + 16 * 60000);
+            service.checkExpiry(first.id());
+            assertEquals("READY", service.get(first.id(), principal).status());
+            assertTrue(service.get(first.id(), principal).expiresAt() > first.expiresAt());
+            verify(browser, never()).close(any());
+            now.set(start + 32 * 60000);
+            service.checkExpiry(first.id());
+            assertEquals("EXPIRED", service.get(first.id(), principal).status());
+            verify(browser, timeout(2000).times(1)).close(first.id());
+            assertEquals("EXPIRED", service.get(first.id(), principal).status());
+        } finally { service.shutdown(); }
+    }
+
+    @Test void refreshedOwnerTokenCanRenewButOtherUsersAndExpiredTokensCannot() {
+        PreviewTargets targets = mock(PreviewTargets.class);
+        PreviewBrowser browser = mock(PreviewBrowser.class);
+        long start = System.currentTimeMillis();
+        var now = new java.util.concurrent.atomic.AtomicLong(start);
+        var clock = mock(java.time.Clock.class); when(clock.millis()).thenAnswer(call -> now.get());
+        var initial = new AuthPrincipal(1, "one", List.of("USER"), List.of(), "old", start + 300000);
+        var fresh = new AuthPrincipal(1, "one", List.of("USER"), List.of(), "new", start + 7200000);
+        when(targets.resolve(any(), any(), any())).thenReturn(new PreviewPlan("https://localhost:5173", "/", null, null, "page", true, null, null));
+        PagePreviewService service = new PagePreviewService(targets, browser, clock);
+        try {
+            var first = service.create(request, initial, "token");
+            now.set(start + 240000);
+            long renewed = service.get(first.id(), fresh).expiresAt();
+            assertTrue(renewed > initial.expiresAt());
+            assertEquals(renewed, service.get(first.id(), initial).expiresAt());
+            assertThrows(RuntimeException.class, () -> service.get(first.id(), other));
+            now.set(start + 360000);
+            assertThrows(RuntimeException.class, () -> service.get(first.id(), initial));
+            assertNotEquals("EXPIRED", service.get(first.id(), fresh).status());
+            service.close(first.id(), fresh);
+            now.set(start + 400000);
+            service.checkExpiry(first.id());
+            assertEquals("CLOSED", service.get(first.id(), fresh).status());
+            verify(browser, timeout(2000).times(1)).close(first.id());
+        } finally { service.shutdown(); }
+    }
+
 }
