@@ -19,8 +19,8 @@ export function RunningMessageActions({ canSteer, disabled, onSteer, onEnqueue, 
     <div className={cn('flex min-w-0 items-center justify-end gap-2', className)}>
       {canSteer && (
         <Button type="button" variant="outline" size="sm" className="min-h-10 min-w-0 flex-1 px-2 sm:flex-none sm:px-3"
-          disabled={disabled} onClick={onSteer} title="补充到正在进行的 Codex 当前轮">
-          <CornerUpRight aria-hidden="true" />补充到当前轮
+          disabled={disabled} onClick={onSteer} title="插入正在进行的 Codex 当前轮（Enter）；Ctrl/Cmd+Enter 加入队列">
+          <CornerUpRight aria-hidden="true" />插入当前轮
         </Button>
       )}
       <Button type="button" variant="secondary" size="sm" className="min-h-10 min-w-0 flex-1 px-2 sm:flex-none sm:px-3"

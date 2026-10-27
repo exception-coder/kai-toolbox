@@ -435,7 +435,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
     }
   }
 
-  const submit = (runningAction: 'queue' | 'steer' = 'queue') => {
+  const submit = (runningAction: 'queue' | 'steer' = 'steer') => {
     if (uploading > 0) return
     const t = draft.trim()
     const hasAtt = attachments.length > 0
@@ -961,10 +961,10 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
             onPaste={onPaste}
             onKeyDown={e => {
               if (projectMention.handleKeyDown(e)) return
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                 if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return
                 e.preventDefault()
-                submit()
+                submit(e.ctrlKey || e.metaKey ? 'queue' : 'steer')
               }
             }}
           />

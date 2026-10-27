@@ -222,16 +222,27 @@ describe('ChatPage session configuration', () => {
     expect(screen.getByRole('button', { name: 'Codex', pressed: true })).toBeInTheDocument()
     expect(testRuntime.chat.open).not.toHaveBeenCalled()
   })
-  it('running desktop Enter queues, modifier Enter steers and Shift/IME Enter never sends', async () => {
+  it('touch Enter retains the draft without inserting or queuing', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('pointer: coarse'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    testRuntime.chat.running = true
+    mountChat()
+    const input = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.change(input, { target: { value: '手机换行' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(input).toHaveValue('手机换行')
+    expect(testRuntime.chat.steer).not.toHaveBeenCalled()
+    expect(testRuntime.chat.enqueue).not.toHaveBeenCalled()
+  })
+  it('running desktop Enter inserts, modifier Enter queues and Shift/IME Enter never sends', async () => {
     testRuntime.chat.running = true
     mountChat()
     const input = await screen.findByRole('textbox', { name: '消息输入' })
     fireEvent.change(input, { target: { value: '排队任务' } })
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(testRuntime.chat.enqueue).toHaveBeenCalledExactlyOnceWith('排队任务', [])
+    expect(testRuntime.chat.steer).toHaveBeenCalledExactlyOnceWith('排队任务')
     fireEvent.change(input, { target: { value: '补充说明' } })
     fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
-    expect(testRuntime.chat.steer).toHaveBeenCalledExactlyOnceWith('补充说明')
+    expect(testRuntime.chat.enqueue).toHaveBeenCalledExactlyOnceWith('补充说明', [])
     fireEvent.change(input, { target: { value: '继续输入' } })
     fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
     fireEvent.compositionStart(input)
@@ -241,7 +252,7 @@ describe('ChatPage session configuration', () => {
     expect(testRuntime.chat.steer).toHaveBeenCalledOnce()
     expect(testRuntime.chat.send).not.toHaveBeenCalled()
   })
-  it('unsupported steering shortcuts do not silently queue; idle Enter sends', async () => {
+  it('unsupported steering always queues; idle Enter sends', async () => {
     testRuntime.chat.running = true
     testRuntime.chat.currentProviderBaseUrl = 'https://gateway.invalid'
     const first = mountChat()
@@ -249,9 +260,10 @@ describe('ChatPage session configuration', () => {
     fireEvent.change(input, { target: { value: '独立任务' } })
     fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
     expect(testRuntime.chat.steer).not.toHaveBeenCalled()
-    expect(testRuntime.chat.enqueue).not.toHaveBeenCalled()
-    fireEvent.keyDown(input, { key: 'Enter' })
     expect(testRuntime.chat.enqueue).toHaveBeenCalledOnce()
+    fireEvent.change(input, { target: { value: '再排队' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(testRuntime.chat.enqueue).toHaveBeenCalledTimes(2)
     first.unmount()
     testRuntime.chat.running = false
     mountChat()

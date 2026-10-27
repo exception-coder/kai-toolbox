@@ -132,7 +132,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
     }
   }
 
-  const submit = (runningAction: 'queue' | 'steer' = 'queue') => {
+  const submit = (runningAction: 'queue' | 'steer' = 'steer') => {
     if (planLocked) return
     if (uploading > 0) return
     if (!chat.sessionId) return
@@ -341,9 +341,9 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
             onPaste={handlePaste}
             onKeyDown={e => {
               if (projectMention.handleKeyDown(e)) return
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
                 if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return // 触屏回车换行
-                e.preventDefault(); submit()
+                e.preventDefault(); submit(e.ctrlKey || e.metaKey ? 'queue' : 'steer')
               }
             }}
             rows={1}

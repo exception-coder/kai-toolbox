@@ -1127,7 +1127,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     }
   }
 
-  const submit = (runningAction: 'queue' | 'steer' = 'queue') => {
+  const submit = (runningAction: 'queue' | 'steer' = 'steer') => {
     if (!chat.sessionId) return
     if (planLocked) return
     if (uploading > 0) return
@@ -2642,13 +2642,11 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                   if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashFiltered[slashActive]); return }
                   if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return }
                 }
-                // 触屏（移动端）：回车换行、由发送按钮发；桌面：Enter 发送/排队、Shift+Enter 换行
+                // 触屏回车换行；桌面 Enter 优先插入当前轮，Ctrl/Cmd+Enter 明确排队。
                 if (e.key === 'Enter' && !e.shiftKey) {
                   if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return
                   e.preventDefault()
-                  if ((e.ctrlKey || e.metaKey) && chat.running) {
-                    if (canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)) submit('steer')
-                  } else submit() // 运行中默认加入队列
+                  submit(e.ctrlKey || e.metaKey ? 'queue' : 'steer')
                 }
               }}
             />
