@@ -231,7 +231,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
 
   // 切会话或工具过滤时重挂载列表，清除旧尺寸、分页游标及在途定位意图。
   const resetKey = `${sessionKey ?? ''}::${hideToolCalls ? 1 : 0}`
-  const { virtuosoRef, captureScroller, settleJump, scrollToLatest, jumpToBottom, cancelJump,
+  const { virtuosoRef, captureScroller, settleJump, scrollToLatest, jumpToBottom, cancelJump, listRevision,
     atBottom, onBottomStateChange, loadingLatest, latestError } = useLatestMessageNavigation({
     sessionKey: resetKey, lastItemId: visibleItems.at(-1)?.id,
     historyLoading: loadingEarlier, historyError: loadEarlierError, onLoadLatest,
@@ -343,7 +343,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         </div>
       )}
       <Virtuoso
-        key={resetKey}
+        key={`${resetKey}::${listRevision}`}
         ref={virtuosoRef}
         scrollerRef={captureScroller}
         totalListHeightChanged={settleJump}
@@ -352,7 +352,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         data={visibleItems}
         context={listContext}
         firstItemIndex={firstItemIndex}
-        initialTopMostItemIndex={Math.max(0, visibleItems.length - 1)}
+        initialTopMostItemIndex={{ index: 'LAST', align: 'end' }}
         alignToBottom
         followOutput={followOutput}
         atBottomThreshold={LATEST_BOTTOM_TOLERANCE_PX}

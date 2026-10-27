@@ -18,6 +18,7 @@ function useBottomAlignment(sessionKey: string) {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const scrollerRef = useRef<HTMLElement | null>(null)
   const [scroller, setScroller] = useState<HTMLElement | null>(null)
+  const [listRevision, setListRevision] = useState(0)
   const followingHeightRef = useRef(false)
   const correctedLayoutsRef = useRef(new Set<string>())
   const frameRef = useRef<number | null>(null)
@@ -25,14 +26,9 @@ function useBottomAlignment(sessionKey: string) {
     scrollerRef.current = element instanceof HTMLElement ? element : null
     setScroller(scrollerRef.current)
   }, [])
-  const scrollToMeasuredBottom = useCallback(() => {
-    const scroller = scrollerRef.current
-    if (scroller) {
-      // 长历史的索引估算可能停在旧回复；读取真实范围，仍只由 Virtuoso 写滚动位置。
-      virtuosoRef.current?.scrollTo({ top: Math.max(0, scroller.scrollHeight - scroller.clientHeight), behavior: 'auto' })
-    } else {
-      virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
-    }
+  const scrollToLastItem = useCallback(() => {
+    // 末项定位会随测量重试，并抑制跳转期间的反向补偿；瞬时 scrollHeight 不是最终目标。
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' })
   }, [])
   const settleJump = useCallback(() => {
     if (!followingHeightRef.current || frameRef.current !== null) return
@@ -45,15 +41,16 @@ function useBottomAlignment(sessionKey: string) {
         const layout = `${scroller.scrollHeight}:${scroller.clientHeight}`
         if (correctedLayoutsRef.current.has(layout)) return
         correctedLayoutsRef.current.add(layout)
-        scrollToMeasuredBottom()
+        scrollToLastItem()
       }
     })
-  }, [scrollToMeasuredBottom])
-  const scrollToLatest = useCallback(() => {
+  }, [scrollToLastItem])
+  const scrollToLatest = useCallback((resetMeasurements = false) => {
     followingHeightRef.current = true
     correctedLayoutsRef.current.clear()
-    scrollToMeasuredBottom()
-  }, [scrollToMeasuredBottom])
+    if (resetMeasurements) setListRevision(revision => revision + 1)
+    scrollToLastItem()
+  }, [scrollToLastItem])
   const cancelAlignment = useCallback(() => {
     followingHeightRef.current = false
     correctedLayoutsRef.current.clear()
@@ -75,7 +72,7 @@ function useBottomAlignment(sessionKey: string) {
     observer?.observe(scroller)
     return () => { observer?.disconnect(); scroller.removeEventListener('scroll', settleJump) }
   }, [scroller, settleJump])
-  return { virtuosoRef, captureScroller, settleJump, scrollToLatest, cancelAlignment }
+  return { virtuosoRef, captureScroller, settleJump, scrollToLatest, cancelAlignment, listRevision }
 }
 
 /** 实时输出直接定位，历史恢复先确认数据；上滑或切换会话撤销定位意图。 */
@@ -112,7 +109,7 @@ export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoad
       if (historyError) { setNavigation('error'); return }
       followingRef.current = true
       alignedItemRef.current = lastItemId
-      scrollToLatest()
+      scrollToLatest(true)
       setNavigation(null)
     } else if (!navigation && followingRef.current && lastItemId && alignedItemRef.current !== lastItemId) {
       // 最近页替换往往仍是 30 条，Virtuoso 按条数跟随不会处理这种更新。
@@ -127,7 +124,7 @@ export function useLatestMessageNavigation({ sessionKey, lastItemId, historyLoad
       followingRef.current = true
       alignedItemRef.current = lastItemId
       setNavigation(null)
-      scrollToLatest()
+      scrollToLatest(true)
       return
     }
     cancelAlignment()
