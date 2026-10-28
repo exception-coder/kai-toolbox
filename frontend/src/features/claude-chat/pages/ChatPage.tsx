@@ -4,6 +4,7 @@ import { FocusReadingHeader } from '../components/FocusReadingHeader'
 import { useChatFocusMode } from '../hooks/useChatFocusMode'
 import { useSessionViewRoute } from '../hooks/useSessionViewRoute'
 import { WorkspacePreferences } from '../components/WorkspacePreferences'
+import { WorkingDirectoryPicker } from '../components/WorkingDirectoryPicker'
 import { VibeCodingGuide } from '../components/guide/VibeCodingGuide'
 import type { GuideTarget } from '../components/guide/guideContent'
 import { AtSign, Globe2, SlidersHorizontal } from 'lucide-react'
@@ -745,6 +746,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   }, [chat?.sessionId, setDraft])
   const codexSyncAuth = useAuth()
   const [newSessionTitle, setNewSessionTitle] = useState('')
+  const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false)
+  const directoryPickerTrigger = useRef<HTMLButtonElement>(null)
   const [newCodexHome, setNewCodexHome] = useState(loadCodexHomePreference)
   // 第三方网关「服务商」：newProviderId 空=官方默认；newModel 为走网关时手填的模型名
   const { data: providerProfiles, isPending: providersLoading, error: providersError, refetch: refreshProviders } = useQuery({
@@ -1573,8 +1576,19 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
             {newSessionIssue && <p role="status" className="mt-2 text-xs text-[var(--color-muted-foreground)]">{newSessionIssue}</p>}
             {workspaces && newSessionPreferences.choice.workspaceRoot && !activeRoot && <p role="status" className="mt-2 text-xs text-[var(--color-muted-foreground)]">上次工作区未出现在当前目录列表，可重新选择工作区或手动指定目录。</p>}
           </div>
-          <p className="text-xs font-medium">工作目录</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium">工作目录</p>
+            <Button ref={directoryPickerTrigger} variant="ghost" size="sm" aria-expanded={directoryPickerOpen}
+              onClick={() => setDirectoryPickerOpen(open => !open)}><FolderOpen className="size-4" />浏览目录</Button>
+          </div>
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">选择工作区与项目，或直接输入路径；留空使用 home。</p>
+          {directoryPickerOpen && <WorkingDirectoryPicker initialPath={newCwd}
+            onSelect={path => {
+              selectNewSessionPreference({ cwd: path })
+              setProjectSearch('')
+              setDirectoryPickerOpen(false)
+              directoryPickerTrigger.current?.focus()
+            }} onCancel={() => { setDirectoryPickerOpen(false); directoryPickerTrigger.current?.focus() }} />}
           {/* 第 1 级：多个工作区或原选择失效时显示，允许显式恢复。 */}
           {(wsRoots.length > 1 || (wsRoots.length === 1 && !activeRoot)) && (
             <div className="mt-1 flex flex-wrap gap-1.5">
