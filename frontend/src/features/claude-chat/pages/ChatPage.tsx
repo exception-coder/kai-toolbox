@@ -5,6 +5,7 @@ import { useChatFocusMode } from '../hooks/useChatFocusMode'
 import { useSessionViewRoute } from '../hooks/useSessionViewRoute'
 import { WorkspacePreferences } from '../components/WorkspacePreferences'
 import { WorkingDirectoryPicker } from '../components/WorkingDirectoryPicker'
+import { SavedWorkingDirectories } from '../components/SavedWorkingDirectories'
 import { VibeCodingGuide } from '../components/guide/VibeCodingGuide'
 import type { GuideTarget } from '../components/guide/guideContent'
 import { AtSign, Globe2, SlidersHorizontal } from 'lucide-react'
@@ -1582,6 +1583,11 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               onClick={() => setDirectoryPickerOpen(open => !open)}><FolderOpen className="size-4" />浏览目录</Button>
           </div>
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">选择工作区与项目，或直接输入路径；留空使用 home。</p>
+          <SavedWorkingDirectories cwd={newCwd} onSelect={path => {
+            selectNewSessionPreference({ cwd: path })
+            setProjectSearch('')
+            setDirectoryPickerOpen(false)
+          }} />
           {directoryPickerOpen && <WorkingDirectoryPicker initialPath={newCwd}
             onSelect={path => {
               selectNewSessionPreference({ cwd: path })

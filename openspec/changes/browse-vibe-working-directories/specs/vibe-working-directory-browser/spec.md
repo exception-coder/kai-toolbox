@@ -25,3 +25,22 @@ The directory browser SHALL preserve global project exclusions, SHALL validate b
 #### Scenario: Wide directory
 - **WHEN** more than 500 accessible children are found
 - **THEN** at most 500 are returned with a truncation notice and a manual-path recovery
+
+### Requirement: Persist explicit working directory shortcuts
+The new-session panel SHALL save explicitly selected directory shortcuts through the existing server preference storage and SHALL offer them after reload or from another device using the same Forge instance.
+
+#### Scenario: Save and restore
+- **WHEN** a user saves a valid directory and later reopens the panel
+- **THEN** the path is read from server preferences and can be selected without browsing again
+
+#### Scenario: Duplicate and failed save
+- **WHEN** the directory already exists in the shortcut list or the latest preference cannot be read
+- **THEN** duplicate path variants are not appended and failed reads do not overwrite stored data
+
+#### Scenario: Select an unavailable directory
+- **WHEN** a saved directory no longer exists or is excluded
+- **THEN** selection is rejected without changing cwd and removal remains available
+
+#### Scenario: Remove a shortcut
+- **WHEN** the user removes a saved directory
+- **THEN** only the server shortcut list changes and filesystem files remain untouched
