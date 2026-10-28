@@ -20,6 +20,7 @@ import {
   codexIncompleteTurnMessage,
 } from './codexTurnCompletion.js'
 import { configuredMcpServerNames, type RequiredMcpTool } from './codexSecurity.js'
+import { CodexMcpStartupWarnings } from './codexMcpStartupWarnings.js'
 import {
   buildCodexCapabilitySnapshot,
   parseMcpCapabilities,
@@ -811,6 +812,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   const commandActivities = new Map<string, CommandActivityState>()
   const commandActivityEmittedAt = new Map<string, number>()
   const mcpActivities = new Map<string, McpActivityState>()
+  const mcpStartupWarnings = new CodexMcpStartupWarnings()
   let completionGate = new CodexTurnCompletionGate()
   let finishVoiceIdle: (() => void) | undefined
 
@@ -1109,15 +1111,14 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
       }
       switch (method) {
         case 'mcpServer/startupStatus/updated': {
-          const statusRecord = asRecord(params.status)
-          const serverName = asString(params.serverName) || asString(params.name) || asString(statusRecord?.name)
-          const status = asString(statusRecord?.status) || asString(statusRecord?.state) || asString(params.status)
-          if (/failed|error|unavailable/i.test(status)) {
-            const detail = notificationMessage(statusRecord ?? params)
+          const warning = mcpStartupWarnings.accept(params)
+          if (warning) {
+            console.error(JSON.stringify({ event: 'codex_mcp_startup_failed', sessionId: options.sessionId,
+              threadId, server: warning.server, reason: warning.reason }))
             options.emit({
               type: 'warning',
               code: 'CODEX_MCP_STARTUP_FAILED',
-              message: `${serverName || 'MCP'} 初始化未完成${detail ? `：${detail}` : ''}`,
+              message: warning.message,
             })
           }
           break
