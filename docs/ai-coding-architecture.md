@@ -4,6 +4,14 @@
 
 产品与交互决策遵循 [产品哲学](product-philosophy.md)。具体行为以 OpenSpec 为准，调用参数和实现细节回到组件文档；本文维护整体关系，不替代它们。
 
+## 整体协作图
+
+![团队 AI 编码套件整体协作架构](diagrams/ai-coding-architecture.png)
+
+[可编辑 draw.io 源文件](diagrams/ai-coding-architecture.drawio) · [SVG 矢量预览](diagrams/ai-coding-architecture.svg)。源图使用 draw.io 自带 iOS7 Icons，节点、文字、图标和连接器均可编辑；修改后从同一源图重新导出预览。
+
+图中 Agent 是理解、取舍与实施的主体，Team Standards 提供工程宪法与任务方法，Forge 在项目明确采用时提供执行控制，MCP/Hook 承担调用与事件适配。Forge 的候选上下文聚合规格与实现证据；Agent 按需查询领域知识、跨项目拓扑及其他权威来源。各来源保留事实所有权，最终实现与真实验证落在目标项目中。该图表达当前职责关系，不表示所有项目均已接入 Forge，也不将结构检查等同于业务或运行正确。
+
 ## 维护契约
 
 **改变架构套件的协作契约，必须在同次作业中更新本文；不改变契约，不为凑流程修改本文。** 责任归本次实施 Agent 和变更负责人，不等待用户再次要求更新说明。
