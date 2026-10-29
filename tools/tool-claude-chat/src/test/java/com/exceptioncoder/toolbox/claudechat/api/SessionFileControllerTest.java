@@ -5,6 +5,12 @@ import org.junit.jupiter.api.io.TempDir;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.service.SessionLocalPathAccessService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionArtifactReferenceService;
+import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
+import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.MessagePage;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exceptioncoder.toolbox.claudechat.service.SessionProjectDirectoryService;
 import com.exceptioncoder.toolbox.claudechat.service.WorkspaceScanService;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
@@ -22,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class SessionFileControllerTest {
 
@@ -54,7 +61,7 @@ class SessionFileControllerTest {
         var service = access(List.of(additional.toString()));
         com.exceptioncoder.toolbox.common.project.ProjectAccess policy = path -> !path.toAbsolutePath().normalize().startsWith(additional);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "projectAccess", policy);
-        var restricted = new SessionFileController(repository(primary), service);
+        var restricted = new SessionFileController(repository(primary), service, references(), sessionAccess());
         assertThrows(IllegalArgumentException.class, () -> restricted.diagram("session", file.toString()));
     }
 
@@ -74,7 +81,45 @@ class SessionFileControllerTest {
     }
 
     private static SessionFileController controller(Path directory, List<String> additional) {
-        return new SessionFileController(repository(directory), access(additional));
+        return new SessionFileController(repository(directory), access(additional), references(), sessionAccess());
+    }
+
+    @Test
+    void readsCrossDirectoryDiagramFromVerifiedAssistantReferenceOnly(@TempDir Path directory) throws Exception {
+        Path primary = Files.createDirectories(directory.resolve("primary"));
+        Path file = directory.resolve("visit-current-sequence.drawio");
+        String xml = "<mxGraphModel><root/></mxGraphModel>";
+        Files.writeString(file, xml);
+        var history = mock(SessionHistoryService.class);
+        when(history.readCursorMessages(anyString(), anyString(), isNull(), isNull(), isNull(), eq(100)))
+                .thenReturn(MessagePage.empty());
+        var references = new SessionArtifactReferenceService(history, path -> true, new ObjectMapper());
+        var session = repository(primary).findById("session").orElseThrow();
+        references.remember(session, new MessagePage(List.of(ChatMessageView.assistant("reply", "[时序图](" + file + ")", 1L)), null, false));
+        var controller = new SessionFileController(repository(primary), access(List.of()), references, sessionAccess());
+        assertEquals(xml, controller.diagram("session", file.toString()).content());
+        verifyNoInteractions(history);
+        Path sibling = directory.resolve("unreferenced.drawio");
+        Files.writeString(sibling, xml);
+        assertThrows(IllegalArgumentException.class, () -> controller.diagram("session", sibling.toString()));
+        var denied = mock(ClaudeChatSessionAccessPolicy.class);
+        var unauthorized = new SessionFileController(repository(primary), access(List.of()), references, denied);
+        assertEquals(403, assertThrows(ResponseStatusException.class,
+                () -> unauthorized.diagram("session", file.toString())).getStatusCode().value());
+        Files.delete(file);
+        assertThrows(IllegalArgumentException.class, () -> controller.diagram("session", file.toString()));
+    }
+
+    private static SessionArtifactReferenceService references() {
+        var references = mock(SessionArtifactReferenceService.class);
+        when(references.resolve(any(), anyString(), any())).thenThrow(new IllegalArgumentException("no reference"));
+        return references;
+    }
+
+    private static ClaudeChatSessionAccessPolicy sessionAccess() {
+        var access = mock(ClaudeChatSessionAccessPolicy.class);
+        when(access.canAccessCurrentUser(anyString())).thenReturn(true);
+        return access;
     }
 
     private static ClaudeChatSessionRepository repository(Path directory) {

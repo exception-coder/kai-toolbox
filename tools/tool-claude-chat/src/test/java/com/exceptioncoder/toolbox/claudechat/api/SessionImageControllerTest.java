@@ -4,7 +4,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import com.exceptioncoder.toolbox.claudechat.service.SessionLocalPathAccessService;
-import com.exceptioncoder.toolbox.claudechat.service.SessionImageReferenceService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionArtifactReferenceService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionProjectDirectoryService;
 import com.exceptioncoder.toolbox.claudechat.service.WorkspaceScanService;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
@@ -77,7 +77,7 @@ class SessionImageControllerTest {
         Path primary = Files.createDirectories(root.resolve("primary"));
         Path image = root.resolve("external-phone.png"); Files.write(image, png());
         var history = mock(com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService.class);
-        var references = new SessionImageReferenceService(history, path -> true, new com.fasterxml.jackson.databind.ObjectMapper());
+        var references = new SessionArtifactReferenceService(history, path -> true, new com.fasterxml.jackson.databind.ObjectMapper());
         var session = ClaudeChatSession.builder().id("session").cwd(primary.toString()).build();
         references.remember(session, new com.exceptioncoder.toolbox.claudechat.api.dto.MessagePage(
                 List.of(com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView.assistant("reply", "![手机验收](" + image + ")", 1L)), null, false));
@@ -86,8 +86,8 @@ class SessionImageControllerTest {
         verifyNoInteractions(history);
     }
 
-    private static SessionImageReferenceService references() {
-        var references = mock(SessionImageReferenceService.class);
+    private static SessionArtifactReferenceService references() {
+        var references = mock(SessionArtifactReferenceService.class);
         when(references.resolve(any(), anyString())).thenThrow(new IllegalArgumentException("no reference"));
         return references;
     }

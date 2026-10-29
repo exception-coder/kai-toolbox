@@ -15,6 +15,34 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class CodexImportedHistoryTest {
+    @Test void onlyAuthorizedLogicalSessionPagesCanRememberArtifactReferences() {
+        var repo = mock(ClaudeChatSessionRepository.class);
+        var history = mock(SessionHistoryService.class);
+        var policy = mock(ClaudeChatSessionAccessPolicy.class);
+        var references = mock(com.exceptioncoder.toolbox.claudechat.service.SessionArtifactReferenceService.class);
+        var controller = new ClaudeChatHistoryController(history, mock(SessionAliasRepository.class), repo, new ObjectMapper());
+        ReflectionTestUtils.setField(controller, "accessPolicy", policy);
+        ReflectionTestUtils.setField(controller, "artifactReferences", references);
+        var session = ClaudeChatSession.builder().id("forge").sdkSessionId("native").cwd("D:/a").build();
+        var page = com.exceptioncoder.toolbox.claudechat.api.dto.MessagePage.empty();
+        when(repo.findById("forge")).thenReturn(Optional.of(session));
+        when(repo.findBySdkSessionId("native")).thenReturn(Optional.of(session));
+        when(policy.canAccessCurrentUser(session)).thenReturn(true);
+        when(history.readCursorMessages("D:/a", "native", null, null, "older", 30)).thenReturn(page);
+        when(references.remember(session, page)).thenReturn(page);
+        assertThat(controller.messages("native", "untrusted", null, 30, "forge", "cursor", "older")).isSameAs(page);
+        verify(references).remember(session, page);
+        clearInvocations(references);
+        controller.messages("native", "D:/a", null, 30, null, null, null);
+        verifyNoInteractions(references);
+        assertThatThrownBy(() -> controller.messages("foreign", null, null, 30, "forge", "cursor", null))
+                .hasMessageContaining("句柄不属于当前会话");
+        when(policy.canAccessCurrentUser(session)).thenReturn(false);
+        assertThatThrownBy(() -> controller.messages("native", null, null, 30, "forge", "cursor", null))
+                .hasMessageContaining("无权读取");
+        verifyNoInteractions(references);
+    }
+
     @Test void logicalSessionChoosesHomeEvenWhenNativeIdsAreEqual() {
         var repo = mock(ClaudeChatSessionRepository.class);
         var history = mock(SessionHistoryService.class);

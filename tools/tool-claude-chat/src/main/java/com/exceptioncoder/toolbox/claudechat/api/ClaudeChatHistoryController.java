@@ -35,7 +35,7 @@ public class ClaudeChatHistoryController {
     @org.springframework.beans.factory.annotation.Autowired
     private ClaudeChatSessionAccessPolicy accessPolicy;
     @org.springframework.beans.factory.annotation.Autowired
-    private com.exceptioncoder.toolbox.claudechat.service.SessionImageReferenceService imageReferences;
+    private com.exceptioncoder.toolbox.claudechat.service.SessionArtifactReferenceService artifactReferences;
     @org.springframework.beans.factory.annotation.Autowired
     private com.exceptioncoder.toolbox.claudechat.repository.ConsultRuntimeRepository consultHistory;
     @org.springframework.beans.factory.annotation.Autowired
@@ -103,18 +103,18 @@ public class ClaudeChatHistoryController {
             return history.readReviewMessages(db.getCwd(), sdkSessionId, db.getCodexHome(), before, limit);
         }
         String codexHome = db == null ? null : db.getCodexHome();
-        // 仅已核验逻辑会话/原生句柄的正常历史页可以登记图片引用。
+        // 仅已核验逻辑会话/原生句柄的正常历史页可以登记图片及图文件引用。
         boolean trustedPage = db != null && (sessionId != null && !sessionId.isBlank() || "cursor".equals(pagination));
         if ("cursor".equals(pagination)) {
             MessagePage page = history.readCursorMessages(cwd, sdkSessionId, codexHome, before, cursor, limit);
-            return trustedPage && imageReferences != null ? imageReferences.remember(db, page) : page;
+            return trustedPage && artifactReferences != null ? artifactReferences.remember(db, page) : page;
         }
         if (cursor != null) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.BAD_REQUEST, "字节游标需要匹配的分页模式");
         }
         MessagePage page = history.readMessages(cwd, sdkSessionId, codexHome, before, limit);
-        return trustedPage && imageReferences != null ? imageReferences.remember(db, page) : page;
+        return trustedPage && artifactReferences != null ? artifactReferences.remember(db, page) : page;
     }
 
     /**

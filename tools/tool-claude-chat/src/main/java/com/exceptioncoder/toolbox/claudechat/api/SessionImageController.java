@@ -3,7 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.api;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import com.exceptioncoder.toolbox.claudechat.service.SessionLocalPathAccessService;
-import com.exceptioncoder.toolbox.claudechat.service.SessionImageReferenceService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionArtifactReferenceService;
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
@@ -27,14 +27,14 @@ public class SessionImageController {
     private final ClaudeChatSessionRepository repository;
     private final ClaudeChatSessionAccessPolicy access;
     private final SessionLocalPathAccessService paths;
-    private final SessionImageReferenceService imageReferences;
+    private final SessionArtifactReferenceService artifactReferences;
 
     public SessionImageController(ClaudeChatSessionRepository repository, ClaudeChatSessionAccessPolicy access,
-                                  SessionLocalPathAccessService paths, SessionImageReferenceService imageReferences) {
+                                  SessionLocalPathAccessService paths, SessionArtifactReferenceService artifactReferences) {
         this.repository = repository;
         this.access = access;
         this.paths = paths;
-        this.imageReferences = imageReferences;
+        this.artifactReferences = artifactReferences;
     }
 
     @RequireAuth
@@ -53,7 +53,7 @@ public class SessionImageController {
         try {
             file = paths.resolve(id, Path.of(session.getCwd()).toAbsolutePath().normalize(), linkedPath);
         } catch (IllegalArgumentException outsideProject) {
-            file = imageReferences.resolve(session, linkedPath);
+            file = artifactReferences.resolve(session, linkedPath);
         }
         if (!Files.isRegularFile(file) || !Files.isReadable(file)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "图片文件不存在或不可读");

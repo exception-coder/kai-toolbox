@@ -5,6 +5,9 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.FileEntryView;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.service.SessionLocalPathAccessService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionArtifactReferenceService;
+import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
+import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -64,11 +67,17 @@ public class SessionFileController {
     @org.springframework.beans.factory.annotation.Autowired
     private com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess;
     private final SessionLocalPathAccessService localPathAccessService;
+    private final SessionArtifactReferenceService artifactReferences;
+    private final ClaudeChatSessionAccessPolicy sessionAccess;
 
     public SessionFileController(ClaudeChatSessionRepository repo,
-                                 SessionLocalPathAccessService localPathAccessService) {
+                                 SessionLocalPathAccessService localPathAccessService,
+                                 SessionArtifactReferenceService artifactReferences,
+                                 ClaudeChatSessionAccessPolicy sessionAccess) {
         this.repo = repo;
         this.localPathAccessService = localPathAccessService;
+        this.artifactReferences = artifactReferences;
+        this.sessionAccess = sessionAccess;
     }
 
     /** 列某目录（相对 cwd，空=cwd 根）的一级内容：目录在前、文件在后，各按名排序。 */
@@ -142,9 +151,21 @@ public class SessionFileController {
 
     /** 完整读取消息图文件，复用本地链接的会话/已登记项目校验，不执行或写入文件。 */
     @GetMapping("/diagram")
+    @RequireAuth
     public FileContentView diagram(@PathVariable String id, @RequestParam String path) {
+        if (!sessionAccess.canAccessCurrentUser(id)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前用户不能访问该会话图文件");
+        }
         Path cwd = sessionCwd(id);
-        Path target = localPathAccessService.resolve(id, cwd, normalizeLinkedPath(path));
+        String linkedPath = normalizeLinkedPath(path);
+        Path target;
+        try {
+            target = localPathAccessService.resolve(id, cwd, linkedPath);
+        } catch (IllegalArgumentException outsideProject) {
+            var session = repo.findById(id)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在"));
+            target = artifactReferences.resolve(session, linkedPath, SessionArtifactReferenceService.Kind.DIAGRAM);
+        }
         String name = target.getFileName() == null ? "" : target.getFileName().toString();
         String lower = name.toLowerCase(Locale.ROOT);
         if ((!lower.endsWith(".drawio") && !lower.endsWith(".drawio.xml")) || !Files.isRegularFile(target)) {
