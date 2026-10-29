@@ -434,6 +434,11 @@ export function readSessionDiagram(sessionId: string, path: string, signal?: Abo
   return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/diagram?path=${encodeURIComponent(path)}`, { signal })
 }
 
+/** 完整读取本地 Markdown；取消、会话权限和跨目录精确引用由同一文件链路处理。 */
+export function readSessionMarkdown(sessionId: string, path: string, signal?: AbortSignal) {
+  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/markdown?path=${encodeURIComponent(path)}`, { signal })
+}
+
 /** 本地图片经会话鉴权读取；不把服务器磁盘路径作为浏览器 URL。 */
 export async function readSessionImage(sessionId: string, path: string, signal?: AbortSignal): Promise<Blob> {
   const response = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/image?path=${encodeURIComponent(path)}`, { signal })

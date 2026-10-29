@@ -14,6 +14,12 @@ import { splitMessageBlocks } from '../lib/messageBlocks'
 import { PagePreviewDialog, pagePreviewEntryFromHref } from '@/features/browser-request/public-api/page-preview'
 
 const MessageDrawioDialog = lazy(() => import('./messages/MessageDrawioDialog').then(module => ({ default: module.MessageDrawioDialog })))
+const MessageMarkdownDialog = lazy(() => import('./messages/MessageMarkdownDialog').then(module => ({ default: module.MessageMarkdownDialog })))
+
+interface MarkdownContext {
+  documentPath?: string
+  onOpenMarkdown?: (path: string) => void
+}
 
 function LocalMessageImage({ sessionId, path, alt }: { sessionId?: string; path: string; alt: string }) {
   const load = useCallback((signal: AbortSignal) => sessionId
@@ -123,12 +129,13 @@ function MermaidDiagram({ code }: { code: string }) {
 }
 
 // ── MarkdownPart：单段普通 markdown 渲染（保留原有实现）──────────────────────
-function MarkdownPart({ text, className, sessionId }: { text: string; className?: string; sessionId?: string }) {
+function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown }: { text: string; className?: string; sessionId?: string } & MarkdownContext) {
   const [localPathNotice, setLocalPathNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
   const content = useRef<HTMLDivElement>(null)
   const [diagram, setDiagram] = useState<{ sessionId: string; path: string; trigger: HTMLAnchorElement } | null>(null)
+  const [markdownDocument, setMarkdownDocument] = useState<{ sessionId: string; path: string; trigger: HTMLAnchorElement } | null>(null)
   const [pagePreview, setPagePreview] = useState<{ sessionId?: string; path: string; trigger: HTMLAnchorElement } | null>(null)
-  useEffect(() => { setDiagram(null); setPagePreview(null) }, [sessionId])
+  useEffect(() => { setDiagram(null); setMarkdownDocument(null); setPagePreview(null) }, [sessionId, documentPath])
   const [imageTargets, setImageTargets] = useState<{ html: string | null; sessionId?: string; targets: HTMLSpanElement[] }>({ html: null, targets: [] })
   const html = useMemo(() => {
     if (!text.trim()) return null
@@ -136,6 +143,10 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
       const raw = parseChatMarkdown(text)
       const rawDoc = new DOMParser().parseFromString(raw, 'text/html')
       rawDoc.querySelectorAll<HTMLAnchorElement>('a').forEach(anchor => {
+        if (documentPath) {
+          const href = anchor.getAttribute('href')
+          if (href && !/^(?:[a-z][\w+.-]*:|\/|#|\?)/i.test(href)) anchor.setAttribute('href', relativeToDocument(href, documentPath))
+        }
         const previewPath = pagePreviewEntryFromHref(anchor.getAttribute('href'))
         if (previewPath) {
           anchor.dataset.pagePreview = previewPath
@@ -149,6 +160,13 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
           anchor.title = `预览 draw.io：${diagramPath}`
           return
         }
+        const markdownPath = markdownPathFromHref(anchor.getAttribute('href'))
+        if (markdownPath) {
+          anchor.dataset.markdownPath = markdownPath
+          anchor.href = '#'
+          anchor.title = `预览 Markdown：${markdownPath}`
+          return
+        }
         const localPath = localPathFromHref(anchor.getAttribute('href'))
         if (!localPath) return
         anchor.dataset.localPath = localPath
@@ -158,11 +176,27 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
       // 盘符和 file: 不是浏览器可加载的 URL。先保存为普通数据，再消毒所有 HTML。
       rawDoc.querySelectorAll<HTMLImageElement>('img').forEach(image => {
         delete image.dataset.localImage
+        if (documentPath) {
+          const src = image.getAttribute('src')
+          if (src && !/^(?:[a-z][\w+.-]*:|\/|#|\?)/i.test(src)) image.setAttribute('src', relativeToDocument(src, documentPath))
+        }
         const path = localImagePath(image.getAttribute('src'))
         if (path) { image.dataset.localImage = path; image.removeAttribute('src') }
       })
-      const sanitized = DOMPurify.sanitize(rawDoc.body.innerHTML)
+      const sanitized = DOMPurify.sanitize(rawDoc.body.innerHTML, documentPath ? {
+        FORBID_TAGS: ['style', 'link', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea'],
+        FORBID_ATTR: ['style', 'srcset'],
+      } : undefined)
       const doc = new DOMParser().parseFromString(sanitized, 'text/html')
+      if (documentPath) {
+        const slugs = new Map<string, number>()
+        doc.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(heading => {
+          const slug = (heading.textContent ?? '').trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-')
+          const count = slugs.get(slug) ?? 0
+          slugs.set(slug, count + 1)
+          ;(heading as HTMLElement).dataset.documentAnchor = count ? `${slug}-${count}` : slug
+        })
+      }
       doc.querySelectorAll<HTMLImageElement>('img').forEach(image => {
         const placeholder = doc.createElement('span')
         placeholder.dataset.messageImage = image.getAttribute('src') ?? ''
@@ -192,7 +226,7 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
     } catch {
       return null
     }
-  }, [text])
+  }, [text, documentPath])
 
   const markup = useMemo(() => ({ __html: html ?? '' }), [html])
 
@@ -202,6 +236,17 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
 
   const handleClick = async (event: ReactMouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
+    const anchor = target.closest<HTMLAnchorElement>('a[href]')
+    const href = anchor?.getAttribute('href')
+    if (documentPath && href?.startsWith('#') && href.length > 1) {
+      event.preventDefault()
+      let slug = href.slice(1)
+      try { slug = decodeURIComponent(slug) } catch { /* 无效编码不跳转外层会话。 */ }
+      const heading = Array.from(content.current?.querySelectorAll<HTMLElement>('[data-document-anchor]') ?? [])
+        .find(element => element.dataset.documentAnchor === slug)
+      heading?.scrollIntoView({ block: 'start' })
+      return
+    }
     const previewLink = target.closest<HTMLAnchorElement>('a[data-page-preview]')
     if (previewLink) {
       event.preventDefault()
@@ -215,6 +260,18 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
         setLocalPathNotice({ tone: 'error', text: '当前视图没有可用的会话，无法读取图文件' })
       } else {
         setDiagram({ sessionId, path: diagramLink.dataset.diagramPath!, trigger: diagramLink })
+      }
+      return
+    }
+    const markdownLink = target.closest<HTMLAnchorElement>('a[data-markdown-path]')
+    if (markdownLink) {
+      event.preventDefault()
+      if (!sessionId) {
+        setLocalPathNotice({ tone: 'error', text: '当前视图没有可用的会话，无法读取 Markdown 文件' })
+      } else if (onOpenMarkdown) {
+        onOpenMarkdown(markdownLink.dataset.markdownPath!)
+      } else {
+        setMarkdownDocument({ sessionId, path: markdownLink.dataset.markdownPath!, trigger: markdownLink })
       }
       return
     }
@@ -323,6 +380,12 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
         const target = diagram.trigger.isConnected ? diagram.trigger : content.current
         target?.focus({ preventScroll: true })
       }} /></Suspense>}
+      {markdownDocument && sessionId && markdownDocument.sessionId === sessionId && <Suspense fallback={<p role="status" className="mt-2 text-sm">正在打开 Markdown 预览…</p>}><MessageMarkdownDialog key={`${sessionId}:${markdownDocument.path}`} sessionId={sessionId} path={markdownDocument.path} onClose={() => setMarkdownDocument(null)} returnFocus={() => {
+        const replacement = Array.from(content.current?.querySelectorAll<HTMLAnchorElement>('a[data-markdown-path]') ?? [])
+          .find(anchor => anchor.dataset.markdownPath === markdownDocument.path)
+        const target = markdownDocument.trigger.isConnected ? markdownDocument.trigger : replacement ?? content.current
+        target?.focus({ preventScroll: true })
+      }} /></Suspense>}
       {pagePreview && pagePreview.sessionId === sessionId && <PagePreviewDialog key={`${sessionId}:${pagePreview.path}`} entryPath={pagePreview.path} onClose={() => setPagePreview(null)} returnFocus={() => {
         const replacement = Array.from(content.current?.querySelectorAll<HTMLAnchorElement>('a[data-page-preview]') ?? [])
           .find(anchor => anchor.dataset.pagePreview === pagePreview.path)
@@ -382,6 +445,23 @@ function diagramPathFromHref(href: string | null): string | null {
   } catch { return null }
 }
 
+function markdownPathFromHref(href: string | null): string | null {
+  if (!href) return null
+  const value = href.replace(/(?::\d+(?::\d+)?|#.*)$/i, '')
+  const local = localPathFromHref(value)
+  if (local) return /\.(?:md|markdown)$/i.test(local) ? local : null
+  if (/^(?:[a-z][\w+.-]*:|\/\/|#|\?)/i.test(value)) return null
+  try {
+    const decoded = decodeURIComponent(value)
+    return /\.(?:md|markdown)$/i.test(decoded) ? decoded : null
+  } catch { return null }
+}
+
+function relativeToDocument(relative: string, documentPath: string): string {
+  const directory = documentPath.replace(/\\/g, '/').replace(/[^/]+$/, '')
+  return directory + relative
+}
+
 // ── Markdown（对外导出）────────────────────────────────────────────────────────
 /**
  * 渲染 assistant 回复的 markdown，支持 mermaid 图表渲染。
@@ -390,12 +470,12 @@ function diagramPathFromHref(href: string | null): string | null {
  * - site-preview 声明仅提供点击入口，不在输出或流式更新时访问站点
  * - 流式代码块未闭合时当普通代码块显示
  */
-export function Markdown({ text, className, sessionId }: { text: string; className?: string; sessionId?: string }) {
+export function Markdown({ text, className, sessionId, documentPath, onOpenMarkdown }: { text: string; className?: string; sessionId?: string } & MarkdownContext) {
   const segments = useMemo(() => splitMessageBlocks(text ?? ''), [text])
 
   // 只有一段普通文本（最常见情况）：走原来最简路径，不引入额外 wrapper
   if (segments.length === 1 && segments[0].kind === 'text') {
-    return <MarkdownPart text={segments[0].content} className={className} sessionId={sessionId} />
+    return <MarkdownPart text={segments[0].content} className={className} sessionId={sessionId} documentPath={documentPath} onOpenMarkdown={onOpenMarkdown} />
   }
 
   return (
@@ -405,7 +485,7 @@ export function Markdown({ text, className, sessionId }: { text: string; classNa
           ? <MermaidDiagram key={i} code={seg.code} />
           : seg.kind === 'site-preview'
             ? <SitePreviewLink key={`${sessionId ?? ''}:${i}:${seg.code}`} declaration={seg.code} />
-            : <MarkdownPart key={i} text={seg.content} sessionId={sessionId} />
+            : <MarkdownPart key={i} text={seg.content} sessionId={sessionId} documentPath={documentPath} onOpenMarkdown={onOpenMarkdown} />
       )}
     </div>
   )

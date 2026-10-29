@@ -116,6 +116,48 @@ class SessionFileControllerTest {
         return references;
     }
 
+    @Test
+    void readsCompleteMarkdownAndRetainsTypeEncodingAndSizeBoundaries(@TempDir Path directory) throws Exception {
+        var controller = controller(directory, List.of());
+        String content = "# 中文文档\n" + "内容\n".repeat(100_000);
+        Path file = directory.resolve("说明.markdown");
+        Files.writeString(file, content);
+        var result = controller.markdown("session", "说明.markdown#L2");
+        assertEquals(content, result.content());
+        assertEquals(file.toString(), result.path());
+        assertFalse(result.truncated());
+        Files.writeString(directory.resolve("code.mdx"), "export default () => null");
+        assertThrows(IllegalArgumentException.class, () -> controller.markdown("session", "code.mdx"));
+        assertThrows(IllegalArgumentException.class, () -> controller.markdown("session", "missing.md"));
+        Files.write(directory.resolve("binary.md"), new byte[] {0, 1});
+        assertThrows(IllegalArgumentException.class, () -> controller.markdown("session", "binary.md"));
+        Files.write(directory.resolve("invalid.md"), new byte[] {(byte) 0xc3, 0x28});
+        assertThrows(IllegalArgumentException.class, () -> controller.markdown("session", "invalid.md"));
+        Files.write(directory.resolve("large.md"), new byte[2 * 1024 * 1024 + 1]);
+        assertEquals(413, assertThrows(ResponseStatusException.class,
+                () -> controller.markdown("session", "large.md")).getStatusCode().value());
+        assertThrows(IllegalArgumentException.class, () -> controller.markdown("session", "../outside.md"));
+    }
+
+    @Test
+    void readsOnlyTheReferencedExternalMarkdownAndRejectsUnauthorizedOrExcluded(@TempDir Path directory) throws Exception {
+        Path primary = Files.createDirectories(directory.resolve("primary"));
+        Path file = directory.resolve("integration.md");
+        Files.writeString(file, "# 接入设计");
+        var session = repository(primary).findById("session").orElseThrow();
+        var references = new SessionArtifactReferenceService(mock(SessionHistoryService.class), path -> true, new ObjectMapper());
+        references.remember(session, new MessagePage(List.of(ChatMessageView.assistant("reply", "[说明](" + file + ")", 1L)), null, false));
+        var controller = new SessionFileController(repository(primary), access(List.of()), references, sessionAccess());
+        assertEquals("# 接入设计", controller.markdown("session", file.toString()).content());
+        assertThrows(IllegalArgumentException.class, () -> controller.markdown("session", directory.resolve("sibling.md").toString()));
+        var unauthorized = new SessionFileController(repository(primary), access(List.of()), references, mock(ClaudeChatSessionAccessPolicy.class));
+        assertEquals(403, assertThrows(ResponseStatusException.class, () -> unauthorized.markdown("session", file.toString())).getStatusCode().value());
+        var excluded = new SessionArtifactReferenceService(mock(SessionHistoryService.class), path -> false, new ObjectMapper());
+        excluded.remember(session, new MessagePage(List.of(ChatMessageView.assistant("reply", "[说明](" + file + ")", 1L)), null, false));
+        var restricted = new SessionFileController(repository(primary), access(List.of()), excluded, sessionAccess());
+        assertThrows(IllegalArgumentException.class, () -> restricted.markdown("session", file.toString()));
+    }
+
     private static ClaudeChatSessionAccessPolicy sessionAccess() {
         var access = mock(ClaudeChatSessionAccessPolicy.class);
         when(access.canAccessCurrentUser(anyString())).thenReturn(true);

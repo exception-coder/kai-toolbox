@@ -53,6 +53,7 @@ public class SessionFileController {
     /** 文本预览上限（字节）：超出截断。 */
     private static final int MAX_PREVIEW_BYTES = 512 * 1024;
     private static final int MAX_DIAGRAM_BYTES = 5 * 1024 * 1024;
+    private static final int MAX_MARKDOWN_BYTES = 2 * 1024 * 1024;
     private static final boolean IS_WINDOWS =
             System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     private static final boolean IS_MAC =
@@ -153,8 +154,20 @@ public class SessionFileController {
     @GetMapping("/diagram")
     @RequireAuth
     public FileContentView diagram(@PathVariable String id, @RequestParam String path) {
+        return linkedText(id, path, SessionArtifactReferenceService.Kind.DIAGRAM, MAX_DIAGRAM_BYTES, "图文件");
+    }
+
+    /** 完整读取消息中的 Markdown 文档，权限与精确引用边界沿用图文件预览。 */
+    @GetMapping("/markdown")
+    @RequireAuth
+    public FileContentView markdown(@PathVariable String id, @RequestParam String path) {
+        return linkedText(id, path, SessionArtifactReferenceService.Kind.MARKDOWN, MAX_MARKDOWN_BYTES, "Markdown 文件");
+    }
+
+    private FileContentView linkedText(String id, String path, SessionArtifactReferenceService.Kind kind,
+                                       int maxBytes, String label) {
         if (!sessionAccess.canAccessCurrentUser(id)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前用户不能访问该会话图文件");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前用户不能访问该会话" + label);
         }
         Path cwd = sessionCwd(id);
         String linkedPath = normalizeLinkedPath(path);
@@ -164,26 +177,29 @@ public class SessionFileController {
         } catch (IllegalArgumentException outsideProject) {
             var session = repo.findById(id)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在"));
-            target = artifactReferences.resolve(session, linkedPath, SessionArtifactReferenceService.Kind.DIAGRAM);
+            target = artifactReferences.resolve(session, linkedPath, kind);
         }
         String name = target.getFileName() == null ? "" : target.getFileName().toString();
         String lower = name.toLowerCase(Locale.ROOT);
-        if ((!lower.endsWith(".drawio") && !lower.endsWith(".drawio.xml")) || !Files.isRegularFile(target)) {
-            throw new IllegalArgumentException("请选择存在的 .drawio 或 .drawio.xml 图文件");
+        boolean supported = kind == SessionArtifactReferenceService.Kind.DIAGRAM
+                ? lower.endsWith(".drawio") || lower.endsWith(".drawio.xml")
+                : lower.endsWith(".md") || lower.endsWith(".markdown");
+        if (!supported || !Files.isRegularFile(target)) {
+            throw new IllegalArgumentException("请选择存在的" + label + "（" + (kind == SessionArtifactReferenceService.Kind.DIAGRAM ? ".drawio / .drawio.xml" : ".md / .markdown") + "）");
         }
         try {
-            if (Files.size(target) > MAX_DIAGRAM_BYTES) {
-                throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "图文件超过 5 MiB，请拆分后查看");
+            if (Files.size(target) > maxBytes) {
+                throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, label + "超过 " + maxBytes / (1024 * 1024) + " MiB，请拆分后查看");
             }
             byte[] bytes;
             try (var input = Files.newInputStream(target)) {
-                bytes = input.readNBytes(MAX_DIAGRAM_BYTES + 1);
+                bytes = input.readNBytes(maxBytes + 1);
             }
-            if (bytes.length > MAX_DIAGRAM_BYTES) {
-                throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "图文件超过 5 MiB，请拆分后查看");
+            if (bytes.length > maxBytes) {
+                throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, label + "超过 " + maxBytes / (1024 * 1024) + " MiB，请拆分后查看");
             }
             if (looksBinary(bytes)) {
-                throw new IllegalArgumentException("图文件不是有效的 UTF-8 文本，请重新导出");
+                throw new IllegalArgumentException(label + "不是有效的 UTF-8 文本，请重新导出");
             }
             String text = StandardCharsets.UTF_8.newDecoder()
                     .onMalformedInput(CodingErrorAction.REPORT)
@@ -191,9 +207,9 @@ public class SessionFileController {
                     .decode(java.nio.ByteBuffer.wrap(bytes)).toString();
             return new FileContentView(name, target.toString(), bytes.length, false, false, text);
         } catch (CharacterCodingException exception) {
-            throw new IllegalArgumentException("图文件不是有效的 UTF-8 文本，请重新导出", exception);
+            throw new IllegalArgumentException(label + "不是有效的 UTF-8 文本，请重新导出", exception);
         } catch (IOException exception) {
-            throw new IllegalStateException("读取图文件失败：" + exception.getMessage(), exception);
+            throw new IllegalStateException("读取" + label + "失败：" + exception.getMessage(), exception);
         }
     }
 

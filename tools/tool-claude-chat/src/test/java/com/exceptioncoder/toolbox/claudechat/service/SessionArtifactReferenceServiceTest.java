@@ -19,6 +19,25 @@ class SessionArtifactReferenceServiceTest {
     private MessagePage assistant(String text) {
         return new MessagePage(List.of(ChatMessageView.assistant("reply", text, 1L)), null, false);
     }
+
+    @Test void markdownReferencesRemainTypedAndIsolatedEvenWithUriAndFragment() {
+        var history = mock(SessionHistoryService.class);
+        when(history.readCursorMessages(anyString(), anyString(), isNull(), isNull(), isNull(), eq(100))).thenReturn(MessagePage.empty());
+        var service = new SessionArtifactReferenceService(history, path -> true, new ObjectMapper());
+        Path markdown = root.resolve("external/接入 + 说明.markdown");
+        service.remember(session("a"), assistant("[接入说明](<" + markdown.toUri().toASCIIString() + "#section>)"));
+        assertEquals(markdown, service.resolve(session("a"), markdown.toString(), SessionArtifactReferenceService.Kind.MARKDOWN));
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(session("b"), markdown.toString(), SessionArtifactReferenceService.Kind.MARKDOWN));
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(session("a"), markdown.toString(), SessionArtifactReferenceService.Kind.DIAGRAM));
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(session("a"), markdown.toString()));
+        service.remember(session("u"), new MessagePage(List.of(ChatMessageView.user("u", "[说明](" + markdown + ")", 1L)), null, false));
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(session("u"), markdown.toString(), SessionArtifactReferenceService.Kind.MARKDOWN));
+        for (String policy : List.of("review-only", "consult-readonly")) {
+            var readonly = session(policy); readonly.setExecutionPolicy(policy);
+            service.remember(readonly, assistant("[说明](" + markdown + ")"));
+            assertThrows(IllegalArgumentException.class, () -> service.resolve(readonly, markdown.toString(), SessionArtifactReferenceService.Kind.MARKDOWN));
+        }
+    }
     @Test void exactAssistantImageSurvivesCrossProjectPathButNotSiblingOrOtherSession() {
         var history = mock(SessionHistoryService.class);
         when(history.readCursorMessages(anyString(), anyString(), isNull(), isNull(), isNull(), eq(100))).thenReturn(MessagePage.empty());

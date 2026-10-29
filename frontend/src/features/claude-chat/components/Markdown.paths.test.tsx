@@ -134,9 +134,9 @@ describe('消息本地路径', () => {
   })
 
   it.each([
-    ['/D:/Project/yoooni-one/tasks.md', 'D:/Project/yoooni-one/tasks.md'],
-    ['/D:/Project/My%20Project/tasks.md', 'D:/Project/My Project/tasks.md'],
-    ['/home/user/tasks.md', '/home/user/tasks.md'],
+    ['/D:/Project/yoooni-one/Task.java', 'D:/Project/yoooni-one/Task.java'],
+    ['/D:/Project/My%20Project/Task.java', 'D:/Project/My Project/Task.java'],
+    ['/home/user/Task.java', '/home/user/Task.java'],
   ])('打开 %s 时传递有效系统路径', async (href, expected) => {
     render(<Markdown text={`[任务](${href})`} sessionId="session" />)
     fireEvent.click(screen.getByRole('link', { name: '任务' }))

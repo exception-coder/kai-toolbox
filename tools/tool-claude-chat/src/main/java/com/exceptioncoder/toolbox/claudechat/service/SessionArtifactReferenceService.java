@@ -16,7 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/** 仅授权当前开发会话的助手回复已引用的具体图片或图文件，不扩大项目目录读权限。 */
+/** 仅授权当前开发会话的助手回复已引用的具体图片、图文件或 Markdown，不扩大目录读权限。 */
 @Service
 public class SessionArtifactReferenceService {
     private static final int MAX_SESSIONS = 128;
@@ -24,7 +24,7 @@ public class SessionArtifactReferenceService {
     private static final Pattern IMAGE = Pattern.compile("!\\[[^\\]\\r\\n]*\\]\\((?:<([^>\\r\\n]+)>|([^\\r\\n]*?))(?:\\s+\"[^\"]*\")?\\)");
     private static final Pattern LINK = Pattern.compile("(?<!!)\\[[^\\]\\r\\n]*\\]\\((?:<([^>\\r\\n]+)>|([^\\r\\n]*?))(?:\\s+\"[^\"]*\")?\\)");
     private static final Pattern LOCATION_SUFFIX = Pattern.compile("(?::\\d+(?::\\d+)?|#L\\d+)$", Pattern.CASE_INSENSITIVE);
-    public enum Kind { IMAGE, DIAGRAM }
+    public enum Kind { IMAGE, DIAGRAM, MARKDOWN }
     private record Reference(Kind kind, Path path) { }
     private final SessionHistoryService history;
     private final ProjectAccess projectAccess;
@@ -47,8 +47,10 @@ public class SessionArtifactReferenceService {
                 var matches = (kind == Kind.IMAGE ? IMAGE : LINK).matcher(item.text());
                 while (matches.find()) {
                     String raw = matches.group(1) == null ? matches.group(2) : matches.group(1);
-                    Path path = localPath(kind == Kind.DIAGRAM ? LOCATION_SUFFIX.matcher(raw).replaceFirst("") : raw);
-                    if (path != null && path.isAbsolute() && (kind == Kind.IMAGE || isDiagram(path))) {
+                    String linkedPath = kind == Kind.IMAGE ? raw : LOCATION_SUFFIX.matcher(raw).replaceFirst("");
+                    if (kind == Kind.MARKDOWN) linkedPath = linkedPath.split("#", 2)[0];
+                    Path path = localPath(linkedPath);
+                    if (path != null && path.isAbsolute() && supports(kind, path)) {
                         paths.add(new Reference(kind, path.normalize()));
                     }
                 }
@@ -70,8 +72,8 @@ public class SessionArtifactReferenceService {
         }
         projectAccess.requireAllowed(target);
         projectAccess.requireAllowed(realPath(target));
-        if (kind == Kind.DIAGRAM && !isDiagram(target)) {
-            throw new IllegalArgumentException("请选择 .drawio 或 .drawio.xml 图文件");
+        if (!supports(kind, target)) {
+            throw new IllegalArgumentException("文件类型不符合当前预览入口");
         }
         if (contains(session.getId(), kind, target)) return target;
         Set<String> handles = new LinkedHashSet<>();
@@ -94,9 +96,13 @@ public class SessionArtifactReferenceService {
         return paths != null && paths.contains(new Reference(kind, path));
     }
 
-    private static boolean isDiagram(Path path) {
+    private static boolean supports(Kind kind, Path path) {
         String name = path.getFileName() == null ? "" : path.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
-        return name.endsWith(".drawio") || name.endsWith(".drawio.xml");
+        return switch (kind) {
+            case IMAGE -> true;
+            case DIAGRAM -> name.endsWith(".drawio") || name.endsWith(".drawio.xml");
+            case MARKDOWN -> name.endsWith(".md") || name.endsWith(".markdown");
+        };
     }
 
     private static Path realPath(Path target) {
