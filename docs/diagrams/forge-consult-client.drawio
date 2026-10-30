@@ -1,0 +1,196 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" agent="Forge" version="24.7.17">
+  <diagram id="architecture" name="01 接入架构">
+    <mxGraphModel dx="1600" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" background="#FFFFFF" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="eyebrow" value="FORGE / CONSULTATION CLIENT" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontSize=18;fontStyle=1;fontColor=#2563EB;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="65" y="42" width="1150" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="一套业务咨询能力，供各项目按用户身份调用" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontSize=37;fontStyle=1;fontColor=#14213D;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="65" y="97" width="1470" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="SDK 负责连接与恢复；Forge 统一管理咨询对象、AI 账号、上下文和资源权限" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontSize=20;fontColor=#66758B;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="65" y="170" width="1470" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="footer" value="2026-10-30 · 源码交付视图 · 默认关闭 · 待加载版本与真实跨项目 HTTPS/WSS 验收" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontSize=16;fontColor=#66758B;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="65" y="845" width="1470" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="clients-heading" value="项目组应用" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#66758B;fontSize=20;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="65" y="245" width="260" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="web-icon" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.window;aspect=fixed;fillColor=none;strokeColor=#2563EB;strokeWidth=2.2;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="80" y="320" width="54" height="54" as="geometry" />
+        </mxCell>
+        <mxCell id="web" value="浏览器应用&#10;员工本人授权" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#14213D;fontSize=22;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="154" y="312" width="175" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="node-icon" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.tools;aspect=fixed;fillColor=none;strokeColor=#2563EB;strokeWidth=2.2;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="80" y="465" width="54" height="54" as="geometry" />
+        </mxCell>
+        <mxCell id="node" value="Node.js 服务与脚本&#10;凭据仅保存在服务端" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#14213D;fontSize=20;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="154" y="457" width="205" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="sdk" value="Forge Consult Client&#10;&#10;提问 · 附件 · 流式事件&#10;重连 · 历史 · 检查点" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;arcSize=12;fillColor=#EFF6FF;strokeColor=#93C5FD;fontColor=#14213D;fontSize=22;spacing=18;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="390" y="315" width="300" height="275" as="geometry" />
+        </mxCell>
+        <mxCell id="sdk-icon" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.cube;aspect=fixed;fillColor=none;strokeColor=#2563EB;strokeWidth=2.2;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="510" y="246" width="54" height="54" as="geometry" />
+        </mxCell>
+        <mxCell id="auth" value="身份与连接票据&#10;单次消费 · 30 秒有效" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;arcSize=12;fillColor=#FFFBEB;strokeColor=#FCD34D;fontColor=#14213D;fontSize=21;spacing=18;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="770" y="265" width="280" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="auth-icon" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.locked;aspect=fixed;fillColor=none;strokeColor=#B45309;strokeWidth=2.2;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="875" y="197" width="44" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="adapter" value="业务协议适配&#10;提问 · 恢复 · 取消&#10;仅投影问答与业务状态" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;arcSize=12;fillColor=#ECFDF5;strokeColor=#99D5C9;fontColor=#14213D;fontSize=21;spacing=18;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="770" y="505" width="280" height="155" as="geometry" />
+        </mxCell>
+        <mxCell id="core" value="现有业务咨询核心&#10;&#10;系统自动定位&#10;默认 AI 账号逐轮解析&#10;上下文接续与只读资源授权&#10;既有聊天执行与持久历史" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;arcSize=12;fillColor=#2563EB;strokeColor=#2563EB;fontColor=#FFFFFF;fontSize=24;spacing=18;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="1130" y="315" width="390" height="345" as="geometry" />
+        </mxCell>
+        <mxCell id="store" value="原咨询 ID · 原提问人 · 原附件&#10;请求幂等记录与原运行会话关联" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;arcSize=12;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#14213D;fontSize=20;spacing=18;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="1105" y="725" width="440" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="web-sdk" value="调用 SDK" edge="1" parent="1" source="web" target="sdk" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.25;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="node-sdk" value="" edge="1" parent="1" source="node" target="sdk" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.75;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sdk-auth" value="HTTPS 获取票据" edge="1" parent="1" source="sdk" target="auth" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.12;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sdk-ws" value="WSS 业务命令" edge="1" parent="1" source="sdk" target="adapter" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.7;entryX=0;entryY=0.4;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="auth-adapter" value="首帧验证" edge="1" parent="1" source="auth" target="adapter" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="adapter-core" value="复用公共服务" edge="1" parent="1" source="adapter" target="core" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.3;entryX=0;entryY=0.65;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="core-answer" value="回答与终态" edge="1" parent="1" source="core" target="adapter" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.9;entryX=1;entryY=0.85;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="core-store" value="平台保存" edge="1" parent="1" source="core" target="store" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="scope" value="外部不能选择 AI 账号、源码路径或开发权限；业务环境与系统名称只是线索，不能扩大授权。" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#66758B;fontSize=20;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="65" y="730" width="955" height="75" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="flow" name="02 执行与恢复">
+    <mxGraphModel dx="1600" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" background="#FFFFFF" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="eyebrow" value="FORGE / CONSULTATION CLIENT" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontSize=18;fontStyle=1;fontColor=#2563EB;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="65" y="42" width="1150" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="断线恢复观察，不自动重发业务问题" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontSize=37;fontStyle=1;fontColor=#14213D;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="65" y="97" width="1470" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="accepted 表示请求已登记；是否执行成功，以终态和已保存历史为准" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontSize=20;fontColor=#66758B;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="65" y="170" width="1470" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="footer" value="2026-10-30 · 源码交付视图 · 默认关闭 · 待加载版本与真实跨项目 HTTPS/WSS 验收" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontSize=16;fontColor=#66758B;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="65" y="845" width="1470" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="s1" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;arcSize=12;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#14213D;fontSize=23;spacing=18;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="80" y="290" width="390" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="s1-icon" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.locked;aspect=fixed;fillColor=none;strokeColor=#B45309;strokeWidth=2.2;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="104" y="316" width="44" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="s1-title" value="01  验证本人身份" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#B45309;fontSize=24;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="167" y="313" width="278" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="s1-detail" value="HTTPS 请求连接票据&#10;Access Token 不进入 WS URL" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#14213D;fontSize=21;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="108" y="373" width="344" height="71" as="geometry" />
+        </mxCell>
+        <mxCell id="s2" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;arcSize=12;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#14213D;fontSize=23;spacing=18;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="600" y="290" width="390" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="s2-icon" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.share;aspect=fixed;fillColor=none;strokeColor=#2563EB;strokeWidth=2.2;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="624" y="316" width="44" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="s2-title" value="02  建立双向连接" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#2563EB;fontSize=24;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="687" y="313" width="278" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="s2-detail" value="5 秒内提交单次票据&#10;认证后才接收业务命令" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#14213D;fontSize=21;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="628" y="373" width="344" height="71" as="geometry" />
+        </mxCell>
+        <mxCell id="s3" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;arcSize=12;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#14213D;fontSize=23;spacing=18;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="1120" y="290" width="390" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="s3-icon" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.chat;aspect=fixed;fillColor=none;strokeColor=#2563EB;strokeWidth=2.2;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="1144" y="316" width="44" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="s3-title" value="03  登记业务请求" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#2563EB;fontSize=24;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="1207" y="313" width="278" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="s3-detail" value="requestId + 问题 + 附件 ID&#10;原咨询追问 / 创建新咨询" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#14213D;fontSize=21;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="1148" y="373" width="344" height="71" as="geometry" />
+        </mxCell>
+        <mxCell id="s4" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;arcSize=12;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#14213D;fontSize=23;spacing=18;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="1120" y="590" width="390" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="s4-icon" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.cube;aspect=fixed;fillColor=none;strokeColor=#2563EB;strokeWidth=2.2;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="1144" y="616" width="44" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="s4-title" value="04  调用现有咨询" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#2563EB;fontSize=24;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="1207" y="613" width="278" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="s4-detail" value="服务端定位系统与生成调度&#10;执行时读取最新默认账号" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#14213D;fontSize=21;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="1148" y="673" width="344" height="71" as="geometry" />
+        </mxCell>
+        <mxCell id="s5" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;arcSize=12;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#14213D;fontSize=23;spacing=18;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="600" y="590" width="390" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="s5-icon" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.document;aspect=fixed;fillColor=none;strokeColor=#0D9488;strokeWidth=2.2;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="624" y="616" width="44" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="s5-title" value="05  流式回答与终态" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#0D9488;fontSize=24;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="687" y="613" width="278" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="s5-detail" value="answer.delta / snapshot&#10;completed + stopReason" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#14213D;fontSize=21;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="628" y="673" width="344" height="71" as="geometry" />
+        </mxCell>
+        <mxCell id="s6" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;arcSize=12;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#14213D;fontSize=23;spacing=18;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="80" y="590" width="390" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="s6-icon" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.book;aspect=fixed;fillColor=none;strokeColor=#0D9488;strokeWidth=2.2;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="104" y="616" width="44" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="s6-title" value="06  恢复原咨询" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#0D9488;fontSize=24;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="167" y="613" width="278" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="s6-detail" value="重连 + 游标回放&#10;必要时分页读取持久历史" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#14213D;fontSize=21;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="108" y="673" width="344" height="71" as="geometry" />
+        </mxCell>
+        <mxCell id="12" value="一次性票据" edge="1" parent="1" source="s1" target="s2" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="23" value="consult.ask" edge="1" parent="1" source="s2" target="s3" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="34" value="accepted 后执行" edge="1" parent="1" source="s3" target="s4" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="45" value="返回业务事件" edge="1" parent="1" source="s4" target="s5" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;entryX=1;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="56" value="断线 / 重启" edge="1" parent="1" source="s5" target="s6" style="fontFamily=Microsoft YaHei,Arial;html=0;edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#64748B;strokeWidth=2;endArrow=block;endFill=1;fontSize=16;fontColor=#475569;labelBackgroundColor=#FFFFFF;exitX=0;exitY=0.5;entryX=1;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="failure" value="失败与未知状态：保留原 requestId、咨询 ID 和输入；禁止静默换账号或生成新请求重试。" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;align=left;fontColor=#B45309;fontSize=20;whiteSpace=wrap;strokeWidth=1.5;">
+          <mxGeometry x="80" y="785" width="1440" height="40" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

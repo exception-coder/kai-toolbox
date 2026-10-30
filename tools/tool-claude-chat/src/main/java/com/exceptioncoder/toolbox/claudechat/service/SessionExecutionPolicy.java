@@ -24,6 +24,7 @@ public final class SessionExecutionPolicy {
             return CONSULT_READONLY;
         }
         if (uri != null && CONSULT_WS_PATH.equals(uri.getPath())) return CONSULT_READONLY;
+        if (uri != null && "/api/fore-consult/client/ws".equals(uri.getPath())) return CONSULT_READONLY;
         if (uri != null && REVIEW_WS_PATH.equals(uri.getPath())) return REVIEW_ONLY;
         return STANDARD;
     }

@@ -19,6 +19,9 @@ class SessionExecutionPolicyTest {
     @Test
     void consultEndpointAlwaysSelectsReadonlyPolicy() {
         assertThat(SessionExecutionPolicy.forWebSocket(
+                URI.create("wss://forge.test/api/fore-consult/client/ws")))
+                .isEqualTo(SessionExecutionPolicy.CONSULT_READONLY);
+        assertThat(SessionExecutionPolicy.forWebSocket(
                 URI.create("ws://localhost/api/claude-chat/consult/ws?access_token=x")))
                 .isEqualTo(SessionExecutionPolicy.CONSULT_READONLY);
     }

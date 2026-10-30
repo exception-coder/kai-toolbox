@@ -115,6 +115,12 @@ public class ConsultRuntimeRepository implements ConsultationHistoryReader {
         return !jdbc.queryForList("SELECT request_id FROM claude_consult_request WHERE session_id=? AND request_id=?", String.class, session, request).isEmpty();
     }
 
+    public Optional<String> requestForTurn(String session, String turn) {
+        if (turn == null || turn.isBlank()) return Optional.empty();
+        return jdbc.queryForList("SELECT request_id FROM claude_consult_request WHERE session_id=? AND turn_id=?",
+                String.class, session, turn).stream().findFirst();
+    }
+
     public void request(String session, String request, String turn, String segment, String home, long version) {
         jdbc.update("INSERT INTO claude_consult_request(session_id, request_id, turn_id, segment_id, codex_home, policy_version, state, created_at) VALUES (?, ?, ?, ?, ?, ?, 'DISPATCHING', ?)",
                 session, request, turn, segment, home, version, System.currentTimeMillis());

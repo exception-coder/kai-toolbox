@@ -1,5 +1,7 @@
 # 公共 LLM 与一次性 Agent 能力
 
+业务咨询的项目组接入通过 `ConsultClientApplication` 调用咨询所属模块的身份、创建、追问和幂等规则，通过 `ConsultClientRuntime` 调用聊天所属模块创建只读运行元数据。端口不承载客户端凭据或任意目录配置；协议与发布边界见 [SDK 接入说明](../sdk/forge-consult-client/README.md)。
+
 业务模块依赖 `toolbox-llm`，通过构造器注入 `AgentOneShotRunner` 即可执行一次性任务。宿主装配 `tool-claude-chat` 后，由已有 `AgentOneShotService` 提供该 Bean；业务模块不要直接依赖实现模块或管理 Sidecar 进程。
 
 业务咨询运行账号使用独立公共端口：`ConsultationRuntimePolicy` 由咨询模块按稳定聊天身份解析当前业务策略和已保存问答；`AgentAccountValidator` 由聊天运行模块提供受控登录/工作区/模型检测；`ConsultationHistoryReader` 提供平台持久原文的有界分页。端口不传递密码或 token，不开放跨模块直接查表，也不改变一次性 Agent 或 Vibe Coding 的账号行为。契约与待运行验收见[统一咨询账号](../openspec/changes/unify-consult-runtime-account/design.md)。

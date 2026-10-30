@@ -23,6 +23,26 @@ class ExternalLoginCorsConfigurationTest {
     private static final String ALLOWED_ORIGIN = "https://erp-test.example.com";
 
     @Test
+    void consultClientCorsOnlyAllowsTheDocumentedControlPaths() throws Exception {
+        MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN));
+        for (String path : List.of("/api/fore-consult/client/tickets",
+                "/api/fore-consult/client/sessions/c/attachments")) {
+            mvc.perform(options(path).header("Origin", ALLOWED_ORIGIN)
+                            .header("Access-Control-Request-Method", "POST")
+                            .header("Access-Control-Request-Headers", "Authorization,Content-Type"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN));
+        }
+        mvc.perform(options("/api/fore-consult/client/sessions/c/messages")
+                        .header("Origin", ALLOWED_ORIGIN).header("Access-Control-Request-Method", "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN));
+        mvc.perform(options("/api/fore-consult/model-policy")
+                        .header("Origin", ALLOWED_ORIGIN).header("Access-Control-Request-Method", "PUT"))
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+    }
+
+    @Test
     void allowsConfiguredOriginForLoginPreflight() throws Exception {
         MockMvc mvc = mockMvc(List.of(ALLOWED_ORIGIN));
 

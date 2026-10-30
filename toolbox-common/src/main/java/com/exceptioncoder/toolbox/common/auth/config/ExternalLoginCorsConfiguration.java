@@ -52,6 +52,9 @@ public class ExternalLoginCorsConfiguration {
         routeSource.registerCorsConfiguration(ATTACHMENT_UPLOAD_PATH, attachmentCors);
         routeSource.registerCorsConfiguration(FEEDBACK_ARCHIVE_PATH, feedbackCors);
         routeSource.registerCorsConfiguration(ASSISTANT_CONVERSATION_PATH, feedbackCors);
+        routeSource.registerCorsConfiguration("/api/fore-consult/client/tickets", attachmentCors);
+        routeSource.registerCorsConfiguration("/api/fore-consult/client/sessions/*/attachments", attachmentCors);
+        routeSource.registerCorsConfiguration("/api/fore-consult/client/sessions/*/messages", feedbackCors);
         CorsConfigurationSource source = request -> {
             CorsConfiguration routeCors = routeSource.getCorsConfiguration(request);
             if (routeCors == null || !request.getRequestURI().matches(
@@ -72,7 +75,7 @@ public class ExternalLoginCorsConfiguration {
 
         FilterRegistrationBean<CorsFilter> registration = new FilterRegistrationBean<>(new CorsFilter(source));
         registration.setName("authExternalLoginCorsFilter");
-        registration.addUrlPatterns(LOGIN_PATH, ATTACHMENT_FILTER_PATH, FEEDBACK_FILTER_PATH);
+        registration.addUrlPatterns(LOGIN_PATH, ATTACHMENT_FILTER_PATH, FEEDBACK_FILTER_PATH, "/api/fore-consult/client/*");
         registration.setDispatcherTypes(DispatcherType.REQUEST);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE + 5);
         return registration;

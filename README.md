@@ -8,6 +8,8 @@ Forge 是一个运行在本机的 AI Coding 工作台。它把项目目录、业
 
 当前 README 重点介绍项目初始化、启动方式和 **Vibe Coding** 模块。其他工具模块将在后续版本中补充说明。
 
+项目组调用业务咨询可使用 [Forge Consult Client SDK](sdk/forge-consult-client/README.md)，包含安装、认证、流式提问、附件与恢复示例，以及 [draw.io 接入架构图](docs/diagrams/forge-consult-client.drawio)。该接入默认关闭，源码和安装包交付不代表真实 HTTPS/WSS 联调已通过。
+
 项目清单由项目领域集中提供。在“项目库 → 目录设置 → 项目使用范围”查看全部候选、全局排除或恢复项目。排除会限制其他入口和 AI 工具后续加载该项目及子目录，保留源码与历史记录；不会强行终止已经执行的任务。Git 操作中的待提交变更按目录树展示，支持折叠和单链目录合并。
 
 ## 快速开始

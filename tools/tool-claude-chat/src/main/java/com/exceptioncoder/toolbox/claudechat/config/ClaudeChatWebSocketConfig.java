@@ -22,6 +22,8 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
     private final ObjectProvider<PrdDevelopmentHandshakeInterceptor> prdDevelopmentHandshake;
     private final ClaudeChatWsProperties wsProps;
     private final ReviewHandshakeInterceptor reviewHandshake;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ConsultClientWebSocketHandler consultClientHandler;
 
     public ClaudeChatWebSocketConfig(ClaudeChatWebSocketHandler handler,
                                      DemoWebSocketHandler demoHandler,
@@ -41,6 +43,9 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        // Authentication is a bounded first-frame ticket exchange; this handler accepts business commands only.
+        registry.addHandler(consultClientHandler, "/api/fore-consult/client/ws")
+                .setAllowedOriginPatterns(wsProps.getConsultAllowedOriginPatterns().toArray(String[]::new));
         var registration = registry.addHandler(handler, "/api/claude-chat/ws")
                 .setAllowedOriginPatterns("*");
         // 鉴权开启时（AdminHandshakeInterceptor 存在）才在握手阶段校验 ADMIN；关闭时不拦。

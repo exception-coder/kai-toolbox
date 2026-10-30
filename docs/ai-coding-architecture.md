@@ -825,6 +825,16 @@ flowchart LR
 
 默认业务结论先行，明确技术问题按需展开，不通过角色或关键词硬分类。装配验证不等于真实回答质量通过；实现、部署和模型效果分别记录于[咨询人话任务](../openspec/changes/consult-plain-writing-skill/tasks.md)。本次没有新增工具、模型调用或安全例外。
 
+## 业务咨询的项目组 SDK 接入
+
+项目组 SDK 的权威入口为 [Forge Consult Client](../sdk/forge-consult-client/README.md)。它是无框架的浏览器/Node.js 客户端，现有嵌入式 Widget 保持原协议。新增 `/api/fore-consult/client/ws` 只是版本化业务适配：HTTPS 以真实 Forge 用户换取短时单次票据，WSS 首帧验证后仅接收咨询创建、提问、恢复与取消；不接受开发命令、账号选择、源码路径或系统指令。默认关闭，开启仍需现有认证、精确 Origin 和受控资源配置；不为外部接入新建平行 Agent 执行器或绕过普通用户权限。
+
+`ConsultClientApplication` 由咨询模块持有咨询身份、首问/追问编排与幂等请求；`ConsultClientRuntime` 由聊天模块创建只读运行元数据，二者通过 toolbox-llm 公共端口装配，不跨工具读表。咨询和运行关联在事务内建立，执行时沿用最新默认 AI 账号和资源范围。历史日志由聊天模块拥有，外部仅投影业务问答/状态及不透明附件 ID；`accepted` 只证明请求登记，模型结果、原生内部状态及真实跨项目运行验收不能由连接或 SDK 构建推定。
+
+一个连接绑定一个咨询。断线仅停止观察；SDK 持久化非秘密检查点，重连恢复有界事件并读取持久历史，绝不自动重发业务问题。请求不确定时保留原 requestId 与输入，服务端拒绝同键不同问题、附件或咨询。现有准入拒绝同咨询重叠轮次，外部一期不隐式排队；终态以 stopReason 为准。鉴权票据、限额、身份过期/撤销检查和客户端恢复均有界，不因调用方声称的 appId/userId 扩大权限。
+
+静态协作及执行恢复图见 [可编辑 draw.io](diagrams/forge-consult-client.drawio)、[架构预览](diagrams/forge-consult-client-architecture.png)、[流程预览](diagrams/forge-consult-client-flow.png)。源码/包验证、部署与实际多用户 HTTPS/WSS 结果分开记录于 [接入交付任务](../openspec/changes/consult-client-distribution/tasks.md)。旧 Session Client/Starter 规格及残留 target 产物不代表本次仓库仍含对应可发布源码；本次不承诺 API Key、跨用户代理身份或其他语言 SDK。
+
 ## 咨询建议整理与登记
 
 咨询平台的需求建议由fore-consult模块持有，区别于单轮回答评分和需求池待执行开发任务。登录用户输入原文，已有AgentOneShotRunner在禁用工具、无项目目录的纯文本请求中整理；服务端校验有界JSON，用户可编辑并提交，模型输出不直接入库。作者来自服务端身份，唯一用户与提交键保证安全重试，原文与标准描述同时保留。模型不可用时支持手填，不引入新的执行器或外部任务系统。
