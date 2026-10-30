@@ -173,7 +173,7 @@ flowchart TD
     ASSESS --> SPEC_ROUTE{"脚本按 LLM 的行为分类路由"}
     SPEC_ROUTE -->|"未知"| REVIEW
     SPEC_ROUTE -->|"保持"| NO_DELTA["引用既有依据，不建空 Change"]
-    SPEC_ROUTE -->|"变化"| DELTA["优先复用匹配 Change<br/>Forge 找回 Requirement 并辅助草稿<br/>Agent 确认并写 Delta 与 Scenario<br/>OpenSpec 严格校验"]
+    SPEC_ROUTE -->|"变化"| DELTA["优先复用匹配 Change<br/>新 Change 默认 forge-lite 简版模板<br/>Agent 写本次 Delta、Scenario 与任务<br/>OpenSpec 严格校验"]
     ASSESS --> DESIGN_ROUTE{"脚本按 LLM 的设计分类路由"}
     DESIGN_ROUTE -->|"无"| NO_DESIGN["不补建无关设计"]
     DESIGN_ROUTE -->|"机制"| DETAIL["Agent 更新受影响详设"]
@@ -231,7 +231,9 @@ flowchart TD
 
 自动监督预算耗尽后暂停继续派发；用户通过携带当前版本的“重置预算并继续”操作恢复，清除旧内部续跑消息、重置轮次和时限，并保留任务、批次及重置审计。已完成或停止的运行不能通过此操作复活。源码与本地验证不等于运行服务已加载，运行验收单列。
 
-OpenSpec 文档继续使用 spec-driven 和原 artifact 身份，通过 openspec/config.yaml 的 context/rules 引导按需精简：proposal 简述目标、范围和影响；specs 只描述行为变化与必要场景；design 记录实际实现决定、风险和验证；tasks 按可用功能集中验收。复用已有正文，不因模板存在就补无关概设、详设、迁移或空章节，不将每个场景转成新增单元测试配额。配置是生成引导，不是正文质量或实现正确性的证明。
+OpenSpec 新 Change 默认使用项目级 `forge-lite`，由 `openspec/config.yaml` 的 `schema` 选择，实际大纲、依赖和生成指令位于 [schema 与模板](../openspec/schemas/forge-lite/README.md)。强制产物保留 proposal、specs、tasks 及其原身份；design 不在强制 artifact 链中。日常需求只描述本次目标、行为增量与少量可验收任务；不改变行为的小修复无需创建空 Change，无规格变化但确需跟踪的文档、工具或重构可显式声明 `skip_specs: true`。涉及架构/跨模块契约、新依赖或重要数据模型、安全/性能/迁移风险、关键技术歧义，以及产品哲学要求的 UI/AI 工作流时，Agent 仍须补充当前 Change 的简短 design 或引用准确且适用的现有设计；apply 指令要求读取已有 design。该条件由 Agent 根据实际影响判定，CLI 不自动证明设计是否充分。
+
+已有 Change 保留原 schema；切换默认前为缺少元数据的旧活动 Change 补齐 `schema: spec-driven`，不改写其正文与任务。旧版及严格流程仍按各自 schema 获取产物、任务和校验结果，不从四个固定文档名称推断就绪。`config.yaml` 的 context/rules 是附加生成规则，不能替代实际模板或依赖；项目 fork 随 Git 共享，CLI 升级及 `openspec update` 不自动覆盖它。生成材料与必要验收仍按影响控制，不能以精简章节、场景或测试配额绕过权限、数据安全和主流程正确性。配置和结构校验均不证明实现或运行正确。
 
 自动推进复用引擎维护的原会话上下文，不另起模型监督会话。引擎确认加载执行 Skill 后，Runtime 每轮仅交接任务身份、规格修订、阶段、预算和必要执行提示；未确认加载时保留完整规则兜底。Agent 在首次进入、任务切换、修订变化、上下文缺失及报告完成时核对规格，不在每个工具步骤重读全部历史；输入和指纹仍有效的证据可复用，变更后的受影响检查和必要交付门禁仍须执行。可回退且可本地验证的推荐方案先作为默认实现，保留切换点，人工核实与生产任务在整个批次开发后统一交接。本轮实现已通过本地测试后仍须单列部署与运行验收状态。
 

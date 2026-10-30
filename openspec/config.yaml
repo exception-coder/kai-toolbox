@@ -1,4 +1,4 @@
-schema: spec-driven
+schema: forge-lite
 
 context: |
   Read AGENTS.md for project rules, docs/INDEX.md for maintained knowledge, and
@@ -13,15 +13,18 @@ context: |
   not copy the same content across proposal, specs, design and tasks. A local
   bug fix that preserves behavior does not need a new change solely for process.
   Permissions, data safety, writer ownership and necessary acceptance remain.
+  Honor each change's recorded schema. New changes default to forge-lite;
+  its project-local templates own the outline. Do not restore the built-in
+  four-document outline for forge-lite or remove required artifacts from
+  existing spec-driven changes. In forge-lite, design.md is optional unless
+  actual design risks or UI/AI workflow changes need design evidence; use its
+  design template or cite an existing applicable design.
 
 rules:
   proposal:
     - Briefly state the problem, intended result, scope and affected capabilities. Add exclusions or open decisions only when they affect this change; do not add generic background or future roadmaps.
   specs:
     - Describe only changed observable behavior and necessary success/failure boundaries. Reuse existing requirements; scenarios are acceptance obligations, not a quota of new unit tests.
-  design:
-    - Explain the chosen implementation, affected contracts, concrete risks and smallest sufficient verification. Reuse existing designs and cite precise evidence; do not generate separate overview/detail documents, alternative comparisons, migration plans or empty sections without an actual need.
-    - For navigation and AI workflows, record applicable product-philosophy IDs, object identity, feedback/recovery, keyboard/mobile handling and duplicate-action behavior concisely. Preserve unverified facts and necessary authorization boundaries.
   tasks:
     - Organize by usable features with concentrated targeted acceptance, not by files, endpoints or individual scenarios. Prefer existing checks; add tests only for concrete risk or an acceptance gap. Unchanged valid evidence can be reused; a turn or commit does not trigger full suites or builds.
     - Preserve task IDs and real completion evidence. Keep unfinished local work explicit; append only actual human confirmation or production operations as unchecked [MANUAL_CONFIRMATION] or [MANUAL_PRODUCTION] tasks, never relabel unfinished code to bypass acceptance.

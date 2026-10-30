@@ -1,0 +1,53 @@
+name: forge-lite
+version: 1
+description: 日常需求的简短提案、行为增量与任务清单；设计按实际风险补充。
+artifacts:
+  - id: proposal
+    generates: proposal.md
+    description: 本次问题、结果与受影响能力
+    template: proposal.md
+    instruction: |
+      用简洁中文填写模板，通常几句话即可，不设最低篇幅，不展开模块全貌。
+      Why 说明当前问题和预期结果；What Changes 列本次范围及实际影响。
+      Capabilities 仅列本次新增或修改的能力，复用 openspec/specs 中的准确路径；不要按文件或接口创建能力。
+      先核对相关既有规格与活动变更，不重复创建同目标 Change。不改变行为的小修复不必建 Change。
+      无行为变化但确需跟踪的工具、文档或重构 Change，在 .openspec.yaml 显式设置 skip_specs: true，不虚构需求。
+      不生成无关背景、路线图、非目标、迁移或空章节；必要权限、数据安全和真实歧义不能省略。
+    requires: []
+  - id: specs
+    generates: specs/**/*.md
+    description: 本次可观察行为的增量及必要验收场景
+    template: spec.md
+    instruction: |
+      只写本次变化的行为契约，不重写完整模块规格，不写内部类名或实现步骤。
+      每个能力使用 proposal 中的准确路径 specs/<capability-path>/spec.md；已有能力先读取完整相关 Requirement。
+      使用 ## ADDED Requirements、## MODIFIED Requirements、## REMOVED Requirements 或 ## RENAMED Requirements 中实际需要的部分。
+      每条 ### Requirement: 名称 使用 SHALL/MUST 表述一个可观察行为，并至少包含一个 #### Scenario: 名称。
+      场景以 - **WHEN** 和 - **THEN** 说明触发与结果，必要边界用 AND 补充；场景不是新增单元测试配额。
+      新能力才写 ## Purpose；新增需求描述不超过 500 字符。修改既有需求须完整保留其更新后正文和所有适用场景，不为篇幅截断旧契约。
+      删除需求写明 Reason 和 Migration；重命名使用 FROM/TO。仅填写本次实际使用的增量类型。
+      skip_specs: true 时遵循 CLI 的 skipped 状态，不创建空规格或虚构需求。
+    requires: [proposal]
+  - id: tasks
+    generates: tasks.md
+    description: 可用功能及其最小充分验收
+    template: tasks.md
+    instruction: |
+      按可独立使用或验收的功能组织编号任务，使用 - [ ] X.Y 描述，保持已有任务 ID。
+      日常需求可只有一个任务组和少量任务；不按每个文件、接口或场景机械拆分，不照搬模板中的示例数量。
+      每项写清完成依据；复用已有检查和输入未变的证据，只为具体风险或验收缺口新增测试。
+      必要时增加跨功能的集中验收项，不因轮次、提交或归档自动增加全量构建与测试。
+      简单需求无需 design.md。涉及架构/跨模块契约、新依赖或重要数据模型、安全/性能/迁移风险、关键技术歧义时，
+      先按 openspec/schemas/forge-lite/templates/design.md 补充当前 Change 的 design.md，或精确引用覆盖本次变化的现有设计。
+      调整 UI/AI 工作流时遵循 docs/product-philosophy.md，简记适用原则、对象身份、反馈恢复、键盘和手机边界。
+      不为复杂需求再建平行任务清单；设计补充及引用与实施保持一致。
+      仅实际人工事项使用 [MANUAL_CONFIRMATION] 或 [MANUAL_PRODUCTION]，未完成代码与必要验证不得改标以绕过验收。
+    requires: [specs]
+apply:
+  requires: [proposal, specs, tasks]
+  tracks: tasks.md
+  instruction: |
+    读取 contextFiles 和当前任务；存在 design.md 时同时读取，即使它不是强制 artifact。
+    按需设计的判断沿用 tasks 指令；发现上述风险而没有设计依据时，先补当前 Change 的设计再实施相关部分。
+    持续完成已授权任务，只有实际满足验收依据才勾选；真实歧义、权限、数据安全、重启与发布授权保持原边界。
+    不因模板省略设计或 CLI 校验通过，就声称实现、运行或发布已验证。

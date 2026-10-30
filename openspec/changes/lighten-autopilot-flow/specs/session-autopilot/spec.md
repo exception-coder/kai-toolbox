@@ -39,14 +39,27 @@
 ### Requirement: OpenSpec 运行以完整生命周期作为完成边界
 严格运行 MUST 经过 APPLY、VERIFY、QUALITY_GATE、STRICT_VALIDATE，并在规划材料完整、任务完成、实现核验和当前输入的有效质量证据及严格校验全部通过后进入 DONE。未完成任务或过期证据 MUST 拒绝完成，验证失败可在原范围及预算内修复。ARCHIVE SHALL 为显式授权的可选阶段；未归档不得描述为已归档或已上线。
 
-#### Scenario: 未授权归档
+#### Scenario: OpenSpec 任务尚未完成
+- **WHEN** Agent 报告 COMPLETE 但绑定 change 仍有未勾选任务
+- **THEN** 系统拒绝完成并将剩余任务作为下一轮输入，真实人工事项保留交接
+
+#### Scenario: OpenSpec 严格校验失败
+- **WHEN** 绑定 change 的严格校验返回非成功状态
+- **THEN** 系统拒绝完成并在预算允许时要求修复校验问题
+
+#### Scenario: 质量验证证据过期
+- **WHEN** 最近一次质量验证成功后工作区内容发生变化
+- **THEN** 系统不得复用该成功结论，应重新验证或暂停并标记证据缺失
+
+#### Scenario: 严格门禁全部通过
+- **WHEN** OpenSpec、任务、实现核对、新鲜质量证据和严格校验全部满足且 autoArchive=true
+- **THEN** 按本次授权执行 archive，确认主 specs 同步及活动 change 移出后完成；未确认不得伪报成功
+
+#### Scenario: 未授权自动归档
 - **WHEN** 全部适用检查通过、无人工未完事项且 autoArchive=false
 - **THEN** 完成当前规格并保留活动文档，批次可按原规则进入下一规格，不等待归档授权
+- **AND** 不将其描述为已归档或已上线
 
-#### Scenario: 显式授权归档
-- **WHEN** autoArchive=true 且其余完成条件满足
-- **THEN** 执行并确认归档后完成；归档未确认时保留恢复入口，不伪报成功
-
-#### Scenario: 任务、证据或人工事项仍有缺口
-- **WHEN** 仍有未完成本地任务、失效质量证据、校验失败或人工未完事项
-- **THEN** 继续适用开发或修复，必要授权与人工交接仍等待处理，不借可选归档跳过验收
+#### Scenario: 验证失败但可在范围内修复
+- **WHEN** VERIFY、质量门禁或严格校验失败且属于当前 change 范围并未达到重试上限
+- **THEN** 返回 APPLY 修复后重跑受影响门禁，不要求用户另行确认可自行处理的修复
