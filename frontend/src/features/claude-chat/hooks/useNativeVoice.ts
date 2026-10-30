@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { NativeVoiceConnection, voiceErrorMessage, type VoiceEvent, type VoiceTransport } from '../lib/nativeVoice'
+import { NativeVoiceConnection, voiceErrorMessage, voiceThreadEnded, type VoiceEvent, type VoiceTransport } from '../lib/nativeVoice'
 
 interface Call {
   id: string
@@ -17,6 +17,7 @@ export function useNativeVoice(sessionId: string | null, transport: VoiceTranspo
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [muted, setMuted] = useState(false)
+  const [recoveryUnavailable, setRecoveryUnavailable] = useState(false)
   const callRef = useRef<Call | null>(null)
   const transportRef = useRef(transport)
   transportRef.current = transport
@@ -33,9 +34,11 @@ export function useNativeVoice(sessionId: string | null, transport: VoiceTranspo
   }, [])
 
   const stop = useCallback(() => { release(); setState('idle'); setMuted(false) }, [release])
-  const fail = useCallback((failure: unknown) => {
+  const fail = useCallback((failure: unknown, code?: string) => {
     release()
-    setError(voiceErrorMessage(failure))
+    const message = voiceErrorMessage(failure)
+    setRecoveryUnavailable(voiceThreadEnded(message, code))
+    setError(message)
     setState('error')
     setMuted(false)
   }, [release])
@@ -46,6 +49,7 @@ export function useNativeVoice(sessionId: string | null, transport: VoiceTranspo
     setError(null)
     setNotice(null)
     setMuted(false)
+    setRecoveryUnavailable(false)
     setState('connecting')
     const current = () => callRef.current?.id === id
     const connection = new NativeVoiceConnection(() => {
@@ -58,7 +62,7 @@ export function useNativeVoice(sessionId: string | null, transport: VoiceTranspo
       if (event.event === 'sdp' && event.sdp) {
         void connection.answer(event.sdp).catch(failure => { if (current()) fail(failure) })
       }
-      if (event.event === 'error') fail(new Error(event.message || '原生语音连接失败'))
+      if (event.event === 'error') fail(new Error(event.message || '原生语音连接失败'), event.code)
       if (event.event === 'closed') { setNotice(event.message || null); stop() }
     }
     callRef.current = {
@@ -75,7 +79,7 @@ export function useNativeVoice(sessionId: string | null, transport: VoiceTranspo
     } catch (failure) { if (current()) fail(failure) }
   }, [sessionId, connected, fail, stop])
 
-  useEffect(() => { stop(); setNotice(null); return release }, [sessionId, stop, release])
+  useEffect(() => { stop(); setNotice(null); setError(null); setRecoveryUnavailable(false); return release }, [sessionId, stop, release])
   useEffect(() => { if (!connected && callRef.current) fail(new Error('会话连接已断开，请重连后重新开始语音')) }, [connected, fail])
   useEffect(() => {
     const hidden = () => { if (document.hidden && callRef.current) stop() }
@@ -88,5 +92,5 @@ export function useNativeVoice(sessionId: string | null, transport: VoiceTranspo
     callRef.current?.connection.mute(!muted)
     setMuted(!muted)
   }
-  return { state, error, notice, muted, start, stop, toggleMute }
+  return { state, error, notice, muted, recoveryUnavailable, start, stop, toggleMute }
 }

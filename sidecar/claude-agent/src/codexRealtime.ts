@@ -43,7 +43,7 @@ export class CodexRealtimeCall {
 
   async reconnect(offer: CodexVoiceOffer, emit: Emit): Promise<void> {
     if (this.disposed || (!this.listening && !this.reconnectOffer && !this.nativeTurnActive)
-      || !this.request || !this.threadId) throw new Error('当前没有可重连的语音线程，请在任务结束后重新开始语音')
+      || !this.request || !this.threadId) throw new VoiceThreadEndedError()
     this.reconnectOffer = offer
     this.reconnectCancelled = false
     // Reserve the thread before stopping audio; serialize negotiations while allowing the latest click to supersede an older one.
@@ -216,14 +216,19 @@ function validateVoiceOffer(offer: CodexVoiceOffer): void {
     || offer.sdp.length > 64_000 || !offer.sdp.startsWith('v=0')) throw new Error('无效的语音连接参数')
 }
 
+class VoiceThreadEndedError extends Error {
+  constructor() { super('原语音连接已失效；当前任务不受影响，任务结束后可重新开启语音') }
+}
+
 export async function reconnectCodexVoice(sessionId: string, offer: CodexVoiceOffer, emit: Emit): Promise<void> {
   try {
     validateVoiceOffer(offer)
     const call = calls.get(sessionId)
-    if (!call) throw new Error('原语音线程已结束，请重新点击语音对话')
+    if (!call) throw new VoiceThreadEndedError()
     await call.reconnect(offer, emit)
   } catch (error) {
     emit({ type: 'voiceEvent', seq: 0, callId: offer?.callId, event: 'error',
+      ...(error instanceof VoiceThreadEndedError ? { code: 'VOICE_THREAD_ENDED' } : {}),
       message: error instanceof Error ? error.message : '语音重连失败' })
   }
 }

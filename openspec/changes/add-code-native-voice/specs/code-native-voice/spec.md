@@ -82,6 +82,14 @@ The system MUST isolate each call by its session, initiating browser connection 
 - **AND** every acquired media track SHALL be stopped, including tracks acquired after cancellation
 - **AND** a connection that never reached the started state SHALL NOT be presented as recoverable
 
+#### Scenario: Restart destroys the live voice thread
+- **WHEN** a resume request confirms that its live voice thread no longer exists or cannot be reconnected
+- **THEN** the system SHALL release local media and replace the stale recovery hint with an explicit restart action in the same Forge conversation
+- **AND** this distinction SHALL survive refresh within the same browser tab and remain isolated by session
+- **AND** while a code task is active the restart action SHALL wait without interrupting, replaying or creating another code task
+- **AND** once the task finishes, a new microphone connection SHALL require another explicit user click through the existing admission checks
+- **AND** transient network or negotiation errors SHALL retain normal recovery instead of being classified as thread loss
+
 #### Scenario: Stale or unauthorized control
 - **WHEN** another connection or an old call attempts to stop or renew the active call
 - **THEN** the command SHALL not change the active call

@@ -9,6 +9,7 @@ export interface VoiceEvent {
   text?: string
   done?: boolean
   message?: string
+  code?: string
 }
 
 export interface VoiceTransport {
@@ -44,6 +45,12 @@ export function voiceErrorMessage(error: unknown): string {
 export function voiceErrorRetryHint(message: string, recoverable: boolean): string {
   if (message.includes('上游返回 404') || message.includes('Codex 原生会话被占用')) return '。'
   return `。可重新点击“${recoverable ? '恢复语音' : '语音对话'}”，或继续使用文字。`
+}
+
+/** Older Sidecars report the same terminal condition as text only. */
+export function voiceThreadEnded(message: string, code?: string): boolean {
+  return code === 'VOICE_THREAD_ENDED' || message.includes('原语音线程已结束')
+    || message.includes('当前没有可重连的语音线程')
 }
 
 /** Owns media resources even when permission resolves after the view has gone away. */

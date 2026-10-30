@@ -1,3 +1,18 @@
+# 原生语音任务
+
+## 本次修正：重启后的失效恢复提示（2026-10-31）
+
+- [x] 定位进程内语音句柄丢失与浏览器恢复标记残留的差异；不改变代码任务状态。
+- [x] 区分 VOICE_THREAD_ENDED 与临时错误，兼容旧 Sidecar 文案，持久化失效提示并提供原位重新开启。
+- [x] 完成前端与 Sidecar 定向回归、类型/构建、OpenSpec 与项目质量检查，记录范围并提交。
+- [ ] 经本次用户确认后激活新 Sidecar，完成真实手机音频和重启恢复验收；当前未获得本次重启许可。
+
+上述条目仅属于本次修正，以下为原能力历史任务与证据，不表示本次已执行真实音频验收。
+
+本次验证：前端既有 5 文件共 31 项通过，仅为终态错误码与旧版文案补充 2 个组件回归案例；Sidecar 既有 15 项生命周期回归通过，复用缺失线程案例核对新错误码。`npm run typecheck` 通过，60 个菜单一致且无新前端边界违规；`npx vite build --logLevel warn` 通过（59.45 秒），保留既有大 chunk 和混合导入提示。Sidecar 完整 TypeScript 编译到隔离目录 `.dist-stage-voice-recovery` 通过，没有替换正在运行的 dist。OpenSpec strict 与 Git diff 检查通过；项目质量入口 status=PASSED、exit 0、executedCheckers 为空、9 个既有 API 探针通过，不能作为语音修复运行证据。
+
+未改 Java、宿主装配或数据库，未执行无关全量测试，无整体架构影响。本次没有重启、重新录音或真实浏览器检查；原 Forge 浏览器访问权限限制仍未绕过。新 Sidecar 版本未激活，手机/桌面预览入口只供后续本人登录检查，不代表新代码已加载或真实音频已恢复。
+
 ## 1. Protocol and lifecycle
 
 - [x] 1.1 Implement sidecar native realtime lifecycle on the existing thread and verify multi-turn, stop and error boundaries (design: 协议与层次、生命周期与恢复).

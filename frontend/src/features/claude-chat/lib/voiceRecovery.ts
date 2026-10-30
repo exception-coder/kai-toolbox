@@ -6,9 +6,15 @@ export function hasVoiceRecoveryHint(sessionId: string | null): boolean {
   catch { return false }
 }
 
-export function rememberVoiceRecovery(sessionId: string, recoverable: boolean): void {
+export function hasExpiredVoiceRecoveryHint(sessionId: string | null): boolean {
+  if (!sessionId) return false
+  try { return sessionStorage.getItem(RECOVERY_KEY_PREFIX + sessionId) === 'expired' }
+  catch { return false }
+}
+
+export function rememberVoiceRecovery(sessionId: string, recoverable: boolean | 'expired'): void {
   try {
-    if (recoverable) sessionStorage.setItem(RECOVERY_KEY_PREFIX + sessionId, '1')
+    if (recoverable) sessionStorage.setItem(RECOVERY_KEY_PREFIX + sessionId, recoverable === 'expired' ? 'expired' : '1')
     else sessionStorage.removeItem(RECOVERY_KEY_PREFIX + sessionId)
   } catch {
     // Recovery hints are optional in browsers that disable session storage; media remains usable.

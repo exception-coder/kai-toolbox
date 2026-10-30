@@ -33,8 +33,42 @@ function fixture() {
   const view = (busy = false, sessionId = 'session-1', connected = true, disabled = false) => (
     <NativeVoiceControl sessionId={sessionId} transport={transport} connected={connected} busy={busy} disabled={disabled} />
   )
-  return { transport, view }
+  return { transport, view, listeners }
 }
+
+it.each([
+  { code: 'VOICE_THREAD_ENDED', message: '原语音连接已失效' },
+  { message: '原语音线程已结束，请重新点击语音对话' },
+])('replaces a lost thread with an explicit idle restart, including after refresh ($message)', async event => {
+  sessionStorage.setItem('kai.native-voice-recovery:session-1', '1')
+  const f = fixture()
+  const first = render(f.view(true))
+  fireEvent.click(screen.getByRole('button', { name: '恢复语音' }))
+  await waitFor(() => expect(f.transport.start).toHaveBeenCalledOnce())
+  const offer = vi.mocked(f.transport.start).mock.calls[0][0]
+  act(() => f.listeners.forEach(listener => listener({ type: 'voiceEvent', seq: 0,
+    callId: offer.callId, event: 'error', ...event })))
+  expect(screen.queryByRole('button', { name: '恢复语音' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '重新开启语音' })).toBeDisabled()
+  expect(screen.getByRole('alert')).toHaveTextContent('代码任务继续执行')
+  expect(sessionStorage.getItem('kai.native-voice-recovery:session-1')).toBe('expired')
+  expect(media.instances[0].close).toHaveBeenCalledOnce()
+  first.unmount()
+
+  const second = render(f.view(true))
+  fireEvent.click(screen.getByRole('button', { name: '重新开启语音' }))
+  expect(f.transport.start).toHaveBeenCalledOnce()
+  second.rerender(f.view(false))
+  expect(screen.getByRole('button', { name: '重新开启语音' })).toBeEnabled()
+  expect(f.transport.start).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('button', { name: '重新开启语音' }))
+  await waitFor(() => expect(f.transport.start).toHaveBeenCalledTimes(2))
+  act(() => media.instances[1].connect())
+  expect(screen.getByRole('button', { name: '语音已连接' })).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(sessionStorage.getItem('kai.native-voice-recovery:session-1')).toBe('1')
+  expect(vi.mocked(f.transport.control).mock.calls.every(([, , action]) => action === 'stop')).toBe(true)
+})
 
 it('uses consultation copy and stops only audio when the view closes', async () => {
   const f = fixture()

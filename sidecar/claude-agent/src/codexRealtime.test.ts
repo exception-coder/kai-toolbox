@@ -199,6 +199,7 @@ test('missing voice thread returns a voice-only error without creating a replace
   assert.equal(events.length, 1)
   assert.equal(events[0].type, 'voiceEvent')
   assert.equal(events[0].event, 'error')
+  assert.equal(events[0].code, 'VOICE_THREAD_ENDED')
   assert.equal(takeCodexVoice('missing'), undefined)
 })
 
