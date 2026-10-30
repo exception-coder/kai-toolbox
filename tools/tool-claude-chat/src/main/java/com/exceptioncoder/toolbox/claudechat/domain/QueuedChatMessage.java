@@ -12,7 +12,16 @@ public record QueuedChatMessage(
         String developerInstructions,
         List<Attachment> attachments,
         long createdAt,
-        @JsonIgnore String serverContext) {
+        @JsonIgnore String serverContext, String deliveryState, String deliveryNote) {
+
+    public QueuedChatMessage(String id, String sessionId, String text, String displayText,
+                             String developerInstructions, List<Attachment> attachments, long createdAt, String serverContext) {
+        this(id, sessionId, text, displayText, developerInstructions, attachments, createdAt, serverContext, null, null);
+    }
+
+    public QueuedChatMessage withDelivery(String state, String note) {
+        return new QueuedChatMessage(id, sessionId, text, displayText, developerInstructions, attachments, createdAt, serverContext, state, note);
+    }
 
     public QueuedChatMessage(String id, String sessionId, String text, String displayText,
                              String developerInstructions, List<Attachment> attachments, long createdAt) {

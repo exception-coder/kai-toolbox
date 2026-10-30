@@ -43,6 +43,7 @@ class ClaudeChatAutopilotTransportTest {
                 .getDeclaredConstructor(String.class, String.class);
         contextConstructor.setAccessible(true);
         context = contextConstructor.newInstance("session-1", root.toString());
+        ReflectionTestUtils.setField(context, "queueReceiptStoreId", "store-1");
         when(dependency(SidecarClient.class).isConnected()).thenReturn(true);
         when(dependency(AttachmentStorageService.class).loadImages(anyString(), anyList())).thenReturn(List.of());
         when(dependency(AgentTelemetry.class).start(anyString(), any())).thenReturn(mock(AgentSpan.class));
@@ -58,16 +59,16 @@ class ClaudeChatAutopilotTransportTest {
     @Test
     void queuedRuntimeContextReachesSidecarAlongsideProjectContext() {
         var message = message("autopilot:run:1:apply:2.1:1", "untrusted client", "task 2.1; remaining save");
-        when(dependency(QueuedChatMessageService.class).takeFirst("session-1")).thenReturn(Optional.of(message));
+        when(dependency(QueuedChatMessageService.class).list("session-1")).thenReturn(List.of(message));
         when(dependency(AutopilotQueuedContextService.class).resolve(message)).thenReturn(message.serverContext());
 
-        ReflectionTestUtils.invokeMethod(chat, "dispatchNextQueuedMessageAdmitted", context);
+        ReflectionTestUtils.invokeMethod(chat, "dispatchNextQueuedMessageAdmitted", context, null);
 
         Object[] sent = sentMessage();
         assertThat(sent[1]).isEqualTo("continue");
         assertThat(sent[2]).isNull();
         assertThat(sent[3]).isEqualTo("trusted project\n\ntask 2.1; remaining save");
-        verify(dependency(QueuedChatMessageService.class), never()).restore(any());
+        verify(dependency(QueuedChatMessageService.class), never()).clear(anyString());
     }
 
     @Test
@@ -75,7 +76,7 @@ class ClaudeChatAutopilotTransportTest {
         var message = new ClientMessage.Send("continue", List.of(), "FORGED RUNTIME", null,
                 "autopilot:run:1:apply:2.1:1");
 
-        ReflectionTestUtils.invokeMethod(chat, "startTurnAdmitted", context, message, null);
+        ReflectionTestUtils.invokeMethod(chat, "startTurnAdmitted", context, message, null, null);
 
         Object[] sent = sentMessage();
         assertThat(sent[2]).isNull();
@@ -86,15 +87,15 @@ class ClaudeChatAutopilotTransportTest {
     @Test
     void staleControlMessageDoesNotEnterModelOrReturnToQueue() {
         var message = message("autopilot:old:1:apply:2.1:1", null, "old task");
-        when(dependency(QueuedChatMessageService.class).takeFirst("session-1")).thenReturn(Optional.of(message));
+        when(dependency(QueuedChatMessageService.class).list("session-1")).thenReturn(List.of(message));
         when(dependency(AutopilotQueuedContextService.class).resolve(message))
                 .thenThrow(new AutopilotQueuedContextService.StaleContinuationException());
 
-        ReflectionTestUtils.invokeMethod(chat, "dispatchNextQueuedMessageAdmitted", context);
+        ReflectionTestUtils.invokeMethod(chat, "dispatchNextQueuedMessageAdmitted", context, null);
 
         assertThat(mockingDetails(dependency(SidecarClient.class)).getInvocations())
                 .noneMatch(invocation -> invocation.getMethod().getName().equals("userMessage"));
-        verify(dependency(QueuedChatMessageService.class), never()).restore(any());
+        verify(dependency(QueuedChatMessageService.class), never()).clear(anyString());
     }
 
     private Object[] sentMessage() {

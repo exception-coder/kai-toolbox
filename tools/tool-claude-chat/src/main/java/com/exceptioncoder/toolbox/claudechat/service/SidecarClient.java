@@ -133,6 +133,26 @@ public class SidecarClient implements ReviewThreadForkGateway {
         throw last != null ? last : new IOException("连接 sidecar 超时");
     }
 
+    /** 队列恢复只连接已监听的 Sidecar；单次有界，不启动或重启任何进程。 */
+    public synchronized boolean connectQueueTransport() {
+        if (isConnected()) return true;
+        String startupError = props.getSidecarStartupError();
+        if (shuttingDown || sdkMaintenance || (startupError != null && !startupError.isBlank())) return false;
+        var connection = client.execute(new ClientHandler(), "ws://127.0.0.1:" + props.getSidecarPort());
+        try {
+            WebSocketSession connected = connection.get(1_500L, TimeUnit.MILLISECONDS);
+            connected.setTextMessageSizeLimit(wsProps.getMaxMessageBytes());
+            connected.setBinaryMessageSizeLimit(wsProps.getMaxMessageBytes());
+            session = connected;
+            return true;
+        } catch (Exception unavailable) {
+            // 超时后迟到的连接仍需关闭，不能成为无人管理的额外观察者。
+            connection.whenComplete((late, error) -> closeQuietly(late));
+            if (unavailable instanceof InterruptedException) Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
     /**
      * 随 Spring 上下文停机：断开连接并封死重连入口。
      *
@@ -296,10 +316,20 @@ public class SidecarClient implements ReviewThreadForkGateway {
                             TraceContext traceContext, AgentRunMetadata telemetry,
                             List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
                             String turnToolPolicy, String voiceCallId, Map<String, Object> consultAccount) {
+        userMessage(sessionId, text, developerInstructions, sessionContext, additionalDirectories, turnId,
+                traceContext, telemetry, images, turnToolPolicy, voiceCallId, consultAccount, false);
+    }
+
+    public void userMessage(String sessionId, String text, String developerInstructions,
+                            String sessionContext, List<String> additionalDirectories, String turnId,
+                            TraceContext traceContext, AgentRunMetadata telemetry,
+                            List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
+                            String turnToolPolicy, String voiceCallId, Map<String, Object> consultAccount, boolean queueCheck) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", "user");
         message.put("sessionId", sessionId);
         message.put("text", nz(text));
+        if (queueCheck) message.put("queueCheck", true);
         if (consultAccount != null) message.put("consultAccount", consultAccount);
         if (voiceCallId != null) message.put("voiceCallId", voiceCallId);
         message.put("developerInstructions", nz(developerInstructions));

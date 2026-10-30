@@ -33,33 +33,6 @@ class QueuedChatMessageServiceTest {
     }
 
     @Test
-    void takeFirstReturnsClaimedMessage() {
-        QueuedChatMessage message = message();
-        when(repository.findFirstBySessionId("session-1")).thenReturn(Optional.of(message));
-        when(repository.delete("session-1", "message-1")).thenReturn(true);
-
-        assertEquals(Optional.of(message), service.takeFirst("session-1"));
-    }
-
-    @Test
-    void takeFirstReturnsEmptyWhenAnotherDispatcherAlreadyClaimedMessage() {
-        QueuedChatMessage message = message();
-        when(repository.findFirstBySessionId("session-1")).thenReturn(Optional.of(message));
-        when(repository.delete("session-1", "message-1")).thenReturn(false);
-
-        assertTrue(service.takeFirst("session-1").isEmpty());
-    }
-
-    @Test
-    void restoreReinsertsMessageAfterDispatchFailure() {
-        QueuedChatMessage message = message();
-
-        service.restore(message);
-
-        verify(repository).upsert(message);
-    }
-
-    @Test
     void initialAutopilotReleaseRequiresItsMessageAtTheHead() {
         when(repository.findFirstBySessionId("session-1"))
                 .thenReturn(Optional.of(message()))

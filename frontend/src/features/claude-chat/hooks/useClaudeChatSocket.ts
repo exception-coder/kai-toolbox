@@ -6,7 +6,7 @@ import type { AssistantMessageEnvelope, Attachment, BackgroundTaskInfo, Capabili
 import { useVoiceTransport } from './useVoiceTransport'
 import { isVoiceTranscriptItem, upsertVoiceTranscript } from '../lib/voiceTranscript'
 import type { VoiceTransport } from '../lib/nativeVoice'
-import { clearQueuedMessages, deleteQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage } from '../api'
+import { clearQueuedMessages, confirmQueueAndContinue, deleteQueuedMessage, dispatchQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
 import { playNotifySound } from '../sound'
@@ -89,6 +89,8 @@ function engineSubagentSummary(payload: Record<string, unknown>): { total: numbe
 
 /** 待发送队列项：running 期间排队的用户消息。 */
 export interface QueuedMessage {
+  deliveryState?: string
+  deliveryNote?: string
   id: string
   /** 队列项创建时所属会话；调度时必须与当前会话一致，防止切会话竞态串发。 */
   ownerSessionId: string
@@ -516,6 +518,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           .then(messages => {
             if (sessionIdRef.current !== msg.sessionId) return
             setQueued(messages.map(message => ({
+              deliveryState: message.deliveryState,
+              deliveryNote: message.deliveryNote,
               id: message.id,
               ownerSessionId: message.sessionId,
               text: message.text,
@@ -1633,8 +1637,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     // 先落盘再进入可调度内存队列，避免当前轮恰好结束时 DELETE 抢在 POST 前面导致幽灵队列项。
     void saveQueuedMessage(sessionId, message)
-      .then(() => {
-        if (sessionIdRef.current === sessionId) setQueued(prev => [...prev, message])
+      .then(async () => {
+        const messages = await listQueuedMessages(sessionId)
+        if (sessionIdRef.current === sessionId) setQueued(messages.map(item => ({ ...item, ownerSessionId: item.sessionId })))
       })
       .catch(error => {
         if (sessionIdRef.current === sessionId) {
@@ -1670,8 +1675,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [publicWithoutLogin])
 
   const sendQueuedNow = useCallback((id: string) => {
-    if (running || pending || backgroundTasks.length > 0 || manualQueueDispatchIdRef.current) return
     const message = queued[0]
+    const resolving = message && ['BLOCKED', 'UNKNOWN', 'FAILED'].includes(message.deliveryState ?? '')
+    if ((running && !resolving) || pending || backgroundTasks.length > 0 || manualQueueDispatchIdRef.current) return
     const sessionId = sessionIdRef.current
     if (!message || message.id !== id || !sessionId || message.ownerSessionId !== sessionId
         || !sessionReadyRef.current) return
@@ -1681,18 +1687,32 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       return
     }
     manualQueueDispatchIdRef.current = id
-    void deleteQueuedMessage(sessionId, id)
-      .then(() => {
-        if (sessionIdRef.current !== sessionId || !sessionReadyRef.current) {
-          void saveQueuedMessage(message.ownerSessionId, message)
-          return
-        }
-        setQueued(prev => prev.filter(item => item.id !== id))
-        send(message.text, message.attachments, message.displayText, message.developerInstructions)
-      })
+    const request = message.deliveryState === 'BLOCKED' || message.deliveryState === 'UNKNOWN' || message.deliveryState === 'FAILED'
+      ? confirmQueueAndContinue(sessionId) : dispatchQueuedMessage(sessionId, id)
+    void request
       .catch(error => setSyncWarning(`队列消息发送失败：${error instanceof Error ? error.message : String(error)}`))
       .finally(() => { manualQueueDispatchIdRef.current = null })
   }, [backgroundTasks.length, pending, publicWithoutLogin, queued, running, send])
+
+  // 浏览器仅展示持久队列，不承担续发；回执状态通过轻量轮询恢复，避免依赖一次性通知。
+  useEffect(() => {
+    if (publicWithoutLogin || channel === 'consult' || !sessionId || state !== 'ready') return
+    const controller = new AbortController()
+    let inFlight = false
+    const refresh = async () => {
+      if (inFlight || !serverQueueDispatchRef.current) return
+      inFlight = true
+      try {
+        const messages = await listQueuedMessages(sessionId, controller.signal)
+        if (!controller.signal.aborted && sessionIdRef.current === sessionId) {
+          setQueued(messages.map(message => ({ ...message, ownerSessionId: message.sessionId })))
+        }
+      } catch { /* 保留当前内容；重连 Ready 和下一次巡检均会恢复。 */ }
+      finally { inFlight = false }
+    }
+    const timer = window.setInterval(() => { void refresh() }, 5000)
+    return () => { window.clearInterval(timer); controller.abort() }
+  }, [channel, publicWithoutLogin, sessionId, state])
 
   // 只有当前会话收到明确的成功终态，且无待确认、无后台作业时，才取队首发出。
   const sendRef = useRef(send)
@@ -1700,7 +1720,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   sendRef.current = send
   useEffect(() => {
     if (channel === 'consult') return
-    if (serverQueueDispatchRef.current) return
+    if (!publicWithoutLogin || serverQueueDispatchRef.current) return
     if (!sessionReadyRef.current || running || pending || backgroundTasks.length > 0 || queued.length === 0) return
     const head = queued[0]
     const sessionId = sessionIdRef.current

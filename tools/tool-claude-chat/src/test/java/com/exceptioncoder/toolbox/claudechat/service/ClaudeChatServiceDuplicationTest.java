@@ -37,7 +37,7 @@ class ClaudeChatServiceDuplicationTest {
             new ClaudeChatProperties(), repo, links, mock(SidecarProcessRegistry.class), sidecar,
             null, null, null, null, null, null, null, null, null, null, null,
             directories, null, null, null, engines, access, null, null, new ObjectMapper(), null,
-            List.of(), List.of(), null, mock(SessionVoiceService.class), null, null);
+            List.of(), List.of(), null, mock(SessionVoiceService.class), null, null, mock(com.exceptioncoder.toolbox.claudechat.repository.QueueDeliveryStore.class));
 
     @BeforeEach
     void prepare() {

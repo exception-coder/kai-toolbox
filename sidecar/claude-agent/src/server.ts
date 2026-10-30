@@ -18,8 +18,10 @@ import {
 import { inspectSystemRoute } from './codexSecurity.js'
 import { prepareCodexVoice, reconnectCodexVoice, controlCodexVoice, type CodexVoiceOffer } from './codexRealtime.js'
 import { watchParentLifetime, stopWithinDeadline } from './parentLifetime.js'
+import { QueueReceipts, queueCheckOutcome } from './queueReceipts.js'
 
 const port = Number(process.env.CLAUDE_CHAT_SIDECAR_PORT) || 18890
+const queueReceipts = new QueueReceipts(path.join(os.homedir(), '.kai-toolbox', `queue-receipts-${port}.json`))
 initializeTelemetry()
 const agentTracing = new AgentTracing()
 
@@ -55,9 +57,29 @@ const wss = new WebSocketServer({ server: httpServer })
 // 表现为前端永远收不到回复 —— 这里宁可多发（本机、按 sessionId 路由，重复投递无副作用）。
 const clients = new Set<WebSocket>()
 
+const queueChecks = new Map<string, { turnId: string; tail: string }>()
+
 const emit = (sessionId: string, event: Record<string, unknown>): void => {
+  const check = queueChecks.get(sessionId)
+  if (check && event.turnId === check.turnId) {
+    if (event.type === 'assistantDelta') check.tail = (check.tail + String(event.text ?? '')).slice(-2048)
+    if (event.type === 'assistantSnapshot') check.tail = String(event.text ?? '').slice(-2048)
+    if (event.type === 'result') {
+      event = { ...event, queueCheckOutcome: queueCheckOutcome(check.tail, check.turnId) }
+      queueChecks.delete(sessionId)
+    }
+  }
+  if (event.type === 'result') {
+    try { queueReceipts.complete(sessionId, event) }
+    catch (error) {
+      console.error('[sidecar] 队列终态持久化失败，禁止自动续发:', error)
+      event = { ...event, queueReleaseSafe: false }
+      emit(sessionId, { type: 'warning', turnId: event.turnId, code: 'QUEUE_RECEIPT_FAILED',
+        message: '完成回执保存失败，后续队列已暂停；请检查磁盘后核对结果。' })
+    }
+  }
   const observed = agentTracing.observe(sessionId, event)
-  const payload = JSON.stringify({ ...observed, sessionId })
+  const payload = JSON.stringify({ ...observed, sessionId, queueReceiptProtocol: 1, queueReceiptStoreId: queueReceipts.storeId })
   for (const ws of clients) {
     if (ws.readyState === ws.OPEN) {
       ws.send(payload)
@@ -188,6 +210,23 @@ wss.on('connection', (ws) => {
           Array.isArray(msg.consultEvidenceSystems) ? msg.consultEvidenceSystems.filter((value): value is string => typeof value === 'string') : [])
         break
       case 'user':
+        if (typeof msg.turnId === 'string' && msg.turnId) {
+          const receipt = queueReceipts.find(sessionId, msg.turnId)
+          if (receipt) {
+            emit(sessionId, { type: 'turnAccepted', turnId: msg.turnId })
+            if (receipt.state === 'COMPLETED') emit(sessionId, { type: 'result', turnId: msg.turnId,
+              stopReason: receipt.stopReason, queueReleaseSafe: receipt.queueReleaseSafe, queueCheckOutcome: receipt.queueCheckOutcome, usage: {} })
+            break
+          }
+          const state = manager.runtimeState(sessionId)
+          if (!state.sessionPresent || state.active || state.pendingDecision || state.backgroundTaskCount > 0) {
+            emit(sessionId, { type: 'error', turnId: msg.turnId, code: 'QUEUE_ADMISSION_REJECTED', message: '引擎会话未就绪或仍忙碌，未接收新的轮次' })
+            break
+          }
+          queueReceipts.receive(sessionId, msg.turnId)
+          if (msg.queueCheck === true) queueChecks.set(sessionId, { turnId: msg.turnId, tail: '' })
+          emit(sessionId, { type: 'turnAccepted', turnId: msg.turnId })
+        }
         if (msg.consultAccount) manager.configureConsultAccount(sessionId, msg.consultAccount)
         agentTracing.begin(sessionId, msg.traceContext, msg.telemetry)
         manager.user(
@@ -235,6 +274,7 @@ wss.on('connection', (ws) => {
           type: 'sessionState',
           requestId: msg.requestId as string | undefined,
           ...manager.runtimeState(sessionId, msg.turnId as string | undefined),
+          receipt: queueReceipts.find(sessionId, msg.turnId as string | undefined),
         })
         break
       case 'querySubscriptionQuota':

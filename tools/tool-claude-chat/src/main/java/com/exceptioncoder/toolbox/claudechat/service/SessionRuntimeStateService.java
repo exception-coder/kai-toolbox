@@ -47,6 +47,10 @@ public class SessionRuntimeStateService {
                 true, false, false, backgroundTaskCount, null, null, "idle", System.currentTimeMillis()));
     }
 
+    void observeSidecarSnapshot(String sessionId, JsonNode snapshot) {
+        sidecarObservations.put(sessionId, SidecarObservation.from(snapshot));
+    }
+
     /** 更新Sidecar后台任务计数，同时保留最近一次轮次状态。 */
     public void observeSidecarBackgroundTasks(String sessionId, int backgroundTaskCount) {
         sidecarObservations.computeIfPresent(sessionId, (ignored, state) -> new SidecarObservation(

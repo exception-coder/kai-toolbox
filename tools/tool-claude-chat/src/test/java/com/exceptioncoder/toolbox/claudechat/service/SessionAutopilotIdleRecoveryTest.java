@@ -66,7 +66,6 @@ class SessionAutopilotIdleRecoveryTest {
         verify(f.queue, never()).delete("session", "user-followup");
         verify(f.queue, never()).clearInternal(any());
         verify(f.queue, never()).clear(any());
-        verify(f.queue, never()).takeFirst(any());
         verify(f.events, never()).publishEvent(any(SessionQueueReleaseRequestedEvent.class));
     }
 
@@ -154,7 +153,6 @@ class SessionAutopilotIdleRecoveryTest {
         verify(f.repository, never()).appendStep(any());
         verify(f.queue, never()).clearInternal(any());
         verify(f.queue, never()).clear(any());
-        verify(f.queue, never()).delete(any(), any());
         verify(f.queue, never()).saveInternal(any(), any(), any(), any(), any(), any());
         verifyNoInteractions(f.events);
     }

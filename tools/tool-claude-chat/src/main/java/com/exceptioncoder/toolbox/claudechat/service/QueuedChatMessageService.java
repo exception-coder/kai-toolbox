@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.domain.QueuedChatMessage;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.QueuedChatMessageRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.QueueDeliveryStore;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionManualInputEvent;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
@@ -19,26 +20,48 @@ public class QueuedChatMessageService {
     private final QueuedChatMessageRepository repository;
     private final ClaudeChatSessionRepository sessionRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final QueueDeliveryStore deliveryStore;
 
     @Autowired
     public QueuedChatMessageService(QueuedChatMessageRepository repository,
                                     ClaudeChatSessionRepository sessionRepository,
-                                    ApplicationEventPublisher eventPublisher) {
+                                    ApplicationEventPublisher eventPublisher, QueueDeliveryStore deliveryStore) {
         this.repository = repository;
         this.sessionRepository = sessionRepository;
         this.eventPublisher = eventPublisher;
+        this.deliveryStore = deliveryStore;
     }
 
     QueuedChatMessageService(QueuedChatMessageRepository repository,
                              ClaudeChatSessionRepository sessionRepository) {
-        this(repository, sessionRepository, event -> { });
+        this(repository, sessionRepository, event -> { }, null);
     }
 
     public List<QueuedChatMessage> list(String sessionId) {
         requireSession(sessionId);
-        return repository.findBySessionId(sessionId);
+        var messages = repository.findBySessionId(sessionId);
+        if (deliveryStore == null) return messages;
+        var delivery = deliveryStore.delivery(sessionId);
+        var runtime = deliveryStore.runtime(sessionId).orElse(null);
+        return messages.stream().map(m -> delivery.filter(d -> d.messageId().equals(m.id()))
+                .map(d -> {
+                    if (runtime != null && runtime.checking()) {
+                        String note = runtime.checkAttempts() >= 3 && runtime.stopReason() != null
+                                ? "连续三次追问仍未确认完成，队列已挂起；请核对后继续。"
+                                : "正在核对当前任务是否完成（" + runtime.checkAttempts() + "/3）";
+                        return m.withDelivery(d.status(), note);
+                    }
+                    return m.withDelivery(d.status(), d.note());
+                }).orElseGet(() -> {
+                    if (runtime == null || runtime.ready() || messages.isEmpty() || !messages.getFirst().id().equals(m.id())) return m;
+                    if (runtime.checkAttempts() >= 3 && runtime.stopReason() != null) return m.withDelivery("BLOCKED",
+                            "当前任务连续三次追问仍未确认完成；请核对后继续队列。");
+                    if (runtime.checking()) return m.withDelivery("CHECKING", "正在追问上一项任务是否完成（" + runtime.checkAttempts() + "/3）");
+                    return m;
+                })).toList();
     }
 
+    @Transactional
     public QueuedChatMessage save(String sessionId, String id, String text, String displayText,
                                   String developerInstructions, List<QueuedChatMessage.Attachment> attachments,
                                   Long createdAt) {
@@ -56,8 +79,11 @@ public class QueuedChatMessageService {
                 id.trim(), sessionId, normalizedText, trimOrNull(displayText),
                 trimOrNull(developerInstructions), normalizedAttachments,
                 createdAt == null || createdAt <= 0 ? System.currentTimeMillis() : createdAt);
+        var existing = repository.findBySessionId(sessionId).stream().filter(m -> m.id().equals(message.id())).findFirst();
+        if (existing.isPresent()) return existing.get(); // 同一业务 ID 重试复用原文，不能覆盖正在派发的输入。
         repository.upsert(message);
         eventPublisher.publishEvent(new SessionManualInputEvent(sessionId, "QUEUE"));
+        eventPublisher.publishEvent(new QueueChangedEvent(sessionId));
         return message;
     }
 
@@ -73,6 +99,7 @@ public class QueuedChatMessageService {
         QueuedChatMessage message = new QueuedChatMessage(id, sessionId, text, displayText,
                 null, List.of(), createdAt == null ? System.currentTimeMillis() : createdAt, developerInstructions);
         repository.upsert(message);
+        eventPublisher.publishEvent(new QueueChangedEvent(sessionId));
         return message;
     }
 
@@ -80,6 +107,8 @@ public class QueuedChatMessageService {
     public void clearInternal(String sessionId) {
         repository.findBySessionId(sessionId).stream()
                 .filter(message -> message.id().startsWith("autopilot:"))
+                .filter(message -> deliveryStore == null || deliveryStore.delivery(sessionId)
+                        .filter(d -> d.messageId().equals(message.id())).isEmpty())
                 .forEach(message -> repository.delete(sessionId, message.id()));
     }
 
@@ -96,28 +125,14 @@ public class QueuedChatMessageService {
 
     public void delete(String sessionId, String messageId) {
         requireSession(sessionId);
-        repository.delete(sessionId, messageId);
+        if (deliveryStore == null) repository.delete(sessionId, messageId);
+        else deliveryStore.removePending(sessionId, messageId);
     }
 
-    /** 原子取得并删除队首；并发调度者只有一个能成功领取同一条消息。 */
     @Transactional
-    public Optional<QueuedChatMessage> takeFirst(String sessionId) {
-        Optional<QueuedChatMessage> first = repository.findFirstBySessionId(sessionId);
-        if (first.isEmpty()) {
-            return Optional.empty();
-        }
-        QueuedChatMessage message = first.get();
-        return repository.delete(sessionId, message.id()) ? Optional.of(message) : Optional.empty();
-    }
-
-    /** 下一轮启动失败时恢复已经领取的队列消息。 */
-    public void restore(QueuedChatMessage message) {
-        repository.upsert(message);
-    }
-
     public void clear(String sessionId) {
         requireSession(sessionId);
-        repository.deleteBySessionId(sessionId);
+        for (var message : repository.findBySessionId(sessionId)) delete(sessionId, message.id());
     }
 
     private void requireSession(String sessionId) {

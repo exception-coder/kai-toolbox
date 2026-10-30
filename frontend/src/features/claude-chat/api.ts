@@ -976,6 +976,8 @@ export async function uploadAttachment(sessionId: string, file: File): Promise<U
 }
 
 export interface PersistedQueuedMessage {
+  deliveryState?: string
+  deliveryNote?: string
   id: string
   sessionId: string
   text: string
@@ -1000,6 +1002,14 @@ export async function listQueuedMessages(sessionId: string, signal?: AbortSignal
         : undefined,
     })),
   }))
+}
+
+export function confirmQueueAndContinue(sessionId: string) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/confirm`, { method: 'POST' })
+}
+
+export function dispatchQueuedMessage(sessionId: string, messageId: string) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}/dispatch`, { method: 'POST' })
 }
 
 export function saveQueuedMessage(sessionId: string, message: Omit<PersistedQueuedMessage, 'sessionId'>) {

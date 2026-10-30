@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.domain.QueuedChatMessage;
 import com.exceptioncoder.toolbox.claudechat.service.QueuedChatMessageService;
+import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -22,11 +23,13 @@ import java.util.List;
 public class QueuedChatMessageController {
 
     private final QueuedChatMessageService service;
+    private final ClaudeChatService chat;
     private final ClaudeChatSessionAccessPolicy sessionAccessPolicy;
 
     public QueuedChatMessageController(QueuedChatMessageService service,
-                                       ClaudeChatSessionAccessPolicy sessionAccessPolicy) {
+                                       ClaudeChatSessionAccessPolicy sessionAccessPolicy, ClaudeChatService chat) {
         this.service = service;
+        this.chat = chat;
         this.sessionAccessPolicy = sessionAccessPolicy;
     }
 
@@ -41,6 +44,20 @@ public class QueuedChatMessageController {
         requireAccess(sessionId);
         return service.save(sessionId, request.id(), request.text(), request.displayText(),
                 request.developerInstructions(), request.attachments(), request.createdAt());
+    }
+
+    @PostMapping("/confirm")
+    public ResponseEntity<Void> confirm(@PathVariable String sessionId) {
+        requireAccess(sessionId);
+        chat.confirmQueueAndContinue(sessionId);
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/{messageId}/dispatch")
+    public ResponseEntity<Void> dispatch(@PathVariable String sessionId, @PathVariable String messageId) {
+        requireAccess(sessionId);
+        chat.requestQueueDispatch(sessionId, messageId);
+        return ResponseEntity.accepted().build();
     }
 
     @DeleteMapping("/{messageId}")

@@ -287,6 +287,8 @@ public class ClaudeChatSessionRepository {
     public void deleteById(String id) {
         jdbc.update("DELETE FROM claude_chat_turn_attachment WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_attachment WHERE session_id = ?", id);
+        jdbc.update("DELETE FROM claude_chat_queue_delivery WHERE session_id = ?", id);
+        jdbc.update("DELETE FROM claude_chat_queue_runtime WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_queued_message WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_pending_sql_target WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_pending_sql WHERE session_id = ?", id);
