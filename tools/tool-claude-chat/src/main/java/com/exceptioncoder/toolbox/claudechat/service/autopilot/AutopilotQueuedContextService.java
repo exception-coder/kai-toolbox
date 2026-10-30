@@ -36,9 +36,13 @@ public class AutopilotQueuedContextService {
         if (message.serverContext() != null && !message.serverContext().isBlank()) {
             return message.serverContext();
         }
-        if (RequirementAutopilot.applies(run)) return RequirementAutopilot.handoff(run, run).instructions();
+        if (RequirementAutopilot.applies(run)) return AutopilotOutcomeCheck.wrap(run,
+                repository.findLatestStep(run.id(), run.context().generation()).orElse(null),
+                RequirementAutopilot.handoff(run, run)).instructions();
         var snapshot = openSpec.inspect(Path.of(run.context().projectRoot()), run.context().changeId());
-        return AutopilotTurnHandoff.forRun(run, snapshot, run.reason()).instructions();
+        return AutopilotOutcomeCheck.wrap(run,
+                repository.findLatestStep(run.id(), run.context().generation()).orElse(null),
+                AutopilotTurnHandoff.forRun(run, snapshot, run.reason())).instructions();
     }
 
     /** 过期的控制消息不能恢复到队首重试；当前监督由既有巡检重新派发。 */

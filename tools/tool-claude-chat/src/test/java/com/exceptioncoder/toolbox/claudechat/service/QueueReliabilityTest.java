@@ -156,4 +156,33 @@ class QueueReliabilityTest {
         assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
     }
 
+    @Test void supervisorRetiresOnlyFailedControlAndDispatchesItsCheckThroughTheIdleGate() throws Exception {
+        queue.delete("s", "q1"); queue.delete("s", "q2");
+        enqueue("autopilot:old", 1);
+        store.begin("s", "failed-control", "autopilot:old", "epoch", "continue task");
+        store.settle("s", "failed-control", "error", false);
+        var messages = dep(QueuedChatMessageService.class);
+        messages.retireFailedInternal("s");
+        assertThat(store.delivery("s")).isEmpty();
+        assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
+        messages.saveInternal("s", "autopilot:check-1", "check completion", "完成核对 1/3", "trusted check", 2L);
+        when(dep(SessionRuntimeStateService.class).canStartTurn("s"))
+                .thenReturn(new SessionRuntimeStateService.SendDecision(false, "SIDECAR_UNREACHABLE", "unknown"));
+        state(snapshot("null")); chat.reconcileQueue("s");
+        assertThat(sends()).isZero();
+        when(dep(SessionRuntimeStateService.class).canStartTurn("s"))
+                .thenReturn(new SessionRuntimeStateService.SendDecision(true, "CONSISTENT", "idle"));
+        chat.reconcileQueue("s"); chat.reconcileQueue("s");
+        assertThat(sends()).isEqualTo(1);
+        assertThat(store.delivery("s").orElseThrow().messageId()).isEqualTo("autopilot:check-1");
+        assertThat(store.runtime("s").orElseThrow().checking()).isFalse();
+        // 未知派发和普通用户失败项都不能被监督清理。
+        messages.retireFailedInternal("s");
+        assertThat(store.delivery("s")).isPresent();
+        store.settle("s", store.delivery("s").orElseThrow().turnId(), "end_turn", true);
+        enqueue("user-next", 3); store.begin("s", "user-turn", "user-next", "epoch");
+        store.settle("s", "user-turn", "error", false); messages.retireFailedInternal("s");
+        assertThat(store.delivery("s").orElseThrow().messageId()).isEqualTo("user-next");
+    }
+
 }

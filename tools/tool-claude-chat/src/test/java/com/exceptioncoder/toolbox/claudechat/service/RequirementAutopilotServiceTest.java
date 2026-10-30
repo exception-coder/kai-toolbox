@@ -33,6 +33,7 @@ class RequirementAutopilotServiceTest {
     private final SessionRuntimeStateService runtime = mock(SessionRuntimeStateService.class);
     private final AtomicReference<SessionAutopilotRun> state = new AtomicReference<>();
     private final Set<String> steps = ConcurrentHashMap.newKeySet();
+    private final AtomicReference<AutopilotStep> lastStep = new AtomicReference<>();
     private SessionAutopilotService service;
     private final AutopilotProjectContextResolver resolver = mock(AutopilotProjectContextResolver.class);
     @TempDir Path project;
@@ -50,7 +51,18 @@ class RequirementAutopilotServiceTest {
         });
         when(repository.appendStep(any())).thenAnswer(call -> {
             AutopilotStep step = call.getArgument(0);
-            return steps.add(step.runId() + ":" + step.generation() + ":" + step.predecessorTurnId());
+            boolean inserted = steps.add(step.runId() + ":" + step.generation() + ":" + step.predecessorTurnId());
+            if (inserted) lastStep.set(step);
+            return inserted;
+        });
+        when(repository.findLatestStep(anyString(), anyLong())).thenAnswer(call ->
+                Optional.ofNullable(lastStep.get()).filter(step -> step.generation() == (long) call.getArgument(1)));
+        when(repository.recordOutcomeCheck(any(), any(), anyLong())).thenAnswer(call -> {
+            SessionAutopilotRun next = call.getArgument(1);
+            if (state.get().context().version() != (long) call.getArgument(2)) return false;
+            if (!repository.appendStep(call.getArgument(0))) return false;
+            state.set(next);
+            return true;
         });
         service = new SessionAutopilotService(repository, mock(ClaudeChatSessionRepository.class),
                 mock(ClaudeChatSessionAccessPolicy.class), queue, runtime, resolver, specs,
@@ -88,7 +100,8 @@ class RequirementAutopilotServiceTest {
         verify(queue, times(1)).saveInternal(anyString(), anyString(), anyString(), anyString(), anyString(), anyLong());
         service.reportProgress("session-1", report("COMPLETE", List.of(), List.of("菜单回归通过")));
         service.evaluateSettled(state.get(), new SessionTurnSettledEvent("session-1", "failed-turn", "error", false, Instant.now().toEpochMilli()));
-        assertThat(state.get().state()).isEqualTo(AutopilotState.PAUSED);
+        assertThat(state.get().state()).isEqualTo(AutopilotState.ACTIVE);
+        assertThat(state.get().reason()).contains("完成核对 1/3");
     }
 
     @Test
@@ -133,7 +146,7 @@ class RequirementAutopilotServiceTest {
     @Test
     void repeatedEvidencePausesRatherThanLoopingAndBudgetResetPreservesIdentity() {
         service.start("session-1", request("实现菜单", 20));
-        for (int index = 0; index < 4; index++) {
+        for (int index = 0; index < 7; index++) {
             service.reportProgress("session-1", report("CONTINUE", List.of("完成菜单"), index % 2 == 0
                     ? List.of("同一项测试通过", "已有实现") : List.of(" 已有实现 ", "同一项测试通过")));
             settle("turn-" + index);
@@ -197,6 +210,57 @@ class RequirementAutopilotServiceTest {
 
     private SessionAutopilotService.ProgressReport report(String disposition, List<String> remaining, List<String> evidence) {
         return new SessionAutopilotService.ProgressReport(disposition, "本轮实际工作", "完成必要验收", remaining, evidence, null);
+    }
+
+    @Test
+    void threePersistedFollowupsSuspendAndResumeCreatesANewRecoveryGeneration() {
+        var defaultRequest = new SessionAutopilotService.StartRequest("D:/repo", null, "修复菜单", false,
+                60, 3, 60, null, null, null, null);
+        assertThat(service.start("session-1", defaultRequest).completionPolicy()).isEqualTo("REQUIREMENT_BEST_EFFORT");
+        when(repository.findRecent("", null, null, 200)).thenAnswer(call -> List.of(state.get()));
+        when(runtime.canStartTurn("session-1")).thenReturn(new SessionRuntimeStateService.SendDecision(true, "READY", "空闲"));
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            var before = state.get();
+            var event = new SessionTurnSettledEvent("session-1", "failed-" + attempt, "error", false, 1L);
+            service.evaluateSettled(before, event);
+            service.evaluateSettled(before, event);
+            assertThat(state.get().state()).isEqualTo(AutopilotState.ACTIVE);
+            assertThat(state.get().noProgressCount()).isEqualTo(attempt);
+            assertThat(state.get().turnCount()).isEqualTo(attempt);
+            // 新建编排实例仍读取同一持久步骤；摘要变化不会清零核对次数。
+            service = new SessionAutopilotService(repository, mock(ClaudeChatSessionRepository.class),
+                    mock(ClaudeChatSessionAccessPolicy.class), queue, runtime, resolver, specs,
+                    mock(OpenSpecContinuousRunner.class), skills, new ObjectMapper(), mock(ApplicationEventPublisher.class));
+            clearInvocations(queue);
+            service.reconcileActiveRuns();
+            verify(queue).saveInternal(anyString(), anyString(), anyString(), contains("完成核对 " + attempt + "/3"),
+                    contains("不是重放原任务"), anyLong());
+        }
+        service.evaluateSettled(state.get(), new SessionTurnSettledEvent("session-1", "third-answer-unclear", "completed", true, 2L));
+        assertThat(state.get().state()).isEqualTo(AutopilotState.PAUSED);
+        assertThat(state.get().reason()).contains("OUTCOME_CHECK_EXHAUSTED");
+        var resumed = service.action("session-1", "resume", state.get().context().version());
+        assertThat(resumed.state()).isEqualTo("ACTIVE");
+        assertThat(resumed.noProgressCount()).isZero();
+        verifyNoInteractions(specs, skills);
+    }
+
+    @Test
+    void confirmedProgressResetsChecksAndCompletionStillNeedsASuccessfulTerminal() {
+        service.start("session-1", request("修复菜单", 60));
+        service.evaluateSettled(state.get(), new SessionTurnSettledEvent("session-1", "failed", "error", false, 1L));
+        service.reportProgress("session-1", report("CONTINUE", List.of("验证菜单"), List.of("菜单实现已修改")));
+        settle("progress");
+        assertThat(state.get().state()).isEqualTo(AutopilotState.ACTIVE);
+        assertThat(state.get().noProgressCount()).isZero();
+        service.reportProgress("session-1", new SessionAutopilotService.ProgressReport("FAILED", "验证失败", null,
+                List.of("修复并复测"), List.of("菜单测试失败"), "断言失败"));
+        settle("reported-failure");
+        assertThat(state.get().reason()).contains("完成核对 1/3");
+        service.reportProgress("session-1", report("COMPLETE", List.of(), List.of("菜单定向回归通过")));
+        settle("verified");
+        assertThat(state.get().state()).isEqualTo(AutopilotState.COMPLETED);
+        verifyNoInteractions(specs, skills);
     }
 
     private void settle(String id) {

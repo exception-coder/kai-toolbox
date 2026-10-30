@@ -2082,6 +2082,10 @@ public class ClaudeChatService {
             }
             if (busy) return;
             ctx.queueResumeRequested = false;
+            if (!expected.ready() && delivery == null && queuedMessages.firstIsInternal(id)) {
+                dispatchNextQueuedMessage(ctx, true);
+                return;
+            }
             if (expected.ready()) {
                 ctx.status = SessionStatus.IDLE;
                 repo.updateStatus(id, ctx.status);

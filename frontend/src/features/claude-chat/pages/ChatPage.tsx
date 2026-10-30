@@ -2220,7 +2220,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 agentRunning={chat.running}
                 onSupplementSpec={changeId => {
                   const target = changeId ? `补齐 OpenSpec change ${changeId}` : '根据本会话最近的目标与规划创建对应的 OpenSpec change'
-                  const prompt = `用户已确认${target}。请先核对当前项目已有规格、最近会话上下文和未完成任务；只补齐缺失的 OpenSpec proposal、delta specs、design 与 tasks，运行严格校验。不要在这一轮执行代码任务，也不要自行启动自动监督。若需求仍有无法推断的业务歧义，明确说明并等待用户选择。规格补齐后结束本轮，Forge 会自动重新预检并启动推进。`
+                  const prompt = `用户已确认${target}。先读取项目 openspec/config.yaml，核对已有规格、最近会话目标和未完成任务，只补缺失内容并复用现有文档。proposal 简述目标、范围和影响；delta specs 只写本次变化与必要验收场景；design 仅说明实际需要的实现决定、风险和验证，不补无关章节或重复概设详设；tasks 按可用功能组织，集中做最小充分验收，不按文件、接口或每个场景拆测试任务。保留权限、数据安全、必要主流程验证及人工事项，不为精简删除要求；运行规格严格校验。不要在这一轮执行代码任务或自行启动监督。仅在没有安全可逆方案的业务歧义时等待用户，否则记录暂定选择。规格补齐后结束本轮，Forge 会重新预检并按已确认的绑定继续。`
                   if (chat.running) chat.enqueue(prompt, undefined, '补齐自动推进规格')
                   else chat.send(prompt, undefined, '补齐自动推进规格')
                 }}

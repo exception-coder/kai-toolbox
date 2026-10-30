@@ -20,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.any;
 
 class OpenSpecContinuousRunnerTest {
     @org.junit.jupiter.api.io.TempDir java.nio.file.Path codingRoot;
@@ -152,7 +154,7 @@ class OpenSpecContinuousRunnerTest {
     }
 
     @Test
-    void strictSuccessWaitsForArchiveApprovalWhenAutoArchiveWasNotAuthorized() {
+    void strictSuccessKeepsActiveSpecWithoutMakingArchiveACompletionGate() {
         SessionAutopilotRun run = withAutoArchive(run(OpenSpecExecutionPhase.STRICT_VALIDATE, null, null,
                 AutopilotDisposition.COMPLETE, "revision-a", 0), false);
         when(openSpec.strictValidate(java.nio.file.Path.of("D:/repo"), "session-autopilot"))
@@ -160,9 +162,10 @@ class OpenSpecContinuousRunnerTest {
 
         OpenSpecContinuousRunner.Decision decision = runner.decide(run, snapshot("revision-a", List.of()));
 
-        assertThat(decision.state()).isEqualTo(AutopilotState.WAITING_USER);
-        assertThat(decision.code()).isEqualTo("ARCHIVE_APPROVAL_REQUIRED");
-        assertThat(decision.context().phase()).isEqualTo(OpenSpecExecutionPhase.ARCHIVE);
+        assertThat(decision.state()).isEqualTo(AutopilotState.COMPLETED);
+        assertThat(decision.code()).isEqualTo("VERIFIED_UNARCHIVED");
+        assertThat(decision.context().phase()).isEqualTo(OpenSpecExecutionPhase.DONE);
+        verify(openSpec, org.mockito.Mockito.never()).archive(any(), any());
     }
 
     @Test

@@ -25,6 +25,7 @@ import com.exceptioncoder.toolbox.claudechat.service.OpenSpecAutopilotAdapter.Ta
 import com.exceptioncoder.toolbox.claudechat.service.OpenSpecContinuousRunner.Decision;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.AutopilotTurnHandoff;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.RequirementAutopilot;
+import com.exceptioncoder.toolbox.claudechat.service.autopilot.AutopilotOutcomeCheck;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.AutopilotBatchDeferralPlanner;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionAutopilotChangedEvent;
 import com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionCapabilitiesObservedEvent;
@@ -67,8 +68,6 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     private static final Logger LOGGER = LoggerFactory.getLogger(SessionAutopilotService.class);
     private static final int DEFAULT_MAX_TURNS = 60;
     private static final int DEFAULT_MAX_NO_PROGRESS = 3;
-    private static final String CAPACITY_RETRY_REASON = "模型容量不足，等待后台重试";
-    private static final int MAX_CAPACITY_RETRIES = 3;
     private static final Duration DEFAULT_DEADLINE = Duration.ofHours(8);
     private static final int MAX_REPORT_ITEMS = 20;
     private static final int MAX_REPORT_TEXT = 2_000;
@@ -125,7 +124,9 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
 
     @Transactional
     public Run start(String sessionId, StartRequest request) {
-        if (request != null && request.completionPolicy() == AutopilotCompletionPolicy.REQUIREMENT_BEST_EFFORT) {
+        if (request != null && (request.completionPolicy() == AutopilotCompletionPolicy.REQUIREMENT_BEST_EFFORT
+                || request.completionPolicy() == null && (request.changeId() == null || request.changeId().isBlank())
+                && (request.changeIds() == null || request.changeIds().isEmpty()))) {
             return startRequirement(sessionId, request);
         }
         List<String> changeIds = request == null ? List.of() : request.changeIds() == null
@@ -454,9 +455,6 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                     pauseForBudget(run);
                     return false;
                 })
-                .filter(run -> capacityRetryCount(run.reason()) == 0
-                        || !run.updatedAt().plusSeconds(30L * capacityRetryCount(run.reason()))
-                        .isAfter(Instant.now()))
                 .forEach(run -> {
                     try {
                         if (!runtimeReadyForContinuation(run, Instant.now())) return;
@@ -470,7 +468,9 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
                         }
                         ChangeSnapshot snapshot = openSpec.inspect(Path.of(run.context().projectRoot()),
                                 run.context().changeId());
-                        if (reconcileCompletedDevelopment(run, snapshot)) return;
+                        if (AutopilotOutcomeCheck.attempt(run,
+                                repository.findLatestStep(run.id(), run.context().generation()).orElse(null)) == 0
+                                && reconcileCompletedDevelopment(run, snapshot)) return;
                         if (queuedMessages.hasInternal(run.sessionId())) {
                             events.publishEvent(new SessionQueueReleaseRequestedEvent(run.sessionId()));
                             return;
@@ -600,32 +600,34 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     void evaluateSettled(SessionAutopilotRun run, SessionTurnSettledEvent event) {
         String turnId = event.turnId() == null || event.turnId().isBlank()
                 ? "terminal-" + event.settledAt() : event.turnId();
-        if (!successful(event.stopReason()) || !event.queueReleaseSafe()) {
-            int capacityRetries = capacityRetryCount(run.reason());
-            if (transientCapacityFailure(event) && capacityRetries < MAX_CAPACITY_RETRIES
-                    && run.budgetAvailable(Instant.now())) {
-                finishDecision(run, event, turnId, AutopilotState.ACTIVE,
-                        CAPACITY_RETRY_REASON + "（" + (capacityRetries + 1) + "/"
-                                + MAX_CAPACITY_RETRIES + "）；下一轮先核对已有工作，再继续执行",
-                        run.context(), run.noProgressCount());
-                return;
-            }
-            finishDecision(run, event, turnId, AutopilotState.PAUSED,
-                    transientCapacityFailure(event) ? "模型容量错误连续出现，已达到后台重试上限"
-                            : "上一轮未形成可安全续跑的成功终态",
-                    run.context(), run.noProgressCount());
-            return;
-        }
         if (!run.budgetAvailable(Instant.now())) {
             finishDecision(run, event, turnId, AutopilotState.PAUSED,
                     "自动监督已达到轮次或时间预算", run.context(), run.noProgressCount());
             return;
         }
+        if (List.of("interrupted", "cancelled", "canceled", "aborted")
+                .contains(event.stopReason() == null ? "" : event.stopReason().toLowerCase(java.util.Locale.ROOT))) {
+            finishDecision(run, event, turnId, AutopilotState.PAUSED,
+                    "当前轮已中断；保留成果，等待用户恢复", run.context(), run.noProgressCount());
+            queuedMessages.clearInternal(run.sessionId());
+            return;
+        }
         if (run.latestDisposition() == AutopilotDisposition.WAITING_USER
                 || run.latestDisposition() == AutopilotDisposition.BLOCKED) {
-            if (!RequirementAutopilot.applies(run) && deferBlockedBatchItem(run, turnId)) return;
+            if (successful(event.stopReason()) && event.queueReleaseSafe()
+                    && !RequirementAutopilot.applies(run) && deferBlockedBatchItem(run, turnId)) return;
             finishDecision(run, event, turnId, AutopilotState.WAITING_USER,
                     reportReason(run), run.context(), run.noProgressCount());
+            queuedMessages.clearInternal(run.sessionId());
+            return;
+        }
+        if (!successful(event.stopReason()) || !event.queueReleaseSafe()) {
+            requestOutcomeCheck(run, event, turnId, "上一轮失败或结果尚不能确认");
+            return;
+        }
+        var previous = repository.findLatestStep(run.id(), run.context().generation()).orElse(null);
+        if (AutopilotOutcomeCheck.unresolved(run, previous)) {
+            requestOutcomeCheck(run, event, turnId, "当前任务未提交可确认的完成或新增进展证据");
             return;
         }
         if (RequirementAutopilot.applies(run)) {
@@ -692,8 +694,38 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         }
     }
 
+    private void requestOutcomeCheck(SessionAutopilotRun run, SessionTurnSettledEvent event,
+                                     String turnId, String cause) {
+        int attempts = AutopilotOutcomeCheck.attempt(run,
+                repository.findLatestStep(run.id(), run.context().generation()).orElse(null));
+        if (attempts >= AutopilotOutcomeCheck.MAX_ATTEMPTS) {
+            finishDecision(run, event, turnId, AutopilotState.PAUSED,
+                    "OUTCOME_CHECK_EXHAUSTED：连续三次核对仍失败或结果不明，已挂起；请核对已有成果后点击恢复",
+                    run.context(), attempts);
+            queuedMessages.clearInternal(run.sessionId());
+            return;
+        }
+        int nextAttempt = attempts + 1;
+        var next = evolve(run, AutopilotState.ACTIVE, cause + "；完成核对 " + nextAttempt + "/3",
+                run.context(), Math.min(run.maxTurns(), run.turnCount() + 1), nextAttempt,
+                run.completedTasks(), run.totalTasks(), false, Instant.now());
+        var step = new AutopilotStep(run.id(), run.context().generation(), turnId, null,
+                run.context().phase(), run.context().currentTaskId(), "OUTCOME_CHECK_" + nextAttempt,
+                cause, run.latestEvidenceJson(), progressFingerprint(run), Instant.now());
+        if (repository.recordOutcomeCheck(step, next, run.context().version())) {
+            publish(next);
+            if (!next.budgetAvailable(Instant.now())) pauseForBudget(next);
+            // 由既有巡检确认运行状态、预算和写入门禁后再派发，不在终态回调中盲重放。
+        }
+    }
+
     private void settleRequirement(SessionAutopilotRun run, String turnId) {
         var decision = RequirementAutopilot.decide(run);
+        if (decision.state() == AutopilotState.PAUSED) {
+            requestOutcomeCheck(run, new SessionTurnSettledEvent(run.sessionId(), turnId,
+                    "completed", true, System.currentTimeMillis()), turnId, decision.reason());
+            return;
+        }
         var old = run.context();
         var context = new OpenSpecExecutionContext(old.projectRoot(), old.repositoryIdentity(), old.branchAtStart(),
                 old.workspaceFingerprint(), old.changeId(), decision.fingerprint().isEmpty()
@@ -827,7 +859,7 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         }
         SessionAutopilotRun next = evolve(run, state, reason, context, Math.min(run.maxTurns(), run.turnCount() + 1),
                 noProgress, run.completedTasks(), run.totalTasks(),
-                !RequirementAutopilot.applies(run) || state == AutopilotState.ACTIVE, Instant.now());
+                state == AutopilotState.ACTIVE, Instant.now());
         if (repository.update(next, run.context().version())) {
             publish(next);
         }
@@ -917,6 +949,9 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
         AutopilotTurnHandoff.Message handoff = RequirementAutopilot.applies(run)
                 ? RequirementAutopilot.handoff(run, previousRun)
                 : AutopilotTurnHandoff.forRun(run, snapshot, reason, previousRun);
+        handoff = AutopilotOutcomeCheck.wrap(run,
+                repository.findLatestStep(run.id(), run.context().generation()).orElse(null), handoff);
+        queuedMessages.retireFailedInternal(run.sessionId());
         queuedMessages.saveInternal(run.sessionId(), handoff.id(), handoff.text(), handoff.display(),
                 handoff.instructions(),
                 System.currentTimeMillis());
@@ -1088,27 +1123,6 @@ public class SessionAutopilotService implements OpenSpecRuntimeEvidenceProvider 
     private boolean successful(String stopReason) {
         return stopReason != null && List.of("end_turn", "success", "completed", "stop")
                 .contains(stopReason.toLowerCase());
-    }
-
-    private boolean transientCapacityFailure(SessionTurnSettledEvent event) {
-        boolean failed = "failed".equalsIgnoreCase(event.stopReason())
-                || "error".equalsIgnoreCase(event.stopReason());
-        return failed && event.errorCode() != null
-                && event.errorCode().startsWith("CODEX_APP_SERVER_")
-                && event.errorMessage() != null
-                && event.errorMessage().toLowerCase(java.util.Locale.ROOT).contains("at capacity");
-    }
-
-    private int capacityRetryCount(String reason) {
-        if (reason == null || !reason.startsWith(CAPACITY_RETRY_REASON)) return 0;
-        int marker = reason.indexOf('（', CAPACITY_RETRY_REASON.length());
-        int slash = reason.indexOf('/', marker + 1);
-        if (marker < 0 || slash < 0) return 0;
-        try {
-            return Integer.parseInt(reason.substring(marker + 1, slash));
-        } catch (NumberFormatException exception) {
-            return 0;
-        }
     }
 
     private String reportReason(SessionAutopilotRun run) {

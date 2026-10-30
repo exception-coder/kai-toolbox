@@ -1,47 +1,28 @@
 schema: spec-driven
 
 context: |
-  kai-toolbox uses AGENTS.md as the project rule and context router. Read
-  docs/INDEX.md for human-maintained project knowledge. openspec/specs contains
-  accepted behavior and openspec/changes contains proposed behavior. Graphify
-  provides current implementation coordinates, not business truth.
+  Read AGENTS.md for project rules, docs/INDEX.md for maintained knowledge, and
+  docs/ai-coding-architecture.md for the AI workflow contract. Accepted behavior
+  belongs in openspec/specs; changes describe only the current delta. Verify
+  Graphify coordinates against current source; neither a graph nor structural
+  spec validation proves runtime correctness.
 
-  Before relying on Graphify, compare its manifest with Git HEAD and affected
-  working-tree files. Verify exact behavior through targeted source and tests.
-  OpenSpec structural validation does not replace implementation, database,
-  runtime, or release-artifact verification.
-
-  AI-native delivery prioritizes one usable feature, then one concentrated targeted
-  acceptance checkpoint. Reuse sufficient passing evidence while relevant code,
-  tests, dependencies, configuration and environment inputs remain valid. Small
-  low-risk changes do not automatically require new tests; add or extend existing
-  tests only for a concrete acceptance gap or regression risk. External integrations
-  become explicit unfinished follow-ups; continue independent authorized work.
-  Necessary permissions, data safety and main-flow correctness remain mandatory.
-  Full builds, full suites and browser acceptance need a concrete trigger; model
-  turns, small slices, progress reports and commits are not triggers. Respect
-  explicit user, CI and release gates. Failed or unexecuted checks are not passes.
+  Keep planning proportional to the change. Prefer concise Chinese documents
+  covering the goal, changed behavior, necessary implementation decisions and
+  acceptance. Reuse existing material; omit irrelevant template sections and do
+  not copy the same content across proposal, specs, design and tasks. A local
+  bug fix that preserves behavior does not need a new change solely for process.
+  Permissions, data safety, writer ownership and necessary acceptance remain.
 
 rules:
   proposal:
-    - Keep one change independently reviewable and state the goal, non-goals, evidence sources, and unresolved decisions.
+    - Briefly state the problem, intended result, scope and affected capabilities. Add exclusions or open decisions only when they affect this change; do not add generic background or future roadmaps.
   specs:
-    - Each scenario is an acceptance obligation, not a one-to-one test quota; equivalent outcomes may share sufficient evidence.
-    - Describe observable behavior and scenarios rather than copied implementation structure.
+    - Describe only changed observable behavior and necessary success/failure boundaries. Reuse existing requirements; scenarios are acceptance obligations, not a quota of new unit tests.
   design:
-    - Choose the smallest sufficient verification set for the usable feature; state concrete risks, reused evidence and triggers for any full build, full suite or browser acceptance.
-    - Cite current source or Graphify coordinates and record verification and rollback strategy.
+    - Explain the chosen implementation, affected contracts, concrete risks and smallest sufficient verification. Reuse existing designs and cite precise evidence; do not generate separate overview/detail documents, alternative comparisons, migration plans or empty sections without an actual need.
+    - For navigation and AI workflows, record applicable product-philosophy IDs, object identity, feedback/recovery, keyboard/mobile handling and duplicate-action behavior concisely. Preserve unverified facts and necessary authorization boundaries.
   tasks:
-    - "When the project uses CODING_FIRST, finish all authorized implementation before running compilation, tests, builds or browser acceptance. Keep unverified tasks unchecked and prefix their descriptions with [IMPLEMENTED]; continue other implementation tasks. Switch back to standard acceptance only on developer request; never treat implementation as verified delivery."
-    - Organize tasks around usable vertical features, not one task per file, endpoint, scenario or test; concentrate targeted acceptance at the completed feature checkpoint.
-    - Do not automatically generate test-writing tasks for small low-risk changes; prefer existing tests and add coverage only for a concrete acceptance gap or regression risk.
-    - Reuse unchanged sufficient passing evidence; rerun failed and affected checks after repairs. A commit, model turn or small implementation slice does not trigger a new acceptance cycle.
-    - Split optional extensions and unavailable external integrations into explicit unfinished follow-ups with dependencies and disabled entry points; preserve all original requirements and continue independent authorized work. Never label unfinished local code as manual production.
-    - Group adjacent local tasks only when they share a reviewed implementation and verification boundary; place [VERIFY_GROUP:name] after each task ID, retain per-task acceptance, and record the rationale in design.md. Never combine manual tasks. Runtime authorizes the actual bounded batch; do not independently skip task binding.
-    - Split development work into bounded tasks with explicit local acceptance evidence. Keep production deployment, real-environment acceptance and human follow-up in final separate tasks; they must not prevent completion of verified local development.
-    - For revisitable uncertainty, implement the recommended reversible solution with minimal local acceptance evidence; add tests only for concrete risk or an acceptance gap and record assumptions, evidence, risks and extension points in design.md. Append a separate [MANUAL_CONFIRMATION] task for human review; never report an assumed source fact as verified.
-    - When continuing a historical change, first split mixed development/manual tasks while preserving existing task IDs, completed evidence and unfinished local work. Append manual tasks at the end; do not simply relabel unfinished implementation as manual or mark it complete.
-    - Keep tasks independently verifiable and do not mark them complete before evidence exists.
-    - Separate locally verifiable development tasks from production-only validation and operations. Prefix each production-only task description with [MANUAL_PRODUCTION]; never use the marker for unfinished local code or tests. Keep marked tasks unchecked until a human completes production work.
-
-# Project CODING_FIRST policy: keep unchecked tasks prefixed [IMPLEMENTED] for implementation progress; defer all execution verification until the developer switches back to standard acceptance. Never treat implementation as verified delivery.
+    - Organize by usable features with concentrated targeted acceptance, not by files, endpoints or individual scenarios. Prefer existing checks; add tests only for concrete risk or an acceptance gap. Unchanged valid evidence can be reused; a turn or commit does not trigger full suites or builds.
+    - Preserve task IDs and real completion evidence. Keep unfinished local work explicit; append only actual human confirmation or production operations as unchecked [MANUAL_CONFIRMATION] or [MANUAL_PRODUCTION] tasks, never relabel unfinished code to bypass acceptance.
+    - When several local tasks share a reviewed verification boundary, use [VERIFY_GROUP:name] after their IDs; Runtime authorizes the bounded batch. Under CODING_FIRST, mark implemented but unverified tasks [IMPLEMENTED] and defer execution checks until the developer restores standard acceptance.

@@ -229,6 +229,29 @@ public class SessionAutopilotRepository {
         return count == null ? 0L : count;
     }
 
+    public Optional<AutopilotStep> findLatestStep(String runId, long generation) {
+        return jdbc.query("""
+                SELECT run_id,generation,predecessor_turn_id,message_id,phase,task_id,
+                       disposition,summary,evidence_json,progress_fingerprint,created_at
+                FROM claude_chat_autopilot_step WHERE run_id=? AND generation=? ORDER BY id DESC LIMIT 1
+                """, (rs, row) -> new AutopilotStep(rs.getString(1), rs.getLong(2), rs.getString(3),
+                rs.getString(4), OpenSpecExecutionPhase.valueOf(rs.getString(5)), rs.getString(6),
+                rs.getString(7), rs.getString(8), rs.getString(9), rs.getString(10),
+                Instant.ofEpochMilli(rs.getLong(11))), runId, generation).stream().findFirst();
+    }
+
+    /** 核对名额和代次版本一起提交；重复终态或并发接管不能多派发一次。 */
+    @Transactional
+    public boolean recordOutcomeCheck(AutopilotStep step, SessionAutopilotRun next, long expectedVersion) {
+        if (!appendStep(step)) {
+            return false;
+        }
+        if (!update(next, expectedVersion)) {
+            throw new IllegalStateException("监督已被接管或更新，本次核对步骤已回滚，请重新读取状态");
+        }
+        return true;
+    }
+
     private void insert(SessionAutopilotRun run) {
         OpenSpecExecutionContext context = run.context();
         jdbc.update("""

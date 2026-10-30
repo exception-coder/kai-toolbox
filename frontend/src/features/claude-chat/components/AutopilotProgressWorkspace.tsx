@@ -85,7 +85,7 @@ export function AutopilotProgressWorkspace({ sessionId, changeId, onOpenAll, onO
             {isCurrent && !requirement && <div className="border-t border-[var(--color-border)] py-5">
               <h3 className="text-sm font-semibold">执行阶段</h3>
               <ol className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-3">
-                {phases.map(([id, label]) => <li key={id} className={cn('border-l-2 pl-2', run.phase === id ? 'border-[var(--color-primary)] font-medium' : 'border-[var(--color-border)] text-[var(--color-muted-foreground)]')}>{label}</li>)}
+                {phases.filter(([id]) => id !== 'ARCHIVE' || run.autoArchive).map(([id, label]) => <li key={id} className={cn('border-l-2 pl-2', run.phase === id ? 'border-[var(--color-primary)] font-medium' : 'border-[var(--color-border)] text-[var(--color-muted-foreground)]')}>{label}</li>)}
               </ol>
             </div>}
             {!requirement && <div className="border-t border-[var(--color-border)] py-5">

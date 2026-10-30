@@ -164,14 +164,19 @@ public class OpenSpecContinuousRunner {
                             + " 留待人工确认和执行，不自动勾选或归档", 0);
         }
         if (!run.autoArchive()) {
-            return Decision.waiting(advance(run.context(), OpenSpecExecutionPhase.ARCHIVE,
-                    snapshot.revision()), "ARCHIVE_APPROVAL_REQUIRED", "所有门禁已通过，等待用户授权归档", 0);
+            return new Decision(AutopilotState.COMPLETED, "VERIFIED_UNARCHIVED",
+                    "本地开发及严格验收已完成；活动规格保留，归档可单独操作，不代表已上线",
+                    advance(run.context(), OpenSpecExecutionPhase.DONE, snapshot.revision()),
+                    0, null, snapshot.revision() + ":VERIFIED_UNARCHIVED");
         }
         return Decision.continueWith(advance(run.context(), OpenSpecExecutionPhase.ARCHIVE,
                 snapshot.revision()), "ADVANCE_PHASE", "执行已授权归档", 0);
     }
 
     private Decision decideArchive(SessionAutopilotRun run, ChangeSnapshot snapshot) {
+        if (!run.autoArchive()) {
+            return decideValidation(run, snapshot);
+        }
         ValidationResult result = openSpec.archive(Path.of(run.context().projectRoot()), run.context().changeId());
         if (!result.passed()) {
             return Decision.waiting(run.context(), "ARCHIVE_FAILED",

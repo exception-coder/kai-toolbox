@@ -54,7 +54,7 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
     return () => window.clearInterval(timer)
   }, [])
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [mode, setMode] = useState<'spec' | 'requirement'>('spec')
+  const [mode, setMode] = useState<'spec' | 'requirement'>('requirement')
   const [requirementGoal, setRequirementGoal] = useState('')
   const [requirementPending, setRequirementPending] = useState(false)
   useEffect(() => {
@@ -64,13 +64,14 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
     setSelectedIds([])
     setChangeId('')
     setGoal('')
-    setMode('spec')
+    setMode('requirement')
+    setAutoArchive(false)
   }, [sessionId])
   const [changeId, setChangeId] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [selectionTouched, setSelectionTouched] = useState(false)
   const [goal, setGoal] = useState('')
-  const [autoArchive, setAutoArchive] = useState(true)
+  const [autoArchive, setAutoArchive] = useState(false)
   const [supplementing, setSupplementing] = useState<string | null | undefined>(undefined)
   const [sawSupplementTurn, setSawSupplementTurn] = useState(false)
   const [waitingForQueuedTurn, setWaitingForQueuedTurn] = useState(false)
@@ -288,8 +289,8 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
             </div>
             <fieldset className="mt-4 flex gap-4 border-b border-[var(--color-border)] pb-3 text-sm" disabled={start.isPending || requirementPending}>
               <legend className="sr-only">推进方式</legend>
-              <label className="flex min-h-9 cursor-pointer items-center gap-2"><input type="radio" name={`autopilot-mode-${sessionId}`} checked={mode === 'spec'} onChange={() => setMode('spec')} />按规格推进</label>
               <label className="flex min-h-9 cursor-pointer items-center gap-2"><input type="radio" name={`autopilot-mode-${sessionId}`} checked={mode === 'requirement'} onChange={() => setMode('requirement')} />需求持续推进</label>
+              <label className="flex min-h-9 cursor-pointer items-center gap-2"><input type="radio" name={`autopilot-mode-${sessionId}`} checked={mode === 'spec'} onChange={() => setMode('spec')} />按规格推进</label>
             </fieldset>
             {mode === 'requirement' ? <RequirementAutopilotForm key={sessionId} sessionId={sessionId} projectRoot={projectRoot}
               goal={requirementGoal} onGoalChange={setRequirementGoal} onPendingChange={setRequirementPending} onStarted={next => {
@@ -331,7 +332,8 @@ export function SessionAutopilotStatus({ sessionId, projectRoot, onOpenDashboard
             </div>
             <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">已选 {selectedIds.length} 项 · 按勾选顺序推进；每项完成后才进入下一项。</p>
             <label className="mt-2 space-y-1 text-sm"><span>监督目标</span><input value={goal} onChange={event => { setGoal(event.target.value); setSelectionTouched(true) }} className="h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-2" /></label>
-            <label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={autoArchive} onChange={event => setAutoArchive(event.target.checked)} />完成后自动归档</label>
+            <label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={autoArchive} onChange={event => setAutoArchive(event.target.checked)} />验收通过后同时归档（可选）</label>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">默认保留活动规格，验收完成后可单独归档，不阻止后续开发。</p>
             {start.error && <p role="alert" className="mt-2 text-sm text-red-600">{messageOf(start.error)}，请重新探索后再确认。</p>}
             <div className="mt-4 flex justify-end gap-2"><Button variant="outline" onClick={() => {
               void candidatesQuery.refetch()

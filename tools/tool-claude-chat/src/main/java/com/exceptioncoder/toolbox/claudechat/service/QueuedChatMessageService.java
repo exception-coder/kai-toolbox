@@ -123,6 +123,15 @@ public class QueuedChatMessageService {
                 .orElse(false);
     }
 
+    /** 已收口的失败控制消息由持久监督接管；普通消息和未知派发结果仍保留。 */
+    public void retireFailedInternal(String sessionId) {
+        if (deliveryStore == null) return;
+        deliveryStore.delivery(sessionId)
+                .filter(delivery -> delivery.messageId().startsWith("autopilot:")
+                        && "FAILED".equals(delivery.status()))
+                .ifPresent(delivery -> deliveryStore.removePending(sessionId, delivery.messageId()));
+    }
+
     public void delete(String sessionId, String messageId) {
         requireSession(sessionId);
         if (deliveryStore == null) repository.delete(sessionId, messageId);

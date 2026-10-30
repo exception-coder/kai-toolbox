@@ -141,6 +141,13 @@ class SessionAutopilotRepositoryTest {
         assertThat(repository.appendStep(step)).isTrue();
         assertThat(repository.appendStep(step)).isFalse();
         assertThat(repository.countSteps("run-1")).isEqualTo(1);
+        assertThat(repository.findLatestStep("run-1", 1).orElseThrow().predecessorTurnId()).isEqualTo("turn-1");
+        assertThat(repository.findLatestStep("run-1", 2)).isEmpty();
+        var check = new AutopilotStep("run-1", 1, "turn-check", "check-1", OpenSpecExecutionPhase.APPLY,
+                "6.4", "OUTCOME_CHECK_1", "核对", "[]", "fingerprint", Instant.now());
+        assertThat(repository.recordOutcomeCheck(check, run(1, AutopilotState.ACTIVE), 0)).isTrue();
+        assertThat(repository.recordOutcomeCheck(check, run(1, AutopilotState.ACTIVE), 0)).isFalse();
+        assertThat(repository.findLatestStep("run-1", 1).orElseThrow().disposition()).isEqualTo("OUTCOME_CHECK_1");
     }
 
     @Test

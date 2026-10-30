@@ -507,7 +507,7 @@ class SessionAutopilotServiceTest {
         QueuedChatMessageService queue = mock(QueuedChatMessageService.class);
         when(repository.findBySessionId("session-1")).thenReturn(Optional.of(run()));
         when(repository.appendStep(any())).thenReturn(true);
-        when(repository.update(any(), eq(0L))).thenReturn(true);
+        when(repository.recordOutcomeCheck(any(), any(), eq(0L))).thenReturn(true);
         SessionAutopilotService service = new SessionAutopilotService(repository,
                 mock(ClaudeChatSessionRepository.class), mock(ClaudeChatSessionAccessPolicy.class), queue,
                 mock(SessionRuntimeStateService.class), mock(AutopilotProjectContextResolver.class),
@@ -520,18 +520,18 @@ class SessionAutopilotServiceTest {
                 "Selected model is at capacity. Please try a different model."));
 
         ArgumentCaptor<SessionAutopilotRun> saved = ArgumentCaptor.forClass(SessionAutopilotRun.class);
-        verify(repository, timeout(2_000)).update(saved.capture(), eq(0L));
+        verify(repository, timeout(2_000)).recordOutcomeCheck(any(), saved.capture(), eq(0L));
         assertThat(saved.getValue().state()).isEqualTo(AutopilotState.ACTIVE);
         assertThat(saved.getValue().reason()).contains("1/3");
         verify(queue, never()).saveInternal(any(), any(), any(), any(), any(), anyLong());
     }
 
     @Test
-    void unrelatedFailureStillPausesSupervision() {
+    void ordinaryFailureAlsoRequestsOutcomeCheckInsteadOfPausingImmediately() {
         SessionAutopilotRepository repository = mock(SessionAutopilotRepository.class);
         when(repository.findBySessionId("session-1")).thenReturn(Optional.of(run()));
         when(repository.appendStep(any())).thenReturn(true);
-        when(repository.update(any(), eq(0L))).thenReturn(true);
+        when(repository.recordOutcomeCheck(any(), any(), eq(0L))).thenReturn(true);
         SessionAutopilotService service = service(repository, mock(ClaudeChatSessionRepository.class),
                 mock(ClaudeChatSessionAccessPolicy.class));
 
@@ -539,8 +539,9 @@ class SessionAutopilotServiceTest {
                 System.currentTimeMillis(), "CODEX_APP_SERVER_TURN_FAILED", "tool write failed"));
 
         ArgumentCaptor<SessionAutopilotRun> saved = ArgumentCaptor.forClass(SessionAutopilotRun.class);
-        verify(repository, timeout(2_000)).update(saved.capture(), eq(0L));
-        assertThat(saved.getValue().state()).isEqualTo(AutopilotState.PAUSED);
+        verify(repository, timeout(2_000)).recordOutcomeCheck(any(), saved.capture(), eq(0L));
+        assertThat(saved.getValue().state()).isEqualTo(AutopilotState.ACTIVE);
+        assertThat(saved.getValue().reason()).contains("完成核对 1/3");
     }
 
     @Test
