@@ -403,6 +403,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     const params = new URLSearchParams(location.search)
     params.delete('view')
     navigate({ pathname: location.pathname, search: params.toString() }, { replace: true })
+    requestAnimationFrame(() => taRef.current?.focus({ preventScroll: true }))
   }, [location.pathname, location.search, navigate])
   useSessionViewRoute({ pathname: location.pathname, search: location.search, view: sessionView, setView: setSessionView, navigate })
   useEffect(() => {
@@ -2210,7 +2211,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               documentTitle={linkedPrd ? linkedPrd.title || '查看绑定文档' : undefined} siteCount={linkedSites.length}
               pendingReviewCount={reviewRelations && (reviewRelations.reviews.length > 0 || reviewRelations.pendingFeedback.length > 0)
                 ? reviewRelations.pendingFeedback.length : undefined} />
-            {chat.sessionId && sessionView !== 'supervision' && sessionView !== 'board' && (
+            {chat.sessionId && sessionView !== 'supervision' && sessionView !== 'board' && sessionView !== 'autopilot' && (
               <div data-focus-chrome className={sessionView === 'conversation' ? 'hidden md:block' : undefined}>
               <SessionAutopilotStatus
                 sessionId={chat.sessionId}
@@ -2240,15 +2241,15 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                   setSessionView('conversation')
                 }} />
               ) : sessionView === 'supervision' ? (
-                <AutopilotDashboard onOpenSession={(sessionId, changeId) => { setInspectedAutopilot({ sessionId, changeId }); chat.switchTo(sessionId); leaveSupervision(); setSessionView('autopilot_detail') }} />
+                <AutopilotDashboard onBackToConversation={leaveSupervision} onOpenSession={(sessionId, changeId) => { setInspectedAutopilot({ sessionId, changeId }); chat.switchTo(sessionId); leaveSupervision(); setSessionView('autopilot_detail') }} />
               ) : chat.sessionId ? (
                 sessionView === 'autopilot' ? (
-                  <AutopilotDashboard initialScope="all" currentSessionId={currentSession?.id}
+                  <AutopilotDashboard onBackToConversation={leaveSupervision} initialScope="all" currentSessionId={currentSession?.id}
                     onOpenSession={(sessionId, changeId) => { setInspectedAutopilot({ sessionId, changeId }); chat.switchTo(sessionId); setSessionView('autopilot_detail') }} />
                 ) : sessionView === 'autopilot_detail' ? (
                   <AutopilotProgressWorkspace key={`autopilot-${chat.sessionId}`} sessionId={chat.sessionId}
                     changeId={inspectedAutopilot?.sessionId === chat.sessionId ? inspectedAutopilot.changeId : undefined}
-                    onOpenAll={() => setSessionView('autopilot')} onOpenConversation={() => setSessionView('conversation')} />
+                    onOpenAll={() => setSessionView('autopilot')} onOpenConversation={leaveSupervision} />
                 ) : sessionView === 'trajectory' ? (
                   <TrajectoryView
                     key={`trajectory-${chat.sessionId}`}

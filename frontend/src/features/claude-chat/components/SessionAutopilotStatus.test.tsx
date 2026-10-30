@@ -218,11 +218,14 @@ describe('OpenSpec 自动监督体验', () => {
     controlSessionAutopilot.mockResolvedValue({ ...RUN, state: 'PAUSED' })
     const onOpen = vi.fn()
 
-    renderWithClient(<AutopilotDashboard onOpenSession={onOpen} />)
+    const onBack = vi.fn()
+    renderWithClient(<AutopilotDashboard onBackToConversation={onBack} onOpenSession={onOpen} />)
 
     expect(await screen.findByRole('button', { name: /进入 样衣管理/ })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /进入 样衣管理/ }))
     expect(onOpen).toHaveBeenCalledWith('session-1')
+    fireEvent.click(screen.getByRole('button', { name: '返回对话' }))
+    expect(onBack).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: '暂停监督' }))
     await waitFor(() => expect(controlSessionAutopilot).toHaveBeenCalledWith('session-1', 'pause', 7))
   })
@@ -236,9 +239,9 @@ describe('OpenSpec 自动监督体验', () => {
     getSessionAutopilot.mockResolvedValue(RUN)
     getAutopilotBatch.mockResolvedValue({ changeIds: ['sample-image-upload', 'implement-iam-access'], currentIndex: 0, deferred: [] })
     const onOpen = vi.fn()
-    renderWithClient(<AutopilotDashboard initialScope="all" currentSessionId="session-1" onOpenSession={onOpen} />)
+    renderWithClient(<AutopilotDashboard onBackToConversation={vi.fn()} initialScope="all" currentSessionId="session-1" onOpenSession={onOpen} />)
     expect((await screen.findAllByText('本会话')).length).toBeGreaterThan(0)
-    expect(screen.getByText('本会话已绑定的规格')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('本会话规格 · 2 项'))
     expect(screen.getByRole('button', { name: 'implement-iam-access' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'unrelated-change' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /全部\s*1/ })).toBeInTheDocument()
@@ -252,8 +255,8 @@ describe('OpenSpec 自动监督体验', () => {
     listAutopilotRuns.mockResolvedValue({ ...snapshot, items: [{ run: RUN, sessionTitle: '其他会话', projectName: 'kai-toolbox', engine: 'codex', sessionStatus: 'IDLE', lastActivityAt: Date.now() }] })
     getSessionAutopilot.mockResolvedValue(null)
     const onOpen = vi.fn()
-    renderWithClient(<AutopilotDashboard initialScope="all" currentSessionId="session-2" onOpenSession={onOpen} />)
-    expect(await screen.findByText('尚未绑定自动推进规格；可在对话中打开“自动推进”选择。')).toBeInTheDocument()
+    renderWithClient(<AutopilotDashboard onBackToConversation={vi.fn()} initialScope="all" currentSessionId="session-2" onOpenSession={onOpen} />)
+    expect(await screen.findByText('尚未绑定自动推进规格。')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'sample-image-upload' })).not.toBeInTheDocument()
     expect(getAutopilotBatch).not.toHaveBeenCalled()
   })
@@ -266,7 +269,7 @@ describe('OpenSpec 自动监督体验', () => {
     }
     listAutopilotRuns.mockResolvedValue(dashboard)
 
-    renderWithClient(<AutopilotDashboard onOpenSession={vi.fn()} />)
+    renderWithClient(<AutopilotDashboard onBackToConversation={vi.fn()} onOpenSession={vi.fn()} />)
 
     const activeScope = await screen.findByRole('button', { name: /监督中\s*1/ })
     const refresh = screen.getByRole('button', { name: '刷新监督看板' })
@@ -289,6 +292,8 @@ describe('OpenSpec 自动监督体验', () => {
     expect(article?.querySelector('.md\\:grid')).toBeInTheDocument()
     expect(screen.getByText('会话 / 项目').parentElement?.className).toContain('hidden')
     expect(screen.getByText('会话 / 项目').parentElement?.className).toContain('md:grid')
+    fireEvent.change(screen.getByRole('combobox', { name: '监督会话范围' }), { target: { value: 'paused' } })
+    await waitFor(() => expect(listAutopilotRuns).toHaveBeenCalledWith(expect.objectContaining({ scope: 'paused' })))
   })
 
   it('展示缓存过期提示和可恢复的上下文漂移原因', async () => {
@@ -299,7 +304,7 @@ describe('OpenSpec 自动监督体验', () => {
       snapshotAt: new Date(Date.now() - 120_000).toISOString(),
     } satisfies AutopilotDashboardView)
 
-    renderWithClient(<AutopilotDashboard onOpenSession={vi.fn()} />)
+    renderWithClient(<AutopilotDashboard onBackToConversation={vi.fn()} onOpenSession={vi.fn()} />)
     fireEvent.click(await screen.findByRole('button', { name: /待处理\s*1/ }))
 
     expect(await screen.findByText('快照可能已过期')).toBeInTheDocument()
@@ -317,7 +322,7 @@ describe('OpenSpec 自动监督体验', () => {
       snapshotAt: new Date().toISOString(),
     }
     listAutopilotRuns.mockResolvedValue(dashboard)
-    renderWithClient(<AutopilotDashboard onOpenSession={vi.fn()} />)
+    renderWithClient(<AutopilotDashboard onBackToConversation={vi.fn()} onOpenSession={vi.fn()} />)
     expect(await screen.findByText('这个范围内没有受监督会话')).toBeInTheDocument()
 
     window.dispatchEvent(new CustomEvent('claude-chat:autopilot-changed', { detail: { revision: 2 } }))

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, ChevronRight, CirclePause, Clock3, Play, RefreshCw, Search, Square, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, ChevronRight, CirclePause, Clock3, Play, RefreshCw, Search, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { controlSessionAutopilot, getAutopilotBatch, getSessionAutopilot, listAutopilotRuns } from '../api'
@@ -10,6 +10,7 @@ import type { AutopilotDashboardItem } from '../types'
 type Scope = 'all' | 'active' | 'attention' | 'paused' | 'recent'
 
 interface AutopilotDashboardProps {
+  onBackToConversation: () => void
   onOpenSession: (sessionId: string, changeId?: string) => void
   initialScope?: Scope
   currentSessionId?: string
@@ -39,9 +40,10 @@ function stateTone(state: AutopilotDashboardItem['run']['state']): string {
 }
 
 /** 当前用户可访问的受监督会话运营看板。 */
-export function AutopilotDashboard({ onOpenSession, initialScope = 'active', currentSessionId }: AutopilotDashboardProps) {
+export function AutopilotDashboard({ onBackToConversation, onOpenSession, initialScope = 'active', currentSessionId }: AutopilotDashboardProps) {
   const queryClient = useQueryClient()
   const [scope, setScope] = useState<Scope>(initialScope)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchDraft, setSearchDraft] = useState('')
   const [search, setSearch] = useState('')
   const [cursor, setCursor] = useState<string | undefined>()
@@ -89,51 +91,65 @@ export function AutopilotDashboard({ onOpenSession, initialScope = 'active', cur
   const visibleItems = [...(query.data?.items ?? [])].sort((left, right) => Number(isBoundHere(right)) - Number(isBoundHere(left)))
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col bg-[var(--color-background)] max-md:overflow-y-auto max-md:overscroll-contain" aria-labelledby="autopilot-dashboard-title">
-      <header className="shrink-0 border-b border-[var(--color-border)] px-4 py-4 sm:px-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <Bot className="size-4 text-[var(--color-muted-foreground)]" />
-              <h2 id="autopilot-dashboard-title" className="text-base font-semibold">自动监督会话</h2>
-            </div>
-            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">Forge 持续监督；单轮结束不代表任务完成。</p>
-            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">已绑定规格来自当前会话的持久监督记录；其他会话在下方查看。</p>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-[var(--color-muted-foreground)]">
-            {snapshotStale && <span className="text-amber-700 dark:text-amber-400">快照可能已过期</span>}
-            <span>{query.data ? `更新于 ${timeLabel(query.data.snapshotAt)}` : '正在读取快照'}</span>
-            <button type="button" onClick={() => query.refetch()} className="rounded p-1.5 hover:bg-[var(--color-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" aria-label="刷新监督看板"><RefreshCw className={cn('size-3.5', query.isFetching && 'animate-spin')} /></button>
-          </div>
+    <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--color-background)]" aria-labelledby="autopilot-dashboard-title">
+      <header className="flex shrink-0 items-center gap-3 border-b border-[var(--color-border)] px-3 py-2 sm:px-6">
+        <Button variant="ghost" size="sm" onClick={onBackToConversation} className="min-h-11 shrink-0 gap-1.5 px-2">
+          <ArrowLeft className="size-4" aria-hidden="true" />返回对话
+        </Button>
+        <div className="min-w-0 flex-1">
+          <h2 id="autopilot-dashboard-title" className="truncate text-sm font-semibold">自动推进</h2>
+          <p className="text-[11px] text-[var(--color-muted-foreground)]">
+            {snapshotStale ? <span className="text-amber-700 dark:text-amber-400">快照可能已过期</span>
+              : query.data ? `更新于 ${timeLabel(query.data.snapshotAt)}` : '正在读取进度'}
+          </p>
         </div>
-        {currentSessionId && <ProjectExecutionControl sessionId={currentSessionId} />}
-        {currentSessionId && <div className="mt-4 border-t border-[var(--color-border)] pt-3">
-          <div className="text-xs font-medium">本会话已绑定的规格</div>
-          {binding.isPending ? <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">正在读取绑定记录…</p>
-            : binding.isError ? <p className="mt-2 text-xs text-amber-700">绑定记录读取失败。<button type="button" className="underline" onClick={() => binding.refetch()}>重试</button></p>
-              : boundIds.size ? <div className="mt-2 flex flex-wrap gap-2">{[...boundIds].map(changeId =>
-                <button key={changeId} type="button" onClick={() => onOpenSession(currentSessionId, changeId)}
-                  className="rounded-md border border-[var(--color-border)] px-2.5 py-1.5 text-left text-xs hover:border-[var(--color-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
-                  {changeId}
-                </button>)}</div>
-                : <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">尚未绑定自动推进规格；可在对话中打开“自动推进”选择。</p>}
-        </div>}
-        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <nav className="flex gap-1 overflow-x-auto" aria-label="监督会话范围">
-            {scopes.map(item => (
-              <button key={item.id} type="button" onClick={() => { setScope(item.id); setCursor(undefined) }} aria-current={scope === item.id ? 'page' : undefined} className={cn('shrink-0 border-b-2 px-3 py-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]', scope === item.id ? 'border-[var(--color-primary)] font-medium text-[var(--color-foreground)]' : 'border-transparent text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]')}>
-                {item.label}<span className="ml-1.5 tabular-nums">{countForScope(item.id)}</span>
-              </button>
-            ))}
-          </nav>
-          <form className="relative w-full lg:w-72" onSubmit={event => { event.preventDefault(); setSearch(searchDraft.trim()); setCursor(undefined) }}>
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
-            <input value={searchDraft} onChange={event => setSearchDraft(event.target.value)} placeholder="搜索会话、项目或 change" className="h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-background)] pl-8 pr-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" />
-          </form>
-        </div>
+        <button type="button" onClick={() => query.refetch()} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded hover:bg-[var(--color-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" aria-label="刷新监督看板">
+          <RefreshCw className={cn('size-4', query.isFetching && 'animate-spin motion-reduce:animate-none')} />
+        </button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto max-md:flex-none max-md:overflow-visible">
+      <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
+        <div className="border-b border-[var(--color-border)] px-4 py-3 sm:px-6">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+            <label className="flex items-center gap-3 text-xs md:hidden">
+              <span className="shrink-0 text-[var(--color-muted-foreground)]">会话范围</span>
+              <select aria-label="监督会话范围" value={scope} onChange={event => { setScope(event.target.value as Scope); setCursor(undefined) }}
+                className="min-h-11 min-w-0 flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
+                {scopes.map(item => <option key={item.id} value={item.id}>{item.label} · {countForScope(item.id)}</option>)}
+              </select>
+            </label>
+            <nav className="hidden gap-1 overflow-x-auto md:flex" aria-label="监督会话范围">
+              {scopes.map(item => (
+                <button key={item.id} type="button" onClick={() => { setScope(item.id); setCursor(undefined) }} aria-current={scope === item.id ? 'page' : undefined} className={cn('shrink-0 border-b-2 px-3 py-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]', scope === item.id ? 'border-[var(--color-primary)] font-medium text-[var(--color-foreground)]' : 'border-transparent text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]')}>
+                  {item.label}<span className="ml-1.5 tabular-nums">{countForScope(item.id)}</span>
+                </button>
+              ))}
+            </nav>
+            <form className="relative w-full lg:w-64" onSubmit={event => { event.preventDefault(); setSearch(searchDraft.trim()); setCursor(undefined) }}>
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
+              <input aria-label="搜索监督会话" value={searchDraft} onChange={event => setSearchDraft(event.target.value)} placeholder="搜索会话、项目或规格"
+                className="min-h-11 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-background)] pl-9 pr-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]" />
+            </form>
+          </div>
+          {currentSessionId && <div className="mt-2 flex flex-wrap items-start gap-x-6 text-xs">
+            <details className="min-w-0 flex-1">
+              <summary className="min-h-11 cursor-pointer content-center rounded-sm text-[var(--color-muted-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
+                本会话规格{boundIds.size ? ` · ${boundIds.size} 项` : ''}
+              </summary>
+              {binding.isPending ? <p className="pb-3 text-[var(--color-muted-foreground)]">正在读取绑定记录…</p>
+                : binding.isError ? <p className="pb-3 text-amber-700">绑定记录读取失败。<button type="button" className="ml-2 min-h-11 underline" onClick={() => binding.refetch()}>重试</button></p>
+                  : boundIds.size ? <div className="flex flex-wrap gap-2 pb-3">{[...boundIds].map(changeId =>
+                    <button key={changeId} type="button" onClick={() => onOpenSession(currentSessionId, changeId)}
+                      className="min-h-11 max-w-full break-all rounded-md border border-[var(--color-border)] px-3 py-2 text-left hover:border-[var(--color-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">{changeId}</button>)}</div>
+                    : <p className="pb-3 leading-relaxed text-[var(--color-muted-foreground)]">尚未绑定自动推进规格。<button type="button" className="ml-2 min-h-11 underline" onClick={onBackToConversation}>返回对话配置</button></p>}
+            </details>
+            <details className="min-w-0 basis-full" open={settingsOpen} onToggle={event => setSettingsOpen(event.currentTarget.open)}>
+              <summary className="min-h-11 cursor-pointer content-center rounded-sm text-[var(--color-muted-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">项目设置 · 编码与验收</summary>
+              {settingsOpen && <ProjectExecutionControl sessionId={currentSessionId} />}
+            </details>
+          </div>}
+        </div>
+        {control.isError && <p role="alert" className="border-b border-[var(--color-border)] px-4 py-3 text-xs text-amber-700 dark:text-amber-400">操作结果未确认，请刷新状态后再试。<button type="button" onClick={() => query.refetch()} className="ml-2 min-h-11 underline">刷新状态</button></p>}
         {query.isLoading ? (
           <div className="px-6 py-10 text-sm text-[var(--color-muted-foreground)]">正在读取受监督会话…</div>
         ) : query.error ? (
