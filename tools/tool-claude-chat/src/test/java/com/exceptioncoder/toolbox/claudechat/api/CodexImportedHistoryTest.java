@@ -15,6 +15,30 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class CodexImportedHistoryTest {
+    @Test void logicalHistoryResolvesTheStoredAccountWithoutConnectingAndRejectsForeignSessions() {
+        var repo = mock(ClaudeChatSessionRepository.class);
+        var history = mock(SessionHistoryService.class);
+        var policy = mock(ClaudeChatSessionAccessPolicy.class);
+        var controller = new ClaudeChatHistoryController(history, mock(SessionAliasRepository.class), repo, new ObjectMapper());
+        ReflectionTestUtils.setField(controller, "accessPolicy", policy);
+        var session = ClaudeChatSession.builder().id("forge").sdkSessionId("native").cwd("D:/a").codexHome("home-a").build();
+        var page = com.exceptioncoder.toolbox.claudechat.api.dto.MessagePage.empty();
+        when(repo.findById("forge")).thenReturn(Optional.of(session));
+        when(policy.canAccessCurrentUser(session)).thenReturn(true);
+        when(history.readCursorMessages("D:/a", "native", "home-a", null, null, 30)).thenReturn(page);
+        assertThat(controller.sessionMessages("forge", null, 30, "cursor", null)).isSameAs(page);
+        verify(repo, never()).findBySdkSessionId(anyString());
+        clearInvocations(history);
+        when(policy.canAccessCurrentUser(session)).thenReturn(false);
+        assertThatThrownBy(() -> controller.sessionMessages("forge", null, 30, "cursor", null)).hasMessageContaining("无权读取");
+        session.setSdkSessionId(null);
+        assertThatThrownBy(() -> controller.sessionMessages("forge", null, 30, "cursor", null)).hasMessageContaining("无权读取");
+        verifyNoInteractions(history);
+        when(policy.canAccessCurrentUser(session)).thenReturn(true);
+        assertThat(controller.sessionMessages("forge", null, 30, "cursor", null).items()).isEmpty();
+        verifyNoInteractions(history);
+    }
+
     @Test void onlyAuthorizedLogicalSessionPagesCanRememberArtifactReferences() {
         var repo = mock(ClaudeChatSessionRepository.class);
         var history = mock(SessionHistoryService.class);

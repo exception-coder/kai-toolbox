@@ -1,4 +1,5 @@
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import { useEffect } from 'react'
+import { act, cleanup, render, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useClaudeChatSocket } from './useClaudeChatSocket'
 import { ApiError } from '@/lib/api'
@@ -39,7 +40,8 @@ const page = (id: string) => ({ items: [{ kind: 'assistant', id: `h-${id}`, text
 beforeEach(() => {
   TestSocket.sockets = []
   vi.stubGlobal('WebSocket', TestSocket)
-  api.loadMessages.mockImplementation((id: string) => Promise.resolve(page(id.replace('sdk-', ''))))
+  api.loadMessages.mockImplementation((id: string | null, _cwd: string, _before: unknown, _limit: number, sessionId: string) =>
+    Promise.resolve(page(id?.replace('sdk-', '') ?? sessionId)))
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
@@ -111,6 +113,47 @@ describe('Codex 会话参数恢复', () => {
 })
 
 describe('会话消息隔离', () => {
+  it('子页面首次挂载即可并行恢复历史，不依赖父级 effect 顺序', async () => {
+    function InitialSwitch({ switchTo }: { switchTo: (id: string) => void }) {
+      useEffect(() => { switchTo('initial') }, [switchTo])
+      return null
+    }
+    function Harness() {
+      const chat = useClaudeChatSocket({ autoConnect: false })
+      return <><InitialSwitch switchTo={chat.switchTo} /><span>{chat.items.length}</span></>
+    }
+    const view = render(<Harness />)
+    await waitFor(() => expect(view.getByText('1')).toBeTruthy())
+    expect(api.loadMessages).toHaveBeenCalledTimes(1)
+    expect(api.loadMessages).toHaveBeenCalledWith(null, '', null, 30, 'initial')
+  })
+
+  it('连接未就绪即可显示最近历史，ready 不重复读取', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('parallel'))
+    expect(api.loadMessages).toHaveBeenCalledWith(null, '', null, 30, 'parallel')
+    await waitFor(() => expect(result.current.items).toEqual(page('parallel').items))
+    expect(result.current.historyLoading).toBe(false)
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive(ready('parallel')) })
+    expect(api.loadMessages).toHaveBeenCalledTimes(1)
+  })
+
+  it('先到的空句柄 ready 不提前结束历史请求，失败后仍可重试', async () => {
+    let fail!: (reason: Error) => void
+    api.loadMessages.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject }))
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('parallel'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    act(() => { TestSocket.sockets[0].open(); TestSocket.sockets[0].receive({ ...ready('parallel'), sdkSessionId: null }) })
+    expect(result.current.historyLoading).toBe(true)
+    await act(async () => fail(new Error('读取超时')))
+    expect(result.current.historyError).toBeTruthy()
+    await act(async () => { await result.current.loadHistory(true) })
+    expect(result.current.items).toEqual(page('parallel').items)
+    expect(result.current.historyError).toBeNull()
+  })
+
   it('字节游标失效后由用户重试最近页，超大单轮提供明确兼容读取', async () => {
     api.loadMessages.mockResolvedValueOnce({ ...page('a'), nextBefore: 'cursor-a' })
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
@@ -337,7 +380,7 @@ describe('会话消息隔离', () => {
     const old = TestSocket.sockets[0]
     act(() => { old.open(); old.receive(ready('a')) })
     await waitFor(() => expect(result.current.items).toEqual(page('a').items))
-    expect(api.loadMessages).toHaveBeenCalledWith('sdk-a', '', null, 30, 'a')
+    expect(api.loadMessages).toHaveBeenCalledWith(null, '', null, 30, 'a')
 
     act(() => result.current.switchTo('b'))
     act(() => old.receive({ type: 'assistantDelta', seq: 10, text: '旧会话输出' }))
@@ -348,7 +391,7 @@ describe('会话消息隔离', () => {
     const current = TestSocket.sockets[1]
     act(() => { current.open(); current.receive(ready('b')) })
     await waitFor(() => expect(result.current.items).toEqual(page('b').items))
-    expect(api.loadMessages).toHaveBeenCalledWith('sdk-b', '', null, 30, 'b')
+    expect(api.loadMessages).toHaveBeenCalledWith(null, '', null, 30, 'b')
     act(() => { result.current.send('B 的新消息'); current.receive({ type: 'assistantDelta', seq: 2, text: 'B 的回复' }) })
     const ownItems = result.current.items
     expect(ownItems.at(-1)).toMatchObject({ kind: 'assistant', text: 'B 的回复' })
@@ -364,6 +407,7 @@ describe('会话消息隔离', () => {
   it('切换后迟到的历史响应不能写入当前会话', async () => {
     let finish!: (value: ReturnType<typeof page>) => void
     api.loadMessages.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    api.loadMessages.mockImplementationOnce(() => new Promise(() => {}))
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
     act(() => result.current.switchTo('a'))
     await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))

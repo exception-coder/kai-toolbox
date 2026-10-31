@@ -1088,15 +1088,17 @@ export interface RawHistoryMessage {
 
 /** 分页读取某会话历史消息，转成渲染用 ChatItem。before 空=最近一页；否则取更早一页。 */
 export async function loadMessages(
-  sdkSessionId: string,
+  sdkSessionId: string | null,
   cwd: string,
   before?: HistoryCursor,
   limit = 30,
   sessionId?: string,
   compatibility = false,
 ): Promise<{ items: ChatItem[]; nextBefore: HistoryCursor }> {
+  if (!sdkSessionId && !sessionId) throw new Error('读取历史需要会话 ID')
+  const historyId = sdkSessionId ?? sessionId!
   const stage = before == null ? 'history_latest' : 'history_earlier'
-  reportVibeEntry(stage, 'start', sdkSessionId)
+  reportVibeEntry(stage, 'start', historyId)
   const qs = new URLSearchParams()
   if (cwd) qs.set('cwd', cwd)
   if (before != null) qs.set(typeof before === 'string' ? 'cursor' : 'before', String(before))
@@ -1105,17 +1107,19 @@ export async function loadMessages(
   if (sessionId) qs.set('sessionId', sessionId)
   try {
     const page = await http<{ items: RawHistoryMessage[]; nextBefore: number | null; nextCursor?: string | null; historyGap?: string | null }>(
-      `/claude-chat/history/${encodeURIComponent(sdkSessionId)}/messages?${qs.toString()}`,
+      sdkSessionId
+        ? `/claude-chat/history/${encodeURIComponent(sdkSessionId)}/messages?${qs.toString()}`
+        : `/claude-chat/history/sessions/${encodeURIComponent(sessionId!)}/messages?${qs.toString()}`,
       { signal: AbortSignal.timeout(SESSION_HISTORY_PAGE_TIMEOUT_MS) },
     )
-    reportVibeEntry(stage, 'ok', sdkSessionId)
+    reportVibeEntry(stage, 'ok', historyId)
     const items = page.items.map(toChatItem)
     if (before == null && page.historyGap) items.unshift({ kind: 'warning', id: 'consult-history-gap',
       code: 'CONSULT_HISTORY_GAP', message: page.historyGap, ts: Date.now() })
     return { items, nextBefore: page.nextCursor ?? page.nextBefore }
   } catch (error) {
     const name = error instanceof Error ? error.name : ''
-    reportVibeEntry(stage, name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'error', sdkSessionId)
+    reportVibeEntry(stage, name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'error', historyId)
     throw error
   }
 }

@@ -6,6 +6,14 @@ vi.mock('@/lib/api', () => ({ http: vi.fn() }))
 vi.mock('@/lib/vibeEntryDiagnostics', () => ({ reportVibeEntry: vi.fn() }))
 afterEach(() => vi.resetAllMocks())
 
+it('reads a registered session before its native handle is available', async () => {
+  vi.mocked(http).mockResolvedValue({ items: [], nextBefore: null })
+  await loadMessages(null, '', null, 30, 'logical')
+  expect(vi.mocked(http).mock.calls[0][0]).toBe('/claude-chat/history/sessions/logical/messages?pagination=cursor&limit=30&sessionId=logical')
+  await expect(loadMessages(null, '', null)).rejects.toThrow('会话 ID')
+  expect(http).toHaveBeenCalledTimes(1)
+})
+
 it('opts into byte cursors and passes opaque continuation without converting it into an index', async () => {
   vi.mocked(http).mockResolvedValue({ items: [], nextBefore: null, nextCursor: 'opaque-cursor' })
   expect((await loadMessages('native', 'D:/project', null, 30, 'logical')).nextBefore).toBe('opaque-cursor')

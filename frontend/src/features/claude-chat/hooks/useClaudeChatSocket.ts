@@ -1499,6 +1499,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     historyNeedsRefreshRef.current = true
     setHistoryLoading(true)
+    // 普通已登记会话按服务端身份读取，不再串行等待引擎 ready。
+    // 公开评审、咨询和原生历史导入仍沿用各自的连接及授权流程。
+    if (channel === 'admin' && !demo) {
+      shouldLoadHistoryRef.current = false
+      loadHistoryRef.current(true)
+    }
     // 刷新/切回时若已知该会话仍在回答（会话列表 status=RUNNING），乐观置位 running，
     // 让输入区立刻显示「中断」而非「发送」；随后 Ready 的 status 会校正（本轮已结束则回落发送）。
     if (hintRunning) applyTurnRunningSignal('serverRunning')
@@ -1903,7 +1909,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const loadHistory = useCallback(async function loadHistoryPage(reset: boolean): Promise<boolean | null> {
     reset = reset || historyNeedsRefreshRef.current
     const sid = sdkSessionIdRef.current
-    if (!sid && channel !== 'review') return null
+    const logicalHistory = channel === 'admin' && !demo && !!sessionIdRef.current
+    if (!sid && channel !== 'review' && !logicalHistory) return null
     const inFlight = historyRequestRef.current
     if (inFlight) {
       if (!reset || inFlight.reset) return inFlight.promise
@@ -1929,8 +1936,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         const { items: hist, nextBefore } = channel === 'review' && reviewToken
           ? await loadPublicReviewMessages(reviewToken, typeof before === 'number' ? before : null)
           : historyCompatibilityRef.current === token.sessionId && token.sessionId != null
-            ? await loadMessages(sid!, cwdRef.current, before, 30, token.sessionId, true)
-            : await loadMessages(sid!, cwdRef.current, before, 30, token.sessionId ?? undefined)
+            ? await loadMessages(sid, cwdRef.current, before, 30, token.sessionId, true)
+            : await loadMessages(sid, cwdRef.current, before, 30, token.sessionId ?? undefined)
         // 用权威最近页替换旧缓存，保留加载期间比它更新的实时消息与乐观用户输入。
         if (!isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) return false
         if (reset && token.sessionId && channel !== 'review' && !demo) {
@@ -1973,10 +1980,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     return promise
   }, [channel, demo, reviewToken, sessionToken])
 
-  // 让 applyEvent(ready 回调)能在不进依赖环的情况下触发首屏历史加载
-  useEffect(() => {
-    loadHistoryRef.current = loadHistory
-  }, [loadHistory])
+  // 子视图首次 effect 就可能发起 switch；不能等父级 passive effect 才安装读取器。
+  loadHistoryRef.current = loadHistory
 
   // ── QUERY_FAILED 自动恢复说明 ────────────────────────────────────────────
   // "No conversation found" 的根本修复在 sidecar（sessionManager.ts）：

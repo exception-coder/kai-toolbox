@@ -54,6 +54,24 @@ public class ClaudeChatHistoryController {
         return history.list(cwd);
     }
 
+    /** 已登记会话不依赖引擎连接就能读取历史；目录和账号始终从服务端解析。 */
+    @GetMapping("/sessions/{sessionId}/messages")
+    public MessagePage sessionMessages(@PathVariable String sessionId,
+                                       @RequestParam(required = false) Integer before,
+                                       @RequestParam(defaultValue = "30") int limit,
+                                       @RequestParam(required = false) String pagination,
+                                       @RequestParam(required = false) String cursor) {
+        ClaudeChatSession db = sessionRepo.findById(sessionId).orElseThrow(() ->
+                new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "会话不存在"));
+        if (db.getSdkSessionId() == null || db.getSdkSessionId().isBlank()) {
+            if (!accessPolicy.canAccessCurrentUser(db)) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "无权读取会话");
+            }
+            return MessagePage.empty();
+        }
+        return messagesForSession(db, db.getSdkSessionId(), db.getCwd(), before, limit, sessionId, pagination, cursor);
+    }
+
     /** 分页读取某会话历史消息：进会话渲染最近一页、上拉加载更早。契约见 api-current.md §1。 */
     @GetMapping("/{sdkSessionId}/messages")
     public MessagePage messages(@PathVariable String sdkSessionId,
@@ -71,6 +89,11 @@ public class ClaudeChatHistoryController {
         if (db == null && consultHistory != null) {
             db = consultHistory.sessionForNative(sdkSessionId).flatMap(sessionRepo::findById).orElse(null);
         }
+        return messagesForSession(db, sdkSessionId, cwd, before, limit, sessionId, pagination, cursor);
+    }
+
+    private MessagePage messagesForSession(ClaudeChatSession db, String sdkSessionId, String cwd,
+                                           Integer before, int limit, String sessionId, String pagination, String cursor) {
         if ("cursor".equals(pagination) && db == null) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.NOT_FOUND, "请先导入历史会话再读取最近消息");
