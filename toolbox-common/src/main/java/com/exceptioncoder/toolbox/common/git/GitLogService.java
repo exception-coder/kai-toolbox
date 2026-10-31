@@ -48,10 +48,58 @@ public class GitLogService {
 
     /** 列最近提交。limit 钳到 [1, commitLimitMax]。 */
     public List<CommitInfo> listCommits(Path dir, int limit) {
+        return readCommits(dir, limit, null);
+    }
+
+    /** 只浏览仓库已有本地/远端引用，不 fetch、不 checkout；排除 origin/HEAD 等符号别名。 */
+    public List<GitBranchRef> listBranches(Path dir) {
+        Result result = exec(List.of(props.getBinary(), "-C", dir.toString(), "for-each-ref",
+                "--sort=-committerdate", "--format=%(refname)%09%(objectname)%09%(HEAD)%09%(symref)",
+                "refs/heads/", "refs/remotes/"));
+        if (result.truncated()) {
+            throw new IllegalStateException("分支列表超过读取上限，请缩小仓库范围");
+        }
+        List<GitBranchRef> branches = new ArrayList<>();
+        for (String line : result.stdout().lines().toList()) {
+            String[] fields = line.split("\t", -1);
+            if (fields.length != 4 || !fields[3].isBlank()) continue;
+            boolean remote = fields[0].startsWith("refs/remotes/");
+            String prefix = remote ? "refs/remotes/" : "refs/heads/";
+            branches.add(new GitBranchRef(fields[0], fields[0].substring(prefix.length()), fields[1],
+                    "*".equals(fields[2]), remote));
+        }
+        if (branches.stream().noneMatch(GitBranchRef::current)) {
+            // 新仓库的 unborn 分支和 detached HEAD 均保留明确的当前入口。
+            String symbolic = exec(List.of(props.getBinary(), "-C", dir.toString(), "symbolic-ref", "-q", "HEAD"),
+                    null, true).stdout().strip();
+            if (symbolic.startsWith("refs/heads/")) {
+                branches.addFirst(new GitBranchRef(symbolic, symbolic.substring("refs/heads/".length()), "", true, false));
+            } else {
+                String head = workspaceHead(dir);
+                branches.addFirst(new GitBranchRef("HEAD", "HEAD（游离）", head == null ? "" : head, true, false));
+            }
+        }
+        branches.sort((left, right) -> Boolean.compare(right.current(), left.current()));
+        return branches;
+    }
+
+    /** 仅接受仓库实际列出的分支，固定其提交版本后查询，防止选项/修订表达式注入。 */
+    public List<CommitInfo> listCommits(Path dir, int limit, String branch) {
+        if (branch == null || branch.isBlank()) return listCommits(dir, limit);
+        GitBranchRef selected = listBranches(dir).stream().filter(candidate -> candidate.ref().equals(branch))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("分支已不存在，请刷新分支列表"));
+        if (selected.head().isEmpty()) return List.of();
+        return readCommits(dir, limit, selected.head());
+    }
+
+    private List<CommitInfo> readCommits(Path dir, int limit, String head) {
         int n = Math.max(1, Math.min(limit, props.getCommitLimitMax()));
-        Result r = exec(List.of(
+        List<String> arguments = new ArrayList<>(List.of(
                 props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
                 "log", "-n", String.valueOf(n), "--no-color", "--pretty=format:" + LOG_PRETTY));
+        if (head != null) arguments.add(head);
+        arguments.add("--");
+        Result r = exec(arguments);
         List<CommitInfo> out = new ArrayList<>();
         for (String record : r.stdout().split(RS)) {
             String normalized = record.stripLeading();

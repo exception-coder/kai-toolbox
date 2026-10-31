@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { CommitsPanel } from './CommitsPanel'
-import type { CommitInfo } from './types'
+import type { CommitInfo, GitBranchRef } from './types'
 
 afterEach(cleanup)
 
@@ -68,4 +68,66 @@ it('keeps selected-repository commits when an earlier list request arrives late'
   await screen.findByText('new', { selector: 'span' })
   await act(async () => first([commit('old')]))
   expect(screen.queryByText('old')).not.toBeInTheDocument()
+})
+
+const branch = (name: string, current = false): GitBranchRef => ({ ref: `refs/heads/${name}`, name, head: name, current, remote: false })
+const commit = (name: string): CommitInfo => ({ hash: name, shortHash: name, subject: `${name} 提交`, body: '', author: 'user', date: '' })
+
+it('browses branch labels without sync actions and ignores late commits and diff from a previous branch', async () => {
+  let finishOld!: (commits: CommitInfo[]) => void
+  let finishDiff!: (diff: import('./types').CommitDiff) => void
+  const fetchCommits = vi.fn((_repo?: string, ref?: string) => ref === 'refs/heads/slow'
+    ? new Promise<CommitInfo[]>(resolve => { finishOld = resolve }) : Promise.resolve([commit(ref === 'refs/heads/main' ? 'main' : 'feature')]))
+  render(<CommitsPanel title="repo" onClose={vi.fn()} fetchBranches={async () => [branch('main', true), branch('slow'), branch('feature')]}
+    fetchCommits={fetchCommits} fetchDiff={() => new Promise(resolve => { finishDiff = resolve })}
+    pushActions={{ preview: async () => ({ branch: 'main', head: 'a', remote: 'origin', targetBranch: 'main', destinations: [], ahead: 0, behind: 0, token: '', pushBlockedReason: '' }), push: vi.fn() }} />)
+  await screen.findByText('main 提交')
+  expect(screen.getByRole('button', { name: /^main 工作分支/ })).toHaveAttribute('aria-pressed', 'true')
+  fireEvent.click(screen.getByRole('button', { name: 'slow' }))
+  fireEvent.click(screen.getByRole('button', { name: 'feature' }))
+  await screen.findByText('feature 提交')
+  await act(async () => finishOld([commit('slow')]))
+  expect(screen.queryByText('slow 提交')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /^推送$/ })).not.toBeInTheDocument()
+  expect(screen.getByText(/只读查看，不切换工作分支/)).toBeInTheDocument()
+  fireEvent.click(screen.getByText('feature 提交'))
+  await screen.findByText('加载 diff…')
+  fireEvent.click(screen.getByRole('button', { name: '返回列表' }))
+  fireEvent.click(screen.getByRole('button', { name: /^main 工作分支/ }))
+  await screen.findByText('main 提交')
+  await act(async () => finishDiff({ ...commit('feature'), diff: 'old patch', truncated: false }))
+  expect(screen.queryByText('old patch')).not.toBeInTheDocument()
+  expect(fetchCommits).toHaveBeenLastCalledWith(undefined, 'refs/heads/main')
+  expect(screen.getByRole('button', { name: /^推送$/ })).toBeInTheDocument()
+})
+
+it('isolates late branch catalogs between repositories and clears a removed branch on refresh', async () => {
+  let finishFirst!: (branches: GitBranchRef[]) => void
+  const fetchBranches = vi.fn((repo?: string) => repo === 'one' ? new Promise<GitBranchRef[]>(resolve => { finishFirst = resolve })
+    : Promise.resolve([branch('main', true), branch('feature')]))
+  render(<CommitsPanel title="repo" onClose={vi.fn()} fetchDiff={vi.fn()} fetchBranches={fetchBranches}
+    fetchRepos={async () => [{ name: 'one', label: 'one', isRoot: true }, { name: 'two', label: 'two', isRoot: false }]}
+    fetchCommits={async (_repo, ref) => [commit(ref === 'refs/heads/feature' ? 'feature' : 'main')]} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'two' }))
+  await screen.findByText('main 提交')
+  await act(async () => finishFirst([branch('wrong-repo', true)]))
+  expect(screen.queryByRole('button', { name: /wrong-repo/ })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'feature' }))
+  await screen.findByText('feature 提交')
+  fetchBranches.mockResolvedValue([branch('main', true)])
+  fireEvent.click(screen.getByRole('button', { name: '刷新分支和提交' }))
+  await screen.findByText('main 提交')
+  expect(screen.getByRole('status')).toHaveTextContent('原查看分支已不存在')
+})
+
+it('keeps current-branch history usable when the branch endpoint is unavailable and allows recovery', async () => {
+  const fetchBranches = vi.fn<() => Promise<GitBranchRef[]>>().mockRejectedValueOnce(new Error('接口未就绪'))
+    .mockResolvedValue([branch('main', true)])
+  render(<CommitsPanel title="repo" onClose={vi.fn()} fetchDiff={vi.fn()} fetchBranches={fetchBranches}
+    fetchCommits={async () => [commit('main')]} />)
+  await screen.findByText('main 提交')
+  expect(screen.getByRole('alert')).toHaveTextContent('当前显示工作分支')
+  fireEvent.click(screen.getByRole('button', { name: '刷新分支和提交' }))
+  await screen.findByRole('button', { name: /^main 工作分支/ })
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })

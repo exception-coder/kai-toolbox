@@ -7,6 +7,7 @@ import type {
   CommitsResponse,
   GitFileDiffResponse,
   GitRepoRef,
+  GitBranchRef,
   GitStatusResponse,
   GitPushPreview,
   GitPullPreview,
@@ -23,12 +24,20 @@ export function listSessionGitRepos(sessionId: string) {
 }
 
 /** 列会话工作目录(git 仓库)的最近提交。后端按 sessionId 解析 cwd；repo 指定子仓库（父目录聚合场景）。 */
-export function listSessionCommits(sessionId: string, limit?: number, repo?: string) {
+export function listSessionCommits(sessionId: string, limit?: number, repo?: string, branch?: string) {
   const p = new URLSearchParams()
   if (limit) p.set('limit', String(limit))
   if (repo) p.set('repo', repo)
+  if (branch) p.set('branch', branch)
   const qs = p.toString() ? `?${p.toString()}` : ''
   return http<CommitsResponse>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/commits${qs}`)
+}
+
+export function listSessionGitBranches(sessionId: string, repo?: string) {
+  const p = new URLSearchParams()
+  if (repo) p.set('repo', repo)
+  const qs = p.size ? `?${p.toString()}` : ''
+  return http<GitBranchRef[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/branches${qs}`)
 }
 
 /** 取会话目录某提交的 diff。repo 指定子仓库。 */

@@ -23,6 +23,32 @@ class ClaudeChatGitControllerTest {
     @TempDir Path temporary;
 
     @Test
+    void bindsOptionalBranchToTheResolvedRepositoryWithoutChangingSyncActions() throws Exception {
+        var repositories = mock(com.exceptioncoder.toolbox.claudechat.service.SessionGitRepositoryService.class);
+        when(repositories.resolve("session", "selected")).thenReturn(temporary);
+        var git = mock(GitLogService.class);
+        when(git.listBranches(temporary)).thenReturn(List.of(new com.exceptioncoder.toolbox.common.git.GitBranchRef(
+                "refs/heads/feature", "feature", "abc", false, false)));
+        when(git.listCommits(temporary, 5, "refs/heads/feature")).thenReturn(List.of());
+        when(git.listCommits(temporary, 30, null)).thenReturn(List.of());
+        var pushes = mock(GitPushOperations.class);
+        var pulls = mock(GitPullOperations.class);
+        var controller = new ClaudeChatGitController(repositories, new GitProperties(), git, pushes, path -> true, pulls);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/claude-chat/sessions/session/git/branches")
+                .param("repo", "selected")).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].ref").value("refs/heads/feature"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/claude-chat/sessions/session/git/commits")
+                .param("repo", "selected").param("limit", "5").param("branch", "refs/heads/feature"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/claude-chat/sessions/session/git/commits")
+                .param("repo", "selected")).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        verify(git).listCommits(temporary, 5, "refs/heads/feature");
+        verify(git).listCommits(temporary, 30, null);
+        verifyNoInteractions(pushes, pulls);
+    }
+
+    @Test
     void authorizesSelectedRepositoryBeforePrepareAndPull() throws Exception {
         Path child = Files.createDirectories(temporary.resolve("selected"));
         Files.createDirectory(child.resolve(".git"));

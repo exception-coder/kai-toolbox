@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ChevronRight, FileText, Folder, GitCommit, MessageSquareText, X } from 'lucide-react'
+import { ArrowLeft, ChevronRight, FileText, Folder, GitBranch, GitCommit, MessageSquareText, RefreshCw, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import * as Dialog from '@radix-ui/react-dialog'
 import { GitPushToolbar } from './GitPushToolbar'
-import type { CommitDiff, CommitInfo, GitRepoRef, GitPushActions, GitPullActions } from './types'
+import type { CommitDiff, CommitInfo, GitRepoRef, GitBranchRef, GitPushActions, GitPullActions } from './types'
 
 interface Props {
   /** 弹层标题（如项目名 / 会话目录名） */
   title: string
   /** 拉取提交列表（repo 为可选子仓库定位，多仓库场景由本组件传入所选仓库） */
-  fetchCommits: (repo?: string) => Promise<CommitInfo[]>
+  fetchCommits: (repo?: string, branch?: string) => Promise<CommitInfo[]>
+  /** 可选只读分支浏览；未提供时维持当前工作分支行为。 */
+  fetchBranches?: (repo?: string) => Promise<GitBranchRef[]>
   /** 拉取某提交 diff */
   fetchDiff: (hash: string, repo?: string) => Promise<CommitDiff>
   onClose: () => void
@@ -31,12 +33,16 @@ interface Props {
  * 与具体后端接口解耦，供 projects（按 path）/ claude-chat（按 sessionId）等复用。
  * 提供 fetchRepos 时支持在会话 cwd 下的多个 git 子仓库间切换查看。
  */
-export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos, pushActions, pullActions, restoreFocus, onManageRepos, initialRepo, onRepoChange }: Props) {
+export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos, fetchBranches, pushActions, pullActions, restoreFocus, onManageRepos, initialRepo, onRepoChange }: Props) {
   const returnFocus = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
   const [repoRefresh, setRepoRefresh] = useState(0)
   const [pushing, setPushing] = useState(false)
   const [repos, setRepos] = useState<GitRepoRef[] | null>(null)
   const [activeRepo, setActiveRepo] = useState<string | undefined>(undefined)
+  const [branches, setBranches] = useState<GitBranchRef[] | null>(null)
+  const [activeBranch, setActiveBranch] = useState<string>()
+  const [branchError, setBranchError] = useState<string | null>(null)
+  const [branchNotice, setBranchNotice] = useState('')
   const [commits, setCommits] = useState<CommitInfo[] | null>(null)
   const [listErr, setListErr] = useState<string | null>(null)
   const [diff, setDiff] = useState<CommitDiff | null>(null)
@@ -45,17 +51,39 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
   const [selectedCommit, setSelectedCommit] = useState<CommitInfo | null>(null)
   const listGeneration = useRef(0)
   const diffGeneration = useRef(0)
+  const branchGeneration = useRef(0)
 
   // 载入某仓库的提交（repo=undefined 表示不带 repo：cwd 单仓 / projects 用法）
-  const loadCommits = useCallback((repo: string | undefined) => {
+  const loadCommits = useCallback((repo: string | undefined, branch?: string) => {
     const current = ++listGeneration.current
     diffGeneration.current++
     setDiffLoading(false)
     setCommits(null); setListErr(null); setDiff(null); setDiffErr(null); setSelectedCommit(null)
-    fetchCommits(repo)
+    fetchCommits(repo, branch)
       .then(result => { if (current === listGeneration.current) setCommits(result) })
       .catch(e => { if (current === listGeneration.current) setListErr(e instanceof Error ? e.message : String(e)) })
   }, [fetchCommits])
+
+  const loadRepository = useCallback((repo: string | undefined, preferredBranch?: string) => {
+    const current = ++branchGeneration.current
+    listGeneration.current++; diffGeneration.current++
+    setBranches(null); setActiveBranch(undefined); setBranchError(null); setBranchNotice('')
+    setCommits(null); setListErr(null); setDiff(null); setDiffErr(null); setDiffLoading(false); setSelectedCommit(null)
+    if (!fetchBranches) { loadCommits(repo); return }
+    fetchBranches(repo).then(result => {
+      if (current !== branchGeneration.current) return
+      setBranches(result)
+      const selected = result.find(branch => branch.ref === preferredBranch) ?? result.find(branch => branch.current) ?? result[0]
+      if (preferredBranch && selected?.ref !== preferredBranch) setBranchNotice('原查看分支已不存在，已返回当前分支。')
+      setActiveBranch(selected?.ref)
+      loadCommits(repo, selected?.ref)
+    }).catch(error => {
+      if (current !== branchGeneration.current) return
+      setBranchError(error instanceof Error ? error.message : String(error))
+      // 兼容后端尚未更新或分支接口临时不可用，明确回落到当前工作分支。
+      loadCommits(repo)
+    })
+  }, [fetchBranches, loadCommits])
 
   // 初始化：有 fetchRepos 则先取仓库列表、选第一个并载入；否则直接不带 repo 载入。
   useEffect(() => {
@@ -63,7 +91,8 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
     listGeneration.current++
     setListErr(null)
     setCommits(null)
-    if (!fetchRepos) { loadCommits(undefined); return () => { alive = false } }
+    const dispose = () => { alive = false; branchGeneration.current++; listGeneration.current++; diffGeneration.current++ }
+    if (!fetchRepos) { loadRepository(undefined); return dispose }
     fetchRepos()
       .then(rs => {
         if (!alive) return
@@ -71,10 +100,10 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
         const first = rs.find(repo => repo.name === (activeRepo ?? initialRepo))?.name ?? rs[0]?.name
         setActiveRepo(first)
         if (rs.length === 0) setListErr('会话目录及其子目录都不是 git 仓库')
-        else loadCommits(first)
+        else loadRepository(first)
       })
       .catch(e => { if (alive) setListErr(e instanceof Error ? e.message : String(e)) })
-    return () => { alive = false }
+    return dispose
     // 仅首次加载；fetchRepos/fetchCommits 由调用方 memo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoRefresh])
@@ -83,7 +112,13 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
     if (name === activeRepo) return
     setActiveRepo(name)
     onRepoChange?.(name)
-    loadCommits(name)
+    loadRepository(name)
+  }
+
+  const selectBranch = (ref: string) => {
+    if (ref === activeBranch) return
+    setActiveBranch(ref); setBranchNotice('')
+    loadCommits(activeRepo, ref)
   }
 
   const openDiff = (commit: CommitInfo) => {
@@ -100,6 +135,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
 
   const backToList = () => { diffGeneration.current++; setDiffLoading(false); setDiff(null); setDiffErr(null); setSelectedCommit(null) }
   const showingDiff = diff !== null || diffErr !== null || diffLoading
+  const viewingCurrentBranch = !fetchBranches || !!branchError || !!branches?.find(branch => branch.ref === activeBranch)?.current
 
   return (
     <Dialog.Root open onOpenChange={open => { if (!open && !pushing) onClose() }}>
@@ -157,13 +193,34 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
           </div>
         )}
 
-        {pushActions && (!fetchRepos || !!repos?.length) && <GitPushToolbar actions={pushActions} pullActions={pullActions} repo={activeRepo}
-          onPending={setPushing} onPushed={() => { if (!showingDiff) loadCommits(activeRepo) }}
-          onPulled={() => loadCommits(activeRepo)} />}
+        {fetchBranches && (!fetchRepos || !!repos?.length) && !showingDiff && <section aria-label="分支浏览" className="min-w-0 border-b px-3 py-2">
+          <div className="flex items-center gap-2">
+            <GitBranch className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
+            <div role="group" aria-label="选择查看分支" className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
+              {branches?.map(branch => <button key={branch.ref} type="button" disabled={pushing} onClick={() => selectBranch(branch.ref)}
+                aria-pressed={activeBranch === branch.ref} title={branch.ref}
+                className={cn('inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs disabled:opacity-50',
+                  activeBranch === branch.ref ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]' : 'border-transparent hover:bg-[var(--color-muted)]')}>
+                <span className="max-w-56 truncate">{branch.name}</span>
+                {(branch.current || branch.remote) && <span className="text-[10px] text-[var(--color-muted-foreground)]">{branch.current ? '工作分支' : '远端'}</span>}
+              </button>)}
+              {!branches && !branchError && <span className="py-2 text-xs text-[var(--color-muted-foreground)]">读取分支…</span>}
+            </div>
+            <button type="button" aria-label="刷新分支和提交" onClick={() => loadRepository(activeRepo, activeBranch)} disabled={pushing || (!branches && !branchError)}
+              className="inline-flex size-10 shrink-0 items-center justify-center rounded-md hover:bg-[var(--color-muted)] disabled:opacity-50"><RefreshCw className="size-4" /></button>
+          </div>
+          {branchError ? <p role="alert" className="mt-1 break-words text-xs text-[var(--color-muted-foreground)]">分支列表暂不可用，当前显示工作分支。{branchError}；可刷新重试。</p>
+            : branches && <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">{viewingCurrentBranch ? '查看工作分支提交' : '只读查看，不切换工作分支'} · 远端分支为本地已获取记录</p>}
+          {branchNotice && <p role="status" className="mt-1 text-xs text-[var(--color-muted-foreground)]">{branchNotice}</p>}
+        </section>}
+
+        {pushActions && viewingCurrentBranch && (!fetchRepos || !!repos?.length) && <GitPushToolbar actions={pushActions} pullActions={pullActions} repo={activeRepo}
+          onPending={setPushing} onPushed={() => { if (!showingDiff) loadCommits(activeRepo, activeBranch) }}
+          onPulled={() => loadRepository(activeRepo, activeBranch)} />}
 
         {!showingDiff && (
           <div className="overflow-y-auto p-2">
-            {listErr && <div role="alert" className="p-3 text-sm text-[var(--color-destructive)]">{listErr}<button className="ml-3 underline" onClick={() => setRepoRefresh(value => value + 1)}>重试</button></div>}
+            {listErr && <div role="alert" className="p-3 text-sm text-[var(--color-destructive)]">{listErr}<button className="ml-3 underline" onClick={() => { if (repos?.length || !fetchRepos) loadRepository(activeRepo, activeBranch); else setRepoRefresh(value => value + 1) }}>重试</button></div>}
             {!commits && !listErr && <div className="p-3 text-sm text-[var(--color-muted-foreground)]">加载中…</div>}
             {commits?.length === 0 && <div className="p-3 text-sm text-[var(--color-muted-foreground)]">无提交记录</div>}
             <ul className="flex flex-col">

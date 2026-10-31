@@ -15,6 +15,15 @@ export interface CommitsResponse {
   commits: CommitInfo[]
 }
 
+/** 服务器已核验的完整分支引用；远端分支来自本地缓存，不自动 fetch。 */
+export interface GitBranchRef {
+  ref: string
+  name: string
+  head: string
+  current: boolean
+  remote: boolean
+}
+
 /** 工作目录下的一个 git 仓库：name 空串=目录自身即仓库，否则为子目录名（查询提交时回传）。 */
 export interface GitRepoRef {
   name: string

@@ -1,5 +1,19 @@
 ## ADDED Requirements
 
+### Requirement: Read-only branch history browsing
+The session commits dialog SHALL offer branch labels scoped to the selected authorized repository, including local and cached remote branches, defaulting to the current working branch. Selecting a label SHALL only read that branch's commits without checkout, fetch or changes to working files or index.
+
+#### Scenario: Browse another branch and recover
+- **WHEN** a developer selects another branch or repository and earlier requests finish late
+- **THEN** commits and detail SHALL belong only to the current selection, and sync actions SHALL only appear for the working branch
+- **AND** refresh SHALL preserve an existing selection or explicitly return to the working branch if the selected branch was removed
+
+#### Scenario: Empty history or unavailable branch service
+- **WHEN** the current branch has no commits or HEAD is detached
+- **THEN** an explicit current entry SHALL remain available
+- **WHEN** the branch service is unavailable
+- **THEN** current-branch history SHALL remain usable with an explicit fallback message and retry action
+
 ### Requirement: Push from session commit history
 The session commit history SHALL offer a snapshot-bound branch push for its selected repository, reuse the existing project Git push rules through a shared port, and resolve repository paths from the session on the server.
 

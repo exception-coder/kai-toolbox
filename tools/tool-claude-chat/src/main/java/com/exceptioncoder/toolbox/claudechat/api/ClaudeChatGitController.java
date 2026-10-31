@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.claudechat.service.SessionGitRepositoryService
 import com.exceptioncoder.toolbox.common.git.CommitDiff;
 import com.exceptioncoder.toolbox.common.git.CommitsResponse;
 import com.exceptioncoder.toolbox.common.git.GitLogService;
+import com.exceptioncoder.toolbox.common.git.GitBranchRef;
 import com.exceptioncoder.toolbox.common.git.GitProperties;
 import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
 import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
@@ -98,10 +99,17 @@ public class ClaudeChatGitController {
     @GetMapping("/commits")
     public CommitsResponse commits(@PathVariable String id,
                                    @RequestParam(required = false) String repo,
-                                   @RequestParam(required = false) Integer limit) {
+                                   @RequestParam(required = false) Integer limit,
+                                   @RequestParam(required = false) String branch) {
         Path dir = repositories.resolve(id, repo);
         int lim = limit != null ? limit : gitProps.getCommitLimitDefault();
-        return new CommitsResponse(git.listCommits(dir, lim));
+        return new CommitsResponse(git.listCommits(dir, lim, branch));
+    }
+
+    /** 当前仓库的本地与已获取远端分支；浏览不会改变工作分支。 */
+    @GetMapping("/branches")
+    public List<GitBranchRef> branches(@PathVariable String id, @RequestParam(required = false) String repo) {
+        return git.listBranches(repositories.resolve(id, repo));
     }
 
     /**
