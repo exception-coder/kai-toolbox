@@ -6,13 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatPage } from './ChatPage'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import type { ProviderProfile } from '../providerProfiles'
-import type { WorkspaceList } from '../types'
+import type { ClaudeChatSessionView, WorkspaceList } from '../types'
 import { newSessionPreferenceKey, saveNewSessionPreferences } from '../lib/newSessionPreferences'
-import { uploadAttachment } from '../api'
+import { fetchCodexHomes, uploadAttachment } from '../api'
+import { saveCodexHomePreference } from '../lib/codexHomePref'
 
 const testRuntime = vi.hoisted(() => ({
   profiles: undefined as ProviderProfile[] | undefined,
   roots: [] as WorkspaceList['roots'],
+  oldCodexSessions: [] as Partial<ClaudeChatSessionView>[],
   chat: {
     open: vi.fn(),
     send: vi.fn(), steer: vi.fn(), enqueue: vi.fn(), interrupt: vi.fn(),
@@ -56,9 +58,9 @@ vi.mock('../providerProfiles', async importOriginal => ({ ...(await importOrigin
   loadProfiles: () => testRuntime.profiles ? Promise.resolve(testRuntime.profiles) : new Promise(() => {}) }))
 vi.mock('../api', async importOriginal => ({
   ...(await importOriginal<typeof import('../api')>()),
-  listSessions: async () => [{ id: 'session-config-regression', engine: 'codex', providerKind: 'official', cwd: 'D:/test', title: 'Test' }],
+  listSessions: async () => [{ id: 'session-config-regression', engine: 'codex', providerKind: 'official', cwd: 'D:/test', title: 'Test' }, ...testRuntime.oldCodexSessions],
   listEngineCatalog: async () => ({ engines: [] }),
-  fetchCodexHomes: async () => [],
+  fetchCodexHomes: vi.fn().mockResolvedValue([]),
   getReviewRelations: async () => null,
   getSessionSiteConfiguration: async () => ({ quickSiteIds: [], customSites: [] }),
   listSessionProjectDirectories: async () => [],
@@ -68,12 +70,16 @@ vi.mock('../api', async importOriginal => ({
   uploadAttachment: vi.fn(),
 }))
 
-beforeEach(() => localStorage.clear())
+beforeEach(() => {
+  localStorage.clear()
+  vi.mocked(fetchCodexHomes).mockReset().mockResolvedValue([])
+})
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   testRuntime.profiles = undefined
   testRuntime.roots = []
+  testRuntime.oldCodexSessions = []
   testRuntime.chat.open.mockClear()
   testRuntime.chat.send.mockClear()
   testRuntime.chat.steer.mockClear()
@@ -93,7 +99,8 @@ afterEach(() => {
 
 function mountChat() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<StrictMode><QueryClientProvider client={client}><MemoryRouter initialEntries={['/tools/claude-chat']}><ConfirmProvider><ChatPage /></ConfirmProvider></MemoryRouter></QueryClientProvider></StrictMode>)
+  const view = render(<StrictMode><QueryClientProvider client={client}><MemoryRouter initialEntries={['/tools/claude-chat']}><ConfirmProvider><ChatPage /></ConfirmProvider></MemoryRouter></QueryClientProvider></StrictMode>)
+  return { ...view, queryClient: client }
 }
 
 async function openNewSessionForm() {
@@ -101,6 +108,51 @@ async function openNewSessionForm() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('uses discovered Auth directories instead of historical bindings or remembered preferences', async () => {
+    const defaultHome = 'C:/Users/test/.codex'
+    const removedHomes = ['dy', 'zk', 'wz', 'pro', 'yx'].map(name => `C:/Users/test/.codex-account-${name}`)
+    testRuntime.oldCodexSessions = removedHomes.map((codexHome, index) => ({
+      id: `old-auth-${index}`, engine: 'codex', providerKind: 'official', codexHome, cwd: 'D:/test', title: 'Old auth',
+    }))
+    saveCodexHomePreference(removedHomes[0])
+    vi.mocked(fetchCodexHomes).mockResolvedValue([defaultHome])
+    mountChat()
+    fireEvent.click(await screen.findByRole('button', { name: /^会话配置，当前/ }))
+    const config = within(await screen.findByRole('dialog', { name: '会话配置' }))
+    fireEvent.click(config.getByRole('button', { name: /配置 Codex 模型/ }))
+    fireEvent.click(config.getByRole('button', { name: '高级' }))
+    await waitFor(() => expect(config.getByRole('button', { name: /Auth 目录/ })).toBeEnabled())
+    fireEvent.click(config.getByRole('button', { name: /Auth 目录/ }))
+    expect(config.getByRole('button', { name: defaultHome })).toBeInTheDocument()
+    for (const removed of removedHomes) expect(config.queryByRole('button', { name: removed })).not.toBeInTheDocument()
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+  })
+
+  it('rechecks removed Auth directories on config open without falling back to stale data after failure', async () => {
+    const defaultHome = 'C:/Users/test/.codex'
+    const removedHome = 'C:/Users/test/.codex-account-pro'
+    vi.mocked(fetchCodexHomes).mockResolvedValue([defaultHome, removedHome])
+    const view = mountChat()
+    await waitFor(() => expect(view.queryClient.getQueryState(['claude-chat-codex-homes'])?.status).toBe('success'))
+    vi.mocked(fetchCodexHomes).mockResolvedValue([defaultHome])
+    fireEvent.click(await screen.findByRole('button', { name: /^会话配置，当前/ }))
+    const config = within(await screen.findByRole('dialog', { name: '会话配置' }))
+    fireEvent.click(config.getByRole('button', { name: /配置 Codex 模型/ }))
+    fireEvent.click(config.getByRole('button', { name: '高级' }))
+    await waitFor(() => expect(config.getByRole('button', { name: /Auth 目录/ })).toBeEnabled())
+    fireEvent.click(config.getByRole('button', { name: /Auth 目录/ }))
+    expect(config.queryByRole('button', { name: removedHome })).not.toBeInTheDocument()
+    fireEvent.keyDown(screen.getByRole('dialog', { name: '会话配置' }), { key: 'Escape' })
+    vi.mocked(fetchCodexHomes).mockRejectedValue(new Error('discovery unavailable'))
+    fireEvent.click(await screen.findByRole('button', { name: /^会话配置，当前/ }))
+    const retryConfig = within(await screen.findByRole('dialog', { name: '会话配置' }))
+    fireEvent.click(retryConfig.getByRole('button', { name: /配置 Codex 模型/ }))
+    fireEvent.click(retryConfig.getByRole('button', { name: '高级' }))
+    await waitFor(() => expect(view.queryClient.getQueryState(['claude-chat-codex-homes'])?.status).toBe('error'), { timeout: 3000 })
+    await waitFor(() => expect(retryConfig.getByRole('button', { name: /Auth 目录/ })).toBeDisabled())
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+  })
+
   it('opens the mobile composer site preview without navigation, auto-creation or losing the draft', async () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     const preview = { id: 'composer-preview', status: 'STARTING', target: { route: '/app?view=home', device: 'phone', scene: 'page' }, environment: 'TEST', account: 'qa', targetOrigin: 'https://sales.example', runtimeVersion: '尚未核验' }

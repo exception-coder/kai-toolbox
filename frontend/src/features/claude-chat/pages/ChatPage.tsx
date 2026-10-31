@@ -928,11 +928,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     staleTime: 30_000,
     retry: 1,
   })
-  const availableCodexHomes = useMemo(() => [...new Set([
-    ...(codexHomesQuery.data ?? []),
-    ...sessions.filter(session => session.engine === 'codex').map(session => session.codexHome?.trim() || ''),
-    newCodexHome.trim(),
-  ].filter(Boolean))], [codexHomesQuery.data, sessions, newCodexHome])
+  // 历史绑定和浏览器偏好不代表目录仍存在，不能作为可切换账号的来源。
+  const availableCodexHomes = codexHomesQuery.isSuccess ? codexHomesQuery.data : []
   const reviewOnlySession = currentSession?.group === '评审会话'
   const { data: reviewRelations, refetch: refetchReviewRelations } = useQuery({
     queryKey: ['claude-chat-review-relations', chat?.sessionId],
@@ -2501,7 +2498,12 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               compactSummary={sessionConfigCompactSummary}
               disabled={planLocked}
               triggerContainer={mobileLayout ? sessionConfigTarget : undefined}
-              onOpen={() => setMoreOpen(false)}
+              onOpen={() => {
+                setMoreOpen(false)
+                if (currentSession?.engine === 'codex' && currentSession.providerKind !== 'thirdParty') {
+                  void codexHomesQuery.refetch()
+                }
+              }}
               onReturnFocus={mobileLayout ? () => composerMoreTrigger.current?.focus() : undefined}
               quickSelection={!reviewOnlySession && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty'
                 ? onCustom => <CodexQuickPicker key={chat.sessionId} models={chat.models} model={chat.currentModel}
@@ -2528,7 +2530,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                     speed={chat.codexSpeed}
                     codexHome={currentSession?.codexHome}
                     codexHomes={availableCodexHomes}
-                    codexHomesLoading={codexHomesQuery.isPending && availableCodexHomes.length === 0}
+                    codexHomesLoading={codexHomesQuery.isPending || codexHomesQuery.isFetching}
                     showCodexHome={Boolean(currentSession?.engine === 'codex' && currentSession.providerKind !== 'thirdParty')}
                     disabled={planLocked}
                     optionsDisabled={planLocked}

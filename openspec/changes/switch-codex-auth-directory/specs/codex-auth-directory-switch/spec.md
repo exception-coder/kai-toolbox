@@ -12,7 +12,12 @@ The system SHALL list direct child directories of the runtime user's home whose 
 #### Scenario: Discovery is unavailable
 - **WHEN** authorization directories cannot be loaded
 - **THEN** the current session remains usable
-- **AND** the interface falls back to authorization directories already bound to known sessions
+- **AND** authorization switching is unavailable until discovery succeeds, without treating historical bindings or browser preferences as available directories
+
+#### Scenario: A directory was removed after an earlier visit
+- **WHEN** the user reopens session configuration after an authorization directory was removed
+- **THEN** the interface rechecks discovery and lists only current results
+- **AND** historical session bindings and remembered preferences do not reintroduce removed options or mutate the current session
 
 ### Requirement: Authorization switching preserves identity boundaries
 
