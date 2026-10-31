@@ -64,6 +64,30 @@ flowchart LR
     REQUEST -->|"项目明确采用"| FORGE["Forge 独立执行策略"]
 ```
 
+## 项目优先的 OpenSpec 自动分级
+
+Team Standards 4.16.0 提供 `openspec-auto` 标准源，Plan S 项目模板通过独立副本承载执行：一份标准、两种分发方式、项目执行优先。项目有同类 Skill 时使用项目版本，缺失才使用套件补充；套件更新不自动覆盖项目。项目不安装 Team Standards 或 Forge，也能按内置规则运行其已安装的 OpenSpec 与质量门禁。
+
+```mermaid
+flowchart TD
+    TASK["已授权开发任务"] --> LOCAL{"项目提供 openspec-auto 或等价能力?"}
+    LOCAL -->|"是"| PROJECT["只采用项目版本"]
+    LOCAL -->|"否且已安装套件"| GLOBAL["套件补充"]
+    LOCAL -->|"否且无套件"| EXISTING["遵循已有项目规则，不虚构 Skill"]
+    PROJECT --> LEVEL["AI 按范围、业务规则、兼容性与风险分级"]
+    GLOBAL --> LEVEL
+    LEVEL --> L1["L1 直接开发与验证"]
+    LEVEL --> L2["L2 轻量计划、开发与验证"]
+    LEVEL --> L3["L3 项目完整 OpenSpec"]
+    L1 --> RISK{"发现高风险或范围升级?"}
+    L2 --> RISK
+    RISK -->|"是"| L3
+```
+
+权限边界、数据安全/完整性、破坏性变更等高风险强制 L3；等级决定规格深度，实际风险决定验证范围。项目明确采用的更严格流程仍适用。change-readiness 复用分级判断并补实施依据，不重复分类、初始化或建规格。升级保留原会话、writer、任务和已取得证据，不自动完成任务或归档。Forge 独立执行策略继续负责真实状态与门禁，不能用 L1/L2 绕过已采用的要求。
+
+物理去重由宿主注册/启动适配落实：套件适配器对 Codex 合并有效技能配置并禁用全局重复路径；对 Claude 生成去掉重复 Skill 的会话插件，保留其他能力。AGENTS.md 声明本身不会停用外部入口。组织策略、宿主版本和原生发现路径需核实；当前交付为套件适配与模板，**Forge 启动器尚未接入自动选择**，Plan S 发布及业务 OpenSpec 行为验收由接收方实施。普通全局安装不等于已完成物理去重，也不自动恢复既有监督运行。
+
 ## 四层工程职责与维护入口
 
 Constitution 管 Agent 如何思考；Skill 管任务如何操作；Forge 管上下文候选、状态、策略和确定性约束；Hook/MCP 连接具体宿主。全局认知原则保持简短，仓库入口仍保留项目命令和约束。Agent 提交语义判断与证据，Forge 不把结构检查当成业务理解或人工批准。
