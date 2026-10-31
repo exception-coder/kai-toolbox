@@ -12,6 +12,7 @@ import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { computerUseFailureTitle } from './codexComputerUsePolicy.js'
+import { codexProjectSkillArgs } from './projectSkillPriority.js'
 import type { CodexRealtimeCall } from './codexRealtime.js'
 import { classifyCommandResult } from './commandExecution.js'
 import {
@@ -481,8 +482,8 @@ function forceStop(child: ChildProcessWithoutNullStreams): void {
 }
 
 const appServerRuntime = {
-  open: (codexHome?: string): ChildProcessWithoutNullStreams => spawn(
-    process.execPath, [codexCliEntrypoint(), 'app-server', '--stdio'],
+  open: (codexHome?: string, args: string[] = []): ChildProcessWithoutNullStreams => spawn(
+    process.execPath, [codexCliEntrypoint(), ...args, 'app-server', '--stdio'],
     { env: appServerEnv(codexHome), stdio: 'pipe', windowsHide: true },
   ),
   stop: forceStop,
@@ -785,7 +786,13 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   options.signal.throwIfAborted()
   await codexCleanupBarriers.verify(options.sessionId, options.threadId, options.codexHome, runtime.closeTimeoutMs)
   options.signal.throwIfAborted()
-  const child = runtime.open(options.codexHome)
+  let skillInstruction = '', effectiveInstructions = ''
+  const skillArgs = await codexProjectSkillArgs(options.cwd,
+    (method, params) => callAppServer(method, params, options.codexHome), (instruction, effective) => {
+      skillInstruction = instruction; effectiveInstructions = effective
+    })
+  options.signal.throwIfAborted()
+  const child = runtime.open(options.codexHome, skillArgs)
   const lifetime = observeCodexProcess(child)
   const lines = createInterface({ input: child.stdout })
   const pending = new Map<number, PendingRequest>()
@@ -1301,6 +1308,9 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
     options.onTransportSelected?.(transport)
     options.signal.throwIfAborted()
     const threadConfig = withRealtimeConversationConfig(transport.config)
+    if (skillInstruction) threadConfig.developer_instructions = [
+      threadConfig.developer_instructions ?? effectiveInstructions, skillInstruction,
+    ].filter(Boolean).join('\n\n')
     const providerOverride = transport.modelProvider ? { modelProvider: transport.modelProvider } : {}
     const threadResult = await request(threadId ? 'thread/resume' : 'thread/start', threadId
       ? { threadId, excludeTurns: true, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: threadConfig, ...providerOverride }

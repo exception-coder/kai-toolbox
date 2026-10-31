@@ -25,28 +25,43 @@ function readOptionalJson(file: string): JsonObject {
   throw new Error(`CLAUDE_USER_CONFIG_INVALID: 无法读取 ${path.basename(file)}；修复个人配置后重试会话`)
 }
 
-/** Explicit allowlist: user env/model/router are never copied into a gateway session. */
-export function claudeGatewayUserCapabilities(home = os.homedir()): Pick<Options, 'plugins' | 'mcpServers'> {
+export function claudeUserPlugins(home = os.homedir(), project?: string, onlyPlugin?: string): NonNullable<Options['plugins']> {
   const settings = readOptionalJson(path.join(home, '.claude', 'settings.json'))
   const installed = readOptionalJson(path.join(home, '.claude', 'plugins', 'installed_plugins.json'))
-  const global = readOptionalJson(path.join(home, '.claude.json'))
   const enabled = settings.enabledPlugins
   if (enabled !== undefined && !object(enabled)) throw new Error('CLAUDE_USER_CONFIG_INVALID: enabledPlugins 格式无效')
+  const effective = { ...(enabled as JsonObject ?? {}) }
+  if (project) for (const name of ['settings.json', 'settings.local.json']) {
+    const overrides = readOptionalJson(path.join(project, '.claude', name)).enabledPlugins
+    if (overrides !== undefined && !object(overrides)) throw new Error('CLAUDE_USER_CONFIG_INVALID: 项目 enabledPlugins 格式无效')
+    Object.assign(effective, overrides ?? {})
+  }
   const entries = installed.plugins
   if (entries !== undefined && !object(entries)) throw new Error('CLAUDE_USER_CONFIG_INVALID: 已安装插件目录格式无效')
   const plugins: NonNullable<Options['plugins']> = []
   const seenPaths = new Set<string>()
-  for (const [name, active] of Object.entries(enabled ?? {})) {
+  for (const [name, active] of Object.entries(effective)) {
     if (active !== true) continue
+    if (onlyPlugin && name.split('@')[0] !== onlyPlugin) continue
     const candidates = (entries as JsonObject | undefined)?.[name]
     if (!Array.isArray(candidates)) throw new Error(`CLAUDE_PLUGIN_UNAVAILABLE: 已启用插件 ${name} 未安装；修复插件后重试`)
-    const candidate = candidates.find(item => object(item) && item.scope === 'user' && typeof item.installPath === 'string')
+    const candidate = ['local', 'project', 'user'].flatMap(scope => candidates.filter(item => object(item)
+      && item.scope === scope && typeof item.installPath === 'string'
+      && (scope === 'user' || project && typeof item.projectPath === 'string'
+        && path.resolve(item.projectPath) === path.resolve(project))))[0]
     if (!candidate || !object(candidate) || typeof candidate.installPath !== 'string'
       || !path.isAbsolute(candidate.installPath) || !fs.existsSync(candidate.installPath))
       throw new Error(`CLAUDE_PLUGIN_UNAVAILABLE: 已启用插件 ${name} 的个人安装目录不可用；修复插件后重试`)
     const real = fs.realpathSync(candidate.installPath)
     if (!seenPaths.has(real)) { plugins.push({ type: 'local', path: real }); seenPaths.add(real) }
   }
+  return plugins
+}
+
+/** Explicit allowlist: user env/model/router are never copied into a gateway session. */
+export function claudeGatewayUserCapabilities(home = os.homedir(), project?: string): Pick<Options, 'plugins' | 'mcpServers'> {
+  const plugins = claudeUserPlugins(home, project)
+  const global = readOptionalJson(path.join(home, '.claude.json'))
   const rawServers = global.mcpServers
   if (rawServers !== undefined && !object(rawServers)) throw new Error('CLAUDE_USER_CONFIG_INVALID: 个人 MCP 配置格式无效')
   const mcpServers: NonNullable<Options['mcpServers']> = {}

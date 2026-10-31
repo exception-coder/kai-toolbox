@@ -1,3 +1,4 @@
+import { claudeProjectPlugins, hasProjectTaskSkill } from './projectSkillPriority.js'
 import { PAGE_PREVIEW_STEER } from './pagePreviewTools.js'
 import { requestCodexSdkCleanup } from './engine/codexSdkLifecycle.js'
 import { assemblyAllowsTool, filterClaudeAssembly, parseConsultToolAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
@@ -43,7 +44,7 @@ import { runAntigravityTurn } from './antigravityEngine.js'
 import { listAntigravityModels } from './antigravityRuntime.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
 import { claudeGatewayEnvironment, verifiableResponseModel } from './claudeGatewayRouting.js'
-import { claudeGatewayUserCapabilities, claudeSessionRoutingOptions } from './claudeGatewaySettings.js'
+import { claudeGatewayUserCapabilities, claudeUserPlugins, claudeSessionRoutingOptions } from './claudeGatewaySettings.js'
 import { listQwenModels, runQwenTurn } from './qwenEngine.js'
 import { listPiModels, runPiTurn } from './piEngine.js'
 import { listCopilotModels, runCopilotTurn } from './copilotEngine.js'
@@ -893,24 +894,29 @@ class Session {
       if (this.toolPolicy === 'consult-readonly') filterClaudeAssembly(mcpServers, this.consultToolAssembly)
       const gatewayCapabilities = this.apiBaseUrl && this.toolPolicy !== 'disabled'
         && this.toolPolicy !== 'review-only' && this.toolPolicy !== 'consult-readonly'
-        ? claudeGatewayUserCapabilities() : undefined
+        ? claudeGatewayUserCapabilities(undefined, this.cwd) : undefined
       for (const [name, server] of Object.entries(gatewayCapabilities?.mcpServers ?? {})) {
         if (!(name in mcpServers)) (mcpServers as NonNullable<ClaudeOptions['mcpServers']>)[name] = server
       }
       this.claudeSessionMcpNames = new Set(Object.keys(mcpServers))
+      const projectPriority = this.toolPolicy !== 'disabled' && this.toolPolicy !== 'review-only'
+        && this.toolPolicy !== 'consult-readonly' && hasProjectTaskSkill(this.cwd)
+      const priorityPlugins = await claudeProjectPlugins(this.cwd, projectPriority
+        ? gatewayCapabilities?.plugins ?? claudeUserPlugins(undefined, this.cwd, 'team-standards') : [])
 
       try {
         const q = query({
           prompt: buildPrompt(),
           options: {
-            ...(this.apiBaseUrl && gatewayCapabilities?.plugins?.length ? { plugins: gatewayCapabilities.plugins } : {}),
+            ...((priorityPlugins.plugins.length || gatewayCapabilities?.plugins?.length)
+              ? { plugins: priorityPlugins.plugins.length ? priorityPlugins.plugins : gatewayCapabilities!.plugins } : {}),
             // 仅 oneShot 传：作为真正的 system 提示（字符串=替换 SDK 默认 system）。
             // 交互式聊天 runTurn：官方会话走 SDK 默认；第三方网关会话在默认提示后 append 引导词
             // （非 Claude 模型经 API 跑 Claude Code 时会乱用计划模式/ExitPlanMode，慢且易报错）。
             ...(systemPrompt
-              ? { systemPrompt: appendWindowsExecutionInstructions(systemPrompt) }
+              ? { systemPrompt: appendWindowsExecutionInstructions([systemPrompt, priorityPlugins.instruction].filter(Boolean).join('\n\n')) }
               : this.demo
-                ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: DEMO_STEER } }
+                ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: [DEMO_STEER, priorityPlugins.instruction].filter(Boolean).join('\n\n') } }
                 : {
                     systemPrompt: {
                       type: 'preset',
@@ -920,7 +926,7 @@ class Session {
                           ? FORGE_PENDING_SQL_STEER : '',
                         toolboxApiBase && this.forgeSqlRegistration && this.toolPolicy !== 'consult-readonly'
                           ? PAGE_PREVIEW_STEER : '',
-                        developerInstructions ?? '']
+                        developerInstructions ?? '', priorityPlugins.instruction]
                         .filter(Boolean).join('\n\n'),
                     },
                   }),
@@ -1017,6 +1023,7 @@ class Session {
         return
       } finally {
         this.abort = undefined
+        priorityPlugins.cleanup()
       }
     }
   }

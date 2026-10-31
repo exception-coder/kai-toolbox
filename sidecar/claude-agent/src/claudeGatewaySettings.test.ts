@@ -3,7 +3,7 @@ import test from 'node:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { claudeGatewayUserCapabilities, claudeSessionRoutingOptions, claudeSettingSources } from './claudeGatewaySettings.js'
+import { claudeGatewayUserCapabilities, claudeUserPlugins, claudeSessionRoutingOptions, claudeSettingSources } from './claudeGatewaySettings.js'
 
 test('only third-party Claude sessions isolate user settings; official sessions keep SDK defaults', () => {
   assert.deepEqual(claudeSettingSources('https://api.deepseek.com/v1'), ['project', 'local'])
@@ -57,4 +57,19 @@ test('invalid enabled plugin and MCP give recoverable errors', t => {
   fs.writeFileSync(path.join(home, '.claude', 'settings.json'), '{}')
   fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { broken: { type: 'stdio' } } }))
   assert.throws(() => claudeGatewayUserCapabilities(home), /CLAUDE_MCP_INVALID/)
+})
+
+test('project disable wins over the personal plugin enable and does not load unrelated plugins', t => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-project-disable-'))
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }))
+  const project = path.join(home, 'project')
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true })
+  fs.mkdirSync(path.join(project, '.claude'), { recursive: true })
+  fs.writeFileSync(path.join(home, '.claude/settings.json'), JSON.stringify({ enabledPlugins: {
+    'team-standards@team-standards': true, 'unrelated@other': true,
+  } }))
+  fs.writeFileSync(path.join(project, '.claude/settings.local.json'), JSON.stringify({ enabledPlugins: {
+    'team-standards@team-standards': false,
+  } }))
+  assert.deepEqual(claudeUserPlugins(home, project, 'team-standards'), [])
 })
