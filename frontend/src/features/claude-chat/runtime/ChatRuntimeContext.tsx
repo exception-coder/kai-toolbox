@@ -90,9 +90,6 @@ interface ChatRuntime {
   /** 悬浮窗尺寸（px），可拖拽调整，跨路由持久。 */
   size: FloatSize
   setSize: (s: FloatSize) => void
-  /** 是否进入「电子鱼语音模式」全屏视图。与悬浮窗/会话页共用同一聊天实例，跨路由保持。 */
-  voiceMode: boolean
-  setVoiceMode: (v: boolean) => void
   /** 弹出悬浮窗时应返回的路由 = 进入会话页前最后访问的非会话路由（默认 /）。 */
   getReturnRoute: () => string
   /** 手势控制开关（默认关）：开后在会话页或悬浮态监控摄像头——抓握=弹出悬浮窗，展开=返回会话页。 */
@@ -139,16 +136,10 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
   const [minimized, setMinimized] = useState(() => persisted?.minimized ?? false)
   const [pos, setPos] = useState<FloatPos>(() => persisted?.pos ?? DEFAULT_POS)
   const [size, setSize] = useState<FloatSize>(() => persisted?.size ?? DEFAULT_SIZE)
-  // 语音模式不持久化（刷新回到普通态，避免重连即弹全屏）；进入即懒激活引擎。
-  const [voiceMode, setVoiceModeState] = useState(false)
   const [concierge, setConcierge] = useState<string | null>(null)
   const [emergencyRepair, setEmergencyRepair] = useState<EmergencyRepairRequest | null>(null)
   const handleEmergencyRepairDone = useCallback(() => setEmergencyRepair(null), [])
   const activate = useCallback(() => setActive(true), [])
-  const setVoiceMode = useCallback((v: boolean) => {
-    if (v) setActive(true)
-    setVoiceModeState(v)
-  }, [])
 
   // shell 错误边界不依赖任何业务 feature；收到紧急修复事件后先激活常驻聊天引擎，
   // 即使 Vibe Coding 页面自己的 chunk/import 已崩溃，也能从这里创建并发送修复会话。
@@ -217,7 +208,7 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
     },
   })
 
-  const control = { demo, concierge, setConcierge, active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, voiceMode, setVoiceMode, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError, gesturePaused, setGesturePaused }
+  const control = { demo, concierge, setConcierge, active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError, gesturePaused, setGesturePaused }
   const flourish = <GestureFlourish flash={gestureFlash} onDone={() => setGestureFlash(null)} />
 
   return (

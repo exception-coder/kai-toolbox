@@ -61,7 +61,7 @@ vi.mock('@/features/browser-request/preview/api', () => ({
 }))
 
 vi.mock('../runtime/ChatRuntimeContext', () => ({
-  useChatRuntime: () => ({ chat: { ...testRuntime.chat }, setFloating: vi.fn(), setMinimized: vi.fn(), setVoiceMode: vi.fn(), getReturnRoute: vi.fn(), gestureOn: false, toggleGesture: vi.fn(), gestureStatus: 'idle' }),
+  useChatRuntime: () => ({ chat: { ...testRuntime.chat }, setFloating: vi.fn(), setMinimized: vi.fn(), getReturnRoute: vi.fn(), gestureOn: false, toggleGesture: vi.fn(), gestureStatus: 'idle' }),
 }))
 vi.mock('@/shell/UnifiedTitleBar', () => ({ useUnifiedTitleBarSlot: () => null }))
 vi.mock('@/shell/MobileNavigationContext', () => ({ useMobileNavigation: () => null }))
@@ -359,6 +359,8 @@ describe('ChatPage session configuration', () => {
     fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
     const menu = within(screen.getByRole('menu', { name: '会话工具' }))
     fireEvent.click(menu.getByRole('menuitem', { name: '阅读与显示' }))
+    expect(menu.queryByRole('button', { name: /^全屏显示|^退出全屏|^语音模式/ })).not.toBeInTheDocument()
+    expect(menu.getByRole('button', { name: /^弹出悬浮窗/ })).toBeInTheDocument()
     fireEvent.click(menu.getByRole('button', { name: /^专注模式/ }))
     expect(input.closest('.cc-focus-mode')).not.toBeNull()
     expect(screen.getByRole('textbox', { name: '消息输入' })).toBe(input)

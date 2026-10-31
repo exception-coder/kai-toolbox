@@ -17,7 +17,7 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { reportVibeEntry, reportVibeResourceSummary } from '@/lib/vibeEntryDiagnostics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PagePreviewDialog } from '@/features/browser-request/public-api/page-preview'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
@@ -233,7 +233,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     reportVibeEntry('page_mount', 'ok', null, true)
     reportVibeResourceSummary()
   }, [])
-  const { chat, setFloating, setMinimized, setVoiceMode, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError: gestureErr } = useChatRuntime()
+  const { chat, setFloating, setMinimized, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError: gestureErr } = useChatRuntime()
   const unifiedTitleBarSlot = useUnifiedTitleBarSlot()
   const openMobileNavigation = useMobileNavigation()
   const { enabled: mockMode } = useMockMode()
@@ -775,7 +775,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const [sitePreviewSession, setSitePreviewSession] = useState<string | null>(null)
   useEffect(() => { setSitePreviewSession(null) }, [chat?.sessionId])
   const [engineMenuOpen, setEngineMenuOpen] = useState(false)
-  const [fullscreen, setFullscreen] = useState(false)
   const focusRoot = useRef<HTMLDivElement>(null)
   const [preferencesOpen, setPreferencesOpen] = useState(false)
   const [codexSyncOpen, setCodexSyncOpen] = useState(false)
@@ -833,14 +832,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     el.style.height = 'auto'
     el.style.height = `${el.scrollHeight}px`
   }, [draft, chat?.followUpPrediction?.text, attachments.length, uploading])
-
-  // 全屏时按 Esc 退出
-  useEffect(() => {
-    if (!fullscreen) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [fullscreen])
 
   // 选中第三方网关时，从其 /v1/models 拉可选模型目录（后端代理）。失败/空回退手填，不阻断新建。
   useEffect(() => {
@@ -1247,17 +1238,17 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   return (
     <div ref={focusRoot} data-vibe-guide={guideLocation ?? undefined} className={cn(
       'cc-mobile-coding-workspace',
-      (fullscreen || focus.focused)
+      focus.focused
         // 全屏是覆盖整个视口的浮层，背景必须不透明——否则底层（折叠侧栏等）会从半透明背景透出，左侧留残影
         ? 'cc-workspace-fullscreen fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden'
         // relative：给皮肤开启时的 .cc-skin-bg（position:absolute）提供定位上下文，
         // 不能写进 skin.css 的 .cc-skin 规则里——那边懒加载晚于 Tailwind 插入，会把
-        // fullscreen 分支 `fixed` 覆盖掉，见 skin.css 顶部注释。
+        // 专注分支的 `fixed` 覆盖掉，见 skin.css 顶部注释。
         // 普通模式由 AppShell 的 flex 主区域分配高度；不要再按旧 TopBar 高度手工扣减，
         // 否则桌面隐藏 TopBar 后会在页面底部留下同等高度的空白。
         : 'relative flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden',
       // 皮肤自带底色（见 skin.css 的 --skin-base），开启时让位，避免两层底色叠加
-      !skin && ((fullscreen || focus.focused) ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40'),
+      !skin && (focus.focused ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40'),
       focus.focused && 'cc-focus-mode',
       focus.focused && focusWide && 'cc-focus-wide',
       skinClass(skin, chat?.currentEngine ?? 'claude', !!chat?.running),
@@ -1530,9 +1521,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               <HeaderMenuItem nested icon={<SlidersHorizontal className="size-4" />} label="工作区个性化" hint="布局与导航、阅读与外观、交互偏好" onClick={() => { setHeaderMenu(false); setPreferencesOpen(true) }} />
               <HeaderMenuItem nested icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
               <HeaderMenuItem nested icon={<Maximize2 className="size-4" />} label="专注模式" hint="全屏仅显示对话与输入；Esc 退出" onClick={enterFocus} />
-              <HeaderMenuItem nested icon={<Cloud className="size-4" />} label="语音模式" hint="全屏白云·纯语音对话" onClick={() => { setHeaderMenu(false); setVoiceMode(true) }} />
               <HeaderMenuItem nested icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
-              <HeaderMenuItem nested icon={fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />} label={fullscreen ? '退出全屏' : '全屏显示'} onClick={() => { setHeaderMenu(false); setFullscreen(f => !f) }} />
               <HeaderMenuItem nested icon={<Rainbow className="size-4" />} label={skin ? '炫彩皮肤 · 开' : '炫彩皮肤 · 关'} hint="工作区铺一层极光背景，颜色跟随当前引擎，运行时呼吸加快" onClick={() => { setSkin(!skin) }} />
               <HeaderMenuItem nested icon={<Palette className="size-4" />} label={toolColors ? '工具着色 · 开' : '工具着色 · 关'} hint="按命令/读写/子代理/技能/MCP 上色" onClick={() => { setToolColors(!toolColors) }} />
               <HeaderMenuItem nested icon={<EyeOff className="size-4" />} label={hideToolCalls ? '隐藏工具调用 · 开' : '隐藏工具调用 · 关'} hint="消息流里不再显示 MCP/命令/读写等工具调用气泡" onClick={() => { setHideToolCalls(!hideToolCalls) }} />

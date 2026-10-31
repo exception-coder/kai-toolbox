@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, ChevronUp, Cloud, Compass, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, Rainbow, RotateCw, Send, Server, Settings, Shield, Slash, Sparkles, X } from 'lucide-react'
+import { Bell, Bug, ChevronDown, ChevronUp, Compass, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, Rainbow, RotateCw, Send, Server, Settings, Shield, Slash, Sparkles, X } from 'lucide-react'
 import { CHAT_ROUTE, isChatRoute, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -106,7 +106,7 @@ function parseRouteIntent(text: string): string | null {
  * 避免与全屏会话页双份 UI。操作的是 Context 里的同一聊天实例（同一 WS、同一会话）。
  */
 export function FloatingChatWindow({ initialCompact = true }: { initialCompact?: boolean }) {
-  const { chat, demo, concierge, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, setVoiceMode } = useChatRuntime()
+  const { chat, demo, concierge, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize } = useChatRuntime()
   // 吉祥物图：demo 演示页按主题注入覆盖，否则用内置默认。
   const conciergeSrc = concierge ?? GIFT_CONCIERGE_IMAGE
   const location = useLocation()
@@ -702,13 +702,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
             </button>
           )}
           {!demo && (
-            <button type="button" onClick={() => setVoiceMode(true)} aria-label="语音模式" title="白云·纯语音对话"
-              className={`rounded p-1 ${hoverClass}`}>
-              <Cloud className="size-4" />
-            </button>
-          )}
-          {!demo && (
-            <button type="button" onClick={() => navigate(CHAT_ROUTE)} aria-label="展开为全屏" title="展开为全屏"
+            <button type="button" onClick={() => navigate(CHAT_ROUTE)} aria-label="返回会话" title="返回会话"
               className={`rounded p-1 ${hoverClass}`}>
               <Maximize2 className="size-4" />
             </button>

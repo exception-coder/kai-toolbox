@@ -25,6 +25,11 @@ The workspace SHALL offer one-action focus mode that fills the screen with conve
 - **WHEN** the developer enters focus and exits with the exit control or Escape
 - **THEN** the original view and panel SHALL be restored without resetting the current draft or session
 
+#### Scenario: One immersive reading mode
+- **WHEN** the developer opens reading/display actions or the floating window
+- **THEN** the workspace SHALL NOT offer a redundant fullscreen toggle or the decorative cloud voice mode
+- **AND** focus, floating-window navigation, ordinary voice input and native voice conversation SHALL remain available
+
 #### Scenario: Native fullscreen is unavailable
 - **WHEN** the browser refuses or does not implement native fullscreen
 - **THEN** a viewport-filling focus view SHALL remain usable with the same exit action
