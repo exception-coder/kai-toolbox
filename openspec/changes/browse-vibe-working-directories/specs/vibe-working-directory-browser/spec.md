@@ -27,11 +27,20 @@ The directory browser SHALL preserve global project exclusions, SHALL validate b
 - **THEN** at most 500 are returned with a truncation notice and a manual-path recovery
 
 ### Requirement: Persist explicit working directory shortcuts
-The new-session panel SHALL save explicitly selected directory shortcuts through the existing server preference storage and SHALL offer them after reload or from another device using the same Forge instance.
+The new-session panel SHALL save explicitly selected directory shortcuts through the existing server preference storage, register the same path through the authoritative project workspace configuration, and offer it after reload or from another device using the same Forge instance.
 
 #### Scenario: Save and restore
 - **WHEN** a user saves a valid directory and later reopens the panel
 - **THEN** the path is read from server preferences and can be selected without browsing again
+- **AND** saving or selecting refreshes the authoritative workspace list and selects that root so its projects can be chosen without losing the new-session draft
+
+#### Scenario: An old shortcut has no workspace registration
+- **WHEN** a user saves or selects a shortcut created before workspace registration was supported
+- **THEN** the system adds its validated path to the existing workspace configuration without duplicating normalized paths or removing previous roots
+
+#### Scenario: Registration or shortcut persistence fails
+- **WHEN** registration fails or shortcut persistence fails after registration succeeded
+- **THEN** the interface reports failure or partial success accurately without claiming both stores were saved, retains recoverable data, and allows retry
 
 #### Scenario: Duplicate and failed save
 - **WHEN** the directory already exists in the shortcut list or the latest preference cannot be read
@@ -43,4 +52,4 @@ The new-session panel SHALL save explicitly selected directory shortcuts through
 
 #### Scenario: Remove a shortcut
 - **WHEN** the user removes a saved directory
-- **THEN** only the server shortcut list changes and filesystem files remain untouched
+- **THEN** only the server shortcut list changes, registered workspace roots remain managed by project directory settings, and filesystem files remain untouched

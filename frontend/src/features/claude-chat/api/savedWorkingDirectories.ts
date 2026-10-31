@@ -1,4 +1,5 @@
 import { getDevPreference, saveDevPreference } from '@/features/_devkit/public-api'
+import { registerWorkspaceRoot } from '@/features/project-workspace/public-api'
 import { addSavedWorkingDirectory, savedWorkingDirectories, workingDirectoryKey } from '../lib/savedWorkingDirectories'
 import { browseWorkingDirectory } from './workingDirectories'
 
@@ -14,7 +15,12 @@ export async function saveWorkingDirectory(path: string): Promise<string[]> {
   const directory = await browseWorkingDirectory(path)
   const current = await listSavedWorkingDirectories()
   const next = addSavedWorkingDirectory(current, directory.path)
-  if (next !== current) await saveDevPreference(PREFERENCE_ID, { directories: next })
+  // 即使快捷入口已经存在，也补齐旧版本没有登记的正式工作区。
+  await registerWorkspaceRoot(directory.path)
+  if (next !== current) {
+    try { await saveDevPreference(PREFERENCE_ID, { directories: next }) }
+    catch (error) { throw new Error(`工作区已登记，但常用目录快捷入口保存失败，请重试：${error instanceof Error ? error.message : '保存失败'}`) }
+  }
   return next
 }
 

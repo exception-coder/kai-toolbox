@@ -1582,7 +1582,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
           </div>
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">选择工作区与项目，或直接输入路径；留空使用 home。</p>
           <SavedWorkingDirectories cwd={newCwd} onSelect={path => {
-            selectNewSessionPreference({ cwd: path })
+            selectNewSessionPreference({ workspaceRoot: path, cwd: path })
             setProjectSearch('')
             setDirectoryPickerOpen(false)
           }} />

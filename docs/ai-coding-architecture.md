@@ -154,6 +154,21 @@ LLM 分为两处：宿主 Agent 阅读 Team Standards 后理解需求、审阅�
 
 例如“修复搜索条件”：LLM 对照既有 Scenario 判断是否恢复原行为；若提交 `preserved + none + api`，脚本就不要求 Delta 或设计更新，但要求回归与 API 检查。若实际新增了搜索语义却被误判为 `preserved`，脚本不会仅凭该标签纠正业务判断，仍依赖原文审阅和有效测试。
 
+## 保存工作目录与项目目录清单
+
+Vibe Coding 的“保存当前目录”和常用目录点选会先核验路径与排除策略，再调用项目库公开能力登记工作区根；目录设置和该操作共用动态配置及首次统一算法，保留已有根，避免第二份扫描配置。ProjectDirectorySource 继续提供根，ProjectCatalog 继续拥有目录库存，项目下拉仅消费原清单投影。旧快捷入口在用户再次保存或选用时补登记，不在只读加载时自动修改全局配置。
+
+登记与常用偏好不是跨存储事务：登记失败不写偏好，登记成功而偏好保存失败必须说明部分成功并允许重试。成功后刷新工作区并更新原新建草稿的工作区与 cwd；移除常用入口不删除文件或撤销工作区，工作区仍从项目库目录设置管理。全局配置的既有权限与并发语义保持，不通过写数据库绕过配置 API。
+
+```mermaid
+flowchart LR
+    SAVE["用户保存或选用目录"] --> CHECK_DIR["核验目录与现有偏好"]
+    CHECK_DIR --> REGISTER_ROOT["项目库公开能力追加原工作区配置"]
+    REGISTER_ROOT --> SAVE_SHORTCUT["保存常用快捷入口，失败说明部分成功"]
+    SAVE_SHORTCUT --> REFRESH_ROOT["刷新 ProjectCatalog 原清单投影"]
+    REFRESH_ROOT --> SELECT_ROOT["保留草稿，选中工作区及项目"]
+```
+
 ## 从需求到交付
 
 面向用户的重磅更新在同次交付中登记业务咨询[更新小纸条](../frontend/src/features/fore-consult/data/upgradeNotes.ts)，由本次实施Agent维护日期、变化、用法与范围，保留历史。未部署或未验收须明确标注；小纸条是用户沟通内容，不作为规格、验证或部署事实源，不增加自动发布和服务重启授权。具体登记规范见[咨询说明](../tools/tool-fore-consult/README.md#更新小纸条登记)，普通内部重构和无感小修复无需登记。

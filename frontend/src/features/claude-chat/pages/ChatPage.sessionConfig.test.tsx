@@ -10,11 +10,13 @@ import type { ClaudeChatSessionView, WorkspaceList } from '../types'
 import { newSessionPreferenceKey, saveNewSessionPreferences } from '../lib/newSessionPreferences'
 import { fetchCodexHomes, uploadAttachment } from '../api'
 import { saveCodexHomePreference } from '../lib/codexHomePref'
+import { saveWorkingDirectory } from '../api/savedWorkingDirectories'
 
 const testRuntime = vi.hoisted(() => ({
   profiles: undefined as ProviderProfile[] | undefined,
   roots: [] as WorkspaceList['roots'],
   oldCodexSessions: [] as Partial<ClaudeChatSessionView>[],
+  savedDirectories: [] as string[],
   chat: {
     open: vi.fn(),
     send: vi.fn(), steer: vi.fn(), enqueue: vi.fn(), interrupt: vi.fn(),
@@ -42,6 +44,10 @@ const testRuntime = vi.hoisted(() => ({
   },
 }))
 const previewCalls = vi.hoisted(() => ({ create: vi.fn(), get: vi.fn(), close: vi.fn() }))
+vi.mock('../api/savedWorkingDirectories', () => ({
+  listSavedWorkingDirectories: async () => testRuntime.savedDirectories,
+  saveWorkingDirectory: vi.fn(), removeSavedWorkingDirectory: vi.fn(),
+}))
 vi.mock('@/features/browser-request/preview/api', () => ({
   previewResources: async () => [{ id: 'sales-test', name: '销售智能体', environment: 'TEST', username: 'qa', baseUrl: 'https://sales.example/app?view=home' }],
   createPreview: previewCalls.create, getPreview: previewCalls.get, closePreview: previewCalls.close,
@@ -80,6 +86,8 @@ afterEach(() => {
   testRuntime.profiles = undefined
   testRuntime.roots = []
   testRuntime.oldCodexSessions = []
+  testRuntime.savedDirectories = []
+  vi.mocked(saveWorkingDirectory).mockReset()
   testRuntime.chat.open.mockClear()
   testRuntime.chat.send.mockClear()
   testRuntime.chat.steer.mockClear()
@@ -108,6 +116,27 @@ async function openNewSessionForm() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('refreshes and selects the registered workspace after saving a previously bookmarked directory', async () => {
+    testRuntime.profiles = []
+    testRuntime.roots = [{ root: 'D:/work', exists: true, dirs: [] }]
+    testRuntime.savedDirectories = ['D:/projects']
+    vi.mocked(saveWorkingDirectory).mockImplementation(async () => {
+      testRuntime.roots = [...testRuntime.roots, { root: 'D:/projects', exists: true, dirs: [{ name: 'agent', path: 'D:/projects/agent' }] }]
+      return ['D:/projects']
+    })
+    const view = mountChat()
+    await openNewSessionForm()
+    fireEvent.change(screen.getByLabelText('目录路径'), { target: { value: 'D:/projects' } })
+    fireEvent.change(screen.getByLabelText(/^会话别名/), { target: { value: '保留草稿' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存当前目录' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '保存当前目录' }))
+    expect(await screen.findByRole('button', { name: 'projects', pressed: true })).toBeInTheDocument()
+    expect(screen.getByLabelText('目录路径')).toHaveValue('D:/projects')
+    expect(screen.getByLabelText(/^会话别名/)).toHaveValue('保留草稿')
+    expect(view.queryClient.getQueryData<WorkspaceList>(['claude-chat-workspaces', 'local'])?.roots.at(-1)?.dirs[0].path).toBe('D:/projects/agent')
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+  })
+
   it('uses discovered Auth directories instead of historical bindings or remembered preferences', async () => {
     const defaultHome = 'C:/Users/test/.codex'
     const removedHomes = ['dy', 'zk', 'wz', 'pro', 'yx'].map(name => `C:/Users/test/.codex-account-${name}`)

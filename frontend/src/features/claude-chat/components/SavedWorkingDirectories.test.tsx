@@ -2,11 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { listSavedWorkingDirectories, removeSavedWorkingDirectory, saveWorkingDirectory } from '../api/savedWorkingDirectories'
-import { browseWorkingDirectory } from '../api/workingDirectories'
 import { SavedWorkingDirectories } from './SavedWorkingDirectories'
 
 vi.mock('../api/savedWorkingDirectories', () => ({ listSavedWorkingDirectories: vi.fn(), removeSavedWorkingDirectory: vi.fn(), saveWorkingDirectory: vi.fn() }))
-vi.mock('../api/workingDirectories', () => ({ browseWorkingDirectory: vi.fn() }))
 const clients: QueryClient[] = []
 function mount(cwd = 'D:/new') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
@@ -16,7 +14,7 @@ function mount(cwd = 'D:/new') {
 }
 beforeEach(() => {
   vi.mocked(listSavedWorkingDirectories).mockResolvedValue(['D:/existing'])
-  vi.mocked(browseWorkingDirectory).mockResolvedValue({ path: 'D:/existing', parent: 'D:/', directories: [], truncated: false })
+  vi.mocked(saveWorkingDirectory).mockResolvedValue(['D:/existing'])
 })
 afterEach(() => { cleanup(); clients.forEach(client => client.clear()); clients.length = 0; vi.resetAllMocks() })
 
@@ -26,9 +24,9 @@ it('saves explicitly and loads the persisted shortcut into a new mount', async (
   const view = mount()
   await screen.findByRole('button', { name: 'D:/existing' })
   fireEvent.click(screen.getByRole('button', { name: '保存当前目录' }))
-  await screen.findByText('已保存到常用目录，后续可直接点选。')
+  await screen.findByText('已保存并选中工作区，可在下方选择其中的项目。')
   expect(saveWorkingDirectory).toHaveBeenCalledWith('D:/new')
-  expect(view.onSelect).not.toHaveBeenCalled()
+  expect(view.onSelect).toHaveBeenCalledWith('D:/new')
   view.unmount()
   mount()
   expect(await screen.findByRole('button', { name: 'D:/new' })).toBeEnabled()
@@ -38,7 +36,7 @@ it('validates a saved directory before selecting and keeps an invalid shortcut r
   const { onSelect } = mount()
   fireEvent.click(await screen.findByRole('button', { name: 'D:/existing' }))
   await waitFor(() => expect(onSelect).toHaveBeenCalledWith('D:/existing'))
-  vi.mocked(browseWorkingDirectory).mockRejectedValue(new Error('目录已排除'))
+  vi.mocked(saveWorkingDirectory).mockRejectedValue(new Error('目录已排除'))
   await waitFor(() => expect(screen.getByRole('button', { name: 'D:/existing' })).toBeEnabled())
   fireEvent.click(screen.getByRole('button', { name: 'D:/existing' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('目录已排除')
