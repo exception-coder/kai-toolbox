@@ -5,7 +5,7 @@ import https from 'node:https';
 import { setTimeout as delay } from 'node:timers/promises';
 import { managedTunnelConfig, probeNamedTunnel } from './tunnel.mjs';
 
-const names = { backend: '后端', frontend: '前端', wechat: '微信服务', studio: 'AgentScope Studio', 'faster-whisper': '语音服务' };
+const names = { backend: '后端', frontend: '前端', studio: 'AgentScope Studio', 'faster-whisper': '语音服务' };
 
 export function startupTimeout(env) {
   const seconds = Number(env.FORGE_START_TIMEOUT_SECONDS || 600);

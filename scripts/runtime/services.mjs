@@ -5,14 +5,11 @@ import { flag } from './config.mjs';
 import { executable, npmCommand, run } from './commands.mjs';
 
 export function serviceCatalog(env, platform = process.platform) {
-  const wechat = flag(env.FORGE_WECHAT_ENABLED, platform === 'win32');
-  if (wechat && platform !== 'win32') throw new Error('WeChat desktop automation requires Windows; set FORGE_WECHAT_ENABLED=false');
   const whisperMode = env.TOOLBOX_WHISPER_MODE || (platform === 'darwin' ? 'asr-service' : 'cli');
   return [
     { name: 'backend', port: servicePort(env.FORGE_BACKEND_PORT, 18080) },
     { name: 'frontend', port: servicePort(env.FORGE_FRONTEND_PORT, 5173) },
     { name: 'faster-whisper', port: 9500, python: true, enabled: whisperMode === 'asr-service' },
-    { name: 'wechat', port: 9700, python: true, enabled: wechat },
     { name: 'studio', port: 3000, enabled: flag(env.FORGE_STUDIO_ENABLED, Boolean(env.AS_STUDIO_URL)) },
   ];
 }

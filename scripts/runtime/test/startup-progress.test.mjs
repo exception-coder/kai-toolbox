@@ -14,14 +14,14 @@ test('success waits for HTTP and distinguishes optional failure', async () => {
   const lines = [];
   let probes = 0;
   await waitForStartup(paths, { port: 18081 }, { FORGE_START_TIMEOUT_SECONDS: '2' }, {
-    readStatus: async () => ({ ...snapshot, services: [...snapshot.services, { name: 'wechat', state: 'errored', ready: false }] }),
+    readStatus: async () => ({ ...snapshot, services: [...snapshot.services, { name: 'studio', state: 'errored', ready: false }] }),
     probe: async () => ++probes === 1 ? {} : { frontend: 'https://localhost:5173' },
     emit: line => lines.push(line), pollMs: 5,
   });
   assert.equal(probes, 2);
   assert.match(lines.join('\n'), /等待 HTTP 响应/);
   assert.match(lines.join('\n'), /工作台：https:\/\/localhost:5173/);
-  assert.match(lines.join('\n'), /微信服务：启动失败/);
+  assert.match(lines.join('\n'), /AgentScope Studio：启动失败/);
 });
 
 test('core failure and timeout never report success', async () => {

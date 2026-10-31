@@ -110,7 +110,6 @@ NPM_CMD=
 PYTHON_CMD=
 
 # 辅助服务按需启用
-FORGE_WECHAT_ENABLED=false
 FORGE_STUDIO_ENABLED=false
 TOOLBOX_WHISPER_MODE=cli
 
@@ -138,10 +137,11 @@ Claude Sidecar 默认端口为 18890，与后端和外网代理端口独立。�
 
 ## 辅助服务与观测
 
+微信桌面监控模块已移除，旧 `FORGE_WECHAT_ENABLED` 配置不再生效。升级前仍在运行的微信进程可经 `node forge.mjs retire wechat` 单独退役；此命令只删除本仓库 PM2 中该进程，不重启其他服务、不删除数据或日志。旧控制器在下次明确授权的完整重启前仍可能显示微信 `not_started`，旧后端和前端也须加载新版后才移除相应 API 与菜单。供应商报价的微信登录、公众号接入不属于此模块。
+
 | 服务 | 开关与行为 |
 | --- | --- |
 | faster-whisper | `TOOLBOX_WHISPER_MODE=asr-service` 启用，端口 9500；macOS 默认 CPU/int8，其余平台可配置 WHISPER_DEVICE |
-| 微信 | Windows 默认启用，可显式关闭，端口 9700；依赖已登录的桌面微信，其他平台不能启用 |
 | AgentScope Studio | `FORGE_STUDIO_ENABLED=true` 启用，端口 3000；使用仓库锁定的本地 npm 包，不自动全局安装 |
 | Phoenix / Langfuse | 可选外部观测设施，独立 Compose；源码进程不装进容器 |
 
@@ -161,7 +161,7 @@ Node/PM2 自身依赖升级时先 stop，再在 `scripts/runtime` 执行 `npm ci
 
 ## 平台与验证边界
 
-代码统一面向 Windows、macOS、Ubuntu、受维护的 CentOS Stream，使用平台支持的 Node 22.13+ / JDK 21；不承诺 CentOS Linux 7/8。微信桌面自动化仍只支持 Windows。
+代码统一面向 Windows、macOS、Ubuntu、受维护的 CentOS Stream，使用平台支持的 Node 22.13+ / JDK 21；不承诺 CentOS Linux 7/8。
 
 Windows 真实隔离测试覆盖中文/空格目录、双实例、源码重载、控制器崩溃、令牌拒绝、重复启动、停止进程树、未知端口保护。Java 原生 replacement 及控制交接有自动测试。macOS/Ubuntu/CentOS 尚未进行实机验收；本次没有自动关闭当前旧服务或迁移用户正在运行的会话。
 

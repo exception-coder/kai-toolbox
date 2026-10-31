@@ -27,9 +27,11 @@ test('restart authorization, capability check and serialized mutations', async t
   assert.ok(!body.includes('internal') && !body.includes('external'));
 });
 
-test('scope and desktop platform constraints are explicit', () => {
+test('scope and platform defaults are explicit; retired WeChat cannot be enabled', () => {
   assert.throws(() => settingsFrom({}, { scope: 'anything' }));
-  assert.throws(() => serviceCatalog({ FORGE_WECHAT_ENABLED: 'true' }, 'linux'), /Windows/);
+  for (const platform of ['win32', 'linux', 'darwin']) {
+    assert.ok(!serviceCatalog({ FORGE_WECHAT_ENABLED: 'true' }, platform).some(item => item.name === 'wechat' || item.port === 9700));
+  }
   assert.equal(serviceCatalog({}, 'darwin').find(item => item.name === 'faster-whisper').enabled, true);
   assert.equal(readConfig('.', { EXAMPLE_KEY: 'inherited' }).EXAMPLE_KEY, 'inherited');
 });

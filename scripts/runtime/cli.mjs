@@ -10,6 +10,7 @@ import { executable, mavenCommand, npmCommand, run } from './commands.mjs';
 import { reportUnmanagedRuntime } from './unmanaged-runtime.mjs';
 import { waitForStartup, startupTimeout } from './startup-progress.mjs';
 import { ensureManagedTunnel } from './tunnel.mjs';
+import { retireService } from './retired-services.mjs';
 
 function optionsFrom(args) {
   const options = {};
@@ -139,6 +140,7 @@ export async function main(root, args) {
     return tunnelMain(root, rest);
   }
   if (['help', '--help', '-h'].includes(command)) {
+    console.log('Retire removed WeChat monitor only (no restart): node forge.mjs retire wechat');
     console.log('Cloudflare tunnel: node forge.mjs tunnel start|stop|status|check [--config PATH] [--protocol http2|quic|auto]\nTemporary address: node forge.mjs tunnel start --quick [--url https://localhost:5173]');
     console.log('Isolated backend measurement:\nnode forge.mjs measure-startup [--port 18090] [--timeout-seconds 120] [--skip-build] [--application-jar PATH] [--output-root PATH] [--target-path /api/tools]\n');
     console.log('Forge source runtime (Node 22+, Java 21, Maven)\n\nnode forge.mjs start [--scope all|backend|frontend] [--mode dev|full] [--frontend-mode dev|static]\nnode forge.mjs stop\nnode forge.mjs status\nnode forge.mjs restart [--scope backend] [--frontend-mode dev|static]\nnode forge.mjs frontend build|status\nnode forge.mjs logs [service]\nnode forge.mjs doctor\nnode forge.mjs prepare\n\nDocker is optional and is not used to run Forge.');
@@ -153,7 +155,7 @@ export async function main(root, args) {
     const result = rest[0] === 'build' ? await buildRelease(paths, env) : await readActive(frontendHome(paths));
     console.log(JSON.stringify(result, null, 2)); return;
   }
-  const options = command === 'logs' ? {} : optionsFrom(rest);
+  const options = ['logs', 'retire'].includes(command) ? {} : optionsFrom(rest);
   const requestedSettings = settingsFrom(env, options);
   const settings = existsSync(paths.settings) && !['start', 'prepare', 'doctor'].includes(command)
     ? JSON.parse(readFileSync(paths.settings, 'utf8')) : requestedSettings;
@@ -164,6 +166,12 @@ export async function main(root, args) {
   }
   const manager = await connectManager(paths);
   try {
+    if (command === 'retire') {
+      if (rest.length !== 1) throw new Error('Use node forge.mjs retire wechat');
+      await retireService(manager, rest[0]);
+      console.log(`Retired ${rest[0]}; other services, data and logs retained.`);
+      return;
+    }
     if (command === 'start') return await start(paths, env, settings, manager, options.frontendMode);
     if (command === 'logs') {
       const name = rest[0] || 'forge-controller';

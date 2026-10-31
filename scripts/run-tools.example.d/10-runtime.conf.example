@@ -16,8 +16,6 @@ FORGE_FRONTEND_POLL_SECONDS=15
 # Optional existing TLS leaf certificate/key; defaults to ~/.vite-plugin-mkcert/.
 FORGE_FRONTEND_TLS_CERT=
 FORGE_FRONTEND_TLS_KEY=
-# Leave empty for platform default: enabled only on Windows
-FORGE_WECHAT_ENABLED=
 FORGE_STUDIO_ENABLED=false
 FORGE_OBSERVABILITY=external
 # 配置好命名隧道后设为 true；随项目启动并由 PM2 限次重启。

@@ -206,13 +206,6 @@
       "sort": 35
     },
     {
-      "featureId": "wechat",
-      "code": "menu:wechat",
-      "name": "微信监控",
-      "module": "效率",
-      "sort": 35
-    },
-    {
       "featureId": "ai-secretary",
       "code": "menu:ai-secretary",
       "name": "AI 秘书",
