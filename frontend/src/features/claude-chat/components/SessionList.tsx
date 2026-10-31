@@ -22,6 +22,7 @@ import { isVibeCodingSession } from '../lib/sessionScope'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { groupSessionsByProject, manualSessionProjectKey, resolveSessionProject } from '../lib/sessionProjectGroups'
 import { useStableSessionOrder } from '../hooks/useStableSessionOrder'
+import { recordSessionVisit } from '../lib/recentSessionVisits'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
 let groupMigrationDone = false
@@ -538,7 +539,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
               'relative z-10 min-h-[44px] min-w-0 flex-1 py-2.5 pr-2 text-left',
               inGroup ? 'pl-8' : 'pl-5',
             )}
-            onClick={() => onSwitch(s.id, s.status === 'RUNNING' && s.live)}
+            onClick={() => { recordSessionVisit(s.id); onSwitch(s.id, s.status === 'RUNNING' && s.live) }}
             onDoubleClick={e => { e.stopPropagation(); startEdit(s.id, s.title || shortCwd(s.cwd)) }}
             title={`${s.title || shortCwd(s.cwd)}\n${s.cwd}\n（双击重命名）`}
           >

@@ -1,7 +1,7 @@
 import { useRecentSessionsExpanded } from '../lib/workspacePreferences'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronRight, Clock3, Folder, Link2, LockKeyhole, Pin } from 'lucide-react'
+import { Check, ChevronRight, Clock3, Link2, LockKeyhole, Pin } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionFavorite, setSessionGroupApi } from '../api'
 import { engineDisplayName } from './chatStatus'
@@ -20,8 +20,9 @@ import { isSessionStatusVisible, useVisibleSessionStatuses } from '../lib/sessio
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { sessionDisplayName } from '../lib/sessionDisplayName'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
-import { sessionWorkspaceIdentity, sessionWorkspaceLabel } from '../lib/sessionProjectGroups'
+import { sessionWorkspaceLabel } from '../lib/sessionProjectGroups'
 import { useStableSessionOrder } from '../hooks/useStableSessionOrder'
+import { orderRecentSessions, recordSessionVisit, useRecentSessionVisits } from '../lib/recentSessionVisits'
 
 interface Props {
   currentSessionId: string | null
@@ -34,40 +35,6 @@ interface Props {
 }
 
 const SESSION_QUERY_KEY = ['claude-chat-sessions']
-
-export interface RecentWorkspaceGroup {
-  key: string
-  cwd: string
-  label: string
-  sessions: ClaudeChatSessionView[]
-  lastSeenAt: number
-}
-
-export function groupRecentSessionsByWorkspace(sessions: ClaudeChatSessionView[], stable?: ReturnType<typeof useStableSessionOrder>): RecentWorkspaceGroup[] {
-  const groups = new Map<string, RecentWorkspaceGroup>()
-  for (const session of sessions) {
-    const cwd = session.cwd?.trim() || ''
-    const key = sessionWorkspaceIdentity(cwd) || '__unknown_workspace__'
-    const group = groups.get(key) ?? {
-      key,
-      cwd,
-      label: sessionWorkspaceLabel(cwd),
-      sessions: [],
-      lastSeenAt: 0,
-    }
-    group.sessions.push(session)
-    group.lastSeenAt = Math.max(group.lastSeenAt, stable ? stable.activityAt(session) : session.lastActivityAt ?? session.lastSeenAt)
-    groups.set(key, group)
-  }
-  return [...groups.values()]
-    .map(group => ({
-      ...group,
-      sessions: [...group.sessions].sort((a, b) =>
-        stable ? stable.comparePinned(a, b) : Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))
-          || (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0) || (b.lastActivityAt ?? b.lastSeenAt) - (a.lastActivityAt ?? a.lastSeenAt)),
-    }))
-    .sort((a, b) => b.lastSeenAt - a.lastSeenAt || a.label.localeCompare(b.label, 'zh-CN'))
-}
 
 /**
  * 最近会话快速入口：显示最近 N 条会话，风格与 SessionList 保持一致。
@@ -93,31 +60,12 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
     .filter(session => !session.planExpired)
     .filter(session => isSessionStatusVisible(session, visibleStatuses))
   const stableOrder = useStableSessionOrder(eligible, visibleStatuses.join(','))
-  const normalIds = new Set(stableOrder.ordered.filter(session => !session.favorite).slice(0, limit).map(session => session.id))
-  const recent = stableOrder.ordered.filter(session => session.favorite || normalIds.has(session.id))
-  const workspaceGroups = groupRecentSessionsByWorkspace(recent, stableOrder)
-  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(() => new Set())
-  const activeWorkspaceKey = workspaceGroups.find(group =>
-    group.sessions.some(session => session.id === currentSessionId))?.key
-
-  useEffect(() => {
-    if (!activeWorkspaceKey) return
-    setCollapsedWorkspaces(previous => {
-      if (!previous.has(activeWorkspaceKey)) return previous
-      const next = new Set(previous)
-      next.delete(activeWorkspaceKey)
-      return next
-    })
-  }, [activeWorkspaceKey, currentSessionId])
-
-  const toggleWorkspace = (key: string) => {
-    setCollapsedWorkspaces(previous => {
-      const next = new Set(previous)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
+  const { visits, warning: visitsWarning } = useRecentSessionVisits()
+  const visited = new Map(visits.map(visit => [visit.id, visit.openedAt]))
+  const stableIds = new Set(stableOrder.ordered.map(session => session.id))
+  const ordered = orderRecentSessions(eligible.filter(session => stableIds.has(session.id) || visited.has(session.id)), visits, stableOrder.compare)
+  const normalIds = new Set(ordered.filter(session => !session.favorite).slice(0, limit).map(session => session.id))
+  const recent = ordered.filter(session => session.favorite || normalIds.has(session.id))
 
   // 同 SessionList：批量查一次这几条会话里哪些绑了 PRD，行首标个小图标，不用点开才知道。
   const recentIdsKey = useMemo(() => [...recent.map(s => s.id)].sort().join(','), [recent])
@@ -210,30 +158,12 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
       </div>
       <div id={`${listId}-recent`} hidden={!sectionExpanded}>
       {renameError && <p role="alert" className="px-3 pb-2 text-xs text-[var(--color-destructive)]">{renameError}</p>}
+      {visitsWarning && <p role="status" className="px-3 pb-2 text-xs text-[var(--color-muted-foreground)]">{visitsWarning}</p>}
 
       {recent.length === 0 ? (
         <p className="px-3 pb-2 text-xs text-[var(--color-muted-foreground)]">当前状态筛选下没有最近会话</p>
-      ) : <div className="scrollbar-autohide max-h-[55vh] overflow-y-auto overscroll-contain">
-        {workspaceGroups.map((workspace, index) => {
-          const collapsed = collapsedWorkspaces.has(workspace.key)
-          const contentId = `${listId}-workspace-${index}`
-          return <section key={workspace.key} aria-label={`工作目录 ${workspace.cwd || '未识别'}`}>
-            <button
-              type="button"
-              aria-expanded={!collapsed}
-              aria-controls={contentId}
-              aria-label={`${collapsed ? '展开' : '折叠'}工作目录 ${workspace.cwd || '未识别工作目录'}，${workspace.sessions.length} 个会话`}
-              onClick={() => toggleWorkspace(workspace.key)}
-              className="flex min-h-9 w-full min-w-0 items-center gap-1.5 border-y border-[var(--color-border)]/40 bg-[var(--color-muted)]/25 px-3 text-left text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]/50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--color-primary)]"
-              title={workspace.cwd || '未记录工作目录'}
-            >
-              <ChevronRight className={cn('size-3 shrink-0', !collapsed && 'rotate-90')} aria-hidden="true" />
-              <Folder className="size-3 shrink-0 opacity-70" aria-hidden="true" />
-              <span className="min-w-0 flex-1 truncate font-medium">{workspace.label}</span>
-              <span className="shrink-0 tabular-nums opacity-70">{workspace.sessions.length}</span>
-            </button>
-            <ul id={contentId} hidden={collapsed}>
-        {workspace.sessions.map(session => {
+      ) : <ul aria-label="最近使用的会话" className="scrollbar-autohide max-h-[55vh] overflow-y-auto overscroll-contain">
+        {recent.map(session => {
           const isActive = session.id === currentSessionId
           const title = sessionDisplayName(session)
           const engineLabel = engineDisplayName(session.engine ?? 'claude', session.providerKind)
@@ -286,7 +216,7 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
               ) : (
                 <button
                   type="button"
-                  onClick={() => onSwitch(session.id, session.status === 'RUNNING' && session.live)}
+                  onClick={() => { recordSessionVisit(session.id); onSwitch(session.id, session.status === 'RUNNING' && session.live) }}
                   onDoubleClick={e => { e.stopPropagation(); startEdit(session.id, title) }}
                   title={`${title}\n${session.cwd}\n（双击重命名）`}
                   className="relative z-10 min-h-[52px] min-w-0 flex-1 py-2 pl-5 pr-2 text-left"
@@ -325,13 +255,14 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
                     isActive ? 'text-[var(--color-primary)]/60' : 'text-[var(--color-muted-foreground)]',
                   )}>
                     <span className="shrink-0 rounded bg-[var(--color-muted)] px-1 py-0.5 text-[10px]">{engineLabel}</span>
+                    <span className="max-w-32 truncate" title={session.cwd}>{sessionWorkspaceLabel(session.cwd || '')}</span>
                     <SessionImportBadge session={session} />
                     {session.planExpired && (
                       <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 opacity-100 dark:bg-amber-950 dark:text-amber-300">
                         <LockKeyhole className="size-2.5" />规划已过期
                       </span>
                     )}
-                    <span className="truncate tabular-nums">{isActive ? '当前' : relativeTime(session.lastSeenAt)}</span>
+                    <span className="truncate tabular-nums">{isActive ? '当前' : visited.has(session.id) ? `查看 · ${relativeTime(visited.get(session.id)!)}` : relativeTime(session.lastSeenAt)}</span>
                     <SessionStorageLabel {...storage.values.get(session.id)} />
                   </div>
                 </button>
@@ -355,10 +286,7 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
             </li>
           )
         })}
-            </ul>
-          </section>
-        })}
-      </div>}
+      </ul>}
       </div>
     </section>
     {groupPickFor && (

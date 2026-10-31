@@ -5,41 +5,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import * as api from '../api'
 import { getSessionsByDevSessions } from '@/features/prd-clarify/public-api'
-import { RecentSessions, groupRecentSessionsByWorkspace } from './RecentSessions'
+import { RecentSessions } from './RecentSessions'
+import { recentSessionVisitsKey, recordSessionVisit } from '../lib/recentSessionVisits'
 import type { ClaudeChatSessionView } from '../types'
 
 vi.mock('@/features/prd-clarify/public-api', () => ({ getSessionsByDevSessions: vi.fn().mockResolvedValue({}) }))
 
-beforeEach(() => vi.mocked(getSessionsByDevSessions).mockResolvedValue({}))
+beforeEach(() => { localStorage.clear(); vi.mocked(getSessionsByDevSessions).mockResolvedValue({}) })
 afterEach(cleanup)
 
 function session(id: string, cwd: string, lastSeenAt: number, favorite = false): ClaudeChatSessionView {
   return { id, cwd, lastSeenAt, favorite, engine: 'codex', status: 'IDLE' } as ClaudeChatSessionView
 }
 
-describe('groupRecentSessionsByWorkspace', () => {
-  it('groups equivalent Windows paths and orders groups by latest activity', () => {
-    const groups = groupRecentSessionsByWorkspace([
-      session('a1', 'D:\\Work\\Alpha', 100),
-      session('b1', 'D:\\Work\\Beta', 300),
-      session('a2', 'd:/work/alpha/', 200, true),
-    ])
-
-    expect(groups.map(group => group.label)).toEqual(['Beta', 'Alpha'])
-    expect(groups[1].sessions.map(item => item.id)).toEqual(['a2', 'a1'])
-  })
-
-  it('keeps missing workspace data in one explicit fallback group', () => {
-    const groups = groupRecentSessionsByWorkspace([session('a', '', 10), session('b', '  ', 20)])
-    expect(groups).toHaveLength(1)
-    expect(groups[0].label).toBe('未识别工作区')
-  })
-})
-
-describe('recent workspace disclosure', () => {
+describe('recent session navigation', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('keeps row/group order and scroll while switching and polling; applies new activity only on request', async () => {
+  it('lists sessions across projects by explicit visits, preserves scroll and ignores background reordering', async () => {
     const rows = [
       { ...session('a', 'D:/Alpha', 300), title: '任务 a' },
       { ...session('b', 'D:/Alpha', 200), title: '任务 b' },
@@ -54,36 +36,36 @@ describe('recent workspace disclosure', () => {
     const view = (current: string) => createElement(QueryClientProvider, { client }, createElement(ConfirmProvider, null,
       createElement(RecentSessions, { currentSessionId: current, onSwitch })))
     const result = render(view('a'))
-    const alpha = await screen.findByRole('region', { name: '工作目录 D:/Alpha' })
-    const order = () => within(alpha).getAllByRole('button', { name: /^任务 / }).map(row => row.getAttribute('title')?.split('\n')[0])
-    const scroll = alpha.parentElement!
+    const scroll = await screen.findByRole('list', { name: '最近使用的会话' })
+    const order = () => within(scroll).getAllByRole('button', { name: /^任务 / }).map(row => row.getAttribute('title')?.split('\n')[0])
+    expect(order()).toEqual(['任务 other', '任务 a', '任务 b', '任务 c'])
+    expect(screen.queryByRole('region', { name: /^工作目录 / })).not.toBeInTheDocument()
     scroll.scrollTop = 80
     for (const id of ['b', 'c', 'a']) {
-      fireEvent.click(within(alpha).getByRole('button', { name: new RegExp('^任务 ' + id) }))
+      fireEvent.click(within(scroll).getByRole('button', { name: new RegExp('^任务 ' + id) }))
       result.rerender(view(id))
-      expect(order()).toEqual(['任务 a', '任务 b', '任务 c'])
     }
+    expect(order()).toEqual(['任务 a', '任务 c', '任务 b', '任务 other'])
     serverRows = [
+      { ...session('new', 'D:/Gamma', 2000), title: '任务 new' },
       { ...rows[2], lastSeenAt: 1000, status: 'RUNNING', live: true }, ...rows.slice(0, 2), rows[3],
     ]
     await act(async () => { client.setQueryData(['claude-chat-sessions'], serverRows) })
     await waitFor(() => expect(screen.getByRole('button', { name: '更新最近会话排序' })).toHaveTextContent('有新活动'))
-    expect(order()).toEqual(['任务 a', '任务 b', '任务 c'])
-    expect(screen.getAllByRole('region', { name: /^工作目录 / }).map(region => region.getAttribute('aria-label')))
-      .toEqual(['工作目录 D:/Beta', '工作目录 D:/Alpha'])
+    expect(order()).toEqual(['任务 a', '任务 c', '任务 b', '任务 other'])
     expect(scroll.scrollTop).toBe(80)
     expect(screen.getByRole('button', { name: '更新最近会话排序' })).toHaveTextContent('有新活动')
     expect(pin).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '更新最近会话排序' }))
-    expect(order()).toEqual(['任务 c', '任务 a', '任务 b'])
-    expect(screen.getAllByRole('region', { name: /^工作目录 / })[0]).toHaveAttribute('aria-label', '工作目录 D:/Alpha')
+    expect(order()).toEqual(['任务 a', '任务 c', '任务 b', '任务 new', '任务 other'])
+    expect(JSON.parse(localStorage.getItem(recentSessionVisitsKey())!).map((visit: { id: string }) => visit.id)).toEqual(['a', 'c', 'b'])
   })
 
   it('keeps old manually pinned sessions visible beyond the normal recent limit', async () => {
     vi.spyOn(api, 'listSessions').mockResolvedValue([
       { ...session('new', 'D:/Alpha', 300), title: '最新会话' },
       { ...session('older', 'D:/Alpha', 200), title: '普通旧会话' },
-      { ...session('pin', 'D:/Alpha', 1, true), title: '置顶旧会话', pinnedAt: 400 },
+      { ...session('pin', 'E:/Other', 1, true), title: '置顶旧会话', pinnedAt: 400 },
     ])
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(createElement(QueryClientProvider, { client }, createElement(ConfirmProvider, null,
@@ -92,6 +74,35 @@ describe('recent workspace disclosure', () => {
     expect(screen.getByRole('button', { name: /^最新会话/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^普通旧会话/ })).not.toBeInTheDocument()
     expect(screen.getAllByLabelText('已置顶')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: /^最新会话/ }))
+    expect(within(screen.getByRole('list', { name: '最近使用的会话' })).getAllByRole('listitem')[0]).toHaveTextContent('置顶旧会话')
+  })
+
+  it('stores only bounded, deduplicated visit metadata within each user scope', () => {
+    for (let index = 0; index < 55; index++) recordSessionVisit(`s-${index}`, 11)
+    recordSessionVisit('s-10', 11)
+    recordSessionVisit('other-user', 22)
+    const visits = JSON.parse(localStorage.getItem(recentSessionVisitsKey(11))!)
+    expect(visits).toHaveLength(50)
+    expect(visits[0]).toEqual({ id: 's-10', openedAt: expect.any(Number) })
+    expect(visits.filter((visit: { id: string }) => visit.id === 's-10')).toHaveLength(1)
+    expect(JSON.parse(localStorage.getItem(recentSessionVisitsKey(22))!)[0].id).toBe('other-user')
+    expect(localStorage.getItem(recentSessionVisitsKey())).toBeNull()
+  })
+
+  it('keeps switching usable with a visible warning when visit storage is rejected', async () => {
+    vi.spyOn(api, 'listSessions').mockResolvedValue([{ ...session('one', 'D:/Alpha', 100), title: '任务 one' }])
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const onSwitch = vi.fn()
+    render(createElement(QueryClientProvider, { client }, createElement(ConfirmProvider, null,
+      createElement(RecentSessions, { currentSessionId: null, onSwitch }))))
+    const row = await screen.findByRole('button', { name: /^任务 one/ })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => { throw new Error('quota') })
+    fireEvent.click(row)
+    expect(onSwitch).toHaveBeenCalledWith('one', false)
+    expect(screen.getByRole('status')).toHaveTextContent('最近查看顺序暂未保存')
+    fireEvent.click(row)
+    expect(screen.queryByText(/最近查看顺序暂未保存/)).not.toBeInTheDocument()
   })
 
   it('offers the same copy action in recent sessions and disables it while a copy is pending', async () => {
@@ -113,7 +124,7 @@ describe('recent workspace disclosure', () => {
     expect(screen.getByRole('button', { name: '复制会话配置' })).toBeDisabled()
   })
 
-  it('collapses groups independently, keeps the choice on data refresh, and reveals a newly current session', async () => {
+  it('restores visits on remount, promotes an old visited session past the limit and removes inaccessible sessions', async () => {
     const alpha = session('alpha', 'D:\\Work\\Alpha', 100)
     const beta = session('beta', 'D:\\Work\\Beta', 200)
     vi.spyOn(api, 'listSessions').mockResolvedValue([alpha, beta])
@@ -123,20 +134,20 @@ describe('recent workspace disclosure', () => {
         createElement(RecentSessions, { currentSessionId, onSwitch: vi.fn() })))
     const { rerender } = render(view('alpha'))
 
-    const betaButton = await screen.findByRole('button', { name: /折叠工作目录 D:\\Work\\Beta/ })
-    const betaList = document.getElementById(betaButton.getAttribute('aria-controls')!) as HTMLUListElement
-    fireEvent.click(betaButton)
-    expect(betaList.hidden).toBe(true)
-    expect(screen.getByRole('button', { name: /折叠工作目录 D:\\Work\\Alpha/ })).toHaveAttribute('aria-expanded', 'true')
-
-    client.setQueryData(['claude-chat-sessions'], [session('alpha', 'd:/work/alpha/', 300), beta])
-    expect(screen.getByRole('button', { name: /展开工作目录 D:\\Work\\Beta/ })).toHaveAttribute('aria-expanded', 'false')
-    expect(betaList.hidden).toBe(true)
-
+    await screen.findByRole('list', { name: '最近使用的会话' })
+    act(() => recordSessionVisit('alpha'))
     rerender(view('beta'))
-    await waitFor(() => expect(screen.getByRole('button', { name: /折叠工作目录 D:\\Work\\Beta/ }))
-      .toHaveAttribute('aria-expanded', 'true'))
-    expect(betaList.hidden).toBe(false)
+    expect(within(screen.getByRole('list', { name: '最近使用的会话' })).getAllByRole('listitem')[0]).toHaveTextContent('Alpha')
+    const stored = localStorage.getItem(recentSessionVisitsKey())
+    cleanup()
+    render(createElement(QueryClientProvider, { client }, createElement(ConfirmProvider, null,
+      createElement(RecentSessions, { currentSessionId: null, onSwitch: vi.fn(), limit: 1 }))))
+    expect(await screen.findByRole('button', { name: /^Alpha/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Beta/ })).not.toBeInTheDocument()
+    expect(localStorage.getItem(recentSessionVisitsKey())).toBe(stored)
+    await act(async () => { client.setQueryData(['claude-chat-sessions'], [beta]) })
+    expect(screen.queryByRole('button', { name: /^Alpha/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Beta/ })).toBeInTheDocument()
   })
 })
 

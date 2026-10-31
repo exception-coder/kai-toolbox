@@ -8,6 +8,7 @@ import * as api from '../api'
 import type { ClaudeChatSessionView } from '../types'
 import { SessionList } from './SessionList'
 import { resetVisibleSessionStatuses } from '../lib/sessionStatusFilter'
+import { recentSessionVisitsKey } from '../lib/recentSessionVisits'
 
 vi.mock('@/features/prd-clarify/public-api', () => ({ getSessionsByDevSessions: vi.fn().mockResolvedValue({}) }))
 
@@ -64,6 +65,7 @@ describe('session project navigation', () => {
     await act(async () => { client.setQueryData(['claude-chat-sessions'], [{ ...initial[0], lastSeenAt: 2000 }, initial[1], initial[2]]) })
     expect(rowOrder()).toEqual(['任务 b', '任务 a'])
     expect(onSwitch).toHaveBeenCalledWith('a', false)
+    expect(JSON.parse(localStorage.getItem(recentSessionVisitsKey())!)[0].id).toBe('a')
     expect(screen.queryByText('置顶会话')).not.toBeInTheDocument()
     let server = client.getQueryData<ClaudeChatSessionView[]>(['claude-chat-sessions'])!
     vi.mocked(api.listSessions).mockImplementation(async () => server)
