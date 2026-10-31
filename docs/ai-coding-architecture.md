@@ -97,17 +97,34 @@ Constitution 管 Agent 如何思考；Skill 管任务如何操作；Forge 管上
 | Constitution | 足够上下文、事实与推断、最小范围、停止探索 | 项目构建命令、OpenSpec 编排、分支与 SQL 策略 |
 | Skills | 调查、定位、设计写作、实施和验证方法 | Forge 状态文件、重复策略求值、任务分配器 |
 | Forge execution | 会话投影、候选上下文、写入权、分支和验证策略、生命周期决策 | 自动证明控制点正确或业务语义已批准 |
-| Hook / MCP | 身份与事件适配、调用、响应校验与宿主阻断格式 | 新增独立治理状态或复制策略算法 |
+| 已采用的 Hook / CLI | 内部执行身份与事件适配、响应校验与宿主阻断格式 | 新增独立治理状态或复制策略算法 |
 
 现有执行核心从 `sidecar/claude-agent/src/specResolution/` 分离至 `execution/`，保持同一进程和部署单元。`execution/contracts.ts` 定义输入，`context.ts` 聚合规格/Graphify 候选，`session.ts` 提供只读能力与执行投影，`policy.ts` 集中影响映射与分支规则，`service.ts` 管绑定和完成，`lifecycle.ts` 是宿主统一裁决入口，`verification.ts` 运行验证，`guard.ts` 适配原生权限。旧 execution 导入文件仅重导出，旧工具名及 `.forge/spec-resolution` 状态继续兼容。
 
-`specResolution/` 继续负责 Requirement 索引、召回、解析确认和 Delta 校验，execution 单向消费该能力。Graphify、OpenSpec 和领域知识保留事实所有权；本轮没有重建图谱或新增任务数据库。`tools.ts` 在注册边界组合两类工具，CLI/SDK/stdio 共用定义。
+`specResolution/` 继续负责 Requirement 索引、召回、解析确认和 Delta 校验，execution 单向消费该能力。Graphify、OpenSpec 和领域知识保留事实所有权；本轮没有重建图谱或新增任务数据库。`tools.ts` 仅组合内部 CLI/Hook 的兼容操作。普通模型 SDK/stdio 不再注册这 19 项工程操作，也不引导每个任务调用它们。
 
-### 启动、上下文与实施许可
+### 模型工具与方法去重
+
+普通 Vibe Coding 的 Forge MCP 从 25 项减为 6 项：资源发现与调用、DDL 核对、待执行 SQL 登记、页面预览、推进进度上报。Team Standards 与项目规则负责需求分级、规格/设计、验证范围和提交方法；OpenSpec/Graphify 保持原事实所有权。普通任务不再叠加模型拆分、规格解析确认或执行初始化；保留引擎原生文件/终端能力及用户配置插件，不修改全局 Team Standards。
+
+移出的 13 项执行操作及 6 项规格操作保留为内部 CLI/Hook 兼容接口。已有执行、写入锁、指纹、审计和项目已采用的门禁不被清空或自动关闭。门禁拒绝时原生权限适配给出实际 CLI 路径；兼容维护不能替代用户重启/发布授权。模型中不存在的旧名称不得继续当作 MCP 调用。源码与加载验收分别记录于[工具精简任务](../openspec/changes/trim-vibe-model-tools/tasks.md)。
+
+```mermaid
+flowchart LR
+    REQUEST["用户需求"] --> METHODS["项目规则与 Team Standards"]
+    METHODS --> AGENT["Agent 理解、实施、适用验证与提交"]
+    AGENT --> MCP["六项 Forge 产品能力"]
+    AGENT --> ADOPTED{"项目已采用内部执行门禁?"}
+    ADOPTED -->|"否"| PROJECT["沿用项目与宿主权限"]
+    ADOPTED -->|"是"| LEGACY["CLI/Hook 维护原绑定与证据"]
+    LEGACY --> STATE["保留锁、范围、验证与审计"]
+```
+
+### 已采用执行门禁的内部兼容流程
 
 ```mermaid
 flowchart TD
-    HOST["宿主事件或 Agent 主动调用"] --> INIT["session_init 只读能力和执行归属"]
+    HOST["已采用门禁的内部 CLI/Hook"] --> INIT["session_init 只读能力和执行归属"]
     INIT --> CONTEXT["resolve_execution_context 候选与缺口"]
     CONTEXT --> AGENT["Agent 阅读原文、调用链和控制点"]
     AGENT --> INTENT{"本次需要实施?"}
@@ -123,7 +140,7 @@ flowchart TD
     EDIT --> FINISH["finish_execution 检查后释放写入权"]
 ```
 
-Agent 判断路径、控制点、修改位置和关键未知是否清楚；Forge 另行检查执行范围、分支、写入权和证据，两者不能合并成一个自报 READY。只读查询允许 detached HEAD，不创建 Change、绑定或写入锁。`taskId` 仅作为已有任务的引用，不新建平行 task 清单；OpenSpec/宿主原有任务顺序和生命周期保持权威。执行器按 Maven/包模块及明确的前端功能目录放行不同领域并行编辑；模块内数据库文件归所属模块，前端公共源码按精确文件互斥。具名功能目录和父模块构建配置仍按层级互斥；Sidecar 普通源码、无模块归属脚本和治理文件按精确路径互斥。只有根构建配置与根数据库目录使用全局范围。发现其它 writer 不等于冲突，必须比较投影后的范围。它不自动推断任务依赖、跨会话接管或分配额外分支。
+以下旧操作名仅表示内部 CLI/Hook 协议，不是普通模型工具。Agent 判断路径、控制点、修改位置和关键未知是否清楚；已采用的 Forge 门禁另行检查执行范围、分支、写入权和证据，两者不能合并成一个自报 READY。只读查询允许 detached HEAD，不创建 Change、绑定或写入锁。`taskId` 仅作为已有任务的引用，不新建平行 task 清单；OpenSpec/宿主原有任务顺序和生命周期保持权威。执行器按 Maven/包模块及明确的前端功能目录放行不同领域并行编辑；模块内数据库文件归所属模块，前端公共源码按精确文件互斥。具名功能目录和父模块构建配置仍按层级互斥；Sidecar 普通源码、无模块归属脚本和治理文件按精确路径互斥。只有根构建配置与根数据库目录使用全局范围。发现其它 writer 不等于冲突，必须比较投影后的范围。它不自动推断任务依赖、跨会话接管或分配额外分支。
 
 Session 返回配置、可调用性、授权和宿主覆盖的独立字段；未探测的 OpenSpec CLI 与图谱可用性返回 null，图谱新鲜度由具体查询核验。`BOUND` 不是验证通过，`CURRENT` 仅表示验证输入未变。`HOST_DEPENDENT` 明确表示没有由该查询证明宿主已执行强制检查。
 
@@ -146,7 +163,7 @@ Java 自动监督的规格严格预检与后续治理阶段同时服从此开关
 | 组件 | 职责 | 权威内容与边界 |
 |---|---|---|
 | Team Standards | 指导影响判定、规格与设计写作、验证和原子提交；提供薄 Hook | 通用方法归套件 Skill；不复制 Forge 检索和门禁算法 |
-| Forge | 检索既有规格，记录具名判定，绑定执行范围与分支，运行验证并检查证据 | 具体协议见[执行与规格解析模块](../sidecar/claude-agent/src/specResolution/README.md)；不以机器 PASS 代替业务审阅 |
+| Forge | 模型侧提供六项产品能力；内部兼容接口维护已采用的执行范围、分支与验证证据 | 具体协议见[执行与规格解析模块](../sidecar/claude-agent/src/specResolution/README.md)；不以机器 PASS 代替业务审阅 |
 | OpenSpec | 保存正式行为规格及活动变更，校验、同步和归档 | `openspec/specs` 是已接受行为；活动 Change 保存目标增量 |
 | Graphify | 快速定位实现、调用和关联证据，报告新鲜度 | 代码事实不是业务批准，未命中不等于不存在既有能力 |
 | Agent | 阅读原文、理解业务、审阅映射，编写规格/设计、实施和提交 | 具名 Agent 判断不能冒充人工批准；实质业务歧义需要解决 |
@@ -197,11 +214,11 @@ flowchart LR
 
 面向用户的重磅更新在同次交付中登记业务咨询[更新小纸条](../frontend/src/features/fore-consult/data/upgradeNotes.ts)，由本次实施Agent维护日期、变化、用法与范围，保留历史。未部署或未验收须明确标注；小纸条是用户沟通内容，不作为规格、验证或部署事实源，不增加自动发布和服务重启授权。具体登记规范见[咨询说明](../tools/tool-fore-consult/README.md#更新小纸条登记)，普通内部重构和无感小修复无需登记。
 
-图中关键判断标明执行主体：LLM 提交语义分类，脚本依据分类路由并执行门禁；混合节点的具体职责见上表。
+普通需求按上方方法去重流程实施。下图仅说明已采用内部执行门禁的兼容生命周期，不是每个任务默认再走一套模型工具。关键判断标明执行主体：LLM 提交语义分类，脚本依据分类路由并执行门禁；混合节点的具体职责见上表。
 
 ```mermaid
 flowchart TD
-    REQUEST["用户需求或一批相关任务"] --> SESSION["Forge session_init 返回能力和执行归属"]
+    REQUEST["用户需求或一批相关任务"] --> SESSION["已采用内部门禁时<br/>CLI/Hook 返回执行归属"]
     SESSION --> READ["Agent 读取项目约束与 Team Standards"]
     READ --> DISCOVER["Forge 探索正式规格和活跃 Change"]
     GRAPHIFY["Graphify 定位实现与关联证据"] --> DISCOVER
@@ -693,17 +710,17 @@ flowchart LR
 
 ## Existing Spec Resolution
 
-实施批次与 OpenSpec Change 分离：Forge execution 总是绑定项目、会话和分配分支，changeId 仅在行为变化时需要。先探索既有规格和 Graphify，再分别判定行为、设计层次及验证范围；风险不自动增加文档。相关任务顺序执行、原子提交，额外分支由宿主分配。执行记录、范围、分支和实际验证输入摘要复用规格解析模块，不增加平行项目配置。完整协议见 [模块说明](../sidecar/claude-agent/src/specResolution/README.md)。
+下述是已采用内部执行门禁的兼容行为，不是普通会话的默认 MCP 流程。实施批次与 OpenSpec Change 分离：内部 Forge execution 绑定项目、会话和分配分支，changeId 仅在行为变化时需要。先探索既有规格和 Graphify，再分别判定行为、设计层次及验证范围；风险不自动增加文档。相关任务顺序执行、原子提交，额外分支由宿主分配。执行记录、范围、分支和实际验证输入摘要复用规格解析模块，不增加平行项目配置。完整协议见 [模块说明](../sidecar/claude-agent/src/specResolution/README.md)。
 
-Forge 开发 MCP 提供 Requirement 级召回、具名 Agent 决策、Delta 和新鲜度检查，SDK 与 stdio 共用实现。使用与限制见[解析服务](../sidecar/claude-agent/src/specResolution/README.md)。OpenSpec 仍为行为权威；Graphify VERIFIED_SOURCES 仅证明本次来源文件通过检查，不证明全图完整；readiness 不替代业务审阅或测试。
+内部 CLI/Hook 兼容保留 Requirement 级召回、具名 Agent 决策、Delta 和新鲜度检查，不再向模型 SDK/stdio 注册。使用与限制见[解析服务](../sidecar/claude-agent/src/specResolution/README.md)。OpenSpec 仍为行为权威；Graphify VERIFIED_SOURCES 仅证明本次来源文件通过检查，不证明全图完整；readiness 不替代业务审阅或测试。
 
-执行验证的 MCP 调用按单次预算运行，可逐项报告活动、传递取消并按相同输入摘要累积不同类别的真实检查结果。工具超时或 Agent 取消不得把仍在运行的子进程记作通过；输入变化使旧结果失效。Codex 的 Forge MCP 调用时限与执行验证预算保持一致，运行门禁仍依赖退出码、摘要和适用类别，不以进度通知替代结果。
+已采用流程的内部验证仍按单次预算运行，按相同输入摘要累积不同类别的真实检查结果。超时或取消不得把仍在运行的子进程记作通过；输入变化使旧结果失效。移除模型 MCP 包装不改变退出码、摘要及适用类别的验证规则，不以进度通知替代结果。
 
 同一活跃 Change 支持多个按顺序确认的 resolution 批次；readiness 校验当前批次对应的 Delta 子集，而不是要求整个 Change 的历史 Delta 数量等于本批决策数。重复稳定 ID/标题和并行 Change 同目标仍阻断。证据文件必须是项目内不超过 4 MiB 的普通文件，拒绝时返回具体路径与原因，避免 Agent 在不清楚失败对象时重复调用。
 
 ### 执行恢复的存储边界
 
-兼容设计绑定的开发恢复与交付验收分阶段处理。Team Standards 4.10.11 的 `recover-writer` 面向真实 writer 已有未提交改动、当前 task 未完成且缺少兼容绑定的状态：通过公开 `session_init` 与 `inspect_execution_writer` 核对原会话、当前 change、分支、HEAD、精确文件及并行归属；Agent 重新审阅当前设计与输入后，保留原始起点和恢复审计，建立当前开发检查点，再 bind/preflight。它不释放或接管 writer、不补造历史 PASS、不关闭 task；提交交付仍需适用的真实验证与 delivery。已验证并提交的切片继续使用 resume。
+兼容设计绑定的开发恢复与交付验收分阶段处理。Team Standards 4.10.11 的 `recover-writer` 面向真实 writer 已有未提交改动、当前 task 未完成且缺少兼容绑定的状态：通过内部 CLI/Hook 的 `session_init` 与 `inspect_execution_writer` 核对原会话、当前 change、分支、HEAD、精确文件及并行归属；Agent 重新审阅当前设计与输入后，保留原始起点和恢复审计，建立当前开发检查点，再 bind/preflight。它不释放或接管 writer、不补造历史 PASS、不关闭 task；提交交付仍需适用的真实验证与 delivery。已验证并提交的切片继续使用 resume。
 
 Runtime 已进入 `WAITING_USER` 时，进度上报的 HTTP 409 是状态冲突。用户已授权恢复且版本与绑定核验完成后，通过宿主监督面板或带当前 expectedVersion 的 resume 动作恢复原运行，重新读取实际插件版本并继续原 task。不得通过循环上报、删除会话、手改缓存或伪造新身份绕过状态与归属检查。
 

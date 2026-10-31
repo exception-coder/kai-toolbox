@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { resolve, relative, dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { checkExecutionEvent } from './lifecycle.js'
 import { isBranchMutation } from './policy.js'
 
@@ -20,7 +21,10 @@ export function guardExecutionTool(project: string, sessionId: string, tool: str
     if (editing && files.every(file => /^(openspec\/|docs\/)/.test(file) || /\.(md|txt)$/i.test(file))) return undefined
     const result = checkExecutionEvent({ project: root, sessionId, files, command,
       event: commit ? 'COMMIT' : editing ? 'WRITE' : 'GIT' })
-    if (!result.allowed && result.enforcement === 'block') return `${result.code}: ${'message' in result ? result.message : ''}`
+    if (!result.allowed && result.enforcement === 'block') {
+      const cli = fileURLToPath(new URL('../specResolution/cli.js', import.meta.url))
+      return `${result.code}: ${'message' in result ? result.message : ''}。既有执行仍受保护；相关操作已移出模型 MCP，使用内部兼容 CLI：node "${cli}" <操作名>，以标准输入传入原 JSON；参数可用 node "${cli}" --describe <操作名> 只读查看。不得清理原记录或关闭门禁。`
+    }
     return undefined
   } catch (error) { return error instanceof Error ? error.message : String(error) }
 }

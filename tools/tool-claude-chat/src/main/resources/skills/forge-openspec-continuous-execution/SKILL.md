@@ -2,14 +2,16 @@
 name: forge-openspec-continuous-execution
 description: Keep a Forge-supervised OpenSpec change running until the bound Done Condition is proven.
 x-forge-owned: true
-x-forge-version: 1.0.15
+x-forge-version: 1.0.16
 ---
 
 # Forge OpenSpec Continuous Execution
 
 This skill is active only when Forge injects an explicit supervised Execution Context. The bound OpenSpec change is the completion boundary for the run; a model turn or an individual task is not.
 
-The Forge Runtime supervision binding and the Sidecar code writer binding are separate. The injected Runtime run ID, change ID, phase and task come from the current session's persisted supervision record. A `null` value in `forge.session_init.execution` means no code writer has been granted for that session; it does not erase the supervised OpenSpec binding. Before editing, determine exact files for the bound task and follow `resolve_execution_context` → `discover_execution` → `assess_execution`, reusing the bound change ID. Respect the writer decision. If that path cannot grant access, inspect the writer owner and continue independent read-only or nonconflicting work. Report the specific blocker only when no authorized step remains.
+The Forge Runtime supervision binding and any legacy Sidecar code writer binding are separate. Runtime run ID, change ID, phase and task come from the current session's persisted supervision record. Ordinary engineering methods belong to the project's rules and Team Standards; Forge no longer publishes the 19 specification/execution workflow operations as model MCP tools. Do not call removed MCP names or start a second model-driven planning, verification or commit workflow.
+
+If this project has explicitly adopted the legacy execution gate or already has a writer binding, preserve its identity, scope, verification evidence and locks. Existing Hook/internal CLI contracts remain valid: use the runtime-registered CLI documented in `sidecar/claude-agent/src/specResolution/README.md`, passing the original operation and JSON input, only to maintain that adopted flow. A permission rejection includes its exact compatibility CLI path. Do not clear state or disable a gate to work around removal of model tools. A missing writer does not erase the Runtime supervision binding.
 
 ## Continuous execution policy
 
@@ -51,7 +53,7 @@ Complete the currently bound task directly by default; no grouping annotation or
 
 Runtime emits at most six contiguous pending tasks with the same explicit group, anchored at the bound current task and current change revision. Only those emitted IDs may be implemented together. Shared verification can support multiple tasks; record coverage per task and check off only tasks whose local acceptance actually passed. A partial failure leaves affected tasks pending; report real progress without forcing another full suite. Do not extend the batch across manual tasks, change boundaries, changed revisions, ownership conflicts or authorization boundaries. Writer scope must cover the whole batch.
 
-`run_execution_verification` reuses passed regression/spec/design commands only for the same execution and complete unchanged input fingerprint. Read `executedCheckIds` and `reusedCheckIds`; reused evidence is not a new test run. Include all relevant test, code, configuration and dependency inputs. Use `force: true` for time-, environment-, external-state-sensitive checks even when categorized as regression, or when a fresh run is explicitly required. API/SQL/UI commands and failed checks always execute. Input changes conservatively invalidate the complete verification snapshot; this release does not infer per-test dependency graphs.
+The legacy internal CLI operation `run_execution_verification`, only when an execution gate is already adopted, reuses passed regression/spec/design commands only for the same execution and complete unchanged input fingerprint. Read `executedCheckIds` and `reusedCheckIds`; reused evidence is not a new test run. Include all relevant test, code, configuration and dependency inputs. Use `force: true` for time-, environment-, external-state-sensitive checks even when categorized as regression, or when a fresh run is explicitly required. API/SQL/UI commands and failed checks always execute. Input changes conservatively invalidate the complete verification snapshot; this release does not infer per-test dependency graphs.
 
 For a multi-change batch, finish every safe step in the current change first. If a concrete prerequisite or unanswered decision still blocks it, report `WAITING_USER` with the exact question and evidence. Forge may preserve that question and dispatch another selected change after revision and strict-validation checks. Do not switch change IDs yourself, mark the blocked task complete, merge another change's files into the current commit, or repeat the same blocked step. When every selected change is deferred, wait for the user's answer; resume the original run to revisit the recorded questions.
 

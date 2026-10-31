@@ -1,5 +1,3 @@
-import { tool } from '@anthropic-ai/claude-agent-sdk'
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { checkSchema, confirmSchema, resolveSchema, refreshSchema, ResolutionError } from './contracts.js'
 import { checkReadiness, confirmResolution, refreshIndex } from './service.js'
 import { resolveWithModel, intakeRequirements, intakeSchema } from './semantic.js'
@@ -11,6 +9,7 @@ import { developerBypass } from '../execution/developerControl.js'
 import { executionRecovery } from '../execution/recovery.js'
 import { commitExecution } from '../execution/commit.js'
 
+/** Internal CLI/Hook compatibility contracts; never registered as model MCP tools. */
 export const definitions = [
   ...executionDefinitions,
   { name: 'get_spec_resolution_metrics', schema: refreshSchema, run: resolutionMetrics,
@@ -74,24 +73,4 @@ function recoveryActions(code: string): string[] {
   if (code === 'DELTA_MISSING' || code === 'DELTA_CONTENT_MISMATCH') return ['仅核对本次 resolution 的 Delta 子集，按确认草稿补齐或修正文后重试']
   if (code === 'INPUT_LIMIT') return ['files 仅传项目内具体普通文件；排除目录、构建产物和超过 4 MiB 的文件后重试']
   return ['修复输入或上下文后重试；规格已变时重新 resolve_specs']
-}
-async function call(name: string, args: unknown, hostSessionId?: string, extra?: McpRequestExtra) {
-  const bound = hostSessionId && args && typeof args === 'object'
-    && ('sessionId' in args || ['resolve_specs', 'check_execution_event'].includes(name))
-    ? { ...args, sessionId: hostSessionId } : args
-  const result = await execute(name, bound, extra)
-  const pending = name === 'run_execution_verification' && result.code === 'VERIFICATION_PENDING' && result.batchStatus === 'PASSED'
-  return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], ...(result.allowed === false && !pending ? { isError: true } : {}) }
-}
-export function registerSpecResolutionTools(server: McpServer, hostSessionId?: string) {
-  for (const definition of definitions) server.registerTool(definition.name, {
-    description: definition.description, inputSchema: definition.schema.shape,
-    annotations: { readOnlyHint: ['inspect_store_lock', 'inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['recover_store_lock', 'abort_execution', 'run_execution_verification', 'commit_execution'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification' },
-  }, (args: unknown, extra: unknown) => call(definition.name, args, hostSessionId, extra as McpRequestExtra))
-}
-export function sdkSpecResolutionTools(hostSessionId?: string) {
-  return definitions.map(definition => tool(definition.name, definition.description, definition.schema.shape,
-    async (args: unknown, extra: unknown) => call(definition.name, args, hostSessionId, extra as McpRequestExtra), { annotations: {
-      readOnlyHint: ['inspect_store_lock', 'inspect_execution_writer', 'session_init', 'resolve_execution_context', 'check_execution_event', 'check_execution_readiness', 'check_change_readiness', 'refresh_spec_index', 'get_spec_resolution_metrics'].includes(definition.name), destructiveHint: ['recover_store_lock', 'abort_execution', 'run_execution_verification', 'commit_execution'].includes(definition.name), idempotentHint: definition.name !== 'run_execution_verification',
-    } }))
 }

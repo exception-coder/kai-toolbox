@@ -14,11 +14,11 @@
 | `lifecycle.ts` | 宿主统一 WRITE/COMMIT/STOP/GIT 路由与策略结果 |
 | `verification.ts` | 实际执行检查及保存输入指纹 |
 | `guard.ts` | 原生权限载荷适配，消费 lifecycle 决策 |
-| `tools.ts` | MCP/SDK/CLI 共用的执行工具定义 |
+| `tools.ts` | 内部 CLI/Hook 保留的执行操作定义，不向普通模型 MCP 注册 |
 
-依赖方向：宿主适配 → lifecycle/service → policy/repository/规格服务。规格检索实现仍在 `specResolution/`，注册层组合两者。历史 `specResolution/execution*.ts` 为兼容导出，勿在其中添加实现。
+依赖方向：宿主适配 → lifecycle/service → policy/repository/规格服务。规格检索实现仍在 `specResolution/`，内部 CLI 路由组合两者，普通模型 MCP 不注册这些工程操作。历史 `specResolution/execution*.ts` 为兼容导出，勿在其中添加实现。
 
-`session_init` 和 `resolve_execution_context` 不写文件，也不要求已知实施范围。准备实施时保留 `discover_execution → assess_execution → check_execution_readiness → run_execution_verification → finish_execution`。执行绑定按最近的构建清单目录计算源码模块范围；设计文档按文件、OpenSpec 按 Change 或 capability 占用；根构建文件、迁移和无法定位模块的路径全局互斥。同模块或相同共享目标互斥，不同模块可并行。旧 `execution-writer` 指针按全局占用兼容；新执行写入 `execution-writers` 索引，原执行记录与会话绑定不迁移。若原会话漏调 `finish_execution`，后续绑定只会在旧执行已验证、本执行路径已提交、同分支且执行与 Change 范围干净时原子回收 writer，并留下审计。
+下列操作仅供已采用的旧执行流程经内部 CLI/Hook 维护，不是普通开发的前置条件。`session_init` 和 `resolve_execution_context` 不写文件，也不要求已知实施范围。准备实施时保留 `discover_execution → assess_execution → check_execution_readiness → run_execution_verification → finish_execution`。执行绑定按最近的构建清单目录计算源码模块范围；设计文档按文件、OpenSpec 按 Change 或 capability 占用；根构建文件、迁移和无法定位模块的路径全局互斥。同模块或相同共享目标互斥，不同模块可并行。旧 `execution-writer` 指针按全局占用兼容；新执行写入 `execution-writers` 索引，原执行记录与会话绑定不迁移。若原会话漏调 `finish_execution`，后续绑定只会在旧执行已验证、本执行路径已提交、同分支且执行与 Change 范围干净时原子回收 writer，并留下审计。
 
 原会话丢失时先调用 `inspect_execution_writer` 查看 `writers`，核对目标执行 ID、原会话、分支、HEAD 及范围状态。确认不再继续该执行后，使用 `abort_execution` 提交上述身份、具名 actor 和原因；它会在同一状态锁内复核并记录 `ABORTED`，保留原记录和工作文件，只释放目标执行及会话指针。上下文变化需重新查询，不能按超时或通过删除状态文件接管。
 

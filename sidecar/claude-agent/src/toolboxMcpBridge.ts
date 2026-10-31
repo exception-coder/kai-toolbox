@@ -2,7 +2,6 @@ import { pagePreviewSchema, PAGE_PREVIEW_DESCRIPTION, preparePagePreview } from 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
-import { registerSpecResolutionTools } from './specResolution/tools.js'
 import { discoverResourceSchema, executeResourceSchema, DISCOVER_RESOURCES_DESCRIPTION, EXECUTE_RESOURCE_DESCRIPTION, discoverSystemResources, executeSystemResource } from './systemResourceTools.js'
 import {
   FORGE_PENDING_SQL_TOOL_DESCRIPTION,
@@ -44,7 +43,7 @@ const server = new McpServer(
     instructions: [
       '这是 kai-toolbox 提供的本地开发验证工具。数据库工具仅允许查询测试库且由后端强制只读；',
       '应用探测工具仅允许访问已配置的本地或测试实例，禁止生产环境。',
-      serverName === 'forge' ? '先 session_init 获取能力和代码写入执行归属；execution=null 不代表 Runtime 自动监督未绑定。resolve_execution_context 只读返回候选；定位后 discover_execution → assess_execution，提交具名影响判断。分支与写入策略由 Forge 执行，sessionId 由宿主绑定。' : '',
+      serverName === 'forge' ? '工程方法遵循项目规则及 Team Standards，规格操作使用项目的 OpenSpec。此处仅提供 Forge 资源、SQL、预览及进度能力，不另设模型需求拆分、规格确认、测试或提交流程。已采用的内部 CLI/Hook 门禁及原执行记录继续有效，不自动关闭或清理。' : '',
     ].join(''),
   },
 )
@@ -79,7 +78,6 @@ const querySchema = {
 
 if (serverName === 'forge') {
   server.registerTool('prepare_page_preview', { description: PAGE_PREVIEW_DESCRIPTION, inputSchema: pagePreviewSchema, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }, async args => preparePagePreview(args, sessionId))
-  registerSpecResolutionTools(server, sessionId)
   server.registerTool('discover_resources', { description: DISCOVER_RESOURCES_DESCRIPTION, inputSchema: discoverResourceSchema, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }, (args, extra) => discoverSystemResources(apiBase, args, extra))
   server.registerTool('execute_resource', { description: EXECUTE_RESOURCE_DESCRIPTION, inputSchema: executeResourceSchema, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false } }, (args, extra) => executeSystemResource(apiBase, args, extra))
   server.registerTool('prepare_sql_context', {

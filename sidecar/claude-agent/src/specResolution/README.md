@@ -1,20 +1,26 @@
 # Forge Existing Spec Resolution
 
-执行上下文、策略、生命周期与验证现由相邻 [execution 模块](../execution/README.md)维护；本目录保留规格解析。历史 execution 文件只是兼容导出，现有工具名称和状态文件仍可使用。
+执行上下文、策略、生命周期与验证现由相邻 [execution 模块](../execution/README.md)维护；本目录保留规格解析。历史 execution 文件只是兼容导出，操作名及状态文件继续由内部 CLI/Hook 兼容。
 
-## 按影响执行
+## 模型入口与内部兼容
+
+普通 Vibe Coding 的 Forge MCP 仅保留六项：资源发现、资源调用、DDL 核对、待执行 SQL 登记、页面预览、进度上报。需求分级、规格/设计写作、验证及提交方法由项目规则与 Team Standards 承担，不注册本目录 19 个工程操作，也不要求普通任务再执行模型拆分、解析和确认。
+
+以下流程仅描述**已经采用内部执行门禁或有原执行绑定**的兼容行为，不是所有开发任务的默认前置条件。SDK/stdio 的模型名称已移除；操作通过内部 CLI/Hook 维护，不新增 MCP 包装、删除状态或关闭门禁。
+
+## 已采用流程的兼容操作
 
 会话先只读 `session_init` 和 `resolve_execution_context`，控制点明确后 `discover_execution(project, sessionId, request, files)` 探索既有规格、活跃 Change 和 Graphify。读候选原文后 `assess_execution` 记录行为 preserved/changed/unknown、设计 none/detail/architecture、风险类别和逐字引用。preserved 不需要 changeId；changed 复用匹配 Change，继续 resolve/confirm/Delta 链路；unknown 先补证据。设计只绑定受影响层次。
 
-执行保持当前分配分支，一个工作区仅一个写入会话，任务顺序执行并原子提交。`check_execution_readiness` 校验分支、规格版本、文件范围；提交前校验适用设计更新和真实验证。`run_execution_verification` 实际运行已授权 executable/argv 测试，inputFiles 包含测试、配置及依赖；禁止用于服务重启或运行空命令凑 PASS。单次调用的检查超时总预算不超过 4 分钟；长检查按相同 `inputFiles` 分批调用，同一输入摘要下的通过结果会累积，输入变化后旧结果失效。MCP 进度报告检查阶段和等待时间；取消调用会中止正在运行的子进程且不保存本次结果。Windows npm 使用 Node + npm-cli.js 参数数组。缺少类别、失败、内容过期、暂存内容与测试工作区不一致均不能提交。
+执行保持当前分配分支，一个工作区仅一个写入会话，任务顺序执行并原子提交。`check_execution_readiness` 校验分支、规格版本、文件范围；提交前校验适用设计更新和真实验证。`run_execution_verification` 实际运行已授权 executable/argv 测试，inputFiles 包含测试、配置及依赖；禁止用于服务重启或运行空命令凑 PASS。单次调用的检查超时总预算不超过 4 分钟；长检查按相同 `inputFiles` 分批调用，同一输入摘要下的通过结果会累积，输入变化后旧结果失效。兼容执行器保留检查阶段和等待信息；取消调用会中止正在运行的子进程且不保存本次结果。Windows npm 使用 Node + npm-cli.js 参数数组。缺少类别、失败、内容过期、暂存内容与测试工作区不一致均不能提交。
 
 提交后 `finish_execution` 释放写入权，不自动提交或归档。额外分支由宿主明确分配；不自动生成并行分支或推断任务依赖。中断默认保留记录与现场并由原会话恢复；只有旧执行具备当前通过验证、已提交后继、相同分支和干净范围时，Forge 才在原子锁内审计并回收陈旧 writer，其他情况不能删除锁抢占。权限回调与 Hook 只覆盖实际触发工具，不是 OS 沙箱。`.forge/verify.yml` 和项目强制门禁仍保留；本入口补充本次影响的原生检查。退出码不证明 kind/purpose 的语义覆盖，也不代表目标版本部署验收。
 
-Forge SDK 和 stdio 均提供 `intake_spec_requirements`、`resolve_specs`、`confirm_spec_resolution`、`check_change_readiness`、`refresh_spec_index`、`get_spec_resolution_metrics`。仅开发工具集注册，受限咨询 SDK 不新增写工具。默认使用本机 Codex 登录；`FORGE_SPEC_ENGINE=claude` 可选择 Claude，`FORGE_SPEC_MODEL` 可指定模型。不另建 HTTP 后端或数据库。
+内部 CLI 保留 `intake_spec_requirements`、`resolve_specs`、`confirm_spec_resolution`、`check_change_readiness`、`refresh_spec_index`、`get_spec_resolution_metrics` 以及 execution 操作，用于旧流程兼容，不再向模型注册。受限咨询 SDK 的原三项工具保持不变。默认使用本机 Codex 登录；`FORGE_SPEC_ENGINE=claude` 可选择 Claude，`FORGE_SPEC_MODEL` 可指定模型。不另建 HTTP 后端或数据库。
 
-## 使用
+## 内部兼容用法
 
-1. Agent 可调用 `intake_spec_requirements {text}` 拆分并取得 sourceQuote，审阅完整性后，以 `project`、`changeId`、`requestId`、宿主 `sessionId`、`requirements: [{externalId,text,atomic:true,terms:[]}]` 调用 `resolve_specs`。change 先由官方 OpenSpec 创建。
+1. 已采用旧规格解析流程时，可通过 CLI 调用 `intake_spec_requirements {text}` 拆分并取得 sourceQuote，审阅完整性后，以 `project`、`changeId`、`requestId`、宿主 `sessionId`、`requirements: [{externalId,text,atomic:true,terms:[]}]` 调用 `resolve_specs`。change 先由官方 OpenSpec 创建。
 2. 读取完整候选和证据。Graphify 对选中来源和 changedFiles 核对 manifest 内容哈希，只有 VERIFIED_SOURCES 可以加权；这不证明全图完整。模型默认 4 秒超时，`timeoutMs` 最多 60000；`semantic:false` 只返回本地候选。高置信且逐字证据成立的既有目标返回 AUTO_DRAFT，其余 NEEDS_CONFIRMATION。模型失败保留候选和告警，不自动放行。
 3. 调用 `confirm_spec_resolution`，传相同 context、`resolutionId`、真实 `actor`、每项 decision 和明确的 `implementationFiles` 项目相对路径。分类为 ADDED/MODIFIED/REMOVED/NEW_CAPABILITY/NO_SPEC_CHANGE，附具体 reason；需要 Delta 时传完整 `requirement` 区块。此处记录 Agent 决策，不代表用户批准。
 4. 将返回 drafts 写入 `openspec/changes/<changeId>/`；运行官方 `openspec validate <changeId> --strict --json --no-interactive`。服务不修改正式规格，也不实现同步/归档算法。
@@ -26,7 +32,9 @@ Forge SDK 和 stdio 均提供 `intake_spec_requirements`、`resolve_specs`、`co
 
 运行编译目录下 `node <build>/specResolution/install.js`，把 CLI 绝对路径注册至用户目录 `.kai-toolbox/forge-spec-resolution.json`。resolve 的 sessionId 必须使用真实宿主会话 ID；默认取 TOOLBOX_SESSION_ID，Hook 通过 payload.session_id 选择 project/branch/change。也可显式设置 `FORGE_SPEC_RESOLUTION_CLI` 与 `FORGE_OPENSPEC_CHANGE`。安装器注册 protocol v2；Hook 通过统一生命周期接口选择检查，旧 runtime 仍走 v1 适配。未绑定的旧规格 Hook 默认 warn，真实宿主验证后设置 `TEAM_STANDARDS_SPEC_RESOLUTION_HOOK=block`；v2 连接故障默认失败关闭，`TEAM_STANDARDS_SPEC_RESOLUTION_FAILURE=warn` 可显式告警放行。安装器不重启任何服务。
 
-CLI 也接受工具名参数，例如 `node <cli> refresh_spec_index`。解析/确认写入 `.forge/spec-resolution/` 审计，检查与刷新只读。不要提交本机审计或手改其状态来绕过门禁。锁冲突需重试；遗留锁先确认没有活动写进程。正式规格内容摘要包括未提交变化，旧确认因此失效。
+CLI 接受原操作名参数，例如 `node <cli> refresh_spec_index`。输入为标准输入 JSON，输出仍是原结果 JSON；`allowed=false` 退出 2，不代表验证通过。`node <cli> --describe <操作名>` 按需只读返回参数 schema，不初始化项目或修改执行。安装器记录的 runtime `cli` 路径为权威位置，源码构建后的默认位置是 `sidecar/claude-agent/dist/specResolution/cli.js`；编译目录由受管运行时决定，不要复制另一套服务。原生权限拒绝会附实际兼容路径。不得为了缺少 MCP 名称清理锁或跳过已有检查。
+
+解析/确认写入 `.forge/spec-resolution/` 审计，检查与刷新只读。不要提交本机审计或手改其状态来绕过门禁。锁冲突需重试；遗留锁先确认没有活动写进程。正式规格内容摘要包括未提交变化，旧确认因此失效。
 
 ## 边界与验证
 

@@ -8,9 +8,9 @@ import { discoverExecution } from './context.js'
 import { assessExecution, inspectExecutionWriter, loadExecution, checkDelivery } from './service.js'
 import { checkExecutionEvent } from './lifecycle.js'
 import { runExecutionVerification } from './verification.js'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { guardExecutionTool } from './guard.js'
 
 function fixture(t: test.TestContext) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'scope-update-')))
@@ -59,6 +59,9 @@ test('implicit update gives a specific recovery path and preserves undeclared-fi
   assert.throws(() => assessExecution(proposal(['source.ts', 'V096.sql'])), { code: 'EXECUTION_UPDATE_REQUIRED' })
   assert.deepEqual(loadExecution(root, context.sessionId), before)
   assert.equal(checkExecutionEvent({ ...context, event: 'WRITE', files: ['V096.sql'] }).code, 'IMPLEMENTATION_SCOPE_DRIFT')
+  const rejected = guardExecutionTool(root, context.sessionId, 'Write', { file_path: path.join(root, 'V096.sql') })
+  assert.match(rejected!, /IMPLEMENTATION_SCOPE_DRIFT/)
+  assert.match(rejected!, /specResolution[\\/]cli\.js/)
 })
 
 test('scope updates cannot shrink, cross task/session, or claim another active writer', t => {
@@ -97,22 +100,20 @@ test('verification started before a scope update cannot write old evidence onto 
   assert.equal(loadExecution(root, context.sessionId)?.verification, undefined)
 })
 
-test('stdio MCP exposes the explicit update contract and binds the host owner identity', async t => {
+test('internal CLI preserves explicit scope update and existing writer state', t => {
   const { root, context, proposal, update } = fixture(t)
-  const client = new Client({ name: 'scope-update-test', version: '1' })
-  const transport = new StdioClientTransport({ command: process.execPath,
-    args: [fileURLToPath(new URL('../toolboxMcpBridge.js', import.meta.url)), 'forge'],
-    env: { ...process.env as Record<string, string>, TOOLBOX_SESSION_ID: context.sessionId, TOOLBOX_API_BASE: 'http://127.0.0.1:1' }, stderr: 'pipe' })
-  try {
-    await client.connect(transport)
-    const listed = await client.listTools()
-    assert.ok(listed.tools.find(tool => tool.name === 'assess_execution')?.inputSchema.properties?.update)
-    const inspected = await client.callTool({ name: 'inspect_execution_writer', arguments: { project: root } })
-    assert.equal(JSON.parse((inspected.content as Array<{ text: string }>)[0].text).writer.scopeRevision, 0)
-    const result = await client.callTool({ name: 'assess_execution', arguments: {
-      ...proposal(['source.ts', 'V096.sql']), sessionId: 'caller-cannot-select-another-owner', update,
-    } })
-    assert.notEqual(result.isError, true)
-    assert.equal(loadExecution(root, context.sessionId)?.scopeHistory?.length, 1)
-  } finally { await client.close() }
+  const description = spawnSync(process.execPath, [fileURLToPath(new URL('../specResolution/cli.js', import.meta.url)), '--describe', 'assess_execution'], {
+    encoding: 'utf8', windowsHide: true, timeout: 20_000,
+  })
+  assert.equal(description.status, 0, description.stderr)
+  assert.ok(JSON.parse(description.stdout).inputSchema.properties.update)
+  assert.equal(inspectExecutionWriter({ project: root }).writer?.scopeRevision, 0, 'describing a command must not mutate the writer')
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../specResolution/cli.js', import.meta.url)), 'assess_execution'], {
+    input: JSON.stringify({ ...proposal(['source.ts', 'V096.sql']), update }),
+    encoding: 'utf8', windowsHide: true, timeout: 20_000,
+  })
+  assert.ifError(result.error)
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(JSON.parse(result.stdout).executionId, update.executionId)
+  assert.equal(loadExecution(root, context.sessionId)?.scopeHistory?.length, 1)
 })
