@@ -1378,7 +1378,7 @@ public class ClaudeChatService {
                 ctx.skills, ctx.skillDetails, ctx.plugins, ctx.agents, ctx.mcpServers, ctx.outputStyle,
                 ctx.capabilitySource, ctx.capabilityRefreshedAt, ctx.capabilityErrors, ctx.backgroundTasks,
                 ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.mode, "server",
-                pendingAuthHandoff.remove(ctx.sessionId));
+                pendingAuthHandoff.remove(ctx.sessionId), ctx.executionPolicy);
     }
 
     /** 从 SQLite 会话元数据恢复模型、推理强度和速度。 */

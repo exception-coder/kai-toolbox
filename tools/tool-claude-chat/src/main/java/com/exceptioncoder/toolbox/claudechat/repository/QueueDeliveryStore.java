@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.claudechat.repository;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.context.ApplicationEventPublisher;
+import com.exceptioncoder.toolbox.claudechat.service.QueueTaskProgressEvent;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,7 +15,16 @@ public class QueueDeliveryStore {
     public record Runtime(String turnId, boolean ready, String stopReason, String taskText, int checkAttempts, boolean checking) { }
     public record Delivery(String messageId, String turnId, String storeId, String status, int attempts, long retryAt, String note) { }
     private final JdbcTemplate jdbc;
-    public QueueDeliveryStore(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    private final ApplicationEventPublisher events;
+    @org.springframework.beans.factory.annotation.Autowired
+    public QueueDeliveryStore(JdbcTemplate jdbc, ApplicationEventPublisher events) { this.jdbc = jdbc; this.events = events; }
+    public QueueDeliveryStore(JdbcTemplate jdbc) { this(jdbc, event -> { }); }
+
+    /** 显式批准首批评审任务的初次准入，不覆盖任何已有轮次或挂起证据。 */
+    public void initializeApprovedQueue(String sessionId, String messageId) {
+        jdbc.update("INSERT OR IGNORE INTO claude_chat_queue_runtime(session_id,turn_id,release_ready,stop_reason,updated_at) VALUES(?,?,1,'review_approved',?)",
+                sessionId, "review-approved:" + messageId, System.currentTimeMillis());
+    }
 
     public Optional<Runtime> runtime(String sessionId) {
         return jdbc.query("SELECT turn_id,release_ready,stop_reason,task_text,check_attempts,checking FROM claude_chat_queue_runtime WHERE session_id=?",
@@ -47,12 +58,17 @@ public class QueueDeliveryStore {
                 ON CONFLICT(session_id) DO UPDATE SET turn_id=excluded.turn_id,release_ready=0,stop_reason=NULL,updated_at=excluded.updated_at,task_text=excluded.task_text,check_attempts=0,checking=0
                 """, sessionId, turnId, System.currentTimeMillis(), taskText);
     }
+    @Transactional
     public boolean accepted(String sessionId, String turnId) {
-        return jdbc.update("UPDATE claude_chat_queue_delivery SET status='ACCEPTED',note=NULL WHERE session_id=? AND turn_id=? AND status<>'FAILED'",
+        boolean changed = jdbc.update("UPDATE claude_chat_queue_delivery SET status='ACCEPTED',note=NULL WHERE session_id=? AND turn_id=? AND status<>'FAILED'",
                 sessionId, turnId) > 0;
+        if (changed) delivery(sessionId).ifPresent(d -> progress(sessionId, d.messageId(), "RUNNING", null));
+        return changed;
     }
+    @Transactional
     public void uncertain(String sessionId, String turnId, String note) {
         jdbc.update("UPDATE claude_chat_queue_delivery SET status='UNKNOWN',note=? WHERE session_id=? AND turn_id=? AND status<>'FAILED'", note, sessionId, turnId);
+        delivery(sessionId).filter(d -> d.turnId().equals(turnId)).ifPresent(d -> progress(sessionId, d.messageId(), "EXCEPTION", note));
     }
     /** 仅同一回执存储明确未收到时，才允许保留原 turnId 的最多三次有界重投。 */
     public boolean retry(String sessionId, Delivery expected) {
@@ -83,6 +99,7 @@ public class QueueDeliveryStore {
                 sessionId, turnId);
         jdbc.update("UPDATE claude_chat_queue_delivery SET status='UNKNOWN',note=? WHERE session_id=? AND turn_id=?",
                 "连续三次追问仍异常或无法确认，队列已挂起；核对后点击“已核对，继续队列”。", sessionId, turnId);
+        delivery(sessionId).filter(d -> d.turnId().equals(turnId)).ifPresent(d -> progress(sessionId, d.messageId(), "EXCEPTION", "连续三次追问仍未确认，请在原会话核对后继续队列"));
         return changed > 0;
     }
 
@@ -103,9 +120,11 @@ public class QueueDeliveryStore {
             if (successful) {
                 jdbc.update("DELETE FROM claude_chat_queued_message WHERE session_id=? AND id=?", sessionId, receipt.get().messageId());
                 jdbc.update("DELETE FROM claude_chat_queue_delivery WHERE session_id=? AND turn_id=?", sessionId, turnId);
+                progress(sessionId, receipt.get().messageId(), "COMPLETED", "user_confirmed".equals(stopReason) ? "原会话用户已核对完成" : null);
             } else {
                 jdbc.update("UPDATE claude_chat_queue_delivery SET status='FAILED',note=? WHERE session_id=? AND turn_id=?",
                         "当前任务异常或未确认完成，后台将追问；连续三次仍不明确时等待人工确认。", sessionId, turnId);
+                progress(sessionId, receipt.get().messageId(), "EXCEPTION", "任务未确认完成，沿用原队列核对及恢复流程");
             }
         }
         return true;
@@ -118,5 +137,9 @@ public class QueueDeliveryStore {
         }
         jdbc.update("DELETE FROM claude_chat_queue_delivery WHERE session_id=? AND message_id=?", sessionId, messageId);
         jdbc.update("DELETE FROM claude_chat_queued_message WHERE session_id=? AND id=?", sessionId, messageId);
+        progress(sessionId, messageId, "WAITING", "队列项已移除，等待原会话重新确认");
+    }
+    private void progress(String sessionId, String messageId, String status, String note) {
+        events.publishEvent(new QueueTaskProgressEvent(sessionId, messageId, status, note));
     }
 }

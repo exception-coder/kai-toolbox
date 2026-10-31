@@ -691,14 +691,49 @@ export function handleReviewFeedback(id: string, status: 'CONSUMED' | 'DISMISSED
 }
 
 export async function submitPublicReviewFeedback(token: string, content: string, sourceMessageId?: string,
-                                                 coveredSourceMessageIds?: string[]) {
+                                                 coveredSourceMessageIds?: string[], requirements?: Array<{ id: string; version: number }>, fullSnapshot = false) {
   const response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, sourceMessageId, coveredSourceMessageIds }),
+    body: JSON.stringify({ content, sourceMessageId, coveredSourceMessageIds, requirements, fullSnapshot }),
   })
   if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效' : '提交评审结论失败')
   return response.json() as Promise<{ id: string; status: string; createdAt: number }>
+}
+
+export type ReviewTodoStatus = 'WAITING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'EXCEPTION' | 'SUPERSEDED'
+export interface PublicReviewTodo {
+  id: string; title: string; content: string; status: ReviewTodoStatus; note: string | null; updatedAt: number
+}
+export interface ReviewTodo extends PublicReviewTodo {
+  reviewSpaceId: string; sourceSessionId: string; requirementId: string; sourceRevision: number
+  feedbackId: string; version: number; messageId: string | null; createdAt: number
+}
+export function listReviewTodos(source: string) {
+  return http<ReviewTodo[]>(`/claude-chat/sessions/${encodeURIComponent(source)}/review-todos`)
+}
+export function confirmReviewTodos(source: string, items: Array<{ id: string; version: number }>, merge: boolean) {
+  return http<ReviewTodo[]>(`/claude-chat/sessions/${encodeURIComponent(source)}/review-todos/confirm`, {
+    method: 'POST', body: JSON.stringify({ items, merge }),
+  })
+}
+export function editReviewTodo(source: string, task: ReviewTodo, title: string, content: string) {
+  return http<ReviewTodo>(`/claude-chat/sessions/${encodeURIComponent(source)}/review-todos/${encodeURIComponent(task.id)}`, {
+    method: 'PATCH', body: JSON.stringify({ version: task.version, title, content }),
+  })
+}
+export function importReviewFeedback(source: string, feedbackIds: string[]) {
+  return http<ReviewTodo[]>(`/claude-chat/sessions/${encodeURIComponent(source)}/review-todos/import`, {
+    method: 'POST', body: JSON.stringify({ feedbackIds }),
+  })
+}
+export interface PublicReviewTodoProgress {
+  id: string; requirementId: string; sourceRevision: number; status: ReviewTodoStatus; updatedAt: number
+}
+export async function listPublicReviewTodos(token: string): Promise<PublicReviewTodoProgress[]> {
+  const response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/tasks`)
+  if (!response.ok) throw new Error('暂时无法读取交接进度，可稍后刷新重试')
+  return response.json()
 }
 
 export async function checkPublicReviewEnvironment(token: string): Promise<PublicReviewEnvironmentCheck> {

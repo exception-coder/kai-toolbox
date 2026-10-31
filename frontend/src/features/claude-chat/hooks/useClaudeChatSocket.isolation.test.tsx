@@ -113,6 +113,21 @@ describe('Codex 会话参数恢复', () => {
 })
 
 describe('会话消息隔离', () => {
+  it('普通工作台按服务端评审策略禁止开发命令，并在当前回答后发送本页排队讨论', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('review'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive({ ...ready('review'), executionPolicy: 'review-only', status: 'RUNNING' }) })
+    expect(result.current.reviewOnly).toBe(true)
+    socket.send.mockClear()
+    act(() => { result.current.setAutoApprove(true); result.current.steer('不应插入'); result.current.enqueue('后续评审问题') })
+    expect(socket.send.mock.calls).toHaveLength(0)
+    expect(result.current.queued).toHaveLength(1)
+    act(() => socket.receive({ type: 'result', seq: 8, usage: {}, stopReason: 'success' }))
+    await waitFor(() => expect(socket.send.mock.calls.map(([value]) => JSON.parse(value)).some(message => message.type === 'send' && message.text === '后续评审问题')).toBe(true))
+    expect(result.current.queued).toHaveLength(0)
+  })
   it('子页面首次挂载即可并行恢复历史，不依赖父级 effect 顺序', async () => {
     function InitialSwitch({ switchTo }: { switchTo: (id: string) => void }) {
       useEffect(() => { switchTo('initial') }, [switchTo])

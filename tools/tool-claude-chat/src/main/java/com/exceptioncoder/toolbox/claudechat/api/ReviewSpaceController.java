@@ -40,6 +40,7 @@ public class ReviewSpaceController {
     private final SessionHistoryService history;
     private final ClaudeChatSessionRepository sessions;
     private final LocalNetworkAddressService localNetworkAddress;
+    private final com.exceptioncoder.toolbox.claudechat.service.ReviewTodoService todos;
 
     public ReviewSpaceController(ReviewSpaceService service, ReviewDeletionService deletionService,
                                  ReviewRequirementService requirementService,
@@ -47,7 +48,8 @@ public class ReviewSpaceController {
                                  ReviewEnvironmentService environmentService,
                                  AttachmentStorageService attachments,
                                  SessionHistoryService history, ClaudeChatSessionRepository sessions,
-                                 LocalNetworkAddressService localNetworkAddress) {
+                                 LocalNetworkAddressService localNetworkAddress,
+                                 com.exceptioncoder.toolbox.claudechat.service.ReviewTodoService todos) {
         this.service = service;
         this.deletionService = deletionService;
         this.requirementService = requirementService;
@@ -57,6 +59,7 @@ public class ReviewSpaceController {
         this.history = history;
         this.sessions = sessions;
         this.localNetworkAddress = localNetworkAddress;
+        this.todos = todos;
     }
 
     @PostMapping("/sessions/{sessionId}/reviews")
@@ -135,8 +138,8 @@ public class ReviewSpaceController {
             return ResponseEntity.notFound().build();
         }
         try {
-            return ResponseEntity.ok(ReviewFeedbackView.from(service.submitFeedback(
-                    token, request.content(), request.sourceMessageId(), request.coveredSourceMessageIds())));
+            return ResponseEntity.ok(ReviewFeedbackView.from(todos.submit(
+                    token, request.content(), request.sourceMessageId(), request.coveredSourceMessageIds(), request.requirements(), request.fullSnapshot())));
         } catch (IllegalArgumentException error) {
             return ResponseEntity.badRequest().build();
         }
@@ -256,7 +259,9 @@ public class ReviewSpaceController {
     }
 
     public record SubmitFeedbackRequest(String content, String sourceMessageId,
-                                        List<String> coveredSourceMessageIds) {}
+                                        List<String> coveredSourceMessageIds,
+                                        List<com.exceptioncoder.toolbox.claudechat.service.ReviewTodoService.Selection> requirements,
+                                        boolean fullSnapshot) {}
     public record RequirementDraftRequest(String sourceMessageId, String title, String content,
                                           String sourceText, String analysisText) {}
     public record SyncRequirementsRequest(List<RequirementDraftRequest> items) {}

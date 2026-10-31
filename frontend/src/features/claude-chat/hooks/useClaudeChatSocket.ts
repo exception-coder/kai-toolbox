@@ -135,6 +135,8 @@ export interface SessionDuplicationOperation {
 }
 
 export interface UseClaudeChatSocket {
+  /** Ready 声明的实际评审执行策略。 */
+  reviewOnly?: boolean
   /** 当前已完成轮次的原生续问建议；不属于草稿或消息历史。 */
   followUpPrediction: FollowUpPrediction | null
   dismissFollowUpPrediction: () => void
@@ -280,6 +282,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const publicWithoutLogin = demo || channel === 'review'
   const prdSessionId = opts?.prdSessionId?.trim() || null
   const [state, setState] = useState<ConnState>('idle')
+  const [reviewOnly, setReviewOnly] = useState(channel === 'review')
+  const reviewOnlyRef = useRef(channel === 'review')
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [items, setItems] = useState<ChatItem[]>([])
   const [followUpPrediction, setFollowUpPrediction] = useState<FollowUpPrediction | null>(null)
@@ -398,6 +402,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const [historyError, setHistoryError] = useState<string | null>(null)
 
   const sendRaw = useCallback((msg: ClientMessage) => {
+    if (reviewOnlyRef.current && !['attach', 'switchSession', 'send', 'interrupt'].includes(msg.type)) return false
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
       const text = JSON.stringify(msg)
@@ -505,16 +510,18 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setCapabilitiesRefreshing(false)
         // 队列严格按会话隔离：登录通道随后从服务端恢复；公开通道没有持久队列接口，
         // 重连同一评审会话时需保住本页已排队消息，只剔除不属于 Ready 会话的旧项。
-        setQueued(previous => publicWithoutLogin
+        setQueued(previous => (publicWithoutLogin || msg.executionPolicy === 'review-only')
           ? previous.filter(message => message.ownerSessionId === msg.sessionId)
           : [])
         sessionIdRef.current = msg.sessionId
         sessionReadyRef.current = true
         // 公开评审/演示通道没有登录态，也不会把队列写进服务端持久队列表；即使 Ready
         // 声明了 server 调度，这两类通道仍必须由浏览器在本轮结束后释放本地队列。
-        serverQueueDispatchRef.current = !publicWithoutLogin && msg.queueDispatchMode === 'server'
+        reviewOnlyRef.current = channel === 'review' || msg.executionPolicy === 'review-only'
+        setReviewOnly(reviewOnlyRef.current)
+        serverQueueDispatchRef.current = !publicWithoutLogin && !reviewOnlyRef.current && msg.queueDispatchMode === 'server'
         setSessionId(msg.sessionId)
-        if (!publicWithoutLogin && channel !== 'consult') void listQueuedMessages(msg.sessionId)
+        if (!publicWithoutLogin && channel !== 'consult' && !reviewOnlyRef.current) void listQueuedMessages(msg.sessionId)
           .then(messages => {
             if (sessionIdRef.current !== msg.sessionId) return
             setQueued(messages.map(message => ({
@@ -538,7 +545,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
         // 后端数据库是会话权限模式的权威来源；刷新和跨设备切换均以 Ready 为准。
         {
-          const restricted = channel === 'consult' || channel === 'review'
+          const restricted = channel === 'consult' || reviewOnlyRef.current
           if (restricted) {
             setModeState('plan')
             modeRef.current = 'plan'
@@ -1637,7 +1644,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     const sessionId = sessionIdRef.current
     if (!sessionId) return
     const message = { id: nextId(), ownerSessionId: sessionId, text: t, attachments, displayText, developerInstructions, createdAt: Date.now() }
-    if (publicWithoutLogin) {
+    if (publicWithoutLogin || reviewOnlyRef.current) {
       setQueued(prev => [...prev, message])
       return
     }
@@ -1654,7 +1661,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       })
   }, [channel, publicWithoutLogin])
   const removeQueued = useCallback((id: string) => {
-    if (publicWithoutLogin) {
+    if (publicWithoutLogin || reviewOnlyRef.current) {
       setQueued(prev => prev.filter(q => q.id !== id))
       return
     }
@@ -1667,7 +1674,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       .catch(error => setSyncWarning(`删除队列消息失败：${error instanceof Error ? error.message : String(error)}`))
   }, [publicWithoutLogin])
   const clearQueued = useCallback(() => {
-    if (publicWithoutLogin) {
+    if (publicWithoutLogin || reviewOnlyRef.current) {
       setQueued([])
       return
     }
@@ -1687,7 +1694,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     const sessionId = sessionIdRef.current
     if (!message || message.id !== id || !sessionId || message.ownerSessionId !== sessionId
         || !sessionReadyRef.current) return
-    if (publicWithoutLogin) {
+    if (publicWithoutLogin || reviewOnlyRef.current) {
       setQueued(prev => prev.filter(item => item.id !== id))
       send(message.text, message.attachments, message.displayText, message.developerInstructions)
       return
@@ -1726,7 +1733,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   sendRef.current = send
   useEffect(() => {
     if (channel === 'consult') return
-    if (!publicWithoutLogin || serverQueueDispatchRef.current) return
+    if ((!publicWithoutLogin && !reviewOnlyRef.current) || serverQueueDispatchRef.current) return
     if (!sessionReadyRef.current || running || pending || backgroundTasks.length > 0 || queued.length === 0) return
     const head = queued[0]
     const sessionId = sessionIdRef.current
@@ -1734,7 +1741,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     // 队列项归属不匹配时必须原地停止，不能用新会话 ID 删除并发送旧会话消息。
     if (!sessionId || queueReleaseSessionRef.current !== sessionId
         || head.ownerSessionId !== sessionId || dispatchingQueueIdRef.current === head.id) return
-    if (publicWithoutLogin) {
+    if (publicWithoutLogin || reviewOnlyRef.current) {
       queueReleaseSessionRef.current = null
       setQueued(prev => prev.slice(1))
       sendRef.current(head.text, head.attachments, head.displayText, head.developerInstructions)
@@ -2027,7 +2034,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }
 
 function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {

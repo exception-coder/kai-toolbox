@@ -1,3 +1,4 @@
+import { ReviewHandoffProgress } from '../components/ReviewHandoffProgress'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AlertTriangle, Bot, CheckCircle2, ClipboardList, GitPullRequestArrow, Loader2, Paperclip, RefreshCw, Send, ShieldCheck, Square } from 'lucide-react'
@@ -230,7 +231,7 @@ export function ReviewPage() {
         return
       }
       const currentIds = requirementList.items.map(item => requirementSubmissionIds.get(item.id)!).filter(Boolean)
-      await submitPublicReviewFeedback(token, content, currentFinalSourceId, [...currentIds, currentListSnapshotId])
+      await submitPublicReviewFeedback(token, content, currentFinalSourceId, [...currentIds, currentListSnapshotId], requirementList.items.map(item => ({ id: item.id, version: item.revision })), true)
       setSubmittedSourceIds(previous => {
         const next = new Set(previous)
         currentIds.forEach(id => next.add(id))
@@ -253,7 +254,7 @@ export function ReviewPage() {
     try {
       const content = requirementText(latestUnsubmittedConclusion.title, latestUnsubmittedConclusion.content)
       const sourceMessageId = requirementSubmissionIds.get(latestUnsubmittedConclusion.id)!
-      await submitPublicReviewFeedback(token, content, sourceMessageId, [sourceMessageId])
+      await submitPublicReviewFeedback(token, content, sourceMessageId, [sourceMessageId], [{ id: latestUnsubmittedConclusion.id, version: latestUnsubmittedConclusion.revision }])
       setSubmittedSourceIds(previous => {
         const next = new Set(previous).add(sourceMessageId)
         writeSubmitted(review.reviewSessionId, next)
@@ -365,6 +366,7 @@ export function ReviewPage() {
               </div>
             </div>
           )}
+          <ReviewHandoffProgress token={token} requirements={requirementList.items} refreshKey={latestSubmittedListSourceId ?? submittedSourceIds.size} />
           <QueuedList
             items={chat.queued}
             pausedReason={chat.queuePausedReason}
@@ -390,7 +392,7 @@ export function ReviewPage() {
             {chat.running && <Button size="icon" variant="destructive" onClick={chat.interrupt} title="中断当前回答"><Square className="size-4" /></Button>}
             <Button size="icon" onClick={send} disabled={uploading > 0 || finalizingSummary || (!text.trim() && attachments.length === 0)} title={chat.running || chat.queued.length > 0 ? '加入待发送队列' : '发送'}><Send className="size-4" /></Button>
           </div>
-          <p className="mt-2 text-center text-[11px] text-slate-500">评审期间可连续发送问题；提交结论后由开发者在来源会话合并确认实施。</p>
+          <p className="mt-2 text-center text-[11px] text-slate-500">提交清单后自动登记原会话评审待办，由原会话确认后执行；可在交接进度查看处理结果。</p>
         </div>
       </footer>
       <ReviewRequirementList

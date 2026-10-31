@@ -40,7 +40,7 @@ public sealed interface ServerMessage
                  String capabilitySource, long capabilityRefreshedAt, List<String> capabilityErrors,
                  List<BackgroundTaskInfo> backgroundTasks, String selectedModel,
                  String codexReasoningEffort, String codexSpeed, String permissionMode, String queueDispatchMode,
-                 Boolean authHandoffRequired) implements ServerMessage {}
+                 Boolean authHandoffRequired, String executionPolicy) implements ServerMessage {}
 
     /** 会话权限模式由服务端广播，其他在线设备同步显示。 */
     @JsonTypeName("modeChanged")

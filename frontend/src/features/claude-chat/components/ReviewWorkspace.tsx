@@ -2,6 +2,7 @@ import { ListChecks, Loader2, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { ReviewFeedbackView, ReviewRelationContext } from '../api'
 import { ReviewRelationBar } from './ReviewRelationBar'
+import { ReviewTodoPanel } from './ReviewTodoPanel'
 
 interface Props {
   relation: ReviewRelationContext
@@ -26,12 +27,13 @@ export function ReviewWorkspace({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--color-background)]" aria-label="计划评审工作区">
+      {relation.role === 'SOURCE' && <ReviewTodoPanel key={relation.sourceSessionId} sourceSessionId={relation.sourceSessionId} onChanged={() => void onChanged()} />}
       {pending.length > 0 && (
         <section className="border-b border-amber-200 bg-amber-50/70 px-3 py-3 dark:border-amber-800 dark:bg-amber-950/20" aria-labelledby="pending-review-feedback-title">
           <div className="flex flex-wrap items-center gap-2 text-xs text-amber-900 dark:text-amber-100">
             <div className="min-w-0 flex-1">
               <h2 id="pending-review-feedback-title" className="font-medium">待处理评审意见 · {pending.length} 条</h2>
-              <p className="mt-0.5 text-amber-700/80 dark:text-amber-300/80">可逐条生成开发草稿，也可合并后统一处理。</p>
+              <p className="mt-0.5 text-amber-700/80 dark:text-amber-300/80">历史意见可先登记为评审待办，再确认执行。</p>
             </div>
             {pending.length > 1 && (
               <Button
@@ -41,7 +43,7 @@ export function ReviewWorkspace({
                 onClick={() => void onApplyFeedbacks(pending)}
               >
                 {feedbackBusy ? <Loader2 className="size-3.5 animate-spin" /> : <ListChecks className="size-3.5" />}
-                合并全部生成草稿
+                全部登记待办
               </Button>
             )}
           </div>
@@ -59,7 +61,7 @@ export function ReviewWorkspace({
                     <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[var(--color-muted-foreground)]">{feedback.content}</p>
                   </div>
                   <div className="flex shrink-0 gap-1">
-                    <Button size="sm" className="h-8 flex-1 px-2 text-xs sm:flex-none" disabled={feedbackBusy} onClick={() => void onApplyFeedbacks([feedback])}>生成开发草稿</Button>
+                    <Button size="sm" className="h-8 flex-1 px-2 text-xs sm:flex-none" disabled={feedbackBusy} onClick={() => void onApplyFeedbacks([feedback])}>登记评审待办</Button>
                     <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" disabled={feedbackBusy} onClick={() => void onDismissFeedback(feedback.id)}>忽略</Button>
                   </div>
                 </li>

@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import type { ReviewRelationContext } from '../api'
 import { ReviewWorkspace } from './ReviewWorkspace'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+vi.mock('../api', async original => ({ ...await original<typeof import('../api')>(), listReviewTodos: vi.fn(async () => []) }))
 
 afterEach(cleanup)
 
@@ -41,7 +44,7 @@ describe('ReviewWorkspace', () => {
   it('在页签内容中同时展示历史记录和待处理意见', () => {
     const applyFeedbacks = vi.fn()
     render(
-      <ConfirmProvider>
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ConfirmProvider>
         <ReviewWorkspace
           relation={relation}
           feedbackBusy={false}
@@ -51,13 +54,13 @@ describe('ReviewWorkspace', () => {
           onApplyFeedbacks={applyFeedbacks}
           onDismissFeedback={vi.fn()}
         />
-      </ConfirmProvider>,
+      </ConfirmProvider></QueryClientProvider>,
     )
 
     expect(screen.getByText('待处理评审意见 · 1 条')).toBeInTheDocument()
     expect(screen.getByText('计划评审')).toBeInTheDocument()
     expect(screen.getByText('原始评审链接')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '生成开发草稿' }))
+    fireEvent.click(screen.getByRole('button', { name: '登记评审待办' }))
     expect(applyFeedbacks).toHaveBeenCalledWith([relation.pendingFeedback[0]])
   })
 })

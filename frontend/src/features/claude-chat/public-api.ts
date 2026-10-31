@@ -21,6 +21,7 @@ export {
   renameSession,
   setSessionGroupApi,
   submitPublicReviewFeedback,
+  listPublicReviewTodos,
   uploadAttachment,
   uploadReviewAttachment,
 } from './api'
@@ -28,6 +29,8 @@ export { useClaudeChatSocket } from './hooks/useClaudeChatSocket'
 export type { UseClaudeChatSocket } from './hooks/useClaudeChatSocket'
 export type { UploadedAttachment } from './api'
 export type { PublicReviewRequirement, ReviewRequirementDraft } from './api'
+export type { PublicReviewTodoProgress } from './api'
+export { reviewTodoStatusLabel } from './lib/reviewTodoStatus'
 export type { PublicReviewEnvironmentCheck } from './api'
 export type { ChatItem } from './types'
 export { sessionDisplayName } from './lib/sessionDisplayName'

@@ -1,3 +1,4 @@
+import { importReviewFeedback, listReviewTodos } from '../api'
 import { RouteLoading } from '@/shell/RouteLoading'
 import '../focus-mode.css'
 import { FocusReadingHeader } from '../components/FocusReadingHeader'
@@ -947,7 +948,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   })
   // 历史绑定和浏览器偏好不代表目录仍存在，不能作为可切换账号的来源。
   const availableCodexHomes = codexHomesQuery.isSuccess ? codexHomesQuery.data : []
-  const reviewOnlySession = currentSession?.group === '评审会话'
+  const reviewOnlySession = chat?.reviewOnly === true || currentSession?.group === '评审会话'
   const { data: reviewRelations, refetch: refetchReviewRelations } = useQuery({
     queryKey: ['claude-chat-review-relations', chat?.sessionId],
     queryFn: () => getReviewRelations(chat!.sessionId!),
@@ -1003,42 +1004,23 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     : undefined
   const [reviewFeedbackBusy, setReviewFeedbackBusy] = useState(false)
   const [reviewFeedbackError, setReviewFeedbackError] = useState<string | null>(null)
+  const reviewTodosQuery = useQuery({
+    queryKey: ['claude-chat-review-todos', chat?.sessionId],
+    queryFn: () => listReviewTodos(chat!.sessionId!),
+    enabled: !!chat?.sessionId && reviewRelations?.role === 'SOURCE' && reviewRelations.reviews.length > 0,
+    refetchInterval: 10_000,
+  })
+  const pendingReviewTodoCount = (reviewTodosQuery.data ?? []).filter(task => task.status === 'WAITING').length
   const applyReviewFeedbacks = async (feedbacks: ReviewFeedbackView[]) => {
-    if (reviewFeedbackBusy || feedbacks.length === 0) return
-    setReviewFeedbackBusy(true)
-    setReviewFeedbackError(null)
+    const source = chat?.sessionId
+    if (reviewFeedbackBusy || !source || feedbacks.length === 0) return
+    setReviewFeedbackBusy(true); setReviewFeedbackError(null)
     try {
-      const ordered = [...feedbacks].sort((left, right) => left.createdAt - right.createdAt)
-      const consumed: ReviewFeedbackView[] = []
-      for (const feedback of ordered) {
-        try {
-          await handleReviewFeedback(feedback.id, 'CONSUMED')
-          consumed.push(feedback)
-        } catch {
-          // 保留失败项为待处理状态，继续处理其余意见；结束后统一提示。
-        }
-      }
-      if (consumed.length > 0) {
-        const instruction = consumed.length === 1
-          ? `请根据以下计划评审意见继续实现，先核对当前代码与原需求，再完成必要修改和验证：\n\n${consumed[0].content}`
-          : [
-              `请统一处理以下 ${consumed.length} 条计划评审意见。先核对当前代码与原需求，合并重复项；若意见冲突，以较新的明确结论为准并说明取舍。完成必要修改和验证后，逐项报告处理结果：`,
-              ...consumed.map((feedback, index) => {
-                const source = reviewRelations?.reviews.find(review => review.reviewSessionId === feedback.reviewSessionId)?.reviewTitle
-                return `### 评审意见 ${index + 1}${source ? ` · ${source}` : ''}\n${feedback.content.trim()}`
-              }),
-            ].join('\n\n')
-        setDraft(current => current.trim() ? `${current.trim()}\n\n${instruction}` : instruction)
-        requestAnimationFrame(() => taRef.current?.focus())
-      }
-      const failed = ordered.length - consumed.length
-      if (failed > 0) setReviewFeedbackError(`${failed} 条意见状态更新失败，未加入草稿；其余 ${consumed.length} 条已合并。`)
-      await refetchReviewRelations()
+      await importReviewFeedback(source, feedbacks.map(item => item.id))
+      await Promise.all([refetchReviewRelations(), reviewTodosQuery.refetch()])
     } catch (error) {
-      setReviewFeedbackError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setReviewFeedbackBusy(false)
-    }
+      setReviewFeedbackError(error instanceof Error ? error.message : '登记待办失败，原意见保留')
+    } finally { setReviewFeedbackBusy(false) }
   }
   const dismissReviewFeedback = async (id: string) => {
     if (reviewFeedbackBusy) return
@@ -1175,7 +1157,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 
     const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
     if (chat.running) {
-      if (runningAction === 'steer' && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, atts.length)) {
+      if (!reviewOnlySession && runningAction === 'steer' && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, atts.length)) {
         chat.steer(draft)
       } else {
         chat.enqueue(draft, atts)
@@ -1474,7 +1456,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 <SessionWorkViews view={sessionView} hasSession={!!chat.sessionId} siteCount={linkedSites.length}
                   documentTitle={linkedPrd ? linkedPrd.title || '查看绑定文档' : undefined}
                   pendingReviewCount={reviewRelations && (reviewRelations.reviews.length > 0 || reviewRelations.pendingFeedback.length > 0)
-                    ? reviewRelations.pendingFeedback.length : undefined}
+                    ? reviewRelations.pendingFeedback.length + pendingReviewTodoCount : undefined}
                   onSelect={view => { setHeaderMenu(false); setPanel('none'); setSessionView(view); sessionToolsTriggerRef.current?.focus() }} />
               <HeaderMenuItem icon={<ListChecks className="size-4" />} label="自动监督看板" onClick={() => { setHeaderMenu(false); openSupervision() }} />
             </MenuSection>
@@ -1955,7 +1937,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
             <SessionViewTabs desktopOnly view={sessionView} onSelect={setSessionView} hasSession={!!chat.sessionId}
               documentTitle={linkedPrd ? linkedPrd.title || '查看绑定文档' : undefined} siteCount={linkedSites.length}
               pendingReviewCount={reviewRelations && (reviewRelations.reviews.length > 0 || reviewRelations.pendingFeedback.length > 0)
-                ? reviewRelations.pendingFeedback.length : undefined} />
+                ? reviewRelations.pendingFeedback.length + pendingReviewTodoCount : undefined} />
             {chat.sessionId && sessionView !== 'supervision' && sessionView !== 'board' && sessionView !== 'autopilot' && (
               <div data-focus-chrome className={sessionView === 'conversation' ? 'hidden md:block' : undefined}>
               <SessionAutopilotStatus
