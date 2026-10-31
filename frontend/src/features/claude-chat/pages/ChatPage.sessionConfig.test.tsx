@@ -6,17 +6,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatPage } from './ChatPage'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import type { ProviderProfile } from '../providerProfiles'
-import type { ClaudeChatSessionView, WorkspaceList } from '../types'
+import type { ClaudeChatSessionView, EngineCatalogEntry, WorkspaceList } from '../types'
 import { newSessionPreferenceKey, saveNewSessionPreferences } from '../lib/newSessionPreferences'
 import { fetchCodexHomes, uploadAttachment } from '../api'
 import { saveCodexHomePreference } from '../lib/codexHomePref'
 import { saveWorkingDirectory } from '../api/savedWorkingDirectories'
+import { registerWorkspaceRoot } from '@/features/project-workspace/public-api'
+import { browseWorkingDirectory } from '../api/workingDirectories'
 
 const testRuntime = vi.hoisted(() => ({
   profiles: undefined as ProviderProfile[] | undefined,
   roots: [] as WorkspaceList['roots'],
   oldCodexSessions: [] as Partial<ClaudeChatSessionView>[],
   savedDirectories: [] as string[],
+  engines: undefined as EngineCatalogEntry[] | undefined,
   chat: {
     open: vi.fn(),
     send: vi.fn(), steer: vi.fn(), enqueue: vi.fn(), interrupt: vi.fn(),
@@ -44,6 +47,10 @@ const testRuntime = vi.hoisted(() => ({
   },
 }))
 const previewCalls = vi.hoisted(() => ({ create: vi.fn(), get: vi.fn(), close: vi.fn() }))
+vi.mock('@/features/project-workspace/public-api', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/features/project-workspace/public-api')>()), registerWorkspaceRoot: vi.fn(),
+}))
+vi.mock('../api/workingDirectories', () => ({ browseWorkingDirectory: vi.fn(), listDirectoryRoots: async () => ['D:/'] }))
 vi.mock('../api/savedWorkingDirectories', () => ({
   listSavedWorkingDirectories: async () => testRuntime.savedDirectories,
   saveWorkingDirectory: vi.fn(), removeSavedWorkingDirectory: vi.fn(),
@@ -65,7 +72,9 @@ vi.mock('../providerProfiles', async importOriginal => ({ ...(await importOrigin
 vi.mock('../api', async importOriginal => ({
   ...(await importOriginal<typeof import('../api')>()),
   listSessions: async () => [{ id: 'session-config-regression', engine: 'codex', providerKind: 'official', cwd: 'D:/test', title: 'Test' }, ...testRuntime.oldCodexSessions],
-  listEngineCatalog: async () => ({ engines: [] }),
+  listEngineCatalog: async () => ({ engines: testRuntime.engines ?? ['claude', 'codex', 'qwen', 'opencode', 'pi', 'copilot'].map(id => ({
+    id, displayName: id, selectable: true, availability: 'stable', probe: { status: 'ready' }, capabilities: [],
+  } as EngineCatalogEntry)) }),
   fetchCodexHomes: vi.fn().mockResolvedValue([]),
   getReviewRelations: async () => null,
   getSessionSiteConfiguration: async () => ({ quickSiteIds: [], customSites: [] }),
@@ -87,6 +96,9 @@ afterEach(() => {
   testRuntime.roots = []
   testRuntime.oldCodexSessions = []
   testRuntime.savedDirectories = []
+  testRuntime.engines = undefined
+  vi.mocked(registerWorkspaceRoot).mockReset()
+  vi.mocked(browseWorkingDirectory).mockReset()
   vi.mocked(saveWorkingDirectory).mockReset()
   testRuntime.chat.open.mockClear()
   testRuntime.chat.send.mockClear()
@@ -115,7 +127,86 @@ async function openNewSessionForm() {
   fireEvent.click(within(await screen.findByRole('banner')).getByRole('button', { name: '新建会话' }))
 }
 
+async function pickChoice(name: string, option: string) {
+  fireEvent.click(screen.getByRole('combobox', { name }))
+  fireEvent.click(await screen.findByRole('option', { name: option }))
+}
+
+async function openNewSessionSettings() {
+  fireEvent.click(screen.getByRole('button', { name: '工作区与运行设置' }))
+  return within(await screen.findByRole('dialog', { name: '工作区与运行设置' }))
+}
+
 describe('ChatPage session configuration', () => {
+  it('registers a workspace from the drawer, retains input after failure and selects the refreshed root on retry', async () => {
+    testRuntime.profiles = []
+    testRuntime.roots = [{ root: 'D:/work', exists: true, dirs: [] }]
+    vi.mocked(browseWorkingDirectory).mockResolvedValue({ path: 'D:/projects', parent: 'D:/', directories: [], truncated: false })
+    vi.mocked(registerWorkspaceRoot).mockRejectedValueOnce(new Error('登记失败，请重试')).mockImplementationOnce(async () => {
+      testRuntime.roots.push({ root: 'D:/projects', exists: true, dirs: [] })
+    })
+    mountChat()
+    await openNewSessionForm()
+    fireEvent.click(screen.getByRole('button', { name: '新建' }))
+    const drawer = within(await screen.findByRole('dialog', { name: '新建工作区' }))
+    fireEvent.change(drawer.getByLabelText('工作区目录'), { target: { value: 'D:/projects' } })
+    fireEvent.click(drawer.getByRole('button', { name: '保存并使用工作区' }))
+    expect(await drawer.findByRole('alert')).toHaveTextContent('登记失败，请重试')
+    expect(drawer.getByLabelText('工作区目录')).toHaveValue('D:/projects')
+    fireEvent.click(drawer.getByRole('button', { name: '保存并使用工作区' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByRole('combobox', { name: '工作区' })).toHaveTextContent('projects')
+    expect(registerWorkspaceRoot).toHaveBeenCalledTimes(2)
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+  })
+
+  it('uses only confirmed available engines and blocks creation when the catalog becomes unavailable', async () => {
+    testRuntime.profiles = []
+    testRuntime.roots = [{ root: 'D:/work', exists: true, dirs: [] }]
+    testRuntime.engines = ['codex', 'pi'].map(id => ({ id, displayName: id, selectable: id === 'pi', availability: 'stable',
+      probe: { status: id === 'pi' ? 'ready' : 'dependencyMissing' }, capabilities: [] } as EngineCatalogEntry))
+    saveNewSessionPreferences(undefined, { workspaceRoot: 'D:/work', cwd: 'D:/work', engine: 'codex', providerId: '' })
+    const view = mountChat()
+    await openNewSessionForm()
+    expect(await screen.findByRole('button', { name: 'Pi', pressed: true })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Codex' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^按最近配置创建会话/ })).toBeDisabled()
+    view.queryClient.setQueryData(['claude-chat-engine-catalog'], { engines: [], error: '运行目录不可用' })
+    await waitFor(() => expect(screen.getByRole('button', { name: '创建会话' })).toBeDisabled())
+    expect(screen.getByRole('button', { name: '查看引擎状态' })).toBeInTheDocument()
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+  })
+  it('clears the selected project when switching workspaces and creates once at the explicit root', async () => {
+    testRuntime.profiles = []
+    testRuntime.roots = [{ root: 'D:/first', exists: true, dirs: [{ name: 'project', path: 'D:/first/project' }] },
+      { root: 'D:/second', exists: true, dirs: [] }]
+    saveNewSessionPreferences(undefined, { workspaceRoot: 'D:/first', cwd: 'D:/first/project', engine: 'codex', providerId: '' })
+    mountChat()
+    await openNewSessionForm()
+    await waitFor(() => expect(screen.getByRole('combobox', { name: '工作区' })).toBeEnabled())
+    expect(screen.getByRole('combobox', { name: '项目' })).toHaveTextContent('project')
+    await pickChoice('工作区', 'second')
+    expect(screen.getByRole('combobox', { name: '项目' })).toHaveTextContent('不选项目')
+    expect(screen.getByText('未选项目，将在 second 工作区中执行')).toBeInTheDocument()
+    const create = screen.getByRole('button', { name: '创建会话' })
+    fireEvent.click(create); fireEvent.click(create)
+    expect(testRuntime.chat.open).toHaveBeenCalledExactlyOnceWith('D:/second', undefined, undefined, 'codex', { codexHome: undefined }, undefined)
+  })
+
+  it('does not silently replace a missing project or offer its recent shortcut', async () => {
+    testRuntime.profiles = []
+    testRuntime.roots = [{ root: 'D:/work', exists: true, dirs: [] }]
+    saveNewSessionPreferences(undefined, { workspaceRoot: 'D:/work', cwd: 'D:/work/deleted', engine: 'codex', providerId: '' })
+    mountChat()
+    await openNewSessionForm()
+    expect(await screen.findByText(/上次项目不在当前工作区/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^按最近配置创建会话/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '创建会话' })).toBeDisabled()
+    await pickChoice('项目', '不选项目 · 使用工作区')
+    fireEvent.click(screen.getByRole('button', { name: '创建会话' }))
+    expect(testRuntime.chat.open).toHaveBeenCalledExactlyOnceWith('D:/work', undefined, undefined, 'codex', { codexHome: undefined }, undefined)
+  })
+
   it('refreshes and selects the registered workspace after saving a previously bookmarked directory', async () => {
     testRuntime.profiles = []
     testRuntime.roots = [{ root: 'D:/work', exists: true, dirs: [] }]
@@ -126,13 +217,13 @@ describe('ChatPage session configuration', () => {
     })
     const view = mountChat()
     await openNewSessionForm()
-    fireEvent.change(screen.getByLabelText('目录路径'), { target: { value: 'D:/projects' } })
-    fireEvent.change(screen.getByLabelText(/^会话别名/), { target: { value: '保留草稿' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Codex' }))
+    await openNewSessionSettings()
     await waitFor(() => expect(screen.getByRole('button', { name: '保存当前目录' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: '保存当前目录' }))
-    expect(await screen.findByRole('button', { name: 'projects', pressed: true })).toBeInTheDocument()
-    expect(screen.getByLabelText('目录路径')).toHaveValue('D:/projects')
-    expect(screen.getByLabelText(/^会话别名/)).toHaveValue('保留草稿')
+    fireEvent.click(screen.getByRole('button', { name: 'D:/projects' }))
+    await waitFor(() => expect(screen.getByRole('combobox', { name: '工作区' })).toHaveTextContent('projects'))
+    expect(screen.getByRole('button', { name: 'Codex', pressed: true })).toBeInTheDocument()
+    expect(screen.queryByLabelText(/^会话别名/)).not.toBeInTheDocument()
     expect(view.queryClient.getQueryData<WorkspaceList>(['claude-chat-workspaces', 'local'])?.roots.at(-1)?.dirs[0].path).toBe('D:/projects/agent')
     expect(testRuntime.chat.open).not.toHaveBeenCalled()
   })
@@ -285,11 +376,13 @@ describe('ChatPage session configuration', () => {
   it('collapses the new-session form when reopening mobile tools and preserves unfinished choices', async () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     testRuntime.profiles = []
+    testRuntime.roots = [{ root: 'D:/draft-workspace', exists: true, dirs: [{ name: 'draft-project', path: 'D:/draft-workspace/draft-project' }] }]
     mountChat()
     fireEvent.click(await screen.findByRole('button', { name: '会话工具' }))
     fireEvent.click(within(screen.getByRole('menu', { name: '会话工具' })).getByRole('button', { name: '新建会话' }))
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('目录路径'), { target: { value: 'D:/draft-project' } })
+    await waitFor(() => expect(screen.getByRole('combobox', { name: '项目' })).toBeEnabled())
+    await pickChoice('项目', 'draft-project')
     fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
     fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
     expect(screen.queryByRole('heading', { name: '新建会话' })).not.toBeInTheDocument()
@@ -299,7 +392,7 @@ describe('ChatPage session configuration', () => {
     expect(screen.getByRole('button', { name: '会话工具' })).toHaveFocus()
     fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
     fireEvent.click(within(screen.getByRole('menu', { name: '会话工具' })).getByRole('button', { name: '新建会话' }))
-    expect(screen.getByLabelText('目录路径')).toHaveValue('D:/draft-project')
+    expect(screen.getByRole('combobox', { name: '项目' })).toHaveTextContent('draft-project')
     expect(screen.getByRole('button', { name: 'Codex', pressed: true })).toBeInTheDocument()
     expect(testRuntime.chat.open).not.toHaveBeenCalled()
   })
@@ -355,13 +448,16 @@ describe('ChatPage session configuration', () => {
   })
   it('keeps manual new-session choices after leaving without starting a session', async () => {
     testRuntime.profiles = [{ id: 'gateway', name: '测试服务商', model: 'current-model', hasKey: true, baseUrl: 'https://gateway.invalid' }]
-    testRuntime.roots = [{ root: 'D:/first', exists: true, dirs: [] }, { root: 'D:/second', exists: true, dirs: [] }]
+    testRuntime.roots = [{ root: 'D:/first', exists: true, dirs: [] }, { root: 'D:/second', exists: true, dirs: [{ name: 'project', path: 'D:/second/project' }] }]
     const first = mountChat()
     await openNewSessionForm()
-    fireEvent.click(await screen.findByRole('button', { name: 'second' }))
+    await waitFor(() => expect(screen.getByRole('combobox', { name: '工作区' })).toBeEnabled())
+    await pickChoice('工作区', 'second')
     fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
-    fireEvent.click(await screen.findByRole('button', { name: '测试服务商' }))
-    fireEvent.change(screen.getByLabelText('目录路径'), { target: { value: 'D:/second/project' } })
+    await pickChoice('项目', 'project')
+    const settings = await openNewSessionSettings()
+    await pickChoice('服务商', '测试服务商')
+    fireEvent.click(settings.getByRole('button', { name: '返回' }))
     expect(testRuntime.chat.open).not.toHaveBeenCalled()
     expect(JSON.parse(localStorage.getItem(newSessionPreferenceKey())!)).toEqual({
       version: 1, workspaceRoot: 'D:/second', cwd: 'D:/second/project', engine: 'codex', providerId: 'gateway',
@@ -370,10 +466,10 @@ describe('ChatPage session configuration', () => {
     testRuntime.roots.reverse()
     mountChat()
     await openNewSessionForm()
-    expect(await screen.findByRole('button', { name: 'second', pressed: true })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('combobox', { name: '工作区' })).toHaveTextContent('second'))
     expect(screen.getByRole('button', { name: 'Codex', pressed: true })).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: '测试服务商', pressed: true })).toBeInTheDocument()
-    expect(screen.getByLabelText('目录路径')).toHaveValue('D:/second/project')
+    expect(await screen.findByText('已选服务商：测试服务商')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '项目' })).toHaveTextContent('project')
     expect(testRuntime.chat.open).not.toHaveBeenCalled()
   })
   it('用户菜单的导览意图在跳过首次提示后仍可打开，会话工具不再重复提供入口', async () => {
@@ -438,36 +534,40 @@ describe('ChatPage session configuration', () => {
   })
   it('restores local choices, uses current provider configuration and survives workspace reordering', async () => {
     testRuntime.profiles = [{ id: 'gateway', name: '测试服务商', model: 'current-model', hasKey: true, baseUrl: 'https://gateway.invalid' }]
-    testRuntime.roots = [{ root: 'D:/first', exists: true, dirs: [] }, { root: 'D:/second', exists: true, dirs: [] }]
+    testRuntime.roots = [{ root: 'D:/first', exists: true, dirs: [] }, { root: 'D:/second', exists: true, dirs: [{ name: 'project', path: 'D:/second/project' }] }]
     saveNewSessionPreferences(undefined, { workspaceRoot: 'D:/second', cwd: 'D:/second/project', engine: 'codex', providerId: 'gateway' })
     const first = mountChat()
     await openNewSessionForm()
-    expect(await screen.findByRole('button', { name: 'second', pressed: true })).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: '测试服务商', pressed: true })).toBeInTheDocument()
-    expect(screen.getByLabelText('目录路径')).toHaveValue('D:/second/project')
-    fireEvent.click(screen.getByRole('button', { name: '开始会话' }))
+    await waitFor(() => expect(screen.getByRole('combobox', { name: '工作区' })).toHaveTextContent('second'))
+    expect(await screen.findByText('已选服务商：测试服务商')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '项目' })).toHaveTextContent('project')
+    await waitFor(() => expect(screen.getByRole('button', { name: /^按最近配置创建会话/ })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: /^按最近配置创建会话/ }))
     expect(testRuntime.chat.open).toHaveBeenCalledWith('D:/second/project', 'current-model', undefined, 'codex',
       { providerProfileId: 'gateway', apiBaseUrl: 'https://gateway.invalid' }, undefined)
     const stored = JSON.parse(localStorage.getItem(newSessionPreferenceKey())!)
-    expect(stored).toEqual({ version: 1, workspaceRoot: 'D:/second', cwd: 'D:/second/project', engine: 'codex', providerId: 'gateway' })
+    expect(stored).toEqual({ version: 1, workspaceRoot: 'D:/second', cwd: 'D:/second/project', engine: 'codex', providerId: 'gateway',
+      recent: { workspaceRoot: 'D:/second', cwd: 'D:/second/project', engine: 'codex', providerId: 'gateway' } })
     first.unmount()
     testRuntime.roots.reverse()
     mountChat()
     await openNewSessionForm()
-    expect(await screen.findByRole('button', { name: 'second', pressed: true })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('combobox', { name: '工作区' })).toHaveTextContent('second'))
     expect(screen.getByRole('button', { name: 'Codex', pressed: true })).toBeInTheDocument()
   })
   it('requires an explicit replacement when the remembered provider has been removed', async () => {
     testRuntime.profiles = []
+    testRuntime.roots = [{ root: 'D:/work', exists: true, dirs: [] }]
     saveNewSessionPreferences(undefined, { workspaceRoot: '', cwd: 'D:/work', engine: 'codex', providerId: 'removed' })
     mountChat()
     await openNewSessionForm()
     expect(await screen.findByText(/上次选择的服务商已不可用/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '开始会话' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '官方默认' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '创建会话' })).toBeDisabled()
     expect(testRuntime.chat.open).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '官方默认' }))
-    expect(screen.getByRole('button', { name: '开始会话' })).toBeEnabled()
+    const settings = await openNewSessionSettings()
+    await pickChoice('服务商', '官方默认')
+    fireEvent.click(settings.getByRole('button', { name: '返回' }))
+    expect(screen.getByRole('button', { name: '创建会话' })).toBeEnabled()
     expect(JSON.parse(localStorage.getItem(newSessionPreferenceKey())!).providerId).toBe('')
   })
 })

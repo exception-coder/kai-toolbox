@@ -5,6 +5,21 @@ import { Combobox } from './combobox'
 afterEach(cleanup)
 const options = [{ value: 'DEV', label: 'DEV · 开发' }, { value: 'TEST', label: 'TEST · 测试' }, { value: 'UAT', label: 'UAT · 验收' }]
 
+it('filters fixed choices without changing the value until a keyboard-reachable option is confirmed', async () => {
+  const change = vi.fn()
+  render(<Combobox allowCustom={false} searchable aria-label="工作区" value="TEST" onChange={change} options={options} />)
+  fireEvent.click(screen.getByRole('combobox', { name: '工作区' }))
+  const search = await screen.findByRole('searchbox', { name: '搜索工作区' })
+  fireEvent.change(search, { target: { value: '验收' } })
+  expect(change).not.toHaveBeenCalled()
+  expect(screen.getAllByRole('option')).toHaveLength(1)
+  fireEvent.keyDown(search, { key: 'ArrowDown' })
+  const option = screen.getByRole('option', { name: 'UAT · 验收' })
+  expect(option).toHaveFocus()
+  fireEvent.click(option)
+  expect(change).toHaveBeenCalledExactlyOnceWith('UAT')
+})
+
 it('retains free text input for existing editable consumers', () => {
   const change = vi.fn()
   render(<Combobox aria-label="项目名称" value="" onChange={change} options={options} />)

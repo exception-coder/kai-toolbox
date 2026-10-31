@@ -24,6 +24,8 @@ export interface ComboboxProps {
   autoFocus?: boolean
   /** false 时仅允许选择完整候选，不提供自由输入。 */
   allowCustom?: boolean
+  /** 固定候选也可搜索，输入仅过滤，不改变已选择的值。 */
+  searchable?: boolean
   'aria-label'?: string
 }
 

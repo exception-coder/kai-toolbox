@@ -10,7 +10,7 @@ interface Draft extends NewSessionPreferences { model: string; modelEdited: bool
 export function useNewSessionPreferences(userId: number | undefined, profiles: ProviderProfile[]) {
   const loaded = useMemo(() => loadNewSessionPreferences(userId), [userId])
   const seed = useMemo(() => ({ userId, value: { ...loaded.value, model: '', modelEdited: false } as Draft,
-    warning: loaded.warning }), [loaded, userId])
+    recent: loaded.recent ?? (loaded.value.workspaceRoot ? loaded.value : undefined), warning: loaded.warning }), [loaded, userId])
   const [state, setState] = useState(seed)
   const owner = useRef(userId)
   const pendingSelection = useRef<{ userId: number | undefined } | null>(null)
@@ -31,7 +31,7 @@ export function useNewSessionPreferences(userId: number | undefined, profiles: P
     if (!pending) return
     pendingSelection.current = null
     if (pending.userId !== userId || state.userId !== userId) return
-    const warning = saveNewSessionPreferences(userId, state.value)
+    const warning = saveNewSessionPreferences(userId, state.value, state.recent)
     if (warning !== state.warning) setState(previous => previous.userId === userId ? { ...previous, warning } : previous)
   }, [state, userId])
   const update = (change: Partial<Draft>) => setState(previous => {
@@ -41,6 +41,7 @@ export function useNewSessionPreferences(userId: number | undefined, profiles: P
   })
   return {
     choice: current.value,
+    recent: current.recent,
     warning: current.warning,
     setCwd: (cwd: string) => update({ cwd }),
     setWorkspaceRoot: (workspaceRoot: string) => update({ workspaceRoot }),
@@ -59,10 +60,15 @@ export function useNewSessionPreferences(userId: number | undefined, profiles: P
       pendingSelection.current = { userId }
       update(draft)
     },
-    remember: (workspaceRoot: string) => {
+    remember: (workspaceRoot: string, selected?: NewSessionPreferences) => {
       if (owner.current !== userId) return
-      const warning = saveNewSessionPreferences(userId, { ...current.value, workspaceRoot })
-      setState(previous => ({ ...(previous.userId === userId ? previous : seed), warning }))
+      const recent = { ...(selected ?? current.value), workspaceRoot }
+      const warning = saveNewSessionPreferences(userId, recent, recent)
+      setState(previous => {
+        const base = previous.userId === userId ? previous : seed
+        return { ...base, value: { ...base.value, ...recent, modelEdited: false,
+          model: profiles.find(profile => profile.id === recent.providerId)?.model || '' }, recent, warning }
+      })
     },
   }
 }

@@ -4,8 +4,8 @@ export interface GuideChapter { id: GuideTarget; title: string; summary: string;
 
 export const GUIDE_CHAPTERS: GuideChapter[] = [
   { id: 'start', title: '开始开发', summary: '先确定项目和运行配置，再向 Agent 说明目标。', entry: '新建会话', topics: [
-    { title: '新建与工作目录', purpose: '指定本轮开发的代码目录并命名会话。', when: '开始新任务，或需要独立保留上下文时。', path: '顶部「新建」；手机：会话工具 → 新建会话' },
-    { title: '引擎、模型与服务商', purpose: '选择编码引擎及模型；支持的引擎可使用会话级第三方服务商。', when: '需要更换模型、账号或网关时，先核对引擎能力。', path: '新建表单；已有会话：输入区「会话配置」', session: true },
+    { title: '新建与工作目录', purpose: '选择工作区、可选项目和可用引擎；也可直接复用最近配置。名称自动生成，创建后可修改。', when: '开始新任务，或需要独立保留上下文时。', path: '顶部「新建」；手机：会话工具 → 新建会话；目录登记与聚合在「工作区与运行设置」' },
+    { title: '引擎、模型与服务商', purpose: '按需调整模型、账号和会话级第三方服务商。', when: '需要更换模型、账号或网关时，先核对引擎能力。', path: '新建：工作区与运行设置；已有会话：输入区「会话配置」', session: true },
     { title: '给出目标与材料', purpose: '发送文字，添加附件或引用项目与规格，让 Agent 获得明确上下文。', when: '开始编码、分析问题或补充当前任务材料时。', path: '输入区「＋」「@」与发送按钮', session: true },
     { title: '开发待办', purpose: '为当前会话记下要做的事或贴图，时间自动记录，卡片可引用到输入草稿。', when: '随手记录开发需求、回顾讨论或补充截图时。', path: '桌面：更多 → 开发待办；手机：会话工具 → 工作与进度 → 开发待办；引用后核对草稿再发送', session: true },
   ] },

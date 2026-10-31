@@ -4,14 +4,15 @@ import { FocusReadingHeader } from '../components/FocusReadingHeader'
 import { useChatFocusMode } from '../hooks/useChatFocusMode'
 import { useSessionViewRoute } from '../hooks/useSessionViewRoute'
 import { WorkspacePreferences } from '../components/WorkspacePreferences'
-import { WorkingDirectoryPicker } from '../components/WorkingDirectoryPicker'
-import { SavedWorkingDirectories } from '../components/SavedWorkingDirectories'
+import { NewSessionPanel } from '../components/NewSessionPanel'
+import { NewSessionEngineSettings } from '../components/NewSessionEngineSettings'
+import { registerWorkspaceRoot } from '@/features/project-workspace/public-api'
 import { VibeCodingGuide } from '../components/guide/VibeCodingGuide'
 import type { GuideTarget } from '../components/guide/guideContent'
 import { AtSign, Globe2, SlidersHorizontal } from 'lucide-react'
 import { useGuideRoute } from '../hooks/useGuideRoute'
 import '../components/guide/guide.css'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType, type Ref, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ComponentType, type Ref, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { reportVibeEntry, reportVibeResourceSummary } from '@/lib/vibeEntryDiagnostics'
@@ -51,6 +52,7 @@ import type { CommunicationReference } from '../api/communicationJournal'
 import { loadCodexHomePreference, saveCodexHomePreference } from '../lib/codexHomePref'
 import { useNewSessionPreferences } from '../hooks/useNewSessionPreferences'
 import { newSessionSelectionIssue, resolveNewSessionWorkspace, type NewSessionPreferences } from '../lib/newSessionPreferences'
+import { newSessionEngines, resolveNewSessionDirectory, validRecentSession, workspacePathKey } from '../lib/newSessionWorkspace'
 import { buildCodexAuthHandoff } from '../lib/codexAuthHandoff'
 import { cn } from '@/lib/utils'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
@@ -66,21 +68,17 @@ import { AssistantRestoreMenuItem } from '@/assistant-sdk/AssistantBridge'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from '../components/ProjectMention'
-import { groupModels } from '../components/modelGroups'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
 import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { canSteerRunningMessage } from '../components/RunningMessageActions'
-import { isOfficialDeepSeekBaseUrl, isProviderAuthenticationError } from '../providerGateway'
-import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import type { ChatItem, ModelInfo } from '../types'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 import { getSessionByDevSession, linkDevSession, type PrdSessionView } from '@/features/prd-clarify/public-api'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from '../components/SessionPlanLockNotice'
-import { Combobox } from '@/components/ui/combobox'
 import {
   acknowledgeLaunchIntent,
   failLaunchIntent,
@@ -747,9 +745,12 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     })
   }, [chat?.sessionId, setDraft])
   const codexSyncAuth = useAuth()
-  const [newSessionTitle, setNewSessionTitle] = useState('')
-  const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false)
-  const directoryPickerTrigger = useRef<HTMLButtonElement>(null)
+  const [newSessionCreating, setNewSessionCreating] = useState(false)
+  const newSessionCreateLock = useRef(false)
+  const newSessionPreviousId = useRef<string | null>(null)
+  const [newSessionCreateError, setNewSessionCreateError] = useState<string | null>(null)
+  const [newEngineNotice, setNewEngineNotice] = useState<string | undefined>()
+  const newSessionReturnFocus = useRef<HTMLElement | null>(null)
   const [newCodexHome, setNewCodexHome] = useState(loadCodexHomePreference)
   // 第三方网关「服务商」：newProviderId 空=官方默认；newModel 为走网关时手填的模型名
   const { data: providerProfiles, isPending: providersLoading, error: providersError, refetch: refreshProviders } = useQuery({
@@ -759,15 +760,11 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const newSessionPreferences = useNewSessionPreferences(codexSyncAuth.user?.userId, providers)
   const { cwd: newCwd, engine: newEngine, providerId: newProviderId, model: newModel } = newSessionPreferences.choice
   const { setCwd: setNewCwd, setEngine: setNewEngine, setProviderId: setNewProviderId, setModel: setNewModel } = newSessionPreferences
-  const newSessionIssue = newSessionSelectionIssue(newSessionPreferences.choice, {
-    engines: selectableEngines, enginesLoading: engineCatalogQuery.isPending,
-    providers, providersLoading, providersFailed: !!providersError,
-  })
+  const availableNewEngines = useMemo(() => newSessionEngines(engineCatalogQuery.data), [engineCatalogQuery.data])
   // 选中网关后从其 /v1/models 拉的可选模型目录（供下拉选择，仍可手填）
   const [providerModels, setProviderModels] = useState<ModelInfo[]>([])
   const [providerModelsLoading, setProviderModelsLoading] = useState(false)
   const [providerModelsError, setProviderModelsError] = useState<string | null>(null)
-  const [newModelPlatform, setNewModelPlatform] = useState('all') // 新建会话模型的平台二级筛选
   // 附件按会话绑定 + 共享 store：与悬浮窗/分屏同一份 → 主界面选了附件再弹悬浮窗不丢、即时同步。
   const [attachments, setAttachments] = useDraftAttachments(chat?.sessionId ?? PENDING_DRAFT_KEY)
   const [uploading, setUploading] = useDraftAttachmentUploads(chat?.sessionId ?? PENDING_DRAFT_KEY)
@@ -829,12 +826,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const projectMention = useProjectMention(draft, setDraft, taRef, { onPickPrd: handlePrdMention })
   const engineWatermark = useRef<Record<string, number>>({}) // 每引擎"上次看到的消息位置"，切 agent 时算增量 seed
 
-  // 新建会话：网关模型按平台分组 + 平台二级筛选（网关动辄上百个，平铺难选）
-  const providerModelGroups = useMemo(() => groupModels(providerModels), [providerModels])
-  const shownNewModels = newModelPlatform === 'all'
-    ? providerModels
-    : (providerModelGroups.find(g => g.key === newModelPlatform)?.models ?? providerModels)
-
   // 输入框随内容自动升高（参考微信）：到 max-h 后内部滚动
   useEffect(() => {
     const el = taRef.current
@@ -863,7 +854,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     let cancelled = false
     setProviderModelsLoading(true)
     setProviderModelsError(null)
-    setNewModelPlatform('all') // 换网关重置平台筛选
     fetchProviderModels({ profileId: p.id })
       .then(r => {
         if (cancelled) return
@@ -877,13 +867,14 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 
   // 自动续接最近会话已上提到 ChatRuntime 引擎（跨路由常驻），此处不再处理。
 
-  // 新建面板展开时才扫描工作目录；接口失败/为空则下拉为空，输入框仍可手填（降级不阻断）
-  const { data: workspaces } = useQuery({
+  // 新建面板展开时读取权威工作区；失败时保留选择并提供刷新或工作区设置入口。
+  const workspacesQuery = useQuery({
     queryKey: ['claude-chat-workspaces', codexSyncAuth.user?.userId ?? 'local'],
     queryFn: listWorkspaces,
     enabled: panel === 'new',
     staleTime: 5000,
   })
+  const workspaces = workspacesQuery.data
   const { data: projectWorkspacePreference, isPending: projectVisibilityLoading } = useQuery({
     queryKey: ['dev-preference', PROJECT_WORKSPACE_PREFERENCE_ID],
     queryFn: () => getDevPreference<ProjectWorkspaceVisibilityPreference>(PROJECT_WORKSPACE_PREFERENCE_ID),
@@ -896,15 +887,50 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const selectNewSessionPreference = (change: Partial<NewSessionPreferences>) => newSessionPreferences.select({
     workspaceRoot: activeRoot?.root ?? newSessionPreferences.choice.workspaceRoot, ...change,
   })
-  const wsIdx = activeRoot ? wsRoots.indexOf(activeRoot) : -1
   const hiddenProjectPaths = useMemo(() => new Set(
     (projectWorkspacePreference?.ignoredProjects ?? loadLocalIgnoredProjectPaths())
       .map(normalizeWorkspaceProjectPath),
   ), [projectWorkspacePreference])
-  const selectableProjects = projectVisibilityLoading
-    ? []
-    : activeRoot?.dirs.filter(dir => !hiddenProjectPaths.has(normalizeWorkspaceProjectPath(dir.path))) ?? []
-  const [projectSearch, setProjectSearch] = useState('')
+  const visibleNewRoots = wsRoots.map(root => ({ ...root, dirs: root.dirs.filter(dir => !hiddenProjectPaths.has(normalizeWorkspaceProjectPath(dir.path))) }))
+  const visibleNewRoot = visibleNewRoots.find(root => workspacePathKey(root.root) === workspacePathKey(activeRoot?.root ?? '')) ?? null
+  const newSessionDirectory = resolveNewSessionDirectory(visibleNewRoot, newCwd)
+  const newSessionEvidence = { engines: availableNewEngines, enginesLoading: engineCatalogQuery.isPending,
+    providers, providersLoading, providersFailed: !!providersError }
+  const newSessionLoading = workspacesQuery.isPending || projectVisibilityLoading || engineCatalogQuery.isPending
+  const newSessionIssue = workspacesQuery.isError ? '工作区读取失败，请刷新可用配置。'
+    : newSessionDirectory.issue ?? newSessionSelectionIssue(newSessionPreferences.choice, newSessionEvidence)
+  const recentNewSession = validRecentSession(newSessionPreferences.recent, visibleNewRoots)
+  const recentNewSessionIssue = workspacesQuery.isError ? '工作区读取失败，请刷新。'
+    : recentNewSession ? newSessionSelectionIssue(recentNewSession, newSessionEvidence) : undefined
+  useEffect(() => {
+    if (panel !== 'new' || !availableNewEngines.length || availableNewEngines.includes(newEngine)) return
+    const next = availableNewEngines.includes('codex') ? 'codex' : availableNewEngines[0]
+    setNewEngineNotice(`上次引擎不可用，已选用 ${engineName(next)}。`)
+    newSessionPreferences.select({ engine: next })
+  }, [panel, availableNewEngines, newEngine, newSessionPreferences.select])
+  useLayoutEffect(() => {
+    if (panel === 'new') newSessionReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  }, [panel])
+  useEffect(() => {
+    if (!newSessionCreating) return
+    if (chat?.sessionId && chat.sessionId !== newSessionPreviousId.current && chat.state === 'ready' || chat?.state === 'error') {
+      newSessionCreateLock.current = false
+      setNewSessionCreating(false)
+    }
+  }, [chat?.sessionId, chat?.state, newSessionCreating])
+  const adoptNewWorkspace = async (path: string) => {
+    try {
+      const existing = visibleNewRoots.find(root => workspacePathKey(root.root) === workspacePathKey(path)
+        || root.dirs.some(project => workspacePathKey(project.path) === workspacePathKey(path)))
+      if (!existing) {
+        await registerWorkspaceRoot(path)
+        await qc.invalidateQueries({ queryKey: ['claude-chat-workspaces'] }, { throwOnError: true })
+      }
+      selectNewSessionPreference({ workspaceRoot: existing?.root ?? path, cwd: path })
+      setNewSessionCreateError(null)
+    } catch (error) { setNewSessionCreateError(error instanceof Error ? error.message : '工作区登记失败，请在设置中重试。') }
+    setPanel('new')
+  }
 
   // 顶栏标题显示当前会话名（与会话列表一致：别名优先，无别名回退 cwd 目录名）；无会话时才回退 Vibe Coding
   const { data: sessions = [], isSuccess: sessionsLoaded } = useQuery({
@@ -1086,30 +1112,44 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const sessionConfigCompactSummary = compactSessionModelLabel(sessionConfigSummary)
     + (chat.currentEngine === 'codex' ? ` ${QUICK_EFFORT_LABELS[chat.codexReasoningEffort] || chat.codexReasoningEffort}` : '')
 
-  const startNew = () => {
-    if (newSessionIssue) { setProviderModelsError(newSessionIssue); return }
+  const startNew = (selected?: NewSessionPreferences) => {
+    if (newSessionCreateLock.current || newSessionLoading) return
+    const choice = selected ?? newSessionPreferences.choice
+    const root = resolveNewSessionWorkspace(visibleNewRoots, choice.workspaceRoot)
+    const directory = resolveNewSessionDirectory(root, choice.cwd)
+    const issue = directory.issue ?? newSessionSelectionIssue(choice, newSessionEvidence)
+    if (issue || workspacesQuery.isError) { setNewSessionCreateError(issue || '工作区读取失败'); return }
     // 支持会话级网关的引擎复用档案，各自适配原生协议。
-    const usesGateway = supportsSessionProvider(newEngine)
-    const profile = usesGateway ? providers.find(p => p.id === newProviderId) : undefined
-    if (usesGateway && newProviderId && !profile) {
+    const usesGateway = supportsSessionProvider(choice.engine)
+    const profile = usesGateway ? providers.find(p => p.id === choice.providerId) : undefined
+    if (usesGateway && choice.providerId && !profile) {
       setProviderModelsError('服务商档案已不存在，请刷新列表后重试')
       void refreshProviders()
       return
     }
     const provider = profile
       ? { providerProfileId: profile.id, apiBaseUrl: profile.baseUrl }
-      : newEngine === 'codex'
+      : choice.engine === 'codex'
         ? { codexHome: newCodexHome.trim() || undefined }
         : undefined
     // 网关用档案或手填；OpenCode/Pi/Copilot 原生模式允许明确模型，留空由引擎选择。
-    const model = ['opencode', 'pi', 'copilot'].includes(newEngine) && !profile
+    const model = selected ? (profile?.model || undefined) : ['opencode', 'pi', 'copilot'].includes(choice.engine) && !profile
       ? (newModel.trim() || undefined)
       : profile ? (newModel.trim() || profile.model || undefined) : undefined
-    if (newEngine === 'codex' && !profile) saveCodexHomePreference(newCodexHome)
-    chat.open(newCwd.trim(), model, undefined, newEngine, provider, newSessionTitle.trim() || undefined)
-    newSessionPreferences.remember(activeRoot?.root ?? '')
-    setNewSessionTitle('')
-    setPanel('none')
+    if (choice.engine === 'codex' && !profile) saveCodexHomePreference(newCodexHome)
+    newSessionCreateLock.current = true
+    newSessionPreviousId.current = chat.sessionId
+    setNewSessionCreating(true)
+    try {
+      chat.open(directory.cwd, model, undefined, choice.engine, provider, undefined)
+      newSessionPreferences.remember(root!.root, { ...choice, cwd: directory.cwd })
+      setNewSessionCreateError(null)
+      setPanel('none')
+    } catch (error) {
+      newSessionCreateLock.current = false
+      setNewSessionCreating(false)
+      setNewSessionCreateError(error instanceof Error ? error.message : '尚未确认创建结果，请先查看会话列表。')
+    }
   }
 
   // 「PRD 文档」快捷附加：PrdAttachPanel 里选好 PRD/开发文档后回调这里，把文本内容包成
@@ -1240,7 +1280,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
         defaultHome={currentSession?.codexHome || newCodexHome}
         returnFocus={() => sessionToolsTriggerRef.current?.focus()}
         onOpenSession={id => { chat.switchTo(id, false); setPanel('none') }}
-        onCreateProject={(cwd, home) => { setNewCwd(cwd); setNewCodexHome(home); setNewEngine('codex'); setNewProviderId(''); setPanel('new') }} />}
+        onCreateProject={(cwd, home) => { setNewCodexHome(home); setNewEngine('codex'); setNewProviderId(''); void adoptNewWorkspace(cwd) }} />}
       <WorkspaceHeaderMount target={focus.focused ? null : unifiedTitleBarSlot}>
       <header data-focus-chrome className={cn(
         'cc-workspace-header workspace-unified-chrome relative z-30 flex min-w-0 items-center gap-3 px-4 max-md:h-11 max-md:gap-1 max-md:px-1',
@@ -1565,325 +1605,41 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       )}
 
       {/* 折叠面板 */}
-      {panel === 'new' && (
-        <div data-guide-location="start" className="max-w-5xl border-b px-4 py-4 md:px-6">
-          <div className="mb-4">
-            <h2 className="text-sm font-semibold text-[var(--color-foreground)]">新建会话</h2>
-            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">先确定工作目录，再按需命名和选择运行配置。</p>
-            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">本浏览器会自动记住你选择的工作区、目录、引擎和服务商，下次新建直接沿用。</p>
-            {newSessionPreferences.warning && <p role="status" className="mt-2 text-xs text-[var(--color-muted-foreground)]">{newSessionPreferences.warning}</p>}
-            {newSessionIssue && <p role="status" className="mt-2 text-xs text-[var(--color-muted-foreground)]">{newSessionIssue}</p>}
-            {workspaces && newSessionPreferences.choice.workspaceRoot && !activeRoot && <p role="status" className="mt-2 text-xs text-[var(--color-muted-foreground)]">上次工作区未出现在当前目录列表，可重新选择工作区或手动指定目录。</p>}
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-medium">工作目录</p>
-            <Button ref={directoryPickerTrigger} variant="ghost" size="sm" aria-expanded={directoryPickerOpen}
-              onClick={() => setDirectoryPickerOpen(open => !open)}><FolderOpen className="size-4" />浏览目录</Button>
-          </div>
-          <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">选择工作区与项目，或直接输入路径；留空使用 home。</p>
-          <SavedWorkingDirectories cwd={newCwd} onSelect={path => {
-            selectNewSessionPreference({ workspaceRoot: path, cwd: path })
-            setProjectSearch('')
-            setDirectoryPickerOpen(false)
+      {panel === 'new' && <NewSessionPanel
+        choice={newSessionPreferences.choice} roots={visibleNewRoots} root={visibleNewRoot} project={newSessionDirectory.project}
+        engines={availableNewEngines} recent={recentNewSession} recentIssue={recentNewSessionIssue}
+        issue={newSessionIssue} warning={newSessionCreateError ?? newEngineNotice ?? newSessionPreferences.warning}
+        loading={newSessionLoading} creating={newSessionCreating}
+        providerLabel={newProviderId ? providers.find(profile => profile.id === newProviderId)?.name : undefined}
+        onSelect={change => { selectNewSessionPreference(change); setNewSessionCreateError(null); setNewEngineNotice(undefined) }}
+        onCreate={startNew} onClose={() => {
+          setPanel('none')
+          requestAnimationFrame(() => { const target = newSessionReturnFocus.current; if (target?.isConnected) target.focus(); else taRef.current?.focus() })
+        }}
+        onReload={() => { void workspacesQuery.refetch(); void engineCatalogQuery.refetch(); void refreshProviders() }}
+        onEngines={() => { void engineCatalogQuery.refetch() }} onAggregate={() => setPanel('taskspace')}>
+        <NewSessionEngineSettings engine={newEngine} providerId={newProviderId} providers={providers}
+          providersLoading={providersLoading} providersError={providersError?.message} model={newModel} models={providerModels}
+          modelsLoading={providerModelsLoading} modelsError={providerModelsError} codexHome={newCodexHome}
+          catalog={engineCatalogQuery.data} refreshing={engineCatalogQuery.isFetching || engineCatalogRefreshing}
+          onCodexHome={setNewCodexHome} onProvider={providerId => selectNewSessionPreference({ providerId })} onModel={setNewModel}
+          onManage={() => setPanel('providers')} onRetryProviders={() => void refreshProviders()}
+          onRefresh={() => {
+            setEngineCatalogRefreshing(true)
+            void listEngineCatalog(true).then(catalog => qc.setQueryData(['claude-chat-engine-catalog'], catalog))
+              .catch(() => qc.invalidateQueries({ queryKey: ['claude-chat-engine-catalog'] }))
+              .finally(() => setEngineCatalogRefreshing(false))
           }} />
-          {directoryPickerOpen && <WorkingDirectoryPicker initialPath={newCwd}
-            onSelect={path => {
-              selectNewSessionPreference({ cwd: path })
-              setProjectSearch('')
-              setDirectoryPickerOpen(false)
-              directoryPickerTrigger.current?.focus()
-            }} onCancel={() => { setDirectoryPickerOpen(false); directoryPickerTrigger.current?.focus() }} />}
-          {/* 第 1 级：多个工作区或原选择失效时显示，允许显式恢复。 */}
-          {(wsRoots.length > 1 || (wsRoots.length === 1 && !activeRoot)) && (
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {wsRoots.map((r, i) => {
-                const rname = r.root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || r.root
-                return (
-                  <button
-                    key={r.root}
-                    type="button"
-                    title={r.root}
-                    onClick={() => { selectNewSessionPreference({ workspaceRoot: r.root }); setProjectSearch('') }}
-                    aria-pressed={i === wsIdx}
-                    className={`rounded-full border px-2.5 py-1 text-xs ${i === wsIdx
-                      ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
-                      : 'text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/40'}`}
-                  >
-                    {rname}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-          {/* 第 2 级：隐藏项目不进入新会话候选；别名、目录名和路径均可检索。 */}
-          {activeRoot && (
-            <div className="mt-3">
-              <label className="mb-1 block text-xs text-[var(--color-muted-foreground)]" htmlFor="vibe-coding-project-picker">选择项目</label>
-              <Combobox
-                id="vibe-coding-project-picker"
-              value={projectSearch}
-              onChange={value => {
-                const selected = selectableProjects.find(project => project.path === value)
-                setProjectSearch(selected ? getSystemWorkspaceDisplayName(selected) : value)
-                if (selected) selectNewSessionPreference({ cwd: selected.path })
-              }}
-              options={selectableProjects.map(project => {
-                const displayName = getSystemWorkspaceDisplayName(project)
-                return {
-                  value: project.path,
-                  label: displayName === project.name ? displayName : `${displayName} · ${project.name}`,
-                }
-              })}
-              placeholder={projectVisibilityLoading ? '正在加载可见项目…' : '搜索或选择项目（别名 / 目录名 / 路径）'}
-              emptyText="没有匹配的可见项目"
-              showAllOnOpen
-              contentClassName="max-h-72"
-              />
-            </div>
-          )}
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <div className="min-w-0">
-              <label className="mb-1 block text-xs text-[var(--color-muted-foreground)]" htmlFor="vibe-coding-new-cwd">目录路径</label>
-              <input
-                id="vibe-coding-new-cwd"
-                className="h-10 w-full min-w-0 rounded-md border bg-[var(--color-background)] px-3 text-sm focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]"
-                placeholder="例如 D:/Users/zhang/myWork/kai-toolbox"
-                value={newCwd}
-                onChange={e => selectNewSessionPreference({ cwd: e.target.value })}
-              />
-            </div>
-            <div className="min-w-0">
-              <label className="mb-1 block text-xs text-[var(--color-muted-foreground)]" htmlFor="vibe-coding-new-title">会话别名 <span className="font-normal">· 可选</span></label>
-              <input
-                id="vibe-coding-new-title"
-                className="h-10 w-full min-w-0 rounded-md border bg-[var(--color-background)] px-3 text-sm focus-visible:outline-2 focus-visible:outline-[var(--color-primary)]"
-                placeholder="例如 SRM 报价流程优化"
-                maxLength={200}
-                value={newSessionTitle}
-                onChange={e => setNewSessionTitle(e.target.value)}
-              />
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setPanel('taskspace')}
-            className="mt-3 inline-flex items-center gap-1 text-xs text-[var(--color-primary)] hover:underline"
-          >
-            <FolderTree className="size-3.5" /> 合并多个目录为工作区（软链接聚合）
-          </button>
-          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--color-border)] pt-4">
-            <span className="text-xs text-[var(--color-muted-foreground)]">引擎</span>
-            {selectableEngines.map(eng => (
-              <button
-                key={eng}
-                type="button"
-                onClick={() => selectNewSessionPreference({ engine: eng })}
-                aria-pressed={newEngine === eng}
-                className={`rounded-full border px-3 py-1 text-xs ${newEngine === eng
-                  ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
-                  : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
-              >
-                {engineName(eng)}
-              </button>
-            ))}
-            {engineCatalogQuery.data?.engines
-              .filter(entry => (entry.id === 'antigravity' || entry.id === 'trae') && !entry.selectable)
-              .map(entry => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  disabled
-                  title={entry.probe.detail ?? `${entry.displayName} 当前不可用`}
-                  className="rounded-full border px-3 py-1 text-xs text-[var(--color-muted-foreground)] opacity-50"
-                >
-                  {entry.id === 'trae'
-                    ? `TraeCode CLI（${entry.probe.status === 'unavailable' ? '需登录' : '需安装或升级'}）`
-                    : 'Antigravity（需升级）'}
-                </button>
-              ))}
-            {newEngine === 'codex' && (
-              <span className="text-xs text-[var(--color-muted-foreground)]">（Codex 靠沙箱，不弹权限框）</span>
-            )}
-            {newEngine === 'opencode' && (
-              <span className="text-xs text-[var(--color-muted-foreground)]">（多 provider agent，跑第三方模型推荐；需本机装 opencode 并配置 provider：opencode auth login）</span>
-            )}
-            {newEngine === 'antigravity' && (
-              <span className="text-xs text-[var(--color-muted-foreground)]">（使用本机 agy 登录；需支持 stream-json 的新版 Antigravity CLI）</span>
-            )}
-            {newEngine === 'trae' && (
-              <span className="text-xs text-[var(--color-muted-foreground)]">（使用 TraeCode CLI 2.0；先在本机完成 traecli login）</span>
-            )}
-            {newEngine === 'deepseekHarness' && (
-              <span className="text-xs text-[var(--color-muted-foreground)]">（实验能力 · 已通过 Sidecar 与 Harness 运行时握手）</span>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setEngineCatalogRefreshing(true)
-                void listEngineCatalog(true)
-                  .then(catalog => qc.setQueryData(['claude-chat-engine-catalog'], catalog))
-                  .catch(() => qc.invalidateQueries({ queryKey: ['claude-chat-engine-catalog'] }))
-                  .finally(() => setEngineCatalogRefreshing(false))
-              }}
-              disabled={engineCatalogQuery.isFetching || engineCatalogRefreshing}
-              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:opacity-50"
-              title="重新检测本机可用引擎"
-            >
-              <RefreshCw className={cn('size-3', (engineCatalogQuery.isFetching || engineCatalogRefreshing) && 'animate-spin')} />
-              检测引擎
-            </button>
-          </div>
-          {(engineCatalogQuery.error || engineCatalogQuery.data?.error) && (
-            <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-              Sidecar 引擎目录暂不可用，已保留稳定引擎；实验引擎不会被猜测启用。
-            </p>
-          )}
-          {newEngine === 'codex' && newProviderId === '' && (
-            <div className="mt-3 rounded-lg border bg-[var(--color-muted)]/30 p-3">
-              <label className="mb-1 block text-xs font-medium" htmlFor="vibe-coding-codex-home">
-                Codex Auth 目录
-              </label>
-              <input
-                id="vibe-coding-codex-home"
-                value={newCodexHome}
-                onChange={event => setNewCodexHome(event.target.value)}
-                placeholder="%USERPROFILE%\.codex-account-yx"
-                className="h-8 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm"
-              />
-              <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
-                留空使用默认 %USERPROFILE%\.codex。目录需提前执行 codex login；选择结果只绑定本次会话，不改变项目工作目录。
-              </p>
-            </div>
-          )}
-          {/* OpenCode 引擎：provider/鉴权由 opencode 自己管理，这里只填模型 providerID/modelID */}
-          {newEngine === 'opencode' && (
-            <div className="mt-3 flex items-center gap-2">
-              <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">模型</span>
-              <input
-                value={newModel}
-                onChange={e => setNewModel(e.target.value)}
-                placeholder="provider/model，如 anthropic/claude-sonnet-4-5 或 openai/gpt-4o（留空用 opencode 默认）"
-                className="h-8 flex-1 rounded-md border bg-[var(--color-background)] px-2 text-sm"
-              />
-            </div>
-          )}
-          {/* 会话级第三方网关档案，不改引擎全局配置。 */}
-          {supportsSessionProvider(newEngine) && (
-            <div className="mt-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-[var(--color-muted-foreground)]">服务商</span>
-                <button
-                  type="button"
-                  onClick={() => { selectNewSessionPreference({ providerId: '' }); setNewModel('') }}
-                  aria-pressed={newProviderId === ''}
-                  className={`rounded-full border px-3 py-1 text-xs ${newProviderId === ''
-                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
-                    : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
-                >
-                  官方默认
-                </button>
-                {providers.map(p => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => { selectNewSessionPreference({ providerId: p.id }); setNewModel(p.model || '') }}
-                    aria-pressed={newProviderId === p.id}
-                    className={`rounded-full border px-3 py-1 text-xs ${newProviderId === p.id
-                      ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
-                      : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
-                  >
-                    {p.name}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setPanel('providers')}
-                  className="rounded-full border border-dashed px-3 py-1 text-xs text-[var(--color-primary)] hover:bg-[var(--color-accent)]"
-                >
-                  管理…
-                </button>
-              </div>
-              {providersLoading && <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">正在读取服务商档案…</p>}
-              {providersError && (
-                <p className="mt-1 text-xs text-[var(--color-destructive)]">
-                  档案读取失败：{providersError.message} <button type="button" onClick={() => void refreshProviders()} className="underline">重试</button>
-                </p>
-              )}
-              {newProviderId !== '' && (
-                <div className="mt-2 space-y-1.5">
-                  {/* 平台筛选（二级）：先选平台，下面下拉只列该平台型号 */}
-                  {providerModelGroups.length > 1 && (
-                    <div className="flex flex-wrap items-center gap-1">
-                      <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">平台</span>
-                      <PlatformChip active={newModelPlatform === 'all'} onClick={() => setNewModelPlatform('all')}>
-                        全部 {providerModels.length}
-                      </PlatformChip>
-                      {providerModelGroups.map(g => (
-                        <PlatformChip key={g.key} active={newModelPlatform === g.key} onClick={() => setNewModelPlatform(g.key)}>
-                          {g.label} {g.models.length}
-                        </PlatformChip>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">模型</span>
-                    <input
-                      list="claude-chat-provider-models"
-                      value={newModel}
-                      onChange={e => setNewModel(e.target.value)}
-                      placeholder={providerModelsLoading
-                        ? '正在拉取网关模型…'
-                        : providerModels.length
-                          ? '选择或输入模型…'
-                          : '网关挂的模型名，如 claude-sonnet-4-5'}
-                      className="h-8 flex-1 rounded-md border bg-[var(--color-background)] px-2 text-sm"
-                    />
-                    <datalist id="claude-chat-provider-models">
-                      {shownNewModels.map(m => (
-                        <option key={m.value} value={m.value}>{m.displayName || m.value}</option>
-                      ))}
-                    </datalist>
-                  </div>
-                </div>
-              )}
-              {newProviderId !== '' && !providerModelsLoading && providerModels.length === 0 && (
-                <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                  没拉到模型目录{providerModelsError ? `：${providerModelsError}` : ''}。
-                  {isProviderAuthenticationError(providerModelsError)
-                    ? '请在「管理」中核对 API Key；手填模型无法绕过认证。'
-                    : '可直接手填模型名。'}
-                </p>
-              )}
-              {newProviderId !== '' && providerModels.length > 0 && (
-                <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
-                  已从网关拉到 {providerModels.length} 个模型，可下拉选择。
-                </p>
-              )}
-              {newProviderId !== '' && (
-                <p className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                  {newEngine === 'codex'
-                    ? '将使用第三方网关（OpenAI 兼容），不是本机 ~/.codex 官方登录。网关 baseURL 只填 host 即可，Codex 会自动补 /v1。'
-                    : providers.some(p => p.id === newProviderId && isOfficialDeepSeekBaseUrl(p.baseUrl))
-                      ? '将使用 DeepSeek 开放平台 Key；Claude 对话自动走 /anthropic，需选择实际可用的 DeepSeek 模型。'
-                      : '将使用第三方网关，不是 Claude Code 官方登录。'}
-                </p>
-              )}
-            </div>
-          )}
-          <div className="mt-4 flex justify-end border-t border-[var(--color-border)] pt-4">
-            <Button size="lg" className="w-full sm:w-auto" disabled={!!newSessionIssue} onClick={startNew}>开始会话</Button>
-          </div>
-        </div>
-      )}
+      </NewSessionPanel>}
       {panel === 'taskspace' && (
         <TaskspacePanel
-          onCreated={dir => { setNewCwd(dir); setPanel('new') }}
+          onCreated={dir => { void adoptNewWorkspace(dir) }}
           onClose={() => setPanel('none')}
         />
       )}
       {panel === 'clone' && (
         <CloneProjectPanel
-          onCloned={dir => { setNewCwd(dir); setPanel('new') }}
+          onCloned={dir => { void adoptNewWorkspace(dir) }}
           onClose={() => setPanel('none')}
         />
       )}
@@ -2153,6 +1909,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       )}
 
       {/* 主体：多会话分屏 / 单会话（左侧常驻会话导航 + 右侧消息流与输入） */}
+      <div className={panel === 'new' ? 'hidden' : 'contents'}>
       {viewMode === 'multi' ? (
         <MultiSessionView
           sessionIds={multiIds}
@@ -2709,6 +2466,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       )}
 
       {/* 本地用量弹层 */}
+      </div>
       {showUsage && <Suspense fallback={null}><UsagePanel onClose={() => setShowUsage(false)} session={sessionUsage} quotaContext={currentSession ? { ...currentSession, model: chat.currentModel } : undefined} quotaSessions={sessions} engineCatalog={engineCatalogQuery.data} /></Suspense>}
 
       {/* 可视化决策弹窗（仅单会话视图；分屏下各块自管弹窗） */}
@@ -2728,21 +2486,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
         />
       )}
     </div>
-  )
-}
-
-/** 平台筛选小胶囊（新建会话模型按平台二级筛选）。 */
-function PlatformChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={'rounded-full border px-2 py-0.5 text-[11px] ' + (active
-        ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
-        : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]')}
-    >
-      {children}
-    </button>
   )
 }
 

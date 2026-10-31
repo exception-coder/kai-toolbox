@@ -17,7 +17,8 @@ describe('new session local preferences', () => {
     expect(first.result.current.choice.model).toBe('current-model')
     act(() => first.result.current.remember('D:/work'))
     const stored = JSON.parse(localStorage.getItem(newSessionPreferenceKey(11))!)
-    expect(stored).toEqual({ version: 1, cwd: 'D:/work/kai-toolbox', workspaceRoot: 'D:/work', engine: 'codex', providerId: 'gateway' })
+    expect(stored).toEqual({ version: 1, cwd: 'D:/work/kai-toolbox', workspaceRoot: 'D:/work', engine: 'codex', providerId: 'gateway',
+      recent: { cwd: 'D:/work/kai-toolbox', workspaceRoot: 'D:/work', engine: 'codex', providerId: 'gateway' } })
     first.unmount()
     const second = renderHook(() => useNewSessionPreferences(11, [gateway]))
     expect(second.result.current.choice).toMatchObject(loadNewSessionPreferences(11).value)

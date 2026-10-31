@@ -16,31 +16,39 @@ export const newSessionPreferenceKey = (userId?: number) =>
   'kai-toolbox:claude-chat:new-session:v1:' + (userId ?? 'local')
 
 /** 只读白名单字段；不恢复凭据、会话标题、模型、执行策略或未知版本。 */
-export function loadNewSessionPreferences(userId?: number): { value: NewSessionPreferences; warning?: string } {
+export function loadNewSessionPreferences(userId?: number): { value: NewSessionPreferences; recent?: NewSessionPreferences; warning?: string } {
   try {
     const raw = localStorage.getItem(newSessionPreferenceKey(userId))
     if (!raw) return { value: emptyNewSessionPreferences() }
-    if (raw.length > 8192) throw new Error('too large')
+    if (raw.length > 16_384) throw new Error('too large')
     const data = JSON.parse(raw)
     if (!data || data.version !== 1 || !isKnownEngine(data.engine)
       || typeof data.workspaceRoot !== 'string' || data.workspaceRoot.length > 2048
       || typeof data.cwd !== 'string' || data.cwd.length > 2048
       || typeof data.providerId !== 'string' || data.providerId.length > 256) throw new Error('invalid')
-    return { value: { workspaceRoot: data.workspaceRoot.trim(), cwd: data.cwd.trim(),
-      engine: data.engine, providerId: supportsSessionProvider(data.engine) ? data.providerId : '' } }
+    const value = { workspaceRoot: data.workspaceRoot.trim(), cwd: data.cwd.trim(),
+      engine: data.engine, providerId: supportsSessionProvider(data.engine) ? data.providerId : '' }
+    const recent = data.recent
+    const validRecent = recent && isKnownEngine(recent.engine) && typeof recent.workspaceRoot === 'string'
+      && recent.workspaceRoot.length <= 2048 && typeof recent.cwd === 'string' && recent.cwd.length <= 2048
+      && typeof recent.providerId === 'string' && recent.providerId.length <= 256
+    return { value, recent: validRecent ? { workspaceRoot: recent.workspaceRoot.trim(), cwd: recent.cwd.trim(),
+      engine: recent.engine, providerId: supportsSessionProvider(recent.engine) ? recent.providerId : '' } : undefined }
   } catch {
     return { value: emptyNewSessionPreferences(), warning: '无法读取本地新建偏好，已使用默认选择；仍可手动新建。' }
   }
 }
 
 /** 仅保存目录、引擎和档案 ID；存储失败不阻断选择或会话。 */
-export function saveNewSessionPreferences(userId: number | undefined, value: NewSessionPreferences): string | undefined {
+export function saveNewSessionPreferences(userId: number | undefined, value: NewSessionPreferences, recent?: NewSessionPreferences): string | undefined {
   try {
     if (!isKnownEngine(value.engine) || value.workspaceRoot.length > 2048 || value.cwd.length > 2048
       || value.providerId.length > 256) return '当前目录或服务商标识过长，无法保存偏好；本次选择仍可使用。'
     localStorage.setItem(newSessionPreferenceKey(userId), JSON.stringify({
       version: 1, workspaceRoot: value.workspaceRoot.trim(), cwd: value.cwd.trim(), engine: value.engine,
       providerId: supportsSessionProvider(value.engine) ? value.providerId : '',
+      ...(recent ? { recent: { workspaceRoot: recent.workspaceRoot, cwd: recent.cwd, engine: recent.engine,
+        providerId: supportsSessionProvider(recent.engine) ? recent.providerId : '' } } : {}),
     }))
     return undefined
   } catch {
