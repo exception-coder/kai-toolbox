@@ -10,9 +10,14 @@ vi.mock('./workingDirectories', () => ({ browseWorkingDirectory: vi.fn() }))
 vi.mock('@/features/project-workspace/public-api', () => ({ registerWorkspaceRoot: vi.fn() }))
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(registerWorkspaceRoot).mockResolvedValue(undefined) })
 
+// 每次调用创建独立响应；只复用目录校验的准备方式，不共享用例状态。
+function mockBrowsableDirectory(path: string, parent: string) {
+  vi.mocked(browseWorkingDirectory).mockResolvedValue({ path, parent, directories: [], truncated: false })
+}
+
 it('reads persisted paths and preserves the latest server list when adding a canonical directory', async () => {
   vi.mocked(getDevPreference).mockResolvedValue({ directories: ['E:/existing'] })
-  vi.mocked(browseWorkingDirectory).mockResolvedValue({ path: 'D:\\work\\中文', parent: 'D:\\work', directories: [], truncated: false })
+  mockBrowsableDirectory('D:\\work\\中文', 'D:\\work')
   expect(await saveWorkingDirectory('D:/work/中文')).toEqual(['E:/existing', 'D:\\work\\中文'])
   expect(saveDevPreference).toHaveBeenCalledWith('vibe-working-directories', { directories: ['E:/existing', 'D:\\work\\中文'] })
   expect(getDevPreference).toHaveBeenCalledWith('vibe-working-directories')
@@ -21,7 +26,7 @@ it('reads persisted paths and preserves the latest server list when adding a can
 
 it('does not duplicate Windows slash, case or trailing slash variants', async () => {
   vi.mocked(getDevPreference).mockResolvedValue({ directories: ['D:/Work/'] })
-  vi.mocked(browseWorkingDirectory).mockResolvedValue({ path: 'd:\\work', parent: 'd:\\', directories: [], truncated: false })
+  mockBrowsableDirectory('d:\\work', 'd:\\')
   expect(await saveWorkingDirectory('d:\\work')).toEqual(['D:/Work/'])
   expect(saveDevPreference).not.toHaveBeenCalled()
   expect(registerWorkspaceRoot).toHaveBeenCalledWith('d:\\work')
@@ -34,7 +39,7 @@ it('never overwrites storage when validation, reading or payload decoding fails'
   vi.mocked(browseWorkingDirectory).mockRejectedValueOnce(new Error('目录已排除'))
   await expect(saveWorkingDirectory('D:/hidden')).rejects.toThrow('目录已排除')
   expect(getDevPreference).not.toHaveBeenCalled()
-  vi.mocked(browseWorkingDirectory).mockResolvedValue({ path: 'D:/work', parent: 'D:/', directories: [], truncated: false })
+  mockBrowsableDirectory('D:/work', 'D:/')
   vi.mocked(getDevPreference).mockRejectedValueOnce(new Error('读取失败'))
   await expect(saveWorkingDirectory('D:/work')).rejects.toThrow('读取失败')
   vi.mocked(getDevPreference).mockResolvedValue({ directories: 'broken' })
@@ -45,7 +50,7 @@ it('never overwrites storage when validation, reading or payload decoding fails'
 
 it('preserves preferences on registration failure and reports a partially saved workspace accurately', async () => {
   vi.mocked(getDevPreference).mockResolvedValue({ directories: ['E:/keep'] })
-  vi.mocked(browseWorkingDirectory).mockResolvedValue({ path: 'D:/projects', parent: 'D:/', directories: [], truncated: false })
+  mockBrowsableDirectory('D:/projects', 'D:/')
   vi.mocked(registerWorkspaceRoot).mockRejectedValueOnce(new Error('没有目录配置权限'))
   await expect(saveWorkingDirectory('D:/projects')).rejects.toThrow('没有目录配置权限')
   expect(saveDevPreference).not.toHaveBeenCalled()
@@ -64,7 +69,7 @@ it('handles a missing preference and enforces an explicit capacity limit', async
   vi.mocked(getDevPreference).mockResolvedValue(undefined)
   expect(await listSavedWorkingDirectories()).toEqual([])
   vi.mocked(getDevPreference).mockResolvedValue({ directories: Array.from({ length: 50 }, (_, i) => `D:/dir-${i}`) })
-  vi.mocked(browseWorkingDirectory).mockResolvedValue({ path: 'D:/new', parent: 'D:/', directories: [], truncated: false })
+  mockBrowsableDirectory('D:/new', 'D:/')
   await expect(saveWorkingDirectory('D:/new')).rejects.toThrow('最多保存 50')
   expect(saveDevPreference).not.toHaveBeenCalled()
 })

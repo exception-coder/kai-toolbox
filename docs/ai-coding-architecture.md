@@ -211,6 +211,22 @@ flowchart LR
     REFRESH_ROOT --> SELECT_ROOT["保留草稿，选中工作区及项目"]
 ```
 
+## 按需整理测试资产
+
+Kai 从 Yoooni 提交 `9dfa0377` 接入独立 [test-asset-cleanup Skill](../.agents/skills/workflow/test-asset-cleanup/SKILL.md)，只在历史测试审计、重复夹具整理或失效测试清理时使用。保留本项目 AGENTS 的验证、权限与提交约定，缺失的中台基础 Skill 链接改为本项目规则；不引入中台项目配置或整套平台模板，不给普通需求增加全仓审计。
+
+手动整理先核对被测行为、已有覆盖与发现入口，再做一小批定向验证；不能按数量删用例、降低断言或跳过失败。可选执行器默认只读预览，只有明确 `--run` 才会从基线建立独立工作树并产出候选提交，默认不推送、不合并、不部署、不注册调度。基线优先使用当前分支上游，不等于当前未提交工作区；启动前须确认基线已有 Skill。Kai 当前仅验证手动小批及预览，后台 Codex 写入、候选生成与定时执行均未验收，不通过关闭安全限制获得成功。
+
+```mermaid
+flowchart LR
+    TEST_REQUEST["明确的测试资产整理任务"] --> TEST_SKILL["读取本地 Skill 与 Kai 规则"]
+    TEST_SKILL --> TEST_COVERAGE["核对覆盖与入口"]
+    TEST_COVERAGE --> TEST_BATCH["一小批整理 · 保留独立风险断言"]
+    TEST_BATCH --> TEST_CHECK["定向验证与既有提交规则"]
+    TEST_SKILL -. "可选后台路径" .-> TEST_PREVIEW["默认只读预览"]
+    TEST_PREVIEW -->|"明确 --run · 核对基线"| TEST_CANDIDATE["独立工作树候选 · 不自动合入或部署"]
+```
+
 ## 会话配置复制与引擎连接
 
 普通“复制会话配置”是 Forge 元数据操作，不是模型任务。登录态 HTTP 命令按用户与持久请求编号，原子提交独立配置副本、Auth 链路、附加目录及回执；不依赖 Sidecar 就绪，不复制原生历史、队列或 Agent 写入权。浏览器先保存编号，再发请求，网络失败最多核对三次，刷新后仍可复用原结果。副本已删除明确告知，不按原编号自动重建；未提交事务不能报告创建成功。
