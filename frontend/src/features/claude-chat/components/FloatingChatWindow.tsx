@@ -296,7 +296,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
       label: '工作区 · 项目',
       items: [
         ...(chat.sessionId ? [{ icon: <FolderOpen className="size-4" />, label: '工作目录', hint: '展开目录·快速定位文件', onClick: () => openPanelFullscreen('filetree') }] : []),
-        ...(chat.sessionId ? [{ icon: <GitCommit className="size-4" />, label: '提交记录', hint: '当前目录 git 提交/diff', onClick: () => openLocal(() => setShowCommits(true)), local: true }] : []),
+        ...(chat.sessionId ? [{ icon: <GitCommit className="size-4" />, label: '代码与分支', hint: '当前仓库分支、同步与提交', onClick: () => openLocal(() => setShowCommits(true)), local: true }] : []),
         { icon: <FolderTree className="size-4" />, label: '合并工作区', hint: '软链接聚合多个目录', onClick: () => openPanelFullscreen('taskspace') },
         { icon: <GitBranch className="size-4" />, label: '拉取项目到工作区', hint: 'git clone 远端仓库', onClick: () => openPanelFullscreen('clone') },
         { icon: <ListChecks className="size-4" />, label: '项目初始化流水线', hint: '拉取→画像→知识图谱→聚合', onClick: () => openPanelFullscreen('onboard') },

@@ -93,11 +93,28 @@ public class GitLogService {
     }
 
     private List<CommitInfo> readCommits(Path dir, int limit, String head) {
+        return readCommits(dir, limit, head, 0);
+    }
+
+    /** 有界历史分页绑定首屏版本；分支变化时要求重新读取，避免拼接不同版本。 */
+    public List<CommitInfo> listCommitsPage(Path dir, int limit, String branch, int offset, String expectedHead) {
+        if (offset < 0 || offset > 1_000_000 || expectedHead == null || !HASH_RE.matcher(expectedHead).matches()) {
+            throw new IllegalArgumentException("历史分页参数无效，请刷新后重试");
+        }
+        String current = branch == null ? workspaceHead(dir) : listBranches(dir).stream()
+                .filter(candidate -> candidate.ref().equals(branch)).map(GitBranchRef::head).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("分支已不存在，请刷新"));
+        if (!expectedHead.equals(current)) throw new IllegalArgumentException("分支提交已变化，请刷新历史后继续");
+        return readCommits(dir, limit, current, offset);
+    }
+
+    private List<CommitInfo> readCommits(Path dir, int limit, String head, int offset) {
         int n = Math.max(1, Math.min(limit, props.getCommitLimitMax()));
         List<String> arguments = new ArrayList<>(List.of(
                 props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
                 "log", "-n", String.valueOf(n), "--no-color", "--pretty=format:" + LOG_PRETTY));
         if (head != null) arguments.add(head);
+        if (offset > 0) arguments.add("--skip=" + offset);
         arguments.add("--");
         Result r = exec(arguments);
         List<CommitInfo> out = new ArrayList<>();

@@ -1391,11 +1391,11 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
         <div className="cc-session-header-tail ml-auto flex shrink-0 items-center justify-end gap-1">
         {chat.sessionId && currentSession?.cwd && (
           <button type="button" onClick={event => { commitsReturnFocus.current = event.currentTarget; setShowCommits(true) }}
-            aria-label="关联工作目录与提交记录"
+            aria-label="代码与分支"
             title={[currentSession.cwd, ...linkedProjectPaths].join('\n')}
             className="hidden shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-[var(--color-muted)] md:inline-flex">
             <FolderGit2 className="size-3.5" />
-            <span className="hidden sm:inline">工作目录</span>
+            <span className="hidden sm:inline">代码与分支</span>
             <span>{linkedProjectPaths.length + 1}</span>
           </button>
         )}
@@ -1466,7 +1466,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               )}
               {chat.sessionId && (
                 <>
-                  <HeaderMenuItem nested icon={<GitCommit className="size-4" />} label="提交记录" hint={currentSession?.cwd ? `${linkedProjectPaths.length + 1} 个工作目录 · ${currentSession.cwd}` : '当前目录 Git 提交与差异'} onClick={() => { commitsReturnFocus.current = sessionToolsTriggerRef.current; setHeaderMenu(false); setShowCommits(true) }} />
+                  <HeaderMenuItem nested icon={<GitCommit className="size-4" />} label="代码与分支" hint={currentSession?.cwd ? `${linkedProjectPaths.length + 1} 个工作目录 · ${currentSession.cwd}` : '当前目录 Git 提交与差异'} onClick={() => { commitsReturnFocus.current = sessionToolsTriggerRef.current; setHeaderMenu(false); setShowCommits(true) }} />
                   <HeaderMenuItem nested icon={<GitBranch className="size-4" />} label="待提交文件" hint="git status · 查看未提交的改动" onClick={() => { setHeaderMenu(false); setShowGitStatus(true) }} />
                 </>
               )}

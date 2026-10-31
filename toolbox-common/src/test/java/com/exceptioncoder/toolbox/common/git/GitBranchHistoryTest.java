@@ -53,6 +53,16 @@ class GitBranchHistoryTest {
         assertThat(service.listCommits(directory, 50, "HEAD")).extracting(CommitInfo::subject).containsExactly("first");
     }
 
+    @Test void pagesOneFixedBranchVersionAndRejectsMixedHistory() throws Exception {
+        init(); commit("first"); commit("second"); commit("third");
+        String head = git("rev-parse", "HEAD").strip();
+        assertThat(service.listCommitsPage(directory, 1, "refs/heads/main", 1, head))
+                .extracting(CommitInfo::subject).containsExactly("second");
+        commit("fourth");
+        assertThatThrownBy(() -> service.listCommitsPage(directory, 1, "refs/heads/main", 2, head))
+                .hasMessageContaining("已变化");
+    }
+
     void init() throws Exception {
         git("init", "-b", "main"); git("config", "user.name", "Worker"); git("config", "user.email", "worker@example.test");
     }

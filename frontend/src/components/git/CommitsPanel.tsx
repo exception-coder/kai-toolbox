@@ -1,287 +1,286 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ChevronRight, FileText, Folder, GitBranch, GitCommit, MessageSquareText, RefreshCw, X } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, ChevronRight, Copy, FileText, Folder, GitBranch, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import * as Dialog from '@radix-ui/react-dialog'
 import { GitPushToolbar } from './GitPushToolbar'
-import type { CommitDiff, CommitInfo, GitRepoRef, GitBranchRef, GitPushActions, GitPullActions } from './types'
+import { GitBranchPicker } from './GitBranchPicker'
+import { GitStatusPanel } from './GitStatusPanel'
+import type { GitStatusResponse, GitFileDiffResponse } from './types'
+import type { CommitDiff, CommitInfo, GitRepoRef, GitBranchRef, GitPushActions, GitPullActions, GitWorkspaceActions, GitWorkspaceStatus, GitBranchSwitchPreview } from './types'
 
 interface Props {
-  /** 弹层标题（如项目名 / 会话目录名） */
   title: string
-  /** 拉取提交列表（repo 为可选子仓库定位，多仓库场景由本组件传入所选仓库） */
-  fetchCommits: (repo?: string, branch?: string) => Promise<CommitInfo[]>
-  /** 可选只读分支浏览；未提供时维持当前工作分支行为。 */
+  fetchCommits: (repo?: string, branch?: string, offset?: number, expectedHead?: string) => Promise<CommitInfo[]>
+  pageSize?: number
   fetchBranches?: (repo?: string) => Promise<GitBranchRef[]>
-  /** 拉取某提交 diff */
   fetchDiff: (hash: string, repo?: string) => Promise<CommitDiff>
   onClose: () => void
-  /**
-   * 可选：列出可查看的 git 仓库。用于「父目录当工作目录、子目录才是 git 仓库」的场景
-   * （taskspace 聚合 / 含多个项目的父目录）。返回 >1 个时顶部显示仓库切换；不传则按单仓（不带 repo）加载。
-   */
   fetchRepos?: () => Promise<GitRepoRef[]>
   pushActions?: GitPushActions
   pullActions?: GitPullActions
+  workspaceActions?: GitWorkspaceActions
+  fetchStatus?: (repo?: string) => Promise<GitStatusResponse>
+  fetchFileDiff?: (filePath: string, x: string, repo?: string) => Promise<GitFileDiffResponse>
   restoreFocus?: () => void
-  onManageRepos?: () => void
   initialRepo?: string
   onRepoChange?: (repo: string) => void
 }
 
-/**
- * 通用 git 提交记录弹层：列最近提交，点某条看其 diff。数据源由 fetchCommits/fetchDiff 注入，
- * 与具体后端接口解耦，供 projects（按 path）/ claude-chat（按 sessionId）等复用。
- * 提供 fetchRepos 时支持在会话 cwd 下的多个 git 子仓库间切换查看。
- */
-export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos, fetchBranches, pushActions, pullActions, restoreFocus, onManageRepos, initialRepo, onRepoChange }: Props) {
+/** 单一覆盖层中的仓库概览、分支选择、历史及 diff；工作目录管理由宿主独立提供。 */
+export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos, fetchBranches, pushActions, pullActions, workspaceActions, fetchStatus, fetchFileDiff, restoreFocus, initialRepo, onRepoChange, pageSize }: Props) {
   const returnFocus = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
-  const [repoRefresh, setRepoRefresh] = useState(0)
+  const callbacks = useRef({ fetchRepos, fetchBranches, fetchCommits, fetchDiff, workspaceActions })
+  callbacks.current = { fetchRepos, fetchBranches, fetchCommits, fetchDiff, workspaceActions }
   const [pushing, setPushing] = useState(false)
+  const [showChanges, setShowChanges] = useState(false)
   const [repos, setRepos] = useState<GitRepoRef[] | null>(null)
-  const [activeRepo, setActiveRepo] = useState<string | undefined>(undefined)
+  const [activeRepo, setActiveRepo] = useState<string>()
   const [branches, setBranches] = useState<GitBranchRef[] | null>(null)
   const [activeBranch, setActiveBranch] = useState<string>()
-  const [branchError, setBranchError] = useState<string | null>(null)
-  const [branchNotice, setBranchNotice] = useState('')
+  const [branchError, setBranchError] = useState('')
+  const [notice, setNotice] = useState('')
   const [commits, setCommits] = useState<CommitInfo[] | null>(null)
-  const [listErr, setListErr] = useState<string | null>(null)
+  const [listErr, setListErr] = useState('')
+  const [more, setMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [workspace, setWorkspace] = useState<GitWorkspaceStatus | null>(null)
+  const [workspaceError, setWorkspaceError] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [syncRevision, setSyncRevision] = useState(0)
+  const [switchPreview, setSwitchPreview] = useState<GitBranchSwitchPreview | null>(null)
+  const [view, setView] = useState<'overview' | 'branches' | 'history' | 'diff'>('overview')
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  const previousView = useRef(view)
+  useEffect(() => {
+    if (previousView.current !== view) titleRef.current?.focus({ preventScroll: true })
+    previousView.current = view
+  }, [view])
   const [diff, setDiff] = useState<CommitDiff | null>(null)
-  const [diffErr, setDiffErr] = useState<string | null>(null)
+  const [diffErr, setDiffErr] = useState('')
   const [diffLoading, setDiffLoading] = useState(false)
   const [selectedCommit, setSelectedCommit] = useState<CommitInfo | null>(null)
-  const listGeneration = useRef(0)
-  const diffGeneration = useRef(0)
-  const branchGeneration = useRef(0)
+  const listGeneration = useRef(0), diffGeneration = useRef(0), repositoryGeneration = useRef(0)
+  const busyRef = useRef(false)
+  const scroller = useRef<HTMLDivElement>(null)
+  const scrollPositions = useRef(new Map<string, number>())
+  const scrollKey = `${activeRepo ?? ''}:${activeBranch ?? ''}:${view}`
+  useLayoutEffect(() => { if (scroller.current) scroller.current.scrollTop = scrollPositions.current.get(scrollKey) ?? 0 }, [scrollKey, commits, diff])
+  const setBusy = useCallback((value: boolean) => { busyRef.current = value; setPushing(value) }, [])
 
-  // 载入某仓库的提交（repo=undefined 表示不带 repo：cwd 单仓 / projects 用法）
-  const loadCommits = useCallback((repo: string | undefined, branch?: string) => {
+  const loadCommits = useCallback(async (repo?: string, branch?: string) => {
     const current = ++listGeneration.current
     diffGeneration.current++
-    setDiffLoading(false)
-    setCommits(null); setListErr(null); setDiff(null); setDiffErr(null); setSelectedCommit(null)
-    fetchCommits(repo, branch)
-      .then(result => { if (current === listGeneration.current) setCommits(result) })
-      .catch(e => { if (current === listGeneration.current) setListErr(e instanceof Error ? e.message : String(e)) })
-  }, [fetchCommits])
+    setCommits(null); setListErr(''); setMore(false); setLoadingMore(false); setDiff(null); setDiffErr(''); setSelectedCommit(null); setDiffLoading(false)
+    try {
+      const result = await callbacks.current.fetchCommits(repo, branch)
+      if (current === listGeneration.current) { setCommits(result); setMore(!!pageSize && result.length === pageSize) }
+    } catch (error) { if (current === listGeneration.current) setListErr(message(error)) }
+  }, [pageSize])
 
-  const loadRepository = useCallback((repo: string | undefined, preferredBranch?: string) => {
-    const current = ++branchGeneration.current
+  const loadMore = async () => {
+    if (!commits?.length || loadingMore || busyRef.current) return
+    const current = ++listGeneration.current
+    setLoadingMore(true); setListErr('')
+    try {
+      const result = await callbacks.current.fetchCommits(activeRepo, activeBranch, commits.length, commits[0].hash)
+      if (current !== listGeneration.current) return
+      setCommits(previous => [...(previous ?? []), ...result]); setMore(result.length === pageSize)
+    } catch (error) { if (current === listGeneration.current) setListErr(message(error)) }
+    finally { if (current === listGeneration.current) setLoadingMore(false) }
+  }
+
+  const loadRepository = useCallback(async (repo?: string, preferred?: string, remote = false) => {
+    const current = ++repositoryGeneration.current
     listGeneration.current++; diffGeneration.current++
-    setBranches(null); setActiveBranch(undefined); setBranchError(null); setBranchNotice('')
-    setCommits(null); setListErr(null); setDiff(null); setDiffErr(null); setDiffLoading(false); setSelectedCommit(null)
-    if (!fetchBranches) { loadCommits(repo); return }
-    fetchBranches(repo).then(result => {
-      if (current !== branchGeneration.current) return
-      setBranches(result)
-      const selected = result.find(branch => branch.ref === preferredBranch) ?? result.find(branch => branch.current) ?? result[0]
-      if (preferredBranch && selected?.ref !== preferredBranch) setBranchNotice('原查看分支已不存在，已返回当前分支。')
+    setBranches(null); setBranchError(''); setWorkspace(null); setWorkspaceError(''); setActiveBranch(undefined)
+    setCommits(null); setListErr(''); setDiff(null); setDiffErr(''); setDiffLoading(false); setSelectedCommit(null)
+    setRefreshing(true)
+    // Remote refresh precedes reading refs, so the branch list and history share the fetched view.
+    try {
+      if (callbacks.current.workspaceActions) {
+        try {
+          const result = await callbacks.current.workspaceActions.status(repo, remote)
+          if (current !== repositoryGeneration.current) return
+          setWorkspace(result)
+        } catch (error) { if (current === repositoryGeneration.current) setWorkspaceError(message(error)) }
+      }
+      if (current !== repositoryGeneration.current) return
+      let selected: GitBranchRef | undefined
+      if (callbacks.current.fetchBranches) {
+        try {
+          const result = await callbacks.current.fetchBranches(repo)
+          if (current !== repositoryGeneration.current) return
+          setBranches(result)
+          selected = result.find(branch => branch.ref === preferred) ?? result.find(branch => branch.current) ?? result[0]
+          if (preferred && selected?.ref !== preferred) setNotice('原查看分支已不存在，已返回当前分支。')
+        } catch (error) { if (current === repositoryGeneration.current) setBranchError(message(error)) }
+      }
+      if (current !== repositoryGeneration.current) return
       setActiveBranch(selected?.ref)
-      loadCommits(repo, selected?.ref)
-    }).catch(error => {
-      if (current !== branchGeneration.current) return
-      setBranchError(error instanceof Error ? error.message : String(error))
-      // 兼容后端尚未更新或分支接口临时不可用，明确回落到当前工作分支。
-      loadCommits(repo)
-    })
-  }, [fetchBranches, loadCommits])
+      await loadCommits(repo, selected?.ref)
+    } finally { if (current === repositoryGeneration.current) setRefreshing(false) }
+  }, [loadCommits])
 
-  // 初始化：有 fetchRepos 则先取仓库列表、选第一个并载入；否则直接不带 repo 载入。
+  const loadRepos = useCallback(async () => {
+    const current = ++repositoryGeneration.current
+    setListErr(''); setCommits(null)
+    if (!callbacks.current.fetchRepos) { await loadRepository(undefined); return }
+    try {
+      const result = await callbacks.current.fetchRepos()
+      if (current !== repositoryGeneration.current) return
+      setRepos(result)
+      const first = result.find(repo => repo.name === initialRepo)?.name ?? result[0]?.name
+      setActiveRepo(first)
+      if (!result.length) setListErr('关联目录中没有 Git 仓库，可关闭后在工作区管理中检查目录。')
+      else await loadRepository(first)
+    } catch (error) { if (current === repositoryGeneration.current) setListErr(message(error)) }
+  }, [initialRepo, loadRepository])
+
   useEffect(() => {
-    let alive = true
-    listGeneration.current++
-    setListErr(null)
-    setCommits(null)
-    const dispose = () => { alive = false; branchGeneration.current++; listGeneration.current++; diffGeneration.current++ }
-    if (!fetchRepos) { loadRepository(undefined); return dispose }
-    fetchRepos()
-      .then(rs => {
-        if (!alive) return
-        setRepos(rs)
-        const first = rs.find(repo => repo.name === (activeRepo ?? initialRepo))?.name ?? rs[0]?.name
-        setActiveRepo(first)
-        if (rs.length === 0) setListErr('会话目录及其子目录都不是 git 仓库')
-        else loadRepository(first)
-      })
-      .catch(e => { if (alive) setListErr(e instanceof Error ? e.message : String(e)) })
-    return dispose
-    // 仅首次加载；fetchRepos/fetchCommits 由调用方 memo
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoRefresh])
+    void loadRepos()
+    return () => { repositoryGeneration.current++; listGeneration.current++; diffGeneration.current++ }
+  }, [loadRepos])
 
+  const refresh = async () => {
+    if (busyRef.current || refreshing) return
+    setBusy(true); setNotice(''); setSwitchPreview(null)
+    try { await loadRepository(activeRepo, activeBranch, true); setSyncRevision(value => value + 1) }
+    finally { setBusy(false) }
+  }
   const selectRepo = (name: string) => {
-    if (name === activeRepo) return
-    setActiveRepo(name)
-    onRepoChange?.(name)
-    loadRepository(name)
+    if (busyRef.current || name === activeRepo) return
+    setActiveRepo(name); onRepoChange?.(name); setView('overview'); setSwitchPreview(null); setNotice('')
+    void loadRepository(name)
   }
-
   const selectBranch = (ref: string) => {
-    if (ref === activeBranch) return
-    setActiveBranch(ref); setBranchNotice('')
-    loadCommits(activeRepo, ref)
+    if (busyRef.current) return
+    setActiveBranch(ref); setView('history'); setSwitchPreview(null); setNotice('')
+    void loadCommits(activeRepo, ref)
   }
-
-  const openDiff = (commit: CommitInfo) => {
+  const prepareSwitch = async (ref: string) => {
+    if (busyRef.current || !workspaceActions) return
+    setBusy(true); setNotice(''); setSwitchPreview(null)
+    try { setSwitchPreview(await workspaceActions.prepareSwitch(ref, activeRepo)) }
+    catch (error) { setNotice(message(error)) }
+    finally { setBusy(false) }
+  }
+  const executeSwitch = async () => {
+    if (busyRef.current || !workspaceActions || !switchPreview) return
+    setBusy(true)
+    try {
+      const result = await workspaceActions.switchBranch(switchPreview.ref, switchPreview.token, activeRepo)
+      setSwitchPreview(null); setView('overview'); setNotice(result.message)
+      await loadRepository(activeRepo); setSyncRevision(value => value + 1)
+    } catch (error) { setSwitchPreview(null); setNotice(`${message(error)}。请刷新核对实际分支，不会自动重试。`) }
+    finally { setBusy(false) }
+  }
+  const openDiff = async (commit: CommitInfo) => {
+    if (busyRef.current) return
     const current = ++diffGeneration.current
-    setSelectedCommit(commit)
-    setDiff(null)
-    setDiffErr(null)
-    setDiffLoading(true)
-    fetchDiff(commit.hash, activeRepo)
-      .then(result => { if (current === diffGeneration.current) setDiff(result) })
-      .catch(e => { if (current === diffGeneration.current) setDiffErr(e instanceof Error ? e.message : String(e)) })
-      .finally(() => { if (current === diffGeneration.current) setDiffLoading(false) })
+    setView('diff'); setSelectedCommit(commit); setDiff(null); setDiffErr(''); setDiffLoading(true)
+    try {
+      const result = await callbacks.current.fetchDiff(commit.hash, activeRepo)
+      if (current === diffGeneration.current) setDiff(result)
+    } catch (error) { if (current === diffGeneration.current) setDiffErr(message(error)) }
+    finally { if (current === diffGeneration.current) setDiffLoading(false) }
   }
+  const copyBranch = async (name: string) => {
+    try { await navigator.clipboard.writeText(name); setNotice('已复制分支名称') }
+    catch { setNotice('复制失败，可选中分支名称复制。') }
+  }
+  const back = () => {
+    diffGeneration.current++; setDiffLoading(false); setSwitchPreview(null)
+    setView(view === 'diff' ? 'history' : 'overview')
+  }
+  const currentBranch = branches?.find(branch => branch.current)
+  const viewedBranch = branches?.find(branch => branch.ref === activeBranch)
+  const viewingCurrent = !fetchBranches || !!branchError || !!viewedBranch?.current
+  const repoLabel = repos?.find(repo => repo.name === activeRepo)?.label ?? title
+  const ready = !fetchRepos || !!repos?.length
+  const showSync = ready && (view === 'overview' || (view === 'history' && viewingCurrent))
 
-  const backToList = () => { diffGeneration.current++; setDiffLoading(false); setDiff(null); setDiffErr(null); setSelectedCommit(null) }
-  const showingDiff = diff !== null || diffErr !== null || diffLoading
-  const viewingCurrentBranch = !fetchBranches || !!branchError || !!branches?.find(branch => branch.ref === activeBranch)?.current
-
-  return (
-    <Dialog.Root open onOpenChange={open => { if (!open && !pushing) onClose() }}>
-      <Dialog.Portal>
+  return <Dialog.Root open onOpenChange={open => { if (!open && !busyRef.current) onClose() }}>
+    <Dialog.Portal>
       <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-      <Dialog.Content
-        aria-describedby={undefined}
-        className="fixed left-1/2 top-1/2 z-50 flex max-h-[85dvh] w-[calc(100%-1.5rem)] max-w-3xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl border bg-[var(--color-background)] shadow-xl"
-        onPointerDownOutside={event => { if (pushing) event.preventDefault() }}
-        onEscapeKeyDown={event => { if (pushing) event.preventDefault() }}
-        onCloseAutoFocus={event => { event.preventDefault(); if (restoreFocus) restoreFocus(); else returnFocus.current?.focus() }}
-      >
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          {showingDiff && (
-            <button type="button" onClick={backToList} className="rounded-md p-1 hover:bg-[var(--color-muted)]" aria-label="返回列表">
-              <ArrowLeft className="size-4" />
-            </button>
-          )}
-          <GitCommit className="size-4 text-[var(--color-primary)]" />
-          <Dialog.Title className="truncate text-sm font-semibold">{title}</Dialog.Title>
-          <span className="truncate text-xs text-[var(--color-muted-foreground)]">
-            {showingDiff ? '提交详情' : '最近提交'}
-          </span>
-          <button type="button" onClick={onClose} disabled={pushing} className="ml-auto rounded-md p-1 hover:bg-[var(--color-muted)] disabled:opacity-50" aria-label="关闭">
-            <X className="size-4" />
-          </button>
-        </div>
-
-        {onManageRepos && <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
-          <span className="text-xs font-medium">关联工作目录</span>
-          <button type="button" disabled={pushing} onClick={onManageRepos}
-            className="rounded-md border px-3 py-1.5 text-xs hover:bg-[var(--color-muted)] disabled:opacity-50">管理关联目录</button>
-        </div>}
-        {/* 多个 git 子仓库（父目录当工作目录场景）：顶部切换要查看的仓库 */}
-        {repos && (repos.length > 1 || onManageRepos) && !showingDiff && (
-          <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
-            {repos.map(r => (
-              <button
-                key={r.name}
-                type="button"
-                onClick={() => selectRepo(r.name)}
-                disabled={pushing}
-                title={r.label}
-                aria-pressed={r.name === activeRepo}
-                className={cn(
-                  'inline-flex h-8 max-w-64 shrink-0 items-center rounded-md border px-3 text-xs leading-none',
-                  r.name === activeRepo
-                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
-                    : 'text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/40',
-                )}
-              >
-                <span className="truncate">{r.label}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {fetchBranches && (!fetchRepos || !!repos?.length) && !showingDiff && <section aria-label="分支浏览" className="min-w-0 border-b px-3 py-2">
-          <div className="flex items-center gap-2">
-            <GitBranch className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
-            <div role="group" aria-label="选择查看分支" className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
-              {branches?.map(branch => <button key={branch.ref} type="button" disabled={pushing} onClick={() => selectBranch(branch.ref)}
-                aria-pressed={activeBranch === branch.ref} title={branch.ref}
-                className={cn('inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs disabled:opacity-50',
-                  activeBranch === branch.ref ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]' : 'border-transparent hover:bg-[var(--color-muted)]')}>
-                <span className="max-w-56 truncate">{branch.name}</span>
-                {(branch.current || branch.remote) && <span className="text-[10px] text-[var(--color-muted-foreground)]">{branch.current ? '工作分支' : '远端'}</span>}
-              </button>)}
-              {!branches && !branchError && <span className="py-2 text-xs text-[var(--color-muted-foreground)]">读取分支…</span>}
+      <Dialog.Content aria-describedby={undefined}
+        className="fixed inset-x-0 bottom-0 z-50 flex max-h-[92dvh] min-h-0 flex-col overflow-hidden rounded-t-xl border bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)] sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:max-h-[85dvh] sm:w-[calc(100%-2rem)] sm:max-w-3xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl"
+        onPointerDownOutside={event => { if (busyRef.current) event.preventDefault() }}
+        onEscapeKeyDown={event => { if (busyRef.current) event.preventDefault() }}
+        onCloseAutoFocus={event => { event.preventDefault(); if (restoreFocus) restoreFocus(); else returnFocus.current?.focus() }}>
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+          {view !== 'overview' ? <button aria-label="返回列表" type="button" disabled={pushing} onClick={back} className="inline-flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--color-muted)] disabled:opacity-50"><ArrowLeft className="size-4" /></button> : <GitBranch className="size-4 shrink-0" />}
+          <Dialog.Title ref={titleRef} tabIndex={-1} className="min-w-0 flex-1 text-sm font-semibold">{view === 'branches' ? '选择分支' : view === 'history' ? '提交历史' : view === 'diff' ? '提交详情' : '代码与分支'}</Dialog.Title>
+          <button type="button" onClick={onClose} disabled={pushing} className="inline-flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--color-muted)] disabled:opacity-50" aria-label="关闭"><X className="size-4" /></button>
+        </header>
+        <div ref={scroller} onScroll={event => scrollPositions.current.set(scrollKey, event.currentTarget.scrollTop)} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {view === 'overview' && <section className="space-y-3 border-b px-4 py-3">
+            <div className="flex min-w-0 items-center justify-between gap-3 text-[13px]"><span className="shrink-0 text-[var(--color-muted-foreground)]">当前工作区</span><span className="min-w-0 break-all text-right font-medium">{repoLabel}</span></div>
+            {repos && repos.length > 1 && <div role="group" aria-label="选择仓库" className="flex flex-wrap gap-1">
+              {repos.map(repo => <button type="button" key={repo.name} disabled={pushing} aria-pressed={repo.name === activeRepo} onClick={() => selectRepo(repo.name)} className={cn('min-h-11 max-w-full rounded-md border px-3 py-2 text-left text-[13px] [overflow-wrap:anywhere]', repo.name === activeRepo && 'border-[var(--color-primary)] text-[var(--color-primary)]')}>{repo.label}</button>)}
+            </div>}
+            {fetchBranches && <div>
+              <div className="text-[13px] text-[var(--color-muted-foreground)]">当前分支</div>
+              <div className="flex min-w-0 items-start gap-1">
+                <span className="min-w-0 flex-1 break-all py-3 text-sm font-medium">{currentBranch?.name ?? workspace?.branch ?? (branchError ? '暂不可用' : '读取中…')}</span>
+                <button type="button" className="inline-flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--color-muted)] disabled:opacity-50" aria-label="复制当前分支名称" disabled={!currentBranch} onClick={() => { void copyBranch(currentBranch!.name) }}><Copy className="size-4" /></button>
+                <button type="button" className="min-h-11 shrink-0 whitespace-nowrap rounded-md border px-3 text-[13px] disabled:opacity-50" disabled={pushing || !branches} onClick={() => setView('branches')}>选择分支</button>
+              </div>
+            </div>}
+          </section>}
+          {branchError && <p role="alert" className="px-4 py-2 text-[13px] text-[var(--color-destructive)]">分支列表暂不可用，当前显示工作分支。{branchError}；可刷新重试。</p>}
+          {workspaceError && <p role="alert" className="px-4 py-2 text-[13px] text-[var(--color-destructive)]">同步状态未核验：{workspaceError}</p>}
+          {notice && <p role="status" className="break-words px-4 py-2 text-[13px]">{notice}</p>}
+          {!showSync && ready && view !== 'diff' && <button type="button" disabled={pushing || refreshing} onClick={() => void refresh()} className="mx-4 mt-3 min-h-11 rounded-md border px-3 text-[13px]">刷新状态</button>}
+          {showSync && pushActions && <GitPushToolbar key={activeRepo ?? ''} actions={pushActions} pullActions={pullActions} repo={activeRepo} workspace={workspace}
+            refreshKey={syncRevision} refreshing={refreshing} onRefresh={() => void refresh()} onPending={setBusy}
+            onShowChanges={fetchStatus && fetchFileDiff ? () => setShowChanges(true) : undefined} onShowHistory={() => setView('history')}
+            onPushed={() => { void loadRepository(activeRepo, activeBranch) }} onPulled={() => { void loadRepository(activeRepo, activeBranch) }} />}
+          {showSync && !pushActions && <button type="button" className="m-4 min-h-11 rounded-md border px-3 text-[13px]" disabled={pushing || refreshing} onClick={() => void refresh()}>刷新状态</button>}
+          {view === 'branches' && <GitBranchPicker branches={branches ?? []} busy={pushing} selected={activeBranch} canSwitch={!!workspaceActions && !!workspace}
+            onBrowse={selectBranch} onSwitch={ref => void prepareSwitch(ref)} onCopy={text => { void copyBranch(text) }} />}
+          {view === 'branches' && switchPreview && <section aria-label="确认切换分支" className="space-y-2 border-t px-4 py-3 text-[13px]">
+            <p className="break-all">从 {switchPreview.branch} 切换到 {switchPreview.localBranch}</p>
+            <p className="break-all">{switchPreview.tracking ? `新建本地分支并跟踪 ${switchPreview.tracking}` : '切换到已有本地分支'} · 目标 {switchPreview.targetHead.slice(0, 8)}</p>
+            <p>请先停止正在修改此仓库的 Agent；不会自动保存、暂存或覆盖本地改动。</p>
+            <div className="flex gap-2"><button type="button" disabled={pushing} onClick={() => void executeSwitch()} className="min-h-11 rounded-md border px-3">确认切换</button><button type="button" disabled={pushing} onClick={() => setSwitchPreview(null)} className="min-h-11 px-3">取消</button></div>
+          </section>}
+          {(view === 'overview' || view === 'history') && <section className="px-4 py-3">
+            <div className="mb-2 flex items-center justify-between gap-2"><h3 className="min-w-0 flex-1 break-all text-sm font-medium">{view === 'history' ? viewedBranch?.name ?? '当前分支' : '最近提交'}</h3>
+              {view === 'overview' && <button type="button" disabled={pushing} onClick={() => setView('history')} className="flex min-h-11 shrink-0 items-center gap-1 text-[13px]">查看全部<ChevronRight className="size-3" /></button>}
+              {view === 'history' && fetchBranches && <button type="button" disabled={pushing || !branches} onClick={() => setView('branches')} className="min-h-11 shrink-0 text-[13px]">选择分支</button>}
             </div>
-            <button type="button" aria-label="刷新分支和提交" onClick={() => loadRepository(activeRepo, activeBranch)} disabled={pushing || (!branches && !branchError)}
-              className="inline-flex size-10 shrink-0 items-center justify-center rounded-md hover:bg-[var(--color-muted)] disabled:opacity-50"><RefreshCw className="size-4" /></button>
-          </div>
-          {branchError ? <p role="alert" className="mt-1 break-words text-xs text-[var(--color-muted-foreground)]">分支列表暂不可用，当前显示工作分支。{branchError}；可刷新重试。</p>
-            : branches && <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">{viewingCurrentBranch ? '查看工作分支提交' : '只读查看，不切换工作分支'} · 远端分支为本地已获取记录</p>}
-          {branchNotice && <p role="status" className="mt-1 text-xs text-[var(--color-muted-foreground)]">{branchNotice}</p>}
-        </section>}
-
-        {pushActions && viewingCurrentBranch && (!fetchRepos || !!repos?.length) && <GitPushToolbar actions={pushActions} pullActions={pullActions} repo={activeRepo}
-          onPending={setPushing} onPushed={() => { if (!showingDiff) loadCommits(activeRepo, activeBranch) }}
-          onPulled={() => loadRepository(activeRepo, activeBranch)} />}
-
-        {!showingDiff && (
-          <div className="overflow-y-auto p-2">
-            {listErr && <div role="alert" className="p-3 text-sm text-[var(--color-destructive)]">{listErr}<button className="ml-3 underline" onClick={() => { if (repos?.length || !fetchRepos) loadRepository(activeRepo, activeBranch); else setRepoRefresh(value => value + 1) }}>重试</button></div>}
-            {!commits && !listErr && <div className="p-3 text-sm text-[var(--color-muted-foreground)]">加载中…</div>}
-            {commits?.length === 0 && <div className="p-3 text-sm text-[var(--color-muted-foreground)]">无提交记录</div>}
-            <ul className="flex flex-col">
-              {commits?.map(c => (
-                <li key={c.hash}>
-                  <button
-                    type="button"
-                    onClick={() => openDiff(c)}
-                    className="flex w-full flex-col gap-0.5 rounded-md px-2 py-2 text-left hover:bg-[var(--color-muted)]"
-                  >
-                    <span className="truncate text-sm">{c.subject}</span>
-                    {c.body && (
-                      <span className="line-clamp-2 whitespace-pre-line text-xs leading-relaxed text-[var(--color-muted-foreground)]">
-                        {c.body}
-                      </span>
-                    )}
-                    <span className="flex items-center gap-2 text-[11px] text-[var(--color-muted-foreground)]">
-                      <code className="font-mono">{c.shortHash}</code>
-                      <span className="truncate">{c.author}</span>
-                      <span className="ml-auto shrink-0">{formatDate(c.date)}</span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {showingDiff && (
-          <div className="flex min-h-0 flex-1 flex-col">
-            {diffLoading && <div className="p-3 text-sm text-[var(--color-muted-foreground)]">加载 diff…</div>}
-            {diffErr && <div className="p-3 text-sm text-[var(--color-destructive)]">{diffErr}</div>}
-            {diff && (
-              <>
-                <div className="space-y-2 border-b px-3 py-3">
-                  <div className="text-sm font-medium">{selectedCommit?.subject ?? diff.subject}</div>
-                  {selectedCommit?.body ? (
-                    <div className="flex items-start gap-2 rounded-lg border bg-[var(--color-muted)]/30 px-3 py-2">
-                      <MessageSquareText className="mt-0.5 size-4 shrink-0 text-[var(--color-muted-foreground)]" />
-                      <div className="max-h-40 min-w-0 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed">
-                        {selectedCommit.body}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-[var(--color-muted-foreground)]">该提交没有正文。</div>
-                  )}
-                  <div className="text-xs text-[var(--color-muted-foreground)]">
-                    <code className="font-mono">{diff.shortHash}</code> · {diff.author} · {formatDate(diff.date)}
-                    {diff.truncated && <span className="ml-2 text-[var(--color-destructive)]">（diff 过大，已截断）</span>}
-                  </div>
-                </div>
-                <DiffView key={diff.hash} text={diff.diff} />
-              </>
-            )}
-          </div>
-        )}
+            {view === 'history' && !viewingCurrent && <p className="mb-2 text-[13px] text-[var(--color-muted-foreground)]">只读查看，不切换工作分支 · 远端分支为本地已获取记录</p>}
+            {listErr && <div role="alert" className="break-words text-[13px] text-[var(--color-destructive)]">{listErr}<button className="ml-3 min-h-11 underline" disabled={pushing} onClick={() => { if (repos?.length || !fetchRepos) void loadRepository(activeRepo, activeBranch); else void loadRepos() }}>重试</button></div>}
+            {!commits && !listErr && <p className="py-3 text-[13px] text-[var(--color-muted-foreground)]">加载中…</p>}
+            {commits?.length === 0 && <p className="py-3 text-[13px] text-[var(--color-muted-foreground)]">无提交记录</p>}
+            <ul>{(view === 'overview' ? commits?.slice(0, 3) : commits)?.map(commit => <li key={commit.hash}>
+              <button type="button" disabled={pushing} onClick={() => void openDiff(commit)} className="flex w-full min-w-0 flex-col gap-1 rounded-md py-3 text-left hover:bg-[var(--color-muted)] disabled:opacity-50">
+                <span className="w-full break-words text-sm">{commit.subject}</span>
+                {view === 'history' && commit.body && <span className="line-clamp-2 whitespace-pre-line text-[13px] text-[var(--color-muted-foreground)]">{commit.body}</span>}
+                <span className="flex w-full flex-wrap gap-x-2 text-[13px] text-[var(--color-muted-foreground)]"><code>{commit.shortHash}</code><span>{formatDate(commit.date)}</span></span>
+              </button>
+            </li>)}</ul>
+            {view === 'history' && <p className="mt-2 text-[13px] text-[var(--color-muted-foreground)]">已显示 {commits?.length ?? 0} 条提交。</p>}
+            {view === 'history' && more && (!workspaceActions || !!workspace) && <button type="button" disabled={loadingMore || pushing} onClick={() => void loadMore()} className="mt-2 min-h-11 rounded-md border px-3 text-[13px]">{loadingMore ? '加载中…' : '加载更早提交'}</button>}
+          </section>}
+          {view === 'diff' && <div className="flex min-h-0 flex-col">
+            {diffLoading && <p className="p-4 text-[13px]">加载 diff…</p>}
+            {diffErr && <div role="alert" className="p-4 text-[13px] text-[var(--color-destructive)]">{diffErr}<button type="button" className="ml-2 min-h-11 underline" onClick={() => selectedCommit && void openDiff(selectedCommit)}>重试</button></div>}
+            {diff && <><div className="space-y-2 border-b p-4"><h3 className="break-words text-sm font-medium">{selectedCommit?.subject ?? diff.subject}</h3>
+              {selectedCommit?.body && <p className="whitespace-pre-wrap break-words text-[13px]">{selectedCommit.body}</p>}
+              <p className="break-words text-[13px] text-[var(--color-muted-foreground)]">{diff.shortHash} · {diff.author} · {formatDate(diff.date)}{diff.truncated && '（diff 过大，已截断）'}</p></div>
+              <DiffView key={diff.hash} text={diff.diff} /></>}
+          </div>}
+        </div>
+        {showChanges && fetchStatus && fetchFileDiff && <GitStatusPanel title={repoLabel}
+          fetchStatus={() => fetchStatus(activeRepo)} fetchFileDiff={(path, x) => fetchFileDiff(path, x, activeRepo)}
+          onClose={() => setShowChanges(false)} />}
       </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  )
+    </Dialog.Portal>
+  </Dialog.Root>
 }
+
+function message(error: unknown) { return error instanceof Error ? error.message : String(error) }
 
 interface FileDiff {
   path: string

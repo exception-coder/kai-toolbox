@@ -100,10 +100,13 @@ public class ClaudeChatGitController {
     public CommitsResponse commits(@PathVariable String id,
                                    @RequestParam(required = false) String repo,
                                    @RequestParam(required = false) Integer limit,
-                                   @RequestParam(required = false) String branch) {
+                                   @RequestParam(required = false) String branch,
+                                   @RequestParam(required = false) Integer offset,
+                                   @RequestParam(required = false) String expectedHead) {
         Path dir = repositories.resolve(id, repo);
         int lim = limit != null ? limit : gitProps.getCommitLimitDefault();
-        return new CommitsResponse(git.listCommits(dir, lim, branch));
+        return new CommitsResponse(offset == null || offset == 0 ? git.listCommits(dir, lim, branch)
+                : git.listCommitsPage(dir, lim, branch, offset, expectedHead));
     }
 
     /** 当前仓库的本地与已获取远端分支；浏览不会改变工作分支。 */

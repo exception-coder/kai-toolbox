@@ -97,3 +97,18 @@ export interface GitPullActions {
   prepare: (repo?: string) => Promise<GitPullPreview>
   pull: (token: string, repo?: string) => Promise<{ message: string }>
 }
+
+export interface GitWorkspaceStatus {
+  branch: string; head: string; upstream: string; ahead: number | null; behind: number | null
+  changes: number; remoteChecked: boolean; checkedAt: string; notice: string
+}
+
+export interface GitBranchSwitchPreview {
+  branch: string; head: string; ref: string; targetHead: string; localBranch: string; tracking: string; token: string
+}
+
+export interface GitWorkspaceActions {
+  status: (repo?: string, refreshRemote?: boolean) => Promise<GitWorkspaceStatus>
+  prepareSwitch: (ref: string, repo?: string) => Promise<GitBranchSwitchPreview>
+  switchBranch: (ref: string, token: string, repo?: string) => Promise<{ message: string }>
+}

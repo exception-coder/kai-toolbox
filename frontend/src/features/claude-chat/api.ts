@@ -11,6 +11,8 @@ import type {
   GitStatusResponse,
   GitPushPreview,
   GitPullPreview,
+  GitWorkspaceStatus,
+  GitBranchSwitchPreview,
 } from '@/components/git/types'
 import type { AutopilotChangeOption, AutopilotDashboard, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAutopilotRun, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
@@ -24,11 +26,13 @@ export function listSessionGitRepos(sessionId: string) {
 }
 
 /** 列会话工作目录(git 仓库)的最近提交。后端按 sessionId 解析 cwd；repo 指定子仓库（父目录聚合场景）。 */
-export function listSessionCommits(sessionId: string, limit?: number, repo?: string, branch?: string) {
+export function listSessionCommits(sessionId: string, limit?: number, repo?: string, branch?: string, offset?: number, expectedHead?: string) {
   const p = new URLSearchParams()
   if (limit) p.set('limit', String(limit))
   if (repo) p.set('repo', repo)
   if (branch) p.set('branch', branch)
+  if (offset) p.set('offset', String(offset))
+  if (expectedHead) p.set('expectedHead', expectedHead)
   const qs = p.toString() ? `?${p.toString()}` : ''
   return http<CommitsResponse>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/commits${qs}`)
 }
@@ -38,6 +42,24 @@ export function listSessionGitBranches(sessionId: string, repo?: string) {
   if (repo) p.set('repo', repo)
   const qs = p.size ? `?${p.toString()}` : ''
   return http<GitBranchRef[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/branches${qs}`)
+}
+
+export function getSessionGitWorkspace(sessionId: string, repo?: string, refreshRemote = false) {
+  const query = new URLSearchParams(repo ? { repo } : {})
+  return http<GitWorkspaceStatus>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/${refreshRemote ? 'workspace-refresh' : 'workspace'}?${query}`,
+    refreshRemote ? { method: 'POST' } : undefined)
+}
+
+export function prepareSessionBranchSwitch(sessionId: string, ref: string, repo?: string) {
+  const query = new URLSearchParams(repo ? { repo } : {})
+  return http<GitBranchSwitchPreview>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/switch-preview?${query}`,
+    { method: 'POST', body: JSON.stringify({ ref }) })
+}
+
+export function switchSessionBranch(sessionId: string, ref: string, token: string, repo?: string) {
+  const query = new URLSearchParams(repo ? { repo } : {})
+  return http<{ message: string }>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/switch?${query}`,
+    { method: 'POST', body: JSON.stringify({ ref, token }) })
 }
 
 /** 取会话目录某提交的 diff。repo 指定子仓库。 */

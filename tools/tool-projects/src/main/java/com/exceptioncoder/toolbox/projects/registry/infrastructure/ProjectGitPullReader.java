@@ -51,7 +51,7 @@ public class ProjectGitPullReader {
             }
         }
         if (!run(root, "status", "--porcelain=v1", "-z", "--untracked-files=normal").isEmpty()) {
-            throw new IllegalArgumentException("存在未提交或未跟踪文件，请先提交或自行处理后再拉取；不会自动暂存或覆盖");
+            throw new IllegalArgumentException("存在未提交或未跟踪文件，请先提交或自行处理后继续；不会自动暂存或覆盖");
         }
     }
 

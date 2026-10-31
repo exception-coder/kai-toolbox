@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { GitPushActions, GitPushPreview } from './types'
 
 /** 推送快照与执行反馈独立于拉取确认，保留已有推送语义。 */
-export function useGitPush({ actions, repo, onPending, onPushed }: {
-  actions: GitPushActions; repo?: string; onPending: (pending: boolean) => void; onPushed: () => void
+export function useGitPush({ actions, repo, onPending, onPushed, refreshKey }: {
+  actions: GitPushActions; repo?: string; onPending: (pending: boolean) => void; onPushed: () => void; refreshKey?: number
 }) {
   const callbacks = useRef({ actions, onPending, onPushed })
   callbacks.current = { actions, onPending, onPushed }
@@ -38,7 +38,7 @@ export function useGitPush({ actions, repo, onPending, onPushed }: {
     return () => { generation.current++ }
     // Repository identity owns this preview; callbacks may be recreated by the host.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repo])
+  }, [repo, refreshKey])
 
   async function push() {
     if (!preview || pending) return
