@@ -80,7 +80,7 @@ static 由原 PM2 前端进程提供生产资源，默认复用 `~/.vite-plugin-
 
 业务页面提示“新版已就绪”，可稍后或保存后确认刷新；刷新不取消服务器任务。仅无输入、无对话框、无已激活聊天引擎及已知写操作的可见首页，在 30 秒无交互后刷新一次。开发或没有版本元数据的旧页不启用检测。
 
-本机忽略配置支持 `FORGE_FRONTEND_MODE=static`、`FORGE_FRONTEND_AUTO_BUILD=false`（只手动发布）、`FORGE_FRONTEND_POLL_SECONDS=15`（5–300）。已有实例采用持久设置，修改配置本身不重启；模式切换参数会重新读取自动构建与轮询配置。静态服务不使用 vite preview 长期运行。本次尚未切换日常服务，公网手机性能待授权切换后验收。
+本机忽略配置支持 `FORGE_FRONTEND_MODE=static`、`FORGE_FRONTEND_AUTO_BUILD=false`（只手动发布）、`FORGE_FRONTEND_POLL_SECONDS=15`（5–300）。已有实例采用持久设置，修改配置本身不重启；模式切换参数会重新读取自动构建与轮询配置。静态服务不使用 vite preview 长期运行。2026-10-31 日常实例已经用户确认切换为 static，本机及公网资源版本、核心 HTTP 与稳定观察通过；登录态浏览器与公网手机性能尚待验收，辅助服务差异见[运行记录](../openspec/changes/serve-built-frontend/tasks.md)。
 
 ## 独立启动测量
 
