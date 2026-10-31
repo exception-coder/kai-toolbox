@@ -20,21 +20,44 @@ public class ReviewRequirementRepository {
 
     public List<ReviewRequirement> findByReviewSpaceId(String reviewSpaceId) {
         List<RequirementRow> rows = jdbc.query("""
-                SELECT id, review_space_id, source_message_id, title, content,
-                       revision, created_at, updated_at
-                  FROM claude_chat_review_requirement
-                 WHERE review_space_id = ? AND status = 'ACTIVE'
-                 ORDER BY created_at, id
+                SELECT r.id, r.review_space_id, r.source_message_id, r.title, r.content,
+                       r.revision, r.created_at, r.updated_at,
+                       CASE WHEN s.confirmed_revision=r.revision THEN s.confirmed_at ELSE NULL END AS confirmed_at
+                  FROM claude_chat_review_requirement r
+                  LEFT JOIN claude_chat_review_requirement_state s ON s.requirement_id=r.id AND s.review_space_id=r.review_space_id
+                 WHERE r.review_space_id = ? AND r.status = 'ACTIVE'
+                 ORDER BY r.created_at, r.id
                 """, (rs, rowNum) -> new RequirementRow(
                 rs.getString("id"), rs.getString("review_space_id"),
                 rs.getString("source_message_id"), rs.getString("title"),
                 rs.getString("content"), rs.getLong("revision"),
-                rs.getLong("created_at"), rs.getLong("updated_at")), reviewSpaceId);
+                rs.getLong("created_at"), rs.getLong("updated_at"),
+                rs.getObject("confirmed_at") == null ? null : rs.getLong("confirmed_at")), reviewSpaceId);
         Map<String, List<ReviewRequirement.Source>> sources = findSources(reviewSpaceId);
         return rows.stream().map(row -> new ReviewRequirement(
                 row.id(), row.reviewSpaceId(), row.sourceMessageId(), row.title(), row.content(),
                 row.revision(), row.createdAt(), row.updatedAt(),
-                sources.getOrDefault(row.id(), List.of()))).toList();
+                sources.getOrDefault(row.id(), List.of()), row.confirmedAt() != null, row.confirmedAt())).toList();
+    }
+
+    public boolean confirm(String space, String id, long revision, boolean confirmed, long now) {
+        if (!confirmed) {
+            if (findByReviewSpaceId(space).stream().noneMatch(r -> r.id().equals(id) && r.revision() == revision)) return false;
+            jdbc.update("DELETE FROM claude_chat_review_requirement_state WHERE review_space_id=? AND requirement_id=?", space, id);
+            return true;
+        }
+        return jdbc.update("""
+                INSERT INTO claude_chat_review_requirement_state(requirement_id,review_space_id,confirmed_revision,confirmed_at)
+                SELECT id,review_space_id,revision,? FROM claude_chat_review_requirement
+                WHERE review_space_id=? AND id=? AND revision=? AND status='ACTIVE'
+                ON CONFLICT(requirement_id) DO UPDATE SET confirmed_revision=excluded.confirmed_revision,
+                    confirmed_at=CASE WHEN confirmed_revision=excluded.confirmed_revision THEN confirmed_at ELSE excluded.confirmed_at END
+                """, now, space, id, revision) == 1;
+    }
+
+    public boolean removeExpected(String space, String id, long revision, long now) {
+        return jdbc.update("UPDATE claude_chat_review_requirement SET status='REMOVED',revision=revision+1,updated_at=? WHERE review_space_id=? AND id=? AND revision=? AND status='ACTIVE'",
+                now, space, id, revision) == 1;
     }
 
     public boolean hasProcessedSource(String reviewSpaceId, String sourceMessageId) {
@@ -48,6 +71,10 @@ public class ReviewRequirementRepository {
                 """, Integer.class, reviewSpaceId, sourceMessageId,
                 reviewSpaceId, sourceMessageId);
         return processed != null && processed > 0;
+    }
+    public List<String> processedSources(String space) {
+        return jdbc.queryForList("SELECT source_message_id FROM claude_chat_review_requirement_source WHERE review_space_id=? UNION SELECT source_message_id FROM claude_chat_review_requirement WHERE review_space_id=?",
+                String.class, space, space);
     }
 
     public ReviewRequirement findActiveBySourceMessageId(String reviewSpaceId, String sourceMessageId) {
@@ -83,6 +110,7 @@ public class ReviewRequirementRepository {
                 UPDATE claude_chat_review_requirement
                    SET title = ?, content = ?, updated_at = ?
                  WHERE id = ? AND review_space_id = ? AND status = 'ACTIVE' AND revision = 1
+                   AND NOT EXISTS(SELECT 1 FROM claude_chat_review_requirement_state s WHERE s.requirement_id=claude_chat_review_requirement.id AND s.confirmed_revision=claude_chat_review_requirement.revision)
                 """, title, content, now, id, reviewSpaceId) > 0;
     }
 
@@ -123,6 +151,7 @@ public class ReviewRequirementRepository {
     }
 
     public void deleteByReviewSpaceId(String reviewSpaceId) {
+        jdbc.update("DELETE FROM claude_chat_review_requirement_state WHERE review_space_id = ?", reviewSpaceId);
         jdbc.update("DELETE FROM claude_chat_review_requirement_source WHERE review_space_id = ?", reviewSpaceId);
         jdbc.update("DELETE FROM claude_chat_review_requirement WHERE review_space_id = ?", reviewSpaceId);
     }
@@ -167,7 +196,7 @@ public class ReviewRequirementRepository {
 
     private record RequirementRow(String id, String reviewSpaceId, String sourceMessageId,
                                   String title, String content, long revision,
-                                  long createdAt, long updatedAt) {
+                                  long createdAt, long updatedAt, Long confirmedAt) {
     }
 
     private record SourceRow(String requirementId, String sourceMessageId, String sourceText,

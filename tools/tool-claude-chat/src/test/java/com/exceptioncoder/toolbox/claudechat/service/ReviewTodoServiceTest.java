@@ -30,6 +30,7 @@ class ReviewTodoServiceTest {
     ClaudeChatSessionAccessPolicy access;
     ClaudeChatSessionRepository sessions;
     SessionPlanStateService plans;
+    ReviewFeedbackRepository feedback;
     ReviewSpace space;
 
     @BeforeEach void prepare() {
@@ -42,15 +43,16 @@ class ReviewTodoServiceTest {
         tasks = new ReviewTodoRepository(jdbc);
         spaces = mock(ReviewSpaceService.class); requirements = mock(ReviewRequirementRepository.class);
         sessions = mock(ClaudeChatSessionRepository.class); access = mock(ClaudeChatSessionAccessPolicy.class); plans = mock(SessionPlanStateService.class);
-        when(sessions.findById("source")).thenReturn(Optional.of(ClaudeChatSession.builder().id("source").executionPolicy("standard").build()));
+        when(sessions.findById("source")).thenReturn(Optional.of(ClaudeChatSession.builder().id("source").cwd("D:/work/project").executionPolicy("standard").build()));
         when(access.canAccessCurrentUser("source")).thenReturn(true); when(plans.writable("source")).thenReturn(true);
         receipts = proxy(new QueueDeliveryStore(jdbc, event -> { if (event instanceof QueueTaskProgressEvent p) tasks.progress(p.sessionId(), p.messageId(), p.status(), p.note()); }));
         queue = proxy(new QueuedChatMessageService(new QueuedChatMessageRepository(jdbc, new ObjectMapper()), sessions, event -> { }, receipts));
-        service = proxy(new ReviewTodoService(spaces, requirements, mock(ReviewFeedbackRepository.class), tasks, sessions, access, queue, receipts, plans));
+        feedback = new ReviewFeedbackRepository(jdbc);
+        service = proxy(new ReviewTodoService(spaces, requirements, feedback, tasks, sessions, access, queue, receipts, plans));
         space = new ReviewSpace("space", "source", "review", "SAFE_SNAPSHOT", "hash", "cipher", "ACTIVE", "评审", "", Long.MAX_VALUE, 1, 1);
         when(spaces.resolve("token")).thenReturn(Optional.of(space));
-        when(spaces.submitFeedback(anyString(), anyString(), anyString(), anyList())).thenAnswer(invocation -> new ReviewFeedback(
-                "feedback", "space", "source", "review", invocation.getArgument(1), invocation.getArgument(2), "PENDING", 1, null));
+        when(spaces.submitFeedback(anyString(), anyString(), anyString(), anyList())).thenAnswer(invocation -> feedback.insertOrFind(new ReviewFeedback(
+                UUID.randomUUID().toString(), "space", "source", "review", invocation.getArgument(1), invocation.getArgument(2), "PENDING", 1, null)));
     }
     @AfterEach void close() { source.destroy(); }
     @SuppressWarnings("unchecked") <T> T proxy(T target) {
@@ -58,7 +60,7 @@ class ReviewTodoServiceTest {
         factory.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(source), new AnnotationTransactionAttributeSource()));
         return (T) factory.getProxy();
     }
-    ReviewRequirement requirement(String id, long revision) { return new ReviewRequirement(id, "space", "message-" + id, id + " 标题", "验收：" + id, revision, 1, 1); }
+    ReviewRequirement requirement(String id, long revision) { return new ReviewRequirement(id, "space", "message-" + id, id + " 标题", "验收：" + id, revision, 1, 1, List.of(), true, 1L); }
     void submit(ReviewRequirement... items) {
         when(requirements.findByReviewSpaceId("space")).thenReturn(List.of(items));
         service.submit("token", "不可作为开发指令", "summary", List.of(), Arrays.stream(items).map(r -> new ReviewTodoService.Selection(r.id(), r.revision())).toList(), true);
@@ -69,6 +71,11 @@ class ReviewTodoServiceTest {
         submit(requirement("字段", 1), requirement("页面", 1)); submit(requirement("字段", 1), requirement("页面", 1));
         assertThat(service.list("source")).hasSize(2).allMatch(t -> t.status().equals("WAITING"));
         assertThat(queue.list("source")).isEmpty();
+        assertThat(service.submissions("token")).hasSize(1).allMatch(record -> record.targetProject().equals("project") && record.submittedBy().contains("未登录"));
+        var receipt = service.submissions("token").getFirst();
+        assertThat(receipt.content()).isNull(); // 轮询只读元数据，不反复传输全部正文。
+        assertThat(service.submission("token", receipt.id()).content()).contains("验收：字段", "需求 ID");
+        assertThatThrownBy(() -> service.submission("token", "foreign-submission")).hasMessageContaining("不属于");
         var selection = selections(service.list("source"));
         service.approve("source", selection, true); service.approve("source", selection, true);
         assertThat(queue.list("source")).hasSize(1);
@@ -131,5 +138,13 @@ class ReviewTodoServiceTest {
         assertThat(queue.list("source")).isEmpty();
         assertThat(receipts.runtime("source")).isEmpty();
         assertThat(tasks.list("source")).allMatch(task -> "WAITING".equals(task.status()) && task.messageId() == null);
+    }
+
+    @Test void unconfirmedOrLegacySubmissionCannotCreateSourceTodos() {
+        when(requirements.findByReviewSpaceId("space")).thenReturn(List.of(new ReviewRequirement("unconfirmed", "space", "source-message", "未确认", "内容", 1, 1, 1)));
+        assertThatThrownBy(() -> service.submit("token", "内容", null, List.of(), List.of(new ReviewTodoService.Selection("unconfirmed", 1)), false)).hasMessageContaining("先在需求清单确认");
+        assertThatThrownBy(() -> service.submit("token", "旧客户端原文", null, List.of(), null, false)).hasMessageContaining("版本无效");
+        assertThat(service.list("source")).isEmpty();
+        assertThat(service.submissions("token")).isEmpty();
     }
 }

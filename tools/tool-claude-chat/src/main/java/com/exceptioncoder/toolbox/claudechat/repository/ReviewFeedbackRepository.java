@@ -73,7 +73,7 @@ public class ReviewFeedbackRepository {
                 status, handledAt, id) > 0;
     }
 
-    private List<ReviewFeedback> findByMessage(String reviewSpaceId, String sourceMessageId) {
+    public List<ReviewFeedback> findByMessage(String reviewSpaceId, String sourceMessageId) {
         return jdbc.query("SELECT " + COLUMNS + " FROM claude_chat_review_feedback "
                         + "WHERE review_space_id = ? AND source_message_id = ?",
                 ROW, reviewSpaceId, sourceMessageId);

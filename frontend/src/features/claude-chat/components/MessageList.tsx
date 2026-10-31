@@ -63,6 +63,7 @@ interface Props {
   assistantAvatarAlt?: string
   /** 公开评审页为业务人员消息补充轻量分类标记。 */
   getUserMessageBadge?: (item: Extract<ChatItem, { kind: 'user' }>) => UserMessageBadge | null
+  renderAssistantAction?: (item: Extract<ChatItem, { kind: 'assistant' }>) => ReactNode
 }
 
 interface UserMessageBadge {
@@ -161,7 +162,7 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
 export const MessageList = memo(forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, mobileWorkspace = false, executionInDock = false, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge },
+  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, mobileWorkspace = false, executionInDock = false, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
@@ -333,8 +334,9 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
         onOpenImage={(src, alt) => setViewer({ src, alt })}
         turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
+      {item.kind === 'assistant' && renderAssistantAction?.(item)}
     </div>
-  ), [highlightedId, onFork, openCard, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, compactMobile, mobileWorkspace, liveReplyIds])
+  ), [highlightedId, onFork, openCard, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, compactMobile, mobileWorkspace, liveReplyIds])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {

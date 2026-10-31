@@ -615,6 +615,8 @@ export interface PublicReviewRequirement {
   revision: number
   createdAt: number
   updatedAt: number
+  confirmed?: boolean
+  confirmedAt?: number | null
   sources: Array<{
     sourceMessageId: string
     sourceText: string
@@ -691,13 +693,13 @@ export function handleReviewFeedback(id: string, status: 'CONSUMED' | 'DISMISSED
 }
 
 export async function submitPublicReviewFeedback(token: string, content: string, sourceMessageId?: string,
-                                                 coveredSourceMessageIds?: string[], requirements?: Array<{ id: string; version: number }>, fullSnapshot = false) {
+                                                 coveredSourceMessageIds?: string[], requirements?: Array<{ id: string; version: number }>, fullSnapshot = false, targetProject?: string) {
   const response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content, sourceMessageId, coveredSourceMessageIds, requirements, fullSnapshot }),
+    body: JSON.stringify({ content, sourceMessageId, coveredSourceMessageIds, requirements, fullSnapshot, targetProject }),
   })
-  if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效' : '提交评审结论失败')
+  if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效' : response.status === 409 ? '需求版本已变化或尚未确认，请刷新清单核对后重试' : '提交结果未确认，清单已保留，请核对交付记录后重试')
   return response.json() as Promise<{ id: string; status: string; createdAt: number }>
 }
 
@@ -749,11 +751,35 @@ export function listPublicReviewRequirements(token: string) {
     `/claude-chat/reviews/public/${encodeURIComponent(token)}/requirements`,
   )
 }
+export function getPublicReviewBacklog(token: string) {
+  return http<{ items: PublicReviewRequirement[]; processedSources: string[] }>(`/claude-chat/reviews/public/${encodeURIComponent(token)}/backlog`)
+}
+export interface PublicReviewDelivery {
+  targetProject: string
+  tasks: PublicReviewTodoProgress[]
+  submissions: Array<{ id: string; submittedBy: string; targetProject: string; createdAt: number; content: string | null }>
+}
+export function getPublicReviewDelivery(token: string) {
+  return http<PublicReviewDelivery>(`/claude-chat/reviews/public/${encodeURIComponent(token)}/delivery`)
+}
+export function getPublicReviewSubmission(token: string, id: string) {
+  return http<PublicReviewDelivery['submissions'][number]>(`/claude-chat/reviews/public/${encodeURIComponent(token)}/delivery/${encodeURIComponent(id)}`)
+}
+export function confirmPublicReviewRequirement(token: string, item: PublicReviewRequirement, confirmed: boolean) {
+  return http<PublicReviewRequirement>(`/claude-chat/reviews/public/${encodeURIComponent(token)}/requirements/${encodeURIComponent(item.id)}/confirmation`, {
+    method: 'POST', body: JSON.stringify({ revision: item.revision, confirmed }),
+  })
+}
+export function mergePublicReviewRequirements(token: string, target: PublicReviewRequirement, source: PublicReviewRequirement, title: string, content: string) {
+  return http<PublicReviewRequirement[]>(`/claude-chat/reviews/public/${encodeURIComponent(token)}/requirements/${encodeURIComponent(target.id)}/merge`, {
+    method: 'POST', body: JSON.stringify({ sourceId: source.id, sourceRevision: source.revision, targetRevision: target.revision, title, content }),
+  })
+}
 
 export function synchronizePublicReviewRequirements(token: string, items: ReviewRequirementDraft[]) {
   return http<PublicReviewRequirement[]>(
     `/claude-chat/reviews/public/${encodeURIComponent(token)}/requirements/sync`,
-    { method: 'PUT', body: JSON.stringify({ items }) },
+    { method: 'PUT', body: JSON.stringify({ items, explicit: true }) },
   )
 }
 

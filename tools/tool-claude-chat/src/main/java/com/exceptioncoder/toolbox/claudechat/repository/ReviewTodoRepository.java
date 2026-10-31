@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.repository;
 
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewTodo;
+import com.exceptioncoder.toolbox.claudechat.domain.ReviewSubmission;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -25,6 +26,24 @@ public class ReviewTodoRepository {
     }
     public Optional<ReviewTodo> find(String source, String id) {
         return jdbc.query("SELECT * FROM claude_chat_review_todo WHERE source_session_id=? AND id=?", ROW, source, id).stream().findFirst();
+    }
+    public void recordSubmission(String space, ReviewSubmission submission) {
+        jdbc.update("INSERT OR IGNORE INTO claude_chat_review_submission(feedback_id,review_space_id,submitted_by,target_project,created_at) VALUES(?,?,?,?,?)",
+                submission.id(), space, submission.submittedBy(), submission.targetProject(), submission.createdAt());
+    }
+    public List<ReviewSubmission> submissions(String space) {
+        return jdbc.query("""
+                SELECT s.feedback_id,s.submitted_by,s.target_project,s.created_at,NULL
+                FROM claude_chat_review_submission s JOIN claude_chat_review_feedback f ON f.id=s.feedback_id AND f.review_space_id=s.review_space_id
+                WHERE s.review_space_id=? ORDER BY s.created_at DESC,s.feedback_id LIMIT 50
+                """, (rs, n) -> new ReviewSubmission(rs.getString(1), rs.getString(2), rs.getString(3), rs.getLong(4), rs.getString(5)), space);
+    }
+    public Optional<ReviewSubmission> submission(String space, String id) {
+        return jdbc.query("""
+                SELECT s.feedback_id,s.submitted_by,s.target_project,s.created_at,f.content
+                FROM claude_chat_review_submission s JOIN claude_chat_review_feedback f ON f.id=s.feedback_id AND f.review_space_id=s.review_space_id
+                WHERE s.review_space_id=? AND s.feedback_id=?
+                """, (rs, n) -> new ReviewSubmission(rs.getString(1), rs.getString(2), rs.getString(3), rs.getLong(4), rs.getString(5)), space, id).stream().findFirst();
     }
     public void register(ReviewTodo task) {
         jdbc.update("UPDATE claude_chat_review_todo SET status='SUPERSEDED',note='评审已提交新版需求，旧版尚未执行',updated_at=? "

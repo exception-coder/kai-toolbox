@@ -29,6 +29,15 @@ public class ReviewTodoController {
     public List<PublicTask> publicTasks(@PathVariable String token) {
         return service.publicList(token).stream().map(PublicTask::from).toList();
     }
+    @GetMapping("/reviews/public/{token}/delivery")
+    public DeliveryContext delivery(@PathVariable String token) {
+        return new DeliveryContext(service.targetProject(token), service.submissions(token), publicTasks(token));
+    }
+    public record DeliveryContext(String targetProject, List<com.exceptioncoder.toolbox.claudechat.domain.ReviewSubmission> submissions, List<PublicTask> tasks) { }
+    @GetMapping("/reviews/public/{token}/delivery/{id}")
+    public com.exceptioncoder.toolbox.claudechat.domain.ReviewSubmission submission(@PathVariable String token, @PathVariable String id) {
+        return service.submission(token, id);
+    }
     public record Confirm(List<ReviewTodoService.Selection> items, boolean merge) { }
     public record Import(List<String> feedbackIds) { }
     public record Edit(long version, String title, String content) { }

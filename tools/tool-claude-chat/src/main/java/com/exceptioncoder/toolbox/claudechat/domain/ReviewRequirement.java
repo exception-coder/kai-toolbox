@@ -14,10 +14,18 @@ import java.util.List;
  * @param createdAt 创建时间
  * @param updatedAt 最近更新时间
  * @param sources 形成当前需求的对话来源证据
+ * @param confirmed 当前正文版本是否已由人工确认
+ * @param confirmedAt 当前版本的首次确认时间，未确认时为空
  */
 public record ReviewRequirement(String id, String reviewSpaceId, String sourceMessageId,
                                 String title, String content, long revision,
-                                long createdAt, long updatedAt, List<Source> sources) {
+                                long createdAt, long updatedAt, List<Source> sources,
+                                boolean confirmed, Long confirmedAt) {
+
+    public ReviewRequirement(String id, String reviewSpaceId, String sourceMessageId,
+                             String title, String content, long revision, long createdAt, long updatedAt, List<Source> sources) {
+        this(id, reviewSpaceId, sourceMessageId, title, content, revision, createdAt, updatedAt, sources, false, null);
+    }
 
     public ReviewRequirement(String id, String reviewSpaceId, String sourceMessageId,
                              String title, String content, long revision,

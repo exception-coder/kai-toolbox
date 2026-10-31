@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.ReviewFeedback;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewRequirement;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewSpace;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewTodo;
+import com.exceptioncoder.toolbox.claudechat.domain.ReviewSubmission;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.QueueDeliveryStore;
 import com.exceptioncoder.toolbox.claudechat.repository.ReviewFeedbackRepository;
@@ -43,33 +44,46 @@ public class ReviewTodoService {
 
     public List<ReviewTodo> list(String source) { requireSource(source, false); return tasks.list(source); }
     public List<ReviewTodo> publicList(String token) { return tasks.publicList(space(token).id()); }
+    public List<ReviewSubmission> submissions(String token) { return tasks.submissions(space(token).id()); }
+    public ReviewSubmission submission(String token, String id) {
+        return tasks.submission(space(token).id(), id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "提交记录不属于本评审或已移除"));
+    }
+    public String targetProject(String token) {
+        return projectName(sessions.findById(space(token).sourceSessionId()).orElseThrow(() -> conflict("目标开发会话不存在")).getCwd());
+    }
+    private static String projectName(String cwd) {
+        if (cwd == null || cwd.isBlank()) throw conflict("目标项目目录未登记，暂不能提交");
+        String normalized = cwd.replace('\\', '/').replaceAll("/+$", "");
+        return normalized.substring(normalized.lastIndexOf('/') + 1);
+    }
 
     @Transactional
     public ReviewFeedback submit(String token, String content, String sourceMessageId, List<String> covered,
                                  List<Selection> selections, boolean fullSnapshot) {
         ReviewSpace space = space(token);
+        validateSelections(selections, false);
+        sourceMessageId = "confirmed-list-v2:" + UUID.nameUUIDFromBytes(selections.stream()
+                .map(item -> item.id() + ":" + item.version()).sorted().reduce("", (left, right) -> left + "|" + right).getBytes(StandardCharsets.UTF_8));
+        var existing = feedback.findByMessage(space.id(), sourceMessageId);
+        if (!existing.isEmpty()) return existing.getFirst();
         List<ReviewRequirement> selected = new ArrayList<>();
-        if (selections != null) {
-            validateSelections(selections, true);
-            List<ReviewRequirement> current = requirements.findByReviewSpaceId(space.id());
-            for (Selection selection : selections) {
-                selected.add(current.stream().filter(r -> r.id().equals(selection.id()) && r.revision() == selection.version())
-                        .findFirst().orElseThrow(() -> conflict("评审需求已更新，请刷新后重新提交")));
-            }
-            if (fullSnapshot && selected.size() != current.size()) throw conflict("完整清单已变化，请刷新后重试");
-            content = selected.isEmpty() ? "# 计划评审需求清单\n\n当前没有保留的有效需求。"
-                    : String.join("\n\n", selected.stream().map(r -> "## " + r.title() + "\n\n" + r.content()).toList());
+        List<ReviewRequirement> current = requirements.findByReviewSpaceId(space.id());
+        for (Selection selection : selections) {
+            selected.add(current.stream().filter(r -> r.id().equals(selection.id()) && r.revision() == selection.version())
+                    .findFirst().orElseThrow(() -> conflict("评审需求已更新，请刷新后重新提交")));
         }
+        if (selected.stream().anyMatch(item -> !item.confirmed())) throw conflict("请先在需求清单确认当前版本，再提交开发");
+        content = String.join("\n\n", selected.stream().map(r -> "## " + r.title() + "\n需求 ID：" + r.id() + " · 第 " + r.revision() + " 版\n\n" + r.content()).toList());
+        String target = targetProject(token);
         ReviewFeedback saved = spaces.submitFeedback(token, content, sourceMessageId, covered);
-        if (selections == null) registerLegacy(saved);
-        else {
-            long now = System.currentTimeMillis();
-            for (ReviewRequirement requirement : selected) {
-                register(space, saved.id(), requirement.id(), requirement.revision(), requirement.title(), requirement.content(), now);
-            }
-            if (fullSnapshot) tasks.retireRemoved(space.id(), selected.stream().map(ReviewRequirement::id).toList());
-            feedback.updateStatus(saved.id(), "CONSUMED", now);
+        long now = System.currentTimeMillis();
+        for (ReviewRequirement requirement : selected) {
+            register(space, saved.id(), requirement.id(), requirement.revision(), requirement.title(), requirement.content(), now);
         }
+        feedback.updateStatus(saved.id(), "CONSUMED", now);
+        String actor = com.exceptioncoder.toolbox.common.auth.web.AuthContext.current()
+                .map(principal -> principal.username()).orElse("评审链接访问者（未登录）");
+        tasks.recordSubmission(space.id(), new ReviewSubmission(saved.id(), actor, target, saved.createdAt(), content));
         return "PENDING".equals(saved.status())
                 ? new ReviewFeedback(saved.id(), saved.reviewSpaceId(), saved.sourceSessionId(), saved.reviewSessionId(),
                 saved.content(), saved.sourceMessageId(), "CONSUMED", saved.createdAt(), System.currentTimeMillis())

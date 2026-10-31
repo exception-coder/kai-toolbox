@@ -10,6 +10,11 @@ export { ReviewContextOverview } from './components/ReviewContextOverview'
 export { engineName } from './components/chatStatus'
 export {
   getPublicReview,
+  getPublicReviewBacklog,
+  getPublicReviewDelivery,
+  getPublicReviewSubmission,
+  confirmPublicReviewRequirement,
+  mergePublicReviewRequirements,
   checkPublicReviewEnvironment,
   listPublicReviewRequirements,
   rebuildPublicReviewRequirements,
@@ -26,10 +31,13 @@ export {
   uploadReviewAttachment,
 } from './api'
 export { useClaudeChatSocket } from './hooks/useClaudeChatSocket'
+export { useMobileViewport } from './hooks/useMobileViewport'
 export type { UseClaudeChatSocket } from './hooks/useClaudeChatSocket'
 export type { UploadedAttachment } from './api'
 export type { PublicReviewRequirement, ReviewRequirementDraft } from './api'
 export type { PublicReviewTodoProgress } from './api'
+export type { PublicReviewDelivery } from './api'
+export type { MessageListHandle } from './components/MessageList'
 export { reviewTodoStatusLabel } from './lib/reviewTodoStatus'
 export type { PublicReviewEnvironmentCheck } from './api'
 export type { ChatItem } from './types'

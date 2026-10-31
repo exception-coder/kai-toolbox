@@ -1,196 +1,92 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.ai.ReviewRequirementCompiler;
-import com.exceptioncoder.toolbox.claudechat.domain.ReviewRequirement;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewSpace;
 import com.exceptioncoder.toolbox.claudechat.repository.ReviewRequirementRepository;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class ReviewRequirementServiceTest {
-
-    @Test
-    void synchronizesOnlyValidatedDraftsIntoResolvedReview() {
-        ReviewSpaceService spaces = mock(ReviewSpaceService.class);
-        ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
-        ReviewSpace space = reviewSpace();
-        ReviewRequirement saved = new ReviewRequirement("item-1", "space-1",
-                "assistant-content-v1:test", "支持驳回", "业务说明", 1, 10, 10);
-        when(spaces.resolve("token")).thenReturn(Optional.of(space));
-        when(repository.findByReviewSpaceId("space-1")).thenReturn(List.of(), List.of(saved));
-        when(repository.insertRequirement(org.mockito.ArgumentMatchers.eq("space-1"),
-                org.mockito.ArgumentMatchers.any(ReviewRequirementRepository.Draft.class), anyLong()))
-                .thenReturn("item-1");
-
-        List<ReviewRequirement> result = service.synchronize("token", List.of(
-                new ReviewRequirementService.DraftCommand(
-                        "assistant-content-v1:test", " 支持驳回 ", " 业务说明 ")));
-
-        assertThat(result).containsExactly(saved);
-        verify(repository).insertRequirement(org.mockito.ArgumentMatchers.eq("space-1"),
-                org.mockito.ArgumentMatchers.any(ReviewRequirementRepository.Draft.class), anyLong());
-        verify(repository).insertSource(org.mockito.ArgumentMatchers.eq("space-1"),
-                org.mockito.ArgumentMatchers.eq("item-1"),
-                org.mockito.ArgumentMatchers.any(ReviewRequirementRepository.Source.class), anyLong());
+    @TempDir Path root;
+    SingleConnectionDataSource database;
+    ReviewRequirementService service;
+    ReviewRequirementCompiler compiler;
+    private static final String CONTENT = "## 类型\n优化\n\n## 问题\n占用空间\n\n## 预期行为\n精简布局\n\n## 验收标准\n聊天内容可见";
+    @BeforeEach void prepare() {
+        database = new SingleConnectionDataSource("jdbc:sqlite:" + root.resolve("review.db"), true);
+        new ResourceDatabasePopulator(new ClassPathResource("db/claude-chat-schema.sql")).execute(database);
+        var spaces = mock(ReviewSpaceService.class);
+        when(spaces.resolve("token")).thenReturn(Optional.of(new ReviewSpace("space", "source", "review", "SAFE_SNAPSHOT", "hash", null, "ACTIVE", "评审", "", Long.MAX_VALUE, 1, 1)));
+        compiler = mock(ReviewRequirementCompiler.class);
+        var factory = new ProxyFactory(new ReviewRequirementService(spaces, new ReviewRequirementRepository(new JdbcTemplate(database)), compiler));
+        factory.setProxyTargetClass(true);
+        factory.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(database), new AnnotationTransactionAttributeSource()));
+        service = (ReviewRequirementService) factory.getProxy();
     }
+    @AfterEach void close() { database.destroy(); }
+    ReviewRequirementService.DraftCommand draft(String id) { return new ReviewRequirementService.DraftCommand("assistant-content-v1:" + id, id, CONTENT, "原话" + id, "分析" + id); }
 
-    @Test
-    void rejectsInvalidModelDraftBeforePersistence() {
-        ReviewSpaceService spaces = mock(ReviewSpaceService.class);
-        ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
-        when(spaces.resolve("token")).thenReturn(Optional.of(reviewSpace()));
-
-        assertThatThrownBy(() -> service.synchronize("token", List.of(
-                new ReviewRequirementService.DraftCommand("invalid", "标题", "说明"))))
-                .isInstanceOf(ResponseStatusException.class)
-                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
-                        .isEqualTo(HttpStatus.BAD_REQUEST));
-        verify(repository, never()).insertRequirement(org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.any(ReviewRequirementRepository.Draft.class), anyLong());
+    @Test void addsOnlyExplicitCandidatesAndNeverLetsModelOverwriteExistingContent() {
+        var first = service.synchronize("token", List.of(draft("一"))).getFirst();
+        service.confirm("token", first.id(), first.revision(), true);
+        service.synchronize("token", List.of(draft("一"), draft("二")));
+        assertThat(service.list("token")).hasSize(2).anyMatch(item -> item.id().equals(first.id()) && item.confirmed());
+        assertThat(service.backlog("token").processedSources()).hasSize(2);
+        verifyNoInteractions(compiler);
     }
-
-    @Test
-    void rebuildValidatesHistoryBeforeReplacingDerivedRequirements() {
-        ReviewSpaceService spaces = mock(ReviewSpaceService.class);
-        ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
-        when(spaces.resolve("token")).thenReturn(Optional.of(reviewSpace()));
-
-        assertThatThrownBy(() -> service.rebuild("token", List.of(
-                new ReviewRequirementService.DraftCommand("invalid", "标题", "说明"))))
-                .isInstanceOf(ResponseStatusException.class);
-
-        verify(repository, never()).deleteByReviewSpaceId("space-1");
+    @Test void editInvalidatesConfirmationAndStaleConfirmationCannotApproveNewContent() {
+        var item = service.synchronize("token", List.of(draft("一"))).getFirst();
+        assertThat(item.confirmed()).isFalse();
+        var confirmed = service.confirm("token", item.id(), 1, true);
+        assertThat(confirmed.confirmedAt()).isNotNull();
+        var edited = service.update("token", item.id(), new ReviewRequirementService.UpdateCommand("修订", CONTENT, 1));
+        assertThat(edited.confirmed()).isFalse();
+        assertThat(edited.createdAt()).isEqualTo(item.createdAt());
+        assertThatThrownBy(() -> service.confirm("token", item.id(), 1, true)).hasMessageContaining("已更新");
+        assertThat(service.confirm("token", item.id(), 2, true).confirmed()).isTrue();
+        assertThat(service.confirm("token", item.id(), 2, false).confirmed()).isFalse();
     }
-
-    @Test
-    void rebuildClearsDerivedRequirementsAndCompilesCurrentHistory() {
-        ReviewSpaceService spaces = mock(ReviewSpaceService.class);
-        ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
-        ReviewRequirement rebuilt = new ReviewRequirement("item-1", "space-1",
-                "assistant-content-v1:test", "最新标题", "最新说明", 1, 10, 10);
-        when(spaces.resolve("token")).thenReturn(Optional.of(reviewSpace()));
-        when(repository.findByReviewSpaceId("space-1")).thenReturn(List.of(), List.of(rebuilt));
-        when(repository.insertRequirement(org.mockito.ArgumentMatchers.eq("space-1"),
-                org.mockito.ArgumentMatchers.any(ReviewRequirementRepository.Draft.class), anyLong()))
-                .thenReturn("item-1");
-
-        List<ReviewRequirement> result = service.rebuild("token", List.of(
-                new ReviewRequirementService.DraftCommand(
-                        "assistant-content-v1:test", "最新标题", "最新说明")));
-
-        assertThat(result).containsExactly(rebuilt);
-        verify(repository).deleteByReviewSpaceId("space-1");
-        verify(repository).insertSource(org.mockito.ArgumentMatchers.eq("space-1"),
-                org.mockito.ArgumentMatchers.eq("item-1"),
-                org.mockito.ArgumentMatchers.any(ReviewRequirementRepository.Source.class), anyLong());
+    @Test void explicitMergeRetainsBothSourcesAndRequiresNewConfirmation() {
+        var items = service.synchronize("token", List.of(draft("一"), draft("二")));
+        var target = items.getFirst(); var source = items.getLast();
+        service.confirm("token", target.id(), 1, true);
+        var result = service.merge("token", target.id(), source.id(), 1, 1, "合并后", CONTENT).getFirst();
+        assertThat(service.list("token")).hasSize(1);
+        assertThat(result.sources()).hasSize(2);
+        assertThat(result.confirmed()).isFalse();
+        assertThat(result.revision()).isEqualTo(2);
+        assertThatThrownBy(() -> service.merge("token", target.id(), "foreign", 2, 1, "不能串空间", CONTENT)).hasMessageContaining("不属于");
     }
-
-    @Test
-    void reportsConflictInsteadOfOverwritingNewerRevision() {
-        ReviewSpaceService spaces = mock(ReviewSpaceService.class);
-        ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
-        when(spaces.resolve("token")).thenReturn(Optional.of(reviewSpace()));
-        when(repository.update(org.mockito.ArgumentMatchers.eq("space-1"),
-                org.mockito.ArgumentMatchers.eq("item-1"),
-                org.mockito.ArgumentMatchers.any(ReviewRequirementRepository.Update.class), anyLong()))
-                .thenReturn(false);
-
-        assertThatThrownBy(() -> service.update("token", "item-1",
-                new ReviewRequirementService.UpdateCommand("标题", "说明", 1)))
-                .isInstanceOf(ResponseStatusException.class)
-                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
-                        .isEqualTo(HttpStatus.CONFLICT));
+    @Test void rejectsDestructiveRebuildAndIncompleteConfirmation() {
+        var item = service.synchronize("token", List.of(draft("一"))).getFirst();
+        assertThatThrownBy(() -> service.rebuild("token", List.of())).hasMessageContaining("不再清空");
+        service.update("token", item.id(), new ReviewRequirementService.UpdateCommand("旧说明", "仅有说明", 1));
+        assertThatThrownBy(() -> service.confirm("token", item.id(), 2, true)).hasMessageContaining("补全");
+        assertThat(service.list("token")).hasSize(1);
     }
-
-    @Test
-    void mergesLegacyDuplicateIntoExistingRequirementAndKeepsSourceEvidence() {
-        ReviewSpaceService spaces = mock(ReviewSpaceService.class);
-        ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
-        ReviewRequirement target = new ReviewRequirement("target", "space-1",
-                "assistant-content-v1:original", "压缩移动端头部", "原说明", 1, 1, 1);
-        ReviewRequirement legacy = new ReviewRequirement("legacy", "space-1",
-                "assistant-content-v1:correction", "我说的是红框区域", "用户原话", 1, 2, 2);
-        when(spaces.resolve("token")).thenReturn(Optional.of(reviewSpace()));
-        when(repository.findActiveBySourceMessageId("space-1", "assistant-content-v1:correction"))
-                .thenReturn(legacy);
-        when(repository.findByReviewSpaceId("space-1"))
-                .thenReturn(List.of(target, legacy), List.of(target));
-        when(compiler.compile(org.mockito.ArgumentMatchers.anyString())).thenReturn(
-                new ReviewRequirementCompiler.Compilation(
-                        ReviewRequirementCompiler.Operation.MERGE, "target",
-                        "压缩移动端头部区域", "合并后的完整业务说明", "属于同一空间优化"));
-
-        List<ReviewRequirement> result = service.synchronize("token", List.of(
-                new ReviewRequirementService.DraftCommand("assistant-content-v1:correction",
-                        "我说的是红框区域", "用户原话", "我说的是优化红框区域", "AI 分析")));
-
-        assertThat(result).containsExactly(target);
-        verify(repository).updateCompiled(org.mockito.ArgumentMatchers.eq("space-1"),
-                org.mockito.ArgumentMatchers.eq("target"),
-                org.mockito.ArgumentMatchers.eq("压缩移动端头部区域"),
-                org.mockito.ArgumentMatchers.eq("合并后的完整业务说明"),
-                org.mockito.ArgumentMatchers.anyLong());
-        verify(repository).remove(org.mockito.ArgumentMatchers.eq("space-1"),
-                org.mockito.ArgumentMatchers.eq("legacy"), anyLong());
-        verify(repository).insertSource(org.mockito.ArgumentMatchers.eq("space-1"),
-                org.mockito.ArgumentMatchers.eq("target"),
-                org.mockito.ArgumentMatchers.argThat(source ->
-                        source.sourceText().equals("我说的是优化红框区域")
-                                && source.operation().equals("MERGE")), anyLong());
-    }
-
-    @Test
-    void ignoresClarificationWithoutCreatingFormalRequirement() {
-        ReviewSpaceService spaces = mock(ReviewSpaceService.class);
-        ReviewRequirementRepository repository = mock(ReviewRequirementRepository.class);
-        ReviewRequirementCompiler compiler = mock(ReviewRequirementCompiler.class);
-        ReviewRequirementService service = new ReviewRequirementService(spaces, repository, compiler);
-        ReviewRequirement existing = new ReviewRequirement("target", "space-1",
-                "assistant-content-v1:original", "现有需求", "说明", 1, 1, 1);
-        when(spaces.resolve("token")).thenReturn(Optional.of(reviewSpace()));
-        when(repository.findByReviewSpaceId("space-1"))
-                .thenReturn(List.of(existing), List.of(existing));
-        when(compiler.compile(org.mockito.ArgumentMatchers.anyString())).thenReturn(
-                new ReviewRequirementCompiler.Compilation(
-                        ReviewRequirementCompiler.Operation.IGNORE, null, null, null, "普通确认"));
-
-        service.synchronize("token", List.of(new ReviewRequirementService.DraftCommand(
-                "assistant-content-v1:thanks", "好的", "普通确认", "好的", "已确认")));
-
-        verify(repository, never()).insertRequirement(org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.any(ReviewRequirementRepository.Draft.class), anyLong());
-        verify(repository).insertSource(org.mockito.ArgumentMatchers.eq("space-1"),
-                org.mockito.ArgumentMatchers.isNull(),
-                org.mockito.ArgumentMatchers.argThat(source -> source.operation().equals("IGNORE")), anyLong());
-    }
-
-    private ReviewSpace reviewSpace() {
-        return new ReviewSpace("space-1", "source-1", "review-1", "SAFE_SNAPSHOT",
-                "hash", null, "ACTIVE", "评审", null, Long.MAX_VALUE, 1, 1);
+    @Test void invalidBatchRollsBackEarlierAdditionAndExpiredTokenIsRejected() {
+        assertThatThrownBy(() -> service.synchronize("token", List.of(draft("一"), new ReviewRequirementService.DraftCommand("invalid", "标题", CONTENT)))).hasMessageContaining("来源");
+        assertThat(service.list("token")).isEmpty();
+        assertThatThrownBy(() -> service.list("expired")).hasMessageContaining("失效");
     }
 }

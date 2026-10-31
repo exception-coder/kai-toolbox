@@ -44,6 +44,7 @@ class ReviewRequirementRepositoryTest {
                     UNIQUE (review_space_id, source_message_id)
                 )
                 """);
+        jdbc.execute("CREATE TABLE claude_chat_review_requirement_state(requirement_id TEXT PRIMARY KEY,review_space_id TEXT,confirmed_revision INTEGER,confirmed_at INTEGER)");
         repository = new ReviewRequirementRepository(jdbc);
     }
 

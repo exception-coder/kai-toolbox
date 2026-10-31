@@ -37,7 +37,8 @@ describe('评审消息分类', () => {
     expect(parseReviewIntent('回答\n<!-- forge-review-intent:MAYBE -->').intent).toBe('UNCLASSIFIED')
     const turns = projectReviewTurns(completedTurn('一个问题', '普通回答'), 0, true)
     expect(turns[0].intent).toBe('UNCLASSIFIED')
-    expect(requirementsFromTurns(turns, 0)[0].content).toContain('待确认需求')
+    expect(requirementsFromTurns(turns, 0)[0].content).toContain('讨论候选')
+    expect(requirementsFromTurns(turns, 0)[0].content).toContain('尚未加入清单')
   })
 
   it('优先采用 Forge 结构化分类，不依赖回复末尾 marker', () => {

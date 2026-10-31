@@ -18,10 +18,11 @@ export interface ReviewRequirement {
   sourceText: string
   analysisText: string
   ts: number
+  sourceItems?: ChatItem[]
 }
 
 export const INTERNAL_SUMMARY_PREFIX = '[[FORGE_REVIEW_SUMMARY_REQUEST_V1]]'
-export const PENDING_REQUIREMENT_NOTICE = '> **待确认需求**：业务诉求仍有歧义，已先加入清单。请核对后修改保存，或删除这条需求。'
+export const PENDING_REQUIREMENT_NOTICE = '> **讨论候选**：业务诉求仍有歧义，尚未加入清单。请核对后主动加入和确认。'
 
 const INTENT_MARKER = /\s*<!-- forge-review-intent:(REQUIREMENT|CONSULTATION) -->\s*$/
 const ANY_VALID_INTENT_MARKER = /\s*<!-- forge-review-intent:(?:REQUIREMENT|CONSULTATION) -->\s*/g
@@ -121,6 +122,7 @@ export function requirementsFromTurns(turns: ReviewTurn[], reviewCreatedAt: numb
         sourceText: userText || '业务人员提交了附件',
         analysisText: content,
         ts,
+        sourceItems: [turn.userItem, ...turn.assistantItems],
       })
     }
   }

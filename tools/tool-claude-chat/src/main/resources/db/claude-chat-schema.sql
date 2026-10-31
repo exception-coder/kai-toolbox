@@ -128,6 +128,25 @@ CREATE TABLE IF NOT EXISTS claude_chat_review_requirement (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_review_requirement_space
     ON claude_chat_review_requirement(review_space_id, created_at);
 
+-- 功能：评审清单人工确认；变更：记录已确认的正文版本；目的：修改后重新确认且旧需求不推定已确认。
+CREATE TABLE IF NOT EXISTS claude_chat_review_requirement_state (
+    requirement_id TEXT PRIMARY KEY,
+    review_space_id TEXT NOT NULL,
+    confirmed_revision INTEGER NOT NULL,
+    confirmed_at INTEGER NOT NULL
+);
+
+-- 功能：评审统一交付；变更：保存提交人及目标项目快照；目的：和反馈原文及需求待办关联形成可重试交付记录。
+CREATE TABLE IF NOT EXISTS claude_chat_review_submission (
+    feedback_id TEXT PRIMARY KEY,
+    review_space_id TEXT NOT NULL,
+    submitted_by TEXT NOT NULL,
+    target_project TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+-- 功能：评审统一交付；变更：建立空间交付时间索引；目的：读取最近交付记录。
+CREATE INDEX IF NOT EXISTS idx_review_submission_space ON claude_chat_review_submission(review_space_id, created_at);
+
 -- 功能：计划评审需求编译；变更：保存用户原始诉求、AI 分析与归并动作；目的：让多轮对话作为来源证据关联到当前有效需求。
 CREATE TABLE IF NOT EXISTS claude_chat_review_requirement_source (
     id                  TEXT PRIMARY KEY,

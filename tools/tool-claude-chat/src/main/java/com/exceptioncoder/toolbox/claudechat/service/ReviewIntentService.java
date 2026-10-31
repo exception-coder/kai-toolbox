@@ -25,7 +25,7 @@ public class ReviewIntentService {
                     + "|(?:需要|要|请)(?:新增|增加|调整|修改|优化|删除|移除|取消|修复|支持|展示|隐藏|改)"
                     + "|可以(?:不|改|增加|删除|取消))");
     private static final Pattern REQUIREMENT_STRUCTURE = Pattern.compile(
-            "(?s)(?:^|\\n)#{1,4}\\s*需求标题[：:].*(?:^|\\n)#{1,4}\\s*需求说明.*(?:^|\\n)#{1,4}\\s*验收场景",
+            "(?s)(?:(?:^|\\n)#{1,4}\\s*需求标题[：:].*(?:^|\\n)#{1,4}\\s*需求说明.*(?:^|\\n)#{1,4}\\s*验收场景|(?:^|\\n)#{1,4}\\s*问题结论.*(?:^|\\n)#{1,4}\\s*修改建议.*(?:^|\\n)#{1,4}\\s*验收标准)",
             Pattern.MULTILINE);
     private static final Pattern REQUIREMENT_TITLE = Pattern.compile(
             "(?m)^#{1,4}\\s*需求标题[：:]\\s*(.+?)\\s*$");
@@ -34,7 +34,7 @@ public class ReviewIntentService {
     private static final long MODEL_TIMEOUT_SECONDS = 8;
     private static final int MAX_EXTRACTED_TITLE_LENGTH = 120;
     private static final String PENDING_DRAFT_NOTICE =
-            "> **待确认需求**：本轮回复未形成完整业务结构，以下内容仅按业务人员原始表达登记，请确认后再提交。";
+            "> **讨论候选**：以下内容仅按原始表达整理，尚未加入清单，请核对后主动加入和确认。";
 
     private final ReviewIntentClassifier classifier;
     private final ReviewIntentRepository repository;

@@ -137,6 +137,9 @@ public class ReviewSpaceController {
         if (service.resolve(token).isEmpty()) {
             return ResponseEntity.notFound().build();
         }
+        if (!todos.targetProject(token).equals(request.targetProject())) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.CONFLICT, "目标项目已变化，请重新核对后提交");
+        }
         try {
             return ResponseEntity.ok(ReviewFeedbackView.from(todos.submit(
                     token, request.content(), request.sourceMessageId(), request.coveredSourceMessageIds(), request.requirements(), request.fullSnapshot())));
@@ -149,11 +152,16 @@ public class ReviewSpaceController {
     public List<ReviewRequirementView> requirements(@PathVariable String token) {
         return requirementService.list(token).stream().map(ReviewRequirementView::from).toList();
     }
+    @GetMapping("/reviews/public/{token}/backlog")
+    public Map<String, Object> backlog(@PathVariable String token) {
+        var backlog = requirementService.backlog(token);
+        return Map.of("items", backlog.items().stream().map(ReviewRequirementView::from).toList(), "processedSources", backlog.processedSources());
+    }
 
     @PutMapping("/reviews/public/{token}/requirements/sync")
     public List<ReviewRequirementView> synchronizeRequirements(
             @PathVariable String token, @RequestBody SyncRequirementsRequest request) {
-        return requirementService.synchronize(token, requirementCommands(request)).stream()
+        return (request.explicit() ? requirementService.synchronize(token, requirementCommands(request)) : requirementService.list(token)).stream()
                 .map(ReviewRequirementView::from).toList();
     }
 
@@ -177,6 +185,19 @@ public class ReviewSpaceController {
     public ResponseEntity<Void> deleteRequirement(@PathVariable String token, @PathVariable String id) {
         requirementService.delete(token, id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/reviews/public/{token}/requirements/{id}/confirmation")
+    public ReviewRequirementView confirmRequirement(@PathVariable String token, @PathVariable String id,
+                                                     @RequestBody ConfirmationRequest request) {
+        return ReviewRequirementView.from(requirementService.confirm(token, id, request.revision(), request.confirmed()));
+    }
+
+    @PostMapping("/reviews/public/{token}/requirements/{id}/merge")
+    public List<ReviewRequirementView> mergeRequirements(@PathVariable String token, @PathVariable String id,
+                                                        @RequestBody MergeRequest request) {
+        return requirementService.merge(token, id, request.sourceId(), request.targetRevision(), request.sourceRevision(),
+                request.title(), request.content()).stream().map(ReviewRequirementView::from).toList();
     }
 
     @PostMapping("/reviews/public/{token}/attachments")
@@ -261,10 +282,10 @@ public class ReviewSpaceController {
     public record SubmitFeedbackRequest(String content, String sourceMessageId,
                                         List<String> coveredSourceMessageIds,
                                         List<com.exceptioncoder.toolbox.claudechat.service.ReviewTodoService.Selection> requirements,
-                                        boolean fullSnapshot) {}
+                                        boolean fullSnapshot, String targetProject) {}
     public record RequirementDraftRequest(String sourceMessageId, String title, String content,
                                           String sourceText, String analysisText) {}
-    public record SyncRequirementsRequest(List<RequirementDraftRequest> items) {}
+    public record SyncRequirementsRequest(List<RequirementDraftRequest> items, boolean explicit) {}
     public record UpdateRequirementRequest(String title, String content, long expectedRevision) {}
 
     private List<ReviewRequirementService.DraftCommand> requirementCommands(SyncRequirementsRequest request) {
@@ -276,13 +297,13 @@ public class ReviewSpaceController {
     }
     public record ReviewRequirementView(String id, String sourceMessageId, String title, String content,
                                         long revision, long createdAt, long updatedAt,
-                                        List<ReviewRequirementSourceView> sources) {
+                                        List<ReviewRequirementSourceView> sources, boolean confirmed, Long confirmedAt) {
         static ReviewRequirementView from(
                 com.exceptioncoder.toolbox.claudechat.domain.ReviewRequirement requirement) {
             return new ReviewRequirementView(requirement.id(), requirement.sourceMessageId(),
                     requirement.title(), requirement.content(), requirement.revision(),
                     requirement.createdAt(), requirement.updatedAt(), requirement.sources().stream()
-                    .map(ReviewRequirementSourceView::from).toList());
+                    .map(ReviewRequirementSourceView::from).toList(), requirement.confirmed(), requirement.confirmedAt());
         }
     }
     public record ReviewRequirementSourceView(String sourceMessageId, String sourceText,
@@ -294,6 +315,8 @@ public class ReviewSpaceController {
         }
     }
     public record HandleFeedbackRequest(String status) {}
+    public record ConfirmationRequest(long revision, boolean confirmed) {}
+    public record MergeRequest(String sourceId, long sourceRevision, long targetRevision, String title, String content) {}
     public record ReviewFeedbackView(String id, String status, long createdAt) {
         static ReviewFeedbackView from(com.exceptioncoder.toolbox.claudechat.domain.ReviewFeedback feedback) {
             return new ReviewFeedbackView(feedback.id(), feedback.status(), feedback.createdAt());
