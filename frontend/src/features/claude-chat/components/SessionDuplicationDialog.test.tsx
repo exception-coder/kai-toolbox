@@ -8,6 +8,7 @@ describe('复制会话进度弹窗', () => {
   it('复制中不把 Esc 当成取消，未知结果可关闭并恢复焦点', async () => {
     const onClose = vi.fn()
     const onReturnFocus = vi.fn()
+    const onRetry = vi.fn()
     const { rerender } = render(<SessionDuplicationDialog
       operation={{ sourceSessionId: 'source', authSwitch: false, phase: 'pending' }}
       onClose={onClose} onReturnFocus={onReturnFocus} />)
@@ -16,9 +17,11 @@ describe('复制会话进度弹窗', () => {
     fireEvent.keyDown(dialog, { key: 'Escape' })
     expect(onClose).not.toHaveBeenCalled()
     rerender(<SessionDuplicationDialog
-      operation={{ sourceSessionId: 'source', authSwitch: false, phase: 'unknown', message: '副本可能已经创建，请先检查列表。' }}
-      onClose={onClose} onReturnFocus={onReturnFocus} />)
-    fireEvent.click(screen.getByRole('button', { name: '我知道了' }))
+      operation={{ sourceSessionId: 'source', authSwitch: false, phase: 'unknown', message: '已保留请求编号，可继续核对。' }}
+      onClose={onClose} onRetry={onRetry} onReturnFocus={onReturnFocus} />)
+    fireEvent.click(screen.getByRole('button', { name: '继续核对' }))
+    expect(onRetry).toHaveBeenCalledWith('source')
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
     expect(onClose).toHaveBeenCalledOnce()
     rerender(<SessionDuplicationDialog operation={null} onClose={onClose} onReturnFocus={onReturnFocus} />)
     await waitFor(() => expect(onReturnFocus).toHaveBeenCalled())

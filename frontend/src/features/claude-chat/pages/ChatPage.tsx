@@ -1243,7 +1243,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
           (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
       <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} onRestore={restoreGuide} hasSession={Boolean(chat.sessionId)} returnFocus={guideReturnFocus.current ? guideReturnFocus : sessionToolsTriggerRef} />
-      <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onReturnFocus={() => taRef.current?.focus()} />
+      <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onRetry={chat.duplicateSession} onReturnFocus={() => taRef.current?.focus()} />
       {chat.sessionId && changesOpen && <TurnChangesDialog key={chat.sessionId} sessionId={chat.sessionId} open onOpenChange={setChangesOpen} returnFocus={sessionToolsTriggerRef} />}
       {focus.focused && <FocusReadingHeader title={currentTitle || 'Vibe Coding'}
         status={chat.state === 'error' ? '连接异常' : chat.state !== 'ready' ? '连接恢复中' : chat.running ? `${currentEngineLabel} 正在运行` : '已就绪'} running={chat.running && chat.state === 'ready'}

@@ -20,6 +20,19 @@ import type { AutopilotBindingCandidate, AutopilotTask } from './types'
 import { SESSION_HISTORY_PAGE_TIMEOUT_MS, type HistoryCursor } from './lib/sessionHistoryRequest'
 import { applyPendingSessionTitles } from './lib/optimisticSessionRename'
 
+export interface SessionCopyResult {
+  requestId: string
+  sourceSessionId: string
+  targetSessionId: string
+}
+
+/** 配置落库回执独立于引擎 Ready；重发相同 requestId 只取回原副本。 */
+export function requestSessionCopy(sourceId: string, requestId: string, signal: AbortSignal) {
+  return http<SessionCopyResult>(`/claude-chat/sessions/${encodeURIComponent(sourceId)}/copy`, {
+    method: 'POST', body: JSON.stringify({ requestId }), signal,
+  })
+}
+
 /** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
 export function listSessionGitRepos(sessionId: string) {
   return http<GitRepoRef[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/repos`)

@@ -211,6 +211,22 @@ flowchart LR
     REFRESH_ROOT --> SELECT_ROOT["保留草稿，选中工作区及项目"]
 ```
 
+## 会话配置复制与引擎连接
+
+普通“复制会话配置”是 Forge 元数据操作，不是模型任务。登录态 HTTP 命令按用户与持久请求编号，原子提交独立配置副本、Auth 链路、附加目录及回执；不依赖 Sidecar 就绪，不复制原生历史、队列或 Agent 写入权。浏览器先保存编号，再发请求，网络失败最多核对三次，刷新后仍可复用原结果。副本已删除明确告知，不按原编号自动重建；未提交事务不能报告创建成功。
+
+拿到回执后沿用原切会话流程连接引擎，连接失败不改变“配置已创建”的事实，也不改变源任务状态。切换 Auth 的 WebSocket/Ready 显式交接仍保留独立语义，不因普通复制的改造自动升级为可靠交付。源码、回归与待运行项见[复制验证](../openspec/changes/fix-session-duplication-feedback/validation.md)；未授权重启与未实机验证均不能声称生效。
+
+```mermaid
+flowchart LR
+    COPY_INTENT["用户复制源会话配置"] --> COPY_KEY["浏览器保存请求编号"]
+    COPY_KEY --> COPY_TX["核验访问 · 同事务保存配置与回执"]
+    COPY_TX --> COPY_ACK["返回原副本身份 · 确认创建"]
+    COPY_TX -->|"事务失败"| COPY_ROLLBACK["回滚副本及关联"]
+    COPY_ACK --> COPY_CONNECT["切到副本 · 独立连接引擎"]
+    COPY_KEY -->|"网络未知，同编号最多三次"| COPY_TX
+```
+
 ## 从需求到交付
 
 面向用户的重磅更新在同次交付中登记业务咨询[更新小纸条](../frontend/src/features/fore-consult/data/upgradeNotes.ts)，由本次实施Agent维护日期、变化、用法与范围，保留历史。未部署或未验收须明确标注；小纸条是用户沟通内容，不作为规格、验证或部署事实源，不增加自动发布和服务重启授权。具体登记规范见[咨询说明](../tools/tool-fore-consult/README.md#更新小纸条登记)，普通内部重构和无感小修复无需登记。

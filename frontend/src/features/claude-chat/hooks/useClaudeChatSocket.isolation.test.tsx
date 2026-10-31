@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/api'
 import type { ChatItem, ServerMessage } from '../types'
 
 const api = vi.hoisted(() => ({
-  loadMessages: vi.fn(), listQueuedMessages: vi.fn().mockResolvedValue([]),
+  loadMessages: vi.fn(), listQueuedMessages: vi.fn().mockResolvedValue([]), requestSessionCopy: vi.fn(),
 }))
 vi.mock('../api', () => ({ ...api, loadPublicReviewMessages: vi.fn(), clearQueuedMessages: vi.fn(),
   deleteQueuedMessage: vi.fn(), saveQueuedMessage: vi.fn() }))
@@ -38,6 +38,8 @@ const ready = (id: string): Extract<ServerMessage, { type: 'ready' }> => ({ type
 const page = (id: string) => ({ items: [{ kind: 'assistant', id: `h-${id}`, text: `历史 ${id}` } as ChatItem], nextBefore: null })
 
 beforeEach(() => {
+  api.requestSessionCopy.mockImplementation((sourceSessionId: string, requestId: string) =>
+    Promise.resolve({ sourceSessionId, requestId, targetSessionId: 'copy' }))
   TestSocket.sockets = []
   vi.stubGlobal('WebSocket', TestSocket)
   api.loadMessages.mockImplementation((id: string | null, _cwd: string, _before: unknown, _limit: number, sessionId: string) =>
@@ -288,13 +290,14 @@ describe('会话消息隔离', () => {
     expect(result.current.items).toEqual(page('latest').items)
   })
 
-  it('普通复制立即反馈并只发送一次，收到新会话确认后完成且不复制旧消息', async () => {
+  it('普通复制只写一次配置，未收到引擎 Ready 也确认副本并清除旧消息', async () => {
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
     act(() => result.current.switchTo('source'))
     await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
     const socket = TestSocket.sockets[0]
     act(() => { socket.open(); socket.receive(ready('source')) })
     await waitFor(() => expect(result.current.items).toEqual(page('source').items))
+    api.loadMessages.mockResolvedValueOnce({ items: [], nextBefore: null })
     act(() => {
       result.current.duplicateSession('source', 'C:/Users/test/.codex')
       result.current.duplicateSession('source', 'C:/Users/test/.codex')
@@ -302,14 +305,31 @@ describe('会话消息隔离', () => {
     })
     expect(result.current.duplicationOperation).toMatchObject({ sourceSessionId: 'source', phase: 'pending', authSwitch: false })
     const copies = socket.send.mock.calls.map(([value]) => JSON.parse(value)).filter(message => message.type === 'duplicateSession')
-    expect(copies).toEqual([{ type: 'duplicateSession', sourceSessionId: 'source', codexHome: 'C:/Users/test/.codex', reuseAuthSession: false }])
-    act(() => socket.receive(ready('copy')))
+    expect(copies).toEqual([])
+    expect(api.requestSessionCopy).toHaveBeenCalledOnce()
+    await waitFor(() => expect(result.current.sessionId).toBe('copy'))
     expect(result.current.duplicationOperation).toMatchObject({ phase: 'success', targetSessionId: 'copy' })
     expect(result.current.sessionId).toBe('copy')
     expect(result.current.items).toEqual([])
     expect(result.current.duplicatingSessionId).toBeNull()
+    const targetSocket = TestSocket.sockets.at(-1)!
+    act(() => { targetSocket.open(); targetSocket.receive({ type: 'error', seq: 0, code: 'SIDECAR_DOWN', message: '引擎断线', terminal: false }) })
+    expect(result.current.duplicationOperation?.phase).toBe('success')
     act(() => result.current.dismissDuplication())
     expect(result.current.duplicationOperation).toBeNull()
+  })
+
+  it('复制未返回时切换到其他会话，迟到回执不抢回视图', async () => {
+    let finish!: (result: { sourceSessionId: string; requestId: string; targetSessionId: string }) => void
+    api.requestSessionCopy.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.duplicateSession('source'))
+    const requestId = api.requestSessionCopy.mock.calls.at(-1)![1] as string
+    act(() => result.current.switchTo('other'))
+    await act(async () => { finish({ sourceSessionId: 'source', requestId, targetSessionId: 'copy' }) })
+    expect(result.current.sessionId).toBe('other')
+    expect(result.current.duplicationOperation).toBeNull()
+    expect(localStorage.getItem('kai-toolbox:pending-session-copy:source')).toBe(requestId)
   })
 
   it('Auth 切换保持复用标识，复用已有会话时不再发送交接包', async () => {
@@ -330,20 +350,18 @@ describe('会话消息隔离', () => {
     await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
     const socket = TestSocket.sockets[0]
     act(() => { socket.open(); socket.receive(ready('source')) })
-    act(() => {
-      result.current.duplicateSession('source')
-      socket.receive({ type: 'error', seq: 2, code: 'ENGINE_UNAVAILABLE', message: '引擎尚未就绪', terminal: false })
-    })
-    expect(result.current.duplicationOperation).toMatchObject({ phase: 'error', message: '引擎尚未就绪' })
+    api.requestSessionCopy.mockRejectedValueOnce(new ApiError(403, null, '无权复制源会话'))
+    act(() => result.current.duplicateSession('source'))
+    await waitFor(() => expect(result.current.duplicationOperation).toMatchObject({ phase: 'error', message: '无权复制源会话' }))
     expect(result.current.duplicatingSessionId).toBeNull()
     expect(result.current.sessionId).toBe('source')
   })
 
-  it('已发送的复制不随重连重复执行，超时显示未知结果并阻止盲目重试', async () => {
+  it('Auth 切换保留原有防重复发送边界', async () => {
     const { result } = renderHook(() => useClaudeChatSocket())
     await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
     vi.useFakeTimers()
-    act(() => result.current.duplicateSession('source'))
+    act(() => result.current.duplicateSession('source', 'other-auth', '授权交接'))
     const first = TestSocket.sockets[0]
     act(() => first.open())
     act(() => first.close())
@@ -356,7 +374,7 @@ describe('会话消息隔离', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
     expect(result.current.duplicationOperation).toMatchObject({ phase: 'unknown' })
     expect(result.current.errorMessage).toContain('副本可能已经创建')
-    act(() => result.current.duplicateSession('source'))
+    act(() => result.current.duplicateSession('source', 'other-auth', '授权交接'))
     expect(result.current.duplicationOperation?.phase).toBe('unknown')
     act(() => TestSocket.sockets[1].receive(ready('late-copy')))
     expect(result.current.duplicationOperation).toMatchObject({ phase: 'success', targetSessionId: 'late-copy' })

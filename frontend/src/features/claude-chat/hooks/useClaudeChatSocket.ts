@@ -28,6 +28,7 @@ import { shouldReconnectSocket } from '../lib/socketReconnectPolicy'
 import { applyAssistantSnapshot } from '../lib/assistantSnapshot'
 import { RecentHistoryCache } from '../lib/recentHistoryCache'
 import { currentFollowUpPrediction, type FollowUpPrediction } from '../lib/followUpPrediction'
+import { acknowledgeSessionCopy, copySessionConfiguration, isCopyRejected } from '../lib/sessionConfigurationCopy'
 
 /**
  * 「弹窗自动允许」：全局偏好（跨会话共用一个键，保持与旧版本一致）。
@@ -352,6 +353,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const duplicateContextSeedRef = useRef<string | null>(null)
   const duplicateTimeoutRef = useRef<number | null>(null)
   const duplicateSentRef = useRef(false)
+  const configurationCopyRef = useRef<object | null>(null)
   const [duplicatingSessionId, setDuplicatingSessionId] = useState<string | null>(null)
   const [duplicationOperation, setDuplicationOperation] = useState<SessionDuplicationOperation | null>(null)
   const sessionIdRef = useRef<string | null>(null)
@@ -481,7 +483,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       case 'ready':
         reportVibeEntry('session_ready', 'ok', msg.sessionId)
         let duplicateContextSeed: string | null = null
-        if (duplicateSourceRef.current && msg.sessionId !== duplicateSourceRef.current) {
+        if (duplicateSourceRef.current && !configurationCopyRef.current && msg.sessionId !== duplicateSourceRef.current) {
           intentRef.current = { kind: 'attach', sessionId: msg.sessionId, lastEventSeq: lastSeqRef.current }
           setDuplicationOperation(previous => previous ? { ...previous, phase: 'success', targetSessionId: msg.sessionId } : null)
           duplicateContextSeed = duplicateContextSeedRef.current
@@ -1011,7 +1013,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           queueReleaseSessionRef.current = null
           setQueuePausedReason('上一轮发生终态错误，待发送消息已暂停；请确认后手动继续。')
         }
-        if (duplicateSourceRef.current) {
+        if (duplicateSourceRef.current && !configurationCopyRef.current) {
           setDuplicationOperation(previous => previous ? { ...previous, phase: 'error', message: msg.message } : null)
           duplicateSourceRef.current = null
           duplicateContextSeedRef.current = null
@@ -1331,6 +1333,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       }
       wsRef.current?.close()
       wsRef.current = null
+      configurationCopyRef.current = null
       if (duplicateTimeoutRef.current != null) {
         window.clearTimeout(duplicateTimeoutRef.current)
         duplicateTimeoutRef.current = null
@@ -1392,6 +1395,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     sessionReadyRef.current = false
     pendingSendsRef.current = []
     duplicateSourceRef.current = null
+    configurationCopyRef.current = null
     duplicateContextSeedRef.current = null
     duplicateSentRef.current = false
     if (duplicateTimeoutRef.current != null) {
@@ -1527,6 +1531,27 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     setDuplicatingSessionId(sourceSessionId)
     setDuplicationOperation({ sourceSessionId, authSwitch: reuseAuthSession, phase: 'pending' })
     setErrorMessage(null)
+    if (!reuseAuthSession) {
+      const operation = {}
+      configurationCopyRef.current = operation
+      void copySessionConfiguration(sourceSessionId).then(result => {
+        if (configurationCopyRef.current !== operation) return
+        // 配置已提交即可确认成功；引擎连接失败不改写复制结果。
+        switchToRef.current?.(result.targetSessionId)
+        setDuplicationOperation({ sourceSessionId, authSwitch: false, phase: 'success', targetSessionId: result.targetSessionId })
+        acknowledgeSessionCopy(result)
+      }).catch(error => {
+        if (configurationCopyRef.current !== operation) return
+        const rejected = isCopyRejected(error)
+        const message = rejected ? (error instanceof Error ? error.message : '复制请求被拒绝')
+          : '暂时无法确认复制结果，已保留请求编号。点击“继续核对”会查询同一请求，不会重复创建副本。'
+        setDuplicationOperation({ sourceSessionId, authSwitch: false, phase: rejected ? 'error' : 'unknown', message })
+        duplicateSourceRef.current = null
+        configurationCopyRef.current = null
+        setDuplicatingSessionId(null)
+      })
+      return
+    }
     intentRef.current = { kind: 'duplicate', sourceSessionId, codexHome, contextSeed, reuseAuthSession }
     duplicateSentRef.current = sendRaw({ type: 'duplicateSession', sourceSessionId, codexHome, reuseAuthSession })
     if (!duplicateSentRef.current) connect()
@@ -1543,7 +1568,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sendRaw, connect])
 
   const dismissDuplication = useCallback(() => {
-    if (duplicateSourceRef.current && duplicateTimeoutRef.current != null) return
+    if (configurationCopyRef.current || (duplicateSourceRef.current && duplicateTimeoutRef.current != null)) return
     duplicateSourceRef.current = null
     duplicateContextSeedRef.current = null
     duplicateSentRef.current = false
