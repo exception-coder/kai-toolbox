@@ -1085,12 +1085,14 @@ export async function listQueuedMessages(sessionId: string, signal?: AbortSignal
   }))
 }
 
+/** 202 空响应仅表示确认请求已受理，实际续发由服务端队列状态核对。 */
 export function confirmQueueAndContinue(sessionId: string) {
-  return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/confirm`, { method: 'POST' })
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/confirm`, { method: 'POST' }, 'empty')
 }
 
+/** 不解析无正文的 202 回执，也不据此宣告消息已执行。 */
 export function dispatchQueuedMessage(sessionId: string, messageId: string) {
-  return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}/dispatch`, { method: 'POST' })
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}/dispatch`, { method: 'POST' }, 'empty')
 }
 
 export function saveQueuedMessage(sessionId: string, message: Omit<PersistedQueuedMessage, 'sessionId'>) {
