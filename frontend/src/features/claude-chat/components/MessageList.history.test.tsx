@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import type { ComponentType } from 'react'
+import { createRef, type ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MessageList } from './MessageList'
+import { MessageList, type MessageListHandle } from './MessageList'
 import { setHideToolCalls } from '../lib/toolVisibilityPref'
 
 const scrolling = vi.hoisted(() => ({ scrollToIndex: vi.fn(), scrollToBottom: vi.fn(), scrollTo: vi.fn() }))
@@ -39,6 +39,27 @@ vi.mock('react-virtuoso', async () => {
 })
 
 describe('MessageList 历史分页入口', () => {
+  it('布局切换按可见消息身份恢复位置，分页到达后使用新索引，切会话后不再恢复', () => {
+    const ref = createRef<MessageListHandle>()
+    const items = [{ kind: 'assistant' as const, id: 'anchor', text: '正在阅读的回复' }]
+    const view = render(<MessageList ref={ref} sessionKey="a" items={items} running={false} />)
+    const scroller = screen.getByTestId('message-scroller')
+    scroller.classList.add('cc-message-scroller')
+    scroller.getBoundingClientRect = () => ({ top: 100, bottom: 500 } as DOMRect)
+    const row = document.createElement('div')
+    row.dataset.msgId = 'anchor'
+    row.getBoundingClientRect = () => ({ top: 80, bottom: 160 } as DOMRect)
+    scroller.append(row)
+    const restore = ref.current!.captureReadingPosition()
+    view.rerender(<MessageList ref={ref} sessionKey="a" items={[{ ...items[0], id: 'earlier' }, ...items]} running={false} />)
+    act(() => restore())
+    expect(scrolling.scrollToIndex).toHaveBeenLastCalledWith({ index: 1, align: 'start', offset: 20, behavior: 'auto' })
+    view.rerender(<MessageList ref={ref} sessionKey="b" items={[]} running={false} />)
+    scrolling.scrollToIndex.mockClear()
+    act(() => restore())
+    expect(scrolling.scrollToIndex).not.toHaveBeenCalled()
+  })
+
   it('显式跳转丢弃旧虚拟测量，重建后直接从实际末项底部开始', () => {
     const items = Array.from({ length: 30 }, (_, index) => ({ kind: 'assistant' as const, id: `m-${index}`, text: '长短不同的历史回复'.repeat(index + 1) }))
     render(<MessageList items={items} running />)

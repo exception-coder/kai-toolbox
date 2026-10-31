@@ -783,8 +783,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const focus = useChatFocusMode(focusRoot, () => {
     const previous = focusPrevious.current
     if (previous) { setSessionView(previous.view); setViewMode(previous.mode); setPanel(previous.panel) }
-    requestAnimationFrame(() => sessionToolsTriggerRef.current?.focus())
-  })
+    requestAnimationFrame(() => sessionToolsTriggerRef.current?.focus({ preventScroll: true }))
+  }, () => messageListRef.current?.captureReadingPosition())
   const enterFocus = () => {
     focusPrevious.current = { view: sessionView, mode: viewMode, panel }
     setHeaderMenu(false)
@@ -1272,8 +1272,10 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} onRestore={restoreGuide} hasSession={Boolean(chat.sessionId)} returnFocus={guideReturnFocus.current ? guideReturnFocus : sessionToolsTriggerRef} />
       <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onReturnFocus={() => taRef.current?.focus()} />
       {chat.sessionId && changesOpen && <TurnChangesDialog key={chat.sessionId} sessionId={chat.sessionId} open onOpenChange={setChangesOpen} returnFocus={sessionToolsTriggerRef} />}
-      {focus.focused && <FocusReadingHeader title={currentTitle || 'Vibe Coding'} sessionId={chat.sessionId}
-        wide={focusWide} onToggleWidth={() => setFocusWide(value => !value)} onExit={focus.exit} />}
+      {focus.focused && <FocusReadingHeader title={currentTitle || 'Vibe Coding'}
+        status={chat.state === 'error' ? '连接异常' : chat.state !== 'ready' ? '连接恢复中' : chat.running ? `${currentEngineLabel} 正在运行` : '已就绪'} running={chat.running && chat.state === 'ready'}
+        wide={focusWide} onToggleWidth={() => setFocusWide(value => !value)} onExit={focus.exit}
+        onOpenDetails={() => { focus.exit(); setPanel('none'); setSessionView('trajectory') }} />}
       <WorkspacePreferences open={preferencesOpen} onOpenChange={setPreferencesOpen} gestureEnabled={gestureOn}
         onToggleGesture={() => { setPreferencesOpen(false); toggleGesture() }} />
       {codexSyncOpen && <CodexDesktopSyncDialog key={codexSyncAuth.user?.userId ?? 'local'} open onOpenChange={setCodexSyncOpen}
@@ -2060,7 +2062,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                     onNewSession={currentSession ? handleNewSession : undefined}
                     turnTokens={chat.turnTokens}
                     connState={chat.state}
-                    showRunningFooter={focus.focused}
+                    showRunningFooter={false}
                     mobileWorkspace
                     executionInDock={!focus.focused}
                   />
@@ -2081,7 +2083,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               <ComposerFileDropZone sessionId={chat.sessionId} onFiles={handleFiles}
                 disabledReason={planLocked ? '当前会话已锁定，请恢复后再上传附件' : attachments.length + uploading >= MAX_ATTACHMENTS ? `每条消息最多 ${MAX_ATTACHMENTS} 个附件，请移除附件或分批发送` : undefined}
                 className="cc-focus-composer cc-desktop-composer cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)] md:pb-0">
-          <div data-focus-chrome><MobileAgentDock
+          <div><MobileAgentDock
             key={chat.sessionId}
             status={{ workspace: true, sessionId: chat.sessionId, items: chat.items, running: chat.running,
               engineLabel: engineDisplayName(chat.currentEngine, chat.currentProviderKind),
@@ -2403,7 +2405,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               onDismissSuggestion={() => chat.dismissFollowUpPrediction()}
               aria-label="消息输入"
               className="col-span-3 row-start-1 max-h-32 min-h-8 min-w-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-1 py-1 text-base outline-none placeholder:text-[var(--color-muted-foreground)] md:min-h-10 md:px-2 md:py-1.5"
-              placeholder="输入消息…（可直接拖入文件）"
+              placeholder={focus.focused ? '输入消息…' : '输入消息…（可直接拖入文件）'}
               rows={1}
               disabled={planLocked}
               value={draft}

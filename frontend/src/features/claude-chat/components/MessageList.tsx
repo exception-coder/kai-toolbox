@@ -73,6 +73,8 @@ interface UserMessageBadge {
 
 /** 供外部（如「我的提问」导航面板）滚到指定消息并短暂高亮，方便一眼找到目标气泡。 */
 export interface MessageListHandle {
+  /** Preserve a visible message and its offset across a presentation-only layout change. */
+  captureReadingPosition: () => () => void
   scrollToItem: (id: string) => void
   /** 滚到当前已加载的最早一条（index 0）。调用方需先自行把历史加载到头（exhausted），
    *  本方法本身不触发加载——「已加载的最早」和「整个会话的第一条」是否等价取决于调用方。 */
@@ -107,7 +109,7 @@ interface ListContext {
 function ListHeader({ context }: { context?: ListContext }) {
   if (!context) return null
   return (
-    <div className="flex min-h-9 items-center justify-center py-1.5 text-xs text-[var(--color-muted-foreground)]">
+    <div className="cc-message-history flex min-h-9 items-center justify-center py-1.5 text-xs text-[var(--color-muted-foreground)]">
       {!context.exhausted && context.onLoadEarlier && (
         <button
           type="button"
@@ -197,6 +199,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
       && (item.activityType === 'tool' || item.activityType === 'turn')
       && item.status === 'completed')
   }), [items, hideToolCalls, mobileWorkspace, dockPresentation, latestResultId])
+  const currentVisibleItems = useRef(visibleItems)
+  currentVisibleItems.current = visibleItems
   const activeTask = useMemo<ActiveTask | null>(() => {
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const item = items[index]
@@ -231,6 +235,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
 
   // 切会话或工具过滤时重挂载列表，清除旧尺寸、分页游标及在途定位意图。
   const resetKey = `${sessionKey ?? ''}::${hideToolCalls ? 1 : 0}`
+  const currentResetKey = useRef(resetKey)
+  currentResetKey.current = resetKey
   const { virtuosoRef, captureScroller, settleJump, scrollToLatest, jumpToBottom, cancelJump, listRevision,
     atBottom, onBottomStateChange, loadingLatest, latestError } = useLatestMessageNavigation({
     sessionKey: resetKey, lastItemId: visibleItems.at(-1)?.id,
@@ -284,6 +290,23 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
 
   // 供「我的提问」导航面板等外部调用：滚到指定消息 + 短暂高亮闪一下，方便一眼找到目标气泡。
   useImperativeHandle(ref, () => ({
+    captureReadingPosition: () => {
+      const scroller = listElement.current?.querySelector<HTMLElement>('.cc-message-scroller')
+      if (!scroller) return () => {}
+      const bottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= LATEST_BOTTOM_TOLERANCE_PX
+      const top = scroller.getBoundingClientRect().top
+      const anchor = Array.from(scroller.querySelectorAll<HTMLElement>('[data-msg-id]'))
+        .find(row => row.getBoundingClientRect().bottom > top)
+      const id = anchor?.dataset.msgId
+      const offset = anchor ? anchor.getBoundingClientRect().top - top : 0
+      if (!bottom) cancelJump()
+      return () => {
+        if (currentResetKey.current !== resetKey) return
+        if (bottom) { scrollToLatest(); return }
+        const index = currentVisibleItems.current.findIndex(item => item.id === id)
+        if (index >= 0) virtuosoRef.current?.scrollToIndex({ index, align: 'start', offset: -offset, behavior: 'auto' })
+      }
+    },
     scrollToItem: (id: string) => {
       const idx = visibleItems.findIndex(it => it.id === id)
       if (idx === -1) return
@@ -296,7 +319,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
       cancelJump()
       virtuosoRef.current?.scrollToIndex({ index: 0, align: 'start', behavior: 'smooth' })
     },
-  }), [visibleItems, cancelJump, virtuosoRef])
+  }), [visibleItems, cancelJump, virtuosoRef, resetKey, scrollToLatest])
 
   const itemContent = useCallback((_index: number, item: ChatItem) => (
     <div data-msg-id={item.id} className={cn('cc-message-row px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
@@ -599,7 +622,7 @@ function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, 
             </div>
           )}
           {shown && (
-            <div className="max-w-[85%] min-w-0 whitespace-pre-wrap wrap-anywhere rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-[var(--color-primary-foreground)]">
+            <div className="cc-user-message-body max-w-[85%] min-w-0 whitespace-pre-wrap wrap-anywhere rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-[var(--color-primary-foreground)]">
               {shown}
             </div>
           )}

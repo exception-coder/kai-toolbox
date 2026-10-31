@@ -8,10 +8,15 @@ The focus view SHALL align assistant content and composer within an 860px readin
 - **THEN** the same conversation, draft, attachments, generation stop and permission controls SHALL remain available
 - **AND** exiting SHALL restore the original workspace
 
-#### Scenario: Display actual specification context
-- **WHEN** focus is opened for a session
-- **THEN** the header SHALL display its title and the actual bound OpenSpec change and current Task when returned
-- **AND** absent or unavailable context SHALL be explicit, without guessing from message content or reusing another session's binding
+#### Scenario: Mobile reading navigation
+- **WHEN** focus is opened for a session on mobile
+- **THEN** a single 48px navigation row SHALL contain back, session title, actual connection/running state and more options, without a separate OpenSpec status or management toolbar
+- **AND** reading width SHALL only be offered on a viewport wide enough to benefit; runtime details SHALL reuse the original workspace view
+
+#### Scenario: Preserve reading and keyboard visibility
+- **WHEN** focus is entered or exited while reading, or the mobile visual viewport changes with the keyboard
+- **THEN** the same message list and input SHALL retain their session, draft, attachments and running task; visible message identity and offset SHALL be restored without applying an old session's position
+- **AND** the composer SHALL fit the visible viewport with safe-area spacing, keeping its existing adaptive height and placing runtime feedback above input
 
 ### Requirement: Reversible conversation focus mode
 The workspace SHALL offer one-action focus mode that fills the screen with conversation and input, retaining an accessible exit action and permission dialogs.

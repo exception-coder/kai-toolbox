@@ -350,6 +350,28 @@ describe('ChatPage session configuration', () => {
     expect(testRuntime.chat.send).not.toHaveBeenCalled()
     expect(testRuntime.chat.open).not.toHaveBeenCalled()
   })
+  it('enters and exits mobile focus without replacing input or altering the running task', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    testRuntime.chat.running = true
+    mountChat()
+    const input = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.change(input, { target: { value: '仍在编辑的补充需求' } })
+    fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
+    const menu = within(screen.getByRole('menu', { name: '会话工具' }))
+    fireEvent.click(menu.getByRole('menuitem', { name: '阅读与显示' }))
+    fireEvent.click(menu.getByRole('button', { name: /^专注模式/ }))
+    expect(input.closest('.cc-focus-mode')).not.toBeNull()
+    expect(screen.getByRole('textbox', { name: '消息输入' })).toBe(input)
+    expect(input).toHaveValue('仍在编辑的补充需求')
+    expect(screen.getByRole('button', { name: '中断' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '返回工作台' }))
+    expect(input.closest('.cc-focus-mode')).toBeNull()
+    expect(screen.getByRole('textbox', { name: '消息输入' })).toBe(input)
+    expect(input).toHaveValue('仍在编辑的补充需求')
+    expect(testRuntime.chat.running).toBe(true)
+    for (const action of ['open', 'send', 'steer', 'enqueue', 'interrupt'] as const) expect(testRuntime.chat[action]).not.toHaveBeenCalled()
+  })
+
   it('prioritizes two shortcuts and five categories, keeps low-frequency actions out of the root and resets on reopen', async () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     mountChat()

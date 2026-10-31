@@ -24,7 +24,7 @@
   padding-top: env(safe-area-inset-top);
   background: var(--color-background);
 }
-.cc-focus-mode .cc-focus-header-inner { padding: 8px 12px; }
+.cc-focus-mode .cc-focus-header-inner { height: 48px; padding: 0 12px; flex-wrap: nowrap; }
 .cc-focus-mode .cc-assistant-avatar { display: none; }
 .cc-focus-mode .cc-assistant-body {
   width: 100%;
@@ -61,8 +61,44 @@
   color: var(--color-muted-foreground);
 }
 .cc-focus-mode .cc-focus-only { display: inline; }
-@media (max-width: 640px) {
-  .cc-focus-mode .cc-focus-header-inner { gap: 4px; }
-  .cc-focus-mode .cc-focus-header-inner > div:first-child { flex-basis: 100%; }
-  .cc-focus-mode .cc-message-row { padding-block: 12px; }
+/* Stronger than the lazy-loaded workspace styles: focus is an explicit presentation. */
+.cc-mobile-coding-workspace.cc-focus-mode {
+  top: var(--cc-focus-top, 0px);
+  height: var(--cc-focus-height, 100dvh);
+  bottom: auto;
+}
+.cc-focus-mode .cc-layered-conversation .cc-assistant-body {
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  line-height: 1.65;
+}
+.cc-focus-mode .cc-layered-conversation .cc-assistant-body .markdown-body { line-height: 1.65; }
+.cc-focus-mode .cc-user-message-body {
+  background: var(--color-muted);
+  color: var(--color-foreground);
+  border-radius: 12px;
+  padding-inline: 12px;
+}
+.cc-focus-mode .cc-workspace-execution-dock[data-execution-state="completed"][data-has-queue="false"],
+.cc-focus-mode .cc-workspace-execution-dock[data-execution-state="usage"][data-has-queue="false"],
+.cc-focus-mode .cc-workspace-execution-dock[data-execution-state="idle"][data-has-queue="false"] { display: none; }
+.cc-focus-mode .cc-message-row:has(.cc-turn-status) { padding-block: 0 4px; }
+.cc-focus-mode .cc-turn-status summary { min-height: 44px; }
+.cc-focus-mode .cc-message-history { min-height: 32px; padding-block: 0; }
+.cc-focus-mode .mobile-composer-card > button[aria-label^="会话配置"] { display: none; }
+@media (max-width: 767px) {
+  .cc-focus-mode .cc-focus-header-inner { gap: 4px; padding-inline: 4px; }
+  .cc-focus-mode .cc-layered-conversation .cc-message-row { padding: 8px 16px; }
+  .cc-focus-mode .cc-layered-conversation .cc-message-row:has(.cc-turn-status) { padding-block: 0 4px; }
+  .cc-focus-mode .cc-layered-conversation .cc-assistant-row { display: block; }
+  .cc-focus-mode .cc-layered-conversation .cc-message-header { margin-bottom: 4px; padding: 0; }
+  .cc-mobile-coding-workspace.cc-focus-mode .mobile-composer-card {
+    min-height: 76px; margin: 0; padding: 4px 12px; grid-template-rows: auto 44px;
+  }
+  .cc-mobile-coding-workspace.cc-focus-mode .mobile-composer-card textarea {
+    min-height: 24px; max-height: min(128px, calc(var(--cc-focus-height, 100dvh) * 0.24));
+  }
 }

@@ -124,7 +124,7 @@ export function MobileSessionStatus({
   const Icon = warning ? AlertTriangle : active ? Loader2 : status?.kind === 'completed' ? CheckCircle2 : Activity
 
   return (
-    <div className={workspace ? 'cc-workspace-execution-dock' : 'md:hidden'}>
+    <div className={workspace ? 'cc-workspace-execution-dock' : 'md:hidden'} data-execution-state={status?.kind ?? 'idle'} data-has-queue={queueCount > 0}>
       <button
         ref={trigger}
         type="button"
