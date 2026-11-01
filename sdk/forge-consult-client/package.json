@@ -9,7 +9,7 @@
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./backend": { "types": "./dist/backend.d.ts", "import": "./dist/backend.js" }
   },
-  "files": ["dist", "README.md", "BACKEND.md", "openapi-backend.yaml", "examples"],
+  "files": ["dist", "README.md", "BACKEND.md", "HANDOFF-YOOONI-AGENT.md", "openapi-backend.yaml", "examples"],
   "engines": { "node": ">=22" },
   "scripts": {
     "build": "tsc -p tsconfig.json",
