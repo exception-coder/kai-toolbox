@@ -83,7 +83,7 @@ describe('消息本地路径', () => {
   ])('点击图文件 %s 页内预览，关闭恢复原链接焦点', async (href, expected) => {
     readDiagram.mockResolvedValue({ name: '架构.drawio', content: '<mxGraphModel/>', size: 15, binary: false, truncated: false })
     const client = new QueryClient()
-    render(<QueryClientProvider client={client}><Markdown text={`[查看架构](${href})`} sessionId="session" /></QueryClientProvider>)
+    render(<QueryClientProvider client={client}><Markdown inlineFiles={false} text={`[查看架构](${href})`} sessionId="session" /></QueryClientProvider>)
     const link = screen.getByRole('link', { name: '查看架构' })
     fireEvent.click(link)
     expect(await screen.findByText('图画布：架构.drawio')).toBeVisible()
@@ -108,7 +108,7 @@ describe('消息本地路径', () => {
     readDiagram.mockRejectedValueOnce(new Error('路径不属于当前会话或项目工作台'))
     let cancelled: AbortSignal | undefined
     readDiagram.mockImplementationOnce((_session, _path, signal) => { cancelled = signal; return new Promise(() => {}) })
-    render(<QueryClientProvider client={client}><Markdown text="[架构](./架构.drawio)" sessionId="session" /></QueryClientProvider>)
+    render(<QueryClientProvider client={client}><Markdown inlineFiles={false} text="[架构](./架构.drawio)" sessionId="session" /></QueryClientProvider>)
     fireEvent.click(screen.getByRole('link', { name: '架构' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('路径不属于')
     fireEvent.click(screen.getByRole('button', { name: '重试读取' }))
@@ -123,10 +123,10 @@ describe('消息本地路径', () => {
     const client = new QueryClient()
     let cancelled: AbortSignal | undefined
     readDiagram.mockImplementationOnce((_session, _path, signal) => { cancelled = signal; return new Promise(() => {}) })
-    const view = render(<QueryClientProvider client={client}><Markdown text="[图](./旧图.drawio)" sessionId="old" /></QueryClientProvider>)
+    const view = render(<QueryClientProvider client={client}><Markdown inlineFiles={false} text="[图](./旧图.drawio)" sessionId="old" /></QueryClientProvider>)
     fireEvent.click(screen.getByRole('link', { name: '图' }))
     await waitFor(() => expect(readDiagram).toHaveBeenCalledTimes(1))
-    view.rerender(<QueryClientProvider client={client}><Markdown text="新的会话" sessionId="new" /></QueryClientProvider>)
+    view.rerender(<QueryClientProvider client={client}><Markdown inlineFiles={false} text="新的会话" sessionId="new" /></QueryClientProvider>)
     await waitFor(() => expect(cancelled?.aborted).toBe(true))
     expect(readDiagram).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog')).toBeNull()

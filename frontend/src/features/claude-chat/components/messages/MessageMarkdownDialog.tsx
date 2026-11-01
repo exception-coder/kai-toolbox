@@ -33,6 +33,7 @@ export function MessageMarkdownDialog({ sessionId, path, onClose, returnFocus }:
       return result
     },
     retry: false,
+    staleTime: Infinity,
     refetchOnWindowFocus: false,
     gcTime: 0,
   })

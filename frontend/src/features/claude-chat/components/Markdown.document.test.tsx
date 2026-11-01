@@ -11,7 +11,7 @@ const clients: QueryClient[] = []
 function setup(text = '[接入设计](D:/project/docs/guide.md)', sessionId: string | undefined = 'session') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   clients.push(client)
-  return render(<QueryClientProvider client={client}><Markdown text={text} sessionId={sessionId} /></QueryClientProvider>)
+  return render(<QueryClientProvider client={client}><Markdown inlineFiles={false} text={text} sessionId={sessionId} /></QueryClientProvider>)
 }
 afterEach(() => { cleanup(); clients.forEach(client => client.clear()); clients.length = 0; vi.clearAllMocks() })
 
@@ -74,7 +74,7 @@ describe('消息 Markdown 文件预览', () => {
     const view = setup()
     fireEvent.click(screen.getByRole('link', { name: '接入设计' }))
     await waitFor(() => expect(api.markdown).toHaveBeenCalledOnce())
-    view.rerender(<QueryClientProvider client={clients[0]}><Markdown text="新的会话" sessionId="next" /></QueryClientProvider>)
+    view.rerender(<QueryClientProvider client={clients[0]}><Markdown inlineFiles={false} text="新的会话" sessionId="next" /></QueryClientProvider>)
     await waitFor(() => expect(signal?.aborted).toBe(true))
     await act(async () => finish(file()))
     expect(screen.queryByRole('dialog')).toBeNull()

@@ -14,7 +14,7 @@ const file = (content = '-- 中文\r\nSELECT 1;', truncated = false) => ({ name:
 function setup(text = '[SQL](D:/project/draft.sql)', sessionId = 'session') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   clients.push(client)
-  return render(<QueryClientProvider client={client}><Markdown text={text} sessionId={sessionId} /></QueryClientProvider>)
+  return render(<QueryClientProvider client={client}><Markdown inlineFiles={false} text={text} sessionId={sessionId} /></QueryClientProvider>)
 }
 afterEach(() => { cleanup(); clients.forEach(client => client.clear()); clients.length = 0; vi.resetAllMocks(); vi.unstubAllGlobals() })
 
@@ -78,7 +78,7 @@ it('cancels an old read when switching sessions and ignores its late response', 
   const view = setup()
   fireEvent.click(screen.getByRole('link', { name: 'SQL' }))
   await waitFor(() => expect(api.sql).toHaveBeenCalledOnce())
-  view.rerender(<QueryClientProvider client={clients[0]}><Markdown text="[SQL](./other.sql)" sessionId="other" /></QueryClientProvider>)
+  view.rerender(<QueryClientProvider client={clients[0]}><Markdown inlineFiles={false} text="[SQL](./other.sql)" sessionId="other" /></QueryClientProvider>)
   await waitFor(() => expect(signal.aborted).toBe(true))
   await act(async () => finish(file('old session text')))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()

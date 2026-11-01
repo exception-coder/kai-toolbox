@@ -24,6 +24,7 @@ export function MessageDrawioDialog({ sessionId, path, onClose, returnFocus }: P
       return result
     },
     retry: false,
+    staleTime: Infinity,
     refetchOnWindowFocus: false,
     gcTime: 0,
   })

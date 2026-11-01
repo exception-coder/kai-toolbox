@@ -1,21 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useQuery } from '@tanstack/react-query'
-import CodeMirror from '@uiw/react-codemirror'
-import { sql } from '@codemirror/lang-sql'
-import { EditorView } from '@codemirror/view'
 import { Copy, RefreshCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
-import { useIsDarkTheme } from '@/lib/useIsDarkTheme'
 import { readSessionSql } from '../../api'
+import { SqlFileContent } from './SqlFileContent'
 
 interface Props { sessionId: string; path: string; onClose: () => void; returnFocus: () => void }
 
 /** SQL is literal read-only text, never interpreted as Markdown or executed. */
 export function MessageSqlDialog({ sessionId, path, onClose, returnFocus }: Props) {
   const portal = useFullscreenPortalContainer()
-  const dark = useIsDarkTheme()
   const [notice, setNotice] = useState<string | null>(null)
   const file = useQuery({
     queryKey: ['message-sql', sessionId, path],
@@ -24,10 +20,8 @@ export function MessageSqlDialog({ sessionId, path, onClose, returnFocus }: Prop
       if (result.truncated || result.binary) throw new Error('未取得完整的 SQL 文件，请核对路径并重试。')
       return result
     },
-    retry: false, refetchOnWindowFocus: false, gcTime: 0,
+    retry: false, refetchOnWindowFocus: false, staleTime: Infinity, gcTime: 0,
   })
-  const extensions = useMemo(() => [sql(), EditorView.lineWrapping,
-    EditorView.contentAttributes.of({ 'aria-label': 'SQL 文件内容', tabindex: '0' })], [])
   const title = path.replace(/\\/g, '/').split('/').pop() || 'SQL 文件'
   async function copy() {
     if (!file.data || file.isError) return
@@ -52,8 +46,7 @@ export function MessageSqlDialog({ sessionId, path, onClose, returnFocus }: Prop
         {file.isPending ? <p role="status" className="p-4 text-sm">正在读取 SQL 文件…</p>
           : file.isError ? <div role="alert" className="space-y-3 p-4 text-sm"><p>{file.error.message}</p><p>请核对文件路径与会话权限；可重试或关闭后继续对话。</p><Button variant="outline" disabled={file.isFetching} onClick={() => void file.refetch()}>重试读取</Button></div>
             : !file.data.content.trim() ? <p className="p-4 text-sm text-[var(--color-muted-foreground)]">这份 SQL 文件为空。</p>
-              : <CodeMirror value={file.data.content} theme={dark ? 'dark' : 'light'} height="100%" className="h-full text-sm" extensions={extensions}
-                readOnly editable={false} indentWithTab={false} basicSetup={{ lineNumbers: true, highlightActiveLine: false, highlightActiveLineGutter: false, autocompletion: false }} />}
+              : <SqlFileContent content={file.data.content} />}
       </div>
     </Dialog.Content>
   </Dialog.Portal></Dialog.Root>

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { MessageImage } from './messages/MessageImage'
 import { parseChatMarkdown } from '../lib/chatMarkdown'
@@ -12,14 +12,17 @@ import { isDrawioFile } from '@/features/doc-viewer/public-api/drawio'
 import { SitePreviewLink } from '@/components/site-preview/SitePreviewLink'
 import { splitMessageBlocks } from '../lib/messageBlocks'
 import { PagePreviewDialog, pagePreviewEntryFromHref } from '@/features/browser-request/public-api/page-preview'
+import { inlineFileBlocks, type InlineFileReference } from '../lib/inlineFilePreviews'
 
 const MessageDrawioDialog = lazy(() => import('./messages/MessageDrawioDialog').then(module => ({ default: module.MessageDrawioDialog })))
 const MessageMarkdownDialog = lazy(() => import('./messages/MessageMarkdownDialog').then(module => ({ default: module.MessageMarkdownDialog })))
 const MessageSqlDialog = lazy(() => import('./messages/MessageSqlDialog').then(module => ({ default: module.MessageSqlDialog })))
+const InlineLocalFile = lazy(() => import('./messages/InlineLocalFile').then(module => ({ default: module.InlineLocalFile })))
 
 interface MarkdownContext {
   documentPath?: string
   onOpenMarkdown?: (path: string) => void
+  inlineFiles?: boolean
 }
 
 function LocalMessageImage({ sessionId, path, alt }: { sessionId?: string; path: string; alt: string }) {
@@ -130,12 +133,12 @@ function MermaidDiagram({ code }: { code: string }) {
 }
 
 // ── MarkdownPart：单段普通 markdown 渲染（保留原有实现）──────────────────────
-function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown }: { text: string; className?: string; sessionId?: string } & MarkdownContext) {
+function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown, inlineFiles = true }: { text: string; className?: string; sessionId?: string } & MarkdownContext) {
   const [localPathNotice, setLocalPathNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
   const content = useRef<HTMLDivElement>(null)
-  const [diagram, setDiagram] = useState<{ sessionId: string; path: string; trigger: HTMLAnchorElement } | null>(null)
-  const [markdownDocument, setMarkdownDocument] = useState<{ sessionId: string; path: string; trigger: HTMLAnchorElement } | null>(null)
-  const [sqlDocument, setSqlDocument] = useState<{ sessionId: string; path: string; trigger: HTMLAnchorElement } | null>(null)
+  const [diagram, setDiagram] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
+  const [markdownDocument, setMarkdownDocument] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
+  const [sqlDocument, setSqlDocument] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
   const [pagePreview, setPagePreview] = useState<{ sessionId?: string; path: string; trigger: HTMLAnchorElement } | null>(null)
   useEffect(() => { setDiagram(null); setMarkdownDocument(null); setSqlDocument(null); setPagePreview(null) }, [sessionId, documentPath])
   const [imageTargets, setImageTargets] = useState<{ html: string | null; sessionId?: string; targets: HTMLSpanElement[] }>({ html: null, targets: [] })
@@ -145,6 +148,10 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
       const raw = parseChatMarkdown(text)
       const rawDoc = new DOMParser().parseFromString(raw, 'text/html')
       rawDoc.querySelectorAll<HTMLAnchorElement>('a').forEach(anchor => {
+        // Only actual local hrefs may create automatic file reads, not user-authored data attributes.
+        delete anchor.dataset.diagramPath
+        delete anchor.dataset.markdownPath
+        delete anchor.dataset.sqlPath
         if (documentPath) {
           const href = anchor.getAttribute('href')
           if (href && !/^(?:[a-z][\w+.-]*:|\/|#|\?)/i.test(href)) anchor.setAttribute('href', relativeToDocument(href, documentPath))
@@ -238,9 +245,20 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
   }, [text, documentPath])
 
   const markup = useMemo(() => ({ __html: html ?? '' }), [html])
+  const fileBlocks = useMemo(() => inlineFiles && sessionId && !documentPath && html && /data-(?:diagram|markdown|sql)-path=/.test(html)
+    ? inlineFileBlocks(html) : null, [inlineFiles, sessionId, documentPath, html])
+
+  function expandFile(reference: InlineFileReference, trigger: HTMLElement) {
+    if (!sessionId) return
+    const selection = { sessionId, path: reference.path, trigger }
+    if (reference.kind === 'diagram') setDiagram(selection)
+    else if (reference.kind === 'markdown') setMarkdownDocument(selection)
+    else setSqlDocument(selection)
+  }
 
   useLayoutEffect(() => {
-    setImageTargets({ html, sessionId, targets: Array.from(content.current?.querySelectorAll<HTMLSpanElement>('span[data-message-image]') ?? []) })
+    setImageTargets({ html, sessionId, targets: Array.from(content.current?.querySelectorAll<HTMLSpanElement>('span[data-message-image]') ?? [])
+      .filter(target => target.closest('[data-message-markdown]') === content.current) })
   }, [html, sessionId])
 
   const handleClick = async (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -357,6 +375,7 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
     <>
       <div
         ref={content}
+        data-message-markdown
         tabIndex={-1}
         onClick={handleClick}
         onCopy={copySelection}
@@ -384,8 +403,13 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
         '[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded-lg',
         className,
       )}
-        dangerouslySetInnerHTML={markup}
-      />
+        {...(fileBlocks ? {} : { dangerouslySetInnerHTML: markup })}
+      >{fileBlocks?.map((block, index) => <Fragment key={index}>
+        <div className="contents" dangerouslySetInnerHTML={{ __html: block.html }} />
+        {block.files.map(reference => <Suspense key={`${sessionId}:${reference.kind}:${reference.path}`} fallback={<p role="status" className="my-3 text-xs">正在准备文件预览…</p>}>
+          <InlineLocalFile sessionId={sessionId!} reference={reference} onExpand={trigger => expandFile(reference, trigger)} />
+        </Suspense>)}
+      </Fragment>)}</div>
       {imageTargets.html === html && imageTargets.sessionId === sessionId && imageTargets.targets.map((target, index) => createPortal(
         target.dataset.localImage
           ? <LocalMessageImage sessionId={sessionId} path={target.dataset.localImage} alt={target.dataset.imageAlt ?? ''} />
@@ -496,12 +520,12 @@ function relativeToDocument(relative: string, documentPath: string): string {
  * - site-preview 声明仅提供点击入口，不在输出或流式更新时访问站点
  * - 流式代码块未闭合时当普通代码块显示
  */
-export function Markdown({ text, className, sessionId, documentPath, onOpenMarkdown }: { text: string; className?: string; sessionId?: string } & MarkdownContext) {
+export function Markdown({ text, className, sessionId, documentPath, onOpenMarkdown, inlineFiles }: { text: string; className?: string; sessionId?: string } & MarkdownContext) {
   const segments = useMemo(() => splitMessageBlocks(text ?? ''), [text])
 
   // 只有一段普通文本（最常见情况）：走原来最简路径，不引入额外 wrapper
   if (segments.length === 1 && segments[0].kind === 'text') {
-    return <MarkdownPart text={segments[0].content} className={className} sessionId={sessionId} documentPath={documentPath} onOpenMarkdown={onOpenMarkdown} />
+    return <MarkdownPart text={segments[0].content} className={className} sessionId={sessionId} documentPath={documentPath} onOpenMarkdown={onOpenMarkdown} inlineFiles={inlineFiles} />
   }
 
   return (
@@ -511,7 +535,7 @@ export function Markdown({ text, className, sessionId, documentPath, onOpenMarkd
           ? <MermaidDiagram key={i} code={seg.code} />
           : seg.kind === 'site-preview'
             ? <SitePreviewLink key={`${sessionId ?? ''}:${i}:${seg.code}`} declaration={seg.code} />
-            : <MarkdownPart key={i} text={seg.content} sessionId={sessionId} documentPath={documentPath} onOpenMarkdown={onOpenMarkdown} />
+            : <MarkdownPart key={i} text={seg.content} sessionId={sessionId} documentPath={documentPath} onOpenMarkdown={onOpenMarkdown} inlineFiles={inlineFiles} />
       )}
     </div>
   )
