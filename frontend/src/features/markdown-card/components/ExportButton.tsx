@@ -10,9 +10,10 @@ interface ExportButtonProps {
   onExport: ExportFn
   disabled?: boolean
   label?: string
+  variant?: 'default' | 'outline'
 }
 
-export function ExportButton({ onExport, disabled, label = '导出 PNG' }: ExportButtonProps) {
+export function ExportButton({ onExport, disabled, label = '导出 PNG', variant = 'default' }: ExportButtonProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
@@ -35,7 +36,7 @@ export function ExportButton({ onExport, disabled, label = '导出 PNG' }: Expor
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <Button onClick={handleClick} disabled={disabled || busy}>
+      <Button variant={variant} onClick={handleClick} disabled={disabled || busy}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
         {busy ? progress ?? '导出中…' : label}
       </Button>

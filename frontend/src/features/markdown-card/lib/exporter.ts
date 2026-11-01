@@ -1,7 +1,7 @@
 import { toPng } from 'html-to-image'
 import type { Mode } from '../types'
 
-export type SaveResult = 'shared' | 'downloaded' | 'fallback'
+export type SaveResult = 'downloaded' | 'fallback'
 
 export async function captureNode(node: HTMLElement, scale = 2): Promise<string> {
   await waitFonts()
@@ -14,21 +14,6 @@ export async function captureNode(node: HTMLElement, scale = 2): Promise<string>
 
 export async function saveImage(dataUrl: string, filename: string): Promise<SaveResult> {
   const blob = await dataUrlToBlob(dataUrl)
-  const file = new File([blob], filename, { type: 'image/png' })
-
-  // PC 端直接走下载分支，移动端才弹系统分享面板
-  if (isMobileLike() && canShareFile(file)) {
-    try {
-      await navigator.share({ files: [file], title: filename })
-      return 'shared'
-    } catch (e) {
-      if (e instanceof Error && e.name === 'AbortError') {
-        // 用户主动取消分享面板，视为已经"处理过"，不再走兜底
-        return 'shared'
-      }
-      // 其他错误走下载兜底
-    }
-  }
 
   if (supportsAnchorDownload()) {
     triggerAnchorDownload(blob, filename)
@@ -90,35 +75,6 @@ async function waitFonts(): Promise<void> {
 async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
   const res = await fetch(dataUrl)
   return res.blob()
-}
-
-function isMobileLike(): boolean {
-  if (typeof navigator === 'undefined') return false
-  const uaData = (navigator as Navigator & {
-    userAgentData?: { mobile?: boolean }
-  }).userAgentData
-  if (uaData && typeof uaData.mobile === 'boolean') return uaData.mobile
-  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-    const coarse = window.matchMedia('(pointer: coarse)').matches
-    const noHover = window.matchMedia('(hover: none)').matches
-    if (coarse && noHover) return true
-  }
-  return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-}
-
-function canShareFile(file: File): boolean {
-  if (typeof navigator === 'undefined') return false
-  const nav = navigator as Navigator & {
-    canShare?: (data: ShareData) => boolean
-    share?: (data: ShareData) => Promise<void>
-  }
-  if (typeof nav.share !== 'function') return false
-  if (typeof nav.canShare !== 'function') return false
-  try {
-    return nav.canShare({ files: [file] })
-  } catch {
-    return false
-  }
 }
 
 function supportsAnchorDownload(): boolean {

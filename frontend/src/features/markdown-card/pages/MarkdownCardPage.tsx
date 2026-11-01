@@ -8,11 +8,12 @@ import { ThemeSelector } from '../components/ThemeSelector'
 import { SlideRatioSwitcher } from '../components/SlideRatioSwitcher'
 import { SplitModeSwitcher } from '../components/SplitModeSwitcher'
 import { WatermarkForm } from '../components/WatermarkForm'
-import { ExportButton } from '../components/ExportButton'
+import { CardExportActions } from '../components/CardExportActions'
 import { CardRenderer } from '../components/CardRenderer'
 import type { SlideCardsHandle } from '../components/SlideCards'
 import { loadState, saveState } from '../lib/persistence'
 import { captureNode, exportSlides, saveImage, buildFilename } from '../lib/exporter'
+import { canShareImages, prepareCardImages, shareCardImages } from '../lib/sharing'
 import type { Mode, PersistedState, SlideRatio, SplitMode, Theme, Watermark } from '../types'
 
 type MobileTab = 'edit' | 'preview'
@@ -31,6 +32,22 @@ export function MarkdownCardPage({ embedded = false, initialSourceText, persist 
   const singleNodeRef = useRef<HTMLDivElement>(null)
   const slideHandleRef = useRef<SlideCardsHandle>(null)
   const exporting = useRef(false)
+  const [busy, setBusy] = useState(false)
+  const [shareProgress, setShareProgress] = useState<string | null>(null)
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null)
+  const [prepared, setPrepared] = useState<{ files: File[]; state: PersistedState; removed: Set<string> } | null>(null)
+  const shareReady = prepared !== null && prepared.state === state && prepared.removed === removedBlocks
+  const currentSnapshot = useRef({ state, removedBlocks })
+  currentSnapshot.current = { state, removedBlocks }
+
+  // Discard rendered files as soon as their content, appearance, or visible blocks change.
+  useEffect(() => { setPrepared(null); setShareFeedback(null) }, [state, removedBlocks])
+
+  function setActionBusy(value: boolean) {
+    exporting.current = value
+    setBusy(value)
+    onExportBusyChange?.(value)
+  }
 
   // 源文本/分页/模式变化会让块索引或分页边界漂移，已删块 key 失效 → 清空，避免删错块
   useEffect(() => {
@@ -60,8 +77,7 @@ export function MarkdownCardPage({ embedded = false, initialSourceText, persist 
 
   async function handleExport(setProgress: (m: string | null) => void) {
     if (exporting.current) return
-    exporting.current = true
-    onExportBusyChange?.(true)
+    setActionBusy(true)
     try {
       if (state.mode === 'slide') {
         const handle = slideHandleRef.current
@@ -79,8 +95,50 @@ export function MarkdownCardPage({ embedded = false, initialSourceText, persist 
       const dataUrl = await captureNode(node)
       setProgress('正在保存…')
       await saveImage(dataUrl, buildFilename(state.mode))
-    } finally { exporting.current = false; onExportBusyChange?.(false) }
+    } finally { setActionBusy(false) }
   }
+
+  async function handlePrepareShare() {
+    if (exporting.current) return
+    if (typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function') {
+      setShareFeedback('当前浏览器不支持图片分享。可使用保存 PNG，或换用支持文件分享的手机浏览器。')
+      return
+    }
+    setActionBusy(true)
+    setShareFeedback(null)
+    setShareProgress('正在生成图片…')
+    try {
+      const nodes = state.mode === 'slide' ? slideHandleRef.current?.getSlideNodes() ?? []
+        : singleNodeRef.current ? [singleNodeRef.current] : []
+      const files = await prepareCardImages(nodes, state.mode, setShareProgress)
+      if (currentSnapshot.current.state !== state || currentSnapshot.current.removedBlocks !== removedBlocks) {
+        setShareFeedback('卡片已变更，请重新生成图片后分享。')
+        return
+      }
+      setPrepared({ files, state, removed: removedBlocks })
+      if (!canShareImages(files)) setShareFeedback('当前浏览器不支持分享这些图片。可使用保存 PNG，或换用支持文件分享的手机浏览器。')
+    } catch (error) {
+      setShareFeedback(error instanceof Error ? error.message : String(error))
+    } finally { setActionBusy(false); setShareProgress(null) }
+  }
+
+  async function handleShare() {
+    if (exporting.current || !shareReady) return
+    setActionBusy(true)
+    setShareFeedback(null)
+    setShareProgress('等待系统分享…')
+    try {
+      const result = await shareCardImages(prepared.files)
+      setShareFeedback(result === 'cancelled' ? '分享已取消，图片仍保留，可重新选择应用。'
+        : '图片已交给系统分享，请在所选应用中确认发送。')
+    } catch (error) {
+      setShareFeedback(error instanceof Error ? error.message : String(error))
+    } finally { setActionBusy(false); setShareProgress(null) }
+  }
+
+  const exportActions = <CardExportActions onExport={handleExport} onPrepare={handlePrepareShare} onShare={handleShare}
+    disabled={isEmpty} busy={busy} ready={shareReady} shareAvailable={shareReady && canShareImages(prepared.files)}
+    progress={shareProgress} feedback={shareFeedback} />
 
   return (
     <div className={embedded ? "flex w-full flex-col gap-4" : "mx-auto flex max-w-7xl flex-col gap-3 px-3 py-4 md:gap-4 md:px-4 md:py-6"}>
@@ -90,10 +148,10 @@ export function MarkdownCardPage({ embedded = false, initialSourceText, persist 
         <div>
           <h1 className={embedded ? "sr-only" : "text-lg font-semibold tracking-tight md:text-xl"}>Markdown 转卡片</h1>
           <p className="hidden text-sm text-[var(--color-muted-foreground)] sm:block">
-            三种模式 + 六套主题，纯前端导出 PNG。PC 直接下载，移动端走系统分享面板。
+            三种模式 + 六套主题，可保存 PNG 或直接分享图片。
           </p>
         </div>
-        <ExportButton onExport={handleExport} disabled={isEmpty} />
+        {exportActions}
       </header>
 
       {/* 工具栏：移动端多行折叠 */}
@@ -163,7 +221,7 @@ export function MarkdownCardPage({ embedded = false, initialSourceText, persist 
               返回编辑
             </button>
             <div className="ml-auto">
-              <ExportButton onExport={handleExport} disabled={isEmpty} label="导出" />
+              {exportActions}
             </div>
           </div>
 

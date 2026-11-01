@@ -42,7 +42,7 @@ it('exports through the existing renderer and protects the mounted editor until 
   vi.mocked(captureNode).mockImplementation(() => new Promise(resolve => { finish = resolve }))
   const close = vi.fn()
   render(<MarkdownCardDialog sourceText="要导出的回复" onClose={close} />)
-  const exportButton = (await screen.findAllByRole('button', { name: '导出 PNG' }, { timeout: 10000 }))[0]
+  const exportButton = (await screen.findAllByRole('button', { name: '保存 PNG' }, { timeout: 10000 }))[0]
   fireEvent.click(exportButton)
   await waitFor(() => expect(screen.getByRole('button', { name: '关闭卡片编辑器' })).toBeDisabled())
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
@@ -66,7 +66,7 @@ it('preserves the content tool permission boundary and offers a close action', (
 it('retains the edited reply and permits retry after an export failure', async () => {
   vi.mocked(captureNode).mockRejectedValueOnce(new Error('图片渲染失败')).mockResolvedValueOnce('data:image/png;base64,retry')
   render(<MarkdownCardDialog sourceText="可恢复的回复" onClose={vi.fn()} />)
-  const exportButton = (await screen.findAllByRole('button', { name: '导出 PNG' }, { timeout: 10000 }))[0]
+  const exportButton = (await screen.findAllByRole('button', { name: '保存 PNG' }, { timeout: 10000 }))[0]
   fireEvent.click(exportButton)
   await screen.findByText('图片渲染失败')
   expect(screen.getByRole('button', { name: '关闭卡片编辑器' })).toBeEnabled()
@@ -85,4 +85,48 @@ it('retains normal autosaving when opened as the standalone tool', async () => {
   await waitFor(() => expect(loadState().theme).toBe('writing'))
   expect(screen.getByRole('button', { name: '写作' })).toHaveAttribute('aria-pressed', 'true')
   expect(screen.getByRole('textbox', { name: '卡片 Markdown 正文' })).toHaveValue('独立编辑的新草稿')
+})
+
+it('prepares images before the share click, preserves cancellation and invalidates them after editing', async () => {
+  const share = vi.fn().mockRejectedValueOnce(new DOMException('cancelled', 'AbortError')).mockResolvedValue(undefined)
+  vi.stubGlobal('navigator', { share, canShare: vi.fn(() => true), userAgent: 'test', platform: 'Win32' })
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, blob: async () => new Blob(['png'], { type: 'image/png' }) })))
+  render(<MarkdownCardPage />)
+  fireEvent.click(screen.getAllByRole('button', { name: /^分享$/ })[0])
+  const ready = (await screen.findAllByRole('button', { name: '选择应用分享' }))[0]
+  expect(share).not.toHaveBeenCalled()
+  expect(saveImage).not.toHaveBeenCalled()
+  fireEvent.click(ready)
+  fireEvent.click(ready)
+  // Native share must start in the same click, without awaiting any more rendering or reads.
+  expect(share).toHaveBeenCalledOnce()
+  expect(share.mock.calls[0][0].files[0]).toMatchObject({ name: 'card.png', type: 'image/png' })
+  await waitFor(() => expect(screen.getAllByRole('status')[0]).toHaveTextContent('分享已取消'))
+  fireEvent.click(ready)
+  await waitFor(() => expect(screen.getAllByRole('status')[0]).toHaveTextContent('请在所选应用中确认发送'))
+  expect(captureNode).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('button', { name: '写作' }))
+  expect(screen.queryByRole('button', { name: '选择应用分享' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getAllByRole('button', { name: /^分享$/ })[0])
+  await screen.findAllByRole('button', { name: '选择应用分享' })
+  fireEvent.change(screen.getByRole('textbox', { name: '卡片 Markdown 正文' }), { target: { value: '更新后的正文' } })
+  expect(screen.queryByRole('button', { name: '选择应用分享' })).not.toBeInTheDocument()
+  let finish!: (value: string) => void
+  vi.mocked(captureNode).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  fireEvent.click(screen.getAllByRole('button', { name: /^分享$/ })[0])
+  fireEvent.change(screen.getByRole('textbox', { name: '卡片 Markdown 正文' }), { target: { value: '生成期间再次更新正文' } })
+  await act(async () => finish('data:image/png;base64,updated'))
+  await waitFor(() => expect(screen.getAllByRole('status')[0]).toHaveTextContent('卡片已变更'))
+  expect(screen.queryByRole('button', { name: '选择应用分享' })).not.toBeInTheDocument()
+  expect(saveImage).not.toHaveBeenCalled()
+})
+
+it('offers explicit saving without generating or downloading when sharing is unsupported', async () => {
+  vi.stubGlobal('navigator', { userAgent: 'test', platform: 'Win32' })
+  render(<MarkdownCardPage />)
+  fireEvent.click(screen.getAllByRole('button', { name: /^分享$/ })[0])
+  expect(screen.getAllByRole('status')[0]).toHaveTextContent('当前浏览器不支持图片分享')
+  expect(screen.getAllByRole('button', { name: '保存 PNG' })[0]).toBeEnabled()
+  expect(captureNode).not.toHaveBeenCalled()
+  expect(saveImage).not.toHaveBeenCalled()
 })
