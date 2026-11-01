@@ -1,7 +1,7 @@
 import { useLayoutEffect, useSyncExternalStore, type CSSProperties } from 'react'
 import { getUser, useAuth } from '@/lib/auth'
 
-export type WorkbenchTheme = 'tokyo-night' | 'catppuccin' | 'nord' | 'inherit'
+export type WorkbenchTheme = 'tokyo-night' | 'catppuccin' | 'nord' | 'cyberpunk' | 'terminal-hacker' | 'ai-studio' | 'inherit'
 const prefix = 'forge.vibecoding.theme:'
 const changeEvent = 'forge:workbench-theme'
 
@@ -9,7 +9,10 @@ const changeEvent = 'forge:workbench-theme'
 export const WORKBENCH_THEMES = [
   { id: 'tokyo-night', name: 'Tokyo Night', description: '科技蓝紫 · 推荐', colors: ['#1a1b26', '#24283b', '#16161e', '#292e42', '#363b54', '#c0caf5', '#a9b1d6', '#7aa2f7', '#bb9af7', '#9ece6a'] },
   { id: 'catppuccin', name: 'Catppuccin', description: '柔和粉紫 · Mocha', colors: ['#1e1e2e', '#27273a', '#181825', '#313244', '#45475a', '#cdd6f4', '#a6adc8', '#cba6f7', '#89b4fa', '#a6e3a1'] },
-  { id: 'nord', name: 'Nord', description: '极地蓝灰 · 低饱和', colors: ['#2e3440', '#3b4252', '#272d38', '#434c5e', '#4c566a', '#eceff4', '#b8c2d4', '#88c0d0', '#b48ead', '#a3be8c'] },
+  { id: 'nord', name: 'Nord', description: '极地蓝灰 · 低饱和', colors: ['#2e3440', '#3b4252', '#272d38', '#434c5e', '#4c566a', '#eceff4', '#b8c2d4', '#88c0d0', '#d0b2d7', '#a3be8c'] },
+  { id: 'cyberpunk', name: 'Cyberpunk', description: '深靛 · 青色与品红', colors: ['#171525', '#211f33', '#110f1b', '#2b283f', '#49435c', '#e2def5', '#b9b0ce', '#7de5ef', '#f4a2d4', '#c4e88d'] },
+  { id: 'terminal-hacker', name: 'Terminal Hacker', description: '墨绿 · 等宽与琥珀', colors: ['#151c18', '#1e2922', '#101713', '#2a362e', '#44594a', '#d8e8dc', '#aec4b5', '#9adeac', '#efcd92', '#b7db96'] },
+  { id: 'ai-studio', name: 'AI Studio', description: '蓝灰 · 清晰的紫蓝层次', colors: ['#191d2b', '#242a3b', '#141722', '#2d3549', '#48546c', '#e0e8fa', '#b6c4df', '#9fbfff', '#d3b3f5', '#9ddaca'] },
 ] as const
 const tokenNames = ['background', 'surface', 'sidebar', 'raised', 'border', 'text', 'muted', 'accent', 'keyword', 'string'] as const
 
@@ -19,7 +22,17 @@ export function workbenchThemeName(theme: WorkbenchTheme) {
 
 export function workbenchThemeStyle(theme: WorkbenchTheme): CSSProperties {
   const palette = WORKBENCH_THEMES.find(option => option.id === theme)
-  return palette ? Object.fromEntries(tokenNames.map((name, index) => [`--wb-${name}`, palette.colors[index]])) as CSSProperties : {}
+  if (!palette) return {}
+  const [, , , , , text, muted, accent, keyword, string] = palette.colors
+  return {
+    ...Object.fromEntries(tokenNames.map((name, index) => [`--wb-${name}`, palette.colors[index]])),
+    '--wb-heading': accent, '--wb-heading-secondary': keyword, '--wb-emphasis': keyword,
+    '--wb-inline-code': string, '--wb-link': accent, '--wb-syntax-comment': muted,
+    '--wb-syntax-number': keyword, '--wb-syntax-function': accent, '--wb-syntax-type': string,
+    '--wb-syntax-operator': text,
+    '--wb-body-font': theme === 'terminal-hacker' ? 'var(--font-mono, ui-monospace, Consolas, monospace)' : 'var(--font-sans, system-ui, sans-serif)',
+    '--wb-heading-weight': theme === 'cyberpunk' ? '700' : theme === 'terminal-hacker' ? '500' : '600',
+  } as CSSProperties
 }
 
 export function readWorkbenchTheme(userId?: number): WorkbenchTheme {

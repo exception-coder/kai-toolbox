@@ -90,6 +90,9 @@ it('keeps primary and secondary text legible across each palette surface', () =>
   for (const { colors } of WORKBENCH_THEMES) {
     for (const text of [colors[5], colors[6]]) for (const surface of [colors[0], colors[1], colors[2], colors[3]]) expect(contrast(text, surface)).toBeGreaterThanOrEqual(4.5)
     expect(contrast(colors[7], colors[2])).toBeGreaterThanOrEqual(4.5)
+    for (const content of [colors[7], colors[8], colors[9]]) {
+      for (const surface of [colors[0], colors[1], colors[2]]) expect(contrast(content, surface)).toBeGreaterThanOrEqual(4.5)
+    }
     for (const status of ['info', 'success', 'warning', 'danger']) {
       const color = themeCss.split(`--color-${status}:`)[1]?.trim().slice(0, 7)
       expect(color).toMatch(/^#[0-9a-f]{6}$/i)

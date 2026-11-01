@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, CircleX, LoaderCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { classifyTool } from '../lib/toolKinds'
 
@@ -16,15 +16,18 @@ export function ToolCallBubble({ toolName, input, output, isError }: Props) {
   const running = output === undefined
   const meta = classifyTool(toolName)
   const Icon = meta.icon
+  const state = isError ? 'failed' : running ? 'running' : 'completed'
+  const StatusIcon = isError ? CircleX : running ? LoaderCircle : Check
 
   return (
     <div className={cn(
-      'min-w-0 max-w-full rounded-lg border text-sm',
+      'wb-tool-call min-w-0 max-w-full rounded-lg border text-sm',
       isError ? 'border-[var(--color-destructive)]'
         : 'border-[var(--color-border)]',
-    )}>
+    )} data-tool-kind={meta.kind} data-agent-state={state}>
       <button
         type="button"
+        aria-expanded={open}
         onClick={() => setOpen(o => !o)}
         className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left"
       >
@@ -32,7 +35,8 @@ export function ToolCallBubble({ toolName, input, output, isError }: Props) {
         <Icon className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
         <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">{meta.label}</span>
         <span className="min-w-0 truncate font-medium">{toolName}</span>
-        <span role="status" className={cn('ml-auto shrink-0 text-xs', isError ? 'text-[var(--color-danger)]' : running ? 'text-[var(--color-info)]' : 'text-[var(--color-success)]')}>
+        <span role="status" className={cn('wb-agent-status ml-auto inline-flex shrink-0 items-center gap-1 text-xs', isError ? 'text-[var(--color-danger)]' : running ? 'text-[var(--color-info)]' : 'text-[var(--color-success)]')}>
+          <StatusIcon aria-hidden="true" className={`size-3 ${running && !isError ? 'wb-tool-running' : ''}`} />
           {isError ? '出错' : running ? '运行中…' : '完成'}
         </span>
       </button>

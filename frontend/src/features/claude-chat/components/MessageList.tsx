@@ -781,32 +781,19 @@ function CodexActivity({ item }: { item: Extract<ChatItem, { kind: 'activity' }>
   const severity = item.severity ?? (failed ? 'error' : done ? 'success' : 'running')
   const informational = severity === 'info'
   const warning = severity === 'warning'
+  const waiting = item.status === 'pending' || item.status === 'queued' || warning
+  const state = severity === 'error' ? 'failed' : waiting ? 'waiting' : informational ? 'info' : done ? 'completed' : 'running'
   const dataText = formatActivityData(item.data)
   return (
-    <details className={cn('group mx-auto max-w-[92%] rounded-lg border px-3 py-2 text-xs',
-      severity === 'error'
-        ? 'border-red-200/80 bg-red-50/70 text-red-950 dark:border-red-900/70 dark:bg-red-950/30 dark:text-red-100'
-        : warning
-          ? 'border-amber-200/80 bg-amber-50/70 text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100'
-          : informational
-            ? 'border-slate-200/80 bg-slate-50/70 text-slate-800 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-200'
-            : 'border-sky-200/70 bg-sky-50/70 text-sky-950 dark:border-sky-800/70 dark:bg-sky-950/40 dark:text-sky-100')}>
+    <details className="wb-agent-activity" data-agent-state={state}>
       <summary className="flex cursor-pointer list-none items-center gap-2">
-        <Icon className={cn('size-4 shrink-0', severity === 'error' ? 'text-red-600 dark:text-red-400'
-          : warning ? 'text-amber-600 dark:text-amber-400'
-            : informational ? 'text-slate-500 dark:text-slate-400' : 'text-sky-600 dark:text-sky-400')} />
+        <Icon className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
         <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
-        <span className={cn('inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px]', severity === 'error'
-          ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
-          : warning
-            ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-            : informational
-              ? 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-              : done
-            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-            : 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300')}
-        >{severity === 'error' && <CircleX className="size-3" />}
-          {severity === 'error' ? '错误' : warning ? '需处理' : informational ? '结果' : done ? '已完成' : '进行中'}</span>
+        <span className="wb-agent-status inline-flex shrink-0 items-center gap-1 text-[11px]">
+          {state === 'failed' ? <CircleX className="size-3" /> : state === 'completed' ? <Check className="size-3" />
+            : state === 'waiting' ? <Timer className="size-3" /> : state === 'running' ? <span className="wb-thinking-dot" aria-hidden="true" /> : null}
+          {state === 'failed' ? '错误' : warning ? '需处理' : state === 'waiting' ? '等待中' : informational ? '结果' : done ? '已完成' : '进行中'}
+        </span>
       </summary>
       {(item.detail || dataText) && (
         <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words border-t border-current/15 pt-2 font-mono text-[11px]">

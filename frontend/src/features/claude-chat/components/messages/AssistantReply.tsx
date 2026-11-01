@@ -10,8 +10,8 @@ export function AssistantReply({ text, sessionId, compact, streaming, layered }:
   const [expanded, setExpanded] = useState(false)
   const detailsId = useId()
   const parts = useMemo(() => compact && !streaming ? replyPreview(text) : null, [text, compact, streaming])
-  if (!parts) return <ReplyContent text={text} sessionId={sessionId} layered={layered && !streaming} />
-  return <div className="cc-reply-content">
+  if (!parts) return <div className="wb-assistant-reply" data-streaming={streaming || undefined}><ReplyContent text={text} sessionId={sessionId} layered={layered && !streaming} /></div>
+  return <div className="cc-reply-content wb-assistant-reply">
     <div className="cc-reply-overview"><ReplyContent text={parts.preview} sessionId={sessionId} layered={layered} /></div>
     <button type="button" aria-expanded={expanded} aria-controls={detailsId}
       onClick={() => setExpanded(value => !value)} className="cc-reply-disclosure">

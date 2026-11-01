@@ -235,3 +235,19 @@ it('retains shared reference definitions and code blocks when layering an answer
   expect(screen.getByRole('link', { name: '源文件' })).toHaveAttribute('href', 'https://example.com/source')
   expect(screen.getByText('没有执行部署。')).toBeVisible()
 })
+
+it('distinguishes actual queued, running, completed and failed activity without changing details', () => {
+  mount(false, false, [
+    { kind: 'activity', id: 'wait', activityType: 'tool', status: 'queued', title: '排队任务', detail: '尚未开始执行' },
+    { kind: 'activity', id: 'run', activityType: 'command', status: 'running', title: '执行任务', detail: 'git status' },
+    { kind: 'activity', id: 'done', activityType: 'file', status: 'completed', title: '完成任务', detail: 'src/main.ts' },
+    { kind: 'activity', id: 'fail', activityType: 'tool', status: 'failed', title: '失败任务', detail: '权限不足' },
+  ], false)
+  for (const [title, state] of [['排队任务', 'waiting'], ['执行任务', 'running'], ['完成任务', 'completed'], ['失败任务', 'failed']]) {
+    expect(screen.getByText(title!).closest('details')).toHaveAttribute('data-agent-state', state)
+  }
+  expect(screen.getByText('等待中')).toBeInTheDocument()
+  expect(screen.getByText('进行中')).toBeInTheDocument()
+  fireEvent.click(screen.getByText('失败任务'))
+  expect(screen.getByText('权限不足')).toBeInTheDocument()
+})

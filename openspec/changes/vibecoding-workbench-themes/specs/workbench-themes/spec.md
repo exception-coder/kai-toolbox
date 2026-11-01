@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 工作台主题独立于布局和动效
-系统 SHALL 提供 Tokyo Night、Catppuccin、Nord 与跟随全局外观，复用统一视觉 Token，不改变布局、会话、草稿、滚动与 Agent 任务。减少动画偏好 SHALL 继续由原全局设置及系统拥有。
+系统 SHALL 提供 Tokyo Night、Catppuccin、Nord、Cyberpunk、Terminal Hacker、AI Studio 与跟随全局外观，复用统一视觉 Token，不改变布局、会话、草稿、滚动与 Agent 任务。减少动画偏好 SHALL 继续由原全局设置及系统拥有。
 
 #### Scenario: 切换主题并返回
 - **WHEN** 用户切换主题、专注布局或重开工作台
@@ -21,3 +21,18 @@
 #### Scenario: 窄屏和局部悬浮窗
 - **WHEN** 手机打开主题选择或在其他模块显示悬浮窗
 - **THEN** 选择器无横向溢出，悬浮窗主题不改变底下页面的外观
+
+### Requirement: 内容表达保持语义与工程原文
+系统 SHALL 将主题作用于 Markdown 标题、强调、引用、代码、列表、链接与表格，保持原文含义；代码支持按需语法高亮、语言、显式文件名、复制和折叠。Diff SHALL 保留原内容和符号，工具状态 SHALL 区分真实运行、等待、完成和失败。动效 SHALL 遵守全局与系统减少动画，且不改变业务状态。
+
+#### Scenario: 同一回复切换主题
+- **WHEN** 用户切换六种主题并阅读相同 Markdown、代码及 Diff
+- **THEN** 内容视觉随 Token 改变，原文/复制内容不变，代码折叠与会话草稿不重置
+
+#### Scenario: 流式代码或高亮不可用
+- **WHEN** 流式文本继续到达、旧高亮迟到，或语言未知、代码超限、语法模块加载失败
+- **THEN** 旧结果不得覆盖新内容；原文始终可读可复制，不要求高亮成功才能显示代码
+
+#### Scenario: 减少动画和异常反馈
+- **WHEN** 全局/系统请求减少动画，或工具出错、复制失败
+- **THEN** 状态和光标静态可辨，失败如实显示并允许恢复，不用颜色或动画单独表达成功

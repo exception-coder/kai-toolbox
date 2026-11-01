@@ -113,7 +113,7 @@ const CONTENT_COLOR: Record<HalfCell['kind'], string> = {
 function PaneLine({ cell }: { cell: HalfCell | undefined }) {
   if (!cell) return <div className="h-[22px] bg-[var(--color-muted)]/30" />
   return (
-    <div className={cn('flex h-[22px] w-max min-w-full items-center whitespace-pre', CELL_BG[cell.kind])}>
+    <div data-diff-kind={cell.kind} className={cn('flex h-[22px] w-max min-w-full items-center whitespace-pre', CELL_BG[cell.kind])}>
       {/* 行号 */}
       <span className={cn(
         'w-10 shrink-0 select-none px-1.5 text-right font-mono text-[10px] tabular-nums',
@@ -139,7 +139,7 @@ function PaneLine({ cell }: { cell: HalfCell | undefined }) {
 
 function HunkRow({ text }: { text: string }) {
   return (
-    <div className="h-[22px] whitespace-nowrap bg-cyan-500/10 pl-3 font-mono text-[10px] leading-[22px] text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-400">
+    <div data-diff-kind="hunk" className="h-[22px] whitespace-nowrap bg-cyan-500/10 pl-3 font-mono text-[10px] leading-[22px] text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-400">
       {text}
     </div>
   )
@@ -197,7 +197,7 @@ export function SideBySideDiff({ diff, truncated, className }: Props) {
   }
 
   return (
-    <div className={cn('flex min-h-0 flex-col', className)}>
+    <div className={cn('wb-diff-content flex min-h-0 flex-col', className)}>
       {truncated && (
         <div className="shrink-0 border-b border-amber-300 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
           diff 内容过大，已截断显示
@@ -216,7 +216,7 @@ export function SideBySideDiff({ diff, truncated, className }: Props) {
           className="min-h-0 w-1/2 min-w-0 overflow-auto border-r border-[var(--color-border)]"
         >
           {rows.map(row => (
-            <div key={row.id}>
+            <div key={row.id} data-diff-modified={row.left?.kind === 'removed' && row.right?.kind === 'added' || undefined}>
               {row.type === 'hunk' ? <HunkRow text={row.hunk ?? ''} /> : <PaneLine cell={row.left} />}
             </div>
           ))}
@@ -227,7 +227,7 @@ export function SideBySideDiff({ diff, truncated, className }: Props) {
           className="min-h-0 w-1/2 min-w-0 overflow-auto"
         >
           {rows.map(row => (
-            <div key={row.id}>
+            <div key={row.id} data-diff-modified={row.left?.kind === 'removed' && row.right?.kind === 'added' || undefined}>
               {row.type === 'hunk' ? <HunkRow text={row.hunk ?? ''} /> : <PaneLine cell={row.right} />}
             </div>
           ))}

@@ -66,7 +66,7 @@ export function ThinkingIndicator({
   if (connState !== 'ready') {
     return (
       <div className="flex items-center gap-2 text-sm text-[var(--color-destructive)]">
-        <span className="size-2 animate-pulse rounded-full bg-[var(--color-destructive)]" />
+        <span className="size-2 rounded-full bg-[var(--color-destructive)]" />
         <span>连接中断，正在重连…（内容会在重连后继续；若持续无响应，请确认后端/服务已启动）</span>
       </div>
     )
@@ -74,11 +74,7 @@ export function ThinkingIndicator({
 
   return (
     <div className="flex min-w-0 items-center gap-2 text-sm text-[var(--color-muted-foreground)]">
-      <span className="inline-flex gap-0.5" aria-hidden>
-        <span className="size-1.5 animate-bounce rounded-full bg-[var(--color-primary)] [animation-delay:-0.3s]" />
-        <span className="size-1.5 animate-bounce rounded-full bg-[var(--color-primary)] [animation-delay:-0.15s]" />
-        <span className="size-1.5 animate-bounce rounded-full bg-[var(--color-primary)]" />
-      </span>
+      <span className="wb-thinking-dot" aria-hidden="true" />
       <span className="shrink-0">{engineLabel} {activeTask?.title ?? `${word}中…`}</span>
       {activeTask?.detail && (
         <span className="min-w-0 truncate font-mono text-xs" title={activeTask.detail}>· {summarizeTask(activeTask.detail)}</span>

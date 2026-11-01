@@ -20,7 +20,7 @@ export function WorkbenchThemePicker() {
         className="wb-theme-option min-w-0 rounded-lg border border-[var(--color-border)] p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
         <span aria-hidden="true" className="wb-theme-preview" style={workbenchThemeStyle(theme.id)}>
           <span className="wb-theme-preview-chrome"><i /><b /></span>
-          <span className="wb-theme-preview-body"><i /><i /><i /></span>
+          <span className="wb-theme-preview-body wb-theme-preview-content"><b>Agent workspace</b><span>关键结论 <em>ready</em></span><code><span>const</span> task = <em>'build'</em></code></span>
           <span className="wb-theme-preview-input" />
         </span>
         <span className="mt-2 flex min-w-0 items-center justify-between gap-1 text-sm font-medium">

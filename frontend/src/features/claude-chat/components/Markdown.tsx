@@ -13,6 +13,10 @@ import { SitePreviewLink } from '@/components/site-preview/SitePreviewLink'
 import { splitMessageBlocks } from '../lib/messageBlocks'
 import { PagePreviewDialog, pagePreviewEntryFromHref } from '@/features/browser-request/public-api/page-preview'
 import { inlineFileBlocks, type InlineFileReference } from '../lib/inlineFilePreviews'
+import { decorateContent } from '../lib/contentPresentation'
+import { useContentHighlighting } from '../hooks/useContentHighlighting'
+import { copyTextToClipboard } from '../lib/clipboard'
+import '../styles/content-rendering.css'
 
 const MessageDrawioDialog = lazy(() => import('./messages/MessageDrawioDialog').then(module => ({ default: module.MessageDrawioDialog })))
 const MessageMarkdownDialog = lazy(() => import('./messages/MessageMarkdownDialog').then(module => ({ default: module.MessageMarkdownDialog })))
@@ -136,6 +140,8 @@ function MermaidDiagram({ code }: { code: string }) {
 function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown, inlineFiles = true }: { text: string; className?: string; sessionId?: string } & MarkdownContext) {
   const [localPathNotice, setLocalPathNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
   const content = useRef<HTMLDivElement>(null)
+  const collapsedCodes = useRef(new Set<string>())
+  const codeScope = useRef('')
   const [diagram, setDiagram] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
   const [markdownDocument, setMarkdownDocument] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
   const [sqlDocument, setSqlDocument] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
@@ -229,15 +235,7 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
           value += list.reversed ? -1 : 1
         }
       })
-      doc.querySelectorAll('pre').forEach(pre => {
-        const button = doc.createElement('button')
-        button.type = 'button'
-        button.className = 'markdown-code-copy'
-        button.dataset.codeCopy = 'true'
-        button.setAttribute('aria-label', '复制代码')
-        button.textContent = '复制'
-        pre.appendChild(button)
-      })
+      decorateContent(doc)
       return doc.body.innerHTML
     } catch {
       return null
@@ -260,9 +258,33 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
     setImageTargets({ html, sessionId, targets: Array.from(content.current?.querySelectorAll<HTMLSpanElement>('span[data-message-image]') ?? [])
       .filter(target => target.closest('[data-message-markdown]') === content.current) })
   }, [html, sessionId])
+  useContentHighlighting(content, html)
+  useLayoutEffect(() => {
+    const scope = `${sessionId ?? ''}:${documentPath ?? ''}`
+    if (codeScope.current !== scope) { collapsedCodes.current.clear(); codeScope.current = scope }
+    content.current?.querySelectorAll<HTMLElement>('.wb-code-block').forEach(shell => {
+      const pre = shell.querySelector('pre')
+      const button = shell.querySelector<HTMLButtonElement>('[data-code-fold]')
+      const collapsed = collapsedCodes.current.has(shell.dataset.codeIndex!)
+      if (pre && button) { pre.hidden = collapsed; button.textContent = collapsed ? '展开' : '折叠'; button.setAttribute('aria-label', collapsed ? '展开代码' : '折叠代码'); button.setAttribute('aria-expanded', String(!collapsed)) }
+    })
+  }, [html, sessionId, documentPath])
 
   const handleClick = async (event: ReactMouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
+    const fold = target.closest<HTMLButtonElement>('[data-code-fold]')
+    if (fold) {
+      const shell = fold.closest<HTMLElement>('.wb-code-block')
+      const pre = shell?.querySelector('pre')
+      if (!shell || !pre) return
+      pre.hidden = !pre.hidden
+      const key = shell.dataset.codeIndex!
+      if (pre.hidden) collapsedCodes.current.add(key); else collapsedCodes.current.delete(key)
+      fold.textContent = pre.hidden ? '展开' : '折叠'
+      fold.setAttribute('aria-label', pre.hidden ? '展开代码' : '折叠代码')
+      fold.setAttribute('aria-expanded', String(!pre.hidden))
+      return
+    }
     const anchor = target.closest<HTMLAnchorElement>('a[href]')
     const href = anchor?.getAttribute('href')
     if (documentPath && href?.startsWith('#') && href.length > 1) {
@@ -328,21 +350,14 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
     }
     const button = target.closest<HTMLButtonElement>('[data-code-copy="true"]')
     if (!button) return
-    const code = button.closest('pre')?.querySelector('code')?.textContent ?? ''
+    const code = button.closest('.wb-code-block')?.querySelector('code')?.textContent ?? ''
     if (!code) return
     try {
-      await navigator.clipboard.writeText(code)
+      await copyTextToClipboard(code)
+      button.textContent = '已复制'
     } catch {
-      const textarea = document.createElement('textarea')
-      textarea.value = code
-      textarea.style.position = 'fixed'
-      textarea.style.opacity = '0'
-      document.body.appendChild(textarea)
-      textarea.select()
-      document.execCommand('copy')
-      textarea.remove()
+      button.textContent = '复制失败，重试'
     }
-    button.textContent = '已复制'
     window.setTimeout(() => {
       if (button.isConnected) button.textContent = '复制'
     }, 1200)
@@ -389,7 +404,7 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
         '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5',
         '[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5',
         '[&_li]:my-1',
-        '[&_pre]:relative [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-[var(--color-muted)] [&_pre]:p-3 [&_pre]:pt-9 [&_pre]:text-xs',
+        '[&_pre]:relative [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-[var(--color-muted)] [&_pre]:p-3 [&_pre]:text-xs',
         '[&_.markdown-code-copy]:absolute [&_.markdown-code-copy]:right-2 [&_.markdown-code-copy]:top-2 [&_.markdown-code-copy]:rounded-md [&_.markdown-code-copy]:border [&_.markdown-code-copy]:border-[var(--color-border)] [&_.markdown-code-copy]:bg-[var(--color-background)]/90 [&_.markdown-code-copy]:px-2 [&_.markdown-code-copy]:py-1 [&_.markdown-code-copy]:text-[11px] [&_.markdown-code-copy]:text-[var(--color-muted-foreground)] [&_.markdown-code-copy]:shadow-sm [&_.markdown-code-copy]:hover:text-[var(--color-foreground)]',
         '[&_code]:font-mono [&_code]:text-[0.9em]',
         '[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-[var(--color-muted)] [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:wrap-anywhere',
