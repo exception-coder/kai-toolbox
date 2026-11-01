@@ -4,6 +4,8 @@ Agent 管理教学案例见 [订单草稿教学 Agent](TEACHING.md)，包含六�
 
 项目组外部调用见 [Forge Consult Client 接入与安装](../../sdk/forge-consult-client/README.md)，架构见 [draw.io 源图](../../docs/diagrams/forge-consult-client.drawio)。新 SDK 使用业务咨询适配入口，不直接开放内部开发命令；默认关闭、待加载与真实跨项目验收，原 Widget 接入不变。
 
+应用后端（如 yoooni-agent 的 IT 客服伙伴）使用独立 [分析 API v1 合同](../../sdk/forge-consult-client/BACKEND.md) 和 [OpenAPI](../../sdk/forge-consult-client/openapi-backend.yaml)。SDK 0.2.0 增加 `/backend` 入口：管理员签发应用企业授权、短期认证、幂等任务提交/查询/取消、结构化分析及受控证据；不使用员工密码、不执行工具或发送飞书。源码与测试交付、部署和真实模型验收分开记录，见 [任务](../../openspec/changes/consult-backend-analysis/tasks.md)。
+
 业务系统咨询不是一个独立聊天页，而是一条跨浏览器、Java、WebSocket、Sidecar、Coding Agent、MCP 和本地业务证据的受控咨询链路。业务资源查询保持只读，源码工具探索前可由平台执行按授权目录限定的安全快进；模型不获得任意Git写命令。本文件是模块开发与排障的稳定入口；专题细节继续维护在设计文档中，避免在 README 复制多份实现。
 
 快速导航：[架构总览](#架构总览) · [核心对象](#核心对象与职责) · [一次咨询](#一次咨询如何执行) · [状态与安全](#状态与安全边界) · [Graphify](#graphify-常驻查询) · [故障经验](#历史故障经验) · [运行手册](#运行手册) · [经验登记](#后续经验如何登记)

@@ -977,6 +977,23 @@ flowchart LR
 
 静态协作及执行恢复图见 [可编辑 draw.io](diagrams/forge-consult-client.drawio)、[架构预览](diagrams/forge-consult-client-architecture.png)、[流程预览](diagrams/forge-consult-client-flow.png)。源码/包验证、部署与实际多用户 HTTPS/WSS 结果分开记录于 [接入交付任务](../openspec/changes/consult-client-distribution/tasks.md)。旧 Session Client/Starter 规格及残留 target 产物不代表本次仓库仍含对应可发布源码；本次不承诺 API Key、跨用户代理身份或其他语言 SDK。
 
+应用后端采用独立的 [分析 API v1](../sdk/forge-consult-client/BACKEND.md)，不能复用员工 WSS 凭据或把 MCP 当作生产入口。fore-consult 持有管理员签发的应用/企业/项目授权、随机凭据与短期票据摘要、持久分析任务和结果；不生成平台用户身份，不扩大开发会话权限。精确分析路由由专用认证保护，其他用户路由继续原 JWT 与权限规则。原 WSS 协议及其图示保持原用户接入含义，不代表这条应用任务通道。
+
+```mermaid
+flowchart LR
+    APP["应用后端<br/>保存问题与幂等键"] --> AUTH["Forge 应用认证<br/>绑定企业和项目范围"]
+    AUTH --> TASK["持久分析任务<br/>提交 查询 请求取消"]
+    TASK --> DATA["有界输入和授权源码片段<br/>不接收密码或任意 URL"]
+    DATA --> AGENT["现有 AgentOneShotRunner<br/>业务默认账号 工具禁用"]
+    AGENT --> CHECK["结构与证据引用校验<br/>明确未知和信息缺口"]
+    CHECK --> APP
+    APP --> HUMAN["调用方整理三条候选<br/>人工修改 确认后发送"]
+```
+
+一个任务独立运行，调用方 conversationId 只用于关联，不作为原生线程身份。平台账号在实际执行前确定并记录配置版本，输入资料永远不提升为系统指令。首版依据是调用方文字及显式授权源码引用；没有自主查库或 Web 登录，缺少证据时明确说明。输出不包含 AI 凭据或本机绝对路径；结构合法不等于因果结论已由人工核验。三条通俗候选、选择来源、人工修改和飞书发送仍由 yoooni-agent 负责，Forge 没有消息发送或业务修改端口。
+
+clientId + requestId 唯一绑定完整规范化输入，重复登记返回原任务，同键异内容拒绝。取消与超时先进入 CANCEL_REQUESTED，新增 runManaged/cancelManaged 端口复用原执行器并等待引擎终态，不通过直接中断 Java 等待线程伪造已停止；终态及线程退出后才释放名额，旧 runOnce 调用不变。进程重启将执行中任务标为 INTERRUPTED，不自动重放问题。首版单实例、全局 2 个受管模型调用，队列和调用频率有界。管理员轮换使旧票据失效，续期保留任务归属；撤销不删除问题与结果。合同、专项回归及待启动验收见 [本次设计和任务](../openspec/changes/consult-backend-analysis/design.md)。代码与包交付不代表已加载服务或跨应用流程已验收。
+
 ## 咨询建议整理与登记
 
 咨询平台的需求建议由fore-consult模块持有，区别于单轮回答评分和需求池待执行开发任务。登录用户输入原文，已有AgentOneShotRunner在禁用工具、无项目目录的纯文本请求中整理；服务端校验有界JSON，用户可编辑并提交，模型输出不直接入库。作者来自服务端身份，唯一用户与提交键保证安全重试，原文与标准描述同时保留。模型不可用时支持手填，不引入新的执行器或外部任务系统。

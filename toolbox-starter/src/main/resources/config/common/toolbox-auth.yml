@@ -32,6 +32,10 @@ toolbox:
       - "/api/auth/login"
       - "/api/auth/external-login"
       - "/api/auth/refresh"
+      # 独立应用认证仅用于这组分析 API；Controller 始终校验专用服务凭据，不接纳用户 JWT。
+      - "/api/fore-consult/v1/token"
+      - "/api/fore-consult/v1/analysis-tasks"
+      - "/api/fore-consult/v1/analysis-tasks/**"
       # 视频分享落地页（匿名播放单个视频）。授权不靠"路径没被拦"，而是靠 video_share 里
       # 单视频、可撤销、7 天过期的随机 token + PathAccessGuard 沙箱复核（见 VideoShareController）。
       # 显式列在这里是为了以后有人收紧 protected-patterns 时不会把分享链接一起打死。

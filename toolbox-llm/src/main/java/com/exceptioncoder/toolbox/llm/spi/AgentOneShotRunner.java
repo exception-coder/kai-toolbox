@@ -80,6 +80,14 @@ public interface AgentOneShotRunner {
         return new ObservedResult(runOnce(request), null, null, null, null);
     }
 
+    /** Managed backend work waits for the engine's terminal acknowledgement; caller cancellation is not thread interruption. */
+    default String runManaged(ExecutionRequest request, String executionId) {
+        throw new UnsupportedOperationException("当前执行器不支持受管分析任务");
+    }
+
+    /** Requests cancellation only. Returning true means the request was sent, not that execution has stopped. */
+    default boolean cancelManaged(String executionId) { return false; }
+
     /** 带图片运行并返回运行时可观测身份；默认实现兼容仅支持文本的执行器。 */
     default ObservedResult runObserved(ExecutionRequest request, List<ImageInput> images) {
         return new ObservedResult(

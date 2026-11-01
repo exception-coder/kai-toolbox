@@ -74,6 +74,23 @@ public class AgentOneShotService implements AgentOneShotRunner {
     }
 
     @Override
+    public String runManaged(ExecutionRequest request, String executionId) {
+        return executeObserved(request, null, null, managedId(executionId)).text();
+    }
+
+    @Override
+    public boolean cancelManaged(String executionId) {
+        String id = managedId(executionId);
+        if (!calls.containsKey(id)) return false;
+        return sidecar.interrupt(id);
+    }
+
+    private String managedId(String executionId) {
+        if (executionId == null || !executionId.matches("[a-f0-9-]{36}")) throw new IllegalArgumentException("受管分析任务 ID 无效");
+        return PREFIX + "consult-backend:" + executionId;
+    }
+
+    @Override
     public ObservedResult runObserved(ExecutionRequest request, List<ImageInput> images) {
         return executeObserved(request, null, images);
     }
@@ -110,22 +127,26 @@ public class AgentOneShotService implements AgentOneShotRunner {
     }
 
     private ObservedResult executeObserved(ExecutionRequest request, Consumer<String> onDelta, List<ImageInput> images) {
+        return executeObserved(request, onDelta, images, null);
+    }
+
+    private ObservedResult executeObserved(ExecutionRequest request, Consumer<String> onDelta, List<ImageInput> images, String managedId) {
         if (request == null || request.userPrompt() == null || request.userPrompt().isBlank()) {
             throw new IllegalArgumentException("一次性 Agent 任务的 userPrompt 不能为空");
         }
-        String id = PREFIX + UUID.randomUUID();
+        String id = managedId == null ? PREFIX + UUID.randomUUID() : managedId;
         String engine = normalizeEngine(request.engine());
         AgentRunMetadata metadata = AgentRunMetadata.generic(
                 "agent-oneshot", id, engine, request.model());
         AgentSpan span = telemetry.start("agent.oneshot", metadata);
-        Call call = new Call(onDelta);
+        Call call = new Call(onDelta, managedId != null);
         // Registration and drain acquisition use the same lock. Once a drain lease is acquired,
         // no one-shot can slip in after the updater's final idle snapshot.
         boolean admitted;
         try {
             admitted = admissionGate.tryAdmit(() -> {
                 ensureReady();
-                calls.put(id, call);
+                if (calls.putIfAbsent(id, call) != null) throw new IllegalStateException("受管分析任务正在执行，不可重复启动");
             });
         } catch (RuntimeException error) {
             span.fail("sidecar initialization failed", error);
@@ -137,7 +158,10 @@ public class AgentOneShotService implements AgentOneShotRunner {
         }
         try {
             sidecar.oneShot(id, request, engine, images, span.traceContext(), metadata);
-            ObservedResult result = call.future.get(props.getAgentOneShotTimeoutMs(), TimeUnit.MILLISECONDS);
+            // A managed cancellation must retain its slot until Sidecar acknowledges terminal execution.
+            // The owning durable task supplies the deadline and cancellation signal. Unknown exits are not replayed.
+            ObservedResult result = call.managed ? call.future.get()
+                    : call.future.get(props.getAgentOneShotTimeoutMs(), TimeUnit.MILLISECONDS);
             span.success("end_turn");
             return result;
         } catch (TimeoutException e) {
@@ -200,6 +224,10 @@ public class AgentOneShotService implements AgentOneShotRunner {
             case "assistantDelta" -> {
                 String text = node.path("text").asText("");
                 if (!text.isEmpty()) {
+                    if (call.managed && (call.error != null || call.text.length() + text.length() > 48000)) {
+                        rejectOversizedManagedOutput(requestId, call);
+                        return;
+                    }
                     call.text.append(text);
                     if (call.onDelta != null) {
                         try {
@@ -223,20 +251,38 @@ public class AgentOneShotService implements AgentOneShotRunner {
                 }
             }
             case "assistantSnapshot" -> {
+                if (call.managed && (call.error != null || node.path("text").asText("").length() > 48000)) {
+                    rejectOversizedManagedOutput(requestId, call);
+                    return;
+                }
                 call.text.setLength(0);
                 call.text.append(node.path("text").asText(""));
             }
-            case "result" -> call.future.complete(new ObservedResult(
-                    call.text.toString(), node.path("traceId").asText(null),
-                    node.get("evidence"), node.get("trajectory"), requestId));
+            case "result" -> {
+                if (call.managed && (call.error != null || !"end_turn".equals(node.path("stopReason").asText()))) {
+                    call.future.completeExceptionally(new IllegalStateException("受管分析引擎未正常完成"));
+                } else {
+                    call.future.complete(new ObservedResult(call.text.toString(), node.path("traceId").asText(null),
+                            node.get("evidence"), node.get("trajectory"), requestId));
+                }
+            }
             case "error" -> {
                 String message = node.path("message").asText("Claude Agent 执行失败");
-                call.future.completeExceptionally(new RuntimeException("高质量引擎失败：" + message));
+                if (call.managed) call.error = message;
+                else call.future.completeExceptionally(new RuntimeException("高质量引擎失败：" + message));
             }
             default -> {
                 // init / models / toolUse 等忽略：oneShot 不涉及工具与会话生命周期。
             }
         }
+    }
+
+    private void rejectOversizedManagedOutput(String requestId, Call call) {
+        if (call.error != null) return;
+        call.error = "受管分析输出超过限制";
+        call.text.setLength(0);
+        try { sidecar.interrupt(requestId); }
+        catch (RuntimeException unavailable) { log.warn("受管分析输出超限，取消尚未确认 request={}", requestId); }
     }
 
     /** 确保 sidecar 进程已启动并连接；不可用时抛出带引导的异常。 */
@@ -253,10 +299,13 @@ public class AgentOneShotService implements AgentOneShotRunner {
     private static final class Call {
         final StringBuilder text = new StringBuilder();
         final Consumer<String> onDelta;
+        final boolean managed;
+        volatile String error;
         final CompletableFuture<ObservedResult> future = new CompletableFuture<>();
 
-        Call(Consumer<String> onDelta) {
+        Call(Consumer<String> onDelta, boolean managed) {
             this.onDelta = onDelta;
+            this.managed = managed;
         }
     }
 }

@@ -23,6 +23,55 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class AgentOneShotServiceTest {
 
     @Test
+    void managedCancellationWaitsForTerminalAcknowledgementAndRejectsInterruptedText() throws Exception {
+        var sidecar = mock(SidecarClient.class);
+        var service = new AgentOneShotService(mock(SidecarProcessRegistry.class), sidecar,
+                new ClaudeChatProperties(), AgentTelemetry.noop(256), new AgentWorkAdmissionGate());
+        var sent = new CountDownLatch(1);
+        var runtimeId = new java.util.concurrent.atomic.AtomicReference<String>();
+        doAnswer(call -> { runtimeId.set(call.getArgument(0)); sent.countDown(); return null; })
+                .when(sidecar).oneShot(anyString(), any(ExecutionRequest.class), anyString(), isNull(), any(TraceContext.class), any(AgentRunMetadata.class));
+        org.mockito.Mockito.when(sidecar.interrupt(anyString())).thenReturn(true);
+        String id = java.util.UUID.randomUUID().toString();
+        var result = new java.util.concurrent.FutureTask<>(() -> service.runManaged(ExecutionRequest.text("system", "data", null, "codex"), id));
+        Thread worker = Thread.ofVirtual().start(result);
+        assertThat(sent.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(service.cancelManaged(id)).isTrue();
+        assertThat(result.isDone()).isFalse();
+        assertThat(service.activeCount()).isEqualTo(1);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        service.handle(runtimeId.get(), mapper.readTree("{\"type\":\"assistantDelta\",\"text\":\"partial\"}"));
+        service.handle(runtimeId.get(), mapper.readTree("{\"type\":\"result\",\"stopReason\":\"interrupted\"}"));
+        assertThatThrownBy(() -> result.get(2, TimeUnit.SECONDS)).isInstanceOf(java.util.concurrent.ExecutionException.class);
+        worker.join(1000);
+        assertThat(service.activeCount()).isZero();
+    }
+
+    @Test
+    void managedOversizeAndErrorEventsDoNotReturnSuccessBeforeEngineTerminal() throws Exception {
+        var sidecar = mock(SidecarClient.class);
+        var service = new AgentOneShotService(mock(SidecarProcessRegistry.class), sidecar,
+                new ClaudeChatProperties(), AgentTelemetry.noop(256), new AgentWorkAdmissionGate());
+        var sent = new CountDownLatch(1);
+        var runtimeId = new java.util.concurrent.atomic.AtomicReference<String>();
+        doAnswer(call -> { runtimeId.set(call.getArgument(0)); sent.countDown(); return null; })
+                .when(sidecar).oneShot(anyString(), any(ExecutionRequest.class), anyString(), isNull(), any(TraceContext.class), any(AgentRunMetadata.class));
+        var result = new java.util.concurrent.FutureTask<>(() -> service.runManaged(ExecutionRequest.text("system", "data", null, "codex"), java.util.UUID.randomUUID().toString()));
+        Thread worker = Thread.ofVirtual().start(result);
+        assertThat(sent.await(2, TimeUnit.SECONDS)).isTrue();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var event = mapper.createObjectNode().put("type", "assistantDelta").put("text", "x".repeat(48001));
+        service.handle(runtimeId.get(), event);
+        org.mockito.Mockito.verify(sidecar).interrupt(runtimeId.get());
+        service.handle(runtimeId.get(), mapper.createObjectNode().put("type", "error").put("message", "failure"));
+        assertThat(result.isDone()).isFalse();
+        service.handle(runtimeId.get(), mapper.readTree("{\"type\":\"result\",\"stopReason\":\"end_turn\"}"));
+        assertThatThrownBy(() -> result.get(2, TimeUnit.SECONDS)).isInstanceOf(java.util.concurrent.ExecutionException.class);
+        worker.join(1000);
+        assertThat(service.activeCount()).isZero();
+    }
+
+    @Test
     void drainRejectsOneShotBeforeStartingOrRegisteringWork() {
         SidecarProcessRegistry processRegistry = mock(SidecarProcessRegistry.class);
         SidecarClient sidecar = mock(SidecarClient.class);

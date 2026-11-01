@@ -4,6 +4,8 @@
 
 业务模块依赖 `toolbox-llm`，通过构造器注入 `AgentOneShotRunner` 即可执行一次性任务。宿主装配 `tool-claude-chat` 后，由已有 `AgentOneShotService` 提供该 Bean；业务模块不要直接依赖实现模块或管理 Sidecar 进程。
 
+应用后端持久分析任务使用新增的 `runManaged(request, executionId)` 和 `cancelManaged(executionId)`：传稳定任务 UUID，取消只请求中断，直到引擎终态才解除等待；非正常 stopReason 不返回成功文本，输出超限时请求取消并继续等待终态。未知退出保留宿主持久任务的取消中状态和并发名额，不能用线程返回或发出 interrupt 冒充模型已停止。既有 `runOnce/runObserved` 调用保持原行为；其他实现未实现受管端口时明确拒绝，不静默降级。身份、企业隔离和业务超时仍由 fore-consult 持有，见 [后端合同](../sdk/forge-consult-client/BACKEND.md)。
+
 业务咨询运行账号使用独立公共端口：`ConsultationRuntimePolicy` 由咨询模块按稳定聊天身份解析当前业务策略和已保存问答；`AgentAccountValidator` 由聊天运行模块提供受控登录/工作区/模型检测；`ConsultationHistoryReader` 提供平台持久原文的有界分页。端口不传递密码或 token，不开放跨模块直接查表，也不改变一次性 Agent 或 Vibe Coding 的账号行为。契约与待运行验收见[统一咨询账号](../openspec/changes/unify-consult-runtime-account/design.md)。
 
 ```xml
