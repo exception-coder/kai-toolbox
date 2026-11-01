@@ -6,8 +6,7 @@
   background-image: none !important;
 }
 .cc-focus-mode.cc-focus-wide { --focus-column: 984px; }
-.cc-focus-mode .cc-skin-bg { display: none; }
-.cc-focus-mode .cc-skin-view { background: transparent; }
+.cc-focus-mode .cc-workspace-view { background: transparent; }
 /* Keep the reading/composer axis identical on narrow screens without a scrollbar gutter. */
 .cc-focus-mode .cc-message-scroller { scrollbar-width: none; }
 .cc-focus-mode .cc-message-scroller::-webkit-scrollbar { display: none; }

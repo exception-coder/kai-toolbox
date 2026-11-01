@@ -2,8 +2,7 @@ import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import { setRecentSessionsExpanded, useRecentSessionsExpanded } from '../lib/workspacePreferences'
-import { setToolColors, useToolColors } from '../lib/toolColorPref'
-import { setSkin, useSkin } from '../lib/skinPref'
+import { WorkbenchThemePicker } from './WorkbenchThemePicker'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 
 export function WorkspacePreferences({ open, onOpenChange, gestureEnabled, onToggleGesture }: {
@@ -11,8 +10,6 @@ export function WorkspacePreferences({ open, onOpenChange, gestureEnabled, onTog
   gestureEnabled?: boolean; onToggleGesture?: () => void
 }) {
   const expanded = useRecentSessionsExpanded()
-  const colors = useToolColors()
-  const skin = useSkin()
   const hiddenTools = useHideToolCalls()
   const [error, setError] = useState(false)
   const portal = useFullscreenPortalContainer()
@@ -21,6 +18,10 @@ export function WorkspacePreferences({ open, onOpenChange, gestureEnabled, onTog
     <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90dvh] w-[min(92vw,480px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-5">
       <Dialog.Title className="text-base font-semibold">工作区个性化</Dialog.Title>
       <Dialog.Description className="mt-2 text-xs text-[var(--color-muted-foreground)]">保存在当前浏览器，重新打开页面后仍生效，不修改项目或其他同事的设置。</Dialog.Description>
+      <section aria-labelledby="preferences-theme" className="mt-5">
+        <h2 id="preferences-theme" className="text-xs font-semibold text-[var(--color-muted-foreground)]">工作台主题</h2>
+        <WorkbenchThemePicker />
+      </section>
       <section aria-labelledby="preferences-layout" className="mt-5">
       <h2 id="preferences-layout" className="text-xs font-semibold text-[var(--color-muted-foreground)]">布局与导航</h2>
       <label className="mt-2 flex min-h-11 flex-wrap items-center justify-between gap-3 text-sm">
@@ -36,8 +37,6 @@ export function WorkspacePreferences({ open, onOpenChange, gestureEnabled, onTog
       </section>
       <section aria-labelledby="preferences-reading" className="mt-5 border-t border-[var(--color-border)] pt-4">
         <h2 id="preferences-reading" className="text-xs font-semibold text-[var(--color-muted-foreground)]">阅读与外观</h2>
-        <PreferenceToggle label="炫彩皮肤" hint="工作区使用当前引擎的背景效果。" checked={skin} onChange={setSkin} />
-        <PreferenceToggle label="工具着色" hint="按命令、读写、子代理、技能和 MCP 区分颜色。" checked={colors} onChange={setToolColors} />
         <PreferenceToggle label="隐藏工具调用" hint="只隐藏消息流中的工具气泡，不停止执行；轨迹仍可查看。" checked={hiddenTools} onChange={setHideToolCalls} />
       </section>
       {onToggleGesture && <section aria-labelledby="preferences-interaction" className="mt-5 border-t border-[var(--color-border)] pt-4">

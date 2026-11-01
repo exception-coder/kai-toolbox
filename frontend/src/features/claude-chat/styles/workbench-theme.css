@@ -1,0 +1,73 @@
+/* 主题只映射视觉 Token，不改布局、滚动、业务状态或动效偏好。 */
+[data-workbench-theme] {
+  color-scheme: dark !important;
+  --color-background: var(--wb-background);
+  --color-foreground: var(--wb-text);
+  --color-card: var(--wb-surface);
+  --color-card-foreground: var(--wb-text);
+  --color-popover: var(--wb-raised);
+  --color-popover-foreground: var(--wb-text);
+  --color-muted: var(--wb-raised);
+  --color-muted-foreground: var(--wb-muted);
+  --color-border: var(--wb-border);
+  --color-border-strong: var(--wb-muted);
+  --color-input: var(--wb-border);
+  --color-primary: var(--wb-accent);
+  --color-primary-foreground: var(--wb-sidebar);
+  --color-ring: var(--wb-accent);
+  --color-secondary: var(--wb-surface);
+  --color-secondary-foreground: var(--wb-text);
+  --color-accent: var(--wb-raised);
+  --color-accent-foreground: var(--wb-text);
+  --color-sidebar: var(--wb-sidebar);
+  --color-sidebar-foreground: var(--wb-text);
+  --color-sidebar-border: var(--wb-border);
+  --color-sidebar-accent: var(--wb-raised);
+  --color-chrome: var(--wb-sidebar);
+  --color-chrome-foreground: var(--wb-text);
+  --color-chrome-divider: var(--wb-border);
+  --color-contextbar: var(--wb-surface);
+  --color-selection: color-mix(in oklab, var(--wb-accent) 14%, var(--wb-surface));
+  --color-selection-foreground: var(--wb-text);
+  --color-selection-border: var(--wb-accent);
+  /* 状态含义固定，独立于三套主题强调色。 */
+  --color-info: #b5d2ff;
+  --color-success: #9ee6c1;
+  --color-warning: #f0d399;
+  --color-danger: #ffb4c0;
+  --color-destructive: var(--color-danger);
+  --color-destructive-foreground: var(--wb-sidebar);
+  --color-info-soft: color-mix(in oklab, var(--color-info) 12%, var(--wb-surface));
+  --color-info-soft-foreground: var(--color-info);
+  --color-success-soft: color-mix(in oklab, var(--color-success) 12%, var(--wb-surface));
+  --color-success-soft-foreground: var(--color-success);
+  --color-warning-soft: color-mix(in oklab, var(--color-warning) 12%, var(--wb-surface));
+  --color-warning-soft-foreground: var(--color-warning);
+  --color-danger-soft: color-mix(in oklab, var(--color-danger) 12%, var(--wb-surface));
+  --color-danger-soft-foreground: var(--color-danger);
+  color: var(--color-foreground);
+  background-color: var(--color-background);
+}
+
+[data-workbench-theme] :where(.markdown-body pre, .cm-editor, .cm-scroller, .cm-gutters) {
+  color: var(--wb-text);
+  background: var(--wb-sidebar);
+  border-color: var(--wb-border);
+}
+[data-workbench-theme] :where(.markdown-body pre, .cm-editor) { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace); }
+[data-workbench-theme] .cm-gutters { color: var(--wb-muted); }
+[data-workbench-theme] .cm-content { caret-color: var(--wb-accent); }
+[data-workbench-theme] .markdown-body :not(pre) > code { color: var(--wb-text); background: var(--wb-raised); }
+
+.wb-theme-option[aria-pressed='true'] { border-color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary); }
+.wb-theme-option:hover { background: var(--color-muted); }
+.wb-theme-preview { display: flex; height: 88px; flex-direction: column; gap: 8px; overflow: hidden; border-radius: 6px; padding: 8px; background: var(--wb-background); }
+.wb-theme-preview-chrome { display: flex; align-items: center; gap: 6px; }
+.wb-theme-preview-chrome i { width: 6px; height: 6px; border-radius: 50%; background: var(--wb-accent); }
+.wb-theme-preview-chrome b { height: 4px; width: 64%; border-radius: 2px; background: var(--wb-muted); }
+.wb-theme-preview-body { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 5px; padding: 6px; border-radius: 4px; background: var(--wb-surface); }
+.wb-theme-preview-body i { height: 4px; width: 78%; border-radius: 2px; background: var(--wb-text); }
+.wb-theme-preview-body i:first-child { width: 60%; background: var(--wb-accent); }
+.wb-theme-preview-body i:last-child { width: 44%; background: var(--wb-muted); }
+.wb-theme-preview-input { height: 8px; border-radius: 3px; background: var(--wb-raised); }
+@media (forced-colors: active) { .wb-theme-option[aria-pressed='true'] { outline: 2px solid Highlight; } }

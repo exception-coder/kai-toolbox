@@ -335,7 +335,7 @@ describe('ChatPage session configuration', () => {
     expect(screen.getByRole('textbox', { name: '消息输入' })).toHaveValue('尚未发送的需求')
     fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '文件与项目' }))
-    expect(within(screen.getByRole('menu', { name: '会话工具' })).getByRole('button', { name: /^提交记录/ })).toBeInTheDocument()
+    expect(within(screen.getByRole('menu', { name: '会话工具' })).getByRole('button', { name: /^代码与分支/ })).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.getByRole('menuitem', { name: '文件与项目' })).toHaveFocus()
     fireEvent.keyDown(window, { key: 'Escape' })

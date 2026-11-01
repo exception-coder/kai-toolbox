@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, ChevronUp, Compass, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, Rainbow, RotateCw, Send, Server, Settings, Shield, Slash, Sparkles, X } from 'lucide-react'
+import { Bell, Bug, ChevronDown, ChevronUp, Compass, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, Slash, Sparkles, X } from 'lucide-react'
 import { CHAT_ROUTE, isChatRoute, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -25,12 +25,13 @@ import { DebugPanel } from './DebugPanel'
 import { cn } from '@/lib/utils'
 import { EngineIcon } from './EngineIcon'
 import { CodexTransportBadge } from './CodexTransportBadge'
-import { setSkin, skinClass, useSkin } from '../lib/skinPref'
-import '../styles/skin.css'
+import { useWorkbenchTheme, workbenchThemeName, workbenchThemeStyle } from '../lib/workbenchTheme'
+import { WorkbenchThemeDialog } from './WorkbenchThemePicker'
+import '../styles/workbench-chrome.css'
+import '../styles/workbench-theme.css'
 import { RestartDialog } from './RestartDialog'
 import { SessionCommitsPanel } from './SessionCommitsPanel'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
-import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
 import { useDraftAttachments, useDraftAttachmentUploads } from '../lib/attachmentDraftPref'
@@ -123,8 +124,8 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
   const [showLogs, setShowLogs] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
   const [restartOpen, setRestartOpen] = useState(false)
-  const toolColors = useToolColors()
-  const skin = useSkin()
+  const workbenchTheme = useWorkbenchTheme()
+  const [themeDialogOpen, setThemeDialogOpen] = useState(false)
   const hideToolCalls = useHideToolCalls()
   // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话。
   // demo（受约束演示）默认展开完整对话，便于直接看到改动反馈。
@@ -281,8 +282,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
     {
       label: '视图',
       items: [
-        { icon: <Rainbow className="size-4" />, label: `炫彩皮肤 · ${skin ? '开' : '关'}`, hint: '工作区铺一层极光背景，颜色跟随当前引擎', onClick: () => setSkin(!skin), local: true },
-        { icon: <Palette className="size-4" />, label: `工具着色 · ${toolColors ? '开' : '关'}`, hint: '按命令/读写/子代理/技能/MCP 上色', onClick: () => setToolColors(!toolColors), local: true },
+        { icon: <Palette className="size-4" />, label: `工作台主题 · ${workbenchThemeName(workbenchTheme)}`, hint: '统一外观；保留布局和任务', onClick: () => setThemeDialogOpen(true), local: true },
         { icon: <EyeOff className="size-4" />, label: `隐藏工具调用 · ${hideToolCalls ? '开' : '关'}`, hint: '消息流里不再显示 MCP/命令/读写等工具调用气泡', onClick: () => setHideToolCalls(!hideToolCalls), local: true },
       ],
     },
@@ -473,7 +473,8 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
           aria-label={`礼赠助手 ${status}，点击展开，长按说话`}
           title={`礼赠助手 · ${status}（点击展开 · 长按说话）`}
           className="fixed z-50 cursor-move touch-none rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
-          style={{ left: pos.x, top: pos.y }}
+          data-workbench-theme={!giftMode && workbenchTheme !== 'inherit' ? workbenchTheme : undefined}
+          style={{ ...(!giftMode ? workbenchThemeStyle(workbenchTheme) : {}), left: pos.x, top: pos.y }}
         >
           {bubbleListening ? (
             <span className="flex size-16 items-center justify-center rounded-full bg-[#79a861]/25 ring-2 ring-[#79a861]">
@@ -523,7 +524,8 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
          */}
         <div
           className="fixed z-50 flex max-w-[80vw] touch-none items-stretch overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-lg"
-          style={{ left: pos.x, top: pos.y }}
+          data-workbench-theme={!giftMode && workbenchTheme !== 'inherit' ? workbenchTheme : undefined}
+          style={{ ...(!giftMode ? workbenchThemeStyle(workbenchTheme) : {}), left: pos.x, top: pos.y }}
         >
           {/* 左侧彩色 AI 活动指示条 */}
           <div className={`w-[3px] shrink-0 ${active ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-border)]'}`} />
@@ -604,15 +606,13 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
         giftMode
           ? 'fixed z-50 flex flex-col overflow-hidden rounded-[1.5rem] border border-[#6f9b54]/28 bg-[#08130d]/94 text-white shadow-[0_24px_80px_-28px_rgba(111,155,84,0.85)] backdrop-blur-2xl'
           : 'fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] shadow-[0_8px_30px_-6px_rgba(0,0,0,0.18)]',
-        // 礼赠皮肤已是整窗染色方案，两者互斥；否则皮肤开时让出 card 底色给极光
-        !giftMode && !skin && 'bg-[var(--color-card)]',
-        !giftMode && skinClass(skin, chat?.currentEngine ?? 'claude', !!chat?.running),
+        !giftMode && 'bg-[var(--color-card)]',
       )}
-      style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
+      data-workbench-theme={!giftMode && workbenchTheme !== 'inherit' ? workbenchTheme : undefined}
+      style={{ ...(!giftMode ? workbenchThemeStyle(workbenchTheme) : {}), left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
       <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onRetry={chat.duplicateSession} onReturnFocus={() => taRef.current?.focus()} />
-      {/* 极光背景独立裁剪层：见 skin.css .cc-skin-bg 注释 */}
-      {!giftMode && skin && <div className="cc-skin-bg" aria-hidden="true" />}
+      <WorkbenchThemeDialog open={themeDialogOpen} onOpenChange={setThemeDialogOpen} returnFocus={() => moreTriggerRef.current?.focus()} />
       {/* 顶部品牌色细线：标识「这是 AI 助手」，而非整窗染色（方案3：同色系分层 + 品牌色点缀） */}
       <div className={`h-[3px] w-full shrink-0 ${giftMode ? 'bg-[#6f9b54]' : 'bg-[var(--color-primary)]'}`} />
       {/* 标题栏 = 拖拽手柄。迷你态：状态 + 关键控制（仿音乐小卡片，只一行）；完整态：别名/引擎/全部按钮。 */}
@@ -620,7 +620,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className={`cc-skin-surface flex cursor-move touch-none items-center gap-2 border-b px-3 py-2 select-none ${giftMode ? 'border-[#6f9b54]/16 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}
+        className={`cc-workspace-surface flex cursor-move touch-none items-center gap-2 border-b px-3 py-2 select-none ${giftMode ? 'border-[#6f9b54]/16 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}
       >
         {giftMode ? (
           <>

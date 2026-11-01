@@ -2,7 +2,6 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { WorkspacePreferences } from './WorkspacePreferences'
 import { useRecentSessionsExpanded } from '../lib/workspacePreferences'
-import { useToolColors } from '../lib/toolColorPref'
 import { useHideToolCalls } from '../lib/toolVisibilityPref'
 
 afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks() })
@@ -24,18 +23,19 @@ it('does not claim success when browser storage refuses the preference', () => {
 })
 
 it('groups existing settings and shares appearance preferences with mounted views', () => {
-  function ReadingConsumer() { return <span>{useToolColors() ? '工具已着色' : '中性工具'} / {useHideToolCalls() ? '工具已隐藏' : '工具可见'}</span> }
+  function ReadingConsumer() { return <span>{useHideToolCalls() ? '工具已隐藏' : '工具可见'}</span> }
   const toggleGesture = vi.fn()
   render(<><ReadingConsumer /><WorkspacePreferences open onOpenChange={() => {}} gestureEnabled={false} onToggleGesture={toggleGesture} /></>)
   for (const name of ['布局与导航', '阅读与外观', '交互偏好']) expect(screen.getByRole('region', { name })).toBeInTheDocument()
   expect(screen.getByRole('checkbox', { name: '隐藏工具调用' })).toBeChecked()
-  fireEvent.click(screen.getByRole('checkbox', { name: '工具着色' }))
+  expect(screen.queryByRole('checkbox', { name: '工具着色' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('checkbox', { name: '炫彩皮肤' })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('checkbox', { name: '隐藏工具调用' }))
-  expect(screen.getByText('工具已着色 / 工具可见')).toBeInTheDocument()
+  expect(screen.getByText('工具可见')).toBeInTheDocument()
   cleanup()
   render(<><ReadingConsumer /><WorkspacePreferences open onOpenChange={() => {}} gestureEnabled={false} onToggleGesture={toggleGesture} /></>)
   expect(screen.getByRole('checkbox', { name: '隐藏工具调用' })).not.toBeChecked()
-  expect(screen.getByText('工具已着色 / 工具可见')).toBeInTheDocument()
+  expect(screen.getByText('工具可见')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('checkbox', { name: '手势控制' }))
   expect(toggleGesture).toHaveBeenCalledTimes(1)
 })

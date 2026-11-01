@@ -18,7 +18,7 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { reportVibeEntry, reportVibeResourceSummary } from '@/lib/vibeEntryDiagnostics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PagePreviewDialog } from '@/features/browser-request/public-api/page-preview'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
@@ -56,9 +56,10 @@ import { newSessionSelectionIssue, resolveNewSessionWorkspace, type NewSessionPr
 import { newSessionEngines, resolveNewSessionDirectory, validRecentSession, workspacePathKey } from '../lib/newSessionWorkspace'
 import { buildCodexAuthHandoff } from '../lib/codexAuthHandoff'
 import { cn } from '@/lib/utils'
-import { setToolColors, useToolColors } from '../lib/toolColorPref'
-import { setSkin, skinClass, useSkin } from '../lib/skinPref'
-import '../styles/skin.css'
+import { useWorkbenchTheme, useWorkbenchPageTheme, workbenchThemeName } from '../lib/workbenchTheme'
+import { WorkbenchThemeDialog } from '../components/WorkbenchThemePicker'
+import '../styles/workbench-chrome.css'
+import '../styles/workbench-theme.css'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { ProviderSwitch } from '../components/ProviderSwitch'
@@ -481,8 +482,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   // 手势弹窗：开关/状态由 ChatRuntime 统一持有（监控上提到常驻运行时，才能在悬浮态用「展开」手势返回）。
   const [panel, setPanel] = useState<Panel>('none')
   const [showUsage, setShowUsage] = useState(false)
-  const toolColors = useToolColors()
-  const skin = useSkin()
+  const workbenchTheme = useWorkbenchTheme()
+  const [themeDialogOpen, setThemeDialogOpen] = useState(false)
+  useWorkbenchPageTheme(workbenchTheme)
   const hideToolCalls = useHideToolCalls()
   // 整会话累计用量：后端按 sessionId 统计 transcript（不受前端分页影响）。换会话或一轮跑完后刷新。
   const [sessionUsage, setSessionUsage] = useState<SessionUsage | null>(null)
@@ -1223,25 +1225,12 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       focus.focused
         // 全屏是覆盖整个视口的浮层，背景必须不透明——否则底层（折叠侧栏等）会从半透明背景透出，左侧留残影
         ? 'cc-workspace-fullscreen fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden'
-        // relative：给皮肤开启时的 .cc-skin-bg（position:absolute）提供定位上下文，
-        // 不能写进 skin.css 的 .cc-skin 规则里——那边懒加载晚于 Tailwind 插入，会把
-        // 专注分支的 `fixed` 覆盖掉，见 skin.css 顶部注释。
-        // 普通模式由 AppShell 的 flex 主区域分配高度；不要再按旧 TopBar 高度手工扣减，
-        // 否则桌面隐藏 TopBar 后会在页面底部留下同等高度的空白。
         : 'relative flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden',
-      // 皮肤自带底色（见 skin.css 的 --skin-base），开启时让位，避免两层底色叠加
-      !skin && (focus.focused ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40'),
+      focus.focused ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40',
       focus.focused && 'cc-focus-mode',
       focus.focused && focusWide && 'cc-focus-wide',
-      skinClass(skin, chat?.currentEngine ?? 'claude', !!chat?.running),
     )}>
-      {/* 极光背景独立裁剪层：见 skin.css .cc-skin-bg 注释——跟外层容器分开，
-          不连带裁掉「更多」下拉等需要正常溢出显示的浮层。 */}
-      {skin && <div className="cc-skin-bg" aria-hidden="true" />}
-      {/* 顶栏：与 Shell 品牌行共用一级 Chrome 高度和 Surface，避免标题栏层层套叠。
-          relative z-30：炫彩皮肤下 header 带 backdrop-filter 会自成层叠上下文，把「更多」下拉
-          (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住
-          下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
+      <WorkbenchThemeDialog open={themeDialogOpen} onOpenChange={setThemeDialogOpen} returnFocus={() => sessionToolsTriggerRef.current?.focus()} />
       <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} onRestore={restoreGuide} hasSession={Boolean(chat.sessionId)} returnFocus={guideReturnFocus.current ? guideReturnFocus : sessionToolsTriggerRef} />
       <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onRetry={chat.duplicateSession} onReturnFocus={() => taRef.current?.focus()} />
       {chat.sessionId && changesOpen && <TurnChangesDialog key={chat.sessionId} sessionId={chat.sessionId} open onOpenChange={setChangesOpen} returnFocus={sessionToolsTriggerRef} />}
@@ -1504,8 +1493,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               <HeaderMenuItem nested icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
               <HeaderMenuItem nested icon={<Maximize2 className="size-4" />} label="专注模式" hint="全屏仅显示对话与输入；Esc 退出" onClick={enterFocus} />
               <HeaderMenuItem nested icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
-              <HeaderMenuItem nested icon={<Rainbow className="size-4" />} label={skin ? '炫彩皮肤 · 开' : '炫彩皮肤 · 关'} hint="工作区铺一层极光背景，颜色跟随当前引擎，运行时呼吸加快" onClick={() => { setSkin(!skin) }} />
-              <HeaderMenuItem nested icon={<Palette className="size-4" />} label={toolColors ? '工具着色 · 开' : '工具着色 · 关'} hint="按命令/读写/子代理/技能/MCP 上色" onClick={() => { setToolColors(!toolColors) }} />
+              <HeaderMenuItem nested icon={<Palette className="size-4" />} label={`工作台主题 · ${workbenchThemeName(workbenchTheme)}`} hint="统一面板、消息与代码配色；不改变布局和任务" onClick={() => { setHeaderMenu(false); setThemeDialogOpen(true) }} />
               <HeaderMenuItem nested icon={<EyeOff className="size-4" />} label={hideToolCalls ? '隐藏工具调用 · 开' : '隐藏工具调用 · 关'} hint="消息流里不再显示 MCP/命令/读写等工具调用气泡" onClick={() => { setHideToolCalls(!hideToolCalls) }} />
               <HeaderMenuItem nested icon={<Hand className="size-4" />} label={gestureOn ? '手势控制·开' : '手势控制·关'} hint={gestureOn ? '握拳=弹出悬浮窗；张手=返回会话页' : '开启后：握拳弹窗 / 张手返回(仅本模块)'} onClick={() => { setHeaderMenu(false); toggleGesture() }} />
             </MenuSection>
@@ -1897,7 +1885,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
         <div className="flex min-h-0 min-w-0 flex-1">
           {/* 常驻会话导航（lg+ 显示，可折叠）：窄屏继续通过顶部「会话」入口切换，避免双侧栏挤压输入区 */}
           {railOpen ? (
-            <aside data-focus-chrome className="cc-skin-surface-solid hidden w-72 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] lg:flex">
+            <aside data-focus-chrome className="cc-workspace-surface-solid hidden w-72 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] lg:flex">
               <div className="workspace-contextbar cc-chat-contextbar flex items-center gap-1 px-2">
                 <span className="text-xs font-medium text-[var(--color-muted-foreground)]">AI 工作区</span>
                 <button type="button" onClick={() => setPanel('new')} className="ml-auto rounded p-1 hover:bg-[var(--color-accent)]" aria-label="新建会话" title="新建会话">
@@ -1919,7 +1907,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               </div>
             </aside>
           ) : (
-            <aside data-focus-chrome className="cc-skin-surface-solid hidden w-8 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] lg:flex">
+            <aside data-focus-chrome className="cc-workspace-surface-solid hidden w-8 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] lg:flex">
               <button
                 type="button"
                 onClick={() => setRailOpen(true)}
@@ -1960,7 +1948,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               currentSessionId={chat.sessionId}
               onGo={sid => chat.switchTo(sid)}
             /></div>
-            <main className="cc-skin-view flex min-h-0 min-w-0 flex-1 flex-col">
+            <main className="cc-workspace-view flex min-h-0 min-w-0 flex-1 flex-col">
               <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]" role="status">{sessionView === 'conversation' ? '正在加载会话记录…' : '正在打开视图…'}</div>}>
               {sessionView === 'board' ? (
                 <SessionBoard currentSessionId={chat.sessionId} onNewSession={() => { setSessionView('conversation'); setPanel('new') }} onOpenSession={(id, hintRunning) => {
@@ -2053,7 +2041,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
             {chat.sessionId && sessionView !== 'supervision' && sessionView !== 'board' && (
               <ComposerFileDropZone sessionId={chat.sessionId} onFiles={handleFiles}
                 disabledReason={planLocked ? '当前会话已锁定，请恢复后再上传附件' : attachments.length + uploading >= MAX_ATTACHMENTS ? `每条消息最多 ${MAX_ATTACHMENTS} 个附件，请移除附件或分批发送` : undefined}
-                className="cc-focus-composer cc-desktop-composer cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)] md:pb-0">
+                className="cc-focus-composer cc-desktop-composer cc-workspace-surface border-t border-[var(--color-border)] bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)] md:pb-0">
           <div><MobileAgentDock
             key={chat.sessionId}
             status={{ workspace: true, sessionId: chat.sessionId, items: chat.items, running: chat.running,

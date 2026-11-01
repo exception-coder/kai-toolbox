@@ -11,8 +11,7 @@
   .cc-workspace-header .cc-session-header-actions > div { border-left: 0; padding-inline: 0; }
   .cc-workspace-header button[aria-label^='会话工具'] { min-width: 44px; min-height: 44px; }
   .cc-mobile-coding-workspace { background: var(--color-background); }
-  .cc-mobile-coding-workspace > .cc-skin-bg { display: none; }
-  .cc-mobile-coding-workspace .cc-skin-view,
+  .cc-mobile-coding-workspace .cc-workspace-view,
   .cc-mobile-coding-workspace .cc-focus-composer,
   .cc-mobile-coding-workspace .cc-chat-contextbar { background: var(--color-background); backdrop-filter: none; }
   .cc-mobile-conversation .cc-message-row { padding: 8px 16px 12px; }

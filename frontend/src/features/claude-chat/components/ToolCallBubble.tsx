@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { classifyTool } from '../lib/toolKinds'
-import { useToolColors } from '../lib/toolColorPref'
 
 interface Props {
   toolName: string
@@ -11,10 +10,9 @@ interface Props {
   isError?: boolean
 }
 
-/** 工具调用可视化气泡：标题 + 可折叠的参数/结果。可选「按工具类型着色」（命令/读取/编辑/子代理/技能/MCP…）。 */
+/** 工具类型由图标与标签识别，颜色只表达运行结果；展开状态不随主题改变。 */
 export function ToolCallBubble({ toolName, input, output, isError }: Props) {
   const [open, setOpen] = useState(false)
-  const colored = useToolColors()
   const running = output === undefined
   const meta = classifyTool(toolName)
   const Icon = meta.icon
@@ -23,7 +21,7 @@ export function ToolCallBubble({ toolName, input, output, isError }: Props) {
     <div className={cn(
       'min-w-0 max-w-full rounded-lg border text-sm',
       isError ? 'border-[var(--color-destructive)]'
-        : colored ? meta.tone : 'border-[var(--color-border)]',
+        : 'border-[var(--color-border)]',
     )}>
       <button
         type="button"
@@ -31,15 +29,11 @@ export function ToolCallBubble({ toolName, input, output, isError }: Props) {
         className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left"
       >
         {open ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
-        <Icon className={cn('size-4 shrink-0', colored ? meta.accent : 'text-[var(--color-muted-foreground)]')} />
-        {colored && (
-          <span className={cn('shrink-0 rounded-full border px-1.5 py-0.5 text-[10px]', meta.tone, meta.accent)}>
-            {meta.label}
-          </span>
-        )}
+        <Icon className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
+        <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">{meta.label}</span>
         <span className="min-w-0 truncate font-medium">{toolName}</span>
-        <span className="ml-auto shrink-0 text-xs text-[var(--color-muted-foreground)]">
-          {running ? '运行中…' : isError ? '出错' : '完成'}
+        <span role="status" className={cn('ml-auto shrink-0 text-xs', isError ? 'text-[var(--color-danger)]' : running ? 'text-[var(--color-info)]' : 'text-[var(--color-success)]')}>
+          {isError ? '出错' : running ? '运行中…' : '完成'}
         </span>
       </button>
       {open && (

@@ -1,0 +1,105 @@
+/* 会话头部是一块连续的工作台 Chrome，而不是“标题栏 + 一排胶囊 + 独立页签”三块卡片。 */
+.cc-workspace-header {
+  container-type: inline-size;
+  container-name: chat-header;
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+.cc-session-identity {
+  flex: 1 1 0%;
+}
+
+.cc-session-header-tail {
+  flex: 0 0 auto;
+}
+
+@container chat-header (max-width: 960px) {
+  .cc-session-usage,
+  .cc-session-transport {
+    display: none;
+  }
+}
+
+@container chat-header (max-width: 720px) {
+  .cc-session-header-actions > button span,
+  .cc-session-header-actions > div > button span {
+    display: none;
+  }
+
+  .cc-session-header-actions > button {
+    padding-inline: 0.5rem;
+  }
+}
+
+@container chat-header (max-width: 520px) {
+  .cc-session-state-label,
+  button.cc-session-runtime-item > span {
+    display: none;
+  }
+}
+
+.cc-chat-contextbar {
+  background-color: var(--color-chrome);
+}
+
+.cc-session-runtime-cluster,
+.cc-session-header-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: visible;
+  border: 0;
+  background-color: transparent;
+}
+
+.cc-session-runtime-cluster {
+  height: 1.75rem;
+  gap: 0.125rem;
+}
+
+.cc-session-runtime-item {
+  position: relative;
+  height: 100%;
+  white-space: nowrap;
+  border-radius: 0;
+}
+
+.cc-session-runtime-item:hover {
+  background-color: color-mix(in oklab, var(--color-accent) 72%, transparent);
+}
+
+.cc-session-header-actions {
+  gap: 0.125rem;
+}
+
+.cc-session-header-actions > button,
+.cc-session-header-actions > div > button {
+  border-radius: calc(var(--radius) - 4px);
+}
+
+@media (max-width: 767px) {
+  /* 胶囊仍可访问，但默认避开对话页 Dock 与发送控件。 */
+  body:has(.cc-workspace-header) kai-assistant-widget::part(launcher) {
+    margin-bottom: 8rem;
+  }
+
+  .cc-session-runtime-cluster {
+    display: none;
+  }
+
+  .cc-workspace-header:not(.cc-workspace-header-integrated) {
+    height: 2.75rem;
+  }
+
+  .cc-chat-contextbar {
+    height: 2.25rem;
+  }
+
+  .cc-session-runtime-cluster,
+  .cc-session-header-actions {
+    border-color: transparent;
+    background-color: transparent;
+  }
+
+}

@@ -85,7 +85,7 @@ export function SessionDocumentsWorkspace({ session, onManage, onOpenSource }: P
   }
 
   return (
-    <section className="cc-skin-view flex min-h-0 flex-1 flex-col bg-[var(--color-background)]">
+    <section className="cc-workspace-view flex min-h-0 flex-1 flex-col bg-[var(--color-background)]">
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-[var(--color-border)] px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
