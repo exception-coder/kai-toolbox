@@ -10,6 +10,8 @@ import com.exceptioncoder.toolbox.ops.domain.DatasourceType;
 import com.exceptioncoder.toolbox.ops.domain.OpsDatasource;
 import com.exceptioncoder.toolbox.ops.domain.QueryHistory;
 import com.exceptioncoder.toolbox.ops.repository.QueryHistoryRepository;
+import com.exceptioncoder.toolbox.common.resource.ResourceEnvironmentPolicy;
+import com.exceptioncoder.toolbox.common.resource.SqlWriteAuthorization;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
@@ -96,6 +98,77 @@ public class OpsQueryService {
             throw new IllegalArgumentException(msg);
         }
     }
+
+    /** 普通开发的逐次授权写通道；QUERY 与人工控制台的原有契约保持不变。 */
+    public SqlWriteExecution authorizedSqlWrite(String datasourceId, String sql, SqlWriteAuthorization authorization) {
+        if (authorization == null) {
+            throw new IllegalArgumentException("WRITE_AUTHORIZATION_REQUIRED: SQL 写入需要本次用户明确授权及适用范围");
+        }
+        authorization.validate();
+        OpsDatasource ds = datasources.findRequired(datasourceId);
+        ResourceEnvironmentPolicy.requireAllowed(ds.getEnv());
+        if (ds.getType().category() != DatasourceType.Category.SQL) {
+            throw new IllegalArgumentException("该实例不是 SQL 类型: " + ds.getType());
+        }
+        var analysis = SqlStatementPolicy.analyze(sql);
+        if (analysis.statementType() != SqlStatementPolicy.StatementType.DDL
+                && analysis.statementType() != SqlStatementPolicy.StatementType.DML) {
+            throw new IllegalArgumentException("EXECUTE 仅接受单条 DDL/DML；只读查询请使用 QUERY");
+        }
+        String normalized = analysis.normalizedSql();
+        String id = "forge-sql-write:" + authorization.requestId().toLowerCase(java.util.Locale.ROOT);
+        String content = "-- Forge SQL EXECUTE 授权声明（Agent 提供，非独立人审凭证）："
+                + serializeWriteRecord(authorization) + "\n" + normalized;
+        if (!histories.claimSqlWrite(id, datasourceId, content)) {
+            return existingSqlWrite(id, datasourceId, content);
+        }
+        SqlQueryResult result;
+        try {
+            result = sqlConnector.query(ds, normalized, SNAPSHOT_MAX_ROWS);
+        } catch (Exception exception) {
+            // 驱动异常也可能发生在提交之后，不能由异常推断远端未执行。
+            String message = rootMessage(exception);
+            histories.finishSqlWrite(id, "UNKNOWN", null, null, message, null);
+            throw new IllegalArgumentException("SQL_WRITE_RESULT_UNKNOWN: 请求 " + authorization.requestId()
+                    + " 的实际结果需核对，禁止自动重放。" + message, exception);
+        }
+        var execution = new SqlWriteExecution(authorization.requestId(), "OK", result, "已执行；重复请求复用本记录");
+        try {
+            histories.finishSqlWrite(id, "OK", result.updateCount() >= 0 ? result.updateCount() : result.rowCount(),
+                    result.elapsedMs(), null, serializeWriteRecord(result));
+        } catch (RuntimeException exception) {
+            throw new IllegalStateException("SQL_WRITE_RESULT_UNKNOWN: 数据库已返回结果，但本地记录未确认；请核对请求 "
+                    + authorization.requestId() + "，禁止自动重放", exception);
+        }
+        return execution;
+    }
+
+    private SqlWriteExecution existingSqlWrite(String id, String datasourceId, String content) {
+        QueryHistory history = histories.findById(id)
+                .orElseThrow(() -> new IllegalStateException("SQL 写入已认领但记录不可读；禁止自动重放"));
+        if (!datasourceId.equals(history.getDatasourceId()) || !content.equals(history.getContent())) {
+            throw new IllegalArgumentException("SQL_WRITE_REQUEST_MISMATCH: 请求 ID 已被不同 SQL、目标或授权声明使用");
+        }
+        if ("OK".equals(history.getStatus()) && history.getResultJson() != null) {
+            try {
+                return new SqlWriteExecution(id.substring("forge-sql-write:".length()), "OK",
+                        mapper.readValue(history.getResultJson(), SqlQueryResult.class), "已执行；复用原记录，未重复执行");
+            } catch (Exception exception) {
+                throw new IllegalStateException("SQL 写入已执行但结果记录不可读；禁止自动重放", exception);
+            }
+        }
+        throw new IllegalStateException("SQL_WRITE_RESULT_UNKNOWN: 请求仍在执行或结果不明，请核对历史及实际数据；禁止自动重放");
+    }
+
+    private String serializeWriteRecord(Object value) {
+        try {
+            return mapper.writeValueAsString(value);
+        } catch (Exception exception) {
+            throw new IllegalStateException("无法保存 SQL 写入记录", exception);
+        }
+    }
+
+    public record SqlWriteExecution(String requestId, String status, SqlQueryResult result, String message) { }
 
     public SqlCheckResult checkSql(String datasourceId, String sql) {
         OpsDatasource ds = datasources.findRequired(datasourceId);

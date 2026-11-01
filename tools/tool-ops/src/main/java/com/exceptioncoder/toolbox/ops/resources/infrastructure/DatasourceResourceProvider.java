@@ -9,7 +9,7 @@ import com.exceptioncoder.toolbox.ops.service.OpsQueryService;
 import org.springframework.stereotype.Component;
 import java.util.List;
 
-/** 数据源元信息及只读执行适配；连接配置始终由原模块持有。 */
+/** 数据源元信息与执行适配；连接配置始终由原模块持有。 */
 @Component
 public class DatasourceResourceProvider implements ResourceProvider {
     private final OpsDatasourceService sources;
@@ -23,7 +23,7 @@ public class DatasourceResourceProvider implements ResourceProvider {
         return sources.findAll().stream().map(source -> new ResourceDescriptor(source.getId(), source.getName(),
                 source.getType().name(), source.getEnv(), source.endpoint(), source.getUsername(),
                 source.getPassword() != null && !source.getPassword().isBlank(),
-                source.getType().category() == DatasourceType.Category.SQL ? List.of("TEST", "QUERY")
+                source.getType().category() == DatasourceType.Category.SQL ? List.of("TEST", "QUERY", "EXECUTE")
                         : source.getType().category() == DatasourceType.Category.REDIS ? List.of("TEST") : List.of(),
                 "/tools/reqpool/resources?view=connections&editDatasource=" + source.getId())).toList();
     }
@@ -32,6 +32,7 @@ public class DatasourceResourceProvider implements ResourceProvider {
         return switch (call.operation()) {
             case "TEST" -> queries.test(resourceId);
             case "QUERY" -> queries.readOnlySqlQuery(resourceId, call.sql(), 200);
+            case "EXECUTE" -> queries.authorizedSqlWrite(resourceId, call.sql(), call.writeAuthorization());
             default -> throw new IllegalArgumentException("数据源不支持该操作");
         };
     }

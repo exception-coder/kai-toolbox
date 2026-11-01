@@ -41,7 +41,7 @@ const server = new McpServer(
   { name: serverName, version: '1.0.0' },
   {
     instructions: [
-      '这是 kai-toolbox 提供的本地开发验证工具。数据库工具仅允许查询测试库且由后端强制只读；',
+      '这是 kai-toolbox 提供的本地开发验证工具。QUERY 强制只读；Forge EXECUTE 仅在用户明确授权本次非生产 SQL 写入后使用，携带授权原话、范围与稳定请求 ID；旧数据库工具仍只读；',
       '应用探测工具仅允许访问已配置的本地或测试实例，禁止生产环境。',
       serverName === 'forge' ? '工程方法遵循项目规则及 Team Standards，规格操作使用项目的 OpenSpec。此处仅提供 Forge 资源、SQL、预览及进度能力，不另设模型需求拆分、规格确认、测试或提交流程。已采用的内部 CLI/Hook 门禁及原执行记录继续有效，不自动关闭或清理。' : '',
     ].join(''),
@@ -79,7 +79,7 @@ const querySchema = {
 if (serverName === 'forge') {
   server.registerTool('prepare_page_preview', { description: PAGE_PREVIEW_DESCRIPTION, inputSchema: pagePreviewSchema, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }, async args => preparePagePreview(args, sessionId))
   server.registerTool('discover_resources', { description: DISCOVER_RESOURCES_DESCRIPTION, inputSchema: discoverResourceSchema, annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }, (args, extra) => discoverSystemResources(apiBase, args, extra))
-  server.registerTool('execute_resource', { description: EXECUTE_RESOURCE_DESCRIPTION, inputSchema: executeResourceSchema, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false } }, (args, extra) => executeSystemResource(apiBase, args, extra))
+  server.registerTool('execute_resource', { description: EXECUTE_RESOURCE_DESCRIPTION, inputSchema: executeResourceSchema, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false } }, (args, extra) => executeSystemResource(apiBase, args, extra, sessionId))
   server.registerTool('prepare_sql_context', {
     description: FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
     inputSchema: {

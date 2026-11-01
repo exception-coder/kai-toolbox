@@ -106,7 +106,7 @@ export interface HistoryView {
   datasourceId: string
   kind: string
   content: string
-  status: 'OK' | 'ERROR'
+  status: 'OK' | 'ERROR' | 'RUNNING' | 'UNKNOWN'
   rowCount: number | null
   elapsedMs: number | null
   errorMsg: string | null
@@ -120,7 +120,7 @@ export interface HistoryDetailView {
   datasourceId: string
   kind: string
   content: string
-  status: 'OK' | 'ERROR'
+  status: 'OK' | 'ERROR' | 'RUNNING' | 'UNKNOWN'
   rowCount: number | null
   elapsedMs: number | null
   errorMsg: string | null

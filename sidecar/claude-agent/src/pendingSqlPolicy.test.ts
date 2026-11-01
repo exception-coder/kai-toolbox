@@ -27,3 +27,13 @@ test('missing DDL is a visible warning instead of a delivery or registration gat
   assert.match(SQL_DDL_FALLBACK_RULE, /不得因此中断或拒绝产出 SQL/)
   assert.doesNotMatch(FORGE_PENDING_SQL_STEER, /禁止猜测字段/)
 })
+
+test('execution is distinct from registration and requires scoped user permission', () => {
+  assert.match(FORGE_PENDING_SQL_STEER, /默认不执行数据库写入/)
+  assert.match(FORGE_PENDING_SQL_STEER, /仅当用户明确授权当前目标与具体写操作/)
+  assert.match(FORGE_PENDING_SQL_STEER, /已明确的本次授权不重复询问/)
+  assert.match(FORGE_PENDING_SQL_STEER, /不是服务端已核验的人审凭证/)
+  assert.match(FORGE_PENDING_SQL_STEER, /不得换 ID 自动重放/)
+  assert.match(FORGE_PENDING_SQL_TOOL_DESCRIPTION, /工具只登记、绝不执行数据库/)
+  assert.match(FORGE_PENDING_SQL_TOOL_DESCRIPTION, /已执行的 SQL 不再登记为待执行/)
+})

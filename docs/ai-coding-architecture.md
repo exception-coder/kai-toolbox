@@ -712,7 +712,11 @@ flowchart LR
     SESSION["Vibe Coding 会话"] --> FORGE["forge MCP<br/>discover / execute"]
     FORGE --> BINDING
     BINDING --> POLICY["绑定 · 环境 · 能力 · 同源校验"]
-    POLICY --> TARGET["只读数据库或测试应用"]
+    POLICY --> QUERY["QUERY<br/>强制只读数据库"]
+    POLICY --> WRITE["普通开发 EXECUTE<br/>Agent 引用本次用户授权与范围"]
+    WRITE --> CLAIM["原操作历史认领请求 ID<br/>未知结果不重放"]
+    CLAIM --> WRITE_DB["非生产库单条 DDL/DML<br/>更新原执行记录"]
+    POLICY --> TARGET["已授权测试应用调用"]
     CONSULT["业务咨询<br/>只读 Agent"] --> DOC_TOOL["generate_consult_document<br/>结构化内容 + 服务端会话签名"]
     CONSULT_UI["咨询语音输入 / 实时语音"] --> CONSULT_CHANNEL["原consult WS / SessionVoiceService<br/>官方账号 · 原会话 · 同一只读装配"]
     CONSULT_CHANNEL --> CONSULT
@@ -727,6 +731,8 @@ flowchart LR
 ```
 
 旧ERP/SRM/SCM数据库查询和连通性执行入口停止访问数据库，返回迁移说明；旧配置与历史保留。固定工具不进入普通开发或业务咨询，修改独立配置不会改变新查询目标。资源中心的AI只读SQL入口同样采用非生产环境门禁；人工通用SQL入口仍遵循原有确认流程，不向咨询开放。实现及未完成的运行验收见[统一咨询数据库入口](../openspec/changes/consult-bound-databases/tasks.md)。
+
+普通 Vibe Coding 的资源工具另提供 `EXECUTE`：仅在用户明确授权当前目标与具体写操作后，由 Agent 附上授权原话、范围及单条 SQL 的稳定 UUID；运行会话 ID 由 SDK/stdio 装配注入。Agent 负责授权语义，字段是可追溯声明，不是服务端已独立核实的人审凭证，也不以全访问模式或工具注解代替用户授权。后端继续重读绑定、数据源及 LOCAL/DEV/TEST/UAT 环境，QUERY、咨询和计划评审保持只读边界。写前复用 `ops_query_history` 主键持久认领，完成更新同一记录；同 ID 复用结果，不同目标/SQL/声明拒绝复用，RUNNING/UNKNOWN 必须核对实际数据，禁止换 ID 自动重放。幂等依赖历史保留；人工删除历史后的重放不在保证范围内。待人工执行的脚本继续登记，已经执行的不再次成为待执行脚本；既有人工待办需要核对执行状态。代码实现、专项验证和待授权启动/运行验收分别见[授权 SQL 写入任务](../openspec/changes/authorize-resource-sql-writes/tasks.md)。
 
 业务咨询的 Office 产物是受限只读策略的具名写入例外：`tool-fore-consult` 持有文档生成、固定的用户目录下 `.kai-toolbox/consult-artifacts/<consultId>/`、内容哈希索引及下载授权。快速导出提交结构化正文；文档创作允许模型向专用工具提交纯JavaScript代码，由Sidecar独立Worker内的QuickJS WASM在无宿主函数、文件、网络或凭据的环境中转换为正文与受限版式，后端重新校验后生成可编辑Office。解释器与Worker均限时限资源；不在宿主Node/终端执行模型代码，不接受任意路径、模板、宏或网络素材，不授予源码、配置及业务数据写入权。两引擎复用服务端会话装配与 HMAC；旧咨询缺少冻结证据流程时仅增文档能力，不回退加载生产证据配置。生成后返回预览供模型检查修订：PPT实际渲染、可分批检查，Word/Excel仅为明确标注的结构预览；未完成检查不得声明已验收。浏览器下载/预览复用原咨询owner/admin策略，MCP预览复用会话签名，与资源凭据、SQL登记和通用附件路径读取分离。相同正文与版式重试复用结果，修订保留旧文件，达到配额返回可恢复错误，不自动清理历史文件。实现与验收状态见[受控咨询文档变更](../openspec/changes/controlled-consult-documents/tasks.md)和[模型文档创作](../openspec/changes/consult-model-document-design/tasks.md)；当前运行版本是否具备能力仍以部署和真实验收为准。
 

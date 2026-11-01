@@ -32,7 +32,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string, 
         (args, extra) => discoverSystemResources(apiBase, args, extra as McpRequestExtra),
         { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }),
       tool('execute_resource', EXECUTE_RESOURCE_DESCRIPTION, executeResourceSchema,
-        (args, extra) => executeSystemResource(apiBase, args, extra as McpRequestExtra),
+        (args, extra) => executeSystemResource(apiBase, args, extra as McpRequestExtra, sessionId),
         { annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false } })] : []),
       tool(
         'prepare_sql_context',

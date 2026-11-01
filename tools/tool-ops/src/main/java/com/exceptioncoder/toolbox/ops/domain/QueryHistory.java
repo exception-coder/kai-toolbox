@@ -15,11 +15,11 @@ public class QueryHistory {
     private String datasourceId;
     private String kind;     // SQL | REDIS | MQ
     private String content;
-    private String status;   // OK | ERROR
+    private String status;   // OK | ERROR | RUNNING | UNKNOWN
     private Integer rowCount;
     private Long elapsedMs;
     private String errorMsg;
-    /** 执行结果快照（JSON），仅成功且体量在限内时写入；DML/出错/超限均为 null。列表查询不取此列，见 hasResult。 */
+    /** 执行结果快照；授权写入保留结果以便按请求 ID 核对，普通查询仍沿用快照大小限制。 */
     private String resultJson;
     /** 是否存有可查看的结果快照；列表查询用 CASE 派生，无需拖回完整 resultJson。 */
     private boolean hasResult;

@@ -14,7 +14,7 @@ public final class ResourceEnvironmentPolicy {
 
     public static void requireAllowed(String environment) {
         if (!allowed(environment)) {
-            throw new IllegalArgumentException("仅允许本地、开发或测试环境资源；生产或未知环境不可查询，请到系统资源核对配置");
+            throw new IllegalArgumentException("仅允许本地、开发或测试环境资源；生产或未知环境不可执行，请到系统资源核对配置");
         }
     }
 }

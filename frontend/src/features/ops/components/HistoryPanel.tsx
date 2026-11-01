@@ -55,12 +55,16 @@ export function HistoryPanel({ datasource }: Props) {
             <div className="flex items-center gap-1.5">
               {h.status === 'OK'
                 ? <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                : <XCircle className="size-3.5 shrink-0 text-[var(--color-destructive)]" />}
+                : h.status === 'ERROR'
+                  ? <XCircle className="size-3.5 shrink-0 text-[var(--color-destructive)]" />
+                  : <Clock className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />}
               <span className="min-w-0 flex-1 truncate font-mono">{h.content}</span>
               {h.hasResult && <ChevronRight className="size-3 shrink-0 text-[var(--color-muted-foreground)]" />}
             </div>
             <div className="flex items-center gap-2 text-[var(--color-muted-foreground)]">
               <span>{new Date(h.executedAt).toLocaleString()}</span>
+              {h.status === 'RUNNING' && <span>· 执行中或结果待核对</span>}
+              {h.status === 'UNKNOWN' && <span>· 结果不明</span>}
               {h.elapsedMs != null && <span>· {h.elapsedMs}ms</span>}
               {h.rowCount != null && <span>· {h.rowCount} 行</span>}
             </div>
@@ -97,6 +101,13 @@ function HistoryDetail({ detail }: { detail: HistoryDetailView }) {
       {detail.status === 'ERROR' && detail.errorMsg && (
         <div className="rounded-md border border-[var(--color-destructive)]/50 bg-[var(--color-destructive)]/10 px-3 py-2 text-xs text-[var(--color-destructive)] whitespace-pre-wrap">
           {detail.errorMsg}
+        </div>
+      )}
+      {(detail.status === 'RUNNING' || detail.status === 'UNKNOWN') && (
+        <div role="status" className="border-l-2 border-[var(--color-border)] pl-3 text-xs text-[var(--color-muted-foreground)] whitespace-pre-wrap">
+          {detail.status === 'RUNNING' ? '执行中或结果尚未确认。' : '数据库写入结果不明。'}
+          请按上方请求 ID 核对目标数据，勿直接重放 SQL。
+          {detail.errorMsg && `\n${detail.errorMsg}`}
         </div>
       )}
       {detail.result != null && detail.kind === 'SQL' && isSqlResult(detail.result) && (
