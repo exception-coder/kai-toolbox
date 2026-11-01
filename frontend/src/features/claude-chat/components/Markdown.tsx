@@ -15,6 +15,7 @@ import { PagePreviewDialog, pagePreviewEntryFromHref } from '@/features/browser-
 
 const MessageDrawioDialog = lazy(() => import('./messages/MessageDrawioDialog').then(module => ({ default: module.MessageDrawioDialog })))
 const MessageMarkdownDialog = lazy(() => import('./messages/MessageMarkdownDialog').then(module => ({ default: module.MessageMarkdownDialog })))
+const MessageSqlDialog = lazy(() => import('./messages/MessageSqlDialog').then(module => ({ default: module.MessageSqlDialog })))
 
 interface MarkdownContext {
   documentPath?: string
@@ -134,8 +135,9 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
   const content = useRef<HTMLDivElement>(null)
   const [diagram, setDiagram] = useState<{ sessionId: string; path: string; trigger: HTMLAnchorElement } | null>(null)
   const [markdownDocument, setMarkdownDocument] = useState<{ sessionId: string; path: string; trigger: HTMLAnchorElement } | null>(null)
+  const [sqlDocument, setSqlDocument] = useState<{ sessionId: string; path: string; trigger: HTMLAnchorElement } | null>(null)
   const [pagePreview, setPagePreview] = useState<{ sessionId?: string; path: string; trigger: HTMLAnchorElement } | null>(null)
-  useEffect(() => { setDiagram(null); setMarkdownDocument(null); setPagePreview(null) }, [sessionId, documentPath])
+  useEffect(() => { setDiagram(null); setMarkdownDocument(null); setSqlDocument(null); setPagePreview(null) }, [sessionId, documentPath])
   const [imageTargets, setImageTargets] = useState<{ html: string | null; sessionId?: string; targets: HTMLSpanElement[] }>({ html: null, targets: [] })
   const html = useMemo(() => {
     if (!text.trim()) return null
@@ -165,6 +167,13 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
           anchor.dataset.markdownPath = markdownPath
           anchor.href = '#'
           anchor.title = `预览 Markdown：${markdownPath}`
+          return
+        }
+        const sqlPath = textPathFromHref(anchor.getAttribute('href'), /\.sql$/i)
+        if (sqlPath) {
+          anchor.dataset.sqlPath = sqlPath
+          anchor.href = '#'
+          anchor.title = `预览 SQL：${sqlPath}`
           return
         }
         const localPath = localPathFromHref(anchor.getAttribute('href'))
@@ -273,6 +282,13 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
       } else {
         setMarkdownDocument({ sessionId, path: markdownLink.dataset.markdownPath!, trigger: markdownLink })
       }
+      return
+    }
+    const sqlLink = target.closest<HTMLAnchorElement>('a[data-sql-path]')
+    if (sqlLink) {
+      event.preventDefault()
+      if (!sessionId) setLocalPathNotice({ tone: 'error', text: '当前视图没有可用的会话，无法读取 SQL 文件' })
+      else setSqlDocument({ sessionId, path: sqlLink.dataset.sqlPath!, trigger: sqlLink })
       return
     }
     const localLink = target.closest<HTMLAnchorElement>('a[data-local-path]')
@@ -392,6 +408,12 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
         const target = pagePreview.trigger.isConnected ? pagePreview.trigger : replacement ?? content.current
         target?.focus({ preventScroll: true })
       }} />}
+      {sqlDocument && sessionId && sqlDocument.sessionId === sessionId && <Suspense fallback={<p role="status" className="mt-2 text-sm">正在打开 SQL 预览…</p>}><MessageSqlDialog key={`${sessionId}:${sqlDocument.path}`} sessionId={sessionId} path={sqlDocument.path} onClose={() => setSqlDocument(null)} returnFocus={() => {
+        const replacement = Array.from(content.current?.querySelectorAll<HTMLAnchorElement>('a[data-sql-path]') ?? [])
+          .find(anchor => anchor.dataset.sqlPath === sqlDocument.path)
+        const target = sqlDocument.trigger.isConnected ? sqlDocument.trigger : replacement ?? content.current
+        target?.focus({ preventScroll: true })
+      }} /></Suspense>}
       {localPathNotice && (
         <div className={cn('mt-1 text-[11px]', localPathNotice.tone === 'success'
           ? 'text-emerald-600 dark:text-emerald-400'
@@ -446,14 +468,18 @@ function diagramPathFromHref(href: string | null): string | null {
 }
 
 function markdownPathFromHref(href: string | null): string | null {
+  return textPathFromHref(href, /\.(?:md|markdown)$/i)
+}
+
+function textPathFromHref(href: string | null, extension: RegExp): string | null {
   if (!href) return null
   const value = href.replace(/(?::\d+(?::\d+)?|#.*)$/i, '')
   const local = localPathFromHref(value)
-  if (local) return /\.(?:md|markdown)$/i.test(local) ? local : null
+  if (local) return extension.test(local) ? local : null
   if (/^(?:[a-z][\w+.-]*:|\/\/|#|\?)/i.test(value)) return null
   try {
     const decoded = decodeURIComponent(value)
-    return /\.(?:md|markdown)$/i.test(decoded) ? decoded : null
+    return extension.test(decoded) ? decoded : null
   } catch { return null }
 }
 

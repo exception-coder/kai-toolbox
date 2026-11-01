@@ -4,6 +4,8 @@
 
 ## 首屏加载
 
+本地 `.sql` 文件链接可像 Markdown、Draw.io 一样在当前会话弹框查看：提供 SQL 高亮、行号、原文复制、重新读取与失败重试，关闭继续原对话。支持盘符、file URI 和相对路径，Markdown 文档中的相对 SQL 链接按该文档目录解析；网页 URL 仍作为普通外链。只接受授权范围内完整 UTF-8 文件（最多 2 MiB），预览和复制不会执行语句、连接数据库或更改待执行 SQL 的登记状态。新后端加载及实机状态见[文件预览任务](../../../../openspec/changes/preview-session-markdown/tasks.md)。
+
 AI 回复可用完整的 `site-preview` JSON 围栏声明站点；用户点击后在当前对话弹框查看，全屏/缩小保留页面，关闭回原位置。使用方式与公共组件见[站点弹框预览](../../../../docs/development/site-preview.md)。普通链接保持原行为，不自动打开站点或使用已保存密码。
 
 需要自动登录测试应用时使用 `prepare_page_preview` 的资源账号预览链接；Vibe 点击该链接会在当前会话弹框显示已有真实浏览器工作台，支持全屏/缩小、调整运行账号及接管。账号在应用站点中统一配置，链接只带 resourceId，密码由服务端读取。站内 `/tools`、`/api`、`/assets` 链接不作为本地路径；Windows/Linux 文件链接沿用原行为。关闭恢复焦点与原对话，切会话释放弹框新建的预览；跨站 iframe 不具备该自动登录能力。能力、限制与验收状态见[浏览器页面预览](../../../../tools/tool-browser-request/README.md)和[本次任务](../../../../openspec/changes/complete-runtime-account-preview/tasks.md)。

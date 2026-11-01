@@ -16,7 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-/** 仅授权当前开发会话的助手回复已引用的具体图片、图文件或 Markdown，不扩大目录读权限。 */
+/** 仅授权当前开发会话的助手回复已引用的具体文件，不扩大目录读权限。 */
 @Service
 public class SessionArtifactReferenceService {
     private static final int MAX_SESSIONS = 128;
@@ -24,7 +24,7 @@ public class SessionArtifactReferenceService {
     private static final Pattern IMAGE = Pattern.compile("!\\[[^\\]\\r\\n]*\\]\\((?:<([^>\\r\\n]+)>|([^\\r\\n]*?))(?:\\s+\"[^\"]*\")?\\)");
     private static final Pattern LINK = Pattern.compile("(?<!!)\\[[^\\]\\r\\n]*\\]\\((?:<([^>\\r\\n]+)>|([^\\r\\n]*?))(?:\\s+\"[^\"]*\")?\\)");
     private static final Pattern LOCATION_SUFFIX = Pattern.compile("(?::\\d+(?::\\d+)?|#L\\d+)$", Pattern.CASE_INSENSITIVE);
-    public enum Kind { IMAGE, DIAGRAM, MARKDOWN }
+    public enum Kind { IMAGE, DIAGRAM, MARKDOWN, SQL }
     private record Reference(Kind kind, Path path) { }
     private final SessionHistoryService history;
     private final ProjectAccess projectAccess;
@@ -48,7 +48,7 @@ public class SessionArtifactReferenceService {
                 while (matches.find()) {
                     String raw = matches.group(1) == null ? matches.group(2) : matches.group(1);
                     String linkedPath = kind == Kind.IMAGE ? raw : LOCATION_SUFFIX.matcher(raw).replaceFirst("");
-                    if (kind == Kind.MARKDOWN) linkedPath = linkedPath.split("#", 2)[0];
+                    if (kind == Kind.MARKDOWN || kind == Kind.SQL) linkedPath = linkedPath.split("#", 2)[0];
                     Path path = localPath(linkedPath);
                     if (path != null && path.isAbsolute() && supports(kind, path)) {
                         paths.add(new Reference(kind, path.normalize()));
@@ -102,6 +102,7 @@ public class SessionArtifactReferenceService {
             case IMAGE -> true;
             case DIAGRAM -> name.endsWith(".drawio") || name.endsWith(".drawio.xml");
             case MARKDOWN -> name.endsWith(".md") || name.endsWith(".markdown");
+            case SQL -> name.endsWith(".sql");
         };
     }
 

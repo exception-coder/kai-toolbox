@@ -53,7 +53,7 @@ public class SessionFileController {
     /** 文本预览上限（字节）：超出截断。 */
     private static final int MAX_PREVIEW_BYTES = 512 * 1024;
     private static final int MAX_DIAGRAM_BYTES = 5 * 1024 * 1024;
-    private static final int MAX_MARKDOWN_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_LINKED_DOCUMENT_BYTES = 2 * 1024 * 1024;
     private static final boolean IS_WINDOWS =
             System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     private static final boolean IS_MAC =
@@ -161,7 +161,14 @@ public class SessionFileController {
     @GetMapping("/markdown")
     @RequireAuth
     public FileContentView markdown(@PathVariable String id, @RequestParam String path) {
-        return linkedText(id, path, SessionArtifactReferenceService.Kind.MARKDOWN, MAX_MARKDOWN_BYTES, "Markdown 文件");
+        return linkedText(id, path, SessionArtifactReferenceService.Kind.MARKDOWN, MAX_LINKED_DOCUMENT_BYTES, "Markdown 文件");
+    }
+
+    /** 只读 SQL 原文预览；不解析语句、不连接数据库、不改变待执行登记状态。 */
+    @GetMapping("/sql")
+    @RequireAuth
+    public FileContentView sql(@PathVariable String id, @RequestParam String path) {
+        return linkedText(id, path, SessionArtifactReferenceService.Kind.SQL, MAX_LINKED_DOCUMENT_BYTES, "SQL 文件");
     }
 
     private FileContentView linkedText(String id, String path, SessionArtifactReferenceService.Kind kind,
@@ -181,11 +188,20 @@ public class SessionFileController {
         }
         String name = target.getFileName() == null ? "" : target.getFileName().toString();
         String lower = name.toLowerCase(Locale.ROOT);
-        boolean supported = kind == SessionArtifactReferenceService.Kind.DIAGRAM
-                ? lower.endsWith(".drawio") || lower.endsWith(".drawio.xml")
-                : lower.endsWith(".md") || lower.endsWith(".markdown");
+        String extensions = switch (kind) {
+            case DIAGRAM -> ".drawio / .drawio.xml";
+            case MARKDOWN -> ".md / .markdown";
+            case SQL -> ".sql";
+            default -> throw new IllegalArgumentException("不支持的文本预览类型");
+        };
+        boolean supported = switch (kind) {
+            case DIAGRAM -> lower.endsWith(".drawio") || lower.endsWith(".drawio.xml");
+            case MARKDOWN -> lower.endsWith(".md") || lower.endsWith(".markdown");
+            case SQL -> lower.endsWith(".sql");
+            default -> false;
+        };
         if (!supported || !Files.isRegularFile(target)) {
-            throw new IllegalArgumentException("请选择存在的" + label + "（" + (kind == SessionArtifactReferenceService.Kind.DIAGRAM ? ".drawio / .drawio.xml" : ".md / .markdown") + "）");
+            throw new IllegalArgumentException("请选择存在的" + label + "（" + extensions + "）");
         }
         try {
             if (Files.size(target) > maxBytes) {

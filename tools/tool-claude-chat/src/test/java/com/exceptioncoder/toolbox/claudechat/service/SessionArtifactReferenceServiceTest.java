@@ -20,6 +20,28 @@ class SessionArtifactReferenceServiceTest {
         return new MessagePage(List.of(ChatMessageView.assistant("reply", text, 1L)), null, false);
     }
 
+    @Test void sqlReferencesAreExactTypedAndNotGrantedByUserOrReadonlyConversation() {
+        var history = mock(SessionHistoryService.class);
+        when(history.readCursorMessages(anyString(), anyString(), isNull(), isNull(), isNull(), eq(100))).thenReturn(MessagePage.empty());
+        var service = new SessionArtifactReferenceService(history, path -> true, new ObjectMapper());
+        Path file = root.resolve("external/.run/授权 + 草稿.sql");
+        service.remember(session("a"), assistant("[授权 SQL](<" + file.toUri().toASCIIString() + "#L3>)"));
+        assertEquals(file, service.resolve(session("a"), file.toString(), SessionArtifactReferenceService.Kind.SQL));
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(session("b"), file.toString(), SessionArtifactReferenceService.Kind.SQL));
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(session("a"), file.resolveSibling("other.sql").toString(), SessionArtifactReferenceService.Kind.SQL));
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(session("a"), file.toString(), SessionArtifactReferenceService.Kind.MARKDOWN));
+        service.remember(session("user"), new MessagePage(List.of(ChatMessageView.user("u", "[SQL](" + file + ")", 1L)), null, false));
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(session("user"), file.toString(), SessionArtifactReferenceService.Kind.SQL));
+        for (String policy : List.of("review-only", "consult-readonly")) {
+            var readonly = session(policy); readonly.setExecutionPolicy(policy);
+            service.remember(readonly, assistant("[SQL](" + file + ")"));
+            assertThrows(IllegalArgumentException.class, () -> service.resolve(readonly, file.toString(), SessionArtifactReferenceService.Kind.SQL));
+        }
+        var excluded = new SessionArtifactReferenceService(history, path -> false, new ObjectMapper());
+        excluded.remember(session("a"), assistant("[SQL](" + file + ")"));
+        assertThrows(IllegalArgumentException.class, () -> excluded.resolve(session("a"), file.toString(), SessionArtifactReferenceService.Kind.SQL));
+    }
+
     @Test void markdownReferencesRemainTypedAndIsolatedEvenWithUriAndFragment() {
         var history = mock(SessionHistoryService.class);
         when(history.readCursorMessages(anyString(), anyString(), isNull(), isNull(), isNull(), eq(100))).thenReturn(MessagePage.empty());

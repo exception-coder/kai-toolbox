@@ -483,6 +483,11 @@ export function readSessionMarkdown(sessionId: string, path: string, signal?: Ab
   return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/markdown?path=${encodeURIComponent(path)}`, { signal })
 }
 
+/** 只读 SQL 文件原文；与数据库执行、待执行 SQL 登记无关。 */
+export function readSessionSql(sessionId: string, path: string, signal?: AbortSignal) {
+  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/sql?path=${encodeURIComponent(path)}`, { signal })
+}
+
 /** 本地图片经会话鉴权读取；不把服务器磁盘路径作为浏览器 URL。 */
 export async function readSessionImage(sessionId: string, path: string, signal?: AbortSignal): Promise<Blob> {
   const response = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/image?path=${encodeURIComponent(path)}`, { signal })

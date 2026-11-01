@@ -33,6 +33,28 @@ import static org.mockito.Mockito.*;
 class SessionFileControllerTest {
 
     @Test
+    void sqlReadsFullTextAndRejectsInvalidInputWithoutExecution(@TempDir Path directory) throws Exception {
+        var controller = controller(directory, List.of());
+        String text = "-- 中文说明\r\nSELECT 1;\r\n" + "-- comment\n".repeat(60_000);
+        Files.writeString(directory.resolve("preview.SQL"), text);
+        var result = controller.sql("session", "preview.SQL:12:3");
+        assertEquals(text, result.content());
+        assertFalse(result.truncated());
+        assertThrows(IllegalArgumentException.class, () -> controller.markdown("session", "preview.SQL"));
+        Files.writeString(directory.resolve("wrong.txt"), "text");
+        assertThrows(IllegalArgumentException.class, () -> controller.sql("session", "wrong.txt"));
+        assertThrows(IllegalArgumentException.class, () -> controller.sql("session", "../outside.sql"));
+        Files.write(directory.resolve("invalid.sql"), new byte[] {(byte) 0xc3, 0x28});
+        assertThrows(IllegalArgumentException.class, () -> controller.sql("session", "invalid.sql"));
+        Files.write(directory.resolve("binary.sql"), new byte[] {0, 1});
+        assertThrows(IllegalArgumentException.class, () -> controller.sql("session", "binary.sql"));
+        Files.write(directory.resolve("large.sql"), new byte[2 * 1024 * 1024 + 1]);
+        assertEquals(413, assertThrows(ResponseStatusException.class, () -> controller.sql("session", "large.sql")).getStatusCode().value());
+        var denied = new SessionFileController(repository(directory), access(List.of()), references(), mock(ClaudeChatSessionAccessPolicy.class));
+        assertEquals(403, assertThrows(ResponseStatusException.class, () -> denied.sql("session", "preview.SQL")).getStatusCode().value());
+    }
+
+    @Test
     void readsCompleteDiagramAboveTextPreviewLimit(@TempDir Path directory) throws IOException {
         var controller = controller(directory, List.of());
         String text = "<mxGraphModel><!--" + " ".repeat(600 * 1024) + "--><root/></mxGraphModel>";
