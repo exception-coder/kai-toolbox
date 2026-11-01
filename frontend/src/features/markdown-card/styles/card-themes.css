@@ -1,4 +1,4 @@
-/* Markdown 卡片主题：5 套配色，全部用 [data-md-theme="xxx"] 选择器隔离，不污染全局样式 */
+/* Markdown 卡片主题：配色与版式以 [data-md-theme="xxx"] 隔离，不污染全局样式 */
 
 [data-md-theme] {
   --md-card-bg: #ffffff;
@@ -288,4 +288,55 @@
   padding: 32px 40px;
   border-radius: 12px;
   box-sizing: border-box;
+}
+
+/* 写作：白纸、细边界与自然阅读层级；同一节点用于预览和 PNG 捕获。 */
+[data-md-theme="writing"] {
+  --md-card-fg: #202020;
+  --md-card-heading: #111111;
+  --md-card-subheading: #666666;
+  --md-card-link: #333333;
+  --md-card-divider: #e4e4e7;
+  border: 1px solid var(--md-card-divider);
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+.md-card-writing-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 32px;
+  color: #737373;
+  font-family: var(--md-card-font-family);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.md-card-writing-header svg { width: 16px; height: 16px; stroke-width: 1.5; }
+
+[data-md-theme="writing"] .md-card-content { line-height: 1.85; }
+[data-md-theme="writing"] .md-card-content :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.6em 0 0.65em;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.025em;
+}
+[data-md-theme="writing"] .md-card-content h1 { font-size: 1.9em; }
+[data-md-theme="writing"] .md-card-content h2 { font-size: 1.45em; }
+[data-md-theme="writing"] .md-card-content h3 { font-size: 1.15em; }
+[data-md-theme="writing"] .md-card-content p { margin: 1em 0; }
+[data-md-theme="writing"] .md-card-content > .md-card-block:first-child > div > :first-child { margin-top: 0; }
+[data-md-theme="writing"] .md-card-content > .md-card-block:last-child > div > :last-child { margin-bottom: 0; }
+[data-md-theme="writing"] .md-card-content pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+[data-md-theme="writing"] .md-card-content table { table-layout: fixed; font-size: 0.85em; }
+
+.md-card-xhs[data-md-theme="writing"] .md-card-content { font-size: 28px; }
+.md-card-xhs[data-md-theme="writing"] .md-card-writing-header { font-size: 24px; margin-bottom: 48px; }
+.md-card-xhs[data-md-theme="writing"] .md-card-writing-header svg { width: 28px; height: 28px; }
+.md-card-slide[data-md-theme="writing"] { justify-content: flex-start; }
+.md-card-slide[data-md-theme="writing"] .md-card-writing-header { margin-bottom: 24px; }
+
+@media (max-width: 480px) {
+  .md-card-preview[data-md-theme="writing"] { padding: 24px 20px; }
 }

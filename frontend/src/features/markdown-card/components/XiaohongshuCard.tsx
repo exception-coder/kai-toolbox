@@ -1,6 +1,7 @@
 import { forwardRef } from 'react'
 import { getThemeAttr } from '../lib/themes'
 import { RemovableContent } from './RemovableContent'
+import { WritingHeader } from './WritingHeader'
 import type { Theme, Watermark } from '../types'
 
 interface XiaohongshuCardProps {
@@ -17,6 +18,7 @@ export const XiaohongshuCard = forwardRef<HTMLDivElement, XiaohongshuCardProps>(
 
     return (
       <div ref={ref} {...getThemeAttr(theme)} className="md-card-xhs">
+        <WritingHeader theme={theme} />
         {text.trim() ? (
           <RemovableContent text={text} scope="single" removed={removed} onToggle={onToggleBlock} />
         ) : (

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { splitByHeading, splitSlides } from '../lib/markdownPipeline'
 import { getThemeAttr } from '../lib/themes'
 import { RemovableContent } from './RemovableContent'
+import { WritingHeader } from './WritingHeader'
 import { SLIDE_RATIOS, type SlideRatio, type SplitMode, type Theme } from '../types'
 
 export interface SlideCardsHandle {
@@ -184,6 +185,7 @@ function SlideStage({
       className="md-card-slide"
       style={{ width: w, height: h }}
     >
+      <WritingHeader theme={theme} />
       {text.trim() ? (
         <RemovableContent text={text} scope={scope} removed={removed} onToggle={onToggleBlock} />
       ) : (

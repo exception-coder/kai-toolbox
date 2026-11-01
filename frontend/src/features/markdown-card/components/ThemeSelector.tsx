@@ -16,6 +16,7 @@ export function ThemeSelector({ value, onChange }: ThemeSelectorProps) {
           <button
             key={t.id}
             type="button"
+            aria-pressed={active}
             onClick={() => onChange(t.id)}
             className={cn(
               'flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors',

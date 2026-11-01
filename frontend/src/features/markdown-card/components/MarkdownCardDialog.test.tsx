@@ -81,4 +81,8 @@ it('retains normal autosaving when opened as the standalone tool', async () => {
   expect(editor).toHaveValue('独立工具草稿')
   fireEvent.change(editor, { target: { value: '独立编辑的新草稿' } })
   await waitFor(() => expect(loadState().sourceText).toBe('独立编辑的新草稿'))
+  fireEvent.click(screen.getByRole('button', { name: '写作' }))
+  await waitFor(() => expect(loadState().theme).toBe('writing'))
+  expect(screen.getByRole('button', { name: '写作' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('textbox', { name: '卡片 Markdown 正文' })).toHaveValue('独立编辑的新草稿')
 })

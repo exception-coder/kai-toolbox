@@ -1,6 +1,7 @@
 import { forwardRef } from 'react'
 import { getThemeAttr } from '../lib/themes'
 import { RemovableContent } from './RemovableContent'
+import { WritingHeader } from './WritingHeader'
 import type { Theme } from '../types'
 
 interface PreviewCardProps {
@@ -14,6 +15,7 @@ export const PreviewCard = forwardRef<HTMLDivElement, PreviewCardProps>(
   ({ text, theme, removed, onToggleBlock }, ref) => {
     return (
       <div ref={ref} {...getThemeAttr(theme)} className="md-card-preview">
+        <WritingHeader theme={theme} />
         {text.trim() ? (
           <RemovableContent text={text} scope="single" removed={removed} onToggle={onToggleBlock} />
         ) : (

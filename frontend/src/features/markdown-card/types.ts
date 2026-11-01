@@ -1,6 +1,6 @@
 export type Mode = 'xiaohongshu' | 'slide' | 'preview'
 
-export type Theme = 'minimal' | 'dark' | 'xiaohongshu' | 'zhihu' | 'terminal'
+export type Theme = 'minimal' | 'writing' | 'dark' | 'xiaohongshu' | 'zhihu' | 'terminal'
 
 export type SlideRatio = '16:9' | '9:16'
 

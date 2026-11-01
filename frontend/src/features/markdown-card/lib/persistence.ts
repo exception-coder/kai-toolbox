@@ -9,7 +9,7 @@ export const DEFAULT_STATE: PersistedState = {
 把任意 Markdown 文本，**一键转成可分享的图片卡片**。
 
 > 三种模式：小红书竖版 / 多页幻灯 / 纯预览
-> 五套主题：极简 / 深色 / 小红书 / 知乎专栏 / 终端
+> 六套主题：极简 / 写作 / 深色 / 小红书 / 知乎专栏 / 终端
 > 跨端导出：PC 自动下载，移动端调起系统分享
 
 ---
@@ -81,7 +81,7 @@ function isMode(v: unknown): v is PersistedState['mode'] {
 }
 
 function isTheme(v: unknown): v is PersistedState['theme'] {
-  return v === 'minimal' || v === 'dark' || v === 'xiaohongshu' || v === 'zhihu' || v === 'terminal'
+  return v === 'minimal' || v === 'writing' || v === 'dark' || v === 'xiaohongshu' || v === 'zhihu' || v === 'terminal'
 }
 
 function isSlideRatio(v: unknown): v is PersistedState['slideRatio'] {
