@@ -1,5 +1,31 @@
 ## ADDED Requirements
 
+### Requirement: Show the complete drawing before mobile detail reading
+
+The system SHALL initially fit and center the complete visible graph bounds in both viewport dimensions, retaining the original vector content and connections.
+
+#### Scenario: Read a wide or tall drawing
+
+- **WHEN** the selected page finishes rendering or the overview viewport changes size
+- **THEN** all graph bounds, including negative model coordinates, fit within the canvas with a small margin
+- **AND** a single 48px toolbar leaves remaining space to the canvas, with zoom and explanatory text in an optional menu
+- **AND** an empty or invalid page retains the existing recovery behavior
+
+#### Scenario: Read details and return
+
+- **WHEN** a reader selects the overview diagram
+- **THEN** the same original canvas enters detail mode with anchored zoom, pan and pinch gestures isolated to the drawing
+- **AND** overview mode retains ordinary page scrolling and does not disable system accessibility zoom
+- **WHEN** the reader fits the page, double taps in detail or presses 0
+- **THEN** the canvas returns to the complete overview
+
+#### Scenario: Preserve reading context
+
+- **WHEN** the reader switches pages or enters and exits fullscreen
+- **THEN** each visited page preserves its own scale and model center for the current file
+- **AND** new file content clears previous positions, old frame events cannot change the current page, and exiting restores focus
+- **AND** fullscreen provides a compact return control and canvas instead of the conversation toolbars
+
 ### Requirement: Browser-only draw.io rendering
 The system SHALL render supported draw.io files using locally hosted frontend resources without an additional backend rendering service.
 
