@@ -69,6 +69,9 @@ vi.mock('@/shell/useMockMode', () => ({ useMockMode: () => ({ enabled: false }) 
 vi.mock('../components/AutopilotProgressWorkspace', () => ({
   AutopilotProgressWorkspace: ({ sessionId, changeId }: { sessionId: string; changeId?: string }) => <section aria-label="规划深链接目标">{sessionId} / {changeId}</section>,
 }))
+vi.mock('../components/SessionBoard', () => ({
+  SessionBoard: ({ currentSessionId }: { currentSessionId: string | null }) => <section aria-label="会话看板深链接目标">{currentSessionId}</section>,
+}))
 vi.mock('../browserNotify', () => ({ ensureNotifyPermission: vi.fn() }))
 vi.mock('../providerProfiles', async importOriginal => ({ ...(await importOriginal<typeof import('../providerProfiles')>()),
   loadProfiles: () => testRuntime.profiles ? Promise.resolve(testRuntime.profiles) : new Promise(() => {}) }))
@@ -143,6 +146,12 @@ async function openNewSessionSettings() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('opens the session board from the floating workspace full-board link', async () => {
+    mountChat('/tools/claude-chat?view=board')
+    expect(await screen.findByRole('region', { name: '会话看板深链接目标' })).toHaveTextContent('session-config-regression')
+    expect(screen.queryByRole('region', { name: '规划深链接目标' })).not.toBeInTheDocument()
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+  })
   it('restores the original planning detail from a floating workspace deep link', async () => {
     mountChat('/tools/claude-chat?view=autopilot_detail&changeId=workspace-plan')
     expect(await screen.findByRole('region', { name: '规划深链接目标' })).toHaveTextContent('session-config-regression / workspace-plan')

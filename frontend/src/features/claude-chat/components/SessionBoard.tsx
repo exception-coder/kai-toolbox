@@ -1,13 +1,12 @@
 import { useState } from 'react'
-import { useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query'
+import type { UseQueryResult } from '@tanstack/react-query'
 import { ArrowUpRight, Circle, ListTodo, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
-import { listSessions } from '../api'
 import { sessionDisplayName } from '../lib/sessionDisplayName'
 import { resolveSessionProject } from '../lib/sessionProjectGroups'
-import { boardSessionState, isBoardSessionRunning, readBoardQueue, recentBoardSessions, SESSION_BOARD_LIMIT, type SessionBoardQueue } from '../lib/sessionBoard'
+import { boardSessionState, isBoardSessionRunning, SESSION_BOARD_LIMIT, type SessionBoardQueue } from '../lib/sessionBoard'
+import { useSessionBoardData } from '../hooks/useSessionBoardData'
 import type { ClaudeChatSessionView } from '../types'
 import { engineDisplayName } from './chatStatus'
 import { EngineIcon } from './EngineIcon'
@@ -17,7 +16,6 @@ import { useSessionStorage } from '../hooks/useSessionStorage'
 import type { SessionStorageView } from '../types'
 
 type Scope = 'all' | 'running' | 'queued'
-const REFRESH_INTERVAL_MS = 15_000
 
 /** 最近开发会话与服务端待发送任务的只读投影；进入对象后复用既有对话入口。 */
 export function SessionBoard({ currentSessionId, onOpenSession, onNewSession }: {
@@ -25,41 +23,28 @@ export function SessionBoard({ currentSessionId, onOpenSession, onNewSession }: 
   onOpenSession: (sessionId: string, hintRunning: boolean) => void
   onNewSession: () => void
 }) {
-  const { user } = useAuth()
+  const board = useSessionBoardData()
+  return <SessionBoardContent currentSessionId={currentSessionId} onOpenSession={onOpenSession} onNewSession={onNewSession} board={board} />
+}
+
+export function SessionBoardContent({ currentSessionId, onOpenSession, onNewSession, board, compact = false }: {
+  currentSessionId: string | null; onOpenSession: (sessionId: string, hintRunning: boolean) => void
+  onNewSession: () => void; board: ReturnType<typeof useSessionBoardData>; compact?: boolean
+}) {
   const [scope, setScope] = useState<Scope>('all')
-  const sessionQuery = useQuery({
-    queryKey: ['claude-chat-sessions', 'board', user?.userId ?? 'local'],
-    queryFn: listSessions,
-    refetchInterval: REFRESH_INTERVAL_MS,
-    retry: false,
-  })
-  const recent = recentBoardSessions(sessionQuery.data ?? [])
-  const storage = useSessionStorage(recent)
-  const queues = useQueries({
-    queries: recent.map(session => ({
-      queryKey: ['claude-chat-session-board-queue', user?.userId ?? 'local', session.id],
-      queryFn: ({ signal }: { signal: AbortSignal }) => readBoardQueue(session.id, signal),
-      staleTime: REFRESH_INTERVAL_MS,
-      refetchInterval: REFRESH_INTERVAL_MS,
-      retry: false,
-    })),
-  })
-  const runningCount = recent.filter(isBoardSessionRunning).length
-  const queuedCount = queues.filter(queue => (queue.data?.count ?? 0) > 0).length
-  const uncheckedCount = queues.filter(queue => !queue.data || queue.isError).length
-  const fetching = sessionQuery.isFetching || queues.some(queue => queue.isFetching)
+  const { sessionQuery, recent, queues, runningCount, queuedCount, uncheckedCount, fetching } = board
+  const storage = useSessionStorage(compact ? [] : recent)
   const entries = recent.map((session, index) => ({ session, queue: queues[index] }))
     .filter(({ session, queue }) => scope === 'all'
       || (scope === 'running' ? isBoardSessionRunning(session) : !queue.data || queue.isError || queue.data.count > 0))
   const refresh = () => {
-    void sessionQuery.refetch()
-    queues.forEach(queue => { void queue.refetch() })
+    board.refresh()
     storage.refresh()
   }
 
   return <section aria-label="最近会话看板" className="@container/session-board flex min-h-0 flex-1 flex-col bg-[var(--color-background)]">
-    <header className="shrink-0 border-b border-[var(--color-border)] px-4 py-3 md:px-6 md:py-4">
-      <div className="flex items-start justify-between gap-3">
+    <header className={cn('shrink-0 border-b border-[var(--color-border)] px-4 py-3', !compact && 'md:px-6 md:py-4')}>
+      {!compact && <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-base font-semibold">会话看板</h2>
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">最近 {SESSION_BOARD_LIMIT} 个 · 最新到最早 · 所有项目</p>
@@ -68,15 +53,15 @@ export function SessionBoard({ currentSessionId, onOpenSession, onNewSession }: 
           <RefreshCw aria-hidden="true" className={cn('size-3.5', fetching && 'animate-spin motion-reduce:animate-none')} />
           刷新
         </Button>
-      </div>
-      <div role="group" aria-label="筛选最近会话" className="mt-3 flex flex-wrap items-center gap-1">
+      </div>}
+      <div role="group" aria-label="筛选最近会话" className={cn('flex flex-wrap items-center gap-1', !compact && 'mt-3')}>
         {([
           { id: 'all', label: '全部', count: recent.length },
           { id: 'running', label: '进行中', count: runningCount },
           { id: 'queued', label: '有待发送', count: queuedCount },
         ] as const).map(option => <button type="button" key={option.id} aria-pressed={scope === option.id}
           onClick={() => setScope(option.id)}
-          className={cn('inline-flex min-h-10 items-center gap-2 rounded-md px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]',
+          className={cn('inline-flex min-h-11 items-center gap-2 rounded-md px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]',
             scope === option.id ? 'bg-[var(--color-muted)] font-medium text-[var(--color-foreground)]' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]')}>
           {option.label}<span className="tabular-nums">{option.count}</span>
         </button>)}
@@ -103,7 +88,7 @@ export function SessionBoard({ currentSessionId, onOpenSession, onNewSession }: 
           <p className="text-sm font-medium">{sessionQuery.isError ? '暂无法读取会话' : scope === 'running' ? '最近会话中没有正在运行的会话' : scope === 'queued' ? '最近会话中没有待发送任务' : '还没有可查看的开发会话'}</p>
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">{sessionQuery.isError ? '连接恢复后可以重新读取。' : '此处仅展示最近 20 个未锁定的开发会话，其他历史可从会话列表查看。'}</p>
           <Button variant="ghost" size="sm" className="mt-3" onClick={sessionQuery.isError ? refresh : scope === 'all' ? onNewSession : () => setScope('all')} disabled={fetching}>
-            {sessionQuery.isError ? '重试' : scope === 'all' ? '新建会话' : '查看全部最近会话'}
+            {sessionQuery.isError ? '重试' : scope === 'all' ? compact ? '打开会话看板' : '新建会话' : '查看全部最近会话'}
           </Button>
         </div>}
     </div>
@@ -131,7 +116,7 @@ function SessionBoardRow({ session, queue, storage, current, onOpen }: {
         <span title={session.cwd} className="max-w-full truncate">{project.label}</span>
         <span>{engineDisplayName(session.engine ?? 'claude', session.providerKind)}</span>
         <SessionImportBadge session={session} />
-        <SessionStorageLabel {...storage} />
+        {storage && <SessionStorageLabel {...storage} />}
         {current && <span className="text-[var(--color-primary)]">当前会话</span>}
       </div>
     </div>

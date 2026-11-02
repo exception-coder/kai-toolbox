@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { listAutopilotRuns } from '../api'
-import type { AutopilotDashboard, AutopilotDashboardItem, AutopilotState, SessionAutopilotRun } from '../types'
+import { listAutopilotRuns, listQueuedMessages, listSessions } from '../api'
+import type { ClaudeChatSessionView } from '../types'
 import { SessionBoardDock } from './SessionBoardDock'
 
 const controls = vi.hoisted(() => ({
@@ -15,15 +15,13 @@ vi.mock('@/lib/auth', () => ({ useAuth: () => controls }))
 vi.mock('@/shell/permission', () => ({ useAccessContext: () => ({ roles: controls.user.roles, permissionCodes: controls.permissionCodes, superAdmin: false }) }))
 vi.mock('../runtime/ChatRuntimeContext', () => ({ CHAT_ROUTE: '/tools/claude-chat', useChatRuntime: () => controls }))
 vi.mock('react-router-dom', async original => ({ ...await original<typeof import('react-router-dom')>(), useNavigate: () => controls.navigate, useLocation: () => controls.location }))
-vi.mock('../api', () => ({ listAutopilotRuns: vi.fn() }))
-const read = vi.mocked(listAutopilotRuns)
+vi.mock('../api', () => ({ listSessions: vi.fn(), listQueuedMessages: vi.fn(), listAutopilotRuns: vi.fn() }))
+const read = vi.mocked(listSessions), queueRead = vi.mocked(listQueuedMessages)
 const clients: QueryClient[] = []
-const item = (id: string, state: AutopilotState, extra: Partial<SessionAutopilotRun> = {}): AutopilotDashboardItem => ({
-  run: { id, sessionId: `session-${id}`, goal: `规划 ${id}`, state, completionPolicy: 'OPEN_SPEC_STRICT', changeId: `change-${id}`,
-    progress: { completedTasks: 1, totalTasks: 3 }, ...extra } as SessionAutopilotRun,
-  sessionTitle: `会话 ${id}`, projectName: 'kai-toolbox', engine: 'codex', sessionStatus: 'IDLE', lastActivityAt: 1,
+const session = (id: string, fields: Partial<ClaudeChatSessionView> = {}): ClaudeChatSessionView => ({
+  id, title: '会话 ' + id, cwd: 'D:/work/kai-toolbox', sdkSessionId: id, engine: 'codex',
+  status: 'IDLE', live: false, startedAt: 1, lastSeenAt: Date.now(), ...fields,
 })
-const snapshot = (items: AutopilotDashboardItem[]): AutopilotDashboard => ({ items, counts: { active: 1, attention: 1, paused: 0, recent: 1 }, snapshotAt: new Date().toISOString() })
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   clients.push(client)
@@ -32,113 +30,104 @@ function mount() {
 }
 async function open() {
   fireEvent.click(screen.getByRole('button', { name: '打开会话快捷看板' }))
-  return screen.findByRole('dialog', { name: '会话工作台' })
+  return screen.findByRole('dialog', { name: '会话看板' })
 }
 beforeEach(() => {
   localStorage.clear()
   controls.user = { userId: 1, roles: ['ADMIN'] }; controls.permissionCodes = []; controls.demo = false
   controls.chat = { sessionId: 'current', switchTo: vi.fn() }
   controls.location = { pathname: '/tools/claude-chat', search: '?sessionId=current&view=supervision' }
-  read.mockResolvedValue(snapshot([item('running', 'ACTIVE'), item('done', 'COMPLETED'), item('error', 'FAILED', { reason: '验收未通过' }),
-    item('waiting', 'WAITING_USER'), item('paused', 'PAUSED'), item('stopped', 'STOPPED'),
-    item('self', 'COMPLETED', { completionPolicy: 'REQUIREMENT_BEST_EFFORT' })]))
+  read.mockResolvedValue([session('running', { status: 'RUNNING', live: true, lastSeenAt: 9 }),
+    session('idle-task', { lastSeenAt: 8 }), session('interrupted', { status: 'INTERRUPTED', lastSeenAt: 7 }),
+    session('ghost', { status: 'RUNNING', live: false, lastSeenAt: 6 }),
+    session('done', { status: 'DONE', lastSeenAt: 5 }), session('current', { lastSeenAt: 4 })])
+  queueRead.mockImplementation(async id => id === 'idle-task'
+    ? [{ id: 'task-1', sessionId: id, text: '核对表单与截图', createdAt: 1 }] : [])
 })
 afterEach(() => { cleanup(); clients.forEach(client => client.clear()); clients.length = 0; vi.resetAllMocks(); vi.unstubAllGlobals() })
 
-it('shares a real badge snapshot and switches once to the original plan without sending or losing the draft', async () => {
+it('shows actual session-board content and queued tasks without reading planning runs', async () => {
   mount()
-  expect(await screen.findByLabelText('最近规划待处理 2 项')).toBeVisible()
+  expect(await screen.findByLabelText('待关注会话 2 个')).toBeVisible()
+  expect(queueRead).not.toHaveBeenCalled()
   const dialog = await open()
-  await within(dialog).findByRole('button', { name: '进入原会话：规划 running' })
-  expect(read).toHaveBeenCalledWith({ scope: 'all', limit: 8 }, expect.any(AbortSignal))
-  for (const label of ['已暂停', '已停止', '待确认', 'Agent 自验']) expect(within(dialog).getByText(label)).toBeVisible()
+  await within(dialog).findByText('核对表单与截图')
+  for (const label of ['空闲', '已中断', '待恢复', '已结束']) expect(within(dialog).getAllByText(label).length).toBeGreaterThan(0)
+  expect(within(dialog).getByRole('button', { name: '进行中 1' })).toBeVisible()
+  expect(within(dialog).getByRole('button', { name: '有待发送 1' })).toBeVisible()
+  expect(within(dialog).queryByText(/OpenSpec|任务 5\/25|Agent 自验/)).not.toBeInTheDocument()
+  expect(listAutopilotRuns).not.toHaveBeenCalled()
   expect(controls.activate).not.toHaveBeenCalled()
-  fireEvent.click(within(dialog).getByRole('button', { name: '异常 1' }))
-  expect(within(dialog).queryByRole('button', { name: '进入原会话：规划 done' })).not.toBeInTheDocument()
-  fireEvent.click(within(dialog).getByRole('button', { name: '进入原会话：规划 error' }))
-  expect(controls.chat?.switchTo).toHaveBeenCalledExactlyOnceWith('session-error')
-  expect(controls.navigate).toHaveBeenCalledExactlyOnceWith('/tools/claude-chat?view=autopilot_detail&changeId=change-error')
-  expect(controls.setFloating).toHaveBeenCalledWith(false)
+  fireEvent.click(within(dialog).getByRole('button', { name: '有待发送 1' }))
+  fireEvent.click(within(dialog).getByRole('button', { name: '进入会话：会话 idle-task' }))
+  expect(controls.chat?.switchTo).toHaveBeenCalledExactlyOnceWith('idle-task', false)
+  expect(controls.navigate).toHaveBeenCalledExactlyOnceWith('/tools/claude-chat?view=conversation')
   expect(screen.getByRole('textbox', { name: '原会话草稿' })).toHaveValue('保留截图和需求草稿')
 })
 
-it('returns focus on Escape and uses the deep-link owner when the chat engine is not mounted', async () => {
+it('returns focus on Escape and uses the deep-link owner without a mounted engine', async () => {
   controls.chat = null
   mount()
   const trigger = screen.getByRole('button', { name: '打开会话快捷看板' })
   trigger.focus()
   await open()
-  await screen.findByRole('button', { name: '进入原会话：规划 done' })
+  await screen.findByRole('button', { name: '进入会话：会话 running' })
   fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
   await waitFor(() => expect(trigger).toHaveFocus())
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   await open()
-  fireEvent.click(await screen.findByRole('button', { name: '进入原会话：规划 done' }))
-  expect(controls.navigate).toHaveBeenCalledExactlyOnceWith('/tools/claude-chat?view=autopilot_detail&sessionId=session-done&changeId=change-done')
+  fireEvent.click(await screen.findByRole('button', { name: '进入会话：会话 running' }))
+  expect(controls.navigate).toHaveBeenCalledExactlyOnceWith('/tools/claude-chat?view=conversation&sessionId=running')
   expect(controls.activate).not.toHaveBeenCalled()
 })
 
-it('keeps row order during status updates, then restores latest order only on explicit refresh', async () => {
-  read.mockResolvedValue(snapshot([item('a', 'ACTIVE'), item('b', 'FAILED')]))
-  const view = mount()
+it('keeps queue failure explicit and refreshes the same session-board data', async () => {
+  read.mockResolvedValue([session('offline')])
+  queueRead.mockRejectedValue(new Error('offline'))
+  mount()
   await open()
-  await screen.findByRole('button', { name: '进入原会话：规划 a' })
-  view.client.setQueryData(['claude-chat-autopilot-runs', 'quick-board', 1], snapshot([item('b', 'COMPLETED'), item('a', 'ACTIVE')]))
-  const labels = () => screen.getAllByRole('button', { name: /^进入原会话：/ }).map(button => button.getAttribute('aria-label'))
-  await waitFor(() => expect(screen.getByRole('button', { name: '已完成 1' })).toBeVisible())
-  expect(labels()).toEqual(['进入原会话：规划 a', '进入原会话：规划 b'])
-  read.mockResolvedValue(snapshot([item('b', 'COMPLETED'), item('a', 'ACTIVE')]))
-  fireEvent.click(screen.getByRole('button', { name: '刷新最近规划' }))
-  await waitFor(() => expect(labels()).toEqual(['进入原会话：规划 b', '进入原会话：规划 a']))
+  await screen.findByText('队列暂无法获取')
+  fireEvent.click(screen.getByRole('button', { name: '有待发送 0' }))
+  expect(screen.getByRole('button', { name: '进入会话：会话 offline' })).toBeVisible()
+  queueRead.mockResolvedValue([])
+  fireEvent.click(screen.getByRole('button', { name: '刷新会话看板' }))
+  await screen.findByText('最近会话中没有待发送任务')
+  fireEvent.click(screen.getByRole('button', { name: '全部 1' }))
+  await screen.findByText('无待发送任务')
+  expect(listAutopilotRuns).not.toHaveBeenCalled()
 })
 
-it('keeps errors and stale snapshots explicit and retries without reporting an empty success', async () => {
-  read.mockRejectedValue(new Error('offline'))
+it('does not carry a queue snapshot into another account and aborts its old read', async () => {
+  read.mockResolvedValue([session('old-account')])
+  let oldSignal: AbortSignal | undefined
+  queueRead.mockImplementationOnce((_id, signal) => new Promise((_resolve, reject) => {
+    oldSignal = signal
+    signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+  }))
   const view = mount()
   await open()
-  expect(await screen.findByRole('alert')).toHaveTextContent('读取失败')
-  expect(screen.queryByRole('group', { name: '规划状态筛选' })).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '打开完整规划看板' })).toBeEnabled()
-  read.mockResolvedValue(snapshot([item('recover', 'ACTIVE')]))
-  fireEvent.click(screen.getByRole('button', { name: '重新读取' }))
-  await screen.findByRole('button', { name: '进入原会话：规划 recover' })
-  view.client.setQueryData(['claude-chat-autopilot-runs', 'quick-board', 1], { ...snapshot([item('recover', 'ACTIVE')]), snapshotAt: new Date(Date.now() - 60000).toISOString() })
-  expect(await screen.findByRole('alert')).toHaveTextContent('当前显示上次结果')
-})
-
-it('keeps badge reads on closing, cancels on account changes and never reuses another account snapshot', async () => {
-  let finish!: (value: AutopilotDashboard) => void
-  read.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
-  const view = mount()
-  await open()
-  await waitFor(() => expect(read).toHaveBeenCalledOnce())
-  const signal = read.mock.calls[0][1]!
-  fireEvent.click(screen.getByRole('button', { name: '关闭会话快捷看板' }))
-  expect(signal.aborted).toBe(false)
-  read.mockResolvedValue(snapshot([item('new-account', 'WAITING_USER')]))
+  await waitFor(() => expect(oldSignal).toBeDefined())
   controls.user = { userId: 2, roles: ['ADMIN'] }
+  read.mockResolvedValue([session('new-account')]); queueRead.mockResolvedValue([])
   view.rerender(view.content())
-  await waitFor(() => expect(signal.aborted).toBe(true))
-  finish(snapshot([item('old-account', 'COMPLETED')]))
+  await waitFor(() => expect(oldSignal?.aborted).toBe(true))
   await open()
-  await screen.findByRole('button', { name: '进入原会话：规划 new-account' })
-  expect(screen.queryByRole('button', { name: '进入原会话：规划 old-account' })).not.toBeInTheDocument()
+  await screen.findByRole('button', { name: '进入会话：会话 new-account' })
+  expect(screen.queryByRole('button', { name: '进入会话：会话 old-account' })).not.toBeInTheDocument()
 })
 
-it('hides the dock in unauthorized and demo contexts and keeps empty recovery available', async () => {
+it('hides unauthorized and demo entries and links to the complete session board', async () => {
   controls.user.roles = []
   const view = mount()
   expect(screen.queryByRole('button', { name: '打开会话快捷看板' })).not.toBeInTheDocument()
   controls.user.roles = ['ADMIN']; controls.demo = true
   view.rerender(view.content())
   expect(read).not.toHaveBeenCalled()
-  controls.demo = false
-  read.mockResolvedValue(snapshot([]))
+  controls.demo = false; read.mockResolvedValue([])
   view.rerender(view.content())
   await open()
-  await screen.findByText(/还没有受监督的规划/)
-  fireEvent.click(screen.getByRole('button', { name: '打开完整规划看板' }))
-  expect(controls.navigate).toHaveBeenCalledExactlyOnceWith('/tools/claude-chat?view=supervision')
+  await screen.findByText('还没有可查看的开发会话')
+  fireEvent.click(screen.getByRole('button', { name: '打开完整会话看板' }))
+  expect(controls.navigate).toHaveBeenCalledExactlyOnceWith('/tools/claude-chat?view=board')
   expect(controls.chat?.switchTo).not.toHaveBeenCalled()
 })
 
@@ -149,6 +138,21 @@ function pointerEvents() {
   }
   vi.stubGlobal('PointerEvent', TestPointerEvent)
 }
+
+it('avoids the keyboard viewport without changing saved placement and clears ended-session badges', async () => {
+  const viewport = Object.assign(new EventTarget(), { width: 390, height: 800, offsetLeft: 0, offsetTop: 0 })
+  vi.stubGlobal('visualViewport', viewport)
+  const view = mount()
+  const button = screen.getByRole('button', { name: '打开会话快捷看板' })
+  await screen.findByLabelText('待关注会话 2 个')
+  viewport.height = 350
+  act(() => { viewport.dispatchEvent(new Event('resize')) })
+  await waitFor(() => expect(parseFloat(button.style.top)).toBeLessThanOrEqual(190))
+  expect(localStorage.getItem('forge:workspace-dock:1')).toBeNull()
+  view.client.setQueryData(['claude-chat-sessions', 'board', 1], [session('done', { status: 'DONE' })])
+  await waitFor(() => expect(screen.queryByLabelText(/待关注会话/)).not.toBeInTheDocument())
+  expect(screen.queryByLabelText('最近会话进行中')).not.toBeInTheDocument()
+})
 
 it('applies a vertical release even when a touch gesture delivers no intermediate move', () => {
   pointerEvents()
@@ -206,7 +210,7 @@ it('snaps a drag to the opposite edge, suppresses its click, remembers placement
   fireEvent.pointerMove(restored, { pointerId: 2, clientX: 602, clientY: 201 })
   fireEvent.pointerUp(restored, { pointerId: 2, clientX: 602, clientY: 201 })
   fireEvent.click(restored, { detail: 1 })
-  expect(await screen.findByRole('dialog', { name: '会话工作台' })).toBeVisible()
+  expect(await screen.findByRole('dialog', { name: '会话看板' })).toBeVisible()
 })
 
 it('uses a mobile bottom sheet, dismisses only by its handle and restores the original chat state', async () => {
@@ -225,19 +229,4 @@ it('uses a mobile bottom sheet, dismisses only by its handle and restores the or
   expect(button).toHaveFocus()
   expect(screen.getByRole('textbox')).toHaveValue('保留截图和需求草稿')
   expect(controls.chat?.switchTo).not.toHaveBeenCalled()
-})
-
-it('reprojects into a keyboard viewport without overwriting the user placement and clears completed badges', async () => {
-  const viewport = Object.assign(new EventTarget(), { width: 390, height: 800, offsetLeft: 0, offsetTop: 0 })
-  vi.stubGlobal('visualViewport', viewport)
-  const view = mount()
-  const button = screen.getByRole('button', { name: '打开会话快捷看板' })
-  await screen.findByLabelText('最近规划待处理 2 项')
-  viewport.height = 350
-  act(() => { viewport.dispatchEvent(new Event('resize')) })
-  await waitFor(() => expect(parseFloat(button.style.top)).toBeLessThanOrEqual(190))
-  expect(localStorage.getItem('forge:workspace-dock:1')).toBeNull()
-  view.client.setQueryData(['claude-chat-autopilot-runs', 'quick-board', 1], snapshot([item('done', 'COMPLETED')]))
-  await waitFor(() => expect(screen.queryByLabelText(/最近规划待处理/)).not.toBeInTheDocument())
-  expect(screen.queryByLabelText('最近规划进行中')).not.toBeInTheDocument()
 })

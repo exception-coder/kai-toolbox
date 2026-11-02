@@ -396,6 +396,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const [inspectedAutopilot, setInspectedAutopilot] = useState<{ sessionId: string; changeId?: string } | null>(null)
   const [sessionView, setSessionView] = useState<SessionView>(() =>
     new URLSearchParams(location.search).get('view') === 'supervision' ? 'supervision'
+      : new URLSearchParams(location.search).get('view') === 'board' ? 'board'
       : new URLSearchParams(location.search).get('view') === 'autopilot_detail' ? 'autopilot_detail'
       : new URLSearchParams(location.search).get('view') === 'communications' ? 'communications' : 'conversation')
   const openSupervision = useCallback(() => { setSessionView('autopilot') }, [])
@@ -505,7 +506,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const [viewMode, setViewMode] = useState<'single' | 'multi'>(splitInit.viewMode)
   const [multiIds, setMultiIds] = useState<string[]>(splitInit.multiIds)
   useEffect(() => {
-    if (new URLSearchParams(location.search).get('view') === 'autopilot_detail') {
+    if (['autopilot_detail', 'board'].includes(new URLSearchParams(location.search).get('view') ?? '')) {
       setViewMode('single'); setPanel('none')
     }
   }, [location.search])

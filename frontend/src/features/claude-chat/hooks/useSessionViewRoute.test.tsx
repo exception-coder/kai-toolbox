@@ -5,6 +5,14 @@ import type { SessionView } from '../components/SessionViewTabs'
 import { useSessionViewRoute } from './useSessionViewRoute'
 
 afterEach(cleanup)
+it('opens the existing session board without routing to supervision or a planning detail', () => {
+  const navigate = vi.fn(), setView = vi.fn()
+  const options = { pathname: '/tools/claude-chat', search: '?view=conversation', view: 'conversation' as SessionView, setView, navigate: navigate as NavigateFunction }
+  const ui = renderHook(props => useSessionViewRoute(props), { initialProps: options })
+  ui.rerender({ ...options, search: '?view=board' })
+  expect(setView).toHaveBeenCalledExactlyOnceWith('board')
+  expect(navigate).not.toHaveBeenCalled()
+})
 it('opens the exact planning view and keeps its change identifier until leaving', () => {
   const navigate = vi.fn(), setView = vi.fn()
   const options = { pathname: '/tools/claude-chat', search: '?view=conversation', view: 'conversation' as SessionView, setView, navigate: navigate as NavigateFunction }
