@@ -22,3 +22,19 @@
 - 定向验证语义与内容不变、复制失败反馈、折叠/草稿保持、迟到高亮取消、真实语法、Diff 与账号隔离；手机/桌面实际视觉与减动效须浏览器验证，构建不能替代。上一轮浏览器策略拒绝 file 地址且公网 origin 受限，未以替代通道绕过；预览入口仅代表可访问入口已准备。
 
 查阅当前官方实践后采用 CSS Token 驱动语法色和按需加载，保留项目已安装版本，不升级依赖：[Shiki Theme Colors](https://shiki.style/guide/theme-colors)、[细粒度按需打包](https://shiki.style/guide/bundles)、[W3C 减少动画](https://www.w3.org/WAI/WCAG22/Techniques/css/C39.html)。
+
+## 沉浸皮肤（2026-11-03，L2）
+
+适用 OBJ-01、CTX-01、DENS-01、FEED-01、EVID-01、IDEM-01；保持 Theme / Layout / Motion 分工，无 AI 编程架构契约变更。
+
+1. 主对象为当前账号的工作台外观，唯一身份沿用 `forge.vibecoding.theme:<userId|local>`。读取原字符串和新版 `{theme,strength}`，保存为单次存储写入，失败不覆盖旧值。未增加后台账号同步，因此 UI 明确标注当前浏览器。跨设备同步不在本次交付范围。
+2. 复用原主题弹框和个性化入口。分组缩略图不触发保存，单击进入同一弹框内的独立场景预览；返回列表恢复缩略图焦点。预览复用 AssistantReply、Markdown 和 ToolCallBubble，演示内容不连接真实会话或引擎，不复制生产聊天组件。窄屏两列缩略图、单列场景，覆盖层仅内部滚动。
+3. 实时试用是账号隔离的内存覆盖，不写存储、不改变任务。恢复、返回、Escape、遮罩关闭、卸载及账号变化均释放所属试用；恢复读取最新持久偏好，不把试用前快照写回并覆盖别的标签页。保存成功后释放覆盖，失败保留候选和错误，允许恢复。重复试用复用当前 owner，不创建会话、任务或新偏好键。
+4. 只更新主题 Token；页面与悬浮窗共享材质强度，礼赠助手保持例外。不使用主题 key 重挂实际消息或输入组件。变更前广播既有 readingChangeEvent，复用可视消息锚点恢复，避免标题字体变化后跳读。关闭覆盖层沿用 Radix 焦点恢复；交互与草稿保留由定向回归验证，真实滚动、对比度观感和窄屏视觉仍须浏览器检查。
+5. 各主题完整提供材质默认值，嵌套预览不继承外层皮肤的扫描线、阴影或玻璃滤镜。背景、消息、输入、代码和工具分别消费材质 Token。原工具失败边框、状态文字与代码操作保持语义，不通过皮肤推断业务状态。
+
+四套语言：黄油纸为暖纸底、细纤维和轻边注；报纸为衬线标题、硬边与细规则线；终端为墨绿实底、琥珀代码和极弱静态扫描线，中文正文仍为系统无衬线；玻璃为烟灰实底正文、静态极光边缘和输入区最多 6% 透明/6px 模糊。不引入图片、字体请求、背景常驻动画或新的动效开关。材质强度只调纹理与光影，不调文字透明度，不改尺寸、间距或阅读密度。
+
+用户明确要求四套材质，故仅本工作台 opt-in 皮肤允许纸纹、扫描线和输入区玻璃，是 quiet-luxury-ui 默认禁用装饰规则的有界例外；不推广到全平台。正文无大面积玻璃，极光不动画。`backdrop-filter` 不可用或系统减少透明度时使用不透明底色；forced-colors 去除纹理和阴影；原全局/系统减少动效规则保持优先。
+
+2026-11-03 核对官方资料：[W3C 正文对比度至少 4.5:1](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)、[MDN prefers-reduced-motion](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/At-rules/@media/prefers-reduced-motion)、[MDN backdrop-filter](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/backdrop-filter)。采用实底与保守透明度并提供降级；自动色值检查不能替代最终合成画面的浏览器验收。

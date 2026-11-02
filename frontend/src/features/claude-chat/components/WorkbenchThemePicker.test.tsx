@@ -2,11 +2,70 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest'
 import { WorkbenchThemePicker, WorkbenchThemeDialog } from './WorkbenchThemePicker'
 import { useState } from 'react'
-import { useWorkbenchPageTheme, useWorkbenchTheme, readWorkbenchTheme, setWorkbenchTheme, WORKBENCH_THEMES, type WorkbenchTheme } from '../lib/workbenchTheme'
+import { useWorkbenchPageTheme, useWorkbenchTheme, readWorkbenchTheme, readWorkbenchMaterialStrength, setWorkbenchTheme, WORKBENCH_THEMES, type WorkbenchTheme } from '../lib/workbenchTheme'
 import { ToolCallBubble } from './ToolCallBubble'
 import { readFileSync } from 'node:fs'
 
 const themeCss = readFileSync('src/features/claude-chat/styles/workbench-theme.css', 'utf8')
+
+it('previews without writing, trials on the real page and restores on back and unmount', () => {
+  function Consumer() { const theme = useWorkbenchTheme(); return <Page theme={theme} /> }
+  const view = render(<><Consumer /><WorkbenchThemePicker /></>)
+  const draft = screen.getByRole('textbox', { name: '草稿' })
+  fireEvent.change(draft, { target: { value: '不丢失草稿' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Butter Paper' }))
+  expect(screen.getByText('外观预览 · 演示数据')).toBeInTheDocument()
+  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'tokyo-night')
+  fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
+  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'butter-paper')
+  expect(readWorkbenchTheme()).toBe('tokyo-night')
+  fireEvent.change(screen.getByLabelText('材质强度'), { target: { value: '20' } })
+  expect(document.documentElement.style.getPropertyValue('--wb-material-strength')).toBe('0.2')
+  fireEvent.click(screen.getByRole('button', { name: '返回主题列表' }))
+  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'tokyo-night')
+  expect(screen.getByRole('button', { name: 'Butter Paper' })).toHaveFocus()
+  expect(draft).toHaveValue('不丢失草稿')
+  fireEvent.click(screen.getByRole('button', { name: 'Aurora Glass' }))
+  fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
+  view.unmount()
+  render(<Consumer />)
+  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'tokyo-night')
+})
+
+it('saves skin and material strength atomically, preserves classic values and isolates accounts', () => {
+  localStorage.setItem('forge.vibecoding.theme:7', 'nord')
+  expect(readWorkbenchTheme(7)).toBe('nord')
+  expect(readWorkbenchMaterialStrength(7)).toBe(0.6)
+  setWorkbenchTheme('butter-paper', 8, 0.2)
+  expect(readWorkbenchTheme(8)).toBe('butter-paper')
+  expect(readWorkbenchMaterialStrength(8)).toBe(0.2)
+  expect(readWorkbenchTheme(7)).toBe('nord')
+  render(<WorkbenchThemePicker />)
+  fireEvent.click(screen.getByRole('button', { name: 'Newsroom' }))
+  fireEvent.change(screen.getByLabelText('材质强度'), { target: { value: '0' } })
+  fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存主题' }))
+  expect(readWorkbenchTheme()).toBe('newsroom')
+  expect(readWorkbenchMaterialStrength()).toBe(0)
+  expect(screen.getByRole('button', { name: 'Newsroom' })).toHaveAttribute('aria-pressed', 'true')
+})
+
+it('cancels trial with Escape, returns focus and leaves the persisted preference unchanged', async () => {
+  const returnFocus = vi.fn()
+  function Harness() {
+    const [open, setOpen] = useState(true)
+    const theme = useWorkbenchTheme()
+    return <><Page theme={theme} /><WorkbenchThemeDialog open={open} onOpenChange={setOpen} returnFocus={returnFocus} /></>
+  }
+  render(<Harness />)
+  fireEvent.click(screen.getByRole('button', { name: 'Phosphor Terminal' }))
+  fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
+  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'phosphor-terminal')
+  fireEvent.keyDown(document, { key: 'Escape' })
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'tokyo-night')
+  expect(returnFocus).toHaveBeenCalledOnce()
+})
 
 afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks(); document.documentElement.removeAttribute('data-workbench-theme'); document.documentElement.style.cssText = '' })
 
@@ -25,6 +84,7 @@ it('switches the shared browser preference without resetting draft or expanded t
   fireEvent.click(screen.getByRole('button', { name: /命令.*Bash/ }))
   expect(screen.getByText(/git status/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Nord' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存主题' }))
   expect(screen.getByRole('button', { name: 'Nord' })).toHaveAttribute('aria-pressed', 'true')
   expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'nord')
   expect(screen.getByRole('textbox', { name: '草稿' })).toBe(draft)
@@ -64,7 +124,9 @@ it('keeps the previous theme and reports storage failures', () => {
   render(<WorkbenchThemePicker />)
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied') })
   fireEvent.click(screen.getByRole('button', { name: 'Nord' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存主题' }))
   expect(screen.getByRole('alert')).toHaveTextContent('主题未更改')
+  fireEvent.click(screen.getByRole('button', { name: '返回主题列表' }))
   expect(screen.getByRole('button', { name: 'Tokyo Night' })).toHaveAttribute('aria-pressed', 'true')
 })
 
@@ -87,14 +149,15 @@ it('keeps primary and secondary text legible across each palette surface', () =>
     return rgb[0]! * 0.2126 + rgb[1]! * 0.7152 + rgb[2]! * 0.0722
   }
   const contrast = (a: string, b: string) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05)
-  for (const { colors } of WORKBENCH_THEMES) {
+  for (const { id, colors } of WORKBENCH_THEMES) {
     for (const text of [colors[5], colors[6]]) for (const surface of [colors[0], colors[1], colors[2], colors[3]]) expect(contrast(text, surface)).toBeGreaterThanOrEqual(4.5)
     expect(contrast(colors[7], colors[2])).toBeGreaterThanOrEqual(4.5)
     for (const content of [colors[7], colors[8], colors[9]]) {
       for (const surface of [colors[0], colors[1], colors[2]]) expect(contrast(content, surface)).toBeGreaterThanOrEqual(4.5)
     }
     for (const status of ['info', 'success', 'warning', 'danger']) {
-      const color = themeCss.split(`--color-${status}:`)[1]?.trim().slice(0, 7)
+      const occurrence = id === 'butter-paper' || id === 'newsroom' ? 2 : 1
+      const color = themeCss.split(`--color-${status}:`)[occurrence]?.trim().slice(0, 7)
       expect(color).toMatch(/^#[0-9a-f]{6}$/i)
       for (const surface of [colors[0], colors[1], colors[2], colors[3]]) expect(contrast(color!, surface)).toBeGreaterThanOrEqual(4.5)
     }
@@ -109,4 +172,20 @@ it('shows an error even when the failed tool has no output and keeps type labels
   expect(screen.getByRole('status')).toHaveTextContent('运行中')
   view.rerender(<ToolCallBubble toolName="Read" input={{}} output="文件内容" />)
   expect(screen.getByRole('status')).toHaveTextContent('完成')
+})
+
+it('restores the latest stored choice after trial and reports a refused save without overwriting it', () => {
+  function Consumer() { const theme = useWorkbenchTheme(); return <Page theme={theme} /> }
+  render(<><Consumer /><WorkbenchThemePicker /></>)
+  fireEvent.click(screen.getByRole('button', { name: 'Butter Paper' }))
+  fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
+  localStorage.setItem('forge.vibecoding.theme:local', 'nord')
+  fireEvent(window, new StorageEvent('storage', { key: 'forge.vibecoding.theme:local' }))
+  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'butter-paper')
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied') })
+  fireEvent.click(screen.getByRole('button', { name: '保存主题' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('主题未更改')
+  expect(readWorkbenchTheme()).toBe('nord')
+  fireEvent.click(screen.getByRole('button', { name: '恢复原主题' }))
+  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'nord')
 })

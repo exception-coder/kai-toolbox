@@ -1,7 +1,8 @@
 @import './content-rendering.css';
+@import './immersive-skins.css';
 /* 主题只映射视觉 Token，不改布局、滚动、业务状态或动效偏好。 */
 [data-workbench-theme] {
-  color-scheme: dark !important;
+  color-scheme: var(--wb-scheme, dark) !important;
   --color-background: var(--wb-background);
   --color-foreground: var(--wb-text);
   --color-card: var(--wb-surface);
@@ -50,6 +51,13 @@
   background-color: var(--color-background);
 }
 
+[data-workbench-theme='butter-paper'], [data-workbench-theme='newsroom'] {
+  --color-info: #285273;
+  --color-success: #305d3f;
+  --color-warning: #76501c;
+  --color-danger: #933a39;
+}
+
 [data-workbench-theme] :where(.markdown-body pre, .cm-editor, .cm-scroller, .cm-gutters) {
   color: var(--wb-text);
   background: var(--wb-sidebar);
@@ -62,19 +70,4 @@
 
 .wb-theme-option[aria-pressed='true'] { border-color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary); }
 .wb-theme-option:hover { background: var(--color-muted); }
-.wb-theme-preview { display: flex; height: 112px; flex-direction: column; gap: 8px; overflow: hidden; border-radius: 6px; padding: 8px; background: var(--wb-background); }
-.wb-theme-preview-chrome { display: flex; align-items: center; gap: 6px; }
-.wb-theme-preview-chrome i { width: 6px; height: 6px; border-radius: 50%; background: var(--wb-accent); }
-.wb-theme-preview-chrome b { height: 4px; width: 64%; border-radius: 2px; background: var(--wb-muted); }
-.wb-theme-preview-body { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 5px; padding: 6px; border-radius: 4px; background: var(--wb-surface); }
-.wb-theme-preview-body i { height: 4px; width: 78%; border-radius: 2px; background: var(--wb-text); }
-.wb-theme-preview-body i:first-child { width: 60%; background: var(--wb-accent); }
-.wb-theme-preview-body i:last-child { width: 44%; background: var(--wb-muted); }
-.wb-theme-preview-input { height: 8px; border-radius: 3px; background: var(--wb-raised); }
-.wb-theme-preview-content { color: var(--wb-text); font: 10px/1.4 var(--wb-body-font); gap: 3px; }
-.wb-theme-preview-content b { color: var(--wb-heading); font-weight: var(--wb-heading-weight); }
-.wb-theme-preview-content em { color: var(--wb-emphasis); font-style: normal; }
-.wb-theme-preview-content code { font: 9px/1.4 var(--font-mono, monospace); white-space: nowrap; }
-.wb-theme-preview-content code > span { color: var(--wb-keyword); }
-.wb-theme-preview-content code em { color: var(--wb-string); }
 @media (forced-colors: active) { .wb-theme-option[aria-pressed='true'] { outline: 2px solid Highlight; } }

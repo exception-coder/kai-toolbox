@@ -25,7 +25,7 @@ import { DebugPanel } from './DebugPanel'
 import { cn } from '@/lib/utils'
 import { EngineIcon } from './EngineIcon'
 import { CodexTransportBadge } from './CodexTransportBadge'
-import { useWorkbenchTheme, workbenchThemeName, workbenchThemeStyle } from '../lib/workbenchTheme'
+import { useWorkbenchTheme, useWorkbenchMaterialStrength, workbenchThemeName, workbenchThemeStyle } from '../lib/workbenchTheme'
 import { WorkbenchThemeDialog } from './WorkbenchThemePicker'
 import '../styles/workbench-chrome.css'
 import '../styles/workbench-theme.css'
@@ -125,6 +125,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
   const [showDebug, setShowDebug] = useState(false)
   const [restartOpen, setRestartOpen] = useState(false)
   const workbenchTheme = useWorkbenchTheme()
+  const materialStrength = useWorkbenchMaterialStrength()
   const [themeDialogOpen, setThemeDialogOpen] = useState(false)
   const hideToolCalls = useHideToolCalls()
   // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话。
@@ -505,7 +506,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
           title={`礼赠助手 · ${status}（点击展开 · 长按说话）`}
           className="fixed z-50 cursor-move touch-none rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
           data-workbench-theme={!giftMode && workbenchTheme !== 'inherit' ? workbenchTheme : undefined}
-          style={{ ...(!giftMode ? workbenchThemeStyle(workbenchTheme) : {}), left: pos.x, top: pos.y }}
+          style={{ ...(!giftMode ? workbenchThemeStyle(workbenchTheme, materialStrength) : {}), left: pos.x, top: pos.y }}
         >
           {bubbleListening ? (
             <span className="flex size-16 items-center justify-center rounded-full bg-[#79a861]/25 ring-2 ring-[#79a861]">
@@ -556,7 +557,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
         <div
           className="fixed z-50 flex max-w-[80vw] touch-none items-stretch overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-lg"
           data-workbench-theme={!giftMode && workbenchTheme !== 'inherit' ? workbenchTheme : undefined}
-          style={{ ...(!giftMode ? workbenchThemeStyle(workbenchTheme) : {}), left: pos.x, top: pos.y }}
+          style={{ ...(!giftMode ? workbenchThemeStyle(workbenchTheme, materialStrength) : {}), left: pos.x, top: pos.y }}
         >
           {/* 左侧彩色 AI 活动指示条 */}
           <div className={`w-[3px] shrink-0 ${active ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-border)]'}`} />
@@ -640,7 +641,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
         !giftMode && 'bg-[var(--color-card)]',
       )}
       data-workbench-theme={!giftMode && workbenchTheme !== 'inherit' ? workbenchTheme : undefined}
-      style={{ ...(!giftMode ? workbenchThemeStyle(workbenchTheme) : {}), left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
+      style={{ ...(!giftMode ? workbenchThemeStyle(workbenchTheme, materialStrength) : {}), left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
       <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onRetry={chat.duplicateSession} onReturnFocus={() => taRef.current?.focus()} />
       <WorkbenchThemeDialog open={themeDialogOpen} onOpenChange={setThemeDialogOpen} returnFocus={() => moreTriggerRef.current?.focus()} />
