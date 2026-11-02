@@ -10,10 +10,12 @@ const controls = vi.hoisted(() => ({
   chat: { sessionId: 'current', switchTo: vi.fn() } as { sessionId: string; switchTo: ReturnType<typeof vi.fn> } | null,
   setFloating: vi.fn(), activate: vi.fn(), navigate: vi.fn(),
   location: { pathname: '/tools/claude-chat', search: '?sessionId=current&view=supervision' },
+  assistant: null as { launch: ReturnType<typeof vi.fn>; setDelegated: ReturnType<typeof vi.fn> } | null,
 }))
+vi.mock('@/features/work-assistants/public-api', () => ({ useAssistantDock: () => controls.assistant }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => controls }))
 vi.mock('@/shell/permission', () => ({ useAccessContext: () => ({ roles: controls.user.roles, permissionCodes: controls.permissionCodes, superAdmin: false }) }))
-vi.mock('../runtime/ChatRuntimeContext', () => ({ CHAT_ROUTE: '/tools/claude-chat', useChatRuntime: () => controls }))
+vi.mock('../runtime/ChatRuntimeContext', () => ({ CHAT_ROUTE: '/tools/claude-chat', isChatRoute: (path: string) => path.startsWith('/tools/claude-chat'), useChatRuntime: () => controls }))
 vi.mock('react-router-dom', async original => ({ ...await original<typeof import('react-router-dom')>(), useNavigate: () => controls.navigate, useLocation: () => controls.location }))
 vi.mock('../api', () => ({ listSessions: vi.fn(), listQueuedMessages: vi.fn(), listAutopilotRuns: vi.fn() }))
 const read = vi.mocked(listSessions), queueRead = vi.mocked(listQueuedMessages)
@@ -35,6 +37,7 @@ async function open() {
 beforeEach(() => {
   localStorage.clear()
   controls.user = { userId: 1, roles: ['ADMIN'] }; controls.permissionCodes = []; controls.demo = false
+  controls.assistant = null
   controls.chat = { sessionId: 'current', switchTo: vi.fn() }
   controls.location = { pathname: '/tools/claude-chat', search: '?sessionId=current&view=supervision' }
   read.mockResolvedValue([session('running', { status: 'RUNNING', live: true, lastSeenAt: 9 }),
@@ -45,6 +48,22 @@ beforeEach(() => {
     ? [{ id: 'task-1', sessionId: id, text: '核对表单与截图', createdAt: 1 }] : [])
 })
 afterEach(() => { cleanup(); clients.forEach(client => client.clear()); clients.length = 0; vi.resetAllMocks(); vi.unstubAllGlobals() })
+
+it('consolidates the authorized assistant on mobile and releases delegation on leaving chat', async () => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  const assistant = { launch: vi.fn(), setDelegated: vi.fn() }
+  controls.assistant = assistant
+  const view = mount()
+  expect(assistant.setDelegated).toHaveBeenCalledWith(true)
+  await open()
+  fireEvent.click(screen.getByRole('button', { name: '工作助理' }))
+  expect(assistant.launch).toHaveBeenCalledTimes(1)
+  expect(controls.chat?.switchTo).not.toHaveBeenCalled()
+  expect(screen.getByLabelText('原会话草稿')).toHaveValue('保留截图和需求草稿')
+  controls.location = { pathname: '/tools/project-workspace', search: '' }
+  view.rerender(view.content())
+  expect(assistant.setDelegated).toHaveBeenLastCalledWith(false)
+})
 
 it('shows actual session-board content and queued tasks without reading planning runs', async () => {
   mount()

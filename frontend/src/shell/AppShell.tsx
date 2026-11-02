@@ -13,6 +13,8 @@ import { UnifiedTitleBar, UnifiedTitleBarSlotContext } from './UnifiedTitleBar'
 import { useWindowControlsOverlay } from './useWindowControlsOverlay'
 import { MobileNavigationProvider } from './MobileNavigationContext'
 import { AssistantHost } from '@/features/work-assistants/public-api'
+import { SessionBoardDock } from '@/features/claude-chat/public-api/runtime'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
@@ -167,6 +169,7 @@ export function AppShell() {
       )}
     </div>
     </UnifiedTitleBarSlotContext.Provider>
+    <ErrorBoundary label="session-board-dock" compact><SessionBoardDock /></ErrorBoundary>
     </AssistantHost></MobileNavigationProvider>
   )
 }

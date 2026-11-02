@@ -12,6 +12,8 @@ import { useMobileViewport } from '../hooks/useMobileViewport'
 import { useSessionBoardData } from '../hooks/useSessionBoardData'
 import { useWorkspaceDockPosition } from '../hooks/useWorkspaceDockPosition'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
+import { isChatRoute } from '../runtime/ChatRuntimeContext'
+import { useAssistantDock } from '@/features/work-assistants/public-api'
 
 const BoardContent = lazy(() => import('./SessionBoard').then(module => ({ default: module.SessionBoardContent })))
 
@@ -31,6 +33,14 @@ function BoardDock({ userId }: { userId: number | string }) {
   const heading = useId(), description = useId(), panelId = useId()
   const navigate = useNavigate(), location = useLocation()
   const mobile = useMobileViewport()
+  const assistant = useAssistantDock()
+  const delegate = assistant?.setDelegated
+  const inChat = isChatRoute(location.pathname)
+  useEffect(() => {
+    if (!mobile || !inChat || !delegate) return
+    delegate(true)
+    return () => delegate(false)
+  }, [delegate, mobile, inChat])
   const placement = useWorkspaceDockPosition(userId)
   const board = useSessionBoardData(open)
   const { chat, setFloating } = useChatRuntime()
@@ -97,7 +107,9 @@ function BoardDock({ userId }: { userId: number | string }) {
         <BoardContent board={board} compact currentSessionId={chat?.sessionId ?? null} onOpenSession={go} onNewSession={() => go()} />
       </Suspense></ErrorBoundary>
     </div>
-    <footer className="shrink-0 border-t px-4 pb-[env(safe-area-inset-bottom)]"><button type="button" onClick={() => go()} className="min-h-11 text-xs text-[var(--color-primary)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">打开完整会话看板</button></footer>
+    <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 border-t px-4 pb-[env(safe-area-inset-bottom)]"><button type="button" onClick={() => go()} className="min-h-11 text-xs text-[var(--color-primary)] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">打开完整会话看板</button>
+      {assistant && <button type="button" className="min-h-11 text-xs text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]" onClick={() => { setOpen(false); assistant.launch(placement.buttonRef.current) }}>工作助理</button>}
+    </footer>
   </>
   return mobile ? <Sheet open={open} onOpenChange={setOpen}>
     {trigger}

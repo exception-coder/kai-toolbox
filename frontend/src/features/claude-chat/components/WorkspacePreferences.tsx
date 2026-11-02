@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
-import { setRecentSessionsExpanded, useRecentSessionsExpanded } from '../lib/workspacePreferences'
+import { setRecentSessionsExpanded, useRecentSessionsExpanded, setReadingDensity, setReadingFont, useReadingDensity, useReadingFont, type ReadingDensity } from '../lib/workspacePreferences'
 import { WorkbenchThemePicker } from './WorkbenchThemePicker'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 
@@ -11,6 +11,7 @@ export function WorkspacePreferences({ open, onOpenChange, gestureEnabled, onTog
 }) {
   const expanded = useRecentSessionsExpanded()
   const hiddenTools = useHideToolCalls()
+  const density = useReadingDensity(), font = useReadingFont()
   const [error, setError] = useState(false)
   const portal = useFullscreenPortalContainer()
   return <Dialog.Root open={open} onOpenChange={onOpenChange}><Dialog.Portal container={portal}>
@@ -37,6 +38,19 @@ export function WorkspacePreferences({ open, onOpenChange, gestureEnabled, onTog
       </section>
       <section aria-labelledby="preferences-reading" className="mt-5 border-t border-[var(--color-border)] pt-4">
         <h2 id="preferences-reading" className="text-xs font-semibold text-[var(--color-muted-foreground)]">阅读与外观</h2>
+        <label className="mt-3 flex min-h-11 items-center justify-between gap-3 text-sm">阅读密度
+          <select aria-label="阅读密度" value={density} className="min-h-11 rounded-md border bg-[var(--color-background)] px-3"
+            onChange={event => { try { setReadingDensity(event.target.value as ReadingDensity); setError(false) } catch { setError(true) } }}>
+            <option value="comfortable">舒适</option><option value="standard">标准（推荐）</option><option value="compact">紧凑</option>
+          </select>
+        </label>
+        <label className="mt-2 flex min-h-11 items-center justify-between gap-3 text-sm">正文字号
+          <select aria-label="正文字号" value={font} className="min-h-11 rounded-md border bg-[var(--color-background)] px-3"
+            onChange={event => { try { setReadingFont(Number(event.target.value)); setError(false) } catch { setError(true) } }}>
+            {[15, 16, 17].map(size => <option key={size} value={size}>{size}px</option>)}
+          </select>
+        </label>
+        <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">手机聊天即时生效；密度只调整间距，字号独立保留，不缩放页面。</p>
         <PreferenceToggle label="隐藏工具调用" hint="只隐藏消息流中的工具气泡，不停止执行；轨迹仍可查看。" checked={hiddenTools} onChange={setHideToolCalls} />
       </section>
       {onToggleGesture && <section aria-labelledby="preferences-interaction" className="mt-5 border-t border-[var(--color-border)] pt-4">

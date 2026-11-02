@@ -9,6 +9,9 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 const Workspace = lazy(() => import('../components/AssistantWorkspace').then(module => ({ default: module.AssistantWorkspace })))
 const Context = createContext<(assistant?: string, session?: string) => void>(() => {})
 export const useAssistantLauncher = () => useContext(Context)
+const DockContext = createContext<{ launch: (returnFocus?: HTMLElement | null) => void; setDelegated: (value: boolean) => void } | null>(null)
+/** The coding session dock can host the authorized assistant shortcut instead of a second edge tab. */
+export const useAssistantDock = () => useContext(DockContext)
 export interface AssistantMemory { sessionId?: string; assistantId?: string; drafts: Record<string, string>; selectionVersion?: number }
 
 /** Shell 只常驻入口和选择状态；打开时才加载助理工作区，不激活编码聊天。 */
@@ -23,6 +26,7 @@ function AuthorizedAssistantHost({ children, userId }: { children: ReactNode; us
   const confirm = useConfirm()
   const [secureDirty, setSecureDirty] = useState(false), [secureBusy, setSecureBusy] = useState(false)
   const [open, setOpen] = useState(false)
+  const [delegated, setDelegated] = useState(false)
   const [activated, setActivated] = useState(false)
   const [selection, setSelection] = useState<{ assistant?: string; session?: string; revision: number }>({ revision: 0 })
   const trigger = useRef<HTMLElement | null>(null)
@@ -40,16 +44,19 @@ function AuthorizedAssistantHost({ children, userId }: { children: ReactNode; us
     window.addEventListener('keydown', shortcut)
     return () => window.removeEventListener('keydown', shortcut)
   }, [launch])
-  return <Context.Provider value={launch}>{children}
+  return <Context.Provider value={launch}><DockContext.Provider value={{ launch: returnFocus => {
+    launch()
+    if (returnFocus) trigger.current = returnFocus
+  }, setDelegated }}>{children}
     <>
-      <AssistantLauncher userId={userId} suspended={open} onLaunch={() => launch()} />
+      <AssistantLauncher userId={userId} suspended={open || delegated} onLaunch={() => launch()} />
       <Sheet open={open} onOpenChange={next => {
         if (next) { setOpen(true); return }
         if (secureBusy) return
         if (!secureDirty) { setOpen(false); return }
         void confirm({ title: '清除未保存的登记信息？', description: '关闭会清除本次表单及密码，尚未写入资源中心。', confirmText: '清除并关闭' }).then(accepted => { if (accepted) setOpen(false) })
       }}>
-        <SheetContent side="right" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }} className="flex h-full w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <SheetContent side="right" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus({ preventScroll: true }) }} className="flex h-full w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
           <SheetTitle className="shrink-0 border-b px-6 py-4 text-base">工作助理</SheetTitle>
           {activated && <ErrorBoundary compact label="work-assistants"><Suspense fallback={<div role="status" className="space-y-4 p-6"><div className="h-12 animate-pulse rounded bg-[var(--color-muted)]" /><div className="h-28 animate-pulse rounded bg-[var(--color-muted)]" /><p className="text-sm">正在连接助理，可随时关闭后重试…</p></div>}>
             <Workspace key={userId} selection={selection} memory={memory.current} onSecureDirtyChange={setSecureDirty} onSecureBusyChange={setSecureBusy} />
@@ -57,5 +64,5 @@ function AuthorizedAssistantHost({ children, userId }: { children: ReactNode; us
         </SheetContent>
       </Sheet>
     </>
-  </Context.Provider>
+  </DockContext.Provider></Context.Provider>
 }

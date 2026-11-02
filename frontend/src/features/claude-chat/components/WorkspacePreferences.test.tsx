@@ -1,11 +1,26 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { WorkspacePreferences } from './WorkspacePreferences'
-import { useRecentSessionsExpanded } from '../lib/workspacePreferences'
+import { useRecentSessionsExpanded, useReadingDensity, useReadingFont } from '../lib/workspacePreferences'
 import { useHideToolCalls } from '../lib/toolVisibilityPref'
 
 afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks() })
 function Consumer() { return <span>{useRecentSessionsExpanded() ? '最近列表展开' : '最近列表折叠'}</span> }
+it('persists density and font independently and rejects failed writes without changing the view', () => {
+  function Reading() { return <output>{useReadingDensity()} / {useReadingFont()}</output> }
+  const view = render(<><Reading /><WorkspacePreferences open onOpenChange={() => {}} /></>)
+  expect(screen.getByText('standard / 16')).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('正文字号'), { target: { value: '15' } })
+  fireEvent.change(screen.getByLabelText('阅读密度'), { target: { value: 'comfortable' } })
+  expect(screen.getByText('comfortable / 15')).toBeInTheDocument()
+  view.unmount()
+  render(<><Reading /><WorkspacePreferences open onOpenChange={() => {}} /></>)
+  expect(screen.getByText('comfortable / 15')).toBeInTheDocument()
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied') })
+  fireEvent.change(screen.getByLabelText('阅读密度'), { target: { value: 'compact' } })
+  expect(screen.getByRole('alert')).toHaveTextContent('设置未更改')
+  expect(screen.getByText('comfortable / 15')).toBeInTheDocument()
+})
 it('applies the browser preference to mounted consumers and survives remount', () => {
   const view = render(<><Consumer /><WorkspacePreferences open onOpenChange={() => {}} /></>)
   fireEvent.change(screen.getByLabelText('最近会话默认状态'), { target: { value: 'false' } })

@@ -11,6 +11,7 @@ vi.mock('./DeferredCommandPalette', () => ({ DeferredCommandPalette: () => null 
 vi.mock('./AccountMenu', () => ({ AccountMenu: () => null }))
 vi.mock('./PwaInstallPrompt', () => ({ PwaInstallPrompt: () => null }))
 vi.mock('@/features/work-assistants/public-api', () => ({ AssistantHost: ({ children }: { children: React.ReactNode }) => children }))
+vi.mock('@/features/claude-chat/public-api/runtime', () => ({ SessionBoardDock: () => null }))
 vi.mock('./brand', () => ({ useBrand: () => ({ brand: { appName: 'Forge', tagline: '' } }) }))
 vi.mock('./useMockMode', () => ({ useMockMode: () => ({ enabled: false }) }))
 vi.mock('./useWindowControlsOverlay', () => ({ useWindowControlsOverlay: () => false }))

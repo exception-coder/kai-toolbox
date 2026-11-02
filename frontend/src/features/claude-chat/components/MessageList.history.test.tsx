@@ -3,6 +3,7 @@ import { createRef, type ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MessageList, type MessageListHandle } from './MessageList'
 import { setHideToolCalls } from '../lib/toolVisibilityPref'
+import { setReadingDensity, setReadingFont } from '../lib/workspacePreferences'
 
 const scrolling = vi.hoisted(() => ({ scrollToIndex: vi.fn(), scrollToBottom: vi.fn(), scrollTo: vi.fn() }))
 afterEach(() => { cleanup(); setHideToolCalls(false); vi.useRealTimers(); vi.clearAllMocks(); scrolling.scrollToBottom.mockReset(); scrolling.scrollToIndex.mockReset(); vi.unstubAllGlobals() })
@@ -39,6 +40,26 @@ vi.mock('react-virtuoso', async () => {
 })
 
 describe('MessageList 历史分页入口', () => {
+  it('切换密度与字号保留可见消息偏移，不重建列表或跳到最新', () => {
+    vi.useFakeTimers()
+    const view = render(<MessageList sessionKey="reading" mobileWorkspace items={[{ kind: 'assistant', id: 'reading-anchor', text: '阅读中的回复' }]} running={false} />)
+    const scroller = screen.getByTestId('message-scroller')
+    scroller.classList.add('cc-message-scroller')
+    scroller.getBoundingClientRect = () => ({ top: 100, bottom: 500 } as DOMRect)
+    const row = document.createElement('div')
+    row.dataset.msgId = 'reading-anchor'
+    row.getBoundingClientRect = () => ({ top: 80, bottom: 160 } as DOMRect)
+    scroller.append(row)
+    scrolling.scrollToIndex.mockClear()
+    act(() => { setReadingDensity('compact'); setReadingFont(15) })
+    act(() => vi.advanceTimersByTime(50))
+    expect(screen.getByTestId('message-scroller')).toBe(scroller)
+    expect(view.container.querySelector('[data-reading-density]')).toHaveAttribute('data-reading-density', 'compact')
+    expect(scrolling.scrollToIndex).toHaveBeenLastCalledWith({ index: 0, align: 'start', offset: 20, behavior: 'auto' })
+    expect(scrolling.scrollToIndex).not.toHaveBeenCalledWith(expect.objectContaining({ index: 'LAST' }))
+    localStorage.removeItem('forge.vibecoding.reading-density')
+    localStorage.removeItem('forge.vibecoding.reading-font')
+  })
   it('布局切换按可见消息身份恢复位置，分页到达后使用新索引，切会话后不再恢复', () => {
     const ref = createRef<MessageListHandle>()
     const items = [{ kind: 'assistant' as const, id: 'anchor', text: '正在阅读的回复' }]

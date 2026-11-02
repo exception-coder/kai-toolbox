@@ -38,8 +38,34 @@
   border-top: 1px solid var(--cc-message-divider); padding-top: 12px;
 }
 @media (max-width: 767px) {
-  .cc-layered-conversation .cc-message-row { padding-bottom: 16px; }
-  .cc-layered-conversation .cc-assistant-body { width: 100%; max-width: 100%; }
+  .cc-mobile-conversation {
+    --cc-reading-gap: 20px;
+    --cc-reading-paragraph: 10px;
+    --cc-reading-leading: 1.55;
+  }
+  .cc-mobile-conversation[data-reading-density='comfortable'] {
+    --cc-reading-gap: 24px; --cc-reading-paragraph: 12px; --cc-reading-leading: 1.6;
+  }
+  .cc-mobile-conversation[data-reading-density='compact'] {
+    --cc-reading-gap: 16px; --cc-reading-paragraph: 8px; --cc-reading-leading: 1.5;
+  }
+  .cc-mobile-conversation .cc-message-row { padding: 0 16px var(--cc-reading-gap); }
+  .cc-mobile-conversation .cc-assistant-body {
+    width: 100%; max-width: 100%; padding: 4px 0 0;
+    border: 0; border-radius: 0; background: transparent; box-shadow: none;
+    color: var(--color-foreground); font-size: var(--cc-reading-font, 16px); line-height: var(--cc-reading-leading);
+  }
+  .cc-mobile-conversation .cc-assistant-body .markdown-body {
+    font-size: var(--cc-reading-font, 16px); line-height: var(--cc-reading-leading);
+  }
+  .cc-mobile-conversation .cc-assistant-body p { margin-block: var(--cc-reading-paragraph); }
+  .cc-mobile-conversation .cc-assistant-body h1 { font-size: 1.3em; }
+  .cc-mobile-conversation .cc-assistant-body h2 { font-size: 1.18em; }
+  .cc-mobile-conversation .cc-assistant-body h3 { font-size: 1.06em; }
+  .cc-mobile-conversation .cc-assistant-body :is(h1, h2, h3) { line-height: 1.45; }
+  .cc-mobile-conversation .cc-reply-section:not(.cc-reply-section--summary) .markdown-body > p:first-child { font-size: inherit; }
+  .cc-mobile-conversation .cc-message-actions { margin-top: 2px; }
+  .cc-mobile-conversation .cc-assistant-body :is(pre, table) { overscroll-behavior-x: contain; }
   .cc-layered-conversation .cc-assistant-row {
     grid-template-columns: 24px minmax(0, 1fr); row-gap: 4px;
   }

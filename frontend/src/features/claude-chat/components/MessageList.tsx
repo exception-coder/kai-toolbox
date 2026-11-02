@@ -1,4 +1,5 @@
-import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { readingChangeEvent, useReadingDensity, useReadingFont } from '../lib/workspacePreferences'
 import { Virtuoso } from 'react-virtuoso'
 import { LATEST_BOTTOM_TOLERANCE_PX, useLatestMessageNavigation } from '../hooks/useLatestMessageNavigation'
 import { TurnChangesDialog } from './changes/TurnChangesDialog'
@@ -170,6 +171,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   // 「隐藏工具调用」开关：开启时消息流里的工具调用气泡（MCP/命令/读写/子代理…）整条不渲染，减少视觉噪音
   const hideToolCalls = useHideToolCalls()
   const mobile = useMobileViewport()
+  const readingDensity = useReadingDensity(), readingFont = useReadingFont()
   const compactMobile = mobileWorkspace && mobile
   const dockPresentation = compactMobile && executionInDock
   const latestResultId = useMemo(() => {
@@ -290,8 +292,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   }, [running])
 
   // 供「我的提问」导航面板等外部调用：滚到指定消息 + 短暂高亮闪一下，方便一眼找到目标气泡。
-  useImperativeHandle(ref, () => ({
-    captureReadingPosition: () => {
+  const captureReadingPosition = useCallback(() => {
       const scroller = listElement.current?.querySelector<HTMLElement>('.cc-message-scroller')
       if (!scroller) return () => {}
       const bottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= LATEST_BOTTOM_TOLERANCE_PX
@@ -307,7 +308,19 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         const index = currentVisibleItems.current.findIndex(item => item.id === id)
         if (index >= 0) virtuosoRef.current?.scrollToIndex({ index, align: 'start', offset: -offset, behavior: 'auto' })
       }
-    },
+    }, [cancelJump, resetKey, scrollToLatest, virtuosoRef])
+  useEffect(() => {
+    let frame = 0
+    const preserve = () => {
+      const restore = captureReadingPosition()
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => { frame = requestAnimationFrame(restore) })
+    }
+    window.addEventListener(readingChangeEvent, preserve)
+    return () => { window.removeEventListener(readingChangeEvent, preserve); cancelAnimationFrame(frame) }
+  }, [captureReadingPosition])
+  useImperativeHandle(ref, () => ({
+    captureReadingPosition,
     scrollToItem: (id: string) => {
       const idx = visibleItems.findIndex(it => it.id === id)
       if (idx === -1) return
@@ -320,7 +333,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
       cancelJump()
       virtuosoRef.current?.scrollToIndex({ index: 0, align: 'start', behavior: 'smooth' })
     },
-  }), [visibleItems, cancelJump, virtuosoRef, resetKey, scrollToLatest])
+  }), [visibleItems, cancelJump, virtuosoRef, captureReadingPosition])
 
   const itemContent = useCallback((_index: number, item: ChatItem) => (
     <div data-msg-id={item.id} className={cn('cc-message-row px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
@@ -354,6 +367,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
 
   return (
     <div ref={listElement} tabIndex={-1} className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col', mobileWorkspace && 'cc-mobile-conversation cc-layered-conversation')}
+      data-reading-density={mobileWorkspace ? readingDensity : undefined}
+      style={mobileWorkspace ? { '--cc-reading-font': `${readingFont}px` } as CSSProperties : undefined}
       onWheelCapture={cancelJump}
       onTouchStartCapture={event => { if (!(event.target instanceof Element && event.target.closest('[data-latest-navigation]'))) cancelJump() }}
       onPointerDownCapture={event => { if (!(event.target instanceof Element && event.target.closest('[data-latest-navigation]'))) cancelJump() }}
