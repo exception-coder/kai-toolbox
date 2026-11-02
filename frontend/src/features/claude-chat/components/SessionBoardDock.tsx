@@ -63,10 +63,11 @@ function BoardDock({ userId }: { userId: number | string }) {
     aria-expanded={open} aria-controls={open ? panelId : undefined} aria-haspopup="dialog" tabIndex={open ? -1 : 0}
     title="会话工作台 · 拖动调整位置；Alt + 方向键移动"
     {...placement.pointerHandlers} onKeyDown={placement.onKeyDown}
+    onContextMenu={event => event.preventDefault()}
     onClick={() => { if (placement.consumeDragClick()) return; setOpen(true) }}
     className={cn('fixed z-30 flex size-12 touch-none select-none items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-primary)] shadow-sm hover:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]', open && 'pointer-events-none opacity-0')}
     style={placement.style}>
-    <ListChecks aria-hidden="true" className="size-5" />
+    <ListChecks aria-hidden="true" className="pointer-events-none size-5" />
     {pending > 0 ? <span aria-label={`最近规划待处理 ${pending} 项`} className={cn('absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full px-1 text-[11px] leading-5', failed ? 'bg-[var(--color-destructive)] text-white' : 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]')}>{pending}</span>
       : running ? <span aria-label="最近规划进行中" className="absolute right-0 top-0 size-2.5 rounded-full bg-[var(--color-primary)] ring-2 ring-[var(--color-background)]" />
         : !fresh && !query.isPending ? <span aria-label="规划状态待更新" className="absolute right-0 top-0 size-2.5 rounded-full bg-[var(--color-muted-foreground)] ring-2 ring-[var(--color-background)]" /> : null}

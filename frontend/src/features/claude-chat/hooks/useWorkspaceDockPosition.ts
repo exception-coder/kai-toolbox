@@ -19,7 +19,7 @@ export function useWorkspaceDockPosition(userId: number | string) {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [revision, update] = useState(0)
   const [dragPoint, setDragPoint] = useState<{ x: number; y: number } | null>(null)
-  const gesture = useRef<{ id: number; startX: number; startY: number; x: number; y: number; moved: boolean } | null>(null)
+  const gesture = useRef<{ id: number; startX: number; startY: number; originX: number; originY: number; x: number; y: number; moved: boolean } | null>(null)
   const suppressClick = useRef(false)
   const [safe, setSafe] = useState({ top: 0, right: 0, bottom: 0, left: 0 })
   useEffect(() => {
@@ -69,6 +69,16 @@ export function useWorkspaceDockPosition(userId: number | string) {
     setPosition(next)
     try { localStorage.setItem(key, JSON.stringify(next)) } catch { /* Keep session-only placement. */ }
   }
+  const move = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const current = gesture.current
+    if (!current || current.id !== event.pointerId) return
+    const dx = event.clientX - current.startX, dy = event.clientY - current.startY
+    if (!current.moved && Math.hypot(dx, dy) < 8) return
+    current.moved = true
+    current.x = clamp(current.originX + dx, left, right)
+    current.y = clamp(current.originY + dy, minY, maxY)
+    setDragPoint({ x: current.x, y: current.y })
+  }
   const settle = (event: ReactPointerEvent<HTMLButtonElement>, cancelled = false) => {
     const current = gesture.current
     if (!current || current.id !== event.pointerId) return
@@ -88,24 +98,19 @@ export function useWorkspaceDockPosition(userId: number | string) {
     consumeDragClick: () => { const consumed = suppressClick.current; suppressClick.current = false; return consumed },
     pointerHandlers: {
       onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => {
-        if (event.button !== 0 || gesture.current) return
+        if (event.button !== 0 || event.isPrimary === false || gesture.current) return
         suppressClick.current = false
         const x = position.edge === 'left' ? left : Math.max(left, right)
-        gesture.current = { id: event.pointerId, startX: event.clientX, startY: event.clientY, x, y: top, moved: false }
+        gesture.current = { id: event.pointerId, startX: event.clientX, startY: event.clientY, originX: x, originY: top, x, y: top, moved: false }
         event.currentTarget.setPointerCapture?.(event.pointerId)
       },
-      onPointerMove: (event: ReactPointerEvent<HTMLButtonElement>) => {
-        const current = gesture.current
-        if (!current || current.id !== event.pointerId) return
-        if (!current.moved && Math.hypot(event.clientX - current.startX, event.clientY - current.startY) < 8) return
-        current.moved = true
-        current.x = clamp((position.edge === 'left' ? left : right) + event.clientX - current.startX, left, right)
-        current.y = clamp(top + event.clientY - current.startY, minY, maxY)
-        setDragPoint({ x: current.x, y: current.y })
-      },
-      onPointerUp: (event: ReactPointerEvent<HTMLButtonElement>) => settle(event),
+      onPointerMove: move,
+      // Like the work assistant, account for the final sample even if move events were coalesced.
+      onPointerUp: (event: ReactPointerEvent<HTMLButtonElement>) => { move(event); settle(event) },
       onPointerCancel: (event: ReactPointerEvent<HTMLButtonElement>) => settle(event, true),
-      onLostPointerCapture: (event: ReactPointerEvent<HTMLButtonElement>) => { if (gesture.current) settle(event, true) },
+      onLostPointerCapture: (event: ReactPointerEvent<HTMLButtonElement>) => {
+        if (event.target === event.currentTarget && gesture.current) settle(event, true)
+      },
     },
     onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
       if (event.key === 'Enter' || event.key === ' ') suppressClick.current = false

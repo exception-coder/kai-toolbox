@@ -150,6 +150,39 @@ function pointerEvents() {
   vi.stubGlobal('PointerEvent', TestPointerEvent)
 }
 
+it('applies a vertical release even when a touch gesture delivers no intermediate move', () => {
+  pointerEvents()
+  const view = mount()
+  const button = screen.getByRole('button', { name: '打开会话快捷看板' })
+  const startTop = parseFloat(button.style.top), x = parseFloat(button.style.left) + 24
+  fireEvent.pointerDown(button, { pointerId: 3, clientX: x, clientY: startTop + 24, button: 0 })
+  fireEvent.pointerUp(button, { pointerId: 3, clientX: x, clientY: 124 })
+  expect(parseFloat(button.style.top)).toBeCloseTo(100)
+  fireEvent.click(button)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  view.unmount(); mount()
+  expect(parseFloat(screen.getByRole('button', { name: '打开会话快捷看板' }).style.top)).toBeCloseTo(100)
+})
+
+it('keeps vertical dragging when a child icon loses implicit pointer capture', () => {
+  pointerEvents()
+  mount()
+  const button = screen.getByRole('button', { name: '打开会话快捷看板' })
+  const startTop = parseFloat(button.style.top), x = parseFloat(button.style.left) + 24
+  fireEvent.pointerDown(button, { pointerId: 4, clientX: x, clientY: startTop + 24, button: 0 })
+  fireEvent.lostPointerCapture(button.querySelector('svg')!, { pointerId: 4 })
+  fireEvent.pointerMove(button, { pointerId: 4, clientX: x, clientY: 164 })
+  expect(parseFloat(button.style.top)).toBeCloseTo(140)
+  fireEvent.pointerUp(button, { pointerId: 4, clientX: x, clientY: 184 })
+  expect(parseFloat(button.style.top)).toBeCloseTo(160)
+  const saved = localStorage.getItem('forge:workspace-dock:1')
+  fireEvent.pointerDown(button, { pointerId: 5, clientX: x, clientY: 184, button: 0 })
+  fireEvent.pointerMove(button, { pointerId: 5, clientX: x, clientY: 284 })
+  fireEvent.lostPointerCapture(button, { pointerId: 5 })
+  expect(parseFloat(button.style.top)).toBeCloseTo(160)
+  expect(localStorage.getItem('forge:workspace-dock:1')).toBe(saved)
+})
+
 it('snaps a drag to the opposite edge, suppresses its click, remembers placement and supports keyboard movement', async () => {
   pointerEvents()
   const view = mount()
