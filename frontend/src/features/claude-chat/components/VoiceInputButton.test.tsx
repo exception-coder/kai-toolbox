@@ -1,14 +1,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { VoiceInputButton } from './VoiceInputButton'
-import { transcribe, transcribeCodexDictation, codexDictationAvailable } from '../api'
+import { transcribe, transcribeCodexDictation, codexDictationAvailable, sttAvailable } from '../api'
 
 const voice = vi.hoisted(() => ({ recording: false, start: vi.fn(), stop: vi.fn() }))
 vi.mock('../hooks/useVoiceRecorder', () => ({ useVoiceRecorder: () => ({ ...voice, supported: true, seconds: 0 }) }))
-vi.mock('../api', () => ({ sttAvailable: async () => true, transcribe: vi.fn().mockResolvedValue('语音文字'),
+vi.mock('../api', () => ({ sttAvailable: vi.fn().mockResolvedValue(true), transcribe: vi.fn().mockResolvedValue('语音文字'),
   codexDictationAvailable: vi.fn().mockResolvedValue({ available: true }),
   transcribeCodexDictation: vi.fn().mockResolvedValue('Codex 听写文字') }))
-afterEach(() => { cleanup(); voice.recording = false; vi.clearAllMocks() })
+afterEach(() => { cleanup(); voice.recording = false; vi.clearAllMocks(); vi.mocked(sttAvailable).mockResolvedValue(true) })
 
 it('moves only the idle entry into the menu and keeps recording controls after the menu closes', async () => {
   const target = document.createElement('div')
@@ -44,10 +44,12 @@ it('uses the consultation endpoint and discards a late transcript after changing
 })
 
 it('uses native Codex dictation and only returns draft text once after duplicate stop clicks', async () => {
+  vi.mocked(sttAvailable).mockResolvedValue(false)
   const onText = vi.fn()
   const page = render(<VoiceInputButton codexSessionId="original-session" onText={onText} />)
   await waitFor(() => expect(screen.getByRole('button', { name: 'Codex 听写' })).toBeEnabled())
   expect(codexDictationAvailable).toHaveBeenCalledWith('original-session', expect.any(AbortSignal))
+  expect(sttAvailable).not.toHaveBeenCalled()
   voice.recording = true
   voice.stop.mockResolvedValue(new Blob())
   page.rerender(<VoiceInputButton codexSessionId="original-session" onText={onText} />)
@@ -61,9 +63,25 @@ it('uses native Codex dictation and only returns draft text once after duplicate
 
 it('never falls back to Whisper before the Codex session has connected', async () => {
   render(<VoiceInputButton codexSessionId="" onText={vi.fn()} />)
-  await waitFor(() => expect(screen.getByRole('button', { name: '请先连接 Codex 会话后使用听写' })).toBeDisabled())
+  fireEvent.click(await screen.findByRole('button', { name: '语音输入状态与恢复' }))
+  expect(screen.getByRole('status')).toHaveTextContent('请先连接 Codex 会话后使用听写')
   expect(transcribe).not.toHaveBeenCalled()
   expect(codexDictationAvailable).not.toHaveBeenCalled()
+})
+
+it('explains an unloaded backend on touch and retries without recording or falling back', async () => {
+  vi.mocked(codexDictationAvailable).mockResolvedValueOnce({ available: false, message: 'Codex 听写尚未加载，请更新后端服务后重试' })
+  const onText = vi.fn()
+  render(<VoiceInputButton codexSessionId="original-session" onText={onText} />)
+  fireEvent.click(await screen.findByRole('button', { name: '语音输入状态与恢复' }))
+  expect(screen.getByRole('status')).toHaveTextContent('请更新后端服务')
+  expect(voice.start).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '重新检查语音服务' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Codex 听写' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Codex 听写' }))
+  expect(voice.start).toHaveBeenCalledOnce()
+  expect(transcribe).not.toHaveBeenCalled()
+  expect(onText).not.toHaveBeenCalled()
 })
 
 it('keeps native failures visible without falling back and aborts late native results on leaving', async () => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Loader2, Mic, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
 import { codexDictationAvailable, sttAvailable, transcribe, transcribeCodexDictation } from '../api'
 
@@ -29,6 +30,8 @@ export function VoiceInputButton({ onText, disabled, className, idleTarget, onId
   const operation = useRef<AbortController | null>(null)
   const stopping = useRef(false)
   const [availabilityError, setAvailabilityError] = useState<string | null>(null)
+  const [availabilityRevision, setAvailabilityRevision] = useState(0)
+  const [recoveryOpen, setRecoveryOpen] = useState(false)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; operation.current?.abort() } }, [])
   useEffect(() => {
     onActiveChange?.(starting || rec.recording || busy)
@@ -43,7 +46,10 @@ export function VoiceInputButton({ onText, disabled, className, idleTarget, onId
       : Promise.resolve({ available: false, message: '请先连接 Codex 会话后使用听写' }))
       : sttAvailable(scope).then(value => ({ available: value, message: undefined }))
     request.then(value => {
-      if (!controller.signal.aborted) { setAvailable(value.available); setAvailabilityError(value.message ?? null) }
+      if (!controller.signal.aborted) {
+        setAvailable(value.available); setAvailabilityError(value.message ?? null)
+        if (value.available) setRecoveryOpen(false)
+      }
     }).catch(error => {
       if (!controller.signal.aborted) {
         setAvailable(false)
@@ -51,10 +57,10 @@ export function VoiceInputButton({ onText, disabled, className, idleTarget, onId
       }
     })
     return () => controller.abort()
-  }, [scope, codexSessionId])
+  }, [scope, codexSessionId, availabilityRevision])
 
   const start = async () => {
-    if (starting || disabled) return
+    if (starting || disabled || !rec.supported || available !== true) return
     setStarting(true)
     setErr(null)
     onIdleActivate?.()
@@ -137,9 +143,11 @@ export function VoiceInputButton({ onText, disabled, className, idleTarget, onId
 
   const off = !rec.supported || available === false
   const title = !rec.supported ? (window.isSecureContext ? '当前浏览器不支持录音' : '请使用 HTTPS 或 localhost 后使用语音输入')
+    : available === null ? '正在检查语音服务…'
     : available === false ? (native ? availabilityError || 'Codex 听写暂不可用，请检查当前账号' : 'faster-whisper 服务未启动，语音输入不可用')
     : err ? err
     : native ? 'Codex 听写' : '语音输入'
+  const recoverable = (off || recoveryOpen) && !disabled
 
   const button = (
     <Button
@@ -147,18 +155,26 @@ export function VoiceInputButton({ onText, disabled, className, idleTarget, onId
       variant="ghost"
       size={idleTarget ? 'sm' : 'icon'}
       className={idleTarget ? 'min-h-11 w-full gap-2 text-xs' : className}
-      onClick={start}
-      disabled={disabled || off || starting || available === null}
+      onClick={recoverable ? undefined : start}
+      disabled={disabled || starting || (!recoverable && (off || available === null))}
       title={title}
-      aria-label={title}
+      aria-label={recoverable ? '语音输入状态与恢复' : title}
     >
       {starting ? <Loader2 className="size-5 animate-spin" /> : <Mic className="size-5" />}
       {idleTarget && <span>语音输入</span>}
     </Button>
   )
+  const entry = recoverable ? <Popover open={recoveryOpen} onOpenChange={setRecoveryOpen}>
+    <PopoverTrigger asChild>{button}</PopoverTrigger>
+    <PopoverContent side="top" collisionPadding={12} className="w-[min(20rem,calc(100vw-24px))] space-y-2 p-3 text-sm">
+      <p role="status" className="wrap-anywhere">{title}</p>
+      {rec.supported && <Button type="button" variant="outline" size="sm" className="min-h-11" disabled={available === null}
+        onClick={() => setAvailabilityRevision(value => value + 1)}>重新检查语音服务</Button>}
+    </PopoverContent>
+  </Popover> : button
   // 移动端只移动空闲入口；录音、识别及错误状态保留在 Composer，不随菜单关闭卸载。
   if (idleTarget === null && !err) return null
-  return <>{idleTarget ? createPortal(button, idleTarget) : button}
+  return <>{idleTarget ? createPortal(entry, idleTarget) : entry}
     {err && <span role="alert" className="max-w-full break-words text-xs text-[var(--color-destructive)]">{err}</span>}
   </>
 }

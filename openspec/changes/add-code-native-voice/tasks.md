@@ -1,5 +1,18 @@
 # 原生语音任务
 
+## 普通听写麦克风无法点击复查（2026-11-03）
+
+- [x] 只读确认本地 Forge `/api/claude-chat/sessions/8c978d51-0754-4ef9-8f6a-04febc840ca0/dictation/available` 返回 404，正文为 `No static resource .../dictation/available`，说明运行后端尚无该路由。不是上游 realtime 接口的 404，也不是 Whisper 可用性判断。
+- [x] 核对 Codex 使用独立原生可用性分支；状态失败时增加手机可点击说明与手动重新检查，不启动录音、转写或发送，不回退 Whisper。保留锁定会话、浏览器录音支持及服务就绪检查。
+- [x] 完成最终定向验证、宿主编译与交付记录。
+- [ ] 用户确认本次后端/Sidecar 重启后加载新路由，继续实际运行与手机听写验收。
+
+运行基线仍为 backend 50144、frontend 157436、studio 136208，均 ready、重启次数 0。先前听写实现已有控制器、Sidecar 编译及独立账号/合成音频证据，但未获本次重启确认，不据此宣称 HTTP 听写已启用。手机浏览器本身的录音权限及编解码仍需真机验证，不能仅凭接口缺失排除同时存在的设备限制。
+
+本次 6 项 VoiceInputButton 回归通过，包括旧 Whisper unavailable 时仍启用原生 Codex 分支，以及服务未加载时的触屏说明、显式重新检查和不录音/不发送/不回退。`mvn -pl toolbox-starter -am test -Dtest=CodexDictationControllerTest -Dsurefire.failIfNoSpecifiedTests=false` exit 0，40 模块宿主编译通过，实际执行控制器 4 项测试（不是全仓测试）。前端 typecheck、菜单与边界检查及隔离 Vite 生产构建退出码 0，保留既有大分块提示；OpenSpec strict 通过。Forge CLI 门禁 JSON 为 PASSED、退出码 0，实际执行既有 9 项 API、executedCheckers 为空，不覆盖新听写接口。
+
+编译后复查路由仍为本地 404，服务 PID 和重启次数未变，证明仅完成构建不能激活该接口。此修复的后端启用、端到端识别和稳定运行验收仍等待本次重启许可，不以预览准备代替音频验收。
+
 ## 本次修正：重启后的失效恢复提示（2026-10-31）
 
 - [x] 定位进程内语音句柄丢失与浏览器恢复标记残留的差异；不改变代码任务状态。

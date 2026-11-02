@@ -14,6 +14,12 @@ The system SHALL route ordinary coding-composer speech input for the Codex engin
 - **THEN** the user receives an explicit failure and their existing draft remains intact
 - **AND** the system does not silently use Whisper, return partial success or automatically retry
 
+#### Scenario: Dictation service is unavailable on a touch device
+- **WHEN** availability fails or the local backend has not loaded the dictation route
+- **THEN** the microphone entry SHALL expose a touch-accessible explanation and explicit availability recheck
+- **AND** checking status SHALL NOT record audio, transcribe, send a message or fall back to Whisper
+- **AND** recording SHALL become available only after both browser recording support and native availability succeed.
+
 #### Scenario: Change conversation while recognition is pending
 - **WHEN** the user changes session, account or engine, or leaves the composer
 - **THEN** microphone resources are released and late text cannot enter another draft
