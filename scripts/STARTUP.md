@@ -133,7 +133,7 @@ Java 继续负责 Git 检查、空闲判断、候选构建和更新；控制层�
 
 `TOOLBOX_AUTO_UPDATE_SCHEDULE_MODE=daily`、`TOOLBOX_AUTO_UPDATE_CRON=0 0 0 * * *`、`TOOLBOX_AUTO_UPDATE_ZONE=Asia/Shanghai` 控制每日时刻。触发后在 `TOOLBOX_AUTO_UPDATE_RETRY_WINDOW_SECONDS=3600` 内按原 `TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS=120` 重试，复用网络/构建失败退避；超时后等待次日，已开始的单轮构建/排空/交接继续完成。人工 POST `/api/system/auto-update/check` 也开启同样窗口，可能更新并重启，并非只读检查。状态返回 `scheduleMode`、`cron`、`zone` 和 `nextCheck`；后者是计划触发时间，不保证精确执行。
 
-服务必须正在运行才会检查，停机或休眠错过时刻不补跑。需要持续轮询时显式选择 `TOOLBOX_AUTO_UPDATE_SCHEDULE_MODE=interval`；原间隔和稳定窗口配置继续有效。默认模式改变不代表运行实例已经加载：本次实现及待重启验收见[每日更新任务](../openspec/changes/schedule-daily-source-update/tasks.md)。当前代码未增加自动故障修复，也不能把重启交接已接受当成新版本验收通过。Agent 仍遵守每次重启确认；无人值守每日重启须另有用户明确授权，不能因合并代码或开关默认值推定授权。
+服务必须正在运行才会检查，停机或休眠错过时刻不补跑。需要持续轮询时显式选择 `TOOLBOX_AUTO_UPDATE_SCHEDULE_MODE=interval`；原间隔和稳定窗口配置继续有效。默认模式改变不代表运行实例已经加载：本次实现及待重启验收见[每日更新任务](../openspec/changes/schedule-daily-source-update/tasks.md)。当前代码未增加自动故障修复，也不能把重启交接已接受当成新版本验收通过。用户于 2026-11-02 明确授权每日模式按上述安全条件自动全栈重启，固定例外已记入 AGENTS.md；Agent 当次部署、人工立即检查、interval 及故障修复后的再次重启仍须当次确认。此授权不代表新调度已经加载或验收。
 
 源码辅助服务、控制器或前端崩溃由 PM2 重试；连续快速失败最多 5 次，状态显示 errored，修复后 restart。ready 表示受管进程已监听端口，不代表所有业务接口都已验证。Java Agent Sidecar 仍由 Java 管理，PM2 只对所属进程树做退出兜底。
 

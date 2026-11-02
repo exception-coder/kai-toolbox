@@ -6,6 +6,6 @@
 
 人工立即检查仍走同一流程，并开启有限窗口。状态接口兼容增加 scheduleMode、cron、zone；nextCheck 表示下次计划检查。系统单用户且复用既有认证入口，没有新增 UI、导航、对话框或 AI 工作流，因此不涉及产品哲学中的对象交互原则例外。
 
-固定运行控制仍是 node forge.mjs；不修改 PM2、重启协议、自动修复或交付裁决。无人值守重启的授权与 Agent 当次重启确认分别处理，未得到明确例外授权前不得启用定时重启或以本需求推定本次部署重启已批准。
+固定运行控制仍是 node forge.mjs；不修改 PM2、重启协议、自动修复或交付裁决。用户于 2026-11-02 确认保留定时检查、空闲重启，已授权 daily 的安全更新全栈重启及其一小时重试窗口。授权限于 origin/main、有更新、工作区干净可快进、候选构建通过及任务空闲后的最终复核；不覆盖 Agent 当次部署、人工立即检查、interval 或故障修复后的再次重启。新版本加载仍待当次重启确认及运行验收，不能将固定授权当成已部署。
 
 研究依据：已核对 [Spring 调度](https://docs.spring.io/spring-framework/reference/integration/scheduling.html) 的 cron/timezone 支持和 [Git pull](https://git-scm.com/docs/git-pull) 的 ff-only 行为；项目使用 Spring Boot 3.4.5/Spring 6，实际兼容性以宿主编译及定向测试为准。Graphify 2026-08-23 索引陈旧，本次更新链依据当前源码核实。

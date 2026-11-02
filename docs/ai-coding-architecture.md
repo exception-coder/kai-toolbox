@@ -798,7 +798,7 @@ flowchart LR
 
 Forge 运行入口提供 Cloudflare 本地隧道的 Node 控制（tunnel start/stop/status/check），复用工作区私有 PM2。本机显式启用 `FORGE_CLOUDFLARE_ENABLED` 后，固定域名隧道随项目启动与完整重载运行，控制器重建时恢复，PM2 对意外退出做有限次数重试；全量 stop 仍停止它。启动完成判断要求本机服务与固定域名首页、API 均可回源，status/check 区分进程与公网状态，不能以 PM2 online 代替公网可用。远端域名、DNS 和凭证仍由 Cloudflare 及本机现有配置负责；Quick Tunnel 保持手动控制，不随登录默认启动，也不改变工程上下文、Agent 重启授权或交付裁决。固定/临时入口与网络边界见 [启动说明](../scripts/STARTUP.md#cloudflare-固定域名隧道)。
 
-Java 自动更新器新增每日触发模式：默认北京时间 00:00 开启一小时检查/重试窗口，没有更新即结束；停机错过不补跑，已开始的单轮操作仍完成。它继续独占远端 Git 检查、独立候选构建、空闲排空及固定 SHA 快进，再交给原 Forge/PM2 接管，不新增系统定时任务或起停脚本；interval 可显式保留旧轮询。状态报告计划检查时间，不代表构建或新版本运行成功。无人值守每日重启需用户明确授权，Agent 当次部署重启规则与原交付验证闭环不变；配置、实现与尚未运行验收的边界见[每日更新任务](../openspec/changes/schedule-daily-source-update/tasks.md)。现有组件职责及架构图连线不变。
+Java 自动更新器新增每日触发模式：默认北京时间 00:00 开启一小时检查/重试窗口，没有更新即结束；停机错过不补跑，已开始的单轮操作仍完成。它继续独占远端 Git 检查、独立候选构建、空闲排空及固定 SHA 快进，再交给原 Forge/PM2 接管，不新增系统定时任务或起停脚本；interval 可显式保留旧轮询。状态报告计划检查时间，不代表构建或新版本运行成功。用户于 2026-11-02 已明确授权每日模式按上述安全条件自动全栈重启，固定例外记录于 AGENTS.md；Agent 当次部署、人工立即检查、interval 和故障修复后的再次重启仍须当次确认，原交付验证闭环不变；配置、实现与尚未运行验收的边界见[每日更新任务](../openspec/changes/schedule-daily-source-update/tasks.md)。现有组件职责及架构图连线不变。
 
 ```mermaid
 flowchart LR
