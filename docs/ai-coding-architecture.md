@@ -4,6 +4,8 @@
 
 产品与交互决策遵循 [产品哲学](product-philosophy.md)。具体行为以 OpenSpec 为准，调用参数和实现细节回到组件文档；本文维护整体关系，不替代它们。
 
+面向使用者的能力介绍与上手路径见 [Forge README](../README.md)。[移动协作功能总览](diagrams/Forge移动协作功能总览.drawio)与[团队开发协作架构](diagrams/Forge团队开发协作架构.drawio)提供可编辑的概览视图，分别配有[功能预览](diagrams/Forge移动协作功能总览.png)和[架构预览](diagrams/Forge团队开发协作架构.png)；它们概括现有实现，不改变本文的组件职责、上下文权威或交付边界。
+
 ## 整体协作图
 
 ![团队 AI 编码套件整体协作架构](diagrams/ai-coding-architecture.png)
