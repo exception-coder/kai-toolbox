@@ -16,6 +16,8 @@ public class ConsultBackendStore {
 
     public record Client(String id, String appId, String tenantId, String secretHash,
                          String projects, long version, boolean enabled, long expiresAt) {}
+    public record ClientMetadata(String id, String appId, String tenantId, String projects,
+                                 long version, boolean enabled, long expiresAt, String changedBy, long changedAt) {}
     public record Task(String id, String clientId, String requestId, String inputHash, String input,
                        String status, String result, String errorCode, long createdAt,
                        Long startedAt, Long finishedAt, Long policyVersion) {}
@@ -26,6 +28,17 @@ public class ConsultBackendStore {
     public Optional<Client> client(String id) {
         return jdbc.query("SELECT " + CLIENT_COLUMNS + " FROM consult_service_client WHERE client_id = ?",
                 (r, n) -> client(r), id).stream().findFirst();
+    }
+
+    /** Explicit projection prevents credential digests from entering the management response. */
+    public List<ClientMetadata> clients(String query) {
+        String pattern = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+        return jdbc.query("SELECT client_id, app_id, tenant_id, project_ids, version, enabled, expires_at, changed_by, changed_at FROM consult_service_client "
+                        + "WHERE app_id LIKE ? ESCAPE '\\' OR tenant_id LIKE ? ESCAPE '\\' OR client_id LIKE ? ESCAPE '\\' "
+                        + "ORDER BY app_id, tenant_id, client_id LIMIT 201",
+                (r, n) -> new ClientMetadata(r.getString("client_id"), r.getString("app_id"), r.getString("tenant_id"),
+                        r.getString("project_ids"), r.getLong("version"), r.getBoolean("enabled"), r.getLong("expires_at"),
+                        r.getString("changed_by"), r.getLong("changed_at")), pattern, pattern, pattern);
     }
 
     private Client client(ResultSet r) throws SQLException {
@@ -45,7 +58,7 @@ public class ConsultBackendStore {
     }
 
     public void revoke(String id, String actor) {
-        jdbc.update("UPDATE consult_service_client SET enabled = 0, version = version + 1, changed_by = ?, changed_at = ? WHERE client_id = ?",
+        jdbc.update("UPDATE consult_service_client SET enabled = 0, version = version + 1, changed_by = ?, changed_at = ? WHERE client_id = ? AND enabled = 1",
                 actor, System.currentTimeMillis(), id);
     }
 

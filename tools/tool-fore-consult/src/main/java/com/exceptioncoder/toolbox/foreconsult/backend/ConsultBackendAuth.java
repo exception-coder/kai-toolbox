@@ -43,7 +43,7 @@ public class ConsultBackendAuth {
     }
 
     private String administrator() {
-        requireEnabled();
+        if (!authEnabled) throw new ConsultBackendException(503, "INTEGRATION_DISABLED", "应用授权管理要求开启平台认证", false);
         return AuthContext.current().filter(p -> p.hasAnyRole("ADMIN"))
                 .map(p -> String.valueOf(p.userId())).orElseThrow(() -> new ConsultBackendException(403, "ADMIN_REQUIRED", "仅管理员可管理应用凭据", false));
     }
@@ -56,7 +56,31 @@ public class ConsultBackendAuth {
         @Override public String toString() { return "AccessToken[redacted]"; }
     }
 
-    public Credential create(GrantRequest request) {
+    public record ClientView(String clientId, String appId, String tenantId, List<String> projectIds,
+                             long version, String status, long expiresAt, String changedBy, long changedAt) {}
+    public record ProjectOption(String id, String name) {}
+    public record ManagementView(boolean enabled, List<ClientView> clients, List<ProjectOption> projects, boolean truncated) {}
+
+    public ManagementView management(String query) {
+        administrator();
+        String search = query == null ? "" : query.trim();
+        if (search.length() > 100) throw ConsultBackendException.invalid("搜索内容最多 100 字符");
+        var rows = store.clients(search);
+        long now = System.currentTimeMillis();
+        var clients = rows.stream().limit(200).map(c -> new ClientView(c.id(), c.appId(), c.tenantId(),
+                readProjectIds(c.projects()), c.version(), !c.enabled() ? "REVOKED" : c.expiresAt() <= now ? "EXPIRED" : "ACTIVE",
+                c.expiresAt(), c.changedBy(), c.changedAt())).toList();
+        var options = projects.list(false).stream().filter(p -> p.available() && !p.excluded() && access.allowed(Path.of(p.path())))
+                .map(p -> new ProjectOption(p.id(), p.name())).toList();
+        return new ManagementView(enabled, clients, options, rows.size() > 200);
+    }
+
+    public synchronized Credential create(GrantRequest request) {
+        return create(request, null);
+    }
+
+    /** Optional intent key protects browser retries without restricting existing multi-grant callers. */
+    public synchronized Credential create(GrantRequest request, String intentKey) {
         String actor = administrator();
         if (request == null) throw ConsultBackendException.invalid("缺少授权内容");
         identifier(request.appId(), "appId"); identifier(request.tenantId(), "tenantId");
@@ -65,9 +89,16 @@ public class ConsultBackendAuth {
         var ids = request.projectIds() == null ? List.<String>of() : List.copyOf(request.projectIds());
         if (ids.size() > 8 || ids.stream().distinct().count() != ids.size()) throw ConsultBackendException.invalid("最多授权 8 个不重复项目");
         validateProjects(ids);
+        if (intentKey != null && !intentKey.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
+            throw ConsultBackendException.invalid("Idempotency-Key 必须为 UUID");
+        String clientId = "fca_" + (intentKey == null ? UUID.randomUUID()
+                : UUID.nameUUIDFromBytes((actor + ":" + intentKey.toLowerCase(java.util.Locale.ROOT)).getBytes(StandardCharsets.UTF_8)))
+                .toString().replace("-", "");
+        if (store.client(clientId).isPresent())
+            throw new ConsultBackendException(409, "CREDENTIAL_ALREADY_ISSUED", "本次颁发已完成，密钥不能再次读取。请刷新列表核对应用，遗失密钥请显式轮换", false);
         try {
             String secret = randomValue();
-            var client = new ConsultBackendStore.Client("fca_" + UUID.randomUUID().toString().replace("-", ""), request.appId(), request.tenantId(),
+            var client = new ConsultBackendStore.Client(clientId, request.appId(), request.tenantId(),
                     hash(secret), mapper.writeValueAsString(ids), 1, true, request.expiresAt());
             store.insertClient(client, actor);
             return credential(client, secret, 1);
@@ -131,7 +162,11 @@ public class ConsultBackendAuth {
     }
 
     public List<String> projectIds(ConsultBackendStore.Client client) {
-        try { return mapper.readValue(client.projects(), new TypeReference<List<String>>() {}); }
+        return readProjectIds(client.projects());
+    }
+
+    private List<String> readProjectIds(String projects) {
+        try { return mapper.readValue(projects, new TypeReference<List<String>>() {}); }
         catch (Exception error) { throw new IllegalStateException("应用项目授权损坏", error); }
     }
 

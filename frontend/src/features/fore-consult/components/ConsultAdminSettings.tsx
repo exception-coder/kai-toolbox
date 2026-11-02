@@ -19,6 +19,12 @@ export function ConsultAdminSettings({ sourcePath, modelPolicy }: { sourcePath?:
     || values.uploadMaxMb < 1 || values.uploadMaxMb > 200 || values.readMaxMb < 1 || values.readMaxMb > values.uploadMaxMb
     || values.uploadMaxMb * 1024 * 1024 > (limits.data?.transportMaxBytes ?? 0)
   return <div className="space-y-6 border-b pb-6 text-sm">
+    <section aria-labelledby="consult-backend-access" className="space-y-3">
+      <h3 id="consult-backend-access" className="font-semibold">外部应用接入</h3>
+      <p className="text-xs leading-5 text-muted-foreground">为本实例的 yoooni-agent 等应用颁发凭据，查看授权范围、有效期并轮换或撤销。密钥只在生成后显示一次。</p>
+      <a href="/tools/fore-consult/access" target="_blank" rel="noopener" className="inline-flex min-h-11 items-center text-sm underline underline-offset-4">管理应用接入凭据 ↗</a>
+      <p className="text-xs text-muted-foreground">在独立页面管理，保留当前咨询和配置草稿。</p>
+    </section>
     <section aria-labelledby="consult-account-settings" className="space-y-3">
       <h3 id="consult-account-settings" className="font-semibold">咨询默认 AI 账号</h3>
       <p className="break-all text-xs text-muted-foreground">{modelPolicy?.codexHome ?? '尚未配置'} · {modelPolicy?.displayName ?? modelPolicy?.model ?? '尚未选择模型'}</p>

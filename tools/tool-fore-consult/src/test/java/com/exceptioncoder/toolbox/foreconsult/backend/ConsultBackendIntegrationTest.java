@@ -111,6 +111,70 @@ class ConsultBackendIntegrationTest {
         assertThatThrownBy(this::token).isInstanceOf(ConsultBackendException.class);
     }
 
+    @Test void managementRequiresAdministratorAndNeverSerializesSecretsOrDigests() throws Exception {
+        mvc.perform(get("/api/fore-consult/backend-clients")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/fore-consult/backend-clients").header("Authorization", "Bearer " + token())).andExpect(status().isUnauthorized());
+        AuthContext.set(new AuthPrincipal(8, "employee", List.of("USER"), List.of(), "jwt", Long.MAX_VALUE));
+        mvc.perform(get("/api/fore-consult/backend-clients")).andExpect(status().isForbidden());
+        admin();
+        var response = mvc.perform(get("/api/fore-consult/backend-clients"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.clients[0].clientId").value(credential.clientId()))
+                .andExpect(jsonPath("$.clients[0].status").value("ACTIVE"))
+                .andExpect(jsonPath("$.projects[0].id").value("erp"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(response).doesNotContain(credential.clientSecret(), principal.secretHash(), "secretHash", "clientSecret", "token_hash");
+        auth.create(new ConsultBackendAuth.GrantRequest("one_app", "tenant-a", List.of(), System.currentTimeMillis() + 86400000));
+        assertThat(auth.management("one_").clients()).extracting(ConsultBackendAuth.ClientView::appId).containsExactly("one_app");
+        assertThatThrownBy(() -> auth.management("x".repeat(101))).isInstanceOf(ConsultBackendException.class);
+    }
+
+    @Test void disabledAnalysisAllowsAdministratorPreparationButStillRejectsApplicationTokens() {
+        var prepared = new ConsultBackendAuth(store, excluded -> List.of(), path -> true, mapper, false, true);
+        admin();
+        assertThat(prepared.management("").enabled()).isFalse();
+        var next = prepared.create(new ConsultBackendAuth.GrantRequest("prepared-app", "tenant-a", List.of(), System.currentTimeMillis() + 86400000));
+        prepared.revoke(next.clientId());
+        long version = store.client(next.clientId()).orElseThrow().version();
+        prepared.revoke(next.clientId());
+        assertThat(store.client(next.clientId()).orElseThrow().version()).isEqualTo(version);
+        assertThat(prepared.management("prepared-app").clients().getFirst().status()).isEqualTo("REVOKED");
+        assertThatThrownBy(() -> prepared.token("Basic unused", "client_credentials"))
+                .isInstanceOfSatisfying(ConsultBackendException.class, e -> assertThat(e.code()).isEqualTo("INTEGRATION_DISABLED"));
+        AuthContext.clear();
+        assertThatThrownBy(() -> prepared.management("")).isInstanceOf(ConsultBackendException.class);
+    }
+
+    @Test void repeatedAndConcurrentIssuanceReusesIntentWithoutRestrictingIndependentGrants() throws Exception {
+        String intent = java.util.UUID.randomUUID().toString();
+        try (var pool = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            var futures = java.util.stream.IntStream.range(0, 6).mapToObj(i -> pool.submit(() -> {
+                admin();
+                try {
+                    auth.create(new ConsultBackendAuth.GrantRequest("new-app", "tenant-a", List.of(), System.currentTimeMillis() + 86400000), intent);
+                    return "CREATED";
+                } catch (ConsultBackendException e) { return e.code(); }
+                finally { AuthContext.clear(); }
+            })).toList();
+            var results = new java.util.ArrayList<String>();
+            for (var future : futures) results.add(future.get());
+            assertThat(results).filteredOn("CREATED"::equals).hasSize(1);
+            assertThat(results).filteredOn("CREDENTIAL_ALREADY_ISSUED"::equals).hasSize(5);
+        }
+        admin();
+        jdbc.update("UPDATE consult_service_client SET expires_at = 1 WHERE app_id = 'new-app'");
+        assertThat(auth.management("new-app").clients().getFirst().status()).isEqualTo("EXPIRED");
+        String grantBody = mapper.writeValueAsString(new ConsultBackendAuth.GrantRequest("new-app", "tenant-a", List.of(), System.currentTimeMillis() + 86400000));
+        mvc.perform(post("/api/fore-consult/backend-clients").header("Idempotency-Key", intent).contentType("application/json").content(grantBody))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CREDENTIAL_ALREADY_ISSUED"));
+        mvc.perform(post("/api/fore-consult/backend-clients").header("Idempotency-Key", "invalid").contentType("application/json").content(grantBody))
+                .andExpect(status().isBadRequest());
+        assertThatThrownBy(() -> auth.create(new ConsultBackendAuth.GrantRequest("new-app", "tenant-a", List.of(), System.currentTimeMillis() + 86400000), intent))
+                .isInstanceOfSatisfying(ConsultBackendException.class, e -> assertThat(e.code()).isEqualTo("CREDENTIAL_ALREADY_ISSUED"));
+        auth.create(new ConsultBackendAuth.GrantRequest("new-app", "tenant-a", List.of(), System.currentTimeMillis() + 86400000));
+        assertThat(auth.management("new-app").clients()).hasSize(2);
+    }
+
     @Test void rejectsAnonymousAdministrationUserTokensWrongTenantAndOtherApplicationTasks() throws Exception {
         assertThatThrownBy(() -> auth.create(new ConsultBackendAuth.GrantRequest("app", "tenant", List.of(), System.currentTimeMillis() + 100000))).isInstanceOf(ConsultBackendException.class);
         mvc.perform(post("/api/fore-consult/backend-clients").contentType("application/json").content("{}")).andExpect(status().isUnauthorized());

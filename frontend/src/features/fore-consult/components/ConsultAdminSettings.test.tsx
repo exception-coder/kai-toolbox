@@ -25,6 +25,8 @@ function mount(sourcePath?: string) { render(<QueryClientProvider client={new Qu
 
 it('shows published database selection and links to the original record; invalid limits cannot save', async () => {
   mount()
+  expect(screen.getByRole('link', { name: '管理应用接入凭据 ↗' })).toHaveAttribute('href', '/tools/fore-consult/access')
+  expect(screen.getByRole('link', { name: '管理应用接入凭据 ↗' })).toHaveAttribute('target', '_blank')
   expect(await screen.findByText('ERP · 测试Oracle')).toBeInTheDocument()
   expect(screen.getByText(/已发布流程选用 · 允许查询/)).toBeInTheDocument()
   expect(screen.getByRole('link', { name: '查看 / 修改此连接 ↗' })).toHaveAttribute('href', expect.stringContaining('editDatasource=ds-test'))

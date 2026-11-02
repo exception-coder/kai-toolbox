@@ -45,8 +45,8 @@ Forge 分析任务有独立 taskId，不自动成为页面上的咨询或历史�
 
 1. 确认测试目标版本包含 `5cd15729c`，启用 `FORGE_CONSULT_BACKEND_ENABLED=true`，保持平台认证开启，并核对现有默认 AI 账号可用。需要加载版本时须单独取得本次重启授权，通过 `node forge.mjs` 执行；本交接不代表已获重启授权。
 2. 确认真实 HTTPS 站点根地址和代理的 Authorization 转发。当前**没有已验证的测试 Base URL**；本机端口和 `https://forge-test.example.com` 不能当作对外可用地址。不要开放 Sidecar 端口。
-3. 确定内部企业 tenantId 和允许的 ProjectCatalog 稳定项目 ID。授权名称不是 ID；`projectIds: []` 可以先闭环验证调用方资料分析，但不含源码证据。
-4. 由 Forge 管理员使用自己的管理员身份创建应用授权。服务账号不是平台注册员工；不要让接入方保存管理员 Token。
+3. 确定内部企业 tenantId 和允许的 ProjectCatalog 稳定项目 ID。授权名称不是 ID；`projectIds: []` 可以先闭环验证调用方资料分析，但不含源码证据。同事使用本机 Forge 时，由该本机实例颁发，不向另一台开发电脑申请。
+4. 由 Forge 管理员使用自己的管理员身份创建应用授权。优先使用 **业务咨询 → 配置 → 外部应用接入 → 管理应用接入凭据**（`/tools/fore-consult/access`），填写应用、企业、有效期与项目范围，颁发后保存当次私有配置。分析开关关闭时也可先准备授权，换票仍须先启用；页面不自动重启服务。服务账号不是平台注册员工；不要让接入方保存管理员 Token。需要脚本接入时，API 如下。
 
    ```http
    POST /api/fore-consult/backend-clients

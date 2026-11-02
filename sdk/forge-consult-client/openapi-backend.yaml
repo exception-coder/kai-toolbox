@@ -80,9 +80,27 @@ paths:
         '202': { $ref: '#/components/responses/TaskResponse' }
         default: { $ref: '#/components/responses/Failure' }
   /api/fore-consult/backend-clients:
+    get:
+      operationId: listConsultBackendClients
+      security: [{ AdministratorBearer: [] }]
+      description: Administrator metadata only, including when analysis is disabled. No secrets, hashes or tokens. Up to 200 matching grants.
+      parameters:
+        - { in: query, name: q, schema: { type: string, maxLength: 100 }, description: Literal substring in appId, tenantId or clientId. }
+      responses:
+        '200':
+          description: Current-instance configuration and safe grant metadata.
+          headers:
+            Cache-Control: { schema: { type: string, enum: [no-store] } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BackendManagement' }
+        default: { $ref: '#/components/responses/Failure' }
     post:
       operationId: provisionConsultBackendClient
+      description: Requires administrator authentication, including when analysis is disabled. A completed administrator/Idempotency-Key intent returns CREDENTIAL_ALREADY_ISSUED without returning the old secret. Independent grants for the same application remain supported.
       security: [{ AdministratorBearer: [] }]
+      parameters:
+        - { in: header, name: Idempotency-Key, required: false, schema: { type: string, format: uuid }, description: Stable issuance intent per administrator. Persist before sending and reuse after an unknown response. }
       requestBody:
         required: true
         content:
@@ -175,6 +193,36 @@ components:
                 properties:
                   traceId: { type: string }
   schemas:
+    BackendManagement:
+      type: object
+      required: [enabled, clients, projects, truncated]
+      properties:
+        enabled: { type: boolean, description: Analysis feature switch loaded by this running instance. }
+        truncated: { type: boolean, description: More than 200 matches; refine q. }
+        projects:
+          type: array
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id: { type: string }
+              name: { type: string }
+        clients:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [clientId, appId, tenantId, projectIds, version, status, expiresAt, changedBy, changedAt]
+            properties:
+              clientId: { type: string }
+              appId: { type: string }
+              tenantId: { type: string }
+              projectIds: { type: array, items: { type: string } }
+              version: { type: integer, format: int64 }
+              status: { type: string, enum: [ACTIVE, EXPIRED, REVOKED] }
+              expiresAt: { type: integer, format: int64 }
+              changedBy: { type: string, description: Last administrator ID, not a complete audit trail. }
+              changedAt: { type: integer, format: int64 }
     Identifier: { type: string, pattern: '^[A-Za-z0-9_.:-]{1,100}$' }
     AnalysisInput:
       type: object

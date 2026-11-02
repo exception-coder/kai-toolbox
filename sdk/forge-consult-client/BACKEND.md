@@ -23,6 +23,14 @@ Forge 不发送飞书消息，不修改业务数据。目标引擎复用 `AgentO
 
 ## 管理员申请与安全交付
 
+### 可视化管理
+
+管理员打开 **业务咨询 → 配置 → 外部应用接入 → 管理应用接入凭据**，或直接访问本实例 `/tools/fore-consult/access`。同事本地运行 Forge 时，在其本地实例开通，不连接另一位开发者的电脑，也不共用其他实例的凭据。
+
+页面支持搜索应用/企业/clientId，查看授权范围、状态、到期和最近变更，颁发、轮换/续期及撤销。颁发或轮换后，密钥仅当次显示，可复制/下载包含四个 `FORGE_*` 变量的服务端私有配置；请按接入方实际可访问地址填写 Base URL。遗失密钥需显式轮换，列表不能找回明文。页面颁发使用 UUID `Idempotency-Key` 并保留非敏感草稿及请求标识，刷新后相同申请不重复颁发；已完成的键返回 `409 CREDENTIAL_ALREADY_ISSUED`，应查看现有记录并按需轮换。此请求头为可选扩展，原 API 仍允许为同一应用/企业显式颁发多组独立凭据。
+
+授权管理可在分析开关关闭时先行准备，仍要求现有管理员身份和平台认证开启。分析换票/执行继续受 `FORGE_CONSULT_BACKEND_ENABLED` 控制，页面不写部署开关、不自动重启服务。需要改变项目或企业范围时，撤销后重新颁发；新 clientId 不继承旧任务。首次开通和后续轮换仍可沿用下述 API。
+
 1. 管理员通过现有 Forge 登录取得自己的管理员 Token；应用无需该 Token，更不需要管理员密码。部署设置 `FORGE_CONSULT_BACKEND_ENABLED=true`，保持 `toolbox.auth.enabled=true`；后端加载须按项目规则单独确认重启。
 2. 管理员从现有 ProjectCatalog 确定可授权的稳定项目 ID。`ERP/SRM/PLM` 等名称不能直接当作授权 ID。`projectIds: []` 可只分析调用方资料。
 3. 管理员 `POST /api/fore-consult/backend-clients`，使用 `Authorization: Bearer <管理员Token>`，JSON 示例：
@@ -36,6 +44,8 @@ Forge 不发送飞书消息，不修改业务数据。目标引擎复用 `AgentO
 5. 轮换：管理员 `POST /api/fore-consult/backend-clients/{clientId}/rotate`，仅返回一次新 secret；可附 JSON `{"expiresAt":新的毫秒时间戳}` 续期未撤销的授权（包括已到期授权，仍限未来一年以内），不改变企业或项目范围。旧 secret 和旧短期票据立即失效；更新应用 Secret，SDK 调用 `resetAuthentication()` 后重新换票。原任务仍属于相同 clientId。撤销使用 `POST .../{clientId}/revoke`，不可用旧凭据重新启用；重新授权需另建凭据。
 
 Base URL 须为站点根，例如 `https://forge-test.example.com`（占位，非真实地址）。反向代理必须使用 TLS 并保留 Authorization。此 HTTP 后端调用不需要浏览器 CORS/WSS 配置。宿主默认 JWT whitelist 已精确包含 `/api/fore-consult/v1/token`、`/api/fore-consult/v1/analysis-tasks` 及其子路由；这些接口始终独立验证应用凭据，不是匿名开放。部署如覆盖 whitelist 或给整个咨询路径配置 ADMIN-only，须精确恢复专用路由的应用认证，不得放开其余接口。
+
+管理员元数据接口：`GET /api/fore-consult/backend-clients?q=...`，返回 `{enabled,clients,projects,truncated}`，最多 200 条并支持按应用、企业或 clientId 搜索（最多 100 字符）。clients 只含 clientId、appId、tenantId、projectIds、version、status（ACTIVE/EXPIRED/REVOKED）、expiresAt、changedBy、changedAt；projects 为可授权的 `{id,name}`，不返回路径。无 secret、摘要或票据。响应 no-store，普通用户和应用票据均拒绝，最近变更不是完整审计历史。管理与分析开关分别反映实际启动配置，页面入口准备不代表已部署或真实模型联调完成。
 
 ## 认证
 

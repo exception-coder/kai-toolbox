@@ -23,13 +23,18 @@ public class ConsultBackendAdminController {
         this.mapper.enable(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
     }
 
+    @GetMapping
+    public ResponseEntity<ConsultBackendAuth.ManagementView> list(@RequestParam(defaultValue = "") String q) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(auth.management(q));
+    }
+
     @PostMapping
     public ResponseEntity<ConsultBackendAuth.Credential> create(HttpServletRequest request) throws Exception {
         ConsultBackendAuth.GrantRequest grant;
         try { grant = mapper.readValue(ConsultBackendController.read(request), ConsultBackendAuth.GrantRequest.class); }
         catch (ConsultBackendException e) { throw e; }
         catch (Exception e) { throw ConsultBackendException.invalid("授权参数无效"); }
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(auth.create(grant));
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(auth.create(grant, request.getHeader("Idempotency-Key")));
     }
 
     @PostMapping("/{id}/rotate")

@@ -8,6 +8,7 @@ const ForeConsultPage = lazy(() =>
 )
 
 const PagePreviewPage = lazy(() => import('@/features/browser-request/public-api').then(m => ({ default: m.PagePreviewPage })))
+const ConsultBackendAccessPage = lazy(() => import('./pages/ConsultBackendAccessPage').then(m => ({ default: m.ConsultBackendAccessPage })))
 
 const manifest: FeatureManifest = {
   id: 'fore-consult',
@@ -23,7 +24,8 @@ const manifest: FeatureManifest = {
         <ForeConsultPage />
       </ConfirmProvider>
     ),
-  }, { path: '/tools/fore-consult/preview', element: <PagePreviewPage /> },
+  }, { path: '/tools/fore-consult/access', element: <ConsultBackendAccessPage /> },
+  { path: '/tools/fore-consult/preview', element: <PagePreviewPage /> },
   { path: '/tools/fore-consult/preview/:previewId', element: <PagePreviewPage /> }],
 }
 
