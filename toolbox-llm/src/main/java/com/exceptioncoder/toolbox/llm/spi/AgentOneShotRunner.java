@@ -85,6 +85,14 @@ public interface AgentOneShotRunner {
         throw new UnsupportedOperationException("当前执行器不支持受管分析任务");
     }
 
+    /** Unknown image capability is false. Implementations must not silently discard original images. */
+    default boolean supportsManagedImages(ExecutionRequest request) { return false; }
+
+    default String runManaged(ExecutionRequest request, String executionId, List<ImageInput> images) {
+        if (images != null && !images.isEmpty()) throw new UnsupportedOperationException("当前受管执行器未实现图片输入");
+        return runManaged(request, executionId);
+    }
+
     /** Requests cancellation only. Returning true means the request was sent, not that execution has stopped. */
     default boolean cancelManaged(String executionId) { return false; }
 

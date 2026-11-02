@@ -1,7 +1,7 @@
 {
   "name": "@kai/forge-consult-client",
-  "version": "0.2.0",
-  "description": "Forge 业务咨询客户端：浏览器与 Node.js 的有界 WSS 接入",
+  "version": "0.3.0",
+  "description": "Forge 业务咨询客户端：有界 WSS 与应用身份图文分析、回复候选",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

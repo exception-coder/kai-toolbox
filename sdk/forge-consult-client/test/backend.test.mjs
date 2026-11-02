@@ -70,3 +70,59 @@ test('backend client rejects insecure or credential-bearing URLs and malformed t
     fetch: async () => response({ access_token: 'not-valid', expires_in: 900, token_type: 'Bearer' }) });
   await assert.rejects(client.submit(input), e => e.code === 'INVALID_TOKEN_RESPONSE');
 });
+
+const image = { attachmentId: 'img_11111111-1111-4111-8111-111111111111', uploadId: 'upload-001',
+  sha256: 'a'.repeat(64), mediaType: 'image/png', size: 3, width: 2, height: 2, createdAt: 1000, expiresAt: 86401000 };
+
+test('application upload sends exact original bytes and uses a separate recoverable upload identity', async () => {
+  const requests = [];
+  const bytes = new Uint8Array([1, 2, 3]);
+  const client = new ForgeConsultBackendClient({ baseUrl: 'http://127.0.0.1:18080', clientId: 'client-1', getClientSecret: () => secret,
+    fetch: async (url, init) => {
+      if (url.endsWith('/token')) return authResponse();
+      requests.push({ url, init });
+      if (init.method === 'POST' && url.includes('/attachments')) {
+        assert.equal(init.headers['Content-Type'], 'image/png');
+        assert.deepEqual(new Uint8Array(await init.body.arrayBuffer()), bytes);
+        return response(image);
+      }
+      if (url.includes('/analysis-tasks')) {
+        const sent = JSON.parse(init.body);
+        assert.deepEqual(sent.attachmentIds, [image.attachmentId]);
+        assert.equal(sent.replyMode, 'FORGE');
+        assert.equal(sent.requestId, input.requestId);
+        return response({ ...task, attachmentIds: sent.attachmentIds }, 202);
+      }
+      return response(image);
+    } });
+  assert.equal((await client.uploadImage(image.uploadId, bytes, 'image/png')).attachmentId, image.attachmentId);
+  assert.equal((await client.findImage(image.uploadId)).sha256, image.sha256);
+  assert.equal((await client.getImage(image.attachmentId)).attachmentId, image.attachmentId);
+  await client.submit({ ...input, attachmentIds: [image.attachmentId], replyMode: 'FORGE' });
+  assert.equal(requests.length, 4);
+  assert(requests.every(r => r.init.headers.Authorization === 'Bearer ' + token));
+});
+
+test('upload timeout does not resend, owner recovery and expiry keep their own error contract', async () => {
+  let uploads = 0;
+  const client = new ForgeConsultBackendClient({ baseUrl: 'https://forge.example.test', clientId: 'client-1', getClientSecret: () => secret,
+    fetch: async (url, init) => {
+      if (url.endsWith('/token')) return authResponse();
+      assert(url.endsWith('/attachments?uploadId=upload-001'));
+      if (init.method === 'POST') { uploads++; throw new Error('response lost'); }
+      return response({ code: 'ATTACHMENT_EXPIRED', message: '原图已过期', retryable: false }, 410);
+    } });
+  await assert.rejects(client.uploadImage('upload-001', new Uint8Array([1]), 'image/png'), e => e.code === 'REQUEST_STATUS_UNKNOWN');
+  assert.equal(uploads, 1);
+  await assert.rejects(client.findImage('upload-001'), e => e.code === 'ATTACHMENT_EXPIRED' && e.status === 410);
+});
+
+test('image SDK rejects invalid input and malformed metadata without inventing a usable attachment', async () => {
+  let calls = 0;
+  const client = new ForgeConsultBackendClient({ baseUrl: 'https://forge.example.test', clientId: 'client-1', getClientSecret: () => secret,
+    fetch: async url => { calls++; return url.endsWith('/token') ? authResponse() : response({ ...image, sha256: 'bad' }); } });
+  await assert.rejects(client.uploadImage('short', new Uint8Array([1]), 'image/png'), e => e.code === 'INVALID_IMAGE_INPUT');
+  await assert.rejects(client.uploadImage('upload-001', new Uint8Array(), 'image/jpeg'), e => e.code === 'INVALID_IMAGE_INPUT');
+  assert.equal(calls, 0);
+  await assert.rejects(client.getImage(image.attachmentId), e => e.code === 'INVALID_IMAGE_RESPONSE');
+});

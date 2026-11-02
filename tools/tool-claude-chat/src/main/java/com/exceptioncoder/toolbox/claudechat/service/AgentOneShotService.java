@@ -39,16 +39,18 @@ public class AgentOneShotService implements AgentOneShotRunner {
     private final ClaudeChatProperties props;
     private final AgentTelemetry telemetry;
     private final AgentWorkAdmissionGate admissionGate;
+    private final CodexModelCatalogService modelCatalog;
     private final Map<String, Call> calls = new ConcurrentHashMap<>();
 
     public AgentOneShotService(SidecarProcessRegistry processRegistry, SidecarClient sidecar,
                                ClaudeChatProperties props, AgentTelemetry telemetry,
-                               AgentWorkAdmissionGate admissionGate) {
+                               AgentWorkAdmissionGate admissionGate, CodexModelCatalogService modelCatalog) {
         this.processRegistry = processRegistry;
         this.sidecar = sidecar;
         this.props = props;
         this.telemetry = telemetry;
         this.admissionGate = admissionGate;
+        this.modelCatalog = modelCatalog;
     }
 
     @Override
@@ -76,6 +78,18 @@ public class AgentOneShotService implements AgentOneShotRunner {
     @Override
     public String runManaged(ExecutionRequest request, String executionId) {
         return executeObserved(request, null, null, managedId(executionId)).text();
+    }
+
+    @Override
+    public boolean supportsManagedImages(ExecutionRequest request) {
+        return "codex".equals(request.engine()) && modelCatalog.supportsImages(request.codexHome(), request.model());
+    }
+
+    @Override
+    public String runManaged(ExecutionRequest request, String executionId, List<ImageInput> images) {
+        if (images == null || images.isEmpty()) return runManaged(request, executionId);
+        if (!supportsManagedImages(request)) throw new UnsupportedOperationException("所选模型未声明图片输入能力");
+        return executeObserved(request, null, List.copyOf(images), managedId(executionId)).text();
     }
 
     @Override

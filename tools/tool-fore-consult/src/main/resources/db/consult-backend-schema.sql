@@ -38,3 +38,20 @@ CREATE TABLE IF NOT EXISTS consult_analysis_task (
     FOREIGN KEY (client_id) REFERENCES consult_service_client(client_id)
 );
 CREATE INDEX IF NOT EXISTS idx_consult_analysis_queue ON consult_analysis_task(status, created_at);
+-- 功能：IT客服原图分析；变更：原子保存应用归属、上传摘要与图片字节；目的：隔离原图并支持幂等恢复及定期清理
+CREATE TABLE IF NOT EXISTS consult_analysis_attachment (
+    attachment_id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    upload_id TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    image_bytes BLOB,
+    UNIQUE (client_id, upload_id),
+    FOREIGN KEY (client_id) REFERENCES consult_service_client(client_id)
+);
+CREATE INDEX IF NOT EXISTS idx_consult_analysis_attachment_expiry ON consult_analysis_attachment(expires_at);

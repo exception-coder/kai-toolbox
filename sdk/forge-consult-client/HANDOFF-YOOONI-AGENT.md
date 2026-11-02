@@ -1,28 +1,30 @@
 # yoooni-agent「IT 客服伙伴」接入交接
 
-交付方：Forge 业务咨询平台。接入方：`yoooni-agent` 项目组及其开发 AI。日期：2026-11-01。实现提交：`5cd15729c`；API `v1`；SDK `@kai/forge-consult-client@0.2.0`，Node.js 22+。
+交付方：Forge 业务咨询平台。接入方：`yoooni-agent` 项目组及其开发 AI。日期：2026-11-02。初始接口提交：`5cd15729c`；本次原图/候选实现以随包源码提交为准；API 路径 `v1`、合同 `1.1.0`；SDK `@kai/forge-consult-client@0.3.0`，Node.js 22+。
 
-**现在可以按本文开发客户端；尚不能宣布测试环境已开放或真实联调通过。** 新接口默认关闭，本次没有重启服务、签发真实凭据或修改 yoooni-agent 工程。Forge 管理员完成下述环境交付后，接入方才能进行真实调用。
+**现在可以按本文开发客户端；尚不能宣布测试环境已开放或真实联调通过。** 新接口默认关闭，本次没有重启服务、签发真实凭据或修改 yoooni-agent 工程。各开发者在自己本机的 Forge 完成下述环境交付后才能真实调用；不要连接交付同事的电脑，不复用别人的账号目录或应用凭据。
 
 ## 一、交付物与可用范围
 
 本文负责双方执行交接。字段、状态、错误和安全约束的唯一接口正文是 [BACKEND.md](BACKEND.md)，机器合同是 [openapi-backend.yaml](openapi-backend.yaml)，可运行 Node 示例是 [examples/backend.mjs](examples/backend.mjs)。请将这些文件与 SDK tarball 一起转交，避免只转发本机绝对路径。
+
+图文完整请求及终态响应示例：[examples/backend-image-task.json](examples/backend-image-task.json)。示例内的 ID 和结果均为脱敏演示，不能当作已通过真实图文联调的证据。
 
 | 项目 | 本次交付 |
 |---|---|
 | 指定能力 | `agentId: it-support-partner`，固定后端分析能力 |
 | 调用方式 | HTTPS 异步任务，提交、轮询查询、按 requestId 恢复、取消；首版无回调 |
 | 身份 | 独立应用 clientId/clientSecret 换短期 Bearer 票据，不使用员工登录 Token 或 MCP |
-| 输入 | 问题、必要近期上下文、DeepSeek 分类、报错、附件提取文字、获准源码引用 |
+| 输入 | 问题、必要近期上下文、DeepSeek 分类、报错、原图、附件提取文字、获准源码引用 |
 | 输出 | 问题理解、分类、事实、可能原因、建议、缺失信息、未知项、依据、转人工建议 |
-| 三条候选 | **由 yoooni-agent 调用 DeepSeek 整理**，Forge 返回结构化分析和来源 |
+| 三条候选 | 显式 `replyMode=FORGE` 时由 Forge 返回恰好三条；旧请求省略仍为 CALLER |
 | 业务操作 | Forge 不发送飞书，不修改业务数据；发送仍由接入方人工确认 |
 | 原有使用 | 业务咨询页面和原用户 WSS 入口保持兼容；两种合同、凭据、ID 不混用 |
 | 当前状态 | 源码、SDK 和定向自动化验证已完成；测试地址、启用、凭据和真实联调待完成 |
 
 本接口复用现有业务咨询默认模型/账号策略，任务实际执行前读取配置，执行期间固定。能力入口在 `tools/tool-fore-consult/.../backend/`，默认模型管理沿用 `/api/fore-consult/model-policy`，应用授权入口为 `/api/fore-consult/backend-clients`。
 
-**能力边界必须保留：** 首版模型禁用工具，没有自主全库检索、数据库查询、Web 登录或图片二进制上传。可以分析调用方资料及管理员授权项目中显式指定的源码行段。调用方资料、源码片段、运行现场和数据库事实不能互相替代。这个后端分析入口不等同于页面咨询的全部工具能力。
+**能力边界必须保留：** 首版模型禁用工具，没有自主全库检索、数据库查询、Web 登录或回调。支持本应用身份上传静态 PNG/JPEG 原图。可以分析调用方资料及管理员授权项目中显式指定的源码行段。调用方资料、源码片段、运行现场和数据库事实不能互相替代。这个后端分析入口不等同于页面咨询的全部工具能力。
 
 ## 二、双方接线及分工
 
@@ -30,9 +32,9 @@
 飞书消息入库
 → yoooni-agent / DeepSeek 判断是否为 IT 问题
 → 是：建问题，保存 requestId 和完整分析输入
-→ Forge：认证、登记分析任务、执行、校验结果与证据
-→ yoooni-agent：保存 taskId、原始分析、依据及状态
-→ DeepSeek：整理三条通俗、可独立选择且结论一致的候选
+→ yoooni-agent：认证、上传原图，保存 uploadId/attachmentId
+→ Forge：登记图文分析任务、分析并生成三条通俗候选（replyMode=FORGE）、校验结果与证据
+→ yoooni-agent：保存 taskId、原始分析、依据、候选及来源
 → 人工选择、修改并保存
 → 人工确认后，由 yoooni-agent 的发送队列发送飞书
 ```
@@ -43,8 +45,8 @@ Forge 分析任务有独立 taskId，不自动成为页面上的咨询或历史�
 
 ## 三、Forge 管理员先交付什么
 
-1. 确认测试目标版本包含 `5cd15729c`，启用 `FORGE_CONSULT_BACKEND_ENABLED=true`，保持平台认证开启，并核对现有默认 AI 账号可用。需要加载版本时须单独取得本次重启授权，通过 `node forge.mjs` 执行；本交接不代表已获重启授权。
-2. 确认真实 HTTPS 站点根地址和代理的 Authorization 转发。当前**没有已验证的测试 Base URL**；本机端口和 `https://forge-test.example.com` 不能当作对外可用地址。不要开放 Sidecar 端口。
+1. 确认目标是本项目组自己运行的 Forge，版本包含本次原图/候选扩展，启用 `FORGE_CONSULT_BACKEND_ENABLED=true`，保持平台认证开启，并核对现有默认 Codex 账号和图片模型可用；所选账号 models_cache.json 中对应模型 input_modalities 须明确包含 image，未知时失败而非降为文字。需要加载版本时须单独取得本次重启授权，通过 `node forge.mjs` 执行；本交接不代表已获重启授权。
+2. 同机调用可使用已实际验证的 `http://127.0.0.1:<本机端口>`；跨机器须确认真实 HTTPS 站点根地址和代理的 Authorization 转发。当前**没有已验证的测试 Base URL**；占位域名和端口不能当作已可用地址。不要开放 Sidecar 端口。
 3. 确定内部企业 tenantId 和允许的 ProjectCatalog 稳定项目 ID。授权名称不是 ID；`projectIds: []` 可以先闭环验证调用方资料分析，但不含源码证据。同事使用本机 Forge 时，由该本机实例颁发，不向另一台开发电脑申请。
 4. 由 Forge 管理员使用自己的管理员身份创建应用授权。优先使用 **业务咨询 → 配置 → 外部应用接入 → 管理应用接入凭据**（`/tools/fore-consult/access`），填写应用、企业、有效期与项目范围，颁发后保存当次私有配置。分析开关关闭时也可先准备授权，换票仍须先启用；页面不自动重启服务。服务账号不是平台注册员工；不要让接入方保存管理员 Token。需要脚本接入时，API 如下。
 
@@ -82,7 +84,7 @@ Forge 分析任务有独立 taskId，不自动成为页面上的咨询或历史�
 从交付 ZIP 取出 tarball，在 yoooni-agent 工程的后端目录安装；尚未发布公共 npm：
 
 ```powershell
-npm install ./kai-forge-consult-client-0.2.0.tgz
+npm install ./kai-forge-consult-client-0.3.0.tgz
 ```
 
 仅在服务器配置以下变量，不使用 `VITE_` 等客户端注入前缀：
@@ -126,13 +128,14 @@ const task = await forge.get(receipt.taskId);
 | 报错、附件提取文字 | `errorText` / `attachmentTexts: [{id,name,text}]` |
 | 明确源码证据 | `evidenceRefs: [{projectId,path,startLine,endLine}]`，项目必须获准且包含在 systemIds 中 |
 
-附件首版由接入方提取文字；文件名、附件 URL 或截图描述不代表 Forge 已读取原文件。不得把用户密码、数据库凭据、模型密钥或完整聊天历史放进输入。字段长度、证据路径限制、完整 JSON 和返回示例见 [接口合同](BACKEND.md)。
+原图由本应用后端上传原始 PNG/JPEG 字节，Forge 负责图片识别、分析和三条拟答；不需要 IT客服 OCR，不能把文件名、附件 URL 或描述冒充已读原图。不得把用户密码、数据库凭据、模型密钥或完整聊天历史放进输入。字段长度、证据路径限制、完整 JSON 和返回示例见 [接口合同](BACKEND.md)。
 
 ### 接口、状态与可靠性
 
 | 操作 | HTTPS 方法与路径 / SDK |
 |---|---|
 | 换票 | `POST /api/fore-consult/v1/token`，Basic(clientId:clientSecret)，表单 `grant_type=client_credentials`；SDK 自动处理 |
+| 原图上传/恢复 | `POST /api/fore-consult/v1/attachments?uploadId=...` 原始字节；`uploadImage(uploadId, bytes, mediaType)`，超时 `findImage(uploadId)` |
 | 提交 | `POST /api/fore-consult/v1/analysis-tasks` → 202；`forge.submit(input)` |
 | 查询 | `GET /api/fore-consult/v1/analysis-tasks/{taskId}`；`forge.get(taskId)` |
 | 未知提交结果恢复 | `GET /api/fore-consult/v1/analysis-tasks?requestId=...`；`forge.find(requestId)` |
@@ -148,28 +151,40 @@ const task = await forge.get(receipt.taskId);
 - 401 检查到期/轮换/撤销，403 核对企业或项目，404 也可能是任务不属于该 clientId；429 遵循 Retry-After，503 核对接口启用状态。不改用管理员 Token 绕过。
 - SDK 单次 HTTP 超时默认 15 秒；任务执行默认上限 180 秒，两者不同。每 clientId 最多 8 个未完成任务、120 次业务请求/分钟；全局最多 64 个未完成任务、同时运行 2 个。首版只支持单实例消费。
 
-### 分析结果到三条人工候选
+### 原图与三条候选接线
 
-接入方使用 `understanding/category/facts/possibleCauses/recommendations/missingInformation/unknowns/humanHandoff` 生成候选，同时保留 `evidence/evidenceLimitations`，不将推测转成事实。`replyCandidatesGeneratedBy=CALLER` 明确候选由接入方生成。
+接入方已有 ee742c9 的认证/任务客户端与分析保存可以继续使用，补充原图上传和请求选项即可。每张图的原字节、uploadId 先持久化，上传获得 attachmentId 后保存完整分析输入，再提交：
+
+```js
+const image = await forge.uploadImage(savedUploadId, originalBytes, 'image/png');
+const task = await forge.submit({ ...savedInput, attachmentIds: [image.attachmentId], replyMode: 'FORGE' });
+// 超时先 findImage(savedUploadId) 或 find(savedInput.requestId)，两种键不能混用。
+```
+
+上传单张 5MiB、最多 5 张/任务、总量 20MiB，PNG/JPEG 静态图，边长 10000、像素 2000 万；不支持 WebP/GIF/SVG/PDF。图片从上传起有效 24 小时，清理每分钟擦除过期字节，元数据保留 30 天后删除。相同 clientId+uploadId+相同原字节/MIME 回同一图片，改变内容 409，过期 410；跨凭据或企业统一 404。单凭据有效字节 25MiB、实例 100MiB，保留记录最多 2000/凭据、10000/实例。原图不是公开 URL，不要求飞书 Secret，也不会访问调用方本机路径。完整合同及清理边界见 BACKEND。
+
+分析请求摘要包含有序 attachmentIds、replyMode 及原有文字，原键换图/换文字/换模式均 409；已完成结果即使图片过期也可查询。执行前重新核验原图，原图失效/不支持/不可读不伪装成功。结果保留结构化分析和 evidence/evidenceLimitations，新增实际图像 imageInputs 元数据及 imageObservations 回执；图像事实用 CALLER_IMAGE、真实 attachmentId 作为证据，不代表现场/数据库已核验。
+
+`replyMode=FORGE` 返回 schemaVersion=1.1、replyCandidatesGeneratedBy=FORGE、result.replyCandidates[{id,text,evidenceIds}]，恰好三条、每条 1–4000 字符，ID 为服务端持久保存的 reply-1/2/3，重查不重新生成。省略新选项的纯文字旧请求仍为版本 1.0/CALLER。候选验证失败时整次失败，不退回调用方生成、不补模板。DeepSeek 的前置 IT 分类可保留，FORGE 模式不再由 DeepSeek 二次生成候选。
 
 三条候选可以是同一事实下不同表述、不同信息收集顺序或处理路径，不能给三个互相矛盾的根因，也不能把“建议排查”说成“已经修复”。无成功分析时不展示伪造的 Forge 分析候选。
 
-本应用至少保存：原问题及输入、requestId/taskId、分析状态及结果、policyVersion、原始三条候选及生成来源、选择项、人工修改后的最终回复、确认发送状态。重新打开后能读取来源和最终回复。租户、用户、问题和附件访问权由本应用继续校验，共用应用凭据不能替代业务用户权限。
+本应用至少保存：原问题及输入、requestId/taskId、分析状态及结果、policyVersion、原始三条候选及生成来源、选择 candidateId、原候选 evidenceIds、人工修改后的最终回复、确认发送状态。重新打开后能读取来源和最终回复。租户、用户、问题和附件访问权由本应用继续校验，共用应用凭据不能替代业务用户权限。
 
 ## 五、联调验收与回执
 
-Forge 已通过宿主编译、34 项定向后端测试、14 项 SDK 测试，tarball 独立安装及 TypeScript 严格检查；OpenAPI 已做 YAML/本地引用解析。项目质量门禁通过，但既有运行检查不代表新 API 已加载，以上均不能替代真实模型与跨系统验收。完整验证记录保存在仓库 `openspec/changes/consult-backend-analysis/tasks.md`。
+旧认证/任务的验证保存在 `openspec/changes/consult-backend-analysis/tasks.md`，本次原图/候选验证和剩余验收见 `openspec/changes/consult-backend-images/tasks.md`。源码/SDK 测试和质量门禁不代表新 API 已加载，更不能代替真实图片识别与跨系统验收。
 
 启用后由双方共同完成：
 
-1. 一条脱敏真实测试问题：应用认证 → 指定能力 → taskId 和有范围说明的分析依据 → 三条候选 → 人工编辑保存 → 重开能读来源和最终回复。
+1. 一条脱敏真实图文问题：应用认证 → 上传原图 → 文字及 attachmentIds/FORGE 任务 → 模型实际观察图片 → taskId 和有范围说明的分析依据 → 三条候选 → 人工编辑保存 → 重开能读来源和最终回复。
 2. 相同请求重复提交只生成一个任务；同键不同内容拒绝；模拟提交断线后可按原键恢复。
-3. 用另一个应用/企业凭据访问任务被拒绝；越权项目被拒绝；不泄漏其他任务资料。
+3. 用另一个应用/企业凭据访问任务或引用原图被拒绝；过期图片明确失败，模型失败不生成假候选；越权项目被拒绝；不泄漏其他任务资料。
 4. 认证失败、信息不足、执行超时和取消时，问题、输入和草稿保留；未经人工确认不会发送飞书。
 5. 无源码/现场证据时清楚提示缺口；有获准源码引用时保留可追溯出处，不将其说成现场运行已核验。
 
-请接入方回传：实际应用版本、测试环境、requestId/taskId、候选与来源保存及重开结果、人工确认前未发送的验证结果、剩余问题。异常提供脱敏错误 code/traceId、状态及时间，不传 secret、Token、Cookie 或完整业务聊天。
+请接入方回传：实际应用版本、测试环境、requestId/taskId/attachmentId、原图识别与三条候选、来源保存及重开结果、人工确认前未发送的验证结果、剩余问题。异常提供脱敏错误 code/traceId、状态及时间，不传 secret、Token、Cookie 或完整业务聊天。
 
 **当前仍待 Forge 处理的交付项：** 授权后加载服务、启用接口、确认真实 HTTPS 地址、签发本应用凭据、真实多应用隔离和模型联调及稳定观察。没有这些回执，不标记“已上线可直接调用”。
 
-**DDL 未核验：** 新增 `consult_service_client/consult_service_token/consult_analysis_task` 未命中既有 DDL 基线，结构来自本次源码 schema，应用启动自动创建，无需接入方手工执行 SQL。本交接仅补充现有接口的使用说明，无架构契约变化。
+**DDL 未核验：** 原图表 consult_analysis_attachment 及依赖的应用/任务表未命中 DDL 知识基线，结构来自仓库幂等 schema，应用加载时自动创建，无需手工执行 SQL。IT客服自己的数据库初始化、凭据配置和候选来源持久化仍由接入方独立验收。

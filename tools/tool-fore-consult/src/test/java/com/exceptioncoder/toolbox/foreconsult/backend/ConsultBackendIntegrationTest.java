@@ -41,6 +41,7 @@ class ConsultBackendIntegrationTest {
     private ConsultAnalysisService service;
     private ConsultAnalysisModel model;
     private ConsultAnalysisEvidence evidence;
+    private ConsultAnalysisImages images;
     private ConsultBackendAuth.Credential credential;
     private ConsultBackendStore.Client principal;
     private MockMvc mvc;
@@ -64,17 +65,18 @@ class ConsultBackendIntegrationTest {
         ProjectAccess access = path -> !path.getFileName().toString().equals("excluded.java");
         auth = new ConsultBackendAuth(store, catalog, access, mapper, true, true);
         evidence = new ConsultAnalysisEvidence(catalog, access);
+        images = new ConsultAnalysisImages(new ConsultImageStore(jdbc));
         when(runner.supportedEngines()).thenReturn(java.util.Set.of("codex"));
         when(runner.runManaged(any(AgentOneShotRunner.ExecutionRequest.class), anyString())).thenReturn(VALID_RESULT);
         when(policy.get()).thenReturn(new BusinessConsultModelPolicyView("model", "Model", "private-account", 1L, 4, "OK", 1L));
         var beans = new StaticListableBeanFactory(Map.of("runner", runner));
         model = new ConsultAnalysisModel(beans.getBeanProvider(AgentOneShotRunner.class), policy, mapper, store);
-        service = new ConsultAnalysisService(store, auth, evidence, model, mapper, 1000);
+        service = new ConsultAnalysisService(store, auth, evidence, model, images, mapper, 1000);
         admin();
         credential = auth.create(new ConsultBackendAuth.GrantRequest("yoooni-agent", "tenant-a", List.of("erp"), System.currentTimeMillis() + 86400000));
         AuthContext.clear();
         principal = store.client(credential.clientId()).orElseThrow();
-        mvc = MockMvcBuilders.standaloneSetup(new ConsultBackendController(auth, service), new ConsultBackendAdminController(auth, mapper))
+        mvc = MockMvcBuilders.standaloneSetup(new ConsultBackendController(auth, service, images), new ConsultBackendAdminController(auth, mapper))
                 .setControllerAdvice(new ConsultBackendErrors()).addInterceptors(new RequireAuthInterceptor()).build();
     }
 
@@ -197,7 +199,7 @@ class ConsultBackendIntegrationTest {
         assertThatThrownBy(() -> service.submit(principal, body.replace("\"agentId\"", "\"codexHome\":\"other\",\"agentId\""))).hasMessageContaining("未知字段");
         assertThatThrownBy(() -> service.submit(principal, body.replace("\"tenant-a\"", "123"))).isInstanceOf(ConsultBackendException.class);
         assertThatThrownBy(() -> service.submit(principal, body.replace("\"tenantId\":\"tenant-a\"", "\"tenantId\":\"tenant-a\",\"tenantId\":\"tenant-a\""))).isInstanceOf(ConsultBackendException.class);
-        var restored = new ConsultAnalysisService(store, auth, evidence, model, mapper, 1000);
+        var restored = new ConsultAnalysisService(store, auth, evidence, model, images, mapper, 1000);
         assertThat(restored.findRequest(principal, "request-003").taskId()).isEqualTo(first.taskId());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM consult_analysis_task", Integer.class)).isEqualTo(1);
     }
@@ -262,10 +264,10 @@ class ConsultBackendIntegrationTest {
         assertThatThrownBy(() -> model.validate(VALID_RESULT.replace("\"input\"", "\"invented\""), packets)).isInstanceOf(ConsultBackendException.class);
         assertThatThrownBy(() -> model.validate(VALID_RESULT + " {}", packets)).isInstanceOf(Exception.class);
         var withRef = new ConsultAnalysisInput(input.agentId(), input.tenantId(), input.problemId(), input.conversationId(), input.requestId(), input.title(), input.description(), List.of(), null,
-                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "Print.java", 1, 3))).validated();
+                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "Print.java", 1, 3)), List.of(), null).validated();
         assertThat(evidence.collect(withRef)).anyMatch(p -> p.kind().equals("SERVER_SOURCE") && p.text().contains("class Print"));
         var malicious = new ConsultAnalysisInput(withRef.agentId(), withRef.tenantId(), withRef.problemId(), withRef.conversationId(), withRef.requestId(), withRef.title(), withRef.description(), List.of(), null,
-                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "../outside.java", 1, 1))).validated();
+                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "../outside.java", 1, 1)), List.of(), null).validated();
         assertThatThrownBy(() -> evidence.collect(malicious)).isInstanceOf(ConsultBackendException.class);
     }
 
@@ -323,12 +325,12 @@ class ConsultBackendIntegrationTest {
     @Test void dedicatedRoutesKeepApplicationIdentitySeparateEvenWithGlobalJwtProtection() throws Exception {
         var properties = new com.exceptioncoder.toolbox.common.auth.config.AuthProperties();
         properties.setProtectedPatterns(List.of("/api/**"));
-        properties.setWhitelist(List.of("/api/fore-consult/v1/token", "/api/fore-consult/v1/analysis-tasks", "/api/fore-consult/v1/analysis-tasks/**"));
+        properties.setWhitelist(List.of("/api/fore-consult/v1/token", "/api/fore-consult/v1/analysis-tasks", "/api/fore-consult/v1/analysis-tasks/**", "/api/fore-consult/v1/attachments", "/api/fore-consult/v1/attachments/**"));
         var jwt = mock(com.exceptioncoder.toolbox.common.auth.service.JwtService.class);
         var tokens = mock(com.exceptioncoder.toolbox.common.auth.service.TokenService.class);
         when(jwt.parse(anyString())).thenThrow(com.exceptioncoder.toolbox.common.auth.AuthException.tokenInvalid());
         var filter = new com.exceptioncoder.toolbox.common.auth.web.JwtAuthFilter(jwt, tokens, properties, mapper);
-        var protectedMvc = MockMvcBuilders.standaloneSetup(new ConsultBackendController(auth, service), new ConsultBackendAdminController(auth, mapper))
+        var protectedMvc = MockMvcBuilders.standaloneSetup(new ConsultBackendController(auth, service, images), new ConsultBackendAdminController(auth, mapper))
                 .setControllerAdvice(new ConsultBackendErrors()).addFilters(filter).addInterceptors(new RequireAuthInterceptor()).build();
         String bearer = "Bearer " + token();
         protectedMvc.perform(post("/api/fore-consult/v1/analysis-tasks").header("Authorization", bearer)
@@ -337,5 +339,185 @@ class ConsultBackendIntegrationTest {
                 .contentType("application/json").content("{}")).andExpect(status().isUnauthorized());
         protectedMvc.perform(post("/api/fore-consult/v1/analysis-tasks").header("Authorization", "Bearer employee-jwt")
                 .contentType("application/json").content(input("global-jwt-02"))).andExpect(status().isUnauthorized());
+        protectedMvc.perform(post("/api/fore-consult/v1/attachments").param("uploadId", "upload-jwt-01").header("Authorization", bearer)
+                .contentType("image/png").content(png())).andExpect(status().isOk());
+        protectedMvc.perform(get("/api/fore-consult/v1/attachments").param("uploadId", "upload-jwt-01").header("Authorization", "Bearer employee-jwt"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private byte[] png() throws Exception {
+        var bytes = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(3, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", bytes);
+        return bytes.toByteArray();
+    }
+
+    private String extendedInput(String request, List<String> ids, String mode) throws Exception {
+        var value = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(input(request));
+        value.set("attachmentIds", mapper.valueToTree(ids));
+        value.put("replyMode", mode);
+        return value.toString();
+    }
+
+    private com.fasterxml.jackson.databind.node.ObjectNode replies() throws Exception {
+        var value = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(VALID_RESULT);
+        value.put("schemaVersion", "1.1");
+        var candidates = value.putArray("replyCandidates");
+        for (String text : List.of("已看到您反馈的打印问题，请先确认其他同事是否也有相同情况。", "目前还不能确定原因，建议先查看页面是否有报错，再一起排查。", "为了继续判断，请补充打印时的报错提示或一张清晰截图。")) {
+            candidates.addObject().put("text", text).putArray("evidenceIds").add("input");
+        }
+        return value;
+    }
+
+    @Test void originalImageUploadHasIndependentIdempotencyAndOwnerOnlyRecovery() throws Exception {
+        byte[] bytes = png();
+        var image = images.upload(principal, "upload-raw-01", "image/png", bytes);
+        assertThat(images.upload(principal, "upload-raw-01", "image/png", bytes)).isEqualTo(image);
+        try (var pool = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            var uploads = pool.invokeAll(java.util.stream.IntStream.range(0, 4)
+                    .<java.util.concurrent.Callable<ConsultImageStore.Image>>mapToObj(i -> () -> images.upload(principal, "upload-raw-01", "image/png", bytes)).toList());
+            for (var upload : uploads) assertThat(upload.get()).isEqualTo(image);
+        }
+        byte[] changed = java.util.Arrays.copyOf(bytes, bytes.length + 1);
+        assertThatThrownBy(() -> images.upload(principal, "upload-raw-01", "image/png", changed)).hasMessageContaining("不同图片");
+        assertThat(images.get(principal, "upload-raw-01", true).attachmentId()).isEqualTo(image.attachmentId());
+        var restored = new ConsultAnalysisImages(new ConsultImageStore(jdbc));
+        assertThat(restored.resolve(principal, List.of(image.attachmentId()), true).images().getFirst().base64Data())
+                .isEqualTo(Base64.getEncoder().encodeToString(bytes));
+        assertThatThrownBy(() -> images.upload(principal, "upload-raw-01", "image/jpeg", bytes)).hasMessageContaining("不同图片");
+        admin();
+        var sameTenant = auth.create(new ConsultBackendAuth.GrantRequest("other-app", "tenant-a", List.of(), System.currentTimeMillis() + 86400000));
+        var otherTenant = auth.create(new ConsultBackendAuth.GrantRequest("yoooni-agent", "tenant-b", List.of(), System.currentTimeMillis() + 86400000));
+        AuthContext.clear();
+        for (var credential : List.of(sameTenant, otherTenant)) {
+            var foreign = store.client(credential.clientId()).orElseThrow();
+            assertThatThrownBy(() -> images.get(foreign, image.attachmentId(), false)).hasMessageContaining("不存在");
+            var json = extendedInput("foreign-image-01", List.of(image.attachmentId()), "FORGE").replace("\"systemIds\":[\"erp\"]", "\"systemIds\":[]")
+                    .replace("\"tenantId\":\"tenant-a\"", "\"tenantId\":\"" + foreign.tenantId() + "\"");
+            assertThatThrownBy(() -> service.submit(foreign, json)).hasMessageContaining("不存在");
+        }
+        mvc.perform(get("/api/fore-consult/v1/attachments/" + image.attachmentId()).header("Authorization", "Bearer " + token()))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.sha256").value(image.sha256())).andExpect(jsonPath("$.image_bytes").doesNotExist());
+        mvc.perform(post("/api/fore-consult/v1/attachments").param("uploadId", "upload-no-auth").contentType("image/png").content(bytes))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/fore-consult/v1/attachments").param("uploadId", "upload-http-type").header("Authorization", "Bearer " + token())
+                .contentType("application/pdf").content(bytes)).andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.code").value("IMAGE_FORMAT_UNSUPPORTED"));
+    }
+
+    @Test void imageValidationLimitsExpiryCleanupAndQuotaAreExplicit() throws Exception {
+        assertThatThrownBy(() -> images.upload(principal, "upload-invalid", "image/png", new byte[] {1, 2})).hasMessageContaining("损坏");
+        assertThatThrownBy(() -> images.upload(principal, "upload-wrongtype", "image/jpeg", png())).hasMessageContaining("类型不符");
+        assertThatThrownBy(() -> images.upload(principal, "upload-format", "image/svg+xml", png())).hasMessageContaining("仅支持");
+        assertThatThrownBy(() -> images.upload(principal, "upload-oversize", "image/png", new byte[ConsultAnalysisImages.MAX_BYTES + 1])).hasMessageContaining("5MiB");
+        byte[] hugeDimensions = png();
+        java.nio.ByteBuffer.wrap(hugeDimensions).putInt(16, 10001);
+        assertThatThrownBy(() -> images.upload(principal, "upload-dimensions", "image/png", hugeDimensions)).hasMessageContaining("2000 万");
+        var animated = new java.io.ByteArrayOutputStream();
+        byte[] original = png();
+        animated.write(original, 0, 33);
+        animated.write(new byte[] {0, 0, 0, 8, 'a', 'c', 'T', 'L', 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0});
+        animated.write(original, 33, original.length - 33);
+        assertThatThrownBy(() -> images.upload(principal, "upload-animated", "image/png", animated.toByteArray())).hasMessageContaining("动画");
+        var image = images.upload(principal, "upload-expire", "image/png", png());
+        jdbc.update("UPDATE consult_analysis_attachment SET byte_size = ?", 25 * 1024 * 1024);
+        assertThatThrownBy(() -> images.upload(principal, "upload-quota", "image/png", png())).hasMessageContaining("额度");
+        jdbc.update("UPDATE consult_analysis_attachment SET expires_at = 1 WHERE attachment_id = ?", image.attachmentId());
+        assertThatThrownBy(() -> images.get(principal, image.attachmentId(), false)).hasMessageContaining("过期");
+        assertThatThrownBy(() -> images.upload(principal, "upload-expire", "image/png", png())).hasMessageContaining("过期");
+        assertThatThrownBy(() -> service.submit(principal, extendedInput("expired-admit", List.of(image.attachmentId()), "FORGE"))).hasMessageContaining("过期");
+        images.clean();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM consult_analysis_attachment WHERE image_bytes IS NULL", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM consult_analysis_attachment", Integer.class)).isEqualTo(1);
+        jdbc.update("UPDATE consult_analysis_attachment SET created_at = 1");
+        images.clean();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM consult_analysis_attachment", Integer.class)).isZero();
+    }
+
+    @Test void taskActuallyPassesOriginalBytesAndPersistsThreeStableCandidates() throws Exception {
+        var image = images.upload(principal, "upload-model-01", "image/png", png());
+        var output = replies();
+        output.putArray("imageObservations").addObject().put("attachmentId", image.attachmentId()).put("readable", true).put("observation", "图中有一个黑色矩形，未显示打印错误文字");
+        when(runner.supportsManagedImages(any())).thenReturn(true);
+        when(runner.runManaged(any(), anyString(), anyList())).thenAnswer(call -> {
+            AgentOneShotRunner.ExecutionRequest request = call.getArgument(0);
+            List<AgentOneShotRunner.ImageInput> actual = call.getArgument(2);
+            assertThat(actual).containsExactly(new AgentOneShotRunner.ImageInput(Base64.getEncoder().encodeToString(png()), "image/png"));
+            assertThat(request.userPrompt()).contains(image.attachmentId(), image.sha256());
+            assertThat(request.toolPolicy()).isEqualTo("disabled");
+            assertThat(request.cwd()).isNull();
+            return output.toString();
+        });
+        String json = extendedInput("images-model-01", List.of(image.attachmentId()), "FORGE");
+        var task = service.submit(principal, json);
+        assertThat(task.attachmentIds()).containsExactly(image.attachmentId());
+        assertThatThrownBy(() -> service.submit(principal, json.replace("FORGE", "CALLER"))).hasMessageContaining("不同内容");
+        service.recover(); service.tick(); awaitTerminal(task.taskId());
+        var complete = service.get(principal, task.taskId());
+        assertThat(complete.status()).isEqualTo("NEEDS_INFORMATION");
+        assertThat(complete.result().path("replyCandidatesGeneratedBy").asText()).isEqualTo("FORGE");
+        assertThat(complete.result().path("replyCandidates")).hasSize(3);
+        assertThat(complete.result().path("replyCandidates").get(2).path("id").asText()).isEqualTo("reply-3");
+        assertThat(complete.result().path("imageInputs").get(0).path("sha256").asText()).isEqualTo(image.sha256());
+        assertThat(complete.result().path("evidence").toString()).contains("CALLER_IMAGE");
+        jdbc.update("UPDATE consult_analysis_attachment SET expires_at = 1"); images.clean();
+        assertThat(service.submit(principal, json).result()).isEqualTo(complete.result());
+        assertThat(service.findRequest(principal, task.requestId()).result()).isEqualTo(complete.result());
+        verify(runner, never()).runManaged(any(), anyString());
+        verify(runner, times(1)).runManaged(any(), anyString(), anyList());
+    }
+
+    @Test void unsupportedExpiredAndUnreadableImagesNeverBecomeSuccessfulTextOnlyAnalysis() throws Exception {
+        var image = images.upload(principal, "upload-unsupported", "image/png", png());
+        var unsupported = service.submit(principal, extendedInput("image-unsupported", List.of(image.attachmentId()), "CALLER"));
+        service.recover(); service.tick(); awaitTerminal(unsupported.taskId());
+        assertThat(service.get(principal, unsupported.taskId()).error().get("code")).isEqualTo("IMAGE_MODEL_UNSUPPORTED");
+        var expired = service.submit(principal, extendedInput("image-expired-queue", List.of(image.attachmentId()), "CALLER"));
+        jdbc.update("UPDATE consult_analysis_attachment SET expires_at = 1");
+        service.tick(); awaitTerminal(expired.taskId());
+        assertThat(service.get(principal, expired.taskId()).error().get("code")).isEqualTo("ATTACHMENT_EXPIRED");
+        verify(runner, never()).runManaged(any(), anyString());
+        verify(runner, never()).runManaged(any(), anyString(), anyList());
+        var raw = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(VALID_RESULT);
+        raw.put("schemaVersion", "1.1");
+        raw.putArray("imageObservations").addObject().put("attachmentId", image.attachmentId()).put("readable", false).put("observation", "图像模糊无法读取");
+        assertThatThrownBy(() -> model.validate(raw.toString(), evidence.collect(service.parse(input("no-model-read"))), false, List.of(image)))
+                .hasMessageContaining("无法读取");
+        raw.putArray("imageObservations");
+        assertThatThrownBy(() -> model.validate(raw.toString(), List.of(), false, List.of(image))).isInstanceOf(ConsultBackendException.class);
+    }
+
+    @Test void candidateCountReferencesSensitiveTextAndModelFailureAreNotReplacedWithTemplates() throws Exception {
+        var packets = evidence.collect(service.parse(input("validate-replies")));
+        var output = replies();
+        assertThat(model.validate(output.toString(), packets, true, List.of()).path("replyCandidates").get(0).path("id").asText()).isEqualTo("reply-1");
+        var invalid = output.deepCopy(); invalid.withArray("replyCandidates").remove(2);
+        assertThatThrownBy(() -> model.validate(invalid.toString(), packets, true, List.of())).isInstanceOf(ConsultBackendException.class);
+        for (String text : List.of(" ", "x".repeat(4001), "SELECT password FROM users", "client_secret=private", "at a.Service.run(Service.java:42)")) {
+            var unsafe = output.deepCopy(); ((com.fasterxml.jackson.databind.node.ObjectNode) unsafe.withArray("replyCandidates").get(0)).put("text", text);
+            assertThatThrownBy(() -> model.validate(unsafe.toString(), packets, true, List.of())).isInstanceOf(ConsultBackendException.class);
+        }
+        var badRef = output.deepCopy(); ((com.fasterxml.jackson.databind.node.ObjectNode) badRef.withArray("replyCandidates").get(0)).putArray("evidenceIds").add("made-up");
+        assertThatThrownBy(() -> model.validate(badRef.toString(), packets, true, List.of())).isInstanceOf(ConsultBackendException.class);
+        when(runner.runManaged(any(), anyString())).thenThrow(new IllegalStateException("model failed"));
+        var task = service.submit(principal, extendedInput("candidate-model-fail", List.of(), "FORGE"));
+        service.recover(); service.tick(); awaitTerminal(task.taskId());
+        assertThat(service.get(principal, task.taskId()).status()).isEqualTo("FAILED");
+        assertThat(service.get(principal, task.taskId()).result()).isNull();
+    }
+
+    @Test void legacyNormalizedInputAndResultsRemainCompatibleAfterOptionalFieldsAreAdded() throws Exception {
+        var parsed = service.parse(input("legacy-retry-01"));
+        String normalized = mapper.writeValueAsString(parsed);
+        assertThat(normalized).doesNotContain("attachmentIds", "replyMode", "forgeReplies");
+        var task = new ConsultBackendStore.Task(java.util.UUID.randomUUID().toString(), principal.id(), parsed.requestId(),
+                ConsultBackendAuth.hash(normalized), normalized, "QUEUED", null, null, System.currentTimeMillis(), null, null, null);
+        store.insertTask(task);
+        assertThat(service.submit(principal, input("legacy-retry-01")).taskId()).isEqualTo(task.id());
+        service.recover(); service.tick(); awaitTerminal(task.id());
+        var result = service.get(principal, task.id()).result();
+        assertThat(result.path("schemaVersion").asText()).isEqualTo("1.0");
+        assertThat(result.path("replyCandidatesGeneratedBy").asText()).isEqualTo("CALLER");
+        assertThat(result.has("replyCandidates")).isFalse();
     }
 }

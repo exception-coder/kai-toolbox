@@ -1,11 +1,8 @@
 package com.exceptioncoder.toolbox.foreconsult.backend;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,8 +13,30 @@ import org.springframework.web.bind.annotation.*;
 public class ConsultBackendController {
     private final ConsultBackendAuth auth;
     private final ConsultAnalysisService analysis;
+    private final ConsultAnalysisImages images;
 
-    public ConsultBackendController(ConsultBackendAuth auth, ConsultAnalysisService analysis) { this.auth = auth; this.analysis = analysis; }
+    public ConsultBackendController(ConsultBackendAuth auth, ConsultAnalysisService analysis, ConsultAnalysisImages images) {
+        this.auth = auth; this.analysis = analysis; this.images = images;
+    }
+
+    @PostMapping("/attachments")
+    public ResponseEntity<ConsultImageStore.Image> upload(HttpServletRequest request, @RequestParam String uploadId) throws IOException {
+        var client = auth.authenticate(request.getHeader("Authorization"));
+        byte[] bytes = request.getInputStream().readNBytes(ConsultAnalysisImages.MAX_BYTES + 1);
+        var image = images.upload(client, uploadId, request.getContentType(), bytes);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .header("Location", "/api/fore-consult/v1/attachments/" + image.attachmentId()).body(image);
+    }
+
+    @GetMapping("/attachments/{id}")
+    public ResponseEntity<ConsultImageStore.Image> image(HttpServletRequest request, @PathVariable String id) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(images.get(auth.authenticate(request.getHeader("Authorization")), id, false));
+    }
+
+    @GetMapping("/attachments")
+    public ResponseEntity<ConsultImageStore.Image> findImage(HttpServletRequest request, @RequestParam String uploadId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(images.get(auth.authenticate(request.getHeader("Authorization")), uploadId, true));
+    }
 
     @PostMapping(value = "/token", consumes = "application/x-www-form-urlencoded")
     public ResponseEntity<ConsultBackendAuth.AccessToken> token(@RequestHeader(value = "Authorization", required = false) String basic,

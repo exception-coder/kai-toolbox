@@ -23,6 +23,7 @@ public class ConsultAnalysisService {
     private final ConsultBackendAuth auth;
     private final ConsultAnalysisEvidence evidence;
     private final ConsultAnalysisModel model;
+    private final ConsultAnalysisImages images;
     private final ObjectMapper mapper;
     private final long timeoutMs;
     private final Semaphore slots = new Semaphore(2);
@@ -30,9 +31,9 @@ public class ConsultAnalysisService {
     private volatile boolean ready;
 
     public ConsultAnalysisService(ConsultBackendStore store, ConsultBackendAuth auth, ConsultAnalysisEvidence evidence,
-            ConsultAnalysisModel model, ObjectMapper mapper,
+            ConsultAnalysisModel model, ConsultAnalysisImages images, ObjectMapper mapper,
             @Value("${toolbox.fore-consult.backend.timeout-ms:180000}") long timeoutMs) {
-        this.store = store; this.auth = auth; this.evidence = evidence; this.model = model;
+        this.store = store; this.auth = auth; this.evidence = evidence; this.model = model; this.images = images;
         this.mapper = mapper.copy().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
         this.mapper.disable(com.fasterxml.jackson.databind.MapperFeature.ALLOW_COERCION_OF_SCALARS);
         this.mapper.enable(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
@@ -42,7 +43,8 @@ public class ConsultAnalysisService {
 
     public record TaskView(String taskId, String requestId, String problemId, String conversationId, String status,
                            JsonNode result, Map<String, Object> error, long createdAt, Long startedAt,
-                           Long finishedAt, Long policyVersion) {}
+                           Long finishedAt, Long policyVersion,
+                           @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) List<String> attachmentIds) {}
 
     public synchronized TaskView submit(ConsultBackendStore.Client client, String raw) {
         var input = parse(raw);
@@ -56,6 +58,7 @@ public class ConsultAnalysisService {
             if (!existing.get().inputHash().equals(hash)) throw new ConsultBackendException(409, "IDEMPOTENCY_CONFLICT", "相同 requestId 已用于不同内容", false);
             return view(existing.get());
         }
+        images.resolve(client, input.attachmentIds(), false);
         if (store.unfinished(null) >= 64 || store.unfinished(client.id()) >= 8) throw new ConsultBackendException(429, "TASK_LIMITED", "分析任务繁忙，请保留请求标识稍后重试", true);
         var task = new ConsultBackendStore.Task(UUID.randomUUID().toString(), client.id(), input.requestId(), hash,
                 normalized, "QUEUED", null, null, System.currentTimeMillis(), null, null, null);
@@ -126,8 +129,9 @@ public class ConsultAnalysisService {
             var input = parse(task.input());
             authorize(client, input);
             var packets = evidence.collect(input);
+            var imageInputs = images.resolve(client, input.attachmentIds(), true);
             if (!"RUNNING".equals(store.task(id).orElseThrow().status())) { store.finish(id, "CANCELLED", null, "CANCELLED_BY_CALLER"); return; }
-            String result = model.analyze(id, input, packets);
+            String result = model.analyze(id, input, packets, imageInputs);
             var current = store.task(id).orElseThrow();
             if (current.startedAt() != null && System.currentTimeMillis() - current.startedAt() >= timeoutMs) store.cancel(id, "ANALYSIS_TIMEOUT");
             // Credential expiry/revocation while generating must not publish a fresh successful result.
@@ -150,7 +154,7 @@ public class ConsultAnalysisService {
             var error = t.errorCode() == null ? null : Map.<String, Object>of("code", t.errorCode(),
                     "message", message(t.errorCode()), "retryable", List.of("ANALYSIS_FAILED", "ANALYSIS_TIMEOUT", "EXECUTION_INTERRUPTED", "INVALID_ANALYSIS_OUTPUT", "ANALYSIS_NOT_CONFIGURED").contains(t.errorCode()));
             return new TaskView(t.id(), t.requestId(), input.problemId(), input.conversationId(), t.status(),
-                    t.result() == null ? null : mapper.readTree(t.result()), error, t.createdAt(), t.startedAt(), t.finishedAt(), t.policyVersion());
+                    t.result() == null ? null : mapper.readTree(t.result()), error, t.createdAt(), t.startedAt(), t.finishedAt(), t.policyVersion(), input.attachmentIds());
         } catch (ConsultBackendException e) { throw e; }
         catch (Exception e) { throw new IllegalStateException("分析任务记录不可读", e); }
     }
@@ -163,6 +167,10 @@ public class ConsultAnalysisService {
             case "CLIENT_REVOKED", "INVALID_CLIENT_TOKEN" -> "应用授权已失效，请联系管理员";
             case "INVALID_ANALYSIS_OUTPUT" -> "模型结果未通过结构或证据校验，未作为分析结果发布";
             case "ANALYSIS_NOT_CONFIGURED" -> "咨询默认账号或引擎尚未就绪，请联系管理员";
+            case "ATTACHMENT_EXPIRED" -> "原图已过期，请重新上传并使用新 requestId；原任务和结果保留";
+            case "ATTACHMENT_NOT_FOUND" -> "原图不存在或不在当前应用企业范围，请核对上传结果";
+            case "IMAGE_NOT_READABLE" -> "模型无法读取原图，请提供清晰的静态 PNG/JPEG 后重新提交";
+            case "IMAGE_MODEL_UNSUPPORTED" -> "当前咨询模型未声明图像输入能力，请管理员核对账号的模型目录后重试";
             default -> "分析未完成，问题已保留；请核对输入或联系管理员";
         };
     }

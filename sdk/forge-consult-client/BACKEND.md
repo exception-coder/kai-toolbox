@@ -1,6 +1,6 @@
 # Forge 业务咨询后端分析 API v1
 
-适用：`yoooni-agent` 的 IT 客服伙伴，及管理员明确授权的其他应用。SDK 版本 `@kai/forge-consult-client@0.2.0`，Node.js 22+；任何后端语言也可按 HTTP 合同调用。机器合同见 [OpenAPI](openapi-backend.yaml)。
+适用：`yoooni-agent` 的 IT 客服伙伴，及管理员明确授权的其他应用。SDK 版本 `@kai/forge-consult-client@0.3.0`，Node.js 22+；任何后端语言也可按 HTTP 合同调用。机器合同见 [OpenAPI](openapi-backend.yaml)。
 
 面向接入方的执行顺序、环境回执和双方验收见 [完整交接](HANDOFF-YOOONI-AGENT.md)；本文件仍是接口字段与行为的权威正文。
 
@@ -12,14 +12,14 @@
 
 ```text
 yoooni-agent：飞书消息入库 → DeepSeek 判断 → 建问题并保存 requestId / 完整输入
-    → Forge：应用认证 → 持久化分析任务 → 无工具模型分析 → 校验结果与证据
-    → yoooni-agent：DeepSeek 整理三个同结论、不同表达或处理路径的回复候选
+    → Forge：应用认证 → 上传原图 → 持久化分析任务 → 多模态分析及三条回复候选 → 校验结果与证据
+    → yoooni-agent：保存候选（replyMode=FORGE），不做 OCR、不用模板补齐
     → 保存候选、分析任务/结果来源、人工选择及修改 → 人工确认后发送飞书
 ```
 
 Forge 不发送飞书消息，不修改业务数据。目标引擎复用 `AgentOneShotRunner`，默认模型和账号来自现有业务咨询 `/api/fore-consult/model-policy`，每个任务实际执行前读取并记录配置版本，运行期间固定。
 
-每个任务独立分析，`conversationId` 是调用方关联标识，**不自动接续完整聊天或复用他人的原生线程**。传入必要近期上下文即可。首版依据来自：调用方描述、错误文字、附件提取文字，以及显式提供的获准源码引用；没有自主全库检索、数据库查询、Web 登录、图片二进制上传或回调。没有独立源码证据时结果明确提示缺口，不能宣称已核验现场或数据库。
+每个任务独立分析，`conversationId` 是调用方关联标识，**不自动接续完整聊天或复用他人的原生线程**。传入必要近期上下文即可。依据来自：调用方描述、错误文字、附件提取文字、应用身份上传的原图，以及显式提供的获准源码引用；没有自主全库检索、数据库查询、Web 登录或回调。没有独立源码证据时结果明确提示缺口，不能宣称已核验现场或数据库。
 
 ## 管理员申请与安全交付
 
@@ -43,7 +43,7 @@ Forge 不发送飞书消息，不修改业务数据。目标引擎复用 `AgentO
 4. 应用后端配置 `FORGE_BASE_URL`、`FORGE_CLIENT_ID`、`FORGE_CLIENT_SECRET`、`FORGE_TENANT_ID`；密钥由 Secret 管理注入，不需凭据文件。身份与中台目录服务的凭据不同。
 5. 轮换：管理员 `POST /api/fore-consult/backend-clients/{clientId}/rotate`，仅返回一次新 secret；可附 JSON `{"expiresAt":新的毫秒时间戳}` 续期未撤销的授权（包括已到期授权，仍限未来一年以内），不改变企业或项目范围。旧 secret 和旧短期票据立即失效；更新应用 Secret，SDK 调用 `resetAuthentication()` 后重新换票。原任务仍属于相同 clientId。撤销使用 `POST .../{clientId}/revoke`，不可用旧凭据重新启用；重新授权需另建凭据。
 
-Base URL 须为站点根，例如 `https://forge-test.example.com`（占位，非真实地址）。反向代理必须使用 TLS 并保留 Authorization。此 HTTP 后端调用不需要浏览器 CORS/WSS 配置。宿主默认 JWT whitelist 已精确包含 `/api/fore-consult/v1/token`、`/api/fore-consult/v1/analysis-tasks` 及其子路由；这些接口始终独立验证应用凭据，不是匿名开放。部署如覆盖 whitelist 或给整个咨询路径配置 ADMIN-only，须精确恢复专用路由的应用认证，不得放开其余接口。
+Base URL 须为站点根，例如 `https://forge-test.example.com`（占位，非真实地址）。反向代理必须使用 TLS 并保留 Authorization。此 HTTP 后端调用不需要浏览器 CORS/WSS 配置。宿主默认 JWT whitelist 已精确包含 `/api/fore-consult/v1/token`、`/api/fore-consult/v1/analysis-tasks` 及其子路由，以及 `/api/fore-consult/v1/attachments` 及子路由；这些接口始终独立验证应用凭据，不是匿名开放。部署如覆盖 whitelist 或给整个咨询路径配置 ADMIN-only，须精确恢复专用路由的应用认证，不得放开其余接口。
 
 管理员元数据接口：`GET /api/fore-consult/backend-clients?q=...`，返回 `{enabled,clients,projects,truncated}`，最多 200 条并支持按应用、企业或 clientId 搜索（最多 100 字符）。clients 只含 clientId、appId、tenantId、projectIds、version、status（ACTIVE/EXPIRED/REVOKED）、expiresAt、changedBy、changedAt；projects 为可授权的 `{id,name}`，不返回路径。无 secret、摘要或票据。响应 no-store，普通用户和应用票据均拒绝，最近变更不是完整审计历史。管理与分析开关分别反映实际启动配置，页面入口准备不代表已部署或真实模型联调完成。
 
@@ -52,7 +52,7 @@ Base URL 须为站点根，例如 `https://forge-test.example.com`（占位，�
 `POST /api/fore-consult/v1/token`，`Content-Type: application/x-www-form-urlencoded`，表单 `grant_type=client_credentials`，头 `Authorization: Basic base64(clientId:clientSecret)`。不要把凭据放 URL。
 
 ```json
-{"access_token":"fct_<43位随机值>","token_type":"Bearer","expires_in":900,"scope":"consult:analyze consult:read consult:cancel"}
+{"access_token":"fct_<43位随机值>","token_type":"Bearer","expires_in":900,"scope":"consult:analyze consult:read consult:cancel consult:attachments"}
 ```
 
 最长有效 900 秒，且不晚于应用凭据到期，无 Refresh Token。之后业务请求只用 `Authorization: Bearer <access_token>`，不再发送 secret。票据每次使用都核验到期、凭据版本和撤销状态；它不具备平台用户、开发会话或其他工具权限。原用户 WSS Token 不能用于本 API。
@@ -61,6 +61,9 @@ Base URL 须为站点根，例如 `https://forge-test.example.com`（占位，�
 
 | 方法与路径 | 成功响应 | 含义 |
 |---|---|---|
+| `POST /api/fore-consult/v1/attachments?uploadId=...` | 200，Image | 原图字节上传或幂等复用 |
+| `GET /api/fore-consult/v1/attachments?uploadId=...` | 200，Image | 未知上传结果恢复 |
+| `GET /api/fore-consult/v1/attachments/{attachmentId}` | 200，Image | 当前凭据的图片元数据，不下载字节 |
 | `POST /api/fore-consult/v1/analysis-tasks` | 202，Task | 登记或复用原任务，`Location` 给查询路径，`Retry-After: 2` |
 | `GET /api/fore-consult/v1/analysis-tasks/{taskId}` | 200，Task | 查询当前状态和已校验结果 |
 | `GET /api/fore-consult/v1/analysis-tasks?requestId=...` | 200，Task | 提交超时后用原 requestId 恢复；不列举其他任务 |
@@ -68,7 +71,7 @@ Base URL 须为站点根，例如 `https://forge-test.example.com`（占位，�
 
 首版不提供回调；使用 GET 轮询，建议 2–3 秒一次。终态不是一律成功。`SUCCEEDED/NEEDS_INFORMATION` 携带 `result`；`FAILED/CANCELLED/TIMED_OUT/INTERRUPTED` 没有成功分析。`CANCEL_REQUESTED` 不能当作已停止。
 
-Task 公共字段：`taskId/requestId/problemId/conversationId/status/result/error/createdAt/startedAt/finishedAt/policyVersion`。时间为毫秒时间戳；尚未开始/结束/选择配置时对应字段为 null。错误为 `code/message/retryable`；接口错误另含脱敏 `traceId`。
+图片任务另含持久化 `attachmentIds`，失败时也保留引用。Task 公共字段：`taskId/requestId/problemId/conversationId/status/result/error/createdAt/startedAt/finishedAt/policyVersion`。时间为毫秒时间戳；尚未开始/结束/选择配置时对应字段为 null。错误为 `code/message/retryable`；接口错误另含脱敏 `traceId`。
 
 ### 请求结构
 
@@ -86,6 +89,8 @@ JSON 不接受未知字段。请求体最多 192KiB，解析后最多 100000 字
 | `classification` | 可选 `{decision,reason}`，decision 为 `IT/NOT_IT/UNKNOWN`，reason 非空、最多 2000 字符；仅作为待核实输入 |
 | `systemIds` | 可选，最多 8 个不重复、已授权且可用的 ProjectCatalog 稳定 ID；单 ID 同 tenantId 格式 |
 | `errorText` | 可选，最多 12000 字符 |
+| `attachmentIds` | 可选，最多 5 个不重复的不透明上传图片 ID，合计 20MiB；不能混用员工 SDK 附件 ID |
+| `replyMode` | 可选 `CALLER/FORGE`；省略为旧 CALLER 行为，FORGE 要求直接返回恰好三条候选 |
 | `attachmentTexts` | 可选，最多 5 项 `{id,name,text}`；id 同 problemId 格式，名称最多 200、提取文字最多 12000，均非空；是调用方提供的文字，不等于 Forge 读取过原附件 |
 | `evidenceRefs` | 可选，最多 8 项 `{projectId,path,startLine,endLine}`；项目须在 systemIds；相对路径最多 300 字符，UTF-8 非敏感源码/文档，每段最多 120 行/8000 字符，文件最多 500KiB；全部证据最多 80000 字符 |
 
@@ -181,9 +186,73 @@ HTTP 超时与任务执行超时不同：网络断开时先 `GET ?requestId=原�
 
 取消排队任务直接 CANCELLED；运行任务先 CANCEL_REQUESTED，执行器返回后才置 CANCELLED/TIMED_OUT。若引擎不能确认退出，保留取消中状态且不释放并发名额。服务启动将原 RUNNING/CANCEL_REQUESTED 标为 INTERRUPTED，QUEUED 可继续；一期仅支持单个 Forge 实例，不支持多实例共库消费。
 
+## 原图输入与三条候选（API 合同 1.1.0 / SDK 0.3.0）
+
+URL 仍为 `/api/fore-consult/v1`。纯文字旧请求不改字段，仍返回 `schemaVersion=1.0`、`replyCandidatesGeneratedBy=CALLER`，也不添加模板候选。需要原图时增加 `attachmentIds`；需要 Forge 拟答时增加 `replyMode: "FORGE"`。原图或 FORGE 结果版本为 `1.1`。只新增请求选项，不改变旧请求默认值；旧版服务端不支持新字段，会明确 400，接入方须加载匹配版本，不能删除图片后静默重试。
+
+### 上传与恢复
+
+`POST /api/fore-consult/v1/attachments?uploadId=<已持久化上传键>`，应用 Bearer，Content-Type 为 `image/png` 或 `image/jpeg`，body 为原始字节，**不是 multipart/JSON/base64 字符串**。`uploadId` 与 requestId 格式相同，8–100 位字母数字、短横线或下划线；它独立于分析 requestId。返回 200、no-store、Location 与 Image：
+
+```json
+{"attachmentId":"img_11111111-1111-4111-8111-111111111111","uploadId":"it-image-001","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mediaType":"image/png","size":12345,"width":1280,"height":720,"createdAt":1793600000000,"expiresAt":1793686400000}
+```
+
+单张 1 字节至 5MiB，边长最多 10000、总像素最多 2000 万；最多 5 张、合计 20MiB/任务。首版仅支持静态 PNG/JPEG，JDK ImageIO 校验格式、尺寸和解码，拒绝损坏/类型伪装/动画 PNG，不支持 WebP/GIF/SVG/PDF/视频；请在上传前导出静态 PNG/JPEG，而非先 OCR。图片不会发布公开 URL，不访问调用方磁盘、不需要飞书 Secret。元数据响应没有图片字节和内部路径。
+
+归属是可信 clientId 及其不可变企业，不能用请求字段改归属。同 clientId+uploadId、同原字节 SHA-256 和 MIME 返回原 ID；改字节或 MIME 为 409 `UPLOAD_IDEMPOTENCY_CONFLICT`。上传超时先 `GET /attachments?uploadId=原键`；404 仍可能与原上传竞争，只能原键原字节重试，SDK 不自动重发。换票和轮换保持 clientId，不影响归属；重新签发的新 clientId 不继承。
+
+原图从上传起有效 24 小时，重复上传不延长；到期 GET/新任务准入返回 410 `ATTACHMENT_EXPIRED`，排队时到期则任务 FAILED 同码。后台每分钟将过期 BLOB 置空；元数据留 30 天用于同键冲突/失效识别后删除，超过窗口不能复用旧 uploadId。已完成任务和结果不依赖图片存活，可继续按原 requestId 查询。运行前已读入内存的图片允许该轮完成。单凭据有效图片最多 25MiB、实例共 100MiB，保留元数据最多 2000/凭据、10000/实例，超额 429 `IMAGE_QUOTA_EXCEEDED`。SQLite 的字节擦除是逻辑清理，不承诺底层文件立即缩小或物理安全擦除。
+
+跨 clientId/企业查元数据或任务引用都为 404 `ATTACHMENT_NOT_FOUND`。任务摘要包含原图 ID 顺序、文字和 replyMode；任何更改均 409 `IDEMPOTENCY_CONFLICT`。原图 ID 对应内容不可修改。附件文字字段仍兼容，但不是读取原图的证据。
+
+### 原图执行边界
+
+复用平台业务默认 Codex 模型及账号。运行前根据该账号的 `models_cache.json` 精确模型 `input_modalities` 是否含 `image` 检查；缓存缺失、元数据未知或不支持时任务 FAILED `IMAGE_MODEL_UNSUPPORTED`。需要管理员在本实例核对模型目录、账号和支持图片的模型，不能按模型名字假定支持。
+
+原始字节通过受管多模态接口交给现有 Sidecar/SDK，Codex 使用 `local_image`；没有 OCR 替代或文件名代替图像。模型必须逐图给出 `imageObservations`；无法读取为 FAILED `IMAGE_NOT_READABLE`，回执缺失/重复/伪造为 `INVALID_ANALYSIS_OUTPUT`，不公布完整成功。图太小、旋转、模糊及模型本身能力会影响准确性；传图和回执不保证每个像素判断正确。结果 `imageInputs` 是服务端注入的实际输入元数据，`evidence` 新类型 `CALLER_IMAGE` 使用真实 attachmentId。原图文字不授予工具或改变指令。
+
+### FORGE 候选合同与脱敏调用
+
+```js
+const original = await forge.uploadImage(savedUploadId, originalImageBytes, 'image/png');
+// 先将附件 ID 与完整问题输入保存，再提交。提交未知时用同 requestId 查回。
+const receipt = await forge.submit({
+  agentId: 'it-support-partner', tenantId: process.env.FORGE_TENANT_ID,
+  problemId: 'IT-001', conversationId: 'thread-001', requestId: savedAnalysisRequestId,
+  title: '标签打印异常', description: '点击打印没有反应，原图中可见当前页面。',
+  attachmentIds: [original.attachmentId], replyMode: 'FORGE',
+});
+const current = await forge.get(receipt.taskId); // 若仍在执行，按正常间隔继续查询
+```
+
+完整可运行 [backend.mjs](examples/backend.mjs) 默认启用 FORGE；可选 `IT_IMAGE_PATH` 仅由接入方本地读取，另需已持久化 `IT_UPLOAD_ID` 和 `IT_IMAGE_TYPE=image/png`（或 image/jpeg）。示例没有数据库持久化实现，不可替代接入方先保存请求的职责。
+
+完整脱敏的上传元数据、任务请求与图文终态响应见 [backend-image-task.json](examples/backend-image-task.json)。它是合同示例，不是真实 taskId 或模型验收记录；须使用本实例实际上传的附件 ID。
+
+FORGE 模式在原结构化分析旁增加：
+
+```json
+{
+  "schemaVersion":"1.1",
+  "replyCandidatesGeneratedBy":"FORGE",
+  "replyCandidates":[
+    {"id":"reply-1","text":"已看到您反馈的打印问题。请先确认其他同事是否也有相同情况，便于判断影响范围。","evidenceIds":["input"]},
+    {"id":"reply-2","text":"目前还不能确定打印失败的原因，建议先查看页面有没有报错，再一起排查。","evidenceIds":["input"]},
+    {"id":"reply-3","text":"为了继续判断，请补充点击打印后的提示，或者发一张清晰的报错截图。","evidenceIds":["input"]}
+  ]
+}
+```
+
+上例是结果扩展字段示例，完整 result 仍包含 understanding/category/facts/possibleCauses/recommendations/missingInformation/unknowns/humanHandoff/evidence/evidenceLimitations。原图任务另含 `imageInputs: [Image]` 和 `imageObservations: [{attachmentId,readable:true,observation}]`。
+
+候选恰好三条，正文非空且最多 4000 字符，依据为真实 evidence ID；服务端按生成顺序赋稳定 `reply-1/2/3` 并保存结果，重复查询不会重新生成。三条共用事实、不互相矛盾，信息不足给追问，不把建议说成已修复。装配项目说人话 Skill 和输出约束，检查可识别 SQL/凭据/路径/日志；结构和模式检查无法独立证明语义完全正确，仍需人工选择、修改并确认。候选不合格整次 FAILED，不退成 CALLER、不补模板。yoooni-agent 保存 candidateId、原候选及依据、人工修改、任务来源；不再调用 DeepSeek 为本次 FORGE 结果二次生成三条。DeepSeek 的前置 IT 分类仍可保留。Forge 从不调用飞书发送或业务修改。
+
+新增错误：404 ATTACHMENT_NOT_FOUND、409 UPLOAD_IDEMPOTENCY_CONFLICT、410 ATTACHMENT_EXPIRED、413 IMAGE_TOO_LARGE/IMAGES_TOO_LARGE/IMAGE_DIMENSIONS_EXCEEDED、415 IMAGE_FORMAT_UNSUPPORTED、422 IMAGE_NOT_READABLE、429 IMAGE_QUOTA_EXCEEDED。任务执行后的图片错误体现在任务 error，同步上传/准入错误使用 HTTP；已有任务失败须显式新 requestId 重试，上传失败另按 uploadId 恢复，不能混淆。
+
 ## 调用与联调
 
-安装 `kai-forge-consult-client-0.2.0.tgz` 后运行 [backend.mjs](examples/backend.mjs)。环境变量由本应用 Secret 管理及已持久化问题提供；`IT_REQUEST_ID` 不要每次进程重启随机生成。示例不会发送飞书消息。
+安装 `kai-forge-consult-client-0.3.0.tgz` 后运行 [backend.mjs](examples/backend.mjs)。环境变量由本应用 Secret 管理及已持久化问题提供；`IT_REQUEST_ID` 不要每次进程重启随机生成。示例不会发送飞书消息。
 
 ```js
 import { ForgeConsultBackendClient } from '@kai/forge-consult-client/backend';
@@ -201,6 +270,6 @@ const task = await forge.get(receipt.taskId);
 
 ## 实现定位与资料维护
 
-Forge 代码：`tools/tool-fore-consult/.../backend/`；SDK：`src/backend.ts`。首次启用由自动 schema 创建 `consult_service_client/consult_service_token/consult_analysis_task`。**DDL 未核验**：三张新表未命中既有 DDL 基线，字段来自本次 schema，不宣称已核验运行库；无需手工执行 SQL。既有用户 SDK 的附件/会话 ID 与本 API 的任务 ID 不互换。
+Forge 代码：`tools/tool-fore-consult/.../backend/`；SDK：`src/backend.ts`。首次启用由自动 schema 创建应用、票据、任务及 `consult_analysis_attachment` 原图表。**DDL 未核验**：本次原图及既有应用/任务表未命中 DDL 知识基线，字段来自仓库 schema，不宣称已核验运行库；无需手工执行 SQL。既有用户 SDK 的附件/会话 ID 与本 API 的任务 ID 不互换。
 
-参考：[OAuth Client Credentials](https://www.rfc-editor.org/rfc/rfc6749#section-4.4)、[HTTP 202](https://www.rfc-editor.org/rfc/rfc9110#section-15.3.3)、[OWASP 企业隔离](https://cheatsheetseries.owasp.org/cheatsheets/Multi_Tenant_Security_Cheat_Sheet.html)。源码测试与部署、实际模型、跨应用流程分别记录在 Forge 仓库的 `openspec/changes/consult-backend-analysis/tasks.md`（仓库维护记录，不是安装包内文件）。
+参考：[OAuth Client Credentials](https://www.rfc-editor.org/rfc/rfc6749#section-4.4)、[HTTP 202](https://www.rfc-editor.org/rfc/rfc9110#section-15.3.3)、[OWASP 企业隔离](https://cheatsheetseries.owasp.org/cheatsheets/Multi_Tenant_Security_Cheat_Sheet.html)。源码测试与部署、实际模型、跨应用流程分别记录在 Forge 仓库的 `openspec/changes/consult-backend-analysis/tasks.md`及 `openspec/changes/consult-backend-images/tasks.md`（仓库维护记录，不是安装包内文件）。

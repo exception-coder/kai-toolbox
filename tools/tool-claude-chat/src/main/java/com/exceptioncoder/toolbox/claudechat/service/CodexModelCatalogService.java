@@ -31,6 +31,29 @@ public class CodexModelCatalogService {
         this.mapper = mapper;
     }
 
+    /** Exact account/model metadata is required; missing capability is not a promise of vision. */
+    public boolean supportsImages(String codexHome, String model) {
+        if (codexHome == null || model == null) return false;
+        try { return supportsImages(Path.of(System.getProperty("user.home")), Path.of(codexHome), model); }
+        catch (IllegalArgumentException invalidPath) { return false; }
+    }
+
+    boolean supportsImages(Path userHome, Path requestedHome, String model) {
+        try {
+            Path home = requestedHome.toAbsolutePath().normalize();
+            Path root = userHome.toAbsolutePath().normalize();
+            if (!root.equals(home.getParent()) || home.getFileName() == null
+                    || !home.getFileName().toString().startsWith(CODEX_HOME_PREFIX) || Files.isSymbolicLink(home)) return false;
+            Path cache = home.resolve(MODEL_CACHE_FILE);
+            if (!Files.isRegularFile(cache, java.nio.file.LinkOption.NOFOLLOW_LINKS) || Files.size(cache) > 2 * 1024 * 1024) return false;
+            for (JsonNode entry : mapper.readTree(cache.toFile()).path("models")) {
+                if (!model.equals(entry.path("slug").asText())) continue;
+                for (JsonNode modality : entry.path("input_modalities")) if ("image".equals(modality.asText())) return true;
+            }
+        } catch (IOException | IllegalArgumentException ignored) { return false; }
+        return false;
+    }
+
     /**
      * Loads selectable models from the requested Codex authorization directory.
      *

@@ -4,7 +4,7 @@ Agent 管理教学案例见 [订单草稿教学 Agent](TEACHING.md)，包含六�
 
 项目组外部调用见 [Forge Consult Client 接入与安装](../../sdk/forge-consult-client/README.md)，架构见 [draw.io 源图](../../docs/diagrams/forge-consult-client.drawio)。新 SDK 使用业务咨询适配入口，不直接开放内部开发命令；默认关闭、待加载与真实跨项目验收，原 Widget 接入不变。
 
-应用后端（如 yoooni-agent 的 IT 客服伙伴）使用独立 [分析 API v1 合同](../../sdk/forge-consult-client/BACKEND.md) 和 [OpenAPI](../../sdk/forge-consult-client/openapi-backend.yaml)。SDK 0.2.0 增加 `/backend` 入口：管理员签发应用企业授权、短期认证、幂等任务提交/查询/取消、结构化分析及受控证据；不使用员工密码、不执行工具或发送飞书。源码与测试交付、部署和真实模型验收分开记录，见 [任务](../../openspec/changes/consult-backend-analysis/tasks.md)。
+应用后端（如 yoooni-agent 的 IT 客服伙伴）使用独立 [分析 API v1 合同](../../sdk/forge-consult-client/BACKEND.md) 和 [OpenAPI](../../sdk/forge-consult-client/openapi-backend.yaml)。SDK 0.3.0 提供 `/backend` 入口：管理员签发应用企业授权、短期认证、幂等任务提交/查询/取消、结构化分析、原图上传及 opt-in 三条候选（replyMode=FORGE），保留旧 CALLER 默认行为；不使用员工密码、不执行工具或发送飞书。源码与测试交付、部署和真实模型验收分开记录，见 [初始任务](../../openspec/changes/consult-backend-analysis/tasks.md) 与 [原图候选任务](../../openspec/changes/consult-backend-images/tasks.md)。
 
 管理员从业务咨询「配置 → 外部应用接入 → 管理应用接入凭据」进入 `/tools/fore-consult/access`，查看本实例授权、颁发、轮换/续期和撤销。只在当次生成后复制/下载私有配置，列表不含密钥或摘要；可选 Idempotency-Key 防止相同颁发请求重复执行，页面刷新复用非敏感草稿和请求标识，原独立多组授权仍兼容。分析开关未启用时可先准备授权，换票/分析仍须启用；页面不修改部署开关或重启。项目组使用自己的 Forge 时在本地颁发，凭据不跨实例。详情沿用上述合同和交接文档，不登记业务更新纸条。
 

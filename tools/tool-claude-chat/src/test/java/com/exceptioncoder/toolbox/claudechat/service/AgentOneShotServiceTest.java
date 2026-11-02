@@ -23,10 +23,37 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class AgentOneShotServiceTest {
 
     @Test
+    void managedImagesReachExistingSidecarWithoutChangingCancellationOrDisabledTools() throws Exception {
+        var sidecar = mock(SidecarClient.class);
+        var catalog = mock(CodexModelCatalogService.class);
+        org.mockito.Mockito.when(catalog.supportsImages("account", "vision")).thenReturn(true);
+        var service = new AgentOneShotService(mock(SidecarProcessRegistry.class), sidecar,
+                new ClaudeChatProperties(), AgentTelemetry.noop(256), new AgentWorkAdmissionGate(), catalog);
+        var request = new ExecutionRequest("system", "question", null, "vision", "codex", null, null, null, null, "account", "disabled");
+        var images = java.util.List.of(new com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput("b3JpZ2luYWw=", "image/png"));
+        var sent = new CountDownLatch(1);
+        var runtimeId = new java.util.concurrent.atomic.AtomicReference<String>();
+        doAnswer(call -> {
+            assertThat((java.util.List<?>) call.getArgument(3)).isEqualTo(images);
+            assertThat((ExecutionRequest) call.getArgument(1)).isEqualTo(request);
+            runtimeId.set(call.getArgument(0)); sent.countDown(); return null;
+        }).when(sidecar).oneShot(anyString(), any(ExecutionRequest.class), anyString(), org.mockito.ArgumentMatchers.anyList(), any(TraceContext.class), any(AgentRunMetadata.class));
+        var result = new java.util.concurrent.FutureTask<>(() -> service.runManaged(request, java.util.UUID.randomUUID().toString(), images));
+        Thread.ofVirtual().start(result);
+        assertThat(sent.await(3, TimeUnit.SECONDS)).isTrue();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        service.handle(runtimeId.get(), mapper.readTree("{\"type\":\"assistantDelta\",\"text\":\"observed image\"}"));
+        service.handle(runtimeId.get(), mapper.readTree("{\"type\":\"result\",\"stopReason\":\"end_turn\"}"));
+        assertThat(result.get(3, TimeUnit.SECONDS)).isEqualTo("observed image");
+        org.mockito.Mockito.when(catalog.supportsImages("account", "vision")).thenReturn(false);
+        assertThatThrownBy(() -> service.runManaged(request, java.util.UUID.randomUUID().toString(), images)).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
     void managedCancellationWaitsForTerminalAcknowledgementAndRejectsInterruptedText() throws Exception {
         var sidecar = mock(SidecarClient.class);
         var service = new AgentOneShotService(mock(SidecarProcessRegistry.class), sidecar,
-                new ClaudeChatProperties(), AgentTelemetry.noop(256), new AgentWorkAdmissionGate());
+                new ClaudeChatProperties(), AgentTelemetry.noop(256), new AgentWorkAdmissionGate(), mock(CodexModelCatalogService.class));
         var sent = new CountDownLatch(1);
         var runtimeId = new java.util.concurrent.atomic.AtomicReference<String>();
         doAnswer(call -> { runtimeId.set(call.getArgument(0)); sent.countDown(); return null; })
@@ -51,7 +78,7 @@ class AgentOneShotServiceTest {
     void managedOversizeAndErrorEventsDoNotReturnSuccessBeforeEngineTerminal() throws Exception {
         var sidecar = mock(SidecarClient.class);
         var service = new AgentOneShotService(mock(SidecarProcessRegistry.class), sidecar,
-                new ClaudeChatProperties(), AgentTelemetry.noop(256), new AgentWorkAdmissionGate());
+                new ClaudeChatProperties(), AgentTelemetry.noop(256), new AgentWorkAdmissionGate(), mock(CodexModelCatalogService.class));
         var sent = new CountDownLatch(1);
         var runtimeId = new java.util.concurrent.atomic.AtomicReference<String>();
         doAnswer(call -> { runtimeId.set(call.getArgument(0)); sent.countDown(); return null; })
@@ -77,7 +104,7 @@ class AgentOneShotServiceTest {
         SidecarClient sidecar = mock(SidecarClient.class);
         AgentWorkAdmissionGate gate = new AgentWorkAdmissionGate();
         AgentOneShotService service = new AgentOneShotService(
-                processRegistry, sidecar, new ClaudeChatProperties(), AgentTelemetry.noop(256), gate);
+                processRegistry, sidecar, new ClaudeChatProperties(), AgentTelemetry.noop(256), gate, mock(CodexModelCatalogService.class));
 
         try (AgentWorkAdmissionGate.DrainLease ignored = gate.tryAcquireDrain().orElseThrow()) {
             assertThatThrownBy(() -> service.runOnce("system", "user", null, "codex"))
@@ -96,7 +123,7 @@ class AgentOneShotServiceTest {
         ClaudeChatProperties properties = new ClaudeChatProperties();
         AgentOneShotService service = new AgentOneShotService(
                 processRegistry, sidecar, properties, AgentTelemetry.noop(256),
-                new AgentWorkAdmissionGate());
+                new AgentWorkAdmissionGate(), mock(CodexModelCatalogService.class));
         CountDownLatch requestSent = new CountDownLatch(1);
         AtomicBoolean interruptedDuringSidecarSend = new AtomicBoolean(true);
 

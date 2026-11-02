@@ -80,4 +80,19 @@ class CodexModelCatalogServiceTest {
 
         assertThat(service.list(userHome, codexHome)).isEmpty();
     }
+
+    @Test
+    void imageCapabilityRequiresExactAccountModelAndExplicitImageModality() throws Exception {
+        Path codexHome = Files.createDirectory(userHome.resolve(".codex-images"));
+        assertThat(service.supportsImages(userHome, codexHome, "vision")).isFalse();
+        Files.writeString(codexHome.resolve("models_cache.json"), """
+                {"models":[{"slug":"vision","input_modalities":["text","image"]},
+                {"slug":"text-only","input_modalities":["text"]},{"slug":"unknown"}]}
+                """);
+        assertThat(service.supportsImages(userHome, codexHome, "vision")).isTrue();
+        for (String model : java.util.List.of("text-only", "unknown", "other")) assertThat(service.supportsImages(userHome, codexHome, model)).isFalse();
+        assertThat(service.supportsImages(userHome.resolve("other-root"), codexHome, "vision")).isFalse();
+        Files.writeString(codexHome.resolve("models_cache.json"), "broken JSON");
+        assertThat(service.supportsImages(userHome, codexHome, "vision")).isFalse();
+    }
 }

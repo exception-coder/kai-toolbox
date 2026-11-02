@@ -6,12 +6,16 @@ import java.util.List;
 public record ConsultAnalysisInput(String agentId, String tenantId, String problemId, String conversationId,
         String requestId, String title, String description, List<String> recentContext,
         Classification classification, List<String> systemIds, String errorText,
-        List<AttachmentText> attachmentTexts, List<EvidenceRef> evidenceRefs) {
+        List<AttachmentText> attachmentTexts, List<EvidenceRef> evidenceRefs,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) List<String> attachmentIds,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String replyMode) {
 
     public static final String AGENT_ID = "it-support-partner";
     public record Classification(String decision, String reason) {}
     public record AttachmentText(String id, String name, String text) {}
     public record EvidenceRef(String projectId, String path, int startLine, int endLine) {}
+
+    public boolean forgeReplies() { return "FORGE".equals(replyMode); }
 
     public ConsultAnalysisInput validated() {
         if (!AGENT_ID.equals(agentId)) throw ConsultBackendException.invalid("agentId 必须为 it-support-partner");
@@ -39,8 +43,12 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
             if (r.startLine() < 1 || r.endLine() < r.startLine() || r.endLine() - r.startLine() >= 120) throw ConsultBackendException.invalid("源码引用须为 1–120 行");
             if (!systems.contains(r.projectId())) throw ConsultBackendException.invalid("源码引用必须属于 systemIds 中的项目");
         }
+        var images = list(attachmentIds, 5);
+        if (images.stream().anyMatch(id -> !id.matches("img_[a-f0-9-]{36}")) || images.stream().distinct().count() != images.size())
+            throw ConsultBackendException.invalid("attachmentIds 必须为最多 5 个不重复的上传图片 ID");
+        if (replyMode != null && !List.of("CALLER", "FORGE").contains(replyMode)) throw ConsultBackendException.invalid("replyMode 必须为 CALLER 或 FORGE");
         return new ConsultAnalysisInput(agentId, tenantId, problemId, conversationId, requestId, title, description,
-                context, classification, systems, errorText, attachments, refs);
+                context, classification, systems, errorText, attachments, refs, images, replyMode);
     }
 
     static void text(String value, int max, boolean required) {

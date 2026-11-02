@@ -1,0 +1,74 @@
+{
+  "exampleOnly": true,
+  "note": "脱敏合同示例，不是真实模型验收记录。须先上传实际原图，替换所有标识和元数据后提交；不可把示例 attachmentId 当成可用附件。",
+  "upload": {
+    "method": "POST",
+    "path": "/api/fore-consult/v1/attachments?uploadId=it-image-upload-001",
+    "contentType": "image/png",
+    "body": "原始 PNG 字节；本字段仅说明，不是实际 HTTP 请求体",
+    "response": {
+      "attachmentId": "img_11111111-1111-4111-8111-111111111111",
+      "uploadId": "it-image-upload-001",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mediaType": "image/png",
+      "size": 12345,
+      "width": 1280,
+      "height": 720,
+      "createdAt": 1793600000000,
+      "expiresAt": 1793686400000
+    }
+  },
+  "analysisInput": {
+    "agentId": "it-support-partner",
+    "tenantId": "company-test",
+    "problemId": "IT-20261102-001",
+    "conversationId": "IT-CONVERSATION-001",
+    "requestId": "it-image-demo-001",
+    "title": "打印按钮无反应",
+    "description": "用户反馈点击标签打印后没有反应，请结合原图给出排查建议。",
+    "recentContext": ["用户表示昨天可以打印，尚未确认其他同事是否受影响。"],
+    "classification": {"decision": "IT", "reason": "业务系统打印功能异常"},
+    "systemIds": [],
+    "attachmentTexts": [],
+    "evidenceRefs": [],
+    "attachmentIds": ["img_11111111-1111-4111-8111-111111111111"],
+    "replyMode": "FORGE"
+  },
+  "taskResponse": {
+    "taskId": "22222222-2222-4222-8222-222222222222",
+    "requestId": "it-image-demo-001",
+    "problemId": "IT-20261102-001",
+    "conversationId": "IT-CONVERSATION-001",
+    "status": "NEEDS_INFORMATION",
+    "result": {
+      "schemaVersion": "1.1",
+      "understanding": "用户报告标签打印无反应；示例图片显示打印服务连接失败，需要补充影响范围。",
+      "category": "PRINTING",
+      "facts": [{"text": "调用方报告标签打印没有反应。", "evidenceIds": ["input"]}, {"text": "原图页面提示打印服务连接失败，尚未独立核验实际服务状态。", "evidenceIds": ["img_11111111-1111-4111-8111-111111111111"]}],
+      "possibleCauses": [{"description": "本机打印服务可能没有正常连接，仍需检查服务及浏览器提示。", "confidence": "POSSIBLE", "evidenceIds": []}],
+      "recommendations": ["先确认其他同事是否能正常打印，再检查本机打印服务状态。"],
+      "missingInformation": ["其他同事是否也无法打印？"],
+      "unknowns": ["尚未核验本机打印服务、浏览器及系统运行状态。"],
+      "humanHandoff": {"recommended": false, "reason": "先收集最少现场信息；若多位用户受影响或仍无法恢复，再交 IT 排查。"},
+      "evidence": [
+        {"id": "input", "kind": "CALLER_DESCRIPTION", "source": "IT-20261102-001", "text": "用户报告标签打印无反应。"},
+        {"id": "img_11111111-1111-4111-8111-111111111111", "kind": "CALLER_IMAGE", "source": "img_11111111-1111-4111-8111-111111111111", "text": "原图按 imageInputs 顺序提供，不代表已核验实际系统状态。"}
+      ],
+      "evidenceLimitations": "未独立核验系统源码、运行环境或数据库；调用方资料不代表系统事实已确认。",
+      "replyCandidatesGeneratedBy": "FORGE",
+      "replyCandidates": [
+        {"id": "reply-1", "text": "截图提示打印服务连接失败，目前还不能确定具体原因。请先确认其他同事能否打印，我们再缩小排查范围。", "evidenceIds": ["img_11111111-1111-4111-8111-111111111111"]},
+        {"id": "reply-2", "text": "建议先查看本机打印服务是否正常运行，再检查浏览器是否有报错。如果仍不能打印，请把报错提示一起提供给 IT 排查。", "evidenceIds": ["input", "img_11111111-1111-4111-8111-111111111111"]},
+        {"id": "reply-3", "text": "请补充两个信息：其他同事是否也无法打印，以及本机打印服务是否已启动。目前只是排查建议，还未确认修复。", "evidenceIds": ["input", "img_11111111-1111-4111-8111-111111111111"]}
+      ],
+      "imageInputs": [{"attachmentId": "img_11111111-1111-4111-8111-111111111111", "uploadId": "it-image-upload-001", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "mediaType": "image/png", "size": 12345, "width": 1280, "height": 720, "createdAt": 1793600000000, "expiresAt": 1793686400000}],
+      "imageObservations": [{"attachmentId": "img_11111111-1111-4111-8111-111111111111", "readable": true, "observation": "示例原图页面有打印操作入口，并提示打印服务连接失败；未显示服务进程状态。"}]
+    },
+    "error": null,
+    "createdAt": 1793600001000,
+    "startedAt": 1793600002000,
+    "finishedAt": 1793600005000,
+    "policyVersion": 1,
+    "attachmentIds": ["img_11111111-1111-4111-8111-111111111111"]
+  }
+}

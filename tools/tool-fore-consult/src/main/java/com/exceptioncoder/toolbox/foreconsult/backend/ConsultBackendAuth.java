@@ -140,7 +140,7 @@ public class ConsultBackendAuth {
             String token = "fct_" + randomValue();
             long until = Math.min(now + 900000, c.expiresAt());
             store.token(hash(token), c, until);
-            return new AccessToken(token, "Bearer", Math.max(0, (until - now) / 1000), "consult:analyze consult:read consult:cancel");
+            return new AccessToken(token, "Bearer", Math.max(0, (until - now) / 1000), "consult:analyze consult:read consult:cancel consult:attachments");
         } catch (IllegalArgumentException malformed) { throw unauthorized(); }
     }
 
