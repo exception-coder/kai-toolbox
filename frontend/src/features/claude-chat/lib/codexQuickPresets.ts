@@ -10,7 +10,7 @@ export interface CodexQuickPreset {
 }
 
 export const QUICK_EFFORT_LABELS: Record<string, string> = {
-  minimal: '最低', low: '轻度', medium: '标准', high: '深入', xhigh: '超高', max: '最大', ultra: '极致',
+  minimal: '最低', low: '轻度', medium: '中等', high: '深入', xhigh: '超高', max: '最大', ultra: '极致',
 }
 
 /** 目录顺序由引擎持有；只投影明确支持的常用组合，隐藏档位仍在自定义中。 */

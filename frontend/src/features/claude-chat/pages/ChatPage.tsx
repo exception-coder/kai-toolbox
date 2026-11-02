@@ -1081,11 +1081,15 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 
   const selectedSessionModel = chat.models.find(model => model.value === chat.currentModel)
     ?? (!chat.currentModel ? chat.models.find(model => model.isDefault) : undefined)
-  const sessionConfigSummary = selectedSessionModel?.displayName
+  const sessionModelLabel = selectedSessionModel?.displayName
     || chat.currentModel
     || currentEngineLabel
-  const sessionConfigCompactSummary = compactSessionModelLabel(sessionConfigSummary)
-    + (chat.currentEngine === 'codex' ? ` ${QUICK_EFFORT_LABELS[chat.codexReasoningEffort] || chat.codexReasoningEffort}` : '')
+  const sessionEffortLabel = QUICK_EFFORT_LABELS[chat.codexReasoningEffort] || chat.codexReasoningEffort
+  const sessionSpeedLabel = chat.codexSpeed === 'fast' ? '快速' : '标准'
+  const sessionConfigSummary = sessionModelLabel + (chat.currentEngine === 'codex'
+    ? ` · 思考强度 ${sessionEffortLabel} · 速度 ${sessionSpeedLabel}` : '')
+  const sessionConfigCompactSummary = compactSessionModelLabel(sessionModelLabel) + (chat.currentEngine === 'codex'
+    ? ` · ${sessionEffortLabel} · ${sessionSpeedLabel}` : '')
 
   const startNew = (selected?: NewSessionPreferences) => {
     if (newSessionCreateLock.current || newSessionLoading) return

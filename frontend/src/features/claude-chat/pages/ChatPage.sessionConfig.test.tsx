@@ -111,6 +111,7 @@ afterEach(() => {
   testRuntime.chat.currentEngine = 'codex'
   testRuntime.chat.currentProviderKind = 'official'
   testRuntime.chat.codexSpeed = 'default'
+  testRuntime.chat.codexReasoningEffort = 'low'
   testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol' }]
   testRuntime.chat.sessionId = 'session-config-regression'
   vi.mocked(uploadAttachment).mockReset()
@@ -138,6 +139,22 @@ async function openNewSessionSettings() {
 }
 
 describe('ChatPage session configuration', () => {
+  it.each([
+    ['fast', '快速'], ['default', '标准'],
+  ])('distinguishes medium reasoning from %s speed in the composer and configuration', async (speed, label) => {
+    testRuntime.chat.codexReasoningEffort = 'medium'
+    testRuntime.chat.codexSpeed = speed
+    mountChat()
+    const trigger = await screen.findByRole('button', { name: `会话配置，当前 GPT-5.6-Sol · 思考强度 中等 · 速度 ${label}` })
+    expect(trigger).toHaveTextContent(`5.6 Sol · 中等 · ${label}`)
+    fireEvent.click(trigger)
+    const config = within(await screen.findByRole('dialog', { name: '会话配置' }))
+    expect(config.getByRole('button', { name: '配置 Codex 模型、推理强度和速度' })).toHaveTextContent(`· 中 · ${label}`)
+    expect(testRuntime.chat.setCodexOptions).not.toHaveBeenCalled()
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+    expect(testRuntime.chat.enqueue).not.toHaveBeenCalled()
+  })
+
   it('registers a workspace from the drawer, retains input after failure and selects the refreshed root on retry', async () => {
     testRuntime.profiles = []
     testRuntime.roots = [{ root: 'D:/work', exists: true, dirs: [] }]

@@ -68,5 +68,5 @@ it('discards pending selection when the session configuration or catalog changes
   view.rerender(<CodexQuickPicker models={models} model="gpt-6.1-astra" effort="medium" onApply={apply} onCustom={vi.fn()} />)
   fireEvent.pointerUp(screen.getByRole('slider'))
   expect(apply).not.toHaveBeenCalled()
-  expect(screen.getByRole('slider')).toHaveAttribute('aria-valuetext', '6.1 Astra 标准 · 自定义')
+  expect(screen.getByRole('slider')).toHaveAttribute('aria-valuetext', '6.1 Astra 中等 · 自定义')
 })
