@@ -1,5 +1,24 @@
 ## ADDED Requirements
 
+### Requirement: Codex dictation returns draft text without starting a task
+The system SHALL route ordinary coding-composer speech input for the Codex engine to native desktop dictation using the current authorized session's server-selected account. It SHALL keep bidirectional voice separate and retain existing non-Codex transcription behavior.
+
+#### Scenario: Dictate while a code task is running
+- **WHEN** the user records and explicitly stops ordinary dictation in a Codex session
+- **THEN** final transcribed text is appended to that session's draft for editing and manual sending
+- **AND** no thread, code turn, realtime call or task interruption is created by dictation
+- **AND** credentials remain server-side and audio is not persisted
+
+#### Scenario: Permission failure or incomplete recognition
+- **WHEN** the current account is unsupported, the service fails or closes before final completion, or audio exceeds 120 seconds
+- **THEN** the user receives an explicit failure and their existing draft remains intact
+- **AND** the system does not silently use Whisper, return partial success or automatically retry
+
+#### Scenario: Change conversation while recognition is pending
+- **WHEN** the user changes session, account or engine, or leaves the composer
+- **THEN** microphone resources are released and late text cannot enter another draft
+- **AND** repeated stop clicks cannot create duplicate recognition requests
+
 ### Requirement: Explicit device takeover preserves the same voice thread
 The system SHALL give audio ownership to the last valid explicit connection request received for the same live voice thread, without interrupting its code task or automatically reconnecting a displaced device.
 

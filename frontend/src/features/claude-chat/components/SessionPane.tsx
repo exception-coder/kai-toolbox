@@ -326,7 +326,9 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
             }}
           />
           <VoiceInputButton
-            disabled={planLocked || chat.running}
+            key={`${sessionId}:${chat.currentEngine}:${meta?.codexHome ?? ''}`}
+            codexSessionId={chat.currentEngine === 'codex' ? chat.sessionId ?? '' : undefined}
+            disabled={planLocked || (chat.currentEngine !== 'codex' && chat.running)}
             onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
           />
           <textarea

@@ -35,7 +35,7 @@ import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
 import { useDraftAttachments, useDraftAttachmentUploads } from '../lib/attachmentDraftPref'
-import { listSessions, resolveModule, transcribe } from '../api'
+import { listSessions, resolveModule, transcribe, transcribeCodexDictation } from '../api'
 import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
 import type { PrdSessionView } from '@/features/prd-clarify/public-api'
@@ -148,6 +148,8 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
   const bubbleRec = useVoiceRecorder()
   const [bubbleListening, setBubbleListening] = useState(false) // 气泡正在听（录音中）
   const [bubbleRecBusy, setBubbleRecBusy] = useState(false)     // 松手后转写中
+  const bubbleGeneration = useRef(0)
+  const bubbleRequest = useRef<AbortController | null>(null)
   // 最小化状态栏：AI 工作计时器（active 时每秒 +1，空闲时清零）
   // 注意：useEffect 必须在所有早返回（if !floating return null）之前定义，否则违反 React Hooks 规则。
   // 这里用 optional chaining 安全读取，chat 为 null 时 isActive=false，效果与 active=false 一致。
@@ -204,6 +206,19 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
     staleTime: 5000,
   })
   const currentSession = sessions.find(s => s.id === chat?.sessionId && isVibeCodingSession(s))
+  useEffect(() => {
+    setBubbleListening(false)
+    setBubbleRecBusy(false)
+    return () => {
+      bubbleGeneration.current++
+      bubbleRequest.current?.abort()
+      bubbleRequest.current = null
+      if (bubbleLongTimer.current) clearTimeout(bubbleLongTimer.current)
+      bubbleLongTimer.current = null
+      bubbleRef.current = null
+      bubbleRec.cancel()
+    }
+  }, [chat?.sessionId, chat?.currentEngine, currentSession?.codexHome, floating, bubbleRec.cancel])
   const planLocked = currentSession?.planExpired === true
   const { uploadFiles, error: attachmentUploadError, clearError: clearAttachmentUploadError }
     = useComposerFileUpload({ sessionId: chat?.sessionId, disabled: planLocked || !!demo, limit: MAX_ATTACHMENTS })
@@ -378,18 +393,34 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
   }
 
   // 最小化气泡拖拽（拖动则移动，未拖动视为点击展开）
-  // 松手后：停止录音 → 转写 → 有文本就自动发送（取消/失败则丢弃，不发送）。
+  // Codex 松手听写后展开草稿供确认；其他引擎保持既有直接发送行为。
   const finishBubbleListen = async () => {
+    if (bubbleRequest.current) return
+    const controller = new AbortController()
+    bubbleRequest.current = controller
+    const generation = bubbleGeneration.current
     setBubbleListening(false)
     try {
       const blob = await bubbleRec.stop()
       setBubbleRecBusy(true)
-      const text = (await transcribe(blob)).trim()
-      if (text && !handleUserText(text)) chat.send(text)
-    } catch {
-      /* 录音过短/转写失败：静默丢弃 */
+      const text = (chat.currentEngine === 'codex'
+        ? await transcribeCodexDictation(chat.sessionId ?? '', blob, controller.signal)
+        : await transcribe(blob)).trim()
+      if (generation !== bubbleGeneration.current || controller.signal.aborted) return
+      if (chat.currentEngine === 'codex') {
+        setDraft(value => value.trim() ? `${value} ${text}` : text)
+        setMinimized(false)
+        setCompact(false)
+      } else if (text && !handleUserText(text)) chat.send(text)
+    } catch (error) {
+      if (chat.currentEngine === 'codex' && generation === bubbleGeneration.current && !controller.signal.aborted) {
+        setMinimized(false)
+        setCompact(false)
+        setRouteNote(error instanceof Error ? error.message : '听写失败，请重新录音')
+      }
     } finally {
-      setBubbleRecBusy(false)
+      if (generation === bubbleGeneration.current) setBubbleRecBusy(false)
+      if (bubbleRequest.current === controller) bubbleRequest.current = null
     }
   }
 
@@ -400,7 +431,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
     // 长按 450ms 且未拖动 → 小人原地变「正在听」并开始录音（不展开、不弹云朵）。不支持录音则当普通长按，松手照常展开。
     bubbleLongTimer.current = window.setTimeout(() => {
       const b = bubbleRef.current
-      if (!b || b.moved || !bubbleRec.supported) return
+      if (!b || b.moved || !bubbleRec.supported || planLocked || bubbleRequest.current) return
       b.long = true
       bubbleRec.start().then(() => setBubbleListening(true)).catch(() => { if (bubbleRef.current) bubbleRef.current.long = false })
     }, 450)
@@ -423,7 +454,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
     const b = bubbleRef.current
     bubbleRef.current = null
     ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-    if (b?.long) void finishBubbleListen()          // 长按录音 → 松手转写并自动发送
+    if (b?.long) void finishBubbleListen()          // Codex 回填草稿；其他引擎松手发送
     else if (b && !b.moved) setMinimized(false)      // 短按 → 展开
   }
 
@@ -547,7 +578,7 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
                 </span>
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold leading-tight text-[var(--color-primary)]">正在听…</span>
-                  <span className="block truncate text-[11px] leading-tight text-[var(--color-muted-foreground)] tabular-nums">松开发送 · {bubbleRec.seconds}s</span>
+                  <span className="block truncate text-[11px] leading-tight text-[var(--color-muted-foreground)] tabular-nums">{chat.currentEngine === 'codex' ? '松开听写到草稿' : '松开发送'} · {bubbleRec.seconds}s</span>
                 </span>
               </>
             ) : bubbleRecBusy ? (
@@ -840,7 +871,11 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
               </button>
             </div>
           ) : (
-            <MiniVoiceBar disabled={planLocked} onSend={t => { if (!planLocked && !handleUserText(t)) chat.send(t) }} />
+            chat.currentEngine === 'codex' ? <VoiceInputButton
+              key={`${chat.sessionId}:${chat.currentEngine}:${currentSession?.codexHome ?? ''}`}
+              codexSessionId={chat.sessionId ?? ''} disabled={planLocked}
+              onText={text => { setDraft(value => value.trim() ? `${value} ${text}` : text); setCompact(false) }}
+            /> : <MiniVoiceBar disabled={planLocked} onSend={t => { if (!planLocked && !handleUserText(t)) chat.send(t) }} />
           )}
         </div>
       )}
@@ -940,7 +975,9 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
           )}
           {!demo && (
             <VoiceInputButton
-              disabled={planLocked || chat.running}
+              key={`${chat.sessionId}:${chat.currentEngine}:${currentSession?.codexHome ?? ''}`}
+              codexSessionId={chat.currentEngine === 'codex' ? chat.sessionId ?? '' : undefined}
+              disabled={planLocked || (chat.currentEngine !== 'codex' && chat.running)}
               onText={t => setDraft(d => (d.trim() ? `${d} ${t}` : t))}
             />
           )}

@@ -9,6 +9,7 @@ import { initializeTelemetry, shutdownTelemetry } from './telemetry/telemetry.js
 import { EngineCatalog } from './engine/engineCatalog.js'
 import { readCodexSubscriptionQuota } from './codexSubscriptionQuota.js'
 import { inspectConsultAccount } from './consultAccountProbe.js'
+import { handleCodexDictation } from './codexDictation.js'
 import { readCodexDesktopPage } from './codexDesktopSync.js'
 import {
   createGraphifyRuntimeRequestHandler,
@@ -288,6 +289,11 @@ wss.on('connection', (ws) => {
       case 'inspectConsultAccount':
         void inspectConsultAccount(String(msg.codexHome ?? ''), String(msg.model ?? '')).then(result =>
           emit('consult-account-inspection', { type: 'consultAccountInspection', requestId: msg.requestId, ...result }))
+        break
+      case 'codexDictation':
+        void handleCodexDictation(typeof msg.codexHome === 'string' ? msg.codexHome : undefined,
+          typeof msg.audio === 'string' ? msg.audio : undefined).then(result =>
+          emit('codex-dictation', { type: 'codexDictationResult', requestId: msg.requestId, ...result }))
         break
       case 'queryCodexDesktop':
         void readCodexDesktopPage(

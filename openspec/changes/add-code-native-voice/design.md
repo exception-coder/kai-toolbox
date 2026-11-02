@@ -1,3 +1,17 @@
+## Codex 普通听写（2026-11-02）
+
+普通麦克风输入与双向通话分离。Codex 引擎复用当前 Forge sessionId，经既有会话访问策略解析服务端保存的 codexHome；只用 App Server `getAuthStatus` 取该账号认证，再由 Sidecar 连接桌面客户端的独立 `/backend-api/dictation/stream`。不调用 thread/start、turn/start、thread/realtime，也不占用或中断原线程 writer。其他引擎及咨询、工作助理原有 Whisper 听写不变。
+
+协议依据为本机 Codex 桌面 26.1027.3384.0 的静态实现与配套 CLI 0.162.1 生成类型；独立听写流为客户端内部协议，并非官方承诺稳定的 App Server RPC。固定官方上游，不接收浏览器传入的账号、凭据或 URL。ChatGPT 登录账号实测握手成功；API Key 登录和第三方网关明确不支持，不暗中降级 Whisper。内部协议变化必须报错，不可把短通话当听写替代。
+
+浏览器沿用既有录音，停止后本地解码并转换为 16kHz 单声道 PCM16LE，最多 120 秒、3,840,000 字节。Java 先鉴权再有界读取请求体，通过既有 Sidecar RPC 请求 ID 返回最终文本。凭据和音频不落日志、聊天历史或磁盘；上游错误不回传凭据及任意响应正文。所有后台听写含 4 个并发上限及连接/完成超时，拒绝不完整结果，不自动重试。
+
+适用 OBJ-01、NAV-01、CTX-01、DENS-01、FEED-01、AI-01、EVID-01、CTRL-01、IDEM-01，无例外。对象仍是当前会话；沿用常驻麦克风、取消及停止按钮，不新增页面。识别结果只追加草稿，不自动发送，不创建需求或任务。每次停止最多发送一次；切换会话、账号或引擎卸载录音组件并中止结果回填，迟到结果不得进入新草稿。失败保留既有草稿和可见错误，用户可重新录音；退出页面释放麦克风。取消尚未发送的录音不发请求；HTTP 中止不宣称已经撤销送达上游的转写，服务端在有限超时内释放连接。
+
+定向验收覆盖账号与会话访问、PCM 限额、协议终态/修订、错误、重复停止、迟到结果及既有非 Codex 录音。键盘、手机权限/录音格式与真实识别需浏览器实测；当前握手成功不等于手机识别验收。新版 Java/Sidecar 激活仍须本次独立重启授权。
+
+主会话、分屏、悬浮完整态和迷你态共用原生听写按钮；最小化气泡长按走同一后端转写，完成后展开原草稿，不沿用 Codex 自动发送。浮窗关闭、账号或引擎变化时取消本地媒体与回填资格；其他引擎的迷你态直接发送语义不变。
+
 ## Context
 
 基线 HEAD 为 59c39e2。Graphify 2026-08-25 图谱将调用链定位到 ChatPage/useClaudeChatSocket → ClaudeChatService/SidecarClient → sessionManager/runCodexTurn/runCodexAppServerTurn；已按当前源码补齐。现有 app-server 为每个 Forge 轮次创建进程，不能另起 writer 抢占原生线程。现有 VoiceInputButton 走 Whisper，与本能力不同。

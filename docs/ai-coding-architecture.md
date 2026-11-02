@@ -243,6 +243,20 @@ flowchart LR
     COPY_KEY -->|"网络未知，同编号最多三次"| COPY_TX
 ```
 
+### Codex 普通听写与双向通话
+
+VibeCoding 普通麦克风输入按引擎选择转写。Codex 由已授权会话的服务端 codexHome 决定账号，App Server 只提供认证读取，Sidecar 适配桌面客户端独立的官方听写流；不调用线程、轮次或 realtime API，不改变原会话任务/工具权限。其他引擎和咨询、工作助理保留已有语音服务。浏览器将录音转换成有界 PCM，仅最终文本回填原草稿，必须人工发送；切换对象释放媒体并阻止迟到结果回填。凭据不进入浏览器，音频不持久化，失败不自动换账号、改用 Whisper 或重放。桌面听写是内部协议，握手成功与真实音频验收、制品激活分别记录于[语音任务](../openspec/changes/add-code-native-voice/tasks.md)。
+
+```mermaid
+flowchart LR
+    MIC["普通麦克风 · 当前草稿"] --> PCM["浏览器录音转有界 PCM"]
+    PCM --> ACCESS["Java 会话访问校验 · 服务端账号选择"]
+    ACCESS --> AUTH["Sidecar · App Server 认证读取"]
+    AUTH --> DICTATION["官方独立听写流 · 不创建任务"]
+    DICTATION --> DRAFT["最终文本回填原草稿 · 人工发送"]
+    CALL["双向通话"] --> REALTIME["原 thread/realtime 生命周期"]
+```
+
 ## 从需求到交付
 
 面向用户的重磅更新在同次交付中登记业务咨询[更新小纸条](../frontend/src/features/fore-consult/data/upgradeNotes.ts)，由本次实施Agent维护日期、变化、用法与范围，保留历史。未部署或未验收须明确标注；小纸条是用户沟通内容，不作为规格、验证或部署事实源，不增加自动发布和服务重启授权。具体登记规范见[咨询说明](../tools/tool-fore-consult/README.md#更新小纸条登记)，普通内部重构和无感小修复无需登记。

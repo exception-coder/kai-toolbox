@@ -1033,6 +1033,30 @@ export async function transcribe(audio: Blob, language = 'auto', scope: 'coding'
   return text
 }
 
+/** Native dictation uses the current session's account; no credentials are returned to the browser. */
+export async function codexDictationAvailable(sessionId: string, signal?: AbortSignal): Promise<{ available: boolean; message?: string }> {
+  const response = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/dictation/available`, { signal })
+  if (response.status === 404) return { available: false, message: 'Codex 听写尚未加载，请更新后端服务后重试' }
+  if (!response.ok) throw new Error(await errMessage(response))
+  return response.json()
+}
+
+export async function transcribeCodexDictation(sessionId: string, audio: Blob, signal: AbortSignal): Promise<string> {
+  const { toDictationPcm } = await import('./lib/dictationPcm')
+  const pcm = await toDictationPcm(audio)
+  signal.throwIfAborted()
+  await ensureFreshToken()
+  if (!getToken()) throw new Error('登录已过期，请重新登录后使用听写')
+  const response = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/dictation`, {
+    method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: pcm,
+    signal: AbortSignal.any([signal, AbortSignal.timeout(90_000)]),
+  })
+  if (!response.ok) throw new Error(await errMessage(response))
+  const result = await response.json()
+  if (typeof result.text !== 'string' || !result.text.trim()) throw new Error('没有识别到语音，请重新录音')
+  return result.text.trim()
+}
+
 export interface UploadedAttachment {
   id: string
   name: string

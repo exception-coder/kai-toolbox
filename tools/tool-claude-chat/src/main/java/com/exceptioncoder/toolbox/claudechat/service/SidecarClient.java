@@ -56,6 +56,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     private final Map<String, CompletableFuture<JsonNode>> pendingSessionStateQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingEngineCatalogQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingConsultAccountQueries = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<JsonNode>> pendingDictationQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingSubscriptionQuotaQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingProjectRouteQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingCodexDesktopQueries = new ConcurrentHashMap<>();
@@ -369,6 +370,32 @@ public class SidecarClient implements ReviewThreadForkGateway {
             if (error instanceof InterruptedException) Thread.currentThread().interrupt();
             return Optional.empty();
         } finally { pendingConsultAccountQueries.remove(id); }
+    }
+
+    /** 独立听写不进入会话运行事件流，不启动或中断代码任务。音频只在内存中转发。 */
+    public Optional<JsonNode> codexDictation(String codexHome, byte[] pcm) {
+        String id = UUID.randomUUID().toString();
+        var future = new CompletableFuture<JsonNode>();
+        pendingDictationQueries.put(id, future);
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("type", "codexDictation");
+        message.put("requestId", id);
+        message.put("codexHome", nz(codexHome));
+        if (pcm != null) {
+            message.put("audio", java.util.Base64.getEncoder().encodeToString(pcm));
+        }
+        try {
+            if (!send(message)) return Optional.empty();
+            return Optional.of(future.get(75, TimeUnit.SECONDS));
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        } catch (Exception error) {
+            log.warn("[claude-chat] Codex 听写未完成 request={}", id);
+            return Optional.empty();
+        } finally {
+            pendingDictationQueries.remove(id);
+        }
     }
 
     /** 为下一次正常准入的轮次绑定瞬时语音协商。 */
@@ -733,6 +760,8 @@ public class SidecarClient implements ReviewThreadForkGateway {
         IllegalStateException error = new IllegalStateException(message);
         pendingConsultAccountQueries.values().forEach(future -> future.completeExceptionally(error));
         pendingConsultAccountQueries.clear();
+        pendingDictationQueries.values().forEach(future -> future.completeExceptionally(error));
+        pendingDictationQueries.clear();
         pendingEngineCatalogQueries.values().forEach(future -> future.completeExceptionally(error));
         pendingEngineCatalogQueries.clear();
         pendingSubscriptionQuotaQueries.values().forEach(future -> future.completeExceptionally(error));
@@ -794,6 +823,11 @@ public class SidecarClient implements ReviewThreadForkGateway {
                 }
                 if ("consultAccountInspection".equals(node.path("type").asText())) {
                     var future = pendingConsultAccountQueries.get(node.path("requestId").asText());
+                    if (future != null) future.complete(node);
+                    return;
+                }
+                if ("codexDictationResult".equals(node.path("type").asText())) {
+                    var future = pendingDictationQueries.get(node.path("requestId").asText());
                     if (future != null) future.complete(node);
                     return;
                 }

@@ -2204,6 +2204,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               }}
             />}
             <VoiceInputButton
+              key={`${chat?.sessionId}:${chat?.currentEngine}:${currentSession?.codexHome ?? ''}`}
+              codexSessionId={chat?.currentEngine === 'codex' ? chat.sessionId ?? '' : undefined}
               className="max-md:size-11"
               onIdleActivate={() => setMoreOpen(false)}
               disabled={planLocked}
