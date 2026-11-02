@@ -1048,25 +1048,47 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     if (chat && currentSession) chat.open(currentSession.cwd)
   }, [chat?.open, currentSession?.cwd])
 
-  // 顶栏标题双击直接改名：本地态显示编辑框，提交后写回后端并让会话列表/标题一并刷新。
+  // 编辑绑定开始时的会话；短按改名与长按模式选择互不触发。
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
   const [titleRenameError, setTitleRenameError] = useState<string | null>(null)
+  const titleEditTarget = useRef<{ id: string; title: string } | null>(null)
+  const titleTriggerRef = useRef<HTMLButtonElement>(null)
+  const titleSessionId = useRef(currentSession?.id)
+  titleSessionId.current = currentSession?.id
+  const attachTitleTrigger = useCallback((node: HTMLButtonElement | null) => {
+    titleTriggerRef.current = node
+    if (typeof controlRef === 'function') controlRef(node)
+    else if (controlRef) controlRef.current = node
+  }, [controlRef])
+  const wasEditingTitle = useRef(false)
+  useEffect(() => {
+    if (wasEditingTitle.current && !editingTitle) titleTriggerRef.current?.focus({ preventScroll: true })
+    wasEditingTitle.current = editingTitle
+  }, [editingTitle])
+  useEffect(() => {
+    titleEditTarget.current = null
+    setEditingTitle(false)
+    setTitleRenameError(null)
+  }, [currentSession?.id])
   const startEditTitle = () => {
     if (!currentSession) return
+    titleEditTarget.current = { id: currentSession.id, title: currentTitle ?? '' }
     setTitleRenameError(null)
     setTitleDraft(currentTitle ?? '')
     setEditingTitle(true)
   }
   const commitEditTitle = async () => {
     const t = titleDraft.trim()
-    if (!editingTitle) return
+    const target = titleEditTarget.current
+    if (!target || target.id !== currentSession?.id) return
+    titleEditTarget.current = null
     setEditingTitle(false)
-    if (t && currentSession && t !== currentTitle) {
+    if (t && t !== target.title) {
       try {
-        await renameSessionOptimistically(qc, currentSession.id, t, renameSession)
+        await renameSessionOptimistically(qc, target.id, t, renameSession)
       } catch (error) {
-        setTitleRenameError(`重命名失败：${error instanceof Error ? error.message : String(error)}`)
+        if (titleSessionId.current === target.id) setTitleRenameError(`重命名失败：${error instanceof Error ? error.message : String(error)}`)
       }
     }
   }
@@ -1283,27 +1305,30 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 {editingTitle ? (
                   <input
                     autoFocus
+                    aria-label="会话标题"
+                    onFocus={event => event.currentTarget.select()}
                     value={titleDraft}
                     onChange={e => setTitleDraft(e.target.value)}
                     onBlur={() => void commitEditTitle()}
                     onKeyDown={e => {
+                      if (e.nativeEvent.isComposing || e.keyCode === 229) return
                       if (e.key === 'Enter') { e.preventDefault(); void commitEditTitle() }
-                      else if (e.key === 'Escape') setEditingTitle(false)
+                      else if (e.key === 'Escape') { e.preventDefault(); titleEditTarget.current = null; setEditingTitle(false) }
                     }}
                     className="w-full min-w-0 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-1.5 py-0.5 font-semibold outline-none"
                   />
                 ) : mobileLayout ? (
                   <MobileWorkspaceSwitcher title={currentTitle || 'Vibe Coding'} status={`${currentEngineLabel} · ${stateLabel(chat.state)}`}
-                    control={renderControl ? close => renderControl(close) : undefined} triggerRef={controlRef}
-                    onOpen={() => setHeaderMenu(false)} onSwitchWorkspace={trigger => { sessionsReturnFocus.current = trigger; setPanel('sessions') }} />
+                    control={renderControl ? close => renderControl(close) : undefined} triggerRef={attachTitleTrigger}
+                    onOpen={() => setHeaderMenu(false)} onRename={startEditTitle} />
                 ) : (
-                  <span
-                    className="block min-w-0 truncate text-sm font-semibold md:text-[15px]"
-                    title={`${currentTitle || 'Vibe Coding'}${currentSession ? '\n双击重命名' : ''}`}
-                    onDoubleClick={startEditTitle}
+                  <button type="button" ref={titleTriggerRef} disabled={!currentSession} aria-label={`重命名会话，${currentTitle || 'Vibe Coding'}`}
+                    className="block min-h-11 min-w-0 max-w-full truncate rounded-md text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] md:text-[15px]"
+                    title={`${currentTitle || 'Vibe Coding'}${currentSession ? '\n点击重命名' : ''}`}
+                    onClick={startEditTitle}
                   >
                     {currentTitle || 'Vibe Coding'}
-                  </span>
+                  </button>
                 )}
                 {titleRenameError && <span role="alert" className="block truncate text-[10px] text-[var(--color-destructive)]" title={titleRenameError}>{titleRenameError}</span>}
               </div>
@@ -1478,9 +1503,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               <HeaderMenuItem nested icon={<ListChecks className="size-4" />} label="项目初始化流水线" hint="拉取→画像→知识图谱→profile→聚合" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'onboard' ? 'none' : 'onboard') }} />
             </MenuSection>
             <MenuSection icon={<MessageSquare className="size-4" />} {...SESSION_TOOL_GROUPS.session} open={menuGroup === 'session'} onToggle={() => setMenuGroup('session')} disabled={!chat.sessionId}>
-              {currentSession && (
-                <HeaderMenuItem nested icon={<FileText className="size-4" />} label="重命名会话" hint="编辑当前会话标题" onClick={() => { setHeaderMenu(false); startEditTitle() }} />
-              )}
               {chat.sessionId && (
                 <HeaderMenuItem nested icon={<ListFilter className="size-4" />} label="我的提问" hint="只看我发的消息·搜索·点击跳到对应位置" onClick={() => { setHeaderMenu(false); setShowMsgNav(true) }} />
               )}

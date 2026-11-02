@@ -8,7 +8,7 @@ import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import type { ProviderProfile } from '../providerProfiles'
 import type { ClaudeChatSessionView, EngineCatalogEntry, WorkspaceList } from '../types'
 import { newSessionPreferenceKey, saveNewSessionPreferences } from '../lib/newSessionPreferences'
-import { fetchCodexHomes, uploadAttachment } from '../api'
+import { fetchCodexHomes, uploadAttachment, renameSession } from '../api'
 import { saveCodexHomePreference } from '../lib/codexHomePref'
 import { saveWorkingDirectory } from '../api/savedWorkingDirectories'
 import { registerWorkspaceRoot } from '@/features/project-workspace/public-api'
@@ -89,12 +89,13 @@ vi.mock('../api', async importOriginal => ({
   fetchSessionUsage: async () => null,
   listWorkspaces: async () => ({ roots: testRuntime.roots, scannedAt: 'test' }),
   fetchProviderModels: async () => ({ models: [] }),
-  uploadAttachment: vi.fn(),
+  uploadAttachment: vi.fn(), renameSession: vi.fn().mockResolvedValue(undefined),
 }))
 
 beforeEach(() => {
   localStorage.clear()
   vi.mocked(fetchCodexHomes).mockReset().mockResolvedValue([])
+  vi.mocked(renameSession).mockReset().mockResolvedValue(undefined)
 })
 afterEach(() => {
   cleanup()
@@ -146,6 +147,44 @@ async function openNewSessionSettings() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('renames by tapping the mobile title, supports cancellation and preserves the composer draft', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    mountChat()
+    const input = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.change(input, { target: { value: '尚未发送的草稿' } })
+    const title = await screen.findByRole('button', { name: '重命名会话，Test' })
+    fireEvent.click(title)
+    const cancelled = screen.getByRole('textbox', { name: '会话标题' })
+    fireEvent.change(cancelled, { target: { value: '不保存的名字' } })
+    fireEvent.keyDown(cancelled, { key: 'Escape' })
+    await waitFor(() => expect(screen.getByRole('button', { name: '重命名会话，Test' })).toHaveFocus())
+    expect(renameSession).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '重命名会话，Test' }))
+    const editor = screen.getByRole('textbox', { name: '会话标题' })
+    fireEvent.change(editor, { target: { value: ' 新会话名称 ' } })
+    fireEvent.keyDown(editor, { key: 'Enter', isComposing: true })
+    expect(renameSession).not.toHaveBeenCalled()
+    fireEvent.keyDown(editor, { key: 'Enter' })
+    await waitFor(() => expect(renameSession).toHaveBeenCalledExactlyOnceWith('session-config-regression', '新会话名称'))
+    expect(input).toHaveValue('尚未发送的草稿')
+    fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '会话与分享' }))
+    expect(within(screen.getByRole('menu', { name: '会话工具' })).queryByRole('button', { name: /^重命名会话/ })).not.toBeInTheDocument()
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+    expect(testRuntime.chat.open).not.toHaveBeenCalled()
+  })
+  it('shows a recoverable rename error after a desktop title click and blur save', async () => {
+    vi.mocked(renameSession).mockRejectedValue(new Error('保存失败'))
+    mountChat()
+    fireEvent.click(await screen.findByRole('button', { name: '重命名会话，Test' }))
+    const editor = screen.getByRole('textbox', { name: '会话标题' })
+    fireEvent.change(editor, { target: { value: '失败名称' } })
+    fireEvent.blur(editor)
+    expect(await screen.findByRole('alert')).toHaveTextContent('重命名失败：保存失败')
+    expect(renameSession).toHaveBeenCalledExactlyOnceWith('session-config-regression', '失败名称')
+    fireEvent.click(screen.getByRole('button', { name: '重命名会话，Test' }))
+    expect(screen.getByRole('textbox', { name: '会话标题' })).toHaveValue('Test')
+  })
   it('opens the session board from the floating workspace full-board link', async () => {
     mountChat('/tools/claude-chat?view=board')
     expect(await screen.findByRole('region', { name: '会话看板深链接目标' })).toHaveTextContent('session-config-regression')
@@ -393,7 +432,7 @@ describe('ChatPage session configuration', () => {
     fireEvent.change(input, { target: { value: '尚未发送的需求' } })
     fireEvent.click(await screen.findByRole('button', { name: '会话工具' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '工作与进度' }))
-    fireEvent.click(within(screen.getByRole('group', { name: '工作视图' })).getByRole('button', { name: 'Token 用量' }))
+    fireEvent.click(within(screen.getByRole('group', { name: '工作视图' })).getByRole('button', { name: '执行轨迹' }))
     expect(screen.queryByRole('menu', { name: '会话工具' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '会话工具' })).toHaveFocus()
     fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
@@ -406,13 +445,10 @@ describe('ChatPage session configuration', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.getByRole('menuitem', { name: '文件与项目' })).toHaveFocus()
     fireEvent.keyDown(window, { key: 'Escape' })
-    const contextTrigger = screen.getByRole('button', { name: /切换工作空间与对话方式/ })
-    fireEvent.click(contextTrigger)
-    fireEvent.click(screen.getByRole('button', { name: '切换工作空间' }))
+    fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
+    fireEvent.click(within(screen.getByRole('menu', { name: '会话工具' })).getByRole('button', { name: '会话列表' }))
     const sessions = await screen.findByRole('dialog', { name: 'AI 工作区' })
-    expect(screen.queryByRole('dialog', { name: '工作空间与对话方式' })).not.toBeInTheDocument()
     fireEvent.keyDown(sessions, { key: 'Escape' })
-    await waitFor(() => expect(contextTrigger).toHaveFocus())
     expect(screen.getByRole('textbox', { name: '消息输入' })).toHaveValue('尚未发送的需求')
     expect(testRuntime.chat.send).not.toHaveBeenCalled()
     expect(testRuntime.chat.open).not.toHaveBeenCalled()

@@ -1,20 +1,36 @@
 ## ADDED Requirements
 
 ### Requirement: Compact mobile session header
-The mobile coding workspace SHALL use a single header row and retain the current session identity, accessible execution status, navigation and object actions. Session views SHALL remain reachable from the session title without a permanently visible second tab row.
+The mobile coding workspace SHALL retain a single header row with the current session identity, execution status and tools. Session navigation SHALL remain in the tools menu and session list.
 
-#### Scenario: Select an existing view
-- **WHEN** the user opens the session title and selects a session view
-- **THEN** the existing session view is selected, the overlay closes, focus returns to the trigger, and the composer draft remains available
+#### Scenario: Tap the title
+- **WHEN** the user clicks the selected session title
+- **THEN** the existing inline rename editor opens without opening mode selection or the session list
+- **AND** Enter or blur saves once to the captured session, Escape cancels, and IME composition confirmation does not save
 
-#### Scenario: No selected session
-- **WHEN** the mobile workspace has no selected session
-- **THEN** the navigation offers the global session board and conversation mode without unavailable session-specific views
+#### Scenario: Hold the title
+- **WHEN** the user holds the mobile title for 500 milliseconds without moving more than 8 pixels
+- **THEN** the existing conversation modes open with their original permissions
+- **AND** releasing does not start renaming and the popup contains no workspace-switch action
 
-#### Scenario: Directory actions remain reachable
-- **WHEN** a session with a working directory is selected on mobile
-- **THEN** the tools menu provides the original directory and commit dialog, which returns focus to a visible trigger
+#### Scenario: Cancel the gesture
+- **WHEN** the pointer moves, leaves or is cancelled, or the component unmounts before the hold threshold
+- **THEN** no delayed mode popup appears and the cancelled gesture does not rename
+
+#### Scenario: Keyboard operation
+- **WHEN** the title receives Enter or Space
+- **THEN** the rename action is activated
+- **AND** Shift+F10 or the context-menu key opens mode selection, which restores title focus on dismissal
+
+#### Scenario: Existing session tools
+- **WHEN** the user opens session/sharing
+- **THEN** the duplicate rename action is absent
+- **AND** session selection remains available from the session list without losing the composer draft
+
+#### Scenario: Rename result and session change
+- **WHEN** saving fails or the selected session changes
+- **THEN** the original optimistic rollback and recoverable error are retained for the captured session, and editing cannot write another session
 
 #### Scenario: Desktop restoration
 - **WHEN** the viewport becomes desktop width
-- **THEN** the mobile navigation overlay closes and the original desktop tabs and header controls remain available
+- **THEN** the mobile mode popup closes and the original desktop views remain available with clickable title renaming
