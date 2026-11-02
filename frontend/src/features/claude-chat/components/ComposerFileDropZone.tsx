@@ -54,7 +54,7 @@ export function ComposerFileDropZone({ sessionId, onFiles, disabledReason, child
     try { void Promise.resolve(onFiles(event.dataTransfer.files)).catch(failed) } catch { failed() }
   }
 
-  return <div {...props} className={cn('relative', className)} onDrop={drop}
+  return <div {...props} data-chat-composer="" className={cn('relative', className)} onDrop={drop}
     onDragEnter={event => {
       if (!onFiles || !hasFiles(event.dataTransfer)) return
       event.preventDefault(); event.stopPropagation(); depth.current++; setDragging(true); setError(null)

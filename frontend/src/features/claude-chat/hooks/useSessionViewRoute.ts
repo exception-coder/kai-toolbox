@@ -11,14 +11,14 @@ export function useSessionViewRoute(options: {
   const consumedSearch = useRef(search)
   useEffect(() => {
     const params = new URLSearchParams(search), target = params.get('view')
-    const routed = target === 'supervision' || target === 'communications' || target === 'conversation'
+    const routed = target === 'supervision' || target === 'communications' || target === 'conversation' || target === 'autopilot_detail'
     if (consumedSearch.current !== search) {
       consumedSearch.current = search
       if (routed) setView(target)
       return
     }
     if (!routed || target === view) return
-    params.delete('view'); params.delete('recordId')
+    params.delete('view'); params.delete('recordId'); params.delete('changeId')
     navigate({ pathname, search: params.toString() }, { replace: true })
   }, [pathname, search, view, setView, navigate])
 }

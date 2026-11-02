@@ -5,6 +5,18 @@ import type { SessionView } from '../components/SessionViewTabs'
 import { useSessionViewRoute } from './useSessionViewRoute'
 
 afterEach(cleanup)
+it('opens the exact planning view and keeps its change identifier until leaving', () => {
+  const navigate = vi.fn(), setView = vi.fn()
+  const options = { pathname: '/tools/claude-chat', search: '?view=conversation', view: 'conversation' as SessionView, setView, navigate: navigate as NavigateFunction }
+  const ui = renderHook(props => useSessionViewRoute(props), { initialProps: options })
+  const linked = { ...options, search: '?view=autopilot_detail&changeId=plan-a' }
+  ui.rerender(linked)
+  expect(setView).toHaveBeenCalledExactlyOnceWith('autopilot_detail')
+  expect(navigate).not.toHaveBeenCalled()
+  ui.rerender({ ...linked, view: 'autopilot_detail' })
+  ui.rerender({ ...linked, view: 'conversation' })
+  expect(navigate).toHaveBeenCalledWith({ pathname: options.pathname, search: '' }, { replace: true })
+})
 it('returns a quick-board selection to conversation without deleting its session target', () => {
   const navigate = vi.fn(), setView = vi.fn()
   const options = { pathname: '/tools/claude-chat', search: '?view=supervision', view: 'supervision' as SessionView, setView, navigate: navigate as NavigateFunction }

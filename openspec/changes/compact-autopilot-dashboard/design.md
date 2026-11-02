@@ -10,16 +10,20 @@
 
 ## 贴边会话快捷看板（2026-11-02）
 
-本次为 L2 有界前端交互：在已授权的 Forge 外壳增加左侧 44×48px 贴边按钮，与右侧工作助理错开；默认收起，无自动打开、动画或后台查询，也不激活聊天引擎。展开时才懒加载最近规划内容。复用现有非模态 Popover，而非再复制完整看板或采用遮挡工作区的大抽屉。面板上限 22rem，窄屏保留 12px 边距，高度约束为视口实际剩余空间；中间列表独立滚动，标题、关闭和完整看板入口保持可达。入口监听 visualViewport 变化跟随手机键盘，安全区域沿用 CSS env。
+本次为 L2 有界前端交互，后续按 Floating Workspace 建议调整：已授权 Forge 外壳提供 48px 圆形按钮，默认右侧、约可用高度 62% 处，可拖动至任一侧；8px 位移后识别为拖动并抑制随后的指针点击，松手吸附最近边缘。账号独立保存边缘与纵向比例，受限存储降级为本次页面内记忆。Alt + 方向键提供键盘移动。位置投影到 visualViewport 和 safe-area 内，预留底部操作空间，检测现有 composer 边界；键盘导致的临时避让不覆盖已存位置。默认收起、不自动打开或激活聊天引擎；展开时隐藏入口。
+
+手机（小于 768px）复用现有 Radix Sheet：两侧各 12px，最高 70dvh 并进一步限制在键盘后的可视高度内；顶部拖动指示区可下滑 64px 关闭，列表滚动不触发关闭，保留显式关闭与 Esc。桌面保留非模态 Popover，按按钮所在边缘向内展开，上限 22rem、available-height 与 12px 碰撞边距。中间列表独立滚动，标题、刷新、关闭及完整看板入口固定可达；不新增弹层库。新规范替代首轮左侧矩形入口、手机横向 Popover 的呈现。
 
 适用 OBJ-01、NAV-01、NAV-02、CTX-01、DENS-01、FEED-01、AI-01、EVID-01、CTRL-01、IDEM-01，无额外权限例外。主对象是既有 run.id 与 sessionId；这是用户明确要求的跨会话比较快捷投影，不维护另一份会话或执行状态。全局入口沿用 Vibe Coding 的 ADMIN/超管或 menu:claude-chat 可见条件，演示页隐藏；服务端仍按原 API 执行账号、项目和会话访问校验。无后端、数据库、上下文流或任务生命周期变更，因此不更新整体 AI 编程架构契约。
 
 数据使用原 GET `/api/claude-chat/autopilot/runs?scope=all&limit=8`，按服务端 updated_at/id 倒序取最近集合，筛选和计数只在该集合中进行；不把全局 counts 当成最近集合数量。ACTIVE 为规划进行中，COMPLETED 为完成，FAILED 为异常；WAITING_USER/PAUSED/STOPPED 保持待确认/已暂停/已停止，不从会话 IDLE、DONE 或消息气泡推断规划结果。需求模式的完成同时显示 Agent 自验，不冒充完整 OpenSpec 验收。每项显示规划目标、项目、原会话及已有任务计数，异常/等待原因按已有字段显示。
 
-面板打开期间每 15 秒读取一次，并监听原 autopilot-changed 通知；隐藏页面不在后台轮询，关闭后卸载查询并传递 AbortSignal 取消请求。缓存键包含账号 ID，切换账号重建入口和面板，不复用前一账号快照。自动更新仅保留当前存在条目的相对顺序，新项附在后面；用户主动刷新后才恢复服务器最近顺序，避免后台排序抢走点击目标。打开时使用最新可用缓存并回源，超过 30 秒或更新失败明确标注上次快照，失败不伪装成零项。空集合引导完整看板配置，筛选空态说明仅限最近集合。
+同一账号查询快照同时驱动角标和列表；收起时每 30 秒读取，展开时每 15 秒读取，并监听原 autopilot-changed 通知，隐藏页面不在后台轮询。这是支持真实角标所需的有界后台读取，替代首轮“关闭即停止查询”；关闭只卸载列表、不取消任务，账号切换或入口卸载传递 AbortSignal 取消读取。缓存键包含账号 ID，不复用前一账号快照。角标只统计最近 8 项内的 WAITING_USER 与 FAILED；有异常优先异常标识，只有运行项显示运行点，全部完成恢复中性，不把停止或暂停推断为完成。读取失败或超过 45 秒的快照不继续显示有效状态角标，显示待更新提示。
 
-点击一项关闭面板并返回原会话对话视图：有常驻运行时就只调用一次既有 chat.switchTo，随后导航时不携带 sessionId，避免路由所有者再切一次；引擎尚未挂载时只生成带 sessionId 的深链接，由既有路由所有者恢复。点击当前会话不再切换。显式 view=conversation 由原 useSessionViewRoute 消费；完整看板仍用 view=supervision。不会创建任务、发送消息、恢复、暂停或中断规划。关闭不修改原草稿或消息位置；跨会话切换保留原按 sessionId 管理的草稿，沿用已有历史恢复。
+自动更新仅保留当前存在条目的相对顺序，新项附在后面；唯一头部刷新作用于同一份规划数据，主动刷新才恢复服务器最近顺序。顶部显示更新时间，列表保留紧凑分段筛选，每项增加实际 run.updatedAt 最近活动（缺失显示未知），低频状态说明折叠。面板超过 30 秒或更新失败明确标注上次快照，失败不伪装成零项。空集合引导完整看板配置，筛选空态说明仅限最近集合。
 
-焦点与 Esc/外部点击关闭复用 [Radix Popover](https://www.radix-ui.com/primitives/docs/components/popover) 的非模态能力，尺寸约束采用其 available-height 变量；[WAI 对话框指南](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/) 明确真正的模态层才标 aria-modal，本入口不设置该属性，不锁住背景。提供可见关闭按钮、状态文本、焦点样式与减少动态效果支持。上述官方文档查阅于 2026-11-02，不引入新组件库。
+点击一项关闭面板并返回原会话对应规划进度视图（view=autopilot_detail、changeId）：有常驻运行时就只调用一次既有 chat.switchTo，随后导航时不携带 sessionId，避免路由所有者再切一次；引擎尚未挂载时只生成带 sessionId 的深链接，由既有路由所有者恢复。点击当前会话不再切换。原 useSessionViewRoute 消费规划深链接并在离开时清理 changeId；复用现有 AutopilotProgressWorkspace，完整看板仍用 view=supervision。不会创建任务、发送消息、恢复、暂停或中断规划。关闭不修改原草稿或消息位置；跨会话切换保留原按 sessionId 管理的草稿，沿用已有历史恢复。
 
-验收覆盖不展开不查询、不激活引擎、真实状态和自验区别、筛选/空态/失败/过期恢复、手动排序、请求取消、账号隔离、一次切换及草稿保留；键盘 Escape 关闭回焦点。手机、桌面、短视口与软键盘真实浏览器布局仍需可用浏览器验证，单元测试和生产资源核对不代替实机证据。
+焦点与 Esc/外部点击关闭复用 [Radix Popover](https://www.radix-ui.com/primitives/docs/components/popover) 和 [Dialog](https://www.radix-ui.com/primitives/docs/components/dialog)：桌面不设置 aria-modal；手机 Sheet 锁住背景并明确模态语义。打开聚焦关闭按钮且 preventScroll，关闭回到入口且不唤起输入键盘。[Pointer Events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events) 的指针捕获用于拖动，处理 cancel/lost capture；touch-action 仅在按钮和拖动指示条内隔离，列表仍原生滚动。[VisualViewport](https://developer.mozilla.org/en-US/docs/Web/API/VisualViewport) 用于键盘与可视区变化，保留系统辅助缩放；不支持 ResizeObserver 时保留 resize/focus 降级。提供可见关闭、状态文本、焦点样式与减少动态效果支持。上述官方文档查阅于 2026-11-02。
+
+验收覆盖角标真实计数、不激活引擎、真实状态和自验区别、筛选/空态/失败/过期恢复、手动排序、账号隔离、一次切换、规划定位及草稿保留；拖动/轻点区分、吸附记忆、键盘移动、软键盘视口投影、下滑关闭及 Escape 回焦点。Android Chrome、iOS Safari、飞书 WebView、桌面和短视口的真实触控与视觉布局分别记录；单元测试和生产资源核对不代替实机证据。

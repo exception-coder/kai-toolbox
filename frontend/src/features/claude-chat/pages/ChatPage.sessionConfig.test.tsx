@@ -66,6 +66,9 @@ vi.mock('../runtime/ChatRuntimeContext', () => ({
 vi.mock('@/shell/UnifiedTitleBar', () => ({ useUnifiedTitleBarSlot: () => null }))
 vi.mock('@/shell/MobileNavigationContext', () => ({ useMobileNavigation: () => null }))
 vi.mock('@/shell/useMockMode', () => ({ useMockMode: () => ({ enabled: false }) }))
+vi.mock('../components/AutopilotProgressWorkspace', () => ({
+  AutopilotProgressWorkspace: ({ sessionId, changeId }: { sessionId: string; changeId?: string }) => <section aria-label="规划深链接目标">{sessionId} / {changeId}</section>,
+}))
 vi.mock('../browserNotify', () => ({ ensureNotifyPermission: vi.fn() }))
 vi.mock('../providerProfiles', async importOriginal => ({ ...(await importOriginal<typeof import('../providerProfiles')>()),
   loadProfiles: () => testRuntime.profiles ? Promise.resolve(testRuntime.profiles) : new Promise(() => {}) }))
@@ -119,9 +122,9 @@ afterEach(() => {
   previewCalls.create.mockReset(); previewCalls.get.mockReset(); previewCalls.close.mockReset()
 })
 
-function mountChat() {
+function mountChat(route = '/tools/claude-chat') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const view = render(<StrictMode><QueryClientProvider client={client}><MemoryRouter initialEntries={['/tools/claude-chat']}><ConfirmProvider><ChatPage /></ConfirmProvider></MemoryRouter></QueryClientProvider></StrictMode>)
+  const view = render(<StrictMode><QueryClientProvider client={client}><MemoryRouter initialEntries={[route]}><ConfirmProvider><ChatPage /></ConfirmProvider></MemoryRouter></QueryClientProvider></StrictMode>)
   return { ...view, queryClient: client }
 }
 
@@ -140,6 +143,11 @@ async function openNewSessionSettings() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('restores the original planning detail from a floating workspace deep link', async () => {
+    mountChat('/tools/claude-chat?view=autopilot_detail&changeId=workspace-plan')
+    expect(await screen.findByRole('region', { name: '规划深链接目标' })).toHaveTextContent('session-config-regression / workspace-plan')
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+  })
   it.each([
     ['fast', '快速'], ['default', '标准'],
   ])('distinguishes medium reasoning from %s speed in the composer and configuration', async (speed, label) => {

@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, RefreshCw } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { ChevronRight } from 'lucide-react'
 import { StatusBadge, type StatusTone } from '@/components/ui/status-badge'
-import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
-import { listAutopilotRuns } from '../api'
+import type { useRecentPlanningRuns } from '../hooks/useRecentPlanningRuns'
 import type { AutopilotDashboardItem, AutopilotState } from '../types'
 
 type Filter = 'all' | 'running' | 'completed' | 'error'
@@ -24,46 +21,30 @@ function matches(item: AutopilotDashboardItem, filter: Filter) {
 }
 
 /** Compact projection of the existing supervised runs, not a second session or task store. */
-export function SessionBoardQuickPanel({ currentSessionId, onOpenSession }: {
-  currentSessionId: string | null; onOpenSession: (sessionId: string) => void
+export function SessionBoardQuickPanel({ query, refreshEpoch, onRefresh, currentSessionId, onOpenSession }: {
+  query: ReturnType<typeof useRecentPlanningRuns>; refreshEpoch: number; onRefresh: () => Promise<void>
+  currentSessionId: string | null; onOpenSession: (sessionId: string, changeId: string) => void
 }) {
-  const { user } = useAuth()
   const [filter, setFilter] = useState<Filter>('all')
   const [order, setOrder] = useState<string[]>([])
-  const query = useQuery({
-    queryKey: ['claude-chat-autopilot-runs', 'quick-board', user?.userId ?? 'local'],
-    queryFn: ({ signal }) => listAutopilotRuns({ scope: 'all', limit: LIMIT }, signal),
-    refetchInterval: 15_000, refetchIntervalInBackground: false, staleTime: 15_000, retry: false,
-  })
-  const { refetch } = query
-  useEffect(() => {
-    const refresh = () => { void refetch() }
-    window.addEventListener('claude-chat:autopilot-changed', refresh)
-    return () => window.removeEventListener('claude-chat:autopilot-changed', refresh)
-  }, [refetch])
   const items = query.data?.items.slice(0, LIMIT) ?? []
   useEffect(() => {
     const ids = query.data?.items.slice(0, LIMIT).map(item => item.run.id) ?? []
     setOrder(previous => [...previous.filter(id => ids.includes(id)), ...ids.filter(id => !previous.includes(id))])
   }, [query.data?.items])
+  useEffect(() => {
+    setOrder(query.data?.items.slice(0, LIMIT).map(item => item.run.id) ?? [])
+    // Only an explicit refresh applies the latest ordering; automatic data updates keep row positions stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshEpoch])
   const ordered = [...items].sort((left, right) => {
     const rank = (id: string) => { const index = order.indexOf(id); return index < 0 ? LIMIT : index }
     return rank(left.run.id) - rank(right.run.id)
   })
   const updatedAt = Date.parse(query.data?.snapshotAt ?? '')
   const stale = Boolean(query.data && (!Number.isFinite(updatedAt) || Date.now() - updatedAt > 30_000))
-  const refreshAndOrder = async () => {
-    const result = await refetch()
-    if (result.data && !result.isError) setOrder(result.data.items.slice(0, LIMIT).map(item => item.run.id))
-  }
   return <section aria-label="最近规划执行状态" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-    <div className="flex shrink-0 items-center justify-between gap-2 px-4 text-xs text-[var(--color-muted-foreground)]">
-      <span>{query.data ? `最近 ${items.length} 项规划` : '最近规划'}{Number.isFinite(updatedAt) && <span className="ml-2">{new Date(updatedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })} 快照</span>}</span>
-      <Button variant="ghost" size="icon" className="size-11 shrink-0" disabled={query.isFetching} aria-label="刷新最近规划" onClick={() => { void refreshAndOrder() }}>
-        <RefreshCw aria-hidden="true" className={cn('size-4', query.isFetching && 'animate-spin motion-reduce:animate-none')} />
-      </Button>
-    </div>
-    {query.data && <div role="group" aria-label="规划状态筛选" className="grid shrink-0 grid-cols-4 gap-1 border-b px-3 pb-2">
+    {query.data && <div role="group" aria-label="规划状态筛选" className="grid shrink-0 grid-cols-4 gap-1 border-b px-3 py-2">
       {filters.map(option => <button type="button" key={option.id} aria-pressed={filter === option.id}
         className={cn('min-h-11 rounded-md text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]',
           filter === option.id ? 'bg-[var(--color-muted)] font-medium text-[var(--color-foreground)]' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]')}
@@ -73,7 +54,7 @@ export function SessionBoardQuickPanel({ currentSessionId, onOpenSession }: {
       {query.isPending && <p role="status" className="px-4 py-6 text-sm text-[var(--color-muted-foreground)]">正在读取规划状态…</p>}
       {(query.isError || stale) && <div role="alert" className="border-b px-4 py-2 text-xs text-[var(--color-warning-soft-foreground)]">
         {query.isError ? '规划状态读取失败。' : '规划快照已过期。'}{query.data ? '当前显示上次结果。' : '请检查连接后重试。'}
-        <button type="button" className="ml-2 min-h-11 underline underline-offset-4" disabled={query.isFetching} onClick={() => { void refreshAndOrder() }}>重新读取</button>
+        <button type="button" className="ml-2 min-h-11 underline underline-offset-4" disabled={query.isFetching} onClick={() => { void onRefresh() }}>重新读取</button>
       </div>}
       {query.data && (ordered.some(item => matches(item, filter)) ? <ul className="divide-y divide-[var(--color-border)]">
         {ordered.filter(item => matches(item, filter)).map(item => {
@@ -81,7 +62,7 @@ export function SessionBoardQuickPanel({ currentSessionId, onOpenSession }: {
           const requirement = item.run.completionPolicy === 'REQUIREMENT_BEST_EFFORT'
           const title = item.run.goal?.trim() || item.sessionTitle || item.run.changeId
           return <li key={item.run.id}>
-            <button type="button" onClick={() => onOpenSession(item.run.sessionId)}
+            <button type="button" onClick={() => onOpenSession(item.run.sessionId, item.run.changeId)}
               aria-label={`进入原会话：${title}`} aria-current={item.run.sessionId === currentSessionId ? 'true' : undefined}
               className="block min-h-11 w-full min-w-0 px-4 py-3 text-left hover:bg-[var(--color-muted)]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]">
               <div className="flex items-center gap-2">
@@ -92,12 +73,14 @@ export function SessionBoardQuickPanel({ currentSessionId, onOpenSession }: {
               </div>
               <p className="mt-2 line-clamp-2 break-words text-sm font-medium [overflow-wrap:anywhere]" title={title}>{title}</p>
               <p className="mt-1 truncate text-xs text-[var(--color-muted-foreground)]" title={`${item.projectName} · ${item.sessionTitle}`}>{item.projectName} · {item.sessionTitle}</p>
-              {item.run.reason && ['FAILED', 'WAITING_USER', 'PAUSED'].includes(item.run.state) && <p className="mt-1 line-clamp-2 break-words text-xs text-[var(--color-muted-foreground)]">{item.run.reason}</p>}
+              <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">最近活动 {Number.isFinite(Date.parse(item.run.updatedAt)) ? new Date(item.run.updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : '时间未知'}</p>
             </button>
+            {item.run.reason && ['FAILED', 'WAITING_USER', 'PAUSED'].includes(item.run.state) && <details className="px-4 pb-2 text-xs text-[var(--color-muted-foreground)]"><summary className="flex min-h-11 cursor-pointer items-center">查看状态说明</summary><p className="break-words pb-2 [overflow-wrap:anywhere]">{item.run.reason}</p></details>}
           </li>
         })}
       </ul> : <p className="px-4 py-6 text-sm text-[var(--color-muted-foreground)]">{items.length ? `最近 ${items.length} 项中暂无${filters.find(option => option.id === filter)?.label}规划` : '还没有受监督的规划，可从完整看板返回会话配置自动推进。'}</p>)}
       {query.data?.nextCursor && <p className="px-4 py-2 text-xs text-[var(--color-muted-foreground)]">更早的规划请在完整看板查看。</p>}
+      {query.data && <p className="px-4 py-2 text-[11px] text-[var(--color-muted-foreground)]">仅显示最近 {items.length} 项规划；待处理为待确认或异常。</p>}
     </div>
   </section>
 }

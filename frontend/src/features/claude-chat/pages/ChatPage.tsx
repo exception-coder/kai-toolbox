@@ -396,12 +396,13 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const [inspectedAutopilot, setInspectedAutopilot] = useState<{ sessionId: string; changeId?: string } | null>(null)
   const [sessionView, setSessionView] = useState<SessionView>(() =>
     new URLSearchParams(location.search).get('view') === 'supervision' ? 'supervision'
+      : new URLSearchParams(location.search).get('view') === 'autopilot_detail' ? 'autopilot_detail'
       : new URLSearchParams(location.search).get('view') === 'communications' ? 'communications' : 'conversation')
   const openSupervision = useCallback(() => { setSessionView('autopilot') }, [])
   const leaveSupervision = useCallback(() => {
     setSessionView('conversation')
     const params = new URLSearchParams(location.search)
-    params.delete('view')
+    params.delete('view'); params.delete('changeId')
     navigate({ pathname: location.pathname, search: params.toString() }, { replace: true })
     requestAnimationFrame(() => taRef.current?.focus({ preventScroll: true }))
   }, [location.pathname, location.search, navigate])
@@ -503,6 +504,11 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const splitInit = useMemo(loadSplitState, [])
   const [viewMode, setViewMode] = useState<'single' | 'multi'>(splitInit.viewMode)
   const [multiIds, setMultiIds] = useState<string[]>(splitInit.multiIds)
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('view') === 'autopilot_detail') {
+      setViewMode('single'); setPanel('none')
+    }
+  }, [location.search])
   const guideCurrent = useRef({ panel, viewMode, sessionView, headerMenu, menuGroup })
   guideCurrent.current = { panel, viewMode, sessionView, headerMenu, menuGroup }
   const guidePrevious = useRef<typeof guideCurrent.current | null>(null)
@@ -1965,7 +1971,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                     onOpenSession={(sessionId, changeId) => { setInspectedAutopilot({ sessionId, changeId }); chat.switchTo(sessionId); setSessionView('autopilot_detail') }} />
                 ) : sessionView === 'autopilot_detail' ? (
                   <AutopilotProgressWorkspace key={`autopilot-${chat.sessionId}`} sessionId={chat.sessionId}
-                    changeId={inspectedAutopilot?.sessionId === chat.sessionId ? inspectedAutopilot.changeId : undefined}
+                    changeId={new URLSearchParams(location.search).get('changeId') ?? (inspectedAutopilot?.sessionId === chat.sessionId ? inspectedAutopilot.changeId : undefined)}
                     onOpenAll={() => setSessionView('autopilot')} onOpenConversation={leaveSupervision} />
                 ) : sessionView === 'trajectory' ? (
                   <TrajectoryView
