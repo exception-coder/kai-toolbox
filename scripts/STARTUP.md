@@ -129,6 +129,12 @@ PM2 是独立进程所有者。控制器保留 `/status`、`/restart`、`/reload
 
 Java 继续负责 Git 检查、空闲判断、候选构建和更新；控制层不增加第二套自动更新。工作树 dirty、分支分叉或会话忙碌时仍延期，不执行 stash/reset/clean。实际更新进度看 `/api/system/auto-update/status`。自动生成的内部控制令牌保存在 PM2 进程环境，不打印、不保存 PM2 dump。运行目录位于当前用户 `~/.kai-toolbox/runtime/<仓库标识>/`，日志也在此处。
 
+源码新增每日检查模式，默认北京时间（`Asia/Shanghai`）00:00 检查 `origin/main`。有更新时先等待提交稳定，在独立 worktree 构建候选，通过后等待任务空闲，最终复核并快进到固定提交，再请求既有 Forge 全栈重载；前后端、启用的辅助服务和隧道会短暂中断。没有更新即结束当轮，不重启。不能用无条件 `git pull && restart` 替代这些步骤。固定人工重启入口仍是 `node forge.mjs restart`。
+
+`TOOLBOX_AUTO_UPDATE_SCHEDULE_MODE=daily`、`TOOLBOX_AUTO_UPDATE_CRON=0 0 0 * * *`、`TOOLBOX_AUTO_UPDATE_ZONE=Asia/Shanghai` 控制每日时刻。触发后在 `TOOLBOX_AUTO_UPDATE_RETRY_WINDOW_SECONDS=3600` 内按原 `TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS=120` 重试，复用网络/构建失败退避；超时后等待次日，已开始的单轮构建/排空/交接继续完成。人工 POST `/api/system/auto-update/check` 也开启同样窗口，可能更新并重启，并非只读检查。状态返回 `scheduleMode`、`cron`、`zone` 和 `nextCheck`；后者是计划触发时间，不保证精确执行。
+
+服务必须正在运行才会检查，停机或休眠错过时刻不补跑。需要持续轮询时显式选择 `TOOLBOX_AUTO_UPDATE_SCHEDULE_MODE=interval`；原间隔和稳定窗口配置继续有效。默认模式改变不代表运行实例已经加载：本次实现及待重启验收见[每日更新任务](../openspec/changes/schedule-daily-source-update/tasks.md)。当前代码未增加自动故障修复，也不能把重启交接已接受当成新版本验收通过。Agent 仍遵守每次重启确认；无人值守每日重启须另有用户明确授权，不能因合并代码或开关默认值推定授权。
+
 源码辅助服务、控制器或前端崩溃由 PM2 重试；连续快速失败最多 5 次，状态显示 errored，修复后 restart。ready 表示受管进程已监听端口，不代表所有业务接口都已验证。Java Agent Sidecar 仍由 Java 管理，PM2 只对所属进程树做退出兜底。
 
 Claude Sidecar 默认端口为 18890，与后端和外网代理端口独立。新版在构建前等待旧监听退出，只回收已核验属于本工作区且父进程已退出的 Node 绝对入口；身份未知或旧版仅有相对入口时不自动终止。无法释放时跳过 Sidecar 依赖/构建准备，后端继续启动，AI 操作明确报不可用及恢复原因，不能把普通模块 ready 当作 AI 已恢复。请先查看 `node forge.mjs logs backend`，通过原所属进程管理器处理占用，再明确确认本次 Forge 重启；不按端口批量杀 Node。父 JVM 管道监控、清理截止时间和验证边界见 [Sidecar 生命周期修复](../openspec/changes/recover-orphan-sidecar-startup/design.md)。此行为需加载新版后生效，旧进程不会随源码提交自动升级。

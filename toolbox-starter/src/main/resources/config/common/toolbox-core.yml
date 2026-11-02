@@ -45,11 +45,15 @@ toolbox:
       # Java 是自动更新的唯一轮询 owner；无论 IDE、spring-boot:run、fat jar 或 supervisor 启动都生效。
       # 不在 Git 工作区、工作区 dirty/ahead/diverged、Agent 未空闲或无法安全接管重启时只告警延期。
       enabled: ${TOOLBOX_AUTO_UPDATE_ENABLED:true}
+      schedule-mode: ${TOOLBOX_AUTO_UPDATE_SCHEDULE_MODE:daily}
+      cron: ${TOOLBOX_AUTO_UPDATE_CRON:0 0 0 * * *}
+      zone: ${TOOLBOX_AUTO_UPDATE_ZONE:Asia/Shanghai}
+      retry-window: ${TOOLBOX_AUTO_UPDATE_RETRY_WINDOW_SECONDS:3600}s
       repository: ${TOOLBOX_AUTO_UPDATE_REPOSITORY:}
       remote: ${TOOLBOX_AUTO_UPDATE_REMOTE:origin}
       branch: ${TOOLBOX_AUTO_UPDATE_BRANCH:main}
       initial-delay: ${TOOLBOX_AUTO_UPDATE_INITIAL_DELAY_SECONDS:30}s
-      # 最近提交批次中位间隔约 20~50 分钟；120 秒轮询可把平均发现延迟控制在约 1 分钟。
+      # daily 模式只在每日触发后的重试窗口内轮询；interval 模式保留持续轮询。
       interval: ${TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS:120}s
       stable-window: ${TOOLBOX_AUTO_UPDATE_STABLE_SECONDS:120}s
       require-idle: ${TOOLBOX_AUTO_UPDATE_REQUIRE_IDLE:true}

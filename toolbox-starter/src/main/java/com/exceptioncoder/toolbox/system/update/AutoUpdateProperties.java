@@ -9,6 +9,10 @@ import java.time.Duration;
 public class AutoUpdateProperties {
 
     private boolean enabled = true;
+    private ScheduleMode scheduleMode = ScheduleMode.DAILY;
+    private String cron = "0 0 0 * * *";
+    private String zone = "Asia/Shanghai";
+    private Duration retryWindow = Duration.ofHours(1);
     private String repository = "";
     private String remote = "origin";
     private String branch = "main";
@@ -29,6 +33,15 @@ public class AutoUpdateProperties {
     private String npmCommand = "npm";
 
     public boolean isEnabled() { return enabled; }
+    public enum ScheduleMode { DAILY, INTERVAL }
+    public ScheduleMode getScheduleMode() { return scheduleMode; }
+    public void setScheduleMode(ScheduleMode scheduleMode) { this.scheduleMode = scheduleMode; }
+    public String getCron() { return cron; }
+    public void setCron(String cron) { this.cron = value(cron); }
+    public String getZone() { return zone; }
+    public void setZone(String zone) { this.zone = value(zone); }
+    public Duration getRetryWindow() { return retryWindow; }
+    public void setRetryWindow(Duration retryWindow) { this.retryWindow = duration(retryWindow, Duration.ofHours(1)); }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
     public String getRepository() { return repository; }
     public void setRepository(String repository) { this.repository = value(repository); }

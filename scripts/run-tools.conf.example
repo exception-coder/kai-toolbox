@@ -58,19 +58,25 @@ FORGE_CLOUDFLARE_PROTOCOL=http2
 TOOLBOX_WHISPER_MODE=
 
 # ── Forge 源码自动更新（Java 内置调度；Windows / macOS supervisor 负责重启接管）──
-# 默认开启，直接从 IDE、Maven、java -jar 或 supervisor 启动都由 Java 每 120s 检查一次。
+# 默认开启，每天北京时间 00:00 触发；Java 服务须正在运行，不补跑停机期间错过的检查。
 # 兼容参数 Windows `-AutoUpdate` / macOS `--auto-update` 仍可使用，它们只把配置传给 Java，
 # supervisor 自身不再重复轮询 Git。远端 HEAD 连续稳定 120s 且 Agent/一次性分析/后台任务
 # 全部空闲时，Java 才 fast-forward，并请求 supervisor 全栈自重载。
 # 工作树 dirty、含未跟踪文件、本地 ahead/diverged 时只告警延期，绝不 stash/reset/clean。
 TOOLBOX_AUTO_UPDATE_ENABLED=true
+TOOLBOX_AUTO_UPDATE_SCHEDULE_MODE=daily
+TOOLBOX_AUTO_UPDATE_CRON=0 0 0 * * *
+TOOLBOX_AUTO_UPDATE_ZONE=Asia/Shanghai
+# 每日触发或人工立即检查后，最多一小时内每 120s 重试；已开始的构建/交接可继续完成。
+# 没有更新即结束本轮；超出窗口后不再开始新检查，下次每日触发重新检查。
+TOOLBOX_AUTO_UPDATE_RETRY_WINDOW_SECONDS=3600
 
 # 更新源固定为一个 remote/branch，禁止在 GitHub/Gitee 间静默择新。默认 origin/main；
 # 网络环境更适合 Gitee 时可显式改成 gitee（该 remote 必须已存在，当前分支也须跟踪 gitee/main）。
 TOOLBOX_AUTO_UPDATE_REMOTE=origin
 TOOLBOX_AUTO_UPDATE_BRANCH=main
 
-# 当前提交节奏：近 24h 约 15 次提交、批次中位间隔约 21min，因此默认 120s 检查；
+# daily 下为窗口内重试间隔；显式设 SCHEDULE_MODE=interval 可恢复全天轮询。
 # 稳定窗口用于合并短时间连续 push，避免每个小提交都重启一次。
 TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS=120
 TOOLBOX_AUTO_UPDATE_STABLE_SECONDS=120

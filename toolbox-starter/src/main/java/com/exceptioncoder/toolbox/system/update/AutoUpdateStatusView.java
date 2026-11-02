@@ -17,6 +17,9 @@ public record AutoUpdateStatusView(
         String remoteHead,
         String candidateHead,
         String blockedReason,
-        String lastError
+        String lastError,
+        String scheduleMode,
+        String cron,
+        String zone
 ) {
 }

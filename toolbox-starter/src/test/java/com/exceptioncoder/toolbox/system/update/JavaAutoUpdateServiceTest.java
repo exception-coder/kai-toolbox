@@ -54,6 +54,7 @@ class JavaAutoUpdateServiceTest {
         stagedJar = tempDir.resolve("release/toolbox-starter/target/kai-toolbox.jar");
 
         properties = new AutoUpdateProperties();
+        properties.setScheduleMode(AutoUpdateProperties.ScheduleMode.INTERVAL);
         properties.setStableWindow(Duration.ofMillis(1));
         properties.setInterval(Duration.ofSeconds(30));
         properties.setDrainTimeout(Duration.ofMillis(25));
@@ -88,6 +89,23 @@ class JavaAutoUpdateServiceTest {
     @AfterEach
     void tearDown() {
         service.shutdown();
+    }
+
+    @Test
+    void dailyModeDoesNotFetchOrRestartBeforeTrigger() {
+        properties.setScheduleMode(AutoUpdateProperties.ScheduleMode.DAILY);
+        service.runCheck();
+        service.scheduledCheck();
+        verify(repository, never()).resolveRoot();
+        verify(restartCoordinator, never()).reserveAfterUpdate(any(), any());
+    }
+
+    @Test
+    void dailyTriggerUsesExistingCandidateFlow() throws Exception {
+        properties.setScheduleMode(AutoUpdateProperties.ScheduleMode.DAILY);
+        service.scheduledDailyCheck();
+        verify(repository, org.mockito.Mockito.timeout(2_000)).inspect(repositoryRoot);
+        verify(repository, never()).mergeImmutable(any(), any());
     }
 
     @Test

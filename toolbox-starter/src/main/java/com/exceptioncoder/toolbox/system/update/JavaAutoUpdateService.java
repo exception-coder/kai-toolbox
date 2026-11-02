@@ -49,6 +49,7 @@ public class JavaAutoUpdateService {
     private static final Pattern SHA = Pattern.compile("[0-9a-fA-F]{40,64}");
 
     private final AutoUpdateProperties properties;
+    private final AutoUpdateSchedule schedule;
     private final AutoUpdateRepository repository;
     private final AutoUpdateCandidateBuilder candidateBuilder;
     private final RestartCoordinator restartCoordinator;
@@ -93,6 +94,7 @@ public class JavaAutoUpdateService {
                                  ClaudeChatService claudeChatService,
                                  @Value("${toolbox.data-dir:${user.home}/.kai-toolbox}") String dataDir) {
         this.properties = properties;
+        this.schedule = new AutoUpdateSchedule(properties);
         this.repository = repository;
         this.candidateBuilder = candidateBuilder;
         this.restartCoordinator = restartCoordinator;
@@ -106,24 +108,36 @@ public class JavaAutoUpdateService {
                 ? (pendingRestart == null ? "等待首次自动更新检查" : "检测到上次遗留的待重启版本")
                 : "自动更新已关闭";
         this.nextCheck = properties.isEnabled()
-                ? System.currentTimeMillis() + properties.getInitialDelay().toMillis() : null;
+                ? schedule.nextCheck(System.currentTimeMillis(), properties.getInitialDelay().toMillis()) : null;
+    }
+
+    @ScheduledTaskInfo(name = "应用每日自动更新", description = "按指定时区开启更新检查与有限重试窗口。", owner = "系统维护")
+    @Scheduled(cron = "${toolbox.system.auto-update.cron:0 0 0 * * *}",
+            zone = "${toolbox.system.auto-update.zone:Asia/Shanghai}", scheduler = "autoUpdateTaskScheduler")
+    public void scheduledDailyCheck() {
+        if (!properties.isEnabled() || shuttingDown
+                || properties.getScheduleMode() != AutoUpdateProperties.ScheduleMode.DAILY) return;
+        schedule.openWindow(System.currentTimeMillis());
+        nextEligibleAt = 0;
+        submitCheck();
     }
 
     @ScheduledTaskInfo(
             name = "应用自动更新检查",
-            description = "检查代码仓库是否存在可用更新，并在满足安全条件时准备新版本。",
+            description = "在每日重试窗口内或持续轮询模式下，检查并安全准备新版本。",
             owner = "系统维护")
     @Scheduled(
             initialDelayString = "${toolbox.system.auto-update.initial-delay:PT30S}",
             fixedDelayString = "${toolbox.system.auto-update.interval:PT120S}",
             scheduler = "autoUpdateTaskScheduler")
     public void scheduledCheck() {
-        submitCheck();
+        if (schedule.isDue(System.currentTimeMillis())) submitCheck();
     }
 
     /** 管理端点触发一次即时检查；实际工作在虚拟线程执行，不阻塞 HTTP 线程。 */
     public boolean requestCheck() {
         if (!properties.isEnabled() || shuttingDown || running.get()) return false;
+        schedule.openWindow(System.currentTimeMillis());
         nextEligibleAt = 0;
         return submitCheck();
     }
@@ -156,7 +170,10 @@ public class JavaAutoUpdateService {
                 remoteHead,
                 candidateSha,
                 blockedReason,
-                lastError);
+                lastError,
+                properties.getScheduleMode().name().toLowerCase(java.util.Locale.ROOT),
+                properties.getCron(),
+                properties.getZone());
     }
 
     void runCheck() {
@@ -165,12 +182,13 @@ public class JavaAutoUpdateService {
             return;
         }
         if (shuttingDown) return;
+        if (!schedule.isDue(System.currentTimeMillis())) return;
         // 接管已确认后只能等待当前 JVM 退出或 failure/watchdog 释放 reservation；
         // 不能让下一次定时 tick 把同一进程误判为“新版本已启动”并覆盖状态。
         if (retainedRestartReservation != null) return;
         long now = System.currentTimeMillis();
         if (now < nextEligibleAt) {
-            nextCheck = nextEligibleAt;
+            nextCheck = schedule.nextCheck(now, nextEligibleAt - now);
             return;
         }
         if (!running.compareAndSet(false, true)) return;
@@ -194,6 +212,10 @@ public class JavaAutoUpdateService {
             transition("internal-error", "自动更新检查异常", "internal-error", error);
             log.warn("[auto-update] 检查异常：{} ({})", error, e.getClass().getSimpleName());
         } finally {
+            if ("up-to-date".equals(state)) schedule.closeWindow();
+            long finishedAt = System.currentTimeMillis();
+            nextCheck = schedule.nextCheck(finishedAt,
+                    Math.max(properties.getInterval().toMillis(), nextEligibleAt - finishedAt));
             running.set(false);
         }
     }
