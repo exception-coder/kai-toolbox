@@ -1,6 +1,6 @@
 /** 分类仅描述入口用途；操作、对象及权限仍由现有工作区持有。 */
 export const SESSION_TOOL_GROUPS = {
-  navigation: { label: '工作与进度', hint: '对话、推进、看板与执行轨迹' },
+  navigation: { label: '工作与进度', hint: '对话、推进、看板与开发待办' },
   workspace: { label: '文件与项目', hint: '目录、Git 变更与项目准备' },
   session: { label: '会话与分享', hint: '提问、导出、评审与规格关联' },
   view: { label: '阅读与显示', hint: '外观、专注模式与通知偏好' },

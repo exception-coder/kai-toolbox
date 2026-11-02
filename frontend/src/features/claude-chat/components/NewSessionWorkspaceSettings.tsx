@@ -8,9 +8,9 @@ import { browseWorkingDirectory } from '../api/workingDirectories'
 import { WorkingDirectoryPicker } from './WorkingDirectoryPicker'
 import { SavedWorkingDirectories } from './SavedWorkingDirectories'
 
-export function NewSessionWorkspaceSettings({ mode, cwd, onClose, onSelect, onAggregate, children }: {
+export function NewSessionWorkspaceSettings({ mode, cwd, onClose, onSelect, children }: {
   mode: 'create' | 'settings'; cwd: string; onClose: () => void
-  onSelect: (path: string) => void; onAggregate: () => void; children: ReactNode
+  onSelect: (path: string) => void; children: ReactNode
 }) {
   const [path, setPath] = useState(mode === 'create' ? '' : cwd)
   const [browsing, setBrowsing] = useState(false)
@@ -58,7 +58,6 @@ export function NewSessionWorkspaceSettings({ mode, cwd, onClose, onSelect, onAg
         </section>
         {mode === 'settings' && <fieldset disabled={busy} className="min-w-0 space-y-5">
           <SavedWorkingDirectories cwd={cwd} onSelect={value => { if (!lock.current) { onSelect(value); onClose() } }} />
-          <Button variant="outline" onClick={() => { if (!lock.current) onAggregate() }}>合并多个目录为工作区</Button>
           <section className="space-y-3 border-t pt-4" aria-label="运行设置">{children}</section>
         </fieldset>}
       </div>

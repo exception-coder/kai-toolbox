@@ -2,7 +2,7 @@ import type { LaunchIntentPayload } from '@/shell/launch-intent/types'
 
 export type ChatLaunchCommand =
   | { kind: 'OPEN_DRAFT'; cwd: string; seed: string; previousSessionId: string | null }
-  | { kind: 'OPEN_PANEL'; panel: Extract<LaunchIntentPayload, { type: 'CHAT_OPEN_PANEL' }>['panel'] }
+  | { kind: 'OPEN_PANEL'; panel: Exclude<Extract<LaunchIntentPayload, { type: 'CHAT_OPEN_PANEL' }>['panel'], 'taskspace'> }
   | {
       kind: 'OPEN_AND_SEND'
       cwd: string
@@ -27,7 +27,8 @@ export function planChatLaunch(
     }
   }
   if (payload.type === 'CHAT_OPEN_PANEL') {
-    return { kind: 'OPEN_PANEL', panel: payload.panel }
+    // 兼容旧启动链接，但不重新挂载已移除的合并功能，也不自动创建会话。
+    return { kind: 'OPEN_PANEL', panel: payload.panel === 'taskspace' ? 'new' : payload.panel }
   }
   return {
     kind: 'OPEN_AND_SEND',

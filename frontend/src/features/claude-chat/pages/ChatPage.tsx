@@ -147,7 +147,6 @@ const LogsPanel = deferredPanel(() => import('../components/LogsPanel').then(m =
 const GestureDebugPanel = deferredPanel(() => import('../components/GestureDebugPanel').then(m => ({ default: m.GestureDebugPanel })))
 const ExportSessionDialog = deferredPanel(() => import('../components/ExportSessionDialog').then(m => ({ default: m.ExportSessionDialog })))
 const ProviderDiagPanel = deferredPanel(() => import('../components/ProviderDiagPanel').then(m => ({ default: m.ProviderDiagPanel })))
-const TaskspacePanel = deferredPanel(() => import('../components/TaskspacePanel').then(m => ({ default: m.TaskspacePanel })))
 const CloneProjectPanel = deferredPanel(() => import('../components/CloneProjectPanel').then(m => ({ default: m.CloneProjectPanel })))
 const OnboardPipelinePanel = deferredPanel(() => import('../components/OnboardPipelinePanel').then(m => ({ default: m.OnboardPipelinePanel })))
 const FileTreePanel = deferredPanel(() => import('../components/FileTreePanel').then(m => ({ default: m.FileTreePanel })))
@@ -163,7 +162,7 @@ const ReviewShareDialog = deferredPanel(() => import('../components/ReviewShareD
 const ReviewWorkspace = deferredPanel(() => import('../components/ReviewWorkspace').then(m => ({ default: m.ReviewWorkspace })), workspaceLoading)
 const OpenSpecInitializationDialog = deferredPanel(() => import('../components/OpenSpecInitializationDialog').then(m => ({ default: m.OpenSpecInitializationDialog })))
 
-type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
+type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
 interface PendingOpenSpecInitialization {
   request: OpenSpecProjectRequest
@@ -1498,7 +1497,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 <HeaderMenuItem nested icon={<FolderGit2 className="size-4" />} label={linkedProjectPaths.length ? '管理附加项目' : '关联附加项目'} hint={linkedProjectPaths.length ? `已关联 ${linkedProjectPaths.length} 个跨项目目录，下一轮自动生效` : '多项目开发时补充关联目录，统一注入会话上下文'} onClick={() => { setHeaderMenu(false); setShowSessionProjects(true) }} />
               )}
               <p className="border-t px-3 py-2 text-xs text-[var(--color-muted-foreground)]">项目准备</p>
-              <HeaderMenuItem nested icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
               <HeaderMenuItem nested icon={<GitBranch className="size-4" />} label="拉取项目到工作区" hint="git clone 远端仓库到工作区" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'clone' ? 'none' : 'clone') }} />
               <HeaderMenuItem nested icon={<ListChecks className="size-4" />} label="项目初始化流水线" hint="拉取→画像→知识图谱→profile→聚合" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'onboard' ? 'none' : 'onboard') }} />
             </MenuSection>
@@ -1609,7 +1607,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
           requestAnimationFrame(() => { const target = newSessionReturnFocus.current; if (target?.isConnected) target.focus(); else taRef.current?.focus() })
         }}
         onReload={() => { void workspacesQuery.refetch(); void engineCatalogQuery.refetch(); void refreshProviders() }}
-        onEngines={() => { void engineCatalogQuery.refetch() }} onAggregate={() => setPanel('taskspace')}>
+        onEngines={() => { void engineCatalogQuery.refetch() }}>
         <NewSessionEngineSettings engine={newEngine} providerId={newProviderId} providers={providers}
           providersLoading={providersLoading} providersError={providersError?.message} model={newModel} models={providerModels}
           modelsLoading={providerModelsLoading} modelsError={providerModelsError} codexHome={newCodexHome}
@@ -1623,12 +1621,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               .finally(() => setEngineCatalogRefreshing(false))
           }} />
       </NewSessionPanel>}
-      {panel === 'taskspace' && (
-        <TaskspacePanel
-          onCreated={dir => { void adoptNewWorkspace(dir) }}
-          onClose={() => setPanel('none')}
-        />
-      )}
       {panel === 'clone' && (
         <CloneProjectPanel
           onCloned={dir => { void adoptNewWorkspace(dir) }}

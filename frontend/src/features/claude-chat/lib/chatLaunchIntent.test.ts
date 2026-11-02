@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { isChatLaunchTargetReady, planChatLaunch } from './chatLaunchIntent'
 
 describe('planChatLaunch', () => {
+  it('opens new-session settings for retired taskspace links without creating or sending', () => {
+    expect(planChatLaunch({ type: 'CHAT_OPEN_PANEL', panel: 'taskspace' }, 'current')).toEqual({ kind: 'OPEN_PANEL', panel: 'new' })
+  })
   it('defers draft acknowledgement until the new session exists', () => {
     expect(planChatLaunch({ type: 'CHAT_OPEN_DRAFT', cwd: ' D:/repo ', seed: '需求' }, 'old')).toEqual({
       kind: 'OPEN_DRAFT', cwd: 'D:/repo', seed: '需求', previousSessionId: 'old',

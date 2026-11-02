@@ -28,12 +28,11 @@ interface Props {
   onClose: () => void
   onReload: () => void
   onEngines: () => void
-  onAggregate: () => void
   children: ReactNode
 }
 
 export function NewSessionPanel({ choice, roots, root, project, engines, recent, recentIssue, issue, warning,
-  loading, creating, providerLabel, onSelect, onCreate, onClose, onReload, onEngines, onAggregate, children }: Props) {
+  loading, creating, providerLabel, onSelect, onCreate, onClose, onReload, onEngines, children }: Props) {
   const [settings, setSettings] = useState<'create' | 'settings' | null>(null)
   const settingsTrigger = useRef<HTMLButtonElement>(null)
   const createTrigger = useRef<HTMLButtonElement>(null)
@@ -111,7 +110,7 @@ export function NewSessionPanel({ choice, roots, root, project, engines, recent,
       <div className="mx-auto w-full max-w-xl"><Button size="lg" disabled={loading || creating || !!issue} onClick={() => onCreate()} className="min-h-11 w-full">{creating ? '正在创建…' : '创建会话'}<ArrowRight className="size-4" /></Button></div>
     </footer>
     {settings && <Suspense fallback={<p role="status" className="px-5 py-2 text-xs">正在打开设置…</p>}>
-      <WorkspaceSettings key={settings} mode={settings} cwd={choice.cwd || root?.root || ''} onClose={closeSettings} onSelect={selectWorkspace} onAggregate={() => { setSettings(null); onAggregate() }}>{children}</WorkspaceSettings>
+      <WorkspaceSettings key={settings} mode={settings} cwd={choice.cwd || root?.root || ''} onClose={closeSettings} onSelect={selectWorkspace}>{children}</WorkspaceSettings>
     </Suspense>}
   </section>
 }

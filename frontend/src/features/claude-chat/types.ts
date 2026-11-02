@@ -377,20 +377,6 @@ export interface ModuleResolve {
 
 // ── 合并工作区 taskspace ──────────────────────────────────────────
 
-/** taskspace 选目录时的一个子目录：isLink 标记其本身已是链接。 */
-export interface TaskspaceDir {
-  name: string
-  path: string
-  isLink: boolean
-}
-
-/** 列某父目录子目录的结果。 */
-export interface SubdirList {
-  parent: string
-  exists: boolean
-  dirs: TaskspaceDir[]
-}
-
 /** 工作区内一个成员链接：alive=链接当前是否仍存在。 */
 export interface TaskspaceMember {
   link: string

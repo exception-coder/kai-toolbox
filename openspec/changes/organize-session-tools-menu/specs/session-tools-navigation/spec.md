@@ -37,3 +37,20 @@ The menu SHALL preserve session context, drafts, permissions and operation confi
 - **THEN** the category does not repeat site or token usage entries
 - **AND** site preview remains available from the composer plus menu and session usage from session control
 - **AND** desktop navigation and existing destination views remain unchanged
+
+#### Scenario: Mobile trajectory shortcut is consolidated
+- **WHEN** the user opens work/progress on mobile
+- **THEN** the category does not repeat the execution trajectory entry
+- **AND** session control still opens the existing trajectory without changing the session or sending a message
+
+### Requirement: Retire the standalone VibeCoding workspace merger
+VibeCoding SHALL remove its merge-workspace menus, dedicated panel and new-session merge action, while preserving existing directories and shared project-library aggregation.
+
+#### Scenario: Open project tools or new-session settings
+- **WHEN** a user opens main or floating project tools or new-session workspace settings
+- **THEN** no standalone merge-workspace action or panel is available
+- **AND** directory selection, additional projects, cloning and project initialization continue to use existing capabilities
+
+#### Scenario: Recover a legacy workspace-merger launch link
+- **WHEN** a legacy launch intent requests the taskspace panel
+- **THEN** the normal new-session form opens without creating a session, merging directories or sending a task automatically

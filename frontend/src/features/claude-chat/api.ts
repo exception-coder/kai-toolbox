@@ -15,7 +15,7 @@ import type {
   GitWorkspaceStatus,
   GitBranchSwitchPreview,
 } from '@/components/git/types'
-import type { AutopilotChangeOption, AutopilotDashboard, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAutopilotRun, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { AutopilotChangeOption, AutopilotDashboard, ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, ProjectDependency, ProjectDependencyInput, ServerMessage, SessionAutopilotRun, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 import type { AutopilotBindingCandidate, AutopilotTask } from './types'
 import { SESSION_HISTORY_PAGE_TIMEOUT_MS, type HistoryCursor } from './lib/sessionHistoryRequest'
@@ -513,47 +513,13 @@ export function revealSessionFile(sessionId: string, path: string) {
   })
 }
 
-// ── 合并工作区 taskspace：父目录多选 → 建软链接聚合成新工作区 ──────────
-
-/** 列任意父目录的一级子目录，供多选。 */
-export function listTaskspaceSubdirs(parent: string) {
-  return http<SubdirList>(`/claude-chat/taskspace/subdirs?parent=${encodeURIComponent(parent)}`)
-}
+// 项目库跨项目模块聚合复用的创建接口；VibeCoding 不再提供独立合并面板。
 
 /** 在 base 下创建 name 工作区，为每个 member 目录建链接。 */
 export function createTaskspace(base: string, name: string, members: string[]) {
   return http<TaskspaceView>('/claude-chat/taskspace/create', {
     method: 'POST',
     body: JSON.stringify({ base, name, members }),
-  })
-}
-
-/** 读工作区清单 + 链接存活状态。 */
-export function getTaskspaceInfo(dir: string) {
-  return http<TaskspaceView>(`/claude-chat/taskspace/info?dir=${encodeURIComponent(dir)}`)
-}
-
-/** 向工作区追加链接。 */
-export function addTaskspaceMembers(dir: string, members: string[]) {
-  return http<TaskspaceView>('/claude-chat/taskspace/add', {
-    method: 'POST',
-    body: JSON.stringify({ dir, members }),
-  })
-}
-
-/** 从工作区移除若干链接（只删链接，不动源目录）。 */
-export function removeTaskspaceLinks(dir: string, links: string[]) {
-  return http<TaskspaceView>('/claude-chat/taskspace/remove', {
-    method: 'POST',
-    body: JSON.stringify({ dir, links }),
-  })
-}
-
-/** 整体拆除工作区（只删链接 + 清单，源目录不触碰）。 */
-export function teardownTaskspace(dir: string) {
-  return http<void>('/claude-chat/taskspace/teardown', {
-    method: 'POST',
-    body: JSON.stringify({ dir }),
   })
 }
 

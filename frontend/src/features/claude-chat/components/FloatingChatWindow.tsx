@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, ChevronUp, Compass, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, Slash, Sparkles, X } from 'lucide-react'
+import { Bell, Bug, ChevronDown, ChevronUp, Compass, EyeOff, FileText, FolderOpen, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, Slash, Sparkles, X } from 'lucide-react'
 import { CHAT_ROUTE, isChatRoute, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -313,7 +313,6 @@ export function FloatingChatWindow({ initialCompact = true }: { initialCompact?:
       items: [
         ...(chat.sessionId ? [{ icon: <FolderOpen className="size-4" />, label: '工作目录', hint: '展开目录·快速定位文件', onClick: () => openPanelFullscreen('filetree') }] : []),
         ...(chat.sessionId ? [{ icon: <GitCommit className="size-4" />, label: '代码与分支', hint: '当前仓库分支、同步与提交', onClick: () => openLocal(() => setShowCommits(true)), local: true }] : []),
-        { icon: <FolderTree className="size-4" />, label: '合并工作区', hint: '软链接聚合多个目录', onClick: () => openPanelFullscreen('taskspace') },
         { icon: <GitBranch className="size-4" />, label: '拉取项目到工作区', hint: 'git clone 远端仓库', onClick: () => openPanelFullscreen('clone') },
         { icon: <ListChecks className="size-4" />, label: '项目初始化流水线', hint: '拉取→画像→知识图谱→聚合', onClick: () => openPanelFullscreen('onboard') },
       ],

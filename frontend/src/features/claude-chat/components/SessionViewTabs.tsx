@@ -72,7 +72,7 @@ export function SessionWorkViews({ view, onSelect, hasSession, ...metadata }: Pr
   const options = [
     ...(hasSession ? primary.filter(option => !('desktop' in option)) : []),
     { id: 'board' as const, label: '会话看板', icon: ListChecks },
-    ...(hasSession ? secondary.filter(option => option.id !== 'sites' && option.id !== 'usage') : []),
+    ...(hasSession ? secondary.filter(option => !['sites', 'usage', 'trajectory'].includes(option.id)) : []),
   ]
   return <div role="group" aria-label="工作视图" className="border-b py-1">
     {options.map(option => <button key={option.id} type="button"
@@ -80,7 +80,7 @@ export function SessionWorkViews({ view, onSelect, hasSession, ...metadata }: Pr
       onClick={() => onSelect(option.id)}
       className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm hover:bg-[var(--color-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
       <option.icon aria-hidden="true" className="size-4 text-[var(--color-muted-foreground)]" />
-      <span className="flex-1">{option.id === 'trajectory' ? '执行轨迹' : option.label}</span>
+      <span className="flex-1">{option.label}</span>
       {'attention' in option && option.attention && <span aria-label="有待处理评审" className="size-1.5 rounded-full bg-[var(--color-primary)]" />}
       {current === option.id && <Check aria-hidden="true" className="size-4 text-[var(--color-primary)]" />}
     </button>)}

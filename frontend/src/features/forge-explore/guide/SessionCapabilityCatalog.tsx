@@ -8,7 +8,7 @@ const tools = [
 ] as const
 
 const groups = [
-  ['需求与项目', '把业务材料带进开发会话', '关联核心规格、初始化规格、TDD / 执行计划；附加文档与附件；工作目录、文件树、Git 状态和提交；合并工作区、拉取项目、项目初始化流水线。', '入口：关联规格、文档、工作目录、Git、项目菜单。需要已有材料、仓库或相应项目配置。', 'ChatPage / SessionDocumentsWorkspace / PrdLinkPanel / TaskspacePanel / OnboardPipelinePanel'],
+  ['需求与项目', '把业务材料带进开发会话', '关联核心规格、初始化规格、TDD / 执行计划；附加文档与附件；工作目录、文件树、Git 状态和提交；拉取项目、项目初始化流水线。', '入口：关联规格、文档、工作目录、Git、项目菜单。需要已有材料、仓库或相应项目配置。', 'ChatPage / SessionDocumentsWorkspace / PrdLinkPanel / OnboardPipelinePanel'],
   ['自动推进', '按变更任务持续派工与收口', '绑定 OpenSpec、当前任务与阶段；内部队列续跑；预算与暂停恢复；监督看板、质量门禁与授权归档。', '入口：自动推进 / 监督看板。需要活动 change、运行中的服务端及可用引擎；不是新建会话就自动监督。', 'SessionAutopilotService / OpenSpecContinuousRunner / QueuedChatMessageService'],
   ['数据与接口契约', '把代码之外的数据库改动留下来', 'Agent 可准备 SQL 上下文、登记待执行台账及多库目标；接口契约写入 OpenSpec。Vibe Coding 已移除数据库阅读与 SQL 管理视图，已有记录保留。', '入口：Agent SQL 工具 / OpenSpec 变更。登记、实际执行、验证通过是三个不同状态。', 'SessionPendingSqlService / OpenSpec / forgePendingSql'],
   ['评审与业务参与', '把澄清和评审接回研发会话', '分享计划评审、收集文字与附件反馈并带回实现；业务问题回答和风险审批。', '入口：分享计划评审 / 评审。评审可以有独立会话，不等于自动监督另开了一个监督会话。', 'ReviewSpaceService / ReviewIntentService'],
