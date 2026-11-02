@@ -20,9 +20,14 @@ The interface SHALL distinguish current execution from an ended turn's result an
 - **THEN** the historical result describes that specific turn while the Dock continues to show current execution
 
 ### Requirement: Recoverable compact controls
-The interface SHALL retain stop, send, attachments, configuration and supervision access with reachable touch controls, bounded input growth and a primary conversation scroll container.
+The interface SHALL retain stop, send, attachments, voice input, configuration and supervision access with reachable touch controls, bounded input growth and a primary conversation scroll container.
 
 #### Scenario: Mobile and short viewport
 - **WHEN** the user opens a normal conversation on a narrow or short viewport
 - **THEN** normal supervision and record statistics do not form extra permanent bars
 - **AND** the input and current state remain visible without scrolling the page
+
+#### Scenario: Voice input without opening more actions
+- **WHEN** the mobile composer is shown
+- **THEN** the voice input control remains directly available beside the input without opening more actions
+- **AND** recording, cancellation and transcription retain their existing behavior and do not automatically send the draft

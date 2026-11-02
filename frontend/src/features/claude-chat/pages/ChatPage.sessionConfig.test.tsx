@@ -588,10 +588,14 @@ describe('ChatPage session configuration', () => {
     testRuntime.chat.models = quickModels
     testRuntime.chat.codexSpeed = 'fast'
     mountChat()
+    const microphone = await screen.findByRole('button', { name: /语音输入|不支持录音/ })
+    expect(microphone).toBeVisible()
     expect(screen.queryByRole('button', { name: /会话配置，当前/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '引用项目或规格' })).not.toBeInTheDocument()
     const more = screen.getByRole('button', { name: '更多功能' })
     fireEvent.click(more)
+    expect(within(screen.getByRole('group', { name: '消息附加功能' })).queryByRole('button', { name: /语音输入|不支持录音/ })).not.toBeInTheDocument()
+    expect(microphone).toBeVisible()
     expect(screen.getByRole('button', { name: '引用项目或规格' })).toBeVisible()
     fireEvent.click(await screen.findByRole('button', { name: /会话配置，当前/ }))
     expect(screen.queryByRole('group', { name: '消息附加功能' })).not.toBeInTheDocument()

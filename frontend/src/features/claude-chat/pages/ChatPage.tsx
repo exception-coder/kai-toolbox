@@ -798,7 +798,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 
   const taRef = useRef<HTMLTextAreaElement>(null)
   const nativeVoiceControlRef = useRef<{ start: () => void }>(null)
-  const [dictationTarget, setDictationTarget] = useState<HTMLElement | null>(null)
   const [sessionConfigTarget, setSessionConfigTarget] = useState<HTMLElement | null>(null)
   const composerMoreTrigger = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -2175,7 +2174,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                       }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-sm hover:bg-[var(--color-accent)] disabled:opacity-50">
                         <AtSign aria-hidden="true" className="size-4 text-[var(--color-muted-foreground)]" />引用项目或规格
                       </button>
-                      <div ref={setDictationTarget} />
                     </div>}
                   </div>
                 </>
@@ -2206,8 +2204,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               }}
             />}
             <VoiceInputButton
-              className="max-md:size-8"
-              idleTarget={mobileLayout ? dictationTarget : undefined}
+              className="max-md:size-11"
               onIdleActivate={() => setMoreOpen(false)}
               disabled={planLocked}
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
