@@ -796,7 +796,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     focus.enter()
   }
 
-  const fileRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const nativeVoiceControlRef = useRef<{ start: () => void }>(null)
   const [dictationTarget, setDictationTarget] = useState<HTMLElement | null>(null)
@@ -2127,17 +2126,16 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                   <div className="fixed inset-0 z-10" onClick={() => { setMoreOpen(false); composerMoreTrigger.current?.focus() }} />
                   <div id="composer-more-actions" role="group" aria-label="消息附加功能" className="absolute bottom-full left-0 z-20 mb-2 max-h-[60dvh] w-64 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border bg-[var(--color-card)] p-2 shadow-sm">
                     <div className="grid grid-cols-3 gap-1">
-                      {/* 附件：label 包 input，保留原生触发（移动端 WebView 不丢手势） */}
+                      {/* 原生 input 覆盖整个入口，触摸直接命中选择器，不依赖隐藏控件的标签转发。 */}
                       <label
-                        aria-label="添加附件"
                         title="添加图片 / 文档（可直接拖入输入区）"
-                        className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)]${planLocked || attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
+                        className={`relative flex min-h-11 cursor-pointer flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)] focus-within:ring-2 focus-within:ring-[var(--color-ring)]${planLocked || attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
                       >
                         <input
-                          ref={fileRef}
+                          aria-label="添加附件"
                           type="file"
                           multiple
-                          className="sr-only"
+                          className="absolute inset-0 z-10 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
                           disabled={planLocked || attachments.length + uploading >= MAX_ATTACHMENTS}
                           onChange={e => { void handleFiles(e.target.files); e.target.value = ''; setMoreOpen(false) }}
                         />

@@ -17,3 +17,13 @@
 - `forge-quality.ps1 verify -Project . -Format json` 退出 0、JSON `PASSED`，实际执行 9 项既有 API 探测，`executedCheckers` 为空；不是本次前端功能的已部署运行证明。
 - `openspec validate add-vibe-composer-file-drop --strict` 与 `git diff --check` 通过。
 - 浏览器访问受已保存权限策略限制，真实文件拖放、主题及窄屏视觉未验收；没有重启、部署或推送。
+
+## 2026-11-02 手机附件入口兼容调整
+
+- [x] 主会话附件入口改为整块原生 file input 触控区域，保留名称、焦点、禁用规则和原上传流程。
+- [x] 补充手机分支下取消、失焦、重复选择同一文件、原会话上传及保留草稿、不自动发送的回归。
+- [ ] 用户手机上的系统文件选择器弹出及真实选取验收。
+
+本次 L1 局部兼容修复。用户确认发生在手机浏览器，尚未取得浏览器型号或手机运行日志，不能断言标签转发就是该手机的历史根因。旧代码将名称放在 label 上，隐藏的 file input 依赖原生标签激活；修复前回归证明“添加附件”的可访问目标是 label 而非 file input。新代码取消这层转发依赖，直接命中原生控件。这个 DOM 证据不等于手机选择器故障复现。Computer Use 因无法可靠确认 Forge 当前网址停止，未绕过或转用其他界面控制通道；未选择或上传用户文件。
+
+主会话页面、上传 Hook、文件落点及附件错误反馈共 35 项定向用例通过；typecheck、59 项菜单目录、模块边界、OpenSpec strict 与 diff 检查通过。项目质量入口 JSON PASSED / exit 0，executedCheckers 为空，9 项既有 API 探针通过，不作为本次手机附件验收。构建与运行加载待既有已提交前端自动构建后核对；不重复执行会发布共享 Assistant SDK 的工作区构建。没有后端、Sidecar、SQL 或 AI 编程架构契约变更，不需要为此重启服务。
