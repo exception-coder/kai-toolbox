@@ -5,6 +5,14 @@ import type { SessionView } from '../components/SessionViewTabs'
 import { useSessionViewRoute } from './useSessionViewRoute'
 
 afterEach(cleanup)
+it('returns a quick-board selection to conversation without deleting its session target', () => {
+  const navigate = vi.fn(), setView = vi.fn()
+  const options = { pathname: '/tools/claude-chat', search: '?view=supervision', view: 'supervision' as SessionView, setView, navigate: navigate as NavigateFunction }
+  const ui = renderHook(props => useSessionViewRoute(props), { initialProps: options })
+  ui.rerender({ ...options, search: '?sessionId=chosen&view=conversation' })
+  expect(setView).toHaveBeenCalledExactlyOnceWith('conversation')
+  expect(navigate).not.toHaveBeenCalled()
+})
 it('consumes incoming communication links without the previous view clearing the record target', () => {
   const navigate = vi.fn(), setView = vi.fn()
   const options = { pathname: '/tools/claude-chat', search: '?sessionId=a', view: 'conversation' as SessionView, setView, navigate: navigate as NavigateFunction }

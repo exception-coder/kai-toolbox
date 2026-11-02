@@ -11,7 +11,7 @@ export function useSessionViewRoute(options: {
   const consumedSearch = useRef(search)
   useEffect(() => {
     const params = new URLSearchParams(search), target = params.get('view')
-    const routed = target === 'supervision' || target === 'communications'
+    const routed = target === 'supervision' || target === 'communications' || target === 'conversation'
     if (consumedSearch.current !== search) {
       consumedSearch.current = search
       if (routed) setView(target)

@@ -10,6 +10,7 @@ const controls = vi.hoisted(() => ({
   loads: { floating: 0, questions: 0 },
 }))
 vi.mock('./ChatRuntimeContext', () => ({ useChatRuntime: () => controls, isChatRoute: (path: string) => path === '/tools/claude-chat' }))
+vi.mock('../components/SessionBoardDock', () => ({ SessionBoardDock: () => null }))
 vi.mock('react-router-dom', async importOriginal => ({
   ...await importOriginal<typeof import('react-router-dom')>(),
   useLocation: () => ({ pathname: controls.pathname }),

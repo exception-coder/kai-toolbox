@@ -347,10 +347,10 @@ export function controlSessionAutopilot(sessionId: string, action: 'pause' | 're
   )
 }
 
-export function listAutopilotRuns(input: { scope: string; search?: string; cursor?: string; limit?: number }) {
+export function listAutopilotRuns(input: { scope: string; search?: string; cursor?: string; limit?: number }, signal?: AbortSignal) {
   const params = new URLSearchParams({ scope: input.scope, search: input.search ?? '', limit: String(input.limit ?? 30) })
   if (input.cursor) params.set('cursor', input.cursor)
-  return http<AutopilotDashboard>(`/claude-chat/autopilot/runs?${params.toString()}`)
+  return http<AutopilotDashboard>(`/claude-chat/autopilot/runs?${params.toString()}`, { signal })
 }
 
 /** Reads the Codex model catalog used by Vibe Coding for a selected authorization directory. */

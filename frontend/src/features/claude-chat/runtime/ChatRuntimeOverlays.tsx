@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { isChatRoute, useChatRuntime } from './ChatRuntimeContext'
+import { SessionBoardDock } from '../components/SessionBoardDock'
 
 const FloatingChatWindow = lazy(() => import('../components/FloatingChatWindow').then(module => ({ default: module.FloatingChatWindow })))
 const GlobalPendingQuestionModal = lazy(() => import('../components/GlobalPendingQuestionModal').then(module => ({ default: module.GlobalPendingQuestionModal })))
@@ -18,6 +19,7 @@ export function ChatRuntimeOverlays() {
 
   return (
     <>
+      <ErrorBoundary label="session-board-dock" compact><SessionBoardDock /></ErrorBoundary>
       {chat && (showFloating || floatingStarted) && (
         <div hidden={!showFloating} className={showFloating && pathname.startsWith('/tools/fore-consult') ? 'hidden lg:block' : undefined}>
           <ErrorBoundary label="floating-chat" compact>
