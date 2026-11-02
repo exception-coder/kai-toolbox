@@ -26,6 +26,17 @@
   border-radius: var(--wb-tool-radius);
   box-shadow: var(--wb-code-edge);
 }
+/* 全局 dark class 可能仍存在；异常与恢复入口不能继续使用旧硬编码深底。 */
+:is(html[data-workbench-theme], [data-workbench-theme]) .cc-session-error {
+  background: var(--color-danger-soft); color: var(--color-danger); border-color: var(--color-danger);
+}
+:is(html[data-workbench-theme], [data-workbench-theme]) .cc-session-warning {
+  background: var(--color-warning-soft); color: var(--color-warning); border-color: var(--color-warning);
+}
+:is(html[data-workbench-theme], [data-workbench-theme]) :is(.cc-session-error,.cc-session-warning) button {
+  color: inherit; border-color: currentColor; background: var(--wb-surface);
+}
+:is(html[data-workbench-theme], [data-workbench-theme]) :is(.cc-session-error,.cc-session-warning) button:hover { background: var(--wb-raised); }
 /* 玻璃限于输入区；不支持滤镜时继续使用上面的不透明底色。 */
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :is(html[data-workbench-theme], [data-workbench-theme]) .mobile-composer-card {

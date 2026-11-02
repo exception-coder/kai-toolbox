@@ -35,6 +35,8 @@
 
 四套语言：黄油纸为暖纸底、细纤维和轻边注；报纸为衬线标题、硬边与细规则线；终端为墨绿实底、琥珀代码和极弱静态扫描线，中文正文仍为系统无衬线；玻璃为烟灰实底正文、静态极光边缘和输入区最多 6% 透明/6px 模糊。不引入图片、字体请求、背景常驻动画或新的动效开关。材质强度只调纹理与光影，不调文字透明度，不改尺寸、间距或阅读密度。
 
+浅色皮肤不改变平台原 dark class；因此异常/警告容器及恢复按钮显式消费语义 Token，避免旧硬编码深色底与新的浅色危险文字混用。保留错误文本、按钮行为和状态身份。
+
 用户明确要求四套材质，故仅本工作台 opt-in 皮肤允许纸纹、扫描线和输入区玻璃，是 quiet-luxury-ui 默认禁用装饰规则的有界例外；不推广到全平台。正文无大面积玻璃，极光不动画。`backdrop-filter` 不可用或系统减少透明度时使用不透明底色；forced-colors 去除纹理和阴影；原全局/系统减少动效规则保持优先。
 
 2026-11-03 核对官方资料：[W3C 正文对比度至少 4.5:1](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)、[MDN prefers-reduced-motion](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/At-rules/@media/prefers-reduced-motion)、[MDN backdrop-filter](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/backdrop-filter)。采用实底与保守透明度并提供降级；自动色值检查不能替代最终合成画面的浏览器验收。
