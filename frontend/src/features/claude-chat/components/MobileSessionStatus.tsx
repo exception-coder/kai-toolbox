@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronUp,
   Loader2,
+  BarChart3, ChevronDown, Maximize2, Minimize2, Route,
 } from 'lucide-react'
 import {
   Sheet,
@@ -20,10 +21,11 @@ import { abbr, fmtMs, formatTime, parseUsage } from '../lib/metrics'
 import { cn } from '@/lib/utils'
 import { sessionWorkspaceLabel } from '../lib/sessionProjectGroups'
 import { useMobileDisclosure } from '../hooks/useMobileDisclosure'
-import { isVibeCodingSession } from '../lib/sessionScope'
+import { boardSessionState, isBoardSessionRunning, recentBoardSessions } from '../lib/sessionBoard'
 import { sessionDisplayName } from '../lib/sessionDisplayName'
 import { currentActivityElapsed, hasExecutionNotice } from '../lib/mobileExecutionPresentation'
 import { useMobileViewport } from '../hooks/useMobileViewport'
+import { useControlSheetViewport } from '../hooks/useControlSheetViewport'
 
 export type MobileSessionStatusModel = {
   kind: 'running' | 'background' | 'warning' | 'completed' | 'usage'
@@ -46,10 +48,13 @@ interface Props {
   onOpenTrajectory: () => void
   onOpenSupervision?: () => void
   onSwitchSession?: (sessionId: string, hintRunning?: boolean) => void
+  onOpenSessionList?: () => void
   queueCount?: number
   queuePausedReason?: string | null
   queueContent?: ReactNode
   actions?: ReactNode | ((close: () => void) => ReactNode)
+  storage?: ReactNode
+  actionHint?: ReactNode
   children?: ReactNode | ((close: () => void, executing: boolean) => ReactNode)
 }
 
@@ -66,16 +71,27 @@ export function MobileSessionStatus({
   usageLoading,
   onOpenUsage,
   onOpenTrajectory,
-  onOpenSupervision,
   onSwitchSession,
+  onOpenSessionList,
   queueCount = 0,
   queuePausedReason,
   queueContent,
   actions,
+  storage,
+  actionHint,
   children,
 }: Props) {
   const [open, setOpen] = useMobileDisclosure(!workspace)
   const mobile = useMobileViewport()
+  const viewport = useControlSheetViewport(open)
+  const [view, setView] = useState<'actions' | 'recent'>('actions')
+  const [expanded, setExpanded] = useState(false), [detailsOpen, setDetailsOpen] = useState(false)
+  const drag = useRef<{ id: number; y: number } | null>(null)
+  const [dragY, setDragY] = useState(0)
+  useEffect(() => {
+    if (open) return
+    setView('actions'); setExpanded(false); setDetailsOpen(false); setDragY(0); drag.current = null
+  }, [open, sessionId])
   const trigger = useRef<HTMLButtonElement>(null)
   const runtime = useQuery({
     queryKey: ['claude-chat-runtime-state', sessionId],
@@ -86,14 +102,10 @@ export function MobileSessionStatus({
   const sessionList = useQuery({
     queryKey: ['claude-chat-sessions'],
     queryFn: listSessions,
-    enabled: open && Boolean(onSwitchSession),
-    refetchInterval: open ? 3_000 : false,
+    enabled: open && view === 'recent' && Boolean(onSwitchSession),
+    refetchInterval: open && view === 'recent' ? 15_000 : false,
   })
-  const available = (sessionList.data ?? []).filter(session => isVibeCodingSession(session) && !session.planExpired)
-  const runningSessions = available.filter(session => session.status === 'RUNNING' && session.live)
-    .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
-  const recentSessions = available.filter(session => !runningSessions.some(active => active.id === session.id))
-    .sort((a, b) => b.lastSeenAt - a.lastSeenAt).slice(0, 8)
+  const recentSessions = recentBoardSessions(sessionList.data ?? []).slice(0, 3)
   const status = deriveMobileSessionStatus({
     items,
     running,
@@ -147,40 +159,53 @@ export function MobileSessionStatus({
         <ChevronUp className="size-3.5 shrink-0 opacity-60" />
       </button>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus() }} className={cn('flex max-h-[80dvh] flex-col gap-0 overflow-hidden rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] [&_button]:min-h-11 [&>button]:min-w-11', workspace ? 'md:inset-x-auto md:bottom-4 md:left-1/2 md:w-[min(42rem,calc(100vw-2rem))] md:-translate-x-1/2 md:rounded-xl md:border' : 'md:hidden')}>
-          <div className="shrink-0 border-b px-4 pb-3 pt-4 pr-14">
-            <SheetTitle>Agent 运行与控制</SheetTitle>
-            <SheetDescription className="mt-1">管理待发送消息和会话操作；运行详情在下方。</SheetDescription>
+        <SheetContent side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus({ preventScroll: true }) }}
+          style={{ ...(mobile ? { bottom: viewport.bottom, maxHeight: Math.max(0, viewport.height * (expanded ? 0.9 : 0.6)) } : {}), ...(dragY > 0 ? { transform: `translateY(${dragY}px)`, transition: 'none' } : {}) }}
+          className={cn('flex max-h-[80dvh] flex-col gap-0 overflow-hidden rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] [&_button]:min-h-11 [&>button]:min-w-11', workspace ? 'md:inset-x-auto md:bottom-4 md:left-1/2 md:w-[min(42rem,calc(100vw-2rem))] md:-translate-x-1/2 md:rounded-xl md:border' : 'md:hidden')}>
+          {mobile && <div data-session-control-handle className="flex h-7 shrink-0 touch-none items-center justify-center" aria-hidden="true"
+            onPointerDown={event => { if (event.button !== 0 || event.isPrimary === false || drag.current) return; drag.current = { id: event.pointerId, y: event.clientY }; event.currentTarget.setPointerCapture?.(event.pointerId) }}
+            onPointerMove={event => { if (drag.current && drag.current.id === event.pointerId) setDragY(Math.max(0, event.clientY - drag.current.y)) }}
+            onPointerUp={event => { if (!drag.current || drag.current.id !== event.pointerId) return; const delta = event.clientY - drag.current.y; drag.current = null; setDragY(0); if (delta > 64) setOpen(false); else if (delta < -48) setExpanded(true) }}
+            onLostPointerCapture={event => { if (event.target === event.currentTarget && drag.current?.id === event.pointerId) { drag.current = null; setDragY(0) } }}
+            onPointerCancel={() => { drag.current = null; setDragY(0) }}><span className="h-1 w-9 rounded-full bg-[var(--color-muted-foreground)]/40" /></div>}
+          <div className="flex shrink-0 items-center justify-between gap-2 px-4 py-2 pr-14">
+            <SheetTitle>会话控制</SheetTitle>
+            <SheetDescription className="sr-only">当前会话的队列与快捷操作</SheetDescription>
+            {mobile && <button type="button" aria-label={expanded ? '收起控制面板' : '展开控制面板'} className="flex min-w-11 items-center justify-center text-[var(--color-muted-foreground)]" onClick={() => setExpanded(value => !value)}>{expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}</button>}
           </div>
-          {queueContent && <div className="max-h-[32dvh] shrink-0 overflow-y-auto border-b px-4 py-3 text-sm">{queueContent}</div>}
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 text-sm" role="region" aria-label="会话操作与运行详情" tabIndex={0}>
+          {onSwitchSession && <div role="group" aria-label="会话控制视图" className="mx-4 mb-2 grid shrink-0 grid-cols-2 rounded-md bg-[var(--color-muted)] p-0.5 text-sm">
+            <button type="button" aria-pressed={view === 'actions'} className={cn('rounded px-2', view === 'actions' && 'bg-[var(--color-background)] font-medium')} onClick={() => setView('actions')}>快捷操作</button>
+            <button type="button" aria-pressed={view === 'recent'} className={cn('rounded px-2', view === 'recent' && 'bg-[var(--color-background)] font-medium')} onClick={() => setView('recent')}>最近会话</button>
+          </div>}
+          <div className="min-h-0 space-y-2 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-3 text-sm" role="region" aria-label="会话操作与运行详情" tabIndex={0}>
+            {view === 'actions' ? <>
+            {queueContent}
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(80px,1fr))] gap-1 py-1">
             {typeof actions === 'function' ? actions(() => setOpen(false)) : actions}
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <Button variant="outline" onClick={() => { setOpen(false); onOpenTrajectory() }}>查看轨迹</Button>
-              <Button onClick={() => { setOpen(false); onOpenUsage() }}>会话用量</Button>
+              <Button variant="ghost" className="h-16 flex-col gap-1 text-xs" onClick={() => { setOpen(false); onOpenTrajectory() }}><Route aria-hidden="true" className="size-4" />执行轨迹</Button>
+              <Button variant="ghost" className="h-16 flex-col gap-1 text-xs" onClick={() => { setOpen(false); onOpenUsage() }}><BarChart3 aria-hidden="true" className="size-4" />会话用量</Button>
             </div>
-            {onOpenSupervision && <Button variant="ghost" className="min-h-11 w-full justify-start" onClick={() => { setOpen(false); onOpenSupervision() }}>监督与推进</Button>}
-            {onSwitchSession && <section aria-label="快速切换会话" className="border-t border-[var(--color-border)] pt-3">
-              <h3 className="mb-2 font-medium">快速切换会话</h3>
-              {sessionList.isPending && <p className="text-xs text-[var(--color-muted-foreground)]">正在加载会话…</p>}
-              {sessionList.isError && <p role="alert" className="text-xs text-[var(--color-destructive)]">会话列表加载失败。<button type="button" className="underline" onClick={() => sessionList.refetch()}>重试</button></p>}
-              {!sessionList.isPending && !sessionList.isError && runningSessions.length === 0 && recentSessions.length === 0 && <p className="text-xs text-[var(--color-muted-foreground)]">暂无可切换的会话</p>}
-              {runningSessions.length > 0 && <SessionShortcuts title="正在执行" sessions={runningSessions} currentId={sessionId} onSelect={session => { setOpen(false); onSwitchSession(session.id, true) }} />}
-              {recentSessions.length > 0 && <SessionShortcuts title="最近会话" sessions={recentSessions} currentId={sessionId} onSelect={session => { setOpen(false); onSwitchSession(session.id, false) }} />}
-            </section>}
+            {actionHint && <p className="text-xs text-[var(--color-muted-foreground)]">{actionHint}</p>}
+            {storage && <section aria-label="会话记录">{storage}</section>}
+            <button type="button" aria-expanded={detailsOpen} onClick={() => setDetailsOpen(value => !value)} className="flex w-full items-center justify-between text-xs text-[var(--color-muted-foreground)]">运行详情<ChevronDown aria-hidden="true" className={cn('size-4', detailsOpen && 'rotate-180')} /></button>
+            {detailsOpen && <>
             <section aria-label="运行概览" className="border-t pt-3">
-              <h3 className="mb-2 font-medium">运行概览</h3>
               <DetailRow label="当前状态" value={label} />
               {status?.detail && <DetailRow label="说明" value={status.detail} />}
               {running && <DetailRow label="当前执行" value={currentActivity ?? '正在生成回复…'} />}
               {queuePausedReason && (!queueContent || queueCount === 0) && <p role="status" className="text-amber-700 dark:text-amber-300">{queuePausedReason}</p>}
-              {runtime.data && <>
-                <DetailRow label="全链路" value={`${runtimeStatusLabel(runtime.data.effectiveStatus)} · ${runtime.data.consistency}`} />
-                <DetailRow label="建议" value={runtime.data.recommendedAction} />
-              </>}
+              {runtime.data && <><DetailRow label="全链路" value={`${runtimeStatusLabel(runtime.data.effectiveStatus)} · ${runtime.data.consistency}`} /><DetailRow label="建议" value={runtime.data.recommendedAction} /></>}
               {usage && usage.turns > 0 && <DetailRow label="会话累计" value={`${usage.turns} 轮 · ${abbr(usage.totalTokens)} Token`} />}
             </section>
             {typeof children === 'function' ? children(() => setOpen(false), active) : children}
+            </>}
+            </> : onSwitchSession && <section aria-label="快速切换会话">
+              {sessionList.isPending && <p className="text-xs text-[var(--color-muted-foreground)]">正在加载会话…</p>}
+              {sessionList.isError && <p role="alert" className="text-xs text-[var(--color-destructive)]">会话列表加载失败。<button type="button" className="underline" onClick={() => sessionList.refetch()}>重试</button></p>}
+              {!sessionList.isPending && !sessionList.isError && recentSessions.length === 0 && <p className="text-xs text-[var(--color-muted-foreground)]">暂无可切换的会话</p>}
+              {recentSessions.length > 0 && <SessionShortcuts title="最近会话" sessions={recentSessions} currentId={sessionId} onSelect={session => { setOpen(false); onSwitchSession(session.id, isBoardSessionRunning(session)) }} />}
+              {onOpenSessionList && <Button variant="ghost" className="w-full text-xs" onClick={() => { setOpen(false); onOpenSessionList() }}>查看完整会话列表</Button>}
+            </section>}
           </div>
         </SheetContent>
       </Sheet>
@@ -200,7 +225,7 @@ function SessionShortcuts({ title, sessions, currentId, onSelect }: {
       {sessions.map(session => <li key={session.id}>
         <button type="button" onClick={() => onSelect(session)} aria-current={session.id === currentId ? 'page' : undefined}
           className="flex min-h-11 w-full items-center gap-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-[var(--color-ring)]">
-          {title === '正在执行' && <span className="size-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" aria-hidden="true" />}
+          <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">{boardSessionState(session)}</span>
           <span className="min-w-0 flex-1 truncate font-medium">{sessionDisplayName(session)}</span>
           {session.id === currentId && <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">当前</span>}
           <span className="max-w-24 shrink-0 truncate text-xs text-[var(--color-muted-foreground)]" title={session.cwd}>{sessionWorkspaceLabel(session.cwd)}</span>

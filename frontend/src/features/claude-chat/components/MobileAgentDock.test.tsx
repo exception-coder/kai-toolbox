@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MobileAgentDock } from './MobileAgentDock'
 import type { ChatItem, ClaudeChatSessionView } from '../types'
+import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 
 const availability = vi.hoisted(() => vi.fn<() => string | null>(() => null))
 vi.mock('../lib/nativeVoice', () => ({ voiceAvailability: availability }))
@@ -11,12 +12,12 @@ afterEach(() => { cleanup(); availability.mockReset(); availability.mockReturnVa
 function fixture(onStartVoice = vi.fn(), items: ChatItem[] = [], running = false, backendRunning = false, workspace = false) {
   const client = new QueryClient({ defaultOptions: { queries: { enabled: false } } })
   client.setQueryData(['claude-chat-runtime-state', 'session'], { effectiveStatus: backendRunning ? 'RUNNING' : 'IDLE', consistency: 'CONSISTENT', recommendedAction: '可以发送消息' })
-  render(<QueryClientProvider client={client}><MobileAgentDock
+  render(<ConfirmProvider><QueryClientProvider client={client}><MobileAgentDock
     status={{ workspace, sessionId: 'session', items, running, engineLabel: 'Codex', turnTokens: 61, connState: 'ready', backgroundTasks: [], usage: null, usageLoading: false, onOpenUsage: vi.fn(), onOpenTrajectory: vi.fn() }}
     queue={{ items: [], onSendNow: vi.fn(), onRemove: vi.fn(), onClear: vi.fn() }}
     voiceEnabled voiceDisabled={false} onStartVoice={onStartVoice}
     diagnostics={<p>全链路诊断</p>} storage={<p>记录暂无法获取，请刷新重试</p>}
-  /></QueryClientProvider>)
+  /></QueryClientProvider></ConfirmProvider>)
   return onStartVoice
 }
 
@@ -28,6 +29,8 @@ it('desktop workspace discloses diagnostics and record recovery on demand and re
   expect(screen.queryByText('全链路诊断')).not.toBeInTheDocument()
   expect(screen.queryByText(/记录暂无法获取/)).not.toBeInTheDocument()
   fireEvent.click(trigger)
+  expect(screen.queryByText('全链路诊断')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
   expect(screen.getByText('全链路诊断')).toBeInTheDocument()
   expect(screen.getByText(/记录暂无法获取/)).toBeInTheDocument()
   const queue = screen.getByRole('region', { name: '待发送队列' })
@@ -55,6 +58,29 @@ it('explains unavailable voice and preserves text workflow', () => {
   expect(start).not.toHaveBeenCalled()
 })
 
+it('fits the visible keyboard viewport, expands on demand and swipes closed without invoking tasks', async () => {
+  vi.stubGlobal('PointerEvent', class extends MouseEvent { pointerId = 7; isPrimary = true })
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  const viewport = Object.assign(new EventTarget(), { height: 600, offsetTop: 0 })
+  vi.stubGlobal('visualViewport', viewport)
+  vi.stubGlobal('innerHeight', 900)
+  const start = fixture(vi.fn(), [], false, false, true)
+  const trigger = screen.getByRole('button', { name: /查看运行详情/ })
+  fireEvent.click(trigger)
+  const panel = screen.getByRole('dialog', { name: '会话控制' })
+  expect(panel).toHaveStyle({ bottom: '300px', maxHeight: '360px' })
+  fireEvent.click(screen.getByRole('button', { name: '展开控制面板' }))
+  expect(panel).toHaveStyle({ maxHeight: '540px' })
+  act(() => { viewport.height = 300; viewport.dispatchEvent(new Event('resize')) })
+  expect(panel).toHaveStyle({ bottom: '600px', maxHeight: '270px' })
+  const handle = panel.querySelector('[data-session-control-handle]')!
+  fireEvent.pointerDown(handle, { button: 0, pointerId: 7, clientY: 100 })
+  fireEvent.pointerUp(handle, { pointerId: 7, clientY: 180 })
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  expect(start).not.toHaveBeenCalled()
+  await vi.waitFor(() => expect(trigger).toHaveFocus())
+})
+
 it('keeps current activity and queue as one summary, with complete events and metrics only in details', () => {
   fixture(vi.fn(), [
     { kind: 'result', id: 'old', stopReason: 'end_turn', usage: { output_tokens: 5000 } },
@@ -67,6 +93,7 @@ it('keeps current activity and queue as one summary, with complete events and me
   expect(summary).not.toHaveTextContent('Token')
   expect(screen.queryByText('本轮文件变更')).not.toBeInTheDocument()
   fireEvent.click(summary)
+  fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
   const detail = within(screen.getByRole('region', { name: '执行详情' }))
   expect(detail.getByText('正在执行工具')).toBeInTheDocument()
   expect(detail.getByText('本轮文件变更')).toBeInTheDocument()
@@ -78,12 +105,13 @@ it('keeps current activity and queue as one summary, with complete events and me
 it('uses the same runtime truth for the summary and details when the browser has not observed the running turn', () => {
   fixture(vi.fn(), [{ kind: 'result', id: 'old', stopReason: 'end_turn', usage: { output_tokens: 5000 } }], false, true)
   fireEvent.click(screen.getByRole('button', { name: /Codex 正在运行.*查看运行详情/ }))
+  fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
   const detail = within(screen.getByRole('region', { name: '执行详情' }))
   expect(detail.getByText('执行详情 · 当前执行')).toBeInTheDocument()
   expect(detail.queryByText(/最近一轮|当前轮输出/)).not.toBeInTheDocument()
 })
 
-it('pins the actionable queue ahead of long session lists and monitoring without sending on open', () => {
+it('discloses queue management before diagnostics and confirms batch deletion without sending on open', async () => {
   const client = new QueryClient({ defaultOptions: { queries: { enabled: false, staleTime: Infinity } } })
   client.setQueryData(['claude-chat-runtime-state', 'session'], { effectiveStatus: 'IDLE', consistency: 'CONSISTENT', recommendedAction: '可以发送消息' })
   const sessions = Array.from({ length: 12 }, (_, index): ClaudeChatSessionView => ({
@@ -92,24 +120,24 @@ it('pins the actionable queue ahead of long session lists and monitoring without
   }))
   client.setQueryData(['claude-chat-sessions'], sessions)
   const onSendNow = vi.fn(), onRemove = vi.fn(), onClear = vi.fn()
-  render(<QueryClientProvider client={client}><MobileAgentDock
+  render(<ConfirmProvider><QueryClientProvider client={client}><MobileAgentDock
     status={{ workspace: true, sessionId: 'session', items: [], running: false, engineLabel: 'Codex', turnTokens: 0,
       connState: 'ready', backgroundTasks: [], usage: null, usageLoading: false,
       onOpenUsage: vi.fn(), onOpenTrajectory: vi.fn(), onSwitchSession: vi.fn() }}
     queue={{ items: [{ id: 'q-1', ownerSessionId: 'session', text: '核对收货单', createdAt: 1 }, { id: 'q-2', ownerSessionId: 'session', text: '再生成 Excel', createdAt: 2 }],
       pausedReason: '上一轮中断，队列已暂停', canSendNow: true, onSendNow, onRemove, onClear }}
     voiceEnabled={false} voiceDisabled={false} onStartVoice={vi.fn()} diagnostics={<p>监控指标</p>} />
-  </QueryClientProvider>)
+  </QueryClientProvider></ConfirmProvider>)
   fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
   const queue = screen.getByRole('region', { name: '待发送队列' })
   const scrollable = screen.getByRole('region', { name: '会话操作与运行详情' })
-  expect(scrollable).not.toContainElement(queue)
-  expect(queue.compareDocumentPosition(scrollable) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(scrollable).toContainElement(queue)
+  expect(within(queue).queryByRole('button', { name: '移除' })).not.toBeInTheDocument()
+  fireEvent.click(within(queue).getByText(/待发送消息/))
   expect(within(queue).getByText('核对收货单')).toBeInTheDocument()
   expect(within(queue).getByText('上一轮中断，队列已暂停')).toBeInTheDocument()
-  const switcher = screen.getByRole('region', { name: '快速切换会话' })
-  const overview = screen.getByRole('region', { name: '运行概览' })
-  expect(switcher.compareDocumentPosition(overview) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.queryByRole('region', { name: '快速切换会话' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: '运行概览' })).not.toBeInTheDocument()
   expect(onSendNow).not.toHaveBeenCalled()
   expect(onRemove).not.toHaveBeenCalled()
   expect(onClear).not.toHaveBeenCalled()
@@ -117,6 +145,10 @@ it('pins the actionable queue ahead of long session lists and monitoring without
   expect(onRemove).toHaveBeenCalledExactlyOnceWith('q-2')
   fireEvent.click(within(queue).getByRole('button', { name: '发送' }))
   expect(onSendNow).toHaveBeenCalledExactlyOnceWith('q-1')
-  fireEvent.click(within(queue).getByRole('button', { name: '全部清除' }))
+  fireEvent.click(within(queue).getByText('更多'))
+  fireEvent.click(within(queue).getByRole('button', { name: '清空队列' }))
+  expect(onClear).not.toHaveBeenCalled()
+  fireEvent.click(await screen.findByRole('button', { name: '确认清空' }))
+  await vi.waitFor(() => expect(onClear).toHaveBeenCalledOnce())
   expect(onClear).toHaveBeenCalledOnce()
 })

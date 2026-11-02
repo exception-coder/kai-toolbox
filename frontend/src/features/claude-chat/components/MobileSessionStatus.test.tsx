@@ -68,6 +68,7 @@ function renderWithQueryClient(children: ReactNode) {
 afterEach(() => {
   cleanup()
   getSessionRuntimeState.mockReset()
+  listSessions.mockReset()
   vi.unstubAllGlobals()
 })
 
@@ -319,6 +320,7 @@ describe('MobileSessionStatus', () => {
     expect(screen.getByText('执行提示')).toBeVisible()
     expect(screen.queryByText('运行测试')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+    fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
     expect(screen.getByText('运行测试')).toBeVisible()
     expect(screen.getByText('当前轮输出 61 Token')).toBeVisible()
   })
@@ -342,18 +344,19 @@ describe('MobileSessionStatus', () => {
     const trigger = await screen.findByRole('button', { name: '本轮完成，查看运行详情' })
     expect(screen.queryByText('执行提示')).not.toBeInTheDocument()
     fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
     expect(screen.getByText('已处理的失败尝试')).toBeVisible()
     expect(screen.getByRole('button', { name: '本轮变更' })).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: '复制本轮' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledExactlyOnceWith('已修复。\n\n定向验证通过。'))
   })
-  it('优先展示正在执行的会话，并可快速切换到最近会话', async () => {
+  it('按需显示最近三条会话及真实状态，并保持原切换入口', async () => {
     getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
     const session = (id: string, status: 'IDLE' | 'RUNNING', lastSeenAt: number): ClaudeChatSessionView => ({
       id, cwd: `D:/work/${id}`, title: id, sdkSessionId: null, status,
       startedAt: lastSeenAt, lastSeenAt, live: status === 'RUNNING',
     })
-    listSessions.mockResolvedValue([session('current', 'IDLE', 3), session('active', 'RUNNING', 2), session('recent', 'IDLE', 1),
+    listSessions.mockResolvedValue([session('current', 'IDLE', 3), session('active', 'RUNNING', 2), session('recent', 'IDLE', 1), session('older', 'IDLE', 0),
       { ...session('locked', 'IDLE', 5), planExpired: true },
       { ...session('locked-active', 'RUNNING', 6), planExpired: true }])
     const onSwitchSession = vi.fn()
@@ -361,10 +364,13 @@ describe('MobileSessionStatus', () => {
       turnTokens={0} connState="ready" backgroundTasks={[]} usage={null} usageLoading={false}
       onOpenUsage={vi.fn()} onOpenTrajectory={vi.fn()} onSwitchSession={onSwitchSession} />)
     fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+    expect(listSessions).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '最近会话' }))
     expect(await screen.findByRole('region', { name: '快速切换会话' })).toBeInTheDocument()
-    expect(await screen.findByText('正在执行 · 1')).toBeInTheDocument()
-    expect(screen.getByText('最近会话 · 2')).toBeInTheDocument()
+    expect(await screen.findByText('最近会话 · 3')).toBeInTheDocument()
+    expect(screen.getByText('进行中')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /locked/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /older/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /active/ }))
     expect(onSwitchSession).toHaveBeenCalledWith('active', true)
   })
@@ -379,6 +385,7 @@ describe('MobileSessionStatus', () => {
     expect(screen.getByText('队列 1 · 已暂停')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '处理待发送消息' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+    fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
     expect(screen.getByRole('button', { name: '处理待发送消息' })).toBeInTheDocument()
     expect(action).not.toHaveBeenCalled()
   })
@@ -405,10 +412,11 @@ describe('MobileSessionStatus', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '空闲 · 最近一轮完成，查看运行详情' }))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText('Agent 运行与控制')).toBeInTheDocument()
+    expect(screen.getByText('会话控制')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
     expect(screen.getByText('3 轮 · 1.5千 Token')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '查看轨迹' }))
+    fireEvent.click(screen.getByRole('button', { name: '执行轨迹' }))
     expect(onOpenTrajectory).toHaveBeenCalledOnce()
   })
 

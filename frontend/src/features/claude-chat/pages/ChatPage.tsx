@@ -2058,6 +2058,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               turnTokens: chat.turnTokens, connState: chat.state, backgroundTasks: chat.backgroundTasks,
               usage: sessionUsage, usageLoading: sessionUsage == null && Boolean(usageSid),
               onOpenUsage: () => setShowUsage(true), onOpenTrajectory: () => setSessionView('trajectory'),
+              onOpenSessionList: () => setSessionView('board'),
               onOpenSupervision: () => setSessionView('autopilot'),
               onSwitchSession: (id, hintRunning) => chat.switchTo(id, hintRunning) }}
             queue={{ items: chat.queued,
@@ -2066,7 +2067,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               onSendNow: chat.sendQueuedNow, onRemove: chat.removeQueued, onClear: chat.clearQueued }}
             voiceEnabled={chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession}
             voiceDisabled={planLocked || chat.state !== 'ready'} onStartVoice={() => nativeVoiceControlRef.current?.start()}
-            storage={<CurrentSessionStorage session={currentSession} />}
+            storage={<CurrentSessionStorage session={currentSession} compact />}
             diagnostics={<Suspense fallback={<p role="status" className="text-xs">正在加载诊断…</p>}>
               <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
               <SessionSummaryBar usage={sessionUsage} loading={sessionUsage == null && Boolean(usageSid)} running={usageRunning} onOpenDetails={() => setShowUsage(true)} />
