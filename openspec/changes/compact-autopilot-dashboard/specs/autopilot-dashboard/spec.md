@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 贴边入口复用现有会话看板
-系统 SHALL 向有 Vibe Coding 权限的非演示用户提供可拖动吸附的 48px 圆形入口，默认右侧，记忆该账号最近位置。内容 SHALL 与现有会话看板共用最近 20 个未锁定开发会话、状态及待发送队列，不读取 OpenSpec 推进记录。手机使用两侧各 12px、最大 70dvh 的 Bottom Sheet，桌面使用限宽限高 Popover。仅展开不得激活聊天引擎。
+系统 SHALL 向有 Vibe Coding 权限的非演示用户提供可拖动吸附的 28×44px 贴边标签（参照工作助理，16px 图标、8px 内侧圆角、无阴影）入口，默认右侧，记忆该账号最近位置。内容 SHALL 与现有会话看板共用最近 20 个未锁定开发会话、状态及待发送队列，不读取 OpenSpec 推进记录。手机使用两侧各 12px、最大 70dvh 的 Bottom Sheet，桌面使用限宽限高 Popover。仅展开不得激活聊天引擎。
 
 #### Scenario: 拖动入口并再次打开
 - **WHEN** 用户拖动入口超过位移阈值后松手

@@ -61,10 +61,10 @@ function BoardDock({ userId }: { userId: number | string }) {
     {...placement.pointerHandlers} onKeyDown={placement.onKeyDown}
     onContextMenu={event => event.preventDefault()}
     onClick={() => { if (placement.consumeDragClick()) return; setOpen(true) }}
-    className={cn('fixed z-30 flex size-12 touch-none select-none items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-primary)] shadow-sm hover:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]', open && 'pointer-events-none opacity-0')}
+    className={cn('fixed z-30 flex h-11 w-7 touch-none select-none items-center justify-center border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-primary)] hover:bg-[var(--color-accent)] active:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]', placement.edge === 'right' ? 'rounded-l-lg border-r-0' : 'rounded-r-lg border-l-0', open && 'pointer-events-none opacity-0')}
     style={placement.style}>
-    <ListChecks aria-hidden="true" className="pointer-events-none size-5" />
-    {pending > 0 ? <span aria-label={`待关注会话 ${pending} 个`} className={cn('absolute -right-1 -top-1 flex min-w-5 items-center justify-center rounded-full px-1 text-[11px] leading-5', failed ? 'bg-[var(--color-destructive)] text-white' : 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]')}>{pending}</span>
+    <ListChecks aria-hidden="true" className="pointer-events-none size-4" />
+    {pending > 0 ? <span aria-label={`待关注会话 ${pending} 个`} className={cn('absolute -top-1 flex min-w-4 items-center justify-center rounded-full px-0.5 text-[10px] leading-4', placement.edge === 'right' ? '-left-1' : '-right-1', failed ? 'bg-[var(--color-destructive)] text-white' : 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]')}>{pending}</span>
       : running ? <span aria-label="最近会话进行中" className="absolute right-0 top-0 size-2.5 rounded-full bg-[var(--color-primary)] ring-2 ring-[var(--color-background)]" />
         : !fresh && !sessionQuery.isPending ? <span aria-label="会话状态待更新" className="absolute right-0 top-0 size-2.5 rounded-full bg-[var(--color-muted-foreground)] ring-2 ring-[var(--color-background)]" /> : null}
   </button>

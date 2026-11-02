@@ -10,6 +10,8 @@
 
 ## 悬浮会话看板（2026-11-02，纠正数据口径）
 
+入口外观按用户随后明确要求参照工作助理收起态：宽 28px、高 44px，紧贴安全区域内的左右边缘，16px 图标，无圆形底座与阴影。角标朝屏幕内侧，避免贴边裁切；持久位置继续使用原账号与高度比例，不重置。DENS-01 的本次例外是入口宽度小于通用 44px 触控目标，遵循用户指定的窄贴边形态，高度仍为 44px；需实机核对点击与拖动可达性。面板、队列读取和会话跳转不变。
+
 用户明确要求显示现有会话看板，而非 OpenSpec 推进/监督规划。原先“最近 8 项规划”的数据、筛选、角标及规划跳转均被本节替代；历史验证记录保留在 tasks。当前为 L2 有界前端纠正，不改变执行、任务生命周期或整体 AI 编程架构。
 
 适用 OBJ-01、NAV-01、NAV-02、CTX-01、DENS-01、FEED-01、AI-01、EVID-01、CTRL-01、IDEM-01。主对象为已有 sessionId，不再以 run.id/changeId 建立列表。复用 SessionBoard 的 recentBoardSessions、boardSessionState、isBoardSessionRunning、readBoardQueue 及同一行组件；提取 useSessionBoardData 供完整页和悬浮视图共用账号缓存，不复制一套会话/队列事实源。保留权限与演示隐藏边界。
@@ -20,7 +22,7 @@
 
 点击条目返回原 sessionId 的 conversation，沿用 isBoardSessionRunning 提示。常驻引擎已挂载时仅调用一次 switchTo，路由不再携带 sessionId；无引擎时由深链接所有者恢复；当前会话不重复切换。不会创建、发送、恢复、暂停或中断任务。底部“打开完整会话看板”进入 view=board，ChatPage 与原路由 hook 消费该意图并恢复单视图，避免跳到推进看板或被旧分屏遮挡。关闭保留原聊天与草稿，不取消执行。
 
-入口与覆盖层保持已实现的 Floating Workspace：48px 圆形、默认右侧、拖动吸附左右边缘并账号独立记忆高度比例；8px 拖动阈值，松手补最终坐标，子图标捕获丢失不误取消，真正取消回退，Alt + 方向键可移动。位置投影到 visualViewport、安全区及 composer 外，键盘临时避让不覆盖存储。打开隐藏入口；手机小于 768px 使用两侧各 12px、最大 70dvh 且受实际可视高度限制的 Sheet，顶部下滑 64px 关闭、内容独立滚动。桌面保留限宽限高、碰撞避让的非模态 Popover。打开聚焦关闭按钮且 preventScroll，关闭回入口，不自动唤起输入键盘。
+入口与覆盖层保持已实现的 Floating Workspace：28×44px 贴边标签（参照工作助理，16px 图标、8px 内侧圆角、无阴影）、默认右侧、拖动吸附左右边缘并账号独立记忆高度比例；8px 拖动阈值，松手补最终坐标，子图标捕获丢失不误取消，真正取消回退，Alt + 方向键可移动。位置投影到 visualViewport、安全区及 composer 外，键盘临时避让不覆盖存储。打开隐藏入口；手机小于 768px 使用两侧各 12px、最大 70dvh 且受实际可视高度限制的 Sheet，顶部下滑 64px 关闭、内容独立滚动。桌面保留限宽限高、碰撞避让的非模态 Popover。打开聚焦关闭按钮且 preventScroll，关闭回入口，不自动唤起输入键盘。
 
 复用 [Radix Dialog](https://www.radix-ui.com/primitives/docs/components/dialog) 与 [Popover](https://www.radix-ui.com/primitives/docs/components/popover)，桌面非模态、手机 Sheet 真正锁背景才标 aria-modal；[Pointer Events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events) 与 [VisualViewport](https://developer.mozilla.org/en-US/docs/Web/API/VisualViewport) 指导指针及键盘视口处理，官方资料已于 2026-11-02 核查，不引入新组件库。本次纠正是本地数据与既有组件复用，不增加外部技术假设。
 

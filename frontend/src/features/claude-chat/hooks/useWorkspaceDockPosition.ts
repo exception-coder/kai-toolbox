@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 
 type Position = { edge: 'left' | 'right'; ratio: number }
-const SIZE = 48, GAP = 12
+const WIDTH = 28, HEIGHT = 44, GAP = 12
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), Math.max(low, high))
 
 /** Persist user placement, but project it into the current viewport and outside the composer. */
@@ -53,16 +53,16 @@ export function useWorkspaceDockPosition(userId: number | string) {
   // Re-read geometry on resize/focus without persisting keyboard-induced displacement.
   void revision
   const viewport = window.visualViewport
-  const left = (viewport?.offsetLeft ?? 0) + safe.left + GAP
-  const right = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth) - safe.right - GAP - SIZE
+  const left = (viewport?.offsetLeft ?? 0) + safe.left
+  const right = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth) - safe.right - WIDTH
   const visibleHeight = viewport?.height ?? window.innerHeight
-  const minY = (viewport?.offsetTop ?? 0) + Math.min(safe.top + 64, Math.max(GAP, visibleHeight - SIZE - GAP))
-  let maxY = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight) - safe.bottom - GAP - SIZE
+  const minY = (viewport?.offsetTop ?? 0) + Math.min(safe.top + 64, Math.max(GAP, visibleHeight - HEIGHT - GAP))
+  let maxY = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight) - safe.bottom - GAP - HEIGHT
   // Reserve the bottom controls even outside the main conversation; visible composers refine this bound.
   maxY = Math.min(maxY, (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight) - 160)
   document.querySelectorAll('[data-chat-composer]').forEach(element => {
     const box = element.getBoundingClientRect()
-    if (box.width > 0 && box.height > 0 && box.top > minY) maxY = Math.min(maxY, box.top - SIZE - GAP)
+    if (box.width > 0 && box.height > 0 && box.top > minY) maxY = Math.min(maxY, box.top - HEIGHT - GAP)
   })
   const top = clamp(minY + position.ratio * (maxY - minY), minY, maxY)
   const save = (next: Position) => {
@@ -85,7 +85,7 @@ export function useWorkspaceDockPosition(userId: number | string) {
     gesture.current = null
     suppressClick.current = current.moved || cancelled
     if (current.moved && !cancelled) {
-      save({ edge: current.x + SIZE / 2 < (left + right + SIZE) / 2 ? 'left' : 'right',
+      save({ edge: current.x + WIDTH / 2 < (left + right + WIDTH) / 2 ? 'left' : 'right',
         ratio: maxY > minY ? clamp((current.y - minY) / (maxY - minY), 0, 1) : 0 })
     }
     setDragPoint(null)
