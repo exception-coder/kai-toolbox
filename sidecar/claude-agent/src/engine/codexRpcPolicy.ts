@@ -3,8 +3,9 @@ const THREAD_RESTORE_TIMEOUT_MS = 120_000
 const RESTORE_METHODS = new Set(['thread/start', 'thread/resume', 'thread/fork'])
 
 export class CodexRpcTimeoutError extends Error {
-  constructor(method: string, timeoutMs: number) {
-    super(`Codex App Server 请求 ${method} 超时（${timeoutMs}ms）`)
+  constructor(method: string, timeoutMs: number, readonly phase: 'initialize' | 'request' = 'request') {
+    super(phase === 'initialize' ? `Codex App Server 初始化超时（${timeoutMs}ms，尚未发送 ${method}）`
+      : `Codex App Server 请求 ${method} 超时（${timeoutMs}ms）`)
     this.name = 'CodexRpcTimeoutError'
   }
 }

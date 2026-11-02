@@ -11,6 +11,8 @@ type Adapter = {
 }
 type LocalPlugin = { type: 'local'; path: string }
 type Rpc = (method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>
+export type SkillMetadataRequest = { method: string; params: Record<string, unknown> }
+type SkillRpc = Rpc | { batch(requests: SkillMetadataRequest[]): Promise<Record<string, unknown>[]> }
 
 function projectInstruction(selection: Selection): string {
   return selection.provider === 'project' && selection.nativeDiscovery === false && selection.skillPath
@@ -30,13 +32,16 @@ async function adapter(plugin: string): Promise<Adapter> {
   return import(pathToFileURL(path.join(plugin, 'scripts/openspec-auto.mjs')).href) as Promise<Adapter>
 }
 
-export async function codexProjectSkillArgs(project: string, rpc: Rpc,
+export async function codexProjectSkillArgs(project: string, rpc: SkillRpc,
   onInstruction?: (instruction: string, effectiveInstructions: string) => void): Promise<string[]> {
   if (!hasProjectTaskSkill(project)) return []
-  const [listing, effective] = await Promise.all([
-    rpc('skills/list', { cwds: [project], forceReload: true }),
-    rpc('config/read', { cwd: project, includeLayers: false }),
-  ])
+  const requests = [
+    { method: 'skills/list', params: { cwds: [project], forceReload: false } },
+    { method: 'config/read', params: { cwd: project, includeLayers: false } },
+  ]
+  const [listing, effective] = typeof rpc === 'function'
+    ? await Promise.all(requests.map(({ method, params }) => rpc(method, params))) : await rpc.batch(requests)
+  if (!listing || !effective) throw new Error('SKILL_PRIORITY_CONFIG: 前置技能元数据不完整')
   const paths: string[] = []
   for (const entry of (listing.data ?? []) as { skills?: { name: string; path: string; scope?: string }[] }[]) {
     for (const skill of entry.skills ?? []) {

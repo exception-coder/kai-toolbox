@@ -12,7 +12,7 @@ import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { computerUseFailureTitle } from './codexComputerUsePolicy.js'
-import { codexProjectSkillArgs } from './projectSkillPriority.js'
+import { codexProjectSkillArgs, hasProjectTaskSkill, type SkillMetadataRequest } from './projectSkillPriority.js'
 import type { CodexRealtimeCall } from './codexRealtime.js'
 import { classifyCommandResult } from './commandExecution.js'
 import {
@@ -52,6 +52,7 @@ const REALTIME_THREAD_CONFIG = {
 
 type JsonRpcResponse = {
   id?: number
+  method?: string
   result?: JsonRpcResult
   error?: {
     code?: number
@@ -518,99 +519,138 @@ export function findDefaultCodexModel(models: readonly CodexModelInfo[]): CodexM
   return models.find(model => model.isDefault === true)
 }
 
-export function callAppServer(
-  method: string,
-  params: Record<string, unknown>,
-  codexHome?: string,
-  runtime = { ...appServerRuntime, closeTimeoutMs: 2_000 },
-): Promise<JsonRpcResult> {
+export type MetadataDiagnostics = { method: string; phase: string; elapsedMs: number; sessionId?: string }
+type MetadataOptions = {
+  signal?: AbortSignal
+  sessionId?: string
+  observe?: (event: MetadataDiagnostics) => void
+  initializeTimeoutMs?: number
+  requestTimeoutMs?: number
+}
+
+/** One handshake for a bounded batch. Request clocks start only after initialization. */
+export function callAppServerBatch(requests: SkillMetadataRequest[], codexHome?: string,
+  runtime = { ...appServerRuntime, closeTimeoutMs: 2_000 }, options: MetadataOptions = {}): Promise<JsonRpcResult[]> {
+  if (!requests.length) return Promise.resolve([])
+  options.signal?.throwIfAborted()
   return new Promise((resolvePromise, rejectPromise) => {
+    const started = Date.now()
     const child = runtime.open(codexHome)
     const lifetime = observeCodexProcess(child)
     const lines = createInterface({ input: child.stdout })
-    let stderr = ''
-    let settled = false
-
-    const finish = (error?: Error, result?: JsonRpcResult) => {
+    const pending = new Map<number, ReturnType<typeof setTimeout>>()
+    const results: JsonRpcResult[] = []
+    let stderr = '', settled = false, initialized = false
+    const phase = (method: string, name: string) => {
+      const event = { method, phase: name, elapsedMs: Date.now() - started,
+        ...(options.sessionId ? { sessionId: options.sessionId } : {}) }
+      options.observe?.(event)
+      console.info(JSON.stringify({ event: 'codex_metadata_rpc', ...event }))
+    }
+    const finish = (error?: Error) => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      clearTimeout(initializeTimer)
+      for (const timer of pending.values()) clearTimeout(timer)
+      pending.clear()
+      options.signal?.removeEventListener('abort', onAbort)
       lifetime.drain(lines)
       void waitForManagedProcessRelease(() => closeInput(child),
         () => lifetime.wait(runtime.closeTimeoutMs), () => runtime.stop(child)).then(() => {
+        phase('metadata', 'process_released')
         if (error) rejectPromise(error)
-        else resolvePromise(result ?? {})
-      }, cleanupError => rejectPromise(new Error(`Codex ${method} 进程清理失败`, {
+        else resolvePromise(results)
+      }, cleanupError => rejectPromise(new Error('Codex metadata 进程清理失败', {
         cause: new AggregateError([...(error ? [error] : []), cleanupError]),
       })))
     }
-
+    const onAbort = () => finish(options.signal?.reason instanceof Error ? options.signal.reason : new Error('Codex 前置检查已取消'))
+    const initializeMs = options.initializeTimeoutMs ?? codexRpcTimeoutMs('initialize')
+    const initializeTimer = setTimeout(() => {
+      phase('initialize', 'timeout')
+      finish(new CodexRpcTimeoutError(requests.map(request => request.method).join(', '), initializeMs, 'initialize'))
+    }, initializeMs)
     const send = jsonLineWriter(child.stdin, error => finish(error), () => settled)
-
-    const timer = setTimeout(() => {
-      const detail = stderr.trim()
-      finish(new Error(`Codex ${method} 超时${detail ? `：${detail}` : ''}`))
-    }, codexRpcTimeoutMs(method))
-
     child.stderr.setEncoding('utf8')
-    child.stderr.on('data', chunk => {
-      stderr = (stderr + String(chunk)).slice(-4000)
-    })
+    child.stderr.on('data', chunk => { stderr = (stderr + String(chunk)).slice(-4000) })
     child.on('error', error => finish(error))
     lines.on('error', error => finish(error))
     child.stderr.on('error', error => finish(error))
     child.once('exit', code => {
-      // Exit can precede the final buffered RPC response; wait for pipe closure.
       void lifetime.wait(runtime.closeTimeoutMs).then(() => {
-        if (!settled) {
-          const detail = stderr.trim()
-          finish(new Error(`Codex App Server 异常退出（${code ?? 'unknown'}）${detail ? `：${detail}` : ''}`))
-        }
+        if (!settled) finish(new Error(`Codex App Server 异常退出（${code ?? 'unknown'}）${stderr.trim() ? `：${stderr.trim()}` : ''}`))
       })
     })
-
+    options.signal?.addEventListener('abort', onAbort, { once: true })
     lines.on('line', line => {
       let message: JsonRpcResponse
-      try {
-        message = JSON.parse(line) as JsonRpcResponse
-      } catch {
+      try { message = JSON.parse(line) as JsonRpcResponse } catch { return }
+      if (!message || typeof message !== 'object' || Array.isArray(message) || settled) return
+      // Reverse requests use their own id namespace; they are not responses to our metadata calls.
+      if (message.method) {
+        if (message.id != null) send({ id: message.id, error: { code: -32_601, message: 'Metadata client does not execute server requests' } })
         return
       }
-      if (!message || typeof message !== 'object' || Array.isArray(message)) return
-      if (message.id === 0) {
-        if (message.error) {
-          finish(new Error(message.error.message ?? 'Codex App Server 初始化失败'))
-          return
-        }
+      if (!Object.hasOwn(message, 'result') && !message.error) return
+      if (message.id === 0 && !initialized) {
+        if (message.error) { finish(new Error(message.error.message ?? 'Codex App Server 初始化失败')); return }
+        initialized = true
+        clearTimeout(initializeTimer)
+        phase('initialize', 'completed')
         send({ method: 'initialized', params: {} })
-        send({
-          method,
-          id: 1,
-          params,
+        requests.forEach(({ method, params }, index) => {
+          if (settled) return
+          const id = index + 1
+          const timeoutMs = options.requestTimeoutMs ?? codexRpcTimeoutMs(method)
+          pending.set(id, setTimeout(() => {
+            phase(method, 'timeout')
+            finish(new CodexRpcTimeoutError(method, timeoutMs))
+          }, timeoutMs))
+          phase(method, 'request_sent')
+          send({ method, params, id })
         })
         return
       }
-      if (message.id !== 1) return
-      if (message.error) {
-        finish(new Error(message.error.message ?? `Codex ${method} 失败（${message.error.code ?? 'unknown'}）`))
-        return
-      }
-      finish(undefined, message.result)
+      if (typeof message.id !== 'number' || !pending.has(message.id)) return
+      clearTimeout(pending.get(message.id))
+      pending.delete(message.id)
+      const method = requests[message.id - 1]!.method
+      if (message.error) { phase(method, 'rpc_error'); finish(new Error(message.error.message ?? `Codex ${method} 失败`)); return }
+      phase(method, 'completed')
+      results[message.id - 1] = message.result ?? {}
+      if (!pending.size) finish()
     })
-
-    send({
-      method: 'initialize',
-      id: 0,
-      params: {
-        clientInfo: {
-          name: 'kai_toolbox',
-          title: 'Kai Toolbox',
-          version: '0.1.0',
-        },
-        capabilities: { experimentalApi: true },
-      },
-    })
+    phase('initialize', 'request_sent')
+    send({ method: 'initialize', id: 0, params: {
+      clientInfo: { name: 'kai_toolbox', title: 'Kai Toolbox', version: '0.1.0' }, capabilities: { experimentalApi: true },
+    } })
+    if (options.signal?.aborted) onAbort()
   })
+}
+
+export async function callAppServer(method: string, params: Record<string, unknown>, codexHome?: string,
+  runtime = { ...appServerRuntime, closeTimeoutMs: 2_000 }, observe?: (phase: string, elapsedMs: number) => void): Promise<JsonRpcResult> {
+  const results = await callAppServerBatch([{ method, params }], codexHome, runtime,
+    { observe: event => observe?.(event.phase, event.elapsedMs) })
+  return results[0]!
+}
+
+/** Retry read-only preflight once, only after the previous child has been released. */
+export async function prepareCodexProjectSkills(options: Pick<AppServerTurnOptions, 'cwd' | 'codexHome' | 'signal' | 'sessionId' | 'emit'>,
+  onInstruction: (instruction: string, effectiveInstructions: string) => void, runtime = appServerRuntime,
+  diagnostics: MetadataOptions = {}): Promise<string[]> {
+  if (!hasProjectTaskSkill(options.cwd)) return []
+  for (let attempt = 0; ; attempt++) {
+    options.signal.throwIfAborted()
+    try {
+      return await codexProjectSkillArgs(options.cwd, { batch: requests => callAppServerBatch(requests, options.codexHome, runtime,
+        { ...diagnostics, signal: options.signal, sessionId: options.sessionId }) }, onInstruction)
+    } catch (error) {
+      if (attempt > 0 || !(error instanceof CodexRpcTimeoutError) || options.signal.aborted) throw error
+      options.emit({ type: 'warning', code: 'CODEX_SKILL_PREFLIGHT_RETRY',
+        message: `项目 Skill 前置检查${error.phase === 'initialize' ? '初始化' : '读取'}超时，已确认进程退出，正在重试（1/1）；尚未发送开发任务。` })
+    }
+  }
 }
 
 /** Returns the picker-visible model catalog for the selected Codex authorization directory. */
@@ -787,10 +827,9 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   await codexCleanupBarriers.verify(options.sessionId, options.threadId, options.codexHome, runtime.closeTimeoutMs)
   options.signal.throwIfAborted()
   let skillInstruction = '', effectiveInstructions = ''
-  const skillArgs = await codexProjectSkillArgs(options.cwd,
-    (method, params) => callAppServer(method, params, options.codexHome), (instruction, effective) => {
-      skillInstruction = instruction; effectiveInstructions = effective
-    })
+  const skillArgs = await prepareCodexProjectSkills(options, (instruction, effective) => {
+    skillInstruction = instruction; effectiveInstructions = effective
+  }, runtime)
   options.signal.throwIfAborted()
   const child = runtime.open(options.codexHome, skillArgs)
   const lifetime = observeCodexProcess(child)

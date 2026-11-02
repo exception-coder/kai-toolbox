@@ -48,6 +48,20 @@ test('Codex never replaces unknown effective configuration', async t => {
     ? { data: [{ skills: [{ name: 'openspec-auto', path: global }] }] } : {}), /SKILL_PRIORITY_CONFIG/)
 })
 
+test('batched metadata preserves project priority, effective disables and avoids forced reload', async t => {
+  const { project, global, local } = fixture(t)
+  const config = [{ path: '/unrelated/SKILL.md', enabled: false }]
+  const args = await codexProjectSkillArgs(project, { batch: async requests => {
+    assert.deepEqual(requests.map(request => request.method), ['skills/list', 'config/read'])
+    assert.equal(requests[0]?.params.forceReload, false)
+    return [{ data: [{ skills: [{ name: 'openspec-auto', path: global }, { name: 'openspec-auto', path: local }] }] },
+      { config: { skills: { config } } }]
+  } })
+  assert.deepEqual(JSON.parse(args[1]!).paths, [global])
+  assert.deepEqual(JSON.parse(args[1]!).config, config)
+  await assert.rejects(codexProjectSkillArgs(project, { batch: async () => [] }), /元数据不完整/)
+})
+
 test('an independent project does not require Team Standards for another publisher skill', async t => {
   const { project, plugin, global } = fixture(t)
   fs.writeFileSync(path.join(plugin, '.claude-plugin/plugin.json'), '{"name":"other-publisher"}')
