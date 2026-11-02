@@ -17,7 +17,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
   { id: 'execution', title: '查看执行', summary: '把聊天结果、执行过程和自动监督分开看。', entry: '会话视图', topics: [
     { title: '对话与轨迹', purpose: '对话查看回复，轨迹查看执行过程及工具活动。', when: '判断 Agent 正在做什么、排查执行问题时。', path: '桌面：顶部对话 / 更多 → 轨迹；手机：会话工具 → 工作与进度 → 对话 / 执行轨迹', session: true },
     { title: '推进与自动监督', purpose: '查看推进状态；跨会话看板集中查看监督中的任务。', when: '按 OpenSpec 推进任务或同时跟进多个运行时。', path: '桌面：顶部推进 / 监督；手机：会话工具 → 工作与进度 → 推进，或自动监督看板', session: true },
-    { title: '用量与运行控制', purpose: '查看真实订阅窗口与本地统计；执行中可中断或按引擎能力补充、排队。', when: '安排额度、调整任务或发现执行方向偏离时。', path: '桌面：顶部用量；手机：会话工具 → 工作与进度 → Token 用量；输入区运行控制', session: true },
+    { title: '用量与运行控制', purpose: '查看真实订阅窗口与本地统计；执行中可中断或按引擎能力补充、排队。', when: '安排额度、调整任务或发现执行方向偏离时。', path: '桌面：顶部用量；手机：输入区运行状态 → 会话控制 → 会话用量；输入区运行控制', session: true },
   ] },
   { id: 'workspace', title: '项目协作', summary: '围绕当前工作目录查看文件、变更与附加项目。', entry: '文件与项目', topics: [
     { title: '文件与 Git 变更', purpose: '查看工作目录、提交记录和待提交文件。', when: '定位代码、检查本轮修改与交付范围时。', path: '会话工具 → 文件与项目 → 工作目录 / 提交记录 / 待提交文件', session: true },
@@ -26,7 +26,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
   ] },
   { id: 'delivery', title: '交付结果', summary: '让规格、评审和测试入口留在会话中。', entry: '会话与分享', topics: [
     { title: '规格与计划评审', purpose: '关联规格，分享独立评审消息流，让业务和测试提供意见。', when: '需要确认需求、审阅计划或追踪实现依据时。', path: '会话工具 → 会话与分享 → 关联规格 / 分享计划评审', session: true },
-    { title: '测试站点', purpose: '关联测试地址，集中访问当前会话的验证入口。', when: '功能具备测试环境、需要实际验证时。', path: '桌面：更多 → 站点；手机：会话工具 → 工作与进度 → 工作站点；会话工具 → 工作与进度 → 工作站点也可管理关联', session: true },
+    { title: '测试站点', purpose: '访问测试站点或已配置应用的页面预览。', when: '功能具备测试环境、需要实际验证时。', path: '桌面：更多 → 站点；手机：输入区「＋」→ 站点预览', session: true },
   ] },
   { id: 'settings', title: '调整工作区', summary: '先区分阅读方式、个人偏好与运行环境，再按需调整。', entry: '运行与维护', topics: [
     { title: '阅读与显示', purpose: '切换工作台主题、专注模式或悬浮窗，按需调整工具调用显示。', when: '长篇阅读、切换模块或需要降低信息干扰时。', path: '会话工具 → 阅读与显示 → 工作台主题 / 专注模式 / 工作区个性化' },

@@ -61,15 +61,16 @@ it('keeps the board available before a session is selected', () => {
   expect(screen.queryByRole('button', { name: '对话' })).not.toBeInTheDocument()
 })
 
-it('mobile work views retain every existing destination with explicit labels', () => {
+it('mobile work views omit redundant site and usage entries while preserving work destinations', () => {
   const onSelect = vi.fn()
   render(<SessionWorkViews view="autopilot_detail" onSelect={onSelect} hasSession siteCount={2}
     documentTitle="需求" pendingReviewCount={1} />)
   const views = within(screen.getByRole('group', { name: '工作视图' }))
   expect(views.getByRole('button', { name: '推进' })).toHaveAttribute('aria-current', 'page')
-  for (const name of ['对话', '会话看板', '开发待办', '执行轨迹', '工作站点 2', '文档', 'Token 用量', /评审 1/]) {
+  for (const name of ['对话', '会话看板', '开发待办', '执行轨迹', '文档', /评审 1/]) {
     expect(views.getByRole('button', { name })).toBeInTheDocument()
   }
+  expect(views.queryByRole('button', { name: /工作站点|站点|Token 用量|用量/ })).not.toBeInTheDocument()
   fireEvent.click(views.getByRole('button', { name: '文档' }))
   expect(onSelect).toHaveBeenCalledExactlyOnceWith('documents')
 })

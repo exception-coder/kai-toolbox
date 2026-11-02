@@ -31,3 +31,9 @@ The menu SHALL preserve session context, drafts, permissions and operation confi
 #### Scenario: Guided navigation
 - **WHEN** the existing feature tour locates a category
 - **THEN** the category is displayed directly without stealing the tour focus or changing the underlying operation
+
+#### Scenario: Mobile site and usage shortcuts are consolidated
+- **WHEN** a selected-session user opens work/progress on mobile
+- **THEN** the category does not repeat site or token usage entries
+- **AND** site preview remains available from the composer plus menu and session usage from session control
+- **AND** desktop navigation and existing destination views remain unchanged
