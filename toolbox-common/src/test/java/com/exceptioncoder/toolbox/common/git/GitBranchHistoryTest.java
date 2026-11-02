@@ -63,6 +63,35 @@ class GitBranchHistoryTest {
                 .hasMessageContaining("已变化");
     }
 
+    @Test void identifiesConfiguredRemotePrefixesAndComparesIndependentHistories() throws Exception {
+        init(); commit("base");
+        git("remote", "add", "team/origin", directory.toString());
+        git("remote", "add", "gitee", directory.toString());
+        git("switch", "-c", "remote-work"); commit("remote-change"); commit("second-remote-change");
+        git("update-ref", "refs/remotes/team/origin/main", "HEAD");
+        git("switch", "main"); commit("local-change");
+        git("update-ref", "refs/remotes/gitee/main", "HEAD");
+        git("branch", "--set-upstream-to=team/origin/main", "main");
+        var refs = service.listBranches(directory);
+        assertThat(refs).filteredOn(value -> value.ref().equals("refs/remotes/team/origin/main"))
+                .singleElement().satisfies(value -> {
+                    assertThat(value.remoteName()).isEqualTo("team/origin");
+                    assertThat(value.logicalName()).isEqualTo("main");
+                });
+        assertThat(refs).filteredOn(GitBranchRef::current).singleElement()
+                .extracting(GitBranchRef::upstream).isEqualTo("refs/remotes/team/origin/main");
+        String before = git("status", "--porcelain=v1");
+        var diverged = service.compareBranches(directory, "refs/heads/main", "refs/remotes/team/origin/main");
+        assertThat(diverged.ahead()).isEqualTo(1);
+        assertThat(diverged.behind()).isEqualTo(2);
+        var equal = service.compareBranches(directory, "refs/heads/main", "refs/remotes/gitee/main");
+        assertThat(equal.ahead()).isZero(); assertThat(equal.behind()).isZero();
+        assertThatThrownBy(() -> service.compareBranches(directory, "refs/heads/main", "HEAD~1"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(git("status", "--porcelain=v1")).isEqualTo(before);
+        assertThat(git("branch", "--show-current").strip()).isEqualTo("main");
+    }
+
     void init() throws Exception {
         git("init", "-b", "main"); git("config", "user.name", "Worker"); git("config", "user.email", "worker@example.test");
     }

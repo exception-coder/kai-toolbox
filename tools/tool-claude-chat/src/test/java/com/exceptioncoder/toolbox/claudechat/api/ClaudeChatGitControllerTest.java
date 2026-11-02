@@ -45,6 +45,17 @@ class ClaudeChatGitControllerTest {
                 .param("repo", "selected")).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
         verify(git).listCommits(temporary, 5, "refs/heads/feature");
         verify(git).listCommits(temporary, 30, null);
+        when(git.compareBranches(temporary, "refs/heads/main", "refs/remotes/gitee/main"))
+                .thenReturn(new com.exceptioncoder.toolbox.common.git.GitBranchComparison(
+                        "refs/heads/main", "refs/remotes/gitee/main", "a", "b", 1, 2, "now"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/claude-chat/sessions/session/git/branch-comparison")
+                .param("repo", "selected").param("baseRef", "refs/heads/main").param("ref", "refs/remotes/gitee/main"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.behind").value(2));
+        when(repositories.resolve("session", "denied")).thenThrow(new IllegalArgumentException("路径不可访问"));
+        assertThatThrownBy(() -> controller.comparison("session", "refs/heads/main", "refs/remotes/gitee/main", "denied"))
+                .hasMessageContaining("路径不可访问");
+        verify(git, times(1)).compareBranches(any(), any(), any());
         verifyNoInteractions(pushes, pulls);
     }
 

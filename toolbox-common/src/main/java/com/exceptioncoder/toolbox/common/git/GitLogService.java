@@ -53,8 +53,12 @@ public class GitLogService {
 
     /** 只浏览仓库已有本地/远端引用，不 fetch、不 checkout；排除 origin/HEAD 等符号别名。 */
     public List<GitBranchRef> listBranches(Path dir) {
+        Result remoteResult = exec(List.of(props.getBinary(), "-C", dir.toString(), "remote"));
+        if (remoteResult.truncated()) throw new IllegalStateException("远程来源清单超过读取上限，请缩小仓库范围");
+        List<String> remotes = remoteResult.stdout().lines()
+                .sorted(java.util.Comparator.comparingInt(String::length).reversed()).toList();
         Result result = exec(List.of(props.getBinary(), "-C", dir.toString(), "for-each-ref",
-                "--sort=-committerdate", "--format=%(refname)%09%(objectname)%09%(HEAD)%09%(symref)",
+                "--sort=-committerdate", "--format=%(refname)%09%(objectname)%09%(HEAD)%09%(symref)%09%(upstream)",
                 "refs/heads/", "refs/remotes/"));
         if (result.truncated()) {
             throw new IllegalStateException("分支列表超过读取上限，请缩小仓库范围");
@@ -62,11 +66,15 @@ public class GitLogService {
         List<GitBranchRef> branches = new ArrayList<>();
         for (String line : result.stdout().lines().toList()) {
             String[] fields = line.split("\t", -1);
-            if (fields.length != 4 || !fields[3].isBlank()) continue;
+            if (fields.length != 5 || !fields[3].isBlank()) continue;
             boolean remote = fields[0].startsWith("refs/remotes/");
             String prefix = remote ? "refs/remotes/" : "refs/heads/";
-            branches.add(new GitBranchRef(fields[0], fields[0].substring(prefix.length()), fields[1],
-                    "*".equals(fields[2]), remote));
+            String name = fields[0].substring(prefix.length());
+            String remoteName = remote ? remotes.stream().filter(value -> name.startsWith(value + "/"))
+                    .findFirst().orElse("") : "";
+            String logicalName = remote ? remoteName.isEmpty() ? "" : name.substring(remoteName.length() + 1) : name;
+            branches.add(new GitBranchRef(fields[0], name, fields[1], "*".equals(fields[2]), remote,
+                    remoteName, logicalName, fields[4]));
         }
         if (branches.stream().noneMatch(GitBranchRef::current)) {
             // 新仓库的 unborn 分支和 detached HEAD 均保留明确的当前入口。
@@ -81,6 +89,26 @@ public class GitLogService {
         }
         branches.sort((left, right) -> Boolean.compare(right.current(), left.current()));
         return branches;
+    }
+
+    /** 固定两个真实引用的 SHA 后只读比较，避免按同名推断或执行任意修订表达式。 */
+    public GitBranchComparison compareBranches(Path dir, String baseRef, String ref) {
+        List<GitBranchRef> branches = listBranches(dir);
+        GitBranchRef base = branches.stream().filter(value -> value.ref().equals(baseRef) && !value.head().isBlank())
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("本地比较分支已不存在或没有提交，请刷新"));
+        GitBranchRef target = branches.stream().filter(value -> value.ref().equals(ref) && !value.head().isBlank())
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("来源引用已不存在或没有提交，请刷新"));
+        if (base.remote() || !base.ref().startsWith("refs/heads/")) {
+            throw new IllegalArgumentException("比较基准必须为本地分支");
+        }
+        Result counts = exec(List.of(props.getBinary(), "-C", dir.toString(), "rev-list", "--left-right", "--count",
+                base.head() + "..." + target.head(), "--"));
+        String[] values = counts.stdout().strip().split("\\s+");
+        if (counts.truncated() || values.length != 2) {
+            throw new IllegalStateException("Git 差异计数不完整，请刷新重试");
+        }
+        return new GitBranchComparison(base.ref(), target.ref(), base.head(), target.head(),
+                Long.parseLong(values[0]), Long.parseLong(values[1]), java.time.Instant.now().toString());
     }
 
     /** 仅接受仓库实际列出的分支，固定其提交版本后查询，防止选项/修订表达式注入。 */

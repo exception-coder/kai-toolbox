@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.common.git.CommitDiff;
 import com.exceptioncoder.toolbox.common.git.CommitsResponse;
 import com.exceptioncoder.toolbox.common.git.GitLogService;
 import com.exceptioncoder.toolbox.common.git.GitBranchRef;
+import com.exceptioncoder.toolbox.common.git.GitBranchComparison;
 import com.exceptioncoder.toolbox.common.git.GitProperties;
 import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
 import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
@@ -113,6 +114,12 @@ public class ClaudeChatGitController {
     @GetMapping("/branches")
     public List<GitBranchRef> branches(@PathVariable String id, @RequestParam(required = false) String repo) {
         return git.listBranches(repositories.resolve(id, repo));
+    }
+
+    @GetMapping("/branch-comparison")
+    public GitBranchComparison comparison(@PathVariable String id, @RequestParam String baseRef,
+                                           @RequestParam String ref, @RequestParam(required = false) String repo) {
+        return git.compareBranches(repositories.resolve(id, repo), baseRef, ref);
     }
 
     /**

@@ -8,6 +8,7 @@ import type {
   GitFileDiffResponse,
   GitRepoRef,
   GitBranchRef,
+  GitBranchComparison,
   GitStatusResponse,
   GitPushPreview,
   GitPullPreview,
@@ -61,6 +62,11 @@ export function getSessionGitWorkspace(sessionId: string, repo?: string, refresh
   const query = new URLSearchParams(repo ? { repo } : {})
   return http<GitWorkspaceStatus>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/${refreshRemote ? 'workspace-refresh' : 'workspace'}?${query}`,
     refreshRemote ? { method: 'POST' } : undefined)
+}
+
+export function compareSessionGitBranches(sessionId: string, baseRef: string, ref: string, repo?: string) {
+  const query = new URLSearchParams({ baseRef, ref, ...(repo ? { repo } : {}) })
+  return http<GitBranchComparison>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/branch-comparison?${query}`)
 }
 
 export function prepareSessionBranchSwitch(sessionId: string, ref: string, repo?: string) {

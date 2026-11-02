@@ -230,14 +230,14 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
           {branchError && <p role="alert" className="px-4 py-2 text-[13px] text-[var(--color-destructive)]">分支列表暂不可用，当前显示工作分支。{branchError}；可刷新重试。</p>}
           {workspaceError && <p role="alert" className="px-4 py-2 text-[13px] text-[var(--color-destructive)]">同步状态未核验：{workspaceError}</p>}
           {notice && <p role="status" className="break-words px-4 py-2 text-[13px]">{notice}</p>}
-          {!showSync && ready && view !== 'diff' && <button type="button" disabled={pushing || refreshing} onClick={() => void refresh()} className="mx-4 mt-3 min-h-11 rounded-md border px-3 text-[13px]">刷新状态</button>}
+          {!showSync && ready && view !== 'diff' && view !== 'branches' && <button type="button" disabled={pushing || refreshing} onClick={() => void refresh()} className="mx-4 mt-3 min-h-11 rounded-md border px-3 text-[13px]">刷新状态</button>}
           {showSync && pushActions && <GitPushToolbar key={activeRepo ?? ''} actions={pushActions} pullActions={pullActions} repo={activeRepo} workspace={workspace}
             refreshKey={syncRevision} refreshing={refreshing} onRefresh={() => void refresh()} onPending={setBusy}
             onShowChanges={fetchStatus && fetchFileDiff ? () => setShowChanges(true) : undefined} onShowHistory={() => setView('history')}
             onPushed={() => { void loadRepository(activeRepo, activeBranch) }} onPulled={() => { void loadRepository(activeRepo, activeBranch) }} />}
           {showSync && !pushActions && <button type="button" className="m-4 min-h-11 rounded-md border px-3 text-[13px]" disabled={pushing || refreshing} onClick={() => void refresh()}>刷新状态</button>}
-          {view === 'branches' && <GitBranchPicker branches={branches ?? []} busy={pushing} selected={activeBranch} canSwitch={!!workspaceActions && !!workspace}
-            onBrowse={selectBranch} onSwitch={ref => void prepareSwitch(ref)} onCopy={text => { void copyBranch(text) }} />}
+          <div hidden={view !== 'branches'}><GitBranchPicker key={activeRepo ?? ''} branches={branches ?? []} busy={pushing} loading={refreshing} workspace={workspace} onRefresh={() => void refresh()} compare={workspaceActions?.compareBranches ? (base, ref) => workspaceActions.compareBranches!(base, ref, activeRepo) : undefined} selected={activeBranch} canSwitch={!!workspaceActions && !!workspace}
+            onBrowse={selectBranch} onSwitch={ref => void prepareSwitch(ref)} onCopy={text => { void copyBranch(text) }} /></div>
           {view === 'branches' && switchPreview && <section aria-label="确认切换分支" className="space-y-2 border-t px-4 py-3 text-[13px]">
             <p className="break-all">从 {switchPreview.branch} 切换到 {switchPreview.localBranch}</p>
             <p className="break-all">{switchPreview.tracking ? `新建本地分支并跟踪 ${switchPreview.tracking}` : '切换到已有本地分支'} · 目标 {switchPreview.targetHead.slice(0, 8)}</p>

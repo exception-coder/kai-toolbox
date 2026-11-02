@@ -1,5 +1,5 @@
 import { CommitsPanel } from '@/components/git/CommitsPanel'
-import { fetchSessionGitStatus, fetchSessionGitFileDiff } from '../api'
+import { fetchSessionGitStatus, fetchSessionGitFileDiff, compareSessionGitBranches } from '../api'
 import { getSessionCommitDiff, getSessionPushPreview, listSessionCommits, listSessionGitRepos, listSessionGitBranches, pushSessionCommits, prepareSessionPull, pullSessionCommits, getSessionGitWorkspace, prepareSessionBranchSwitch, switchSessionBranch } from '../api'
 
 /** 目录关联保留在会话的独立工作区管理入口，Git 面板只操作已关联仓库。 */
@@ -19,6 +19,7 @@ export function SessionCommitsPanel({ sessionId, onClose, restoreFocus }: {
     fetchStatus={repo => fetchSessionGitStatus(sessionId, repo)}
     fetchFileDiff={(path, x, repo) => fetchSessionGitFileDiff(sessionId, path, x, repo)}
     workspaceActions={{ status: (repo, refresh) => getSessionGitWorkspace(sessionId, repo, refresh),
+      compareBranches: (baseRef, ref, repo) => compareSessionGitBranches(sessionId, baseRef, ref, repo),
       prepareSwitch: (ref, repo) => prepareSessionBranchSwitch(sessionId, ref, repo),
       switchBranch: (ref, token, repo) => switchSessionBranch(sessionId, ref, token, repo) }}
     pushActions={{ preview: repo => getSessionPushPreview(sessionId, repo), push: (token, repo) => pushSessionCommits(sessionId, token, repo) }}

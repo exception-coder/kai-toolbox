@@ -22,6 +22,13 @@ export interface GitBranchRef {
   head: string
   current: boolean
   remote: boolean
+  remoteName?: string
+  logicalName?: string
+  upstream?: string
+}
+
+export interface GitBranchComparison {
+  baseRef: string; ref: string; baseHead: string; head: string; ahead: number; behind: number; checkedAt: string
 }
 
 /** 工作目录下的一个 git 仓库：name 空串=目录自身即仓库，否则为子目录名（查询提交时回传）。 */
@@ -108,6 +115,7 @@ export interface GitBranchSwitchPreview {
 }
 
 export interface GitWorkspaceActions {
+  compareBranches?: (baseRef: string, ref: string, repo?: string) => Promise<GitBranchComparison>
   status: (repo?: string, refreshRemote?: boolean) => Promise<GitWorkspaceStatus>
   prepareSwitch: (ref: string, repo?: string) => Promise<GitBranchSwitchPreview>
   switchBranch: (ref: string, token: string, repo?: string) => Promise<{ message: string }>
