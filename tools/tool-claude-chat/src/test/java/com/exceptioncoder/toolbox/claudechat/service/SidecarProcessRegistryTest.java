@@ -57,7 +57,7 @@ class SidecarProcessRegistryTest {
 
         @Bean
         SidecarProcessRegistry registry(ClaudeChatProperties properties) {
-            return new SidecarProcessRegistry(properties, new ObjectMapper(), 18080);
+            return new SidecarProcessRegistry(properties, new ObjectMapper(), 18080, mock(ProviderProfileService.class));
         }
 
         @Bean
@@ -71,7 +71,7 @@ class SidecarProcessRegistryTest {
         try (ServerSocket listener = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
             ClaudeChatProperties properties = new ClaudeChatProperties();
             properties.setSidecarPort(listener.getLocalPort());
-            SidecarProcessRegistry registry = new SidecarProcessRegistry(properties, new ObjectMapper(), 18080);
+            SidecarProcessRegistry registry = new SidecarProcessRegistry(properties, new ObjectMapper(), 18080, mock(ProviderProfileService.class));
             ReflectionTestUtils.setField(registry, "orphanCleaned", true);
             assertThat(registry.isAlive()).isFalse();
             assertThatThrownBy(registry::ensureStarted).isInstanceOf(IOException.class).hasMessageContaining("拒绝连接未知实例");
@@ -92,7 +92,7 @@ class SidecarProcessRegistryTest {
 
     @Test
     void shouldCloseOwnerPipeAndWaitForExitBeforeDroppingHandle() throws Exception {
-        SidecarProcessRegistry registry = new SidecarProcessRegistry(new ClaudeChatProperties(), new ObjectMapper(), 18080);
+        SidecarProcessRegistry registry = new SidecarProcessRegistry(new ClaudeChatProperties(), new ObjectMapper(), 18080, mock(ProviderProfileService.class));
         Process child = mock(Process.class);
         OutputStream input = mock(OutputStream.class);
         when(child.isAlive()).thenReturn(true);
@@ -110,7 +110,7 @@ class SidecarProcessRegistryTest {
 
     @Test
     void shouldRetainUnconfirmedProcessUntilOwnedTreeCleanup() throws Exception {
-        SidecarProcessRegistry registry = new SidecarProcessRegistry(new ClaudeChatProperties(), new ObjectMapper(), 18080);
+        SidecarProcessRegistry registry = new SidecarProcessRegistry(new ClaudeChatProperties(), new ObjectMapper(), 18080, mock(ProviderProfileService.class));
         Process child = mock(Process.class);
         when(child.isAlive()).thenReturn(true);
         when(child.getOutputStream()).thenReturn(OutputStream.nullOutputStream());
@@ -134,7 +134,7 @@ class SidecarProcessRegistryTest {
         harness.setHandshakeTimeoutMs(12_000);
         harness.setTurnTimeoutMs(90_000);
 
-        SidecarProcessRegistry registry = new SidecarProcessRegistry(properties, new ObjectMapper(), 18080);
+        SidecarProcessRegistry registry = new SidecarProcessRegistry(properties, new ObjectMapper(), 18080, mock(ProviderProfileService.class));
         ProcessBuilder builder = new ProcessBuilder("node", "dist/server.js");
 
         registry.applyDeepSeekHarnessEnvironment(builder);
@@ -152,14 +152,32 @@ class SidecarProcessRegistryTest {
     }
 
     @Test
-    void shouldKeepExperimentalRuntimeDisabledByDefault() throws IOException {
+    void shouldKeepExperimentalRuntimeDisabledWhenExplicitlyConfigured() throws IOException {
         ClaudeChatProperties properties = new ClaudeChatProperties();
-        SidecarProcessRegistry registry = new SidecarProcessRegistry(properties, new ObjectMapper(), 18080);
+        properties.getDeepseekHarness().setEnabled(false);
+        SidecarProcessRegistry registry = new SidecarProcessRegistry(properties, new ObjectMapper(), 18080, mock(ProviderProfileService.class));
         ProcessBuilder builder = new ProcessBuilder("node", "dist/server.js");
 
         registry.applyDeepSeekHarnessEnvironment(builder);
 
         assertThat(builder.environment().get("KAI_DEEPSEEK_HARNESS_ENABLED")).isEqualTo("false");
         assertThat(builder.environment()).doesNotContainKey("KAI_DEEPSEEK_HARNESS_COMMAND");
+    }
+
+    @Test
+    void shouldPassOnlyGlobalHarnessCredentialToItsPrivateEnvironmentSlot() throws IOException {
+        ProviderProfileService profiles = mock(ProviderProfileService.class);
+        when(profiles.globalHarnessCredentials()).thenReturn(java.util.Optional.of(
+                new ProviderProfileService.ProviderCredentials("https://api.deepseek.com/v1", "global-test-key")));
+        SidecarProcessRegistry registry = new SidecarProcessRegistry(new ClaudeChatProperties(), new ObjectMapper(), 18080, profiles);
+        ProcessBuilder builder = new ProcessBuilder("node");
+        builder.environment().remove("DEEPSEEK_API_KEY");
+        builder.environment().remove("KAI_DEEPSEEK_HARNESS_API_KEY");
+        registry.applyDeepSeekHarnessEnvironment(builder);
+        assertThat(builder.environment().get("KAI_DEEPSEEK_HARNESS_API_KEY")).isEqualTo("global-test-key");
+        assertThat(builder.environment()).doesNotContainKey("DEEPSEEK_API_KEY");
+        builder.environment().put("KAI_DEEPSEEK_HARNESS_API_KEY", "explicit-test-key");
+        registry.applyDeepSeekHarnessEnvironment(builder);
+        assertThat(builder.environment().get("KAI_DEEPSEEK_HARNESS_API_KEY")).isEqualTo("explicit-test-key");
     }
 }

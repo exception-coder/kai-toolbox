@@ -11,7 +11,7 @@ import java.util.List;
 @Service
 public class EngineCatalogService {
 
-    private static final long QUERY_TIMEOUT_MS = 5_000L;
+    private static final long QUERY_TIMEOUT_MS = 30_000L;
 
     private final SidecarClient sidecarClient;
 

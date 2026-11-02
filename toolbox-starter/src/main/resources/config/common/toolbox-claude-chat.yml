@@ -5,14 +5,14 @@ toolbox:
     # 实测经常超过 5 分钟。调大到 20 分钟；需求分诊/工时评估/进度评估等短任务也受益
     # （无副作用，超时只是 future.get 等待上限，正常几秒就返回的调用不会因为调大这个值而变慢）。
     agent-one-shot-timeout-ms: 1200000  # 20 分钟
-    # DeepSeek Harness 仍处于 Developer Preview：默认关闭。开启后也只有 Sidecar 使用锁定 SDK
-    # 与下方 Runtime 完成身份握手，前端才会出现 DeepSeek Harness 选项。
+    # DeepSeek Harness Developer Preview：有原生 Key 且锁定 SDK 的运行时握手通过才开放。
+    # SDK 自带同版本 dsh；只读复用 ~/.dsh/.credentials.yaml，运行数据隔离到 Forge Harness Home。
     deepseek-harness:
-      enabled: false
-      command: ""           # 官方 dsh-jsonrpc-agent / Runtime 可执行命令；不通过 Shell 拼接
-      args: []               # argv 数组，例如 ["path/to/runtime-entry.js", "path/to/cordis.yml"]
+      enabled: true
+      command: ""           # 可选 dsh CLI JS 模块路径；留空自动使用 SDK 同版本运行时
+      args: []               # 旧 Runtime argv 已不支持，必须留空
       provider: deepseek-official
-      model: deepseek-v4-flash
+      model: deepseek-flash
       max-tokens: 49152
       handshake-timeout-ms: 15000
       turn-timeout-ms: 1800000

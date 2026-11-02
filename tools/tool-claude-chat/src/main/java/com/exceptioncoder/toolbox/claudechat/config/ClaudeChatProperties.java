@@ -55,18 +55,18 @@ public class ClaudeChatProperties {
      */
     private long agentOneShotTimeoutMs = 1_200_000L;
 
-    /** DeepSeek Harness Developer Preview；默认关闭，只有 Sidecar/Runtime 握手通过后才对前端开放。 */
+    /** DeepSeek Harness Developer Preview；原生凭据与 Sidecar/Runtime 握手通过后才对前端开放。 */
     private DeepSeekHarness deepseekHarness = new DeepSeekHarness();
 
     @Data
     public static class DeepSeekHarness {
-        private boolean enabled;
-        /** 官方 JSON-RPC Runtime 可执行命令，不经过 Shell 二次解析。 */
+        private boolean enabled = true;
+        /** 可选同版本 dsh CLI JavaScript 模块路径；为空使用官方 SDK 自带运行时。 */
         private String command = "";
-        /** Runtime 参数数组，每个元素按 Process argv 原样传递。 */
+        /** 保留旧配置的显式错误提示；新版 SDK 不接受旧的 Runtime argv。 */
         private List<String> args = List.of();
         private String provider = "deepseek-official";
-        private String model = "deepseek-v4-flash";
+        private String model = "deepseek-flash";
         private Integer maxTokens;
         private long handshakeTimeoutMs = 15_000L;
         private long turnTimeoutMs = 30 * 60_000L;

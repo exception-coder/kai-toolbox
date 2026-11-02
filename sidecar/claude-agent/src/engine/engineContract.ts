@@ -47,6 +47,11 @@ export interface EngineTurnRequest {
   images?: readonly EngineImageInput[]
   developerInstructions?: string
   additionalDirectories: readonly string[]
+  cwd?: string
+  permissionMode?: string
+  toolPolicy?: string
+  demo?: boolean
+  requestPermission?(tool: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>>
   signal?: AbortSignal
   emit(event: AgentEvent): void
 }

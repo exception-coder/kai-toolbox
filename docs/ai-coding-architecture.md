@@ -243,6 +243,22 @@ flowchart LR
     COPY_KEY -->|"网络未知，同编号最多三次"| COPY_TX
 ```
 
+### DeepSeek Harness 本地引擎
+
+VibeCoding 复用已有 EngineAdapterRegistry 与 DeepSeek SDK Adapter，不建立独立 Agent 平台。SDK 和自带 dsh 精确锁定同一发布版本；协议身份、可启动性和模型鉴权是不同证据。凭据优先使用显式运行环境，其次是后端唯一的全局官方 DeepSeek 服务商档案，再回退本机 Harness 原生凭据。后端不扫描用户私人档案、不把第三方网关 Key 交给官方端点；仅在受信 Sidecar 内部环境传递，引擎启动前清除其他凭据。Key 不回传浏览器、不写入项目，原有 `.dsh` Web profile 不改写。
+
+运行数据落入 Forge 独立 Harness Home；Forge sessionId 与 cwd 的绑定只保存身份信息，重建进程或停止后明确恢复原生历史并核对实际目录。恢复缺失、损坏或项目不符时不创建替代会话。原生额外审批与提问复用 Forge Permissions，未知请求和取消不能构成允许。首版只开放普通开发会话的原生 workspace-write 权限，不支持咨询、评审、演示或其他权限模式；图片仍显式拒绝。SDK 推送原生步骤与工具事件，当前发布包不保证逐 Token 文本输出；只有原生 `turn/end` 的 completed 加 idle 才报告成功，停止请求与失败不能被 idle 掩盖。实现、隔离模型验证及待加载状态见[Harness 任务](../openspec/changes/complete-deepseek-harness-engine/tasks.md)。
+
+```mermaid
+flowchart LR
+    SESSION["原 Forge 会话 · cwd"] --> ADAPTER["既有 DeepSeek Adapter"]
+    ENV["显式环境 / 全局官方档案 / 原生 Key"] --> ADAPTER
+    ADAPTER --> SDK["锁定 SDK · 自带同版本 dsh"]
+    SDK --> HOME["独立 Home · 原生历史"]
+    SDK --> EVENT["原生步骤 / 工具 / 终态"] --> SESSION
+    SDK --> APPROVAL["原 Forge Permissions"] --> SDK
+```
+
 ### Codex 普通听写与双向通话
 
 VibeCoding 普通麦克风输入按引擎选择转写。Codex 由已授权会话的服务端 codexHome 决定账号，App Server 只提供认证读取，Sidecar 适配桌面客户端独立的官方听写流；不调用线程、轮次或 realtime API，不改变原会话任务/工具权限。其他引擎和咨询、工作助理保留已有语音服务。浏览器将录音转换成有界 PCM，仅最终文本回填原草稿，必须人工发送；切换对象释放媒体并阻止迟到结果回填。凭据不进入浏览器，音频不持久化，失败不自动换账号、改用 Whisper 或重放。桌面听写是内部协议，握手成功与真实音频验收、制品激活分别记录于[语音任务](../openspec/changes/add-code-native-voice/tasks.md)。

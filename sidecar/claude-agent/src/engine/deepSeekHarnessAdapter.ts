@@ -7,7 +7,9 @@ import {
   type HarnessClientOptions,
   type HarnessNotification,
   type NotificationSubscription,
+  type SdkUserQuestionRequest,
 } from '@deepseek-ai/dsh-sdk-client'
+import { bindHarnessSession, harnessEnvironment, harnessHome, sameWorkspace } from './deepSeekHarnessLocal.js'
 import type {
   AgentEngineAdapter,
   AgentEvent,
@@ -20,7 +22,8 @@ import type {
 } from './engineContract.js'
 
 const SDK_PACKAGE = '@deepseek-ai/dsh-sdk-client'
-export const DEEPSEEK_HARNESS_SDK_VERSION = '0.1.0-rc.6'
+export const DEEPSEEK_HARNESS_SDK_VERSION = '0.2.2-alpha.2'
+export const DEEPSEEK_HARNESS_WIRE_VERSION = '0.0.1'
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 15_000
 const DEFAULT_TURN_TIMEOUT_MS = 30 * 60_000
 
@@ -35,6 +38,8 @@ export interface DeepSeekHarnessAdapterConfig {
   handshakeTimeoutMs: number
   turnTimeoutMs: number
   env?: NodeJS.ProcessEnv
+  home?: string
+  credentialFile?: string
 }
 
 interface HarnessClientLike {
@@ -44,10 +49,14 @@ interface HarnessClientLike {
     provider: string
     model: string
     maxTokens?: number
+    approvalRequests?: boolean
   }): Promise<{ serverInfo: { name: string; version: string } }>
   prompt(sessionId: string, contentBlocks: ContentBlock[]): Promise<string>
   subscribeSessionTree(sessionId: string): NotificationSubscription
   close(): Promise<void>
+  onRequest(handler: (method: string, params: Record<string, unknown>) => Promise<unknown>): void
+  resumeSession(id: string): Promise<void>
+  getWorkingDirectory(id: string): Promise<string>
 }
 
 export interface DeepSeekHarnessAdapterDependencies {
@@ -74,6 +83,10 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
   private handshake?: EngineProbeResult
   private running = false
   private interruptRequested = false
+  private activeRequest?: EngineTurnRequest
+  private boundSession?: string
+  private rootSession?: string
+  private toolInputs = new Map<string, { name: string; input: Record<string, unknown> }>()
 
   constructor(
     private readonly config: DeepSeekHarnessAdapterConfig,
@@ -84,12 +97,12 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
     if (!this.config.enabled) {
       return this.remember({ status: 'disabled', engine: descriptor.id, detail: 'Experimental engine flag is disabled' })
     }
-    if (!this.config.runtimeCommand) {
+    if (this.config.runtimeArgs.length) {
       return this.remember({
         status: 'unavailable',
         engine: descriptor.id,
         sdkVersion: this.dependencies.sdkVersion,
-        detail: 'DeepSeek Harness runtime command is not configured',
+        detail: '新版 SDK 使用同版本 dsh；请移除旧 Runtime args，command 仅接受可选 dsh CLI 模块路径',
       })
     }
     if (this.dependencies.sdkVersion !== DEEPSEEK_HARNESS_SDK_VERSION) {
@@ -104,11 +117,13 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
     try {
       const client = this.ensureClient()
       client.start()
+      client.onRequest((method, params) => this.handleApproval(method, params))
       const initialized = await withDeadline(
         client.initialize({
           cwd: this.config.cwd,
           provider: this.config.provider,
           model: this.config.model,
+          approvalRequests: true,
           ...(this.config.maxTokens === undefined ? {} : { maxTokens: this.config.maxTokens }),
         }),
         this.config.handshakeTimeoutMs,
@@ -124,6 +139,10 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
           runtimeVersion: initialized.serverInfo.version,
           detail: 'Runtime identity does not match the official SDK protocol',
         })
+      }
+      if (initialized.serverInfo.version !== DEEPSEEK_HARNESS_WIRE_VERSION) {
+        await this.resetClient()
+        return this.remember({ status: 'incompatible', engine: descriptor.id, detail: 'Harness Runtime 协议版本与已验证契约不一致' })
       }
       return this.remember({
         status: 'ready',
@@ -145,29 +164,47 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
   }
 
   async runTurn(request: EngineTurnRequest): Promise<void> {
-    const readiness = this.handshake?.status === 'ready' ? this.handshake : await this.probe()
-    if (readiness.status !== 'ready') {
-      throw new Error(`DeepSeek Harness is not ready: ${readiness.detail ?? readiness.status}`)
-    }
     if (this.running) throw new Error('DeepSeek Harness adapter already owns an active turn')
-    if (request.images?.length) {
-      throw new Error('DeepSeek Harness image attachments are not enabled until the official content-block contract is verified')
+    if (request.demo || (request.toolPolicy && request.toolPolicy !== 'default')
+      || (request.permissionMode && request.permissionMode !== 'default')) {
+      throw new Error('DeepSeek Harness 当前仅支持普通开发会话的原生工作区权限；咨询、评审、演示及其他权限模式尚未开放')
     }
-
-    const client = this.ensureClient()
-    const subscription = client.subscribeSessionTree(request.sessionId)
-    const abortListener = (): void => { void this.interrupt() }
-    request.signal?.addEventListener('abort', abortListener, { once: true })
+    if (request.cwd && !sameWorkspace(request.cwd, this.config.cwd)) throw new Error('Harness 工作目录已变化，请重新建立该项目会话')
+    if (this.rootSession && this.rootSession !== request.sessionId) throw new Error('Harness Adapter 不允许复用到其他会话')
+    if (request.signal?.aborted) throw new Error('Harness 轮次已取消，未发送消息')
+    this.rootSession = request.sessionId
+    this.activeRequest = request
     this.running = true
     this.interruptRequested = false
-    request.emit(this.event(request, 'turn.started', { channel: readiness.channel }))
+    this.toolInputs.clear()
+    const abortListener = (): void => { void this.interrupt() }
+    request.signal?.addEventListener('abort', abortListener, { once: true })
+    let subscription: NotificationSubscription | undefined
     try {
+      const readiness = this.handshake?.status === 'ready' ? this.handshake : await this.probe()
+      if (readiness.status !== 'ready') {
+        throw new Error(`DeepSeek Harness is not ready: ${readiness.detail ?? readiness.status}`)
+      }
+      if (request.images?.length) {
+        throw new Error('DeepSeek Harness image attachments are not enabled until the official content-block contract is verified')
+      }
+      const client = this.ensureClient()
+      if (this.boundSession !== request.sessionId) {
+        await bindHarnessSession(client, this.config.home ?? harnessHome(), request.sessionId, this.config.cwd)
+        this.boundSession = request.sessionId
+      } else if (!sameWorkspace(await client.getWorkingDirectory(request.sessionId), this.config.cwd)) {
+        throw new Error('Harness 实际工作目录已变化，未发送消息')
+      }
+      if (request.signal?.aborted || this.interruptRequested) throw new Error('Harness 轮次已取消，未发送消息')
+      subscription = client.subscribeSessionTree(request.sessionId)
+      request.emit(this.event(request, 'turn.started', { channel: readiness.channel }))
       await withDeadline(
         this.collectTurn(client, subscription, request),
         this.config.turnTimeoutMs,
         'DeepSeek Harness turn',
         () => this.resetClient(),
       )
+      if (this.interruptRequested || request.signal?.aborted) throw new Error('Harness 轮次已中断')
       request.emit(this.event(request, 'turn.completed', {}))
     } catch (error) {
       const interrupted = this.interruptRequested || request.signal?.aborted === true
@@ -176,10 +213,10 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
       }))
       throw error
     } finally {
-      this.running = false
-      this.interruptRequested = false
-      subscription.close()
+      subscription?.close()
       request.signal?.removeEventListener('abort', abortListener)
+      this.running = false
+      this.activeRequest = undefined
     }
   }
 
@@ -208,6 +245,8 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
     const streamedSteps = new Set<string>()
     const toolNames = new Map<string, string>()
     const subagents = new Map<string, { id: string; parentId?: string; state: string }>()
+    let terminal: string | undefined
+    let failureCode: string | undefined
     while (true) {
       const notification = await subscription.next()
       if (!received) {
@@ -215,7 +254,20 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
         if (!received) continue
       }
       this.emitNotification(request, notification, streamedSteps, toolNames, subagents)
-      if (isIdle(notification, request.sessionId)) return
+      if (notification.method === 'session.event' && notification.params.sessionId === request.sessionId) {
+        const event = asRecord(notification.params.event)
+        const data = asRecord(event?.data)
+        if (event?.type === 'turn/end') {
+          const reason = asRecord(data?.reason)
+          terminal = stringValue(reason?.kind)
+          const code = stringValue(asRecord(reason?.error)?.code)
+          failureCode = code && /^[A-Z0-9_]{1,60}$/.test(code) ? code : undefined
+        }
+      }
+      if (isIdle(notification, request.sessionId)) {
+        if (terminal !== 'completed') throw new Error(`Harness 轮次未成功结束（${failureCode ?? terminal ?? '缺少结束证据'}），未自动重试`)
+        return
+      }
     }
   }
 
@@ -281,6 +333,7 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
       const callId = stringValue(data?.callId) ?? randomUUID()
       const name = stringValue(data?.name) ?? 'tool'
       toolNames.set(callId, name)
+      this.toolInputs.set(callId, { name, input: parseJsonObject(data?.arguments) })
       request.emit(this.event(request, 'tool.started', {
         toolCallId: callId,
         toolName: name,
@@ -328,10 +381,13 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
 
   private ensureClient(): HarnessClientLike {
     this.client ??= this.dependencies.createClient({
-      command: this.config.runtimeCommand as string,
-      args: [...this.config.runtimeArgs],
-      cwd: this.config.cwd,
-      env: this.config.env,
+      ...(this.config.runtimeCommand ? { dshBin: this.config.runtimeCommand } : {}),
+      profile: 'sdk',
+      dshHome: this.config.home ?? harnessHome(),
+      processCwd: this.config.cwd,
+      env: harnessEnvironment(this.config.env ?? process.env, this.config.credentialFile),
+      initializeTimeoutMs: this.config.handshakeTimeoutMs,
+      onUserQuestion: (question, context) => this.handleQuestion(question, context.signal),
       requestTimeoutMs: this.config.handshakeTimeoutMs,
     })
     return this.client
@@ -339,9 +395,36 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
 
   private async resetClient(): Promise<void> {
     const client = this.client
-    this.client = undefined
+    this.boundSession = undefined
     this.handshake = undefined
     if (client) await client.close()
+    if (this.client === client) this.client = undefined
+  }
+
+  private async handleApproval(method: string, params: Record<string, unknown>): Promise<unknown> {
+    const request = this.activeRequest
+    const call = typeof params.callId === 'string' ? this.toolInputs.get(params.callId) : undefined
+    if (method !== 'approval/request' || !request?.requestPermission || request.signal?.aborted || this.interruptRequested
+      || params.sessionId !== request.sessionId || !call || call.name !== params.toolName) return { outcome: 'rejected' }
+    const result = await request.requestPermission(call.name, call.input, request.signal)
+    return { outcome: result.behavior === 'allow' && !request.signal?.aborted && !this.interruptRequested ? 'allowed-once' : 'rejected' }
+  }
+
+  private async handleQuestion(question: SdkUserQuestionRequest, signal: AbortSignal) {
+    const request = this.activeRequest
+    if (!request?.requestPermission || question.sessionId !== request.sessionId || signal.aborted) throw new Error('Harness 用户提问已取消或不属于当前会话')
+    const result = await request.requestPermission('AskUserQuestion', { questions: question.questions.map(q => ({
+      ...q, question: [q.question, q.detail].filter(Boolean).join('\n\n'),
+    })) }, signal)
+    if (result.behavior !== 'allow' || signal.aborted) throw new Error('Harness 用户提问未获回答')
+    const input = asRecord(result.updatedInput)
+    const answers = asRecord(input?.answers) ?? {}
+    return { answers: question.questions.map(q => {
+      const value = answers[[q.question, q.detail].filter(Boolean).join('\n\n')] ?? answers[q.question] ?? answers[q.id]
+      const selected = (Array.isArray(value) ? value : typeof value === 'string' ? [value] : []).filter((item): item is string => typeof item === 'string')
+      return { id: q.id, selected: selected.filter(item => q.options?.some(option => option.label === item)),
+        custom: selected.filter(item => !q.options?.some(option => option.label === item)).join('\n') || undefined }
+    }) }
   }
 
   private remember(result: EngineProbeResult): EngineProbeResult {
@@ -352,15 +435,17 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
 
 export function deepSeekHarnessConfigFromEnv(env: NodeJS.ProcessEnv = process.env): DeepSeekHarnessAdapterConfig {
   return {
-    enabled: env.KAI_DEEPSEEK_HARNESS_ENABLED === 'true',
+    enabled: env.KAI_DEEPSEEK_HARNESS_ENABLED !== 'false',
     runtimeCommand: trimmed(env.KAI_DEEPSEEK_HARNESS_COMMAND),
     runtimeArgs: jsonStringArray(env.KAI_DEEPSEEK_HARNESS_ARGS),
     cwd: trimmed(env.KAI_DEEPSEEK_HARNESS_CWD) ?? process.cwd(),
     provider: trimmed(env.KAI_DEEPSEEK_HARNESS_PROVIDER) ?? 'deepseek-official',
-    model: trimmed(env.KAI_DEEPSEEK_HARNESS_MODEL) ?? 'deepseek-v4-flash',
+    model: trimmed(env.KAI_DEEPSEEK_HARNESS_MODEL) ?? 'deepseek-flash',
     maxTokens: positiveNumber(env.KAI_DEEPSEEK_HARNESS_MAX_TOKENS),
     handshakeTimeoutMs: positiveNumber(env.KAI_DEEPSEEK_HARNESS_HANDSHAKE_TIMEOUT_MS) ?? DEFAULT_HANDSHAKE_TIMEOUT_MS,
     turnTimeoutMs: positiveNumber(env.KAI_DEEPSEEK_HARNESS_TURN_TIMEOUT_MS) ?? DEFAULT_TURN_TIMEOUT_MS,
+    home: trimmed(env.KAI_DEEPSEEK_HARNESS_HOME),
+    credentialFile: trimmed(env.KAI_DEEPSEEK_HARNESS_CREDENTIAL_FILE),
   }
 }
 

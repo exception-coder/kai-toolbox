@@ -777,6 +777,11 @@ class Session {
       images: images as EngineImageInput[] | undefined,
       developerInstructions,
       additionalDirectories,
+      cwd: this.cwd,
+      permissionMode: this.permissionMode,
+      toolPolicy: this.toolPolicy,
+      demo: this.demo,
+      requestPermission: (tool, input, signal) => this.perms.canUseTool(tool, input, { signal }),
       signal: this.abort?.signal,
       emit: event => this.emitEngineEvent(event),
     })

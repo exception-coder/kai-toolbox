@@ -34,6 +34,7 @@ public class SidecarProcessRegistry {
     private final ClaudeChatProperties props;
     private final int serverPort;
     private final ObjectMapper objectMapper;
+    private final ProviderProfileService providerProfiles;
     private volatile Process process;
     /** 遗留 sidecar 的清理在本 JVM 内只做一次（见 {@link #ensureStarted()}） */
     private volatile boolean orphanCleaned;
@@ -62,10 +63,12 @@ public class SidecarProcessRegistry {
 
     public SidecarProcessRegistry(ClaudeChatProperties props,
                                   ObjectMapper objectMapper,
-                                  @org.springframework.beans.factory.annotation.Value("${server.port:8080}") int serverPort) {
+                                  @org.springframework.beans.factory.annotation.Value("${server.port:8080}") int serverPort,
+                                  ProviderProfileService providerProfiles) {
         this.props = props;
         this.objectMapper = objectMapper;
         this.serverPort = serverPort;
+        this.providerProfiles = providerProfiles;
     }
 
     /**
@@ -118,10 +121,15 @@ public class SidecarProcessRegistry {
         log.info("[claude-chat] sidecar 已启动，pid={}, port={}", process.pid(), props.getSidecarPort());
     }
 
-    /** 将结构化配置传给 Sidecar；command/args 始终保持 argv 语义，不拼 Shell 字符串。 */
+    /** 传递实验引擎路由及全局官方凭据；锁定 SDK 负责运行时，不拼接 Shell 命令。 */
     void applyDeepSeekHarnessEnvironment(ProcessBuilder builder) throws IOException {
         ClaudeChatProperties.DeepSeekHarness config = props.getDeepseekHarness();
         builder.environment().put("KAI_DEEPSEEK_HARNESS_ENABLED", Boolean.toString(config.isEnabled()));
+        if (config.isEnabled() && !builder.environment().containsKey("DEEPSEEK_API_KEY")
+                && !builder.environment().containsKey("KAI_DEEPSEEK_HARNESS_API_KEY")) {
+            providerProfiles.globalHarnessCredentials().ifPresent(credentials ->
+                    builder.environment().put("KAI_DEEPSEEK_HARNESS_API_KEY", credentials.key()));
+        }
         putIfText(builder, "KAI_DEEPSEEK_HARNESS_COMMAND", config.getCommand());
         putIfText(builder, "KAI_DEEPSEEK_HARNESS_PROVIDER", config.getProvider());
         putIfText(builder, "KAI_DEEPSEEK_HARNESS_MODEL", config.getModel());

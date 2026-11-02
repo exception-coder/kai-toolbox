@@ -11,9 +11,12 @@ function readyDependencies(counter: { clients: number }): DeepSeekHarnessAdapter
       return {
         start: () => undefined,
         initialize: async () => ({
-          serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.1.0-rc.6' },
+          serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' },
         }),
         prompt: async () => 'unused',
+        onRequest: () => undefined,
+        resumeSession: async () => undefined,
+        getWorkingDirectory: async () => process.cwd(),
         subscribeSessionTree: () => { throw new Error('unused') },
         close: async () => undefined,
       }
@@ -52,6 +55,7 @@ test('catalog exposes DeepSeek only after an official runtime handshake and cach
     traeProbe: async () => ({ status: 'dependencyMissing', engine: 'trae' }),
     deepSeekConfig: {
       enabled: true,
+      env: { DEEPSEEK_API_KEY: 'test-key-not-a-real-key' },
       runtimeCommand: 'fake-runtime',
       runtimeArgs: [],
       cwd: process.cwd(),

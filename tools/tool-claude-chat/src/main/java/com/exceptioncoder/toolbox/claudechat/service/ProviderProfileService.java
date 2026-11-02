@@ -10,6 +10,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.Optional;
 
 /** 持久化本机网关档案；读取响应只暴露脱敏元数据，不返回已保存的 Key。 */
 @Service
@@ -62,6 +63,22 @@ public class ProviderProfileService {
         StoredProfile profile = read(ownerId).stream().filter(item -> item.id().equals(id)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("服务商档案不存在，请刷新列表后重试"));
         return new ProviderCredentials(profile.baseUrl(), profile.key());
+    }
+
+    /** 本机共享 Harness 只复用唯一的全局官方档案，绝不扫描用户私人档案或第三方网关。 */
+    synchronized Optional<ProviderCredentials> globalHarnessCredentials() {
+        List<StoredProfile> candidates = read(null).stream().filter(profile -> {
+            URI uri = URI.create(profile.baseUrl());
+            return "https".equalsIgnoreCase(uri.getScheme())
+                    && "api.deepseek.com".equalsIgnoreCase(uri.getHost())
+                    && (uri.getPort() == -1 || uri.getPort() == 443)
+                    && uri.getUserInfo() == null && uri.getQuery() == null && uri.getFragment() == null
+                    && List.of("", "/", "/v1", "/v1/", "/anthropic", "/anthropic/").contains(uri.getPath())
+                    && profile.key() != null && !profile.key().isBlank();
+        }).toList();
+        if (candidates.size() != 1) return Optional.empty();
+        StoredProfile profile = candidates.getFirst();
+        return Optional.of(new ProviderCredentials(profile.baseUrl(), profile.key()));
     }
 
     public synchronized ProfileView create(ProfileInput input) {

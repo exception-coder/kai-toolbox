@@ -128,4 +128,16 @@ class ProviderProfileServiceTest {
         assertThat(oldSwitch.providerProfileId()).isNull();
         assertThat(byId.providerProfileId()).isEqualTo("profile-1");
     }
+
+    @Test
+    void harnessUsesOnlyOneGlobalOfficialProfileAndNeverPrivateOrThirdPartyProfiles() {
+        settings.upsert("gateway-provider-profiles:2", "[{\"id\":\"private\",\"name\":\"Private\",\"baseUrl\":\"https://api.deepseek.com\",\"key\":\"private-key\",\"model\":\"\"}]");
+        assertThat(service.globalHarnessCredentials()).isEmpty();
+        service.create(new ProviderProfileService.ProfileInput("Third party", "https://gateway.example", "third-key", ""));
+        assertThat(service.globalHarnessCredentials()).isEmpty();
+        service.create(new ProviderProfileService.ProfileInput("Official", "https://api.deepseek.com/v1", "global-key", ""));
+        assertThat(service.globalHarnessCredentials()).hasValue(new ProviderProfileService.ProviderCredentials("https://api.deepseek.com/v1", "global-key"));
+        service.create(new ProviderProfileService.ProfileInput("Other official", "https://api.deepseek.com", "other-key", ""));
+        assertThat(service.globalHarnessCredentials()).isEmpty();
+    }
 }

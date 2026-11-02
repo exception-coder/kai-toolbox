@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { HarnessNotification, NotificationSubscription } from '@deepseek-ai/dsh-sdk-client'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { HarnessClientOptions, HarnessNotification, NotificationSubscription } from '@deepseek-ai/dsh-sdk-client'
 import {
   DEEPSEEK_HARNESS_SDK_VERSION,
   DeepSeekHarnessAdapter,
@@ -45,7 +48,9 @@ function config(overrides: Partial<DeepSeekHarnessAdapterConfig> = {}): DeepSeek
     enabled: true,
     runtimeCommand: 'fake-runtime',
     runtimeArgs: [],
-    cwd: 'D:\\workspace',
+    cwd: process.cwd(),
+    home: mkdtempSync(join(tmpdir(), 'forge-dsh-test-')),
+    env: { DEEPSEEK_API_KEY: 'test-key-not-a-real-key' },
     provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
     handshakeTimeoutMs: 100,
@@ -67,9 +72,12 @@ function dependencies(options: {
       return {
         start: () => undefined,
         initialize: options.initialize ?? (async () => ({
-          serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.1.0-rc.6' },
+          serverInfo: { name: 'deepseek-harness-sdk-runtime', version: '0.0.1' },
         })),
         prompt: async () => 'message-1',
+        onRequest: () => undefined,
+        resumeSession: async () => undefined,
+        getWorkingDirectory: async () => process.cwd(),
         subscribeSessionTree: () => {
           subscription = new FakeSubscription(options.notifications ?? [])
           return subscription
@@ -93,9 +101,9 @@ function turn(events: AgentEvent[]): EngineTurnRequest {
   }
 }
 
-test('experimental adapter stays unavailable unless explicitly enabled and configured', async () => {
+test('experimental adapter stays unavailable when disabled or using obsolete runtime args', async () => {
   const disabled = new DeepSeekHarnessAdapter(config({ enabled: false }), dependencies())
-  const missingRuntime = new DeepSeekHarnessAdapter(config({ runtimeCommand: undefined }), dependencies())
+  const missingRuntime = new DeepSeekHarnessAdapter(config({ runtimeArgs: ['legacy-config.yml'] }), dependencies())
 
   assert.equal((await disabled.probe()).status, 'disabled')
   assert.equal((await missingRuntime.probe()).status, 'unavailable')
@@ -142,6 +150,7 @@ test('adapter streams normalized events and completes only after the authoritati
         },
       },
     },
+    { method: 'session.event', params: { sessionId: 'session-1', event: { type: 'turn/end', data: { reason: { kind: 'completed' } } } } },
     { method: 'session.status', params: { sessionId: 'session-1', status: 'idle' } },
   ]
   const events: AgentEvent[] = []
@@ -153,6 +162,7 @@ test('adapter streams normalized events and completes only after the authoritati
     'turn.started',
     'engine.diagnostic',
     'assistant.delta',
+    'engine.diagnostic',
     'engine.diagnostic',
     'turn.completed',
   ])
@@ -182,6 +192,7 @@ test('adapter normalizes streamed text and tool lifecycle without duplicating co
       method: 'session.event',
       params: { sessionId: 'session-1', event: { type: 'tool/result', data: { turn: 1, step: 1, message: { content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'ok' }] }] } } } },
     },
+    { method: 'session.event', params: { sessionId: 'session-1', event: { type: 'turn/end', data: { reason: { kind: 'completed' } } } } },
     { method: 'session.status', params: { sessionId: 'session-1', status: 'idle' } },
   ] as HarnessNotification[]
   const events: AgentEvent[] = []
@@ -209,6 +220,7 @@ test('adapter publishes replacement subagent snapshots with normalized terminal 
       method: 'subagent.finished',
       params: { parentSessionId: 'session-1', childSessionId: 'child-1', agentId: 'child-1', provider: 'local', status: 'completed', stopReason: 'end_turn' },
     },
+    { method: 'session.event', params: { sessionId: 'session-1', event: { type: 'turn/end', data: { reason: { kind: 'completed' } } } } },
     { method: 'session.status', params: { sessionId: 'session-1', status: 'idle' } },
   ] as HarnessNotification[]
   const events: AgentEvent[] = []
@@ -256,4 +268,72 @@ test('native interrupt reaps the runtime and reports an interrupted terminal eve
 
   assert.equal(closed, true)
   assert.equal(events.at(-1)?.type, 'turn.interrupted')
+})
+
+test('idle is not success when the model failed or terminal evidence is missing', async () => {
+  for (const reason of ['error', 'max-tokens', undefined]) {
+    const notifications: HarnessNotification[] = [
+      { method: 'session.event', params: { sessionId: 'session-1', event: { type: 'agent/inbox/spliced', data: { inserted: [{ id: 'message-1' }] } } } },
+      ...(reason ? [{ method: 'session.event', params: { sessionId: 'session-1', event: { type: 'turn/end', data: { reason: { kind: reason } } } } }] : []),
+      { method: 'session.status', params: { sessionId: 'session-1', status: 'idle' } },
+    ]
+    const events: AgentEvent[] = []
+    const adapter = new DeepSeekHarnessAdapter(config(), dependencies({ notifications }))
+    await assert.rejects(adapter.runTurn(turn(events)), /未成功结束/)
+    assert.equal(events.some(event => event.type === 'turn.completed'), false)
+    await adapter.dispose()
+  }
+})
+
+test('restricted modes and pre-cancelled input never start a native turn', async () => {
+  const adapter = new DeepSeekHarnessAdapter(config(), dependencies())
+  for (const restriction of [{ toolPolicy: 'review-only' }, { toolPolicy: 'consult-readonly' }, { permissionMode: 'plan' }, { demo: true }]) {
+    await assert.rejects(adapter.runTurn({ ...turn([]), ...restriction }), /尚未开放/)
+  }
+  await assert.rejects(adapter.runTurn({ ...turn([]), signal: AbortSignal.abort() }), /已取消/)
+  await adapter.dispose()
+})
+
+test('approval requests require the active session and a known exact tool call', async () => {
+  const notifications: HarnessNotification[] = [
+    { method: 'session.event', params: { sessionId: 'session-1', event: { type: 'agent/inbox/spliced', data: { inserted: [{ id: 'message-1' }] } } } },
+    { method: 'session.event', params: { sessionId: 'session-1', event: { type: 'tool/call', data: { callId: 'call-1', name: 'write_file', arguments: '{"path":"outside.txt"}' } } } },
+  ]
+  let handler!: (method: string, params: Record<string, unknown>) => Promise<unknown>
+  let received: unknown
+  const deps = dependencies({ notifications })
+  const create = deps.createClient
+  deps.createClient = options => ({ ...create(options), onRequest: value => { handler = value } })
+  const adapter = new DeepSeekHarnessAdapter(config({ turnTimeoutMs: 2000 }), deps)
+  const pending = adapter.runTurn({ ...turn([]), requestPermission: async (name, input) => {
+    received = { name, input }; return { behavior: 'allow' }
+  } })
+  const rejection = assert.rejects(pending)
+  await new Promise(resolve => setTimeout(resolve, 10))
+  assert.deepEqual(await handler('approval/request', { sessionId: 'other', callId: 'call-1', toolName: 'write_file' }), { outcome: 'rejected' })
+  assert.deepEqual(await handler('approval/request', { sessionId: 'session-1', callId: 'unknown', toolName: 'write_file' }), { outcome: 'rejected' })
+  assert.equal(received, undefined)
+  assert.deepEqual(await handler('approval/request', { sessionId: 'session-1', callId: 'call-1', toolName: 'write_file' }), { outcome: 'allowed-once' })
+  assert.deepEqual(received, { name: 'write_file', input: { path: 'outside.txt' } })
+  await adapter.interrupt()
+  await rejection
+  assert.deepEqual(await handler('approval/request', { sessionId: 'session-1', callId: 'call-1', toolName: 'write_file' }), { outcome: 'rejected' })
+})
+
+test('native questions preserve question ids and map Forge selections without treating dismissal as an answer', async () => {
+  let options!: HarnessClientOptions
+  const deps = dependencies()
+  const create = deps.createClient
+  deps.createClient = value => { options = value; return create(value) }
+  const adapter = new DeepSeekHarnessAdapter(config({ turnTimeoutMs: 2000 }), deps)
+  const pending = adapter.runTurn({ ...turn([]), requestPermission: async () => ({ behavior: 'allow', updatedInput: { answers: { 'Choose\n\nDetails': 'A' } } }) })
+  const rejection = assert.rejects(pending)
+  await new Promise(resolve => setTimeout(resolve, 10))
+  const question = { requestId: 'q-1', sessionId: 'session-1', questions: [{ id: 'stable-id', question: 'Choose', detail: 'Details', options: [{ label: 'A' }] }] }
+  const answer = await options.onUserQuestion!(question, { signal: new AbortController().signal })
+  assert.deepEqual(answer.answers[0]?.selected, ['A'])
+  assert.equal(answer.answers[0]?.id, 'stable-id')
+  await assert.rejects(options.onUserQuestion!(question, { signal: AbortSignal.abort() }), /已取消/)
+  await adapter.interrupt()
+  await rejection
 })
