@@ -5,7 +5,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   ChevronUp,
-  Loader2,
+  Loader2, Square,
   BarChart3, ChevronDown, Maximize2, Minimize2, Route,
 } from 'lucide-react'
 import {
@@ -39,6 +39,8 @@ function controlEntryDiscovered() {
 }
 
 interface Props {
+  onInterrupt?: () => void
+  interrupting?: boolean
   workspace?: boolean
   sessionId: string
   items: ChatItem[]
@@ -64,7 +66,7 @@ interface Props {
 }
 
 export function MobileSessionStatus({
-  workspace = false,
+  workspace = false, onInterrupt, interrupting = false,
   sessionId,
   items,
   running,
@@ -154,12 +156,13 @@ export function MobileSessionStatus({
   return (
     <div className={cn('relative', workspace ? 'cc-workspace-execution-dock' : 'md:hidden')} data-execution-state={status?.kind ?? 'idle'} data-has-queue={queueCount > 0}>
       {mobile && !open && !discovered && <span id={hintId} className="pointer-events-none absolute right-3 bottom-full z-10 mb-1 max-w-[calc(100%-1.5rem)] rounded-md border bg-[var(--color-background)] px-3 py-2 text-xs text-[var(--color-foreground)] shadow-sm">点击此栏管理队列与会话</span>}
+      <div className="flex min-w-0 items-center">
       <button
         ref={trigger}
         type="button"
         onClick={() => setOpen(value => !value)}
         className={cn(
-          'flex h-11 w-full min-w-0 items-center gap-2 border-b px-3 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]',
+          'flex h-11 w-full min-w-0 flex-1 items-center gap-2 border-b px-3 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]',
           workspace && 'md:h-9',
           warning
             ? 'border-amber-200 bg-amber-50/90 text-amber-800 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200'
@@ -177,6 +180,12 @@ export function MobileSessionStatus({
         {queueCount > 0 && <span className="shrink-0 whitespace-nowrap tabular-nums">队列 {queueCount}{queuePausedReason ? ' · 已暂停' : ''}</span>}
         <span className="flex shrink-0 items-center gap-1 whitespace-nowrap font-medium text-[var(--color-primary)]">会话控制{open ? <ChevronDown aria-hidden="true" className="size-3.5" /> : <ChevronUp aria-hidden="true" className="size-3.5" />}</span>
       </button>
+      {mobile && running && onInterrupt && <button type="button" aria-label={interrupting ? '正在停止任务' : '停止任务'}
+        disabled={interrupting} onClick={onInterrupt}
+        className="flex h-11 shrink-0 items-center gap-1 border-b px-3 text-xs text-[var(--color-foreground)] disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
+        {interrupting ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : <Square className="size-3.5" aria-hidden="true" />}停止
+      </button>}
+      </div>
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent id={controlId} side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus({ preventScroll: true }) }}
           style={{ ...(mobile ? { bottom: viewport.bottom, maxHeight: Math.max(0, viewport.height * (expanded ? 0.9 : 0.6)) } : {}), ...(dragY > 0 ? { transform: `translateY(${dragY}px)`, transition: 'none' } : {}) }}

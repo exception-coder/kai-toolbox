@@ -2122,6 +2122,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               usage: sessionUsage, usageLoading: sessionUsage == null && Boolean(usageSid),
               onOpenUsage: () => setShowUsage(true), onOpenTrajectory: () => setSessionView('trajectory'),
               onOpenSessionList: () => setSessionView('board'),
+              onInterrupt: chat.interrupt, interrupting: chat.interrupting,
               onOpenSupervision: () => setSessionView('autopilot'),
               onSwitchSession: (id, hintRunning) => chat.switchTo(id, hintRunning) }}
             queue={{ items: chat.queued,
@@ -2285,7 +2286,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               }}
             />}
             {mobileLayout && composerTextarea}
-            <div className="cc-composer-voice min-w-0">
+            <div className="cc-composer-voice min-w-0" hidden={mobileLayout && !composerVoiceActive && (!!draft.trim() || attachments.length > 0 || uploading > 0)}>
             <VoiceInputButton
               key={`${chat?.sessionId}:${chat?.currentEngine}:${currentSession?.codexHome ?? ''}`}
               codexSessionId={chat?.currentEngine === 'codex' ? chat.sessionId ?? '' : undefined}
@@ -2437,7 +2438,13 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               )}
             </SessionConfigSheet>
             {!mobileLayout && composerTextarea}
-            {chat.running ? (
+            {mobileLayout ? (
+              !composerVoiceActive && (!!draft.trim() || attachments.length > 0 || uploading > 0) && <Button
+                size="icon" className="cc-composer-send size-11 shrink-0 px-0"
+                aria-label={chat.running ? '加入待发送队列' : '发送'}
+                disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
+                onClick={() => submit(chat.running ? 'queue' : undefined)}><Send className="size-4" /></Button>
+            ) : chat.running ? (
               <div className="cc-composer-send col-start-3 row-start-2 flex shrink-0 gap-1">
                 <Button variant="outline" size="icon" className="size-9 max-md:size-10 px-0" onClick={chat.interrupt} disabled={chat.interrupting}
                   aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'}>

@@ -1,26 +1,28 @@
 /* 默认一行；展开编辑与录音只改变呈现，复用同一个草稿和发送入口。 */
 @media (max-width: 767px) {
   .mobile-composer-card.cc-inline-composer {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    display: flex;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-rows: auto;
     align-items: end;
     min-height: 48px;
-    margin: 4px 8px;
+    margin: 4px 12px;
     padding: 2px 4px;
     gap: 0;
     border: 1px solid var(--color-border);
     border-radius: 24px;
   }
+  .cc-inline-composer .cc-composer-voice[hidden] { display: none; }
   .cc-inline-composer .cc-composer-tools { display: contents; }
   .cc-inline-composer .cc-composer-more { grid-column: 1; grid-row: 1; }
-  .cc-inline-composer .cc-composer-text { grid-column: 2; grid-row: 1; align-self: center; }
+  .cc-inline-composer .cc-composer-text { flex: 1 1 0%; min-width: 0; grid-column: 2; grid-row: 1; align-self: center; }
   .cc-inline-composer .cc-composer-voice { grid-column: 3; grid-row: 1; }
-  .cc-inline-composer .cc-composer-send { grid-column: 4; grid-row: 1; }
+  .cc-inline-composer .cc-composer-send { grid-column: 3; grid-row: 1; }
   .cc-inline-composer .cc-composer-text textarea {
     display: block;
     width: 100%;
     min-height: 44px;
-    max-height: min(192px, 30dvh);
+    max-height: min(192px, calc(var(--app-vh, 100dvh) * 0.3));
     padding: 10px 4px;
     font-size: 16px;
     line-height: 1.5;
@@ -33,16 +35,16 @@
   .cc-inline-composer .cc-composer-send button { min-width: 44px; min-height: 44px; }
   .cc-inline-composer .cc-composer-voice > div { height: auto; min-height: 44px; }
   .cc-inline-composer .cc-composer-voice [role='alert'] { display: block; overflow-wrap: anywhere; }
-  .mobile-composer-card.cc-inline-composer[data-expanded='true'] { border-radius: 12px; }
-  .cc-inline-composer[data-expanded='true'] .cc-composer-text { grid-column: 1 / -1; grid-row: 1; }
-  .cc-inline-composer[data-expanded='true'] .cc-composer-text textarea { min-height: min(128px, 30dvh); }
+  .mobile-composer-card.cc-inline-composer[data-expanded='true'] { display: grid; border-radius: 12px; }
+  .cc-inline-composer[data-expanded='true'] .cc-composer-text { flex: 1 1 0%; min-width: 0; grid-column: 1 / -1; grid-row: 1; }
+  .cc-inline-composer[data-expanded='true'] .cc-composer-text textarea { min-height: min(128px, calc(var(--app-vh, 100dvh) * 0.3)); }
   .cc-inline-composer[data-expanded='true'] :is(.cc-composer-more, .cc-composer-voice, .cc-composer-send) { grid-row: 2; }
   .cc-inline-composer[data-voice-active='true'] :is(.cc-composer-more, .cc-composer-text) { display: none; }
-  .cc-inline-composer[data-voice-active='true'] .cc-composer-voice { grid-column: 1 / 4; grid-row: 1; }
+  .cc-inline-composer[data-voice-active='true'] .cc-composer-voice { flex: 1; grid-column: 1 / 4; grid-row: 1; }
   .cc-inline-composer[data-voice-active='true'] .cc-composer-voice > div { max-width: 100%; gap: 4px; padding-inline: 4px; }
   .cc-inline-composer[data-voice-active='true'] .cc-composer-voice > div > span:first-of-type { display: none; }
   .cc-inline-composer[data-voice-active='true'] .cc-composer-send { grid-row: 1; }
-  .cc-inline-composer:not([data-voice-active='true']):has(.cc-pasted-text) { border-radius: 12px; }
+  .cc-inline-composer:not([data-voice-active='true']):has(.cc-pasted-text) { display: grid; border-radius: 12px; }
   .cc-inline-composer:not([data-voice-active='true']) .cc-composer-text[data-folded='true'] { display: contents; }
   .cc-inline-composer .cc-pasted-text { grid-column: 1 / -1; grid-row: 1; margin: 4px; }
   .cc-inline-composer:has(.cc-pasted-text):not([data-voice-active='true']) :is(.cc-composer-more, .cc-composer-voice, .cc-composer-send) { grid-row: 2; }
