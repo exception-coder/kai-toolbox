@@ -74,7 +74,7 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
         return step("v4-answer-contract", "结论优先与按需说明", 600, context ->
                 context.addSection("结论优先与按需说明", """
                         最终正文遵循平台装配的consult-plain-writing Skill，结论优先，按当前问题决定深度，不固定六段或强制双口径。
-                        需要技术实施或取数说明时保留精确依据；证据边界、环境、未验证事项不得因精简而删除。
+                        默认只给业务结论，不固定附来源、环境或核查过程；影响结论的限制按Skill就地说明，技术追问时再给精确依据。
 
                         回答正文末尾必须追加以下内部识别块，供系统归档；不要在正文中解释此块：
                         <<<CONSULT_RECOGNITION>>>

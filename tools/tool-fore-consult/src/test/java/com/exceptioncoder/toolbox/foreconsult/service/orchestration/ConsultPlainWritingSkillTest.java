@@ -31,15 +31,18 @@ class ConsultPlainWritingSkillTest {
 
     @Test void frozenWorkflowGetsCurrentPresentationWithoutChangingEvidenceToolsOrMachineContract() {
         String oldRules = "最终回答按固定六段组织；必须保留<<<CONSULT_RECOGNITION>>>识别块";
+        String oldOutput = "返回结论、证据来源、环境与未验证项；证据充分即停止。";
         var node = new ConsultWorkflowNode("answer", "旧回答", true, "需要时", oldRules,
-                "仅当前UAT环境只读", "保留识别块", List.of("source_read"), List.of("consult-readonly"));
+                "仅当前UAT环境只读", oldOutput, List.of("source_read"), List.of("consult-readonly"));
         var workflow = new ConsultWorkflow(List.of(node));
         var service = new ConsultWorkflowService(List.of(), mock(ConsultWorkflowRepository.class));
         var result = service.render(new ConsultOrchestrationRequest("哪个表取数", "ERP", "/erp", List.of(), "BIZ", true),
                 new ConsultWorkflowRepository.Snapshot(12L, workflow));
-        assertThat(result.prompt()).contains(oldRules, "仅当前UAT环境只读", "<<<CONSULT_RECOGNITION>>>");
+        assertThat(result.prompt()).contains(oldRules, oldOutput, "仅当前UAT环境只读", "<<<CONSULT_RECOGNITION>>>");
         assertThat(result.prompt().indexOf("【平台表达Skill：consult-plain-writing】"))
                 .isGreaterThan(result.prompt().indexOf(oldRules));
+        assertThat(result.prompt().indexOf("业务正文采用这里的结论模式"))
+                .isGreaterThan(result.prompt().indexOf(oldOutput));
         assertThat(workflow.nodes().getFirst()).isEqualTo(node);
         assertThat(workflow.tools()).containsExactly("source_read");
         assertThat(result.workflowSnapshot().version()).isEqualTo(12L);

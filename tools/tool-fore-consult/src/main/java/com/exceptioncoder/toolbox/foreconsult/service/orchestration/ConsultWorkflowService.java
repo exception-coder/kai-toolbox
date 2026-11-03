@@ -75,7 +75,7 @@ public class ConsultWorkflowService {
         }
         return new ConsultWorkflowNode(step.id(), step.label(), true, "当当前问题需要本节点证据或输出时",
                 rules, "仅在当前系统及已确认的证据路由范围内查询；不混用环境，不猜测结构，不扩大权限。",
-                "返回结论、证据来源、环境与未验证项；证据充分即停止。", tools,
+                "证据充分即停止。业务正文遵循平台表达Skill；证据来源、查询环境和未验证项作为核查记录，不要求逐项写入正文。", tools,
                 tools.isEmpty() ? List.of() : List.of("consult-readonly"));
     }
 }

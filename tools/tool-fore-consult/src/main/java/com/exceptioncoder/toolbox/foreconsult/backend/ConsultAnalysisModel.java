@@ -56,7 +56,7 @@ public class ConsultAnalysisModel {
                 额外返回 replyCandidates 数组，恰好三项，每项仅 {text,evidenceIds}。
                 每条 text 为 1–4000 字符的不同、完整且可独立选择的对外回复，evidenceIds 非空且来自输入。
                 三条共用同一事实与不确定性，可分别侧重说明、处理步骤、信息追问，不能给出互相矛盾的根因。
-                面向实际业务人员：简短、通俗、先说明现状和下一步；信息不足时询问，禁止假装已处理或已修复。
+                面向实际业务人员：默认只给简短结论，必要动作和追问按平台表达Skill提供；禁止假装已处理或已修复。
                 回复正文不得包含内部 SQL、源码、凭据、账号目录、绝对路径、堆栈、工具日志；建议不是已执行结果。
                 """ : "不返回 replyCandidates；调用方自行整理外发回复。\n";
         if (!images.images().isEmpty()) instruction += """

@@ -30,6 +30,8 @@ class ConsultToolAssemblyProviderTest {
         assertThat(assembly.tools()).containsExactly("consult_resources", "consult_resource_query", "generate_consult_document", "design_consult_document", "preview_consult_document", "read_consult_attachment", "read_consult_history");
         assertThat(assembly.instructions()).contains("consult-workflow-9", "不要求用户代查", "目标系统：SCM");
         assertThat(assembly.instructions()).contains("不得调用旧erp_db", "LOCAL/DEV/TEST/UAT");
+        assertThat(assembly.instructions()).contains("实际使用查询结果作答时", "未查询数据库时不因存在可用绑定")
+                .doesNotContain("结果必须说明实际资源和环境");
         assertThat(com.exceptioncoder.toolbox.foreconsult.domain.agentmanagement.BusinessConsultCapabilityCatalog.capabilities())
                 .noneMatch(capability -> capability.name().equals("scm_db_query"));
         assertThat(assembly.instructions().lastIndexOf("平台固定例外"))

@@ -18,6 +18,8 @@ class ConsultWorkflowServiceTest {
                 c.consultV4AnswerContractStep()), mock(ConsultWorkflowRepository.class));
         var defaults = service.defaults();
         assertThat(defaults.nodes()).hasSize(6);
+        assertThat(defaults.nodes()).allSatisfy(n -> assertThat(n.outputContract())
+                .contains("平台表达Skill").doesNotContain("返回结论、证据来源、环境与未验证项"));
         assertThat(defaults.nodes().get(3).instructions()).contains("直接调用", "不要求用户代查", "最多修正重试两次");
         var changed = new ConsultWorkflow(List.of(node("custom", true, "仅核验采购订单", List.of("source_read")),
                 node("disabled", false, "不可出现的规则", List.of("scm_db_query"))));
