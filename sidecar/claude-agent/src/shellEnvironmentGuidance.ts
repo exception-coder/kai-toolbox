@@ -1,15 +1,15 @@
-/** Prompt-only experiment. Never launch, intercept or reconfigure a native shell here. */
+/** Prompt-only preset. The legacy experiment flag still accepts an explicit opt-out. */
 export function appendShellEnvironmentGuidance(
   instructions: string | undefined,
   context: { cwd: string; engine: string; toolPolicy: string; demo: boolean },
-  enabled = process.env.FORGE_SHELL_GUIDANCE_EXPERIMENT === '1',
+  enabled = process.env.FORGE_SHELL_GUIDANCE_EXPERIMENT !== '0',
   platform = process.platform,
 ): string | undefined {
   if (!enabled || context.demo || ['disabled', 'review-only', 'consult-readonly'].includes(context.toolPolicy)) {
     return instructions
   }
   const guidance = [
-    '<forge_shell_environment>',
+    '<forge_shell_environment preset="environment-default">',
     `Forge host OS: ${JSON.stringify(platform)}; Harness: ${JSON.stringify(context.engine)}.`,
     `Session working directory: ${JSON.stringify(context.cwd)}.`,
     'Execution shell type/version: not reported to Forge. Available native execution tools: use the current Harness tool schema; Forge does not invent a tool inventory.',

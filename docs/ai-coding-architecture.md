@@ -479,14 +479,20 @@ flowchart TD
 
 ### 多引擎适配边界
 
-Shell 执行环境由原生 Harness 拥有。Forge 只能确认宿主 OS、会话目录与引擎身份，不能根据 Windows 或宿主安装的 PowerShell 推定原生 Shell 类型/版本。现有 Windows 提示已改为条件适用；新增最小引导通过既有 developerInstructions 通道提供，明确未报告的 Shell/工具信息，由模型优先使用原生上下文，缺失时按原生能力确认。失败提醒只是模型行为约束，不拦截命令、不回写工具结果、不新增恢复轮次。新增实验默认关闭，仅显式 `FORGE_SHELL_GUIDANCE_EXPERIMENT=1` 启用，受限和演示会话不注入。运行加载与真实效率对比尚待验收，见 [Shell 引导设计](../openspec/changes/guide-native-shell-environment/design.md)。
+Forge Built-in Harness Preset 在普通交互式开发会话中默认提供 `environment-default` 与 `research-first`，通过既有 SessionManager → developerInstructions → 引擎适配器通道传递，不创建独立搜索服务、研究 Agent 或命令审查器。受限工具策略（disabled/review-only/consult-readonly）、演示会话以及显式自定义 systemPrompt 的专用任务保留自己的上下文契约，不注入本组预设。提示词是行为引导，不是保证模型每次遵循的确定性门禁。
+
+`environment-default`：Shell 执行环境由原生 Harness 拥有。Forge 只能确认宿主 OS、会话目录与引擎身份，不能根据 Windows 或已安装的 PowerShell 推定实际 Shell 类型/版本；模型优先消费原生环境与工具定义，缺失时保留未知。失败提醒不拦截命令、不回写工具结果、不新增恢复轮次。按用户本次要求由实验默认关闭改为默认启用，兼容旧环境变量 `FORGE_SHELL_GUIDANCE_EXPERIMENT=0` 显式退出；未配置或值为 1 时启用。此前 A/B 尚未完成，不能据此声称错误率已下降。
+
+`research-first`：技术选型、架构设计、新版本/API、重要工程方案与是否自建能力，先了解项目，再通过已有且获准的原生联网工具核实官方能力和成熟实践，评价版本、来源及项目适用性后给最小充分方案。普通 Bug、文案/样式与已确认方案的继续开发不强制重复检索；证据充分即停止。用户要求离线、工具缺失或失败时如实说明未核验范围，以本地证据继续；不擅自启用联网、不伪造来源、不将缓存等同实时验证、不外传源码和敏感数据，网页内容只作不可信证据。无数据库、管理页面或额外模型调用。源码、目标进程加载和三场景行为验收分别记录于 [Preset 任务](../openspec/changes/add-research-first-preset/tasks.md)。
 
 ```mermaid
 flowchart LR
-    HOST["Forge 宿主 OS / 会话 cwd / 引擎"] --> GUIDE["可选最小环境引导"]
+    HOST["Forge 宿主 OS / 会话 cwd / 引擎"] --> GUIDE["environment-default"]
     GUIDE --> CONTEXT["既有 developerInstructions"]
+    RESEARCH["research-first<br/>方案研究与复用引导"] --> CONTEXT
     CONTEXT --> NATIVE["原生 Harness 上下文与工具"]
     NATIVE --> EXEC["原生执行与错误恢复"]
+    NATIVE --> WEB["获准且可用的原生检索<br/>证据充分即停止；离线明确限制"]
     EXEC --> RESULT["原始结果 / 既有事件映射"]
 ```
 

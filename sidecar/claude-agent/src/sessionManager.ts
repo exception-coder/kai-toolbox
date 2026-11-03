@@ -52,7 +52,7 @@ import { runTraeTurn } from './traeEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
 import { appendWindowsExecutionInstructions, windowsExecutionInstructions } from './windowsExecution.js'
-import { appendShellEnvironmentGuidance } from './shellEnvironmentGuidance.js'
+import { appendBuiltInHarnessPresets } from './harnessPresets.js'
 import { TurnLifecycle, type InterruptSnapshot } from './turnLifecycle.js'
 import {
   McpToolWatchdog,
@@ -776,7 +776,7 @@ class Session {
       text,
       systemPrompt,
       images: images as EngineImageInput[] | undefined,
-      developerInstructions: appendShellEnvironmentGuidance(developerInstructions, {
+      developerInstructions: systemPrompt ? developerInstructions : appendBuiltInHarnessPresets(developerInstructions, {
         cwd: this.cwd, engine: this.engine, toolPolicy: this.toolPolicy, demo: this.demo,
       }),
       additionalDirectories,

@@ -1,5 +1,7 @@
 # 验证与交付
 
+后续说明：用户于 2026-11-03 要求两项 Built-in Harness Preset 默认启用，当前源码默认值已由 [research-first 变更](../add-research-first-preset/tasks.md)接续。下述默认关闭与等待正式启用为本轮历史状态；A/B 未完成仍属事实，不以新默认值替代效率证据。
+
 - [x] 核对注入点，识别仅凭 Windows 推断 PowerShell 7 的问题。
 - [x] 修正旧断言，新增默认关闭的 prompt-only 实验，保持原生执行与权限边界。
 - [x] 同步架构正文、流程与实验保留条件。
