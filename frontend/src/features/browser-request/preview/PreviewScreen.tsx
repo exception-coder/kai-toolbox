@@ -3,8 +3,9 @@ import { previewFrame, previewInput } from './api'
 import { usePreviewVisibility } from './usePreviewVisibility'
 
 /** 使用受保护的截图接口，认证令牌不进入图片 URL 或预览链接。 */
-export function PreviewScreen({ id, interactive, phone }: { id: string; interactive: boolean; phone: boolean }) {
-  const visible = usePreviewVisibility()
+export function PreviewScreen({ id, interactive, phone, active = true }: { id: string; interactive: boolean; phone: boolean; active?: boolean }) {
+  const documentVisible = usePreviewVisibility()
+  const visible = documentVisible && active
   const [frame, setFrame] = useState('')
   const [error, setError] = useState('')
   const [text, setText] = useState('')

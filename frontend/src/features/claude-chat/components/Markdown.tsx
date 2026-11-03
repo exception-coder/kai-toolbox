@@ -11,7 +11,7 @@ import { openSessionLocalPath, readSessionImage } from '../api'
 import { isDrawioFile } from '@/features/doc-viewer/public-api/drawio'
 import { SitePreviewLink } from '@/components/site-preview/SitePreviewLink'
 import { splitMessageBlocks } from '../lib/messageBlocks'
-import { PagePreviewDialog, pagePreviewEntryFromHref } from '@/features/browser-request/public-api/page-preview'
+import { InlinePagePreview, inlinePagePreviewsSuppressed, PagePreviewDialog, pagePreviewEntryFromHref } from '@/features/browser-request/public-api/page-preview'
 import { inlineFileBlocks, type InlineFileReference } from '../lib/inlineFilePreviews'
 import { decorateContent } from '../lib/contentPresentation'
 import { useContentHighlighting } from '../hooks/useContentHighlighting'
@@ -158,6 +158,7 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
         delete anchor.dataset.diagramPath
         delete anchor.dataset.markdownPath
         delete anchor.dataset.sqlPath
+        delete anchor.dataset.pagePreview
         if (documentPath) {
           const href = anchor.getAttribute('href')
           if (href && !/^(?:[a-z][\w+.-]*:|\/|#|\?)/i.test(href)) anchor.setAttribute('href', relativeToDocument(href, documentPath))
@@ -243,8 +244,9 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
   }, [text, documentPath])
 
   const markup = useMemo(() => ({ __html: html ?? '' }), [html])
-  const fileBlocks = useMemo(() => inlineFiles && sessionId && !documentPath && html && /data-(?:diagram|markdown|sql)-path=/.test(html)
-    ? inlineFileBlocks(html) : null, [inlineFiles, sessionId, documentPath, html])
+  const fileBlocks = useMemo(() => inlineFiles && !documentPath && html && /data-(?:(?:diagram|markdown|sql)-path|page-preview)=/.test(html)
+    ? inlineFileBlocks(html, { files: !!sessionId, pages: !inlinePagePreviewsSuppressed() })
+    : null, [inlineFiles, sessionId, documentPath, html])
 
   function expandFile(reference: InlineFileReference, trigger: HTMLElement) {
     if (!sessionId) return
@@ -424,6 +426,11 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
         {block.files.map(reference => <Suspense key={`${sessionId}:${reference.kind}:${reference.path}`} fallback={<p role="status" className="my-3 text-xs">正在准备文件预览…</p>}>
           <InlineLocalFile sessionId={sessionId!} reference={reference} onExpand={trigger => expandFile(reference, trigger)} />
         </Suspense>)}
+        {block.pages.length > 0 && <InlinePagePreview key={`${sessionId}:pages`} entries={block.pages}
+          expansion={pagePreview && block.pages.some(page => page.path === pagePreview.path) ? { path: pagePreview.path, onClose: () => setPagePreview(null), returnFocus: () => {
+            const replacement = Array.from(content.current?.querySelectorAll<HTMLAnchorElement>('a[data-page-preview]') ?? []).find(anchor => anchor.dataset.pagePreview === pagePreview.path)
+            ;(pagePreview.trigger.isConnected ? pagePreview.trigger : replacement ?? content.current)?.focus({ preventScroll: true })
+          } } : undefined} />}
       </Fragment>)}</div>
       {imageTargets.html === html && imageTargets.sessionId === sessionId && imageTargets.targets.map((target, index) => createPortal(
         target.dataset.localImage
@@ -441,7 +448,7 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
         const target = markdownDocument.trigger.isConnected ? markdownDocument.trigger : replacement ?? content.current
         target?.focus({ preventScroll: true })
       }} /></Suspense>}
-      {pagePreview && pagePreview.sessionId === sessionId && <PagePreviewDialog key={`${sessionId}:${pagePreview.path}`} entryPath={pagePreview.path} onClose={() => setPagePreview(null)} returnFocus={() => {
+      {pagePreview && pagePreview.sessionId === sessionId && !fileBlocks?.some(block => block.pages.some(page => page.path === pagePreview.path)) && <PagePreviewDialog key={`${sessionId}:${pagePreview.path}`} entryPath={pagePreview.path} onClose={() => setPagePreview(null)} returnFocus={() => {
         const replacement = Array.from(content.current?.querySelectorAll<HTMLAnchorElement>('a[data-page-preview]') ?? [])
           .find(anchor => anchor.dataset.pagePreview === pagePreview.path)
         const target = pagePreview.trigger.isConnected ? pagePreview.trigger : replacement ?? content.current

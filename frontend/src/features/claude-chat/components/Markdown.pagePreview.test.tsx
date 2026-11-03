@@ -8,7 +8,7 @@ vi.mock('../api', () => ({ openSessionLocalPath: calls.openLocal }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { userId: 1 } }) }))
 vi.mock('@/features/browser-request/preview/api', () => ({ createPreview: calls.create, getPreview: calls.get,
   closePreview: calls.close, previewResources: async () => [{ id: 'test-account', name: '测试应用', environment: 'TEST', username: 'test-user' }], continuePreview: vi.fn() }))
-afterEach(() => { cleanup(); vi.clearAllMocks() })
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); sessionStorage.clear() })
 
 it('opens desktop preview in context, preserves full entry and disposes it on session change', async () => {
   const target = { requestKey: 'delivery', route: '/app/users', device: 'desktop', scene: 'page', resourceId: 'test-account' }
@@ -16,7 +16,7 @@ it('opens desktop preview in context, preserves full entry and disposes it on se
   calls.create.mockResolvedValue(data); calls.get.mockResolvedValue(data); calls.close.mockResolvedValue(undefined)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const text = '[桌面预览](/tools/fore-consult/preview?auto=1&requestKey=delivery&route=%2Fapp%2Fusers&resourceId=test-account)'
-  const node = (sessionId: string, suffix = '') => <QueryClientProvider client={client}><Markdown text={text + suffix} sessionId={sessionId} /></QueryClientProvider>
+  const node = (sessionId: string, suffix = '') => <QueryClientProvider client={client}><Markdown text={text + suffix} sessionId={sessionId} inlineFiles={false} /></QueryClientProvider>
   const view = render(node('one'))
   let trigger = screen.getByRole('link', { name: '桌面预览' })
   const location = window.location.href
@@ -49,7 +49,7 @@ it('closes a late browser creation result after the modal has already closed', a
   calls.create.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
   calls.close.mockResolvedValue(undefined)
   const client = new QueryClient()
-  render(<QueryClientProvider client={client}><Markdown text="[预览](/tools/fore-consult/preview?auto=1&requestKey=late&resourceId=test-account&route=%2Fapp)" sessionId="one" /></QueryClientProvider>)
+  render(<QueryClientProvider client={client}><Markdown inlineFiles={false} text="[预览](/tools/fore-consult/preview?auto=1&requestKey=late&resourceId=test-account&route=%2Fapp)" sessionId="one" /></QueryClientProvider>)
   fireEvent.click(screen.getByRole('link', { name: '预览' }))
   await act(() => vi.dynamicImportSettled())
   await waitFor(() => expect(calls.create).toHaveBeenCalledOnce())
@@ -57,5 +57,30 @@ it('closes a late browser creation result after the modal has already closed', a
   await act(async () => { finish({ id: 'late-browser', status: 'STARTING' }) })
   await waitFor(() => expect(calls.close).toHaveBeenCalledExactlyOnceWith('late-browser'))
   expect(screen.queryByRole('dialog')).toBeNull()
+  client.clear()
+})
+
+it('automatically embeds a returned preview and expands the same context from its original link', async () => {
+  vi.stubGlobal('IntersectionObserver', undefined)
+  const target = { requestKey: 'inline', route: '/app/users', device: 'desktop', scene: 'page', resourceId: 'test-account' }
+  const data = { id: 'inline-browser', status: 'AUTHENTICATING', target, targetOrigin: 'https://test.example', environment: 'TEST', account: 'test-user' }
+  calls.create.mockResolvedValue(data); calls.get.mockResolvedValue(data); calls.close.mockResolvedValue(undefined)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const text = '[桌面预览](/tools/fore-consult/preview?auto=1&route=%2Fapp%2Fusers&resourceId=test-account)'
+  const node = (suffix = '') => <QueryClientProvider client={client}><Markdown text={text + suffix} sessionId="one" /></QueryClientProvider>
+  const mounted = render(node())
+  await screen.findByRole('region', { name: '消息内页面预览' })
+  await waitFor(() => expect(calls.create).toHaveBeenCalledOnce())
+  fireEvent.click(screen.getByRole('link', { name: '桌面预览' }))
+  expect(await screen.findByRole('dialog')).toBeVisible()
+  expect(calls.create).toHaveBeenCalledOnce()
+  mounted.rerender(node('\n\n继续输出'))
+  fireEvent.click(screen.getByRole('button', { name: '关闭页面预览' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(screen.getByRole('link', { name: '桌面预览' })).toHaveFocus()
+  expect(calls.close).not.toHaveBeenCalled()
+  expect(calls.create).toHaveBeenCalledOnce()
+  mounted.unmount()
+  await waitFor(() => expect(calls.close).toHaveBeenCalledExactlyOnceWith('inline-browser'))
   client.clear()
 })

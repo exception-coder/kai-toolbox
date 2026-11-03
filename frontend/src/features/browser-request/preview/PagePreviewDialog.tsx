@@ -8,7 +8,7 @@ import { closePreview, type PreviewView } from './api'
 import { pagePreviewEntryFromHref, previewTargetFromSearch } from './previewEntry'
 import { PagePreviewWorkspace } from './PagePreviewWorkspace'
 
-export function PagePreviewDialog({ entryPath, onClose, returnFocus }: { entryPath: string; onClose: () => void; returnFocus: () => void }) {
+export function PagePreviewDialog({ entryPath, onClose, returnFocus, onOpened }: { entryPath: string; onClose: () => void; returnFocus: () => void; onOpened?: (view: PreviewView) => void }) {
   const portal = useFullscreenPortalContainer()
   const entry = useMemo(() => {
     const safe = pagePreviewEntryFromHref(entryPath)
@@ -20,7 +20,7 @@ export function PagePreviewDialog({ entryPath, onClose, returnFocus }: { entryPa
   const [id, setId] = useState(entry?.id)
   const [fullscreen, setFullscreen] = useState(false)
   const owned = useRef<string | undefined>(undefined)
-  const opened = useCallback((view: PreviewView) => { owned.current = view.id; setId(view.id) }, [])
+  const opened = useCallback((view: PreviewView) => { if (onOpened) onOpened(view); else owned.current = view.id; setId(view.id) }, [onOpened])
   useEffect(() => () => { if (owned.current) void closePreview(owned.current).catch(() => { /* The server TTL still bounds an unreachable context. */ }) }, [])
   return <Dialog.Root open onOpenChange={open => { if (!open) onClose() }}><Dialog.Portal container={portal}>
     <Dialog.Overlay className="fixed inset-0 z-[80] bg-black/40" />

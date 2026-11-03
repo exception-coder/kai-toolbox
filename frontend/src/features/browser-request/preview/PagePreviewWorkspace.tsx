@@ -6,6 +6,7 @@ import { createPreview, getPreview, closePreview, continuePreview, previewResour
 import { PreviewScreen } from './PreviewScreen'
 import { usePreviewVisibility } from './usePreviewVisibility'
 import './preview.css'
+import { previewDisplayRoute } from './previewEntry'
 
 const messages: Record<string, string> = {
   STARTING: '正在准备独立浏览器', AUTHENTICATING: '正在登录应用', NAVIGATING: '正在打开目标页面',
@@ -14,8 +15,9 @@ const messages: Record<string, string> = {
   TIMED_OUT: '启动超过 90 秒，已结束等待，请检查服务后重新预览',
 }
 const displayable = new Set(['READY', 'WAITING_LOGIN', 'FAILED'])
-export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = false, autoStart = false }: { initial: PreviewTarget; previewId?: string; onOpened: (view: PreviewView) => void; embedded?: boolean; autoStart?: boolean }) {
-  const visible = usePreviewVisibility()
+export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = false, autoStart = false, active: enabled = true, compact = false }: { initial: PreviewTarget; previewId?: string; onOpened: (view: PreviewView) => void; embedded?: boolean; autoStart?: boolean; active?: boolean; compact?: boolean }) {
+  const documentVisible = usePreviewVisibility()
+  const visible = documentVisible && enabled
   const { user } = useAuth()
   const [target, setTarget] = useState(initial)
   const [busy, setBusy] = useState(false)
@@ -25,7 +27,7 @@ export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = 
   const launched = useRef<string | null>(null)
   const operation = useRef(false)
   const active = useRef(true)
-  const [settingsOpen, setSettingsOpen] = useState(!previewId)
+  const [settingsOpen, setSettingsOpen] = useState(!previewId && (!compact || !autoStart || !!initial.resourceId))
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
   const resources = useQuery({ queryKey: ['page-preview-resources', user?.userId], queryFn: previewResources, enabled: settingsOpen || !previewId })
   const selectedResource = resources.data?.find(item => item.id === target.resourceId)
@@ -46,7 +48,7 @@ export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = 
     finally { operation.current = false; if (active.current) setBusy(false) }
   }, [onOpened])
   useEffect(() => {
-    if (autoStart && !previewId && launched.current !== initial.requestKey) {
+    if (visible && autoStart && !previewId && launched.current !== initial.requestKey) {
       if (initial.resourceId) {
         if (!resources.isSuccess) return
         const resource = resources.data.find(item => item.id === initial.resourceId)
@@ -55,7 +57,7 @@ export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = 
       }
       launched.current = initial.requestKey; void open({ ...initial, productionConfirmed: false })
     }
-  }, [open, previewId, initial, autoStart, resources.isSuccess, resources.data])
+  }, [open, previewId, initial, autoStart, resources.isSuccess, resources.data, visible])
   useEffect(() => { setInteractive(false) }, [previewId, user?.userId])
   const view = query.data
   const restart = (device = view?.target.device) => {
@@ -100,15 +102,15 @@ export function PagePreviewWorkspace({ initial, previewId, onOpened, embedded = 
     {query.isError && <p role="alert">读取预览失败，可能已过期或不属于当前账号。<button type="button" onClick={() => void query.refetch()}>重试</button> <button type="button" onClick={() => setSettingsOpen(true)}>调整预览账号</button></p>}
     {view && !query.isError && <>
       <div className="preview-toolbar"><p role="status">{messages[view.status] ?? view.status}</p>
-        <div><button type="button" disabled={busy} onClick={adjust}>调整预览账号</button><a href={view.targetOrigin + view.target.route} target="_blank" rel="noopener noreferrer" title="使用当前浏览器自己的登录状态打开">业务原地址</a>
+        <div><button type="button" disabled={busy} onClick={adjust}>调整预览账号</button>{!compact && <><a href={view.targetOrigin + previewDisplayRoute(view.target.route)} target="_blank" rel="noopener noreferrer" title="使用当前浏览器自己的登录状态打开">业务原地址</a>
         {['WAITING_LOGIN', 'FAILED'].includes(view.status) && <button type="button" onClick={() => { void continuePreview(view.id).then(() => query.refetch()).catch(failure => setError(String(failure))) }}>继续打开目标页</button>}
         <button type="button" disabled={busy} onClick={() => void restart('desktop')} aria-label="切换桌面预览"><Monitor size={16} />桌面</button>
         <button type="button" disabled={busy} onClick={() => void restart('phone')} aria-label="切换手机预览"><Smartphone size={16} />手机</button>
         <button type="button" disabled={busy} onClick={() => void restart()}><RefreshCw size={16} />重新预览</button>
-        <button type="button" onClick={() => { void closePreview(view.id).then(() => query.refetch()).catch(failure => setError(String(failure))) }}><X size={16} />关闭</button></div>
+        <button type="button" onClick={() => { void closePreview(view.id).then(() => query.refetch()).catch(failure => setError(String(failure))) }}><X size={16} />关闭</button></>}</div>
       </div>
-      <p className="preview-meta">{view.environment} · 账号 {view.account} · {view.targetOrigin}{view.target.route} · {view.target.sourceRevision ? `源码 ${view.target.sourceRevision} · ` : ''}{view.runtimeVersion}，页面就绪不代表功能验收通过。</p>
-      {displayable.has(view.status) && <><label className="preview-control"><input type="checkbox" checked={interactive} onChange={event => setInteractive(event.target.checked)} />接管操作</label><PreviewScreen key={view.id} id={view.id} interactive={interactive} phone={view.target.device === 'phone'} /></>}
+      <p className="preview-meta">{view.environment} · 账号 {view.account} · {view.targetOrigin}{previewDisplayRoute(view.target.route)} · {view.target.sourceRevision ? `源码 ${view.target.sourceRevision} · ` : ''}{view.runtimeVersion}，页面就绪不代表功能验收通过。</p>
+      {displayable.has(view.status) && <>{!compact && <label className="preview-control"><input type="checkbox" checked={interactive} onChange={event => setInteractive(event.target.checked)} />接管操作</label>}<PreviewScreen key={view.id} id={view.id} interactive={!compact && interactive} phone={view.target.device === 'phone'} active={visible} /></>}
     </>}
   </main>
 }

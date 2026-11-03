@@ -28,6 +28,24 @@
 .preview-production > p { margin-bottom:8px; }
 .preview-production label { flex-direction:row; align-items:center; min-height:44px; }
 .preview-production input { min-height:20px; }
+.inline-page-preview { position:relative; min-width:0; max-width:100%; overflow:hidden; margin:12px 0; border:1px solid var(--color-border); border-radius:8px; background:var(--color-background); }
+.inline-preview-options { display:flex; overflow-x:auto; gap:4px; border-bottom:1px solid var(--color-border); padding:4px 52px 4px 8px; }
+.inline-preview-options button { flex-shrink:0; min-height:44px; padding:4px 8px; border-radius:4px; font-size:12px; }
+.inline-preview-options button[aria-pressed='true'] { background:var(--color-muted); color:var(--color-primary); }
+.inline-preview-header { position:absolute; top:4px; right:4px; display:flex; align-items:center; min-height:44px; background:var(--color-background); }
+.inline-preview-header > span { display:none; }
+.inline-preview-header button { display:flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; }
+.inline-preview-header button:disabled { opacity:.4; }
+.inline-page-preview :is(button,a):focus-visible { outline:2px solid var(--color-ring); outline-offset:-2px; }
+.inline-preview-content { height:360px; max-height:55dvh; min-height:200px; overflow:auto; overscroll-behavior:contain; }
+.inline-preview-content .page-preview { height:auto; min-height:100%; gap:8px; padding:12px; overflow:visible; }
+.inline-preview-content .preview-screen { padding:0; }
+.inline-preview-content .preview-toolbar { gap:4px; }
+.inline-preview-content .preview-toolbar p { font-size:12px; }
+.inline-preview-content .preview-meta { overflow-wrap:anywhere; }
+.inline-preview-content .preview-options > label { min-width:120px; }
+.inline-preview-notice { padding:12px; font-size:12px; color:var(--color-muted-foreground); }
+.inline-preview-placeholder { height:360px; max-height:55dvh; min-height:200px; }
 @media(max-width:767px) { .page-preview { padding:16px; } .preview-heading h1 { font-size:18px; } .preview-toolbar > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; } .preview-toolbar :is(button,a) { min-width:0; justify-content:center; padding:8px; white-space:nowrap; } }
 
 .preview-toolbar a { display:inline-flex; align-items:center; min-height:44px; padding:8px; }
