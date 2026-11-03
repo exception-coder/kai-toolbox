@@ -1,7 +1,13 @@
 ## ADDED Requirements
 
 ### Requirement: Organize existing workspace preferences by purpose
-The system SHALL place focus mode in the View group and workspace personalization in System Settings with a sliders icon. Personalization SHALL organize existing settings into layout/navigation, reading/appearance, and interaction preferences without adding top-level setting entries.
+The system SHALL place focus mode and workspace personalization in the Reading and Display group, using a sliders icon for personalization. Personalization SHALL organize existing settings into layout/navigation, reading/appearance, and interaction preferences without adding duplicate top-level setting entries.
+
+#### Scenario: Theme settings have one primary workspace entry
+- **WHEN** the user opens Reading and Display on desktop or mobile
+- **THEN** workspace personalization is the single entry for theme settings, without a parallel Workbench Theme menu item
+- **AND** personalization retains theme preview, trial, restore and save through the existing picker and preference storage
+- **AND** the independent floating window may retain its theme entry because it has no personalization entry
 
 #### Scenario: Reading preferences share existing state
 - **WHEN** the user changes tool coloring, skin or tool visibility in personalization

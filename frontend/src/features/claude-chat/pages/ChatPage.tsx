@@ -57,8 +57,7 @@ import { newSessionSelectionIssue, resolveNewSessionWorkspace, type NewSessionPr
 import { newSessionEngines, resolveNewSessionDirectory, validRecentSession, workspacePathKey } from '../lib/newSessionWorkspace'
 import { buildCodexAuthHandoff } from '../lib/codexAuthHandoff'
 import { cn } from '@/lib/utils'
-import { useWorkbenchTheme, useWorkbenchPageTheme, workbenchThemeName } from '../lib/workbenchTheme'
-import { WorkbenchThemeDialog } from '../components/WorkbenchThemePicker'
+import { useWorkbenchTheme, useWorkbenchPageTheme } from '../lib/workbenchTheme'
 import '../styles/workbench-chrome.css'
 import '../styles/workbench-theme.css'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
@@ -485,7 +484,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const [panel, setPanel] = useState<Panel>('none')
   const [showUsage, setShowUsage] = useState(false)
   const workbenchTheme = useWorkbenchTheme()
-  const [themeDialogOpen, setThemeDialogOpen] = useState(false)
   useWorkbenchPageTheme(workbenchTheme)
   const hideToolCalls = useHideToolCalls()
   // 整会话累计用量：后端按 sessionId 统计 transcript（不受前端分页影响）。换会话或一轮跑完后刷新。
@@ -1311,7 +1309,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       focus.focused && 'cc-focus-mode',
       focus.focused && focusWide && 'cc-focus-wide',
     )}>
-      <WorkbenchThemeDialog open={themeDialogOpen} onOpenChange={setThemeDialogOpen} returnFocus={() => sessionToolsTriggerRef.current?.focus()} />
       <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} onRestore={restoreGuide} hasSession={Boolean(chat.sessionId)} returnFocus={guideReturnFocus.current ? guideReturnFocus : sessionToolsTriggerRef} />
       <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onRetry={chat.duplicateSession} onReturnFocus={() => taRef.current?.focus()} />
       {chat.sessionId && changesOpen && <TurnChangesDialog key={chat.sessionId} sessionId={chat.sessionId} open onOpenChange={setChangesOpen} returnFocus={sessionToolsTriggerRef} />}
@@ -1573,7 +1570,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               <HeaderMenuItem nested icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
               <HeaderMenuItem nested icon={<Maximize2 className="size-4" />} label="专注模式" hint="全屏仅显示对话与输入；Esc 退出" onClick={enterFocus} />
               <HeaderMenuItem nested icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
-              <HeaderMenuItem nested icon={<Palette className="size-4" />} label={`工作台主题 · ${workbenchThemeName(workbenchTheme)}`} hint="统一面板、消息与代码配色；不改变布局和任务" onClick={() => { setHeaderMenu(false); setThemeDialogOpen(true) }} />
               <HeaderMenuItem nested icon={<EyeOff className="size-4" />} label={hideToolCalls ? '隐藏工具调用 · 开' : '隐藏工具调用 · 关'} hint="消息流里不再显示 MCP/命令/读写等工具调用气泡" onClick={() => { setHideToolCalls(!hideToolCalls) }} />
               <HeaderMenuItem nested icon={<Hand className="size-4" />} label={gestureOn ? '手势控制·开' : '手势控制·关'} hint={gestureOn ? '握拳=弹出悬浮窗；张手=返回会话页' : '开启后：握拳弹窗 / 张手返回(仅本模块)'} onClick={() => { setHeaderMenu(false); toggleGesture() }} />
             </MenuSection>
