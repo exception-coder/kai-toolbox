@@ -199,13 +199,6 @@
       "sort": 35
     },
     {
-      "featureId": "procurement",
-      "code": "menu:procurement",
-      "name": "招采信息采集",
-      "module": "智能体",
-      "sort": 35
-    },
-    {
       "featureId": "ai-secretary",
       "code": "menu:ai-secretary",
       "name": "AI 秘书",

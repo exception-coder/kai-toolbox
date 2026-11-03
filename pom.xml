@@ -38,7 +38,6 @@
         <module>tools/tool-webterm</module>
         <module>tools/tool-projects</module>
         <module>tools/tool-browser-request</module>
-        <module>tools/tool-procurement</module>
         <module>tools/tool-port-process</module>
         <module>tools/tool-vscode-tunnel</module>
         <module>tools/tool-resume</module>
@@ -105,11 +104,6 @@
                 <groupId>com.microsoft.playwright</groupId>
                 <artifactId>playwright</artifactId>
                 <version>${playwright.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.exceptioncoder</groupId>
-                <artifactId>tool-procurement</artifactId>
-                <version>${project.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.exceptioncoder</groupId>

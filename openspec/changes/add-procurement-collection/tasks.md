@@ -1,3 +1,5 @@
+> 退役状态（2026-11-03）：用户要求移除此功能，源码退役见 [remove-procurement-collection](../remove-procurement-collection/proposal.md)。下文保留原实施证据与未完成项，不代表当前仍提供此能力；运行版本是否退出以退役任务的实际验收为准。
+
 ## 1. 数据与后端
 
 - [x] 1.1 新模块注册、幂等 DDL 与 Excel 种子，验证数量和来源。
