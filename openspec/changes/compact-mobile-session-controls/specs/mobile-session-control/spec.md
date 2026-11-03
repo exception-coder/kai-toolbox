@@ -20,3 +20,18 @@ The session control sheet SHALL prioritize the queue summary, equal-level availa
 - **THEN** the sheet SHALL query existing session data and show at most three eligible recent sessions with real state labels
 - **AND** switching SHALL use the existing draft-preserving switch operation
 - **AND** full management SHALL remain accessible through the existing session board.
+
+
+### Requirement: Discoverable session control entry
+The mobile execution dock SHALL retain one 44px single-line button in idle, running, paused and error states, showing agent status, any queued count and an explicit “会话控制” action with an expansion arrow.
+
+#### Scenario: Opening and closing from the dock
+- **WHEN** the user activates any part of the dock by pointer or native keyboard activation
+- **THEN** the existing session control sheet SHALL open without dispatching, clearing or changing sessions
+- **AND** its accessible name, expanded state and arrow SHALL match the sheet state
+- **AND** closing SHALL restore trigger focus without scrolling the conversation.
+
+#### Scenario: First mobile discovery
+- **WHEN** the entry has not been discovered in the current browser
+- **THEN** a lightweight hint SHALL appear without adding a layout row or stealing focus
+- **AND** it SHALL disappear after six seconds or opening the panel and SHALL NOT reappear after remount when storage is available.

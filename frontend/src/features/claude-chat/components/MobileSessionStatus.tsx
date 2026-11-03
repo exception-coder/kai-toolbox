@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -31,6 +31,11 @@ export type MobileSessionStatusModel = {
   kind: 'running' | 'background' | 'warning' | 'completed' | 'usage'
   label: string
   detail?: string
+}
+
+const CONTROL_HINT_KEY = 'forge:session-control-entry-discovered'
+function controlEntryDiscovered() {
+  try { return localStorage.getItem(CONTROL_HINT_KEY) === '1' } catch { return true }
 }
 
 interface Props {
@@ -84,6 +89,19 @@ export function MobileSessionStatus({
   const [open, setOpen] = useMobileDisclosure(!workspace)
   const mobile = useMobileViewport()
   const viewport = useControlSheetViewport(open)
+  const controlId = useId()
+  const hintId = useId()
+  const [discovered, setDiscovered] = useState(controlEntryDiscovered)
+  useEffect(() => {
+    if (!mobile || discovered) return
+    const remember = () => {
+      setDiscovered(true)
+      try { localStorage.setItem(CONTROL_HINT_KEY, '1') } catch { /* 引导存储不可用不影响会话操作。 */ }
+    }
+    if (open) { remember(); return }
+    const timer = window.setTimeout(remember, 6_000)
+    return () => window.clearTimeout(timer)
+  }, [mobile, open, discovered])
   const [view, setView] = useState<'actions' | 'recent'>('actions')
   const [expanded, setExpanded] = useState(false), [detailsOpen, setDetailsOpen] = useState(false)
   const drag = useRef<{ id: number; y: number } | null>(null)
@@ -120,8 +138,6 @@ export function MobileSessionStatus({
     usageLoading,
   })
 
-  if (!status && !children && !queueContent && !actions && queueCount === 0 && !onSwitchSession) return null
-
   const label = status?.label ?? (runtime.isPending ? '正在核对会话状态…' : `${engineLabel} · 空闲`)
   const currentActivity = running ? findCurrentActivity(items) : null
   const elapsed = running ? currentActivityElapsed(items) : null
@@ -136,11 +152,12 @@ export function MobileSessionStatus({
   const Icon = warning ? AlertTriangle : active ? Loader2 : status?.kind === 'completed' ? CheckCircle2 : Activity
 
   return (
-    <div className={workspace ? 'cc-workspace-execution-dock' : 'md:hidden'} data-execution-state={status?.kind ?? 'idle'} data-has-queue={queueCount > 0}>
+    <div className={cn('relative', workspace ? 'cc-workspace-execution-dock' : 'md:hidden')} data-execution-state={status?.kind ?? 'idle'} data-has-queue={queueCount > 0}>
+      {mobile && !open && !discovered && <span id={hintId} className="pointer-events-none absolute right-3 bottom-full z-10 mb-1 max-w-[calc(100%-1.5rem)] rounded-md border bg-[var(--color-background)] px-3 py-2 text-xs text-[var(--color-foreground)] shadow-sm">点击此栏管理队列与会话</span>}
       <button
         ref={trigger}
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => setOpen(value => !value)}
         className={cn(
           'flex h-11 w-full min-w-0 items-center gap-2 border-b px-3 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]',
           workspace && 'md:h-9',
@@ -148,18 +165,20 @@ export function MobileSessionStatus({
             ? 'border-amber-200 bg-amber-50/90 text-amber-800 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200'
             : 'border-[var(--color-border)]/70 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]',
         )}
-        aria-label={`${summary}${executionNotice ? '，本轮有执行提示' : ''}${queueCount ? `，队列 ${queueCount} 条${queuePausedReason ? '已暂停' : ''}` : ''}，查看运行详情`}
+        aria-label={`${open ? '关闭' : '打开'}会话控制，${summary}${executionNotice ? '，本轮有执行提示' : ''}${queueCount ? `，队列 ${queueCount} 条${queuePausedReason ? '已暂停' : ''}` : ''}`}
         aria-expanded={open}
-        aria-live="polite"
+        aria-haspopup="dialog"
+        aria-controls={open ? controlId : undefined}
+        aria-describedby={mobile && !open && !discovered ? hintId : undefined}
       >
-        <Icon className={cn('size-3.5 shrink-0', active && !warning && 'animate-spin text-[var(--color-primary)] motion-reduce:animate-none', !warning && status?.kind === 'completed' && 'text-emerald-600 dark:text-emerald-400')} />
+        <Icon aria-hidden="true" className={cn('size-3.5 shrink-0', active && !warning && 'animate-spin text-[var(--color-primary)] motion-reduce:animate-none', !warning && status?.kind === 'completed' && 'text-emerald-600 dark:text-emerald-400')} />
         <span className="min-w-0 flex-1 truncate font-medium" title={summary}>{summary}</span>
-        {executionNotice && <span className="shrink-0">执行提示</span>}
-        {queueCount > 0 && <span className="shrink-0 tabular-nums">队列 {queueCount}{queuePausedReason ? ' · 已暂停' : ''}</span>}
-        <ChevronUp className="size-3.5 shrink-0 opacity-60" />
+        {executionNotice && <span className="sr-only md:not-sr-only md:shrink-0">执行提示</span>}
+        {queueCount > 0 && <span className="shrink-0 whitespace-nowrap tabular-nums">队列 {queueCount}{queuePausedReason ? ' · 已暂停' : ''}</span>}
+        <span className="flex shrink-0 items-center gap-1 whitespace-nowrap font-medium text-[var(--color-primary)]">会话控制{open ? <ChevronDown aria-hidden="true" className="size-3.5" /> : <ChevronUp aria-hidden="true" className="size-3.5" />}</span>
       </button>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus({ preventScroll: true }) }}
+        <SheetContent id={controlId} side="bottom" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus({ preventScroll: true }) }}
           style={{ ...(mobile ? { bottom: viewport.bottom, maxHeight: Math.max(0, viewport.height * (expanded ? 0.9 : 0.6)) } : {}), ...(dragY > 0 ? { transform: `translateY(${dragY}px)`, transition: 'none' } : {}) }}
           className={cn('flex max-h-[80dvh] flex-col gap-0 overflow-hidden rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] [&_button]:min-h-11 [&>button]:min-w-11', workspace ? 'md:inset-x-auto md:bottom-4 md:left-1/2 md:w-[min(42rem,calc(100vw-2rem))] md:-translate-x-1/2 md:rounded-xl md:border' : 'md:hidden')}>
           {mobile && <div data-session-control-handle className="flex h-7 shrink-0 touch-none items-center justify-center" aria-hidden="true"

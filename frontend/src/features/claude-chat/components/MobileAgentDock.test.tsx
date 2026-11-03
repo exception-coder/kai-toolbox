@@ -24,7 +24,7 @@ function fixture(onStartVoice = vi.fn(), items: ChatItem[] = [], running = false
 it('desktop workspace discloses diagnostics and record recovery on demand and restores focus', async () => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
   fixture(vi.fn(), [{ kind: 'activity', id: 'current', activityType: 'command', title: '检查文件', status: 'running', data: { elapsedMs: 68000 } }], true, true, true)
-  const trigger = screen.getByRole('button', { name: /查看运行详情/ })
+  const trigger = screen.getByRole('button', { name: /打开会话控制/ })
   expect(trigger).toHaveTextContent('68.0s')
   expect(screen.queryByText('全链路诊断')).not.toBeInTheDocument()
   expect(screen.queryByText(/记录暂无法获取/)).not.toBeInTheDocument()
@@ -42,7 +42,7 @@ it('desktop workspace discloses diagnostics and record recovery on demand and re
 
 it('opens controls without starting voice; explicit start closes the dock and starts once', () => {
   const start = fixture()
-  fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+  fireEvent.click(screen.getByRole('button', { name: /打开会话控制/ }))
   expect(start).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: '语音对话' }))
   expect(start).toHaveBeenCalledOnce()
@@ -52,7 +52,7 @@ it('opens controls without starting voice; explicit start closes the dock and st
 it('explains unavailable voice and preserves text workflow', () => {
   availability.mockReturnValue('浏览器不支持语音')
   const start = fixture()
-  fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+  fireEvent.click(screen.getByRole('button', { name: /打开会话控制/ }))
   expect(screen.getByRole('button', { name: '语音对话' })).toBeDisabled()
   expect(screen.getByText(/仍可继续文字对话/)).toBeInTheDocument()
   expect(start).not.toHaveBeenCalled()
@@ -65,7 +65,7 @@ it('fits the visible keyboard viewport, expands on demand and swipes closed with
   vi.stubGlobal('visualViewport', viewport)
   vi.stubGlobal('innerHeight', 900)
   const start = fixture(vi.fn(), [], false, false, true)
-  const trigger = screen.getByRole('button', { name: /查看运行详情/ })
+  const trigger = screen.getByRole('button', { name: /打开会话控制/ })
   fireEvent.click(trigger)
   const panel = screen.getByRole('dialog', { name: '会话控制' })
   expect(panel).toHaveStyle({ bottom: '300px', maxHeight: '360px' })
@@ -88,7 +88,7 @@ it('keeps current activity and queue as one summary, with complete events and me
     { kind: 'activity', id: 'files', activityType: 'diff', title: '本轮文件变更', status: 'running', data: { paths: ['src/example.ts'] } },
     { kind: 'activity', id: 'command', activityType: 'command', title: 'cua_repl/js 执行中', status: 'running', data: { elapsedMs: 371400 } },
   ], true)
-  const summary = screen.getByRole('button', { name: /查看运行详情/ })
+  const summary = screen.getByRole('button', { name: /打开会话控制/ })
   expect(summary).toHaveTextContent('cua_repl/js')
   expect(summary).not.toHaveTextContent('Token')
   expect(screen.queryByText('本轮文件变更')).not.toBeInTheDocument()
@@ -104,7 +104,7 @@ it('keeps current activity and queue as one summary, with complete events and me
 
 it('uses the same runtime truth for the summary and details when the browser has not observed the running turn', () => {
   fixture(vi.fn(), [{ kind: 'result', id: 'old', stopReason: 'end_turn', usage: { output_tokens: 5000 } }], false, true)
-  fireEvent.click(screen.getByRole('button', { name: /Codex 正在运行.*查看运行详情/ }))
+  fireEvent.click(screen.getByRole('button', { name: /打开会话控制.*Codex 正在运行/ }))
   fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
   const detail = within(screen.getByRole('region', { name: '执行详情' }))
   expect(detail.getByText('执行详情 · 当前执行')).toBeInTheDocument()
@@ -128,7 +128,7 @@ it('discloses queue management before diagnostics and confirms batch deletion wi
       pausedReason: '上一轮中断，队列已暂停', canSendNow: true, onSendNow, onRemove, onClear }}
     voiceEnabled={false} voiceDisabled={false} onStartVoice={vi.fn()} diagnostics={<p>监控指标</p>} />
   </QueryClientProvider></ConfirmProvider>)
-  fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+  fireEvent.click(screen.getByRole('button', { name: /打开会话控制/ }))
   const queue = screen.getByRole('region', { name: '待发送队列' })
   const scrollable = screen.getByRole('region', { name: '会话操作与运行详情' })
   expect(scrollable).toContainElement(queue)

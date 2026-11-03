@@ -70,6 +70,7 @@ afterEach(() => {
   getSessionRuntimeState.mockReset()
   listSessions.mockReset()
   vi.unstubAllGlobals()
+  localStorage.removeItem('forge:session-control-entry-discovered')
 })
 
 describe('deriveMobileSessionStatus', () => {
@@ -305,6 +306,43 @@ describe('deriveMobileSessionStatus', () => {
 })
 
 describe('MobileSessionStatus', () => {
+  it('空闲无历史无队列时保留入口，关闭恢复展开语义与焦点，不触发任务操作', async () => {
+    getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
+    const onOpenUsage = vi.fn(), onOpenTrajectory = vi.fn()
+    renderWithQueryClient(<MobileSessionStatus sessionId="idle" items={[]} running={false} engineLabel="Codex"
+      turnTokens={0} connState="ready" backgroundTasks={[]} usage={null} usageLoading={false}
+      onOpenUsage={onOpenUsage} onOpenTrajectory={onOpenTrajectory} />)
+    const trigger = await screen.findByRole('button', { name: '打开会话控制，Codex · 空闲' })
+    expect(trigger).toHaveTextContent('会话控制')
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: '会话控制' })
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    expect(trigger).toHaveAttribute('aria-controls', dialog.id)
+    expect(trigger).toHaveAccessibleName('关闭会话控制，Codex · 空闲')
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(trigger).toHaveFocus())
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(onOpenUsage).not.toHaveBeenCalled()
+    expect(onOpenTrajectory).not.toHaveBeenCalled()
+  })
+
+  it('首次手机引导不打开面板，首次使用后跨挂载不再提示', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(query => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
+    const content = <MobileSessionStatus sessionId="idle" items={[]} running={false} engineLabel="Codex"
+      turnTokens={0} connState="ready" backgroundTasks={[]} usage={null} usageLoading={false}
+      onOpenUsage={vi.fn()} onOpenTrajectory={vi.fn()} />
+    const first = renderWithQueryClient(content)
+    expect(screen.getByText('点击此栏管理队列与会话')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /打开会话控制/ }))
+    expect(localStorage.getItem('forge:session-control-entry-discovered')).toBe('1')
+    first.unmount()
+    renderWithQueryClient(content)
+    expect(screen.queryByText('点击此栏管理队列与会话')).not.toBeInTheDocument()
+  })
+
   it('keeps tool warnings in one dock and exposes their original details only after opening', async () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
@@ -319,7 +357,7 @@ describe('MobileSessionStatus', () => {
     </MobileSessionStatus>)
     expect(screen.getByText('执行提示')).toBeVisible()
     expect(screen.queryByText('运行测试')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+    fireEvent.click(screen.getByRole('button', { name: /打开会话控制/ }))
     fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
     expect(screen.getByText('运行测试')).toBeVisible()
     expect(screen.getByText('当前轮输出 61 Token')).toBeVisible()
@@ -341,7 +379,7 @@ describe('MobileSessionStatus', () => {
       turnTokens={0} connState="ready" backgroundTasks={[]} usage={null} usageLoading={false} onOpenUsage={vi.fn()} onOpenTrajectory={vi.fn()}>
       <MobileExecutionDetails items={items} running={false} turnTokens={0} sessionId="session-1"/>
     </MobileSessionStatus>)
-    const trigger = await screen.findByRole('button', { name: '本轮完成，查看运行详情' })
+    const trigger = await screen.findByRole('button', { name: '打开会话控制，本轮完成' })
     expect(screen.queryByText('执行提示')).not.toBeInTheDocument()
     fireEvent.click(trigger)
     fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
@@ -363,7 +401,7 @@ describe('MobileSessionStatus', () => {
     renderWithQueryClient(<MobileSessionStatus sessionId="current" items={[]} running={false} engineLabel="Codex"
       turnTokens={0} connState="ready" backgroundTasks={[]} usage={null} usageLoading={false}
       onOpenUsage={vi.fn()} onOpenTrajectory={vi.fn()} onSwitchSession={onSwitchSession} />)
-    fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+    fireEvent.click(screen.getByRole('button', { name: /打开会话控制/ }))
     expect(listSessions).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '最近会话' }))
     expect(await screen.findByRole('region', { name: '快速切换会话' })).toBeInTheDocument()
@@ -384,7 +422,7 @@ describe('MobileSessionStatus', () => {
     </MobileSessionStatus>)
     expect(screen.getByText('队列 1 · 已暂停')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '处理待发送消息' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /查看运行详情/ }))
+    fireEvent.click(screen.getByRole('button', { name: /打开会话控制/ }))
     fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
     expect(screen.getByRole('button', { name: '处理待发送消息' })).toBeInTheDocument()
     expect(action).not.toHaveBeenCalled()
@@ -410,9 +448,9 @@ describe('MobileSessionStatus', () => {
       />,
     )
 
-    fireEvent.click(await screen.findByRole('button', { name: '空闲 · 最近一轮完成，查看运行详情' }))
+    fireEvent.click(await screen.findByRole('button', { name: '打开会话控制，空闲 · 最近一轮完成' }))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText('会话控制')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '会话控制' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
     expect(screen.getByText('3 轮 · 1.5千 Token')).toBeInTheDocument()
 
@@ -440,7 +478,7 @@ describe('MobileSessionStatus', () => {
       />,
     )
 
-    fireEvent.click(await screen.findByRole('button', { name: '空闲 · 最近一轮完成，查看运行详情' }))
+    fireEvent.click(await screen.findByRole('button', { name: '打开会话控制，空闲 · 最近一轮完成' }))
     fireEvent.click(await screen.findByRole('button', { name: '会话用量' }))
     expect(onOpenUsage).toHaveBeenCalledOnce()
   })

@@ -81,9 +81,11 @@
   border-radius: 12px;
   padding-inline: 12px;
 }
-.cc-focus-mode .cc-workspace-execution-dock[data-execution-state="completed"][data-has-queue="false"],
-.cc-focus-mode .cc-workspace-execution-dock[data-execution-state="usage"][data-has-queue="false"],
-.cc-focus-mode .cc-workspace-execution-dock[data-execution-state="idle"][data-has-queue="false"] { display: none; }
+@media (min-width: 768px) {
+  .cc-focus-mode .cc-workspace-execution-dock[data-execution-state="completed"][data-has-queue="false"],
+  .cc-focus-mode .cc-workspace-execution-dock[data-execution-state="usage"][data-has-queue="false"],
+  .cc-focus-mode .cc-workspace-execution-dock[data-execution-state="idle"][data-has-queue="false"] { display: none; }
+}
 .cc-focus-mode .cc-message-row:has(.cc-turn-status) { padding-block: 0 4px; }
 .cc-focus-mode .cc-turn-status summary { min-height: 44px; }
 .cc-focus-mode .cc-message-history { min-height: 32px; padding-block: 0; }

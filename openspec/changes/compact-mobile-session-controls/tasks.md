@@ -14,3 +14,16 @@
 OpenSpec 严格校验通过。既有静态构建器发布源码 `28e87f80`，frontend tree `ad9e0728b4d23c99b5d755f32469933c7374ad9b`，运行版本 `ee78465738059dbc7300b55d`。HTTPS 页面版本与 active.json 一致，ChatControlWorkspace、QueuedList 版本资源返回 200，分别包含手柄/动态视口实现及清空确认/队列变化保护。北京时间 00:35:37 至 00:36:54 观察 77 秒，页面与 `/api/tools` 保持 200；backend 50144、frontend 157436、studio 136208 均 ready，进程身份及重启次数（0）未变化。发布日志明确服务进程保持运行，未重启服务。
 
 已准备 `/tools/claude-chat` 手机、桌面预览，状态均 WAITING_VIEWER_AUTH，尚未登录或执行真实页面验收。请求分别为 `1515f5c198443c8a80419651c291950e41e41958`、`8738dcab7c2d24b32f7cacc083d440d5d47b8478`；静态资源和组件测试不等同真机键盘、触摸与视觉验收。
+
+
+## 状态栏入口精修（2026-11-03）
+
+- [x] 显式“会话控制”文字、整行原生按钮与展开箭头、可访问状态关联。
+- [x] 空闲无历史仍可打开，复用原状态和队列；移动端保持单行 44px。
+- [x] 一次轻量手机引导，保留既有 Sheet、视口与焦点恢复。
+- [x] 本次定向回归、类型检查、规格与质量门禁。
+- [ ] 本次生产构建、实际资源版本与稳定观察。
+- [ ] 本次手机/桌面真实浏览器及 Android Chrome、iOS Safari、飞书 WebView 验收。
+
+
+入口专项：MobileSessionStatus 与 MobileAgentDock 22 项测试通过（退出码 0），覆盖空闲无历史、已完成、运行/后台状态、队列暂停、原快捷操作、下滑关闭、焦点恢复与首次引导。npm run typecheck 通过，菜单目录 59 项与模块边界检查通过；OpenSpec 严格校验通过。Forge CLI 门禁 PASSED、退出码 0，executedCheckers 为空，实际执行既有 9 项 API 探测，不等同本次移动 UI 验收。专注模式 CSS 已复核，将隐藏空闲/完成 dock 的规则限定为桌面媒体查询。没有重启服务。
