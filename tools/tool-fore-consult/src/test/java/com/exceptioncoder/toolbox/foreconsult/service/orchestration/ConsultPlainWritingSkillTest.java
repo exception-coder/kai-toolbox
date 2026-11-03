@@ -17,12 +17,14 @@ class ConsultPlainWritingSkillTest {
                 .getContentAsString(StandardCharsets.UTF_8).strip();
         for (String version : List.of("v1", "v2", "v3", "v4")) {
             for (boolean followUp : List.of(false, true)) {
-                var request = new ConsultOrchestrationRequest("请给业务员简单结论", "ERP", "/erp", List.of(), "IT", followUp);
-                var result = new ConsultOrchestrationPipeline(List.of()).orchestrate(request, version);
-                assertThat(result.prompt()).endsWith(packaged);
-                assertThat(result.prompt().split("【平台表达Skill：consult-plain-writing】", -1)).hasSize(2);
-                assertThat(result.prompt()).contains("回答对象：IT", "请给业务员简单结论");
-                assertThat(result.steps()).isEmpty();
+                for (String role : List.of("BIZ", "IT")) {
+                    var request = new ConsultOrchestrationRequest("请给业务员简单结论", "ERP", "/erp", List.of(), role, followUp);
+                    var result = new ConsultOrchestrationPipeline(List.of()).orchestrate(request, version);
+                    assertThat(result.prompt()).endsWith(packaged);
+                    assertThat(result.prompt().split("【平台表达Skill：consult-plain-writing】", -1)).hasSize(2);
+                    assertThat(result.prompt()).contains("回答对象：" + role, "请给业务员简单结论");
+                    assertThat(result.steps()).isEmpty();
+                }
             }
         }
     }

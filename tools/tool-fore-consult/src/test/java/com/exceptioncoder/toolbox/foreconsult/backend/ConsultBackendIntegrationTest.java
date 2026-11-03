@@ -444,6 +444,7 @@ class ConsultBackendIntegrationTest {
             List<AgentOneShotRunner.ImageInput> actual = call.getArgument(2);
             assertThat(actual).containsExactly(new AgentOneShotRunner.ImageInput(Base64.getEncoder().encodeToString(png()), "image/png"));
             assertThat(request.userPrompt()).contains(image.attachmentId(), image.sha256());
+            assertThat(request.systemPrompt()).contains(com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultPlainWritingSkill.instructions());
             assertThat(request.toolPolicy()).isEqualTo("disabled");
             assertThat(request.cwd()).isNull();
             return output.toString();
