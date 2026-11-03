@@ -42,4 +42,11 @@
   .cc-inline-composer[data-voice-active='true'] .cc-composer-voice > div { max-width: 100%; gap: 4px; padding-inline: 4px; }
   .cc-inline-composer[data-voice-active='true'] .cc-composer-voice > div > span:first-of-type { display: none; }
   .cc-inline-composer[data-voice-active='true'] .cc-composer-send { grid-row: 1; }
+  .cc-inline-composer:not([data-voice-active='true']):has(.cc-pasted-text) { border-radius: 12px; }
+  .cc-inline-composer:not([data-voice-active='true']) .cc-composer-text[data-folded='true'] { display: contents; }
+  .cc-inline-composer .cc-pasted-text { grid-column: 1 / -1; grid-row: 1; margin: 4px; }
+  .cc-inline-composer:has(.cc-pasted-text):not([data-voice-active='true']) :is(.cc-composer-more, .cc-composer-voice, .cc-composer-send) { grid-row: 2; }
+  .cc-inline-composer .cc-composer-text[data-folded='true'] textarea { grid-column: 2; grid-row: 2; }
+  .cc-inline-composer[data-expanded='true'] .cc-composer-text[data-folded='true'] textarea { grid-column: 1 / -1; }
+  .cc-inline-composer[data-expanded='true']:has(.cc-pasted-text):not([data-voice-active='true']) :is(.cc-composer-more, .cc-composer-voice, .cc-composer-send) { grid-row: 3; }
 }

@@ -1259,6 +1259,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 <ComposerTextarea
               ref={taRef}
               compact={mobileLayout}
+              draftScope={draftKey}
               suggestion={composerSuggestion}
               onAcceptSuggestion={text => {
                 if (draft || !chat.followUpPrediction || chat.followUpPrediction.sessionId !== chat.sessionId) return
@@ -1273,8 +1274,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               rows={1}
               disabled={planLocked}
               value={draft}
-              onChange={e => {
-                projectMention.handleChange(e.target.value, e.target.selectionStart)
+              onValueChange={(value, caret) => {
+                projectMention.handleChange(value, caret)
                 setSlashDismissed(false)
                 setSlashIdx(0)
               }}

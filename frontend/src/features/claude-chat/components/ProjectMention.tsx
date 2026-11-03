@@ -13,6 +13,7 @@ import {
 import { listWorkspaces } from '../api'
 import type { WorkspaceDir } from '../types'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
+import { editVisibleDraft, visibleDraft } from '../lib/foldedPaste'
 
 type DraftSetter = (value: string | ((current: string) => string)) => void
 
@@ -277,15 +278,20 @@ function useMentionEditor({
       return
     }
     const textarea = textareaRef.current
-    const selectionStart = textarea?.selectionStart ?? value.length
+    const foldStart = Number(textarea?.dataset.foldStart)
+    const foldEnd = Number(textarea?.dataset.foldEnd)
+    const fold = Number.isFinite(foldStart) && Number.isFinite(foldEnd) ? { raw: value, start: foldStart, end: foldEnd } : null
+    const visible = visibleDraft(value, fold)
+    const selectionStart = textarea?.selectionStart ?? visible.length
     const selectionEnd = textarea?.selectionEnd ?? selectionStart
-    const before = value.slice(0, selectionStart)
-    const after = value.slice(selectionEnd)
+    const before = visible.slice(0, selectionStart)
+    const after = visible.slice(selectionEnd)
     const leading = before && !/\s$/.test(before) ? ' ' : ''
     const trailing = after && !/^\s/.test(after) ? ' ' : ''
-    const start = before.length + leading.length
+    const next = editVisibleDraft(value, fold, selectionStart, selectionEnd, `${leading}@${trailing}`)
+    const start = next.insertion + leading.length
     const cursor = start + 1
-    setValue(`${before}${leading}@${trailing}${after}`)
+    setValue(next.raw)
     setTrigger({ start, end: cursor, query: '' })
     requestAnimationFrame(() => {
       textarea?.focus()
