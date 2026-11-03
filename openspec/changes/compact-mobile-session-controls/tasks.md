@@ -9,6 +9,8 @@
 
 无架构契约变化，不修改数据查询接口、草稿保存或任务状态，不重启服务。
 
+运行核验：源码 512f349e 于 2026-11-03 09:30:10 发布为 b4b75edf0646be9f3c46a852，frontend tree=7f3f59e9f88a018cb01b7c756ad815146fcebebe；主页面生产构建 1 分 31 秒。页面版本匹配，ChatControlWorkspace-Baglh7vL.js 和后端 API 返回 200；连续观察超过 120 秒，backend/frontend/studio PID 50144/157436/136208、restarts=0、ready/online 保持不变。手机/桌面预览入口已准备但不代表实际触摸滚动验收；没有重启服务。
+
 ## 历史实施
 
 - [x] 标题、快捷操作、队列、记录及最近会话按优先级重组。
