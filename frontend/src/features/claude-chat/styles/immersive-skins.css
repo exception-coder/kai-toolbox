@@ -2,9 +2,12 @@
 :is(html[data-workbench-theme], [data-workbench-theme]) :is(.cc-message-scroller,.wb-scene-messages) {
   background-color: var(--wb-background);
   background-image: var(--wb-canvas-texture);
+  background-size: var(--wb-texture-size);
 }
 :is(html[data-workbench-theme], [data-workbench-theme]) .wb-assistant-reply {
   background: var(--wb-message-surface);
+  background-image: var(--wb-surface-texture);
+  background-size: var(--wb-texture-size);
   border-radius: var(--wb-message-radius);
   box-shadow: var(--wb-message-edge);
 }
@@ -13,18 +16,48 @@
 }
 :is(html[data-workbench-theme], [data-workbench-theme]) :is(.mobile-composer-card,.cc-focus-composer) {
   background: var(--wb-composer-surface);
+  background-image: var(--wb-surface-texture);
+  background-size: var(--wb-texture-size);
   box-shadow: var(--wb-material-shadow);
 }
 :is(html[data-workbench-theme], [data-workbench-theme]) :is(.wb-code-block,.markdown-body .wb-code-block pre,.wb-skin-thumbnail pre) {
   background: var(--wb-code-surface);
+  background-image: var(--wb-surface-texture);
+  background-size: var(--wb-texture-size);
   border-radius: var(--wb-code-radius);
   box-shadow: var(--wb-code-edge);
 }
 :is(html[data-workbench-theme], [data-workbench-theme]) .markdown-body .wb-code-block pre { border-radius: 0; }
 :is(html[data-workbench-theme], [data-workbench-theme]) .wb-tool-call {
   background: var(--wb-tool-surface);
+  background-image: var(--wb-surface-texture);
+  background-size: var(--wb-texture-size);
   border-radius: var(--wb-tool-radius);
   box-shadow: var(--wb-code-edge);
+}
+/* 使用内描边而非增减 border/padding，皮肤切换不改变布局和触控范围。 */
+:is(html[data-workbench-theme], [data-workbench-theme]) :is(.cc-user-message-body,.wb-scene-user) {
+  background-color: var(--wb-user-surface);
+  color: var(--wb-user-text);
+  background-image: var(--wb-surface-texture);
+  background-size: var(--wb-texture-size);
+  border-radius: var(--wb-user-radius);
+  box-shadow: var(--wb-user-edge);
+}
+:is([data-workbench-theme='atelier-paper'],[data-workbench-theme='editorial-press'],[data-workbench-theme='amber-crt'],[data-workbench-theme='liquid-titanium']) :is([role='dialog'],[role='alertdialog'],.wb-scene-panel) {
+  background-color: var(--wb-surface);
+  background-image: var(--wb-surface-texture);
+  background-size: var(--wb-texture-size);
+  border-radius: var(--wb-panel-radius);
+  box-shadow: var(--wb-panel-edge);
+}
+[data-workbench-theme] [data-execution-state] > button { box-shadow: var(--wb-status-edge); }
+.wb-scene-panel { margin-top: 16px; padding: 12px; border: 1px solid var(--wb-border); font-size: 12px; }
+.wb-scene-panel strong { display: block; margin-bottom: 4px; }
+.wb-art-cover { position: relative; height: 160px; overflow: hidden; background: var(--wb-background); background-image: var(--wb-canvas-texture); background-size: var(--wb-texture-size); color: var(--wb-text); }
+.wb-art-cover svg { display: block; width: 100%; height: 100%; }
+@media (prefers-reduced-transparency: reduce) {
+  [data-workbench-theme] { --wb-surface-texture: none !important; --wb-canvas-texture: none !important; }
 }
 /* 全局 dark class 可能仍存在；异常与恢复入口不能继续使用旧硬编码深底。 */
 :is(html[data-workbench-theme], [data-workbench-theme]) .cc-session-error {
@@ -40,7 +73,7 @@
 /* 玻璃限于输入区；不支持滤镜时继续使用上面的不透明底色。 */
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :is(html[data-workbench-theme], [data-workbench-theme]) .mobile-composer-card {
-    background: color-mix(in srgb, var(--wb-composer-surface) var(--wb-composer-opacity), transparent);
+    background-color: color-mix(in srgb, var(--wb-composer-surface) var(--wb-composer-opacity), transparent);
     backdrop-filter: var(--wb-composer-filter);
     -webkit-backdrop-filter: var(--wb-composer-filter);
   }
@@ -72,5 +105,6 @@
 .wb-skin-thumbnail .wb-scene-composer svg { width: 8px; height: 8px; }
 @media (prefers-reduced-transparency: reduce) { :is(html[data-workbench-theme='aurora-glass'],[data-workbench-theme='aurora-glass']) .mobile-composer-card { background: var(--wb-composer-surface); backdrop-filter: none; -webkit-backdrop-filter: none; } }
 @media (forced-colors: active) {
+  [data-workbench-theme] { --wb-surface-texture: none !important; --wb-canvas-texture: none !important; --wb-panel-edge: none !important; --wb-user-edge: none !important; --wb-status-edge: none !important; }
   .wb-skin-scene, [data-workbench-theme] :is(.cc-message-scroller,.wb-scene-messages,.wb-assistant-reply,.mobile-composer-card,.wb-tool-call) { background-image: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 }

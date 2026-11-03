@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest'
 import { WorkbenchThemePicker, WorkbenchThemeDialog } from './WorkbenchThemePicker'
 import { useState } from 'react'
-import { useWorkbenchPageTheme, useWorkbenchTheme, readWorkbenchTheme, readWorkbenchMaterialStrength, setWorkbenchTheme, WORKBENCH_THEMES, type WorkbenchTheme } from '../lib/workbenchTheme'
+import { useWorkbenchPageTheme, useWorkbenchTheme, readWorkbenchTheme, readWorkbenchMaterialStrength, setWorkbenchTheme, WORKBENCH_THEMES, ARTISTIC_SKINS, workbenchThemeStyle, type WorkbenchTheme } from '../lib/workbenchTheme'
 import { ToolCallBubble } from './ToolCallBubble'
 import { readFileSync } from 'node:fs'
 
@@ -149,18 +149,51 @@ it('keeps primary and secondary text legible across each palette surface', () =>
     return rgb[0]! * 0.2126 + rgb[1]! * 0.7152 + rgb[2]! * 0.0722
   }
   const contrast = (a: string, b: string) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05)
+  const blend = (base: string, ink: string, alpha: number) => '#' + [1, 3, 5].map(offset => Math.round(parseInt(base.slice(offset, offset + 2), 16) * (1 - alpha) + parseInt(ink.slice(offset, offset + 2), 16) * alpha).toString(16).padStart(2, '0')).join('')
+  const textureInk: Record<string, [string, number]> = { 'atelier-paper': ['#705a36', .14], 'editorial-press': ['#23251f', .14], 'amber-crt': ['#f2c36b', .055], 'liquid-titanium': ['#d2e1ed', .055] }
   for (const { id, colors } of WORKBENCH_THEMES) {
     for (const text of [colors[5], colors[6]]) for (const surface of [colors[0], colors[1], colors[2], colors[3]]) expect(contrast(text, surface)).toBeGreaterThanOrEqual(4.5)
     expect(contrast(colors[7], colors[2])).toBeGreaterThanOrEqual(4.5)
     for (const content of [colors[7], colors[8], colors[9]]) {
       for (const surface of [colors[0], colors[1], colors[2]]) expect(contrast(content, surface)).toBeGreaterThanOrEqual(4.5)
     }
+    if (textureInk[id]) {
+      const [ink, alpha] = textureInk[id]!
+      for (const surface of colors.slice(0, 4)) for (const content of colors.slice(5)) {
+        expect(contrast(content, blend(surface, ink, alpha)), `${id} texture ${content}`).toBeGreaterThanOrEqual(4.5)
+      }
+      expect(contrast(colors[2], blend(colors[7], ink, alpha)), `${id} user / action`).toBeGreaterThanOrEqual(4.5)
+    }
     for (const status of ['info', 'success', 'warning', 'danger']) {
-      const occurrence = id === 'butter-paper' || id === 'newsroom' ? 2 : 1
+      const occurrence = ['butter-paper', 'newsroom', 'atelier-paper', 'editorial-press'].includes(id) ? 2 : 1
       const color = themeCss.split(`--color-${status}:`)[occurrence]?.trim().slice(0, 7)
       expect(color).toMatch(/^#[0-9a-f]{6}$/i)
       for (const surface of [colors[0], colors[1], colors[2], colors[3]]) expect(contrast(color!, surface)).toBeGreaterThanOrEqual(4.5)
     }
+  }
+})
+
+it('trials every artistic skin without replacing the draft and restores material tokens', () => {
+  function Consumer() { const theme = useWorkbenchTheme(); return <Page theme={theme} /> }
+  render(<><Consumer /><WorkbenchThemePicker /></>)
+  const draft = screen.getByRole('textbox', { name: '草稿' })
+  fireEvent.change(draft, { target: { value: '保留艺术皮肤切换前的输入' } })
+  for (const skin of ARTISTIC_SKINS) {
+    fireEvent.click(screen.getByRole('button', { name: skin.name }))
+    fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
+    expect(document.documentElement).toHaveAttribute('data-workbench-theme', skin.id)
+    expect(document.documentElement.style.getPropertyValue('--wb-surface-texture')).not.toBe('none')
+    fireEvent.change(screen.getByLabelText('材质强度'), { target: { value: '0' } })
+    expect(document.documentElement.style.getPropertyValue('--wb-surface-texture')).toBe('none')
+    fireEvent.click(screen.getByRole('button', { name: '返回主题列表' }))
+    expect(document.documentElement.style.getPropertyValue('--wb-surface-texture')).toBe('none')
+    expect(screen.getByRole('textbox', { name: '草稿' })).toBe(draft)
+    expect(draft).toHaveValue('保留艺术皮肤切换前的输入')
+  }
+  for (const { id } of WORKBENCH_THEMES) {
+    const style = workbenchThemeStyle(id) as Record<string, string>
+    expect(style['--wb-surface-texture']).toBeDefined()
+    expect(style['--wb-panel-edge']).toBeDefined()
   }
 })
 

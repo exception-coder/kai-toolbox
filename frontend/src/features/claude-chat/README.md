@@ -232,7 +232,7 @@ Qwen、Trae、OpenCode 和 DeepSeek Harness 尚无完整文件归属适配，显
 
 “会话工具 → 阅读与显示 → 专注模式”提供独立阅读布局：正文和输入框默认同为 860px，可切换至 960px 宽版；手机按视口收缩。顶部保留会话标题及实际 OpenSpec/Task 绑定，助手正文去掉卡片框体，正常轮次统计显示为灰色文字。Esc 或“退出专注”恢复工作区，保留草稿和附件；切换宽度不会发起模型请求。
 
-「阅读与显示 → 工作台主题」提供 Tokyo Night（默认）、Catppuccin Mocha、Nord、Cyberpunk、Terminal Hacker、AI Studio，以及“跟随全局外观”。同一选择器也位于工作区个性化；按当前账号保存在当前浏览器，不承诺跨设备同步。主题覆盖 Surface、Typography、Content、Syntax 和固定语义 Status，Layout 沿用原专注/分屏实现；Motion 的共享时长、全局“减少动画”和系统偏好独立于主题。Terminal Hacker 只改变字体与配色，不新增终端布局。退出工作台恢复其他模块原外观，普通悬浮窗只改变自身；演示礼物模式保留原专用外观。炫彩皮肤与工具着色已移除，旧开关不再读取；工具类型通过图标/标签识别，仅状态使用语义色。
+「阅读与显示 → 工作区个性化 → 工作台主题」提供 Tokyo Night（默认）、Catppuccin Mocha、Nord、Cyberpunk、Terminal Hacker、AI Studio，以及“跟随全局外观”。艺术皮肤首批提供 Atelier Paper、Editorial Press、Amber CRT、Liquid Titanium，独立封面进入场景预览，沿用实时试用、恢复与材质强度；经典配色和旧沉浸皮肤继续保留。按当前账号保存在当前浏览器，不承诺跨设备同步。主题覆盖 Surface、Typography、Content、Syntax 和固定语义 Status，Layout 沿用原专注/分屏实现；Motion 的共享时长、全局“减少动画”和系统偏好独立于主题。Terminal Hacker 只改变字体与配色，不新增终端布局。退出工作台恢复其他模块原外观，普通悬浮窗只改变自身；演示礼物模式保留原专用外观。炫彩皮肤与工具着色已移除，旧开关不再读取；工具类型通过图标/标签识别，仅状态使用语义色。
 
 回复内容按原 Markdown 语义突出标题、加粗结论、行内代码、路径/API 引用、引用块和表格，不自动猜测关键词或更改原文。代码围栏可写 `ts title="src/main.ts"` 显示文件名，支持语言、行号、复制与独立折叠。复用项目已安装的 Shiki 按可视距离延迟加载语言语法，使用 CSS Token 随主题立即换色；未知语言或超过 30,000 字符/600 行的块保留可复制原文，不因高亮失败丢失内容。SQL 文件预览继续复用 CodeMirror。Diff 保留增删符号及原行号，配对修改行有侧边标记；思考、流式光标、工具运行只使用局部轻反馈，减少动画时静止呈现。
 

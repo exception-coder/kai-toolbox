@@ -51,7 +51,7 @@
   background-color: var(--color-background);
 }
 
-[data-workbench-theme='butter-paper'], [data-workbench-theme='newsroom'] {
+[data-workbench-theme='butter-paper'], [data-workbench-theme='newsroom'], [data-workbench-theme='atelier-paper'], [data-workbench-theme='editorial-press'] {
   --color-info: #285273;
   --color-success: #305d3f;
   --color-warning: #76501c;

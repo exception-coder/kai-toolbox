@@ -1,6 +1,8 @@
 import { useLayoutEffect, useSyncExternalStore, type CSSProperties } from 'react'
 import { getUser, useAuth } from '@/lib/auth'
 import { readingChangeEvent } from './workspacePreferences'
+import { ARTISTIC_SKINS, artisticMaterialStyle } from './artisticSkins'
+export { ARTISTIC_SKINS } from './artisticSkins'
 
 export type WorkbenchTheme = typeof WORKBENCH_THEMES[number]['id'] | 'inherit'
 const prefix = 'forge.vibecoding.theme:'
@@ -21,8 +23,8 @@ export const IMMERSIVE_SKINS = [
   { id: 'phosphor-terminal', name: 'Phosphor Terminal', description: '荧光终端 · 墨绿与琥珀', colors: ['#101a16', '#14231c', '#0c1510', '#1b3025', '#42644e', '#d0ebd5', '#a2c8ad', '#a5e5b0', '#ebc995', '#b4de9c'] },
   { id: 'aurora-glass', name: 'Aurora Glass', description: '极光玻璃 · 烟灰与通透', colors: ['#202a35', '#293441', '#1c2530', '#334151', '#617084', '#edf1fa', '#c0ccdf', '#b5d6eb', '#d9c4eb', '#b7dfcf'] },
 ] as const
-export const WORKBENCH_THEMES = [...CLASSIC_THEMES, ...IMMERSIVE_SKINS] as const
-export const isImmersiveSkin = (theme: WorkbenchTheme) => IMMERSIVE_SKINS.some(option => option.id === theme)
+export const WORKBENCH_THEMES = [...CLASSIC_THEMES, ...IMMERSIVE_SKINS, ...ARTISTIC_SKINS] as const
+export const isImmersiveSkin = (theme: WorkbenchTheme) => [...IMMERSIVE_SKINS, ...ARTISTIC_SKINS].some(option => option.id === theme)
 const tokenNames = ['background', 'surface', 'sidebar', 'raised', 'border', 'text', 'muted', 'accent', 'keyword', 'string'] as const
 
 export function workbenchThemeName(theme: WorkbenchTheme) {
@@ -58,6 +60,7 @@ export function workbenchThemeStyle(theme: WorkbenchTheme, strength = 0.6): CSSP
     '--wb-canvas-texture': paper ? 'repeating-linear-gradient(8deg, transparent 0 5px, rgb(112 74 37 / calc(.035 * var(--wb-material-strength))) 5px 6px)' : news ? 'repeating-linear-gradient(90deg, transparent 0 79px, rgb(37 37 32 / calc(.025 * var(--wb-material-strength))) 79px 80px)' : terminal ? 'repeating-linear-gradient(0deg, transparent 0 3px, rgb(165 229 176 / calc(.025 * var(--wb-material-strength))) 3px 4px)' : glass ? 'radial-gradient(ellipse at 0 0, rgb(121 159 172 / calc(.18 * var(--wb-material-strength))), transparent 65%), radial-gradient(ellipse at 100% 100%, rgb(149 132 178 / calc(.14 * var(--wb-material-strength))), transparent 60%)' : 'none',
     '--wb-message-edge': paper ? 'inset 2px 0 rgb(112 74 37 / calc(.24 * var(--wb-material-strength)))' : news ? 'inset 0 1px rgb(37 37 32 / calc(.45 * var(--wb-material-strength)))' : terminal ? 'inset 2px 0 rgb(165 229 176 / calc(.25 * var(--wb-material-strength)))' : glass ? 'inset 0 1px rgb(255 255 255 / calc(.18 * var(--wb-material-strength)))' : 'none',
     '--wb-code-edge': paper ? 'inset 0 1px rgb(112 74 37 / calc(.15 * var(--wb-material-strength)))' : news ? 'inset 3px 0 rgb(37 37 32 / calc(.4 * var(--wb-material-strength)))' : terminal ? 'inset 0 2px rgb(165 229 176 / calc(.4 * var(--wb-material-strength)))' : glass ? 'inset 0 1px rgb(181 214 235 / calc(.25 * var(--wb-material-strength)))' : 'none',
+    ...artisticMaterialStyle(theme, strength),
   } as CSSProperties
 }
 

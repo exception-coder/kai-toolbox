@@ -6,6 +6,8 @@ import { useAuth } from '@/lib/auth'
 import { clearWorkbenchPreview, previewWorkbenchTheme, setWorkbenchTheme, useWorkbenchTheme, useWorkbenchMaterialStrength, CLASSIC_THEMES, IMMERSIVE_SKINS, workbenchThemeName, workbenchThemeStyle, isImmersiveSkin, type WorkbenchTheme } from '../lib/workbenchTheme'
 import { AssistantReply } from './messages/AssistantReply'
 import { ToolCallBubble } from './ToolCallBubble'
+import { ArtisticSkinCover } from './ArtisticSkinCover'
+import { ARTISTIC_SKINS } from '../lib/artisticSkins'
 import '../styles/workbench-theme.css'
 
 /** 复用消息与工具渲染器；示例不连接会话、引擎或任务。 */
@@ -17,7 +19,8 @@ function ThemeScene({ theme, strength, thumbnail = false }: { theme: WorkbenchTh
       <div className="wb-scene-author">Forge <span>09:41</span></div>
       {thumbnail ? <div className="wb-assistant-reply"><h3>让内容成为主角</h3><p>清晰的正文，安静的材质。</p><pre>const focus = true</pre><div className="wb-tool-call">✓ 已完成文件检查</div></div>
         : <><AssistantReply text={'### 让内容成为主角\n\n保留清晰的层级，材质只提供轻微的阅读氛围。**任务、草稿和会话保持不变。**\n\n- 消息自然展开\n- 代码与工具结果保持结构\n\n```ts\nconst focus = true\n```'} />
-          <ToolCallBubble toolName="Read" input={{ file: 'src/workspace.ts' }} output="已读取示例文件；未执行真实任务。" /></>}
+          <ToolCallBubble toolName="Read" input={{ file: 'src/workspace.ts' }} output="已读取示例文件；未执行真实任务。" />
+          <div className="wb-scene-panel"><strong>面板表面 · 示例</strong>消息、代码与浮层使用同一套材质语言。</div></>}
     </div>
     <div className="mobile-composer-card wb-scene-composer"><span>输入消息…</span><div aria-hidden="true"><Plus size={16} /><Mic size={16} /><span className="wb-scene-send"><ArrowUp size={16} /></span></div></div>
   </div>
@@ -65,11 +68,11 @@ function ThemeEditor({ selected, currentStrength, userId }: { selected: Workbenc
     {error && <p role="alert" className="mt-3 text-xs text-[var(--color-danger)]">浏览器未允许保存，已保存的主题未更改。可恢复原主题后重试。</p>}
   </div>
   return <div ref={gallery} className="mt-3 space-y-5" role="group" aria-label="工作台主题">
-    {([{ title: '沉浸皮肤', options: IMMERSIVE_SKINS }, { title: '经典配色', options: CLASSIC_THEMES }] as const).map(group => <section key={group.title}>
+    {([{ title: '艺术皮肤', options: ARTISTIC_SKINS }, { title: '沉浸皮肤', options: IMMERSIVE_SKINS }, { title: '经典配色', options: CLASSIC_THEMES }] as const).map(group => <section key={group.title}>
       <h3 className="mb-2 text-xs font-semibold text-[var(--color-muted-foreground)]">{group.title}</h3>
       <div className="grid grid-cols-2 gap-3">{group.options.map(theme => <button key={theme.id} type="button" data-theme-option={theme.id} aria-pressed={selected === theme.id} aria-label={theme.name}
         onClick={() => choose(theme.id)} className="wb-theme-option min-w-0 overflow-hidden rounded-lg border border-[var(--color-border)] p-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
-        <ThemeScene theme={theme.id} strength={currentStrength} thumbnail />
+        {ARTISTIC_SKINS.some(skin => skin.id === theme.id) ? <ArtisticSkinCover theme={theme.id} strength={currentStrength} /> : <ThemeScene theme={theme.id} strength={currentStrength} thumbnail />}
         <span className="mt-2 flex min-w-0 items-center justify-between gap-1 text-xs font-semibold"><span>{theme.name}</span>{selected === theme.id && <Check className="size-4 shrink-0" />}</span>
         <span className="mt-1 block text-xs leading-relaxed text-[var(--color-muted-foreground)]">{theme.description}</span>
       </button>)}</div>
