@@ -123,7 +123,7 @@ export function MobileSessionStatus({
     enabled: open && view === 'recent' && Boolean(onSwitchSession),
     refetchInterval: open && view === 'recent' ? 15_000 : false,
   })
-  const recentSessions = recentBoardSessions(sessionList.data ?? []).slice(0, 3)
+  const recentSessions = recentBoardSessions(sessionList.data ?? [])
   const status = deriveMobileSessionStatus({
     items,
     running,

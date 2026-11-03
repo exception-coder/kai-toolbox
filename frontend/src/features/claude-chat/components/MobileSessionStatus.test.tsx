@@ -388,13 +388,14 @@ describe('MobileSessionStatus', () => {
     fireEvent.click(screen.getByRole('button', { name: '复制本轮' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledExactlyOnceWith('已修复。\n\n定向验证通过。'))
   })
-  it('按需显示最近三条会话及真实状态，并保持原切换入口', async () => {
+  it('按需显示超过五条最近会话，在面板内滚动并保持真实状态与切换入口', async () => {
     getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
     const session = (id: string, status: 'IDLE' | 'RUNNING', lastSeenAt: number): ClaudeChatSessionView => ({
       id, cwd: `D:/work/${id}`, title: id, sdkSessionId: null, status,
       startedAt: lastSeenAt, lastSeenAt, live: status === 'RUNNING',
     })
     listSessions.mockResolvedValue([session('current', 'IDLE', 3), session('active', 'RUNNING', 2), session('recent', 'IDLE', 1), session('older', 'IDLE', 0),
+      session('fifth', 'IDLE', -1), session('sixth', 'IDLE', -2),
       { ...session('locked', 'IDLE', 5), planExpired: true },
       { ...session('locked-active', 'RUNNING', 6), planExpired: true }])
     const onSwitchSession = vi.fn()
@@ -405,10 +406,13 @@ describe('MobileSessionStatus', () => {
     expect(listSessions).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '最近会话' }))
     expect(await screen.findByRole('region', { name: '快速切换会话' })).toBeInTheDocument()
-    expect(await screen.findByText('最近会话 · 3')).toBeInTheDocument()
+    expect(await screen.findByText('最近会话 · 6')).toBeInTheDocument()
     expect(screen.getByText('进行中')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /locked/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /older/ })).not.toBeInTheDocument()
+    const scrollable = screen.getByRole('region', { name: '会话操作与运行详情' })
+    expect(scrollable).toHaveClass('overflow-y-auto', 'overscroll-contain', 'min-h-0')
+    expect(scrollable).toContainElement(screen.getByRole('button', { name: /sixth/ }))
+    expect(screen.getByRole('button', { name: /current/ })).toHaveAttribute('aria-current', 'page')
     fireEvent.click(screen.getByRole('button', { name: /active/ }))
     expect(onSwitchSession).toHaveBeenCalledWith('active', true)
   })

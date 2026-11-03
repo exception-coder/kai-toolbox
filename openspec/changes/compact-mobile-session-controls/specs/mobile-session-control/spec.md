@@ -17,7 +17,9 @@ The session control sheet SHALL prioritize the queue summary, equal-level availa
 
 #### Scenario: Recent sessions
 - **WHEN** the user selects the recent-session view
-- **THEN** the sheet SHALL query existing session data and show at most three eligible recent sessions with real state labels
+- **THEN** the sheet SHALL use the existing recent-session collection of up to twenty eligible sessions with real state labels, without truncating it to three
+- **AND** at least five entries SHALL be available when enough sessions exist, with more entries reachable through the existing independently scrolling content region
+- **AND** sheet height SHALL remain bounded by the available viewport, including short screens, keyboards and enlarged fonts
 - **AND** switching SHALL use the existing draft-preserving switch operation
 - **AND** full management SHALL remain accessible through the existing session board.
 
