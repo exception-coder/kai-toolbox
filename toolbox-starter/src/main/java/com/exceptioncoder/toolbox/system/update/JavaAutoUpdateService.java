@@ -1,6 +1,5 @@
 package com.exceptioncoder.toolbox.system.update;
 
-import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatActivityView;
 import com.exceptioncoder.toolbox.claudechat.service.AgentWorkAdmissionGate;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
 import com.exceptioncoder.toolbox.common.scheduling.ScheduledTaskInfo;
@@ -40,7 +39,7 @@ import java.util.regex.Pattern;
 
 /**
  * Java 进程内的唯一自动更新 owner：定时 fetch、安全分类、候选构建、Agent 排空、不可变 SHA 快进与重启交接。
- * 任一步无法确认都保持旧服务运行；绝不 stash/reset/clean/rebase，也不强杀在途 Agent。
+ * 任一步无法确认都保持旧服务运行；原生 stash 保护已跟踪改动，不 reset/clean/rebase 或强杀 Agent。
  */
 @Service
 public class JavaAutoUpdateService {
@@ -66,6 +65,8 @@ public class JavaAutoUpdateService {
     private volatile boolean shuttingDown;
     private volatile String candidateSha;
     private volatile long candidateFirstSeenAt;
+    private long idleSince;
+    private long idleAdmissionGeneration;
     private volatile int consecutiveFetchFailures;
     private volatile long nextEligibleAt;
     private volatile String failedBuildSha;
@@ -128,7 +129,7 @@ public class JavaAutoUpdateService {
             owner = "系统维护")
     @Scheduled(
             initialDelayString = "${toolbox.system.auto-update.initial-delay:PT30S}",
-            fixedDelayString = "${toolbox.system.auto-update.interval:PT120S}",
+            fixedDelayString = "${toolbox.system.auto-update.interval:PT300S}",
             scheduler = "autoUpdateTaskScheduler")
     public void scheduledCheck() {
         if (schedule.isDue(System.currentTimeMillis())) submitCheck();
@@ -160,7 +161,7 @@ public class JavaAutoUpdateService {
                 properties.getRemote() + "/" + properties.getBranch(),
                 properties.getInterval().toSeconds(),
                 properties.getStableWindow().toSeconds(),
-                properties.isRequireIdle(),
+                true,
                 state,
                 message,
                 lastCheck,
@@ -173,7 +174,9 @@ public class JavaAutoUpdateService {
                 lastError,
                 properties.getScheduleMode().name().toLowerCase(java.util.Locale.ROOT),
                 properties.getCron(),
-                properties.getZone());
+                properties.getZone(),
+                properties.getRestartPolicy().name().toLowerCase(java.util.Locale.ROOT),
+                properties.getIdleWindow().toSeconds());
     }
 
     void runCheck() {
@@ -239,6 +242,7 @@ public class JavaAutoUpdateService {
         localHead = repoState.localHead();
         remoteHead = repoState.remoteHead();
         if (!repoState.updateAvailable()) {
+            idleSince = 0;
             candidateSha = null;
             candidateFirstSeenAt = 0;
             transition(mapState(repoState.disposition()), repoState.reason(),
@@ -249,6 +253,7 @@ public class JavaAutoUpdateService {
 
         long now = System.currentTimeMillis();
         if (!repoState.remoteHead().equals(candidateSha)) {
+            idleSince = 0;
             candidateSha = repoState.remoteHead();
             candidateFirstSeenAt = now;
             if (!candidateSha.equals(failedBuildSha)) clearBuildFailure();
@@ -277,6 +282,7 @@ public class JavaAutoUpdateService {
         }
         clearBuildFailure();
         Path stagedJar = build.jar();
+        if (!readyForAutomaticRestart()) return;
 
         try (RestartCoordinator.RestartReservation reservation =
                      restartCoordinator.reserveAfterUpdate(stagedJar, root)) {
@@ -300,7 +306,7 @@ public class JavaAutoUpdateService {
         AgentWorkAdmissionGate.DrainLease lease = acquired.get();
         boolean keepDrain = false;
         try {
-            if (properties.isRequireIdle() && !waitForIdle()) return;
+            if (!finalIdleCheck()) return;
 
             transition("validating", "正在进行应用前最终复核", null, null);
             AutoUpdateCommandRunner.Result finalFetch = repository.fetch(root);
@@ -319,7 +325,7 @@ public class JavaAutoUpdateService {
                 transition("state-changed", "最终复核时仓库或远端已变化，本轮不应用", "repository-changed", null);
                 return;
             }
-            if (properties.isRequireIdle() && !claudeChatService.activitySnapshot().safeToRestart()) {
+            if (!safeToRestart()) {
                 transition("waiting-for-idle", "最终复核时出现新的活动工作，本轮延期", "agent-active", null);
                 return;
             }
@@ -353,7 +359,7 @@ public class JavaAutoUpdateService {
                         keepDrain = false;
                     }
                 }
-                transition("restart-required", "代码已更新，但安全重启交接失败；将继续重试",
+                transition("restart-required", "代码已更新，但安全重启交接失败；等待人工确认",
                         restart.failure().name().toLowerCase(), restart.message());
                 return;
             }
@@ -398,74 +404,48 @@ public class JavaAutoUpdateService {
             transition("state-changed", "待重启提交已明确不再是当前 HEAD，取消自动交接", "head-changed", null);
             return;
         }
-        try (RestartCoordinator.RestartReservation reservation =
-                     restartCoordinator.reserveAfterUpdate(pending.jar(), pending.root())) {
-            if (!reservation.accepted()) {
-                RestartCoordinator.RestartOutcome outcome = reservation.outcome();
-                transition("restart-required", "代码已更新，但重启通道暂不可用",
-                        outcome.failure().name().toLowerCase(), outcome.message());
-                return;
-            }
-            applyRestartOnly(pending, reservation);
-        }
+        transition("restart-required", "保留待重启版本；上次交接未完成，请核对后人工确认重启",
+                "restart-confirmation-required", null);
     }
 
-    private void applyRestartOnly(PendingRestart pending, RestartCoordinator.RestartReservation reservation) {
-        Optional<AgentWorkAdmissionGate.DrainLease> acquired = admissionGate.tryAcquireDrain();
-        if (acquired.isEmpty()) {
-            transition("waiting-for-idle", "等待其它排空流程结束后重试重启", "drain-busy", null);
-            return;
+    /** Waiting never closes admission. The generation also catches work completed between polls. */
+    private boolean readyForAutomaticRestart() {
+        if (properties.getRestartPolicy() != AutoUpdateProperties.RestartPolicy.IDLE) {
+            idleSince = 0;
+            transition("restart-required", "候选已准备，等待人工确认更新重启", "manual-restart", null);
+            return false;
         }
-        AgentWorkAdmissionGate.DrainLease lease = acquired.get();
-        boolean keepDrain = false;
-        try {
-            if (properties.isRequireIdle() && !waitForIdle()) return;
-            retainedDrain = lease;
-            retainedRestartReservation = reservation;
-            keepDrain = true;
-            watchRestartFailure(reservation, lease, pending.sha(), pending.jar(), pending.root());
-            RestartCoordinator.RestartOutcome restart = reservation.restartAfterUpdate();
-            if (!restart.accepted()) {
-                synchronized (restartStateLock) {
-                    if (retainedRestartReservation == reservation) {
-                        retainedRestartReservation = null;
-                        retainedDrain = null;
-                        keepDrain = false;
-                    }
-                }
-                transition("restart-required", "代码已更新，重启交接仍未成功",
-                        restart.failure().name().toLowerCase(), restart.message());
-                return;
-            }
-            synchronized (restartStateLock) {
-                if (retainedRestartReservation != reservation) return;
-                lastSuccess = System.currentTimeMillis();
-                transition("restarting", "重启接管已确认", null, null);
-            }
-            scheduleDrainSafetyRelease(reservation, lease, pending.sha(), pending.jar(), pending.root());
-        } finally {
-            if (!keepDrain) lease.close();
+        long generation = admissionGate.admissionGeneration();
+        if (!safeToRestart()) {
+            idleSince = 0;
+            transition("waiting-for-idle", "候选已准备，等待任务、授权与队列处理完毕", "agent-active", null);
+            return false;
         }
+        long now = System.nanoTime();
+        if (idleSince == 0 || generation != idleAdmissionGeneration) {
+            idleSince = now;
+            idleAdmissionGeneration = generation;
+        }
+        if (now - idleSince < properties.getIdleWindow().toNanos()) {
+            transition("waiting-for-idle", "候选已准备，观察空闲窗口；仍可正常发起任务", "idle-window", null);
+            return false;
+        }
+        return true;
     }
 
-    private boolean waitForIdle() {
-        long deadline = System.nanoTime() + properties.getDrainTimeout().toNanos();
-        while (!shuttingDown && System.nanoTime() < deadline) {
-            ClaudeChatActivityView activity = claudeChatService.activitySnapshot();
-            if (activity.safeToRestart()) return true;
-            transition("waiting-for-idle", "等待在途 Agent 工作完成：turn=" + activity.runningTurnCount()
-                    + ", oneShot=" + activity.oneShotCount() + ", background=" + activity.backgroundTaskCount(),
-                    "agent-active", null);
-            try {
-                Thread.sleep(1_000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                transition("waiting-for-idle", "排空等待被中断，本轮延期", "interrupted", null);
-                return false;
-            }
+    /** Called with admission closed: no five-minute drain or rejection of new work while waiting. */
+    private boolean finalIdleCheck() {
+        if (admissionGate.admissionGeneration() != idleAdmissionGeneration
+                || !safeToRestart()) {
+            idleSince = 0;
+            transition("waiting-for-idle", "交接前出现新任务，本轮延期", "agent-active", null);
+            return false;
         }
-        transition("waiting-for-idle", "在配置的排空时限内仍有活动任务，本轮延期", "drain-timeout", null);
-        return false;
+        return true;
+    }
+
+    private boolean safeToRestart() {
+        return claudeChatService.activitySnapshot().safeToRestart() && !claudeChatService.hasQueuedMessages();
     }
 
     private RepositoryLock tryRepositoryLock(Path root) throws IOException {
@@ -637,7 +617,7 @@ public class JavaAutoUpdateService {
                 retainedDrain = null;
                 lease.close();
                 pendingRestart = new PendingRestart(sha, jar, root, processInstanceId);
-                transition("restart-required", "重启交接失败，旧服务已恢复接收任务并将在空闲时重试",
+                transition("restart-required", "重启交接失败，旧服务已恢复接收任务；等待人工确认再次重启",
                         failure.failure().name().toLowerCase(), failure.message());
             }
         });
@@ -659,7 +639,7 @@ public class JavaAutoUpdateService {
                 retainedRestartReservation = null;
                 lease.close();
                 pendingRestart = new PendingRestart(sha, jar, root, processInstanceId);
-                transition("restart-required", "重启接管超时，旧服务已恢复接收任务并将在空闲时重试",
+                transition("restart-required", "重启接管超时，旧服务已恢复接收任务；等待人工确认再次重启",
                         "reload-timeout", "外部接管在 120 秒内未结束当前 JVM");
             }
             reservation.abandon();

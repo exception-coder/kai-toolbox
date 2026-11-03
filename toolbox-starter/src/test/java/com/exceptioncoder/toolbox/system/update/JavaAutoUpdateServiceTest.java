@@ -55,7 +55,9 @@ class JavaAutoUpdateServiceTest {
 
         properties = new AutoUpdateProperties();
         properties.setScheduleMode(AutoUpdateProperties.ScheduleMode.INTERVAL);
+        properties.setRestartPolicy(AutoUpdateProperties.RestartPolicy.IDLE);
         properties.setStableWindow(Duration.ofMillis(1));
+        properties.setIdleWindow(Duration.ofMillis(1));
         properties.setInterval(Duration.ofSeconds(30));
         properties.setDrainTimeout(Duration.ofMillis(25));
         repository = mock(AutoUpdateRepository.class);
@@ -129,7 +131,7 @@ class JavaAutoUpdateServiceTest {
         when(repository.mergeImmutable(repositoryRoot, CANDIDATE_SHA)).thenReturn(COMMAND_OK);
         clearInvocations(repository, candidateBuilder, restartCoordinator, restartReservation, claudeChatService);
 
-        service.runCheck();
+        runAfterQuietWindow();
 
         assertThat(service.status().state()).isEqualTo("restarting");
         assertThat(service.status().localHead()).isEqualTo(CANDIDATE_SHA);
@@ -140,12 +142,6 @@ class JavaAutoUpdateServiceTest {
         ordered.verify(repository).fetch(repositoryRoot);
         ordered.verify(repository).inspect(repositoryRoot);
         ordered.verify(candidateBuilder).prepare(repositoryRoot, CANDIDATE_SHA);
-        ordered.verify(restartCoordinator).reserveAfterUpdate(stagedJar, repositoryRoot);
-        ordered.verify(restartReservation).accepted();
-        ordered.verify(claudeChatService).activitySnapshot();
-        ordered.verify(repository).fetch(repositoryRoot);
-        ordered.verify(repository).inspect(repositoryRoot);
-        ordered.verify(claudeChatService).activitySnapshot();
         ordered.verify(repository).mergeImmutable(repositoryRoot, CANDIDATE_SHA);
         ordered.verify(restartReservation).failureSignal();
         ordered.verify(restartReservation).restartAfterUpdate();
@@ -161,14 +157,14 @@ class JavaAutoUpdateServiceTest {
         when(candidateBuilder.prepare(repositoryRoot, CANDIDATE_SHA)).thenReturn(
                 new AutoUpdateCandidateBuilder.BuildResult(
                         true, stagedJar.getParent(), stagedJar, false, null));
-        when(claudeChatService.activitySnapshot()).thenReturn(idleActivity(), activeActivity());
+        when(claudeChatService.activitySnapshot()).thenReturn(idleActivity(), idleActivity(), activeActivity());
 
-        service.runCheck();
+        runAfterQuietWindow();
 
         assertThat(service.status().state()).isEqualTo("waiting-for-idle");
         assertThat(service.status().blockedReason()).isEqualTo("agent-active");
         assertThat(admissionGate.isDraining()).isFalse();
-        verify(claudeChatService, times(2)).activitySnapshot();
+        verify(claudeChatService, times(3)).activitySnapshot();
         verify(repository, never()).mergeImmutable(any(), any());
         verify(restartReservation, never()).restartAfterUpdate();
         verify(restartReservation).close();
@@ -234,6 +230,71 @@ class JavaAutoUpdateServiceTest {
         assertThat(service.status().state()).isEqualTo("restart-required");
         assertThat(service.status().blockedReason()).isEqualTo("pending-restart-blocked-dirty");
         assertThat(Files.isRegularFile(pendingFile)).isTrue();
+        verify(restartCoordinator, never()).reserveAfterUpdate(any(), any());
+    }
+
+    private void runAfterQuietWindow() throws Exception {
+        service.runCheck();
+        assertThat(service.status().blockedReason()).isEqualTo("idle-window");
+        assertThat(admissionGate.isDraining()).isFalse();
+        Thread.sleep(5);
+        service.runCheck();
+    }
+
+    @Test
+    void failedRestoreNeverRestartsAndFailedHandoffIsNotRetried() throws Exception {
+        observeCandidateAndWaitUntilStable();
+        when(candidateBuilder.prepare(repositoryRoot, CANDIDATE_SHA)).thenReturn(
+                new AutoUpdateCandidateBuilder.BuildResult(true, stagedJar.getParent(), stagedJar, false, null));
+        when(repository.mergeImmutable(repositoryRoot, CANDIDATE_SHA)).thenReturn(
+                AutoUpdateCommandRunner.Result.failed("stash restoration conflict"));
+        runAfterQuietWindow();
+        assertThat(service.status().state()).isEqualTo("apply-error");
+        assertThat(admissionGate.isDraining()).isFalse();
+        verify(restartReservation, never()).restartAfterUpdate();
+
+        when(repository.mergeImmutable(repositoryRoot, CANDIDATE_SHA)).thenReturn(COMMAND_OK);
+        CompletableFuture<RestartCoordinator.RestartOutcome> failure = new CompletableFuture<>();
+        when(restartReservation.failureSignal()).thenReturn(failure);
+        service.runCheck();
+        assertThat(service.status().state()).isEqualTo("restarting");
+        failure.complete(RestartCoordinator.RestartOutcome.rejected(
+                RestartCoordinator.Failure.HANDOFF_FAILED, "timeout"));
+        assertThat(admissionGate.isDraining()).isFalse();
+        when(repository.inspect(repositoryRoot)).thenReturn(new AutoUpdateRepository.RepositoryState(
+                AutoUpdateRepository.Disposition.UP_TO_DATE, "current", CANDIDATE_SHA, CANDIDATE_SHA));
+        service.runCheck();
+        assertThat(service.status().blockedReason()).isEqualTo("restart-confirmation-required");
+        verify(restartReservation, times(1)).restartAfterUpdate();
+    }
+
+    @Test
+    void shortTaskBetweenPollsResetsQuietWindowWithoutBlockingAdmission() throws Exception {
+        observeCandidateAndWaitUntilStable();
+        when(candidateBuilder.prepare(repositoryRoot, CANDIDATE_SHA)).thenReturn(
+                new AutoUpdateCandidateBuilder.BuildResult(true, stagedJar.getParent(), stagedJar, false, null));
+        service.runCheck();
+        Thread.sleep(5);
+        assertThat(admissionGate.tryAdmit(() -> { })).isTrue();
+        service.runCheck();
+        assertThat(service.status().blockedReason()).isEqualTo("idle-window");
+        assertThat(admissionGate.isDraining()).isFalse();
+        verify(restartCoordinator, never()).reserveAfterUpdate(any(), any());
+    }
+
+    @Test
+    void queuedMessagesAndManualPolicyKeepPreparedCandidateWithoutRestart() throws Exception {
+        observeCandidateAndWaitUntilStable();
+        when(candidateBuilder.prepare(repositoryRoot, CANDIDATE_SHA)).thenReturn(
+                new AutoUpdateCandidateBuilder.BuildResult(true, stagedJar.getParent(), stagedJar, false, null));
+        when(claudeChatService.hasQueuedMessages()).thenReturn(true);
+        service.runCheck();
+        assertThat(service.status().blockedReason()).isEqualTo("agent-active");
+        when(claudeChatService.hasQueuedMessages()).thenReturn(false);
+        properties.setRestartPolicy(AutoUpdateProperties.RestartPolicy.MANUAL);
+        service.runCheck();
+        assertThat(service.status().blockedReason()).isEqualTo("manual-restart");
+        verify(repository, never()).mergeImmutable(any(), any());
         verify(restartCoordinator, never()).reserveAfterUpdate(any(), any());
     }
 

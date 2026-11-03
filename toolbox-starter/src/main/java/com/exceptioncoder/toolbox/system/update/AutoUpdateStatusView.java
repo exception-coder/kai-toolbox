@@ -20,6 +20,8 @@ public record AutoUpdateStatusView(
         String lastError,
         String scheduleMode,
         String cron,
-        String zone
+        String zone,
+        String restartPolicy,
+        long idleSeconds
 ) {
 }

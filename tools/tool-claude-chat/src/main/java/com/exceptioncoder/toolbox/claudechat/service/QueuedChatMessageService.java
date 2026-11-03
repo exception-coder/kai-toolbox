@@ -61,6 +61,8 @@ public class QueuedChatMessageService {
                 })).toList();
     }
 
+    public boolean hasPendingMessages() { return repository.hasPendingMessages(); }
+
     @Transactional
     public QueuedChatMessage save(String sessionId, String id, String text, String displayText,
                                   String developerInstructions, List<QueuedChatMessage.Attachment> attachments,

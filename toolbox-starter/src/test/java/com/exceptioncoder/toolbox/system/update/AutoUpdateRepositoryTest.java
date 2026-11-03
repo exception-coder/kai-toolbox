@@ -39,7 +39,7 @@ class AutoUpdateRepositoryTest {
         git(seed, "commit", "-m", "initial");
         git(seed, "branch", "-M", "main");
         git(seed, "push", "-u", "origin", "main");
-        git(temp, "clone", "--branch", "main", remote.toString(), local.toString());
+        git(temp, "clone", "-c", "core.autocrlf=false", "--branch", "main", remote.toString(), local.toString());
         configureUser(local);
 
         AutoUpdateProperties properties = new AutoUpdateProperties();
@@ -60,22 +60,23 @@ class AutoUpdateRepositoryTest {
         assertThat(behind.disposition()).isEqualTo(AutoUpdateRepository.Disposition.BEHIND);
         assertThat(behind.remoteHead()).isEqualTo(candidate);
 
-        assertThat(repository.mergeImmutable(local, candidate).success()).isTrue();
+        assertThat(repository.mergeImmutable(local, candidate)).satisfies(result ->
+                assertThat(result.success()).as(result.summary()).isTrue());
         AutoUpdateRepository.RepositoryState updated = repository.inspect(local);
         assertThat(updated.disposition()).isEqualTo(AutoUpdateRepository.Disposition.UP_TO_DATE);
         assertThat(updated.localHead()).isEqualTo(candidate);
     }
 
     @Test
-    void blocksTrackedAndUntrackedChangesWithoutChangingHead() throws Exception {
+    void inspectionPreservesTrackedAndUntrackedChangesWithoutChangingHead() throws Exception {
         String original = git(local, "rev-parse", "HEAD").trim();
         Files.writeString(local.resolve("version.txt"), "dirty\n");
-        assertThat(repository.inspect(local).disposition()).isEqualTo(AutoUpdateRepository.Disposition.DIRTY);
+        assertThat(repository.inspect(local).disposition()).isEqualTo(AutoUpdateRepository.Disposition.UP_TO_DATE);
         assertThat(git(local, "rev-parse", "HEAD").trim()).isEqualTo(original);
 
         git(local, "restore", "version.txt");
         Files.writeString(local.resolve("untracked.txt"), "dirty\n");
-        assertThat(repository.inspect(local).disposition()).isEqualTo(AutoUpdateRepository.Disposition.DIRTY);
+        assertThat(repository.inspect(local).disposition()).isEqualTo(AutoUpdateRepository.Disposition.UP_TO_DATE);
         assertThat(git(local, "rev-parse", "HEAD").trim()).isEqualTo(original);
     }
 
@@ -102,7 +103,8 @@ class AutoUpdateRepositoryTest {
 
         String newerCandidate = pushRemoteChange("three");
         assertThat(repository.fetch(local).success()).isTrue();
-        assertThat(repository.mergeImmutable(local, firstCandidate).success()).isTrue();
+        assertThat(repository.mergeImmutable(local, firstCandidate)).satisfies(result ->
+                assertThat(result.success()).as(result.summary()).isTrue());
         assertThat(git(local, "rev-parse", "HEAD").trim()).isEqualTo(firstCandidate);
         assertThat(git(local, "rev-parse", "refs/remotes/origin/main").trim()).isEqualTo(newerCandidate);
         assertThat(repository.inspect(local).disposition()).isEqualTo(AutoUpdateRepository.Disposition.BEHIND);
@@ -123,6 +125,53 @@ class AutoUpdateRepositoryTest {
         assertThat(partial.registered()).isFalse();
     }
 
+    @Test
+    void restoresIndexAndWorktreeAndKeepsUntrackedAndStashBackup() throws Exception {
+        Files.writeString(local.resolve("pom.xml"), "staged\n");
+        git(local, "add", "pom.xml");
+        Files.writeString(local.resolve("pom.xml"), "unstaged\n");
+        Files.writeString(local.resolve("private.txt"), "keep\n");
+        String candidate = pushRemoteChange("two");
+        assertThat(repository.fetch(local).success()).isTrue();
+        assertThat(repository.mergeImmutable(local, candidate)).satisfies(result ->
+                assertThat(result.success()).as(result.summary()).isTrue());
+        assertThat(git(local, "show", ":pom.xml")).isEqualTo("staged\n");
+        assertThat(Files.readString(local.resolve("pom.xml"))).isEqualTo("unstaged\n");
+        assertThat(Files.readString(local.resolve("private.txt"))).isEqualTo("keep\n");
+        assertThat(git(local, "stash", "list")).contains("forge-auto-update-");
+        assertThat(git(local, "rev-parse", "HEAD").trim()).isEqualTo(candidate);
+    }
+
+    @Test
+    void restoreConflictRetainsBackupAndBlocksNextUpdate() throws Exception {
+        Files.writeString(local.resolve("version.txt"), "local change\n");
+        String candidate = pushRemoteChange("remote change");
+        assertThat(repository.fetch(local).success()).isTrue();
+        assertThat(repository.mergeImmutable(local, candidate).success()).isFalse();
+        assertThat(git(local, "stash", "list")).contains("forge-auto-update-");
+        assertThat(repository.inspect(local).disposition()).isEqualTo(AutoUpdateRepository.Disposition.OPERATION_IN_PROGRESS);
+        assertThat(repository.mergeImmutable(local, candidate).success()).isFalse();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void untrackedCollisionFailsFastForwardAndRestoresTrackedEdits(boolean ignored) throws Exception {
+        String original = git(local, "rev-parse", "HEAD").trim();
+        Files.writeString(local.resolve("pom.xml"), "local edit\n");
+        Files.writeString(local.resolve("new.txt"), "private\n");
+        if (ignored) Files.writeString(local.resolve(".git/info/exclude"), "new.txt\n");
+        Files.writeString(seed.resolve("new.txt"), "remote\n");
+        git(seed, "add", "new.txt");
+        git(seed, "commit", "-m", "new path");
+        git(seed, "push", "origin", "main");
+        String candidate = git(seed, "rev-parse", "HEAD").trim();
+        assertThat(repository.fetch(local).success()).isTrue();
+        assertThat(repository.mergeImmutable(local, candidate).success()).isFalse();
+        assertThat(git(local, "rev-parse", "HEAD").trim()).isEqualTo(original);
+        assertThat(Files.readString(local.resolve("pom.xml"))).isEqualTo("local edit\n");
+        assertThat(Files.readString(local.resolve("new.txt"))).isEqualTo("private\n");
+    }
+
     private String pushRemoteChange(String value) throws Exception {
         Files.writeString(seed.resolve("version.txt"), value + "\n");
         git(seed, "add", "version.txt");
@@ -132,6 +181,7 @@ class AutoUpdateRepositoryTest {
     }
 
     private static void configureUser(Path directory) throws Exception {
+        git(directory, "config", "core.autocrlf", "false");
         git(directory, "config", "user.email", "auto-update-test@example.invalid");
         git(directory, "config", "user.name", "Auto Update Test");
     }

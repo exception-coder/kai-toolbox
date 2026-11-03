@@ -25,6 +25,10 @@ public final class AgentWorkAdmissionGate {
     private final ReentrantLock lock = new ReentrantLock(true);
     private boolean draining;
     private long drainGeneration;
+    private volatile long admissionGeneration;
+
+    /** Detect even short tasks that start and finish between update polling observations. */
+    public long admissionGeneration() { return admissionGeneration; }
 
     /**
      * Runs an admission registration atomically with respect to drain acquisition.
@@ -38,6 +42,7 @@ public final class AgentWorkAdmissionGate {
             if (draining) {
                 return false;
             }
+            admissionGeneration++;
             registration.run();
             return true;
         } finally {

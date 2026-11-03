@@ -12,7 +12,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-/** Git 工作区安全检查与不可变 SHA 快进。任何不确定状态都返回阻断，不修复用户工作区。 */
+/** Git 工作区安全检查与不可变 SHA 快进；本地改动通过有恢复记录的原生 stash 保护。 */
 @Component
 public class AutoUpdateRepository {
 
@@ -20,7 +20,7 @@ public class AutoUpdateRepository {
     private static final Pattern SHA = Pattern.compile("[0-9a-fA-F]{40,64}");
     private static final List<String> OPERATION_MARKERS = List.of(
             "index.lock", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG",
-            "sequencer", "rebase-apply", "rebase-merge");
+            "sequencer", "rebase-apply", "rebase-merge", "forge-auto-update-stash.pending");
     private static final Map<String, String> NON_INTERACTIVE_GIT = Map.of(
             "GIT_TERMINAL_PROMPT", "0",
             "GCM_INTERACTIVE", "Never");
@@ -129,7 +129,10 @@ public class AutoUpdateRepository {
         AutoUpdateCommandRunner.Result status = git(root, properties.getCommandTimeout(),
                 List.of("status", "--porcelain=v2", "--untracked-files=all"));
         if (!status.success()) return blocked(Disposition.ERROR, "读取工作区状态失败：" + status.summary(), null, null);
-        if (!status.stdout().isBlank()) return blocked(Disposition.DIRTY, "工作区存在未提交或未跟踪文件", null, null);
+        AutoUpdateCommandRunner.Result conflicts = git(root, properties.getCommandTimeout(), List.of("ls-files", "--unmerged"));
+        if (!conflicts.success() || !conflicts.stdout().isBlank()) {
+            return blocked(Disposition.DIRTY, "工作区存在未解决冲突或无法确认冲突状态", null, null);
+        }
 
         RefResult localRef = revParse(root, "HEAD");
         RefResult remoteRef = revParse(root, "refs/remotes/" + expectedUpstream);
@@ -159,7 +162,7 @@ public class AutoUpdateRepository {
 
     public AutoUpdateCommandRunner.Result mergeImmutable(Path root, String candidateSha) {
         if (!validSha(candidateSha)) return AutoUpdateCommandRunner.Result.failed("候选 SHA 不合法");
-        return git(root, properties.getMergeTimeout(), List.of("merge", "--ff-only", "--no-edit", candidateSha));
+        return new AutoUpdateLocalChanges(this, properties).merge(root, candidateSha);
     }
 
     public AutoUpdateCommandRunner.Result addDetachedWorktree(Path root, Path stage, String candidateSha) {
@@ -238,7 +241,7 @@ public class AutoUpdateRepository {
         return AncestorResult.ERROR;
     }
 
-    private AutoUpdateCommandRunner.Result git(Path root, Duration timeout, List<String> args) {
+    AutoUpdateCommandRunner.Result git(Path root, Duration timeout, List<String> args) {
         List<String> command = new java.util.ArrayList<>();
         command.add(properties.getGitCommand());
         command.addAll(args);

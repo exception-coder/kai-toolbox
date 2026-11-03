@@ -9,7 +9,7 @@ import java.time.Duration;
 public class AutoUpdateProperties {
 
     private boolean enabled = true;
-    private ScheduleMode scheduleMode = ScheduleMode.DAILY;
+    private ScheduleMode scheduleMode = ScheduleMode.INTERVAL;
     private String cron = "0 0 0 * * *";
     private String zone = "Asia/Shanghai";
     private Duration retryWindow = Duration.ofHours(1);
@@ -17,7 +17,9 @@ public class AutoUpdateProperties {
     private String remote = "origin";
     private String branch = "main";
     private Duration initialDelay = Duration.ofSeconds(30);
-    private Duration interval = Duration.ofSeconds(120);
+    private Duration interval = Duration.ofMinutes(5);
+    private Duration idleWindow = Duration.ofMinutes(5);
+    private RestartPolicy restartPolicy = RestartPolicy.MANUAL;
     private Duration stableWindow = Duration.ofSeconds(120);
     private Duration commandTimeout = Duration.ofSeconds(10);
     private Duration fetchTimeout = Duration.ofSeconds(45);
@@ -34,6 +36,11 @@ public class AutoUpdateProperties {
 
     public boolean isEnabled() { return enabled; }
     public enum ScheduleMode { DAILY, INTERVAL }
+    public enum RestartPolicy { IDLE, MANUAL }
+    public RestartPolicy getRestartPolicy() { return restartPolicy; }
+    public void setRestartPolicy(RestartPolicy restartPolicy) { this.restartPolicy = restartPolicy; }
+    public Duration getIdleWindow() { return idleWindow; }
+    public void setIdleWindow(Duration idleWindow) { this.idleWindow = duration(idleWindow, Duration.ofMinutes(5)); }
     public ScheduleMode getScheduleMode() { return scheduleMode; }
     public void setScheduleMode(ScheduleMode scheduleMode) { this.scheduleMode = scheduleMode; }
     public String getCron() { return cron; }
@@ -52,7 +59,7 @@ public class AutoUpdateProperties {
     public Duration getInitialDelay() { return initialDelay; }
     public void setInitialDelay(Duration initialDelay) { this.initialDelay = duration(initialDelay, Duration.ofSeconds(30)); }
     public Duration getInterval() { return interval; }
-    public void setInterval(Duration interval) { this.interval = duration(interval, Duration.ofSeconds(120)); }
+    public void setInterval(Duration interval) { this.interval = duration(interval, Duration.ofMinutes(5)); }
     public Duration getStableWindow() { return stableWindow; }
     public void setStableWindow(Duration stableWindow) { this.stableWindow = duration(stableWindow, Duration.ofSeconds(120)); }
     public Duration getCommandTimeout() { return commandTimeout; }

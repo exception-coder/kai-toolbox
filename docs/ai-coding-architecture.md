@@ -827,7 +827,24 @@ flowchart LR
 
 Forge 运行入口提供 Cloudflare 本地隧道的 Node 控制（tunnel start/stop/status/check），复用工作区私有 PM2。本机显式启用 `FORGE_CLOUDFLARE_ENABLED` 后，固定域名隧道随项目启动与完整重载运行，控制器重建时恢复，PM2 对意外退出做有限次数重试；全量 stop 仍停止它。启动完成判断要求本机服务与固定域名首页、API 均可回源，status/check 区分进程与公网状态，不能以 PM2 online 代替公网可用。远端域名、DNS 和凭证仍由 Cloudflare 及本机现有配置负责；Quick Tunnel 保持手动控制，不随登录默认启动，也不改变工程上下文、Agent 重启授权或交付裁决。固定/临时入口与网络边界见 [启动说明](../scripts/STARTUP.md#cloudflare-固定域名隧道)。
 
-Java 自动更新器新增每日触发模式：默认北京时间 00:00 开启一小时检查/重试窗口，没有更新即结束；停机错过不补跑，已开始的单轮操作仍完成。它继续独占远端 Git 检查、独立候选构建、空闲排空及固定 SHA 快进，再交给原 Forge/PM2 接管，不新增系统定时任务或起停脚本；interval 可显式保留旧轮询。状态报告计划检查时间，不代表构建或新版本运行成功。用户于 2026-11-02 已明确授权每日模式按上述安全条件自动全栈重启，固定例外记录于 AGENTS.md；Agent 当次部署、人工立即检查、interval 和故障修复后的再次重启仍须当次确认，原交付验证闭环不变；配置、实现与尚未运行验收的边界见[每日更新任务](../openspec/changes/schedule-daily-source-update/tasks.md)。现有组件职责及架构图连线不变。
+Java 自动更新器继续独占远端 Git 检查，默认改为每五分钟轮询 origin/main；daily 仍可显式选择。先等待远端 SHA 稳定并在独立 worktree 构建候选，再按 restart-policy 决定交接。manual 为安全默认，仅准备候选；明确启用 idle 后，在无任务、待处理授权和持久队列的情况下观察五分钟空闲，Agent admission 世代捕获两次观测间完成的短任务。等待阶段不关闭任务入口，最终短暂排空与重新 fetch/HEAD 核对后，以持久恢复记录保护原生 stash、固定 SHA 快进与 --index 恢复。未跟踪文件留在原处，ahead/diverged、恢复冲突或未知状态均阻断，不 reset/clean/rebase。只构建和运行远端提交，恢复的未提交源码不进入候选制品。既有 Forge/PM2 是唯一重启接管者；交接失败恢复入口并等待人工确认，不自动再次重启。旧每日授权不自动扩张为全天重启许可，本次未改变运行配置或重启服务。实施与运行证据见[轮询更新任务](../openspec/changes/poll-source-update-safely/tasks.md)。
+
+```mermaid
+flowchart LR
+  Poll[Java 每五分钟 fetch] --> Compare{引用可快进且有更新}
+  Compare -->|是| Build[稳定 SHA / 独立候选构建]
+  Compare -->|否| Keep[保留当前服务 / 报告原因]
+  Build --> Policy{重启策略}
+  Policy -->|manual| Ready[候选就绪 / 等待确认]
+  Policy -->|已授权 idle| Quiet[正常接收任务 / 观察空闲五分钟]
+  Quiet --> Check[短暂关闭 admission / 最终复核]
+  Check --> Save[记录恢复意图 / stash 已跟踪改动]
+  Save --> Merge[固定 SHA 快进 / 恢复 index 与工作树]
+  Merge -->|成功| Forge[既有 Forge 与 PM2 接管]
+  Merge -->|失败或未知| Recover[保留备份与记录 / 阻断重试]
+  Forge -->|失败| Confirm[恢复任务入口 / 等待再次确认]
+```
+
 
 ```mermaid
 flowchart LR

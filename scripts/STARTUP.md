@@ -127,13 +127,15 @@ PM2 是独立进程所有者。控制器保留 `/status`、`/restart`、`/reload
 
 `node forge.mjs restart --scope backend` 调用 `/restart`，保留前端和现有 Cloudflare 进程；本机需配置 `TOOLBOX_SUPERVISOR_RESTART_TOKEN`，缺失时命令直接失败。无 scope 的 `restart` 执行完整 reload，会短暂重启前端和 Cloudflare。重启后均须核对 `node forge.mjs tunnel check` 的公网首页和 API 回源；单进程后端重启期间 API 仍会短暂不可用。
 
-Java 继续负责 Git 检查、空闲判断、候选构建和更新；控制层不增加第二套自动更新。工作树 dirty、分支分叉或会话忙碌时仍延期，不执行 stash/reset/clean。实际更新进度看 `/api/system/auto-update/status`。自动生成的内部控制令牌保存在 PM2 进程环境，不打印、不保存 PM2 dump。运行目录位于当前用户 `~/.kai-toolbox/runtime/<仓库标识>/`，日志也在此处。
+Java 是唯一自动更新 owner。默认 `TOOLBOX_AUTO_UPDATE_SCHEDULE_MODE=interval`，每 `TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS=300` 秒检查 `origin/main`；检查是 fetch 和引用比较，不是无条件 pull。没有更新不构建、不重启；ahead/diverged、Git 操作未结束或恢复记录未处理时延期。状态入口仍是 `/api/system/auto-update/status`。自动生成的内部控制令牌保存在 PM2 进程环境，不打印、不保存 PM2 dump；运行目录及日志位于当前用户 `~/.kai-toolbox/runtime/<仓库标识>/`。
 
-源码新增每日检查模式，默认北京时间（`Asia/Shanghai`）00:00 检查 `origin/main`。有更新时先等待提交稳定，在独立 worktree 构建候选，通过后等待任务空闲，最终复核并快进到固定提交，再请求既有 Forge 全栈重载；前后端、启用的辅助服务和隧道会短暂中断。没有更新即结束当轮，不重启。不能用无条件 `git pull && restart` 替代这些步骤。固定人工重启入口仍是 `node forge.mjs restart`。
+远端 SHA 稳定后，先在独立 worktree 构建候选。`TOOLBOX_AUTO_UPDATE_RESTART_POLICY=manual` 是安全默认值：仅准备候选，不修改主工作区或触发重启。明确授权持续轮询自动重启后，配置 `idle`：候选构建成功、无运行/未知任务、待处理授权和持久队列，并且连续两个观测之间至少 `TOOLBOX_AUTO_UPDATE_IDLE_SECONDS=300` 秒没有新任务登记，才允许交接。新任务即使在两次轮询之间完成，也会重置空闲窗口。等待期间正常接收任务；仅最终复核、快进和重启交接时关闭 admission。最终 fetch 若发现更新则重新稳定和构建，避免部署过时候选。轮询忙碌时不并发，网络和构建错误继续使用退避，不保证每次检查恰好相隔五分钟。
 
-`TOOLBOX_AUTO_UPDATE_SCHEDULE_MODE=daily`、`TOOLBOX_AUTO_UPDATE_CRON=0 0 0 * * *`、`TOOLBOX_AUTO_UPDATE_ZONE=Asia/Shanghai` 控制每日时刻。触发后在 `TOOLBOX_AUTO_UPDATE_RETRY_WINDOW_SECONDS=3600` 内按原 `TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS=120` 重试，复用网络/构建失败退避；超时后等待次日，已开始的单轮构建/排空/交接继续完成。人工 POST `/api/system/auto-update/check` 也开启同样窗口，可能更新并重启，并非只读检查。状态返回 `scheduleMode`、`cron`、`zone` 和 `nextCheck`；后者是计划触发时间，不保证精确执行。
+应用前使用原生 Git stash 保存已跟踪的 staged/unstaged 改动，按候选 SHA 执行 `merge --ff-only`，再 `stash apply --index <固定SHA>` 恢复。未跟踪文件（含运行目录、依赖和附件）留在原处；路径碰撞由 Git 拒绝，不覆盖。成功后保留 stash 备份，不自动 pop/drop。恢复失败或中断保留 `.git/forge-auto-update-stash.pending`（实际路径通过 git 解析）与备份，阻断下一次更新；人工核对恢复后才清理记录。已提交的本地领先/分叉不能靠 stash 解决，不自动 rebase/reset/push。候选制品只包含远端已提交代码，本地恢复的未提交修改不进入该制品。
 
-服务必须正在运行才会检查，停机或休眠错过时刻不补跑。需要持续轮询时显式选择 `TOOLBOX_AUTO_UPDATE_SCHEDULE_MODE=interval`；原间隔和稳定窗口配置继续有效。默认模式改变不代表运行实例已经加载：本次实现及待重启验收见[每日更新任务](../openspec/changes/schedule-daily-source-update/tasks.md)。当前代码未增加自动故障修复，也不能把重启交接已接受当成新版本验收通过。用户于 2026-11-02 明确授权每日模式按上述安全条件自动全栈重启，固定例外已记入 AGENTS.md；Agent 当次部署、人工立即检查、interval 及故障修复后的再次重启仍须当次确认。此授权不代表新调度已经加载或验收。
+`daily` 与 cron/zone/retry-window 仍可显式选择：`TOOLBOX_AUTO_UPDATE_CRON=0 0 0 * * *`、`TOOLBOX_AUTO_UPDATE_ZONE=Asia/Shanghai`、`TOOLBOX_AUTO_UPDATE_RETRY_WINDOW_SECONDS=3600`。停机错过每日窗口不补跑。`POST /api/system/auto-update/check` 是有副作用的人工检查，遵守 restart-policy，不是只读查询。状态新增 `restartPolicy` 和 `idleSeconds`，计划检查时间不等于新版本运行成功。
+
+自动交接仍只走既有 Forge/PM2，全栈重载会短暂中断前后端、启用的辅助服务与隧道；用户手动入口仍是 `node forge.mjs restart`。交接失败/超时保留待重启版本并恢复任务入口，后续检查只提示人工确认，不自动再次重启。没有新增自动故障修复能力。运行配置可能显式覆盖源码默认值；本次未修改私有配置、未重启服务，持续轮询自动重启尚待明确授权及运行验收，见[轮询更新任务](../openspec/changes/poll-source-update-safely/tasks.md)。旧每日授权不自动扩张为全天重启许可。
 
 源码辅助服务、控制器或前端崩溃由 PM2 重试；连续快速失败最多 5 次，状态显示 errored，修复后 restart。ready 表示受管进程已监听端口，不代表所有业务接口都已验证。Java Agent Sidecar 仍由 Java 管理，PM2 只对所属进程树做退出兜底。
 

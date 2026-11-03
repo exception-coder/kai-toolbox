@@ -2762,6 +2762,9 @@ public class ClaudeChatService {
         return summarizeActivity(samples, agentOneShot.activeCount(), System.currentTimeMillis());
     }
 
+    /** Separate persisted queue evidence from the lightweight in-memory activity snapshot. */
+    public boolean hasQueuedMessages() { return queuedMessages.hasPendingMessages(); }
+
     static ClaudeChatActivityView summarizeActivity(Collection<ActivitySample> samples,
                                                       int oneShotCount, long observedAt) {
         int runningTurnCount = 0;

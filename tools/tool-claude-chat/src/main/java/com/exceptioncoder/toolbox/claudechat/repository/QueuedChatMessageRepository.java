@@ -41,6 +41,11 @@ public class QueuedChatMessageRepository {
                 rs.getLong("created_at"), rs.getString("server_context")), sessionId);
     }
 
+    public boolean hasPendingMessages() {
+        return Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM claude_chat_queued_message LIMIT 1)", Boolean.class));
+    }
+
     public Optional<QueuedChatMessage> findFirstBySessionId(String sessionId) {
         List<QueuedChatMessage> messages = jdbc.query("""
                 SELECT id, session_id, text, display_text, developer_instructions, attachments_json, created_at,

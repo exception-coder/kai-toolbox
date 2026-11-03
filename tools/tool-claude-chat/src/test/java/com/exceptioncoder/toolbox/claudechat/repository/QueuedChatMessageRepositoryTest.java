@@ -69,7 +69,9 @@ class QueuedChatMessageRepositoryTest {
 
     @Test
     void deleteIsScopedBySession() {
+        assertFalse(repository.hasPendingMessages());
         repository.upsert(message("message-1", "first", 100L));
+        assertTrue(repository.hasPendingMessages());
 
         assertFalse(repository.delete("other-session", "message-1"));
         assertEquals(1, repository.findBySessionId("session-1").size());

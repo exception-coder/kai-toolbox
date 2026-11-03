@@ -13,6 +13,9 @@ class AutoUpdateScheduleTest {
     private final AutoUpdateProperties properties = new AutoUpdateProperties();
     private static final long MIDNIGHT = Instant.parse("2026-11-02T16:00:00Z").toEpochMilli();
 
+    @org.junit.jupiter.api.BeforeEach
+    void dailyFixture() { properties.setScheduleMode(AutoUpdateProperties.ScheduleMode.DAILY); }
+
     @Test
     void startupWaitsForNextShanghaiMidnightWithoutCatchingUpMissedRuns() {
         AutoUpdateSchedule schedule = new AutoUpdateSchedule(properties);
@@ -42,6 +45,15 @@ class AutoUpdateScheduleTest {
         assertThat(schedule.isDue(MIDNIGHT + 120_000)).isFalse();
         schedule.openWindow(MIDNIGHT + Duration.ofHours(8).toMillis());
         assertThat(schedule.isDue(MIDNIGHT + Duration.ofHours(8).toMillis())).isTrue();
+    }
+
+    @Test
+    void defaultsPollEveryFiveMinutesWithFiveMinuteQuietWindow() {
+        var defaults = new AutoUpdateProperties();
+        assertThat(defaults.getScheduleMode()).isEqualTo(AutoUpdateProperties.ScheduleMode.INTERVAL);
+        assertThat(defaults.getInterval()).isEqualTo(Duration.ofMinutes(5));
+        assertThat(defaults.getIdleWindow()).isEqualTo(Duration.ofMinutes(5));
+        assertThat(defaults.getRestartPolicy()).isEqualTo(AutoUpdateProperties.RestartPolicy.MANUAL);
     }
 
     @Test
