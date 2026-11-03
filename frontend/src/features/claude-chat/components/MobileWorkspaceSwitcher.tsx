@@ -17,6 +17,7 @@ export function MobileWorkspaceSwitcher({ title, status, control, onOpen, onRena
   const press = useRef<{ id: number; x: number; y: number } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const consumeClick = useRef(false)
+  const renaming = useRef(false)
   const cancelPress = useCallback(() => {
     if (timer.current !== null) clearTimeout(timer.current)
     timer.current = null
@@ -30,7 +31,7 @@ export function MobileWorkspaceSwitcher({ title, status, control, onOpen, onRena
   const mobile = useMobileViewport()
   useEffect(() => { if (!mobile) { setOpen(false); cancelPress() } }, [mobile, cancelPress])
   useEffect(() => cancelPress, [cancelPress])
-  const openModes = () => { consumeClick.current = true; setOpen(true); onOpen?.() }
+  const openModes = () => { renaming.current = false; consumeClick.current = true; setOpen(true); onOpen?.() }
   const close = () => setOpen(false)
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverAnchor asChild>
@@ -50,7 +51,7 @@ export function MobileWorkspaceSwitcher({ title, status, control, onOpen, onRena
         }}
         onPointerUp={cancelPress} onPointerCancel={() => { consumeClick.current = true; cancelPress() }}
         onPointerLeave={() => { if (press.current) { consumeClick.current = true; cancelPress() } }}
-        onClick={event => { event.preventDefault(); if (consumeClick.current) { consumeClick.current = false; return }; onRename() }}
+        onClick={event => { event.preventDefault(); if (consumeClick.current) { consumeClick.current = false; return }; renaming.current = true; close(); onRename() }}
         onContextMenu={event => { event.preventDefault(); cancelPress(); openModes() }}
         onKeyDown={event => {
           if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) { event.preventDefault(); cancelPress(); openModes() }
@@ -62,7 +63,11 @@ export function MobileWorkspaceSwitcher({ title, status, control, onOpen, onRena
       </button>
     </PopoverAnchor>
     <PopoverContent id={contentId} align="center" sideOffset={8} className="w-80 max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-80px)] overflow-y-auto rounded-xl bg-[var(--color-background)] p-2 shadow-sm" aria-label="对话方式"
-      onCloseAutoFocus={event => { event.preventDefault(); ownTriggerRef.current?.focus({ preventScroll: true }) }}>
+      onInteractOutside={event => {
+        // Anchor does not register Radix's trigger ref: touch-release focus must not dismiss its own menu.
+        if (event.target instanceof Node && ownTriggerRef.current?.contains(event.target)) event.preventDefault()
+      }}
+      onCloseAutoFocus={event => { event.preventDefault(); if (!renaming.current) ownTriggerRef.current?.focus({ preventScroll: true }) }}>
       <div className="px-3 pb-3 pt-2">
         <p className="break-words text-sm font-medium">{title}</p>
         <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">{status}</p>

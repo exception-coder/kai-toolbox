@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MobileWorkspaceSwitcher } from './MobileWorkspaceSwitcher'
 import { ChatControlModePicker } from './ChatControlModePicker'
@@ -67,6 +68,8 @@ it('a long press opens modes and consumes the release click; the next tap still 
   const { trigger, onRename } = mount(true, false)
   fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
   act(() => vi.advanceTimersByTime(500))
+  // Touch release can focus the anchor again after the popover auto-focused its content.
+  act(() => trigger.focus())
   fireEvent.pointerUp(trigger); fireEvent.click(trigger)
   expect(screen.getByRole('dialog', { name: '对话方式' })).toBeInTheDocument()
   expect(onRename).not.toHaveBeenCalled()
@@ -85,4 +88,35 @@ it('movement or pointer cancellation cancels the delayed mode menu and accidenta
   fireEvent.pointerDown(trigger, { button: 0, pointerId: 2 }); fireEvent.pointerCancel(trigger)
   act(() => vi.advanceTimersByTime(600))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+it('keeps title interactions inside the menu boundary but still dismisses on outside focus', () => {
+  mobile()
+  const { trigger, onRename } = mount()
+  act(() => trigger.focus())
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  const outside = document.createElement('button')
+  document.body.append(outside)
+  act(() => outside.focus())
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  outside.remove()
+  expect(onRename).not.toHaveBeenCalled()
+})
+
+it('a new short tap closes modes without stealing focus from the title editor', async () => {
+  mobile()
+  function EditableTitle() {
+    const [editing, setEditing] = useState(false)
+    return <><MobileWorkspaceSwitcher title="测试" status="已连接" onRename={() => setEditing(true)} />
+      {editing && <input aria-label="会话标题" autoFocus />}</>
+  }
+  render(<EditableTitle />)
+  const trigger = screen.getByRole('button', { name: /重命名会话/ })
+  fireEvent.keyDown(trigger, { key: 'ContextMenu' })
+  fireEvent.pointerDown(trigger, { button: 0, pointerId: 2 })
+  act(() => trigger.focus())
+  fireEvent.pointerUp(trigger); fireEvent.click(trigger)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  await act(() => new Promise(resolve => setTimeout(resolve, 10)))
+  expect(screen.getByRole('textbox', { name: '会话标题' })).toHaveFocus()
 })
