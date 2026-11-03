@@ -871,14 +871,19 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    START["Forge start / 完整重载"] --> CTRL["Forge 控制器"]
+    GUIDE["项目启动 Skill / 引擎入口只引用"] --> CHECK["环境与已有实例检查 / 保持授权边界"]
+    CHECK --> START["Forge start / 已授权完整重载"]
+    START --> CTRL["Forge 控制器"]
     CTRL --> APP["本机前后端"]
     CTRL -->|本机显式启用| TUNNEL["PM2 固定域名隧道"]
     TUNNEL -->|有限重试| TUNNEL
     APP --> READY["启动等待"]
     TUNNEL --> PUBLIC["公网首页与 API 回源"] --> READY
-    READY -->|全部可达| SUCCESS["报告启动成功"]
+    READY -->|全部可达| VERIFY["当次日志 / 功能冒烟 / 60 秒稳定观察"]
+    VERIFY --> SUCCESS["按实际范围交付"]
 ```
+
+项目内 [forge-startup](../.agents/skills/forge-startup/SKILL.md) 将现有启动流程整理为可执行指引；Codex 的项目入口、Claude Code 的 Skill 入口和 Cursor 的规则入口引用同一正文，运行约束继续由 AGENTS.md 与 forge-runtime 负责，CLI 仍是唯一执行入口，不新增运行时或授权例外。技能格式、链接与 CLI 契约完成静态核对；三种客户端的实际发现、执行以及其他操作系统的启动效果尚未验收。
 
 ### Vibe Coding 消息队列的可靠续发
 

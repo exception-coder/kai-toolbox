@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project shape
 
+本地首次准备、启动与启动排障使用 [.agents/skills/forge-startup/SKILL.md](.agents/skills/forge-startup/SKILL.md)，原生入口位于 `.claude/skills/forge-startup/SKILL.md`。运行授权以根目录 `AGENTS.md` 为准，普通开发不自动触发启动或重启。
+
 `kai-toolbox` is a local single-user toolkit platform: one Spring Boot shell + multiple pluggable tool modules, served at `http://localhost:8080`. No auth, no multi-tenancy. Stack: Java 21 / Spring Boot 3.4 / Maven multi-module on the backend; Vite 6 + React 19 + Tailwind v4 + React Router v7 + TanStack Query on the frontend. SQLite (via Spring JDBC) for persistence; SSE (`SseEmitter`) for streaming progress.
 
 ## Common commands

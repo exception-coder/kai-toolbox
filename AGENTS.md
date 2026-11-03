@@ -14,6 +14,8 @@ Before adding navigation, object actions, dialogs or AI workflows, read [docs/pr
 
 ## Project shape
 
+本地首次准备、启动与启动排障使用 [.agents/skills/forge-startup/SKILL.md](.agents/skills/forge-startup/SKILL.md)。复用现有 Forge 入口，普通开发不自动触发启动或重启。
+
 `kai-toolbox` is a local single-user toolkit platform: one Spring Boot shell + multiple pluggable tool modules, served at `http://localhost:8080`. No auth, no multi-tenancy. Stack: Java 21 / Spring Boot 3.4 / Maven multi-module on the backend; Vite 6 + React 19 + Tailwind v4 + React Router v7 + TanStack Query on the frontend. SQLite (via Spring JDBC) for persistence; SSE (`SseEmitter`) for streaming progress.
 
 ## AI 原生开发验证节奏

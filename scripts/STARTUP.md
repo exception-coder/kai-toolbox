@@ -1,5 +1,6 @@
 # Forge 启动与运行
 
+供 AI 协助首次启动时，使用[项目启动 Skill](../.agents/skills/forge-startup/SKILL.md)；它复用本文和现有 CLI，不增加启动脚本或改变重启授权。
 ## 日常只用一个入口
 
 安装 Node.js 22.13+、JDK 21、Maven 3.9+ 和 Git 后，在项目根目录运行：

@@ -143,6 +143,8 @@ Forge 可运行在自己的电脑或团队受控主机上。源码与运行数�
 
 ## 快速开始
 
+使用 Codex、Claude Code 或 Cursor 的同事，可以直接要求：**“读取 `.agents/skills/forge-startup/SKILL.md`，帮我启动并验收 Forge。”** [项目启动技能](.agents/skills/forge-startup/SKILL.md)覆盖环境检查、已有实例复用、故障诊断和运行验证；各引擎入口仅引用同一正文。入口发现依赖客户端版本和设置，尚未完成三个客户端的真实启动验收；显式读取文件可作为通用入口。
+
 准备 **Node.js 22.13+、JDK 21、Maven 3.9+、Git**；支持 Windows、macOS 和受维护的 Linux。Python 辅助服务按需安装，日常源码启动不要求 Docker 或 Task。跨平台实机验证范围见[启动指南](scripts/STARTUP.md#平台与验证边界)。
 
 ```shell
