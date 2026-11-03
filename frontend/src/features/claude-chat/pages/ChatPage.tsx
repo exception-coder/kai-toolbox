@@ -1,6 +1,7 @@
 import { importReviewFeedback, listReviewTodos } from '../api'
 import { RouteLoading } from '@/shell/RouteLoading'
 import '../focus-mode.css'
+import '../styles/mobile-composer.css'
 import { FocusReadingHeader } from '../components/FocusReadingHeader'
 import { useChatFocusMode } from '../hooks/useChatFocusMode'
 import { useSessionViewRoute } from '../hooks/useSessionViewRoute'
@@ -803,6 +804,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   }
 
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const [composerExpanded, setComposerExpanded] = useState(false)
+  const [composerVoiceActive, setComposerVoiceActive] = useState(false)
+  useEffect(() => setComposerExpanded(false), [chat?.sessionId])
   const nativeVoiceControlRef = useRef<{ start: () => void }>(null)
   const [sessionConfigTarget, setSessionConfigTarget] = useState<HTMLElement | null>(null)
   const composerMoreTrigger = useRef<HTMLButtonElement>(null)
@@ -833,12 +837,12 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const engineWatermark = useRef<Record<string, number>>({}) // 每引擎"上次看到的消息位置"，切 agent 时算增量 seed
 
   // 输入框随内容自动升高（参考微信）：到 max-h 后内部滚动
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = taRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
-  }, [draft, chat?.followUpPrediction?.text, attachments.length, uploading])
+    if (el.value) el.style.height = `${el.scrollHeight}px`
+  }, [draft, chat?.followUpPrediction?.text, attachments.length, uploading, mobileLayout, composerExpanded, composerVoiceActive])
 
   // 选中第三方网关时，从其 /v1/models 拉可选模型目录（后端代理）。失败/空回退手填，不阻断新建。
   useEffect(() => {
@@ -1199,13 +1203,14 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       chat.send(draft, atts)
     }
     setDraft('')
+    setComposerExpanded(false)
     setAttachments([])
     // 发送后收回输入框高度：等 DOM 清空（下一帧）再按内容重算，避免停留在变高后的高度
     requestAnimationFrame(() => {
       const el = taRef.current
       if (!el) return
       el.style.height = 'auto'
-      el.style.height = `${el.scrollHeight}px`
+      if (el.value) el.style.height = `${el.scrollHeight}px`
     })
   }
 
@@ -1248,6 +1253,52 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     setSlashDismissed(true)
     setSlashIdx(0)
   }
+
+  const composerSuggestion = !chat.running && chat.currentEngine === 'codex' && !reviewOnlySession
+    && chat.currentProviderKind !== 'thirdParty' && attachments.length === 0 && uploading === 0
+    && chat.followUpPrediction?.sessionId === chat.sessionId ? chat.followUpPrediction.text : null
+  const composerTextarea = (
+<ComposerTextarea
+              ref={taRef}
+              compact={mobileLayout}
+              suggestion={composerSuggestion}
+              onAcceptSuggestion={text => {
+                if (draft || !chat.followUpPrediction || chat.followUpPrediction.sessionId !== chat.sessionId) return
+                setDraft(text)
+                chat.dismissFollowUpPrediction()
+                taRef.current?.focus()
+              }}
+              onDismissSuggestion={() => chat.dismissFollowUpPrediction()}
+              aria-label="消息输入"
+              className="col-span-3 row-start-1 max-h-32 min-h-8 min-w-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-1 py-1 text-base outline-none placeholder:text-[var(--color-muted-foreground)] md:min-h-10 md:px-2 md:py-1.5"
+              placeholder={mobileLayout || focus.focused ? '输入消息…' : '输入消息…（可直接拖入文件）'}
+              rows={1}
+              disabled={planLocked}
+              value={draft}
+              onChange={e => {
+                projectMention.handleChange(e.target.value, e.target.selectionStart)
+                setSlashDismissed(false)
+                setSlashIdx(0)
+              }}
+              onPaste={handlePaste}
+              onKeyDown={e => {
+                if (projectMention.handleKeyDown(e)) return
+                // slash 菜单打开时：方向键导航、Enter/Tab 选中、Esc 关闭
+                if (showSlash) {
+                  if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx(i => (i + 1) % slashFiltered.length); return }
+                  if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIdx(i => (i - 1 + slashFiltered.length) % slashFiltered.length); return }
+                  if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashFiltered[slashActive]); return }
+                  if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return }
+                }
+                // 触屏回车换行；桌面 Enter 优先插入当前轮，Ctrl/Cmd+Enter 明确排队。
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return
+                  e.preventDefault()
+                  submit(e.ctrlKey || e.metaKey ? 'queue' : 'steer')
+                }
+              }}
+            />
+  )
 
   return (
     <div ref={focusRoot} data-vibe-guide={guideLocation ?? undefined} className={cn(
@@ -2124,10 +2175,10 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
             onPick={reference => { void projectMention.pickReference(reference) }}
           />
           <SessionPlanLockNotice session={currentSession} />
-          <div className="mobile-composer-card mx-2 my-1 grid min-h-[4.5rem] min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] grid-rows-[auto_2.5rem] items-center gap-x-1 gap-y-0.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-0.5 focus-within:border-[var(--color-ring)] focus-within:ring-1 focus-within:ring-[var(--color-ring)] md:mx-3 md:my-2 md:min-h-[5rem] md:grid-rows-[auto_2rem] md:gap-x-2 md:px-3 md:py-2">
-            <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1">
+          <div data-expanded={composerExpanded} data-voice-active={composerVoiceActive} className="cc-inline-composer mobile-composer-card mx-2 my-1 grid min-h-[4.5rem] min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] grid-rows-[auto_2.5rem] items-center gap-x-1 gap-y-0.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-0.5 focus-within:border-[var(--color-ring)] focus-within:ring-1 focus-within:ring-[var(--color-ring)] md:mx-3 md:my-2 md:min-h-[5rem] md:grid-rows-[auto_2rem] md:gap-x-2 md:px-3 md:py-2">
+            <div className="cc-composer-tools col-start-1 row-start-2 flex min-w-0 items-center gap-1">
             {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}
-            <div className="relative">
+            <div className="cc-composer-more relative">
               <Button
                 ref={composerMoreTrigger}
                 variant="ghost"
@@ -2190,6 +2241,16 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                       </button>
                     </div>
                     {mobileLayout && <div className="mt-1 border-t pt-1">
+                      <button type="button" disabled={planLocked || composerVoiceActive} onClick={() => {
+                        setComposerExpanded(value => !value); setMoreOpen(false)
+                        requestAnimationFrame(() => taRef.current?.focus({ preventScroll: true }))
+                      }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-sm hover:bg-[var(--color-accent)] disabled:opacity-50">
+                        <Maximize2 aria-hidden="true" className="size-4" />{composerExpanded ? '收起输入' : '展开输入'}
+                      </button>
+                      {!draft && composerSuggestion && <button type="button" disabled={planLocked} onClick={() => {
+                        setDraft(composerSuggestion); chat.dismissFollowUpPrediction(); setMoreOpen(false)
+                        requestAnimationFrame(() => taRef.current?.focus({ preventScroll: true }))
+                      }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-sm hover:bg-[var(--color-accent)] disabled:opacity-50">采纳续问建议</button>}
                       <div ref={setSessionConfigTarget} />
                       <button type="button" disabled={planLocked} onClick={() => {
                         setMoreOpen(false); setCmdMenuOpen(false); projectMention.togglePicker()
@@ -2225,14 +2286,18 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 projectMention.togglePicker()
               }}
             />}
+            {mobileLayout && composerTextarea}
+            <div className="cc-composer-voice min-w-0">
             <VoiceInputButton
               key={`${chat?.sessionId}:${chat?.currentEngine}:${currentSession?.codexHome ?? ''}`}
               codexSessionId={chat?.currentEngine === 'codex' ? chat.sessionId ?? '' : undefined}
               className="max-md:size-11"
+              onActiveChange={setComposerVoiceActive}
               onIdleActivate={() => setMoreOpen(false)}
               disabled={planLocked}
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
+            </div>
             </div>
             <SessionConfigSheet
               summary={sessionConfigSummary}
@@ -2373,49 +2438,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 </>
               )}
             </SessionConfigSheet>
-            <ComposerTextarea
-              ref={taRef}
-              suggestion={!chat.running && chat.currentEngine === 'codex' && !reviewOnlySession
-                && chat.currentProviderKind !== 'thirdParty' && attachments.length === 0 && uploading === 0
-                && chat.followUpPrediction?.sessionId === chat.sessionId ? chat.followUpPrediction.text : null}
-              onAcceptSuggestion={text => {
-                if (draft || !chat.followUpPrediction || chat.followUpPrediction.sessionId !== chat.sessionId) return
-                setDraft(text)
-                chat.dismissFollowUpPrediction()
-                taRef.current?.focus()
-              }}
-              onDismissSuggestion={() => chat.dismissFollowUpPrediction()}
-              aria-label="消息输入"
-              className="col-span-3 row-start-1 max-h-32 min-h-8 min-w-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-1 py-1 text-base outline-none placeholder:text-[var(--color-muted-foreground)] md:min-h-10 md:px-2 md:py-1.5"
-              placeholder={focus.focused ? '输入消息…' : '输入消息…（可直接拖入文件）'}
-              rows={1}
-              disabled={planLocked}
-              value={draft}
-              onChange={e => {
-                projectMention.handleChange(e.target.value, e.target.selectionStart)
-                setSlashDismissed(false)
-                setSlashIdx(0)
-              }}
-              onPaste={handlePaste}
-              onKeyDown={e => {
-                if (projectMention.handleKeyDown(e)) return
-                // slash 菜单打开时：方向键导航、Enter/Tab 选中、Esc 关闭
-                if (showSlash) {
-                  if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx(i => (i + 1) % slashFiltered.length); return }
-                  if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIdx(i => (i - 1 + slashFiltered.length) % slashFiltered.length); return }
-                  if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashFiltered[slashActive]); return }
-                  if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return }
-                }
-                // 触屏回车换行；桌面 Enter 优先插入当前轮，Ctrl/Cmd+Enter 明确排队。
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return
-                  e.preventDefault()
-                  submit(e.ctrlKey || e.metaKey ? 'queue' : 'steer')
-                }
-              }}
-            />
+            {!mobileLayout && composerTextarea}
             {chat.running ? (
-              <div className="col-start-3 row-start-2 flex shrink-0 gap-1">
+              <div className="cc-composer-send col-start-3 row-start-2 flex shrink-0 gap-1">
                 <Button variant="outline" size="icon" className="size-9 max-md:size-10 px-0" onClick={chat.interrupt} disabled={chat.interrupting}
                   aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'}>
                   {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
@@ -2428,7 +2453,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
             ) : (
               <Button
                 size="icon"
-                className="col-start-3 row-start-2 size-9 max-md:size-10 px-0"
+                className="cc-composer-send col-start-3 row-start-2 size-9 max-md:size-10 px-0"
                 onClick={() => submit()}
                 disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
                 aria-label="发送"

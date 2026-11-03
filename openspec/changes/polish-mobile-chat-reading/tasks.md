@@ -14,3 +14,15 @@
 既有静态前端构建器已发布源码 `a4b3dec7`，frontend tree `37b73389f1bc01f1c22a8054de7a7873101fea8d`，运行版本 `97a91cd8e06b95b9a80575d8`。HTTPS 页面版本与 active.json 一致，入口及 MessageList 懒加载 JS/CSS 返回 200，在线资源包含阅读密度、字号存储项及间距变量。北京时间 00:17:03 起连续观察超过 60 秒，页面及 `/api/tools` 维持 200；backend 50144、frontend 157436、studio 136208 的进程身份和重启次数（均为 0）未变化，发布日志显示服务进程保持运行。仅静态发布，无服务重启；资源验证不等同真实浏览器视觉、触摸与键盘验收。
 
 手机/桌面预览已准备，均为 WAITING_VIEWER_AUTH，未执行登录或页面验收。请求分别为 `ae4ac2e839564c32b04e2d27ecb1656451b7209c` 与 `c74c9683fb2d90ad425919146097bfde265dfaef`，目标路由 `/tools/claude-chat`。
+
+
+## 一体式输入区（2026-11-03）
+
+- [x] 默认单行布局、空输入紧凑、运行中保留停止与排队入口。
+- [x] 更多功能展开/收起输入、原草稿与附件保留、语音原位呈现。
+- [x] 定向回归、类型检查、OpenSpec 和质量门禁。
+- [ ] 生产构建、实际资源及稳定观察。
+- [ ] Android Chrome、iOS Safari、常用 WebView 真机键盘、字体放大、视觉和滚动验收。
+
+
+一体式输入区定向验证：ChatPage.sessionConfig、ComposerTextarea、VoiceInputButton、useComposerFileUpload 共 45 项通过；补充紧凑续问用例后 ComposerTextarea 4 项通过，去重共 46 项。覆盖原发送/排队/插入、停止、附件选择与粘贴、输入法、语音转写及展开收起时 textarea 身份和草稿保持。最终 typecheck、菜单目录 59 项、模块边界、OpenSpec 严格校验均通过。Forge CLI 门禁 PASSED、退出码 0，executedCheckers 为空，实际执行既有 9 项 API 探测，不作为移动页面视觉验收。运行构建与真实浏览器状态分别登记；未重启服务。

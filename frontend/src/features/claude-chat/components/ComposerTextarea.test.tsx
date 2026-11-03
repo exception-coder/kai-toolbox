@@ -4,6 +4,17 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { ComposerTextarea } from './ComposerTextarea'
 
 afterEach(cleanup)
+it('compact suggestions keep one empty row and remain keyboard accessible without an extra toolbar', () => {
+  const accept = vi.fn()
+  render(<ComposerTextarea compact aria-label="消息输入" rows={1} value="" onChange={vi.fn()}
+    suggestion="一段很长的续问建议" onAcceptSuggestion={accept} onDismissSuggestion={vi.fn()} />)
+  const input = screen.getByRole('textbox')
+  expect(input).toHaveAttribute('rows', '1')
+  expect(input).toHaveValue('')
+  expect(screen.queryByRole('button', { name: '采纳续问建议' })).not.toBeInTheDocument()
+  fireEvent.keyDown(input, { key: 'Tab' })
+  expect(accept).toHaveBeenCalledExactlyOnceWith('一段很长的续问建议')
+})
 function mount(onSend = vi.fn(), onKeyDown?: React.KeyboardEventHandler<HTMLTextAreaElement>) {
   const accept = vi.fn()
   function Form() {

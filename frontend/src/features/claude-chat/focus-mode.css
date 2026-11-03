@@ -96,10 +96,4 @@
   .cc-focus-mode .cc-layered-conversation .cc-message-row:has(.cc-turn-status) { padding-block: 0 4px; }
   .cc-focus-mode .cc-layered-conversation .cc-assistant-row { display: block; }
   .cc-focus-mode .cc-layered-conversation .cc-message-header { margin-bottom: 4px; padding: 0; }
-  .cc-mobile-coding-workspace.cc-focus-mode .mobile-composer-card {
-    min-height: 76px; margin: 0; padding: 4px 12px; grid-template-rows: auto 44px;
-  }
-  .cc-mobile-coding-workspace.cc-focus-mode .mobile-composer-card textarea {
-    min-height: 24px; max-height: min(128px, calc(var(--cc-focus-height, 100dvh) * 0.24));
-  }
 }

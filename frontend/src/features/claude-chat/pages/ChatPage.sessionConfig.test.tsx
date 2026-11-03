@@ -147,6 +147,33 @@ async function openNewSessionSettings() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('mobile expanded editing preserves the same textarea and draft, then uses the original queue and interrupt actions', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width') || query.includes('pointer: coarse'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    testRuntime.chat.sessionId = 'inline-composer-regression'
+    testRuntime.chat.running = true
+    testRuntime.chat.interrupt.mockClear()
+    mountChat()
+    const input = await screen.findByRole('textbox', { name: '消息输入' })
+    const more = screen.getByRole('button', { name: '更多功能' })
+    expect(more.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.change(input, { target: { value: '第一行\n第二行需求' } })
+    fireEvent.click(more)
+    fireEvent.click(screen.getByRole('button', { name: '展开输入' }))
+    expect(screen.getByRole('textbox', { name: '消息输入' })).toBe(input)
+    expect(input).toHaveValue('第一行\n第二行需求')
+    expect(input.closest('.cc-inline-composer')).toHaveAttribute('data-expanded', 'true')
+    fireEvent.click(more)
+    fireEvent.click(screen.getByRole('button', { name: '收起输入' }))
+    expect(input.closest('.cc-inline-composer')).toHaveAttribute('data-expanded', 'false')
+    fireEvent.click(screen.getByRole('button', { name: '中断' }))
+    expect(testRuntime.chat.interrupt).toHaveBeenCalledOnce()
+    expect(input).toHaveValue('第一行\n第二行需求')
+    fireEvent.click(screen.getByRole('button', { name: '选择发送方式，默认加入队列' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入队列（默认）' }))
+    expect(testRuntime.chat.enqueue).toHaveBeenCalledExactlyOnceWith('第一行\n第二行需求', [])
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+    expect(input).toHaveValue('')
+  })
   it('renames by tapping the mobile title, supports cancellation and preserves the composer draft', async () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     mountChat()

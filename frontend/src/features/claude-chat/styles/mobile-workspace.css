@@ -44,12 +44,6 @@
   .cc-mobile-coding-workspace .cc-chat-contextbar button { min-height: 44px; min-width: 44px; }
   .cc-mobile-coding-workspace .cc-chat-contextbar button > svg { display: none; }
   .cc-mobile-coding-workspace .cc-focus-composer { flex-shrink: 0; box-shadow: none; }
-  .cc-mobile-coding-workspace .mobile-composer-card {
-    min-height: 80px; margin: 0; padding: 2px 12px;
-    grid-template-rows: auto 44px; border: 0; border-radius: 0;
-  }
-  .cc-mobile-coding-workspace .mobile-composer-card textarea { display: block; max-height: min(128px, 20dvh); }
-  .cc-mobile-coding-workspace .mobile-composer-card textarea { font-size: 16px; line-height: 1.5; }
   .cc-mobile-coding-workspace .mobile-composer-card textarea,
   .cc-mobile-coding-workspace .cc-workspace-execution-dock { touch-action: manipulation; }
   .cc-mobile-coding-workspace .mobile-composer-card > button[aria-label^='会话配置'] {
@@ -60,9 +54,4 @@
   .cc-mobile-coding-workspace .mobile-composer-card > div > div > button {
     min-width: 44px; min-height: 44px;
   }
-}
-
-@media (max-width: 767px) and (max-height: 640px) {
-  .cc-mobile-coding-workspace .mobile-composer-card { min-height: 80px; }
-  .cc-mobile-coding-workspace .mobile-composer-card textarea { max-height: min(96px, 18dvh); }
 }

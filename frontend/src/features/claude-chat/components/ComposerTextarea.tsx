@@ -1,6 +1,7 @@
 import { forwardRef, useId, useState, type ComponentPropsWithoutRef } from 'react'
 
 interface Props extends ComponentPropsWithoutRef<'textarea'> {
+  compact?: boolean
   suggestion?: string | null
   onAcceptSuggestion: (text: string) => void
   onDismissSuggestion: () => void
@@ -8,20 +9,20 @@ interface Props extends ComponentPropsWithoutRef<'textarea'> {
 
 /** Native suggestions are preview text, never the textarea's value or a send action. */
 export const ComposerTextarea = forwardRef<HTMLTextAreaElement, Props>(function ComposerTextarea({
-  suggestion, onAcceptSuggestion, onDismissSuggestion, onKeyDown, onChange,
+  compact = false, suggestion, onAcceptSuggestion, onDismissSuggestion, onKeyDown, onChange,
   onCompositionStart, onCompositionEnd, rows, ...props
 }, ref) {
   const hintId = useId()
   const [composing, setComposing] = useState(false)
   const visible = Boolean(suggestion && props.value === '' && !props.disabled && !composing)
   return (
-    <div className="col-span-3 row-start-1 min-w-0">
+    <div className="cc-composer-text col-span-3 row-start-1 min-w-0">
       <textarea
         {...props}
         ref={ref}
         placeholder={visible ? suggestion! : props.placeholder}
         aria-describedby={visible ? hintId : props['aria-describedby']}
-        rows={visible ? 2 : rows}
+        rows={visible && !compact ? 2 : rows}
         onChange={event => {
           onChange?.(event)
           if (event.target.value && suggestion) onDismissSuggestion()
@@ -41,7 +42,8 @@ export const ComposerTextarea = forwardRef<HTMLTextAreaElement, Props>(function 
           }
         }}
       />
-      {visible && (
+      {visible && compact && <span id={hintId} className="sr-only">续问建议可从更多功能采纳，或按 Tab 采纳。</span>}
+      {visible && !compact && (
         <div id={hintId} className="flex justify-end px-1 pb-1 md:px-2">
           <button type="button" onClick={() => onAcceptSuggestion(suggestion!)}
             title={suggestion!} aria-label="采纳续问建议"
