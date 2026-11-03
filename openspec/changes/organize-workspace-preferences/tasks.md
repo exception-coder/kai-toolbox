@@ -8,6 +8,8 @@
 - [x] 类型检查、OpenSpec strict、diff 检查与既有质量门禁通过；门禁 executedCheckers 为空、9 个原有 API verifier，不代表新增 UI 验收。
 - [ ] 本次手机/桌面真实浏览器验收未执行。
 
+运行记录：源码 16d1bd9a 于 2026-11-03 09:17:30 发布为前端版本 aee3e63d9096af2433c21b43，主页面生产构建 1 分 12 秒。frontend tree=711c4fdae8a453cd2d73c6cfb3c8a4363bde85d5；实际页面与 ChatControlWorkspace-B7XUPsCj.js 返回 200，资源保留个性化入口并移除重复主题菜单文案。连续观察 125 秒，页面版本和 API 正常，backend/frontend/studio PID 50144/157436/136208、restarts=0、ready/online 保持不变；没有服务重启。手机/桌面预览入口已准备，仍需访问者身份，不能视为真实浏览器验收。
+
 ## 历史实施与验证
 
 - [x] 1. 核对专注和个性化菜单归属，补齐弹窗已有设置的三类分组。
