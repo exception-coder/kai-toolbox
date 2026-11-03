@@ -1,3 +1,4 @@
+import { SessionCommunicationDock } from '../components/communications/SessionCommunicationDock'
 import { importReviewFeedback, listReviewTodos } from '../api'
 import { RouteLoading } from '@/shell/RouteLoading'
 import '../focus-mode.css'
@@ -2473,6 +2474,10 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 
       {/* 本地用量弹层 */}
       </div>
+      {viewMode === 'single' && panel !== 'new' && chat.sessionId && sessionView !== 'communications' && <SessionCommunicationDock
+        key={`${communicationUser}:${chat.sessionId}`} sessionId={chat.sessionId}
+        sessionTitle={currentSession?.title || '当前会话'} readOnly={planLocked}
+        onReference={handleCommunicationReference} />}
       {showUsage && <Suspense fallback={null}><UsagePanel onClose={() => setShowUsage(false)} session={sessionUsage} quotaContext={currentSession ? { ...currentSession, model: chat.currentModel } : undefined} quotaSessions={sessions} engineCatalog={engineCatalogQuery.data} /></Suspense>}
 
       {/* 可视化决策弹窗（仅单会话视图；分屏下各块自管弹窗） */}

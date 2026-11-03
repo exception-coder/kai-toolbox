@@ -460,7 +460,8 @@ describe('ChatPage session configuration', () => {
     fireEvent.click(await screen.findByRole('button', { name: '会话工具' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '工作与进度' }))
     expect(within(screen.getByRole('group', { name: '工作视图' })).queryByRole('button', { name: '执行轨迹' })).not.toBeInTheDocument()
-    fireEvent.click(within(screen.getByRole('group', { name: '工作视图' })).getByRole('button', { name: '开发待办' }))
+    expect(within(screen.getByRole('group', { name: '工作视图' })).queryByRole('button', { name: '开发待办' })).not.toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('group', { name: '工作视图' })).getByRole('button', { name: '对话' }))
     expect(screen.queryByRole('menu', { name: '会话工具' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '会话工具' })).toHaveFocus()
     fireEvent.click(screen.getByRole('button', { name: '会话工具' }))
@@ -618,7 +619,9 @@ describe('ChatPage session configuration', () => {
     testRuntime.profiles = [{ id: 'gateway', name: '测试服务商', model: 'current-model', hasKey: true, baseUrl: 'https://gateway.invalid' }]
     testRuntime.roots = [{ root: 'D:/first', exists: true, dirs: [] }, { root: 'D:/second', exists: true, dirs: [{ name: 'project', path: 'D:/second/project' }] }]
     const first = mountChat()
+    expect(await screen.findByRole('button', { name: '打开开发待办' })).toBeInTheDocument()
     await openNewSessionForm()
+    expect(screen.queryByRole('button', { name: '打开开发待办' })).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('combobox', { name: '工作区' })).toBeEnabled())
     await pickChoice('工作区', 'second')
     fireEvent.click(screen.getByRole('button', { name: 'Codex' }))

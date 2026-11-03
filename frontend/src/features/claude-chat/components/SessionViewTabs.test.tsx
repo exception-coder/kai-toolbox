@@ -20,7 +20,7 @@ it('keeps frequent views on the desktop and moves trajectory and sites into more
   trigger.focus()
   fireEvent.click(trigger)
   const menu = within(screen.getByRole('group', { name: '选择会话视图' }))
-  expect(menu.getByRole('button', { name: '开发待办' })).toBeInTheDocument()
+  expect(menu.queryByRole('button', { name: '开发待办' })).not.toBeInTheDocument()
   expect(menu.queryByRole('button', { name: '用量' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '轨迹' })).toHaveAttribute('aria-current', 'page')
   fireEvent.click(screen.getByRole('button', { name: '站点 2' }))
@@ -67,7 +67,7 @@ it('mobile work views omit redundant site and usage entries while preserving wor
     documentTitle="需求" pendingReviewCount={1} />)
   const views = within(screen.getByRole('group', { name: '工作视图' }))
   expect(views.getByRole('button', { name: '推进' })).toHaveAttribute('aria-current', 'page')
-  for (const name of ['对话', '会话看板', '开发待办', '文档', /评审 1/]) {
+  for (const name of ['对话', '会话看板', '文档', /评审 1/]) {
     expect(views.getByRole('button', { name })).toBeInTheDocument()
   }
   expect(views.queryByRole('button', { name: /执行轨迹|轨迹|工作站点|站点|Token 用量|用量/ })).not.toBeInTheDocument()

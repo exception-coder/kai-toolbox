@@ -5,7 +5,7 @@ const WIDTH = 28, HEIGHT = 44, GAP = 12
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), Math.max(low, high))
 
 /** Persist user placement, but project it into the current viewport and outside the composer. */
-export function useWorkspaceDockPosition(userId: number | string) {
+export function useWorkspaceDockPosition(userId: number | string, defaultRatio = 0.62) {
   const key = `forge:workspace-dock:${userId}`
   const [position, setPosition] = useState<Position>(() => {
     try {
@@ -14,7 +14,7 @@ export function useWorkspaceDockPosition(userId: number | string) {
         return { edge: saved.edge, ratio: clamp(saved.ratio, 0, 1) }
       }
     } catch { /* Storage restrictions must not prevent access to the workspace. */ }
-    return { edge: 'right', ratio: 0.62 }
+    return { edge: 'right', ratio: defaultRatio }
   })
   const buttonRef = useRef<HTMLButtonElement>(null)
   const [revision, update] = useState(0)

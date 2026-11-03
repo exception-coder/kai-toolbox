@@ -1,4 +1,4 @@
-import { Check, FileText, Gauge, LayoutGrid, ListChecks, MessageSquare, NotebookPen, Route, Share2 } from 'lucide-react'
+import { Check, FileText, Gauge, LayoutGrid, ListChecks, MessageSquare, Route, Share2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SessionViewMore, type SecondarySessionViewOption } from './SessionViewMore'
 
@@ -26,7 +26,6 @@ function viewOptions({ documentTitle, siteCount, pendingReviewCount }: Pick<Prop
     ...(hasReview ? [{ id: 'review' as const, label: reviewLabel, icon: Share2, desktop: true }] : []),
   ]
   const secondary: SecondarySessionViewOption[] = [
-    { id: 'communications', label: '开发待办', icon: NotebookPen },
     { id: 'trajectory', label: '轨迹', icon: Route },
     { id: 'sites', label: siteCount ? '站点 ' + siteCount : '站点', icon: LayoutGrid },
     ...(documentTitle != null ? [{ id: 'documents' as const, label: '文档', icon: FileText, mobileOnly: true }] : []),
