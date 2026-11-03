@@ -479,6 +479,17 @@ flowchart TD
 
 ### 多引擎适配边界
 
+Shell 执行环境由原生 Harness 拥有。Forge 只能确认宿主 OS、会话目录与引擎身份，不能根据 Windows 或宿主安装的 PowerShell 推定原生 Shell 类型/版本。现有 Windows 提示已改为条件适用；新增最小引导通过既有 developerInstructions 通道提供，明确未报告的 Shell/工具信息，由模型优先使用原生上下文，缺失时按原生能力确认。失败提醒只是模型行为约束，不拦截命令、不回写工具结果、不新增恢复轮次。新增实验默认关闭，仅显式 `FORGE_SHELL_GUIDANCE_EXPERIMENT=1` 启用，受限和演示会话不注入。运行加载与真实效率对比尚待验收，见 [Shell 引导设计](../openspec/changes/guide-native-shell-environment/design.md)。
+
+```mermaid
+flowchart LR
+    HOST["Forge 宿主 OS / 会话 cwd / 引擎"] --> GUIDE["可选最小环境引导"]
+    GUIDE --> CONTEXT["既有 developerInstructions"]
+    CONTEXT --> NATIVE["原生 Harness 上下文与工具"]
+    NATIVE --> EXEC["原生执行与错误恢复"]
+    EXEC --> RESULT["原始结果 / 既有事件映射"]
+```
+
 Forge 把 Claude Code、Codex、Qwen Code、TraeCode CLI、Antigravity 与 OpenCode 视为独立 Agent 引擎。Sidecar 的统一引擎契约只承载会话、轮次、权限、中断、运行态、模型目录和公开事件；供应商 SDK/CLI 的请求、消息与错误必须停留在各自适配器内，不能泄漏到 Java 或浏览器。Codex 使用官方 `@openai/codex-sdk`，Qwen Code 使用官方 `@qwen-code/sdk` 并从当前认证的 SDK 控制请求读取模型目录；TraeCode CLI 2.0 通过 `exec --json` 适配，不以二进制版本号 `2.x` 判断产品代际（本机官方安装包报告 `0.206.1`），而按 CLI 命令能力和登录状态探测后开放选择；后续轮次仅通过 `exec resume <SESSION_ID>` 显式恢复所属 Forge 会话。CLI 已安装但尚未登录，JSONL 实流和工具事件仍待登录后的运行验收。QwenWork 桌面端不属于 Qwen Code SDK 的可控制范围，其登录与模型列表不能代替 Qwen Code 的认证和可用模型。切换引擎时清理旧引擎模型 ID；DashScope 模型 API 也不能被描述成完整 Agent 引擎。
 
 ```mermaid
