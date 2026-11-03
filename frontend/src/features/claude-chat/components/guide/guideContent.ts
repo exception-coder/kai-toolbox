@@ -15,7 +15,7 @@ export const GUIDE_CHAPTERS: GuideChapter[] = [
     { title: '回看与导出', purpose: '按自己的提问跳转、回到开头，或导出 PDF / Word。', when: '查找先前结论或向同事交接时。', path: '会话工具 → 会话与分享 → 我的提问 / 跳到会话开头 / 导出会话', session: true },
   ] },
   { id: 'execution', title: '查看执行', summary: '把聊天结果、执行过程和自动监督分开看。', entry: '会话视图', topics: [
-    { title: '对话与轨迹', purpose: '对话查看回复，轨迹查看执行过程及工具活动。', when: '判断 Agent 正在做什么、排查执行问题时。', path: '桌面：顶部对话 / 更多 → 轨迹；手机：会话工具 → 工作与进度 → 对话 / 执行轨迹', session: true },
+    { title: '对话与轨迹', purpose: '对话查看回复，轨迹查看执行过程及工具活动。', when: '判断 Agent 正在做什么、排查执行问题时。', path: '桌面：顶部对话 / 更多 → 轨迹；手机：会话工具 → 工作与进度 → 对话；执行轨迹从会话控制进入', session: true },
     { title: '推进与自动监督', purpose: '查看推进状态；跨会话看板集中查看监督中的任务。', when: '按 OpenSpec 推进任务或同时跟进多个运行时。', path: '桌面：顶部推进 / 监督；手机：会话工具 → 工作与进度 → 推进，或自动监督看板', session: true },
     { title: '用量与运行控制', purpose: '查看真实订阅窗口与本地统计；执行中可中断或按引擎能力补充、排队。', when: '安排额度、调整任务或发现执行方向偏离时。', path: '桌面：顶部用量；手机：输入区运行状态 → 会话控制 → 会话用量；输入区运行控制', session: true },
   ] },

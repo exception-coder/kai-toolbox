@@ -12,7 +12,7 @@ const groups = [
   ['自动推进', '按变更任务持续派工与收口', '绑定 OpenSpec、当前任务与阶段；内部队列续跑；预算与暂停恢复；监督看板、质量门禁与授权归档。', '入口：自动推进 / 监督看板。需要活动 change、运行中的服务端及可用引擎；不是新建会话就自动监督。', 'SessionAutopilotService / OpenSpecContinuousRunner / QueuedChatMessageService'],
   ['数据与接口契约', '把代码之外的数据库改动留下来', 'Agent 可准备 SQL 上下文、登记待执行台账及多库目标；接口契约写入 OpenSpec。Vibe Coding 已移除数据库阅读与 SQL 管理视图，已有记录保留。', '入口：Agent SQL 工具 / OpenSpec 变更。登记、实际执行、验证通过是三个不同状态。', 'SessionPendingSqlService / OpenSpec / forgePendingSql'],
   ['评审与业务参与', '把澄清和评审接回研发会话', '分享计划评审、收集文字与附件反馈并带回实现；业务问题回答和风险审批。', '入口：分享计划评审 / 评审。评审可以有独立会话，不等于自动监督另开了一个监督会话。', 'ReviewSpaceService / ReviewIntentService'],
-  ['执行与恢复', '统一呈现引擎状态和待处理动作', '引擎与模型配置、权限模式、问题和审批交互；消息排队、中断、历史恢复、多会话分屏、工具执行轨迹与运行健康提示。', '入口：会话配置 / 队列 / 历史 / 多会话 / 更多 → 轨迹。各引擎支持范围不同，执行策略可能进一步收紧权限。', 'ClaudeChatService / SessionRuntimeHealth / TrajectoryView / MultiSessionView'],
+  ['执行与恢复', '统一呈现引擎状态和待处理动作', '引擎与模型配置、权限模式、问题和审批交互；消息排队、中断、历史恢复、多会话分屏、工具执行轨迹与运行健康提示。', '入口：会话配置 / 队列 / 历史 / 多会话；轨迹从桌面更多或手机会话控制进入。各引擎支持范围不同，执行策略可能进一步收紧权限。', 'ClaudeChatService / SessionRuntimeHealth / TrajectoryView / MultiSessionView'],
   ['成果与沟通', '把研发产物交给协作方查看', '关联测试站点；会话用量、Token 与费用明细；PDF / Word 导出；完成通知；语音输入、悬浮会话等交互入口。', '入口：更多 → 站点 / 会话用量 / 导出会话 / 通知设置。关联地址不等于已经部署，费用和状态以可取得的数据为准。', 'SessionSitesWorkspace / UsageWorkspace / ExportSessionDialog / NotifySettings'],
   ['能力与环境诊断', '看到当前会话究竟能调用什么', 'MCP 工具、Plugins、Skills、子代理与命令目录；来源、作用域、连接状态、刷新时间；团队依赖与服务商诊断。', '入口：会话能力 / 团队依赖 / 服务商。仅配置、已连接、工具清单已核验是不同层次；项目插件不是 Forge 固定内置。', 'SessionCapsPanel / PluginPanel / ProviderDiagPanel'],
 ] as const
