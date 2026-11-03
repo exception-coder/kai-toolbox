@@ -1,22 +1,34 @@
-import { useState } from 'react'
-import { communicationError, saveCommunication } from '../../api/communicationJournal'
+import { useRef, useState } from 'react'
+import { communicationError, getCommunication, saveCommunication } from '../../api/communicationJournal'
 import { editJournalDraft, journalSaveInput, newJournalDraft, readJournalDraft, writeJournalDraft, type JournalDraft } from './journalDraft'
 import type { CommunicationJournal } from './useCommunicationJournal'
 
 export function useJournalEditor(journal: CommunicationJournal, readOnly: boolean) {
   const { sessionId, userScope, alive, detail, setNotice, setError, client, queryRoot, refresh, setSelectedId, setFilter } = journal
+  const editRequest = useRef(0)
   const [draft, setDraft] = useState(() => readJournalDraft(sessionId, userScope)), [open, setOpen] = useState(false)
   const [storageAvailable, setStorageAvailable] = useState(true), [saving, setSaving] = useState(false), [error, setSaveError] = useState('')
   const change = (value: JournalDraft | null) => {
     const available = writeJournalDraft(sessionId, value, userScope)
     if (alive.current) { setStorageAvailable(available); setDraft(value) }
   }
-  const start = () => { if (!draft) change(newJournalDraft()); setOpen(true); setSaveError('') }
+  const start = () => { editRequest.current++; if (!draft) change(newJournalDraft()); setOpen(true); setSaveError('') }
   const edit = () => {
+    editRequest.current++
     if (!detail.data) return
     if (draft && draft.id !== detail.data.record.id) { setNotice('另有未保存草稿，请先继续编辑或放弃草稿。'); setOpen(true); return }
     if (!draft) change(editJournalDraft(detail.data))
     setSaveError(''); setOpen(true)
+  }
+  const editRecord = async (id: string) => {
+    if (readOnly || saving) return
+    if (draft) { setNotice('请先处理未保存草稿。'); setOpen(true); return }
+    const request = ++editRequest.current
+    try {
+      const value = await getCommunication(sessionId, id)
+      if (!alive.current || request !== editRequest.current) return
+      change(editJournalDraft(value)); setSaveError(''); setOpen(true)
+    } catch (reason) { if (alive.current && request === editRequest.current) setError(communicationError(reason)) }
   }
   const save = async () => {
     if (!draft || saving || readOnly) return
@@ -31,13 +43,13 @@ export function useJournalEditor(journal: CommunicationJournal, readOnly: boolea
       client.setQueryData([...queryRoot, 'detail', submitted.id], result)
       refresh()
       if (alive.current) {
-        setDraft(readJournalDraft(sessionId, userScope)); setOpen(false); setSelectedId(submitted.id)
+        setDraft(readJournalDraft(sessionId, userScope)); setOpen(false); setSelectedId('')
         setFilter(value => ({ ...value, removed: false })); setNotice('待办已保存。')
       }
     } catch (reason) { if (alive.current) setSaveError(communicationError(reason, true)) }
     finally { if (alive.current) setSaving(false) }
   }
-  const discard = () => { change(null); setOpen(false); setSaveError('') }
-  return { draft, open, setOpen, saving, error, storageAvailable, change, start, edit, save, discard }
+  const discard = () => { editRequest.current++; change(null); setOpen(false); setSaveError('') }
+  return { draft, open, setOpen, saving, error, storageAvailable, change, start, edit, editRecord, save, discard }
 }
 export type JournalEditor = ReturnType<typeof useJournalEditor>

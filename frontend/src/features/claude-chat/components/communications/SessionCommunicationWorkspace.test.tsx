@@ -6,11 +6,11 @@ import { journalFileIssue } from './CommunicationEditor'
 import { editJournalDraft, newJournalDraft, readJournalDraft, writeJournalDraft } from './journalDraft'
 import { ApiError } from '@/lib/api'
 import type { CommunicationDetail, CommunicationPage, CommunicationReference } from '../../api/communicationJournal'
-import { communicationReferenceText, listCommunications, getCommunication, saveCommunication, referenceCommunications, removeCommunication, uploadCommunicationImage } from '../../api/communicationJournal'
+import { completeCommunication, communicationReferenceText, listCommunications, getCommunication, saveCommunication, referenceCommunications, removeCommunication, uploadCommunicationImage } from '../../api/communicationJournal'
 
 vi.mock('../../api/communicationJournal', async () => ({
   ...await vi.importActual('../../api/communicationJournal'),
-  listCommunications: vi.fn(), getCommunication: vi.fn(), saveCommunication: vi.fn(),
+  completeCommunication: vi.fn(), listCommunications: vi.fn(), getCommunication: vi.fn(), saveCommunication: vi.fn(),
   referenceCommunications: vi.fn(), removeCommunication: vi.fn(), uploadCommunicationImage: vi.fn(),
 }))
 const sid = 'session-journal-test', id = '0195f671-0062-475a-a4bd-366d60bac8c5'
@@ -42,8 +42,9 @@ it('reads original material, selects several records and only asks the current c
   vi.mocked(listCommunications).mockResolvedValue({ ...page, total: 2, records: [...page.records, second] })
   const quote = vi.fn().mockResolvedValue(undefined)
   render(shell(<SessionCommunicationWorkspace sessionId={sid} sessionTitle="需求会话" onReference={quote} />))
-  fireEvent.click(await screen.findByRole('button', { name: /生产单保存过程/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /^生产单保存过程/ }))
   expect(await screen.findByText('先保存，再核对生产单。', { selector: 'p' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '批量选择' }))
   fireEvent.click(screen.getByLabelText('选择记录 生产单保存过程'))
   fireEvent.click(screen.getByLabelText('选择记录 后续确认'))
   fireEvent.click(screen.getByRole('button', { name: '引用所选' }))
@@ -63,10 +64,10 @@ it('never displays a previous session response or references it after switching'
   await act(async () => oldList.resolve(page))
   expect(screen.queryByText('生产单保存过程')).not.toBeInTheDocument()
   ui.rerender(node(sid))
-  fireEvent.click(await screen.findByRole('button', { name: /生产单保存过程/ }))
-  await screen.findByRole('button', { name: '编辑' })
+  fireEvent.click(await screen.findByRole('button', { name: /^生产单保存过程/ }))
+  await screen.findByRole('button', { name: '引用到草稿' })
   vi.mocked(referenceCommunications).mockReturnValue(oldQuote.promise)
-  fireEvent.click(screen.getByRole('button', { name: '引用到草稿' }))
+  fireEvent.click(await screen.findByRole('button', { name: '引用到草稿' }))
   ui.rerender(node('other-journal-test'))
   await act(async () => oldQuote.resolve({ records: [record.record], attachments: [] }))
   expect(quote).not.toHaveBeenCalled()
@@ -115,8 +116,8 @@ it('shows recoverable list failures and permits only reading for a locked sessio
   render(shell(<SessionCommunicationWorkspace sessionId={sid} sessionTitle="锁定需求" readOnly onReference={vi.fn()} />))
   expect(await screen.findByRole('button', { name: '重试列表' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '重试列表' }))
-  fireEvent.click(await screen.findByRole('button', { name: /生产单保存过程/ }))
-  expect(await screen.findByRole('button', { name: '编辑' })).toBeDisabled()
+  fireEvent.click(await screen.findByRole('button', { name: /^生产单保存过程/ }))
+  expect(await screen.findByRole('button', { name: '更多操作 生产单保存过程' })).toBeDisabled()
   expect(screen.getByRole('button', { name: '引用到草稿' })).toBeDisabled()
   expect(screen.getByRole('button', { name: '新增待办' })).toBeDisabled()
 })
@@ -124,7 +125,8 @@ it('shows recoverable list failures and permits only reading for a locked sessio
 it('soft removes and restores without claiming a failed operation succeeded', async () => {
   vi.mocked(removeCommunication).mockResolvedValue({ ...record, record: { ...record.record, deletedAt: Date.now(), version: 2 } })
   render(shell(<SessionCommunicationWorkspace sessionId={sid} sessionTitle="需求会话" onReference={vi.fn()} />))
-  fireEvent.click(await screen.findByRole('button', { name: /生产单保存过程/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /^生产单保存过程/ }))
+  fireEvent.click(screen.getByRole('button', { name: '更多操作 生产单保存过程' }))
   fireEvent.click(await screen.findByRole('button', { name: '移除（可恢复）' }))
   await screen.findByText('已移除，可在「已移除」中恢复。')
   expect(removeCommunication).toHaveBeenCalledWith(sid, id, 1, true)
@@ -177,12 +179,58 @@ it('preserves legacy metadata when editing only the todo content and rejects an 
   expect(await screen.findByText('请填写内容或添加图片。')).toBeInTheDocument()
   expect(saveCommunication).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: '放弃草稿' }))
-  fireEvent.click(await screen.findByRole('button', { name: /生产单保存过程/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /^生产单保存过程/ }))
+  fireEvent.click(screen.getByRole('button', { name: '更多操作 生产单保存过程' }))
   fireEvent.click(await screen.findByRole('button', { name: '编辑' }))
+  await screen.findByLabelText('内容')
   fireEvent.change(screen.getByLabelText('内容'), { target: { value: '调整保存顺序' } })
   fireEvent.click(screen.getByRole('button', { name: '保存' }))
   await waitFor(() => expect(saveCommunication).toHaveBeenCalledWith(sid, id, expect.objectContaining({
     originalText: '调整保存顺序', occurredAt: record.record.occurredAt, title: record.record.title,
     source: '飞书', participants: '张凯', notes: '待确认默认字段。', expectedVersion: 1,
   })))
+})
+
+it('completes directly, filters on the server and keeps reference context without opening an editor', async () => {
+  vi.mocked(completeCommunication).mockResolvedValue(record)
+  const quote = vi.fn().mockResolvedValue(undefined)
+  render(shell(<SessionCommunicationWorkspace sessionId={sid} sessionTitle="需求会话" onReference={quote} />))
+  fireEvent.click(await screen.findByRole('button', { name: /^生产单保存过程/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '标记完成' }))
+  await waitFor(() => expect(completeCommunication).toHaveBeenCalledWith(sid, id, 1, true))
+  await waitFor(() => expect(screen.getByRole('button', { name: /^生产单保存过程/ })).toHaveAttribute('aria-expanded', 'false'))
+  fireEvent.click(screen.getByRole('button', { name: '已完成' }))
+  await waitFor(() => expect(listCommunications).toHaveBeenLastCalledWith(sid, expect.objectContaining({ status: 'completed' }), expect.anything()))
+  fireEvent.click(await screen.findByRole('button', { name: '引用到草稿' }))
+  await screen.findByText('已写入草稿，未发送。')
+  expect(screen.getByRole('button', { name: '已完成' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByLabelText('内容')).not.toBeInTheDocument()
+})
+
+it('reports partial batch completion and keeps failed records selected', async () => {
+  const second = { ...page.records[0], id: '0195f671-0062-475a-a4bd-366d60bac8c6', title: '后续确认' }
+  vi.mocked(listCommunications).mockResolvedValue({ ...page, total: 2, records: [...page.records, second] })
+  vi.mocked(completeCommunication).mockResolvedValueOnce(record).mockRejectedValueOnce(new ApiError(409, null, '版本已变化'))
+  render(shell(<SessionCommunicationWorkspace sessionId={sid} sessionTitle="需求会话" onReference={vi.fn()} />))
+  await screen.findByText('后续确认')
+  fireEvent.click(screen.getByRole('button', { name: '批量选择' }))
+  fireEvent.click(screen.getByLabelText('选择记录 生产单保存过程'))
+  fireEvent.click(screen.getByLabelText('选择记录 后续确认'))
+  fireEvent.click(screen.getByRole('button', { name: '完成所选' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('已处理 1 条；其余未确认。版本已变化')
+  expect(screen.getByLabelText('选择记录 后续确认')).toBeChecked()
+  expect(screen.getByLabelText('选择记录 生产单保存过程')).not.toBeChecked()
+})
+
+it('does not replace a new draft with a late edit response', async () => {
+  const pending = deferred<CommunicationDetail>()
+  vi.mocked(getCommunication).mockReturnValue(pending.promise)
+  render(shell(<SessionCommunicationWorkspace sessionId={sid} sessionTitle="需求会话" onReference={vi.fn()} />))
+  fireEvent.click(await screen.findByRole('button', { name: '更多操作 生产单保存过程' }))
+  fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+  fireEvent.click(screen.getByRole('button', { name: '新增待办' }))
+  fireEvent.change(screen.getByLabelText('内容'), { target: { value: '保留新草稿' } })
+  await act(async () => pending.resolve(record))
+  expect(screen.getByLabelText('内容')).toHaveValue('保留新草稿')
+  expect(readJournalDraft(sid)?.input.originalText).toBe('保留新草稿')
 })

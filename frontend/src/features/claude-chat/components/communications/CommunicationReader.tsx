@@ -3,8 +3,8 @@ import { Button } from '@/components/ui/button'
 import type { CommunicationDetail } from '../../api/communicationJournal'
 import { JournalImage } from './JournalImage'
 
-export function CommunicationReader({ detail, readOnly, busy, onEdit, onRemoved, onReference }: {
-  detail: CommunicationDetail; readOnly: boolean; busy: boolean
+export function CommunicationReader({ detail, readOnly, busy, hideActions = false, onEdit, onRemoved, onReference }: {
+  detail: CommunicationDetail; readOnly: boolean; busy: boolean; hideActions?: boolean
   onEdit: () => void; onRemoved: (removed: boolean) => void; onReference: () => void
 }) {
   const { record, images } = detail
@@ -17,11 +17,11 @@ export function CommunicationReader({ detail, readOnly, busy, onEdit, onRemoved,
       {record.notes && <p className="mt-2 whitespace-pre-wrap break-words leading-6">{record.notes}</p>}
       {record.sourceUrl && <a className="mt-2 inline-flex min-h-11 items-center gap-2 underline" href={record.sourceUrl} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-4" />查看来源</a>}
     </details>}
-    <div className="mt-3 flex flex-wrap gap-1 border-t pt-2">
+    {!hideActions && <div className="mt-3 flex flex-wrap gap-1 border-t pt-2">
       {!record.deletedAt && <><Button variant="ghost" className="min-h-11" disabled={readOnly || busy} onClick={onEdit}><Pencil />编辑</Button>
         <Button variant="ghost" className="min-h-11" disabled={readOnly || busy} onClick={onReference}><ArrowDownToLine />引用到草稿</Button></>}
       <Button variant="ghost" className="min-h-11" disabled={readOnly || busy} onClick={() => onRemoved(!record.deletedAt)}>
         {record.deletedAt ? <RotateCcw /> : <Trash2 />}{record.deletedAt ? '恢复记录' : '移除（可恢复）'}</Button>
-    </div>
+    </div>}
   </div>
 }

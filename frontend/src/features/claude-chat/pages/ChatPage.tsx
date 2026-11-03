@@ -1001,8 +1001,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       added = []
       const text = communicationReferenceText(material)
       setDraft(current => current.trim() ? `${current}\n\n${text}` : text)
-      setSessionView('conversation')
-      requestAnimationFrame(() => taRef.current?.focus())
+      // 引用仅追加草稿；保留待办面板、筛选和当前阅读位置。
     } finally {
       added.forEach(image => { if (image.previewUrl) URL.revokeObjectURL(image.previewUrl) })
       setUploading(count => count - wanted.length)

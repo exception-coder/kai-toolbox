@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest'
 import { SessionCommunicationDock } from './SessionCommunicationDock'
 
-vi.mock('./SessionCommunicationWorkspace', () => ({ default: (props: { sessionId: string; readOnly: boolean; onReference: (id: string, material: unknown) => Promise<void> }) =>
-  <button disabled={props.readOnly} onClick={() => void props.onReference(props.sessionId, {})}>引用测试待办</button> }))
+vi.mock('./SessionCommunicationWorkspace', () => ({ default: (props: { sessionId: string; readOnly: boolean; onClose: () => void; onReference: (id: string, material: unknown) => Promise<void> }) =>
+  <><button onClick={props.onClose}>关闭开发待办</button><button disabled={props.readOnly} onClick={() => void props.onReference(props.sessionId, {})}>引用测试待办</button></> }))
 afterEach(cleanup)
 
 it('opens the session workspace without replacing the conversation and restores trigger focus', async () => {
@@ -17,7 +17,7 @@ it('opens the session workspace without replacing the conversation and restores 
   expect(screen.getByRole('textbox', { name: '对话草稿' })).toHaveValue('保留内容')
 })
 
-it('references the exact session and closes only after the reference succeeds', async () => {
+it('references the exact session and keeps the workspace open after referencing', async () => {
   let finish!: () => void
   const onReference = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
   render(<SessionCommunicationDock sessionId="two" sessionTitle="其他项目" readOnly={false} onReference={onReference} />)
@@ -26,7 +26,7 @@ it('references the exact session and closes only after the reference succeeds', 
   expect(onReference).toHaveBeenCalledWith('two', {})
   expect(screen.getByRole('dialog')).toBeInTheDocument()
   finish()
-  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeInTheDocument())
 })
 
 it('preserves the locked session restriction', async () => {

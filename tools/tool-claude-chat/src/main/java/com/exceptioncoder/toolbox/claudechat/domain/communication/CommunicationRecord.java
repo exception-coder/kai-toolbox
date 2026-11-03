@@ -6,19 +6,23 @@ import java.util.List;
 public record CommunicationRecord(String id, String sessionId, String title, long occurredAt,
                                   String source, String participants, String sourceUrl,
                                   String originalText, String notes, List<String> attachmentIds,
-                                  int version, Long deletedAt, long createdAt, long updatedAt) {
+                                  int version, Long deletedAt, long createdAt, long updatedAt, Long completedAt) {
     public record Input(String title, long occurredAt, String source, String participants,
                         String sourceUrl, String originalText, String notes,
                         List<String> attachmentIds, int expectedVersion) { }
 
     public record Summary(String id, String title, long occurredAt, String source, String participants,
                           String excerpt, String notesExcerpt, int imageCount, int version,
-                          Long deletedAt, long updatedAt) { }
+                          Long deletedAt, long updatedAt, long createdAt, Long completedAt) { }
 
     public record Page(List<Summary> records, int total, int page, int pageSize) { }
     public record Image(String id, String name, String mime, long size) { }
     public record Detail(CommunicationRecord record, List<Image> images) { }
-    public record Filter(String search, String order, String notes, boolean removed, int page) { }
+    public record Filter(String search, String order, String notes, boolean removed, int page, String status) {
+        public Filter(String search, String order, String notes, boolean removed, int page) {
+            this(search, order, notes, removed, page, "all");
+        }
+    }
     public record Reference(List<CommunicationRecord> records, List<ReferenceImage> attachments) { }
     public record ReferenceImage(String id, String name, String mime, long size, String path, String recordId) { }
 

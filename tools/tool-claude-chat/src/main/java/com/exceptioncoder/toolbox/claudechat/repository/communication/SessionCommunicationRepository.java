@@ -21,7 +21,7 @@ public class SessionCommunicationRepository {
     public static final int MAX_RECORDS = 1000;
     private static final String COLUMNS = """
             id, session_id, title, occurred_at, source, participants, source_url,
-            original_text, notes, attachment_ids, version, deleted_at, created_at, updated_at
+            original_text, notes, attachment_ids, version, deleted_at, created_at, updated_at, completed_at
             """;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
@@ -35,7 +35,8 @@ public class SessionCommunicationRepository {
                 rs.getString("participants"), rs.getString("source_url"), rs.getString("original_text"),
                 rs.getString("notes"), readIds(rs.getString("attachment_ids")), rs.getInt("version"),
                 rs.getObject("deleted_at") == null ? null : rs.getLong("deleted_at"),
-                rs.getLong("created_at"), rs.getLong("updated_at"));
+                rs.getLong("created_at"), rs.getLong("updated_at"),
+                rs.getObject("completed_at") == null ? null : rs.getLong("completed_at"));
     }
 
     public Optional<CommunicationRecord> find(String sessionId, String id) {
@@ -76,7 +77,12 @@ public class SessionCommunicationRepository {
             case "without" -> " AND notes = ''";
             default -> "";
         };
-        return "session_id = ? AND " + removed + notes
+        String completion = switch (filter.status()) {
+            case "pending" -> " AND completed_at IS NULL";
+            case "completed" -> " AND completed_at IS NOT NULL";
+            default -> "";
+        };
+        return "session_id = ? AND " + removed + notes + completion
                 + " AND (? = '' OR instr(lower(title || char(10) || source || char(10) || participants || char(10) || original_text || char(10) || notes), lower(?)) > 0)";
     }
 
@@ -114,6 +120,14 @@ public class SessionCommunicationRepository {
                 UPDATE claude_chat_communication_record SET deleted_at = ?, version = version + 1, updated_at = ?
                 WHERE session_id = ? AND id = ? AND version = ?
                 """, removed ? now : null, now, sessionId, id, version) == 1;
+    }
+
+    public boolean setCompleted(String sessionId, String id, int version, boolean completed) {
+        long now = System.currentTimeMillis();
+        return jdbc.update("""
+                UPDATE claude_chat_communication_record SET completed_at = ?, version = version + 1, updated_at = ?
+                WHERE session_id = ? AND id = ? AND version = ? AND deleted_at IS NULL
+                """, completed ? now : null, now, sessionId, id, version) == 1;
     }
 
     public void deleteBySession(String sessionId) {

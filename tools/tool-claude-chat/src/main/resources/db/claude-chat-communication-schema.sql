@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS claude_chat_communication_record (
     notes TEXT NOT NULL DEFAULT '',
     attachment_ids TEXT NOT NULL DEFAULT '[]',
     version INTEGER NOT NULL DEFAULT 1,
+    completed_at INTEGER,
     deleted_at INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL

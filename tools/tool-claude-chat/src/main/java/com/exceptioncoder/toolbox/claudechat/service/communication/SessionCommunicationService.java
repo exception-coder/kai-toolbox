@@ -46,15 +46,16 @@ public class SessionCommunicationService {
     public Page list(String sessionId, Filter filter) {
         authorize(sessionId, false);
         Filter normalized = new Filter(text(filter.search(), 120, "搜索词"), filter.order(), filter.notes(),
-                filter.removed(), filter.page());
+                filter.removed(), filter.page(), filter.status());
         if (normalized.page() < 0 || normalized.page() >= SessionCommunicationRepository.MAX_RECORDS / SessionCommunicationRepository.PAGE_SIZE
                 || !Set.of("asc", "desc").contains(normalized.order())
-                || !Set.of("all", "with", "without").contains(normalized.notes())) {
+                || !Set.of("all", "with", "without").contains(normalized.notes())
+                || !Set.of("all", "pending", "completed").contains(normalized.status())) {
             throw badRequest("分页或筛选值无效");
         }
         List<Summary> records = repository.list(sessionId, normalized).stream().map(row -> new Summary(
                 row.id(), row.title(), row.occurredAt(), row.source(), row.participants(), row.originalText(),
-                row.notes(), row.attachmentIds().size(), row.version(), row.deletedAt(), row.updatedAt())).toList();
+                row.notes(), row.attachmentIds().size(), row.version(), row.deletedAt(), row.updatedAt(), row.createdAt(), row.completedAt())).toList();
         return new Page(records, repository.count(sessionId, normalized), normalized.page(), SessionCommunicationRepository.PAGE_SIZE);
     }
 
@@ -92,6 +93,17 @@ public class SessionCommunicationService {
         CommunicationRecord existing = required(sessionId, id);
         if ((existing.deletedAt() != null) == removed) return detail(sessionId, id);
         if (existing.version() != expectedVersion || !repository.setRemoved(sessionId, id, expectedVersion, removed)) throw conflict();
+        return detail(sessionId, id);
+    }
+
+    /** 人工完成状态独立于软移除，也不代表关联规格已经验收。 */
+    @Transactional
+    public Detail setCompleted(String sessionId, String id, int expectedVersion, boolean completed) {
+        authorize(sessionId, true);
+        CommunicationRecord existing = required(sessionId, id);
+        if (existing.deletedAt() != null) throw conflict();
+        if ((existing.completedAt() != null) == completed) return detail(sessionId, id);
+        if (existing.version() != expectedVersion || !repository.setCompleted(sessionId, id, expectedVersion, completed)) throw conflict();
         return detail(sessionId, id);
     }
 

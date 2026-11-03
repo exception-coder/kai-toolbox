@@ -6,18 +6,18 @@ export interface CommunicationInput {
   originalText: string; notes: string; attachmentIds: string[]; expectedVersion: number
 }
 export interface CommunicationRecord extends Omit<CommunicationInput, 'expectedVersion'> {
-  id: string; sessionId: string; version: number; deletedAt: number | null; createdAt: number; updatedAt: number
+  id: string; sessionId: string; version: number; completedAt?: number | null; deletedAt: number | null; createdAt: number; updatedAt: number
 }
 export interface CommunicationSummary {
   id: string; title: string; occurredAt: number; source: string; participants: string
-  excerpt: string; notesExcerpt: string; imageCount: number; version: number; deletedAt: number | null; updatedAt: number
+  completedAt?: number | null; createdAt?: number; excerpt: string; notesExcerpt: string; imageCount: number; version: number; deletedAt: number | null; updatedAt: number
 }
 export interface CommunicationDetail {
   record: CommunicationRecord
   images: Omit<UploadedAttachment, 'path'>[]
 }
 export interface CommunicationPage { records: CommunicationSummary[]; total: number; page: number; pageSize: number }
-export interface CommunicationFilter { q: string; order: 'asc' | 'desc'; notes: 'all' | 'with' | 'without'; removed: boolean; page: number }
+export interface CommunicationFilter { q: string; order: 'asc' | 'desc'; notes: 'all' | 'with' | 'without'; removed: boolean; page: number; status?: 'pending' | 'completed' | 'all' }
 export interface CommunicationReference {
   records: CommunicationRecord[]
   attachments: (UploadedAttachment & { recordId: string })[]
@@ -42,6 +42,11 @@ export function saveCommunication(sid: string, id: string, input: CommunicationI
 export function removeCommunication(sid: string, id: string, expectedVersion: number, removed: boolean) {
   return http<CommunicationDetail>(`${root(sid)}/${encodeURIComponent(id)}/removed`, {
     method: 'POST', body: JSON.stringify({ expectedVersion, removed }), signal: AbortSignal.timeout(30000),
+  })
+}
+export function completeCommunication(sid: string, id: string, expectedVersion: number, completed: boolean) {
+  return http<CommunicationDetail>(`${root(sid)}/${encodeURIComponent(id)}/completed`, {
+    method: 'POST', body: JSON.stringify({ expectedVersion, completed }), signal: AbortSignal.timeout(30000),
   })
 }
 export function referenceCommunications(sid: string, recordIds: string[]) {

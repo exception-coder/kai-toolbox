@@ -175,6 +175,46 @@ class SessionCommunicationServiceTest {
                 .hasMessageContaining("1000");
     }
 
+    @Test
+    void completionPersistsFiltersAndPreservesVersionAndAccessBoundaries() throws Exception {
+        String id = UUID.randomUUID().toString();
+        service.save(SESSION, id, input("待处理", 100, "正文", "", List.of(), 0));
+        http.perform(post(url(id) + "/completed").contentType("application/json")
+                .content("{\"expectedVersion\":1,\"completed\":true}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("record.version").value(2))
+                .andExpect(jsonPath("record.completedAt").isNumber());
+        assertThat(service.list(SESSION, new Filter("", "desc", "all", false, 0, "pending")).total()).isZero();
+        assertThat(service.list(SESSION, new Filter("正文", "desc", "all", false, 0, "completed")).total()).isEqualTo(1);
+        assertThat(service.setCompleted(SESSION, id, 1, true).record().version()).isEqualTo(2);
+        assertThatThrownBy(() -> service.setCompleted(SESSION, id, 1, false)).hasMessageContaining("409");
+        assertThatThrownBy(() -> service.setCompleted(OTHER, id, 2, false)).hasMessageContaining("404");
+        when(plans.writable(SESSION)).thenReturn(false);
+        assertThatThrownBy(() -> service.setCompleted(SESSION, id, 2, false)).hasMessageContaining("409");
+        when(plans.writable(SESSION)).thenReturn(true);
+        when(access.canAccessOrClaimCurrentUser(SESSION)).thenReturn(false);
+        assertThatThrownBy(() -> service.setCompleted(SESSION, id, 2, false)).hasMessageContaining("403");
+        when(access.canAccessOrClaimCurrentUser(SESSION)).thenReturn(true);
+        service.save(SESSION, id, input("改标题", 100, "正文", "", List.of(), 2));
+        assertThat(service.detail(SESSION, id).record().completedAt()).isNotNull();
+        service.setRemoved(SESSION, id, 3, true);
+        assertThatThrownBy(() -> service.setCompleted(SESSION, id, 4, false)).hasMessageContaining("409");
+        service.setRemoved(SESSION, id, 4, false);
+        assertThat(service.setCompleted(SESSION, id, 5, false).record().completedAt()).isNull();
+    }
+
+    @Test
+    void upgradesLegacyCompletionColumnIdempotentlyWithoutChangingExistingRecords() {
+        String id = UUID.randomUUID().toString();
+        service.save(SESSION, id, input("旧记录", 100, "保留正文", "", List.of(), 0));
+        jdbc.execute("ALTER TABLE claude_chat_communication_record DROP COLUMN completed_at");
+        var migration = new com.exceptioncoder.toolbox.claudechat.config.ClaudeChatSchemaMigration(jdbc);
+        migration.addCommunicationCompletionColumn();
+        migration.addCommunicationCompletionColumn();
+        assertThat(service.detail(SESSION, id).record().originalText()).isEqualTo("保留正文");
+        assertThat(service.detail(SESSION, id).record().completedAt()).isNull();
+        assertThat(service.detail(SESSION, id).record().version()).isEqualTo(1);
+    }
+
     private Input input(String title, long time, String original, String notes, List<String> ids, int version) {
         return new Input(title, time, "飞书", "张凯", "", original, notes, ids, version);
     }

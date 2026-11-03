@@ -28,8 +28,9 @@ public class SessionCommunicationController {
     @GetMapping
     public Page list(@PathVariable String sessionId, @RequestParam(defaultValue = "") String q,
                      @RequestParam(defaultValue = "desc") String order, @RequestParam(defaultValue = "all") String notes,
-                     @RequestParam(defaultValue = "false") boolean removed, @RequestParam(defaultValue = "0") int page) {
-        return service.list(sessionId, new Filter(q, order, notes, removed, page));
+                     @RequestParam(defaultValue = "false") boolean removed, @RequestParam(defaultValue = "0") int page,
+                     @RequestParam(defaultValue = "all") String status) {
+        return service.list(sessionId, new Filter(q, order, notes, removed, page, status));
     }
 
     @GetMapping("/{id}")
@@ -43,6 +44,11 @@ public class SessionCommunicationController {
     @PostMapping("/{id}/removed")
     public Detail remove(@PathVariable String sessionId, @PathVariable String id, @RequestBody Removal input) {
         return service.setRemoved(sessionId, id, input.expectedVersion(), input.removed());
+    }
+
+    @PostMapping("/{id}/completed")
+    public Detail complete(@PathVariable String sessionId, @PathVariable String id, @RequestBody Completion input) {
+        return service.setCompleted(sessionId, id, input.expectedVersion(), input.completed());
     }
 
     @PostMapping("/reference")
@@ -64,6 +70,7 @@ public class SessionCommunicationController {
                 .body(new PathResource(image.file()));
     }
 
+    public record Completion(int expectedVersion, boolean completed) { }
     public record Removal(int expectedVersion, boolean removed) { }
     public record Selection(List<String> recordIds) { }
 }

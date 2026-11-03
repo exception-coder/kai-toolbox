@@ -38,6 +38,18 @@ public class ClaudeChatSchemaMigration {
         }
     }
 
+    /** 旧待办保留为未完成；重复启动不改写历史数据。 */
+    @EventListener(ApplicationReadyEvent.class)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public void addCommunicationCompletionColumn() {
+        boolean present = jdbc.queryForList("PRAGMA table_info(claude_chat_communication_record)").stream()
+                .anyMatch(column -> "completed_at".equals(column.get("name")));
+        if (!present) {
+            jdbc.execute("ALTER TABLE claude_chat_communication_record ADD COLUMN completed_at INTEGER");
+            log.info("[claude-chat] 迁移：开发待办已补完成时间列");
+        }
+    }
+
     @EventListener(ApplicationReadyEvent.class)
     public void addEngineColumn() {
         try {

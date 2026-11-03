@@ -6,7 +6,7 @@ import { getCommunication, listCommunications, type CommunicationFilter } from '
 export function useCommunicationJournal(sessionId: string, initialRecordId?: string) {
   const client = useQueryClient(), alive = useRef(true), userScope = getUser()?.userId ?? 'local'
   const queryRoot = ['communications', userScope, sessionId]
-  const [search, setSearch] = useState(''), [filter, setFilter] = useState<CommunicationFilter>({ q: '', order: 'desc', notes: 'all', removed: false, page: 0 })
+  const [search, setSearch] = useState(''), [filter, setFilter] = useState<CommunicationFilter>({ q: '', order: 'desc', notes: 'all', removed: false, page: 0, status: 'pending' })
   const [selectedId, setSelectedId] = useState(initialRecordId ?? ''), [selection, setSelection] = useState<string[]>([])
   const [notice, setNotice] = useState(''), [error, setError] = useState('')
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
