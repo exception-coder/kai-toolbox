@@ -14,6 +14,23 @@
 
 图中 Agent 是理解、取舍与实施的主体，Team Standards 提供工程宪法与任务方法，Forge 在项目明确采用时提供执行控制，MCP/Hook 承担调用与事件适配。Forge 的候选上下文聚合规格与实现证据；Agent 按需查询领域知识、跨项目拓扑及其他权威来源。各来源保留事实所有权，最终实现与真实验证落在目标项目中。该图表达当前职责关系，不表示所有项目均已接入 Forge，也不将结构检查等同于业务或运行正确。
 
+### Vibe Coding 运行分层与附加能力
+
+[可编辑双页 draw.io](diagrams/ForgeVibeCoding运行架构.drawio) · [运行分层预览](diagrams/ForgeVibeCoding运行架构-运行分层.png) · [附加能力预览](diagrams/ForgeVibeCoding运行架构-附加能力.png)。这是 2026-11-03 的源码视图，补充上图的运行分层，不代表所有功能均已加载到在线进程。预览由 draw.io Desktop 从同一源图导出；图元、文字和连接器保留原生 XML。
+
+运行主线是 **React 工作台 → Java 会话宿主 → Node Sidecar / 引擎适配器 → 原生 Harness / Agent → 目标项目**。Java 管理会话、持久消息队列、准入与 Sidecar 生命周期；Sidecar 统一轮次请求和事件，在各引擎实际支持的范围内适配审批、中断和恢复。模型推理及文件、Shell、联网等工具仍由相应 Harness 提供，Forge 不另造通用执行器。资源中心和项目登记由各自模块维护，SQLite 保存相应业务状态。
+
+| Forge 增加的能力 | 作用与边界 | 实现或规则入口 |
+|---|---|---|
+| 内置行为引导 | `environment-default` 与 `research-first`；尊重原生环境，重要方案先研究成熟能力。是提示词引导，不是确定性门禁 | [Harness Presets](../sidecar/claude-agent/src/harnessPresets.ts) |
+| 会话运行可靠性 | 队列持久化、轮次认领、回执对账与有界恢复；关闭浏览器不等于停止任务，模型自报完成不等于验收通过 | [会话服务](../tools/tool-claude-chat/src/main/java/com/exceptioncoder/toolbox/claudechat/service/ClaudeChatService.java) |
+| 模型侧六项产品工具 | 资源发现、资源调用、DDL 核对、待执行 SQL 登记、页面预览、推进进度上报；继续保留原生工具与用户插件 | [工具与内部兼容边界](../sidecar/claude-agent/src/specResolution/README.md) |
+| 工程上下文与执行协作 | 项目登记、初始化、规格与图谱候选证据；已采用的内部门禁维护范围、分支、写入权与验证证据，自动监督提供推进和预算控制 | [执行模块](../sidecar/claude-agent/src/execution/README.md) |
+| 工作台体验 | 移动输入、会话控制、主题、Git 引用浏览、语音、预览、评审和执行观测；各引擎能力以实际探测为准 | [引擎注册表](../sidecar/claude-agent/src/engine/engineRegistry.ts)与 [Forge 能力说明](../README.md) |
+| 更新与交付协作 | 源码轮询、安全快进、暂存恢复与候选构建；拉取、构建、重启和运行验收分别判定 | [轮询更新任务](../openspec/changes/poll-source-update-safely/tasks.md) |
+
+Team Standards、OpenSpec 与 Graphify 是协作体系的组成部分，不是 Forge 自研替代品：它们分别维护工程方法、行为规格和代码关系。普通任务遵循轻量路径，不强制调用旧的 19 项工程操作。新 Preset 已提交源码，但目标进程加载和真实行为验收仍待完成；五分钟更新轮询的重启策略源码默认为 `manual`，`idle` 自动重启尚未获启用授权。此文档整理不改变这些运行边界，也不触发构建发布或服务重启。
+
 ## 维护契约
 
 **改变架构套件的协作契约，必须在同次作业中更新本文；不改变契约，不为凑流程修改本文。** 责任归本次实施 Agent 和变更负责人，不等待用户再次要求更新说明。
