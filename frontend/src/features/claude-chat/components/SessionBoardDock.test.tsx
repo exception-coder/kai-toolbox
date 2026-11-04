@@ -1,3 +1,5 @@
+import { WorkspaceQuickToolsProvider } from '../runtime/WorkspaceQuickTools'
+import { SessionCommunicationDock } from './communications/SessionCommunicationDock'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -206,7 +208,7 @@ it('keeps vertical dragging when a child icon loses implicit pointer capture', (
   expect(localStorage.getItem('forge:workspace-dock:1')).toBe(saved)
 })
 
-it('snaps a drag to the opposite edge, suppresses its click, remembers placement and supports keyboard movement', async () => {
+it('clamps a free drag to safe bounds, suppresses its click, remembers placement and supports keyboard movement', async () => {
   pointerEvents()
   const view = mount()
   const button = screen.getByRole('button', { name: '打开会话快捷看板' })
@@ -217,14 +219,15 @@ it('snaps a drag to the opposite edge, suppresses its click, remembers placement
   // Touch WebViews may synthesize clicks with detail=0; these must also be suppressed after a drag.
   fireEvent.click(button, { detail: 0 })
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  expect(button.style.left).toBe('0px')
+  expect(button.style.left).toBe('12px')
   expect(JSON.parse(localStorage.getItem('forge:workspace-dock:1')!).edge).toBe('left')
   view.unmount()
   mount()
   const restored = screen.getByRole('button', { name: '打开会话快捷看板' })
-  expect(restored.style.left).toBe('0px')
+  expect(restored.style.left).toBe('12px')
   fireEvent.keyDown(restored, { altKey: true, key: 'ArrowRight' })
-  expect(parseFloat(restored.style.left)).toBeGreaterThan(window.innerWidth / 2)
+  expect(parseFloat(restored.style.left)).toBeGreaterThan(12)
+  expect(parseFloat(restored.style.left)).toBeLessThan(window.innerWidth / 2)
   fireEvent.pointerDown(restored, { pointerId: 2, clientX: 600, clientY: 200, button: 0 })
   fireEvent.pointerMove(restored, { pointerId: 2, clientX: 602, clientY: 201 })
   fireEvent.pointerUp(restored, { pointerId: 2, clientX: 602, clientY: 201 })
@@ -248,4 +251,40 @@ it('uses a mobile bottom sheet, dismisses only by its handle and restores the or
   expect(button).toHaveFocus()
   expect(screen.getByRole('textbox')).toHaveValue('保留截图和需求草稿')
   expect(controls.chat?.switchTo).not.toHaveBeenCalled()
+})
+
+vi.mock('./communications/SessionCommunicationWorkspace', () => ({ default: ({ onClose }: { onClose: () => void }) => <button onClick={onClose}>关闭开发待办</button> }))
+it('uses one launcher for the current todo and board, restoring focus without touching the draft', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  clients.push(client)
+  render(<QueryClientProvider client={client}><WorkspaceQuickToolsProvider>
+    <input aria-label="原草稿" defaultValue="未发送需求" />
+    <SessionBoardDock /><SessionCommunicationDock sessionId="current" sessionTitle="当前会话" readOnly={false} onReference={vi.fn()} />
+  </WorkspaceQuickToolsProvider></QueryClientProvider>)
+  expect(screen.queryByRole('button', { name: '打开开发待办' })).not.toBeInTheDocument()
+  const trigger = screen.getByRole('button', { name: '打开快捷工具' })
+  fireEvent.click(trigger)
+  fireEvent.click(await screen.findByRole('button', { name: '开发待办' }))
+  fireEvent.click(await screen.findByRole('button', { name: '关闭开发待办' }))
+  await waitFor(() => expect(trigger).toHaveFocus())
+  fireEvent.click(trigger)
+  fireEvent.click(await screen.findByRole('button', { name: '会话看板' }))
+  expect(await screen.findByRole('dialog', { name: '会话看板' })).toBeVisible()
+  expect(screen.getByLabelText('原草稿')).toHaveValue('未发送需求')
+  expect(controls.chat?.switchTo).not.toHaveBeenCalled()
+})
+
+it('retains a middle-of-screen drag instead of snapping to an edge', () => {
+  pointerEvents()
+  const view = mount()
+  const button = screen.getByRole('button', { name: '打开会话快捷看板' })
+  const startX = parseFloat(button.style.left), startY = parseFloat(button.style.top)
+  fireEvent.pointerDown(button, { pointerId: 8, clientX: startX + 20, clientY: startY + 20, button: 0 })
+  fireEvent.pointerUp(button, { pointerId: 8, clientX: 320, clientY: 220 })
+  expect(parseFloat(button.style.left)).toBeCloseTo(300)
+  expect(parseFloat(button.style.top)).toBeCloseTo(200)
+  view.unmount(); mount()
+  const restored = screen.getByRole('button', { name: '打开会话快捷看板' })
+  expect(parseFloat(restored.style.left)).toBeCloseTo(300)
+  expect(parseFloat(restored.style.top)).toBeCloseTo(200)
 })

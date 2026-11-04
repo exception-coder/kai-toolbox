@@ -14,7 +14,7 @@
   .cc-mobile-coding-workspace .cc-workspace-view,
   .cc-mobile-coding-workspace .cc-focus-composer,
   .cc-mobile-coding-workspace .cc-chat-contextbar { background: var(--color-background); backdrop-filter: none; }
-  .cc-mobile-conversation .cc-message-row { padding: 8px 16px 12px; }
+  .cc-mobile-conversation .cc-message-row { padding: 6px 16px 8px; }
   .cc-mobile-conversation .cc-assistant-row {
     display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 8px; row-gap: 4px;
   }
@@ -54,4 +54,13 @@
   .cc-mobile-coding-workspace .mobile-composer-card > div > div > button {
     min-width: 44px; min-height: 44px;
   }
+}
+
+@media (max-width: 767px) {
+  /* One boundary for the bottom controls; preserve the stop button's independent target. */
+  .cc-workspace-execution-dock > div > button { border-bottom: 0; box-shadow: none; }
+  .cc-mobile-coding-workspace .cc-focus-composer { border-top: 0; }
+  .cc-mobile-conversation .cc-message-actions { justify-self: start; }
+  [data-workbench-theme='atelier-paper'] .cc-focus-composer { background-image: none; }
+  [data-workbench-theme='atelier-paper'] .mobile-composer-card { box-shadow: 0 1px 3px rgb(102 67 35 / .05); }
 }

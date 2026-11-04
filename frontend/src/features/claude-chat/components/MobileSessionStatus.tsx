@@ -175,9 +175,15 @@ export function MobileSessionStatus({
         aria-describedby={mobile && !open && !discovered ? hintId : undefined}
       >
         <Icon aria-hidden="true" className={cn('size-3.5 shrink-0', active && !warning && 'animate-spin text-[var(--color-primary)] motion-reduce:animate-none', !warning && status?.kind === 'completed' && 'text-emerald-600 dark:text-emerald-400')} />
-        <span className="min-w-0 flex-1 truncate font-medium" title={summary}>{summary}</span>
+        <span className="min-w-0 flex-1" title={summary}>
+          <span className="block truncate font-medium">{mobile ? summaryLabel : summary}</span>
+          {mobile && <span className="flex min-w-0 gap-1 text-[11px] leading-4">
+            <span className="truncate">{[currentActivity, workspace && elapsed != null ? fmtMs(elapsed) : null, completedTime].filter(Boolean).join(' · ')}</span>
+            {queueCount > 0 && <span className="shrink-0 whitespace-nowrap tabular-nums">队列 {queueCount}{queuePausedReason ? ' · 已暂停' : ''}</span>}
+          </span>}
+        </span>
         {executionNotice && <span className="sr-only md:not-sr-only md:shrink-0">执行提示</span>}
-        {queueCount > 0 && <span className="shrink-0 whitespace-nowrap tabular-nums">队列 {queueCount}{queuePausedReason ? ' · 已暂停' : ''}</span>}
+        {!mobile && queueCount > 0 && <span className="shrink-0 whitespace-nowrap tabular-nums">队列 {queueCount}{queuePausedReason ? ' · 已暂停' : ''}</span>}
         <span className="flex shrink-0 items-center gap-1 whitespace-nowrap font-medium text-[var(--color-primary)]">会话控制{open ? <ChevronDown aria-hidden="true" className="size-3.5" /> : <ChevronUp aria-hidden="true" className="size-3.5" />}</span>
       </button>
       {mobile && running && onInterrupt && <button type="button" aria-label={interrupting ? '正在停止任务' : '停止任务'}

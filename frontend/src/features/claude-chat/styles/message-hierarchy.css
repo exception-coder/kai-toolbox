@@ -39,15 +39,15 @@
 }
 @media (max-width: 767px) {
   .cc-mobile-conversation {
-    --cc-reading-gap: 20px;
+    --cc-reading-gap: 12px;
     --cc-reading-paragraph: 10px;
     --cc-reading-leading: 1.55;
   }
   .cc-mobile-conversation[data-reading-density='comfortable'] {
-    --cc-reading-gap: 24px; --cc-reading-paragraph: 12px; --cc-reading-leading: 1.6;
+    --cc-reading-gap: 16px; --cc-reading-paragraph: 12px; --cc-reading-leading: 1.6;
   }
   .cc-mobile-conversation[data-reading-density='compact'] {
-    --cc-reading-gap: 16px; --cc-reading-paragraph: 8px; --cc-reading-leading: 1.5;
+    --cc-reading-gap: 8px; --cc-reading-paragraph: 8px; --cc-reading-leading: 1.5;
   }
   .cc-mobile-conversation .cc-message-row { padding: 0 16px var(--cc-reading-gap); }
   .cc-mobile-conversation .cc-assistant-body {

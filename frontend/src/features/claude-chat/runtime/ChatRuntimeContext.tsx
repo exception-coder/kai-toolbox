@@ -1,3 +1,4 @@
+import { WorkspaceQuickToolsProvider } from './WorkspaceQuickTools'
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, type Context, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { UseClaudeChatSocket } from '../hooks/useClaudeChatSocket'
@@ -212,7 +213,7 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
   const flourish = <GestureFlourish flash={gestureFlash} onDone={() => setGestureFlash(null)} />
 
   return (
-    <Ctx.Provider value={{ ...control, chat }}>
+    <Ctx.Provider value={{ ...control, chat }}><WorkspaceQuickToolsProvider>
       {children}
       {active && <ErrorBoundary label="chat-engine" compact>
         <Suspense fallback={null}>
@@ -221,6 +222,6 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
         </Suspense>
       </ErrorBoundary>}
       {flourish}
-    </Ctx.Provider>
+    </WorkspaceQuickToolsProvider></Ctx.Provider>
   )
 }

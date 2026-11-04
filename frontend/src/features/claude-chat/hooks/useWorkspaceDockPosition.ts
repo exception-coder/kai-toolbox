@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 
-type Position = { edge: 'left' | 'right'; ratio: number }
-const WIDTH = 28, HEIGHT = 44, GAP = 12
+type Position = { edge: 'left' | 'right'; ratio: number; xRatio?: number }
+const WIDTH = 44, HEIGHT = 44, GAP = 12
 const clamp = (value: number, low: number, high: number) => Math.min(Math.max(value, low), Math.max(low, high))
 
 /** Persist user placement, but project it into the current viewport and outside the composer. */
@@ -11,7 +11,7 @@ export function useWorkspaceDockPosition(userId: number | string, defaultRatio =
     try {
       const saved = JSON.parse(localStorage.getItem(key) ?? 'null')
       if (saved && ['left', 'right'].includes(saved.edge) && Number.isFinite(saved.ratio)) {
-        return { edge: saved.edge, ratio: clamp(saved.ratio, 0, 1) }
+        return { edge: saved.edge, ratio: clamp(saved.ratio, 0, 1), xRatio: Number.isFinite(saved.xRatio) ? clamp(saved.xRatio, 0, 1) : undefined }
       }
     } catch { /* Storage restrictions must not prevent access to the workspace. */ }
     return { edge: 'right', ratio: defaultRatio }
@@ -53,8 +53,8 @@ export function useWorkspaceDockPosition(userId: number | string, defaultRatio =
   // Re-read geometry on resize/focus without persisting keyboard-induced displacement.
   void revision
   const viewport = window.visualViewport
-  const left = (viewport?.offsetLeft ?? 0) + safe.left
-  const right = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth) - safe.right - WIDTH
+  const left = (viewport?.offsetLeft ?? 0) + safe.left + GAP
+  const right = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth) - safe.right - WIDTH - GAP
   const visibleHeight = viewport?.height ?? window.innerHeight
   const minY = (viewport?.offsetTop ?? 0) + Math.min(safe.top + 64, Math.max(GAP, visibleHeight - HEIGHT - GAP))
   let maxY = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight) - safe.bottom - GAP - HEIGHT
@@ -65,6 +65,7 @@ export function useWorkspaceDockPosition(userId: number | string, defaultRatio =
     if (box.width > 0 && box.height > 0 && box.top > minY) maxY = Math.min(maxY, box.top - HEIGHT - GAP)
   })
   const top = clamp(minY + position.ratio * (maxY - minY), minY, maxY)
+  const x = clamp(left + (position.xRatio ?? (position.edge === 'left' ? 0 : 1)) * (right - left), left, right)
   const save = (next: Position) => {
     setPosition(next)
     try { localStorage.setItem(key, JSON.stringify(next)) } catch { /* Keep session-only placement. */ }
@@ -85,7 +86,7 @@ export function useWorkspaceDockPosition(userId: number | string, defaultRatio =
     gesture.current = null
     suppressClick.current = current.moved || cancelled
     if (current.moved && !cancelled) {
-      save({ edge: current.x + WIDTH / 2 < (left + right + WIDTH) / 2 ? 'left' : 'right',
+      save({ xRatio: right > left ? (current.x - left) / (right - left) : 0, edge: current.x + WIDTH / 2 < (left + right + WIDTH) / 2 ? 'left' : 'right',
         ratio: maxY > minY ? clamp((current.y - minY) / (maxY - minY), 0, 1) : 0 })
     }
     setDragPoint(null)
@@ -94,13 +95,12 @@ export function useWorkspaceDockPosition(userId: number | string, defaultRatio =
   return {
     buttonRef, edge: position.edge, visibleHeight,
     bottomInset: Math.max(0, window.innerHeight - (viewport?.offsetTop ?? 0) - visibleHeight),
-    style: { left: dragPoint?.x ?? (position.edge === 'left' ? left : Math.max(left, right)), top: dragPoint?.y ?? top },
+    style: { left: dragPoint?.x ?? x, top: dragPoint?.y ?? top },
     consumeDragClick: () => { const consumed = suppressClick.current; suppressClick.current = false; return consumed },
     pointerHandlers: {
       onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => {
         if (event.button !== 0 || event.isPrimary === false || gesture.current) return
         suppressClick.current = false
-        const x = position.edge === 'left' ? left : Math.max(left, right)
         gesture.current = { id: event.pointerId, startX: event.clientX, startY: event.clientY, originX: x, originY: top, x, y: top, moved: false }
         event.currentTarget.setPointerCapture?.(event.pointerId)
       },
@@ -116,7 +116,7 @@ export function useWorkspaceDockPosition(userId: number | string, defaultRatio =
       if (event.key === 'Enter' || event.key === ' ') suppressClick.current = false
       if (!event.altKey) return
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        event.preventDefault(); save({ ...position, edge: event.key === 'ArrowLeft' ? 'left' : 'right' })
+        event.preventDefault(); save({ ...position, xRatio: clamp((position.xRatio ?? (position.edge === 'left' ? 0 : 1)) + (event.key === 'ArrowLeft' ? -0.1 : 0.1), 0, 1), edge: event.key === 'ArrowLeft' ? 'left' : 'right' })
       } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
         event.preventDefault(); save({ ...position, ratio: clamp(position.ratio + (event.key === 'ArrowUp' ? -0.1 : 0.1), 0, 1) })
       }

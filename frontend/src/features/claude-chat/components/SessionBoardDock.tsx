@@ -1,5 +1,6 @@
+import { useWorkspaceQuickTools } from '../runtime/WorkspaceQuickTools'
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react'
-import { ListChecks, RefreshCw, X } from 'lucide-react'
+import { Grid2X2, NotebookPen, ListChecks, RefreshCw, X } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
@@ -22,14 +23,24 @@ export function SessionBoardDock() {
   const { user } = useAuth()
   const { demo } = useChatRuntime()
   const allowed = access.superAdmin || access.roles.includes('ADMIN') || access.permissionCodes.includes('menu:claude-chat')
+  const tools = useWorkspaceQuickTools()
+  const setAvailable = tools?.setAvailable
+  useEffect(() => {
+    setAvailable?.(allowed && !demo)
+    return () => setAvailable?.(false)
+  }, [allowed, demo, setAvailable])
   return allowed && !demo ? <BoardDock key={user?.userId ?? 'local'} userId={user?.userId ?? 'local'} /> : null
 }
 
 function BoardDock({ userId }: { userId: number | string }) {
   const [open, setOpen] = useState(false)
+  const tools = useWorkspaceQuickTools()
+  const [view, setView] = useState<'tools' | 'board'>('tools')
   const [swipe, setSwipe] = useState(0)
   const swipeStart = useRef<{ id: number; y: number } | null>(null)
+  const handingOff = useRef(false)
   const closeRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => { if (open) closeRef.current?.focus({ preventScroll: true }) }, [view, open])
   const heading = useId(), description = useId(), panelId = useId()
   const navigate = useNavigate(), location = useLocation()
   const mobile = useMobileViewport()
@@ -63,22 +74,23 @@ function BoardDock({ userId }: { userId: number | string }) {
   }
   const restoreFocus = (event: Event) => {
     event.preventDefault()
+    if (handingOff.current) { handingOff.current = false; return }
     placement.buttonRef.current?.focus({ preventScroll: true })
   }
-  const trigger = <button ref={placement.buttonRef} type="button" aria-label="打开会话快捷看板"
+  const trigger = <button ref={element => { placement.buttonRef.current = element; if (tools) tools.trigger.current = element }} type="button" aria-label={tools ? "打开快捷工具" : "打开会话快捷看板"}
     aria-expanded={open} aria-controls={open ? panelId : undefined} aria-haspopup="dialog" tabIndex={open ? -1 : 0}
-    title="会话看板 · 拖动调整位置；Alt + 方向键移动"
+    title="快捷工具 · 拖动调整位置；Alt + 方向键移动"
     {...placement.pointerHandlers} onKeyDown={placement.onKeyDown}
     onContextMenu={event => event.preventDefault()}
-    onClick={() => { if (placement.consumeDragClick()) return; setOpen(true) }}
-    className={cn('fixed z-30 flex h-11 w-7 touch-none select-none items-center justify-center border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-primary)] hover:bg-[var(--color-accent)] active:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]', placement.edge === 'right' ? 'rounded-l-lg border-r-0' : 'rounded-r-lg border-l-0', open && 'pointer-events-none opacity-0')}
+    onClick={() => { if (placement.consumeDragClick()) return; setView(tools ? 'tools' : 'board'); setOpen(true) }}
+    className={cn('fixed z-30 flex h-11 w-11 touch-none select-none items-center justify-center border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-primary)] hover:bg-[var(--color-accent)] active:bg-[var(--color-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ring)]', 'rounded-full shadow-sm', open && 'pointer-events-none opacity-0')}
     style={placement.style}>
-    <ListChecks aria-hidden="true" className="pointer-events-none size-4" />
+    <Grid2X2 aria-hidden="true" className="pointer-events-none size-4" />
     {pending > 0 ? <span aria-label={`待关注会话 ${pending} 个`} className={cn('absolute -top-1 flex min-w-4 items-center justify-center rounded-full px-0.5 text-[10px] leading-4', placement.edge === 'right' ? '-left-1' : '-right-1', failed ? 'bg-[var(--color-destructive)] text-white' : 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]')}>{pending}</span>
       : running ? <span aria-label="最近会话进行中" className="absolute right-0 top-0 size-2.5 rounded-full bg-[var(--color-primary)] ring-2 ring-[var(--color-background)]" />
         : !fresh && !sessionQuery.isPending ? <span aria-label="会话状态待更新" className="absolute right-0 top-0 size-2.5 rounded-full bg-[var(--color-muted-foreground)] ring-2 ring-[var(--color-background)]" /> : null}
   </button>
-  const body = <>
+  const boardBody = <>
     {mobile && <div className="flex h-8 shrink-0 touch-none items-center justify-center" aria-hidden="true"
       onPointerDown={event => {
         if (event.button !== 0) return
@@ -111,6 +123,13 @@ function BoardDock({ userId }: { userId: number | string }) {
       {assistant && <button type="button" className="min-h-11 text-xs text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]" onClick={() => { setOpen(false); assistant.launch(placement.buttonRef.current) }}>工作助理</button>}
     </footer>
   </>
+  const body = view === 'board' ? boardBody : <section className="p-3">
+    <h2 id={heading} className="px-2 text-sm font-semibold">快捷工具</h2>
+    <p id={description} className="sr-only">查看会话看板或当前会话开发待办</p>
+    <Button ref={closeRef} variant="ghost" className="mt-2 min-h-11 w-full justify-start gap-2" onClick={() => setView('board')}><ListChecks className="size-4" />会话看板</Button>
+    {tools?.todo && <Button variant="ghost" className="min-h-11 w-full justify-start gap-2" onClick={() => { handingOff.current = true; setOpen(false); tools.todo?.open() }}><NotebookPen className="size-4" />开发待办</Button>}
+    <Button variant="ghost" className="min-h-11 w-full" onClick={() => setOpen(false)}>关闭快捷工具</Button>
+  </section>
   return mobile ? <Sheet open={open} onOpenChange={setOpen}>
     {trigger}
     <SheetContent id={panelId} side="bottom" hideCloseButton aria-modal="true" aria-labelledby={heading} aria-describedby={description}
