@@ -117,10 +117,13 @@ public class QueueDeliveryStore {
         var receipt = delivery(sessionId).filter(d -> d.turnId().equals(turnId));
         if (receipt.isPresent()) {
             boolean successful = List.of("end_turn","success","completed","stop","user_confirmed").contains(stopReason);
-            if (successful) {
+            boolean interrupted = "interrupted".equals(stopReason);
+            if (successful || interrupted) {
                 jdbc.update("DELETE FROM claude_chat_queued_message WHERE session_id=? AND id=?", sessionId, receipt.get().messageId());
                 jdbc.update("DELETE FROM claude_chat_queue_delivery WHERE session_id=? AND turn_id=?", sessionId, turnId);
-                progress(sessionId, receipt.get().messageId(), "COMPLETED", "user_confirmed".equals(stopReason) ? "原会话用户已核对完成" : null);
+                progress(sessionId, receipt.get().messageId(), interrupted ? "EXCEPTION" : "COMPLETED",
+                        interrupted ? "当前派发已终止，任务未确认完成；其余待发送消息保留"
+                                : "user_confirmed".equals(stopReason) ? "原会话用户已核对完成" : null);
             } else {
                 jdbc.update("UPDATE claude_chat_queue_delivery SET status='FAILED',note=? WHERE session_id=? AND turn_id=?",
                         "当前任务异常或未确认完成，后台将追问；连续三次仍不明确时等待人工确认。", sessionId, turnId);

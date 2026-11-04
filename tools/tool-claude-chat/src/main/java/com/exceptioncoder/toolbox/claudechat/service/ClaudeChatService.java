@@ -1519,6 +1519,7 @@ public class ClaudeChatService {
             return;
         }
         if (ctx.status != SessionStatus.RUNNING) {
+            cancelSettledQueue(ctx);
             sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(
                     seq, "alreadyStopped", false, ctx.pendingRequest != null));
             return;
@@ -1548,6 +1549,26 @@ public class ClaudeChatService {
                 ctx.sessionId, ctx.engine);
         sendToBrowser(ctx, seq -> new ServerMessage.Error(
                 seq, "INTERRUPT_UNDELIVERED", "中断未送达：sidecar 当前未连接，请等待重连后重试"));
+    }
+
+    /** Explicit stop may arrive after an error result; retire only its confirmed idle dispatch. */
+    private void cancelSettledQueue(SessionCtx ctx) {
+        var expected = queueDelivery.runtime(ctx.sessionId).orElse(null);
+        var delivery = queueDelivery.delivery(ctx.sessionId).orElse(null);
+        if (expected == null || delivery == null || expected.ready() || expected.stopReason() == null
+                || !"FAILED".equals(delivery.status()) || !expected.turnId().equals(delivery.turnId())) return;
+        var snapshot = sidecar.querySessionState(ctx.sessionId, expected.turnId(),
+                SessionRuntimeStateService.SIDECAR_QUERY_TIMEOUT_MS).orElse(null);
+        synchronized (ctx) {
+            if (ctx.status == SessionStatus.RUNNING || ctx.pendingRequest != null || !ctx.backgroundTasks.isEmpty()
+                    || snapshot == null || !snapshot.path("sessionPresent").asBoolean()
+                    || snapshot.path("active").asBoolean() || snapshot.path("pendingDecision").asBoolean()
+                    || snapshot.path("backgroundTaskCount").asInt() > 0
+                    || !queueDelivery.runtime(ctx.sessionId).filter(expected::equals).isPresent()
+                    || !queueDelivery.delivery(ctx.sessionId).filter(delivery::equals).isPresent()) return;
+            queueDelivery.settle(ctx.sessionId, expected.turnId(), "interrupted", false);
+            sendToBrowser(ctx, seq -> ready(ctx, seq));
+        }
     }
 
     /**
@@ -2069,7 +2090,8 @@ public class ClaudeChatService {
                 onResult(ctx, receipt);
                 return;
             }
-            if (!expected.ready() && matchingReceipt && "RECEIVED".equals(receipt.path("state").asText())) {
+            if (!expected.ready() && !"interrupted".equals(expected.stopReason())
+                    && matchingReceipt && "RECEIVED".equals(receipt.path("state").asText())) {
                 if (snapshot.path("active").asBoolean()
                         && expected.turnId().equals(snapshot.path("activeTurnId").asText())) {
                     turnLifecycle.adopt(id, expected.turnId());
@@ -2082,6 +2104,13 @@ public class ClaudeChatService {
             }
             if (busy) return;
             ctx.queueResumeRequested = false;
+            // Recover old interrupted receipts only after the engine confirms no active work.
+            // Cancellation retires this dispatch, not the remaining queue or task completion.
+            if ("interrupted".equals(expected.stopReason()) && delivery != null) {
+                queueDelivery.settle(id, expected.turnId(), "interrupted", false);
+                sendToBrowser(ctx, seq -> ready(ctx, seq));
+                return;
+            }
             if (!expected.ready() && delivery == null && queuedMessages.firstIsInternal(id)) {
                 dispatchNextQueuedMessage(ctx, true);
                 return;

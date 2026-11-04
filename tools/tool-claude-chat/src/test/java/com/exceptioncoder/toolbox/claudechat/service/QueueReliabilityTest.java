@@ -100,6 +100,52 @@ class QueueReliabilityTest {
         assertThat(store.delivery("s").orElseThrow().messageId()).isEqualTo("q1");
         assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
     }
+    @Test void interruptedDispatchRetiresOnlyCurrentItemAndAllowsNewManualTurn() throws Exception {
+        store.begin("s", "t1", "q1", "epoch");
+        store.settle("s", "t1", "interrupted", false);
+        assertThat(store.delivery("s")).isEmpty();
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
+        assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
+        state(snapshot(completed("t1", "interrupted")));
+        chat.reconcileQueue("s"); chat.reconcileQueue("s");
+        assertThat(sends()).isZero();
+        store.begin("s", "manual-next", null, "epoch", "new instruction");
+        assertThat(store.runtime("s").orElseThrow().turnId()).isEqualTo("manual-next");
+        assertThat(store.settle("s", "t1", "end_turn", true)).isFalse();
+        assertThat(queue.findBySessionId("s")).hasSize(1);
+    }
+
+    @Test void legacyInterruptedReceiptIsRecoveredOnlyWhenEngineIsIdle() throws Exception {
+        store.begin("s", "t1", "q1", "epoch");
+        store.settle("s", "t1", "error", false);
+        jdbc.update("UPDATE claude_chat_queue_runtime SET stop_reason='interrupted' WHERE session_id='s'");
+        var busy = (com.fasterxml.jackson.databind.node.ObjectNode) snapshot("null");
+        busy.put("active", true);
+        state(busy); chat.reconcileQueue("s");
+        assertThat(store.delivery("s")).isPresent();
+        state(snapshot("{\"sessionId\":\"s\",\"turnId\":\"t1\",\"state\":\"RECEIVED\"}"));
+        chat.reconcileQueue("s"); chat.reconcileQueue("s");
+        assertThat(store.delivery("s")).isEmpty();
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
+        assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
+        assertThat(sends()).isZero();
+    }
+
+    @Test void explicitStopAfterErrorRequiresIdleProofAndDoesNotConfirmSuccess() throws Exception {
+        store.begin("s", "t1", "q1", "epoch");
+        store.settle("s", "t1", "error", false);
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        var busy = (com.fasterxml.jackson.databind.node.ObjectNode) snapshot("null");
+        busy.put("backgroundTaskCount", 1);
+        state(busy); ReflectionTestUtils.invokeMethod(chat, "cancelSettledQueue", ctx);
+        assertThat(store.delivery("s")).isPresent();
+        state(snapshot("null")); ReflectionTestUtils.invokeMethod(chat, "cancelSettledQueue", ctx);
+        assertThat(store.delivery("s")).isEmpty();
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("interrupted");
+        assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
+        assertThat(sends()).isZero();
+    }
     @Test void missedResultIsReconciledThenNextMessageStartsOnlyOnce() throws Exception {
         store.begin("s", "t1", "q1", "epoch");
         state(snapshot(completed("t1", "end_turn")));
