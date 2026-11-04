@@ -47,7 +47,27 @@ class AutopilotTaskBatchTest {
                     .contains("x-forge-version: " + result.version(), "[VERIFY_GROUP:name]", "reusedCheckIds",
                             "page and API wiring", "Do not report deferred checks as passed",
                             "explicit unfinished follow-up tasks", "deferred requirements stay unchecked");
+            Path directory = root.resolve(installed).getParent();
+            assertThat(Files.readString(directory.resolve("references/writer-recovery.md")))
+                    .contains("IMPLEMENTATION_SCOPE_DRIFT", "Do not abort another session");
+            assertThat(Files.readString(directory.resolve("references/database-verification.md")))
+                    .contains("H2", "Never claim release readiness");
         }
+        assertThat(new ContinuousExecutionSkillProvisioner().provision(root).fingerprint())
+                .isEqualTo(result.fingerprint());
+    }
+
+    @Test
+    void provisionerPreservesUserOwnedReferenceAndEntry(@TempDir Path root) throws Exception {
+        Path directory = root.resolve(".agents/skills/forge-openspec-continuous-execution");
+        Files.createDirectories(directory.resolve("references"));
+        Path reference = directory.resolve("references/writer-recovery.md");
+        Files.writeString(reference, "User recovery instructions");
+        var result = new ContinuousExecutionSkillProvisioner().provision(root);
+        assertThat(result.ready()).isFalse();
+        assertThat(result.collisions()).contains(".agents/skills/forge-openspec-continuous-execution/references/writer-recovery.md");
+        assertThat(Files.readString(reference)).isEqualTo("User recovery instructions");
+        assertThat(directory.resolve("SKILL.md")).doesNotExist();
     }
 
     private OpenSpecExecutionContext context(String revision, OpenSpecExecutionPhase phase) {

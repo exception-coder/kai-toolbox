@@ -3,4 +3,4 @@ description: Forge 本地启动、首次环境准备、服务启动失败与运�
 alwaysApply: false
 ---
 
-处理 Forge/kai-toolbox 启动请求时，先读取仓库根目录 `AGENTS.md` 和 `.agents/skills/forge-startup/SKILL.md`，再按技能执行。唯一流程正文在该 Skill，复用现有 `node forge.mjs`。普通编码或只读说明不触发启动；已有实例的重启遵守本次明确确认边界。
+处理 Forge/kai-toolbox 启动请求时，先读取仓库根目录 `AGENTS.md` 和 `.agents/skills/forge-startup/SKILL.md`，再按技能执行。该入口转到 forge-runtime 唯一流程正文，复用现有 `node forge.mjs`。普通编码或只读说明不触发启动；已有实例的重启遵守本次明确确认边界。

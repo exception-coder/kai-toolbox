@@ -1,105 +1,77 @@
 ---
 name: forge-runtime
-description: "Use when managing services in kai-toolbox (start, stop, restart, status, logs) or diagnosing port conflicts and runtime failures. Strictly enforces using 'node forge.mjs' and prohibits ad-hoc restart scripts, taskkill/kill, and unauthorized restarts."
+description: "Forge/kai-toolbox 首次环境准备、启动、停止、重启、状态日志和运行故障诊断。复用 node forge.mjs；普通编码与文档修改不触发起停。"
 ---
 
-# Forge 运行时管控规范 (forge-runtime)
+# Forge 运行技能
 
-本规范定义了 `kai-toolbox` 项目中服务启动、停止、重启、状态查看及故障排查的标准边界与操作协议。所有 Agent（Codex、Claude Code、Cursor 等）在涉及服务起停与运行时排查时，必须严格遵守本技能指导。
+本文件是首次启动、日常运行与故障诊断的唯一流程正文。授权及交付边界读取根目录 [AGENTS.md](../../../AGENTS.md)，配置、模式与命令细节查 [scripts/STARTUP.md](../../../scripts/STARTUP.md)。不复制授权例外，也不创建新运行器。
 
-首次环境准备与启动执行顺序见 [forge-startup](../forge-startup/SKILL.md)。配置细节以 [STARTUP.md](../../../scripts/STARTUP.md) 为准。
+唯一运行控制入口为 `node forge.mjs`。不使用强杀端口、临时起停脚本或原始 Maven/npm/java 命令替代受管运行控制。仅询问流程时不启动服务。
 
----
+按需阅读：首次拉取或“跑起来”从首次启动开始；日常起停使用日常运行；异常先查故障诊断；实际启动或重启后完成共同验收。
 
-## 1. 致命红线（严禁自制与私自重启）
+## 首次启动
 
-<HARD-GATE>
-1. **服务重启必须经用户明确确认**：
-   - 严禁以“开发完成”、“修复问题”或“执行验收”为由自行重启服务。
-   - 每次重启前必须向用户说明：**目标服务范围**、**重启原因**与**预期影响**，并等待用户明确批准（用户明确输入指令如“帮我重启后端”除外）。
-2. **严禁自制起停逻辑与暴力杀进程**：
-   - **禁止**调用系统原生命令（如 Windows `taskkill`、Linux/macOS `kill`/`pkill`）按 PID 或端口强杀进程，这会破坏 PM2 守护状态并引发不可预期的级联失败或僵尸进程。
-   - **禁止**自行在后台或终端执行 `mvn spring-boot:run`、`npm run dev` 或 `java -jar` 抢占已有受管端口。
-   - **禁止**生成临时的起停脚本（如 `restart.bat`、`restart.ps1`、`start.sh` 等）。
-3. **唯一受管入口**：
-   - 本项目运行时栈受 PM2 守护管理，所有启动、停止、重启、状态查询与日志查看**必须且只能使用根目录的统一入口脚本：`node forge.mjs`**。
-</HARD-GATE>
+### 确认环境与已有实例
 
----
+- 定位含 `forge.mjs` 的项目根目录，所有后续命令在该目录执行。记录 `git status --short`、`git rev-parse HEAD`；不自动 pull、stash 或覆盖改动。
+- 识别实际操作系统、Shell 和工具路径，不从 Windows 推断一定是 PowerShell。使用当前 Harness 原生执行工具和实际 Shell 语法。
+- 基础要求：Node.js 22.13+、JDK 21、Maven 3.9+、Git。先确认 Node 可执行，再运行 `node forge.mjs doctor`；缺失时报告具体工具和版本缺口，优先复用已有安装及工具路径配置，不擅自升级全局环境。
+- `doctor` 只检查 Node/npm/Java/Maven/Git；Python、模型和其他可选服务需按实际启用项检查。首次执行非 help 命令可能安装锁定的运行时 npm 依赖，需要网络。
+- 运行 `node forge.mjs status`，记录当前模式、服务范围、实际端口和进程身份。已有健康实例则复用并给出地址；不能把它宣称为本次源码版本。异常或不同模式先诊断，不能靠 stop/start 或重载绕过重启确认。
 
-## 2. 命令矩阵与作用域
+### 选择最小启动范围
 
-所有命令均在项目根目录下执行：
+用户要求启动且尚无运行实例时，默认沿用本机配置执行：
 
-| 操作目标 | 标准命令 | 说明 |
-| --- | --- | --- |
-| **完整启动** | `node forge.mjs start` | 自动准备依赖、编译并拉起前后端与启用服务，等待 HTTP 就绪 |
-| **完整停止** | `node forge.mjs stop` | 优雅停止所有 PM2 受管进程 |
-| **完整重启** | `node forge.mjs restart` | 重启完整受管运行栈及启用服务 |
-| **仅重启后端** | `node forge.mjs restart --scope backend` | 经控制器重启后端，保留前端和 Cloudflare；需本机重启 Token 配置，不输出凭据 |
-| **仅重启前端** | `node forge.mjs restart --scope frontend` | 重启当前模式的前端，保留后端运行 |
-| **查看运行状态** | `node forge.mjs status` | 检查各服务 PID、真实监听端口、运行状态（online/errored） |
-| **排查后端日志** | `node forge.mjs logs backend` | 查看后端最近输出日志，排查启动或运行期异常 |
-| **排查控制器日志** | `node forge.mjs logs` | 查看 Forge 运行时控制器日志 |
-| **环境体检** | `node forge.mjs doctor` | 检查 Node/npm、JDK、Maven、Git；可选 Python 服务另行检查 |
-
----
-
-## 3. 标准重启执行工作流
-
-当用户明确要求重启，或用户已明确批准重启时，AI 必须按以下标准闭环推进：
-
-```mermaid
-flowchart TD
-    A[用户明确下达/确认重启] --> B[选择对应 scope 执行 node forge.mjs restart]
-    B --> C[调用 node forge.mjs status 核对端口与状态]
-    C --> D{状态是否正常?}
-    D -- 否/errored --> E[调用 node forge.mjs logs backend 诊断根因]
-    E --> F[修复问题后再次请求确认]
-    D -- 是/online --> G[调用 node forge.mjs logs backend 确认无 Fatal 启动错误]
-    G --> H[对健康检查/业务接口进行只读 HTTP 验证]
-    H --> S[至少 60 秒核对进程身份、重启次数与 HTTP]
-    S --> I[向用户汇报重启与验收结果]
-```
-
-### 步骤 1：执行正规命令
-根据改动影响面选择合适的作用域：
-- 仅修改了 Java 后端代码或配置：`node forge.mjs restart --scope backend`
-- 仅修改了前端：先确认 dev/static 模式；静态模式用 `node forge.mjs frontend status` 核对提交快照产物，不能假设 Vite 热更新。确需重启且已授权时：`node forge.mjs restart --scope frontend`
-- 涉及跨端依赖或环境变量配置变更：`node forge.mjs restart`
-
-### 步骤 2：状态与端口核验
-重启命令完成后，立即执行：
 ```shell
-node forge.mjs status
+node forge.mjs start
 ```
-- 核对目标进程的 PID 是否已刷新，状态是否为 `online`。
-- 确认目标端口处于有效监听状态（默认后端 `http://localhost:18080`，前端 `https://localhost:5173`，控制器 `http://127.0.0.1:18081`）。
 
-### 步骤 3：启动日志检查
-绝不能仅凭“命令返回 0”或“PM2 显示 online”判定启动成功（可能存在 Spring 容器启动失败但进程未彻底退出的假死现象）：
-```shell
-node forge.mjs logs backend
+它会准备依赖、编译并等待启用的主服务 HTTP 就绪，不必先手动执行一轮 npm/Maven 构建。只准备依赖而不启动时用 `node forge.mjs prepare`。用户明确只需要某一端时用 `start --scope backend` 或 `start --scope frontend`，交付只覆盖该范围。
+
+- 保留当前运行模式；后端 `dev/full` 与前端 `dev/static` 是独立选项。静态前端只发布已提交快照，工作树修改不等于页面已更新；用 `node forge.mjs frontend status` 核对实际产物。
+- 工具路径、端口等按 `scripts/STARTUP.md` 配置：非空进程环境优先于 `scripts/run-tools.d/*.conf`，再回退旧 `scripts/run-tools.conf`。只检查需要的键，不输出整份私有配置或凭据。参考 `scripts/run-tools.example.d/`，不复制其他同事的路径、证书或数据库。
+- Docker、Task、Whisper、Studio、Cloudflare 均不作为默认必需条件；不自动开启隧道、安装证书或修改防火墙。已启用的服务如有缺失，明确报告，不静默关闭来制造成功。
+- HTTPS 缺少证书时按启动说明处理，不静默降级 HTTP；Node 命令跨平台不等于各平台已实机验收。
+- 启动请求不授权切换已有实例模式、启用 hot reload 或全天自动重启。确需重启时，先说明目标、原因与影响，遵守本次明确确认边界。
+
+## 日常运行
+
+先按 `AGENTS.md` 核实本次操作授权；仅查询状态、日志不执行起停。所有命令在项目根目录运行。
+
+| 目的 | 命令 |
+|---|---|
+| 状态 / 日志 | `node forge.mjs status` / `node forge.mjs logs backend`（或对应服务） |
+| 完整停止 | `node forge.mjs stop` |
+| 完整重启 | `node forge.mjs restart` |
+| 后端重启 | `node forge.mjs restart --scope backend` |
+| 前端重启 | `node forge.mjs restart --scope frontend` |
+
+定向重启保留其他服务；后端重启所需本机 Token 按启动说明配置，不输出凭据。保留前端 dev/static 模式，用 `node forge.mjs frontend status` 核对静态产物。修复后再次重启仍按 AGENTS.md 取得本次授权，不能用停止后启动绕过。
+
+## 故障诊断
+
+默认等待最多 600 秒。首次下载较慢时持续读取工具执行结果，不重复启动。超时或 Ctrl+C 只结束等待，后台服务可能仍在运行：先 `status` 和 `logs backend`（或对应服务），再决定是否用相同 `start` 继续等待。不要并行拉起第二套进程。
+
+需要延长等待时，仅调整当前执行环境，结束后恢复原值。PowerShell 示例：
+
+```powershell
+$forgePreviousTimeout = $env:FORGE_START_TIMEOUT_SECONDS
+try {
+  $env:FORGE_START_TIMEOUT_SECONDS = '900'
+  node forge.mjs start
+} finally {
+  $env:FORGE_START_TIMEOUT_SECONDS = $forgePreviousTimeout
+}
 ```
-- 确认当次启动输出包含 `Started ... in ... seconds`。
-- 确认没有未捕获的 Fatal 启动异常（如数据库连接失败、端口冲突、Bean 初始化异常）。
 
-### 步骤 4：只读接口冒烟
-通过轻量 HTTP 探测确认服务业务响应正常：
-- 后端基础接口：`GET http://localhost:18080/api/tools`
-- 以上地址仅为默认示例，必须替换为 status 的实际地址。响应 200 且返回有效 JSON 仅证明该接口可用，还需前端及本次功能冒烟。
-- 至少连续观察 60 秒，起止核对进程身份、重启次数和 HTTP 响应；异常须诊断并重新计时，不能仅凭一次探测交付。
+依错误输出定位：依赖下载失败查网络/包源，编译失败查构建日志，端口冲突查受管状态与归属。未知监听者不得强杀；需要处理时报告归属和阻塞。已有进程修复后需要重启，仍须取得当次确认，不重复相同失败命令、不自建恢复循环。
 
----
+## 启动与重启验收
 
-## 4. 故障与排查指引
-
-1. **端口冲突问题**：
-   - 若报端口被占用，先执行 `node forge.mjs status` 查看是否已有同名受管进程；
-   - 如需重启，说明范围、原因与影响并取得当次确认，再使用 `node forge.mjs restart`；不得用 stop/start 绕过确认；
-   - 严禁使用系统命令盲杀进程。
-2. **启动超时（Startup Timeout）**：
-   - 超时不代表后台已停止，先查看状态和日志。确需延长时按实际 Shell 设置 `FORGE_START_TIMEOUT_SECONDS`；PowerShell 的设置与恢复示例见启动技能，不使用 Bash 前缀赋值语法。
-3. **PM2 连续快速失败（errored 状态）**：
-   - 连续快速失败达 5 次后 PM2 会将进程标记为 `errored` 并停止自动重启。
-   - 此时执行 `node forge.mjs logs backend` 定位真实报错根因，修复代码或配置后，取得用户对本次重启的明确确认，再执行 `node forge.mjs restart` 恢复。
+1. 用 `node forge.mjs status`、`node forge.mjs logs backend`（或本次启用的服务）核对本次启动、实际端口、进程身份及致命异常。后端就绪不证明 Sidecar 和所有引擎都可用。
+2. 使用实际地址做只读 HTTP 验证：前端首页、后端 `/api/tools` 的状态与有效 JSON，以及本次所需功能冒烟。不要固定请求旧文档的 8080 或别的实例。已启用固定域名隧道还需验证公网首页/API 回源。
+3. 本次实际启动/重启后至少观察 60 秒，起止复查身份、重启次数和 HTTP；变化或失败需诊断并重新计时。页面未打开、真实引擎请求未做时分别标为未验证。
+4. 汇报工作区/源码版本、运行模式及范围、访问地址、日志/HTTP/稳定观察结果和剩余缺口。失败保留证据及下一步，不把 exit 0、PM2 online 或端口开放单独当作成功。仅使用技能/启动服务不要求产生代码提交；如修复代码则遵循仓库交付规则。

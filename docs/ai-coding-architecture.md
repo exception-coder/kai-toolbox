@@ -871,7 +871,8 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    GUIDE["项目启动 Skill / 引擎入口只引用"] --> CHECK["环境与已有实例检查 / 保持授权边界"]
+    GUIDE["forge-startup / 引擎兼容入口"] --> RUNBOOK["forge-runtime / 唯一运行正文"]
+    RUNBOOK --> CHECK["环境与已有实例检查 / 保持授权边界"]
     CHECK --> START["Forge start / 已授权完整重载"]
     START --> CTRL["Forge 控制器"]
     CTRL --> APP["本机前后端"]
@@ -883,7 +884,19 @@ flowchart LR
     VERIFY --> SUCCESS["按实际范围交付"]
 ```
 
-项目内 [forge-startup](../.agents/skills/forge-startup/SKILL.md) 将现有启动流程整理为可执行指引；Codex 的项目入口、Claude Code 的 Skill 入口和 Cursor 的规则入口引用同一正文，运行约束继续由 AGENTS.md 与 forge-runtime 负责，CLI 仍是唯一执行入口，不新增运行时或授权例外。技能格式、链接与 CLI 契约完成静态核对；三种客户端的实际发现、执行以及其他操作系统的启动效果尚未验收。
+项目内 [forge-runtime](../.agents/skills/forge-runtime/SKILL.md) 是首次启动、日常运行和故障诊断的唯一流程正文；[forge-startup](../.agents/skills/forge-startup/SKILL.md)、Claude Code 与 Cursor 启动入口仅路由到该正文。授权仍由 AGENTS.md 管理，配置引用 scripts/STARTUP.md，CLI 是唯一执行入口。三种客户端实际发现与启动效果未因文档整理而视为已验收。
+
+项目 Skill 按职责划分为 **6 份实质正文，另有 1 个启动兼容入口**：
+
+| 类型 | 实质正文 | 装配与维护边界 |
+|---|---|---|
+| 开发者按需使用（3） | forge-runtime、quiet-luxury-ui、workflow/test-asset-cleanup | `.agents/skills` 为正文；UI 的 Claude 入口只引用；测试整理不自动用于普通开发 |
+| Forge 监督专用（1） | forge-openspec-continuous-execution | 后端 `resources/skills` 为唯一源；`node scripts/sync-continuous-skill.mjs` 生成已忽略的本地 `.agents`、`.claude` 副本，`--check` 检查漂移 |
+| 咨询产品运行装配（2） | consult-plain-writing、consult-suggestion-development | 原路径经 Maven 白名单打包，宿主加载；后者保留无工具补丁生成及 JSON 合同 |
+
+五个未实现的 `design-*` 模板保存在 `.agents/skill-drafts/*.md`，不属于可发现能力。不要把模板数量或兼容副本计为新增能力。
+
+持续执行技能的恢复与数据库细节位于随包 `references/`，只在对应场景加载。分发器预检每个目标中的所有文件所有权，冲突时保留用户文件；先发布参考文件，再原子替换入口。指纹覆盖入口与参考内容，版本声明与 Java 分发版本一致。它仍是逐文件写入，并非跨目录事务；写入失败不报告 ready，可安全重试。现有运行进程须加载新后端后才具备该分发行为，本次整理不授权重启。
 
 ### Vibe Coding 消息队列的可靠续发
 
