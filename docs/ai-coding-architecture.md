@@ -24,7 +24,7 @@
 |---|---|---|
 | 内置行为引导 | `environment-default` 与 `research-first`；尊重原生环境，重要方案先研究成熟能力。是提示词引导，不是确定性门禁 | [Harness Presets](../sidecar/claude-agent/src/harnessPresets.ts) |
 | 会话运行可靠性 | 队列持久化、轮次认领、回执对账与有界恢复；关闭浏览器不等于停止任务，模型自报完成不等于验收通过 | [会话服务](../tools/tool-claude-chat/src/main/java/com/exceptioncoder/toolbox/claudechat/service/ClaudeChatService.java) |
-| 模型侧六项产品工具 | 资源发现、资源调用、DDL 核对、待执行 SQL 登记、页面预览、推进进度上报；继续保留原生工具与用户插件 | [工具与内部兼容边界](../sidecar/claude-agent/src/specResolution/README.md) |
+| 模型侧五项产品工具 | 资源发现、资源调用、DDL 核对、页面预览、推进进度上报；继续保留原生工具与用户插件 | [工具与内部兼容边界](../sidecar/claude-agent/src/specResolution/README.md) |
 | 工程上下文与执行协作 | 项目登记、初始化、规格与图谱候选证据；已采用的内部门禁维护范围、分支、写入权与验证证据，自动监督提供推进和预算控制 | [执行模块](../sidecar/claude-agent/src/execution/README.md) |
 | 工作台体验 | 移动输入、会话控制、主题、Git 引用浏览、语音、预览、评审和执行观测；各引擎能力以实际探测为准 | [引擎注册表](../sidecar/claude-agent/src/engine/engineRegistry.ts)与 [Forge 能力说明](../README.md) |
 | 更新与交付协作 | 源码轮询、安全快进、暂存恢复与候选构建；拉取、构建、重启和运行验收分别判定 | [轮询更新任务](../openspec/changes/poll-source-update-safely/tasks.md) |
@@ -125,15 +125,15 @@ Constitution 管 Agent 如何思考；Skill 管任务如何操作；Forge 管上
 
 ### 模型工具与方法去重
 
-普通 Vibe Coding 的 Forge MCP 从 25 项减为 6 项：资源发现与调用、DDL 核对、待执行 SQL 登记、页面预览、推进进度上报。Team Standards 与项目规则负责需求分级、规格/设计、验证范围和提交方法；OpenSpec/Graphify 保持原事实所有权。普通任务不再叠加模型拆分、规格解析确认或执行初始化；保留引擎原生文件/终端能力及用户配置插件，不修改全局 Team Standards。
+普通 Vibe Coding 的 Forge MCP 从 25 项减为 5 项：资源发现与调用、DDL 核对、页面预览、推进进度上报。Team Standards 与项目规则负责需求分级、规格/设计、验证范围和提交方法；OpenSpec/Graphify 保持原事实所有权。`register_pending_sql` 已从 SDK、stdio 与模型权限清单移除，SQL 在回复中直接交付；历史台账与兼容 HTTP API 保留，不迁移或删除数据。移除工具不放宽 DDL 核验、咨询只读及资源写入授权。源码验证与待服务加载状态见 [移除登记工具任务](../openspec/changes/remove-pending-sql-tool/tasks.md)。普通任务不再叠加模型拆分、规格解析确认或执行初始化；保留引擎原生文件/终端能力及用户配置插件，不修改全局 Team Standards。
 
-移出的 13 项执行操作及 6 项规格操作保留为内部 CLI/Hook 兼容接口。已有执行、写入锁、指纹、审计和项目已采用的门禁不被清空或自动关闭。门禁拒绝时原生权限适配给出实际 CLI 路径；兼容维护不能替代用户重启/发布授权。模型中不存在的旧名称不得继续当作 MCP 调用。源码与加载验收分别记录于[工具精简任务](../openspec/changes/trim-vibe-model-tools/tasks.md)。
+移出的 13 项执行操作及 5 项规格操作保留为内部 CLI/Hook 兼容接口。已有执行、写入锁、指纹、审计和项目已采用的门禁不被清空或自动关闭。门禁拒绝时原生权限适配给出实际 CLI 路径；兼容维护不能替代用户重启/发布授权。模型中不存在的旧名称不得继续当作 MCP 调用。源码与加载验收分别记录于[工具精简任务](../openspec/changes/trim-vibe-model-tools/tasks.md)。
 
 ```mermaid
 flowchart LR
     REQUEST["用户需求"] --> METHODS["项目规则与 Team Standards"]
     METHODS --> AGENT["Agent 理解、实施、适用验证与提交"]
-    AGENT --> MCP["六项 Forge 产品能力"]
+    AGENT --> MCP["五项 Forge 产品能力"]
     AGENT --> ADOPTED{"项目已采用内部执行门禁?"}
     ADOPTED -->|"否"| PROJECT["沿用项目与宿主权限"]
     ADOPTED -->|"是"| LEGACY["CLI/Hook 维护原绑定与证据"]
@@ -183,7 +183,7 @@ Java 自动监督的规格严格预检与后续治理阶段同时服从此开关
 | 组件 | 职责 | 权威内容与边界 |
 |---|---|---|
 | Team Standards | 指导影响判定、规格与设计写作、验证和原子提交；提供薄 Hook | 通用方法归套件 Skill；不复制 Forge 检索和门禁算法 |
-| Forge | 模型侧提供六项产品能力；内部兼容接口维护已采用的执行范围、分支与验证证据 | 具体协议见[执行与规格解析模块](../sidecar/claude-agent/src/specResolution/README.md)；不以机器 PASS 代替业务审阅 |
+| Forge | 模型侧提供五项产品能力；内部兼容接口维护已采用的执行范围、分支与验证证据 | 具体协议见[执行与规格解析模块](../sidecar/claude-agent/src/specResolution/README.md)；不以机器 PASS 代替业务审阅 |
 | OpenSpec | 保存正式行为规格及活动变更，校验、同步和归档 | `openspec/specs` 是已接受行为；活动 Change 保存目标增量 |
 | Graphify | 快速定位实现、调用和关联证据，报告新鲜度 | 代码事实不是业务批准，未命中不等于不存在既有能力 |
 | Agent | 阅读原文、理解业务、审阅映射，编写规格/设计、实施和提交 | 具名 Agent 判断不能冒充人工批准；实质业务歧义需要解决 |
@@ -798,7 +798,7 @@ flowchart LR
 
 旧ERP/SRM/SCM数据库查询和连通性执行入口停止访问数据库，返回迁移说明；旧配置与历史保留。固定工具不进入普通开发或业务咨询，修改独立配置不会改变新查询目标。资源中心的AI只读SQL入口同样采用非生产环境门禁；人工通用SQL入口仍遵循原有确认流程，不向咨询开放。实现及未完成的运行验收见[统一咨询数据库入口](../openspec/changes/consult-bound-databases/tasks.md)。
 
-普通 Vibe Coding 的资源工具另提供 `EXECUTE`：仅在用户明确授权当前目标与具体写操作后，由 Agent 附上授权原话、范围及单条 SQL 的稳定 UUID；运行会话 ID 由 SDK/stdio 装配注入。Agent 负责授权语义，字段是可追溯声明，不是服务端已独立核实的人审凭证，也不以全访问模式或工具注解代替用户授权。后端继续重读绑定、数据源及 LOCAL/DEV/TEST/UAT 环境，QUERY、咨询和计划评审保持只读边界。写前复用 `ops_query_history` 主键持久认领，完成更新同一记录；同 ID 复用结果，不同目标/SQL/声明拒绝复用，RUNNING/UNKNOWN 必须核对实际数据，禁止换 ID 自动重放。幂等依赖历史保留；人工删除历史后的重放不在保证范围内。待人工执行的脚本继续登记，已经执行的不再次成为待执行脚本；既有人工待办需要核对执行状态。代码实现、专项验证和待授权启动/运行验收分别见[授权 SQL 写入任务](../openspec/changes/authorize-resource-sql-writes/tasks.md)。
+普通 Vibe Coding 的资源工具另提供 `EXECUTE`：仅在用户明确授权当前目标与具体写操作后，由 Agent 附上授权原话、范围及单条 SQL 的稳定 UUID；运行会话 ID 由 SDK/stdio 装配注入。Agent 负责授权语义，字段是可追溯声明，不是服务端已独立核实的人审凭证，也不以全访问模式或工具注解代替用户授权。后端继续重读绑定、数据源及 LOCAL/DEV/TEST/UAT 环境，QUERY、咨询和计划评审保持只读边界。写前复用 `ops_query_history` 主键持久认领，完成更新同一记录；同 ID 复用结果，不同目标/SQL/声明拒绝复用，RUNNING/UNKNOWN 必须核对实际数据，禁止换 ID 自动重放。幂等依赖历史保留；人工删除历史后的重放不在保证范围内。待人工执行的脚本直接在回复中交付，不再自动登记；已执行的脚本明确报告执行结果，既有人工待办需要核对执行状态。代码实现、专项验证和待授权启动/运行验收分别见[授权 SQL 写入任务](../openspec/changes/authorize-resource-sql-writes/tasks.md)。
 
 业务咨询的 Office 产物是受限只读策略的具名写入例外：`tool-fore-consult` 持有文档生成、固定的用户目录下 `.kai-toolbox/consult-artifacts/<consultId>/`、内容哈希索引及下载授权。快速导出提交结构化正文；文档创作允许模型向专用工具提交纯JavaScript代码，由Sidecar独立Worker内的QuickJS WASM在无宿主函数、文件、网络或凭据的环境中转换为正文与受限版式，后端重新校验后生成可编辑Office。解释器与Worker均限时限资源；不在宿主Node/终端执行模型代码，不接受任意路径、模板、宏或网络素材，不授予源码、配置及业务数据写入权。两引擎复用服务端会话装配与 HMAC；旧咨询缺少冻结证据流程时仅增文档能力，不回退加载生产证据配置。生成后返回预览供模型检查修订：PPT实际渲染、可分批检查，Word/Excel仅为明确标注的结构预览；未完成检查不得声明已验收。浏览器下载/预览复用原咨询owner/admin策略，MCP预览复用会话签名，与资源凭据、SQL登记和通用附件路径读取分离。相同正文与版式重试复用结果，修订保留旧文件，达到配额返回可恢复错误，不自动清理历史文件。实现与验收状态见[受控咨询文档变更](../openspec/changes/controlled-consult-documents/tasks.md)和[模型文档创作](../openspec/changes/consult-model-document-design/tasks.md)；当前运行版本是否具备能力仍以部署和真实验收为准。
 

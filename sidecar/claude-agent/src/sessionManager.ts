@@ -964,7 +964,6 @@ class Session {
                     'mcp__consult-readonly__erp_standby_schema_search',
                     'mcp__consult-readonly__erp_standby_validate_sql',
                     'mcp__forge__prepare_sql_context',
-                    'mcp__forge__register_pending_sql',
                     ...DOMAIN_KNOWLEDGE_READONLY_TOOLS
                       .map(tool => `mcp__domain-knowledge__${tool}`),
                     ...CROSS_TOPOLOGY_READONLY_TOOLS

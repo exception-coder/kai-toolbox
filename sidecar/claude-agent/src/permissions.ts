@@ -23,7 +23,6 @@ const DEMO_FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', '
 const DEMO_DB_TOOL = 'mcp__welfare_db__exec'
 /** 只写 Forge 本地台账、不执行数据库的安全工具；普通开发会话无需弹审批。 */
 const FORGE_SAFE_TOOLS = new Set([
-  'mcp__forge__register_pending_sql',
   'mcp__forge__report_session_progress',
 ])
 

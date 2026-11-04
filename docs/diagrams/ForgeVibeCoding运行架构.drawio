@@ -175,10 +175,10 @@
         <mxCell id="tools-icon" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei;html=0;whiteSpace=wrap;shape=mxgraph.ios7.icons.tools;fillColor=none;strokeColor=#0D9488;strokeWidth=2;">
           <mxGeometry as="geometry" x="82" y="477" width="34" height="34" />
         </mxCell>
-        <mxCell id="tools-title" value="03  六项模型侧产品工具" vertex="1" parent="1" style="fontFamily=Microsoft YaHei;html=0;whiteSpace=wrap;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=26;fontColor=#0D9488;">
+        <mxCell id="tools-title" value="03  五项模型侧产品工具" vertex="1" parent="1" style="fontFamily=Microsoft YaHei;html=0;whiteSpace=wrap;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=26;fontColor=#0D9488;">
           <mxGeometry as="geometry" x="130" y="470" width="630" height="50" />
         </mxCell>
-        <mxCell id="tools-body" value="资源发现与调用 · DDL 核对 · 待执行 SQL 登记&#10;登录后页面预览 · 自动推进进度上报&#10;复用现有资源中心，不重建搜索或 Shell Runtime" vertex="1" parent="1" style="fontFamily=Microsoft YaHei;html=0;whiteSpace=wrap;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=21;fontColor=#14213D;">
+        <mxCell id="tools-body" value="资源发现与调用 · DDL 核对&#10;登录后页面预览 · 自动推进进度上报&#10;SQL 直接回复交付；复用现有资源中心" vertex="1" parent="1" style="fontFamily=Microsoft YaHei;html=0;whiteSpace=wrap;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=21;fontColor=#14213D;">
           <mxGeometry as="geometry" x="84" y="531" width="672" height="105" />
         </mxCell>
         <mxCell id="engineering" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei;html=0;whiteSpace=wrap;rounded=1;arcSize=8;fillColor=#FFFBEB;strokeColor=#B45309;strokeWidth=1;">

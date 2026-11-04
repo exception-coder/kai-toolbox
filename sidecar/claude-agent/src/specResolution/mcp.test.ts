@@ -17,9 +17,11 @@ test('public stdio exposes only Forge product capabilities and refuses removed w
   try {
     await client.connect(transport)
     const listed = await client.listTools()
+    const removed = await client.callTool({ name: 'register_pending_sql', arguments: {} })
+    assert.equal(removed.isError, true)
     assert.deepEqual(listed.tools.map(tool => tool.name).sort(), [
       'discover_resources', 'execute_resource', 'prepare_page_preview', 'prepare_sql_context',
-      'register_pending_sql', 'report_session_progress',
+      'report_session_progress',
     ])
     for (const definition of definitions) assert.ok(!listed.tools.some(tool => tool.name === definition.name), definition.name)
     const result = await client.callTool({ name: 'session_init', arguments: { project: 'unused', sessionId: 'test' } })

@@ -4,7 +4,7 @@
 
 ## 模型入口与内部兼容
 
-普通 Vibe Coding 的 Forge MCP 仅保留六项：资源发现、资源调用、DDL 核对、待执行 SQL 登记、页面预览、进度上报。需求分级、规格/设计写作、验证及提交方法由项目规则与 Team Standards 承担，不注册本目录 19 个工程操作，也不要求普通任务再执行模型拆分、解析和确认。
+普通 Vibe Coding 的 Forge MCP 仅保留五项：资源发现、资源调用、DDL 核对、页面预览、进度上报。需求分级、规格/设计写作、验证及提交方法由项目规则与 Team Standards 承担，不注册本目录 19 个工程操作，也不要求普通任务再执行模型拆分、解析和确认。
 
 以下流程仅描述**已经采用内部执行门禁或有原执行绑定**的兼容行为，不是所有开发任务的默认前置条件。SDK/stdio 的模型名称已移除；操作通过内部 CLI/Hook 维护，不新增 MCP 包装、删除状态或关闭门禁。
 
@@ -16,7 +16,7 @@
 
 提交后 `finish_execution` 释放写入权，不自动提交或归档。额外分支由宿主明确分配；不自动生成并行分支或推断任务依赖。中断默认保留记录与现场并由原会话恢复；只有旧执行具备当前通过验证、已提交后继、相同分支和干净范围时，Forge 才在原子锁内审计并回收陈旧 writer，其他情况不能删除锁抢占。权限回调与 Hook 只覆盖实际触发工具，不是 OS 沙箱。`.forge/verify.yml` 和项目强制门禁仍保留；本入口补充本次影响的原生检查。退出码不证明 kind/purpose 的语义覆盖，也不代表目标版本部署验收。
 
-内部 CLI 保留 `intake_spec_requirements`、`resolve_specs`、`confirm_spec_resolution`、`check_change_readiness`、`refresh_spec_index`、`get_spec_resolution_metrics` 以及 execution 操作，用于旧流程兼容，不再向模型注册。受限咨询 SDK 的原三项工具保持不变。默认使用本机 Codex 登录；`FORGE_SPEC_ENGINE=claude` 可选择 Claude，`FORGE_SPEC_MODEL` 可指定模型。不另建 HTTP 后端或数据库。
+内部 CLI 保留 `intake_spec_requirements`、`resolve_specs`、`confirm_spec_resolution`、`check_change_readiness`、`refresh_spec_index`、`get_spec_resolution_metrics` 以及 execution 操作，用于旧流程兼容，不再向模型注册。受限咨询 SDK 仅保留 DDL 核对和进度上报两项 Forge 工具。默认使用本机 Codex 登录；`FORGE_SPEC_ENGINE=claude` 可选择 Claude，`FORGE_SPEC_MODEL` 可指定模型。不另建 HTTP 后端或数据库。
 
 ## 内部兼容用法
 

@@ -140,7 +140,7 @@ export interface CodexTurnCtx {
   /** 后端在咨询创建时固化的可读证据系统；不允许模型自行扩展。 */
   consultEvidenceSystems?: string[]
   consultToolAssembly?: ConsultToolAssembly
-  /** 是否为当前持久会话注入 Forge 待执行 SQL 登记能力。 */
+  /** 是否为当前持久会话注入 Forge SQL 证据能力；保留旧配置名兼容。 */
   forgeSqlRegistration?: boolean
   /** 已有 thread id（resume 续跑）；无则新建线程。 */
   sdkSessionId?: string
