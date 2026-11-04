@@ -146,6 +146,59 @@ class QueueReliabilityTest {
         assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
         assertThat(sends()).isZero();
     }
+    @Test void mismatchedInterruptSettlesOriginalDispatchOnlyAfterNativeTurnEnds() throws Exception {
+        store.begin("s", "dispatch", "q1", "epoch");
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        ReflectionTestUtils.invokeMethod(chat, "onInterruptAck", ctx,
+                mapper.readTree("{\"turnId\":\"dispatch\",\"outcome\":\"turnMismatch\",\"active\":true,\"activeTurnId\":\"native\"}"));
+        assertThat(store.delivery("s")).isPresent(); // Still executing: do not release or retire early.
+        ReflectionTestUtils.invokeMethod(chat, "onResult", ctx,
+                mapper.readTree("{\"turnId\":\"native\",\"stopReason\":\"interrupted\"}"));
+        state(snapshot("{\"sessionId\":\"s\",\"turnId\":\"dispatch\",\"state\":\"RECEIVED\"}"));
+        chat.reconcileQueue("s"); chat.reconcileQueue("s");
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("interrupted");
+        assertThat(store.delivery("s")).isEmpty();
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
+        assertThat(sends()).isZero();
+    }
+
+    @Test void rejectedAdmissionEndsOnlyTheRejectedDispatchWithoutClaimingEngineIdle() throws Exception {
+        store.begin("s", "rejected", "q1", "epoch");
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        chat.onSidecarEvent("s", mapper.readTree("{\"type\":\"error\",\"turnId\":\"rejected\",\"code\":\"QUEUE_ADMISSION_REJECTED\"}"));
+        assertThat(ReflectionTestUtils.getField(ctx, "status")).isEqualTo(SessionStatus.IDLE);
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("admission_rejected");
+        assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
+        assertThat(queue.findBySessionId("s")).hasSize(2);
+        verify(dep(SessionRuntimeStateService.class), never()).observeSidecarTerminal(anyString(), anyInt());
+        assertThat(sends()).isZero();
+    }
+
+    @Test void explicitStopRestoresNativeOwnershipAfterRejectedDispatch() throws Exception {
+        store.begin("s", "rejected", "q1", "epoch");
+        store.settle("s", "rejected", "admission_rejected", false);
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        ReflectionTestUtils.invokeMethod(chat, "restoreActiveTurnForInterrupt", ctx,
+                mapper.readTree("{\"active\":true,\"activeTurnId\":\"native-old\"}"));
+        assertThat(ReflectionTestUtils.getField(ctx, "status")).isEqualTo(SessionStatus.RUNNING);
+        assertThat(store.delivery("s")).isPresent();
+        ReflectionTestUtils.invokeMethod(chat, "onResult", ctx,
+                mapper.readTree("{\"turnId\":\"native-old\",\"stopReason\":\"interrupted\"}"));
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("interrupted");
+        assertThat(store.delivery("s")).isEmpty();
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
+        assertThat(sends()).isZero();
+    }
+
+    @Test void lateIdleInterruptAckCannotCloseANewerTurn() throws Exception {
+        store.begin("s", "new-turn", "q1", "epoch");
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        ReflectionTestUtils.invokeMethod(chat, "onInterruptAck", ctx,
+                mapper.readTree("{\"turnId\":\"old-turn\",\"outcome\":\"alreadyStopped\",\"active\":false}"));
+        assertThat(ReflectionTestUtils.getField(ctx, "status")).isEqualTo(SessionStatus.RUNNING);
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isNull();
+    }
+
     @Test void missedResultIsReconciledThenNextMessageStartsOnlyOnce() throws Exception {
         store.begin("s", "t1", "q1", "epoch");
         state(snapshot(completed("t1", "end_turn")));

@@ -953,6 +953,7 @@ public class ClaudeChatService {
         ctx.consultAccountCommitted = accountPlan == null;
         ctx.consultAssistantBlock = 0;
         ctx.queueReleaseReady = false;
+        ctx.interruptedDispatchTurnId = null;
         ctx.lastTurnErrorCode = null;
         ctx.lastTurnErrorMessage = null;
         var existingDelivery = queueDelivery.delivery(ctx.sessionId);
@@ -1519,10 +1520,20 @@ public class ClaudeChatService {
             return;
         }
         if (ctx.status != SessionStatus.RUNNING) {
-            cancelSettledQueue(ctx);
-            sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(
-                    seq, "alreadyStopped", false, ctx.pendingRequest != null));
-            return;
+            var snapshot = sidecar.querySessionState(ctx.sessionId, null,
+                    SessionRuntimeStateService.SIDECAR_QUERY_TIMEOUT_MS).orElse(null);
+            if (snapshot == null) {
+                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "INTERRUPT_STATE_UNKNOWN",
+                        "暂时无法核对引擎状态，请稍后重试终止；待发送消息已保留", false));
+                return;
+            }
+            restoreActiveTurnForInterrupt(ctx, snapshot);
+            if (ctx.status != SessionStatus.RUNNING) {
+                cancelSettledQueue(ctx);
+                sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(
+                        seq, "alreadyStopped", false, ctx.pendingRequest != null));
+                return;
+            }
         }
         String turnId = turnLifecycle.currentTurnId(ctx.sessionId).orElse(null);
         boolean delivered = sidecar.interrupt(ctx.sessionId, turnId);
@@ -1549,6 +1560,18 @@ public class ClaudeChatService {
                 ctx.sessionId, ctx.engine);
         sendToBrowser(ctx, seq -> new ServerMessage.Error(
                 seq, "INTERRUPT_UNDELIVERED", "中断未送达：sidecar 当前未连接，请等待重连后重试"));
+    }
+
+    /** A rejected dispatch can be idle locally while the native session still owns an older turn. */
+    private void restoreActiveTurnForInterrupt(SessionCtx ctx, JsonNode snapshot) {
+        synchronized (ctx) {
+            String nativeTurn = blankToNull(snapshot.path("activeTurnId").asText(null));
+            if (ctx.status == SessionStatus.RUNNING || !snapshot.path("active").asBoolean() || nativeTurn == null) return;
+            queueDelivery.runtime(ctx.sessionId).ifPresent(r -> ctx.interruptedDispatchTurnId = r.turnId());
+            turnLifecycle.adopt(ctx.sessionId, nativeTurn);
+            ctx.status = SessionStatus.RUNNING;
+            ctx.queueReleaseReady = false;
+        }
     }
 
     /** Explicit stop may arrive after an error result; retire only its confirmed idle dispatch. */
@@ -1853,6 +1876,14 @@ public class ClaudeChatService {
                         handoffFailed ? "CONSULT_ACCOUNT_HANDOFF_FAILED" : node.path("code").asText("SIDECAR_ERROR"),
                         handoffFailed ? "历史上下文接续未确认成功，原输入已保留。请先核对是否已回复后重试：" + node.path("message").asText("")
                                 : node.path("message").asText(""), false));
+                if ("QUEUE_ADMISSION_REJECTED".equals(ctx.lastTurnErrorCode)) {
+                    synchronized (ctx) {
+                        // This command was not admitted. It is not evidence that the native engine is idle.
+                        if (ctx.status == SessionStatus.RUNNING && turnLifecycle.complete(sessionId, eventTurnId)) {
+                            completeTurn(ctx, eventTurnId, Map.of(), "admission_rejected", null, false);
+                        }
+                    }
+                }
             }
             case "backgroundTasks" -> {
                 ctx.backgroundTasks = parseBackgroundTasks(node.get("tasks"));
@@ -1939,6 +1970,11 @@ public class ClaudeChatService {
             }
         }
         boolean completionCheck = queueDelivery.runtime(ctx.sessionId).map(QueueDeliveryStore.Runtime::checking).orElse(false);
+        if ("interrupted".equals(stopReason) && ctx.interruptedDispatchTurnId != null) {
+            // A mismatch changes the native turn identity, not the user's cancelled dispatch.
+            queueDelivery.settle(ctx.sessionId, ctx.interruptedDispatchTurnId, "interrupted", false);
+        }
+        ctx.interruptedDispatchTurnId = null;
         queueDelivery.settle(ctx.sessionId, turnId, stopReason, queueReleaseSafe);
         ctx.status = SessionStatus.IDLE;
         ctx.pendingRequest = null; // 本轮结束，未决请求（含超时被拒）一并失效
@@ -2338,6 +2374,7 @@ public class ClaudeChatService {
     }
 
     private void onInterruptAck(SessionCtx ctx, JsonNode node) {
+        if (!turnLifecycle.matchesCurrent(ctx.sessionId, node.path("turnId").asText(null))) return;
         String outcome = node.path("outcome").asText("alreadyStopped");
         boolean active = node.path("active").asBoolean(false);
         boolean pendingDecision = node.path("pendingDecision").asBoolean(false);
@@ -2365,6 +2402,7 @@ public class ClaudeChatService {
     }
 
     private void onTurnState(SessionCtx ctx, JsonNode node) {
+        if (!turnLifecycle.matchesCurrent(ctx.sessionId, node.path("turnId").asText(null))) return;
         if (ctx.status != SessionStatus.RUNNING) return;
         String outcome = node.path("outcome").asText("alreadyStopped");
         if (!node.path("active").asBoolean(false) || "alreadyStopped".equals(outcome)
@@ -2382,6 +2420,11 @@ public class ClaudeChatService {
     }
 
     private void reconcileMismatchedTurn(SessionCtx ctx, String activeTurnId) {
+        if (ctx.interruptedDispatchTurnId == null) {
+            String previous = turnLifecycle.currentTurnId(ctx.sessionId).orElse(null);
+            queueDelivery.runtime(ctx.sessionId).filter(r -> r.turnId().equals(previous))
+                    .ifPresent(r -> ctx.interruptedDispatchTurnId = r.turnId());
+        }
         turnLifecycle.clear(ctx.sessionId);
         turnLifecycle.adopt(ctx.sessionId, activeTurnId);
         sidecar.interrupt(ctx.sessionId, activeTurnId);
@@ -3257,6 +3300,7 @@ public class ClaudeChatService {
         volatile java.util.List<ServerMessage.BackgroundTaskInfo> backgroundTasks = java.util.List.of();
         /** 最近一次成功终态尚未释放队首；消费后立即复位，确保每轮最多自动发送一条。 */
         volatile boolean queueReleaseReady;
+        volatile String interruptedDispatchTurnId;
         volatile String queueReceiptStoreId;
         volatile boolean queueResumeRequested;
         volatile boolean sidecarSessionPresent = true;
