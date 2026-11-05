@@ -8,14 +8,24 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
         Classification classification, List<String> systemIds, String errorText,
         List<AttachmentText> attachmentTexts, List<EvidenceRef> evidenceRefs,
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY) List<String> attachmentIds,
-        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String replyMode) {
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String replyMode,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String businessInstructions,
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) com.fasterxml.jackson.databind.JsonNode businessContext) {
 
     public static final String AGENT_ID = "it-support-partner";
     public record Classification(String decision, String reason) {}
     public record AttachmentText(String id, String name, String text) {}
     public record EvidenceRef(String projectId, String path, int startLine, int endLine) {}
 
-    public boolean forgeReplies() { return "FORGE".equals(replyMode); }
+    public boolean forgeReplies() { return "FORGE".equals(replyMode) || flexibleReplies(); }
+    public boolean flexibleReplies() { return "FORGE_FLEX".equals(replyMode); }
+
+    /** Pin the admission-time default without changing old stored inputs or their request hashes. */
+    public ConsultAnalysisInput withDefaultMode() {
+        return replyMode != null ? this : new ConsultAnalysisInput(agentId, tenantId, problemId, conversationId,
+                requestId, title, description, recentContext, classification, systemIds, errorText,
+                attachmentTexts, evidenceRefs, attachmentIds, "FORGE_FLEX", businessInstructions, businessContext);
+    }
 
     public ConsultAnalysisInput validated() {
         if (!AGENT_ID.equals(agentId)) throw ConsultBackendException.invalid("agentId 必须为 it-support-partner");
@@ -46,9 +56,16 @@ public record ConsultAnalysisInput(String agentId, String tenantId, String probl
         var images = list(attachmentIds, 5);
         if (images.stream().anyMatch(id -> !id.matches("img_[a-f0-9-]{36}")) || images.stream().distinct().count() != images.size())
             throw ConsultBackendException.invalid("attachmentIds 必须为最多 5 个不重复的上传图片 ID");
-        if (replyMode != null && !List.of("CALLER", "FORGE").contains(replyMode)) throw ConsultBackendException.invalid("replyMode 必须为 CALLER 或 FORGE");
+        if (replyMode != null && !List.of("CALLER", "FORGE", "FORGE_FLEX").contains(replyMode)) throw ConsultBackendException.invalid("replyMode 必须为 FORGE_FLEX、CALLER 或 FORGE");
+        text(businessInstructions, 8000, false);
+        if (businessContext != null && (businessContext.isNull() || businessContext.toString().length() > 16000)) {
+            throw ConsultBackendException.invalid("businessContext 须为非 null JSON，最多 16000 字符");
+        }
+        if ((businessInstructions != null || businessContext != null) && replyMode != null && !flexibleReplies()) {
+            throw ConsultBackendException.invalid("业务规则和资料仅用于 FORGE_FLEX 模式");
+        }
         return new ConsultAnalysisInput(agentId, tenantId, problemId, conversationId, requestId, title, description,
-                context, classification, systems, errorText, attachments, refs, images, replyMode);
+                context, classification, systems, errorText, attachments, refs, images, replyMode, businessInstructions, businessContext);
     }
 
     static void text(String value, int max, boolean required) {

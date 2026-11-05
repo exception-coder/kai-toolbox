@@ -27,7 +27,7 @@ const input = {
   description: '用户报告点击标签打印后没有反应，尚未确认影响范围。',
   classification: { decision: 'IT', reason: '涉及业务系统打印功能异常' },
   recentContext: [], systemIds: [], attachmentTexts: [], evidenceRefs: [],
-  attachmentIds, replyMode: 'FORGE',
+  attachmentIds, replyMode: 'FORGE_FLEX',
 };
 // A submit timeout is unknown, not a failed analysis: find(input.requestId) or explicitly resubmit the EXACT same input/key.
 let task = await client.submit(input);
@@ -39,5 +39,5 @@ while (['QUEUED', 'RUNNING', 'CANCEL_REQUESTED'].includes(task.status) && Date.n
 }
 console.log(JSON.stringify(task, null, 2));
 // Keep the persisted task ID if still running. Disconnect does not cancel it.
-// Only SUCCEEDED/NEEDS_INFORMATION have validated results. replyMode FORGE returns three saved candidates.
+// Only SUCCEEDED/NEEDS_INFORMATION have validated results. FORGE_FLEX returns 0–8 useful saved candidates.
 // Save candidate ID/text/evidence and human edits; Feishu sending still requires explicit human confirmation.

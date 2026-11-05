@@ -26,6 +26,9 @@ public class ConsultAnalysisEvidence {
         if (!input.recentContext().isEmpty()) description += "\n调用方近期上下文：\n" + String.join("\n", input.recentContext());
         if (input.classification() != null) description += "\n调用方分类：" + input.classification().decision() + "；理由：" + input.classification().reason();
         result.add(new Packet("input", "CALLER_DESCRIPTION", input.problemId(), description));
+        if (input.businessContext() != null) {
+            result.add(new Packet("business-context", "CALLER_BUSINESS_CONTEXT", input.problemId(), input.businessContext().toString()));
+        }
         if (input.errorText() != null && !input.errorText().isBlank()) result.add(new Packet("error", "CALLER_ERROR", input.problemId(), input.errorText()));
         int number = 0;
         for (var attachment : input.attachmentTexts()) result.add(new Packet("attachment-" + ++number, "CALLER_ATTACHMENT_TEXT", attachment.id(), attachment.text()));

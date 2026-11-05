@@ -1,6 +1,12 @@
 # yoooni-agent「IT 客服伙伴」接入交接
 
-交付方：Forge 业务咨询平台。接入方：`yoooni-agent` 项目组及其开发 AI。日期：2026-11-02。初始接口提交：`5cd15729c`；本次原图/候选实现以随包源码提交为准；API 路径 `v1`、合同 `1.1.0`；SDK `@kai/forge-consult-client@0.3.0`，Node.js 22+。
+## 本次新版接入
+
+既有 clientId、clientSecret、tenantId 继续使用，无需重新申请。新任务默认 FORGE_FLEX，也可显式提交该模式；结果版本 1.2，候选按需 0–8 条，不再固定三条。支持 businessInstructions、businessContext 和 result.businessResult；字段及完整请求见 [当前默认合同](BACKEND.md)。调用方的人工审核、结果校验及发送逻辑仍由调用方维护。
+
+旧请求号只恢复原任务，不改写输入或返回合同；改变规则/资料须新建请求号。旧显式模式仅保留已有接入兼容。以下旧 FORGE 三条示例属于兼容说明，新接入使用 FORGE_FLEX。源码包和模型替身测试不代表 `forge.exception-coder.com` 已部署；必须由目标实例管理员回传加载提交及真实任务结果。
+
+交付方：Forge 业务咨询平台。接入方：`yoooni-agent` 项目组及其开发 AI。日期：2026-11-05。初始接口提交：`5cd15729c`；本次原图/候选实现以随包源码提交为准；API 路径 `v1`、合同 `1.5.0`；SDK `@kai/forge-consult-client@0.4.0`，Node.js 22+。
 
 **现在可以按本文开发客户端；尚不能宣布测试环境已开放或真实联调通过。** 新接口默认关闭，本次没有重启服务、签发真实凭据或修改 yoooni-agent 工程。各开发者在自己本机的 Forge 完成下述环境交付后才能真实调用；不要连接交付同事的电脑，不复用别人的账号目录或应用凭据。
 
@@ -17,7 +23,7 @@
 | 身份 | 独立应用 clientId/clientSecret 换短期 Bearer 票据，不使用员工登录 Token 或 MCP |
 | 输入 | 问题、必要近期上下文、DeepSeek 分类、报错、原图、附件提取文字、获准源码引用 |
 | 输出 | 问题理解、分类、事实、可能原因、建议、缺失信息、未知项、依据、转人工建议 |
-| 三条候选 | 显式 `replyMode=FORGE` 时由 Forge 返回恰好三条；旧请求省略仍为 CALLER |
+| 可变回复 | 新任务缺省 FORGE_FLEX，0–8 条有效候选；显式旧 FORGE 保留三条，旧任务不变 |
 | 业务操作 | Forge 不发送飞书，不修改业务数据；发送仍由接入方人工确认 |
 | 原有使用 | 业务咨询页面和原用户 WSS 入口保持兼容；两种合同、凭据、ID 不混用 |
 | 当前状态 | 源码、SDK 和定向自动化验证已完成；测试地址、启用、凭据和真实联调待完成 |
@@ -33,7 +39,7 @@
 → yoooni-agent / DeepSeek 判断是否为 IT 问题
 → 是：建问题，保存 requestId 和完整分析输入
 → yoooni-agent：认证、上传原图，保存 uploadId/attachmentId
-→ Forge：登记图文分析任务、分析并生成三条通俗候选（replyMode=FORGE）、校验结果与证据
+→ Forge：登记图文分析任务、分析并按需生成通俗候选（replyMode=FORGE_FLEX）、校验结果与证据
 → yoooni-agent：保存 taskId、原始分析、依据、候选及来源
 → 人工选择、修改并保存
 → 人工确认后，由 yoooni-agent 的发送队列发送飞书
@@ -84,7 +90,7 @@ Forge 分析任务有独立 taskId，不自动成为页面上的咨询或历史�
 从交付 ZIP 取出 tarball，在 yoooni-agent 工程的后端目录安装；尚未发布公共 npm：
 
 ```powershell
-npm install ./kai-forge-consult-client-0.3.0.tgz
+npm install ./kai-forge-consult-client-0.4.0.tgz
 ```
 
 仅在服务器配置以下变量，不使用 `VITE_` 等客户端注入前缀：
@@ -128,7 +134,7 @@ const task = await forge.get(receipt.taskId);
 | 报错、附件提取文字 | `errorText` / `attachmentTexts: [{id,name,text}]` |
 | 明确源码证据 | `evidenceRefs: [{projectId,path,startLine,endLine}]`，项目必须获准且包含在 systemIds 中 |
 
-原图由本应用后端上传原始 PNG/JPEG 字节，Forge 负责图片识别、分析和三条拟答；不需要 IT客服 OCR，不能把文件名、附件 URL 或描述冒充已读原图。不得把用户密码、数据库凭据、模型密钥或完整聊天历史放进输入。字段长度、证据路径限制、完整 JSON 和返回示例见 [接口合同](BACKEND.md)。
+原图由本应用后端上传原始 PNG/JPEG 字节，Forge 负责图片识别、分析和按需拟答；不需要 IT客服 OCR，不能把文件名、附件 URL 或描述冒充已读原图。不得把用户密码、数据库凭据、模型密钥或完整聊天历史放进输入。字段长度、证据路径限制、完整 JSON 和返回示例见 [接口合同](BACKEND.md)。
 
 ### 接口、状态与可靠性
 
@@ -151,13 +157,13 @@ const task = await forge.get(receipt.taskId);
 - 401 检查到期/轮换/撤销，403 核对企业或项目，404 也可能是任务不属于该 clientId；429 遵循 Retry-After，503 核对接口启用状态。不改用管理员 Token 绕过。
 - SDK 单次 HTTP 超时默认 15 秒；任务执行默认上限 180 秒，两者不同。每 clientId 最多 8 个未完成任务、120 次业务请求/分钟；全局最多 64 个未完成任务、同时运行 2 个。首版只支持单实例消费。
 
-### 原图与三条候选接线
+### 原图与可变回复接线
 
 接入方已有 ee742c9 的认证/任务客户端与分析保存可以继续使用，补充原图上传和请求选项即可。每张图的原字节、uploadId 先持久化，上传获得 attachmentId 后保存完整分析输入，再提交：
 
 ```js
 const image = await forge.uploadImage(savedUploadId, originalBytes, 'image/png');
-const task = await forge.submit({ ...savedInput, attachmentIds: [image.attachmentId], replyMode: 'FORGE' });
+const task = await forge.submit({ ...savedInput, attachmentIds: [image.attachmentId], replyMode: 'FORGE_FLEX' });
 // 超时先 findImage(savedUploadId) 或 find(savedInput.requestId)，两种键不能混用。
 ```
 
@@ -165,11 +171,11 @@ const task = await forge.submit({ ...savedInput, attachmentIds: [image.attachmen
 
 分析请求摘要包含有序 attachmentIds、replyMode 及原有文字，原键换图/换文字/换模式均 409；已完成结果即使图片过期也可查询。执行前重新核验原图，原图失效/不支持/不可读不伪装成功。结果保留结构化分析和 evidence/evidenceLimitations，新增实际图像 imageInputs 元数据及 imageObservations 回执；图像事实用 CALLER_IMAGE、真实 attachmentId 作为证据，不代表现场/数据库已核验。
 
-`replyMode=FORGE` 返回 schemaVersion=1.1、replyCandidatesGeneratedBy=FORGE、result.replyCandidates[{id,text,evidenceIds}]，恰好三条、每条 1–4000 字符，ID 为服务端持久保存的 reply-1/2/3，重查不重新生成。省略新选项的纯文字旧请求仍为版本 1.0/CALLER。候选验证失败时整次失败，不退回调用方生成、不补模板。DeepSeek 的前置 IT 分类可保留，FORGE 模式不再由 DeepSeek 二次生成候选。
+`replyMode=FORGE` 返回 schemaVersion=1.1、replyCandidatesGeneratedBy=FORGE、result.replyCandidates[{id,text,evidenceIds}]，恰好三条、每条 1–4000 字符，ID 为服务端持久保存的 reply-1/2/3，重查不重新生成。已经保存的纯文字旧任务保持版本 1.0/CALLER，新任务缺省为 FORGE_FLEX/1.2。候选验证失败时整次失败，不退回调用方生成、不补模板。DeepSeek 的前置 IT 分类可保留，FORGE 模式不再由 DeepSeek 二次生成候选。
 
 三条候选可以是同一事实下不同表述、不同信息收集顺序或处理路径，不能给三个互相矛盾的根因，也不能把“建议排查”说成“已经修复”。无成功分析时不展示伪造的 Forge 分析候选。
 
-本应用至少保存：原问题及输入、requestId/taskId、分析状态及结果、policyVersion、原始三条候选及生成来源、选择 candidateId、原候选 evidenceIds、人工修改后的最终回复、确认发送状态。重新打开后能读取来源和最终回复。租户、用户、问题和附件访问权由本应用继续校验，共用应用凭据不能替代业务用户权限。
+本应用至少保存：原问题及输入、requestId/taskId、分析状态及结果、policyVersion、原始有效候选及生成来源、选择 candidateId、原候选 evidenceIds、人工修改后的最终回复、确认发送状态。重新打开后能读取来源和最终回复。租户、用户、问题和附件访问权由本应用继续校验，共用应用凭据不能替代业务用户权限。
 
 ## 五、联调验收与回执
 
@@ -177,7 +183,7 @@ const task = await forge.submit({ ...savedInput, attachmentIds: [image.attachmen
 
 启用后由双方共同完成：
 
-1. 一条脱敏真实图文问题：应用认证 → 上传原图 → 文字及 attachmentIds/FORGE 任务 → 模型实际观察图片 → taskId 和有范围说明的分析依据 → 三条候选 → 人工编辑保存 → 重开能读来源和最终回复。
+1. 一条脱敏真实图文问题：应用认证 → 上传原图 → 文字及 attachmentIds/FORGE_FLEX 任务 → 模型实际观察图片 → taskId 和有范围说明的分析依据 → 有效候选 → 人工编辑保存 → 重开能读来源和最终回复。
 2. 相同请求重复提交只生成一个任务；同键不同内容拒绝；模拟提交断线后可按原键恢复。
 3. 用另一个应用/企业凭据访问任务或引用原图被拒绝；过期图片明确失败，模型失败不生成假候选；越权项目被拒绝；不泄漏其他任务资料。
 4. 认证失败、信息不足、执行超时和取消时，问题、输入和草稿保留；未经人工确认不会发送飞书。

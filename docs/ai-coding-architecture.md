@@ -1098,16 +1098,16 @@ flowchart LR
     AUTH --> IMAGE["应用原图上传<br/>隔离 幂等 24小时有效"]
     IMAGE --> TASK["持久分析任务<br/>提交 查询 请求取消"]
     AUTH --> TASK
-    TASK --> DATA["有界文字 原图 授权源码片段<br/>不接收密码或任意 URL"]
+    TASK --> DATA["有界文字 原图 人工资料 授权源码片段<br/>业务规则不授予工具权限"]
     DATA --> AGENT["现有 AgentOneShotRunner<br/>业务默认账号 工具禁用"]
     AGENT --> CHECK["分析 图片回执 候选校验<br/>明确未知和信息缺口"]
     CHECK --> APP
-    APP --> HUMAN["FORGE模式三条候选<br/>调用方保存 人工确认发送"]
+    APP --> HUMAN["FLEX按需回复与业务结果<br/>调用方保存 人工确认发送"]
 ```
 
-一个任务独立运行，调用方 conversationId 只用于关联，不作为原生线程身份。平台账号在实际执行前确定并记录配置版本，输入资料永远不提升为系统指令。依据是调用方文字、应用身份上传的原图及显式授权源码引用；没有自主查库或 Web 登录，缺少证据时明确说明。输出不包含 AI 凭据或本机绝对路径；结构合法不等于因果结论已由人工核验。replyMode=FORGE 时 Forge 生成并验证三条通俗候选，旧请求省略该字段仍为 CALLER；选择来源、人工修改和飞书发送由 yoooni-agent 负责，Forge 没有消息发送或业务修改端口。
+一个任务独立运行，调用方 conversationId 只用于关联，不作为原生线程身份。平台账号在实际执行前确定并记录配置版本，输入资料永远不提升为系统指令。依据是调用方文字、应用身份上传的原图及显式授权源码引用；没有自主查库或 Web 登录，缺少证据时明确说明。输出不包含 AI 凭据或本机绝对路径；结构合法不等于因果结论已由人工核验。新任务缺省 FORGE_FLEX，Forge 返回 1.2 结果、0–8 条实际有用的通俗候选及调用方规则指导的 businessResult。businessInstructions 只在数据层约束表达和结果形状，businessContext 作为 CALLER_BUSINESS_CONTEXT 人工资料证据，不提升为已核验事实或执行权限。旧任务及显式 FORGE/CALLER 保留原合同，既有凭据不变；选择来源、人工修改和飞书发送由 yoooni-agent 负责，Forge 没有消息发送或业务修改端口。
 
-clientId + requestId 唯一绑定完整规范化输入，重复登记返回原任务，同键异内容拒绝。取消与超时先进入 CANCEL_REQUESTED，新增 runManaged/cancelManaged 端口复用原执行器并等待引擎终态，不通过直接中断 Java 等待线程伪造已停止；终态及线程退出后才释放名额，旧 runOnce 调用不变。进程重启将执行中任务标为 INTERRUPTED，不自动重放问题。首版单实例、全局 2 个受管模型调用，队列和调用频率有界。管理员轮换使旧票据失效，续期保留任务归属；撤销不删除问题与结果。合同、专项回归及待启动验收见 [本次设计和任务](../openspec/changes/consult-backend-analysis/design.md)。代码与包交付不代表已加载服务或跨应用流程已验收。
+clientId + requestId 唯一绑定完整规范化调用方输入，重复登记先返回原任务，同键异内容拒绝；只为新任务固化缺省模式，原任务输入与摘要不改写。新版合同和实际加载状态见[新版分析任务](../openspec/changes/consult-flexible-backend/tasks.md)。取消与超时先进入 CANCEL_REQUESTED，新增 runManaged/cancelManaged 端口复用原执行器并等待引擎终态，不通过直接中断 Java 等待线程伪造已停止；终态及线程退出后才释放名额，旧 runOnce 调用不变。进程重启将执行中任务标为 INTERRUPTED，不自动重放问题。首版单实例、全局 2 个受管模型调用，队列和调用频率有界。管理员轮换使旧票据失效，续期保留任务归属；撤销不删除问题与结果。合同、专项回归及待启动验收见 [本次设计和任务](../openspec/changes/consult-backend-analysis/design.md)。代码与包交付不代表已加载服务或跨应用流程已验收。
 
 原图扩展复用受管执行器的图片协议，新增多模态 runManaged 重载，默认实现拒绝图片而非丢弃。执行前以本账号模型目录的明确 image 输入能力检查，不按模型名字猜测；原图以真实内容传入，失效/不可读/未知能力不能降为文本成功。上传唯一键为 clientId+uploadId，规范化任务摘要包含有序图片 ID 和回复模式，旧字段省略时维持原摘要。原图 BLOB 与归属及摘要原子保存，过期清理有配额，结果和任务引用独立保留；候选、证据和图片回执严格验证后才持久发布。资料永远不授予系统/工具权限。详细边界及真实联调待办见[原图与候选设计](../openspec/changes/consult-backend-images/design.md)。
 

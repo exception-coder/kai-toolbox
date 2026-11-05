@@ -1,6 +1,6 @@
 {
   "name": "@kai/forge-consult-client",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Forge 业务咨询客户端：有界 WSS 与应用身份图文分析、回复候选",
   "type": "module",
   "main": "./dist/index.js",

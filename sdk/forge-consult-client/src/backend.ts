@@ -16,13 +16,18 @@ export interface AnalysisInput {
   attachmentTexts?: { id: string; name: string; text: string }[];
   /** IDs uploaded using this exact application credential. Raw images are never replaced by OCR text. */
   attachmentIds?: string[];
-  /** Omit for legacy CALLER behavior. FORGE requests exactly three persisted candidates. */
-  replyMode?: 'CALLER' | 'FORGE';
+  /** New submissions default to FORGE_FLEX. Existing request IDs retain their original contract. */
+  replyMode?: 'FORGE_FLEX' | 'CALLER' | 'FORGE';
+  /** Caller-specific presentation/result rules; cannot grant tools, identity or resource access. */
+  businessInstructions?: string;
+  /** Reported business material/manual experience, never independently verified system facts. */
+  businessContext?: unknown;
   evidenceRefs?: { projectId: string; path: string; startLine: number; endLine: number }[];
 }
 
 export interface AnalysisResult {
-  schemaVersion: '1.0' | '1.1';
+  schemaVersion: '1.0' | '1.1' | '1.2';
+  businessResult?: Record<string, unknown> | null;
   understanding: string;
   category: 'ACCESS' | 'PRINTING' | 'DATA' | 'WORKFLOW' | 'INTEGRATION' | 'OTHER' | 'UNKNOWN';
   facts: { text: string; evidenceIds: string[] }[];
@@ -31,7 +36,7 @@ export interface AnalysisResult {
   missingInformation: string[];
   unknowns: string[];
   humanHandoff: { recommended: boolean; reason: string };
-  evidence: { id: string; kind: 'CALLER_DESCRIPTION' | 'CALLER_ERROR' | 'CALLER_ATTACHMENT_TEXT' | 'CALLER_IMAGE' | 'SERVER_SOURCE'; source: string; text: string }[];
+  evidence: { id: string; kind: 'CALLER_DESCRIPTION' | 'CALLER_BUSINESS_CONTEXT' | 'CALLER_ERROR' | 'CALLER_ATTACHMENT_TEXT' | 'CALLER_IMAGE' | 'SERVER_SOURCE'; source: string; text: string }[];
   /** Server-owned coverage statement, separate from the model's unknowns. */
   evidenceLimitations: string;
   replyCandidatesGeneratedBy: 'CALLER' | 'FORGE';

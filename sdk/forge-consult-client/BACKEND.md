@@ -1,6 +1,23 @@
 # Forge 业务咨询后端分析 API v1
 
-适用：`yoooni-agent` 的 IT 客服伙伴，及管理员明确授权的其他应用。SDK 版本 `@kai/forge-consult-client@0.3.0`，Node.js 22+；任何后端语言也可按 HTTP 合同调用。机器合同见 [OpenAPI](openapi-backend.yaml)。
+## 当前默认合同（1.5.0 / SDK 0.4.0）
+
+认证方式不变：既有 clientId/clientSecret 换票，tenantId 继续使用原授权企业，无需重新颁发或员工登录。新请求省略 replyMode 即 FORGE_FLEX，也可显式填写；结果 schemaVersion=1.2。
+
+- `businessInstructions`：可选字符串，最多 8000 字符，只描述本次业务输出规则及 businessResult 的期望形状；不能授予工具、身份或资源权限。
+- `businessContext`：可选非 null JSON，序列化最多 16000 字符。人工经验、适用系统和条件以 `business-context` / `CALLER_BUSINESS_CONTEXT` 证据进入同次分析，不冒充截图或独立核验事实。
+- `result.replyCandidates`：0–8 条，仍为 `{id,text,evidenceIds}`，每条最多 4000 字符、真实非空引用、稳定 `reply-N`。不按固定方向凑数；没有可靠回复时为空，`humanHandoff.recommended=true` 并说明阻塞。
+- `result.businessResult`：1.2 必有，按调用方规则生成的 JSON 对象或 null，序列化最多 16000 字符。Forge 不硬编码 ITCS 逻辑，也不验证任意调用方 Schema；接入方校验其必要字段。
+
+```json
+{"agentId":"it-support-partner","tenantId":"yoooni","problemId":"IT-3619","conversationId":"IT-3619","requestId":"warehouse-3619-001","title":"新建仓库找不到供应商","description":"ERP 截图显示仓库3619关联厂商为空。","replyMode":"FORGE_FLEX","businessInstructions":"用一句话给出适用的操作建议，businessResult 返回 action 字段。","businessContext":{"system":"ERP","condition":"当前仓库关联厂商为空","manualExperience":"添加对应供应商资料，再建立仓库与供应商关联"}}
+```
+
+旧任务、旧请求号和原结果不改写；已有号重试先恢复原任务。改变规则、资料、图片或模式仍为 409，应保存新请求号。显式 `FORGE` 保留 1.1/三条，显式 `CALLER` 保留旧结果。下文三条示例专指显式旧 FORGE 合同，推荐使用上面的新版。上传、隔离、恢复、取消与人工确认发送规则不变。
+
+源码实现和模型替身测试不等于目标站点已加载。部署与真实任务结果须单独回执。
+
+适用：`yoooni-agent` 的 IT 客服伙伴，及管理员明确授权的其他应用。SDK 版本 `@kai/forge-consult-client@0.4.0`，Node.js 22+；任何后端语言也可按 HTTP 合同调用。机器合同见 [OpenAPI](openapi-backend.yaml)。
 
 面向接入方的执行顺序、环境回执和双方验收见 [完整交接](HANDOFF-YOOONI-AGENT.md)；本文件仍是接口字段与行为的权威正文。
 
@@ -12,8 +29,8 @@
 
 ```text
 yoooni-agent：飞书消息入库 → DeepSeek 判断 → 建问题并保存 requestId / 完整输入
-    → Forge：应用认证 → 上传原图 → 持久化分析任务 → 多模态分析及三条回复候选 → 校验结果与证据
-    → yoooni-agent：保存候选（replyMode=FORGE），不做 OCR、不用模板补齐
+    → Forge：应用认证 → 上传原图 → 持久化分析任务 → 多模态分析及实际有用的回复候选 → 校验结果与证据
+    → yoooni-agent：保存候选（replyMode=FORGE_FLEX），不做 OCR、不用模板补齐
     → 保存候选、分析任务/结果来源、人工选择及修改 → 人工确认后发送飞书
 ```
 
@@ -186,9 +203,9 @@ HTTP 超时与任务执行超时不同：网络断开时先 `GET ?requestId=原�
 
 取消排队任务直接 CANCELLED；运行任务先 CANCEL_REQUESTED，执行器返回后才置 CANCELLED/TIMED_OUT。若引擎不能确认退出，保留取消中状态且不释放并发名额。服务启动将原 RUNNING/CANCEL_REQUESTED 标为 INTERRUPTED，QUEUED 可继续；一期仅支持单个 Forge 实例，不支持多实例共库消费。
 
-## 原图输入与三条候选（API 合同 1.1.0 / SDK 0.3.0）
+## 原图输入与三条候选（API 合同 1.1.0 / SDK 0.4.0）
 
-URL 仍为 `/api/fore-consult/v1`。纯文字旧请求不改字段，仍返回 `schemaVersion=1.0`、`replyCandidatesGeneratedBy=CALLER`，也不添加模板候选。需要原图时增加 `attachmentIds`；需要 Forge 拟答时增加 `replyMode: "FORGE"`。原图或 FORGE 结果版本为 `1.1`。只新增请求选项，不改变旧请求默认值；旧版服务端不支持新字段，会明确 400，接入方须加载匹配版本，不能删除图片后静默重试。
+URL 仍为 `/api/fore-consult/v1`。纯文字旧请求不改字段，仍返回 `schemaVersion=1.0`、`replyCandidatesGeneratedBy=CALLER`，也不添加模板候选。需要原图时增加 `attachmentIds`；新任务默认 `replyMode: "FORGE_FLEX"`，结果版本为 `1.2`，按需返回 0–8 条回复。旧任务原样保留，显式 CALLER/FORGE 继续可用；旧版服务端不支持新字段，会明确 400，接入方须加载匹配版本，不能删除图片后静默重试。
 
 ### 上传与恢复
 
@@ -221,12 +238,12 @@ const receipt = await forge.submit({
   agentId: 'it-support-partner', tenantId: process.env.FORGE_TENANT_ID,
   problemId: 'IT-001', conversationId: 'thread-001', requestId: savedAnalysisRequestId,
   title: '标签打印异常', description: '点击打印没有反应，原图中可见当前页面。',
-  attachmentIds: [original.attachmentId], replyMode: 'FORGE',
+  attachmentIds: [original.attachmentId], replyMode: 'FORGE_FLEX',
 });
 const current = await forge.get(receipt.taskId); // 若仍在执行，按正常间隔继续查询
 ```
 
-完整可运行 [backend.mjs](examples/backend.mjs) 默认启用 FORGE；可选 `IT_IMAGE_PATH` 仅由接入方本地读取，另需已持久化 `IT_UPLOAD_ID` 和 `IT_IMAGE_TYPE=image/png`（或 image/jpeg）。示例没有数据库持久化实现，不可替代接入方先保存请求的职责。
+完整可运行 [backend.mjs](examples/backend.mjs) 默认启用 FORGE_FLEX；可选 `IT_IMAGE_PATH` 仅由接入方本地读取，另需已持久化 `IT_UPLOAD_ID` 和 `IT_IMAGE_TYPE=image/png`（或 image/jpeg）。示例没有数据库持久化实现，不可替代接入方先保存请求的职责。
 
 完整脱敏的上传元数据、任务请求与图文终态响应见 [backend-image-task.json](examples/backend-image-task.json)。它是合同示例，不是真实 taskId 或模型验收记录；须使用本实例实际上传的附件 ID。
 
@@ -246,13 +263,13 @@ FORGE 模式在原结构化分析旁增加：
 
 上例是结果扩展字段示例，完整 result 仍包含 understanding/category/facts/possibleCauses/recommendations/missingInformation/unknowns/humanHandoff/evidence/evidenceLimitations。原图任务另含 `imageInputs: [Image]` 和 `imageObservations: [{attachmentId,readable:true,observation}]`。
 
-候选恰好三条，正文非空且最多 4000 字符，依据为真实 evidence ID；服务端按生成顺序赋稳定 `reply-1/2/3` 并保存结果，重复查询不会重新生成。三条共用事实、不互相矛盾，信息不足给追问，不把建议说成已修复。装配项目说人话 Skill 和输出约束，检查可识别 SQL/凭据/路径/日志；结构和模式检查无法独立证明语义完全正确，仍需人工选择、修改并确认。候选不合格整次 FAILED，不退成 CALLER、不补模板。yoooni-agent 保存 candidateId、原候选及依据、人工修改、任务来源；不再调用 DeepSeek 为本次 FORGE 结果二次生成三条。DeepSeek 的前置 IT 分类仍可保留。Forge 从不调用飞书发送或业务修改。
+显式旧 FORGE 模式的候选恰好三条，正文非空且最多 4000 字符，依据为真实 evidence ID；服务端按生成顺序赋稳定 `reply-1/2/3` 并保存结果，重复查询不会重新生成。三条共用事实、不互相矛盾，信息不足给追问，不把建议说成已修复。装配项目说人话 Skill 和输出约束，检查可识别 SQL/凭据/路径/日志；结构和模式检查无法独立证明语义完全正确，仍需人工选择、修改并确认。候选不合格整次 FAILED，不退成 CALLER、不补模板。yoooni-agent 保存 candidateId、原候选及依据、人工修改、任务来源；不再调用 DeepSeek 为本次 FORGE 结果二次生成三条。DeepSeek 的前置 IT 分类仍可保留。Forge 从不调用飞书发送或业务修改。
 
 新增错误：404 ATTACHMENT_NOT_FOUND、409 UPLOAD_IDEMPOTENCY_CONFLICT、410 ATTACHMENT_EXPIRED、413 IMAGE_TOO_LARGE/IMAGES_TOO_LARGE/IMAGE_DIMENSIONS_EXCEEDED、415 IMAGE_FORMAT_UNSUPPORTED、422 IMAGE_NOT_READABLE、429 IMAGE_QUOTA_EXCEEDED。任务执行后的图片错误体现在任务 error，同步上传/准入错误使用 HTTP；已有任务失败须显式新 requestId 重试，上传失败另按 uploadId 恢复，不能混淆。
 
 ## 调用与联调
 
-安装 `kai-forge-consult-client-0.3.0.tgz` 后运行 [backend.mjs](examples/backend.mjs)。环境变量由本应用 Secret 管理及已持久化问题提供；`IT_REQUEST_ID` 不要每次进程重启随机生成。示例不会发送飞书消息。
+安装 `kai-forge-consult-client-0.4.0.tgz` 后运行 [backend.mjs](examples/backend.mjs)。环境变量由本应用 Secret 管理及已持久化问题提供；`IT_REQUEST_ID` 不要每次进程重启随机生成。示例不会发送飞书消息。
 
 ```js
 import { ForgeConsultBackendClient } from '@kai/forge-consult-client/backend';
@@ -266,7 +283,7 @@ const receipt = await forge.submit(input);
 const task = await forge.get(receipt.taskId);
 ```
 
-联调须验证：真实测试问题完成认证、指定能力、分析与依据、三个候选、人工编辑保存与重开读取来源；重复请求只建一个任务；不同应用/企业不能查询或取消；失败保留问题与草稿；未经人工确认不发飞书。Forge 测试不能代替 yoooni-agent 的候选来源、选择记录和发送队列验收。
+联调须验证：真实测试问题完成认证、指定能力、分析与依据、有效候选、人工编辑保存与重开读取来源；重复请求只建一个任务；不同应用/企业不能查询或取消；失败保留问题与草稿；未经人工确认不发飞书。Forge 测试不能代替 yoooni-agent 的候选来源、选择记录和发送队列验收。
 
 ## 实现定位与资料维护
 

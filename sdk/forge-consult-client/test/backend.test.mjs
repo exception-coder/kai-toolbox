@@ -10,6 +10,29 @@ const task = { taskId: 'task-1', requestId: input.requestId, status: 'QUEUED', r
 const response = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 const authResponse = () => response({ access_token: token, token_type: 'Bearer', expires_in: 900 });
 
+test('new contract sends caller business rules and material unchanged and preserves flexible saved results', async () => {
+  const businessContext = { system: 'ERP', manualExperience: '添加供应商资料后建立仓库关联' };
+  const businessInstructions = '直接给出业务结论；businessResult 返回 action 字段';
+  const saved = { ...task, status: 'SUCCEEDED', result: { schemaVersion: '1.2', businessResult: { action: '关联供应商' },
+    replyCandidatesGeneratedBy: 'FORGE', replyCandidates: [{ id: 'reply-1', text: '请添加供应商资料，再建立仓库与供应商关联。', evidenceIds: ['business-context'] }] } };
+  let submitted = false;
+  const client = new ForgeConsultBackendClient({ baseUrl: 'https://forge.example.test', clientId: 'client-1', getClientSecret: () => secret,
+    fetch: async (url, init) => {
+      if (url.endsWith('/token')) return authResponse();
+      if (init.method === 'POST') {
+        const sent = JSON.parse(init.body);
+        assert.equal(sent.replyMode, 'FORGE_FLEX');
+        assert.equal(sent.businessInstructions, businessInstructions);
+        assert.deepEqual(sent.businessContext, businessContext);
+        submitted = true;
+      }
+      return response(saved);
+    } });
+  assert.deepEqual((await client.submit({ ...input, replyMode: 'FORGE_FLEX', businessInstructions, businessContext })).result, saved.result);
+  assert.deepEqual((await client.find(input.requestId)).result, saved.result);
+  assert.equal(submitted, true);
+});
+
 test('backend client exchanges application credentials and keeps them out of URLs and business payloads', async () => {
   const requests = [];
   const client = new ForgeConsultBackendClient({ baseUrl: 'https://forge.example.test', clientId: 'client-1', getClientSecret: () => secret,

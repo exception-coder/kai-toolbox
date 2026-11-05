@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Forge Business Consultation Backend Analysis
-  version: 1.1.0
-  description: 'Source contract, not deployment proof. SDK 0.3.0 adds application-owned PNG/JPEG uploads and opt-in replyMode FORGE. Omit replyMode for legacy CALLER results.'
+  version: 1.5.0
+  description: 'Source contract, not deployment proof. SDK 0.4.0; new tasks default to FORGE_FLEX. Existing credentials, stored tasks and request recovery are preserved.'
 servers:
   - url: http://127.0.0.1:18080
     description: Local-instance example only; replace port with the developer's verified Forge port. Never another colleague's machine.
@@ -311,8 +311,15 @@ components:
           items: { type: string, pattern: '^img_[a-f0-9-]{36}$' }
         replyMode:
           type: string
-          enum: [CALLER, FORGE]
-          description: 'Omit for legacy CALLER behavior. FORGE requires exactly three candidates; candidate generation failure fails the task. Included in analysis idempotency.'
+          enum: [FORGE_FLEX, CALLER, FORGE]
+          default: FORGE_FLEX
+          description: 'New tasks default to FORGE_FLEX (result 1.2, 0–8 useful replies). Existing request IDs retain original contracts. Explicit FORGE keeps three replies. Included in idempotency.'
+        businessInstructions:
+          type: string
+          maxLength: 8000
+          description: 'Optional caller business presentation/result rules for FORGE_FLEX only. Cannot authorize tools, identity changes or expanded resources.'
+        businessContext:
+          description: 'Optional non-null JSON, serialized max 16000 characters. Manual business material labelled CALLER_BUSINESS_CONTEXT, not independently verified system fact. FORGE_FLEX only.'
         evidenceRefs:
           type: array
           maxItems: 8
@@ -340,13 +347,23 @@ components:
       oneOf:
         - properties:
             replyCandidatesGeneratedBy: { enum: [CALLER] }
+            schemaVersion: { enum: ['1.0', '1.1'] }
           not: { required: [replyCandidates] }
         - required: [replyCandidates]
           properties:
             replyCandidatesGeneratedBy: { enum: [FORGE] }
             schemaVersion: { enum: ['1.1'] }
+            replyCandidates: { minItems: 3, maxItems: 3 }
+        - required: [businessResult, replyCandidates]
+          properties:
+            replyCandidatesGeneratedBy: { enum: [FORGE] }
+            schemaVersion: { enum: ['1.2'] }
       properties:
-        schemaVersion: { type: string, enum: ['1.0', '1.1'], description: '1.0 for legacy text/CALLER, 1.1 for images or FORGE replies.' }
+        schemaVersion: { type: string, enum: ['1.0', '1.1', '1.2'], description: '1.2 for FORGE_FLEX, 1.0/1.1 retained for legacy modes.' }
+        businessResult:
+          type: object
+          nullable: true
+          description: 'Required for 1.2. Caller-rule result object (serialized max 16000 characters), or null if no rule/reliable result. Caller validates its own business schema.'
         understanding: { type: string, minLength: 1, maxLength: 2000 }
         category: { type: string, enum: [ACCESS, PRINTING, DATA, WORKFLOW, INTEGRATION, OTHER, UNKNOWN] }
         facts:
@@ -386,27 +403,27 @@ components:
             reason: { type: string, minLength: 1, maxLength: 2000 }
         evidence:
           type: array
-          maxItems: 20
+          maxItems: 21
           items:
             type: object
             required: [id, kind, source, text]
             properties:
               id: { type: string }
-              kind: { type: string, enum: [CALLER_DESCRIPTION, CALLER_ERROR, CALLER_ATTACHMENT_TEXT, CALLER_IMAGE, SERVER_SOURCE] }
+              kind: { type: string, enum: [CALLER_DESCRIPTION, CALLER_BUSINESS_CONTEXT, CALLER_ERROR, CALLER_ATTACHMENT_TEXT, CALLER_IMAGE, SERVER_SOURCE] }
               source: { type: string, description: Opaque caller reference or approved project ID plus relative source location. }
               text: { type: string }
         replyCandidatesGeneratedBy: { type: string, enum: [CALLER, FORGE] }
         replyCandidates:
           type: array
-          minItems: 3
-          maxItems: 3
-          description: 'Present only in FORGE mode, required there. Server assigns stable reply-1/2/3, persisted with result. Human confirmation still required before external sending.'
+          minItems: 0
+          maxItems: 8
+          description: '1.2: 0–8, zero requires humanHandoff recommended and a reason. Legacy 1.1/FORGE: exactly three. Stable reply-N IDs persisted; no duplicate filler; human confirmation required before sending.'
           items:
             type: object
             additionalProperties: false
             required: [id, text, evidenceIds]
             properties:
-              id: { type: string, enum: [reply-1, reply-2, reply-3] }
+              id: { type: string, pattern: '^reply-[1-8]$' }
               text: { type: string, minLength: 1, maxLength: 4000 }
               evidenceIds:
                 allOf:

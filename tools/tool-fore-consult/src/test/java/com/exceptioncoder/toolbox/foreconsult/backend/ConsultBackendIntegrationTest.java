@@ -86,7 +86,7 @@ class ConsultBackendIntegrationTest {
     private String input(String requestId) throws Exception {
         return mapper.writeValueAsString(Map.of("agentId", "it-support-partner", "tenantId", "tenant-a", "problemId", "IT-1",
                 "conversationId", "conversation-1", "requestId", requestId, "title", "标签打印", "description", "点击打印没有反应",
-                "systemIds", List.of("erp")));
+                "systemIds", List.of("erp"), "replyMode", "CALLER"));
     }
     private String token() {
         return auth.token("Basic " + Base64.getEncoder().encodeToString((credential.clientId() + ":" + credential.clientSecret()).getBytes(StandardCharsets.UTF_8)), "client_credentials").access_token();
@@ -264,10 +264,10 @@ class ConsultBackendIntegrationTest {
         assertThatThrownBy(() -> model.validate(VALID_RESULT.replace("\"input\"", "\"invented\""), packets)).isInstanceOf(ConsultBackendException.class);
         assertThatThrownBy(() -> model.validate(VALID_RESULT + " {}", packets)).isInstanceOf(Exception.class);
         var withRef = new ConsultAnalysisInput(input.agentId(), input.tenantId(), input.problemId(), input.conversationId(), input.requestId(), input.title(), input.description(), List.of(), null,
-                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "Print.java", 1, 3)), List.of(), null).validated();
+                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "Print.java", 1, 3)), List.of(), null, null, null).validated();
         assertThat(evidence.collect(withRef)).anyMatch(p -> p.kind().equals("SERVER_SOURCE") && p.text().contains("class Print"));
         var malicious = new ConsultAnalysisInput(withRef.agentId(), withRef.tenantId(), withRef.problemId(), withRef.conversationId(), withRef.requestId(), withRef.title(), withRef.description(), List.of(), null,
-                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "../outside.java", 1, 1)), List.of(), null).validated();
+                List.of("erp"), null, List.of(), List.of(new ConsultAnalysisInput.EvidenceRef("erp", "../outside.java", 1, 1)), List.of(), null, null, null).validated();
         assertThatThrownBy(() -> evidence.collect(malicious)).isInstanceOf(ConsultBackendException.class);
     }
 
@@ -508,17 +508,79 @@ class ConsultBackendIntegrationTest {
     }
 
     @Test void legacyNormalizedInputAndResultsRemainCompatibleAfterOptionalFieldsAreAdded() throws Exception {
-        var parsed = service.parse(input("legacy-retry-01"));
+        var original = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(input("legacy-retry-01"));
+        original.remove("replyMode");
+        var parsed = service.parse(original.toString());
         String normalized = mapper.writeValueAsString(parsed);
         assertThat(normalized).doesNotContain("attachmentIds", "replyMode", "forgeReplies");
         var task = new ConsultBackendStore.Task(java.util.UUID.randomUUID().toString(), principal.id(), parsed.requestId(),
                 ConsultBackendAuth.hash(normalized), normalized, "QUEUED", null, null, System.currentTimeMillis(), null, null, null);
         store.insertTask(task);
-        assertThat(service.submit(principal, input("legacy-retry-01")).taskId()).isEqualTo(task.id());
+        assertThat(service.submit(principal, original.toString()).taskId()).isEqualTo(task.id());
         service.recover(); service.tick(); awaitTerminal(task.id());
         var result = service.get(principal, task.id()).result();
         assertThat(result.path("schemaVersion").asText()).isEqualTo("1.0");
         assertThat(result.path("replyCandidatesGeneratedBy").asText()).isEqualTo("CALLER");
         assertThat(result.has("replyCandidates")).isFalse();
+    }
+
+    @Test void flexibleDefaultUsesExistingCredentialsAndPersistsCallerBusinessMaterialWithoutTools() throws Exception {
+        var request = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(input("flex-default-01"));
+        request.remove("replyMode");
+        request.put("businessInstructions", "请用一句话直接建议；businessResult 返回 action 字段");
+        request.putObject("businessContext").put("system", "ERP").put("manualExperience", "添加供应商资料，再关联仓库3619");
+        var output = replies();
+        output.put("schemaVersion", "1.2");
+        output.withArray("replyCandidates").removeAll();
+        output.withArray("replyCandidates").addObject().put("text", "请先添加对应供应商资料，再建立仓库3619与供应商的关联。")
+                .putArray("evidenceIds").add("business-context");
+        output.putObject("businessResult").put("action", "建立仓库与供应商关联");
+        when(runner.runManaged(any(), anyString())).thenReturn(output.toString());
+        String bearer = "Bearer " + token();
+        var accepted = mvc.perform(post("/api/fore-consult/v1/analysis-tasks").header("Authorization", bearer)
+                .contentType("application/json").content(request.toString())).andExpect(status().isAccepted()).andReturn();
+        String id = mapper.readTree(accepted.getResponse().getContentAsString()).path("taskId").asText();
+        assertThat(store.task(id).orElseThrow().input()).contains("FORGE_FLEX");
+        assertThat(service.submit(principal, request.toString()).taskId()).isEqualTo(id);
+        service.recover(); service.tick(); awaitTerminal(id);
+        var result = service.get(principal, id).result();
+        assertThat(result.path("schemaVersion").asText()).isEqualTo("1.2");
+        assertThat(result.path("replyCandidates")).hasSize(1);
+        assertThat(result.path("businessResult").path("action").asText()).contains("关联");
+        assertThat(result.path("evidence").toString()).contains("CALLER_BUSINESS_CONTEXT");
+        request.put("requestId", "flex-explicit-02").put("replyMode", "FORGE_FLEX");
+        assertThat(service.submit(principal, request.toString()).status()).isEqualTo("QUEUED");
+        request.put("requestId", "flex-default-01"); request.remove("replyMode");
+        var capture = org.mockito.ArgumentCaptor.forClass(AgentOneShotRunner.ExecutionRequest.class);
+        verify(runner).runManaged(capture.capture(), eq(id));
+        assertThat(capture.getValue().toolPolicy()).isEqualTo("disabled");
+        assertThat(capture.getValue().systemPrompt()).contains("不固定数量", "权限低于平台规则").doesNotContain("恰好三项", "请用一句话直接建议");
+        request.withObject("businessContext").put("manualExperience", "另一条资料");
+        assertThatThrownBy(() -> service.submit(principal, request.toString())).isInstanceOfSatisfying(ConsultBackendException.class,
+                e -> assertThat(e.code()).isEqualTo("IDEMPOTENCY_CONFLICT"));
+        assertThat(service.findRequest(principal, "flex-default-01").result()).isEqualTo(result);
+    }
+
+    @Test void flexibleRepliesPermitZeroOneAndSeveralButRejectInventedEvidenceDuplicatesAndMissingHandoff() throws Exception {
+        var packets = evidence.collect(service.parse(input("flex-counts-01")));
+        for (int count : List.of(0, 1, 4, 8)) {
+            var output = replies(); output.put("schemaVersion", "1.2"); output.putNull("businessResult");
+            var candidates = output.putArray("replyCandidates");
+            for (int i = 0; i < count; i++) candidates.addObject().put("text", "建议核对第" + i + "个已报告条件").putArray("evidenceIds").add("input");
+            var saved = model.validate(output.toString(), packets, true, List.of(), true);
+            assertThat(saved.path("replyCandidates")).hasSize(count);
+            if (count == 0) {
+                ((com.fasterxml.jackson.databind.node.ObjectNode) output.get("humanHandoff")).put("recommended", false);
+                assertThatThrownBy(() -> model.validate(output.toString(), packets, true, List.of(), true)).isInstanceOf(ConsultBackendException.class);
+            }
+        }
+        var output = replies(); output.put("schemaVersion", "1.2"); output.putNull("businessResult");
+        var unsafeBusiness = output.deepCopy(); unsafeBusiness.putObject("businessResult").putObject("nested").put("password", "private");
+        assertThatThrownBy(() -> model.validate(unsafeBusiness.toString(), packets, true, List.of(), true)).isInstanceOf(ConsultBackendException.class);
+        output.withArray("replyCandidates").add(output.withArray("replyCandidates").get(0).deepCopy());
+        assertThatThrownBy(() -> model.validate(output.toString(), packets, true, List.of(), true)).isInstanceOf(ConsultBackendException.class);
+        output.withArray("replyCandidates").remove(3);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) output.withArray("replyCandidates").get(0)).putArray("evidenceIds").add("invented");
+        assertThatThrownBy(() -> model.validate(output.toString(), packets, true, List.of(), true)).isInstanceOf(ConsultBackendException.class);
     }
 }

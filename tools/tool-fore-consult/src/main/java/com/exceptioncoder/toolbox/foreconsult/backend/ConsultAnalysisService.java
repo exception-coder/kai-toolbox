@@ -58,6 +58,9 @@ public class ConsultAnalysisService {
             if (!existing.get().inputHash().equals(hash)) throw new ConsultBackendException(409, "IDEMPOTENCY_CONFLICT", "相同 requestId 已用于不同内容", false);
             return view(existing.get());
         }
+        // Existing request IDs are resolved above against the original caller input, before applying a new default.
+        try { normalized = mapper.writeValueAsString(input.withDefaultMode()); }
+        catch (Exception error) { throw ConsultBackendException.invalid("无法读取请求内容"); }
         images.resolve(client, input.attachmentIds(), false);
         if (store.unfinished(null) >= 64 || store.unfinished(client.id()) >= 8) throw new ConsultBackendException(429, "TASK_LIMITED", "分析任务繁忙，请保留请求标识稍后重试", true);
         var task = new ConsultBackendStore.Task(UUID.randomUUID().toString(), client.id(), input.requestId(), hash,

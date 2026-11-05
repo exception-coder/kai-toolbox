@@ -1,6 +1,6 @@
 # Forge Consult Client
 
-`@kai/forge-consult-client@0.3.0` 面向项目组的业务咨询 SDK。无 React、无运行时第三方依赖，支持浏览器与 Node.js 22+，提供 ESM 和 TypeScript 声明。
+`@kai/forge-consult-client@0.4.0` 面向项目组的业务咨询 SDK。无 React、无运行时第三方依赖，支持浏览器与 Node.js 22+，提供 ESM 和 TypeScript 声明。
 
 **应用后端（例如 yoooni-agent 的 IT 客服伙伴）请使用 [后端分析 API](BACKEND.md)**，从 `@kai/forge-consult-client/backend` 导入。该入口使用独立应用凭据和 HTTP 异步任务；下文的实际用户登录、WSS 咨询及附件上传属于原有聊天客户端，不能混用凭据、会话或合同。两种能力都须分别确认部署与实际账号联调。
 
@@ -13,7 +13,7 @@
 当前提供本地 tarball，尚未发布公共 npm：
 
 ```powershell
-npm install ./kai-forge-consult-client-0.3.0.tgz
+npm install ./kai-forge-consult-client-0.4.0.tgz
 ```
 
 源码构建与打包：
