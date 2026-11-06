@@ -1,4 +1,4 @@
-import { Loader2, Share2 } from 'lucide-react'
+import { Copy, Loader2, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ExportButton } from './ExportButton'
 
@@ -6,6 +6,7 @@ interface Props {
   onExport: (progress: (message: string | null) => void) => Promise<void>
   onPrepare: () => void
   onShare: () => void
+  onCopy: () => void
   disabled: boolean
   busy: boolean
   ready: boolean
@@ -14,9 +15,12 @@ interface Props {
   feedback: string | null
 }
 
-export function CardExportActions({ onExport, onPrepare, onShare, disabled, busy, ready, shareAvailable, progress, feedback }: Props) {
+export function CardExportActions({ onExport, onPrepare, onShare, onCopy, disabled, busy, ready, shareAvailable, progress, feedback }: Props) {
   return <div className="flex max-w-full flex-col items-end gap-1.5">
     <div className="flex flex-wrap justify-end gap-2">
+      <Button variant="outline" className="min-h-11" onClick={onCopy} disabled={disabled || busy}>
+        <Copy className="size-4" />复制图片
+      </Button>
       <ExportButton onExport={onExport} disabled={disabled || busy} label="保存 PNG" variant="outline" />
       <Button className="min-h-11" onClick={ready ? onShare : onPrepare} disabled={disabled || busy || (ready && !shareAvailable)}>
         {busy ? <Loader2 className="size-4 animate-spin" /> : <Share2 className="size-4" />}

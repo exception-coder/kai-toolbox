@@ -4,6 +4,7 @@ import { MarkdownCardDialog } from './MarkdownCardDialog'
 import { MarkdownCardPage } from '../pages/MarkdownCardPage'
 import { DEFAULT_STATE, loadState, saveState } from '../lib/persistence'
 import { captureNode, saveImage } from '../lib/exporter'
+import { copyCardImage } from '../lib/clipboard'
 
 const access = vi.hoisted(() => ({ superAdmin: true, roles: [] as string[], permissionCodes: [] as string[] }))
 vi.mock('@/shell/permission', () => ({ useAccessContext: () => access }))
@@ -18,6 +19,80 @@ beforeEach(() => {
   vi.mocked(saveImage).mockResolvedValue('downloaded')
 })
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.unstubAllGlobals() })
+
+it('copies PNG in one click without saving and protects the dialog while rendering', async () => {
+  let finish!: (value: string) => void
+  vi.mocked(captureNode).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+  const write = vi.fn(async (items: { data: Record<string, Promise<Blob>> }[]) => {
+    const blob = await items[0].data['image/png']
+    expect(blob.type).toBe('image/png')
+  })
+  vi.stubGlobal('ClipboardItem', class { constructor(public data: Record<string, Promise<Blob>>) {} })
+  vi.stubGlobal('navigator', { clipboard: { write }, userAgent: 'test', platform: 'Win32' })
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, blob: async () => new Blob(['png'], { type: 'image/png' }) })))
+  render(<MarkdownCardDialog sourceText="复制这张卡片" onClose={vi.fn()} />)
+  fireEvent.click((await screen.findAllByRole('button', { name: '复制图片' }))[0])
+  expect(write).toHaveBeenCalledOnce()
+  expect(screen.getByRole('button', { name: '关闭卡片编辑器' })).toBeDisabled()
+  await act(async () => finish('data:image/png;base64,result'))
+  await waitFor(() => expect(screen.getAllByRole('status')[0]).toHaveTextContent('图片已复制'))
+  expect(screen.getByRole('button', { name: '关闭卡片编辑器' })).toBeEnabled()
+  expect(saveImage).not.toHaveBeenCalled()
+})
+
+it('preserves content and allows retry after clipboard permission is denied', async () => {
+  const write = vi.fn().mockRejectedValueOnce(new DOMException('denied', 'NotAllowedError'))
+    .mockResolvedValueOnce(undefined)
+  vi.stubGlobal('ClipboardItem', class { constructor(public data: Record<string, Promise<Blob>>) {} })
+  vi.stubGlobal('navigator', { clipboard: { write }, userAgent: 'test', platform: 'Win32' })
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, blob: async () => new Blob(['png'], { type: 'image/png' }) })))
+  render(<MarkdownCardPage />)
+  const copy = screen.getAllByRole('button', { name: '复制图片' })[0]
+  fireEvent.click(copy)
+  await waitFor(() => expect(screen.getAllByRole('status')[0]).toHaveTextContent('复制图片未获允许'))
+  expect(screen.getByRole('textbox')).toHaveValue('独立工具草稿')
+  fireEvent.click(copy)
+  await waitFor(() => expect(screen.getAllByRole('status')[0]).toHaveTextContent('图片已复制'))
+  expect(saveImage).not.toHaveBeenCalled()
+})
+
+it('does not render or download an image if the clipboard API is unavailable', async () => {
+  vi.stubGlobal('navigator', { userAgent: 'test', platform: 'Win32' })
+  render(<MarkdownCardPage />)
+  fireEvent.click(screen.getAllByRole('button', { name: '复制图片' })[0])
+  await waitFor(() => expect(screen.getAllByRole('status')[0]).toHaveTextContent('当前浏览器不支持复制图片'))
+  expect(captureNode).not.toHaveBeenCalled()
+  expect(saveImage).not.toHaveBeenCalled()
+})
+
+it('copies every slide in order as one PNG instead of losing later clipboard items', async () => {
+  const slides = [document.createElement('div'), document.createElement('div')]
+  const drawImage = vi.fn()
+  let strip: HTMLCanvasElement | undefined
+  const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D)
+  const encode = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (this: HTMLCanvasElement, callback) {
+    strip = this
+    callback(new Blob(['strip'], { type: 'image/png' }))
+  })
+  vi.stubGlobal('Image', class {
+    src = ''; naturalWidth = 750; naturalHeight = 1000
+    decode = async () => undefined
+  })
+  const write = vi.fn(async (items: { data: Record<string, Promise<Blob>> }[]) => {
+    expect(items).toHaveLength(1)
+    await items[0].data['image/png']
+  })
+  vi.stubGlobal('ClipboardItem', class { constructor(public data: Record<string, Promise<Blob>>) {} })
+  vi.stubGlobal('navigator', { clipboard: { write } })
+  try {
+    await copyCardImage(slides)
+    expect(vi.mocked(captureNode).mock.calls.map(([node]) => node)).toEqual(slides)
+    expect(strip?.width).toBe(750)
+    expect(strip?.height).toBe(2000)
+    expect(drawImage.mock.calls.map(([, x, y]) => [x, y])).toEqual([[0, 0], [0, 1000]])
+    expect(saveImage).not.toHaveBeenCalled()
+  } finally { context.mockRestore(); encode.mockRestore() }
+})
 
 it.each([true, false])('keeps edits while switching sizes without overwriting the standalone draft (mobile=%s)', async mobile => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: mobile, addEventListener: vi.fn(), removeEventListener: vi.fn() })))

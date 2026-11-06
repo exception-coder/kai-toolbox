@@ -14,6 +14,7 @@ import type { SlideCardsHandle } from '../components/SlideCards'
 import { loadState, saveState } from '../lib/persistence'
 import { captureNode, exportSlides, saveImage, buildFilename } from '../lib/exporter'
 import { canShareImages, prepareCardImages, shareCardImages } from '../lib/sharing'
+import { copyCardImage } from '../lib/clipboard'
 import type { Mode, PersistedState, SlideRatio, SplitMode, Theme, Watermark } from '../types'
 
 type MobileTab = 'edit' | 'preview'
@@ -136,7 +137,23 @@ export function MarkdownCardPage({ embedded = false, initialSourceText, persist 
     } finally { setActionBusy(false); setShareProgress(null) }
   }
 
-  const exportActions = <CardExportActions onExport={handleExport} onPrepare={handlePrepareShare} onShare={handleShare}
+  async function handleCopy() {
+    if (exporting.current) return
+    setActionBusy(true)
+    setShareFeedback(null)
+    setShareProgress('正在复制图片…')
+    try {
+      const nodes = state.mode === 'slide' ? slideHandleRef.current?.getSlideNodes() ?? []
+        : singleNodeRef.current ? [singleNodeRef.current] : []
+      await copyCardImage(nodes)
+      setShareFeedback('图片已复制，可直接粘贴。')
+    } catch (error) {
+      setShareFeedback(error instanceof Error && error.name !== 'NotAllowedError' ? error.message
+        : '复制图片未获允许，请允许剪贴板访问后重试。')
+    } finally { setActionBusy(false); setShareProgress(null) }
+  }
+
+  const exportActions = <CardExportActions onExport={handleExport} onPrepare={handlePrepareShare} onShare={handleShare} onCopy={handleCopy}
     disabled={isEmpty} busy={busy} ready={shareReady} shareAvailable={shareReady && canShareImages(prepared.files)}
     progress={shareProgress} feedback={shareFeedback} />
 
@@ -148,7 +165,7 @@ export function MarkdownCardPage({ embedded = false, initialSourceText, persist 
         <div>
           <h1 className={embedded ? "sr-only" : "text-lg font-semibold tracking-tight md:text-xl"}>Markdown 转卡片</h1>
           <p className="hidden text-sm text-[var(--color-muted-foreground)] sm:block">
-            三种模式 + 六套主题，可保存 PNG 或直接分享图片。
+            三种模式 + 六套主题，可复制图片、保存 PNG 或直接分享。
           </p>
         </div>
         {exportActions}
