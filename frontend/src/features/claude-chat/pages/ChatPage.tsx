@@ -20,7 +20,7 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { reportVibeEntry, reportVibeResourceSummary } from '@/lib/vibeEntryDiagnostics'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Package, Palette, PanelLeftClose, PanelLeftOpen, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PagePreviewDialog } from '@/features/browser-request/public-api/page-preview'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
@@ -2201,22 +2201,29 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                   <div className="fixed inset-0 z-10" onClick={() => { setMoreOpen(false); composerMoreTrigger.current?.focus() }} />
                   <div id="composer-more-actions" role="group" aria-label="消息附加功能" className="absolute bottom-full left-0 z-20 mb-2 max-h-[60dvh] w-64 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border bg-[var(--color-card)] p-2 shadow-sm">
                     <div className="grid grid-cols-3 gap-1">
-                      {/* 原生 input 覆盖整个入口，触摸直接命中选择器，不依赖隐藏控件的标签转发。 */}
-                      <label
-                        title="添加图片 / 文档（可直接拖入输入区）"
-                        className={`relative flex min-h-11 cursor-pointer flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)] focus-within:ring-2 focus-within:ring-[var(--color-ring)]${planLocked || attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
-                      >
-                        <input
-                          aria-label="添加附件"
-                          type="file"
-                          multiple
-                          className="absolute inset-0 z-10 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
-                          disabled={planLocked || attachments.length + uploading >= MAX_ATTACHMENTS}
-                          onChange={e => { void handleFiles(e.target.files); e.target.value = ''; setMoreOpen(false) }}
-                        />
-                        <Paperclip className="size-5 text-[var(--color-primary)]" />
-                        附件
-                      </label>
+                      {/* 保留可见的浏览器原生按钮，不依赖透明覆盖层、标签转发或脚本唤起。 */}
+                      <div className="col-span-3 mb-1 space-y-1 border-b pb-2">
+                        {[{ label: '照片', name: '选择照片', accept: 'image/*' }, { label: '文件', name: '添加附件', accept: undefined }].map(picker => (
+                          <label key={picker.name} className="flex min-h-11 min-w-0 items-center gap-2 px-1 text-xs">
+                            <span className="shrink-0">{picker.label}</span>
+                            <input
+                              aria-label={picker.name}
+                              type="file"
+                              accept={picker.accept}
+                              multiple
+                              className="block min-h-11 w-full min-w-0 text-xs file:mr-2 file:min-h-11 file:cursor-pointer file:rounded-md file:border file:border-[var(--color-border)] file:bg-[var(--color-background)] file:px-3 file:text-[var(--color-foreground)] focus-visible:outline-2 focus-visible:outline-[var(--color-ring)] disabled:opacity-50"
+                              disabled={planLocked || attachments.length + uploading >= MAX_ATTACHMENTS}
+                              onChange={event => {
+                                const files = Array.from(event.currentTarget.files ?? [])
+                                event.currentTarget.value = ''
+                                if (!files.length) return
+                                void handleFiles(files)
+                                setMoreOpen(false)
+                              }}
+                            />
+                          </label>
+                        ))}
+                      </div>
                       {/* 指令：打开斜杠命令菜单 */}
                       <button
                         type="button"

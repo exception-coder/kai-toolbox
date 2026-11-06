@@ -410,6 +410,40 @@ describe('ChatPage session configuration', () => {
     expect(testRuntime.chat.open).not.toHaveBeenCalled()
     expect(testRuntime.chat.send).not.toHaveBeenCalled()
   })
+  it('offers visible native photo and file pickers without a transparent click overlay', async () => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    const NativeURL = URL
+    vi.stubGlobal('URL', class extends NativeURL {
+      static createObjectURL = vi.fn(() => 'blob:mobile-photo-preview')
+      static revokeObjectURL = vi.fn()
+    })
+    testRuntime.chat.sessionId = 'mobile-photo-picker'
+    vi.mocked(uploadAttachment).mockResolvedValue({ id: 'photo-selected', name: '手机照片.jpg', mime: 'image/jpeg', size: 3, path: '/attachments/photo.jpg' })
+    mountChat()
+    const draft = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.change(draft, { target: { value: '核对这张照片' } })
+    fireEvent.click(screen.getByRole('button', { name: '更多功能' }))
+    const photo = screen.getByLabelText('选择照片')
+    const files = screen.getByLabelText('添加附件')
+    expect(photo).toHaveAttribute('accept', 'image/*')
+    for (const picker of [photo, files]) {
+      expect(picker).toHaveAttribute('type', 'file')
+      expect(picker).toHaveAttribute('multiple')
+      expect(picker).toBeVisible()
+      expect(picker.className).not.toMatch(/opacity-0|sr-only|absolute|hidden/)
+    }
+    expect(files).not.toHaveAttribute('accept')
+    fireEvent(photo, new Event('cancel', { bubbles: true }))
+    expect(photo.isConnected).toBe(true)
+    expect(uploadAttachment).not.toHaveBeenCalled()
+    const image = new File(['jpg'], '手机照片.jpg', { type: 'image/jpeg' })
+    fireEvent.change(photo, { target: { files: [image] } })
+    await waitFor(() => expect(uploadAttachment).toHaveBeenCalledWith('mobile-photo-picker', image))
+    expect(await screen.findByText('手机照片.jpg')).toBeVisible()
+    expect(draft).toHaveValue('核对这张照片')
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+    expect(testRuntime.chat.enqueue).not.toHaveBeenCalled()
+  })
   it('mobile attachment action exposes a native file input and preserves the draft when cancelled or reselected', async () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     testRuntime.chat.sessionId = 'mobile-native-file-picker'
