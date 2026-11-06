@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Play, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ProjectExplorerButton } from '@/components/git/explorer/ProjectExplorerButton'
 import { getProject, initializeProject } from './api'
 import { ReadinessLabel, RegistryError } from './RegistryStates'
 import { ProjectRegistrationForm } from './ProjectRegistrationForm'
@@ -47,7 +48,7 @@ export function RegistryProjectDetailPage() {
       <header className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-4"><h1 className="text-2xl font-semibold tracking-tight">{project.metadata.name}</h1><ReadinessLabel state={project.state} /></div>
         <p className="mt-3 break-all text-xs text-[var(--color-muted-foreground)]">{project.metadata.localPath}</p>
         <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">{project.metadata.owner || '未设置负责团队'} · {project.profileVersion ? `Profile v${project.profileVersion}` : '尚未初始化'}</p></div>
-        <div className="flex flex-wrap gap-2"><Button variant="outline" size="sm" onClick={() => init.mutate('SYNC')} disabled={running || !project.profileVersion}><RefreshCw className="size-3" />增量同步</Button>
+        <div className="flex flex-wrap gap-2"><ProjectExplorerButton id={project.id} title={project.metadata.name} /><Button variant="outline" size="sm" onClick={() => init.mutate('SYNC')} disabled={running || !project.profileVersion}><RefreshCw className="size-3" />增量同步</Button>
           <Button size="sm" onClick={() => init.mutate('FULL')} disabled={running}><Play className="size-3" />{running ? '初始化中…' : project.profileVersion ? '重新完整初始化' : '完整初始化'}</Button></div>
       </header>
       <RegistryError error={init.error} />

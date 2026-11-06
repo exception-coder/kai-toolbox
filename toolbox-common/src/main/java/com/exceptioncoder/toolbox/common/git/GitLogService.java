@@ -326,7 +326,15 @@ public class GitLogService {
         return entries;
     }
 
-    private record Result(String stdout, boolean truncated) {
+    record Result(String stdout, boolean truncated) {
+    }
+
+    /** Package-local read boundary for the project review viewer; never executes a shell or optional index writes. */
+    Result reviewRead(Path directory, String... arguments) {
+        List<String> command = new ArrayList<>(List.of(props.getBinary(), "--no-optional-locks", "--literal-pathspecs",
+                "-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "-C", directory.toString()));
+        command.addAll(List.of(arguments));
+        return exec(command);
     }
 
     /** 跑 git，捕获 stdout（截断到 diffMaxBytes）+ stderr；超时杀进程；非 0 退出抛异常带 stderr。 */

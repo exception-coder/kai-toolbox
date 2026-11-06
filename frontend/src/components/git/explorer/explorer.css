@@ -1,0 +1,24 @@
+.pe-layout { display: grid; grid-template-columns: var(--pe-nav) 6px var(--pe-files) 6px minmax(0, 1fr); }
+.pe-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.pe-divider { cursor: col-resize; border-inline: 1px solid var(--color-border); touch-action: none; }
+.pe-divider:hover,.pe-divider:focus-visible { background: var(--color-primary); }
+.pe-file-row { display: flex; width: 100%; align-items: center; gap: 8px; padding: 10px 12px; text-align: left; font-size: 12px; }
+.pe-file-row:hover { background: var(--color-muted); }
+.pe-status { display: flex; min-width: 48px; flex-shrink: 0; flex-direction: column; gap: 2px; font-size: 10px; color: var(--color-muted-foreground); }
+.pe-status b { font: 12px monospace; color: var(--color-foreground); }
+.pe-added,.pe-added b { color: var(--color-success, #187445); }
+.pe-deleted,.pe-deleted b { color: var(--color-destructive, #b63737); }
+.pe-split .cm-mergeView { height: 100%; background: var(--color-background); color: var(--color-foreground); }
+.pe-split .cm-mergeViewEditors { height: 100%; }
+.pe-code .cm-editor { height: 100%; }
+.pe-code .cm-deletedChunk,.pe-code .cm-deletedLine { background-color: color-mix(in srgb, var(--color-destructive, #b63737) 14%, var(--color-background)); }
+.pe-code .cm-insertedLine { background-color: color-mix(in srgb, var(--color-success, #187445) 14%, var(--color-background)); }
+@media (max-width: 767px) {
+  .pe-dialog { width: 100vw; height: 100dvh; border-radius: 0; }
+  .pe-layout { display: flex; }
+  .pe-pane { flex: 1; }
+  .pe-mobile-hidden,.pe-divider { display: none; }
+  .pe-file-row { min-height: 44px; }
+  .pe-dialog button,.pe-dialog select { min-height: 44px; }
+  .pe-dialog [aria-expanded] { min-width: 44px; }
+}

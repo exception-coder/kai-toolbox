@@ -127,6 +127,7 @@ const UsageWorkspace = lazy(() => import('../components/UsagePanel').then(m => (
 const SessionBoard = lazy(() => import('../components/SessionBoard').then(m => ({ default: m.SessionBoard })))
 const UsagePanel = lazy(() => import('../components/UsagePanel').then(m => ({ default: m.UsagePanel })))
 const SessionCommitsPanel = lazy(() => import('../components/SessionCommitsPanel').then(m => ({ default: m.SessionCommitsPanel })))
+const ProjectExplorer = lazy(() => import('@/components/git/explorer/ProjectExplorer'))
 const GitStatusPanel = lazy(() => import('@/components/git/GitStatusPanel').then(m => ({ default: m.GitStatusPanel })))
 const SessionDocumentsWorkspace = lazy(() => import('../components/SessionDocumentsWorkspace').then(m => ({ default: m.SessionDocumentsWorkspace })))
 const SessionCommunicationWorkspace = lazy(() => import('../components/communications/SessionCommunicationWorkspace'))
@@ -275,6 +276,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   // 两端 token 可能不同；用同一输入框值分别试，任一匹配并触发即算成功。重启后 WS 断、前端自动重连续上。
   // token 用应用内输入框收，不用 window.prompt：移动端浏览器/WebView 普遍禁用 prompt（静默返回 null）。
   const [showCommits, setShowCommits] = useState(false)
+  const [showExplorer, setShowExplorer] = useState(false)
   const [showGitStatus, setShowGitStatus] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showReviewShare, setShowReviewShare] = useState(false)
@@ -1460,6 +1462,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
           </>
         )}
         <div className="cc-session-header-tail ml-auto flex shrink-0 items-center justify-end gap-1">
+        {chat.sessionId && currentSession?.cwd && <button type="button" className="hidden shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-[var(--color-muted)] lg:inline-flex" onClick={event => { commitsReturnFocus.current = event.currentTarget; setShowExplorer(true) }} aria-label="打开项目浏览器"><FolderGit2 className="size-3.5" />代码审阅</button>}
         {chat.sessionId && currentSession?.cwd && (
           <button type="button" onClick={event => { commitsReturnFocus.current = event.currentTarget; setShowCommits(true) }}
             aria-label="代码与分支"
@@ -1538,6 +1541,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               {chat.sessionId && (
                 <>
                   <HeaderMenuItem nested icon={<GitCommit className="size-4" />} label="代码与分支" hint={currentSession?.cwd ? `${linkedProjectPaths.length + 1} 个工作目录 · ${currentSession.cwd}` : '当前目录 Git 提交与差异'} onClick={() => { commitsReturnFocus.current = sessionToolsTriggerRef.current; setHeaderMenu(false); setShowCommits(true) }} />
+                  <HeaderMenuItem nested icon={<FolderGit2 className="size-4" />} label="项目浏览器" hint="目录、历史、工作区与只读代码差异" onClick={() => { commitsReturnFocus.current = sessionToolsTriggerRef.current; setHeaderMenu(false); setShowExplorer(true) }} />
                   <HeaderMenuItem nested icon={<GitBranch className="size-4" />} label="待提交文件" hint="git status · 查看未提交的改动" onClick={() => { setHeaderMenu(false); setShowGitStatus(true) }} />
                 </>
               )}
@@ -1790,6 +1794,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       )}
 
       {/* 会话目录 git 提交记录（复用通用 CommitsPanel，按 sessionId 服务端解析 cwd） */}
+      {showExplorer && chat.sessionId && <Suspense fallback={null}><ProjectExplorer key={chat.sessionId} title={currentSession?.cwd?.split(/[\\/]/).pop() || '当前项目'} endpoint={`/claude-chat/sessions/${encodeURIComponent(chat.sessionId)}/review`} fetchRepos={() => listSessionGitRepos(chat.sessionId!)} restoreFocus={() => commitsReturnFocus.current?.focus()} onClose={() => setShowExplorer(false)} /></Suspense>}
       {showCommits && chat.sessionId && (
         <Suspense fallback={null}>
         <SessionCommitsPanel

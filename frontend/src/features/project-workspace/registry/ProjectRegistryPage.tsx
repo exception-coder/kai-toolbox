@@ -13,6 +13,7 @@ import { ProjectDirectorySettings } from './ProjectDirectorySettings'
 import { ProjectEnvironment } from '@/features/forge-environment/public-api'
 import { projectPathKey } from '../lib/projectScope'
 import { ProjectGitDialog } from '../git/ProjectGitDialog'
+import { ProjectExplorerButton } from '@/components/git/explorer/ProjectExplorerButton'
 
 const ContextDiagnostics = lazy(() => import('./diagnostics/ProjectContextDiagnostics').then(module => ({ default: module.ProjectContextDiagnostics })))
 const sections = [['systems', '全部项目'], ['directories', '目录设置'], ['environment', '环境管理'], ['diagnostics', 'AI 上下文诊断']] as const
@@ -80,15 +81,15 @@ export function ProjectRegistryPage() {
       : !projects.isError && visible.length === 0 ? <section className="space-y-3 py-8"><h2 className="font-medium">{all.length ? '没有匹配的系统' : '从登记第一个系统开始'}</h2>
         <p className="text-sm text-[var(--color-muted-foreground)]">{all.length ? '调整搜索或筛选条件，继续查看项目。' : '选择本机代码目录，登记系统身份，再执行 Full Init 建立画像。'}</p>
         <Button variant="outline" onClick={() => { if (all.length) { setSearch(''); setFilter('ALL') } else setAdding(true) }}>{all.length ? '清除筛选' : '添加第一个项目'}</Button></section>
-      : <div className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">{visible.map(project => <article key={project.id} className="flex items-center gap-3">
+      : <div className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">{visible.map(project => <article key={project.id} className="flex flex-wrap items-center gap-3 pb-3 md:flex-nowrap md:pb-0">
         <Link
-        to={`/tools/project-workspace/${project.id}`} className="group grid min-w-0 flex-1 gap-4 py-6 transition-colors hover:bg-[var(--color-muted)]/30 focus-visible:outline-2 focus-visible:outline-[var(--color-ring)] md:grid-cols-[minmax(0,1fr)_180px_160px] md:items-center">
+        to={`/tools/project-workspace/${project.id}`} className="group grid min-w-0 flex-1 basis-full gap-4 py-6 transition-colors hover:bg-[var(--color-muted)]/30 focus-visible:outline-2 focus-visible:outline-[var(--color-ring)] md:basis-0 md:grid-cols-[minmax(0,1fr)_180px_160px] md:items-center">
         <div className="min-w-0"><div className="flex items-center gap-3"><h2 className="text-base font-semibold">{project.metadata.name}</h2><ArrowUpRight className="size-4 text-[var(--color-muted-foreground)]" /></div>
           <p className="mt-2 truncate text-xs text-[var(--color-muted-foreground)]" title={project.metadata.localPath}>{project.metadata.localPath}</p>
           <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">{project.metadata.repoType.toUpperCase()} {project.metadata.owner && ` · ${project.metadata.owner}`}</p></div>
         <ReadinessLabel state={project.state as Readiness} />
         <div className="text-xs text-[var(--color-muted-foreground)]"><p>{project.profileVersion ? `System Profile v${project.profileVersion}` : '尚未建立画像'}</p><p className="mt-2">{new Date(project.updatedAt).toLocaleString()}</p></div>
-      </Link><ProjectGitDialog project={project} /></article>)}</div>}
+      </Link><ProjectExplorerButton id={project.id} title={project.metadata.name} /><ProjectGitDialog project={project} /></article>)}</div>}
     </>}
     <footer className="text-xs text-[var(--color-muted-foreground)]">登记 → 初始化 → 系统画像 → 任务 → 验证 → 同步</footer>
   </main>
