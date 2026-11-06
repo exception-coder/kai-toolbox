@@ -891,7 +891,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
     return observeCodexRpc(method, () => new Promise((resolveRequest, rejectRequest) => {
       const timer = setTimeout(() => {
         pending.delete(id)
-        rejectRequest(new CodexRpcTimeoutError(method, timeoutMs))
+        rejectRequest(new CodexRpcTimeoutError(method, timeoutMs, method === 'initialize' ? 'initialize' : 'request'))
       }, timeoutMs)
       timer.unref?.()
       pending.set(id, { resolve: resolveRequest, reject: rejectRequest, timer })

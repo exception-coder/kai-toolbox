@@ -10,6 +10,10 @@ test('history restoration gets a bounded budget without extending ordinary RPCs'
   }
   assert.equal(codexRpcTimeoutMs('turn/interrupt'), 20_000)
   assert.equal(codexRpcTimeoutMs('config/read'), 20_000)
+  assert.equal(codexRpcTimeoutMs('skills/list'), 20_000)
+  assert.equal(codexRpcTimeoutMs('initialize'), 60_000)
+  assert.match(new CodexRpcTimeoutError('initialize', codexRpcTimeoutMs('initialize'), 'initialize').message,
+    /初始化超时/)
 })
 
 test('RPC diagnostics preserve failures and omit history, credentials and raw errors', async t => {

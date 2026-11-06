@@ -36,6 +36,22 @@ function peer(mode = 'complete') {
 const requests = [{ method: 'skills/list', params: { cwds: ['fixture'], forceReload: false } },
   { method: 'config/read', params: { cwd: 'fixture', includeLayers: false } }]
 
+test('a cold handshake surviving the ordinary 20s budget can still finish without a retry', async t => {
+  const process = peer()
+  let opens = 0
+  const runtime = { open: () => { opens++; return process.child }, stop: () => process.child.stdin.end(), closeTimeoutMs: 2000 }
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const result = callAppServerBatch(requests, undefined, runtime)
+  // Simulate a busy host before the child answers; ordinary request timers have not started yet.
+  t.mock.timers.tick(25_000)
+  try {
+    assert.deepEqual((await result).map(row => row.marker), ['skills', 'config'])
+    assert.equal(opens, 1)
+    assert.equal(await process.lifetime.wait(0), true)
+    assert.ok(!process.methods.includes('turn/start'))
+  } finally { t.mock.timers.reset() }
+})
+
 test('shares one handshake, preserves response order and gives RPC its own clock', async () => {
   const process = peer('reverseRequest')
   let opens = 0
@@ -70,16 +86,18 @@ test('preflight retries a timeout once after release, but never retries RPC erro
   await mkdir(join(project, '.agents'), { recursive: true })
   await writeFile(join(project, '.agents/skill-providers.json'), '{}')
   t.after(() => rm(project, { recursive: true, force: true }))
-  for (const scenario of ['recover', 'exhaust', 'rpcError', 'abort']) {
+  for (const scenario of ['recover', 'exhaust', 'rpcError', 'abort', 'abortInitialize']) {
     const children: ReturnType<typeof peer>[] = []
     const controller = new AbortController()
     const events: Record<string, unknown>[] = []
     const runtime = {
       open: () => {
         if (children.length) assert.equal(children.at(-1)!.child.exitCode, 0, 'previous native process must exit before retry')
-        const process = peer(scenario === 'rpcError' ? 'rpcError' : scenario === 'recover' && children.length ? 'complete' : 'skillsStall')
+        const process = peer(scenario === 'abortInitialize' ? 'initializeStall' : scenario === 'rpcError' ? 'rpcError' : scenario === 'recover' && children.length ? 'complete' : 'skillsStall')
         children.push(process)
-        if (scenario === 'abort') process.child.on('message', method => { if (method === 'skills/list') controller.abort(new Error('fixture cancelled')) })
+        if (scenario === 'abort' || scenario === 'abortInitialize') process.child.on('message', method => {
+          if (method === (scenario === 'abortInitialize' ? 'initialize' : 'skills/list')) controller.abort(new Error('fixture cancelled'))
+        })
         return process.child
       },
       stop: () => { children.at(-1)!.child.stdin.end() }, closeTimeoutMs: 2000,
