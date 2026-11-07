@@ -3,7 +3,7 @@ import { readingChangeEvent, useReadingDensity, useReadingFont } from '../lib/wo
 import { Virtuoso } from 'react-virtuoso'
 import { LATEST_BOTTOM_TOLERANCE_PX, useLatestMessageNavigation } from '../hooks/useLatestMessageNavigation'
 import { TurnChangesDialog } from './changes/TurnChangesDialog'
-import { AlertTriangle, ArrowDown, Bot, Check, CircleX, Coins, Copy, Database, FileImage, FilePenLine, FileText, FolderOpen, GitBranch, ListTodo, Route, Shrink, Terminal, Timer, Wifi } from 'lucide-react'
+import { AlertTriangle, ArrowDown, Bot, Check, CircleX, Coins, Database, FileImage, FilePenLine, FileText, FolderOpen, GitBranch, ListTodo, Route, Shrink, Terminal, Timer, Wifi } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MarkdownCardDialog } from '@/features/markdown-card/public-api/dialog'
 import type { ChatItem, ConnState } from '../types'
@@ -13,7 +13,7 @@ import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
 import { AssistantReply } from './messages/AssistantReply'
 import { TurnResultDetails } from './messages/TurnResultDetails'
-import { copyTextToClipboard } from '../lib/clipboard'
+import { MessageCopyButton as CopyButton } from './MessageCopyButton'
 import { MessageImage } from './messages/MessageImage'
 import { ImageLightbox } from './ImageLightbox'
 import { ThinkingIndicator, type ActiveTask } from './ThinkingIndicator'
@@ -426,32 +426,6 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   )
 }))
 
-/** 复制原始全文；手机在正文下直接展示，失败保留原位重试入口。 */
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  const [failed, setFailed] = useState(false)
-  const copy = async () => {
-    setFailed(false)
-    setCopied(false)
-    try {
-      await copyTextToClipboard(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch { setFailed(true) }
-  }
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      aria-label="复制回复"
-      className="mt-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
-    >
-      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      <span aria-live="polite">{copied ? '已复制' : failed ? '复制失败，重试' : '复制'}</span>
-    </button>
-  )
-}
-
 /** 将完整回复交给列表外的卡片弹框，避免虚拟行或菜单卸载带走编辑器。 */
 function ToCardButton({ onClick }: { onClick: (trigger: HTMLElement) => void }) {
   return (
@@ -502,21 +476,10 @@ function MsgHeader({ label, ts, align }: { label?: string; ts?: number; align: '
 function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extract<ChatItem, { kind: 'result' }>; turnText?: string; sessionId?: string; compactMobile?: boolean }) {
   const [changesOpen, setChangesOpen] = useState(false)
   const [open, setOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [copyFailed, setCopyFailed] = useState(false)
   const ok = ['success', 'end_turn', 'completed', 'stop'].includes(item.stopReason.trim().toLowerCase())
   const u = parseUsage(item.usage)
   const hit = cacheHitRate(item.usage)
   const time = formatTime(item.ts)
-  const copyTurn = async () => {
-    if (!turnText) return
-    setCopyFailed(false); setCopied(false)
-    try {
-      await copyTextToClipboard(turnText)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch { setCopyFailed(true) }
-  }
   if (compactMobile) return <div className="cc-turn-status text-xs text-[var(--color-muted-foreground)]" data-turn-success={ok}>
     <details>
       <summary className={cn('flex min-h-11 cursor-pointer items-center gap-2', !ok && 'text-[var(--color-destructive)]')}>
@@ -535,16 +498,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
         <Chip tone={ok ? 'emerald' : 'rose'} icon={ok ? <Check className="size-3" /> : <AlertTriangle className="size-3" />} title={`本轮结束：${item.stopReason}`}>
           {ok ? <span className="cc-focus-only">本轮</span> : '失败'}
         </Chip>
-        {turnText && (
-          <Chip
-            tone="muted"
-            icon={copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-            onClick={copyTurn}
-            title="复制这一轮的完整回复（上一次提问到这里的所有内容，不止某一个气泡）"
-          >
-            {copied ? '已复制' : copyFailed ? '复制失败，重试' : '复制本轮'}
-          </Chip>
-        )}
+        {turnText && <CopyButton text={turnText} label="复制本轮" />}
         {u && u.total > 0 && (
           <Chip tone="violet" icon={<Coins className="size-3" />} onClick={() => setOpen(o => !o)} title="点击查看 token 明细">
             {abbr(u.total)}<span className="cc-focus-only"> tokens</span>
@@ -645,7 +599,7 @@ function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, 
           )}
           {(shown.trim() || hasOverride) && (
             <div className="mt-1 flex items-center gap-1">
-              {shown.trim() && <CopyButton text={shown} />}
+              {shown.trim() && <CopyButton text={shown} defaultFormat="markdown" />}
               {hasOverride && (
                 <button
                   type="button"

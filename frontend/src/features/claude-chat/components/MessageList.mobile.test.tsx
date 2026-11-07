@@ -3,6 +3,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ChatItem } from '../types'
 import { MessageList } from './MessageList'
+import { formatMessageCopy } from '../lib/messageCopy'
 import { copyTextToClipboard } from '../lib/clipboard'
 import { setHideToolCalls } from '../lib/toolVisibilityPref'
 
@@ -195,7 +196,7 @@ it('copies the complete folded reply directly below the message, surfaces failur
   await screen.findByText('复制失败，重试')
   fireEvent.click(screen.getByRole('button', { name: '复制回复' }))
   await screen.findByText('已复制')
-  expect(copyTextToClipboard).toHaveBeenLastCalledWith(longReply)
+  expect(copyTextToClipboard).toHaveBeenLastCalledWith(formatMessageCopy(longReply).text)
   expect(screen.queryByRole('heading', { name: '修改与验证' })).not.toBeInTheDocument()
   const trigger = screen.getByRole('button', { name: '更多回复操作' })
   fireEvent.click(trigger)

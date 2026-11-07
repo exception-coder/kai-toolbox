@@ -1,3 +1,18 @@
+/** Rich paste carries an outline-preserving text alternative; unsupported browsers explicitly fall back. */
+export async function copyRichTextToClipboard(text: string, html: string): Promise<'rich' | 'readable'> {
+  try {
+    if (typeof ClipboardItem === 'undefined' || typeof navigator.clipboard?.write !== 'function') throw new Error('Rich clipboard unavailable')
+    await navigator.clipboard.write([new ClipboardItem({
+      'text/html': new Blob([html], { type: 'text/html' }),
+      'text/plain': new Blob([text], { type: 'text/plain' }),
+    })])
+    return 'rich'
+  } catch {
+    await copyTextToClipboard(text)
+    return 'readable'
+  }
+}
+
 /** 回复与轮次详情共用的剪贴板写入；旧浏览器保留原降级路径。 */
 export async function copyTextToClipboard(text: string): Promise<void> {
   try {

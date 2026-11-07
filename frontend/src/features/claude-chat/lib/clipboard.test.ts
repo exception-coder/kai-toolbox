@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { copyTextToClipboard } from './clipboard'
+import { copyRichTextToClipboard, copyTextToClipboard } from './clipboard'
 
 const write = vi.fn()
 const execute = vi.fn()
@@ -49,4 +49,27 @@ it.each(['false', 'throws'])('rejects a %s fallback result and cleans up rather 
   execute.mockImplementationOnce(() => { if (mode === 'throws') throw new Error('blocked'); return false })
   await expect(copyTextToClipboard('保持原文')).rejects.toThrow()
   expect(document.querySelector('textarea')).toBeNull()
+})
+
+it('writes both representations in one clipboard item without fetching or reading the clipboard', async () => {
+  const writeRich = vi.fn(async (_items: unknown[]) => {})
+  vi.stubGlobal('navigator', { clipboard: { write: writeRich, writeText: write } })
+  class Item { constructor(public data: Record<string, Blob>) {} }
+  vi.stubGlobal('ClipboardItem', Item)
+  expect(await copyRichTextToClipboard('大纲', '<h2>大纲</h2>')).toBe('rich')
+  const item = writeRich.mock.calls[0]![0] as Item[]
+  expect(Object.keys(item[0]!.data)).toEqual(['text/html', 'text/plain'])
+  expect(item[0]!.data['text/html']!.type).toBe('text/html')
+  expect(item[0]!.data['text/plain']!.type).toBe('text/plain')
+  expect(write).not.toHaveBeenCalled()
+})
+
+it('falls back to readable text when rich write is rejected, and reports failure if both fail', async () => {
+  vi.stubGlobal('ClipboardItem', class {})
+  vi.stubGlobal('navigator', { clipboard: { write: vi.fn().mockRejectedValue(new Error('unsupported')), writeText: write } })
+  write.mockResolvedValueOnce(undefined)
+  expect(await copyRichTextToClipboard('易读正文', '<p>易读正文</p>')).toBe('readable')
+  expect(write).toHaveBeenCalledWith('易读正文')
+  write.mockRejectedValueOnce(new Error('denied')); execute.mockReturnValueOnce(false)
+  await expect(copyRichTextToClipboard('保留正文', '<p>保留正文</p>')).rejects.toThrow()
 })
