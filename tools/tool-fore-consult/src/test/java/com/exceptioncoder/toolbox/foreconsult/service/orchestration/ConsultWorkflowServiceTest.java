@@ -20,6 +20,9 @@ class ConsultWorkflowServiceTest {
         assertThat(defaults.nodes()).hasSize(6);
         assertThat(defaults.nodes()).allSatisfy(n -> assertThat(n.outputContract())
                 .contains("平台表达Skill").doesNotContain("返回结论、证据来源、环境与未验证项"));
+        assertThat(defaults.nodes().get(1).instructions())
+                .contains("source=domain", "source_projects", "授权候选 ID 分别查询")
+                .doesNotContain("source=topology", "source=all");
         assertThat(defaults.nodes().get(3).instructions()).contains("直接调用", "不要求用户代查", "最多修正重试两次");
         var changed = new ConsultWorkflow(List.of(node("custom", true, "仅核验采购订单", List.of("source_read")),
                 node("disabled", false, "不可出现的规则", List.of("scm_db_query"))));
@@ -31,6 +34,21 @@ class ConsultWorkflowServiceTest {
                 .doesNotContain("不可出现的规则");
         assertThat(changed.tools()).containsExactly("source_read");
         assertThat(rendered.steps()).hasSize(1);
+    }
+
+    @Test
+    void legacyWorkflowRendersCurrentKnowledgeRulesWithoutRewritingSnapshot() {
+        var legacyInstructions = "先调用 domain-knowledge.resolve_consult_context，跨系统关系使用 source=topology。";
+        var workflow = new ConsultWorkflow(List.of(node("legacy", true, legacyInstructions, List.of("knowledge_query"))));
+        var service = new ConsultWorkflowService(List.of(), mock(ConsultWorkflowRepository.class));
+        var rendered = service.render(new ConsultOrchestrationRequest("订单如何同步", "SCM", "D:/scm", List.of(), "IT", true),
+                new ConsultWorkflowRepository.Snapshot(3L, workflow));
+
+        assertThat(workflow.nodes().getFirst().instructions()).isEqualTo(legacyInstructions);
+        assertThat(rendered.prompt()).contains("当前知识查询统一使用knowledge_query(source=domain)",
+                "domain-knowledge、cross-topology及source=topology/all已退役",
+                "旧流程节点的知识来源指令与本节冲突时，以本节为准",
+                "索引指向其他目录的已有文档时，使用source_read按授权路径读取原文");
     }
 
     @Test

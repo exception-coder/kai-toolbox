@@ -339,6 +339,8 @@ mvn -pl tools/tool-fore-consult -am test
 
 跨项目知识与关系按已授权项目分别核对原文和定向源码，推断标待确认。Graphify 按需辅助复杂关系。旧 `source=topology` 返回 `RETIRED`，`source=all` 兼容保留项目原文结果。旧“分析链路”按钮移除，历史连线与已确认的数据归属继续读取，旧分析接口返回 410。验证与上线状态见 [退役任务](../../openspec/changes/retire-central-topology/tasks.md)。
 
+默认流程统一使用 `source=domain`，已发布及冻结流程在每次提示词渲染时追加当前知识来源规则，覆盖旧节点中的公共图谱指令。知识检索采用关键词匹配，仅扫描上述三个位置；索引链接到其他目录的已有文档时，由 `source_read` 按授权路径读取。资料缺失时继续定向核对源码并说明缺口，回答覆盖度取决于咨询实际使用的项目目录内资料是否完整。
+
 DDL 优先核对目标项目实际 SQL 文件或授权数据库元数据。迁入的 `ddl-baseline.md`、旧继承配置及历史知识不能证明当前结构；多文件或后续迁移需进一步确认，源码 schema 也不等于目标数据库已部署。
 
 实现及验收状态见 [项目知识适配任务](../../openspec/changes/consult-project-local-knowledge/tasks.md)。本次不更改资源权限，不自动重启服务。

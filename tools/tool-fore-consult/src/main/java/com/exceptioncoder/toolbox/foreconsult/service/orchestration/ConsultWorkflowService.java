@@ -70,8 +70,8 @@ public class ConsultWorkflowService {
                 只有无法自行确定且会改变判断的环境或唯一业务标识才询问用户。
                 """ : context.sectionContent();
         if ("v4-module-and-core-spec".equals(step.id())) {
-            rules = "通过 consult-readonly.knowledge_query 查询知识，source=domain，action 对应下文的知识工具动作；"
-                    + "跨系统关系使用 source=topology。\n" + rules;
+            rules = "通过 consult-readonly.knowledge_query 查询项目原文，source=domain；"
+                    + "跨系统问题按 source_projects 返回的授权候选 ID 分别查询，并用 source_read 核对关联文件。\n" + rules;
         }
         return new ConsultWorkflowNode(step.id(), step.label(), true, "当当前问题需要本节点证据或输出时",
                 rules, "仅在当前系统及已确认的证据路由范围内查询；不混用环境，不猜测结构，不扩大权限。",

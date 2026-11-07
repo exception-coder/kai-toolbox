@@ -58,7 +58,9 @@ public final class ConsultOrchestrationContext {
                     .append(section.content()).append('\n');
         }
         prompt.append("\n【自主定位与必要追问】\n").append(EXPLORATION_RULES);
-        prompt.append("\n【项目内知识来源（适用于旧流程快照）】\n业务知识只读当前授权项目docs/INDEX.md、docs/domain和已有规格；knowledge_query顶层project使用source_projects候选ID。"
+        prompt.append("\n【项目内知识来源（适用于旧流程快照）】\n当前知识查询统一使用knowledge_query(source=domain)，顶层project使用source_projects候选ID。"
+                + "domain-knowledge、cross-topology及source=topology/all已退役；旧流程节点的知识来源指令与本节冲突时，以本节为准。"
+                + "先读当前授权项目docs/INDEX.md、docs/domain和已有规格；索引指向其他目录的已有文档时，使用source_read按授权路径读取原文。"
                 + "按新套件规则维护项目内 Markdown/YAML；跨项目关系按授权项目分别核对原文与源码，推断标待确认。"
                 + "普通咨询不要求Graphify，缺图或缺知识继续使用已授权源码并明确证据缺口。历史文档不能当当前DDL。\n");
         prompt.append(ConsultPlainWritingSkill.instructions());

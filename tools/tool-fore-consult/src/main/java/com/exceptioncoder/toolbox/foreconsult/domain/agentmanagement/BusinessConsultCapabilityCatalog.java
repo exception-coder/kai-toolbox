@@ -28,7 +28,7 @@ public final class BusinessConsultCapabilityCatalog {
             capability("tool:source_search", "source_search", "TOOL", "v1", "consult-readonly",
                     "在授权源码范围内检索实现证据。", "READ_ONLY", "MEDIUM", List.of()),
             capability("tool:knowledge_query", "knowledge_query", "TOOL", "v1", "consult-readonly",
-                    "统一领域知识与跨系统关系查询。实际可用性取决于目标系统和连接配置。", "READ_ONLY", "MEDIUM", List.of()),
+                    "读取授权项目的 Markdown/YAML 原文；跨系统问题按候选项目分别核对资料。", "READ_ONLY", "MEDIUM", List.of()),
             capability("tool:erp_db_query", "erp_db_query", "TOOL", "v1", "consult-readonly",
                     "仅兼容历史节点反序列化，运行时不再执行旧连接。", "READ_ONLY", "MEDIUM", List.of()),
             capability("tool:srm_db_query", "srm_db_query", "TOOL", "v1", "consult-readonly",
