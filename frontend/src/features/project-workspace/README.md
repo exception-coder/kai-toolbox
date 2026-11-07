@@ -45,7 +45,7 @@
 
 复用 config-center 的公开 API 及原动态配置存储。项目目录使用 `toolbox.claude-chat.workspace.roots`；首次保存前会合并旧 `toolbox.projects.root`，保存时一个请求同时发布完整列表及 `directories-unified=true`。此后旧单目录值不再生效，显式清空列表也不会回退。原值保留供回退，不执行数据库迁移。托管源码仍使用原配置块。
 
-Graphify 名称查询和跨项目拓扑通过已有 `LocalProjectResolver` 读取发现结果。`ProjectDirectorySource` 提供公共目录范围与扫描策略，WorkspaceRootResolver 实现，原项目列表和本地操作复用此接口，不建立工具模块之间的依赖。Graphify 显式绝对路径查询保持原行为。
+Graphify 名称查询通过已有 `LocalProjectResolver` 读取发现结果。`ProjectDirectorySource` 提供公共目录范围与扫描策略，WorkspaceRootResolver 实现，原项目列表和本地操作复用此接口，不建立工具模块之间的依赖。Graphify 显式绝对路径查询保持原行为。
 
 ## 知识探索
 
@@ -55,4 +55,6 @@ Graphify 名称查询和跨项目拓扑通过已有 `LocalProjectResolver` 读�
 
 新接口为 `GET /api/project-registry/{id}/topology` 和 `POST /api/project-registry/{id}/topology/explore`，启动参数为 `{ engine, scope, projectIds }`，引擎支持 Codex / Claude。所有探索结果均为代码推断，不代表已确认业务规则、实际调用或真实 DDL。
 
-当前源码的只读入口 `consult-readonly.knowledge_query` 用顶层 `project` 选择 `source_projects` 返回的授权项目候选，`source=domain` 从该项目的 `docs/INDEX.md`、`docs/domain/` 和 `openspec/specs/` 读取 Markdown/YAML 原文；按返回的相对路径读取，不使用旧公共知识库 key 或解析继承。`source=topology` 仍按需调用独立关系服务；不可用时返回缺口，不恢复公共知识仓。原文保留可信度，历史快照不代表当前 DDL；参考 [知识入口](../../../../sidecar/claude-agent/src/knowledgeQuery.ts) 和 [项目文件读取](../../../../sidecar/claude-agent/src/projectKnowledge.ts)。此处描述源码行为，当前服务是否已加载仍需运行验证。
+当前源码的只读入口 `consult-readonly.knowledge_query` 用顶层 `project` 选择 `source_projects` 返回的授权项目候选，`source=domain` 从该项目的 `docs/INDEX.md`、`docs/domain/` 和 `openspec/specs/` 读取 Markdown/YAML 原文；按返回的相对路径读取，不使用旧公共知识库 key 或解析继承。旧 `source=topology` 返回 `RETIRED`；跨项目关系按已授权项目原文和源码核实。原文保留可信度，历史快照不代表当前 DDL；参考 [知识入口](../../../../sidecar/claude-agent/src/knowledgeQuery.ts) 和 [项目文件读取](../../../../sidecar/claude-agent/src/projectKnowledge.ts)。此处描述源码行为，当前服务是否已加载仍需运行验证。
+
+模块页的“整理项目知识”在当前选中目录启动 `team-standards:init-project-docs`，复用已有文档、从代码补齐缺口、标待确认并维护 draw.io 全景图。工作台沿用代码目录识别模块，公共知识仓登记和模块同步入口已退役。

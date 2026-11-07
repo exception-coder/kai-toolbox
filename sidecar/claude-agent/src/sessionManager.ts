@@ -10,14 +10,6 @@ import { query, forkSession, type Options as ClaudeOptions } from '@anthropic-ai
 import { Permissions, type Decision } from './permissions.js'
 import { createWelfareDbServer } from './welfareDb.js'
 import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
-import {
-  CROSS_TOPOLOGY_READONLY_TOOLS,
-  createCrossTopologyServer,
-  knowledgeMcpRecoveryPrompt,
-  readonlyKnowledgeMcpCall,
-  retryReadonlyKnowledgeMcp,
-  type ReadonlyKnowledgeMcpCall,
-} from './knowledgeMcp.js'
 import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, runEphemeralCodexTurn, steerCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
 import {
   configuredMcpServerNames,
@@ -335,8 +327,6 @@ class Session {
   private readonly engineRegistry: EngineAdapterRegistry
   private readonly mcpToolWatchdog: McpToolWatchdog
   private readonly toolExecutionWatchdog: ToolExecutionWatchdog
-  private pendingMcpRecovery?: { entry: McpToolWatchdogEntry; call: ReadonlyKnowledgeMcpCall }
-  private mcpRecoveryAttempted = false
   private turnActivityStartedAt = 0
   private turnActivityPhase = 'starting'
   private turnActivityTitle = '正在启动代码引擎'
@@ -422,7 +412,7 @@ class Session {
       heartbeatMs: configuredMcpToolHeartbeatMs(),
       maxDurationMs: configuredMcpToolMaxDurationMs(),
       onHeartbeat: entry => this.emitMcpToolHeartbeat(entry),
-      onTimeout: entry => this.handleMcpToolTimeout(entry),
+      onTimeout: entry => this.failMcpToolTimeout(entry),
     })
     this.toolExecutionWatchdog = new ToolExecutionWatchdog({
       idleTimeoutMs: configuredToolExecutionIdleTimeoutMs(),
@@ -591,43 +581,12 @@ class Session {
     fallback.unref?.()
   }
 
-  private handleMcpToolTimeout(entry: McpToolWatchdogEntry): void {
-    const recoveryCall = this.engine === 'codex' && !this.mcpRecoveryAttempted
-      ? readonlyKnowledgeMcpCall(entry.toolName, entry.toolInput)
-      : undefined
-    if (recoveryCall) {
-      this.pendingMcpRecovery = { entry, call: recoveryCall }
-      const elapsedMs = Date.now() - entry.startedAt
-      console.warn(`[sidecar] read-only MCP channel timeout; isolating call session=${this.id} tool=${entry.toolName} call=${entry.toolCallId}`)
-      emitToolActivity(event => this.emitTurn({ ...event, watchdogGenerated: true }), {
-        toolCallId: entry.toolCallId,
-        toolName: entry.toolName,
-        status: 'inProgress',
-        title: 'MCP 通道超时，正在隔离恢复',
-        detail: '当前 App Server 正在终止；Forge 将通过新进程重试这次只读查询。',
-        elapsedMs,
-        outcome: 'retrying',
-        severity: 'warning',
-      })
-      this.emitTurn({
-        type: 'warning',
-        code: 'MCP_TOOL_RECOVERING',
-        message: `只读 MCP 工具 ${entry.toolName} 响应超时，正在隔离重试；不会重放整轮开发操作。`,
-      })
-      this.abort?.abort(new McpToolTimeoutAbort(entry))
-      return
-    }
-    this.failMcpToolTimeout(entry)
-  }
-
-  private failMcpToolTimeout(entry: McpToolWatchdogEntry, recoveryError?: string): void {
+  private failMcpToolTimeout(entry: McpToolWatchdogEntry): void {
     const elapsedMs = Date.now() - entry.startedAt
     const hardLimit = entry.timeoutReason === 'maxDuration'
     const limitSeconds = Math.round((hardLimit ? entry.maxDurationMs : entry.timeoutMs) / 1_000)
     const phase = entry.lastDetail || entry.lastTitle
-    const message = recoveryError
-      ? `MCP 工具 ${entry.toolName} 隔离重试失败，已结束当前任务：${recoveryError}`
-      : `MCP 工具 ${entry.toolName}${hardLimit ? '执行总时长' : '无有效进度'}超过 ${limitSeconds} 秒，已取消当前任务${phase ? `；最后阶段：${phase}` : ''}`
+    const message = `MCP 工具 ${entry.toolName}${hardLimit ? '执行总时长' : '无有效进度'}超过 ${limitSeconds} 秒，已取消当前任务${phase ? `；最后阶段：${phase}` : ''}`
     console.warn(`[sidecar] MCP tool timeout session=${this.id} engine=${this.engine} tool=${entry.toolName} call=${entry.toolCallId} reason=${entry.timeoutReason ?? 'idle'} elapsedMs=${elapsedMs} lastPhase=${phase ?? '-'}`)
     this.emitTurn({
       type: 'toolResult',
@@ -658,12 +617,6 @@ class Session {
     fallback.unref?.()
   }
 
-  private consumePendingMcpRecovery(): { entry: McpToolWatchdogEntry; call: ReadonlyKnowledgeMcpCall } | undefined {
-    const recovery = this.pendingMcpRecovery
-    this.pendingMcpRecovery = undefined
-    return recovery
-  }
-
   /**
    * 跑一轮：把用户消息交给 SDK，流式回吐事件。resume 续跑靠 sdkSessionId。
    *
@@ -687,57 +640,10 @@ class Session {
     }
     this.mcpToolWatchdog.clear()
     this.toolExecutionWatchdog.clear()
-    this.pendingMcpRecovery = undefined
-    this.mcpRecoveryAttempted = false
     this.perms.setAvoidDocker(developerInstructions?.includes('FORGE_SUPERVISED_NO_DOCKER=1') === true)
     this.startTurnActivity()
     try {
-      let nextText = text
-      let nextImages = images
-      while (true) {
-        await this.executeTurn(nextText, systemPrompt, nextImages, developerInstructions, additionalDirectories, voiceCallId)
-        const recovery = this.consumePendingMcpRecovery()
-        if (!recovery) break
-
-        this.mcpRecoveryAttempted = true
-        this.mcpToolWatchdog.clear()
-        const recoveryAbort = new AbortController()
-        this.abort = recoveryAbort
-        try {
-          this.setTurnActivityPhase('tool-recovery', '正在恢复 MCP 只读查询', recovery.entry.toolName)
-          const result = await retryReadonlyKnowledgeMcp(recovery.call, undefined, undefined, recoveryAbort.signal)
-          const output = typeof result === 'string' ? result : JSON.stringify(result) ?? String(result)
-          this.emitTurn({
-            type: 'toolResult',
-            toolCallId: recovery.entry.toolCallId,
-            toolName: recovery.entry.toolName,
-            output,
-            isError: false,
-            watchdogGenerated: true,
-          })
-          emitToolActivity(event => this.emitTurn({ ...event, watchdogGenerated: true }), {
-            toolCallId: recovery.entry.toolCallId,
-            toolName: recovery.entry.toolName,
-            status: 'completed',
-            title: 'MCP 只读查询已恢复',
-            detail: '已在隔离进程中取得结果，Codex 正从中断点继续。',
-            outputTail: activityOutputTail(result),
-            outcome: 'recovered',
-            severity: 'success',
-          })
-          nextText = knowledgeMcpRecoveryPrompt(recovery.call, result)
-          nextImages = undefined
-        } catch (error) {
-          if (recoveryAbort.signal.aborted) break
-          this.failMcpToolTimeout(
-            recovery.entry,
-            error instanceof Error ? error.message : String(error),
-          )
-          break
-        } finally {
-          if (this.abort === recoveryAbort) this.abort = undefined
-        }
-      }
+      await this.executeTurn(text, systemPrompt, images, developerInstructions, additionalDirectories, voiceCallId)
     } catch (error) {
       console.error(`[sidecar] turn failed session=${this.id} turn=${turn.turnId}:`, error)
       this.emitTurn({
@@ -884,17 +790,6 @@ class Session {
         if (sourceServer) (mcpServers as Record<string, unknown>)['consult-readonly'] = sourceServer
       }
 
-      // 业务知识读取项目原文；独立 cross-topology 只提供跨项目关系。
-      // 不注册或恢复已退役的 Domain Knowledge MCP。
-      // 可选：若引擎或目录不存在则跳过（零影响，工具列表为空时 Claude 不会尝试调用）。
-      //
-      // PRD 一次性任务仍由 Java GraphifyQueryService 预查询；业务咨询则通过 consult-readonly
-      // 的 source_context 以固定参数执行 `graphify query`，从 URL/图谱上下文收敛候选源码。
-      // 该入口不开放任意 Bash，也不允许模型直接扫描 graphify-out/cache。
-      if (this.toolPolicy !== 'disabled' && this.toolPolicy !== 'review-only') {
-        const crossTopo = createCrossTopologyServer()
-        if (crossTopo) (mcpServers as Record<string, unknown>)['cross-topology'] = crossTopo
-      }
       if (this.toolPolicy === 'consult-readonly') filterClaudeAssembly(mcpServers, this.consultToolAssembly)
       const gatewayCapabilities = this.apiBaseUrl && this.toolPolicy !== 'disabled'
         && this.toolPolicy !== 'review-only' && this.toolPolicy !== 'consult-readonly'
@@ -960,8 +855,6 @@ class Session {
                     'mcp__consult-readonly__erp_standby_schema_search',
                     'mcp__consult-readonly__erp_standby_validate_sql',
                     'mcp__forge__prepare_sql_context',
-                    ...CROSS_TOPOLOGY_READONLY_TOOLS
-                      .map(tool => `mcp__cross-topology__${tool}`),
                   ].filter(name => name === 'AskUserQuestion' || assemblyAllowsTool(this.consultToolAssembly, name)),
                   settingSources: [],
                   ...(this.consultToolAssembly ? { tools: ['AskUserQuestion'] } : {}),

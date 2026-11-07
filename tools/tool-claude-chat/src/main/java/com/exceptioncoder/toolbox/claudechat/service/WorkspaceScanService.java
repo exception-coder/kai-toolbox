@@ -691,6 +691,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
      */
     private List<ModuleView> readKnowledgeModules(Path root, String projectName) {
         String kbDir = knowledgeDirectory();
+        if (kbDir.isBlank()) return null;
         Path manifest = Path.of(kbDir).resolve(projectName).resolve("impl").resolve(KB_MODULES_FILE);
         if (!Files.isRegularFile(manifest)) return null;
         try {

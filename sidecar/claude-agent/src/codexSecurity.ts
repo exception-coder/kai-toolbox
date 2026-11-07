@@ -2,9 +2,6 @@ import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import {
-  createCodexCrossTopologyServer,
-} from './knowledgeMcp.js'
 import { graphifyRuntimeChildEnv } from './graphifyRuntime.js'
 
 export const CONSULT_READONLY_POLICY = 'consult-readonly'
@@ -84,10 +81,10 @@ export function inspectSystemRoute(
 }
 
 export const CONSULT_READONLY_PROMPT = [
-  '【系统只读安全边界】源码读取与检索是业务咨询的必备能力，但禁止无上下文全仓扫描。需要证明当前实现时，必须先调用 consult-readonly.source_context 收敛候选，再用 source_read 核对文件；source_search 只允许在已收敛的子目录内兜底。',
-  '按证据类型收敛：先识别 URL、菜单和领域上下文；领域语义与跨项目关系优先查询 consult-readonly.knowledge_query（领域资料来自当前授权项目文件，关系来自独立 cross-topology），实现证据使用定向源码检索；Graphify 按复杂关系需要辅助，不作为普通咨询前置条件。',
+  '【系统只读安全边界】源码读取与检索是业务咨询的必备能力，但禁止无上下文全仓扫描。需要证明当前实现时，先根据项目文档、URL 与业务对象限定候选目录，再用 source_search/source_read 核对文件。',
+  '按证据类型收敛：先识别 URL、菜单和领域上下文；业务知识优先查询 consult-readonly.knowledge_query 读取当前授权项目文件；跨项目关系按 source_projects 候选项目分别读取原文并核对引用，实现证据使用定向源码检索；Graphify 按复杂关系需要辅助，不作为普通咨询前置条件。',
   '领域问题通过 knowledge_query(source=domain, action=search_knowledge) 查询目标项目原文，再按返回的相对路径使用 get_knowledge 读取；保留 YAML 归属、可信度及未确认项，不制造 Core Spec 评审状态。',
-  '从源码发现类名、方法名、SQL ID 或流程节点后，应带这些上下文再次调用 source_context 反问 Graphify，逐步追踪调用链；不要退回仓库根目录搜索。',
+  '先按项目文档、定向源码和 Git 核实事实，推断标待确认；复杂调用关系按需使用 source_context 辅助追踪。',
   '不得直接搜索或读取 graphify-out/cache；source_context 会调用 Graphify 查询 graphify-out/graph.json。',
   '定位源码时直接使用可用的只读工具。MCP resources/list 为空不代表 MCP tools 或源码读取能力不可用，不得据此停止分析。',
   '数据库只通过consult_resources发现本咨询已选择且属于当前系统的非生产资源，再通过consult_resource_query查询；无资源时说明尚未配置，禁止回退erp_db/srm_db/scm_db独立连接。',
@@ -127,7 +124,7 @@ function readonlyMcpScript(): { command: string; args: string[] } | null {
 
 function readonlyProcessEnv(): Record<string, string> {
   const names = ['PATH', 'Path', 'PATHEXT', 'SystemRoot', 'WINDIR', 'GRAPHIFY_BINARY', 'GRAPHIFY_PYTHON',
-    'CONSULT_GRAPHIFY_TIMEOUT_MS', 'CROSS_TOPOLOGY_ENGINE', 'CROSS_TOPO_KB_DIR']
+    'CONSULT_GRAPHIFY_TIMEOUT_MS']
   return {
     ...Object.fromEntries(names.flatMap(name => process.env[name] ? [[name, process.env[name]!]] : [])),
     ...graphifyRuntimeChildEnv(),
@@ -173,7 +170,7 @@ function createConsultReadonlyServer(
   }
 }
 
-/** Claude 咨询会话复用同一只读源码编排器，确保多引擎遵循一致的 Graphify-first 流程。 */
+/** Claude 咨询会话复用同一只读源码编排器，确保多引擎遵循一致的项目原文与定向源码核查流程。 */
 export function createClaudeConsultSourceServer(
   sourceRoot?: string,
   evidenceSystems: readonly string[] = [],
@@ -234,10 +231,8 @@ export function consultReadonlyCodexConfig(codexHome?: string, sessionId?: strin
 
   const readonly = createConsultReadonlyServer(sourceRoot, evidenceSystems)
   const forge = forgeSqlRegistration ? createForgePendingSqlServer(sessionId) : null
-  const cross = createCodexCrossTopologyServer()
   if (readonly) mcpServers['consult-readonly'] = readonly
   if (forge) mcpServers.forge = forge
-  if (cross) mcpServers['cross-topology'] = cross
 
   return {
     features: {

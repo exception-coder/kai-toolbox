@@ -77,7 +77,7 @@ class SessionProjectDirectoryServiceTest {
         assertThat(context.paths()).containsExactly(legacy.toString(), secondary.toString());
         assertThat(context.instructions()).contains(
                 primary.toString(), secondary.toString(), "projectKey=legacy", "projectKey=legacy-missing",
-                "relation=REFACTORS", "source=missing", "domain-knowledge", "cross-topology", "分别检查各 Git 仓库状态");
+                "relation=REFACTORS", "source=missing", "docs/domain/", "所属项目文档", "分别检查各 Git 仓库状态");
         assertThat(service.buildContext("s1", primary.toString(), SessionExecutionPolicy.REVIEW_ONLY)).isNull();
     }
 

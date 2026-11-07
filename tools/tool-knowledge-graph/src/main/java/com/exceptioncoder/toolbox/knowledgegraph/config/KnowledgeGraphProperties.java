@@ -6,12 +6,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Path;
-
 /**
- * 知识图谱管理工具配置：团队初始化仓库的约定路径 + node 可执行文件。
- *
- * <p>独立拓扑仓库位于 {@code ~/.kai-toolbox/team-tools}，用户只需先完成团队依赖初始化。</p>
+ * 图谱管理兼容配置，项目业务知识随项目维护。
  */
 @Data
 @Component
@@ -27,10 +23,7 @@ public class KnowledgeGraphProperties {
     }
 
     public String getCrossTopologyRepoPath() {
-        return teamToolPath("cross-project-topology");
+        return "";
     }
 
-    private static String teamToolPath(String repository) {
-        return Path.of(System.getProperty("user.home"), ".kai-toolbox", "team-tools", repository).toString();
-    }
 }

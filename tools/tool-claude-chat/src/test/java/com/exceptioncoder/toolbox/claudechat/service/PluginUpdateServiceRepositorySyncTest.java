@@ -40,8 +40,9 @@ class PluginUpdateServiceRepositorySyncTest {
         try (MockedStatic<PluginUpdateService> routes = mockStatic(PluginUpdateService.class, CALLS_REAL_METHODS)) {
             routes.when(() -> PluginUpdateService.repoUrl(anyString(), anyString())).thenReturn(remote.toString());
             List<Map<String, Object>> first = service.syncRepositories("first", "github");
-            assertEquals(4, first.size());
+            assertEquals(3, first.size());
             assertTrue(first.stream().allMatch(PluginUpdateService::stepSucceeded));
+            assertFalse(Files.exists(workspace.resolve("cross-project-topology")));
             assertTrue(first.stream().allMatch(result -> result.get("step").toString().startsWith("clone:")));
             Files.writeString(remote.resolve("README.md"), "second");
             git(remote, "commit", "-am", "second");
@@ -69,7 +70,7 @@ class PluginUpdateServiceRepositorySyncTest {
         try (MockedStatic<PluginUpdateService> routes = mockStatic(PluginUpdateService.class, CALLS_REAL_METHODS)) {
             routes.when(() -> PluginUpdateService.repoUrl(anyString(), anyString())).thenReturn(remote.toString());
             List<Map<String, Object>> results = service(properties).syncRepositories("safe", "github");
-            assertEquals(2, results.stream().filter(result -> !PluginUpdateService.stepSucceeded(result)).count());
+            assertEquals(1, results.stream().filter(result -> !PluginUpdateService.stepSucceeded(result)).count());
             assertEquals("local edits", Files.readString(dirty));
             assertEquals("keep", Files.readString(occupied.resolve("keep.txt")));
             assertFalse(Files.exists(workspace.resolve("project-domain-knowledge")));

@@ -24,18 +24,17 @@ class PrdEvidenceCompletionGateTest {
                 ProjectEvidenceRole.LEGACY_SOURCE);
 
         List<PrdEvidencePlanService.PlanItem> plan = gate.completePlan(
-                new ProjectEvidenceScope("scope-1", primary, List.of(legacy)), List.of(), false);
+                new ProjectEvidenceScope("scope-1", primary, List.of(legacy)), List.of(new PrdEvidencePlanService.PlanItem(legacy,
+                        ProjectEvidenceSourceType.CROSS_PROJECT_TOPOLOGY, "旧计划")), false);
 
         assertThat(plan).extracting(item -> item.project().projectKey() + ":" + item.sourceType())
                 .contains(
                         "yoooni-one:DOMAIN_KNOWLEDGE",
-                        "yoooni-one:GRAPHIFY",
                         "yoooni-one:SOURCE",
                         "yoooni:DOMAIN_KNOWLEDGE",
-                        "yoooni:GRAPHIFY",
                         "yoooni:DDL",
-                        "yoooni:SOURCE",
-                        "yoooni:CROSS_PROJECT_TOPOLOGY");
+                        "yoooni:SOURCE")
+                .doesNotContain("yoooni:CROSS_PROJECT_TOPOLOGY", "yoooni:GRAPHIFY", "yoooni-one:GRAPHIFY");
     }
 
     @Test

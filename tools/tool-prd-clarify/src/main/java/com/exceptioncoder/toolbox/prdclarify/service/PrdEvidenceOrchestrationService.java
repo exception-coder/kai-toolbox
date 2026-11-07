@@ -34,7 +34,6 @@ public class PrdEvidenceOrchestrationService {
     private final PrdDdlContextService ddlContext;
     private final PrdRouteContextService routeContext;
     private final PrdSourceContextService sourceContext;
-    private final PrdTopologyContextService topologyContext;
     private final ObjectMapper mapper;
 
     public PrdEvidenceOrchestrationService(
@@ -46,7 +45,6 @@ public class PrdEvidenceOrchestrationService {
             PrdDdlContextService ddlContext,
             PrdRouteContextService routeContext,
             PrdSourceContextService sourceContext,
-            PrdTopologyContextService topologyContext,
             ObjectMapper mapper
     ) {
         this.scopeResolvers = scopeResolvers;
@@ -57,7 +55,6 @@ public class PrdEvidenceOrchestrationService {
         this.ddlContext = ddlContext;
         this.routeContext = routeContext;
         this.sourceContext = sourceContext;
-        this.topologyContext = topologyContext;
         this.mapper = mapper;
     }
 
@@ -126,6 +123,9 @@ public class PrdEvidenceOrchestrationService {
         ProjectEvidenceProject project = item.project();
         ProjectEvidenceSourceType source = item.sourceType();
         String target = target(project, source);
+        if (source == ProjectEvidenceSourceType.CROSS_PROJECT_TOPOLOGY) {
+            return entry(item, target, false, "RETIRED", "", "公共图谱已退役，请核对授权项目文档与源码");
+        }
         if (!project.availability().getOrDefault(source, false)) {
             return entry(item, target, true, "SOURCE_MISSING", "", null);
         }
@@ -140,8 +140,7 @@ public class PrdEvidenceOrchestrationService {
                 case ROUTE_MAP -> routeContext.query(project.projectKey(), query.description());
                 case SOURCE -> sourceContext.query(
                         project.projectPath(), query.module(), evidenceQuestion);
-                case CROSS_PROJECT_TOPOLOGY -> topologyContext.query(
-                        scope.primary().projectKey(), project.projectKey(), evidenceQuestion);
+                case CROSS_PROJECT_TOPOLOGY -> null;
             };
             String value = value(result);
             return entry(item, target, true, value.isBlank() ? "NO_HIT" : "HIT", value, null);
@@ -157,7 +156,7 @@ public class PrdEvidenceOrchestrationService {
             case DDL -> ddlContext.traceTarget(project.projectPath());
             case ROUTE_MAP -> routeContext.traceTarget(project.projectKey());
             case SOURCE -> project.projectPath();
-            case CROSS_PROJECT_TOPOLOGY -> topologyContext.traceTarget();
+            case CROSS_PROJECT_TOPOLOGY -> null;
         };
     }
 

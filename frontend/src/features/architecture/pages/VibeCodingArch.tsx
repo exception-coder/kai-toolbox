@@ -277,7 +277,7 @@ const moduleResolution: Decision[] = [
   },
   {
     topic: '模块树的业务语义来源',
-    chosen: { name: '知识库（domain-knowledge）当权威源 → 生成 .kai-modules.json', reason: '知识库按 项目→模块→知识点 维护业务树（销售 / 成本 / 库存…），比扫文件系统干净、带业务含义；生成器补上代码路径后落盘' },
+    chosen: { name: '项目内原文维护业务知识，代码目录识别模块', reason: '业务含义复用项目已有文档，模块导航从当前代码目录识别，引用原文保持单一来源' },
     rejected: [
       { name: '后端直连知识库 MCP', reason: '知识库是 stdio MCP + 人工部分视图 + 不存代码路径；后端实时消费三重耦合，且建会话仍缺 cwd' },
     ],
@@ -443,7 +443,7 @@ export function VibeCodingArch() {
             <div className="grid gap-2 sm:grid-cols-3">
               <InfoCard icon={FileJson} title=".kai-modules.json（自声明）" detail="项目根放一份模块树；后端通用解析，路径越界校验" />
               <InfoCard icon={ScanSearch} title="构建文件自动识别（回退）" detail="pom.xml / gradle / package.json / go.mod / Cargo.toml…" />
-              <InfoCard icon={BookOpen} title="知识库生成模块树" detail="domain-knowledge 当权威源，生成器补代码路径后落盘" />
+              <InfoCard icon={BookOpen} title="项目原文与模块目录" detail="业务知识随项目维护，代码目录提供模块导航" />
             </div>
             <p className="text-xs text-[var(--color-muted-foreground)]">
               入口刻意放在<b className="text-[var(--color-foreground)]">项目侧</b>：标准工程靠构建文件开箱即用；非标准工程（如老式 Java Web）放一份 <code>.kai-modules.json</code> 即可，

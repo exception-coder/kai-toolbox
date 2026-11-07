@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildMenuSyncPrompt, buildModuleScopePrompt } from './workspacePrompts'
+import { buildProjectKnowledgePrompt, buildModuleScopePrompt } from './workspacePrompts'
 
 describe('workspace prompts', () => {
   it('keeps module work scoped to verified frontend and backend paths', () => {
@@ -16,11 +16,13 @@ describe('workspace prompts', () => {
     expect(prompt).toMatch(/需求：$/)
   })
 
-  it('keeps menu synchronization behind an explicit owner apply gate', () => {
-    const prompt = buildMenuSyncPrompt('demo', 'D:/demo', 'D:/knowledge')
+  it('initializes knowledge in the selected project with shared suite rules', () => {
+    const prompt = buildProjectKnowledgePrompt('demo', 'D:/demo')
 
-    expect(prompt).toContain('禁止添加 --apply')
-    expect(prompt).toContain('只有 owner 明确回复“--apply”')
-    expect(prompt).toContain('不得套用 Yoooni 的 CRM_RIGHT 字段')
+    expect(prompt).toContain('team-standards:init-project-docs')
+    expect(prompt).toContain('D:/demo')
+    expect(prompt).toContain('待确认')
+    expect(prompt).toContain('draw.io')
+    expect(prompt).not.toMatch(/project-domain-knowledge|cross-topology|modules.json|--apply/)
   })
 })

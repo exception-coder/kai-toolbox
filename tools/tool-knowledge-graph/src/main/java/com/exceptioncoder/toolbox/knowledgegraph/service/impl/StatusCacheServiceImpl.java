@@ -1,11 +1,8 @@
 package com.exceptioncoder.toolbox.knowledgegraph.service.impl;
 
-import com.exceptioncoder.toolbox.knowledgegraph.model.GraphRepo;
 import com.exceptioncoder.toolbox.knowledgegraph.model.GraphifyGraphState;
 import com.exceptioncoder.toolbox.knowledgegraph.model.ProjectStatusSnapshot;
-import com.exceptioncoder.toolbox.knowledgegraph.model.RegistrationState;
 import com.exceptioncoder.toolbox.knowledgegraph.repository.StatusCacheRepository;
-import com.exceptioncoder.toolbox.knowledgegraph.service.DomainKnowledgeStatusService;
 import com.exceptioncoder.toolbox.knowledgegraph.service.GraphifyProjectStatusService;
 import com.exceptioncoder.toolbox.knowledgegraph.service.StatusCacheService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,7 +26,6 @@ import java.util.concurrent.Future;
 public class StatusCacheServiceImpl implements StatusCacheService {
 
     private final GraphifyProjectStatusService graphifyStatusService;
-    private final DomainKnowledgeStatusService domainKnowledgeStatusService;
     private final StatusCacheRepository repository;
 
     // 仅用于把旧的 status-cache.json 一次性迁移进数据库
@@ -38,10 +34,8 @@ public class StatusCacheServiceImpl implements StatusCacheService {
     private volatile boolean legacyMigrated = false;
 
     public StatusCacheServiceImpl(GraphifyProjectStatusService graphifyStatusService,
-                                   DomainKnowledgeStatusService domainKnowledgeStatusService,
                                    StatusCacheRepository repository) {
         this.graphifyStatusService = graphifyStatusService;
-        this.domainKnowledgeStatusService = domainKnowledgeStatusService;
         this.repository = repository;
     }
 
@@ -88,11 +82,7 @@ public class StatusCacheServiceImpl implements StatusCacheService {
 
     private ProjectStatusSnapshot detectOne(String path) {
         GraphifyGraphState graphifyState = safeGraphifyState(path);
-        String[] businessError = {null};
-        // 集中领域知识已退役，刷新只检测独立拓扑，不再恢复旧状态来源。
-        RegistrationState crossState = safeRegistrationState(path, GraphRepo.CROSS_TOPOLOGY, businessError);
-        RegistrationState businessState = crossState;
-        return new ProjectStatusSnapshot(path, graphifyState, businessState, businessError[0], Instant.now());
+        return new ProjectStatusSnapshot(path, graphifyState, null, null, Instant.now());
     }
 
     private GraphifyGraphState safeGraphifyState(String path) {
@@ -102,21 +92,6 @@ public class StatusCacheServiceImpl implements StatusCacheService {
             log.debug("Graphify 状态检测失败 {}：{}", path, e.getMessage());
             return null;
         }
-    }
-
-    private RegistrationState safeRegistrationState(String path, GraphRepo repo, String[] errorHolder) {
-        try {
-            return domainKnowledgeStatusService.detectStatus(path, repo).state();
-        } catch (RuntimeException e) {
-            errorHolder[0] = errorHolder[0] == null ? e.getMessage() : errorHolder[0] + "；" + e.getMessage();
-            return null;
-        }
-    }
-
-    private RegistrationState worse(RegistrationState a, RegistrationState b) {
-        if (a == null) return b;
-        if (b == null) return a;
-        return a.ordinal() <= b.ordinal() ? a : b;
     }
 
     /** 从数据库读全部历史；首次且库为空时，把旧 status-cache.json 一次性迁移进库。 */

@@ -89,7 +89,8 @@ test('inspects the exact runtime route without starting a consultation session',
 })
 
 test('prioritizes domain context before reading implementation evidence', () => {
-  assert.match(CONSULT_READONLY_PROMPT, /领域语义与跨项目关系优先查询 consult-readonly\.knowledge_query/)
+  assert.match(CONSULT_READONLY_PROMPT, /业务知识优先查询 consult-readonly\.knowledge_query/)
+  assert.doesNotMatch(CONSULT_READONLY_PROMPT, /cross-topology|domain-knowledge/)
   assert.match(CONSULT_READONLY_PROMPT, /knowledge_query\(source=domain, action=search_knowledge\)/)
   assert.doesNotMatch(CONSULT_READONLY_PROMPT, /必须先调用 consult-readonly\.source_context，再调用业务知识工具/)
 })

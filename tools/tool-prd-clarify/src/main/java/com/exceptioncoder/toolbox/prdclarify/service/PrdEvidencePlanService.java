@@ -24,7 +24,8 @@ public class PrdEvidencePlanService {
             resolve_project_evidence_scope；你只能使用给定 scope 中的项目坐标。
             根据需求、项目关系和来源可用性决定需要查询的证据。不要生成规格，不要调用工具。
             直接输出 JSON 数组，不加 Markdown。每项字段：projectKey、projectPath、sourceType、queryReason。
-            sourceType 只能是 DOMAIN_KNOWLEDGE、GRAPHIFY、DDL、ROUTE_MAP、SOURCE、CROSS_PROJECT_TOPOLOGY。
+            sourceType 只能是 DOMAIN_KNOWLEDGE、GRAPHIFY、DDL、ROUTE_MAP、SOURCE。
+            DOMAIN_KNOWLEDGE 读取项目内 Markdown 原文；GRAPHIFY 仅在复杂关系且已有可用图时按需选择。
             必须关注 REFACTORS 和 MIGRATES_FROM 来源；普通依赖只在需求确实涉及时选择。
             """;
 
@@ -93,7 +94,7 @@ public class PrdEvidencePlanService {
                 ProjectEvidenceSourceType source = ProjectEvidenceSourceType.valueOf(
                         item.path("sourceType").asText("").trim());
                 String reason = item.path("queryReason").asText("").trim();
-                if (!reason.isBlank()) {
+                if (!reason.isBlank() && source != ProjectEvidenceSourceType.CROSS_PROJECT_TOPOLOGY) {
                     result.add(new PlanItem(project, source, reason));
                 }
             } catch (IllegalArgumentException ignored) {

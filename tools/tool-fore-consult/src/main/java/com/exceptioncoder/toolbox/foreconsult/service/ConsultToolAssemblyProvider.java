@@ -45,7 +45,7 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
                                     snapshot.stream().flatMap(value -> value.workflow().tools().stream()), sourceHistory),
                                     Stream.concat(ConsultDocumentPolicy.TOOLS.stream(), Stream.of("read_consult_attachment", "read_consult_history"))).distinct().toList(),
                             Stream.concat(snapshot.stream().flatMap(value -> value.workflow().mcpServers().stream())
-                                            .filter(name -> !"domain-knowledge".equals(name)),
+                                            .filter(name -> !"domain-knowledge".equals(name) && !"cross-topology".equals(name)),
                                     Stream.of("consult-readonly")).distinct().toList(),
                             snapshot.map(value -> workflowService.render(request, value).prompt())
                                     .orElse("【受控文档生成】" + ConsultDocumentPolicy.INSTRUCTIONS

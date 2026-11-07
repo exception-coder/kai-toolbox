@@ -44,5 +44,5 @@ public class PluginUpdateProperties {
             "project-coding-profiles", "team-standards", "yoooni-daily-plugin");
 
     /** 「团队套件」面板展示的 MCP server（按此顺序），从 ~/.claude.json 的 mcpServers 判断是否已配置。 */
-    private List<String> watchedMcps = List.of("cross-topology");
+    private List<String> watchedMcps = List.of();
 }

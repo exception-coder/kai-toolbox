@@ -46,9 +46,6 @@ const CONSULT_READONLY_MCP_TOOLS = new Set([
   'mcp__consult-readonly__erp_standby_schema_search',
   'mcp__consult-readonly__erp_standby_validate_sql',
 ])
-const CONSULT_READONLY_MCP_PREFIXES = [
-  'mcp__cross-topology__',
-]
 /**
  * 单会话的权限/提问交互。绑定到 query() 的 canUseTool 回调：
  * Claude 要用工具或调用 AskUserQuestion 时暂停，发结构化请求给 Java，阻塞等决策回灌。
@@ -140,8 +137,7 @@ export class Permissions {
     }
     if (FORGE_SAFE_TOOLS.has(toolName)
       || CONSULT_READ_TOOLS.has(toolName)
-      || CONSULT_READONLY_MCP_TOOLS.has(toolName)
-      || CONSULT_READONLY_MCP_PREFIXES.some(prefix => toolName.startsWith(prefix))) {
+      || CONSULT_READONLY_MCP_TOOLS.has(toolName)) {
       return { behavior: 'allow', updatedInput: input }
     }
     return {

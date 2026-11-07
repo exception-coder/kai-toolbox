@@ -11,6 +11,6 @@ public class KnowledgeGraphToolDescriptor implements ToolDescriptor {
     @Override public String icon()        { return "network"; }
     @Override public String route()       { return "/tools/project-workspace"; }
     @Override public String group()       { return "运维工具"; }
-    @Override public String description() { return "检测项目在 Graphify / domain-knowledge / cross-topology 的登记状态；前端已整合进项目工作台，无独立页面"; }
+    @Override public String description() { return "查看项目代码图与历史记录；业务知识在所属项目文档中维护"; }
     @Override public int order()          { return 36; }
 }

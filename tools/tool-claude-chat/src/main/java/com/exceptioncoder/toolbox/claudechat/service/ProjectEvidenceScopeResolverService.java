@@ -73,7 +73,7 @@ public class ProjectEvidenceScopeResolverService implements ProjectEvidenceScope
         availability.put(ProjectEvidenceSourceType.DDL,
                 Files.isRegularFile(path.resolve("db/schema.sql")) /* 仅表示候选文件可读，不代表部署已核验 */);
         availability.put(ProjectEvidenceSourceType.ROUTE_MAP, routeMapExists(projectKey));
-        availability.put(ProjectEvidenceSourceType.CROSS_PROJECT_TOPOLOGY, topologyExists(projectKey));
+        availability.put(ProjectEvidenceSourceType.CROSS_PROJECT_TOPOLOGY, false);
         return new ProjectEvidenceProject(
                 projectKey,
                 path.toString(),
@@ -84,10 +84,6 @@ public class ProjectEvidenceScopeResolverService implements ProjectEvidenceScope
 
     private boolean routeMapExists(String projectKey) {
         return Files.isRegularFile(teamToolsPathService.routeMap(projectKey));
-    }
-
-    private boolean topologyExists(String projectKey) {
-        return Files.isDirectory(teamToolsPathService.topologyProject(projectKey));
     }
 
     private static ProjectEvidenceRole roleFor(ProjectEvidenceRelation relation) {

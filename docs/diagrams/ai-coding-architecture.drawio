@@ -38,7 +38,7 @@
         <mxCell id="methods-title" value="Team Standards" vertex="1" parent="methods" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=29;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="132" y="40" width="300" height="52" />
         </mxCell>
-        <mxCell id="methods-subtitle" value="工程宪法 + 22 个 Skill" vertex="1" parent="methods" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=25;fontColor=#7C3AED;fontStyle=1;whiteSpace=wrap;spacing=0;">
+        <mxCell id="methods-subtitle" value="工程宪法 + 任务 Skill" vertex="1" parent="methods" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=25;fontColor=#7C3AED;fontStyle=1;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="30" y="140" width="395" height="42" />
         </mxCell>
         <mxCell id="methods-design" value="需求与设计  /  架构与编码" vertex="1" parent="methods" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=23;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
@@ -152,19 +152,19 @@
         <mxCell id="domain-icon" value="" vertex="1" parent="facts" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.book;aspect=fixed;fillColor=none;strokeColor=#0D9488;strokeWidth=1.2796875;">
           <mxGeometry as="geometry" x="522.0" y="69.925" width="39.0" height="33.15" />
         </mxCell>
-        <mxCell id="domain-title" value="领域知识" vertex="1" parent="facts" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=23;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
+        <mxCell id="domain-title" value="项目业务知识" vertex="1" parent="facts" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=23;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="573" y="65" width="190" height="38" />
         </mxCell>
-        <mxCell id="domain-desc" value="已确认的业务语义" vertex="1" parent="facts" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
+        <mxCell id="domain-desc" value="项目原文 / 依据与待确认项" vertex="1" parent="facts" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="522" y="114" width="240" height="28" />
         </mxCell>
         <mxCell id="topology-icon" value="" vertex="1" parent="facts" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.share;aspect=fixed;fillColor=none;strokeColor=#0D9488;strokeWidth=1.2796875;">
           <mxGeometry as="geometry" x="777.1315789473684" y="67.0" width="28.736842105263158" height="39.0" />
         </mxCell>
-        <mxCell id="topology-title" value="跨项目拓扑" vertex="1" parent="facts" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=23;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
+        <mxCell id="topology-title" value="跨项目原文引用" vertex="1" parent="facts" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=23;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="823" y="65" width="190" height="38" />
         </mxCell>
-        <mxCell id="topology-desc" value="调用 / 数据流 / 接口契约" vertex="1" parent="facts" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
+        <mxCell id="topology-desc" value="授权项目 / 源码与接口契约" vertex="1" parent="facts" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="772" y="114" width="240" height="28" />
         </mxCell>
         <mxCell id="project" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;group;selectParentFirst=1;" connectable="0">

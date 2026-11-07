@@ -45,18 +45,18 @@ const repoLayers: {
     real: '即你已有的 team-standards 插件',
   },
   {
-    tag: '②', icon: Database, name: '知识库项目集（集中式）', count: '1 个 · 统一管理',
-    has: '各项目知识图谱 / ER / 术语 / 反向索引 / 画像 / bug 复盘，按「项目名」分目录集中存放',
-    not: '通用规则（归①）、跨项目拓扑（归③）',
-    who: '独立 repo、专人 + 方法论 skill 维护；业务项目同事不直接改，杜绝误触改乱',
-    real: '一个独立 repo，内分 korepos/、kai-toolbox/… 子目录，经 MCP / 多根工作区载入工具',
+    tag: '②', icon: Database, name: '项目内业务知识', count: '随各项目维护',
+    has: '项目已有 Markdown 文档、业务概览、术语、流程与 draw.io 全景图',
+    not: '通用工程规则由团队套件维护',
+    who: '项目同事与 AI 随代码原位维护，推断标待确认',
+    real: '从项目 docs/INDEX.md 或现有文档入口读取原文',
   },
   {
-    tag: '③', icon: GitFork, name: '跨项目拓扑库', count: '1 个 · 生态级',
-    has: '≥2 个项目间的调用链、服务拓扑、跨项目数据流',
-    not: '单项目内部知识（归②），别混进任何单项目库',
-    who: '由 cross-project-locator 类 skill 维护',
-    real: '即你已有的 kpay-pos-topology',
+    tag: '③', icon: GitFork, name: '跨项目原文引用', count: '按授权范围核查',
+    has: '关联项目之间的接口、调用与数据流依据',
+    not: '原文归所属项目，通过链接核对',
+    who: '按关联项目文档、源码与 Git 定向核查',
+    real: '在所属项目记录依据，Graphify 按需辅助复杂关系',
   },
   {
     tag: '④', icon: Sparkles, name: 'Prompt / Agent 资产库', count: '1 个 · 可选',
@@ -74,27 +74,27 @@ const toolTargets: { icon: typeof Users; name: string; how: string }[] = [
   { icon: MousePointer2, name: 'Cursor', how: '同一份源导出为 .cursor/rules/*.mdc，规则随项目自动生效' },
 ]
 
-// ②③ 这类纯知识 repo（非 plugin/skill）怎么载入工具——按需，不塞进业务项目仓库。
+// 知识与代码同仓，按任务定向读取。
 const kbLoad: { icon: typeof Users; name: string; how: string }[] = [
-  { icon: Database, name: 'MCP 知识服务（最优）', how: '知识库做成 MCP server，Claude Code / Codex / Cursor 通吃；按「项目+问题」检索，按需取、不会一次读太多' },
-  { icon: Boxes, name: '多根工作区', how: 'Cursor / VS Code 同时打开「业务项目 + 知识库」两个根，跨根索引与 @ 引用' },
-  { icon: GitFork, name: 'git submodule 只读', how: '知识库作只读子模块挂进项目；源唯一在独立 repo，要改回源改，杜绝误触' },
+  { icon: Database, name: '项目文档入口', how: '读取项目现有索引和正文，保留来源、可信度与待确认项' },
+  { icon: Boxes, name: '授权关联项目', how: '按授权目录逐项核对关联项目原文与实现' },
+  { icon: GitFork, name: '随项目维护', how: '业务变化时更新所属项目正文和全景图，同主题保留一份来源' },
 ]
 
 const teamVibeTechMap: TechArchitectureMapProps = {
   title: '团队 Vibe Coding 落地技术架构全景',
-  subtitle: '把方法论拆成可执行的规则插件、集中知识库、跨项目拓扑、Prompt/Agent 资产和工具分发链路。',
+  subtitle: '把方法论拆成可执行的规则插件、项目业务文档、跨项目引用、Prompt/Agent 资产和工具分发链路。',
   top: ['Claude Code / Codex', 'Cursor / IDE', 'GitHub / CI', '团队知识平台'],
-  clients: ['开发者工作台', '规则插件', 'MCP 知识服务', '多 Agent 流水线', 'AI Review'],
+  clients: ['开发者工作台', '规则插件', '项目原文查询', '多 Agent 流水线', 'AI Review'],
   left: ['需求 Spec', '任务拆解', '编码生成', '代码审核', '回归验收'],
-  right: ['项目知识图谱', '术语表', '反向索引', 'Bug 复盘', '跨项目拓扑'],
+  right: ['项目业务文档', '术语表', '反向索引', 'Bug 复盘', '跨项目原文引用'],
   groups: [
     { title: '规范插件', tone: 'orange', nodes: ['编码铁律', '文档门禁', '提交规范', '自动 hook'] },
     { title: '知识库', tone: 'green', nodes: ['项目画像', 'ER / API', '业务术语', '故障复盘'] },
     { title: 'Agent 流水线', tone: 'purple', nodes: ['架构 Agent', '开发 Agent', 'Review Agent', 'QA Agent'] },
     { title: '交付护栏', tone: 'cyan', nodes: ['SDD 验收', 'lint/test', 'CI Gate', '人审合并'] },
   ],
-  bottom: ['MCP', 'RAG', 'Git Hooks', 'Spec-Driven', 'CI/CD', 'Knowledge Graph'],
+  bottom: ['MCP', 'RAG', 'Git Hooks', 'Spec-Driven', 'CI/CD', 'Project Docs'],
   footer: 'TEAM VIBE CODING',
 }
 
@@ -125,7 +125,7 @@ const teamVibeStakeholderViews: StakeholderArchitectureViewsProps = {
   layers: [
     { title: '团队工作流层', items: ['需求', '开发', 'Review', '测试', '发布'] },
     { title: 'AI 研发能力层', items: ['SDD', 'Prompt 库', '多 Agent', '知识库 RAG'] },
-    { title: '治理与资产层', items: ['规则插件', '项目知识图谱', '跨项目拓扑', 'CI 门禁'] },
+    { title: '治理与资产层', items: ['规则插件', '项目业务文档', '跨项目原文引用', 'CI 门禁'] },
   ],
   c4: [
     { level: 'Context', audience: '领导 / 老板', items: ['研发团队', 'AI 研发体系', '业务交付'] },
@@ -136,7 +136,7 @@ const teamVibeStakeholderViews: StakeholderArchitectureViewsProps = {
   chain: [
     { layer: '需求 / 业务入口', color: 'blue', items: ['产品需求', 'Bug 报告', '重构任务'], note: 'SDD 规格先行，无规格不生成代码' },
     { layer: '规格设计层', color: 'violet', items: ['design-doc-required 门禁', '设计文档（-current.md）', '接口契约（-api.md）', 'coding 摘要（-coding.md）'] },
-    { layer: '知识供给层', color: 'amber', items: ['项目知识图谱', '业务术语表', '跨项目拓扑', '历史设计文档'] },
+    { layer: '知识供给层', color: 'amber', items: ['项目业务文档', '业务术语表', '跨项目原文引用', '历史设计文档'] },
     { layer: 'AI 生产层', color: 'orange', items: ['Claude Code / Codex', 'coding-standards 规范', '编码门禁 hooks', 'pre-implementation-orientation'] },
     { layer: '质量护栏层', color: 'emerald', items: ['架构 lint', 'code-review skill', 'typecheck / mvn compile', 'AI Review + 人工 Review'] },
     { layer: '交付 / 上线层', color: 'violet', items: ['git commit（逐变更）', 'CI 门禁', '发布 / 部署'] },
@@ -160,7 +160,7 @@ const teamVibeStakeholderViews: StakeholderArchitectureViewsProps = {
     {
       category: '知识库', color: 'amber',
       items: [
-        { name: '用户目录 ai-docs/', note: '设计文档、知识图谱、工作日志的统一知识库' },
+        { name: '项目现有 docs/', note: '复用现有设计、业务文档与规格，按需维护全景图' },
         { name: '项目 docs/', note: '终版设计文档进仓，Git 管理历史' },
       ],
     },
@@ -484,7 +484,7 @@ export function TeamVibeCoding() {
         <StepFlow
           nodes={[
             { icon: ScrollText, label: '① 通用规范 plugin', sub: '怎么做', tone: 'primary' },
-            { icon: Database, label: '② 知识库项目集', sub: '是什么' },
+            { icon: Database, label: '② 项目业务知识', sub: '是什么' },
             { icon: GitFork, label: '③ 跨项目拓扑', sub: '怎么连', tone: 'accent' },
           ]}
           note="三类资产各自独立、互不污染：规则不掺业务、业务不掺跨项目。"
@@ -511,32 +511,16 @@ export function TeamVibeCoding() {
         </div>
         <p className="text-xs text-[var(--color-muted-foreground)]">
           一句话：<b className="text-[var(--color-foreground)]">① 放「怎么做」、② 放「是什么」、③ 放「项目间怎么连」、④ 放「可复用的提问与编排」</b>。
-          新项目落地 = 装上①（规范不重搭）→ 在②知识库项目集里加一个「项目名」子目录 → 有跨项目调用才登记③。知识集中托管、专人维护，业务同事改不乱；AI 按需检索，各取所需。
+          新项目安装团队套件后，在项目目录执行初始化 skill，复用文档、补齐知识并核对全景图。跨项目关系引用所属项目原文。
         </p>
 
-        {/* 边界示例：项目特定约束怎么分 */}
-        <Card className="border-dashed">
-          <CardContent className="space-y-2 p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <FileCode2 className="h-4 w-4 text-[var(--color-primary)]" /> 边界示例：项目特定约束（如文件编码 GBK / UTF-8）放哪？
-            </div>
-            <div className="space-y-1 text-xs">
-              <LayerRow k="规则①" v="通用铁律：AI 改代码前，① plugin 的通用 hook 向 ② MCP 查回该项目编码并据此生成，禁止擅自换；MCP 未登记则探测兜底、再不行退默认 UTF-8 —— 进 team-standards" />
-              <LayerRow k="来源·强制" v="来源＝② MCP 知识库（按项目登记、查回即用，不碰业务项目）；强制＝① plugin 通用 hook（全局装一次）：生成前查回 + 生成/提交后校验编码、违反即拦或转码；MCP 缺/挂则探测兜底" tone="real" />
-              <LayerRow k="知识库②" v="正是规则单一源：按项目登记编码等约束，运行时查回 —— 不必在每个项目放文件" />
-              <LayerRow k="为什么" v="强制点在通用 hook（全局一次）不在每个项目 → 既集中管理、查回即用，又有确定性拦截力，不靠自觉" />
-            </div>
-            <p className="text-[11px] leading-snug text-[var(--color-muted-foreground)]">
-              软知识与硬约束都登记在 <b className="text-[var(--color-foreground)]">② MCP 知识库</b>（单一源、查回即用，不碰每个项目）；区别在执行：
-              <b className="text-[var(--color-foreground)]">软知识</b>（业务/术语/ER）AI 查询即遵守，<b className="text-[var(--color-foreground)]">硬约束</b>（编码/格式）由 <b className="text-[var(--color-foreground)]">① 通用 hook 查回后校验·拦截</b> + MCP 缺时探测兜底。
-              规则集中、强制力在通用 hook 不靠自觉——确定性优先。
-            </p>
-          </CardContent>
-        </Card>
+        <p className="text-sm text-[var(--color-muted-foreground)]">
+          项目编码、格式和构建约束以现有配置与规则为准。团队套件提供通用方法，项目文档记录业务含义，实际检查证明实现结果。
+        </p>
       </Section>
 
       {/* 分发与导入 */}
-      <Section icon={Plug} title="分发与导入：规则导出 + 知识载入" subtitle="规范一份源导出各工具；知识库（②③）经 MCP / 多根工作区按需载入，不塞进业务项目仓库">
+      <Section icon={Plug} title="分发与导入：规则导出 + 知识载入" subtitle="规范由套件分发，项目知识从现有文档入口定向读取">
         <StepFlow
           nodes={[
             { icon: ScrollText, label: '规范单一源', sub: 'team-standards', tone: 'primary' },
@@ -566,9 +550,9 @@ export function TeamVibeCoding() {
             </div>
             <div className="space-y-1 text-xs">
               <LayerRow k="① 规范" v="规则插件，一份源多工具导出 —— 单独建 1 个 repo（team-standards）" />
-              <LayerRow k="② 知识库" v="集中式项目集，按项目名分目录、专人维护防误改 —— 单独建 1 个 repo" />
-              <LayerRow k="③ 拓扑" v="跨项目公共支撑，独立 —— 单独建 1 个 repo（kpay-pos-topology）" />
-              <LayerRow k="载入" v="① 装成 plugin / rules；②③ 经 MCP 服务或多根工作区按需读，都不塞进业务项目仓库" tone="real" />
+              <LayerRow k="② 知识库" v="所属项目的 Markdown 原文，随代码维护" />
+              <LayerRow k="③ 拓扑" v="跨项目契约引用所属项目原文，保留依据与待确认项" />
+              <LayerRow k="载入" v="① 安装团队套件；②③ 按授权项目读取文档与源码" tone="real" />
               <LayerRow k="第一步" v="先把①装好，向团队讲清「这插件管什么、何时自动触发」，再建②③" tone="real" />
             </div>
           </CardContent>
@@ -582,7 +566,7 @@ export function TeamVibeCoding() {
             <VFlow steps={[
               { icon: ScrollText, title: '① 通用 plugin（基线）', desc: 'team-standards：跨项目铁律 + 机制 + 默认值；改这里全局生效', tone: 'primary' },
               { icon: Wrench, title: '② 领域 plugin（可选）', desc: 'java / 后端等专属；仅当是「规则逻辑」才建（已有 java-coding-standards…）', tone: 'muted' },
-              { icon: FileCode2, title: '③ 项目内覆盖（一般不用）', desc: '默认全查 ② MCP；仅个别项目想本地覆盖时才放 .editorconfig 等，非必备', tone: 'accent' },
+              { icon: FileCode2, title: '③ 项目既有规则', desc: '复用项目 AGENTS.md、已有配置与文档，按当前任务读取', tone: 'accent' },
             ]} />
             <p className="text-xs text-[var(--color-muted-foreground)]">
               合并裁决：<b className="text-[var(--color-foreground)]">项目 &gt; 领域 &gt; 通用</b>，就近覆盖，<b className="text-[var(--color-foreground)]">缺哪层下一层兜底</b>——多数项目零配置（靠探测 + 通用默认），仅个别需个性化时才按需放配置，<b className="text-[var(--color-foreground)]">配置文件非必备</b>。
@@ -592,34 +576,23 @@ export function TeamVibeCoding() {
         </Card>
         <DecisionCard d={pluginShape} />
 
-        {/* 个性化规则放 MCP 知识库：登记 vs 执行 */}
-        <Card className="border-dashed">
-          <CardContent className="space-y-2 p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Database className="h-4 w-4 text-[var(--color-primary)]" /> 项目个性化规则放 ② MCP 知识库？统一登记可以，软硬分流执行
-            </div>
-            <div className="space-y-1 text-xs">
-              <LayerRow k="登记源" v="集中在 ② MCP 知识库、按项目登记 —— 一处可改可查，满足统一管理" />
-              <LayerRow k="软规则" v="命名 / 架构约定 / 业务倾向：AI 运行时查 MCP 即用，建议性、查到即遵守" />
-              <LayerRow k="硬约束" v="编码 / 格式 / lint：MCP 登记值查回即用；强制由 ① plugin 通用 hook（全局装一次、不碰每个项目）校验·拦截 + MCP 缺时探测兜底" tone="real" />
-              <LayerRow k="原则" v="强制点在通用 hook（全局一次）、规则集中在 MCP 查回 —— 不在每个项目放文件，仍有确定性拦截力。LLM 提议、代码裁决" />
-            </div>
-          </CardContent>
-        </Card>
+        <p className="text-sm text-[var(--color-muted-foreground)]">
+          个性化规则优先复用项目现有文件。初始化先整理已有知识，缺口从代码补充，推断保留依据并标待确认。
+        </p>
       </Section>
 
       {/* 端到端编码流程：三库如何协作 */}
-      <Section icon={Workflow} title="端到端落地：一次编码怎么跑通（三库如何协作）" subtitle="把 ① 规范 plugin · ② MCP 知识库 · ③ 跨项目拓扑 串成一条带确定性护栏的编码流水线">
+      <Section icon={Workflow} title="端到端落地与项目知识维护" subtitle="沿用套件方法、项目原文与已授权跨项目依据推进交付">
         <Card>
           <CardContent className="space-y-3 p-4">
             <VFlow steps={[
               { icon: FileText, title: 'Spec 先行', desc: '开发者按 ① 模板写清需求：输入 / 输出 / 异常 / 验收', tone: 'primary' },
-              { icon: Database, title: '上下文查回', desc: '① 通用 hook 自动识别项目 → 查 ② MCP 拿回规则 + 知识；跨项目需求再查 ③ 拓扑' },
-              { icon: Bot, title: 'AI 生成', desc: '按 Spec + 查回的规则生成代码（编码等硬约束按查回值）', tone: 'accent' },
+              { icon: Database, title: '上下文查回', desc: '读取项目规则、现有文档与规格，定向核查源码；跨项目按授权范围引用原文' },
+              { icon: Bot, title: 'AI 生成', desc: '按已确认需求、项目规则与真实实现证据编写代码', tone: 'accent' },
               { icon: ShieldCheck, title: '写时拦截', desc: '① hook 即时校验编码 / 分层 / 命名，违反即拦或自动修' },
               { icon: ClipboardCheck, title: '提交前校验', desc: 'CI / hook 跑确定性检查 + 测试 + 最强模型自审，通过才能 commit' },
               { icon: GitMerge, title: '人验收 → Merge', desc: '人做最终裁决，合并上线', tone: 'primary' },
-              { icon: Repeat, title: '知识回流（闭环）', desc: '新约定 / 术语 / bug 复盘回写 ②、跨项目调用登记 ③ → 下次查回更准', tone: 'accent' },
+              { icon: Repeat, title: '知识回流（闭环）', desc: '业务变化时更新所属项目原文及全景图，跨项目引用同步核对', tone: 'accent' },
             ]} />
             <p className="text-xs text-[var(--color-muted-foreground)]">
               跑通即成<b className="text-[var(--color-foreground)]">飞轮</b>：查回（②）越准 → 生成越合规 → 拦截 / 返工越少；每次新知识回流 ②③ → 下次查回更准。
@@ -631,19 +604,18 @@ export function TeamVibeCoding() {
       </Section>
 
       {/* 三库调用关系与使用教程 */}
-      <Section icon={Link2} title="三库怎么连、怎么用（调用关系 + 使用教程）" subtitle="已落地三个 repo：team-standards(规则+hook) · ai-knowledge-base(知识+MCP) · cross-project-topology(拓扑)">
+      <Section icon={Link2} title="套件规则与项目知识怎么配合" subtitle="team-standards 提供方法，业务知识和全景图随各项目维护">
         <Card>
           <CardContent className="space-y-2 p-4">
             <div className="text-sm font-medium">调用关系（运行时谁调谁）</div>
             <HFlow steps={[
               { icon: MousePointer2, title: '编程工具', desc: 'Claude Code / Codex / Cursor', tone: 'primary' },
               { icon: ScrollText, title: '① 通用 hook', desc: 'team-standards，写码 / 提交时触发' },
-              { icon: Plug, title: '② MCP 查回', desc: 'kb_get_project_rules(项目名)' },
-              { icon: Database, title: '知识库 rules.md', desc: '硬约束 + 软规则单一源', tone: 'accent' },
+              { icon: Plug, title: '② 项目原文', desc: '现有文档入口与业务正文' },
+              { icon: Database, title: '定向源码核查', desc: '保留依据与待确认项', tone: 'accent' },
             ]} />
             <p className="text-xs text-[var(--color-muted-foreground)]">
-              跨项目需求时，AI / hook 另查 <b className="text-[var(--color-foreground)]">③ cross-project-topology</b>（调用链 / 接口对照）；
-              <b className="text-[var(--color-foreground)]">MCP 缺或挂 → hook 探测兜底</b>，不阻断。项目名由 git remote / 目录名自动推导，业务项目零文件。
+              跨项目需求按已授权关联项目逐项读取原文与源码，保留来源。项目知识由同事和 AI 随项目更新。
             </p>
           </CardContent>
         </Card>
@@ -652,13 +624,13 @@ export function TeamVibeCoding() {
             <div className="text-sm font-medium">使用教程（一次性搭好 → 日常零负担）</div>
             <VFlow steps={[
               { icon: PackageCheck, title: 'Step 1 · 装规范', desc: '各工具安装 ① team-standards plugin（规则 + 通用 hook）', tone: 'primary' },
-              { icon: Plug, title: 'Step 2 · 起查回服务', desc: 'ai-knowledge-base/mcp 跑 npm install && npm run build；在工具 .mcp.json 注册 node dist/server.js（带 KB_ROOT）' },
-              { icon: FileCode2, title: 'Step 3 · 登记项目', desc: '拷 projects/_template 为 projects/<项目名>，填 rules.md（编码 / 约定），INDEX 登记一行' },
-              { icon: Bot, title: 'Step 4 · 日常编码', desc: '业务项目里发起需求 → hook 自动 kb_get_project_rules(项目名) → 按规则生成 + 写时 / 提交校验' },
-              { icon: GitFork, title: 'Step 5 · 跨项目', desc: '涉及多项目时，查 / 登记 ③ cross-project-topology', tone: 'accent' },
+              { icon: Plug, title: 'Step 2 · 整理项目知识', desc: '在项目内运行 init-project-docs，复用已有文档并补齐业务概览和全景图' },
+              { icon: FileCode2, title: 'Step 3 · 核对依据', desc: '检查文档入口、原文引用、图文一致性和待确认项' },
+              { icon: Bot, title: 'Step 4 · 日常编码', desc: '读取项目规则与原文，定向核查实现，变更时维护受影响知识' },
+              { icon: GitFork, title: 'Step 5 · 跨项目', desc: '涉及多项目时，按授权目录核对原文与契约', tone: 'accent' },
             ]} />
             <p className="text-xs text-[var(--color-muted-foreground)]">
-              Step 1~3 一次性搭建；之后每个新项目只做 Step 3（加一个 rules.md）。日常 Step 4 全自动，开发者无感。
+              新项目按现有目录初始化，已有项目原位补齐。知识随代码维护，推断保留待确认状态。
             </p>
           </CardContent>
         </Card>

@@ -57,18 +57,10 @@ public class KnowledgeGraphController {
         return new RepoPathsView(properties.getDomainKnowledgeRepoPath(), properties.getCrossTopologyRepoPath());
     }
 
-    /** 引擎与两仓就绪检测：初始化目录是否存在、引擎是否已构建（dist/server.js）。 */
+    /** 旧客户端兼容字段，集中服务已退役。 */
     @GetMapping("/engine-status")
     public EngineStatusView engineStatus() {
-        String domain = properties.getDomainKnowledgeRepoPath();
-        String cross = properties.getCrossTopologyRepoPath();
-        boolean domainConfigured = domain != null && !domain.isBlank();
-        boolean domainRepoExists = domainConfigured && Files.isDirectory(Path.of(domain));
-        boolean engineBuilt = cross != null && !cross.isBlank()
-                && Files.isRegularFile(Path.of(cross, "dist", "server.js"));
-        boolean crossConfigured = cross != null && !cross.isBlank();
-        boolean crossRepoExists = crossConfigured && Files.isDirectory(Path.of(cross));
-        return new EngineStatusView(domainConfigured, domainRepoExists, engineBuilt, crossConfigured, crossRepoExists);
+        return new EngineStatusView(false, false, false, false, false);
     }
 
     @GetMapping("/projects/recent")

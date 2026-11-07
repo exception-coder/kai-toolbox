@@ -26,7 +26,7 @@ flowchart LR
     SM --> ENG["Codex / Claude Adapter"]
     ENG --> RO["consult-readonly MCP"]
     RO --> KB["授权项目 Markdown / YAML 原文"]
-    ENG --> TOPO["独立 cross-topology 关系查询"]
+    RO --> RELATED["授权关联项目原文与定向源码"]
     RO --> SYNC["源码工具前置同步<br/>签名POST + 授权项目 + 安全快进与状态证据"]
     SYNC --> GRT["GraphifyQueryService\n状态与总预算"]
     GRT --> SCHED["GraphifyQueryScheduler\n同键合并 + FIFO"]
@@ -337,7 +337,7 @@ mvn -pl tools/tool-fore-consult -am test
 
 咨询按现有候选项目身份和授权范围读取该项目的 `docs/INDEX.md`、`docs/domain/`、`openspec/specs/`，不再依赖公共 `project-domain-knowledge` 仓库或 Domain Knowledge MCP。`knowledge_query` 保留只读门面；`source=domain` 返回原文及相对文件路径，`project` 使用 `source_projects` 返回的候选 ID。检索后用 `get_knowledge` 的 `arguments.path` 读取指定文件。截断资料可通过 `source_read` 分段继续读取；每次查询重新读取文件，保留 YAML 的归属、可信度及未确认项。
 
-跨项目知识引用所属项目原文；跨项目关系仍由独立 `cross-project-topology/dist/server.js` 提供，不授予额外源码或资源访问权。缺知识、图谱或关系服务时明确证据缺口，继续可用的定向源码核查，不恢复旧仓库。Graphify 不是普通咨询的前置条件。
+跨项目知识与关系按已授权项目分别核对原文和定向源码，推断标待确认。Graphify 按需辅助复杂关系。旧 `source=topology` 返回 `RETIRED`，`source=all` 兼容保留项目原文结果。旧“分析链路”按钮移除，历史连线与已确认的数据归属继续读取，旧分析接口返回 410。验证与上线状态见 [退役任务](../../openspec/changes/retire-central-topology/tasks.md)。
 
 DDL 优先核对目标项目实际 SQL 文件或授权数据库元数据。迁入的 `ddl-baseline.md`、旧继承配置及历史知识不能证明当前结构；多文件或后续迁移需进一步确认，源码 schema 也不等于目标数据库已部署。
 

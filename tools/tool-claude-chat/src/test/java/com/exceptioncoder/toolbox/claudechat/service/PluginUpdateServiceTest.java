@@ -26,10 +26,10 @@ class PluginUpdateServiceTest {
         method.setAccessible(true);
         var results = new java.util.ArrayList<Map<String, Object>>();
         assertEquals(Map.of(), method.invoke(service, "test", repo, "github",
-                List.of("project-domain-knowledge", "domain-knowledge"), results));
+                List.of("project-domain-knowledge", "domain-knowledge", "cross-project-topology", "cross-topology"), results));
         assertTrue(results.isEmpty());
         assertFalse(new com.exceptioncoder.toolbox.claudechat.config.PluginUpdateProperties()
-                .getWatchedMcps().contains("domain-knowledge"));
+                .getWatchedMcps().contains("cross-topology"));
     }
 
     @TempDir

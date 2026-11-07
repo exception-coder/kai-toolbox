@@ -54,7 +54,7 @@ class ConsultToolAssemblyProviderTest {
         var provider = new ConsultToolAssemblyProvider(sessions, workflows, new ConsultWorkflowService(List.of(), workflows));
         assertThat(provider.resolve("runtime-source").orElseThrow().tools())
                 .contains("source_read", "source_git_history", "knowledge_query");
-        assertThat(provider.resolve("runtime-source").orElseThrow().mcpServers()).doesNotContain("domain-knowledge");
+        assertThat(provider.resolve("runtime-source").orElseThrow().mcpServers()).doesNotContain("domain-knowledge", "cross-topology");
         assertThat(workflow.tools()).containsExactly("source_read");
         verify(workflows, never()).production();
     }

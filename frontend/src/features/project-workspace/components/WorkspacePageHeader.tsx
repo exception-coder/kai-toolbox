@@ -4,8 +4,6 @@ import type { ProjectModules } from '@/features/claude-chat/public-api'
 import { cn } from '@/lib/utils'
 import { ProjectTypeBadge } from './WorkspaceSections'
 
-const TEAM_KNOWLEDGE_DIR = '~/.kai-toolbox/team-tools/project-domain-knowledge/knowledge'
-
 interface DependencyMarkProps {
   ok: boolean
   label?: string
@@ -36,11 +34,6 @@ interface WorkspacePageHeaderProps {
   projectDependenciesLoading: boolean
   dependencies: {
     rootsOk: boolean
-    knowledgeBaseOk: boolean
-    domainOk: boolean
-    domainLabel: string
-    crossProjectOk: boolean
-    crossProjectLabel: string
   }
   onRefresh: () => void
   onOpenProjectDependencies: () => void
@@ -91,9 +84,9 @@ export function WorkspacePageHeader({
         </div>
         <ul className="ml-4 list-disc space-y-0.5">
           <li><b className="text-[var(--color-foreground)]">项目列表</b> ← 项目库工作区目录（工作区扫描根目录）<DependencyMark ok={dependencies.rootsOk} /></li>
-          <li><b className="text-[var(--color-foreground)]">模块清单 / 中文名</b> ← 团队初始化目录 <code>{TEAM_KNOWLEDGE_DIR}</code><DependencyMark ok={dependencies.knowledgeBaseOk} label={dependencies.knowledgeBaseOk ? '已就绪' : '未初始化'} /></li>
-          <li><b className="text-[var(--color-foreground)]">业务真理识别</b> ← 团队初始化目录下的 <b className="text-[var(--color-foreground)]">project-domain-knowledge</b>（需已 build 引擎 dist）<DependencyMark ok={dependencies.domainOk} label={dependencies.domainLabel} /></li>
-          <li><b className="text-[var(--color-foreground)]">跨项目拓扑识别</b> ← 团队初始化目录下的 <b className="text-[var(--color-foreground)]">cross-project-topology</b>（复用上面引擎）<DependencyMark ok={dependencies.crossProjectOk} label={dependencies.crossProjectLabel} /></li>
+          <li><b className="text-[var(--color-foreground)]">模块清单</b> ← 当前项目代码目录</li>
+          <li><b className="text-[var(--color-foreground)]">业务知识</b> ← 项目现有文档与规格，通过项目文档入口维护</li>
+          <li><b className="text-[var(--color-foreground)]">跨项目关系</b> ← 已授权关联项目的原文与定向源码</li>
         </ul>
         <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
           <button type="button" className="font-medium text-[var(--color-primary)] hover:underline" onClick={onOpenWorkspaceConfig}>

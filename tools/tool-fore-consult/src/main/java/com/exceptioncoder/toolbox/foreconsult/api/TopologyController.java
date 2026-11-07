@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 系统链路分析端点。路径前缀 {@code /api/fore-consult/topology}。
- * 驱动一次性 Claude Agent 引擎 + cross-topology MCP 查出当前星图系统之间的关系，供前端连线渲染。
+ * 读取历史系统连线，旧分析请求返回明确的退役状态。
  */
 @RestController
 @RequestMapping("/api/fore-consult/topology")

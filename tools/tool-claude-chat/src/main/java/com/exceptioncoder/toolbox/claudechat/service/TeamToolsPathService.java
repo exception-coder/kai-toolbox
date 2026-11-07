@@ -25,10 +25,5 @@ public class TeamToolsPathService {
                 .resolve(projectKey).resolve("url-route-map.md").normalize();
     }
 
-    /** 返回一个项目的跨项目拓扑目录。 */
-    public Path topologyProject(String projectKey) {
-        return root().resolve("cross-project-topology").resolve("knowledge")
-                .resolve(projectKey).normalize();
-    }
 
 }

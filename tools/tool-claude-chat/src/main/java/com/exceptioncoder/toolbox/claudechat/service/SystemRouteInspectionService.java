@@ -108,15 +108,6 @@ public class SystemRouteInspectionService {
                 knowledge ? "" : "核对目标项目docs/INDEX.md及docs/domain是否已拉取；缺知识不阻断源码核查。",
                 route.projectPath() + "/docs/domain"));
 
-        boolean topology = route.evidenceScope().primary().availability()
-                .getOrDefault(ProjectEvidenceSourceType.CROSS_PROJECT_TOPOLOGY, false);
-        checks.add(check(
-                "CROSS_TOPOLOGY_AVAILABLE", topology ? "PASS" : "WARNING",
-                topology ? "跨项目拓扑已关联" : "跨项目拓扑未登记",
-                topology ? "cross-project-topology 存在当前 projectKey。" : "跨系统调用需要依赖显式关联项目补足。",
-                topology ? "" : "在 cross-project-topology 登记系统关系，或在项目工作台确认关联项目。",
-                "cross-project-topology/knowledge/" + route.projectKey()));
-
         boolean graphify = route.evidenceScope().primary().availability()
                 .getOrDefault(ProjectEvidenceSourceType.GRAPHIFY, false);
         checks.add(check(

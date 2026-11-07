@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { ClaudeChatSessionView, ProjectModule, WorkspaceDir } from '@/features/claude-chat/public-api'
 import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/public-api/runtime'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
-import { buildMenuSyncPrompt, buildModuleScopePrompt } from '../lib/workspacePrompts'
+import { buildProjectKnowledgePrompt, buildModuleScopePrompt } from '../lib/workspacePrompts'
 import { errorMessage, normalizePath } from '../lib/workspaceModel'
 
 interface PendingModuleOpen {
@@ -15,11 +15,9 @@ interface PendingModuleOpen {
 export function useWorkspaceModuleLaunch({
   sessionByCwd,
   selectedProject,
-  knowledgeBaseDir,
 }: {
   sessionByCwd: Map<string, ClaudeChatSessionView>
   selectedProject?: WorkspaceDir
-  knowledgeBaseDir?: string | null
 }) {
   const navigate = useNavigate()
   const { chat, activate } = useChatRuntime()
@@ -66,8 +64,7 @@ export function useWorkspaceModuleLaunch({
 
   const launchMenuAgent = async (): Promise<void> => {
     if (!selectedProject) return
-    const knowledgeRepo = (knowledgeBaseDir ?? '').replace(/[\\/]knowledge[\\/]?$/, '')
-    const seed = buildMenuSyncPrompt(selectedProject.name, selectedProject.path, knowledgeRepo)
+    const seed = buildProjectKnowledgePrompt(selectedProject.name, selectedProject.path)
     setLaunchError('')
     activate()
     try {

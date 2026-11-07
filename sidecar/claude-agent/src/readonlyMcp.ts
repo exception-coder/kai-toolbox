@@ -738,7 +738,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
       })
       return textResult((await response.text()).slice(0, 200_000), !response.ok)
     }
-    if (name === 'knowledge_query') return textResult(JSON.stringify(await queryKnowledge(args, undefined, sourceRoot(), async path => {
+    if (name === 'knowledge_query') return textResult(JSON.stringify(await queryKnowledge(args, sourceRoot(), async path => {
       const scope = await sourceRouting({ apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID,
         token: process.env.CONSULT_RESOURCE_TOKEN }, undefined, { project: args.project, path })
       if (scope) {

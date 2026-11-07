@@ -22,7 +22,9 @@ public class PrdEvidenceCompletionGate {
             boolean hasActionUrl
     ) {
         Map<String, PrdEvidencePlanService.PlanItem> unique = new LinkedHashMap<>();
-        dynamicPlan.forEach(item -> unique.put(key(item.project(), item.sourceType()), item));
+        dynamicPlan.stream()
+                .filter(item -> item.sourceType() != ProjectEvidenceSourceType.CROSS_PROJECT_TOPOLOGY)
+                .forEach(item -> unique.put(key(item.project(), item.sourceType()), item));
         for (ProjectEvidenceProject project : scope.projects()) {
             for (ProjectEvidenceSourceType source : requiredSources(project.relation())) {
                 String reason = "关系 " + project.relation() + " 的服务端必查来源";
@@ -60,17 +62,13 @@ public class PrdEvidenceCompletionGate {
         return switch (relation) {
             case PRIMARY -> List.of(
                     ProjectEvidenceSourceType.DOMAIN_KNOWLEDGE,
-                    ProjectEvidenceSourceType.GRAPHIFY,
                     ProjectEvidenceSourceType.SOURCE);
             case REFACTORS -> List.of(
                     ProjectEvidenceSourceType.DOMAIN_KNOWLEDGE,
-                    ProjectEvidenceSourceType.GRAPHIFY,
                     ProjectEvidenceSourceType.DDL,
-                    ProjectEvidenceSourceType.SOURCE,
-                    ProjectEvidenceSourceType.CROSS_PROJECT_TOPOLOGY);
+                    ProjectEvidenceSourceType.SOURCE);
             case MIGRATES_FROM -> List.of(
                     ProjectEvidenceSourceType.DOMAIN_KNOWLEDGE,
-                    ProjectEvidenceSourceType.GRAPHIFY,
                     ProjectEvidenceSourceType.DDL,
                     ProjectEvidenceSourceType.SOURCE);
             case DEPENDS_ON, INTEGRATES_WITH -> List.of();

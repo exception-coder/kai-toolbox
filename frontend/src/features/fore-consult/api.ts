@@ -353,7 +353,7 @@ export function saveSystemPrefs(prefs: SaveSystemPrefItem[]) {
   })
 }
 
-// ── 系统链路分析：调 Claude Agent 引擎 + cross-topology MCP 查系统间关系 ──────────────
+// ── 历史系统连线与人工确认的数据归属 ──────────────
 
 export interface TopoLink {
   from: string
@@ -395,13 +395,6 @@ export function updateEvidenceRoute(id: string, request: EvidenceRouteRequest) {
 
 export function deleteEvidenceRoute(id: string) {
   return http<void>(`/fore-consult/evidence-routes/${id}`, { method: 'DELETE' })
-}
-
-export function analyzeTopology(systems: string[], engine: 'claude' | 'codex') {
-  return http<{ links: TopoLink[]; evidenceRoutes: EvidenceRouteView[] }>('/fore-consult/topology', {
-    method: 'POST',
-    body: JSON.stringify({ systems, engine }),
-  })
 }
 
 /** 读取已持久化的链路（页面加载时用，无需重新调引擎）。 */

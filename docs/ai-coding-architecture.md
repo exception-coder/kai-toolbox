@@ -12,9 +12,9 @@
 
 [可编辑 draw.io 源文件](diagrams/ai-coding-architecture.drawio) · [SVG 矢量预览](diagrams/ai-coding-architecture.svg)。源图使用 draw.io 自带 iOS7 Icons，节点、文字、图标和连接器均可编辑；修改后从同一源图重新导出预览。
 
-图中 Agent 是理解、取舍与实施的主体，Team Standards 提供工程宪法与任务方法，Forge 在项目明确采用时提供执行控制，MCP/Hook 承担调用与事件适配。Forge 的候选上下文聚合规格与实现证据；Agent 优先从目标项目的 docs/INDEX.md 与 docs/domain 查领域知识，跨项目连接按需查询独立 cross-topology 服务。Domain Knowledge 集中服务退役；业务正文只在所属项目维护，跨项目只引用。各来源保留事实所有权，最终实现与真实验证落在目标项目中。该图表达当前职责关系，不表示所有项目均已接入 Forge，也不将结构检查等同于业务或运行正确。
+图中 Agent 是理解、取舍与实施的主体，Team Standards 提供工程宪法与任务方法，Forge 在项目明确采用时提供执行控制，MCP/Hook 承担调用与事件适配。Forge 的候选上下文聚合规格与实现证据；Agent 优先从目标项目的 docs/INDEX.md 与 docs/domain 查领域知识，跨项目问题按已授权的关联项目逐项核查原文与源码。公共知识图谱服务已在源码中退役，业务正文只在所属项目维护，跨项目使用原文引用。各来源保留事实所有权，最终实现与真实验证落在目标项目中。该图表达当前职责关系，不表示所有项目均已接入 Forge，也不将结构检查等同于业务或运行正确。
 
-Team Standards 5.6.0 的项目初始化默认由 Agent 复用已有业务文档，从关键代码补齐主要能力、流程与规则，标注依据和待确认项，并维护一张 draw.io 全景图及同源预览。结构脚本只补入口；后续业务语义变化时原位维护正文与图。该默认行为属于 Skill，Forge 业务咨询与需求分析已在源码中改为从已登记的项目目录读取资料，插件更新不再安装 Domain Knowledge；目标进程加载与真实咨询验收尚待完成，不能以 Skill 升级或定向测试代替运行验收。
+Team Standards 5.6.2 的项目初始化默认由 Agent 复用已有业务文档，从关键代码补齐主要能力、流程与规则，标注依据和待确认项，并维护一张 draw.io 全景图及同源预览。结构脚本只补入口；后续业务语义变化时原位维护正文与图。该默认行为属于 Skill，Forge 业务咨询与需求分析已在源码中改为从已登记的项目目录读取资料，插件更新同步团队套件并清理旧知识服务注册；目标进程加载与真实咨询验收尚待完成，不能以 Skill 升级或定向测试代替运行验收。
 
 ### 项目知识读取与关系查询
 
@@ -23,14 +23,14 @@ flowchart LR
     Q[咨询或需求问题] --> S[现有项目身份与授权范围]
     S --> K[项目 docs/INDEX.md / docs/domain / 已有规格]
     S --> C[定向源码与 SQL 文件 / 授权数据库元数据]
-    Q --> T[独立 cross-topology 跨项目关系]
+    S --> T[授权关联项目原文与定向源码]
     K --> E[带来源与缺口的资料]
     C --> E
     T --> E
     E --> A[有依据的业务答复]
 ```
 
-`knowledge_query` 的领域分支每次读取当前授权项目的 Markdown/YAML 原文，不启动旧集中引擎、不使用继承配置或跨项目缓存兜底。图谱是可选证据，关系查询不授予关联项目的访问权。历史文档中的 DDL 不等于当前结构；SQL 文件证据不证明现场数据库已部署对应迁移。需求分析复用项目范围解析端口；常规 schema 文件缺失时明确没有结构证据。插件更新只构建并注册独立 `cross-project-topology/dist/server.js`，清理已退役的具名 MCP 注册但保留旧仓库文件。知识图谱管理也使用独立拓扑引擎，退役领域状态接口返回 410；历史引用记录不删除。运行状态和验收边界见 [适配任务](../openspec/changes/consult-project-local-knowledge/tasks.md)。
+`knowledge_query` 的领域分支每次读取当前授权项目的 Markdown/YAML 原文，不启动旧集中引擎、不使用继承配置或跨项目缓存兜底。图谱是可选证据，关系查询不授予关联项目的访问权。历史文档中的 DDL 不等于当前结构；SQL 文件证据不证明现场数据库已部署对应迁移。需求分析复用项目范围解析端口；常规 schema 文件缺失时明确没有结构证据。插件更新仅同步三个现用套件仓库，并清理 `domain-knowledge` 与 `cross-topology` 的具名 MCP 注册。旧 `source=topology` 查询返回 `RETIRED`，`source=all` 兼容返回项目原文与退役提示。旧图谱状态和链路分析接口返回 410，历史连线与引用可继续读取。项目工作台通过“整理项目知识”调用初始化 skill。实现与运行验收边界见 [退役任务](../openspec/changes/retire-central-topology/tasks.md)。
 
 ### Vibe Coding 运行分层与附加能力
 

@@ -1,9 +1,12 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ProjectWorkspacePage } from './ProjectWorkspacePage'
+import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 import { fetchProjectModules, listWorkspaces } from '@/features/claude-chat/public-api'
+
+vi.mock('@/shell/launch-intent/api', () => ({ navigateWithLaunchIntent: vi.fn(async () => undefined) }))
 
 vi.mock('@/features/claude-chat/public-api', async importOriginal => ({
   ...await importOriginal<typeof import('@/features/claude-chat/public-api')>(),
@@ -34,6 +37,11 @@ it('uses the registered scope without discovery or remembered-path fallback', as
   expect(screen.queryByText('重复项目标题')).not.toBeInTheDocument()
   expect(await screen.findByRole('button', { name: '检查项目目录' })).toBeEnabled()
   expect(localStorage.getItem('kai-toolbox:project-workspace:selected-path')).toBe('D:/old/other')
+  fireEvent.click(screen.getByRole('button', { name: '整理项目知识' }))
+  await waitFor(() => expect(navigateWithLaunchIntent).toHaveBeenCalledWith(expect.anything(), '/chat', expect.objectContaining({
+    type: 'CHAT_OPEN_AND_SEND', cwd: 'D:/registered/forge',
+    seed: expect.stringContaining('team-standards:init-project-docs'),
+  })))
   result.rerender(view('D:/registered/erp'))
   await waitFor(() => expect(fetchProjectModules).toHaveBeenCalledWith('D:/registered/erp'))
   expect(fetchProjectModules).not.toHaveBeenCalledWith('D:/old/other')
