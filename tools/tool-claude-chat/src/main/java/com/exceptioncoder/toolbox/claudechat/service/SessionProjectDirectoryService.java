@@ -112,7 +112,7 @@ public class SessionProjectDirectoryService {
 
                 执行规则：
                 - 先判断需求实际涉及哪些项目；涉及跨项目契约时必须核对对应目录，不要只检查主项目。
-                - 涉及项目级依赖的旧系统业务时，优先按对应 projectKey 查询 team-tools 中该项目的 domain-knowledge；禁止把旧项目知识复制到主项目图谱。
+                - 涉及项目级依赖的旧系统业务时，按已授权项目目录读取其 docs/INDEX.md、docs/domain/ 和规格原文；跨项目引用所属项目文件，不复制维护、不扩大访问范围。
                 - 涉及项目之间的表关系、调用链或语义映射时，查询 cross-topology；若缺少映射，应明确证据缺口，不得臆测。
                 - source=missing 表示不能读取该项目源码，但 knowledge=available 时仍可按 projectKey 使用集中式业务知识。
                 - 对每个命令显式指定正确的工作目录，不要假设前一次目录切换会持续生效。

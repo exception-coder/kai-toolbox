@@ -12,9 +12,7 @@ import { createWelfareDbServer } from './welfareDb.js'
 import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import {
   CROSS_TOPOLOGY_READONLY_TOOLS,
-  DOMAIN_KNOWLEDGE_READONLY_TOOLS,
   createCrossTopologyServer,
-  createDomainKnowledgeServer,
   knowledgeMcpRecoveryPrompt,
   readonlyKnowledgeMcpCall,
   retryReadonlyKnowledgeMcp,
@@ -886,17 +884,15 @@ class Session {
         if (sourceServer) (mcpServers as Record<string, unknown>)['consult-readonly'] = sourceServer
       }
 
-      // 业务知识图谱：domain-knowledge（业务规则/状态机/公式）+ cross-topology（枚举值/API路径/表字段）
-      // 与 claude mcp add 注册相同引擎，通过环境变量 DOMAIN_KB_DIR / CROSS_TOPO_KB_DIR 指定知识库目录。
+      // 业务知识读取项目原文；独立 cross-topology 只提供跨项目关系。
+      // 不注册或恢复已退役的 Domain Knowledge MCP。
       // 可选：若引擎或目录不存在则跳过（零影响，工具列表为空时 Claude 不会尝试调用）。
       //
       // PRD 一次性任务仍由 Java GraphifyQueryService 预查询；业务咨询则通过 consult-readonly
       // 的 source_context 以固定参数执行 `graphify query`，从 URL/图谱上下文收敛候选源码。
       // 该入口不开放任意 Bash，也不允许模型直接扫描 graphify-out/cache。
       if (this.toolPolicy !== 'disabled' && this.toolPolicy !== 'review-only') {
-        const domainKb = createDomainKnowledgeServer()
         const crossTopo = createCrossTopologyServer()
-        if (domainKb) (mcpServers as Record<string, unknown>)['domain-knowledge'] = domainKb
         if (crossTopo) (mcpServers as Record<string, unknown>)['cross-topology'] = crossTopo
       }
       if (this.toolPolicy === 'consult-readonly') filterClaudeAssembly(mcpServers, this.consultToolAssembly)
@@ -964,8 +960,6 @@ class Session {
                     'mcp__consult-readonly__erp_standby_schema_search',
                     'mcp__consult-readonly__erp_standby_validate_sql',
                     'mcp__forge__prepare_sql_context',
-                    ...DOMAIN_KNOWLEDGE_READONLY_TOOLS
-                      .map(tool => `mcp__domain-knowledge__${tool}`),
                     ...CROSS_TOPOLOGY_READONLY_TOOLS
                       .map(tool => `mcp__cross-topology__${tool}`),
                   ].filter(name => name === 'AskUserQuestion' || assemblyAllowsTool(this.consultToolAssembly, name)),

@@ -11,7 +11,7 @@ import java.nio.file.Path;
 /**
  * 知识图谱管理工具配置：团队初始化仓库的约定路径 + node 可执行文件。
  *
- * <p>两个仓库统一位于 {@code ~/.kai-toolbox/team-tools}，用户只需先完成团队依赖初始化。</p>
+ * <p>独立拓扑仓库位于 {@code ~/.kai-toolbox/team-tools}，用户只需先完成团队依赖初始化。</p>
  */
 @Data
 @Component
@@ -23,7 +23,7 @@ public class KnowledgeGraphProperties {
     private String nodeExecutable = "node";
 
     public String getDomainKnowledgeRepoPath() {
-        return teamToolPath("project-domain-knowledge");
+        return ""; // Retired compatibility field; never resolve or restore a global knowledge repository.
     }
 
     public String getCrossTopologyRepoPath() {

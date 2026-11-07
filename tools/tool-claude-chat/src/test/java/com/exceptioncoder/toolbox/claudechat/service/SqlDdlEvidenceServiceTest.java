@@ -31,7 +31,7 @@ class SqlDdlEvidenceServiceTest {
     @Test
     void resolvesProjectAndReturnsOnlyRequestedTableFragments() throws Exception {
         Path knowledgeRoot = tempDir.resolve("knowledge");
-        Path baseline = knowledgeRoot.resolve("sample-project/impl/ddl-baseline.md");
+        Path baseline = knowledgeRoot.resolve("schema.sql");
         Files.createDirectories(baseline.getParent());
         Files.writeString(baseline, """
                 # DDL
@@ -42,7 +42,7 @@ class SqlDdlEvidenceServiceTest {
                 ## ORDER_LINE
                 CREATE TABLE ORDER_LINE (ID BIGINT, ORDER_ID BIGINT);
                 """);
-        Path cwd = tempDir.resolve("workspace/sample-project/module-a");
+        Path cwd = knowledgeRoot;
         Files.createDirectories(cwd);
 
         SqlDdlEvidenceService service = serviceFor(cwd, knowledgeRoot);
@@ -50,102 +50,32 @@ class SqlDdlEvidenceServiceTest {
                 "session-1", "新增订单字段", List.of("order_header"), null);
 
         assertThat(result.status()).isEqualTo(SqlDdlEvidence.STATUS_VERIFIED);
-        assertThat(result.project()).isEqualTo("sample-project");
+        assertThat(result.project()).isEqualTo("knowledge");
         assertThat(result.verifiedTables()).containsExactly("ORDER_HEADER");
         assertThat(result.ddlFragments()).containsOnlyKeys("ORDER_HEADER");
         assertThat(result.ddlFragments().get("ORDER_HEADER")).doesNotContain("ORDER_LINE");
     }
 
     @Test
-    void resolvesInheritedDdlSourceFromProjectContext() throws Exception {
-        Path knowledgeRoot = tempDir.resolve("knowledge");
-        Path sourceBaseline = knowledgeRoot.resolve("legacy-project/impl/ddl-baseline.md");
-        Files.createDirectories(sourceBaseline.getParent());
-        Files.writeString(sourceBaseline, "CREATE TABLE ERP_PRODUCT (ID NUMBER);\n");
-        Path currentProject = knowledgeRoot.resolve("new-project/impl");
-        Files.createDirectories(currentProject);
-        Files.writeString(currentProject.resolve("project-context.json"), """
-                {
-                  "schemaVersion": 1,
-                  "project": "new-project",
-                  "knowledgeSources": [
-                    { "project": "legacy-project", "role": "business" }
-                  ],
-                  "ddlSource": {
-                    "project": "legacy-project",
-                    "guideId": "legacy-ddl-guide",
-                    "path": "legacy-project/impl/ddl-baseline.md"
-                  }
-                }
-                """);
-        Path cwd = tempDir.resolve("workspace/new-project/module-a");
-        Files.createDirectories(cwd);
-
-        SqlDdlEvidenceService service = serviceFor(cwd, knowledgeRoot);
-        SqlDdlEvidence result = service.prepare(
-                "session-1", "核验继承 DDL", List.of("erp_product"), null);
-
-        assertThat(result.status()).isEqualTo(SqlDdlEvidence.STATUS_VERIFIED);
-        assertThat(result.project()).isEqualTo("new-project");
-        assertThat(result.baselinePath()).isEqualTo(sourceBaseline.toAbsolutePath().normalize().toString());
-        assertThat(result.verifiedTables()).containsExactly("ERP_PRODUCT");
-    }
-
-    @Test
-    void usesExplicitProjectWhenCwdDoesNotContainAProjectName() throws Exception {
-        Path knowledgeRoot = tempDir.resolve("knowledge");
-        Path baseline = knowledgeRoot.resolve("sample-project/impl/ddl-baseline.md");
-        Files.createDirectories(baseline.getParent());
-        Files.writeString(baseline, "CREATE TABLE ORDER_HEADER (ID BIGINT);\n");
-        Path cwd = tempDir.resolve("detached-workspace");
-        Files.createDirectories(cwd);
-
-        SqlDdlEvidenceService service = serviceFor(cwd, knowledgeRoot);
-        SqlDdlEvidence result = service.prepare(
-                "session-1", "显式选择项目", List.of("order_header"), "sample-project");
-
-        assertThat(result.status()).isEqualTo(SqlDdlEvidence.STATUS_VERIFIED);
-        assertThat(result.project()).isEqualTo("sample-project");
-    }
-
-    @Test
-    void rejectsInheritedDdlPathOutsideKnowledgeRoot() throws Exception {
-        Path knowledgeRoot = tempDir.resolve("knowledge");
-        Path currentProject = knowledgeRoot.resolve("new-project/impl");
-        Files.createDirectories(currentProject);
-        Files.writeString(currentProject.resolve("project-context.json"), """
-                {
-                  "schemaVersion": 1,
-                  "project": "new-project",
-                  "knowledgeSources": [
-                    { "project": "legacy-project", "role": "business" }
-                  ],
-                  "ddlSource": {
-                    "project": "legacy-project",
-                    "guideId": "legacy-ddl-guide",
-                    "path": "../../outside/ddl-baseline.md"
-                  }
-                }
-                """);
-        Files.createDirectories(knowledgeRoot.resolve("legacy-project"));
-        Path cwd = tempDir.resolve("workspace/new-project");
-        Files.createDirectories(cwd);
-
-        SqlDdlEvidenceService service = serviceFor(cwd, knowledgeRoot);
-        SqlDdlEvidence result = service.prepare(
-                "session-1", "阻止越界路径", List.of("order_header"), null);
-
-        assertThat(result.status()).isEqualTo(SqlDdlEvidence.STATUS_DDL_MISSING);
-        assertThat(result.warning()).contains("超出知识库根目录");
+    void ignoresRetiredInheritanceAndMarkdownSnapshots() throws Exception {
+        Path cwd = tempDir.resolve("current");
+        Files.createDirectories(cwd.resolve("docs/domain/impl"));
+        Files.writeString(cwd.resolve("docs/domain/impl/ddl-baseline.md"), "CREATE TABLE LEGACY (ID INT);");
+        Files.writeString(cwd.resolve("docs/domain/impl/project-context.json"), "{\"ddlSource\":{\"project\":\"legacy\"}}");
+        var service = serviceFor(cwd, tempDir);
+        assertThat(service.prepare("session-1", "核验", List.of("LEGACY"), null).status())
+                .isEqualTo(SqlDdlEvidence.STATUS_DDL_MISSING);
+        assertThat(service.prepare("session-1", "核验", List.of("LEGACY"), "another").status())
+                .isEqualTo(SqlDdlEvidence.STATUS_PROJECT_AMBIGUOUS);
     }
 
     @Test
     void reportsPartialEvidenceAndRevalidatesSqlTablesAtRegistration() throws Exception {
         Path knowledgeRoot = tempDir.resolve("knowledge");
-        Path baseline = knowledgeRoot.resolve("sample-project/impl/ddl-baseline.md");
+        Path baseline = knowledgeRoot.resolve("schema.sql");
         Files.createDirectories(baseline.getParent());
         Files.writeString(baseline, "CREATE TABLE KNOWN_TABLE (ID BIGINT);\n");
-        Path cwd = tempDir.resolve("sample-project");
+        Path cwd = knowledgeRoot;
         Files.createDirectories(cwd);
 
         SqlDdlEvidenceService service = serviceFor(cwd, knowledgeRoot);
@@ -155,17 +85,17 @@ class SqlDdlEvidenceServiceTest {
                 "session-1", "UPDATE unknown_table SET value = 1", prepared.evidenceId());
 
         assertThat(prepared.status()).isEqualTo(SqlDdlEvidence.STATUS_VERIFIED);
-        assertThat(verified.status()).isEqualTo(SqlDdlEvidence.STATUS_PARTIAL);
+        assertThat(verified.status()).isEqualTo(SqlDdlEvidence.STATUS_DDL_MISSING);
         assertThat(verified.missingTables()).containsExactly("UNKNOWN_TABLE");
     }
 
     @Test
     void invalidatesEvidenceWhenBaselineChangesBeforeRegistration() throws Exception {
         Path knowledgeRoot = tempDir.resolve("knowledge");
-        Path baseline = knowledgeRoot.resolve("sample-project/impl/ddl-baseline.md");
+        Path baseline = knowledgeRoot.resolve("schema.sql");
         Files.createDirectories(baseline.getParent());
         Files.writeString(baseline, "CREATE TABLE QUOTE (ID BIGINT);\n");
-        Path cwd = tempDir.resolve("sample-project");
+        Path cwd = knowledgeRoot;
         Files.createDirectories(cwd);
 
         SqlDdlEvidenceService service = serviceFor(cwd, knowledgeRoot);
@@ -175,7 +105,7 @@ class SqlDdlEvidenceServiceTest {
         SqlDdlEvidence verified = service.verifyRegistration(
                 "session-1", "ALTER TABLE quote ADD COLUMN amount DECIMAL(12, 2);", prepared.evidenceId());
 
-        assertThat(verified.status()).isEqualTo(SqlDdlEvidence.STATUS_PARTIAL);
+        assertThat(verified.status()).isEqualTo(SqlDdlEvidence.STATUS_DDL_MISSING);
         assertThat(verified.missingTables()).containsExactly("QUOTE");
     }
 
@@ -195,10 +125,19 @@ class SqlDdlEvidenceServiceTest {
                 .containsExactly("CUSTOMER", "ORDER_LINE", "ORDER_HEADER");
     }
 
+    @Test
+    void doesNotCertifyCreateSnapshotWhenLaterMigrationExists() throws Exception {
+        Files.writeString(tempDir.resolve("schema.sql"), "CREATE TABLE ORDERS(ID INT);");
+        Files.writeString(tempDir.resolve("change.sql"), "ALTER TABLE ORDERS ADD AMOUNT INT;");
+        var result = serviceFor(tempDir, tempDir).prepare("session-1", "核验", List.of("ORDERS"), null);
+        assertThat(result.status()).isEqualTo(SqlDdlEvidence.STATUS_DDL_MISSING);
+        assertThat(result.warning()).contains("后续结构变更");
+    }
+
     private SqlDdlEvidenceService serviceFor(Path cwd, Path knowledgeRoot) {
         ClaudeChatSessionRepository repository = mock(ClaudeChatSessionRepository.class);
         ClaudeChatSession session = ClaudeChatSession.builder().id("session-1").cwd(cwd.toString()).build();
         when(repository.findById("session-1")).thenReturn(Optional.of(session));
-        return new SqlDdlEvidenceService(repository, knowledgeRoot);
+        return new SqlDdlEvidenceService(repository);
     }
 }

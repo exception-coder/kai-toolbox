@@ -9,9 +9,8 @@ public final class ConsultOrchestrationContext {
     private static final String EXPLORATION_RULES = """
             以下定位与追问顺序适用于所有流程节点：URL 是可选定位线索，不是开始探索的前置条件。
             用户未提供 URL 时，先利用所选系统、模块、截图中的页面标题、菜单、按钮、列名、提示及业务单号收敛问题。
-            先查询可用的菜单与业务知识；菜单知识未命中不等于无法定位，应继续调用 source_context，
-            使用问题描述和已知模块查询 Graphify，再对候选文件调用 source_read 核对页面、接口及字段取值条件。
-            发现新符号或关联后可带新上下文继续追踪；只有范围已收敛且图谱证据不足时，才在明确子目录内使用 source_search。
+            先查询可用的菜单与业务知识；菜单知识未命中不等于无法定位，应定向调用source_read/source_search核对页面、接口及字段；复杂关系才按需使用source_context/Graphify。
+            发现新符号或关联后可带新上下文继续追踪；可在明确子目录内使用source_search，Graphify不是普通咨询前置条件。
             只有已探索可用证据仍无法区分候选页面、存在关键歧义，或所需定位工具不可用且现有线索不足时，才请求用户提供页面地址（URL）。
             追问时简述已核对的线索和仍不能确认的具体问题，只索取会改变判断的最少信息；能自行查明的内容不要求用户代查。
             不得仅因没有 URL 或菜单知识未命中就停止分析、直接要求用户补地址；也不得为避免追问而猜测唯一页面或具体单据根因。
@@ -59,6 +58,9 @@ public final class ConsultOrchestrationContext {
                     .append(section.content()).append('\n');
         }
         prompt.append("\n【自主定位与必要追问】\n").append(EXPLORATION_RULES);
+        prompt.append("\n【项目内知识来源（适用于旧流程快照）】\n业务知识只读当前授权项目docs/INDEX.md、docs/domain和已有规格；knowledge_query顶层project使用source_projects候选ID。"
+                + "不调用domain-knowledge、不恢复公共仓库或旧继承配置；跨项目关系仅用独立cross-topology，关系不授予项目访问权。"
+                + "普通咨询不要求Graphify，缺图或缺知识继续使用已授权源码并明确证据缺口。历史文档不能当当前DDL。\n");
         prompt.append(ConsultPlainWritingSkill.instructions());
         return prompt.toString().strip();
     }

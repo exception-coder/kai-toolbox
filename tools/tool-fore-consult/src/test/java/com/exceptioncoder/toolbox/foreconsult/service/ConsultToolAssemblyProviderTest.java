@@ -46,14 +46,15 @@ class ConsultToolAssemblyProviderTest {
         var workflows = mock(ConsultWorkflowRepository.class);
         var workflow = new ConsultWorkflow(List.of(new ConsultWorkflowNode("source", "源码", true,
                 "需要源码时", "核对源码", "只读", "证据",
-                List.of("source_read"), List.of("consult-readonly"))));
+                List.of("source_read"), List.of("consult-readonly", "domain-knowledge"))));
         when(sessions.findByDevSessionId("runtime-source")).thenReturn(Optional.of(ConsultSession.builder()
                 .sessionId("consult-source").systemName("ERP").systemSourcePath("D:/erp").build()));
         when(workflows.session("consult-source")).thenReturn(
                 Optional.of(new ConsultWorkflowRepository.Snapshot(1L, workflow)));
         var provider = new ConsultToolAssemblyProvider(sessions, workflows, new ConsultWorkflowService(List.of(), workflows));
         assertThat(provider.resolve("runtime-source").orElseThrow().tools())
-                .contains("source_read", "source_git_history");
+                .contains("source_read", "source_git_history", "knowledge_query");
+        assertThat(provider.resolve("runtime-source").orElseThrow().mcpServers()).doesNotContain("domain-knowledge");
         assertThat(workflow.tools()).containsExactly("source_read");
         verify(workflows, never()).production();
     }

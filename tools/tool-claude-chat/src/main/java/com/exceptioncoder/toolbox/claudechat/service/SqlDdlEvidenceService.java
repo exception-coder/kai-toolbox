@@ -3,15 +3,12 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SqlDdlEvidence;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -24,7 +21,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -33,7 +29,6 @@ import java.util.stream.Stream;
 @Service
 public class SqlDdlEvidenceService {
 
-    private static final long EVIDENCE_TTL_MS = 30 * 60 * 1000L;
     private static final int MAX_FRAGMENT_CHARS = 24 * 1024;
     private static final int MAX_TOTAL_FRAGMENT_CHARS = 96 * 1024;
     private static final Pattern MARKDOWN_HEADING = Pattern.compile("^(#{2,4})\\s+(.+?)\\s*$");
@@ -47,30 +42,25 @@ public class SqlDdlEvidenceService {
             "(?im)(?:DDL_BASELINE_STATUS\\s*:\\s*STALE|<!--\\s*ddl-status\\s*:\\s*stale\\s*-->)");
 
     private final ClaudeChatSessionRepository sessionRepository;
-    private final Path knowledgeRoot;
-    private final ObjectMapper objectMapper;
-    private final Map<String, CachedEvidence> evidenceCache = new ConcurrentHashMap<>();
+    private com.exceptioncoder.toolbox.common.project.ProjectCatalog projectCatalog;
 
     @Autowired
     public SqlDdlEvidenceService(ClaudeChatSessionRepository sessionRepository) {
-        this(sessionRepository, defaultKnowledgeRoot(), new ObjectMapper());
-    }
-
-    SqlDdlEvidenceService(ClaudeChatSessionRepository sessionRepository, Path knowledgeRoot) {
-        this(sessionRepository, knowledgeRoot, new ObjectMapper());
-    }
-
-    SqlDdlEvidenceService(ClaudeChatSessionRepository sessionRepository, Path knowledgeRoot,
-                          ObjectMapper objectMapper) {
         this.sessionRepository = sessionRepository;
-        this.knowledgeRoot = knowledgeRoot.toAbsolutePath().normalize();
-        this.objectMapper = objectMapper;
+    }
+
+    @Autowired
+    private com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess;
+
+    @Autowired
+    public void setProjectCatalog(com.exceptioncoder.toolbox.common.project.ProjectCatalog projectCatalog) {
+        this.projectCatalog = projectCatalog;
     }
 
     public SqlDdlEvidence prepare(String sessionId, String purpose, List<String> tables, String requestedProject) {
         ClaudeChatSession session = requireSession(sessionId);
         List<String> requestedTables = normalizeTables(tables);
-        ProjectResolution resolution = resolveProject(session.getCwd(), requestedProject);
+        ProjectResolution resolution = resolveProject(session.getCwd(), requestedProject, requestedTables);
         long now = System.currentTimeMillis();
         if (resolution.status() != null) {
             return cache(sessionId, new SqlDdlEvidence(
@@ -82,7 +72,7 @@ public class SqlDdlEvidenceService {
             return cache(sessionId, new SqlDdlEvidence(
                     null, SqlDdlEvidence.STATUS_DDL_MISSING, resolution.project(), baseline.toString(),
                     requestedTables, List.of(), requestedTables, resolution.candidates(), Map.of(),
-                    "当前项目知识库没有 DDL 基线，可继续生成并登记未核验草稿，执行前需人工复核。", now), null);
+                    "当前项目没有 SQL 结构文件，可继续生成未核验草稿，执行前需人工复核。", now), null);
         }
         String content;
         try {
@@ -108,7 +98,7 @@ public class SqlDdlEvidenceService {
                 ? SqlDdlEvidence.STATUS_STALE
                 : missing.isEmpty() ? SqlDdlEvidence.STATUS_VERIFIED : SqlDdlEvidence.STATUS_PARTIAL;
         String warning = switch (status) {
-            case SqlDdlEvidence.STATUS_VERIFIED -> "已从项目 DDL 基线核对全部目标表，请仅使用返回片段中的真实字段。";
+            case SqlDdlEvidence.STATUS_VERIFIED -> "已从当前项目SQL文件核对目标表；仅证明该文件结构，不证明目标数据库已部署全部迁移，请核对数据库版本。";
             case SqlDdlEvidence.STATUS_STALE -> "DDL 基线已显式标记过期，可继续生成并登记待复核草稿，执行前需人工复核。";
             default -> "以下目标表未在 DDL 基线命中：" + String.join("、", missing)
                     + "。可继续生成并登记未核验草稿，请明确列出假设并在执行前人工复核。";
@@ -121,15 +111,7 @@ public class SqlDdlEvidenceService {
     /** 登记端不信任模型声明：重新提取 SQL 表名，并校验 evidenceId 是否覆盖当前会话和全部表。 */
     public SqlDdlEvidence verifyRegistration(String sessionId, String sqlText, String evidenceId) {
         List<String> sqlTables = new ArrayList<>(extractSqlTables(sqlText));
-        CachedEvidence cached = evidenceId == null ? null : evidenceCache.get(evidenceId);
-        long now = System.currentTimeMillis();
-        if (!sqlTables.isEmpty() && cached != null && cached.sessionId().equals(sessionId)
-                && cached.expiresAt() >= now
-                && baselineUnchanged(cached)
-                && cached.evidence().verifiedTables().containsAll(sqlTables)
-                && SqlDdlEvidence.STATUS_VERIFIED.equals(cached.evidence().status())) {
-            return cached.evidence();
-        }
+        // Re-resolve the current project and files: a prior evidence ID cannot preserve retired scope.
         return prepare(sessionId, "登记待执行 SQL", sqlTables, null);
     }
 
@@ -155,180 +137,74 @@ public class SqlDdlEvidenceService {
                 id, evidence.status(), evidence.project(), evidence.baselinePath(), evidence.requestedTables(),
                 evidence.verifiedTables(), evidence.missingTables(), evidence.candidateProjects(),
                 evidence.ddlFragments(), evidence.warning(), evidence.checkedAt());
-        evidenceCache.put(id, new CachedEvidence(
-                sessionId, identified, baselineFingerprint, System.currentTimeMillis() + EVIDENCE_TTL_MS));
-        if (evidenceCache.size() > 512) {
-            long now = System.currentTimeMillis();
-            evidenceCache.entrySet().removeIf(entry -> entry.getValue().expiresAt() < now);
-        }
         return identified;
     }
 
-    private ProjectResolution resolveProject(String cwdValue, String requestedProject) {
-        Map<String, String> projects = availableProjects();
-        if (projects.isEmpty()) {
-            return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, List.of(),
-                    "团队项目知识库中没有可用的 DDL 基线。");
-        }
-        Path cwd;
+    private ProjectResolution resolveProject(String cwdValue, String requestedProject, List<String> tables) {
         try {
-            cwd = Path.of(cwdValue).toAbsolutePath().normalize();
-        } catch (InvalidPathException | NullPointerException e) {
-            return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, List.of(), "会话工作目录无效。");
-        }
-
-        String explicitProject = requestedProject == null ? null : projects.get(requestedProject.trim().toLowerCase(Locale.ROOT));
-        if (explicitProject != null) {
-            return resolveBaseline(explicitProject, List.of(explicitProject));
-        }
-
-        for (Path current = cwd; current != null; current = current.getParent()) {
-            String name = current.getFileName() == null ? "" : current.getFileName().toString().toLowerCase(Locale.ROOT);
-            if (projects.containsKey(name)) {
-                String project = projects.get(name);
-                return resolveBaseline(project, List.of(project));
+            Path cwd = Path.of(cwdValue).toRealPath();
+            if (projectAccess != null) projectAccess.requireAllowed(cwd);
+            Path root = cwd;
+            if (projectCatalog != null) {
+                var matches = projectCatalog.list(false).stream()
+                        .filter(entry -> entry.available() && !entry.excluded())
+                        .filter(entry -> cwd.startsWith(Path.of(entry.path()).toAbsolutePath().normalize()))
+                        .sorted(Comparator.comparingInt((com.exceptioncoder.toolbox.common.project.ProjectCatalog.Entry e)
+                                -> Path.of(e.path()).getNameCount()).reversed()).toList();
+                if (matches.isEmpty()) return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING,
+                        List.of(), "会话未匹配到可用项目目录；不回退公共知识库或其他项目。");
+                root = Path.of(matches.getFirst().path()).toRealPath();
             }
-        }
-
-        Set<String> candidates = new LinkedHashSet<>();
-        if (Files.isDirectory(cwd)) {
-            try (Stream<Path> children = Files.list(cwd)) {
-                children.filter(Files::isDirectory).forEach(child -> {
-                    String name = child.getFileName().toString().toLowerCase(Locale.ROOT);
-                    if (projects.containsKey(name)) candidates.add(projects.get(name));
-                });
-            } catch (IOException ignored) {
-                // 目录不可枚举时按无候选处理，不能猜项目。
+            String project = root.getFileName().toString();
+            if (requestedProject != null && !requestedProject.isBlank() && !project.equalsIgnoreCase(requestedProject)) {
+                return ProjectResolution.failed(SqlDdlEvidence.STATUS_PROJECT_AMBIGUOUS, List.of(project),
+                        "请求项目与当前会话目录不一致；请在目标项目会话核验，不采用旧继承配置。");
             }
-        }
-        List<String> sorted = candidates.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
-        if (sorted.size() == 1) return resolveBaseline(sorted.get(0), sorted);
-        if (sorted.size() > 1) {
-            return ProjectResolution.failed(SqlDdlEvidence.STATUS_PROJECT_AMBIGUOUS, sorted,
-                    "当前聚合工作区对应多个 DDL 项目，请从候选项目中明确选择。");
-        }
-        return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, List.of(),
-                "无法从当前会话工作目录映射到项目知识库 DDL。");
-    }
-
-    private Map<String, String> availableProjects() {
-        Path root = knowledgeRoot;
-        if (!Files.isDirectory(root)) return Map.of();
-        Map<String, String> projects = new LinkedHashMap<>();
-        try (Stream<Path> entries = Files.list(root)) {
-            entries.filter(Files::isDirectory)
-                    .filter(path -> Files.isRegularFile(path.resolve("impl").resolve("ddl-baseline.md"))
-                            || Files.isRegularFile(path.resolve("impl").resolve("project-context.json")))
-                    .sorted(Comparator.comparing(path -> path.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
-                    .forEach(path -> projects.put(
-                            path.getFileName().toString().toLowerCase(Locale.ROOT), path.getFileName().toString()));
-        } catch (IOException ignored) {
-            return Map.of();
-        }
-        return projects;
-    }
-
-    private ProjectResolution resolveBaseline(String project, List<String> candidates) {
-        Path projectDirectory = knowledgeRoot.resolve(project).normalize();
-        Path contextPath = projectDirectory.resolve("impl").resolve("project-context.json");
-        Path baseline = projectDirectory.resolve("impl").resolve("ddl-baseline.md");
-        if (Files.isRegularFile(contextPath)) {
-            try {
-                JsonNode context = objectMapper.readTree(contextPath.toFile());
-                validateProjectContext(project, context);
-                JsonNode ddlSource = context.path("ddlSource");
-                String configuredPath = ddlSource.path("path").asText("").trim();
-                String sourceProject = ddlSource.path("project").asText("").trim();
-                if (!configuredPath.isEmpty()) {
-                    baseline = knowledgeRoot.resolve(configuredPath).normalize();
-                    if (!baseline.startsWith(knowledgeRoot)) {
-                        return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates,
-                                "项目知识上下文中的 DDL 路径超出知识库根目录。");
-                    }
-                    Set<String> effectiveProjects = new LinkedHashSet<>();
-                    collectEffectiveProjects(project, effectiveProjects, new LinkedHashSet<>());
-                    if (!effectiveProjects.contains(sourceProject)) {
-                        return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates,
-                                "DDL 来源项目不是当前项目的有效知识来源：" + sourceProject);
-                    }
-                    Path sourceDirectory = knowledgeRoot.resolve(sourceProject).normalize();
-                    if (!baseline.startsWith(sourceDirectory)) {
-                        return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates,
-                                "DDL 来源路径不属于配置的来源项目：" + sourceProject);
-                    }
+            // Read bounded SQL source files only. Migrated Markdown is historical evidence, not a DDL baseline.
+            Path checkedRoot = root;
+            List<Path> candidates;
+            try (Stream<Path> files = Files.walk(root, 10)) {
+                List<Path> scanned = files.limit(20_001).toList();
+                if (scanned.size() > 20_000) return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING,
+                        List.of(project), "项目SQL扫描达到上限，无法排除其他迁移；请定位结构文件或使用数据库元数据核验。");
+                candidates = scanned.stream().filter(file -> Files.isRegularFile(file, java.nio.file.LinkOption.NOFOLLOW_LINKS))
+                        .filter(file -> file.toString().endsWith(".sql"))
+                        .filter(file -> projectAccess == null || projectAccess.allowed(file))
+                        .filter(file -> !checkedRoot.relativize(file).toString().replace('\\', '/').matches(
+                                ".*(^|/)(target|node_modules|dist|build|\\.git|graphify-out|docs/domain/impl)(/|$).*"))
+                        .filter(file -> {
+                            try { return file.toRealPath().startsWith(checkedRoot) && Files.size(file) <= 2 * 1024 * 1024; }
+                            catch (IOException error) { return false; }
+                        }).sorted().limit(201).toList();
+            }
+            if (candidates.size() > 200) return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING,
+                    List.of(project), "项目SQL文件超过扫描上限，请定位目标结构文件或数据库元数据。");
+            List<Path> matched = new ArrayList<>();
+            for (Path candidate : candidates) {
+                String content = Files.readString(candidate, StandardCharsets.UTF_8);
+                Matcher mutations = Pattern.compile("(?is)\\b(?:ALTER|DROP|RENAME)\\s+TABLE\\s+([^\\s(;]+)").matcher(content);
+                while (mutations.find()) {
+                    if (tables.contains(normalizeTable(mutations.group(1)))) return ProjectResolution.failed(
+                            SqlDdlEvidence.STATUS_DDL_MISSING, List.of(project),
+                            "发现目标表后续结构变更，不能只据CREATE语句认定最终结构；请核验迁移顺序或数据库元数据。来源：" + candidate);
                 }
-            } catch (IOException e) {
-                return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates,
-                        "项目知识上下文读取失败：" + e.getMessage());
-            } catch (IllegalArgumentException e) {
-                return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates, e.getMessage());
+                if (!extractFragments(content, tables).isEmpty()) matched.add(candidate);
             }
+            if (matched.size() == 1) return ProjectResolution.resolved(project, matched.getFirst(), List.of(project));
+            return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, List.of(project),
+                    matched.isEmpty() ? "当前项目未找到目标表的SQL结构文件；请用授权数据库元数据核验，历史Markdown不作当前DDL。"
+                            : "目标表分布于多个SQL文件或迁移版本，无法自动认定最终结构；请核验迁移顺序或数据库元数据。来源：" + matched);
+        } catch (IOException | IllegalArgumentException | NullPointerException error) {
+            return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, List.of(),
+                    "项目目录或SQL结构文件不可读取；不回退其他项目或公共知识库。");
         }
-        if (!baseline.startsWith(knowledgeRoot)) {
-            return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING, candidates,
-                    "项目知识上下文中的 DDL 路径超出知识库根目录。");
-        }
-        return ProjectResolution.resolved(project, baseline, candidates);
-    }
-
-    private void validateProjectContext(String project, JsonNode context) {
-        if (!context.isObject()) {
-            throw new IllegalArgumentException("项目知识上下文根节点必须是对象。");
-        }
-        if (context.path("schemaVersion").asInt(-1) != 1) {
-            throw new IllegalArgumentException("项目知识上下文 schemaVersion 必须为 1。");
-        }
-        if (!project.equals(context.path("project").asText())) {
-            throw new IllegalArgumentException("项目知识上下文 project 必须为 " + project + "。");
-        }
-        JsonNode ddlSource = context.path("ddlSource");
-        if (!ddlSource.isMissingNode() && !ddlSource.isNull()) {
-            if (!ddlSource.isObject()) {
-                throw new IllegalArgumentException("项目知识上下文 ddlSource 必须是对象。");
-            }
-            for (String field : List.of("project", "guideId", "path")) {
-                if (ddlSource.path(field).asText("").trim().isEmpty()) {
-                    throw new IllegalArgumentException("项目知识上下文 ddlSource." + field + " 不能为空。");
-                }
-            }
-        }
-        JsonNode sources = context.path("knowledgeSources");
-        if (!sources.isMissingNode() && !sources.isArray()) {
-            throw new IllegalArgumentException("项目知识上下文 knowledgeSources 必须是数组。");
-        }
-    }
-
-    private void collectEffectiveProjects(String project, Set<String> effectiveProjects, Set<String> stack)
-            throws IOException {
-        if (!stack.add(project)) {
-            throw new IllegalArgumentException("项目知识上下文存在循环继承：" + String.join(" -> ", stack) + " -> " + project);
-        }
-        if (!effectiveProjects.add(project)) {
-            stack.remove(project);
-            return;
-        }
-        Path contextPath = knowledgeRoot.resolve(project).resolve("impl").resolve("project-context.json");
-        if (Files.isRegularFile(contextPath)) {
-            JsonNode context = objectMapper.readTree(contextPath.toFile());
-            validateProjectContext(project, context);
-            for (JsonNode source : context.path("knowledgeSources")) {
-                String sourceProject = source.path("project").asText("").trim();
-                if (sourceProject.isEmpty() || !Files.isDirectory(knowledgeRoot.resolve(sourceProject))) {
-                    throw new IllegalArgumentException("项目知识来源不存在：" + sourceProject);
-                }
-                collectEffectiveProjects(sourceProject, effectiveProjects, stack);
-            }
-        }
-        stack.remove(project);
     }
 
     private Map<String, String> extractFragments(String content, List<String> tables) {
         Map<String, String> fragments = new LinkedHashMap<>();
-        String[] lines = content.split("\\R", -1);
         int total = 0;
         for (String table : tables) {
-            String fragment = extractHeadingFragment(lines, table);
-            if (fragment == null) fragment = extractCreateTableFragment(content, table);
+            String fragment = extractCreateTableFragment(content, table);
             if (fragment == null) continue;
             fragment = fragment.length() > MAX_FRAGMENT_CHARS
                     ? fragment.substring(0, MAX_FRAGMENT_CHARS) + "\n-- DDL 片段已截断"
@@ -338,23 +214,6 @@ public class SqlDdlEvidenceService {
             total += fragment.length();
         }
         return Map.copyOf(fragments);
-    }
-
-    private String extractHeadingFragment(String[] lines, String table) {
-        for (int i = 0; i < lines.length; i++) {
-            Matcher heading = MARKDOWN_HEADING.matcher(lines[i]);
-            if (!heading.matches() || !normalizeTable(heading.group(2)).equals(table)) continue;
-            int level = heading.group(1).length();
-            StringBuilder fragment = new StringBuilder(lines[i]).append('\n');
-            for (int j = i + 1; j < lines.length; j++) {
-                Matcher next = MARKDOWN_HEADING.matcher(lines[j]);
-                if (next.matches() && next.group(1).length() <= level) break;
-                fragment.append(lines[j]).append('\n');
-                if (fragment.length() >= MAX_FRAGMENT_CHARS) break;
-            }
-            return fragment.toString().trim();
-        }
-        return null;
     }
 
     private String extractCreateTableFragment(String content, String table) {
@@ -398,25 +257,6 @@ public class SqlDdlEvidenceService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("当前 JDK 不支持 SHA-256", e);
         }
-    }
-
-    private static boolean baselineUnchanged(CachedEvidence cached) {
-        if (cached.baselineFingerprint() == null || cached.evidence().baselinePath() == null) return true;
-        try {
-            String content = Files.readString(Path.of(cached.evidence().baselinePath()), StandardCharsets.UTF_8);
-            return cached.baselineFingerprint().equals(fingerprint(content));
-        } catch (IOException | InvalidPathException e) {
-            return false;
-        }
-    }
-
-    private static Path defaultKnowledgeRoot() {
-        return Path.of(System.getProperty("user.home"), ".kai-toolbox", "team-tools",
-                "project-domain-knowledge", "knowledge");
-    }
-
-    private record CachedEvidence(String sessionId, SqlDdlEvidence evidence, String baselineFingerprint,
-                                  long expiresAt) {
     }
 
     private record ProjectResolution(String project, Path baselinePath, String status,

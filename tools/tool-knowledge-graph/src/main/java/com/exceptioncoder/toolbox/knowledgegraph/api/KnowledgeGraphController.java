@@ -64,7 +64,8 @@ public class KnowledgeGraphController {
         String cross = properties.getCrossTopologyRepoPath();
         boolean domainConfigured = domain != null && !domain.isBlank();
         boolean domainRepoExists = domainConfigured && Files.isDirectory(Path.of(domain));
-        boolean engineBuilt = domainRepoExists && Files.exists(Path.of(domain, "dist", "server.js"));
+        boolean engineBuilt = cross != null && !cross.isBlank()
+                && Files.isRegularFile(Path.of(cross, "dist", "server.js"));
         boolean crossConfigured = cross != null && !cross.isBlank();
         boolean crossRepoExists = crossConfigured && Files.isDirectory(Path.of(cross));
         return new EngineStatusView(domainConfigured, domainRepoExists, engineBuilt, crossConfigured, crossRepoExists);

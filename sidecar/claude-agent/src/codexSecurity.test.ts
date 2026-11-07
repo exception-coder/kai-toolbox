@@ -52,8 +52,7 @@ test('resolves legacy system hints only for static evidence, not database connec
 test('evidence-system hints do not select a fixed database tool', () => {
   assert.deepEqual(resolveConsultTargetSystems('D:\\work\\srm-system', ['ERP', 'unknown', 'erp']), ['srm', 'erp'])
   assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\srm-system', ['erp']), [
-    { server: 'domain-knowledge', tool: 'get_module_core_spec' },
-    { server: 'domain-knowledge', tool: 'resolve_consult_context' },
+    { server: 'consult-readonly', tool: 'knowledge_query' },
     { server: 'consult-readonly', tool: 'consult_resources' },
     { server: 'consult-readonly', tool: 'consult_resource_query' },
   ])
@@ -61,20 +60,17 @@ test('evidence-system hints do not select a fixed database tool', () => {
 
 test('requires bound resource tools for every system without guessing a database', () => {
   assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\srm-system'), [
-    { server: 'domain-knowledge', tool: 'get_module_core_spec' },
-    { server: 'domain-knowledge', tool: 'resolve_consult_context' },
+    { server: 'consult-readonly', tool: 'knowledge_query' },
     { server: 'consult-readonly', tool: 'consult_resources' },
     { server: 'consult-readonly', tool: 'consult_resource_query' },
   ])
   assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\Yoooni'), [
-    { server: 'domain-knowledge', tool: 'get_module_core_spec' },
-    { server: 'domain-knowledge', tool: 'resolve_consult_context' },
+    { server: 'consult-readonly', tool: 'knowledge_query' },
     { server: 'consult-readonly', tool: 'consult_resources' },
     { server: 'consult-readonly', tool: 'consult_resource_query' },
   ])
   assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\unknown-system'), [
-    { server: 'domain-knowledge', tool: 'get_module_core_spec' },
-    { server: 'domain-knowledge', tool: 'resolve_consult_context' },
+    { server: 'consult-readonly', tool: 'knowledge_query' },
     { server: 'consult-readonly', tool: 'consult_resources' },
     { server: 'consult-readonly', tool: 'consult_resource_query' },
   ])
@@ -85,8 +81,7 @@ test('inspects the exact runtime route without starting a consultation session',
     protocolVersion: 1,
     targetSystems: ['scm'],
     tools: [
-      { server: 'domain-knowledge', tool: 'get_module_core_spec' },
-      { server: 'domain-knowledge', tool: 'resolve_consult_context' },
+      { server: 'consult-readonly', tool: 'knowledge_query' },
       { server: 'consult-readonly', tool: 'consult_resources' },
       { server: 'consult-readonly', tool: 'consult_resource_query' },
     ],
@@ -95,7 +90,7 @@ test('inspects the exact runtime route without starting a consultation session',
 
 test('prioritizes domain context before reading implementation evidence', () => {
   assert.match(CONSULT_READONLY_PROMPT, /领域语义与跨项目关系优先查询 consult-readonly\.knowledge_query/)
-  assert.match(CONSULT_READONLY_PROMPT, /knowledge_query\(source=domain, action=resolve_consult_context\)/)
+  assert.match(CONSULT_READONLY_PROMPT, /knowledge_query\(source=domain, action=search_knowledge\)/)
   assert.doesNotMatch(CONSULT_READONLY_PROMPT, /必须先调用 consult-readonly\.source_context，再调用业务知识工具/)
 })
 

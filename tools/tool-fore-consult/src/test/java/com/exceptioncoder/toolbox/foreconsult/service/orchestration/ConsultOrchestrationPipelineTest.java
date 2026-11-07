@@ -98,8 +98,8 @@ class ConsultOrchestrationPipelineTest {
                         "v2-safety-and-scope", "v2-evidence-plan", "v2-menu-and-source",
                         "v2-runtime-evidence", "v2-evidence-gate", "v2-answer-contract");
         assertThat(result.prompt())
-                .contains("impl/modules.json")
-                .contains("domain-knowledge.locate_menu")
+                .contains("docs/domain")
+                .contains("knowledge_query")
                 .contains("没有菜单证据时不得给出具体菜单")
                 .contains("【平台表达Skill：consult-plain-writing】")
                 .doesNotContain("产品文档、FAQ 与历史工单");
@@ -168,11 +168,11 @@ class ConsultOrchestrationPipelineTest {
                         "v4-evidence-conflict-gate", "v4-answer-contract");
         assertThat(result.prompt())
                 .contains("requiredEvidence")
-                .contains("impl/modules.json")
+                .contains("docs/domain")
                 .contains("businessTruth")
-                .contains("get_module_core_spec")
-                .contains("resolve_consult_context")
-                .contains("先调用 domain-knowledge.resolve_consult_context")
+                .contains("YAML")
+                .contains("docs/INDEX.md")
+                .doesNotContain("先调用 domain-knowledge.resolve_consult_context")
                 .contains("证据已经足以回答时立即停止")
                 .contains("erp_standby_validate_sql")
                 .contains("【平台表达Skill：consult-plain-writing】")

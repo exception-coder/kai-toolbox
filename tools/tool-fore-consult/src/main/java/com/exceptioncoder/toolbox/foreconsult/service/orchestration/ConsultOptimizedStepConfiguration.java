@@ -36,10 +36,9 @@ public class ConsultOptimizedStepConfiguration {
     ConsultOrchestrationStep consultV2MenuAndSourceStep() {
         return step("v2-menu-and-source", "菜单知识与源码定位", 300, context ->
                 context.addSection("菜单知识与源码定位", """
-                        菜单事实源是所选系统 project-domain-knowledge 知识库中的 impl/modules.json。
-                        菜单名、操作入口或 URL 问题必须先调用 domain-knowledge.locate_menu，并保留完整父子菜单路径、menuId、URL、codePath 和 webPath。
-                        用户已提供 URL 时，使用 locate_menu 反查菜单，并与 source_context 的 URL/Graphify 结果交叉核对。
-                        得到菜单范围后调用 source_context 收敛 Action/API、页面、Service、SQL/实体，再使用 source_read 精确读取候选文件。
+                        菜单与操作入口从当前授权项目docs/domain原文和实际前端路由/源码核对，使用knowledge_query或source_read。
+                        不调用退役domain-knowledge，不把历史modules.json或文档快照当作现场菜单事实。
+                        使用已提供URL和页面线索定向搜索；复杂关系才按需使用source_context，缺图不阻断咨询。
                         source_search 仅允许在已确认的 codePath/webPath 子目录内兜底；禁止扫描项目根目录和 graphify-out。
                         """));
     }

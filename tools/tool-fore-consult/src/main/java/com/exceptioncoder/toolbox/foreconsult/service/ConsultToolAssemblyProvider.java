@@ -39,12 +39,13 @@ public class ConsultToolAssemblyProvider implements AgentToolAssemblyProvider {
                             session.getModuleNames() == null ? java.util.List.of() : java.util.List.of(session.getModuleNames()),
                             session.getRole(), true, session.getEvidenceRouteSnapshot());
                     var sourceHistory = snapshot.stream().flatMap(value -> value.workflow().tools().stream())
-                            .anyMatch("source_read"::equals) ? Stream.of("source_git_history", "source_projects") : Stream.<String>empty();
+                            .anyMatch("source_read"::equals) ? Stream.of("source_git_history", "source_projects", "knowledge_query") : Stream.<String>empty();
                     var sourceScope = routing == null ? null : routing.current(session);
                     return new Assembly(Stream.concat(Stream.concat(
                                     snapshot.stream().flatMap(value -> value.workflow().tools().stream()), sourceHistory),
                                     Stream.concat(ConsultDocumentPolicy.TOOLS.stream(), Stream.of("read_consult_attachment", "read_consult_history"))).distinct().toList(),
-                            Stream.concat(snapshot.stream().flatMap(value -> value.workflow().mcpServers().stream()),
+                            Stream.concat(snapshot.stream().flatMap(value -> value.workflow().mcpServers().stream())
+                                            .filter(name -> !"domain-knowledge".equals(name)),
                                     Stream.of("consult-readonly")).distinct().toList(),
                             snapshot.map(value -> workflowService.render(request, value).prompt())
                                     .orElse("【受控文档生成】" + ConsultDocumentPolicy.INSTRUCTIONS

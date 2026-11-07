@@ -177,7 +177,7 @@ public class ProjectRouteContextService implements ProjectRouteContextResolver {
             diagnostics.add("当前依赖目录名等于 projectKey 的兼容规则，建议保存显式绑定");
         }
         if (!binding.knowledgeAvailable()) {
-            diagnostics.add("project-domain-knowledge 中没有该 projectKey 的知识目录");
+            diagnostics.add("目标项目缺少 docs/domain/ 资料；可继续源码核查，不回退公共知识库");
         }
         if (modules.isEmpty()) {
             diagnostics.add("未从 modules.json 或构建文件识别到模块");

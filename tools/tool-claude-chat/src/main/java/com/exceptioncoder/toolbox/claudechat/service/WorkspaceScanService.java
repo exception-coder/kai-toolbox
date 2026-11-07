@@ -233,8 +233,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
 
     /** 团队依赖初始化生成的固定知识库目录。 */
     public String knowledgeDirectory() {
-        return Path.of(System.getProperty("user.home"), ".kai-toolbox", "team-tools",
-                "project-domain-knowledge", "knowledge").toString();
+        return ""; // Central knowledge installation is retired; project docs are authoritative.
     }
 
     /** 团队知识库根目录在磁盘上是否存在。 */
@@ -256,12 +255,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
             return new ProjectModulesResponse(name, root.toString(), false, "unknown", "未知", false, kbDir, kbExists, List.of());
         }
         List<ModuleView> modules = new ArrayList<>();
-        // 优先读知识库 modules.json（业务模块树 + 代码路径）；未配置或找不到才回退按构建文件自动识别。
-        List<ModuleView> fromKnowledge = readKnowledgeModules(root, name);
-        if (fromKnowledge != null) {
-            ProjectType pt = detectProjectType(root, fromKnowledge, true);
-            return new ProjectModulesResponse(name, root.toString(), true, pt.code(), pt.label(), true, kbDir, kbExists, fromKnowledge);
-        }
+        // 模块只从当前源码推导，不再读取公共知识索引。
         collectModules(root, root, 0, modules);
         modules.sort(Comparator.comparing(ModuleView::relPath, String.CASE_INSENSITIVE_ORDER));
         ProjectType pt = detectProjectType(root, modules, false);
@@ -354,8 +348,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
 
     /** 知识库 modules.json 清单文件路径。 */
     private Path knowledgeModulesManifest(String projectName) {
-        String kbDir = knowledgeDirectory();
-        return Path.of(kbDir).resolve(projectName).resolve("impl").resolve(KB_MODULES_FILE);
+        return null; // Retired writer must not create a second maintained knowledge index.
     }
 
     /** 递归展平知识库模块（父 + 所有子）。 */
@@ -455,7 +448,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
         }
         Path manifest = knowledgeModulesManifest(name);
         if (manifest == null || !Files.isRegularFile(manifest)) {
-            throw new IllegalArgumentException("未找到 modules.json（先配置知识库或用 CLI sync-modules --code-base 初始化）");
+            throw new IllegalArgumentException("公共知识索引维护已停用；请在项目 docs/domain/ 维护业务资料，模块从源码目录读取");
         }
         if (picks == null || picks.isEmpty()) throw new IllegalArgumentException("未选择任何新增模块");
         try {

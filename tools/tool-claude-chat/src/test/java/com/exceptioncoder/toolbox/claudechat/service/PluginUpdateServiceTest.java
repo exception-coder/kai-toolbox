@@ -18,6 +18,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PluginUpdateServiceTest {
 
+    @Test
+    void retiredRepositoriesInSavedConfigurationNeverReachGitOrInstall() throws Exception {
+        var service = org.mockito.Mockito.mock(PluginUpdateService.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        var method = PluginUpdateService.class.getDeclaredMethod("syncDependencyRepositories",
+                String.class, Path.class, String.class, List.class, List.class);
+        method.setAccessible(true);
+        var results = new java.util.ArrayList<Map<String, Object>>();
+        assertEquals(Map.of(), method.invoke(service, "test", repo, "github",
+                List.of("project-domain-knowledge", "domain-knowledge"), results));
+        assertTrue(results.isEmpty());
+        assertFalse(new com.exceptioncoder.toolbox.claudechat.config.PluginUpdateProperties()
+                .getWatchedMcps().contains("domain-knowledge"));
+    }
+
     @TempDir
     Path repo;
 

@@ -25,7 +25,8 @@ flowchart LR
     HISTORY --> SM["Sidecar SessionManager"]
     SM --> ENG["Codex / Claude Adapter"]
     ENG --> RO["consult-readonly MCP"]
-    ENG --> KB["domain-knowledge / topology"]
+    RO --> KB["授权项目 Markdown / YAML 原文"]
+    ENG --> TOPO["独立 cross-topology 关系查询"]
     RO --> SYNC["源码工具前置同步<br/>签名POST + 授权项目 + 安全快进与状态证据"]
     SYNC --> GRT["GraphifyQueryService\n状态与总预算"]
     GRT --> SCHED["GraphifyQueryScheduler\n同键合并 + FIFO"]
@@ -331,3 +332,13 @@ mvn -pl tools/tool-fore-consult -am test
 源码根默认为服务工作目录，可用`toolbox.consult.suggestion-development.project-root`指定咨询仓库，遵守ProjectAccess，需要frontend/node_modules、真实Git作者及Forge门禁jar。工作树位于`~/.kai-toolbox/consult-development/<建议UUID>`，分支为`consult-suggestion/<建议UUID>`。不自动改写当前工作区、merge、push、重启或发布；开发中断等待核对。启动schema幂等，无人工SQL。专项验证和真实模型/运行验收分别见[审核自动开发任务](../../openspec/changes/consult-suggestion-automation/tasks.md)。
 
 「需求建议 → 开发会话」展示清单专属后台开发会话，按需求记录真实审核、编码、验证与提交过程，打开时自动刷新，关闭后后台继续工作。建议卡片及需求池会回写“待实现 → 实现中 → 待发布”；失败保留待实现并说明接续原因，待发布表示已验证和提交、尚待合并验收与发布。会话为队列的持久业务上下文，各模型阶段仍复用已有无工具执行器及真实引擎回执，不冒充原生连续Thread或Forge监督会话。普通用户只读安全阶段记录，不能借此改变工具或资源权限。
+
+## 项目内业务知识
+
+咨询按现有候选项目身份和授权范围读取该项目的 `docs/INDEX.md`、`docs/domain/`、`openspec/specs/`，不再依赖公共 `project-domain-knowledge` 仓库或 Domain Knowledge MCP。`knowledge_query` 保留只读门面；`source=domain` 返回原文及相对文件路径，`project` 使用 `source_projects` 返回的候选 ID。检索后用 `get_knowledge` 的 `arguments.path` 读取指定文件。截断资料可通过 `source_read` 分段继续读取；每次查询重新读取文件，保留 YAML 的归属、可信度及未确认项。
+
+跨项目知识引用所属项目原文；跨项目关系仍由独立 `cross-project-topology/dist/server.js` 提供，不授予额外源码或资源访问权。缺知识、图谱或关系服务时明确证据缺口，继续可用的定向源码核查，不恢复旧仓库。Graphify 不是普通咨询的前置条件。
+
+DDL 优先核对目标项目实际 SQL 文件或授权数据库元数据。迁入的 `ddl-baseline.md`、旧继承配置及历史知识不能证明当前结构；多文件或后续迁移需进一步确认，源码 schema 也不等于目标数据库已部署。
+
+实现及验收状态见 [项目知识适配任务](../../openspec/changes/consult-project-local-knowledge/tasks.md)。本次不更改资源权限，不自动重启服务。

@@ -62,15 +62,16 @@ public class ProjectEvidenceScopeResolverService implements ProjectEvidenceScope
             ProjectEvidenceRelation relation
     ) {
         Path path = Path.of(projectPath).toAbsolutePath().normalize();
-        Path knowledgeProject = teamToolsPathService.knowledgeProject(projectKey);
+        Path knowledgeProject = teamToolsPathService.knowledgeProject(projectPath);
         EnumMap<ProjectEvidenceSourceType, Boolean> availability =
                 new EnumMap<>(ProjectEvidenceSourceType.class);
         availability.put(ProjectEvidenceSourceType.SOURCE, Files.isDirectory(path));
         availability.put(ProjectEvidenceSourceType.GRAPHIFY,
                 Files.isRegularFile(path.resolve("graphify-out").resolve("graph.json")));
-        availability.put(ProjectEvidenceSourceType.DOMAIN_KNOWLEDGE, Files.isDirectory(knowledgeProject));
+        availability.put(ProjectEvidenceSourceType.DOMAIN_KNOWLEDGE, Files.isDirectory(knowledgeProject)
+                || Files.isRegularFile(path.resolve("docs/INDEX.md")) || Files.isDirectory(path.resolve("openspec/specs")));
         availability.put(ProjectEvidenceSourceType.DDL,
-                Files.isRegularFile(knowledgeProject.resolve("impl").resolve("ddl-baseline.md")));
+                Files.isRegularFile(path.resolve("db/schema.sql")) /* 仅表示候选文件可读，不代表部署已核验 */);
         availability.put(ProjectEvidenceSourceType.ROUTE_MAP, routeMapExists(projectKey));
         availability.put(ProjectEvidenceSourceType.CROSS_PROJECT_TOPOLOGY, topologyExists(projectKey));
         return new ProjectEvidenceProject(

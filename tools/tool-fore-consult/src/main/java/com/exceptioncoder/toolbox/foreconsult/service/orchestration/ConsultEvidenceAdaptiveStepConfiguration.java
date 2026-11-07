@@ -28,11 +28,11 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
     ConsultOrchestrationStep consultV4ModuleAndCoreSpecStep() {
         return step("v4-module-and-core-spec", "模块边界与 Core Spec 分级召回", 200, context ->
                 context.addSection("模块边界与 Core Spec 分级召回", """
-                        使用所选系统 project-domain-knowledge 中的 impl/modules.json 确定模块边界。涉及菜单、URL 或按钮时先调用 domain-knowledge.locate_menu，保留完整菜单路径、menuId、URL、codePath 和 webPath。
+                        从所选系统 docs/INDEX.md、docs/domain/ 和已有规格定位业务资料。涉及菜单、URL 或按钮时核对项目路由及源码，保留已证实的菜单路径、menuId、URL 和源文件位置。
                         业务规则、状态、字段含义、数据异常或 BUG 判断必须按系统、模块和问题关键词召回稳定业务知识及相关 Core Spec。
-                        先调用 domain-knowledge.resolve_consult_context 收敛模块、菜单、稳定知识与 Core Spec 候选。
-                        需要对象、关系、状态或约束细节时，再调用 domain-knowledge.get_module_core_spec。
-                        专用工具无结果时才降级到 search_knowledge、get_knowledge 和 get_related，且不得改变证据分级规则。
+                        使用knowledge_query读取当前授权项目的docs/INDEX.md、docs/domain及openspec/specs；先用source_projects确认项目候选ID。
+                        以返回的相对文件路径引用原文，必要时使用source_read分段读取；YAML只提供归属和可信度，不能自动提升为已确认规则。
+                        不调用退役的domain-knowledge，不读取公共仓库继承配置；缺知识继续定向源码核查并说明缺口。
                         必须检查 stability、businessTruth、ownerReviewed、runtimeVerified 和 sourceRevision。稳定且已确认的业务知识可以说明业务预期；impl/spec-mining 下未评审、未运行验证的 Core Spec 只能作为实现候选和后续核查线索，不能直接当作业务真理。
                         未取得 Core Spec 证据时继续使用其他可用证据并明确标注缺口；禁止为兜底而全量读取整个 spec-mining 目录。
                         """));
@@ -42,7 +42,7 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
     ConsultOrchestrationStep consultV4ImplementationEvidenceStep() {
         return step("v4-implementation-evidence", "Graphify 与源码实现证据", 300, context ->
                 context.addSection("Graphify 与源码实现证据", """
-                        只有问题需要证明当前实现、调用关系或候选根因时才调用 source_context，通过 Graphify 收敛页面、Action/API、Service、SQL/实体和调用链。
+                        普通咨询先按项目文档与线索使用source_read/source_search；复杂调用关系才按需使用source_context和Graphify。缺图不阻断分析。
                         对 Graphify 返回的关键候选必须使用 source_read 精确读取源码确认条件；发现新的类名、方法名或 SQL ID 后可带新上下文再次调用 source_context。
                         source_search 仅允许在 modules.json、Graphify 或 source_context 有界结构线索已确认的子目录内使用单关键词兜底；禁止扫描项目根目录、graphify-out 和缓存目录。
                         Graphify 只证明结构关系，源码只证明当前版本存在某种实现，均不能单独证明用户环境实际走过该分支。

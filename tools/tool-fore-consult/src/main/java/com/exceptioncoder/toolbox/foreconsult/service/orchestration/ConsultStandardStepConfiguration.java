@@ -47,7 +47,7 @@ public class ConsultStandardStepConfiguration {
                 List.of("产品文档、FAQ 与历史工单尚未形成统一多路召回索引"),
                 context -> context.addSection("业务对象与菜单定位", """
                         按“用户语言 → 业务术语 → 菜单/页面 → 前端组件 → API → 服务规则/权限 → 数据实体”的链路定位。
-                        有 URL 时先用 URL 路由表定位页面和入口；随后使用 Graphify 收敛组件、Action、API、Service、SQL/实体与调用关系，再用 domain-knowledge/cross-topology 核对业务语义，最后精确读取候选源码确认条件。
+                        有 URL 时先用 URL 路由表定位页面和入口；随后定向检索组件、Action、API、Service、SQL/实体，读取项目 docs/domain/ 与已有规格核对语义；Graphify 仅按复杂关系需要辅助，cross-topology 仅用于跨项目关系。
                         Graphify 只用于结构导航，不能证明用户环境实际执行了某个代码分支。暂缺统一的产品文档、FAQ 和历史工单召回时，不得声称已检索这些来源。
                         """));
     }

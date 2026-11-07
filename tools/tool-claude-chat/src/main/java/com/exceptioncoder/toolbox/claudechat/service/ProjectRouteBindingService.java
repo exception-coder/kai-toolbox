@@ -178,7 +178,7 @@ public class ProjectRouteBindingService {
                 source,
                 explicit,
                 Files.isDirectory(Path.of(projectPath)),
-                Files.isDirectory(teamToolsPathService.knowledgeProject(projectKey)),
+                Files.isDirectory(teamToolsPathService.knowledgeProject(projectPath)),
                 message);
     }
 

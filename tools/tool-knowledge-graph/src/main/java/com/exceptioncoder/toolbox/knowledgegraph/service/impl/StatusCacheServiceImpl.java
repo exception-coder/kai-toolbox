@@ -89,9 +89,9 @@ public class StatusCacheServiceImpl implements StatusCacheService {
     private ProjectStatusSnapshot detectOne(String path) {
         GraphifyGraphState graphifyState = safeGraphifyState(path);
         String[] businessError = {null};
-        RegistrationState domainState = safeRegistrationState(path, GraphRepo.DOMAIN_KNOWLEDGE, businessError);
+        // 集中领域知识已退役，刷新只检测独立拓扑，不再恢复旧状态来源。
         RegistrationState crossState = safeRegistrationState(path, GraphRepo.CROSS_TOPOLOGY, businessError);
-        RegistrationState businessState = worse(domainState, crossState);
+        RegistrationState businessState = crossState;
         return new ProjectStatusSnapshot(path, graphifyState, businessState, businessError[0], Instant.now());
     }
 

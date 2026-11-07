@@ -132,11 +132,11 @@ public class PrdEvidenceOrchestrationService {
         try {
             String result = switch (source) {
                 case DOMAIN_KNOWLEDGE -> domainKnowledge.query(
-                        project.projectKey(), query.module(), evidenceQuestion);
+                        project.projectPath(), query.module(), evidenceQuestion);
                 case GRAPHIFY -> graphify.query(
                         project.projectPath(), query.module(), evidenceQuestion);
                 case DDL -> ddlContext.query(
-                        project.projectKey(), query.module(), evidenceQuestion, "");
+                        project.projectPath(), query.module(), evidenceQuestion, "");
                 case ROUTE_MAP -> routeContext.query(project.projectKey(), query.description());
                 case SOURCE -> sourceContext.query(
                         project.projectPath(), query.module(), evidenceQuestion);
@@ -152,9 +152,9 @@ public class PrdEvidenceOrchestrationService {
 
     private String target(ProjectEvidenceProject project, ProjectEvidenceSourceType source) {
         return switch (source) {
-            case DOMAIN_KNOWLEDGE -> domainKnowledge.traceTarget(project.projectKey());
+            case DOMAIN_KNOWLEDGE -> domainKnowledge.traceTarget(project.projectPath());
             case GRAPHIFY -> graphify.traceTarget(project.projectPath(), null);
-            case DDL -> ddlContext.traceTarget(project.projectKey());
+            case DDL -> ddlContext.traceTarget(project.projectPath());
             case ROUTE_MAP -> routeContext.traceTarget(project.projectKey());
             case SOURCE -> project.projectPath();
             case CROSS_PROJECT_TOPOLOGY -> topologyContext.traceTarget();

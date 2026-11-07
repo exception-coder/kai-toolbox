@@ -63,10 +63,11 @@ class WorkspaceScanServiceTest {
 
     @Test
     @ResourceLock("user.home")
-    void loadsMultiPathModulesAndPathlessContainersWithoutDroppingChildren() throws Exception {
+    void ignoresRetiredManifestAndDiscoversCurrentSourceModules() throws Exception {
         String originalUserHome = System.getProperty("user.home");
         Path workspaceRoot = Files.createDirectories(tempDir.resolve("workspace"));
         Path projectRoot = Files.createDirectories(workspaceRoot.resolve("scm-system"));
+        Files.writeString(projectRoot.resolve("package.json"), "{\"name\":\"scm-system\"}");
         Path manifest = tempDir.resolve(".kai-toolbox/team-tools/project-domain-knowledge/knowledge")
                 .resolve("scm-system/impl/modules.json");
         Files.createDirectories(manifest.getParent());
@@ -105,12 +106,9 @@ class WorkspaceScanServiceTest {
             ProjectModulesResponse response = service.scanModules(projectRoot.toString());
 
             assertThat(response.modules()).extracting(ProjectModulesResponse.ModuleView::name)
-                    .containsExactly("织厂管理", "菜单容器", "单路径模块");
-            assertThat(response.modules().get(0).webPaths()).hasSize(2);
-            assertThat(response.modules().get(0).webPath()).endsWith("frontend\\weaving");
-            assertThat(response.modules().get(1).children()).hasSize(1);
-            assertThat(response.modules().get(1).absPath())
-                    .isEqualTo(response.modules().get(1).children().get(0).absPath());
+                    .containsExactly("scm-system");
+            assertThat(service.knowledgeDirectory()).isEmpty();
+            assertThat(Files.isRegularFile(manifest)).isTrue();
         } finally {
             System.setProperty("user.home", originalUserHome);
         }

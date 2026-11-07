@@ -20,8 +20,7 @@ test('uses the installed team-tools repositories instead of a legacy workspace f
 
   const teamToolsRoot = path.join(homeDir, '.kai-toolbox', 'team-tools')
   assert.deepEqual(paths, {
-    engine: path.join(teamToolsRoot, 'project-domain-knowledge', 'dist', 'server.js'),
-    domainKnowledge: path.join(teamToolsRoot, 'project-domain-knowledge', 'knowledge'),
+    engine: path.join(teamToolsRoot, 'cross-project-topology', 'dist', 'server.js'),
     crossTopology: path.join(teamToolsRoot, 'cross-project-topology', 'knowledge'),
   })
 })
@@ -30,7 +29,7 @@ test('keeps explicit MCP path overrides for controlled deployments', () => {
   const paths = resolveKnowledgeMcpPaths({
     homeDir: path.join('C:', 'Users', 'tester'),
     env: {
-      DOMAIN_KNOWLEDGE_ENGINE: path.join('X:', 'engine', 'server.js'),
+      CROSS_TOPOLOGY_ENGINE: path.join('X:', 'engine', 'server.js'),
       DOMAIN_KB_DIR: path.join('X:', 'domain', 'knowledge'),
       CROSS_TOPO_KB_DIR: path.join('X:', 'cross', 'knowledge'),
     },
@@ -38,7 +37,6 @@ test('keeps explicit MCP path overrides for controlled deployments', () => {
 
   assert.deepEqual(paths, {
     engine: path.join('X:', 'engine', 'server.js'),
-    domainKnowledge: path.join('X:', 'domain', 'knowledge'),
     crossTopology: path.join('X:', 'cross', 'knowledge'),
   })
 })
@@ -70,23 +68,14 @@ test('exposes context and candidate tools only on the domain knowledge server', 
 })
 
 test('recognizes only allowlisted read-only knowledge calls for isolated recovery', () => {
-  assert.deepEqual(
-    readonlyKnowledgeMcpCall('domain-knowledge/get_module_core_spec', {
-      project: 'kai-toolbox', module: 'reqpool', query: '状态迁移',
-    }),
-    {
-      server: 'domain-knowledge',
-      tool: 'get_module_core_spec',
-      arguments: { project: 'kai-toolbox', module: 'reqpool', query: '状态迁移' },
-    },
-  )
+  assert.equal(readonlyKnowledgeMcpCall('domain-knowledge/get_module_core_spec', {}), undefined)
   assert.equal(readonlyKnowledgeMcpCall('domain-knowledge/reload_knowledge', {}), undefined)
   assert.equal(readonlyKnowledgeMcpCall('forge/register_pending_sql', { sql: 'UPDATE t SET a=1' }), undefined)
   assert.equal(readonlyKnowledgeMcpCall('domain-knowledge/get_module_core_spec'), undefined)
 })
 
 test('isolated recovery uses the original call once and builds a continuation prompt', async () => {
-  const call = readonlyKnowledgeMcpCall('mcp__domain_knowledge__get_module_core_spec', {
+  const call = readonlyKnowledgeMcpCall('mcp__cross_topology__get_knowledge', {
     project: 'kai-toolbox', module: 'reqpool', query: '状态迁移',
   })
   assert.ok(call)

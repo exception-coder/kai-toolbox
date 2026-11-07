@@ -37,7 +37,7 @@ const sourceTools = sourceRoot() ? [
   consultGitHistoryTool,
   {
     name: 'source_context',
-    description: '源码定位的首要入口：有 URL 时优先定位路由，没有 URL 时直接使用业务问题和模块查询当前项目 Graphify 图谱，返回候选文件与调用链上下文；可带候选符号再次调用以反问图谱。任何源码搜索前必须先调用本工具。',
+    description: '源码定位的首要入口：有 URL 时优先定位路由，没有 URL 时直接使用业务问题和模块查询当前项目 Graphify 图谱，返回候选文件与调用链上下文；可带候选符号再次调用以反问图谱。仅在需要复杂关系时使用；普通咨询可直接读取项目知识和定向源码。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -641,7 +641,7 @@ async function buildSourceContext(args: Record<string, unknown>): Promise<Record
     structure || '未发现可用入口或子目录。',
     '图谱预热时可先读取这些入口配置，或在已列出的明确子目录中核对页面文案；不得扫描项目根目录。',
     '',
-    '【下一步】先调用业务知识工具核对业务语义，再对以上候选文件使用 source_read；需要继续追调用链时，带已发现的类名、方法名或 SQL ID 再次调用 source_context 反问图谱。只有图谱反问后证据仍不足，才在明确子目录调用 source_search。',
+    '【下一步】先调用业务知识工具核对业务语义，再对以上候选文件使用 source_read；需要继续追调用链时，带已发现的类名、方法名或 SQL ID 再次调用 source_context 反问图谱。可直接在明确子目录调用 source_search，图谱缺失不阻断咨询。',
   ].join('\n'))
 }
 
@@ -738,7 +738,14 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
       })
       return textResult((await response.text()).slice(0, 200_000), !response.ok)
     }
-    if (name === 'knowledge_query') return textResult(JSON.stringify(await queryKnowledge(args)))
+    if (name === 'knowledge_query') return textResult(JSON.stringify(await queryKnowledge(args, undefined, sourceRoot(), async path => {
+      const scope = await sourceRouting({ apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID,
+        token: process.env.CONSULT_RESOURCE_TOKEN }, undefined, { project: args.project, path })
+      if (scope) {
+        const project = scope.projects.find(candidate => candidate.id === (args.project ?? scope.focusedProject))
+        if (!project || resolveSourceRoot(project.path) !== sourceRoot()) throw new Error('项目范围已变化，请重新读取候选')
+      }
+    })))
     if (name === 'source_context') return buildSourceContext(args)
     if (name === 'source_search') return searchSource(args)
     if (name === 'source_read') return readSource(args)
@@ -791,7 +798,7 @@ async function handle(message: JsonRpcRequest): Promise<void> {
       const args = params.arguments && typeof params.arguments === 'object'
         ? params.arguments as Record<string, unknown>
         : {}
-      if (['source_context', 'source_search', 'source_read', 'source_git_history'].includes(name)) {
+      if ((['source_context', 'source_search', 'source_read', 'source_git_history'].includes(name) || (name === 'knowledge_query' && args.source !== 'topology'))) {
         try {
           const scope = await sourceRouting({ apiBase: API_BASE, session: process.env.TOOLBOX_SESSION_ID,
             token: process.env.CONSULT_RESOURCE_TOKEN }, undefined, { project: args.project })

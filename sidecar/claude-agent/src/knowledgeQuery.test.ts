@@ -13,10 +13,9 @@ test('unified queries preserve source, payload, candidate revision and independe
       return { content: [{ type: 'text', text: '{"reviewState":"STALE","revision":4}' }] }
     },
   })
-  assert.deepEqual(calls.map(call => call.server), ['domain-knowledge', 'cross-topology'])
+  assert.deepEqual(calls.map(call => call.server), ['cross-topology'])
   assert.deepEqual(calls[0].arguments, { project: 'erp', query: '订单' })
-  assert.equal(result.results[0].status, 'OK')
-  assert.match(JSON.stringify(result.results[0]), /STALE/)
+  assert.equal(result.results[0].status, 'UNAVAILABLE')
   assert.equal(result.results[1].status, 'UNAVAILABLE')
   assert.doesNotMatch(JSON.stringify(result), /secret/)
 })
@@ -34,27 +33,19 @@ test('mutations and invalid input are refused before dispatch', async () => {
   assert.equal(knowledgeQueryTool.annotations.readOnlyHint, true)
 })
 
-test('domain-only candidate actions use original engine and topology is explicit unsupported', async () => {
+test('retired domain requests never call the old engine', async () => {
   let calls = 0
-  const result = await queryKnowledge({ source: 'all', action: 'get_spec_candidate', arguments: { id: 'candidate' } }, {
-    call: async call => { calls++; assert.equal(call.server, 'domain-knowledge'); return { revision: 3, review: 'stale' } },
+  const result = await queryKnowledge({ source: 'domain', action: 'get_spec_candidate', arguments: { id: 'candidate' } }, {
+    call: async () => { calls++; return {} },
   })
-  assert.equal(calls, 1)
-  assert.equal(result.results[1].status, 'UNSUPPORTED')
-  assert.match(JSON.stringify(result.results[0]), /stale/)
-})
-
-test('engine error and truncation cannot masquerade as complete knowledge', async () => {
-  const result = await queryKnowledge({ source: 'domain', action: 'list_projects', arguments: {} }, {
-    call: async () => ({ isError: true, content: 'x'.repeat(33000) }),
-  })
-  assert.equal(result.results[0].status, 'ERROR')
-  assert.equal('truncated' in result.results[0] && result.results[0].truncated, true)
+  assert.equal(calls, 0)
+  assert.equal(result.results[0].status, 'UNAVAILABLE')
 })
 
 test('Claude readonly permission admits the facade while retaining command denial', async () => {
   const permissions = new Permissions(() => { throw new Error('Unexpected approval prompt') })
   permissions.setToolPolicy('consult-readonly')
   assert.equal((await permissions.canUseTool('mcp__consult-readonly__knowledge_query', { source: 'domain', action: 'list_projects', arguments: {} }, {})).behavior, 'allow')
+  assert.equal((await permissions.canUseTool('mcp__domain-knowledge__search_knowledge', {}, {})).behavior, 'deny')
   assert.equal((await permissions.canUseTool('Bash', { command: 'echo forbidden' }, {})).behavior, 'deny')
 })

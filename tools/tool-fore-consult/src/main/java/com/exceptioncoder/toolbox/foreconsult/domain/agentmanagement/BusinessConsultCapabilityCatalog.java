@@ -16,7 +16,7 @@ public final class BusinessConsultCapabilityCatalog {
                             "tool:erp_standby_schema_search", "tool:erp_standby_validate_sql",
                             "tool:consult_resources", "tool:consult_resource_query", "tool:consult_web")),
             capability("mcp:domain-knowledge", "domain-knowledge", "MCP_SERVER", "v1", "团队领域知识服务",
-                    "提供已确认的领域术语与业务规范上下文。", "READ_ONLY", "LOW", List.of()),
+                    "仅保留历史节点标识，不再启动；业务知识通过 knowledge_query 读取项目原文。", "READ_ONLY", "LOW", List.of()),
             capability("tool:source_context", "source_context", "TOOL", "v1", "consult-readonly",
                     "收敛模块、符号及其关联上下文。", "READ_ONLY", "LOW", List.of()),
             capability("tool:source_read", "source_read", "TOOL", "v1", "consult-readonly",
@@ -53,7 +53,7 @@ public final class BusinessConsultCapabilityCatalog {
     }
 
     public static List<AgentCapability> capabilities() {
-        return CAPABILITIES.stream().filter(capability -> !List.of("erp_db_query", "srm_db_query", "scm_db_query")
+        return CAPABILITIES.stream().filter(capability -> !List.of("erp_db_query", "srm_db_query", "scm_db_query", "domain-knowledge")
                 .contains(capability.name())).toList();
     }
 

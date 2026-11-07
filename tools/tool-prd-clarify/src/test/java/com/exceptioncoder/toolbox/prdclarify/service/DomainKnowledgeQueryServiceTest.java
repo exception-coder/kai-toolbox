@@ -1,81 +1,34 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
-
-import com.exceptioncoder.toolbox.prdclarify.config.DomainKnowledgeQueryProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.TimeUnit;
-
+import com.exceptioncoder.toolbox.common.projectevidence.ProjectEvidenceScopeResolver;
 import static org.assertj.core.api.Assertions.assertThat;
-
+import static org.mockito.Mockito.*;
 class DomainKnowledgeQueryServiceTest {
-
     @Test
-    void shouldExecuteKnowledgeModuleWhosePathContainsSpaces(@TempDir Path tempDir) throws Exception {
-        Assumptions.assumeTrue(nodeIsAvailable(), "Node.js is required for this integration test");
-
-        Path repo = Files.createDirectories(tempDir.resolve("domain knowledge repo"));
-        Path dist = Files.createDirectories(repo.resolve("dist"));
-        Files.writeString(repo.resolve("package.json"), "{\"type\":\"module\"}");
-        Files.writeString(dist.resolve("knowledge.js"), """
-                export const search = ({ project, module, query }) => [{
-                  id: 'rule-' + (module || 'all'), type: 'flow', title: query, project,
-                  module: module || 'project-wide'
-                }];
-                export const get = () => ({ content: 'Knowledge body' });
-                """);
-
-        DomainKnowledgeQueryProperties props = new DomainKnowledgeQueryProperties();
-        props.setTimeoutSeconds(10);
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("toolbox.knowledge-graph.domain-knowledge-repo-path", repo.toString());
-        DomainKnowledgeQueryService service =
-                new DomainKnowledgeQueryService(props, environment, new ObjectMapper());
-
-        String result = service.query("demo-project", "checkout", "payment flow");
-
-        assertThat(result)
-                .contains("### [flow] payment flow (demo-project/checkout)")
-                .contains("Knowledge body");
+    void readsOnlySelectedProjectAndRefreshesFiles(@TempDir Path root) throws Exception {
+        Path doc = root.resolve("docs/domain/payment.md");
+        Files.createDirectories(doc.getParent());
+        Files.writeString(doc, "payment: confirmed=false");
+        var service = new DomainKnowledgeQueryService(
+            new com.exceptioncoder.toolbox.prdclarify.config.DomainKnowledgeQueryProperties(),
+            new MockEnvironment().withProperty("toolbox.knowledge-graph.domain-knowledge-repo-path", "/unavailable"),
+            new com.fasterxml.jackson.databind.ObjectMapper());
+        service.setScopes(scopes(root));
+        assertThat(service.query("demo", "payment")).contains("payment.md", "confirmed=false");
+        Files.writeString(doc, "payment: updated rule");
+        assertThat(service.query("demo", "payment")).contains("updated rule").doesNotContain("confirmed=false");
+        assertThat(service.query("other", "payment")).isNull();
+        Files.delete(doc);
+        assertThat(service.query("demo", "payment")).isNull();
     }
-
-    @Test
-    void shouldFallBackToProjectKnowledgeWhenModuleHasNoHit(@TempDir Path tempDir) throws Exception {
-        Assumptions.assumeTrue(nodeIsAvailable(), "Node.js is required for this integration test");
-
-        Path repo = Files.createDirectories(tempDir.resolve("domain-knowledge"));
-        Path dist = Files.createDirectories(repo.resolve("dist"));
-        Files.writeString(repo.resolve("package.json"), "{\"type\":\"module\"}");
-        Files.writeString(dist.resolve("knowledge.js"), """
-                export const search = ({ project, module, query }) => module ? [] : [{
-                  id: 'project-rule', type: 'rule', title: query, project, module: null
-                }];
-                export const get = () => ({ content: 'Project fallback' });
-                """);
-
-        DomainKnowledgeQueryProperties props = new DomainKnowledgeQueryProperties();
-        props.setTimeoutSeconds(10);
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("toolbox.knowledge-graph.domain-knowledge-repo-path", repo.toString());
-        DomainKnowledgeQueryService service =
-                new DomainKnowledgeQueryService(props, environment, new ObjectMapper());
-
-        String result = service.query("demo-project", "unknown-module", "payment flow");
-
-        assertThat(result).contains("Project fallback");
-    }
-
-    private static boolean nodeIsAvailable() {
-        try {
-            Process process = new ProcessBuilder("node", "--version").start();
-            return process.waitFor(5, TimeUnit.SECONDS) && process.exitValue() == 0;
-        } catch (Exception ignored) {
-            return false;
-        }
+    private ProjectEvidenceScopeResolver scopes(Path root) {
+        var resolver = mock(ProjectEvidenceScopeResolver.class, RETURNS_DEEP_STUBS);
+        when(resolver.resolve("demo").primary().projectPath()).thenReturn(root.toString());
+        when(resolver.resolve("other")).thenThrow(new IllegalArgumentException("not authorized"));
+        return resolver;
     }
 }

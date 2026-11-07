@@ -2,13 +2,13 @@ package com.exceptioncoder.toolbox.knowledgegraph.api.dto;
 
 /**
  * 知识图谱引擎与两仓的就绪情况：供「依赖声明」标记"是否正常配置/可用"。
- * 引擎按需以 node 跑 bootstrap.mjs（非常驻服务），故只需检测「已构建(dist/server.js 存在)」，无"启动"态。
+ * 独立拓扑引擎按需调用（非常驻服务），故只需检测「已构建(dist/server.js 存在)」，无"启动"态。
  *
- * @param domainConfigured  固定 domain-knowledge 路径是否可计算（兼容字段，通常为 true）
- * @param domainRepoExists  该仓目录是否存在
- * @param engineBuilt       引擎是否已构建（{@code <domain>/dist/server.js} 存在）；业务真理与跨项目拓扑检测都依赖它
+ * @param domainConfigured  退役兼容字段，始终 false
+ * @param domainRepoExists  退役兼容字段，始终 false
+ * @param engineBuilt       独立拓扑引擎是否已构建（cross-project-topology/dist/server.js 存在）
  * @param crossConfigured   固定 cross-topology 路径是否可计算（兼容字段，通常为 true）
- * @param crossRepoExists   该仓目录是否存在
+ * @param crossRepoExists   退役兼容字段，始终 false
  */
 public record EngineStatusView(
         boolean domainConfigured,

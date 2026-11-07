@@ -95,18 +95,18 @@ public class SystemRouteInspectionService {
                 moduleAvailable
                         ? "已识别 " + route.matchedModules().size() + " 个当前查询模块，项目共 "
                         + route.modules().size() + " 个模块。"
-                        : "检查 modules.json 的 key/name/codePath，或确认项目构建目录。",
-                moduleAvailable ? "" : "在项目工作台同步 modules.json 后重试。",
-                "project-domain-knowledge/knowledge/" + route.projectKey() + "/impl/modules.json"));
+                        : "检查项目源码的模块目录，或确认项目构建目录。",
+                moduleAvailable ? "" : "核对目标项目源码目录及实际模块结构。",
+                route.projectPath()));
 
         boolean knowledge = route.evidenceScope().primary().availability()
                 .getOrDefault(ProjectEvidenceSourceType.DOMAIN_KNOWLEDGE, false);
         checks.add(check(
-                "DOMAIN_KNOWLEDGE_AVAILABLE", knowledge ? "PASS" : "FAIL",
+                "DOMAIN_KNOWLEDGE_AVAILABLE", knowledge ? "PASS" : "WARNING",
                 knowledge ? "业务知识已关联" : "业务知识未关联",
-                knowledge ? "project-domain-knowledge 已存在对应 projectKey。" : "咨询缺少系统业务真理来源。",
-                knowledge ? "" : "初始化或绑定正确的 project-domain-knowledge projectKey。",
-                "project-domain-knowledge/knowledge/" + route.projectKey()));
+                knowledge ? "目标项目中存在业务知识目录。" : "项目业务资料缺失，需结合源码并明确未确认项。",
+                knowledge ? "" : "核对目标项目docs/INDEX.md及docs/domain是否已拉取；缺知识不阻断源码核查。",
+                route.projectPath() + "/docs/domain"));
 
         boolean topology = route.evidenceScope().primary().availability()
                 .getOrDefault(ProjectEvidenceSourceType.CROSS_PROJECT_TOPOLOGY, false);

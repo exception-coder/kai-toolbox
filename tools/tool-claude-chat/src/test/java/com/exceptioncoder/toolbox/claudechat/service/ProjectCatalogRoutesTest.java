@@ -21,13 +21,14 @@ class ProjectCatalogRoutesTest {
         var repository = mock(ProjectRouteBindingRepository.class);
         when(repository.findAll()).thenReturn(List.of());
         var knowledge = mock(TeamToolsPathService.class);
-        when(knowledge.knowledgeProject(anyString())).thenReturn(root.resolve("knowledge"));
+        when(knowledge.knowledgeProject(anyString())).thenAnswer(call -> Path.of(call.getArgument(0, String.class)).resolve("docs/domain"));
         var business = new BusinessWorkspaceProperties();
         business.setRoot(root.resolve("missing-managed").toString());
         var service = new ProjectRouteBindingService(repository, workspaces, mock(ProjectAliasService.class),
                 new BusinessWorkspaceCatalog(), business, knowledge);
         assertThat(service.resolve("frontend").projectPath()).isEqualTo(actual.toString());
         assertThat(service.list()).hasSize(1);
+        verify(knowledge, atLeastOnce()).knowledgeProject(actual.toString());
         Path other = Files.createDirectories(root.resolve("other/frontend"));
         when(workspaces.scan()).thenReturn(snapshot(actual, other));
         assertThatThrownBy(() -> service.resolve("frontend")).hasMessageContaining("多个路由候选");

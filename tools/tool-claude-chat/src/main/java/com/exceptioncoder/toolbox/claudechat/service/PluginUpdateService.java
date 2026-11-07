@@ -69,7 +69,7 @@ public class PluginUpdateService {
     private final TeamDependencyVersionService dependencyVersionService;
 
     private static final List<String> DEPENDENCY_REPOS = List.of(
-            "cross-project-topology", "project-coding-profiles", "project-domain-knowledge",
+            "cross-project-topology", "project-coding-profiles",
             "team-standards", "yoooni-daily-plugin");
     private static final long MAX_NEW_FILE_BYTES = 2L * 1024 * 1024;
     private static final List<String> APPROVED_NEW_ROOTS = List.of(
@@ -86,11 +86,11 @@ public class PluginUpdateService {
     private static final String SYNC_STATE_FILE = ".forge-sync-state.json";
     private static final Map<String, String> GITEE_OWNERS = Map.ofEntries(
             Map.entry("cross-project-topology", "wyoooni"), Map.entry("project-coding-profiles", "wyoooni"),
-            Map.entry("project-domain-knowledge", "wyoooni"), Map.entry("team-standards", "wyoooni"),
+            Map.entry("team-standards", "wyoooni"),
             Map.entry("yoooni-daily-plugin", "wyoooni"));
     private static final Map<String, String> GITHUB_OWNERS = Map.ofEntries(
             Map.entry("cross-project-topology", "exception-coder"), Map.entry("project-coding-profiles", "exception-coder"),
-            Map.entry("project-domain-knowledge", "exception-coder"), Map.entry("team-standards", "exception-coder"),
+            Map.entry("team-standards", "exception-coder"),
             Map.entry("yoooni-daily-plugin", "exception-coder"));
 
     public PluginUpdateService(PluginUpdateProperties props, ClaudeChatProperties chatProps,
@@ -445,6 +445,7 @@ public class PluginUpdateService {
                     remote.checked(), remote.error()));
         }
         for (String name : props.getWatchedMcps()) {
+            if ("domain-knowledge".equals(name)) continue;
             boolean configured = mcpRepos.containsKey(name);
             Path repo = mcpRepos.get(name);
             String commit = null;
@@ -469,7 +470,7 @@ public class PluginUpdateService {
     private static String mcpRepositoryName(String mcpName) {
         return switch (mcpName) {
             case "cross-topology" -> "cross-project-topology";
-            case "domain-knowledge" -> "project-domain-knowledge";
+            case "domain-knowledge" -> null;
             default -> throw new IllegalArgumentException("未知团队 MCP：" + mcpName);
         };
     }
@@ -533,7 +534,7 @@ public class PluginUpdateService {
     }
 
     /**
-     * 读 ~/.claude.json 顶层 mcpServers：server 名 -> 其知识库仓根（env.DOMAIN_KB_DIR 的父目录；
+     * 读 ~/.claude.json 顶层 mcpServers：server 名 -> 其知识库仓根（env.TOPOLOGY_KB_DIR 的父目录；
      * 无该 env 则 value 为 null）。key 存在即「已配置」。
      */
     private Map<String, Path> readMcpServers(Path home) {
@@ -550,7 +551,7 @@ public class PluginUpdateService {
             Iterator<Map.Entry<String, JsonNode>> it = mcp.fields();
             while (it.hasNext()) {
                 Map.Entry<String, JsonNode> e = it.next();
-                JsonNode kb = e.getValue().path("env").path("DOMAIN_KB_DIR");
+                JsonNode kb = e.getValue().path("env").path("TOPOLOGY_KB_DIR");
                 Path repo = null;
                 if (kb.isTextual() && !kb.asText().isBlank()) {
                     repo = Path.of(kb.asText()).getParent(); // knowledge 的父目录 = 仓库根
@@ -713,8 +714,8 @@ public class PluginUpdateService {
     private void buildKnowledgeEngine(String taskId, Path workspace,
                                       Map<String, Boolean> synchronizedRepositories,
                                       List<Map<String, Object>> results) {
-        Path engineRepo = workspace.resolve("project-domain-knowledge");
-        if (!Boolean.TRUE.equals(synchronizedRepositories.get("project-domain-knowledge"))) {
+        Path engineRepo = workspace.resolve("cross-project-topology");
+        if (!Boolean.TRUE.equals(synchronizedRepositories.get("cross-project-topology"))) {
             publishSkippedStep(taskId, "mcp", "npm-install", "知识库仓库同步失败");
             publishSkippedStep(taskId, "mcp", "npm-build", "知识库仓库同步失败");
             return;
@@ -736,6 +737,7 @@ public class PluginUpdateService {
             List<Map<String, Object>> results) {
         Map<String, Boolean> synchronizedRepositories = new HashMap<>();
         for (String repository : repositories) {
+            if ("project-domain-knowledge".equals(repository) || "domain-knowledge".equals(repository)) continue;
             try {
                 String url = repoUrl(repository, source);
                 Path directory = workspace.resolve(repository).normalize();
@@ -1318,9 +1320,9 @@ public class PluginUpdateService {
     }
 
     private void installMcps(String taskId, Path codexHome, Path workspace, List<Map<String, Object>> results) {
-        Path server = workspace.resolve("project-domain-knowledge/dist/server.js").toAbsolutePath();
+        removeRetiredDomainMcp(taskId, codexHome, results);
+        Path server = workspace.resolve("cross-project-topology/dist/server.js").toAbsolutePath();
         Map<String, Path> knowledgeDirs = Map.of(
-                "domain-knowledge", workspace.resolve("project-domain-knowledge/knowledge").toAbsolutePath(),
                 "cross-topology", workspace.resolve("cross-project-topology/knowledge").toAbsolutePath());
         for (Map.Entry<String, Path> mcp : knowledgeDirs.entrySet()) {
             String name = mcp.getKey();
@@ -1329,7 +1331,7 @@ public class PluginUpdateService {
                     concat(claude, "get", name),
                     concat(claude, "remove", name, "--scope", "user"),
                     concat(claude, "add", "--scope", "user", name,
-                            "--env", "DOMAIN_KB_DIR=" + mcp.getValue(), "--",
+                            "--env", "TOPOLOGY_KB_DIR=" + mcp.getValue(), "--",
                             chatProps.getNodeCommand(), server.toString()),
                     null, results);
 
@@ -1338,9 +1340,23 @@ public class PluginUpdateService {
                     concat(codex, "mcp", "get", name, "--json"),
                     concat(codex, "mcp", "remove", name),
                     concat(codex, "mcp", "add", name,
-                            "--env", "DOMAIN_KB_DIR=" + mcp.getValue(), "--",
+                            "--env", "TOPOLOGY_KB_DIR=" + mcp.getValue(), "--",
                             chatProps.getNodeCommand(), server.toString()),
                     codexHome, results);
+        }
+    }
+
+    /** Retire only the named legacy registration; preserve user repositories and other MCPs. */
+    private void removeRetiredDomainMcp(String taskId, Path codexHome, List<Map<String, Object>> results) {
+        String name = "domain-knowledge";
+        List<String> claude = List.of(props.getClaudeBin(), "mcp");
+        if (mcpRegistrationExists(captureExitCode(taskId, "claude", name, concat(claude, "get", name), null))) {
+            results.add(runStep(taskId, "claude", "mcp-remove:" + name,
+                    concat(claude, "remove", name, "--scope", "user"), null));
+        }
+        List<String> codex = codexParts();
+        if (mcpRegistrationExists(captureExitCode(taskId, "codex", name, concat(codex, "mcp", "get", name, "--json"), codexHome))) {
+            results.add(runStep(taskId, "codex", "mcp-remove:" + name, concat(codex, "mcp", "remove", name), codexHome));
         }
     }
 
@@ -1381,7 +1397,7 @@ public class PluginUpdateService {
         return getExitCode == 0;
     }
 
-    /** 在虚拟线程同步五仓、重建知识引擎，并从固定本地工作区更新插件和 MCP。 */
+    /** 在虚拟线程同步现有团队仓库、构建独立拓扑引擎，并从固定本地工作区更新插件和 MCP。 */
     public void startUpdate(String taskId, String sessionId, String requestedSource) {
         Thread.ofVirtual().name("plugin-update-" + taskId).start(() -> {
             try {

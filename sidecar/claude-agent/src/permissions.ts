@@ -47,7 +47,6 @@ const CONSULT_READONLY_MCP_TOOLS = new Set([
   'mcp__consult-readonly__erp_standby_validate_sql',
 ])
 const CONSULT_READONLY_MCP_PREFIXES = [
-  'mcp__domain-knowledge__',
   'mcp__cross-topology__',
 ]
 /**
