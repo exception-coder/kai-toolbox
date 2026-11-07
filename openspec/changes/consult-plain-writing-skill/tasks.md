@@ -7,6 +7,17 @@
 - [x] 已提交HEAD加本次咨询改动的隔离副本41模块宿主package通过（跳过测试及前端重建，回归证据复用上项）；模块JAR与宿主嵌套JAR的Skill逐字节匹配仓库唯一源，原有schema保留。原工作区打包在并行tool-ops新增SqlConnectionPools.java处失败（DruidDataSource无getCreateError）；该任务保持不动且未纳入本次提交。
 - [ ] 用户确认更新服务后进行新咨询、连续追问和技术问题真实回答验收（本轮未重启）。
 
+## 2026-11-07 核查与业务答复强化（L2）
+
+- [x] 复用唯一Skill及既有新咨询、历史追问、冻结流程和SDK装配，补充资源失败分类、版本对应、SQL小样本/统计口径、实际操作入口和最新条件保留规则。
+- [x] 更新acceptance.md为原因、处理路径、证据缺口三项验收；用户汇总不是已读取的30会话原始记录，未填报真实模型通过。
+- [x] 模块打包、现有定向回归、Skill资源一致性与质量门禁。
+- [ ] [MANUAL_CONFIRMATION] 目标实例授权加载后使用原始案例验收；真实绑定修复、现场部署版本对应和业务知识核实需各自证据，不能以本次规则变更宣称已完成。
+
+本批只改变同仓Skill的核查和表达规则，不修改身份、资源授权、工具、SQL执行能力、API合同或历史存储。源码定位：ReadonlyResourceService以规范化目录精确匹配ProjectSystemDirectory，零匹配或多匹配会拒绝；ConsultResourceService另核对服务端焦点和冻结流程绑定。未读取用户所述纱批会话的实际配置，因此没有自动修改关联或猜选系统。源码同步结果不证明现场版本一致。未增加规则引擎或自动知识写入；整体AI编程架构的职责/证据流和交付生命周期无变化。
+
+验证：咨询模块及依赖package退出0，既有ConsultPlainWritingSkillTest、ConsultOrchestrationPipelineTest、ConsultToolAssemblyProviderTest、ConsultBackendIntegrationTest、ConsultResourceServiceTest共44项通过，无失败/跳过；模型调用使用替身，仅证明装配和合同回归。classes与模块JAR中的Skill与唯一源逐字节一致。OpenSpec严格校验、Markdown围栏和git diff --check通过。质量门禁phase all退出0且JSON PASSED，executedCheckers为空，仅运行toolbox-api-tools HTTP200探测，不能证明新规则运行或真实模型效果。无前端、依赖/宿主装配或运行配置改动，不追加全仓构建；未重启、未改业务数据、未推送。
+
 ## 2026-11-03 回复宪法强化（L2）
 
 沿用已有统一装配及任务；无权限、工具、存储、协议和架构边界变更。工作区基线b73045ba0，无已有跟踪修改，未跟踪缓存保留。Graphify查询因713MiB图超过512MiB安全上限失败，使用定向源码定位，未提高上限或重建。
