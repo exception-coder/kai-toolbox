@@ -24,3 +24,5 @@
 | 文档浏览器 | 拖入文件临时预览、Markdown 大纲与本地目录编辑 | [文档浏览器](../frontend/src/features/doc-viewer/README.md) |
 | 本机工具 | 目录整理、端口查询、终端与隧道的统一页签入口 | [本机工具](../frontend/src/features/local-tools/README.md) |
 | AI 交付中心 | 统一需求入口、项目轨道与交付证据 | [reqpool/README.md](../frontend/src/features/reqpool/README.md) |
+
+- [项目内业务知识](domain/README.md)：本项目术语、规则、状态、历史 DDL 与候选证据。

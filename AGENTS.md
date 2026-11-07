@@ -190,3 +190,7 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 
 - `README.md` — short user-facing overview
 - `docs/design/architecture.md` — full design rationale, TreeSize API/SSE contract, SQLite schema, and explicit "won't build" list. Read before adding a new tool or extending TreeSize.
+
+## 项目内业务知识
+
+从 [docs/domain/README.md](docs/domain/README.md) 查本项目术语、规则、状态与迁入资料。知识随本仓代码维护，不再要求 Domain Knowledge MCP；同主题已有设计或 OpenSpec 时只维护原正文。业务含义变化时仅更新受影响章节，Markdown 为唯一正文，YAML 保留归属与可信度；纯技术改动不强制归档。普通任务先用定向搜索、LSP 和 Git，Graphify 仅作复杂关系辅助，不因缺图阻断开发。

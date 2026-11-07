@@ -12,7 +12,7 @@
 
 [可编辑 draw.io 源文件](diagrams/ai-coding-architecture.drawio) · [SVG 矢量预览](diagrams/ai-coding-architecture.svg)。源图使用 draw.io 自带 iOS7 Icons，节点、文字、图标和连接器均可编辑；修改后从同一源图重新导出预览。
 
-图中 Agent 是理解、取舍与实施的主体，Team Standards 提供工程宪法与任务方法，Forge 在项目明确采用时提供执行控制，MCP/Hook 承担调用与事件适配。Forge 的候选上下文聚合规格与实现证据；Agent 按需查询领域知识、跨项目拓扑及其他权威来源。各来源保留事实所有权，最终实现与真实验证落在目标项目中。该图表达当前职责关系，不表示所有项目均已接入 Forge，也不将结构检查等同于业务或运行正确。
+图中 Agent 是理解、取舍与实施的主体，Team Standards 提供工程宪法与任务方法，Forge 在项目明确采用时提供执行控制，MCP/Hook 承担调用与事件适配。Forge 的候选上下文聚合规格与实现证据；Agent 优先从目标项目的 docs/INDEX.md 与 docs/domain 查领域知识，跨项目连接按需查询独立 cross-topology 服务。Domain Knowledge 集中服务退役；业务正文只在所属项目维护，跨项目只引用。各来源保留事实所有权，最终实现与真实验证落在目标项目中。该图表达当前职责关系，不表示所有项目均已接入 Forge，也不将结构检查等同于业务或运行正确。
 
 ### Vibe Coding 运行分层与附加能力
 
