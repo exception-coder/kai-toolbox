@@ -25,4 +25,4 @@
 | 本机工具 | 目录整理、端口查询、终端与隧道的统一页签入口 | [本机工具](../frontend/src/features/local-tools/README.md) |
 | AI 交付中心 | 统一需求入口、项目轨道与交付证据 | [reqpool/README.md](../frontend/src/features/reqpool/README.md) |
 
-- [项目内业务知识](domain/README.md)：本项目术语、规则、状态、历史 DDL 与候选证据。
+- [业务知识与全景图](domain/README.md)：主要能力、需求/会话/证据关系、draw.io 全景图、待确认项及历史业务资料。

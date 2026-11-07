@@ -1,0 +1,164 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" agent="Team Standards">
+  <diagram id="forge-business-panorama" name="Forge业务全景">
+    <mxGraphModel dx="1600" dy="1020" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1020" background="#FFFFFF" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="eyebrow" value="FORGE  /  业务全景" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontColor=#2563EB;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="60" y="36" width="950" height="30" />
+        </mxCell>
+        <mxCell id="status-bg" value="" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;absoluteArcSize=1;arcSize=24;fillColor=#FFFBEB;strokeColor=none;strokeWidth=2;">
+          <mxGeometry as="geometry" x="1290" y="34" width="250" height="36" />
+        </mxCell>
+        <mxCell id="status" value="业务关系归纳 · 待确认" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=17;fontColor=#B45309;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="1290" y="35" width="250" height="34" />
+        </mxCell>
+        <mxCell id="title" value="围绕项目，把需求推进到可核对的交付" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=40;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="60" y="86" width="1480" height="65" />
+        </mxCell>
+        <mxCell id="subtitle" value="手机上发起与跟进，电脑上深入处理；项目、需求、会话与证据保持关联" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=23;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="60" y="161" width="1480" height="40" />
+        </mxCell>
+        <mxCell id="flow-label" value="常见开发路径" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontColor=#2563EB;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="60" y="226" width="850" height="30" />
+        </mxCell>
+        <mxCell id="project-group" value="" style="group;" vertex="1" connectable="0" parent="1">
+          <mxGeometry as="geometry" x="60.0" y="304.0" width="240" height="250" />
+        </mxCell>
+        <mxCell id="project" value="" vertex="1" parent="project-group" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;absoluteArcSize=1;arcSize=24;fillColor=#EFF6FF;strokeColor=none;strokeWidth=2;">
+          <mxGeometry as="geometry" x="0.0" y="0.0" width="240" height="250" />
+        </mxCell>
+        <mxCell id="project-icon" value="" vertex="1" parent="project-group" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.cube;fillColor=none;strokeColor=#2563EB;strokeWidth=2;">
+          <mxGeometry as="geometry" x="24.0" y="28.0" width="44" height="44" />
+        </mxCell>
+        <mxCell id="project-title" value="项目库" vertex="1" parent="project-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=27;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="24.0" y="87.0" width="195" height="38" />
+        </mxCell>
+        <mxCell id="project-body" value="选择项目与目录&#10;找到文档和代码&#10;进入项目工作区" vertex="1" parent="project-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=20;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="24.0" y="135.0" width="200" height="88" />
+        </mxCell>
+        <mxCell id="requirement-group" value="" style="group;" vertex="1" connectable="0" parent="1">
+          <mxGeometry as="geometry" x="350.0" y="304.0" width="280" height="250" />
+        </mxCell>
+        <mxCell id="requirement" value="" vertex="1" parent="requirement-group" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;absoluteArcSize=1;arcSize=24;fillColor=#F5F3FF;strokeColor=none;strokeWidth=2;">
+          <mxGeometry as="geometry" x="0.0" y="0.0" width="280" height="250" />
+        </mxCell>
+        <mxCell id="requirement-icon" value="" vertex="1" parent="requirement-group" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.documents;fillColor=none;strokeColor=#7C3AED;strokeWidth=2;">
+          <mxGeometry as="geometry" x="26.0" y="28.0" width="44" height="44" />
+        </mxCell>
+        <mxCell id="requirement-title" value="需求与澄清" vertex="1" parent="requirement-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=27;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="26.0" y="87.0" width="230" height="38" />
+        </mxCell>
+        <mxCell id="requirement-body" value="登记目标与约束&#10;明确负责人和优先级&#10;关联 PRD 与执行轨道" vertex="1" parent="requirement-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=20;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="26.0" y="135.0" width="232" height="88" />
+        </mxCell>
+        <mxCell id="coding-group" value="" style="group;" vertex="1" connectable="0" parent="1">
+          <mxGeometry as="geometry" x="680.0" y="274.0" width="390" height="310" />
+        </mxCell>
+        <mxCell id="coding" value="" vertex="1" parent="coding-group" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;absoluteArcSize=1;arcSize=24;fillColor=#2563EB;strokeColor=none;strokeWidth=2;">
+          <mxGeometry as="geometry" x="0.0" y="0.0" width="390" height="310" />
+        </mxCell>
+        <mxCell id="coding-icon" value="" vertex="1" parent="coding-group" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.tools;fillColor=none;strokeColor=#FFFFFF;strokeWidth=2;">
+          <mxGeometry as="geometry" x="36.0" y="35.0" width="58" height="58" />
+        </mxCell>
+        <mxCell id="coding-title" value="Vibe Coding" vertex="1" parent="coding-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=32;fontColor=#FFFFFF;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="36.0" y="115.0" width="320" height="45" />
+        </mxCell>
+        <mxCell id="coding-body" value="多引擎开发会话&#10;消息排队与任务续接&#10;暂停 · 恢复 · 预算控制" vertex="1" parent="coding-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=22;fontColor=#FFFFFF;fontStyle=0;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="36.0" y="174.0" width="320" height="98" />
+        </mxCell>
+        <mxCell id="delivery-group" value="" style="group;" vertex="1" connectable="0" parent="1">
+          <mxGeometry as="geometry" x="1120.0" y="304.0" width="420" height="250" />
+        </mxCell>
+        <mxCell id="delivery" value="" vertex="1" parent="delivery-group" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;absoluteArcSize=1;arcSize=24;fillColor=#ECFDF5;strokeColor=none;strokeWidth=2;">
+          <mxGeometry as="geometry" x="0.0" y="0.0" width="420" height="250" />
+        </mxCell>
+        <mxCell id="delivery-icon" value="" vertex="1" parent="delivery-group" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.documents;fillColor=none;strokeColor=#0D9488;strokeWidth=2;">
+          <mxGeometry as="geometry" x="28.0" y="28.0" width="44" height="44" />
+        </mxCell>
+        <mxCell id="delivery-title" value="交付证据与复核" vertex="1" parent="delivery-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=27;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="28.0" y="87.0" width="360" height="38" />
+        </mxCell>
+        <mxCell id="delivery-body" value="查看代码差异、文档和预览&#10;核对测试与运行证据&#10;反馈后继续处理原需求" vertex="1" parent="delivery-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=20;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="28.0" y="135.0" width="360" height="88" />
+        </mxCell>
+        <mxCell id="project-to-requirement" edge="1" parent="1" source="project" target="requirement" style="edgeStyle=orthogonalEdgeStyle;rounded=0;endArrow=block;endFill=1;strokeColor=#94A3B8;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="requirement-to-coding" edge="1" parent="1" source="requirement" target="coding" style="edgeStyle=orthogonalEdgeStyle;rounded=0;endArrow=block;endFill=1;strokeColor=#94A3B8;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="coding-to-delivery" edge="1" parent="1" source="coding" target="delivery" style="edgeStyle=orthogonalEdgeStyle;rounded=0;endArrow=block;endFill=1;strokeColor=#94A3B8;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="flow-note" value="小改可直接进入开发会话；登记、代码提交与运行验收分别核对。" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=19;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="60" y="596" width="1480" height="32" />
+        </mxCell>
+        <mxCell id="support-label" value="按需独立使用" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontColor=#0D9488;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="60" y="657" width="1480" height="30" />
+        </mxCell>
+        <mxCell id="consult-group" value="" style="group;" vertex="1" connectable="0" parent="1">
+          <mxGeometry as="geometry" x="60.0" y="703.0" width="690" height="160" />
+        </mxCell>
+        <mxCell id="consult" value="" vertex="1" parent="consult-group" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;absoluteArcSize=1;arcSize=24;fillColor=#F0FDFA;strokeColor=none;strokeWidth=2;">
+          <mxGeometry as="geometry" x="0.0" y="0.0" width="690" height="160" />
+        </mxCell>
+        <mxCell id="consult-icon" value="" vertex="1" parent="consult-group" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.chat;fillColor=none;strokeColor=#0D9488;strokeWidth=2;">
+          <mxGeometry as="geometry" x="25.0" y="28.0" width="44" height="44" />
+        </mxCell>
+        <mxCell id="consult-title" value="业务咨询｜只读证据入口" vertex="1" parent="consult-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=26;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="92.0" y="20.0" width="560" height="39" />
+        </mxCell>
+        <mxCell id="consult-body" value="提问定位系统 → 查项目资料与受控资源&#10;返回回答、引用和证据缺口" vertex="1" parent="consult-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=21;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="92.0" y="75.0" width="550" height="63" />
+        </mxCell>
+        <mxCell id="agents-group" value="" style="group;" vertex="1" connectable="0" parent="1">
+          <mxGeometry as="geometry" x="780.0" y="703.0" width="360" height="160" />
+        </mxCell>
+        <mxCell id="agents" value="" vertex="1" parent="agents-group" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;absoluteArcSize=1;arcSize=24;fillColor=#F5F3FF;strokeColor=none;strokeWidth=2;">
+          <mxGeometry as="geometry" x="0.0" y="0.0" width="360" height="160" />
+        </mxCell>
+        <mxCell id="agents-icon" value="" vertex="1" parent="agents-group" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.cube;fillColor=none;strokeColor=#7C3AED;strokeWidth=2;">
+          <mxGeometry as="geometry" x="23.0" y="26.0" width="40" height="40" />
+        </mxCell>
+        <mxCell id="agents-title" value="Agent 管理" vertex="1" parent="agents-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=25;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="80.0" y="23.0" width="255" height="38" />
+        </mxCell>
+        <mxCell id="agents-body" value="配置与版本 · 题集与评测&#10;评测结果不等于发布许可" vertex="1" parent="agents-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=19;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="25.0" y="87.0" width="310" height="54" />
+        </mxCell>
+        <mxCell id="utilities-group" value="" style="group;" vertex="1" connectable="0" parent="1">
+          <mxGeometry as="geometry" x="1170.0" y="703.0" width="370" height="160" />
+        </mxCell>
+        <mxCell id="utilities" value="" vertex="1" parent="utilities-group" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;absoluteArcSize=1;arcSize=24;fillColor=#F8FAFC;strokeColor=none;strokeWidth=2;">
+          <mxGeometry as="geometry" x="0.0" y="0.0" width="370" height="160" />
+        </mxCell>
+        <mxCell id="utilities-icon" value="" vertex="1" parent="utilities-group" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.tools;fillColor=none;strokeColor=#66758B;strokeWidth=2;">
+          <mxGeometry as="geometry" x="23.0" y="26.0" width="40" height="40" />
+        </mxCell>
+        <mxCell id="utilities-title" value="开发与辅助工具" vertex="1" parent="utilities-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=25;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="80.0" y="23.0" width="270" height="38" />
+        </mxCell>
+        <mxCell id="utilities-body" value="服务管理 · 文档与页面预览&#10;内容处理 · 本机工具" vertex="1" parent="utilities-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=19;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="25.0" y="87.0" width="325" height="54" />
+        </mxCell>
+        <mxCell id="knowledge-group" value="" style="group;" vertex="1" connectable="0" parent="1">
+          <mxGeometry as="geometry" x="60.0" y="899.0" width="1480" height="60" />
+        </mxCell>
+        <mxCell id="knowledge" value="" vertex="1" parent="knowledge-group" style="fontFamily=Microsoft YaHei,Arial;html=0;rounded=1;absoluteArcSize=1;arcSize=24;fillColor=#EFF6FF;strokeColor=none;strokeWidth=2;">
+          <mxGeometry as="geometry" x="0.0" y="0.0" width="1480" height="60" />
+        </mxCell>
+        <mxCell id="knowledge-icon" value="" vertex="1" parent="knowledge-group" style="fontFamily=Microsoft YaHei,Arial;html=0;shape=mxgraph.ios7.icons.book;fillColor=none;strokeColor=#2563EB;strokeWidth=2;">
+          <mxGeometry as="geometry" x="22.0" y="13.0" width="32" height="32" />
+        </mxCell>
+        <mxCell id="knowledge-text" value="知识留在项目：Markdown / YAML ＋ draw.io 图件；从源码和实际结果核对依据" vertex="1" parent="knowledge-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=22;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="73.0" y="10.0" width="1370" height="40" />
+        </mxCell>
+        <mxCell id="footer" value="2026-11-07  ·  依据项目文档与源码整理，部署状态与业务完成口径待确认  ·  详见 docs/domain/README.md" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=17;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
+          <mxGeometry as="geometry" x="60" y="979" width="1480" height="27" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

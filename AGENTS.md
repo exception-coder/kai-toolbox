@@ -194,3 +194,5 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 ## 项目内业务知识
 
 从 [docs/domain/README.md](docs/domain/README.md) 查本项目术语、规则、状态与迁入资料。知识随本仓代码维护，不再要求 Domain Knowledge MCP；同主题已有设计或 OpenSpec 时只维护原正文。业务含义变化时仅更新受影响章节，Markdown 为唯一正文，YAML 保留归属与可信度；纯技术改动不强制归档。普通任务先用定向搜索、LSP 和 Git，Graphify 仅作复杂关系辅助，不因缺图阻断开发。
+
+业务概览与全景图统一维护在 [docs/domain/README.md](docs/domain/README.md)。主要能力或流程变化时，同次更新受影响正文、`docs/diagrams/Forge业务全景图.drawio` 与同源预览；代码归纳保留依据并标待确认，不把源码存在当作部署或验收完成。

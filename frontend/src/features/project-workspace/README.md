@@ -55,4 +55,4 @@ Graphify 名称查询和跨项目拓扑通过已有 `LocalProjectResolver` 读�
 
 新接口为 `GET /api/project-registry/{id}/topology` 和 `POST /api/project-registry/{id}/topology/explore`，启动参数为 `{ engine, scope, projectIds }`，引擎支持 Codex / Claude。所有探索结果均为代码推断，不代表已确认业务规则、实际调用或真实 DDL。
 
-只读 MCP `consult-readonly.knowledge_query` 用 `source=domain/topology/all`、`action`、`arguments` 统一查询已有知识，返回各来源的结果或可恢复错误。先用 `list_projects` 获取知识库 key，再检索；候选和继承查询由原知识引擎负责。两个旧 MCP 名称、知识库内容和评审版本约束保留，不自动晋升候选，也不支持重载或写入。
+当前源码的只读入口 `consult-readonly.knowledge_query` 用顶层 `project` 选择 `source_projects` 返回的授权项目候选，`source=domain` 从该项目的 `docs/INDEX.md`、`docs/domain/` 和 `openspec/specs/` 读取 Markdown/YAML 原文；按返回的相对路径读取，不使用旧公共知识库 key 或解析继承。`source=topology` 仍按需调用独立关系服务；不可用时返回缺口，不恢复公共知识仓。原文保留可信度，历史快照不代表当前 DDL；参考 [知识入口](../../../../sidecar/claude-agent/src/knowledgeQuery.ts) 和 [项目文件读取](../../../../sidecar/claude-agent/src/projectKnowledge.ts)。此处描述源码行为，当前服务是否已加载仍需运行验证。
