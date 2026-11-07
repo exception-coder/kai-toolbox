@@ -14,6 +14,8 @@
 
 图中 Agent 是理解、取舍与实施的主体，Team Standards 提供工程宪法与任务方法，Forge 在项目明确采用时提供执行控制，MCP/Hook 承担调用与事件适配。Forge 的候选上下文聚合规格与实现证据；Agent 优先从目标项目的 docs/INDEX.md 与 docs/domain 查领域知识，跨项目连接按需查询独立 cross-topology 服务。Domain Knowledge 集中服务退役；业务正文只在所属项目维护，跨项目只引用。各来源保留事实所有权，最终实现与真实验证落在目标项目中。该图表达当前职责关系，不表示所有项目均已接入 Forge，也不将结构检查等同于业务或运行正确。
 
+Team Standards 5.6.0 的项目初始化默认由 Agent 复用已有业务文档，从关键代码补齐主要能力、流程与规则，标注依据和待确认项，并维护一张 draw.io 全景图及同源预览。结构脚本只补入口；后续业务语义变化时原位维护正文与图。该默认行为属于 Skill，Forge 内置初始化和业务咨询的旧公共知识仓依赖仍需单独适配，不能以 Skill 升级代替运行验收。
+
 ### Vibe Coding 运行分层与附加能力
 
 [可编辑双页 draw.io](diagrams/ForgeVibeCoding运行架构.drawio) · [运行分层预览](diagrams/ForgeVibeCoding运行架构-运行分层.png) · [附加能力预览](diagrams/ForgeVibeCoding运行架构-附加能力.png)。这是 2026-11-03 的源码视图，补充上图的运行分层，不代表所有功能均已加载到在线进程。预览由 draw.io Desktop 从同一源图导出；图元、文字和连接器保留原生 XML。
