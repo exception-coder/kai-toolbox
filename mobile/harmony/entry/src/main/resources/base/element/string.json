@@ -1,0 +1,1 @@
+{ "string": [{ "name": "app_name", "value": "Forge" }, { "name": "microphone_reason", "value": "仅在你主动开启 Forge 语音时使用麦克风" }, { "name": "camera_reason", "value": "仅在你主动选择拍照上传时打开相机" }] }

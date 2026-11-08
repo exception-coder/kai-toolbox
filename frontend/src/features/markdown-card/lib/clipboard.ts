@@ -1,7 +1,13 @@
 import { captureNode } from './exporter'
+import { copyNativeImage, hasNativeMobile } from '@/lib/nativeMobile'
 
 /** Start clipboard.write in the click stack; rendering resolves its PNG representation later. */
 export async function copyCardImage(nodes: HTMLElement[]): Promise<void> {
+  if (hasNativeMobile()) {
+    if (!nodes.length) throw new Error('卡片渲染器未就绪，请稍后重试。')
+    await copyNativeImage(await renderImage(nodes))
+    return
+  }
   if (typeof ClipboardItem === 'undefined' || typeof navigator.clipboard?.write !== 'function') {
     throw new Error('当前浏览器不支持复制图片，请使用 HTTPS 下的 Chrome、Edge 或 Safari。')
   }

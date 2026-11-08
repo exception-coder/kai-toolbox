@@ -17,7 +17,7 @@
         <mxCell id="title" value="围绕项目，把需求推进到可核对的交付" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=40;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="60" y="86" width="1480" height="65" />
         </mxCell>
-        <mxCell id="subtitle" value="手机上发起与跟进，电脑上深入处理；项目、需求、会话与证据保持关联" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=23;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
+        <mxCell id="subtitle" value="手机网页 / Android / 鸿蒙共用工作台；Android 已打包，鸿蒙待 SDK 与签名，两端待真机验收" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=23;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="60" y="161" width="1480" height="40" />
         </mxCell>
         <mxCell id="flow-label" value="常见开发路径" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontColor=#2563EB;fontStyle=1;whiteSpace=wrap;spacing=0;">
@@ -155,7 +155,7 @@
         <mxCell id="knowledge-text" value="知识留在项目：Markdown / YAML ＋ draw.io 图件；从源码和实际结果核对依据" vertex="1" parent="knowledge-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=22;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="73.0" y="10.0" width="1370" height="40" />
         </mxCell>
-        <mxCell id="footer" value="2026-11-07  ·  依据项目文档与源码整理，部署状态与业务完成口径待确认  ·  详见 docs/domain/README.md" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=17;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
+        <mxCell id="footer" value="2026-11-08  ·  原生客户端：Android 内测包已验签；Mate 60 鸿蒙尚未交付 HAP  ·  详见 docs/domain/README.md" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=17;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="60" y="979" width="1480" height="27" />
         </mxCell>
       </root>

@@ -1,0 +1,43 @@
+plugins { id 'com.android.application' }
+def mobile = new groovy.json.JsonSlurper().parse(file('../../forge-mobile.json'))
+def origin = new URI(mobile.origin)
+if (origin.scheme != 'https' || !origin.host || origin.rawUserInfo || origin.rawQuery || origin.rawFragment || !(origin.path in ['', '/'])) {
+    throw new GradleException('Forge mobile origin must be one HTTPS origin without credentials, path or query')
+}
+if (!(mobile.startPath ==~ /\/tools\/[A-Za-z0-9_\-\/]+/)) { throw new GradleException('Invalid Forge workspace startPath') }
+android {
+    namespace 'com.exceptioncoder.forge.mobile'
+    compileSdk 36
+    defaultConfig {
+        applicationId mobile.applicationId
+        minSdk 26
+        targetSdk 36
+        versionCode mobile.versionCode
+        versionName mobile.versionName
+        buildConfigField 'String', 'FORGE_ORIGIN', groovy.json.JsonOutput.toJson(mobile.origin.replaceAll('/$', ''))
+        buildConfigField 'String', 'FORGE_PATH', groovy.json.JsonOutput.toJson(mobile.startPath)
+    }
+    buildFeatures { buildConfig true }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_21; targetCompatibility JavaVersion.VERSION_21 }
+    signingConfigs {
+        release {
+            if (System.getenv('FORGE_ANDROID_KEYSTORE')) {
+                storeFile file(System.getenv('FORGE_ANDROID_KEYSTORE'))
+                storePassword System.getenv('FORGE_ANDROID_STORE_PASSWORD')
+                keyAlias System.getenv('FORGE_ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('FORGE_ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes { release { minifyEnabled false; signingConfig signingConfigs.release } }
+}
+gradle.taskGraph.whenReady { graph ->
+    if (graph.allTasks.any { it.name == 'packageRelease' } &&
+        !['FORGE_ANDROID_KEYSTORE', 'FORGE_ANDROID_STORE_PASSWORD', 'FORGE_ANDROID_KEY_ALIAS', 'FORGE_ANDROID_KEY_PASSWORD'].every { System.getenv(it) }) {
+        throw new GradleException('Release signing is incomplete. Configure FORGE_ANDROID_* privately; no unsigned release is delivered.')
+    }
+}
+dependencies {
+    implementation 'androidx.webkit:webkit:1.14.0'
+    implementation 'androidx.core:core:1.16.0'
+}

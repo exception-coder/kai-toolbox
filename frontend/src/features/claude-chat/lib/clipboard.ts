@@ -1,5 +1,11 @@
+import { callNativeMobile, hasNativeMobile } from '@/lib/nativeMobile'
+
 /** Rich paste carries an outline-preserving text alternative; unsupported browsers explicitly fall back. */
 export async function copyRichTextToClipboard(text: string, html: string): Promise<'rich' | 'readable'> {
+  if (hasNativeMobile()) {
+    await copyTextToClipboard(text)
+    return 'readable'
+  }
   try {
     if (typeof ClipboardItem === 'undefined' || typeof navigator.clipboard?.write !== 'function') throw new Error('Rich clipboard unavailable')
     await navigator.clipboard.write([new ClipboardItem({
@@ -15,6 +21,10 @@ export async function copyRichTextToClipboard(text: string, html: string): Promi
 
 /** 回复与轮次详情共用的剪贴板写入；旧浏览器保留原降级路径。 */
 export async function copyTextToClipboard(text: string): Promise<void> {
+  if (hasNativeMobile()) {
+    await callNativeMobile('copyText', { text })
+    return
+  }
   try {
     await navigator.clipboard.writeText(text)
     return

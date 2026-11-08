@@ -1,5 +1,6 @@
 import { buildFilename, captureNode } from './exporter'
 import type { Mode } from '../types'
+import { hasNativeMobile, shareNativeImages } from '@/lib/nativeMobile'
 
 /** Prepare all pages without downloading; the later click retains native share activation. */
 export async function prepareCardImages(nodes: HTMLElement[], mode: Mode, onProgress: (message: string) => void): Promise<File[]> {
@@ -16,6 +17,7 @@ export async function prepareCardImages(nodes: HTMLElement[], mode: Mode, onProg
 }
 
 export function canShareImages(files: File[]): boolean {
+  if (hasNativeMobile()) return files.length > 0 && files.length <= 8 && files.every(file => file.type === 'image/png' && file.size > 0 && file.size <= 8 * 1024 * 1024)
   if (!files.length || typeof navigator === 'undefined' || typeof navigator.share !== 'function'
     || typeof navigator.canShare !== 'function') return false
   try { return navigator.canShare({ files }) } catch { return false }
@@ -23,6 +25,7 @@ export function canShareImages(files: File[]): boolean {
 
 /** Call directly in the click handler, before any asynchronous rendering or file reads. */
 export async function shareCardImages(files: File[]): Promise<'handed-off' | 'cancelled'> {
+  if (hasNativeMobile()) return shareNativeImages(files)
   if (!canShareImages(files)) throw new Error('当前浏览器无法分享这些图片，可换手机浏览器或使用保存 PNG')
   try {
     await navigator.share({ files, title: 'Markdown 卡片' })

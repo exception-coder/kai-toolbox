@@ -1,0 +1,8 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "forge-mobile",
+  "version": "0.1.0",
+  "description": "Forge HarmonyOS native client",
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -1,0 +1,19 @@
+android/.gradle/
+android/local.properties
+android/**/build/
+harmony/.hvigor/
+harmony/oh_modules/
+harmony/**/oh_modules/
+harmony/**/build/
+harmony/local.properties
+harmony/build-profile.local.json5
+harmony/build-profile.json5
+*.jks
+*.keystore
+*.p12
+*.p7b
+*.cer
+dist/
+
+# Only the pinned, checksum-verified Gradle bootstrap JAR is a source asset.
+!/android/gradle/wrapper/gradle-wrapper.jar

@@ -10,6 +10,7 @@ beforeEach(() => {
   write.mockReset(); execute.mockReset()
 })
 afterEach(() => {
+  delete window.ForgeNative
   document.body.replaceChildren(); window.getSelection()?.removeAllRanges()
   vi.unstubAllGlobals()
   if (originalCommand) Object.defineProperty(document, 'execCommand', originalCommand)
@@ -72,4 +73,16 @@ it('falls back to readable text when rich write is rejected, and reports failure
   expect(write).toHaveBeenCalledWith('易读正文')
   write.mockRejectedValueOnce(new Error('denied')); execute.mockReturnValueOnce(false)
   await expect(copyRichTextToClipboard('保留正文', '<p>保留正文</p>')).rejects.toThrow()
+})
+
+it('uses the mobile host and never replays a denied native copy through browser clipboard APIs', async () => {
+  const postMessage = vi.fn((raw: string) => {
+    const request = JSON.parse(raw)
+    window.ForgeNative!.onmessage!({ data: JSON.stringify({ id: request.id, ok: false, error: '系统拒绝复制' }) })
+  })
+  window.ForgeNative = { postMessage }
+  await expect(copyTextToClipboard('保持大纲')).rejects.toThrow('系统拒绝复制')
+  expect(postMessage).toHaveBeenCalledOnce()
+  expect(write).not.toHaveBeenCalled()
+  expect(execute).not.toHaveBeenCalled()
 })
