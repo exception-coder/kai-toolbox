@@ -5,12 +5,12 @@
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-rows: auto;
     align-items: end;
-    min-height: 48px;
+    min-height: 54px;
     margin: 4px 12px;
-    padding: 2px 4px;
+    padding: 4px;
     gap: 0;
     border: 1px solid var(--color-border);
-    border-radius: 24px;
+    border-radius: 27px;
   }
   .cc-inline-composer .cc-composer-voice[hidden] { display: none; }
   .cc-inline-composer .cc-composer-tools { display: contents; }
@@ -33,6 +33,15 @@
   .cc-inline-composer .cc-composer-voice button,
   .cc-inline-composer .cc-composer-send,
   .cc-inline-composer .cc-composer-send button { min-width: 44px; min-height: 44px; }
+  /* 圆形操作面与胶囊内弧相切，保留 44px 触控区，避免方角越出边界。 */
+  .mobile-composer-card.cc-inline-composer > button.cc-composer-send {
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    margin: 0;
+    border-radius: 50%;
+  }
   .cc-inline-composer .cc-composer-voice > div { height: auto; min-height: 44px; }
   .cc-inline-composer .cc-composer-voice [role='alert'] { display: block; overflow-wrap: anywhere; }
   .mobile-composer-card.cc-inline-composer[data-expanded='true'] { display: grid; border-radius: 12px; }
