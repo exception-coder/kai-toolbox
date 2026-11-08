@@ -1,5 +1,21 @@
 # 内容工具
 
+## Markdown 图床
+
+入口 `/tools/content-tools?tool=image-host`。支持多套阿里云 OSS、GitHub、S3 兼容存储配置（包括使用兼容协议的 S3、R2、MinIO）。腾讯 COS、七牛、又拍、兰空和 WebDAV 是其他常见服务，目前没有专用适配器。
+
+先新增图床、填写目标并保存，再粘贴截图、拖入或选择图片，点击“上传到…”进行实际上传。每批最多5张，单张10MiB，支持 PNG/JPEG/GIF/WebP。成功后可复制 Markdown 或图片地址；最近30次回执在服务端保留，可在刷新后找回。保存配置不发起上传，首次验证可使用一张非敏感测试图片。目录会自动追加年月和唯一请求编号，不使用本地文件路径。
+
+OSS / S3 分别填写上传 Endpoint、Region、Bucket、AccessKey，以及同事实际读取的 HTTPS 图片地址。R2 的 Region 可填 `auto`，MinIO 按部署选择路径式寻址。默认仅向 OSS、AWS S3、R2 官方域名上传；MinIO 或其他自定义服务需管理员在服务端 `toolbox.doc-viewer.image-host.allowed-custom-hosts` 放行受信的精确主机名，仍需 HTTPS 和正常证书。GitHub 填 `owner/repo`、已有分支和限定仓库 Contents 写权限 Token；默认生成 raw.githubusercontent.com 地址，也可填写已配置好的读域名。私有仓库不能保证外部 Markdown 阅读器可读。
+
+配置按登录账号隔离，AccessKey 与 Secret/Token 通过现有凭据端口加密保存，不回传明文；编辑时留空保留，切换图床类型须重新填写。删除配置不删除远端图片。不要使用会过期的签名链接作为长期图片地址，不要将凭据填入 URL。存储桶与读权限由使用者在存储服务端管理，Forge 不会自动公开图片。
+
+网络失败或超时标记为“结果待核对”，不假定远端未写入、不自动重传。先按显示的对象路径在存储端核对；同请求编号只允许同一配置和图片内容，已成功时返回原回执。
+
+新增配置也使用稳定请求编号，保存回执丢失后可继续保存而不重复创建。浏览器只在 sessionStorage 记住编号，不保存 AccessKey、Secret 或 Token，成功或明确取消后清除。
+
+源码、隔离测试和运行验收状态见 [图床任务](../../../../openspec/changes/add-markdown-image-hosting/tasks.md)。本能力需要后端加载新版本；真实存储账号上传、同事端可读性及真机验证尚未执行。
+
 入口 `/tools/content-tools` 将 Markdown 转卡片、图片打码、加解密工具、二维码工具和格式化工具集中到一个模块。页签切换保留本次页面会话的输入与结果；刷新页面仍遵循各工具原有保存策略。
 
 旧 `/tools/markdown-card`、`/tools/image-mosaic`、`/tools/crypto`、`/tools/qrcode`、`/tools/formatter` 链接跳转到对应页签，并保留其他查询参数及片段。已有菜单偏好由 shell 的 `replacesMenus` 机制迁移。

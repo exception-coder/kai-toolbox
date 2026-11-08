@@ -140,7 +140,7 @@
         <mxCell id="utilities-title" value="开发与辅助工具" vertex="1" parent="utilities-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=25;fontColor=#14213D;fontStyle=1;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="80.0" y="23.0" width="270" height="38" />
         </mxCell>
-        <mxCell id="utilities-body" value="服务管理 · 文档与页面预览&#10;内容处理 · 本机工具" vertex="1" parent="utilities-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=19;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
+        <mxCell id="utilities-body" value="服务管理 · 文档与页面预览&#10;内容处理 / 图床* · 本机工具" vertex="1" parent="utilities-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=19;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="25.0" y="87.0" width="325" height="54" />
         </mxCell>
         <mxCell id="knowledge-group" value="" style="group;" vertex="1" connectable="0" parent="1">
@@ -155,7 +155,7 @@
         <mxCell id="knowledge-text" value="知识留在项目：Markdown / YAML ＋ draw.io 图件；从源码和实际结果核对依据" vertex="1" parent="knowledge-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=22;fontColor=#14213D;fontStyle=0;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="73.0" y="10.0" width="1370" height="40" />
         </mxCell>
-        <mxCell id="footer" value="2026-11-08  ·  原生客户端：Android 内测包已验签；Mate 60 鸿蒙尚未交付 HAP  ·  详见 docs/domain/README.md" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=17;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
+        <mxCell id="footer" value="2026-11-08  ·  原生客户端：Android 已验签，鸿蒙待交付  ·  * 图床：源码已实现，真实存储待验收" vertex="1" parent="1" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=17;fontColor=#66758B;fontStyle=0;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="60" y="979" width="1480" height="27" />
         </mxCell>
       </root>

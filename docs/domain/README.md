@@ -26,7 +26,7 @@ Forge 把项目、需求、AI 会话和交付证据放在同一个工作台，�
 | 手机原生客户端（Android 已打包／鸿蒙待 SDK 与签名，均未真机验收） | Android WebView／鸿蒙 ArkWeb 复用同一工作台，接入系统文件选择、复制及卡片分享；主机继续执行 Agent | [手机客户端工程与状态](../../mobile/README.md) |
 | 业务系统咨询 | 根据问题定位业务系统，从授权项目和受控资源读取依据，保存回答与引用 | [咨询说明](../../tools/tool-fore-consult/README.md) |
 | Agent 管理与评测 | 管理 Agent 配置、版本、题集及评测结果，查看历史对比 | [Agent 管理](../../frontend/src/features/agent-management/README.md) |
-| 项目开发与辅助工具 | 管理开发服务；按需预览文档和页面、处理内容、使用本机工具 | [项目开发](../../frontend/src/features/project-development/README.md)、[文档预览](../../frontend/src/features/doc-viewer/README.md)、[本机工具](../../frontend/src/features/local-tools/README.md) |
+| 项目开发与辅助工具 | 管理开发服务；按需预览文档和页面、处理内容、使用本机工具。新增 Markdown 图床配置与上传源码，真实存储与读者访问待验收 | [项目开发](../../frontend/src/features/project-development/README.md)、[文档预览](../../frontend/src/features/doc-viewer/README.md)、[内容工具与图床](../../frontend/src/features/content-tools/README.md)、[本机工具](../../frontend/src/features/local-tools/README.md) |
 
 ## 业务对象与关键边界
 

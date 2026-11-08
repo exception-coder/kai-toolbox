@@ -6,4 +6,5 @@ export const contentTools = [
   { id: 'crypto', name: '加解密工具', component: lazy(() => import('@/features/crypto/public-api').then(m => ({ default: m.CryptoPage }))) },
   { id: 'qrcode', name: '二维码工具', component: lazy(() => import('@/features/qrcode/public-api').then(m => ({ default: m.QrcodePage }))) },
   { id: 'formatter', name: '格式化工具', component: lazy(() => import('@/features/formatter/public-api').then(m => ({ default: m.FormatterPage }))) },
+  { id: 'image-host', name: '图床', component: lazy(() => import('./image-host/ImageHostPage').then(m => ({ default: m.ImageHostPage }))) },
 ]
