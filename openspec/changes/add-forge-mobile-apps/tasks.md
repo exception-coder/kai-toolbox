@@ -27,3 +27,9 @@
 - 鸿蒙 SDK／Hvigor／设备签名仍未提供，HAP 尚未生成；Android 与 Mate 60 真机安装、权限、键盘、图片复制及社交应用分享仍未执行。没有擅自重启服务或隧道。
 - 最终 Android 内测包约 2.39MB，`aapt2` 核对包名 com.exceptioncoder.forge.mobile、版本 0.1.0／1、min SDK 26、target SDK 36 及 MainActivity；复用原 Forge 图标后增量构建成功，8 个任务实际执行／27 个复用，apksigner 再次通过。SHA256：b56d2781193418dd0b0665e8d09e050ed8a60b91c3e351966262a0d3fc4be038。
 - 最终配置安全测试为 5 项：补查了现有 DevEco 签名文件不被覆盖、私有 JSON 格式错误不输出原内容。末次类型检查通过。鸿蒙 build 复核仍退出 1 并明确缺 SDK，未伪造或交付 unsigned HAP。
+
+## 队列复核与线上版本
+
+- 2026-11-08 10:38:28 至 10:40:17（北京时间）复核既有自动发布：前端版本 `64c36f5d448d7e141b5e959e` 对应源码提交 `86a73e16ff0e08a598c3a73bfea6235038f49e03`，公网工作台两次 HTTP 200、版本一致；原生桥接脚本 HTTP 200 且包含协议回执事件。前端日志确认发布成功，服务进程保持运行。
+- 观察超过 60 秒，backend／frontend／studio 的 PID 分别保持 21492／157436／121428，均 online、ready，重启次数保持 0。本次没有触发服务重启；该证据只证明网页版本发布与服务稳定，不代表原生设备验收。
+- doctor 再次确认 Android SDK／Wrapper 可用，鸿蒙 SDK／Hvigor／私有签名均未配置；未重复构建 Android。华为官方下载入口需要账号登录，仍需本机提供 DevEco／SDK 路径及包含 Mate 60 的设备调试签名。Android APK 不代替鸿蒙 HAP，双端任务保持未完成。
