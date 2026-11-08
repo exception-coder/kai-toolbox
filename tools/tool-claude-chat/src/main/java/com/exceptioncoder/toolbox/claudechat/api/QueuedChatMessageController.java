@@ -67,6 +67,13 @@ public class QueuedChatMessageController {
         return ResponseEntity.accepted().build();
     }
 
+    @PostMapping("/{messageId}/pause")
+    public ResponseEntity<Void> pause(@PathVariable String sessionId, @PathVariable String messageId) {
+        requireAccess(sessionId);
+        chat.pauseQueuedMessage(sessionId, messageId);
+        return ResponseEntity.accepted().build();
+    }
+
     @DeleteMapping("/{messageId}")
     public ResponseEntity<Void> delete(@PathVariable String sessionId, @PathVariable String messageId) {
         requireAccess(sessionId);

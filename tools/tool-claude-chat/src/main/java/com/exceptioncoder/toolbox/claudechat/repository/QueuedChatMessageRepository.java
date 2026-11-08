@@ -63,11 +63,12 @@ public class QueuedChatMessageRepository {
     }
 
     public void upsert(QueuedChatMessage message) {
-        jdbc.update("""
+        int changed = jdbc.update("""
                 INSERT INTO claude_chat_queued_message
                     (id, session_id, text, display_text, developer_instructions, attachments_json, created_at,
                      server_context)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                WHERE NOT EXISTS (SELECT 1 FROM claude_chat_queue_retirement WHERE session_id=? AND message_id=?)
                 ON CONFLICT(id) DO UPDATE SET
                     session_id = excluded.session_id,
                     text = excluded.text,
@@ -78,10 +79,14 @@ public class QueuedChatMessageRepository {
                 """,
                 message.id(), message.sessionId(), message.text(), message.displayText(),
                 message.developerInstructions(), writeAttachments(message.attachments()), message.createdAt(),
-                message.serverContext());
+                message.serverContext(), message.sessionId(), message.id());
+        if (changed == 0) throw new IllegalStateException("此队列消息已撤回，不能恢复；请使用新消息重新登记");
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public boolean delete(String sessionId, String messageId) {
+        jdbc.update("INSERT OR IGNORE INTO claude_chat_queue_retirement(session_id,message_id,retired_at) VALUES(?,?,?)",
+                sessionId, messageId, System.currentTimeMillis());
         return jdbc.update("DELETE FROM claude_chat_queued_message WHERE session_id = ? AND id = ?",
                 sessionId, messageId) > 0;
     }

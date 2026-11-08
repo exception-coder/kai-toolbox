@@ -233,6 +233,14 @@ CREATE TABLE IF NOT EXISTS claude_chat_queued_message (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_queued_message_session
     ON claude_chat_queued_message(session_id, created_at);
 
+-- 用户删除的消息 ID 保留撤回证据，防止旧客户端请求重新登记。
+CREATE TABLE IF NOT EXISTS claude_chat_queue_retirement (
+    session_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    retired_at INTEGER NOT NULL,
+    PRIMARY KEY (session_id, message_id)
+);
+
 -- 会话附件二进制落磁盘，本表只保存安全元数据和服务端内部存储路径。
 CREATE TABLE IF NOT EXISTS claude_chat_attachment (
     id            TEXT PRIMARY KEY,

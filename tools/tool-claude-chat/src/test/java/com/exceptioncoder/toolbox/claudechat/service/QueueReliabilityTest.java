@@ -132,18 +132,22 @@ class QueueReliabilityTest {
         assertThat(sends()).isZero();
     }
 
-    @Test void uncertainOrDifferentNativeTurnNeverDeletesOrStopsNewWork() throws Exception {
+    @Test void unknownNativeStateStillPersistsWithdrawalWithoutStoppingOtherWork() throws Exception {
         store.begin("s", "t1", "q1", "epoch");
-        assertThatThrownBy(() -> chat.cancelQueuedMessage("s", "q1", true)).isInstanceOf(IllegalStateException.class);
+        chat.cancelQueuedMessage("s", "q1", true);
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("user_cancelled");
+        assertThat(store.beginCheck("s", store.runtime("s").orElseThrow(), "late-check", "epoch")).isFalse();
         var other = (com.fasterxml.jackson.databind.node.ObjectNode) snapshot("null");
         other.put("active", true).put("activeTurnId", "new-turn"); state(other);
-        assertThatThrownBy(() -> chat.cancelQueuedMessage("s", "q1", true)).isInstanceOf(IllegalStateException.class);
+        chat.cancelQueuedMessage("s", "q1", true);
         verify(dep(SidecarClient.class), never()).interrupt(anyString(), anyString());
-        assertThat(queue.findBySessionId("s")).hasSize(2);
-        assertThat(store.delivery("s")).isPresent();
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
+        assertThat(store.delivery("s")).isEmpty();
+        assertThatThrownBy(() -> enqueue("q1", 1)).isInstanceOf(IllegalStateException.class).hasMessageContaining("已撤回");
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
         // 普通待发项删除不终止当前执行项。
         chat.cancelQueuedMessage("s", "q2", true);
-        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q1");
+        assertThat(queue.findBySessionId("s")).isEmpty();
     }
 
     @Test void stateQueryDoesNotHoldSessionLockAndRechecksTheTurnAfterRpc() throws Exception {
@@ -154,24 +158,39 @@ class QueueReliabilityTest {
             Thread receiver = Thread.ofVirtual().start(() -> { synchronized (ctx) { acquired.set(true); } });
             receiver.join(1000);
             assertThat(acquired).isTrue();
-            store.beginCheck("s", store.runtime("s").orElseThrow(), "new-check", "epoch");
+            assertThat(store.beginCheck("s", store.runtime("s").orElseThrow(), "new-check", "epoch")).isFalse();
+            store.begin("s", "new-turn", null, "epoch");
             return Optional.of(snapshot("null"));
         });
-        assertThatThrownBy(() -> chat.cancelQueuedMessage("s", "q1", true))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining("任务已变化");
-        assertThat(queue.findBySessionId("s")).hasSize(2);
+        chat.cancelQueuedMessage("s", "q1", true);
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
+        assertThat(store.runtime("s").orElseThrow().turnId()).isEqualTo("new-turn");
         verify(dep(SidecarClient.class), never()).interrupt(anyString(), anyString());
     }
 
-    @Test void undeliveredInterruptPreservesTheDispatchAndBothMessages() throws Exception {
+    @Test void undeliveredInterruptDoesNotUndoTheDurableWithdrawal() throws Exception {
         store.begin("s", "t1", "q1", "epoch");
         var active = (com.fasterxml.jackson.databind.node.ObjectNode) snapshot("null");
         active.put("active", true).put("activeTurnId", "t1"); state(active);
-        assertThatThrownBy(() -> chat.cancelQueuedMessage("s", "q1", true))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining("未送达");
+        chat.cancelQueuedMessage("s", "q1", true);
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
+        assertThat(store.delivery("s")).isEmpty();
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("user_cancelled");
+    }
+
+    @Test void pausedCheckSurvivesLateResultsAndBackendRecoveryWithoutSending() throws Exception {
+        store.begin("s", "check", "q1", "epoch");
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        chat.pauseQueuedMessage("s", "q1");
+        assertThat(dep(QueuedChatMessageService.class).list("s").getFirst().deliveryState()).isEqualTo("PAUSED");
+        assertThat(store.beginCheck("s", store.runtime("s").orElseThrow(), "late", "epoch")).isFalse();
+        assertThat(store.accepted("s", "check")).isFalse();
+        ReflectionTestUtils.invokeMethod(chat, "onResult", ctx, mapper.readTree("{\"turnId\":\"check\",\"stopReason\":\"end_turn\",\"queueReleaseSafe\":true}"));
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("user_paused");
+        chat.stopRecovery(); createChat(); state(snapshot(completed("check", "end_turn")));
+        chat.reconcileQueue("s"); chat.reconcileQueue("s");
         assertThat(queue.findBySessionId("s")).hasSize(2);
-        assertThat(store.delivery("s")).isPresent();
-        assertThat(store.runtime("s").orElseThrow().stopReason()).isNull();
+        assertThat(sends()).isZero();
     }
 
     @Test void bulkClearKeepsUnseenMessagesAndDoesNotInterruptAnUnrelatedManualTurn() {
@@ -181,6 +200,8 @@ class QueueReliabilityTest {
         assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("new");
         assertThat(store.runtime("s").orElseThrow().stopReason()).isNull();
         verify(dep(SidecarClient.class), never()).interrupt(anyString(), anyString());
+        verify(dep(org.springframework.context.ApplicationEventPublisher.class), atLeastOnce()).publishEvent(
+                new com.exceptioncoder.toolbox.claudechat.service.autopilot.SessionManualInputEvent("s", "QUEUE_CANCEL"));
         assertThat(sends()).isZero();
     }
 

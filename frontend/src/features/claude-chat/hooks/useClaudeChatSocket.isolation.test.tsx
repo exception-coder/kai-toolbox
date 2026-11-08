@@ -7,7 +7,7 @@ import type { ChatItem, ServerMessage } from '../types'
 
 const api = vi.hoisted(() => ({
   loadMessages: vi.fn(), listQueuedMessages: vi.fn().mockResolvedValue([]), requestSessionCopy: vi.fn(),
-  stopQueuedMessage: vi.fn(), deleteQueuedMessage: vi.fn(), clearQueuedMessages: vi.fn(),
+  stopQueuedMessage: vi.fn(), pauseQueuedMessage: vi.fn(), deleteQueuedMessage: vi.fn(), clearQueuedMessages: vi.fn(),
 }))
 vi.mock('../api', () => ({ ...api, loadPublicReviewMessages: vi.fn(), saveQueuedMessage: vi.fn() }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ token: 'test-login' }), getToken: () => 'test-login',
@@ -48,6 +48,38 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('Codex 会话参数恢复', () => {
+  it('暂停核对仅调用暂停接口并保留队首，不发送或删除消息', async () => {
+    const current = { id: 'pause-head', sessionId: 'a', text: 'keep task', createdAt: 1, deliveryState: 'CHECKING' }
+    api.listQueuedMessages.mockResolvedValueOnce([current])
+    api.pauseQueuedMessage.mockResolvedValue(undefined)
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    act(() => { TestSocket.sockets[0].open(); TestSocket.sockets[0].receive(ready('a')) })
+    await waitFor(() => expect(result.current.queued).toHaveLength(1))
+    api.listQueuedMessages.mockResolvedValueOnce([{ ...current, deliveryState: 'PAUSED' }])
+    await act(async () => { await result.current.pauseQueued('pause-head') })
+    expect(api.pauseQueuedMessage).toHaveBeenCalledWith('a', 'pause-head')
+    expect(result.current.queued[0].deliveryState).toBe('PAUSED')
+    expect(result.current.queuePausedReason).toContain('暂停')
+    expect(api.deleteQueuedMessage).not.toHaveBeenCalled()
+    expect(api.stopQueuedMessage).not.toHaveBeenCalled()
+    expect(TestSocket.sockets[0].send.mock.calls.map(([value]) => JSON.parse(value)).filter(message => message.type === 'send')).toEqual([])
+  })
+  it('删除成功后迟到的队列快照不能把同一消息恢复到页面', async () => {
+    const stale = [{ id: 'deleted', sessionId: 'a', text: 'do not restore', createdAt: 1 }]
+    api.listQueuedMessages.mockResolvedValue(stale)
+    api.deleteQueuedMessage.mockResolvedValue(undefined)
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    act(() => { TestSocket.sockets[0].open(); TestSocket.sockets[0].receive(ready('a')) })
+    await waitFor(() => expect(result.current.queued).toHaveLength(1))
+    await act(async () => { await result.current.removeQueued('deleted') })
+    expect(result.current.queued).toEqual([])
+    expect(api.deleteQueuedMessage).toHaveBeenCalledWith('a', 'deleted')
+    api.listQueuedMessages.mockResolvedValue([])
+  })
   it('刷新回放旧标准速度时不覆盖已保存的快速设置，连续刷新仍恢复快速', async () => {
     let savedSpeed: 'default' | 'fast' = 'fast'
     for (let refresh = 0; refresh < 2; refresh++) {

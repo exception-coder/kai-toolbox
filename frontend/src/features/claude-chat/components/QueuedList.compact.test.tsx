@@ -79,3 +79,19 @@ it('keeps cancelled work paused and offers sending only when the session can sen
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
   expect(onSendNow).toHaveBeenCalledExactlyOnceWith('next')
 })
+
+it('pauses checks without invoking stop, delete or send', async () => {
+  const onPause = vi.fn(), onStop = vi.fn(), onRemove = vi.fn(), onSendNow = vi.fn()
+  const view = render(<ConfirmProvider><QueuedList compact items={[message('head', 'CHECKING')]} onPause={onPause}
+    onStop={onStop} onRemove={onRemove} onSendNow={onSendNow} onClear={vi.fn()} /></ConfirmProvider>)
+  fireEvent.click(screen.getByRole('button', { name: '暂停核对' }))
+  expect(onPause).toHaveBeenCalledExactlyOnceWith('head')
+  await waitFor(() => expect(screen.getByRole('button', { name: '暂停核对' })).toBeEnabled())
+  view.rerender(<ConfirmProvider><QueuedList compact items={[message('head', 'PAUSED')]} onPause={onPause}
+    onStop={onStop} onRemove={onRemove} onSendNow={onSendNow} onClear={vi.fn()} /></ConfirmProvider>)
+  expect(screen.queryByRole('button', { name: '暂停核对' })).not.toBeInTheDocument()
+  expect(screen.getByText('已暂停自动执行与完成核对')).toBeInTheDocument()
+  expect(onStop).not.toHaveBeenCalled()
+  expect(onRemove).not.toHaveBeenCalled()
+  expect(onSendNow).not.toHaveBeenCalled()
+})

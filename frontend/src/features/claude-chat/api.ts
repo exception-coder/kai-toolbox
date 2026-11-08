@@ -715,7 +715,7 @@ export async function submitPublicReviewFeedback(token: string, content: string,
   return response.json() as Promise<{ id: string; status: string; createdAt: number }>
 }
 
-export type ReviewTodoStatus = 'WAITING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'EXCEPTION' | 'SUPERSEDED'
+export type ReviewTodoStatus = 'WAITING' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'EXCEPTION' | 'SUPERSEDED' | 'PAUSED' | 'CANCELLED'
 export interface PublicReviewTodo {
   id: string; title: string; content: string; status: ReviewTodoStatus; note: string | null; updatedAt: number
 }
@@ -1149,6 +1149,10 @@ export function deleteQueuedMessage(sessionId: string, messageId: string): Promi
 
 export function stopQueuedMessage(sessionId: string, messageId: string): Promise<void> {
   return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}/stop`, { method: 'POST' })
+}
+
+export function pauseQueuedMessage(sessionId: string, messageId: string): Promise<void> {
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}/pause`, { method: 'POST' })
 }
 
 export function clearQueuedMessages(sessionId: string, messageIds?: string[]): Promise<void> {

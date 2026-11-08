@@ -121,6 +121,17 @@ class ReviewTodoServiceTest {
         assertThatThrownBy(() -> service.publicList("expired")).hasMessageContaining("失效");
     }
 
+    @Test void deletingApprovedQueueDoesNotRestoreTasksToWaiting() {
+        submit(requirement("first", 1));
+        service.approve("source", selections(service.list("source")), false);
+        var message = queue.list("source").getFirst();
+        queue.delete("source", message.id());
+        assertThat(tasks.list("source")).allMatch(task -> "CANCELLED".equals(task.status()));
+        assertThatThrownBy(() -> queue.save("source", message.id(), message.text(), null, null, List.of(), 1L))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("已撤回");
+        assertThat(queue.list("source")).isEmpty();
+    }
+
     @Test void rollsBackAllTasksAndQueueMessagesWhenLaterQueueWriteFails() {
         submit(requirement("first", 1), requirement("second", 1));
         var failingQueue = mock(QueuedChatMessageService.class);

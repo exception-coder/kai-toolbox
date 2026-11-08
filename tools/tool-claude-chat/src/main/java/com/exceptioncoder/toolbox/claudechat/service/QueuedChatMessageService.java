@@ -43,7 +43,10 @@ public class QueuedChatMessageService {
         if (deliveryStore == null) return messages;
         var delivery = deliveryStore.delivery(sessionId);
         var runtime = deliveryStore.runtime(sessionId).orElse(null);
-        return messages.stream().map(m -> delivery.filter(d -> d.messageId().equals(m.id()))
+        return messages.stream().map(m -> runtime != null && "user_paused".equals(runtime.stopReason())
+                && !messages.isEmpty() && messages.getFirst().id().equals(m.id())
+                ? m.withDelivery("PAUSED", "自动执行与完成核对已暂停；原生任务未终止，可终止或删除")
+                : delivery.filter(d -> d.messageId().equals(m.id()))
                 .map(d -> {
                     if (runtime != null && runtime.checking()) {
                         String note = runtime.checkAttempts() >= 3 && runtime.stopReason() != null

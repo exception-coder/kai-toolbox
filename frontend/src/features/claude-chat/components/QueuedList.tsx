@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Clock, Send, Square, X } from 'lucide-react'
+import { AlertTriangle, Clock, Pause, Send, Square, X } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { QueuedMessage } from '../hooks/useClaudeChatSocket'
 import { cn } from '@/lib/utils'
@@ -8,13 +8,14 @@ import { cn } from '@/lib/utils'
  * 待发送队列：回答执行中排队的消息，本轮结束后按序自动发出。
  * 桌面输入区与移动端详情抽屉共用，可逐条移除或一键清空。空队列不渲染。
  */
-export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemove, onStop, onClear, className, compact = false }: {
+export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemove, onStop, onPause, onClear, className, compact = false }: {
   items: QueuedMessage[]
   pausedReason?: string | null
   canSendNow?: boolean
   onSendNow: (id: string) => void
   onRemove: (id: string) => void
   onStop?: (id: string) => void
+  onPause?: (id: string) => void
   onClear: () => void
   className?: string
   compact?: boolean
@@ -52,13 +53,20 @@ export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemov
               )}
             </div>
             <div className="ml-auto flex flex-wrap items-center gap-1">
+            {i === 0 && onPause && q.deliveryState && !['PAUSED', 'CANCELLED'].includes(q.deliveryState) && (
+              <button type="button" disabled={busy} onClick={() => { void perform(() => onPause(q.id)) }}
+                title="暂停自动执行与完成核对，保留当前任务；不会终止原生执行"
+                className="inline-flex min-h-11 items-center gap-1 rounded px-2 text-xs hover:bg-[var(--color-accent)]">
+                <Pause className="size-3" />暂停核对
+              </button>
+            )}
             {i === 0 && onStop && q.deliveryState && q.deliveryState !== 'CANCELLED' && (
               <button type="button" disabled={busy} onClick={() => { void perform(() => onStop(q.id)) }} title="终止当前任务和自动追问，保留其余消息"
                 className="inline-flex min-h-11 items-center gap-1 rounded px-2 text-xs text-[var(--color-destructive)] hover:bg-[var(--color-accent)]">
                 <Square className="size-3" />终止询问
               </button>
             )}
-            {i === 0 && (canSendNow || ['BLOCKED', 'UNKNOWN', 'FAILED', 'CANCELLED'].includes(q.deliveryState ?? '')) && !['ACCEPTED', 'DISPATCHING', 'CHECKING'].includes(q.deliveryState ?? '') && (
+            {i === 0 && (canSendNow || ['BLOCKED', 'UNKNOWN', 'FAILED', 'CANCELLED', 'PAUSED'].includes(q.deliveryState ?? '')) && !['ACCEPTED', 'DISPATCHING', 'CHECKING'].includes(q.deliveryState ?? '') && (
               <button
                 type="button"
                 onClick={() => { void perform(() => onSendNow(q.id)) }}
@@ -88,6 +96,7 @@ export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemov
 }
 
 export function queueDeliveryLabel(state?: string) {
+  if (state === 'PAUSED') return '已暂停自动执行与完成核对'
   if (!state) return '待发送'
   if (state === 'DISPATCHING') return '发送中'
   if (state === 'ACCEPTED') return '已接收 · 执行中'

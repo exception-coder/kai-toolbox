@@ -16,12 +16,23 @@ Forge SHALL offer stop and delete actions for the pinned executing or blocked qu
 
 ### Requirement: Cancellation targets the original turn
 
-Forge SHALL verify the selected message and native turn before interrupting active work. Unknown state, failed interrupt delivery or a different active turn SHALL preserve the item and report failure. Late success SHALL NOT release the cancelled queue.
+Forge SHALL persist automation withdrawal before querying native state and verify the selected native turn before interrupting active work. Unknown state, failed interrupt delivery or a different active turn SHALL preserve native runtime evidence and report termination as unconfirmed, without restoring automated checks. Late success SHALL NOT release the cancelled queue.
 
 #### Scenario: New turn owns the engine
 
 - **WHEN** an old queue action encounters a different active turn
-- **THEN** the new turn is not interrupted and the item is retained with an error
+- **THEN** the new turn is not interrupted, withdrawal stays persisted and native termination is reported as unconfirmed
+
+### Requirement: Pause and deletion survive stale requests
+Forge SHALL persist explicit user pause without terminating the native turn, project paused or cancelled queue tasks without resetting them to waiting, and prevent a deleted message ID from being restored by stale requests or list responses.
+
+#### Scenario: Completion arrives while paused
+- **WHEN** a native completion or acceptance arrives after pausing
+- **THEN** the original native outcome remains observable but automated dispatch and completion checks remain paused until explicit user confirmation and idle admission
+
+#### Scenario: A stale client registers a deleted message
+- **WHEN** a previously deleted message ID is submitted again or appears in a late list response
+- **THEN** it is not restored to the queue or current client list and its linked task is not reset to waiting
 
 ### Requirement: Explicit queue recovery
 

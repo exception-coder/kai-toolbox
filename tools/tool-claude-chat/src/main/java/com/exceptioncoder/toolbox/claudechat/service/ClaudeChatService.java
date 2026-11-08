@@ -1958,6 +1958,10 @@ public class ClaudeChatService {
             stopReason = "interrupted";
             queueReleaseSafe = false;
         }
+        if (queueDelivery.runtime(ctx.sessionId).filter(r -> r.turnId().equals(turnId)
+                && "user_paused".equals(r.stopReason())).isPresent()) {
+            queueReleaseSafe = false;
+        }
         if (ctx.consultAccountPlan != null) {
             if (SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason)) commitConsultAccount(ctx);
             consultRuntime.settled(ctx.sessionId, turnId, stopReason);
@@ -2100,7 +2104,7 @@ public class ClaudeChatService {
         if (ctx == null || !sidecar.isConnected()) return;
         var expected = queueDelivery.runtime(id).orElse(null);
         if (expected == null) return; // 旧会话没有完成凭据，不能把数据库 IDLE 当作可续发。
-        if ("user_cancelled".equals(expected.stopReason()) && !expected.ready()) return;
+        if (Set.of("user_cancelled", "user_paused").contains(Objects.toString(expected.stopReason(), "")) && !expected.ready()) return;
         JsonNode snapshot = sidecar.querySessionState(id, expected.turnId(),
                 SessionRuntimeStateService.SIDECAR_QUERY_TIMEOUT_MS).orElse(null);
         if (snapshot == null || snapshot.path("queueReceiptProtocol").asInt() != 1) return;
@@ -2189,7 +2193,8 @@ public class ClaudeChatService {
 
     private void startCompletionCheck(SessionCtx ctx, QueueDeliveryStore.Runtime expected) {
         // 明确停止、待授权、监督专用消息不被完成追问隐式恢复。
-        if ("interrupted".equals(expected.stopReason()) || "user_cancelled".equals(expected.stopReason()) || isConsultReadonly(ctx)
+        if ("interrupted".equals(expected.stopReason()) || "user_cancelled".equals(expected.stopReason())
+                || "user_paused".equals(expected.stopReason()) || isConsultReadonly(ctx)
                 || queueDelivery.delivery(ctx.sessionId).filter(d -> d.messageId().startsWith("autopilot:")).isPresent()
                 || !planStateService.writable(ctx.sessionId)) return;
         if (expected.checkAttempts() >= 3) {
@@ -2229,13 +2234,7 @@ public class ClaudeChatService {
     public void cancelQueuedMessage(String id, String messageId, boolean remove) {
         SessionCtx ctx = restoreQueueContext(id);
         if (ctx == null) throw new IllegalArgumentException("会话不存在");
-        var expected = queueDelivery.runtime(id).orElse(null);
-        var selected = queuedMessages.list(id).stream().filter(m -> m.id().equals(messageId)).findFirst();
-        if (selected.isEmpty()) return;
-        // RPC 等待必须在会话锁外，避免 Sidecar 接收线程被更早的终态事件堵住。
-        var snapshot = selected.get().deliveryState() != null && !"CANCELLED".equals(selected.get().deliveryState())
-                ? sidecar.querySessionState(id, expected == null ? null : expected.turnId(),
-                        SessionRuntimeStateService.SIDECAR_QUERY_TIMEOUT_MS).orElse(null) : null;
+        String cancelledTurn = null;
         synchronized (ctx) {
             var messages = queuedMessages.list(id);
             var message = messages.stream().filter(m -> m.id().equals(messageId)).findFirst();
@@ -2248,32 +2247,59 @@ public class ClaudeChatService {
                         || (delivery == null && messages.getFirst().id().equals(messageId)
                             && message.get().deliveryState() != null));
             if (controlsTurn) {
-                if (!runtime.equals(expected) || snapshot == null) {
-                    throw new IllegalStateException("任务已变化或无法核对引擎状态，终止未确认，消息已保留；请刷新后重试");
-                }
-                boolean active = snapshot.path("active").asBoolean() || snapshot.path("pendingDecision").asBoolean();
-                if ((!active && snapshot.path("backgroundTaskCount").asInt() > 0)
-                        || (active && !runtime.turnId().equals(snapshot.path("activeTurnId").asText()))) {
-                    throw new IllegalStateException("当前引擎已切换任务或仍有后台任务，请先核对会话，消息已保留");
-                }
-                if (active) {
-                    if (!sidecar.interrupt(id, runtime.turnId())) throw new IllegalStateException("终止请求未送达，消息已保留，请重试");
-                    turnLifecycle.adopt(id, runtime.turnId());
-                    ctx.status = SessionStatus.RUNNING;
-                    turnLifecycle.requestInterrupt(id, runtime.turnId(),
-                            () -> queryInterruptedTurn(ctx, runtime.turnId()), () -> queryInterruptedTurn(ctx, runtime.turnId()));
-                    sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "requested", true, ctx.pendingRequest != null));
-                }
+                cancelledTurn = runtime.turnId();
+                // 先撤回自动化意图，查询超时不能导致下一次巡检继续追问。
                 queueDelivery.cancelByUser(id, runtime.turnId());
-                applicationEvents.publishEvent(new SessionManualInputEvent(id, "QUEUE_CANCEL"));
                 ctx.queueReleaseReady = false;
-                if (!active) {
-                    turnLifecycle.clear(id);
-                    ctx.status = SessionStatus.IDLE;
-                    repo.updateStatus(id, ctx.status);
-                }
             }
             if (remove) queuedMessages.delete(id, messageId);
+            applicationEvents.publishEvent(new SessionManualInputEvent(id, "QUEUE_CANCEL"));
+            sendToBrowser(ctx, seq -> ready(ctx, seq));
+        }
+        if (cancelledTurn == null) return;
+        String turn = cancelledTurn;
+        var snapshot = sidecar.querySessionState(id, turn, SessionRuntimeStateService.SIDECAR_QUERY_TIMEOUT_MS).orElse(null);
+        synchronized (ctx) {
+            if (queueDelivery.runtime(id).filter(r -> r.turnId().equals(turn) && "user_cancelled".equals(r.stopReason())).isEmpty()) return;
+            if (snapshot == null || snapshot.path("backgroundTaskCount").asInt() > 0
+                    || ((snapshot.path("active").asBoolean() || snapshot.path("pendingDecision").asBoolean())
+                        && !turn.equals(snapshot.path("activeTurnId").asText()))) {
+                sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "QUEUE_CANCEL_PENDING",
+                        "自动执行与完成核对已撤回；原生任务终止尚未确认，请在会话控制核对运行状态。"));
+                return;
+            }
+            if (snapshot.path("active").asBoolean() || snapshot.path("pendingDecision").asBoolean()) {
+                if (sidecar.interrupt(id, turn)) {
+                    turnLifecycle.adopt(id, turn);
+                    ctx.status = SessionStatus.RUNNING;
+                    turnLifecycle.requestInterrupt(id, turn, () -> queryInterruptedTurn(ctx, turn), () -> queryInterruptedTurn(ctx, turn));
+                    sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "requested", true, ctx.pendingRequest != null));
+                } else sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "QUEUE_CANCEL_PENDING", "自动核对已撤回，原生终止请求未送达，请重试停止任务。"));
+            } else {
+                turnLifecycle.clear(id);
+                ctx.status = SessionStatus.IDLE;
+                repo.updateStatus(id, ctx.status);
+                observeRuntimeState(ctx);
+                sendToBrowser(ctx, seq -> ready(ctx, seq));
+            }
+        }
+    }
+
+    /** 暂停自动调度与核对，不声称停止原生执行，也不丢弃队首。 */
+    public void pauseQueuedMessage(String id, String messageId) {
+        SessionCtx ctx = restoreQueueContext(id);
+        if (ctx == null) throw new IllegalArgumentException("会话不存在");
+        synchronized (ctx) {
+            var head = queuedMessages.list(id).stream().findFirst().orElseThrow();
+            if (!head.id().equals(messageId)) throw new IllegalStateException("请从队首暂停队列");
+            var runtime = queueDelivery.runtime(id).orElseThrow(() -> new IllegalStateException("当前没有可暂停的轮次"));
+            if ("user_cancelled".equals(runtime.stopReason())) return;
+            queueDelivery.pauseByUser(id, runtime.turnId());
+            if (queueDelivery.delivery(id).isEmpty()) {
+                applicationEvents.publishEvent(new QueueTaskProgressEvent(id, messageId, "PAUSED", "用户已暂停自动执行与完成核对"));
+            }
+            ctx.queueReleaseReady = false;
+            applicationEvents.publishEvent(new SessionManualInputEvent(id, "QUEUE_PAUSE"));
             sendToBrowser(ctx, seq -> ready(ctx, seq));
         }
     }
@@ -2353,7 +2379,7 @@ public class ClaudeChatService {
     private void dispatchNextQueuedMessage(SessionCtx ctx, boolean initialAutopilotRelease) {
         synchronized (ctx) {
             if (queueDelivery.runtime(ctx.sessionId).filter(r -> !r.ready()
-                    && "user_cancelled".equals(r.stopReason())).isPresent()) return;
+                    && ("user_cancelled".equals(r.stopReason()) || "user_paused".equals(r.stopReason()))).isPresent()) return;
             boolean freshIdleAutopilot = initialAutopilotRelease && !ctx.queueReleaseReady
                     && queuedMessages.firstIsInternal(ctx.sessionId)
                     && runtimeStates.canStartTurn(ctx.sessionId).allowed();

@@ -291,7 +291,7 @@ async function refreshClaudeModels(key: string, env?: NodeJS.ProcessEnv): Promis
 }
 
 /** 单会话：持有 SDK session_id、当前轮的 AbortController、权限交互。 */
-class Session {
+export class Session {
   sdkSessionId?: string
   model?: string
   codexReasoningEffort?: CodexReasoningEffort
@@ -625,7 +625,8 @@ class Session {
    */
   async runTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
                 developerInstructions?: string, requestedTurnId?: string,
-                additionalDirectories: string[] = [], voiceCallId?: string): Promise<void> {
+                additionalDirectories: string[] = [], voiceCallId?: string,
+                prepare?: () => Promise<void>): Promise<void> {
     const turn = this.turnLifecycle.begin(requestedTurnId)
     if (!turn.accepted) {
       this.emitRaw({
@@ -643,7 +644,11 @@ class Session {
     this.perms.setAvoidDocker(developerInstructions?.includes('FORGE_SUPERVISED_NO_DOCKER=1') === true)
     this.startTurnActivity()
     try {
-      await this.executeTurn(text, systemPrompt, images, developerInstructions, additionalDirectories, voiceCallId)
+      // Claim the turn before asynchronous preparation; queue reconciliation must see it as busy.
+      if (prepare) await prepare()
+      if (!this.turnLifecycle.interrupted()) {
+        await this.executeTurn(text, systemPrompt, images, developerInstructions, additionalDirectories, voiceCallId)
+      }
     } catch (error) {
       console.error(`[sidecar] turn failed session=${this.id} turn=${turn.turnId}:`, error)
       this.emitTurn({
@@ -1771,8 +1776,8 @@ export class SessionManager {
     const restricted = s.toolPolicy === 'consult-readonly' || s.toolPolicy === 'review-only'
     const hiddenInstructions = restricted ? developerInstructions?.trim() || undefined : sessionContext?.trim() || undefined
     const safeAdditionalDirectories = restricted ? [] : additionalDirectories
-    const prepare = s.toolPolicy === 'review-only' ? this.ensureReviewDefaults(id, s) : Promise.resolve()
-    prepare.then(() => s.runTurn(text, undefined, images, hiddenInstructions, turnId, safeAdditionalDirectories, voiceCallId)).catch((e) => {
+    const prepare = s.toolPolicy === 'review-only' ? () => this.ensureReviewDefaults(id, s) : undefined
+    s.runTurn(text, undefined, images, hiddenInstructions, turnId, safeAdditionalDirectories, voiceCallId, prepare).catch((e) => {
       console.error('[sidecar] runTurn 异常（已兜住）session=' + id + ':', e)
       this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e), turnId })
       this.emit(id, { type: 'result', usage: {}, stopReason: 'error', turnId })

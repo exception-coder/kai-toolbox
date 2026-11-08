@@ -74,7 +74,7 @@ public class ReviewTodoRepository {
     }
     public void progress(String source, String message, String state, String note) {
         jdbc.update("UPDATE claude_chat_review_todo SET status=?,note=?,updated_at=?,message_id=CASE WHEN ?='WAITING' THEN NULL ELSE message_id END "
-                + "WHERE source_session_id=? AND message_id=? AND status IN ('QUEUED','RUNNING','EXCEPTION')",
+                + "WHERE source_session_id=? AND message_id=? AND status IN ('QUEUED','RUNNING','EXCEPTION','PAUSED')",
                 state, note, System.currentTimeMillis(), state, source, message);
     }
 }
