@@ -92,6 +92,98 @@ class QueueReliabilityTest {
         return "{\"sessionId\":\"s\",\"turnId\":\"" + turn + "\",\"state\":\"COMPLETED\",\"stopReason\":\"" + reason + "\",\"queueReleaseSafe\":" + reason.equals("end_turn") + "}";
     }
 
+    @Test void blockedInquiryCanBeStoppedDeletedAndStaysStoppedAfterRecovery() throws Exception {
+        store.begin("s", "previous", null, "epoch");
+        store.settle("s", "previous", "error", false);
+        for (int count = 0; count < 3; count++) store.beginCheck("s", store.runtime("s").orElseThrow(), "check" + count, "epoch");
+        var turn = store.runtime("s").orElseThrow().turnId();
+        store.markHung("s", turn);
+        state(snapshot("null"));
+        chat.cancelQueuedMessage("s", "q1", false);
+        assertThat(queue.findBySessionId("s")).hasSize(2);
+        assertThat(dep(QueuedChatMessageService.class).list("s").getFirst().deliveryState()).isEqualTo("CANCELLED");
+        assertThat(store.settle("s", turn, "end_turn", true)).isFalse();
+        chat.stopRecovery(); createChat();
+        chat.reconcileQueue("s"); chat.reconcileQueue("s");
+        assertThat(sends()).isZero();
+        chat.cancelQueuedMessage("s", "q1", true);
+        chat.cancelQueuedMessage("s", "q1", true);
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
+        assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("user_cancelled");
+        chat.requestQueueDispatch("s", "q2");
+        assertThat(sends()).isEqualTo(1);
+    }
+
+    @Test void deletingActiveHeadTargetsItsTurnAndLateSuccessDoesNotReleaseTheNextMessage() throws Exception {
+        store.begin("s", "t1", "q1", "epoch");
+        var active = (com.fasterxml.jackson.databind.node.ObjectNode) snapshot("null");
+        active.put("active", true).put("activeTurnId", "t1"); state(active);
+        when(dep(SidecarClient.class).interrupt("s", "t1")).thenReturn(true);
+        chat.cancelQueuedMessage("s", "q1", true);
+        verify(dep(SidecarClient.class)).interrupt("s", "t1");
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q2");
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        ReflectionTestUtils.invokeMethod(chat, "onResult", ctx,
+                mapper.readTree("{\"turnId\":\"t1\",\"stopReason\":\"end_turn\",\"queueReleaseSafe\":true}"));
+        state(snapshot(completed("t1", "end_turn"))); chat.reconcileQueue("s");
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isEqualTo("user_cancelled");
+        assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
+        assertThat(sends()).isZero();
+    }
+
+    @Test void uncertainOrDifferentNativeTurnNeverDeletesOrStopsNewWork() throws Exception {
+        store.begin("s", "t1", "q1", "epoch");
+        assertThatThrownBy(() -> chat.cancelQueuedMessage("s", "q1", true)).isInstanceOf(IllegalStateException.class);
+        var other = (com.fasterxml.jackson.databind.node.ObjectNode) snapshot("null");
+        other.put("active", true).put("activeTurnId", "new-turn"); state(other);
+        assertThatThrownBy(() -> chat.cancelQueuedMessage("s", "q1", true)).isInstanceOf(IllegalStateException.class);
+        verify(dep(SidecarClient.class), never()).interrupt(anyString(), anyString());
+        assertThat(queue.findBySessionId("s")).hasSize(2);
+        assertThat(store.delivery("s")).isPresent();
+        // 普通待发项删除不终止当前执行项。
+        chat.cancelQueuedMessage("s", "q2", true);
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("q1");
+    }
+
+    @Test void stateQueryDoesNotHoldSessionLockAndRechecksTheTurnAfterRpc() throws Exception {
+        store.begin("s", "t1", "q1", "epoch");
+        Object ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        var acquired = new java.util.concurrent.atomic.AtomicBoolean();
+        when(dep(SidecarClient.class).querySessionState(eq("s"), nullable(String.class), anyLong())).thenAnswer(call -> {
+            Thread receiver = Thread.ofVirtual().start(() -> { synchronized (ctx) { acquired.set(true); } });
+            receiver.join(1000);
+            assertThat(acquired).isTrue();
+            store.beginCheck("s", store.runtime("s").orElseThrow(), "new-check", "epoch");
+            return Optional.of(snapshot("null"));
+        });
+        assertThatThrownBy(() -> chat.cancelQueuedMessage("s", "q1", true))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("任务已变化");
+        assertThat(queue.findBySessionId("s")).hasSize(2);
+        verify(dep(SidecarClient.class), never()).interrupt(anyString(), anyString());
+    }
+
+    @Test void undeliveredInterruptPreservesTheDispatchAndBothMessages() throws Exception {
+        store.begin("s", "t1", "q1", "epoch");
+        var active = (com.fasterxml.jackson.databind.node.ObjectNode) snapshot("null");
+        active.put("active", true).put("activeTurnId", "t1"); state(active);
+        assertThatThrownBy(() -> chat.cancelQueuedMessage("s", "q1", true))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("未送达");
+        assertThat(queue.findBySessionId("s")).hasSize(2);
+        assertThat(store.delivery("s")).isPresent();
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isNull();
+    }
+
+    @Test void bulkClearKeepsUnseenMessagesAndDoesNotInterruptAnUnrelatedManualTurn() {
+        store.begin("s", "manual", null, "epoch");
+        enqueue("new", 3);
+        chat.clearQueuedMessages("s", List.of("q1", "q2"));
+        assertThat(queue.findBySessionId("s")).extracting(QueuedChatMessage::id).containsExactly("new");
+        assertThat(store.runtime("s").orElseThrow().stopReason()).isNull();
+        verify(dep(SidecarClient.class), never()).interrupt(anyString(), anyString());
+        assertThat(sends()).isZero();
+    }
+
     @Test void lateEnqueueAndRepeatedInspectionDispatchExactlyOneWithoutBrowser() throws Exception {
         priorSuccess(); state(snapshot("null"));
         chat.reconcileQueue("s"); chat.reconcileQueue("s");

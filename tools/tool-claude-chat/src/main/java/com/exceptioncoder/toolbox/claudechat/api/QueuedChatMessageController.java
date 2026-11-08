@@ -60,19 +60,28 @@ public class QueuedChatMessageController {
         return ResponseEntity.accepted().build();
     }
 
+    @PostMapping("/{messageId}/stop")
+    public ResponseEntity<Void> stop(@PathVariable String sessionId, @PathVariable String messageId) {
+        requireAccess(sessionId);
+        chat.cancelQueuedMessage(sessionId, messageId, false);
+        return ResponseEntity.accepted().build();
+    }
+
     @DeleteMapping("/{messageId}")
     public ResponseEntity<Void> delete(@PathVariable String sessionId, @PathVariable String messageId) {
         requireAccess(sessionId);
-        service.delete(sessionId, messageId);
+        chat.cancelQueuedMessage(sessionId, messageId, true);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping
-    public ResponseEntity<Void> clear(@PathVariable String sessionId) {
+    public ResponseEntity<Void> clear(@PathVariable String sessionId, @RequestBody(required = false) ClearRequest request) {
         requireAccess(sessionId);
-        service.clear(sessionId);
+        chat.clearQueuedMessages(sessionId, request == null ? null : request.messageIds());
         return ResponseEntity.noContent().build();
     }
+
+    public record ClearRequest(List<String> messageIds) { }
 
     public record SaveRequest(String id, String text, String displayText, String developerInstructions,
                               List<QueuedChatMessage.Attachment> attachments, Long createdAt) {

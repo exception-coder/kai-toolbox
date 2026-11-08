@@ -1147,8 +1147,14 @@ export function deleteQueuedMessage(sessionId: string, messageId: string): Promi
   })
 }
 
-export function clearQueuedMessages(sessionId: string): Promise<void> {
-  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue`, { method: 'DELETE' })
+export function stopQueuedMessage(sessionId: string, messageId: string): Promise<void> {
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}/stop`, { method: 'POST' })
+}
+
+export function clearQueuedMessages(sessionId: string, messageIds?: string[]): Promise<void> {
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue`, {
+    method: 'DELETE', body: messageIds ? JSON.stringify({ messageIds }) : undefined,
+  })
 }
 
 // ── 历史会话消息分页加载 ──────────────────────────────────────────

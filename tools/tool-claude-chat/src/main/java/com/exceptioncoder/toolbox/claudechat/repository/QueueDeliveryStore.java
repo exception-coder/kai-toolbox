@@ -112,6 +112,9 @@ public class QueueDeliveryStore {
 
     @Transactional
     public boolean settle(String sessionId, String turnId, String stopReason, boolean safe) {
+        // 用户已撤回的轮次不能被迟到的完成回执重新释放。
+        if (runtime(sessionId).filter(r -> r.turnId().equals(turnId)
+                && "user_cancelled".equals(r.stopReason())).isPresent()) return false;
         if (jdbc.update("UPDATE claude_chat_queue_runtime SET release_ready=?,stop_reason=?,updated_at=? WHERE session_id=? AND turn_id=?",
                 safe ? 1 : 0, stopReason, System.currentTimeMillis(), sessionId, turnId) != 1) return false;
         var receipt = delivery(sessionId).filter(d -> d.turnId().equals(turnId));
@@ -132,6 +135,23 @@ public class QueueDeliveryStore {
         }
         return true;
     }
+    @Transactional
+    public void cancelByUser(String sessionId, String turnId) {
+        if (jdbc.update("UPDATE claude_chat_queue_runtime SET release_ready=0,stop_reason='user_cancelled',checking=0,updated_at=? WHERE session_id=? AND turn_id=?",
+                System.currentTimeMillis(), sessionId, turnId) != 1) {
+            throw new IllegalStateException("任务已变化，请刷新后重试");
+        }
+        delivery(sessionId).filter(d -> d.turnId().equals(turnId)).ifPresent(d -> {
+            jdbc.update("DELETE FROM claude_chat_queue_delivery WHERE session_id=? AND turn_id=?", sessionId, turnId);
+            jdbc.update("DELETE FROM claude_chat_queued_message WHERE session_id=? AND id=?", sessionId, d.messageId());
+            progress(sessionId, d.messageId(), "EXCEPTION", "用户已终止当前任务，未确认完成；其余消息保留");
+        });
+    }
+
+    public void releaseCancelled(String sessionId) {
+        jdbc.update("UPDATE claude_chat_queue_runtime SET release_ready=1 WHERE session_id=? AND stop_reason='user_cancelled'", sessionId);
+    }
+
     @Transactional
     public void removePending(String sessionId, String messageId) {
         var current = delivery(sessionId).filter(d -> d.messageId().equals(messageId));

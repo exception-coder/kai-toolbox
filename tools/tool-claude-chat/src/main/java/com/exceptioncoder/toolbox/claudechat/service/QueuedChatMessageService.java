@@ -54,6 +54,8 @@ public class QueuedChatMessageService {
                     return m.withDelivery(d.status(), d.note());
                 }).orElseGet(() -> {
                     if (runtime == null || runtime.ready() || messages.isEmpty() || !messages.getFirst().id().equals(m.id())) return m;
+                    if ("user_cancelled".equals(runtime.stopReason())) return m.withDelivery("CANCELLED",
+                            "已终止自动追问，其余消息暂停；可手动发送或删除");
                     if (runtime.checkAttempts() >= 3 && runtime.stopReason() != null) return m.withDelivery("BLOCKED",
                             "当前任务连续三次追问仍未确认完成；请核对后继续队列。");
                     if (runtime.checking()) return m.withDelivery("CHECKING", "正在追问上一项任务是否完成（" + runtime.checkAttempts() + "/3）");

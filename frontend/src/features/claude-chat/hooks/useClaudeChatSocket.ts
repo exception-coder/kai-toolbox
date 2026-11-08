@@ -6,7 +6,7 @@ import type { AssistantMessageEnvelope, Attachment, BackgroundTaskInfo, Capabili
 import { useVoiceTransport } from './useVoiceTransport'
 import { isVoiceTranscriptItem, upsertVoiceTranscript } from '../lib/voiceTranscript'
 import type { VoiceTransport } from '../lib/nativeVoice'
-import { clearQueuedMessages, confirmQueueAndContinue, deleteQueuedMessage, dispatchQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage } from '../api'
+import { clearQueuedMessages, confirmQueueAndContinue, deleteQueuedMessage, dispatchQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage, stopQueuedMessage } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
 import { playNotifySound } from '../sound'
@@ -255,6 +255,7 @@ export interface UseClaudeChatSocket {
   enqueue: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string) => void
   /** 移除队列中某条 */
   removeQueued: (id: string) => void
+  stopQueued: (id: string) => void
   /** 会话确认空闲后，人工发送队首；用于恢复历史遗留的未释放消息。 */
   sendQueuedNow: (id: string) => void
   /** 清空待发送队列 */
@@ -1685,6 +1686,18 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
       })
   }, [channel, publicWithoutLogin])
+  const stopQueued = useCallback((id: string) => {
+    const sessionId = sessionIdRef.current
+    if (!sessionId || publicWithoutLogin || reviewOnlyRef.current) return
+    return stopQueuedMessage(sessionId, id)
+      .then(() => listQueuedMessages(sessionId))
+      .then(messages => {
+        if (sessionIdRef.current === sessionId) setQueued(messages.map(item => ({ ...item, ownerSessionId: item.sessionId })))
+      })
+      .catch(error => {
+        if (sessionIdRef.current === sessionId) setSyncWarning(`终止队列询问失败：${error instanceof Error ? error.message : String(error)}`)
+      })
+  }, [publicWithoutLogin])
   const removeQueued = useCallback((id: string) => {
     if (publicWithoutLogin || reviewOnlyRef.current) {
       setQueued(prev => prev.filter(q => q.id !== id))
@@ -1692,11 +1705,14 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     const sessionId = sessionIdRef.current
     if (!sessionId) return
-    void deleteQueuedMessage(sessionId, id)
-      .then(() => {
-        if (sessionIdRef.current === sessionId) setQueued(prev => prev.filter(q => q.id !== id))
+    return deleteQueuedMessage(sessionId, id)
+      .then(() => listQueuedMessages(sessionId))
+      .then(messages => {
+        if (sessionIdRef.current === sessionId) setQueued(messages.map(item => ({ ...item, ownerSessionId: item.sessionId })))
       })
-      .catch(error => setSyncWarning(`删除队列消息失败：${error instanceof Error ? error.message : String(error)}`))
+      .catch(error => {
+        if (sessionIdRef.current === sessionId) setSyncWarning(`删除队列消息失败：${error instanceof Error ? error.message : String(error)}`)
+      })
   }, [publicWithoutLogin])
   const clearQueued = useCallback(() => {
     if (publicWithoutLogin || reviewOnlyRef.current) {
@@ -1705,12 +1721,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     const sessionId = sessionIdRef.current
     if (!sessionId) return
-    void clearQueuedMessages(sessionId)
-      .then(() => {
-        if (sessionIdRef.current === sessionId) setQueued([])
+    return clearQueuedMessages(sessionId, queued.map(item => item.id))
+      .then(() => listQueuedMessages(sessionId))
+      .then(messages => {
+        if (sessionIdRef.current === sessionId) setQueued(messages.map(item => ({ ...item, ownerSessionId: item.sessionId })))
       })
-      .catch(error => setSyncWarning(`清空待发送队列失败：${error instanceof Error ? error.message : String(error)}`))
-  }, [publicWithoutLogin])
+      .catch(error => {
+        if (sessionIdRef.current === sessionId) setSyncWarning(`清空待发送队列失败：${error instanceof Error ? error.message : String(error)}`)
+      })
+  }, [publicWithoutLogin, queued])
 
   const sendQueuedNow = useCallback((id: string) => {
     const message = queued[0]
@@ -1727,8 +1746,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     manualQueueDispatchIdRef.current = id
     const request = message.deliveryState === 'BLOCKED' || message.deliveryState === 'UNKNOWN' || message.deliveryState === 'FAILED'
       ? confirmQueueAndContinue(sessionId) : dispatchQueuedMessage(sessionId, id)
-    void request
-      .catch(error => setSyncWarning(`队列消息发送失败：${error instanceof Error ? error.message : String(error)}`))
+    return request
+      .catch(error => {
+        if (sessionIdRef.current === sessionId) setSyncWarning(`队列消息发送失败：${error instanceof Error ? error.message : String(error)}`)
+      })
       .finally(() => { manualQueueDispatchIdRef.current = null })
   }, [backgroundTasks.length, pending, publicWithoutLogin, queued, running, send])
 
@@ -2059,7 +2080,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }
 
 function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {

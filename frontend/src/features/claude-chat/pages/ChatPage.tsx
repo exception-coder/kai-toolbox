@@ -2132,7 +2132,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
             queue={{ items: chat.queued,
               pausedReason: chat.queuePausedReason ?? (chat.backgroundTasks.length > 0 && chat.queued.length > 0 ? '后台作业尚未结束，待发送消息继续等待。' : null),
               canSendNow: !chat.running && !chat.pending && chat.backgroundTasks.length === 0,
-              onSendNow: chat.sendQueuedNow, onRemove: chat.removeQueued, onClear: chat.clearQueued }}
+              onSendNow: chat.sendQueuedNow, onRemove: chat.removeQueued, onStop: chat.stopQueued, onClear: chat.clearQueued }}
             voiceEnabled={chatControlMode(location.search) === 'CODE_AGENT' && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty' && !reviewOnlySession}
             voiceDisabled={planLocked || chat.state !== 'ready'} onStartVoice={() => nativeVoiceControlRef.current?.start()}
             storage={<CurrentSessionStorage session={currentSession} compact />}

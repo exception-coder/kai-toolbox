@@ -7,9 +7,9 @@ import type { ChatItem, ServerMessage } from '../types'
 
 const api = vi.hoisted(() => ({
   loadMessages: vi.fn(), listQueuedMessages: vi.fn().mockResolvedValue([]), requestSessionCopy: vi.fn(),
+  stopQueuedMessage: vi.fn(), deleteQueuedMessage: vi.fn(), clearQueuedMessages: vi.fn(),
 }))
-vi.mock('../api', () => ({ ...api, loadPublicReviewMessages: vi.fn(), clearQueuedMessages: vi.fn(),
-  deleteQueuedMessage: vi.fn(), saveQueuedMessage: vi.fn() }))
+vi.mock('../api', () => ({ ...api, loadPublicReviewMessages: vi.fn(), saveQueuedMessage: vi.fn() }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => ({ token: 'test-login' }), getToken: () => 'test-login',
   ensureFreshToken: () => Promise.resolve(), emitSessionExpired: vi.fn(), logout: vi.fn(), probeAuth: vi.fn() }))
 vi.mock('@/lib/vibeEntryDiagnostics', () => ({ reportVibeEntry: vi.fn() }))
@@ -461,5 +461,23 @@ describe('会话消息隔离', () => {
     act(() => socket.receive(ready('c')))
     await waitFor(() => expect(result.current.items).toEqual(page('c').items))
     expect(result.current.sessionId).toBe('c')
+  })
+
+  it('终止队列询问只请求原会话，切换后的迟到失败不污染当前会话', async () => {
+    let rejectStop!: (reason: Error) => void
+    api.stopQueuedMessage.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectStop = reject }))
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive(ready('a')) })
+    act(() => { result.current.stopQueued('head-a') })
+    expect(api.stopQueuedMessage).toHaveBeenCalledExactlyOnceWith('a', 'head-a')
+    act(() => result.current.switchTo('b'))
+    act(() => socket.receive(ready('b')))
+    await act(async () => { rejectStop(new Error('原会话已断开')) })
+    expect(result.current.sessionId).toBe('b')
+    expect(result.current.syncWarning).toBeNull()
+    expect(socket.send.mock.calls.map(([value]) => JSON.parse(value)).filter(message => message.type === 'send')).toEqual([])
   })
 })
