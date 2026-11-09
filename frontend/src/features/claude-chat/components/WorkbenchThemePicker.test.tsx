@@ -5,15 +5,23 @@ import { useState } from 'react'
 import { useWorkbenchPageTheme, useWorkbenchTheme, readWorkbenchTheme, readWorkbenchMaterialStrength, setWorkbenchTheme, WORKBENCH_THEMES, ARTISTIC_SKINS, workbenchThemeStyle, type WorkbenchTheme } from '../lib/workbenchTheme'
 import { ToolCallBubble } from './ToolCallBubble'
 import { readFileSync } from 'node:fs'
+import { SKIN_FAMILIES, skinFamily } from '../lib/artisticSkins'
 
 const themeCss = readFileSync('src/features/claude-chat/styles/workbench-theme.css', 'utf8')
+
+function chooseSkin(name: string) {
+  const theme = WORKBENCH_THEMES.find(theme => theme.name === name)!
+  const family = skinFamily(theme.id)
+  fireEvent.click(screen.getByRole('button', { name: family?.name ?? name }))
+  if (family) fireEvent.click(screen.getByRole('button', { name }))
+}
 
 it('previews without writing, trials on the real page and restores on back and unmount', () => {
   function Consumer() { const theme = useWorkbenchTheme(); return <Page theme={theme} /> }
   const view = render(<><Consumer /><WorkbenchThemePicker /></>)
   const draft = screen.getByRole('textbox', { name: '草稿' })
   fireEvent.change(draft, { target: { value: '不丢失草稿' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Butter Paper' }))
+  chooseSkin('Butter Paper')
   expect(screen.getByText('外观预览 · 演示数据')).toBeInTheDocument()
   expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'tokyo-night')
   fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
@@ -23,9 +31,9 @@ it('previews without writing, trials on the real page and restores on back and u
   expect(document.documentElement.style.getPropertyValue('--wb-material-strength')).toBe('0.2')
   fireEvent.click(screen.getByRole('button', { name: '返回主题列表' }))
   expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'tokyo-night')
-  expect(screen.getByRole('button', { name: 'Butter Paper' })).toHaveFocus()
+  expect(screen.getByRole('button', { name: 'Atelier Paper' })).toHaveFocus()
   expect(draft).toHaveValue('不丢失草稿')
-  fireEvent.click(screen.getByRole('button', { name: 'Aurora Glass' }))
+  chooseSkin('Aurora Glass')
   fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
   view.unmount()
   render(<Consumer />)
@@ -41,13 +49,13 @@ it('saves skin and material strength atomically, preserves classic values and is
   expect(readWorkbenchMaterialStrength(8)).toBe(0.2)
   expect(readWorkbenchTheme(7)).toBe('nord')
   render(<WorkbenchThemePicker />)
-  fireEvent.click(screen.getByRole('button', { name: 'Newsroom' }))
+  chooseSkin('Newsroom')
   fireEvent.change(screen.getByLabelText('材质强度'), { target: { value: '0' } })
   fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
   fireEvent.click(screen.getByRole('button', { name: '保存主题' }))
   expect(readWorkbenchTheme()).toBe('newsroom')
   expect(readWorkbenchMaterialStrength()).toBe(0)
-  expect(screen.getByRole('button', { name: 'Newsroom' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Editorial Press' })).toHaveAttribute('aria-pressed', 'true')
 })
 
 it('cancels trial with Escape, returns focus and leaves the persisted preference unchanged', async () => {
@@ -58,7 +66,7 @@ it('cancels trial with Escape, returns focus and leaves the persisted preference
     return <><Page theme={theme} /><WorkbenchThemeDialog open={open} onOpenChange={setOpen} returnFocus={returnFocus} /></>
   }
   render(<Harness />)
-  fireEvent.click(screen.getByRole('button', { name: 'Phosphor Terminal' }))
+  chooseSkin('Phosphor Terminal')
   fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
   expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'phosphor-terminal')
   fireEvent.keyDown(document, { key: 'Escape' })
@@ -150,7 +158,7 @@ it('keeps primary and secondary text legible across each palette surface', () =>
   }
   const contrast = (a: string, b: string) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05)
   const blend = (base: string, ink: string, alpha: number) => '#' + [1, 3, 5].map(offset => Math.round(parseInt(base.slice(offset, offset + 2), 16) * (1 - alpha) + parseInt(ink.slice(offset, offset + 2), 16) * alpha).toString(16).padStart(2, '0')).join('')
-  const textureInk: Record<string, [string, number]> = { 'atelier-paper': ['#705a36', .14], 'editorial-press': ['#23251f', .14], 'amber-crt': ['#f2c36b', .055], 'liquid-titanium': ['#d2e1ed', .055] }
+  const textureInk: Record<string, [string, number]> = { 'atelier-paper': ['#705a36', .14], 'editorial-press': ['#23251f', .14], 'amber-crt': ['#f2c36b', .055], 'liquid-titanium': ['#e8f3ff', .09] }
   for (const { id, colors } of WORKBENCH_THEMES) {
     for (const text of [colors[5], colors[6]]) for (const surface of [colors[0], colors[1], colors[2], colors[3]]) expect(contrast(text, surface)).toBeGreaterThanOrEqual(4.5)
     expect(contrast(colors[7], colors[2])).toBeGreaterThanOrEqual(4.5)
@@ -179,7 +187,7 @@ it('trials every artistic skin without replacing the draft and restores material
   const draft = screen.getByRole('textbox', { name: '草稿' })
   fireEvent.change(draft, { target: { value: '保留艺术皮肤切换前的输入' } })
   for (const skin of ARTISTIC_SKINS) {
-    fireEvent.click(screen.getByRole('button', { name: skin.name }))
+    chooseSkin(skin.name)
     fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
     expect(document.documentElement).toHaveAttribute('data-workbench-theme', skin.id)
     expect(document.documentElement.style.getPropertyValue('--wb-surface-texture')).not.toBe('none')
@@ -210,7 +218,7 @@ it('shows an error even when the failed tool has no output and keeps type labels
 it('restores the latest stored choice after trial and reports a refused save without overwriting it', () => {
   function Consumer() { const theme = useWorkbenchTheme(); return <Page theme={theme} /> }
   render(<><Consumer /><WorkbenchThemePicker /></>)
-  fireEvent.click(screen.getByRole('button', { name: 'Butter Paper' }))
+  chooseSkin('Butter Paper')
   fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
   localStorage.setItem('forge.vibecoding.theme:local', 'nord')
   fireEvent(window, new StorageEvent('storage', { key: 'forge.vibecoding.theme:local' }))
@@ -221,4 +229,39 @@ it('restores the latest stored choice after trial and reports a refused save wit
   expect(readWorkbenchTheme()).toBe('nord')
   fireEvent.click(screen.getByRole('button', { name: '恢复原主题' }))
   expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'nord')
+})
+
+it('groups legacy skins without migrating preferences, updates a live variant and restores the default', () => {
+  setWorkbenchTheme('newsroom', undefined, .3)
+  function Consumer() { const theme = useWorkbenchTheme(); return <Page theme={theme} /> }
+  const { container } = render(<><Consumer /><WorkbenchThemePicker /></>)
+  expect(screen.queryByText('沉浸皮肤')).not.toBeInTheDocument()
+  expect(container.querySelectorAll('.wb-theme-family')).toHaveLength(4)
+  expect(screen.queryByRole('button', { name: 'Newsroom' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Editorial Press' })).toHaveAttribute('aria-pressed', 'true')
+  fireEvent.click(screen.getByLabelText('灰度比较'))
+  expect(container.querySelectorAll('.wb-scene-grayscale')).toHaveLength(4)
+  expect(readWorkbenchTheme()).toBe('newsroom')
+  fireEvent.click(screen.getByRole('button', { name: 'Editorial Press' }))
+  expect(screen.getByRole('button', { name: 'Newsroom' })).toHaveAttribute('aria-pressed', 'true')
+  fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Editorial Press' }))
+  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'editorial-press')
+  expect(readWorkbenchTheme()).toBe('newsroom')
+  fireEvent.click(screen.getByRole('button', { name: '返回主题列表' }))
+  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'newsroom')
+  fireEvent.click(screen.getByRole('button', { name: '恢复默认外观' }))
+  expect(readWorkbenchTheme()).toBe('inherit')
+  expect(document.documentElement).not.toHaveAttribute('data-workbench-theme')
+})
+
+it('resets every component texture and edge at zero strength and avoids material leaking into classic previews', () => {
+  const textures = ['surface', 'canvas', 'message', 'user', 'code', 'tool', 'composer', 'panel', 'status'].map(name => `--wb-${name}-texture`)
+  const edges = ['message', 'user', 'code', 'tool', 'panel', 'status'].map(name => `--wb-${name}-edge`)
+  for (const family of SKIN_FAMILIES) for (const theme of family.variants) {
+    const disabled = workbenchThemeStyle(theme, 0) as Record<string, string>
+    for (const key of [...textures, ...edges, '--wb-material-shadow']) expect(disabled[key], `${theme}: ${key}`).toBe('none')
+  }
+  const classic = workbenchThemeStyle('nord') as Record<string, string>
+  for (const key of textures) expect(classic[key], key).toBe('none')
 })

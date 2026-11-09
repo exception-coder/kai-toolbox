@@ -1,7 +1,7 @@
 import { useLayoutEffect, useSyncExternalStore, type CSSProperties } from 'react'
 import { getUser, useAuth } from '@/lib/auth'
 import { readingChangeEvent } from './workspacePreferences'
-import { paperFiber, ARTISTIC_SKINS, artisticMaterialStyle } from './artisticSkins'
+import { ARTISTIC_SKINS, artisticMaterialStyle } from './artisticSkins'
 export { ARTISTIC_SKINS } from './artisticSkins'
 
 export type WorkbenchTheme = typeof WORKBENCH_THEMES[number]['id'] | 'inherit'
@@ -35,7 +35,6 @@ export function workbenchThemeStyle(theme: WorkbenchTheme, strength = 0.6): CSSP
   const palette = WORKBENCH_THEMES.find(option => option.id === theme)
   if (!palette) return {}
   const [, , , , , text, muted, accent, keyword, string] = palette.colors
-  const paper = theme === 'butter-paper', news = theme === 'newsroom', terminal = theme === 'phosphor-terminal', glass = theme === 'aurora-glass'
   return {
     ...Object.fromEntries(tokenNames.map((name, index) => [`--wb-${name}`, palette.colors[index]])),
     '--wb-heading': accent, '--wb-heading-secondary': keyword, '--wb-emphasis': keyword,
@@ -46,20 +45,13 @@ export function workbenchThemeStyle(theme: WorkbenchTheme, strength = 0.6): CSSP
     '--wb-heading-weight': theme === 'cyberpunk' ? '700' : theme === 'terminal-hacker' ? '500' : '600',
     '--wb-scheme': theme === 'butter-paper' || theme === 'newsroom' ? 'light' : 'dark',
     '--wb-material-strength': String(Math.max(0, Math.min(1, strength))),
-    '--wb-composer-filter': glass && strength > 0 ? 'blur(6px)' : 'none',
-    '--wb-composer-opacity': glass ? 'calc(100% - 6% * var(--wb-material-strength))' : '100%',
-    '--wb-heading-font': theme === 'newsroom' ? 'Georgia, "Noto Serif SC", "Songti SC", SimSun, serif' : 'inherit',
-    '--wb-message-surface': theme === 'butter-paper' ? '#faf4e5' : theme === 'aurora-glass' ? '#293441' : 'transparent',
-    '--wb-composer-surface': isImmersiveSkin(theme) ? palette.colors[1] : palette.colors[0],
-    '--wb-code-surface': palette.colors[2],
-    '--wb-tool-surface': theme === 'newsroom' ? palette.colors[0] : palette.colors[2],
-    '--wb-message-radius': news || terminal ? '2px' : isImmersiveSkin(theme) ? '8px' : '0px',
-    '--wb-code-radius': news || terminal ? '2px' : '8px',
-    '--wb-tool-radius': news || terminal ? '2px' : '6px',
-    '--wb-material-shadow': paper ? '0 2px 4px rgb(60 48 36 / calc(.08 * var(--wb-material-strength)))' : glass ? 'inset 0 1px rgb(255 255 255 / calc(.12 * var(--wb-material-strength)))' : 'none',
-    '--wb-canvas-texture': paper ? paperFiber(strength * .25) : news ? 'repeating-linear-gradient(90deg, transparent 0 79px, rgb(37 37 32 / calc(.025 * var(--wb-material-strength))) 79px 80px)' : terminal ? 'repeating-linear-gradient(0deg, transparent 0 3px, rgb(165 229 176 / calc(.025 * var(--wb-material-strength))) 3px 4px)' : glass ? 'radial-gradient(ellipse at 0 0, rgb(121 159 172 / calc(.18 * var(--wb-material-strength))), transparent 65%), radial-gradient(ellipse at 100% 100%, rgb(149 132 178 / calc(.14 * var(--wb-material-strength))), transparent 60%)' : 'none',
-    '--wb-message-edge': paper ? 'inset 0 0 0 1px rgb(112 74 37 / calc(.07 * var(--wb-material-strength)))' : news ? 'inset 0 1px rgb(37 37 32 / calc(.45 * var(--wb-material-strength)))' : terminal ? 'inset 2px 0 rgb(165 229 176 / calc(.25 * var(--wb-material-strength)))' : glass ? 'inset 0 1px rgb(255 255 255 / calc(.18 * var(--wb-material-strength)))' : 'none',
-    '--wb-code-edge': paper ? 'inset 0 1px rgb(112 74 37 / calc(.15 * var(--wb-material-strength)))' : news ? 'inset 3px 0 rgb(37 37 32 / calc(.4 * var(--wb-material-strength)))' : terminal ? 'inset 0 2px rgb(165 229 176 / calc(.4 * var(--wb-material-strength)))' : glass ? 'inset 0 1px rgb(181 214 235 / calc(.25 * var(--wb-material-strength)))' : 'none',
+    '--wb-composer-filter': 'none', '--wb-composer-opacity': '100%',
+    '--wb-heading-font': 'inherit',
+    '--wb-message-surface': 'transparent', '--wb-composer-surface': palette.colors[0],
+    '--wb-code-surface': palette.colors[2], '--wb-tool-surface': palette.colors[2],
+    '--wb-message-radius': '0px', '--wb-code-radius': '8px', '--wb-tool-radius': '6px',
+    '--wb-material-shadow': 'none', '--wb-canvas-texture': 'none',
+    '--wb-message-edge': 'none', '--wb-code-edge': 'none',
     ...artisticMaterialStyle(theme, strength),
   } as CSSProperties
 }

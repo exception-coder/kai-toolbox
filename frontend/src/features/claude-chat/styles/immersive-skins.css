@@ -1,4 +1,8 @@
 /* 材质消费共享 Token；每个主题自带中性回退，嵌套预览不会继承外层皮肤纹理。 */
+:is([data-workbench-theme='atelier-paper'],[data-workbench-theme='butter-paper'],[data-workbench-theme='editorial-press'],[data-workbench-theme='newsroom'],[data-workbench-theme='amber-crt'],[data-workbench-theme='phosphor-terminal'],[data-workbench-theme='liquid-titanium'],[data-workbench-theme='aurora-glass']) .cc-assistant-content .cc-assistant-body {
+  /* 外壳保留尺寸，材质由正文层单独绘制，避免开放稿面仍套普通气泡。 */
+  background: transparent; border-color: transparent; box-shadow: none;
+}
 :is(html[data-workbench-theme], [data-workbench-theme]) :is(.cc-message-scroller,.wb-scene-messages) {
   background-color: var(--wb-background);
   background-image: var(--wb-canvas-texture);
@@ -6,7 +10,7 @@
 }
 :is(html[data-workbench-theme], [data-workbench-theme]) .wb-assistant-reply {
   background: var(--wb-message-surface);
-  background-image: var(--wb-surface-texture);
+  background-image: var(--wb-message-texture);
   background-size: var(--wb-texture-size);
   border-radius: var(--wb-message-radius);
   box-shadow: var(--wb-message-edge);
@@ -14,50 +18,67 @@
 :is(html[data-workbench-theme], [data-workbench-theme]) :is(.markdown-body :is(h1,h2,h3,h4),.wb-skin-thumbnail h3) {
   font-family: var(--wb-heading-font);
 }
+:is(html[data-workbench-theme], [data-workbench-theme]) .wb-assistant-reply .markdown-body :is(h1,h2,h3) { box-shadow: 0 1px var(--wb-message-rule); }
 :is(html[data-workbench-theme], [data-workbench-theme]) :is(.mobile-composer-card,.cc-focus-composer) {
   background: var(--wb-composer-surface);
-  background-image: var(--wb-surface-texture);
+  background-image: var(--wb-composer-texture);
   background-size: var(--wb-texture-size);
   box-shadow: var(--wb-material-shadow);
 }
+:is(html[data-workbench-theme], [data-workbench-theme]) .mobile-composer-card {
+  border-color: var(--wb-composer-border);
+  border-radius: var(--wb-composer-radius);
+}
+/* 外围 dock 不再叠加一份输入框阴影。保留已有高度、内距和安全区。 */
+:is(html[data-workbench-theme], [data-workbench-theme]) .cc-focus-composer { box-shadow: none; background-image: none; }
 :is(html[data-workbench-theme], [data-workbench-theme]) :is(.wb-code-block,.markdown-body .wb-code-block pre,.wb-skin-thumbnail pre) {
   background: var(--wb-code-surface);
-  background-image: var(--wb-surface-texture);
+  background-image: var(--wb-code-texture);
   background-size: var(--wb-texture-size);
   border-radius: var(--wb-code-radius);
   box-shadow: var(--wb-code-edge);
+  border-color: var(--wb-code-border);
 }
-:is(html[data-workbench-theme], [data-workbench-theme]) .markdown-body .wb-code-block pre { border-radius: 0; }
+:is(html[data-workbench-theme], [data-workbench-theme]) .markdown-body .wb-code-block pre { border-radius: 0; box-shadow: none; }
+:is(html[data-workbench-theme], [data-workbench-theme]) .wb-code-header { background: var(--wb-code-surface); border-bottom-style: var(--wb-code-border-style); }
 :is(html[data-workbench-theme], [data-workbench-theme]) .wb-tool-call {
   background: var(--wb-tool-surface);
-  background-image: var(--wb-surface-texture);
+  background-image: var(--wb-tool-texture);
   background-size: var(--wb-texture-size);
   border-radius: var(--wb-tool-radius);
-  box-shadow: var(--wb-code-edge);
+  box-shadow: var(--wb-tool-edge);
+  border-style: var(--wb-tool-border-style);
 }
+:is(html[data-workbench-theme], [data-workbench-theme]) .wb-tool-call:not([data-agent-state='failed']) { border-color: var(--wb-tool-border); }
 /* 使用内描边而非增减 border/padding，皮肤切换不改变布局和触控范围。 */
 :is(html[data-workbench-theme], [data-workbench-theme]) :is(.cc-user-message-body,.wb-scene-user) {
   background-color: var(--wb-user-surface);
   color: var(--wb-user-text);
-  background-image: var(--wb-surface-texture);
+  background-image: var(--wb-user-texture);
   background-size: var(--wb-texture-size);
   border-radius: var(--wb-user-radius);
   box-shadow: var(--wb-user-edge);
 }
-:is([data-workbench-theme='atelier-paper'],[data-workbench-theme='editorial-press'],[data-workbench-theme='amber-crt'],[data-workbench-theme='liquid-titanium']) :is([role='dialog'],[role='alertdialog'],.wb-scene-panel) {
-  background-color: var(--wb-surface);
-  background-image: var(--wb-surface-texture);
+:is([data-workbench-theme][role='dialog'],[data-workbench-theme] [role='dialog'],[data-workbench-theme] [role='alertdialog'],[data-workbench-theme] .wb-scene-panel) {
+  background-color: var(--wb-panel-surface);
+  background-image: var(--wb-panel-texture);
   background-size: var(--wb-texture-size);
   border-radius: var(--wb-panel-radius);
   box-shadow: var(--wb-panel-edge);
+  border-style: var(--wb-panel-border-style);
 }
-[data-workbench-theme] [data-execution-state] > button { box-shadow: var(--wb-status-edge); }
-.wb-scene-panel { margin-top: 16px; padding: 12px; border: 1px solid var(--wb-border); font-size: 12px; }
-.wb-scene-panel strong { display: block; margin-bottom: 4px; }
-.wb-art-cover { position: relative; height: 160px; overflow: hidden; background: var(--wb-background); background-image: var(--wb-canvas-texture); background-size: var(--wb-texture-size); color: var(--wb-text); }
-.wb-art-cover svg { display: block; width: 100%; height: 100%; }
+[data-workbench-theme] [data-execution-state] > div {
+  background-color: var(--wb-status-surface);
+  background-image: var(--wb-status-texture);
+  box-shadow: var(--wb-status-edge);
+}
 @media (prefers-reduced-transparency: reduce) {
-  [data-workbench-theme] { --wb-surface-texture: none !important; --wb-canvas-texture: none !important; }
+  [data-workbench-theme] {
+    --wb-surface-texture: none !important; --wb-canvas-texture: none !important;
+    --wb-message-texture: none !important; --wb-user-texture: none !important;
+    --wb-code-texture: none !important; --wb-tool-texture: none !important;
+    --wb-panel-texture: none !important; --wb-composer-texture: none !important; --wb-status-texture: none !important;
+  }
 }
 /* 全局 dark class 可能仍存在；异常与恢复入口不能继续使用旧硬编码深底。 */
 :is(html[data-workbench-theme], [data-workbench-theme]) .cc-session-error {
@@ -80,31 +101,8 @@
 }
 .wb-theme-action { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
 .wb-theme-action:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
-.wb-skin-scene { min-width: 0; overflow: hidden; border: 1px solid var(--wb-border, var(--color-border)); border-radius: 8px; background: var(--wb-background, var(--color-background)); color: var(--wb-text, var(--color-foreground)); font: 14px/1.6 var(--font-sans, system-ui, sans-serif); }
-.wb-scene-header { display: flex; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--wb-border, var(--color-border)); font-size: 10px; color: var(--wb-muted, var(--color-muted-foreground)); }
-.wb-scene-messages { padding: 16px; }
-.wb-scene-user { margin-left: auto; width: fit-content; max-width: 90%; margin-bottom: 16px; padding: 6px 8px; border-radius: 6px; background: var(--wb-raised, var(--color-muted)); }
-.wb-scene-author { margin-bottom: 8px; font-size: 11px; font-weight: 600; color: var(--wb-accent, var(--color-primary)); }
-.wb-scene-author span { margin-left: 8px; color: var(--wb-muted, var(--color-muted-foreground)); font-weight: 400; }
-.wb-skin-scene .wb-assistant-reply { padding-inline: 8px; }
-.wb-skin-scene .wb-tool-call { margin-top: 12px; }
-.wb-scene-composer.mobile-composer-card { display: block; margin: 0; min-height: 0; padding: 12px; border: 0; border-top: 1px solid var(--wb-border, var(--color-border)); border-radius: 0; color: var(--wb-muted, var(--color-muted-foreground)); font-size: 13px; }
-.wb-scene-composer > div { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.wb-scene-send { margin-left: auto; background: var(--wb-accent, var(--color-primary)); color: var(--wb-sidebar, var(--color-primary-foreground)); padding: 0 8px; border-radius: 4px; }
-.wb-skin-thumbnail { display: grid; grid-template-rows: 20px minmax(0,1fr) 32px; height: 160px; text-align: left; pointer-events: none; font-size: 6px; line-height: 1.5; }
-.wb-skin-thumbnail .wb-scene-header { padding: 4px 6px; font-size: 6px; }
-.wb-skin-thumbnail .wb-scene-messages { overflow: hidden; padding: 6px; }
-.wb-skin-thumbnail .wb-scene-user { margin-bottom: 6px; padding: 3px; }
-.wb-skin-thumbnail .wb-scene-author { margin-bottom: 4px; font-size: 6px; }
-.wb-skin-thumbnail .wb-assistant-reply { padding: 4px; }
-.wb-skin-thumbnail h3 { font-size: 9px; font-weight: 600; color: var(--wb-heading); }
-.wb-skin-thumbnail pre { margin-block: 4px; padding: 3px; font: 6px/1.5 var(--font-mono, monospace); background: var(--wb-sidebar); }
-.wb-skin-thumbnail .wb-tool-call { margin-top: 4px; padding: 3px; border: 1px solid var(--wb-border); }
-.wb-skin-thumbnail .wb-scene-composer { padding: 4px 6px; font-size: 6px; }
-.wb-skin-thumbnail .wb-scene-composer > div { margin-top: 2px; }
-.wb-skin-thumbnail .wb-scene-composer svg { width: 8px; height: 8px; }
 @media (prefers-reduced-transparency: reduce) { :is(html[data-workbench-theme='aurora-glass'],[data-workbench-theme='aurora-glass']) .mobile-composer-card { background: var(--wb-composer-surface); backdrop-filter: none; -webkit-backdrop-filter: none; } }
 @media (forced-colors: active) {
   [data-workbench-theme] { --wb-surface-texture: none !important; --wb-canvas-texture: none !important; --wb-panel-edge: none !important; --wb-user-edge: none !important; --wb-status-edge: none !important; }
-  .wb-skin-scene, [data-workbench-theme] :is(.cc-message-scroller,.wb-scene-messages,.wb-assistant-reply,.mobile-composer-card,.wb-tool-call) { background-image: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .wb-skin-scene, [data-workbench-theme] :is(.cc-message-scroller,.wb-scene-messages,.wb-assistant-reply,.mobile-composer-card,.wb-tool-call,.wb-code-block,pre,.cc-user-message-body,.wb-scene-user,.wb-scene-panel,[role='dialog'],[role='alertdialog'],[data-execution-state] > div) { background-image: none !important; box-shadow: none !important; backdrop-filter: none; -webkit-backdrop-filter: none; border-color: CanvasText; }
 }

@@ -240,7 +240,7 @@ Qwen、Trae、OpenCode 和 DeepSeek Harness 尚无完整文件归属适配，显
 
 “会话工具 → 阅读与显示 → 专注模式”提供独立阅读布局：正文和输入框默认同为 860px，可切换至 960px 宽版；手机按视口收缩。顶部保留会话标题及实际 OpenSpec/Task 绑定，助手正文去掉卡片框体，正常轮次统计显示为灰色文字。Esc 或“退出专注”恢复工作区，保留草稿和附件；切换宽度不会发起模型请求。
 
-「阅读与显示 → 工作区个性化 → 工作台主题」提供 Tokyo Night（默认）、Catppuccin Mocha、Nord、Cyberpunk、Terminal Hacker、AI Studio，以及“跟随全局外观”。艺术皮肤首批提供 Atelier Paper、Editorial Press、Amber CRT、Liquid Titanium，独立封面进入场景预览，沿用实时试用、恢复与材质强度；经典配色和旧沉浸皮肤继续保留。按当前账号保存在当前浏览器，不承诺跨设备同步。主题覆盖 Surface、Typography、Content、Syntax 和固定语义 Status，Layout 沿用原专注/分屏实现；Motion 的共享时长、全局“减少动画”和系统偏好独立于主题。Terminal Hacker 只改变字体与配色，不新增终端布局。退出工作台恢复其他模块原外观，普通悬浮窗只改变自身；演示礼物模式保留原专用外观。炫彩皮肤与工具着色已移除，旧开关不再读取；工具类型通过图标/标签识别，仅状态使用语义色。
+「阅读与显示 → 工作区个性化 → 工作台主题」分为「艺术皮肤」和「经典配色」。艺术皮肤按 Atelier Paper（手工纸）、Editorial Press（报刊）、Retro Terminal（终端）、Liquid Titanium（金属）四种语言展示完整聊天场景；点击进入变体与预览。Butter Paper、Newsroom、Phosphor Terminal、Aurora Glass 分别归入这四组，原偏好 ID 保留，不自动迁移。经典配色仍提供 Tokyo Night（初始默认）、Catppuccin、Nord、Cyberpunk、Terminal Hacker、AI Studio；「恢复默认外观」恢复跟随全局外观，材质强度恢复 60%。灰度比较仅作用于示例，不改实际聊天配色。选择不保存，实时试用可恢复；关闭或返回恢复已保存外观。消息、代码、工具、输入、状态和弹窗使用各自材质配方，正文无持续滤镜和动画；强度 0 关闭纹理与光影。偏好按账号保存在当前浏览器，不跨设备同步。实际桌面、手机与灰度视觉验收状态见[主题任务](../../../../openspec/changes/vibecoding-workbench-themes/tasks.md)。炫彩皮肤与工具着色已移除，工具类型通过图标/标签识别，仅状态使用语义色。
 
 回复内容按原 Markdown 语义突出标题、加粗结论、行内代码、路径/API 引用、引用块和表格，不自动猜测关键词或更改原文。代码围栏可写 `ts title="src/main.ts"` 显示文件名，支持语言、行号、复制与独立折叠。复用项目已安装的 Shiki 按可视距离延迟加载语言语法，使用 CSS Token 随主题立即换色；未知语言或超过 30,000 字符/600 行的块保留可复制原文，不因高亮失败丢失内容。SQL 文件预览继续复用 CodeMirror。Diff 保留增删符号及原行号，配对修改行有侧边标记；思考、流式光标、工具运行只使用局部轻反馈，减少动画时静止呈现。
 

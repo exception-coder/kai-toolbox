@@ -2,8 +2,9 @@
 @media (min-width: 768px) {
   .cc-desktop-composer { flex-shrink: 0; box-shadow: none; }
   .cc-desktop-composer .mobile-composer-card {
+    --wb-composer-default-radius: 0px;
     min-height: 96px; margin: 0; padding: 8px 12px;
-    grid-template-rows: auto 36px; border: 0; border-radius: 0;
+    grid-template-rows: auto 36px; border: 0; border-radius: var(--wb-composer-radius, 0px);
   }
   .cc-desktop-composer .mobile-composer-card textarea {
     display: block; min-height: 36px; max-height: min(128px, 18dvh);

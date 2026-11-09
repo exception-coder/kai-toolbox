@@ -1,0 +1,66 @@
+/* 选择器与演示场景的布局。实际聊天只消费 immersive-skins.css 的材质。 */
+.wb-theme-family-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.wb-theme-family { min-width: 0; overflow: hidden; padding: 8px 8px 12px; border: 1px solid var(--color-border); border-radius: 8px; text-align: left; }
+.wb-theme-option:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
+.wb-theme-editor { min-width: 0; }
+.wb-scene-grayscale { filter: grayscale(1); }
+.wb-skin-scene { min-width: 0; overflow: hidden; border: 1px solid var(--wb-border, var(--color-border)); border-radius: 6px; background: var(--wb-background, var(--color-background)); color: var(--wb-text, var(--color-foreground)); font: 14px/1.6 var(--font-sans, system-ui, sans-serif); }
+.wb-scene-header { display: flex; justify-content: space-between; gap: 8px; padding: 12px; border-bottom: 1px solid var(--wb-border, var(--color-border)); font-size: 10px; color: var(--wb-muted, var(--color-muted-foreground)); }
+.wb-scene-user { margin-left: auto; width: fit-content; max-width: 90%; margin-bottom: 16px; padding: 6px 8px; }
+.wb-scene-author { margin-bottom: 8px; font-size: 11px; font-weight: 600; color: var(--wb-accent, var(--color-primary)); }
+.wb-scene-author span { margin-left: 8px; color: var(--wb-muted, var(--color-muted-foreground)); font-weight: 400; }
+.wb-skin-scene .wb-tool-call { margin-top: 12px; }
+.wb-scene-send { background: var(--wb-accent, var(--color-primary)); color: var(--wb-sidebar, var(--color-primary-foreground)); }
+.wb-scene-header strong { color: var(--wb-text, var(--color-foreground)); font: 600 12px var(--wb-heading-font, inherit); letter-spacing: .03em; }
+.wb-skin-scene[data-skin-family='press'] .wb-scene-header strong { font: 700 18px Georgia, serif; letter-spacing: -.035em; }
+.wb-skin-scene[data-skin-family='terminal'] .wb-scene-header strong { font-family: var(--font-mono, monospace); color: var(--wb-accent); }
+.wb-scene-messages { padding: 18px; }
+.wb-skin-scene .wb-assistant-reply { padding: 10px; }
+.wb-scene-footer { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 11px; color: var(--wb-muted); }
+.wb-scene-footer svg { width: 12px; height: 12px; }
+.wb-scene-panel { max-width: 280px; margin: 16px 0 0 auto; padding: 14px; border: 1px solid var(--wb-border); font-size: 12px; }
+.wb-scene-panel > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wb-scene-panel p { margin: 5px 0; }
+.wb-scene-panel > span { color: var(--wb-muted); font-size: 11px; }
+.wb-scene-status > div { display: flex; min-width: 0; align-items: center; gap: 6px; padding: 10px 12px; font-size: 11px; }
+.wb-scene-status strong { font-weight: 500; }
+.wb-scene-status-light { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--color-success); }
+.wb-scene-control { margin-left: auto; white-space: nowrap; }
+.wb-scene-input-area { padding: 4px 12px 12px; }
+.wb-skin-scene .wb-scene-composer.mobile-composer-card { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0; padding: 6px 10px; border: 1px solid var(--wb-composer-border, var(--color-border)); border-radius: var(--wb-composer-radius, 12px); font-size: 12px; }
+.wb-scene-composer > svg { width: 16px; height: 16px; flex-shrink: 0; }
+.wb-scene-composer > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
+.wb-scene-composer .wb-scene-send { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; margin: 0; padding: 0; border-radius: 5px; }
+.wb-scene-send svg { width: 16px; height: 16px; }
+.wb-skin-thumbnail { display: block; min-height: 320px; pointer-events: none; font-size: 9px; line-height: 1.5; }
+.wb-skin-thumbnail .wb-scene-header { min-height: 34px; align-items: center; padding: 8px 10px; font-size: 8px; }
+.wb-skin-thumbnail .wb-scene-header strong { font-size: 10px; }
+.wb-skin-thumbnail[data-skin-family='press'] .wb-scene-header strong { font-size: 15px; }
+.wb-skin-thumbnail .wb-scene-messages { min-height: 222px; padding: 10px; }
+.wb-skin-thumbnail .wb-scene-user { margin-bottom: 8px; padding: 4px 6px; font-size: 9px; }
+.wb-skin-thumbnail .wb-scene-author { font-size: 9px; margin-bottom: 5px; }
+.wb-skin-thumbnail .wb-assistant-reply { padding: 6px; }
+.wb-skin-thumbnail h3 { font-size: 12px; margin-bottom: 3px; color: var(--wb-heading); font-weight: 600; }
+.wb-skin-thumbnail .wb-code-block { margin: 6px 0 0; overflow: hidden; border: 1px solid var(--wb-code-border); }
+.wb-skin-thumbnail .wb-code-header { min-height: 16px; padding: 2px 5px; font-size: 8px; justify-content: space-between; }
+.wb-skin-thumbnail pre { margin: 0; padding: 4px 6px; font: 8px/1.4 var(--font-mono, monospace); box-shadow: none; }
+.wb-skin-thumbnail pre span { color: var(--wb-keyword); }
+.wb-skin-thumbnail pre b { color: var(--wb-string); font-weight: 400; }
+.wb-skin-thumbnail .wb-tool-call { display: flex; gap: 4px; align-items: center; margin-top: 6px; padding: 3px 6px; border-width: 1px; font-size: 8px; }
+.wb-skin-thumbnail .wb-scene-footer { display: none; }
+.wb-skin-thumbnail .wb-scene-panel { max-width: 64%; margin-top: 7px; padding: 6px 8px; font-size: 8px; }
+.wb-skin-thumbnail .wb-scene-panel p { margin: 1px 0; }
+.wb-skin-thumbnail .wb-scene-panel > span { display: none; }
+.wb-skin-thumbnail .wb-scene-status > div { padding: 5px 8px; font-size: 8px; }
+.wb-skin-thumbnail .wb-scene-status svg { width: 9px; height: 9px; }
+.wb-skin-thumbnail .wb-scene-input-area { padding: 3px 8px 8px; }
+.wb-skin-thumbnail .wb-scene-composer.mobile-composer-card { min-height: 28px; padding: 3px 6px; font-size: 8px; gap: 5px; }
+.wb-skin-thumbnail .wb-scene-composer > svg { width: 10px; height: 10px; }
+.wb-skin-thumbnail .wb-scene-composer .wb-scene-send { width: 18px; height: 18px; }
+.wb-skin-thumbnail .wb-scene-composer .wb-scene-send svg { width: 10px; height: 10px; }
+@media (max-width: 559px) {
+  .wb-theme-family-grid { grid-template-columns: minmax(0, 1fr); }
+  .wb-scene-header { flex-wrap: wrap; }
+  .wb-scene-status > div { flex-wrap: wrap; }
+}
+@media (forced-colors: active) { .wb-scene-grayscale { filter: none; } }

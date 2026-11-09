@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
+import { X } from 'lucide-react'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import { setRecentSessionsExpanded, useRecentSessionsExpanded, setReadingDensity, setReadingFont, useReadingDensity, useReadingFont, type ReadingDensity } from '../lib/workspacePreferences'
 import { WorkbenchThemePicker } from './WorkbenchThemePicker'
@@ -16,8 +17,8 @@ export function WorkspacePreferences({ open, onOpenChange, gestureEnabled, onTog
   const portal = useFullscreenPortalContainer()
   return <Dialog.Root open={open} onOpenChange={onOpenChange}><Dialog.Portal container={portal}>
     <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
-    <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90dvh] w-[min(92vw,480px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-5">
-      <Dialog.Title className="text-base font-semibold">工作区个性化</Dialog.Title>
+    <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90dvh] w-[min(94vw,860px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-2"><Dialog.Title className="text-base font-semibold">工作区个性化</Dialog.Title><Dialog.Close aria-label="关闭工作区个性化" className="flex size-11 shrink-0 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"><X size={18} /></Dialog.Close></div>
       <Dialog.Description className="mt-2 text-xs text-[var(--color-muted-foreground)]">保存在当前浏览器，重新打开页面后仍生效，不修改项目或其他同事的设置。</Dialog.Description>
       <section aria-labelledby="preferences-theme" className="mt-5">
         <h2 id="preferences-theme" className="text-xs font-semibold text-[var(--color-muted-foreground)]">工作台主题</h2>

@@ -62,5 +62,4 @@
   .cc-mobile-coding-workspace .cc-focus-composer { border-top: 0; }
   .cc-mobile-conversation .cc-message-actions { justify-self: start; }
   [data-workbench-theme='atelier-paper'] .cc-focus-composer { background-image: none; }
-  [data-workbench-theme='atelier-paper'] .mobile-composer-card { box-shadow: 0 1px 3px rgb(102 67 35 / .05); }
 }
