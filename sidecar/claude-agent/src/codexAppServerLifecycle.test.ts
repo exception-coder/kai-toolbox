@@ -10,7 +10,7 @@ import { CodexPredictionCoordinator, readCodexPrediction } from './codexPredicti
 import { observeCodexProcess } from './codexProcessLifetime.js'
 
 // Real pipes and EOF, with a local JSON-RPC peer: no account, tools or model calls.
-function fixture(mode: 'complete' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
+function fixture(mode: 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
   const child = spawn(process.execPath, ['-e', `
     const mode = ${JSON.stringify(mode)};
     const rolloutPath = ${JSON.stringify(rolloutPath)};
@@ -42,7 +42,12 @@ function fixture(mode: 'complete' | 'hold' | 'holdError' | 'holdCancel' | 'cance
       const m = JSON.parse(line);
       if (m.id == null) return;
       if (mode === 'rpcError' || mode === 'holdError') { send({id:m.id,error:{message:'fixture RPC failed'}}); return; }
-      if (m.method === 'config/read') {
+      if (m.method === 'initialize' && mode === 'warnings') {
+        send({method:'configWarning',params:{summary:'Ignored setting.\\n user: node_repl.type',details:null}});
+        send({method:'warning',params:{message:'Ignored setting. user: node_repl.type'}});
+        send({method:'warning',params:{message:'Independent warning'}});
+        send({id:m.id,result:{}});
+      } else if (m.method === 'config/read') {
         send({id:m.id,result:{config:{model_provider:'openai'}}});
       } else if (m.method === 'thread/read' && rolloutPath) {
         send({id:m.id,result:{thread:{path:rolloutPath,modelProvider:'openai'}}});
@@ -112,6 +117,18 @@ const turnOptions = (sessionId: string, events: Record<string, unknown>[] = [], 
   sandbox: 'read-only' as const, approvalPolicy: 'never' as const,
   input: [{ type: 'text', text: 'fixture only' }], signal, emit: (event: Record<string, unknown>) => { events.push(event) },
   setThreadId: () => {},
+})
+
+test('normalizes and coalesces initialization warnings without interrupting the turn', async () => {
+  const process = fixture('warnings')
+  const events: Record<string, unknown>[] = []
+  try {
+    await runCodexAppServerTurn(turnOptions('configuration-warnings', events), process.runtime)
+    const warnings = events.filter(event => event.code === 'CODEX_APP_SERVER_WARNING')
+    assert.deepEqual(warnings.map(event => event.message), ['Ignored setting.\n user: node_repl.type', 'Independent warning'])
+    assert.equal(events.filter(event => event.type === 'result').length, 1)
+    assert.equal(process.opens, 1)
+  } finally { await process.release() }
 })
 
 test('a failed restore still hands the selected transport to fallback after native cleanup', async () => {

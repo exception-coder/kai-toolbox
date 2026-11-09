@@ -22,6 +22,7 @@ import {
 } from './codexTurnCompletion.js'
 import { configuredMcpServerNames, type RequiredMcpTool } from './codexSecurity.js'
 import { CodexMcpStartupWarnings } from './codexMcpStartupWarnings.js'
+import { CodexAppServerWarnings, codexWarningMessage } from './codexAppServerWarnings.js'
 import {
   buildCodexCapabilitySnapshot,
   parseMcpCapabilities,
@@ -859,6 +860,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   const commandActivityEmittedAt = new Map<string, number>()
   const mcpActivities = new Map<string, McpActivityState>()
   const mcpStartupWarnings = new CodexMcpStartupWarnings()
+  const appServerWarnings = new CodexAppServerWarnings()
   let completionGate = new CodexTurnCompletionGate()
   let finishVoiceIdle: (() => void) | undefined
 
@@ -1265,7 +1267,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
           break
         case 'warning':
         case 'configWarning': {
-          const warningMessage = notificationMessage(params)
+          const warningMessage = codexWarningMessage(params)
           if (method === 'warning' && isCodexTransportFallbackWarning(warningMessage)) {
             reconnectActivityId ??= `${asString(params.turnId) || turnId || threadId || 'current'}-reconnect`
             emitActivity({
@@ -1278,7 +1280,8 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
             )
             break
           }
-          options.emit({ type: 'warning', code: 'CODEX_APP_SERVER_WARNING', message: warningMessage })
+          const uniqueMessage = appServerWarnings.accept(params)
+          if (uniqueMessage) options.emit({ type: 'warning', code: 'CODEX_APP_SERVER_WARNING', message: uniqueMessage })
           break
         }
         case 'error': {
