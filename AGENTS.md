@@ -133,6 +133,10 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 
 ## AI 开发完成与自动提交
 
+### 项目原生发布入口
+
+编写或执行项目 CI/CD、部署与回滚时，先读 [Project-Native CI/CD 标准](docs/standards/project-native-cicd.md)，再读取目标项目 `scripts/release/README.md` 或已有等价文档。有入口先复用，没有入口按[模板](docs/templates/project-native-release/README.template.md)补齐；不临时拼接发布命令、不另造调度引擎。异步任务交给项目独立宿主，AI 收到可靠回执后可交接任务 ID 与查询方式，不同步等待完整发布，也不得把“已受理”报告为“发布完成”。本标准不改变下述重启确认、发布验收及自动提交边界；未改造成独立任务的本仓既有操作仍遵循原流程，不能用文档声明替代实现。
+
 ### 服务重启必须经用户明确确认
 
 本项目是 AI 原生项目。AI 可以主动完成开发、构建、测试和问题诊断，但不得自行重启我们的服务；本节是所有仓库 Agent 的统一授权边界，优先于自动验收、自动修复和交付流程。

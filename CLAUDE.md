@@ -10,6 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Common commands
 
+发布、回滚或补齐 CI/CD 时读取 [AGENTS.md 的项目原生发布入口](AGENTS.md#项目原生发布入口)，由该入口引用唯一标准和编写模板；不复制流程，不把规范存在视为发布能力已经实现。
+
 Backend (run from repo root):
 
 ```powershell

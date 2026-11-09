@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "projectId": "example-project",
+  "runId": "example-run-001",
+  "requestId": "a2968a54-1d10-4cbb-800b-4e4d68c5e106",
+  "operation": "deploy",
+  "environment": "test",
+  "sourceRevision": "1111111111111111111111111111111111111111",
+  "artifactId": "example-artifact-001",
+  "previousArtifactId": "example-artifact-000",
+  "state": "RUNNING",
+  "stage": "smoke",
+  "createdAt": "2026-11-09T02:00:00Z",
+  "updatedAt": "2026-11-09T02:01:00Z",
+  "runner": { "kind": "systemd", "taskId": "example-release-001.service" },
+  "stages": [
+    { "name": "build", "state": "SKIPPED", "exitCode": null, "reason": "复用不可变制品" },
+    { "name": "verify", "state": "SUCCEEDED", "exitCode": 0, "evidence": "evidence/verify.json" },
+    { "name": "deploy", "state": "SUCCEEDED", "exitCode": 0, "evidence": "evidence/deploy.json" },
+    { "name": "smoke", "state": "RUNNING", "exitCode": null, "evidence": null }
+  ],
+  "logs": ["logs/verify.log", "logs/deploy.log", "logs/smoke.log"],
+  "failure": null,
+  "recovery": { "state": "NOT_REQUIRED", "runId": null, "artifactId": null }
+}

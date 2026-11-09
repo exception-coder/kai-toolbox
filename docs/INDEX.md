@@ -6,6 +6,7 @@
 |---|---|---|
 | 产品哲学 | 对象、动作、视图、AI 证据与交互验收约束 | [product-philosophy.md](product-philosophy.md) |
 | 启动运行 | 跨平台源码守护、配置、重启与迁移 | [STARTUP.md](../scripts/STARTUP.md) |
+| 项目原生 CI/CD | 发布目录、命令、独立任务、状态、权限及缺失时编写模板 | [project-native-cicd.md](standards/project-native-cicd.md) |
 | AI 编程架构套件 | 整体协作图与可编辑源文件、组件职责、协作流程、重大改动同步约定、上下文与事实边界 | [ai-coding-architecture.md](ai-coding-architecture.md) |
 | Vibe Coding 会话 | 官方 Codex 原生语音、恢复边界与验证入口 | [会话说明](../frontend/src/features/claude-chat/README.md) |
 | 手机客户端 | Android／鸿蒙原生工程、受限能力桥接、构建签名与真机验收状态 | [手机客户端](../mobile/README.md) |

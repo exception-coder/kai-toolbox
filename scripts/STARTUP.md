@@ -1,6 +1,9 @@
 # Forge 启动与运行
 
 供 AI 协助首次启动时，使用[项目启动 Skill](../.agents/skills/forge-startup/SKILL.md)；它复用本文和现有 CLI，不增加启动脚本或改变重启授权。
+
+项目发布脚本的统一约定见 [Project-Native CI/CD 标准](../docs/standards/project-native-cicd.md)。本文件仍是 Forge 现有起停入口；本次标准化未给 `forge.mjs` 增加 `deploy/run/rollback` 发布动词，不应照模板猜测并执行不存在的命令。
+
 ## 日常只用一个入口
 
 安装 Node.js 22.13+、JDK 21、Maven 3.9+ 和 Git 后，在项目根目录运行：
