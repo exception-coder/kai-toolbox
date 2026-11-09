@@ -2,6 +2,17 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Session, SessionManager } from './sessionManager.js'
 
+test('Claude complete text reaches the Forge stream without partial events', () => {
+  const events: Record<string, unknown>[] = []
+  const session = new Session('s', process.cwd(), event => events.push(event)) as unknown as {
+    handle(message: Record<string, unknown>, names: Map<string, string>, startedAt: Map<string, number>): void
+  }
+  const message = { type: 'assistant', uuid: 'reply', message: { content: [{ type: 'text', text: '回复已恢复' }] } }
+  session.handle(message, new Map(), new Map())
+  session.handle(message, new Map(), new Map())
+  assert.deepEqual(events.filter(event => event.type === 'assistantDelta').map(event => event.text), ['回复已恢复'])
+})
+
 test('user dispatch claims the native turn before returning to the WebSocket receiver', async () => {
   let started = false
   const manager = {

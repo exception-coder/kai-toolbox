@@ -2371,7 +2371,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                   />
                 </div>
               )}
-              {(['qwen', 'opencode', 'pi', 'copilot'].includes(chat.currentEngine))
+              {(['claude', 'qwen', 'opencode', 'pi', 'copilot'].includes(chat.currentEngine))
                 && !(chat.currentProviderKind === 'thirdParty' && supportsSessionProvider(chat.currentEngine)) && !reviewOnlySession && (
                 <div className="flex flex-col items-stretch gap-2">
                   <label htmlFor="session-engine-model" className="text-sm font-medium">{currentEngineLabel} 模型</label>
@@ -2404,6 +2404,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                     <p className="text-xs leading-relaxed text-[var(--color-muted-foreground)]">
                       {chat.currentEngine === 'opencode'
                         ? '暂无可用模型。请先在运行 Forge 的账户中执行 opencode auth login 并配置模型服务，然后重新同步。'
+                        : chat.currentEngine === 'claude' ? '模型目录尚未加载。可重新同步；若仍失败，请检查运行 Forge 的账户是否已登录 Claude Code。'
                         : chat.currentEngine === 'pi' ? '暂无可用模型。请运行 pi 并通过 /login 配置认证，或选择第三方服务商后重新同步。'
                         : chat.currentEngine === 'copilot' ? '暂无可用模型。请登录 Copilot CLI，或选择第三方服务商并配置模型后重新同步。'
                         : '暂无可用模型。请先在运行 Forge 的账户中配置 Qwen Code 认证，再重新同步；千问办公模型不自动共享。'}

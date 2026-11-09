@@ -23,7 +23,7 @@ const testRuntime = vi.hoisted(() => ({
   chat: {
     open: vi.fn(),
     send: vi.fn(), steer: vi.fn(), enqueue: vi.fn(), interrupt: vi.fn(),
-    setModel: vi.fn(), setCodexOptions: vi.fn(), modelsRefreshing: false,
+    setModel: vi.fn(), setCodexOptions: vi.fn(), refreshModels: vi.fn(), modelsRefreshing: false,
     sessionId: 'session-config-regression',
     state: 'ready',
     items: [],
@@ -113,10 +113,12 @@ afterEach(() => {
   testRuntime.chat.steer.mockClear()
   testRuntime.chat.enqueue.mockClear()
   testRuntime.chat.setModel.mockClear()
+  testRuntime.chat.refreshModels.mockClear()
   testRuntime.chat.setCodexOptions.mockClear()
   testRuntime.chat.running = false
   testRuntime.chat.currentProviderBaseUrl = null
   testRuntime.chat.currentEngine = 'codex'
+  testRuntime.chat.currentModel = 'gpt-5.6-sol'
   testRuntime.chat.currentProviderKind = 'official'
   testRuntime.chat.codexSpeed = 'default'
   testRuntime.chat.codexReasoningEffort = 'low'
@@ -147,6 +149,33 @@ async function openNewSessionSettings() {
 }
 
 describe('ChatPage session configuration', () => {
+  it('official Claude exposes model selection and refresh in the session configuration', async () => {
+    testRuntime.chat.currentEngine = 'claude'
+    testRuntime.chat.currentModel = 'sonnet'
+    testRuntime.chat.models = [{ value: 'sonnet', displayName: 'Sonnet' }, { value: 'opus', displayName: 'Opus' }]
+    mountChat()
+    fireEvent.click(await screen.findByRole('button', { name: /^会话配置，当前/ }))
+    const config = within(await screen.findByRole('dialog', { name: '会话配置' }))
+    const model = config.getByRole('combobox', { name: 'Claude 模型' })
+    expect(model).toHaveValue('sonnet')
+    fireEvent.change(model, { target: { value: 'opus' } })
+    expect(testRuntime.chat.setModel).toHaveBeenCalledWith('opus')
+    fireEvent.click(config.getByRole('button', { name: '重新同步 Claude 模型' }))
+    expect(testRuntime.chat.refreshModels).toHaveBeenCalledOnce()
+  })
+
+  it('official Claude keeps the default model and a recovery action while its catalog is empty', async () => {
+    testRuntime.chat.currentEngine = 'claude'
+    testRuntime.chat.currentModel = ''
+    testRuntime.chat.models = []
+    mountChat()
+    fireEvent.click(await screen.findByRole('button', { name: /^会话配置，当前/ }))
+    const config = within(await screen.findByRole('dialog', { name: '会话配置' }))
+    expect(config.getByRole('combobox', { name: 'Claude 模型' })).toHaveValue('')
+    expect(config.getByText(/模型目录尚未加载/)).toBeInTheDocument()
+    expect(config.getByRole('button', { name: '重新同步 Claude 模型' })).toBeEnabled()
+  })
+
   it('mobile expanded editing preserves the same textarea and draft, then uses the original queue and interrupt actions', async () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width') || query.includes('pointer: coarse'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     testRuntime.chat.sessionId = 'inline-composer-regression'

@@ -1,4 +1,5 @@
 import { claudeProjectPlugins, hasProjectTaskSkill } from './projectSkillPriority.js'
+import { ClaudeMessageText } from './claudeMessageText.js'
 import { PAGE_PREVIEW_STEER } from './pagePreviewTools.js'
 import { requestCodexSdkCleanup } from './engine/codexSdkLifecycle.js'
 import { assemblyAllowsTool, filterClaudeAssembly, parseConsultToolAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
@@ -334,6 +335,7 @@ export class Session {
   private turnActivityTimer?: NodeJS.Timeout
   private readonly codexResponseWatchdog = new CodexResponseWatchdog()
   private modelsFetched = false
+  private claudeMessageText = new ClaudeMessageText()
   /** 本轮 API 响应里实际返回的模型（来自 assistant message.model，权威）；用于调用诊断。 */
   private lastResponseModel?: string
   /** 本轮最后一条带文本的 Claude assistant message UUID，用作回答底部分叉锚点。 */
@@ -766,6 +768,7 @@ export class Session {
     // 调用诊断日志：本轮发出去的模型 + 是否经第三方网关（排查“真走三方 / 回退官方”的关键）
     console.log(`[sidecar] turn start session=${this.id} model=${this.model ?? '默认'} via=${this.apiBaseUrl ?? '官方登录'}`)
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      this.claudeMessageText = new ClaudeMessageText()
       const ac = new AbortController()
       this.abort = ac
       const toolNames = new Map<string, string>() // tool_use_id -> 工具名
@@ -1175,6 +1178,8 @@ export class Session {
     toolNames: Map<string, string>,
     toolStartedAt: Map<string, number>,
   ): void {
+    const text = this.claudeMessageText.accept(m)
+    if (text) this.emitTurn({ type: 'assistantDelta', text })
     const type = m.type as string
     switch (type) {
       case 'system': {
@@ -1248,10 +1253,7 @@ export class Session {
       }
       case 'stream_event': {
         const ev = m.event as Record<string, unknown> | undefined
-        const delta = ev?.delta as Record<string, unknown> | undefined
-        if (ev?.type === 'content_block_delta' && delta?.type === 'text_delta') {
-          this.emitTurn({ type: 'assistantDelta', text: delta.text as string })
-        } else if (ev?.type === 'message_start') {
+        if (ev?.type === 'message_start') {
           // 新一段消息（tool-use 后续跑会开新消息）：把上一段的输出 token 计入基数
           this.turnBaseTokens += this.curMsgTokens
           this.curMsgTokens = 0
