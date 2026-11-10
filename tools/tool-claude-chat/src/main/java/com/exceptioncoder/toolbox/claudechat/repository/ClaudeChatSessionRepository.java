@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.repository;
 
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -15,12 +16,20 @@ import java.util.Optional;
 public class ClaudeChatSessionRepository {
 
     private final JdbcTemplate jdbc;
+    private final SessionCredentialCipher credentials;
 
     public ClaudeChatSessionRepository(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+        this(jdbc, SessionCredentialCipher.withDefaultSecret());
     }
 
-    private static final RowMapper<ClaudeChatSession> ROW = (rs, i) -> ClaudeChatSession.builder()
+    @Autowired
+    public ClaudeChatSessionRepository(JdbcTemplate jdbc, SessionCredentialCipher credentials) {
+        this.jdbc = jdbc;
+        this.credentials = credentials;
+    }
+
+    // 网关凭据落库为密文，读取时解密；历史明文原样读取。
+    private final RowMapper<ClaudeChatSession> ROW = (rs, i) -> ClaudeChatSession.builder()
             .id(rs.getString("id"))
             .userId(nullableLong(rs, "user_id"))
             .cwd(rs.getString("cwd"))
@@ -30,7 +39,7 @@ public class ClaudeChatSessionRepository {
             .engines(rs.getString("engines"))
             .engineSessions(rs.getString("engine_sessions"))
             .apiBaseUrl(rs.getString("api_base_url"))
-            .authToken(rs.getString("auth_token"))
+            .authToken(storedToken(rs))
             .codexHome(rs.getString("codex_home"))
             .selectedModel(rs.getString("selected_model"))
             .codexReasoningEffort(rs.getString("codex_reasoning_effort"))
@@ -48,6 +57,10 @@ public class ClaudeChatSessionRepository {
             .startedAt(rs.getLong("started_at"))
             .lastSeenAt(rs.getLong("last_seen_at"))
             .build();
+
+    private String storedToken(ResultSet resultSet) throws SQLException {
+        return credentials.decrypt(resultSet.getString("auth_token"));
+    }
 
     private static Long nullableLong(ResultSet resultSet, String column) throws SQLException {
         long value = resultSet.getLong(column);
@@ -166,7 +179,7 @@ public class ClaudeChatSessionRepository {
                 """,
                 s.getId(), s.getUserId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
                 engine, s.getEngines() == null ? engine : s.getEngines(),
-                s.getApiBaseUrl(), s.getAuthToken(), s.getCodexHome(),
+                s.getApiBaseUrl(), credentials.encrypt(s.getAuthToken()), s.getCodexHome(),
                 s.getSelectedModel(), s.getCodexReasoningEffort(), s.getCodexSpeed(),
                 s.getPermissionMode() == null ? "default" : s.getPermissionMode(),
                 s.getExecutionPolicy(), s.getConsultEvidenceSystems(),
@@ -212,7 +225,7 @@ public class ClaudeChatSessionRepository {
     public void updateProvider(String id, String apiBaseUrl, String authToken) {
         jdbc.update(
                 "UPDATE claude_chat_session SET api_base_url = ?, auth_token = ? WHERE id = ?",
-                apiBaseUrl, authToken, id);
+                apiBaseUrl, credentials.encrypt(authToken), id);
     }
 
     /** 保存会话选择的模型。 */
@@ -292,7 +305,6 @@ public class ClaudeChatSessionRepository {
         jdbc.update("DELETE FROM claude_chat_queued_message WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_pending_sql_target WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_pending_sql WHERE session_id = ?", id);
-        jdbc.update("DELETE FROM claude_chat_session_affected_api WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_session_plan_state WHERE id = ?", id);
         jdbc.update("DELETE FROM claude_chat_session WHERE id = ?", id);
     }
