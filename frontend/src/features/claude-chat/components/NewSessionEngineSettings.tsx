@@ -44,7 +44,7 @@ export function NewSessionEngineSettings({ engine, providerId, providers, provid
     </div>}
     <details className="border-t pt-3">
       <summary className="cursor-pointer text-sm font-medium">引擎状态</summary>
-      <div className="mt-2 divide-y text-xs">{catalog?.engines.map(entry => <p key={entry.id} className="break-words py-2"><strong className="font-medium">{entry.displayName}</strong> · {entry.selectable && entry.probe.status === 'ready' ? '可用' : entry.probe.detail || '暂不可用'}</p>)}</div>
+      <div className="mt-2 divide-y text-xs">{catalog?.engines.map(entry => <p key={entry.id} className="break-words py-2"><strong className="font-medium">{entry.displayName}</strong>{entry.availability === 'experimental' ? '（实验）' : ''} · {entry.selectable && entry.probe.status === 'ready' ? '可用' : entry.probe.detail || '暂不可用'}</p>)}</div>
       {catalog?.error && <p role="alert" className="text-xs">{catalog.error}</p>}
       <Button variant="outline" size="sm" disabled={refreshing} onClick={onRefresh}>{refreshing ? '正在检测…' : '重新检测引擎'}</Button>
     </details>

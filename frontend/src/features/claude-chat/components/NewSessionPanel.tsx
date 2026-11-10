@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, Plus, RefreshCw, Settings2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Combobox } from '@/components/ui/combobox'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
-import type { Engine, WorkspaceList } from '../types'
+import type { Engine, EngineCatalogView, WorkspaceList } from '../types'
 import type { NewSessionPreferences } from '../lib/newSessionPreferences'
 import { engineName } from './chatStatus'
 import { workspaceName } from '../lib/newSessionWorkspace'
@@ -41,6 +42,10 @@ export function NewSessionPanel({ choice, roots, root, project, engines, recent,
   const settingsTrigger = useRef<HTMLButtonElement>(null)
   const createTrigger = useRef<HTMLButtonElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  // 可选引擎由同一份引擎目录得出，这里只读取缓存中的分级标注，不额外请求。
+  const catalog = useQueryClient().getQueryData<EngineCatalogView>(['claude-chat-engine-catalog'])
+  const experimental = (engine: Engine) => catalog?.engines.some(entry => entry.id === engine && entry.availability === 'experimental') === true
+  const engineLabel = (engine: Engine) => experimental(engine) ? `${engineName(engine)} · 实验` : engineName(engine)
   useEffect(() => { heading.current?.focus() }, [])
   const primaryEngines = (['codex', 'claude', 'qwen'] as Engine[]).filter(engine => engines.includes(engine))
   for (const engine of engines) if (primaryEngines.length < 3 && !primaryEngines.includes(engine)) primaryEngines.push(engine)
@@ -96,9 +101,10 @@ export function NewSessionPanel({ choice, roots, root, project, engines, recent,
           <div role="group" aria-labelledby="vibe-new-engine" className="flex flex-wrap gap-2">
             {primaryEngines.map(engine => <Button key={engine} variant={engine === choice.engine ? 'secondary' : 'outline'}
               className={`min-h-11 ${engine === choice.engine ? 'border border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]' : ''}`}
-              disabled={creating} aria-pressed={engine === choice.engine} onClick={() => onSelect({ engine })}>{engineName(engine)}</Button>)}
+              disabled={creating} aria-pressed={engine === choice.engine} onClick={() => onSelect({ engine })}
+              title={experimental(engine) ? '实验引擎：可使用，但不在团队正式支持范围' : undefined}>{engineLabel(engine)}</Button>)}
             {remainingEngines.length > 0 && <Combobox aria-label="其他引擎" allowCustom={false} value={remainingEngines.includes(choice.engine) ? choice.engine : ''}
-              options={remainingEngines.map(engine => ({ value: engine, label: engineName(engine) }))} onChange={value => onSelect({ engine: value as Engine })}
+              options={remainingEngines.map(engine => ({ value: engine, label: engineLabel(engine) }))} onChange={value => onSelect({ engine: value as Engine })}
               placeholder="其他引擎" disabled={creating} className="min-h-11 w-36" />}
             {!engines.length && <p className="text-xs text-[var(--color-muted-foreground)]">{loading ? '正在读取可用引擎…' : '暂未确认可用引擎'}</p>}
           </div>

@@ -8,13 +8,19 @@ import type {
 import { EngineAdapterRegistry } from './engineRegistry.js'
 import { deriveEngineRuntimeSnapshot } from './runtimeStateCoordinator.js'
 
+/**
+ * 团队正式支持的引擎；其余内置引擎标为实验：仍按探活结果可选，界面标注“实验”，不承诺排障与新功能投入。
+ * 调整支持范围只需修改此清单。
+ */
+const OFFICIALLY_SUPPORTED: ReadonlySet<BuiltinEngineId> = new Set<BuiltinEngineId>(['codex', 'claude'])
+
 function descriptor<T extends BuiltinEngineId>(id: T, displayName: string,
                     capabilities: readonly EngineCapability[]): EngineDescriptor & { id: T } {
   return {
     id,
     displayName,
     capabilities: new Set(capabilities),
-    availability: 'stable',
+    availability: OFFICIALLY_SUPPORTED.has(id) ? 'stable' : 'experimental',
   }
 }
 
