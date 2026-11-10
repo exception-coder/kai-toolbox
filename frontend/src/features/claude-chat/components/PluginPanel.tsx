@@ -3,6 +3,7 @@ import { RefreshCw, Download, UploadCloud, X, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import { authEventSource } from '@/lib/api'
+import { RuntimeVersionSection } from './RuntimeVersionSection'
 import {
   fetchTeamRepositoryGitFileDiff,
   fetchTeamRepositoryGitStatus,
@@ -428,6 +429,8 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
           源码保存在 ~/.kai-toolbox/business-systems 并自动加入工作区。未提交修改、本地领先、分叉或远端不匹配时会跳过保护，绝不自动提交、重置或删除。
         </p>
       </div>
+
+      <RuntimeVersionSection />
 
       <div className="mb-2 rounded-md border px-2 py-1.5 text-xs">
         <div className="flex items-center gap-2">

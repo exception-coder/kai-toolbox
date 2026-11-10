@@ -221,6 +221,21 @@ export function pluginInstallStreamPath(sessionId: string | undefined, source: '
 }
 
 /** 查 sidecar 的 Claude Agent SDK 版本。check=true 时联网查 npm 最新版并判断是否落后（较慢）。 */
+/** 运行版本：后端启动提交、当前源码与待加载提交。 */
+export interface RuntimeVersion {
+  startedCommit: string | null
+  startedAt: number
+  sourceHead: string | null
+  pendingCommits: number | null
+  pendingSubjects: string[]
+  checkedAt: number
+  error: string | null
+}
+
+export function getRuntimeVersion(refresh = false) {
+  return http<RuntimeVersion>(`/claude-chat/runtime/version${refresh ? '?refresh=true' : ''}`)
+}
+
 export function getSidecarVersion(check = false) {
   return http<SidecarVersion>(`/claude-chat/sidecar/version${check ? '?check=true' : ''}`)
 }

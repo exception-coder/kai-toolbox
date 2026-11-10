@@ -3,8 +3,15 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import mkcert from 'vite-plugin-mkcert'
 import path from 'node:path'
+import { execSync } from 'node:child_process'
 import type { ClientRequest, IncomingMessage } from 'node:http'
 import type { TLSSocket } from 'node:tls'
+
+// 构建时写入前端源码提交，供“运行版本”核对页面是否已加载最新构建；非 Git 环境显示 unknown。
+function buildCommit() {
+  try { return execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() }
+  catch { return 'unknown' }
+}
 
 const logger = createLogger()
 const logError = logger.error.bind(logger)
@@ -41,6 +48,7 @@ logger.error = (message, options) => {
 
 export default defineConfig({
   customLogger: logger,
+  define: { __FORGE_BUILD_COMMIT__: JSON.stringify(buildCommit()) },
   // 启用 HTTPS：浏览器把 getUserMedia / SpeechRecognition 等列为 secure-context only，
   // 手机走 LAN IP 明文 HTTP 时调用会被直接拒掉，必须是 HTTPS 或 localhost。
   // vite-plugin-mkcert 首次启动会下载 mkcert 二进制 + 弹一次 UAC 把本机根 CA 装进系统信任链，
