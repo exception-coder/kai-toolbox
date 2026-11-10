@@ -71,6 +71,19 @@ class SessionArtifactReferenceServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.resolve(session("b"), image.toString()));
         assertThrows(IllegalArgumentException.class, () -> service.resolve(session("a"), image.resolveSibling("secret.png").toString()));
     }
+    @Test void imagePathsGivenAsLinksOrInlineCodeAreGrantedButOtherFilesAreNot() {
+        var history = mock(SessionHistoryService.class);
+        when(history.readCursorMessages(anyString(), anyString(), isNull(), isNull(), isNull(), eq(100))).thenReturn(MessagePage.empty());
+        var service = new SessionArtifactReferenceService(history, path -> true, new ObjectMapper());
+        Path linked = root.resolve("external/原型 图.png");
+        Path coded = root.resolve("external/proto.jpg");
+        Path notImage = root.resolve("external/secret.txt");
+        service.remember(session("a"), assistant("[原型](<" + linked + ">) 另见 `" + coded + "` 和 `" + notImage + "`"));
+        assertEquals(linked, service.resolve(session("a"), linked.toString()));
+        assertEquals(coded, service.resolve(session("a"), coded.toString()));
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(session("a"), notImage.toString()));
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(session("b"), coded.toString()));
+    }
     @Test void liveFallbackUsesRecentPageAndPreservesLiteralPlusAndSpaces() {
         var history = mock(SessionHistoryService.class);
         Path image = root.resolve("external/中文 + 空格.png");
@@ -88,8 +101,10 @@ class SessionArtifactReferenceServiceTest {
         Path image = root.resolve("outside.png");
         var service = new SessionArtifactReferenceService(history, path -> true, new ObjectMapper());
         service.remember(session("a"), new MessagePage(List.of(ChatMessageView.user("user", "![x]("+image+")", 1L)), null, false));
-        service.remember(session("a"), assistant("[普通链接]("+image+")"));
         assertThrows(IllegalArgumentException.class, () -> service.resolve(session("a"), image.toString()));
+        // 助手以普通链接给出的图片路径可查看（手机端点击预览）。
+        service.remember(session("a"), assistant("[普通链接]("+image+")"));
+        assertEquals(image, service.resolve(session("a"), image.toString()));
         var excluded = new SessionArtifactReferenceService(history, path -> false, new ObjectMapper());
         excluded.remember(session("a"), assistant("![x]("+image+")"));
         assertThrows(IllegalArgumentException.class, () -> excluded.resolve(session("a"), image.toString()));

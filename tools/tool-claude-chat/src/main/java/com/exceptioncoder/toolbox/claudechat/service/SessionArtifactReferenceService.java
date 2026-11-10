@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -23,6 +24,8 @@ public class SessionArtifactReferenceService {
     private static final int MAX_REFERENCES = 512;
     private static final Pattern IMAGE = Pattern.compile("!\\[[^\\]\\r\\n]*\\]\\((?:<([^>\\r\\n]+)>|([^\\r\\n]*?))(?:\\s+\"[^\"]*\")?\\)");
     private static final Pattern LINK = Pattern.compile("(?<!!)\\[[^\\]\\r\\n]*\\]\\((?:<([^>\\r\\n]+)>|([^\\r\\n]*?))(?:\\s+\"[^\"]*\")?\\)");
+    private static final Pattern INLINE_CODE = Pattern.compile("`([^`\\r\\n]+)`");
+    private static final Pattern IMAGE_FILE = Pattern.compile("(?i).+\\.(?:png|jpe?g|gif|webp|bmp|avif)$");
     private static final Pattern LOCATION_SUFFIX = Pattern.compile("(?::\\d+(?::\\d+)?|#L\\d+)$", Pattern.CASE_INSENSITIVE);
     public enum Kind { IMAGE, DIAGRAM, MARKDOWN, SQL }
     private record Reference(Kind kind, Path path) { }
@@ -52,6 +55,18 @@ public class SessionArtifactReferenceService {
                     Path path = localPath(linkedPath);
                     if (path != null && path.isAbsolute() && supports(kind, path)) {
                         paths.add(new Reference(kind, path.normalize()));
+                    }
+                }
+            }
+            // 助手也常以普通链接或行内代码给出图片路径；仅按图片扩展名登记，读取时仍校验内容。
+            for (Pattern pattern : List.of(LINK, INLINE_CODE)) {
+                var matches = pattern.matcher(item.text());
+                while (matches.find()) {
+                    String raw = pattern == LINK && matches.group(1) != null ? matches.group(1)
+                            : pattern == LINK ? matches.group(2) : matches.group(1);
+                    Path path = localPath(raw);
+                    if (path != null && path.isAbsolute() && IMAGE_FILE.matcher(path.toString()).matches()) {
+                        paths.add(new Reference(Kind.IMAGE, path.normalize()));
                     }
                 }
             }

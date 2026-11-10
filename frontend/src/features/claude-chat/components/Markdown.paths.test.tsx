@@ -14,6 +14,34 @@ vi.mock('@/features/doc-viewer/public-api/drawio', async importOriginal => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('消息本地路径', () => {
+  it.each([
+    ['链接', '[原型图](<D:/proto/原型 图.png>)', 'D:/proto/原型 图.png'],
+    ['行内代码', '原型在 `D:/proto/page.jpg`', 'D:/proto/page.jpg'],
+  ])('%s形式的本地图片路径点击后全屏查看，不再调用打开本地路径', async (_kind, text, expected) => {
+    vi.stubGlobal('URL', Object.assign(class extends URL {}, { createObjectURL: vi.fn(() => 'blob:viewer'), revokeObjectURL: vi.fn() }))
+    readImage.mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
+    const { container } = render(<Markdown text={text} sessionId="session" />)
+    const trigger = container.querySelector<HTMLAnchorElement>('a[data-image-path]')!
+    expect(trigger.dataset.imagePath).toBe(expected)
+    fireEvent.click(trigger)
+    await waitFor(() => expect(screen.getByRole('dialog', { name: '图片查看' }).querySelector('img')).toHaveAttribute('src', 'blob:viewer'))
+    expect(readImage).toHaveBeenCalledWith('session', expected, expect.any(AbortSignal))
+    expect(openPath).not.toHaveBeenCalled()
+  })
+
+  it('非图片的行内代码路径保持原样', () => {
+    const { container } = render(<Markdown text="见 `D:/proto/readme.txt`" sessionId="session" />)
+    expect(container.querySelector('a[data-image-path]')).toBeNull()
+  })
+
+  it('消息内图片点击放大查看', async () => {
+    vi.stubGlobal('URL', Object.assign(class extends URL {}, { createObjectURL: vi.fn(() => 'blob:inline'), revokeObjectURL: vi.fn() }))
+    readImage.mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
+    render(<Markdown text="![截图](D:/proto/shot.png)" sessionId="session" />)
+    fireEvent.click(await screen.findByRole('button', { name: '查看大图 截图' }))
+    expect(await screen.findByRole('dialog', { name: '图片查看' })).toBeVisible()
+  })
+
   it('本地图读取失败显示真实原因，重试重新鉴权读取', async () => {
     vi.stubGlobal('URL', Object.assign(class extends URL {}, {
       createObjectURL: vi.fn(() => 'blob:retried-proof'), revokeObjectURL: vi.fn(),

@@ -16,11 +16,13 @@ import { inlineFileBlocks, type InlineFileReference } from '../lib/inlineFilePre
 import { decorateContent } from '../lib/contentPresentation'
 import { useContentHighlighting } from '../hooks/useContentHighlighting'
 import { copyTextToClipboard } from '../lib/clipboard'
+import { ImageLightbox } from './ImageLightbox'
 import '../styles/content-rendering.css'
 
 const MessageDrawioDialog = lazy(() => import('./messages/MessageDrawioDialog').then(module => ({ default: module.MessageDrawioDialog })))
 const MessageMarkdownDialog = lazy(() => import('./messages/MessageMarkdownDialog').then(module => ({ default: module.MessageMarkdownDialog })))
 const MessageSqlDialog = lazy(() => import('./messages/MessageSqlDialog').then(module => ({ default: module.MessageSqlDialog })))
+const LocalImageViewer = lazy(() => import('./messages/LocalImageViewer').then(module => ({ default: module.LocalImageViewer })))
 const InlineLocalFile = lazy(() => import('./messages/InlineLocalFile').then(module => ({ default: module.InlineLocalFile })))
 
 interface MarkdownContext {
@@ -29,11 +31,11 @@ interface MarkdownContext {
   inlineFiles?: boolean
 }
 
-function LocalMessageImage({ sessionId, path, alt }: { sessionId?: string; path: string; alt: string }) {
+function LocalMessageImage({ sessionId, path, alt, onOpen }: { sessionId?: string; path: string; alt: string; onOpen: (src: string, alt: string) => void }) {
   const load = useCallback((signal: AbortSignal) => sessionId
     ? readSessionImage(sessionId, path, signal)
     : Promise.reject(new Error('当前视图没有可用的会话，无法读取本地图片。')), [sessionId, path])
-  return <MessageImage src="" alt={alt} loadSource={load} />
+  return <MessageImage src="" alt={alt} loadSource={load} onOpen={onOpen} />
 }
 
 // ── Mermaid 初始化（全局一次）──────────────────────────────────────────────────
@@ -146,7 +148,10 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
   const [markdownDocument, setMarkdownDocument] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
   const [sqlDocument, setSqlDocument] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
   const [pagePreview, setPagePreview] = useState<{ sessionId?: string; path: string; trigger: HTMLAnchorElement } | null>(null)
-  useEffect(() => { setDiagram(null); setMarkdownDocument(null); setSqlDocument(null); setPagePreview(null) }, [sessionId, documentPath])
+  const [imageViewer, setImageViewer] = useState<{ src: string; alt: string } | null>(null)
+  const [localImage, setLocalImage] = useState<{ sessionId: string; path: string; trigger: HTMLElement } | null>(null)
+  useEffect(() => { setDiagram(null); setMarkdownDocument(null); setSqlDocument(null); setPagePreview(null); setImageViewer(null); setLocalImage(null) }, [sessionId, documentPath])
+  const openImage = useCallback((src: string, alt: string) => setImageViewer({ src, alt }), [])
   const [imageTargets, setImageTargets] = useState<{ html: string | null; sessionId?: string; targets: HTMLSpanElement[] }>({ html: null, targets: [] })
   const html = useMemo(() => {
     if (!text.trim()) return null
@@ -159,6 +164,7 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
         delete anchor.dataset.markdownPath
         delete anchor.dataset.sqlPath
         delete anchor.dataset.pagePreview
+        delete anchor.dataset.imagePath
         if (documentPath) {
           const href = anchor.getAttribute('href')
           if (href && !/^(?:[a-z][\w+.-]*:|\/|#|\?)/i.test(href)) anchor.setAttribute('href', relativeToDocument(href, documentPath))
@@ -188,6 +194,13 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
           anchor.dataset.sqlPath = sqlPath
           anchor.href = '#'
           anchor.title = `预览 SQL：${sqlPath}`
+          return
+        }
+        const imagePath = localImageReference(anchor.getAttribute('href'))
+        if (imagePath) {
+          anchor.dataset.imagePath = imagePath
+          anchor.href = '#'
+          anchor.title = `查看图片：${imagePath}`
           return
         }
         const localPath = localPathFromHref(anchor.getAttribute('href'))
@@ -220,6 +233,18 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
           ;(heading as HTMLElement).dataset.documentAnchor = count ? `${slug}-${count}` : slug
         })
       }
+      // 助手常把图片路径写成行内代码；包成可点的查看入口，手机端也能经会话读取原图。
+      doc.querySelectorAll<HTMLElement>('code').forEach(code => {
+        if (code.closest('pre, a')) return
+        const imagePath = localImageReference(code.textContent?.trim() ?? null)
+        if (!imagePath) return
+        const anchor = doc.createElement('a')
+        anchor.href = '#'
+        anchor.dataset.imagePath = imagePath
+        anchor.title = `查看图片：${imagePath}`
+        code.replaceWith(anchor)
+        anchor.append(code)
+      })
       doc.querySelectorAll<HTMLImageElement>('img').forEach(image => {
         const placeholder = doc.createElement('span')
         placeholder.dataset.messageImage = image.getAttribute('src') ?? ''
@@ -333,6 +358,13 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
       else setSqlDocument({ sessionId, path: sqlLink.dataset.sqlPath!, trigger: sqlLink })
       return
     }
+    const imageLink = target.closest<HTMLAnchorElement>('a[data-image-path]')
+    if (imageLink) {
+      event.preventDefault()
+      if (!sessionId) setLocalPathNotice({ tone: 'error', text: '当前视图没有可用的会话，无法读取本地图片' })
+      else setLocalImage({ sessionId, path: imageLink.dataset.imagePath!, trigger: imageLink })
+      return
+    }
     const localLink = target.closest<HTMLAnchorElement>('a[data-local-path]')
     if (localLink) {
       event.preventDefault()
@@ -434,8 +466,8 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
       </Fragment>)}</div>
       {imageTargets.html === html && imageTargets.sessionId === sessionId && imageTargets.targets.map((target, index) => createPortal(
         target.dataset.localImage
-          ? <LocalMessageImage sessionId={sessionId} path={target.dataset.localImage} alt={target.dataset.imageAlt ?? ''} />
-          : <MessageImage src={target.dataset.messageImage ?? ''} alt={target.dataset.imageAlt ?? ''} />,
+          ? <LocalMessageImage sessionId={sessionId} path={target.dataset.localImage} alt={target.dataset.imageAlt ?? ''} onOpen={openImage} />
+          : <MessageImage src={target.dataset.messageImage ?? ''} alt={target.dataset.imageAlt ?? ''} onOpen={openImage} />,
         target, `${sessionId}:${index}:${target.dataset.localImage ?? target.dataset.messageImage}`,
       ))}
       {diagram && sessionId && diagram.sessionId === sessionId && <Suspense fallback={<p role="status" className="mt-2 text-sm">正在打开图形预览…</p>}><MessageDrawioDialog key={`${sessionId}:${diagram.path}`} sessionId={sessionId} path={diagram.path} onClose={() => setDiagram(null)} returnFocus={() => {
@@ -460,6 +492,13 @@ function MarkdownPart({ text, className, sessionId, documentPath, onOpenMarkdown
         const target = sqlDocument.trigger.isConnected ? sqlDocument.trigger : replacement ?? content.current
         target?.focus({ preventScroll: true })
       }} /></Suspense>}
+      {imageViewer && <ImageLightbox src={imageViewer.src} alt={imageViewer.alt} onClose={() => setImageViewer(null)} />}
+      {localImage && sessionId && localImage.sessionId === sessionId && <Suspense fallback={null}><LocalImageViewer key={`${sessionId}:${localImage.path}`}
+        sessionId={sessionId} path={localImage.path} onClose={() => {
+          const trigger = localImage.trigger
+          setLocalImage(null)
+          ;(trigger.isConnected ? trigger : content.current)?.focus({ preventScroll: true })
+        }} /></Suspense>}
       {localPathNotice && (
         <div className={cn('mt-1 text-[11px]', localPathNotice.tone === 'success'
           ? 'text-emerald-600 dark:text-emerald-400'
@@ -480,6 +519,14 @@ function localImagePath(src: string | null): string | null {
   if (local) return local
   if (/^[a-z][\w+.-]*:/i.test(src)) return null
   try { return decodeURIComponent(src) } catch { return src }
+}
+
+const LOCAL_IMAGE_EXTENSION = /\.(?:png|jpe?g|gif|webp|bmp|avif)$/i
+
+/** 链接或行内代码指向本地图片时返回路径；网络图片与网站资源保持原有行为。 */
+function localImageReference(value: string | null): string | null {
+  const path = localPathFromHref(value)
+  return path && LOCAL_IMAGE_EXTENSION.test(path) ? path : null
 }
 
 function localPathFromHref(href: string | null): string | null {
