@@ -252,6 +252,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     queryKey: ['claude-chat-engine-catalog'],
     queryFn: () => listEngineCatalog(false),
     staleTime: 30_000,
+    // Sidecar 侧已缓存并后台重探，这里定时拉取快照，打开新建面板时无需等待。
+    refetchInterval: 5 * 60_000,
     retry: 1,
   })
   const selectableEngines = useMemo(
@@ -870,18 +872,17 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 
   // 自动续接最近会话已上提到 ChatRuntime 引擎（跨路由常驻），此处不再处理。
 
-  // 新建面板展开时读取权威工作区；失败时保留选择并提供刷新或工作区设置入口。
+  // 页面加载即预取工作区并定时刷新，打开新建面板直接用缓存；失败时保留选择并提供刷新或工作区设置入口。
   const workspacesQuery = useQuery({
     queryKey: ['claude-chat-workspaces', codexSyncAuth.user?.userId ?? 'local'],
     queryFn: listWorkspaces,
-    enabled: panel === 'new',
-    staleTime: 5000,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
   })
   const workspaces = workspacesQuery.data
   const { data: projectWorkspacePreference, isPending: projectVisibilityLoading } = useQuery({
     queryKey: ['dev-preference', PROJECT_WORKSPACE_PREFERENCE_ID],
     queryFn: () => getDevPreference<ProjectWorkspaceVisibilityPreference>(PROJECT_WORKSPACE_PREFERENCE_ID),
-    enabled: panel === 'new',
     staleTime: 0,
   })
   // 两级工作目录：先选工作区 root，再列该 root 下的一级目录（只显示名字）。
@@ -899,7 +900,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const newSessionDirectory = resolveNewSessionDirectory(visibleNewRoot, newCwd)
   const newSessionEvidence = { engines: availableNewEngines, enginesLoading: engineCatalogQuery.isPending,
     providers, providersLoading, providersFailed: !!providersError }
-  const newSessionLoading = workspacesQuery.isPending || projectVisibilityLoading || engineCatalogQuery.isPending
+  const newSessionWorkspacesLoading = workspacesQuery.isPending || projectVisibilityLoading
+  const newSessionLoading = newSessionWorkspacesLoading || engineCatalogQuery.isPending
   const newSessionIssue = workspacesQuery.isError ? '工作区读取失败，请刷新可用配置。'
     : newSessionDirectory.issue ?? newSessionSelectionIssue(newSessionPreferences.choice, newSessionEvidence)
   const recentNewSession = validRecentSession(newSessionPreferences.recent, visibleNewRoots)
@@ -1651,7 +1653,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
         choice={newSessionPreferences.choice} roots={visibleNewRoots} root={visibleNewRoot} project={newSessionDirectory.project}
         engines={availableNewEngines} recent={recentNewSession} recentIssue={recentNewSessionIssue}
         issue={newSessionIssue} warning={newSessionCreateError ?? newEngineNotice ?? newSessionPreferences.warning}
-        loading={newSessionLoading} creating={newSessionCreating}
+        loading={newSessionLoading} workspacesLoading={newSessionWorkspacesLoading} creating={newSessionCreating}
+        workspacesRefreshing={workspacesQuery.isFetching} onReloadWorkspaces={() => { void workspacesQuery.refetch() }}
         providerLabel={newProviderId ? providers.find(profile => profile.id === newProviderId)?.name : undefined}
         onSelect={change => { selectNewSessionPreference(change); setNewSessionCreateError(null); setNewEngineNotice(undefined) }}
         onCreate={startNew} onClose={() => {

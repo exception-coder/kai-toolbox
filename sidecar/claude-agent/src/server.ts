@@ -95,6 +95,8 @@ void engineCatalog.list(true).then(entries => {
   console.log(`[sidecar] engine catalog ready ${summary}`)
 }).catch(error => {
   console.error('[sidecar] engine catalog warmup failed:', error)
+}).finally(() => {
+  engineCatalog.startBackgroundRefresh(error => console.error('[sidecar] engine catalog refresh failed:', error))
 })
 
 // 监听建立前的致命错误必须退出，不能留下活着但无法提供服务的进程。

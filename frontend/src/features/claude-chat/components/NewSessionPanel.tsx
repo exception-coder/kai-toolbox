@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowRight, Plus, Settings2, X } from 'lucide-react'
+import { ArrowRight, Plus, RefreshCw, Settings2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Combobox } from '@/components/ui/combobox'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
@@ -21,18 +21,22 @@ interface Props {
   issue?: string
   warning?: string
   loading: boolean
+  workspacesLoading: boolean
+  workspacesRefreshing: boolean
   creating: boolean
   providerLabel?: string
   onSelect: (change: Partial<NewSessionPreferences>) => void
   onCreate: (choice?: NewSessionPreferences) => void
   onClose: () => void
   onReload: () => void
+  onReloadWorkspaces: () => void
   onEngines: () => void
   children: ReactNode
 }
 
 export function NewSessionPanel({ choice, roots, root, project, engines, recent, recentIssue, issue, warning,
-  loading, creating, providerLabel, onSelect, onCreate, onClose, onReload, onEngines, children }: Props) {
+  loading, workspacesLoading, workspacesRefreshing, creating, providerLabel, onSelect, onCreate, onClose, onReload, onReloadWorkspaces,
+  onEngines, children }: Props) {
   const [settings, setSettings] = useState<'create' | 'settings' | null>(null)
   const settingsTrigger = useRef<HTMLButtonElement>(null)
   const createTrigger = useRef<HTMLButtonElement>(null)
@@ -74,7 +78,9 @@ export function NewSessionPanel({ choice, roots, root, project, engines, recent,
           <label htmlFor="vibe-new-workspace" className="block text-sm font-medium">工作区</label>
           <div className="flex min-w-0 gap-2">
             <Combobox id="vibe-new-workspace" aria-label="工作区" value={root?.root ?? ''} options={rootOptions} searchable allowCustom={false}
-              onChange={selectWorkspace} disabled={loading || creating} placeholder={loading ? '正在读取工作区…' : '选择工作区'} className="min-h-11 min-w-0 flex-1" />
+              onChange={selectWorkspace} disabled={workspacesLoading || creating} placeholder={workspacesLoading ? '正在读取工作区…' : '选择工作区'} className="min-h-11 min-w-0 flex-1" />
+            <Button className="min-h-11" variant="outline" size="icon" aria-label="刷新工作区" title="刷新工作区与项目列表"
+              disabled={workspacesRefreshing || creating} onClick={onReloadWorkspaces}><RefreshCw className={`size-4 ${workspacesRefreshing ? 'animate-spin' : ''}`} /></Button>
             <Button ref={createTrigger} className="min-h-11" variant="outline" disabled={creating} onClick={() => setSettings('create')}><Plus className="size-4" />新建</Button>
           </div>
         </div>
@@ -82,7 +88,7 @@ export function NewSessionPanel({ choice, roots, root, project, engines, recent,
           <label htmlFor="vibe-coding-project-picker" className="block text-sm font-medium">项目 <span className="font-normal text-[var(--color-muted-foreground)]">· 可选</span></label>
           <Combobox id="vibe-coding-project-picker" className="min-h-11" aria-label="项目" value={project} allowCustom={false} searchable
             options={[{ value: '', label: '不选项目 · 使用工作区' }, ...(root?.dirs.map(item => ({ value: item.path, label: getSystemWorkspaceDisplayName(item) })) ?? [])]}
-            onChange={path => onSelect({ cwd: path || root?.root || '' })} disabled={!root || loading || creating} placeholder="不选项目 · 使用工作区" />
+            onChange={path => onSelect({ cwd: path || root?.root || '' })} disabled={!root || workspacesLoading || creating} placeholder="不选项目 · 使用工作区" />
           {root && <p className="text-xs text-[var(--color-muted-foreground)]">{project ? `在 ${workspaceName(project)} 中执行` : `未选项目，将在 ${workspaceName(root.root)} 工作区中执行`}</p>}
         </div>
         <div className="space-y-2">

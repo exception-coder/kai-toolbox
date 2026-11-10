@@ -95,3 +95,29 @@ test('catalog admits Trae only when its own CLI 2.0 probe succeeds', async () =>
   assert.equal(await catalog.selectable('trae'), true)
   assert.equal(catalog.selectableNow('trae'), true)
 })
+
+test('catalog serves the stale snapshot immediately and re-probes in the background', async () => {
+  let probes = 0
+  let release: () => void = () => undefined
+  const catalog = new EngineCatalog({
+    cacheTtlMs: 0,
+    traeProbe: async () => {
+      probes += 1
+      if (probes > 1) await new Promise<void>(resolve => { release = resolve })
+      return { status: probes > 1 ? 'ready' : 'dependencyMissing', engine: 'trae', runtimeVersion: '2.0.0' }
+    },
+    antigravityProbe: async () => ({ status: 'incompatible', engine: 'antigravity' }),
+    deepSeekConfig: { enabled: false, runtimeArgs: [], cwd: process.cwd(), provider: 'deepseek-official',
+      model: 'deepseek-v4-flash', handshakeTimeoutMs: 100, turnTimeoutMs: 100 },
+  })
+  await catalog.list()
+
+  const stale = await catalog.list()
+  assert.equal(stale.find(entry => entry.id === 'trae')?.probe.status, 'dependencyMissing')
+  assert.equal(probes, 2)
+
+  release()
+  const fresh = await catalog.list(true)
+  assert.equal(fresh.find(entry => entry.id === 'trae')?.probe.status, 'ready')
+  assert.equal(probes, 2)
+})
