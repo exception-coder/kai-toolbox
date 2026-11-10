@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change openspec-task-board. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Discover OpenSpec projects and changes
 The system SHALL discover OpenSpec-enabled projects only from server-approved workspace or session boundaries and SHALL present each active OpenSpec change as a requirement under its owning project.
 
@@ -104,3 +106,15 @@ The system SHALL render loading, empty, stale, unavailable and error states in t
 - **WHEN** the server cannot start the OpenSpec CLI
 - **THEN** the system explains that OpenSpec tooling is unavailable and provides the platform-supported environment recovery path
 
+### Requirement: OpenSpec is the interface contract source
+The system SHALL use the bound OpenSpec change artifacts as the source for interface scope, behavior and verification requirements, without requiring a separate affected-API registration Tool or evidence panel.
+
+#### Scenario: Agent changes a server interface
+- **WHEN** an Agent adds, modifies or removes a server interface under an OpenSpec-bound task
+- **THEN** the relevant OpenSpec artifacts describe the interface contract and verification
+- **AND** completion does not depend on a separate interface registration call
+
+#### Scenario: User inspects the change
+- **WHEN** a user opens the OpenSpec change board
+- **THEN** the change requirements and tasks remain available
+- **AND** no separate affected API evidence section is presented

@@ -32,7 +32,7 @@ Vibe Coding 的「转卡片」通过 Markdown 卡片模块公开的弹框入口�
 
 个人简历与工作线已退出前端注册，菜单、偏好设置和路由不再提供；存量数据与后端服务保留。
 
-设计与验收见 [unify-content-tools](../../../../openspec/changes/unify-content-tools/design.md)。
+设计与验收见 [unify-content-tools](../../../../openspec/changes/archive/2026-11-10-unify-content-tools/design.md)。
 
 格式化工具提供 Java 代码高亮、行号、折叠与原文/结果对照，直达 `/tools/content-tools?tool=formatter&format=java`。粘贴完整文件或单个方法（含 `default` 方法）、语句、表达式后点击「格式化」，或按 Ctrl/⌘+Enter；可选择缩进和行宽，复制结果或下载为 `.java`。手机用「原始代码 / 格式化结果」切换阅读。
 

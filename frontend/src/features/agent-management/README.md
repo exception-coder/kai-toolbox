@@ -14,7 +14,7 @@
 
 菜单权限统一为 `menu:agent-management`，包括旧评测地址；原本只有 `menu:eval` 的账号需管理员配置新的菜单权限。权限目录从 FeatureManifest 自动生成，不在 Java 中手工登记。
 
-实现及验收记录：[centralize-agent-evaluation](../../../../openspec/changes/centralize-agent-evaluation/proposal.md)。
+实现及验收记录：[centralize-agent-evaluation](../../../../openspec/changes/archive/2026-11-10-centralize-agent-evaluation/proposal.md)。
 
 ## 业务咨询流程
 
@@ -26,7 +26,7 @@
 
 能力目录只允许平台已有只读连接器。新 MCP 实现或进程安装仍需开发接入，不能在节点配置里填写任意命令或凭据。业务规则调整不需要重新编译。回滚使用现有历史 Production 版本。
 
-实现与验收：[configure-consult-workflow-nodes](../../../../openspec/changes/configure-consult-workflow-nodes/design.md)。
+实现与验收：[configure-consult-workflow-nodes](../../../../openspec/changes/archive/2026-11-10-configure-consult-workflow-nodes/design.md)。
 
 ### 数据库资源配置
 

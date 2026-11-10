@@ -1,0 +1,26 @@
+# new-session-preferences Specification
+
+## Purpose
+TBD - created by archiving change remember-new-session-preferences. Update Purpose after archive.
+
+## Requirements
+
+### Requirement: 新建会话恢复用户本地选择
+
+平台 SHALL 在用户手动选择新建工作区、工作目录、引擎或服务商后，将工作区路径、工作目录、引擎与服务商档案 ID 保存到当前浏览器本地，无需先开始会话，并在刷新或重新进入后作为新建默认值。平台 SHALL 按 Forge 用户隔离，不额外保存 Key、服务商地址、模型或会话别名。
+
+#### Scenario: 重新进入和工作区排序变化
+- **WHEN** 用户选好配置后离开或刷新，再次进入新建表单，且工作区排序变化
+- **THEN** 系统恢复同一路径的工作区、目录、引擎与服务商选择，不按旧下标选择另一个工作区
+
+#### Scenario: 程序填充与手动选择区分
+- **WHEN** 用户只是打开表单，或导览、跨模块入口与服务商加载更新表单
+- **THEN** 不覆盖已保存的手动选择，不创建会话；用户随后手动修改任一记忆字段时保存该次选择
+
+#### Scenario: 失效或迟到配置
+- **WHEN** 服务商档案尚未加载、已删除，或引擎不可用
+- **THEN** 系统明确提示并等待可用选择，不静默切换官方；迟到档案不覆盖用户手填模型
+
+#### Scenario: 存储不可用与账号切换
+- **WHEN** 本地存储失败或用户切换 Forge 账号
+- **THEN** 当前表单仍可手动使用并说明无法持久保存；不展示或覆盖另一个账号的偏好

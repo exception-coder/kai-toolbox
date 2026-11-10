@@ -6,7 +6,7 @@ Markdown 沿用 Mermaid 和 h2–h6 大纲，MDX 按静态 Markdown 阅读；RST
 
 临时文件只在当前浏览器内存中读取，不上传、不登记文档源、不修改原文件，关闭窗口即清除。需要关联图片、链接、完整 HTML 交互或保存编辑时，使用既有「添加本地目录」入口。GitHub 文档源仍为只读。
 
-实现与验收范围见 [直接打开文件](../../../../openspec/changes/add-browser-file-preview/tasks.md)。
+实现与验收范围见 [直接打开文件](../../../../openspec/changes/archive/2026-11-10-add-browser-file-preview/tasks.md)。
 
 ## draw.io 图形预览
 

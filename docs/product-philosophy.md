@@ -100,6 +100,6 @@ Forge 围绕项目、任务及其证据组织 AI 开发工作。用户应能看�
 - 2026-10-31 用户要求最近会话跨项目平铺并优先最近点击项；NAV-02 对该区域明确允许查看次序，项目导航和后台活动仍保持稳定。实现及边界沿用[会话导航设计](../openspec/changes/stabilize-session-navigation/design.md)。
 - 结构参考 yoooni-one 的 AGENTS、docs/ai-coding-architecture.md、docs/development/frontend-component-conventions.md 和 design.config.json。两项目共享分层方式，不复制业务规则。
 - [Carbon Tabs](https://carbondesignsystem.com/components/tabs/usage/) 将页签用于同一上下文的相关内容分类；[WAI-ARIA Modal Dialog](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/) 提供模态语义与键盘、焦点规则。查阅于 2026-09-13。
-- 本次实例与回归证据见 [anchor-project-git-actions](../openspec/changes/anchor-project-git-actions/design.md)。个人设计注册表只记录本地范围偏好，不自动晋升全局 CORE 或 ESTABLISHED。
+- 本次实例与回归证据见 [anchor-project-git-actions](../openspec/changes/archive/2026-11-10-anchor-project-git-actions/design.md)。个人设计注册表只记录本地范围偏好，不自动晋升全局 CORE 或 ESTABLISHED。
 
 新增原则须给出实际问题、适用范围、反例和验收方式；修改原则保留稳定 ID，在对应 OpenSpec 记录理由与迁移影响。先验证具体页面，再考虑推广，不以单次截图审美覆盖整个产品。

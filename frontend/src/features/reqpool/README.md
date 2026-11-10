@@ -26,4 +26,4 @@
 
 测试命令：`npx vitest run src/features/reqpool src/features/delivery-center src/features/forge-explore/ExplorePage.test.tsx`，以及 `npm run typecheck`、`npm run build`。本次浏览器使用真实页面与拦截的契约样本，覆盖混合需求、阶段窗口、管理详情、快速起草、筛选、数据源失败和重试、1440/375 布局；未执行真实登记、删除或模型调用。
 
-设计依据：[统一交付中心变更](../../../../openspec/changes/unify-requirement-delivery-center/design.md)。本次视觉偏好仅适用于该模块，未提升为全局设计规则。
+设计依据：[统一交付中心变更](../../../../openspec/changes/archive/2026-11-10-unify-requirement-delivery-center/design.md)。本次视觉偏好仅适用于该模块，未提升为全局设计规则。

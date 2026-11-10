@@ -13,6 +13,7 @@
 | 公共 Agent 调用 | 一次性文本、流式结果、Bean 注入与引擎支持边界 | [toolbox-llm](../toolbox-llm/README.md) |
 | 架构 | 平台架构、模块边界与运行机制 | [architecture/](architecture/) |
 | 设计 | 需求、重构与实施设计 | [design/](design/INDEX.md) |
+| OpenSpec 待验收清单 | 未归档变更按待重启、真机、人工确认与开发分组，供验收窗口逐项处理 | [OpenSpec待验收清单.md](development/OpenSpec待验收清单.md) |
 | 现状梳理 | 重构前业务链路与代码坐标 | [orientation/](orientation/INDEX.md) |
 | 后端知识图谱 | 表关系、状态流转、SQL 能力与反向索引 | [knowledge-graph/](knowledge-graph/00_index.md) |
 | 编码违规 | 已知编码违规与约束记录 | [coding-violations.md](coding-violations.md) |

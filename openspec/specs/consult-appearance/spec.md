@@ -1,0 +1,34 @@
+# consult-appearance Specification
+
+## Purpose
+TBD - created by archiving change consult-forge-skin. Update Purpose after archive.
+
+## Requirements
+
+### Requirement: 用户可以在原有风格与 Forge 风格之间切换
+
+系统 SHALL 提供业务咨询外观开关，保持原有业务组件与状态，Forge 风格复用全站主题 tokens。
+
+#### Scenario: 切换时保持当前工作
+- **WHEN** 用户在咨询中切换 Forge 风格
+- **THEN** 页面外观即时改变，当前会话、输入草稿、附件和模块选择不变
+- **AND** 不触发创建、重连、发送、归档或业务配置保存
+
+#### Scenario: 重新进入
+- **WHEN** 浏览器保存过合法外观选择并再次打开业务咨询
+- **THEN** 使用当前版本保存的个人选择，默认、非法值或读取存储失败时使用 Forge 风格
+
+#### Scenario: 旧版偏好统一重置一次
+- **WHEN** 用户首次加载采用新版偏好键的前端，只有旧版玻璃或 Forge 选择
+- **THEN** 使用统一 Forge 默认风格，旧版偏好及其他本地设置保持原样
+- **AND** 用户之后自行切换的选择保存到新版偏好键，刷新不再被重置
+- **AND** 不进行服务端偏好保存、账号跨设备同步或全站配色重置
+
+#### Scenario: 浏览器存储不可用
+- **WHEN** 保存外观偏好失败
+- **THEN** 本次切换仍生效并提示仅本次，不中断咨询
+
+#### Scenario: 控件形状与尺寸一致
+- **WHEN** 用户开启 Forge 风格
+- **THEN** 工具栏和进行中状态组的按钮均为8px圆角矩形，桌面高度36px，窄屏或粗指针高度至少44px
+- **AND** 进行中状态组使用12px圆角弱边界，无胶囊外形或装饰阴影，原有操作保持不变

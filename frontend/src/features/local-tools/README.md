@@ -6,4 +6,4 @@
 
 点击或 Enter/Space 打开页签；左右方向键与 Home/End 移动页签焦点。页签切换保留已打开工具的输入、进度和终端连接；离开整个模块或刷新页面仍遵循各工具原有清理行为。工具只在首次选择时初始化，切换页签不表示取消已经开始的操作。
 
-组合页通过各工具的 public-api 使用原页面，复用 Shell 的菜单偏好迁移和权限聚合。行为设计及验收记录见 [OpenSpec 变更](../../../../openspec/changes/unify-local-tools-workspace/design.md)。
+组合页通过各工具的 public-api 使用原页面，复用 Shell 的菜单偏好迁移和权限聚合。行为设计及验收记录见 [OpenSpec 变更](../../../../openspec/changes/archive/2026-11-10-unify-local-tools-workspace/design.md)。
