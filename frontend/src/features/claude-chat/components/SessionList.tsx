@@ -545,10 +545,10 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
           >
             {/* Line 1：只放 icon + 标题，Badge 移走 → 标题拿到最大宽度 */}
             <div className="flex items-center gap-1.5">
-              {s.live
-                ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500 ring-[2.5px] ring-emerald-500/20" />
-                : <EngineIcon engine={s.engine || 'claude'} thirdParty={s.providerKind === 'thirdParty'} className="size-3" muted />
-              }
+              <span aria-hidden="true" title={engineDisplayName(s.engine || 'claude', s.providerKind)} className="inline-flex shrink-0">
+                <EngineIcon engine={s.engine || 'claude'} thirdParty={s.providerKind === 'thirdParty'} className="size-3.5" muted={!s.live} />
+              </span>
+              {s.live && <span aria-hidden="true" title="引擎已连接" className="size-1.5 shrink-0 rounded-full bg-emerald-500 ring-[2.5px] ring-emerald-500/20" />}
               <span className={cn(
                 'min-w-0 flex-1 truncate text-sm leading-snug',
                 s.planExpired

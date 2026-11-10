@@ -222,9 +222,10 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
                   className="relative z-10 min-h-[52px] min-w-0 flex-1 py-2 pl-5 pr-2 text-left"
                 >
                   <div className="flex min-w-0 items-center gap-1.5">
-                    {session.live
-                      ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500 ring-[2.5px] ring-emerald-500/20" />
-                      : <EngineIcon engine={session.engine || 'claude'} thirdParty={session.providerKind === 'thirdParty'} className="size-3" muted />}
+                    <span aria-hidden="true" title={engineLabel} className="inline-flex shrink-0">
+                      <EngineIcon engine={session.engine || 'claude'} thirdParty={session.providerKind === 'thirdParty'} className="size-3.5" muted={!session.live} />
+                    </span>
+                    {session.live && <span aria-hidden="true" title="引擎已连接" className="size-1.5 shrink-0 rounded-full bg-emerald-500 ring-[2.5px] ring-emerald-500/20" />}
                     <span className={cn(
                       'min-w-0 flex-1 truncate text-sm leading-snug',
                       session.planExpired

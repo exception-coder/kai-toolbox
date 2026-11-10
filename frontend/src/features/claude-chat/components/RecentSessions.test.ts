@@ -23,8 +23,8 @@ describe('recent session navigation', () => {
 
   it('lists sessions across projects by explicit visits, preserves scroll and ignores background reordering', async () => {
     const rows = [
-      { ...session('a', 'D:/Alpha', 300), title: '任务 a' },
-      { ...session('b', 'D:/Alpha', 200), title: '任务 b' },
+      { ...session('a', 'D:/Alpha', 300), title: '任务 a', engine: 'claude' as const, live: true },
+      { ...session('b', 'D:/Alpha', 200), title: '任务 b', live: true },
       { ...session('c', 'D:/Alpha', 100), title: '任务 c' },
       { ...session('other', 'D:/Beta', 500), title: '任务 other' },
     ]
@@ -39,6 +39,15 @@ describe('recent session navigation', () => {
     const scroll = await screen.findByRole('list', { name: '最近使用的会话' })
     const order = () => within(scroll).getAllByRole('button', { name: /^任务 / }).map(row => row.getAttribute('title')?.split('\n')[0])
     expect(order()).toEqual(['任务 other', '任务 a', '任务 b', '任务 c'])
+    const claude = within(within(scroll).getByRole('button', { name: /^任务 a/ }))
+    const codex = within(within(scroll).getByRole('button', { name: /^任务 b/ }))
+    const offline = within(within(scroll).getByRole('button', { name: /^任务 c/ }))
+    expect(claude.getByTitle('Claude').querySelector('svg')).toBeInTheDocument()
+    expect(codex.getByTitle('Codex').querySelector('svg')).toBeInTheDocument()
+    expect(claude.getByTitle('引擎已连接')).toBeInTheDocument()
+    expect(codex.getByTitle('引擎已连接')).toBeInTheDocument()
+    expect(offline.getByTitle('Codex').querySelector('svg')).toBeInTheDocument()
+    expect(offline.queryByTitle('引擎已连接')).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: /^工作目录 / })).not.toBeInTheDocument()
     scroll.scrollTop = 80
     for (const id of ['b', 'c', 'a']) {
