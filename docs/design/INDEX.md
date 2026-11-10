@@ -9,6 +9,7 @@
 | 需求 | 状态 | 模版 | 文档 |
 |------|------|------|------|
 | Forge 整体架构与演进规划 | 讨论稿 | 过会稿 | [Forge整体架构与演进规划/Forge整体架构与演进规划-current.md](Forge整体架构与演进规划/Forge整体架构与演进规划-current.md) |
+| Vibe Coding 架构与演进规划 | 讨论稿 | 过会稿 | [VibeCoding架构与演进规划/VibeCoding架构与演进规划-current.md](VibeCoding架构与演进规划/VibeCoding架构与演进规划-current.md) |
 | Forge Vibe Coding 过会方案（整体设计与现状） | 讨论稿 | 过会稿 | [VibeCoding过会方案/VibeCoding过会方案-current.md](VibeCoding过会方案/VibeCoding过会方案-current.md) · [核心对象与表模型](VibeCoding过会方案/VibeCoding核心对象与表模型.drawio) · [一轮消息时序](VibeCoding过会方案/VibeCoding一轮消息时序.drawio) |
 | 视频智能变速（录屏浓缩器） | 设计中 | 完整-技术 | [视频智能变速/视频智能变速-current.md](视频智能变速/视频智能变速-current.md) · [API](视频智能变速/视频智能变速-api-current.md) |
 | AI 对话（API 直连聊天） | 设计中 | 完整-技术 | [AI对话/AI对话-current.md](AI对话/AI对话-current.md) · [API](AI对话/AI对话-api-current.md) |
