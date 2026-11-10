@@ -8,7 +8,7 @@
 
 | 需求 | 状态 | 模版 | 文档 |
 |------|------|------|------|
-| Forge 平台过会方案（板块、对比与治理） | 讨论稿 | 过会稿 | [Forge平台过会方案/Forge平台过会方案-current.md](Forge平台过会方案/Forge平台过会方案-current.md) |
+| Forge Vibe Coding 过会方案（整体设计与现状） | 讨论稿 | 过会稿 | [VibeCoding过会方案/VibeCoding过会方案-current.md](VibeCoding过会方案/VibeCoding过会方案-current.md) · [核心对象与表模型](VibeCoding过会方案/VibeCoding核心对象与表模型.drawio) · [一轮消息时序](VibeCoding过会方案/VibeCoding一轮消息时序.drawio) |
 | 视频智能变速（录屏浓缩器） | 设计中 | 完整-技术 | [视频智能变速/视频智能变速-current.md](视频智能变速/视频智能变速-current.md) · [API](视频智能变速/视频智能变速-api-current.md) |
 | AI 对话（API 直连聊天） | 设计中 | 完整-技术 | [AI对话/AI对话-current.md](AI对话/AI对话-current.md) · [API](AI对话/AI对话-api-current.md) |
 | 咨询引擎选择 | 实施中 | 完整-技术 | [设计](咨询引擎选择/咨询引擎选择-current.md) · [API](咨询引擎选择/咨询引擎选择-api-current.md) · [编码摘要](咨询引擎选择/咨询引擎选择-coding.md) |
