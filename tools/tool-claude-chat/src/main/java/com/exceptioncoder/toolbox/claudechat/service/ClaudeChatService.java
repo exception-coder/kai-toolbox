@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import static com.exceptioncoder.toolbox.claudechat.service.SessionPolicies.*;
+import static com.exceptioncoder.toolbox.claudechat.service.SessionActivitySummary.summarizeActivity;
 import static com.exceptioncoder.toolbox.claudechat.service.SidecarPayloadParser.*;
 
 import static com.exceptioncoder.toolbox.claudechat.service.SessionSettingsNormalizer.*;
@@ -12,6 +14,7 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.ReviewHandshakeInterceptor;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
+import com.exceptioncoder.toolbox.claudechat.service.SessionActivitySummary.ActivitySample;
 import com.exceptioncoder.toolbox.claudechat.domain.QueuedChatMessage;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewIntentAssessment;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
@@ -113,6 +116,8 @@ public class ClaudeChatService {
     private final ObjectMapper mapper;
     /** 浏览器事件通道：打序号、入缓冲、广播、回放与错误下发。 */
     private final SessionEventChannel events;
+    /** 通道隔离与会话访问校验。 */
+    private final SessionAccessGuard accessGuard;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
     private final List<AgentRunCompletionListener> completionListeners;
@@ -213,6 +218,7 @@ public class ClaudeChatService {
         this.projectRouteBindingService = projectRouteBindingService;
         this.mapper = mapper;
         this.events = new SessionEventChannel(mapper, props::getEventBufferSize);
+        this.accessGuard = new SessionAccessGuard(events, sessionAccessPolicy);
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
         this.completionListeners = List.copyOf(completionListeners);
@@ -387,7 +393,7 @@ public class ClaudeChatService {
     }
 
     private void attach(WebSocketSession ws, ClientMessage.Attach attach, boolean replayBufferedEvents) {
-        if (!canBindReviewTarget(ws, attach.sessionId())) return;
+        if (!accessGuard.canBindReviewTarget(ws, attach.sessionId())) return;
         SessionCtx ctx = sessions.get(attach.sessionId());
         if (ctx == null) {
             // 后端重启过 → 内存会话已清空；若 DB 仍有该会话，自动从持久化记录 resume 恢复，免去用户手动重开
@@ -413,7 +419,7 @@ public class ClaudeChatService {
                 });
                 if (created[0]) migrateLegacyOfficialGemini(restored, db);
                 boolean engineSelectable = engineCatalog.selectable(restored.engine);
-                if (!canBind(ws, restored.executionPolicy, db.getId())) return;
+                if (!accessGuard.canBind(ws, restored.executionPolicy, db.getId())) return;
                 bindViewer(ws, restored);
                 if (created[0] && queueDelivery.runtime(db.getId()).filter(r -> !r.ready() && r.stopReason() == null).isPresent()) {
                     var turn = queueDelivery.runtime(db.getId()).orElseThrow();
@@ -441,7 +447,7 @@ public class ClaudeChatService {
             events.sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
             return;
         }
-        if (!canBind(ws, ctx.executionPolicy, attach.sessionId())) return;
+        if (!accessGuard.canBind(ws, ctx.executionPolicy, attach.sessionId())) return;
         bindViewer(ws, ctx);
         if (replayBufferedEvents) {
             events.warnIfReplayGap(ctx, ws, attach.lastEventSeq());
@@ -457,7 +463,7 @@ public class ClaudeChatService {
     }
 
     public void switchSession(WebSocketSession ws, ClientMessage.SwitchSession msg) {
-        if (!canBindReviewTarget(ws, msg.sessionId())) return;
+        if (!accessGuard.canBindReviewTarget(ws, msg.sessionId())) return;
         if (!ensureSidecar(ws)) return;
         ClaudeChatSession db = repo.findById(msg.sessionId()).orElse(null);
         if (db == null) {
@@ -465,7 +471,7 @@ public class ClaudeChatService {
             return;
         }
         String executionPolicy = executionPolicyOf(db);
-        if (!canBind(ws, executionPolicy, db.getId())) return;
+        if (!accessGuard.canBind(ws, executionPolicy, db.getId())) return;
         SessionCtx existing = sessions.get(db.getId());
         if (SessionExecutionPolicy.isConsultReadonly(executionPolicy) && existing != null) {
             synchronized (existing) {
@@ -526,7 +532,7 @@ public class ClaudeChatService {
             return;
         }
         String executionPolicy = executionPolicyOf(source);
-        if (!canBind(ws, executionPolicy, source.getId())) return;
+        if (!accessGuard.canBind(ws, executionPolicy, source.getId())) return;
 
         String sessionId = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
@@ -671,7 +677,7 @@ public class ClaudeChatService {
                 }
             }
             if (ctx != null) {
-                if (!canBind(ws, ctx.executionPolicy, sessionId)) return;
+                if (!accessGuard.canBind(ws, ctx.executionPolicy, sessionId)) return;
                 bindViewer(ws, ctx);
             }
         }
@@ -692,7 +698,7 @@ public class ClaudeChatService {
 
     /** 在会话锁内重载已确认没有活动任务的原生上下文。 */
     private void reloadIdleSession(WebSocketSession ws, SessionCtx ctx) {
-        if (!canBind(ws, ctx.executionPolicy, ctx.sessionId)) return;
+        if (!accessGuard.canBind(ws, ctx.executionPolicy, ctx.sessionId)) return;
         if (!ensureSidecar(ws)) return;
         if (!engineCatalog.selectable(ctx.engine)) {
             events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
@@ -1151,7 +1157,7 @@ public class ClaudeChatService {
             events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (rejectReviewMutation(ws, ctx)) return;
+        if (accessGuard.rejectReviewMutation(ws, ctx)) return;
         if (isConsultReadonly(ctx)) {
             if ("plan".equals(msg.mode())) {
                 ctx.mode = "plan";
@@ -1185,7 +1191,7 @@ public class ClaudeChatService {
             events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (rejectReviewMutation(ws, ctx)) return;
+        if (accessGuard.rejectReviewMutation(ws, ctx)) return;
         if (isConsultReadonly(ctx)) {
             ctx.autoApprove = false;
             sidecar.setAutoApprove(ctx.sessionId, false);
@@ -1206,7 +1212,7 @@ public class ClaudeChatService {
             events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (rejectReviewMutation(ws, ctx)) return;
+        if (accessGuard.rejectReviewMutation(ws, ctx)) return;
         ctx.currentModel = msg.model();
         repo.updateSelectedModel(ctx.sessionId, blankToNull(msg.model()));
         sidecar.setModel(ctx.sessionId, msg.model());
@@ -1246,7 +1252,7 @@ public class ClaudeChatService {
             events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (rejectReviewMutation(ws, ctx)) return;
+        if (accessGuard.rejectReviewMutation(ws, ctx)) return;
         if (!"claude".equals(ctx.engine) || SessionExecutionPolicy.isConsultReadonly(ctx.executionPolicy)) {
             events.sendError(ws, 0, "CLAUDE_OPTIONS_UNSUPPORTED", "当前会话不支持修改 Claude 强度", false);
             return;
@@ -1288,7 +1294,7 @@ public class ClaudeChatService {
             events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (rejectReviewMutation(ws, ctx)) return;
+        if (accessGuard.rejectReviewMutation(ws, ctx)) return;
         ctx.codexReasoningEffort = msg.reasoningEffort();
         ctx.codexSpeed = msg.speed();
         repo.updateCodexOptions(ctx.sessionId, ctx.codexReasoningEffort, ctx.codexSpeed);
@@ -1308,7 +1314,7 @@ public class ClaudeChatService {
             events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (rejectReviewMutation(ws, ctx)) return;
+        if (accessGuard.rejectReviewMutation(ws, ctx)) return;
         String engine = normalizeEngine(msg.engine());
         if (blankToNull(ctx.apiBaseUrl) != null && !SessionProviderCapabilities.supportsGateway(engine)) {
             events.sendError(ws, 0, "PROVIDER_UNSUPPORTED", "目标引擎不支持会话级网关，请先切回原生服务商再切换引擎");
@@ -1352,7 +1358,7 @@ public class ClaudeChatService {
             events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (rejectReviewMutation(ws, ctx)) return;
+        if (accessGuard.rejectReviewMutation(ws, ctx)) return;
         if (isConsultReadonly(ctx)) {
             events.sendError(ws, 0, "READONLY_POLICY", "业务咨询会话不允许切换到第三方网关");
             return;
@@ -2875,71 +2881,6 @@ public class ClaudeChatService {
         }
     }
 
-    private static String executionPolicyOf(ClaudeChatSession session) {
-        if (SessionExecutionPolicy.CONSULT_GROUP_NAME.equals(session.getGroupName())) {
-            return SessionExecutionPolicy.CONSULT_READONLY;
-        }
-        return SessionExecutionPolicy.normalize(session.getExecutionPolicy());
-    }
-
-    private static boolean isConsultReadonly(SessionCtx ctx) {
-        return SessionExecutionPolicy.isConsultReadonly(ctx.executionPolicy);
-    }
-
-    private static boolean isReviewOnly(SessionCtx ctx) {
-        return SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy);
-    }
-
-    private boolean rejectReviewMutation(WebSocketSession ws, SessionCtx ctx) {
-        if (!isReviewOnly(ctx)) return false;
-        events.sendError(ws, 0, "REVIEW_POLICY", "计划评审固定使用 Codex 官方默认配置，参与者不能修改引擎、模型、速度、Auth 或权限");
-        return true;
-    }
-
-    private static void enforceReadonlyDefaults(SessionCtx ctx) {
-        if (!isConsultReadonly(ctx) && !isReviewOnly(ctx)) return;
-        ctx.mode = "plan";
-        ctx.autoApprove = false;
-        ctx.apiBaseUrl = null;
-        ctx.authToken = null;
-        if (isReviewOnly(ctx)) {
-            // 旧评审会话可能已经被装入内存，不能只修数据库快照；每次绑定/恢复都重新建立
-            // “Codex 官方默认”语义，由 Sidecar 按当前 Auth 的 model/list 解析默认推理强度。
-            ctx.engine = "codex";
-            ctx.currentModel = null;
-            ctx.codexReasoningEffort = null;
-            ctx.codexSpeed = "default";
-        }
-    }
-
-    /** 咨询与开发通道双向隔离，任何入口都不能凭会话 ID 交叉接管另一执行域。 */
-    private boolean canBind(WebSocketSession ws, String targetPolicy, String targetSessionId) {
-        String channelPolicy = SessionExecutionPolicy.forWebSocket(ws.getUri());
-        if (!SessionExecutionPolicy.canBind(channelPolicy, targetPolicy)) {
-            String message = SessionExecutionPolicy.isConsultReadonly(channelPolicy)
-                    ? "业务咨询通道只能访问业务咨询会话"
-                    : SessionExecutionPolicy.isReviewOnly(channelPolicy)
-                        ? "评审分享通道只能访问评审会话"
-                        : "Vibe Coding 通道不能访问受限会话";
-            events.sendError(ws, 0, "SESSION_FORBIDDEN", message);
-            return false;
-        }
-        if (!sessionAccessPolicy.canAccess(ws, targetSessionId)) {
-            events.sendError(ws, 0, "SESSION_FORBIDDEN", "当前用户不能访问该会话");
-            return false;
-        }
-        return true;
-    }
-
-    private boolean canBindReviewTarget(WebSocketSession ws, String targetSessionId) {
-        String channelPolicy = SessionExecutionPolicy.forWebSocket(ws.getUri());
-        if (!SessionExecutionPolicy.isReviewOnly(channelPolicy)) return true;
-        Object allowed = ws.getAttributes().get(ReviewHandshakeInterceptor.REVIEW_SESSION_ATTRIBUTE);
-        if (targetSessionId != null && targetSessionId.equals(allowed)) return true;
-        events.sendError(ws, 0, "SESSION_FORBIDDEN", "该分享链接不能访问其他会话");
-        return false;
-    }
-
     private static void sleep(long ms) {
         try {
             Thread.sleep(ms);
@@ -2969,37 +2910,6 @@ public class ClaudeChatService {
 
     /** Separate persisted queue evidence from the lightweight in-memory activity snapshot. */
     public boolean hasQueuedMessages() { return queuedMessages.hasPendingMessages(); }
-
-    static ClaudeChatActivityView summarizeActivity(Collection<ActivitySample> samples,
-                                                      int oneShotCount, long observedAt) {
-        int runningTurnCount = 0;
-        int uncertainSessionCount = 0;
-        int pendingRequestCount = 0;
-        int backgroundTaskCount = 0;
-        int activeSessionCount = 0;
-        for (ActivitySample sample : samples) {
-            if (sample.runningTurn()) runningTurnCount++;
-            if (sample.uncertain()) uncertainSessionCount++;
-            if (sample.pendingRequest()) pendingRequestCount++;
-            backgroundTaskCount += sample.backgroundTaskCount();
-            if (sample.runningTurn() || sample.uncertain()
-                    || sample.pendingRequest() || sample.backgroundTaskCount() > 0) {
-                activeSessionCount++;
-            }
-        }
-        int activeOneShotCount = Math.max(0, oneShotCount);
-        boolean active = activeSessionCount > 0 || activeOneShotCount > 0;
-        return new ClaudeChatActivityView(active, !active, activeSessionCount, runningTurnCount,
-                uncertainSessionCount,
-                pendingRequestCount, backgroundTaskCount, activeOneShotCount, observedAt);
-    }
-
-    record ActivitySample(boolean runningTurn, boolean uncertain,
-                          boolean pendingRequest, int backgroundTaskCount) {
-        ActivitySample {
-            backgroundTaskCount = Math.max(0, backgroundTaskCount);
-        }
-    }
 
     /** 将Java内存层事实上报给独立状态聚合器。 */
     private void observeRuntimeState(SessionCtx ctx) {
