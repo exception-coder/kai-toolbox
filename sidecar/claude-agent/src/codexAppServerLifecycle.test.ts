@@ -10,7 +10,7 @@ import { CodexPredictionCoordinator, readCodexPrediction } from './codexPredicti
 import { observeCodexProcess } from './codexProcessLifetime.js'
 
 // Real pipes and EOF, with a local JSON-RPC peer: no account, tools or model calls.
-function fixture(mode: 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
+function fixture(mode: 'nativeStatus' | 'nativeFailure' | 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCancel' | 'cancel' | 'rpcError' | 'resumeError' | 'slowResume' | 'lostTerminal' | 'crash' | 'steer' | 'transport' = 'complete', rolloutPath?: string) {
   const child = spawn(process.execPath, ['-e', `
     const mode = ${JSON.stringify(mode)};
     const rolloutPath = ${JSON.stringify(rolloutPath)};
@@ -70,6 +70,20 @@ function fixture(mode: 'complete' | 'warnings' | 'hold' | 'holdError' | 'holdCan
       } else if (m.method === 'turn/start') {
         send({id:m.id,result:{turn:{id:'lifecycle-turn'}}});
         process.send?.('turn-started');
+        if (mode === 'nativeFailure') {
+          send({method:'turn/completed',params:{threadId:'lifecycle-thread',turn:{id:'lifecycle-turn',status:'failed',
+            error:{message:'Fixture limit',codexErrorInfo:'usageLimitExceeded'}}}});
+          return;
+        }
+        if (mode === 'nativeStatus') {
+          send({method:'thread/status/changed',params:{threadId:'child-thread',status:{type:'systemError'}}});
+          for (const flag of ['waitingOnApproval','waitingOnUserInput']) {
+            send({method:'thread/status/changed',params:{threadId:'lifecycle-thread',status:{type:'active',activeFlags:[flag]}}});
+          }
+          send({method:'error',params:{threadId:'lifecycle-thread',turnId:'lifecycle-turn',willRetry:true,
+            error:{message:'Fixture retry',codexErrorInfo:'serverOverloaded'}}});
+          send({method:'thread/status/changed',params:{threadId:'lifecycle-thread',status:{type:'idle'}}});
+        }
         if (mode === 'cancel' || mode === 'holdCancel') return;
         if (mode === 'crash') { process.exit(23); return; }
         if (mode === 'steer') {
@@ -117,6 +131,37 @@ const turnOptions = (sessionId: string, events: Record<string, unknown>[] = [], 
   sandbox: 'read-only' as const, approvalPolicy: 'never' as const,
   input: [{ type: 'text', text: 'fixture only' }], signal, emit: (event: Record<string, unknown>) => { events.push(event) },
   setThreadId: () => {},
+})
+
+test('native status and retry notifications never produce a terminal result or accept child-thread state', async () => {
+  const peer = fixture('nativeStatus')
+  const events: Record<string, unknown>[] = []
+  try {
+    await runCodexAppServerTurn(turnOptions('native-status', events), peer.runtime)
+    const states = events.filter(e => e.type === 'nativeStatus').map(e => (e.status as { state: string }).state)
+    assert.ok(states.includes('awaitingApproval'))
+    assert.ok(states.includes('awaitingInput'))
+    assert.ok(states.includes('retrying'))
+    assert.ok(states.includes('idle'))
+    assert.ok(!states.includes('failed'))
+    assert.deepEqual(events.filter(e => e.type === 'result').map(e => e.stopReason), ['end_turn'])
+    assert.equal(events.find(e => e.type === 'result')?.failure, undefined)
+    assert.equal(await peer.lifetime.wait(0), true)
+  } finally { await peer.release() }
+})
+
+test('native failed turn preserves its typed cause and cannot release queued work as success', async () => {
+  const peer = fixture('nativeFailure')
+  const events: Record<string, unknown>[] = []
+  try {
+    await runCodexAppServerTurn(turnOptions('native-failure', events), peer.runtime)
+    const results = events.filter(e => e.type === 'result')
+    assert.equal(results.length, 1)
+    assert.equal(results[0].stopReason, 'failed')
+    assert.equal(results[0].queueReleaseSafe, false)
+    assert.deepEqual(results[0].failure, { category: 'quota', code: 'usageLimitExceeded' })
+    assert.equal(await peer.lifetime.wait(0), true)
+  } finally { await peer.release() }
 })
 
 test('normalizes and coalesces initialization warnings without interrupting the turn', async () => {

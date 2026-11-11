@@ -83,6 +83,7 @@ export type AgentEventType =
   | 'turn.failed'
   | 'turn.interrupted'
   | 'engine.connection'
+  | 'engine.status'
   | 'engine.diagnostic'
 
 export interface AgentEvent {

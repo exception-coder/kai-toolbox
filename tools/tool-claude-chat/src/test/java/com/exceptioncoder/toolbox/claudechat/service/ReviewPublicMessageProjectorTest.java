@@ -13,6 +13,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ReviewPublicMessageProjectorTest {
 
     @Test
+    void publicResultsDoNotExposeNativeFailureCodes() {
+        var message = new ServerMessage.Result(1L, Map.of(), "error", "trace", "turn",
+                new com.exceptioncoder.toolbox.claudechat.api.dto.TurnFailure("authentication", "unauthorized"));
+        var projected = (ServerMessage.Result) ReviewPublicMessageProjector.projectRealtime(message);
+        assertThat(projected.failure()).isNull();
+        assertThat(projected.turnId()).isNull();
+    }
+
+    @Test
     void historyKeepsBusinessConversationAndRemovesDiagnostics() {
         ChatMessageView user = ChatMessageView.user("u1", "请隐藏工具调用", 10L, "turn-1")
                 .withReviewIntent(new ChatMessageView.ReviewIntentView(

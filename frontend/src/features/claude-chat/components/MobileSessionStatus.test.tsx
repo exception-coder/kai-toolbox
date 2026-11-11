@@ -74,6 +74,19 @@ afterEach(() => {
 })
 
 describe('deriveMobileSessionStatus', () => {
+  it('原生重试和等待回答优先于运行标记，重试次数只展示实际证据', () => {
+    const input = { items: [], running: true, engineLabel: 'Codex', turnTokens: 0,
+      connState: 'ready' as const, backgroundTasks: [], runtimePending: false, runtimeError: false,
+      usage: null, usageLoading: false }
+    expect(deriveMobileSessionStatus({ ...input, runtimeState: { ...CONSISTENT_RUNTIME,
+      effectiveStatus: 'AWAITING_INPUT' } })?.label).toBe('等待你回答')
+    const retry = { ...CONSISTENT_RUNTIME, effectiveStatus: 'RETRYING' as const,
+      nativeStatus: { source: 'claude' as const, state: 'retrying' as const, turnId: 'turn', attempt: 2, maxAttempts: 5 } }
+    expect(deriveMobileSessionStatus({ ...input, runtimeState: retry })?.label).toContain('2/5')
+    expect(deriveMobileSessionStatus({ ...input, runtimeState: { ...retry, nativeStatus: undefined } })?.label).not.toContain('/')
+    expect(deriveMobileSessionStatus({ ...input, running: false, runtimeState: CONSISTENT_RUNTIME,
+      items: [{ kind: 'result', id: 'r', stopReason: 'error', failure: { category: 'authentication' } }] })?.label).toContain('鉴权失效')
+  })
   it('审批、收口和不一致状态不能被本地运行标记盖住', () => {
     const input = { items: [], running: true, engineLabel: 'Codex', turnTokens: 0,
       connState: 'ready' as const, backgroundTasks: [], runtimePending: false, runtimeError: false,

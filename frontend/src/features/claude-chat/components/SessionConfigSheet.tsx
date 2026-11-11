@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/sheet'
 
 interface SessionConfigSheetProps {
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   summary: string
   compactSummary?: string
   disabled?: boolean
@@ -24,6 +26,8 @@ interface SessionConfigSheetProps {
 
 /** 移动端与桌面端共用的会话级配置入口。 */
 export function SessionConfigSheet({
+  open: controlledOpen,
+  onOpenChange,
   summary,
   compactSummary,
   disabled,
@@ -33,7 +37,9 @@ export function SessionConfigSheet({
   onOpen,
   onReturnFocus,
 }: SessionConfigSheetProps) {
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = controlledOpen ?? internalOpen
+  const setOpen = (value: boolean) => { setInternalOpen(value); onOpenChange?.(value) }
   const [custom, setCustom] = useState(true)
   const mobile = useMobileViewport()
   const quick = mobile && quickSelection && !custom

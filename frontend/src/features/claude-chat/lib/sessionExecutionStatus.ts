@@ -42,6 +42,18 @@ export function deriveSessionExecutionStatus(input: SessionExecutionInput): Sess
   if (runtime && (runtime.stale || runtime.consistency !== 'CONSISTENT')) {
     return { kind: 'warning', label: `状态待校正 · ${runtimeStatusLabel(runtime.effectiveStatus)}`, detail: runtime.reason }
   }
+  if (runtime?.effectiveStatus === 'AWAITING_INPUT') {
+    return { kind: 'warning', label: '等待你回答', detail: '请处理当前会话中的提问。' }
+  }
+  if (runtime?.effectiveStatus === 'RETRYING') {
+    const retry = runtime.nativeStatus
+    const progress = retry?.attempt != null ? ` · ${retry.attempt}${retry.maxAttempts != null ? `/${retry.maxAttempts}` : ''}` : ''
+    return { kind: 'running', label: `引擎自动重试中${progress}`,
+      detail: retry?.retryDelayMs ? `约 ${Math.ceil(retry.retryDelayMs / 1000)} 秒后重试；当前任务仍在执行。` : '当前任务仍在执行，待发送消息保留。' }
+  }
+  if (runtime?.effectiveStatus === 'ENGINE_UNAVAILABLE') {
+    return { kind: 'warning', label: `${engineLabel} 当前不可用`, detail: '引擎报告异常，等待本轮清理后可在会话配置中检查账号与模型。' }
+  }
   if (runtime?.pendingDecision || runtime?.effectiveStatus === 'AWAITING_DECISION') {
     return { kind: 'warning', label: '等待你的确认', detail: runtime.reason }
   }
@@ -72,6 +84,9 @@ export function runtimeStatusLabel(status: SessionRuntimeState['effectiveStatus'
   switch (status) {
     case 'RUNNING': return '运行中'
     case 'AWAITING_DECISION': return '等待确认'
+    case 'AWAITING_INPUT': return '等待回答'
+    case 'RETRYING': return '自动重试中'
+    case 'ENGINE_UNAVAILABLE': return '引擎不可用'
     case 'FINALIZING': return '正在收口'
     case 'BACKGROUND_RUNNING': return '后台作业中'
     case 'RECONNECTING': return '正在重连'

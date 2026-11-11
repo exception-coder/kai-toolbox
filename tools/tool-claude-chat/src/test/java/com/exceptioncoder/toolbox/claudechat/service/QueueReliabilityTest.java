@@ -393,6 +393,24 @@ class QueueReliabilityTest {
         assertThat(sends()).isEqualTo(1);
     }
 
+    @Test void classifiedFailureReachesBrowserWithoutReleasingQueueOrNotifyingSuccess() throws Exception {
+        when(dep(ClaudeChatProperties.class).getEventBufferSize()).thenReturn(128);
+        store.begin("s", "failed-turn", "q1", "epoch", "task");
+        SessionCtx ctx = ReflectionTestUtils.invokeMethod(chat, "restoreQueueContext", "s");
+        chat.onSidecarEvent("s", mapper.readTree("""
+                {"type":"result","turnId":"failed-turn","stopReason":"failed","queueReleaseSafe":true,
+                 "failure":{"category":"quota","code":"usageLimitExceeded"}}
+                """));
+        var result = ctx.buffer.stream().filter(ServerMessage.Result.class::isInstance)
+                .map(ServerMessage.Result.class::cast).findFirst().orElseThrow();
+        assertThat(result.failure().category()).isEqualTo("quota");
+        assertThat(result.failure().code()).isEqualTo("usageLimitExceeded");
+        assertThat(store.runtime("s").orElseThrow().ready()).isFalse();
+        assertThat(queue.findBySessionId("s")).hasSize(2);
+        assertThat(sends()).isZero();
+        verify(dep(NotificationService.class)).notifyDone(eq("Codex 本轮未完成"), anyString());
+    }
+
     @Test void completionCheckForManualTaskDoesNotNeedAQueueDeliveryRow() throws Exception {
         when(dep(ClaudeChatProperties.class).getEventBufferSize()).thenReturn(128);
         store.begin("s", "manual", null, "epoch", "manual task");

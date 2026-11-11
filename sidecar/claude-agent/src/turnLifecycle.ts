@@ -43,6 +43,7 @@ export class TurnLifecycle {
       turn.terminal = true
       turn.terminalEvent = { ...event, turnId: turn.id,
         ...(turn.interrupted ? { stopReason: 'interrupted', queueReleaseSafe: false } : {}) }
+      if (turn.interrupted) delete turn.terminalEvent.failure
       return null
     }
     return { ...event, turnId: turn.id }
@@ -65,6 +66,7 @@ export class TurnLifecycle {
     // 用户终止也撤销尚未发布的成功终态，防止清理结束后自动派发队列。
     if (turn.terminalEvent) {
       turn.terminalEvent = { ...turn.terminalEvent, stopReason: 'interrupted', queueReleaseSafe: false }
+      delete turn.terminalEvent.failure
     }
     return {
       outcome: 'accepted',

@@ -3,6 +3,7 @@ import type { ChatItem } from '../../types'
 import { abbr, cacheHitRate, fmtMs, parseUsage } from '../../lib/metrics'
 import { MessageCopyButton } from '../MessageCopyButton'
 import { TurnChangesDialog } from '../changes/TurnChangesDialog'
+import { FAILURE_LABELS, resultFailure } from '../../lib/turnFailure'
 
 /** 同一轮的指标、完整回复与变更入口，供历史轮次和当前 Dock 复用。 */
 export function TurnResultDetails({ item, turnText, sessionId }: {
@@ -11,7 +12,9 @@ export function TurnResultDetails({ item, turnText, sessionId }: {
   const [changesOpen, setChangesOpen] = useState(false)
   const usage = parseUsage(item.usage)
   const hit = cacheHitRate(item.usage)
+  const failure = resultFailure(item)
   return <div className="space-y-2 text-xs text-[var(--color-muted-foreground)]">
+    {failure && <p>失败类型：{FAILURE_LABELS[failure.category]}{failure.code ? ` · ${failure.code}` : ''}</p>}
     <p>结束原因：{item.stopReason}</p>
     {usage && <p>Token {abbr(usage.total)} · 输入 {abbr(usage.input)} · 输出 {abbr(usage.output)}{usage.cache > 0 ? ` · 缓存读 ${abbr(usage.cacheRead)} / 写 ${abbr(usage.cache - usage.cacheRead)}` : ''}</p>}
     {hit != null && <p>缓存命中率 {Math.floor(hit * 100)}%</p>}

@@ -5,6 +5,7 @@ import { PAGE_PREVIEW_STEER } from './pagePreviewTools.js'
 import { requestCodexSdkCleanup } from './engine/codexSdkLifecycle.js'
 import { assemblyAllowsTool, filterClaudeAssembly, parseConsultToolAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
 import { existsSync, readFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { CodexResponseWatchdog } from './codexResponseWatchdog.js'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -77,6 +78,7 @@ import {
 
 export { loadCodexModels }
 import { SessionModelSync } from './sessionModelSync.js'
+import { claudeSessionStatus, claudeTurnFailure, classifyTurnFailure, type NativeSessionStatus, type TurnFailure } from './engine/nativeSessionStatus.js'
 
 export type Engine = EngineId
 
@@ -99,6 +101,7 @@ export interface SessionRuntimeSnapshot {
   phase?: string
   agentState: 'idle' | 'running' | 'waiting' | 'finalizing' | 'failed' | 'unknown'
   lastHeartbeatAt: number
+  nativeStatus?: NativeSessionStatus & { turnId: string }
 }
 
 /**
@@ -233,6 +236,8 @@ export class Session {
   private curMsgTokens = 0
   /** 本轮是否已见过 SDK 的 result 消息；用于流异常收尾（未发 result）时补发，避免前端永久「思考中」。 */
   private turnHadResult = false
+  private nativeStatus?: NativeSessionStatus & { turnId: string }
+  private claudeFailure?: TurnFailure
   /** 当前 Claude 轮次由 Forge 显式注入的 MCP 名称；只用于能力来源证明。 */
   private claudeSessionMcpNames = new Set<string>()
   /** 最近一次主会话 SDK init 的能力快照；供用户主动刷新面板时无模型调用地重发。 */
@@ -314,6 +319,17 @@ export class Session {
   }
 
   private emitTurn(event: Record<string, unknown>): void {
+    if (event.type === 'nativeStatus') {
+      this.observeNativeStatus(event.status as NativeSessionStatus)
+      return
+    }
+    if (this.nativeStatus?.state === 'retrying' && ['assistantDelta', 'toolUse', 'toolResult'].includes(String(event.type))) {
+      this.observeNativeStatus({ source: this.nativeStatus.source, state: 'running' })
+    }
+    if (event.type === 'result' && !event.failure
+      && !['success', 'end_turn', 'completed', 'stop', 'interrupted', 'cancelled', 'user_cancelled', 'user_paused', 'admission_rejected'].includes(String(event.stopReason))) {
+      event = { ...event, failure: classifyTurnFailure(event.stopReason) }
+    }
     if (this.engine === 'codex') this.codexResponseWatchdog.observe(event)
     const type = typeof event.type === 'string' ? event.type : ''
     // result 只是引擎流终态；整轮还要经过 finally 清理，不能在这里提前显示“已结束”。
@@ -326,6 +342,16 @@ export class Session {
       this.setTurnActivityPhase('finalizing', '正在收口当前轮次')
     }
     if (decorated) this.emitRaw(decorated)
+  }
+
+  private observeNativeStatus(status: NativeSessionStatus): void {
+    const turnId = this.turnLifecycle.currentTurnId()
+    if (!turnId || this.turnLifecycle.interrupted()) return
+    const next = { ...status, turnId }
+    if (JSON.stringify(next) === JSON.stringify(this.nativeStatus)) return
+    this.nativeStatus = next
+    this.emitEngineEvent({ protocolVersion: 1, eventId: randomUUID(), sessionId: this.id, turnId,
+      engine: this.engine, type: 'engine.status', observedAt: Date.now(), payload: { ...next } })
   }
 
   private startTurnActivity(): void {
@@ -529,6 +555,8 @@ export class Session {
       this.emitRaw({ type: 'result', usage: {}, stopReason: 'error', turnId: turn.turnId })
       return
     }
+    this.nativeStatus = undefined
+    this.claudeFailure = undefined
     this.mcpToolWatchdog.clear()
     this.toolExecutionWatchdog.clear()
     this.perms.setAvoidDocker(developerInstructions?.includes('FORGE_SUPERVISED_NO_DOCKER=1') === true)
@@ -561,6 +589,7 @@ export class Session {
       }
       this.stopTurnActivity()
       const settledResult = this.turnLifecycle.finish(turn.turnId)
+      this.nativeStatus = undefined
       // result 的协议语义是“本轮已彻底结束且可以接收下一轮”，必须在 finish 之后发布。
       if (settledResult) this.emitRaw(settledResult)
     }
@@ -624,7 +653,7 @@ export class Session {
     const turnModel = this.model
     const turnOptions = this.claudeOptions ? { ...this.claudeOptions } : undefined
     const turnBaseUrl = this.apiBaseUrl
-    const turnEnvironment = this.providerEnv()
+    const turnEnvironment = { ...this.providerEnv(), CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: '1' }
     // spawn claude.exe 时若 working dir 不存在会直接「exists but failed to launch」；
     // cwd 失效（历史会话来自已删除/改名/异机路径）则回退到用户主目录，避免起不来。
     const safeCwd = existsSync(this.cwd) ? this.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
@@ -1083,6 +1112,11 @@ export class Session {
     const type = m.type as string
     switch (type) {
       case 'system': {
+        if (!m.parent_tool_use_id && (!this.sdkSessionId || !m.session_id || m.session_id === this.sdkSessionId)) {
+          const status = claudeSessionStatus(m)
+          if (status) this.observeNativeStatus(status)
+          if (m.subtype === 'model_refusal_no_fallback') this.claudeFailure = classifyTurnFailure(m.subtype)
+        }
         if (m.subtype === 'init' && m.session_id) {
           // 只在新建会话（sdkSessionId 为空）时更新 session ID，避免 feature-dev 等 plugin
           // 的并行子 agent 也会发 init 事件，把主会话 sdkSessionId 覆盖成子 agent 的 ID，
@@ -1180,6 +1214,9 @@ export class Session {
         break
       }
       case 'assistant': {
+        if (!m.parent_tool_use_id && (!this.sdkSessionId || !m.session_id || m.session_id === this.sdkSessionId)) {
+          this.claudeFailure = m.error ? classifyTurnFailure(m.error) : undefined
+        }
         const msg = m.message as Record<string, unknown> | undefined
         // API 响应里的真实模型（权威，非模型自述）——网关把请求路由到哪个上游，这里就是哪个
         const mdl = msg?.model
@@ -1245,6 +1282,7 @@ export class Session {
         break
       }
       case 'result': {
+        if (m.parent_tool_use_id || this.sdkSessionId && m.session_id && m.session_id !== this.sdkSessionId) break
         this.turnHadResult = true
         if (m.session_id) this.sdkSessionId = m.session_id as string
         if (this.lastAssistantForkAnchor) {
@@ -1259,7 +1297,10 @@ export class Session {
           viaGateway: !!this.apiBaseUrl,
           baseUrl: this.apiBaseUrl ?? null,
         })
-        this.emitTurn({ type: 'result', usage: m.usage ?? {}, stopReason: m.subtype ?? 'end_turn' })
+        const failure = claudeTurnFailure(m, this.claudeFailure)
+        this.emitTurn({ type: 'result', usage: m.usage ?? {},
+          stopReason: failure && m.subtype === 'success' ? 'error' : m.subtype ?? 'end_turn',
+          ...(failure ? { failure } : {}) })
         break
       }
     }
@@ -1351,6 +1392,7 @@ export class Session {
       phase,
       agentState: engineState.agentState,
       lastHeartbeatAt: Date.now(),
+      ...(active && this.nativeStatus?.turnId === turn.activeTurnId ? { nativeStatus: this.nativeStatus } : {}),
     }
   }
 

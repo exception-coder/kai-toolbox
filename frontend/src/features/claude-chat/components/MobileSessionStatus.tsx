@@ -28,6 +28,7 @@ import { sessionDisplayName } from '../lib/sessionDisplayName'
 import { currentActivityElapsed, hasExecutionNotice } from '../lib/mobileExecutionPresentation'
 import { useMobileViewport } from '../hooks/useMobileViewport'
 import { useControlSheetViewport } from '../hooks/useControlSheetViewport'
+import { turnResultLabel } from '../lib/turnFailure'
 
 export type MobileSessionStatusModel = {
   kind: 'running' | 'background' | 'warning' | 'completed' | 'usage'
@@ -306,7 +307,7 @@ export function deriveMobileSessionStatus(input: SessionExecutionInput & {
       ? { kind: 'completed', label: '空闲 · 最近一轮完成', detail: metrics || undefined }
       : {
           kind: 'warning',
-          label: reason === 'interrupted' ? '本轮已中断' : '本轮异常结束',
+          label: reason === 'interrupted' ? '本轮已中断' : turnResultLabel(result),
           detail: '待发送队列不会自动继续。',
         }
   }

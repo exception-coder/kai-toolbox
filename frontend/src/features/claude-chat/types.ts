@@ -69,9 +69,23 @@ export interface ClaudeChatSessionView {
 }
 
 /** 浏览器、Java、Sidecar与Agent聚合后的会话运行快照。 */
+export interface NativeSessionStatus {
+  source: 'codex' | 'claude'
+  state: 'running' | 'idle' | 'awaitingApproval' | 'awaitingInput' | 'requiresAction' | 'retrying' | 'unavailable' | 'failed'
+  turnId: string
+  attempt?: number | null
+  maxAttempts?: number | null
+  retryDelayMs?: number | null
+}
+
+export interface TurnFailure {
+  category: 'quota' | 'context' | 'authentication' | 'network' | 'request' | 'refusal' | 'limit' | 'incomplete' | 'unknown'
+  code?: string | null
+}
+
 export interface SessionRuntimeState {
   sessionId: string
-  effectiveStatus: 'IDLE' | 'RUNNING' | 'AWAITING_DECISION' | 'FINALIZING' | 'BACKGROUND_RUNNING' | 'RECONNECTING' | 'INTERRUPTED' | 'UNKNOWN'
+  effectiveStatus: 'IDLE' | 'RUNNING' | 'AWAITING_DECISION' | 'AWAITING_INPUT' | 'RETRYING' | 'ENGINE_UNAVAILABLE' | 'FINALIZING' | 'BACKGROUND_RUNNING' | 'RECONNECTING' | 'INTERRUPTED' | 'UNKNOWN'
   consistency: 'CONSISTENT' | 'GHOST_RUNNING' | 'BACKEND_STATE_LOST' | 'TURN_MISMATCH' | 'SIDECAR_UNREACHABLE' | 'SIDECAR_SESSION_MISSING' | 'JAVA_CONTEXT_MISSING' | 'PERSISTENCE_DRIFT' | 'STALE' | 'RECOVERABLE_INTERRUPTED' | 'RESTORABLE_SESSION_MISSING'
   persistedStatus: SessionStatus
   backendStatus: SessionStatus | null
@@ -92,6 +106,7 @@ export interface SessionRuntimeState {
   canInterrupt: boolean
   reason: string
   recommendedAction: string
+  nativeStatus?: NativeSessionStatus | null
 }
 
 export type AutopilotState = 'ACTIVE' | 'PAUSED' | 'WAITING_USER' | 'FAILED' | 'COMPLETED' | 'STOPPED'
@@ -765,7 +780,7 @@ export type AgentEventType =
   | 'turn.started' | 'assistant.delta' | 'reasoning.delta'
   | 'tool.started' | 'tool.progress' | 'tool.completed'
   | 'subagents.snapshot' | 'turn.finalizing' | 'turn.completed'
-  | 'turn.failed' | 'turn.interrupted' | 'engine.connection' | 'engine.diagnostic'
+  | 'turn.failed' | 'turn.interrupted' | 'engine.connection' | 'engine.diagnostic' | 'engine.status'
 
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
@@ -787,7 +802,7 @@ export type ServerMessage =
   | { type: 'forkAnchor'; seq: number; anchor: string }
   | { type: 'forked'; seq: number; sessionId: string }
   | { type: 'replayGap'; seq: number; missingFrom: number; missingTo: number }
-  | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string; traceId?: string | null; turnId?: string | null }
+  | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string; traceId?: string | null; turnId?: string | null; failure?: TurnFailure | null }
   | { type: 'autopilotState'; seq: number; state: SessionAutopilotRun }
   | { type: 'autopilotDashboardChanged'; seq: number; sessionId: string; revision: number }
   | { type: 'turnInfo'; seq: number; requestedModel: string | null; responseModel: string | null; viaGateway: boolean; baseUrl: string | null; transport?: CodexTransport | null }
@@ -837,7 +852,7 @@ export type ChatItem =
   | { kind: 'user'; id: string; text: string; displayText?: string; sdkUuid?: string; ts?: number; attachments?: MsgAttachment[]; turnId?: string; reviewIntent?: ReviewIntentMetadata }
   | { kind: 'assistant'; id: string; text: string; forkAnchor?: string; ts?: number }
   | { kind: 'tool'; id: string; toolCallId?: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number; elapsedMs?: number }
-  | { kind: 'result'; id: string; stopReason: string; traceId?: string | null; turnId?: string | null; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
+  | { kind: 'result'; id: string; stopReason: string; traceId?: string | null; turnId?: string | null; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number; failure?: TurnFailure | null }
   | { kind: 'warning'; id: string; code: string; message: string; ts?: number }
   | { kind: 'activity'; id: string; activityType: string; status: string; title: string; detail?: string | null; outcome?: string | null; severity?: string | null; data?: unknown; ts?: number }
   | { kind: 'error'; id: string; code: string; message: string; ts?: number }

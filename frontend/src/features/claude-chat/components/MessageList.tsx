@@ -13,6 +13,8 @@ import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
 import { AssistantReply } from './messages/AssistantReply'
 import { TurnResultDetails } from './messages/TurnResultDetails'
+import { TurnFailureRecovery, type TurnRecoveryActions } from './messages/TurnFailureRecovery'
+import { latestSettledResult, resultFailure, turnResultLabel } from '../lib/turnFailure'
 import { MessageCopyButton as CopyButton } from './MessageCopyButton'
 import { MessageImage } from './messages/MessageImage'
 import { ImageLightbox } from './ImageLightbox'
@@ -26,6 +28,7 @@ import '../styles/mobile-workspace.css'
 import '../styles/message-hierarchy.css'
 
 interface Props {
+  recoveryActions?: TurnRecoveryActions
   items: ChatItem[]
   running: boolean
   /** 用户点击顶部入口加载更早一页 */
@@ -163,7 +166,7 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
 export const MessageList = memo(forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, mobileWorkspace = false, executionInDock = false, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction },
+  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, mobileWorkspace = false, executionInDock = false, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, recoveryActions },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
@@ -174,6 +177,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   const readingDensity = useReadingDensity(), readingFont = useReadingFont()
   const compactMobile = mobileWorkspace && mobile
   const dockPresentation = compactMobile && executionInDock
+  const recoveryResult = useMemo(() => running ? null : latestSettledResult(items), [items, running])
   const latestResultId = useMemo(() => {
     if (!dockPresentation || running) return null
     for (let index = items.length - 1; index >= 0; index--) {
@@ -194,7 +198,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   }, [items, running])
   const visibleItems = useMemo(() => items.filter(item => {
     if (dockPresentation && hideToolCalls && isExecutionDetail(item)) return false
-    if (item.id === latestResultId) return false
+    if (item.id === latestResultId && item.kind === 'result' && !resultFailure(item)) return false
     if (hideToolCalls && item.kind === 'tool' && !(mobileWorkspace && item.isError)) return false
     if (mobileWorkspace && isRoutineExecution(item)) return false
     // 统一作业卡只在进行中或失败时保留；成功后由详细工具卡承载结果，避免重复占位。
@@ -348,8 +352,10 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         onOpenImage={(src, alt) => setViewer({ src, alt })}
         turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
       {item.kind === 'assistant' && renderAssistantAction?.(item)}
+      {item.kind === 'result' && item.id === recoveryResult?.id && recoveryActions
+        && <TurnFailureRecovery key={item.id} item={item} actions={recoveryActions} />}
     </div>
-  ), [highlightedId, onFork, openCard, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, compactMobile, mobileWorkspace, liveReplyIds])
+  ), [highlightedId, onFork, openCard, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, compactMobile, mobileWorkspace, liveReplyIds, recoveryResult, recoveryActions])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {
@@ -483,7 +489,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
   if (compactMobile) return <div className="cc-turn-status text-xs text-[var(--color-muted-foreground)]" data-turn-success={ok}>
     <details>
       <summary className={cn('flex min-h-11 cursor-pointer items-center gap-2', !ok && 'text-[var(--color-destructive)]')}>
-        {ok ? <Check className="size-3.5" /> : <AlertTriangle className="size-3.5" />}<span>{ok ? '此轮已完成' : '此轮异常结束'}</span>
+        {ok ? <Check className="size-3.5" /> : <AlertTriangle className="size-3.5" />}<span>{turnResultLabel(item)}</span>
         {time && <span className="tabular-nums">· {time}</span>}<span className="ml-auto">详情 ›</span>
       </summary>
       <div className="border-t py-3"><TurnResultDetails item={item} turnText={turnText} sessionId={sessionId} /></div>
@@ -496,7 +502,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
         {changesOpen && <TurnChangesDialog sessionId={sessionId} turnId={item.turnId} open onOpenChange={setChangesOpen} />}</>}
       <div className="flex flex-wrap items-center justify-center gap-1.5">
         <Chip tone={ok ? 'emerald' : 'rose'} icon={ok ? <Check className="size-3" /> : <AlertTriangle className="size-3" />} title={`本轮结束：${item.stopReason}`}>
-          {ok ? <span className="cc-focus-only">本轮</span> : '失败'}
+          {ok ? <span className="cc-focus-only">本轮</span> : turnResultLabel(item)}
         </Chip>
         {turnText && <CopyButton text={turnText} label="复制本轮" />}
         {u && u.total > 0 && (

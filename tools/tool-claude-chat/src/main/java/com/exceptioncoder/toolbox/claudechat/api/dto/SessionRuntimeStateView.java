@@ -48,6 +48,7 @@ public record SessionRuntimeStateView(
         boolean canQueue,
         boolean canInterrupt,
         String reason,
-        String recommendedAction
+        String recommendedAction,
+        NativeSessionStatus nativeStatus
 ) {
 }

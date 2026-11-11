@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.SessionRuntimeStateView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.NativeSessionStatus;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
@@ -55,7 +56,7 @@ public class SessionRuntimeStateService {
     public void observeSidecarBackgroundTasks(String sessionId, int backgroundTaskCount) {
         sidecarObservations.computeIfPresent(sessionId, (ignored, state) -> new SidecarObservation(
                 state.sessionPresent(), state.active(), state.pendingDecision(), backgroundTaskCount,
-                state.activeTurnId(), state.phase(), state.agentState(), System.currentTimeMillis()));
+                state.activeTurnId(), state.phase(), state.agentState(), System.currentTimeMillis(), state.nativeStatus()));
     }
 
     /** 查询并聚合指定会话状态；Sidecar无法响应时返回UNKNOWN，不使用旧值伪装空闲。 */
@@ -121,7 +122,7 @@ public class SessionRuntimeStateService {
                     null, null, null, null, backend == null ? null : backend.activeTurnId(),
                     null, "unknown", null, now, true, false, true,
                     SessionStatus.RUNNING.name().equals(backendStatus),
-                    "Sidecar状态不可确认，不能判定会话空闲", "等待重连后重新核对状态");
+                    "Sidecar状态不可确认，不能判定会话空闲", "等待重连后重新核对状态", null);
         }
 
         boolean stale = now - sidecarState.lastHeartbeatAt() > SNAPSHOT_STALE_MS;
@@ -149,7 +150,7 @@ public class SessionRuntimeStateService {
                 browserConnected, true, sidecarState.sessionPresent(), sidecarState.active(),
                 sidecarState.pendingDecision(), sidecarState.backgroundTaskCount(), sidecarState.activeTurnId(),
                 sidecarState.phase(), sidecarState.agentState(), sidecarState.lastHeartbeatAt(), now, stale,
-                canSend, true, canInterrupt, reason, recommendedAction(consistency, effective));
+                canSend, true, canInterrupt, reason, recommendedAction(consistency, effective), sidecarState.nativeStatus());
     }
 
     private static String consistency(String persisted, BackendObservation backend,
@@ -181,8 +182,21 @@ public class SessionRuntimeStateService {
 
     private static String effectiveStatus(SessionStatus persisted, SidecarObservation sidecarState) {
         if (sidecarState.active()) {
+            NativeSessionStatus nativeStatus = sidecarState.nativeStatus();
             if (sidecarState.pendingDecision()) {
-                return "AWAITING_DECISION";
+                return nativeStatus != null && "awaitingInput".equals(nativeStatus.state())
+                        ? "AWAITING_INPUT" : "AWAITING_DECISION";
+            }
+            if (nativeStatus != null) {
+                String projected = switch (nativeStatus.state()) {
+                    case "awaitingInput" -> "AWAITING_INPUT";
+                    case "awaitingApproval", "requiresAction" -> "AWAITING_DECISION";
+                    case "retrying" -> "RETRYING";
+                    case "unavailable", "failed" -> "ENGINE_UNAVAILABLE";
+                    case "idle" -> "FINALIZING";
+                    default -> null;
+                };
+                if (projected != null) return projected;
             }
             if ("finalizing".equals(sidecarState.phase()) || "finalizing".equals(sidecarState.agentState())) {
                 return "FINALIZING";
@@ -236,13 +250,20 @@ public class SessionRuntimeStateService {
     /** Sidecar与Agent适配层观察值。 */
     record SidecarObservation(boolean sessionPresent, boolean active, boolean pendingDecision,
                               int backgroundTaskCount, String activeTurnId, String phase,
-                              String agentState, long lastHeartbeatAt) {
+                              String agentState, long lastHeartbeatAt, NativeSessionStatus nativeStatus) {
+        SidecarObservation(boolean sessionPresent, boolean active, boolean pendingDecision,
+                           int backgroundTaskCount, String activeTurnId, String phase, String agentState, long lastHeartbeatAt) {
+            this(sessionPresent, active, pendingDecision, backgroundTaskCount, activeTurnId, phase, agentState, lastHeartbeatAt, null);
+        }
+
         static SidecarObservation from(JsonNode node) {
             return new SidecarObservation(node.path("sessionPresent").asBoolean(false),
                     node.path("active").asBoolean(false), node.path("pendingDecision").asBoolean(false),
                     node.path("backgroundTaskCount").asInt(0), text(node, "activeTurnId"), text(node, "phase"),
                     node.path("agentState").asText("unknown"),
-                    node.path("lastHeartbeatAt").asLong(System.currentTimeMillis()));
+                    node.path("lastHeartbeatAt").asLong(System.currentTimeMillis()),
+                    node.path("active").asBoolean(false)
+                            ? NativeSessionStatus.read(node.get("nativeStatus"), text(node, "activeTurnId")) : null);
         }
 
         private static String text(JsonNode node, String field) {

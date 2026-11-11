@@ -666,6 +666,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   useEffect(() => setComposerExpanded(false), [chat?.sessionId])
   const nativeVoiceControlRef = useRef<{ start: () => void }>(null)
   const [sessionConfigTarget, setSessionConfigTarget] = useState<HTMLElement | null>(null)
+  const [sessionConfigOpen, setSessionConfigOpen] = useState(false)
   const composerMoreTrigger = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     if (!moreOpen) return
@@ -1899,6 +1900,27 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                     showRunningFooter={false}
                     mobileWorkspace
                     executionInDock={!focus.focused}
+                    recoveryActions={!reviewOnlySession && !planLocked ? {
+                      onDraft: text => {
+                        setDraft(current => current.trim() ? `${current}\n\n${text}` : text)
+                        taRef.current?.focus()
+                      },
+                      onContinue: () => {
+                        if (sessionRuntime.data?.canSend && !chat.running && !chat.pending && chat.state === 'ready') {
+                          chat.send('请核对上一轮任务的实际进度，继续处理尚未完成的部分，不重复已完成的操作；保持原权限边界。')
+                        }
+                      },
+                      onConfigure: () => {
+                        setMoreOpen(false)
+                        setSessionConfigOpen(true)
+                        if (currentSession?.engine === 'codex' && currentSession.providerKind !== 'thirdParty') {
+                          void codexHomesQuery.refetch()
+                        }
+                      },
+                      onNewSession: currentSession ? handleNewSession : undefined,
+                      canContinue: sessionRuntime.data?.canSend === true && !chat.running && !chat.pending && chat.state === 'ready',
+                      canCompact: chat.slashCommands.includes('compact'),
+                    } : undefined}
                   />
                 )
               ) : (
@@ -2110,6 +2132,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
             </div>
             </div>
             <SessionConfigSheet
+              open={sessionConfigOpen}
+              onOpenChange={setSessionConfigOpen}
               summary={sessionConfigSummary}
               compactSummary={sessionConfigCompactSummary}
               disabled={planLocked}

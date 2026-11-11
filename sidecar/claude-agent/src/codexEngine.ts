@@ -527,7 +527,8 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       code: 'CODEX_APP_SERVER_FAILED',
       message: error instanceof Error ? error.message : String(error),
     })
-    ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
+    ctx.emit({ type: 'result', usage: {}, stopReason: 'error',
+      ...(error instanceof CodexAppServerTurnError && error.failure ? { failure: error.failure } : {}) })
   } finally {
     voice?.dispose()
     if (tempImageDir) rmSync(tempImageDir, { recursive: true, force: true })

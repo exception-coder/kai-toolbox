@@ -11,6 +11,7 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeSessionOptions;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModelInfo;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
+import com.exceptioncoder.toolbox.claudechat.api.dto.TurnFailure;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.ReviewHandshakeInterceptor;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
@@ -1951,12 +1952,18 @@ public class ClaudeChatService {
                 safe = false;
             }
             completeTurn(ctx, turnId, asMap(node.get("usage")), reason,
-                    node.path("traceId").asText(null), safe);
+                    node.path("traceId").asText(null), safe,
+                    TurnFailure.read(node.get("failure"), reason));
         }
     }
 
     private void completeTurn(SessionCtx ctx, String turnId, Map<String, Object> usage, String stopReason, String traceId,
                               boolean queueReleaseSafe) {
+        completeTurn(ctx, turnId, usage, stopReason, traceId, queueReleaseSafe, null);
+    }
+
+    private void completeTurn(SessionCtx ctx, String turnId, Map<String, Object> usage, String stopReason, String traceId,
+                              boolean queueReleaseSafe, TurnFailure failure) {
         if (queueDelivery.runtime(ctx.sessionId).filter(r -> r.turnId().equals(turnId)
                 && "user_cancelled".equals(r.stopReason())).isPresent()) {
             stopReason = "interrupted";
@@ -2002,7 +2009,7 @@ public class ClaudeChatService {
             traceId = span.traceId();
         }
         if (span != null) {
-            if ("error".equals(stopReason) || "interrupted".equals(stopReason)) {
+            if (!isSuccessfulTurnCompletion(stopReason)) {
                 span.fail(stopReason, null);
             } else {
                 span.success(stopReason);
@@ -2015,7 +2022,8 @@ public class ClaudeChatService {
         String resultTraceId = traceId;
         String resultStopReason = stopReason;
         turnChanges.finish(ctx.sessionId, turnId, stopReason);
-        events.sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, resultStopReason, resultTraceId, turnId));
+        var resultFailure = "interrupted".equals(stopReason) ? null : failure;
+        events.sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, resultStopReason, resultTraceId, turnId, resultFailure));
         if (!completionCheck) applicationEvents.publishEvent(new SessionTurnSettledEvent(
                 ctx.sessionId, turnId, stopReason, queueReleaseSafe, System.currentTimeMillis(),
                 ctx.lastTurnErrorCode, ctx.lastTurnErrorMessage));
@@ -2023,7 +2031,9 @@ public class ClaudeChatService {
         // 所有观察者都不在线才推送，避免打扰
         if (!events.hasActiveViewer(ctx)) {
             String engineLabel = "codex".equals(ctx.engine) ? "Codex" : "Claude";
-            notifications.notifyDone(engineLabel + " 任务完成", sessionLabel(ctx));
+            String outcome = isSuccessfulTurnCompletion(stopReason) ? " 本轮完成"
+                    : "interrupted".equals(stopReason) ? " 本轮已中断" : " 本轮未完成";
+            notifications.notifyDone(engineLabel + outcome, sessionLabel(ctx));
         }
     }
 

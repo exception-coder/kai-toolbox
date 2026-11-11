@@ -865,6 +865,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       }
       case 'engineEvent': {
+        if (msg.eventType === 'engine.status') {
+          if (!msg.turnId || settledTurnIdsRef.current.has(msg.turnId)
+            || activeTurnIdRef.current && msg.turnId !== activeTurnIdRef.current) break
+          // Native idle never closes the turn: only the cleaned-up result can do that.
+          setRuntimeRevision(revision => revision + 1)
+          break
+        }
         // assistant/tool 事件仍由兼容事件渲染，避免迁移期重复展示；这里消费新增的统一状态语义。
         if (msg.eventType === 'subagents.snapshot') {
           const summary = engineSubagentSummary(msg.payload)
@@ -911,7 +918,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         const usage = normalizeUsage(msg.usage)
         turnStartRef.current = null
         ttftRef.current = null
-        setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason, traceId: msg.traceId, turnId: msg.turnId, ts: Date.now(), usage, latencyMs, ttftMs }])
+        setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason, traceId: msg.traceId, turnId: msg.turnId, failure: msg.failure, ts: Date.now(), usage, latencyMs, ttftMs }])
         // Claude 回复完成:仅当页面不在前台时响一声,避免你正盯着看时反复叮咚
         if (typeof document !== 'undefined' && document.hidden) playNotifySound()
         break

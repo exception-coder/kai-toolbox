@@ -1,6 +1,9 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.SessionRuntimeStateView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.NativeSessionStatus;
+import com.exceptioncoder.toolbox.claudechat.api.dto.TurnFailure;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import org.junit.jupiter.api.Test;
@@ -11,6 +14,48 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SessionRuntimeStateServiceTest {
 
     private static final long NOW = 10_000L;
+
+    @Test
+    void nativeStatesDescribeActiveWorkWithoutReleasingSendGate() {
+        var expected = java.util.Map.of("idle", "FINALIZING", "awaitingInput", "AWAITING_INPUT",
+                "awaitingApproval", "AWAITING_DECISION", "requiresAction", "AWAITING_DECISION",
+                "retrying", "RETRYING", "failed", "ENGINE_UNAVAILABLE", "unavailable", "ENGINE_UNAVAILABLE");
+        expected.forEach((nativeState, effective) -> {
+            var observation = new SessionRuntimeStateService.SidecarObservation(true, true, false, 0,
+                    "turn-1", "working", "running", NOW,
+                    new NativeSessionStatus("codex", nativeState, "turn-1", 2, 5, 1000L));
+            var result = assess(SessionStatus.RUNNING, SessionStatus.RUNNING, "turn-1", observation);
+            assertThat(result.effectiveStatus()).isEqualTo(effective);
+            assertThat(result.canSend()).isFalse();
+            assertThat(result.canInterrupt()).isTrue();
+        });
+        var awaitingAnswer = new SessionRuntimeStateService.SidecarObservation(true, true, true, 0,
+                "turn-1", "working", "waiting", NOW,
+                new NativeSessionStatus("codex", "awaitingInput", "turn-1", null, null, null));
+        var answer = assess(SessionStatus.RUNNING, SessionStatus.RUNNING, "turn-1", awaitingAnswer);
+        assertThat(answer.effectiveStatus()).isEqualTo("AWAITING_INPUT");
+        assertThat(answer.canSend()).isFalse();
+    }
+
+    @Test
+    void nativeEvidenceRejectsOtherTurnsAndUntrustedCodes() throws Exception {
+        var mapper = new ObjectMapper();
+        var node = mapper.readTree("""
+                {"source":"claude","state":"retrying","turnId":"old","attempt":2,"maxAttempts":5}
+                """);
+        assertThat(NativeSessionStatus.read(node, "current")).isNull();
+        assertThat(NativeSessionStatus.read(node, null)).isNull();
+        assertThat(NativeSessionStatus.read(node, "old").attempt()).isEqualTo(2);
+        var failure = mapper.readTree("""
+                {"category":"authentication","code":"secret token in error prose"}
+                """);
+        assertThat(TurnFailure.read(failure, "error")).isEqualTo(new TurnFailure("authentication", null));
+        assertThat(TurnFailure.read(failure, "interrupted")).isNull();
+        assertThat(TurnFailure.read(null, "error").category()).isEqualTo("unknown");
+        assertThat(ClaudeChatService.queueReleaseAllowed(mapper.readTree("""
+                {"stopReason":"error","queueReleaseSafe":true,"failure":{"category":"quota"}}
+                """))).isFalse();
+    }
 
     @Test
     void shouldDetectGhostRunningWhenSidecarAlreadyStopped() {

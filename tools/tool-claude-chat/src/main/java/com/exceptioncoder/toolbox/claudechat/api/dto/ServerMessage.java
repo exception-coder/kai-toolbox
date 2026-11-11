@@ -142,7 +142,10 @@ public sealed interface ServerMessage
     record ReplayGap(long seq, long missingFrom, long missingTo) implements ServerMessage {}
 
     @JsonTypeName("result")
-    record Result(long seq, Map<String, Object> usage, String stopReason, String traceId, String turnId) implements ServerMessage {
+    record Result(long seq, Map<String, Object> usage, String stopReason, String traceId, String turnId, TurnFailure failure) implements ServerMessage {
+        public Result(long seq, Map<String, Object> usage, String stopReason, String traceId, String turnId) {
+            this(seq, usage, stopReason, traceId, turnId, null);
+        }
         public Result(long seq, Map<String, Object> usage, String stopReason, String traceId) {
             this(seq, usage, stopReason, traceId, null);
         }

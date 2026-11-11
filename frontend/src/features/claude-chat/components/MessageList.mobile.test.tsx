@@ -23,6 +23,20 @@ afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.moc
 
 function RouteProbe() { return <output data-testid="route">{useLocation().pathname}</output> }
 
+it.each([true, false])('shows recovery only for the latest failure, including in the mobile dock (mobile=%s)', mobile => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: mobile, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  const failure: ChatItem = { kind: 'result', id: 'failed', stopReason: 'failed', failure: { category: 'network' } }
+  const actions = { onDraft: vi.fn(), canContinue: false, canCompact: false }
+  const view = (data: ChatItem[]) => <MemoryRouter><MessageList items={data} running={false} mobileWorkspace
+    executionInDock recoveryActions={actions} /></MemoryRouter>
+  const mounted = render(view([failure]))
+  expect(screen.getByText('此轮未完成 · 服务或网络异常')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '准备核对与重试' }))
+  expect(actions.onDraft).toHaveBeenCalledTimes(1)
+  mounted.rerender(view([failure, { kind: 'user', id: 'new-task', text: '下一项任务' }]))
+  expect(screen.queryByRole('button', { name: '准备核对与重试' })).not.toBeInTheDocument()
+})
+
 it.each([true, false])('opens the complete reply in place and survives virtual row removal (mobile=%s)', async mobile => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: mobile, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
   const reply: ChatItem = { kind: 'assistant', id: 'card-answer', text: longReply }

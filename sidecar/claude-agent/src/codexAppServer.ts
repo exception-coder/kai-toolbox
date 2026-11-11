@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { codexSessionStatus, classifyTurnFailure, retryCounts, type TurnFailure } from './engine/nativeSessionStatus.js'
 import { createInterface } from 'node:readline'
 import { prepareCodexTransport, type CodexTransportSelection } from './codexTransportPolicy.js'
 import { CodexRpcTimeoutError, codexRpcTimeoutMs, observeCodexRpc } from './engine/codexRpcPolicy.js'
@@ -139,7 +140,7 @@ type PendingRequest = {
 }
 
 export class CodexAppServerTurnError extends Error {
-  constructor(message: string, readonly retrySafe: boolean) {
+  constructor(message: string, readonly retrySafe: boolean, readonly failure?: TurnFailure) {
     super(message)
     this.name = 'CodexAppServerTurnError'
   }
@@ -392,6 +393,7 @@ export type CodexTerminalTurn = {
   id: string
   status: string
   errorMessage?: string
+  failure?: TurnFailure
 }
 
 /** Match the exact native turn; another turn's terminal state cannot release this queue. */
@@ -400,7 +402,9 @@ export function findCodexTerminalTurn(result: JsonRpcResult, expectedTurnId: str
   const status = asString(turn?.status).toLowerCase()
   if (!turn?.id || !TERMINAL_TURN_STATUSES.has(status)) return undefined
   const errorMessage = asString(asRecord(turn.error)?.message)
-  return { id: asString(turn.id), status, ...(errorMessage ? { errorMessage } : {}) }
+  const info = asRecord(turn.error)?.codexErrorInfo
+  return { id: asString(turn.id), status, ...(errorMessage ? { errorMessage } : {}),
+    ...(info ? { failure: classifyTurnFailure(info) } : {}) }
 }
 
 export function shouldReconcileCodexTurnAfterItem(
@@ -912,6 +916,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   const finishReconnectActivity = (status: 'completed' | 'failed', detail?: string) => {
     clearReconnectDeadline()
     if (!reconnectActivityId) return
+    if (status === 'completed') options.emit({ type: 'nativeStatus', status: { source: 'codex', state: 'running' } })
     emitActivity({
       type: 'codexActivity', activityType: 'connection', itemId: reconnectActivityId, status,
       title: status === 'completed' ? 'Codex 本轮上游连接已恢复' : 'Codex 本轮上游重连失败', detail,
@@ -939,6 +944,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
   }
   options.signal.addEventListener('abort', onAbort, { once: true })
 
+  let nativeFailure: TurnFailure | undefined
   const completion = new Promise<void>((resolveCompletion, rejectCompletion) => {
     finishVoiceIdle = () => {
       terminalEvent ??= { type: 'result', usage: normalizeUsage(lastUsage),
@@ -958,7 +964,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
       commandActivityEmittedAt.clear()
       failPending(error)
       cleanup(true)
-      rejectCompletion(new CodexAppServerTurnError(error.message, !turnAccepted && !emittedActivity))
+      rejectCompletion(new CodexAppServerTurnError(error.message, !turnAccepted && !emittedActivity, nativeFailure))
     }
     abortCompletion = finishError
 
@@ -1007,6 +1013,8 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
         usage: normalizeUsage(lastUsage),
         stopReason,
         queueReleaseSafe: completionAssessment.queueReleaseSafe,
+        ...(status === 'failed' ? { failure: nativeFailure ?? classifyTurnFailure(undefined) }
+          : stopReason === 'incomplete' ? { failure: classifyTurnFailure('incomplete') } : {}),
       }
       if (options.voice?.completeNativeTurn()) {
         if (completedTurnId) completedVoiceTurns.add(completedTurnId)
@@ -1028,6 +1036,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
             if (finished || !turnId) return
             const terminalTurn = findCodexTerminalTurn(result, turnId)
             if (terminalTurn) {
+              nativeFailure = terminalTurn.failure ?? nativeFailure
               acceptRootTerminalTurn(terminalTurn.status, terminalTurn.id, terminalTurn.errorMessage)
               return
             }
@@ -1158,6 +1167,12 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
         finishReconnectActivity('completed')
       }
       switch (method) {
+        case 'thread/status/changed': {
+          if (!threadId || params.threadId !== threadId) break
+          const status = codexSessionStatus(params.status)
+          if (status && (status.state !== 'idle' || turnAccepted)) options.emit({ type: 'nativeStatus', status })
+          break
+        }
         case 'mcpServer/startupStatus/updated': {
           const warning = mcpStartupWarnings.accept(params)
           if (warning) {
@@ -1288,6 +1303,8 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
           const notice = classifyCodexAppServerError(params)
           logCodexTransportError({ sessionId: options.sessionId, threadId, execution: 'appServer', selection: transportSelection }, notice.message)
           if (notice.willRetry || notice.retryExhausted) {
+            options.emit({ type: 'nativeStatus', status: { source: 'codex', state: 'retrying',
+              ...retryCounts(notice.attempt, notice.maxAttempts) } })
             reconnectActivityId ??= `${asString(params.turnId) || turnId || threadId || 'current'}-reconnect`
             const progress = notice.attempt && notice.maxAttempts ? `${notice.attempt}/${notice.maxAttempts}` : '重试中'
             const finalAttempt = notice.retryExhausted
@@ -1308,11 +1325,13 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions, runti
             break
           }
           finishReconnectActivity('failed', notice.message)
+          nativeFailure = classifyTurnFailure(asRecord(params.error)?.codexErrorInfo)
           finishError(new Error(notice.message))
           break
         }
         case 'turn/completed': {
           const turn = asRecord(params.turn)
+          if (turn?.status === 'failed') nativeFailure = classifyTurnFailure(asRecord(turn.error)?.codexErrorInfo)
           const status = asString(turn?.status) || 'completed'
           const completedTurnId = asString(turn?.id) || turnId
           acceptRootTerminalTurn(status, completedTurnId, asString(asRecord(turn?.error)?.message))

@@ -48,6 +48,33 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('Codex 会话参数恢复', () => {
+  it('原生状态只刷新当前轮快照，空闲不释放本轮，迟到状态不重开结束轮', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive({ ...ready('a'), status: 'RUNNING', activeTurnId: 'current' }) })
+    await waitFor(() => expect(result.current.historyLoading).toBe(false))
+    const native = (seq: number, turnId: string): ServerMessage => ({ type: 'engineEvent', seq,
+      protocolVersion: 1, eventId: `e-${seq}`, sessionId: 'a', turnId, engine: 'codex',
+      eventType: 'engine.status', observedAt: 1, payload: { source: 'codex', state: 'idle' } })
+    const revision = result.current.runtimeRevision
+    const sentCount = socket.send.mock.calls.length
+    act(() => socket.receive(native(2, 'old')))
+    expect(result.current.runtimeRevision).toBe(revision)
+    act(() => socket.receive(native(3, 'current')))
+    expect(result.current.runtimeRevision).toBeGreaterThan(revision)
+    expect(result.current.running).toBe(true)
+    act(() => socket.receive({ type: 'result', seq: 4, turnId: 'current', usage: {}, stopReason: 'error',
+      failure: { category: 'quota', code: 'usageLimitExceeded' } }))
+    expect(result.current.running).toBe(false)
+    expect(result.current.items.at(-1)).toMatchObject({ kind: 'result', failure: { category: 'quota' } })
+    const settled = result.current.runtimeRevision
+    act(() => socket.receive(native(5, 'current')))
+    expect(result.current.runtimeRevision).toBe(settled)
+    expect(result.current.running).toBe(false)
+    expect(socket.send).toHaveBeenCalledTimes(sentCount)
+  })
   it('结果之后的完成核对打开新轮次并显示回复，迟到的旧结果不能关闭核对轮', async () => {
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
     act(() => result.current.switchTo('a'))
