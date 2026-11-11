@@ -6,6 +6,7 @@ import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useA
 import type { AssistantMessageEnvelope, Attachment, BackgroundTaskInfo, CapabilitySnapshotSource, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, McpCapability, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, PluginCapability, ProviderKind, SendAttachment, ServerMessage, SkillCapability, TurnDiag } from '../types'
 import { useVoiceTransport } from './useVoiceTransport'
 import { isVoiceTranscriptItem, upsertVoiceTranscript } from '../lib/voiceTranscript'
+import { appendAssistantDelta, applyToolResult, upsertToolUse } from '../lib/chatItemReducers'
 import type { VoiceTransport } from '../lib/nativeVoice'
 import { clearQueuedMessages, confirmQueueAndContinue, deleteQueuedMessage, dispatchQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage, stopQueuedMessage, pauseQueuedMessage } from '../api'
 import { notifyPrompt } from '../browserNotify'
@@ -676,14 +677,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         if (turnStartRef.current != null && ttftRef.current == null) {
           ttftRef.current = Date.now() - turnStartRef.current
         }
-        setItems(prev => {
-          const last = prev[prev.length - 1]
-          if (last && last.kind === 'assistant' && !isVoiceTranscriptItem(last)) {
-            const copy = prev.slice(0, -1)
-            return [...copy, { ...last, text: last.text + msg.text }]
-          }
-          return [...prev, { kind: 'assistant', id: nextId(), text: msg.text, ts: Date.now() }]
-        })
+        setItems(prev => appendAssistantDelta(prev, msg.text, nextId))
         break
       case 'assistantSnapshot':
         if (!applyTurnRunningSignal('runtimeEvidence')) break
@@ -692,36 +686,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       case 'toolUse':
         if (channel === 'consult') setSyncWarning(previous => previous === '正在核对咨询账号与历史上下文……' ? null : previous)
         if (!applyTurnRunningSignal('runtimeEvidence')) break
-        setItems(prev => {
-          const toolCallId = msg.toolCallId || undefined
-          const id = toolCallId ? `tool-${toolCallId}` : nextId()
-          const index = toolCallId ? prev.findIndex(item => item.kind === 'tool' && item.toolCallId === toolCallId) : -1
-          const next = { kind: 'tool' as const, id, toolCallId, toolName: msg.toolName, input: msg.input, ts: Date.now() }
-          if (index < 0) return [...prev, next]
-          const copy = prev.slice()
-          copy[index] = { ...prev[index], ...next }
-          return copy
-        })
+        setItems(prev => upsertToolUse(prev, msg, nextId))
         break
       case 'toolResult':
-        setItems(prev => {
-          // 新协议按稳定调用 ID 精确回填；旧 sidecar 没有 ID 时再按名称向后兼容。
-          for (let i = prev.length - 1; i >= 0; i--) {
-            const it = prev[i]
-            const matched = it.kind === 'tool' && it.output === undefined && (msg.toolCallId
-              ? it.toolCallId === msg.toolCallId
-              : it.toolName === msg.toolName)
-            if (matched) {
-              const copy = prev.slice()
-              copy[i] = { ...it, output: msg.output, isError: msg.isError,
-                elapsedMs: it.ts == null ? undefined : Math.max(0, Date.now() - it.ts) }
-              return copy
-            }
-          }
-          const toolCallId = msg.toolCallId || undefined
-          return [...prev, { kind: 'tool', id: toolCallId ? `tool-${toolCallId}` : nextId(), toolCallId,
-            toolName: msg.toolName, input: null, output: msg.output, isError: msg.isError, ts: Date.now() }]
-        })
+        // 新协议按稳定调用 ID 精确回填；旧 sidecar 没有 ID 时再按名称向后兼容。
+        setItems(prev => applyToolResult(prev, msg, nextId))
         break
       case 'permissionRequest':
         setPending({ kind: 'permission', reqId: msg.reqId, toolName: msg.toolName, input: msg.input })
