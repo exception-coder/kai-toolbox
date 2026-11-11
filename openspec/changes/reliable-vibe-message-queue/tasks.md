@@ -9,6 +9,26 @@
 
 ## 验证记录
 
+### 2026-11-11：接手会话状态 P0
+
+- [x] 核对轮仅在当前 Sidecar 接收回执后广播开始，兼容手动任务没有 delivery 行；恢复快照携带已接收核对轮与次数。
+- [x] 核对轮解除前端旧轮终态门闩，按 turnId 拒绝已结束核对的重复事件和迟到旧结果。
+- [x] 状态事件推进查询代次，旧请求取消并隔离；顶栏、专注阅读和底部状态栏共用执行状态投影。
+- [x] 正常连接提示在手机/桌面收起；审批、收口及状态异常优先展示；生命周期说明保留 SDK 版本差异与后端门禁边界。
+- [x] 完成前后端定向回归、类型、构建、宿主装配、严格规格与质量门禁，并记录实际结果。
+- [ ] 用户确认后加载新版本，执行真实桌面/手机与模型核对链路验收；本轮不自动重启、发送真实任务或放行现有队列。
+
+本轮是兼容状态反馈修复，不修改 Sidecar 依赖、模型参数通道、SQL、持久状态机及准入规则。P1 原生状态接入、失败分类/恢复按钮和会话列表的完整统一仍为后续。不得把当前旧服务的健康探测记为新版功能验收。
+
+验证结果（退出码均为 0）：
+
+- 前端最终 4 文件、57 项通过：Socket 会话隔离/核对 29 项、状态组件 18 项、查询竞态 3 项、原轮次门闩 7 项。覆盖原结果后开始核对、重复/迟到事件、暂停原因恢复、重连、审批/收口优先级、旧轮询晚返回及同批次连续轮次；包含既有 Codex 配置恢复和队列隔离用例。
+- Java 定向三类共 35 项通过：QueueReliabilityTest 23、ReviewPublicMessageProjectorTest 2、SessionRuntimeStateServiceTest 10；最终核对/公开投影 25 项复核通过，输入未变的运行聚合结果复用。新增仅 3 项编排风险用例：接收与恢复、无 delivery 的手动任务、派发异常；核对回执不重复广播原用户消息，公开评审不透出新增核对元数据。
+- `npm run typecheck`、`npm run build` 通过，保留既有依赖指令、静态/动态混合导入与大分包提示。构建覆盖 SDK 及主工作台，不把打包耗时认定为功能失败。
+- JDK 21 宿主 `mvn -pl toolbox-starter -am package "-Dmaven.test.skip=true" "-Dskip.frontend=true"` 41 模块成功；该阶段跳过测试源码/执行，专项结果如上。先按仓库约定复制本次 dist 到生成的 static 资源；Zip 内容 SHA-256 比对确认最终 fat jar 的入口 HTML、ChatControlWorkspace 及 tool-claude-chat 模块分别与本次构建相同。
+- OpenSpec 严格校验及 diff 检查通过。质量门禁 `status=PASSED`、`executedCheckers=[]`，`executedVerifiers=[API-RUNTIME-001]`，实际只执行 1 项既有 `/api/tools` 探测；它不是新版核对功能验收。
+- 只读 `node forge.mjs status`：后端 PID 42036、静态前端 PID 117600 均 ready/online，重启次数 0；本轮没有执行起停、改运行模式、派发真实任务或解除队列挂起。没有进行真实浏览器、Android 或真实模型验证，授权加载后的运行验收仍待执行。
+
 ### 2026-11-01：队列命令空回执误报
 
 - [x] 复现截图错误：确认继续与立即发送 API 返回 `202 Accepted` 无正文，前端默认调用 `Response.json()`，两个实际受理的请求均可误报 `Unexpected end of JSON input`。

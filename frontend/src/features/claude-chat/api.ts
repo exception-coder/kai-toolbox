@@ -293,8 +293,8 @@ export function listEngineCatalog(refresh = false) {
 }
 
 /** 实时核对浏览器、Java、Sidecar与Agent的全链路会话状态。 */
-export function getSessionRuntimeState(sessionId: string) {
-  return http<SessionRuntimeState>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/runtime-state`)
+export function getSessionRuntimeState(sessionId: string, signal?: AbortSignal) {
+  return http<SessionRuntimeState>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/runtime-state`, { signal })
 }
 
 export function listSessionOpenSpecChanges(sessionId: string, projectRoot?: string) {

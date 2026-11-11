@@ -58,9 +58,11 @@ class ReviewPublicMessageProjectorTest {
                 List.of("agent"), List.of(), "style", "codex-app-server", 100L, List.of("secret error"),
                 List.of(), "gpt-secret", "high", "fast", "bypassPermissions", "server", true, SessionExecutionPolicy.REVIEW_ONLY,
                 new com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeSessionOptions("max", true),
-                new ServerMessage.ActiveModelConfiguration("claude", "secret-model", "high", null, false));
+                new ServerMessage.ActiveModelConfiguration("claude", "secret-model", "high", null, false),
+                new ServerMessage.QueueCheckProgress("check-turn", 1, 3));
 
         assertThat(((ServerMessage.Ready) ReviewPublicMessageProjector.projectRealtime(ready)).activeModelConfiguration()).isNull();
+        assertThat(((ServerMessage.Ready) ReviewPublicMessageProjector.projectRealtime(ready)).queueCheck()).isNull();
         assertThat(ReviewPublicMessageProjector.projectRealtime(new ServerMessage.ModelConfiguration(2L, ready.activeModelConfiguration()))).isNull();
 
         assertThat(ReviewPublicMessageProjector.projectRealtime(tool)).isNull();

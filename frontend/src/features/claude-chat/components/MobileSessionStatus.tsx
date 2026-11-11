@@ -15,12 +15,14 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
-import { getSessionRuntimeState, listSessions, type SessionUsage } from '../api'
-import type { BackgroundTaskInfo, ChatItem, ClaudeChatSessionView, ConnState, SessionRuntimeState } from '../types'
+import { listSessions, type SessionUsage } from '../api'
+import type { BackgroundTaskInfo, ChatItem, ClaudeChatSessionView, ConnState, PendingRequest } from '../types'
 import { abbr, fmtMs, formatTime, parseUsage } from '../lib/metrics'
 import { cn } from '@/lib/utils'
+import { deriveSessionExecutionStatus, runtimeStatusLabel, type SessionExecutionInput } from '../lib/sessionExecutionStatus'
 import { sessionWorkspaceLabel } from '../lib/sessionProjectGroups'
 import { useMobileDisclosure } from '../hooks/useMobileDisclosure'
+import { useSessionRuntimeState } from '../hooks/useSessionRuntimeState'
 import { boardSessionState, isBoardSessionRunning, recentBoardSessions } from '../lib/sessionBoard'
 import { sessionDisplayName } from '../lib/sessionDisplayName'
 import { currentActivityElapsed, hasExecutionNotice } from '../lib/mobileExecutionPresentation'
@@ -41,6 +43,10 @@ function controlEntryDiscovered() {
 interface Props {
   onInterrupt?: () => void
   interrupting?: boolean
+  /** 当前运行的是系统发起的队列完成核对轮次。 */
+  queueCheck?: { attempt: number; maxAttempts: number } | null
+  runtimeRevision?: number
+  pending?: PendingRequest | null
   workspace?: boolean
   sessionId: string
   items: ChatItem[]
@@ -66,7 +72,7 @@ interface Props {
 }
 
 export function MobileSessionStatus({
-  workspace = false, onInterrupt, interrupting = false,
+  workspace = false, onInterrupt, interrupting = false, queueCheck = null, runtimeRevision = 0, pending = null,
   sessionId,
   items,
   running,
@@ -113,12 +119,7 @@ export function MobileSessionStatus({
     setView('actions'); setExpanded(false); setDetailsOpen(false); setDragY(0); drag.current = null
   }, [open, sessionId])
   const trigger = useRef<HTMLButtonElement>(null)
-  const runtime = useQuery({
-    queryKey: ['claude-chat-runtime-state', sessionId],
-    queryFn: () => getSessionRuntimeState(sessionId),
-    refetchInterval: running ? 5_000 : 15_000,
-    retry: 1,
-  })
+  const runtime = useSessionRuntimeState(sessionId, running, runtimeRevision)
   const sessionList = useQuery({
     queryKey: ['claude-chat-sessions'],
     queryFn: listSessions,
@@ -130,6 +131,9 @@ export function MobileSessionStatus({
     items,
     running,
     engineLabel,
+    queueCheck,
+    pending,
+    interrupting,
     turnTokens,
     connState,
     backgroundTasks,
@@ -278,132 +282,16 @@ function findCurrentActivity(items: ChatItem[]): string | null {
   return null
 }
 
-export function deriveMobileSessionStatus({
-  items,
-  running,
-  engineLabel,
-  connState,
-  backgroundTasks,
-  runtimeState,
-  runtimePending,
-  runtimeError,
-  usage,
-  usageLoading,
-}: {
+export function deriveMobileSessionStatus(input: SessionExecutionInput & {
   items: ChatItem[]
-  running: boolean
-  engineLabel: string
   turnTokens: number
-  connState: ConnState
-  backgroundTasks: BackgroundTaskInfo[]
-  runtimeState?: SessionRuntimeState
-  runtimePending: boolean
-  runtimeError: boolean
   usage: SessionUsage | null
   usageLoading: boolean
 }): MobileSessionStatusModel | null {
-  if (running) {
-    const reconnecting = connState === 'connecting' || connState === 'closed' || connState === 'error'
-    return {
-      kind: 'running',
-      label: reconnecting
-        ? '正在重连会话…'
-        : `${engineLabel} 正在运行`,
-      detail: reconnecting ? 'Agent 可能仍在后台执行，连接恢复前不会误判为空闲。' : undefined,
-    }
-  }
-
-  if (backgroundTasks.length > 0) {
-    const first = backgroundTasks[0]
-    return {
-      kind: 'background',
-      label: `后台任务进行中 · ${backgroundTasks.length}`,
-      detail: first?.description || first?.taskType,
-    }
-  }
-
-  if (runtimeError) {
-    return {
-      kind: 'warning',
-      label: '全链路状态暂不可用',
-      detail: '发送前仍会由后端再次核对会话状态。',
-    }
-  }
-
-  if (runtimeState && runtimeState.consistency !== 'CONSISTENT') {
-    return {
-      kind: 'warning',
-      label: `状态待校正 · ${runtimeStatusLabel(runtimeState.effectiveStatus)}`,
-      detail: runtimeState.reason,
-    }
-  }
-
-  if (runtimeState) {
-    if (runtimeState.pendingDecision) {
-      return {
-        kind: 'warning',
-        label: '等待你的确认',
-        detail: runtimeState.reason,
-      }
-    }
-    if ((runtimeState.backgroundTaskCount ?? 0) > 0) {
-      return {
-        kind: 'background',
-        label: `后台任务进行中 · ${runtimeState.backgroundTaskCount}`,
-        detail: runtimeState.reason,
-      }
-    }
-    switch (runtimeState.effectiveStatus) {
-      case 'RUNNING':
-        return {
-          kind: 'running',
-          label: `${engineLabel} 正在运行`,
-          detail: runtimeState.phase || runtimeState.reason,
-        }
-      case 'AWAITING_DECISION':
-        return {
-          kind: 'warning',
-          label: '等待你的确认',
-          detail: runtimeState.reason,
-        }
-      case 'FINALIZING':
-        return {
-          kind: 'running',
-          label: '正在收口本轮结果…',
-          detail: runtimeState.reason,
-        }
-      case 'BACKGROUND_RUNNING':
-        return {
-          kind: 'background',
-          label: `后台任务进行中${runtimeState.backgroundTaskCount ? ` · ${runtimeState.backgroundTaskCount}` : ''}`,
-          detail: runtimeState.reason,
-        }
-      case 'RECONNECTING':
-        return {
-          kind: 'running',
-          label: '正在重连会话…',
-          detail: runtimeState.reason,
-        }
-      case 'INTERRUPTED':
-        return {
-          kind: 'warning',
-          label: '本轮已中断',
-          detail: runtimeState.reason,
-        }
-      case 'UNKNOWN':
-        return {
-          kind: 'warning',
-          label: '会话状态待确认',
-          detail: runtimeState.reason,
-        }
-      default:
-        break
-    }
-  }
-
-  // 只有全链路已明确回到 IDLE，才能把最近 result 当成当前唯一终态。
-  // 首次查询期间宁可暂不显示，也不能闪现“已完成”后再跳回运行中。
-  if (runtimePending || !runtimeState || runtimeState.effectiveStatus !== 'IDLE') return null
+  const { items, engineLabel, usage, usageLoading } = input
+  const execution = deriveSessionExecutionStatus(input)
+  if (!execution) return null
+  if (execution.kind !== 'idle') return { ...execution, kind: execution.kind }
 
   const result = findLatestResult(items)
   if (result) {
@@ -441,19 +329,6 @@ function findLatestResult(items: ChatItem[]): Extract<ChatItem, { kind: 'result'
     if (item.kind === 'user') return null
   }
   return null
-}
-
-function runtimeStatusLabel(status: SessionRuntimeState['effectiveStatus']): string {
-  switch (status) {
-    case 'RUNNING': return '运行中'
-    case 'AWAITING_DECISION': return '等待确认'
-    case 'FINALIZING': return '正在收口'
-    case 'BACKGROUND_RUNNING': return '后台作业中'
-    case 'RECONNECTING': return '正在重连'
-    case 'INTERRUPTED': return '已中断'
-    case 'IDLE': return '空闲'
-    default: return '状态待确认'
-  }
 }
 
 function formatDuration(ms: number): string {

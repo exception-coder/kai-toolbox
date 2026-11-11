@@ -74,6 +74,37 @@ afterEach(() => {
 })
 
 describe('deriveMobileSessionStatus', () => {
+  it('审批、收口和不一致状态不能被本地运行标记盖住', () => {
+    const input = { items: [], running: true, engineLabel: 'Codex', turnTokens: 0,
+      connState: 'ready' as const, backgroundTasks: [], runtimePending: false, runtimeError: false,
+      usage: null, usageLoading: false }
+    expect(deriveMobileSessionStatus({ ...input,
+      pending: { kind: 'question', reqId: 'q', questions: [] },
+    })?.label).toBe('等待你回答')
+    expect(deriveMobileSessionStatus({ ...input,
+      runtimeState: { ...CONSISTENT_RUNTIME, effectiveStatus: 'AWAITING_DECISION', pendingDecision: true },
+    })?.label).toBe('等待你的确认')
+    expect(deriveMobileSessionStatus({ ...input,
+      runtimeState: { ...CONSISTENT_RUNTIME, effectiveStatus: 'FINALIZING' },
+    })?.label).toBe('正在收口本轮结果…')
+    expect(deriveMobileSessionStatus({ ...input,
+      runtimeState: { ...CONSISTENT_RUNTIME, consistency: 'TURN_MISMATCH' },
+    })?.label).toContain('状态待校正')
+    expect(deriveMobileSessionStatus({ ...input, interrupting: true })?.label).toBe('正在终止…')
+    expect(deriveMobileSessionStatus({ ...input, running: false,
+      items: [{ kind: 'result', id: 'old', stopReason: 'end_turn' }],
+      runtimeState: { ...CONSISTENT_RUNTIME, canSend: false },
+    })?.label).toBe('会话状态待确认')
+  })
+
+  it('系统发起的队列完成核对单独说明，不显示为原任务正在运行', () => {
+    const status = deriveMobileSessionStatus({
+      items: [], running: true, engineLabel: 'Codex', queueCheck: { attempt: 2, maxAttempts: 3 }, turnTokens: 0,
+      connState: 'ready', backgroundTasks: [], runtimePending: false, runtimeError: false, usage: null, usageLoading: false,
+    })
+    expect(status).toMatchObject({ kind: 'running', label: '正在核对上一轮是否完成 · 2/3' })
+  })
+
   it('运行与断线重连优先于后台任务和历史完成结果', () => {
     const items: ChatItem[] = [
       { kind: 'result', id: 'result-1', stopReason: 'end_turn', latencyMs: 2_000 },
@@ -306,6 +337,28 @@ describe('deriveMobileSessionStatus', () => {
 })
 
 describe('MobileSessionStatus', () => {
+  it('本轮结束后不沿用结束前的运行快照，新快照到达前显示核对中', async () => {
+    getSessionRuntimeState.mockResolvedValueOnce({ ...CONSISTENT_RUNTIME, effectiveStatus: 'RUNNING', backendStatus: 'RUNNING', sidecarActive: true })
+    let resolveIdle: (value: SessionRuntimeState) => void = () => {}
+    getSessionRuntimeState.mockReturnValueOnce(new Promise<SessionRuntimeState>(resolve => { resolveIdle = resolve }))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    const view = (running: boolean) => (
+      <QueryClientProvider client={queryClient}>
+        <MobileSessionStatus sessionId="settle" items={[]} running={running} engineLabel="Codex"
+          turnTokens={0} connState="ready" backgroundTasks={[]} usage={null} usageLoading={false}
+          onOpenUsage={() => {}} onOpenTrajectory={() => {}} />
+      </QueryClientProvider>
+    )
+    const { rerender } = render(view(true))
+    await waitFor(() => expect(getSessionRuntimeState).toHaveBeenCalledTimes(1))
+    rerender(view(false))
+    const trigger = await screen.findByRole('button', { name: '打开会话控制，正在核对会话状态…' })
+    expect(trigger).not.toHaveAccessibleName(/正在运行/)
+    resolveIdle(CONSISTENT_RUNTIME)
+    await screen.findByRole('button', { name: '打开会话控制，Codex · 空闲' })
+    expect(getSessionRuntimeState).toHaveBeenCalledTimes(2)
+  })
+
   it('空闲无历史无队列时保留入口，关闭恢复展开语义与焦点，不触发任务操作', async () => {
     getSessionRuntimeState.mockResolvedValue(CONSISTENT_RUNTIME)
     const onOpenUsage = vi.fn(), onOpenTrajectory = vi.fn()

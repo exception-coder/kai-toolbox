@@ -84,6 +84,8 @@ final class SessionCtx {
     volatile boolean queueReleaseReady;
     volatile String interruptedDispatchTurnId;
     volatile String queueReceiptStoreId;
+    /** 已向浏览器报告接收的核对轮次；不把准备派发当作引擎已开始。 */
+    volatile String announcedQueueCheckTurnId;
     volatile boolean queueResumeRequested;
     volatile boolean sidecarSessionPresent = true;
     volatile String lastTurnErrorCode;

@@ -80,6 +80,8 @@ import { CommandMenu } from '../components/CommandMenu'
 import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from '../components/ProjectMention'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
+import { deriveSessionExecutionStatus } from '../lib/sessionExecutionStatus'
+import { useSessionRuntimeState } from '../hooks/useSessionRuntimeState'
 import { fetchCodexHomes, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessions, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { canSteerRunningMessage } from '../components/RunningMessageActions'
 import type { ChatItem, ClaudeEffort, CodexReasoningEffort } from '../types'
@@ -863,6 +865,13 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 
   const currentProviderHost = providerHost(chat?.currentProviderBaseUrl ?? null)
   const currentEngineLabel = engineDisplayName(chat?.currentEngine ?? 'claude', chat?.currentProviderKind)
+  const sessionRuntime = useSessionRuntimeState(chat?.sessionId ?? null, chat?.running ?? false, chat?.runtimeRevision)
+  const executionStatus = deriveSessionExecutionStatus({
+    running: chat?.running ?? false, engineLabel: currentEngineLabel, connState: chat?.state ?? 'idle',
+    queueCheck: chat?.queueCheck, pending: chat?.pending, interrupting: chat?.interrupting,
+    backgroundTasks: chat?.backgroundTasks ?? [], runtimeState: sessionRuntime.data,
+    runtimePending: sessionRuntime.isPending, runtimeError: sessionRuntime.isError,
+  })
   const currentEngineCatalogEntry = engineCatalogQuery.data?.engines.find(entry => entry.id === chat?.currentEngine)
   const currentEngineTitle = chat?.currentProviderKind === 'thirdParty'
     ? `切换 agent（当前 Claude 使用第三方网关：${currentProviderHost ?? chat.currentProviderBaseUrl ?? '未知'}）`
@@ -1104,7 +1113,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onRetry={chat.duplicateSession} onReturnFocus={() => taRef.current?.focus()} />
       {chat.sessionId && changesOpen && <TurnChangesDialog key={chat.sessionId} sessionId={chat.sessionId} open onOpenChange={setChangesOpen} returnFocus={sessionToolsTriggerRef} />}
       {focus.focused && <FocusReadingHeader title={currentTitle || 'Vibe Coding'}
-        status={chat.state === 'error' ? '连接异常' : chat.state !== 'ready' ? '连接恢复中' : chat.running ? `${currentEngineLabel} 正在运行` : '已就绪'} running={chat.running && chat.state === 'ready'}
+        status={executionStatus?.label ?? '正在核对会话状态…'} running={executionStatus?.kind === 'running'}
         wide={focusWide} onToggleWidth={() => setFocusWide(value => !value)} onExit={focus.exit}
         onOpenDetails={() => { focus.exit(); setPanel('none'); setSessionView('trajectory') }} />}
       <WorkspacePreferences open={preferencesOpen} onOpenChange={setPreferencesOpen} gestureEnabled={gestureOn}
@@ -1156,7 +1165,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                     className="w-full min-w-0 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-1.5 py-0.5 font-semibold outline-none"
                   />
                 ) : mobileLayout ? (
-                  <MobileWorkspaceSwitcher title={currentTitle || 'Vibe Coding'} status={`${currentEngineLabel} · ${stateLabel(chat.state)}`}
+                  <MobileWorkspaceSwitcher title={currentTitle || 'Vibe Coding'} status={executionStatus?.label ?? '正在核对会话状态…'}
                     control={renderControl ? close => renderControl(close) : undefined} triggerRef={attachTitleTrigger}
                     onOpen={() => setHeaderMenu(false)} onRename={startEditTitle} />
                 ) : (
@@ -1170,9 +1179,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 )}
                 {titleRenameError && <span role="alert" className="block truncate text-[10px] text-[var(--color-destructive)]" title={titleRenameError}>{titleRenameError}</span>}
               </div>
-              <div role="status" className="flex shrink-0 items-center gap-1 text-[var(--color-muted-foreground)] md:hidden" title={`${currentEngineLabel} · ${stateLabel(chat.state)}`} aria-label={`${currentEngineLabel} · ${stateLabel(chat.state)}`}>
+              {chat.state !== 'ready' && <div role="status" className="flex shrink-0 items-center gap-1 text-[var(--color-muted-foreground)] md:hidden" title={`${currentEngineLabel} · ${stateLabel(chat.state)}`} aria-label={`${currentEngineLabel} · ${stateLabel(chat.state)}`}>
                 <StatusBadge tone={stateTone(chat.state)} pulse={chat.state === 'connecting'} className="ml-0.5 size-2 shrink-0 rounded-full border-0 px-0 shadow-none" />
-              </div>
+              </div>}
             </div>
             <div className="cc-session-runtime-cluster hidden shrink-0 md:flex">
               <div className="relative hidden shrink-0 md:block">
@@ -1237,7 +1246,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 diag={chat.providerDiag}
                 className="cc-session-transport cc-session-runtime-item hidden border-0 bg-transparent shadow-none xl:inline-flex"
               />
-              <span className="cc-session-runtime-item inline-flex items-center gap-1 px-1.5 text-[10px] text-[var(--color-muted-foreground)]" title={stateLabel(chat.state)}>
+              {/* 连接正常时不单独显示“已连接”：它只代表通道连通，不代表 Agent 空闲，主状态以执行状态条为准。 */}
+              {chat.state !== 'ready' && <span className="cc-session-runtime-item inline-flex items-center gap-1 px-1.5 text-[10px] text-[var(--color-muted-foreground)]" title={stateLabel(chat.state)}>
                 <StatusBadge
                   tone={stateTone(chat.state)}
                   pulse={chat.state === 'connecting'}
@@ -1245,7 +1255,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                   className="size-4 shrink-0 justify-center rounded-full border-0 px-0 shadow-none"
                 />
                 <span className="cc-session-state-label hidden lg:inline">{stateLabel(chat.state)}</span>
-              </span>
+              </span>}
             </div>
           </>
         )}
@@ -1909,7 +1919,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 className="cc-focus-composer cc-desktop-composer cc-workspace-surface border-t border-[var(--color-border)] bg-[var(--color-background)] pb-[env(safe-area-inset-bottom)] md:pb-0">
           <div><MobileAgentDock
             key={chat.sessionId}
-            status={{ workspace: true, sessionId: chat.sessionId, items: chat.items, running: chat.running,
+            status={{ workspace: true, sessionId: chat.sessionId, items: chat.items, running: chat.running, queueCheck: chat.queueCheck,
+              runtimeRevision: chat.runtimeRevision, pending: chat.pending,
               engineLabel: engineDisplayName(chat.currentEngine, chat.currentProviderKind),
               turnTokens: chat.turnTokens, connState: chat.state, backgroundTasks: chat.backgroundTasks,
               usage: sessionUsage, usageLoading: sessionUsage == null && Boolean(usageSid),
@@ -1926,7 +1937,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
             voiceDisabled={planLocked || chat.state !== 'ready'} onStartVoice={() => nativeVoiceControlRef.current?.start()}
             storage={<CurrentSessionStorage session={currentSession} compact />}
             diagnostics={<Suspense fallback={<p role="status" className="text-xs">正在加载诊断…</p>}>
-              <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
+              <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} runtimeRevision={chat.runtimeRevision} onRecover={chat.resumeCurrent} />
               <SessionSummaryBar usage={sessionUsage} loading={sessionUsage == null && Boolean(usageSid)} running={usageRunning} onOpenDetails={() => setShowUsage(true)} />
               {chat.currentProviderKind === 'thirdParty' && <ProviderDiagPanel providerKind={chat.currentProviderKind}
                 providerBaseUrl={chat.currentProviderBaseUrl} currentModel={chat.currentModel} diag={chat.providerDiag} compact />}

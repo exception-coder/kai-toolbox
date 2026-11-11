@@ -770,7 +770,7 @@ export type AgentEventType =
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
   | import('./lib/nativeVoice').VoiceEvent
-  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; skillDetails?: SkillCapability[]; plugins?: PluginCapability[]; agents?: string[]; mcpServers?: McpCapability[]; outputStyle?: string | null; capabilitySource?: CapabilitySnapshotSource; capabilityRefreshedAt?: number; capabilityErrors?: string[]; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; permissionMode?: PermissionMode; queueDispatchMode?: 'server'; authHandoffRequired?: boolean | null; executionPolicy?: string; claudeOptions?: ClaudeSessionOptions | null; activeModelConfiguration?: ActiveModelConfiguration | null }
+  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; skillDetails?: SkillCapability[]; plugins?: PluginCapability[]; agents?: string[]; mcpServers?: McpCapability[]; outputStyle?: string | null; capabilitySource?: CapabilitySnapshotSource; capabilityRefreshedAt?: number; capabilityErrors?: string[]; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; permissionMode?: PermissionMode; queueDispatchMode?: 'server'; authHandoffRequired?: boolean | null; executionPolicy?: string; claudeOptions?: ClaudeSessionOptions | null; activeModelConfiguration?: ActiveModelConfiguration | null; queueCheck?: { turnId: string; attempt: number; maxAttempts: number } | null }
   | { type: 'modeChanged'; seq: number; mode: PermissionMode }
   | { type: 'modelConfiguration'; seq: number; activeModelConfiguration: ActiveModelConfiguration | null }
   | { type: 'assistantDelta'; seq: number; text: string }
@@ -801,6 +801,8 @@ export type ServerMessage =
   | { type: 'error'; seq: number; code: string; message: string; terminal?: boolean }
   /** 该会话后台任务的全量快照，收到即整体覆盖（REPLACE 语义）；空数组＝当前没有后台任务在跑。 */
   | { type: 'backgroundTasks'; seq: number; tasks: BackgroundTaskInfo[] }
+  /** 系统发起的队列完成核对轮次：没有用户消息，界面应显示“正在核对上一轮是否完成”。 */
+  | { type: 'queueCheck'; seq: number; turnId: string; attempt: number; maxAttempts: number }
   | { type: 'queueDispatched'; seq: number; messageId: string; text: string; displayText?: string | null; attachments?: Array<{ name: string; path: string; mime?: string | null }>; createdAt: number }
   | { type: 'pendingSessions'; seq: number; sessions: PendingSessionRef[] }
 

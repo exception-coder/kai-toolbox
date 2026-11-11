@@ -1424,7 +1424,18 @@ public class ClaudeChatService {
                 ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.mode, "server",
                 pendingAuthHandoff.remove(ctx.sessionId), ctx.executionPolicy,
                 "claude".equals(ctx.engine) ? claudeOptions.get(ctx.sessionId) : ClaudeSessionOptions.DEFAULT,
-                ctx.status == SessionStatus.RUNNING ? ctx.activeModelConfiguration : null);
+                ctx.status == SessionStatus.RUNNING ? ctx.activeModelConfiguration : null,
+                currentQueueCheck(ctx));
+    }
+
+    private ServerMessage.QueueCheckProgress currentQueueCheck(SessionCtx ctx) {
+        if (ctx.status != SessionStatus.RUNNING || ctx.announcedQueueCheckTurnId == null) return null;
+        return queueDelivery.runtime(ctx.sessionId)
+                .filter(r -> r.checking() && r.stopReason() == null && !r.ready())
+                .filter(r -> r.turnId().equals(ctx.announcedQueueCheckTurnId))
+                .filter(r -> turnLifecycle.matchesCurrent(ctx.sessionId, r.turnId()))
+                .map(r -> new ServerMessage.QueueCheckProgress(r.turnId(), r.checkAttempts(), 3))
+                .orElse(null);
     }
 
     /** 从 SQLite 会话元数据恢复模型、推理强度和速度。 */
@@ -2449,9 +2460,20 @@ public class ClaudeChatService {
     }
 
     private void acknowledgeQueue(SessionCtx ctx, String turnId) {
+        // 核对可以跟随手动任务（没有 delivery 行）；接收回执是新的前端轮次边界。
+        var check = queueDelivery.runtime(ctx.sessionId)
+                .filter(r -> r.checking() && r.stopReason() == null && r.turnId().equals(turnId))
+                .filter(r -> ctx.status == SessionStatus.RUNNING && turnLifecycle.matchesCurrent(ctx.sessionId, turnId))
+                .orElse(null);
+        if (check != null && !Objects.equals(ctx.announcedQueueCheckTurnId, turnId)) {
+            ctx.announcedQueueCheckTurnId = turnId;
+            events.sendToBrowser(ctx, seq -> new ServerMessage.QueueCheck(seq, turnId, check.checkAttempts(), 3));
+        }
         var delivery = queueDelivery.delivery(ctx.sessionId).filter(d -> d.turnId().equals(turnId));
         if (delivery.isEmpty() || "ACCEPTED".equals(delivery.get().status())
                 || !queueDelivery.accepted(ctx.sessionId, turnId)) return;
+        // 完成核对不是把原任务再次派发，不能重发原用户消息并清除核对标记。
+        if (check != null) return;
         queuedMessages.list(ctx.sessionId).stream().filter(m -> m.id().equals(delivery.get().messageId())).findFirst()
                 .ifPresent(m -> events.sendToBrowser(ctx, seq -> new ServerMessage.QueueDispatched(seq, m.id(), m.text(),
                         m.displayText(), m.attachments().stream().map(a -> new ServerMessage.QueuedAttachment(

@@ -81,6 +81,13 @@ function isSuccessfulTurnCompletion(stopReason: string): boolean {
   return ['end_turn', 'success', 'completed', 'stop'].includes(stopReason.trim().toLowerCase())
 }
 
+/** 系统发起的队列完成核对轮次进度。 */
+export interface QueueCheckInfo {
+  turnId: string
+  attempt: number
+  maxAttempts: number
+}
+
 /** 待发送队列项：running 期间排队的用户消息。 */
 export interface QueuedMessage {
   deliveryState?: string
@@ -144,6 +151,10 @@ export interface UseClaudeChatSocket {
   running: boolean
   /** 已发出中断请求，正在等待 Sidecar 回执或后端终态校正。 */
   interrupting: boolean
+  /** 当前运行的是系统发起的队列完成核对轮次（第几次 / 最多几次）；非核对轮次为 null。 */
+  queueCheck: QueueCheckInfo | null
+  /** 状态边界递增代次，隔离结束前发起但晚返回的 HTTP 快照。 */
+  runtimeRevision: number
   errorMessage: string | null
   /** 重连回放出现空洞（部分消息已被服务端缓冲淘汰）时的提示文案；null 表示无 */
   syncWarning: string | null
@@ -294,6 +305,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const [running, setRunning] = useState(false)
   const turnRunningStateRef = useRef<TurnRunningState>({ running: false, terminal: false })
   const [interrupting, setInterrupting] = useState(false)
+  const [queueCheck, setQueueCheck] = useState<QueueCheckInfo | null>(null)
+  const [runtimeRevision, setRuntimeRevision] = useState(0)
+  const activeTurnIdRef = useRef<string | null>(null)
+  const settledTurnIdsRef = useRef(new Set<string>())
   const [queued, setQueuedState] = useState<QueuedMessage[]>([])
   const removedQueueIds = useRef(new Set<string>())
   const setQueued = useCallback((value: QueuedMessage[] | ((previous: QueuedMessage[]) => QueuedMessage[])) => {
@@ -431,9 +446,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       setFollowUpPrediction(null)
       predictionAnchorRef.current = null
     }
-    const next = reduceTurnRunningState(turnRunningStateRef.current, signal)
+    if (signal === 'localStart') activeTurnIdRef.current = null
+    const previous = turnRunningStateRef.current
+    const next = reduceTurnRunningState(previous, signal)
+    if (signal !== 'runtimeEvidence' || previous.running !== next.running) {
+      setRuntimeRevision(revision => revision + 1)
+    }
     turnRunningStateRef.current = next
     setRunning(next.running)
+    if (signal === 'terminal' || signal === 'localStart') setQueueCheck(null)
     if (signal === 'terminal') {
       setActiveModelConfiguration(null)
       setItems(previous => finalizeRunningActivities(previous, terminalReason ?? '本轮已结束'))
@@ -454,6 +475,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     turnRunningStateRef.current = { running: false, terminal: false }
     setRunning(false)
     setActiveModelConfiguration(null)
+    setQueueCheck(null)
+    activeTurnIdRef.current = null
+    settledTurnIdsRef.current.clear()
+    setRuntimeRevision(revision => revision + 1)
   }
 
   const applyEvent = useCallback((msg: ServerMessage) => {
@@ -625,7 +650,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
         // RUNNING 必须同时携带服务端当前活动轮次，避免迟到的状态快照把已结束会话重新点亮。
         if (msg.status === 'RUNNING' && msg.activeTurnId) {
+          activeTurnIdRef.current = msg.activeTurnId
           applyTurnRunningSignal('serverRunning')
+          setQueueCheck(msg.queueCheck?.turnId === msg.activeTurnId ? msg.queueCheck : null)
+          if (msg.queueCheck?.turnId === msg.activeTurnId) setQueuePausedReason(null)
         } else if (msg.status && msg.status !== 'RUNNING') {
           applyTurnRunningSignal('terminal', '服务端确认本轮已结束')
           setInterrupting(false)
@@ -684,16 +712,19 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setItems(prev => applyToolResult(prev, msg, nextId))
         break
       case 'permissionRequest':
+        setRuntimeRevision(revision => revision + 1)
         setPending({ kind: 'permission', reqId: msg.reqId, toolName: msg.toolName, input: msg.input })
         notifyPrompt('Claude 需要确认权限', `工具 ${msg.toolName} 正在等待你授权`)
         playNotifySound() // 需要操作,无论前后台都响一声
         break
       case 'questionRequest':
+        setRuntimeRevision(revision => revision + 1)
         setPending({ kind: 'question', reqId: msg.reqId, questions: msg.questions })
         notifyPrompt('Claude 有问题等你回答', '请回到对话作答')
         playNotifySound()
         break
       case 'decisionResolved':
+        setRuntimeRevision(revision => revision + 1)
         // 另一端已处理同一请求（多端同看）→ 关掉本端弹窗
         setPending(prev => (prev && prev.reqId === msg.reqId ? null : prev))
         break
@@ -844,7 +875,26 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
         break
       }
+      case 'queueCheck':
+        if (settledTurnIdsRef.current.has(msg.turnId)) break
+        queueReleaseSessionRef.current = null
+        setQueuePausedReason(null)
+        setPending(null)
+        activeTurnIdRef.current = msg.turnId
+        applyTurnRunningSignal('turnStarted')
+        setQueueCheck({ turnId: msg.turnId, attempt: msg.attempt, maxAttempts: msg.maxAttempts })
+        setInterrupting(false)
+        break
       case 'result': {
+        if (msg.turnId && (settledTurnIdsRef.current.has(msg.turnId)
+          || activeTurnIdRef.current && activeTurnIdRef.current !== msg.turnId)) break
+        if (msg.turnId) {
+          settledTurnIdsRef.current.add(msg.turnId)
+          if (settledTurnIdsRef.current.size > 128) {
+            settledTurnIdsRef.current.delete(settledTurnIdsRef.current.values().next().value!)
+          }
+        }
+        activeTurnIdRef.current = null
         setSyncWarning(previous => previous === INTERRUPT_PENDING_MESSAGE || previous === '正在核对咨询账号与历史上下文……' ? null : previous)
         applyTurnRunningSignal('terminal', '本轮已返回最终结果')
         setInterrupting(false)
@@ -873,6 +923,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         window.dispatchEvent(new CustomEvent('claude-chat:autopilot-changed', { detail: msg }))
         break
       case 'queueDispatched': {
+        activeTurnIdRef.current = null
+        setQueueCheck(null)
         queueReleaseSessionRef.current = null
         setQueuePausedReason(null)
         setQueued(prev => prev.filter(message => message.id !== msg.messageId))
@@ -899,6 +951,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       }
       case 'interruptState':
+        setRuntimeRevision(revision => revision + 1)
         setInterrupting(msg.active && (msg.outcome === 'requested'
           || msg.outcome === 'accepted' || msg.outcome === 'correcting'))
         break
@@ -944,6 +997,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         }
         break
       case 'backgroundTasks':
+        setRuntimeRevision(revision => revision + 1)
         // 全量快照，REPLACE 语义：直接覆盖，不用配对开始/结束事件。
         setBackgroundTasks(msg.tasks)
         break
@@ -2007,5 +2061,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, claudeOptions, activeModelConfiguration, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, pauseQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, setClaudeOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, queueCheck: running ? queueCheck : null, runtimeRevision, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, claudeOptions, activeModelConfiguration, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, pauseQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, setClaudeOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }

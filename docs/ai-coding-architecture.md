@@ -38,6 +38,8 @@ flowchart LR
 
 运行主线是 **React 工作台 → Java 会话宿主 → Node Sidecar / 引擎适配器 → 原生 Harness / Agent → 目标项目**。Java 管理会话、持久消息队列、准入与 Sidecar 生命周期；Sidecar 统一轮次请求和事件，在各引擎实际支持的范围内适配审批、中断和恢复。模型推理及文件、Shell、联网等工具仍由相应 Harness 提供，Forge 不另造通用执行器。资源中心和项目登记由各自模块维护，SQLite 保存相应业务状态。
 
+运行状态沿用此分层：工作台的顶栏、专注阅读与底部共用执行状态投影，连接、轮次历史结果和队列进度各保留原语义。Java 仅在 Sidecar 已接收核对轮后广播带 turnId 的核对开始，并在恢复快照中携带当前核对进度；状态边界递增前端查询代次，旧请求不覆盖新轮。显示投影不授予发送权限，不改变既有准入、后台任务、暂停/删除或队列安全放行条件；原运行分层图的职责及连线保持适用。P0 实施及待加载验收见[可靠队列任务](../openspec/changes/reliable-vibe-message-queue/tasks.md)，目标状态与尚未接入的原生信号见[会话生命周期](domain/claude-chat/kai-toolbox-claude-chat-session-lifecycle.md)。
+
 会话模型配置复用这条主线：各引擎适配器返回当前账号的模型目录及其已声明的强度、速度能力，Java 保留这些信息并保存会话选择，工作台以统一控件投影；能力未知不推断为支持。Claude 的强度和 Ultracode 通过原生 SDK 会话级设置传入，Codex 沿用原有模型、强度和速度通道；不创建新的模型执行器，也不改写各引擎全局配置。正在运行的轮次继续使用其已选配置，后续选择用于下一轮。宿主记录本轮派发时请求的参数，页面与下一轮选择分开展示；该快照不是引擎实际生效值的证明，未知时明确显示未回传。源码接入与真实运行验收分别记录在[统一配置任务](../openspec/changes/unify-engine-model-configuration/tasks.md)。
 
 ```mermaid

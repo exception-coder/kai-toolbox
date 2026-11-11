@@ -1,24 +1,19 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react'
-import { getSessionRuntimeState } from '../api'
+import { useSessionRuntimeState } from '../hooks/useSessionRuntimeState'
+import { runtimeStatusLabel } from '../lib/sessionExecutionStatus'
 
 interface Props {
   sessionId: string | null
   running: boolean
+  runtimeRevision?: number
   onRecover: () => void
 }
 
 /** 展示独立全链路状态判定结果；正常时保持紧凑，异常时给出校正建议。 */
-export function SessionRuntimeHealth({ sessionId, running, onRecover }: Props) {
+export function SessionRuntimeHealth({ sessionId, running, runtimeRevision = 0, onRecover }: Props) {
   const [recovering, setRecovering] = useState(false)
-  const query = useQuery({
-    queryKey: ['claude-chat-runtime-state', sessionId],
-    queryFn: () => getSessionRuntimeState(sessionId!),
-    enabled: Boolean(sessionId),
-    refetchInterval: running ? 5_000 : 15_000,
-    retry: 1,
-  })
+  const query = useSessionRuntimeState(sessionId, running, runtimeRevision)
 
   const recheck = () => { void query.refetch() }
   const recover = async () => {
@@ -61,7 +56,7 @@ export function SessionRuntimeHealth({ sessionId, running, onRecover }: Props) {
       title={`${state.reason}；${state.recommendedAction}`}
     >
       {healthy ? <CheckCircle2 className="size-3 text-emerald-500" /> : <AlertTriangle className="size-3" />}
-      <span className="font-medium">全链路 · {statusLabel(state.effectiveStatus)}</span>
+      <span className="font-medium">全链路 · {runtimeStatusLabel(state.effectiveStatus)}</span>
       {!healthy && <span className="min-w-0 truncate">· {state.reason}</span>}
       <span className="ml-auto flex shrink-0 items-center gap-2">
         {!healthy && <button type="button" className="underline underline-offset-2" onClick={recheck}
@@ -73,17 +68,4 @@ export function SessionRuntimeHealth({ sessionId, running, onRecover }: Props) {
       </span>
     </div>
   )
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case 'RUNNING': return '运行中'
-    case 'AWAITING_DECISION': return '等待确认'
-    case 'FINALIZING': return '正在收口'
-    case 'BACKGROUND_RUNNING': return '后台作业中'
-    case 'RECONNECTING': return '正在重连'
-    case 'INTERRUPTED': return '已中断'
-    case 'IDLE': return '空闲'
-    default: return '状态待确认'
-  }
 }

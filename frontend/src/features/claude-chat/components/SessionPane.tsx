@@ -226,7 +226,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
         <NativeVoiceControl sessionId={chat.sessionId} transport={chat.voiceTransport}
           connected={chat.state === 'ready'} disabled={planLocked} busy={chat.running} />
       )}
-      <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} onRecover={chat.resumeCurrent} />
+      <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} runtimeRevision={chat.runtimeRevision} onRecover={chat.resumeCurrent} />
 
       {/* 第三方网关调用诊断（可展开，紧凑）：仅第三方会话显示 */}
       <ProviderDiagPanel

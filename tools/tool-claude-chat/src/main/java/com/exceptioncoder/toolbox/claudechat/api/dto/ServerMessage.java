@@ -22,7 +22,7 @@ public sealed interface ServerMessage
                 ServerMessage.EngineEvent,
                 ServerMessage.InterruptState,
                 ServerMessage.Error, ServerMessage.BackgroundTasks,
-                ServerMessage.PendingSessions, ServerMessage.QueueAccepted, ServerMessage.QueueDispatched,
+                ServerMessage.PendingSessions, ServerMessage.QueueAccepted, ServerMessage.QueueDispatched, ServerMessage.QueueCheck,
                 ServerMessage.SendAccepted, ServerMessage.AssistantCommandResult, ServerMessage.ModeChanged, ServerMessage.ReviewIntent,
                 ServerMessage.AutopilotState, ServerMessage.AutopilotDashboardChanged {
 
@@ -41,7 +41,11 @@ public sealed interface ServerMessage
                  List<BackgroundTaskInfo> backgroundTasks, String selectedModel,
                  String codexReasoningEffort, String codexSpeed, String permissionMode, String queueDispatchMode,
                  Boolean authHandoffRequired, String executionPolicy,
-                 ClaudeSessionOptions claudeOptions, ActiveModelConfiguration activeModelConfiguration) implements ServerMessage {}
+                 ClaudeSessionOptions claudeOptions, ActiveModelConfiguration activeModelConfiguration,
+                 QueueCheckProgress queueCheck) implements ServerMessage {}
+
+    /** 已由 Sidecar 接收的完成核对轮次，供重连快照恢复。 */
+    record QueueCheckProgress(String turnId, int attempt, int maxAttempts) {}
 
     /** 本轮派发时的请求参数；实际生效值仍受引擎策略及组织限制。 */
     record ActiveModelConfiguration(String engine, String model, String effort, String speed, Boolean ultracode) {}
@@ -216,6 +220,10 @@ public sealed interface ServerMessage
      */
     @JsonTypeName("backgroundTasks")
     record BackgroundTasks(long seq, List<BackgroundTaskInfo> tasks) implements ServerMessage {}
+
+    /** Sidecar 已接收当前完成核对轮次；该轮不重复展示原用户消息。 */
+    @JsonTypeName("queueCheck")
+    record QueueCheck(long seq, String turnId, int attempt, int maxAttempts) implements ServerMessage {}
 
     /**
      * 后端已从持久队列领取消息并启动下一轮，所有观察端据此同步队列和用户消息。

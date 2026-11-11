@@ -48,6 +48,63 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('Codex 会话参数恢复', () => {
+  it('结果之后的完成核对打开新轮次并显示回复，迟到的旧结果不能关闭核对轮', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive({ ...ready('a'), status: 'RUNNING', activeTurnId: 'original' }) })
+    await waitFor(() => expect(result.current.historyLoading).toBe(false))
+    act(() => socket.receive({ type: 'result', seq: 2, turnId: 'original', stopReason: 'incomplete', usage: {} }))
+    expect(result.current.running).toBe(false)
+    const revision = result.current.runtimeRevision
+    act(() => socket.receive({ type: 'queueCheck', seq: 3, turnId: 'check-1', attempt: 1, maxAttempts: 3 }))
+    expect(result.current.running).toBe(true)
+    expect(result.current.queueCheck).toEqual({ turnId: 'check-1', attempt: 1, maxAttempts: 3 })
+    expect(result.current.queuePausedReason).toBeNull()
+    expect(result.current.runtimeRevision).toBeGreaterThan(revision)
+    act(() => {
+      socket.receive({ type: 'result', seq: 4, turnId: 'original', stopReason: 'incomplete', usage: {} })
+      socket.receive({ type: 'assistantDelta', seq: 5, text: '核对后的回复' })
+    })
+    expect(result.current.running).toBe(true)
+    expect(result.current.items.at(-1)).toMatchObject({ kind: 'assistant', text: '核对后的回复' })
+    act(() => socket.receive({ type: 'result', seq: 6, turnId: 'check-1', stopReason: 'queue_check_unconfirmed', usage: {} }))
+    expect(result.current.running).toBe(false)
+    expect(result.current.queueCheck).toBeNull()
+    const settledRevision = result.current.runtimeRevision
+    act(() => {
+      socket.receive({ type: 'queueCheck', seq: 7, turnId: 'check-1', attempt: 1, maxAttempts: 3 })
+      socket.receive({ type: 'assistantDelta', seq: 8, text: '迟到内容不重开轮次' })
+    })
+    expect(result.current.running).toBe(false)
+    expect(result.current.runtimeRevision).toBe(settledRevision)
+    expect(result.current.queued).toEqual([])
+  })
+
+  it('重连快照恢复核对轮次，审批及后台任务变化立即刷新状态代次', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    const queueCheck = { turnId: 'check-2', attempt: 2, maxAttempts: 3 }
+    act(() => { socket.open(); socket.receive({ ...ready('a'), status: 'RUNNING', activeTurnId: 'check-2', queueCheck }) })
+    expect(result.current.queueCheck).toEqual(queueCheck)
+    let revision = result.current.runtimeRevision
+    act(() => socket.receive({ type: 'questionRequest', seq: 2, reqId: 'answer', questions: [] }))
+    expect(result.current.pending?.kind).toBe('question')
+    expect(result.current.runtimeRevision).toBeGreaterThan(revision)
+    revision = result.current.runtimeRevision
+    act(() => socket.receive({ type: 'decisionResolved', seq: 3, reqId: 'answer' }))
+    expect(result.current.pending).toBeNull()
+    expect(result.current.runtimeRevision).toBeGreaterThan(revision)
+    revision = result.current.runtimeRevision
+    act(() => socket.receive({ type: 'backgroundTasks', seq: 4, tasks: [] }))
+    expect(result.current.runtimeRevision).toBeGreaterThan(revision)
+    act(() => result.current.switchTo('b'))
+    expect(result.current.queueCheck).toBeNull()
+  })
+
   it('Claude 强度按会话恢复，重放不回写，主动修改只发送配置消息', async () => {
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
     act(() => result.current.switchTo('claude-a'))
