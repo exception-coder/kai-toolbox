@@ -201,7 +201,7 @@ class ClaudeChatSessionRecoveryTest {
         var turns = (TurnLifecycleCoordinator) ReflectionTestUtils.getField(service, "turnLifecycle");
         turns.adopt("session-1", "live-turn");
         ((java.util.Set<WebSocketSession>) ReflectionTestUtils.getField(context, "viewers")).add(socket);
-        ((java.util.concurrent.atomic.AtomicBoolean) ReflectionTestUtils.getField(service, "recovering")).set(true);
+        ((java.util.concurrent.atomic.AtomicBoolean) ReflectionTestUtils.getField(ReflectionTestUtils.getField(service, "reconnector"), "recovering")).set(true);
         service.onSidecarEvent(null, null);
         assertThat(turns.currentTurnId("session-1")).contains("live-turn");
         assertThat(service.isRunning("session-1")).isTrue();
@@ -216,7 +216,7 @@ class ClaudeChatSessionRecoveryTest {
         var turns = (TurnLifecycleCoordinator) ReflectionTestUtils.getField(service, "turnLifecycle");
         turns.adopt("session-1", "live-turn");
         when(sidecar.isConnected()).thenReturn(false);
-        ((java.util.concurrent.atomic.AtomicBoolean) ReflectionTestUtils.getField(service, "recovering")).set(true);
+        ((java.util.concurrent.atomic.AtomicBoolean) ReflectionTestUtils.getField(ReflectionTestUtils.getField(service, "reconnector"), "recovering")).set(true);
         assertThat((Boolean) ReflectionTestUtils.invokeMethod(service, "ensureSessionResumable", context)).isFalse();
         assertThat(turns.currentTurnId("session-1")).contains("live-turn");
         assertThat(service.isRunning("session-1")).isTrue();

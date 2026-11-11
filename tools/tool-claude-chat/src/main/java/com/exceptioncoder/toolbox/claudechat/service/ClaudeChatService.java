@@ -118,6 +118,8 @@ public class ClaudeChatService {
     private final SessionEventChannel events;
     /** 通道隔离与会话访问校验。 */
     private final SessionAccessGuard accessGuard;
+    /** Java↔Sidecar 链路断开后的后台重连与会话恢复调度 */
+    private final SidecarReconnector reconnector;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
     private final List<AgentRunCompletionListener> completionListeners;
@@ -139,12 +141,6 @@ public class ClaudeChatService {
     private ConsultRuntimeCoordinator consultRuntime;
     /** 仅为评审轮次累计可见回复，供回复完成后的结构校验；不作为历史事实源。 */
     private final Map<String, ActiveReviewReply> activeReviewReplies = new ConcurrentHashMap<>();
-    /** 后台 sidecar 重连任务的去重锁，避免多次断开叠起多个重连循环 */
-    private final AtomicBoolean recovering = new AtomicBoolean(false);
-    /** 一轮重连结束后的冷却时长：同一次断开的后续事件落在窗口内即被丢弃 */
-    private static final long SIDECAR_RECOVERY_COOLDOWN_MS = 1000;
-    /** 连续这么多次连不上，才判定端口上是僵尸监听者并强制重建 sidecar */
-    private static final int SIDECAR_RESTART_AFTER_ATTEMPTS = 3;
     private static final Set<String> TURN_SCOPED_SIDECAR_EVENTS = Set.of(
             "assistantDelta", "assistantSnapshot", "toolUse", "toolResult", "permissionRequest", "questionRequest",
             "userMessage", "forkAnchor", "turnInfo", "turnProgress", "warning",
@@ -219,6 +215,7 @@ public class ClaudeChatService {
         this.mapper = mapper;
         this.events = new SessionEventChannel(mapper, props::getEventBufferSize);
         this.accessGuard = new SessionAccessGuard(events, sessionAccessPolicy);
+        this.reconnector = new SidecarReconnector(sidecar, processRegistry, () -> shuttingDown, this::resumeAllSessions);
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
         this.completionListeners = List.copyOf(completionListeners);
@@ -2648,51 +2645,7 @@ public class ClaudeChatService {
                         seq, "SIDECAR_DOWN", "sidecar 已断开，正在自动重连…", false));
             }
         });
-        scheduleSidecarRecovery();
-    }
-
-    /**
-     * sidecar 断开后后台自动重连并 resume 所有会话，无需用户手动重进会话。
-     * 重连只针对 Java↔sidecar 链路（与浏览器网络无关），故前端的浏览器重连帮不上忙，必须由后端兜。
-     */
-    private void scheduleSidecarRecovery() {
-        if (shuttingDown) return;
-        if (!recovering.compareAndSet(false, true)) return;
-        Thread.ofVirtual().name("claude-chat-sidecar-recover").start(() -> {
-            try {
-                for (int attempt = 1; attempt <= 20; attempt++) {
-                    if (shuttingDown) return;
-                    try {
-                        if (!sidecar.isConnected()) {
-                            // 连不上且已重试多次＝端口上多半是收不了连接的僵尸监听者，才强制重建；
-                            // 正常路径一律沿用既有 sidecar，别把正在服务的实例杀掉。
-                            if (attempt == SIDECAR_RESTART_AFTER_ATTEMPTS + 1) {
-                                log.warn("[claude-chat] sidecar 连续 {} 次连不上，强制重建",
-                                        SIDECAR_RESTART_AFTER_ATTEMPTS);
-                                processRegistry.restart();
-                            } else {
-                                processRegistry.ensureStarted();
-                            }
-                            sidecar.ensureConnected();
-                        }
-                        if (resumeAllSessions()) {
-                            return;
-                        }
-                        throw new IOException("部分会话的Sidecar状态尚未确认");
-                    } catch (IOException e) {
-                        if (attempt == 20) {
-                            log.warn("[claude-chat] sidecar 自动重连失败，放弃（等下次用户动作再试）：{}", e.getMessage());
-                            return;
-                        }
-                        sleep(1500);
-                    }
-                }
-            } finally {
-                // 一次断开会连带多条连接级事件，冷却期内的重复触发直接被 CAS 丢弃，避免叠成多轮重连
-                sleep(SIDECAR_RECOVERY_COOLDOWN_MS);
-                recovering.set(false);
-            }
-        });
+        reconnector.schedule();
     }
 
     /** 按真实Sidecar快照恢复连接；仍活动的轮次不能被清空或再次resume。 */
@@ -2779,7 +2732,7 @@ public class ClaudeChatService {
             return false;
         }
         // 此入口可能持有ctx锁；统一交给后台在锁外反查，不能连接一恢复就清空正在执行的轮次。
-        scheduleSidecarRecovery();
+        reconnector.schedule();
         events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "SIDECAR_DOWN",
                 "连接已恢复，正在核对原轮次；当前消息尚未发送，请状态恢复后重试。", false));
         return false;
@@ -2830,14 +2783,6 @@ public class ClaudeChatService {
             } catch (Exception e) {
                 log.warn("[agent-telemetry] Trace 业务关联失败 session={}: {}", runtimeSessionId, e.getMessage());
             }
-        }
-    }
-
-    private static void sleep(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
 
