@@ -54,6 +54,7 @@ import { useDraftAttachments, useDraftAttachmentUploads, type DraftAttachment } 
 import type { CommunicationReference } from '../api/communicationJournal'
 import { loadCodexHomePreference, saveCodexHomePreference } from '../lib/codexHomePref'
 import { useNewSessionPreferences } from '../hooks/useNewSessionPreferences'
+import { useNewSessionWorkspaces } from '../hooks/useNewSessionWorkspaces'
 import { newSessionSelectionIssue, resolveNewSessionWorkspace, type NewSessionPreferences } from '../lib/newSessionPreferences'
 import { newSessionEngines, resolveNewSessionDirectory, validRecentSession, workspacePathKey } from '../lib/newSessionWorkspace'
 import { buildCodexAuthHandoff } from '../lib/codexAuthHandoff'
@@ -73,7 +74,7 @@ import { CommandMenu } from '../components/CommandMenu'
 import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from '../components/ProjectMention'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, renameSession, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { canSteerRunningMessage } from '../components/RunningMessageActions'
 import type { ChatItem, ModelInfo } from '../types'
@@ -87,13 +88,6 @@ import {
   failLaunchIntent,
   loadLaunchIntent,
 } from '@/shell/launch-intent/api'
-import {
-  getDevPreference,
-  loadLocalIgnoredProjectPaths,
-  normalizeWorkspaceProjectPath,
-  PROJECT_WORKSPACE_PREFERENCE_ID,
-  type ProjectWorkspaceVisibilityPreference,
-} from '@/features/_devkit/public-api'
 import { resolveSiteIcon } from '@/lib/siteIcons'
 import { listQuickSiteSummaries } from '@/lib/quickSites'
 import { getSessionSiteConfiguration } from '../api'
@@ -872,41 +866,15 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 
   // 自动续接最近会话已上提到 ChatRuntime 引擎（跨路由常驻），此处不再处理。
 
-  // 页面加载即预取工作区并定时刷新，打开新建面板直接用缓存；失败时保留选择并提供刷新或工作区设置入口。
-  const workspacesQuery = useQuery({
-    queryKey: ['claude-chat-workspaces', codexSyncAuth.user?.userId ?? 'local'],
-    queryFn: listWorkspaces,
-    staleTime: 60_000,
-    refetchInterval: 5 * 60_000,
+  const {
+    workspacesQuery, selectNewSessionPreference, visibleNewRoots, visibleNewRoot, newSessionDirectory, newSessionEvidence,
+    newSessionWorkspacesLoading, newSessionIssue, recentNewSession, recentNewSessionIssue,
+  } = useNewSessionWorkspaces({
+    userId: codexSyncAuth.user?.userId, preferences: newSessionPreferences, cwd: newCwd,
+    engines: availableNewEngines, enginesLoading: engineCatalogQuery.isPending,
+    providers, providersLoading, providersFailed: !!providersError,
   })
-  const workspaces = workspacesQuery.data
-  const { data: projectWorkspacePreference, isPending: projectVisibilityLoading } = useQuery({
-    queryKey: ['dev-preference', PROJECT_WORKSPACE_PREFERENCE_ID],
-    queryFn: () => getDevPreference<ProjectWorkspaceVisibilityPreference>(PROJECT_WORKSPACE_PREFERENCE_ID),
-    staleTime: 0,
-  })
-  // 两级工作目录：先选工作区 root，再列该 root 下的一级目录（只显示名字）。
-  const wsRoots = workspaces?.roots.filter(r => r.exists) ?? []
-  const activeRoot = resolveNewSessionWorkspace(wsRoots, newSessionPreferences.choice.workspaceRoot)
-  const selectNewSessionPreference = (change: Partial<NewSessionPreferences>) => newSessionPreferences.select({
-    workspaceRoot: activeRoot?.root ?? newSessionPreferences.choice.workspaceRoot, ...change,
-  })
-  const hiddenProjectPaths = useMemo(() => new Set(
-    (projectWorkspacePreference?.ignoredProjects ?? loadLocalIgnoredProjectPaths())
-      .map(normalizeWorkspaceProjectPath),
-  ), [projectWorkspacePreference])
-  const visibleNewRoots = wsRoots.map(root => ({ ...root, dirs: root.dirs.filter(dir => !hiddenProjectPaths.has(normalizeWorkspaceProjectPath(dir.path))) }))
-  const visibleNewRoot = visibleNewRoots.find(root => workspacePathKey(root.root) === workspacePathKey(activeRoot?.root ?? '')) ?? null
-  const newSessionDirectory = resolveNewSessionDirectory(visibleNewRoot, newCwd)
-  const newSessionEvidence = { engines: availableNewEngines, enginesLoading: engineCatalogQuery.isPending,
-    providers, providersLoading, providersFailed: !!providersError }
-  const newSessionWorkspacesLoading = workspacesQuery.isPending || projectVisibilityLoading
   const newSessionLoading = newSessionWorkspacesLoading || engineCatalogQuery.isPending
-  const newSessionIssue = workspacesQuery.isError ? '工作区读取失败，请刷新可用配置。'
-    : newSessionDirectory.issue ?? newSessionSelectionIssue(newSessionPreferences.choice, newSessionEvidence)
-  const recentNewSession = validRecentSession(newSessionPreferences.recent, visibleNewRoots)
-  const recentNewSessionIssue = workspacesQuery.isError ? '工作区读取失败，请刷新。'
-    : recentNewSession ? newSessionSelectionIssue(recentNewSession, newSessionEvidence) : undefined
   useEffect(() => {
     if (panel !== 'new' || !availableNewEngines.length || availableNewEngines.includes(newEngine)) return
     const next = availableNewEngines.includes('codex') ? 'codex' : availableNewEngines[0]
