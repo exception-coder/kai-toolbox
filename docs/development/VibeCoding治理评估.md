@@ -80,6 +80,7 @@
 | --- | --- | --- |
 | P0 | 删除无引用组件；会话网关密钥加密落库并迁移存量；移除对不存在表的删除；运行版本可见（后端启动版本、当前源码、页面构建、待加载提交）；引擎分为正式支持（Codex、Claude Code）与实验 | ee399b868、e1fdaedd9、126b3bb70、f2a31d552 |
 | P1 拆分 | ClaudeChatService 拆出设置规范化、Sidecar 载荷解析、SessionCtx 与浏览器事件通道（3413 → 3176 行）；ChatPage 拆出新建会话工作区、消息跳转、服务商模型目录（2538 → 2410 行）；sessionManager 拆出模型目录缓存与会话模型同步（2162 → 1915 行）；useClaudeChatSocket 拆出消息列表纯变换 | 971c6b7e4、995128ad9、a912ea2d7、fe69de281、d68691618、544eec282、a2831d8f1 |
+| P1 拆分（续） | ClaudeChatService 拆出执行策略规则、会话访问守卫、活动摘要与 Sidecar 断线重连调度，纯函数并入设置规则与载荷解析类（3176 → 2952 行）；ChatPage 拆出会话关联与标题重命名（2410 → 2260 行）；useClaudeChatSocket 拆出运行活动卡片更新（2125 → 2011 行） | 75f9686ce、25c002359、226479fcb、783ea4f1c、b1e6f013a |
 | P1 迁出 | ERP / SRM / SCM 业务系统开发与开发服务启停迁至 tool-business-dev；轻量工作助理迁至 tool-work-assistants；接口地址、表名与配置键不变 | 8ffd61363、fc67d6eb7、88a5fc161 |
 | 测试基线 | 修复 QueuedChatMessageRepositoryTest、AgentOneShotCapabilityTest 长期失败 | 5b4bbb36d |
 
@@ -92,4 +93,4 @@
 | 系统路由巡检 | 依赖项目路由绑定，迁出会形成循环依赖 |
 | 插件与团队依赖更新、项目初始化进度 | 属于 Vibe Coding 本域功能 |
 
-仍待推进：队列派发、授权与引擎切换从 ClaudeChatService 拆出；ChatPage 视图状态与 useClaudeChatSocket 事件分发继续拆分；新增能力需经授权重启后在“运行版本”核对并按待验收清单验收。
+仍待推进：队列派发、授权与引擎切换从 ClaudeChatService 拆出（与轮次状态和会话锁耦合，需先补集成测试再动）；ChatPage 视图与面板开关状态、useClaudeChatSocket 的 ready/result/error 分支继续拆分；新增能力需经授权重启后在“运行版本”核对并按待验收清单验收。
