@@ -1,4 +1,4 @@
-package com.exceptioncoder.toolbox.claudechat.service;
+package com.exceptioncoder.toolbox.businessdev.service;
 
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import jakarta.annotation.PreDestroy;

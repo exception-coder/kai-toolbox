@@ -1,6 +1,6 @@
-package com.exceptioncoder.toolbox.claudechat.api;
+package com.exceptioncoder.toolbox.businessdev.api;
 
-import com.exceptioncoder.toolbox.claudechat.service.DevServiceManager;
+import com.exceptioncoder.toolbox.businessdev.service.DevServiceManager;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
