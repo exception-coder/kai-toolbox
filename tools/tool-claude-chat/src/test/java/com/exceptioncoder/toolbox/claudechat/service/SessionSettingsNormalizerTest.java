@@ -41,4 +41,18 @@ class SessionSettingsNormalizerTest {
         assertThat(SessionSettingsNormalizer.duplicateTitle("需求")).isEqualTo("需求（副本）");
         assertThat(SessionSettingsNormalizer.duplicateTitle("  ")).isNull();
     }
+
+    @Test
+    void engineSetConsultSystemsAndPathHelpers() {
+        assertThat(SessionSettingsNormalizer.appendEngine("claude,codex", "claude", "claude")).isEqualTo("claude,codex");
+        assertThat(SessionSettingsNormalizer.appendEngine(" ", null, "codex")).isEqualTo("claude,codex");
+        assertThat(SessionSettingsNormalizer.normalizeConsultEvidenceSystems(java.util.Arrays.asList(" ERP", "srm", "erp", "oa", null, "scm")))
+                .containsExactly("erp", "srm", "scm");
+        assertThat(SessionSettingsNormalizer.authKey("  ")).isEqualTo("__default__");
+        assertThat(SessionSettingsNormalizer.canResumeWithoutNativeSessionId("trae")).isTrue();
+        assertThat(SessionSettingsNormalizer.canResumeWithoutNativeSessionId("codex")).isFalse();
+        assertThat(SessionSettingsNormalizer.shortCwd("D:\\work\\kai-toolbox")).isEqualTo("kai-toolbox");
+        assertThat(SessionSettingsNormalizer.shortCwd("/srv/app/")).isEqualTo("/srv/app/");
+        assertThat(SessionSettingsNormalizer.blankToNull("  x ")).isEqualTo("x");
+    }
 }

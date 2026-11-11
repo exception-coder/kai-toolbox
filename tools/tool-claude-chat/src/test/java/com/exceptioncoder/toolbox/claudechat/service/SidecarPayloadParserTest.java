@@ -51,4 +51,18 @@ class SidecarPayloadParserTest {
         assertThat(SidecarPayloadParser.parsePluginCapabilities(null)).isEmpty();
         assertThat(SidecarPayloadParser.parseCapabilityProvenance(mapper.readTree("{}"))).isEmpty();
     }
+
+    @Test
+    void parsesModelsAndSkipsBlankValues() throws Exception {
+        var models = SidecarPayloadParser.parseModels(mapper.readTree("""
+                [{"value":"opus","displayName":"Opus","supportedEffortLevels":["auto","high"],"supportsEffort":true},
+                 {"value":""}]
+                """));
+        assertThat(models).singleElement().satisfies(model -> {
+            assertThat(model.value()).isEqualTo("opus");
+            assertThat(model.supportsEffort()).isTrue();
+            assertThat(model.supportedEffortLevels()).containsExactly("high");
+        });
+        assertThat(SidecarPayloadParser.parseModels(null)).isEmpty();
+    }
 }

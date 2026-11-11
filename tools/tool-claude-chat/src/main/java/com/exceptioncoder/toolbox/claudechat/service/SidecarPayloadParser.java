@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeSessionOptions;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ModelInfo;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.fasterxml.jackson.databind.JsonNode;
 
@@ -109,6 +111,31 @@ final class SidecarPayloadParser {
                 out.add(new ServerMessage.BackgroundTaskInfo(
                         e.path("taskId").asText(""), e.path("taskType").asText(""), e.path("description").asText("")));
             }
+        }
+        return out;
+    }
+
+    /** 解析 SDK supportedModels 数组（{value, displayName, description, …}）为前端 ModelInfo。 */
+    static List<ModelInfo> parseModels(JsonNode n) {
+        if (n == null || !n.isArray()) return List.of();
+        List<ModelInfo> out = new ArrayList<>();
+        for (JsonNode e : n) {
+            String value = e.path("value").asText(null);
+            if (value == null || value.isBlank()) continue;
+            List<String> efforts = new ArrayList<>();
+            JsonNode effortNodes = e.path("reasoningEfforts");
+            if (effortNodes.isArray()) effortNodes.forEach(item -> efforts.add(item.asText()));
+            List<String> claudeEfforts = new ArrayList<>();
+            JsonNode claudeEffortNodes = e.path("supportedEffortLevels");
+            if (claudeEffortNodes.isArray()) claudeEffortNodes.forEach(item -> {
+                if (ClaudeSessionOptions.isEffort(item.asText()) && !"auto".equals(item.asText())) claudeEfforts.add(item.asText());
+            });
+            out.add(new ModelInfo(value, e.path("displayName").asText(value), e.path("description").asText(""),
+                    efforts, e.path("defaultReasoningEffort").asText(null),
+                    e.path("fastSupported").isBoolean() ? e.path("fastSupported").asBoolean() : null,
+                    e.path("isDefault").asBoolean(false),
+                    e.path("supportsEffort").isBoolean() ? e.path("supportsEffort").asBoolean() : null, claudeEfforts,
+                    e.path("resolvedModel").asText(null)));
         }
         return out;
     }

@@ -607,16 +607,6 @@ public class ClaudeChatService {
                 source.getId(), sessionId, engine, source.getCwd());
     }
 
-    private static String authKey(String codexHome) {
-        String value = blankToNull(codexHome);
-        if (value == null) return "__default__";
-        try {
-            return Path.of(value).toAbsolutePath().normalize().toString().toLowerCase(Locale.ROOT);
-        } catch (RuntimeException ignored) {
-            return value.trim().toLowerCase(Locale.ROOT);
-        }
-    }
-
     /** 续跑磁盘上的历史会话：建一条本工具的元数据行后 resume，之后它也出现在工具会话列表里。 */
     public void resumeHistory(WebSocketSession ws, ClientMessage.ResumeHistory msg) {
         if (!ensureSidecar(ws)) return;
@@ -1399,26 +1389,6 @@ public class ClaudeChatService {
         log.info("[claude-chat] 会话 {} 切服务商 -> {}", ctx.sessionId, apiBaseUrl == null ? "官方登录" : apiBaseUrl);
     }
 
-    /**
-     * 维护「本会话用过哪些 agent」的去重有序集合（首次出现序）。
-     *
-     * <p>切回曾用引擎会 resume 它的原生会话（句柄存于 engine_sessions），并非新建——故标记应是
-     * 「用过的 agent 集合」而非每次切换的完整往返流水。早期实现按流水追加，来回切几次就变成
-     * {@code claude,codex,claude,codex,…}，列表标记看起来像「一直新增会话」。这里改为并集去重：
-     * 来回切只保留 {@code claude,codex}，与实际可 resume 的 agent 一一对应。
-     */
-    private static String appendEngine(String existing, String base, String next) {
-        String csv = (existing == null || existing.isBlank())
-                ? (base == null ? "claude" : base) : existing;
-        java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
-        for (String p : csv.split(",")) {
-            String t = p.trim();
-            if (!t.isEmpty()) set.add(t);
-        }
-        set.add(next); // 已用过则不重复（resume 续接，不算新增）
-        return String.join(",", set);
-    }
-
     /** 序列化各引擎句柄映射为 JSON 持久化；失败回 null（降级丢映射，不影响主流程）。 */
     private String writeEngineSessions(Map<String, String> m) {
         try {
@@ -1469,14 +1439,6 @@ public class ClaudeChatService {
             ctx.codexSpeed = "default";
         }
         ctx.consultEvidenceSystems = parseConsultEvidenceSystems(db.getConsultEvidenceSystems());
-    }
-
-    private List<String> normalizeConsultEvidenceSystems(List<String> values) {
-        if (values == null) return List.of();
-        return values.stream().filter(value -> value != null && !value.isBlank())
-                .map(value -> value.trim().toLowerCase(Locale.ROOT))
-                .filter(value -> "erp".equals(value) || "srm".equals(value) || "scm".equals(value))
-                .distinct().limit(3).toList();
     }
 
     private List<String> parseConsultEvidenceSystems(String json) {
@@ -2823,16 +2785,6 @@ public class ClaudeChatService {
         return false;
     }
 
-    /** 这些引擎即使尚无原生句柄，也能在恢复后从下一轮创建新的运行时会话。 */
-    private static boolean canResumeWithoutNativeSessionId(String engine) {
-        return "deepseekHarness".equals(engine) || "antigravity".equals(engine) || "trae".equals(engine);
-    }
-
-    /** 空白串归一为 null，避免把空网关地址当成有效配置。 */
-    private static String blankToNull(String s) {
-        return s == null || s.isBlank() ? null : s.trim();
-    }
-
     static String normalizeNewSessionTitle(String title) {
         String normalized = blankToNull(title);
         if (normalized != null && normalized.length() > 200) {
@@ -3030,31 +2982,6 @@ public class ClaudeChatService {
         return n == null || !n.isObject() ? Map.of() : mapper.convertValue(n, Map.class);
     }
 
-    /** 解析 SDK supportedModels 数组（{value, displayName, description, …}）为前端 ModelInfo。 */
-    private List<ModelInfo> parseModels(JsonNode n) {
-        if (n == null || !n.isArray()) return List.of();
-        List<ModelInfo> out = new ArrayList<>();
-        for (JsonNode e : n) {
-            String value = e.path("value").asText(null);
-            if (value == null || value.isBlank()) continue;
-            List<String> efforts = new ArrayList<>();
-            JsonNode effortNodes = e.path("reasoningEfforts");
-            if (effortNodes.isArray()) effortNodes.forEach(item -> efforts.add(item.asText()));
-            List<String> claudeEfforts = new ArrayList<>();
-            JsonNode claudeEffortNodes = e.path("supportedEffortLevels");
-            if (claudeEffortNodes.isArray()) claudeEffortNodes.forEach(item -> {
-                if (ClaudeSessionOptions.isEffort(item.asText()) && !"auto".equals(item.asText())) claudeEfforts.add(item.asText());
-            });
-            out.add(new ModelInfo(value, e.path("displayName").asText(value), e.path("description").asText(""),
-                    efforts, e.path("defaultReasoningEffort").asText(null),
-                    e.path("fastSupported").isBoolean() ? e.path("fastSupported").asBoolean() : null,
-                    e.path("isDefault").asBoolean(false),
-                    e.path("supportsEffort").isBoolean() ? e.path("supportsEffort").asBoolean() : null, claudeEfforts,
-                    e.path("resolvedModel").asText(null)));
-        }
-        return out;
-    }
-
     private List<ClientMessage.Question> parseQuestions(JsonNode n) {
         if (n == null || !n.isArray()) return List.of();
         try {
@@ -3063,12 +2990,6 @@ public class ClaudeChatService {
         } catch (Exception e) {
             return List.of();
         }
-    }
-
-    private static String shortCwd(String cwd) {
-        if (cwd == null) return "";
-        int i = Math.max(cwd.lastIndexOf('/'), cwd.lastIndexOf('\\'));
-        return i >= 0 && i < cwd.length() - 1 ? cwd.substring(i + 1) : cwd;
     }
 
     /**
