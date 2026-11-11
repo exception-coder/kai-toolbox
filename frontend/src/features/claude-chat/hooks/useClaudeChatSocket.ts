@@ -7,6 +7,7 @@ import type { AssistantMessageEnvelope, Attachment, BackgroundTaskInfo, Capabili
 import { useVoiceTransport } from './useVoiceTransport'
 import { isVoiceTranscriptItem, upsertVoiceTranscript } from '../lib/voiceTranscript'
 import { appendAssistantDelta, applyToolResult, upsertToolUse } from '../lib/chatItemReducers'
+import { applyCodexActivity, applySubagentSnapshot, applyToolActivity, applyTurnActivity, engineConnectionItem, engineSubagentSummary, isRunningActivity } from '../lib/activityItems'
 import type { VoiceTransport } from '../lib/nativeVoice'
 import { clearQueuedMessages, confirmQueueAndContinue, deleteQueuedMessage, dispatchQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage, stopQueuedMessage, pauseQueuedMessage } from '../api'
 import { notifyPrompt } from '../browserNotify'
@@ -78,16 +79,6 @@ function normalizeUsage(raw: Record<string, unknown> | undefined): Record<string
 /** 只有正常完成的整轮终态才能释放一条待发送消息；失败和中断必须留给用户处理。 */
 function isSuccessfulTurnCompletion(stopReason: string): boolean {
   return ['end_turn', 'success', 'completed', 'stop'].includes(stopReason.trim().toLowerCase())
-}
-
-function engineSubagentSummary(payload: Record<string, unknown>): { total: number; running: number } {
-  const agents = Array.isArray(payload.agents) ? payload.agents : []
-  const running = agents.filter(agent => {
-    if (!agent || typeof agent !== 'object') return false
-    const state = (agent as Record<string, unknown>).state
-    return state === 'pending' || state === 'running'
-  }).length
-  return { total: agents.length, running }
 }
 
 /** 待发送队列项：running 期间排队的用户消息。 */
@@ -829,79 +820,17 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       case 'toolActivity': {
         if (isRunningActivity(msg.status) && !applyTurnRunningSignal('runtimeEvidence')) break
-        const id = `tool-activity-${msg.toolCallId || msg.seq}`
-        setItems(prev => {
-          let base = prev
-          if (msg.outcome === 'success') {
-            const retryIndex = findRecoverableCommandFailure(prev, msg.toolName)
-            if (retryIndex >= 0) {
-              base = prev.slice()
-              const failed = base[retryIndex]
-              if (failed.kind === 'activity') {
-                base[retryIndex] = {
-                  ...failed,
-                  title: `已自动重试 · ${failed.title}`,
-                  outcome: 'recovered',
-                  severity: 'info',
-                }
-              }
-            }
-          }
-          const index = base.findIndex(item => item.id === id)
-          const previous = index >= 0 ? base[index] : undefined
-          const next = {
-            kind: 'activity' as const,
-            id,
-            activityType: 'tool',
-            status: msg.status,
-            title: msg.title,
-            detail: msg.detail,
-            outcome: msg.outcome,
-            severity: msg.severity,
-            data: { elapsedMs: msg.elapsedMs, output: msg.outputTail, toolName: msg.toolName },
-            ts: previous?.ts ?? Date.now(),
-          }
-          if (index < 0) return [...base, next]
-          const copy = base.slice()
-          copy[index] = next
-          return copy
-        })
+        setItems(prev => applyToolActivity(prev, msg))
         break
       }
       case 'turnActivity': {
         if (isRunningActivity(msg.status) && !applyTurnRunningSignal('runtimeEvidence')) break
-        setItems(prev => {
-          const id = 'turn-activity-current'
-          const next = {
-            kind: 'activity' as const,
-            id,
-            activityType: 'turn',
-            status: msg.status,
-            title: msg.title,
-            detail: msg.detail,
-            data: { elapsedMs: msg.elapsedMs, phase: msg.phase },
-            ts: Date.now(),
-          }
-          const index = prev.findIndex(item => item.id === id)
-          if (index < 0) return [...prev, next]
-          const copy = prev.slice()
-          copy[index] = next
-          return copy
-        })
+        setItems(prev => applyTurnActivity(prev, msg))
         break
       }
       case 'codexActivity': {
         if (isRunningActivity(msg.status) && !applyTurnRunningSignal('runtimeEvidence')) break
-        const id = `codex-activity-${msg.activityType}-${msg.itemId || msg.seq}`
-        setItems(prev => {
-          const next = { kind: 'activity' as const, id, activityType: msg.activityType, status: msg.status,
-            title: msg.title, detail: msg.detail, data: msg.data, ts: Date.now() }
-          const index = prev.findIndex(item => item.id === id)
-          if (index < 0) return [...prev, next]
-          const copy = prev.slice()
-          copy[index] = next
-          return copy
-        })
+        setItems(prev => applyCodexActivity(prev, msg))
         break
       }
       case 'engineEvent': {
@@ -909,33 +838,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         if (msg.eventType === 'subagents.snapshot') {
           const summary = engineSubagentSummary(msg.payload)
           if (summary.running > 0 && !applyTurnRunningSignal('runtimeEvidence')) break
-          setItems(prev => {
-            const id = `engine-subagents-${msg.turnId}`
-            const next = {
-              kind: 'activity' as const,
-              id,
-              activityType: 'subagent',
-              status: summary.running > 0 ? 'inProgress' : 'completed',
-              title: summary.running > 0
-                ? `${msg.engine} 子 Agent 作业中 · ${summary.running}/${summary.total}`
-                : `${msg.engine} 子 Agent 已收口 · ${summary.total}`,
-              data: msg.payload,
-              ts: msg.observedAt,
-            }
-            const index = prev.findIndex(item => item.id === id)
-            if (index < 0) return [...prev, next]
-            const copy = prev.slice()
-            copy[index] = next
-            return copy
-          })
+          setItems(prev => applySubagentSnapshot(prev, msg, summary))
         } else if (msg.eventType === 'engine.connection') {
-          const transport = typeof msg.payload.transport === 'string' ? msg.payload.transport : 'unknown'
-          setItems(prev => [...prev, {
-            kind: 'activity', id: `engine-connection-${msg.eventId}`, activityType: 'connection',
-            status: transport === 'connected' ? 'completed' : 'inProgress',
-            title: transport === 'connected' ? `${msg.engine} 已连接` : `${msg.engine} ${transport}`,
-            data: msg.payload, ts: msg.observedAt,
-          }])
+          setItems(prev => [...prev, engineConnectionItem(msg)])
         }
         break
       }
@@ -2103,23 +2008,4 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sendRaw, connect])
 
   return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, claudeOptions, activeModelConfiguration, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, pauseQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, setClaudeOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
-}
-
-function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {
-  const minimum = Math.max(0, items.length - 6)
-  for (let index = items.length - 1; index >= minimum; index -= 1) {
-    const item = items[index]
-    if (item.kind === 'result' || item.kind === 'user') break
-    if (item.kind !== 'activity' || !['shellSyntax', 'argumentEscaping'].includes(item.outcome ?? '')) continue
-    const data = item.data && typeof item.data === 'object' && !Array.isArray(item.data)
-      ? item.data as Record<string, unknown>
-      : undefined
-    if (!data?.toolName || data.toolName === toolName) return index
-  }
-  return -1
-}
-
-function isRunningActivity(status: string): boolean {
-  return status === 'inProgress' || status === 'in_progress' || status === 'running'
-    || status === 'pending' || status === 'started'
 }
