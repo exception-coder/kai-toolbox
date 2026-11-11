@@ -121,6 +121,8 @@ class AgentOneShotCapabilityTest {
         context.registerBean(ClaudeChatProperties.class);
         context.registerBean(AgentTelemetry.class, () -> AgentTelemetry.noop(256));
         context.registerBean(AgentWorkAdmissionGate.class);
+        // 一次性调用只在 Codex 图片输入时查询模型目录；默认模拟为不支持图片。
+        context.registerBean(CodexModelCatalogService.class, () -> mock(CodexModelCatalogService.class));
         context.register(AgentOneShotService.class);
         context.refresh();
         return context;

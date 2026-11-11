@@ -10,6 +10,7 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -34,6 +35,15 @@ class QueuedChatMessageRepositoryTest {
                     created_at INTEGER NOT NULL
                 )
                 """);
+        // 入队前会核对撤回记录（防止已删除消息复活），夹具需包含该表。
+        jdbc.execute("""
+                CREATE TABLE claude_chat_queue_retirement (
+                    session_id TEXT NOT NULL,
+                    message_id TEXT NOT NULL,
+                    retired_at INTEGER NOT NULL,
+                    PRIMARY KEY (session_id, message_id)
+                )
+                """);
         new ClaudeChatSchemaMigration(jdbc).addQueueServerContextColumn();
         repository = new QueuedChatMessageRepository(jdbc, new ObjectMapper());
     }
@@ -47,9 +57,11 @@ class QueuedChatMessageRepositoryTest {
         var reloaded = new QueuedChatMessageRepository(jdbc, new ObjectMapper())
                 .findFirstBySessionId("session-1").orElseThrow();
         assertEquals(original.serverContext(), reloaded.serverContext());
+        assertEquals(original, reloaded);
+        // 删除即撤回：同一消息 ID 不能被迟到请求或重试复活，需以新消息重新登记。
         repository.delete("session-1", reloaded.id());
-        repository.upsert(reloaded);
-        assertEquals(original, repository.findFirstBySessionId("session-1").orElseThrow());
+        assertThrows(IllegalStateException.class, () -> repository.upsert(reloaded));
+        assertTrue(repository.findFirstBySessionId("session-1").isEmpty());
         assertFalse(new ObjectMapper().writeValueAsString(reloaded).contains("serverContext"));
         assertFalse(new ObjectMapper().writeValueAsString(reloaded).contains("test-21"));
     }
