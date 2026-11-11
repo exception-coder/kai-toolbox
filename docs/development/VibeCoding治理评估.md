@@ -73,3 +73,23 @@
 - Codex 是否以 App Server 为主通道。
 - 团队正式支持的引擎范围。
 - Forge 对外定位（个人自托管 / 团队共享），决定密钥与权限的改造力度。
+
+## 治理进展（2026-11-11）
+
+| 阶段 | 已完成 | 提交 |
+| --- | --- | --- |
+| P0 | 删除无引用组件；会话网关密钥加密落库并迁移存量；移除对不存在表的删除；运行版本可见（后端启动版本、当前源码、页面构建、待加载提交）；引擎分为正式支持（Codex、Claude Code）与实验 | ee399b868、e1fdaedd9、126b3bb70、f2a31d552 |
+| P1 拆分 | ClaudeChatService 拆出设置规范化、Sidecar 载荷解析、SessionCtx 与浏览器事件通道（3413 → 3176 行）；ChatPage 拆出新建会话工作区、消息跳转、服务商模型目录（2538 → 2410 行）；sessionManager 拆出模型目录缓存与会话模型同步（2162 → 1915 行）；useClaudeChatSocket 拆出消息列表纯变换 | 971c6b7e4、995128ad9、a912ea2d7、fe69de281、d68691618、544eec282、a2831d8f1 |
+| P1 迁出 | ERP / SRM / SCM 业务系统开发与开发服务启停迁至 tool-business-dev；轻量工作助理迁至 tool-work-assistants；接口地址、表名与配置键不变 | 8ffd61363、fc67d6eb7、88a5fc161 |
+| 测试基线 | 修复 QueuedChatMessageRepositoryTest、AgentOneShotCapabilityTest 长期失败 | 5b4bbb36d |
+
+评估后保留在 tool-claude-chat 的部分及原因：
+
+| 部分 | 结论 |
+| --- | --- |
+| 业务系统工作区、项目路由绑定 | 会话核心、彩虹胶囊与证据范围解析直接依赖，属于会话的项目上下文基础设施 |
+| 嵌入式业务助手、业务咨询客户端 | 本质是只读策略下的会话接入通道（与评审通道同类），迁出仍需依赖会话核心并反转多处调用，收益小于改动风险 |
+| 系统路由巡检 | 依赖项目路由绑定，迁出会形成循环依赖 |
+| 插件与团队依赖更新、项目初始化进度 | 属于 Vibe Coding 本域功能 |
+
+仍待推进：队列派发、授权与引擎切换从 ClaudeChatService 拆出；ChatPage 视图状态与 useClaudeChatSocket 事件分发继续拆分；新增能力需经授权重启后在“运行版本”核对并按待验收清单验收。
