@@ -56,6 +56,8 @@ import { loadCodexHomePreference, saveCodexHomePreference } from '../lib/codexHo
 import { useNewSessionPreferences } from '../hooks/useNewSessionPreferences'
 import { useNewSessionWorkspaces } from '../hooks/useNewSessionWorkspaces'
 import { useMessageJump } from '../hooks/useMessageJump'
+import { useSessionLinks } from '../hooks/useSessionLinks'
+import { useSessionTitleEdit } from '../hooks/useSessionTitleEdit'
 import { useProviderModels } from '../hooks/useProviderModels'
 import { newSessionSelectionIssue, resolveNewSessionWorkspace, type NewSessionPreferences } from '../lib/newSessionPreferences'
 import { newSessionEngines, resolveNewSessionDirectory, validRecentSession, workspacePathKey } from '../lib/newSessionWorkspace'
@@ -78,13 +80,12 @@ import { CommandMenu } from '../components/CommandMenu'
 import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from '../components/ProjectMention'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchCodexHomes, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, renameSession, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
-import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
+import { fetchCodexHomes, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessions, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { canSteerRunningMessage } from '../components/RunningMessageActions'
 import type { ChatItem, ClaudeEffort, CodexReasoningEffort } from '../types'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
-import { getSessionByDevSession, linkDevSession, type PrdSessionView } from '@/features/prd-clarify/public-api'
+import type { PrdSessionView } from '@/features/prd-clarify/public-api'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from '../components/SessionPlanLockNotice'
 import {
@@ -93,18 +94,11 @@ import {
   loadLaunchIntent,
 } from '@/shell/launch-intent/api'
 import { resolveSiteIcon } from '@/lib/siteIcons'
-import { listQuickSiteSummaries } from '@/lib/quickSites'
-import { getSessionSiteConfiguration } from '../api'
 import { isChatLaunchTargetReady, planChatLaunch } from '../lib/chatLaunchIntent'
 import { useUnifiedTitleBarSlot } from '@/shell/UnifiedTitleBar'
 import { useMobileNavigation } from '@/shell/MobileNavigationContext'
 import { useMockMode } from '@/shell/useMockMode'
 import { useAuth } from '@/lib/auth'
-import {
-  customSiteToLinkedSite,
-  quickSiteToLinkedSite,
-  type SessionLinkedSite,
-} from '../lib/sessionSites'
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
@@ -286,114 +280,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const [showSessionProjects, setShowSessionProjects] = useState(false)
   // 「+ 更多功能」里的「PRD 文档」：搜索 PRD 澄清助手里的记录，一键把 PRD/开发文档内容附加进当前对话。
   const [showPrdAttach, setShowPrdAttach] = useState(false)
-  // PRD handoff 不能靠固定延时读取 sessionId：新会话 ID 由 WebSocket init/ready 异步返回。
-  // 记录发起前的旧 ID，等真正出现不同的新 ID 后再执行带鉴权的关联请求。
-  const pendingAutoPrdLinkRef = useRef<{
-    prdSessionId: string
-    previousDevSessionId: string | null
-    targetDevSessionId?: string
-  } | null>(null)
-  const autoPrdLinkInFlightRef = useRef(false)
-  // 当前会话关联的 PRD（undefined=还没查/无会话，null=确认未关联），供顶栏标识展示。
-  const [linkedPrd, setLinkedPrd] = useState<PrdSessionView | null | undefined>(undefined)
-  const [linkedSites, setLinkedSites] = useState<SessionLinkedSite[]>([])
-  const [linkedProjectPaths, setLinkedProjectPaths] = useState<string[]>([])
-  useEffect(() => {
-    const sessionId = chat?.sessionId
-    if (!sessionId) {
-      setLinkedSites([])
-      return
-    }
-    let active = true
-    Promise.all([getSessionSiteConfiguration(sessionId), listQuickSiteSummaries()])
-      .then(([configuration, sites]) => {
-        if (!active) return
-        const quickSites = configuration.quickSiteIds.flatMap(id => {
-          const site = sites.find(candidate => candidate.id === id && candidate.enabled)
-          return site ? [quickSiteToLinkedSite(site)] : []
-        })
-        setLinkedSites([
-          ...quickSites,
-          ...configuration.customSites.map(customSiteToLinkedSite),
-        ])
-      })
-      .catch(() => active && setLinkedSites([]))
-    return () => { active = false }
-  }, [chat?.sessionId])
-  useEffect(() => {
-    const sessionId = chat?.sessionId
-    if (!sessionId) {
-      setLinkedProjectPaths([])
-      return
-    }
-    let active = true
-    listSessionProjectDirectories(sessionId)
-      .then(paths => active && setLinkedProjectPaths(paths))
-      .catch(() => active && setLinkedProjectPaths([]))
-    return () => { active = false }
-  }, [chat?.sessionId])
+  const { linkedPrd, setLinkedPrd, linkedSites, setLinkedSites, linkedProjectPaths, setLinkedProjectPaths, pendingAutoPrdLinkRef }
+    = useSessionLinks(chat?.sessionId, navigate)
 
-  useEffect(() => {
-    const sid = chat?.sessionId
-    if (!sid) { setLinkedPrd(undefined); return }
-    const pending = pendingAutoPrdLinkRef.current
-    if (pending && sid !== pending.previousDevSessionId) {
-      // 自动关联尚未完成时不抢先查询“未关联”，成功后由下方 effect 回填权威结果。
-      setLinkedPrd(undefined)
-      return
-    }
-    let alive = true
-    getSessionByDevSession(sid).then(v => { if (alive) setLinkedPrd(v) }).catch(() => { if (alive) setLinkedPrd(null) })
-    return () => { alive = false }
-  }, [chat?.sessionId])
-
-  useEffect(() => {
-    const pending = pendingAutoPrdLinkRef.current
-    const devSessionId = chat?.sessionId
-    if (!pending || !devSessionId || devSessionId === pending.previousDevSessionId) return
-
-    // 通道重连时可能连续收到多个 sessionId。始终记录最新目标，并由单个串行 worker 做“最后一次绑定”，
-    // 避免旧请求尚未结束时新 effect 被 inFlight 直接跳过，最终留下有内容但没有 PRD/TDD 关联的会话。
-    pending.targetDevSessionId = devSessionId
-    if (autoPrdLinkInFlightRef.current) return
-    autoPrdLinkInFlightRef.current = true
-    const linkLatestTarget = async () => {
-      while (pendingAutoPrdLinkRef.current?.targetDevSessionId) {
-        const current = pendingAutoPrdLinkRef.current
-        const targetDevSessionId = current.targetDevSessionId
-        if (!targetDevSessionId) return
-        let linked: PrdSessionView | null = null
-
-        for (let attempt = 0; attempt < 4; attempt += 1) {
-          // 新 ready 已给出更新的会话 ID：停止重试旧目标，回到 while 绑定最新目标。
-          if (pendingAutoPrdLinkRef.current?.targetDevSessionId !== targetDevSessionId) break
-          try {
-            await linkDevSession(current.prdSessionId, targetDevSessionId)
-            linked = await getSessionByDevSession(targetDevSessionId)
-            break
-          } catch {
-            if (attempt < 3) {
-              await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
-            }
-          }
-        }
-
-        const latest = pendingAutoPrdLinkRef.current
-        if (latest?.targetDevSessionId !== targetDevSessionId) continue
-        if (linked) {
-          pendingAutoPrdLinkRef.current = null
-          setLinkedPrd(linked)
-          // 把已确认的双向关系写进路由；刷新可恢复，且之后手工切换会话不会被重新强绑。
-          navigate(`/tools/claude-chat?sessionId=${encodeURIComponent(targetDevSessionId)}&prdSessionId=${encodeURIComponent(current.prdSessionId)}`, { replace: true })
-          return
-        }
-        pendingAutoPrdLinkRef.current = null
-        setLinkedPrd(null)
-        return
-      }
-    }
-    void linkLatestTarget().finally(() => { autoPrdLinkInFlightRef.current = false })
-  }, [chat?.sessionId, navigate])
   const [showMsgNav, setShowMsgNav] = useState(false)
   const [inspectedAutopilot, setInspectedAutopilot] = useState<{ sessionId: string; changeId?: string } | null>(null)
   const [sessionView, setSessionView] = useState<SessionView>(() =>
@@ -967,50 +856,11 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     if (chat && currentSession) chat.open(currentSession.cwd)
   }, [chat?.open, currentSession?.cwd])
 
-  // 编辑绑定开始时的会话；短按改名与长按模式选择互不触发。
-  const [editingTitle, setEditingTitle] = useState(false)
-  const [titleDraft, setTitleDraft] = useState('')
-  const [titleRenameError, setTitleRenameError] = useState<string | null>(null)
-  const titleEditTarget = useRef<{ id: string; title: string } | null>(null)
-  const titleTriggerRef = useRef<HTMLButtonElement>(null)
-  const titleSessionId = useRef(currentSession?.id)
-  titleSessionId.current = currentSession?.id
-  const attachTitleTrigger = useCallback((node: HTMLButtonElement | null) => {
-    titleTriggerRef.current = node
-    if (typeof controlRef === 'function') controlRef(node)
-    else if (controlRef) controlRef.current = node
-  }, [controlRef])
-  const wasEditingTitle = useRef(false)
-  useEffect(() => {
-    if (wasEditingTitle.current && !editingTitle) titleTriggerRef.current?.focus({ preventScroll: true })
-    wasEditingTitle.current = editingTitle
-  }, [editingTitle])
-  useEffect(() => {
-    titleEditTarget.current = null
-    setEditingTitle(false)
-    setTitleRenameError(null)
-  }, [currentSession?.id])
-  const startEditTitle = () => {
-    if (!currentSession) return
-    titleEditTarget.current = { id: currentSession.id, title: currentTitle ?? '' }
-    setTitleRenameError(null)
-    setTitleDraft(currentTitle ?? '')
-    setEditingTitle(true)
-  }
-  const commitEditTitle = async () => {
-    const t = titleDraft.trim()
-    const target = titleEditTarget.current
-    if (!target || target.id !== currentSession?.id) return
-    titleEditTarget.current = null
-    setEditingTitle(false)
-    if (t && t !== target.title) {
-      try {
-        await renameSessionOptimistically(qc, target.id, t, renameSession)
-      } catch (error) {
-        if (titleSessionId.current === target.id) setTitleRenameError(`重命名失败：${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
-  }
+  const {
+    editingTitle, titleDraft, setTitleDraft, titleRenameError, titleTriggerRef, attachTitleTrigger,
+    startEditTitle, cancelEditTitle, commitEditTitle,
+  } = useSessionTitleEdit({ currentSessionId: currentSession?.id, currentTitle, controlRef })
+
   const currentProviderHost = providerHost(chat?.currentProviderBaseUrl ?? null)
   const currentEngineLabel = engineDisplayName(chat?.currentEngine ?? 'claude', chat?.currentProviderKind)
   const currentEngineCatalogEntry = engineCatalogQuery.data?.engines.find(entry => entry.id === chat?.currentEngine)
@@ -1301,7 +1151,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                     onKeyDown={e => {
                       if (e.nativeEvent.isComposing || e.keyCode === 229) return
                       if (e.key === 'Enter') { e.preventDefault(); void commitEditTitle() }
-                      else if (e.key === 'Escape') { e.preventDefault(); titleEditTarget.current = null; setEditingTitle(false) }
+                      else if (e.key === 'Escape') { e.preventDefault(); cancelEditTitle() }
                     }}
                     className="w-full min-w-0 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-1.5 py-0.5 font-semibold outline-none"
                   />
