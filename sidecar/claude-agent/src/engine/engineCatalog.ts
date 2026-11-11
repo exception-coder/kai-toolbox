@@ -10,6 +10,16 @@ import { probeAntigravityRuntime } from '../antigravityRuntime.js'
 import { probeTraeRuntime } from '../traeEngine.js'
 
 const DEFAULT_CACHE_TTL_MS = 30_000
+
+/** 依赖外部运行时、必须通过 Sidecar 探活才能创建或切换会话的引擎；其余内置引擎无需同步探活。 */
+export const RUNTIME_PROBED_ENGINES: ReadonlySet<EngineId> = new Set<EngineId>(['deepseekHarness', 'antigravity', 'trae'])
+
+/** 探活未就绪时提示给用户的运行时名称。 */
+export const RUNTIME_PROBED_ENGINE_LABELS: Readonly<Record<string, string>> = {
+  antigravity: 'Antigravity CLI',
+  trae: 'TraeCode CLI 2.0',
+  deepseekHarness: 'DeepSeek Harness',
+}
 const DEFAULT_BACKGROUND_REFRESH_MS = 5 * 60_000
 
 export interface EngineCatalogEntry {
@@ -71,7 +81,7 @@ export class EngineCatalog {
   }
 
   selectableNow(engine: EngineId): boolean {
-    if (engine !== 'deepseekHarness' && engine !== 'antigravity' && engine !== 'trae') return true
+    if (!RUNTIME_PROBED_ENGINES.has(engine)) return true
     return this.cached?.entries.some(entry => entry.id === engine && entry.selectable) === true
   }
 

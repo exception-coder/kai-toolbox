@@ -37,9 +37,9 @@ import { listAntigravityModels } from './antigravityRuntime.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
 import { claudeGatewayEnvironment, verifiableResponseModel } from './claudeGatewayRouting.js'
 import { claudeGatewayUserCapabilities, claudeUserPlugins, claudeSessionRoutingOptions } from './claudeGatewaySettings.js'
-import { listQwenModels, runQwenTurn } from './qwenEngine.js'
-import { listPiModels, runPiTurn } from './piEngine.js'
-import { listCopilotModels, runCopilotTurn } from './copilotEngine.js'
+import { runQwenTurn } from './qwenEngine.js'
+import { runPiTurn } from './piEngine.js'
+import { runCopilotTurn } from './copilotEngine.js'
 import { runTraeTurn } from './traeEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
@@ -66,7 +66,17 @@ import { createBuiltinEngineRegistry } from './engine/builtinEngineAdapters.js'
 import { isEngineId, publicAgentEvent, type EngineId, type EngineImageInput } from './engine/engineContract.js'
 import type { EngineAdapterRegistry } from './engine/engineRegistry.js'
 import { DeepSeekHarnessAdapter, deepSeekHarnessConfigFromEnv } from './engine/deepSeekHarnessAdapter.js'
-import type { EngineCatalog } from './engine/engineCatalog.js'
+import { RUNTIME_PROBED_ENGINES, RUNTIME_PROBED_ENGINE_LABELS, type EngineCatalog } from './engine/engineCatalog.js'
+import {
+  claudeModelsByProvider,
+  isCodexReasoningEffort,
+  loadCodexModels,
+  prewarmClaudeModels,
+  providerKey,
+} from './modelCatalogCache.js'
+
+export { loadCodexModels }
+import { SessionModelSync } from './sessionModelSync.js'
 
 export type Engine = EngineId
 
@@ -153,30 +163,6 @@ const DEMO_STEER = [
   '约束：只能操作 welfare_sign_* 表（含 welfare_sign_theme）与副本目录内的文件，不要尝试其它表、命令或网络。',
 ].join('\n')
 
-// Claude 模型清单按 provider 分别缓存：官方 supportedModels 与各第三方网关 /v1/models 是不同清单，
-// 绝不能共用一份全局缓存（否则官方刷新/官方↔三方互切会把对方清单覆盖，前端显示错 provider 的模型）。
-// key = provider 标识（'official' 或网关 baseUrl），供该 provider 的会话 start/resume/switch 即时重发。
-const claudeModelsByProvider = new Map<string, unknown[]>()
-let claudeWarmStarted = false
-
-/** provider 缓存 key：官方登录用 'official'，第三方网关用其 baseUrl（去空白）。 */
-function providerKey(apiBaseUrl?: string): string {
-  return apiBaseUrl?.trim() || 'official'
-}
-
-/** 查询官方模型时的干净环境：剔除 shell 可能预置的 ANTHROPIC 网关变量，保证问的是官方而非三方。 */
-function officialModelsEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env }
-  delete env.ANTHROPIC_BASE_URL
-  delete env.ANTHROPIC_AUTH_TOKEN
-  delete env.ANTHROPIC_API_KEY
-  return env
-}
-
-function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
-  return typeof value === 'string' && /^[a-z][a-z0-9_-]{0,31}$/.test(value)
-}
-
 function normalizeConsultEvidenceSystems(values: readonly string[] | undefined): string[] {
   const allowed = new Set(['erp', 'srm', 'scm'])
   return [...new Set((values ?? [])
@@ -191,106 +177,6 @@ function normalizeSessionToolPolicy(value: string | undefined): string {
 /** 中断时留给「未决审批的 deny 响应」写回 CLI 的时间，之后才关传输层。见 Session.interrupt()。 */
 const INTERRUPT_DENY_FLUSH_MS = 30
 const TURN_ACTIVITY_HEARTBEAT_MS = 5_000
-
-export function loadCodexModels(sessionCodexHome?: string): CodexModelInfo[] {
-  try {
-    const codexHome = normalizeCodexHome(sessionCodexHome)
-      ?? normalizeCodexHome(process.env.CODEX_HOME)
-      ?? join(homedir(), '.codex')
-    const raw = JSON.parse(readFileSync(join(codexHome, 'models_cache.json'), 'utf8')) as {
-      models?: Array<{
-        slug?: string
-        display_name?: string
-        description?: string
-        visibility?: string
-        default_reasoning_level?: string
-        supported_reasoning_levels?: Array<{ effort?: string }>
-        additional_speed_tiers?: string[]
-      }>
-    }
-    return (raw.models ?? []).flatMap((model) => {
-      const value = model.slug?.trim()
-      if (!value || model.visibility !== 'list') return []
-      return [{
-        value,
-        displayName: model.display_name?.trim() || value,
-        description: model.description ?? '',
-        reasoningEfforts: (model.supported_reasoning_levels ?? [])
-          .map((level) => level.effort)
-          .filter(isCodexReasoningEffort),
-        defaultReasoningEffort: isCodexReasoningEffort(model.default_reasoning_level)
-          ? model.default_reasoning_level
-          : null,
-        fastSupported: (model.additional_speed_tiers ?? []).includes('fast'),
-        isDefault: false,
-      }]
-    })
-  } catch (error) {
-    console.warn('[sidecar] 读取 Codex 模型缓存失败:', error instanceof Error ? error.message : String(error))
-    return []
-  }
-}
-
-/**
- * 建一次性 query 仅发控制请求 supportedModels 取模型清单，拿到即 abort，绝不跑对话轮次。
- * 这是「向 claude 原生二进制问一次当前支持的模型」的底层动作——Claude Code 会自更新，
- * 二进制在磁盘上升级后支持的模型会变（如新增 Sonnet 5），故本函数每次都真实重新询问。
- */
-async function queryClaudeModels(env?: NodeJS.ProcessEnv): Promise<unknown[] | null> {
-  const ac = new AbortController()
-  const safeCwd = process.env.USERPROFILE || process.env.HOME || process.cwd()
-  try {
-    const q = query({
-      prompt: 'warmup',
-      // 传 env 时问的是该 provider（网关或官方）的模型清单；不传则沿用进程环境。
-      options: { cwd: safeCwd, permissionMode: 'default', abortController: ac, ...(env ? { env } : {}) },
-    } as never)
-    const fn = (q as { supportedModels?: () => Promise<unknown> }).supportedModels
-    if (typeof fn !== 'function') return null
-    const models = await fn.call(q)
-    return Array.isArray(models) ? models : null
-  } finally {
-    ac.abort() // 取消一次性 query，绝不真正处理 warmup 这轮
-  }
-}
-
-/**
- * 启动预热：取一次模型清单填充全局缓存，消除「sidecar 重启后首次进会话、未发消息 → 模型组空」的冷启动窗口。
- * 失败静默（首轮对话仍会再取）。
- */
-async function prewarmClaudeModels(): Promise<void> {
-  if (claudeModelsByProvider.has('official') || claudeWarmStarted) return
-  claudeWarmStarted = true
-  try {
-    const models = await queryClaudeModels(officialModelsEnv())
-    if (models) {
-      claudeModelsByProvider.set('official', models)
-      console.log(`[sidecar] 预热官方 Claude 模型清单：${models.length} 个`)
-    }
-  } catch (e) {
-    console.warn('[sidecar] 预热 Claude 模型失败（首轮对话会再取）：', e instanceof Error ? e.message : String(e))
-  }
-}
-
-/**
- * 强制重新询问指定 provider 的支持模型并刷新其缓存（无视既有缓存）。用于「主动同步」按钮与定时同步。
- * key/env 决定问的是官方还是某网关——各 provider 独立缓存，互不覆盖。成功返回清单，失败返回 null（保留旧缓存）。
- */
-async function refreshClaudeModels(key: string, env?: NodeJS.ProcessEnv): Promise<unknown[] | null> {
-  try {
-    const models = await queryClaudeModels(env)
-    if (models) {
-      claudeModelsByProvider.set(key, models)
-      console.log(`[sidecar] 刷新模型清单[${key}]：${models.length} 个`)
-      return models
-    }
-    console.warn(`[sidecar] 刷新模型[${key}]：未取到清单，保留旧缓存`)
-    return null
-  } catch (e) {
-    console.warn(`[sidecar] 刷新模型[${key}]失败（保留旧缓存）：`, e instanceof Error ? e.message : String(e))
-    return null
-  }
-}
 
 /** 单会话：持有 SDK session_id、当前轮的 AbortController、权限交互。 */
 export class Session {
@@ -1495,8 +1381,12 @@ export class SessionManager {
   private sessions = new Map<string, Session>()
   private oneShotControllers = new Map<string, AbortController>()
   private pendingCodexOptions = new Map<string, { reasoningEffort?: CodexReasoningEffort; speed: CodexSpeed }>()
+  /** 模型目录同步：按引擎与 provider 拉取、缓存并下发模型清单。 */
+  private readonly models: SessionModelSync
 
   constructor(private emit: Emit, private readonly engineCatalog?: EngineCatalog) {
+    this.models = new SessionModelSync(() => this.sessions, (id, event) => this.emit(id, event),
+      (id, session) => this.ensureReviewDefaults(id, session))
     // 启动即预热 Claude 模型清单（控制请求，不跑对话），消除重启后首次进会话的空窗
     void prewarmClaudeModels()
     // 定时同步：Claude Code 会自更新，二进制升级后支持的模型会变。每 6 小时重新询问一次并广播给所有
@@ -1505,105 +1395,9 @@ export class SessionManager {
     if (typeof timer.unref === 'function') timer.unref()
   }
 
-  /**
-   * 同步模型清单，**严格按 provider 隔离**，绝不跨 provider 覆盖：
-   * - 手动刷新（sessionId 非空）：问的是该会话自己的 provider（官方或其网关），只广播给同 provider 的 Claude 会话；
-   * - 定时任务（sessionId 为 null）：只刷新官方，只广播给官方 Claude 会话。第三方按各自会话手动刷新。
-   */
+  /** 同步模型清单，严格按 provider 隔离；规则见 SessionModelSync.refresh。 */
   async refreshModels(sessionId: string | null): Promise<void> {
-    // 手动刷新：按触发会话的 provider 询问并只广播给同 provider
-    if (sessionId) {
-      const s = this.sessions.get(sessionId)
-      if (s?.engine === 'pi' || s?.engine === 'copilot') {
-        // Java owns gateway catalog queries; a native placeholder must not overwrite its result.
-        if (s.apiBaseUrl) return
-        const identity = [s.engine, s.apiBaseUrl, s.model, s.authToken]
-        const isCurrent = () => this.sessions.get(sessionId) === s
-          && identity.every((value, index) => value === [s.engine, s.apiBaseUrl, s.model, s.authToken][index])
-        try {
-          const models = await (s.engine === 'pi' ? listPiModels() : listCopilotModels())
-          if (isCurrent()) this.emit(sessionId, { type: 'models', models, current: s.model ?? null })
-        } catch (error) {
-          if (isCurrent()) this.emit(sessionId, { type: 'warning', code: 'ENGINE_MODELS_UNAVAILABLE', message: error instanceof Error ? error.message : String(error) })
-        }
-        return
-      }
-      if (s?.engine === 'opencode') {
-        if (s.apiBaseUrl) return
-        const identity = [s.apiBaseUrl, s.authToken, s.model]
-        await emitOpencodeModels(s.cwd, event => {
-          if (this.sessions.get(sessionId) === s && s.engine === 'opencode'
-            && identity.every((value, i) => value === [s.apiBaseUrl, s.authToken, s.model][i])) this.emit(sessionId, event)
-        }, s.model)
-        return
-      }
-      if (s?.engine === 'qwen') {
-        await this.refreshQwenModels(sessionId, s)
-        return
-      }
-      if (s?.engine === 'codex') {
-        await this.refreshCodexModels(sessionId, s, true)
-        return
-      }
-      if (s?.engine === 'deepseekHarness') {
-        this.emit(sessionId, { type: 'models', models: [], current: null })
-        return
-      }
-      if (s?.engine === 'antigravity') {
-        try {
-          const models = await listAntigravityModels()
-          this.emit(sessionId, { type: 'models', models, current: s.model ?? null })
-        } catch (error) {
-          this.emit(sessionId, {
-            type: 'warning',
-            code: 'ANTIGRAVITY_MODEL_CATALOG_FALLBACK',
-            message: `Antigravity 模型目录暂不可用，已保留当前模型：${error instanceof Error ? error.message : String(error)}`,
-          })
-        }
-        return
-      }
-      if (s && s.engine === 'claude') {
-        const key = providerKey(s.apiBaseUrl)
-        const models = await refreshClaudeModels(key, s.providerEnv())
-        if (!models) {
-          this.emit(sessionId, { type: 'error', code: 'MODELS_REFRESH_FAILED', message: '同步模型清单失败，已保留上次结果（请确认 claude/网关 可用）' })
-          return
-        }
-        for (const [id, sess] of this.sessions) {
-          if (sess.engine === 'claude' && providerKey(sess.apiBaseUrl) === key) {
-            this.emit(id, { type: 'models', models, current: sess.model ?? null })
-          }
-        }
-        return
-      }
-      // 会话不在/非 claude：按官方兜底刷新，仅回给触发者
-      const models = await refreshClaudeModels('official', officialModelsEnv())
-      if (models) this.emit(sessionId, { type: 'models', models, current: null })
-      else this.emit(sessionId, { type: 'error', code: 'MODELS_REFRESH_FAILED', message: '同步模型清单失败，已保留上次结果' })
-      return
-    }
-    // 定时任务：只刷新官方，只广播给官方 Claude 会话（第三方不受影响）
-    const models = await refreshClaudeModels('official', officialModelsEnv())
-    if (!models) return
-    for (const [id, s] of this.sessions) {
-      if (s.engine === 'claude' && !s.apiBaseUrl) this.emit(id, { type: 'models', models, current: s.model ?? null })
-    }
-  }
-
-  private async refreshQwenModels(id: string, session: Session): Promise<void> {
-    try {
-      const models = await listQwenModels(session.cwd)
-      if (this.sessions.get(id) === session && session.engine === 'qwen') this.emit(id, { type: 'models', models, current: session.model ?? null })
-    } catch (error) {
-      if (this.sessions.get(id) === session && session.engine === 'qwen') {
-        // A failed catalog must invalidate any model list carried over from another session or engine.
-        this.emit(id, { type: 'models', models: [], current: session.model ?? null })
-        this.emit(id, {
-          type: 'warning', code: 'QWEN_MODELS_UNAVAILABLE',
-          message: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
+    await this.models.refresh(sessionId)
   }
 
   /** 主动刷新当前会话能力清单，不触发模型调用。 */
@@ -1652,7 +1446,7 @@ export class SessionManager {
       sdkSessionId: null,
       ...(s.engine === 'codex' ? { mcpServers: s.codexCapabilityMcpServers() } : {}),
     })
-    this.emitCachedModels(id, s)
+    this.models.emitCachedModels(id, s)
     if (s.engine === 'opencode') s.refreshCapabilities()
   }
 
@@ -1695,31 +1489,8 @@ export class SessionManager {
       this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null,
         mcpServers: s.codexCapabilityMcpServers() })
     }
-    this.emitCachedModels(id, s)
+    this.models.emitCachedModels(id, s)
     if (s.engine === 'opencode') s.refreshCapabilities()
-  }
-
-  /** 按会话当前 provider 即时重发已缓存的 models，让 resume/切会话/切 provider 立刻看到对应清单。
-   *  无该 provider 缓存时不发（避免发错 provider 的旧清单）——首轮 runTurn 的 fetchModels 会补上。 */
-  private emitCachedModels(id: string, s: Session): void {
-    if (s.engine === 'claude') {
-      const cached = claudeModelsByProvider.get(providerKey(s.apiBaseUrl))
-      if (cached) this.emit(id, { type: 'models', models: cached, current: s.model ?? null })
-    } else if (s.engine === 'codex') {
-      this.emit(id, { type: 'models', models: loadCodexModels(s.codexHome), current: s.model ?? null })
-      if (s.toolPolicy === 'review-only') void this.ensureReviewDefaults(id, s)
-      else void this.refreshCodexModels(id, s, false)
-    } else if (s.engine === 'qwen') {
-      void this.refreshQwenModels(id, s)
-    } else if (s.engine === 'pi' || s.engine === 'copilot') {
-      void this.refreshModels(id)
-    } else if (s.engine === 'trae') {
-      this.emit(id, { type: 'models', models: [], current: s.model ?? null })
-    } else if (s.engine === 'antigravity') {
-      void listAntigravityModels()
-        .then(models => this.emit(id, { type: 'models', models, current: s.model ?? null }))
-        .catch(error => console.warn(`[sidecar] Antigravity 模型目录暂不可用 session=${id}，保留当前选择：${error instanceof Error ? error.message : String(error)}`))
-    }
   }
 
   /**
@@ -1754,25 +1525,6 @@ export class SessionManager {
     })()
     this.reviewConfiguration.set(id, resolving)
     return resolving
-  }
-
-  private async refreshCodexModels(id: string, session: Session, reportFailure: boolean): Promise<void> {
-    try {
-      const models = await listCodexModels(session.codexHome)
-      if (models.length === 0) throw new Error('Codex model/list 未返回可选模型')
-      if (this.sessions.get(id) !== session || session.engine !== 'codex') return
-      this.emit(id, { type: 'models', models, current: session.model ?? null })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.warn(`[sidecar] Codex model/list 失败，保留缓存目录 session=${id}: ${message}`)
-      if (reportFailure && this.sessions.get(id) === session) {
-        this.emit(id, {
-          type: 'error',
-          code: 'MODELS_REFRESH_FAILED',
-          message: '同步 Codex 模型清单失败，已保留本地缓存结果',
-        })
-      }
-    }
   }
 
   user(id: string, text: string, developerInstructions?: string, sessionContext?: string,
@@ -1966,7 +1718,7 @@ export class SessionManager {
     s.apiBaseUrl = nextBaseUrl || undefined
     s.authToken = nextBaseUrl ? authToken : undefined
     s.resetModelsFetched()        // 换 provider：下一轮重新取新 provider 的模型清单
-    this.emitCachedModels(id, s)  // 若新 provider 已有缓存，立刻切显示；否则待首轮补
+    this.models.emitCachedModels(id, s)  // 若新 provider 已有缓存，立刻切显示；否则待首轮补
   }
 
   /**
@@ -1989,7 +1741,7 @@ export class SessionManager {
       this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null,
         mcpServers: s.codexCapabilityMcpServers() })
     }
-    this.emitCachedModels(id, s)
+    this.models.emitCachedModels(id, s)
     if (s.engine === 'opencode') s.refreshCapabilities()
   }
 
@@ -2049,12 +1801,11 @@ export class SessionManager {
 
   private acceptEngine(id: string, engine: unknown): boolean {
     if (!isEngineId(engine)) return true
-    if ((engine !== 'deepseekHarness' && engine !== 'antigravity' && engine !== 'trae')
-        || this.engineCatalog?.selectableNow(engine) === true) return true
+    if (!RUNTIME_PROBED_ENGINES.has(engine) || this.engineCatalog?.selectableNow(engine) === true) return true
     this.emit(id, {
       type: 'error',
       code: 'ENGINE_UNAVAILABLE',
-      message: `${engine === 'antigravity' ? 'Antigravity CLI' : engine === 'trae' ? 'TraeCode CLI 2.0' : 'DeepSeek Harness'} 尚未通过当前 Sidecar 的 Runtime 检测，不能创建或切换会话`,
+      message: `${RUNTIME_PROBED_ENGINE_LABELS[engine]} 尚未通过当前 Sidecar 的 Runtime 检测，不能创建或切换会话`,
     })
     return false
   }
