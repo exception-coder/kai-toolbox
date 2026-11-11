@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import static com.exceptioncoder.toolbox.claudechat.service.SessionSettingsNormalizer.*;
+
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatActivityView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModelInfo;
@@ -1442,25 +1444,6 @@ public class ClaudeChatService {
         });
     }
 
-    private static boolean isValidMode(String m) {
-        return "default".equals(m) || "acceptEdits".equals(m)
-                || "plan".equals(m) || "bypassPermissions".equals(m);
-    }
-
-    private static String normalizeMode(String m) {
-        return isValidMode(m) ? m : "default";
-    }
-
-    private static String persistedMode(ClaudeChatSession db) {
-        return normalizeMode(db.getPermissionMode());
-    }
-
-    private static String normalizeEngine(String e) {
-        if ("gemini".equals(e)) return "antigravity";
-        return "pi".equals(e) || "copilot".equals(e) || "codex".equals(e) || "qwen".equals(e) || "trae".equals(e) || "antigravity".equals(e) || "opencode".equals(e)
-                || "deepseekHarness".equals(e) ? e : "claude";
-    }
-
     /**
      * 旧 Gemini CLI 已由 Antigravity 完全接替。所有旧通道均迁移；原生句柄只作为只读历史证据保留，
      * 不会再进入可执行引擎或被误当成 Antigravity conversation ID。
@@ -1485,31 +1468,6 @@ public class ClaudeChatService {
         repo.updateSelectedModel(ctx.sessionId, null);
         log.info("[claude-chat] Gemini 旧会话 {} 已迁移到 Antigravity（resume={}）",
                 ctx.sessionId, ctx.sdkSessionId != null);
-    }
-
-    private static String migrateEngineHistory(String existing) {
-        java.util.LinkedHashSet<String> engines = new java.util.LinkedHashSet<>();
-        if (existing != null) {
-            for (String item : existing.split(",")) {
-                String engine = item.trim();
-                if (!engine.isBlank()) engines.add("gemini".equals(engine) ? "antigravity" : engine);
-            }
-        }
-        engines.add("antigravity");
-        return String.join(",", engines);
-    }
-
-    private static String normalizeCodexReasoningEffort(String effort) {
-        return effort != null && effort.matches("[a-z][a-z0-9_-]{0,31}") ? effort : "low";
-    }
-
-    private static String normalizeCodexSpeed(String speed) {
-        return "fast".equals(speed) ? "fast" : "default";
-    }
-
-    private static String duplicateTitle(String title) {
-        String normalized = blankToNull(title);
-        return normalized == null ? null : normalized + "（副本）";
     }
 
     public void interrupt(WebSocketSession ws) {

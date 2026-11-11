@@ -4,14 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 class ClaudeChatServiceSessionTitleTest {
 
     @Test
     void preservesNewEngineIdentitiesAtTheSessionBoundary() {
         for (String engine : new String[]{"pi", "copilot"}) {
-            String normalized = ReflectionTestUtils.invokeMethod(ClaudeChatService.class, "normalizeEngine", engine);
+            String normalized = SessionSettingsNormalizer.normalizeEngine(engine);
             assertThat(normalized).isEqualTo(engine);
         }
     }
