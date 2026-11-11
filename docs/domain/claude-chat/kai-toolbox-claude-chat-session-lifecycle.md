@@ -2,45 +2,104 @@
 id: kai-toolbox-claude-chat-session-lifecycle
 project: kai-toolbox
 module: claude-chat
-title: Claude Chat 会话生命周期
+title: Vibe Coding 会话与轮次状态
 type: state
 stability: draft
-tags: [会话状态, resume, sidecar中断]
+tags: [会话状态, 轮次状态, 收口, 中断, 续跑, 队列, sidecar中断]
 related: [kai-toolbox-claude-chat-session-concept]
-summary: 一个 Vibe Coding 会话在"运行中/空闲/被中断/已结束"之间流转，其中"被中断"是可续跑而非报废，体现了对话连续性优先于单次执行失败的业务取舍。
+summary: Vibe Coding 把状态分成连接、Agent 执行、轮次结果、待发送队列四层；只有 Agent 执行层决定“现在能不能发、接下来该谁做什么”，轮次出结果不等于 Agent 已空闲。
 ---
 
-> ⚠️ 草拟骨架：内容为占位，**必须由该模块业务 owner 用真实口径替换后再改 stability: stable**。
+> 口径来源：2026-11-11 对照 Codex App Server 0.162.1 协议类型、Claude Agent SDK 0.3.286 类型定义、Agent Client Protocol 文档与本仓代码整理。状态划分与后续动作待业务 owner 确认后改为 stable。
 
-## 业务定义
+## 为什么要分层
 
-```mermaid
-stateDiagram-v2
-  [*] --> 空闲: 会话创建
-  空闲 --> 运行中: 用户发一条新消息
-  运行中 --> 空闲: 本轮正常跑完，等待下一条消息
-  运行中 --> 已结束: 会话被用户主动结束
-  运行中 --> 被中断: 执行过程被打断（异常退出/被强行打断）
-  被中断 --> 运行中: 用户选择续跑，接着断点继续
-  被中断 --> 已结束: 用户选择放弃续跑
-  空闲 --> 已结束: 用户直接结束会话
-```
+用户看到的“已连接”“此轮已完成”“正在运行”来自不同层，混在一起就会出现“此轮已完成”与“Codex 正在运行”同时显示的矛盾。各层只回答自己的问题：
 
-四个状态的业务语义：
-- **运行中**：当前这一轮正在被 AI 处理，用户在等结果，此时不应该再发下一条消息打断它。
-- **空闲**：AI 已经把这一轮跑完，安静等着用户看结果、决定下一步说什么。这是一个会话大部分时间所处的稳定态。
-- **被中断**：这一轮执行没有正常跑完就意外断掉了（比如执行环境崩溃或被强行打断），但**这不等于会话报废**——它是一个可恢复的中间态，之前的对话历史和执行进度仍然保留，用户可以选择"续跑"接着刚才的断点继续，而不必从头重新说一遍需求。
-- **已结束**：会话生命周期正常终止，不再接受新消息。
+| 层 | 回答的问题 | 由谁决定 |
+| --- | --- | --- |
+| 连接 | 浏览器、后端、Sidecar、引擎之间通不通 | WebSocket 与 Sidecar 连接 |
+| Agent 执行 | Agent 现在在做什么、能不能发下一条、该谁行动 | 后端综合状态（`SessionRuntimeStateService` 的 effectiveStatus + consistency） |
+| 轮次结果 | 刚结束的那一轮结果如何 | 该轮 `result` 的结束原因 |
+| 待发送队列 | 排队的消息到哪一步了 | 队列投递记录 |
 
-这套状态语义背后的业务取舍是：**AI 结对编程过程中途出问题是常态而非例外**（网络抖动、执行环境异常退出等），产品把"被中断"设计成一个一等公民的可续跑状态，而不是简单粗暴地让用户重新开一个会话、重新交代一遍上下文——这直接影响"用户丢失多少已投入的上下文"这件事，是会话体验的核心业务约束。
+规则：**界面主状态只取 Agent 执行层**；连接层只在异常时出现；轮次结果只描述历史，不代表“现在空闲”。
 
-## 适用范围 / 边界
+## 上游官方状态（对照用）
 
-- 同样适用于 `claude-chat-stable`（Vibe Coding 稳定版）——复用同一套会话状态语义与后端。
-- 这套状态描述的是"一次对话轮次的执行状态"，不要与"门控开发流程里的人工确认关卡"混淆——后者是前门模块（`erp-dev` 等）编排出的业务流程节点，属于另一条知识（门控开发工作台标准流程），不是本会话状态机的一部分。
-- 特例：一个刚创建、从未发过消息的会话直接处于"空闲"，不经过"运行中"。
+| 来源 | 层级 | 状态 |
+| --- | --- | --- |
+| Codex App Server | 会话 thread | `notLoaded` 未加载、`idle` 空闲、`systemError` 系统错误、`active`；active 附带 `waitingOnApproval` 等审批、`waitingOnUserInput` 等回答 |
+| Codex App Server | 轮次 turn | `inProgress`、`completed`、`interrupted`、`failed`；失败带 `codexErrorInfo`（上下文超限、会话预算/用量/限流、服务过载、鉴权、请求错误、网络断流、沙箱、策略拒绝等）；`error` 通知带 `willRetry` |
+| Codex App Server | 工具条目 | 命令、补丁 `inProgress / completed / failed / declined`；MCP 调用 `inProgress / completed / failed` |
+| Claude Agent SDK | 会话 | `session_state_changed`：`idle`、`running`、`requires_action`；SDK 注明 `idle` 在延迟结果发出、后台子 Agent 退出后才发出，是权威的“本轮真正结束”信号 |
+| Claude Agent SDK | 轮次结果 | `success`、`error_during_execution`、`error_max_turns`、`error_max_budget_usd`、`error_max_structured_output_retries`；另有 `terminal_reason`（如 `prompt_too_long`、`api_error`、`aborted_tools`、`max_turns`、`budget_exhausted`） |
+| Claude Agent SDK | 后台任务 | `running`、`completed`、`failed`、`stopped`、`killed` |
+| Agent Client Protocol | 轮次停止原因 | `end_turn`、`max_tokens`、`max_turn_requests`、`refusal`、`cancelled` |
 
-## 备注
+共同结论：**轮次出结果（Codex `turn/completed`、Claude `result`）不等于 Agent 空闲**。子 Agent、后台任务、延迟结果都可能还在收口，必须以会话级空闲信号或我们自己的收口检查为准。
 
-- 口径来源：kai-toolbox 代码调研起草（会话状态枚举定义中对"被中断可续跑"的显式标注），待 owner 核实。
-- 易混点：不要把"被中断"理解成失败态/错误态——它只是"暂停在半路，可以接着走"，与"已结束"是两回事；只有用户主动放弃续跑，被中断的会话才会走向已结束。
+## Agent 执行状态与后续动作
+
+这是界面唯一的主状态。每个状态都规定显示文字、能做什么、下一步由谁做什么。
+
+| 状态 | 判定依据 | 界面显示 | 用户可做 | 系统后续动作 |
+| --- | --- | --- | --- | --- |
+| 空闲·可发送 | effectiveStatus=IDLE 且 consistency=CONSISTENT | 已就绪（附最近一轮结果） | 发送；派发排队消息 | 有排队消息且允许自动派发时，派发下一条 |
+| 运行中 | 有活动轮次（Codex turn `inProgress` / Claude `running`） | {引擎} 正在运行 · 当前阶段 | 插话、排队、中断 | 持续接收进度与心跳，心跳超时转“状态待校正” |
+| 等待审批 | Codex `waitingOnApproval`；Claude 权限请求 | 等待你审批：{工具/命令} | 允许、拒绝、改为自动批准 | 暂停计时；队列不放行；推送提醒 |
+| 等待回答 | Codex `waitingOnUserInput`；Claude 提问请求 | 等待你回答 | 回答问题 | 同上 |
+| 收口中 | 已出结果，但子 Agent、延迟结果或最终回复未确认 | 正在收口本轮结果… | 等待；可中断 | 复查子 Agent 与最终回复；确认后转空闲，超限转“未完整完成” |
+| 后台任务进行中 | 主轮次已结束，后台任务数 > 0 | 后台任务进行中 · N | 查看、停止后台任务；可继续对话（按引擎能力） | 任务全部结束后转空闲并放行队列 |
+| 自动重试中 | 上游 `error` 且 `willRetry=true` | 连接中断，自动重试 {n}/{max} | 等待；可中断 | 重试成功回到运行中；重试耗尽转“失败” |
+| 中断中 | 已请求中断，尚未确认 | 正在终止… | 再次点击重试终止 | 3 秒、5 秒复查；确认后转“已中断”，超时强制收口 |
+| 已中断·可续跑 | 用户中断，或运行中 Sidecar 丢失该轮 | 本轮已中断 | 续跑、重新发送、放弃 | 保留历史与进度；不自动续跑 |
+| 失败 | 轮次 `failed` 或 SDK 错误结果 | 按失败类型显示（见下表） | 按失败类型处理 | 不自动放行队列；记录原因 |
+| 状态待校正 | consistency≠CONSISTENT（幽灵运行、轮次不一致、持久化漂移等） | 状态待校正 · 原因 | 重新核对；必要时重载会话 | 以 Sidecar 实际快照为准自动纠正，纠正前锁定发送 |
+| 重连中 | 浏览器或 Java↔Sidecar 断开 | 正在重连会话… | 等待 | 后台重连并按真实快照恢复；恢复前不得显示空闲 |
+| 引擎不可用 | 引擎未通过运行时检测 | {引擎} 当前不可用 | 换引擎、查看检测结果 | 跳过自动恢复，提示原因 |
+| 未知 | 无法取得 Sidecar 快照 | 会话状态待确认 | 等待；重新核对 | 继续查询，不判定为空闲 |
+
+### 失败类型与后续动作
+
+| 失败类型 | 上游依据 | 用户下一步 | 系统下一步 |
+| --- | --- | --- | --- |
+| 额度或限流 | `usageLimitExceeded`、`rateLimitExceeded`、`sessionBudgetExceeded`、`error_max_budget_usd` | 等待后重试、换账号或模型、调整预算 | 显示可重试时间；不自动重发 |
+| 上下文超限 | `contextWindowExceeded`、`prompt_too_long` | 压缩上下文或新开会话续写 | 提供压缩或带摘要新建入口 |
+| 鉴权失效 | `unauthorized` | 重新登录或更新服务商配置 | 打开对应配置入口 |
+| 服务端或网络 | `serverOverloaded`、`internalServerError`、连接失败或断流、`api_error` | 重试 | 已自动重试过的不再循环重试 |
+| 请求或工具错误 | `badRequest`、`sandboxError`、`error_during_execution`、`malformed_tool_use_exhausted` | 查看详情后调整需求重发 | 保留错误详情 |
+| 内容被拒绝 | `cyberPolicy`、`misalignmentPolicyViolation`、`refusal` | 改写需求 | 不重试 |
+| 达到轮数或次数上限 | `error_max_turns`、`max_turn_requests`、`tooManyDenials` | 继续本轮、调整上限或权限 | 支持一键“继续” |
+| 未完整完成 | 我们的收口检查判定最终回复缺失或子 Agent 未收口（`incomplete`） | 让 Agent 继续或确认已完成 | 队列暂停，等待确认 |
+
+## 轮次结果
+
+结果卡片只描述“那一轮”，不代表当前空闲。
+
+| 结果 | 结束原因 | 卡片文字 |
+| --- | --- | --- |
+| 完成 | `end_turn`、`success`、`completed`、`stop` | 此轮已完成 |
+| 未完整完成 | `incomplete`、`queue_check_unconfirmed` | 此轮未确认完成 |
+| 已中断 | `interrupted`、`cancelled`、`user_cancelled` | 此轮已中断 |
+| 失败 | 其他错误原因 | 此轮失败 · {失败类型} |
+| 未入队 | `admission_rejected` | 未开始：会话忙 |
+
+## 待发送队列
+
+| 状态 | 含义 | 后续动作 |
+| --- | --- | --- |
+| 排队中 | 等待当前轮次结束 | Agent 回到“空闲·可发送”且上一轮安全结束后派发 |
+| 派发中 | 已发给 Sidecar，未确认接收 | 等待接收确认 |
+| 已接收 | Sidecar 已接收，轮次开始 | 跟随 Agent 执行状态 |
+| 已暂停 | 用户暂停 | 用户恢复后再派发 |
+| 待确认 | 上一轮结果不足以安全放行 | 用户确认后继续 |
+| 失败 | 派发或执行失败 | 用户重试或删除 |
+
+## 边界
+
+- “已连接”只表示通道连通，不表示 Agent 空闲；正常状态下不单独显示。
+- 只有“空闲·可发送”允许把最近一轮结果显示为当前状态。
+- 队列完成核对属于系统动作，界面应显示“正在核对上一轮是否完成”，不能只显示“正在运行”。
+- “被中断”不是报废：历史与进度保留，可以续跑。
+- 门控开发流程里的人工确认关卡属于前门模块编排，不属于本状态机。
