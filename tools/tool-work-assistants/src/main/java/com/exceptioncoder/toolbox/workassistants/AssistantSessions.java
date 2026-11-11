@@ -1,4 +1,4 @@
-package com.exceptioncoder.toolbox.claudechat.workassistants;
+package com.exceptioncoder.toolbox.workassistants;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;

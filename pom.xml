@@ -48,6 +48,7 @@
         <module>tools/tool-docker</module>
         <module>tools/tool-ffmpeg-lab</module>
         <module>tools/tool-business-dev</module>
+        <module>tools/tool-work-assistants</module>
         <module>tools/tool-claude-chat</module>
         <module>tools/tool-video-condense</module>
         <module>tools/tool-workline</module>
@@ -255,6 +256,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-business-dev</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-work-assistants</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

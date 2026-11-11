@@ -1,7 +1,7 @@
-package com.exceptioncoder.toolbox.claudechat.workassistants.planning;
+package com.exceptioncoder.toolbox.workassistants.planning;
 
-import com.exceptioncoder.toolbox.claudechat.workassistants.AssistantConversationService;
-import com.exceptioncoder.toolbox.claudechat.workassistants.AssistantEvidence;
+import com.exceptioncoder.toolbox.workassistants.AssistantConversationService;
+import com.exceptioncoder.toolbox.workassistants.AssistantEvidence;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;

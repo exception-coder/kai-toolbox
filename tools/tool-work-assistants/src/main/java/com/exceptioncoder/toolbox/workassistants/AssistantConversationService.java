@@ -1,4 +1,4 @@
-package com.exceptioncoder.toolbox.claudechat.workassistants;
+package com.exceptioncoder.toolbox.workassistants;
 
 import com.exceptioncoder.toolbox.common.auth.AuthException;
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;

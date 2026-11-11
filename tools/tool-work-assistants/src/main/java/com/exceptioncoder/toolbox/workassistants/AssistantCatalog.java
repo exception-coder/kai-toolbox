@@ -1,4 +1,4 @@
-package com.exceptioncoder.toolbox.claudechat.workassistants;
+package com.exceptioncoder.toolbox.workassistants;
 
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;

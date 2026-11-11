@@ -125,6 +125,10 @@
         </dependency>
         <dependency>
             <groupId>com.exceptioncoder</groupId>
+            <artifactId>tool-work-assistants</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
             <artifactId>tool-video-condense</artifactId>
         </dependency>
         <dependency>

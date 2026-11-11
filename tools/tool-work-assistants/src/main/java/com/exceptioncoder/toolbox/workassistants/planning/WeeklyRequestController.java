@@ -1,6 +1,6 @@
-package com.exceptioncoder.toolbox.claudechat.workassistants.planning;
+package com.exceptioncoder.toolbox.workassistants.planning;
 
-import com.exceptioncoder.toolbox.claudechat.workassistants.AssistantConversationService;
+import com.exceptioncoder.toolbox.workassistants.AssistantConversationService;
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import org.springframework.web.bind.annotation.*;
 

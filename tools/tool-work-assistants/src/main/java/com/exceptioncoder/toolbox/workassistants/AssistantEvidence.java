@@ -1,4 +1,4 @@
-package com.exceptioncoder.toolbox.claudechat.workassistants;
+package com.exceptioncoder.toolbox.workassistants;
 
 import com.exceptioncoder.toolbox.common.git.GitLogService;
 import com.exceptioncoder.toolbox.common.project.ProjectAccess;
