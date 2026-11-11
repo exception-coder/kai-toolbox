@@ -59,7 +59,7 @@ class ClaudeChatSessionRecoveryTest {
         when(socket.getId()).thenReturn("socket-1");
         when(socket.getUri()).thenReturn(URI.create("ws://localhost/api/claude-chat/ws"));
         when(socket.isOpen()).thenReturn(true);
-        var contextClass = Class.forName(ClaudeChatService.class.getName() + "$SessionCtx");
+        var contextClass = Class.forName(ClaudeChatService.class.getPackageName() + ".SessionCtx");
         var contextConstructor = contextClass.getDeclaredConstructor(String.class, String.class);
         contextConstructor.setAccessible(true);
         context = contextConstructor.newInstance("session-1", "D:/project");

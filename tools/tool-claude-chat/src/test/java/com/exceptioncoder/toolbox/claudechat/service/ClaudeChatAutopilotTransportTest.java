@@ -39,7 +39,7 @@ class ClaudeChatAutopilotTransportTest {
             return dependency;
         }).toArray();
         chat = (ClaudeChatService) constructor.newInstance(arguments);
-        var contextConstructor = Class.forName(ClaudeChatService.class.getName() + "$SessionCtx")
+        var contextConstructor = Class.forName(ClaudeChatService.class.getPackageName() + ".SessionCtx")
                 .getDeclaredConstructor(String.class, String.class);
         contextConstructor.setAccessible(true);
         context = contextConstructor.newInstance("session-1", root.toString());

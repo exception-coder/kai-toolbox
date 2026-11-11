@@ -111,6 +111,8 @@ public class ClaudeChatService {
     private final AssistantConversationBindingService assistantConversationBindings;
     private final ProjectRouteBindingService projectRouteBindingService;
     private final ObjectMapper mapper;
+    /** 浏览器事件通道：打序号、入缓冲、广播、回放与错误下发。 */
+    private final SessionEventChannel events;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
     private final List<AgentRunCompletionListener> completionListeners;
@@ -210,6 +212,7 @@ public class ClaudeChatService {
         this.assistantConversationBindings = assistantConversationBindings;
         this.projectRouteBindingService = projectRouteBindingService;
         this.mapper = mapper;
+        this.events = new SessionEventChannel(mapper, props::getEventBufferSize);
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
         this.completionListeners = List.copyOf(completionListeners);
@@ -267,24 +270,24 @@ public class ClaudeChatService {
                     ? System.getProperty("user.home") : open.cwd().trim();
             sessionAccessPolicy.requireProjectAllowed(cwd);
         } catch (IllegalArgumentException exception) {
-            sendError(ws, 0, "PROJECT_NOT_BOUND", exception.getMessage());
+            events.sendError(ws, 0, "PROJECT_NOT_BOUND", exception.getMessage());
             return;
         }
 
         String engine = normalizeEngine(open.engine());
         if (!engineCatalog.selectable(engine)) {
-            sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，请刷新引擎目录后重试");
+            events.sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，请刷新引擎目录后重试");
             return;
         }
         if (consultReadonly && !"claude".equals(engine) && !"codex".equals(engine)) {
-            sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
+            events.sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
             return;
         }
         // 可接入会话级网关的引擎复用档案；其余引擎使用各自运行时配置。
         boolean gatewayCapable = SessionProviderCapabilities.supportsGateway(engine);
         String profileId = blankToNull(open.providerProfileId());
         if ((profileId != null || blankToNull(open.apiBaseUrl()) != null) && (consultReadonly || !gatewayCapable)) {
-            sendError(ws, 0, "PROVIDER_UNSUPPORTED", "当前会话不支持第三方服务商档案");
+            events.sendError(ws, 0, "PROVIDER_UNSUPPORTED", "当前会话不支持第三方服务商档案");
             return;
         }
         // 业务咨询不接受浏览器指定的第三方网关，避免把源码/业务数据送往任意外部地址。
@@ -297,7 +300,7 @@ public class ClaudeChatService {
                 apiBaseUrl = credentials.baseUrl();
                 authToken = credentials.key();
             } catch (IllegalArgumentException error) {
-                sendError(ws, 0, "BAD_PROVIDER_PROFILE", error.getMessage());
+                events.sendError(ws, 0, "BAD_PROVIDER_PROFILE", error.getMessage());
                 return;
             }
         }
@@ -310,7 +313,7 @@ public class ClaudeChatService {
         try {
             title = normalizeNewSessionTitle(open.title());
         } catch (IllegalArgumentException exception) {
-            sendError(ws, 0, "BAD_SESSION_TITLE", "会话名称不能超过 200 个字符");
+            events.sendError(ws, 0, "BAD_SESSION_TITLE", "会话名称不能超过 200 个字符");
             return;
         }
         ClaudeChatSession candidate = ClaudeChatSession.builder()
@@ -328,7 +331,7 @@ public class ClaudeChatService {
         try {
             binding = assistantConversationBindings.resolveOrCreate(candidate);
         } catch (IllegalArgumentException exception) {
-            sendError(ws, 0, "BAD_ASSISTANT_PAGE", exception.getMessage());
+            events.sendError(ws, 0, "BAD_ASSISTANT_PAGE", exception.getMessage());
             return;
         }
         if (!binding.created()) {
@@ -427,27 +430,27 @@ public class ClaudeChatService {
                     log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
                 }
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
-                writeTo(ws, ready(restored));
+                events.writeTo(ws, ready(restored));
                 if (!engineSelectable) {
-                    writeTo(ws, new ServerMessage.Error(0, "ENGINE_UNAVAILABLE",
+                    events.writeTo(ws, new ServerMessage.Error(0, "ENGINE_UNAVAILABLE",
                             "该会话使用的引擎当前未通过 Runtime 检测；历史仍可查看，恢复运行前请重新检测引擎"));
                 }
                 pushGatewayModels(restored); // 重连恢复网关会话：重发网关模型目录
                 return;
             }
-            sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
             return;
         }
         if (!canBind(ws, ctx.executionPolicy, attach.sessionId())) return;
         bindViewer(ws, ctx);
         if (replayBufferedEvents) {
-            warnIfReplayGap(ctx, ws, attach.lastEventSeq());
-            replayBuffer(ctx, ws, attach.lastEventSeq());
-            redeliverPending(ctx, ws, attach.lastEventSeq());
+            events.warnIfReplayGap(ctx, ws, attach.lastEventSeq());
+            events.replayBuffer(ctx, ws, attach.lastEventSeq());
+            events.redeliverPending(ctx, ws, attach.lastEventSeq());
         }
         ensureSessionResumable(ctx); // sidecar 也断了的话借浏览器重连顺带恢复
         // 回推一次会话状态：让重连端按 status 同步 running，纠正「result 已被缓冲淘汰 → 永久卡在正在思考」
-        writeTo(ws, ready(ctx));
+        events.writeTo(ws, ready(ctx));
         pushGatewayModels(ctx); // 网关会话重连：重发网关模型目录
         log.info("[claude-chat] attach 会话 {} from seq>{}, replay={}",
                 ctx.sessionId, attach.lastEventSeq(), replayBufferedEvents);
@@ -458,7 +461,7 @@ public class ClaudeChatService {
         if (!ensureSidecar(ws)) return;
         ClaudeChatSession db = repo.findById(msg.sessionId()).orElse(null);
         if (db == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在");
             return;
         }
         String executionPolicy = executionPolicyOf(db);
@@ -468,8 +471,8 @@ public class ClaudeChatService {
             synchronized (existing) {
                 // Another viewer must not replace a running consultation's frozen account/native handle.
                 bindViewer(ws, existing);
-                writeTo(ws, ready(existing));
-                if (existing.pendingRequest != null) writeTo(ws, existing.pendingRequest);
+                events.writeTo(ws, ready(existing));
+                if (existing.pendingRequest != null) events.writeTo(ws, existing.pendingRequest);
             }
             return;
         }
@@ -495,14 +498,14 @@ public class ClaudeChatService {
                     ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy, ctx.consultEvidenceSystems);
         }
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
-        sendToBrowser(ctx, seq -> ready(ctx, seq));
+        events.sendToBrowser(ctx, seq -> ready(ctx, seq));
         if (!engineSelectable) {
-            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
+            events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
                     "该会话使用的引擎当前未通过 Runtime 检测；历史仍可查看，恢复运行前请重新检测引擎"));
         }
         // 该会话若有未决权限/提问请求，随切换补发一次：不然只有 attach（断线重连）路径会重投，
         // 从跨会话横幅点「去确认」走的是这条 switchSession，之前收不到，弹窗切过去后"看不到题面"。
-        if (ctx.pendingRequest != null) writeTo(ws, ctx.pendingRequest);
+        if (ctx.pendingRequest != null) events.writeTo(ws, ctx.pendingRequest);
         pushGatewayModels(ctx); // 切到网关会话：重发网关模型目录，命令菜单可选/切
     }
 
@@ -514,12 +517,12 @@ public class ClaudeChatService {
         if (!ensureSidecar(ws)) return;
         String sourceSessionId = blankToNull(msg.sourceSessionId());
         if (sourceSessionId == null) {
-            sendError(ws, 0, "BAD_MESSAGE", "缺少源会话 ID");
+            events.sendError(ws, 0, "BAD_MESSAGE", "缺少源会话 ID");
             return;
         }
         ClaudeChatSession source = repo.findById(sourceSessionId).orElse(null);
         if (source == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "源会话不存在");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "源会话不存在");
             return;
         }
         String executionPolicy = executionPolicyOf(source);
@@ -529,7 +532,7 @@ public class ClaudeChatService {
         long now = System.currentTimeMillis();
         String engine = normalizeEngine(source.getEngine());
         if (!engineCatalog.selectable(engine)) {
-            sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，不能复制为可运行会话");
+            events.sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，不能复制为可运行会话");
             return;
         }
         boolean reuseAuthSession = !Boolean.FALSE.equals(msg.reuseAuthSession());
@@ -569,7 +572,7 @@ public class ClaudeChatService {
                 switchSession(ws, new ClientMessage.SwitchSession(existing));
                 return;
             }
-            sendError(ws, 0, "AUTH_SWITCH_FAILED", "授权目录会话关联失败，请重试");
+            events.sendError(ws, 0, "AUTH_SWITCH_FAILED", "授权目录会话关联失败，请重试");
             return;
         }
         sessionProjectDirectories.copy(sourceSessionId, sessionId);
@@ -612,11 +615,11 @@ public class ClaudeChatService {
     public void resumeHistory(WebSocketSession ws, ClientMessage.ResumeHistory msg) {
         if (!ensureSidecar(ws)) return;
         if (SessionExecutionPolicy.isConsultReadonly(SessionExecutionPolicy.forWebSocket(ws.getUri()))) {
-            sendError(ws, 0, "READONLY_POLICY", "业务咨询通道不能导入或续跑任意历史会话");
+            events.sendError(ws, 0, "READONLY_POLICY", "业务咨询通道不能导入或续跑任意历史会话");
             return;
         }
         if (msg.sdkSessionId() == null || msg.sdkSessionId().isBlank()) {
-            sendError(ws, 0, "BAD_MESSAGE", "缺少 sdkSessionId");
+            events.sendError(ws, 0, "BAD_MESSAGE", "缺少 sdkSessionId");
             return;
         }
         String id = UUID.randomUUID().toString();
@@ -639,7 +642,7 @@ public class ClaudeChatService {
         sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
                 ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
                 ctx.consultEvidenceSystems);
-        sendToBrowser(ctx, seq -> ready(ctx, seq));
+        events.sendToBrowser(ctx, seq -> ready(ctx, seq));
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
     }
 
@@ -673,14 +676,14 @@ public class ClaudeChatService {
             }
         }
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         synchronized (ctx) {
             observeRuntimeState(ctx);
             SessionRuntimeStateService.SendDecision decision = runtimeStates.canReload(ctx.sessionId);
             if (!decision.allowed()) {
-                sendError(ws, 0, "SESSION_STATE_UNCONFIRMED", "暂不能重载会话：" + decision.reason(), false);
+                events.sendError(ws, 0, "SESSION_STATE_UNCONFIRMED", "暂不能重载会话：" + decision.reason(), false);
                 return;
             }
             reloadIdleSession(ws, ctx);
@@ -692,7 +695,7 @@ public class ClaudeChatService {
         if (!canBind(ws, ctx.executionPolicy, ctx.sessionId)) return;
         if (!ensureSidecar(ws)) return;
         if (!engineCatalog.selectable(ctx.engine)) {
-            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
+            events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
                     "当前引擎尚未通过 Runtime 检测，当前会话不能恢复运行"));
             return;
         }
@@ -713,7 +716,7 @@ public class ClaudeChatService {
         String sdkSessionId = blankToNull(ctx.engineSessions.get(ctx.engine));
         if (sdkSessionId == null) sdkSessionId = blankToNull(ctx.sdkSessionId);
         if (sdkSessionId == null && !canResumeWithoutNativeSessionId(ctx.engine)) {
-            sendToBrowser(ctx, seq -> new ServerMessage.Error(
+            events.sendToBrowser(ctx, seq -> new ServerMessage.Error(
                     seq, "SESSION_NOT_RESUMABLE", "当前 agent 还没有可 resume 的原生会话"));
             return;
         }
@@ -725,11 +728,11 @@ public class ClaudeChatService {
                 ctx.consultEvidenceSystems);
         SessionRuntimeStateService.SendDecision confirmed = runtimeStates.canReload(ctx.sessionId);
         if (!confirmed.allowed() || "RESTORABLE_SESSION_MISSING".equals(confirmed.code())) {
-            sendError(ws, 0, "SESSION_STATE_UNCONFIRMED", "重载尚未确认完成：" + confirmed.reason(), false);
+            events.sendError(ws, 0, "SESSION_STATE_UNCONFIRMED", "重载尚未确认完成：" + confirmed.reason(), false);
             return;
         }
         restoreIdleState(ctx);
-        sendToBrowser(ctx, seq -> ready(ctx, seq));
+        events.sendToBrowser(ctx, seq -> ready(ctx, seq));
         pushGatewayModels(ctx);
         log.info("[claude-chat] resumeCurrent session={} engine={} sdk={}", ctx.sessionId, ctx.engine, sdkSessionId);
     }
@@ -741,7 +744,7 @@ public class ClaudeChatService {
     private void sendUserMessage(WebSocketSession ws, ClientMessage.Send msg, String turnPolicy) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         synchronized (ctx) {
@@ -758,21 +761,21 @@ public class ClaudeChatService {
             }
             if (messageId != null && (ctx.acceptedMessageIds.contains(messageId)
                     || isConsultReadonly(ctx) && consultRuntime != null && consultRuntime.accepted(ctx.sessionId, messageId))) {
-                sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
+                events.sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
                 return;
             }
             if (!planStateService.writable(ctx.sessionId)) {
-                sendError(ws, 0, "PLAN_EXPIRED", "该规划已过期，请先解锁后继续");
+                events.sendError(ws, 0, "PLAN_EXPIRED", "该规划已过期，请先解锁后继续");
                 return;
             }
             if (ctx.status == SessionStatus.RUNNING) {
-                sendError(ws, 0, "TURN_BUSY", "当前轮仍在运行或中断收口中，请稍后再发送");
+                events.sendError(ws, 0, "TURN_BUSY", "当前轮仍在运行或中断收口中，请稍后再发送");
                 return;
             }
             // 快速拒绝可避免 drain 期间为一条注定不会启动的消息重连 sidecar；真正
             // startTurn 时仍会再次走原子门禁，覆盖此检查后的并发切换。
             if (admissionGate.isDraining()) {
-                sendError(ws, 0, "SYSTEM_UPDATING",
+                events.sendError(ws, 0, "SYSTEM_UPDATING",
                         "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
                 return;
             }
@@ -786,7 +789,7 @@ public class ClaudeChatService {
             }
             SessionRuntimeStateService.SendDecision decision = runtimeStates.canStartTurn(ctx.sessionId);
             if (!decision.allowed()) {
-                sendError(ws, 0, "SESSION_STATE_UNCONFIRMED",
+                events.sendError(ws, 0, "SESSION_STATE_UNCONFIRMED",
                         "会话全链路状态尚未允许发送：" + decision.reason());
                 return;
             }
@@ -801,18 +804,18 @@ public class ClaudeChatService {
                 String code = error instanceof ClaudeOptionsMismatchException ? "CLAUDE_OPTIONS_INVALID"
                         : error instanceof ConsultRuntimeCoordinator.PreparationFailure
                         ? "CONSULT_ACCOUNT_HANDOFF_FAILED" : "SEND_STATUS_UNCONFIRMED";
-                sendError(ws, 0, code, error.getMessage());
+                events.sendError(ws, 0, code, error.getMessage());
                 return;
             }
             if (!started) {
                 voiceService.cancel(ctx.sessionId);
-                sendError(ws, 0, "SYSTEM_UPDATING",
+                events.sendError(ws, 0, "SYSTEM_UPDATING",
                         "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
                 return;
             }
             if (messageId != null) {
                 rememberAcceptedMessage(ctx, messageId);
-                sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
+                events.sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
             }
         }
     }
@@ -830,33 +833,33 @@ public class ClaudeChatService {
     public void steerUserMessage(WebSocketSession ws, ClientMessage.Steer msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         synchronized (ctx) {
             String messageId = blankToNull(msg.messageId());
             String text = msg.text() == null ? "" : msg.text().trim();
             if (text.isEmpty()) {
-                sendError(ws, 0, "INVALID_STEER_MESSAGE", "追加内容不能为空");
+                events.sendError(ws, 0, "INVALID_STEER_MESSAGE", "追加内容不能为空");
                 return;
             }
             if (ctx.status != SessionStatus.RUNNING || !"codex".equals(ctx.engine)
                     || blankToNull(ctx.apiBaseUrl) != null) {
-                sendError(ws, 0, "STEER_UNAVAILABLE", "当前会话没有可追加内容的官方 Codex 轮次");
+                events.sendError(ws, 0, "STEER_UNAVAILABLE", "当前会话没有可追加内容的官方 Codex 轮次");
                 return;
             }
             if (messageId != null && ctx.acceptedMessageIds.contains(messageId)) {
-                sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
+                events.sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
                 return;
             }
             applicationEvents.publishEvent(new SessionManualInputEvent(ctx.sessionId, "STEER"));
             if (!sidecar.steer(ctx.sessionId, text)) {
-                sendError(ws, 0, "SIDECAR_DOWN", "追加内容失败：Sidecar 当前不可用");
+                events.sendError(ws, 0, "SIDECAR_DOWN", "追加内容失败：Sidecar 当前不可用");
                 return;
             }
             if (messageId != null) {
                 rememberAcceptedMessage(ctx, messageId);
-                sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
+                events.sendToBrowser(ctx, seq -> new ServerMessage.SendAccepted(seq, messageId));
             }
         }
     }
@@ -872,7 +875,7 @@ public class ClaudeChatService {
     public void queueUserMessage(WebSocketSession ws, ClientMessage.Queue msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         try {
@@ -882,9 +885,9 @@ public class ClaudeChatService {
                                     attachment.id(), attachment.name(), attachment.path(), attachment.mime()))
                             .toList(), msg.createdAt());
             int queueSize = queuedMessages.list(ctx.sessionId).size();
-            sendToBrowser(ctx, seq -> new ServerMessage.QueueAccepted(seq, msg.id(), queueSize));
+            events.sendToBrowser(ctx, seq -> new ServerMessage.QueueAccepted(seq, msg.id(), queueSize));
         } catch (IllegalArgumentException exception) {
-            sendError(ws, 0, "INVALID_QUEUE_MESSAGE", exception.getMessage());
+            events.sendError(ws, 0, "INVALID_QUEUE_MESSAGE", exception.getMessage());
         }
     }
 
@@ -931,7 +934,7 @@ public class ClaudeChatService {
 
     private ConsultRuntimeCoordinator.Plan prepareConsultTurn(SessionCtx ctx, ClientMessage.Send msg) {
         if (!isConsultReadonly(ctx) || consultRuntime == null) return null;
-        sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "CONSULT_CONTEXT_CONNECTING", "正在核对咨询账号与历史上下文……"));
+        events.sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "CONSULT_CONTEXT_CONNECTING", "正在核对咨询账号与历史上下文……"));
         try { return consultRuntime.prepare(repo.findById(ctx.sessionId).orElseThrow(), msg); }
         catch (RuntimeException error) { throw new ConsultRuntimeCoordinator.PreparationFailure(error.getMessage(), error); }
     }
@@ -1047,7 +1050,7 @@ public class ClaudeChatService {
             }
             if (ctx.status == SessionStatus.RUNNING && turnLifecycle.currentTurnId(ctx.sessionId).filter(turnId::equals).isPresent()) {
                 ctx.activeModelConfiguration = turnModelConfiguration;
-                sendToBrowser(ctx, seq -> new ServerMessage.ModelConfiguration(seq, turnModelConfiguration));
+                events.sendToBrowser(ctx, seq -> new ServerMessage.ModelConfiguration(seq, turnModelConfiguration));
             }
         } catch (RuntimeException e) {
             voiceService.cancel(ctx.sessionId);
@@ -1130,14 +1133,14 @@ public class ClaudeChatService {
         if (!delivered) {
             // sidecar 断开时决策送不到（前端已乐观关弹窗）：明确回告未送达，别让用户误以为已批准而干等超时。
             // 不清 pendingRequest、不广播「已解决」，重连 attach 时可重投该请求。
-            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "DECISION_UNDELIVERED",
+            events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "DECISION_UNDELIVERED",
                     "确认未送达：sidecar 已断开，正在自动重连。重连后请对该操作重新确认或用「原生 resume」继续。"));
             return false;
         }
         ctx.pendingRequest = null;
         broadcastPendingSessions();
         // 多端同看：广播「该请求已被处理」，让其它客户端关掉同一个弹窗
-        sendToBrowser(ctx, seq -> new ServerMessage.DecisionResolved(seq, msg.reqId()));
+        events.sendToBrowser(ctx, seq -> new ServerMessage.DecisionResolved(seq, msg.reqId()));
         return true;
     }
 
@@ -1145,7 +1148,7 @@ public class ClaudeChatService {
     public void setMode(WebSocketSession ws, ClientMessage.SetMode msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         if (rejectReviewMutation(ws, ctx)) return;
@@ -1155,17 +1158,17 @@ public class ClaudeChatService {
                 sidecar.setMode(ctx.sessionId, ctx.mode);
                 return;
             }
-            sendError(ws, 0, "READONLY_POLICY", "业务咨询会话的只读权限不可切换");
+            events.sendError(ws, 0, "READONLY_POLICY", "业务咨询会话的只读权限不可切换");
             return;
         }
         if (!isValidMode(msg.mode())) {
-            sendError(ws, 0, "BAD_MODE", "非法权限模式：" + msg.mode());
+            events.sendError(ws, 0, "BAD_MODE", "非法权限模式：" + msg.mode());
             return;
         }
         ctx.mode = msg.mode();
         if (!ctx.demo) repo.updatePermissionMode(ctx.sessionId, ctx.mode);
         sidecar.setMode(ctx.sessionId, ctx.mode);
-        sendToBrowser(ctx, seq -> new ServerMessage.ModeChanged(seq, ctx.mode));
+        events.sendToBrowser(ctx, seq -> new ServerMessage.ModeChanged(seq, ctx.mode));
         log.info("[claude-chat] 会话 {} 切换权限模式 -> {}", ctx.sessionId, ctx.mode);
     }
 
@@ -1179,7 +1182,7 @@ public class ClaudeChatService {
     public void setAutoApprove(WebSocketSession ws, ClientMessage.SetAutoApprove msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         if (rejectReviewMutation(ws, ctx)) return;
@@ -1187,7 +1190,7 @@ public class ClaudeChatService {
             ctx.autoApprove = false;
             sidecar.setAutoApprove(ctx.sessionId, false);
             if (msg.autoApprove()) {
-                sendError(ws, 0, "READONLY_POLICY", "业务咨询会话禁止开启自动放行");
+                events.sendError(ws, 0, "READONLY_POLICY", "业务咨询会话禁止开启自动放行");
             }
             return;
         }
@@ -1200,14 +1203,14 @@ public class ClaudeChatService {
     public void setModel(WebSocketSession ws, ClientMessage.SetModel msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         if (rejectReviewMutation(ws, ctx)) return;
         ctx.currentModel = msg.model();
         repo.updateSelectedModel(ctx.sessionId, blankToNull(msg.model()));
         sidecar.setModel(ctx.sessionId, msg.model());
-        sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
+        events.sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
         log.info("[claude-chat] 会话 {} 切换模型 -> {}", ctx.sessionId, msg.model());
     }
 
@@ -1215,7 +1218,7 @@ public class ClaudeChatService {
     public void refreshModels(WebSocketSession ws) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         if (ctx.apiBaseUrl != null && SessionProviderCapabilities.supportsGateway(ctx.engine)) {
@@ -1230,7 +1233,7 @@ public class ClaudeChatService {
     public void refreshCapabilities(WebSocketSession ws) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         sidecar.refreshCapabilities(ctx.sessionId);
@@ -1240,22 +1243,22 @@ public class ClaudeChatService {
     public void setClaudeOptions(WebSocketSession ws, ClientMessage.SetClaudeOptions msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         if (rejectReviewMutation(ws, ctx)) return;
         if (!"claude".equals(ctx.engine) || SessionExecutionPolicy.isConsultReadonly(ctx.executionPolicy)) {
-            sendError(ws, 0, "CLAUDE_OPTIONS_UNSUPPORTED", "当前会话不支持修改 Claude 强度", false);
+            events.sendError(ws, 0, "CLAUDE_OPTIONS_UNSUPPORTED", "当前会话不支持修改 Claude 强度", false);
             return;
         }
         try {
             var options = new ClaudeSessionOptions(msg.effort(), msg.ultracode());
             validateClaudeOptions(ctx.models, ctx.currentModel, options);
             claudeOptions.save(ctx.sessionId, options);
-            sendToBrowser(ctx, seq -> ready(ctx, seq));
+            events.sendToBrowser(ctx, seq -> ready(ctx, seq));
         } catch (IllegalArgumentException error) {
-            sendToBrowser(ctx, seq -> ready(ctx, seq));
-            sendError(ws, 0, "CLAUDE_OPTIONS_INVALID", error.getMessage(), false);
+            events.sendToBrowser(ctx, seq -> ready(ctx, seq));
+            events.sendError(ws, 0, "CLAUDE_OPTIONS_INVALID", error.getMessage(), false);
         }
     }
 
@@ -1282,7 +1285,7 @@ public class ClaudeChatService {
     public void setCodexOptions(WebSocketSession ws, ClientMessage.SetCodexOptions msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         if (rejectReviewMutation(ws, ctx)) return;
@@ -1302,21 +1305,21 @@ public class ClaudeChatService {
     public void switchEngine(WebSocketSession ws, ClientMessage.SwitchEngine msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         if (rejectReviewMutation(ws, ctx)) return;
         String engine = normalizeEngine(msg.engine());
         if (blankToNull(ctx.apiBaseUrl) != null && !SessionProviderCapabilities.supportsGateway(engine)) {
-            sendError(ws, 0, "PROVIDER_UNSUPPORTED", "目标引擎不支持会话级网关，请先切回原生服务商再切换引擎");
+            events.sendError(ws, 0, "PROVIDER_UNSUPPORTED", "目标引擎不支持会话级网关，请先切回原生服务商再切换引擎");
             return;
         }
         if (!engineCatalog.selectable(engine)) {
-            sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，请刷新引擎目录后重试");
+            events.sendError(ws, 0, "ENGINE_UNAVAILABLE", "当前引擎尚未通过 Runtime 检测，请刷新引擎目录后重试");
             return;
         }
         if (isConsultReadonly(ctx) && !"claude".equals(engine) && !"codex".equals(engine)) {
-            sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
+            events.sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
             return;
         }
         if (engine.equals(ctx.engine)) return; // 同引擎无需切
@@ -1332,7 +1335,7 @@ public class ClaudeChatService {
         ctx.models = List.of(); // 旧引擎目录不得在目标引擎认证失败时继续显示。
         repo.switchEngine(ctx.sessionId, engine, engines, target, writeEngineSessions(ctx.engineSessions));
         repo.updateSelectedModel(ctx.sessionId, null);
-        sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
+        events.sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
         sidecar.switchEngine(ctx.sessionId, engine, target, ctx.apiBaseUrl, ctx.authToken);
         log.info("[claude-chat] 会话 {} 切 agent -> {}（engines={}，resume={}）",
                 ctx.sessionId, engine, engines, target != null);
@@ -1346,12 +1349,12 @@ public class ClaudeChatService {
     public void switchProvider(WebSocketSession ws, ClientMessage.SwitchProvider msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         if (rejectReviewMutation(ws, ctx)) return;
         if (isConsultReadonly(ctx)) {
-            sendError(ws, 0, "READONLY_POLICY", "业务咨询会话不允许切换到第三方网关");
+            events.sendError(ws, 0, "READONLY_POLICY", "业务咨询会话不允许切换到第三方网关");
             return;
         }
         // 会话级网关配置由各引擎适配器消费；其余引擎仍自管运行时配置。
@@ -1360,7 +1363,7 @@ public class ClaudeChatService {
         String apiBaseUrl = gatewayCapable ? blankToNull(msg.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(msg.authToken());
         if (!gatewayCapable && (blankToNull(msg.apiBaseUrl()) != null || profileId != null)) {
-            sendError(ws, 0, "PROVIDER_UNSUPPORTED", "当前 agent 不支持第三方网关");
+            events.sendError(ws, 0, "PROVIDER_UNSUPPORTED", "当前 agent 不支持第三方网关");
             return;
         }
         if (profileId != null) {
@@ -1370,8 +1373,8 @@ public class ClaudeChatService {
                 apiBaseUrl = credentials.baseUrl();
                 authToken = credentials.key();
             } catch (IllegalArgumentException error) {
-                sendError(ws, 0, "BAD_PROVIDER_PROFILE", error.getMessage());
-                sendToBrowser(ctx, seq -> ready(ctx, seq));
+                events.sendError(ws, 0, "BAD_PROVIDER_PROFILE", error.getMessage());
+                events.sendToBrowser(ctx, seq -> ready(ctx, seq));
                 return;
             }
         }
@@ -1385,7 +1388,7 @@ public class ClaudeChatService {
         }
         repo.updateProvider(ctx.sessionId, apiBaseUrl, authToken);
         sidecar.switchProvider(ctx.sessionId, apiBaseUrl, authToken);
-        sendToBrowser(ctx, seq -> ready(ctx, seq)); // 重发 Ready：providerKind/baseUrl 同步到所有看此会话的端
+        events.sendToBrowser(ctx, seq -> ready(ctx, seq)); // 重发 Ready：providerKind/baseUrl 同步到所有看此会话的端
         pushGatewayModels(ctx);                      // 网关会话拉模型目录；官方会话内部直接跳过
         log.info("[claude-chat] 会话 {} 切服务商 -> {}", ctx.sessionId, apiBaseUrl == null ? "官方登录" : apiBaseUrl);
     }
@@ -1504,9 +1507,9 @@ public class ClaudeChatService {
                 return;
             }
             ctx.models = result.models();
-            sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
+            events.sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
             if (result.error() != null) {
-                sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "PROVIDER_MODELS_UNAVAILABLE", result.error()));
+                events.sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "PROVIDER_MODELS_UNAVAILABLE", result.error()));
             }
         });
     }
@@ -1541,21 +1544,21 @@ public class ClaudeChatService {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
             log.warn("[claude-chat] 忽略中断请求：浏览器连接尚未绑定会话 ws={}", ws.getId());
-            sendError(ws, 0, "SESSION_NOT_FOUND", "当前连接尚未绑定会话，中断未发送");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "当前连接尚未绑定会话，中断未发送");
             return;
         }
         if (ctx.status != SessionStatus.RUNNING) {
             var snapshot = sidecar.querySessionState(ctx.sessionId, null,
                     SessionRuntimeStateService.SIDECAR_QUERY_TIMEOUT_MS).orElse(null);
             if (snapshot == null) {
-                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "INTERRUPT_STATE_UNKNOWN",
+                events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "INTERRUPT_STATE_UNKNOWN",
                         "暂时无法核对引擎状态，请稍后重试终止；待发送消息已保留", false));
                 return;
             }
             restoreActiveTurnForInterrupt(ctx, snapshot);
             if (ctx.status != SessionStatus.RUNNING) {
                 cancelSettledQueue(ctx);
-                sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(
+                events.sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(
                         seq, "alreadyStopped", false, ctx.pendingRequest != null));
                 return;
             }
@@ -1563,7 +1566,7 @@ public class ClaudeChatService {
         String turnId = turnLifecycle.currentTurnId(ctx.sessionId).orElse(null);
         boolean delivered = sidecar.interrupt(ctx.sessionId, turnId);
         if (delivered) {
-            sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(
+            events.sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(
                     seq, "requested", true, ctx.pendingRequest != null));
             AgentSpan span = activeTurnSpans.get(ctx.sessionId);
             if (span != null) {
@@ -1583,7 +1586,7 @@ public class ClaudeChatService {
         }
         log.warn("[claude-chat] 中断请求发送失败：sidecar 未连接 session={} engine={}",
                 ctx.sessionId, ctx.engine);
-        sendToBrowser(ctx, seq -> new ServerMessage.Error(
+        events.sendToBrowser(ctx, seq -> new ServerMessage.Error(
                 seq, "INTERRUPT_UNDELIVERED", "中断未送达：sidecar 当前未连接，请等待重连后重试"));
     }
 
@@ -1615,7 +1618,7 @@ public class ClaudeChatService {
                     || !queueDelivery.runtime(ctx.sessionId).filter(expected::equals).isPresent()
                     || !queueDelivery.delivery(ctx.sessionId).filter(delivery::equals).isPresent()) return;
             queueDelivery.settle(ctx.sessionId, expected.turnId(), "interrupted", false);
-            sendToBrowser(ctx, seq -> ready(ctx, seq));
+            events.sendToBrowser(ctx, seq -> ready(ctx, seq));
         }
     }
 
@@ -1626,15 +1629,15 @@ public class ClaudeChatService {
     public void forkSession(WebSocketSession ws, ClientMessage.ForkSession msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
-            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            events.sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
         if (msg.upToMessageId() == null || msg.upToMessageId().isBlank()) {
-            sendError(ws, 0, "BAD_MESSAGE", "缺少要分叉到的消息标识");
+            events.sendError(ws, 0, "BAD_MESSAGE", "缺少要分叉到的消息标识");
             return;
         }
         if (ctx.status == SessionStatus.RUNNING) {
-            sendError(ws, 0, "FORK_BUSY", "当前回复尚未结束，请先等待完成或中断后再分叉");
+            events.sendError(ws, 0, "FORK_BUSY", "当前回复尚未结束，请先等待完成或中断后再分叉");
             return;
         }
         if (!ensureSessionResumable(ctx)) return;
@@ -1652,7 +1655,7 @@ public class ClaudeChatService {
         if (ctx == null) return;
         ctx.viewers.remove(ws);
         // 演示会话是一次性的：最后一个观察者断开即中断并销毁副本（不像正式会话那样留在 sidecar 续跑）。
-        if (ctx.demo && !hasActiveViewer(ctx)) {
+        if (ctx.demo && !events.hasActiveViewer(ctx)) {
             sidecar.interrupt(sessionId);
             turnLifecycle.clear(sessionId);
             AgentSpan span = activeTurnSpans.remove(sessionId);
@@ -1764,14 +1767,14 @@ public class ClaudeChatService {
                 ctx.capabilitySource = node.path("capabilitySource").asText("unknown");
                 ctx.capabilityRefreshedAt = node.path("capabilityRefreshedAt").asLong(System.currentTimeMillis());
                 ctx.capabilityErrors = parseStringList(node.get("capabilityErrors"));
-                sendToBrowser(ctx, seq -> ready(ctx, seq));
+                events.sendToBrowser(ctx, seq -> ready(ctx, seq));
             }
             case "assistantDelta" -> {
                 String delta = node.path("text").asText("");
                 if (ctx.consultAccountPlan != null) consultRuntime.delta(sessionId, eventTurnId, ctx.consultAssistantBlock, delta, false);
                 ActiveReviewReply reviewReply = activeReviewReplies.get(ctx.sessionId);
                 if (reviewReply != null) reviewReply.text().append(delta);
-                sendToBrowser(ctx, seq -> new ServerMessage.AssistantDelta(seq, delta));
+                events.sendToBrowser(ctx, seq -> new ServerMessage.AssistantDelta(seq, delta));
             }
             case "assistantSnapshot" -> {
                 String text = node.path("text").asText("");
@@ -1781,7 +1784,7 @@ public class ClaudeChatService {
                     reviewReply.text().setLength(0);
                     reviewReply.text().append(text);
                 }
-                sendToBrowser(ctx, seq -> new ServerMessage.AssistantSnapshot(seq, text));
+                events.sendToBrowser(ctx, seq -> new ServerMessage.AssistantSnapshot(seq, text));
             }
             case "toolUse" -> {
                 ctx.consultAssistantBlock++;
@@ -1789,7 +1792,7 @@ public class ClaudeChatService {
                         com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView.tool(
                                 eventTurnId + ":tool:" + node.path("toolCallId").asText(), node.path("toolName").asText(),
                                 asObject(node.get("input")), null, false, System.currentTimeMillis()));
-                sendToBrowser(ctx, seq -> new ServerMessage.ToolUse(
+                events.sendToBrowser(ctx, seq -> new ServerMessage.ToolUse(
                     seq, node.path("toolCallId").asText(null),
                     node.path("toolName").asText(""), asObject(node.get("input"))));
             }
@@ -1798,7 +1801,7 @@ public class ClaudeChatService {
                         com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView.tool(
                                 eventTurnId + ":tool:" + node.path("toolCallId").asText(), node.path("toolName").asText(),
                                 asObject(node.get("input")), node.path("output").asText(), node.path("isError").asBoolean(), System.currentTimeMillis()));
-                sendToBrowser(ctx, seq -> new ServerMessage.ToolResult(
+                events.sendToBrowser(ctx, seq -> new ServerMessage.ToolResult(
                     seq, node.path("toolCallId").asText(null), node.path("toolName").asText(""),
                     node.path("output").asText(""), node.path("isError").asBoolean(false)));
                 String tool = node.path("toolName").asText("");
@@ -1811,13 +1814,13 @@ public class ClaudeChatService {
             }
             case "permissionRequest" -> {
                 String toolName = node.path("toolName").asText("");
-                ServerMessage msg = sendToBrowser(ctx, seq -> new ServerMessage.PermissionRequest(
+                ServerMessage msg = events.sendToBrowser(ctx, seq -> new ServerMessage.PermissionRequest(
                         seq, node.path("reqId").asText(""), toolName, asObject(node.get("input"))));
                 onDecisionPrompt(ctx, msg, "Claude 需要确认权限",
                         "工具 " + toolName + " 正在等待你授权");
             }
             case "questionRequest" -> {
-                ServerMessage msg = sendToBrowser(ctx, seq -> new ServerMessage.QuestionRequest(
+                ServerMessage msg = events.sendToBrowser(ctx, seq -> new ServerMessage.QuestionRequest(
                         seq, node.path("reqId").asText(""), parseQuestions(node.get("questions"))));
                 onDecisionPrompt(ctx, msg, "Claude 有问题等你回答", "请回到对话作答");
             }
@@ -1825,15 +1828,15 @@ public class ClaudeChatService {
                 if (ctx.apiBaseUrl == null || ctx.apiBaseUrl.isBlank()) {
                     ctx.models = parseModels(node.get("models"));
                     ctx.currentModel = node.path("current").asText(null);
-                    sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
+                    events.sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
                 }
             }
-            case "userMessage" -> sendToBrowser(ctx,
+            case "userMessage" -> events.sendToBrowser(ctx,
                     seq -> new ServerMessage.UserMessage(seq, node.path("uuid").asText("")));
             case "forkAnchor" -> {
                 String anchor = node.path("anchor").asText("");
                 if ("codex".equals(ctx.engine)) ctx.codexPredictionSourceTurnId = anchor;
-                sendToBrowser(ctx, seq -> new ServerMessage.ForkAnchor(seq, anchor));
+                events.sendToBrowser(ctx, seq -> new ServerMessage.ForkAnchor(seq, anchor));
             }
             case "codexPrediction" -> {
                 String threadId = node.path("sdkSessionId").asText("");
@@ -1842,23 +1845,23 @@ public class ClaudeChatService {
                 if ("codex".equals(ctx.engine) && blankToNull(ctx.apiBaseUrl) == null && ctx.status == SessionStatus.IDLE
                         && threadId.equals(ctx.sdkSessionId) && sourceTurnId.equals(ctx.codexPredictionSourceTurnId)
                         && !text.isBlank() && text.length() <= 1_000) {
-                    sendToBrowser(ctx, seq -> new ServerMessage.CodexPrediction(
+                    events.sendToBrowser(ctx, seq -> new ServerMessage.CodexPrediction(
                             seq, ctx.sessionId, threadId, sourceTurnId, text));
                 }
             }
             case "forked" -> onForked(ctx, node);
-            case "turnInfo" -> sendToBrowser(ctx, seq -> new ServerMessage.TurnInfo(
+            case "turnInfo" -> events.sendToBrowser(ctx, seq -> new ServerMessage.TurnInfo(
                     seq,
                     node.path("requestedModel").asText(null),
                     node.path("responseModel").asText(null),
                     node.path("viaGateway").asBoolean(false),
                     node.path("baseUrl").asText(null),
                     node.path("transport").asText(null)));
-            case "turnProgress" -> sendToBrowser(ctx, seq -> new ServerMessage.TurnProgress(
+            case "turnProgress" -> events.sendToBrowser(ctx, seq -> new ServerMessage.TurnProgress(
                     seq, node.path("outputTokens").asLong(0)));
-            case "warning" -> sendToBrowser(ctx, seq -> new ServerMessage.Warning(
+            case "warning" -> events.sendToBrowser(ctx, seq -> new ServerMessage.Warning(
                     seq, node.path("code").asText("SIDECAR_WARNING"), node.path("message").asText("")));
-            case "toolActivity" -> sendToBrowser(ctx, seq -> new ServerMessage.ToolActivity(
+            case "toolActivity" -> events.sendToBrowser(ctx, seq -> new ServerMessage.ToolActivity(
                     seq,
                     node.path("toolCallId").asText(""),
                     node.path("toolName").asText("tool"),
@@ -1869,14 +1872,14 @@ public class ClaudeChatService {
                     node.path("outputTail").asText(null),
                     node.path("outcome").asText(null),
                     node.path("severity").asText(null)));
-            case "turnActivity" -> sendToBrowser(ctx, seq -> new ServerMessage.TurnActivity(
+            case "turnActivity" -> events.sendToBrowser(ctx, seq -> new ServerMessage.TurnActivity(
                     seq,
                     node.path("status").asText("inProgress"),
                     node.path("phase").asText("working"),
                     node.path("title").asText("正在处理任务"),
                     node.path("detail").asText(null),
                     node.hasNonNull("elapsedMs") ? node.get("elapsedMs").asLong() : null));
-            case "codexActivity" -> sendToBrowser(ctx, seq -> new ServerMessage.CodexActivity(
+            case "codexActivity" -> events.sendToBrowser(ctx, seq -> new ServerMessage.CodexActivity(
                     seq,
                     node.path("activityType").asText("activity"),
                     node.path("itemId").asText(""),
@@ -1897,7 +1900,7 @@ public class ClaudeChatService {
                     span.fail(node.path("message").asText("sidecar error"), null);
                 }
                 boolean handoffFailed = ctx.consultAccountPlan != null && !ctx.consultAccountCommitted;
-                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq,
+                events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq,
                         handoffFailed ? "CONSULT_ACCOUNT_HANDOFF_FAILED" : node.path("code").asText("SIDECAR_ERROR"),
                         handoffFailed ? "历史上下文接续未确认成功，原输入已保留。请先核对是否已回复后重试：" + node.path("message").asText("")
                                 : node.path("message").asText(""), false));
@@ -1914,7 +1917,7 @@ public class ClaudeChatService {
                 ctx.backgroundTasks = parseBackgroundTasks(node.get("tasks"));
                 runtimeStates.observeSidecarBackgroundTasks(ctx.sessionId, ctx.backgroundTasks.size());
                 observeRuntimeState(ctx);
-                sendToBrowser(ctx, seq -> new ServerMessage.BackgroundTasks(seq, ctx.backgroundTasks));
+                events.sendToBrowser(ctx, seq -> new ServerMessage.BackgroundTasks(seq, ctx.backgroundTasks));
                 if (ctx.backgroundTasks.isEmpty()) {
                     dispatchNextQueuedMessage(ctx);
                 }
@@ -1929,7 +1932,7 @@ public class ClaudeChatService {
         if (protocolVersion != 1) {
             log.warn("[claude-chat] 忽略不兼容引擎事件 session={} protocolVersion={}",
                     ctx.sessionId, protocolVersion);
-            sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "ENGINE_PROTOCOL_MISMATCH",
+            events.sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "ENGINE_PROTOCOL_MISMATCH",
                     "代码引擎事件协议不兼容，请重启或升级 Forge 与 Sidecar"));
             return;
         }
@@ -1938,7 +1941,7 @@ public class ClaudeChatService {
             log.warn("[claude-chat] 忽略跨会话引擎事件 expected={} actual={}", ctx.sessionId, eventSessionId);
             return;
         }
-        sendToBrowser(ctx, seq -> new ServerMessage.EngineEvent(
+        events.sendToBrowser(ctx, seq -> new ServerMessage.EngineEvent(
                 seq,
                 protocolVersion,
                 event.path("eventId").asText(""),
@@ -2036,13 +2039,13 @@ public class ClaudeChatService {
         String resultTraceId = traceId;
         String resultStopReason = stopReason;
         turnChanges.finish(ctx.sessionId, turnId, stopReason);
-        sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, resultStopReason, resultTraceId, turnId));
+        events.sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, resultStopReason, resultTraceId, turnId));
         if (!completionCheck) applicationEvents.publishEvent(new SessionTurnSettledEvent(
                 ctx.sessionId, turnId, stopReason, queueReleaseSafe, System.currentTimeMillis(),
                 ctx.lastTurnErrorCode, ctx.lastTurnErrorMessage));
         dispatchNextQueuedMessage(ctx);
         // 所有观察者都不在线才推送，避免打扰
-        if (!hasActiveViewer(ctx)) {
+        if (!events.hasActiveViewer(ctx)) {
             String engineLabel = "codex".equals(ctx.engine) ? "Codex" : "Claude";
             notifications.notifyDone(engineLabel + " 任务完成", sessionLabel(ctx));
         }
@@ -2181,7 +2184,7 @@ public class ClaudeChatService {
             // Cancellation retires this dispatch, not the remaining queue or task completion.
             if ("interrupted".equals(expected.stopReason()) && delivery != null) {
                 queueDelivery.settle(id, expected.turnId(), "interrupted", false);
-                sendToBrowser(ctx, seq -> ready(ctx, seq));
+                events.sendToBrowser(ctx, seq -> ready(ctx, seq));
                 return;
             }
             if (!expected.ready() && delivery == null && queuedMessages.firstIsInternal(id)) {
@@ -2230,9 +2233,9 @@ public class ClaudeChatService {
             repo.updateStatus(ctx.sessionId, ctx.status);
             observeRuntimeState(ctx);
             if (changed) {
-                sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "QUEUE_WAITING_USER",
+                events.sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "QUEUE_WAITING_USER",
                         "当前任务连续三次追问仍未确认完成，队列已挂起；请核对后继续。"));
-                sendToBrowser(ctx, seq -> ready(ctx, seq));
+                events.sendToBrowser(ctx, seq -> ready(ctx, seq));
             }
             return;
         }
@@ -2280,7 +2283,7 @@ public class ClaudeChatService {
             }
             if (remove) queuedMessages.delete(id, messageId);
             applicationEvents.publishEvent(new SessionManualInputEvent(id, "QUEUE_CANCEL"));
-            sendToBrowser(ctx, seq -> ready(ctx, seq));
+            events.sendToBrowser(ctx, seq -> ready(ctx, seq));
         }
         if (cancelledTurn == null) return;
         String turn = cancelledTurn;
@@ -2290,7 +2293,7 @@ public class ClaudeChatService {
             if (snapshot == null || snapshot.path("backgroundTaskCount").asInt() > 0
                     || ((snapshot.path("active").asBoolean() || snapshot.path("pendingDecision").asBoolean())
                         && !turn.equals(snapshot.path("activeTurnId").asText()))) {
-                sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "QUEUE_CANCEL_PENDING",
+                events.sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "QUEUE_CANCEL_PENDING",
                         "自动执行与完成核对已撤回；原生任务终止尚未确认，请在会话控制核对运行状态。"));
                 return;
             }
@@ -2299,14 +2302,14 @@ public class ClaudeChatService {
                     turnLifecycle.adopt(id, turn);
                     ctx.status = SessionStatus.RUNNING;
                     turnLifecycle.requestInterrupt(id, turn, () -> queryInterruptedTurn(ctx, turn), () -> queryInterruptedTurn(ctx, turn));
-                    sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "requested", true, ctx.pendingRequest != null));
-                } else sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "QUEUE_CANCEL_PENDING", "自动核对已撤回，原生终止请求未送达，请重试停止任务。"));
+                    events.sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "requested", true, ctx.pendingRequest != null));
+                } else events.sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "QUEUE_CANCEL_PENDING", "自动核对已撤回，原生终止请求未送达，请重试停止任务。"));
             } else {
                 turnLifecycle.clear(id);
                 ctx.status = SessionStatus.IDLE;
                 repo.updateStatus(id, ctx.status);
                 observeRuntimeState(ctx);
-                sendToBrowser(ctx, seq -> ready(ctx, seq));
+                events.sendToBrowser(ctx, seq -> ready(ctx, seq));
             }
         }
     }
@@ -2326,7 +2329,7 @@ public class ClaudeChatService {
             }
             ctx.queueReleaseReady = false;
             applicationEvents.publishEvent(new SessionManualInputEvent(id, "QUEUE_PAUSE"));
-            sendToBrowser(ctx, seq -> ready(ctx, seq));
+            events.sendToBrowser(ctx, seq -> ready(ctx, seq));
         }
     }
 
@@ -2353,7 +2356,7 @@ public class ClaudeChatService {
             turnLifecycle.clear(id);
             ctx.status = SessionStatus.IDLE;
             repo.updateStatus(id, ctx.status);
-            sendToBrowser(ctx, seq -> ready(ctx, seq));
+            events.sendToBrowser(ctx, seq -> ready(ctx, seq));
             wakeQueueWorker();
         }
     }
@@ -2430,7 +2433,7 @@ public class ClaudeChatService {
                         new ClientMessage.Send(next.text(), List.of(), next.developerInstructions(), null, next.id()));
             } catch (RuntimeException error) {
                 ctx.queueReleaseReady = false;
-                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "CONSULT_ACCOUNT_HANDOFF_FAILED", error.getMessage()));
+                events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "CONSULT_ACCOUNT_HANDOFF_FAILED", error.getMessage()));
                 return;
             }
             if (!admissionGate.tryAdmit(() -> dispatchNextQueuedMessageAdmitted(ctx, plan))) {
@@ -2440,7 +2443,7 @@ public class ClaudeChatService {
     }
 
     private void sendReviewIntent(SessionCtx ctx, ReviewIntentAssessment value) {
-        sendToBrowser(ctx, seq -> new ServerMessage.ReviewIntent(
+        events.sendToBrowser(ctx, seq -> new ServerMessage.ReviewIntent(
                 seq, value.clientMessageId(), value.turnId(), value.finalIntent(), value.classificationStatus(),
                 value.confidence(), value.reason(), value.signals(), value.extractedTitle(), value.extractedContent()));
     }
@@ -2461,21 +2464,21 @@ public class ClaudeChatService {
             startTurnAdmitted(ctx, send, null, continuationContext, accountPlan, message);
         } catch (AutopilotQueuedContextService.StaleContinuationException stale) {
             if (queueDelivery.delivery(ctx.sessionId).isEmpty()) queuedMessages.delete(ctx.sessionId, message.id());
-            sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "AUTOPILOT_CONTINUATION_STALE", stale.getMessage()));
+            events.sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "AUTOPILOT_CONTINUATION_STALE", stale.getMessage()));
         } catch (ClaudeOptionsMismatchException error) {
             ctx.queueReleaseReady = false;
             boolean previousDelivery = queueDelivery.delivery(ctx.sessionId).isPresent();
             queueDelivery.delivery(ctx.sessionId).ifPresent(d -> queueDelivery.uncertain(ctx.sessionId, d.turnId(),
                     "先前派发结果仍待核对，本次因模型配置不兼容未发送。"));
             String prefix = previousDelivery ? "先前派发状态待核对，" : "待发送消息已保留，";
-            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "CLAUDE_OPTIONS_INVALID", prefix + error.getMessage(), false));
+            events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "CLAUDE_OPTIONS_INVALID", prefix + error.getMessage(), false));
         } catch (RuntimeException error) {
             resetFailedConsultPreparation(ctx, error);
             ctx.queueReleaseReady = false;
             queueDelivery.delivery(ctx.sessionId).ifPresent(d -> queueDelivery.uncertain(ctx.sessionId, d.turnId(),
                     "派发结果待核对，原文已保留；后台将核对回执，不会盲目重发。"));
             log.warn("[claude-chat] 队列派发待核对 session={} message={}", ctx.sessionId, message.id(), error);
-            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "QUEUE_DISPATCH_FAILED",
+            events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "QUEUE_DISPATCH_FAILED",
                     "待发送消息已保留，派发结果待核对：" + error.getMessage(), false));
         }
     }
@@ -2485,7 +2488,7 @@ public class ClaudeChatService {
         if (delivery.isEmpty() || "ACCEPTED".equals(delivery.get().status())
                 || !queueDelivery.accepted(ctx.sessionId, turnId)) return;
         queuedMessages.list(ctx.sessionId).stream().filter(m -> m.id().equals(delivery.get().messageId())).findFirst()
-                .ifPresent(m -> sendToBrowser(ctx, seq -> new ServerMessage.QueueDispatched(seq, m.id(), m.text(),
+                .ifPresent(m -> events.sendToBrowser(ctx, seq -> new ServerMessage.QueueDispatched(seq, m.id(), m.text(),
                         m.displayText(), m.attachments().stream().map(a -> new ServerMessage.QueuedAttachment(
                                 a.id(), a.name(), a.path(), a.mime())).toList(), m.createdAt())));
     }
@@ -2508,7 +2511,7 @@ public class ClaudeChatService {
         String outcome = node.path("outcome").asText("alreadyStopped");
         boolean active = node.path("active").asBoolean(false);
         boolean pendingDecision = node.path("pendingDecision").asBoolean(false);
-        sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, outcome, active, pendingDecision));
+        events.sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, outcome, active, pendingDecision));
         if (ctx.status != SessionStatus.RUNNING) return;
         if ("accepted".equals(outcome)) {
             String activeTurnId = blankToNull(node.path("activeTurnId").asText(null));
@@ -2546,7 +2549,7 @@ public class ClaudeChatService {
             if (activeTurnId != null) reconcileMismatchedTurn(ctx, activeTurnId);
             return;
         }
-        sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "correcting", true, false));
+        events.sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "correcting", true, false));
     }
 
     private void reconcileMismatchedTurn(SessionCtx ctx, String activeTurnId) {
@@ -2563,7 +2566,7 @@ public class ClaudeChatService {
                 activeTurnId,
                 () -> queryInterruptedTurn(ctx, activeTurnId),
                 () -> queryInterruptedTurn(ctx, activeTurnId));
-        sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "correcting", true, false));
+        events.sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "correcting", true, false));
     }
 
     private void queryInterruptedTurn(SessionCtx ctx, String turnId) {
@@ -2571,7 +2574,7 @@ public class ClaudeChatService {
         if (!sidecar.queryTurnState(ctx.sessionId, turnId)) {
             log.warn("[claude-chat] 中断状态查询未送达，保留运行态等待真实终态 session={} engine={} turn={}",
                     ctx.sessionId, ctx.engine, turnId);
-            sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "correcting", true, false));
+            events.sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "correcting", true, false));
         }
     }
 
@@ -2603,7 +2606,7 @@ public class ClaudeChatService {
             if (!turnLifecycle.complete(ctx.sessionId, turnId)) return;
             log.warn("[claude-chat] 中断终态兜底收口 session={} engine={} turn={} reason={}",
                     ctx.sessionId, ctx.engine, turnId, reason);
-            sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "forced", false, false));
+            events.sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "forced", false, false));
             completeTurn(ctx, turnId, Map.of(), "interrupted", null, false);
         }
     }
@@ -2624,8 +2627,8 @@ public class ClaudeChatService {
         if (ctx == null) {
             return;
         }
-        sendToBrowser(ctx, seq -> new ServerMessage.AutopilotState(seq, event.snapshot()));
-        sendToBrowser(ctx, seq -> new ServerMessage.AutopilotDashboardChanged(
+        events.sendToBrowser(ctx, seq -> new ServerMessage.AutopilotState(seq, event.snapshot()));
+        events.sendToBrowser(ctx, seq -> new ServerMessage.AutopilotDashboardChanged(
                 seq, event.sessionId(), event.revision()));
     }
 
@@ -2636,7 +2639,7 @@ public class ClaudeChatService {
     private void onForked(SessionCtx ctx, JsonNode node) {
         String newSdk = node.path("sdkSessionId").asText(null);
         if (newSdk == null || newSdk.isBlank()) {
-            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "FORK_FAILED", "分叉未返回会话标识"));
+            events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "FORK_FAILED", "分叉未返回会话标识"));
             return;
         }
         String cwd = node.path("cwd").asText(ctx.cwd);
@@ -2662,7 +2665,7 @@ public class ClaudeChatService {
         }
         log.info("[claude-chat] 会话 {} 分叉出新会话 {} engine={} sdk={}",
                 ctx.sessionId, newId, forkEngine, newSdk);
-        sendToBrowser(ctx, seq -> new ServerMessage.Forked(seq, newId));
+        events.sendToBrowser(ctx, seq -> new ServerMessage.Forked(seq, newId));
     }
 
     private void onSidecarDown() {
@@ -2673,7 +2676,7 @@ public class ClaudeChatService {
             if (ctx.status == SessionStatus.RUNNING) {
                 // 断开的是传输，不代表Agent已停止；保留轮次身份接收仍在执行的任务及其终态。
                 observeRuntimeState(ctx);
-                sendToBrowser(ctx, seq -> new ServerMessage.Error(
+                events.sendToBrowser(ctx, seq -> new ServerMessage.Error(
                         seq, "SIDECAR_DOWN", "sidecar 已断开，正在自动重连…", false));
             }
         });
@@ -2756,7 +2759,7 @@ public class ClaudeChatService {
                     ctx.status = SessionStatus.RUNNING;
                     repo.updateStatus(ctx.sessionId, SessionStatus.RUNNING);
                     observeRuntimeState(ctx);
-                    sendToBrowser(ctx, seq -> ready(ctx, seq));
+                    events.sendToBrowser(ctx, seq -> ready(ctx, seq));
                     n++;
                     continue;
                 }
@@ -2771,7 +2774,7 @@ public class ClaudeChatService {
                 }
                 if (!engineCatalog.selectable(ctx.engine)) {
                     confirmed = false;
-                    sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
+                    events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
                             "当前引擎未通过 Runtime 检测，已跳过自动恢复", false));
                     continue;
                 }
@@ -2785,7 +2788,7 @@ public class ClaudeChatService {
                 ctx.queueReleaseReady = false;
                 repo.updateStatus(ctx.sessionId, ctx.status);
                 observeRuntimeState(ctx);
-                sendToBrowser(ctx, seq -> ready(ctx, seq));
+                events.sendToBrowser(ctx, seq -> ready(ctx, seq));
                 n++;
             }
         }
@@ -2803,13 +2806,13 @@ public class ClaudeChatService {
             processRegistry.ensureStarted();
             sidecar.ensureConnected();
         } catch (IOException e) {
-            sendToBrowser(ctx, seq -> new ServerMessage.Error(
+            events.sendToBrowser(ctx, seq -> new ServerMessage.Error(
                     seq, "SIDECAR_DOWN", "sidecar 重连失败：" + e.getMessage(), false));
             return false;
         }
         // 此入口可能持有ctx锁；统一交给后台在锁外反查，不能连接一恢复就清空正在执行的轮次。
         scheduleSidecarRecovery();
-        sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "SIDECAR_DOWN",
+        events.sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "SIDECAR_DOWN",
                 "连接已恢复，正在核对原轮次；当前消息尚未发送，请状态恢复后重试。", false));
         return false;
     }
@@ -2889,7 +2892,7 @@ public class ClaudeChatService {
 
     private boolean rejectReviewMutation(WebSocketSession ws, SessionCtx ctx) {
         if (!isReviewOnly(ctx)) return false;
-        sendError(ws, 0, "REVIEW_POLICY", "计划评审固定使用 Codex 官方默认配置，参与者不能修改引擎、模型、速度、Auth 或权限");
+        events.sendError(ws, 0, "REVIEW_POLICY", "计划评审固定使用 Codex 官方默认配置，参与者不能修改引擎、模型、速度、Auth 或权限");
         return true;
     }
 
@@ -2918,11 +2921,11 @@ public class ClaudeChatService {
                     : SessionExecutionPolicy.isReviewOnly(channelPolicy)
                         ? "评审分享通道只能访问评审会话"
                         : "Vibe Coding 通道不能访问受限会话";
-            sendError(ws, 0, "SESSION_FORBIDDEN", message);
+            events.sendError(ws, 0, "SESSION_FORBIDDEN", message);
             return false;
         }
         if (!sessionAccessPolicy.canAccess(ws, targetSessionId)) {
-            sendError(ws, 0, "SESSION_FORBIDDEN", "当前用户不能访问该会话");
+            events.sendError(ws, 0, "SESSION_FORBIDDEN", "当前用户不能访问该会话");
             return false;
         }
         return true;
@@ -2933,7 +2936,7 @@ public class ClaudeChatService {
         if (!SessionExecutionPolicy.isReviewOnly(channelPolicy)) return true;
         Object allowed = ws.getAttributes().get(ReviewHandshakeInterceptor.REVIEW_SESSION_ATTRIBUTE);
         if (targetSessionId != null && targetSessionId.equals(allowed)) return true;
-        sendError(ws, 0, "SESSION_FORBIDDEN", "该分享链接不能访问其他会话");
+        events.sendError(ws, 0, "SESSION_FORBIDDEN", "该分享链接不能访问其他会话");
         return false;
     }
 
@@ -3033,7 +3036,7 @@ public class ClaudeChatService {
             return true;
         } catch (IOException e) {
             log.warn("[claude-chat] sidecar 不可用：{}", e.getMessage());
-            sendError(ws, 0, "SIDECAR_DOWN", "Claude sidecar 未就绪：" + e.getMessage());
+            events.sendError(ws, 0, "SIDECAR_DOWN", "Claude sidecar 未就绪：" + e.getMessage());
             return false;
         }
     }
@@ -3058,7 +3061,7 @@ public class ClaudeChatService {
         ctx.viewers.add(ws);
         wsToSession.put(ws.getId(), ctx.sessionId);
         // 新绑定的连接只拿同一执行域的待答快照，咨询提问不能在 Vibe 中形成跳转入口。
-        writeTo(ws, pendingSessionsSnapshot(SessionExecutionPolicy.forWebSocket(ws.getUri())));
+        events.writeTo(ws, pendingSessionsSnapshot(SessionExecutionPolicy.forWebSocket(ws.getUri())));
     }
 
     public boolean isReviewConnection(WebSocketSession ws) {
@@ -3080,39 +3083,6 @@ public class ClaudeChatService {
         return new ServerMessage.PendingSessions(0, refs);
     }
 
-    private boolean hasActiveViewer(SessionCtx ctx) {
-        return ctx.viewers.stream().anyMatch(WebSocketSession::isOpen);
-    }
-
-    /**
-     * 回放前检测空洞：客户端 lastSeq 之后、缓冲窗口最旧 seq 之前的事件已被淘汰，回放补不回来。
-     * 仅在 lastSeq>0（曾收到过、属重连续看）时提示；lastSeq=0 是首次 attach（历史走 transcript），不算空洞。
-     */
-    private void warnIfReplayGap(SessionCtx ctx, WebSocketSession ws, long lastSeq) {
-        if (lastSeq <= 0) return;
-        long minBuf;
-        synchronized (ctx.buffer) {
-            ServerMessage first = ctx.buffer.peekFirst();
-            minBuf = first == null ? 0 : first.seq();
-        }
-        if (minBuf > lastSeq + 1) {
-            writeTo(ws, new ServerMessage.ReplayGap(0, lastSeq + 1, minBuf - 1));
-            log.info("[claude-chat] 会话 {} 回放空洞：客户端 lastSeq={}，缓冲最旧={}，缺 {}~{}",
-                    ctx.sessionId, lastSeq, minBuf, lastSeq + 1, minBuf - 1);
-        }
-    }
-
-    /** 回放缓冲中 seq>lastSeq 的事件——只发给刚 attach 的这条连接（已在看的连接不重复收）。 */
-    private void replayBuffer(SessionCtx ctx, WebSocketSession ws, long lastSeq) {
-        List<ServerMessage> pending;
-        synchronized (ctx.buffer) {
-            pending = ctx.buffer.stream().filter(m -> m.seq() > lastSeq).toList();
-        }
-        for (ServerMessage m : pending) {
-            writeTo(ws, m);
-        }
-    }
-
     /**
      * 记录未决的权限/提问请求；若此刻没有活跃前台连接，推送通知提醒用户回来确认，
      * 否则该请求会一直阻塞 sidecar 直到超时被拒，而用户毫不知情（弹窗根本没下发）。
@@ -3120,7 +3090,7 @@ public class ClaudeChatService {
     private void onDecisionPrompt(SessionCtx ctx, ServerMessage msg, String title, String body) {
         ctx.pendingRequest = msg;
         broadcastPendingSessions();
-        if (!hasActiveViewer(ctx)) {
+        if (!events.hasActiveViewer(ctx)) {
             notifications.notify(title, body + "（" + sessionLabel(ctx) + "）");
         }
     }
@@ -3136,72 +3106,8 @@ public class ClaudeChatService {
             for (WebSocketSession ws : c.viewers) {
                 boolean consultChannel = SessionExecutionPolicy.isConsultReadonly(
                         SessionExecutionPolicy.forWebSocket(ws.getUri()));
-                writeTo(ws, consultChannel ? consultSnapshot : standardSnapshot);
+                events.writeTo(ws, consultChannel ? consultSnapshot : standardSnapshot);
             }
-        }
-    }
-
-    /**
-     * 重连后重投仍未决的权限/提问请求，确保弹窗重新出现。
-     * 仅当其 seq 未被本次 replayBuffer 覆盖（已读过）时补发，避免重复下发。
-     */
-    private void redeliverPending(SessionCtx ctx, WebSocketSession ws, long lastSeq) {
-        ServerMessage p = ctx.pendingRequest;
-        if (p != null && p.seq() <= lastSeq) {
-            writeTo(ws, p);
-        }
-    }
-
-    /** 打 seq + 入缓冲 + 广播给本会话所有观察者。用于所有来自 sidecar 的实时事件。 */
-    private ServerMessage sendToBrowser(SessionCtx ctx, SeqMessageFactory factory) {
-        ServerMessage msg = factory.build(ctx.seq.incrementAndGet());
-        synchronized (ctx.buffer) {
-            ctx.buffer.addLast(msg);
-            while (ctx.buffer.size() > props.getEventBufferSize()) {
-                ctx.buffer.pollFirst();
-            }
-        }
-        broadcast(ctx, msg);
-        return msg;
-    }
-
-    /** 广播给会话所有在看的连接，顺手清掉已关闭的。 */
-    private void broadcast(SessionCtx ctx, ServerMessage msg) {
-        for (WebSocketSession w : ctx.viewers) {
-            if (w.isOpen()) {
-                writeTo(w, msg);
-            } else {
-                ctx.viewers.remove(w);
-            }
-        }
-    }
-
-    /** 把一条消息发给指定连接（广播逐个调用 / 回放定向发给新连接）。 */
-    private void writeTo(WebSocketSession ws, ServerMessage msg) {
-        if (ws == null || !ws.isOpen()) return;
-        ServerMessage visibleMessage = SessionExecutionPolicy.isReviewOnly(
-                SessionExecutionPolicy.forWebSocket(ws.getUri()))
-                ? ReviewPublicMessageProjector.projectRealtime(msg) : msg;
-        if (visibleMessage == null) return;
-        try {
-            synchronized (ws) {
-                ws.sendMessage(new TextMessage(mapper.writeValueAsString(visibleMessage)));
-            }
-        } catch (IOException e) {
-            log.debug("[claude-chat] 写浏览器失败：{}", e.getMessage());
-        }
-    }
-
-    private void sendError(WebSocketSession ws, long seq, String code, String message) {
-        sendError(ws, seq, code, message, true);
-    }
-
-    /** 请求被拒绝不代表当前活动轮次已经结束。 */
-    private void sendError(WebSocketSession ws, long seq, String code, String message, boolean terminal) {
-        try {
-            String json = mapper.writeValueAsString(new ServerMessage.Error(seq, code, message, terminal));
-            if (ws.isOpen()) ws.sendMessage(new TextMessage(json));
-        } catch (IOException ignore) {
         }
     }
 
@@ -3265,93 +3171,6 @@ public class ClaudeChatService {
         return title != null && !title.isBlank() ? title : shortCwd(ctx.cwd);
     }
 
-    @FunctionalInterface
-    private interface SeqMessageFactory {
-        ServerMessage build(long seq);
-    }
-
     private record ActiveReviewReply(String userText, StringBuilder text) {
-    }
-
-    /** 单会话运行时状态。 */
-    private static final class SessionCtx {
-        final String sessionId;
-        final String cwd;
-        final AtomicLong seq = new AtomicLong(0);
-        /** 本内存会话实例的纪元标识。每次新建 ctx（含后端重启、内存淘汰后重建）都不同，
-         *  随 Ready 透传给前端，使其在服务端 seq 复位时同步重置去重高水位。 */
-        final String epoch = UUID.randomUUID().toString();
-        final Deque<ServerMessage> buffer = new ArrayDeque<>();
-        volatile String sdkSessionId;
-        volatile String codexPredictionSourceTurnId;
-        /** 会话引擎 claude/codex；start/resume 透传给 sidecar，决定走哪条 agentic loop。 */
-        volatile String engine = "claude";
-        /** 各引擎各自的 SDK 会话句柄（engine -> sdkSessionId）；切回某引擎时 resume 其原生会话，持久化到 DB engine_sessions(JSON)。 */
-        final Map<String, String> engineSessions = new ConcurrentHashMap<>();
-        volatile SessionStatus status = SessionStatus.IDLE;
-        /** 第三方网关 baseURL/token（仅 Claude 会话）；start/resume 透传给 sidecar，使重连/重启后仍指向同一网关。空=官方。 */
-        volatile String apiBaseUrl;
-        volatile String authToken;
-        /** Codex 官方登录配置根目录；空值使用默认 ~/.codex。 */
-        volatile String codexHome;
-        /** 当前在看本会话的所有浏览器连接（多端同看）。广播事件遍历此集合，断开按连接移除。 */
-        final Set<WebSocketSession> viewers = ConcurrentHashMap.newKeySet();
-        /** 会话权限模式，默认 default；切换后随下一轮 send 透传给 sidecar。 */
-        volatile String mode = "default";
-        /** 服务端执行能力边界；咨询只读策略优先于 mode，且会随持久化恢复。 */
-        volatile String executionPolicy = SessionExecutionPolicy.STANDARD;
-        volatile List<String> consultEvidenceSystems = List.of();
-        volatile ConsultRuntimeCoordinator.Plan consultAccountPlan;
-        volatile boolean consultNativeReady;
-        volatile boolean consultAccountCommitted = true;
-        volatile int consultAssistantBlock;
-        /**
-         * 「弹窗自动允许」兜底开关。服务端持有是关键：它以前是纯前端 useEffect 自动点「允许」，
-         * 用户切走页面（组件卸载/浏览器后台节流）就失效，请求挂到超时 deny 或撞上中断变成
-         * stream closed。放到这里后随每次 resume 一并回灌 sidecar，与浏览器在不在线无关。
-         */
-        volatile boolean autoApprove = false;
-        /** 福利签收演示会话：true 时走一次性副本沙箱，断连即销毁，不持久化、不进正式列表。 */
-        volatile boolean demo = false;
-        /**
-         * 当前未决的权限/提问请求。sidecar 的 canUseTool 会阻塞整轮等决策，故同一时刻至多一个。
-         * 断线重连时据此重投，避免弹窗因事件缓冲淘汰或 seq 已读而丢失；决策到达或本轮结束时清空。
-         */
-        volatile ServerMessage pendingRequest;
-        /** 该会话可用的 slash 命令清单（来自 SDK init），随每条 Ready 透传给前端做补全。 */
-        volatile java.util.List<String> slashCommands = java.util.List.of();
-        /** 该会话激活的能力（来自 SDK init），随 Ready 透传给前端展示。 */
-        volatile java.util.List<String> skills = java.util.List.of();
-        volatile java.util.List<ServerMessage.SkillCapability> skillDetails = java.util.List.of();
-        volatile java.util.List<ServerMessage.PluginCapability> plugins = java.util.List.of();
-        volatile java.util.List<String> agents = java.util.List.of();
-        volatile java.util.List<ServerMessage.McpServer> mcpServers = java.util.List.of();
-        volatile String outputStyle = null;
-        volatile String capabilitySource = "unknown";
-        volatile long capabilityRefreshedAt = System.currentTimeMillis();
-        volatile java.util.List<String> capabilityErrors = java.util.List.of();
-        /** 该会话可用模型清单（来自 SDK supportedModels）与当前模型，供命令菜单的模型组展示/切换。 */
-        volatile java.util.List<ModelInfo> models = java.util.List.of();
-        volatile String currentModel;
-        volatile ServerMessage.ActiveModelConfiguration activeModelConfiguration;
-        volatile String codexReasoningEffort = "low";
-        volatile String codexSpeed = "default";
-        /** 该会话当前存活的后台任务快照（来自 sidecar 的 backgroundTasks 事件），随每条 Ready 透传给
-         *  前端——切会话/重连那一刻就能查到是否还有后台任务在跑，不用等下一次变化事件推送。 */
-        volatile java.util.List<ServerMessage.BackgroundTaskInfo> backgroundTasks = java.util.List.of();
-        /** 最近一次成功终态尚未释放队首；消费后立即复位，确保每轮最多自动发送一条。 */
-        volatile boolean queueReleaseReady;
-        volatile String interruptedDispatchTurnId;
-        volatile String queueReceiptStoreId;
-        volatile boolean queueResumeRequested;
-        volatile boolean sidecarSessionPresent = true;
-        volatile String lastTurnErrorCode;
-        volatile String lastTurnErrorMessage;
-        final Set<String> acceptedMessageIds = new LinkedHashSet<>();
-
-        SessionCtx(String sessionId, String cwd) {
-            this.sessionId = sessionId;
-            this.cwd = cwd;
-        }
     }
 }
