@@ -1,9 +1,9 @@
 package com.exceptioncoder.toolbox.claudechat.resources;
 
-import com.exceptioncoder.toolbox.claudechat.service.ErpAppConfigService;
-import com.exceptioncoder.toolbox.claudechat.service.ErpAppService;
-import com.exceptioncoder.toolbox.claudechat.service.SrmAppConfigService;
-import com.exceptioncoder.toolbox.claudechat.service.SrmAppService;
+import com.exceptioncoder.toolbox.businessdev.service.ErpAppConfigService;
+import com.exceptioncoder.toolbox.businessdev.service.ErpAppService;
+import com.exceptioncoder.toolbox.businessdev.service.SrmAppConfigService;
+import com.exceptioncoder.toolbox.businessdev.service.SrmAppService;
 import com.exceptioncoder.toolbox.common.resource.ResourceProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
