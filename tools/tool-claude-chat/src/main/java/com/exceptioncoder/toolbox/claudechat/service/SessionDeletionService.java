@@ -13,17 +13,20 @@ public class SessionDeletionService {
     private final SessionProjectDirectoryService projectDirectoryService;
     private final ClaudeChatSessionRepository sessionRepository;
     private final SessionCommunicationRepository communications;
+    private final ClaudeSessionOptionsService claudeOptions;
 
     public SessionDeletionService(ClaudeChatService chatService,
                                   SessionSiteService sessionSiteService,
                                   SessionProjectDirectoryService projectDirectoryService,
                                   ClaudeChatSessionRepository sessionRepository,
-                                  SessionCommunicationRepository communications) {
+                                  SessionCommunicationRepository communications,
+                                  ClaudeSessionOptionsService claudeOptions) {
         this.chatService = chatService;
         this.sessionSiteService = sessionSiteService;
         this.projectDirectoryService = projectDirectoryService;
         this.sessionRepository = sessionRepository;
         this.communications = communications;
+        this.claudeOptions = claudeOptions;
     }
 
     @Transactional
@@ -32,6 +35,7 @@ public class SessionDeletionService {
         sessionSiteService.clear(sessionId);
         projectDirectoryService.clear(sessionId);
         communications.deleteBySession(sessionId);
+        claudeOptions.delete(sessionId);
         sessionRepository.deleteById(sessionId);
     }
 }

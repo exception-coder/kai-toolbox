@@ -48,6 +48,44 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('Codex 会话参数恢复', () => {
+  it('Claude 强度按会话恢复，重放不回写，主动修改只发送配置消息', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('claude-a'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive({ ...ready('claude-a'), engine: 'claude',
+      claudeOptions: { effort: 'max', ultracode: true } }) })
+    expect(result.current.claudeOptions).toEqual({ effort: 'max', ultracode: true })
+    act(() => socket.receive({ type: 'modelConfiguration', seq: 2, activeModelConfiguration: {
+      engine: 'claude', model: 'opus', effort: 'high', speed: null, ultracode: false,
+    } }))
+    expect(socket.send.mock.calls.map(([value]) => JSON.parse(value)).filter(message => message.type === 'setClaudeOptions')).toEqual([])
+    act(() => result.current.setClaudeOptions({ effort: 'auto', ultracode: false }))
+    expect(result.current.activeModelConfiguration?.effort).toBe('high')
+    expect(result.current.claudeOptions.effort).toBe('auto')
+    expect(socket.send.mock.calls.map(([value]) => JSON.parse(value)).filter(message => message.type === 'setClaudeOptions'))
+      .toEqual([{ type: 'setClaudeOptions', effort: 'auto', ultracode: false }])
+    expect(socket.send.mock.calls.map(([value]) => JSON.parse(value)).filter(message => message.type === 'send')).toEqual([])
+    act(() => socket.receive({ type: 'error', seq: 3, code: 'COMMAND_FAILED', message: '保存失败', terminal: false }))
+    expect(result.current.claudeOptions).toEqual({ effort: 'max', ultracode: true })
+    act(() => result.current.switchTo('claude-b'))
+    expect(result.current.claudeOptions).toEqual({ effort: 'auto', ultracode: false })
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(2))
+    act(() => { TestSocket.sockets[1].open(); TestSocket.sockets[1].receive({ ...ready('claude-b'), engine: 'claude' }) })
+    expect(result.current.claudeOptions).toEqual({ effort: 'auto', ultracode: false })
+  })
+
+  it('配置被拒绝不会把正在运行的轮次标记为结束', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('active'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive({ ...ready('active'), status: 'RUNNING', activeTurnId: 'turn-1' }) })
+    expect(result.current.running).toBe(true)
+    act(() => socket.receive({ type: 'error', seq: 2, code: 'CLAUDE_OPTIONS_UNSUPPORTED', message: '配置不可用', terminal: true }))
+    expect(result.current.running).toBe(true)
+  })
+
   it('暂停核对仅调用暂停接口并保留队首，不发送或删除消息', async () => {
     const current = { id: 'pause-head', sessionId: 'a', text: 'keep task', createdAt: 1, deliveryState: 'CHECKING' }
     api.listQueuedMessages.mockResolvedValueOnce([current])

@@ -1,5 +1,6 @@
 import { claudeProjectPlugins, hasProjectTaskSkill } from './projectSkillPriority.js'
 import { ClaudeMessageText } from './claudeMessageText.js'
+import { applyClaudeSessionOptions, parseClaudeSessionOptions, type ClaudeSessionOptions } from './claudeSessionOptions.js'
 import { PAGE_PREVIEW_STEER } from './pagePreviewTools.js'
 import { requestCodexSdkCleanup } from './engine/codexSdkLifecycle.js'
 import { assemblyAllowsTool, filterClaudeAssembly, parseConsultToolAssembly, type ConsultToolAssembly } from './consultToolAssembly.js'
@@ -295,6 +296,7 @@ async function refreshClaudeModels(key: string, env?: NodeJS.ProcessEnv): Promis
 export class Session {
   sdkSessionId?: string
   model?: string
+  claudeOptions?: ClaudeSessionOptions
   codexReasoningEffort?: CodexReasoningEffort
   codexSpeed: CodexSpeed = 'default'
   /** 第三方网关 baseURL（Anthropic 兼容）。仅本会话生效——置则每轮 query 注入 env，不影响其它会话/官方登录。 */
@@ -732,6 +734,11 @@ export class Session {
   private async runClaudeTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
                               developerInstructions?: string, additionalDirectories: string[] = []): Promise<void> {
     const maxAttempts = 3
+    // 轮次一经受理即固定模型与参数；启动阶段异步加载插件期间切换只影响下一轮。
+    const turnModel = this.model
+    const turnOptions = this.claudeOptions ? { ...this.claudeOptions } : undefined
+    const turnBaseUrl = this.apiBaseUrl
+    const turnEnvironment = this.providerEnv()
     // spawn claude.exe 时若 working dir 不存在会直接「exists but failed to launch」；
     // cwd 失效（历史会话来自已删除/改名/异机路径）则回退到用户主目录，避免起不来。
     const safeCwd = existsSync(this.cwd) ? this.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
@@ -741,16 +748,17 @@ export class Session {
     // 带图片时 prompt 不能是纯字符串，要构造成 SDKUserMessage（text block + image block 混排），
     // 才能让 Claude 真正"看到"图片内容而不只是收到一段文字。每次重试都要拿到全新的生成器实例——
     // 异步生成器只能消费一次，若在循环外只建一次、复用同一个实例，第二次重试会拿到已耗尽的迭代器。
-    const buildPrompt = (): string | AsyncIterable<Record<string, unknown>> => {
-      if (!images || images.length === 0) return text
+    const buildPrompt = (optionsReady: Promise<void>): AsyncIterable<Record<string, unknown>> => {
       return (async function* () {
+        // 确认原生参数已应用后才交出消息，首轮也使用用户选择的强度。
+        await optionsReady
         yield {
           type: 'user' as const,
           message: {
             role: 'user' as const,
             content: [
               { type: 'text' as const, text },
-              ...images.map((img) => ({
+              ...(images ?? []).map((img) => ({
                 type: 'image' as const,
                 source: { type: 'base64' as const, media_type: img.mediaType, data: img.data },
               })),
@@ -766,7 +774,7 @@ export class Session {
     this.curMsgTokens = 0
     this.turnHadResult = false
     // 调用诊断日志：本轮发出去的模型 + 是否经第三方网关（排查“真走三方 / 回退官方”的关键）
-    console.log(`[sidecar] turn start session=${this.id} model=${this.model ?? '默认'} via=${this.apiBaseUrl ?? '官方登录'}`)
+    console.log(`[sidecar] turn start session=${this.id} model=${turnModel ?? '默认'} via=${turnBaseUrl ?? '官方登录'}`)
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       this.claudeMessageText = new ClaudeMessageText()
       const ac = new AbortController()
@@ -799,7 +807,7 @@ export class Session {
       }
 
       if (this.toolPolicy === 'consult-readonly') filterClaudeAssembly(mcpServers, this.consultToolAssembly)
-      const gatewayCapabilities = this.apiBaseUrl && this.toolPolicy !== 'disabled'
+      const gatewayCapabilities = turnBaseUrl && this.toolPolicy !== 'disabled'
         && this.toolPolicy !== 'review-only' && this.toolPolicy !== 'consult-readonly'
         ? claudeGatewayUserCapabilities(undefined, this.cwd) : undefined
       for (const [name, server] of Object.entries(gatewayCapabilities?.mcpServers ?? {})) {
@@ -811,9 +819,12 @@ export class Session {
       const priorityPlugins = await claudeProjectPlugins(this.cwd, projectPriority
         ? gatewayCapabilities?.plugins ?? claudeUserPlugins(undefined, this.cwd, 'team-standards') : [])
 
+      let releasePrompt!: () => void
+      const optionsReady = new Promise<void>(resolve => { releasePrompt = resolve })
+      let activeQuery: ReturnType<typeof query> | undefined
       try {
-        const q = query({
-          prompt: buildPrompt(),
+        const q = activeQuery = query({
+          prompt: buildPrompt(optionsReady),
           options: {
             ...((priorityPlugins.plugins.length || gatewayCapabilities?.plugins?.length)
               ? { plugins: priorityPlugins.plugins.length ? priorityPlugins.plugins : gatewayCapabilities!.plugins } : {}),
@@ -828,7 +839,7 @@ export class Session {
                     systemPrompt: {
                       type: 'preset',
                       preset: 'claude_code',
-                      append: [windowsExecutionInstructions() ?? '', this.apiBaseUrl ? GATEWAY_STEER : '',
+                      append: [windowsExecutionInstructions() ?? '', turnBaseUrl ? GATEWAY_STEER : '',
                         toolboxApiBase && this.forgeSqlRegistration
                           ? FORGE_PENDING_SQL_STEER : '',
                         toolboxApiBase && this.forgeSqlRegistration && this.toolPolicy !== 'consult-readonly'
@@ -839,7 +850,7 @@ export class Session {
                   }),
             // 第三方网关 + 非 plan 模式：禁用 ExitPlanMode，杜绝“进/退计划模式”的无谓往返与校验报错。
             // plan 模式是用户主动选的，保留。官方会话不动。
-            ...(this.apiBaseUrl && this.permissionMode !== 'plan'
+            ...(turnBaseUrl && this.permissionMode !== 'plan'
               ? { disallowedTools: ['ExitPlanMode'] }
               : {}),
             ...(this.toolPolicy === 'disabled' || this.toolPolicy === 'review-only'
@@ -872,8 +883,7 @@ export class Session {
             cwd: safeCwd,
             ...(additionalDirectories.length ? { additionalDirectories } : {}),
             // 网关会话逐轮传入 env/model/resume；官方会话清除继承的网关凭据。
-            ...claudeSessionRoutingOptions(this.apiBaseUrl, this.model, this.sdkSessionId || undefined,
-              this.apiBaseUrl ? this.gatewayEnv() : this.officialEnv()),
+            ...claudeSessionRoutingOptions(turnBaseUrl, turnModel, this.sdkSessionId || undefined, turnEnvironment),
             permissionMode: this.permissionMode,
             includePartialMessages: true,
             canUseTool: this.perms.canUseTool,
@@ -886,6 +896,8 @@ export class Session {
           },
         } as never)
 
+        if (turnOptions) await applyClaudeSessionOptions(q, turnOptions)
+        releasePrompt()
         this.fetchModels(q)
 
         for await (const m of q as AsyncIterable<Record<string, unknown>>) {
@@ -924,6 +936,9 @@ export class Session {
         this.emitTurn({ type: 'error', code: 'QUERY_FAILED', message: detail })
         return
       } finally {
+        // 参数失败时关闭仍等待输入的原生查询，避免遗留进程。
+        activeQuery?.close()
+        releasePrompt()
         this.abort = undefined
         priorityPlugins.cleanup()
       }
@@ -1157,7 +1172,6 @@ export class Session {
         additionalDirectories,
         cwd: this.cwd,
         model: this.model,
-        reasoningEffort: this.codexReasoningEffort,
         permissionMode: this.permissionMode,
         sdkSessionId: this.sdkSessionId,
         signal: ac.signal,
@@ -1914,6 +1928,11 @@ export class SessionManager {
   setModel(id: string, model: string): void {
     const s = this.sessions.get(id)
     if (s) s.model = model
+  }
+
+  setClaudeOptions(id: string, value: unknown): void {
+    const session = this.sessions.get(id)
+    if (session?.engine === 'claude') session.claudeOptions = parseClaudeSessionOptions(value)
   }
 
   setCodexOptions(id: string, reasoningEffort: string, speed: string): void {

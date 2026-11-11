@@ -213,6 +213,7 @@ wss.on('connection', (ws) => {
           Array.isArray(msg.consultEvidenceSystems) ? msg.consultEvidenceSystems.filter((value): value is string => typeof value === 'string') : [])
         break
       case 'user':
+        if (msg.claudeOptions != null) manager.setClaudeOptions(sessionId, msg.claudeOptions)
         if (typeof msg.turnId === 'string' && msg.turnId) {
           const receipt = queueReceipts.find(sessionId, msg.turnId)
           if (receipt) {

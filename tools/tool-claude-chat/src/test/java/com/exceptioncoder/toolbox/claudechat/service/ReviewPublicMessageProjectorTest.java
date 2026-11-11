@@ -56,7 +56,12 @@ class ReviewPublicMessageProjectorTest {
                         List.of(new ServerMessage.CapabilityProvenance(
                                 "plugin", "auth-directory", "plugin-secret", true, "runtime")))),
                 List.of("agent"), List.of(), "style", "codex-app-server", 100L, List.of("secret error"),
-                List.of(), "gpt-secret", "high", "fast", "bypassPermissions", "server", true, SessionExecutionPolicy.REVIEW_ONLY);
+                List.of(), "gpt-secret", "high", "fast", "bypassPermissions", "server", true, SessionExecutionPolicy.REVIEW_ONLY,
+                new com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeSessionOptions("max", true),
+                new ServerMessage.ActiveModelConfiguration("claude", "secret-model", "high", null, false));
+
+        assertThat(((ServerMessage.Ready) ReviewPublicMessageProjector.projectRealtime(ready)).activeModelConfiguration()).isNull();
+        assertThat(ReviewPublicMessageProjector.projectRealtime(new ServerMessage.ModelConfiguration(2L, ready.activeModelConfiguration()))).isNull();
 
         assertThat(ReviewPublicMessageProjector.projectRealtime(tool)).isNull();
         assertThat(ReviewPublicMessageProjector.projectRealtime(snapshot)).isSameAs(snapshot);

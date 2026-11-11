@@ -24,6 +24,7 @@ export function ProviderSwitch({
   disabled,
   align = 'left',
   hideManage = false,
+  inlineSelection = false,
 }: {
   engine: Engine
   providerKind: 'official' | 'thirdParty'
@@ -35,6 +36,7 @@ export function ProviderSwitch({
   align?: 'left' | 'right'
   /** 嵌入 modal 时隐藏会 portal 到 modal 外的档案管理入口；Header More 仍提供完整管理入口。 */
   hideManage?: boolean
+  inlineSelection?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [managing, setManaging] = useState(false)
@@ -58,6 +60,24 @@ export function ProviderSwitch({
     onSwitch({ providerProfileId: p.id, apiBaseUrl: p.baseUrl })
     if (p.model && onPickModel) onPickModel(p.model) // 档案带默认模型则一并切，省一步
   }
+
+  if (inlineSelection) return <div className="space-y-2">
+    <label htmlFor="session-provider" className="text-sm font-medium">服务商</label>
+    <select id="session-provider" disabled={disabled || !gatewayCapable}
+      value={isThird ? (activeId ? `profile:${activeId}` : 'unknown') : 'official'}
+      onChange={event => {
+        if (event.target.value === 'official') toOfficial()
+        else {
+          const selected = profiles.find(profile => `profile:${profile.id}` === event.target.value)
+          if (selected) toProfile(selected)
+        }
+      }} className="h-11 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm disabled:opacity-50 md:h-9 md:text-xs">
+      <option value="official">官方</option>
+      {isThird && !activeId && <option value="unknown">{host ?? '当前第三方服务商'}</option>}
+      {profiles.map(profile => <option key={profile.id} value={`profile:${profile.id}`}>{profile.name}</option>)}
+    </select>
+    {profilesQuery.error && <p className="text-xs text-[var(--color-destructive)]">服务商读取失败，<button type="button" onClick={() => void profilesQuery.refetch()} className="underline">重试</button></p>}
+  </div>
 
   return (
     <div className="relative">

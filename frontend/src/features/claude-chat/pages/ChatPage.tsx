@@ -66,8 +66,10 @@ import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { ProviderSwitch } from '../components/ProviderSwitch'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
-import { GatewaySessionModelPicker } from '../components/GatewaySessionModelPicker'
-import { CodexSessionOptions } from '../components/CodexSessionOptions'
+import { ModelConfigurationPicker } from '../components/ModelConfigurationPicker'
+import { ClaudeUltracodeOption } from '../components/ClaudeSessionOptions'
+import { CodexAuthDirectory } from '../components/CodexAuthDirectory'
+import { modelConfigurationCapabilities, REASONING_LABELS } from '../lib/modelConfigurationCapabilities'
 import { AssistantRestoreMenuItem } from '@/assistant-sdk/AssistantBridge'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
@@ -77,7 +79,7 @@ import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } fr
 import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, renameSession, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { canSteerRunningMessage } from '../components/RunningMessageActions'
-import type { ChatItem, ModelInfo } from '../types'
+import type { ChatItem, ClaudeEffort, CodexReasoningEffort, ModelInfo } from '../types'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 import { getSessionByDevSession, linkDevSession, type PrdSessionView } from '@/features/prd-clarify/public-api'
@@ -1079,17 +1081,39 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     )
   }
 
-  const selectedSessionModel = chat.models.find(model => model.value === chat.currentModel)
+  const selectedSessionModel = chat.models.find(model => model.value === chat.currentModel || (chat.currentModel && model.resolvedModel === chat.currentModel))
     ?? (!chat.currentModel ? chat.models.find(model => model.isDefault) : undefined)
   const sessionModelLabel = selectedSessionModel?.displayName
     || chat.currentModel
     || currentEngineLabel
   const sessionEffortLabel = QUICK_EFFORT_LABELS[chat.codexReasoningEffort] || chat.codexReasoningEffort
   const sessionSpeedLabel = chat.codexSpeed === 'fast' ? '快速' : '标准'
+  const claudeOptions = chat.claudeOptions ?? { effort: 'auto' as const, ultracode: false }
+  const claudeSummary = ` · ${REASONING_LABELS[claudeOptions.effort]}${claudeOptions.ultracode ? ' · Ultracode' : ''}`
+  const modelCapabilities = modelConfigurationCapabilities(chat.currentEngine, chat.models, chat.currentModel)
+  const supportsModelCatalog = currentEngineCatalogEntry
+    ? currentEngineCatalogEntry.capabilities.includes('modelCatalog')
+    : chat.models.length > 0
+  const modelSelection = {
+    effort: chat.currentEngine === 'claude' ? claudeOptions.effort
+      : chat.currentEngine === 'antigravity' ? modelCapabilities.reasoning?.options[0] ?? '' : chat.codexReasoningEffort,
+    speed: chat.codexSpeed,
+    ultracode: chat.currentEngine === 'claude' && claudeOptions.ultracode,
+  }
+  const activeModel = chat.activeModelConfiguration
+  const activeModelLabel = activeModel && [
+    chat.models.find(item => activeModel.model && (item.value === activeModel.model || item.resolvedModel === activeModel.model))?.displayName
+      || activeModel.model || '引擎默认模型',
+    activeModel.effort ? (REASONING_LABELS[activeModel.effort] ?? activeModel.effort) : null,
+    activeModel.speed ? (activeModel.speed === 'fast' ? '快速' : '标准') : null,
+    activeModel.ultracode ? 'Ultracode' : null,
+  ].filter(Boolean).join(' · ')
   const sessionConfigSummary = sessionModelLabel + (chat.currentEngine === 'codex'
-    ? ` · 思考强度 ${sessionEffortLabel} · 速度 ${sessionSpeedLabel}` : '')
+    ? ` · 推理强度 ${sessionEffortLabel}${modelCapabilities.speed || chat.codexSpeed === 'fast' ? ` · 速度模式 ${sessionSpeedLabel}` : ''}`
+    : chat.currentEngine === 'claude' ? claudeSummary : modelCapabilities.reasoning ? ` · ${REASONING_LABELS[modelSelection.effort] ?? modelSelection.effort}` : '')
   const sessionConfigCompactSummary = compactSessionModelLabel(sessionModelLabel) + (chat.currentEngine === 'codex'
-    ? ` · ${sessionEffortLabel} · ${sessionSpeedLabel}` : '')
+    ? ` · ${sessionEffortLabel}${modelCapabilities.speed || chat.codexSpeed === 'fast' ? ` · ${sessionSpeedLabel}` : ''}`
+    : chat.currentEngine === 'claude' ? claudeSummary : modelCapabilities.reasoning ? ` · ${REASONING_LABELS[modelSelection.effort] ?? modelSelection.effort}` : '')
 
   const startNew = (selected?: NewSessionPreferences) => {
     if (newSessionCreateLock.current || newSessionLoading) return
@@ -2294,130 +2318,66 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               onReturnFocus={mobileLayout ? () => composerMoreTrigger.current?.focus() : undefined}
               quickSelection={!reviewOnlySession && chat.currentEngine === 'codex' && chat.currentProviderKind !== 'thirdParty'
                 ? onCustom => <CodexQuickPicker key={chat.sessionId} models={chat.models} model={chat.currentModel}
-                    effort={chat.codexReasoningEffort} refreshing={chat.modelsRefreshing} disabled={planLocked}
+                    effort={chat.codexReasoningEffort} speed={chat.codexSpeed} refreshing={chat.modelsRefreshing} disabled={planLocked}
                     onCustom={onCustom} onApply={preset => {
                       if (preset.model !== chat.currentModel) chat.setModel(preset.model)
                       chat.setCodexOptions(preset.effort, preset.fastSupported ? chat.codexSpeed : 'default')
                     }} /> : undefined}
             >
-              <div className="flex flex-col items-stretch gap-2">
-                <span className="text-sm font-medium">权限模式</span>
+              {!reviewOnlySession && supportsModelCatalog && <section className="space-y-3">
+                <h3 className="text-sm font-semibold">模型配置 · {currentEngineLabel}</h3>
+                {chat.running && <p role="status" className="text-xs leading-relaxed text-[var(--color-muted-foreground)]">
+                  {activeModelLabel ? `本轮请求：${activeModelLabel}；实际参数受引擎限制。` : '本轮请求参数尚未回传。'} 以下选择用于下一轮。
+                </p>}
+                <ModelConfigurationPicker
+                  engine={chat.currentEngine} engineLabel={currentEngineLabel} models={chat.models}
+                  model={chat.currentModel} selection={modelSelection}
+                  gateway={chat.currentProviderKind === 'thirdParty' && supportsSessionProvider(chat.currentEngine)}
+                  disabled={planLocked || chat.state !== 'ready'} refreshing={chat.modelsRefreshing} onRefresh={chat.refreshModels}
+                  onChange={(model, adjusted) => {
+                    chat.setModel(model)
+                    if (!adjusted) return
+                    if (chat.currentEngine === 'claude') chat.setClaudeOptions({ effort: adjusted.effort as ClaudeEffort, ultracode: adjusted.ultracode })
+                    else if (chat.currentEngine === 'codex') chat.setCodexOptions(adjusted.effort as CodexReasoningEffort, adjusted.speed)
+                  }}
+                  onEffortChange={effort => {
+                    if (chat.currentEngine === 'claude') chat.setClaudeOptions({ ...claudeOptions, effort: effort as ClaudeEffort })
+                    else if (chat.currentEngine === 'codex') chat.setCodexOptions(effort as CodexReasoningEffort, chat.codexSpeed)
+                  }}
+                  onSpeedChange={speed => chat.setCodexOptions(chat.codexReasoningEffort, speed)}
+                  onResetClaudeOptions={() => chat.setClaudeOptions({ ...claudeOptions, effort: 'auto' })}
+                />
+              </section>}
+              {!reviewOnlySession && !supportsModelCatalog && <p className="text-xs text-[var(--color-muted-foreground)]">
+                {currentEngineCatalogEntry ? '当前引擎未提供模型目录。' : <>引擎能力尚未核验。<button type="button" className="underline" onClick={() => void engineCatalogQuery.refetch()}>重新检测</button></>}
+              </p>}
+              <section className="space-y-2 border-t pt-3">
+                <h3 className="text-sm font-semibold">执行权限</h3>
                 {reviewOnlySession
                   ? <span className="text-sm text-emerald-700 dark:text-emerald-300">仅计划评审</span>
-                  : <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} disabled={planLocked} inlineConfirmation />}
-              </div>
-              {(chat.currentEngine === 'codex' || chat.currentEngine === 'antigravity') && !reviewOnlySession && (
-                <div className="flex flex-col items-stretch gap-2">
-                  <span className="shrink-0 text-sm font-medium">模型参数</span>
-                  <CodexSessionOptions
-                    embedded={mobileLayout && chat.currentEngine === 'codex'}
-                    models={chat.models}
-                    model={chat.currentModel}
-                    reasoningEffort={chat.codexReasoningEffort}
-                    speed={chat.codexSpeed}
-                    codexHome={currentSession?.codexHome}
-                    codexHomes={availableCodexHomes}
-                    codexHomesLoading={codexHomesQuery.isPending || codexHomesQuery.isFetching}
-                    showCodexHome={Boolean(currentSession?.engine === 'codex' && currentSession.providerKind !== 'thirdParty')}
-                    disabled={planLocked}
-                    optionsDisabled={planLocked}
-                    engineLabel={chat.currentEngine === 'antigravity' ? 'Antigravity' : 'Codex'}
-                    showSpeed={chat.currentEngine === 'codex'}
-                    modelsRefreshing={chat.modelsRefreshing}
-                    onModelChange={chat.setModel}
-                    onOptionsChange={chat.setCodexOptions}
-                    onCodexHomeChange={currentSession?.engine === 'codex'
-                      ? codexHome => chat.duplicateSession(
-                          currentSession.id,
-                          codexHome,
-                          buildCodexAuthHandoff({
-                            items: chat.items,
-                            sourceHome: currentSession.codexHome,
-                            targetHome: codexHome,
-                            cwd: currentSession.cwd,
-                          }),
-                        )
-                      : undefined}
-                    onRefreshModels={chat.refreshModels}
-                  />
-                </div>
-              )}
-              {(['claude', 'qwen', 'opencode', 'pi', 'copilot'].includes(chat.currentEngine))
-                && !(chat.currentProviderKind === 'thirdParty' && supportsSessionProvider(chat.currentEngine)) && !reviewOnlySession && (
-                <div className="flex flex-col items-stretch gap-2">
-                  <label htmlFor="session-engine-model" className="text-sm font-medium">{currentEngineLabel} 模型</label>
-                  <div className="flex items-center gap-2">
-                    <select
-                      id="session-engine-model"
-                      value={chat.currentModel ?? ''}
-                      onChange={event => chat.setModel(event.target.value)}
-                      disabled={planLocked}
-                      className="h-8 min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-2 text-xs disabled:opacity-50"
-                    >
-                      <option value="">{chat.currentEngine === 'opencode' ? 'OpenCode 默认模型' : '当前账号默认模型'}</option>
-                      {chat.currentModel && !chat.models.some(model => model.value === chat.currentModel) && (
-                        <option value={chat.currentModel}>{chat.currentModel}（当前选择，未在目录中）</option>
-                      )}
-                      {chat.models.map(model => <option key={model.value} value={model.value}>{model.displayName}</option>)}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={chat.refreshModels}
-                      disabled={chat.modelsRefreshing}
-                      aria-label={`重新同步 ${currentEngineLabel} 模型`}
-                      title={`从当前 ${currentEngineLabel} 配置重新同步模型`}
-                      className="flex size-8 shrink-0 items-center justify-center rounded-md border hover:bg-[var(--color-accent)] disabled:opacity-50"
-                    >
-                      <RefreshCw className={cn('size-3.5', chat.modelsRefreshing && 'animate-spin')} />
-                    </button>
+                  : <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} disabled={planLocked} inlineConfirmation inlineSelection />}
+              </section>
+              {!reviewOnlySession && (supportsSessionProvider(chat.currentEngine) || chat.currentEngine === 'codex'
+                || chat.currentEngine === 'claude') && (
+                <details className="border-t pt-3">
+                  <summary className="cursor-pointer text-sm font-medium">高级设置</summary>
+                  <div className="mt-3 space-y-3">
+                    {supportsSessionProvider(chat.currentEngine) && <ProviderSwitch
+                      engine={chat.currentEngine} providerKind={chat.currentProviderKind} providerBaseUrl={chat.currentProviderBaseUrl}
+                      onSwitch={chat.switchProvider} onPickModel={chat.setModel} disabled={planLocked} hideManage inlineSelection />}
+                    {chat.currentEngine === 'codex' && currentSession?.engine === 'codex' && currentSession.providerKind !== 'thirdParty' && <CodexAuthDirectory
+                      current={currentSession.codexHome} homes={availableCodexHomes}
+                      loading={codexHomesQuery.isPending || codexHomesQuery.isFetching} disabled={planLocked}
+                      onChange={codexHome => chat.duplicateSession(currentSession.id, codexHome, buildCodexAuthHandoff({
+                        items: chat.items, sourceHome: currentSession.codexHome, targetHome: codexHome, cwd: currentSession.cwd,
+                      }))} />}
+                    {chat.currentEngine === 'claude' && <ClaudeUltracodeOption options={claudeOptions}
+                      disabled={planLocked || chat.state !== 'ready'} onChange={chat.setClaudeOptions} />}
+                    {supportsSessionProvider(chat.currentEngine) && <div className="md:hidden"><ProviderDiagPanel
+                      providerKind={chat.currentProviderKind} providerBaseUrl={chat.currentProviderBaseUrl}
+                      currentModel={chat.currentModel} diag={chat.providerDiag} compact /></div>}
                   </div>
-                  {chat.models.length === 0 && (
-                    <p className="text-xs leading-relaxed text-[var(--color-muted-foreground)]">
-                      {chat.currentEngine === 'opencode'
-                        ? '暂无可用模型。请先在运行 Forge 的账户中执行 opencode auth login 并配置模型服务，然后重新同步。'
-                        : chat.currentEngine === 'claude' ? '模型目录尚未加载。可重新同步；若仍失败，请检查运行 Forge 的账户是否已登录 Claude Code。'
-                        : chat.currentEngine === 'pi' ? '暂无可用模型。请运行 pi 并通过 /login 配置认证，或选择第三方服务商后重新同步。'
-                        : chat.currentEngine === 'copilot' ? '暂无可用模型。请登录 Copilot CLI，或选择第三方服务商并配置模型后重新同步。'
-                        : '暂无可用模型。请先在运行 Forge 的账户中配置 Qwen Code 认证，再重新同步；千问办公模型不自动共享。'}
-                    </p>
-                  )}
-                </div>
-              )}
-              {!reviewOnlySession && supportsSessionProvider(chat.currentEngine) && (
-                <>
-                  <div className="flex flex-col items-stretch gap-2">
-                    <span className="text-sm font-medium">服务商</span>
-                    <ProviderSwitch
-                      engine={chat.currentEngine}
-                      providerKind={chat.currentProviderKind}
-                      providerBaseUrl={chat.currentProviderBaseUrl}
-                      onSwitch={chat.switchProvider}
-                      onPickModel={chat.setModel}
-                      disabled={planLocked}
-                      align="left"
-                      hideManage
-                    />
-                  </div>
-                  {['claude', 'pi', 'copilot', 'opencode'].includes(chat.currentEngine) && chat.currentProviderKind === 'thirdParty' && (
-                    <GatewaySessionModelPicker
-                      models={chat.models}
-                      currentModel={chat.currentModel}
-                      refreshing={chat.modelsRefreshing}
-                      disabled={planLocked}
-                      onChange={chat.setModel}
-                      onRefresh={chat.refreshModels}
-                    />
-                  )}
-                  <div className="md:hidden">
-                    <ProviderDiagPanel
-                      providerKind={chat.currentProviderKind}
-                      providerBaseUrl={chat.currentProviderBaseUrl}
-                      currentModel={chat.currentModel}
-                      diag={chat.providerDiag}
-                      compact
-                    />
-                  </div>
-                </>
+                </details>
               )}
             </SessionConfigSheet>
             {!mobileLayout && composerTextarea}

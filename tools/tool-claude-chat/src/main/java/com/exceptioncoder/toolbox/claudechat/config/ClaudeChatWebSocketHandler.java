@@ -125,6 +125,7 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
             case ClientMessage.RefreshModels ignored -> service.refreshModels(ws);
             case ClientMessage.RefreshCapabilities ignored -> service.refreshCapabilities(ws);
             case ClientMessage.SetCodexOptions options -> service.setCodexOptions(ws, options);
+            case ClientMessage.SetClaudeOptions options -> service.setClaudeOptions(ws, options);
             case ClientMessage.SwitchEngine se -> service.switchEngine(ws, se);
             case ClientMessage.SwitchProvider sp -> service.switchProvider(ws, sp);
             case ClientMessage.ForkSession fs -> service.forkSession(ws, fs);

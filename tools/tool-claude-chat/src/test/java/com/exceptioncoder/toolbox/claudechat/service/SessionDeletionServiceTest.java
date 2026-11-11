@@ -17,15 +17,17 @@ class SessionDeletionServiceTest {
         SessionProjectDirectoryService directories = mock(SessionProjectDirectoryService.class);
         ClaudeChatSessionRepository sessions = mock(ClaudeChatSessionRepository.class);
         SessionCommunicationRepository communications = mock(SessionCommunicationRepository.class);
-        SessionDeletionService service = new SessionDeletionService(chat, sites, directories, sessions, communications);
+        ClaudeSessionOptionsService options = mock(ClaudeSessionOptionsService.class);
+        SessionDeletionService service = new SessionDeletionService(chat, sites, directories, sessions, communications, options);
 
         service.delete("review-session-1");
 
-        InOrder ordered = inOrder(chat, sites, directories, communications, sessions);
+        InOrder ordered = inOrder(chat, sites, directories, communications, options, sessions);
         ordered.verify(chat).dropSession("review-session-1");
         ordered.verify(sites).clear("review-session-1");
         ordered.verify(directories).clear("review-session-1");
         ordered.verify(communications).deleteBySession("review-session-1");
+        ordered.verify(options).delete("review-session-1");
         ordered.verify(sessions).deleteById("review-session-1");
     }
 }

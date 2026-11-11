@@ -6,6 +6,7 @@ import static com.exceptioncoder.toolbox.claudechat.service.SessionSettingsNorma
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatActivityView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeSessionOptions;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModelInfo;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
@@ -77,6 +78,7 @@ public class ClaudeChatService {
 
     private final ClaudeChatProperties props;
     private final ClaudeChatSessionRepository repo;
+    private final ClaudeSessionOptionsService claudeOptions;
     private final AuthSessionLinkRepository authSessionLinks;
     private final SidecarProcessRegistry processRegistry;
     private final SidecarClient sidecar;
@@ -176,9 +178,11 @@ public class ClaudeChatService {
                              ApplicationEventPublisher applicationEvents,
                              SessionVoiceService voiceService,
                              com.exceptioncoder.toolbox.claudechat.service.changes.TurnChangeService turnChanges,
-                             AutopilotQueuedContextService autopilotQueuedContext, QueueDeliveryStore queueDelivery) {
+                             AutopilotQueuedContextService autopilotQueuedContext, QueueDeliveryStore queueDelivery,
+                             ClaudeSessionOptionsService claudeOptions) {
         this.props = props;
         this.repo = repo;
+        this.claudeOptions = claudeOptions;
         this.authSessionLinks = authSessionLinks;
         this.processRegistry = processRegistry;
         this.sidecar = sidecar;
@@ -569,6 +573,7 @@ public class ClaudeChatService {
             return;
         }
         sessionProjectDirectories.copy(sourceSessionId, sessionId);
+        claudeOptions.copy(sourceSessionId, sessionId);
 
         SessionCtx ctx = new SessionCtx(sessionId, source.getCwd());
         ctx.engine = engine;
@@ -793,8 +798,10 @@ public class ClaudeChatService {
                 started = startTurn(ctx, msg, turnPolicy);
             } catch (RuntimeException error) {
                 voiceService.cancel(ctx.sessionId);
-                sendError(ws, 0, error instanceof ConsultRuntimeCoordinator.PreparationFailure
-                        ? "CONSULT_ACCOUNT_HANDOFF_FAILED" : "SEND_STATUS_UNCONFIRMED", error.getMessage());
+                String code = error instanceof ClaudeOptionsMismatchException ? "CLAUDE_OPTIONS_INVALID"
+                        : error instanceof ConsultRuntimeCoordinator.PreparationFailure
+                        ? "CONSULT_ACCOUNT_HANDOFF_FAILED" : "SEND_STATUS_UNCONFIRMED";
+                sendError(ws, 0, code, error.getMessage());
                 return;
             }
             if (!started) {
@@ -943,6 +950,9 @@ public class ClaudeChatService {
     private void startTurnAdmitted(SessionCtx ctx, ClientMessage.Send msg, String turnPolicy,
                                    String trustedContinuationContext, ConsultRuntimeCoordinator.Plan accountPlan,
                                    QueuedChatMessage queued, boolean queueCheck) {
+        ClaudeSessionOptions requestedClaudeOptions = "claude".equals(ctx.engine)
+                ? claudeOptions.configured(ctx.sessionId) : null;
+        validateClaudeOptions(ctx.models, ctx.currentModel, requestedClaudeOptions);
         sessionAccessPolicy.requireProjectAllowed(ctx.cwd);
         var images = loadMessageImages(ctx.sessionId, msg.attachments());
         if (accountPlan != null) {
@@ -1001,6 +1011,12 @@ public class ClaudeChatService {
             previous.fail("overlapping turn replaced", null);
         }
         try {
+            String requestedEffort = "claude".equals(ctx.engine)
+                    ? requestedClaudeOptions == null ? null : requestedClaudeOptions.effort()
+                    : "codex".equals(ctx.engine) ? ctx.codexReasoningEffort : null;
+            var turnModelConfiguration = new ServerMessage.ActiveModelConfiguration(ctx.engine, ctx.currentModel,
+                    requestedEffort, "codex".equals(ctx.engine) ? ctx.codexSpeed : null,
+                    requestedClaudeOptions == null ? null : requestedClaudeOptions.ultracode());
             if (accountPlan != null) {
                 try { consultRuntime.dispatched(ctx.sessionId, msg.messageId(), turnId, msg, accountPlan); }
                 catch (RuntimeException error) {
@@ -1010,16 +1026,16 @@ public class ClaudeChatService {
                 String text = accountPlan.context() + appendAttachmentHints(msg.text(), msg.attachments(), false);
                 sidecar.userMessage(ctx.sessionId, text, developerInstructions, sessionContext,
                         projectContext == null ? List.of() : projectContext.paths(), turnId, span.traceContext(),
-                        metadata, images, turnPolicy, msg.voice() == null ? null : msg.voice().callId(), accountPlan.configuration());
+                        metadata, images, turnPolicy, msg.voice() == null ? null : msg.voice().callId(), accountPlan.configuration(), false, requestedClaudeOptions);
             } else if (msg.voice() != null) {
                 sidecar.userMessage(ctx.sessionId, msg.text(), developerInstructions,
                         sessionContext,
                         projectContext == null ? List.of() : projectContext.paths(),
-                        turnId, span.traceContext(), metadata, images, turnPolicy, msg.voice().callId());
+                        turnId, span.traceContext(), metadata, images, turnPolicy, msg.voice().callId(), null, false, requestedClaudeOptions);
             } else if (queueCheck) {
                 sidecar.userMessage(ctx.sessionId, msg.text(), developerInstructions, sessionContext,
                         projectContext == null ? List.of() : projectContext.paths(), turnId, span.traceContext(),
-                        metadata, images, turnPolicy, null, null, true);
+                        metadata, images, turnPolicy, null, null, true, requestedClaudeOptions);
             } else {
                 sidecar.userMessage(ctx.sessionId,
                         appendAttachmentHints(msg.text(), msg.attachments(),
@@ -1027,7 +1043,11 @@ public class ClaudeChatService {
                         developerInstructions,
                         sessionContext,
                         projectContext == null ? List.of() : projectContext.paths(),
-                        turnId, span.traceContext(), metadata, images, turnPolicy);
+                        turnId, span.traceContext(), metadata, images, turnPolicy, null, null, false, requestedClaudeOptions);
+            }
+            if (ctx.status == SessionStatus.RUNNING && turnLifecycle.currentTurnId(ctx.sessionId).filter(turnId::equals).isPresent()) {
+                ctx.activeModelConfiguration = turnModelConfiguration;
+                sendToBrowser(ctx, seq -> new ServerMessage.ModelConfiguration(seq, turnModelConfiguration));
             }
         } catch (RuntimeException e) {
             voiceService.cancel(ctx.sessionId);
@@ -1035,6 +1055,7 @@ public class ClaudeChatService {
             turnLifecycle.complete(ctx.sessionId, turnId);
             turnChanges.finish(ctx.sessionId, turnId, "error");
             ctx.status = SessionStatus.IDLE;
+            ctx.activeModelConfiguration = null;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
             activeTurnSpans.remove(ctx.sessionId, span);
             activeTurnMetadata.remove(ctx.sessionId, metadata);
@@ -1216,6 +1237,48 @@ public class ClaudeChatService {
         log.info("[claude-chat] 会话 {} 请求刷新能力清单", ctx.sessionId);
     }
 
+    public void setClaudeOptions(WebSocketSession ws, ClientMessage.SetClaudeOptions msg) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        if (rejectReviewMutation(ws, ctx)) return;
+        if (!"claude".equals(ctx.engine) || SessionExecutionPolicy.isConsultReadonly(ctx.executionPolicy)) {
+            sendError(ws, 0, "CLAUDE_OPTIONS_UNSUPPORTED", "当前会话不支持修改 Claude 强度", false);
+            return;
+        }
+        try {
+            var options = new ClaudeSessionOptions(msg.effort(), msg.ultracode());
+            validateClaudeOptions(ctx.models, ctx.currentModel, options);
+            claudeOptions.save(ctx.sessionId, options);
+            sendToBrowser(ctx, seq -> ready(ctx, seq));
+        } catch (IllegalArgumentException error) {
+            sendToBrowser(ctx, seq -> ready(ctx, seq));
+            sendError(ws, 0, "CLAUDE_OPTIONS_INVALID", error.getMessage(), false);
+        }
+    }
+
+    /** Only reject a persisted choice when the current catalog explicitly rules it out. */
+    static void validateClaudeOptions(List<ModelInfo> models, String currentModel, ClaudeSessionOptions options) {
+        if (options == null) return;
+        ModelInfo model = models.stream().filter(item -> currentModel == null || currentModel.isBlank()
+                ? item.isDefault()
+                : Objects.equals(item.value(), currentModel) || Objects.equals(item.resolvedModel(), currentModel))
+                .findFirst().orElse(null);
+        if (model == null) return;
+        List<String> levels = model.supportedEffortLevels() == null ? List.of() : model.supportedEffortLevels();
+        if (!"auto".equals(options.effort()) && (Boolean.FALSE.equals(model.supportsEffort())
+                || (!levels.isEmpty() && !levels.contains(options.effort())))) {
+            throw new ClaudeOptionsMismatchException("当前 Claude 模型不支持已选强度，请在模型配置中调整后重试；本次未发送");
+        }
+        // The SDK catalog does not declare Ultracode support; xhigh is not evidence of it.
+    }
+
+    static final class ClaudeOptionsMismatchException extends IllegalArgumentException {
+        ClaudeOptionsMismatchException(String message) { super(message); }
+    }
+
     public void setCodexOptions(WebSocketSession ws, ClientMessage.SetCodexOptions msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
@@ -1383,7 +1446,9 @@ public class ClaudeChatService {
                 ctx.skills, ctx.skillDetails, ctx.plugins, ctx.agents, ctx.mcpServers, ctx.outputStyle,
                 ctx.capabilitySource, ctx.capabilityRefreshedAt, ctx.capabilityErrors, ctx.backgroundTasks,
                 ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.mode, "server",
-                pendingAuthHandoff.remove(ctx.sessionId), ctx.executionPolicy);
+                pendingAuthHandoff.remove(ctx.sessionId), ctx.executionPolicy,
+                "claude".equals(ctx.engine) ? claudeOptions.get(ctx.sessionId) : ClaudeSessionOptions.DEFAULT,
+                ctx.status == SessionStatus.RUNNING ? ctx.activeModelConfiguration : null);
     }
 
     /** 从 SQLite 会话元数据恢复模型、推理强度和速度。 */
@@ -1946,6 +2011,7 @@ public class ClaudeChatService {
         ctx.interruptedDispatchTurnId = null;
         queueDelivery.settle(ctx.sessionId, turnId, stopReason, queueReleaseSafe);
         ctx.status = SessionStatus.IDLE;
+        ctx.activeModelConfiguration = null;
         ctx.pendingRequest = null; // 本轮结束，未决请求（含超时被拒）一并失效
         ctx.queueReleaseReady = queueReleaseSafe;
         broadcastPendingSessions();
@@ -2396,6 +2462,13 @@ public class ClaudeChatService {
         } catch (AutopilotQueuedContextService.StaleContinuationException stale) {
             if (queueDelivery.delivery(ctx.sessionId).isEmpty()) queuedMessages.delete(ctx.sessionId, message.id());
             sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "AUTOPILOT_CONTINUATION_STALE", stale.getMessage()));
+        } catch (ClaudeOptionsMismatchException error) {
+            ctx.queueReleaseReady = false;
+            boolean previousDelivery = queueDelivery.delivery(ctx.sessionId).isPresent();
+            queueDelivery.delivery(ctx.sessionId).ifPresent(d -> queueDelivery.uncertain(ctx.sessionId, d.turnId(),
+                    "先前派发结果仍待核对，本次因模型配置不兼容未发送。"));
+            String prefix = previousDelivery ? "先前派发状态待核对，" : "待发送消息已保留，";
+            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "CLAUDE_OPTIONS_INVALID", prefix + error.getMessage(), false));
         } catch (RuntimeException error) {
             resetFailedConsultPreparation(ctx, error);
             ctx.queueReleaseReady = false;
@@ -3151,9 +3224,17 @@ public class ClaudeChatService {
             List<String> efforts = new ArrayList<>();
             JsonNode effortNodes = e.path("reasoningEfforts");
             if (effortNodes.isArray()) effortNodes.forEach(item -> efforts.add(item.asText()));
+            List<String> claudeEfforts = new ArrayList<>();
+            JsonNode claudeEffortNodes = e.path("supportedEffortLevels");
+            if (claudeEffortNodes.isArray()) claudeEffortNodes.forEach(item -> {
+                if (ClaudeSessionOptions.isEffort(item.asText()) && !"auto".equals(item.asText())) claudeEfforts.add(item.asText());
+            });
             out.add(new ModelInfo(value, e.path("displayName").asText(value), e.path("description").asText(""),
-                    efforts, e.path("defaultReasoningEffort").asText(null), e.path("fastSupported").asBoolean(false),
-                    e.path("isDefault").asBoolean(false)));
+                    efforts, e.path("defaultReasoningEffort").asText(null),
+                    e.path("fastSupported").isBoolean() ? e.path("fastSupported").asBoolean() : null,
+                    e.path("isDefault").asBoolean(false),
+                    e.path("supportsEffort").isBoolean() ? e.path("supportsEffort").asBoolean() : null, claudeEfforts,
+                    e.path("resolvedModel").asText(null)));
         }
         return out;
     }
@@ -3252,6 +3333,7 @@ public class ClaudeChatService {
         /** 该会话可用模型清单（来自 SDK supportedModels）与当前模型，供命令菜单的模型组展示/切换。 */
         volatile java.util.List<ModelInfo> models = java.util.List.of();
         volatile String currentModel;
+        volatile ServerMessage.ActiveModelConfiguration activeModelConfiguration;
         volatile String codexReasoningEffort = "low";
         volatile String codexSpeed = "default";
         /** 该会话当前存活的后台任务快照（来自 sidecar 的 backgroundTasks 事件），随每条 Ready 透传给

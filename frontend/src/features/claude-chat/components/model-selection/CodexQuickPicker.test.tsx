@@ -11,7 +11,7 @@ afterEach(cleanup)
 it('previews the combination during dragging and applies the model and effort once on release', () => {
   const apply = vi.fn()
   render(<CodexQuickPicker models={models} model="gpt-6.1-sol" effort="low" onApply={apply} onCustom={vi.fn()} />)
-  const slider = screen.getByRole('slider', { name: '模型与思考强度组合' })
+  const slider = screen.getByRole('slider', { name: '模型与推理强度组合' })
   expect(slider).toHaveAttribute('aria-valuetext', '6.1 Sol 轻度')
   fireEvent.pointerDown(slider)
   fireEvent.change(slider, { target: { value: '4' } })

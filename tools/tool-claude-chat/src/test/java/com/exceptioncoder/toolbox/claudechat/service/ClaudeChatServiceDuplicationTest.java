@@ -13,6 +13,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,7 +38,7 @@ class ClaudeChatServiceDuplicationTest {
             new ClaudeChatProperties(), repo, links, mock(SidecarProcessRegistry.class), sidecar,
             null, null, null, null, null, null, null, null, null, null, null,
             directories, null, null, null, engines, access, null, null, new ObjectMapper(), null,
-            List.of(), List.of(), null, mock(SessionVoiceService.class), null, null, mock(com.exceptioncoder.toolbox.claudechat.repository.QueueDeliveryStore.class));
+            List.of(), List.of(), null, mock(SessionVoiceService.class), null, null, mock(com.exceptioncoder.toolbox.claudechat.repository.QueueDeliveryStore.class), mock(ClaudeSessionOptionsService.class));
 
     @BeforeEach
     void prepare() {
@@ -63,6 +64,30 @@ class ClaudeChatServiceDuplicationTest {
         verify(repo, never()).touch(eq("source"), any(), anyLong());
         verify(repo, never()).updateFavorite(anyString(), org.mockito.ArgumentMatchers.anyBoolean());
         assertThat(source.getLastSeenAt()).isEqualTo(123L);
+    }
+
+    @Test
+    void unsupportedClaudeOptionsDoNotEndRunningCodexTurn() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "runtimeStates", mock(SessionRuntimeStateService.class));
+        when(repo.findById("source")).thenReturn(Optional.of(source("codex", null)));
+        when(sidecar.isConnected()).thenReturn(true);
+        service.switchSession(ws, new ClientMessage.SwitchSession("source"));
+
+        @SuppressWarnings("unchecked")
+        var contexts = (java.util.Map<String, Object>) org.springframework.test.util.ReflectionTestUtils.getField(service, "sessions");
+        Object ctx = contexts.get("source");
+        org.springframework.test.util.ReflectionTestUtils.setField(ctx, "status", SessionStatus.RUNNING);
+        when(ws.isOpen()).thenReturn(true);
+
+        service.setClaudeOptions(ws, new ClientMessage.SetClaudeOptions("high", false));
+
+        var response = ArgumentCaptor.forClass(TextMessage.class);
+        verify(ws).sendMessage(response.capture());
+        var message = new ObjectMapper().readTree(response.getValue().getPayload());
+        assertThat(message.path("code").asText()).isEqualTo("CLAUDE_OPTIONS_UNSUPPORTED");
+        assertThat(message.path("terminal").isBoolean()).isTrue();
+        assertThat(message.path("terminal").asBoolean()).isFalse();
+        assertThat(org.springframework.test.util.ReflectionTestUtils.getField(ctx, "status")).isEqualTo(SessionStatus.RUNNING);
     }
 
     @Test

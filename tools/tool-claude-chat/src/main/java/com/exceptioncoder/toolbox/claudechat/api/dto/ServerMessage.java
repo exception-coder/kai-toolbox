@@ -15,7 +15,7 @@ public sealed interface ServerMessage
         permits ServerMessage.Ready, ServerMessage.AssistantDelta, ServerMessage.AssistantSnapshot, ServerMessage.ToolUse,
                 ServerMessage.ToolResult, ServerMessage.PermissionRequest,
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
-                ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.ForkAnchor, ServerMessage.Forked,
+                ServerMessage.Models, ServerMessage.ModelConfiguration, ServerMessage.UserMessage, ServerMessage.ForkAnchor, ServerMessage.Forked,
                 ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.TurnInfo, ServerMessage.CodexPrediction,
                 ServerMessage.TurnProgress, ServerMessage.Warning, ServerMessage.ToolActivity,
                 ServerMessage.TurnActivity, ServerMessage.CodexActivity,
@@ -40,7 +40,14 @@ public sealed interface ServerMessage
                  String capabilitySource, long capabilityRefreshedAt, List<String> capabilityErrors,
                  List<BackgroundTaskInfo> backgroundTasks, String selectedModel,
                  String codexReasoningEffort, String codexSpeed, String permissionMode, String queueDispatchMode,
-                 Boolean authHandoffRequired, String executionPolicy) implements ServerMessage {}
+                 Boolean authHandoffRequired, String executionPolicy,
+                 ClaudeSessionOptions claudeOptions, ActiveModelConfiguration activeModelConfiguration) implements ServerMessage {}
+
+    /** 本轮派发时的请求参数；实际生效值仍受引擎策略及组织限制。 */
+    record ActiveModelConfiguration(String engine, String model, String effort, String speed, Boolean ultracode) {}
+
+    @JsonTypeName("modelConfiguration")
+    record ModelConfiguration(long seq, ActiveModelConfiguration activeModelConfiguration) implements ServerMessage {}
 
     /** 会话权限模式由服务端广播，其他在线设备同步显示。 */
     @JsonTypeName("modeChanged")

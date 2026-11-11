@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { compactSessionModelLabel, SessionConfigSheet } from './SessionConfigSheet'
 import { ModeSwitch } from './ModeSwitch'
-import { CodexSessionOptions } from './CodexSessionOptions'
+import { ModelConfigurationPicker } from './ModelConfigurationPicker'
 import { ProviderSwitch } from './ProviderSwitch'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -15,19 +15,18 @@ describe('SessionConfigSheet', () => {
     render(
       <StrictMode><QueryClientProvider client={client}>
         <SessionConfigSheet summary="GPT-5.6-Sol">
-          <ModeSwitch engine="codex" mode="default" onChange={() => {}} inlineConfirmation />
-          <CodexSessionOptions
-            models={[]} model="gpt-5.6-sol" reasoningEffort="low" speed="default"
-            onModelChange={() => {}} onOptionsChange={() => {}}
-          />
-          <ProviderSwitch engine="codex" providerKind="official" providerBaseUrl={null} onSwitch={() => {}} hideManage />
+          <ModeSwitch engine="codex" mode="default" onChange={() => {}} inlineConfirmation inlineSelection />
+          <ModelConfigurationPicker engine="codex" engineLabel="Codex" gateway={false} models={[]} model="gpt-5.6-sol"
+            selection={{ effort: 'low', speed: 'default', ultracode: false }} onChange={() => {}}
+            onEffortChange={() => {}} onSpeedChange={() => {}} onResetClaudeOptions={() => {}} onRefresh={() => {}} />
+          <ProviderSwitch engine="codex" providerKind="official" providerBaseUrl={null} onSwitch={() => {}} hideManage inlineSelection />
         </SessionConfigSheet>
       </QueryClientProvider></StrictMode>,
     )
 
     fireEvent.click(screen.getByRole('button', { name: '会话配置，当前 GPT-5.6-Sol' }))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /配置 Codex 模型/ })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '模型' })).toBeInTheDocument()
   })
   it('以同一入口打开完整会话配置', async () => {
     render(
@@ -82,19 +81,18 @@ describe('SessionConfigSheet', () => {
     expect(compactSessionModelLabel('Custom Model Alpha')).toBe('Custom Model Alpha')
   })
 
-  it('mobile opens quick combinations first, custom stays in the same sheet and closing restores focus', async () => {
+  it('mobile opens unified configuration and keeps quick combinations in the same sheet', async () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     render(<SessionConfigSheet summary="GPT-6.1-Sol" quickSelection={custom => <button onClick={custom}>自定义组合</button>}>
       <button>完整模型配置</button>
     </SessionConfigSheet>)
     const trigger = screen.getByRole('button', { name: '会话配置，当前 GPT-6.1-Sol' })
     trigger.focus(); fireEvent.click(trigger)
-    expect(screen.getByRole('heading', { name: 'Codex 模型选择' })).toBeVisible()
-    expect(screen.queryByRole('button', { name: '完整模型配置' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '完整模型配置' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Codex 快捷组合' }))
+    expect(screen.getByRole('button', { name: '自定义组合' })).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: '自定义组合' }))
     expect(screen.getByRole('button', { name: '完整模型配置' })).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: '返回快捷组合' }))
-    expect(screen.getByRole('button', { name: '自定义组合' })).toBeVisible()
     fireEvent.keyDown(document, { key: 'Escape' })
     await waitFor(() => expect(trigger).toHaveFocus())
   })

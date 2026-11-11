@@ -45,4 +45,6 @@ test('model catalog comes from the installed CLI output', async () => {
   assert.deepEqual(models[0]?.reasoningEfforts, ['high'])
   assert.equal(models[0]?.isDefault, false)
   assert.equal(models[1]?.displayName, 'Claude Sonnet 4.6 (Thinking)')
+  assert.deepEqual(models[1]?.reasoningEfforts, [])
+  assert.equal(models[1]?.defaultReasoningEffort, null)
 })

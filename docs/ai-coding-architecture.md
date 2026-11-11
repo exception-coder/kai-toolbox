@@ -38,6 +38,18 @@ flowchart LR
 
 运行主线是 **React 工作台 → Java 会话宿主 → Node Sidecar / 引擎适配器 → 原生 Harness / Agent → 目标项目**。Java 管理会话、持久消息队列、准入与 Sidecar 生命周期；Sidecar 统一轮次请求和事件，在各引擎实际支持的范围内适配审批、中断和恢复。模型推理及文件、Shell、联网等工具仍由相应 Harness 提供，Forge 不另造通用执行器。资源中心和项目登记由各自模块维护，SQLite 保存相应业务状态。
 
+会话模型配置复用这条主线：各引擎适配器返回当前账号的模型目录及其已声明的强度、速度能力，Java 保留这些信息并保存会话选择，工作台以统一控件投影；能力未知不推断为支持。Claude 的强度和 Ultracode 通过原生 SDK 会话级设置传入，Codex 沿用原有模型、强度和速度通道；不创建新的模型执行器，也不改写各引擎全局配置。正在运行的轮次继续使用其已选配置，后续选择用于下一轮。宿主记录本轮派发时请求的参数，页面与下一轮选择分开展示；该快照不是引擎实际生效值的证明，未知时明确显示未回传。源码接入与真实运行验收分别记录在[统一配置任务](../openspec/changes/unify-engine-model-configuration/tasks.md)。
+
+```mermaid
+flowchart LR
+    N[原生引擎模型与能力] --> A[Sidecar 引擎适配器]
+    A --> H[Java 会话宿主]
+    H --> P[工作台统一模型配置]
+    P --> H
+    H --> A
+    A --> R[下一轮原生请求]
+```
+
 手机原生客户端新增 Android WebView 与鸿蒙 ArkWeb 两种工作台载体，加载同一可信 HTTPS 页面；原生桥仅提供有界的系统选择、复制与分享，不改变上述 Harness、队列、资源权限或执行位置。公共地址／包配置和本机签名分离，手机不包含编码运行时。Android 已通过 SDK 编译和内部测试包验签；鸿蒙工程尚缺 SDK／签名，两端均未完成装机验证，不能声称 Mate 60／鸿蒙 7 已可安装，详见[手机客户端](../mobile/README.md)与[实施证据](../openspec/changes/add-forge-mobile-apps/tasks.md)。
 
 | Forge 增加的能力 | 作用与边界 | 实现或规则入口 |

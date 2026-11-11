@@ -25,6 +25,7 @@ export function ModeSwitch({
   onChange,
   disabled,
   inlineConfirmation = false,
+  inlineSelection = false,
 }: {
   engine: Engine
   mode: PermissionMode
@@ -32,6 +33,8 @@ export function ModeSwitch({
   disabled?: boolean
   /** 在父级 modal 内使用时就地确认，避免把二级 Overlay portal 到父 modal 之外。 */
   inlineConfirmation?: boolean
+  /** 在会话配置中原位选择，避免多层弹出菜单。 */
+  inlineSelection?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -52,7 +55,13 @@ export function ModeSwitch({
 
   return (
     <div className="relative">
-      <button
+      {inlineSelection ? <select
+        aria-label="权限模式" value={current.value} disabled={disabled}
+        onChange={event => pick(event.target.value as PermissionMode)}
+        className="h-11 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm disabled:opacity-50 md:h-9 md:text-xs"
+      >
+        {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select> : <button
         type="button"
         disabled={disabled}
         onClick={() => setOpen(o => !o)}
@@ -61,9 +70,9 @@ export function ModeSwitch({
         aria-label={`权限模式 ${current.label}，点击切换`}
       >
         <Icon className="size-4" /> {current.label}
-      </button>
+      </button>}
 
-      {open && (
+      {open && !inlineSelection && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute bottom-full left-0 z-50 mb-2 w-72 overflow-hidden rounded-xl border bg-[var(--color-background)] shadow-xl">

@@ -67,17 +67,22 @@ class SessionConfigurationCopyServiceTest {
     private SessionConfigurationCopyService service(SessionCopyRepository receipts) {
         return new SessionConfigurationCopyService(sessions, receipts, new AuthSessionLinkRepository(jdbc),
                 new SessionProjectDirectoryService(sessions, paths, mock(WorkspaceScanService.class), mock(ProjectDependencyService.class)),
-                new ClaudeChatSessionAccessPolicy(sessions), new DataSourceTransactionManager(dataSource));
+                new ClaudeChatSessionAccessPolicy(sessions), new DataSourceTransactionManager(dataSource),
+                new ClaudeSessionOptionsService(new com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSettingRepository(jdbc), new com.fasterxml.jackson.databind.ObjectMapper()));
     }
 
     @Test
     void copyDoesNotNeedEngineAndLostResponseSurvivesServiceRecreation() throws Exception {
+        var options = new ClaudeSessionOptionsService(new com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSettingRepository(jdbc), new com.fasterxml.jackson.databind.ObjectMapper());
+        options.save("source", new com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeSessionOptions("max", true));
         String request = UUID.randomUUID().toString();
         var first = service(copies).copy("source", request);
         var copy = sessions.findById(first.targetSessionId()).orElseThrow();
         assertThat(copy.getSdkSessionId()).isNull();
         assertThat(copy.getStatus()).isEqualTo(SessionStatus.IDLE);
         assertThat(copy.getSelectedModel()).isEqualTo("model");
+        assertThat(options.get(copy.getId())).isEqualTo(new com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeSessionOptions("max", true));
+        assertThat(options.get("other-session")).isEqualTo(com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeSessionOptions.DEFAULT);
         assertThat(copy.getAuthToken()).isEqualTo("test-only-secret");
         assertThat(copy.getGroupName()).isEqualTo("项目");
         assertThat(copy.getSubgroupName()).isEqualTo("需求");

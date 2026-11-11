@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { ActiveModelConfiguration, ClaudeSessionOptions } from '../types'
 import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
 import { ApiError } from '@/lib/api'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
@@ -180,6 +181,8 @@ export interface UseClaudeChatSocket {
   currentModel: string | null
   codexReasoningEffort: CodexReasoningEffort
   codexSpeed: CodexSpeed
+  claudeOptions: ClaudeSessionOptions
+  activeModelConfiguration: ActiveModelConfiguration | null
   /** 当前会话引擎（来自 Ready），用于「思考中」文案 / 命令菜单按引擎区分 */
   currentEngine: Engine
   /** 当前 Claude 服务商来源：official=Claude Code 官方；thirdParty=第三方 Anthropic 兼容网关 */
@@ -221,6 +224,7 @@ export interface UseClaudeChatSocket {
   /** 主动刷新技能、子代理与 MCP 能力清单。 */
   refreshCapabilities: () => void
   setCodexOptions: (reasoningEffort: CodexReasoningEffort, speed: CodexSpeed) => void
+  setClaudeOptions: (options: ClaudeSessionOptions) => void
   /** 会话内切 agent（引擎）；上下文靠切后另发 seed 带过去。 */
   switchEngine: (engine: Engine) => void
   /** 会话内切服务商（官方 ↔ 第三方网关），同一会话与 sdkSessionId 不变，保留上下文；空入参＝切回官方 */
@@ -341,6 +345,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const [modelsRefreshing, setModelsRefreshing] = useState(false)
   const [currentModel, setCurrentModel] = useState<string | null>(null)
   const [codexReasoningEffort, setCodexReasoningEffort] = useState<CodexReasoningEffort>('low')
+  const [claudeOptions, setClaudeOptionsState] = useState<ClaudeSessionOptions>({ effort: 'auto', ultracode: false })
+  const confirmedClaudeOptionsRef = useRef<ClaudeSessionOptions>({ effort: 'auto', ultracode: false })
+  const [activeModelConfiguration, setActiveModelConfiguration] = useState<ActiveModelConfiguration | null>(null)
   const [codexSpeed, setCodexSpeed] = useState<CodexSpeed>('default')
   const [currentEngine, setCurrentEngine] = useState<Engine>('claude')
   const currentEngineRef = useRef<Engine>(currentEngine)
@@ -436,6 +443,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     turnRunningStateRef.current = next
     setRunning(next.running)
     if (signal === 'terminal') {
+      setActiveModelConfiguration(null)
       setItems(previous => finalizeRunningActivities(previous, terminalReason ?? '本轮已结束'))
     }
     return next.running
@@ -453,6 +461,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const resetTurnRunningState = () => {
     turnRunningStateRef.current = { running: false, terminal: false }
     setRunning(false)
+    setActiveModelConfiguration(null)
   }
 
   const applyEvent = useCallback((msg: ServerMessage) => {
@@ -583,6 +592,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           }
           setCodexReasoningEffort(options.reasoningEffort)
           setCodexSpeed(options.speed)
+          const confirmedClaudeOptions: ClaudeSessionOptions = msg.claudeOptions ?? { effort: 'auto', ultracode: false }
+          confirmedClaudeOptionsRef.current = confirmedClaudeOptions
+          setClaudeOptionsState(confirmedClaudeOptions)
+          setActiveModelConfiguration(msg.activeModelConfiguration ?? null)
           // Ready 也会从历史缓冲回放；恢复显示不能回写参数，否则旧快照会覆盖已保存的选择。
           // 服务端负责恢复引擎参数，只有用户主动 setCodexOptions 才修改会话配置。
         }
@@ -806,6 +819,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         // 重连回放有空洞：中间事件已被服务端缓冲淘汰，本端显示可能不全
         setSyncWarning('部分消息可能未同步（断线较久）。下拉到顶可加载历史，或重进该会话查看完整记录。')
         break
+      case 'modelConfiguration':
+        setActiveModelConfiguration(msg.activeModelConfiguration)
+        break
       case 'turnInfo':
         // 调用诊断：记到列表（最新在前，capped），供第三方会话「调用诊断」区块展示
         setProviderDiag(prev => [{
@@ -1014,7 +1030,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         break
       case 'error':
         setSyncWarning(previous => previous === '正在核对咨询账号与历史上下文……' ? null : previous)
-        if (msg.terminal !== false) {
+        if (msg.code === 'CLAUDE_OPTIONS_INVALID' || msg.code === 'CLAUDE_OPTIONS_UNSUPPORTED' || msg.code === 'COMMAND_FAILED') {
+          setClaudeOptionsState(confirmedClaudeOptionsRef.current)
+        }
+        if (msg.terminal !== false && msg.code !== 'CLAUDE_OPTIONS_UNSUPPORTED') {
           setSyncWarning(previous => previous === INTERRUPT_PENDING_MESSAGE ? null : previous)
           applyTurnRunningSignal('terminal', '本轮因终态错误结束')
           setInterrupting(false)
@@ -1419,6 +1438,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     queueReleaseSessionRef.current = null
     serverQueueDispatchRef.current = false
     setQueuePausedReason(null)
+    confirmedClaudeOptionsRef.current = { effort: 'auto', ultracode: false }
+    setClaudeOptionsState(confirmedClaudeOptionsRef.current)
     resetTurnRunningState()
     setInterrupting(false)
     setTurnTokens(0)
@@ -1923,6 +1944,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     window.setTimeout(() => setCapabilitiesRefreshing(false), 10_000)
   }, [sendRaw])
 
+  const setClaudeOptions = useCallback((options: ClaudeSessionOptions) => {
+    if (sendRaw({ type: 'setClaudeOptions', ...options })) setClaudeOptionsState(options)
+  }, [sendRaw])
+
   const setCodexOptions = useCallback((reasoningEffort: CodexReasoningEffort, speed: CodexSpeed) => {
     setCodexReasoningEffort(reasoningEffort)
     setCodexSpeed(speed)
@@ -2108,7 +2133,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, pauseQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, claudeOptions, activeModelConfiguration, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, pauseQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, setClaudeOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }
 
 function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {

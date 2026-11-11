@@ -34,4 +34,8 @@ public class ClaudeChatSettingRepository {
                 ON CONFLICT(name) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
                 """, name, payload, System.currentTimeMillis());
     }
+
+    public void delete(String name) {
+        jdbc.update("DELETE FROM claude_chat_setting WHERE name = ?", name);
+    }
 }

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatPage } from './ChatPage'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import type { ProviderProfile } from '../providerProfiles'
-import type { ClaudeChatSessionView, EngineCatalogEntry, WorkspaceList } from '../types'
+import type { ActiveModelConfiguration, ClaudeChatSessionView, ClaudeSessionOptions, EngineCatalogEntry, ModelInfo, WorkspaceList } from '../types'
 import { newSessionPreferenceKey, saveNewSessionPreferences } from '../lib/newSessionPreferences'
 import { fetchCodexHomes, uploadAttachment, renameSession } from '../api'
 import { saveCodexHomePreference } from '../lib/codexHomePref'
@@ -24,10 +24,12 @@ const testRuntime = vi.hoisted(() => ({
     open: vi.fn(),
     send: vi.fn(), steer: vi.fn(), enqueue: vi.fn(), interrupt: vi.fn(),
     setModel: vi.fn(), setCodexOptions: vi.fn(), refreshModels: vi.fn(), modelsRefreshing: false,
+    setClaudeOptions: vi.fn(), claudeOptions: { effort: 'auto', ultracode: false } as ClaudeSessionOptions,
+    activeModelConfiguration: null as ActiveModelConfiguration | null,
     sessionId: 'session-config-regression',
     state: 'ready',
     items: [],
-    models: [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol' }],
+    models: [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol', description: '' }] as Array<Pick<ModelInfo, 'value' | 'displayName'> & Partial<ModelInfo>>,
     currentEngine: 'codex',
     currentProviderKind: 'official',
     currentProviderBaseUrl: null as string | null,
@@ -79,7 +81,7 @@ vi.mock('../api', async importOriginal => ({
   ...(await importOriginal<typeof import('../api')>()),
   listSessions: async () => [{ id: 'session-config-regression', engine: 'codex', providerKind: 'official', cwd: 'D:/test', title: 'Test' }, ...testRuntime.oldCodexSessions],
   listEngineCatalog: async () => ({ engines: testRuntime.engines ?? ['claude', 'codex', 'qwen', 'opencode', 'pi', 'copilot'].map(id => ({
-    id, displayName: id, selectable: true, availability: 'stable', probe: { status: 'ready' }, capabilities: [],
+    id, displayName: id, selectable: true, availability: 'stable', probe: { status: 'ready' }, capabilities: ['modelCatalog'],
   } as EngineCatalogEntry)) }),
   fetchCodexHomes: vi.fn().mockResolvedValue([]),
   codexDictationAvailable: vi.fn().mockResolvedValue({ available: true }),
@@ -115,6 +117,9 @@ afterEach(() => {
   testRuntime.chat.setModel.mockClear()
   testRuntime.chat.refreshModels.mockClear()
   testRuntime.chat.setCodexOptions.mockClear()
+  testRuntime.chat.setClaudeOptions.mockClear()
+  testRuntime.chat.claudeOptions = { effort: 'auto', ultracode: false }
+  testRuntime.chat.activeModelConfiguration = null
   testRuntime.chat.running = false
   testRuntime.chat.currentProviderBaseUrl = null
   testRuntime.chat.currentEngine = 'codex'
@@ -122,7 +127,7 @@ afterEach(() => {
   testRuntime.chat.currentProviderKind = 'official'
   testRuntime.chat.codexSpeed = 'default'
   testRuntime.chat.codexReasoningEffort = 'low'
-  testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol' }]
+  testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol', description: '' }]
   testRuntime.chat.sessionId = 'session-config-regression'
   vi.mocked(uploadAttachment).mockReset()
   previewCalls.create.mockReset(); previewCalls.get.mockReset(); previewCalls.close.mockReset()
@@ -149,15 +154,35 @@ async function openNewSessionSettings() {
 }
 
 describe('ChatPage session configuration', () => {
-  it('official Claude exposes model selection and refresh in the session configuration', async () => {
-    testRuntime.chat.currentEngine = 'claude'
-    testRuntime.chat.currentModel = 'sonnet'
-    testRuntime.chat.models = [{ value: 'sonnet', displayName: 'Sonnet' }, { value: 'opus', displayName: 'Opus' }]
+  it('running Codex distinguishes the dispatched request from next-turn choices without interrupting', async () => {
+    testRuntime.chat.running = true
+    testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol', reasoningEfforts: ['low', 'high'], fastSupported: true }]
+    testRuntime.chat.codexReasoningEffort = 'low'
+    testRuntime.chat.activeModelConfiguration = { engine: 'codex', model: 'gpt-5.6-sol', effort: 'high', speed: 'fast', ultracode: null }
     mountChat()
     fireEvent.click(await screen.findByRole('button', { name: /^会话配置，当前/ }))
     const config = within(await screen.findByRole('dialog', { name: '会话配置' }))
-    const model = config.getByRole('combobox', { name: 'Claude 模型' })
+    expect(config.getByRole('status')).toHaveTextContent('本轮请求：GPT-5.6-Sol · 高 · 快速')
+    expect(config.getByRole('combobox', { name: '推理强度' })).toHaveValue('low')
+    fireEvent.change(config.getByRole('combobox', { name: '推理强度' }), { target: { value: 'high' } })
+    expect(testRuntime.chat.setCodexOptions).toHaveBeenCalledWith('high', 'default')
+    expect(testRuntime.chat.interrupt).not.toHaveBeenCalled()
+    expect(testRuntime.chat.send).not.toHaveBeenCalled()
+  })
+  it('official Claude exposes model selection and refresh in the session configuration', async () => {
+    testRuntime.chat.currentEngine = 'claude'
+    testRuntime.chat.currentModel = 'sonnet'
+    testRuntime.chat.models = [{ value: 'sonnet', displayName: 'Sonnet', description: '', supportsEffort: true, supportedEffortLevels: ['low', 'high', 'xhigh', 'max'] }, { value: 'opus', displayName: 'Opus', description: '' }]
+    mountChat()
+    fireEvent.click(await screen.findByRole('button', { name: /^会话配置，当前/ }))
+    const config = within(await screen.findByRole('dialog', { name: '会话配置' }))
+    const model = config.getByRole('combobox', { name: '模型' })
     expect(model).toHaveValue('sonnet')
+    fireEvent.change(config.getByRole('combobox', { name: '推理强度' }), { target: { value: 'max' } })
+    expect(testRuntime.chat.setClaudeOptions).toHaveBeenCalledWith({ effort: 'max', ultracode: false })
+    fireEvent.click(config.getByText('高级设置'))
+    fireEvent.click(config.getByRole('switch', { name: 'Ultracode' }))
+    expect(testRuntime.chat.setClaudeOptions).toHaveBeenLastCalledWith({ effort: 'auto', ultracode: true })
     fireEvent.change(model, { target: { value: 'opus' } })
     expect(testRuntime.chat.setModel).toHaveBeenCalledWith('opus')
     fireEvent.click(config.getByRole('button', { name: '重新同步 Claude 模型' }))
@@ -171,7 +196,7 @@ describe('ChatPage session configuration', () => {
     mountChat()
     fireEvent.click(await screen.findByRole('button', { name: /^会话配置，当前/ }))
     const config = within(await screen.findByRole('dialog', { name: '会话配置' }))
-    expect(config.getByRole('combobox', { name: 'Claude 模型' })).toHaveValue('')
+    expect(config.getByRole('combobox', { name: '模型' })).toHaveValue('')
     expect(config.getByText(/模型目录尚未加载/)).toBeInTheDocument()
     expect(config.getByRole('button', { name: '重新同步 Claude 模型' })).toBeEnabled()
   })
@@ -265,12 +290,14 @@ describe('ChatPage session configuration', () => {
   ])('distinguishes medium reasoning from %s speed in the composer and configuration', async (speed, label) => {
     testRuntime.chat.codexReasoningEffort = 'medium'
     testRuntime.chat.codexSpeed = speed
+    testRuntime.chat.models = [{ value: 'gpt-5.6-sol', displayName: 'GPT-5.6-Sol', reasoningEfforts: ['low', 'medium', 'high'], fastSupported: true }]
     mountChat()
-    const trigger = await screen.findByRole('button', { name: `会话配置，当前 GPT-5.6-Sol · 思考强度 中等 · 速度 ${label}` })
+    const trigger = await screen.findByRole('button', { name: `会话配置，当前 GPT-5.6-Sol · 推理强度 中等 · 速度模式 ${label}` })
     expect(trigger).toHaveTextContent(`5.6 Sol · 中等 · ${label}`)
     fireEvent.click(trigger)
     const config = within(await screen.findByRole('dialog', { name: '会话配置' }))
-    expect(config.getByRole('button', { name: '配置 Codex 模型、推理强度和速度' })).toHaveTextContent(`· 中 · ${label}`)
+    expect(config.getByRole('combobox', { name: '推理强度' })).toHaveValue('medium')
+    expect(config.getByRole('combobox', { name: '速度模式' })).toHaveValue(speed)
     expect(testRuntime.chat.setCodexOptions).not.toHaveBeenCalled()
     expect(testRuntime.chat.send).not.toHaveBeenCalled()
     expect(testRuntime.chat.enqueue).not.toHaveBeenCalled()
@@ -377,12 +404,10 @@ describe('ChatPage session configuration', () => {
     mountChat()
     fireEvent.click(await screen.findByRole('button', { name: /^会话配置，当前/ }))
     const config = within(await screen.findByRole('dialog', { name: '会话配置' }))
-    fireEvent.click(config.getByRole('button', { name: /配置 Codex 模型/ }))
-    fireEvent.click(config.getByRole('button', { name: '高级' }))
-    await waitFor(() => expect(config.getByRole('button', { name: /Auth 目录/ })).toBeEnabled())
-    fireEvent.click(config.getByRole('button', { name: /Auth 目录/ }))
-    expect(config.getByRole('button', { name: defaultHome })).toBeInTheDocument()
-    for (const removed of removedHomes) expect(config.queryByRole('button', { name: removed })).not.toBeInTheDocument()
+    fireEvent.click(config.getByText('高级设置'))
+    await waitFor(() => expect(config.getByRole('combobox', { name: 'Auth 目录' })).toBeEnabled())
+    expect(config.getByRole('option', { name: defaultHome })).toBeInTheDocument()
+    for (const removed of removedHomes) expect(config.queryByRole('option', { name: removed })).not.toBeInTheDocument()
     expect(testRuntime.chat.open).not.toHaveBeenCalled()
   })
 
@@ -395,19 +420,16 @@ describe('ChatPage session configuration', () => {
     vi.mocked(fetchCodexHomes).mockResolvedValue([defaultHome])
     fireEvent.click(await screen.findByRole('button', { name: /^会话配置，当前/ }))
     const config = within(await screen.findByRole('dialog', { name: '会话配置' }))
-    fireEvent.click(config.getByRole('button', { name: /配置 Codex 模型/ }))
-    fireEvent.click(config.getByRole('button', { name: '高级' }))
-    await waitFor(() => expect(config.getByRole('button', { name: /Auth 目录/ })).toBeEnabled())
-    fireEvent.click(config.getByRole('button', { name: /Auth 目录/ }))
-    expect(config.queryByRole('button', { name: removedHome })).not.toBeInTheDocument()
+    fireEvent.click(config.getByText('高级设置'))
+    await waitFor(() => expect(config.getByRole('combobox', { name: 'Auth 目录' })).toBeEnabled())
+    expect(config.queryByRole('option', { name: removedHome })).not.toBeInTheDocument()
     fireEvent.keyDown(screen.getByRole('dialog', { name: '会话配置' }), { key: 'Escape' })
     vi.mocked(fetchCodexHomes).mockRejectedValue(new Error('discovery unavailable'))
     fireEvent.click(await screen.findByRole('button', { name: /^会话配置，当前/ }))
     const retryConfig = within(await screen.findByRole('dialog', { name: '会话配置' }))
-    fireEvent.click(retryConfig.getByRole('button', { name: /配置 Codex 模型/ }))
-    fireEvent.click(retryConfig.getByRole('button', { name: '高级' }))
+    fireEvent.click(retryConfig.getByText('高级设置'))
     await waitFor(() => expect(view.queryClient.getQueryState(['claude-chat-codex-homes'])?.status).toBe('error'), { timeout: 3000 })
-    await waitFor(() => expect(retryConfig.getByRole('button', { name: /Auth 目录/ })).toBeDisabled())
+    await waitFor(() => expect(retryConfig.getByRole('combobox', { name: 'Auth 目录' })).toBeDisabled())
     expect(testRuntime.chat.open).not.toHaveBeenCalled()
   })
 
@@ -768,13 +790,16 @@ describe('ChatPage session configuration', () => {
     expect(screen.getByRole('button', { name: '引用项目或规格' })).toBeVisible()
     fireEvent.click(await screen.findByRole('button', { name: /会话配置，当前/ }))
     expect(screen.queryByRole('group', { name: '消息附加功能' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Codex 快捷组合' }))
     fireEvent.click(screen.getByRole('button', { name: '选择 GPT-6-Astra 深入' }))
+    expect(testRuntime.chat.setModel).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '确认切换' }))
     expect(testRuntime.chat.setModel).toHaveBeenCalledExactlyOnceWith('gpt-6-astra')
     expect(testRuntime.chat.setCodexOptions).toHaveBeenCalledExactlyOnceWith('high', 'default')
     expect(testRuntime.chat.send).not.toHaveBeenCalled()
     expect(testRuntime.chat.enqueue).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '自定义模型与参数' }))
-    expect(screen.getByRole('button', { name: /^推理强度 / })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: '推理强度' })).toBeVisible()
     fireEvent.keyDown(document, { key: 'Escape' })
     await vi.waitFor(() => expect(more).toHaveFocus())
   })

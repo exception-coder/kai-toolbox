@@ -20,6 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Slf4j
 public class SessionConfigurationCopyService {
     private final ClaudeChatSessionRepository sessions;
+    private final ClaudeSessionOptionsService claudeOptions;
     private final SessionCopyRepository copies;
     private final AuthSessionLinkRepository links;
     private final SessionProjectDirectoryService directories;
@@ -28,8 +29,10 @@ public class SessionConfigurationCopyService {
 
     public SessionConfigurationCopyService(ClaudeChatSessionRepository sessions, SessionCopyRepository copies,
             AuthSessionLinkRepository links, SessionProjectDirectoryService directories,
-            ClaudeChatSessionAccessPolicy access, PlatformTransactionManager transactions) {
+            ClaudeChatSessionAccessPolicy access, PlatformTransactionManager transactions,
+            ClaudeSessionOptionsService claudeOptions) {
         this.sessions = sessions;
+        this.claudeOptions = claudeOptions;
         this.copies = copies;
         this.links = links;
         this.directories = directories;
@@ -91,6 +94,7 @@ public class SessionConfigurationCopyService {
                 throw new IllegalStateException("副本授权链路保存失败");
             }
             directories.copy(sourceId, targetId);
+            claudeOptions.copy(sourceId, targetId);
             copies.insert(ownerKey, requestId, sourceId, targetId, now);
             log.info("[session-copy] request={} source={} target={}", requestId, sourceId, targetId);
             return new Result(requestId, sourceId, targetId);

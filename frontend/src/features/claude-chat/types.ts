@@ -595,6 +595,16 @@ export interface SidecarVersion {
   engines?: SidecarEngineVersion[]
 }
 
+export type ClaudeEffort = 'auto' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export interface ClaudeSessionOptions { effort: ClaudeEffort; ultracode: boolean }
+export interface ActiveModelConfiguration {
+  engine: Engine
+  model: string | null
+  effort: string | null
+  speed: 'default' | 'fast' | null
+  ultracode: boolean | null
+}
+
 /** 可选模型信息（来自 SDK supportedModels）。value 用于 setModel，displayName/description 供展示。 */
 export interface ModelInfo {
   value: string
@@ -602,9 +612,12 @@ export interface ModelInfo {
   description: string
   reasoningEfforts?: CodexReasoningEffort[]
   defaultReasoningEffort?: CodexReasoningEffort | null
-  fastSupported?: boolean
+  fastSupported?: boolean | null
   /** Codex App Server 标记的当前授权目录默认模型。 */
   isDefault?: boolean
+  supportsEffort?: boolean | null
+  supportedEffortLevels?: Exclude<ClaudeEffort, 'auto'>[]
+  resolvedModel?: string | null
 }
 
 // ── 客户端 → 服务端 ───────────────────────────────────────────────
@@ -727,6 +740,7 @@ export type ClientMessage =
   | { type: 'refreshModels' }
   | { type: 'refreshCapabilities' }
   | { type: 'setCodexOptions'; reasoningEffort: CodexReasoningEffort; speed: CodexSpeed }
+  | { type: 'setClaudeOptions'; effort: ClaudeEffort; ultracode: boolean }
   | { type: 'switchEngine'; engine: Engine }
   | { type: 'switchProvider'; apiBaseUrl?: string; authToken?: string; providerProfileId?: string }
   | { type: 'forkSession'; upToMessageId: string }
@@ -756,8 +770,9 @@ export type AgentEventType =
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
   | import('./lib/nativeVoice').VoiceEvent
-  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; skillDetails?: SkillCapability[]; plugins?: PluginCapability[]; agents?: string[]; mcpServers?: McpCapability[]; outputStyle?: string | null; capabilitySource?: CapabilitySnapshotSource; capabilityRefreshedAt?: number; capabilityErrors?: string[]; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; permissionMode?: PermissionMode; queueDispatchMode?: 'server'; authHandoffRequired?: boolean | null; executionPolicy?: string }
+  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; skillDetails?: SkillCapability[]; plugins?: PluginCapability[]; agents?: string[]; mcpServers?: McpCapability[]; outputStyle?: string | null; capabilitySource?: CapabilitySnapshotSource; capabilityRefreshedAt?: number; capabilityErrors?: string[]; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; permissionMode?: PermissionMode; queueDispatchMode?: 'server'; authHandoffRequired?: boolean | null; executionPolicy?: string; claudeOptions?: ClaudeSessionOptions | null; activeModelConfiguration?: ActiveModelConfiguration | null }
   | { type: 'modeChanged'; seq: number; mode: PermissionMode }
+  | { type: 'modelConfiguration'; seq: number; activeModelConfiguration: ActiveModelConfiguration | null }
   | { type: 'assistantDelta'; seq: number; text: string }
   | { type: 'assistantSnapshot'; seq: number; text: string }
   | { type: 'codexPrediction'; seq: number; sessionId: string; sdkSessionId: string; sourceTurnId: string; text: string }

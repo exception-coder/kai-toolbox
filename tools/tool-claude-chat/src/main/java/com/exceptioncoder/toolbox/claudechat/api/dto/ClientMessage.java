@@ -35,6 +35,7 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.RefreshModels.class, name = "refreshModels"),
         @JsonSubTypes.Type(value = ClientMessage.RefreshCapabilities.class, name = "refreshCapabilities"),
         @JsonSubTypes.Type(value = ClientMessage.SetCodexOptions.class, name = "setCodexOptions"),
+        @JsonSubTypes.Type(value = ClientMessage.SetClaudeOptions.class, name = "setClaudeOptions"),
         @JsonSubTypes.Type(value = ClientMessage.SwitchEngine.class,  name = "switchEngine"),
         @JsonSubTypes.Type(value = ClientMessage.SwitchProvider.class, name = "switchProvider"),
         @JsonSubTypes.Type(value = ClientMessage.ForkSession.class,   name = "forkSession"),
@@ -51,7 +52,7 @@ public sealed interface ClientMessage
                 ClientMessage.AssistantUsersList,
                 ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetAutoApprove,
                 ClientMessage.SetModel, ClientMessage.RefreshModels, ClientMessage.RefreshCapabilities,
-                ClientMessage.SetCodexOptions,
+                ClientMessage.SetCodexOptions, ClientMessage.SetClaudeOptions,
                 ClientMessage.SwitchEngine, ClientMessage.SwitchProvider, ClientMessage.ForkSession {
 
     /**
@@ -205,6 +206,8 @@ public sealed interface ClientMessage
     record RefreshCapabilities() implements ClientMessage {}
 
     record SetCodexOptions(String reasoningEffort, String speed) implements ClientMessage {}
+
+    record SetClaudeOptions(String effort, boolean ultracode) implements ClientMessage {}
 
     /**
      * 会话内切 agent（引擎）：claude / codex / qwen / antigravity / opencode。同一会话 id 不变；

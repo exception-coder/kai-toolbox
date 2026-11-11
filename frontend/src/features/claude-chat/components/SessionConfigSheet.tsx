@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, X } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useMobileViewport } from '../hooks/useMobileViewport'
 import {
   Sheet,
@@ -33,13 +34,12 @@ export function SessionConfigSheet({
   onReturnFocus,
 }: SessionConfigSheetProps) {
   const [open, setOpen] = useState(false)
-  const [custom, setCustom] = useState(false)
+  const [custom, setCustom] = useState(true)
   const mobile = useMobileViewport()
   const quick = mobile && quickSelection && !custom
   const visibleSummary = compactSummary?.trim() || summary
   const menuTrigger = triggerContainer !== undefined
-  const trigger = <SheetTrigger asChild>
-    <button type="button" disabled={disabled}
+  const trigger = <button type="button" disabled={disabled}
       className={menuTrigger
         ? 'flex min-h-11 w-full items-center justify-between gap-2 rounded-lg px-2 text-left text-sm hover:bg-[var(--color-accent)] disabled:opacity-50'
         : 'col-start-2 row-start-2 flex h-8 max-w-32 min-w-0 items-center justify-self-end gap-1 rounded-lg px-1.5 text-xs font-medium text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)] disabled:opacity-50 md:max-w-56 md:border md:bg-[var(--color-card)] md:px-2.5'}
@@ -48,11 +48,32 @@ export function SessionConfigSheet({
       <span className="min-w-0 flex-1 truncate">{visibleSummary}</span>
       <ChevronDown className="size-3.5 shrink-0 opacity-60" />
     </button>
-  </SheetTrigger>
+
+  const changeOpen = (value: boolean) => { setOpen(value); if (value) { setCustom(true); onOpen?.() } }
+  const contents = <div className="space-y-3 px-4 py-4">
+    {quick ? quickSelection(() => setCustom(true)) : <>
+      {mobile && quickSelection && <button type="button" className="min-h-11 text-xs text-[var(--color-muted-foreground)] underline" onClick={() => setCustom(false)}>Codex 快捷组合</button>}
+      {children}
+    </>}
+  </div>
+
+  if (!mobile && !menuTrigger) return (
+    <Popover open={open} onOpenChange={changeOpen}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent side="top" align="end" aria-label="会话配置"
+        className="max-h-[min(80vh,var(--radix-popover-content-available-height))] w-[min(23rem,calc(100vw-1.5rem))] overflow-y-auto bg-[var(--color-background)] p-0">
+        <div className="flex items-start justify-between gap-3 border-b px-4 pb-3 pt-4">
+          <div><h2 className="text-sm font-semibold">会话配置</h2><p className="mt-1 text-xs text-[var(--color-muted-foreground)]">模型参数下轮生效</p></div>
+          <button type="button" aria-label="关闭会话配置" onClick={() => setOpen(false)} className="rounded-md p-1 hover:bg-[var(--color-accent)]"><X className="size-4" /></button>
+        </div>
+        {contents}
+      </PopoverContent>
+    </Popover>
+  )
 
   return (
-    <Sheet open={open} onOpenChange={value => { setOpen(value); if (value) { setCustom(false); onOpen?.() } }}>
-      {menuTrigger ? triggerContainer && createPortal(trigger, triggerContainer) : trigger}
+    <Sheet open={open} onOpenChange={changeOpen}>
+      {menuTrigger ? triggerContainer && createPortal(<SheetTrigger asChild>{trigger}</SheetTrigger>, triggerContainer) : <SheetTrigger asChild>{trigger}</SheetTrigger>}
       <SheetContent
         side="bottom"
         onCloseAutoFocus={onReturnFocus ? event => { event.preventDefault(); onReturnFocus() } : undefined}
@@ -60,16 +81,9 @@ export function SessionConfigSheet({
       >
         <div className="border-b px-4 pb-3 pt-4">
           <SheetTitle>{quick ? 'Codex 模型选择' : '会话配置'}</SheetTitle>
-          <SheetDescription className="mt-1">
-            {quick ? '快捷组合和自定义均按当前会话生效。' : '权限、模型参数和服务商按当前会话生效，模型相关配置从下一轮开始使用。'}
-          </SheetDescription>
+          <SheetDescription className="mt-1">{quick ? '快捷组合按当前会话生效。' : '模型参数下轮生效。'}</SheetDescription>
         </div>
-        <div className="space-y-3 px-4 py-4">
-          {quick ? quickSelection(() => setCustom(true)) : <>
-            {mobile && quickSelection && <button type="button" className="min-h-11 text-xs text-[var(--color-muted-foreground)] underline" onClick={() => setCustom(false)}>返回快捷组合</button>}
-            {children}
-          </>}
-        </div>
+        {contents}
       </SheetContent>
     </Sheet>
   )

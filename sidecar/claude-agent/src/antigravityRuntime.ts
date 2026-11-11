@@ -29,7 +29,7 @@ export interface AntigravityModelInfo {
   displayName: string
   description: string
   reasoningEfforts: string[]
-  defaultReasoningEffort: string
+  defaultReasoningEffort: string | null
   fastSupported: boolean
   isDefault: boolean
 }
@@ -126,12 +126,12 @@ export async function listAntigravityModels(
       const [value, ...labelParts] = line.trim().split(/\t+/)
       if (!value || labelParts.length === 0) return []
       const displayName = labelParts.join(' ').trim()
-      const effort = /\((Low|Medium|High)\)\s*$/i.exec(displayName)?.[1]?.toLowerCase() ?? 'medium'
+      const effort = /\((Low|Medium|High)\)\s*$/i.exec(displayName)?.[1]?.toLowerCase() ?? null
       return [{
         value,
         displayName,
         description: 'Antigravity CLI 本机可用模型',
-        reasoningEfforts: [effort],
+        reasoningEfforts: effort ? [effort] : [],
         defaultReasoningEffort: effort,
         fastSupported: false,
         isDefault: false,

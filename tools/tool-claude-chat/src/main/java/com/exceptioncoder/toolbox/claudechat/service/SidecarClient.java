@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeSessionOptions;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatWsProperties;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
 import com.exceptioncoder.toolbox.llm.observability.TraceContext;
@@ -326,10 +327,21 @@ public class SidecarClient implements ReviewThreadForkGateway {
                             TraceContext traceContext, AgentRunMetadata telemetry,
                             List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
                             String turnToolPolicy, String voiceCallId, Map<String, Object> consultAccount, boolean queueCheck) {
+        userMessage(sessionId, text, developerInstructions, sessionContext, additionalDirectories, turnId,
+                traceContext, telemetry, images, turnToolPolicy, voiceCallId, consultAccount, queueCheck, null);
+    }
+
+    public void userMessage(String sessionId, String text, String developerInstructions,
+                            String sessionContext, List<String> additionalDirectories, String turnId,
+                            TraceContext traceContext, AgentRunMetadata telemetry,
+                            List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
+                            String turnToolPolicy, String voiceCallId, Map<String, Object> consultAccount,
+                            boolean queueCheck, ClaudeSessionOptions configuredClaudeOptions) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", "user");
         message.put("sessionId", sessionId);
         message.put("text", nz(text));
+        if (configuredClaudeOptions != null) message.put("claudeOptions", configuredClaudeOptions);
         if (queueCheck) message.put("queueCheck", true);
         if (consultAccount != null) message.put("consultAccount", consultAccount);
         if (voiceCallId != null) message.put("voiceCallId", voiceCallId);
