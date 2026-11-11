@@ -55,6 +55,8 @@ import type { CommunicationReference } from '../api/communicationJournal'
 import { loadCodexHomePreference, saveCodexHomePreference } from '../lib/codexHomePref'
 import { useNewSessionPreferences } from '../hooks/useNewSessionPreferences'
 import { useNewSessionWorkspaces } from '../hooks/useNewSessionWorkspaces'
+import { useMessageJump } from '../hooks/useMessageJump'
+import { useProviderModels } from '../hooks/useProviderModels'
 import { newSessionSelectionIssue, resolveNewSessionWorkspace, type NewSessionPreferences } from '../lib/newSessionPreferences'
 import { newSessionEngines, resolveNewSessionDirectory, validRecentSession, workspacePathKey } from '../lib/newSessionWorkspace'
 import { buildCodexAuthHandoff } from '../lib/codexAuthHandoff'
@@ -76,10 +78,10 @@ import { CommandMenu } from '../components/CommandMenu'
 import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from '../components/ProjectMention'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchCodexHomes, fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, renameSession, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { fetchCodexHomes, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getOpenSpecProjectStatus, getReviewRelations, handleReviewFeedback, initializeOpenSpecProject, listEngineCatalog, listSessionGitRepos, listSessionProjectDirectories, listSessions, renameSession, type OpenSpecProjectRequest, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { renameSessionOptimistically } from '../lib/optimisticSessionRename'
 import { canSteerRunningMessage } from '../components/RunningMessageActions'
-import type { ChatItem, ClaudeEffort, CodexReasoningEffort, ModelInfo } from '../types'
+import type { ChatItem, ClaudeEffort, CodexReasoningEffort } from '../types'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 import { getSessionByDevSession, linkDevSession, type PrdSessionView } from '@/features/prd-clarify/public-api'
@@ -416,42 +418,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   }, [chat?.sessionId, linkedPrd])
   const messageListRef = useRef<MessageListHandle>(null)
   const [focusWide, setFocusWide] = useState(false)
-  // 「我的提问」面板点中一条待滚到的目标：可能还没加载进 chat.items（分页更早历史里）。
-  const [pendingScroll, setPendingScroll] = useState<Extract<ChatItem, { kind: 'user' }> | null>(null)
-  // 目标不在当前已加载消息里时，持续触发「加载更早」直到出现或加载到头——否则用户点了没反应，
-  // 只能靠自己反复上拉去找，这正是「点击不在渲染中的提问不会自动滚动定位」的根因。
-  // 优先按 id 精确匹配；分页重新拉取更早历史后合成 id（按下标生成）可能整体漂移，
-  // 找不到时按 ts+文本兜底匹配同一条消息。
-  useEffect(() => {
-    if (!pendingScroll || !chat) return
-    const exact = chat.items.find(it => it.id === pendingScroll.id)
-    const fallback = !exact && chat.items.find(
-      (it): it is Extract<ChatItem, { kind: 'user' }> =>
-        it.kind === 'user' && it.ts === pendingScroll.ts && (it.displayText ?? it.text) === (pendingScroll.displayText ?? pendingScroll.text),
-    )
-    const target = exact ?? fallback
-    if (target) {
-      messageListRef.current?.scrollToItem(target.id)
-      setPendingScroll(null)
-      return
-    }
-    if (chat.historyLoading || chat.historyError) return // 失败时等待用户显式重试，避免循环拉取旧历史
-    if (chat.historyExhausted) { setPendingScroll(null); return } // 加载到最早了还没找到，放弃
-    chat.loadHistory(false)
-  }, [pendingScroll, chat?.items, chat?.historyLoading, chat?.historyError, chat?.historyExhausted, chat?.loadHistory])
-  // 「跳到会话开头」：持续触发「加载更早」直到分页到头（exhausted），再滚到已加载的第 0 条——
-  // 这样不管会话有多长、翻了多少页，一键都能直接回到最初的第一条消息，不用自己一页页往上翻。
-  const [jumpingToStart, setJumpingToStart] = useState(false)
-  useEffect(() => {
-    if (!jumpingToStart || !chat) return
-    if (chat.historyLoading || chat.historyError) return
-    if (chat.historyExhausted) {
-      messageListRef.current?.scrollToStart()
-      setJumpingToStart(false)
-      return
-    }
-    chat.loadHistory(false)
-  }, [jumpingToStart, chat?.items, chat?.historyLoading, chat?.historyError, chat?.historyExhausted, chat?.loadHistory])
+  const { setPendingScroll, setJumpingToStart } = useMessageJump(chat, messageListRef)
   const [showLogs, setShowLogs] = useState(false)
   const [showGestureDebug, setShowGestureDebug] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
@@ -771,9 +738,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const { setCwd: setNewCwd, setEngine: setNewEngine, setProviderId: setNewProviderId, setModel: setNewModel } = newSessionPreferences
   const availableNewEngines = useMemo(() => newSessionEngines(engineCatalogQuery.data), [engineCatalogQuery.data])
   // 选中网关后从其 /v1/models 拉的可选模型目录（供下拉选择，仍可手填）
-  const [providerModels, setProviderModels] = useState<ModelInfo[]>([])
-  const [providerModelsLoading, setProviderModelsLoading] = useState(false)
-  const [providerModelsError, setProviderModelsError] = useState<string | null>(null)
+  const { providerModels, providerModelsLoading, providerModelsError, setProviderModelsError } = useProviderModels({
+    enabled: panel === 'new', engine: newEngine, providerId: newProviderId, providers,
+  })
   // 附件按会话绑定 + 共享 store：与悬浮窗/分屏同一份 → 主界面选了附件再弹悬浮窗不丢、即时同步。
   const [attachments, setAttachments] = useDraftAttachments(chat?.sessionId ?? PENDING_DRAFT_KEY)
   const [uploading, setUploading] = useDraftAttachmentUploads(chat?.sessionId ?? PENDING_DRAFT_KEY)
@@ -842,29 +809,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     el.style.height = 'auto'
     if (el.value) el.style.height = `${el.scrollHeight}px`
   }, [draft, chat?.followUpPrediction?.text, attachments.length, uploading, mobileLayout, composerExpanded, composerVoiceActive])
-
-  // 选中第三方网关时，从其 /v1/models 拉可选模型目录（后端代理）。失败/空回退手填，不阻断新建。
-  useEffect(() => {
-    if (panel !== 'new') return
-    if (!supportsSessionProvider(newEngine) || newProviderId === '') {
-      setProviderModels(current => current.length === 0 ? current : [])
-      return
-    }
-    const p = providers.find(x => x.id === newProviderId)
-    if (!p) { setProviderModels(current => current.length === 0 ? current : []); return }
-    let cancelled = false
-    setProviderModelsLoading(true)
-    setProviderModelsError(null)
-    fetchProviderModels({ profileId: p.id })
-      .then(r => {
-        if (cancelled) return
-        setProviderModels(r.models ?? [])
-        setProviderModelsError((r.models?.length ?? 0) === 0 ? (r.error ?? '网关未返回模型') : null)
-      })
-      .catch(e => { if (!cancelled) { setProviderModels([]); setProviderModelsError(`请求失败：${(e as Error)?.message ?? '未知错误'}`) } })
-      .finally(() => { if (!cancelled) setProviderModelsLoading(false) })
-    return () => { cancelled = true }
-  }, [panel, newEngine, newProviderId, providers])
 
   // 自动续接最近会话已上提到 ChatRuntime 引擎（跨路由常驻），此处不再处理。
 
