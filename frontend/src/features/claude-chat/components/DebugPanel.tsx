@@ -11,7 +11,7 @@ function fmtTs(ts: number): string {
 
 /**
  * 调试模式弹框：实时显示前端 ↔ 后端(转发自 node sidecar) 的每条 WS 交互（收/发/连接、时间、type、seq、
- * 完整 payload），帮助理解完整交互过程 & 排查卡死。可暂停、清空、复制全部、按 type 筛选。
+ * 有界 payload 摘要），帮助理解交互过程与排查卡死。可暂停、清空、复制当前记录、按 type 筛选。
  */
 export function DebugPanel({ onClose }: { onClose: () => void }) {
   const [, force] = useReducer((x: number) => x + 1, 0)

@@ -11,6 +11,12 @@ import { PromptProvider } from '@/components/ui/prompt-dialog'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { initTheme } from './shell/theme'
 import { reportVibeEntry } from './lib/vibeEntryDiagnostics'
+import { observeReactPerformanceBuffer } from './lib/reactPerformanceBuffer'
+
+if (import.meta.env.DEV) {
+  const stopObserving = observeReactPerformanceBuffer()
+  import.meta.hot?.dispose(stopObserving)
+}
 
 // 渲染前套用已存主题（明暗 + 主色），避免首屏闪烁
 initTheme()
