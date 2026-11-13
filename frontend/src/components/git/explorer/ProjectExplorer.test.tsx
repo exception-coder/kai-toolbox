@@ -22,7 +22,7 @@ beforeEach(() => {
     if (url.pathname.endsWith('/tree')) return tree
     if (url.pathname.endsWith('/history')) return url.searchParams.get('ref') === second ? { ref: second, commits: [{ hash: second, shortHash: 'bbbbbbb', subject: '功能分支提交', author: 'Lin', date: '2026-11-06T12:00:00Z', body: '' }], hasMore: false } : { ref: sha, commits: [{ hash: sha, shortHash: 'aaaaaaa', subject: '删除旧实现', author: 'Ada', date: '2026-11-06T12:00:00Z', body: '' }], hasMore: url.searchParams.get('offset') === '0' }
     if (url.pathname.endsWith('/changes')) return { base: second, target: sha, files: [deleted] }
-    if (url.pathname.endsWith('/workspace')) return { base: sha, target: 'WORKTREE', files: [{ path: 'Hello.java', oldPath: null, status: 'M', x: 'M', y: 'M' }] }
+    if (url.pathname.endsWith('/workspace') || url.pathname.endsWith('/workspace-compact')) return { base: sha, target: 'WORKTREE', files: [{ path: 'Hello.java', oldPath: null, status: 'M', x: 'M', y: 'M' }] }
     if (url.pathname.endsWith('/source')) return { path: 'Hello.java', before: '', after: 'class Hello {}', status: '', notice: '' }
     if (url.pathname.endsWith('/difference')) return { path: 'old.java', before: 'class Old {}', after: '', status: 'D', notice: '' }
     throw new Error(`unexpected query ${path}`)
@@ -69,9 +69,9 @@ it('keeps index and unstaged requests distinct and permits navigation after a re
   show()
   fireEvent.click(screen.getByRole('button', { name: '工作区变更' }))
   fireEvent.change(screen.getByRole('combobox', { name: '工作区比较层' }), { target: { value: 'index' } })
-  await waitFor(() => expect(calls.some(url => url.pathname.endsWith('/workspace') && url.searchParams.get('layer') === 'index')).toBe(true))
+  await waitFor(() => expect(calls.some(url => url.pathname.endsWith('/workspace-compact') && url.searchParams.get('layer') === 'index')).toBe(true))
   fireEvent.change(screen.getByRole('combobox', { name: '工作区比较层' }), { target: { value: 'worktree' } })
-  await waitFor(() => expect(calls.some(url => url.pathname.endsWith('/workspace') && url.searchParams.get('layer') === 'worktree')).toBe(true))
+  await waitFor(() => expect(calls.some(url => url.pathname.endsWith('/workspace-compact') && url.searchParams.get('layer') === 'worktree')).toBe(true))
   vi.mocked(http).mockRejectedValueOnce(new Error('文件读取失败'))
   fireEvent.click(await within(screen.getByRole('region', { name: '文件清单' })).findByRole('button', { name: /Hello.java/ }))
   expect(await screen.findByRole('alert')).toHaveTextContent('文件读取失败')
@@ -121,4 +121,93 @@ it('navigates branches by their pinned commit without changing the actual worksp
   expect(screen.queryByRole('button', { name: /删除.*old.java/ })).not.toBeInTheDocument()
   expect(calls.some(url => url.pathname.endsWith('/history') && url.searchParams.get('ref') === second)).toBe(true)
   expect(calls.every(url => !url.pathname.includes('switch') && !url.pathname.includes('checkout'))).toBe(true)
+})
+
+
+it('groups tracked changes and lazily browses untracked directories without changing Git', async () => {
+  const standard = vi.mocked(http).getMockImplementation()!
+  vi.mocked(http).mockImplementation(async (path, init) => {
+    const url = new URL(path, 'https://forge.test')
+    if (url.pathname.endsWith('/workspace-compact')) {
+      calls.push(url)
+      return { base: sha, target: 'WORKTREE', files: [
+        { path: 'src/new.java', oldPath: null, status: 'A', x: 'A', y: ' ' },
+        { path: 'src/renamed.java', oldPath: 'src/old.java', status: 'R', x: 'R', y: ' ' },
+        { path: 'drafts/', oldPath: null, status: 'A', x: '?', y: '?' },
+      ] }
+    }
+    if (url.pathname.endsWith('/workspace-directory')) {
+      calls.push(url)
+      return url.searchParams.get('offset') === '150' ? { ref: '', entries: [{ path: 'drafts/extra.md', name: 'extra.md', type: 'blob' }], hasMore: false } : { ref: '', entries: [{ path: 'drafts/notes.md', name: 'notes.md', type: 'blob' }], hasMore: true }
+    }
+    return standard(path, init)
+  })
+  show()
+  fireEvent.click(screen.getByRole('button', { name: '工作区变更' }))
+  const files = screen.getByRole('region', { name: '文件清单' })
+  expect(await within(files).findByText('已跟踪变更')).toBeInTheDocument()
+  expect(within(files).getByText('未跟踪文件')).toBeInTheDocument()
+  expect(within(files).getByText('new.java')).toBeInTheDocument()
+  expect(within(files).getByText('renamed.java').closest('button')).toHaveAttribute('title', 'src/old.java → src/renamed.java')
+  expect(within(files).queryByText('drafts')).not.toBeInTheDocument()
+  expect(calls.some(url => url.pathname.endsWith('/workspace-directory'))).toBe(false)
+  fireEvent.click(within(files).getByRole('button', { name: /未跟踪文件/ }))
+  fireEvent.click(within(files).getByRole('button', { name: '展开 drafts' }))
+  expect(await within(files).findByRole('button', { name: /notes.md/ })).toBeInTheDocument()
+  fireEvent.click(within(files).getByRole('button', { name: '下一页' }))
+  expect(await within(files).findByRole('button', { name: /extra.md/ })).toBeInTheDocument()
+  fireEvent.click(within(files).getByRole('button', { name: '上一页' }))
+  fireEvent.click(await within(files).findByRole('button', { name: /notes.md/ }))
+  await waitFor(() => expect(calls.some(url => url.pathname.endsWith('/difference') && url.searchParams.get('path') === 'drafts/notes.md')).toBe(true))
+  expect(calls.some(url => url.pathname.endsWith('/workspace-directory') && url.searchParams.get('path') === 'drafts')).toBe(true)
+  expect(calls.every(url => !url.pathname.includes('checkout') && !url.pathname.includes('commit-write'))).toBe(true)
+})
+
+
+it('searches unexpanded untracked paths using the complete Git status', async () => {
+  const standard = vi.mocked(http).getMockImplementation()!
+  vi.mocked(http).mockImplementation(async (path, init) => {
+    const url = new URL(path, 'https://forge.test')
+    if (url.pathname.endsWith('/workspace')) {
+      calls.push(url)
+      return { base: sha, target: 'WORKTREE', files: [
+        { path: 'drafts/nested/needle.md', oldPath: null, status: 'A', x: '?', y: '?' },
+        { path: 'src/unrelated.java', oldPath: null, status: 'M', x: ' ', y: 'M' },
+      ] }
+    }
+    return standard(path, init)
+  })
+  show()
+  fireEvent.click(screen.getByRole('button', { name: '工作区变更' }))
+  fireEvent.change(screen.getByRole('textbox', { name: '搜索变更文件' }), { target: { value: 'needle' } })
+  expect(await screen.findByRole('button', { name: /needle.md/ }, { timeout: 10000 })).toBeInTheDocument()
+  expect(screen.queryByText('unrelated.java')).not.toBeInTheDocument()
+  expect(calls.some(url => url.pathname.endsWith('/workspace'))).toBe(true)
+})
+
+
+it('keeps the workspace usable with an older backend', async () => {
+  const standard = vi.mocked(http).getMockImplementation()!
+  vi.mocked(http).mockImplementation(async (path, init) => {
+    if (path.includes('/workspace-compact?')) throw Object.assign(new Error('not found'), { status: 404 })
+    return standard(path, init)
+  })
+  show()
+  fireEvent.click(screen.getByRole('button', { name: '工作区变更' }))
+  expect(await screen.findByText('后端为旧版本，当前使用完整列表兼容模式。')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Hello.java/ })).toBeInTheDocument()
+  expect(calls.some(url => url.pathname.endsWith('/workspace'))).toBe(true)
+})
+
+
+it('does not downgrade authorization errors to the older workspace endpoint', async () => {
+  const standard = vi.mocked(http).getMockImplementation()!
+  vi.mocked(http).mockImplementation(async (path, init) => {
+    if (path.includes('/workspace-compact?')) throw Object.assign(new Error('无权查看'), { status: 403 })
+    return standard(path, init)
+  })
+  show()
+  fireEvent.click(screen.getByRole('button', { name: '工作区变更' }))
+  expect((await screen.findAllByRole('alert'))[0]).toHaveTextContent('无权查看')
+  expect(calls.some(url => url.pathname.endsWith('/workspace'))).toBe(false)
 })

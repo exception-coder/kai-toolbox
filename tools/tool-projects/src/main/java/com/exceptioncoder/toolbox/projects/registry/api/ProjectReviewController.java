@@ -57,6 +57,15 @@ public class ProjectReviewController {
     public GitReviewService.Changes workspace(@PathVariable String id, @RequestParam(defaultValue="combined") String layer) throws IOException {
         return review.workspace(root(id), layer);
     }
+    @GetMapping("/workspace-compact")
+    public GitReviewService.Changes compactWorkspace(@PathVariable String id, @RequestParam(defaultValue="combined") String layer) throws IOException {
+        return review.workspace(root(id), layer, true);
+    }
+    @GetMapping("/workspace-directory")
+    public GitReviewService.Tree untrackedDirectory(@PathVariable String id, @RequestParam String path,
+            @RequestParam(defaultValue="0") int offset) throws IOException {
+        return review.untrackedDirectory(root(id), path, offset);
+    }
     @GetMapping("/source")
     public GitReviewService.Content source(@PathVariable String id, @RequestParam(defaultValue="HEAD") String ref,
             @RequestParam String path) throws IOException { return review.source(root(id), ref, path); }

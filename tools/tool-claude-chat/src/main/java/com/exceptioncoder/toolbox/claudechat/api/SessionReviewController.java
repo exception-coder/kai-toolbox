@@ -49,6 +49,14 @@ public class SessionReviewController {
     @GetMapping("/workspace")
     public GitReviewService.Changes workspace(@PathVariable String id, @RequestParam(required=false) String repo,
             @RequestParam(defaultValue="combined") String layer) { return review.workspace(root(id, repo), layer); }
+    @GetMapping("/workspace-compact")
+    public GitReviewService.Changes compactWorkspace(@PathVariable String id, @RequestParam(required=false) String repo,
+            @RequestParam(defaultValue="combined") String layer) { return review.workspace(root(id, repo), layer, true); }
+    @GetMapping("/workspace-directory")
+    public GitReviewService.Tree untrackedDirectory(@PathVariable String id, @RequestParam(required=false) String repo,
+            @RequestParam String path, @RequestParam(defaultValue="0") int offset) {
+        return review.untrackedDirectory(root(id, repo), path, offset);
+    }
     @GetMapping("/source")
     public GitReviewService.Content source(@PathVariable String id, @RequestParam(required=false) String repo,
             @RequestParam(defaultValue="HEAD") String ref, @RequestParam String path) {

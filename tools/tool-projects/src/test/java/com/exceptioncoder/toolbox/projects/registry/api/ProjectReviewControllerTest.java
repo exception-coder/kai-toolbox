@@ -28,6 +28,10 @@ class ProjectReviewControllerTest {
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         assertThatThrownBy(() -> controller.commit("project", "HEAD"))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> controller.compactWorkspace("project", "combined"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> controller.untrackedDirectory("project", "drafts", 0))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         verifyNoInteractions(registry, review);
     }
     @Test void readBindsRegisteredIdentityAndRechecksCanonicalProjectPolicy() throws Exception {
@@ -41,7 +45,11 @@ class ProjectReviewControllerTest {
         controller.source("project", "HEAD", "file.java");
         controller.branches("project");
         controller.commit("project", "HEAD");
-        verify(access, times(3)).requireAllowed(root.toRealPath());
+        controller.compactWorkspace("project", "combined");
+        controller.untrackedDirectory("project", "drafts", 0);
+        verify(access, times(5)).requireAllowed(root.toRealPath());
+        verify(review).workspace(root.toRealPath(), "combined", true);
+        verify(review).untrackedDirectory(root.toRealPath(), "drafts", 0);
         verify(review).branches(root.toRealPath());
         verify(review).commit(root.toRealPath(), "HEAD");
         verify(review).source(root.toRealPath(), "HEAD", "file.java");

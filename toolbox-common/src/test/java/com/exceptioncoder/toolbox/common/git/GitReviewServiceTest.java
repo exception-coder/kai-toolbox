@@ -103,6 +103,37 @@ class GitReviewServiceTest {
         assertThat(next.hasMore()).isFalse(); assertThat(next.entries()).hasSize(3);
     }
 
+    @Test void compactWorkspaceLoadsUntrackedDirectoriesOnDemandAndRespectsIgnore() throws Exception {
+        init(); write(".gitignore", "drafts/ignored.txt\n"); write("tracked.txt", "base\n"); commit("first");
+        write("tracked.txt", "changed\n");
+        Files.createDirectory(root.resolve("drafts"));
+        Files.createDirectory(root.resolve("drafts/nested"));
+        write("drafts/nested/note.txt", "note"); write("drafts/ignored.txt", "ignored");
+        for (int i = 0; i < 160; i++) write("drafts/item-" + String.format("%03d", i) + ".txt", "draft");
+        byte[] index = Files.readAllBytes(root.resolve(".git/index"));
+        var compact = review().workspace(root, "combined", true);
+        assertThat(compact.files()).extracting(GitReviewService.Change::path).contains("tracked.txt", "drafts/");
+        assertThat(compact.files()).noneMatch(file -> file.path().startsWith("drafts/item-"));
+        var first = review().untrackedDirectory(root, "drafts", 0);
+        var second = review().untrackedDirectory(root, "drafts", 150);
+        assertThat(first.hasMore()).isTrue(); assertThat(second.hasMore()).isFalse();
+        assertThat(java.util.stream.Stream.concat(first.entries().stream(), second.entries().stream()).map(GitReviewService.Entry::path))
+                .doesNotContain("drafts/ignored.txt").contains("drafts/item-000.txt", "drafts/item-159.txt", "drafts/nested");
+        assertThat(review().untrackedDirectory(root, "drafts/nested", 0).entries()).extracting(GitReviewService.Entry::name).containsExactly("note.txt");
+        assertThat(review().difference(root, "WORKTREE", "drafts/nested/note.txt", "combined").after()).isEqualTo("note");
+        assertThatThrownBy(() -> review().untrackedDirectory(root, "../outside", 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> review().untrackedDirectory(root, "tracked.txt", 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(Files.readAllBytes(root.resolve(".git/index"))).isEqualTo(index);
+    }
+
+    @Test void selectedWorkspaceRenameKeepsTheOriginalContents() throws Exception {
+        init(); write("old.txt", "original content\n"); commit("first"); git("mv", "old.txt", "new.txt");
+        var staged = review().difference(root, "WORKTREE", "new.txt", "index");
+        assertThat(staged.before()).isEqualTo("original content\n");
+        assertThat(staged.after()).isEqualTo("original content\n");
+        assertThat(staged.status()).isEqualTo("R");
+    }
+
     private void init() throws Exception { git("init", "--initial-branch=main"); git("config", "user.name", "Review Fixture"); git("config", "user.email", "fixture@example.invalid"); }
     private void write(String path, String value) throws Exception { Files.writeString(root.resolve(path), value, StandardCharsets.UTF_8); }
     private void commit(String message) throws Exception { git("add", "--all"); git("commit", "-m", message); }

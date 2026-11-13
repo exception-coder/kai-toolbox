@@ -111,8 +111,17 @@ public class GitReviewService {
     }
 
     public Changes workspace(Path root, String layer) {
+        return workspace(root, layer, false);
+    }
+
+    /** Compact Git status avoids recursively enumerating untracked directories on initial load. */
+    public Changes workspace(Path root, String layer, boolean compact) {
+        return parseWorkspace(root, layer, git.reviewRead(root, "status", "--porcelain=v1", "-z", compact ? "-unormal" : "-uall"));
+    }
+
+    private Changes parseWorkspace(Path root, String layer, GitLogService.Result result) {
         layer(layer);
-        String[] rows = complete(git.reviewRead(root, "status", "--porcelain=v1", "-z", "-uall")).split("\u0000");
+        String[] rows = complete(result).split("\u0000");
         var files = new LinkedHashMap<String, Change>();
         for (int i = 0; i < rows.length; i++) {
             if (rows[i].length() < 4) continue;
@@ -130,6 +139,59 @@ public class GitReviewService {
         return new Changes(head(root), "WORKTREE", List.copyOf(files.values()));
     }
 
+    /** Lists a single untracked directory page; Git still decides which children are ignored. */
+    public Tree untrackedDirectory(Path root, String directory, int offset) {
+        String path = relative(directory, false);
+        page(offset);
+        try {
+            Path base = root.toRealPath(), dir = base.resolve(path).toRealPath();
+            if (!dir.startsWith(base) || !Files.isDirectory(dir)) throw new IllegalArgumentException("目录超出当前项目范围");
+            access.requireAllowed(dir);
+            String raw = complete(git.reviewRead(base, "status", "--porcelain=v1", "-z", "-unormal", "--", path));
+            if (!List.of(raw.split("\u0000")).contains("?? " + path + "/"))
+                throw new IllegalArgumentException("目录已不是未跟踪目录，请刷新工作区");
+            List<String> candidates;
+            try (var stream = Files.list(dir)) {
+                candidates = stream.map(child -> child.getFileName().toString())
+                        .filter(name -> !name.equalsIgnoreCase(".git") && !name.contains("\\") && !name.contains(":"))
+                        .sorted().skip(offset).limit(151).toList();
+            }
+            boolean hasMore = candidates.size() > 150;
+            List<String> batch = new ArrayList<>();
+            List<Entry> entries = new ArrayList<>();
+            int commandLength = 0;
+            for (String name : candidates.stream().limit(150).toList()) {
+                String child = path + "/" + name;
+                if (!batch.isEmpty() && commandLength + child.length() > 8000) {
+                    appendUntrackedChildren(base, path, batch, entries);
+                    batch.clear(); commandLength = 0;
+                }
+                batch.add(child); commandLength += child.length() + 1;
+            }
+            if (!batch.isEmpty()) appendUntrackedChildren(base, path, batch, entries);
+            entries.sort(Comparator.comparing((Entry entry) -> !entry.type().equals("tree")).thenComparing(Entry::name));
+            return new Tree("", entries, hasMore);
+        } catch (IOException error) {
+            throw new IllegalStateException("无法读取目录，请刷新后重试", error);
+        }
+    }
+
+    private void appendUntrackedChildren(Path root, String parent, List<String> paths, List<Entry> entries) {
+        List<String> args = new ArrayList<>(List.of("status", "--porcelain=v1", "-z", "-unormal", "--"));
+        args.addAll(paths);
+        String raw = complete(git.reviewRead(root, args.toArray(String[]::new)));
+        for (String row : raw.split("\u0000")) {
+            if (!row.startsWith("?? ")) continue;
+            String path = row.substring(3);
+            boolean directory = path.endsWith("/");
+            String clean = directory ? path.substring(0, path.length() - 1) : path;
+            if (!clean.startsWith(parent + "/")) continue;
+            String name = clean.substring(parent.length() + 1);
+            if (name.contains("/") || !access.allowed(root.resolve(clean))) continue;
+            entries.add(new Entry(clean, name, directory ? "tree" : "blob"));
+        }
+    }
+
     public Content source(Path root, String ref, String path) {
         relative(path, false);
         String sha = revision(root, ref);
@@ -140,7 +202,7 @@ public class GitReviewService {
     public Content difference(Path root, String commit, String path, String layer) {
         relative(path, false);
         boolean working = commit.equals("WORKTREE");
-        Changes changes = working ? workspace(root, layer) : changes(root, commit);
+        Changes changes = working ? workspaceFile(root, layer, path) : changes(root, commit);
         Change change = changes.files().stream().filter(f -> f.path().equals(path)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("该版本中没有此变更文件，请刷新文件列表"));
         String oldPath = change.oldPath() == null ? path : change.oldPath();
@@ -160,6 +222,15 @@ public class GitReviewService {
         }
         String notice = String.join(" ", before.notice(), after.notice()).strip();
         return new Content(path, before.value(), after.value(), change.status(), notice);
+    }
+
+    /** Query just the selected path; a potential staged rename needs the full list to recover its origin. */
+    private Changes workspaceFile(Path root, String layer, String path) {
+        layer(layer);
+        Changes scoped = parseWorkspace(root, layer, git.reviewRead(root, "status", "--porcelain=v1", "-z", "-uall", "--", path));
+        Change found = scoped.files().stream().filter(file -> file.path().equals(path)).findFirst().orElse(null);
+        if (found == null || found.x().equals("A") || found.y().equals("R")) return workspace(root, layer);
+        return scoped;
     }
 
     private Text blob(Path root, String ref, String path) {

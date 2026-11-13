@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import { ReviewCode } from './ReviewCode'
 import { BranchList } from './BranchList'
+import { WorkspaceChangeTree } from './WorkspaceChangeTree'
 import type { CommitInfo, GitBranchRef } from '../types'
 import { reviewRequest, statusNames, type ExplorerProps, type ReviewChange, type ReviewChanges, type ReviewContent, type ReviewHistory, type ReviewTree } from './api'
 import './explorer.css'
@@ -36,6 +37,8 @@ export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus
   const [codeMode, setCodeMode] = useState<'unified' | 'split'>('unified')
   const [stage, setStage] = useState<'navigation' | 'files' | 'code'>('navigation')
   const [search, setSearch] = useState('')
+  const [settledSearch, setSettledSearch] = useState('')
+  useEffect(() => { const timer = window.setTimeout(() => setSettledSearch(search.trim()), 300); return () => window.clearTimeout(timer) }, [search])
   const [feedback, setFeedback] = useState('')
   const [widths, setWidths] = useState([240, 260])
   const prefix = ['project-explorer', endpoint, repo]
@@ -53,15 +56,24 @@ export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus
     getNextPageParam: (last, pages) => last.hasMore ? { ref: last.ref, offset: pages.reduce((n, p) => n + p.commits.length, 0) } : undefined,
     enabled: ready && mode === 'history' && (!branchRef || !!historyHead), retry: false, refetchOnWindowFocus: false })
   const commitDetail = useQuery({ queryKey: [...prefix, 'commit-info', commit], queryFn: ({ signal }) => reviewRequest<CommitInfo>(endpoint, repo, 'commit', { ref: commit }, signal), enabled: ready && mode === 'history' && !!commit, retry: false })
-  const changes = useQuery({ queryKey: [...prefix, mode, commit, layer],
-    queryFn: ({ signal }) => reviewRequest<ReviewChanges>(endpoint, repo, mode === 'workspace' ? 'workspace' : 'changes', mode === 'workspace' ? { layer } : { commit }, signal),
+  const changes = useQuery({ queryKey: [...prefix, mode, commit, layer, mode === 'workspace' && !!settledSearch],
+    queryFn: async ({ signal }) => {
+      if (mode !== 'workspace') return reviewRequest<ReviewChanges>(endpoint, repo, 'changes', { commit }, signal)
+      if (settledSearch) return reviewRequest<ReviewChanges>(endpoint, repo, 'workspace', { layer }, signal)
+      try { return await reviewRequest<ReviewChanges>(endpoint, repo, 'workspace-compact', { layer }, signal) }
+      catch (error) {
+        if (signal.aborted || !error || typeof error !== 'object' || !('status' in error) || error.status !== 404) throw error
+        const result = await reviewRequest<ReviewChanges>(endpoint, repo, 'workspace', { layer }, signal)
+        return { ...result, legacyBackend: true }
+      }
+    },
     enabled: ready && (mode === 'workspace' || mode === 'history' && !!commit), retry: false, refetchOnWindowFocus: false })
   const content = useQuery({ queryKey: [...prefix, 'content', selected, layer],
     queryFn: ({ signal }) => reviewRequest<ReviewContent>(endpoint, repo, selected!.diff ? 'difference' : 'source',
       selected!.diff ? { commit: selected!.ref, path: selected!.path, layer } : { ref: selected!.ref, path: selected!.path }, signal), enabled: !!selected, retry: false })
   const commits = history.data?.pages.flatMap(page => page.commits) ?? []
   const files = useMemo(() => (changes.data?.files ?? []).slice().sort((a, b) => a.path.localeCompare(b.path)), [changes.data])
-  const shownFiles = mode === 'workspace' ? files.filter(file => file.path.toLowerCase().includes(search.toLowerCase())) : files
+  const shownFiles = useMemo(() => mode === 'workspace' && settledSearch ? files.filter(file => file.path.toLowerCase().includes(settledSearch.toLowerCase())) : files, [files, mode, settledSearch])
   const shownCommits = commits.filter(item => `${item.subject} ${item.author} ${item.hash}`.toLowerCase().includes(search.toLowerCase()))
   const counts = Object.entries(statusNames).map(([code, label]) => [code, label, files.filter(file => file.status === code).length] as const).filter(([, , count]) => count)
   useEffect(() => { setFeedback('') }, [selected, repo, layer])
@@ -130,7 +142,7 @@ export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus
           {mode === 'history' && <div className="min-h-0 flex-1"><Virtuoso data={shownCommits} itemContent={(_, item) => <button className={cn('w-full border-b px-3 py-2 text-left text-xs hover:bg-[var(--color-muted)]', commit === item.hash && 'bg-[var(--color-accent)]')} aria-pressed={commit === item.hash}
             onClick={() => { setCommit(item.hash); setSelected(null); setStage('files') }}><strong className="block break-words text-sm font-medium">{item.subject}</strong><span className="mt-1 block text-[var(--color-muted-foreground)]">{item.author} · {new Date(item.date).toLocaleString()} · <code>{item.shortHash}</code></span></button>}
             components={{ Footer: () => history.hasNextPage ? <Button variant="ghost" className="w-full" disabled={history.isFetchingNextPage} onClick={() => void history.fetchNextPage()}>加载更多提交</Button> : <p className="p-3 text-xs text-[var(--color-muted-foreground)]">{commits.length ? `已加载 ${commits.length} 条` : '暂无提交'}</p> }} /></div>}
-          {mode === 'workspace' && <div className="p-3 text-sm"><p>未提交变更 · {files.length} 个文件</p><p className="my-3 text-xs text-[var(--color-muted-foreground)]">变更来自本地当前状态。刷新可重新核对，浏览不会更新工作文件或暂存区。</p><Button variant="outline" size="sm" onClick={() => setStage('files')}>查看变更文件</Button></div>}
+          {mode === 'workspace' && <div className="p-3 text-sm"><p>未提交变更 · {files.length} 项{!settledSearch && !changes.data?.legacyBackend && '（含未展开目录）'}</p><p className="my-3 text-xs text-[var(--color-muted-foreground)]">已跟踪变更和未跟踪文件分组显示；展开目录按需加载。搜索会核对所有文件路径，刷新可重新读取。</p><Button variant="outline" size="sm" onClick={() => setStage('files')}>查看变更文件</Button></div>}
         </aside>
         {separator(0)}
         <section className={cn('pe-pane', stage !== 'files' && 'pe-mobile-hidden')} aria-label="文件清单">
@@ -138,7 +150,8 @@ export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus
             <p className="break-all text-xs font-medium">{mode === 'tree' ? folder || '项目根目录' : mode === 'history' ? commit ? `提交 ${commit.slice(0, 8)}` : '请选择一条提交' : '未提交文件'}</p>
             {mode === 'history' && commitDetail.data && <div className="mt-2 space-y-1 text-xs"><p className="break-words font-medium">{commitDetail.data.subject}</p><p className="text-[var(--color-muted-foreground)]">{commitDetail.data.author} · {new Date(commitDetail.data.date).toLocaleString()}</p>{commitDetail.data.body && <details><summary className="cursor-pointer">提交说明</summary><p className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words">{commitDetail.data.body}</p></details>}</div>}
             {mode === 'history' && commitDetail.isError && <Failure error={commitDetail.error} retry={() => void commitDetail.refetch()} />}
-            {mode !== 'tree' && <p className="mt-2 flex flex-wrap gap-2 text-xs text-[var(--color-muted-foreground)]">{counts.map(([code, label, count]) => <span key={code}>{label} {count}</span>)}</p>}
+            {mode === 'history' && <p className="mt-2 flex flex-wrap gap-2 text-xs text-[var(--color-muted-foreground)]">{counts.map(([code, label, count]) => <span key={code}>{label} {count}</span>)}</p>}
+            {mode === 'workspace' && <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">{changes.data?.legacyBackend ? '后端为旧版本，当前使用完整列表兼容模式。' : settledSearch ? `搜索结果 ${shownFiles.length} 项` : '分组按目录展开；未跟踪目录按需加载'}</p>}
           </div>
           {mode === 'tree' ? <div className="min-h-0 flex-1 overflow-auto">
             {!!folder && <button className="pe-file-row" onClick={() => openFolder(folder.split('/').slice(0, -1).join('/'), tree.data?.ref || treeRef)}><ArrowLeft className="size-4" />上级目录</button>}
@@ -150,11 +163,11 @@ export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus
             {(offset > 0 || tree.data?.hasMore) && <div className="flex gap-2 p-2"><Button variant="ghost" size="sm" disabled={!offset} onClick={() => setOffset(value => Math.max(0, value - 300))}>上一页</Button><Button variant="ghost" size="sm" disabled={!tree.data?.hasMore} onClick={() => { setTreeRef(tree.data!.ref); setOffset(value => value + 300) }}>下一页</Button></div>}
           </div> : <>
             {changes.isError && <Failure error={changes.error} retry={() => void changes.refetch()} />}
-            <div className="min-h-0 flex-1"><Virtuoso data={shownFiles} itemContent={(index, file) => <div>
+            <div className="min-h-0 flex-1">{mode === 'workspace' ? <WorkspaceChangeTree key={`${repo}:${layer}`} files={shownFiles} endpoint={endpoint} repo={repo} selected={selected?.path} searching={!!settledSearch} loading={changes.isFetching || changes.isError} onSelect={file => openFile(file.path, 'WORKTREE', true)} /> : <Virtuoso data={shownFiles} itemContent={(index, file) => <div>
               {(index === 0 || directory(shownFiles[index - 1].path) !== directory(file.path)) && <p className="break-all bg-[var(--color-muted)] px-3 py-2 text-[11px] text-[var(--color-muted-foreground)]">{directory(file.path) || '/'}</p>}
-              <button className={cn('pe-file-row', selected?.path === file.path && 'bg-[var(--color-accent)]')} onClick={() => openFile(file.path, mode === 'workspace' ? 'WORKTREE' : commit, true)} title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
+              <button className={cn('pe-file-row', selected?.path === file.path && 'bg-[var(--color-accent)]')} onClick={() => openFile(file.path, commit, true)} title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
                 <Status change={file} /><span className="min-w-0 break-all">{file.path.split('/').pop()}{file.oldPath && <small className="mt-1 block text-[var(--color-muted-foreground)]">原：{file.oldPath}</small>}</span>
-              </button></div>} components={{ Footer: () => currentFiles && !changes.isFetching && !changes.isError && !files.length ? <p className="p-3 text-sm text-[var(--color-muted-foreground)]">此范围没有变更</p> : null }} /></div>
+              </button></div>} components={{ Footer: () => currentFiles && !changes.isFetching && !changes.isError && !files.length ? <p className="p-3 text-sm text-[var(--color-muted-foreground)]">此范围没有变更</p> : null }} />}</div>
           </>}
         </section>
         {separator(1)}

@@ -6,7 +6,7 @@ export interface ReviewEntry { path: string; name: string; type: 'tree' | 'blob'
 export interface ReviewTree { ref: string; entries: ReviewEntry[]; hasMore: boolean }
 export interface ReviewHistory { ref: string; commits: CommitInfo[]; hasMore: boolean }
 export interface ReviewChange { path: string; oldPath: string | null; status: string; x: string; y: string }
-export interface ReviewChanges { base: string; target: string; files: ReviewChange[] }
+export interface ReviewChanges { base: string; target: string; files: ReviewChange[]; legacyBackend?: boolean }
 export interface ReviewContent { path: string; before: string; after: string; status: string; notice: string }
 export interface ExplorerProps {
   title: string

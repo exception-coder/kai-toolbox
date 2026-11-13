@@ -32,3 +32,10 @@
 .pe-branch-row:is(summary) { list-style: none; }
 .pe-branch-row:is(summary)::-webkit-details-marker { display: none; }
 details[open] > .pe-branch-row svg { transform: rotate(90deg); }
+
+.pe-change-group,.pe-change-row { display: flex; width: 100%; min-width: 0; align-items: center; gap: 7px; min-height: 32px; padding-block: 5px; padding-inline-end: 10px; text-align: left; font-size: 12px; }
+.pe-change-group { padding-inline-start: 10px; background: var(--color-muted); }
+.pe-change-group strong { font-weight: 600; }
+.pe-change-row:hover,.pe-change-group:hover { background: var(--color-accent); }
+.pe-change-status { flex: none; min-width: 1.2em; text-align: center; font: 600 11px monospace; color: var(--color-muted-foreground); }
+@media (max-width: 767px) { .pe-change-row,.pe-change-group { min-height: 44px; } }
