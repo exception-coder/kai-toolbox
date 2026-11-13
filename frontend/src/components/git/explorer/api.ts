@@ -1,4 +1,5 @@
 import { http } from '@/lib/api'
+import type { ReactNode } from 'react'
 import type { CommitInfo, GitRepoRef } from '../types'
 
 export interface ReviewEntry { path: string; name: string; type: 'tree' | 'blob' | 'link' | 'commit' }
@@ -13,6 +14,7 @@ export interface ExplorerProps {
   onClose: () => void
   restoreFocus?: () => void
   fetchRepos?: () => Promise<GitRepoRef[]>
+  renderGitActions?: (onBusyChange: (busy: boolean) => void) => ReactNode
 }
 export function reviewRequest<T>(endpoint: string, repo: string, action: string, params: Record<string, string | number> = {}, signal?: AbortSignal) {
   const query = new URLSearchParams({ ...Object.fromEntries(Object.entries(params).map(([key, value]) => [key, String(value)])), ...(repo ? { repo } : {}) })

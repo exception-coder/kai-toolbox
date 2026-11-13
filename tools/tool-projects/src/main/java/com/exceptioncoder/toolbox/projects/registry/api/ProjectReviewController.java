@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.projects.registry.api;
 
 import com.exceptioncoder.toolbox.common.git.GitReviewService;
+import com.exceptioncoder.toolbox.common.git.GitBranchRef;
+import com.exceptioncoder.toolbox.common.git.CommitInfo;
 import com.exceptioncoder.toolbox.common.project.ProjectAccess;
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
@@ -8,6 +10,7 @@ import com.exceptioncoder.toolbox.projects.registry.application.ProjectRegistryS
 import org.springframework.web.bind.annotation.*;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 
 /** Project-scoped, read-only review; request parameters never choose a filesystem root. */
 @RestController
@@ -30,6 +33,14 @@ public class ProjectReviewController {
     }
     @GetMapping("/info")
     public GitReviewService.Info info(@PathVariable String id) throws IOException { return review.info(root(id)); }
+    @GetMapping("/branches")
+    public List<GitBranchRef> branches(@PathVariable String id) throws IOException {
+        return review.branches(root(id));
+    }
+    @GetMapping("/commit")
+    public CommitInfo commit(@PathVariable String id, @RequestParam String ref) throws IOException {
+        return review.commit(root(id), ref);
+    }
     @GetMapping("/tree")
     public GitReviewService.Tree tree(@PathVariable String id, @RequestParam(defaultValue="HEAD") String ref,
             @RequestParam(defaultValue="") String path, @RequestParam(defaultValue="0") int offset) throws IOException {

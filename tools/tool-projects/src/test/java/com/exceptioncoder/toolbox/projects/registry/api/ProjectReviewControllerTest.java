@@ -24,6 +24,10 @@ class ProjectReviewControllerTest {
         var controller = new ProjectReviewController(registry, review, path -> true);
         assertThatThrownBy(() -> controller.source("project", "HEAD", "file.java"))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> controller.branches("project"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> controller.commit("project", "HEAD"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         verifyNoInteractions(registry, review);
     }
     @Test void readBindsRegisteredIdentityAndRechecksCanonicalProjectPolicy() throws Exception {
@@ -33,8 +37,13 @@ class ProjectReviewControllerTest {
         when(registry.require("project")).thenReturn(new RegistryProject("project", new RegistryProject.Metadata(
                 "Project", root.toString(), "git", "", "main", "", "", ""), "REGISTERED", 0, 0L, 0L));
         AuthContext.set(new AuthPrincipal(1, "viewer", List.of(), List.of("menu:project-workspace"), "test", 0));
-        new ProjectReviewController(registry, review, access).source("project", "HEAD", "file.java");
-        verify(access).requireAllowed(root.toRealPath());
+        var controller = new ProjectReviewController(registry, review, access);
+        controller.source("project", "HEAD", "file.java");
+        controller.branches("project");
+        controller.commit("project", "HEAD");
+        verify(access, times(3)).requireAllowed(root.toRealPath());
+        verify(review).branches(root.toRealPath());
+        verify(review).commit(root.toRealPath(), "HEAD");
         verify(review).source(root.toRealPath(), "HEAD", "file.java");
     }
 }

@@ -9,6 +9,7 @@ import { getGitWorkspace, pushGitWorkspace, type GitWorkspace } from './api'
 import type { RegistryProject } from '../registry/types'
 
 vi.mock('./api', () => ({ getGitWorkspace: vi.fn(), pushGitWorkspace: vi.fn() }))
+vi.mock('@/lib/api', () => ({ http: vi.fn(async (path: string) => path.includes('/info?') ? { branch: 'main', head: '12345678' } : path.includes('/branches?') ? [] : { ref: '', commits: [], hasMore: false }) }))
 vi.mock('../registry/api', () => ({ listRegistry: vi.fn() }))
 vi.mock('../registry/LocalProjectDiscovery', () => ({ LocalProjectDiscovery: () => null }))
 vi.mock('../registry/ProjectRegistrationForm', () => ({ ProjectRegistrationForm: () => null }))
@@ -37,13 +38,14 @@ beforeEach(() => {
 describe('project Git object action', () => {
   it('loads only the clicked project and restores focus and list search after dismissal', async () => {
     show(true)
-    const trigger = await screen.findByRole('button', { name: 'Git 操作：Forge' })
+    const trigger = await screen.findByRole('button', { name: '代码与 Git：Forge' })
     expect(getGitWorkspace).not.toHaveBeenCalled()
     expect(within(screen.getByRole('navigation', { name: '项目库区域' })).queryByRole('button', { name: 'Git 工作区' })).toBeNull()
     fireEvent.change(screen.getByRole('textbox', { name: '搜索项目' }), { target: { value: 'Forge' } })
     trigger.focus()
     fireEvent.click(trigger)
-    const dialog = await screen.findByRole('dialog', { name: 'Forge · Git 操作' })
+    const dialog = await screen.findByRole('dialog', { name: 'Forge · 项目浏览器' }, { timeout: 15000 })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Git 操作' }))
     await waitFor(() => expect(getGitWorkspace).toHaveBeenCalledWith('forge'))
     expect(getGitWorkspace).toHaveBeenCalledTimes(1)
     expect(within(dialog).queryByRole('navigation', { name: '选择 Git 项目' })).toBeNull()
@@ -51,7 +53,26 @@ describe('project Git object action', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(screen.getByRole('textbox', { name: '搜索项目' })).toHaveValue('Forge')
     await waitFor(() => expect(trigger).toHaveFocus())
-  })
+  }, 30000)
+
+  it('retains the project explorer while an embedded push is in progress', async () => {
+    let complete!: (value: { message: string }) => void
+    vi.mocked(pushGitWorkspace).mockImplementation(() => new Promise(resolve => { complete = resolve }))
+    show(true)
+    fireEvent.click(await screen.findByRole('button', { name: '代码与 Git：Forge' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Forge · 项目浏览器' }, { timeout: 15000 })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Git 操作' }))
+    const push = await within(dialog).findByRole('button', { name: 'Push 当前分支' })
+    await waitFor(() => expect(push).toBeEnabled())
+    fireEvent.click(push)
+    expect(await within(dialog).findByText('推送进行中，请等待结果后关闭。')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: '关闭项目浏览器' })).toBeDisabled()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    complete({ message: '推送成功' })
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: '关闭项目浏览器' })).toBeEnabled())
+    expect(pushGitWorkspace).toHaveBeenCalledExactlyOnceWith('forge', 'token')
+  }, 30000)
 
   it('keeps the pending push context until success and prevents duplicate submission', async () => {
     let complete!: (value: { message: string }) => void
@@ -85,7 +106,7 @@ describe('project Git object action', () => {
 
   it('maps legacy Git navigation to the project list without choosing a repository', async () => {
     show(true, '/tools/project-workspace?section=git')
-    await screen.findByRole('button', { name: 'Git 操作：Forge' })
+    await screen.findByRole('button', { name: '代码与 Git：Forge' })
     expect(screen.getByTestId('location')).toHaveTextContent('section=systems')
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(getGitWorkspace).not.toHaveBeenCalled()

@@ -12,7 +12,7 @@ import { LocalProjectDiscovery, type DiscoveredProject } from './LocalProjectDis
 import { ProjectDirectorySettings } from './ProjectDirectorySettings'
 import { ProjectEnvironment } from '@/features/forge-environment/public-api'
 import { projectPathKey } from '../lib/projectScope'
-import { ProjectGitDialog } from '../git/ProjectGitDialog'
+import { ProjectGitWorkspace } from '../git/ProjectGitWorkspace'
 import { ProjectExplorerButton } from '@/components/git/explorer/ProjectExplorerButton'
 
 const ContextDiagnostics = lazy(() => import('./diagnostics/ProjectContextDiagnostics').then(module => ({ default: module.ProjectContextDiagnostics })))
@@ -89,7 +89,7 @@ export function ProjectRegistryPage() {
           <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">{project.metadata.repoType.toUpperCase()} {project.metadata.owner && ` · ${project.metadata.owner}`}</p></div>
         <ReadinessLabel state={project.state as Readiness} />
         <div className="text-xs text-[var(--color-muted-foreground)]"><p>{project.profileVersion ? `System Profile v${project.profileVersion}` : '尚未建立画像'}</p><p className="mt-2">{new Date(project.updatedAt).toLocaleString()}</p></div>
-      </Link><ProjectExplorerButton id={project.id} title={project.metadata.name} /><ProjectGitDialog project={project} /></article>)}</div>}
+      </Link><ProjectExplorerButton id={project.id} title={project.metadata.name} renderGitActions={onBusyChange => <ProjectGitWorkspace project={project} onBusyChange={onBusyChange} />} /></article>)}</div>}
     </>}
     <footer className="text-xs text-[var(--color-muted-foreground)]">登记 → 初始化 → 系统画像 → 任务 → 验证 → 同步</footer>
   </main>

@@ -18,6 +18,10 @@ class SessionReviewControllerTest {
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         assertThatThrownBy(() -> controller.difference("someone-else", null, "WORKTREE", "secret.txt", "combined"))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> controller.branches("someone-else", "linked:repo"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        assertThatThrownBy(() -> controller.commit("someone-else", "linked:repo", "HEAD"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
         verifyNoInteractions(repositories, review);
     }
     @Test void authorizedQueriesAlwaysReuseTheBoundRepositoryProjection() {
@@ -32,5 +36,9 @@ class SessionReviewControllerTest {
         verify(review).tree(root, "HEAD", "src", 0);
         controller.difference("mine", "linked:bound", "WORKTREE", "src/file.java", "index");
         verify(review).difference(root, "WORKTREE", "src/file.java", "index");
+        controller.branches("mine", "linked:bound");
+        controller.commit("mine", "linked:bound", "HEAD");
+        verify(review).branches(root);
+        verify(review).commit(root, "HEAD");
     }
 }

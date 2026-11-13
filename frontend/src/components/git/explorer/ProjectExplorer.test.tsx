@@ -17,8 +17,10 @@ beforeEach(() => {
   vi.mocked(http).mockImplementation(async path => {
     const url = new URL(path, 'https://forge.test'); calls.push(url)
     if (url.pathname.endsWith('/info')) return { branch: 'main', head: sha }
+    if (url.pathname.endsWith('/branches')) return [{ ref: 'refs/heads/main', name: 'main', head: sha, current: true, remote: false }, { ref: 'refs/heads/feature/demo', name: 'feature/demo', head: second, current: false, remote: false }, { ref: 'refs/remotes/origin/main', name: 'origin/main', head: sha, current: false, remote: true }]
+    if (url.pathname.endsWith('/commit')) return { hash: sha, shortHash: 'aaaaaaa', subject: '删除旧实现', author: 'Ada', date: '2026-11-06T12:00:00Z', body: '完整提交说明' }
     if (url.pathname.endsWith('/tree')) return tree
-    if (url.pathname.endsWith('/history')) return { ref: sha, commits: [{ hash: sha, shortHash: 'aaaaaaa', subject: '删除旧实现', author: 'Ada', date: '2026-11-06T12:00:00Z', body: '' }], hasMore: url.searchParams.get('offset') === '0' }
+    if (url.pathname.endsWith('/history')) return url.searchParams.get('ref') === second ? { ref: second, commits: [{ hash: second, shortHash: 'bbbbbbb', subject: '功能分支提交', author: 'Lin', date: '2026-11-06T12:00:00Z', body: '' }], hasMore: false } : { ref: sha, commits: [{ hash: sha, shortHash: 'aaaaaaa', subject: '删除旧实现', author: 'Ada', date: '2026-11-06T12:00:00Z', body: '' }], hasMore: url.searchParams.get('offset') === '0' }
     if (url.pathname.endsWith('/changes')) return { base: second, target: sha, files: [deleted] }
     if (url.pathname.endsWith('/workspace')) return { base: sha, target: 'WORKTREE', files: [{ path: 'Hello.java', oldPath: null, status: 'M', x: 'M', y: 'M' }] }
     if (url.pathname.endsWith('/source')) return { path: 'Hello.java', before: '', after: 'class Hello {}', status: '', notice: '' }
@@ -35,6 +37,7 @@ function show() {
 
 it('reads the bound project without accepting a new root, and exposes resizable columns', async () => {
   show()
+  fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
   const files = screen.getByRole('region', { name: '文件清单' })
   fireEvent.click(await within(files).findByRole('button', { name: 'Hello.java' }))
   expect(await screen.findByText('class Hello {}')).toBeInTheDocument()
@@ -53,6 +56,8 @@ it('keeps historical deletes readable, supports split, and pins history paginati
   fireEvent.click(await screen.findByRole('button', { name: /删除旧实现/ }))
   fireEvent.click(await screen.findByRole('button', { name: /删除.*old.java/ }))
   expect(await screen.findByText('class Old {}')).toBeInTheDocument()
+  fireEvent.click(await screen.findByText('提交说明'))
+  expect(screen.getByText('完整提交说明')).toBeInTheDocument()
   expect(screen.getByText(/已删除文件/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: '左右' }))
   expect(screen.getByTestId('review-code')).toHaveAttribute('data-mode', 'split')
@@ -76,7 +81,7 @@ it('keeps index and unstaged requests distinct and permits navigation after a re
 
 it('opens and closes in place, restoring the project action focus', async () => {
   render(<QueryClientProvider client={new QueryClient()}><ProjectExplorerButton id="bound" title="Bound" /></QueryClientProvider>)
-  const trigger = screen.getByRole('button', { name: '项目浏览器：Bound' })
+  const trigger = screen.getByRole('button', { name: '代码与 Git：Bound' })
   trigger.focus(); fireEvent.click(trigger)
   await screen.findByRole('dialog', { name: 'Bound · 项目浏览器' })
   fireEvent.click(screen.getByRole('button', { name: '关闭项目浏览器' }))
@@ -94,6 +99,7 @@ it('does not replace a newer file selection with an older pending response', asy
     return standard(path, init)
   })
   show()
+  fireEvent.click(screen.getByRole('button', { name: '项目目录' }))
   const files = screen.getByRole('region', { name: '文件清单' })
   fireEvent.click(await within(files).findByRole('button', { name: 'Hello.java' }))
   await waitFor(() => expect(finish).toBeDefined())
@@ -101,4 +107,18 @@ it('does not replace a newer file selection with an older pending response', asy
   expect(await screen.findByText('class Other {}')).toBeInTheDocument()
   await act(async () => finish({ path: 'Hello.java', before: '', after: 'old response', status: '', notice: '' }))
   expect(screen.queryByText('old response')).not.toBeInTheDocument()
+})
+
+it('navigates branches by their pinned commit without changing the actual workspace', async () => {
+  show()
+  expect(await screen.findByRole('button', { name: /删除旧实现/ })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /删除旧实现/ }))
+  expect(await screen.findByRole('button', { name: /删除.*old.java/ })).toBeInTheDocument()
+  const selector = screen.getByRole('combobox', { name: '筛选分支' })
+  await waitFor(() => expect(within(selector).getByRole('option', { name: 'feature/demo' })).toBeInTheDocument())
+  fireEvent.change(selector, { target: { value: 'refs/heads/feature/demo' } })
+  expect(await screen.findByRole('button', { name: /功能分支提交/ })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /删除.*old.java/ })).not.toBeInTheDocument()
+  expect(calls.some(url => url.pathname.endsWith('/history') && url.searchParams.get('ref') === second)).toBe(true)
+  expect(calls.every(url => !url.pathname.includes('switch') && !url.pathname.includes('checkout'))).toBe(true)
 })

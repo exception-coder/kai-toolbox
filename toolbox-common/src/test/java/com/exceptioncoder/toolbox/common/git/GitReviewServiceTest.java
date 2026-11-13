@@ -56,6 +56,25 @@ class GitReviewServiceTest {
         assertThat(Files.readAllBytes(root.resolve(".git/index"))).isEqualTo(index);
     }
 
+    @Test void branchesAndCommitMessagesAreReadWithoutSwitchingTheWorkspace() throws Exception {
+        init(); write("story.txt", "first\n"); git("add", "story.txt");
+        git("commit", "-m", "initial", "-m", "Detailed commit body");
+        String first = git("rev-parse", "HEAD").strip();
+        git("branch", "feature/example", first);
+        write("story.txt", "second\n"); commit("next");
+        String current = git("rev-parse", "HEAD").strip();
+        byte[] index = Files.readAllBytes(root.resolve(".git/index"));
+
+        var branch = review().branches(root).stream().filter(item -> item.name().equals("feature/example")).findFirst().orElseThrow();
+        assertThat(branch.head()).isEqualTo(first);
+        assertThat(review().history(root, branch.head(), 0).commits()).extracting(CommitInfo::subject).containsExactly("initial");
+        assertThat(review().commit(root, first).body()).isEqualTo("Detailed commit body");
+        assertThatThrownBy(() -> review().commit(root, "HEAD~1")).isInstanceOf(IllegalArgumentException.class);
+        assertThat(git("branch", "--show-current").strip()).isEqualTo("main");
+        assertThat(git("rev-parse", "HEAD").strip()).isEqualTo(current);
+        assertThat(Files.readAllBytes(root.resolve(".git/index"))).isEqualTo(index);
+    }
+
     @Test void rejectsTraversalRevisionExpressionsAndExcludedPaths() throws Exception {
         init(); write("safe.txt", "safe"); write("excluded.txt", "hidden"); commit("first");
         for (String path : List.of("../outside", ".git/config", "C:/outside", "/etc/passwd", "a/../safe.txt", "file:stream", "a\\b")) {

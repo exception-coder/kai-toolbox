@@ -38,6 +38,26 @@ public class GitReviewService {
         return new Info(branch.isEmpty() ? "游离 HEAD" : branch, head(root));
     }
 
+    /** Lists the repository's existing local and remote-tracking branches without fetching or switching. */
+    public List<GitBranchRef> branches(Path root) {
+        return git.listBranches(root);
+    }
+
+    /** Reads one commit message separately so history pages stay bounded. */
+    public CommitInfo commit(Path root, String ref) {
+        String sha = revision(root, ref);
+        if (sha.isEmpty()) {
+            throw new IllegalArgumentException("仓库尚无提交");
+        }
+        String raw = complete(git.reviewRead(root, "show", "--no-show-signature", "--no-color", "-s",
+                "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00%b", sha, "--"));
+        String[] fields = raw.split("\u0000", 6);
+        if (fields.length != 6) {
+            throw new IllegalStateException("提交信息不完整，请刷新重试");
+        }
+        return new CommitInfo(fields[0], fields[1], fields[2], fields[3], fields[4], fields[5].strip());
+    }
+
     public Tree tree(Path root, String ref, String directory, int offset) {
         String path = relative(directory, true), sha = revision(root, ref);
         access.requireAllowed(root.resolve(path));

@@ -3,8 +3,11 @@ package com.exceptioncoder.toolbox.claudechat.api;
 import com.exceptioncoder.toolbox.claudechat.service.SessionGitRepositoryService;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatSessionAccessPolicy;
 import com.exceptioncoder.toolbox.common.git.GitReviewService;
+import com.exceptioncoder.toolbox.common.git.GitBranchRef;
+import com.exceptioncoder.toolbox.common.git.CommitInfo;
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import org.springframework.web.bind.annotation.*;
+import java.util.List;
 
 /** Reuses the session's authorized repository projection; never accepts an absolute project path. */
 @RestController
@@ -23,6 +26,14 @@ public class SessionReviewController {
     }
     @GetMapping("/info")
     public GitReviewService.Info info(@PathVariable String id, @RequestParam(required=false) String repo) { return review.info(root(id, repo)); }
+    @GetMapping("/branches")
+    public List<GitBranchRef> branches(@PathVariable String id, @RequestParam(required=false) String repo) {
+        return review.branches(root(id, repo));
+    }
+    @GetMapping("/commit")
+    public CommitInfo commit(@PathVariable String id, @RequestParam(required=false) String repo, @RequestParam String ref) {
+        return review.commit(root(id, repo), ref);
+    }
     @GetMapping("/tree")
     public GitReviewService.Tree tree(@PathVariable String id, @RequestParam(required=false) String repo,
             @RequestParam(defaultValue="HEAD") String ref, @RequestParam(defaultValue="") String path,

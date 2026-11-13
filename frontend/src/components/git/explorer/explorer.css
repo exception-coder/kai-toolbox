@@ -22,3 +22,13 @@
   .pe-dialog button,.pe-dialog select { min-height: 44px; }
   .pe-dialog [aria-expanded] { min-width: 44px; }
 }
+@media (min-width: 1280px) {
+  .pe-history-layout { grid-template-columns: 190px var(--pe-nav) 6px var(--pe-files) 6px minmax(0, 1fr); }
+  .pe-branch-pane { display: flex; }
+}
+.pe-branch-row { display: flex; width: 100%; align-items: center; gap: 8px; padding: 7px 8px; text-align: left; font-size: 12px; }
+.pe-branch-row:hover { background: var(--color-muted); }
+@media (max-width: 1279px) { .pe-branch-pane { display: none; } }
+.pe-branch-row:is(summary) { list-style: none; }
+.pe-branch-row:is(summary)::-webkit-details-marker { display: none; }
+details[open] > .pe-branch-row svg { transform: rotate(90deg); }
