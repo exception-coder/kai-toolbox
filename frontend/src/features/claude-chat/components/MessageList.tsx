@@ -186,16 +186,17 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     }
     return null
   }, [items, running, dockPresentation])
-  const liveReplyIds = useMemo(() => {
-    const ids = new Set<string>()
-    if (!running) return ids
+  const liveReplyKey = useMemo(() => {
+    if (!running) return ''
+    const ids: string[] = []
     for (let index = items.length - 1; index >= 0; index--) {
       const item = items[index]
       if (item.kind === 'result' || item.kind === 'user') break
-      if (item.kind === 'assistant') ids.add(item.id)
+      if (item.kind === 'assistant') ids.push(item.id)
     }
-    return ids
+    return ids.join('\0')
   }, [items, running])
+  const liveReplyIds = useMemo(() => new Set(liveReplyKey ? liveReplyKey.split('\0') : []), [liveReplyKey])
   const visibleItems = useMemo(() => items.filter(item => {
     if (dockPresentation && hideToolCalls && isExecutionDetail(item)) return false
     if (item.id === latestResultId && item.kind === 'result' && !resultFailure(item)) return false
@@ -239,6 +240,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     }
     return map
   }, [items])
+  const turnTextByResultIdRef = useRef(turnTextByResultId)
+  turnTextByResultIdRef.current = turnTextByResultId
 
   // 切会话或工具过滤时重挂载列表，清除旧尺寸、分页游标及在途定位意图。
   const resetKey = `${sessionKey ?? ''}::${hideToolCalls ? 1 : 0}`
@@ -252,6 +255,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   })
   // 点击聊天里的图片放大查看（桌面点击 / 移动端轻触均可）
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null)
+  const openImage = useCallback((src: string, alt: string) => setViewer({ src, alt }), [])
   const cardReturnFocus = useRef<HTMLElement | null>(null), listElement = useRef<HTMLDivElement>(null)
   const [card, setCard] = useState<{ text: string; session?: string } | null>(null)
   useEffect(() => { setCard(null) }, [sessionKey])
@@ -349,13 +353,13 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         assistantAvatarUrl={assistantAvatarUrl} assistantAvatarAlt={assistantAvatarAlt}
         userMessageBadge={item.kind === 'user' ? getUserMessageBadge?.(item) : undefined}
         onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
-        onOpenImage={(src, alt) => setViewer({ src, alt })}
-        turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
+        onOpenImage={openImage}
+        turnText={item.kind === 'result' ? turnTextByResultIdRef.current.get(item.id) : undefined} />
       {item.kind === 'assistant' && renderAssistantAction?.(item)}
       {item.kind === 'result' && item.id === recoveryResult?.id && recoveryActions
         && <TurnFailureRecovery key={item.id} item={item} actions={recoveryActions} />}
     </div>
-  ), [highlightedId, onFork, openCard, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, compactMobile, mobileWorkspace, liveReplyIds, recoveryResult, recoveryActions])
+  ), [highlightedId, onFork, openCard, openImage, engineLabel, onNewSession, onCleanRetry, hasForkTarget, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, compactMobile, mobileWorkspace, liveReplyIds, recoveryResult, recoveryActions])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {
@@ -536,7 +540,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
   )
 }
 
-function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics, streaming }: { item: ChatItem; onFork?: (forkAnchor: string) => void; onToCard: (text: string, trigger: HTMLElement) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean; streaming?: boolean }) {
+const Row = memo(function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics, streaming }: { item: ChatItem; onFork?: (forkAnchor: string) => void; onToCard: (text: string, trigger: HTMLElement) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean; streaming?: boolean }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -704,7 +708,7 @@ function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, 
       )
     }
   }
-}
+})
 
 function ForkReplyButton({ onFork }: { onFork: () => void }) {
   return <button type="button" onClick={onFork} aria-label="从这条回答处分叉对话"

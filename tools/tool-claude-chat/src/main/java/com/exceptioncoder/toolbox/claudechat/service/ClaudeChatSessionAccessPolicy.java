@@ -101,13 +101,14 @@ public class ClaudeChatSessionAccessPolicy {
     }
 
     private boolean canAccess(ClaudeChatSession session, AuthPrincipal principal) {
-        if (!projectAllowed(session)) return false;
-        if (principal != null && principal.hasAnyRole(ADMIN_ROLE)) {
-            return true;
+        if (principal == null) {
+            if (session.getUserId() != null) {
+                return false;
+            }
+        } else if (!principal.hasAnyRole(ADMIN_ROLE)
+                && (session.getUserId() == null || !session.getUserId().equals(principal.userId()))) {
+            return false;
         }
-        if (session.getUserId() == null) {
-            return principal == null;
-        }
-        return principal != null && session.getUserId().equals(principal.userId());
+        return projectAllowed(session);
     }
 }

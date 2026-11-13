@@ -48,7 +48,9 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
   const { data: sessions = [], isPending } = useQuery({
     queryKey: KEY,
     queryFn: listSessions,
-    refetchInterval: 3_000,
+    staleTime: 5_000,
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
   })
   const vibeSessions = useMemo(() => sessions.filter(isVibeCodingSession), [sessions])
 

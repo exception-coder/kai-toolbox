@@ -148,6 +148,20 @@ class SessionHistoryServiceTest {
                 new SessionHistoryService.TranscriptLocation(missingSid, secondHome.toString())));
 
         assertThat(missing).containsExactly(missingSid);
+        assertThat(service.findMissingTranscriptsByLocation(List.of(
+                new SessionHistoryService.TranscriptLocation(existingSid, firstHome.toString()),
+                new SessionHistoryService.TranscriptLocation(missingSid, secondHome.toString()))))
+                .containsExactly(missingSid);
+
+        String newlyCreatedSid = "019fb1ee-1111-7222-8333-444455556666";
+        Path newRollout = firstHome.resolve("sessions/2026/07/30")
+                .resolve("rollout-2026-07-30T00-02-00-" + newlyCreatedSid + ".jsonl");
+        Files.writeString(newRollout, "{}");
+        assertThat(service.findMissingTranscriptsByLocation(List.of(
+                new SessionHistoryService.TranscriptLocation(existingSid, firstHome.toString()),
+                new SessionHistoryService.TranscriptLocation(newlyCreatedSid, firstHome.toString()),
+                new SessionHistoryService.TranscriptLocation(missingSid, secondHome.toString()))))
+                .containsExactly(missingSid);
     }
 
     @Test

@@ -46,12 +46,15 @@ public class SessionHistoryService {
             "This session is being continued from a previous conversation that ran out of context.";
     private static final String CODEX_CONTINUATION_END =
             "Pick up the last task as if the break never happened.";
+    private static final long TRANSCRIPT_INDEX_TTL_NANOS = 15_000_000_000L;
 
     private final ObjectMapper mapper;
     private final SessionAliasRepository aliasRepo;
     private final AntigravityHistoryReader antigravityHistory;
     private final CodexHistoryReader codexHistory;
     private final CodexHistoryTailReader codexTail;
+    private volatile LocalTranscriptIndex localTranscriptIndex;
+    private final Map<Path, CodexRolloutIndex> codexIndexByRoot = new java.util.concurrent.ConcurrentHashMap<>();
 
     public SessionHistoryService(ObjectMapper mapper, SessionAliasRepository aliasRepo) {
         this.mapper = mapper;
@@ -370,8 +373,7 @@ public class SessionHistoryService {
         if (pending.isEmpty()) {
             return Set.of();
         }
-        pending.removeAll(scanClaudeSessionIds());
-        pending.removeAll(antigravityHistory.scanConversationIds());
+        pending.removeAll(resolveLocalTranscriptIds(pending));
         if (!pending.isEmpty()) {
             Map<String, Set<String>> idsByHome = new LinkedHashMap<>();
             for (String sid : pending) {
@@ -379,11 +381,100 @@ public class SessionHistoryService {
                         .add(sid);
             }
             for (Map.Entry<String, Set<String>> entry : idsByHome.entrySet()) {
-                Set<String> found = scanCodexSessionIds(entry.getKey());
+                Set<String> found = resolveCodexSessionIds(entry.getKey(), entry.getValue());
                 pending.removeIf(sid -> entry.getValue().contains(sid) && found.contains(sid));
             }
         }
         return pending;
+    }
+
+    private Set<String> resolveLocalTranscriptIds(Set<String> requiredSids) {
+        long now = System.nanoTime();
+        LocalTranscriptIndex current = this.localTranscriptIndex;
+        if (current != null && now < current.expiresAtNanos()
+                && allKnown(requiredSids, current.foundIds(), current.checkedMissingIds())) {
+            return current.foundIds();
+        }
+        Set<String> found = new HashSet<>(scanClaudeSessionIds());
+        found.addAll(antigravityHistory.scanConversationIds());
+        Set<String> checkedMissing = new HashSet<>(
+                current != null && now < current.expiresAtNanos() ? current.checkedMissingIds() : Set.of());
+        for (String sid : requiredSids) {
+            if (!found.contains(sid)) {
+                checkedMissing.add(sid);
+            }
+        }
+        LocalTranscriptIndex next = new LocalTranscriptIndex(
+                now + TRANSCRIPT_INDEX_TTL_NANOS, Set.copyOf(found), Set.copyOf(checkedMissing));
+        this.localTranscriptIndex = next;
+        return next.foundIds();
+    }
+
+    private Set<String> resolveCodexSessionIds(String codexHome, Set<String> requiredSids) {
+        Path root = codexSessionsRoot(codexHome);
+        if (!Files.isDirectory(root)) {
+            return Set.of();
+        }
+        return codexIndex(root, requiredSids).indexedIds();
+    }
+
+    private CodexRolloutIndex codexIndex(Path root, Collection<String> requiredSids) {
+        long now = System.nanoTime();
+        CodexRolloutIndex current = codexIndexByRoot.get(root);
+        if (current != null && now < current.expiresAtNanos()
+                && allKnown(requiredSids, current.indexedIds(), current.checkedMissingIds())) {
+            return current;
+        }
+        List<Path> rolloutFiles = new ArrayList<>();
+        Set<String> ids = new HashSet<>();
+        try (Stream<Path> s = Files.walk(root)) {
+            s.filter(Files::isRegularFile).forEach(p -> {
+                String name = p.getFileName().toString();
+                if (!name.startsWith("rollout-") || !name.endsWith(".jsonl")) return;
+                rolloutFiles.add(p);
+                String stem = stripExt(name);
+                int dash = stem.lastIndexOf('-');
+                // rollout-<ISO 时间戳>-<uuid>：uuid 自带 '-'，按 UUID 长度回切更稳
+                if (stem.length() > 36 && stem.charAt(stem.length() - 37) == '-') {
+                    ids.add(stem.substring(stem.length() - 36));
+                } else if (dash > 0) {
+                    ids.add(stem.substring(dash + 1));
+                }
+            });
+        } catch (IOException e) {
+            log.debug("[claude-chat] 扫描 Codex rollout 索引失败：{}", e.getMessage());
+        }
+        Set<String> checkedMissing = new HashSet<>(
+                current != null && now < current.expiresAtNanos() ? current.checkedMissingIds() : Set.of());
+        for (String sid : requiredSids) {
+            if (sid == null || sid.isBlank()) continue;
+            if (!ids.contains(sid)) {
+                String suffix = "-" + sid + ".jsonl";
+                boolean matchedBySuffix = rolloutFiles.stream()
+                        .anyMatch(p -> p.getFileName().toString().endsWith(suffix));
+                if (matchedBySuffix) {
+                    ids.add(sid);
+                } else {
+                    checkedMissing.add(sid);
+                }
+            }
+        }
+        CodexRolloutIndex next = new CodexRolloutIndex(
+                now + TRANSCRIPT_INDEX_TTL_NANOS,
+                List.copyOf(rolloutFiles),
+                Set.copyOf(ids),
+                Set.copyOf(checkedMissing));
+        codexIndexByRoot.put(root, next);
+        return next;
+    }
+
+    private static boolean allKnown(Collection<String> required, Set<String> found, Set<String> checkedMissing) {
+        for (String sid : required) {
+            if (sid != null && !sid.isBlank() && !found.contains(sid) && !checkedMissing.contains(sid)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** ~/.claude/projects 下所有 &lt;sid&gt;.jsonl 的 sid 集合（跳过 _trash）。 */
@@ -409,32 +500,6 @@ public class SessionHistoryService {
         return ids;
     }
 
-    /** ~/.codex/sessions 下 rollout-&lt;ISO&gt;-&lt;threadId&gt;.jsonl 的 threadId 集合。 */
-    private Set<String> scanCodexSessionIds(String codexHome) {
-        Path root = codexSessionsRoot(codexHome);
-        if (!Files.isDirectory(root)) {
-            return Set.of();
-        }
-        Set<String> ids = new HashSet<>();
-        try (Stream<Path> s = Files.walk(root)) {
-            s.filter(Files::isRegularFile).forEach(p -> {
-                String name = p.getFileName().toString();
-                if (!name.startsWith("rollout-") || !name.endsWith(".jsonl")) return;
-                String stem = stripExt(name);
-                int dash = stem.lastIndexOf('-');
-                // rollout-<ISO 时间戳>-<uuid>：uuid 自带 '-'，按 UUID 长度回切更稳
-                if (stem.length() > 36 && stem.charAt(stem.length() - 37) == '-') {
-                    ids.add(stem.substring(stem.length() - 36));
-                } else if (dash > 0) {
-                    ids.add(stem.substring(dash + 1));
-                }
-            });
-        } catch (IOException e) {
-            log.debug("[claude-chat] 扫描 Codex rollout 索引失败：{}", e.getMessage());
-        }
-        return ids;
-    }
-
     // ===== Codex rollout 历史读取 =====
 
     /**
@@ -449,20 +514,34 @@ public class SessionHistoryService {
         if (!Files.isDirectory(root)) {
             return null;
         }
-        String suffix = "-" + sdkSessionId.trim() + ".jsonl";
-        try (Stream<Path> s = Files.walk(root)) {
-            return s.filter(Files::isRegularFile)
-                    .filter(p -> {
-                        String name = p.getFileName().toString();
-                        return name.startsWith("rollout-") && name.endsWith(suffix);
-                    })
-                    .findFirst()
-                    .orElse(null);
-        } catch (IOException e) {
-            log.debug("[claude-chat] 定位 Codex rollout 失败：{}", e.getMessage());
-            return null;
+        String sid = sdkSessionId.trim();
+        String suffix = "-" + sid + ".jsonl";
+        CodexRolloutIndex index = codexIndex(root, List.of(sid));
+        Path match = findRolloutInIndex(index, suffix);
+        if (match != null && Files.isRegularFile(match)) {
+            return match;
         }
+        if (match != null) {
+            codexIndexByRoot.remove(root);
+            Path retried = findRolloutInIndex(codexIndex(root, List.of(sid)), suffix);
+            return retried != null && Files.isRegularFile(retried) ? retried : null;
+        }
+        return null;
     }
+
+    private static Path findRolloutInIndex(CodexRolloutIndex index, String suffix) {
+        for (Path p : index.rolloutFiles()) {
+            String name = p.getFileName().toString();
+            if (name.startsWith("rollout-") && name.endsWith(suffix)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    private record LocalTranscriptIndex(long expiresAtNanos, Set<String> foundIds, Set<String> checkedMissingIds) {}
+    private record CodexRolloutIndex(long expiresAtNanos, List<Path> rolloutFiles,
+                                     Set<String> indexedIds, Set<String> checkedMissingIds) {}
 
     private static Path codexSessionsRoot(String codexHome) {
         String normalized = normalizeCodexHome(codexHome);
@@ -508,6 +587,7 @@ public class SessionHistoryService {
                     dst = trashDir.resolve(sdkSessionId + "-" + System.currentTimeMillis() + ".jsonl");
                 }
                 Files.move(src, dst);
+                this.localTranscriptIndex = null;
                 log.info("[claude-chat] 历史会话移入回收：{} -> {}", src, dst);
             } catch (IOException e) {
                 log.warn("[claude-chat] 移入回收失败 {}：{}", sdkSessionId, e.getMessage());

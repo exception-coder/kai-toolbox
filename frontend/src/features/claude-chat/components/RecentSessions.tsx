@@ -52,7 +52,9 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
   const { data: sessions = [], isPending } = useQuery({
     queryKey: SESSION_QUERY_KEY,
     queryFn: listSessions,
-    refetchInterval: 3_000,
+    staleTime: 5_000,
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
   })
   const visibleStatuses = useVisibleSessionStatuses()
   const recentCandidates = useMemo(() => sessions.filter(isVibeCodingSession), [sessions])

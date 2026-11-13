@@ -105,9 +105,16 @@ public class ClaudeChatSessionController {
                         pins.state(s).pinned(), pins.state(s).pinnedAt()))
                 .toList();
         long finished = System.nanoTime();
-        log.info("[vibe-session-list] count={} accessMs={} transcriptMs={} planMs={} mapMs={} totalMs={}",
-                all.size(), millis(afterAccess - started), millis(afterTranscripts - afterAccess),
-                millis(afterPlans - afterTranscripts), millis(finished - afterPlans), millis(finished - started));
+        long totalMs = millis(finished - started);
+        if (totalMs >= 200) {
+            log.info("[vibe-session-list] count={} accessMs={} transcriptMs={} planMs={} mapMs={} totalMs={}",
+                    all.size(), millis(afterAccess - started), millis(afterTranscripts - afterAccess),
+                    millis(afterPlans - afterTranscripts), millis(finished - afterPlans), totalMs);
+        } else {
+            log.debug("[vibe-session-list] count={} accessMs={} transcriptMs={} planMs={} mapMs={} totalMs={}",
+                    all.size(), millis(afterAccess - started), millis(afterTranscripts - afterAccess),
+                    millis(afterPlans - afterTranscripts), millis(finished - afterPlans), totalMs);
+        }
         return result;
     }
 
