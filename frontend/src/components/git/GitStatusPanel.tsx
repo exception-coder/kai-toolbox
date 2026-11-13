@@ -157,6 +157,7 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
   const [loading, setLoading] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [hideIgnored, setHideIgnored] = useState(false)
+  const [hideUntracked, setHideUntracked] = useState(true)
 
   // ── diff 视图状态 ──────────────────────────────────────────────────────────
   const [diffEntry, setDiffEntry] = useState<GitStatusEntry | null>(null)
@@ -225,10 +226,11 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
 
   const entries = useMemo(() => {
     if (!data) return []
-    if (!hideIgnored) return data.entries
     const ignored = new Set(data.ignoredPaths ?? [])
-    return data.entries.filter(entry => !ignored.has(entry.path))
-  }, [data, hideIgnored])
+    return data.entries.filter(entry =>
+      !(hideUntracked && entry.x === '?' && entry.y === '?')
+      && !(hideIgnored && ignored.has(entry.path)))
+  }, [data, hideIgnored, hideUntracked])
   const hiddenCount = (data?.entries.length ?? 0) - entries.length
   const tree = useMemo(() => buildTree(entries), [entries])
 
@@ -304,6 +306,12 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
         {!showingDiff && (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-xs">
+              <label className="inline-flex cursor-pointer items-center gap-2 py-1" title="隐藏尚未被 Git 跟踪的文件和目录；仅影响此列表。">
+                <input type="checkbox" checked={hideUntracked} onChange={event => setHideUntracked(event.target.checked)}
+                  disabled={loading || !!err || !data}
+                  className="size-4 shrink-0 accent-[var(--color-primary)]" />
+                隐藏未跟踪项
+              </label>
               <label className="inline-flex cursor-pointer items-center gap-2 py-1" title="按 Git 忽略规则隐藏匹配项，包括已跟踪文件；仅影响此列表。">
                 <input type="checkbox" checked={hideIgnored} onChange={event => setHideIgnored(event.target.checked)}
                   disabled={loading || !!err || !Array.isArray(data?.ignoredPaths)}

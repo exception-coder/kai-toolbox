@@ -7,6 +7,8 @@
 
 ## 验证边界
 
+- [x] 默认隐藏未跟踪项，保留可恢复开关、已暂存新增和组合过滤；本次组件 8 项测试及 typecheck 通过。Forge all 返回 PASSED、exit 0，executedCheckers 为空，Runtime 仅 API-RUNTIME-001，不代表新页面验收。无架构契约影响、服务重启或发布；手机/桌面预览入口已准备，尚未执行浏览器验收。
+
 - 后端首轮 Maven 采用旧 JDK，编译未通过；仅本次进程指定 Java 21。特殊文件名夹具含 Windows 不允许的字符导致一次失败，修正为合法中文/空格名称后，最终 3 项无失败、无错误、无跳过。
 - Forge CLI all 返回 `PASSED`、exit 0；`executedCheckers=[]`，没有运行静态规则。Runtime 仅执行当前旧服务的 9 个 API 场景并通过，没有覆盖新筛选，未执行新版本稳定观察。
 - Graphify 查询因现有图超过默认大小上限未执行遍历；采用定向源码定位，没有重建图或调整大小限制。

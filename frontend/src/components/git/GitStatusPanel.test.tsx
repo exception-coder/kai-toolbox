@@ -114,9 +114,30 @@ describe('pending changes ignore filter', () => {
 
   it('keeps older server data readable and names collapsed directories', async () => {
     show({ entries: [{ path: 'outputs/', x: '?', y: '?', origPath: null }] })
+    await screen.findByText('已隐藏 1 项')
+    expect(screen.queryByText(/工作区干净/)).toBeNull()
+    fireEvent.click(screen.getByRole('checkbox', { name: '隐藏未跟踪项' }))
     await screen.findByText('outputs/')
     expect(screen.getByRole('checkbox', { name: '隐藏 Git 忽略项' })).toBeDisabled()
     expect(screen.getByText('暂无法获取忽略规则')).toBeInTheDocument()
     expect(screen.getByText('1 项变更')).toBeInTheDocument()
+  })
+
+  it('hides untracked entries by default and combines filters without hiding staged additions', async () => {
+    const { fetchStatus } = show({ ...response, entries: [...response.entries,
+      { path: 'temp/draft.md', x: '?', y: '?', origPath: null },
+      { path: 'src/new.ts', x: 'A', y: ' ', origPath: null },
+    ] })
+    await screen.findByText('4 项变更')
+    expect(screen.queryByText('draft.md')).toBeNull()
+    expect(screen.queryByText('temp')).toBeNull()
+    expect(screen.getByText('new.ts')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: '隐藏 Git 忽略项' }))
+    expect(screen.getByText('3 项变更')).toBeInTheDocument()
+    expect(screen.getByText('已隐藏 2 项')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: '隐藏未跟踪项' }))
+    expect(screen.getByText('draft.md')).toBeInTheDocument()
+    expect(screen.getByText('4 项变更')).toBeInTheDocument()
+    expect(fetchStatus).toHaveBeenCalledOnce()
   })
 })
