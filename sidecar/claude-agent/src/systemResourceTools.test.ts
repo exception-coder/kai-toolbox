@@ -18,11 +18,12 @@ test('SDK tools preserve the restricted consultation inventory', async () => {
       const removed = await client.callTool({ name: 'register_pending_sql', arguments: {} })
       assert.equal(removed.isError, true)
       assert.deepEqual(listed.tools.map(tool => tool.name).sort(), enabled
-        ? ['discover_resources', 'execute_resource', 'prepare_page_preview', 'prepare_sql_context', 'report_session_progress']
+        ? ['discover_resources', 'execute_resource', 'prepare_page_preview', 'prepare_sql_context', 'report_session_progress', 'visual_review']
         : ['prepare_sql_context', 'report_session_progress'])
       assert.equal(listed.tools.some(tool => tool.name === 'discover_resources'), enabled)
       assert.equal(listed.tools.some(tool => tool.name === 'prepare_page_preview'), enabled)
       assert.equal(listed.tools.some(tool => tool.name === 'execute_resource'), enabled)
+      assert.equal(listed.tools.some(tool => tool.name === 'visual_review'), enabled)
     } finally { await client.close(); await server.instance.close() }
   }
 })

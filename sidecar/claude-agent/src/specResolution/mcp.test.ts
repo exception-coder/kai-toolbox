@@ -22,6 +22,7 @@ test('public stdio exposes only Forge product capabilities and refuses removed w
     assert.deepEqual(listed.tools.map(tool => tool.name).sort(), [
       'discover_resources', 'execute_resource', 'prepare_page_preview', 'prepare_sql_context',
       'report_session_progress',
+      'visual_review',
     ])
     for (const definition of definitions) assert.ok(!listed.tools.some(tool => tool.name === definition.name), definition.name)
     const result = await client.callTool({ name: 'session_init', arguments: { project: 'unused', sessionId: 'test' } })

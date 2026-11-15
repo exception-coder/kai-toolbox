@@ -1,4 +1,5 @@
 import { pagePreviewSchema, PAGE_PREVIEW_DESCRIPTION, preparePagePreview } from './pagePreviewTools.js'
+import { visualReviewSchema, VISUAL_REVIEW_DESCRIPTION, callVisualReview } from './visualReviewTools.js'
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { discoverResourceSchema, executeResourceSchema, DISCOVER_RESOURCES_DESCRIPTION, EXECUTE_RESOURCE_DESCRIPTION, discoverSystemResources, executeSystemResource } from './systemResourceTools.js'
@@ -16,7 +17,10 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string, 
     name: 'forge',
     version: '1.0.0',
     tools: [
-      ...(includeDeliveryTools ? [tool('prepare_page_preview', PAGE_PREVIEW_DESCRIPTION, pagePreviewSchema,
+      ...(includeDeliveryTools ? [tool('visual_review', VISUAL_REVIEW_DESCRIPTION, visualReviewSchema,
+        args => callVisualReview(args, sessionId),
+        { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true } }),
+      tool('prepare_page_preview', PAGE_PREVIEW_DESCRIPTION, pagePreviewSchema,
         async args => preparePagePreview(args, sessionId),
         { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true } }),
       tool('discover_resources', DISCOVER_RESOURCES_DESCRIPTION, discoverResourceSchema,

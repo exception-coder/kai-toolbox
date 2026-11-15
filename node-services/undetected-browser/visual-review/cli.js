@@ -28,7 +28,7 @@ function parseArgs(argv) {
   return options;
 }
 
-async function main(argv) {
+async function main(argv, { signal } = {}) {
   const options = parseArgs(argv);
   if (options.command === 'help') {
     console.log('ChatGPT 网页视觉评审实验（不是官方 API）\nlogin\nreview --image <截图> [--image <截图>] [--id <UUID>] [--brief-file <要求.txt>]\ncollect --id <UUID> [--conversation-url <原对话URL>]\nstatus --id <UUID>\n可选 --timeout <10～1800秒> --data-dir <本地私有目录>');
@@ -67,6 +67,8 @@ async function main(argv) {
   let context;
   const abort = new AbortController();
   const cancel = () => abort.abort();
+  signal?.addEventListener('abort', cancel, { once: true });
+  if (signal?.aborted) cancel();
   process.on('SIGINT', cancel);
   process.on('SIGTERM', cancel);
   try {
@@ -119,6 +121,7 @@ async function main(argv) {
     finally {
       process.removeListener('SIGINT', cancel);
       process.removeListener('SIGTERM', cancel);
+      signal?.removeEventListener('abort', cancel);
       await lock.close();
       await fs.unlink(lockFile);
     }
