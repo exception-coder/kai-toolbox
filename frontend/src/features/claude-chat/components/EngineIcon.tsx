@@ -1,4 +1,4 @@
-import { Code2, Github, Pi, Zap } from 'lucide-react'
+import { Code2, Github, Pi, SquareTerminal, Zap } from 'lucide-react'
 import { RiOpenaiFill, SiClaude, SiDeepseek, SiGoogle, SiOpencode, SiQwen } from '../assets/icons/engineBrandIcons'
 import type { IconType } from 'react-icons'
 import { cn } from '@/lib/utils'
@@ -19,6 +19,7 @@ const ENGINE_ICONS: Record<Engine, IconType> = {
   pi: Pi,
   copilot: Github,
   trae: Code2,
+  zcode: SquareTerminal,
   antigravity: SiGoogle,
   opencode: SiOpencode,
   deepseekHarness: SiDeepseek,
@@ -32,6 +33,7 @@ const ENGINE_COLORS: Record<Engine, string> = {
   pi: 'text-[var(--color-foreground)]',
   copilot: 'text-[var(--color-foreground)]',
   trae: 'text-[var(--color-foreground)]',
+  zcode: 'text-[var(--color-foreground)]',
   antigravity: 'text-[#7c3aed] dark:text-[#a78bfa]',
   opencode: 'text-[var(--color-foreground)]',
   deepseekHarness: 'text-[#4d6bfe] dark:text-[#7f96ff]',
@@ -53,6 +55,7 @@ export function engineIdFromDisplayName(label?: string): Engine {
   if (normalized === 'github copilot') return 'copilot'
   if (normalized === 'qwen code') return 'qwen'
   if (normalized === 'traecode cli') return 'trae'
+  if (normalized === 'zcode') return 'zcode'
   if (normalized === 'antigravity') return 'antigravity'
   if (normalized === 'opencode') return 'opencode'
   if (normalized === 'deepseek harness') return 'deepseekHarness'

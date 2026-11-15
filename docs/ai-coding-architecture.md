@@ -550,6 +550,8 @@ flowchart TD
 
 ### 多引擎适配边界
 
+ZCode 已在源码中接入为实验引擎，复用同一注册、目录与事件链路，使用原生 CLI `--output-format stream-json --prompt` 和显式 `--resume`。CLI 兼容探测不代表模型鉴权通过；当前主机尚未安装运行时，目标版本未加载。模型选择跟随原生配置，不声明模型目录、强度、速度、附件或子 Agent 支持；普通权限显式映射为 build/edit/plan/yolo，不继承 CLI 默认 yolo，咨询/审阅/禁用工具策略直接拒绝。只在最终 result 与所属进程成功退出后报告成功。源码证据、限制与待运行验收见 [ZCode 接入任务](../openspec/changes/add-zcode-engine/tasks.md)。通用运行分层和业务全景图的适配器职责未改变。
+
 Forge Built-in Harness Preset 在普通交互式开发会话中默认提供 `environment-default` 与 `research-first`，通过既有 SessionManager → developerInstructions → 引擎适配器通道传递，不创建独立搜索服务、研究 Agent 或命令审查器。受限工具策略（disabled/review-only/consult-readonly）、演示会话以及显式自定义 systemPrompt 的专用任务保留自己的上下文契约，不注入本组预设。提示词是行为引导，不是保证模型每次遵循的确定性门禁。
 
 `environment-default`：Shell 执行环境由原生 Harness 拥有。Forge 只能确认宿主 OS、会话目录与引擎身份，不能根据 Windows 或已安装的 PowerShell 推定实际 Shell 类型/版本；模型优先消费原生环境与工具定义，缺失时保留未知。失败提醒不拦截命令、不回写工具结果、不新增恢复轮次。按用户本次要求由实验默认关闭改为默认启用，兼容旧环境变量 `FORGE_SHELL_GUIDANCE_EXPERIMENT=0` 显式退出；未配置或值为 1 时启用。此前 A/B 尚未完成，不能据此声称错误率已下降。
@@ -576,10 +578,13 @@ flowchart LR
     CONTRACT --> CODEX["Codex 适配器<br/>App Server / Codex SDK"]
     CONTRACT --> QWEN["Qwen Code 适配器<br/>Qwen Code SDK"]
     CONTRACT --> TRAE["TraeCode CLI 适配器<br/>exec JSONL；登录后运行验收"]
+    CONTRACT --> ZCODE["ZCode 实验适配器<br/>原生 CLI stream-json；运行待验收"]
     CONTRACT --> OTHER["Antigravity / OpenCode 适配器"]
     CLAUDE --> EVENTS["统一公开事件"]
     CODEX --> EVENTS
     QWEN --> EVENTS
+    TRAE --> EVENTS
+    ZCODE --> EVENTS
     OTHER --> EVENTS
 ```
 

@@ -18,7 +18,7 @@ class SessionSettingsNormalizerTest {
 
     @Test
     void engineNormalizationKeepsKnownEnginesAndMigratesGemini() {
-        for (String engine : new String[]{"codex", "qwen", "trae", "antigravity", "opencode", "pi", "copilot", "deepseekHarness"}) {
+        for (String engine : new String[]{"codex", "qwen", "trae", "zcode", "antigravity", "opencode", "pi", "copilot", "deepseekHarness"}) {
             assertThat(SessionSettingsNormalizer.normalizeEngine(engine)).isEqualTo(engine);
         }
         assertThat(SessionSettingsNormalizer.normalizeEngine("gemini")).isEqualTo("antigravity");
@@ -50,6 +50,7 @@ class SessionSettingsNormalizerTest {
                 .containsExactly("erp", "srm", "scm");
         assertThat(SessionSettingsNormalizer.authKey("  ")).isEqualTo("__default__");
         assertThat(SessionSettingsNormalizer.canResumeWithoutNativeSessionId("trae")).isTrue();
+        assertThat(SessionSettingsNormalizer.canResumeWithoutNativeSessionId("zcode")).isTrue();
         assertThat(SessionSettingsNormalizer.canResumeWithoutNativeSessionId("codex")).isFalse();
         assertThat(SessionSettingsNormalizer.shortCwd("D:\\work\\kai-toolbox")).isEqualTo("kai-toolbox");
         assertThat(SessionSettingsNormalizer.shortCwd("/srv/app/")).isEqualTo("/srv/app/");

@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.common.launchintent.api;
 
 import com.exceptioncoder.toolbox.common.launchintent.service.LaunchIntentService;
+import com.exceptioncoder.toolbox.common.launchintent.domain.LaunchIntent;
+import com.exceptioncoder.toolbox.common.launchintent.domain.LaunchIntentState;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -9,12 +11,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class LaunchIntentControllerTest {
 
     private final LaunchIntentService service = mock(LaunchIntentService.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final LaunchIntentController controller = new LaunchIntentController(service, objectMapper);
+
+    @Test
+    void shouldPreserveZcodeLaunchIdentity() throws Exception {
+        var payload = objectMapper.readTree("{\"cwd\":\"D:/repo\",\"seed\":\"执行\",\"engine\":\"zcode\"}");
+        when(service.create(1, "CHAT_OPEN_AND_SEND", payload.toString())).thenReturn(new LaunchIntent(
+                "test", 1, "CHAT_OPEN_AND_SEND", payload.toString(), LaunchIntentState.PENDING, null,
+                1L, 2L, null, 1L));
+        var result = controller.create(new LaunchIntentController.CreateLaunchIntentRequest(1, "CHAT_OPEN_AND_SEND", payload));
+        assertThat(result.payload().path("engine").asText()).isEqualTo("zcode");
+    }
 
     @Test
     void shouldRejectMalformedPayloadBeforePersistence() throws Exception {

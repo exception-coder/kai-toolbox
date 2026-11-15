@@ -52,15 +52,15 @@ describe('selectableEngineIds', () => {
     expect(selectableEngineIds(catalog)).toEqual(['antigravity'])
   })
 
-  it('never guesses TraeCode CLI availability from a missing or failed catalog', () => {
-    expect(selectableEngineIds()).not.toContain('trae')
+  it.each(['trae', 'zcode'] as const)('never guesses %s availability from a missing or failed catalog', engine => {
+    expect(selectableEngineIds()).not.toContain(engine)
     const catalog: EngineCatalogView = { protocolVersion: 1, engines: [
-      { id: 'trae', displayName: 'TraeCode CLI', capabilities: [], availability: 'stable',
+      { id: engine, displayName: engine, capabilities: [], availability: 'experimental',
         selectable: false, probe: { status: 'dependencyMissing', detail: 'Install traecli' } },
     ] }
-    expect(selectableEngineIds(catalog)).not.toContain('trae')
+    expect(selectableEngineIds(catalog)).not.toContain(engine)
     catalog.engines[0].selectable = true
     catalog.engines[0].probe.status = 'ready'
-    expect(selectableEngineIds(catalog)).toEqual(['trae'])
+    expect(selectableEngineIds(catalog)).toEqual([engine])
   })
 })

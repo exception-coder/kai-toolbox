@@ -635,13 +635,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         // 非 Claude CLI 会话无 Claude 模型/slash 清单：进入时清掉上一个 Claude 会话残留的选项，避免误显示。
         // 模型清单在切换/open 时已经清空；ready 不能再清一次。Antigravity 的 models 探测是异步的，
         // 事件可能先于 ready 到达，若在这里清空就会稳定退回“默认模型”。
-        if (msg.engine === 'codex' || msg.engine === 'antigravity' || msg.engine === 'trae') {
+        if (msg.engine === 'codex' || msg.engine === 'antigravity' || msg.engine === 'trae' || msg.engine === 'zcode') {
           setSlashCommands([])
           // 新后端由 ready 返回会话持久化模型；旧后端没有该字段时保留当前值，
           // 等随后 models 事件校正，避免每轮 ready 再次清成“默认”。
           if (msg.selectedModel !== undefined) setCurrentModel(msg.selectedModel)
           setAgents([])
-          if (msg.engine === 'antigravity') {
+          if (msg.engine === 'antigravity' || msg.engine === 'zcode') {
             setSkills([])
             setSkillDetails([])
             setPlugins([])

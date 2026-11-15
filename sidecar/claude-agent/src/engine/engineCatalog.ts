@@ -8,16 +8,18 @@ import {
 import type { EngineCapability, EngineDescriptor, EngineId, EngineProbeResult } from './engineContract.js'
 import { probeAntigravityRuntime } from '../antigravityRuntime.js'
 import { probeTraeRuntime } from '../traeEngine.js'
+import { probeZCodeRuntime } from '../zcodeEngine.js'
 
 const DEFAULT_CACHE_TTL_MS = 30_000
 
 /** 依赖外部运行时、必须通过 Sidecar 探活才能创建或切换会话的引擎；其余内置引擎无需同步探活。 */
-export const RUNTIME_PROBED_ENGINES: ReadonlySet<EngineId> = new Set<EngineId>(['deepseekHarness', 'antigravity', 'trae'])
+export const RUNTIME_PROBED_ENGINES: ReadonlySet<EngineId> = new Set<EngineId>(['deepseekHarness', 'antigravity', 'trae', 'zcode'])
 
 /** 探活未就绪时提示给用户的运行时名称。 */
 export const RUNTIME_PROBED_ENGINE_LABELS: Readonly<Record<string, string>> = {
   antigravity: 'Antigravity CLI',
   trae: 'TraeCode CLI 2.0',
+  zcode: 'ZCode CLI',
   deepseekHarness: 'DeepSeek Harness',
 }
 const DEFAULT_BACKGROUND_REFRESH_MS = 5 * 60_000
@@ -38,6 +40,7 @@ export interface EngineCatalogOptions {
   backgroundRefreshMs?: number
   antigravityProbe?: () => Promise<EngineProbeResult>
   traeProbe?: () => Promise<EngineProbeResult>
+  zcodeProbe?: () => Promise<EngineProbeResult>
 }
 
 /** Owns runtime readiness discovery; UI and session admission consume this single catalog. */
@@ -86,14 +89,16 @@ export class EngineCatalog {
   }
 
   private async refresh(): Promise<readonly EngineCatalogEntry[]> {
-    // 三项探活互不依赖，并行执行把强制刷新耗时从累加压到最慢一项。
+    // 外部运行时探活互不依赖，并行执行避免刷新耗时累加。
     const deepSeekTask = createReadyDeepSeekHarnessAdapter(this.deepSeekConfig, this.options.deepSeekDependencies)
     let antigravityProbe: EngineProbeResult
     let traeProbe: EngineProbeResult
+    let zcodeProbe: EngineProbeResult
     try {
-      [antigravityProbe, traeProbe] = await Promise.all([
+      [antigravityProbe, traeProbe, zcodeProbe] = await Promise.all([
         (this.options.antigravityProbe ?? probeAntigravityRuntime)(),
         (this.options.traeProbe ?? probeTraeRuntime)(),
+        (this.options.zcodeProbe ?? probeZCodeRuntime)(),
       ])
     } catch (error) {
       await (await deepSeekTask.catch(() => undefined))?.adapter?.dispose()
@@ -103,6 +108,7 @@ export class EngineCatalog {
     const stable = builtinEngineRegistry.descriptors().map(engine => this.entry(engine,
       engine.id === 'antigravity' ? antigravityProbe
         : engine.id === 'trae' ? traeProbe
+          : engine.id === 'zcode' ? zcodeProbe
           : { status: 'ready', engine: engine.id, detail: 'Built-in adapter is available' }))
     const deepSeekDescriptor = deepSeek.adapter?.descriptor ?? {
       id: 'deepseekHarness' as const,

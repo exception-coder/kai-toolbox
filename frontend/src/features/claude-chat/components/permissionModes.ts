@@ -39,6 +39,13 @@ const TRAE_MODES: PermissionModeOption[] = [
   { value: 'bypassPermissions', label: '完全访问权限', desc: '关闭沙箱，TraeCode CLI 可访问工作区外资源' },
 ]
 
+const ZCODE_MODES: PermissionModeOption[] = [
+  { value: 'default', label: '原生审批', desc: '使用 ZCode build 模式；需要交互批准而无法批准的操作会拒绝' },
+  { value: 'acceptEdits', label: '接受编辑', desc: '使用 ZCode edit 模式，其余需要批准的操作由原生策略裁决' },
+  { value: 'plan', label: '原生规划', desc: '使用 ZCode plan 模式；不用于咨询或审阅会话的受限工具策略' },
+  { value: 'bypassPermissions', label: '完全访问权限', desc: '显式使用 ZCode yolo 模式，不再逐次询问普通工具操作' },
+]
+
 const ANTIGRAVITY_MODES: PermissionModeOption[] = [
   { value: 'default', label: '安全执行', desc: '自动执行只读工具；非交互环境无法确认的高风险操作会拒绝' },
   { value: 'plan', label: '只读规划', desc: '只探索代码并给出计划，不直接改动' },
@@ -53,6 +60,7 @@ export function permissionModesForEngine(engine: Engine): PermissionModeOption[]
   if (engine === 'codex') return CODEX_MODES
   if (engine === 'qwen') return QWEN_MODES
   if (engine === 'trae') return TRAE_MODES
+  if (engine === 'zcode') return ZCODE_MODES
   if (engine === 'antigravity') return ANTIGRAVITY_MODES
   if (engine === 'opencode') return OPENCODE_MODES
   if (engine === 'deepseekHarness') return DEEPSEEK_HARNESS_MODES

@@ -96,6 +96,20 @@ test('catalog admits Trae only when its own CLI 2.0 probe succeeds', async () =>
   assert.equal(catalog.selectableNow('trae'), true)
 })
 
+test('ZCode admission requires its own successful capability probe', async () => {
+  const catalog = new EngineCatalog({
+    zcodeProbe: async () => ({ status: 'ready', engine: 'zcode', runtimeVersion: '0.17.1' }),
+    traeProbe: async () => ({ status: 'dependencyMissing', engine: 'trae' }),
+    antigravityProbe: async () => ({ status: 'dependencyMissing', engine: 'antigravity' }),
+    deepSeekConfig: { enabled: false, runtimeArgs: [], cwd: process.cwd(), provider: 'deepseek-official',
+      model: 'deepseek-v4-flash', handshakeTimeoutMs: 100, turnTimeoutMs: 100 },
+  })
+  assert.equal(catalog.selectableNow('zcode'), false)
+  await catalog.list()
+  assert.equal(catalog.selectableNow('zcode'), true)
+  assert.equal((await catalog.list()).find(engine => engine.id === 'zcode')?.availability, 'experimental')
+})
+
 test('catalog serves the stale snapshot immediately and re-probes in the background', async () => {
   let probes = 0
   let release: () => void = () => undefined

@@ -11,6 +11,7 @@ KNOWN_ENGINE_IDS.add('pi')
 KNOWN_ENGINE_IDS.add('copilot')
 KNOWN_ENGINE_IDS.add('antigravity')
 KNOWN_ENGINE_IDS.add('trae')
+KNOWN_ENGINE_IDS.add('zcode')
 
 /** 本地偏好只能恢复已知引擎；实际可用性仍由运行目录判断。 */
 export function isKnownEngine(value: unknown): value is Engine {
@@ -25,7 +26,7 @@ export function selectableEngineIds(catalog?: EngineCatalogView): Engine[] {
   if (!catalog || catalog.error || catalog.engines.length === 0) return [...STABLE_ENGINE_IDS]
   const result = catalog.engines.flatMap(entry => {
     if (!KNOWN_ENGINE_IDS.has(entry.id) || !entry.selectable) return []
-    if (entry.id === 'trae' && entry.probe.status !== 'ready') return []
+    if ((entry.id === 'trae' || entry.id === 'zcode') && entry.probe.status !== 'ready') return []
     if (entry.availability === 'experimental' && entry.probe.status !== 'ready') return []
     return [entry.id]
   })

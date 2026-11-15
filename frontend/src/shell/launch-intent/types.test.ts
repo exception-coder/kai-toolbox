@@ -11,6 +11,10 @@ const base = {
 }
 
 describe('parseLaunchIntent', () => {
+  it('preserves the ZCode identity for cross-page session launches', () => {
+    expect(parseLaunchIntent({ ...base, type: 'CHAT_OPEN_AND_SEND',
+      payload: { cwd: 'x', seed: 'go', engine: 'zcode' } }).payload).toMatchObject({ engine: 'zcode' })
+  })
   it('parses every supported payload kind', () => {
     expect(parseLaunchIntent({ ...base, type: 'CHAT_OPEN_DRAFT', payload: { cwd: 'x', seed: 'draft' } }).payload.type)
       .toBe('CHAT_OPEN_DRAFT')

@@ -28,7 +28,8 @@ public class EngineCatalogService {
 
     /** 以 Sidecar 探活结果裁决外部运行时引擎准入；内嵌引擎不增加同步查询开销。 */
     public boolean selectable(String engine) {
-        if (!"deepseekHarness".equals(engine) && !"antigravity".equals(engine) && !"trae".equals(engine)) {
+        if (!"deepseekHarness".equals(engine) && !"antigravity".equals(engine) && !"trae".equals(engine)
+                && !"zcode".equals(engine)) {
             return true;
         }
         return list(false).engines().stream()

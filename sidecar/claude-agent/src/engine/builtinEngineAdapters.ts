@@ -49,6 +49,7 @@ const descriptors = [
   descriptor('trae', 'TraeCode CLI', [
     'resume', 'interrupt', 'runtimeState',
   ]),
+  descriptor('zcode', 'ZCode', ['resume', 'interrupt', 'runtimeState']),
   descriptor('antigravity', 'Antigravity', [
     'resume', 'interrupt', 'attachments', 'modelCatalog',
   ]),

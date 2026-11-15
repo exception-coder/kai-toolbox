@@ -32,6 +32,7 @@ export function engineName(e: Engine): string {
       : e === 'opencode' ? 'OpenCode'
         : e === 'qwen' ? 'Qwen Code'
         : e === 'trae' ? 'TraeCode CLI'
+        : e === 'zcode' ? 'ZCode'
         : e === 'deepseekHarness' ? 'DeepSeek Harness'
           : 'Claude'
 }
