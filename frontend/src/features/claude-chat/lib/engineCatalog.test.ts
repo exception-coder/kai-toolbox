@@ -52,7 +52,7 @@ describe('selectableEngineIds', () => {
     expect(selectableEngineIds(catalog)).toEqual(['antigravity'])
   })
 
-  it.each(['trae', 'zcode'] as const)('never guesses %s availability from a missing or failed catalog', engine => {
+  it.each(['trae', 'zcode', 'hermes'] as const)('never guesses %s availability from a missing or failed catalog', engine => {
     expect(selectableEngineIds()).not.toContain(engine)
     const catalog: EngineCatalogView = { protocolVersion: 1, engines: [
       { id: engine, displayName: engine, capabilities: [], availability: 'experimental',

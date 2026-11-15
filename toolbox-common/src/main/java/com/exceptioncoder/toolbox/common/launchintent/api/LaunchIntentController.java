@@ -26,7 +26,7 @@ import java.util.Set;
 public class LaunchIntentController {
 
     private static final Set<String> SUPPORTED_ENGINES = Set.of(
-            "claude", "codex", "antigravity", "opencode", "deepseekHarness", "zcode");
+            "claude", "codex", "antigravity", "opencode", "deepseekHarness", "zcode", "hermes");
     private static final Set<String> SUPPORTED_PANELS = Set.of(
             "clone", "taskspace", "new", "filetree", "onboard",
             "caps", "providers", "plugins", "settings", "sessions");

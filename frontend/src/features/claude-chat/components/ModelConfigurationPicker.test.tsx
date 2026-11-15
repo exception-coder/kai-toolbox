@@ -21,9 +21,9 @@ function setup(engine: Engine, models: ModelInfo[], model: string, selection: Mo
 }
 
 describe('模型配置统一入口', () => {
-  it('ZCode follows native configuration without exposing unsupported model controls', () => {
-    setup('zcode', [], '')
-    expect(screen.getByText('模型由 ZCode 原生 CLI 配置决定。')).toBeInTheDocument()
+  it.each(['zcode', 'hermes'] as const)('%s follows native configuration without exposing unsupported model controls', engine => {
+    setup(engine, [], '')
+    expect(screen.getByText(`模型由 ${engine === 'hermes' ? 'Hermes' : 'ZCode'} 原生 CLI 配置决定。`)).toBeInTheDocument()
     expect(screen.queryByRole('combobox')).toBeNull()
   })
   it('Codex 动态显示强度与速度，选项分别传递原生值', () => {

@@ -550,6 +550,8 @@ flowchart TD
 
 ### 多引擎适配边界
 
+Hermes Agent 以实验适配器接入现有注册、目录和会话事件，通过官方 ACP JSONL stdio initialize / session/new / session/load / session/prompt / session/cancel，不复用 Codex 协议。兼容探测只握手，不创建会话或模型调用；凭据、模型与后台执行器仍属于 Hermes 原生环境。原生工具需要批准时复用 Forge Permissions，只选择单次批准，不自动给予永久授权。default/accept_edits 为原生编辑策略，不伪造 plan、完全访问权限、模型目录、强度或速度；受限工具策略与未接入图片明确拒绝。历史回放不重显，原生会话不存在不替换。运行中先落盘所属轮次标记，只有可信终态才解除；失联或原生取消未确认时保留标记，跨恢复禁止自动重放。ACP viewer 退出不代表后台停止，运行状态只说明 Forge 当前轮，不宣称收口原生后台委派；累计 usage 不作本轮计费。源码与待运行验收见[Hermes任务](../openspec/changes/add-hermes-engine/tasks.md)。通用 draw.io 的 Agent/MCP/适配器职责和业务全景的多引擎节点不变，下方细化引擎流程补充 Hermes。
+
 ZCode 已在源码中接入为实验引擎，复用同一注册、目录与事件链路，使用原生 CLI `--output-format stream-json --prompt` 和显式 `--resume`。CLI 兼容探测不代表模型鉴权通过；当前主机尚未安装运行时，目标版本未加载。模型选择跟随原生配置，不声明模型目录、强度、速度、附件或子 Agent 支持；普通权限显式映射为 build/edit/plan/yolo，不继承 CLI 默认 yolo，咨询/审阅/禁用工具策略直接拒绝。只在最终 result 与所属进程成功退出后报告成功。源码证据、限制与待运行验收见 [ZCode 接入任务](../openspec/changes/add-zcode-engine/tasks.md)。通用运行分层和业务全景图的适配器职责未改变。
 
 Forge Built-in Harness Preset 在普通交互式开发会话中默认提供 `environment-default` 与 `research-first`，通过既有 SessionManager → developerInstructions → 引擎适配器通道传递，不创建独立搜索服务、研究 Agent 或命令审查器。受限工具策略（disabled/review-only/consult-readonly）、演示会话以及显式自定义 systemPrompt 的专用任务保留自己的上下文契约，不注入本组预设。提示词是行为引导，不是保证模型每次遵循的确定性门禁。
@@ -579,12 +581,14 @@ flowchart LR
     CONTRACT --> QWEN["Qwen Code 适配器<br/>Qwen Code SDK"]
     CONTRACT --> TRAE["TraeCode CLI 适配器<br/>exec JSONL；登录后运行验收"]
     CONTRACT --> ZCODE["ZCode 实验适配器<br/>原生 CLI stream-json；运行待验收"]
+    CONTRACT --> HERMES["Hermes 实验适配器<br/>原生 ACP；运行待验收"]
     CONTRACT --> OTHER["Antigravity / OpenCode 适配器"]
     CLAUDE --> EVENTS["统一公开事件"]
     CODEX --> EVENTS
     QWEN --> EVENTS
     TRAE --> EVENTS
     ZCODE --> EVENTS
+    HERMES --> EVENTS
     OTHER --> EVENTS
 ```
 

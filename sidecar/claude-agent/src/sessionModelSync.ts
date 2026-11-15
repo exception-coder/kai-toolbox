@@ -56,7 +56,7 @@ export class SessionModelSync {
         await this.refreshQwenModels(sessionId, s)
         return
       }
-      if (s?.engine === 'zcode') {
+      if (s?.engine === 'zcode' || s?.engine === 'hermes') {
         this.emit(sessionId, { type: 'models', models: [], current: null })
         return
       }
@@ -158,7 +158,7 @@ export class SessionModelSync {
       void this.refreshQwenModels(id, s)
     } else if (s.engine === 'pi' || s.engine === 'copilot') {
       void this.refresh(id)
-    } else if (s.engine === 'zcode') {
+    } else if (s.engine === 'zcode' || s.engine === 'hermes') {
       this.emit(id, { type: 'models', models: [], current: null })
     } else if (s.engine === 'trae') {
       this.emit(id, { type: 'models', models: [], current: s.model ?? null })

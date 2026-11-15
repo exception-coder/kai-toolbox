@@ -24,6 +24,16 @@ function readyDependencies(counter: { clients: number }): DeepSeekHarnessAdapter
   }
 }
 
+test('Hermes is experimental and cannot be admitted until its own ACP handshake succeeds', async () => {
+  const catalog = new EngineCatalog({ hermesProbe: async () => ({ status: 'ready', engine: 'hermes' }),
+    deepSeekConfig: { enabled: false, runtimeArgs: [], cwd: process.cwd(), provider: 'deepseek-official',
+      model: 'deepseek-v4-flash', handshakeTimeoutMs: 100, turnTimeoutMs: 100 } })
+  assert.equal(catalog.selectableNow('hermes'), false)
+  const hermes = (await catalog.list()).find(entry => entry.id === 'hermes')
+  assert.equal(hermes?.selectable, true)
+  assert.equal(hermes?.availability, 'experimental')
+})
+
 test('catalog hides experimental engine selection when its runtime is disabled', async () => {
   const catalog = new EngineCatalog({
     antigravityProbe: async () => ({ status: 'incompatible', engine: 'antigravity' }),

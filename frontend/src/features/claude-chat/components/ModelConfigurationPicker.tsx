@@ -62,8 +62,8 @@ export function ModelConfigurationPicker({ engine, engineLabel, models, model, s
   }
 
   const controlClass = 'h-11 min-w-0 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm disabled:opacity-50 md:h-9 md:text-xs'
-  if (engine === 'zcode') return <p className="text-xs text-[var(--color-muted-foreground)]">
-    模型由 ZCode 原生 CLI 配置决定。
+  if (engine === 'zcode' || engine === 'hermes') return <p className="text-xs text-[var(--color-muted-foreground)]">
+    模型由 {engine === 'hermes' ? 'Hermes' : 'ZCode'} 原生 CLI 配置决定。
   </p>
   return <div className="space-y-3">
     <div className="space-y-2">

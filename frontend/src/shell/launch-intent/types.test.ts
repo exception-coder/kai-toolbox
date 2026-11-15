@@ -11,9 +11,9 @@ const base = {
 }
 
 describe('parseLaunchIntent', () => {
-  it('preserves the ZCode identity for cross-page session launches', () => {
+  it.each(['zcode', 'hermes'])('preserves the %s identity for cross-page session launches', engine => {
     expect(parseLaunchIntent({ ...base, type: 'CHAT_OPEN_AND_SEND',
-      payload: { cwd: 'x', seed: 'go', engine: 'zcode' } }).payload).toMatchObject({ engine: 'zcode' })
+      payload: { cwd: 'x', seed: 'go', engine } }).payload).toMatchObject({ engine })
   })
   it('parses every supported payload kind', () => {
     expect(parseLaunchIntent({ ...base, type: 'CHAT_OPEN_DRAFT', payload: { cwd: 'x', seed: 'draft' } }).payload.type)

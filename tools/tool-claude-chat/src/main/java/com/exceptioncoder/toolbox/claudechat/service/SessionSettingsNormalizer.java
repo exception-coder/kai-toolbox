@@ -34,7 +34,7 @@ final class SessionSettingsNormalizer {
     static String normalizeEngine(String e) {
         if ("gemini".equals(e)) return "antigravity";
         return "pi".equals(e) || "copilot".equals(e) || "codex".equals(e) || "qwen".equals(e) || "trae".equals(e) || "antigravity".equals(e) || "opencode".equals(e)
-                || "deepseekHarness".equals(e) || "zcode".equals(e) ? e : "claude";
+                || "deepseekHarness".equals(e) || "zcode".equals(e) || "hermes".equals(e) ? e : "claude";
     }
 
     /** 引擎历史中的 gemini 统一改写为 antigravity，并保证 antigravity 在列。 */
@@ -104,7 +104,7 @@ final class SessionSettingsNormalizer {
     /** 这些引擎即使尚无原生句柄，也能在恢复后从下一轮创建新的运行时会话。 */
     static boolean canResumeWithoutNativeSessionId(String engine) {
         return "deepseekHarness".equals(engine) || "antigravity".equals(engine) || "trae".equals(engine)
-                || "zcode".equals(engine);
+                || "zcode".equals(engine) || "hermes".equals(engine);
     }
 
     /** 空白串归一为 null，避免把空网关地址当成有效配置。 */

@@ -43,6 +43,7 @@ import { runPiTurn } from './piEngine.js'
 import { runCopilotTurn } from './copilotEngine.js'
 import { runTraeTurn } from './traeEngine.js'
 import { runZCodeTurn } from './zcodeEngine.js'
+import { runHermesTurn } from './hermesEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
 import { appendWindowsExecutionInstructions, windowsExecutionInstructions } from './windowsExecution.js'
@@ -289,6 +290,7 @@ export class Session {
       copilot: request => this.runEmbeddedTurn(runCopilotTurn, request.text, request.developerInstructions),
       trae: request => this.runTraeTurn(request.text, request.developerInstructions),
       zcode: request => this.runZCodeTurn(request.text, request.developerInstructions),
+      hermes: request => this.runHermesTurn(request.text, request.developerInstructions, request.images),
       antigravity: request => this.runAntigravityTurn(
         request.text,
         request.developerInstructions,
@@ -971,6 +973,17 @@ export class Session {
     }
   }
 
+  private async runHermesTurn(text: string, developerInstructions?: string, images?: readonly { mediaType: string; data: string }[]): Promise<void> {
+    const controller = new AbortController()
+    this.abort = controller
+    try {
+      await runHermesTurn({ text, developerInstructions, images, cwd: this.cwd, model: this.model,
+        sdkSessionId: this.sdkSessionId, permissionMode: this.permissionMode, toolPolicy: this.toolPolicy,
+        signal: controller.signal, emit: event => this.emitTurn(event),
+        setSdkSessionId: id => { this.sdkSessionId = id }, canUseTool: this.perms.canUseTool })
+    } finally { this.abort = undefined }
+  }
+
   /** 跑一轮 OpenCode：委托 opencodeEngine（多 provider agent），AbortController 支持中断。 */
   private async runOpencodeTurn(text: string, developerInstructions?: string): Promise<void> {
     const ac = new AbortController()
@@ -1039,7 +1052,7 @@ export class Session {
         .catch(error => console.warn(`[sidecar] Antigravity 模型目录暂不可用，保留当前选择：${error instanceof Error ? error.message : String(error)}`))
       return
     }
-    if (this.engine === 'deepseekHarness' || this.engine === 'trae' || this.engine === 'zcode') {
+    if (this.engine === 'deepseekHarness' || this.engine === 'trae' || this.engine === 'zcode' || this.engine === 'hermes') {
       this.emitTurn({
         type: 'init', sdkSessionId: this.engine !== 'deepseekHarness' ? this.sdkSessionId ?? null : null,
         slashCommands: [], skills: [], agents: [], mcpServers: [], outputStyle: null,

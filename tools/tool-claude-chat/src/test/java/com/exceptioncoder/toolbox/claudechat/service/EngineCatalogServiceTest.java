@@ -77,5 +77,6 @@ class EngineCatalogServiceTest {
         SidecarClient sidecar = mock(SidecarClient.class);
         when(sidecar.queryEngineCatalog(anyBoolean(), anyLong())).thenReturn(Optional.empty());
         assertThat(new EngineCatalogService(sidecar).selectable("zcode")).isFalse();
+        assertThat(new EngineCatalogService(sidecar).selectable("hermes")).isFalse();
     }
 }

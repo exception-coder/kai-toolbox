@@ -30,6 +30,16 @@ class LaunchIntentControllerTest {
     }
 
     @Test
+    void shouldPreserveHermesLaunchIdentity() throws Exception {
+        var payload = objectMapper.readTree("{\"cwd\":\"D:/repo\",\"seed\":\"执行\",\"engine\":\"hermes\"}");
+        when(service.create(1, "CHAT_OPEN_AND_SEND", payload.toString())).thenReturn(new LaunchIntent(
+                "test", 1, "CHAT_OPEN_AND_SEND", payload.toString(), LaunchIntentState.PENDING, null,
+                1L, 2L, null, 1L));
+        var result = controller.create(new LaunchIntentController.CreateLaunchIntentRequest(1, "CHAT_OPEN_AND_SEND", payload));
+        assertThat(result.payload().path("engine").asText()).isEqualTo("hermes");
+    }
+
+    @Test
     void shouldRejectMalformedPayloadBeforePersistence() throws Exception {
         var request = new LaunchIntentController.CreateLaunchIntentRequest(
                 1, "CHAT_OPEN_AND_SEND", objectMapper.readTree("{\"cwd\":\"D:/repo\",\"seed\":\"执行\"}"));

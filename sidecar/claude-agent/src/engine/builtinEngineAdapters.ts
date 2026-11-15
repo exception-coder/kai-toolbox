@@ -50,6 +50,7 @@ const descriptors = [
     'resume', 'interrupt', 'runtimeState',
   ]),
   descriptor('zcode', 'ZCode', ['resume', 'interrupt', 'runtimeState']),
+  descriptor('hermes', 'Hermes Agent', ['resume', 'interrupt', 'runtimeState']),
   descriptor('antigravity', 'Antigravity', [
     'resume', 'interrupt', 'attachments', 'modelCatalog',
   ]),

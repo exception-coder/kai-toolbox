@@ -57,6 +57,10 @@ const DEEPSEEK_HARNESS_MODES: PermissionModeOption[] = [
 ]
 
 export function permissionModesForEngine(engine: Engine): PermissionModeOption[] {
+  if (engine === 'hermes') return [
+    { value: 'default', label: '原生审批', desc: 'Hermes ACP default 模式；需要批准的操作通过 Forge 请求单次授权' },
+    { value: 'acceptEdits', label: '接受工作区编辑', desc: 'Hermes accept_edits 模式；敏感路径与其他需批准的操作仍询问' },
+  ]
   if (engine === 'codex') return CODEX_MODES
   if (engine === 'qwen') return QWEN_MODES
   if (engine === 'trae') return TRAE_MODES

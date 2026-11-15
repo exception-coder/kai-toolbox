@@ -14,7 +14,7 @@ export interface QuotaAccountRow {
 
 const LABELS: Record<Engine, string> = {
   claude: 'Claude Code', codex: 'Codex', qwen: 'Qwen Code', opencode: 'OpenCode',
-  pi: 'Pi', copilot: 'GitHub Copilot', trae: 'Trae', zcode: 'ZCode', antigravity: 'Antigravity', deepseekHarness: 'DeepSeek Harness',
+  pi: 'Pi', copilot: 'GitHub Copilot', trae: 'Trae', zcode: 'ZCode', hermes: 'Hermes Agent', antigravity: 'Antigravity', deepseekHarness: 'DeepSeek Harness',
 }
 
 /** 配置来源去重，不宣称不同目录必然是不同身份，更不合计跨账号百分比。 */

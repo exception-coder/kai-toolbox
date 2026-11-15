@@ -26,6 +26,18 @@ AI 回复可用完整的 `site-preview` JSON 围栏声明站点；用户点击�
 
 引擎品牌图标使用原 SVG 子集，避免开发服务下载整套图标集合。升级 react-icons 或增补品牌后运行 `node scripts/generate-engine-icons.mjs`，用 `--check` 核对生成资产与许可证。源码加载提速不代表外网真机已经验收；需结合实际启动阶段日志测量。
 
+## Hermes Agent 实验引擎
+
+NousResearch Hermes Agent 通过官方 ACP stdio 接入既有会话入口，探活成功后在“其他引擎”可选，未就绪时可重新检测。不是将 Hermes 支持的某个模型 API 当成独立编码引擎。探活仅 initialize、核对 hermes-agent 身份、协议及 loadSession，不发起模型任务，也不证明原生账号、模型或后台执行器可用。
+
+在 Forge 所在主机及同一操作系统用户安装官方 Hermes 和 ACP 依赖，先用原生 `hermes model` / `hermes auth` 配好模型与账号。配置 `HERMES_CLI_PATH` 为官方 CLI 可执行文件绝对路径（调用时附加 `acp`），或配置 `HERMES_PYTHON_PATH` 为已安装 Hermes ACP 的可信 Python 解释器（调用 `-m acp_adapter`）；后者优先。未配置则从 PATH 查找 Windows `hermes.exe`／其他系统 `hermes`。不把 `.ps1/.cmd` 当作原生二进制执行，不自动下载同名包或通过通用 Shell 启动。官方有原生 Windows 安装方案，无需默认切到 WSL；本次未安装、未登录、未重启加载。
+
+首版支持文本流、工具活动、Forge 单次审批、精确 session/load 和原生 session/cancel。只提供 default→default 与 acceptEdits→accept_edits，不把 dont_ask（编辑策略）冒充全部工具完全访问权限，也不假定有 plan 只读模式。只从原生请求提供的 allow_once 选项批准当前操作，不自动授予永久权限。模型及服务商沿用原生配置；显式 Forge 模型覆盖、咨询/审阅/禁用工具策略和图片输入均拒绝。暂不提供模型目录、推理强度、速度、后台子 Agent、原生记录统计或 Forge MCP 注入；原生已有 MCP/工具仍由 Hermes 管理。Hermes usage 可能是会话累计值，不计作本轮 Token。
+
+输入总计最多200000字符，单条 ACP 事件和累计回复各有2 MiB限制，轮次等待最多15分钟。历史回放不重复渲染到 Forge；找不到原生会话时不创建替代会话。只有可信轮次终态才能清除执行标记；取消后最多等待10秒终态，关闭 ACP viewer 不等于取消后台任务。失联或终态未知保留 `~/.kai-toolbox/hermes-turns/<原生ID的SHA256>.json`，之后同一原生会话拒绝再次发送；先在原生端核对任务是否仍在运行，人工停止/确认终态后再清理对应标记，不自动抢锁。锁只跟踪 Forge 发起的本轮，不宣称监控 Hermes 自有后台委派。
+
+源码与定向检查见[Hermes任务](../../../../openspec/changes/add-hermes-engine/tasks.md)，真实模型首次回复、续接、工具批准、停止及目标版本页面仍待验收。官方依据：[Hermes](https://github.com/NousResearch/hermes-agent)、[ACP入口](https://github.com/NousResearch/hermes-agent/blob/b2c6bc4e1e183263907cf81cf070aa8ebdd5a553/website/docs/user-guide/features/acp.md)。
+
 ## ZCode 实验引擎
 
 新增智谱/Z.ai ZCode 的独立原生 CLI 适配，复用新建会话和顶部引擎选择器。兼容探测成功后出现在“其他引擎”，未就绪时顶部菜单可“重新检测”，失败原因不代表模型鉴权结果。它不是将 GLM API 当作 Codex 或 Claude，也不依赖未确认的 ACP 支持。

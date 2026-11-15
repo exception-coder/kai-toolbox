@@ -9,17 +9,19 @@ import type { EngineCapability, EngineDescriptor, EngineId, EngineProbeResult } 
 import { probeAntigravityRuntime } from '../antigravityRuntime.js'
 import { probeTraeRuntime } from '../traeEngine.js'
 import { probeZCodeRuntime } from '../zcodeEngine.js'
+import { probeHermesRuntime } from '../hermesEngine.js'
 
 const DEFAULT_CACHE_TTL_MS = 30_000
 
 /** 依赖外部运行时、必须通过 Sidecar 探活才能创建或切换会话的引擎；其余内置引擎无需同步探活。 */
-export const RUNTIME_PROBED_ENGINES: ReadonlySet<EngineId> = new Set<EngineId>(['deepseekHarness', 'antigravity', 'trae', 'zcode'])
+export const RUNTIME_PROBED_ENGINES: ReadonlySet<EngineId> = new Set<EngineId>(['deepseekHarness', 'antigravity', 'trae', 'zcode', 'hermes'])
 
 /** 探活未就绪时提示给用户的运行时名称。 */
 export const RUNTIME_PROBED_ENGINE_LABELS: Readonly<Record<string, string>> = {
   antigravity: 'Antigravity CLI',
   trae: 'TraeCode CLI 2.0',
   zcode: 'ZCode CLI',
+  hermes: 'Hermes ACP',
   deepseekHarness: 'DeepSeek Harness',
 }
 const DEFAULT_BACKGROUND_REFRESH_MS = 5 * 60_000
@@ -41,6 +43,7 @@ export interface EngineCatalogOptions {
   antigravityProbe?: () => Promise<EngineProbeResult>
   traeProbe?: () => Promise<EngineProbeResult>
   zcodeProbe?: () => Promise<EngineProbeResult>
+  hermesProbe?: () => Promise<EngineProbeResult>
 }
 
 /** Owns runtime readiness discovery; UI and session admission consume this single catalog. */
@@ -94,11 +97,13 @@ export class EngineCatalog {
     let antigravityProbe: EngineProbeResult
     let traeProbe: EngineProbeResult
     let zcodeProbe: EngineProbeResult
+    let hermesProbe: EngineProbeResult
     try {
-      [antigravityProbe, traeProbe, zcodeProbe] = await Promise.all([
+      [antigravityProbe, traeProbe, zcodeProbe, hermesProbe] = await Promise.all([
         (this.options.antigravityProbe ?? probeAntigravityRuntime)(),
         (this.options.traeProbe ?? probeTraeRuntime)(),
         (this.options.zcodeProbe ?? probeZCodeRuntime)(),
+        (this.options.hermesProbe ?? probeHermesRuntime)(),
       ])
     } catch (error) {
       await (await deepSeekTask.catch(() => undefined))?.adapter?.dispose()
@@ -109,6 +114,7 @@ export class EngineCatalog {
       engine.id === 'antigravity' ? antigravityProbe
         : engine.id === 'trae' ? traeProbe
           : engine.id === 'zcode' ? zcodeProbe
+          : engine.id === 'hermes' ? hermesProbe
           : { status: 'ready', engine: engine.id, detail: 'Built-in adapter is available' }))
     const deepSeekDescriptor = deepSeek.adapter?.descriptor ?? {
       id: 'deepseekHarness' as const,

@@ -1222,7 +1222,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                           {eng === chat.currentEngine && <Check className="size-3.5 shrink-0" />}
                         </button>
                       ))}
-                      {(['antigravity', 'trae', 'zcode'] as const).filter(eng => !selectableEngines.includes(eng)).map(eng => (
+                      {(['antigravity', 'trae', 'zcode', 'hermes'] as const).filter(eng => !selectableEngines.includes(eng)).map(eng => (
                         <button
                           key={eng}
                           type="button"
