@@ -7,7 +7,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "install-browser": "patchright install chromium"
+    "install-browser": "patchright install chromium",
+    "visual-review": "node visual-review/cli.js",
+    "visual-review:test": "node --test visual-review/*.test.js"
   },
   "dependencies": {
     "patchright": "^1.60.2"

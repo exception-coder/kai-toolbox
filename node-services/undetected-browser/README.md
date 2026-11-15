@@ -49,3 +49,7 @@ node server.js
 | POST | `/sessions/{id}/clear` | 关闭并删除持久 profile（登出） |
 
 Phase 1 仅会话生命周期（开/保活/页签/存登录态/清除/关闭）。录制/回放后续阶段再迁。
+
+## ChatGPT 网页视觉评审实验
+
+独立命令 `npm run visual-review -- review --image <截图>` 可新建网页对话、上传图片、发送设计评审要求并收集文字方案与生成图预览；首次用 `npm run visual-review -- login` 登录。提供任务编号、状态查询和只收集不重发的恢复入口。属于未完成真实账号验收的非官方实验，不是现有 HTTP 协议或 Forge 编码引擎功能。用法和边界见 [实验说明](visual-review/README.md)。
