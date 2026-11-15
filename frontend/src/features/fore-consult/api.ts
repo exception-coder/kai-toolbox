@@ -168,6 +168,7 @@ export function correctConsultSourceRouting(id: string, project: string) {
 
 export interface ArchiveTurnItem {
   turnIndex: number
+  createdAt?: number
   question: string
   answer: string
   refMenuPaths?: string | null

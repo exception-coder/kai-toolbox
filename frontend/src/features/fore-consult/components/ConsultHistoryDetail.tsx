@@ -5,6 +5,7 @@ import DOMPurify from 'dompurify'
 import { Copy, Loader2, X } from 'lucide-react'
 import { getConsult, type ConsultAttRef, type ConsultSessionView, type ConsultTurnView, type FeedbackView } from '../api'
 import { stripConsultRecognition } from '../consultRecognition'
+import { parseConsultAnswer } from '../consultAnswer'
 import { ImageLightbox } from './ImageLightbox'
 import { ConsultAnswerContent, ConsultPanel } from './ConsultPanel'
 import { ConsultDocuments } from './ConsultDocuments'
@@ -88,7 +89,7 @@ function parseRawPairs(raw: string | null | undefined): QaPair[] {
     let cur: { q: string; a: string[]; traceId?: string | null } | null = null
     for (const it of items) {
       if (it.kind === 'user') {
-        if (cur) out.push({ turnIndex: out.length + 1, question: cur.q, answer: stripConsultRecognition(cur.a.join('\n\n')), traceId: cur.traceId })
+        if (cur) out.push({ turnIndex: out.length + 1, question: cur.q, answer: parseConsultAnswer(cur.a).answer, traceId: cur.traceId })
         cur = { q: it.displayText ?? it.text ?? '', a: [] }
       } else if (it.kind === 'assistant' && cur && (it.text ?? '').trim()) {
         cur.a.push(it.text ?? '')
@@ -96,7 +97,7 @@ function parseRawPairs(raw: string | null | undefined): QaPair[] {
         cur.traceId = it.traceId
       }
     }
-    if (cur) out.push({ turnIndex: out.length + 1, question: cur.q, answer: stripConsultRecognition(cur.a.join('\n\n')), traceId: cur.traceId })
+    if (cur) out.push({ turnIndex: out.length + 1, question: cur.q, answer: parseConsultAnswer(cur.a).answer, traceId: cur.traceId })
     return out
   } catch {
     return []

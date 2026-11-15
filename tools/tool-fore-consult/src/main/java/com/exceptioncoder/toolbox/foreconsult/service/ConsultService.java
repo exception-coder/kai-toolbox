@@ -219,6 +219,8 @@ public class ConsultService {
     /** 整表替换写入本次会话的轮次（归档与增量同步共用）。 */
     private void writeTurns(ConsultSession session, List<ArchiveRequest.TurnItem> turns, long now) {
         String sessionId = session.getSessionId();
+        Map<Integer, ConsultTurn> previous = turnRepo.findBySession(sessionId).stream()
+                .collect(java.util.stream.Collectors.toMap(ConsultTurn::getTurnIndex, turn -> turn));
         turnRepo.deleteBySession(sessionId);
         List<ArchiveRequest.TurnItem> items = turns != null ? turns : List.of();
         items.stream()
@@ -249,10 +251,21 @@ public class ConsultService {
                     .recognitionEvidence(serializeStringList(normalizeRecognitionEvidence(item.recognitionEvidence())))
                     .traceId(firstTraceId(traceBinding == null ? null : traceBinding.traceId(), item.traceId()))
                     .attachments(serializeAttachments(item.attachments()))
-                    .createdAt(now)
+                    .createdAt(turnCreatedAt(item, previous.get(index), now))
                     .build());
             seq++;
         }
+    }
+
+    /** 消息原始时间用于历史统计；旧客户端同步同一问题时不将它重新计为本日提问。 */
+    private long turnCreatedAt(ArchiveRequest.TurnItem item, ConsultTurn previous, long now) {
+        if (item.createdAt() != null && item.createdAt() > 0 && item.createdAt() <= now) {
+            return item.createdAt();
+        }
+        if (previous != null && java.util.Objects.equals(previous.getQuestion(), item.question())) {
+            return previous.getCreatedAt();
+        }
+        return now;
     }
 
     private String firstTraceId(String serverTraceId, String clientTraceId) {

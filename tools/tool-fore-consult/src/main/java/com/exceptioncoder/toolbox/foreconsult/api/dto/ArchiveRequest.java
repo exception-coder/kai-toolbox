@@ -26,6 +26,7 @@ public record ArchiveRequest(
      * @param refMenuPaths       命中的菜单路径，JSON 数组字符串（可为 null）
      * @param refGraphifyNodes   命中的 graphify 节点，JSON 数组字符串（可为 null）
      * @param refDomainKnowledge 命中的 domain-knowledge 条目，JSON 数组字符串（可为 null）
+     * @param createdAt          用户消息原始时间（Unix毫秒，可缺省；不是归档或同步时间）
      */
     public record TurnItem(
             int turnIndex,
@@ -39,7 +40,8 @@ public record ArchiveRequest(
             String recognitionStatus,
             List<String> recognitionEvidence,
             String traceId,
-            List<Att> attachments
+            List<Att> attachments,
+            Long createdAt
     ) {
     }
 

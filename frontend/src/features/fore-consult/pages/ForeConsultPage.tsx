@@ -104,14 +104,12 @@ import {
   listOwnRecentConsult,
   readConsultSourceRouting,
   syncConsultTurns,
-  type ArchiveTurnItem,
-  type ConsultAttRef,
   type ConsultOrchestrationVersion,
   type ConsultSessionView,
   type SaveSystemPrefItem,
   type TopoLink,
 } from '../api'
-import { parseConsultRecognition } from '../consultRecognition'
+import { extractTurns } from '../consultTurns'
 import {
   prepareConsultAttachments,
   type ConsultDraftAttachment,
@@ -495,45 +493,6 @@ function buildConsultSeed(system: string, modules: string[], ask: string, role: 
   ].join('\n')
 }
 
-/** 从 chat.items 抽取「用户问 → AI 答」成对轮次。 */
-function extractTurns(items: ChatItem[], attMeta: Map<string, { path: string; mime?: string | null }>): ArchiveTurnItem[] {
-  type Acc = { question: string; answerParts: string[]; atts: ConsultAttRef[]; traceId?: string | null }
-  const raw: Acc[] = []
-  let cur: Acc | null = null
-  for (const it of items) {
-    if (it.kind === 'user') {
-      if (cur) raw.push(cur)
-      const atts: ConsultAttRef[] = (it.attachments ?? [])
-        .map((a): ConsultAttRef | null => {
-          const meta = attMeta.get(a.name)
-          if (!meta?.path) return null
-          return { name: a.name, path: meta.path, mime: a.mime ?? meta.mime ?? null }
-        })
-        .filter((x): x is ConsultAttRef => x !== null)
-      cur = { question: it.displayText ?? it.text, answerParts: [], atts }
-    } else if (it.kind === 'assistant' && cur) {
-      if (it.text.trim()) cur.answerParts.push(it.text)
-    } else if (it.kind === 'result' && cur) {
-      cur.traceId = it.traceId
-    }
-  }
-  if (cur) raw.push(cur)
-  return raw.map((t, i) => {
-    const parsed = parseConsultRecognition(t.answerParts.join('\n\n'))
-    return {
-      turnIndex: i + 1,
-      question: t.question,
-      answer: parsed.answer,
-      refMenuPaths: parsed.recognition?.menuPaths.length ? JSON.stringify(parsed.recognition.menuPaths) : undefined,
-      recognizedModuleNames: parsed.recognition?.moduleNames,
-      problemCategory: parsed.recognition?.problemCategory,
-      recognitionStatus: parsed.recognition?.recognitionStatus,
-      recognitionEvidence: parsed.recognition?.evidence,
-      traceId: t.traceId,
-      attachments: t.atts.length ? t.atts : undefined,
-    }
-  })
-}
 
 export function ForeConsultPage() {
   const { skin, toggleSkin, remembered } = useConsultSkin()

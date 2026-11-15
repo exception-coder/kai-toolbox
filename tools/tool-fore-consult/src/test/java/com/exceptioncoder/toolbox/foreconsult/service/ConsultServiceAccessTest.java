@@ -247,6 +247,29 @@ class ConsultServiceAccessTest {
                 userId, username, List.of(role), List.of(), "jti", System.currentTimeMillis() + 60_000));
     }
 
+    @Test
+    void syncPreservesOriginalMessageTimeAndLegacyTimeInsteadOfRefreshTime() throws Exception {
+        authenticate(7L, "yuy", "USER");
+        when(sessionRepo.findById("own")).thenReturn(Optional.of(session("own", "7")));
+        var previous = com.exceptioncoder.toolbox.foreconsult.domain.ConsultTurn.builder()
+                .turnIndex(2).question("旧客户端问题").createdAt(1700000000000L).build();
+        when(turnRepo.findBySession("own")).thenReturn(List.of(previous));
+        var request = new com.fasterxml.jackson.databind.ObjectMapper().readValue("""
+                {"turns":[
+                  {"turnIndex":1,"question":"税费问题","answer":"待核实","createdAt":1794477428094},
+                  {"turnIndex":2,"question":"旧客户端问题","answer":"已补充"},
+                  {"turnIndex":3,"question":"异常时间","createdAt":9223372036854775807}
+                ]}
+                """, ArchiveRequest.class);
+        long before = System.currentTimeMillis();
+        service.syncTurns("own", request);
+        var saved = ArgumentCaptor.forClass(com.exceptioncoder.toolbox.foreconsult.domain.ConsultTurn.class);
+        verify(turnRepo, org.mockito.Mockito.times(3)).insert(saved.capture());
+        assertThat(saved.getAllValues().get(0).getCreatedAt()).isEqualTo(1794477428094L);
+        assertThat(saved.getAllValues().get(1).getCreatedAt()).isEqualTo(1700000000000L);
+        assertThat(saved.getAllValues().get(2).getCreatedAt()).isBetween(before, System.currentTimeMillis());
+    }
+
     private static ConsultSession session(String sessionId, String userId) {
         return ConsultSession.builder()
                 .sessionId(sessionId)
