@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { GitPushActions, GitPushPreview } from './types'
+import { gitRead } from './gitRead'
 
 /** 推送快照与执行反馈独立于拉取确认，保留已有推送语义。 */
-export function useGitPush({ actions, repo, onPending, onPushed, refreshKey }: {
-  actions: GitPushActions; repo?: string; onPending: (pending: boolean) => void; onPushed: () => void; refreshKey?: number
+export function useGitPush({ actions, repo, onPending, onPushed, refreshKey, enabled = true }: {
+  actions: GitPushActions; repo?: string; onPending: (pending: boolean) => void; onPushed: () => void; refreshKey?: number; enabled?: boolean
 }) {
   const callbacks = useRef({ actions, onPending, onPushed })
   callbacks.current = { actions, onPending, onPushed }
@@ -23,7 +24,7 @@ export function useGitPush({ actions, repo, onPending, onPushed, refreshKey }: {
     setPreviewError('')
     setConfirming(false)
     try {
-      const result = await callbacks.current.actions.preview(repo)
+      const result = await gitRead(callbacks.current.actions.preview(repo))
       if (current === generation.current) setPreview(result)
     } catch (error) {
       if (current === generation.current) setPreviewError(error instanceof Error ? error.message : String(error))
@@ -32,13 +33,15 @@ export function useGitPush({ actions, repo, onPending, onPushed, refreshKey }: {
     }
   }
 
+  useEffect(() => { setFeedback('') }, [repo])
+
   useEffect(() => {
-    setFeedback('')
-    void refresh()
+    if (enabled) void refresh()
+    else { generation.current++; setPreview(null); setLoading(false); setPreviewError(''); setConfirming(false) }
     return () => { generation.current++ }
     // Repository identity owns this preview; callbacks may be recreated by the host.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repo, refreshKey])
+  }, [repo, refreshKey, enabled])
 
   async function push() {
     if (!preview || pending) return

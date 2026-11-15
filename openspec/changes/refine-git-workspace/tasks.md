@@ -4,6 +4,16 @@
 - [x] 2. 实现显式远端核对、安全分支切换及固定版本历史分页，复用原 Git 端口和安全边界。
 - [x] 3. 完成定向前后端验证、前端构建、宿主装配与项目质量门禁，记录具体范围。
 - [ ] 4. [MANUAL_CONFIRMATION] 用户确认加载新后端后，核对版本并完成手机与 14 寸桌面真实浏览器验收；不自行重启。
+- [x] 5. 优化本地读取等待与重复扫描，补充超时恢复、迟到响应和推送反馈回归；运行版本与手机实测仍归第 4 项。
+
+## 读取优化验收记录（2026-11-15）
+
+- 根因：面板按工作区快照 → 分支 → 提交串行等待；本地读取误用远端核对状态；本地状态重复检查仓库，首屏推送预览又增加重复扫描与锁竞争。
+- 前端定向验收合计 23 项通过：CommitsPanel 12、GitPushToolbar 6、GitPullToolbar 3、gitRead 2。覆盖扫描/分支端点迟迟不返回时先显示历史、读取超时与本地重试、迟到响应、远端刷新可关闭、按需推送预览、写操作确认/关闭保护和推送成功反馈保持。首次拉取测试 3 项失败：旧 fixture 未提供可拉取的工作区状态，立即寻找拉取按钮；改为本地落后 1 个提交的有效状态后原确认、失败恢复及换仓隔离断言通过，未放宽产品保护。
+- Java 21 下 `mvn -pl tools/tool-projects -am test "-Dtest=ProjectGitBranchServiceTest,ProjectGitWorkspaceServiceTest" "-Dsurefire.failIfNoSpecifiedTests=false" "-DfailIfNoTests=false" -q` 退出 0，5 项分支/状态及 8 项推送安全测试通过。使用真实临时 Git 仓库；新增断言确认本地状态仅检查一次，未跟踪文件仍准确计数。没有在用户实际仓库 fetch、checkout、pull 或 push。初次 Maven 属性未完整引用被 PowerShell 拆分，修正引用后执行成功，该次参数失败不记为测试通过。
+- TypeScript、FeatureManifest 目录一致性（58 项）和前端模块边界检查通过；Vite 生产构建输出到隔离目录 `frontend/dist/git-read-validation`，不替换当前服务资源。保留既有混合导入及大分包提示。
+- 项目质量门禁退出 0、JSON `status=PASSED`；`executedCheckers=[]`，实际运行探测仅 `API-RUNTIME-001` 对现有 `/api/tools` 返回 200，不作为新版本功能验收。
+- 手机/桌面预览入口已准备，状态 `WAITING_VIEWER_AUTH`。服务未重启，目标运行版本、真机加载耗时及浏览器验收未执行；不把静态构建或模拟慢请求当作真机加速测量。本次保持现有 AI 上下文、任务与交付契约，无整体架构变更。
 
 ## 定向验收记录（2026-11-01）
 

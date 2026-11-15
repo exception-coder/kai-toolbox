@@ -5,6 +5,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { GitPushToolbar } from './GitPushToolbar'
 import { GitBranchPicker } from './GitBranchPicker'
 import { GitStatusPanel } from './GitStatusPanel'
+import { gitRead } from './gitRead'
 import type { GitStatusResponse, GitFileDiffResponse } from './types'
 import type { CommitDiff, CommitInfo, GitRepoRef, GitBranchRef, GitPushActions, GitPullActions, GitWorkspaceActions, GitWorkspaceStatus, GitBranchSwitchPreview } from './types'
 
@@ -46,6 +47,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
   const [workspace, setWorkspace] = useState<GitWorkspaceStatus | null>(null)
   const [workspaceError, setWorkspaceError] = useState('')
   const [refreshing, setRefreshing] = useState(false)
+  const [branchesLoading, setBranchesLoading] = useState(false)
   const [syncRevision, setSyncRevision] = useState(0)
   const [switchPreview, setSwitchPreview] = useState<GitBranchSwitchPreview | null>(null)
   const [view, setView] = useState<'overview' | 'branches' | 'history' | 'diff'>('overview')
@@ -72,7 +74,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
     diffGeneration.current++
     setCommits(null); setListErr(''); setMore(false); setLoadingMore(false); setDiff(null); setDiffErr(''); setSelectedCommit(null); setDiffLoading(false)
     try {
-      const result = await callbacks.current.fetchCommits(repo, branch)
+      const result = await gitRead(callbacks.current.fetchCommits(repo, branch))
       if (current === listGeneration.current) { setCommits(result); setMore(!!pageSize && result.length === pageSize) }
     } catch (error) { if (current === listGeneration.current) setListErr(message(error)) }
   }, [pageSize])
@@ -82,7 +84,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
     const current = ++listGeneration.current
     setLoadingMore(true); setListErr('')
     try {
-      const result = await callbacks.current.fetchCommits(activeRepo, activeBranch, commits.length, commits[0].hash)
+      const result = await gitRead(callbacks.current.fetchCommits(activeRepo, activeBranch, commits.length, commits[0].hash))
       if (current !== listGeneration.current) return
       setCommits(previous => [...(previous ?? []), ...result]); setMore(result.length === pageSize)
     } catch (error) { if (current === listGeneration.current) setListErr(message(error)) }
@@ -92,23 +94,31 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
   const loadRepository = useCallback(async (repo?: string, preferred?: string, remote = false) => {
     const current = ++repositoryGeneration.current
     listGeneration.current++; diffGeneration.current++
-    setBranches(null); setBranchError(''); setWorkspace(null); setWorkspaceError(''); setActiveBranch(undefined)
-    setCommits(null); setListErr(''); setDiff(null); setDiffErr(''); setDiffLoading(false); setSelectedCommit(null)
-    setRefreshing(true)
-    // Remote refresh precedes reading refs, so the branch list and history share the fetched view.
+    if (!remote) { setBranches(null); setWorkspace(null); setActiveBranch(undefined) }
+    setBranchError(''); setWorkspaceError(''); setBranchesLoading(true)
+    if (!remote) { setCommits(null); setDiff(null); setSelectedCommit(null) }
+    setListErr(''); setDiffErr(''); setDiffLoading(false)
+    setRefreshing(remote)
+    // Local status must not block refs/history. Explicit fetch still precedes reading refreshed refs.
     try {
-      if (callbacks.current.workspaceActions) {
+      const readWorkspace = async () => {
+        if (!callbacks.current.workspaceActions) return
         try {
-          const result = await callbacks.current.workspaceActions.status(repo, remote)
+          const result = await gitRead(callbacks.current.workspaceActions.status(repo, remote), remote ? 90_000 : 20_000)
           if (current !== repositoryGeneration.current) return
           setWorkspace(result)
         } catch (error) { if (current === repositoryGeneration.current) setWorkspaceError(message(error)) }
       }
+      const workspaceRead = readWorkspace()
+      if (remote) await workspaceRead
       if (current !== repositoryGeneration.current) return
+      // HEAD history is available even when the branch-list request is slow or unavailable.
+      const historyRead = loadCommits(repo, preferred)
+      const historyGeneration = listGeneration.current
       let selected: GitBranchRef | undefined
       if (callbacks.current.fetchBranches) {
         try {
-          const result = await callbacks.current.fetchBranches(repo)
+          const result = await gitRead(callbacks.current.fetchBranches(repo))
           if (current !== repositoryGeneration.current) return
           setBranches(result)
           selected = result.find(branch => branch.ref === preferred) ?? result.find(branch => branch.current) ?? result[0]
@@ -116,9 +126,13 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
         } catch (error) { if (current === repositoryGeneration.current) setBranchError(message(error)) }
       }
       if (current !== repositoryGeneration.current) return
-      setActiveBranch(selected?.ref)
-      await loadCommits(repo, selected?.ref)
-    } finally { if (current === repositoryGeneration.current) setRefreshing(false) }
+      setBranchesLoading(false)
+      if (historyGeneration === listGeneration.current) {
+        setActiveBranch(selected?.ref)
+        if (preferred && selected?.ref !== preferred) await loadCommits(repo, selected?.ref)
+      }
+      await Promise.all([workspaceRead, historyRead])
+    } finally { if (current === repositoryGeneration.current) { setRefreshing(false); setBranchesLoading(false) } }
   }, [loadCommits])
 
   const loadRepos = useCallback(async () => {
@@ -126,7 +140,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
     setListErr(''); setCommits(null)
     if (!callbacks.current.fetchRepos) { await loadRepository(undefined); return }
     try {
-      const result = await callbacks.current.fetchRepos()
+      const result = await gitRead(callbacks.current.fetchRepos())
       if (current !== repositoryGeneration.current) return
       setRepos(result)
       const first = result.find(repo => repo.name === initialRepo)?.name ?? result[0]?.name
@@ -143,9 +157,10 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
 
   const refresh = async () => {
     if (busyRef.current || refreshing) return
-    setBusy(true); setNotice(''); setSwitchPreview(null)
-    try { await loadRepository(activeRepo, activeBranch, true); setSyncRevision(value => value + 1) }
-    finally { setBusy(false) }
+    setNotice(''); setSwitchPreview(null)
+    const generation = repositoryGeneration.current + 1
+    await loadRepository(activeRepo, activeBranch, true)
+    if (generation === repositoryGeneration.current) setSyncRevision(value => value + 1)
   }
   const selectRepo = (name: string) => {
     if (busyRef.current || name === activeRepo) return
@@ -153,14 +168,14 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
     void loadRepository(name)
   }
   const selectBranch = (ref: string) => {
-    if (busyRef.current) return
+    if (busyRef.current || refreshing) return
     setActiveBranch(ref); setView('history'); setSwitchPreview(null); setNotice('')
     void loadCommits(activeRepo, ref)
   }
   const prepareSwitch = async (ref: string) => {
     if (busyRef.current || !workspaceActions) return
     setBusy(true); setNotice(''); setSwitchPreview(null)
-    try { setSwitchPreview(await workspaceActions.prepareSwitch(ref, activeRepo)) }
+    try { setSwitchPreview(await gitRead(workspaceActions.prepareSwitch(ref, activeRepo))) }
     catch (error) { setNotice(message(error)) }
     finally { setBusy(false) }
   }
@@ -179,7 +194,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
     const current = ++diffGeneration.current
     setView('diff'); setSelectedCommit(commit); setDiff(null); setDiffErr(''); setDiffLoading(true)
     try {
-      const result = await callbacks.current.fetchDiff(commit.hash, activeRepo)
+      const result = await gitRead(callbacks.current.fetchDiff(commit.hash, activeRepo))
       if (current === diffGeneration.current) setDiff(result)
     } catch (error) { if (current === diffGeneration.current) setDiffErr(message(error)) }
     finally { if (current === diffGeneration.current) setDiffLoading(false) }
@@ -222,21 +237,21 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
               <div className="text-[13px] text-[var(--color-muted-foreground)]">当前分支</div>
               <div className="flex min-w-0 items-start gap-1">
                 <span className="min-w-0 flex-1 break-all py-3 text-sm font-medium">{currentBranch?.name ?? workspace?.branch ?? (branchError ? '暂不可用' : '读取中…')}</span>
-                <button type="button" className="inline-flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--color-muted)] disabled:opacity-50" aria-label="复制当前分支名称" disabled={!currentBranch} onClick={() => { void copyBranch(currentBranch!.name) }}><Copy className="size-4" /></button>
+                <button type="button" className="inline-flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--color-muted)] disabled:opacity-50" aria-label="复制当前分支名称" disabled={!currentBranch && !workspace?.branch} onClick={() => { void copyBranch(currentBranch?.name ?? workspace!.branch) }}><Copy className="size-4" /></button>
                 <button type="button" className="min-h-11 shrink-0 whitespace-nowrap rounded-md border px-3 text-[13px] disabled:opacity-50" disabled={pushing || !branches} onClick={() => setView('branches')}>选择分支</button>
               </div>
             </div>}
           </section>}
-          {branchError && <p role="alert" className="px-4 py-2 text-[13px] text-[var(--color-destructive)]">分支列表暂不可用，当前显示工作分支。{branchError}；可刷新重试。</p>}
-          {workspaceError && <p role="alert" className="px-4 py-2 text-[13px] text-[var(--color-destructive)]">同步状态未核验：{workspaceError}</p>}
+          {branchError && <p role="alert" className="px-4 py-2 text-[13px] text-[var(--color-destructive)]">分支列表暂不可用，当前显示工作分支。{branchError}<button type="button" disabled={pushing || refreshing} className="ml-2 min-h-11 underline" onClick={() => void loadRepository(activeRepo, activeBranch)}>重新读取本地信息</button></p>}
+          {workspaceError && <p role="alert" className="px-4 py-2 text-[13px] text-[var(--color-destructive)]">同步状态未核验：{workspaceError}<button type="button" disabled={pushing || refreshing} className="ml-2 min-h-11 underline" onClick={() => void loadRepository(activeRepo, activeBranch)}>重试本地状态</button></p>}
           {notice && <p role="status" className="break-words px-4 py-2 text-[13px]">{notice}</p>}
           {!showSync && ready && view !== 'diff' && view !== 'branches' && <button type="button" disabled={pushing || refreshing} onClick={() => void refresh()} className="mx-4 mt-3 min-h-11 rounded-md border px-3 text-[13px]">刷新状态</button>}
-          {showSync && pushActions && <GitPushToolbar key={activeRepo ?? ''} actions={pushActions} pullActions={pullActions} repo={activeRepo} workspace={workspace}
-            refreshKey={syncRevision} refreshing={refreshing} onRefresh={() => void refresh()} onPending={setBusy}
+          {showSync && pushActions && <GitPushToolbar key={activeRepo ?? ''} actions={pushActions} pullActions={pullActions} repo={activeRepo} workspace={workspaceActions ? workspace : undefined}
+            refreshKey={syncRevision} refreshing={refreshing} workspaceError={workspaceError} onRefresh={() => void refresh()} onPending={setBusy}
             onShowChanges={fetchStatus && fetchFileDiff ? () => setShowChanges(true) : undefined} onShowHistory={() => setView('history')}
             onPushed={() => { void loadRepository(activeRepo, activeBranch) }} onPulled={() => { void loadRepository(activeRepo, activeBranch) }} />}
           {showSync && !pushActions && <button type="button" className="m-4 min-h-11 rounded-md border px-3 text-[13px]" disabled={pushing || refreshing} onClick={() => void refresh()}>刷新状态</button>}
-          <div hidden={view !== 'branches'}><GitBranchPicker key={activeRepo ?? ''} branches={branches ?? []} busy={pushing} loading={refreshing} workspace={workspace} onRefresh={() => void refresh()} compare={workspaceActions?.compareBranches ? (base, ref) => workspaceActions.compareBranches!(base, ref, activeRepo) : undefined} selected={activeBranch} canSwitch={!!workspaceActions && !!workspace}
+          <div hidden={view !== 'branches'}><GitBranchPicker key={activeRepo ?? ''} branches={branches ?? []} busy={pushing || refreshing} loading={branchesLoading} workspace={workspace} onRefresh={() => void refresh()} compare={workspaceActions?.compareBranches ? (base, ref) => workspaceActions.compareBranches!(base, ref, activeRepo) : undefined} selected={activeBranch} canSwitch={!!workspaceActions && !!workspace && !refreshing}
             onBrowse={selectBranch} onSwitch={ref => void prepareSwitch(ref)} onCopy={text => { void copyBranch(text) }} /></div>
           {view === 'branches' && switchPreview && <section aria-label="确认切换分支" className="space-y-2 border-t px-4 py-3 text-[13px]">
             <p className="break-all">从 {switchPreview.branch} 切换到 {switchPreview.localBranch}</p>
@@ -250,7 +265,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
               {view === 'history' && fetchBranches && <button type="button" disabled={pushing || !branches} onClick={() => setView('branches')} className="min-h-11 shrink-0 text-[13px]">选择分支</button>}
             </div>
             {view === 'history' && !viewingCurrent && <p className="mb-2 text-[13px] text-[var(--color-muted-foreground)]">只读查看，不切换工作分支 · 远端分支为本地已获取记录</p>}
-            {listErr && <div role="alert" className="break-words text-[13px] text-[var(--color-destructive)]">{listErr}<button className="ml-3 min-h-11 underline" disabled={pushing} onClick={() => { if (repos?.length || !fetchRepos) void loadRepository(activeRepo, activeBranch); else void loadRepos() }}>重试</button></div>}
+            {listErr && <div role="alert" className="break-words text-[13px] text-[var(--color-destructive)]">{listErr}<button className="ml-3 min-h-11 underline" disabled={pushing} onClick={() => { if (repos?.length || !fetchRepos) void loadCommits(activeRepo, activeBranch); else void loadRepos() }}>重试</button></div>}
             {!commits && !listErr && <p className="py-3 text-[13px] text-[var(--color-muted-foreground)]">加载中…</p>}
             {commits?.length === 0 && <p className="py-3 text-[13px] text-[var(--color-muted-foreground)]">无提交记录</p>}
             <ul>{(view === 'overview' ? commits?.slice(0, 3) : commits)?.map(commit => <li key={commit.hash}>

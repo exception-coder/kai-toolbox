@@ -41,6 +41,7 @@ public class ProjectGitBranchService implements GitWorkspaceOperations {
         Path root = mutations.canonicalRoot(repository);
         return mutations.execute(root, () -> {
             var before = reader.inspect(root);
+            var snapshot = before;
             boolean checked = false;
             String notice = "远端尚未核对，数量来自本地已获取记录";
             if (refreshRemote && !before.upstreamRef().isEmpty()) {
@@ -49,16 +50,18 @@ public class ProjectGitBranchService implements GitWorkspaceOperations {
                     command.run(root, Duration.ofSeconds(60), "fetch", "--no-tags", "--no-recurse-submodules", "--",
                             url, "+" + before.target() + ":" + before.upstreamRef()).requireSuccess();
                     var after = reader.inspect(root);
+                    snapshot = after;
                     checked = after.view().branch().equals(before.view().branch())
                             && after.upstreamRef().equals(before.upstreamRef())
                             && after.target().equals(before.target())
                             && run(root, "remote", "get-url", after.view().remote()).strip().equals(url);
                     notice = checked ? "已核对上游；仅更新远端记录，未更新工作文件" : "刷新期间分支或上游配置已变化，请重新刷新";
                 } catch (IllegalStateException exception) {
+                    snapshot = reader.inspect(root);
                     notice = "远端获取失败：" + exception.getMessage() + "；当前数量仅供本地参考";
                 }
             }
-            var view = reader.inspect(root).view();
+            var view = snapshot.view();
             if (view.upstream().isEmpty()) notice = view.pushBlockedReason();
             return new GitWorkspaceStatus(view.branch(), view.head(), view.upstream(), view.ahead(), view.behind(),
                     view.files().size(), checked, checked ? Instant.now().toString() : "", notice);

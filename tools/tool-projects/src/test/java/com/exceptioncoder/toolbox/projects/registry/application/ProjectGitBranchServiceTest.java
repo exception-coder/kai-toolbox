@@ -15,12 +15,16 @@ import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 class ProjectGitBranchServiceTest {
     @TempDir Path temporary;
     private Path root;
     private final ProjectGitCommand command = new ProjectGitCommand(new GitProperties());
-    private final ProjectGitBranchService service = new ProjectGitBranchService(new ProjectGitWorkspaceReader(command),
+    private final ProjectGitWorkspaceReader reader = spy(new ProjectGitWorkspaceReader(command));
+    private final ProjectGitBranchService service = new ProjectGitBranchService(reader,
             new ProjectGitPullReader(command), command, new ProjectGitMutationLock(), new GitLogService(new GitProperties()));
 
     @BeforeEach
@@ -33,6 +37,16 @@ class ProjectGitBranchServiceTest {
         git(root, "add", ".");
         git(root, "commit", "-m", "seed");
         git(root, "branch", "release/long-branch-name");
+    }
+
+    @Test
+    void readsLocalWorkspaceOnlyOnceAndPreservesUntrackedChanges() throws Exception {
+        Files.writeString(root.resolve("untracked.txt"), "keep");
+        var status = service.status(root, false);
+        assertThat(status.branch()).isEqualTo("main");
+        assertThat(status.changes()).isEqualTo(1);
+        assertThat(status.remoteChecked()).isFalse();
+        verify(reader, times(1)).inspect(root);
     }
 
     @Test

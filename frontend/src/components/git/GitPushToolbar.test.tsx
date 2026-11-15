@@ -9,12 +9,27 @@ const preview: GitPushPreview = { branch: 'main', head: 'a'.repeat(40), remote: 
 afterEach(cleanup)
 
 describe('GitPushToolbar', () => {
+  it('preserves successful push feedback when the host replaces the workspace snapshot', async () => {
+    const workspace = { branch: 'main', head: 'a', upstream: 'origin/main', ahead: 2, behind: 0, changes: 0,
+      remoteChecked: false, checkedAt: '', notice: '本地记录' }
+    const actions = { preview: vi.fn(async () => preview), push: vi.fn(async () => ({ message: '推送成功' })) }
+    const onPending = vi.fn()
+    const onPushed = vi.fn()
+    const view = render(<GitPushToolbar actions={actions} workspace={workspace} onPending={onPending} onPushed={onPushed} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /^推送$/ })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: /^推送$/ }))
+    fireEvent.click(screen.getByRole('button', { name: '确认推送' }))
+    await screen.findByText('推送成功')
+    view.rerender(<GitPushToolbar actions={actions} workspace={{ ...workspace, ahead: 0 }} onPending={onPending} onPushed={onPushed} />)
+    expect(screen.getByText('推送成功')).toBeInTheDocument()
+  })
   it('never calls cached zero counts synced, and only shows synced after a fresh remote check', async () => {
     const workspace = { branch: 'main', head: 'a', upstream: 'origin/main', ahead: 0, behind: 0, changes: 0,
       remoteChecked: false, checkedAt: '', notice: '数量来自本地记录' }
     const actions = { preview: vi.fn(async () => ({ ...preview, ahead: 0, token: '', pushBlockedReason: '没有待推送提交' })), push: vi.fn() }
     const view = render(<GitPushToolbar actions={actions} workspace={workspace} onPending={vi.fn()} onPushed={vi.fn()} />)
     await screen.findByText('本地记录一致 · 远端未核对')
+    expect(actions.preview).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: '推送' })).not.toBeInTheDocument()
     view.rerender(<GitPushToolbar actions={actions} workspace={{ ...workspace, remoteChecked: true, checkedAt: new Date().toISOString() }} onPending={vi.fn()} onPushed={vi.fn()} />)
     await screen.findByText('已同步')
@@ -22,6 +37,9 @@ describe('GitPushToolbar', () => {
     await screen.findByText('分支已分叉')
     expect(screen.queryByRole('button', { name: '推送' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '拉取更新' })).not.toBeInTheDocument()
+    expect(actions.preview).not.toHaveBeenCalled()
+    view.rerender(<GitPushToolbar actions={actions} workspace={{ ...workspace, ahead: 2 }} onPending={vi.fn()} onPushed={vi.fn()} />)
+    await waitFor(() => expect(actions.preview).toHaveBeenCalledOnce())
   })
   it('requires confirmation and binds push to the displayed repository snapshot', async () => {
     let finish!: (result: { message: string }) => void

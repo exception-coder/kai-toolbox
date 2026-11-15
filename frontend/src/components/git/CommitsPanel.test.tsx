@@ -5,6 +5,71 @@ import type { CommitInfo, GitBranchRef } from './types'
 
 afterEach(cleanup)
 
+it('replaces a stuck local scan with a retry action, and ignores its late success after recovery', async () => {
+  vi.useFakeTimers()
+  try {
+    let late!: (value: import('./types').GitWorkspaceStatus) => void
+    const local = { branch: 'main', head: 'a', upstream: 'origin/main', ahead: 0, behind: 0,
+      changes: 0, remoteChecked: false, checkedAt: '', notice: 'new snapshot' }
+    const status = vi.fn().mockImplementationOnce(() => new Promise(resolve => { late = resolve })).mockResolvedValue(local)
+    render(<CommitsPanel title="repo" onClose={vi.fn()} fetchDiff={vi.fn()}
+      fetchBranches={async () => [branch('main', true)]} fetchCommits={async () => [commit('ready')]}
+      workspaceActions={{ status, prepareSwitch: vi.fn(), switchBranch: vi.fn() }}
+      pushActions={{ preview: vi.fn(), push: vi.fn() }} />)
+    await act(async () => {})
+    expect(screen.getByText('ready 提交')).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000) })
+    expect(screen.getByText('同步状态未核验')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重试本地状态' }))
+    await act(async () => {})
+    expect(screen.getByText('new snapshot')).toBeInTheDocument()
+    await act(async () => late({ ...local, branch: 'obsolete', notice: 'old snapshot' }))
+    expect(screen.queryByText('old snapshot')).not.toBeInTheDocument()
+  } finally { cleanup(); vi.useRealTimers() }
+})
+
+it('shows local branches and HEAD history while workspace scanning is still pending, without duplicate push scans', async () => {
+  let finish!: (value: import('./types').GitWorkspaceStatus) => void
+  const preview = vi.fn()
+  const onClose = vi.fn()
+  render(<CommitsPanel title="repo" onClose={onClose} fetchDiff={vi.fn()}
+    fetchBranches={async () => [branch('main', true)]} fetchCommits={async () => [commit('ready')]}
+    workspaceActions={{ status: () => new Promise(resolve => { finish = resolve }), prepareSwitch: vi.fn(), switchBranch: vi.fn() }}
+    pushActions={{ preview, push: vi.fn() }} />)
+  await screen.findByText('ready 提交')
+  expect(screen.getByRole('button', { name: '选择分支' })).toBeEnabled()
+  expect(screen.getByText('读取本地同步状态…')).toBeInTheDocument()
+  expect(screen.queryByText('正在核对远端…')).not.toBeInTheDocument()
+  expect(preview).not.toHaveBeenCalled()
+  await act(async () => finish({ branch: 'main', head: 'a', upstream: 'origin/main', ahead: 0, behind: 0,
+    changes: 0, remoteChecked: false, checkedAt: '', notice: '远端未核对' }))
+  expect(preview).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+  expect(onClose).toHaveBeenCalledOnce()
+})
+
+it('shows HEAD history before the branch catalog resolves and keeps the dialog dismissible during remote refresh', async () => {
+  let finishBranches!: (value: GitBranchRef[]) => void
+  let finishRemote!: (value: import('./types').GitWorkspaceStatus) => void
+  const local = { branch: 'main', head: 'a', upstream: 'origin/main', ahead: 0, behind: 0,
+    changes: 0, remoteChecked: false, checkedAt: '', notice: '远端未核对' }
+  const onClose = vi.fn()
+  render(<CommitsPanel title="repo" onClose={onClose} fetchDiff={vi.fn()}
+    fetchBranches={() => new Promise(resolve => { finishBranches = resolve })} fetchCommits={async () => [commit('HEAD')]}
+    workspaceActions={{ status: async (_repo, remote) => remote ? new Promise(resolve => { finishRemote = resolve }) : local,
+      prepareSwitch: vi.fn(), switchBranch: vi.fn() }} />)
+  await screen.findByText('HEAD 提交')
+  await act(async () => finishBranches([branch('main', true)]))
+  fireEvent.click(screen.getByRole('button', { name: '刷新状态' }))
+  expect(screen.getByText('HEAD 提交')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '关闭' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+  expect(onClose).toHaveBeenCalledOnce()
+  // Unmount invalidates late remote/branch responses without locking the UI.
+  cleanup()
+  await act(async () => finishRemote(local))
+})
+
 it('keeps overview to three commits and uses a dedicated searchable branch view with explicit switch confirmation', async () => {
   const ref = 'refs/heads/release/form-continuation-with-a-very-long-name'
   const switchBranch = vi.fn(async () => ({ message: '切换成功' }))
@@ -126,7 +191,7 @@ it('browses branch labels without sync actions and ignores late commits and diff
   let finishOld!: (commits: CommitInfo[]) => void
   let finishDiff!: (diff: import('./types').CommitDiff) => void
   const fetchCommits = vi.fn((_repo?: string, ref?: string) => ref === 'refs/heads/slow'
-    ? new Promise<CommitInfo[]>(resolve => { finishOld = resolve }) : Promise.resolve([commit(ref === 'refs/heads/main' ? 'main' : 'feature')]))
+    ? new Promise<CommitInfo[]>(resolve => { finishOld = resolve }) : Promise.resolve([commit(!ref || ref === 'refs/heads/main' ? 'main' : 'feature')]))
   render(<CommitsPanel title="repo" onClose={vi.fn()} fetchBranches={async () => [branch('main', true), branch('slow'), branch('feature')]}
     fetchCommits={fetchCommits} fetchDiff={() => new Promise(resolve => { finishDiff = resolve })}
     pushActions={{ preview: async () => ({ branch: 'main', head: 'a', remote: 'origin', targetBranch: 'main', destinations: [], ahead: 0, behind: 0, token: '', pushBlockedReason: '' }), push: vi.fn() }} />)
