@@ -29,8 +29,9 @@ it('separates directory management and binds repository history and pull to the 
   fireEvent.click(await screen.findByRole('button', { name: 'Team Standards' }))
   await screen.findByText('治理绑定修复')
   expect(screen.queryByText('主项目提交')).not.toBeInTheDocument()
-  expect(listSessionCommits).toHaveBeenLastCalledWith('s', 100, 'linked:team', 'refs/heads/main')
-  await waitFor(() => expect(getSessionPushPreview).toHaveBeenLastCalledWith('s', 'linked:team'))
+  expect(listSessionCommits).toHaveBeenLastCalledWith('s', 100, 'linked:team', undefined)
+  await waitFor(() => expect(screen.getByRole('button', { name: '拉取更新' })).toBeEnabled())
+  expect(getSessionPushPreview).not.toHaveBeenCalled()
   vi.mocked(prepareSessionPull).mockResolvedValue({ branch: 'main', head: 'a', remote: 'origin', targetBranch: 'main',
     source: 'safe', upstreamHead: 'b', ahead: 0, behind: 1, pullBlockedReason: '', token: 'pull-snapshot' })
   vi.mocked(pullSessionCommits).mockResolvedValue({ message: '拉取成功' })

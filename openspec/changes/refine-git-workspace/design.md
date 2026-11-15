@@ -28,6 +28,14 @@ Common 只增加 GitWorkspaceOperations 端口与 DTO；tool-projects 通过现�
 
 ## 验证依据
 
+### 提交变更树（2026-11-15）
+
+采用方案 B，范围为明确 Git Commit，不新增 RunChangeSnapshot 或推断 Agent 文件归属。保持 OBJ-01、CTX-01、DENS-01、FEED-01、EVID-01、CTRL-01，无例外。属 L2：既有只读审阅端口的兼容 UI 扩展，不改变身份、资源、写操作及 AI 架构契约。
+
+会话“代码与分支”点击提交后，复用 ProjectExplorer 并传入仓库身份与固定 Commit hash；不先下载完整 patch，不叠加第二层弹框。关闭保留原面板的仓库、筛选视图与滚动位置。项目浏览器历史文件栏使用同一 CommitChangeTree，复用 gitChangeTree 纯模型和 Virtuoso，只渲染可见行。真实路径搜索含重命名前路径，支持变更类型筛选、目录计数、折叠和相对路径复制；切换提交/仓库重置树状态，避免旧筛选隐去新提交文件。
+
+文件列表复用 GitReviewService 的 name-status NUL 协议及重命名检测，不从可能截断的 patch 推断。比较基线为第一父提交，根提交为空树；二进制与纯重命名仍显示。点击单文件复用 difference 与 ReviewCode，沿用历史删除、文件大小/二进制提示及现有授权过滤。审阅只读请求复用 20 秒界面等待期限，失败提供原请求重试，不显示“无变更”替代错误，也不声称停止底层请求。无数据只表示该 Commit 没有可见文件变更，不代表本轮 Agent 没改代码。业务模块语义分类及跨提交 Run 归属留待独立需求。
+
 定向覆盖跨仓/跨分支迟到响应、默认 3 条、固定版本分页、缓存零计数与远端核对区分、写入确认和关闭保护，以及真实临时仓库中的脏文件、过期目标、跟踪关系、被忽略文件保护。宿主装配覆盖新增 Bean。真实手机/桌面与实际版本加载单独记录，不由编译或预览入口成功替代。
 
 项目沿用 React 19 与已安装的 Radix Dialog，不为此次改造升级依赖。[Radix Dialog 官方说明](https://www.radix-ui.com/primitives/docs/components/dialog) 用于核对焦点与关闭行为；[Git fetch 官方说明](https://git-scm.com/docs/git-fetch) 用于核对远端跟踪引用更新与工作文件边界。

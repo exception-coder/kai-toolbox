@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronRight, Copy, FileText, Folder, GitBranch, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import * as Dialog from '@radix-ui/react-dialog'
@@ -9,10 +9,13 @@ import { gitRead } from './gitRead'
 import type { GitStatusResponse, GitFileDiffResponse } from './types'
 import type { CommitDiff, CommitInfo, GitRepoRef, GitBranchRef, GitPushActions, GitPullActions, GitWorkspaceActions, GitWorkspaceStatus, GitBranchSwitchPreview } from './types'
 
+const ProjectExplorer = lazy(() => import('./explorer/ProjectExplorer'))
+
 interface Props {
   title: string
   fetchCommits: (repo?: string, branch?: string, offset?: number, expectedHead?: string) => Promise<CommitInfo[]>
   pageSize?: number
+  reviewEndpoint?: string
   fetchBranches?: (repo?: string) => Promise<GitBranchRef[]>
   fetchDiff: (hash: string, repo?: string) => Promise<CommitDiff>
   onClose: () => void
@@ -28,12 +31,13 @@ interface Props {
 }
 
 /** 单一覆盖层中的仓库概览、分支选择、历史及 diff；工作目录管理由宿主独立提供。 */
-export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos, fetchBranches, pushActions, pullActions, workspaceActions, fetchStatus, fetchFileDiff, restoreFocus, initialRepo, onRepoChange, pageSize }: Props) {
+export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos, fetchBranches, pushActions, pullActions, workspaceActions, fetchStatus, fetchFileDiff, restoreFocus, initialRepo, onRepoChange, pageSize, reviewEndpoint }: Props) {
   const returnFocus = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
   const callbacks = useRef({ fetchRepos, fetchBranches, fetchCommits, fetchDiff, workspaceActions })
   callbacks.current = { fetchRepos, fetchBranches, fetchCommits, fetchDiff, workspaceActions }
   const [pushing, setPushing] = useState(false)
   const [showChanges, setShowChanges] = useState(false)
+  const [reviewCommit, setReviewCommit] = useState<string | null>(null)
   const [repos, setRepos] = useState<GitRepoRef[] | null>(null)
   const [activeRepo, setActiveRepo] = useState<string>()
   const [branches, setBranches] = useState<GitBranchRef[] | null>(null)
@@ -66,7 +70,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
   const scroller = useRef<HTMLDivElement>(null)
   const scrollPositions = useRef(new Map<string, number>())
   const scrollKey = `${activeRepo ?? ''}:${activeBranch ?? ''}:${view}`
-  useLayoutEffect(() => { if (scroller.current) scroller.current.scrollTop = scrollPositions.current.get(scrollKey) ?? 0 }, [scrollKey, commits, diff])
+  useLayoutEffect(() => { if (scroller.current) scroller.current.scrollTop = scrollPositions.current.get(scrollKey) ?? 0 }, [scrollKey, commits, diff, reviewCommit])
   const setBusy = useCallback((value: boolean) => { busyRef.current = value; setPushing(value) }, [])
 
   const loadCommits = useCallback(async (repo?: string, branch?: string) => {
@@ -191,6 +195,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
   }
   const openDiff = async (commit: CommitInfo) => {
     if (busyRef.current) return
+    if (reviewEndpoint) { setReviewCommit(commit.hash); return }
     const current = ++diffGeneration.current
     setView('diff'); setSelectedCommit(commit); setDiff(null); setDiffErr(''); setDiffLoading(true)
     try {
@@ -214,7 +219,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
   const ready = !fetchRepos || !!repos?.length
   const showSync = ready && (view === 'overview' || (view === 'history' && viewingCurrent))
 
-  return <Dialog.Root open onOpenChange={open => { if (!open && !busyRef.current) onClose() }}>
+  const panel = <Dialog.Root open onOpenChange={open => { if (!open && !busyRef.current) onClose() }}>
     <Dialog.Portal>
       <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40" />
       <Dialog.Content aria-describedby={undefined}
@@ -293,6 +298,9 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
       </Dialog.Content>
     </Dialog.Portal>
   </Dialog.Root>
+  return reviewCommit && reviewEndpoint ? <Suspense fallback={panel}><ProjectExplorer key={`${activeRepo}:${reviewCommit}`} title={repoLabel}
+    endpoint={reviewEndpoint} fetchRepos={fetchRepos} initialRepo={activeRepo} initialCommit={reviewCommit}
+    onClose={() => setReviewCommit(null)} restoreFocus={() => requestAnimationFrame(() => titleRef.current?.focus())} /></Suspense> : panel
 }
 
 function message(error: unknown) { return error instanceof Error ? error.message : String(error) }

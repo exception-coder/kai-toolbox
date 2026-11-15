@@ -9,8 +9,9 @@ import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import { ReviewCode } from './ReviewCode'
 import { BranchList } from './BranchList'
 import { WorkspaceChangeTree } from './WorkspaceChangeTree'
+import { CommitChangeTree } from './CommitChangeTree'
 import type { CommitInfo, GitBranchRef } from '../types'
-import { reviewRequest, statusNames, type ExplorerProps, type ReviewChange, type ReviewChanges, type ReviewContent, type ReviewHistory, type ReviewTree } from './api'
+import { reviewRequest, statusNames, type ExplorerProps, type ReviewChanges, type ReviewContent, type ReviewHistory, type ReviewTree } from './api'
 import './explorer.css'
 
 type Mode = 'tree' | 'history' | 'workspace' | 'operations'
@@ -18,7 +19,7 @@ type Selection = { path: string; ref: string; diff: boolean }
 const modes = [{ id: 'tree', label: '项目目录', icon: FolderTree }, { id: 'history', label: '提交历史', icon: GitCommitHorizontal }, { id: 'workspace', label: '工作区变更', icon: FileCode2 }] as const
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error)
 
-export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus, fetchRepos, renderGitActions }: ExplorerProps) {
+export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus, fetchRepos, renderGitActions, initialRepo, initialCommit }: ExplorerProps) {
   const portal = useFullscreenPortalContainer()
   const returnTo = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
   const heading = useRef<HTMLHeadingElement>(null)
@@ -27,15 +28,15 @@ export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus
   const [mode, setMode] = useState<Mode>('history')
   const [branchRef, setBranchRef] = useState('')
   const [operationBusy, setOperationBusy] = useState(false)
-  const [repo, setRepo] = useState('')
+  const [repo, setRepo] = useState(initialRepo ?? '')
   const [folder, setFolder] = useState('')
   const [treeRef, setTreeRef] = useState('HEAD')
   const [offset, setOffset] = useState(0)
-  const [commit, setCommit] = useState('')
+  const [commit, setCommit] = useState(initialCommit ?? '')
   const [layer, setLayer] = useState('combined')
   const [selected, setSelected] = useState<Selection | null>(null)
   const [codeMode, setCodeMode] = useState<'unified' | 'split'>('unified')
-  const [stage, setStage] = useState<'navigation' | 'files' | 'code'>('navigation')
+  const [stage, setStage] = useState<'navigation' | 'files' | 'code'>(initialCommit ? 'files' : 'navigation')
   const [search, setSearch] = useState('')
   const [settledSearch, setSettledSearch] = useState('')
   useEffect(() => { const timer = window.setTimeout(() => setSettledSearch(search.trim()), 300); return () => window.clearTimeout(timer) }, [search])
@@ -45,7 +46,9 @@ export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus
   const repositories = useQuery({ queryKey: ['project-explorer-repositories', endpoint], queryFn: fetchRepos ?? (async () => []), enabled: !!fetchRepos, retry: false })
   const ready = !fetchRepos || !!repositories.data?.some(item => item.name === repo)
   const info = useQuery({ queryKey: [...prefix, 'info'], queryFn: ({ signal }) => reviewRequest<{ branch: string; head: string }>(endpoint, repo, 'info', {}, signal), enabled: ready, retry: false })
-  useEffect(() => { if (repositories.data?.length && !repositories.data.some(item => item.name === repo)) setRepo(repositories.data[0].name) }, [repositories.data, repo])
+  useEffect(() => { if (repositories.data?.length && !repositories.data.some(item => item.name === repo)) {
+    setRepo(repositories.data[0].name); setCommit(''); setSelected(null); setStage('navigation')
+  } }, [repositories.data, repo])
   const tree = useQuery({ queryKey: [...prefix, 'tree', treeRef, folder, offset],
     queryFn: ({ signal }) => reviewRequest<ReviewTree>(endpoint, repo, 'tree', { ref: treeRef, path: folder, offset }, signal), enabled: ready && mode === 'tree', retry: false, staleTime: treeRef === 'HEAD' ? 0 : Infinity, refetchOnWindowFocus: false })
   const branches = useQuery({ queryKey: [...prefix, 'branches'], queryFn: ({ signal }) => reviewRequest<GitBranchRef[]>(endpoint, repo, 'branches', {}, signal), enabled: ready && mode === 'history', retry: false, refetchOnWindowFocus: false })
@@ -88,7 +91,6 @@ export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus
   const chooseMode = (value: Mode) => { setMode(value); setSelected(null); setStage('navigation'); setSearch('') }
   const openFolder = (path: string, ref: string) => { setFolder(path); setTreeRef(ref || 'HEAD'); setOffset(0); setSelected(null); setStage('files') }
   const openFile = (path: string, ref: string, diff: boolean) => { setSelected({ path, ref, diff }); setStage('code') }
-  const currentFiles = mode !== 'history' || !!commit
   async function copy(value: string) {
     try { await navigator.clipboard.writeText(value); setFeedback('代码已复制') } catch { setFeedback('未能复制，请允许剪贴板访问后重试。') }
   }
@@ -147,7 +149,7 @@ export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus
         {separator(0)}
         <section className={cn('pe-pane', stage !== 'files' && 'pe-mobile-hidden')} aria-label="文件清单">
           <div className="shrink-0 border-b p-3"><button className="mb-2 flex items-center gap-1 text-xs md:hidden" onClick={() => setStage('navigation')}><ArrowLeft className="size-3" />返回项目导航</button>
-            <p className="break-all text-xs font-medium">{mode === 'tree' ? folder || '项目根目录' : mode === 'history' ? commit ? `提交 ${commit.slice(0, 8)}` : '请选择一条提交' : '未提交文件'}</p>
+            <p className="break-all text-xs font-medium">{mode === 'tree' ? folder || '项目根目录' : mode === 'history' ? commit ? `提交变更树 · ${commit.slice(0, 8)}` : '请选择一条提交' : '未提交文件'}</p>
             {mode === 'history' && commitDetail.data && <div className="mt-2 space-y-1 text-xs"><p className="break-words font-medium">{commitDetail.data.subject}</p><p className="text-[var(--color-muted-foreground)]">{commitDetail.data.author} · {new Date(commitDetail.data.date).toLocaleString()}</p>{commitDetail.data.body && <details><summary className="cursor-pointer">提交说明</summary><p className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words">{commitDetail.data.body}</p></details>}</div>}
             {mode === 'history' && commitDetail.isError && <Failure error={commitDetail.error} retry={() => void commitDetail.refetch()} />}
             {mode === 'history' && <p className="mt-2 flex flex-wrap gap-2 text-xs text-[var(--color-muted-foreground)]">{counts.map(([code, label, count]) => <span key={code}>{label} {count}</span>)}</p>}
@@ -163,11 +165,7 @@ export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus
             {(offset > 0 || tree.data?.hasMore) && <div className="flex gap-2 p-2"><Button variant="ghost" size="sm" disabled={!offset} onClick={() => setOffset(value => Math.max(0, value - 300))}>上一页</Button><Button variant="ghost" size="sm" disabled={!tree.data?.hasMore} onClick={() => { setTreeRef(tree.data!.ref); setOffset(value => value + 300) }}>下一页</Button></div>}
           </div> : <>
             {changes.isError && <Failure error={changes.error} retry={() => void changes.refetch()} />}
-            <div className="min-h-0 flex-1">{mode === 'workspace' ? <WorkspaceChangeTree key={`${repo}:${layer}`} files={shownFiles} endpoint={endpoint} repo={repo} selected={selected?.path} searching={!!settledSearch} loading={changes.isFetching || changes.isError} onSelect={file => openFile(file.path, 'WORKTREE', true)} /> : <Virtuoso data={shownFiles} itemContent={(index, file) => <div>
-              {(index === 0 || directory(shownFiles[index - 1].path) !== directory(file.path)) && <p className="break-all bg-[var(--color-muted)] px-3 py-2 text-[11px] text-[var(--color-muted-foreground)]">{directory(file.path) || '/'}</p>}
-              <button className={cn('pe-file-row', selected?.path === file.path && 'bg-[var(--color-accent)]')} onClick={() => openFile(file.path, commit, true)} title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
-                <Status change={file} /><span className="min-w-0 break-all">{file.path.split('/').pop()}{file.oldPath && <small className="mt-1 block text-[var(--color-muted-foreground)]">原：{file.oldPath}</small>}</span>
-              </button></div>} components={{ Footer: () => currentFiles && !changes.isFetching && !changes.isError && !files.length ? <p className="p-3 text-sm text-[var(--color-muted-foreground)]">此范围没有变更</p> : null }} />}</div>
+            <div className="min-h-0 flex-1">{mode === 'workspace' ? <WorkspaceChangeTree key={`${repo}:${layer}`} files={shownFiles} endpoint={endpoint} repo={repo} selected={selected?.path} searching={!!settledSearch} loading={changes.isFetching || changes.isError} onSelect={file => openFile(file.path, 'WORKTREE', true)} /> : commit ? !changes.isError && <CommitChangeTree key={`${repo}:${commit}`} files={files} selected={selected?.path} loading={changes.isFetching} onSelect={file => openFile(file.path, commit, true)} /> : <p className="p-3 text-sm text-[var(--color-muted-foreground)]">选择一条提交查看变更树</p>}</div>
           </>}
         </section>
         {separator(1)}
@@ -190,10 +188,6 @@ export default function ProjectExplorer({ title, endpoint, onClose, restoreFocus
   </Dialog.Portal></Dialog.Root>
 }
 
-function directory(path: string) { return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '' }
-function Status({ change }: { change: ReviewChange }) {
-  return <span className={cn('pe-status', change.status === 'A' && 'pe-added', change.status === 'D' && 'pe-deleted')} title={`暂存区 ${change.x || '—'} · 工作树 ${change.y || '—'}`}><b>{change.status}</b><span>{change.x === '?' ? '未跟踪' : statusNames[change.status] ?? '变更'}</span></span>
-}
 function Failure({ error, retry }: { error: unknown; retry: () => void }) {
   return <div role="alert" className="p-3 text-sm"><p className="break-words">{errorText(error)}</p><Button variant="outline" size="sm" className="mt-2" onClick={retry}>重试读取</Button></div>
 }

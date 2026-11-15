@@ -29,6 +29,35 @@ beforeEach(() => {
   })
 })
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.unstubAllGlobals() })
+
+it('reports a failed commit file list without calling it an empty commit, and retries the same commit', async () => {
+  const standard = vi.mocked(http).getMockImplementation()!
+  let failed = false
+  vi.mocked(http).mockImplementation(async (path, init) => {
+    if (path.includes('/changes?') && !failed) { failed = true; throw new Error('提交清单读取失败') }
+    return standard(path, init)
+  })
+  show()
+  fireEvent.click(await screen.findByRole('button', { name: /删除旧实现/ }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('提交清单读取失败')
+  expect(screen.queryByText('此提交没有文件变更。')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '重试读取' }))
+  expect(await screen.findByRole('button', { name: '删除 old.java' })).toBeInTheDocument()
+})
+
+it('opens the requested repository and commit tree directly, then reads only the selected historical file', async () => {
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <ProjectExplorer title="Linked" endpoint="/claude-chat/sessions/s/review" initialRepo="linked:team" initialCommit={sha}
+      fetchRepos={async () => [{ name: '', label: 'Root', isRoot: true }, { name: 'linked:team', label: 'Linked', isRoot: false }]} onClose={vi.fn()} />
+  </QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: '删除 old.java' }))
+  expect(await screen.findByText('class Old {}')).toBeInTheDocument()
+  expect(screen.getByText(/已删除文件/)).toBeInTheDocument()
+  const relevant = calls.filter(url => /\/(changes|difference)$/.test(url.pathname))
+  expect(relevant.length).toBe(2)
+  expect(relevant.every(url => url.searchParams.get('repo') === 'linked:team' && url.searchParams.get('commit') === sha)).toBe(true)
+  expect(calls.some(url => /\/(source|workspace|workspace-compact)$/.test(url.pathname))).toBe(false)
+})
 function show() {
   const close = vi.fn()
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } })}><ProjectExplorer endpoint="/project-registry/current/review" title="Current" onClose={close} /></QueryClientProvider>)

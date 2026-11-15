@@ -3,7 +3,24 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { CommitsPanel } from './CommitsPanel'
 import type { CommitInfo, GitBranchRef } from './types'
 
+vi.mock('./explorer/ProjectExplorer', () => ({ default: ({ initialCommit, initialRepo, onClose }: {
+  initialCommit: string; initialRepo: string; onClose: () => void
+}) => <div role="dialog" aria-label="提交审阅入口"><span>{initialRepo} · {initialCommit}</span><button onClick={onClose}>返回代码与分支</button></div> }))
+
 afterEach(cleanup)
+
+it('hands the selected commit and repository to the shared review tree without downloading a full patch, then returns in place', async () => {
+  const fetchDiff = vi.fn(), close = vi.fn()
+  render(<CommitsPanel title="repo" onClose={close} fetchDiff={fetchDiff} reviewEndpoint="/sessions/s/review"
+    initialRepo="linked:team" fetchRepos={async () => [{ name: 'linked:team', label: 'Team', isRoot: false }]}
+    fetchCommits={async () => [commit('fixed')]} />)
+  fireEvent.click(await screen.findByText('fixed 提交'))
+  expect(await screen.findByRole('dialog', { name: '提交审阅入口' })).toHaveTextContent('linked:team · fixed')
+  expect(fetchDiff).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '返回代码与分支' }))
+  expect(screen.getByText('fixed 提交')).toBeInTheDocument()
+  expect(close).not.toHaveBeenCalled()
+})
 
 it('replaces a stuck local scan with a retry action, and ignores its late success after recovery', async () => {
   vi.useFakeTimers()

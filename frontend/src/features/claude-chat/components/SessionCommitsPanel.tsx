@@ -11,6 +11,7 @@ export function SessionCommitsPanel({ sessionId, onClose, restoreFocus }: {
   onDirectoriesChanged?: (paths: string[]) => void
 }) {
   return <CommitsPanel key={sessionId} title="代码与分支"
+    reviewEndpoint={`/claude-chat/sessions/${encodeURIComponent(sessionId)}/review`}
     fetchRepos={() => listSessionGitRepos(sessionId)}
     fetchBranches={repo => listSessionGitBranches(sessionId, repo)}
     pageSize={100}

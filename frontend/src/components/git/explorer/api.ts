@@ -1,6 +1,7 @@
 import { http } from '@/lib/api'
 import type { ReactNode } from 'react'
 import type { CommitInfo, GitRepoRef } from '../types'
+import { gitRead } from '../gitRead'
 
 export interface ReviewEntry { path: string; name: string; type: 'tree' | 'blob' | 'link' | 'commit' }
 export interface ReviewTree { ref: string; entries: ReviewEntry[]; hasMore: boolean }
@@ -14,10 +15,12 @@ export interface ExplorerProps {
   onClose: () => void
   restoreFocus?: () => void
   fetchRepos?: () => Promise<GitRepoRef[]>
+  initialRepo?: string
+  initialCommit?: string
   renderGitActions?: (onBusyChange: (busy: boolean) => void) => ReactNode
 }
 export function reviewRequest<T>(endpoint: string, repo: string, action: string, params: Record<string, string | number> = {}, signal?: AbortSignal) {
   const query = new URLSearchParams({ ...Object.fromEntries(Object.entries(params).map(([key, value]) => [key, String(value)])), ...(repo ? { repo } : {}) })
-  return http<T>(`${endpoint}/${action}?${query}`, { signal })
+  return gitRead(http<T>(`${endpoint}/${action}?${query}`, { signal }))
 }
 export const statusNames: Record<string, string> = { A: '新增', M: '修改', D: '删除', R: '重命名', C: '复制', U: '冲突', T: '类型变化' }
