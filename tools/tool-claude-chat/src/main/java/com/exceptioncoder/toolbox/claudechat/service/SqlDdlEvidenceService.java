@@ -9,6 +9,9 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -23,7 +26,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 /** 按会话工作目录定位项目 DDL，并为 SQL 生成和登记提供可校验的结构证据。 */
 @Service
@@ -31,6 +33,8 @@ public class SqlDdlEvidenceService {
 
     private static final int MAX_FRAGMENT_CHARS = 24 * 1024;
     private static final int MAX_TOTAL_FRAGMENT_CHARS = 96 * 1024;
+    private static final Set<String> SKIPPED_DIRECTORIES = Set.of(
+            "target", "node_modules", "dist", "build", ".git", "graphify-out", ".run", ".tmp", ".test-dist");
     private static final Pattern MARKDOWN_HEADING = Pattern.compile("^(#{2,4})\\s+(.+?)\\s*$");
     private static final Pattern CREATE_TABLE = Pattern.compile(
             "(?is)\\bCREATE\\s+TABLE(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+([^\\s(]+)");
@@ -163,9 +167,29 @@ public class SqlDdlEvidenceService {
             // Read bounded SQL source files only. Migrated Markdown is historical evidence, not a DDL baseline.
             Path checkedRoot = root;
             List<Path> candidates;
-            try (Stream<Path> files = Files.walk(root, 10)) {
-                List<Path> scanned = files.limit(20_001).toList();
-                if (scanned.size() > 20_000) return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING,
+            {
+                // Prune generated trees before applying the budget; otherwise caches exhaust it before source SQL.
+                List<Path> scanned = new ArrayList<>();
+                int[] visited = {0};
+                Files.walkFileTree(root, Set.of(), 10, new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attributes) {
+                        if (!dir.equals(checkedRoot) && (SKIPPED_DIRECTORIES.contains(dir.getFileName().toString())
+                                || checkedRoot.relativize(dir).toString().replace('\\', '/').equals("docs/domain/impl")
+                                || (projectAccess != null && !projectAccess.allowed(dir)))) {
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
+                        return ++visited[0] > 20_000 ? FileVisitResult.TERMINATE : FileVisitResult.CONTINUE;
+                    }
+
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
+                        if (++visited[0] > 20_000) return FileVisitResult.TERMINATE;
+                        if (attributes.isRegularFile() && file.toString().endsWith(".sql")) scanned.add(file);
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+                if (visited[0] > 20_000) return ProjectResolution.failed(SqlDdlEvidence.STATUS_DDL_MISSING,
                         List.of(project), "项目SQL扫描达到上限，无法排除其他迁移；请定位结构文件或使用数据库元数据核验。");
                 candidates = scanned.stream().filter(file -> Files.isRegularFile(file, java.nio.file.LinkOption.NOFOLLOW_LINKS))
                         .filter(file -> file.toString().endsWith(".sql"))

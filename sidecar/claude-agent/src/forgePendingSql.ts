@@ -35,7 +35,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string, 
         {
           purpose: z.string().describe('本次 SQL 对应的业务功能和变更目的'),
           tables: z.array(z.string()).min(1).max(50).describe('将被 DDL/DML 直接读写或变更的目标表名'),
-          project: z.string().optional().describe('仅在 PROJECT_AMBIGUOUS 时，从 candidateProjects 中选择后重试'),
+          project: z.string().optional().describe('仅在 PROJECT_AMBIGUOUS 时选择当前目录的 candidateProjects 候选；不授予跨项目读取'),
         },
         async (args: { purpose: string; tables: string[]; project?: string }, rawExtra: unknown) => {
           try {

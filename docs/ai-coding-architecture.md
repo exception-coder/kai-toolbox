@@ -179,6 +179,24 @@ Constitution 管 Agent 如何思考；Skill 管任务如何操作；Forge 管上
 
 ### 模型工具与方法去重
 
+`prepare_sql_context` 在当前授权项目扫描 SQL 结构文件，先跳过构建、依赖和 `.run` 临时目录，再计入扫描上限。返回的 `evidenceScope=PROJECT_SQL_FILES` 明确 `VERIFIED` 只证明文件片段，不证明目标环境已部署；`recovery` 提供下一步而不隐式连接数据库或保存文件。候选项目只用于本地目录消歧，不是表归属证明，也不授予跨目录权限。
+
+本地证据不足时，Agent 先核对表的实际所属系统，经 `discover_resources` 查询该系统绑定，确认环境、schema、启用状态及 QUERY 能力后，复用 `execute_resource` 只读调查列、约束和索引。涉及关联项目时查询其资源；生产、未知环境及咨询/评审仍遵循已有权限。资源不可用或拒绝时才询问缺失绑定、环境、访问条件或现成 DDL，不绕过访问限制。按项目约定保存带来源、环境、时间的快照是可选复用步骤，不要求用户先落地文件；无真实库证据仍可交付明确标注的待复核 SQL。此为源码候选，未重启服务或完成运行加载验收。
+
+```mermaid
+flowchart LR
+    TABLE["目标表与所属系统"] --> FILE["当前授权项目 SQL 文件"]
+    FILE --> EVIDENCE["文件证据与 recovery"]
+    EVIDENCE --> NEED{"证据不足或需核对部署？"}
+    NEED -->|是| BIND["发现所属系统绑定资源"]
+    BIND --> ACCESS{"环境与 QUERY 权限可用？"}
+    ACCESS -->|是| META["只读元数据与来源时间"]
+    ACCESS -->|否| GAP["仅询问缺失条件或现成 DDL"]
+    META -.可选.-> SNAPSHOT["按项目约定保存快照"]
+    NEED -->|否| DRAFT["依据文件生成并标注证据范围"]
+    GAP --> REVIEW["保留缺口的待复核草稿"]
+```
+
 普通 Vibe Coding 的 Forge MCP 从 25 项减为 5 项：资源发现与调用、DDL 核对、页面预览、推进进度上报。Team Standards 与项目规则负责需求分级、规格/设计、验证范围和提交方法；OpenSpec/Graphify 保持原事实所有权。`register_pending_sql` 已从 SDK、stdio 与模型权限清单移除，SQL 在回复中直接交付；历史台账与兼容 HTTP API 保留，不迁移或删除数据。移除工具不放宽 DDL 核验、咨询只读及资源写入授权。源码验证与待服务加载状态见 [移除登记工具任务](../openspec/changes/remove-pending-sql-tool/tasks.md)。普通任务不再叠加模型拆分、规格解析确认或执行初始化；保留引擎原生文件/终端能力及用户配置插件，不修改全局 Team Standards。
 
 移出的 13 项执行操作及 5 项规格操作保留为内部 CLI/Hook 兼容接口。已有执行、写入锁、指纹、审计和项目已采用的门禁不被清空或自动关闭。门禁拒绝时原生权限适配给出实际 CLI 路径；兼容维护不能替代用户重启/发布授权。模型中不存在的旧名称不得继续当作 MCP 调用。源码与加载验收分别记录于[工具精简任务](../openspec/changes/trim-vibe-model-tools/tasks.md)。

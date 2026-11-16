@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SqlDdlEvidence;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -132,6 +133,36 @@ class SqlDdlEvidenceServiceTest {
         var result = serviceFor(tempDir, tempDir).prepare("session-1", "核验", List.of("ORDERS"), null);
         assertThat(result.status()).isEqualTo(SqlDdlEvidence.STATUS_DDL_MISSING);
         assertThat(result.warning()).contains("后续结构变更");
+    }
+
+    @Test
+    void serializesFileEvidenceAndResourceRecoveryWithoutRequiringUserDdl() throws Exception {
+        var service = serviceFor(tempDir, tempDir);
+        var missing = service.prepare("session-1", "核验", List.of("ORDERS"), null);
+        var json = new ObjectMapper().valueToTree(missing);
+        assertThat(json.path("evidenceScope").asText()).isEqualTo("PROJECT_SQL_FILES");
+        assertThat(json.path("recovery").path("action").asText()).isEqualTo("DISCOVER_BOUND_RESOURCE");
+        assertThat(json.path("recovery").path("userDdlRequired").asBoolean(true)).isFalse();
+        assertThat(service.prepare("session-1", "核验", List.of("ORDERS"), "other").recovery().action())
+                .isEqualTo("RESOLVE_OWNER");
+        assertThat(service.prepare("session-1", "核验", List.of(), null).recovery().action())
+                .isEqualTo("IDENTIFY_TABLES");
+        Files.writeString(tempDir.resolve("schema.sql"), "CREATE TABLE ORDERS(ID INT);");
+        var verified = service.prepare("session-1", "核验", List.of("ORDERS"), null);
+        assertThat(verified.status()).isEqualTo(SqlDdlEvidence.STATUS_VERIFIED);
+        assertThat(verified.recovery().action()).isEqualTo("CHECK_DEPLOYMENT_IF_NEEDED");
+    }
+
+    @Test
+    void prunesGeneratedDirectoriesBeforeCountingSqlCandidates() throws Exception {
+        Files.writeString(tempDir.resolve("schema.sql"), "CREATE TABLE ORDERS(ID INT);");
+        Path generated = Files.createDirectories(tempDir.resolve(".run/snapshots"));
+        for (int i = 0; i < 201; i++) {
+            Files.writeString(generated.resolve("copy-" + i + ".sql"), "ALTER TABLE ORDERS ADD AMOUNT INT;");
+        }
+        var result = serviceFor(tempDir, tempDir).prepare("session-1", "核验", List.of("ORDERS"), null);
+        assertThat(result.status()).isEqualTo(SqlDdlEvidence.STATUS_VERIFIED);
+        assertThat(result.baselinePath()).endsWith("schema.sql");
     }
 
     private SqlDdlEvidenceService serviceFor(Path cwd, Path knowledgeRoot) {

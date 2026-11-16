@@ -9,7 +9,8 @@ import {
 
 test('SQL intent gets DDL fallback guidance for engines without Forge MCP', () => {
   const result = appendSqlDdlFallbackRule('请为订单表补充一个状态字段并输出 SQL')
-  assert.match(result, /ddl-baseline\.md/)
+  assert.match(result, /所属项目.*SQL 结构文件及迁移/)
+  assert.doesNotMatch(result, /ddl-baseline\.md/)
   assert.ok(result.endsWith(SQL_DDL_FALLBACK_RULE))
 })
 
@@ -37,4 +38,11 @@ test('execution is distinct from registration and requires scoped user permissio
 test('SQL delivery no longer asks the model to register scripts', () => {
   assert.doesNotMatch(FORGE_PENDING_SQL_STEER, /register_pending_sql/)
   assert.match(FORGE_PENDING_SQL_STEER, /SQL 直接在回复中交付/)
+})
+
+test('DDL recovery uses owner bindings without requiring a user snapshot or claiming live verification', () => {
+  assert.match(FORGE_PENDING_SQL_STEER, /discover_resources.*execute_resource.*QUERY/)
+  assert.match(FORGE_PENDING_SQL_STEER, /不要求用户先手工落地项目 DDL/)
+  assert.match(FORGE_PENDING_SQL_STEER, /不证明目标环境已部署/)
+  assert.match(FORGE_SQL_CONTEXT_TOOL_DESCRIPTION, /project 参数不授予跨项目读取/)
 })
