@@ -69,6 +69,8 @@ Team Standards、OpenSpec 与 Graphify 是协作体系的组成部分，不是 F
 
 ### 显式项目知识图谱交付
 
+Team Standards 5.8.0 的显式图谱初始化增加统一企业 Knowledge Schema V1.0：八个全项目视图与每个候选限界上下文十项内容，所有上下文登记覆盖和缺口。项目固定 schema 版本与摘要，Codex/Claude 入口引用同一项目标准；结构盘点、语义探索和业务确认分别验收。既有标签按稳定编码映射，不自动迁移项目数据，不改变 Forge 当前查询能力。
+
 Team Standards 5.7.5 在用户明确要求知识图谱时，复用初始化、本体建模和维护入口交付项目内 RDF/Turtle 知识包、SKOS 术语、PROV-O 来源、SHACL 约束及增量基线。已有业务文档和规格保持权威；新增结构化语义关系在登记的唯一源维护，图形、索引及导入副本为派生产物。普通项目初始化仍保持轻量，代码事实继续由源码/Graphify 提供。此模式不恢复退役的公共图谱服务，也不新增 Forge Runtime、数据库或全局 MCP。
 
 当前 knowledge_query 仍读取既有 Markdown/YAML；不因文件生成宣称 Forge 已接入 RDF 查询、审核发布或自动增量。图谱交付通过 Agent 在授权项目中读取和验证源文件完成，可读概览保留对象及来源引用，未来消费者需单独适配交换合同并验证。统一方法与资产位于 Team Standards 的 business-ontology-modeling/references/knowledge-graph-output.md；本节只说明宿主边界，不复制词汇和字段定义。
