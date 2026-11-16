@@ -65,7 +65,7 @@
         <mxCell id="coding-title" value="Vibe Coding" vertex="1" parent="coding-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=32;fontColor=#FFFFFF;fontStyle=1;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="36.0" y="115.0" width="320" height="45" />
         </mxCell>
-        <mxCell id="coding-body" value="多引擎会话 · 排队续接&#10;暂停 · 恢复 · 预算控制&#10;具名只读共享（待验收）" vertex="1" parent="coding-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=22;fontColor=#FFFFFF;fontStyle=0;whiteSpace=wrap;spacing=0;">
+        <mxCell id="coding-body" value="项目内会话 · 排队执行&#10;原会话切引擎 · 恢复 · 预览&#10;具名只读共享（待部署验收）" vertex="1" parent="coding-group" style="fontFamily=Microsoft YaHei,Arial;html=0;text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=22;fontColor=#FFFFFF;fontStyle=0;whiteSpace=wrap;spacing=0;">
           <mxGeometry as="geometry" x="36.0" y="174.0" width="320" height="98" />
         </mxCell>
         <mxCell id="delivery-group" value="" style="group;" vertex="1" connectable="0" parent="1">

@@ -98,6 +98,7 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void dispatchMessage(WebSocketSession ws, ClientMessage msg) {
+        if (service.rejectDuringEngineHandoff(ws, msg)) { return; }
         switch (msg) {
             case ClientMessage.Open open -> service.openSession(ws, open);
             case ClientMessage.Attach attach -> service.attach(ws, attach);

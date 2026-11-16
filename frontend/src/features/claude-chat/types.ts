@@ -786,6 +786,7 @@ export type AgentEventType =
 export type ServerMessage =
   | import('./lib/nativeVoice').VoiceEvent
   | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; skillDetails?: SkillCapability[]; plugins?: PluginCapability[]; agents?: string[]; mcpServers?: McpCapability[]; outputStyle?: string | null; capabilitySource?: CapabilitySnapshotSource; capabilityRefreshedAt?: number; capabilityErrors?: string[]; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; permissionMode?: PermissionMode; queueDispatchMode?: 'server'; authHandoffRequired?: boolean | null; executionPolicy?: string; claudeOptions?: ClaudeSessionOptions | null; activeModelConfiguration?: ActiveModelConfiguration | null; queueCheck?: { turnId: string; attempt: number; maxAttempts: number } | null }
+  | { type: 'engineHandoff'; seq: number; requestId: string | null; target: Engine | null; status: 'IDLE' | 'PREPARING' | 'ACTIVATING' | 'COMPLETED' | 'FAILED'; message: string | null }
   | { type: 'modeChanged'; seq: number; mode: PermissionMode }
   | { type: 'modelConfiguration'; seq: number; activeModelConfiguration: ActiveModelConfiguration | null }
   | { type: 'assistantDelta'; seq: number; text: string }

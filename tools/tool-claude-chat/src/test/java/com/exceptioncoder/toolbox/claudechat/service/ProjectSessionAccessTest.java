@@ -18,6 +18,8 @@ class ProjectSessionAccessTest {
         when(sessions.findById("old")).thenReturn(Optional.of(ClaudeChatSession.builder().cwd(excluded.toString()).build()));
         assertThatThrownBy(() -> guard.check(Map.of("type", "start", "cwd", excluded.toString()))).hasMessageContaining("全局排除");
         assertThatThrownBy(() -> guard.check(Map.of("type", "user", "sessionId", "old"))).hasMessageContaining("全局排除");
+        assertThatThrownBy(() -> guard.check(Map.of("type", "prepareEngineHandoff", "sessionId", "old"))).hasMessageContaining("全局排除");
+        assertThatThrownBy(() -> guard.check(Map.of("type", "switchEngine", "sessionId", "old"))).hasMessageContaining("全局排除");
         assertThatThrownBy(() -> guard.check(Map.of("type", "user", "additionalDirectories", List.of(excluded.resolve("src").toString())))).hasMessageContaining("全局排除");
         assertThatCode(() -> guard.check(Map.of("type", "interrupt", "sessionId", "old"))).doesNotThrowAnyException();
     }

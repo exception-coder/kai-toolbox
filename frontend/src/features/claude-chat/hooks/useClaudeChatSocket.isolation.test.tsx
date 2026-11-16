@@ -48,6 +48,36 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('Codex 会话参数恢复', () => {
+  it('往返切换只发请求，确认前保留引擎，服务端状态可在重连后恢复', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
+    act(() => result.current.switchTo('handoff'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    act(() => { socket.open(); socket.receive(ready('handoff')) })
+    await waitFor(() => expect(result.current.historyLoading).toBe(false))
+    act(() => { result.current.switchEngine('claude'); result.current.switchEngine('pi') })
+    expect(result.current.currentEngine).toBe('codex')
+    expect(result.current.engineSwitching).toBe(true)
+    expect(socket.send.mock.calls.map(([value]) => JSON.parse(value)).filter(message => message.type === 'switchEngine'))
+      .toEqual([{ type: 'switchEngine', engine: 'claude' }])
+    expect(socket.send.mock.calls.map(([value]) => JSON.parse(value)).filter(message => message.type === 'send')).toEqual([])
+    act(() => {
+      socket.receive({ ...ready('handoff'), seq: 2, engine: 'claude' })
+      socket.receive({ type: 'engineHandoff', seq: 3, requestId: 'one', target: 'claude', status: 'COMPLETED', message: '完成' })
+    })
+    expect(result.current.currentEngine).toBe('claude')
+    expect(result.current.engineSwitching).toBe(false)
+    act(() => result.current.switchEngine('codex'))
+    act(() => socket.receive({ type: 'engineHandoff', seq: 4, requestId: 'two', target: 'codex', status: 'FAILED', message: '恢复失败，请重试' }))
+    expect(result.current.currentEngine).toBe('claude')
+    expect(result.current.engineSwitching).toBe(false)
+    expect(result.current.syncWarning).toContain('恢复失败')
+    act(() => socket.receive({ type: 'engineHandoff', seq: 5, requestId: 'three', target: 'pi', status: 'PREPARING', message: '正在交接' }))
+    expect(result.current.engineSwitching).toBe(true)
+    act(() => result.current.switchTo('other'))
+    expect(result.current.engineSwitching).toBe(false)
+  })
+
   it('原生状态只刷新当前轮快照，空闲不释放本轮，迟到状态不重开结束轮', async () => {
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
     act(() => result.current.switchTo('a'))

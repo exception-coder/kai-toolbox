@@ -19,6 +19,22 @@ import static org.mockito.Mockito.when;
 class ClaudeChatConversationDeltaReaderTest {
 
     @Test
+    void handoffPreservesLongOriginalTextWithoutChangingExistingContextBudget() {
+        ClaudeChatSessionRepository sessions = mock(ClaudeChatSessionRepository.class);
+        SessionHistoryService history = mock(SessionHistoryService.class);
+        ClaudeChatSession session = ClaudeChatSession.builder().id("long-session")
+                .cwd("D:/workspace").sdkSessionId("native-long").startedAt(1L).build();
+        when(sessions.findById("long-session")).thenReturn(Optional.of(session));
+        String original = "完整目标".repeat(3000);
+        when(history.readMessages("D:/workspace", "native-long", null, null, Integer.MAX_VALUE))
+                .thenReturn(new MessagePage(List.of(ChatMessageView.user("m1", original, 1L)), null, false));
+        var reader = new ClaudeChatConversationDeltaReader(sessions, history, new ObjectMapper());
+
+        assertThat(reader.readForHandoff("long-session").messages().getFirst().content()).isEqualTo(original);
+        assertThat(reader.readAll("long-session").getFirst().content().length()).isLessThan(original.length());
+    }
+
+    @Test
     void keepsTheOldestUnprocessedBatchAndContinuesFromItsWatermark() {
         ClaudeChatSessionRepository sessions = mock(ClaudeChatSessionRepository.class);
         SessionHistoryService history = mock(SessionHistoryService.class);

@@ -228,7 +228,8 @@ export interface UseClaudeChatSocket {
   refreshCapabilities: () => void
   setCodexOptions: (reasoningEffort: CodexReasoningEffort, speed: CodexSpeed) => void
   setClaudeOptions: (options: ClaudeSessionOptions) => void
-  /** 会话内切 agent（引擎）；上下文靠切后另发 seed 带过去。 */
+  /** 服务端交接期间锁定发送；确认完成后恢复原会话工作。 */
+  engineSwitching: boolean
   switchEngine: (engine: Engine) => void
   /** 会话内切服务商（官方 ↔ 第三方网关），同一会话与 sdkSessionId 不变，保留上下文；空入参＝切回官方 */
   switchProvider: (provider?: { providerProfileId?: string; apiBaseUrl?: string; authToken?: string }) => void
@@ -357,6 +358,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const [activeModelConfiguration, setActiveModelConfiguration] = useState<ActiveModelConfiguration | null>(null)
   const [codexSpeed, setCodexSpeed] = useState<CodexSpeed>('default')
   const [currentEngine, setCurrentEngine] = useState<Engine>('claude')
+  const [engineSwitching, setEngineSwitching] = useState(false)
+  const engineSwitchingRef = useRef(false)
   const currentEngineRef = useRef<Engine>(currentEngine)
   currentEngineRef.current = currentEngine
   const [currentProviderKind, setCurrentProviderKind] = useState<ProviderKind>('official')
@@ -513,6 +516,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       lastSeqRef.current = msg.seq
     }
     switch (msg.type) {
+      case 'engineHandoff':
+        engineSwitchingRef.current = msg.status === 'PREPARING' || msg.status === 'ACTIVATING'
+        setEngineSwitching(engineSwitchingRef.current)
+        setSyncWarning(engineSwitchingRef.current || msg.status === 'FAILED' ? msg.message : null)
+        break
       case 'ready':
         reportVibeEntry('session_ready', 'ok', msg.sessionId)
         let duplicateContextSeed: string | null = null
@@ -963,6 +971,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           || msg.outcome === 'accepted' || msg.outcome === 'correcting'))
         break
       case 'error':
+        if (engineSwitchingRef.current && ['ENGINE_HANDOFF_FAILED', 'ENGINE_HANDOFF_UNAVAILABLE', 'ENGINE_HANDOFF_BUSY',
+          'ENGINE_UNAVAILABLE', 'PROVIDER_UNSUPPORTED', 'ENGINE_UNSUPPORTED', 'COMMAND_FAILED', 'SESSION_NOT_FOUND'].includes(msg.code)) {
+          engineSwitchingRef.current = false
+          setEngineSwitching(false)
+          setSyncWarning(null)
+        }
         setSyncWarning(previous => previous === '正在核对咨询账号与历史上下文……' ? null : previous)
         if (msg.code === 'CLAUDE_OPTIONS_INVALID' || msg.code === 'CLAUDE_OPTIONS_UNSUPPORTED' || msg.code === 'COMMAND_FAILED') {
           setClaudeOptionsState(confirmedClaudeOptionsRef.current)
@@ -1341,6 +1355,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sessionToken, connect, publicWithoutLogin])
 
   const resetForNewSession = () => {
+    engineSwitchingRef.current = false
+    setEngineSwitching(false)
     setFollowUpPrediction(null)
     predictionAnchorRef.current = null
     // 旧协议的文本/工具事件没有会话 ID；连接本身必须属于唯一的会话选择。
@@ -1568,6 +1584,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
 
   const send = useCallback((text: string, attachments?: SendAttachment[], displayText?: string,
                             developerInstructions?: string, assistant?: AssistantMessageEnvelope) => {
+    if (engineSwitchingRef.current) return
     const t = text.trim()
     const hasAtt = !!attachments && attachments.length > 0
     if (!t && !hasAtt) return
@@ -1893,23 +1910,17 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     sendRaw({ type: 'setCodexOptions', reasoningEffort, speed })
   }, [sendRaw])
 
-  // 会话内切 agent：同一会话 id 不变，乐观更新引擎；非 claude 清模型列表。上下文由调用方切后另发 seed。
+  // 只请求切换；服务端负责原生恢复和增量交接，ready 确认当前引擎。
   const switchEngine = useCallback((engine: Engine) => {
-    const normalizedMode = normalizePermissionModeForEngine(engine, modeRef.current)
-    if (normalizedMode !== modeRef.current) {
-      setModeState(normalizedMode)
-      modeRef.current = normalizedMode
-      sendRaw({ type: 'setMode', mode: normalizedMode })
-      syncAutoApprove(autoApproveRef.current, normalizedMode)
+    if (engineSwitchingRef.current) return
+    engineSwitchingRef.current = true
+    setEngineSwitching(true)
+    setSyncWarning('正在恢复目标引擎并交接工作进展……')
+    if (!sendRaw({ type: 'switchEngine', engine })) {
+      engineSwitchingRef.current = false
+      setEngineSwitching(false)
+      setSyncWarning('连接尚未就绪，未发出切换请求；请连接恢复后重试。')
     }
-    setCurrentEngine(engine)
-    if (engine !== 'claude') {
-      setModels([])
-      setCurrentModel(null)
-      setCurrentProviderKind('official')
-      setCurrentProviderBaseUrl(null)
-    }
-    sendRaw({ type: 'switchEngine', engine })
   }, [sendRaw])
 
   // 会话内切服务商（官方 ↔ 第三方网关，或两网关互切）：同一会话与 sdkSessionId 不变，保留上下文，下一轮生效。
@@ -2068,5 +2079,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, queueCheck: running ? queueCheck : null, runtimeRevision, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, claudeOptions, activeModelConfiguration, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, pauseQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, setClaudeOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, queueCheck: running ? queueCheck : null, runtimeRevision, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, claudeOptions, activeModelConfiguration, currentEngine, engineSwitching, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, pauseQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, setClaudeOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }

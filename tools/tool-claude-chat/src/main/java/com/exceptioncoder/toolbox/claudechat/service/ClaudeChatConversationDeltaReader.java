@@ -82,6 +82,15 @@ public class ClaudeChatConversationDeltaReader {
     }
 
     ConversationRead readAllWithWarnings(ClaudeChatSession session) {
+        return readAllWithWarnings(session, false);
+    }
+
+    /** 交接需要文字原文；工具输入输出不复制到跨引擎资料。 */
+    public ConversationRead readForHandoff(String sessionId) {
+        return readAllWithWarnings(sessionRepository.findById(sessionId).orElseThrow(), true);
+    }
+
+    private ConversationRead readAllWithWarnings(ClaudeChatSession session, boolean handoff) {
         List<String> warnings = new ArrayList<>();
         Set<String> sessionIds = resolveEngineSessionIds(session, warnings);
         List<TimedConversationEntry> collected = new ArrayList<>();
@@ -100,13 +109,14 @@ public class ClaudeChatConversationDeltaReader {
                             .filter(value -> value != null && !value.isBlank())
                             .distinct().toList());
             for (ChatMessageView item : page.items()) {
+                if (handoff && !Set.of("user", "assistant").contains(item.kind())) { continue; }
                 String content = content(item);
                 if (content == null || content.isBlank()) {
                     continue;
                 }
                 long timestamp = item.ts() != null ? item.ts() : session.getStartedAt() + fallbackOffset++;
                 collected.add(new TimedConversationEntry(
-                        timestamp, collected.size(), item.kind(), truncate(content, MAX_ENTRY_CHARS),
+                        timestamp, collected.size(), item.kind(), handoff ? content : truncate(content, MAX_ENTRY_CHARS),
                         toConversationAttachments(item.turnId() == null
                                 ? List.of() : attachmentsByTurn.get(item.turnId()))));
             }

@@ -181,7 +181,12 @@ wss.on('connection', (ws) => {
           msg.sdkSessionId as string | undefined,
           msg.apiBaseUrl as string | undefined,
           msg.authToken as string | undefined,
+          msg.handoffConfirmed === true,
         )
+        break
+      case 'prepareEngineHandoff':
+        void manager.prepareEngineHandoff(sessionId, String(msg.requestId), String(msg.engine),
+          (msg.sdkSessionId as string | undefined) || undefined, String(msg.prompt))
         break
       case 'switchProvider':
         manager.switchProvider(

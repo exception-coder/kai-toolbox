@@ -90,6 +90,8 @@ final class SessionCtx {
     volatile boolean sidecarSessionPresent = true;
     volatile String lastTurnErrorCode;
     volatile String lastTurnErrorMessage;
+    final StringBuilder handoffReply = new StringBuilder();
+    int handoffReplyBlock;
     final Set<String> acceptedMessageIds = new LinkedHashSet<>();
 
     SessionCtx(String sessionId, String cwd) {

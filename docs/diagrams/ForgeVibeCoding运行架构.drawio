@@ -223,4 +223,60 @@
       </root>
     </mxGraphModel>
   </diagram>
+  <diagram id="engine-handoff" name="03 · 原会话引擎往返交接">
+    <mxGraphModel dx="1400" dy="680" grid="0" page="1" pageScale="1" pageWidth="1400" pageHeight="680" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="原窗口继续工作，目标确认后才完成切换" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=29;fontColor=#14213D;fillColor=#FFFFFF;strokeColor=#CBD5E1;spacing=16;align=left;fontStyle=1;">
+          <mxGeometry x="50" y="30" width="1300" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="status" value="源码实现 · 真实账号往返与部署验收待完成" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=17;fontColor=#14213D;fillColor=#FFFFFF;strokeColor=#CBD5E1;spacing=16;align=left;fontStyle=0;">
+          <mxGeometry x="50" y="105" width="1300" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="ui" value="原会话&#10;选择目标引擎&#10;保留草稿、显示进度" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=22;fontColor=#14213D;fillColor=#EFF6FF;strokeColor=#CBD5E1;spacing=16;align=left;fontStyle=1;">
+          <mxGeometry x="50" y="205" width="240" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="java" value="Java 会话宿主&#10;冻结消息上界&#10;保存操作与各引擎进度" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=22;fontColor=#14213D;fillColor=#EFF6FF;strokeColor=#CBD5E1;spacing=16;align=left;fontStyle=1;">
+          <mxGeometry x="365" y="205" width="285" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="native" value="Sidecar → 原生引擎&#10;恢复句柄、受限接收历史&#10;核对成功终态与确认标识" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=21;fontColor=#14213D;fillColor=#F5F3FF;strokeColor=#CBD5E1;spacing=16;align=left;fontStyle=1;">
+          <mxGeometry x="725" y="205" width="290" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="commit" value="确认运行连接&#10;持久绑定目标&#10;放行后续消息" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=22;fontColor=#14213D;fillColor=#ECFDF5;strokeColor=#CBD5E1;spacing=16;align=left;fontStyle=1;">
+          <mxGeometry x="1090" y="205" width="260" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" source="ui" target="java" edge="1" parent="1" value="切换请求" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;strokeColor=#64748B;fontSize=15;fontFamily=Microsoft YaHei;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" source="java" target="native" edge="1" parent="1" value="增量交接" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;strokeColor=#64748B;fontSize=15;fontFamily=Microsoft YaHei;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" source="native" target="commit" edge="1" parent="1" value="接收成功" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;strokeColor=#64748B;fontSize=15;fontFamily=Microsoft YaHei;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;entryX=0;entryY=0.5;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="evidence" value="持久证据&#10;原生句柄 + 环境指纹 + 确认位置&#10;完整文字留存；目标、决策和验证结论保留来源" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=20;fontColor=#14213D;fillColor=#F8FAFC;strokeColor=#CBD5E1;spacing=16;align=left;fontStyle=0;">
+          <mxGeometry x="50" y="440" width="600" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" source="java" target="evidence" edge="1" parent="1" value="读取 / 保存" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;strokeColor=#64748B;fontSize=15;fontFamily=Microsoft YaHei;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.7625;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="failure" value="准备失败&#10;保留原绑定与进度&#10;提示原因后可重试" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=20;fontColor=#14213D;fillColor=#FFFBEB;strokeColor=#CBD5E1;spacing=16;align=left;fontStyle=0;">
+          <mxGeometry x="725" y="440" width="290" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" source="native" target="failure" edge="1" parent="1" value="失败" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;strokeColor=#64748B;fontSize=15;fontFamily=Microsoft YaHei;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="reconnect" value="连接结果未确认&#10;暂停发送&#10;恢复目标绑定后继续" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=20;fontColor=#14213D;fillColor=#FFFBEB;strokeColor=#CBD5E1;spacing=16;align=left;fontStyle=0;">
+          <mxGeometry x="1090" y="440" width="260" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" source="commit" target="reconnect" edge="1" parent="1" value="断连" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;endArrow=block;strokeColor=#64748B;fontSize=15;fontFamily=Microsoft YaHei;labelBackgroundColor=#FFFFFF;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="boundary" value="适配范围：Claude / Codex / Pi / Copilot。其他引擎须先具备安全接管能力。隐藏推理、后台任务和工具执行状态不迁移。" vertex="1" parent="1" style="rounded=0;whiteSpace=wrap;html=0;fontFamily=Microsoft YaHei;fontSize=17;fontColor=#14213D;fillColor=#FFFFFF;strokeColor=#CBD5E1;spacing=16;align=left;fontStyle=0;">
+          <mxGeometry x="50" y="595" width="1300" height="50" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
 </mxfile>

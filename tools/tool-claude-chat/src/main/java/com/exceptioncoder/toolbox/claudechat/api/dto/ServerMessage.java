@@ -24,9 +24,12 @@ public sealed interface ServerMessage
                 ServerMessage.Error, ServerMessage.BackgroundTasks,
                 ServerMessage.PendingSessions, ServerMessage.QueueAccepted, ServerMessage.QueueDispatched, ServerMessage.QueueCheck,
                 ServerMessage.SendAccepted, ServerMessage.AssistantCommandResult, ServerMessage.ModeChanged, ServerMessage.ReviewIntent,
-                ServerMessage.AutopilotState, ServerMessage.AutopilotDashboardChanged {
+                ServerMessage.AutopilotState, ServerMessage.AutopilotDashboardChanged, ServerMessage.EngineHandoff {
 
     long seq();
+
+    @JsonTypeName("engineHandoff")
+    record EngineHandoff(long seq, String requestId, String target, String status, String message) implements ServerMessage {}
 
     /** 会话就绪。{@code epoch} 标识当前内存会话实例：后端重启/会话重建会换新值，
      *  前端据此判定服务端 seq 计数器已复位，重置自己的去重高水位，避免把重启后低 seq 消息全丢弃。

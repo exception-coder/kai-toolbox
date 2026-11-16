@@ -29,6 +29,19 @@ class ClaudeChatWebSocketHandlerTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void handoffGatePreventsDispatchingAnotherDevicesMessageOrConfiguration() throws Exception {
+        ClaudeChatService service = mock(ClaudeChatService.class);
+        when(service.rejectDuringEngineHandoff(any(), any())).thenReturn(true);
+        ClaudeChatWebSocketHandler handler = new ClaudeChatWebSocketHandler(
+                new ClaudeChatProperties(), service, mock(AssistantWebSocketCommandHandler.class), objectMapper);
+        WebSocketSession session = mock(WebSocketSession.class);
+        handler.handleMessage(session, new TextMessage("{\"type\":\"send\",\"text\":\"do not execute\"}"));
+        handler.handleMessage(session, new TextMessage("{\"type\":\"setModel\",\"model\":\"other\"}"));
+        verify(service, never()).sendUserMessage(any(), any());
+        verify(service, never()).setModel(any(), any());
+    }
+
+    @Test
     void keepsConnectionOpenAndReturnsStructuredErrorWhenSendIsRejected() throws Exception {
         ClaudeChatService service = mock(ClaudeChatService.class);
         doThrow(new IllegalArgumentException("附件不属于当前评审会话"))

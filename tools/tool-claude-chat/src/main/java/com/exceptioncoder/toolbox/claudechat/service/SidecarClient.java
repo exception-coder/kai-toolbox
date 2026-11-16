@@ -628,11 +628,22 @@ public class SidecarClient implements ReviewThreadForkGateway {
      * 会话内切引擎：sidecar 置新 engine 并把 sdkSessionId 设为 Java 提供的目标句柄
      * （切回曾用引擎为其原生句柄、首次为空＝起新会话）。Java 持久化映射、是权威源。
      */
-    public void switchEngine(String sessionId, String engine, String sdkSessionId,
+    public boolean switchEngine(String sessionId, String engine, String sdkSessionId,
                              String apiBaseUrl, String authToken) {
-        send(Map.of("type", "switchEngine", "sessionId", sessionId,
+        return send(Map.of("type", "switchEngine", "sessionId", sessionId,
                 "engine", nz(engine), "sdkSessionId", nz(sdkSessionId),
                 "apiBaseUrl", nz(apiBaseUrl), "authToken", nz(authToken)));
+    }
+
+    public boolean prepareEngineHandoff(String sessionId, String requestId, String engine, String nativeId, String prompt) {
+        return send(Map.of("type", "prepareEngineHandoff", "sessionId", sessionId,
+                "requestId", requestId, "engine", engine, "sdkSessionId", nz(nativeId), "prompt", prompt));
+    }
+
+    public boolean activateEngineHandoff(String sessionId, String engine, String nativeId, String apiBaseUrl, String authToken) {
+        return send(Map.of("type", "switchEngine", "sessionId", sessionId,
+                "engine", engine, "sdkSessionId", nativeId, "apiBaseUrl", nz(apiBaseUrl),
+                "authToken", nz(authToken), "handoffConfirmed", true));
     }
 
     /** 会话内切服务商：仅透传 apiBaseUrl/authToken，sidecar 就地更新、下一轮生效（空 baseUrl＝官方）。 */

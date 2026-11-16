@@ -694,7 +694,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     }
   }, [attachments.length, chat?.sessionId, setAttachments, uploading])
   const projectMention = useProjectMention(draft, setDraft, taRef, { onPickPrd: handlePrdMention })
-  const engineWatermark = useRef<Record<string, number>>({}) // 每引擎"上次看到的消息位置"，切 agent 时算增量 seed
 
   // 输入框随内容自动升高（参考微信）：到 max-h 后内部滚动
   useLayoutEffect(() => {
@@ -980,7 +979,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 
   const submit = (runningAction: 'queue' | 'steer' = 'steer') => {
     if (!chat.sessionId) return
-    if (planLocked) return
+    if (planLocked || chat.engineSwitching) return
     if (uploading > 0) return
     if (!draft.trim() && attachments.length === 0) return
     if (attachments.length === 0 && draft.trim().length <= 80
@@ -1014,31 +1013,11 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     })
   }
 
-  // 会话内切 agent（方案B + 增量交接）：同一会话不分裂。
-  // sidecar 会 resume 目标引擎的原生会话（早期上下文不丢）；前端只把"它离开期间的增量"喂过去，
-  // 首次切到某引擎才发全量——避免切回时全量重复同步。
+  // 交接由服务端持久编排；页面不再拼接历史或乐观切换引擎。
   const pickEngine = (eng: Engine) => {
     setEngineMenuOpen(false)
-    if (eng === chat.currentEngine || chat.running || !chat.sessionId) return
-    const from = chat.currentEngine
-    engineWatermark.current[from] = chat.items.length // 记录离开引擎看到的位置
-    const start = engineWatermark.current[eng] ?? 0   // 目标引擎上次看到的位置（首次为 0=全量）
-    const body = chat.items
-      .slice(start)
-      .filter(i => (i.kind === 'user' || i.kind === 'assistant')
-        && !('text' in i && i.text.startsWith('【切换 agent'))) // 过滤交接 recap，避免再次转喂
-      .map(i => (i.kind === 'user' ? '我：' : '助手：') + ('text' in i ? i.text : ''))
-      .join('\n')
-    let seed = body
-    const MAX = 6000
-    if (seed.length > MAX) seed = '…（较早内容略）\n' + seed.slice(-MAX)
+    if (eng === chat.currentEngine || chat.running || chat.engineSwitching || !chat.sessionId) return
     chat.switchEngine(eng)
-    if (seed.trim()) {
-      const intro = start === 0
-        ? '以下是我和上一个 agent 的完整对话，请阅读后接续协助：'
-        : '你之前参与过本会话（原生上下文已恢复）。以下仅为你离开期间的新对话，据此接续、勿重复：'
-      chat.send(`【切换 agent · 上下文交接】${intro}\n\n${seed}`)
-    }
   }
 
   // slash 命令补全：输入框行首为 "/<前缀>"（无空格）时按前缀过滤可用命令
@@ -1216,7 +1195,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                           key={eng}
                           type="button"
                           onClick={() => pickEngine(eng)}
-                          disabled={chat.running}
+                          disabled={chat.running || chat.engineSwitching}
                           className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-40 ${eng === chat.currentEngine ? 'font-semibold text-[var(--color-primary)]' : ''}`}
                         >
                           <EngineIcon engine={eng} className="size-3.5" />
@@ -1391,7 +1370,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                   <button
                     key={engine}
                     type="button"
-                    disabled={chat.running || engine === chat.currentEngine}
+                    disabled={chat.running || chat.engineSwitching || engine === chat.currentEngine}
                     onClick={() => { setHeaderMenu(false); pickEngine(engine) }}
                     className="flex min-h-11 w-full items-center gap-2 py-2 pl-9 pr-3 text-left text-sm hover:bg-[var(--color-muted)] disabled:opacity-45"
                   >
@@ -2224,7 +2203,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               !composerVoiceActive && (!!draft.trim() || attachments.length > 0 || uploading > 0) && <Button
                 size="icon" className="cc-composer-send size-11 shrink-0 px-0"
                 aria-label={chat.running ? '加入待发送队列' : '发送'}
-                disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
+                disabled={planLocked || chat.engineSwitching || uploading > 0 || (!draft.trim() && attachments.length === 0)}
                 onClick={() => submit(chat.running ? 'queue' : undefined)}><Send className="size-4" /></Button>
             ) : chat.running ? (
               <div className="cc-composer-send col-start-3 row-start-2 flex shrink-0 gap-1">
@@ -2234,7 +2213,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 </Button>
                 <MobileRunningSend canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
                   desktop={!mobileLayout}
-                  disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
+                  disabled={planLocked || chat.engineSwitching || uploading > 0 || (!draft.trim() && attachments.length === 0)}
                   onSteer={() => submit('steer')} onEnqueue={() => submit('queue')} onReturnFocus={() => taRef.current?.focus()} />
               </div>
             ) : (
@@ -2242,7 +2221,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 size="icon"
                 className="cc-composer-send col-start-3 row-start-2 size-9 max-md:size-10 px-0"
                 onClick={() => submit()}
-                disabled={planLocked || uploading > 0 || (!draft.trim() && attachments.length === 0)}
+                disabled={planLocked || chat.engineSwitching || uploading > 0 || (!draft.trim() && attachments.length === 0)}
                 aria-label="发送"
               >
                 <Send className="size-4" />

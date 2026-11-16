@@ -1,4 +1,5 @@
 import { claudeProjectPlugins, hasProjectTaskSkill } from './projectSkillPriority.js'
+import { acknowledgeHandoff, HANDOFF_ENGINES } from './engineHandoff.js'
 import { ClaudeMessageText } from './claudeMessageText.js'
 import { applyClaudeSessionOptions, parseClaudeSessionOptions, type ClaudeSessionOptions } from './claudeSessionOptions.js'
 import { PAGE_PREVIEW_STEER } from './pagePreviewTools.js'
@@ -185,6 +186,7 @@ const TURN_ACTIVITY_HEARTBEAT_MS = 5_000
 
 /** 单会话：持有 SDK session_id、当前轮的 AbortController、权限交互。 */
 export class Session {
+  strictNativeResume = false
   sdkSessionId?: string
   model?: string
   claudeOptions?: ClaudeSessionOptions
@@ -803,9 +805,11 @@ export class Session {
             ...(additionalDirectories.length ? { additionalDirectories } : {}),
             // 网关会话逐轮传入 env/model/resume；官方会话清除继承的网关凭据。
             ...claudeSessionRoutingOptions(turnBaseUrl, turnModel, this.sdkSessionId || undefined, turnEnvironment),
+            ...(this.strictNativeResume ? { settingSources: [], tools: [] } : {}),
             permissionMode: this.permissionMode,
             includePartialMessages: true,
-            canUseTool: this.perms.canUseTool,
+            canUseTool: this.strictNativeResume
+              ? async () => ({ behavior: 'deny', message: '接管确认期间禁止工具调用' }) : this.perms.canUseTool,
             abortController: ac,
             // 把 native 二进制的 stderr 透到 sidecar 日志，失败时也并入错误信息
             stderr: (s: string) => {
@@ -839,7 +843,7 @@ export class Session {
         // SDK 会话丢失（sidecar 重启后内存清空，旧 sdkSessionId 不再有效）：
         // 清掉失效的 sdkSessionId，下次循环以 resume:undefined 起一个新会话，
         // 用户的消息照常发出去，整个恢复对前端完全透明（不报错、不需用户介入）。
-        if (message.includes('No conversation found') && this.sdkSessionId && !emitted && attempt < maxAttempts) {
+        if (!this.strictNativeResume && message.includes('No conversation found') && this.sdkSessionId && !emitted && attempt < maxAttempts) {
           console.warn(`[sidecar] SDK 会话 ${this.sdkSessionId} 不存在，清除并以新会话重试 session=${this.id}`)
           this.sdkSessionId = undefined
           continue
@@ -1447,6 +1451,7 @@ export class Session {
 
 /** 多会话路由：一个 sidecar 进程内按 sessionId 管理多个 Session。 */
 export class SessionManager {
+  private readonly handoffs = new Map<string, { requestId: string; result: Promise<void> }>()
   private readonly reviewConfiguration = new Map<string, Promise<void>>()
   private sessions = new Map<string, Session>()
   private oneShotControllers = new Map<string, AbortController>()
@@ -1555,10 +1560,8 @@ export class SessionManager {
     s.model = model || undefined
     this.setCodexOptions(id, codexReasoningEffort ?? '', codexSpeed ?? 'default')
     this.applyCodexOptions(id, s)
-    if (s.engine === 'codex') {
-      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null,
-        mcpServers: s.codexCapabilityMcpServers() })
-    }
+    this.emit(id, { type: 'init', engine: s.engine, sdkSessionId: s.sdkSessionId ?? null,
+      ...(s.engine === 'codex' ? { mcpServers: s.codexCapabilityMcpServers() } : {}) })
     this.models.emitCachedModels(id, s)
     if (s.engine === 'opencode') s.refreshCapabilities()
   }
@@ -1600,6 +1603,11 @@ export class SessionManager {
   user(id: string, text: string, developerInstructions?: string, sessionContext?: string,
        additionalDirectories: string[] = [], turnId?: string, images?: OneShotImage[],
        turnToolPolicy?: string, consultToolAssembly?: unknown, voiceCallId?: string): void {
+    if (this.handoffs.has(id)) {
+      this.emit(id, { type: 'error', code: 'ENGINE_HANDOFF_BUSY', message: '引擎交接中，未执行本次输入', turnId })
+      this.emit(id, { type: 'result', stopReason: 'error', usage: {}, turnId })
+      return
+    }
     const s = this.sessions.get(id)
     if (!s) {
       this.emit(id, { type: 'error', code: 'SESSION_NOT_FOUND', message: '会话不存在' })
@@ -1796,10 +1804,10 @@ export class SessionManager {
    * （切回曾用引擎＝其原生句柄→resume 续接；首次切到＝空→下一轮起新 SDK 会话）。
    * 各引擎句柄的持久化与查找由 Java 负责（DB engine_sessions），sidecar 只按指令应用。
    */
-  switchEngine(id: string, engine: string, sdkSessionId?: string, apiBaseUrl?: string, authToken?: string): void {
+  switchEngine(id: string, engine: string, sdkSessionId?: string, apiBaseUrl?: string, authToken?: string, handoffConfirmed = false): void {
     const s = this.sessions.get(id)
     if (!s) return
-    if (!isEngineId(engine) || !this.acceptEngine(id, engine)) return
+    if (!isEngineId(engine) || !(handoffConfirmed && HANDOFF_ENGINES.has(engine)) && !this.acceptEngine(id, engine)) return
     s.engine = engine
     s.sdkSessionId = sdkSessionId && sdkSessionId.length > 0 ? sdkSessionId : undefined
     s.model = undefined
@@ -1807,12 +1815,48 @@ export class SessionManager {
     s.apiBaseUrl = nextBaseUrl || undefined
     s.authToken = nextBaseUrl ? authToken : undefined
     s.resetModelsFetched() // 换引擎/provider：下一轮重新取模型清单
-    if (s.engine === 'codex') {
-      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null,
-        mcpServers: s.codexCapabilityMcpServers() })
-    }
+    this.emit(id, { type: 'init', engine: s.engine, sdkSessionId: s.sdkSessionId ?? null,
+      ...(s.engine === 'codex' ? { mcpServers: s.codexCapabilityMcpServers() } : {}) })
     this.models.emitCachedModels(id, s)
     if (s.engine === 'opencode') s.refreshCapabilities()
+  }
+
+  /** Prepare in an isolated, tool-disabled native turn; the source session remains authoritative. */
+  prepareEngineHandoff(id: string, requestId: string, engine: string, nativeId: string | undefined, prompt: string): Promise<void> {
+    const previous = this.handoffs.get(id)
+    if (previous?.requestId === requestId) return previous.result
+    if (previous) {
+      this.emit(id, { type: 'engineHandoffFailed', requestId, message: '已有交接正在执行，请稍后重试。' })
+      return Promise.resolve()
+    }
+    const run = async () => {
+      try {
+        const source = this.sessions.get(id)
+        if (!source || source.turnState().active || source.backgroundTasks.length) throw new Error('原会话仍有活动任务或尚未恢复，不能切换。')
+        if (!isEngineId(engine) || !HANDOFF_ENGINES.has(engine)) throw new Error('目标引擎尚不支持无业务工具的接管确认，原会话保持不变。')
+        if (source.toolPolicy !== 'default' || source.demo) throw new Error('当前受限会话不能使用开发引擎交接。')
+        const sdkSessionId = await acknowledgeHandoff(requestId, nativeId, prompt, emit => {
+          const candidate = new Session(id, source.cwd, emit)
+          candidate.engine = engine
+          candidate.sdkSessionId = nativeId || undefined
+          candidate.codexHome = source.codexHome
+          candidate.apiBaseUrl = source.apiBaseUrl
+          candidate.authToken = source.authToken
+          candidate.toolPolicy = engine === 'codex' ? 'review-only' : 'disabled'
+          candidate.strictNativeResume = true
+          candidate.forgeSqlRegistration = false
+          return candidate
+        })
+        this.emit(id, { type: 'engineHandoffPrepared', requestId, engine, sdkSessionId })
+      } catch (error) {
+        this.emit(id, { type: 'engineHandoffFailed', requestId,
+          message: error instanceof Error ? error.message : '目标引擎交接失败，原会话保持不变。' })
+      } finally { this.handoffs.delete(id) }
+    }
+    // Defer execution until the in-flight identity has been registered.
+    const result = Promise.resolve().then(run)
+    this.handoffs.set(id, { requestId, result })
+    return result
   }
 
   /**

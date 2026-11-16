@@ -34,6 +34,12 @@ flowchart LR
 
 ### Vibe Coding 运行分层与附加能力
 
+原会话引擎交接由 Java 保存追加文字证据、每引擎确认位置和操作状态，Sidecar 只负责恢复目标原生会话及受限接管确认。目标接收成功后原子保存绑定，再等待运行连接确认才放行业务消息；失败不推进目标游标，已保存但未激活的绑定由既有连接恢复流程核对。前端只显示进度与结果，不再从页面数组生成交接。原生历史、工作区事实与历史发言仍分开核验；后台任务和历史工具执行不迁移。
+
+![原会话引擎往返交接](diagrams/ForgeVibeCoding运行架构-引擎交接.png)
+
+上图为[运行架构源图](diagrams/ForgeVibeCoding运行架构.drawio)第三页。当前接管适配范围为 Claude、Codex、Pi、Copilot；其他引擎缺少可验证的工具禁用接管路径时明确拒绝。源码与定向验证见[交接任务](../openspec/changes/reliable-engine-handoff/tasks.md)，真实账号往返、重连和部署验收尚待完成。此能力不改变原生 Harness 的执行职责，也不引入通用 Agent 执行器。
+
 具名会话共享复用平台账号身份，在 Java 宿主中维护单会话查看关系，输出独立的最小文字投影；只读页面不连接 Sidecar，也不继承原会话的执行、配置、文件或附件权限。拥有者与 ADMIN 管理授权，每次读取复核账号、项目政策与共享关系；原执行权限主线和运行分层图不变。[业务全景图](diagrams/Forge业务全景图.drawio)同步标注此附加能力。源码、定向验证与待部署的登录态验收见[共享任务](../openspec/changes/share-chat-with-users/tasks.md)，不能把源码接入视为已向具体用户开放。
 
 [可编辑双页 draw.io](diagrams/ForgeVibeCoding运行架构.drawio) · [运行分层预览](diagrams/ForgeVibeCoding运行架构-运行分层.png) · [附加能力预览](diagrams/ForgeVibeCoding运行架构-附加能力.png)。这是 2026-11-03 的源码视图，补充上图的运行分层，不代表所有功能均已加载到在线进程。预览由 draw.io Desktop 从同一源图导出；图元、文字和连接器保留原生 XML。
