@@ -34,6 +34,12 @@ flowchart LR
 
 ### Vibe Coding 运行分层与附加能力
 
+内部多引擎方案评审以原会话及用户确认的文字快照为边界：Java 保存批次/尝试身份并执行权限、并发及恢复编排，Sidecar 创建独立的受限原生会话，前端并列显示各自意见并只将选中建议引用回草稿。它不切换源引擎、不自动继承完整历史、不产生公开分享；第一版无互评或摘要模型。取消/重启后未确认结果不会自动重放，各引擎意见不等于项目验证事实。支持范围和待部署验收见[多引擎评审任务](../openspec/changes/multi-engine-plan-review/tasks.md)。
+
+![多引擎方案评审](diagrams/ForgeVibeCoding运行架构-方案评审.png)
+
+上图为运行架构源图第四页。复用既有原生引擎与受限策略，Codex 内部文字评审进一步关闭命令、扩展、文档发现与网络搜索；Java 不接管各 Harness 的推理和工具循环，不引入另一套通用 Agent 框架。
+
 原会话引擎交接由 Java 保存追加文字证据、每引擎确认位置和操作状态，Sidecar 只负责恢复目标原生会话及受限接管确认。目标接收成功后原子保存绑定，再等待运行连接确认才放行业务消息；失败不推进目标游标，已保存但未激活的绑定由既有连接恢复流程核对。前端只显示进度与结果，不再从页面数组生成交接。原生历史、工作区事实与历史发言仍分开核验；后台任务和历史工具执行不迁移。
 
 ![原会话引擎往返交接](diagrams/ForgeVibeCoding运行架构-引擎交接.png)
@@ -42,7 +48,7 @@ flowchart LR
 
 具名会话共享复用平台账号身份，在 Java 宿主中维护单会话查看关系，输出独立的最小文字投影；只读页面不连接 Sidecar，也不继承原会话的执行、配置、文件或附件权限。拥有者与 ADMIN 管理授权，每次读取复核账号、项目政策与共享关系；原执行权限主线和运行分层图不变。[业务全景图](diagrams/Forge业务全景图.drawio)同步标注此附加能力。源码、定向验证与待部署的登录态验收见[共享任务](../openspec/changes/share-chat-with-users/tasks.md)，不能把源码接入视为已向具体用户开放。
 
-[可编辑双页 draw.io](diagrams/ForgeVibeCoding运行架构.drawio) · [运行分层预览](diagrams/ForgeVibeCoding运行架构-运行分层.png) · [附加能力预览](diagrams/ForgeVibeCoding运行架构-附加能力.png)。这是 2026-11-03 的源码视图，补充上图的运行分层，不代表所有功能均已加载到在线进程。预览由 draw.io Desktop 从同一源图导出；图元、文字和连接器保留原生 XML。
+[可编辑运行架构 draw.io](diagrams/ForgeVibeCoding运行架构.drawio) · [运行分层预览](diagrams/ForgeVibeCoding运行架构-运行分层.png) · [附加能力预览](diagrams/ForgeVibeCoding运行架构-附加能力.png)。这是 2026-11-03 的源码视图，补充上图的运行分层，不代表所有功能均已加载到在线进程。预览由 draw.io Desktop 从同一源图导出；图元、文字和连接器保留原生 XML。
 
 运行主线是 **React 工作台 → Java 会话宿主 → Node Sidecar / 引擎适配器 → 原生 Harness / Agent → 目标项目**。Java 管理会话、持久消息队列、准入与 Sidecar 生命周期；Sidecar 统一轮次请求和事件，在各引擎实际支持的范围内适配审批、中断和恢复。模型推理及文件、Shell、联网等工具仍由相应 Harness 提供，Forge 不另造通用执行器。资源中心和项目登记由各自模块维护，SQLite 保存相应业务状态。
 

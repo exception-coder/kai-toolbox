@@ -54,6 +54,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     private volatile BiConsumer<String, JsonNode> listener = (s, n) -> {};
     private volatile WebSocketSession session;
     private final Map<String, CompletableFuture<String>> pendingReviewForks = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<JsonNode>> pendingPlanReviews = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingSessionStateQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingEngineCatalogQueries = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingConsultAccountQueries = new ConcurrentHashMap<>();
@@ -474,6 +475,30 @@ public class SidecarClient implements ReviewThreadForkGateway {
         return send(message);
     }
 
+    public JsonNode planReview(String sessionId, String requestId, String engine, String cwd, String prompt,
+                               String codexHome, String apiBaseUrl, String authToken) throws Exception {
+        var future = new CompletableFuture<JsonNode>();
+        pendingPlanReviews.put(requestId, future);
+        try {
+            var message = new LinkedHashMap<String, Object>();
+            message.put("type", "planReview"); message.put("sessionId", sessionId);
+            message.put("requestId", requestId); message.put("engine", engine); message.put("cwd", cwd);
+            message.put("prompt", prompt); message.put("codexHome", codexHome);
+            message.put("apiBaseUrl", apiBaseUrl); message.put("authToken", authToken);
+            if (!send(message)) throw new IllegalStateException("Sidecar 未连接");
+            return future.get(200, TimeUnit.SECONDS);
+        } finally {
+            pendingPlanReviews.remove(requestId);
+            cancelPlanReview(requestId);
+        }
+    }
+
+    public void cancelPlanReview(String requestId) {
+        send(Map.of("type", "cancelPlanReview", "requestId", requestId));
+        var future = pendingPlanReviews.get(requestId);
+        if (future != null) future.completeExceptionally(new IllegalStateException("评审已取消"));
+    }
+
     /** 查询指定会话在Sidecar与Agent适配层的实时快照，超时返回空而不是猜测状态。 */
     public Optional<JsonNode> querySessionState(String sessionId, String turnId, long timeoutMs) {
         String requestId = UUID.randomUUID().toString();
@@ -781,6 +806,8 @@ public class SidecarClient implements ReviewThreadForkGateway {
     /** 连接失效时结束全部引擎目录查询，避免请求线程等待到超时。 */
     private void failPendingEngineCatalogQueries(String message) {
         IllegalStateException error = new IllegalStateException(message);
+        pendingPlanReviews.values().forEach(future -> future.completeExceptionally(error));
+        pendingPlanReviews.clear();
         pendingConsultAccountQueries.values().forEach(future -> future.completeExceptionally(error));
         pendingConsultAccountQueries.clear();
         pendingDictationQueries.values().forEach(future -> future.completeExceptionally(error));
@@ -807,6 +834,11 @@ public class SidecarClient implements ReviewThreadForkGateway {
             }
             try {
                 JsonNode node = mapper.readTree(message.getPayload());
+                if ("planReviewResult".equals(node.path("type").asText())) {
+                    var future = pendingPlanReviews.get(node.path("requestId").asText());
+                    if (future != null) future.complete(node);
+                    return;
+                }
                 if ("reviewForked".equals(node.path("type").asText())) {
                     String requestId = node.path("requestId").asText();
                     CompletableFuture<String> future = pendingReviewForks.get(requestId);

@@ -10,7 +10,7 @@ import java.util.Set;
 /** Sidecar 执行边界的项目政策：恢复、后续轮次与附加目录也不能绕过全局排除。 */
 @Service
 public class ProjectSessionAccess {
-    private static final Set<String> EXECUTION = Set.of("start", "resume", "user", "steer", "voicePrepare", "voiceReconnect", "prepareEngineHandoff", "switchEngine");
+    private static final Set<String> EXECUTION = Set.of("start", "resume", "user", "steer", "voicePrepare", "voiceReconnect", "prepareEngineHandoff", "switchEngine", "planReview");
     private final ProjectAccess access;
     private final ClaudeChatSessionRepository sessions;
 

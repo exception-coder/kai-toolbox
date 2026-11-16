@@ -255,13 +255,16 @@ export function consultReadonlyCodexConfig(codexHome?: string, sessionId?: strin
  * 计划评审的能力配置：保留 Codex 内建的只读分析能力，但关闭所有可产生平台外副作用的扩展入口。
  * 用户 CODEX_HOME 中声明的 MCP 必须逐个显式 disabled；仅返回空 mcpServers 不会覆盖用户配置。
  */
-export function reviewOnlyCodexConfig(codexHome?: string): Record<string, unknown> {
+export function reviewOnlyCodexConfig(codexHome?: string, textOnly = false): Record<string, unknown> {
   const mcpServers: Record<string, unknown> = {}
   for (const name of configuredMcpServerNames(codexHome)) {
     mcpServers[name] = { enabled: false }
   }
   return {
+    ...(textOnly ? { web_search: 'disabled', project_doc_max_bytes: 0 } : {}),
     features: {
+      ...(textOnly ? Object.fromEntries(['shell_tool', 'unified_exec', 'hooks', 'view_image',
+        'skill_search', 'tool_suggest', 'memories'].map(name => [name, false])) : {}),
       apps: false,
       plugins: false,
       computer_use: false,

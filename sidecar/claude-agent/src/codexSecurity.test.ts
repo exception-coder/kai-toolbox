@@ -42,6 +42,17 @@ test('review config closes apps, plugins, code mode and every configured MCP', (
   }
 })
 
+test('internal text review also disables shell, hooks, document discovery and web search', () => {
+  const config = reviewOnlyCodexConfig(undefined, true)
+  const features = config.features as Record<string, unknown>
+  for (const name of ['shell_tool', 'unified_exec', 'hooks', 'view_image', 'skill_search', 'tool_suggest', 'memories']) {
+    assert.equal(features[name], false)
+  }
+  assert.equal(config.project_doc_max_bytes, 0)
+  assert.equal(config.web_search, 'disabled')
+  assert.equal((reviewOnlyCodexConfig().features as Record<string, unknown>).shell_tool, undefined)
+})
+
 test('resolves legacy system hints only for static evidence, not database connections', () => {
   assert.equal(resolveConsultTargetSystem('D:\\Users\\zhang\\myWork\\srm-system'), 'srm')
   assert.equal(resolveConsultTargetSystem('D:\\Users\\zhang\\myWork\\scm-system'), 'scm')

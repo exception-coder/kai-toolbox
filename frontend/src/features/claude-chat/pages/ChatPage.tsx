@@ -156,6 +156,7 @@ const SessionSitesWorkspace = deferredPanel(() => import('../components/SessionS
 const SessionProjectDirectoriesDialog = deferredPanel(() => import('../components/SessionProjectDirectoriesDialog').then(m => ({ default: m.SessionProjectDirectoriesDialog })))
 const ReviewShareDialog = deferredPanel(() => import('../components/ReviewShareDialog').then(m => ({ default: m.ReviewShareDialog })))
 const SessionSharingPanel = deferredPanel(() => import('../components/SessionSharingPanel').then(m => ({ default: m.SessionSharingPanel })))
+const PlanReviewDialog = deferredPanel(() => import('../components/PlanReviewDialog').then(m => ({ default: m.PlanReviewDialog })))
 const ReviewWorkspace = deferredPanel(() => import('../components/ReviewWorkspace').then(m => ({ default: m.ReviewWorkspace })), workspaceLoading)
 const OpenSpecInitializationDialog = deferredPanel(() => import('../components/OpenSpecInitializationDialog').then(m => ({ default: m.OpenSpecInitializationDialog })))
 
@@ -310,6 +311,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     })
   }, [chat?.sessionId, linkedPrd])
   const messageListRef = useRef<MessageListHandle>(null)
+  const [planReviewEntry, setPlanReviewEntry] = useState<{ sessionId: string; initial?: { id: string; text: string } } | null>(null)
+  const planReviewTrigger = useRef<HTMLElement | null>(null)
+  useEffect(() => { setPlanReviewEntry(null) }, [chat?.sessionId])
   const [focusWide, setFocusWide] = useState(false)
   const { setPendingScroll, setJumpingToStart } = useMessageJump(chat, messageListRef)
   const [showLogs, setShowLogs] = useState(false)
@@ -1334,6 +1338,12 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               <HeaderMenuItem nested icon={<ListChecks className="size-4" />} label="项目初始化流水线" hint="拉取→画像→知识图谱→profile→聚合" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'onboard' ? 'none' : 'onboard') }} />
             </MenuSection>
             <MenuSection icon={<MessageSquare className="size-4" />} {...SESSION_TOOL_GROUPS.session} open={menuGroup === 'session'} onToggle={() => setMenuGroup('session')} disabled={!chat.sessionId}>
+              {chat.sessionId && !reviewOnlySession && !mockMode && (
+                <HeaderMenuItem nested icon={<ListChecks className="size-4" />} label="多引擎方案评审" hint="引用方案，独立评审并查看历史建议" onClick={() => {
+                  planReviewTrigger.current = sessionToolsTriggerRef.current
+                  setHeaderMenu(false); setPlanReviewEntry({ sessionId: chat.sessionId! })
+                }} />
+              )}
               {chat.sessionId && (
                 <HeaderMenuItem nested icon={<ListFilter className="size-4" />} label="我的提问" hint="只看我发的消息·搜索·点击跳到对应位置" onClick={() => { setHeaderMenu(false); setShowMsgNav(true) }} />
               )}
@@ -1648,6 +1658,13 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
         <SessionSharingPanel key={`${sharingPanel}:${chat.sessionId}`} sessionId={sharingPanel === 'manage' ? chat.sessionId ?? undefined : undefined}
           onClose={() => setSharingPanel(null)} returnFocus={() => sessionToolsTriggerRef.current?.focus()} />
       )}
+      {planReviewEntry && planReviewEntry.sessionId === chat.sessionId && (
+        <PlanReviewDialog key={`${planReviewEntry.sessionId}:${planReviewEntry.initial?.id ?? 'history'}`}
+          sessionId={planReviewEntry.sessionId} initial={planReviewEntry.initial} engines={selectableEngines}
+          onClose={() => setPlanReviewEntry(null)}
+          returnFocus={() => (planReviewTrigger.current?.isConnected ? planReviewTrigger.current : sessionToolsTriggerRef.current)?.focus()}
+          onQuote={text => { setDraft(current => current.trim() ? `${current}\n\n${text}` : text) }} />
+      )}
       {showReviewShare && chat.sessionId && (
         <ReviewShareDialog
           open
@@ -1872,6 +1889,13 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 ) : (
                   <MessageList
                     ref={messageListRef}
+                    renderAssistantAction={!reviewOnlySession && !mockMode && chat.sessionId ? item => (
+                      <button type="button" className="min-h-11 px-2 text-xs text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] disabled:opacity-40"
+                        disabled={chat.running || !item.text.trim()} onClick={event => {
+                          planReviewTrigger.current = event.currentTarget
+                          setPlanReviewEntry({ sessionId: chat.sessionId!, initial: { id: item.id, text: item.text } })
+                        }}>多引擎评审</button>
+                    ) : undefined}
                     sessionKey={chat.sessionId ?? undefined}
                     items={chat.items}
                     running={chat.running}

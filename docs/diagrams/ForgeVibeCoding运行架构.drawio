@@ -279,4 +279,25 @@
       </root>
     </mxGraphModel>
   </diagram>
+  <diagram id="plan-review" name="多引擎方案评审">
+    <mxGraphModel dx="1300" dy="800" grid="1" gridSize="10" page="1" pageWidth="1400" pageHeight="850">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="pr-title" value="引用同一份方案，多引擎独立给出建议" style="text;html=0;align=left;verticalAlign=middle;fontSize=30;fontStyle=1;fontColor=#14233E;" vertex="1" parent="1"><mxGeometry x="40" y="30" width="1220" height="60" as="geometry"/></mxCell>
+        <mxCell id="pr-state" value="第一版源码实现 · 真实引擎与部署验收待完成" style="text;html=0;align=left;fontSize=18;fontColor=#42546A;" vertex="1" parent="1"><mxGeometry x="40" y="100" width="1220" height="40" as="geometry"/></mxCell>
+        <mxCell id="pr-source" value="原会话方案回复&#10;核对引用原文与关注点&#10;多选可用引擎" style="rounded=0;whiteSpace=wrap;html=0;fontSize=21;align=left;spacing=18;fillColor=#EFF6FF;strokeColor=#CBD5E1;fontColor=#14233E;" vertex="1" parent="1"><mxGeometry x="40" y="205" width="260" height="150" as="geometry"/></mxCell>
+        <mxCell id="pr-host" value="Java 评审批次&#10;权限 · 幂等 · 持久状态&#10;最多三项并行执行" style="rounded=0;whiteSpace=wrap;html=0;fontSize=21;align=left;spacing=18;fillColor=#EFF6FF;strokeColor=#CBD5E1;fontColor=#14233E;" vertex="1" parent="1"><mxGeometry x="370" y="205" width="280" height="150" as="geometry"/></mxCell>
+        <mxCell id="pr-engines" value="Sidecar → 独立原生会话&#10;Claude / Codex / Pi / Copilot&#10;受限文字评审 · 互不可见" style="rounded=0;whiteSpace=wrap;html=0;fontSize=20;align=left;spacing=18;fillColor=#F4F2FF;strokeColor=#CBD5E1;fontColor=#14233E;" vertex="1" parent="1"><mxGeometry x="720" y="205" width="370" height="150" as="geometry"/></mxCell>
+        <mxCell id="pr-store" value="固定材料与尝试身份&#10;刷新恢复查看；失败可单项重试&#10;取消或中断不自动重复调用" style="rounded=0;whiteSpace=wrap;html=0;fontSize=20;align=left;spacing=18;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontColor=#14233E;" vertex="1" parent="1"><mxGeometry x="370" y="460" width="360" height="145" as="geometry"/></mxCell>
+        <mxCell id="pr-result" value="各引擎结果与状态&#10;保留原文和来源&#10;意见尚未经项目验证" style="rounded=0;whiteSpace=wrap;html=0;fontSize=21;align=left;spacing=18;fillColor=#ECFDF5;strokeColor=#CBD5E1;fontColor=#14233E;" vertex="1" parent="1"><mxGeometry x="800" y="460" width="290" height="145" as="geometry"/></mxCell>
+        <mxCell id="pr-draft" value="引用回原会话草稿&#10;用户发送后继续完善&#10;源引擎保持不变" style="rounded=0;whiteSpace=wrap;html=0;fontSize=20;align=left;spacing=18;fillColor=#FFFBEB;strokeColor=#CBD5E1;fontColor=#14233E;" vertex="1" parent="1"><mxGeometry x="40" y="460" width="260" height="145" as="geometry"/></mxCell>
+        <mxCell id="pr-limit" value="本期仅依据用户确认的文字；不自动读取完整会话、附件或项目文件，不修改代码，不自动汇总或互评。" style="text;html=0;align=left;whiteSpace=wrap;fontSize=18;fontColor=#42546A;" vertex="1" parent="1"><mxGeometry x="40" y="695" width="1100" height="60" as="geometry"/></mxCell>
+        <mxCell id="pr-a" value="引用" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=0;fontSize=16;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="pr-source" target="pr-host"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="pr-b" value="派发" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=0;fontSize=16;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="pr-host" target="pr-engines"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="pr-c" value="保存" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=0;fontSize=16;exitX=0.5;exitY=1;entryX=0.39;entryY=0;" edge="1" parent="1" source="pr-host" target="pr-store"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="pr-d" value="独立返回" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=0;fontSize=16;exitX=0.61;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="pr-engines" target="pr-result"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="pr-e" value="选择建议" style="edgeStyle=orthogonalEdgeStyle;endArrow=block;html=0;fontSize=16;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" edge="1" parent="1" source="pr-result" target="pr-draft"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="945" y="650"/><mxPoint x="170" y="650"/></Array></mxGeometry></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
 </mxfile>

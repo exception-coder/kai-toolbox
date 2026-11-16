@@ -4,6 +4,10 @@ import { createServer } from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { SessionManager } from './sessionManager.js'
+import { createPlanReviewSession } from './planReviewSession.js'
+import { PlanReviewJobs } from './planReview.js'
+import { HANDOFF_ENGINES } from './engineHandoff.js'
+import { isEngineId } from './engine/engineContract.js'
 import { AgentTracing } from './telemetry/agentTracing.js'
 import { initializeTelemetry, shutdownTelemetry } from './telemetry/telemetry.js'
 import { EngineCatalog } from './engine/engineCatalog.js'
@@ -90,6 +94,7 @@ const emit = (sessionId: string, event: Record<string, unknown>): void => {
 
 const engineCatalog = new EngineCatalog()
 const manager = new SessionManager(emit, engineCatalog)
+const planReviews = new PlanReviewJobs()
 void engineCatalog.list(true).then(entries => {
   const summary = entries.map(entry => `${entry.id}:${entry.probe.status}`).join(', ')
   console.log(`[sidecar] engine catalog ready ${summary}`)
@@ -342,6 +347,25 @@ wss.on('connection', (ws) => {
           ),
         })
         break
+      case 'cancelPlanReview':
+        if (typeof msg.requestId === 'string') planReviews.cancel(msg.requestId)
+        break
+      case 'planReview': {
+        const requestId = String(msg.requestId ?? '')
+        const engine = String(msg.engine ?? '')
+        if (!isEngineId(engine) || !HANDOFF_ENGINES.has(engine) || typeof msg.prompt !== 'string'
+          || msg.prompt.length > 110_000 || !/^[a-f0-9-]{36}$/i.test(requestId)) {
+          emit(sessionId, { type: 'planReviewResult', requestId, error: 'INVALID_REVIEW' })
+          break
+        }
+        void planReviews.run(requestId, msg.prompt, event => createPlanReviewSession({
+          requestId, engine, cwd: String(msg.cwd),
+          codexHome: typeof msg.codexHome === 'string' ? msg.codexHome : undefined,
+          apiBaseUrl: typeof msg.apiBaseUrl === 'string' ? msg.apiBaseUrl : undefined,
+          authToken: typeof msg.authToken === 'string' ? msg.authToken : undefined,
+        }, event)).then(result => emit(sessionId, { type: 'planReviewResult', requestId, ...result }))
+        break
+      }
       case 'oneShot':
         agentTracing.begin(sessionId, msg.traceContext, msg.telemetry)
         void manager.oneShot(
