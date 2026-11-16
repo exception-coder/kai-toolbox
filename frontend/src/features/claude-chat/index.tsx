@@ -3,6 +3,7 @@ import { BotMessageSquare } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 
 const ChatControlWorkspace = lazy(() => import('./pages/ChatControlWorkspace').then(m => ({ default: m.ChatControlWorkspace })))
+const SharedSessionPage = lazy(() => import('./pages/SharedSessionPage').then(m => ({ default: m.SharedSessionPage })))
 
 const manifest: FeatureManifest = {
   id: 'claude-chat',
@@ -15,6 +16,7 @@ const manifest: FeatureManifest = {
   controlPermissions: { parameter: 'control', modes: { llm: 'menu:ai-chat' } },
   routes: [
     { path: '/tools/claude-chat', element: <ChatControlWorkspace /> },
+    { path: '/tools/claude-chat/shared/:sessionId', element: <SharedSessionPage /> },
   ],
 }
 

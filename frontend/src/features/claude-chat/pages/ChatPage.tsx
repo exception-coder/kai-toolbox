@@ -155,6 +155,7 @@ const SessionSitesDialog = deferredPanel(() => import('../components/SessionSite
 const SessionSitesWorkspace = deferredPanel(() => import('../components/SessionSitesDialog').then(m => ({ default: m.SessionSitesWorkspace })), workspaceLoading)
 const SessionProjectDirectoriesDialog = deferredPanel(() => import('../components/SessionProjectDirectoriesDialog').then(m => ({ default: m.SessionProjectDirectoriesDialog })))
 const ReviewShareDialog = deferredPanel(() => import('../components/ReviewShareDialog').then(m => ({ default: m.ReviewShareDialog })))
+const SessionSharingPanel = deferredPanel(() => import('../components/SessionSharingPanel').then(m => ({ default: m.SessionSharingPanel })))
 const ReviewWorkspace = deferredPanel(() => import('../components/ReviewWorkspace').then(m => ({ default: m.ReviewWorkspace })), workspaceLoading)
 const OpenSpecInitializationDialog = deferredPanel(() => import('../components/OpenSpecInitializationDialog').then(m => ({ default: m.OpenSpecInitializationDialog })))
 
@@ -276,6 +277,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const [showGitStatus, setShowGitStatus] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showReviewShare, setShowReviewShare] = useState(false)
+  const [sharingPanel, setSharingPanel] = useState<'manage' | 'inbox' | null>(null)
   const [showPrdLink, setShowPrdLink] = useState(false)
   const [pendingOpenSpecInitialization, setPendingOpenSpecInitialization] = useState<PendingOpenSpecInitialization | null>(null)
   const [showSessionSites, setShowSessionSites] = useState(false)
@@ -1363,6 +1365,10 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 <HeaderMenuItem nested icon={<FileDown className="size-4" />} label="导出会话" hint="导出为 PDF/Word，含图片，发给同事/领导查看" onClick={() => { setHeaderMenu(false); setShowExport(true) }} />
               )}
               {chat.sessionId && !reviewOnlySession && (
+                <HeaderMenuItem nested icon={<Share2 className="size-4" />} label="共享给指定用户" hint="只读查看对话，可随时撤销" onClick={() => { setHeaderMenu(false); setSharingPanel('manage') }} />
+              )}
+              <HeaderMenuItem nested icon={<Share2 className="size-4" />} label="共享给我" hint="查看其他用户授权的会话" onClick={() => { setHeaderMenu(false); setSharingPanel('inbox') }} />
+              {chat.sessionId && !reviewOnlySession && (
                 <HeaderMenuItem nested icon={<Share2 className="size-4" />} label="分享计划评审" hint="生成独立评审消息流，业务/测试可发送文字和附件，但不能执行编码" onClick={() => { setHeaderMenu(false); setShowReviewShare(true) }} />
               )}
               {chat.sessionId && (
@@ -1658,6 +1664,10 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
           onRetry={retryPendingOpenSpecCheck}
           onClose={cancelPendingOpenSpec}
         />
+      )}
+      {sharingPanel && (sharingPanel === 'inbox' || chat.sessionId) && (
+        <SessionSharingPanel key={`${sharingPanel}:${chat.sessionId}`} sessionId={sharingPanel === 'manage' ? chat.sessionId ?? undefined : undefined}
+          onClose={() => setSharingPanel(null)} returnFocus={() => sessionToolsTriggerRef.current?.focus()} />
       )}
       {showReviewShare && chat.sessionId && (
         <ReviewShareDialog

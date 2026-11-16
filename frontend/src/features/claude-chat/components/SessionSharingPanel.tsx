@@ -1,0 +1,97 @@
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
+import {
+  grantSessionReader, listSessionReaders, listSharedSessions, revokeSessionReader,
+  searchSessionRecipients, sharedSessionPath, type SessionReader, type SharedSession,
+} from '../sessionSharingApi'
+
+export function SessionSharingPanel({ sessionId, onClose, returnFocus }: {
+  sessionId?: string; onClose: () => void; returnFocus?: () => void
+}) {
+  const [readers, setReaders] = useState<SessionReader[]>([])
+  const [sessions, setSessions] = useState<SharedSession[]>([])
+  const [results, setResults] = useState<SessionReader[]>([])
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [searching, setSearching] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  const reload = async () => {
+    setLoading(true); setError('')
+    try {
+      if (sessionId) setReaders(await listSessionReaders(sessionId))
+      else setSessions(await listSharedSessions())
+    } catch (e) { setError(e instanceof Error ? e.message : '读取失败，请重试') }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { void reload() }, [sessionId]) // 面板按对象挂载，不连接引擎。
+  useEffect(() => {
+    setResults([])
+    if (!sessionId || query.trim().length < 2) { setSearching(false); return }
+    const abort = new AbortController()
+    setSearching(true)
+    const timer = setTimeout(() => {
+      void searchSessionRecipients(sessionId, query.trim(), abort.signal).then(found => { if (!abort.signal.aborted) setResults(found) })
+        .catch(e => { if (!abort.signal.aborted) setError(e instanceof Error ? e.message : '搜索失败') })
+        .finally(() => { if (!abort.signal.aborted) setSearching(false) })
+    }, 300)
+    return () => { clearTimeout(timer); abort.abort() }
+  }, [query, sessionId])
+
+  const change = async (reader: SessionReader, grant: boolean) => {
+    if (!sessionId) return
+    setBusy(true); setError(''); setNotice('')
+    try {
+      if (grant) await grantSessionReader(sessionId, reader.id)
+      else await revokeSessionReader(sessionId, reader.id)
+      setNotice(grant ? `已授权 ${reader.realName || reader.username} 查看` : '已撤销，后续读取将被拒绝')
+      await reload()
+    } catch (e) { setError(e instanceof Error ? e.message : '保存失败，请重试') }
+    finally { setBusy(false) }
+  }
+
+  return <Sheet open onOpenChange={open => { if (!open) onClose() }}>
+    <SheetContent side="bottom" className="mx-auto flex max-h-[85dvh] max-w-2xl flex-col overflow-hidden p-5"
+      onCloseAutoFocus={e => { if (returnFocus) { e.preventDefault(); returnFocus() } }}>
+      <SheetTitle>{sessionId ? '共享给指定用户' : '共享给我'}</SheetTitle>
+      <SheetDescription>{sessionId
+        ? '选中的账号可查看此会话已落盘的对话文字，包括文字中已有的敏感内容。不会获得发送、执行、删除或再次分享权限；附件和工具日志不共享。'
+        : '其他用户授权你查看的会话。需要使用被授权的账号登录。'}</SheetDescription>
+      <div className="min-h-0 overflow-y-auto py-2">
+        {error && <div role="alert" className="mb-3 text-sm text-destructive">{error} <Button variant="ghost" size="sm" onClick={() => void reload()}>重试</Button></div>}
+        {notice && <p role="status" className="mb-3 text-sm">{notice}</p>}
+        {loading ? <p role="status" className="py-4 text-sm">正在读取…</p> : sessionId ? <>
+          <label className="block text-sm" htmlFor="share-recipient">用户名或姓名</label>
+          <input id="share-recipient" value={query} maxLength={80} placeholder="例如：严伟（至少两个字）"
+            onChange={e => setQuery(e.target.value)} className="my-2 h-11 w-full rounded-md border bg-background px-3 text-sm" />
+          {searching && <p role="status" className="text-sm">正在搜索…</p>}
+          {!searching && query.trim().length >= 2 && !results.length && <p className="text-sm text-muted-foreground">未找到可用账号，请核对用户名或姓名。</p>}
+          <ul className="divide-y">{results.map(reader => <li key={reader.id} className="flex min-h-12 items-center justify-between gap-3 py-2">
+            <span className="min-w-0 break-words text-sm">{reader.realName || reader.username} <span className="text-muted-foreground">@{reader.username}</span></span>
+            <Button size="sm" disabled={busy || readers.some(r => r.id === reader.id)} onClick={() => void change(reader, true)}>授权查看</Button>
+          </li>)}</ul>
+          <h3 className="mb-1 mt-5 text-sm font-medium">已授权查看</h3>
+          {!readers.length && <p className="py-2 text-sm text-muted-foreground">尚未共享给其他账号。</p>}
+          <ul className="divide-y">{readers.map(reader => <li key={reader.id} className="flex min-h-12 items-center justify-between gap-3 py-2">
+            <span className="min-w-0 break-words text-sm">{reader.realName || reader.username} <span className="text-muted-foreground">@{reader.username}</span></span>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void change(reader, false)}>撤销</Button>
+          </li>)}</ul>
+          <Button variant="outline" className="mt-4" onClick={() => {
+            void navigator.clipboard.writeText(new URL(sharedSessionPath(sessionId), location.origin).href)
+              .then(() => setCopied(true)).catch(() => setError('复制失败，请稍后重试'))
+          }}>{copied ? '链接已复制' : '复制查看链接'}</Button>
+          <p className="mt-2 text-xs text-muted-foreground">链接不授予权限。撤销不能收回对方已读或已复制的文字。</p>
+        </> : <ul className="divide-y">
+          {!sessions.length && <li className="py-4 text-sm text-muted-foreground">暂无共享给你的会话。</li>}
+          {sessions.map(session => <li key={session.id}><Link to={sharedSessionPath(session.id)} onClick={onClose}
+            className="block min-h-12 py-3 text-sm hover:underline">{session.title || '未命名会话'}<span className="ml-2 text-muted-foreground">只读 · {session.engine}</span></Link></li>)}
+        </ul>}
+      </div>
+    </SheetContent>
+  </Sheet>
+}

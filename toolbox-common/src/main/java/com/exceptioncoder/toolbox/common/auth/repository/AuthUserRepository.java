@@ -91,6 +91,33 @@ public class AuthUserRepository {
         return jdbc.query("SELECT * FROM auth_user ORDER BY id", ROW);
     }
 
+    /** 具名对象授权使用的最小目录，不暴露角色、密码或其他账号字段。 */
+    public List<Recipient> searchEnabledRecipients(String query) {
+        return jdbc.query("""
+                SELECT id, username, real_name FROM auth_user
+                WHERE enabled = 1 AND (instr(lower(username), lower(?)) > 0
+                    OR instr(lower(coalesce(real_name, '')), lower(?)) > 0)
+                ORDER BY username LIMIT 20
+                """, (rs, row) -> new Recipient(rs.getLong("id"), rs.getString("username"),
+                rs.getString("real_name")), query, query);
+    }
+
+    public List<Recipient> findRecipients(List<Long> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        if (ids.size() > 50) {
+            throw new IllegalArgumentException("每批最多读取 50 位授权接收者");
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        return jdbc.query("SELECT id, username, real_name FROM auth_user WHERE id IN ("
+                        + placeholders + ") ORDER BY username",
+                (rs, row) -> new Recipient(rs.getLong("id"), rs.getString("username"), rs.getString("real_name")),
+                ids.toArray());
+    }
+
+    public record Recipient(long id, String username, String realName) {}
+
     public void updateRoles(long userId, List<String> roles, long updatedAt) {
         jdbc.update("UPDATE auth_user SET roles = ?, updated_at = ? WHERE id = ?",
                 joinRoles(roles), updatedAt, userId);

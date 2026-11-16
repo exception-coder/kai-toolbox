@@ -34,6 +34,8 @@ flowchart LR
 
 ### Vibe Coding 运行分层与附加能力
 
+具名会话共享复用平台账号身份，在 Java 宿主中维护单会话查看关系，输出独立的最小文字投影；只读页面不连接 Sidecar，也不继承原会话的执行、配置、文件或附件权限。拥有者与 ADMIN 管理授权，每次读取复核账号、项目政策与共享关系；原执行权限主线和运行分层图不变。[业务全景图](diagrams/Forge业务全景图.drawio)同步标注此附加能力。源码、定向验证与待部署的登录态验收见[共享任务](../openspec/changes/share-chat-with-users/tasks.md)，不能把源码接入视为已向具体用户开放。
+
 [可编辑双页 draw.io](diagrams/ForgeVibeCoding运行架构.drawio) · [运行分层预览](diagrams/ForgeVibeCoding运行架构-运行分层.png) · [附加能力预览](diagrams/ForgeVibeCoding运行架构-附加能力.png)。这是 2026-11-03 的源码视图，补充上图的运行分层，不代表所有功能均已加载到在线进程。预览由 draw.io Desktop 从同一源图导出；图元、文字和连接器保留原生 XML。
 
 运行主线是 **React 工作台 → Java 会话宿主 → Node Sidecar / 引擎适配器 → 原生 Harness / Agent → 目标项目**。Java 管理会话、持久消息队列、准入与 Sidecar 生命周期；Sidecar 统一轮次请求和事件，在各引擎实际支持的范围内适配审批、中断和恢复。模型推理及文件、Shell、联网等工具仍由相应 Harness 提供，Forge 不另造通用执行器。资源中心和项目登记由各自模块维护，SQLite 保存相应业务状态。
