@@ -10,7 +10,17 @@
 | App Server 在可安全重试阶段失败 | Codex SDK 回退 | 已产生可见输出或副作用时禁止重放 |
 | 第三方兼容网关 | Codex SDK | 不使用官方账号的 App Server 通道 |
 
-Sidecar 当前锁定 `@openai/codex-sdk` / CLI 0.162.1。升级增加原生续问预测实验接口，协议检查同时覆盖既有语音与服务端请求；目标服务版本加载和真实账号运行验收仍待本次重启授权。App Server 与 SDK 共用 Codex 运行时的部分配置，但不是同一个功能面；不能用 SDK 回退来声称所有 App Server 方法都有 SDK 等价实现。
+Sidecar 当前锁定 `@openai/codex-sdk` / CLI 0.169.0，保留既有续问预测实验接口；协议检查覆盖语音、预测与服务端请求。目标服务的完整业务运行验收仍待本次重启授权。App Server 与 SDK 共用 Codex 运行时的部分配置，但不是同一个功能面；不能用 SDK 回退来声称所有 App Server 方法都有 SDK 等价实现。
+
+### 2026-11-17 Hook 配置兼容升级
+
+原 CLI 0.162.1 在初始化时对用户配置中的 4 个 `hooks.state.*.trusted_content_hash` 发出 `configWarning`。Forge 每轮创建独立 App Server，去重范围为当前轮，因此相同配置问题会在后续轮次再次显示。[官方配置 Schema](https://learn.chatgpt.com/docs/config-schema.json) 将此字段定义为独立的插件内容信任记录，不能将其当作拼写错误删除，或直接替换已有 `trusted_hash`。
+
+本次将 SDK 及其捆绑 CLI 一起固定到 npm 稳定版 0.169.0，不改全局 CLI、用户配置、Hook 信任或账号。独立候选 CLI 读取同一份用户配置后初始化成功、正常退出，`configWarning` 从 1 条（包含 4 个字段）降为 0；没有创建线程、提交模型请求或执行历史任务。既有协议检查通过（11 类服务端请求，语音与预测契约保留）。源码、依赖与协议边界保持原架构；完整会话运行与服务稳定观察仍需本次重启授权后执行。
+
+验证结果：项目实际依赖路径的 SDK/CLI 均为 0.169.0，同配置初始化再次通过且告警为 0；Sidecar 全部 TypeScript 编译通过，26 个 Codex 测试文件的 186 项回归全部通过，包括会话生命周期、停止、审批、预测、语音及真实 SDK 模拟执行器的退出/隔离/HTTPS 回退。已核对 Windows CLI 启动器仍镜像原生进程退出码，保持现有清理证据约束。测试未调用真实模型，也不代表完整账号业务验收。
+
+项目质量门禁 status=PASSED、退出码 0；executedCheckers 为空，executedVerifiers 仅 API-RUNTIME-001（现有服务通用接口）。本次为保持行为的依赖兼容升级（L2），没有 Java 类路径或前端变更；编译产物仅写入隔离测试目录，没有替换运行 dist、触发重载或重启。npm 成功安装 3 个更新包，但旧进程占用的 Windows 二进制临时目录清理出现 EPERM，保留现场，不强杀旧任务；已有 Sidecar 进程的 SDK 缓存仍需经确认重启后统一加载。
 
 ## 能力对照
 
