@@ -24,7 +24,7 @@ public class ConsultAnalysisModel {
             schemaVersion 固定 "1.0"；understanding 为问题理解；category 为 ACCESS/PRINTING/DATA/WORKFLOW/INTEGRATION/OTHER/UNKNOWN 之一。
             facts 为 [{text,evidenceIds:[证据id]}]，只写证据支持的事实，区分用户报告与独立核验，无依据则留空。
             possibleCauses 为 [{description,confidence:POSSIBLE或SUPPORTED,evidenceIds:[]}]；假设不得写成事实。
-            recommendations、missingInformation、unknowns 均为字符串数组，每项简洁明确。信息不足时给最少追问。
+            recommendations、missingInformation、unknowns 均为字符串数组，每项简洁明确。未知项不自动变成对外追问；只有缺失事实会改变当前结论或必要动作且无法自行取得时才问。
             humanHandoff 为 {recommended:布尔,reason:字符串}。证据引用只允许输入 evidence 中的 id。
             所有数组最多 8 项。正文使用清晰中文，不能把三个矛盾结论当作回复候选。
             """;
@@ -66,7 +66,7 @@ public class ConsultAnalysisModel {
                 """ : input.forgeReplies() ? """
                 额外返回 replyCandidates 数组，恰好三项，每项仅 {text,evidenceIds}。
                 每条 text 为 1–4000 字符的不同、完整且可独立选择的对外回复，evidenceIds 非空且来自输入。
-                三条共用同一事实与不确定性，可分别侧重说明、处理步骤、信息追问，不能给出互相矛盾的根因。
+                三条共用同一事实与不确定性，均直接回答当前问题，不能给出互相矛盾的根因；不得为了区分候选而追加操作或信息追问。
                 面向实际业务人员：默认只给简短结论，必要动作和追问按平台表达Skill提供；禁止假装已处理或已修复。
                 回复正文不得包含内部 SQL、源码、凭据、账号目录、绝对路径、堆栈、工具日志；建议不是已执行结果。
                 """ : "不返回 replyCandidates；调用方自行整理外发回复。\n";

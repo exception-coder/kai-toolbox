@@ -445,6 +445,8 @@ class ConsultBackendIntegrationTest {
             assertThat(actual).containsExactly(new AgentOneShotRunner.ImageInput(Base64.getEncoder().encodeToString(png()), "image/png"));
             assertThat(request.userPrompt()).contains(image.attachmentId(), image.sha256());
             assertThat(request.systemPrompt()).contains(com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultPlainWritingSkill.instructions());
+            assertThat(request.systemPrompt()).contains("不得为了区分候选而追加操作或信息追问", "对外候选只保留能直接回复的话")
+                    .doesNotContain("可分别侧重说明、处理步骤、信息追问", "信息不足时给最少追问。");
             assertThat(request.toolPolicy()).isEqualTo("disabled");
             assertThat(request.cwd()).isNull();
             return output.toString();
