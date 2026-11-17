@@ -6,7 +6,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
 
-/** 网页账号授权仍由原系统绑定和流程快照决定，密码只交给浏览器端口。 */
+/** 网页账号授权由当前系统绑定决定，显式绑定列表在执行时再次复核，密码只交给浏览器端口。 */
 @Service
 public class ConsultWebResourceService implements WebResourceGateway {
     private final SystemResourceService resources;
@@ -48,7 +48,7 @@ public class ConsultWebResourceService implements WebResourceGateway {
     public Object read(String runtimeId, String sourcePath, List<String> bindingIds, Request request) {
         var available = discover(sourcePath, bindingIds);
         var entry = available.stream().filter(item -> item.bindingId().equals(request.bindingId())).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Web账号未被本咨询选择或不属于当前系统"));
+                .orElseThrow(() -> new IllegalArgumentException("Web账号未绑定到本咨询当前系统或绑定已移除"));
         if (!"AVAILABLE".equals(entry.state())) { throw new IllegalArgumentException("Web账号不可用：" + entry.state()); }
         var bound = resources.discover(entry.systemId()).stream()
                 .filter(item -> item.binding().id().equals(entry.bindingId())).findFirst().orElseThrow();

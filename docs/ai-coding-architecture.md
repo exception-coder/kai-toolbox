@@ -1160,19 +1160,19 @@ browser-request 拥有渲染上下文及预览生命周期，复用既有 Playwr
 
 ## 咨询的多环境 Web 证据
 
-业务咨询的Web账号复用资源中心应用资源和系统绑定，在原流程节点选择、发布并冻结；数据库QUERY与Web页面读取保持不同执行端口。fore-consult核验既有会话签名和节点工具，ops通过WebResourceGateway核验系统、绑定、环境和地址，browser-request通过WebPageReader复用受管worker的隔离浏览器。SDK/stdio均通过consult_web执行DISCOVER/READ；不开放任意应用CALL，不把密码交给模型。
+业务咨询的Web账号复用资源中心应用资源和系统绑定，consult_web作为新旧咨询的平台基础能力，按当前服务端系统绑定使用账号，无需流程重复勾选；数据库QUERY仍按冻结节点选择，与Web读取保持不同执行端口。fore-consult核验既有会话签名和服务端焦点，ops通过WebResourceGateway核验系统、绑定、环境和地址，browser-request通过WebPageReader复用受管worker的隔离浏览器。SDK/stdio均通过consult_web执行DISCOVER/READ；不开放任意应用CALL，不把密码交给模型。
 
 ```mermaid
 flowchart LR
-  A[管理员登记环境账号与绑定] --> B[流程选用并发布]
-  B --> C[咨询冻结工具与资源选择]
-  C --> D[consult_web 会话签名校验]
+  A[管理员登记环境账号与系统绑定] --> B[新旧咨询装配平台Web工具]
+  B --> C[确认当前服务端系统]
+  C --> D[consult_web 会话签名与当前绑定校验]
   D --> E[资源环境 来源与路径校验]
-  E --> F[隔离浏览器登录和页面读取]
+  E --> F[隔离浏览器静默登录 页面或GET接口读取]
   F --> G[实际环境与外部页面证据]
 ```
 
-URL与明确环境指导账号选择，歧义时才询问地址；不能把DEV结果当成UAT或生产证据。登录态仅在隔离context内短期复用，不写普通录制目录；失败不反复尝试同一账号。当前仅支持同源标准表单，跨域SSO、验证码和任意业务操作不在此边界。实现、开发验证与真实业务页面验收分别记录于[多环境Web账号任务](../openspec/changes/consult-web-environment-accounts/tasks.md)，不因工具可用绕过本次重启确认。
+Web账号绑定变化对旧咨询后续调用生效；缺少绑定应报告账号配置入口，不能声称平台没有浏览器。页面导航也支持同源同应用路径的只读GET接口JSON，复用隔离Cookie，不开放任意HTTP方法、Header或脚本。URL与明确环境指导账号选择，歧义时才询问地址；不能把DEV结果当成UAT或生产证据。登录态仅在隔离context内短期复用，不写普通录制目录；失败不反复尝试同一账号。当前仅支持同源标准表单，跨域SSO、验证码和任意业务操作不在此边界。实现、开发验证与真实业务页面验收分别记录于[多环境Web账号任务](../openspec/changes/consult-web-environment-accounts/tasks.md)，不因工具可用绕过本次重启确认。
 
 ## 咨询源码同步与证据新鲜度
 

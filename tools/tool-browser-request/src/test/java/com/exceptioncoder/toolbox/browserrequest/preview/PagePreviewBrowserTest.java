@@ -149,6 +149,10 @@ class PagePreviewBrowserTest {
                 body = "<html><meta charset='utf-8'><form method='post' action='/session'>"
                         + "<input name='username' autocomplete='username'><input name='password' type='password'>"
                         + "<button type='submit'>登录</button></form></html>";
+            } else if ("/api/items".equals(path) && "preview-session=authenticated".equals(exchange.getRequestHeaders().getFirst("Cookie"))) {
+                byte[] json = "{\"item\":\"0011\",\"composition\":\"cotton\"}".getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, json.length); exchange.getResponseBody().write(json); exchange.close(); return;
             } else if ("/target".equals(path) && "preview-session=authenticated".equals(exchange.getRequestHeaders().getFirst("Cookie"))) {
                 body = "<html><meta charset='utf-8'><h1>登录后的目标页面</h1><p>真实渲染引擎验收 test-password</p><script>fetch('/mutate',{method:'POST'}).catch(()=>{});try{new WebSocket('ws://'+location.host+'/mutate')}catch(e){}</script></html>";
             } else {
@@ -192,7 +196,11 @@ class PagePreviewBrowserTest {
                 assertEquals("READY", reader.read("consult:binding", account, "/target", "/login").status());
                 assertEquals("FAILED", reader.read("consult:binding", account, "/missing", "/login").status());
                 assertEquals("READY", reader.read("consult:binding", account, "/target", "/login").status());
-                assertEquals(1, logins.get(), "页面未找到后应能更正路径，且复用原登录态");
+                var api = reader.read("consult:binding", account, "/api/items?item=0011", "/login");
+                assertEquals("READY", api.status());
+                assertTrue(api.text().contains("0011"));
+                assertTrue(api.text().contains("cotton"));
+                assertEquals(1, logins.get(), "页面和GET接口复用同一登录态，且错误路径可更正");
                 assertEquals(0, writes.get(), "咨询页面不应执行非登录POST或WebSocket");
                 logins.set(0);
                 var bad = new BrowserLoginTarget("bad", "错误账号", "TEST", origin, "wrong-user", "test-password", "username", "password");

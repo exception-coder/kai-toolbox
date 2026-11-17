@@ -8,6 +8,22 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ConsultWebResourceServiceTest {
+    @Test void platformDiscoveryNeverIncludesAnotherSystemsBindings() {
+        var provider = mock(ResourceProvider.class);
+        when(provider.id()).thenReturn("application");
+        when(provider.resources()).thenReturn(List.of(resource("one", "TEST", "https://one.test"), resource("two", "TEST", "https://two.test")));
+        var store = mock(ResourceBindingStore.class);
+        when(store.list()).thenReturn(List.of(binding("one", true), new ResourceBinding("two", "other", "application", "two", "排查", true)));
+        List<ProjectSystemDirectory> directories = List.of(() -> List.of(
+                new ProjectSystemDirectory.SystemIdentity("erp", "ERP", "/projects/one"),
+                new ProjectSystemDirectory.SystemIdentity("other", "OTHER", "/projects/two")));
+        var browser = mock(WebPageReader.class);
+        var service = new ConsultWebResourceService(new SystemResourceService(List.of(provider), directories, store), directories, List.of(), browser);
+        assertEquals(List.of("one"), service.discoverBound("/projects/one").stream().map(ReadonlyResourceGateway.Entry::bindingId).toList());
+        assertThrows(IllegalArgumentException.class, () -> service.read("run", "/projects/one", List.of("one", "two"),
+                new WebResourceGateway.Request("two", "/orders", "TEST", null)));
+        verifyNoInteractions(browser);
+    }
     @Test void validatesFrozenBindingsAndEnvironmentBeforeReadingWithServerSideCredentials() {
         var provider = mock(ResourceProvider.class);
         when(provider.id()).thenReturn("application");
@@ -23,6 +39,11 @@ class ConsultWebResourceServiceTest {
         when(browser.read(anyString(), any(), anyString(), anyString())).thenReturn(new WebPageReader.Page("READY", "https://dev.example.test/orders", "订单", "待审订单"));
         var service = new ConsultWebResourceService(new SystemResourceService(List.of(provider), directories, store), directories, List.of(accounts), browser);
         assertEquals(2, service.catalog().size());
+        assertEquals(List.of("dev", "uat"), service.discoverBound("/projects/one").stream().map(ReadonlyResourceGateway.Entry::bindingId).toList());
+        assertThrows(IllegalArgumentException.class, () -> service.discoverBound("/projects/other"));
+        when(store.list()).thenReturn(List.of(binding("dev", true)));
+        assertEquals(List.of("dev"), service.discoverBound("/projects/one").stream().map(ReadonlyResourceGateway.Entry::bindingId).toList());
+        when(store.list()).thenReturn(List.of(binding("dev", true), binding("uat", true)));
         assertEquals("APP", service.catalog().getFirst().kind());
         assertThrows(IllegalArgumentException.class, () -> service.read("run", "/projects/one", List.of("dev", "uat"), new WebResourceGateway.Request("dev", "/orders", null, null)));
         assertThrows(IllegalArgumentException.class, () -> service.read("run", "/projects/one", List.of("dev"), new WebResourceGateway.Request("dev", "/orders", "UAT", null)));

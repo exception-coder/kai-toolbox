@@ -44,7 +44,7 @@ public final class BusinessConsultCapabilityCatalog {
             capability("tool:consult_resource_query", "consult_resource_query", "TOOL", "v1", "consult-readonly",
                     "按资源绑定执行只读数据库查询，不支持应用调用。", "READ_ONLY", "MEDIUM", List.of()),
             capability("tool:consult_web", "consult_web", "TOOL", "v1", "consult-readonly",
-                    "发现本咨询选用的多环境Web账号；按URL或明确环境登录并读取页面，不返回密码、不执行业务操作。", "READ_ONLY", "MEDIUM", List.of()),
+                    "平台基础能力：发现当前系统绑定的非生产Web账号；按URL或明确环境静默登录并读取页面或只读GET接口，不返回密码、不执行业务操作。", "READ_ONLY", "MEDIUM", List.of()),
             capability("skill:backend-evidence", "backend-evidence", "SKILL", "2.1.0", "team-standards",
                     "约束 Agent 区分代码事实、行为规范与数据库运行事实。", "INSTRUCTION_ONLY", "LOW", List.of())
     );

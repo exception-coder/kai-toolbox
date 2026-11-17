@@ -7,7 +7,7 @@ import com.exceptioncoder.toolbox.foreconsult.repository.ConsultWorkflowReposito
 import org.springframework.stereotype.Service;
 import java.util.List;
 
-/** 每次执行读取冻结的节点资源选择，不接受客户端指定系统或连接。 */
+/** 数据库读取冻结节点选择，网页读取当前系统绑定；不接受客户端指定系统或连接。 */
 @Service
 public class ConsultResourceService {
     @org.springframework.beans.factory.annotation.Autowired
@@ -29,13 +29,26 @@ public class ConsultResourceService {
     }
 
     public List<ReadonlyResourceGateway.Entry> webResources(String runtimeId) {
-        var selected = scope(runtimeId, "consult_web");
-        return webResources.discover(selected.sourcePath(), selected.bindings());
+        return webResources.discoverBound(webSourcePath(runtimeId));
     }
 
     public Object webPage(String runtimeId, com.exceptioncoder.toolbox.common.resource.WebResourceGateway.Request request) {
-        var selected = scope(runtimeId, "consult_web");
-        return webResources.read(runtimeId, selected.sourcePath(), selected.bindings(), request);
+        String sourcePath = webSourcePath(runtimeId);
+        var bindings = webResources.discoverBound(sourcePath).stream()
+                .map(ReadonlyResourceGateway.Entry::bindingId).toList();
+        return webResources.read(runtimeId, sourcePath, bindings, request);
+    }
+
+    private String webSourcePath(String runtimeId) {
+        var session = sessions.findByDevSessionId(runtimeId)
+                .orElseThrow(() -> new IllegalArgumentException("未关联咨询会话"));
+        var routing = sourceRouting == null
+                ? com.exceptioncoder.toolbox.foreconsult.domain.ConsultSourceRouting.read(session.getEvidenceRouteSnapshot())
+                : sourceRouting.current(session);
+        if (routing != null && routing.focusedProject() == null) {
+            throw new IllegalArgumentException("尚未定位服务端系统，请先通过 source_projects 确认有证据的服务端焦点，再发现该系统的Web账号");
+        }
+        return session.getSystemSourcePath();
     }
 
     public List<ReadonlyResourceGateway.Entry> discover(String runtimeId) {
