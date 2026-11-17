@@ -47,6 +47,8 @@ it('submits all nine supported engines without the previous four-engine limit', 
 
 it('confirms material and selected engines before dispatch, duplicate clicks do not create another batch', async () => {
   mount()
+  const content = screen.getByRole('region', { name: '评审内容' })
+  content.scrollTop = 800
   fireEvent.change(screen.getByLabelText('引用的方案材料'), { target: { value: '确认后的方案' } })
   fireEvent.change(screen.getByLabelText('重点关注'), { target: { value: '权限边界' } })
   const button = screen.getByRole('button', { name: '开始评审（2 个引擎）' })
@@ -54,6 +56,26 @@ it('confirms material and selected engines before dispatch, duplicate clicks do 
   await waitFor(() => expect(api.createPlanReview).toHaveBeenCalledTimes(1))
   expect(vi.mocked(api.createPlanReview).mock.calls[0][1]).toMatchObject({ material: '确认后的方案', focus: '权限边界', engines: ['claude', 'codex'] })
   expect(await screen.findByText('建议补充访问校验')).toBeTruthy()
+  expect(content.scrollTop).toBe(0)
+})
+
+it('keeps rejection and history navigation visible outside the long mobile form without losing material', async () => {
+  vi.mocked(api.createPlanReview).mockRejectedValue(new Error('请选择 1 至 4 个受支持的评审引擎。'))
+  mount()
+  const content = screen.getByRole('region', { name: '评审内容' })
+  content.scrollTop = 800
+  fireEvent.change(screen.getByLabelText('引用的方案材料'), { target: { value: '保留我的方案' } })
+  fireEvent.click(screen.getByRole('button', { name: '开始评审（2 个引擎）' }))
+  const error = await screen.findByRole('alert')
+  expect(error.textContent).toContain('请选择 1 至 4')
+  expect(content.contains(error)).toBe(false)
+  const history = screen.getByRole('button', { name: /历史评审/ })
+  expect(content.contains(history)).toBe(false)
+  expect((screen.getByLabelText('引用的方案材料') as HTMLTextAreaElement).value).toBe('保留我的方案')
+  expect(api.createPlanReview).toHaveBeenCalledTimes(1)
+  fireEvent.click(history)
+  expect(await screen.findByLabelText('选择评审记录')).toBeTruthy()
+  expect(content.scrollTop).toBe(0)
 })
 
 it('history survives reopening, retries only failed engine and quotes into draft without executing', async () => {

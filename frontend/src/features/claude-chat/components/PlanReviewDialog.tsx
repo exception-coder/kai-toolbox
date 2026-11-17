@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react'
@@ -33,6 +33,10 @@ export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote
   const [error, setError] = useState<string | null>(null)
   const [closeRequested, setCloseRequested] = useState(false)
   const retryIds = useRef(new Map<string, string>())
+  const contentRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (contentRef.current) contentRef.current.scrollTop = 0
+  }, [composing, reviewId])
   const history = useQuery({ queryKey: ['plan-reviews', sessionId], queryFn: ({ signal }) => listPlanReviews(sessionId, signal),
     refetchInterval: 3000, retry: false })
   const detail = useQuery({ queryKey: ['plan-review', sessionId, reviewId], enabled: !!reviewId,
@@ -89,15 +93,18 @@ export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote
           <Dialog.Description className="text-xs text-[var(--color-muted-foreground)]">独立评审引用文字 · 不改代码 · 不切换当前引擎</Dialog.Description></div>
         <Dialog.Close asChild><Button variant="ghost" className="min-h-11 min-w-11" aria-label="关闭方案评审" disabled={busy}><X className="size-4" /></Button></Dialog.Close>
       </header>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-        {closeRequested && <div role="alert" className="space-y-2 border-b pb-3 text-sm"><p>引用材料或关注点尚未提交，关闭后会丢失本次编辑。</p>
-          <div className="flex gap-2"><Button variant="outline" className="min-h-11" onClick={() => setCloseRequested(false)}>继续编辑</Button>
-            <Button variant="ghost" className="min-h-11" onClick={onClose}>放弃编辑并关闭</Button></div></div>}
+      <div className="shrink-0 space-y-2 border-b px-4 py-2">
         <div className="flex flex-wrap gap-2">
           <Button className="min-h-11" variant={composing ? 'secondary' : 'ghost'} disabled={busy} onClick={() => setComposing(true)}>引用材料评审</Button>
           <Button className="min-h-11" variant={!composing ? 'secondary' : 'ghost'} disabled={busy} onClick={() => setComposing(false)}>历史评审{history.data ? `（${history.data.length}）` : ''}</Button>
         </div>
-        {error && <p role="alert" className="break-words text-sm text-[var(--color-destructive)]">{error}</p>}
+        {busy && <p role="status" className="text-sm">正在提交操作，请稍候…</p>}
+        {error && <p role="alert" className="max-h-24 overflow-y-auto break-words text-sm text-[var(--color-destructive)]">{error}</p>}
+      </div>
+      <div ref={contentRef} role="region" aria-label="评审内容" className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        {closeRequested && <div role="alert" className="space-y-2 border-b pb-3 text-sm"><p>引用材料或关注点尚未提交，关闭后会丢失本次编辑。</p>
+          <div className="flex gap-2"><Button variant="outline" className="min-h-11" onClick={() => setCloseRequested(false)}>继续编辑</Button>
+            <Button variant="ghost" className="min-h-11" onClick={onClose}>放弃编辑并关闭</Button></div></div>}
         {history.isError && <div role="alert" className="text-sm"><p>评审列表读取失败：{history.error.message}</p><Button variant="outline" onClick={() => void history.refetch()}>重试读取</Button></div>}
         {composing ? <div className="space-y-4">
           <label className="block space-y-1 text-sm"><span>引用的方案材料</span>
