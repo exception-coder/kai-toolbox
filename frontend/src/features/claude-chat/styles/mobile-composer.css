@@ -1,5 +1,12 @@
 /* 默认一行；展开编辑与录音只改变呈现，复用同一个草稿和发送入口。 */
 @media (max-width: 767px) {
+  /* 部分全屏 Android 容器的 safe-area 为 0，仍需避让屏幕圆角和手势区。
+     取较大值而非相加；留白参与原 flex 布局，随可视视口一起避让键盘。 */
+  .cc-mobile-coding-workspace .cc-focus-composer {
+    padding-bottom: max(20px, env(safe-area-inset-bottom, 0px));
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
   .mobile-composer-card.cc-inline-composer {
     --wb-composer-default-radius: 27px;
     display: flex;
