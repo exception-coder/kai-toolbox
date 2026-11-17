@@ -19,6 +19,16 @@ prepare_sql_context：DDL_MISSING（05b415f0-6cc1-4d66-acb2-014e632d4468），�
 
 ## 实施补充
 
+### 2026-11-17 SQLite 并发修复
+
+首次发送会导入原生历史。原实现将读取交接状态、读取历史文件和写入上下文放在一个延迟事务内；其他连接在历史读取期间提交后，旧读快照升级写入会触发 `SQLITE_BUSY_SNAPSHOT`。文件型 WAL 数据库与真实 Spring 事务代理已复现同一条上下文 INSERT 异常，不能仅靠增加 busy_timeout 修复。[SQLite 隔离说明](https://www.sqlite.org/isolation.html)说明了此类快照升级限制。
+
+历史读取与交接证据文件生成在事务外执行，initialize 与 prepare 都暂停调用方事务，避免 prepare 内部自调用重新扩大事务。导入使用独立短事务，首条无值变更 UPDATE 先取得 SQLite 写入资格（目标行不存在也适用），再复查初始化状态，原子保存文字与状态。交接确认同样先取得写入资格，再原子保存引擎绑定、模型清理及游标。写锁等待沿用现有 busy_timeout，不调整全局 SQLite 模式、不重试或重放用户消息及模型调用。
+
+本次没有 schema 变更。prepare_sql_context 返回 DDL_MISSING（12131608-62a2-4bf1-925b-b55bd9df6753），扫描达到上限；依据本仓 schema 在独立测试库验证，运行库 DDL 未核验。此修复保持既有交接和证据契约，无整体架构影响；目标版本运行验收仍需本次重启授权。
+
+### 既有交接行为
+
 - 状态为 PREPARING → ACTIVATING → COMPLETED。PREPARING 失败保留原绑定；ACTIVATING 已持久保存目标绑定，必须等目标原生句柄对应的运行连接确认，不能当作原绑定未变。重连期间禁止发送，重启不自动重跑接管模型调用。
 - 已确认位置同时绑定原生句柄和认证目录/服务商环境指纹，身份变化重新补充上下文。提交前比对源配置，防止并发改账号、模型、权限模式造成混用。
 - 当前受限接管适配器为 Claude、Codex、Pi、Copilot；Codex 复用已有 review-only 沙箱及 MCP 禁用配置，Claude 强制空工具/空配置来源，Pi/Copilot 使用确定性工具权限回调拒绝。其他适配器没有等价机制时显式拒绝，此缺口不能用提示词代替。

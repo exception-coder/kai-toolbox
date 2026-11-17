@@ -13,6 +13,11 @@ public class EngineHandoffRepository {
 
     public EngineHandoffRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
+    /** 必须作为短事务首条 SQL；即使目标行尚不存在，也会取得 SQLite 写入资格。 */
+    public void reserveWrite(String sessionId) {
+        jdbc.update("UPDATE claude_chat_engine_handoff SET state_json=state_json WHERE session_id=?", sessionId);
+    }
+
     public Optional<String> state(String sessionId) {
         return jdbc.query("SELECT state_json FROM claude_chat_engine_handoff WHERE session_id = ?",
                 (rs, row) -> rs.getString(1), sessionId).stream().findFirst();

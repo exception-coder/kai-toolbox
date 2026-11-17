@@ -65,7 +65,10 @@ class EngineHandoffServiceTest {
 
     @AfterEach void close() throws Exception { connection.close(); }
 
-    EngineHandoffService freshService() { return new EngineHandoffService(repository, sessions, history, mapper, evidence); }
+    EngineHandoffService freshService() {
+        return new EngineHandoffService(repository, sessions, history, mapper,
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(jdbc.getDataSource()), evidence);
+    }
 
     @Test void roundTripsAcrossThreeEnginesAndRestartUseIndependentNativeCursors() {
         service.record("session", "a", "codex", "user", "目标：修复输入");

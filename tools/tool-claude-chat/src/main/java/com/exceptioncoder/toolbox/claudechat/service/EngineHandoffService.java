@@ -6,7 +6,11 @@ import com.exceptioncoder.toolbox.claudechat.repository.EngineHandoffRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.EngineHandoffRepository.Entry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -17,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /** 服务端持久交接：历史作为用户资料，确认由确定性操作身份与成功终态共同决定。 */
 @Service
@@ -28,40 +33,50 @@ public class EngineHandoffService {
     private final ObjectMapper mapper;
     private final String instance = UUID.randomUUID().toString();
     private final Path evidenceRoot;
+    private final TransactionTemplate writes;
 
     @org.springframework.beans.factory.annotation.Autowired
     public EngineHandoffService(EngineHandoffRepository repository, ClaudeChatSessionRepository sessions,
-                                ClaudeChatConversationDeltaReader history, ObjectMapper mapper) {
-        this(repository, sessions, history, mapper,
+                                ClaudeChatConversationDeltaReader history, ObjectMapper mapper,
+                                PlatformTransactionManager transactions) {
+        this(repository, sessions, history, mapper, transactions,
                 Path.of(System.getProperty("user.home"), ".kai-toolbox", "engine-handoffs"));
     }
 
     EngineHandoffService(EngineHandoffRepository repository, ClaudeChatSessionRepository sessions,
-                         ClaudeChatConversationDeltaReader history, ObjectMapper mapper, Path evidenceRoot) {
+                         ClaudeChatConversationDeltaReader history, ObjectMapper mapper,
+                         PlatformTransactionManager transactions, Path evidenceRoot) {
         this.repository = repository;
         this.sessions = sessions;
         this.history = history;
         this.mapper = mapper;
         this.evidenceRoot = evidenceRoot;
+        this.writes = new TransactionTemplate(transactions);
+        this.writes.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public State initialize(String sessionId) {
         var saved = repository.state(sessionId);
         if (saved.isPresent()) { return decode(saved.get()); }
         var read = history.readForHandoff(sessionId);
-        State state = new State();
-        state.warnings.addAll(read.warnings());
-        state.warnings.add("接入前历史仅导入现有读取器可读取的文字，工具及附件原件未迁移；以原生历史和工作区为准。");
-        for (var message : read.messages()) {
-            if ("user".equals(message.role()) || "assistant".equals(message.role())) {
-                if (!message.content().startsWith("【切换 agent")) {
-                    repository.append(sessionId, "import:" + message.sequence(), "legacy", message.role(), message.content());
+        return write(sessionId, () -> {
+            // 历史读取期间其他初始化可能已提交，取得写入资格后重新确认。
+            var initialized = repository.state(sessionId);
+            if (initialized.isPresent()) { return decode(initialized.get()); }
+            State state = new State();
+            state.warnings.addAll(read.warnings());
+            state.warnings.add("接入前历史仅导入现有读取器可读取的文字，工具及附件原件未迁移；以原生历史和工作区为准。");
+            for (var message : read.messages()) {
+                if ("user".equals(message.role()) || "assistant".equals(message.role())) {
+                    if (!message.content().startsWith("【切换 agent")) {
+                        repository.append(sessionId, "import:" + message.sequence(), "legacy", message.role(), message.content());
+                    }
                 }
             }
-        }
-        save(sessionId, state);
-        return state;
+            save(sessionId, state);
+            return state;
+        });
     }
 
     public State state(String sessionId) {
@@ -82,7 +97,7 @@ public class EngineHandoffService {
         repository.append(sessionId, key, engine, role, text);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public State prepare(ClaudeChatSession session, String target, String nativeId) {
         State state = initialize(session.getId());
         if ("ACTIVATING".equals(state.status)) { throw new IllegalStateException("目标绑定已保存，正在等待运行连接确认。"); }
@@ -114,8 +129,12 @@ public class EngineHandoffService {
         return state;
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public boolean commit(String sessionId, String requestId, String nativeId) {
+        return write(sessionId, () -> commitBinding(sessionId, requestId, nativeId));
+    }
+
+    private boolean commitBinding(String sessionId, String requestId, String nativeId) {
         State state = state(sessionId);
         if (!"PREPARING".equals(state.status) || !java.util.Objects.equals(requestId, state.requestId)) { return false; }
         if (nativeId == null || nativeId.isBlank()
@@ -226,6 +245,14 @@ public class EngineHandoffService {
     private void save(String id, State state) {
         try { repository.save(id, mapper.writeValueAsString(state)); }
         catch (IOException error) { throw new IllegalStateException("交接状态无法保存", error); }
+    }
+
+    private <T> T write(String sessionId, Supplier<T> action) {
+        return writes.execute(status -> {
+            // 首条 SQL 先取得 SQLite 写锁，避免读取旧快照后升级写事务失败。
+            repository.reserveWrite(sessionId);
+            return action.get();
+        });
     }
 
     public static class State {
