@@ -67,7 +67,7 @@ export function artisticMaterialStyle(theme: string, strength: number): CSSPrope
   return {
     ...defaults,
     '--wb-surface-texture': texture(paper ? paperFiber(strength) : press ? grain : crt ? scan : brushed),
-    '--wb-canvas-texture': texture(paper ? paperFace : press ? grain : crt ? `${scan}, radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / calc(.3 * ${intensity})))` : `${reflection}, ${brushed}`),
+    '--wb-canvas-texture': texture(paper ? paperFiber(strength * .35) : press ? grain : crt ? `${scan}, radial-gradient(ellipse at center, transparent 55%, rgb(0 0 0 / calc(.3 * ${intensity})))` : `${reflection}, ${brushed}`),
     '--wb-texture-size': press ? '7px 7px' : 'auto',
     '--wb-message-surface': press || crt ? 'transparent' : 'var(--wb-surface)',
     '--wb-message-texture': texture(paper ? paperFace : press || crt ? 'none' : reflection),

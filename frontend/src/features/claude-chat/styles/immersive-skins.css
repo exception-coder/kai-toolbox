@@ -15,6 +15,20 @@
   border-radius: var(--wb-message-radius);
   box-shadow: var(--wb-message-edge);
 }
+/* 移动阅读优先：艺术材质留在画布与控件，普通正文不再叠纸。 */
+@media (max-width: 767px) {
+  :is(html[data-workbench-theme], [data-workbench-theme]) .cc-mobile-conversation .wb-assistant-reply {
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  :is(html[data-workbench-theme], [data-workbench-theme]) .cc-mobile-conversation .wb-assistant-reply .markdown-body :is(h1,h2,h3) { box-shadow: none; }
+  :is(html[data-workbench-theme], [data-workbench-theme]) .cc-mobile-coding-workspace .mobile-composer-card {
+    background-image: none;
+    box-shadow: none;
+  }
+  :is(html[data-workbench-theme], [data-workbench-theme]) .cc-mobile-conversation .cc-user-message-body { box-shadow: none; }
+}
 :is(html[data-workbench-theme], [data-workbench-theme]) :is(.markdown-body :is(h1,h2,h3,h4),.wb-skin-thumbnail h3) {
   font-family: var(--wb-heading-font);
 }

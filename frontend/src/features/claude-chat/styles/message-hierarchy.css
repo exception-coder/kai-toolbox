@@ -41,13 +41,13 @@
   .cc-mobile-conversation {
     --cc-reading-gap: 12px;
     --cc-reading-paragraph: 10px;
-    --cc-reading-leading: 1.55;
+    --cc-reading-leading: 1.6;
   }
   .cc-mobile-conversation[data-reading-density='comfortable'] {
     --cc-reading-gap: 16px; --cc-reading-paragraph: 12px; --cc-reading-leading: 1.6;
   }
   .cc-mobile-conversation[data-reading-density='compact'] {
-    --cc-reading-gap: 8px; --cc-reading-paragraph: 8px; --cc-reading-leading: 1.5;
+    --cc-reading-gap: 8px; --cc-reading-paragraph: 8px; --cc-reading-leading: 1.55;
   }
   .cc-mobile-conversation .cc-message-row { padding: 0 16px var(--cc-reading-gap); }
   .cc-mobile-conversation .cc-assistant-body {
@@ -65,6 +65,15 @@
   .cc-mobile-conversation .cc-assistant-body :is(h1, h2, h3) { line-height: 1.45; }
   .cc-mobile-conversation .cc-reply-section:not(.cc-reply-section--summary) .markdown-body > p:first-child { font-size: inherit; }
   .cc-mobile-conversation .cc-message-actions { margin-top: 2px; }
+  .cc-mobile-conversation .cc-user-message-body {
+    font-size: var(--cc-reading-font, 16px); line-height: var(--cc-reading-leading);
+  }
+  .cc-mobile-conversation .cc-message-actions button:active {
+    background: var(--color-accent); color: var(--color-foreground);
+  }
+  .cc-mobile-conversation .cc-message-actions button:focus-visible {
+    outline: 2px solid var(--color-ring); outline-offset: -2px;
+  }
   .cc-mobile-conversation .cc-assistant-body :is(pre, table) { overscroll-behavior-x: contain; }
   .cc-layered-conversation .cc-assistant-row {
     grid-template-columns: 24px minmax(0, 1fr); row-gap: 4px;

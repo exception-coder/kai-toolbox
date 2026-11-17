@@ -60,6 +60,12 @@
   /* One boundary for the bottom controls; preserve the stop button's independent target. */
   .cc-workspace-execution-dock > div > button { border-bottom: 0; box-shadow: none; }
   .cc-mobile-coding-workspace .cc-focus-composer { border-top: 0; }
+  .cc-mobile-coding-workspace .cc-workspace-execution-dock > div {
+    background-image: none; box-shadow: none;
+  }
+  .cc-mobile-coding-workspace .cc-workspace-execution-dock > div > button {
+    padding-inline: 12px; font-size: 12px;
+  }
   .cc-mobile-conversation .cc-message-actions { justify-self: start; }
   [data-workbench-theme='atelier-paper'] .cc-focus-composer { background-image: none; }
 }

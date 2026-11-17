@@ -21,6 +21,17 @@ vi.mock('react-virtuoso', async () => {
 })
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.mocked(copyTextToClipboard).mockReset() })
 
+it('keeps the review action in the reply toolbar and preserves its message identity', () => {
+  const review = vi.fn()
+  const reply: ChatItem = { kind: 'assistant', id: 'review-source', text: '待评审方案' }
+  render(<MemoryRouter><MessageList items={[reply]} running={false} mobileWorkspace
+    renderAssistantAction={item => <button onClick={() => review(item.id)}>多引擎评审</button>} /></MemoryRouter>)
+  const button = screen.getByRole('button', { name: '多引擎评审' })
+  expect(button.closest('.cc-message-actions')).not.toBeNull()
+  fireEvent.click(button)
+  expect(review).toHaveBeenCalledWith('review-source')
+})
+
 function RouteProbe() { return <output data-testid="route">{useLocation().pathname}</output> }
 
 it.each([true, false])('shows recovery only for the latest failure, including in the mobile dock (mobile=%s)', mobile => {

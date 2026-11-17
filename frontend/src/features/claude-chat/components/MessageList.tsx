@@ -348,14 +348,13 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
       <Row item={item} onFork={onFork} onToCard={openCard} engineLabel={engineLabel} onNewSession={onNewSession}
         compactMobile={compactMobile}
         streaming={liveReplyIds.has(item.id)}
-        compactMetrics={mobileWorkspace}
+        compactMetrics={mobileWorkspace} renderAssistantAction={renderAssistantAction}
         sessionId={sessionKey}
         assistantAvatarUrl={assistantAvatarUrl} assistantAvatarAlt={assistantAvatarAlt}
         userMessageBadge={item.kind === 'user' ? getUserMessageBadge?.(item) : undefined}
         onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
         onOpenImage={openImage}
         turnText={item.kind === 'result' ? turnTextByResultIdRef.current.get(item.id) : undefined} />
-      {item.kind === 'assistant' && renderAssistantAction?.(item)}
       {item.kind === 'result' && item.id === recoveryResult?.id && recoveryActions
         && <TurnFailureRecovery key={item.id} item={item} actions={recoveryActions} />}
     </div>
@@ -540,7 +539,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
   )
 }
 
-const Row = memo(function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics, streaming }: { item: ChatItem; onFork?: (forkAnchor: string) => void; onToCard: (text: string, trigger: HTMLElement) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean; streaming?: boolean }) {
+const Row = memo(function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics, streaming, renderAssistantAction }: { item: ChatItem; onFork?: (forkAnchor: string) => void; onToCard: (text: string, trigger: HTMLElement) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean; streaming?: boolean; renderAssistantAction?: Props['renderAssistantAction'] }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -646,6 +645,7 @@ const Row = memo(function Row({ item, onFork, onToCard, engineLabel, onNewSessio
                   <ToCardButton onClick={trigger => onToCard(item.text, trigger)} />
                   {onFork && item.forkAnchor && <ForkReplyButton onFork={() => onFork(item.forkAnchor!)} />}
                 </>}
+                {renderAssistantAction?.(item)}
               </div>
             )}
           </div>
