@@ -132,6 +132,8 @@ class PagePreviewBrowserTest {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var logins = new java.util.concurrent.atomic.AtomicInteger();
         var writes = new java.util.concurrent.atomic.AtomicInteger();
+        var cookieValid = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var rejectLogin = new java.util.concurrent.atomic.AtomicBoolean(false);
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
             String body;
@@ -139,9 +141,10 @@ class PagePreviewBrowserTest {
             if ("/session".equals(path)) {
                 logins.incrementAndGet();
                 String form = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-                if (!form.contains("username=test-user") || !form.contains("password=test-password")) {
+                if (rejectLogin.get() || !form.contains("username=test-user") || !form.contains("password=test-password")) {
                     exchange.sendResponseHeaders(403, -1); exchange.close(); return;
                 }
+                cookieValid.set(true);
                 exchange.getResponseHeaders().add("Set-Cookie", "preview-session=authenticated; Path=/; HttpOnly");
                 exchange.getResponseHeaders().add("Location", "/target");
                 exchange.sendResponseHeaders(302, -1); exchange.close(); return;
@@ -153,10 +156,10 @@ class PagePreviewBrowserTest {
                 byte[] json = "{\"item\":\"0011\",\"composition\":\"cotton\"}".getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", "application/json");
                 exchange.sendResponseHeaders(200, json.length); exchange.getResponseBody().write(json); exchange.close(); return;
-            } else if ("/target".equals(path) && "preview-session=authenticated".equals(exchange.getRequestHeaders().getFirst("Cookie"))) {
+            } else if ("/target".equals(path) && cookieValid.get() && "preview-session=authenticated".equals(exchange.getRequestHeaders().getFirst("Cookie"))) {
                 body = "<html><meta charset='utf-8'><h1>登录后的目标页面</h1><p>真实渲染引擎验收 test-password</p><script>fetch('/mutate',{method:'POST'}).catch(()=>{});try{new WebSocket('ws://'+location.host+'/mutate')}catch(e){}</script></html>";
             } else {
-                exchange.sendResponseHeaders(401, -1); exchange.close(); return;
+                exchange.sendResponseHeaders("/missing".equals(path) ? 404 : 401, -1); exchange.close(); return;
             }
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "text/html;charset=UTF-8");
@@ -212,6 +215,15 @@ class PagePreviewBrowserTest {
                 assertTrue(failedLogin.text().contains("未返回页面正文"));
                 assertNotEquals("READY", reader.read("consult:bad", bad, "/target", "/login").status());
                 assertEquals(1, logins.get(), "同一失败账号不可自动重复登录");
+                logins.set(0);
+                assertEquals("READY", reader.read("personal:persisted", account, "/target", "/login").status());
+                cookieValid.set(false);
+                assertEquals("READY", reader.read("personal:persisted", account, "/target", "/login").status());
+                assertEquals(2, logins.get(), "Cookie失效后个人绑定自动恢复一次");
+                cookieValid.set(false); rejectLogin.set(true);
+                assertEquals("WAITING_LOGIN", reader.read("personal:persisted", account, "/target", "/login").status());
+                assertEquals("WAITING_LOGIN", reader.read("personal:persisted", account, "/target", "/login").status());
+                assertEquals(3, logins.get(), "重登失败不重复撞密码");
             } finally { reader.shutdown(); }
         } finally { manager.shutdown(); server.stop(0); }
     }

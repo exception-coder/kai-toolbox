@@ -154,7 +154,7 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
         var response = page.navigate(plan.origin() + plan.route(), new Page.NavigateOptions()
                 .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         if (response != null && response.status() >= 400) {
-            stage.accept("FAILED");
+            stage.accept(response.status() == 401 ? "WAITING_LOGIN" : "FAILED");
             return;
         }
         String selector = plan.readySelector() == null || plan.readySelector().isBlank() ? "h1,h2" : plan.readySelector();

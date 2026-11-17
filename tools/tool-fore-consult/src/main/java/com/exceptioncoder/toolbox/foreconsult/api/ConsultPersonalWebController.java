@@ -16,4 +16,5 @@ public class ConsultPersonalWebController {
         return service.login(consultId, credentials);
     }
     @DeleteMapping public void logout(@PathVariable String consultId) { service.logout(consultId); }
+    @PostMapping("/check") public ConsultPersonalWebService.State check(@PathVariable String consultId) { return service.check(consultId); }
 }

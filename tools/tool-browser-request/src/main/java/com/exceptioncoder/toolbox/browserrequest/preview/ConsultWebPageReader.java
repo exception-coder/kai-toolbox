@@ -39,9 +39,15 @@ class ConsultWebPageReader implements WebPageReader {
         try {
             Page result = browser.read(current.id, current.status.get());
             current.status.set(result.status());
+            if (key.startsWith("personal:") && current.authenticated && "WAITING_LOGIN".equals(result.status())) {
+                // 仅已成功登录后失效才自动恢复一次；新context失败时不递归撞密码。
+                close(key, current);
+                return read(key, account, path, loginPage);
+            }
             if (!"READY".equals(result.status())) {
                 return new Page(result.status(), result.url(), "登录或页面读取未完成", "未返回页面正文；请核对账号、登录页或目标路径。");
             }
+            current.authenticated = true;
             return new Page(result.status(), result.url(), redact(result.title(), account.password()), redact(result.text(), account.password()));
         } catch (RuntimeException failed) {
             current.status.set("FAILED");
@@ -83,6 +89,7 @@ class ConsultWebPageReader implements WebPageReader {
         final String id;
         final String fingerprint;
         volatile boolean navigable;
+        boolean authenticated;
         void stage(String value) { status.set(value); if ("NAVIGATING".equals(value)) { navigable = true; } }
         final AtomicReference<String> status = new AtomicReference<>("STARTING");
         Context(String id, String fingerprint) { this.id = id; this.fingerprint = fingerprint; }
