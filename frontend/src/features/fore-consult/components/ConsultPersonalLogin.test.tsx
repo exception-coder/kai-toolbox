@@ -48,6 +48,17 @@ it('submits only to the owner endpoint and clears password after login and logou
   expect(http).toHaveBeenLastCalledWith('/fore-consult/sessions/mine/personal-web', expect.objectContaining({ method: 'DELETE' }), 'empty')
 })
 
+it('keeps saved credentials reusable after an unconfirmed login without inventing a captcha failure', async () => {
+  const view = await open()
+  http.mockResolvedValueOnce({ configured: true, loginStatus: 'WAITING_LOGIN', result: { page: { status: 'WAITING_LOGIN' } } })
+  fireEvent.submit(view.container.querySelector('form')!)
+  await screen.findByText(/无需再次填写密码/)
+  expect(view.container.textContent).toContain('尚未登录成功')
+  expect(view.container.textContent).not.toContain('验证码')
+  expect(screen.getByLabelText('密码')).toHaveValue('')
+  expect(screen.getByRole('button', { name: '检查登录' })).not.toBeDisabled()
+})
+
 it('does not echo secrets and requires state reconciliation after uncertain failure', async () => {
   const view = await open()
   http.mockRejectedValueOnce(new Error('private-secret'))

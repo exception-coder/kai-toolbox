@@ -138,7 +138,7 @@ class PagePreviewBrowserTest {
             String path = exchange.getRequestURI().getPath();
             String body;
             if ("/mutate".equals(path)) { writes.incrementAndGet(); exchange.sendResponseHeaders(204, -1); exchange.close(); return; }
-            if ("/session".equals(path)) {
+            if ("/j_spring_security_check".equals(path)) {
                 logins.incrementAndGet();
                 String form = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                 if (rejectLogin.get() || !form.contains("username=test-user") || !form.contains("password=test-password")) {
@@ -149,9 +149,10 @@ class PagePreviewBrowserTest {
                 exchange.getResponseHeaders().add("Location", "/target");
                 exchange.sendResponseHeaders(302, -1); exchange.close(); return;
             } else if ("/login".equals(path)) {
-                body = "<html><meta charset='utf-8'><form method='post' action='/session'>"
+                body = "<html><meta charset='utf-8'><form method='post' action='/j_spring_security_check'>"
+                        + "<div style='position:absolute;top:40px;left:40px'>"
                         + "<input name='username' autocomplete='username'><input name='password' type='password'>"
-                        + "<button type='submit'>登录</button></form></html>";
+                        + "<input type='submit' value='登录'></div></form></html>";
             } else if ("/api/items".equals(path) && "preview-session=authenticated".equals(exchange.getRequestHeaders().getFirst("Cookie"))) {
                 byte[] json = "{\"item\":\"0011\",\"composition\":\"cotton\"}".getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", "application/json");
@@ -224,6 +225,11 @@ class PagePreviewBrowserTest {
                 assertEquals("WAITING_LOGIN", reader.read("personal:persisted", account, "/target", "/login").status());
                 assertEquals("WAITING_LOGIN", reader.read("personal:persisted", account, "/target", "/login").status());
                 assertEquals(3, logins.get(), "重登失败不重复撞密码");
+                rejectLogin.set(false);
+                assertEquals("READY", reader.read("personal:landing", account, "/login", "/login").status(),
+                        "默认入口即登录页时，检查登录后的落点，不能再次返回登录页");
+                assertEquals("READY", reader.read("personal:landing", account, "/login", "/login").status(),
+                        "后续检查重新读取落点，仍检查真实登录态");
             } finally { reader.shutdown(); }
         } finally { manager.shutdown(); server.stop(0); }
     }

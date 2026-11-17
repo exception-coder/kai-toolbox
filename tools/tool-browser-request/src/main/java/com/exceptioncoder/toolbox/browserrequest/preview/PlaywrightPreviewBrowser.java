@@ -98,7 +98,8 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
                 || !plan.login().passwordField().matches("[A-Za-z0-9_.-]+")) {
             return false;
         }
-        Locator form = page.locator("form:has(input[type=password]):visible");
+        // 传统登录页常把输入区域绝对定位，form本身高度为0；依据可见密码框定位所属表单。
+        Locator form = page.locator("form:has(input[type=password]:visible)");
         if (form.count() > 1) { return false; }
         Locator scope = form.count() == 1 ? form : page.locator("body");
         Locator username = scope.locator("input[name='" + plan.login().usernameField() + "']:visible");
@@ -151,7 +152,13 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
 
     private void navigate(Page page, PreviewPlan plan, Consumer<String> stage) {
         stage.accept("NAVIGATING");
-        var response = page.navigate(plan.origin() + plan.route(), new Page.NavigateOptions()
+        String destination = plan.origin() + plan.route();
+        // 默认入口本身可能永远展示登录页；登录后检查实际落点，不能再次回到登录表单。
+        if (plan.login() != null && plan.route().equals(plan.loginPage()) && sameOrigin(plan.origin(), page.url())
+                && !URI.create(page.url()).getRawPath().equals(URI.create(destination).getRawPath())) {
+            destination = page.url();
+        }
+        var response = page.navigate(destination, new Page.NavigateOptions()
                 .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         if (response != null && response.status() >= 400) {
             stage.accept(response.status() == 401 ? "WAITING_LOGIN" : "FAILED");

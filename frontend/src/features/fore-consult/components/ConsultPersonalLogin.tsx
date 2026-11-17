@@ -70,7 +70,7 @@ export function ConsultPersonalLogin({ consultId }: { consultId: string }) {
       setUnconfirmed(false)
       setMessage(next.result?.page?.status === 'READY'
         ? '已登录并保存到本人账号，后续同一系统咨询可直接使用。'
-        : '账号已保存，但登录未完成。请核对账号或登录页，再点击“检查登录”；验证码和跨域单点登录暂不支持。')
+        : '账号已保存，但尚未确认登录成功。可点击“检查登录”重新验证，无需再次填写密码；只有账号信息有误时才重新保存。')
     } catch { setMessage('登录结果未确认，可能请求超时或服务异常。请先查询登录状态或退出授权，不要重复提交密码；结束等待不代表服务端已取消登录。') }
     finally { setPassword(''); setBusy(false) }
   }
@@ -103,7 +103,7 @@ export function ConsultPersonalLogin({ consultId }: { consultId: string }) {
     <div className="max-h-[60dvh] overflow-y-auto px-4 pb-4 text-xs">
       <p className="mb-3 text-muted-foreground">账号加密保存并绑定本人，同一系统后续咨询可复用，直到主动解除绑定。读取前检查登录，失效时尝试重新登录；失败后需检查或更新账号。每个系统保存一个账号，重新保存会替换。密码不写入聊天或公共账号库。仅支持非生产站点，内网或非标准端口须先登记地址。</p>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        {state?.configured && <span className="min-w-0 break-all">本人绑定：{state.siteUrl} · {state.environment} · {state.loginStatus === 'READY' ? '上次检查通过' : state.loginStatus === 'CHECK_REQUIRED' ? '待检查登录' : '需要检查登录'}{state.checkedAt ? `（${new Date(state.checkedAt).toLocaleString()}）` : ''}</span>}
+        {state?.configured && <span className="min-w-0 break-all">本人绑定：{state.siteUrl} · {state.environment} · {state.loginStatus === 'READY' ? '上次检查通过' : state.loginStatus === 'CHECK_REQUIRED' ? '待检查登录' : state.loginStatus === 'WAITING_LOGIN' ? '尚未登录成功' : '登录检查未完成'}{state.checkedAt ? `（${new Date(state.checkedAt).toLocaleString()}）` : ''}</span>}
         <Button type="button" variant="outline" className="min-h-11" disabled={busy} onClick={() => void refresh()}>查询登录状态</Button>
         {state?.configured && <Button type="button" variant="outline" className="min-h-11" disabled={busy} onClick={() => void checkLogin()}>检查登录</Button>}
         {(state?.configured || unconfirmed) &&
