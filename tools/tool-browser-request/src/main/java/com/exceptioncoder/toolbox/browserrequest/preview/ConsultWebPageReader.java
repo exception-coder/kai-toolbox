@@ -39,6 +39,9 @@ class ConsultWebPageReader implements WebPageReader {
         try {
             Page result = browser.read(current.id, current.status.get());
             current.status.set(result.status());
+            if (!"READY".equals(result.status())) {
+                return new Page(result.status(), result.url(), "登录或页面读取未完成", "未返回页面正文；请核对账号、登录页或目标路径。");
+            }
             return new Page(result.status(), result.url(), redact(result.title(), account.password()), redact(result.text(), account.password()));
         } catch (RuntimeException failed) {
             current.status.set("FAILED");
@@ -68,6 +71,11 @@ class ConsultWebPageReader implements WebPageReader {
         if (contexts.get(key) != expected) { return; }
         contexts.remove(key);
         try { browser.close(expected.id); } catch (RuntimeException ignored) { /* 浏览器断连时不输出引擎或凭据异常。 */ }
+    }
+    @Override
+    public synchronized void closeContext(String key) {
+        Context current = contexts.get(key);
+        if (current != null) { close(key, current); }
     }
     @jakarta.annotation.PreDestroy
     public synchronized void shutdown() { new HashMap<>(contexts).forEach(this::close); }

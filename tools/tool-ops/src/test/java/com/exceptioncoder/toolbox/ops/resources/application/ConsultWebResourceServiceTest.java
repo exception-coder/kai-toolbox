@@ -23,6 +23,20 @@ class ConsultWebResourceServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.read("run", "/projects/one", List.of("one", "two"),
                 new WebResourceGateway.Request("two", "/orders", "TEST", null)));
         verifyNoInteractions(browser);
+        assertThrows(IllegalArgumentException.class, () -> service.readPersonal("personal:test", "/projects/one",
+                new BrowserLoginTarget("personal", "个人", "PROD", "https://one.test", "me", "secret", "username", "password"),
+                new WebResourceGateway.Request("personal", "/", "PROD", null)));
+        var personal = new BrowserLoginTarget("personal", "个人", "TEST", "https://one.test", "me", "secret", "username", "password");
+        assertThrows(IllegalArgumentException.class, () -> service.readPersonal("personal:test", "/projects/one", personal,
+                new WebResourceGateway.Request("personal", "https://two.test/orders", "TEST", null)));
+        verifyNoInteractions(browser);
+        assertThrows(IllegalArgumentException.class, () -> service.readPersonal("personal:private", "/projects/one",
+                new BrowserLoginTarget("personal", "个人", "TEST", "http://127.0.0.1", "me", "secret", "username", "password"),
+                new WebResourceGateway.Request("personal", "/", "TEST", null)));
+        service.readPersonal("personal:test", "/projects/one", personal, new WebResourceGateway.Request("personal", "/orders", "TEST", "/login"));
+        verify(browser).read("personal:test", personal, "/orders", "/login");
+        service.closePersonal("personal:test");
+        verify(browser).closeContext("personal:test");
     }
     @Test void validatesFrozenBindingsAndEnvironmentBeforeReadingWithServerSideCredentials() {
         var provider = mock(ResourceProvider.class);

@@ -83,7 +83,7 @@ class PagePreviewBrowserTest {
         server.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
             String body;
-            if ("/json-session".equals(path)) {
+            if ("/api/login".equals(path)) {
                 submissions.incrementAndGet();
                 String json = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                 if (!json.contains("test-user") || !json.contains("test-password")) {
@@ -98,7 +98,7 @@ class PagePreviewBrowserTest {
                 body = "<html><meta charset=utf-8><input autocomplete=username id=u>"
                         + ("/ambiguous".equals(path) ? "<input type=password><input type=password>" : "<input type=password id=p>")
                         + "<button id=submit>登录</button><script>document.getElementById('submit').onclick=async()=>{"
-                        + "await fetch('/json-session',{method:'POST',body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});"
+                        + "await fetch('/api/login',{method:'POST',body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});"
                         + "localStorage.setItem('fixture-auth','yes');location.href='/spa-target'}</script></html>";
             }
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
@@ -114,7 +114,7 @@ class PagePreviewBrowserTest {
             BrowserLoginTarget account = new BrowserLoginTarget("spa", "SPA", "TEST", origin,
                     "test-user", "test-password", "username", "password");
             List<String> stages = new ArrayList<>();
-            browser.open("spa", new PreviewPlan(origin, "/spa-target", "/spa-login", "h1", "page", false, null, account), stages::add, () -> false);
+            browser.open("spa", new PreviewPlan(origin, "/spa-target", "/spa-login", "h1", "page", false, null, account, true), stages::add, () -> false);
             assertEquals(List.of("AUTHENTICATING", "NAVIGATING", "READY"), stages);
             assertEquals(1, submissions.get());
             stages.clear();
@@ -202,9 +202,14 @@ class PagePreviewBrowserTest {
                 assertTrue(api.text().contains("cotton"));
                 assertEquals(1, logins.get(), "页面和GET接口复用同一登录态，且错误路径可更正");
                 assertEquals(0, writes.get(), "咨询页面不应执行非登录POST或WebSocket");
+                reader.closeContext("consult:binding");
+                assertEquals("READY", reader.read("consult:binding", account, "/target", "/login").status());
+                assertEquals(2, logins.get(), "主动退出后必须重新登录，不能复用旧Cookie");
                 logins.set(0);
                 var bad = new BrowserLoginTarget("bad", "错误账号", "TEST", origin, "wrong-user", "test-password", "username", "password");
-                assertNotEquals("READY", reader.read("consult:bad", bad, "/target", "/login").status());
+                var failedLogin = reader.read("consult:bad", bad, "/target", "/login");
+                assertNotEquals("READY", failedLogin.status());
+                assertTrue(failedLogin.text().contains("未返回页面正文"));
                 assertNotEquals("READY", reader.read("consult:bad", bad, "/target", "/login").status());
                 assertEquals(1, logins.get(), "同一失败账号不可自动重复登录");
             } finally { reader.shutdown(); }

@@ -88,6 +88,49 @@ public class ConsultWebResourceService implements WebResourceGateway {
         }
     }
 
+    @Override
+    public Object readPersonal(String contextKey, String sourcePath, BrowserLoginTarget account, Request request) {
+        var systemSites = discoverBound(sourcePath); // 仍须唯一关联当前系统，不能通过个人账号扩大系统范围。
+        if (!ResourceEnvironmentPolicy.allowed(account.environment()) || !account.environment().equals(request.environment())) {
+            throw new IllegalArgumentException("个人账号仅支持明确的LOCAL/DEV/TEST/UAT环境");
+        }
+        String path = targetPath(account.baseUrl(), request.url());
+        String login = targetPath(account.baseUrl(), request.loginPage());
+        boolean registeredSite = systemSites.stream().anyMatch(site -> List.of("AVAILABLE", "REGISTRATION_ONLY").contains(site.state()) && site.endpoint() != null
+                && site.environment().equals(account.environment()) && matchesTarget(site.endpoint(), account.baseUrl()));
+        if (!registeredSite) { requirePublicSite(account.baseUrl()); }
+        for (var known : catalog()) {
+            if (known.endpoint() != null && sameOrigin(known.endpoint(), account.baseUrl())
+                    && !ResourceEnvironmentPolicy.allowed(known.environment())) {
+                throw new IllegalArgumentException("该站点已登记为生产或未知环境，不能用个人账号绕过限制");
+            }
+        }
+        var page = browser.read(contextKey, account, path, login);
+        return new Evidence(new ReadonlyResourceGateway.Entry(request.bindingId(), "personal", "本次咨询", "个人账号",
+                account.environment(), "本人声明环境，未独立核验", "AVAILABLE", null, safeEndpoint(account.baseUrl()), "APP"), account.username(), page);
+    }
+
+    @Override
+    public void closePersonal(String contextKey) { browser.closeContext(contextKey); }
+
+    private void requirePublicSite(String url) {
+        try {
+            var uri = URI.create(url);
+            if (uri.getPort() != -1 && uri.getPort() != 80 && uri.getPort() != 443) {
+                throw new IllegalArgumentException("未登记站点只支持HTTP(S)标准端口");
+            }
+            for (var address : java.net.InetAddress.getAllByName(uri.getHost())) {
+                byte[] bytes = address.getAddress();
+                boolean shared = bytes.length == 4 && (bytes[0] & 255) == 100 && (bytes[1] & 255) >= 64 && (bytes[1] & 255) <= 127;
+                if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress()
+                        || address.isSiteLocalAddress() || address.isMulticastAddress() || shared
+                        || (bytes.length == 16 && (bytes[0] & 254) == 252)) {
+                    throw new IllegalArgumentException("内网站点需先绑定到当前系统，再使用个人账号登录");
+                }
+            }
+        } catch (java.net.UnknownHostException invalid) { throw new IllegalArgumentException("站点域名无法解析，请核对地址"); }
+    }
+
     static String targetPath(String baseUrl, String value) {
         URI base = URI.create(baseUrl);
         if (base.getHost() == null || base.getRawUserInfo() != null || base.getRawQuery() != null || base.getRawFragment() != null

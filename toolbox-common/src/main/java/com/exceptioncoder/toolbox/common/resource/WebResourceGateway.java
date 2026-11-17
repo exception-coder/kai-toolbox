@@ -14,6 +14,9 @@ public interface WebResourceGateway {
     }
     /** 明确环境/URL 后读取；不能扩大至未绑定的系统或地址。 */
     Object read(String runtimeId, String sourcePath, List<String> bindingIds, Request request);
+    /** 本人经鉴权表单授予的临时账号；调用者负责所有权、有效期和撤销。 */
+    Object readPersonal(String contextKey, String sourcePath, BrowserLoginTarget account, Request request);
+    void closePersonal(String contextKey);
     /** 资源身份与页面目标，不接受密码。 */
     record Request(@jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 100) String bindingId,
                    @jakarta.validation.constraints.Size(max = 2048) String url,

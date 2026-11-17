@@ -25,3 +25,5 @@ BrowserLoginResources、WebResourceGateway和WebPageReader是common端口。ops�
 旧节点未选工具、未选账号、无流程快照的关联咨询均装配 consult_web。未关联咨询不装配，服务端焦点未确认不发现账号；discoverBound在ops按唯一源码目录匹配系统，READ再次检查当前绑定，停用或移除立即生效。无绑定返回空列表，平台规则说明账号配置入口，不伪报“没有浏览器”。新系统绑定可用于旧咨询是本次有意调整的授权来源，不迁移或改写历史快照。
 
 回归复用既有装配、资源和Chromium测试，补齐无快照、跨系统、当前绑定变化、Cookie GET JSON和失败账号不重试。账号缺口由管理员在资源中心配置，不自动猜测ERP地址或把现有平台账号绑定到ERP。部署和真实ERP排查均待后续运行条件，当前不重启。
+
+个人账号补充入口见[个人账号设计](../consult-personal-web-login/design.md)：本人表单临时授权不要求公共账号绑定，签名工具仍只接收引用，不接收密码；共享账号继续按本设计绑定规则执行。

@@ -14,6 +14,8 @@ public class ConsultResourceService {
     private ConsultSourceRoutingService sourceRouting;
     @org.springframework.beans.factory.annotation.Autowired
     private com.exceptioncoder.toolbox.common.resource.WebResourceGateway webResources;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ConsultPersonalWebService personalWeb;
     private final ConsultSessionRepository sessions;
     private final ConsultWorkflowRepository workflows;
     private final ReadonlyResourceGateway gateway;
@@ -29,11 +31,17 @@ public class ConsultResourceService {
     }
 
     public List<ReadonlyResourceGateway.Entry> webResources(String runtimeId) {
-        return webResources.discoverBound(webSourcePath(runtimeId));
+        String sourcePath = webSourcePath(runtimeId);
+        var session = sessions.findByDevSessionId(runtimeId).orElseThrow();
+        return java.util.stream.Stream.concat(webResources.discoverBound(sourcePath).stream(),
+                personalWeb == null ? java.util.stream.Stream.empty() : personalWeb.discover(session).stream()).toList();
     }
 
     public Object webPage(String runtimeId, com.exceptioncoder.toolbox.common.resource.WebResourceGateway.Request request) {
         String sourcePath = webSourcePath(runtimeId);
+        if (request.bindingId() != null && request.bindingId().startsWith("personal-")) {
+            return personalWeb.read(sessions.findByDevSessionId(runtimeId).orElseThrow(), request);
+        }
         var bindings = webResources.discoverBound(sourcePath).stream()
                 .map(ReadonlyResourceGateway.Entry::bindingId).toList();
         return webResources.read(runtimeId, sourcePath, bindings, request);

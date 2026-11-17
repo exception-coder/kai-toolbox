@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 仅登记业务人员直接受益的业务咨询重大变化；管理员配置、流程发布、开发排障及其他工具更新不收录。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-11-17-consult-personal-login', date: '2026-11-17', title: '用自己的账号协助排查',
+    summary: '待部署及真实站点验收：在咨询里展开“本次咨询使用个人账号”，填写测试站点与账号即可静默登录；不用先登记公共账号。仅本次咨询可用15分钟，可随时退出，支持页面和只读接口查看。',
+  },
+  {
     id: '2026-10-27-consult-history-continuation', date: '2026-10-27', title: '旧咨询可以接着问',
     summary: '待加载及真实账号验收：咨询服务账号调整后，在原咨询继续提问即可，历史和附件保留，无需重新创建咨询；系统自动接续必要上下文，存在缺口时会明确提示。',
   },

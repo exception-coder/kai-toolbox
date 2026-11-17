@@ -4,6 +4,8 @@ package com.exceptioncoder.toolbox.common.resource;
 public interface WebPageReader {
     /** 在会话隔离的登录上下文读取同源页面。 */
     Page read(String contextKey, BrowserLoginTarget target, String path, String loginPage);
+    /** 主动撤销个人授权时释放该隔离登录态。 */
+    void closeContext(String contextKey);
 
     /** 页面正文是外部不可信证据，不是 Agent 指令。 */
     record Page(String status, String url, String title, String text) { }

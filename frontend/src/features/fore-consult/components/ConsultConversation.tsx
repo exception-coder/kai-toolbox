@@ -21,6 +21,7 @@ import { ConsultRoutingStatus } from './ConsultRoutingStatus'
 import { ConsultVoiceActions } from './ConsultVoiceActions'
 import { checkConsultFiles } from '../consultAttachmentPolicy'
 import { MobileConsultComposer } from './MobileConsultComposer'
+import { ConsultPersonalLogin } from './ConsultPersonalLogin'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
 const BUG_RE = /<<<BUG_REPORT>>>\s*([\s\S]*?)\s*<<<END_BUG_REPORT>>>/
@@ -520,6 +521,7 @@ export function ConsultConversation({
         </div>
 
         {!readOnly && sourceRoutingEnabled && <ConsultRoutingStatus consultId={consultId} />}
+        {!readOnly && !startupPending && <ConsultPersonalLogin key={consultId} consultId={consultId} />}
         {/* 正常 bypass 不会触发；异常出现待确认时留在咨询面板提示，避免跳入 ADMIN-only 悬浮窗。 */}
         {pending && (
           <div className="shrink-0 border-b border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-700">

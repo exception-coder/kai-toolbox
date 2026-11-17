@@ -50,7 +50,8 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
                 boolean safeMethod = Set.of("GET", "HEAD", "OPTIONS").contains(route.request().method());
                 boolean loginRequest = authenticating.get() && sameOrigin(plan.origin(), url)
                         && (url.equals(loginSubmission.get()) || (plan.login() != null && plan.login().loginRequestPath() != null
-                        && url.equals(plan.origin() + plan.login().loginRequestPath())));
+                        && url.equals(plan.origin() + plan.login().loginRequestPath()))
+                        || credentialLoginRequest(plan.login(), route.request().method(), url, route.request().postData()));
                 if (plan.readOnly() && !safeMethod && !loginRequest) { route.abort(); return; }
                 if (route.request().isNavigationRequest() && !sameOrigin(plan.origin(), route.request().url())) {
                     route.abort();
@@ -122,6 +123,30 @@ class PlaywrightPreviewBrowser implements PreviewBrowser {
         submit.click();
         passwords.waitFor(new Locator.WaitForOptions().setState(com.microsoft.playwright.options.WaitForSelectorState.HIDDEN));
         return true;
+    }
+
+    /** 兼容常见SPA登录：只识别同源登录阶段、明确登录端点及包含本次双凭据的POST。 */
+    static boolean credentialLoginRequest(com.exceptioncoder.toolbox.common.resource.BrowserLoginTarget account,
+                                          String method, String url, String body) {
+        if (account == null || account.username() == null || account.username().isBlank()
+                || account.password() == null || account.password().isBlank()
+                || !"POST".equals(method) || body == null || body.length() > 16384
+                || !sameOrigin(account.baseUrl(), url)) { return false; }
+        String path = URI.create(url).getPath();
+        if (!path.matches("(?i).*/(?:login|signin|sign-in|authenticate|authentication|token|session)(?:\\.(?:do|json|action))?/?$")) { return false; }
+        try {
+            java.util.List<String> values = new java.util.ArrayList<>();
+            if (body.stripLeading().startsWith("{")) {
+                var json = new com.fasterxml.jackson.databind.ObjectMapper().readTree(body);
+                json.elements().forEachRemaining(value -> { if (value.isTextual()) { values.add(value.textValue()); } });
+            } else {
+                for (String part : body.split("&")) {
+                    int split = part.indexOf('=');
+                    if (split >= 0) { values.add(java.net.URLDecoder.decode(part.substring(split + 1), java.nio.charset.StandardCharsets.UTF_8)); }
+                }
+            }
+            return values.contains(account.username()) && values.contains(account.password());
+        } catch (Exception invalid) { return false; }
     }
 
     private void navigate(Page page, PreviewPlan plan, Consumer<String> stage) {
