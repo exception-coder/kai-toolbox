@@ -131,6 +131,7 @@ async function handlePermission(permission: Permission): Promise<void> {
 }
 
 function automaticPermissionResponse(h: Handler, permission: Permission): 'always' | 'reject' | undefined {
+  if (h.toolPolicy === 'disabled') return 'reject'
   if (h.toolPolicy === 'consult-readonly' || h.permissionMode === 'plan') {
     return isReadPermission(permission.type) ? 'always' : 'reject'
   }
@@ -230,8 +231,12 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx, createRuntime: typeo
   } }
   try {
     ctx.signal.throwIfAborted()
-    if (ctx.apiBaseUrl) {
-      owned = await createRuntime(opencodeGatewayOptions(ctx))
+    if (ctx.apiBaseUrl || ctx.toolPolicy === 'disabled') {
+      const options = ctx.apiBaseUrl ? opencodeGatewayOptions(ctx) : { hostname: '127.0.0.1', port: 0, signal: ctx.signal }
+      owned = await createRuntime(ctx.toolPolicy === 'disabled'
+        ? { ...options, config: { ...('config' in options ? options.config : {}), tools: { '*': false },
+          permission: { edit: 'deny', bash: 'deny', webfetch: 'deny', external_directory: 'deny' } } }
+        : options)
       startEventLoop(owned.client, events.signal, ctx.cwd)
     }
     await executeOpencodeTurn(safeContext, owned?.client ?? await ensureClient())
@@ -255,7 +260,7 @@ async function executeOpencodeTurn(ctx: OpencodeTurnCtx, client: OpencodeClient)
   const dir = existsSync(ctx.cwd) ? ctx.cwd : undefined
   const query = dir ? { directory: dir } : undefined
   if (ctx.apiBaseUrl) {
-    const effective = await client.config.get({ query })
+    const effective = await client.config.get({ query, signal: ctx.signal })
     const expected = opencodeGatewayOptions(ctx).config
     const actual = effective.data?.provider?.[FORGE_OPENCODE_PROVIDER]
     if (effective.error || effective.data?.model !== expected.model
@@ -268,7 +273,7 @@ async function executeOpencodeTurn(ctx: OpencodeTurnCtx, client: OpencodeClient)
 
   let sid = ctx.sdkSessionId
   if (!sid) {
-    const created = await client.session.create({ body: {}, query })
+    const created = await client.session.create({ body: {}, query, signal: ctx.signal })
     sid = created.data?.id
     if (!sid) { ctx.emit({ type: 'error', code: 'OPENCODE_ERROR', message: '创建 opencode 会话失败' }); return }
     ctx.setSdkSessionId(sid)
@@ -287,10 +292,19 @@ async function executeOpencodeTurn(ctx: OpencodeTurnCtx, client: OpencodeClient)
 
   const model = ctx.apiBaseUrl ? { providerID: FORGE_OPENCODE_PROVIDER, modelID: ctx.model!.trim() } : parseModel(ctx.model)
   try {
+    ctx.signal.throwIfAborted()
+    let disabledTools: Record<string, boolean> | undefined
+    if (ctx.toolPolicy === 'disabled') {
+      const tools = await client.tool.ids({ query, signal: ctx.signal })
+      if (tools.error || !Array.isArray(tools.data)) throw new Error('OpenCode 无法确认工具清单，未发送评审材料')
+      disabledTools = Object.fromEntries(tools.data.map(id => [id, false]))
+    }
     const res = await client.session.prompt({
+      signal: ctx.signal,
       path: { id: sessionId },
       query,
       body: {
+        ...(disabledTools ? { tools: disabledTools } : {}),
         ...(model ? { model } : {}),
         ...(ctx.developerInstructions ? { system: ctx.developerInstructions } : {}),
         parts: [{ type: 'text', text: prependWindowsExecutionInstructions(appendSqlDdlFallbackRule(ctx.text)) }],
@@ -299,6 +313,9 @@ async function executeOpencodeTurn(ctx: OpencodeTurnCtx, client: OpencodeClient)
     if (res.error) {
       ctx.emit({ type: 'error', code: 'OPENCODE_ERROR', message: stringifyError(res.error) })
       return
+    }
+    if (ctx.toolPolicy === 'disabled' && res.data?.parts?.some(part => part.type === 'tool')) {
+      throw new Error('OpenCode 文字评审出现工具记录，结果未确认')
     }
     // SSE may connect late or drop events. The blocking prompt response is authoritative;
     // replay only the suffix not already delivered by message.part.updated.

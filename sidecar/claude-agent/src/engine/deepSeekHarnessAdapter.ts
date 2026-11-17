@@ -10,6 +10,7 @@ import {
   type SdkUserQuestionRequest,
 } from '@deepseek-ai/dsh-sdk-client'
 import { bindHarnessSession, harnessEnvironment, harnessHome, sameWorkspace } from './deepSeekHarnessLocal.js'
+import { harnessReviewOptions } from './harnessReview.js'
 import type {
   AgentEngineAdapter,
   AgentEvent,
@@ -165,7 +166,8 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
 
   async runTurn(request: EngineTurnRequest): Promise<void> {
     if (this.running) throw new Error('DeepSeek Harness adapter already owns an active turn')
-    if (request.demo || (request.toolPolicy && request.toolPolicy !== 'default')
+    const review = request.sessionId.startsWith('plan-review:') && request.toolPolicy === 'disabled'
+    if (request.demo || (!review && request.toolPolicy && request.toolPolicy !== 'default')
       || (request.permissionMode && request.permissionMode !== 'default')) {
       throw new Error('DeepSeek Harness 当前仅支持普通开发会话的原生工作区权限；咨询、评审、演示及其他权限模式尚未开放')
     }
@@ -181,6 +183,8 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
     request.signal?.addEventListener('abort', abortListener, { once: true })
     let subscription: NotificationSubscription | undefined
     try {
+      // Never reuse a normal-workspace runtime for a restricted review.
+      if (review && this.client) await this.resetClient()
       const readiness = this.handshake?.status === 'ready' ? this.handshake : await this.probe()
       if (readiness.status !== 'ready') {
         throw new Error(`DeepSeek Harness is not ready: ${readiness.detail ?? readiness.status}`)
@@ -384,6 +388,7 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
       ...(this.config.runtimeCommand ? { dshBin: this.config.runtimeCommand } : {}),
       profile: 'sdk',
       dshHome: this.config.home ?? harnessHome(),
+      ...(this.activeRequest?.toolPolicy === 'disabled' ? harnessReviewOptions(this.config.cwd) : {}),
       processCwd: this.config.cwd,
       env: harnessEnvironment(this.config.env ?? process.env, this.config.credentialFile),
       initializeTimeoutMs: this.config.handshakeTimeoutMs,
@@ -403,6 +408,7 @@ export class DeepSeekHarnessAdapter implements AgentEngineAdapter {
 
   private async handleApproval(method: string, params: Record<string, unknown>): Promise<unknown> {
     const request = this.activeRequest
+    if (request?.toolPolicy === 'disabled') return { outcome: 'rejected' }
     const call = typeof params.callId === 'string' ? this.toolInputs.get(params.callId) : undefined
     if (method !== 'approval/request' || !request?.requestPermission || request.signal?.aborted || this.interruptRequested
       || params.sessionId !== request.sessionId || !call || call.name !== params.toolName) return { outcome: 'rejected' }

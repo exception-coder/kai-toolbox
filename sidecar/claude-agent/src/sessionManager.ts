@@ -45,6 +45,7 @@ import { runCopilotTurn } from './copilotEngine.js'
 import { runTraeTurn } from './traeEngine.js'
 import { runZCodeTurn } from './zcodeEngine.js'
 import { runHermesTurn } from './hermesEngine.js'
+import { runZCodeReview } from './zcodeReview.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
 import { appendWindowsExecutionInstructions, windowsExecutionInstructions } from './windowsExecution.js'
@@ -968,7 +969,8 @@ export class Session {
     const ac = new AbortController()
     this.abort = ac
     try {
-      await runZCodeTurn({ text, developerInstructions, cwd: this.cwd, model: this.model,
+      const execute = this.id.startsWith('plan-review:') && this.toolPolicy === 'disabled' ? runZCodeReview : runZCodeTurn
+      await execute({ text, developerInstructions, cwd: this.cwd, model: this.model,
         sdkSessionId: this.sdkSessionId, permissionMode: this.permissionMode, toolPolicy: this.toolPolicy,
         signal: ac.signal, emit: event => this.emitTurn(event),
         setSdkSessionId: id => { this.sdkSessionId = id } })

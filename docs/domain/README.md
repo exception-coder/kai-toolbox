@@ -34,6 +34,7 @@ Forge 把项目、需求、AI 会话和交付证据放在同一个工作台，�
 - **需求与 PRD 通过关联字段连接。**已关联的 PRD 不重复显示；多个真实需求关联同一 PRD 时保留各需求；未关联项仍可管理。展示整合不改变业务记录。[文档依据](../../frontend/src/features/reqpool/README.md)、[实现依据](../../frontend/src/features/reqpool/lib/unifiedDeliveryModel.ts)
 - **咨询先定位授权项目，再读取证据。**当前源码从 `docs/INDEX.md`、`docs/domain/`、`openspec/specs/` 读取原文；无资料时保留缺口，不恢复公共知识仓。历史文档不当作当前 DDL，实时业务值仍需实际资源查询。[知识入口](../../sidecar/claude-agent/src/knowledgeQuery.ts)、[文件读取实现](../../sidecar/claude-agent/src/projectKnowledge.ts)
 - **过程状态不能代替结果。**需求登记、会话完成、代码提交与运行验收分别核对；Agent 的通用评测入口不自动证明某个候选版本可以发布。[交付中心](../../frontend/src/features/reqpool/README.md)、[评测边界](../../frontend/src/features/agent-management/README.md)
+- **方案评审按引擎分别给建议。**引用同一份文字并选择多个引擎，结果只引用回原会话草稿。选择区完整展示 11 项，九项具有无工具适配，另外两项显示限制；安装/运行探测不等于真实模型调用成功。扩展尚未部署，账号、原生运行问题与验收证据见[多引擎评审任务](../../openspec/changes/multi-engine-plan-review/tasks.md)。
 
 ## 待确认与验证边界
 

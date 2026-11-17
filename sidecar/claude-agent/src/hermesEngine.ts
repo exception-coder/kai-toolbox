@@ -4,6 +4,7 @@ import { mkdir, open, unlink } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { EngineProbeResult } from './engine/engineContract.js'
+import { hermesReviewEnvironment } from './hermesReview.js'
 
 type Json = Record<string, unknown>
 const record = (value: unknown): Json => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Json : {}
@@ -27,10 +28,10 @@ export class HermesAcpClient {
   readonly child: ChildProcessWithoutNullStreams
   constructor(private readonly onUpdate: (params: Json) => void = () => undefined,
     private readonly onPermission: (params: Json) => Promise<Json> = async () => ({ outcome: { outcome: 'cancelled' } }),
-    launch: typeof spawn = spawn) {
+    launch: typeof spawn = spawn, environment?: NodeJS.ProcessEnv) {
     const native = hermesCommand()
     this.child = launch(native.command, native.args, { shell: false, windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe'] }) as ChildProcessWithoutNullStreams
+      stdio: ['pipe', 'pipe', 'pipe'], env: environment }) as ChildProcessWithoutNullStreams
     this.child.stdout.setEncoding('utf8')
     this.child.stdout.on('data', (chunk: string) => {
       this.buffer += chunk
@@ -103,9 +104,9 @@ export class HermesAcpClient {
   }
 }
 
-export async function initializeHermes(client: Pick<HermesAcpClient, 'request'>): Promise<Json> {
+export async function initializeHermes(client: Pick<HermesAcpClient, 'request'>, timeoutMs = 15_000): Promise<Json> {
   const result = await client.request('initialize', { protocolVersion: 1,
-    clientCapabilities: {}, clientInfo: { name: 'forge', version: '1.0.0' } }, 15_000)
+    clientCapabilities: {}, clientInfo: { name: 'forge', version: '1.0.0' } }, timeoutMs)
   if (result.protocolVersion !== 1 || record(result.agentInfo).name !== 'hermes-agent'
     || record(result.agentCapabilities).loadSession !== true) throw new Error('Hermes ACP 协议或精确恢复能力不兼容')
   return result
@@ -158,7 +159,8 @@ export async function acquireHermesTurn(sessionId: string, root = path.join(os.h
 }
 
 export async function runHermesTurn(ctx: HermesTurnContext,
-  createClient: ClientFactory = (update, permission) => new HermesAcpClient(update, permission),
+  createClient: ClientFactory = (update, permission) => new HermesAcpClient(update, permission, spawn,
+    ctx.toolPolicy === 'disabled' ? hermesReviewEnvironment(ctx.cwd) : undefined),
   acquire: typeof acquireHermesTurn = acquireHermesTurn): Promise<void> {
   let client: HermesClient | undefined, nativeId = ctx.sdkSessionId, release: (() => Promise<void>) | undefined
   let prompting = false, terminal = false, text = '', cancelTimer: NodeJS.Timeout | undefined
@@ -178,7 +180,7 @@ export async function runHermesTurn(ctx: HermesTurnContext,
   ctx.signal.addEventListener('abort', abort, { once: true })
   try {
     if (ctx.signal.aborted) { ctx.emit({ type: 'result', usage: {}, stopReason: 'interrupted' }); return }
-    if (ctx.toolPolicy && ctx.toolPolicy !== 'default') throw new Error('Hermes 首版不支持咨询、审阅或禁用工具的受限会话')
+    if (ctx.toolPolicy && !['default', 'disabled'].includes(ctx.toolPolicy)) throw new Error('Hermes 不支持此受限会话策略')
     if (ctx.model) throw new Error('Hermes 首版跟随原生模型配置；不接受 Forge 模型覆盖')
     if (ctx.images?.length) throw new Error('Hermes 首版未接入图片输入，拒绝静默忽略附件')
     const mode = ({ default: 'default', acceptEdits: 'accept_edits' } as Record<string, string>)[ctx.permissionMode]
@@ -209,7 +211,7 @@ export async function runHermesTurn(ctx: HermesTurnContext,
         }
       }
     }, async params => {
-      if (!prompting || params.sessionId !== nativeId || controller.signal.aborted || !ctx.canUseTool) return denied
+      if (ctx.toolPolicy === 'disabled' || !prompting || params.sessionId !== nativeId || controller.signal.aborted || !ctx.canUseTool) return denied
       const tool = record(params.toolCall)
       const input = record(tool.rawInput)
       const decision = await ctx.canUseTool(tool.kind === 'execute' ? 'Bash' : 'Hermes tool', input, { signal: controller.signal })
@@ -219,7 +221,7 @@ export async function runHermesTurn(ctx: HermesTurnContext,
       const once = options.find(option => option.kind === 'allow_once' && typeof option.optionId === 'string')
       return once ? { outcome: { outcome: 'selected', optionId: once.optionId } } : denied
     })
-    await initializeHermes(client)
+    await initializeHermes(client, ctx.toolPolicy === 'disabled' ? 60_000 : 15_000)
     const session = await client.request(nativeId ? 'session/load' : 'session/new', { cwd: ctx.cwd, mcpServers: [], ...(nativeId ? { sessionId: nativeId } : {}) })
     if (!nativeId) {
       if (typeof session.sessionId !== 'string' || !session.sessionId.trim()) throw new Error('Hermes 未返回原生会话身份')

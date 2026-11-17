@@ -59,7 +59,7 @@ test('streaming uses exact native identity and never bills cumulative session us
 })
 
 test('restricted policies, unsupported model/mode and pre-cancelled turn never launch', async () => {
-  for (const override of [{ toolPolicy: 'disabled' }, { toolPolicy: 'consult-readonly' }, { toolPolicy: 'review-only' },
+  for (const override of [{ toolPolicy: 'consult-readonly' }, { toolPolicy: 'review-only' },
     { model: 'inherited-codex-model' }, { images: [{ mediaType: 'image/png', data: 'x' }] }, { permissionMode: 'bypassPermissions' }, { permissionMode: 'plan' }]) {
     const c = context()
     await runHermesTurn({ ...c.ctx, ...override }, () => { assert.fail('must not launch') })

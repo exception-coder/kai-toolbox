@@ -18,13 +18,32 @@ beforeEach(() => {
   vi.mocked(api.changePlanReview).mockResolvedValue(batch)
 })
 afterEach(() => { cleanup(); vi.resetAllMocks() })
-function mount(initial = true) {
+function mount(initial = true, engines: typeof api.REVIEW_ENGINES[number][] = ['codex', 'claude']) {
   const onQuote = vi.fn(), onClose = vi.fn()
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   render(<QueryClientProvider client={client}><PlanReviewDialog sessionId="session" initial={initial ? { id: 'message', text: '引用原文' } : undefined}
-    engines={['codex', 'claude']} onClose={onClose} onQuote={onQuote} returnFocus={vi.fn()} /></QueryClientProvider>)
+    engines={engines} onClose={onClose} onQuote={onQuote} returnFocus={vi.fn()} /></QueryClientProvider>)
   return { onQuote, onClose, client }
 }
+
+it('shows the complete engine catalog with explicit availability and review restrictions', () => {
+  mount()
+  expect(screen.getAllByRole('checkbox')).toHaveLength(11)
+  expect(screen.getByRole('checkbox', { name: /DeepSeek Harness/ })).toBeDisabled()
+  expect(screen.getByRole('checkbox', { name: /ZCode/ })).toBeDisabled()
+  expect(screen.getByRole('checkbox', { name: /Antigravity/ })).toBeDisabled()
+  expect(screen.getByText('原生 CLI 尚未核验禁用全部工具的能力')).toBeTruthy()
+})
+
+it('submits all nine supported engines without the previous four-engine limit', async () => {
+  mount(true, [...api.REVIEW_ENGINES])
+  for (const checkbox of screen.getAllByRole('checkbox') as HTMLInputElement[]) {
+    if (!checkbox.disabled && !checkbox.checked) fireEvent.click(checkbox)
+  }
+  fireEvent.click(screen.getByRole('button', { name: '开始评审（9 个引擎）' }))
+  await waitFor(() => expect(api.createPlanReview).toHaveBeenCalledTimes(1))
+  expect(vi.mocked(api.createPlanReview).mock.calls[0][1].engines).toHaveLength(9)
+})
 
 it('confirms material and selected engines before dispatch, duplicate clicks do not create another batch', async () => {
   mount()

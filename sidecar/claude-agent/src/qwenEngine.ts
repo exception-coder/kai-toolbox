@@ -1,3 +1,4 @@
+import { QWEN_REVIEW_BLOCKED_TOOLS } from './qwenReviewTools.js'
 import {
   isAbortError,
   isSDKAssistantMessage,
@@ -45,6 +46,7 @@ export function mapQwenPermissionMode(mode: string, toolPolicy?: string): Permis
 }
 
 export function createQwenPermissionHandler(ctx: QwenTurnContext): CanUseTool | undefined {
+  if (ctx.toolPolicy === 'disabled') return async () => ({ behavior: 'deny', message: 'Text review cannot use tools.', interrupt: true })
   if (!ctx.canUseTool) return undefined
   return async (toolName, input, options) => {
     const decision = await ctx.canUseTool!(toolName, input, { signal: options.signal })
@@ -79,6 +81,8 @@ export async function runQwenTurn(ctx: QwenTurnContext, queryFactory: QwenQueryF
         abortController: controller,
         permissionMode: mapQwenPermissionMode(ctx.permissionMode, ctx.toolPolicy),
         canUseTool: createQwenPermissionHandler(ctx),
+        ...(ctx.toolPolicy === 'disabled' ? { safeMode: true, excludeTools: QWEN_REVIEW_BLOCKED_TOOLS,
+          mcpServers: {}, maxSessionTurns: 1 } : {}),
         systemPrompt: ctx.developerInstructions
           ? { type: 'preset', preset: 'qwen_code', append: ctx.developerInstructions }
           : undefined,

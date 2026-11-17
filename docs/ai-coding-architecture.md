@@ -34,7 +34,7 @@ flowchart LR
 
 ### Vibe Coding 运行分层与附加能力
 
-内部多引擎方案评审以原会话及用户确认的文字快照为边界：Java 保存批次/尝试身份并执行权限、并发及恢复编排，Sidecar 创建独立的受限原生会话，前端并列显示各自意见并只将选中建议引用回草稿。它不切换源引擎、不自动继承完整历史、不产生公开分享；第一版无互评或摘要模型。取消/重启后未确认结果不会自动重放，各引擎意见不等于项目验证事实。支持范围和待部署验收见[多引擎评审任务](../openspec/changes/multi-engine-plan-review/tasks.md)。
+内部多引擎方案评审以原会话及用户确认的文字快照为边界：Java 保存批次/尝试身份并执行权限、并发及恢复编排，Sidecar 创建独立的受限原生会话，前端并列显示各自意见并只将选中建议引用回草稿。它不切换源引擎、不自动继承完整历史、不产生公开分享；第一版无互评或摘要模型。取消/重启后未确认结果不会自动重放，各引擎意见不等于项目验证事实。界面展示全部 11 个引擎；九个具有受限文字适配，Trae/Antigravity 保留未核验禁用工具说明。Harness 使用独立最小配置，ZCode 使用空工具白名单，Hermes 使用隔离原生 profile，Qwen/OpenCode 使用原生工具禁用；均不回退普通开发权限。适配不等于真实账号调用或部署成功，支持范围和待部署验收见[多引擎评审任务](../openspec/changes/multi-engine-plan-review/tasks.md)。
 
 ![多引擎方案评审](diagrams/ForgeVibeCoding运行架构-方案评审.png)
 
@@ -360,7 +360,7 @@ flowchart LR
 
 VibeCoding 复用已有 EngineAdapterRegistry 与 DeepSeek SDK Adapter，不建立独立 Agent 平台。SDK 和自带 dsh 精确锁定同一发布版本；协议身份、可启动性和模型鉴权是不同证据。凭据优先使用显式运行环境，其次是后端唯一的全局官方 DeepSeek 服务商档案，再回退本机 Harness 原生凭据。后端不扫描用户私人档案、不把第三方网关 Key 交给官方端点；仅在受信 Sidecar 内部环境传递，引擎启动前清除其他凭据。Key 不回传浏览器、不写入项目，原有 `.dsh` Web profile 不改写。
 
-运行数据落入 Forge 独立 Harness Home；Forge sessionId 与 cwd 的绑定只保存身份信息，重建进程或停止后明确恢复原生历史并核对实际目录。恢复缺失、损坏或项目不符时不创建替代会话。原生额外审批与提问复用 Forge Permissions，未知请求和取消不能构成允许。首版只开放普通开发会话的原生 workspace-write 权限，不支持咨询、评审、演示或其他权限模式；图片仍显式拒绝。SDK 推送原生步骤与工具事件，当前发布包不保证逐 Token 文本输出；只有原生 `turn/end` 的 completed 加 idle 才报告成功，停止请求与失败不能被 idle 掩盖。实现、隔离模型验证及待加载状态见[Harness 任务](../openspec/changes/complete-deepseek-harness-engine/tasks.md)。
+运行数据落入 Forge 独立 Harness Home；Forge sessionId 与 cwd 的绑定只保存身份信息，重建进程或停止后明确恢复原生历史并核对实际目录。恢复缺失、损坏或项目不符时不创建替代会话。原生额外审批与提问复用 Forge Permissions，未知请求和取消不能构成允许。普通开发沿用原生 workspace-write 权限；内部文字方案评审新增独立 sdk-minimal 无工具配置与私有 Home，只允许 plan-review 身份进入，不扩大咨询、公开评审、演示或其他权限模式；图片仍显式拒绝。扩展实现与真实调用边界见[多引擎评审任务](../openspec/changes/multi-engine-plan-review/tasks.md)。SDK 推送原生步骤与工具事件，当前发布包不保证逐 Token 文本输出；只有原生 `turn/end` 的 completed 加 idle 才报告成功，停止请求与失败不能被 idle 掩盖。实现、隔离模型验证及待加载状态见[Harness 任务](../openspec/changes/complete-deepseek-harness-engine/tasks.md)。
 
 ```mermaid
 flowchart LR

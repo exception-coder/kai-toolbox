@@ -18,7 +18,7 @@ import java.util.function.Consumer;
 /** 原会话下的内部评审批次；同步区仅覆盖状态转换，模型调用在外部执行。 */
 @Service
 public class PlanReviewService {
-    public static final Set<String> ENGINES = Set.of("claude", "codex", "pi", "copilot");
+    public static final Set<String> ENGINES = Set.of("claude", "codex", "pi", "copilot", "deepseekHarness", "zcode", "hermes", "qwen", "opencode");
     private final PlanReviewRepository reviews;
     private final ClaudeChatSessionRepository sessions;
     private final ClaudeChatSessionAccessPolicy access;
@@ -66,8 +66,8 @@ public class PlanReviewService {
         String focus = bounded(command.focus(), 4_000, false);
         String messageId = bounded(command.sourceMessageId(), 300, false);
         List<String> engines = command.engines() == null ? List.of() : command.engines().stream().distinct().sorted().toList();
-        if (engines.isEmpty() || engines.size() > 4 || !ENGINES.containsAll(engines)) {
-            throw bad("请选择 1 至 4 个受支持的评审引擎。");
+        if (engines.isEmpty() || engines.size() > ENGINES.size() || !ENGINES.containsAll(engines)) {
+            throw bad("请选择已支持受限文字评审的引擎。");
         }
         var existing = reviews.find(sessionId, id);
         if (existing.isPresent()) {
@@ -191,6 +191,9 @@ public class PlanReviewService {
 
     private void validateEngine(ClaudeChatSession session, String engine) {
         if (!catalog.selectable(engine)) throw bad("引擎 " + engine + " 当前不可用，请先检测运行环境。");
+        if ("opencode".equals(engine) && session.getApiBaseUrl() != null && !session.getApiBaseUrl().isBlank()) {
+            throw bad("OpenCode 评审目前使用原生默认模型，请先切回原生服务商；不继承其他引擎的网关模型。");
+        }
         if (session.getApiBaseUrl() != null && !session.getApiBaseUrl().isBlank()
                 && !SessionProviderCapabilities.supportsGateway(engine)) throw bad("引擎 " + engine + " 不支持当前会话网关。");
     }

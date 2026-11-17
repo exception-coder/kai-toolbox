@@ -8,7 +8,7 @@ import type { Engine } from '../types'
 import { engineName } from './chatStatus'
 import { Markdown } from './Markdown'
 import { changePlanReview, createPlanReview, getPlanReview, listPlanReviews, planReviewRequestId,
-  REVIEW_ENGINES, reviewQuote, reviewUuid, type PlanReviewTask } from '../lib/planReviewApi'
+  REVIEW_ENGINES, REVIEW_ENGINE_LIMITATIONS, reviewQuote, reviewUuid, type PlanReviewTask } from '../lib/planReviewApi'
 
 interface Props {
   sessionId: string; initial?: { id: string; text: string }; engines: Engine[]
@@ -21,7 +21,7 @@ const labels: Record<PlanReviewTask['status'], string> = {
 export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote, returnFocus }: Props) {
   const portal = useFullscreenPortalContainer()
   const queries = useQueryClient()
-  const available = REVIEW_ENGINES.filter(engine => engines.includes(engine))
+  const available = REVIEW_ENGINES.filter(engine => engines.includes(engine) && !REVIEW_ENGINE_LIMITATIONS[engine])
   const [selected, setSelected] = useState<Engine[]>(available.slice(0, 2))
   const [material, setMaterial] = useState(initial?.text ?? '')
   const [focus, setFocus] = useState('')
@@ -41,6 +41,11 @@ export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote
 
   async function submit() {
     if (busyRef.current || !material.trim() || !selected.length) return
+    if (selected.some(engine => !available.includes(engine))) {
+      setError('所选引擎的可用状态已变化，请重新选择后开始评审。')
+      setSelected(selected.filter(engine => available.includes(engine)))
+      return
+    }
     busyRef.current = true; setBusy(true); setError(null)
     try {
       const input = { sourceMessageId: initial?.id ?? '', material: material.trim(), focus: focus.trim(), engines: selected }
@@ -101,9 +106,9 @@ export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote
           <label className="block space-y-1 text-sm"><span>重点关注（可选）</span>
             <textarea aria-label="重点关注" className="min-h-20 w-full rounded-md border bg-transparent p-3" maxLength={4000} value={focus} disabled={busy} onChange={e => setFocus(e.target.value)} placeholder="例如：权限边界、遗漏场景、实现成本" /></label>
           <fieldset disabled={busy}><legend className="mb-1 text-sm">选择评审引擎</legend>
-            <div className="flex flex-wrap gap-x-5">{REVIEW_ENGINES.map(engine => <label key={engine} className="flex min-h-11 items-center gap-2 text-sm">
+            <div className="grid grid-cols-1 gap-x-5 sm:grid-cols-2">{REVIEW_ENGINES.map(engine => <label key={engine} className="flex min-h-11 items-center gap-2 py-1 text-sm">
               <input type="checkbox" checked={selected.includes(engine)} disabled={!available.includes(engine)} onChange={e => setSelected(current => e.target.checked ? [...current, engine] : current.filter(item => item !== engine))} />
-              {engineName(engine)}{!available.includes(engine) && <span className="text-xs text-[var(--color-muted-foreground)]">不可用</span>}
+              <span>{engineName(engine)}{!available.includes(engine) && <span className="block text-xs text-[var(--color-muted-foreground)]">{REVIEW_ENGINE_LIMITATIONS[engine] || '运行检测未就绪，请在引擎设置中检查安装与登录'}</span>}</span>
             </label>)}</div>
           </fieldset>
           <p className="text-xs text-[var(--color-muted-foreground)]">使用各引擎的原生默认模型，每个所选引擎会单独调用并计费/消耗额度。第一轮互不读取其他意见。</p>

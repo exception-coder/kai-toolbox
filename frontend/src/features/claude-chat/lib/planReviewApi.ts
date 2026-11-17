@@ -1,7 +1,11 @@
 import { http } from '@/lib/api'
 import type { Engine } from '../types'
 
-export const REVIEW_ENGINES: Engine[] = ['claude', 'codex', 'pi', 'copilot']
+export const REVIEW_ENGINES: Engine[] = ['claude', 'codex', 'pi', 'copilot', 'deepseekHarness', 'zcode', 'hermes', 'qwen', 'trae', 'opencode', 'antigravity']
+export const REVIEW_ENGINE_LIMITATIONS: Partial<Record<Engine, string>> = {
+  trae: '尚未接入完整禁用工具的评审模式',
+  antigravity: '原生 CLI 尚未核验禁用全部工具的能力',
+}
 export interface PlanReviewTask {
   engine: Engine; attemptId: string; status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'INTERRUPTED'
   result: string | null; error: string | null; model: string | null

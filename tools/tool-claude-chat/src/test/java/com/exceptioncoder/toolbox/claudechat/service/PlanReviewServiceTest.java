@@ -63,6 +63,18 @@ class PlanReviewServiceTest {
         assertThat(service.get("source", id).material).isEqualTo("方案原文");
     }
 
+    @Test void expandedEngineSelectionPreservesIndependentTasksAndRejectsUnsupportedOrUnavailable() {
+        var all = PlanReviewService.ENGINES.stream().sorted().toList();
+        var batch = service.create("source", new PlanReviewService.Create(UUID.randomUUID().toString(), "m", "方案", "", all));
+        assertThat(batch.tasks).extracting(t -> t.engine).containsExactlyElementsOf(all);
+        assertThat(work).hasSize(all.size());
+        assertThatThrownBy(() -> service.create("source", new PlanReviewService.Create(UUID.randomUUID().toString(), "m", "方案", "", List.of("trae"))))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("400");
+        when(catalog.selectable("zcode")).thenReturn(false);
+        assertThatThrownBy(() -> service.create("source", new PlanReviewService.Create(UUID.randomUUID().toString(), "m", "方案", "", List.of("zcode"))))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("不可用");
+    }
+
     @Test void independentFailureAndSuccessDoNotChangeSourceAndRetryOnlyFailedEngine() throws Exception {
         when(runner.run(any(), anyString(), eq("claude"), anyString())).thenThrow(new PlanReviewRunner.ReviewFailure("认证不可用"));
         var batch = service.create("source", command(UUID.randomUUID().toString()));
@@ -118,7 +130,7 @@ class PlanReviewServiceTest {
         source.setExecutionPolicy("review-only");
         assertThatThrownBy(() -> service.create("source", command(UUID.randomUUID().toString()))).isInstanceOf(ResponseStatusException.class);
         source.setExecutionPolicy("standard");
-        assertThatThrownBy(() -> service.create("source", new PlanReviewService.Create(UUID.randomUUID().toString(), "m", "正文", "", List.of("hermes"))))
+        assertThatThrownBy(() -> service.create("source", new PlanReviewService.Create(UUID.randomUUID().toString(), "m", "正文", "", List.of("trae"))))
                 .isInstanceOf(ResponseStatusException.class);
         assertThat(work).isEmpty();
     }
