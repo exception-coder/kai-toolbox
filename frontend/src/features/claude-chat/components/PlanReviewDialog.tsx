@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ApiError } from '@/lib/api'
 import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import type { Engine } from '../types'
 import { engineName } from './chatStatus'
@@ -16,6 +17,18 @@ interface Props {
 }
 const labels: Record<PlanReviewTask['status'], string> = {
   QUEUED: '等待评审', RUNNING: '正在评审', SUCCEEDED: '评审完成', FAILED: '评审失败', CANCELLED: '已取消', INTERRUPTED: '结果未确认',
+}
+type SubmitFeedback = { title: string; detail: string; action: 'engines' | 'history' | 'none' }
+function submissionFeedback(failure: unknown, dispatched: boolean): SubmitFeedback {
+  const message = failure instanceof Error ? failure.message : '请求未正常返回。'
+  if (!dispatched) return { title: '评审未启动', detail: `未能准备提交，请保留材料并检查浏览器存储权限。${message}`, action: 'none' }
+  if (failure instanceof ApiError && [400, 401, 403, 404, 422].includes(failure.status)) {
+    if (message.includes('请选择 1 至 4 个受支持的评审引擎')) return {
+      title: '评审未启动', detail: '当前服务尚未支持所选新增引擎。可先选择 Claude、Codex、Pi 或 Copilot；新增引擎需管理员加载新版本后使用。', action: 'engines',
+    }
+    return { title: '评审未启动', detail: message, action: /引擎/.test(message) ? 'engines' : 'none' }
+  }
+  return { title: '提交结果待确认', detail: '未收到明确的提交结果，请先查看历史记录，避免重复调用。材料已保留。', action: 'history' }
 }
 
 export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote, returnFocus }: Props) {
@@ -31,9 +44,11 @@ export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
+  const [submitFeedback, setSubmitFeedback] = useState<SubmitFeedback | null>(null)
   const [closeRequested, setCloseRequested] = useState(false)
   const retryIds = useRef(new Map<string, string>())
   const contentRef = useRef<HTMLDivElement>(null)
+  const enginesRef = useRef<HTMLFieldSetElement>(null)
   useEffect(() => {
     if (contentRef.current) contentRef.current.scrollTop = 0
   }, [composing, reviewId])
@@ -46,21 +61,23 @@ export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote
   async function submit() {
     if (busyRef.current || !material.trim() || !selected.length) return
     if (selected.some(engine => !available.includes(engine))) {
-      setError('所选引擎的可用状态已变化，请重新选择后开始评审。')
+      setSubmitFeedback({ title: '评审未启动', detail: '所选引擎的可用状态已变化，请重新选择。', action: 'engines' })
       setSelected(selected.filter(engine => available.includes(engine)))
       return
     }
-    busyRef.current = true; setBusy(true); setError(null)
+    busyRef.current = true; setBusy(true); setError(null); setSubmitFeedback(null)
+    let dispatched = false
     try {
       const input = { sourceMessageId: initial?.id ?? '', material: material.trim(), focus: focus.trim(), engines: selected }
       const requestId = planReviewRequestId(sessionId, input)
+      dispatched = true
       const result = await createPlanReview(sessionId, { ...input, requestId })
       draftBaseline.current = { material, focus }
       queries.setQueryData(['plan-review', sessionId, result.id], result)
       setReviewId(result.id); setComposing(false)
       void history.refetch()
     } catch (failure) {
-      setError(`${failure instanceof Error ? failure.message : '提交失败'}。若连接中断，请先查看历史评审；原参数再次提交会复用同一批次。`)
+      setSubmitFeedback(submissionFeedback(failure, dispatched))
     } finally { busyRef.current = false; setBusy(false) }
   }
 
@@ -98,7 +115,7 @@ export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote
           <Button className="min-h-11" variant={composing ? 'secondary' : 'ghost'} disabled={busy} onClick={() => setComposing(true)}>引用材料评审</Button>
           <Button className="min-h-11" variant={!composing ? 'secondary' : 'ghost'} disabled={busy} onClick={() => setComposing(false)}>历史评审{history.data ? `（${history.data.length}）` : ''}</Button>
         </div>
-        {busy && <p role="status" className="text-sm">正在提交操作，请稍候…</p>}
+        {busy && !composing && <p role="status" className="text-sm">正在提交操作，请稍候…</p>}
         {error && <p role="alert" className="max-h-24 overflow-y-auto break-words text-sm text-[var(--color-destructive)]">{error}</p>}
       </div>
       <div ref={contentRef} role="region" aria-label="评审内容" className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
@@ -112,14 +129,13 @@ export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote
             <span className="block text-xs text-[var(--color-muted-foreground)]">可删减或粘贴方案原文。不会自动读取完整会话、附件或项目文件。{material.length}/100000 字符</span></label>
           <label className="block space-y-1 text-sm"><span>重点关注（可选）</span>
             <textarea aria-label="重点关注" className="min-h-20 w-full rounded-md border bg-transparent p-3" maxLength={4000} value={focus} disabled={busy} onChange={e => setFocus(e.target.value)} placeholder="例如：权限边界、遗漏场景、实现成本" /></label>
-          <fieldset disabled={busy}><legend className="mb-1 text-sm">选择评审引擎</legend>
-            <div className="grid grid-cols-1 gap-x-5 sm:grid-cols-2">{REVIEW_ENGINES.map(engine => <label key={engine} className="flex min-h-11 items-center gap-2 py-1 text-sm">
-              <input type="checkbox" checked={selected.includes(engine)} disabled={!available.includes(engine)} onChange={e => setSelected(current => e.target.checked ? [...current, engine] : current.filter(item => item !== engine))} />
-              <span>{engineName(engine)}{!available.includes(engine) && <span className="block text-xs text-[var(--color-muted-foreground)]">{REVIEW_ENGINE_LIMITATIONS[engine] || '运行检测未就绪，请在引擎设置中检查安装与登录'}</span>}</span>
+          <fieldset ref={enginesRef} disabled={busy} tabIndex={-1}><legend className="mb-1 text-sm">选择评审引擎</legend>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">{REVIEW_ENGINES.map(engine => <label key={engine} className="flex min-h-11 min-w-0 items-start gap-2 py-2 text-sm">
+              <input className="mt-1 shrink-0" type="checkbox" checked={selected.includes(engine)} disabled={!available.includes(engine)} onChange={e => setSelected(current => e.target.checked ? [...current, engine] : current.filter(item => item !== engine))} />
+              <span className="min-w-0 break-words">{engineName(engine)}{!available.includes(engine) && <span className="block text-xs text-[var(--color-muted-foreground)]">{REVIEW_ENGINE_LIMITATIONS[engine] || '运行检测未就绪，请在引擎设置中检查安装与登录'}</span>}</span>
             </label>)}</div>
           </fieldset>
           <p className="text-xs text-[var(--color-muted-foreground)]">使用各引擎的原生默认模型，每个所选引擎会单独调用并计费/消耗额度。第一轮互不读取其他意见。</p>
-          <Button className="min-h-11" disabled={busy || !material.trim() || material.length > 100000 || !selected.length || history.isError} onClick={() => void submit()}>{busy ? '正在提交…' : `开始评审（${selected.length} 个引擎）`}</Button>
         </div> : <>
           <label className="block space-y-1 text-sm"><span>本会话最近 50 次评审</span><select aria-label="选择评审记录" className="min-h-11 w-full min-w-0 rounded-md border bg-[var(--color-background)] px-2" value={reviewId ?? ''} disabled={busy || history.isError} onChange={e => setReviewId(e.target.value || null)}>
             <option value="">选择评审记录</option>{!history.isError && history.data?.map(item => <option key={item.id} value={item.id}>{new Date(item.createdAt).toLocaleString()} · {item.preview.replace(/\s+/g, ' ')}{item.activeCount ? ` · ${item.activeCount} 项进行中` : ''}</option>)}</select></label>
@@ -128,6 +144,11 @@ export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote
           {reviewId && detail.isPending && <p role="status">正在读取评审结果…</p>}
           {detail.isError && <div role="alert"><p>结果读取失败：{detail.error.message}</p><Button variant="outline" onClick={() => void detail.refetch()}>重新读取结果</Button></div>}
           {!history.isError && !detail.isError && detail.data && <>
+            <div role="status" className="space-y-1 border-b pb-3">
+              <h2 className="text-sm font-semibold">评审进度</h2>
+              <p className="text-sm">{detail.data.tasks.filter(t => t.status === 'SUCCEEDED').length} / {detail.data.tasks.length} 项成功 · {detail.data.tasks.filter(t => t.status === 'RUNNING' || t.status === 'QUEUED').length} 项进行中 · {detail.data.tasks.filter(t => ['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(t.status)).length} 项未完成</p>
+              <p className="text-xs text-[var(--color-muted-foreground)]">状态自动更新，关闭窗口后可从历史评审返回。</p>
+            </div>
             <details className="border-b pb-3"><summary className="min-h-11 cursor-pointer text-sm">查看本次引用材料与关注点</summary><pre className="whitespace-pre-wrap break-words text-sm">{detail.data.material}</pre><p className="mt-3 text-sm">关注点：{detail.data.focus || '通用方案评审'}</p></details>
             <p className="text-xs text-[var(--color-muted-foreground)]">仅依据以上材料；意见未经项目验证。关闭窗口后任务继续，可从「会话与分享 → 多引擎方案评审」返回。</p>
             {detail.data.tasks.map(task => <section key={task.engine} className="min-w-0 space-y-3 border-b pb-4">
@@ -142,6 +163,16 @@ export function PlanReviewDialog({ sessionId, initial, engines, onClose, onQuote
           </>}
         </>}
       </div>
+      {composing && <footer className="shrink-0 space-y-2 border-t px-4 py-3">
+        {submitFeedback && <div role="alert" className="max-h-[25vh] space-y-1 overflow-y-auto text-sm">
+          <p className="font-semibold text-[var(--color-destructive)]">{submitFeedback.title}</p>
+          <p>{submitFeedback.detail}</p>
+          {submitFeedback.action === 'engines' && <Button variant="outline" className="min-h-11" onClick={() => { enginesRef.current?.scrollIntoView?.({ block: 'start' }); enginesRef.current?.focus({ preventScroll: true }) }}>调整评审引擎</Button>}
+          {submitFeedback.action === 'history' && <Button variant="outline" className="min-h-11" onClick={() => { setComposing(false); void history.refetch() }}>查看历史确认结果</Button>}
+        </div>}
+        {busy && <p role="status" className="text-sm">正在创建评审，成功后将自动显示进度…</p>}
+        <Button className="min-h-11 w-full sm:w-auto" disabled={busy || !material.trim() || material.length > 100000 || !selected.length || history.isError} onClick={() => void submit()}>{busy ? '正在提交…' : `开始评审（${selected.length} 个引擎）`}</Button>
+      </footer>}
     </Dialog.Content>
   </Dialog.Portal></Dialog.Root>
 }

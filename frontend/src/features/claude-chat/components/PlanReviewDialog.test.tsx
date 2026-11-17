@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { ApiError } from '@/lib/api'
 import { PlanReviewDialog } from './PlanReviewDialog'
 import * as api from '../lib/planReviewApi'
 
@@ -56,19 +57,25 @@ it('confirms material and selected engines before dispatch, duplicate clicks do 
   await waitFor(() => expect(api.createPlanReview).toHaveBeenCalledTimes(1))
   expect(vi.mocked(api.createPlanReview).mock.calls[0][1]).toMatchObject({ material: '确认后的方案', focus: '权限边界', engines: ['claude', 'codex'] })
   expect(await screen.findByText('建议补充访问校验')).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: '评审进度' })).toBeTruthy()
+  expect(await screen.findByText('1 / 2 项成功 · 0 项进行中 · 1 项未完成')).toBeTruthy()
   expect(content.scrollTop).toBe(0)
 })
 
 it('keeps rejection and history navigation visible outside the long mobile form without losing material', async () => {
-  vi.mocked(api.createPlanReview).mockRejectedValue(new Error('请选择 1 至 4 个受支持的评审引擎。'))
+  vi.mocked(api.createPlanReview).mockRejectedValue(new ApiError(400, null, '请选择 1 至 4 个受支持的评审引擎。'))
   mount()
   const content = screen.getByRole('region', { name: '评审内容' })
   content.scrollTop = 800
   fireEvent.change(screen.getByLabelText('引用的方案材料'), { target: { value: '保留我的方案' } })
   fireEvent.click(screen.getByRole('button', { name: '开始评审（2 个引擎）' }))
   const error = await screen.findByRole('alert')
-  expect(error.textContent).toContain('请选择 1 至 4')
+  expect(error.textContent).toContain('评审未启动')
+  expect(error.textContent).toContain('当前服务尚未支持所选新增引擎')
   expect(content.contains(error)).toBe(false)
+  expect(content.contains(screen.getByRole('button', { name: '开始评审（2 个引擎）' }))).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: '调整评审引擎' }))
+  expect(screen.getByRole('group', { name: '选择评审引擎' })).toHaveFocus()
   const history = screen.getByRole('button', { name: /历史评审/ })
   expect(content.contains(history)).toBe(false)
   expect((screen.getByLabelText('引用的方案材料') as HTMLTextAreaElement).value).toBe('保留我的方案')
@@ -76,6 +83,17 @@ it('keeps rejection and history navigation visible outside the long mobile form 
   fireEvent.click(history)
   expect(await screen.findByLabelText('选择评审记录')).toBeTruthy()
   expect(content.scrollTop).toBe(0)
+})
+
+it('does not claim a network interruption means no review started and offers history recovery', async () => {
+  vi.mocked(api.createPlanReview).mockRejectedValue(new TypeError('Failed to fetch'))
+  mount()
+  fireEvent.click(screen.getByRole('button', { name: '开始评审（2 个引擎）' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('提交结果待确认')
+  expect(screen.queryByText('评审未启动')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '查看历史确认结果' }))
+  expect(await screen.findByLabelText('选择评审记录')).toBeTruthy()
+  expect(api.createPlanReview).toHaveBeenCalledTimes(1)
 })
 
 it('history survives reopening, retries only failed engine and quotes into draft without executing', async () => {
