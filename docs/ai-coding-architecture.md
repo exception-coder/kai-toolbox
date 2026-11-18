@@ -966,6 +966,8 @@ flowchart LR
 
 Forge 运行入口提供 Cloudflare 本地隧道的 Node 控制（tunnel start/stop/status/check），复用工作区私有 PM2。本机显式启用 `FORGE_CLOUDFLARE_ENABLED` 后，固定域名隧道随项目启动与完整重载运行，控制器重建时恢复，PM2 对意外退出做有限次数重试；全量 stop 仍停止它。启动完成判断要求本机服务与固定域名首页、API 均可回源，status/check 区分进程与公网状态，不能以 PM2 online 代替公网可用。远端域名、DNS 和凭证仍由 Cloudflare 及本机现有配置负责；Quick Tunnel 保持手动控制，不随登录默认启动，也不改变工程上下文、Agent 重启授权或交付裁决。固定/临时入口与网络边界见 [启动说明](../scripts/STARTUP.md#cloudflare-固定域名隧道)。
 
+固定域名隧道支持为同一 UUID 选配分别绑定本机网络接口的两个连接器。Forge 负责进程生命周期与域名整体回源探测，Cloudflare 负责边缘副本调度，实际独立出口由主机路由提供。任一连接器正常运行且域名回源成功即可满足公网启动条件，双出口切换需单独验证。
+
 Java 自动更新器继续独占远端 Git 检查，默认改为每五分钟轮询 origin/main；daily 仍可显式选择。先等待远端 SHA 稳定并在独立 worktree 构建候选，再按 restart-policy 决定交接。manual 为安全默认，仅准备候选；明确启用 idle 后，在无任务、待处理授权和持久队列的情况下观察五分钟空闲，Agent admission 世代捕获两次观测间完成的短任务。等待阶段不关闭任务入口，最终短暂排空与重新 fetch/HEAD 核对后，以持久恢复记录保护原生 stash、固定 SHA 快进与 --index 恢复。未跟踪文件留在原处，ahead/diverged、恢复冲突或未知状态均阻断，不 reset/clean/rebase。只构建和运行远端提交，恢复的未提交源码不进入候选制品。既有 Forge/PM2 是唯一重启接管者；交接失败恢复入口并等待人工确认，不自动再次重启。旧每日授权不自动扩张为全天重启许可，本次未改变运行配置或重启服务。实施与运行证据见[轮询更新任务](../openspec/changes/poll-source-update-safely/tasks.md)。
 
 ```mermaid

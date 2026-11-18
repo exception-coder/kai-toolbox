@@ -1,10 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync, renameSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join, delimiter } from 'node:path';
+import { homedir, networkInterfaces } from 'node:os';
+import { isIP } from 'node:net';
+import { join, delimiter, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { setTimeout as pause } from 'node:timers/promises';
-import { runtimePaths, flag } from './config.mjs';
+import { runtimePaths, readConfig, flag } from './config.mjs';
 import { connectManager, appOptions } from './process-manager.mjs';
+
+const PRIMARY = 'cloudflare';
+const REPLICA = 'cloudflare-replica';
 
 export function tunnelAsset(platform, arch) {
   if (!['x64', 'arm64'].includes(arch)) throw new Error(`Unsupported cloudflared architecture: ${arch}`);
@@ -15,9 +19,14 @@ export function tunnelAsset(platform, arch) {
   throw new Error(`Unsupported cloudflared platform: ${platform}`);
 }
 
-export function tunnelArguments(config, protocol = 'http2') {
+export function tunnelArguments(config, protocol = 'http2', bindAddress) {
   if (!['http2', 'quic', 'auto'].includes(protocol)) throw new Error('Invalid tunnel protocol');
-  return ['tunnel', '--no-autoupdate', '--protocol', protocol, '--config', config, 'run'];
+  const args = ['tunnel', '--no-autoupdate', '--protocol', protocol, '--config', config];
+  if (bindAddress) {
+    if (!isIP(bindAddress)) throw new Error('Cloudflare edge bind address must be an IP address');
+    args.push('--edge-bind-address', bindAddress);
+  }
+  return [...args, 'run'];
 }
 
 export function quickArguments(config, url, protocol) {
@@ -61,26 +70,103 @@ function validateConfig(config) {
   return contents.match(/^\s*- hostname:\s*(\S+)/m)?.[1] || null;
 }
 
-export function managedTunnelConfig(env) {
+export function managedTunnelConfig(env, interfaces = networkInterfaces()) {
   if (!flag(env.FORGE_CLOUDFLARE_ENABLED, false)) return null;
   const config = env.FORGE_CLOUDFLARE_CONFIG || join(homedir(), '.kai-toolbox', 'cloudflared', 'config.yml');
   const hostname = validateConfig(config);
   if (!hostname) throw new Error('Managed Cloudflare tunnel requires a named hostname in config.yml');
   const protocol = env.FORGE_CLOUDFLARE_PROTOCOL || 'http2';
-  return { config, hostname, args: tunnelArguments(config, protocol) };
+  const primaryAddress = env.FORGE_CLOUDFLARE_EDGE_BIND_ADDRESS;
+  const replicaAddress = env.FORGE_CLOUDFLARE_REPLICA_BIND_ADDRESS;
+  const args = tunnelArguments(config, protocol, primaryAddress);
+  if (!replicaAddress) return { config, hostname, args };
+
+  const replicaArgs = tunnelArguments(config, 'http2', replicaAddress);
+  const interfaceFor = address => Object.entries(interfaces).find(([, entries]) =>
+    entries?.some(entry => !entry.internal && entry.address === address))?.[0];
+  const primaryInterface = interfaceFor(primaryAddress);
+  const replicaInterface = interfaceFor(replicaAddress);
+  if (!primaryAddress || primaryAddress === replicaAddress || (primaryInterface && primaryInterface === replicaInterface)) {
+    throw new Error('Cloudflare replicas require explicit bind addresses on two distinct local network interfaces');
+  }
+  const unavailable = new Set();
+  if (!primaryInterface) unavailable.add(PRIMARY);
+  if (!replicaInterface) unavailable.add(REPLICA);
+  return { config, hostname, args, replicaArgs, unavailable };
+}
+
+function argValue(args, option) {
+  const position = Array.isArray(args) ? args.indexOf(option) : -1;
+  return position < 0 ? undefined : args[position + 1];
+}
+
+export function activeTunnelApp(apps) {
+  const connectors = [PRIMARY, REPLICA].map(name => apps.find(app => app.name === name)).filter(Boolean);
+  return connectors.find(app => app.pm2_env.status === 'online')
+    || connectors.find(app => !['errored', 'stopped'].includes(app.pm2_env.status)) || connectors[0];
+}
+
+export function tunnelReplicas(apps) {
+  return apps.filter(app => [PRIMARY, REPLICA].includes(app.name));
+}
+
+function describeConnector(app, name, absent = 'stopped') {
+  return app ? { name, pid: app.pid, state: app.pm2_env.status,
+    restarts: app.pm2_env.restart_time } : { name, state: absent };
+}
+
+export function tunnelSnapshot(apps, replicaConfigured, absent) {
+  const active = activeTunnelApp(apps);
+  const snapshot = describeConnector(active, active?.name || PRIMARY, absent);
+  if (replicaConfigured || apps.some(app => app.name === REPLICA)) {
+    snapshot.connectors = [PRIMARY, REPLICA].map(name =>
+      describeConnector(apps.find(app => app.name === name), name, absent));
+  }
+  return snapshot;
 }
 
 /** Idempotent startup path shared with the Forge controller; PM2 owns bounded crash retries. */
-export async function ensureManagedTunnel(manager, paths, env, binary = cloudflaredBinary) {
-  const plan = managedTunnelConfig(env);
+export async function ensureManagedTunnel(manager, paths, env, binary = cloudflaredBinary, interfaces) {
+  const plan = managedTunnelConfig(env, interfaces);
   if (!plan) return { enabled: false };
-  const existing = (await manager.call('list')).find(app => app.name === 'cloudflare');
-  if (existing?.pm2_env.status === 'online') return { enabled: true, hostname: plan.hostname, pid: existing.pid };
-  if (existing) throw new Error('Managed Cloudflare tunnel is not online; inspect logs before retrying startup');
-  const executable = await binary();
-  await manager.call('start', { ...appOptions(paths, 'cloudflare', executable, plan.args),
-    interpreter: 'none', autorestart: true });
-  return { enabled: true, hostname: plan.hostname };
+  const apps = await manager.call('list');
+  const connectors = [[PRIMARY, plan.args]];
+  if (plan.replicaArgs) {
+    connectors.push([REPLICA, plan.replicaArgs]);
+    for (const [name, args] of connectors) {
+      const existing = apps.find(app => app.name === name);
+      if (!existing) continue;
+      const running = existing.pm2_env.args;
+      const runningConfig = argValue(running, '--config');
+      if (running?.includes('--url') || !runningConfig || resolve(runningConfig) !== resolve(plan.config)
+        || ['--protocol', '--edge-bind-address'].some(option => argValue(running, option) !== argValue(args, option))) {
+        throw new Error(`${name} is configured differently; use the authorized tunnel stop/start workflow to apply new bindings`);
+      }
+    }
+  }
+  let executable;
+  const errors = [];
+  for (const [name, args] of connectors) {
+    const existing = apps.find(app => app.name === name);
+    if (existing?.pm2_env.status === 'online') continue;
+    if (plan.unavailable?.has(name)) {
+      errors.push(`${name}: the configured bind address is not assigned to a local network interface`);
+      continue;
+    }
+    if (existing) {
+      errors.push(`${name} is not online; inspect its logs before retrying startup`);
+      continue;
+    }
+    try {
+      executable ??= await binary();
+      await manager.call('start', { ...appOptions(paths, name, executable, args),
+        interpreter: 'none', autorestart: true });
+    } catch (error) {
+      errors.push(`${name}: ${error.message}`);
+    }
+  }
+  if (errors.length) throw new Error(errors.join('; '));
+  return { enabled: true, hostname: plan.hostname, pid: activeTunnelApp(apps)?.pid };
 }
 
 /** Public responses verify routing and origin reachability, not just a live PM2 process. */
@@ -105,8 +191,10 @@ export async function probeNamedTunnel(hostname, request = fetch) {
 export async function tunnelMain(root, args) {
   const [command = 'status', ...options] = args;
   if (!['start', 'stop', 'status', 'check'].includes(command)) throw new Error('Use node forge.mjs tunnel start|stop|status|check');
-  let config = join(homedir(), '.kai-toolbox', 'cloudflared', 'config.yml');
-  let protocol = 'http2';
+  const env = readConfig(root);
+  const defaultConfig = join(homedir(), '.kai-toolbox', 'cloudflared', 'config.yml');
+  let config = env.FORGE_CLOUDFLARE_CONFIG || defaultConfig;
+  let protocol;
   let quick = false;
   let url = 'https://localhost:5173';
   let resolver;
@@ -123,13 +211,19 @@ export async function tunnelMain(root, args) {
   const manager = await connectManager(paths);
   try {
     const apps = await manager.call('list');
-    const existing = apps.find(app => app.name === 'cloudflare');
+    const existing = apps.find(app => app.name === PRIMARY);
     if (command === 'stop') {
-      if (existing) await manager.call('delete', existing.pm_id);
+      for (const app of tunnelReplicas(apps)) await manager.call('delete', app.pm_id);
       console.log('Cloudflare tunnel stopped; credentials and DNS retained.');
       return;
     }
-    if (command === 'start' && !existing) {
+    if (command === 'start' && !quick && env.FORGE_CLOUDFLARE_REPLICA_BIND_ADDRESS) {
+      if (resolver) throw new Error('--dns-resolver is unavailable in replica mode');
+      await ensureManagedTunnel(manager, paths, { ...env, FORGE_CLOUDFLARE_ENABLED: 'true',
+        FORGE_CLOUDFLARE_CONFIG: config, FORGE_CLOUDFLARE_PROTOCOL: protocol ?? env.FORGE_CLOUDFLARE_PROTOCOL });
+    } else if (command === 'start' && quick && apps.some(app => app.name === REPLICA)) {
+      throw new Error('Stop the named Cloudflare connectors before starting a Quick Tunnel');
+    } else if (command === 'start' && !existing) {
       let hostname;
       let tunnelArgs;
       if (quick) {
@@ -139,7 +233,8 @@ export async function tunnelMain(root, args) {
         hostname = 'temporary trycloudflare.com URL (see logs)';
       } else {
         hostname = validateConfig(config);
-        tunnelArgs = tunnelArguments(config, protocol);
+        tunnelArgs = tunnelArguments(config, protocol ?? env.FORGE_CLOUDFLARE_PROTOCOL,
+          env.FORGE_CLOUDFLARE_EDGE_BIND_ADDRESS);
       }
       if (resolver && quick) throw new Error('--dns-resolver is supported only for named tunnels');
       if (resolver) tunnelArgs.push('--dns-resolver-addrs', resolver);
@@ -150,9 +245,9 @@ export async function tunnelMain(root, args) {
     } else if (command === 'start' && existing.pm2_env.status !== 'online') {
       throw new Error('Existing tunnel is not online; inspect logs, then explicitly stop/start after diagnosis');
     }
-    const app = (await manager.call('list')).find(item => item.name === 'cloudflare');
-    const snapshot = app ? { name: app.name, pid: app.pid, state: app.pm2_env.status,
-      restarts: app.pm2_env.restart_time } : { name: 'cloudflare', state: 'stopped' };
+    const currentApps = await manager.call('list');
+    const app = activeTunnelApp(currentApps);
+    const snapshot = tunnelSnapshot(currentApps, env.FORGE_CLOUDFLARE_REPLICA_BIND_ADDRESS);
     let health = { state: 'stopped' };
     if (app?.pm2_env.status === 'online') {
       const runningArgs = Array.isArray(app.pm2_env.args) ? app.pm2_env.args : [];

@@ -5,7 +5,7 @@ import { runtimePaths, readConfig, flag } from './config.mjs';
 import { connectManager, appOptions, daemonPid } from './process-manager.mjs';
 import { enabledServices } from './services.mjs';
 import { controlServer, portOpen } from './control.mjs';
-import { ensureManagedTunnel } from './tunnel.mjs';
+import { ensureManagedTunnel, tunnelSnapshot } from './tunnel.mjs';
 import { readFrontendStatus } from './frontend/runtime.mjs';
 
 const root = process.argv[2];
@@ -59,9 +59,8 @@ async function status() {
   const backend = states.find(item => item.name === 'backend');
   const frontend = states.find(item => item.name === 'frontend');
   const tunnelEnabled = flag(env.FORGE_CLOUDFLARE_ENABLED, false);
-  const tunnelApp = apps.find(item => item.name === 'cloudflare');
-  const tunnel = { enabled: tunnelEnabled, pid: tunnelApp?.pid || null,
-    state: tunnelApp?.pm2_env.status || 'not_started', restarts: tunnelApp?.pm2_env.restart_time || 0 };
+  const tunnel = { enabled: tunnelEnabled, pid: null, restarts: 0,
+    ...tunnelSnapshot(apps, env.FORGE_CLOUDFLARE_REPLICA_BIND_ADDRESS, 'not_started') };
   const bootstrapPid = daemonPid(paths);
   const attached = !initializing && Boolean(bootstrapPid && apps.some(app => app.name === 'forge-controller' && app.pid === process.pid));
   return { protocolVersion: 1, implementation: 'forge-node-pm2', repoRoot: paths.root,

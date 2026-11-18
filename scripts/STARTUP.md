@@ -50,6 +50,10 @@ Node 入口支持 Windows、Linux、macOS 的 x64/arm64，优先使用 `CLOUDFLA
 
 固定域名隧道由工作区 PM2 在意外退出后有限次数重试；完整 stop 仍停止隧道。项目启动等待同时核对本机前后端和公网首页、`/api/tools` 回源，公网未通不会报告启动成功。`tunnel status` 区分进程与公网状态；`tunnel check` 未就绪返回非零码。网络或 DNS 故障仍需看 `node forge.mjs logs cloudflare` 诊断，进程 online 不等于公网可用。Quick Tunnel 保持手动模式；旧 PowerShell 入口只转发参数。
 
+同一固定域名可由两个连接器同时服务。在 `scripts/run-tools.conf` 启用双连接器时，设置 `FORGE_CLOUDFLARE_PROTOCOL=quic`，用 `FORGE_CLOUDFLARE_EDGE_BIND_ADDRESS` 和 `FORGE_CLOUDFLARE_REPLICA_BIND_ADDRESS` 分别指定两张网卡的本机源地址。第二个连接器 `cloudflare-replica` 固定使用 HTTP/2，两者读取同一命名隧道配置。部署前需要核实两张网卡分别经独立网关或独立上行到达 Cloudflare，QUIC 使用 UDP/7844，HTTP/2 使用 TCP/7844。源地址绑定由 cloudflared 执行，出站路由由操作系统负责。已有进程的绑定配置变化时，需要通过经确认的停启流程应用新配置。
+
+Cloudflare 将请求分配给已连接的副本，并可把连接重试送往其他副本。两条线路都在线时都可能承载请求，已有 WebSocket 和 SSE 连接断开后由客户端重连。`node forge.mjs tunnel check` 显示两个受管进程的状态以及同一域名的整体回源结果；`node forge.mjs logs cloudflare-replica` 查看第二个连接器的注册及连接日志。单连接器运行时仍可完成整体回源检查；若启动时某张网卡缺少绑定地址，对应连接器会报告异常，另一连接器仍可启动。待网卡恢复且连接器尚未启动时，可授权再次执行 `node forge.mjs tunnel start` 补起它。实际切换验收需分别断开两条出口，验证另一出口上的公网首页及 API。参见 [Cloudflare Tunnel 副本可用性](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-availability/)和[源地址绑定选项](https://developers.cloudflare.com/tunnel/reference/run-parameters/#edge-bind-address)。
+
 临时地址使用 `node forge.mjs tunnel start --quick [--url https://localhost:5173]`，地址从日志读取；API 经过 Vite 既有代理。Quick Tunnel 不保证长期可用，HTTPS 本机回源允许自签证书。命名隧道可传 `--dns-resolver IP:PORT`；该选项不适用于 Quick 模式。公网不可达时检查本机代理的 fake-IP DNS 与出站 7844，再检查域名的权威 DNS，不以自动重试作为成功证据。
 
 固定域名采用两条按顺序匹配的路由：`^/api/.*` 指向实际后端 HTTP 地址，其余请求指向实际前端 HTTPS 地址。Windows 本机 mkcert 源站可设置 `originServerName: localhost` 和本机 `rootCA.pem` 的 `caPool` 路径，保留证书验证；迁移机器后需更新该路径。CNAME 使用当前账号隧道的 UUID 加 `.cfargotunnel.com`，开启代理。Clash fake-IP 或全局代理阻断 7844 时，仅针对 Tunnel DNS 和边缘网段调整规则，并保留配置备份；网络配置和凭据不能提交到仓库。
