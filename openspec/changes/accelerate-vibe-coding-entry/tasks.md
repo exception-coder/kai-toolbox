@@ -1,5 +1,15 @@
 ## 实现
 
+## 2026-11-18 公网加载壳慢诊断
+
+当前公网 HTML 实际包含 `/@vite/client` 和 `/src/main.tsx`，确认处于 dev；`frontend status` 中旧静态产物记录不代表正在运行静态模式。23:46:44 同一诊断 trace 记录 HTML response 2109ms、app mount 30963ms，截图为 React 接管前的 HTML 骨架。
+
+本机 Chromium 新浏览器上下文复测公网 `/tools/claude-chat`：HTML 7184ms、app mount 54215ms、采样时已发出 384 个请求；对照本机 HTTPS 为 HTML 23ms、app mount 727ms。匿名冷上下文测量不代表用户登录态或真机，但说明公网开发模块加载链是当前主要瓶颈；不把本机时间承诺为手机时间。官方依据：https://vite.dev/guide/performance 。
+
+复用已有生产静态入口准备提交 `1afb4c113` 的前端产物，不另建服务或缓存。现有静态服务已实现版本资源长期缓存、Brotli、完整性校验及提交后原子更新。首次切换依据 STARTUP 要求当次授权全栈 restart；未授权前保留 dev，不宣称已提速。无整体架构变更。
+
+`node forge.mjs frontend build` 已成功退出 0，产物版本 `ba87d86218c6212d9d440360`，builtAt `2026-11-18T15:52:38.684Z`。执行原生 npm build（含 SDK 2 项测试、TypeScript、架构检查、Vite 打包、Brotli 和完整性处理），保留既有大分块/混合导入警告。Forge 门禁 PASSED、exit 0，仅 API-RUNTIME-001；静态 checker 为空。当前仅产物就绪，未重启、未切换线上模式、未完成优化后公网及 60 秒稳定验收。
+
 ## 2026-10-31 实施历史并行与静态模式准备
 
 - [x] 普通已登记编程会话立即读取最近页，与连接并行；服务端复用当前会话访问策略和分页，不接受客户端推定账号或目录。
