@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { HomePage } from '@/shell/HomePage'
 import type { FeatureManifest } from '@/shell/types'
 import { RouteGuard } from './RouteGuard'
+import { ApiError } from '@/lib/api'
 
 const auth = vi.hoisted(() => ({
   user: null as { userId: number; username: string; roles: string[] } | null,
@@ -74,6 +75,16 @@ function fixture(target = feature, path = target.entry!, previous?: string, rout
 }
 
 const chatFeature = { ...feature, id: 'claude-chat', entry: '/tools/claude-chat', requiredPermission: 'menu:claude-chat' }
+
+it.each([404, 503])('explains share verification failure without rendering protected content (%s)', async status => {
+  auth.user = { ...member, username: 'yanw' }
+  auth.sharedAccess.mockRejectedValue(new ApiError(status, null, 'request failed'))
+  const { content } = fixture(chatFeature, '/tools/claude-chat/shared/one', undefined, '/tools/claude-chat/shared/:sessionId')
+  expect(await screen.findByRole('alert')).toHaveTextContent('无法打开共享会话')
+  expect(screen.getByText('当前登录账号：yanw')).toBeVisible()
+  expect(screen.getByText(status === 404 ? /复制链接本身不会授予权限/ : /这不代表授权已撤回/)).toBeVisible()
+  expect(content).not.toHaveBeenCalled()
+})
 
 it('admits a logged-in recipient without the Vibe Coding menu to the granted shared session', async () => {
   auth.user = member

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
+import { ApiError } from '@/lib/api'
 import { hasFeatureAccess, requiredRolesFor } from '@/shell/access'
 import { useAccessContext } from '@/shell/permission'
 import type { FeatureManifest } from '@/shell/types'
@@ -85,13 +86,24 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
 function SharedSessionGuard({ id, collaboration, children }: {
   id: string; collaboration: boolean; children: ReactNode
 }) {
+  const { user } = useAuth()
+  const [failure, setFailure] = useState('')
   const [state, setState] = useState<'checking' | 'allowed' | 'denied'>('checking')
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let active = true
+    setFailure('')
     getSharedSession(id).then(session => {
       if (active) setState(session.id === id && (!collaboration || session.collaborate) ? 'allowed' : 'denied')
-    }).catch(() => { if (active) setState('denied') })
+    }).catch(error => {
+      if (!active) return
+      setFailure(error instanceof ApiError && [403, 404].includes(error.status)
+        ? '请让分享人在「已共享」列表确认你的账号和到期时间。复制链接本身不会授予权限。'
+        : error instanceof ApiError && error.status === 401
+          ? '登录已失效，请重新登录后打开原共享链接。'
+          : '暂时未能核验共享权限，请检查网络后重试；这不代表授权已撤回。')
+      setState('denied')
+    })
     return () => { active = false }
   }, [id, collaboration, attempt])
 
@@ -99,6 +111,8 @@ function SharedSessionGuard({ id, collaboration, children }: {
   return <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
     {state === 'checking' ? <p role="status">正在验证会话共享权限…</p> : <>
       <p role="alert">无法打开共享会话。请核对登录账号和授权期限，或联系分享人。</p>
+      <p>当前登录账号：{user?.username}</p>
+      {failure && <p className="max-w-md">{failure}</p>}
       <button type="button" className="min-h-11 underline" onClick={() => { setState('checking'); setAttempt(value => value + 1) }}>重新检查</button>
       <Link className="inline-flex min-h-11 items-center underline" to="/">返回工作台首页</Link>
     </>}

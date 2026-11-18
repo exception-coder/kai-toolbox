@@ -21,11 +21,13 @@ export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFo
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [copied, setCopied] = useState(false)
+  const [readersConfirmed, setReadersConfirmed] = useState(false)
+  const hasActiveReaders = readers.some(reader => !reader.expiresAt || reader.expiresAt > Date.now())
 
   const reload = async () => {
-    setLoading(true); setError('')
+    setLoading(true); setError(''); setReadersConfirmed(false); setCopied(false)
     try {
-      if (sessionId) setReaders(await listSessionReaders(sessionId))
+      if (sessionId) { setReaders(await listSessionReaders(sessionId)); setReadersConfirmed(true) }
       else setSessions(await listSharedSessions())
     } catch (e) { setError(e instanceof Error ? e.message : '读取失败，请重试') }
     finally { setLoading(false) }
@@ -88,18 +90,22 @@ export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFo
             <Button size="sm" className="min-h-11 shrink-0" disabled={busy || readers.some(r => r.id === reader.id && r.collaborate && (!r.expiresAt || r.expiresAt > Date.now()))} onClick={() => void change(reader, true)}>授权继续会话</Button>
           </li>)}</ul>
           <h3 className="mb-1 mt-5 text-sm font-medium">已共享</h3>
-          {!readers.length && <p className="py-2 text-sm text-muted-foreground">尚未共享给其他账号。</p>}
+          {!readersConfirmed ? <p className="py-2 text-sm text-muted-foreground">授权列表尚未确认，请先重试读取。</p>
+            : !hasActiveReaders && <p className="py-2 text-sm text-muted-foreground">尚无有效共享授权。请先搜索接收账号，点击「授权继续会话」，确认账号出现在下方后再复制链接。</p>}
           <ul className="divide-y">{readers.map(reader => <li key={reader.id} className="flex min-h-12 items-center justify-between gap-3 py-2">
             <span className="min-w-0 break-words text-sm">{reader.realName || reader.username} <span className="text-muted-foreground">@{reader.username}</span>
               <span className="block text-xs text-muted-foreground">{reader.collaborate ? '可继续会话' : '只读'} · {reader.expiresAt ? `到期 ${new Date(reader.expiresAt).toLocaleString()}` : '无期限'}</span>
             </span>
             <Button variant="ghost" size="sm" className="min-h-11 shrink-0" disabled={busy} onClick={() => void change(reader, false)}>撤回共享</Button>
           </li>)}</ul>
-          <Button variant="outline" className="mt-4" onClick={() => {
+          <Button variant="outline" className="mt-4" disabled={busy || !readersConfirmed || !hasActiveReaders} onClick={() => {
+            if (!readers.some(reader => !reader.expiresAt || reader.expiresAt > Date.now())) {
+              setError('共享授权已到期，请重新授权后再复制链接'); setCopied(false); return
+            }
             void Promise.resolve().then(() => navigator.clipboard.writeText(new URL(sharedSessionPath(sessionId), location.origin).href))
               .then(() => setCopied(true)).catch(() => setError('复制失败，请稍后重试'))
-          }}>{copied ? '链接已复制' : '复制共享链接'}</Button>
-          <p className="mt-2 text-xs text-muted-foreground">链接不授予权限。撤销不能收回对方已读或已复制的文字。</p>
+          }}>{copied ? '链接已复制，仅已授权账号可访问' : '复制共享链接'}</Button>
+          <p className="mt-2 text-xs text-muted-foreground">复制链接不会授权；接收者须使用「已共享」列表中的账号登录。撤销不能收回对方已读或已复制的文字。</p>
         </> : <ul className="divide-y">
           {!sessions.length && <li className="py-4 text-sm text-muted-foreground">暂无共享给你的会话。</li>}
           {sessions.map(session => <li key={session.id}><Link to={session.collaborate ? collaborationPath(session.id) : sharedSessionPath(session.id)} onClick={onClose}
