@@ -12,9 +12,14 @@ const auth = vi.hoisted(() => ({
   superAdmin: false,
   login: vi.fn(),
   developmentAccess: vi.fn(),
+  sharedAccess: vi.fn(),
 }))
 vi.mock('@/lib/auth', () => ({ useAuth: () => auth, login: auth.login }))
 vi.mock('@/features/reqpool/api', () => ({ getDevelopmentAccess: auth.developmentAccess }))
+vi.mock('@/features/claude-chat/public-api/session-sharing', async importOriginal => ({
+  ...await importOriginal<typeof import('@/features/claude-chat/public-api/session-sharing')>(),
+  getSharedSession: auth.sharedAccess,
+}))
 vi.mock('@/shell/brand', () => ({
   BRAND_DEFAULTS: { appName: 'Forge', tagline: '工作台' },
   useBrand: () => ({ brand: { appName: 'Forge', tagline: '工作台' } }),
@@ -39,6 +44,7 @@ beforeEach(() => {
   auth.superAdmin = false
   auth.login.mockReset()
   auth.developmentAccess.mockReset()
+  auth.sharedAccess.mockReset()
 })
 afterEach(cleanup)
 
@@ -49,7 +55,7 @@ function LocationProbe() {
     <button onClick={() => navigate(-1)}>浏览器返回</button></>
 }
 
-function fixture(target = feature, path = target.entry!, previous?: string) {
+function fixture(target = feature, path = target.entry!, previous?: string, routePattern = target.entry!) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const clear = vi.spyOn(client, 'clear')
   const content = vi.fn(() => <p>受保护内容</p>)
@@ -59,13 +65,59 @@ function fixture(target = feature, path = target.entry!, previous?: string) {
       <LocationProbe /><Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/prior" element={<p>来源页面</p>} />
-        <Route path={target.entry!} element={<RouteGuard feature={target}><ProtectedContent /></RouteGuard>} />
+        <Route path={routePattern} element={<RouteGuard feature={target}><ProtectedContent /></RouteGuard>} />
       </Routes>
     </MemoryRouter>
   </QueryClientProvider>
   const view = render(tree())
   return { content, clear, refresh: () => view.rerender(tree()) }
 }
+
+const chatFeature = { ...feature, id: 'claude-chat', entry: '/tools/claude-chat', requiredPermission: 'menu:claude-chat' }
+
+it('admits a logged-in recipient without the Vibe Coding menu to the granted shared session', async () => {
+  auth.user = member
+  auth.sharedAccess.mockResolvedValue({ id: 'one', collaborate: false })
+  const { content } = fixture(chatFeature, '/tools/claude-chat/shared/one', undefined, '/tools/claude-chat/shared/:sessionId')
+  expect(content).not.toHaveBeenCalled()
+  expect(await screen.findByText('受保护内容')).toBeVisible()
+  expect(auth.sharedAccess).toHaveBeenCalledWith('one')
+})
+
+it.each([true, false])('requires collaboration permission for the original workbench (collaborate=%s)', async collaborate => {
+  auth.user = member
+  auth.sharedAccess.mockResolvedValue({ id: 'one', collaborate })
+  const { content } = fixture(chatFeature, '/tools/claude-chat?sessionId=one&collaboration=1')
+  expect(content).not.toHaveBeenCalled()
+  if (collaborate) expect(await screen.findByText('受保护内容')).toBeVisible()
+  else expect(await screen.findByRole('alert')).toHaveTextContent('无法打开共享会话')
+})
+
+it('rejects revoked grants and shares returned for a different session', async () => {
+  auth.user = member
+  auth.sharedAccess.mockResolvedValueOnce({ id: 'other', collaborate: true }).mockRejectedValueOnce(new Error('revoked'))
+  const { content } = fixture(chatFeature, '/tools/claude-chat?sessionId=one&collaboration=1')
+  expect(await screen.findByRole('alert')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '重新检查' }))
+  expect(await screen.findByRole('alert')).toBeVisible()
+  expect(content).not.toHaveBeenCalled()
+})
+
+it.each(['/tools/claude-chat', '/tools/claude-chat?collaboration=1',
+  '/tools/claude-chat?sessionId=one&collaboration=1&control=llm'])(
+  'leaves the module gate in place outside the scoped share route: %s', path => {
+    auth.user = member
+    const { content } = fixture(chatFeature, path)
+    expect(screen.getByText('无权访问')).toBeVisible()
+    expect(content).not.toHaveBeenCalled()
+    expect(auth.sharedAccess).not.toHaveBeenCalled()
+  })
+
+it('keeps the login gate in place for sharing links', () => {
+  fixture(chatFeature, '/tools/claude-chat/shared/one', undefined, '/tools/claude-chat/shared/:sessionId')
+  expect(screen.getByRole('heading', { name: '登录工作台' })).toBeVisible()
+  expect(auth.sharedAccess).not.toHaveBeenCalled()
+})
 
 it('replaces an unauthenticated deep link with the home page without mounting protected content', async () => {
   const { content } = fixture(feature, '/tools/fore-consult?sessionId=example#message', '/prior')

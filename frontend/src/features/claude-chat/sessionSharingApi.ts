@@ -1,4 +1,5 @@
 import { http } from '@/lib/api'
+import { matchPath } from 'react-router-dom'
 
 export interface SessionReader { id: number; username: string; realName: string | null }
 export interface SessionReaderGrant extends SessionReader { expiresAt: number | null; collaborate?: boolean }
@@ -22,3 +23,14 @@ export const getSharedMessages = (id: string, cursor?: string) => http<SharedMes
   `/claude-chat/shared-sessions/${encodeURIComponent(id)}/messages${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
 export const sharedSessionPath = (id: string) => `/tools/claude-chat/shared/${encodeURIComponent(id)}`
 export const collaborationPath = (id: string) => `/tools/claude-chat?${new URLSearchParams({ sessionId: id, collaboration: '1' })}`
+
+/** Only the two share entry points can substitute a session grant for menu access. */
+export function resolveSharingRoute(pathname: string, search: string) {
+  const shared = matchPath('/tools/claude-chat/shared/:sessionId', pathname)
+  if (shared?.params.sessionId) return { id: shared.params.sessionId, collaboration: false }
+  if (!matchPath('/tools/claude-chat', pathname)) return null
+  const params = new URLSearchParams(search)
+  const id = params.get('sessionId')?.trim()
+  if (params.has('control') || params.has('prdSessionId') || params.get('collaboration') !== '1' || !id) return null
+  return { id, collaboration: true }
+}

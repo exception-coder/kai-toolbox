@@ -5,6 +5,7 @@ import { hasFeatureAccess, requiredRolesFor } from '@/shell/access'
 import { useAccessContext } from '@/shell/permission'
 import type { FeatureManifest } from '@/shell/types'
 import { getDevelopmentAccess } from '@/features/reqpool/api'
+import { getSharedSession, resolveSharingRoute } from '@/features/claude-chat/public-api/session-sharing'
 
 /**
  * 路由级门禁：未登录返回工作台，无权限时提供恢复入口，不渲染真实页面，
@@ -14,16 +15,18 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
   const { user } = useAuth()
   const access = useAccessContext()
   const location = useLocation()
+  const shared = feature.id === 'claude-chat' ? resolveSharingRoute(location.pathname, location.search) : null
   const query = new URLSearchParams(location.search)
   const control = location.pathname === feature.entry ? feature.controlPermissions : undefined
   const selectedControl = control ? query.get(control.parameter) : null
   const selectedPermission = control && selectedControl ? control.modes[selectedControl] : undefined
   const normalAccess = hasFeatureAccess({ ...feature, controlPermissions: undefined,
     requiredPermission: selectedPermission ?? feature.requiredPermission }, access)
+  const isShareRoute = shared !== null
   const scopedPrdSessionId = useMemo(() => {
-    if (feature.id !== 'claude-chat' || selectedPermission) return null
+    if (feature.id !== 'claude-chat' || selectedPermission || isShareRoute) return null
     return new URLSearchParams(location.search).get('prdSessionId')?.trim() || null
-  }, [feature.id, location.search, selectedPermission])
+  }, [feature.id, location.search, selectedPermission, isShareRoute])
   const [scopedState, setScopedState] = useState<'idle' | 'checking' | 'allowed' | 'denied'>('idle')
 
   useEffect(() => {
@@ -42,6 +45,10 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
   // 工具路由均由注册表赋予菜单权限；公开展示页不经过本门禁。
   // replace 避免手机返回键再次进入无登录态的深链。
   if (!user) return <Navigate replace to="/" />
+  if (shared) {
+    return <SharedSessionGuard key={JSON.stringify([user.userId, shared.id, shared.collaboration])}
+      id={shared.id} collaboration={shared.collaboration}>{children}</SharedSessionGuard>
+  }
   if (normalAccess || (scopedPrdSessionId && scopedState === 'allowed')) {
     return <>{children}</>
   }
@@ -73,4 +80,27 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
         ? feature.entry! : `${feature.entry}?${control.parameter}=${recoveryMode![0]}`}>返回可用控制模式</Link>}
     </div>
   )
+}
+
+function SharedSessionGuard({ id, collaboration, children }: {
+  id: string; collaboration: boolean; children: ReactNode
+}) {
+  const [state, setState] = useState<'checking' | 'allowed' | 'denied'>('checking')
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    let active = true
+    getSharedSession(id).then(session => {
+      if (active) setState(session.id === id && (!collaboration || session.collaborate) ? 'allowed' : 'denied')
+    }).catch(() => { if (active) setState('denied') })
+    return () => { active = false }
+  }, [id, collaboration, attempt])
+
+  if (state === 'allowed') return <>{children}</>
+  return <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+    {state === 'checking' ? <p role="status">正在验证会话共享权限…</p> : <>
+      <p role="alert">无法打开共享会话。请核对登录账号和授权期限，或联系分享人。</p>
+      <button type="button" className="min-h-11 underline" onClick={() => { setState('checking'); setAttempt(value => value + 1) }}>重新检查</button>
+      <Link className="inline-flex min-h-11 items-center underline" to="/">返回工作台首页</Link>
+    </>}
+  </div>
 }

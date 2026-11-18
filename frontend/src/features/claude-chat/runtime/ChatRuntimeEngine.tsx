@@ -7,6 +7,7 @@ import { isVibeCodingSession } from '../lib/sessionScope'
 import { clearRecentSessionHint, readRecentSessionHint, saveRecentSessionHint } from '../lib/recentSessionHint'
 import { useAuth } from '@/lib/auth'
 import { reportVibeEntry } from '@/lib/vibeEntryDiagnostics'
+import { resolveSharingRoute } from '../sessionSharingApi'
 
 // 独立常驻引擎：仅首次激活后下载，不包裹页面，加载完成不重建外壳或输入草稿。
 export const ChatRuntimeEngine = memo(function ChatRuntimeEngine({
@@ -37,10 +38,8 @@ export const ChatRuntimeEngine = memo(function ChatRuntimeEngine({
   // 否则“打开已绑定开发会话”会先在 ADMIN 通道发 switch，下一拍才重连 PRD 通道；
   // 首次 switch 的去重标记却被保留，最终左侧有会话、右侧 currentSession 仍为空。
   const effectivePrdSessionId = routePrdSessionId ?? prdSessionId
-  const collaborationTarget = useMemo(() => {
-    const params = new URLSearchParams(location.search)
-    return params.get('collaboration') === '1' ? params.get('sessionId')?.trim() || null : null
-  }, [location.search])
+  const shareRoute = resolveSharingRoute(location.pathname, location.search)
+  const collaborationTarget = shareRoute?.collaboration ? shareRoute.id : null
   const chat = useClaudeChatSocket(demo
     ? { demo: true }
     : collaborationTarget

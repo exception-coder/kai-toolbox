@@ -11,7 +11,8 @@ import type { FeatureManifest } from '@/shell/types'
 import { ChatRuntimeProvider, isChatRoute, useChatRuntime } from '../runtime/ChatRuntimeContext'
 
 vi.mock('@/shell/permission', () => ({ useAccessContext: vi.fn() }))
-vi.mock('@/lib/auth', () => ({ useAuth: () => ({ user: { roles: [] } }) }))
+const authSnapshot = vi.hoisted(() => ({ user: { userId: 1, roles: [] } }))
+vi.mock('@/lib/auth', () => ({ useAuth: () => authSnapshot }))
 const developmentAccess = vi.hoisted(() => vi.fn())
 vi.mock('@/features/reqpool/api', () => ({ getDevelopmentAccess: developmentAccess }))
 vi.mock('./ChatPage', () => ({ ChatPage: ({ renderControl }: { renderControl: () => ReactNode }) => <div>agent-workspace{renderControl()}</div> }))

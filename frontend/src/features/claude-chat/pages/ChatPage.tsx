@@ -101,7 +101,7 @@ import { useUnifiedTitleBarSlot } from '@/shell/UnifiedTitleBar'
 import { useMobileNavigation } from '@/shell/MobileNavigationContext'
 import { useMockMode } from '@/shell/useMockMode'
 import { useAuth } from '@/lib/auth'
-import { getSharedSession } from '../sessionSharingApi'
+import { getSharedSession, resolveSharingRoute } from '../sessionSharingApi'
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
@@ -233,7 +233,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     reportVibeEntry('page_mount', 'ok', null, true)
     reportVibeResourceSummary()
   }, [])
-  const { chat, setFloating, setMinimized, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError: gestureErr } = useChatRuntime()
+  const { chat, activate, setFloating, setMinimized, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError: gestureErr } = useChatRuntime()
   const unifiedTitleBarSlot = useUnifiedTitleBarSlot()
   const openMobileNavigation = useMobileNavigation()
   const { enabled: mockMode } = useMockMode()
@@ -767,8 +767,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     if (next.length === 0) setViewMode('single')
   }, [multiIds, sessions, sessionsLoaded])
   const currentSession = sessions.find(s => s.id === chat?.sessionId && isVibeCodingSession(s))
-  const shareParams = new URLSearchParams(location.search)
-  const collaborationId = shareParams.get('collaboration') === '1' ? shareParams.get('sessionId') : null
+  const shareRoute = resolveSharingRoute(location.pathname, location.search)
+  const collaborationId = shareRoute?.collaboration ? shareRoute.id : null
+  useEffect(() => { if (collaborationId) activate() }, [activate, collaborationId])
   const sharedSession = useQuery({
     queryKey: ['claude-chat-collaboration', collaborationId],
     queryFn: () => getSharedSession(collaborationId!),
@@ -1109,7 +1110,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     )}>
       {collaborationId && <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2 text-sm">
         <span role="status" className="min-w-0 break-words">{chat.errorMessage ?? '正在使用共享会话'}</span>
-        <Button size="sm" variant="ghost" className="shrink-0" onClick={() => navigate('/tools/claude-chat')}>退出共享会话</Button>
+        <Button size="sm" variant="ghost" className="shrink-0" onClick={() => navigate('/')}>退出共享会话</Button>
       </div>}
       <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} onRestore={restoreGuide} hasSession={Boolean(chat.sessionId)} returnFocus={guideReturnFocus.current ? guideReturnFocus : sessionToolsTriggerRef} />
       <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onRetry={chat.duplicateSession} onReturnFocus={() => taRef.current?.focus()} />
