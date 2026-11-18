@@ -51,7 +51,7 @@ class SessionSharingServiceTest {
         login(7, "USER");
         when(shares.contains("one", 8)).thenReturn(true);
         service.grant("one", 8);
-        verify(shares).grant("one", 8, 7);
+        verify(shares).grant("one", 8, 7, null);
         login(9, "ADMIN");
         service.revoke("one", 8);
         verify(shares).revoke("one", 8);
@@ -117,9 +117,9 @@ class SessionSharingServiceTest {
     @Test
     void deletedRecipientsRemainRevocable() {
         login(7, "USER");
-        when(shares.readers("one")).thenReturn(List.of(8L));
+        when(shares.readerGrants("one")).thenReturn(List.of(new SessionSharingRepository.ReaderGrant(8L, null)));
         when(users.findRecipients(List.of(8L))).thenReturn(List.of());
-        assertThat(service.readers("one")).extracting(AuthUserRepository.Recipient::id).containsExactly(8L);
+        assertThat(service.readers("one")).extracting(SessionSharingService.SharedReader::id).containsExactly(8L);
         service.revoke("one", 8);
         verify(shares).revoke("one", 8);
     }
@@ -132,6 +132,6 @@ class SessionSharingServiceTest {
         verify(users).searchEnabledRecipients("严伟");
         when(users.findById(8)).thenReturn(Optional.of(AuthUser.builder().enabled(false).build()));
         assertThatThrownBy(() -> service.grant("one", 8)).isInstanceOf(ResponseStatusException.class);
-        verify(shares, never()).grant(anyString(), anyLong(), anyLong());
+        verify(shares, never()).grant(anyString(), anyLong(), anyLong(), nullable(Long.class));
     }
 }

@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { Copy, Loader2, LockKeyhole, MoreHorizontal, Pencil, Pin, Tags, Trash2, Unlock } from 'lucide-react'
+import { Copy, Loader2, LockKeyhole, MoreHorizontal, Pencil, Pin, Share2, Tags, Trash2, Unlock } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { CopySessionIdButton } from './CopySessionIdButton'
@@ -16,6 +16,7 @@ interface Props {
   running: boolean
   onFavorite: () => void
   onDuplicate?: () => void
+  onShare?: (sessionId: string, title: string, trigger: HTMLButtonElement | null) => void
   onPlan: () => void
   onGroup: () => void
   onRename: () => void
@@ -26,6 +27,7 @@ interface Props {
 export function SessionRowActions(props: Props) {
   const [open, setOpen] = useState(false)
   const handingOffFocus = useRef(false)
+  const trigger = useRef<HTMLButtonElement>(null)
   const action = (label: string, icon: ReactNode, onClick: () => void, disabled = false, handoff = false, destructive = false) => (
     <button type="button" disabled={disabled} onClick={() => {
       handingOffFocus.current = handoff
@@ -41,7 +43,7 @@ export function SessionRowActions(props: Props) {
 
   return <Popover modal open={open} onOpenChange={value => { handingOffFocus.current = false; setOpen(value) }}>
     <PopoverTrigger asChild>
-      <button type="button" aria-label={`更多操作：${props.title}`} title="更多会话操作"
+      <button type="button" ref={trigger} aria-label={`更多操作：${props.title}`} title="更多会话操作"
         className="relative z-10 mr-1 flex size-11 shrink-0 items-center justify-center rounded-md text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]">
         <MoreHorizontal aria-hidden="true" className="size-4" />
       </button>
@@ -53,6 +55,8 @@ export function SessionRowActions(props: Props) {
       <p className="truncate border-b border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-muted-foreground)]" title={props.title}>{props.title}</p>
       {action(props.favorite ? '取消置顶' : '置顶会话', props.favoriteBusy ? <Loader2 className="size-4 animate-spin" /> : <Pin className="size-4" />, props.onFavorite, props.favoriteBusy)}
       <CopySessionIdButton sessionId={props.sessionId} variant="menu" />
+      {props.onShare && action('共享会话', <Share2 className="size-4" />,
+        () => props.onShare?.(props.sessionId, props.title, trigger.current), false, true)}
       {props.onDuplicate && action('复制会话配置', props.duplicating ? <Loader2 className="size-4 animate-spin" /> : <Copy className="size-4" />, props.onDuplicate, props.duplicateBusy, true)}
       {action(props.planExpired ? '解锁过期规划' : '标记规划过期', props.planExpired ? <Unlock className="size-4" /> : <LockKeyhole className="size-4" />, props.onPlan, props.planBusy || props.running, true)}
       {props.running && <p className="px-3 pb-1 text-xs text-[var(--color-muted-foreground)]">运行中的会话需先中断</p>}

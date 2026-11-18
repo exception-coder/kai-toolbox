@@ -278,7 +278,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   const [showGitStatus, setShowGitStatus] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showReviewShare, setShowReviewShare] = useState(false)
-  const [sharingPanel, setSharingPanel] = useState<'manage' | 'inbox' | null>(null)
+  const [sharingPanel, setSharingPanel] = useState<'inbox' | { id: string; title: string; trigger: HTMLButtonElement | null } | null>(null)
   const [showPrdLink, setShowPrdLink] = useState(false)
   const [pendingOpenSpecInitialization, setPendingOpenSpecInitialization] = useState<PendingOpenSpecInitialization | null>(null)
   const [showSessionSites, setShowSessionSites] = useState(false)
@@ -618,6 +618,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     })
   }, [chat?.sessionId, setDraft])
   const codexSyncAuth = useAuth()
+  const shareFromRow = codexSyncAuth.user && !mockMode
+    ? (id: string, title: string, trigger: HTMLButtonElement | null) => setSharingPanel({ id, title, trigger })
+    : undefined
   const [newSessionCreating, setNewSessionCreating] = useState(false)
   const newSessionCreateLock = useRef(false)
   const newSessionPreviousId = useRef<string | null>(null)
@@ -1354,7 +1357,10 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 <HeaderMenuItem nested icon={<FileDown className="size-4" />} label="导出会话" hint="导出为 PDF/Word，含图片，发给同事/领导查看" onClick={() => { setHeaderMenu(false); setShowExport(true) }} />
               )}
               {chat.sessionId && !reviewOnlySession && (
-                <HeaderMenuItem nested icon={<Share2 className="size-4" />} label="共享给指定用户" hint="只读查看对话，可随时撤销" onClick={() => { setHeaderMenu(false); setSharingPanel('manage') }} />
+                <HeaderMenuItem nested icon={<Share2 className="size-4" />} label="共享给指定用户" hint="临时只读查看，可随时撤销" onClick={() => {
+                  if (chat.sessionId) setSharingPanel({ id: chat.sessionId, title: currentTitle ?? '未命名会话', trigger: sessionToolsTriggerRef.current })
+                  setHeaderMenu(false)
+                }} />
               )}
               <HeaderMenuItem nested icon={<Share2 className="size-4" />} label="共享给我" hint="查看其他用户授权的会话" onClick={() => { setHeaderMenu(false); setSharingPanel('inbox') }} />
               {chat.sessionId && !reviewOnlySession && (
@@ -1524,6 +1530,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                 <>
                   {!selecting && (
                     <RecentSessions
+                      onShare={shareFromRow}
                       currentSessionId={chat.sessionId}
                       onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setPanel('none') }}
                       onDuplicate={(id, codexHome) => { chat.duplicateSession(id, codexHome); setPanel('none') }}
@@ -1531,6 +1538,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
                     />
                   )}
                   <SessionList
+                    onShare={shareFromRow}
                     currentSessionId={chat.sessionId}
                     onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setPanel('none') }}
                     onDuplicate={(id, codexHome) => { chat.duplicateSession(id, codexHome); setPanel('none') }}
@@ -1655,9 +1663,15 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
           onClose={cancelPendingOpenSpec}
         />
       )}
-      {sharingPanel && (sharingPanel === 'inbox' || chat.sessionId) && (
-        <SessionSharingPanel key={`${sharingPanel}:${chat.sessionId}`} sessionId={sharingPanel === 'manage' ? chat.sessionId ?? undefined : undefined}
-          onClose={() => setSharingPanel(null)} returnFocus={() => sessionToolsTriggerRef.current?.focus()} />
+      {sharingPanel && (
+        <SessionSharingPanel key={sharingPanel === 'inbox' ? 'inbox' : sharingPanel.id}
+          sessionId={sharingPanel === 'inbox' ? undefined : sharingPanel.id}
+          sessionTitle={sharingPanel === 'inbox' ? undefined : sharingPanel.title}
+          onClose={() => setSharingPanel(null)} returnFocus={() => {
+            const trigger = sharingPanel === 'inbox' ? null : sharingPanel.trigger
+            const target = trigger?.isConnected ? trigger : sessionToolsTriggerRef.current
+            target?.focus()
+          }} />
       )}
       {planReviewEntry && planReviewEntry.sessionId === chat.sessionId && (
         <PlanReviewDialog key={`${planReviewEntry.sessionId}:${planReviewEntry.initial?.id ?? 'history'}`}
@@ -1780,8 +1794,9 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               </div>
               <div className="scrollbar-autohide min-h-0 flex-1 overflow-y-auto">
                 <RecentSessions currentSessionId={chat.sessionId} onSwitch={(id, hintRunning) => chat.switchTo(id, hintRunning)}
-                  onDuplicate={chat.duplicateSession} duplicatingSessionId={chat.duplicatingSessionId} />
+                  onShare={shareFromRow} onDuplicate={chat.duplicateSession} duplicatingSessionId={chat.duplicatingSessionId} />
                 <SessionList
+                  onShare={shareFromRow}
                   currentSessionId={chat.sessionId}
                   onSwitch={(id, hintRunning) => chat.switchTo(id, hintRunning)}
                   onDuplicate={chat.duplicateSession}

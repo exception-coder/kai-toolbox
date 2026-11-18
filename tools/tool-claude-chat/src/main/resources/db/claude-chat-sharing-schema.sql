@@ -7,3 +7,14 @@ CREATE TABLE IF NOT EXISTS claude_chat_session_reader (
     PRIMARY KEY (session_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_chat_reader_user ON claude_chat_session_reader(user_id, created_at);
+
+-- 单独存放临时授权，旧版后端回退时也不会将这批授权识别为永久授权。
+CREATE TABLE IF NOT EXISTS claude_chat_session_temporary_reader (
+    session_id TEXT NOT NULL REFERENCES claude_chat_session(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL,
+    granted_by INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    PRIMARY KEY (session_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_temporary_reader_user ON claude_chat_session_temporary_reader(user_id, expires_at);

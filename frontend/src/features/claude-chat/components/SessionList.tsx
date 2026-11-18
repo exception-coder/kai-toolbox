@@ -33,6 +33,7 @@ interface Props {
    *  切过去时用它乐观点亮"中断"按钮，不用等 Ready 校正（ready 只会关不会开，见 switchTo 里的说明）。 */
   onSwitch: (sessionId: string, hintRunning?: boolean) => void
   onDuplicate?: (sessionId: string, codexHome?: string) => void
+  onShare?: React.ComponentProps<typeof SessionRowActions>['onShare']
   duplicatingSessionId?: string | null
   selectable?: boolean
   selectedIds?: Set<string>
@@ -41,7 +42,7 @@ interface Props {
 
 const KEY = ['claude-chat-sessions']
 
-export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicatingSessionId, selectable, selectedIds, onToggleSelect }: Props) {
+export function SessionList({ currentSessionId, onSwitch, onDuplicate, onShare, duplicatingSessionId, selectable, selectedIds, onToggleSelect }: Props) {
   const qc = useQueryClient()
   const confirm = useConfirm()
   const { busyId: planBusyId, expire: expirePlan, unlock: unlockPlan } = useSessionPlanState()
@@ -608,6 +609,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
           </button>
         ) : (
           <SessionRowActions
+            onShare={onShare}
             sessionId={s.id} title={s.title || shortCwd(s.cwd)} favorite={s.favorite}
             favoriteBusy={favoriteBusyId != null} duplicateBusy={duplicatingSessionId != null}
             duplicating={duplicatingSessionId === s.id} planExpired={s.planExpired}

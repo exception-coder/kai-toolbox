@@ -30,13 +30,18 @@ public class SessionSharingController {
     }
 
     @GetMapping("/sessions/{id}/sharing")
-    public List<AuthUserRepository.Recipient> readers(@PathVariable String id) {
+    public List<SessionSharingService.SharedReader> readers(@PathVariable String id) {
         return sharing.readers(id);
     }
 
     @PutMapping("/sessions/{id}/sharing/{userId}")
     public void grant(@PathVariable String id, @PathVariable long userId) {
         sharing.grant(id, userId);
+    }
+
+    @PutMapping("/sessions/{id}/sharing/{userId}/temporary")
+    public void grantTemporary(@PathVariable String id, @PathVariable long userId, @RequestParam int hours) {
+        sharing.grantTemporary(id, userId, hours);
     }
 
     @DeleteMapping("/sessions/{id}/sharing/{userId}")
@@ -73,6 +78,7 @@ public class SessionSharingController {
         }
         var page = history.readCursorMessages(session.getCwd(), session.getSdkSessionId(), session.getCodexHome(),
                 before, cursor, 40);
+        sharing.requireReader(id);
         var messages = page.items().stream()
                 .filter(item -> "user".equals(item.kind()) || "assistant".equals(item.kind()))
                 .map(item -> new SharedMessage(item.id(), item.kind(), item.text(), item.ts())).toList();

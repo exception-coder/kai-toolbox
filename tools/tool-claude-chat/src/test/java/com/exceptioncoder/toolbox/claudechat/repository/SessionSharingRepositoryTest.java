@@ -44,8 +44,16 @@ class SessionSharingRepositoryTest {
             }
             jdbc.update("INSERT INTO claude_chat_session (id) VALUES (?)", "one");
             var repo = new SessionSharingRepository(jdbc);
+            long expiry = System.currentTimeMillis() + 3_600_000;
+            repo.grant("one", 8, 7, 1L);
+            assertThat(repo.readerGrants("one")).isEmpty();
+            assertThat(repo.contains("one", 8)).isFalse();
+            assertThat(repo.sharedSessions(8)).isEmpty();
+            repo.grant("one", 8, 7, expiry);
             repo.grant("one", 8, 7);
-            repo.grant("one", 8, 7);
+            assertThat(repo.readerGrants("one")).containsExactly(new SessionSharingRepository.ReaderGrant(8, expiry));
+            assertThat(jdbc.queryForList("SELECT user_id FROM claude_chat_session_reader WHERE session_id = 'one'"))
+                    .isEmpty();
             assertThat(repo.readers("one")).containsExactly(8L);
             repo.revoke("one", 8);
             assertThat(repo.contains("one", 8)).isFalse();

@@ -14,3 +14,12 @@
 - 项目质量门禁 `verify -Phase all`：JSON `status=PASSED`，退出码 0；`executedCheckers=[]`，不能声称执行了静态检查器；实际 Runtime 为 `API-RUNTIME-001 / toolbox-api-tools`（当前旧服务 HTTP 200），不能作为新共享功能验收。原始 JSON `.run/share-chat-quality.json`。
 - `prepare_sql_context` 返回 `DDL_MISSING`，运行库 DDL 未核验；Forge 资源绑定为空。按本仓 schema 编写的新迁移仅在内存 SQLite 验证，未写运行库。
 - `prepare_page_preview` 已准备指定会话的 phone/desktop 入口，均为 `WAITING_VIEWER_AUTH`。入口准备不等于登录、目标版本加载或验收；目前未重启、未授予任何真实账号共享权限。
+
+## 会话行临时共享
+
+- [x] 从最近会话和项目会话的「⋯」打开同一授权面板，显示会话名称、期限、撤销和复制入口。保留原有会话工具入口。
+- [x] 新增临时授权存储与到期校验。读取列表、历史和会话详情均检查期限。旧版回退时不会读取临时授权。
+- [x] 22 项 Java 和 15 项前端定向用例通过，覆盖过期、撤销、读取中失权、旧表隔离、会话行定位及授权表单。OpenSpec 严格校验通过。项目通用接口探测通过，其运行对象仍是旧服务。
+- [ ] 在目标版本上完成手机、桌面与双账号登录验证。预览入口已准备，状态为 `WAITING_VIEWER_AUTH`。当前宿主未重启，示例会话未实际授予严伟。
+
+本次 `prepare_sql_context` 为 `DDL_MISSING`（`b03f4dd5-8d5b-439f-82da-e94824e514ea`），Forge 无可用数据库资源绑定。新增表按源码中 SQLite schema 编写，运行库 DDL 未核验，未直接执行运行库写入。

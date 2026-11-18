@@ -30,6 +30,7 @@ interface Props {
    *  切过去时用它乐观点亮"中断"按钮，不用等 Ready 校正（ready 只会关不会开，见 switchTo 里的说明）。 */
   onSwitch: (sessionId: string, hintRunning?: boolean) => void
   onDuplicate?: (sessionId: string, codexHome?: string) => void
+  onShare?: React.ComponentProps<typeof SessionRowActions>['onShare']
   duplicatingSessionId?: string | null
   limit?: number
 }
@@ -41,7 +42,7 @@ const SESSION_QUERY_KEY = ['claude-chat-sessions']
  * 视觉层级：Section 标题（一级）→ 会话行（二级）→ 时间元信息（三级）。
  * 双击标题可直接改名（与 SessionList / 顶栏标题一致的交互）。
  */
-export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplicatingSessionId, limit = 12 }: Props) {
+export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, onShare, duplicatingSessionId, limit = 12 }: Props) {
   const qc = useQueryClient()
   const confirm = useConfirm()
   const listId = useId()
@@ -273,6 +274,7 @@ export function RecentSessions({ currentSessionId, onSwitch, onDuplicate, duplic
 
               {!isEditing && (
                 <SessionRowActions
+                  onShare={onShare}
                   sessionId={session.id} title={title} favorite={session.favorite}
                   favoriteBusy={favoriteBusyId !== null} planExpired={session.planExpired}
                   planBusy={planBusyId === session.id} running={isRunning}

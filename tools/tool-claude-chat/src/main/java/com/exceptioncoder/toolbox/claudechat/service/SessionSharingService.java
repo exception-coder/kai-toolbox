@@ -9,11 +9,11 @@ import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Objects;
+import java.time.Duration;
 
 /** 具名查看授权与执行权限分开，绝不扩张原会话 canAccess 策略。 */
 @Service
@@ -40,18 +40,32 @@ public class SessionSharingService {
         return directory().searchEnabledRecipients(normalized);
     }
 
-    public List<AuthUserRepository.Recipient> readers(String sessionId) {
+    public List<SharedReader> readers(String sessionId) {
         requireManager(sessionId);
-        List<Long> ids = shares.readers(sessionId);
+        var grants = shares.readerGrants(sessionId);
+        List<Long> ids = grants.stream().map(SessionSharingRepository.ReaderGrant::userId).toList();
         var accounts = directory().findRecipients(ids).stream().collect(java.util.stream.Collectors.toMap(
                 AuthUserRepository.Recipient::id, java.util.function.Function.identity()));
         // 已删除账号也保留撤销入口，避免无主授权占满名额且无法回收。
-        return ids.stream().map(id -> accounts.getOrDefault(id,
-                new AuthUserRepository.Recipient(id, "已删除账号 #" + id, null))).toList();
+        return grants.stream().map(grant -> {
+            long id = grant.userId();
+            var account = accounts.getOrDefault(id, new AuthUserRepository.Recipient(id, "已删除账号 #" + id, null));
+            return new SharedReader(id, account.username(), account.realName(), grant.expiresAt());
+        }).toList();
     }
 
-    @Transactional
     public void grant(String sessionId, long userId) {
+        grantReader(sessionId, userId, null);
+    }
+
+    public void grantTemporary(String sessionId, long userId, int hours) {
+        if (hours != 1 && hours != 24 && hours != 168) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择有效的共享期限");
+        }
+        grantReader(sessionId, userId, System.currentTimeMillis() + Duration.ofHours(hours).toMillis());
+    }
+
+    private void grantReader(String sessionId, long userId, Long expiresAt) {
         ClaudeChatSession session = requireManager(sessionId);
         if (directory().findById(userId).filter(user -> user.isEnabled()).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "接收账号不存在或已停用");
@@ -59,13 +73,12 @@ public class SessionSharingService {
         if (Objects.equals(session.getUserId(), userId)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "会话拥有者无需额外授权");
         }
-        shares.grant(sessionId, userId, principal().userId());
+        shares.grant(sessionId, userId, principal().userId(), expiresAt);
         if (!shares.contains(sessionId, userId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "每个会话最多共享给 50 位用户，请先撤销部分授权");
         }
     }
 
-    @Transactional
     public void revoke(String sessionId, long userId) {
         requireManager(sessionId);
         shares.revoke(sessionId, userId);
@@ -143,4 +156,6 @@ public class SessionSharingService {
             return new SharedSession(session.getId(), session.getTitle(), session.getEngine(), session.getLastSeenAt());
         }
     }
+
+    public record SharedReader(long id, String username, String realName, Long expiresAt) {}
 }

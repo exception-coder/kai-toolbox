@@ -14,6 +14,19 @@ import static org.mockito.Mockito.*;
 
 class SessionSharingControllerTest {
     @Test
+    void doesNotReturnHistoryIfAccessExpiresWhileLoadingIt() {
+        var sharing = mock(SessionSharingService.class);
+        var history = mock(SessionHistoryService.class);
+        var session = ClaudeChatSession.builder().cwd("server-cwd").sdkSessionId("native").build();
+        when(sharing.requireReader("one")).thenReturn(session)
+                .thenThrow(new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND));
+        when(history.readCursorMessages("server-cwd", "native", null, null, null, 40))
+                .thenReturn(new MessagePage(List.of(ChatMessageView.user("u", "private", 1L)), null, false));
+        assertThatThrownBy(() -> new SessionSharingController(sharing, history).messages("one", null))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
     void supportsLegacyIntegerPaginationWithoutAcceptingClientPaths() {
         var sharing = mock(SessionSharingService.class);
         var history = mock(SessionHistoryService.class);

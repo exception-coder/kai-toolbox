@@ -24,10 +24,11 @@ function renderList(sessions: ClaudeChatSessionView[]) {
   client.setQueryData(['claude-chat-sessions'], sessions)
   const onSwitch = vi.fn()
   const onDuplicate = vi.fn()
+  const onShare = vi.fn()
   render(<QueryClientProvider client={client}>
-    <ConfirmProvider><SessionList currentSessionId={null} onSwitch={onSwitch} onDuplicate={onDuplicate} /></ConfirmProvider>
+    <ConfirmProvider><SessionList currentSessionId={null} onSwitch={onSwitch} onDuplicate={onDuplicate} onShare={onShare} /></ConfirmProvider>
   </QueryClientProvider>)
-  return { client, onSwitch, onDuplicate }
+  return { client, onSwitch, onDuplicate, onShare }
 }
 
 beforeEach(() => {
@@ -47,6 +48,16 @@ afterEach(() => {
 })
 
 describe('session project navigation', () => {
+  it('passes the chosen session and its focus target to sharing without switching conversations', () => {
+    const { onShare, onSwitch } = renderList([session('source', 'D:/work/Alpha')])
+    fireEvent.click(screen.getByRole('button', { name: '打开项目 Alpha，工作目录 D:/work/Alpha' }))
+    const trigger = screen.getByRole('button', { name: '更多操作：任务 source' })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: '共享会话' }))
+    expect(onShare).toHaveBeenCalledExactlyOnceWith('source', '任务 source', trigger)
+    expect(onSwitch).not.toHaveBeenCalled()
+  })
+
   it('holds project/session order during activity and pins only by an explicit menu action', async () => {
     const initial = [
       { ...session('a', 'D:/Alpha'), lastSeenAt: 300 },
