@@ -22,3 +22,7 @@ The system SHALL allow administrators to select multiple supported built-in SDKs
 #### Scenario: Mobile selection and reopening
 - **WHEN** an administrator selects SDK checkboxes or reopens the panel during a running batch
 - **THEN** the panel submits all selected identifiers in one request or restores the active selection and status, disables duplicate submission and retains a refresh recovery action
+
+#### Scenario: Runtime inventory and upgrade eligibility differ
+- **WHEN** the team dependency panel lists session engines, including unavailable engines
+- **THEN** both sections show the same engine inventory and identify the upgrade method, and selecting all submits only SDKs supported by the batch endpoint

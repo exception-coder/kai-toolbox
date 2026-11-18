@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Download, RefreshCw } from 'lucide-react'
 import { http } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
+import type { EngineDependencyRow } from './engineDependencyRows'
 
 interface UpgradeStatus {
   running: boolean
@@ -11,15 +12,8 @@ interface UpgradeStatus {
   logPath: string | null
 }
 
-const SDK_OPTIONS = [
-  { id: 'codex', name: 'Codex SDK' },
-  { id: 'qwen', name: 'Qwen Code SDK' },
-  { id: 'claude', name: 'Claude Agent SDK' },
-  { id: 'opencode', name: 'OpenCode SDK' },
-]
-
 /** 所选引擎共用一次升级；轮询任务以支持面板关闭后继续。 */
-export function SdkUpgradeActions({ onUpdated }: { onUpdated: () => void }) {
+export function SdkUpgradeActions({ options, onUpdated }: { options: EngineDependencyRow[]; onUpdated: () => void }) {
   const { user } = useAuth()
   const admin = user?.roles.includes('ADMIN') ?? false
   const [engines, setEngines] = useState<string[]>(['codex'])
@@ -38,7 +32,7 @@ export function SdkUpgradeActions({ onUpdated }: { onUpdated: () => void }) {
         if (cancelled) return
         setStatus(value)
         if (value.running && value.engine) {
-          setEngines(SDK_OPTIONS.filter(option => value.engine?.split(',').includes(option.id)).map(option => option.id))
+          setEngines(value.engine.split(','))
         }
         setError(null)
         if (value.running) timer = setTimeout(() => void poll(), 1500)
@@ -74,19 +68,21 @@ export function SdkUpgradeActions({ onUpdated }: { onUpdated: () => void }) {
 
   if (!admin) return <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">SDK 升级由管理员操作。</p>
   const busy = submitting || status?.running
+  const eligible = options.filter(option => option.upgradeable)
   return (
     <div className="mt-3 border-t pt-3 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <fieldset disabled={busy} className="flex w-full flex-wrap items-center gap-2">
           <legend className="mb-2 font-medium">选择要检查升级的 SDK</legend>
-          {SDK_OPTIONS.map(option => <label key={option.id}
-            className="flex min-h-10 cursor-pointer items-center gap-2 rounded-md border px-3 has-[:checked]:bg-[var(--color-accent)] has-[:focus-visible]:outline-2">
-            <input type="checkbox" checked={engines.includes(option.id)} onChange={event => setEngines(current =>
+          {options.map(option => <label key={option.id}
+            className="flex min-h-10 items-center gap-2 rounded-md border px-3 has-[:checked]:bg-[var(--color-accent)] has-[:focus-visible]:outline-2">
+            <input type="checkbox" disabled={!option.upgradeable} checked={engines.includes(option.id)} onChange={event => setEngines(current =>
               event.target.checked ? [...current, option.id] : current.filter(id => id !== option.id))} />
             {option.name}
+            {!option.upgradeable && <span className="text-[var(--color-muted-foreground)]">{option.upgradeMode}</span>}
           </label>)}
           <button type="button" className="min-h-10 px-2 underline focus-visible:outline-2"
-            onClick={() => setEngines(SDK_OPTIONS.map(option => option.id))}>全选</button>
+            onClick={() => setEngines(eligible.map(option => option.id))}>全选可升级项</button>
           <button type="button" className="min-h-10 px-2 underline focus-visible:outline-2"
             onClick={() => setEngines([])}>清空</button>
         </fieldset>

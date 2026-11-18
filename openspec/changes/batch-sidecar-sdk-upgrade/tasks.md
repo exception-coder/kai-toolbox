@@ -16,3 +16,8 @@
 - 宿主 toolbox-starter 及依赖的 41 模块 compile 通过。OpenSpec strict validate、git diff --check 通过。
 - 项目质量门禁 JSON status=PASSED、退出码 0；executedCheckers 为空，executedVerifiers 仅 API-RUNTIME-001（现有服务通用接口），不能证明新版本功能运行通过。
 - 只读 frontend status 显示运行静态前端 revision=9d5b0973815f554f73870632f248989b39fc2a77；本任务没有重启、重载或真实升级。源码已验证，实际安装、会话重连、手机/桌面浏览器及 60 秒稳定观察待本次确认后执行，不把开发验证记为运行交付完成。
+
+## 运行时目录对齐补充
+
+- 团队依赖的运行时卡片和升级选项共用会话引擎目录，两处均列出当前 11 个引擎。12 项定向测试覆盖目录、不可用引擎展示和批量选择边界。隔离 Vite 构建、OpenSpec 检查及现有服务通用接口门禁通过。手机和桌面预览入口已准备，新版本浏览器验收待加载。
+- 旧升级记录的安装和协议校验通过。当前 `package.json` 与锁文件均和旧备份字节一致，尚无旧批次运行时完全恢复的证据。

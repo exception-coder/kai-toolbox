@@ -1565,7 +1565,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       )}
       {panel === 'plugins' && (
         <div className="scrollbar-autohide max-h-[60vh] overflow-y-auto">
-          <PluginPanel sessionId={chat.sessionId ?? undefined} onClose={() => setPanel('none')} />
+          <PluginPanel sessionId={chat.sessionId ?? undefined} catalog={engineCatalogQuery.data}
+            onClose={() => setPanel('none')} />
         </div>
       )}
 

@@ -6,17 +6,13 @@ export function supportsSessionProvider(engine: Engine): boolean {
 
 export const STABLE_ENGINE_IDS: readonly Engine[] = ['claude', 'codex', 'qwen', 'opencode']
 
-const KNOWN_ENGINE_IDS = new Set<Engine>([...STABLE_ENGINE_IDS, 'deepseekHarness'])
-KNOWN_ENGINE_IDS.add('pi')
-KNOWN_ENGINE_IDS.add('copilot')
-KNOWN_ENGINE_IDS.add('antigravity')
-KNOWN_ENGINE_IDS.add('trae')
-KNOWN_ENGINE_IDS.add('zcode')
-KNOWN_ENGINE_IDS.add('hermes')
+export const KNOWN_ENGINE_IDS: readonly Engine[] = [
+  'claude', 'codex', 'qwen', 'trae', 'zcode', 'hermes', 'antigravity', 'opencode', 'pi', 'copilot', 'deepseekHarness',
+]
 
 /** 本地偏好只能恢复已知引擎；实际可用性仍由运行目录判断。 */
 export function isKnownEngine(value: unknown): value is Engine {
-  return typeof value === 'string' && KNOWN_ENGINE_IDS.has(value as Engine)
+  return typeof value === 'string' && KNOWN_ENGINE_IDS.includes(value as Engine)
 }
 
 /**
@@ -26,7 +22,7 @@ export function isKnownEngine(value: unknown): value is Engine {
 export function selectableEngineIds(catalog?: EngineCatalogView): Engine[] {
   if (!catalog || catalog.error || catalog.engines.length === 0) return [...STABLE_ENGINE_IDS]
   const result = catalog.engines.flatMap(entry => {
-    if (!KNOWN_ENGINE_IDS.has(entry.id) || !entry.selectable) return []
+    if (!isKnownEngine(entry.id) || !entry.selectable) return []
     if ((entry.id === 'trae' || entry.id === 'zcode' || entry.id === 'hermes') && entry.probe.status !== 'ready') return []
     if (entry.availability === 'experimental' && entry.probe.status !== 'ready') return []
     return [entry.id]
