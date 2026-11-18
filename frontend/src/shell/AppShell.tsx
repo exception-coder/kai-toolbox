@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
+import { resolveSharingRoute } from '@/features/claude-chat/public-api/session-sharing'
 import { X } from 'lucide-react'
 import { Sheet, SheetClose, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Sidebar } from './Sidebar'
@@ -90,6 +91,10 @@ export function AppShell() {
     vv.addEventListener('resize', update)
     return () => vv.removeEventListener('resize', update)
   }, [])
+
+  if (resolveSharingRoute(location.pathname, location.search)?.collaboration) {
+    return <main className="overflow-hidden bg-background text-foreground" style={{ height: 'var(--app-vh, 100dvh)' }}><Outlet /></main>
+  }
 
   return (
     <MobileNavigationProvider onOpen={openMobileNavigation}><AssistantHost>

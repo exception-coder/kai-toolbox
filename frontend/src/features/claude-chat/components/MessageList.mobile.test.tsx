@@ -21,6 +21,14 @@ vi.mock('react-virtuoso', async () => {
 })
 afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); vi.mocked(copyTextToClipboard).mockReset() })
 
+it('keeps copying available without workspace actions for shared replies', () => {
+  const reply: ChatItem = { kind: 'assistant', id: 'shared-reply', text: '共享历史', forkAnchor: 'anchor' }
+  render(<MemoryRouter><MessageList items={[reply]} running={false} copyOnly mobileWorkspace /></MemoryRouter>)
+  expect(screen.getByRole('button', { name: '复制回复' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: '更多回复操作' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '转为卡片' })).not.toBeInTheDocument()
+})
+
 it('keeps the review action in the reply toolbar and preserves its message identity', () => {
   const review = vi.fn()
   const reply: ChatItem = { kind: 'assistant', id: 'review-source', text: '待评审方案' }

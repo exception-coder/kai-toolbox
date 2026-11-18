@@ -9,6 +9,7 @@ import { SessionExpiredGate } from '@/components/auth/SessionExpiredGate'
 import { ChatRuntimeOverlays, ChatRuntimeProvider } from '@/features/claude-chat/public-api/runtime'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { RouteLoading } from '@/shell/RouteLoading'
+import { resolveSharingRoute } from '@/features/claude-chat/public-api/session-sharing'
 
 const AssistantBridge = lazy(() => import('@/assistant-sdk/AssistantBridge').then(m => ({ default: m.AssistantBridge })))
 const FrontendUpdateNotice = lazy(() => import('@/shell/FrontendUpdateNotice').then(m => ({ default: m.FrontendUpdateNotice })))
@@ -19,6 +20,8 @@ const toolFeatures = features.filter(f => f.layout !== 'showcase')
 const showcaseFeatures = features.filter(f => f.layout === 'showcase')
 
 export default function App() {
+  const location = useLocation()
+  const scopedConversation = resolveSharingRoute(location.pathname, location.search)?.collaboration
   return (
     // 聊天运行时提到两套布局之上：悬浮窗跨「工具页 / 展示页 / 首页」全程常驻，会话不断
     <ChatRuntimeProvider>
@@ -54,10 +57,10 @@ export default function App() {
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
-    <ChatRuntimeOverlays />
-    <Suspense fallback={null}>
+    {!scopedConversation && <ChatRuntimeOverlays />}
+    {!scopedConversation && <Suspense fallback={null}>
       <ErrorBoundary label="assistant-bridge" compact><AssistantBridge /></ErrorBoundary>
-    </Suspense>
+    </Suspense>}
     <SessionExpiredGate />
     {import.meta.env.PROD && <Suspense fallback={null}>
       <ErrorBoundary label="frontend-update" compact><FrontendUpdateNotice /></ErrorBoundary>

@@ -7,6 +7,7 @@ import { ChatControlModePicker } from '../components/ChatControlModePicker'
 import { ChatPage } from './ChatPage'
 import { chatControlMode, controlModeSearch } from '../lib/controlMode'
 import { resolveSharingRoute } from '../sessionSharingApi'
+import { SharedConversation } from './SharedConversation'
 
 const LlmChatPage = lazy(() => import('@/features/ai-chat/public-api').then(m => ({ default: m.LlmChatPage })))
 
@@ -27,7 +28,8 @@ export function ChatControlWorkspace() {
   const allowedAgent = access.superAdmin || access.roles.includes('ADMIN') || access.permissionCodes.includes('menu:claude-chat')
     || new URLSearchParams(location.search).has('prdSessionId')
   const shared = resolveSharingRoute(location.pathname, location.search)
-  const renderControl = (onChoose?: () => void) => shared?.collaboration ? null : <div className={onChoose ? 'w-full' : 'flex shrink-0 items-center gap-1'}>
+  if (shared?.collaboration) return <SharedConversation key={shared.id} sessionId={shared.id} />
+  const renderControl = (onChoose?: () => void) => <div className={onChoose ? 'w-full' : 'flex shrink-0 items-center gap-1'}>
     {mode === 'LLM' && openNavigation && <button type="button" onClick={openNavigation}
       aria-label="打开导航" className="flex size-8 items-center justify-center md:hidden"><Menu className="size-4" /></button>}
     <ChatControlModePicker mode={mode} allowedAgent={allowedAgent} allowedLlm={allowedLlm} triggerRef={focusControl}

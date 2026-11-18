@@ -69,6 +69,7 @@ interface Props {
   /** 公开评审页为业务人员消息补充轻量分类标记。 */
   getUserMessageBadge?: (item: Extract<ChatItem, { kind: 'user' }>) => UserMessageBadge | null
   renderAssistantAction?: (item: Extract<ChatItem, { kind: 'assistant' }>) => ReactNode
+  copyOnly?: boolean
 }
 
 interface UserMessageBadge {
@@ -167,7 +168,7 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
 export const MessageList = memo(forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, mobileWorkspace = false, executionInDock = false, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, recoveryActions },
+  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, mobileWorkspace = false, executionInDock = false, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, recoveryActions, copyOnly },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
@@ -346,7 +347,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
 
   const itemContent = useCallback((_index: number, item: ChatItem) => (
     <div data-msg-id={item.id} className={cn('cc-message-row px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
-      <Row item={item} onFork={onFork} onToCard={openCard} engineLabel={engineLabel} onNewSession={onNewSession}
+      <Row item={item} onFork={onFork} onToCard={copyOnly ? undefined : openCard} engineLabel={engineLabel} onNewSession={onNewSession}
         compactMobile={compactMobile}
         streaming={liveReplyIds.has(item.id)}
         compactMetrics={mobileWorkspace} renderAssistantAction={renderAssistantAction}
@@ -359,7 +360,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
       {item.kind === 'result' && item.id === recoveryResult?.id && recoveryActions
         && <TurnFailureRecovery key={item.id} item={item} actions={recoveryActions} />}
     </div>
-  ), [highlightedId, onFork, openCard, openImage, engineLabel, onNewSession, onCleanRetry, hasForkTarget, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, compactMobile, mobileWorkspace, liveReplyIds, recoveryResult, recoveryActions])
+  ), [highlightedId, onFork, openCard, copyOnly, openImage, engineLabel, onNewSession, onCleanRetry, hasForkTarget, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, compactMobile, mobileWorkspace, liveReplyIds, recoveryResult, recoveryActions])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {
@@ -540,7 +541,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
   )
 }
 
-const Row = memo(function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics, streaming, renderAssistantAction }: { item: ChatItem; onFork?: (forkAnchor: string) => void; onToCard: (text: string, trigger: HTMLElement) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean; streaming?: boolean; renderAssistantAction?: Props['renderAssistantAction'] }) {
+const Row = memo(function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics, streaming, renderAssistantAction }: { item: ChatItem; onFork?: (forkAnchor: string) => void; onToCard?: (text: string, trigger: HTMLElement) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean; streaming?: boolean; renderAssistantAction?: Props['renderAssistantAction'] }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -642,10 +643,10 @@ const Row = memo(function Row({ item, onFork, onToCard, engineLabel, onNewSessio
             {item.text.trim() && (
               <div className="cc-message-actions flex items-center gap-1">
                 <CopyButton text={item.text} />
-                {compactMobile ? <MobileMessageMore text={item.text} onFork={onFork} onToCard={onToCard} forkAnchor={item.forkAnchor} /> : <>
+                {onToCard && (compactMobile ? <MobileMessageMore text={item.text} onFork={onFork} onToCard={onToCard} forkAnchor={item.forkAnchor} /> : <>
                   <ToCardButton onClick={trigger => onToCard(item.text, trigger)} />
                   {onFork && item.forkAnchor && <ForkReplyButton onFork={() => onFork(item.forkAnchor!)} />}
-                </>}
+                </>)}
                 {renderAssistantAction?.(item)}
               </div>
             )}

@@ -101,7 +101,6 @@ import { useUnifiedTitleBarSlot } from '@/shell/UnifiedTitleBar'
 import { useMobileNavigation } from '@/shell/MobileNavigationContext'
 import { useMockMode } from '@/shell/useMockMode'
 import { useAuth } from '@/lib/auth'
-import { getSharedSession, resolveSharingRoute } from '../sessionSharingApi'
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
@@ -767,15 +766,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     if (next.length === 0) setViewMode('single')
   }, [multiIds, sessions, sessionsLoaded])
   const currentSession = sessions.find(s => s.id === chat?.sessionId && isVibeCodingSession(s))
-  const shareRoute = resolveSharingRoute(location.pathname, location.search)
-  const collaborationId = shareRoute?.collaboration ? shareRoute.id : null
-  useEffect(() => { if (collaborationId) activate() }, [activate, collaborationId])
-  const sharedSession = useQuery({
-    queryKey: ['claude-chat-collaboration', collaborationId],
-    queryFn: () => getSharedSession(collaborationId!),
-    enabled: !!collaborationId,
-    retry: false,
-  })
   const codexHomesQuery = useQuery({
     queryKey: ['claude-chat-codex-homes'],
     queryFn: fetchCodexHomes,
@@ -837,7 +827,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
   }, [attachments, uploading, setAttachments, setDraft, setUploading, communicationUser])
   const currentTitle = currentSession
     ? (currentSession.title?.trim() || headerCwdName(currentSession.cwd))
-    : sharedSession.data?.title ?? undefined
+    : undefined
   const [reviewFeedbackBusy, setReviewFeedbackBusy] = useState(false)
   const [reviewFeedbackError, setReviewFeedbackError] = useState<string | null>(null)
   const reviewTodosQuery = useQuery({
@@ -1108,10 +1098,6 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
       focus.focused && 'cc-focus-mode',
       focus.focused && focusWide && 'cc-focus-wide',
     )}>
-      {collaborationId && <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2 text-sm">
-        <span role="status" className="min-w-0 break-words">{chat.errorMessage ?? '正在使用共享会话'}</span>
-        <Button size="sm" variant="ghost" className="shrink-0" onClick={() => navigate('/')}>退出共享会话</Button>
-      </div>}
       <VibeCodingGuide open={guideOpen} onOpenChange={setGuideOpen} onLocate={locateGuide} onRestore={restoreGuide} hasSession={Boolean(chat.sessionId)} returnFocus={guideReturnFocus.current ? guideReturnFocus : sessionToolsTriggerRef} />
       <SessionDuplicationDialog operation={chat.duplicationOperation} onClose={chat.dismissDuplication} onRetry={chat.duplicateSession} onReturnFocus={() => taRef.current?.focus()} />
       {chat.sessionId && changesOpen && <TurnChangesDialog key={chat.sessionId} sessionId={chat.sessionId} open onOpenChange={setChangesOpen} returnFocus={sessionToolsTriggerRef} />}
@@ -1370,7 +1356,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
               {chat.sessionId && (
                 <HeaderMenuItem nested icon={<FileDown className="size-4" />} label="导出会话" hint="导出为 PDF/Word，含图片，发给同事/领导查看" onClick={() => { setHeaderMenu(false); setShowExport(true) }} />
               )}
-              {chat.sessionId && !reviewOnlySession && !collaborationId && (
+              {chat.sessionId && !reviewOnlySession && (
                 <HeaderMenuItem nested icon={<Share2 className="size-4" />} label="共享给指定用户" hint="限时继续同一会话，可随时撤回" onClick={() => {
                   if (chat.sessionId) setSharingPanel({ id: chat.sessionId, title: currentTitle ?? '未命名会话', trigger: sessionToolsTriggerRef.current })
                   setHeaderMenu(false)

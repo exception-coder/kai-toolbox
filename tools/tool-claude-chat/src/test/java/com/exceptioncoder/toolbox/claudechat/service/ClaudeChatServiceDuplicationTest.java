@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import com.exceptioncoder.toolbox.claudechat.repository.AuthSessionLinkRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.util.List;
@@ -48,6 +49,23 @@ class ClaudeChatServiceDuplicationTest {
         when(access.ownerId(ws)).thenReturn(1L);
         when(engines.selectable(anyString())).thenReturn(true);
         when(links.bind(anyString(), anyString(), anyString(), anyLong())).thenReturn(true);
+    }
+
+    @Test
+    void sharedConnectionAcceptsConversationCommandsButRejectsWorkspaceChanges() {
+        when(ws.getUri()).thenReturn(URI.create("ws://localhost/api/claude-chat/collaboration/ws?session_id=source"));
+        when(access.principal(ws)).thenReturn(new AuthPrincipal(8L, "recipient", List.of("USER"),
+                List.of(), "jti", Long.MAX_VALUE));
+        when(access.canCollaborate(ws, "source")).thenReturn(true);
+
+        assertThat(service.rejectCollaborationCommand(ws, new ClientMessage.SwitchSession("source"))).isFalse();
+        assertThat(service.rejectCollaborationCommand(ws, new ClientMessage.Send("继续", List.of(), null, null, "message"))).isFalse();
+        assertThat(service.rejectCollaborationCommand(ws, new ClientMessage.SwitchSession("other"))).isTrue();
+        assertThat(service.rejectCollaborationCommand(ws, new ClientMessage.DuplicateSession("source", null, false))).isTrue();
+        assertThat(service.rejectCollaborationCommand(ws, new ClientMessage.SwitchEngine("codex"))).isTrue();
+        assertThat(service.rejectCollaborationCommand(ws, new ClientMessage.SetModel("other"))).isTrue();
+        assertThat(service.rejectCollaborationCommand(ws, new ClientMessage.SetMode("bypassPermissions"))).isTrue();
+        assertThat(service.rejectCollaborationCommand(ws, new ClientMessage.Send("继续", List.of(), "内部指令", null, "message"))).isTrue();
     }
 
     @Test
