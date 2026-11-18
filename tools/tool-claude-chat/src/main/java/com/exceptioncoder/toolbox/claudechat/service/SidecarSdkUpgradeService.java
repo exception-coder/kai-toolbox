@@ -48,10 +48,16 @@ public class SidecarSdkUpgradeService {
 
     /** 受控入口不接收命令、路径或任意 npm spec。 */
     public synchronized UpgradeStatus start(String engine) {
+        return start(engine == null ? List.of() : List.of(engine));
+    }
+
+    /** 多包共用一次隔离安装、验证和切换；任一非法输入拒绝整批。 */
+    public synchronized UpgradeStatus start(List<String> engines) {
         if (AuthContext.current().filter(principal -> principal.hasAnyRole("ADMIN")).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "仅管理员可升级 SDK");
         }
-        if (engine == null || SidecarVersionService.upgradePackage(engine) == null) {
+        if (engines == null || engines.isEmpty() || engines.size() > 4
+                || engines.stream().anyMatch(engine -> engine == null || SidecarVersionService.upgradePackage(engine) == null)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该引擎不支持内置 SDK 升级");
         }
         if (status.running()) {
@@ -60,49 +66,66 @@ public class SidecarSdkUpgradeService {
         if (!chat.activitySnapshot().safeToRestart()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "仍有运行、未决或状态不确定的会话，请完成后重试");
         }
-        status = new UpgradeStatus(true, "CHECKING", engine, "正在检查最新稳定版本", null);
-        Thread.ofVirtual().name("sidecar-sdk-upgrade").start(() -> upgrade(engine));
+        List<String> selected = engines.stream().distinct().toList();
+        status = new UpgradeStatus(true, "CHECKING", String.join(",", selected), "正在检查所选 SDK 的最新稳定版本", null);
+        Thread.ofVirtual().name("sidecar-sdk-upgrade").start(() -> upgrade(selected));
         return status;
     }
 
-    private void upgrade(String engine) {
+    void upgrade(List<String> engines) {
         SidecarSdkUpgradeWorkspace workspace = null;
         try {
-            var version = versions.read(true).engines().stream()
-                    .filter(item -> engine.equals(item.id())).findFirst().orElseThrow();
-            String latest = version.latest();
-            if (latest == null || !latest.matches("[0-9]+\\.[0-9]+\\.[0-9]+")) {
-                throw new IOException("无法取得最新稳定版本，请检查 npm 网络后重试");
-            }
-            if (latest.equals(version.installed())) {
-                update(false, "SUCCEEDED", "当前 SDK 已是最新版本 " + latest, null);
-                return;
-            }
-            if (version.installed() != null && version.installed().matches("[0-9]+\\.[0-9]+\\.[0-9]+")
-                    && compareStableVersions(version.installed(), latest) > 0) {
-                update(false, "SUCCEEDED", "当前 SDK " + version.installed() + " 高于稳定版，未执行降级", null);
+            List<String> dependencies = dependencies(engines);
+            if (dependencies.isEmpty()) {
+                update(false, "SUCCEEDED", "所选 SDK 已是最新或更高稳定版本，无需切换运行时", null);
                 return;
             }
             workspace = new SidecarSdkUpgradeWorkspace(registry.sidecarDir());
-            update(true, "INSTALLING", "正在隔离安装 " + version.name() + " " + latest, workspace);
-            prepare(workspace, SidecarVersionService.upgradePackage(engine) + "@" + latest);
+            update(true, "INSTALLING", "正在隔离安装 " + String.join("、", dependencies), workspace);
+            prepare(workspace, dependencies);
             update(true, "ACTIVATING", "正在检查会话并切换运行时", workspace);
             activate(workspace);
-            update(false, "SUCCEEDED", version.name() + " 已升级到 " + latest + "，会话已重新连接", workspace);
+            update(false, "SUCCEEDED", "批量升级完成：" + String.join("、", dependencies) + "；其余所选 SDK 无需升级，会话已重新连接", workspace);
         } catch (Exception e) {
-            log.error("[claude-chat] SDK 升级失败 engine={}", engine, e);
+            log.error("[claude-chat] SDK 批量升级失败 engines={}", engines, e);
             update(false, "FAILED", e.getMessage() == null ? "升级失败，请查看诊断日志" : e.getMessage(), workspace);
         }
     }
 
-    private void prepare(SidecarSdkUpgradeWorkspace workspace, String dependency) throws Exception {
+    List<String> dependencies(List<String> engines) throws IOException {
+        var available = versions.read(true).engines();
+        List<String> dependencies = new ArrayList<>();
+        for (String engine : engines.stream().distinct().toList()) {
+            var version = available.stream().filter(item -> engine.equals(item.id())).findFirst()
+                    .orElseThrow(() -> new IOException("未取得 SDK 版本：" + engine));
+            String latest = version.latest();
+            if (latest == null || !latest.matches("[0-9]+\\.[0-9]+\\.[0-9]+")) {
+                throw new IOException(engine + " 无法取得最新稳定版本，整批未升级，请检查 npm 网络后重试");
+            }
+            if (version.installed() != null) {
+                String core = version.installed().split("[-+]", 2)[0];
+                if (core.matches("[0-9]+\\.[0-9]+\\.[0-9]+")) {
+                    int compared = compareStableVersions(core, latest);
+                    // 更高版本的预发布包也不能被旧稳定版覆盖；同版本预发布可升级为正式版。
+                    if (compared > 0 || compared == 0 && !version.installed().split("\\+", 2)[0].contains("-")) {
+                        continue;
+                    }
+                }
+            }
+            dependencies.add(SidecarVersionService.upgradePackage(engine) + "@" + latest);
+        }
+        return List.copyOf(dependencies);
+    }
+
+    void prepare(SidecarSdkUpgradeWorkspace workspace, List<String> dependencies) throws Exception {
         List<String> install = new ArrayList<>();
         if (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) {
             install.addAll(List.of("cmd.exe", "/d", "/c", "npm.cmd"));
         } else {
             install.add("npm");
         }
-        install.addAll(List.of("install", "--ignore-scripts", "--save-exact", "--no-audit", "--no-fund", dependency));
+        install.addAll(List.of("install", "--ignore-scripts", "--save-exact", "--no-audit", "--no-fund"));
+        install.addAll(dependencies);
         run(workspace, install);
         update(true, "VERIFYING", "正在校验 Codex 协议与 TypeScript 编译", workspace);
         run(workspace, List.of(properties.getNodeCommand(), "scripts/check-codex-app-server-schema.mjs"));
@@ -200,6 +223,6 @@ public class SidecarSdkUpgradeService {
         return 0;
     }
 
-    /** @param running 是否执行中 @param phase 阶段 @param engine 引擎 @param message 结果说明 @param logPath 本地日志 */
+    /** @param running 是否执行中 @param phase 阶段 @param engine 所选引擎 ID，批量时逗号分隔 @param message 结果说明 @param logPath 本地日志 */
     public record UpgradeStatus(boolean running, String phase, String engine, String message, String logPath) { }
 }

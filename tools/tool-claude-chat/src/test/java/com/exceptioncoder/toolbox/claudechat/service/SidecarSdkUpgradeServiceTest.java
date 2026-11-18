@@ -82,6 +82,69 @@ class SidecarSdkUpgradeServiceTest {
         assertThat(SidecarSdkUpgradeService.compareStableVersions("0.153.4", "0.153.4")).isZero();
     }
 
+    @Test void batchValidationRejectsWholeSelectionBeforeStarting() {
+        admin();
+        assertThatThrownBy(() -> service.start(List.of())).hasMessageContaining("400");
+        assertThatThrownBy(() -> service.start(List.of("codex", "antigravity"))).hasMessageContaining("400");
+        verifyNoInteractions(versions, registry, client, chat);
+    }
+
+    @Test void batchPlansOneInstallSkipsCurrentAndHigherVersionsAndDeduplicates() throws Exception {
+        when(versions.read(true)).thenReturn(versionView(
+                version("codex", "1.0.0", "1.1.0"), version("claude", "2.0.0", "2.1.0"),
+                version("qwen", "3.0.0", "3.0.0"), version("opencode", "4.1.0-alpha.1", "4.0.0")));
+        assertThat(service.dependencies(List.of("codex", "claude", "qwen", "opencode", "codex")))
+                .containsExactly("@openai/codex-sdk@1.1.0", "@anthropic-ai/claude-agent-sdk@2.1.0");
+        verify(versions).read(true);
+    }
+
+    @Test void sameVersionPrereleaseCanAdvanceToStableButBuildMetadataDoesNotReinstall() throws Exception {
+        when(versions.read(true)).thenReturn(versionView(
+                version("codex", "1.0.0-alpha.1", "1.0.0"), version("claude", "2.0.0+build-beta.1", "2.0.0")));
+        assertThat(service.dependencies(List.of("codex", "claude"))).containsExactly("@openai/codex-sdk@1.0.0");
+    }
+
+    @Test void failedVersionLookupDoesNotInstallAnyPackage() {
+        when(versions.read(true)).thenReturn(versionView(
+                version("codex", "1.0.0", "1.1.0"), version("claude", "2.0.0", null)));
+        service.upgrade(List.of("codex", "claude"));
+        assertThat(service.status().phase()).isEqualTo("FAILED");
+        verifyNoInteractions(registry, client);
+    }
+
+    @Test void allCurrentSelectionDoesNotReconnect() {
+        when(versions.read(true)).thenReturn(versionView(version("codex", "1.0.0", "1.0.0")));
+        service.upgrade(List.of("codex"));
+        assertThat(service.status().phase()).isEqualTo("SUCCEEDED");
+        verifyNoInteractions(registry, client);
+    }
+
+    @Test void batchPreparesAndActivatesOnlyOnce() throws Exception {
+        workspace();
+        when(registry.sidecarDir()).thenReturn(root);
+        when(versions.read(true)).thenReturn(versionView(
+                version("codex", "1.0.0", "1.1.0"), version("claude", "2.0.0", "2.1.0")));
+        var batch = spy(service);
+        doNothing().when(batch).prepare(any(), anyList());
+        doNothing().when(batch).activate(any());
+        batch.upgrade(List.of("codex", "claude"));
+        verify(batch).prepare(any(), eq(List.of("@openai/codex-sdk@1.1.0", "@anthropic-ai/claude-agent-sdk@2.1.0")));
+        verify(batch).activate(any());
+        assertThat(batch.status().phase()).isEqualTo("SUCCEEDED");
+    }
+
+    private static com.exceptioncoder.toolbox.claudechat.api.dto.SidecarEngineVersionView version(
+            String id, String installed, String latest) {
+        return new com.exceptioncoder.toolbox.claudechat.api.dto.SidecarEngineVersionView(
+                id, id, SidecarVersionService.upgradePackage(id), installed, installed, null, latest, false, null);
+    }
+
+    private static com.exceptioncoder.toolbox.claudechat.api.dto.SidecarVersionView versionView(
+            com.exceptioncoder.toolbox.claudechat.api.dto.SidecarEngineVersionView... engines) {
+        return new com.exceptioncoder.toolbox.claudechat.api.dto.SidecarVersionView(
+                null, null, null, null, false, null, null, List.of(engines));
+    }
+
     @Test void refusesActivationAfterNewWorkArrivesAndReleasesGates() throws Exception {
         var workspace = workspace();
         when(chat.activitySnapshot()).thenReturn(activity(true));

@@ -22,5 +22,12 @@ public class SidecarSdkUpgradeController {
     public UpgradeStatus status() { return service.status(); }
 
     @PostMapping
-    public UpgradeStatus upgrade(@RequestParam String engine) { return service.start(engine); }
+    public UpgradeStatus upgrade(@RequestParam(required = false) String engine,
+                                 @RequestParam(required = false) java.util.List<String> engines) {
+        if (engine != null && engines != null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "请使用 engine 或 engines，不能同时指定");
+        }
+        return engines == null ? service.start(engine) : service.start(engines);
+    }
 }
