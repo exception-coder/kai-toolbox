@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import {
   grantSessionReader, listSessionReaders, listSharedSessions, revokeSessionReader,
-  searchSessionRecipients, sharedSessionPath, type SessionReader, type SessionReaderGrant, type SharedSession,
+  collaborationPath, searchSessionRecipients, sharedSessionPath, type SessionReader, type SessionReaderGrant, type SharedSession,
 } from '../sessionSharingApi'
 
 export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFocus }: {
@@ -50,7 +50,7 @@ export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFo
     try {
       if (grant) await grantSessionReader(sessionId, reader.id, hours)
       else await revokeSessionReader(sessionId, reader.id)
-      setNotice(grant ? `已授权 ${reader.realName || reader.username} 查看` : '已撤销，后续读取将被拒绝')
+      setNotice(grant ? `已授权 ${reader.realName || reader.username} 继续会话` : '已撤回共享，接收者无法继续访问')
       await reload()
     } catch (e) {
       await reload()
@@ -64,7 +64,7 @@ export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFo
       onCloseAutoFocus={e => { if (returnFocus) { e.preventDefault(); returnFocus() } }}>
       <SheetTitle className="break-words">{sessionId ? `共享会话${sessionTitle ? ` · ${sessionTitle}` : ''}` : '共享给我'}</SheetTitle>
       <SheetDescription>{sessionId
-        ? '选中的账号可查看此会话已落盘的对话文字，包括文字中已有的敏感内容。不会获得发送、执行、删除或再次分享权限；附件和工具日志不共享。'
+        ? '选中的账号可继续此会话，发送消息、确认请求和中断任务，并查看会话历史。你可以随时撤回共享。'
         : '其他用户授权你查看的会话。需要使用被授权的账号登录。'}</SheetDescription>
       <div className="min-h-0 overflow-y-auto py-2">
         {error && <div role="alert" className="mb-3 text-sm text-destructive">{error} <Button variant="ghost" size="sm" onClick={() => void reload()}>重试</Button></div>}
@@ -85,25 +85,25 @@ export function SessionSharingPanel({ sessionId, sessionTitle, onClose, returnFo
           {!searching && query.trim().length >= 2 && !results.length && <p className="text-sm text-muted-foreground">未找到可用账号，请核对用户名或姓名。</p>}
           <ul className="divide-y">{results.map(reader => <li key={reader.id} className="flex min-h-12 items-center justify-between gap-3 py-2">
             <span className="min-w-0 break-words text-sm">{reader.realName || reader.username} <span className="text-muted-foreground">@{reader.username}</span></span>
-            <Button size="sm" className="min-h-11 shrink-0" disabled={busy || readers.some(r => r.id === reader.id && (!r.expiresAt || r.expiresAt > Date.now()))} onClick={() => void change(reader, true)}>授权查看</Button>
+            <Button size="sm" className="min-h-11 shrink-0" disabled={busy || readers.some(r => r.id === reader.id && r.collaborate && (!r.expiresAt || r.expiresAt > Date.now()))} onClick={() => void change(reader, true)}>授权继续会话</Button>
           </li>)}</ul>
-          <h3 className="mb-1 mt-5 text-sm font-medium">已授权查看</h3>
+          <h3 className="mb-1 mt-5 text-sm font-medium">已共享</h3>
           {!readers.length && <p className="py-2 text-sm text-muted-foreground">尚未共享给其他账号。</p>}
           <ul className="divide-y">{readers.map(reader => <li key={reader.id} className="flex min-h-12 items-center justify-between gap-3 py-2">
             <span className="min-w-0 break-words text-sm">{reader.realName || reader.username} <span className="text-muted-foreground">@{reader.username}</span>
-              <span className="block text-xs text-muted-foreground">{reader.expiresAt ? `到期 ${new Date(reader.expiresAt).toLocaleString()}` : '无期限'}</span>
+              <span className="block text-xs text-muted-foreground">{reader.collaborate ? '可继续会话' : '只读'} · {reader.expiresAt ? `到期 ${new Date(reader.expiresAt).toLocaleString()}` : '无期限'}</span>
             </span>
-            <Button variant="ghost" size="sm" className="min-h-11 shrink-0" disabled={busy} onClick={() => void change(reader, false)}>撤销</Button>
+            <Button variant="ghost" size="sm" className="min-h-11 shrink-0" disabled={busy} onClick={() => void change(reader, false)}>撤回共享</Button>
           </li>)}</ul>
           <Button variant="outline" className="mt-4" onClick={() => {
             void Promise.resolve().then(() => navigator.clipboard.writeText(new URL(sharedSessionPath(sessionId), location.origin).href))
               .then(() => setCopied(true)).catch(() => setError('复制失败，请稍后重试'))
-          }}>{copied ? '链接已复制' : '复制查看链接'}</Button>
+          }}>{copied ? '链接已复制' : '复制共享链接'}</Button>
           <p className="mt-2 text-xs text-muted-foreground">链接不授予权限。撤销不能收回对方已读或已复制的文字。</p>
         </> : <ul className="divide-y">
           {!sessions.length && <li className="py-4 text-sm text-muted-foreground">暂无共享给你的会话。</li>}
-          {sessions.map(session => <li key={session.id}><Link to={sharedSessionPath(session.id)} onClick={onClose}
-            className="block min-h-12 py-3 text-sm hover:underline">{session.title || '未命名会话'}<span className="ml-2 text-muted-foreground">只读 · {session.engine}</span></Link></li>)}
+          {sessions.map(session => <li key={session.id}><Link to={session.collaborate ? collaborationPath(session.id) : sharedSessionPath(session.id)} onClick={onClose}
+            className="block min-h-12 py-3 text-sm hover:underline">{session.title || '未命名会话'}<span className="ml-2 text-muted-foreground">{session.collaborate ? '可继续会话' : '只读'} · {session.engine}</span></Link></li>)}
         </ul>}
       </div>
     </SheetContent>

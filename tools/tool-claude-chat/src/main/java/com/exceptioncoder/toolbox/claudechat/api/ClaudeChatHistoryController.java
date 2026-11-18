@@ -64,7 +64,7 @@ public class ClaudeChatHistoryController {
         ClaudeChatSession db = sessionRepo.findById(sessionId).orElseThrow(() ->
                 new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "会话不存在"));
         if (db.getSdkSessionId() == null || db.getSdkSessionId().isBlank()) {
-            if (!accessPolicy.canAccessCurrentUser(db)) {
+            if (!accessPolicy.canInteractCurrentUser(db)) {
                 throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "无权读取会话");
             }
             return MessagePage.empty();
@@ -99,8 +99,8 @@ public class ClaudeChatHistoryController {
                     org.springframework.http.HttpStatus.NOT_FOUND, "请先导入历史会话再读取最近消息");
         }
         if (sessionId != null && !sessionId.isBlank() || "cursor".equals(pagination)
-                || db != null && SessionExecutionPolicy.isConsultReadonly(db.getExecutionPolicy())) {
-            if (!accessPolicy.canAccessCurrentUser(db)) {
+                || db != null && (db.getUserId() != null || SessionExecutionPolicy.isConsultReadonly(db.getExecutionPolicy()))) {
+            if (db == null || !accessPolicy.canInteractCurrentUser(db)) {
                 throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "无权读取会话");
             }
             if (SessionExecutionPolicy.isConsultReadonly(db.getExecutionPolicy()) && consultHistory != null) {

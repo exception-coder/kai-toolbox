@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { marked } from 'marked'
+import { withAuthToken } from '@/lib/auth'
 import DOMPurify from 'dompurify'
 import { Copy, Loader2, X } from 'lucide-react'
 import { getConsult, type ConsultAttRef, type ConsultSessionView, type ConsultTurnView, type FeedbackView } from '../api'
@@ -68,7 +69,7 @@ function pairOfTurn(turn: ConsultTurnView): QaPair {
   }
 }
 
-const fileUrl = (path: string) => `/api/claude-chat/attachments/file?path=${encodeURIComponent(path)}`
+const fileUrl = (path: string) => withAuthToken(`/api/claude-chat/attachments/file?path=${encodeURIComponent(path)}`)
 const isImage = (a: ConsultAttRef) => (a.mime ?? '').startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(a.name)
 
 function renderMarkdown(text: string): string {

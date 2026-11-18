@@ -23,11 +23,11 @@ class TestSocket {
   static sockets: TestSocket[] = []
   readyState = TestSocket.CONNECTING
   onopen: (() => void) | null = null
-  onclose: (() => void) | null = null
+  onclose: ((event?: { code: number }) => void) | null = null
   onerror: (() => void) | null = null
   onmessage: ((event: { data: string }) => void) | null = null
   send = vi.fn()
-  constructor(_url: string) { TestSocket.sockets.push(this) }
+  constructor(readonly url: string) { TestSocket.sockets.push(this) }
   open() { this.readyState = TestSocket.OPEN; this.onopen?.() }
   close() { this.readyState = 3; this.onclose?.() }
   receive(message: ServerMessage) { this.onmessage?.({ data: JSON.stringify(message) }) }
@@ -48,6 +48,22 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals() })
 
 describe('Codex 会话参数恢复', () => {
+  it('keeps collaboration scoped to the shared session and clears it on revocation', async () => {
+    const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false, channel: 'collaboration', collaborationSessionId: 'shared' }))
+    act(() => result.current.switchTo('other'))
+    expect(result.current.sessionId).toBeNull()
+    act(() => result.current.switchTo('shared'))
+    await waitFor(() => expect(TestSocket.sockets).toHaveLength(1))
+    const socket = TestSocket.sockets[0]
+    expect(socket.url).toContain('/api/claude-chat/collaboration/ws?')
+    expect(socket.url).toContain('session_id=shared')
+    act(() => { socket.open(); socket.receive(ready('shared')) })
+    await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    act(() => socket.onclose?.({ code: 4003 }))
+    expect(result.current.items).toEqual([])
+    expect(result.current.state).toBe('error')
+  })
+
   it('往返切换只发请求，确认前保留引擎，服务端状态可在重连后恢复', async () => {
     const { result } = renderHook(() => useClaudeChatSocket({ autoConnect: false }))
     act(() => result.current.switchTo('handoff'))

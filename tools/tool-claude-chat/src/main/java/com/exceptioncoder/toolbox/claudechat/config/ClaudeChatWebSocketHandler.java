@@ -60,6 +60,7 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
         }
         ws.setTextMessageSizeLimit(MSG_LIMIT);
         ws.setBinaryMessageSizeLimit(MSG_LIMIT);
+        if (SessionExecutionPolicy.isCollaborationSocket(ws.getUri())) service.allowCollaborationSocket(ws);
     }
 
     @Override
@@ -98,6 +99,7 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
     }
 
     private void dispatchMessage(WebSocketSession ws, ClientMessage msg) {
+        if (SessionExecutionPolicy.isCollaborationSocket(ws.getUri()) && service.rejectCollaborationCommand(ws, msg)) return;
         if (service.rejectDuringEngineHandoff(ws, msg)) { return; }
         switch (msg) {
             case ClientMessage.Open open -> service.openSession(ws, open);

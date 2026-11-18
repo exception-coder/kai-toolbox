@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { getSharedMessages, getSharedSession, type SharedMessage, type SharedSession } from '../sessionSharingApi'
+import { collaborationPath, getSharedMessages, getSharedSession, type SharedMessage, type SharedSession } from '../sessionSharingApi'
 
 /** 纯文字只读投影，不挂载 ChatPage / WebSocket / Markdown 可执行操作。 */
 export function SharedSessionPage() {
@@ -17,9 +17,12 @@ export function SharedSessionPage() {
     const request = ++generation.current
     setBusy(true); setError('')
     try {
-      const [info, page] = await Promise.all([getSharedSession(sessionId), getSharedMessages(sessionId, older)])
+      const info = await getSharedSession(sessionId)
       if (generation.current !== request) return
       setSession(info)
+      if (info.collaborate) return
+      const page = await getSharedMessages(sessionId, older)
+      if (generation.current !== request) return
       setMessages(previous => older ? [...page.items, ...previous].filter((m, i, all) => all.findIndex(x => x.id === m.id) === i) : page.items)
       setCursor(page.nextCursor)
       setWarning(page.transcriptMissing ? '原生历史记录已不可用。' : page.historyGap || '')
@@ -30,6 +33,8 @@ export function SharedSessionPage() {
     } finally { if (generation.current === request) setBusy(false) }
   }, [sessionId])
   useEffect(() => { setSession(null); setMessages([]); void load(); return () => { generation.current++ } }, [load])
+
+  if (session?.collaborate) return <Navigate replace to={collaborationPath(sessionId)} />
 
   return <main className="mx-auto flex h-full max-w-4xl flex-col px-4 py-5 sm:px-8">
     <header className="shrink-0 border-b pb-4">

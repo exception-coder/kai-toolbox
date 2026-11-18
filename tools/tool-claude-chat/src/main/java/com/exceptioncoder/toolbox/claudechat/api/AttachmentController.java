@@ -40,7 +40,7 @@ public class AttachmentController {
     @PostMapping("/api/claude-chat/sessions/{sessionId}/attachments")
     public AttachmentView upload(@PathVariable String sessionId,
                                  @RequestPart("file") MultipartFile file) throws IOException {
-        if (!sessionAccessPolicy.canAccessOrClaimCurrentUser(sessionId)) {
+        if (!sessionAccessPolicy.canInteractCurrentUser(sessionId) && !sessionAccessPolicy.canAccessOrClaimCurrentUser(sessionId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前用户不能访问该会话");
         }
         return storage.store(sessionId, file);
@@ -62,8 +62,10 @@ public class AttachmentController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().build();
         }
-        // 二次验证规范化后的路径仍包含标记目录
-        if (!file.toString().contains(ATTACH_DIR_MARKER)) {
+        if (!file.isAbsolute() || file.getNameCount() < 3
+                || !ATTACH_DIR_MARKER.equals(file.getName(file.getNameCount() - 3).toString())
+                || !sessionAccessPolicy.canInteractCurrentUser(file.getParent().getFileName().toString())
+                || !storage.isSessionAttachment(file.getParent().getFileName().toString(), file)) {
             return ResponseEntity.status(403).build();
         }
         if (!Files.isRegularFile(file) || !Files.isReadable(file)) {
@@ -73,6 +75,7 @@ public class AttachmentController {
         if (mime == null) mime = "application/octet-stream";
         Resource resource = new PathResource(file);
         return ResponseEntity.ok()
+                .cacheControl(org.springframework.http.CacheControl.noStore())
                 .contentType(MediaType.parseMediaType(mime))
                 .body(resource);
     }

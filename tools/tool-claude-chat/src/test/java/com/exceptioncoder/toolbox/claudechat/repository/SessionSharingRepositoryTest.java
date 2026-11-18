@@ -9,6 +9,19 @@ import static org.assertj.core.api.Assertions.*;
 
 class SessionSharingRepositoryTest {
     @Test
+    void legacyTemporarySharesStayReadOnlyAfterIdempotentMigration() throws Exception {
+        try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite::memory:")) {
+            var jdbc = new JdbcTemplate(new SingleConnectionDataSource(connection, true));
+            jdbc.execute("CREATE TABLE claude_chat_session_temporary_reader (session_id TEXT, user_id INTEGER, expires_at INTEGER)");
+            jdbc.update("INSERT INTO claude_chat_session_temporary_reader (session_id,user_id,expires_at) VALUES ('one',8,100)");
+            var migration = new com.exceptioncoder.toolbox.claudechat.config.ClaudeChatSchemaMigration(jdbc);
+            migration.addSessionCollaborationScope();
+            migration.addSessionCollaborationScope();
+            assertThat(jdbc.queryForObject("SELECT collaborate FROM claude_chat_session_temporary_reader", Integer.class)).isZero();
+        }
+    }
+
+    @Test
     void recipientDirectoryProjectsOnlyEnabledMatchesWithBoundedLiteralSearch() throws Exception {
         try (var connection = java.sql.DriverManager.getConnection("jdbc:sqlite::memory:")) {
             var jdbc = new JdbcTemplate(new SingleConnectionDataSource(connection, true));
@@ -51,12 +64,22 @@ class SessionSharingRepositoryTest {
             assertThat(repo.sharedSessions(8)).isEmpty();
             repo.grant("one", 8, 7, expiry);
             repo.grant("one", 8, 7);
-            assertThat(repo.readerGrants("one")).containsExactly(new SessionSharingRepository.ReaderGrant(8, expiry));
+            assertThat(repo.readerGrants("one")).containsExactly(new SessionSharingRepository.ReaderGrant(8, expiry, false));
             assertThat(jdbc.queryForList("SELECT user_id FROM claude_chat_session_reader WHERE session_id = 'one'"))
                     .isEmpty();
+            jdbc.execute("CREATE TABLE auth_user (id INTEGER PRIMARY KEY, enabled INTEGER NOT NULL)");
+            jdbc.update("INSERT INTO auth_user VALUES (8, 1)");
+            assertThat(repo.canCollaborate("one", 8)).isFalse();
+            repo.grantCollaboration("one", 8, 7, expiry);
+            assertThat(repo.canCollaborate("one", 8)).isTrue();
+            assertThat(repo.readerGrants("one")).containsExactly(new SessionSharingRepository.ReaderGrant(8, expiry, true));
+            jdbc.update("UPDATE auth_user SET enabled = 0 WHERE id = 8");
+            assertThat(repo.canCollaborate("one", 8)).isFalse();
+            jdbc.update("UPDATE auth_user SET enabled = 1 WHERE id = 8");
             assertThat(repo.readers("one")).containsExactly(8L);
             repo.revoke("one", 8);
             assertThat(repo.contains("one", 8)).isFalse();
+            assertThat(repo.canCollaborate("one", 8)).isFalse();
             for (long id = 1; id <= 51; id++) repo.grant("one", id, 7);
             assertThat(repo.readers("one")).hasSize(50);
             assertThat(repo.contains("one", 51)).isFalse();

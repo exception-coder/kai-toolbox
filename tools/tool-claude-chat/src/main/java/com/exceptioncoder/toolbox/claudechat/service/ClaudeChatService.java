@@ -216,7 +216,7 @@ public class ClaudeChatService {
         this.assistantConversationBindings = assistantConversationBindings;
         this.projectRouteBindingService = projectRouteBindingService;
         this.mapper = mapper;
-        this.events = new SessionEventChannel(mapper, props::getEventBufferSize);
+        this.events = new SessionEventChannel(mapper, props::getEventBufferSize, this::allowCollaborationSocket);
         this.accessGuard = new SessionAccessGuard(events, sessionAccessPolicy);
         this.reconnector = new SidecarReconnector(sidecar, processRegistry, () -> shuttingDown, this::resumeAllSessions);
         this.telemetry = telemetry;
@@ -465,6 +465,10 @@ public class ClaudeChatService {
     }
 
     public void switchSession(WebSocketSession ws, ClientMessage.SwitchSession msg) {
+        if (SessionExecutionPolicy.isCollaborationSocket(ws.getUri())) {
+            attach(ws, new ClientMessage.Attach(msg.sessionId(), 0), false);
+            return;
+        }
         if (!accessGuard.canBindReviewTarget(ws, msg.sessionId())) return;
         if (!ensureSidecar(ws)) return;
         ClaudeChatSession db = repo.findById(msg.sessionId()).orElse(null);
@@ -1390,6 +1394,65 @@ public class ClaudeChatService {
         events.writeTo(ws, new ServerMessage.Error(0, "ENGINE_HANDOFF_IN_PROGRESS",
                 "正在交接引擎，请等待结果后再操作；输入内容已保留。", false));
         return true;
+    }
+
+    public boolean allowCollaborationSocket(WebSocketSession ws) {
+        if (!SessionExecutionPolicy.isCollaborationSocket(ws.getUri())) return true;
+        var principal = sessionAccessPolicy.principal(ws);
+        String target = SessionExecutionPolicy.collaborationTarget(ws.getUri());
+        boolean allowed = principal != null && sessionAccessPolicy.canCollaborate(ws, target);
+        if (allowed && principal.expiresAt() > System.currentTimeMillis()) return true;
+        closeCollaborationSocket(ws, allowed);
+        return false;
+    }
+
+    public boolean rejectCollaborationCommand(WebSocketSession ws, ClientMessage message) {
+        if (!SessionExecutionPolicy.isCollaborationSocket(ws.getUri())) return false;
+        if (!allowCollaborationSocket(ws)) return true;
+        String target = SessionExecutionPolicy.collaborationTarget(ws.getUri());
+        if (switch (message) {
+            case ClientMessage.Attach attach -> target.equals(attach.sessionId());
+            case ClientMessage.SwitchSession select -> target.equals(select.sessionId());
+            case ClientMessage.ResumeCurrent resume -> target.equals(resume.sessionId());
+            case ClientMessage.VoiceControl voice -> target.equals(voice.sessionId());
+            case ClientMessage.Send ignored -> true;
+            case ClientMessage.Steer ignored -> true;
+            case ClientMessage.Queue ignored -> true;
+            case ClientMessage.Decision ignored -> true;
+            case ClientMessage.Interrupt ignored -> true;
+            case ClientMessage.SetMode ignored -> true;
+            case ClientMessage.SetAutoApprove ignored -> true;
+            case ClientMessage.SetModel ignored -> true;
+            case ClientMessage.RefreshModels ignored -> true;
+            case ClientMessage.RefreshCapabilities ignored -> true;
+            case ClientMessage.SetCodexOptions ignored -> true;
+            case ClientMessage.SetClaudeOptions ignored -> true;
+            case ClientMessage.SwitchEngine ignored -> true;
+            default -> false;
+        }) return false;
+        events.sendError(ws, 0, "SESSION_FORBIDDEN", "共享链接仅允许操作已授权的会话", false);
+        return true;
+    }
+
+    @EventListener
+    public void onSharedAccessRevoked(SessionSharingService.SharedAccessRevoked revoked) {
+        SessionCtx ctx = sessions.get(revoked.sessionId());
+        if (ctx == null) return;
+        for (WebSocketSession ws : ctx.viewers) {
+            var principal = sessionAccessPolicy.principal(ws);
+            if (SessionExecutionPolicy.isCollaborationSocket(ws.getUri()) && principal != null
+                    && principal.userId() == revoked.userId()) allowCollaborationSocket(ws);
+        }
+    }
+
+    private void closeCollaborationSocket(WebSocketSession ws, boolean refreshLogin) {
+        onBrowserDisconnected(ws);
+        try {
+            if (ws.isOpen()) ws.close(refreshLogin ? new org.springframework.web.socket.CloseStatus(4001, "REFRESH_LOGIN")
+                    : new org.springframework.web.socket.CloseStatus(4003, "SESSION_SHARE_ENDED"));
+        } catch (IOException e) {
+            log.debug("[claude-chat] 关闭已失权的协作连接失败", e);
+        }
     }
 
     private void publishEngineHandoff(SessionCtx ctx) {

@@ -282,9 +282,9 @@ export interface UseClaudeChatSocket {
   loadHistory: (reset: boolean) => Promise<boolean | null>
 }
 
-export type ClaudeChatChannel = 'admin' | 'consult' | 'prd-dev' | 'review'
+export type ClaudeChatChannel = 'admin' | 'consult' | 'prd-dev' | 'review' | 'collaboration'
 
-export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeChatChannel; prdSessionId?: string | null; reviewToken?: string | null; autoConnect?: boolean }): UseClaudeChatSocket {
+export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeChatChannel; prdSessionId?: string | null; reviewToken?: string | null; collaborationSessionId?: string | null; autoConnect?: boolean }): UseClaudeChatSocket {
   // demo（受约束免登录演示）：连 /api/claude-chat/demo/ws，不带 token、不自动 attach 重连。
   const demo = opts?.demo ?? false
   const channel = opts?.channel ?? 'admin'
@@ -292,6 +292,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const reviewToken = opts?.reviewToken?.trim() || null
   const publicWithoutLogin = demo || channel === 'review'
   const prdSessionId = opts?.prdSessionId?.trim() || null
+  const collaborationSessionId = opts?.collaborationSessionId?.trim() || null
   const [state, setState] = useState<ConnState>('idle')
   const [reviewOnly, setReviewOnly] = useState(channel === 'review')
   const reviewOnlyRef = useRef(channel === 'review')
@@ -1156,9 +1157,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (token) query.set('access_token', token)
     if (channel === 'prd-dev' && prdSessionId) query.set('prd_session_id', prdSessionId)
     if (channel === 'review' && reviewToken) query.set('review_token', reviewToken)
+    if (channel === 'collaboration' && collaborationSessionId) query.set('session_id', collaborationSessionId)
     const qs = query.size ? `?${query.toString()}` : ''
     const path = demo
       ? '/api/claude-chat/demo/ws'
+      : channel === 'collaboration' ? '/api/claude-chat/collaboration/ws'
       : channel === 'review'
         ? '/api/claude-chat/review/ws'
         : channel === 'consult'
@@ -1200,13 +1203,27 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       setErrorMessage('WebSocket 连接出错')
       pushDebug('conn', 'error', 'WebSocket 连接出错')
     }
-    ws.onclose = () => {
+    ws.onclose = event => {
       // 切换 ADMIN / PRD 开发通道时，旧 socket 的 close 可能晚于新 socket 建立；
       // 旧回调不能清掉新连接或按旧会话再次发起重连。
       if (wsRef.current !== ws) return
       wsRef.current = null
       pushDebug('conn', 'close', `WS 关闭（openedThisAttempt=${openedRef.current}）`)
       if (manualCloseRef.current) return
+      if (channel === 'collaboration' && event?.code === 4003) {
+        intentRef.current = null
+        pendingSendsRef.current = []
+        historyRequestIdRef.current++
+        setHistoryLoading(false)
+        setItems([])
+        setPending(null)
+        setPendingSessions([])
+        setQueuedState([])
+        setRunning(false)
+        setErrorMessage('共享已撤回、到期或登录已失效。请返回共享链接重新核对。')
+        setState('error')
+        return
+      }
       const openedThisAttempt = openedRef.current
       // 「握手前就被关」+ 本地有 token：只当作「可能是鉴权被拒」的线索去核实，不当判据。
       // 曾经的假设是「同源下网络抖动通常能完成握手，反复未 OPEN 即关几乎只可能是鉴权被拒」——
@@ -1247,7 +1264,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setState('closed')
       }
     }
-  }, [applyEvent, flushIntent, flushPendingSends, demo, channel, prdSessionId, reviewToken, publicWithoutLogin, confirmAuthOrKeepRetrying])
+  }, [applyEvent, flushIntent, flushPendingSends, demo, channel, prdSessionId, reviewToken, collaborationSessionId, publicWithoutLogin, confirmAuthOrKeepRetrying])
 
   const connect = useCallback(() => {
     // 幂等：已有在连/已连的 socket，或正处于「续期+建连」异步窗口时，不再叠一条。
@@ -1474,6 +1491,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sendRaw, connect])
 
   const switchTo = useCallback((sid: string, hintRunning = false) => {
+    if (channel === 'collaboration' && sid !== collaborationSessionId) return
     reportVibeEntry('session_switch', 'start', sid)
     resetForNewSession()
     if (channel === 'consult') setState('connecting')
@@ -1481,7 +1499,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     cwdRef.current = '' // 无 cwd，后端按 sdkSessionId 跨目录定位 transcript
     sessionIdRef.current = sid
     setSessionId(sid)
-    const cached = channel !== 'review' && !demo
+    const cached = channel !== 'review' && channel !== 'collaboration' && !demo
       ? recentHistoryRef.current.get(sessionToken, sid) : undefined
     if (cached) {
       setItems(cached.items)
@@ -1501,7 +1519,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (hintRunning) applyTurnRunningSignal('serverRunning')
     intentRef.current = { kind: 'switch', sessionId: sid }
     if (!sendRaw({ type: 'switchSession', sessionId: sid })) connect()
-  }, [channel, demo, sessionToken, sendRaw, connect])
+  }, [channel, collaborationSessionId, demo, sessionToken, sendRaw, connect])
 
   const duplicateSession = useCallback((sourceSessionId: string, codexHome?: string, contextSeed?: string) => {
     if (duplicateSourceRef.current) return
@@ -1992,7 +2010,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
             : await loadMessages(sid, cwdRef.current, before, 30, token.sessionId ?? undefined)
         // 用权威最近页替换旧缓存，保留加载期间比它更新的实时消息与乐观用户输入。
         if (!isCurrentSessionHistoryRequest(token, historyRequestIdRef.current, sessionIdRef.current)) return false
-        if (reset && token.sessionId && channel !== 'review' && !demo) {
+        if (reset && token.sessionId && channel !== 'review' && channel !== 'collaboration' && !demo) {
           recentHistoryRef.current.put(sessionToken, token.sessionId, { items: hist, nextBefore })
         }
         setItems(prev => reset ? mergeResetHistoryItems(hist, prev) : [...hist, ...prev])

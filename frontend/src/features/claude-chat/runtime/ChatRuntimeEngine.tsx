@@ -37,8 +37,14 @@ export const ChatRuntimeEngine = memo(function ChatRuntimeEngine({
   // 否则“打开已绑定开发会话”会先在 ADMIN 通道发 switch，下一拍才重连 PRD 通道；
   // 首次 switch 的去重标记却被保留，最终左侧有会话、右侧 currentSession 仍为空。
   const effectivePrdSessionId = routePrdSessionId ?? prdSessionId
+  const collaborationTarget = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return params.get('collaboration') === '1' ? params.get('sessionId')?.trim() || null : null
+  }, [location.search])
   const chat = useClaudeChatSocket(demo
     ? { demo: true }
+    : collaborationTarget
+      ? { channel: 'collaboration', collaborationSessionId: collaborationTarget }
     : effectivePrdSessionId
       ? { channel: 'prd-dev', prdSessionId: effectivePrdSessionId }
       : undefined)
@@ -132,13 +138,17 @@ export const ChatRuntimeEngine = memo(function ChatRuntimeEngine({
   const switchedTargetRef = useRef<string | null>(null)
   const chatRef = useRef(chat)
   chatRef.current = chat
+  useEffect(() => {
+    if (demo || !collaborationTarget) return
+    chatRef.current.switchTo(collaborationTarget)
+  }, [demo, collaborationTarget])
   // 同一个目标只自动恢复一次，之后允许用户手动“切换会话”接管其它开发会话；
   // 只有路由目标或 PRD 授权通道真正变化时才解除一次性保护并重新恢复。
   useEffect(() => {
     switchedTargetRef.current = null
   }, [effectivePrdSessionId, targetSessionId])
   useEffect(() => {
-    if (autoOpenedRef.current) return
+    if (collaborationTarget || autoOpenedRef.current) return
     autoOpenedRef.current = true
     if (demo) {
       // 全自动：受约束演示无人审批，权限模式直接 bypassPermissions（工具放行仍由沙箱 canUseTool 兜底）。
@@ -193,10 +203,10 @@ export const ChatRuntimeEngine = memo(function ChatRuntimeEngine({
         // 列表拉取失败：保持空态，用户可手动新建/选择
       }
     })()
-  }, [demo, targetSessionId, effectivePrdSessionId, userId])
+  }, [demo, targetSessionId, effectivePrdSessionId, userId, collaborationTarget])
 
   useEffect(() => {
-    if (demo || !targetSessionId || switchedTargetRef.current === targetSessionId) return
+    if (demo || collaborationTarget || !targetSessionId || switchedTargetRef.current === targetSessionId) return
     switchedTargetRef.current = targetSessionId
     void (async () => {
       try {
@@ -210,7 +220,7 @@ export const ChatRuntimeEngine = memo(function ChatRuntimeEngine({
         // 无法确认会话归属时保持当前开发会话。
       }
     })()
-  }, [demo, effectivePrdSessionId, targetSessionId])
+  }, [demo, effectivePrdSessionId, targetSessionId, collaborationTarget])
 
   // 兼容升级前已经误绑定的页面状态：识别到当前 ID 属于业务咨询后，立即回到最近的开发会话。
   useEffect(() => {

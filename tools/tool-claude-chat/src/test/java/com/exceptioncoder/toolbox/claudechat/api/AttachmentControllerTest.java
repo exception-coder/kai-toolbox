@@ -9,6 +9,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -16,6 +17,17 @@ import static org.mockito.Mockito.when;
 
 /** Assistant 附件上传的会话归属边界测试。 */
 class AttachmentControllerTest {
+    @Test
+    void rejectsPreviouslyKnownAttachmentWhenCollaborationIsRevoked() throws IOException {
+        var storage = mock(AttachmentStorageService.class);
+        var policy = mock(ClaudeChatSessionAccessPolicy.class);
+        var attachment = java.nio.file.Path.of("workspace", ".kai-chat-attachments", "session-1", "screen.png").toAbsolutePath();
+        when(policy.canInteractCurrentUser("session-1")).thenReturn(false);
+        var response = new AttachmentController(storage, policy).serveFile(attachment.toString());
+        assertThat(response.getStatusCode().value()).isEqualTo(403);
+        verify(storage, never()).isSessionAttachment("session-1", attachment);
+    }
+
 
     @Test
     void rejectsUploadWhenCurrentUserCannotAccessSession() throws IOException {

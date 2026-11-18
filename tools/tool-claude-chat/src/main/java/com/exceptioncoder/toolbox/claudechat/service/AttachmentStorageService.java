@@ -101,6 +101,14 @@ public class AttachmentStorageService {
                 name, mime, file.getSize(), target.toAbsolutePath().toString());
     }
 
+    public boolean isSessionAttachment(String sessionId, Path file) throws IOException {
+        var session = repo.findById(sessionId).orElse(null);
+        if (session == null || session.getCwd() == null || !Files.isRegularFile(file)) return false;
+        Path root = Path.of(session.getCwd(), ATTACH_DIR, sessionId).toAbsolutePath().normalize();
+        Path realRoot = Path.of(session.getCwd()).toRealPath().resolve(ATTACH_DIR).resolve(sessionId);
+        return root.equals(file.getParent()) && file.toRealPath().getParent().equals(realRoot);
+    }
+
     /**
      * 将当前会话附件目录中的受支持图片转换为模型图片输入。
      * 路径归属校验在读取字节前完成，浏览器不能借附件字段读取工作区任意文件。

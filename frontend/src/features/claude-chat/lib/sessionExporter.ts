@@ -5,6 +5,7 @@ import { toPng } from 'html-to-image'
 import { jsPDF } from 'jspdf'
 import { Document, HeadingLevel, ImageRun, Packer, Paragraph, TextRun } from 'docx'
 import type { ChatItem, MsgAttachment } from '../types'
+import { attachmentRequestUrl } from './attachmentAccess'
 
 export type ExportableItem = Extract<ChatItem, { kind: 'user' | 'assistant' }>
 
@@ -142,7 +143,8 @@ async function attachmentToImageRun(a: MsgAttachment): Promise<ImageRun | null> 
   const type = docxImageType(a.mime)
   if (!type) return null
   try {
-    const [res, dims] = await Promise.all([fetch(a.url), loadImageDims(a.url)])
+    const requestUrl = attachmentRequestUrl(a.url)
+    const [res, dims] = await Promise.all([fetch(requestUrl), loadImageDims(requestUrl)])
     const buf = new Uint8Array(await res.arrayBuffer())
     const maxW = 480
     const scale = dims.width > maxW ? maxW / dims.width : 1

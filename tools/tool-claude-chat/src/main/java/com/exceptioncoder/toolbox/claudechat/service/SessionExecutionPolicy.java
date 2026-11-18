@@ -14,9 +14,19 @@ public final class SessionExecutionPolicy {
     /** 兼容已部署宿主的胶囊路径，不开放其余 Session Client 入口。 */
     public static final String CAPSULE_WS_PATH = "/api/session-client/v1/relay/capsule/ws";
     public static final String REVIEW_WS_PATH = "/api/claude-chat/review/ws";
+    public static final String COLLABORATION_WS_PATH = "/api/claude-chat/collaboration/ws";
     public static final String CONSULT_GROUP_NAME = "业务咨询";
 
     private SessionExecutionPolicy() {
+    }
+
+    public static boolean isCollaborationSocket(URI uri) {
+        return uri != null && COLLABORATION_WS_PATH.equals(uri.getPath());
+    }
+
+    public static String collaborationTarget(URI uri) {
+        return org.springframework.web.util.UriComponentsBuilder.fromUri(uri).build()
+                .getQueryParams().getFirst("session_id");
     }
 
     public static String forWebSocket(URI uri) {

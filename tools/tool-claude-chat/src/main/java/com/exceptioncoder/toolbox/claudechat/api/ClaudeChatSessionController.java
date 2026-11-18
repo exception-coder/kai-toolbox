@@ -174,7 +174,7 @@ public class ClaudeChatSessionController {
     /** 返回指定会话的全链路实时状态，不在查询过程中修改会话。 */
     @GetMapping("/{id}/runtime-state")
     public ResponseEntity<SessionRuntimeStateView> runtimeState(@PathVariable String id) {
-        if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        if (!sessionAccessPolicy.canInteractCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return runtimeStateService.inspect(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
@@ -256,7 +256,7 @@ public class ClaudeChatSessionController {
      */
     @GetMapping("/{id}/pending")
     public ResponseEntity<ServerMessage> pending(@PathVariable String id) {
-        if (!sessionAccessPolicy.canAccessCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        if (!sessionAccessPolicy.canInteractCurrentUser(id)) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         return service.pendingRequestOf(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
@@ -273,7 +273,7 @@ public class ClaudeChatSessionController {
     @PostMapping("/{id}/pending/decision")
     public ResponseEntity<Map<String, Boolean>> decidePending(@PathVariable String id,
                                                                 @RequestBody PendingDecisionRequest body) {
-        if (!sessionAccessPolicy.canAccessCurrentUser(id)) {
+        if (!sessionAccessPolicy.canInteractCurrentUser(id)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("ok", false));
         }
         ClientMessage.Decision decision = new ClientMessage.Decision(

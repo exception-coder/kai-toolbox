@@ -26,6 +26,16 @@ public class ClaudeChatSchemaMigration {
         this.jdbc = jdbc;
     }
 
+    @EventListener(ApplicationReadyEvent.class)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public void addSessionCollaborationScope() {
+        boolean present = jdbc.queryForList("PRAGMA table_info(claude_chat_session_temporary_reader)").stream()
+                .anyMatch(column -> "collaborate".equals(column.get("name")));
+        if (!present) {
+            jdbc.execute("ALTER TABLE claude_chat_session_temporary_reader ADD COLUMN collaborate INTEGER NOT NULL DEFAULT 0");
+        }
+    }
+
     /** 先补内部续跑上下文列，再允许启动事件恢复队列；真实迁移失败必须显式暴露。 */
     @EventListener(ApplicationReadyEvent.class)
     @Order(Ordered.HIGHEST_PRECEDENCE)

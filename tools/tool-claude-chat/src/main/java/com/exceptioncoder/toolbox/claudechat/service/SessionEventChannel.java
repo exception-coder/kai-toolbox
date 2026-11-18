@@ -9,6 +9,7 @@ import org.springframework.web.socket.WebSocketSession;
 import java.io.IOException;
 import java.util.List;
 import java.util.function.IntSupplier;
+import java.util.function.Predicate;
 
 /**
  * 会话到浏览器的事件通道：为实时事件打序号、写入回放缓冲并广播给在看的连接；
@@ -21,10 +22,12 @@ final class SessionEventChannel {
 
     private final ObjectMapper mapper;
     private final IntSupplier eventBufferSize;
+    private final Predicate<WebSocketSession> mayWrite;
 
-    SessionEventChannel(ObjectMapper mapper, IntSupplier eventBufferSize) {
+    SessionEventChannel(ObjectMapper mapper, IntSupplier eventBufferSize, Predicate<WebSocketSession> mayWrite) {
         this.mapper = mapper;
         this.eventBufferSize = eventBufferSize;
+        this.mayWrite = mayWrite;
     }
 
     boolean hasActiveViewer(SessionCtx ctx) {
@@ -97,7 +100,12 @@ final class SessionEventChannel {
 
     /** 把一条消息发给指定连接（广播逐个调用 / 回放定向发给新连接）。 */
     void writeTo(WebSocketSession ws, ServerMessage msg) {
-        if (ws == null || !ws.isOpen()) return;
+        if (ws == null || !ws.isOpen() || !mayWrite.test(ws)) return;
+        if (SessionExecutionPolicy.isCollaborationSocket(ws.getUri()) && msg instanceof ServerMessage.PendingSessions pending) {
+            String target = SessionExecutionPolicy.collaborationTarget(ws.getUri());
+            msg = new ServerMessage.PendingSessions(pending.seq(), pending.sessions().stream()
+                    .filter(entry -> entry.sessionId().equals(target)).toList());
+        }
         ServerMessage visibleMessage = SessionExecutionPolicy.isReviewOnly(
                 SessionExecutionPolicy.forWebSocket(ws.getUri()))
                 ? ReviewPublicMessageProjector.projectRealtime(msg) : msg;

@@ -31,6 +31,26 @@ class ClaudeChatSessionAccessPolicyTest {
     }
 
     @Test
+    void collaboratorCanInteractOnlyWithTheGrantedSessionAndLosesAccessOnRevoke() {
+        var sharing = mock(com.exceptioncoder.toolbox.claudechat.repository.SessionSharingRepository.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(policy, "sharing", sharing);
+        var shared = ClaudeChatSession.builder().id("session-1").userId(7L).build();
+        when(repository.findById("session-1")).thenReturn(Optional.of(shared));
+        var socket = socketFor(8L);
+        when(socket.getUri()).thenReturn(java.net.URI.create("ws://localhost/api/claude-chat/collaboration/ws?session_id=session-1"));
+        AuthContext.set(new AuthPrincipal(8L, "recipient", List.of("USER"), List.of(), "jti", Long.MAX_VALUE));
+        when(sharing.canCollaborate("session-1", 8L)).thenReturn(true);
+        assertThat(policy.canAccess(socket, "session-1")).isTrue();
+        assertThat(policy.canAccess(socket, "elsewhere")).isFalse();
+        assertThat(policy.canInteractCurrentUser(shared)).isTrue();
+        assertThat(policy.canAccessCurrentUser(shared)).isFalse();
+        when(sharing.canCollaborate("session-1", 8L)).thenReturn(false);
+        assertThat(policy.canAccess(socket, "session-1")).isFalse();
+        assertThat(policy.canInteractCurrentUser(shared)).isFalse();
+        assertThat(policy.canAccess(socketFor(7L), "session-1")).isTrue();
+    }
+
+    @Test
     void allowsOwnerAndRejectsAnotherUser() {
         when(repository.findById("session-1"))
                 .thenReturn(Optional.of(ClaudeChatSession.builder().id("session-1").userId(7L).build()));

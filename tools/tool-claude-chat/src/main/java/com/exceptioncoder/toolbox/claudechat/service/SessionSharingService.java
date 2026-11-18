@@ -8,6 +8,7 @@ import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
 import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -15,13 +16,15 @@ import java.util.List;
 import java.util.Objects;
 import java.time.Duration;
 
-/** 具名查看授权与执行权限分开，绝不扩张原会话 canAccess 策略。 */
+/** 具名查看和限时协作共用授权管理，交互权限由会话访问策略检查。 */
 @Service
 public class SessionSharingService {
     private final ClaudeChatSessionRepository sessions;
     private final SessionSharingRepository shares;
     private final ClaudeChatSessionAccessPolicy access;
     private final ObjectProvider<AuthUserRepository> users;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ApplicationEventPublisher events;
 
     public SessionSharingService(ClaudeChatSessionRepository sessions, SessionSharingRepository shares,
                                  ClaudeChatSessionAccessPolicy access, ObjectProvider<AuthUserRepository> users) {
@@ -50,7 +53,7 @@ public class SessionSharingService {
         return grants.stream().map(grant -> {
             long id = grant.userId();
             var account = accounts.getOrDefault(id, new AuthUserRepository.Recipient(id, "已删除账号 #" + id, null));
-            return new SharedReader(id, account.username(), account.realName(), grant.expiresAt());
+            return new SharedReader(id, account.username(), account.realName(), grant.expiresAt(), grant.collaborate());
         }).toList();
     }
 
@@ -59,29 +62,46 @@ public class SessionSharingService {
     }
 
     public void grantTemporary(String sessionId, long userId, int hours) {
+        grantReader(sessionId, userId, expiry(hours));
+    }
+
+    public void grantCollaboration(String sessionId, long userId, int hours) {
+        long expiresAt = expiry(hours);
+        requireRecipient(requireManager(sessionId), userId);
+        shares.grantCollaboration(sessionId, userId, principal().userId(), expiresAt);
+        if (!shares.canCollaborate(sessionId, userId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "无法授权，请核对接收账号和会话共享名额");
+        }
+    }
+
+    private long expiry(int hours) {
         if (hours != 1 && hours != 24 && hours != 168) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择有效的共享期限");
         }
-        grantReader(sessionId, userId, System.currentTimeMillis() + Duration.ofHours(hours).toMillis());
+        return System.currentTimeMillis() + Duration.ofHours(hours).toMillis();
     }
 
     private void grantReader(String sessionId, long userId, Long expiresAt) {
-        ClaudeChatSession session = requireManager(sessionId);
-        if (directory().findById(userId).filter(user -> user.isEnabled()).isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "接收账号不存在或已停用");
-        }
-        if (Objects.equals(session.getUserId(), userId)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "会话拥有者无需额外授权");
-        }
+        requireRecipient(requireManager(sessionId), userId);
         shares.grant(sessionId, userId, principal().userId(), expiresAt);
         if (!shares.contains(sessionId, userId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "每个会话最多共享给 50 位用户，请先撤销部分授权");
         }
     }
 
+    private void requireRecipient(ClaudeChatSession session, long userId) {
+        if (directory().findById(userId).filter(user -> user.isEnabled()).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "接收账号不存在或已停用");
+        }
+        if (Objects.equals(session.getUserId(), userId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "会话拥有者无需额外授权");
+        }
+    }
+
     public void revoke(String sessionId, long userId) {
         requireManager(sessionId);
         shares.revoke(sessionId, userId);
+        if (events != null) events.publishEvent(new SharedAccessRevoked(sessionId, userId));
     }
 
     public List<SharedSession> sharedWithMe() {
@@ -90,7 +110,8 @@ public class SessionSharingService {
         var loaded = sessions.findByIds(ids).stream().collect(java.util.stream.Collectors.toMap(
                 ClaudeChatSession::getId, java.util.function.Function.identity()));
         return ids.stream().map(loaded::get).filter(Objects::nonNull).filter(this::shareable)
-                .filter(session -> projectAllowed(session)).map(SharedSession::from).toList();
+                .filter(session -> projectAllowed(session)).map(session -> SharedSession.from(session,
+                        shares.canCollaborate(session.getId(), user.userId()))).toList();
     }
 
     public ClaudeChatSession requireReader(String sessionId) {
@@ -104,7 +125,7 @@ public class SessionSharingService {
     }
 
     public SharedSession view(String sessionId) {
-        return SharedSession.from(requireReader(sessionId));
+        return SharedSession.from(requireReader(sessionId), shares.canCollaborate(sessionId, principal().userId()));
     }
 
     private ClaudeChatSession requireManager(String sessionId) {
@@ -151,11 +172,12 @@ public class SessionSharingService {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, "会话不存在或当前账号没有权限");
     }
 
-    public record SharedSession(String id, String title, String engine, long lastSeenAt) {
-        static SharedSession from(ClaudeChatSession session) {
-            return new SharedSession(session.getId(), session.getTitle(), session.getEngine(), session.getLastSeenAt());
+    public record SharedSession(String id, String title, String engine, long lastSeenAt, boolean collaborate) {
+        static SharedSession from(ClaudeChatSession session, boolean collaborate) {
+            return new SharedSession(session.getId(), session.getTitle(), session.getEngine(), session.getLastSeenAt(), collaborate);
         }
     }
 
-    public record SharedReader(long id, String username, String realName, Long expiresAt) {}
+    public record SharedReader(long id, String username, String realName, Long expiresAt, boolean collaborate) {}
+    public record SharedAccessRevoked(String sessionId, long userId) {}
 }

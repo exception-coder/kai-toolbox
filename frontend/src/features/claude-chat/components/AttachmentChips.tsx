@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AlertCircle, FileText, Image as ImageIcon, Loader2, X } from 'lucide-react'
 import type { UploadedAttachment } from '../api'
 import { ImageLightbox } from './ImageLightbox'
+import { attachmentRequestUrl } from '../lib/attachmentAccess'
 
 type Item = UploadedAttachment & { previewUrl?: string; url?: string }
 
@@ -26,7 +27,8 @@ export function AttachmentChips({
       <div className="flex flex-wrap gap-2 px-3 pt-2">
         {items.map(a => {
           const isImage = a.mime?.startsWith('image/')
-          const previewUrl = a.previewUrl ?? a.url
+          const url = a.previewUrl ?? a.url
+          const previewUrl = url ? attachmentRequestUrl(url) : undefined
           const canPreview = isImage && !!previewUrl
           return (
             <span

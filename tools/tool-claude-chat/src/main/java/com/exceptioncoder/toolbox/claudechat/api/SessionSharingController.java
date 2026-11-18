@@ -44,6 +44,11 @@ public class SessionSharingController {
         sharing.grantTemporary(id, userId, hours);
     }
 
+    @PutMapping("/sessions/{id}/sharing/{userId}/collaboration")
+    public void grantCollaboration(@PathVariable String id, @PathVariable long userId, @RequestParam int hours) {
+        sharing.grantCollaboration(id, userId, hours);
+    }
+
     @DeleteMapping("/sessions/{id}/sharing/{userId}")
     public void revoke(@PathVariable String id, @PathVariable long userId) {
         sharing.revoke(id, userId);

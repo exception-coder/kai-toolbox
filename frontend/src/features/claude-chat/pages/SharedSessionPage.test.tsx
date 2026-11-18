@@ -4,14 +4,23 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { SharedSessionPage } from './SharedSessionPage'
 import { getSharedMessages, getSharedSession } from '../sessionSharingApi'
 
-vi.mock('../sessionSharingApi', () => ({ getSharedMessages: vi.fn(), getSharedSession: vi.fn() }))
+vi.mock('../sessionSharingApi', () => ({ getSharedMessages: vi.fn(), getSharedSession: vi.fn(),
+  collaborationPath: (id: string) => `/tools/claude-chat?sessionId=${id}&collaboration=1` }))
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 
 function mount() {
   render(<MemoryRouter initialEntries={['/tools/claude-chat/shared/one']}><Routes>
     <Route path="/tools/claude-chat/shared/:sessionId" element={<SharedSessionPage />} />
+    <Route path="/tools/claude-chat" element={<div>原会话工作台</div>} />
   </Routes></MemoryRouter>)
 }
+
+it('opens the original workbench directly for an authorized collaborator', async () => {
+  vi.mocked(getSharedSession).mockResolvedValue({ id: 'one', title: '生产发版', engine: 'codex', lastSeenAt: 1, collaborate: true })
+  mount()
+  expect(await screen.findByText('原会话工作台')).toBeTruthy()
+  expect(getSharedMessages).not.toHaveBeenCalled()
+})
 
 it('reads text without executing markup and clears it when access is revoked', async () => {
   vi.mocked(getSharedSession).mockResolvedValue({ id: 'one', title: '授权会话', engine: 'codex', lastSeenAt: 1 })

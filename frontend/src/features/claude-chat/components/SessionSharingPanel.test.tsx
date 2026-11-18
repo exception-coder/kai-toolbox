@@ -6,6 +6,7 @@ import { grantSessionReader, listSessionReaders, revokeSessionReader, searchSess
 
 vi.mock('../sessionSharingApi', () => ({ grantSessionReader: vi.fn(), listSessionReaders: vi.fn(),
   listSharedSessions: vi.fn(), revokeSessionReader: vi.fn(), searchSessionRecipients: vi.fn(),
+  collaborationPath: (id: string) => `/tools/claude-chat?sessionId=${id}&collaboration=1`,
   sharedSessionPath: (id: string) => `/tools/claude-chat/shared/${id}` }))
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 
@@ -20,10 +21,10 @@ it('selects an exact account, grants read access then allows revocation', async 
   expect(screen.getByRole('heading', { name: '共享会话 · 生产发版' })).toBeTruthy()
   fireEvent.change(await screen.findByLabelText('用户名或姓名'), { target: { value: '严伟' } })
   fireEvent.change(screen.getByLabelText('查看期限'), { target: { value: '1' } })
-  fireEvent.click(await screen.findByRole('button', { name: '授权查看' }))
+  fireEvent.click(await screen.findByRole('button', { name: '授权继续会话' }))
   await waitFor(() => expect(grantSessionReader).toHaveBeenCalledWith('one', 8, 1))
   expect(await screen.findByText(/到期/)).toBeTruthy()
-  fireEvent.click(await screen.findByRole('button', { name: '撤销' }))
+  fireEvent.click(await screen.findByRole('button', { name: '撤回共享' }))
   await waitFor(() => expect(revokeSessionReader).toHaveBeenCalledWith('one', 8))
-  expect(await screen.findByText('已撤销，后续读取将被拒绝')).toBeTruthy()
+  expect(await screen.findByText('已撤回共享，接收者无法继续访问')).toBeTruthy()
 })

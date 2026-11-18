@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS claude_chat_session_temporary_reader (
     granted_by INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
+    collaborate INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (session_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_chat_temporary_reader_user ON claude_chat_session_temporary_reader(user_id, expires_at);

@@ -117,7 +117,7 @@ class SessionSharingServiceTest {
     @Test
     void deletedRecipientsRemainRevocable() {
         login(7, "USER");
-        when(shares.readerGrants("one")).thenReturn(List.of(new SessionSharingRepository.ReaderGrant(8L, null)));
+        when(shares.readerGrants("one")).thenReturn(List.of(new SessionSharingRepository.ReaderGrant(8L, null, false)));
         when(users.findRecipients(List.of(8L))).thenReturn(List.of());
         assertThat(service.readers("one")).extracting(SessionSharingService.SharedReader::id).containsExactly(8L);
         service.revoke("one", 8);

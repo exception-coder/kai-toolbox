@@ -1,5 +1,6 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { readingChangeEvent, useReadingDensity, useReadingFont } from '../lib/workspacePreferences'
+import { attachmentRequestUrl } from '../lib/attachmentAccess'
 import { Virtuoso } from 'react-virtuoso'
 import { LATEST_BOTTOM_TOLERANCE_PX, useLatestMessageNavigation } from '../hooks/useLatestMessageNavigation'
 import { TurnChangesDialog } from './changes/TurnChangesDialog'
@@ -570,7 +571,7 @@ const Row = memo(function Row({ item, onFork, onToCard, engineLabel, onNewSessio
                   {item.attachments.filter(a => a.url && a.mime?.startsWith('image/')).map((a, i) => (
                     <MessageImage
                       key={`${i}:${a.url}`}
-                      src={a.url!}
+                      src={attachmentRequestUrl(a.url!)}
                       alt={a.name}
                       onOpen={onOpenImage}
                       className={cn(

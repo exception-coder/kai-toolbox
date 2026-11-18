@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import type { ChatItem } from '../types'
 import { buildExportFilename, exportSessionAsDocx, exportSessionAsPdf, filterExportableItems, PAGE_H_PX, PAGE_W_PX, type ExportableItem } from '../lib/sessionExporter'
 import { Markdown } from './Markdown'
+import { attachmentRequestUrl } from '../lib/attachmentAccess'
 
 /** 消息列表里的一句预览摘要：单行、去换行、截断，用于勾选列表里认出是哪条消息。 */
 function previewText(item: ExportableItem): string {
@@ -249,7 +250,7 @@ export function ExportSessionDialog({ items, sessionTitle, onClose }: Props) {
                         {item.attachments && item.attachments.filter(a => a.mime?.startsWith('image/')).length > 0 && (
                           <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
                             {item.attachments.filter(a => a.url && a.mime?.startsWith('image/')).map((a, i) => (
-                              <img key={i} src={a.url} alt={a.name} className="max-h-72 max-w-full rounded-lg border border-gray-200" />
+                              <img key={i} src={attachmentRequestUrl(a.url!)} alt={a.name} className="max-h-72 max-w-full rounded-lg border border-gray-200" />
                             ))}
                           </div>
                         )}

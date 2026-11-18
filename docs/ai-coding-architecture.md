@@ -46,7 +46,7 @@ flowchart LR
 
 上图为[运行架构源图](diagrams/ForgeVibeCoding运行架构.drawio)第三页。当前接管适配范围为 Claude、Codex、Pi、Copilot；其他引擎缺少可验证的工具禁用接管路径时明确拒绝。源码与定向验证见[交接任务](../openspec/changes/reliable-engine-handoff/tasks.md)，真实账号往返、重连和部署验收尚待完成。此能力不改变原生 Harness 的执行职责，也不引入通用 Agent 执行器。
 
-具名会话共享复用平台账号身份，在 Java 宿主中维护单会话查看关系，输出独立的最小文字投影。拥有者与 ADMIN 可从会话行授予临时查看权限或撤销。共享列表、会话详情与历史分页每次复核账号、项目政策和授权有效期。只读页面不连接 Sidecar，也不继承原会话的执行、配置、文件或附件权限。实际登录态及运行验收见[共享任务](../openspec/changes/share-chat-with-users/tasks.md)。
+具名会话共享复用平台账号身份，在 Java 宿主中区分只读与限时协作。只读页面使用最小文字投影。协作连接只绑定获授权的一个原会话，复用正在运行的引擎。命令、广播、队列、历史及附件读取检查当前授权；撤回后主动断开接收者连接。会话所有权、系统权限与咨询和评审渠道继续各自校验。实际登录态及运行验收见[共享任务](../openspec/changes/share-chat-with-users/tasks.md)。
 
 [可编辑运行架构 draw.io](diagrams/ForgeVibeCoding运行架构.drawio) · [运行分层预览](diagrams/ForgeVibeCoding运行架构-运行分层.png) · [附加能力预览](diagrams/ForgeVibeCoding运行架构-附加能力.png)。这是 2026-11-03 的源码视图，补充上图的运行分层，不代表所有功能均已加载到在线进程。预览由 draw.io Desktop 从同一源图导出；图元、文字和连接器保留原生 XML。
 

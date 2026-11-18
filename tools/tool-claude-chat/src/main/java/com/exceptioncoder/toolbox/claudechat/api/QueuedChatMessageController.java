@@ -95,7 +95,7 @@ public class QueuedChatMessageController {
     }
 
     private void requireAccess(String sessionId) {
-        if (!sessionAccessPolicy.canAccessCurrentUser(sessionId)) {
+        if (!sessionAccessPolicy.canInteractCurrentUser(sessionId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前用户不能访问该会话");
         }
     }

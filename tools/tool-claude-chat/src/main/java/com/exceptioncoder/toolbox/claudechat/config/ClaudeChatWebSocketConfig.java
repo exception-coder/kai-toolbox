@@ -67,6 +67,10 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
         if (consultInterceptor != null) {
             consultRegistration.addInterceptors(consultInterceptor);
         }
+        if (consultInterceptor != null) {
+            registry.addHandler(handler, com.exceptioncoder.toolbox.claudechat.service.SessionExecutionPolicy.COLLABORATION_WS_PATH)
+                    .setAllowedOriginPatterns("*").addInterceptors(consultInterceptor);
+        }
         // 福利签收演示通道：公开免登录，**不挂** Admin 拦截器；约束由副本沙箱 + canUseTool 硬保证。
         registry.addHandler(demoHandler, "/api/claude-chat/demo/ws")
                 .setAllowedOriginPatterns("*");

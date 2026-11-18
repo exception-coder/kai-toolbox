@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.SessionSharingRepository;
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
 import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
 import com.exceptioncoder.toolbox.common.auth.web.AuthenticatedHandshakeInterceptor;
@@ -19,6 +20,8 @@ public class ClaudeChatSessionAccessPolicy {
     private final ClaudeChatSessionRepository repository;
     @org.springframework.beans.factory.annotation.Autowired
     private com.exceptioncoder.toolbox.common.project.ProjectAccess projectAccess;
+    @org.springframework.beans.factory.annotation.Autowired
+    private SessionSharingRepository sharing;
 
     public void requireProjectAllowed(String path) {
         if (projectAccess != null && path != null && !path.isBlank()) projectAccess.requireAllowed(java.nio.file.Path.of(path));
@@ -47,7 +50,31 @@ public class ClaudeChatSessionAccessPolicy {
 
     /** WebSocket 连接能否访问目标会话；ADMIN 可访问任意会话，普通用户仅访问本人会话。 */
     public boolean canAccess(WebSocketSession socket, String sessionId) {
+        if (SessionExecutionPolicy.isCollaborationSocket(socket.getUri())) {
+            return java.util.Objects.equals(SessionExecutionPolicy.collaborationTarget(socket.getUri()), sessionId)
+                    && canCollaborate(socket, sessionId);
+        }
         return repository.findById(sessionId).map(session -> canAccess(session, principal(socket))).orElse(false);
+    }
+
+    public boolean canCollaborate(WebSocketSession socket, String sessionId) {
+        return sessionId != null && repository.findById(sessionId)
+                .map(session -> canCollaborate(session, principal(socket))).orElse(false);
+    }
+
+    public boolean canInteractCurrentUser(String sessionId) {
+        return repository.findById(sessionId).map(this::canInteractCurrentUser).orElse(false);
+    }
+
+    public boolean canInteractCurrentUser(ClaudeChatSession session) {
+        AuthPrincipal principal = AuthContext.current().orElse(null);
+        return canAccess(session, principal) || canCollaborate(session, principal);
+    }
+
+    private boolean canCollaborate(ClaudeChatSession session, AuthPrincipal principal) {
+        return sharing != null && principal != null && session.getUserId() != null
+                && SessionExecutionPolicy.STANDARD.equals(SessionExecutionPolicy.normalize(session.getExecutionPolicy()))
+                && projectAllowed(session) && sharing.canCollaborate(session.getId(), principal.userId());
     }
 
     /** HTTP 当前用户能否访问目标会话。 */
