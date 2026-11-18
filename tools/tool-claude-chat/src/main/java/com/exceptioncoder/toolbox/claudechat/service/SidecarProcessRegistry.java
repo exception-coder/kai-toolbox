@@ -17,7 +17,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -39,26 +41,65 @@ public class SidecarProcessRegistry {
     /** 遗留 sidecar 的清理在本 JVM 内只做一次（见 {@link #ensureStarted()}） */
     private volatile boolean orphanCleaned;
     private boolean sdkMaintenance;
+    private Thread sdkMaintenanceOwner;
     private boolean shuttingDown;
+    private final Set<ProcessHandle> upgradeChildren = new HashSet<>();
 
     /** 维护期间禁止后台重连逻辑拉起运行时。 */
     public synchronized void beginSdkMaintenance() {
         sdkMaintenance = true;
+        sdkMaintenanceOwner = Thread.currentThread();
     }
 
     /** 结束维护后恢复正常启动。 */
     public synchronized void endSdkMaintenance() {
         sdkMaintenance = false;
+        sdkMaintenanceOwner = null;
     }
 
-    /** 仅在上层确认空闲后停止运行时，移动文件前必须确认端口释放。 */
+    /** 仅在上层确认空闲后停止运行时。保留已知子进程句柄，避免父进程退出后失去归属证据。 */
     public synchronized void stopForSdkUpgrade() throws IOException {
-        stopProcess();
-        killOrphanSidecar();
+        Process current = process;
+        if (current != null && current.isAlive()) {
+            current.descendants().forEach(upgradeChildren::add);
+        }
+        Path modules = sidecarDir().resolve("node_modules");
+        Path dependencies = Files.exists(modules) ? modules.toRealPath() : modules.toAbsolutePath().normalize();
+        // 已脱离父进程的 CLI 只能凭明确的安装路径识别，发现后作为阻塞者等待，不终止它。
+        try (var processes = ProcessHandle.allProcesses()) {
+            processes.filter(handle -> handle.info().command()
+                    .map(command -> Path.of(command).toAbsolutePath().normalize().startsWith(dependencies))
+                    .orElse(false)).forEach(upgradeChildren::add);
+        } catch (SecurityException e) {
+            throw new IOException("无法核验 Sidecar CLI 进程，保留当前版本", e);
+        }
+        // 维护流程只停止本 JVM 管理的进程，不认领未知端口占用者。
         orphanCleaned = true;
+        stopProcess();
         if (isAlive() || isPortOccupied(props.getSidecarPort())) {
             throw new IOException("Sidecar 尚未停止，未切换 SDK 文件");
         }
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        do {
+            upgradeChildren.removeIf(child -> !child.isAlive());
+            if (upgradeChildren.isEmpty()) {
+                return;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("确认 Sidecar 子进程退出时被中断", e);
+            }
+        } while (System.nanoTime() < deadline);
+        throw new IOException("Sidecar 子进程尚未退出，未切换 SDK 文件，PID="
+                + upgradeChildren.stream().map(ProcessHandle::pid).sorted().toList());
+    }
+
+    /** 用进程对象身份检测验收期间的替换。 */
+    Process runningProcess() {
+        Process current = process;
+        return current != null && current.isAlive() ? current : null;
     }
 
     public SidecarProcessRegistry(ClaudeChatProperties props,
@@ -82,8 +123,12 @@ public class SidecarProcessRegistry {
         if (props.getSidecarStartupError() != null && !props.getSidecarStartupError().isBlank()) {
             throw new IOException(props.getSidecarStartupError());
         }
-        if (sdkMaintenance) {
+        if (sdkMaintenance && sdkMaintenanceOwner != Thread.currentThread()) {
             throw new IOException("SDK 正在升级，请稍后重试");
+        }
+        Path dir = resolveSidecarDir();
+        if (sdkMaintenanceOwner != Thread.currentThread()) {
+            requireSdkRecoveryComplete(dir);
         }
         if (process != null && process.isAlive()) {
             return;
@@ -96,7 +141,6 @@ public class SidecarProcessRegistry {
             throw new IOException("Sidecar 端口 " + props.getSidecarPort()
                     + " 已被占用且归属未确认，拒绝连接未知实例，请通过原进程管理器处理后重启 Forge");
         }
-        Path dir = resolveSidecarDir();
         Path entry = dir.resolve(props.getEntryScript());
         if (!Files.isRegularFile(entry)) {
             throw new IOException("sidecar 入口不存在，请先构建 sidecar：" + entry.toAbsolutePath());
@@ -175,10 +219,17 @@ public class SidecarProcessRegistry {
         if (sdkMaintenance) {
             throw new IOException("SDK 正在升级，请稍后重试");
         }
+        requireSdkRecoveryComplete(resolveSidecarDir());
         stopProcess();
         killOrphanSidecar();
         orphanCleaned = true;
         ensureStarted();
+    }
+
+    private void requireSdkRecoveryComplete(Path dir) throws IOException {
+        if (Files.exists(SidecarSdkUpgradeWorkspace.recoveryMarker(dir))) {
+            throw new IOException("SDK 切换状态待核对，请先检查 .sdk-upgrades/recovery-required");
+        }
     }
 
     /**
@@ -419,7 +470,8 @@ public class SidecarProcessRegistry {
         for (int i = 0; i < 5 && cur != null; i++) {
             Path cand = cur.resolve(relative);
             if (Files.isRegularFile(cand.resolve(props.getEntryScript()))
-                    || Files.isRegularFile(cand.resolve("package.json"))) {
+                    || Files.isRegularFile(cand.resolve("package.json"))
+                    || Files.isRegularFile(SidecarSdkUpgradeWorkspace.recoveryMarker(cand))) {
                 return cand;
             }
             cur = cur.getParent();

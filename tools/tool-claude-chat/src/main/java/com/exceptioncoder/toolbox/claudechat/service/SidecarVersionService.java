@@ -55,6 +55,10 @@ public class SidecarVersionService {
                 .map(EngineDefinition::packageName).findFirst().orElse(null);
     }
 
+    static List<String> upgradeEngineIds() {
+        return NPM_ENGINES.stream().map(EngineDefinition::id).toList();
+    }
+
     private final SidecarProcessRegistry registry;
     private final ObjectMapper mapper;
     private final Function<String, String> externalCliVersionReader;

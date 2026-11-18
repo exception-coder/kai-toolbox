@@ -26,3 +26,22 @@ The system SHALL allow administrators to select multiple supported built-in SDKs
 #### Scenario: Runtime inventory and upgrade eligibility differ
 - **WHEN** the team dependency panel lists session engines, including unavailable engines
 - **THEN** both sections show the same engine inventory and identify the upgrade method, and selecting all submits only SDKs supported by the batch endpoint
+
+### Requirement: Schedule managed SDK upgrades without interrupting active work
+An explicitly configured schedule SHALL prepare a batch for managed npm SDKs using the existing isolated workspace and validators. The schedule SHALL be disabled by default and SHALL share the manual task lock and the Agent admission gate with source update activation.
+
+#### Scenario: A candidate is ready while Agent work is active
+- **WHEN** a scheduled candidate passes verification and a session, background task, queued message or another update still blocks activation
+- **THEN** the old runtime continues serving and the candidate waits for a bounded idle window
+
+#### Scenario: The Sidecar port is free but a CLI still runs
+- **WHEN** a managed descendant or executable from the dependency directory remains alive after the Sidecar listener stops
+- **THEN** the task reports the stop blocker and preserves the existing runtime files
+
+#### Scenario: Candidate startup or observation fails
+- **WHEN** the candidate fails session restoration, protocol checks or the 60-second identity observation
+- **THEN** the task attempts to restore the old runtime before releasing the admission gate and reports the actual outcome
+
+#### Scenario: Recovery cannot be confirmed
+- **WHEN** a file promotion interrupts or automatic recovery cannot be verified
+- **THEN** the recovery marker and backup are preserved, the startup preparation leaves Sidecar artifacts intact, and another promotion is refused until the recovery state is resolved

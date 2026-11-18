@@ -24,6 +24,14 @@ node forge.mjs stop
 
 ## 常用选项
 
+### Sidecar SDK 定时升级
+
+默认关闭。部署方明确启用后可在本机 `scripts/run-tools.conf` 设置 `FORGE_SIDECAR_SDK_UPGRADE_CRON=0 30 2 * * *`，表示每日北京时间 02:30 检查。Spring 的 `toolbox.claude-chat.sdk-auto-upgrade.cron` 可覆盖此计划。用 `-` 禁用。运行配置随经授权的 Forge 后端启动加载。
+
+候选阶段继续服务。有稳定版更新且验证通过后，最多等一小时空闲，再短暂停止 Sidecar。切换及 60 秒观察期间暂停接收新的 Agent 工作。仅升级受管 npm SDK，外部 CLI 按各自方式维护。升级成功会更新配置的 Sidecar 目录内包清单和锁文件，源码工作区的后续 Git 更新继续应用既有工作树保护。
+
+若界面提示恢复未完成，从 Sidecar 目录的 `.sdk-upgrades/recovery-required` 查看对应备份位置，对照同批次的 `stage`、`backup` 和 `upgrade.log` 核对包清单、锁文件、`node_modules`、`dist` 是否属于同一版本。确认工作目录完整后才清理标记，并按既有授权流程加载和验收。同批次候选及备份需保留到验收结束。
+
 ### Cloudflare 固定域名隧道
 
 ```shell

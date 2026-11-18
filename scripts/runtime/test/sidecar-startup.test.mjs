@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isOwnedOrphan, prepareSidecarPort, prepareSidecarRuntime, portListening, sidecarPort } from '../sidecar-startup.mjs';
@@ -69,6 +69,19 @@ test('build port race becomes an explicit AI block while unrelated compiler fail
   const env = {};
   await prepareSidecarRuntime('/workspace', env, { ...options, probe: async () => true });
   assert.match(JSON.parse(env.SPRING_APPLICATION_JSON)['toolbox.claude-chat.sidecar-startup-error'], /构建未成功/);
+});
+
+test('interrupted SDK promotion protects working files during backend startup', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'forge-sdk-recovery-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  mkdirSync(join(directory, '.sdk-upgrades'));
+  writeFileSync(join(directory, '.sdk-upgrades/recovery-required'), 'backup');
+  const env = {};
+  await prepareSidecarRuntime(directory, env, {
+    checkPort: () => assert.fail('must not attempt process recovery'), prepare: () => assert.fail('keep live files'),
+    build: () => assert.fail('keep current dist'),
+  });
+  assert.match(JSON.parse(env.SPRING_APPLICATION_JSON)['toolbox.claude-chat.sidecar-startup-error'], /recovery-required/);
 });
 
 test('OS inventory recovers an actual isolated orphan listener, not a managed Forge port', { timeout: 45000 }, async () => {

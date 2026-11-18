@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -46,6 +47,18 @@ final class SidecarSdkUpgradeWorkspace {
     Path backup() { return backup; }
     Path logFile() { return stage.getParent().resolve("upgrade.log"); }
 
+    static Path recoveryMarker(Path root) { return root.resolve(".sdk-upgrades/recovery-required"); }
+
+    boolean recoveryPending() { return Files.exists(recoveryMarker(source), LinkOption.NOFOLLOW_LINKS); }
+
+    void markActivation() throws IOException {
+        Files.writeString(recoveryMarker(source), backup.toString(), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+    }
+
+    void completeActivation() throws IOException {
+        Files.delete(recoveryMarker(source));
+    }
+
     void assertUnchanged() throws IOException {
         if (!fingerprints.equals(fingerprint(source))) {
             throw new IOException("准备期间源码或依赖文件发生变化，已保留当前文件，请重新升级");
@@ -75,14 +88,16 @@ final class SidecarSdkUpgradeWorkspace {
 
     /** 将失败的新文件移回隔离区，再恢复原文件；不删除诊断数据。 */
     void rollback() throws IOException {
-        for (String name : promoted.reversed()) {
+        while (!promoted.isEmpty()) {
+            String name = promoted.getLast();
             Files.move(source.resolve(name), stage.resolve(name));
+            promoted.removeLast();
         }
-        promoted.clear();
-        for (String name : saved.reversed()) {
+        while (!saved.isEmpty()) {
+            String name = saved.getLast();
             Files.move(backup.resolve(name), source.resolve(name));
+            saved.removeLast();
         }
-        saved.clear();
     }
 
     private static Map<String, String> fingerprint(Path root) throws IOException {

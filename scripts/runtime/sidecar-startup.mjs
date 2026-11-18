@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { connect } from 'node:net';
 import { basename, resolve } from 'node:path';
@@ -108,7 +109,10 @@ export async function prepareSidecarRuntime(directory, env, dependencies = {}) {
   const { prepare = prepareNode, build = () => run(npmCommand(env), ['run', 'build'], { cwd: directory, env }),
     checkPort = prepareSidecarPort, probe = portListening } = dependencies;
   const port = sidecarPort(env);
-  let blocked = await checkPort(resolve(directory, 'dist/server.js'), port);
+  const recoveryMarker = resolve(directory, '.sdk-upgrades/recovery-required');
+  let blocked = existsSync(recoveryMarker)
+    ? `Sidecar SDK 切换状态待核对，已保留运行文件和备份，请检查 ${recoveryMarker}。`
+    : await checkPort(resolve(directory, 'dist/server.js'), port);
   if (!blocked) {
     await prepare(directory, env);
     console.log('[forge-stage] 构建 Agent Sidecar');

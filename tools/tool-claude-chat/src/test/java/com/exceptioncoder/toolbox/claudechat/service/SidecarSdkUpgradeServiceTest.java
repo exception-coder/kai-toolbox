@@ -26,8 +26,9 @@ class SidecarSdkUpgradeServiceTest {
     private final SidecarProcessRegistry registry = mock(SidecarProcessRegistry.class);
     private final SidecarClient client = mock(SidecarClient.class);
     private final ClaudeChatService chat = mock(ClaudeChatService.class);
+    private final AgentWorkAdmissionGate gate = new AgentWorkAdmissionGate();
     private final SidecarSdkUpgradeService service = new SidecarSdkUpgradeService(
-            versions, registry, client, chat, new ClaudeChatProperties(), new ObjectMapper());
+            versions, registry, client, chat, new ClaudeChatProperties(), new ObjectMapper(), gate);
 
     @AfterEach void clearAuth() { AuthContext.clear(); }
 
@@ -160,9 +161,15 @@ class SidecarSdkUpgradeServiceTest {
         when(chat.activitySnapshot()).thenReturn(activity(false));
         when(client.isConnected()).thenReturn(true);
         when(chat.resumeAllSessions()).thenReturn(true);
-        service.activate(workspace);
+        var upgrade = spy(service);
+        doAnswer(call -> {
+            assertThat(gate.isDraining()).isTrue();
+            return null;
+        }).when(upgrade).observeRuntime();
+        upgrade.activate(workspace);
         assertThat(Files.readString(root.resolve("package.json"))).isEqualTo("new");
         assertThat(Files.readString(workspace.backup().resolve("package.json"))).isEqualTo("old");
+        assertThat(workspace.recoveryPending()).isFalse();
         var order = inOrder(client, registry, chat);
         order.verify(client).beginSdkMaintenance();
         order.verify(registry).beginSdkMaintenance();
@@ -170,14 +177,16 @@ class SidecarSdkUpgradeServiceTest {
         order.verify(client).disconnectForSdkUpgrade();
         order.verify(registry).stopForSdkUpgrade();
         order.verify(client).ensureConnected();
-        order.verify(client).endSdkMaintenance();
         order.verify(chat).resumeAllSessions();
+        order.verify(client).endSdkMaintenance();
+        assertThat(gate.isDraining()).isFalse();
     }
 
     @Test void restoresOldFilesAndSessionsAfterFailedConnection() throws Exception {
         var workspace = workspace();
         when(chat.activitySnapshot()).thenReturn(activity(false));
         when(client.isConnected()).thenReturn(true);
+        healthyRuntime();
         when(chat.resumeAllSessions()).thenReturn(true);
         doThrow(new IOException("new runtime failed")).doNothing().when(client).ensureConnected();
         assertThatThrownBy(() -> service.activate(workspace)).hasMessageContaining("已恢复原版本");
@@ -191,10 +200,92 @@ class SidecarSdkUpgradeServiceTest {
         var workspace = workspace();
         when(chat.activitySnapshot()).thenReturn(activity(false));
         when(client.isConnected()).thenReturn(true);
+        healthyRuntime();
         when(chat.resumeAllSessions()).thenReturn(false);
-        assertThatThrownBy(() -> service.activate(workspace)).hasMessageContaining("部分会话状态尚未确认");
+        assertThatThrownBy(() -> service.activate(workspace)).hasMessageContaining("自动恢复未完成")
+                .hasCauseInstanceOf(IOException.class);
+        assertThat(workspace.recoveryPending()).isTrue();
+        verify(client).blockSdkRecovery();
         verify(client).endSdkMaintenance();
         verify(registry, atLeastOnce()).endSdkMaintenance();
+    }
+
+    @Test void queuedWorkOrAnotherDrainPreventsDisconnection() throws Exception {
+        var workspace = workspace();
+        when(chat.activitySnapshot()).thenReturn(activity(false));
+        when(chat.hasQueuedMessages()).thenReturn(true);
+        assertThatThrownBy(() -> service.activate(workspace)).hasMessageContaining("待发送消息");
+        try (var ignored = gate.tryAcquireDrain().orElseThrow()) {
+            assertThatThrownBy(() -> service.activate(workspace)).hasMessageContaining("另一个更新流程");
+        }
+        verify(client, never()).disconnectForSdkUpgrade();
+    }
+
+    @Test void cliBlockedStopDoesNotPromoteOrRepeatStop() throws Exception {
+        var workspace = workspace();
+        when(chat.activitySnapshot()).thenReturn(activity(false));
+        when(chat.resumeAllSessions()).thenReturn(true);
+        healthyRuntime();
+        doThrow(new IOException("Sidecar 子进程尚未退出")).when(registry).stopForSdkUpgrade();
+        assertThatThrownBy(() -> service.activate(workspace)).hasMessageContaining("未切换文件");
+        assertThat(Files.readString(root.resolve("package.json"))).isEqualTo("old");
+        verify(registry, times(1)).stopForSdkUpgrade();
+        verify(client).ensureConnected();
+    }
+
+    @Test void failedObservationRestoresOldRuntimeBeforeOpeningAdmission() throws Exception {
+        var workspace = workspace();
+        when(chat.activitySnapshot()).thenReturn(activity(false));
+        when(chat.resumeAllSessions()).thenAnswer(call -> {
+            assertThat(gate.isDraining()).isTrue();
+            return true;
+        });
+        var upgrade = spy(service);
+        healthyRuntime();
+        doThrow(new IOException("连接失效")).when(upgrade).observeRuntime();
+        assertThatThrownBy(() -> upgrade.activate(workspace)).hasMessageContaining("已恢复原版本");
+        assertThat(Files.readString(root.resolve("package.json"))).isEqualTo("old");
+        assertThat(workspace.recoveryPending()).isFalse();
+        verify(chat, times(2)).resumeAllSessions();
+        assertThat(gate.isDraining()).isFalse();
+    }
+
+    @Test void observationRejectsAReplacementWebSocketEvenIfProtocolWasReady() throws Exception {
+        healthyRuntime();
+        when(client.sdkConnectionId()).thenReturn("first", "first", "first", "replacement");
+        assertThatThrownBy(service::observeRuntime).hasMessageContaining("进程或连接失效");
+    }
+
+    private void healthyRuntime() {
+        Process process = mock(Process.class);
+        when(registry.runningProcess()).thenReturn(process);
+        when(client.sdkConnectionId()).thenReturn("sidecar-test");
+        var response = new ObjectMapper().createObjectNode();
+        response.putArray("engines").addObject().put("id", "codex");
+        when(client.queryEngineCatalog(false, 15_000)).thenReturn(java.util.Optional.of(response));
+    }
+
+    @Test void unfinishedActivationBlocksNextBatchBeforeStopping() throws Exception {
+        var workspace = workspace();
+        workspace.markActivation();
+        when(chat.activitySnapshot()).thenReturn(activity(false));
+        assertThatThrownBy(() -> service.activate(workspace)).hasMessageContaining("切换状态待核对");
+        verify(registry, never()).stopForSdkUpgrade();
+        assertThat(workspace.recoveryPending()).isTrue();
+    }
+
+    @Test void scheduledCheckUsesTheSameBatchAndDoesNotRequireAnAdminSession() throws Exception {
+        var checked = new java.util.concurrent.CountDownLatch(1);
+        var upgrade = spy(service);
+        doAnswer(call -> {
+            checked.countDown();
+            return null;
+        }).when(upgrade).upgrade(eq(SidecarVersionService.upgradeEngineIds()), eq(true));
+        upgrade.checkAutomatically();
+        upgrade.checkAutomatically();
+        assertThat(checked.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        verify(upgrade).upgrade(SidecarVersionService.upgradeEngineIds(), true);
+        verifyNoInteractions(registry, client, chat);
     }
 
     @Test void restoresPartialPromotion() throws Exception {

@@ -8,14 +8,38 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 
+import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SidecarClientConnectionTest {
+    @Test
+    void handshakeDeadlineClosesLateConnectionWithoutAdoptingIt() throws Exception {
+        var properties = new ClaudeChatProperties();
+        properties.setSidecarStartupTimeoutMs(200);
+        var client = new SidecarClient(properties, new ClaudeChatWsProperties(), new ObjectMapper());
+        var transport = mock(StandardWebSocketClient.class);
+        var handshake = new CompletableFuture<WebSocketSession>();
+        when(transport.execute(any(WebSocketHandler.class), anyString())).thenReturn(handshake);
+        ReflectionTestUtils.setField(client, "client", transport);
+        assertThatThrownBy(client::ensureConnected).isInstanceOf(IOException.class).hasCauseInstanceOf(TimeoutException.class);
+        var late = mock(WebSocketSession.class);
+        handshake.complete(late);
+        verify(late).close();
+        assertThat(client.isConnected()).isFalse();
+    }
+
     @Test
     void userMessageCarriesThePersistedClaudeOptionsWithoutAnEngineConfigurationRace() throws Exception {
         var mapper = new ObjectMapper();

@@ -13,6 +13,8 @@ import java.net.ServerSocket;
 import java.net.InetAddress;
 import java.io.OutputStream;
 import java.util.concurrent.TimeUnit;
+import java.nio.file.Files;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -29,6 +31,49 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SidecarProcessRegistryTest {
+
+    @Test
+    void recoveryMarkerPreventsReturningOrRestartingAnExistingProcess(@TempDir Path root) throws Exception {
+        var props = new ClaudeChatProperties();
+        props.setSidecarDir(root.toString());
+        Path marker = SidecarSdkUpgradeWorkspace.recoveryMarker(root);
+        Files.createDirectories(marker.getParent());
+        Files.writeString(marker, "batch backup");
+        var registry = new SidecarProcessRegistry(props, new ObjectMapper(), 18080, mock(ProviderProfileService.class));
+        var process = mock(Process.class);
+        when(process.isAlive()).thenReturn(true);
+        ReflectionTestUtils.setField(registry, "process", process);
+        assertThatThrownBy(registry::ensureStarted).hasMessageContaining("切换状态待核对");
+        assertThatThrownBy(registry::restart).hasMessageContaining("切换状态待核对");
+        verify(process, never()).destroy();
+    }
+
+    @Test
+    void upgradeRejectsLingeringDescendantAfterListenerHasStopped(@TempDir Path root) throws Exception {
+        var properties = new ClaudeChatProperties();
+        properties.setSidecarDir(root.toString());
+        Files.createDirectories(root.resolve("dist"));
+        Files.writeString(root.resolve("dist/server.js"), "");
+        try (var listener = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+            properties.setSidecarPort(listener.getLocalPort());
+        }
+        var registry = new SidecarProcessRegistry(properties, new ObjectMapper(), 18080, mock(ProviderProfileService.class));
+        var parent = mock(Process.class);
+        var child = mock(ProcessHandle.class);
+        when(parent.isAlive()).thenReturn(true);
+        when(parent.getOutputStream()).thenReturn(OutputStream.nullOutputStream());
+        when(parent.waitFor(3, TimeUnit.SECONDS)).thenReturn(true);
+        when(parent.descendants()).thenReturn(java.util.stream.Stream.of(child));
+        when(child.isAlive()).thenReturn(true);
+        when(child.pid()).thenReturn(4321L);
+        ReflectionTestUtils.setField(registry, "process", parent);
+        assertThatThrownBy(registry::stopForSdkUpgrade).isInstanceOf(IOException.class)
+                .hasMessageContaining("子进程尚未退出", "4321");
+        verify(child, never()).destroy();
+        verify(child, never()).destroyForcibly();
+        when(child.isAlive()).thenReturn(false);
+        registry.stopForSdkUpgrade();
+    }
 
     @Test
     void shouldKeepHostAvailableButRejectBlockedAiStartup() {

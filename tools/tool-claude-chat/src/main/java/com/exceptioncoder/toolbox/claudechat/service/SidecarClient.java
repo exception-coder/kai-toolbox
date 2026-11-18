@@ -65,6 +65,8 @@ public class SidecarClient implements ReviewThreadForkGateway {
     /** 本实例已随 Spring 上下文停机；不得再建连、不得再上报断开 */
     private volatile boolean shuttingDown;
     private boolean sdkMaintenance;
+    private Thread sdkMaintenanceOwner;
+    private boolean sdkRecoveryBlocked;
 
     /** 与消息发送共用锁，阻止升级期间新工作进入旧运行时。 */
     public synchronized void beginSdkMaintenance() {
@@ -72,11 +74,13 @@ public class SidecarClient implements ReviewThreadForkGateway {
             throw new IllegalStateException("SDK 正在升级，请稍后重试");
         }
         sdkMaintenance = true;
+        sdkMaintenanceOwner = Thread.currentThread();
     }
 
     /** 维护完成后允许重连和发送。 */
     public synchronized void endSdkMaintenance() {
         sdkMaintenance = false;
+        sdkMaintenanceOwner = null;
     }
 
     /** 摘除旧连接，避免正常维护被上报为会话异常中断。 */
@@ -84,6 +88,17 @@ public class SidecarClient implements ReviewThreadForkGateway {
         WebSocketSession previous = session;
         session = null;
         closeQuietly(previous);
+    }
+
+    synchronized void blockSdkRecovery() {
+        sdkRecoveryBlocked = true;
+        disconnectForSdkUpgrade();
+    }
+
+    /** 仅用于比对升级验收期间是否一直使用同一条已打开的连接。 */
+    String sdkConnectionId() {
+        WebSocketSession current = session;
+        return current != null && current.isOpen() ? current.getId() : null;
     }
 
     public SidecarClient(ClaudeChatProperties props, ClaudeChatWsProperties wsProps, ObjectMapper mapper) {
@@ -109,6 +124,12 @@ public class SidecarClient implements ReviewThreadForkGateway {
         if (shuttingDown) {
             throw new IOException("sidecar 客户端已停机");
         }
+        if (sdkRecoveryBlocked) {
+            throw new IOException("SDK 恢复未完成，Sidecar 连接已暂停");
+        }
+        if (sdkMaintenance && sdkMaintenanceOwner != Thread.currentThread()) {
+            throw new IOException("SDK 正在升级，请稍后重试");
+        }
         if (session != null && session.isOpen()) {
             return;
         }
@@ -121,14 +142,20 @@ public class SidecarClient implements ReviewThreadForkGateway {
         long deadline = System.nanoTime() + props.getSidecarStartupTimeoutMs() * 1_000_000L;
         IOException last = null;
         while (System.nanoTime() < deadline) {
+            var connection = client.execute(new ClientHandler(), uri.toString());
             try {
-                WebSocketSession ws = client.execute(new ClientHandler(), uri.toString()).get();
+                WebSocketSession ws = connection.get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
                 ws.setTextMessageSizeLimit(wsProps.getMaxMessageBytes());
                 ws.setBinaryMessageSizeLimit(wsProps.getMaxMessageBytes());
                 session = ws;
                 log.info("[claude-chat] 已连接 sidecar {}", uri);
                 return;
+            } catch (InterruptedException e) {
+                connection.whenComplete((late, error) -> closeQuietly(late));
+                Thread.currentThread().interrupt();
+                throw new IOException("连接 Sidecar 时被中断", e);
             } catch (Exception e) {
+                connection.whenComplete((late, error) -> closeQuietly(late));
                 last = new IOException("连接 sidecar 失败：" + e.getMessage(), e);
                 sleep(300);
             }
@@ -140,7 +167,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     public synchronized boolean connectQueueTransport() {
         if (isConnected()) return true;
         String startupError = props.getSidecarStartupError();
-        if (shuttingDown || sdkMaintenance || (startupError != null && !startupError.isBlank())) return false;
+        if (shuttingDown || sdkMaintenance || sdkRecoveryBlocked || (startupError != null && !startupError.isBlank())) return false;
         var connection = client.execute(new ClientHandler(), "ws://127.0.0.1:" + props.getSidecarPort());
         try {
             WebSocketSession connected = connection.get(1_500L, TimeUnit.MILLISECONDS);
@@ -780,7 +807,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     /** 发送一条消息到 sidecar。返回是否真正发出（未连接/异常返回 false，供决策类消息据此回告前端）。 */
     private synchronized boolean send(Map<String, ?> payload) {
         if (projectSessionAccess != null) projectSessionAccess.check(payload);
-        if (sdkMaintenance) {
+        if (sdkMaintenance && Thread.currentThread() != sdkMaintenanceOwner) {
             throw new IllegalStateException("SDK 正在升级，请完成后重试当前操作");
         }
         if (session == null || !session.isOpen()) {

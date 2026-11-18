@@ -634,6 +634,19 @@ flowchart LR
 
 原生会话身份按 Forge 会话持久化并幂等恢复；恢复失败必须显式报出供应商与恢复动作，不得静默换用另一引擎。权限映射采用 Forge 策略下界，供应商默认值不能扩大当前会话权限。SDK 版本发现与升级复用统一管理入口，但源码升级、产物替换、进程重启和运行验收仍是分开的证据与授权阶段。
 
+Java 可按部署配置静默检查受管 npm SDK，默认关闭。批量手动和定时路径共享候选构建和状态。隔离验证通过后，SDK 切换与 Git 源码更新共用 Agent 准入锁。SDK 切换由 Sidecar 注册器管理，只切换 Sidecar。确认已知 CLI 子进程退出和端口释放后才移动产物，随后核对会话并观察进程和协议至少 60 秒。替换失败尝试恢复旧文件和连接，未完成恢复以本地标记保护备份及下次启动。配置与恢复见 [Forge 启动说明](../scripts/STARTUP.md)，运行验收状态见 [SDK 升级任务](../openspec/changes/batch-sidecar-sdk-upgrade/tasks.md)。
+
+```mermaid
+flowchart LR
+    SDK_CHECK["定时或手动检查"] --> SDK_STAGE["隔离安装与验证"]
+    SDK_STAGE --> SDK_DRAIN["共享 Agent 准入锁<br/>复核空闲与队列"]
+    SDK_DRAIN --> SDK_STOP["停止 Sidecar<br/>核验 CLI 退出"]
+    SDK_STOP --> SDK_SWAP["记录恢复标记<br/>备份并切换"]
+    SDK_SWAP --> SDK_ACCEPT["重连与观察 60 秒"]
+    SDK_SWAP -->|失败| SDK_RESTORE["恢复旧版本"]
+    SDK_ACCEPT -->|失败| SDK_RESTORE
+```
+
 Codex 的主轮次、预测恢复和只需身份的分叉采用轻量历史响应，保留原生上下文；主执行器的启动、恢复及分叉有独立的 120 秒预算，普通 RPC 保留 20 秒，预测仍受原可选任务整体上限约束。大上下文选定的 HTTPS 配置在安全回退时交接给本轮独立 SDK 客户端，不进入共享客户端缓存；首次实际选择时通过 Codex 官方配置接口在所属授权目录幂等登记兼容 provider，使 ChatGPT/Codex 可独立恢复持久化了该 provider ID 的线程，登记失败则不选择悬空 provider。未取得选择时先进行相同预检。完成后读取最新分叉锚点及终态对账使用倒序单轮且不加载消息内容。日志区分恢复耗时、配置选择和实际上游错误，不把累计文件大小当成网络请求大小，也不把缺失关闭码猜成 1009。已执行或退出未确认的轮次继续禁止自动重放。设计、专项验证与待运行验收见[大上下文传输](../openspec/changes/avoid-oversized-codex-websocket-retries/design.md)。本次恢复与回退扩展尚未加载到服务。
 
 ```mermaid
