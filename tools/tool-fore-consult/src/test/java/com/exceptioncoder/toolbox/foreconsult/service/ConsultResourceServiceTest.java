@@ -100,7 +100,7 @@ class ConsultResourceServiceTest {
         var service = new ConsultResourceService(sessions, workflows, gateway);
         var exception = assertThrows(IllegalArgumentException.class, () -> service.query("runtime", "selected", "select 1"));
         assertTrue(exception.getMessage().contains("尚未定位服务端"));
-        assertThrows(IllegalArgumentException.class, () -> service.webResources("runtime"));
+        assertEquals(List.of(), service.webResources("runtime"));
         verifyNoInteractions(gateway, workflows);
     }
     @Test void webResourcesUseCurrentSystemBindingsEvenWithoutWorkflowAndRequireSignedHttp() throws Exception {
@@ -135,6 +135,30 @@ class ConsultResourceServiceTest {
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/fore-consult/resources/sessions/runtime/web")
                         .contentType("application/json").content("{\"bindingId\":\"web-uat\",\"url\":\"/orders\",\"environment\":\"UAT\"}"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
+    }
+
+    @Test void personalWebRemainsAvailableWithoutSourceFocusOrRegisteredProject() {
+        var sessions = mock(ConsultSessionRepository.class);
+        var scope = new com.exceptioncoder.toolbox.foreconsult.domain.ConsultSourceRouting(true, null, List.of(), null, null, null);
+        var session = ConsultSession.builder().sessionId("consult").systemSourcePath("/anchor").evidenceRouteSnapshot(scope.wrap("[]")).build();
+        when(sessions.findByDevSessionId("runtime")).thenReturn(Optional.of(session));
+        var personal = mock(ConsultPersonalWebService.class);
+        var web = mock(com.exceptioncoder.toolbox.common.resource.WebResourceGateway.class);
+        var entry = new ReadonlyResourceGateway.Entry("personal-one", "personal", "本人", "个人账号", "TEST", "", "AVAILABLE", null, "http://192.168.9.210:90", "APP");
+        when(personal.discover(session)).thenReturn(List.of(entry));
+        var service = new ConsultResourceService(sessions, mock(ConsultWorkflowRepository.class), mock(ReadonlyResourceGateway.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "personalWeb", personal);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "webResources", web);
+        assertEquals(List.of(entry), service.webResources("runtime"));
+        var request = new com.exceptioncoder.toolbox.common.resource.WebResourceGateway.Request("personal-one", "/", "TEST", null);
+        service.webPage("runtime", request);
+        verify(personal).read(session, request);
+        verifyNoInteractions(web);
+        session.setEvidenceRouteSnapshot(null);
+        when(web.discoverBound("/anchor")).thenThrow(new IllegalArgumentException("项目未登记"));
+        assertEquals(List.of(entry), service.webResources("runtime"));
+        assertThrows(IllegalArgumentException.class, () -> service.webPage("runtime",
+                new com.exceptioncoder.toolbox.common.resource.WebResourceGateway.Request("public-one", "/", "TEST", null)));
     }
 
     private ConsultWorkflowNode node(String id, boolean enabled, String binding) {

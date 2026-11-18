@@ -8,6 +8,33 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ConsultWebResourceServiceTest {
+    @Test void personalSitesDoNotRequireRegistryOrPublicBindingsButKeepTargetBoundaries() {
+        var browser = mock(WebPageReader.class);
+        var resources = mock(SystemResourceService.class);
+        var service = new ConsultWebResourceService(resources, List.of(), List.of(), browser);
+        var request = new WebResourceGateway.Request("personal", "/", "TEST", null);
+        for (String site : List.of("http://192.168.9.210:90", "http://10.0.0.8:8081", "http://172.16.1.2:9000")) {
+            var account = new BrowserLoginTarget("personal", "本人", "TEST", site, "me", "secret", "username", "password");
+            assertDoesNotThrow(() -> service.readPersonal("personal:test", "/unregistered", account, request));
+            verify(browser).read("personal:test", account, "/", "/");
+        }
+        clearInvocations(browser);
+        for (String site : List.of("http://127.0.0.1:90", "http://169.254.169.254", "http://[::1]", "http://0.0.0.0", "http://192.168.9.210:65536")) {
+            var account = new BrowserLoginTarget("personal", "本人", "TEST", site, "me", "secret", "username", "password");
+            assertThrows(IllegalArgumentException.class, () -> service.readPersonal("personal:test", "/unregistered", account, request));
+        }
+        verifyNoInteractions(browser, resources);
+    }
+
+    @Test void personalSitesCannotRelabelKnownProductionAsTest() {
+        var service = spy(new ConsultWebResourceService(mock(SystemResourceService.class), List.of(), List.of(), mock(WebPageReader.class)));
+        doReturn(List.of(new ReadonlyResourceGateway.Entry("production", "erp", "ERP", "生产", "PROD", "", "UNAVAILABLE",
+                null, "http://192.168.9.210:90", "APP"))).when(service).catalog();
+        var account = new BrowserLoginTarget("personal", "本人", "TEST", "http://192.168.9.210:90", "me", "secret", "username", "password");
+        assertThrows(IllegalArgumentException.class, () -> service.readPersonal("personal:test", "/unregistered", account,
+                new WebResourceGateway.Request("personal", "/", "TEST", null)));
+    }
+
     @Test void platformDiscoveryNeverIncludesAnotherSystemsBindings() {
         var provider = mock(ResourceProvider.class);
         when(provider.id()).thenReturn("application");

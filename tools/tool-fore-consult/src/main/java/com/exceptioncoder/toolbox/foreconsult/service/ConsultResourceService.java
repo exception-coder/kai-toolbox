@@ -31,17 +31,22 @@ public class ConsultResourceService {
     }
 
     public List<ReadonlyResourceGateway.Entry> webResources(String runtimeId) {
-        String sourcePath = webSourcePath(runtimeId);
-        var session = sessions.findByDevSessionId(runtimeId).orElseThrow();
-        return java.util.stream.Stream.concat(webResources.discoverBound(sourcePath).stream(),
-                personalWeb == null ? java.util.stream.Stream.empty() : personalWeb.discover(session).stream()).toList();
+        var session = sessions.findByDevSessionId(runtimeId)
+                .orElseThrow(() -> new IllegalArgumentException("未关联咨询会话"));
+        var personal = personalWeb == null ? List.<ReadonlyResourceGateway.Entry>of() : personalWeb.discover(session);
+        List<ReadonlyResourceGateway.Entry> shared;
+        try { shared = webResources.discoverBound(webSourcePath(runtimeId)); }
+        catch (IllegalArgumentException unavailable) {
+            shared = List.of(); // 无公共账号时仍允许发现本人账号，或引导用户直接填写表单。
+        }
+        return java.util.stream.Stream.concat(shared.stream(), personal.stream()).toList();
     }
 
     public Object webPage(String runtimeId, com.exceptioncoder.toolbox.common.resource.WebResourceGateway.Request request) {
-        String sourcePath = webSourcePath(runtimeId);
         if (request.bindingId() != null && request.bindingId().startsWith("personal-")) {
             return personalWeb.read(sessions.findByDevSessionId(runtimeId).orElseThrow(), request);
         }
+        String sourcePath = webSourcePath(runtimeId);
         var bindings = webResources.discoverBound(sourcePath).stream()
                 .map(ReadonlyResourceGateway.Entry::bindingId).toList();
         return webResources.read(runtimeId, sourcePath, bindings, request);

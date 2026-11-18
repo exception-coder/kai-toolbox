@@ -106,6 +106,19 @@ test('prioritizes domain context before reading implementation evidence', () => 
   assert.doesNotMatch(CONSULT_READONLY_PROMPT, /必须先调用 consult-readonly\.source_context，再调用业务知识工具/)
 })
 
+test('consultation inherits native site capabilities without bypassing read-only data boundaries', () => {
+  const features = consultReadonlyCodexConfig().features as Record<string, unknown>
+  for (const name of ['computer_use', 'browser_use', 'browser_use_external', 'code_mode']) {
+    assert.equal(features[name], undefined, `${name} must inherit host availability and permissions`)
+  }
+  assert.equal(features.apps, false)
+  assert.equal(features.plugins, false)
+  assert.match(CONSULT_READONLY_PROMPT, /不要求先填写“我的系统账号”/)
+  assert.match(CONSULT_READONLY_PROMPT, /不自动持久保存密码或Cookie/)
+  assert.match(CONSULT_READONLY_PROMPT, /修改业务数据仍禁止/)
+  assert.match(CONSULT_READONLY_PROMPT, /数据库只通过consult_resources/)
+})
+
 test('exposes resource tools and static schema tools without any legacy database', () => {
   const previousApiBase = process.env.TOOLBOX_API_BASE
   process.env.TOOLBOX_API_BASE = 'http://127.0.0.1:18080'

@@ -101,7 +101,7 @@ export function ConsultPersonalLogin({ consultId }: { consultId: string }) {
   }}>
     <summary className="min-h-11 cursor-pointer px-4 py-3 text-xs focus-visible:outline focus-visible:outline-2">我的系统账号</summary>
     <div className="max-h-[60dvh] overflow-y-auto px-4 pb-4 text-xs">
-      <p className="mb-3 text-muted-foreground">账号加密保存并绑定本人，同一系统后续咨询可复用，直到主动解除绑定。读取前检查登录，失效时尝试重新登录；失败后需检查或更新账号。每个系统保存一个账号，重新保存会替换。密码不写入聊天或公共账号库。仅支持非生产站点，内网或非标准端口须先登记地址。</p>
+      <p className="mb-3 text-muted-foreground">这里用于保存账号，方便后续咨询复用，不是授权 AI 登录的必填步骤。支持测试站点、内网地址和自定义端口，无需登记系统资源。账号加密保存，重新保存会替换，可随时解除绑定。</p>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {state?.configured && <span className="min-w-0 break-all">本人绑定：{state.siteUrl} · {state.environment} · {state.loginStatus === 'READY' ? '上次检查通过' : state.loginStatus === 'CHECK_REQUIRED' ? '待检查登录' : state.loginStatus === 'WAITING_LOGIN' ? '尚未登录成功' : '登录检查未完成'}{state.checkedAt ? `（${new Date(state.checkedAt).toLocaleString()}）` : ''}</span>}
         <Button type="button" variant="outline" className="min-h-11" disabled={busy} onClick={() => void refresh()}>查询登录状态</Button>

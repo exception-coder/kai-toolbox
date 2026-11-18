@@ -12,9 +12,9 @@ test('computer-use guidance forbids reusing stale accessibility nodes', () => {
   assert.match(CODEX_COMPUTER_USE_RECOVERY_STEER, /只重试该动作一次/)
 })
 
-test('injects computer-use recovery only into tool-enabled development sessions', () => {
+test('injects computer-use recovery into development and authorized consultation sessions', () => {
   assert.match(buildCodexDeveloperInstructions('default') ?? '', /浏览器动态节点恢复/)
-  assert.doesNotMatch(buildCodexDeveloperInstructions('consult-readonly') ?? '', /浏览器动态节点恢复/)
+  assert.match(buildCodexDeveloperInstructions('consult-readonly') ?? '', /浏览器动态节点恢复/)
   assert.doesNotMatch(buildCodexDeveloperInstructions('review-only') ?? '', /浏览器动态节点恢复/)
   assert.doesNotMatch(buildCodexDeveloperInstructions('disabled') ?? '', /浏览器动态节点恢复/)
 })

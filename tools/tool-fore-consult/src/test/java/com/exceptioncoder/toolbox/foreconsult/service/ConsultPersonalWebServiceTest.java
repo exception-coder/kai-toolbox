@@ -18,7 +18,6 @@ import static org.mockito.Mockito.*;
 
 class ConsultPersonalWebServiceTest {
     final ConsultSessionRepository sessions = mock(ConsultSessionRepository.class);
-    final ConsultSourceRoutingService routing = mock(ConsultSourceRoutingService.class);
     final WebResourceGateway gateway = mock(WebResourceGateway.class);
     final ResourceCredentialCipher cipher = mock(ResourceCredentialCipher.class);
     final AtomicLong now = new AtomicLong(1000);
@@ -32,7 +31,7 @@ class ConsultPersonalWebServiceTest {
         return ConsultSession.builder().sessionId(id).userId(owner).systemSourcePath(path).archiveStatus("PENDING").build();
     }
     void authenticate() { AuthContext.set(new AuthPrincipal(7, "owner", List.of(), List.of(), "test", 0)); }
-    ConsultPersonalWebService newService() { return new ConsultPersonalWebService(sessions, routing, gateway, accounts, new ObjectMapper(), now::get); }
+    ConsultPersonalWebService newService() { return new ConsultPersonalWebService(sessions, gateway, accounts, new ObjectMapper(), now::get); }
     @BeforeEach void setup() {
         data = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
         var schema = new ResourceDatabasePopulator(new ClassPathResource("db/fore-consult-personal-web-schema.sql"));
@@ -54,6 +53,8 @@ class ConsultPersonalWebServiceTest {
         verifyNoInteractions(gateway);
     }
     @Test void persistsEncryptedBindingAcrossServiceRecreationAndConsultationsButNotUsersOrSystems() {
+        session.setEvidenceRouteSnapshot(new com.exceptioncoder.toolbox.foreconsult.domain.ConsultSourceRouting(
+                true, null, List.of(), null, null, null).wrap("[]"));
         assertTrue(service.login("consult", credentials).configured());
         assertEquals("encrypted-fixture", jdbc.queryForObject("SELECT password_cipher FROM fore_consult_personal_web_account", String.class));
         verify(cipher).encrypt("private-secret");

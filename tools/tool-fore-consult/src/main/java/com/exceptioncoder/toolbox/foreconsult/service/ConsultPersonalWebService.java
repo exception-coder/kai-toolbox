@@ -22,7 +22,6 @@ import java.util.function.Supplier;
 @Service
 public class ConsultPersonalWebService {
     private final ConsultSessionRepository sessions;
-    private final ConsultSourceRoutingService routing;
     private final WebResourceGateway gateway;
     private final ConsultPersonalWebRepository accounts;
     private final ObjectMapper mapper;
@@ -32,13 +31,13 @@ public class ConsultPersonalWebService {
             .mapToObj(i -> new ReentrantLock()).toArray(ReentrantLock[]::new);
 
     @org.springframework.beans.factory.annotation.Autowired
-    public ConsultPersonalWebService(ConsultSessionRepository sessions, ConsultSourceRoutingService routing,
+    public ConsultPersonalWebService(ConsultSessionRepository sessions,
             WebResourceGateway gateway, ConsultPersonalWebRepository accounts, ObjectMapper mapper) {
-        this(sessions, routing, gateway, accounts, mapper, System::currentTimeMillis);
+        this(sessions, gateway, accounts, mapper, System::currentTimeMillis);
     }
-    ConsultPersonalWebService(ConsultSessionRepository sessions, ConsultSourceRoutingService routing,
+    ConsultPersonalWebService(ConsultSessionRepository sessions,
             WebResourceGateway gateway, ConsultPersonalWebRepository accounts, ObjectMapper mapper, java.util.function.LongSupplier now) {
-        this.sessions = sessions; this.routing = routing; this.gateway = gateway;
+        this.sessions = sessions; this.gateway = gateway;
         this.accounts = accounts; this.mapper = mapper; this.now = now;
     }
     public record Credentials(String siteUrl, String environment, String username,
@@ -153,9 +152,9 @@ public class ConsultPersonalWebService {
         var session = sessions.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         if (!String.valueOf(principal.userId()).equals(session.getUserId())) { throw new ResponseStatusException(HttpStatus.NOT_FOUND); }
         if (!"PENDING".equals(session.getArchiveStatus())) { throw new IllegalArgumentException("咨询已归档，不能使用个人账号"); }
-        var scope = routing.current(session);
-        if (session.getSystemSourcePath() == null || session.getSystemSourcePath().isBlank()
-                || (scope != null && scope.focusedProject() == null)) { throw new IllegalArgumentException("请先确认本次咨询所属系统"); }
+        if (session.getSystemSourcePath() == null || session.getSystemSourcePath().isBlank()) {
+            throw new IllegalArgumentException("本次咨询缺少账号保存归属，请重新打开咨询");
+        }
         return session;
     }
     private <T> T locked(ConsultSession session, Supplier<T> action) {

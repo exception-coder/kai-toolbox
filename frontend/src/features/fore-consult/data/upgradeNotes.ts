@@ -10,6 +10,10 @@ export interface ConsultUpgradeNote {
 /** 仅登记业务人员直接受益的业务咨询重大变化；管理员配置、流程发布、开发排障及其他工具更新不收录。保留历史；日期使用YYYY-MM-DD，同日新增记录会重新提示纸签。 */
 export const CONSULT_UPGRADE_NOTES: readonly ConsultUpgradeNote[] = [
   {
+    id: '2026-11-18-consult-personal-direct', date: '2026-11-18', title: '授权后直接登录查看',
+    summary: '待部署及原生引擎验收：明确授权 AI 登录站点后，有原生浏览器能力时可直接查看，无需先填账号表单或登记资源。“我的系统账号”仅用于可选保存复用，也支持内网测试地址和自定义端口。',
+  },
+  {
     id: '2026-11-17-consult-personal-binding', date: '2026-11-17', title: '个人账号保存后可继续使用',
     summary: '待部署及真实站点验收：展开“我的系统账号”保存测试站点与本人账号，后续同系统咨询可复用。账号加密绑定本人，读取前检查登录，失效尝试重新登录；可随时解除绑定。',
   },
