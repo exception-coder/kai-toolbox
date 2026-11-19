@@ -124,10 +124,27 @@ it.each(['/tools/claude-chat', '/tools/claude-chat?collaboration=1',
     expect(auth.sharedAccess).not.toHaveBeenCalled()
   })
 
-it('keeps the login gate in place for sharing links', () => {
-  fixture(chatFeature, '/tools/claude-chat/shared/one', undefined, '/tools/claude-chat/shared/:sessionId')
-  expect(screen.getByRole('heading', { name: '登录工作台' })).toBeVisible()
+it.each([
+  ['/tools/claude-chat/shared/one', '/tools/claude-chat/shared/:sessionId'],
+  ['/tools/claude-chat?sessionId=one&collaboration=1', '/tools/claude-chat'],
+])('prompts login in place for sharing link %s and returns to it after login', async (path, pattern) => {
+  auth.login.mockImplementation(async () => { auth.user = member; return member })
+  auth.sharedAccess.mockResolvedValue({ id: 'one', collaborate: true })
+  const { content, clear, refresh } = fixture(chatFeature, path, undefined, pattern)
+  expect(screen.getByRole('heading', { name: '登录后查看共享会话' })).toBeVisible()
+  expect(screen.getByTestId('location')).toHaveTextContent(path)
   expect(auth.sharedAccess).not.toHaveBeenCalled()
+  expect(content).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '登录' }))
+  fireEvent.change(screen.getByPlaceholderText('用户名'), { target: { value: '同事' } })
+  fireEvent.change(screen.getByPlaceholderText('密码'), { target: { value: 'example-password' } })
+  fireEvent.submit(screen.getByRole('form', { name: '账号登录' }))
+  await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  refresh()
+  expect(clear).toHaveBeenCalledOnce()
+  expect(await screen.findByText('受保护内容')).toBeVisible()
+  expect(screen.getByTestId('location')).toHaveTextContent(path)
+  expect(auth.sharedAccess).toHaveBeenCalledWith('one')
 })
 
 it('replaces an unauthenticated deep link with the home page without mounting protected content', async () => {

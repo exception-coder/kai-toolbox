@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
+import { LoginDialog } from '@/components/auth/LoginDialog'
+import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { ApiError } from '@/lib/api'
 import { hasFeatureAccess, requiredRolesFor } from '@/shell/access'
@@ -43,6 +46,8 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
     return () => { alive = false }
   }, [user, normalAccess, scopedPrdSessionId])
 
+  // 共享链接原地登录：保留地址，登录后同一 URL 直接进入共享权限核验，不丢失分享入口。
+  if (!user && shared) return <SharedSessionLogin collaboration={shared.collaboration} />
   // 工具路由均由注册表赋予菜单权限；公开展示页不经过本门禁。
   // replace 避免手机返回键再次进入无登录态的深链。
   if (!user) return <Navigate replace to="/" />
@@ -81,6 +86,21 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
         ? feature.entry! : `${feature.entry}?${control.parameter}=${recoveryMode![0]}`}>返回可用控制模式</Link>}
     </div>
   )
+}
+
+function SharedSessionLogin({ collaboration }: { collaboration: boolean }) {
+  const queryClient = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  return <section aria-labelledby="shared-login-title"
+    className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+    <h1 id="shared-login-title" className="text-base font-medium text-foreground">登录后查看共享会话</h1>
+    <p className="max-w-md">{collaboration ? '这是一条协作链接' : '这是一条只读共享链接'}，需使用被授权的账号登录。登录后会自动回到当前会话。</p>
+    <Button ref={buttonRef} className="mt-2 min-h-11" onClick={() => setOpen(true)}>登录</Button>
+    <Link className="inline-flex min-h-11 items-center underline" to="/">返回工作台首页</Link>
+    <LoginDialog open={open} onClose={() => setOpen(false)} onSuccess={() => queryClient.clear()}
+      message="登录后继续打开共享会话" returnFocusRef={buttonRef} />
+  </section>
 }
 
 function SharedSessionGuard({ id, collaboration, children }: {
