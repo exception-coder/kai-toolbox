@@ -70,6 +70,7 @@ interface Props {
   getUserMessageBadge?: (item: Extract<ChatItem, { kind: 'user' }>) => UserMessageBadge | null
   renderAssistantAction?: (item: Extract<ChatItem, { kind: 'assistant' }>) => ReactNode
   copyOnly?: boolean
+  showExecutionDetails?: boolean
 }
 
 interface UserMessageBadge {
@@ -168,7 +169,7 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
 export const MessageList = memo(forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, mobileWorkspace = false, executionInDock = false, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, recoveryActions, copyOnly },
+  { items, running, onLoadEarlier, onLoadLatest, loadingEarlier, exhausted, loadEarlierError, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, mobileWorkspace = false, executionInDock = false, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, recoveryActions, copyOnly, showExecutionDetails = true },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
@@ -200,6 +201,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   }, [items, running])
   const liveReplyIds = useMemo(() => new Set(liveReplyKey ? liveReplyKey.split('\0') : []), [liveReplyKey])
   const visibleItems = useMemo(() => items.filter(item => {
+    if (!showExecutionDetails && (item.kind === 'tool' || item.kind === 'activity')) return false
     if (dockPresentation && hideToolCalls && isExecutionDetail(item)) return false
     if (item.id === latestResultId && item.kind === 'result' && !resultFailure(item)) return false
     if (hideToolCalls && item.kind === 'tool' && !(mobileWorkspace && item.isError)) return false
@@ -208,10 +210,11 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     return !(item.kind === 'activity'
       && (item.activityType === 'tool' || item.activityType === 'turn')
       && item.status === 'completed')
-  }), [items, hideToolCalls, mobileWorkspace, dockPresentation, latestResultId])
+  }), [items, hideToolCalls, mobileWorkspace, dockPresentation, latestResultId, showExecutionDetails])
   const currentVisibleItems = useRef(visibleItems)
   currentVisibleItems.current = visibleItems
   const activeTask = useMemo<ActiveTask | null>(() => {
+    if (!showExecutionDetails) return null
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const item = items[index]
       if (item.kind === 'result') break
@@ -224,7 +227,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
       }
     }
     return null
-  }, [items])
+  }, [items, showExecutionDetails])
 
   // 「复制本轮回复」：类似 ChatGPT，一轮回答可能被拆成好几个 assistant 气泡（工具调用打断、
   // 多段文本），单条气泡的「复制」不够用。按 kind='result' 的回合结束标记回溯到上一条
@@ -386,7 +389,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
       onKeyDownCapture={event => {
         if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) cancelJump()
       }}>
-      {items.some(item => item.kind === 'tool') && visibleItems.length === 0 && hideToolCalls && !compactMobile && (
+      {showExecutionDetails && visibleItems.length === 0 && hideToolCalls && !compactMobile && items.some(item => item.kind === 'tool') && (
         <div role="status" className="px-4 py-3 text-sm text-[var(--color-muted-foreground)]">
           最近记录已加载，工具调用当前已隐藏。
           <button type="button" onClick={() => setHideToolCalls(false)}

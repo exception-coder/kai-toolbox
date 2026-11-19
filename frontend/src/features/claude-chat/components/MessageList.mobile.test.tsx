@@ -29,6 +29,26 @@ it('keeps copying available without workspace actions for shared replies', () =>
   expect(screen.queryByRole('button', { name: '转为卡片' })).not.toBeInTheDocument()
 })
 
+it.each([true, false])('hides execution records in shared conversations (mobile=%s)', mobile => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: mobile, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  setHideToolCalls(false)
+  const sharedItems: ChatItem[] = [
+    { kind: 'user', id: 'request', text: '检查发版状态' },
+    { kind: 'tool', id: 'shell', toolName: 'shell', input: 'run deploy', output: 'exit 1', isError: true },
+    { kind: 'activity', id: 'command', activityType: 'command', title: '命令返回非零结果', status: 'failed', severity: 'warning' },
+    { kind: 'assistant', id: 'reply', text: '发版检查未通过。' },
+    { kind: 'warning', id: 'warning', code: 'SESSION', message: '会话连接即将失效' },
+    { kind: 'result', id: 'result', stopReason: 'failed', failure: { category: 'network' } },
+  ]
+  render(<MemoryRouter><MessageList items={sharedItems} running={false} copyOnly mobileWorkspace showExecutionDetails={false} /></MemoryRouter>)
+  expect(screen.getByText('检查发版状态')).toBeVisible()
+  expect(screen.getByText('发版检查未通过。')).toBeVisible()
+  expect(screen.getByText('会话连接即将失效')).toBeVisible()
+  expect(screen.getByText('此轮未完成 · 服务或网络异常')).toBeVisible()
+  expect(screen.queryByText('shell')).not.toBeInTheDocument()
+  expect(screen.queryByText('命令返回非零结果')).not.toBeInTheDocument()
+})
+
 it('keeps the review action in the reply toolbar and preserves its message identity', () => {
   const review = vi.fn()
   const reply: ChatItem = { kind: 'assistant', id: 'review-source', text: '待评审方案' }

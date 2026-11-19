@@ -50,7 +50,7 @@ export function SharedConversation({ sessionId }: { sessionId: string }) {
       <Button asChild variant="ghost" className="min-h-11 shrink-0"><Link to="/">退出共享会话</Link></Button>
     </header>
     {current ? <MessageList sessionKey={sessionId} items={current.items} running={current.running}
-      engineLabel={session?.engine ?? undefined} connState={current.state} copyOnly mobileWorkspace
+      engineLabel={session?.engine ?? undefined} connState={current.state} copyOnly mobileWorkspace showExecutionDetails={false}
       onLoadEarlier={() => void current.loadHistory(false)} onLoadLatest={() => current.loadHistory(true)}
       loadingEarlier={current.historyLoading} exhausted={current.historyExhausted} loadEarlierError={current.historyError} />
       : <p role="status" className="flex-1 p-4 text-sm text-muted-foreground">正在连接共享会话…</p>}
