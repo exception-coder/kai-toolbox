@@ -64,7 +64,7 @@ function readAppearance(userId?: number): { theme: WorkbenchTheme; strength: num
       return { theme: value.theme, strength: typeof value.strength === 'number' && Number.isFinite(value.strength) ? Math.max(0, Math.min(1, value.strength)) : 0.6 }
     }
   } catch { /* 不能读取时使用产品默认；保存失败由选择器明确显示。 */ }
-  return { theme: 'tokyo-night', strength: 0.6 }
+  return { theme: 'inherit', strength: 0.6 }
 }
 export function readWorkbenchTheme(userId?: number): WorkbenchTheme { return readAppearance(userId).theme }
 export function readWorkbenchMaterialStrength(userId?: number) { return readAppearance(userId).strength }
@@ -100,7 +100,7 @@ function subscribe(listener: () => void) {
 
 export function useWorkbenchTheme() {
   const { user } = useAuth()
-  return useSyncExternalStore(subscribe, () => trials.get(user?.userId ?? 'local')?.theme ?? readWorkbenchTheme(user?.userId), () => 'tokyo-night' as const)
+  return useSyncExternalStore(subscribe, () => trials.get(user?.userId ?? 'local')?.theme ?? readWorkbenchTheme(user?.userId), () => 'inherit' as const)
 }
 export function useWorkbenchMaterialStrength() {
   const { user } = useAuth()

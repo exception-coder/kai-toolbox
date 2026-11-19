@@ -23,21 +23,21 @@ it('previews without writing, trials on the real page and restores on back and u
   fireEvent.change(draft, { target: { value: '不丢失草稿' } })
   chooseSkin('Butter Paper')
   expect(screen.getByText('外观预览 · 演示数据')).toBeInTheDocument()
-  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'tokyo-night')
+  expect(document.documentElement).not.toHaveAttribute('data-workbench-theme')
   fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
   expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'butter-paper')
-  expect(readWorkbenchTheme()).toBe('tokyo-night')
+  expect(readWorkbenchTheme()).toBe('inherit')
   fireEvent.change(screen.getByLabelText('材质强度'), { target: { value: '20' } })
   expect(document.documentElement.style.getPropertyValue('--wb-material-strength')).toBe('0.2')
   fireEvent.click(screen.getByRole('button', { name: '返回主题列表' }))
-  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'tokyo-night')
+  expect(document.documentElement).not.toHaveAttribute('data-workbench-theme')
   expect(screen.getByRole('button', { name: 'Atelier Paper' })).toHaveFocus()
   expect(draft).toHaveValue('不丢失草稿')
   chooseSkin('Aurora Glass')
   fireEvent.click(screen.getByRole('button', { name: '实时试用' }))
   view.unmount()
   render(<Consumer />)
-  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'tokyo-night')
+  expect(document.documentElement).not.toHaveAttribute('data-workbench-theme')
 })
 
 it('saves skin and material strength atomically, preserves classic values and isolates accounts', () => {
@@ -71,7 +71,7 @@ it('cancels trial with Escape, returns focus and leaves the persisted preference
   expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'phosphor-terminal')
   fireEvent.keyDown(document, { key: 'Escape' })
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-  expect(document.documentElement).toHaveAttribute('data-workbench-theme', 'tokyo-night')
+  expect(document.documentElement).not.toHaveAttribute('data-workbench-theme')
   expect(returnFocus).toHaveBeenCalledOnce()
 })
 
@@ -106,7 +106,7 @@ it('switches the shared browser preference without resetting draft or expanded t
 it('isolates account preferences and responds to changes from another tab', () => {
   setWorkbenchTheme('nord', 7)
   expect(readWorkbenchTheme(7)).toBe('nord')
-  expect(readWorkbenchTheme(8)).toBe('tokyo-night')
+  expect(readWorkbenchTheme(8)).toBe('inherit')
   render(<WorkbenchThemePicker />)
   localStorage.setItem('forge.vibecoding.theme:local', 'catppuccin')
   fireEvent(window, new StorageEvent('storage', { key: 'forge.vibecoding.theme:local' }))
@@ -129,6 +129,7 @@ it('restores only its own page scope and leaves global appearance and motion int
 })
 
 it('keeps the previous theme and reports storage failures', () => {
+  setWorkbenchTheme('tokyo-night')
   render(<WorkbenchThemePicker />)
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied') })
   fireEvent.click(screen.getByRole('button', { name: 'Nord' }))
@@ -182,6 +183,7 @@ it('keeps primary and secondary text legible across each palette surface', () =>
 })
 
 it('trials every artistic skin without replacing the draft and restores material tokens', () => {
+  setWorkbenchTheme('tokyo-night')
   function Consumer() { const theme = useWorkbenchTheme(); return <Page theme={theme} /> }
   render(<><Consumer /><WorkbenchThemePicker /></>)
   const draft = screen.getByRole('textbox', { name: '草稿' })

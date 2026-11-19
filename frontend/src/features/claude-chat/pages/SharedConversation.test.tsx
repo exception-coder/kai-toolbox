@@ -11,6 +11,15 @@ vi.mock('../sessionSharingApi', () => ({ getSharedSession: async () => ({ title:
 
 afterEach(() => { cleanup(); runtime.chat = null; localStorage.clear(); vi.unstubAllGlobals() })
 
+it.each([null, 'tokyo-night'] as const)('only overrides global appearance for a saved theme (%s)', async (savedTheme) => {
+  if (savedTheme) setWorkbenchTheme(savedTheme)
+  render(<MemoryRouter><QueryClientProvider client={new QueryClient()}>
+    <SharedConversation sessionId="shared-theme-default" />
+  </QueryClientProvider></MemoryRouter>)
+  expect(await screen.findByRole('heading', { name: '共享测试会话' })).toBeVisible()
+  expect(document.documentElement.getAttribute('data-workbench-theme')).toBe(savedTheme)
+})
+
 it('uses the saved workbench appearance and updates that preference from the shared page', async () => {
   setWorkbenchTheme('atelier-paper', undefined, 0.35)
   const view = render(<MemoryRouter><QueryClientProvider client={new QueryClient()}>
