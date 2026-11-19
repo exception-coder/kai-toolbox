@@ -5,10 +5,11 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { readWorkbenchTheme, setWorkbenchTheme } from '../lib/workbenchTheme'
 import { SharedConversation } from './SharedConversation'
 
-vi.mock('../runtime/ChatRuntimeContext', () => ({ useChatRuntime: () => ({ activate: () => {}, chat: null }) }))
+const runtime = vi.hoisted(() => ({ activate: vi.fn(), chat: null as unknown }))
+vi.mock('../runtime/ChatRuntimeContext', () => ({ useChatRuntime: () => runtime }))
 vi.mock('../sessionSharingApi', () => ({ getSharedSession: async () => ({ title: '共享测试会话' }) }))
 
-afterEach(() => { cleanup(); localStorage.clear() })
+afterEach(() => { cleanup(); runtime.chat = null; localStorage.clear(); vi.unstubAllGlobals() })
 
 it('uses the saved workbench appearance and updates that preference from the shared page', async () => {
   setWorkbenchTheme('atelier-paper', undefined, 0.35)
@@ -29,3 +30,34 @@ it('uses the saved workbench appearance and updates that preference from the sha
   await waitFor(() => expect(trigger).toHaveFocus())
   view.unmount()
 })
+
+it.each([false, true])('uses the normal submit path on PC (running=%s)', (running) => {
+  const { input, send, enqueue } = renderComposer(running)
+  fireEvent.keyDown(input, { key: 'Enter' })
+  expect(running ? enqueue : send).toHaveBeenCalledExactlyOnceWith('继续检查', [])
+  expect(running ? send : enqueue).not.toHaveBeenCalled()
+  expect(input).toHaveValue('')
+})
+
+it('leaves Shift+Enter, IME confirmation and touch keyboard Enter to the editor', () => {
+  const { input, send, enqueue } = renderComposer(false)
+  expect(fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })).toBe(true)
+  expect(fireEvent.keyDown(input, { key: 'Enter', isComposing: true })).toBe(true)
+  expect(fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })).toBe(true)
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+  expect(fireEvent.keyDown(input, { key: 'Enter' })).toBe(true)
+  expect(send).not.toHaveBeenCalled()
+  expect(enqueue).not.toHaveBeenCalled()
+  expect(input).toHaveValue('继续检查')
+})
+
+function renderComposer(running: boolean) {
+  const send = vi.fn(), enqueue = vi.fn()
+  runtime.chat = { sessionId: 'shared-keyboard', state: 'ready', running, items: [], queued: [], send, enqueue }
+  render(<MemoryRouter><QueryClientProvider client={new QueryClient()}>
+    <SharedConversation sessionId="shared-keyboard" />
+  </QueryClientProvider></MemoryRouter>)
+  const input = screen.getByRole('textbox', { name: '消息输入' })
+  fireEvent.change(input, { target: { value: '继续检查' } })
+  return { input, send, enqueue }
+}

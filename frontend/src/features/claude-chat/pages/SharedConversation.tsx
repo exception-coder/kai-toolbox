@@ -74,6 +74,12 @@ export function SharedConversation({ sessionId }: { sessionId: string }) {
       {error && <p role="alert" className="mb-2 text-sm text-destructive">{error}</p>}
       <div className="mobile-composer-card rounded-md border bg-background focus-within:ring-1 focus-within:ring-ring">
         <textarea aria-label="消息输入" value={draft} onChange={event => setDraft(event.target.value)}
+          onKeyDown={event => {
+            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return
+            if (window.matchMedia?.('(pointer: coarse)').matches) return
+            event.preventDefault()
+            if (!event.repeat) event.currentTarget.form?.requestSubmit()
+          }}
           onPaste={event => { if (ready && event.clipboardData.files.length) { event.preventDefault(); void uploadFiles(event.clipboardData.files) } }}
           rows={2} className="block w-full resize-none bg-transparent p-2 text-base outline-none" placeholder="输入消息…" />
       </div>
