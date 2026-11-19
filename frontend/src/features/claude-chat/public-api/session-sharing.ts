@@ -1,1 +1,1 @@
-export { getSharedSession, resolveSharingRoute } from '../sessionSharingApi'
+export { getSharedSession, resolveSharingRoute, sharedSessionPath } from '../sessionSharingApi'

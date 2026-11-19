@@ -156,6 +156,7 @@ export interface UseClaudeChatSocket {
   /** 状态边界递增代次，隔离结束前发起但晚返回的 HTTP 快照。 */
   runtimeRevision: number
   errorMessage: string | null
+  collaborationAccessLost: boolean
   /** 重连回放出现空洞（部分消息已被服务端缓冲淘汰）时的提示文案；null 表示无 */
   syncWarning: string | null
   /** 关闭同步空洞提示 */
@@ -321,6 +322,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const [queuePausedReason, setQueuePausedReason] = useState<string | null>(null)
   const sessionReadyRef = useRef(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [collaborationAccessLost, setCollaborationAccessLost] = useState(false)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
   useEffect(() => {
     if (!interrupting) return
@@ -485,7 +487,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     setRuntimeRevision(revision => revision + 1)
   }
 
-  const applyEvent = useCallback((msg: ServerMessage) => {
+  const applyEvent = useCallback((msg: ServerMessage, channel: ClaudeChatChannel, publicWithoutLogin: boolean) => {
     // 诊断开关：F12 里 localStorage.setItem('cc-debug','1') 后，打印每条到达的 WS 事件，
     // 用于区分「事件到了没渲染(seq/render)」还是「事件压根没到(后端未投递)」。默认关，零噪音。
     if (typeof localStorage !== 'undefined' && localStorage.getItem('cc-debug')) {
@@ -586,6 +588,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
             }
           })
         setState('ready')
+        setCollaborationAccessLost(false)
         setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
         // 后端数据库是会话权限模式的权威来源；刷新和跨设备切换均以 Ready 为准。
         {
@@ -600,10 +603,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           }
           // 「弹窗自动允许」同步给服务端一次：服务端此后自己保管并随每次 resume 回灌 sidecar，
           // 用户切走页面/关掉浏览器也不影响放行，不再需要前端盯着弹窗自动点。
-          const savedAutoApprove = restricted ? false : loadAutoApprove()
+          const savedAutoApprove = restricted || channel === 'collaboration' ? false : loadAutoApprove()
           setAutoApproveState(savedAutoApprove)
           autoApproveRef.current = savedAutoApprove
-          if (!restricted) {
+          if (!restricted && channel !== 'collaboration') {
             sendRaw({
               type: 'setAutoApprove',
               autoApprove: savedAutoApprove && modeRef.current === 'bypassPermissions',
@@ -1005,6 +1008,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           setErrorMessage(`复制会话失败：${msg.message}`)
         }
         if (msg.code === 'CAPABILITIES_UNAVAILABLE') setCapabilitiesRefreshing(false)
+        if (channel === 'collaboration') {
+          setErrorMessage(msg.code === 'SESSION_FORBIDDEN'
+            ? '此操作不在共享权限内。你可以继续阅读，或联系分享人核对授权。'
+            : '这次操作未能完成。请先查看消息是否已送达，再决定是否重试。')
+          break
+        }
         // 同一条错误连续重复时不再追加：像前后端版本不一致导致的 BAD_MESSAGE，会随每次
         // 开关切换/重连反复触发，逐条堆进消息流会把真正的对话内容顶没。保留第一条即可。
         setItems(prev => {
@@ -1195,12 +1204,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       // 调试模式：捕获每条到达的原始报文（node sidecar 事件经后端转发），供「调试模式」弹框查看
       if (voiceChannel.handle(msg)) return
       pushDebug('recv', msg.type, typeof ev.data === 'string' ? ev.data : String(ev.data), (msg as { seq?: number }).seq)
-      applyEvent(msg)
+      applyEvent(msg, channel, publicWithoutLogin)
     }
     ws.onerror = () => {
       if (wsRef.current !== ws) return
       setState('error')
-      setErrorMessage('WebSocket 连接出错')
+      setErrorMessage(channel === 'collaboration' ? '连接中断，正在尝试恢复。请保留草稿。' : 'WebSocket 连接出错')
       pushDebug('conn', 'error', 'WebSocket 连接出错')
     }
     ws.onclose = event => {
@@ -1211,6 +1220,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       pushDebug('conn', 'close', `WS 关闭（openedThisAttempt=${openedRef.current}）`)
       if (manualCloseRef.current) return
       if (channel === 'collaboration' && event?.code === 4003) {
+        setCollaborationAccessLost(true)
         intentRef.current = null
         pendingSendsRef.current = []
         historyRequestIdRef.current++
@@ -2097,5 +2107,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, queueCheck: running ? queueCheck : null, runtimeRevision, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, claudeOptions, activeModelConfiguration, currentEngine, engineSwitching, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, pauseQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, setClaudeOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
+  return { reviewOnly, followUpPrediction, dismissFollowUpPrediction, voiceTransport: voiceChannel.transport, state, sessionId, items, pending, pendingSessions, running, interrupting, queueCheck: running ? queueCheck : null, runtimeRevision, errorMessage, collaborationAccessLost, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, skillDetails, plugins, agents, mcpServers, outputStyle, capabilitySource, capabilityRefreshedAt, capabilityErrors, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, claudeOptions, activeModelConfiguration, currentEngine, engineSwitching, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, duplicationOperation, dismissDuplication, resumeHistory, resumeCurrent, send, steer, queued, queuePausedReason, enqueue, removeQueued, pauseQueued, stopQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, setClaudeOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, historyError, loadHistory }
 }

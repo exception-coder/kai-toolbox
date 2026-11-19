@@ -354,7 +354,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
         compactMobile={compactMobile}
         streaming={liveReplyIds.has(item.id)}
         compactMetrics={mobileWorkspace} renderAssistantAction={renderAssistantAction}
-        sessionId={sessionKey}
+        sessionId={copyOnly && item.kind === 'result' ? undefined : sessionKey}
+        showExecutionDetails={showExecutionDetails}
         assistantAvatarUrl={assistantAvatarUrl} assistantAvatarAlt={assistantAvatarAlt}
         userMessageBadge={item.kind === 'user' ? getUserMessageBadge?.(item) : undefined}
         onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
@@ -363,7 +364,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
       {item.kind === 'result' && item.id === recoveryResult?.id && recoveryActions
         && <TurnFailureRecovery key={item.id} item={item} actions={recoveryActions} />}
     </div>
-  ), [highlightedId, onFork, openCard, copyOnly, openImage, engineLabel, onNewSession, onCleanRetry, hasForkTarget, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, compactMobile, mobileWorkspace, liveReplyIds, recoveryResult, recoveryActions])
+  ), [highlightedId, onFork, openCard, copyOnly, openImage, engineLabel, onNewSession, onCleanRetry, hasForkTarget, sessionKey, assistantAvatarUrl, assistantAvatarAlt, getUserMessageBadge, renderAssistantAction, compactMobile, mobileWorkspace, liveReplyIds, recoveryResult, recoveryActions, showExecutionDetails])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {
@@ -487,20 +488,20 @@ function MsgHeader({ label, ts, align }: { label?: string; ts?: number; align: '
 }
 
 /** 本轮状态条：成功弱化为 ✓，token（紫，可点开明细）+ 耗时（蓝）+ 时间 + 复制本轮完整回复。 */
-function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extract<ChatItem, { kind: 'result' }>; turnText?: string; sessionId?: string; compactMobile?: boolean }) {
+function TurnStatus({ item, turnText, sessionId, compactMobile, showExecutionDetails }: { item: Extract<ChatItem, { kind: 'result' }>; turnText?: string; sessionId?: string; compactMobile?: boolean; showExecutionDetails: boolean }) {
   const [changesOpen, setChangesOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const ok = ['success', 'end_turn', 'completed', 'stop'].includes(item.stopReason.trim().toLowerCase())
   const u = parseUsage(item.usage)
   const hit = cacheHitRate(item.usage)
   const time = formatTime(item.ts)
-  if (compactMobile) return <div className="cc-turn-status text-xs text-[var(--color-muted-foreground)]" data-turn-success={ok}>
+  if (compactMobile || !showExecutionDetails) return <div className="cc-turn-status text-xs text-[var(--color-muted-foreground)]" data-turn-success={ok}>
     <details>
       <summary className={cn('flex min-h-11 cursor-pointer items-center gap-2', !ok && 'text-[var(--color-destructive)]')}>
         {ok ? <Check className="size-3.5" /> : <AlertTriangle className="size-3.5" />}<span>{turnResultLabel(item)}</span>
         {time && <span className="tabular-nums">· {time}</span>}<span className="ml-auto">详情 ›</span>
       </summary>
-      <div className="border-t py-3"><TurnResultDetails item={item} turnText={turnText} sessionId={sessionId} /></div>
+      <div className="border-t py-3"><TurnResultDetails item={item} turnText={turnText} sessionId={sessionId} showDiagnostics={showExecutionDetails} /></div>
     </details>
     {changesOpen && sessionId && item.turnId && <TurnChangesDialog sessionId={sessionId} turnId={item.turnId} open onOpenChange={setChangesOpen} />}
   </div>
@@ -544,7 +545,7 @@ function TurnStatus({ item, turnText, sessionId, compactMobile }: { item: Extrac
   )
 }
 
-const Row = memo(function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics, streaming, renderAssistantAction }: { item: ChatItem; onFork?: (forkAnchor: string) => void; onToCard?: (text: string, trigger: HTMLElement) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean; streaming?: boolean; renderAssistantAction?: Props['renderAssistantAction'] }) {
+const Row = memo(function Row({ item, onFork, onToCard, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt, userMessageBadge, compactMobile, compactMetrics, streaming, renderAssistantAction, showExecutionDetails }: { item: ChatItem; onFork?: (forkAnchor: string) => void; onToCard?: (text: string, trigger: HTMLElement) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string; userMessageBadge?: UserMessageBadge | null; compactMobile?: boolean; compactMetrics?: boolean; streaming?: boolean; renderAssistantAction?: Props['renderAssistantAction']; showExecutionDetails: boolean }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -661,7 +662,7 @@ const Row = memo(function Row({ item, onFork, onToCard, engineLabel, onNewSessio
     case 'activity':
       return <CodexActivity item={item} />
     case 'result':
-      return <TurnStatus item={item} turnText={turnText} sessionId={sessionId} compactMobile={compactMobile || compactMetrics} />
+      return <TurnStatus item={item} turnText={turnText} sessionId={sessionId} compactMobile={compactMobile || compactMetrics} showExecutionDetails={showExecutionDetails} />
     case 'warning':
       return (
         <div className="cc-session-warning flex max-w-full items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">

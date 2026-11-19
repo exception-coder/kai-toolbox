@@ -1421,6 +1421,7 @@ public class ClaudeChatService {
             case ClientMessage.Interrupt ignored -> true;
             default -> false;
         }) return false;
+        log.info("[claude-chat] SESSION_FORBIDDEN collaboration session={} command={}", target, message.getClass().getSimpleName());
         events.sendError(ws, 0, "SESSION_FORBIDDEN", "共享链接仅允许操作已授权的会话", false);
         return true;
     }

@@ -59,9 +59,14 @@ describe('Codex 会话参数恢复', () => {
     expect(socket.url).toContain('session_id=shared')
     act(() => { socket.open(); socket.receive(ready('shared')) })
     await waitFor(() => expect(result.current.items.length).toBeGreaterThan(0))
+    expect(socket.send.mock.calls.map(([payload]) => JSON.parse(payload).type)).not.toContain('setAutoApprove')
+    act(() => socket.receive({ type: 'error', seq: 0, code: 'SESSION_FORBIDDEN', message: 'raw diagnostic', terminal: false }))
+    expect(result.current.errorMessage).toContain('此操作不在共享权限内')
+    expect(result.current.items).not.toContainEqual(expect.objectContaining({ kind: 'error' }))
     act(() => socket.onclose?.({ code: 4003 }))
     expect(result.current.items).toEqual([])
     expect(result.current.state).toBe('error')
+    expect(result.current.collaborationAccessLost).toBe(true)
   })
 
   it('往返切换只发请求，确认前保留引擎，服务端状态可在重连后恢复', async () => {

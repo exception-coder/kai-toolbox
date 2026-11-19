@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 import { SharedSessionPage } from './SharedSessionPage'
 import { getSharedMessages, getSharedSession } from '../sessionSharingApi'
+import { ApiError } from '@/lib/api'
 
 vi.mock('../sessionSharingApi', () => ({ getSharedMessages: vi.fn(), getSharedSession: vi.fn(),
   collaborationPath: (id: string) => `/tools/claude-chat?sessionId=${id}&collaboration=1` }))
@@ -30,11 +31,16 @@ it('reads text without executing markup and clears it when access is revoked', a
   expect(await screen.findByText('<script>secret()</script>')).toBeTruthy()
   expect(document.querySelector('script')).toBeNull()
   expect(screen.queryByRole('textbox')).toBeNull()
-  vi.mocked(getSharedMessages).mockRejectedValue(new Error('当前账号没有权限'))
+  expect(screen.getByText('共享会话 · 只读')).toBeVisible()
+  expect(screen.getByRole('button', { name: '复制消息' })).toBeVisible()
+  vi.mocked(getSharedMessages).mockRejectedValue(new ApiError(403, null, 'SESSION_FORBIDDEN'))
+  fireEvent.click(screen.getByRole('button', { name: '更多共享会话选项' }))
   fireEvent.click(screen.getByRole('button', { name: '刷新' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('当前账号没有权限')
+  expect(await screen.findByRole('alert')).toHaveTextContent('请确认登录账号')
+  expect(screen.getByText('无访问权限')).toBeVisible()
+  expect(screen.queryByText(/SESSION_FORBIDDEN/)).not.toBeInTheDocument()
   expect(screen.queryByText('<script>secret()</script>')).toBeNull()
-  expect(screen.getByRole('link', { name: '返回 Vibe Coding' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: '返回 Forge 首页' })).toBeTruthy()
 })
 
 it('keeps an opaque cursor on empty filtered pages and prepends older messages', async () => {

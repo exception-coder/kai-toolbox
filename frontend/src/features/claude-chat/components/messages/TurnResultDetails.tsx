@@ -6,18 +6,18 @@ import { TurnChangesDialog } from '../changes/TurnChangesDialog'
 import { FAILURE_LABELS, resultFailure } from '../../lib/turnFailure'
 
 /** 同一轮的指标、完整回复与变更入口，供历史轮次和当前 Dock 复用。 */
-export function TurnResultDetails({ item, turnText, sessionId }: {
-  item: Extract<ChatItem, { kind: 'result' }>; turnText?: string; sessionId?: string
+export function TurnResultDetails({ item, turnText, sessionId, showDiagnostics = true }: {
+  item: Extract<ChatItem, { kind: 'result' }>; turnText?: string; sessionId?: string; showDiagnostics?: boolean
 }) {
   const [changesOpen, setChangesOpen] = useState(false)
   const usage = parseUsage(item.usage)
   const hit = cacheHitRate(item.usage)
   const failure = resultFailure(item)
   return <div className="space-y-2 text-xs text-[var(--color-muted-foreground)]">
-    {failure && <p>失败类型：{FAILURE_LABELS[failure.category]}{failure.code ? ` · ${failure.code}` : ''}</p>}
-    <p>结束原因：{item.stopReason}</p>
-    {usage && <p>Token {abbr(usage.total)} · 输入 {abbr(usage.input)} · 输出 {abbr(usage.output)}{usage.cache > 0 ? ` · 缓存读 ${abbr(usage.cacheRead)} / 写 ${abbr(usage.cache - usage.cacheRead)}` : ''}</p>}
-    {hit != null && <p>缓存命中率 {Math.floor(hit * 100)}%</p>}
+    {failure && <p>失败类型：{FAILURE_LABELS[failure.category]}{showDiagnostics && failure.code ? ` · ${failure.code}` : ''}</p>}
+    {showDiagnostics && <p>结束原因：{item.stopReason}</p>}
+    {showDiagnostics && usage && <p>Token {abbr(usage.total)} · 输入 {abbr(usage.input)} · 输出 {abbr(usage.output)}{usage.cache > 0 ? ` · 缓存读 ${abbr(usage.cacheRead)} / 写 ${abbr(usage.cache - usage.cacheRead)}` : ''}</p>}
+    {showDiagnostics && hit != null && <p>缓存命中率 {Math.floor(hit * 100)}%</p>}
     {item.latencyMs != null && <p>耗时 {fmtMs(item.latencyMs)}{item.ttftMs != null ? ` · 首字 ${fmtMs(item.ttftMs)}` : ''}</p>}
     {turnText && <MessageCopyButton text={turnText} label="复制本轮" />}
     {sessionId && item.turnId && <button type="button" className="min-h-11 px-2 underline" onClick={() => setChangesOpen(true)}>本轮变更</button>}

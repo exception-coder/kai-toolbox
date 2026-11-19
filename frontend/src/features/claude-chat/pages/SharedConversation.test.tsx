@@ -7,7 +7,10 @@ import { SharedConversation } from './SharedConversation'
 
 const runtime = vi.hoisted(() => ({ activate: vi.fn(), chat: null as unknown }))
 vi.mock('../runtime/ChatRuntimeContext', () => ({ useChatRuntime: () => runtime }))
-vi.mock('../sessionSharingApi', () => ({ getSharedSession: async () => ({ title: '共享测试会话' }) }))
+vi.mock('../sessionSharingApi', async importOriginal => ({
+  ...(await importOriginal<typeof import('../sessionSharingApi')>()),
+  getSharedSession: async (id: string) => ({ id, title: '共享测试会话', collaborate: true }),
+}))
 
 afterEach(() => { cleanup(); runtime.chat = null; localStorage.clear(); vi.unstubAllGlobals() })
 
@@ -29,8 +32,9 @@ it('uses the saved workbench appearance and updates that preference from the sha
   const root = document.documentElement
   expect(root).toHaveAttribute('data-workbench-theme', 'atelier-paper')
   expect(root.style.getPropertyValue('--wb-material-strength')).toBe('0.35')
-  const trigger = screen.getByRole('button', { name: '工作台主题' })
+  const trigger = screen.getByRole('button', { name: '更多共享会话选项' })
   fireEvent.click(trigger)
+  fireEvent.click(screen.getByRole('button', { name: '工作台主题' }))
   expect(screen.getByRole('dialog', { name: '工作台主题' })).toBeVisible()
   fireEvent.click(screen.getByRole('button', { name: '恢复默认外观' }))
   expect(readWorkbenchTheme()).toBe('inherit')
@@ -40,16 +44,16 @@ it('uses the saved workbench appearance and updates that preference from the sha
   view.unmount()
 })
 
-it.each([false, true])('uses the normal submit path on PC (running=%s)', (running) => {
-  const { input, send, enqueue } = renderComposer(running)
+it.each([false, true])('uses the normal submit path on PC (running=%s)', async (running) => {
+  const { input, send, enqueue } = await renderComposer(running)
   fireEvent.keyDown(input, { key: 'Enter' })
   expect(running ? enqueue : send).toHaveBeenCalledExactlyOnceWith('继续检查', [])
   expect(running ? send : enqueue).not.toHaveBeenCalled()
   expect(input).toHaveValue('')
 })
 
-it('leaves Shift+Enter, IME confirmation and touch keyboard Enter to the editor', () => {
-  const { input, send, enqueue } = renderComposer(false)
+it('leaves Shift+Enter, IME confirmation and touch keyboard Enter to the editor', async () => {
+  const { input, send, enqueue } = await renderComposer(false)
   expect(fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })).toBe(true)
   expect(fireEvent.keyDown(input, { key: 'Enter', isComposing: true })).toBe(true)
   expect(fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })).toBe(true)
@@ -60,13 +64,28 @@ it('leaves Shift+Enter, IME confirmation and touch keyboard Enter to the editor'
   expect(input).toHaveValue('继续检查')
 })
 
-function renderComposer(running: boolean) {
+it('hides history and actions when the shared connection loses access', async () => {
+  runtime.chat = { sessionId: 'revoked', state: 'error', collaborationAccessLost: true,
+    items: [{ kind: 'assistant', id: 'old', text: '撤回后不可显示' }] }
+  render(<MemoryRouter><QueryClientProvider client={new QueryClient()}>
+    <SharedConversation sessionId="revoked" />
+  </QueryClientProvider></MemoryRouter>)
+  expect(await screen.findByRole('alert')).toHaveTextContent('请确认登录账号')
+  expect(screen.getByText('无访问权限')).toBeVisible()
+  expect(screen.queryByText('撤回后不可显示')).not.toBeInTheDocument()
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+})
+
+async function renderComposer(running: boolean) {
   const send = vi.fn(), enqueue = vi.fn()
   runtime.chat = { sessionId: 'shared-keyboard', state: 'ready', running, items: [], queued: [], send, enqueue }
   render(<MemoryRouter><QueryClientProvider client={new QueryClient()}>
     <SharedConversation sessionId="shared-keyboard" />
   </QueryClientProvider></MemoryRouter>)
-  const input = screen.getByRole('textbox', { name: '消息输入' })
+  expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  const input = await screen.findByRole('textbox', { name: '消息输入' })
+  expect(screen.getByText('共享会话 · 可回复')).toBeVisible()
+  expect(input).toHaveAttribute('rows', '1')
   fireEvent.change(input, { target: { value: '继续检查' } })
   return { input, send, enqueue }
 }

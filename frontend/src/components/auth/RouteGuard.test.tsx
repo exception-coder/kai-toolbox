@@ -101,7 +101,11 @@ it.each([true, false])('requires collaboration permission for the original workb
   const { content } = fixture(chatFeature, '/tools/claude-chat?sessionId=one&collaboration=1')
   expect(content).not.toHaveBeenCalled()
   if (collaborate) expect(await screen.findByText('受保护内容')).toBeVisible()
-  else expect(await screen.findByRole('alert')).toHaveTextContent('无法打开共享会话')
+  else {
+    expect(await screen.findByRole('alert')).toHaveTextContent('当前授权仅供查看')
+    expect(screen.getByRole('link', { name: '打开只读会话' })).toHaveAttribute('href', '/tools/claude-chat/shared/one')
+    expect(content).not.toHaveBeenCalled()
+  }
 })
 
 it('rejects revoked grants and shares returned for a different session', async () => {

@@ -9,7 +9,7 @@ import { hasFeatureAccess, requiredRolesFor } from '@/shell/access'
 import { useAccessContext } from '@/shell/permission'
 import type { FeatureManifest } from '@/shell/types'
 import { getDevelopmentAccess } from '@/features/reqpool/api'
-import { getSharedSession, resolveSharingRoute } from '@/features/claude-chat/public-api/session-sharing'
+import { getSharedSession, resolveSharingRoute, sharedSessionPath } from '@/features/claude-chat/public-api/session-sharing'
 
 /**
  * 路由级门禁：未登录返回工作台，无权限时提供恢复入口，不渲染真实页面，
@@ -108,13 +108,13 @@ function SharedSessionGuard({ id, collaboration, children }: {
 }) {
   const { user } = useAuth()
   const [failure, setFailure] = useState('')
-  const [state, setState] = useState<'checking' | 'allowed' | 'denied'>('checking')
+  const [state, setState] = useState<'checking' | 'allowed' | 'denied' | 'read-only' | 'unavailable'>('checking')
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let active = true
     setFailure('')
     getSharedSession(id).then(session => {
-      if (active) setState(session.id === id && (!collaboration || session.collaborate) ? 'allowed' : 'denied')
+      if (active) setState(session.id !== id ? 'denied' : collaboration && session.collaborate !== true ? 'read-only' : 'allowed')
     }).catch(error => {
       if (!active) return
       setFailure(error instanceof ApiError && [403, 404].includes(error.status)
@@ -122,7 +122,7 @@ function SharedSessionGuard({ id, collaboration, children }: {
         : error instanceof ApiError && error.status === 401
           ? '登录已失效，请重新登录后打开原共享链接。'
           : '暂时未能核验共享权限，请检查网络后重试；这不代表授权已撤回。')
-      setState('denied')
+      setState(error instanceof ApiError && [401, 403, 404].includes(error.status) ? 'denied' : 'unavailable')
     })
     return () => { active = false }
   }, [id, collaboration, attempt])
@@ -130,9 +130,11 @@ function SharedSessionGuard({ id, collaboration, children }: {
   if (state === 'allowed') return <>{children}</>
   return <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
     {state === 'checking' ? <p role="status">正在验证会话共享权限…</p> : <>
-      <p role="alert">无法打开共享会话。请核对登录账号和授权期限，或联系分享人。</p>
+      <h1 className="text-base font-medium text-foreground">{state === 'read-only' ? '只读共享' : state === 'denied' ? '无访问权限' : '暂时无法核验权限'}</h1>
+      <p role="alert">{state === 'read-only' ? '当前授权仅供查看。若要回复，请联系分享人。' : '无法打开共享会话。请核对登录账号和授权期限，或联系分享人。'}</p>
       <p>当前登录账号：{user?.username}</p>
       {failure && <p className="max-w-md">{failure}</p>}
+      {state === 'read-only' && <Button asChild className="min-h-11"><Link to={sharedSessionPath(id)} replace>打开只读会话</Link></Button>}
       <button type="button" className="min-h-11 underline" onClick={() => { setState('checking'); setAttempt(value => value + 1) }}>重新检查</button>
       <Link className="inline-flex min-h-11 items-center underline" to="/">返回工作台首页</Link>
     </>}

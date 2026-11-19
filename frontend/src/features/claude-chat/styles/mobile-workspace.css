@@ -15,6 +15,7 @@
   .cc-mobile-coding-workspace .cc-focus-composer,
   .cc-mobile-coding-workspace .cc-chat-contextbar { background: var(--color-background); backdrop-filter: none; }
   .cc-mobile-conversation .cc-message-row { padding: 6px 16px 8px; }
+  .cc-shared-conversation .cc-message-row { padding-block: 4px 6px; }
   .cc-mobile-conversation .cc-assistant-row {
     display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 8px; row-gap: 4px;
   }
