@@ -205,6 +205,7 @@ describe('ChatPage session configuration', () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width') || query.includes('pointer: coarse'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
     testRuntime.chat.sessionId = 'inline-composer-regression'
     testRuntime.chat.running = true
+    testRuntime.chat.currentProviderBaseUrl = 'https://gateway.invalid'
     testRuntime.chat.interrupt.mockClear()
     mountChat()
     const input = await screen.findByRole('textbox', { name: '消息输入' })
@@ -235,6 +236,26 @@ describe('ChatPage session configuration', () => {
     expect(input).toHaveValue('')
     expect(composer.querySelector('.cc-composer-voice')).not.toHaveAttribute('hidden')
     expect(composer.querySelector('.cc-composer-send')).toBeNull()
+  })
+
+  it.each(['插入当前轮', '加入队列（默认）'])('mobile official Codex offers %s while running', async action => {
+    vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width') || query.includes('pointer: coarse'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    testRuntime.chat.running = true
+    mountChat()
+    const input = await screen.findByRole('textbox', { name: '消息输入' })
+    fireEvent.change(input, { target: { value: '补充发版检查' } })
+    fireEvent.click(screen.getByRole('button', { name: '选择发送方式，默认加入队列' }))
+    const choices = within(await screen.findByRole('dialog', { name: '发送方式' }))
+    expect(choices.getByRole('button', { name: '插入当前轮' })).toBeEnabled()
+    expect(choices.getByRole('button', { name: '加入队列（默认）' })).toBeEnabled()
+    fireEvent.click(choices.getByRole('button', { name: action }))
+    if (action === '插入当前轮') {
+      expect(testRuntime.chat.steer).toHaveBeenCalledExactlyOnceWith('补充发版检查')
+      expect(testRuntime.chat.enqueue).not.toHaveBeenCalled()
+    } else {
+      expect(testRuntime.chat.enqueue).toHaveBeenCalledExactlyOnceWith('补充发版检查', [])
+      expect(testRuntime.chat.steer).not.toHaveBeenCalled()
+    }
   })
   it('renames by tapping the mobile title, supports cancellation and preserves the composer draft', async () => {
     vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes('max-width'), addEventListener: vi.fn(), removeEventListener: vi.fn() })))

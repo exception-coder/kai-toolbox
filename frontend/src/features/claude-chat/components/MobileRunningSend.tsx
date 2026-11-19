@@ -7,13 +7,14 @@ import { Button } from '@/components/ui/button'
 import { useMobileDisclosure } from '../hooks/useMobileDisclosure'
 
 /** 桌面优先插入当前轮并保留排队选择，手机按需选择；沿用现有发送能力。 */
-export function MobileRunningSend({ canSteer, disabled, onSteer, onEnqueue, onReturnFocus, desktop = false }: {
+export function MobileRunningSend({ canSteer, disabled, onSteer, onEnqueue, onReturnFocus, desktop = false, mobileTriggerClassName }: {
   canSteer: boolean
   disabled: boolean
   onSteer: () => void
   onEnqueue: () => void
   onReturnFocus?: () => void
   desktop?: boolean
+  mobileTriggerClassName?: string
 }) {
   const [open, setOpen] = useMobileDisclosure(!desktop)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -43,7 +44,7 @@ export function MobileRunningSend({ canSteer, disabled, onSteer, onEnqueue, onRe
     </Popover.Content></Popover.Portal>
   </Popover.Root>
   return <>
-    <Button ref={trigger} type="button" size="icon" className="size-10 md:hidden"
+    <Button ref={trigger} type="button" size="icon" className={mobileTriggerClassName ?? 'size-10 md:hidden'}
       disabled={disabled} aria-label="选择发送方式，默认加入队列" onClick={() => setOpen(true)}>
       <Send className="size-4" />
     </Button>

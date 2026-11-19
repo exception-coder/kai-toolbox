@@ -984,6 +984,8 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
     }
   }
 
+  const canInsertRunningMessage = chat.running && chat.state === 'ready' && !chat.pending && !chat.interrupting
+    && !reviewOnlySession && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)
   const submit = (runningAction: 'queue' | 'steer' = 'steer') => {
     if (!chat.sessionId) return
     if (planLocked || chat.engineSwitching) return
@@ -999,7 +1001,7 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
 
     const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
     if (chat.running) {
-      if (!reviewOnlySession && runningAction === 'steer' && canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, atts.length)) {
+      if (runningAction === 'steer' && canInsertRunningMessage) {
         chat.steer(draft)
       } else {
         chat.enqueue(draft, atts)
@@ -2240,18 +2242,22 @@ export function ChatPage({ renderControl, controlRef }: { renderControl?: (onCho
             </SessionConfigSheet>
             {!mobileLayout && composerTextarea}
             {mobileLayout ? (
-              !composerVoiceActive && (!!draft.trim() || attachments.length > 0 || uploading > 0) && <Button
+              !composerVoiceActive && (!!draft.trim() || attachments.length > 0 || uploading > 0) && (canInsertRunningMessage ? (
+                <MobileRunningSend canSteer mobileTriggerClassName="cc-composer-send size-11 shrink-0 px-0"
+                  disabled={planLocked || chat.engineSwitching || uploading > 0}
+                  onSteer={() => submit('steer')} onEnqueue={() => submit('queue')} onReturnFocus={() => taRef.current?.focus()} />
+              ) : <Button
                 size="icon" className="cc-composer-send size-11 shrink-0 px-0"
                 aria-label={chat.running ? '加入待发送队列' : '发送'}
                 disabled={planLocked || chat.engineSwitching || uploading > 0 || (!draft.trim() && attachments.length === 0)}
-                onClick={() => submit(chat.running ? 'queue' : undefined)}><Send className="size-4" /></Button>
+                onClick={() => submit(chat.running ? 'queue' : undefined)}><Send className="size-4" /></Button>)
             ) : chat.running ? (
               <div className="cc-composer-send col-start-3 row-start-2 flex shrink-0 gap-1">
                 <Button variant="outline" size="icon" className="size-9 max-md:size-10 px-0" onClick={chat.interrupt} disabled={chat.interrupting}
                   aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'}>
                   {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
                 </Button>
-                <MobileRunningSend canSteer={canSteerRunningMessage(chat.currentEngine, chat.currentProviderBaseUrl, attachments.length)}
+                <MobileRunningSend canSteer={canInsertRunningMessage}
                   desktop={!mobileLayout}
                   disabled={planLocked || chat.engineSwitching || uploading > 0 || (!draft.trim() && attachments.length === 0)}
                   onSteer={() => submit('steer')} onEnqueue={() => submit('queue')} onReturnFocus={() => taRef.current?.focus()} />
