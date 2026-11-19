@@ -1,10 +1,12 @@
-import { useEffect, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Palette } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { MessageList } from '../components/MessageList'
 import { PermissionDialog } from '../components/PermissionDialog'
 import { QuestionDialog } from '../components/QuestionDialog'
+import { WorkbenchThemeDialog } from '../components/WorkbenchThemePicker'
 import { useComposerFileUpload } from '../hooks/useComposerFileUpload'
 import { useDraftAttachments, useDraftAttachmentUploads } from '../lib/attachmentDraftPref'
 import { useDraft } from '../lib/draftPref'
@@ -17,6 +19,8 @@ import '../styles/mobile-workspace.css'
 export function SharedConversation({ sessionId }: { sessionId: string }) {
   const { activate, chat } = useChatRuntime()
   useWorkbenchPageTheme(useWorkbenchTheme())
+  const [themeOpen, setThemeOpen] = useState(false)
+  const themeTrigger = useRef<HTMLButtonElement>(null)
   useEffect(() => { activate() }, [activate])
   const { data: session } = useQuery({
     queryKey: ['claude-chat-collaboration', sessionId],
@@ -47,7 +51,13 @@ export function SharedConversation({ sessionId }: { sessionId: string }) {
         <p className="text-xs text-muted-foreground">共享会话</p>
         <h1 className="truncate font-medium">{session?.title || '会话对话'}</h1>
       </div>
-      <Button asChild variant="ghost" className="min-h-11 shrink-0"><Link to="/">退出共享会话</Link></Button>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button ref={themeTrigger} type="button" variant="ghost" size="icon" className="size-11"
+          aria-label="工作台主题" aria-haspopup="dialog" title="工作台主题" onClick={() => setThemeOpen(true)}>
+          <Palette />
+        </Button>
+        <Button asChild variant="ghost" className="min-h-11"><Link to="/">退出共享会话</Link></Button>
+      </div>
     </header>
     {current ? <MessageList sessionKey={sessionId} items={current.items} running={current.running}
       engineLabel={session?.engine ?? undefined} connState={current.state} copyOnly mobileWorkspace showExecutionDetails={false}
@@ -62,9 +72,11 @@ export function SharedConversation({ sessionId }: { sessionId: string }) {
       {attachments.map(file => <Button key={file.id} type="button" variant="ghost" size="sm"
         aria-label={`移除附件 ${file.name}`} onClick={() => setAttachments(files => files.filter(item => item.id !== file.id))}>{file.name} ×</Button>)}
       {error && <p role="alert" className="mb-2 text-sm text-destructive">{error}</p>}
-      <textarea aria-label="消息输入" value={draft} onChange={event => setDraft(event.target.value)}
-        onPaste={event => { if (ready && event.clipboardData.files.length) { event.preventDefault(); void uploadFiles(event.clipboardData.files) } }}
-        rows={2} className="block w-full resize-none rounded-md border bg-background p-2 text-base" placeholder="输入消息…" />
+      <div className="mobile-composer-card rounded-md border bg-background focus-within:ring-1 focus-within:ring-ring">
+        <textarea aria-label="消息输入" value={draft} onChange={event => setDraft(event.target.value)}
+          onPaste={event => { if (ready && event.clipboardData.files.length) { event.preventDefault(); void uploadFiles(event.clipboardData.files) } }}
+          rows={2} className="block w-full resize-none bg-transparent p-2 text-base outline-none" placeholder="输入消息…" />
+      </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <label className="relative inline-flex min-h-11 cursor-pointer items-center rounded-md px-2 text-sm focus-within:ring-2">
           {uploading ? '正在上传…' : '添加附件'}
@@ -80,6 +92,7 @@ export function SharedConversation({ sessionId }: { sessionId: string }) {
         </Button>
       </div>
     </form>
+    <WorkbenchThemeDialog open={themeOpen} onOpenChange={setThemeOpen} returnFocus={() => themeTrigger.current?.focus()} />
     {pending?.kind === 'permission' && <PermissionDialog toolName={pending.toolName} input={pending.input}
       onAllow={() => current?.decide({ type: 'decision', reqId: pending.reqId, behavior: 'allow' })}
       onDeny={() => current?.decide({ type: 'decision', reqId: pending.reqId, behavior: 'deny' })} />}

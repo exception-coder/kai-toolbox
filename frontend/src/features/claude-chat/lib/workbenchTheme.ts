@@ -107,7 +107,7 @@ export function useWorkbenchMaterialStrength() {
   return useSyncExternalStore(subscribe, () => trials.get(user?.userId ?? 'local')?.strength ?? readWorkbenchMaterialStrength(user?.userId), () => 0.6)
 }
 
-/** 仅普通会话路由挂载时覆盖 Shell/Portal；卸载恢复原外观，悬浮窗只使用自身作用域。 */
+/** 会话页面覆盖 Shell/Portal；卸载恢复原外观，悬浮窗只使用自身作用域。 */
 export function useWorkbenchPageTheme(theme: WorkbenchTheme) {
   const strength = useWorkbenchMaterialStrength()
   useLayoutEffect(() => {
