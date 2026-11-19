@@ -92,5 +92,9 @@ export async function frontendTls(env) {
   try {
     return { cert: await readFile(env.FORGE_FRONTEND_TLS_CERT || join(base, 'cert.pem')),
       key: await readFile(env.FORGE_FRONTEND_TLS_KEY || join(base, 'dev.pem')) };
-  } catch { throw new Error('Frontend TLS certificate unavailable; configure FORGE_FRONTEND_TLS_CERT and FORGE_FRONTEND_TLS_KEY. No CA is installed automatically.'); }
+  } catch {
+    throw new Error('Frontend TLS certificate unavailable. Static mode (the default) reuses ~/.vite-plugin-mkcert; '
+      + 'run `node forge.mjs start --frontend-mode dev` once to let Vite create it, or configure FORGE_FRONTEND_TLS_CERT/FORGE_FRONTEND_TLS_KEY, '
+      + 'or set FORGE_FRONTEND_HTTPS=false and point the tunnel origin at http. No CA is installed automatically.');
+  }
 }

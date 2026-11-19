@@ -143,7 +143,7 @@ export async function main(root, args) {
     console.log('Retire removed WeChat monitor only (no restart): node forge.mjs retire wechat');
     console.log('Cloudflare tunnel: node forge.mjs tunnel start|stop|status|check [--config PATH] [--protocol http2|quic|auto]\nTemporary address: node forge.mjs tunnel start --quick [--url https://localhost:5173]');
     console.log('Isolated backend measurement:\nnode forge.mjs measure-startup [--port 18090] [--timeout-seconds 120] [--skip-build] [--application-jar PATH] [--output-root PATH] [--target-path /api/tools]\n');
-    console.log('Forge source runtime (Node 22+, Java 21, Maven)\n\nnode forge.mjs start [--scope all|backend|frontend] [--mode dev|full] [--frontend-mode dev|static]\nnode forge.mjs stop\nnode forge.mjs status\nnode forge.mjs restart [--scope backend] [--frontend-mode dev|static]\nnode forge.mjs frontend build|status\nnode forge.mjs logs [service]\nnode forge.mjs doctor\nnode forge.mjs prepare\n\nDocker is optional and is not used to run Forge.');
+    console.log('Forge source runtime (Node 22+, Java 21, Maven)\n\nnode forge.mjs start [--scope all|backend|frontend] [--mode dev|full] [--frontend-mode static|dev] (frontend defaults to static)\nnode forge.mjs stop\nnode forge.mjs status\nnode forge.mjs restart [--scope backend] [--frontend-mode dev|static]\nnode forge.mjs frontend build|status\nnode forge.mjs logs [service]\nnode forge.mjs doctor\nnode forge.mjs prepare\n\nDocker is optional and is not used to run Forge.');
     return;
   }
   const paths = runtimePaths(root);

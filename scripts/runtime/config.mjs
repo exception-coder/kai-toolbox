@@ -45,7 +45,7 @@ export function settingsFrom(env, options = {}) {
   const mode = options.mode || env.FORGE_MODE || 'dev';
   if (!['all', 'frontend', 'backend'].includes(scope)) throw new Error('scope must be all, frontend or backend');
   if (!['dev', 'full'].includes(mode)) throw new Error('mode must be dev or full');
-  const frontendMode = options.frontendMode || env.FORGE_FRONTEND_MODE || 'dev';
+  const frontendMode = options.frontendMode || env.FORGE_FRONTEND_MODE || 'static';
   if (!['dev', 'static'].includes(frontendMode)) throw new Error('frontend mode must be dev or static');
   const frontendPollSeconds = Number(env.FORGE_FRONTEND_POLL_SECONDS || 15);
   if (!Number.isInteger(frontendPollSeconds) || frontendPollSeconds < 5 || frontendPollSeconds > 300) throw new Error('Frontend poll seconds must be 5–300');

@@ -76,19 +76,22 @@ Cloudflare 将请求分配给已连接的副本，并可把连接重试送往其
 
 ## 本地生产前端与提交后更新
 
-前端可独立选择 dev 或 static，与后端 `--mode dev|full` 分开。已有服务不会因重复 start 静默切换模式。
+前端默认以 static 模式启动（打包资源、长缓存、brotli 压缩，公网手机首屏不再逐个拉取开发源码模块），需要 Vite 热更新时显式选择 dev。前端模式与后端 `--mode dev|full` 分开。已有服务沿用其持久设置，不会因重复 start 或升级脚本静默切换模式。
 
 ```shell
 node forge.mjs frontend build
 node forge.mjs frontend status
-node forge.mjs start --frontend-mode static
-node forge.mjs restart --frontend-mode static
+node forge.mjs start                          # 默认 static
+node forge.mjs start --frontend-mode dev      # 本机前端开发需要 HMR 时
+node forge.mjs restart --frontend-mode static # 把已运行的 dev 实例切到 static
 node forge.mjs restart --frontend-mode dev
 ```
 
+只想本机调试界面时，也可保持 static 对外服务，另开 `npm run dev -- --port 5174` 访问本机开发版。首次 static 启动需先构建已提交快照，就绪时间比 dev 长。
+
 `frontend build` 只构建已提交快照，不启动服务；服务未运行时才用 start。已有实例切换使用明确授权的全量 restart，范围包括前后端、启用的辅助服务及隧道，不能结合 `--scope backend` 偷换模式。Agent 每次重启仍须取得本次确认。
 
-static 由原 PM2 前端进程提供生产资源，默认复用 `~/.vite-plugin-mkcert/cert.pem`、`dev.pem` 和端口 5173，也可设置 `FORGE_FRONTEND_TLS_CERT` / `FORGE_FRONTEND_TLS_KEY`。证书缺失明确失败，不自动安装 CA。`FORGE_FRONTEND_HTTPS=false` 显式启用 HTTP 时须同步隧道回源，不自动降级 TLS。API、WebSocket、SSE、supervisor 代理使用实际后端和控制器端口。
+static 由原 PM2 前端进程提供生产资源，默认复用 `~/.vite-plugin-mkcert/cert.pem`、`dev.pem` 和端口 5173，也可设置 `FORGE_FRONTEND_TLS_CERT` / `FORGE_FRONTEND_TLS_KEY`。证书缺失明确失败，不自动安装 CA；新机器从未运行过 Vite 时，先 `node forge.mjs start --frontend-mode dev` 一次生成证书，再 `restart --frontend-mode static`。`FORGE_FRONTEND_HTTPS=false` 显式启用 HTTP 时须同步隧道回源，不自动降级 TLS。API、WebSocket、SSE、supervisor 代理使用实际后端和控制器端口。
 
 默认每 15 秒检查已提交 frontend 树；Java 继续拥有远端 Git 检查和工作区更新。仅后端提交不重建前端；未提交代码不发布，连续提交串行收敛到最新树。构建使用独立快照和按锁文件隔离的依赖缓存，不改工作区 node_modules；调用现有 npm run build。首次需安装依赖，实际更新延迟以日志为准。
 
@@ -96,7 +99,7 @@ static 由原 PM2 前端进程提供生产资源，默认复用 `~/.vite-plugin-
 
 业务页面提示“新版已就绪”，可稍后或保存后确认刷新；刷新不取消服务器任务。仅无输入、无对话框、无已激活聊天引擎及已知写操作的可见首页，在 30 秒无交互后刷新一次。开发或没有版本元数据的旧页不启用检测。
 
-本机忽略配置支持 `FORGE_FRONTEND_MODE=static`、`FORGE_FRONTEND_AUTO_BUILD=false`（只手动发布）、`FORGE_FRONTEND_POLL_SECONDS=15`（5–300）。已有实例采用持久设置，修改配置本身不重启；模式切换参数会重新读取自动构建与轮询配置。静态服务不使用 vite preview 长期运行。2026-10-31 日常实例已经用户确认切换为 static，本机及公网资源版本、核心 HTTP 与稳定观察通过；登录态浏览器与公网手机性能尚待验收，辅助服务差异见[运行记录](../openspec/changes/serve-built-frontend/tasks.md)。
+本机忽略配置支持 `FORGE_FRONTEND_MODE=static|dev`（默认 static）、`FORGE_FRONTEND_AUTO_BUILD=false`（只手动发布）、`FORGE_FRONTEND_POLL_SECONDS=15`（5–300）。已有实例采用持久设置，修改配置本身不重启；模式切换参数会重新读取自动构建与轮询配置。静态服务不使用 vite preview 长期运行。2026-10-31 日常实例已经用户确认切换为 static，本机及公网资源版本、核心 HTTP 与稳定观察通过；登录态浏览器与公网手机性能尚待验收，辅助服务差异见[运行记录](../openspec/changes/serve-built-frontend/tasks.md)。
 
 ## 独立启动测量
 

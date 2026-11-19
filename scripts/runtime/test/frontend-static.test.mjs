@@ -137,6 +137,8 @@ test('build snapshots ignore dirty files, skip backend-only changes, and retain 
   await writeFile(join(root, 'frontend/source.txt'), 'next'); git('add', 'frontend/source.txt'); git('commit', '-qm', 'next');
   await assert.rejects(buildRelease({ root, home }, process.env, { executeBuild: () => { throw new Error('compiler failed'); } }), /compiler failed/);
   assert.equal((await readActive(join(home, 'frontend'))).version, released.version);
-  assert.equal(settingsFrom({}, { frontendMode: 'static' }).frontendMode, 'static');
+  assert.equal(settingsFrom({}).frontendMode, 'static');
+  assert.equal(settingsFrom({ FORGE_FRONTEND_MODE: 'dev' }).frontendMode, 'dev');
+  assert.equal(settingsFrom({}, { frontendMode: 'dev' }).frontendMode, 'dev');
   assert.throws(() => settingsFrom({}, { frontendMode: 'invalid' }));
 });
