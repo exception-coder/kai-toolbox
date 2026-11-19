@@ -76,7 +76,7 @@ class ConsultBackendIntegrationTest {
         credential = auth.create(new ConsultBackendAuth.GrantRequest("yoooni-agent", "tenant-a", List.of("erp"), System.currentTimeMillis() + 86400000));
         AuthContext.clear();
         principal = store.client(credential.clientId()).orElseThrow();
-        mvc = MockMvcBuilders.standaloneSetup(new ConsultBackendController(auth, service, images), new ConsultBackendAdminController(auth, mapper))
+        mvc = MockMvcBuilders.standaloneSetup(new ConsultBackendController(auth, service, images), new ConsultBackendAdminController(auth, mapper, images))
                 .setControllerAdvice(new ConsultBackendErrors()).addInterceptors(new RequireAuthInterceptor()).build();
     }
 
@@ -330,7 +330,7 @@ class ConsultBackendIntegrationTest {
         var tokens = mock(com.exceptioncoder.toolbox.common.auth.service.TokenService.class);
         when(jwt.parse(anyString())).thenThrow(com.exceptioncoder.toolbox.common.auth.AuthException.tokenInvalid());
         var filter = new com.exceptioncoder.toolbox.common.auth.web.JwtAuthFilter(jwt, tokens, properties, mapper);
-        var protectedMvc = MockMvcBuilders.standaloneSetup(new ConsultBackendController(auth, service, images), new ConsultBackendAdminController(auth, mapper))
+        var protectedMvc = MockMvcBuilders.standaloneSetup(new ConsultBackendController(auth, service, images), new ConsultBackendAdminController(auth, mapper, images))
                 .setControllerAdvice(new ConsultBackendErrors()).addFilters(filter).addInterceptors(new RequireAuthInterceptor()).build();
         String bearer = "Bearer " + token();
         protectedMvc.perform(post("/api/fore-consult/v1/analysis-tasks").header("Authorization", bearer)
@@ -420,7 +420,7 @@ class ConsultBackendIntegrationTest {
         animated.write(original, 33, original.length - 33);
         assertThatThrownBy(() -> images.upload(principal, "upload-animated", "image/png", animated.toByteArray())).hasMessageContaining("动画");
         var image = images.upload(principal, "upload-expire", "image/png", png());
-        jdbc.update("UPDATE consult_analysis_attachment SET byte_size = ?", 25 * 1024 * 1024);
+        jdbc.update("UPDATE consult_analysis_attachment SET byte_size = ?", 256 * 1024 * 1024);
         assertThatThrownBy(() -> images.upload(principal, "upload-quota", "image/png", png())).hasMessageContaining("额度");
         jdbc.update("UPDATE consult_analysis_attachment SET expires_at = 1 WHERE attachment_id = ?", image.attachmentId());
         assertThatThrownBy(() -> images.get(principal, image.attachmentId(), false)).hasMessageContaining("过期");
@@ -432,6 +432,121 @@ class ConsultBackendIntegrationTest {
         jdbc.update("UPDATE consult_analysis_attachment SET created_at = 1");
         images.clean();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM consult_analysis_attachment", Integer.class)).isZero();
+    }
+
+    @Test void quotaReasonsAndConcurrentBoundaryAreIndependentOfMetadata() throws Exception {
+        byte[] bytes = png();
+        var limitedStore = new ConsultImageStore(jdbc, new ConsultImagePolicy(bytes.length * 2L, bytes.length * 4L, 2, 4, 1, 2, 48, 7));
+        var limited = new ConsultAnalysisImages(limitedStore);
+        try (var pool = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            var results = pool.invokeAll(java.util.stream.IntStream.range(0, 4)
+                    .<java.util.concurrent.Callable<String>>mapToObj(i -> () -> {
+                        try { limited.upload(principal, "boundary-" + i, "image/png", bytes); return "OK"; }
+                        catch (ConsultBackendException e) { return e.details().get("reason").toString(); }
+                    }).toList());
+            assertThat(results.stream().map(f -> { try { return f.get(); } catch (Exception e) { throw new RuntimeException(e); } }).toList())
+                    .containsExactlyInAnyOrder("OK", "OK", "APP_BYTES", "APP_BYTES");
+        }
+        long now = System.currentTimeMillis();
+        for (var entry : Map.of("APP_COUNT", new ConsultImagePolicy(10000, 20000, 2, 4, 1, 2, 48, 7),
+                "GLOBAL_COUNT", new ConsultImagePolicy(10000, 20000, 2, 2, 1, 2, 48, 7),
+                "GLOBAL_BYTES", new ConsultImagePolicy(bytes.length * 2L, bytes.length * 2L, 2, 4, 1, 2, 48, 7)).entrySet()) {
+            String client = entry.getKey().equals("APP_COUNT") ? principal.id() : "another-client";
+            assertThatThrownBy(() -> new ConsultImageStore(jdbc, entry.getValue()).requireCapacity(client, bytes.length, now))
+                    .isInstanceOfSatisfying(ConsultBackendException.class, e -> assertThat(e.details().get("reason")).isEqualTo(entry.getKey()));
+        }
+        jdbc.update("UPDATE consult_analysis_attachment SET expires_at = ?", now - 1);
+        assertThat(limitedStore.usage(principal.id(), now).expiredBytes()).isEqualTo(bytes.length * 2L);
+        limited.clean();
+        assertThat(limitedStore.usage(principal.id(), now).metadataCount()).isEqualTo(1);
+        assertThat(limitedStore.usage(principal.id(), now).activeBytes()).isZero();
+        limited.upload(principal, "after-cleanup", "image/png", bytes);
+        assertThat(limited.diagnostics(principal.id()).cleanup().status()).isEqualTo("OK");
+    }
+
+    @Test void metadataPruningIsGlobalAndNeverRemovesLiveContent() throws Exception {
+        var live = images.upload(principal, "metadata-live", "image/png", png());
+        images.upload(principal, "metadata-old-1", "image/png", png());
+        images.upload(principal, "metadata-old-2", "image/png", png());
+        admin();
+        var grant = auth.create(new ConsultBackendAuth.GrantRequest("metadata-other", "tenant-a", List.of(), System.currentTimeMillis() + 86400000));
+        AuthContext.clear();
+        var other = store.client(grant.clientId()).orElseThrow();
+        images.upload(other, "metadata-old-3", "image/png", png());
+        images.upload(other, "metadata-old-4", "image/png", png());
+        jdbc.update("UPDATE consult_analysis_attachment SET expires_at = 1 WHERE attachment_id <> ?", live.attachmentId());
+        var limited = new ConsultAnalysisImages(new ConsultImageStore(jdbc, new ConsultImagePolicy(100000, 200000, 10, 20, 1, 1, 48, 7)));
+        limited.clean();
+        var stats = limited.diagnostics(null);
+        assertThat(stats.usage().metadataCount()).isEqualTo(1);
+        assertThat(stats.usage().activeCount()).isEqualTo(1);
+        assertThat(stats.cleanup().released()).isEqualTo(4);
+        assertThat(stats.cleanup().removed()).isEqualTo(3);
+        assertThat(limited.resolve(principal, List.of(live.attachmentId()), true).images()).hasSize(1);
+    }
+
+    @Test void reusableReceiptRequiresSameApplicationHashTypeAndLifetime() throws Exception {
+        var image = images.upload(principal, "reuse-image-01", "image/png", png());
+        mvc.perform(get("/api/fore-consult/v1/attachments/reusable").header("Authorization", "Bearer " + token())
+                .param("sha256", image.sha256()).param("mediaType", "image/png"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.attachmentId").value(image.attachmentId()));
+        assertThat(images.reusable(principal, image.sha256(), "image/png", 600)).isEqualTo(image);
+        assertThat(images.diagnostics(principal.id()).usage().totalCount()).isEqualTo(1);
+        assertThatThrownBy(() -> images.reusable(principal, image.sha256(), "image/jpeg", 600)).hasMessageContaining("没有可复用");
+        admin();
+        var foreign = auth.create(new ConsultBackendAuth.GrantRequest("foreign-reuse", "tenant-a", List.of(), System.currentTimeMillis() + 86400000));
+        AuthContext.clear();
+        assertThatThrownBy(() -> images.reusable(store.client(foreign.clientId()).orElseThrow(), image.sha256(), "image/png", 600))
+                .hasMessageContaining("没有可复用");
+        images.upload(principal, "reuse-image-02", "image/png", png());
+        assertThat(images.diagnostics(principal.id()).duplicates().extraCount()).isEqualTo(1);
+        jdbc.update("UPDATE consult_analysis_attachment SET expires_at = ?", System.currentTimeMillis() + 1000);
+        assertThatThrownBy(() -> images.reusable(principal, image.sha256(), "image/png", 600)).hasMessageContaining("没有可复用");
+    }
+
+    @Test void admissionProtectsImagesAcrossCleanupRecoveryAndRollsBackOnFailure() throws Exception {
+        var image = images.upload(principal, "lease-image-01", "image/png", png());
+        var task = service.submit(principal, extendedInput("lease-task-01", List.of(image.attachmentId()), "FORGE"));
+        long until = images.get(principal, image.attachmentId(), false).expiresAt();
+        assertThat(until).isGreaterThan(image.expiresAt());
+        service.submit(principal, extendedInput("lease-task-01", List.of(image.attachmentId()), "FORGE"));
+        assertThat(images.get(principal, image.attachmentId(), false).expiresAt()).isEqualTo(until);
+        new ConsultImageStore(jdbc).clean(image.expiresAt() + 1000);
+        assertThat(store.claim(task.taskId())).isTrue();
+        store.recover();
+        assertThat(store.task(task.taskId()).orElseThrow().status()).isEqualTo("INTERRUPTED");
+        var restored = new ConsultAnalysisImages(new ConsultImageStore(jdbc));
+        assertThat(restored.resolve(principal, List.of(image.attachmentId()), true).images()).hasSize(1);
+        var other = images.upload(principal, "lease-image-02", "image/png", png());
+        assertThatThrownBy(() -> images.admit(principal, List.of(other.attachmentId()), () -> { throw new IllegalStateException("insertion failed"); }))
+                .hasMessage("insertion failed");
+        assertThat(images.get(principal, other.attachmentId(), false).expiresAt()).isEqualTo(other.expiresAt());
+        new ConsultImageStore(jdbc).clean(until + 1);
+        assertThat(jdbc.queryForObject("SELECT image_bytes IS NULL FROM consult_analysis_attachment WHERE attachment_id = ?", Boolean.class, image.attachmentId())).isTrue();
+    }
+
+    @Test void admissionCannotKeepRenewingAnOldImage() throws Exception {
+        var image = images.upload(principal, "lease-limit-01", "image/png", png());
+        jdbc.update("UPDATE consult_analysis_attachment SET created_at = ?", System.currentTimeMillis() - 6 * 86400000L);
+        assertThatThrownBy(() -> service.submit(principal, extendedInput("lease-limit-task", List.of(image.attachmentId()), "FORGE")))
+                .isInstanceOfSatisfying(ConsultBackendException.class, e -> assertThat(e.code()).isEqualTo("ATTACHMENT_RETENTION_LIMIT"));
+        assertThat(store.request(principal.id(), "lease-limit-task")).isEmpty();
+    }
+
+    @Test void storageDiagnosticsRequireAdminAndQuotaResponseIdentifiesDimension() throws Exception {
+        images.upload(principal, "diagnostic-01", "image/png", png());
+        jdbc.update("UPDATE consult_analysis_attachment SET byte_size = ?", 256L * 1024 * 1024);
+        mvc.perform(post("/api/fore-consult/v1/attachments").param("uploadId", "diagnostic-02")
+                .header("Authorization", "Bearer " + token()).contentType("image/png").content(png()))
+                .andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.code").value("IMAGE_QUOTA_EXCEEDED"))
+                .andExpect(jsonPath("$.details.reason").value("APP_BYTES"));
+        mvc.perform(get("/api/fore-consult/backend-clients/image-storage").header("Authorization", "Bearer " + token()))
+                .andExpect(status().isUnauthorized());
+        admin();
+        mvc.perform(get("/api/fore-consult/backend-clients/image-storage").param("clientId", principal.id()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.application.usage.activeBytes").value(268435456))
+                .andExpect(jsonPath("$.global.limits.globalBytes").value(1073741824))
+                .andExpect(jsonPath("$.storage.diskUsableBytes").isNumber());
     }
 
     @Test void taskActuallyPassesOriginalBytesAndPersistsThreeStableCandidates() throws Exception {

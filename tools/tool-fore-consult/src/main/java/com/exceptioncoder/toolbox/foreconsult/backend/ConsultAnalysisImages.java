@@ -17,8 +17,12 @@ import org.springframework.stereotype.Service;
 /** Raw bytes stay in the module's private DB. No caller path, URL, filename or employee session. */
 @Service
 public class ConsultAnalysisImages {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(ConsultAnalysisImages.class);
     public static final int MAX_BYTES = 5 * 1024 * 1024;
     private final ConsultImageStore store;
+    private volatile Cleanup cleanup = new Cleanup(null, null, 0, 0, "NOT_RUN");
+
+    public record Cleanup(Long attemptedAt, Long succeededAt, int released, int removed, String status) {}
 
     public ConsultAnalysisImages(ConsultImageStore store) { this.store = store; }
 
@@ -38,8 +42,7 @@ public class ConsultAnalysisImages {
             return live(old.get());
         }
         clean();
-        if (!store.hasCapacity(client.id(), bytes.length, System.currentTimeMillis()))
-            throw new ConsultBackendException(429, "IMAGE_QUOTA_EXCEEDED", "图片存储额度不足，请等待过期清理或联系管理员", true);
+        store.requireCapacity(client.id(), bytes.length, System.currentTimeMillis());
         int[] dimensions = decode(bytes, mediaType);
         long now = System.currentTimeMillis();
         var image = new ConsultImageStore.Image("img_" + UUID.randomUUID(), uploadId, hash, mediaType, bytes.length,
@@ -52,6 +55,34 @@ public class ConsultAnalysisImages {
         if (byUpload) validateUploadId(value);
         return live(store.find(client.id(), value, byUpload).orElseThrow(() -> new ConsultBackendException(404, "ATTACHMENT_NOT_FOUND", "图片不存在或不在当前应用企业范围", false)));
     }
+
+    public ConsultImageStore.Image reusable(ConsultBackendStore.Client client, String hash, String mediaType, long minValiditySeconds) {
+        if (hash == null || !hash.matches("[a-fA-F0-9]{64}") || !List.of("image/png", "image/jpeg").contains(mediaType)
+                || minValiditySeconds < 0 || minValiditySeconds > 86400) {
+            throw ConsultBackendException.invalid("复用查询须提供SHA256、PNG/JPEG类型及0至86400秒剩余有效期");
+        }
+        return store.reusable(client.id(), hash.toLowerCase(java.util.Locale.ROOT), mediaType,
+                System.currentTimeMillis() + minValiditySeconds * 1000)
+                .orElseThrow(() -> new ConsultBackendException(404, "ATTACHMENT_NOT_FOUND", "没有可复用的有效图片，请使用稳定uploadId上传", false));
+    }
+
+    /** Shares the cleanup/upload monitor so admission cannot lose bytes between validation and lease. */
+    public synchronized void admit(ConsultBackendStore.Client client, List<String> ids, Runnable insertTask) {
+        var inputs = resolve(client, ids, false);
+        store.admit(client.id(), inputs.metadata(), System.currentTimeMillis(), insertTask);
+    }
+
+    public record Diagnostics(ConsultImagePolicy limits, ConsultImageStore.Usage usage,
+                              ConsultImageStore.Duplicates duplicates, Cleanup cleanup, long measuredAt, long queryMillis) {}
+
+    public Diagnostics diagnostics(String client) {
+        long start = System.nanoTime(), now = System.currentTimeMillis();
+        var usage = store.usage(client, now);
+        var duplicates = store.duplicates(client, now);
+        return new Diagnostics(store.policy(), usage, duplicates, cleanup, now, (System.nanoTime() - start) / 1000000);
+    }
+
+    public ConsultImageStore.Storage storage() { return store.storage(); }
 
     public Inputs resolve(ConsultBackendStore.Client client, List<String> ids, boolean readBytes) {
         var metadata = new ArrayList<ConsultImageStore.Image>();
@@ -112,5 +143,15 @@ public class ConsultAnalysisImages {
     private ConsultBackendException unreadable() { return new ConsultBackendException(422, "IMAGE_NOT_READABLE", "图片内容损坏或与声明类型不符，请重新导出 PNG/JPEG", false); }
 
     @Scheduled(fixedDelay = 60000, initialDelay = 60000)
-    public synchronized void clean() { store.clean(System.currentTimeMillis()); }
+    public synchronized void clean() {
+        long now = System.currentTimeMillis();
+        try {
+            var result = store.clean(now);
+            cleanup = new Cleanup(now, System.currentTimeMillis(), result.released(), result.removed(), "OK");
+        } catch (RuntimeException error) {
+            cleanup = new Cleanup(now, cleanup.succeededAt(), 0, 0, "FAILED");
+            LOG.error("Consult image cleanup failed", error);
+            throw error;
+        }
+    }
 }

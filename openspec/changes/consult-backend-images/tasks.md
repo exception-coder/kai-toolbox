@@ -1,5 +1,18 @@
 # 实施与验证
 
+## 2026-11-19 图片配额、复用与恢复窗口
+
+- [x] 采用Spring可配置初值256MiB/应用、1GiB/全局；有效图片数量2000/10000，历史元数据独立上限2000/10000及最长30天。四种超限维度返回明确details，不改变单请求限制。
+- [x] 新增同应用摘要/媒体类型/有效期查询；SDK 0.5.0先恢复原uploadId、再复用、确定未命中才上传一次。保持超时不重放、过期不复用及跨应用隔离；不改既有uploadId别名语义，不批量删除重复内容。
+- [x] 任务接收与图片续期同一事务；默认准入后48小时，上传后最长7天。原requestId查询不续期，失败回滚续期；清理与准入共用单实例锁。旧任务不自动迁移，已清空图片不可恢复，超窗口需新上传。
+- [x] 管理员诊断区分有效/过期残留/元数据/近24小时上传/重复占用、清理状态、查询耗时与SQLite文件/WAL/可复用页/磁盘余量；不输出图片、凭据或路径，不执行VACUUM/checkpoint/扩容。
+- [x] 宿主及依赖编译、原有及新增29项后端集成测试通过；SDK21项测试通过。SDK0.5.0独立打包与包内版本1.6.0/复用方法检查通过，未发布包仓库。
+- [x] 追加配置加载与全局元数据淘汰2项专项通过，合计31项Java测试、21项SDK测试；补充检查使用模块及依赖定向Maven命令，退出0。全量宿主编译沿用前一轮有效证据。
+- [x] OpenAPI YAML及49个本地引用解析通过；OpenSpec严格校验及diff检查通过。Forge all JSON PASSED/exit0，executedCheckers为空，仅实际执行API-RUNTIME-001旧服务/api/tools检查，不代表新接口验收。
+- [x] node forge.mjs status只读检查：backend/frontend/studio ready，backend PID24912、restarts0；未执行起停。此次为纯后端/SDK，无页面构建或预览。
+- [ ] DDL未核验：prepare_sql_context为DDL_MISSING（SQL扫描上限）；Forge未绑定QUERY数据源。依据仓库schema在隔离SQLite验证，尚未核对目标实例实时占用、运行制品或原失败触发维度；新增摘要索引待加载。
+- [ ] ITCS正式工程路径及两组原失败样例尚未提供，生产上传流程接线与真实回放待完成。未推送、未重启，256MiB/1GiB是源码初值，未写入私有运行配置或按真实用量定容。
+
 基线 3ea760054；已有无关修改 frontend/src/features/claude-chat/pages/ChatPage.sessionConfig.test.tsx 及未跟踪缓存保留。Graphify 查询因图超过 512MiB 安全上限失败，使用定向源码。无服务重启授权。
 
 - [x] 应用原图上传、隔离存储、幂等恢复、过期与配额。

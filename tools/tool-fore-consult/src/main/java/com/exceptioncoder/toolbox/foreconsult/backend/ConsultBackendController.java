@@ -33,6 +33,13 @@ public class ConsultBackendController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(images.get(auth.authenticate(request.getHeader("Authorization")), id, false));
     }
 
+    @GetMapping("/attachments/reusable")
+    public ResponseEntity<ConsultImageStore.Image> reusable(HttpServletRequest request, @RequestParam String sha256,
+            @RequestParam String mediaType, @RequestParam(defaultValue = "600") long minValiditySeconds) {
+        var client = auth.authenticate(request.getHeader("Authorization"));
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(images.reusable(client, sha256, mediaType, minValiditySeconds));
+    }
+
     @GetMapping("/attachments")
     public ResponseEntity<ConsultImageStore.Image> findImage(HttpServletRequest request, @RequestParam String uploadId) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(images.get(auth.authenticate(request.getHeader("Authorization")), uploadId, true));

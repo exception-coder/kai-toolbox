@@ -6,7 +6,7 @@
 
 旧请求号只恢复原任务，不改写输入或返回合同；改变规则/资料须新建请求号。旧显式模式仅保留已有接入兼容。以下旧 FORGE 三条示例属于兼容说明，新接入使用 FORGE_FLEX。源码包和模型替身测试不代表 `forge.exception-coder.com` 已部署；必须由目标实例管理员回传加载提交及真实任务结果。
 
-交付方：Forge 业务咨询平台。接入方：`yoooni-agent` 项目组及其开发 AI。日期：2026-11-05。初始接口提交：`5cd15729c`；本次原图/候选实现以随包源码提交为准；API 路径 `v1`、合同 `1.5.0`；SDK `@kai/forge-consult-client@0.4.0`，Node.js 22+。
+交付方：Forge 业务咨询平台。接入方：`yoooni-agent` 项目组及其开发 AI。日期：2026-11-05。初始接口提交：`5cd15729c`；本次原图/候选实现以随包源码提交为准；API 路径 `v1`、合同 `1.6.0`；SDK `@kai/forge-consult-client@0.5.0`，Node.js 22+。
 
 **现在可以按本文开发客户端；尚不能宣布测试环境已开放或真实联调通过。** 新接口默认关闭，本次没有重启服务、签发真实凭据或修改 yoooni-agent 工程。各开发者在自己本机的 Forge 完成下述环境交付后才能真实调用；不要连接交付同事的电脑，不复用别人的账号目录或应用凭据。
 
@@ -90,7 +90,7 @@ Forge 分析任务有独立 taskId，不自动成为页面上的咨询或历史�
 从交付 ZIP 取出 tarball，在 yoooni-agent 工程的后端目录安装；尚未发布公共 npm：
 
 ```powershell
-npm install ./kai-forge-consult-client-0.4.0.tgz
+npm install ./kai-forge-consult-client-0.5.0.tgz
 ```
 
 仅在服务器配置以下变量，不使用 `VITE_` 等客户端注入前缀：
@@ -178,6 +178,8 @@ const task = await forge.submit({ ...savedInput, attachmentIds: [image.attachmen
 本应用至少保存：原问题及输入、requestId/taskId、分析状态及结果、policyVersion、原始有效候选及生成来源、选择 candidateId、原候选 evidenceIds、人工修改后的最终回复、确认发送状态。重新打开后能读取来源和最终回复。租户、用户、问题和附件访问权由本应用继续校验，共用应用凭据不能替代业务用户权限。
 
 ## 五、联调验收与回执
+
+2026-11-19 图片额度补充（源码待部署）：SDK 0.5.0新增`uploadOrReuseImage`，正式上传入口应先恢复原uploadId、再按同clientId/摘要/媒体类型/剩余有效期查询回执，确定未命中才上传。必须保存实际返回的原回执，不能把测试工具已复用当作ITCS生产已接入。完整配额、48小时任务保留窗口、7天上限及管理员诊断见[图片复用与诊断](BACKEND.md#图片复用配置与诊断源码能力待部署)。原先两组被阻塞的回放需要在目标版本加载后复验；当前未取得该实例实际用量或失败traceId。
 
 旧认证/任务的验证保存在 `openspec/changes/consult-backend-analysis/tasks.md`，本次原图/候选验证和剩余验收见 `openspec/changes/consult-backend-images/tasks.md`。源码/SDK 测试和质量门禁不代表新 API 已加载，更不能代替真实图片识别与跨系统验收。
 

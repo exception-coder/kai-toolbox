@@ -74,7 +74,8 @@ export interface AnalysisTask {
 
 export class ConsultBackendError extends Error {
   constructor(public readonly code: string, message: string, public readonly status?: number,
-    public readonly retryable = false, public readonly traceId?: string) { super(message); this.name = 'ConsultBackendError'; }
+    public readonly retryable = false, public readonly traceId?: string,
+    public readonly details?: Record<string, unknown>) { super(message); this.name = 'ConsultBackendError'; }
 }
 
 export interface BackendClientOptions {
@@ -121,6 +122,40 @@ export class ForgeConsultBackendClient {
 
   async findImage(uploadId: string): Promise<AnalysisImage> {
     return this.imageRequest(`/attachments?uploadId=${encodeURIComponent(uploadId)}`, { method: 'GET' });
+  }
+
+  /** Read-only lookup, scoped to this client's identity; 404 means upload is needed. */
+  async findReusableImage(sha256: string, mediaType: AnalysisImage['mediaType'], minValiditySeconds = 600): Promise<AnalysisImage> {
+    if (!/^[a-fA-F0-9]{64}$/.test(sha256) || !['image/png', 'image/jpeg'].includes(mediaType)
+      || !Number.isInteger(minValiditySeconds) || minValiditySeconds < 0 || minValiditySeconds > 86400)
+      throw new ConsultBackendError('INVALID_IMAGE_INPUT', '复用查询须提供摘要、图片类型及有效期');
+    const requestedUntil = Date.now() + minValiditySeconds * 1000;
+    const image = await this.imageRequest(`/attachments/reusable?sha256=${sha256.toLowerCase()}&mediaType=${encodeURIComponent(mediaType)}&minValiditySeconds=${minValiditySeconds}`, { method: 'GET' });
+    if (image.sha256 !== sha256.toLowerCase() || image.mediaType !== mediaType || image.expiresAt <= requestedUntil)
+      throw new ConsultBackendError('INVALID_IMAGE_RESPONSE', '复用回执与摘要、媒体类型或有效期不一致');
+    return image;
+  }
+
+  /** Recover the original upload first, then reuse matching live content. Never retries an uncertain POST. */
+  async uploadOrReuseImage(uploadId: string, bytes: Uint8Array, mediaType: AnalysisImage['mediaType']): Promise<AnalysisImage> {
+    if (!/^[A-Za-z0-9_-]{8,100}$/.test(uploadId) || !['image/png', 'image/jpeg'].includes(mediaType)
+      || !(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > 5 * 1024 * 1024)
+      throw new ConsultBackendError('INVALID_IMAGE_INPUT', '须提供 uploadId、PNG/JPEG 原始字节，单张不超过 5MiB');
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
+    const hash = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('');
+    try {
+      const existing = await this.findImage(uploadId);
+      if (existing.sha256 !== hash || existing.mediaType !== mediaType)
+        throw new ConsultBackendError('UPLOAD_IDEMPOTENCY_CONFLICT', '相同 uploadId 已用于不同图片或类型', 409);
+      return existing;
+    } catch (error) { if (!this.imageMissing(error)) throw error; }
+    try { return await this.findReusableImage(hash, mediaType); }
+    catch (error) { if (!this.imageMissing(error)) throw error; }
+    return this.uploadImage(uploadId, bytes, mediaType);
+  }
+
+  private imageMissing(error: unknown): boolean {
+    return error instanceof ConsultBackendError && error.status === 404 && error.code === 'ATTACHMENT_NOT_FOUND';
   }
 
   async getImage(attachmentId: string): Promise<AnalysisImage> {
@@ -203,7 +238,8 @@ export class ForgeConsultBackendClient {
     try { value = await response.json(); }
     catch { throw new ConsultBackendError('INVALID_RESPONSE', '接口返回了无效 JSON，请保留原请求标识核对'); }
     if (!response.ok) throw new ConsultBackendError(typeof value?.code === 'string' ? value.code : `HTTP_${response.status}`,
-      typeof value?.message === 'string' ? value.message : '接口请求未完成', response.status, value?.retryable === true, value?.traceId);
+      typeof value?.message === 'string' ? value.message : '接口请求未完成', response.status, value?.retryable === true, value?.traceId,
+      value?.details && typeof value.details === 'object' && !Array.isArray(value.details) ? value.details : undefined);
     return value;
   }
 }

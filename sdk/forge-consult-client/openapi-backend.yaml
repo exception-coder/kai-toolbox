@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Forge Business Consultation Backend Analysis
-  version: 1.5.0
-  description: 'Source contract, not deployment proof. SDK 0.4.0; new tasks default to FORGE_FLEX. Existing credentials, stored tasks and request recovery are preserved.'
+  version: 1.6.0
+  description: 'Source contract, not deployment proof. SDK 0.5.0 adds application-scoped image receipt reuse and quota diagnostics; new tasks default to FORGE_FLEX. Existing credentials, stored tasks and request recovery are preserved.'
 servers:
   - url: http://127.0.0.1:18080
     description: Local-instance example only; replace port with the developer's verified Forge port. Never another colleague's machine.
@@ -14,7 +14,7 @@ paths:
   /api/fore-consult/v1/attachments:
     post:
       operationId: uploadConsultImage
-      description: 'Raw PNG/JPEG bytes, no multipart or URL. 1 byte–5MiB, at most 10000 per edge and 20 million pixels, no animation. clientId+uploadId binds SHA-256 and media type. Identical retry returns the original ID, changed input 409, expired 410. No automatic retry. Same key recovery window is 30 days; bytes expire after 24 hours. Per-client live bytes 25MiB, global 100MiB; retained metadata max 2000/client, 10000/global.'
+      description: 'Raw PNG/JPEG bytes, no multipart or URL. 1 byte–5MiB, at most 10000 per edge and 20 million pixels, no animation. clientId+uploadId binds SHA-256 and media type. Identical retry returns the original ID, changed input 409, expired 410. No automatic retry. Bytes initially expire after 24 hours; task admission extends retention to 48 hours from admission, bounded by seven days from upload. Metadata is retained for at most 30 days or until earlier count-based eviction. Defaults: per-client live bytes 256MiB, global 1GiB; live count 2000/client and 10000/global. Metadata-only limits are independent, also 2000/client and 10000/global. Quota failures include details.reason, used, limit and incoming.'
       parameters:
         - { in: query, name: uploadId, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_-]{8,100}$' } }
       requestBody:
@@ -34,6 +34,46 @@ paths:
         - { in: query, name: uploadId, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_-]{8,100}$' } }
       responses:
         '200': { $ref: '#/components/responses/ImageResponse' }
+        default: { $ref: '#/components/responses/Failure' }
+  /api/fore-consult/v1/attachments/reusable:
+    get:
+      operationId: findReusableConsultImage
+      description: Same client identity, digest, media type and sufficient remaining lifetime; no upload alias or expiry extension. Only definitive ATTACHMENT_NOT_FOUND permits a new upload. Persist the returned original receipt.
+      parameters:
+        - { in: query, name: sha256, required: true, schema: { type: string, pattern: '^[a-fA-F0-9]{64}$' } }
+        - { in: query, name: mediaType, required: true, schema: { type: string, enum: [image/png, image/jpeg] } }
+        - { in: query, name: minValiditySeconds, schema: { type: integer, minimum: 0, maximum: 86400, default: 600 } }
+      responses:
+        '200': { $ref: '#/components/responses/ImageResponse' }
+        default: { $ref: '#/components/responses/Failure' }
+  /api/fore-consult/backend-clients/image-storage:
+    get:
+      operationId: inspectConsultImageStorage
+      security: [{ AdministratorBearer: [] }]
+      description: Read-only administrator diagnostics; application tokens are rejected. Separates logical quotas and physical storage, never invokes VACUUM or checkpoint. Optional unavailable metrics are null. No paths, image bytes or credentials.
+      parameters:
+        - { in: query, name: clientId, schema: { type: string } }
+      responses:
+        '200':
+          description: Global and optional application diagnostics plus SQLite and disk measurements.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [global, storage]
+                properties:
+                  global: { $ref: '#/components/schemas/ImageStorageDiagnostics' }
+                  application: { $ref: '#/components/schemas/ImageStorageDiagnostics' }
+                  storage:
+                    type: object
+                    properties:
+                      databaseAllocatedBytes: { type: integer, format: int64 }
+                      databaseReusableBytes: { type: integer, format: int64 }
+                      attachmentTableBytes: { type: integer, format: int64, nullable: true }
+                      databaseFileBytes: { type: integer, format: int64, nullable: true }
+                      walBytes: { type: integer, format: int64, nullable: true }
+                      diskUsableBytes: { type: integer, format: int64, nullable: true }
+                      status: { type: string, enum: [OK, TABLE_SIZE_UNAVAILABLE, MEMORY_DATABASE, FILESYSTEM_UNAVAILABLE] }
         default: { $ref: '#/components/responses/Failure' }
   /api/fore-consult/v1/attachments/{attachmentId}:
     get:
@@ -231,6 +271,14 @@ components:
                 required: [traceId]
                 properties:
                   traceId: { type: string }
+                  details:
+                    type: object
+                    description: Present on IMAGE_QUOTA_EXCEEDED. Values use bytes for byte quotas and images for count quotas.
+                    properties:
+                      reason: { type: string, enum: [APP_BYTES, GLOBAL_BYTES, APP_COUNT, GLOBAL_COUNT] }
+                      used: { type: integer, format: int64 }
+                      limit: { type: integer, format: int64 }
+                      incoming: { type: integer, format: int64 }
   schemas:
     BackendManagement:
       type: object
@@ -445,6 +493,39 @@ components:
               attachmentId: { type: string }
               readable: { type: boolean, enum: [true], description: False makes the task fail IMAGE_NOT_READABLE. }
               observation: { type: string, minLength: 1, maxLength: 2000 }
+    ImageStorageDiagnostics:
+      type: object
+      properties:
+        measuredAt: { type: integer, format: int64 }
+        queryMillis: { type: integer, format: int64 }
+        limits:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+        usage:
+          type: object
+          description: expiredCount includes expired metadata. Recent uploads count retained rows, not a complete request audit.
+          properties:
+            activeCount: { type: integer, format: int64 }
+            activeBytes: { type: integer, format: int64 }
+            expiredCount: { type: integer, format: int64 }
+            expiredBytes: { type: integer, format: int64 }
+            metadataCount: { type: integer, format: int64 }
+            totalCount: { type: integer, format: int64 }
+            uploaded24hCount: { type: integer, format: int64 }
+            uploaded24hBytes: { type: integer, format: int64 }
+        duplicates:
+          type: object
+          properties:
+            extraCount: { type: integer, format: int64 }
+            extraBytes: { type: integer, format: int64 }
+        cleanup:
+          type: object
+          properties:
+            attemptedAt: { type: integer, format: int64, nullable: true }
+            succeededAt: { type: integer, format: int64, nullable: true }
+            released: { type: integer }
+            removed: { type: integer }
+            status: { type: string, enum: [NOT_RUN, OK, FAILED] }
     Image:
       type: object
       additionalProperties: false

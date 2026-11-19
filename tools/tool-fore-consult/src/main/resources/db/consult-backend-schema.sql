@@ -55,3 +55,5 @@ CREATE TABLE IF NOT EXISTS consult_analysis_attachment (
     FOREIGN KEY (client_id) REFERENCES consult_service_client(client_id)
 );
 CREATE INDEX IF NOT EXISTS idx_consult_analysis_attachment_expiry ON consult_analysis_attachment(expires_at);
+-- 功能：同应用原图复用；变更：按摘要和媒体类型查找有效回执；目的：避免遍历其他应用图片
+CREATE INDEX IF NOT EXISTS idx_consult_attachment_reuse ON consult_analysis_attachment(client_id, content_hash, media_type, expires_at);

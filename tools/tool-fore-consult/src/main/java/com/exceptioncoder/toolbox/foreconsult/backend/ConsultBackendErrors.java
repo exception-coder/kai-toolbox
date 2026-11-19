@@ -20,8 +20,10 @@ public class ConsultBackendErrors {
         if (error.status() == 429 || error.status() == 503) headers.set("Retry-After", "5");
         String traceId = UUID.randomUUID().toString();
         LOG.warn("Consult backend request rejected trace={} status={} code={}", traceId, error.status(), error.code());
-        return ResponseEntity.status(error.status()).headers(headers).body(Map.of("code", error.code(),
+        var body = new java.util.LinkedHashMap<String, Object>(Map.of("code", error.code(),
                 "message", error.getMessage(), "retryable", error.retryable(), "traceId", traceId));
+        if (!error.details().isEmpty()) { body.put("details", error.details()); }
+        return ResponseEntity.status(error.status()).headers(headers).body(body);
     }
 
     @ExceptionHandler(Exception.class)

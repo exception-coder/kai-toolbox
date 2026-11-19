@@ -65,7 +65,7 @@ public class ConsultAnalysisService {
         if (store.unfinished(null) >= 64 || store.unfinished(client.id()) >= 8) throw new ConsultBackendException(429, "TASK_LIMITED", "分析任务繁忙，请保留请求标识稍后重试", true);
         var task = new ConsultBackendStore.Task(UUID.randomUUID().toString(), client.id(), input.requestId(), hash,
                 normalized, "QUEUED", null, null, System.currentTimeMillis(), null, null, null);
-        store.insertTask(task);
+        images.admit(client, input.attachmentIds(), () -> store.insertTask(task));
         return view(store.task(task.id()).orElseThrow());
     }
 
@@ -171,6 +171,7 @@ public class ConsultAnalysisService {
             case "INVALID_ANALYSIS_OUTPUT" -> "模型结果未通过结构或证据校验，未作为分析结果发布";
             case "ANALYSIS_NOT_CONFIGURED" -> "咨询默认账号或引擎尚未就绪，请联系管理员";
             case "ATTACHMENT_EXPIRED" -> "原图已过期，请重新上传并使用新 requestId；原任务和结果保留";
+            case "ATTACHMENT_RETENTION_LIMIT" -> "原图已达到保留期限，请重新上传并使用新 requestId；原任务和结果保留";
             case "ATTACHMENT_NOT_FOUND" -> "原图不存在或不在当前应用企业范围，请核对上传结果";
             case "IMAGE_NOT_READABLE" -> "模型无法读取原图，请提供清晰的静态 PNG/JPEG 后重新提交";
             case "IMAGE_MODEL_UNSUPPORTED" -> "当前咨询模型未声明图像输入能力，请管理员核对账号的模型目录后重试";

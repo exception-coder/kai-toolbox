@@ -97,6 +97,60 @@ test('backend client rejects insecure or credential-bearing URLs and malformed t
 const image = { attachmentId: 'img_11111111-1111-4111-8111-111111111111', uploadId: 'upload-001',
   sha256: 'a'.repeat(64), mediaType: 'image/png', size: 3, width: 2, height: 2, createdAt: 1000, expiresAt: 86401000 };
 
+test('content reuse avoids POST, validates receipt and does not hide lookup failure', async () => {
+  const bytes = new Uint8Array([1, 2, 3]);
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
+  const live = { ...image, sha256: hash, createdAt: Date.now(), expiresAt: Date.now() + 86400000 };
+  const calls = [];
+  let mode = 'reuse';
+  const client = new ForgeConsultBackendClient({ baseUrl: 'https://forge.example.test', clientId: 'client-1', getClientSecret: () => secret,
+    fetch: async (url, init) => {
+      if (url.endsWith('/token')) return authResponse();
+      calls.push(init.method);
+      if (url.includes('uploadId=')) return response({ code: 'ATTACHMENT_NOT_FOUND', message: 'missing' }, 404);
+      if (mode === 'unknown') throw new Error('timeout');
+      if (mode === 'mismatch') return response({ ...live, sha256: 'b'.repeat(64) });
+      return response(live);
+    } });
+  assert.deepEqual(await client.uploadOrReuseImage('upload-new-01', bytes, 'image/png'), live);
+  assert.deepEqual(calls, ['GET', 'GET']);
+  mode = 'mismatch';
+  await assert.rejects(client.uploadOrReuseImage('upload-new-01', bytes, 'image/png'), e => e.code === 'INVALID_IMAGE_RESPONSE');
+  mode = 'unknown';
+  await assert.rejects(client.uploadOrReuseImage('upload-new-01', bytes, 'image/png'), e => e.code === 'REQUEST_STATUS_UNKNOWN');
+  assert(!calls.includes('POST'));
+});
+
+test('reuse helper uploads only on definitive miss and preserves quota diagnostics', async () => {
+  const calls = [];
+  const details = { reason: 'APP_COUNT', used: 2000, limit: 2000, incoming: 1 };
+  const client = new ForgeConsultBackendClient({ baseUrl: 'https://forge.example.test', clientId: 'client-1', getClientSecret: () => secret,
+    fetch: async (url, init) => {
+      if (url.endsWith('/token')) return authResponse();
+      calls.push(init.method);
+      if (init.method === 'GET') return response({ code: 'ATTACHMENT_NOT_FOUND', message: 'missing' }, 404);
+      return response({ code: 'IMAGE_QUOTA_EXCEEDED', message: 'quota', retryable: true, details }, 429);
+    } });
+  await assert.rejects(client.uploadOrReuseImage('upload-new-02', new Uint8Array([1, 2, 3]), 'image/png'),
+    e => e.code === 'IMAGE_QUOTA_EXCEEDED' && e.details.reason === 'APP_COUNT');
+  assert.deepEqual(calls, ['GET', 'GET', 'POST']);
+});
+
+test('reuse helper cannot bypass a conflicting or expired upload identity', async () => {
+  let mode = 'conflict';
+  let requests = 0;
+  const client = new ForgeConsultBackendClient({ baseUrl: 'https://forge.example.test', clientId: 'client-1', getClientSecret: () => secret,
+    fetch: async url => {
+      if (url.endsWith('/token')) return authResponse();
+      requests++;
+      return mode === 'conflict' ? response(image) : response({ code: 'ATTACHMENT_EXPIRED', message: 'expired' }, 410);
+    } });
+  await assert.rejects(client.uploadOrReuseImage('upload-new-03', new Uint8Array([1, 2, 3]), 'image/png'), e => e.code === 'UPLOAD_IDEMPOTENCY_CONFLICT');
+  mode = 'expired';
+  await assert.rejects(client.uploadOrReuseImage('upload-new-03', new Uint8Array([1, 2, 3]), 'image/png'), e => e.code === 'ATTACHMENT_EXPIRED');
+  assert.equal(requests, 2);
+});
+
 test('application upload sends exact original bytes and uses a separate recoverable upload identity', async () => {
   const requests = [];
   const bytes = new Uint8Array([1, 2, 3]);

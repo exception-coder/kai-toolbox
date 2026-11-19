@@ -8,9 +8,21 @@
 
 POST /api/fore-consult/v1/attachments?uploadId=...，Content-Type 为 image/png 或 image/jpeg，body 为原始字节。单张 5MiB、最多 5 张/任务、合计 20MiB；边长不超过 10000、总像素不超过 2000 万。使用 JDK ImageIO 检测真实格式、尺寸并解码，拒绝损坏和动画 PNG；不接受 GIF/WebP/SVG/PDF/URL/路径，避免新增解码依赖和格式不完整支持。原字节存于本模块 SQLite BLOB，与静态文件隔离，无公开下载路径。
 
-附件元数据和字节原子插入；clientId+uploadId 唯一，摘要为实际原字节 SHA-256，MIME 也必须一致。相同键同字节回原 ID，不同内容 409；超时先 GET 按 uploadId 恢复。24 小时后新任务/排队执行报 ATTACHMENT_EXPIRED，清理每分钟置空 BLOB（逻辑清理，不保证磁盘安全擦除或立即收缩数据库），元数据保留 30 天供幂等恢复后删除；30 天后不应复用历史 uploadId。任务持久化引用仍保留。读取元数据仅所属 clientId；跨凭据/企业统一 404，不泄露是否存在。轮换保持原 clientId 的引用，重新颁发的 clientId 不继承。
+附件元数据和字节原子插入；clientId+uploadId 唯一，摘要为实际原字节 SHA-256，MIME 也必须一致。相同键同字节回原 ID，不同内容 409；超时先 GET 按 uploadId 恢复。未被任务接收的图片24小时到期。任务准入与图片续期在同一SQLite事务提交，至少保留至准入后48小时，单张不得超过上传后7天；剩余最大生命周期不足48小时拒绝新任务并要求重新上传。原requestId恢复不续期，不自动重放中断任务；在保留窗口内可显式提交恢复任务，超过窗口须重新上传。清理与准入共用单实例图片锁，执行读取沿用同一expiresAt，不能只延缓清理却仍拒绝读取。
 
-单凭据有效字节 25MiB、全局 100MiB，活跃元数据及保留记录上限分别为每凭据 2000/全局 10000；有界聚合由库内 SUM/COUNT 完成，不读全量 BLOB。单实例上传串行保护配额，SQLite 唯一键保护重复插入。清理只减少字节/删除过期元数据，不改变任务结果。无人工执行 SQL，新增幂等自动建表脚本；DDL 未核验：知识基线为 PARTIAL，缺少 consult_service_client、consult_analysis_task、consult_analysis_attachment 的已验证 DDL。列结构以仓库同模块 schema 为设计依据，不表示当前运行库已包含新表；自动初始化与运行库检查待授权加载时验证，本次未执行数据库变更。
+清理每分钟置空到期BLOB（逻辑清理，不保证磁盘安全擦除或立即收缩数据库）；仅元数据记录最多保留30天，并受独立的应用/全局数量上限约束，超过时优先删除最旧元数据。没有删除任何仍有字节的有效图片。幂等回查窗口因此是“至30天或更早的元数据淘汰”；调用方不得重新使用已结束的uploadId。任务持久化引用和结果不删除。读取元数据仅所属clientId；跨凭据/企业统一404。轮换保持原clientId的引用，重新颁发的clientId不继承。
+
+单凭据有效字节默认256MiB、全局1GiB，有效图片数量分别2000/10000；仅元数据数量独立默认2000/10000。通过既有Spring配置前缀toolbox.fore-consult.backend.images调整，启动校验正数及全局不小于应用；不修改私有运行配置。IMAGE_QUOTA_EXCEEDED保持兼容，details.reason区分APP_BYTES/GLOBAL_BYTES/APP_COUNT/GLOBAL_COUNT，并给used/limit/incoming。上传前与每分钟清理；清理失败记录日志和最近状态，不能声称释放成功。
+
+聚合在SQLite内完成，不向Java加载BLOB；配额计数与插入沿用单实例锁，不宣称支持多实例共享文件写入。管理员image-storage接口分别返回本应用/全局有效用量、过期残留、元数据、24小时新增、同应用重复字节、查询耗时及最近清理状态。物理诊断只读page_count/freelist_count/page_size、可选dbstat、数据库/WAL文件大小与磁盘余量，不自动VACUUM、checkpoint或扩容。dbstat缺失明确返回空值。全量聚合受有效及元数据上限约束；实际生产延迟待运行诊断，测试只证明查询正确性。
+
+本次仅增加现表摘要查询索引，不新增业务表。DDL未核验：2026-11-19 prepare_sql_context返回DDL_MISSING（项目SQL扫描上限），Forge未绑定数据库资源；依据本模块consult-backend-schema.sql实施并在隔离SQLite验证，不能声称已核验或迁移运行库。
+
+## 2026-11-19 跨任务复用
+
+GET /api/fore-consult/v1/attachments/reusable按当前clientId、SHA256、媒体类型和剩余有效期查询，默认至少600秒，返回原回执；不续期、不新增uploadId别名、不跨应用共享，也不删除历史重复内容。复用失败仅确定404时上传；401、429、未知状态或超时不盲重试。SDK uploadOrReuseImage先按原uploadId恢复并核对内容，再查摘要复用，最后只发一次上传；调用方持久化实际返回的attachmentId/uploadId。并发不同uploadId同时查空仍可能产生重复，保留既有幂等合同，不引入新存储别名表。ITCS正式流程接线及原两组受阻样例验收需ITCS工程和运行环境，SDK实现不是生产接入完成。
+
+保留窗口是有界保证，长期停机或超过48小时未执行/恢复的任务仍可能过期；既有已过期、已清空图片不可恢复。新版本上线前的待执行任务必须先核对剩余有效期，不能将新准入续期规则视为历史任务已经迁移。
 
 ## 分析与兼容
 

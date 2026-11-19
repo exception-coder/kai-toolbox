@@ -16,11 +16,22 @@ import org.springframework.web.bind.annotation.*;
 public class ConsultBackendAdminController {
     private final ConsultBackendAuth auth;
     private final ObjectMapper mapper;
+    private final ConsultAnalysisImages images;
 
-    public ConsultBackendAdminController(ConsultBackendAuth auth, ObjectMapper mapper) {
+    public ConsultBackendAdminController(ConsultBackendAuth auth, ObjectMapper mapper, ConsultAnalysisImages images) {
+        this.images = images;
         this.auth = auth; this.mapper = mapper.copy().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
         this.mapper.disable(com.fasterxml.jackson.databind.MapperFeature.ALLOW_COERCION_OF_SCALARS);
         this.mapper.enable(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+    }
+
+    @GetMapping("/image-storage")
+    public ResponseEntity<Map<String, Object>> imageStorage(@RequestParam(required = false) String clientId) {
+        var result = new java.util.LinkedHashMap<String, Object>();
+        result.put("global", images.diagnostics(null));
+        if (clientId != null && !clientId.isBlank()) { result.put("application", images.diagnostics(clientId)); }
+        result.put("storage", images.storage());
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
     }
 
     @GetMapping

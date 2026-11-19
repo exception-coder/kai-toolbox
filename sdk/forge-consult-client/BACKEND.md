@@ -1,6 +1,6 @@
 # Forge 业务咨询后端分析 API v1
 
-## 当前默认合同（1.5.0 / SDK 0.4.0）
+## 当前默认合同（1.6.0 / SDK 0.5.0）
 
 认证方式不变：既有 clientId/clientSecret 换票，tenantId 继续使用原授权企业，无需重新颁发或员工登录。新请求省略 replyMode 即 FORGE_FLEX，也可显式填写；结果 schemaVersion=1.2。
 
@@ -17,7 +17,7 @@
 
 源码实现和模型替身测试不等于目标站点已加载。部署与真实任务结果须单独回执。
 
-适用：`yoooni-agent` 的 IT 客服伙伴，及管理员明确授权的其他应用。SDK 版本 `@kai/forge-consult-client@0.4.0`，Node.js 22+；任何后端语言也可按 HTTP 合同调用。机器合同见 [OpenAPI](openapi-backend.yaml)。
+适用：`yoooni-agent` 的 IT 客服伙伴，及管理员明确授权的其他应用。SDK 版本 `@kai/forge-consult-client@0.5.0`，Node.js 22+；任何后端语言也可按 HTTP 合同调用。机器合同见 [OpenAPI](openapi-backend.yaml)。
 
 面向接入方的执行顺序、环境回执和双方验收见 [完整交接](HANDOFF-YOOONI-AGENT.md)；本文件仍是接口字段与行为的权威正文。
 
@@ -219,7 +219,31 @@ URL 仍为 `/api/fore-consult/v1`。纯文字旧请求不改字段，仍返回 `
 
 归属是可信 clientId 及其不可变企业，不能用请求字段改归属。同 clientId+uploadId、同原字节 SHA-256 和 MIME 返回原 ID；改字节或 MIME 为 409 `UPLOAD_IDEMPOTENCY_CONFLICT`。上传超时先 `GET /attachments?uploadId=原键`；404 仍可能与原上传竞争，只能原键原字节重试，SDK 不自动重发。换票和轮换保持 clientId，不影响归属；重新签发的新 clientId 不继承。
 
-原图从上传起有效 24 小时，重复上传不延长；到期 GET/新任务准入返回 410 `ATTACHMENT_EXPIRED`，排队时到期则任务 FAILED 同码。后台每分钟将过期 BLOB 置空；元数据留 30 天用于同键冲突/失效识别后删除，超过窗口不能复用旧 uploadId。已完成任务和结果不依赖图片存活，可继续按原 requestId 查询。运行前已读入内存的图片允许该轮完成。单凭据有效图片最多 25MiB、实例共 100MiB，保留元数据最多 2000/凭据、10000/实例，超额 429 `IMAGE_QUOTA_EXCEEDED`。SQLite 的字节擦除是逻辑清理，不承诺底层文件立即缩小或物理安全擦除。
+原图上传后有效24小时，重复上传不延长。新任务接收与续期原子提交，至少保留至准入后48小时；单张最长生命周期为上传后7天，无法保证完整窗口时返回410 `ATTACHMENT_RETENTION_LIMIT`，需新uploadId上传。既有requestId恢复不续期、不重放；48小时内可用原图片显式提交恢复任务。超过窗口或已清空则返回410 `ATTACHMENT_EXPIRED`。任务结果不依赖图片存活。上线前的旧任务不自动迁移保留窗口，需核对图片回执的expiresAt。
+
+有效图片默认256MiB/凭据、1GiB/实例，数量2000/凭据、10000/实例；仅元数据独立保留最多30天及2000/凭据、10000/实例，超过时清理最旧元数据，不挤占有效图片额度。元数据淘汰可能早于30天，不得重新使用历史uploadId。超额仍返回429 `IMAGE_QUOTA_EXCEEDED`，新增 `details: {reason,used,limit,incoming}`；reason分别为APP_BYTES、GLOBAL_BYTES、APP_COUNT、GLOBAL_COUNT。先复用回执或核对配额，禁止每5秒盲重传图片。
+
+### 图片复用、配置与诊断（源码能力，待部署）
+
+`GET /api/fore-consult/v1/attachments/reusable?sha256=<摘要>&mediaType=image%2Fpng&minValiditySeconds=600`：按当前clientId、内容摘要、媒体类型和剩余有效期返回既有回执，默认600秒，允许0–86400秒。未命中404，不续期、不新增上传别名。不同clientId不共享；并发不同uploadId查空仍可能重复存储。
+
+SDK的`uploadOrReuseImage(uploadId, bytes, mediaType)`先按原uploadId恢复并核对内容，再查摘要，只有确定404才上传一次；超时、认证失败、配额不足及过期不自动重试。持久化实际返回的attachmentId/uploadId/sha256/mediaType/expiresAt，不假定返回uploadId等于本次拟用值。ITCS应在正式上传入口调用此方法或实现同等HTTP顺序；本仓SDK与示例更新不等于ITCS生产流程已经接入。
+
+配置沿用Spring属性或现有部署配置，前缀`toolbox.fore-consult.backend.images.`，启动后生效：
+
+| 后缀 | 默认值 | 含义 |
+|---|---:|---|
+| app-bytes / global-bytes | 268435456 / 1073741824 | 有效内容字节上限 |
+| app-count / global-count | 2000 / 10000 | 有效图片数量 |
+| app-metadata-count / global-metadata-count | 2000 / 10000 | 仅元数据记录保留上限 |
+| task-retention-hours | 48 | 每次新任务准入保障窗口 |
+| max-lifetime-days | 7 | 图片最长生命周期 |
+
+上述容量是可配置初值，尚未以ITCS运行用量定容。请求限制仍为5MiB/张、5张及20MiB/任务。
+
+管理员 `GET /api/fore-consult/backend-clients/image-storage?clientId=<应用凭据ID>` 返回global、可选application及storage：有效数量/字节、过期数量/残留字节、仅元数据数量、近24小时上传数量/字节、同应用相同摘要及类型的多余副本数量/字节、查询耗时、最近清理执行状态。expiredCount包含过期元数据，与metadataCount有交集。近24小时上传是当前保留记录统计，不包含已淘汰元数据及未上传的复用请求，不是完整流量审计。
+
+storage单列SQLite已分配/可复用空间、可选附件表体积、数据库/WAL文件体积及磁盘余量；dbstat缺失时attachmentTableBytes为空并标明状态。附件表体积不含索引；SQLite空闲页可能供后续复用而不缩小文件。诊断不执行VACUUM、checkpoint或扩容，也不返回图片、凭据或文件路径。应用票据不能调用管理员接口。清理每分钟执行，NOT_RUN/FAILED/OK分别表示当前进程未执行、最近失败或成功；只有实时结果才能证明目标实例已加载。
 
 跨 clientId/企业查元数据或任务引用都为 404 `ATTACHMENT_NOT_FOUND`。任务摘要包含原图 ID 顺序、文字和 replyMode；任何更改均 409 `IDEMPOTENCY_CONFLICT`。原图 ID 对应内容不可修改。附件文字字段仍兼容，但不是读取原图的证据。
 

@@ -16,7 +16,7 @@ const attachmentIds = [];
 if (process.env.IT_IMAGE_PATH) {
   if (!process.env.IT_UPLOAD_ID || !['image/png', 'image/jpeg'].includes(process.env.IT_IMAGE_TYPE))
     throw new Error('原图需要已持久化 IT_UPLOAD_ID 及 IT_IMAGE_TYPE=image/png 或 image/jpeg');
-  const image = await client.uploadImage(process.env.IT_UPLOAD_ID, await readFile(process.env.IT_IMAGE_PATH), process.env.IT_IMAGE_TYPE);
+  const image = await client.uploadOrReuseImage(process.env.IT_UPLOAD_ID, await readFile(process.env.IT_IMAGE_PATH), process.env.IT_IMAGE_TYPE);
   attachmentIds.push(image.attachmentId);
   console.log(JSON.stringify({ uploadId: image.uploadId, attachmentId: image.attachmentId, expiresAt: image.expiresAt }));
 }
